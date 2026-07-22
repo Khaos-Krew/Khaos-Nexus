@@ -161,6 +161,7 @@
     render(await invoke('app:get-state'));
     loadExtension('discord-auth.js');
     loadExtension('autonomy.js');
+    loadExtension('permission-state.js');
     setInterval(() => {
       if (current?.applicationMonitor?.lastDeliveryAt) {
         byId('monitorLastDelivery').textContent = relativeTime(current.applicationMonitor.lastDeliveryAt);
