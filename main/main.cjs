@@ -18,6 +18,7 @@ const { AppLogger } = require('./services/logger.cjs');
 const { BotSupervisor } = require('./services/bot-supervisor.cjs');
 const { createDiagnosticReport, reportAsMarkdown } = require('./services/diagnostics.cjs');
 const { UpdateService } = require('./services/update-service.cjs');
+const { ApplicationMonitor } = require('./services/application-monitor.cjs');
 const { SourceRcon } = require('../bot/rcon.cjs');
 const { errorFingerprint } = require('../shared/redaction.cjs');
 
@@ -28,6 +29,9 @@ let configStore;
 let logger;
 let supervisor;
 let updateService;
+let applicationMonitor;
+let pendingErrorSource = null;
+let lastCapturedErrorKey = null;
 
 function iconPath() {
   return app.isPackaged
@@ -48,7 +52,8 @@ function fullState() {
     },
     config: configStore.getPublicConfig(),
     bot: supervisor.getState(),
-    update: updateService.getState()
+    update: updateService.getState(),
+    applicationMonitor: applicationMonitor?.getState() || null
   };
 }
 
@@ -59,10 +64,10 @@ function showWindow() {
 
 function createWindow() {
   windowRef = new BrowserWindow({
-    width: 1240,
-    height: 800,
-    minWidth: 980,
-    minHeight: 650,
+    width: 1320,
+    height: 860,
+    minWidth: 1020,
+    minHeight: 680,
     backgroundColor: '#08090d',
     icon: iconPath(),
     show: false,
@@ -90,9 +95,9 @@ function createWindow() {
 function createTray() {
   const image = nativeImage.createFromPath(iconPath()).resize({ width: 20, height: 20 });
   tray = new Tray(image);
-  tray.setToolTip('Khaos Nexus Bot Manager');
+  tray.setToolTip('Khaos Nexus');
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Open Manager', click: () => showWindow() },
+    { label: 'Open Khaos Nexus', click: () => showWindow() },
     { type: 'separator' },
     { label: 'Start Bot', click: () => { try { supervisor.start(); } catch {} } },
     { label: 'Restart Bot', click: () => supervisor.restart() },
@@ -114,6 +119,25 @@ function createReport() {
     supervisorState: supervisor.getState(),
     logs: logger.recent(100),
     secretValues: configStore.getSecretValues()
+  });
+}
+
+function recordApplicationError(errorLike, source) {
+  if (!supervisor) return;
+  pendingErrorSource = source;
+  supervisor.recordError(errorLike);
+}
+
+function captureNewSupervisorError(state) {
+  const error = state?.lastError;
+  if (!error?.id || !error?.time) return;
+  const key = `${error.id}:${error.time}`;
+  if (key === lastCapturedErrorKey) return;
+  lastCapturedErrorKey = key;
+  const source = pendingErrorSource || 'bot-runtime';
+  pendingErrorSource = null;
+  applicationMonitor?.capture(error, { source }).catch((captureError) => {
+    logger.error('Application Monitor failed while capturing an error.', { message: captureError.message });
   });
 }
 
@@ -141,6 +165,45 @@ function registerIpc() {
     applyLoginSetting(configStore.getConfig().general.startWithWindows);
     send('state:update', fullState());
     return configStore.getPublicConfig();
+  });
+
+  ipcMain.handle('config:save-monitor', async (_event, payload) => {
+    configStore.setMonitor(payload);
+    logger.info('Application Monitor settings saved.', {
+      enabled: configStore.getConfig().monitor.autoReportEnabled,
+      repository: configStore.getConfig().monitor.reportRepository
+    });
+    send('state:update', fullState());
+    if (configStore.getConfig().monitor.autoReportEnabled) await applicationMonitor.processQueue();
+    return fullState();
+  });
+
+  ipcMain.handle('secret:set-github-token', async (_event, token) => {
+    configStore.setGithubToken(token);
+    logger.info(token ? 'GitHub monitor token saved in protected storage.' : 'GitHub monitor token removed.');
+    send('state:update', fullState());
+    if (token) await applicationMonitor.processQueue();
+    return { hasGithubToken: Boolean(token) };
+  });
+
+  ipcMain.handle('monitor:verify', () => applicationMonitor.verifyConnection());
+  ipcMain.handle('monitor:process-queue', () => applicationMonitor.processQueue());
+  ipcMain.handle('monitor:clear-queue', () => applicationMonitor.clearQueue());
+  ipcMain.handle('monitor:send-current', () => {
+    const error = supervisor.getState().lastError;
+    if (!error) throw new Error('No captured error is available to send.');
+    return applicationMonitor.capture(error, { source: 'manual-health-monitor', force: true });
+  });
+  ipcMain.handle('monitor:open-last-issue', () => {
+    const url = applicationMonitor.getState().lastIssueUrl;
+    if (!url || !/^https:\/\/github\.com\//i.test(url)) throw new Error('No GitHub issue has been created yet.');
+    return shell.openExternal(url);
+  });
+  ipcMain.handle('monitor:capture-renderer', (_event, payload) => {
+    const error = new Error(String(payload?.message || 'Unknown renderer error'));
+    if (payload?.stack) error.stack = String(payload.stack);
+    recordApplicationError(error, 'desktop-renderer');
+    return { captured: true };
   });
 
   ipcMain.handle('server:save', (_event, payload) => {
@@ -220,7 +283,7 @@ function registerIpc() {
     clipboard.writeText(markdown);
     const errorId = report.runtime.lastError?.id || 'manual-report';
     const repo = configStore.getConfig().monitor.reportRepository;
-    const title = `[Error ${errorId}] ${report.runtime.lastError?.message || 'Bot Manager problem'}`.slice(0, 180);
+    const title = `[Error ${errorId}] ${report.runtime.lastError?.message || 'Khaos Nexus problem'}`.slice(0, 180);
     const url = `https://github.com/${repo}/issues/new?labels=bug,automated-report&title=${encodeURIComponent(title)}&body=${encodeURIComponent(markdown)}`;
     await shell.openExternal(url);
     logger.info('Opened a prefilled GitHub error report and copied the redacted report to the clipboard.', { errorId });
@@ -239,18 +302,23 @@ app.whenReady().then(() => {
   logger = new AppLogger(path.join(userData, 'logs'), () => configStore.getSecretValues());
   supervisor = new BotSupervisor({ configStore, logger });
   updateService = new UpdateService(logger);
-  app.setAppUserModelId('com.khaosnexus.botmanager');
+  applicationMonitor = new ApplicationMonitor({ configStore, logger, createReport, dataDirectory: userData });
+  app.setAppUserModelId('com.khaosnexus.desktop');
 
   logger.on('entry', (entry) => send('log:entry', entry));
   logger.on('cleared', () => send('log:entry', { cleared: true }));
-  supervisor.on('state', () => send('state:update', fullState()));
+  supervisor.on('state', (state) => {
+    captureNewSupervisorError(state);
+    send('state:update', fullState());
+  });
   updateService.on('state', (state) => send('update:state', state));
+  applicationMonitor.on('state', () => send('state:update', fullState()));
 
   registerIpc();
   createWindow();
   createTray();
   applyLoginSetting(configStore.getConfig().general.startWithWindows);
-  logger.info('Khaos Nexus Bot Manager started.', { version: app.getVersion() });
+  logger.info('Khaos Nexus started.', { version: app.getVersion() });
 
   const config = configStore.getConfig();
   if (config.general.autoStartBot && configStore.getPublicConfig().hasDiscordToken) {
@@ -259,12 +327,14 @@ app.whenReady().then(() => {
     }, 1200);
   }
   if (config.general.checkUpdates) setTimeout(() => updateService.check().catch(() => {}), 5000);
+  if (config.monitor.autoReportEnabled) setTimeout(() => applicationMonitor.processQueue().catch(() => {}), 8000);
 });
 
 app.on('activate', () => showWindow());
 
 app.on('before-quit', () => {
   quitting = true;
+  applicationMonitor?.destroy();
   supervisor?.stop();
 });
 
@@ -274,14 +344,14 @@ app.on('window-all-closed', () => {
 
 process.on('uncaughtException', (error) => {
   const id = errorFingerprint(error);
-  supervisor?.recordError(error);
+  recordApplicationError(error, 'desktop-main-uncaught-exception');
   logger?.fatal(`Manager uncaught exception [${id}]: ${error.stack || error.message}`);
-  dialog.showErrorBox('Khaos Nexus Bot Manager', `A manager error occurred. Error ID: ${id}`);
+  dialog.showErrorBox('Khaos Nexus', `A desktop error occurred. Error ID: ${id}`);
 });
 
 process.on('unhandledRejection', (reason) => {
   const error = reason instanceof Error ? reason : new Error(String(reason));
   const id = errorFingerprint(error);
-  supervisor?.recordError(error);
+  recordApplicationError(error, 'desktop-main-unhandled-rejection');
   logger?.error(`Manager unhandled rejection [${id}]: ${error.stack || error.message}`);
 });
