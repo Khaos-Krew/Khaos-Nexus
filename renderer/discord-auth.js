@@ -146,10 +146,15 @@
     return latest;
   }
 
+  function maySaveSettings() {
+    const access = current?.autonomy?.access;
+    return !access?.enabled || Boolean(access.canOwn);
+  }
+
   function bind() {
     byId('saveDiscordLoginButton').addEventListener('click', () => saveLoginSettings(true));
     byId('discordSignInButton').addEventListener('click', async () => {
-      await saveLoginSettings(false);
+      if (maySaveSettings()) await saveLoginSettings(false);
       notify('Discord opened in your browser. Complete authorization there.');
       const result = await invoke('discord-auth:login');
       render(await invoke('app:get-state'));
@@ -166,7 +171,7 @@
       notify('Signed out of Discord.');
     });
     byId('copyDiscordRedirectButton').addEventListener('click', async () => {
-      await saveLoginSettings(false);
+      if (maySaveSettings()) await saveLoginSettings(false);
       const result = await invoke('discord-auth:copy-redirect');
       notify(`Copied ${result.redirectUri}`);
     });
