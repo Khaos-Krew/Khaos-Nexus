@@ -6,6 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'">
   <title>Khaos Nexus</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="application-monitor.css">
 </head>
 <body>
   <div class="app-shell">
@@ -23,7 +24,7 @@
       </nav>
       <div class="nav-label">System</div>
       <nav>
-        <button class="nav-item" data-view="monitor"><span>♡</span>Health Monitor</button>
+        <button class="nav-item" data-view="monitor"><span>♡</span>Application Monitor</button>
         <button class="nav-item" data-view="logs"><span>≡</span>Live Logs</button>
         <button class="nav-item" data-view="settings"><span>⚙</span>Settings</button>
       </nav>
@@ -86,7 +87,7 @@
           <div class="quick-grid">
             <button class="quick-card" data-view-link="setup"><strong>Discord</strong><span>Bot credentials and command registration</span></button>
             <button class="quick-card" data-view-link="servers"><strong>Game Servers</strong><span>ARK, Palworld, and generic RCON</span></button>
-            <button class="quick-card" data-view-link="monitor"><strong>Health Monitor</strong><span>Recovery, errors, and diagnostics</span></button>
+            <button class="quick-card" data-view-link="monitor"><strong>Application Monitor</strong><span>Recovery, automatic reports, and diagnostics</span></button>
             <button class="quick-card" data-view-link="settings"><strong>Backups</strong><span>Export, restore, and open local data</span></button>
           </div>
         </article>
@@ -150,9 +151,9 @@
       </section>
 
       <section class="view" id="view-monitor">
-        <div class="section-intro"><h2>Health Monitor</h2><p>Crash containment, automatic recovery, redacted diagnostics, and one-click GitHub reporting.</p></div>
+        <div class="section-intro"><h2>Application Monitor</h2><p>Crash recovery, redacted diagnostics, offline report queueing, and opt-in automatic GitHub issue creation.</p></div>
         <div class="metric-grid">
-          <article class="metric-card"><span>Monitor state</span><strong id="monitorState">Idle</strong><small id="monitorStateDetail">Waiting for runtime</small></article>
+          <article class="metric-card"><span>Runtime state</span><strong id="monitorState">Idle</strong><small id="monitorStateDetail">Waiting for runtime</small></article>
           <article class="metric-card"><span>Restart attempts</span><strong id="monitorRestarts">0</strong><small>Inside the active safety window</small></article>
           <article class="metric-card"><span>Last error ID</span><strong id="monitorErrorId">—</strong><small>Stable fingerprint for matching reports</small></article>
           <article class="metric-card"><span>Last heartbeat</span><strong id="monitorHeartbeat">—</strong><small>Expected every 10 seconds</small></article>
@@ -160,8 +161,53 @@
         <article class="panel error-panel">
           <div class="panel-heading"><div><span class="eyebrow">Latest captured error</span><h3 id="lastErrorTitle">No error captured</h3></div><span class="severity" id="errorSeverity">Healthy</span></div>
           <pre id="lastErrorStack">The monitor will show a redacted stack trace here if the bot or desktop manager reports a problem.</pre>
-          <div class="form-actions"><button class="button primary" id="reportIssueButton">Report on GitHub</button><button class="button" id="exportDiagnosticsButton">Export Diagnostics</button></div>
-          <p class="privacy-note">Reporting opens a prefilled GitHub issue and copies the redacted report. You review it before submitting. Tokens and passwords are removed.</p>
+          <div class="form-actions">
+            <button class="button primary" id="sendCurrentErrorButton" disabled>Send Current Error</button>
+            <button class="button" id="reportIssueButton">Review Manual Report</button>
+            <button class="button" id="exportDiagnosticsButton">Export Diagnostics</button>
+          </div>
+          <p class="privacy-note">Automatic and manual reports use redacted diagnostics. Review any manually opened GitHub report before submitting it.</p>
+        </article>
+
+        <article class="panel monitor-automation-panel">
+          <div class="panel-heading monitor-heading">
+            <div><span class="eyebrow">Autonomous maintenance</span><h3>Automatic GitHub reporting</h3><p>When enabled, new error fingerprints create an issue. Repeated occurrences add comments to the existing issue.</p></div>
+            <span class="severity" id="autoReportStatus">Disabled</span>
+          </div>
+
+          <label class="toggle-row"><span><strong>Automatically send redacted errors to GitHub</strong><small>Disabled by default. Offline reports are queued locally and retried later.</small></span><input id="autoReportEnabled" type="checkbox"></label>
+
+          <div class="form-grid">
+            <label>GitHub repository<input id="monitorRepository" placeholder="Khaos-Krew/Khaos-Nexus-Bot-Manager"></label>
+            <label>Issue labels<input id="monitorLabels" placeholder="bug, automated-report"></label>
+          </div>
+          <div class="form-grid">
+            <label>Duplicate window (hours)<input id="duplicateWindowHours" type="number" min="1" max="720" value="72"></label>
+            <label>Maximum deliveries per day<input id="maxReportsPerDay" type="number" min="1" max="50" value="10"></label>
+          </div>
+
+          <div class="monitor-token-row">
+            <label>GitHub fine-grained token<input id="githubToken" type="password" autocomplete="off" placeholder="Paste a new token or leave blank to keep the stored token"></label>
+            <button class="button danger" id="removeGithubTokenButton">Remove Token</button>
+          </div>
+          <div class="callout" id="githubTokenState">No GitHub monitor token is stored.</div>
+          <div class="monitor-permission-note"><strong>Required token access:</strong> repository access to the Khaos Nexus repository with <strong>Issues: Read and write</strong>. No repository code permission is required.</div>
+
+          <div class="monitor-summary-grid">
+            <div class="monitor-summary"><span>Queued reports</span><strong id="monitorQueueDepth">0</strong><small>Stored locally</small></div>
+            <div class="monitor-summary"><span>Sent today</span><strong id="monitorSentToday">0 / 10</strong><small>Rate-limit protection</small></div>
+            <div class="monitor-summary"><span>Last delivery</span><strong id="monitorLastDelivery">Never</strong><small>Issue or comment</small></div>
+            <div class="monitor-summary"><span>Destination</span><strong id="monitorDestination">Not configured</strong><small>GitHub repository</small></div>
+          </div>
+
+          <div class="callout" id="monitorDeliveryState">Automatic reporting is off.</div>
+          <div class="form-actions monitor-actions">
+            <button class="button primary" id="saveMonitorButton">Save Monitor Settings</button>
+            <button class="button" id="verifyGithubButton">Verify GitHub Connection</button>
+            <button class="button" id="processMonitorQueueButton" disabled>Send Queued Reports</button>
+            <button class="button" id="openLastIssueButton" disabled>Open Last Issue</button>
+            <button class="button danger" id="clearMonitorQueueButton" disabled>Clear Queue</button>
+          </div>
         </article>
       </section>
 
@@ -179,7 +225,7 @@
           <label class="toggle-row"><span><strong>Minimize to system tray</strong><small>Closing the window keeps Khaos Nexus and the bot running.</small></span><input id="minimizeToTray" type="checkbox"></label>
           <label class="toggle-row"><span><strong>Check GitHub Releases for updates</strong><small>Download and install published fixes from the desktop app.</small></span><input id="checkUpdates" type="checkbox"></label>
           <div class="form-actions"><button class="button primary" id="saveSettingsButton">Save Settings</button><button class="button" id="checkUpdatesButton">Check for Updates</button><button class="button hidden" id="downloadUpdateButton">Download Update</button><button class="button primary hidden" id="installUpdateButton">Install Update</button><button class="button" id="exportBackupButton">Export Backup</button><button class="button" id="importBackupButton">Restore Backup</button><button class="button" id="openDataButton">Open Data Folder</button></div>
-          <div class="callout" id="updateStatus">Update status: idle</div><p class="privacy-note">Backups can include the encrypted credential blob. Those credentials can normally be restored only under the same Windows user account.</p>
+          <div class="callout" id="updateStatus">Update status: idle</div><p class="privacy-note">Backups can include the Windows-encrypted credential blob. Those credentials can normally only be restored under the same Windows user account.</p>
         </article>
       </section>
     </main>
@@ -187,5 +233,6 @@
 
   <div id="toast" class="toast" role="status"></div>
   <script src="app.js"></script>
+  <script src="application-monitor.js"></script>
 </body>
 </html>
