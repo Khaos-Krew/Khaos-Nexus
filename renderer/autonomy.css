@@ -1,0 +1,35 @@
+.topbar-status-group { display: flex; align-items: center; gap: 10px; }
+.access-role-badge { border: 1px solid #3a404d; background: #12151c; border-radius: 999px; padding: 7px 11px; color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .7px; }
+.access-role-badge.role-owner, .access-role-badge.role-local-admin { color: var(--red-bright); border-color: rgba(229,45,62,.4); background: rgba(229,45,62,.08); }
+.access-role-badge.role-operator { color: var(--green); border-color: rgba(75,216,156,.35); background: rgba(75,216,156,.07); }
+.access-role-badge.role-viewer { color: var(--blue); border-color: rgba(102,167,255,.35); background: rgba(102,167,255,.07); }
+.access-role-badge.role-locked { color: var(--amber); border-color: rgba(246,186,75,.35); background: rgba(246,186,75,.07); }
+.operator-hero { background: linear-gradient(120deg, rgba(229,45,62,.18), rgba(17,19,26,.97) 58%); border: 1px solid rgba(229,45,62,.32); border-radius: 17px; padding: 24px; display: flex; align-items: center; justify-content: space-between; gap: 24px; box-shadow: var(--shadow); }
+.operator-hero h2 { font-size: 28px; margin: 5px 0; }
+.operator-actions { display: flex; flex-wrap: wrap; gap: 9px; max-width: 560px; justify-content: flex-end; }
+.autonomy-metrics { margin-top: 16px; }
+.autonomy-columns { margin-bottom: 18px; }
+.attention-list, .server-health-list { display: grid; gap: 8px; min-height: 120px; }
+.attention-item { border: 1px solid rgba(246,186,75,.28); background: rgba(246,186,75,.06); color: #f7d99f; padding: 11px 12px; border-radius: 9px; }
+.server-health-row { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 10px; border-bottom: 1px solid var(--line-soft); padding: 10px 0; }
+.server-health-row small { display: block; color: var(--muted); margin-top: 2px; }
+.server-health-row > span:last-child { color: var(--muted); font-size: 11px; }
+.health-dot { width: 8px; height: 8px; border-radius: 50%; background: #727986; }
+.server-health-row.online .health-dot { background: var(--green); box-shadow: 0 0 10px rgba(75,216,156,.45); }
+.server-health-row.offline .health-dot { background: var(--red-bright); box-shadow: 0 0 10px rgba(255,67,84,.4); }
+.autonomy-settings-panel { margin-top: 18px; }
+.settings-split { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.settings-split > div { min-width: 0; }
+.notification-settings { border-top: 1px solid var(--line); margin-top: 20px; padding-top: 20px; }
+textarea { width: 100%; border: 1px solid #343946; background: #0d0f14; color: white; border-radius: 9px; padding: 10px 11px; outline: none; resize: vertical; font: inherit; }
+textarea:focus { border-color: var(--red); box-shadow: 0 0 0 3px rgba(229,45,62,.12); }
+.access-warning { border: 1px solid rgba(246,186,75,.28); background: rgba(246,186,75,.06); color: #e5c98e; padding: 11px 12px; border-radius: 9px; margin-top: 14px; font-size: 12px; }
+.autonomy-recovering, .autonomy-maintenance { color: var(--amber); border-color: rgba(246,186,75,.35); }
+.autonomy-ready { color: var(--green); border-color: rgba(75,216,156,.35); }
+.autonomy-attention { color: var(--red-bright); border-color: rgba(229,45,62,.4); }
+body[data-access-role="locked"] .content .button:not(#discordSignInButton):not(#copyDiscordRedirectButton):not(#openDiscordDeveloperPortalButton) { filter: saturate(.55); }
+@media (max-width: 1120px) {
+  .operator-hero { align-items: flex-start; flex-direction: column; }
+  .operator-actions { justify-content: flex-start; }
+  .settings-split { grid-template-columns: 1fr; }
+}
