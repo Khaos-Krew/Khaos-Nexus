@@ -72,7 +72,13 @@ class ApplicationMonitor extends EventEmitter {
     fs.renameSync(temporary, this.statePath);
   }
 
+  resetDailyCounter() {
+    const date = todayUtc(this.now());
+    if (this.state.daily?.date !== date) this.state.daily = { date, count: 0 };
+  }
+
   publicState() {
+    this.resetDailyCounter();
     const config = this.configStore.getConfig().monitor || {};
     const publicConfig = this.configStore.getPublicConfig();
     return {
@@ -80,6 +86,8 @@ class ApplicationMonitor extends EventEmitter {
       configured: Boolean(publicConfig.hasGithubToken),
       repository: config.reportRepository,
       queueDepth: this.state.queue.length,
+      sentToday: Number(this.state.daily?.count || 0),
+      maxReportsPerDay: Number(config.maxReportsPerDay || 10),
       lastDeliveryAt: this.state.lastDeliveryAt,
       lastDeliveryAction: this.state.lastDeliveryAction,
       lastIssueUrl: this.state.lastIssueUrl,
@@ -148,11 +156,6 @@ class ApplicationMonitor extends EventEmitter {
     }
   }
 
-  resetDailyCounter() {
-    const date = todayUtc(this.now());
-    if (this.state.daily?.date !== date) this.state.daily = { date, count: 0 };
-  }
-
   canSendToday(config) {
     this.resetDailyCounter();
     return this.state.daily.count < config.maxReportsPerDay;
@@ -184,7 +187,7 @@ class ApplicationMonitor extends EventEmitter {
     const queue = [...this.state.queue];
     const existing = queue.find((queued) => queued.id === item.id);
     if (existing) {
-      existing.occurrences = Number(existing.occurrences || 1) + 1;
+      existing.occurrences = Number(existing.occurrences || 1) + Number(item.occurrences || 1);
       existing.createdAt = item.createdAt;
       existing.body = item.body;
       existing.reason = reason;
@@ -244,7 +247,7 @@ class ApplicationMonitor extends EventEmitter {
 
     this.incrementDailyCounter();
     const issueNumber = payload.issue_url ? Number(payload.issue_url.split('/').pop()) : (payload.number || existing?.issueNumber);
-    const issueUrl = payload.html_url || existing?.issueUrl || null;
+    const issueUrl = action === 'commented' ? (existing?.issueUrl || null) : (payload.html_url || null);
     this.state.reports[item.id] = {
       issueNumber,
       issueUrl,
@@ -274,7 +277,8 @@ class ApplicationMonitor extends EventEmitter {
       const pending = [...this.state.queue];
       const remaining = [];
       let delivered = 0;
-      for (const item of pending) {
+      for (let index = 0; index < pending.length; index += 1) {
+        const item = pending[index];
         if (!this.canSendToday(config)) {
           remaining.push(item);
           continue;
@@ -283,7 +287,7 @@ class ApplicationMonitor extends EventEmitter {
           await this.deliver(item, config);
           delivered += 1;
         } catch (error) {
-          remaining.push({ ...item, reason: redactText(error.message) });
+          remaining.push({ ...item, reason: redactText(error.message) }, ...pending.slice(index + 1));
           break;
         }
       }
