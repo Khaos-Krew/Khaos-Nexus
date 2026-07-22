@@ -2,13 +2,27 @@
 
 const state = { app: null, config: null, bot: null, update: null, logs: [], configSignature: '' };
 const viewMeta = {
-  dashboard: ['Dashboard', 'Run and monitor the Discord bot without a website dependency.'],
-  setup: ['Bot Setup', 'Connect the Discord application using protected local credentials.'],
-  servers: ['Game Servers', 'Configure Ark, Palworld, and generic RCON connections.'],
+  dashboard: ['Command Center', 'Run Khaos Nexus locally without depending on the Lovable website.'],
+  setup: ['Discord', 'Connect the Discord application using protected local credentials.'],
+  servers: ['Game Servers', 'Configure ARK, Palworld, and generic RCON connections.'],
+  modules: ['Modules', 'Choose which Khaos Nexus workspaces are active on this PC.'],
   monitor: ['Health Monitor', 'Crash recovery and redacted error reporting.'],
-  logs: ['Live Logs', 'Inspect current manager and bot activity.'],
-  settings: ['Settings', 'Control startup, recovery, tray, and update behavior.']
+  logs: ['Live Logs', 'Inspect current desktop manager and bot activity.'],
+  settings: ['Settings', 'Control startup, recovery, tray, updates, and local backups.']
 };
+
+const moduleCatalog = [
+  { key: 'discordAutomation', name: 'Discord Automation', category: 'Core', status: 'ready', description: 'Bot runtime, slash commands, protected credentials, and supervised recovery.' },
+  { key: 'gameServers', name: 'Game Server Manager', category: 'Core', status: 'ready', description: 'ARK, Palworld, and generic RCON connections with local encrypted passwords.' },
+  { key: 'migrationCenter', name: 'Migration Center', category: 'System', status: 'foundation', description: 'Tracks the move away from Lovable and keeps backup and local-data tools together.' },
+  { key: 'palworldOps', name: 'Palworld Operations', category: 'Server', status: 'foundation', description: 'Future home for rates, settings sync, snapshots, drift alerts, and restart controls.' },
+  { key: 'embedStudio', name: 'Embed Studio', category: 'Community', status: 'planned', description: 'Build and maintain Discord server-status panels and component-based embeds.' },
+  { key: 'communityManager', name: 'Community Manager', category: 'Community', status: 'planned', description: 'Roles, reaction roles, logging, leveling, tickets, and Discord organization tools.' },
+  { key: 'arkCompanion', name: 'ARK Companion', category: 'Companion', status: 'planned', description: 'Taming, breeding, mod discovery, server notes, and automation references.' },
+  { key: 'palworldCompanion', name: 'Palworld Companion', category: 'Companion', status: 'planned', description: 'Breeding, maps, base automation, server configuration, and update-aware tools.' },
+  { key: 'warframeCompanion', name: 'Warframe Companion', category: 'Companion', status: 'planned', description: 'Market and wiki search, builds, progression tools, and account planning.' },
+  { key: 'idleonCompanion', name: 'IdleOn Companion', category: 'Companion', status: 'planned', description: 'Account planning, progression checks, farming targets, and local data tools.' }
+];
 
 const $ = (id) => document.getElementById(id);
 const titleCase = (value) => String(value || '').replace(/(^|[-_\s])\w/g, (char) => char.toUpperCase());
@@ -22,6 +36,7 @@ function toast(message) {
 }
 
 function showView(name) {
+  if (!viewMeta[name]) return;
   document.querySelectorAll('.view').forEach((element) => element.classList.toggle('active', element.id === `view-${name}`));
   document.querySelectorAll('.nav-item').forEach((element) => element.classList.toggle('active', element.dataset.view === name));
   $('viewTitle').textContent = viewMeta[name][0];
@@ -54,6 +69,7 @@ function applyState(next) {
   const configChanged = nextConfigSignature !== state.configSignature;
   Object.assign(state, next);
   if (configChanged) state.configSignature = nextConfigSignature;
+
   const bot = state.bot || {};
   const config = state.config || {};
   const status = bot.status || 'stopped';
@@ -64,23 +80,23 @@ function applyState(next) {
   $('metricStatus').textContent = statusText;
   $('metricUser').textContent = bot.ready?.username || 'Not connected';
   $('metricUptime').textContent = formatDuration(bot.heartbeat?.uptimeSeconds || 0);
-  $('metricPing').textContent = bot.heartbeat?.ping === undefined ? '—' : `${bot.heartbeat.ping} ms`;
-  $('metricCrashes').textContent = bot.crashCount || 0;
-  $('metricRestart').textContent = bot.autoRestartBlocked ? 'Restart safety lock active' : (config.general?.autoRestart ? 'Auto-restart ready' : 'Auto-restart disabled');
+  $('metricServers').textContent = String(config.servers?.length || 0);
+  const moduleSettings = getModuleSettings(config);
+  $('metricModules').textContent = String(Object.values(moduleSettings).filter(Boolean).length);
   $('detailPid').textContent = bot.pid || '—';
   $('detailGuilds').textContent = bot.heartbeat?.guildCount ?? bot.ready?.guildCount ?? '—';
   $('detailMemory').textContent = bot.heartbeat?.memoryMb ? `${bot.heartbeat.memoryMb} MB` : '—';
   $('detailHeartbeat').textContent = relativeTime(bot.lastHeartbeatAt);
 
   const hero = {
-    stopped: ['Bot is stopped', 'Start it when configuration is ready.'],
+    stopped: ['Bot is stopped', 'Start it when Discord configuration is ready.'],
     starting: ['Starting the bot', 'Launching the isolated runtime and connecting to Discord.'],
     connecting: ['Connecting to Discord', 'Waiting for the Discord gateway to become ready.'],
-    online: ['Bot is online', `${bot.ready?.username || 'Khaos Nexus'} is supervised and healthy.`],
+    online: ['Khaos Nexus is online', `${bot.ready?.username || 'The Discord bot'} is supervised and healthy.`],
     stopping: ['Stopping the bot', 'Closing the Discord connection cleanly.'],
     restarting: ['Recovering the bot', 'Automatic restart backoff is active.'],
     crashed: ['Bot runtime crashed', 'The Health Monitor captured the failure and is deciding whether to restart.'],
-    error: ['Bot requires attention', bot.lastError?.message || 'Open the Health Monitor for details.']
+    error: ['Khaos Nexus requires attention', bot.lastError?.message || 'Open the Health Monitor for details.']
   }[status] || ['Bot status unknown', 'Check the Health Monitor.'];
   $('heroStatus').textContent = hero[0];
   $('heroDetail').textContent = hero[1];
@@ -103,6 +119,7 @@ function applyState(next) {
       $(key).checked = Boolean(config.general?.[key]);
     }
     renderServers();
+    renderModules();
   }
   renderMonitor();
   renderActivity();
@@ -113,16 +130,35 @@ function renderServers() {
   const container = $('serverList');
   const servers = state.config?.servers || [];
   if (!servers.length) {
-    container.innerHTML = '<article class="panel"><h3>No game servers configured</h3><p>Add your first Ark, Palworld, or generic RCON connection. Passwords remain protected on this PC.</p></article>';
+    container.innerHTML = '<article class="panel empty-state"><span class="empty-icon">▦</span><h3>No game servers configured</h3><p>Add your first ARK, Palworld, or generic RCON connection. Passwords remain protected on this PC.</p></article>';
     return;
   }
   container.innerHTML = servers.map((server) => `
     <article class="server-card">
-      <header><div><span class="eyebrow">${escapeHtml(server.game)}</span><h3>${escapeHtml(server.name)}</h3></div><span class="tag">${server.enabled ? 'Enabled' : 'Disabled'}</span></header>
+      <header><div><span class="eyebrow">${escapeHtml(server.game)}</span><h3>${escapeHtml(server.name)}</h3></div><span class="tag ${server.enabled ? 'good' : ''}">${server.enabled ? 'Enabled' : 'Disabled'}</span></header>
       <p>${escapeHtml(server.host)}:${server.port}</p>
       <div class="server-meta"><span class="tag">${server.hasPassword ? 'Password stored' : 'Password missing'}</span></div>
       <div class="server-actions"><button class="button" data-server-edit="${server.id}">Edit</button><button class="button" data-server-test="${server.id}">Test</button><button class="button danger" data-server-remove="${server.id}">Remove</button></div>
     </article>
+  `).join('');
+}
+
+function getModuleSettings(config = state.config || {}) {
+  const saved = config.general?.modules || {};
+  return Object.fromEntries(moduleCatalog.map((module) => [module.key, saved[module.key] ?? ['discordAutomation', 'gameServers', 'migrationCenter', 'palworldOps'].includes(module.key)]));
+}
+
+function renderModules() {
+  const enabled = getModuleSettings();
+  $('moduleGrid').innerHTML = moduleCatalog.map((module) => `
+    <label class="module-card ${enabled[module.key] ? 'enabled' : ''}">
+      <div class="module-card-top">
+        <span class="module-icon">${module.category.slice(0, 1)}</span>
+        <span class="tag status-${module.status}">${titleCase(module.status)}</span>
+      </div>
+      <div><span class="eyebrow">${escapeHtml(module.category)}</span><h3>${escapeHtml(module.name)}</h3><p>${escapeHtml(module.description)}</p></div>
+      <div class="module-toggle"><span>${enabled[module.key] ? 'Enabled' : 'Disabled'}</span><input type="checkbox" data-module-toggle="${module.key}" ${enabled[module.key] ? 'checked' : ''}></div>
+    </label>
   `).join('');
 }
 
@@ -135,7 +171,7 @@ function renderMonitor() {
   $('monitorErrorId').textContent = error?.id || '—';
   $('monitorHeartbeat').textContent = relativeTime(bot.lastHeartbeatAt);
   $('lastErrorTitle').textContent = error?.message || 'No error captured';
-  $('lastErrorStack').textContent = error?.stack || 'The monitor will show a redacted stack trace here if the bot or manager reports a problem.';
+  $('lastErrorStack').textContent = error?.stack || 'The monitor will show a redacted stack trace here if the bot or desktop manager reports a problem.';
   $('errorSeverity').textContent = error ? 'Attention' : 'Healthy';
   $('errorSeverity').classList.toggle('bad', Boolean(error));
 }
@@ -203,13 +239,18 @@ async function saveDiscord(startAfter) {
   }
   const latest = await window.khaos.invoke('app:get-state');
   applyState(latest);
-  toast('Discord bot setup saved.');
+  toast('Discord setup saved.');
   if (startAfter) await invoke('bot:start');
 }
 
 function bindEvents() {
-  document.querySelectorAll('[data-view]').forEach((button) => button.addEventListener('click', () => showView(button.dataset.view)));
-  document.querySelectorAll('[data-view-link]').forEach((button) => button.addEventListener('click', () => showView(button.dataset.viewLink)));
+  document.addEventListener('click', (event) => {
+    const viewButton = event.target.closest('[data-view]');
+    const viewLink = event.target.closest('[data-view-link]');
+    if (viewButton) showView(viewButton.dataset.view);
+    if (viewLink) showView(viewLink.dataset.viewLink);
+  });
+
   $('startButton').addEventListener('click', () => invoke('bot:start'));
   $('stopButton').addEventListener('click', () => invoke('bot:stop'));
   $('restartButton').addEventListener('click', () => invoke('bot:restart'));
@@ -249,6 +290,20 @@ function bindEvents() {
     };
     await invoke('server:save', { server, password: $('serverPassword').value }, 'Server saved.');
     $('serverEditor').classList.add('hidden');
+  });
+
+  $('moduleGrid').addEventListener('change', (event) => {
+    const toggle = event.target.closest('[data-module-toggle]');
+    if (!toggle) return;
+    const card = toggle.closest('.module-card');
+    card.classList.toggle('enabled', toggle.checked);
+    card.querySelector('.module-toggle span').textContent = toggle.checked ? 'Enabled' : 'Disabled';
+  });
+
+  $('saveModulesButton').addEventListener('click', async () => {
+    const modules = {};
+    document.querySelectorAll('[data-module-toggle]').forEach((toggle) => { modules[toggle.dataset.moduleToggle] = toggle.checked; });
+    await invoke('config:save-general', { modules }, 'Module layout saved.');
   });
 
   $('reportIssueButton').addEventListener('click', () => invoke('diagnostics:report', null, 'Redacted report copied; review the GitHub issue before submitting.'));
@@ -303,4 +358,4 @@ async function initialize() {
   }, 1000);
 }
 
-initialize().catch((error) => toast(`Manager UI failed to initialize: ${error.message}`));
+initialize().catch((error) => toast(`Khaos Nexus UI failed to initialize: ${error.message}`));
