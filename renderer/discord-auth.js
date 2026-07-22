@@ -5,6 +5,56 @@
   let current = null;
   let configSignature = '';
 
+  function ensureUi() {
+    if (!document.querySelector('link[href="discord-auth.css"]')) {
+      const stylesheet = document.createElement('link');
+      stylesheet.rel = 'stylesheet';
+      stylesheet.href = 'discord-auth.css';
+      document.head.appendChild(stylesheet);
+    }
+    if (byId('discordAuthPanel')) return;
+    const setupView = byId('view-setup');
+    const checklist = setupView?.querySelector('.checklist-panel');
+    if (!setupView) throw new Error('Discord workspace was not found.');
+    const panel = document.createElement('article');
+    panel.id = 'discordAuthPanel';
+    panel.className = 'panel discord-auth-panel';
+    panel.innerHTML = `
+      <div class="panel-heading discord-auth-heading">
+        <div><span class="eyebrow">Operator identity</span><h3>Sign in with Discord</h3><p>Use Discord to identify the person operating Khaos Nexus. Passwords are entered only on Discord.</p></div>
+        <span class="severity discord-auth-signed-out" id="discordLoginStatus">Signed Out</span>
+      </div>
+      <div class="form-grid">
+        <label>Discord application client ID<input id="oauthClientId" inputmode="numeric" placeholder="Application ID from the Discord Developer Portal"></label>
+        <label>Desktop redirect URI<input id="oauthRedirectUri" value="http://127.0.0.1:43119/callback"></label>
+      </div>
+      <label>Additional operator Discord user IDs<input id="operatorUserIds" placeholder="Your wife's Discord user ID, then other trusted operator IDs separated by commas"></label>
+      <div class="discord-auth-help"><strong>Developer Portal setup:</strong> enable <strong>Public Client</strong> and add <code>http://127.0.0.1:43119/callback</code> under OAuth2 Redirects. The desktop app requests only <code>identify</code> and <code>guilds</code>.</div>
+      <div class="callout" id="discordLoginSetupState">Discord login setup has not loaded.</div>
+      <div class="callout hidden" id="discordLoginError"></div>
+      <div class="discord-auth-signed-out" id="discordSignedOutCard"><strong>No operator is signed in</strong><p>Save the Discord login setup, then continue in your normal browser.</p></div>
+      <div class="discord-identity hidden" id="discordIdentityCard">
+        <div class="discord-avatar" id="discordIdentityInitials">KN</div>
+        <div><h3 id="discordIdentityName">Discord User</h3><p><span id="discordIdentityUsername">@user</span> · ID <span id="discordIdentityId">—</span></p></div>
+        <span class="tag" id="discordAuthorization">Not authorized</span>
+        <div class="discord-identity-meta">
+          <div><span>Discord servers</span><strong id="discordGuildCount">0</strong><small>Visible through the guilds scope</small></div>
+          <div><span>Khaos Nexus server</span><strong id="discordConfiguredGuild">Not detected</strong><small>Compared with the configured server ID</small></div>
+          <div><span>Authorization</span><strong id="discordAuthorizationReason">—</strong><small>Owner and operator allowlist</small></div>
+        </div>
+      </div>
+      <div class="form-actions discord-auth-actions">
+        <button class="button" id="saveDiscordLoginButton">Save Login Setup</button>
+        <button class="button primary" id="discordSignInButton">Sign in with Discord</button>
+        <button class="button" id="discordRefreshButton" disabled>Refresh Session</button>
+        <button class="button danger" id="discordSignOutButton" disabled>Sign Out</button>
+        <button class="button" id="copyDiscordRedirectButton">Copy Redirect URI</button>
+        <button class="button" id="openDiscordDeveloperPortalButton">Open Developer Portal</button>
+      </div>`;
+    if (checklist) setupView.insertBefore(panel, checklist);
+    else setupView.appendChild(panel);
+  }
+
   function titleCase(value) {
     return String(value || 'signed-out').replace(/(^|[-_\s])\w/g, (char) => char.toUpperCase());
   }
@@ -125,6 +175,7 @@
   }
 
   async function initializeDiscordAuthUi() {
+    ensureUi();
     bind();
     render(await invoke('app:get-state'));
   }
