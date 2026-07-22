@@ -148,10 +148,10 @@
     window.khaos.onState(render);
   }
 
-  function loadDiscordAuthExtension() {
-    if (document.querySelector('script[src="discord-auth.js"]')) return;
+  function loadExtension(src) {
+    if (document.querySelector(`script[src="${src}"]`)) return;
     const script = document.createElement('script');
-    script.src = 'discord-auth.js';
+    script.src = src;
     script.defer = true;
     document.body.appendChild(script);
   }
@@ -159,7 +159,8 @@
   async function initializeMonitorUi() {
     bind();
     render(await invoke('app:get-state'));
-    loadDiscordAuthExtension();
+    loadExtension('discord-auth.js');
+    loadExtension('autonomy.js');
     setInterval(() => {
       if (current?.applicationMonitor?.lastDeliveryAt) {
         byId('monitorLastDelivery').textContent = relativeTime(current.applicationMonitor.lastDeliveryAt);
