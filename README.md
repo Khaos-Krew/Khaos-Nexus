@@ -1,30 +1,60 @@
-# Khaos Nexus Bot Manager
+# Khaos Nexus
 
-A Discord-first Windows desktop manager that runs the Khaos Nexus bot locally without depending on a website, Lovable credits, or a hosted control panel.
+A local-first Windows desktop control center for the Khaos Nexus Discord bot, game servers, diagnostics, backups, and future community modules. It is designed to operate without Lovable credits or a hosted control panel.
 
-## First release goals
+## Current capabilities
 
 - Start, stop, and restart the Discord bot from a desktop dashboard.
-- Keep the bot isolated in a supervised process so a module failure does not crash the manager.
+- Isolate the bot in a supervised process so a module failure does not crash the desktop manager.
 - Automatically restart unexpected crashes with exponential backoff and a safety limit.
-- Store the Discord token and RCON passwords with Electron/Windows protected credential storage.
-- Manage Ark, Palworld, and generic Source RCON connections from forms.
+- Store Discord, RCON, and GitHub monitor credentials with Electron/Windows protected storage.
+- Manage ARK, Palworld, and generic Source RCON connections.
 - Provide slash commands for ping, health, server status, players, save, broadcast, kick, ban, and advanced RCON.
-- Capture redacted logs, error fingerprints, diagnostics exports, and prefilled GitHub error reports.
+- Capture redacted logs, stable error fingerprints, diagnostics exports, and GitHub reports.
+- Automatically create GitHub issues for new errors and comment on existing issues when the same error repeats.
+- Queue reports locally while offline or while credentials are unavailable.
 - Export and restore configuration backups without decrypting the protected credential blob.
 - Build Windows installer and portable executables through GitHub Actions.
-- Check GitHub Releases for updates from inside the manager.
+- Check GitHub Releases for updates from inside the application.
 
 ## Downloading a Windows build
 
 1. Open the repository's **Actions** tab.
 2. Open the latest successful **Windows Build** run.
-3. Download the `Khaos-Nexus-Bot-Manager-Windows` artifact.
+3. Download the `Khaos-Nexus-Windows` artifact.
 4. Extract it and run either the installer or portable executable.
 
 Tagged releases publish the installer and portable executable to GitHub Releases.
 
-When no Actions build is available yet, extract the source package and double-click `Install-and-Run.bat`. It automatically prepares a private, checksum-verified Node.js LTS runtime when needed; no separate Node installation or administrator access is required. See `RUN_FROM_SOURCE.md`.
+When no Actions build is available, extract the source package and double-click `Install-and-Run.bat`. It prepares a private, checksum-verified Node.js LTS runtime when needed. No separate Node installation or administrator access is required. See `RUN_FROM_SOURCE.md`.
+
+## Initial setup
+
+1. Create or select a Discord application in the Discord Developer Portal.
+2. Add a bot user and reset/copy its token.
+3. Invite the bot with the `bot` and `applications.commands` scopes.
+4. Open **Discord** in Khaos Nexus and enter the token, Discord server ID, and owner user ID.
+5. Add hosted game servers under **Game Servers** using their RCON address, port, and password.
+6. Open **Application Monitor**, add the protected GitHub token, verify the connection, and enable automatic reporting when ready.
+7. Start the bot from the Command Center.
+
+Protected tokens and RCON passwords are not written to the normal configuration file and are excluded from diagnostics.
+
+## Application Monitor
+
+The Application Monitor watches the bot runtime, Electron main process, and desktop renderer. It can:
+
+- assign a stable error fingerprint;
+- create a redacted GitHub issue for a new error;
+- add a comment when the same fingerprint occurs again;
+- suppress duplicate issue spam for a configurable period;
+- enforce a configurable daily delivery limit;
+- queue reports locally while offline;
+- retry queued reports every 15 minutes;
+- export a local JSON diagnostic report;
+- open a manual report for review before submission.
+
+Automatic reporting is disabled by default. Setup instructions and minimum GitHub permissions are in `APPLICATION_MONITOR_SETUP.md`.
 
 ## Local development
 
@@ -41,27 +71,6 @@ Build Windows packages on Windows with:
 npm run dist:win
 ```
 
-## Initial setup
-
-1. Create or select a Discord application in the Discord Developer Portal.
-2. Add a bot user and reset/copy its token.
-3. Invite the bot with the `bot` and `applications.commands` scopes.
-4. Open **Bot Setup** in the manager, enter the token, Discord server ID, and owner user ID.
-5. Add hosted game servers under **Game Servers** using their RCON address, port, and password.
-6. Start the bot from the dashboard.
-
-The token and RCON passwords are not written to the normal configuration file and are not included in diagnostics.
-
-## Error reporting
-
-The Health Monitor assigns a stable error ID, keeps redacted recent logs, and can:
-
-- export a local JSON diagnostic report;
-- copy a Markdown report to the clipboard;
-- open a prefilled GitHub issue for review and submission.
-
-Do not paste credentials into GitHub issues. The built-in redactor is a safeguard, not a substitute for reviewing a report before submitting it.
-
 ## Current scope
 
-This is the stable foundation. Community modules such as reaction roles, tickets, leveling, scheduled status panels, and richer game adapters should be added as isolated modules after the manager and core runtime prove reliable.
+This is the stable local-first foundation. Community automation, role management, status panels, richer game adapters, guided recovery, and operator-friendly maintenance workflows should be added as isolated modules so the application remains reliable and manageable by a nontechnical operator.
