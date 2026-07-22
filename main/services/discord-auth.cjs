@@ -235,17 +235,7 @@ class DiscordAuth extends EventEmitter {
 
     return new Promise((resolve, reject) => {
       let settled = false;
-      const finish = (error, result) => {
-        if (settled) return;
-        settled = true;
-        this.loginInProgress = false;
-        clearTimeout(timeout);
-        server.close(() => {});
-        this.emit('state', this.publicState());
-        if (error) reject(error);
-        else resolve(result);
-      };
-
+      let timeout = null;
       const server = http.createServer(async (request, response) => {
         try {
           const incoming = new URL(request.url, config.redirectUri);
@@ -280,12 +270,23 @@ class DiscordAuth extends EventEmitter {
         }
       });
 
+      const finish = (error, result) => {
+        if (settled) return;
+        settled = true;
+        this.loginInProgress = false;
+        if (timeout) clearTimeout(timeout);
+        server.close(() => {});
+        this.emit('state', this.publicState());
+        if (error) reject(error);
+        else resolve(result);
+      };
+
       server.on('error', (error) => {
         this.update({ status: 'signed-out', lastError: error.message });
         finish(new Error(`Discord login callback could not start on ${redirect.host}: ${error.message}`));
       });
 
-      const timeout = setTimeout(() => {
+      timeout = setTimeout(() => {
         const error = new Error('Discord login timed out. Start the login again.');
         this.update({ status: 'signed-out', lastError: error.message });
         finish(error);
