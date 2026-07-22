@@ -5,8 +5,10 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { safeStorage } = require('electron');
 
+const DEFAULT_DISCORD_REDIRECT = 'http://127.0.0.1:43119/callback';
+
 const DEFAULT_CONFIG = Object.freeze({
-  schemaVersion: 2,
+  schemaVersion: 3,
   general: {
     autoStartBot: true,
     autoRestart: true,
@@ -16,7 +18,11 @@ const DEFAULT_CONFIG = Object.freeze({
   },
   discord: {
     guildId: '',
-    ownerUserId: ''
+    ownerUserId: '',
+    operatorUserIds: [],
+    oauthClientId: '',
+    oauthRedirectUri: DEFAULT_DISCORD_REDIRECT,
+    oauthScopes: ['identify', 'guilds']
   },
   monitor: {
     maxRestarts: 5,
@@ -40,7 +46,12 @@ function mergeDefaults(current) {
     ...current,
     schemaVersion: DEFAULT_CONFIG.schemaVersion,
     general: { ...DEFAULT_CONFIG.general, ...(current?.general || {}) },
-    discord: { ...DEFAULT_CONFIG.discord, ...(current?.discord || {}) },
+    discord: {
+      ...DEFAULT_CONFIG.discord,
+      ...(current?.discord || {}),
+      operatorUserIds: Array.isArray(current?.discord?.operatorUserIds) ? current.discord.operatorUserIds.map(String) : [],
+      oauthScopes: Array.isArray(current?.discord?.oauthScopes) && current.discord.oauthScopes.length ? current.discord.oauthScopes : clone(DEFAULT_CONFIG.discord.oauthScopes)
+    },
     monitor: { ...DEFAULT_CONFIG.monitor, ...(current?.monitor || {}) },
     servers: Array.isArray(current?.servers) ? current.servers : []
   };
@@ -52,6 +63,19 @@ function normalizeRepository(value) {
     throw new Error('GitHub repository must use the owner/name format.');
   }
   return repository;
+}
+
+function normalizeDiscordRedirect(value) {
+  const uri = new URL(String(value || DEFAULT_DISCORD_REDIRECT));
+  if (uri.protocol !== 'http:' || uri.hostname !== '127.0.0.1' || !uri.port) {
+    throw new Error('Discord redirect must use a fixed http://127.0.0.1:PORT/callback address.');
+  }
+  return uri.toString();
+}
+
+function normalizeDiscordUserIds(values) {
+  const source = Array.isArray(values) ? values : String(values || '').split(',');
+  return [...new Set(source.map((value) => String(value || '').trim()).filter(Boolean))].slice(0, 20);
 }
 
 class ConfigStore {
@@ -112,6 +136,7 @@ class ConfigStore {
   getPublicConfig() {
     const config = clone(this.config);
     config.hasDiscordToken = Boolean(this.secrets.discordToken);
+    config.hasDiscordLogin = Boolean(this.secrets.discordOAuthSession?.accessToken || this.secrets.discordOAuthSession?.refreshToken);
     config.hasGithubToken = Boolean(this.secrets.githubToken);
     config.servers = config.servers.map((server) => ({
       ...server,
@@ -123,6 +148,8 @@ class ConfigStore {
   getSecretValues() {
     return [
       this.secrets.discordToken,
+      this.secrets.discordOAuthSession?.accessToken,
+      this.secrets.discordOAuthSession?.refreshToken,
       this.secrets.githubToken,
       ...Object.values(this.secrets.serverPasswords || {})
     ].filter(Boolean);
@@ -134,10 +161,23 @@ class ConfigStore {
   }
 
   setDiscord(discord) {
-    this.config.discord = {
-      guildId: String(discord.guildId || '').trim(),
-      ownerUserId: String(discord.ownerUserId || '').trim()
-    };
+    const current = this.config.discord;
+    const next = { ...current };
+    if (Object.prototype.hasOwnProperty.call(discord, 'guildId')) next.guildId = String(discord.guildId || '').trim();
+    if (Object.prototype.hasOwnProperty.call(discord, 'ownerUserId')) next.ownerUserId = String(discord.ownerUserId || '').trim();
+    if (Object.prototype.hasOwnProperty.call(discord, 'operatorUserIds')) next.operatorUserIds = normalizeDiscordUserIds(discord.operatorUserIds);
+    if (Object.prototype.hasOwnProperty.call(discord, 'oauthClientId')) {
+      const clientId = String(discord.oauthClientId || '').trim();
+      if (clientId && !/^\d{5,25}$/.test(clientId)) throw new Error('Discord OAuth client ID must be numeric.');
+      next.oauthClientId = clientId;
+    }
+    if (Object.prototype.hasOwnProperty.call(discord, 'oauthRedirectUri')) next.oauthRedirectUri = normalizeDiscordRedirect(discord.oauthRedirectUri);
+    if (Object.prototype.hasOwnProperty.call(discord, 'oauthScopes')) {
+      const allowed = new Set(['identify', 'guilds']);
+      const scopes = Array.isArray(discord.oauthScopes) ? discord.oauthScopes.filter((scope) => allowed.has(scope)) : [];
+      next.oauthScopes = scopes.length ? [...new Set(scopes)] : ['identify', 'guilds'];
+    }
+    this.config.discord = next;
     this.saveConfig();
   }
 
@@ -146,6 +186,31 @@ class ConfigStore {
     if (value) this.secrets.discordToken = value;
     else delete this.secrets.discordToken;
     this.saveSecrets();
+  }
+
+  setDiscordOAuthSession(session) {
+    const normalized = {
+      accessToken: String(session?.accessToken || ''),
+      refreshToken: String(session?.refreshToken || ''),
+      tokenType: String(session?.tokenType || 'Bearer'),
+      scope: String(session?.scope || ''),
+      expiresAt: Number(session?.expiresAt || 0)
+    };
+    if (!normalized.accessToken && !normalized.refreshToken) {
+      delete this.secrets.discordOAuthSession;
+    } else {
+      this.secrets.discordOAuthSession = normalized;
+    }
+    this.saveSecrets();
+  }
+
+  getDiscordOAuthSession() {
+    return this.secrets.discordOAuthSession ? clone(this.secrets.discordOAuthSession) : null;
+  }
+
+  clearDiscordOAuthSession() {
+    delete this.secrets.discordOAuthSession;
+    if (safeStorage.isEncryptionAvailable()) this.saveSecrets();
   }
 
   setMonitor(monitor) {
@@ -262,4 +327,4 @@ class ConfigStore {
   }
 }
 
-module.exports = { ConfigStore, DEFAULT_CONFIG, mergeDefaults };
+module.exports = { ConfigStore, DEFAULT_CONFIG, mergeDefaults, DEFAULT_DISCORD_REDIRECT };
