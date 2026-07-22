@@ -1,8 +1,13 @@
 'use strict';
 
 (() => {
+  if (typeof viewMeta !== 'undefined') {
+    viewMeta.monitor = ['Application Monitor', 'Automatic recovery, redacted diagnostics, and GitHub issue delivery.'];
+  }
+
   const byId = (id) => document.getElementById(id);
   let current = null;
+  let configSignature = '';
 
   function titleCase(value) {
     return String(value || 'idle').replace(/(^|[-_\s])\w/g, (char) => char.toUpperCase());
@@ -41,16 +46,19 @@
     const config = next?.config?.monitor || {};
     const monitor = next?.applicationMonitor || {};
     const botError = next?.bot?.lastError;
+    const nextSignature = JSON.stringify({ config, hasGithubToken: Boolean(next?.config?.hasGithubToken) });
 
-    byId('autoReportEnabled').checked = Boolean(config.autoReportEnabled);
-    byId('monitorRepository').value = config.reportRepository || '';
-    byId('monitorLabels').value = Array.isArray(config.reportLabels) ? config.reportLabels.join(', ') : '';
-    byId('duplicateWindowHours').value = Number(config.duplicateWindowHours || 72);
-    byId('maxReportsPerDay').value = Number(config.maxReportsPerDay || 10);
-
-    byId('githubTokenState').textContent = next?.config?.hasGithubToken
-      ? 'A GitHub token is stored in Windows protected credential storage.'
-      : 'No GitHub monitor token is stored. Automatic reports will remain queued locally.';
+    if (nextSignature !== configSignature) {
+      configSignature = nextSignature;
+      byId('autoReportEnabled').checked = Boolean(config.autoReportEnabled);
+      byId('monitorRepository').value = config.reportRepository || '';
+      byId('monitorLabels').value = Array.isArray(config.reportLabels) ? config.reportLabels.join(', ') : '';
+      byId('duplicateWindowHours').value = Number(config.duplicateWindowHours || 72);
+      byId('maxReportsPerDay').value = Number(config.maxReportsPerDay || 10);
+      byId('githubTokenState').textContent = next?.config?.hasGithubToken
+        ? 'A GitHub token is stored in Windows protected credential storage.'
+        : 'No GitHub monitor token is stored. Automatic reports will remain queued locally.';
+    }
 
     const status = monitor.status || (config.autoReportEnabled ? 'waiting-for-token' : 'disabled');
     byId('autoReportStatus').textContent = config.autoReportEnabled ? titleCase(status) : 'Disabled';
