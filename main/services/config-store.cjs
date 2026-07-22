@@ -6,7 +6,7 @@ const crypto = require('node:crypto');
 const { safeStorage } = require('electron');
 
 const DEFAULT_CONFIG = Object.freeze({
-  schemaVersion: 1,
+  schemaVersion: 2,
   general: {
     autoStartBot: true,
     autoRestart: true,
@@ -21,7 +21,11 @@ const DEFAULT_CONFIG = Object.freeze({
   monitor: {
     maxRestarts: 5,
     restartWindowMinutes: 10,
-    reportRepository: 'Khaos-Krew/Khaos-Nexus-Bot-Manager'
+    autoReportEnabled: false,
+    reportRepository: 'Khaos-Krew/Khaos-Nexus-Bot-Manager',
+    reportLabels: ['bug', 'automated-report'],
+    duplicateWindowHours: 72,
+    maxReportsPerDay: 10
   },
   servers: []
 });
@@ -34,11 +38,20 @@ function mergeDefaults(current) {
   return {
     ...clone(DEFAULT_CONFIG),
     ...current,
+    schemaVersion: DEFAULT_CONFIG.schemaVersion,
     general: { ...DEFAULT_CONFIG.general, ...(current?.general || {}) },
     discord: { ...DEFAULT_CONFIG.discord, ...(current?.discord || {}) },
     monitor: { ...DEFAULT_CONFIG.monitor, ...(current?.monitor || {}) },
     servers: Array.isArray(current?.servers) ? current.servers : []
   };
+}
+
+function normalizeRepository(value) {
+  const repository = String(value || '').trim();
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
+    throw new Error('GitHub repository must use the owner/name format.');
+  }
+  return repository;
 }
 
 class ConfigStore {
@@ -99,6 +112,7 @@ class ConfigStore {
   getPublicConfig() {
     const config = clone(this.config);
     config.hasDiscordToken = Boolean(this.secrets.discordToken);
+    config.hasGithubToken = Boolean(this.secrets.githubToken);
     config.servers = config.servers.map((server) => ({
       ...server,
       hasPassword: Boolean(this.secrets.serverPasswords?.[server.id])
@@ -109,6 +123,7 @@ class ConfigStore {
   getSecretValues() {
     return [
       this.secrets.discordToken,
+      this.secrets.githubToken,
       ...Object.values(this.secrets.serverPasswords || {})
     ].filter(Boolean);
   }
@@ -131,6 +146,33 @@ class ConfigStore {
     if (value) this.secrets.discordToken = value;
     else delete this.secrets.discordToken;
     this.saveSecrets();
+  }
+
+  setMonitor(monitor) {
+    const current = this.config.monitor;
+    const labels = Array.isArray(monitor.reportLabels)
+      ? monitor.reportLabels.map((label) => String(label || '').trim()).filter(Boolean).slice(0, 10)
+      : current.reportLabels;
+    this.config.monitor = {
+      ...current,
+      autoReportEnabled: Boolean(monitor.autoReportEnabled),
+      reportRepository: normalizeRepository(monitor.reportRepository || current.reportRepository),
+      reportLabels: labels,
+      duplicateWindowHours: Math.min(720, Math.max(1, Number(monitor.duplicateWindowHours || current.duplicateWindowHours))),
+      maxReportsPerDay: Math.min(50, Math.max(1, Number(monitor.maxReportsPerDay || current.maxReportsPerDay)))
+    };
+    this.saveConfig();
+  }
+
+  setGithubToken(token) {
+    const value = String(token || '').trim();
+    if (value) this.secrets.githubToken = value;
+    else delete this.secrets.githubToken;
+    this.saveSecrets();
+  }
+
+  getGithubToken() {
+    return this.secrets.githubToken || '';
   }
 
   upsertServer(server, password) {
@@ -190,20 +232,22 @@ class ConfigStore {
       if (fs.existsSync(this.secretsPath)) encryptedSecrets = fs.readFileSync(this.secretsPath).toString('base64');
     } catch {}
     return {
-      format: 'khaos-nexus-bot-manager-backup',
-      formatVersion: 1,
+      format: 'khaos-nexus-backup',
+      formatVersion: 2,
       createdAt: new Date().toISOString(),
       appVersion,
-      note: 'Encrypted secrets can only be decrypted by the same operating-system user profile.',
+      note: 'Encrypted secrets can normally only be decrypted by the same operating-system user profile.',
       config: clone(this.config),
       encryptedSecrets
     };
   }
 
   restoreBackupPayload(payload) {
-    if (!payload || payload.format !== 'khaos-nexus-bot-manager-backup' || payload.formatVersion !== 1) {
-      throw new Error('This is not a supported Khaos Nexus Bot Manager backup.');
-    }
+    const supported = payload && (
+      (payload.format === 'khaos-nexus-backup' && payload.formatVersion === 2) ||
+      (payload.format === 'khaos-nexus-bot-manager-backup' && payload.formatVersion === 1)
+    );
+    if (!supported) throw new Error('This is not a supported Khaos Nexus backup.');
     this.config = mergeDefaults(payload.config || {});
     this.saveConfig();
     if (payload.encryptedSecrets) {
