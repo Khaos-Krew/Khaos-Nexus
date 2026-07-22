@@ -19,6 +19,7 @@ const { BotSupervisor } = require('./services/bot-supervisor.cjs');
 const { createDiagnosticReport, reportAsMarkdown } = require('./services/diagnostics.cjs');
 const { UpdateService } = require('./services/update-service.cjs');
 const { ApplicationMonitor } = require('./services/application-monitor.cjs');
+const { DiscordAuth } = require('./services/discord-auth.cjs');
 const { SourceRcon } = require('../bot/rcon.cjs');
 const { errorFingerprint } = require('../shared/redaction.cjs');
 
@@ -30,6 +31,7 @@ let logger;
 let supervisor;
 let updateService;
 let applicationMonitor;
+let discordAuth;
 let pendingErrorSource = null;
 let lastCapturedErrorKey = null;
 
@@ -53,7 +55,8 @@ function fullState() {
     config: configStore.getPublicConfig(),
     bot: supervisor.getState(),
     update: updateService.getState(),
-    applicationMonitor: applicationMonitor?.getState() || null
+    applicationMonitor: applicationMonitor?.getState() || null,
+    discordAuth: discordAuth?.getState() || null
   };
 }
 
@@ -147,8 +150,9 @@ function registerIpc() {
   ipcMain.handle('bot:stop', () => supervisor.stop());
   ipcMain.handle('bot:restart', () => supervisor.restart());
 
-  ipcMain.handle('config:save-discord', (_event, payload) => {
+  ipcMain.handle('config:save-discord', async (_event, payload) => {
     configStore.setDiscord(payload);
+    if (configStore.getPublicConfig().hasDiscordLogin) await discordAuth.restore();
     send('state:update', fullState());
     return configStore.getPublicConfig();
   });
@@ -159,6 +163,28 @@ function registerIpc() {
     send('state:update', fullState());
     return { hasDiscordToken: Boolean(token) };
   });
+
+  ipcMain.handle('discord-auth:login', async () => {
+    const result = await discordAuth.login();
+    send('state:update', fullState());
+    return result;
+  });
+  ipcMain.handle('discord-auth:logout', () => {
+    const result = discordAuth.logout();
+    send('state:update', fullState());
+    return result;
+  });
+  ipcMain.handle('discord-auth:refresh', async () => {
+    const result = await discordAuth.refresh();
+    send('state:update', fullState());
+    return result;
+  });
+  ipcMain.handle('discord-auth:copy-redirect', () => {
+    const redirectUri = configStore.getConfig().discord.oauthRedirectUri;
+    clipboard.writeText(redirectUri);
+    return { copied: true, redirectUri };
+  });
+  ipcMain.handle('discord-auth:open-developer-portal', () => shell.openExternal('https://discord.com/developers/applications'));
 
   ipcMain.handle('config:save-general', (_event, payload) => {
     configStore.setGeneral(payload);
@@ -272,6 +298,7 @@ function registerIpc() {
     const payload = JSON.parse(fs.readFileSync(result.filePaths[0], 'utf8'));
     const restored = configStore.restoreBackupPayload(payload);
     applyLoginSetting(restored.general.startWithWindows);
+    await discordAuth.restore();
     logger.warn('Configuration backup restored. Restart the bot to apply restored settings.', { filePath: result.filePaths[0] });
     send('state:update', fullState());
     return { canceled: false, config: restored };
@@ -303,6 +330,7 @@ app.whenReady().then(() => {
   supervisor = new BotSupervisor({ configStore, logger });
   updateService = new UpdateService(logger);
   applicationMonitor = new ApplicationMonitor({ configStore, logger, createReport, dataDirectory: userData });
+  discordAuth = new DiscordAuth({ configStore, logger, openExternal: (url) => shell.openExternal(url) });
   app.setAppUserModelId('com.khaosnexus.desktop');
 
   logger.on('entry', (entry) => send('log:entry', entry));
@@ -313,6 +341,7 @@ app.whenReady().then(() => {
   });
   updateService.on('state', (state) => send('update:state', state));
   applicationMonitor.on('state', () => send('state:update', fullState()));
+  discordAuth.on('state', () => send('state:update', fullState()));
 
   registerIpc();
   createWindow();
@@ -321,6 +350,7 @@ app.whenReady().then(() => {
   logger.info('Khaos Nexus started.', { version: app.getVersion() });
 
   const config = configStore.getConfig();
+  setTimeout(() => discordAuth.restore().catch((error) => logger.warn('Discord login restore failed.', { message: error.message })), 1000);
   if (config.general.autoStartBot && configStore.getPublicConfig().hasDiscordToken) {
     setTimeout(() => {
       try { supervisor.start(); } catch (error) { logger.error(error.message); }
