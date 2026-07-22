@@ -148,9 +148,18 @@
     window.khaos.onState(render);
   }
 
+  function loadDiscordAuthExtension() {
+    if (document.querySelector('script[src="discord-auth.js"]')) return;
+    const script = document.createElement('script');
+    script.src = 'discord-auth.js';
+    script.defer = true;
+    document.body.appendChild(script);
+  }
+
   async function initializeMonitorUi() {
     bind();
     render(await invoke('app:get-state'));
+    loadDiscordAuthExtension();
     setInterval(() => {
       if (current?.applicationMonitor?.lastDeliveryAt) {
         byId('monitorLastDelivery').textContent = relativeTime(current.applicationMonitor.lastDeliveryAt);
