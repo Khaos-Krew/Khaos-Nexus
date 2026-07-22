@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'">
-  <title>Khaos Nexus Bot Manager</title>
+  <title>Khaos Nexus</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -12,37 +12,47 @@
     <aside class="sidebar">
       <div class="brand">
         <img src="../assets/icon.png" alt="Khaos Nexus">
-        <div><strong>Khaos Nexus</strong><span>Bot Manager</span></div>
+        <div><strong>Khaos Nexus</strong><span>Desktop Control Center</span></div>
       </div>
+      <div class="nav-label">Control</div>
       <nav id="navigation">
-        <button class="nav-item active" data-view="dashboard">Dashboard</button>
-        <button class="nav-item" data-view="setup">Bot Setup</button>
-        <button class="nav-item" data-view="servers">Game Servers</button>
-        <button class="nav-item" data-view="monitor">Health Monitor</button>
-        <button class="nav-item" data-view="logs">Live Logs</button>
-        <button class="nav-item" data-view="settings">Settings</button>
+        <button class="nav-item active" data-view="dashboard"><span>⌂</span>Command Center</button>
+        <button class="nav-item" data-view="setup"><span>◈</span>Discord</button>
+        <button class="nav-item" data-view="servers"><span>▦</span>Game Servers</button>
+        <button class="nav-item" data-view="modules"><span>◆</span>Modules</button>
+      </nav>
+      <div class="nav-label">System</div>
+      <nav>
+        <button class="nav-item" data-view="monitor"><span>♡</span>Health Monitor</button>
+        <button class="nav-item" data-view="logs"><span>≡</span>Live Logs</button>
+        <button class="nav-item" data-view="settings"><span>⚙</span>Settings</button>
       </nav>
       <div class="sidebar-footer">
         <span id="versionLabel">Version</span>
         <span id="secureLabel">Secure storage</span>
+        <span class="local-badge">LOCAL-FIRST</span>
       </div>
     </aside>
 
     <main class="content">
       <header class="topbar">
         <div>
-          <h1 id="viewTitle">Dashboard</h1>
-          <p id="viewSubtitle">Run and monitor the Discord bot without a website dependency.</p>
+          <h1 id="viewTitle">Command Center</h1>
+          <p id="viewSubtitle">Run Khaos Nexus locally without depending on the Lovable website.</p>
         </div>
         <div class="status-pill" id="topStatus"><span></span><strong>Stopped</strong></div>
       </header>
 
       <section class="view active" id="view-dashboard">
+        <div class="local-banner">
+          <div><strong>Desktop mode is independent from Lovable</strong><span>Your bot, RCON connections, settings, logs, and backups are stored and managed from this PC.</span></div>
+          <span class="tag good">Local control active</span>
+        </div>
         <div class="hero-panel">
           <div>
-            <span class="eyebrow">Discord-first control center</span>
+            <span class="eyebrow">Khaos Nexus runtime</span>
             <h2 id="heroStatus">Bot is stopped</h2>
-            <p id="heroDetail">Complete Bot Setup, then start the supervised runtime.</p>
+            <p id="heroDetail">Complete Discord setup, then start the supervised runtime.</p>
           </div>
           <div class="control-row">
             <button class="button primary" id="startButton">Start Bot</button>
@@ -51,10 +61,10 @@
           </div>
         </div>
         <div class="metric-grid">
-          <article class="metric-card"><span>Status</span><strong id="metricStatus">Stopped</strong><small id="metricUser">Not connected</small></article>
+          <article class="metric-card"><span>Bot status</span><strong id="metricStatus">Stopped</strong><small id="metricUser">Not connected</small></article>
           <article class="metric-card"><span>Uptime</span><strong id="metricUptime">0s</strong><small>Current runtime session</small></article>
-          <article class="metric-card"><span>Discord latency</span><strong id="metricPing">—</strong><small>Gateway heartbeat</small></article>
-          <article class="metric-card"><span>Crashes</span><strong id="metricCrashes">0</strong><small id="metricRestart">Auto-restart ready</small></article>
+          <article class="metric-card"><span>Game servers</span><strong id="metricServers">0</strong><small>Configured RCON targets</small></article>
+          <article class="metric-card"><span>Enabled modules</span><strong id="metricModules">0</strong><small>Desktop feature switches</small></article>
         </div>
         <div class="two-column">
           <article class="panel">
@@ -71,36 +81,45 @@
             <div id="activityList" class="activity-list"></div>
           </article>
         </div>
+        <article class="panel quick-launch-panel">
+          <div class="panel-heading"><div><span class="eyebrow">Quick launch</span><h3>Desktop workspaces</h3></div><button class="text-button" data-view-link="modules">Manage modules</button></div>
+          <div class="quick-grid">
+            <button class="quick-card" data-view-link="setup"><strong>Discord</strong><span>Bot credentials and command registration</span></button>
+            <button class="quick-card" data-view-link="servers"><strong>Game Servers</strong><span>ARK, Palworld, and generic RCON</span></button>
+            <button class="quick-card" data-view-link="monitor"><strong>Health Monitor</strong><span>Recovery, errors, and diagnostics</span></button>
+            <button class="quick-card" data-view-link="settings"><strong>Backups</strong><span>Export, restore, and open local data</span></button>
+          </div>
+        </article>
       </section>
 
       <section class="view" id="view-setup">
-        <div class="section-intro"><h2>Connect your Discord bot</h2><p>The token is encrypted with the operating system and is never returned to this screen.</p></div>
+        <div class="section-intro"><h2>Discord control</h2><p>Connect the Khaos Nexus bot using protected local credentials. The token is encrypted by Windows and never shown again.</p></div>
         <article class="panel form-panel">
-          <label>Discord bot token<input id="discordToken" type="password" autocomplete="off" placeholder="Paste a new token to save or leave blank to keep the stored token"></label>
+          <label>Discord bot token<input id="discordToken" type="password" autocomplete="off" placeholder="Paste a new token or leave blank to keep the stored token"></label>
           <div class="form-grid">
             <label>Discord server ID<input id="guildId" inputmode="numeric" placeholder="Guild ID for instant command registration"></label>
             <label>Owner Discord user ID<input id="ownerUserId" inputmode="numeric" placeholder="Your user ID for protected commands"></label>
           </div>
           <div class="callout" id="tokenState">No token status loaded.</div>
-          <div class="form-actions"><button class="button primary" id="saveDiscordButton">Save Bot Setup</button><button class="button" id="saveAndStartButton">Save and Start</button></div>
+          <div class="form-actions"><button class="button primary" id="saveDiscordButton">Save Discord Setup</button><button class="button" id="saveAndStartButton">Save and Start</button></div>
         </article>
         <article class="panel checklist-panel">
           <h3>Required Discord developer settings</h3>
           <div class="check-item"><strong>Bot scope</strong><span>Invite the application with the bot and applications.commands scopes.</span></div>
-          <div class="check-item"><strong>Permissions</strong><span>Grant only the channel and moderation permissions used by your enabled commands.</span></div>
-          <div class="check-item"><strong>Gateway intents</strong><span>This build only needs the Guilds intent for slash commands.</span></div>
+          <div class="check-item"><strong>Permissions</strong><span>Grant only the channel and moderation permissions used by enabled commands.</span></div>
+          <div class="check-item"><strong>Gateway intents</strong><span>The current runtime only needs the Guilds intent for slash commands.</span></div>
         </article>
       </section>
 
       <section class="view" id="view-servers">
-        <div class="section-intro inline"><div><h2>Game servers</h2><p>Manage Ark, Palworld, and generic Source RCON connections from the desktop app.</p></div><button class="button primary" id="newServerButton">Add Server</button></div>
+        <div class="section-intro inline"><div><h2>Game server control</h2><p>Manage ARK, Palworld, and generic Source RCON connections directly from the desktop app.</p></div><button class="button primary" id="newServerButton">Add Server</button></div>
         <div id="serverList" class="server-grid"></div>
         <article class="panel form-panel hidden" id="serverEditor">
           <div class="panel-heading"><h3 id="serverEditorTitle">Add game server</h3><button class="text-button" id="cancelServerButton">Cancel</button></div>
           <input id="serverId" type="hidden">
           <div class="form-grid three">
             <label>Display name<input id="serverName" placeholder="Khaos Nexus Palworld"></label>
-            <label>Game<select id="serverGame"><option value="palworld">Palworld</option><option value="ark">Ark: Survival Ascended</option><option value="generic">Generic Source RCON</option></select></label>
+            <label>Game<select id="serverGame"><option value="palworld">Palworld</option><option value="ark">ARK: Survival Ascended</option><option value="generic">Generic Source RCON</option></select></label>
             <label>Enabled<select id="serverEnabled"><option value="true">Enabled</option><option value="false">Disabled</option></select></label>
           </div>
           <div class="form-grid three">
@@ -118,6 +137,18 @@
         </article>
       </section>
 
+      <section class="view" id="view-modules">
+        <div class="section-intro inline"><div><h2>Khaos Nexus modules</h2><p>Choose which workspaces appear in the local control center as the website features are migrated.</p></div><button class="button primary" id="saveModulesButton">Save Module Layout</button></div>
+        <div class="migration-panel">
+          <div><span class="eyebrow">Website migration</span><h3>Lovable retirement path</h3><p>The desktop foundation is active. Website modules can be moved here in stages while Supabase remains optional for shared cloud data.</p></div>
+          <div class="migration-steps">
+            <span class="done">1 Desktop foundation</span><span class="active">2 Admin modules</span><span>3 Local-first data</span><span>4 Public portal decision</span>
+          </div>
+        </div>
+        <div id="moduleGrid" class="module-grid"></div>
+        <div class="callout">Planned modules can be enabled now so the desktop layout remembers what you want. They will show as planned until their website functionality is fully ported.</div>
+      </section>
+
       <section class="view" id="view-monitor">
         <div class="section-intro"><h2>Health Monitor</h2><p>Crash containment, automatic recovery, redacted diagnostics, and one-click GitHub reporting.</p></div>
         <div class="metric-grid">
@@ -128,25 +159,25 @@
         </div>
         <article class="panel error-panel">
           <div class="panel-heading"><div><span class="eyebrow">Latest captured error</span><h3 id="lastErrorTitle">No error captured</h3></div><span class="severity" id="errorSeverity">Healthy</span></div>
-          <pre id="lastErrorStack">The monitor will show a redacted stack trace here if the bot or manager reports a problem.</pre>
+          <pre id="lastErrorStack">The monitor will show a redacted stack trace here if the bot or desktop manager reports a problem.</pre>
           <div class="form-actions"><button class="button primary" id="reportIssueButton">Report on GitHub</button><button class="button" id="exportDiagnosticsButton">Export Diagnostics</button></div>
           <p class="privacy-note">Reporting opens a prefilled GitHub issue and copies the redacted report. You review it before submitting. Tokens and passwords are removed.</p>
         </article>
       </section>
 
       <section class="view" id="view-logs">
-        <div class="section-intro inline"><div><h2>Live logs</h2><p>Manager and bot events are retained locally with automatic rotation.</p></div><div class="toolbar"><select id="logFilter"><option value="all">All levels</option><option value="info">Info</option><option value="warn">Warnings</option><option value="error">Errors</option><option value="fatal">Fatal</option></select><button class="button" id="clearLogsButton">Clear</button></div></div>
+        <div class="section-intro inline"><div><h2>Live logs</h2><p>Desktop manager and bot events are retained locally with automatic rotation.</p></div><div class="toolbar"><select id="logFilter"><option value="all">All levels</option><option value="info">Info</option><option value="warn">Warnings</option><option value="error">Errors</option><option value="fatal">Fatal</option></select><button class="button" id="clearLogsButton">Clear</button></div></div>
         <div id="logConsole" class="log-console"></div>
       </section>
 
       <section class="view" id="view-settings">
-        <div class="section-intro"><h2>Manager settings</h2><p>Choose how the local supervisor behaves when Windows starts or the bot crashes.</p></div>
+        <div class="section-intro"><h2>Desktop settings</h2><p>Choose how Khaos Nexus behaves when Windows starts, the bot crashes, or the application window closes.</p></div>
         <article class="panel settings-list">
-          <label class="toggle-row"><span><strong>Start bot when manager opens</strong><small>Starts automatically after protected credentials are available.</small></span><input id="autoStartBot" type="checkbox"></label>
+          <label class="toggle-row"><span><strong>Start bot when Khaos Nexus opens</strong><small>Starts automatically after protected credentials are available.</small></span><input id="autoStartBot" type="checkbox"></label>
           <label class="toggle-row"><span><strong>Automatically restart after a crash</strong><small>Uses backoff and stops after the configured crash limit.</small></span><input id="autoRestart" type="checkbox"></label>
-          <label class="toggle-row"><span><strong>Start manager with Windows</strong><small>Keeps the bot available after a PC reboot.</small></span><input id="startWithWindows" type="checkbox"></label>
-          <label class="toggle-row"><span><strong>Minimize to system tray</strong><small>Closing the window keeps the manager and bot running.</small></span><input id="minimizeToTray" type="checkbox"></label>
-          <label class="toggle-row"><span><strong>Check GitHub Releases for updates</strong><small>Download and install published fixes from the manager.</small></span><input id="checkUpdates" type="checkbox"></label>
+          <label class="toggle-row"><span><strong>Start Khaos Nexus with Windows</strong><small>Keeps the bot available after a PC reboot.</small></span><input id="startWithWindows" type="checkbox"></label>
+          <label class="toggle-row"><span><strong>Minimize to system tray</strong><small>Closing the window keeps Khaos Nexus and the bot running.</small></span><input id="minimizeToTray" type="checkbox"></label>
+          <label class="toggle-row"><span><strong>Check GitHub Releases for updates</strong><small>Download and install published fixes from the desktop app.</small></span><input id="checkUpdates" type="checkbox"></label>
           <div class="form-actions"><button class="button primary" id="saveSettingsButton">Save Settings</button><button class="button" id="checkUpdatesButton">Check for Updates</button><button class="button hidden" id="downloadUpdateButton">Download Update</button><button class="button primary hidden" id="installUpdateButton">Install Update</button><button class="button" id="exportBackupButton">Export Backup</button><button class="button" id="importBackupButton">Restore Backup</button><button class="button" id="openDataButton">Open Data Folder</button></div>
           <div class="callout" id="updateStatus">Update status: idle</div><p class="privacy-note">Backups can include the encrypted credential blob. Those credentials can normally be restored only under the same Windows user account.</p>
         </article>
