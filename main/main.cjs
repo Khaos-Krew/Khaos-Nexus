@@ -20,6 +20,7 @@ const { createDiagnosticReport, reportAsMarkdown } = require('./services/diagnos
 const { UpdateService } = require('./services/update-service.cjs');
 const { ApplicationMonitor } = require('./services/application-monitor.cjs');
 const { DiscordAuth } = require('./services/discord-auth.cjs');
+const { AutonomyService } = require('./services/autonomy-service.cjs');
 const { SourceRcon } = require('../bot/rcon.cjs');
 const { errorFingerprint } = require('../shared/redaction.cjs');
 
@@ -32,6 +33,7 @@ let supervisor;
 let updateService;
 let applicationMonitor;
 let discordAuth;
+let autonomy;
 let pendingErrorSource = null;
 let lastCapturedErrorKey = null;
 
@@ -45,6 +47,20 @@ function send(channel, payload) {
   if (windowRef && !windowRef.isDestroyed()) windowRef.webContents.send(channel, payload);
 }
 
+function accessState() {
+  return autonomy?.accessState(discordAuth?.getState()) || {
+    enabled: false,
+    role: 'local-admin',
+    canView: true,
+    canOperate: true,
+    canOwn: true
+  };
+}
+
+function requireAccess(minimumRole, action) {
+  return autonomy.assertAccess(discordAuth?.getState(), minimumRole, action);
+}
+
 function fullState() {
   return {
     app: {
@@ -56,7 +72,8 @@ function fullState() {
     bot: supervisor.getState(),
     update: updateService.getState(),
     applicationMonitor: applicationMonitor?.getState() || null,
-    discordAuth: discordAuth?.getState() || null
+    discordAuth: discordAuth?.getState() || null,
+    autonomy: autonomy?.getState(discordAuth?.getState()) || null
   };
 }
 
@@ -67,10 +84,10 @@ function showWindow() {
 
 function createWindow() {
   windowRef = new BrowserWindow({
-    width: 1320,
-    height: 860,
-    minWidth: 1020,
-    minHeight: 680,
+    width: 1360,
+    height: 900,
+    minWidth: 1040,
+    minHeight: 700,
     backgroundColor: '#08090d',
     icon: iconPath(),
     show: false,
@@ -95,6 +112,17 @@ function createWindow() {
   windowRef.on('closed', () => { windowRef = null; });
 }
 
+function runTrayAction(label, action) {
+  try {
+    requireAccess('operator', label);
+    return action();
+  } catch (error) {
+    logger?.warn('Tray action blocked by desktop access control.', { action: label, message: error.message });
+    showWindow();
+    return null;
+  }
+}
+
 function createTray() {
   const image = nativeImage.createFromPath(iconPath()).resize({ width: 20, height: 20 });
   tray = new Tray(image);
@@ -102,9 +130,12 @@ function createTray() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open Khaos Nexus', click: () => showWindow() },
     { type: 'separator' },
-    { label: 'Start Bot', click: () => { try { supervisor.start(); } catch {} } },
-    { label: 'Restart Bot', click: () => supervisor.restart() },
-    { label: 'Stop Bot', click: () => supervisor.stop() },
+    { label: 'Run Safe Recovery', click: () => runTrayAction('Run Safe Recovery', () => autonomy.runRecovery()) },
+    { label: 'Start Maintenance Mode', click: () => runTrayAction('Start Maintenance Mode', () => autonomy.runMaintenance()) },
+    { type: 'separator' },
+    { label: 'Start Bot', click: () => runTrayAction('Start Bot', () => supervisor.start()) },
+    { label: 'Restart Bot', click: () => runTrayAction('Restart Bot', () => supervisor.restart()) },
+    { label: 'Stop Bot', click: () => runTrayAction('Stop Bot', () => supervisor.stop()) },
     { type: 'separator' },
     { label: 'Exit', click: () => { quitting = true; app.quit(); } }
   ]));
@@ -146,11 +177,13 @@ function captureNewSupervisorError(state) {
 
 function registerIpc() {
   ipcMain.handle('app:get-state', () => fullState());
-  ipcMain.handle('bot:start', () => supervisor.start());
-  ipcMain.handle('bot:stop', () => supervisor.stop());
-  ipcMain.handle('bot:restart', () => supervisor.restart());
+
+  ipcMain.handle('bot:start', () => { requireAccess('operator', 'Start Bot'); return supervisor.start(); });
+  ipcMain.handle('bot:stop', () => { requireAccess('operator', 'Stop Bot'); return supervisor.stop(); });
+  ipcMain.handle('bot:restart', () => { requireAccess('operator', 'Restart Bot'); return supervisor.restart(); });
 
   ipcMain.handle('config:save-discord', async (_event, payload) => {
+    requireAccess('owner', 'Change Discord configuration');
     configStore.setDiscord(payload);
     if (configStore.getPublicConfig().hasDiscordLogin) await discordAuth.restore();
     send('state:update', fullState());
@@ -158,6 +191,7 @@ function registerIpc() {
   });
 
   ipcMain.handle('secret:set-discord-token', (_event, token) => {
+    requireAccess('owner', 'Change the Discord bot token');
     configStore.setDiscordToken(token);
     logger.info(token ? 'Discord token saved in protected storage.' : 'Discord token removed.');
     send('state:update', fullState());
@@ -187,6 +221,7 @@ function registerIpc() {
   ipcMain.handle('discord-auth:open-developer-portal', () => shell.openExternal('https://discord.com/developers/applications'));
 
   ipcMain.handle('config:save-general', (_event, payload) => {
+    requireAccess('owner', 'Change desktop settings');
     configStore.setGeneral(payload);
     applyLoginSetting(configStore.getConfig().general.startWithWindows);
     send('state:update', fullState());
@@ -194,6 +229,7 @@ function registerIpc() {
   });
 
   ipcMain.handle('config:save-monitor', async (_event, payload) => {
+    requireAccess('owner', 'Change Application Monitor settings');
     configStore.setMonitor(payload);
     logger.info('Application Monitor settings saved.', {
       enabled: configStore.getConfig().monitor.autoReportEnabled,
@@ -205,6 +241,7 @@ function registerIpc() {
   });
 
   ipcMain.handle('secret:set-github-token', async (_event, token) => {
+    requireAccess('owner', 'Change the GitHub monitor token');
     configStore.setGithubToken(token);
     logger.info(token ? 'GitHub monitor token saved in protected storage.' : 'GitHub monitor token removed.');
     send('state:update', fullState());
@@ -212,15 +249,17 @@ function registerIpc() {
     return { hasGithubToken: Boolean(token) };
   });
 
-  ipcMain.handle('monitor:verify', () => applicationMonitor.verifyConnection());
-  ipcMain.handle('monitor:process-queue', () => applicationMonitor.processQueue());
-  ipcMain.handle('monitor:clear-queue', () => applicationMonitor.clearQueue());
+  ipcMain.handle('monitor:verify', () => { requireAccess('owner', 'Verify GitHub reporting'); return applicationMonitor.verifyConnection(); });
+  ipcMain.handle('monitor:process-queue', () => { requireAccess('operator', 'Send queued reports'); return applicationMonitor.processQueue(); });
+  ipcMain.handle('monitor:clear-queue', () => { requireAccess('owner', 'Clear queued reports'); return applicationMonitor.clearQueue(); });
   ipcMain.handle('monitor:send-current', () => {
+    requireAccess('operator', 'Send the current error report');
     const error = supervisor.getState().lastError;
     if (!error) throw new Error('No captured error is available to send.');
     return applicationMonitor.capture(error, { source: 'manual-health-monitor', force: true });
   });
   ipcMain.handle('monitor:open-last-issue', () => {
+    requireAccess('viewer', 'Open the last GitHub issue');
     const url = applicationMonitor.getState().lastIssueUrl;
     if (!url || !/^https:\/\/github\.com\//i.test(url)) throw new Error('No GitHub issue has been created yet.');
     return shell.openExternal(url);
@@ -232,7 +271,37 @@ function registerIpc() {
     return { captured: true };
   });
 
+  ipcMain.handle('autonomy:save-settings', (_event, payload) => {
+    requireAccess('owner', 'Change autonomous operation settings');
+    const enablingAccess = Boolean(payload?.accessControlEnabled) && !autonomy.getSettings().accessControlEnabled;
+    if (enablingAccess) {
+      const ownerUserId = String(configStore.getConfig().discord.ownerUserId || '');
+      const signedInId = String(discordAuth.getState().user?.id || '');
+      if (!ownerUserId) throw new Error('Configure the owner Discord user ID before enabling access control.');
+      if (signedInId !== ownerUserId) throw new Error('Sign in with the configured owner account before enabling access control.');
+    }
+    const result = autonomy.setSettings(payload);
+    logger.info('Autonomous operation settings saved.', {
+      accessControlEnabled: result.accessControlEnabled,
+      automaticBackupsEnabled: result.automaticBackupsEnabled,
+      selfHealingEnabled: result.selfHealingEnabled
+    });
+    send('state:update', fullState());
+    return fullState();
+  });
+  ipcMain.handle('autonomy:create-backup', () => { requireAccess('operator', 'Create a verified backup'); return autonomy.createAutomaticBackup('manual'); });
+  ipcMain.handle('autonomy:health-check', () => { requireAccess('operator', 'Run server health checks'); return autonomy.checkServers(); });
+  ipcMain.handle('autonomy:recover', () => { requireAccess('operator', 'Run Safe Recovery'); return autonomy.runRecovery(); });
+  ipcMain.handle('autonomy:maintenance', () => { requireAccess('operator', 'Run Maintenance Mode'); return autonomy.runMaintenance(); });
+  ipcMain.handle('autonomy:open-backups', () => { requireAccess('viewer', 'Open the automatic backup folder'); return shell.openPath(autonomy.backupDirectory); });
+  ipcMain.handle('autonomy:copy-recovery-path', () => {
+    requireAccess('owner', 'Copy the access recovery path');
+    clipboard.writeText(autonomy.disableAccessFlagPath);
+    return { copied: true, path: autonomy.disableAccessFlagPath };
+  });
+
   ipcMain.handle('server:save', (_event, payload) => {
+    requireAccess('owner', 'Change game-server configuration');
     const id = configStore.upsertServer(payload.server, payload.password);
     logger.info('Game server configuration saved.', { id, name: payload.server.name, game: payload.server.game });
     send('state:update', fullState());
@@ -240,6 +309,7 @@ function registerIpc() {
   });
 
   ipcMain.handle('server:remove', (_event, id) => {
+    requireAccess('owner', 'Remove a game server');
     configStore.removeServer(id);
     logger.warn('Game server configuration removed.', { id });
     send('state:update', fullState());
@@ -247,6 +317,7 @@ function registerIpc() {
   });
 
   ipcMain.handle('server:test', async (_event, id) => {
+    requireAccess('operator', 'Test a game server');
     const runtime = configStore.getRuntimeBootstrap();
     const server = runtime.config.servers.find((item) => item.id === id);
     if (!server) throw new Error('Server configuration was not found.');
@@ -258,9 +329,10 @@ function registerIpc() {
   });
 
   ipcMain.handle('logs:get', (_event, limit) => logger.recent(limit || 500));
-  ipcMain.handle('logs:clear', () => { logger.clear(); return true; });
+  ipcMain.handle('logs:clear', () => { requireAccess('owner', 'Clear logs'); logger.clear(); return true; });
 
   ipcMain.handle('diagnostics:export', async () => {
+    requireAccess('operator', 'Export diagnostics');
     const report = createReport();
     const defaultPath = path.join(app.getPath('documents'), `khaos-nexus-diagnostics-${Date.now()}.json`);
     const result = await dialog.showSaveDialog(windowRef, {
@@ -275,6 +347,7 @@ function registerIpc() {
   });
 
   ipcMain.handle('backup:export', async () => {
+    requireAccess('operator', 'Export a backup');
     const defaultPath = path.join(app.getPath('documents'), `khaos-nexus-backup-${new Date().toISOString().slice(0, 10)}.knbackup`);
     const result = await dialog.showSaveDialog(windowRef, {
       title: 'Export Khaos Nexus backup',
@@ -282,13 +355,15 @@ function registerIpc() {
       filters: [{ name: 'Khaos Nexus backup', extensions: ['knbackup'] }]
     });
     if (result.canceled || !result.filePath) return { canceled: true };
-    const payload = configStore.createBackupPayload(app.getVersion());
+    const payload = autonomy.decorateBackup(configStore.createBackupPayload(app.getVersion()));
     fs.writeFileSync(result.filePath, JSON.stringify(payload, null, 2), 'utf8');
-    logger.info('Configuration backup exported.', { filePath: result.filePath });
-    return { canceled: false, filePath: result.filePath };
+    autonomy.verifyBackup(result.filePath);
+    logger.info('Configuration backup exported and verified.', { filePath: result.filePath });
+    return { canceled: false, filePath: result.filePath, valid: true };
   });
 
   ipcMain.handle('backup:import', async () => {
+    requireAccess('owner', 'Restore a backup');
     const result = await dialog.showOpenDialog(windowRef, {
       title: 'Restore Khaos Nexus backup',
       properties: ['openFile'],
@@ -297,6 +372,7 @@ function registerIpc() {
     if (result.canceled || !result.filePaths[0]) return { canceled: true };
     const payload = JSON.parse(fs.readFileSync(result.filePaths[0], 'utf8'));
     const restored = configStore.restoreBackupPayload(payload);
+    if (payload.autonomy?.settings) autonomy.restoreSettings(payload.autonomy.settings);
     applyLoginSetting(restored.general.startWithWindows);
     await discordAuth.restore();
     logger.warn('Configuration backup restored. Restart the bot to apply restored settings.', { filePath: result.filePaths[0] });
@@ -305,6 +381,7 @@ function registerIpc() {
   });
 
   ipcMain.handle('diagnostics:report', async () => {
+    requireAccess('operator', 'Open a manual GitHub report');
     const report = createReport();
     const markdown = reportAsMarkdown(report);
     clipboard.writeText(markdown);
@@ -317,10 +394,10 @@ function registerIpc() {
     return { errorId, copied: true };
   });
 
-  ipcMain.handle('app:open-data-folder', () => shell.openPath(app.getPath('userData')));
-  ipcMain.handle('update:check', () => updateService.check());
-  ipcMain.handle('update:download', () => updateService.download());
-  ipcMain.handle('update:install', () => { updateService.install(); return true; });
+  ipcMain.handle('app:open-data-folder', () => { requireAccess('owner', 'Open the data folder'); return shell.openPath(app.getPath('userData')); });
+  ipcMain.handle('update:check', () => { requireAccess('operator', 'Check for updates'); return updateService.check(); });
+  ipcMain.handle('update:download', () => { requireAccess('operator', 'Download an update'); return updateService.download(); });
+  ipcMain.handle('update:install', () => { requireAccess('owner', 'Install an update'); updateService.install(); return true; });
 }
 
 app.whenReady().then(() => {
@@ -331,6 +408,15 @@ app.whenReady().then(() => {
   updateService = new UpdateService(logger);
   applicationMonitor = new ApplicationMonitor({ configStore, logger, createReport, dataDirectory: userData });
   discordAuth = new DiscordAuth({ configStore, logger, openExternal: (url) => shell.openExternal(url) });
+  autonomy = new AutonomyService({
+    dataDirectory: userData,
+    configStore,
+    supervisor,
+    applicationMonitor,
+    logger,
+    appVersion: app.getVersion(),
+    rconFactory: (server) => new SourceRcon(server)
+  });
   app.setAppUserModelId('com.khaosnexus.desktop');
 
   logger.on('entry', (entry) => send('log:entry', entry));
@@ -342,12 +428,13 @@ app.whenReady().then(() => {
   updateService.on('state', (state) => send('update:state', state));
   applicationMonitor.on('state', () => send('state:update', fullState()));
   discordAuth.on('state', () => send('state:update', fullState()));
+  autonomy.on('state', () => send('state:update', fullState()));
 
   registerIpc();
   createWindow();
   createTray();
   applyLoginSetting(configStore.getConfig().general.startWithWindows);
-  logger.info('Khaos Nexus started.', { version: app.getVersion() });
+  logger.info('Khaos Nexus started.', { version: app.getVersion(), accessRole: accessState().role });
 
   const config = configStore.getConfig();
   setTimeout(() => discordAuth.restore().catch((error) => logger.warn('Discord login restore failed.', { message: error.message })), 1000);
@@ -358,12 +445,14 @@ app.whenReady().then(() => {
   }
   if (config.general.checkUpdates) setTimeout(() => updateService.check().catch(() => {}), 5000);
   if (config.monitor.autoReportEnabled) setTimeout(() => applicationMonitor.processQueue().catch(() => {}), 8000);
+  setTimeout(() => autonomy.schedulerTick().catch((error) => logger.warn('Initial autonomy check failed.', { message: error.message })), 12000);
 });
 
 app.on('activate', () => showWindow());
 
 app.on('before-quit', () => {
   quitting = true;
+  autonomy?.destroy();
   applicationMonitor?.destroy();
   supervisor?.stop();
 });
@@ -376,6 +465,7 @@ process.on('uncaughtException', (error) => {
   const id = errorFingerprint(error);
   recordApplicationError(error, 'desktop-main-uncaught-exception');
   logger?.fatal(`Manager uncaught exception [${id}]: ${error.stack || error.message}`);
+  autonomy?.notify('Khaos Nexus desktop error', `Error ID: ${id}`, 'error').catch(() => {});
   dialog.showErrorBox('Khaos Nexus', `A desktop error occurred. Error ID: ${id}`);
 });
 
