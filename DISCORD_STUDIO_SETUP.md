@@ -79,3 +79,7 @@ This separation prevents accidental loss and makes each external change delibera
 - Viewer: inspect templates, panels and runtime health.
 - Operator: create, edit, preview, publish, refresh and remove Discord Studio content.
 - Owner: all Operator functions plus ownership of the protected bot and server configuration.
+
+## Stable release validation
+
+The release branch rebuilds v0.10.0, reruns the complete tests and syntax checks, verifies the installer, portable executable, update metadata and checksum manifest, and publishes the release only after every gate succeeds.
