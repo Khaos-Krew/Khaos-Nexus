@@ -51,4 +51,6 @@ Khaos Nexus supports:
 
 The same transport is used by desktop health checks, Safe Recovery, Maintenance Mode, and Discord commands.
 
-Use the normal **Test** button first. It only calls the read-only `/v1/api/info` endpoint. Run announcements, moderation, shutdown, and force-stop actions only after that connection test succeeds.
+## Validation note
+
+The clean `agent/palworld-rest-v0.7.0` branch is the canonical validation branch for this release after the repository rename.
