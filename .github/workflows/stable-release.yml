@@ -15,138 +15,120 @@ concurrency:
 
 jobs:
   publish-windows-release:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Validate release branch and package version
         id: version
-        shell: pwsh
+        shell: bash
         run: |
-          $package = Get-Content package.json -Raw | ConvertFrom-Json
-          $version = [string]$package.version
-          $expectedBranch = "release/v$version"
-          if ($env:GITHUB_REF_NAME -ne $expectedBranch) {
-            throw "Release branch '$env:GITHUB_REF_NAME' does not match package version '$version'. Expected '$expectedBranch'."
-          }
-          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "tag=v$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          expected_branch="release/v${version}"
+          if [[ "$GITHUB_REF_NAME" != "$expected_branch" ]]; then
+            echo "Release branch '$GITHUB_REF_NAME' does not match package version '$version'. Expected '$expected_branch'." >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
 
       - name: Download exact validated Windows artifact
-        shell: pwsh
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $runId = 30035659968
-          $expectedHeadSha = "d202d35689f0055961bfe1a21672536d37d71d3b"
-          $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$runId" | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0) { throw "Could not read validated workflow run $runId." }
-          if ($run.name -ne "Windows Build") { throw "Workflow run $runId is '$($run.name)', not Windows Build." }
-          if ($run.conclusion -ne "success") { throw "Workflow run $runId did not complete successfully." }
-          if ($run.head_sha -ne $expectedHeadSha) {
-            throw "Workflow run $runId built '$($run.head_sha)' instead of expected '$expectedHeadSha'."
-          }
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          gh run download $runId --repo $env:GITHUB_REPOSITORY --name "Khaos-Nexus-Windows" --dir dist
-          if ($LASTEXITCODE -ne 0) { throw "Failed to download the validated Windows artifact from run $runId." }
+          set -euo pipefail
+          run_id=30035659968
+          expected_head_sha="d202d35689f0055961bfe1a21672536d37d71d3b"
+          run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")"
+          [[ "$(jq -r '.name' <<<"$run_json")" == "Windows Build" ]] || { echo "Run $run_id is not Windows Build." >&2; exit 1; }
+          [[ "$(jq -r '.conclusion' <<<"$run_json")" == "success" ]] || { echo "Run $run_id was not successful." >&2; exit 1; }
+          [[ "$(jq -r '.head_sha' <<<"$run_json")" == "$expected_head_sha" ]] || { echo "Run $run_id used the wrong source commit." >&2; exit 1; }
+          mkdir -p dist
+          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name "Khaos-Nexus-Windows" --dir dist
 
       - name: Verify updater assets and create checksums
-        shell: pwsh
+        shell: bash
         run: |
-          $version = "${{ steps.version.outputs.version }}"
-          $required = @(
-            "dist/Khaos-Nexus-Setup-$version-x64.exe",
-            "dist/Khaos-Nexus-Setup-$version-x64.exe.blockmap",
-            "dist/Khaos-Nexus-Portable-$version-x64.exe",
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          required=(
+            "dist/Khaos-Nexus-Setup-${version}-x64.exe"
+            "dist/Khaos-Nexus-Setup-${version}-x64.exe.blockmap"
+            "dist/Khaos-Nexus-Portable-${version}-x64.exe"
             "dist/latest.yml"
           )
-          foreach ($file in $required) {
-            if (-not (Test-Path $file)) { throw "Required updater asset was not found in the validated artifact: $file" }
-          }
-          $latestMetadata = Get-Content "dist/latest.yml" -Raw
-          if ($latestMetadata -notmatch "(?m)^version:\s*$([regex]::Escape($version))\s*$") {
-            throw "latest.yml does not identify version $version."
-          }
-          $required | ForEach-Object {
-            $hash = (Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash  $([System.IO.Path]::GetFileName($_))"
-          } | Set-Content -Path release-checksums.txt -Encoding utf8
+          for file in "${required[@]}"; do
+            [[ -f "$file" ]] || { echo "Required updater asset is missing: $file" >&2; exit 1; }
+          done
+          grep -Eq "^version:[[:space:]]*${version}[[:space:]]*$" dist/latest.yml || { echo "latest.yml does not identify version $version." >&2; exit 1; }
+          sha256sum "${required[@]}" | sed 's#  dist/#  #' > release-checksums.txt
 
       - name: Publish stable GitHub Release atomically
         id: publish
         continue-on-error: true
-        shell: pwsh
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $ErrorActionPreference = 'Stop'
-          Start-Transcript -Path release-publish-output.txt -Force
-          try {
-            $version = "${{ steps.version.outputs.version }}"
-            $tag = "${{ steps.version.outputs.tag }}"
-            $sourceSha = "d202d35689f0055961bfe1a21672536d37d71d3b"
-            $assets = @(
-              "dist/Khaos-Nexus-Setup-$version-x64.exe",
-              "dist/Khaos-Nexus-Setup-$version-x64.exe.blockmap",
-              "dist/Khaos-Nexus-Portable-$version-x64.exe",
-              "dist/latest.yml",
-              "release-checksums.txt"
-            )
+          set -euo pipefail
+          exec > >(tee release-publish-output.txt) 2>&1
 
-            @"
-            ## Khaos Nexus $tag
+          version="${{ steps.version.outputs.version }}"
+          tag="${{ steps.version.outputs.tag }}"
+          source_sha="d202d35689f0055961bfe1a21672536d37d71d3b"
+          assets=(
+            "dist/Khaos-Nexus-Setup-${version}-x64.exe"
+            "dist/Khaos-Nexus-Setup-${version}-x64.exe.blockmap"
+            "dist/Khaos-Nexus-Portable-${version}-x64.exe"
+            "dist/latest.yml"
+            "release-checksums.txt"
+          )
 
-            Discord Automation Center release for the Khaos Nexus stable Windows update channel.
+          cat > release-notes.md <<EOF
+          ## Khaos Nexus ${tag}
 
-            ### Included
-            - button-driven role and color menus
-            - safe role hierarchy validation
-            - additive Discord category and channel layouts
-            - structured local and optional Discord audit logs
-            - Windows installer and portable executable
-            - electron-updater metadata and NSIS blockmap
-            - SHA-256 checksum manifest
+          Discord Automation Center release for the Khaos Nexus stable Windows update channel.
 
-            The published files are the exact artifact from successful Windows Build run 30035659968 for commit `$sourceSha`.
-            "@ | Set-Content -Path release-notes.md -Encoding utf8
+          ### Included
+          - button-driven role and color menus
+          - safe role hierarchy validation
+          - additive Discord category and channel layouts
+          - structured local and optional Discord audit logs
+          - Windows installer and portable executable
+          - electron-updater metadata and NSIS blockmap
+          - SHA-256 checksum manifest
 
-            $releaseJson = gh release view $tag --json isDraft,assets 2>$null
-            $releaseExists = $LASTEXITCODE -eq 0
-            if ($releaseExists) {
-              $release = $releaseJson | ConvertFrom-Json
-              if (-not $release.isDraft) {
-                $assetNames = @($release.assets | ForEach-Object { $_.name })
-                foreach ($asset in $assets) {
-                  $name = [System.IO.Path]::GetFileName($asset)
-                  if ($assetNames -notcontains $name) { throw "Published release $tag is missing $name." }
-                }
-                Write-Host "Release $tag is already published with all required assets."
-                exit 0
-              }
-              Write-Host "Removing incomplete draft release $tag before atomic recreation."
-              gh release delete $tag --cleanup-tag --yes
-              if ($LASTEXITCODE -ne 0) { throw "Could not delete the incomplete draft release $tag." }
-            }
+          The published files are the exact artifact from successful Windows Build run 30035659968 for commit ${source_sha}.
+          EOF
 
-            gh release create $tag @assets --target $sourceSha --title "Khaos Nexus $tag" --notes-file release-notes.md --draft
-            if ($LASTEXITCODE -ne 0) { throw "Atomic GitHub draft release creation or asset upload failed." }
+          if release_json="$(gh release view "$tag" --json isDraft,assets 2>/dev/null)"; then
+            if [[ "$(jq -r '.isDraft' <<<"$release_json")" == "false" ]]; then
+              for asset in "${assets[@]}"; do
+                name="$(basename "$asset")"
+                jq -e --arg name "$name" '.assets[] | select(.name == $name)' <<<"$release_json" >/dev/null || { echo "Published release $tag is missing $name." >&2; exit 1; }
+              done
+              echo "Release $tag is already published with every required asset."
+              exit 0
+            fi
+            echo "Removing incomplete draft release $tag before atomic recreation."
+            gh release delete "$tag" --cleanup-tag --yes
+          fi
 
-            $draftJson = gh release view $tag --json isDraft,assets
-            if ($LASTEXITCODE -ne 0) { throw "Could not verify the newly created draft release." }
-            $draft = $draftJson | ConvertFrom-Json
-            $assetNames = @($draft.assets | ForEach-Object { $_.name })
-            foreach ($asset in $assets) {
-              $name = [System.IO.Path]::GetFileName($asset)
-              if ($assetNames -notcontains $name) { throw "Draft release asset verification failed: $name is missing." }
-            }
+          gh release create "$tag" "${assets[@]}" --target "$source_sha" --title "Khaos Nexus $tag" --notes-file release-notes.md --draft
 
-            gh release edit $tag --draft=false --latest
-            if ($LASTEXITCODE -ne 0) { throw "Failed to publish stable release $tag." }
-            Write-Host "Published $tag with all required updater assets."
-          }
-          finally {
-            Stop-Transcript
-          }
+          draft_json="$(gh release view "$tag" --json isDraft,assets)"
+          [[ "$(jq -r '.isDraft' <<<"$draft_json")" == "true" ]] || { echo "Expected $tag to remain a draft during verification." >&2; exit 1; }
+          for asset in "${assets[@]}"; do
+            name="$(basename "$asset")"
+            jq -e --arg name "$name" '.assets[] | select(.name == $name)' <<<"$draft_json" >/dev/null || { echo "Draft release is missing $name." >&2; exit 1; }
+          done
+
+          gh release edit "$tag" --draft=false --latest
+          published_json="$(gh release view "$tag" --json isDraft,assets)"
+          [[ "$(jq -r '.isDraft' <<<"$published_json")" == "false" ]] || { echo "Release $tag was not published." >&2; exit 1; }
+          echo "Published $tag with every required updater asset."
 
       - name: Upload release publication transcript
         if: always()
@@ -154,9 +136,12 @@ jobs:
         with:
           name: stable-release-output
           path: release-publish-output.txt
+          if-no-files-found: warn
           retention-days: 7
 
       - name: Fail if release publication failed
         if: steps.publish.outcome == 'failure'
-        shell: pwsh
-        run: throw "Stable release publication failed. See the stable-release-output artifact."
+        shell: bash
+        run: |
+          echo "Stable release publication failed. See the stable-release-output artifact." >&2
+          exit 1
