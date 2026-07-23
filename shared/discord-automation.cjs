@@ -123,7 +123,9 @@ function normalizeChannel(channel = {}) {
   const type = ['text', 'announcement', 'voice'].includes(channel.type) ? channel.type : 'text';
   return {
     id: normalizeId(channel.id, 'channel'),
-    name: cleanText(channel.name, 100, type === 'voice' ? 'voice-chat' : 'new-channel').toLowerCase().replace(/\s+/g, '-'),
+    name: type === 'voice'
+      ? cleanText(channel.name, 100, 'Voice Chat')
+      : cleanText(channel.name, 100, 'new-channel').toLowerCase().replace(/\s+/g, '-'),
     type,
     topic: type === 'voice' ? '' : cleanText(channel.topic, 1024),
     nsfw: type === 'voice' ? false : Boolean(channel.nsfw),
@@ -207,7 +209,9 @@ function planLayout(layoutInput, existingInput = []) {
       : { action: 'create', kind: 'category', name: category.name, blueprintId: category.id, ref: categoryRef });
     for (const channel of category.channels) {
       const type = channelTypeValue(channel.type);
-      const foundChannel = existing.find((item) => item.type === type && item.name.toLowerCase() === channel.name.toLowerCase() && (!foundCategory || item.parentId === foundCategory.id));
+      const foundChannel = foundCategory
+        ? existing.find((item) => item.type === type && item.name.toLowerCase() === channel.name.toLowerCase() && item.parentId === foundCategory.id)
+        : null;
       operations.push(foundChannel
         ? { action: 'unchanged', kind: channel.type, name: channel.name, existingId: foundChannel.id, parentRef: categoryRef }
         : { action: 'create', kind: channel.type, name: channel.name, blueprintId: channel.id, parentRef: categoryRef, settings: channel });
