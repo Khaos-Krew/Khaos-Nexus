@@ -12,7 +12,7 @@ const assets = [
 for (const [sourceRelative, targetRelative] of assets) {
   const source = path.join(root, sourceRelative);
   const target = path.join(root, targetRelative);
-  if (!fs.existsSync(source)) continue;
+  if (fs.existsSync(target) || !fs.existsSync(source)) continue;
   const encoded = fs.readFileSync(source, 'utf8').replace(/\s+/g, '');
   const decoded = Buffer.from(encoded, 'base64');
   if (decoded.length === 0) throw new Error(`Could not decode ${sourceRelative}`);

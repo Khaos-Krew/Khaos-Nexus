@@ -1,6 +1,6 @@
 {
   "name": "khaos-nexus",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Local-first desktop control center for the Khaos Nexus community, Discord bot, and game servers.",
   "main": "main/entry.cjs",
   "author": "Khaos Krew",
@@ -25,6 +25,7 @@
   "build": {
     "appId": "com.khaosnexus.desktop",
     "productName": "Khaos Nexus",
+    "electronUpdaterCompatibility": ">=2.16",
     "directories": {
       "output": "dist",
       "buildResources": "assets"
