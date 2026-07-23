@@ -8,6 +8,7 @@ on:
 permissions:
   contents: write
   actions: read
+  statuses: write
 
 concurrency:
   group: stable-release-${{ github.ref }}
@@ -138,6 +139,25 @@ jobs:
           path: release-publish-output.txt
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Record stable release verification status
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          source_sha="d202d35689f0055961bfe1a21672536d37d71d3b"
+          state="success"
+          description="v0.12.0 release assets verified and published"
+          if [[ "${{ steps.publish.outcome }}" == "failure" ]]; then
+            state="failure"
+            description="v0.12.0 release publication failed"
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$source_sha" \
+            -f state="$state" \
+            -f context="stable-release/v0.12.0" \
+            -f description="$description" \
+            -f target_url="https://github.com/$GITHUB_REPOSITORY/releases/tag/v0.12.0"
 
       - name: Fail if release publication failed
         if: steps.publish.outcome == 'failure'
