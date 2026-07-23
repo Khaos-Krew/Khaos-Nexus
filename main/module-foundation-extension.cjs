@@ -74,6 +74,19 @@ function payload() {
   return { role, steps: MIGRATION_STEPS, catalog, summary: summarizeMigration(states, role), states };
 }
 
+function lockedPayload() {
+  const access = refs.autonomy?.accessState?.(refs.discordAuth?.getState?.()) || {};
+  return {
+    role: 'locked',
+    locked: true,
+    reason: access.reason || 'Sign in with an authorized Discord account.',
+    steps: [],
+    catalog: [],
+    summary: { overallProgress: 0, completed: 0, enabled: 0, total: 0, byStage: {} },
+    states: {}
+  };
+}
+
 function patchBrowserLoader() {
   const prototype = electron.BrowserWindow?.prototype;
   if (!prototype || prototype.__khaosModuleUiPatched) return;
@@ -93,7 +106,10 @@ function patchBrowserLoader() {
 function registerIpc() {
   if (registerIpc.done || !refs.configStore) return;
   registerIpc.done = true;
-  electron.ipcMain.handle('modules:get', () => { assertAccess('viewer', 'View the module migration center'); return payload(); });
+  electron.ipcMain.handle('modules:get', () => {
+    if (!roleAtLeast(activeRole(), 'viewer')) return lockedPayload();
+    return payload();
+  });
   electron.ipcMain.handle('modules:update', (_event, request = {}) => {
     assertAccess('owner', 'Change module migration settings');
     const result = refs.configStore.setModuleState(String(request.id || ''), request.patch || {});
