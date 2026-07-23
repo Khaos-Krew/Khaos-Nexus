@@ -41,7 +41,7 @@
     ],
     "asar": true,
     "win": {
-      "icon": "assets/icon.ico",
+      "icon": "assets/icon.png",
       "target": [
         {
           "target": "nsis",
