@@ -1,0 +1,22 @@
+.monitor-automation-panel { margin-top: 18px; }
+.monitor-heading { align-items: flex-start; }
+.monitor-summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0; }
+.monitor-summary { border: 1px solid var(--line); background: #0d0f14; border-radius: 11px; padding: 14px; min-height: 92px; }
+.monitor-summary span, .monitor-summary small { display: block; color: var(--muted); }
+.monitor-summary strong { display: block; font-size: 18px; margin: 8px 0 2px; overflow: hidden; text-overflow: ellipsis; }
+.monitor-token-row { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 10px; margin-top: 15px; }
+.monitor-token-row .button { white-space: nowrap; }
+.monitor-permission-note { border-left: 3px solid var(--amber); background: rgba(246,186,75,.06); padding: 11px 13px; border-radius: 7px; color: var(--muted); margin-top: 14px; }
+.monitor-permission-note strong { color: var(--text); }
+.monitor-ready { color: var(--green); border-color: rgba(75,216,156,.35); }
+.monitor-sending, .monitor-checking, .monitor-queued, .monitor-waiting-for-token { color: var(--amber); border-color: rgba(246,186,75,.35); }
+.monitor-error { color: var(--red-bright); border-color: rgba(229,45,62,.45); }
+.monitor-disabled, .monitor-idle { color: var(--muted); }
+.monitor-actions { border-top: 1px solid var(--line-soft); padding-top: 16px; margin-top: 18px; }
+#monitorDeliveryState { min-height: 45px; }
+@media (max-width: 1100px) {
+  .monitor-summary-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 760px) {
+  .monitor-summary-grid, .monitor-token-row { grid-template-columns: 1fr; }
+}
