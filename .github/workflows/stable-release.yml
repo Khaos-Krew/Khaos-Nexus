@@ -90,8 +90,8 @@ jobs:
           The release was rebuilt from commit `$env:GITHUB_SHA` and passed the complete tests and syntax checks before publication.
           "@ | Set-Content -Path release-notes.md -Encoding utf8
 
-          gh release create $tag --target $env:GITHUB_SHA --title "Khaos Nexus $tag" --notes-file release-notes.md --latest
-          if ($LASTEXITCODE -ne 0) { throw "GitHub release creation failed." }
+          gh release create $tag --target $env:GITHUB_SHA --title "Khaos Nexus $tag" --notes-file release-notes.md --draft
+          if ($LASTEXITCODE -ne 0) { throw "GitHub draft release creation failed." }
 
           $assets = Get-ChildItem dist -File | Where-Object { $_.Extension -in '.exe', '.yml', '.blockmap' }
           foreach ($asset in $assets) {
@@ -100,3 +100,6 @@ jobs:
           }
           gh release upload $tag release-checksums.txt
           if ($LASTEXITCODE -ne 0) { throw "Failed to upload release-checksums.txt." }
+
+          gh release edit $tag --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw "Failed to publish stable release $tag." }
