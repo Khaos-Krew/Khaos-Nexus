@@ -72,7 +72,7 @@ jobs:
             "$hash  $([System.IO.Path]::GetFileName($_))"
           } | Set-Content -Path release-checksums.txt -Encoding utf8
 
-      - name: Publish stable GitHub Release
+      - name: Publish or resume stable GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -80,8 +80,6 @@ jobs:
           $version = "${{ steps.version.outputs.version }}"
           $tag = "${{ steps.version.outputs.tag }}"
           $sourceSha = "d202d35689f0055961bfe1a21672536d37d71d3b"
-          gh release view $tag *> $null
-          if ($LASTEXITCODE -eq 0) { throw "Stable release $tag already exists. Increase package.json before publishing again." }
 
           @"
           ## Khaos Nexus $tag
@@ -100,8 +98,16 @@ jobs:
           The published files are the exact artifact from successful Windows Build run 30035659968 for commit `$sourceSha`.
           "@ | Set-Content -Path release-notes.md -Encoding utf8
 
-          gh release create $tag --target $sourceSha --title "Khaos Nexus $tag" --notes-file release-notes.md --draft
-          if ($LASTEXITCODE -ne 0) { throw "GitHub draft release creation failed." }
+          $releaseJson = gh release view $tag --json isDraft,tagName 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            $release = $releaseJson | ConvertFrom-Json
+            if (-not $release.isDraft) { throw "Stable release $tag is already published." }
+            gh release edit $tag --title "Khaos Nexus $tag" --notes-file release-notes.md
+            if ($LASTEXITCODE -ne 0) { throw "Could not refresh the existing draft release notes." }
+          } else {
+            gh release create $tag --target $sourceSha --title "Khaos Nexus $tag" --notes-file release-notes.md --draft
+            if ($LASTEXITCODE -ne 0) { throw "GitHub draft release creation failed." }
+          }
 
           $assets = @(
             "dist/Khaos-Nexus-Setup-$version-x64.exe",
@@ -111,8 +117,14 @@ jobs:
             "release-checksums.txt"
           )
           foreach ($asset in $assets) {
-            gh release upload $tag $asset
+            gh release upload $tag $asset --clobber
             if ($LASTEXITCODE -ne 0) { throw "Failed to upload $asset." }
+          }
+
+          $assetNames = gh release view $tag --json assets --jq '.assets[].name'
+          foreach ($asset in $assets) {
+            $name = [System.IO.Path]::GetFileName($asset)
+            if ($assetNames -notcontains $name) { throw "Release asset verification failed: $name is missing." }
           }
 
           gh release edit $tag --draft=false --latest
