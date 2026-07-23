@@ -50,3 +50,5 @@ Khaos Nexus supports:
 - world actor snapshot summary and JSON export
 
 The same transport is used by desktop health checks, Safe Recovery, Maintenance Mode, and Discord commands.
+
+Use the normal **Test** button first. It only calls the read-only `/v1/api/info` endpoint. Run announcements, moderation, shutdown, and force-stop actions only after that connection test succeeds.
