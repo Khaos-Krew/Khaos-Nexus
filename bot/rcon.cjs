@@ -3,10 +3,26 @@
 const net = require('node:net');
 const { encodePacket, decodePackets } = require('../shared/rcon-protocol.cjs');
 
+function validateConnectionOptions({ host, port }) {
+  const normalizedHost = String(host || '').trim();
+  const normalizedPort = Number(port);
+
+  if (!normalizedHost) throw new Error('RCON host is required.');
+  if (/^[^\[\]]+:\d+$/.test(normalizedHost)) {
+    throw new Error('Enter only the server IP or hostname in Host. Put the RCON port in the separate Port field.');
+  }
+  if (!Number.isInteger(normalizedPort) || normalizedPort < 1 || normalizedPort > 65535) {
+    throw new Error('RCON port must be a whole number between 1 and 65535.');
+  }
+
+  return { host: normalizedHost, port: normalizedPort };
+}
+
 class SourceRcon {
   constructor({ host, port, password, timeoutMs = 7000 }) {
-    this.host = host;
-    this.port = Number(port);
+    const validated = validateConnectionOptions({ host, port });
+    this.host = validated.host;
+    this.port = validated.port;
     this.password = password;
     this.timeoutMs = timeoutMs;
   }
@@ -16,6 +32,7 @@ class SourceRcon {
       const socket = net.createConnection({ host: this.host, port: this.port });
       let buffer = Buffer.alloc(0);
       let authenticated = false;
+      let receivedPacket = false;
       let finished = false;
       let response = '';
       const authId = 1;
@@ -46,7 +63,7 @@ class SourceRcon {
       };
 
       const overallTimer = setTimeout(() => {
-        finish(new Error(`RCON request timed out after ${this.timeoutMs}ms`));
+        finish(new Error(`RCON request timed out after ${this.timeoutMs}ms. Confirm RCON is enabled, the RCON port is correct, and the host allows external RCON connections.`));
       }, this.timeoutMs);
 
       socket.setNoDelay(true);
@@ -63,9 +80,10 @@ class SourceRcon {
           buffer = decoded.remaining;
 
           for (const packet of decoded.packets) {
+            receivedPacket = true;
             if (!authenticated) {
               if (packet.requestId === -1) {
-                finish(new Error('RCON authentication failed'));
+                finish(new Error('RCON authentication failed. Confirm the RCON password, not the game-server join password.'));
                 return;
               }
               if (packet.requestId === authId && packet.type === 2) {
@@ -89,16 +107,20 @@ class SourceRcon {
         }
       });
 
-      socket.on('timeout', () => finish(new Error('RCON socket timed out')));
+      socket.on('timeout', () => finish(new Error('RCON socket timed out. Confirm the RCON port and firewall or hosting-provider access rules.')));
       socket.on('error', (error) => finish(new Error(`RCON connection failed: ${error.message}`)));
       socket.on('end', () => {
-        if (!finished) {
-          if (authenticated && response) finish(null, response.trim());
-          else finish(new Error('RCON connection closed before a response was received'));
+        if (finished) return;
+        if (authenticated && response) {
+          finish(null, response.trim());
+        } else if (!authenticated && !receivedPacket) {
+          finish(new Error('The server closed the RCON connection before authentication. RCON may be disabled, the port may not be the RCON port, or the server may have rejected the RCON password.'));
+        } else {
+          finish(new Error('RCON connection closed before a command response was received.'));
         }
       });
     });
   }
 }
 
-module.exports = { SourceRcon };
+module.exports = { SourceRcon, validateConnectionOptions };
