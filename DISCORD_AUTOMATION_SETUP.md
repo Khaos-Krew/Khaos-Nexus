@@ -60,3 +60,7 @@ Owners can optionally publish audit entries to a private Discord text channel. G
 - Discord messages disable generated mentions.
 - Operators can build and publish menus; applying a server layout requires Owner access.
 - Audit settings and history clearing require Owner access.
+
+## Validation gate
+
+v0.12.0 is distributed only after the complete test suite, syntax checks, Windows installer build, and portable executable build pass against the same source snapshot.
