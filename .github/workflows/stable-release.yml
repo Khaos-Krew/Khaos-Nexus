@@ -38,7 +38,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $runId = 29993562291
-          $expectedHeadSha = "2a24e4d153794e9b19776569a5ed2a1ae1b414fa"
+          $expectedHeadSha = "ae76af42907d6ca095bd233e0b413eeb2817db39"
           $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$runId" | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) { throw "Could not read validated workflow run $runId." }
           if ($run.name -ne "Windows Build") { throw "Workflow run $runId is '$($run.name)', not Windows Build." }
@@ -79,7 +79,7 @@ jobs:
         run: |
           $version = "${{ steps.version.outputs.version }}"
           $tag = "${{ steps.version.outputs.tag }}"
-          $sourceSha = "2a24e4d153794e9b19776569a5ed2a1ae1b414fa"
+          $sourceSha = "ae76af42907d6ca095bd233e0b413eeb2817db39"
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) { throw "Stable release $tag already exists. Increase package.json before publishing again." }
 
@@ -95,7 +95,7 @@ jobs:
           - NSIS blockmap
           - SHA-256 checksum manifest
 
-          The published files are the exact artifact from successful Windows Build run 29993562291 for commit `$sourceSha`.
+          The published files are the exact artifact from successful Windows Build run 29993562291 for source commit `$sourceSha`.
           "@ | Set-Content -Path release-notes.md -Encoding utf8
 
           gh release create $tag --target $sourceSha --title "Khaos Nexus $tag" --notes-file release-notes.md --draft
