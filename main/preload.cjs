@@ -18,5 +18,10 @@ contextBridge.exposeInMainWorld('khaos', {
     const listener = (_event, state) => callback(state);
     ipcRenderer.on('update:state', listener);
     return () => ipcRenderer.removeListener('update:state', listener);
+  },
+  onDiscordAutomation: (callback) => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on('discord-automation:update', listener);
+    return () => ipcRenderer.removeListener('discord-automation:update', listener);
   }
 });
