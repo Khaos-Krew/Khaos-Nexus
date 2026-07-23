@@ -1,18 +1,19 @@
-# Khaos Nexus
+# Khaos-Nexus
 
-A local-first Windows desktop control center for the Khaos Nexus Discord bot, game servers, diagnostics, backups, and future community modules. It is designed to operate without Lovable credits or a hosted control panel.
+Management system for Discord bots and a local-first Windows desktop control center for the Khaos Nexus community, game servers, diagnostics, backups, and future modules. It is designed to operate without Lovable credits or a hosted control panel.
 
 ## Current capabilities
 
 - Start, stop, and restart the Discord bot from a desktop dashboard.
 - Isolate the bot in a supervised process so a module failure does not crash the desktop manager.
 - Automatically restart unexpected crashes with exponential backoff and a safety limit.
-- Store Discord, RCON, GitHub monitor, and Discord OAuth credentials with Electron/Windows protected storage.
+- Store Discord, RCON, Palworld REST, GitHub monitor, and Discord OAuth credentials with Electron/Windows protected storage.
 - Sign desktop operators in with Discord through the system browser using Authorization Code with PKCE.
 - Restore and refresh Discord login sessions after Windows restarts.
 - Authorize the owner and additional trusted operator Discord user IDs.
-- Manage ARK, Palworld, and generic Source RCON connections.
-- Provide slash commands for ping, health, server status, players, save, broadcast, kick, ban, and advanced RCON.
+- Manage ARK and generic Source RCON connections.
+- Manage Palworld 1.0 servers through the official REST API, with legacy RCON as an explicit fallback.
+- Provide slash commands for ping, health, status, players, save, broadcast, moderation, metrics, settings, shutdown, and advanced RCON where supported.
 - Capture redacted logs, stable error fingerprints, diagnostics exports, and GitHub reports.
 - Automatically create GitHub issues for new errors and comment on existing issues when the same error repeats.
 - Queue reports locally while offline or while credentials are unavailable.
@@ -39,11 +40,11 @@ When no Actions build is available, extract the source package and double-click 
 4. Under OAuth2, enable **Public Client** and add `http://127.0.0.1:43119/callback` as a redirect.
 5. Open **Discord** in Khaos Nexus and enter the bot token, Discord server ID, owner user ID, application client ID, and any additional trusted operator IDs.
 6. Select **Sign in with Discord** and approve the `identify` and `guilds` scopes in the browser.
-7. Add hosted game servers under **Game Servers** using their RCON address, port, and password.
+7. Add game servers under **Game Servers**. Palworld should use its REST API port and AdminPassword; ARK and generic servers use their RCON details.
 8. Open **Application Monitor**, add the protected GitHub token, verify the connection, and enable automatic reporting when ready.
 9. Start the bot from the Command Center.
 
-Protected tokens and RCON passwords are not written to the normal configuration file and are excluded from diagnostics.
+Protected tokens and server-management passwords are not written to the normal configuration file and are excluded from diagnostics.
 
 ## Discord operator login
 
