@@ -92,10 +92,11 @@ test('service applies only missing Discord layout items', async () => {
   const calls = [];
   const fakeRest = {
     async get(route) {
-      if (route.endsWith('/roles')) return [{ id: 'botrole', name: 'Bot', position: 10, managed: false }];
-      if (route.endsWith('/channels')) return [];
-      if (route.endsWith('/@me')) return { id: 'botuser', username: 'Nexus' };
-      if (route.includes('/members/')) return { roles: ['botrole'] };
+      const decodedRoute = decodeURIComponent(route);
+      if (decodedRoute.endsWith('/roles')) return [{ id: 'botrole', name: 'Bot', position: 10, managed: false }];
+      if (decodedRoute.endsWith('/channels')) return [];
+      if (decodedRoute.endsWith('/users/@me')) return { id: 'botuser', username: 'Nexus' };
+      if (decodedRoute.includes('/members/')) return { roles: ['botrole'] };
       throw new Error(`Unexpected GET ${route}`);
     },
     async post(route, { body }) { calls.push({ route, body }); return { id: String(90000 + calls.length), ...body }; }
