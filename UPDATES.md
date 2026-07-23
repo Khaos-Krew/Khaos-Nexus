@@ -59,3 +59,7 @@ The Windows package icon is generated from the supplied 256×256 Khaos Nexus cre
 - Portable downloads are checked against GitHub's SHA-256 release-asset digest.
 - A pre-update backup is created before installation.
 - The application accepts releases only from the official `Khaos-Krew/Khaos-Nexus` repository.
+
+## Current stable publication
+
+The `release/v0.9.0` branch publishes Khaos Nexus v0.9.0 as the first live stable update-channel release.
