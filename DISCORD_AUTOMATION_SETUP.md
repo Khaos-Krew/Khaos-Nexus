@@ -63,4 +63,4 @@ Owners can optionally publish audit entries to a private Discord text channel. G
 
 ## Validation gate
 
-v0.12.0 is distributed only after the complete test suite, syntax checks, Windows installer build, and portable executable build pass against the same source snapshot.
+v0.12.0 passed the complete test suite, syntax checks, Windows installer build, and portable executable build against source commit `d202d35689f0055961bfe1a21672536d37d71d3b` before stable publication.
