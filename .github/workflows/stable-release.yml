@@ -72,60 +72,91 @@ jobs:
             "$hash  $([System.IO.Path]::GetFileName($_))"
           } | Set-Content -Path release-checksums.txt -Encoding utf8
 
-      - name: Publish or resume stable GitHub Release
+      - name: Publish stable GitHub Release atomically
+        id: publish
+        continue-on-error: true
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $version = "${{ steps.version.outputs.version }}"
-          $tag = "${{ steps.version.outputs.tag }}"
-          $sourceSha = "d202d35689f0055961bfe1a21672536d37d71d3b"
+          $ErrorActionPreference = 'Stop'
+          Start-Transcript -Path release-publish-output.txt -Force
+          try {
+            $version = "${{ steps.version.outputs.version }}"
+            $tag = "${{ steps.version.outputs.tag }}"
+            $sourceSha = "d202d35689f0055961bfe1a21672536d37d71d3b"
+            $assets = @(
+              "dist/Khaos-Nexus-Setup-$version-x64.exe",
+              "dist/Khaos-Nexus-Setup-$version-x64.exe.blockmap",
+              "dist/Khaos-Nexus-Portable-$version-x64.exe",
+              "dist/latest.yml",
+              "release-checksums.txt"
+            )
 
-          @"
-          ## Khaos Nexus $tag
+            @"
+            ## Khaos Nexus $tag
 
-          Discord Automation Center release for the Khaos Nexus stable Windows update channel.
+            Discord Automation Center release for the Khaos Nexus stable Windows update channel.
 
-          ### Included
-          - button-driven role and color menus
-          - safe role hierarchy validation
-          - additive Discord category and channel layouts
-          - structured local and optional Discord audit logs
-          - Windows installer and portable executable
-          - electron-updater metadata and NSIS blockmap
-          - SHA-256 checksum manifest
+            ### Included
+            - button-driven role and color menus
+            - safe role hierarchy validation
+            - additive Discord category and channel layouts
+            - structured local and optional Discord audit logs
+            - Windows installer and portable executable
+            - electron-updater metadata and NSIS blockmap
+            - SHA-256 checksum manifest
 
-          The published files are the exact artifact from successful Windows Build run 30035659968 for commit `$sourceSha`.
-          "@ | Set-Content -Path release-notes.md -Encoding utf8
+            The published files are the exact artifact from successful Windows Build run 30035659968 for commit `$sourceSha`.
+            "@ | Set-Content -Path release-notes.md -Encoding utf8
 
-          $releaseJson = gh release view $tag --json isDraft,tagName 2>$null
-          if ($LASTEXITCODE -eq 0) {
-            $release = $releaseJson | ConvertFrom-Json
-            if (-not $release.isDraft) { throw "Stable release $tag is already published." }
-            gh release edit $tag --title "Khaos Nexus $tag" --notes-file release-notes.md
-            if ($LASTEXITCODE -ne 0) { throw "Could not refresh the existing draft release notes." }
-          } else {
-            gh release create $tag --target $sourceSha --title "Khaos Nexus $tag" --notes-file release-notes.md --draft
-            if ($LASTEXITCODE -ne 0) { throw "GitHub draft release creation failed." }
+            $releaseJson = gh release view $tag --json isDraft,assets 2>$null
+            $releaseExists = $LASTEXITCODE -eq 0
+            if ($releaseExists) {
+              $release = $releaseJson | ConvertFrom-Json
+              if (-not $release.isDraft) {
+                $assetNames = @($release.assets | ForEach-Object { $_.name })
+                foreach ($asset in $assets) {
+                  $name = [System.IO.Path]::GetFileName($asset)
+                  if ($assetNames -notcontains $name) { throw "Published release $tag is missing $name." }
+                }
+                Write-Host "Release $tag is already published with all required assets."
+                exit 0
+              }
+              Write-Host "Removing incomplete draft release $tag before atomic recreation."
+              gh release delete $tag --cleanup-tag --yes
+              if ($LASTEXITCODE -ne 0) { throw "Could not delete the incomplete draft release $tag." }
+            }
+
+            gh release create $tag @assets --target $sourceSha --title "Khaos Nexus $tag" --notes-file release-notes.md --draft
+            if ($LASTEXITCODE -ne 0) { throw "Atomic GitHub draft release creation or asset upload failed." }
+
+            $draftJson = gh release view $tag --json isDraft,assets
+            if ($LASTEXITCODE -ne 0) { throw "Could not verify the newly created draft release." }
+            $draft = $draftJson | ConvertFrom-Json
+            $assetNames = @($draft.assets | ForEach-Object { $_.name })
+            foreach ($asset in $assets) {
+              $name = [System.IO.Path]::GetFileName($asset)
+              if ($assetNames -notcontains $name) { throw "Draft release asset verification failed: $name is missing." }
+            }
+
+            gh release edit $tag --draft=false --latest
+            if ($LASTEXITCODE -ne 0) { throw "Failed to publish stable release $tag." }
+            Write-Host "Published $tag with all required updater assets."
+          }
+          finally {
+            Stop-Transcript
           }
 
-          $assets = @(
-            "dist/Khaos-Nexus-Setup-$version-x64.exe",
-            "dist/Khaos-Nexus-Setup-$version-x64.exe.blockmap",
-            "dist/Khaos-Nexus-Portable-$version-x64.exe",
-            "dist/latest.yml",
-            "release-checksums.txt"
-          )
-          foreach ($asset in $assets) {
-            gh release upload $tag $asset --clobber
-            if ($LASTEXITCODE -ne 0) { throw "Failed to upload $asset." }
-          }
+      - name: Upload release publication transcript
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stable-release-output
+          path: release-publish-output.txt
+          retention-days: 7
 
-          $assetNames = gh release view $tag --json assets --jq '.assets[].name'
-          foreach ($asset in $assets) {
-            $name = [System.IO.Path]::GetFileName($asset)
-            if ($assetNames -notcontains $name) { throw "Release asset verification failed: $name is missing." }
-          }
-
-          gh release edit $tag --draft=false --latest
-          if ($LASTEXITCODE -ne 0) { throw "Failed to publish stable release $tag." }
+      - name: Fail if release publication failed
+        if: steps.publish.outcome == 'failure'
+        shell: pwsh
+        run: throw "Stable release publication failed. See the stable-release-output artifact."
