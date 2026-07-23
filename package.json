@@ -1,6 +1,6 @@
 {
   "name": "khaos-nexus",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Local-first desktop control center for the Khaos Nexus community, Discord bot, and game servers.",
   "main": "main/entry.cjs",
   "author": "Khaos Krew",
