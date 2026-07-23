@@ -2,12 +2,13 @@
 
 const {
   Client,
+  Events,
   GatewayIntentBits,
   REST,
   Routes
 } = require('discord.js');
 const { createCommands, isAdministrator, requiresAdministrator } = require('./commands.cjs');
-const { SourceRcon } = require('./rcon.cjs');
+const { ServerConnection, isPalworldRest } = require('./server-client.cjs');
 const { redactText, errorFingerprint } = require('../shared/redaction.cjs');
 
 const parent = process.parentPort;
@@ -36,64 +37,101 @@ function getServer(name) {
   return servers.find((server) => server.name.toLowerCase() === String(name || '').toLowerCase());
 }
 
-function rconCommand(server, action, value) {
-  const game = String(server.game || 'generic').toLowerCase();
-  const commands = {
-    ark: {
-      status: 'ListPlayers',
-      players: 'ListPlayers',
-      saveworld: 'SaveWorld',
-      broadcast: `Broadcast ${value}`,
-      kick: `KickPlayer ${value}`,
-      ban: `BanPlayer ${value}`
-    },
-    palworld: {
-      status: 'Info',
-      players: 'ShowPlayers',
-      saveworld: 'Save',
-      broadcast: `Broadcast ${value}`,
-      kick: `KickPlayer ${value}`,
-      ban: `BanPlayer ${value}`
-    },
-    generic: {
-      status: server.statusCommand || 'status',
-      players: server.playersCommand || 'list',
-      saveworld: server.saveCommand || 'save-all',
-      broadcast: `${server.broadcastCommand || 'broadcast'} ${value}`,
-      kick: `${server.kickCommand || 'kick'} ${value}`,
-      ban: `${server.banCommand || 'ban'} ${value}`
-    }
-  };
-  return (commands[game] || commands.generic)[action];
-}
-
 function formatCodeBlock(value) {
-  const safe = String(value || 'Command completed with no response.').replace(/```/g, "''' ");
+  const safe = String(value || 'Command completed successfully.').replace(/```/g, "''' ");
   return `\`\`\`text\n${safe.slice(0, 1850)}\n\`\`\``;
 }
 
-async function executeServerAction(interaction, action) {
-  const name = interaction.options.getString('server');
-  const server = getServer(name);
+function formatDuration(seconds) {
+  const total = Math.max(0, Number(seconds) || 0);
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  return days ? `${days}d ${hours}h` : hours ? `${hours}h ${minutes}m` : `${minutes}m`;
+}
+
+function publicPlayers(payload) {
+  const players = Array.isArray(payload?.players) ? payload.players : [];
+  if (!players.length) return 'No players are currently connected.';
+  return players.map((player) => [
+    player.name || player.accountName || 'Unknown',
+    player.userId || player.playerId || 'no user ID',
+    `Lv ${player.level ?? '?'}`,
+    `${Math.round(Number(player.ping) || 0)} ms`
+  ].join(' | ')).join('\n');
+}
+
+function formatResult(action, result) {
+  if (action === 'players') return publicPlayers(result);
+  if (action === 'status' && result?.info) {
+    const metrics = result.metrics || {};
+    return [
+      `Name: ${result.info.servername || 'Unknown'}`,
+      `Version: ${result.info.version || 'Unknown'}`,
+      `Players: ${metrics.currentplayernum ?? '?'} / ${metrics.maxplayernum ?? '?'}`,
+      `Server FPS: ${metrics.serverfps ?? '?'}`,
+      `Frame time: ${metrics.serverframetime ?? '?'} ms`,
+      `Uptime: ${formatDuration(metrics.uptime)}`,
+      `World day: ${metrics.days ?? '?'}`
+    ].join('\n');
+  }
+  if (action === 'metrics') {
+    return [
+      `Players: ${result.currentplayernum ?? '?'} / ${result.maxplayernum ?? '?'}`,
+      `Server FPS: ${result.serverfps ?? '?'}`,
+      `Frame time: ${result.serverframetime ?? '?'} ms`,
+      `Uptime: ${formatDuration(result.uptime)}`,
+      `Base camps: ${result.basecampnum ?? '?'}`,
+      `World day: ${result.days ?? '?'}`
+    ].join('\n');
+  }
+  if (action === 'game-data-summary') {
+    return [
+      `Snapshot time: ${result.time || 'Unknown'}`,
+      `FPS: ${result.fps ?? '?'} (average ${result.averageFps ?? '?'})`,
+      `Actors: ${result.actorCount ?? 0}`,
+      ...Object.entries(result.actorTypes || {}).map(([type, count]) => `${type}: ${count}`)
+    ].join('\n');
+  }
+  if (typeof result === 'string') return result;
+  return JSON.stringify(result, null, 2);
+}
+
+async function executeServerAction(interaction, command) {
+  const server = getServer(interaction.options.getString('server'));
   if (!server) {
     await interaction.reply({ content: 'That server is not configured or enabled.', ephemeral: true });
     return;
   }
   if (!server.password) {
-    await interaction.reply({ content: 'That server is missing its stored RCON password.', ephemeral: true });
+    await interaction.reply({ content: 'That server is missing its protected AdminPassword or RCON password.', ephemeral: true });
+    return;
+  }
+  if (command === 'forcestop' && !interaction.options.getBoolean('confirm')) {
+    await interaction.reply({ content: 'Emergency force-stop was not confirmed.', ephemeral: true });
     return;
   }
 
   await interaction.deferReply({ ephemeral: true });
-  let command;
-  if (action === 'rcon') command = interaction.options.getString('command');
-  else if (action === 'broadcast') command = rconCommand(server, action, interaction.options.getString('message'));
-  else if (action === 'kick' || action === 'ban') command = rconCommand(server, action, interaction.options.getString('player'));
-  else command = rconCommand(server, action);
+  const actionMap = {
+    saveworld: 'save', broadcast: 'announce', snapshot: 'game-data-summary', forcestop: 'stop', rcon: 'raw'
+  };
+  const action = actionMap[command] || command;
+  const payload = {};
+  if (command === 'broadcast') payload.message = interaction.options.getString('message');
+  if (['kick', 'ban', 'unban'].includes(command)) {
+    payload.player = interaction.options.getString('player');
+    payload.message = interaction.options.getString('message') || '';
+  }
+  if (command === 'shutdown') {
+    payload.waittime = interaction.options.getInteger('seconds');
+    payload.message = interaction.options.getString('message') || 'Server maintenance is starting.';
+  }
+  if (command === 'rcon') payload.command = interaction.options.getString('command');
 
-  const rcon = new SourceRcon(server);
-  const result = await rcon.execute(command);
-  await interaction.editReply({ content: `**${server.name}**\n${formatCodeBlock(result)}` });
+  const connection = new ServerConnection(server);
+  const result = await connection.action(action, payload);
+  await interaction.editReply({ content: `**${server.name}** — ${isPalworldRest(server) ? 'Palworld REST' : 'RCON'}\n${formatCodeBlock(formatResult(action, result))}` });
 }
 
 async function handleInteraction(interaction) {
@@ -102,7 +140,7 @@ async function handleInteraction(interaction) {
     const choices = bootstrap.config.servers
       .filter((server) => server.enabled !== false && server.name.toLowerCase().includes(focused))
       .slice(0, 25)
-      .map((server) => ({ name: `${server.name} (${server.game})`, value: server.name }));
+      .map((server) => ({ name: `${server.name} (${server.game} ${isPalworldRest(server) ? 'REST' : 'RCON'})`, value: server.name }));
     await interaction.respond(choices);
     return;
   }
@@ -131,7 +169,9 @@ async function handleInteraction(interaction) {
 
   if (command === 'listservers') {
     const servers = bootstrap.config.servers.filter((server) => server.enabled !== false);
-    const lines = servers.length ? servers.map((server) => `• ${server.name} — ${server.game}`).join('\n') : 'No servers are enabled.';
+    const lines = servers.length
+      ? servers.map((server) => `• ${server.name} — ${server.game} (${isPalworldRest(server) ? 'REST API' : 'RCON'})`).join('\n')
+      : 'No servers are enabled.';
     await interaction.reply({ content: lines, ephemeral: true });
     return;
   }
@@ -164,7 +204,7 @@ async function start(payload) {
   }, 45000);
   startupTimer.unref();
 
-  client.once('ready', () => {
+  client.once(Events.ClientReady, () => {
     (async () => {
       readyAt = new Date().toISOString();
       clearTimeout(startupTimer);
@@ -203,18 +243,18 @@ async function start(payload) {
     });
   });
 
-  client.on('interactionCreate', (interaction) => {
+  client.on(Events.InteractionCreate, (interaction) => {
     handleInteraction(interaction).catch(async (error) => {
       const id = errorFingerprint(error);
       log('error', `Interaction failed [${id}]: ${error.stack || error.message}`);
-      const content = `Command failed. Error ID: **${id}**`;
+      const content = `Command failed. Error ID: **${id}** — ${String(error.message || 'Unknown error').slice(0, 500)}`;
       if (interaction.deferred || interaction.replied) await interaction.editReply({ content }).catch(() => {});
       else await interaction.reply({ content, ephemeral: true }).catch(() => {});
       send('error', { id, message: error.message, stack: error.stack });
     });
   });
 
-  client.on('error', (error) => {
+  client.on(Events.Error, (error) => {
     const id = errorFingerprint(error);
     log('error', `Discord client error [${id}]: ${error.stack || error.message}`);
     send('error', { id, message: error.message, stack: error.stack });

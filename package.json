@@ -1,8 +1,8 @@
 {
   "name": "khaos-nexus",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Local-first desktop control center for the Khaos Nexus community, Discord bot, and game servers.",
-  "main": "main/main.cjs",
+  "main": "main/entry.cjs",
   "author": "Khaos Krew",
   "license": "MIT",
   "private": true,
@@ -64,7 +64,7 @@
       {
         "provider": "github",
         "owner": "Khaos-Krew",
-        "repo": "Khaos-Nexus-Bot-Manager",
+        "repo": "Khaos-Nexus",
         "releaseType": "release"
       }
     ],
