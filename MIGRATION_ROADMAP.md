@@ -107,3 +107,7 @@ Progress and notes are stored in the normal Khaos Nexus configuration and are in
 ## Source inventory
 
 The inventory was derived from the original `Khaos-Krew/chaos-nexus-hub` route map and its full refresh branch. The desktop module catalog stores the originating routes for traceability and to prevent website functions from being silently omitted.
+
+## Validation
+
+The v0.9.0 foundation is distributed only after the complete catalog tests, existing application tests, syntax validation and Windows installer/portable packaging workflow pass.
