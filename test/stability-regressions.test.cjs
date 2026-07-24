@@ -34,19 +34,42 @@ test('stability CSS keeps the sidebar scrollable and overrides stale click block
   assert.match(css, /\.nexus-version-chip/);
 });
 
-test('renderer fail-safe exposes sign-in, local recovery, and an always-visible version', () => {
+test('renderer fail-safe exposes recovery, navigation, heartbeat, and version controls', () => {
   const script = read('renderer/stability-fixes.js');
   assert.match(script, /Sign In with Discord/);
   assert.match(script, /Emergency Local Recovery/);
   assert.match(script, /UNLOCK KHAOS NEXUS/);
   assert.match(script, /nexusAlwaysVisibleVersion/);
-  assert.match(script, /setInterval\(refreshState, 5000\)/);
+  assert.match(script, /bindFailSafeNavigation/);
+  assert.match(script, /stability:heartbeat/);
+  assert.match(script, /setInterval\(sendHeartbeat, 2000\)/);
 });
 
-test('main stability extension guards launch failures and startup timeouts', () => {
+test('main stability extension guards bot startup and renderer freezes', () => {
   const script = read('main/stability-extension.cjs');
   assert.match(script, /BOT_STARTUP_TIMEOUT/);
   assert.match(script, /armKhaosStartupTimer/);
   assert.match(script, /Discord bot launch failed/);
   assert.match(script, /status:\s*'error'/);
+  assert.match(script, /disableHardwareAcceleration/);
+  assert.match(script, /disable-gpu-compositing/);
+  assert.match(script, /stability:heartbeat/);
+  assert.match(script, /Interface Not Responding/);
+  assert.match(script, /Restart Interface/);
+});
+
+test('module migration UI no longer installs a whole-document mutation observer', () => {
+  const script = read('renderer/module-hub.js');
+  assert.doesNotMatch(script, /new MutationObserver/);
+  assert.doesNotMatch(script, /querySelectorAll\(['"]body \*['"]\)/);
+  assert.match(script, /applyStaticCopy/);
+});
+
+test('renderer error reporting is rate-limited on both renderer and main sides', () => {
+  const renderer = read('renderer/application-monitor.js');
+  const main = read('main/stability-extension.cjs');
+  assert.match(renderer, /recentRendererErrors/);
+  assert.match(renderer, /now - previous < 60000/);
+  assert.match(main, /__khaosRendererErrorDeduped/);
+  assert.match(main, /duplicate:\s*true/);
 });
