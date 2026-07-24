@@ -40,7 +40,7 @@ function makeRest() {
     },
     post: async (route, options) => {
       calls.push({ method: 'post', route, body: options.body });
-      return { id: `m${calls.length}00000000` };
+      return { id: String(9000000000 + calls.length) };
     },
     patch: async (route, options) => {
       calls.push({ method: 'patch', route, body: options.body });
