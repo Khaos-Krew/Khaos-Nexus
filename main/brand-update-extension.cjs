@@ -1,9 +1,11 @@
 'use strict';
 
 const electron = require('electron');
+const { runUpdateFlow } = require('../shared/update-flow.cjs');
 
-const refs = { configStore: null, updateService: null, autonomy: null, logger: null };
+const refs = { configStore: null, updateService: null, autonomy: null, logger: null, discordAuth: null };
 let installed = false;
+let updateApplyPromise = null;
 
 function patchConfigStore() {
   const target = require('./services/config-store.cjs');
@@ -79,18 +81,24 @@ function patchBrowserLoader() {
   prototype.loadFile = function patchedLoadFile(...args) {
     this.webContents.once('did-finish-load', () => {
       this.webContents.executeJavaScript(`(() => {
-        if (!document.querySelector('link[href="brand-ui.css"]')) {
+        const addStyle = (href) => {
+          if (document.querySelector('link[href="' + href + '"]')) return;
           const link = document.createElement('link');
           link.rel = 'stylesheet';
-          link.href = 'brand-ui.css';
+          link.href = href;
           document.head.appendChild(link);
-        }
-        if (!document.querySelector('script[src="brand-ui.js"]')) {
+        };
+        const addScript = (src) => {
+          if (document.querySelector('script[src="' + src + '"]')) return;
           const script = document.createElement('script');
-          script.src = 'brand-ui.js';
-          script.defer = true;
+          script.src = src;
+          script.async = false;
           document.body.appendChild(script);
-        }
+        };
+        addStyle('brand-ui.css');
+        addStyle('ui-fixes.css');
+        addScript('brand-ui.js');
+        addScript('simple-updater.js');
       })();`).catch(() => {});
     });
     return original.apply(this, args);
@@ -110,6 +118,15 @@ function registerIpc() {
     await electron.shell.openExternal(target);
     return { opened: true, url: target };
   });
+
+  electron.ipcMain.handle('update:apply', () => {
+    refs.autonomy?.assertAccess?.(refs.discordAuth?.getState?.(), 'owner', 'Update and restart Khaos Nexus');
+    if (!refs.updateService) throw new Error('The Khaos Nexus update service is not ready.');
+    if (updateApplyPromise) return updateApplyPromise;
+    updateApplyPromise = runUpdateFlow(refs.updateService)
+      .finally(() => { updateApplyPromise = null; });
+    return updateApplyPromise;
+  });
 }
 
 function install() {
@@ -119,6 +136,7 @@ function install() {
   patchUpdateService();
   captureClass('./services/autonomy-service.cjs', 'AutonomyService', 'autonomy');
   captureClass('./services/logger.cjs', 'AppLogger', 'logger');
+  captureClass('./services/discord-auth.cjs', 'DiscordAuth', 'discordAuth');
   patchBrowserLoader();
   electron.app.whenReady().then(() => setImmediate(registerIpc));
 }
