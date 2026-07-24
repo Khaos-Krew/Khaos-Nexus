@@ -1,0 +1,100 @@
+/* v0.13.2 stability overrides */
+html, body, .app-shell { min-height: 0; }
+
+.sidebar {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100vh !important;
+  max-height: 100vh !important;
+  min-height: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.sidebar::-webkit-scrollbar { width: 9px; }
+.sidebar::-webkit-scrollbar-track { background: rgba(7, 9, 14, .88); }
+.sidebar::-webkit-scrollbar-thumb {
+  border: 2px solid rgba(7, 9, 14, .88);
+  border-radius: 999px;
+  background: rgba(255, 59, 88, .38);
+}
+.sidebar::-webkit-scrollbar-thumb:hover { background: rgba(255, 59, 88, .62); }
+
+.sidebar-footer {
+  position: sticky !important;
+  bottom: 0;
+  z-index: 12;
+  margin-top: auto !important;
+  padding-top: 16px !important;
+  padding-bottom: 14px !important;
+  background: linear-gradient(180deg, rgba(8, 10, 16, 0), rgba(8, 10, 16, .97) 24%);
+  box-shadow: 0 -18px 28px rgba(8, 10, 16, .74);
+}
+
+/* Never let a stale lock-state class make the application invisible and unclickable. */
+body.nexus-access-locked > *:not(.nexus-access-recovery):not(.nexus-stability-recovery):not(#toast) {
+  pointer-events: auto !important;
+  user-select: auto !important;
+}
+
+.nexus-access-recovery,
+.nexus-stability-recovery {
+  pointer-events: auto !important;
+}
+
+.nexus-access-recovery[style*="display: grid"] { display: grid !important; }
+
+.nexus-version-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: 10px;
+  padding: 7px 11px;
+  border: 1px solid rgba(255, 68, 96, .32);
+  border-radius: 999px;
+  background: rgba(11, 14, 21, .88);
+  color: #cfd5df;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: .35px;
+  white-space: nowrap;
+}
+.nexus-version-chip::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ff425f;
+  box-shadow: 0 0 10px rgba(255, 66, 95, .75);
+}
+
+.nexus-stability-recovery {
+  position: fixed;
+  inset: 0;
+  z-index: 60000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(3, 4, 7, .95);
+  backdrop-filter: blur(10px);
+}
+.nexus-stability-recovery-card {
+  width: min(620px, 100%);
+  padding: 30px;
+  border: 1px solid rgba(255, 66, 95, .52);
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(25, 10, 17, .99), rgba(8, 12, 19, .99));
+  box-shadow: 0 28px 90px rgba(0, 0, 0, .62), 0 0 38px rgba(255, 50, 80, .12);
+}
+.nexus-stability-recovery-card h2 { margin: 5px 0 10px; font-size: 30px; }
+.nexus-stability-recovery-card p { color: #aab2c0; }
+.nexus-stability-recovery-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+.nexus-stability-recovery-status { display: block; margin-top: 14px; color: #8e98a9; }
+
+@media (max-height: 720px) {
+  .brand { margin-bottom: 12px !important; }
+  .nav-item { min-height: 42px; }
+  .sidebar-footer { position: relative !important; }
+}
