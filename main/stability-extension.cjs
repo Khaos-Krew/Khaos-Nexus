@@ -8,10 +8,16 @@ const {
 } = require('../shared/startup-guard.cjs');
 
 const RENDERER_HEARTBEAT_TIMEOUT_MS = 15000;
-const RENDERER_RELOAD_COOLDOWN_MS = 60000;
+const RENDERER_RECOVERY_COOLDOWN_MS = 60000;
 const rendererHeartbeats = new Map();
 let rendererWatchdog = null;
+let recoveryPromptOpen = false;
 let installed = false;
+
+function restartApplication() {
+  electron.app.relaunch();
+  electron.app.exit(0);
+}
 
 function patchBotSupervisor() {
   const target = require('./services/bot-supervisor.cjs');
@@ -74,9 +80,7 @@ function patchBotSupervisor() {
     }
 
     handleMessage(message) {
-      if (message?.type === 'ready' || (message?.type === 'heartbeat' && message?.payload?.ready)) {
-        this.clearKhaosStartupTimer();
-      }
+      if (message?.type === 'ready' || (message?.type === 'heartbeat' && message?.payload?.ready)) this.clearKhaosStartupTimer();
       return super.handleMessage(message);
     }
 
@@ -142,19 +146,28 @@ function patchRendererErrorCapture() {
   Object.defineProperty(ipcMain, '__khaosRendererErrorDeduped', { value: true });
 }
 
-function reloadWindow(window, reason) {
-  if (!window || window.isDestroyed()) return false;
+async function offerRendererRecovery(window, reason) {
+  if (!window || window.isDestroyed() || recoveryPromptOpen) return false;
   const now = Date.now();
-  if (now - Number(window.__khaosLastRendererReload || 0) < RENDERER_RELOAD_COOLDOWN_MS) return false;
-  window.__khaosLastRendererReload = now;
-  rendererHeartbeats.set(window.webContents.id, now);
-  console.warn(`[Khaos Nexus] Reloading the renderer after ${reason}.`);
+  if (now - Number(window.__khaosLastRendererRecoveryPrompt || 0) < RENDERER_RECOVERY_COOLDOWN_MS) return false;
+  window.__khaosLastRendererRecoveryPrompt = now;
+  recoveryPromptOpen = true;
   try {
-    window.webContents.reloadIgnoringCache();
-    return true;
-  } catch (error) {
-    console.error('[Khaos Nexus] Renderer reload failed.', error);
-    return false;
+    const result = await electron.dialog.showMessageBox(window, {
+      type: 'warning',
+      title: 'Khaos Nexus Interface Not Responding',
+      message: 'The Khaos Nexus interface stopped responding.',
+      detail: `${reason}. Your settings and protected credentials are safe. Restart the application to restore the interface.`,
+      buttons: ['Restart Khaos Nexus', 'Wait'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true
+    });
+    if (result.response === 0) restartApplication();
+    return result.response === 0;
+  } finally {
+    recoveryPromptOpen = false;
+    rendererHeartbeats.set(window.webContents.id, Date.now());
   }
 }
 
@@ -163,11 +176,11 @@ function attachWindowRecovery(window) {
   window.__khaosRendererRecoveryAttached = true;
   rendererHeartbeats.set(window.webContents.id, Date.now());
 
-  window.on('unresponsive', () => reloadWindow(window, 'an unresponsive event'));
+  window.on('unresponsive', () => offerRendererRecovery(window, 'Electron reported an unresponsive renderer'));
   window.webContents.on('did-finish-load', () => rendererHeartbeats.set(window.webContents.id, Date.now()));
   window.webContents.on('render-process-gone', (_event, details) => {
     console.error('[Khaos Nexus] Renderer process exited.', details);
-    if (!electron.app.isQuitting) setTimeout(() => reloadWindow(window, `renderer process exit: ${details.reason || 'unknown'}`), 750);
+    if (!electron.app.isQuitting) setTimeout(() => offerRendererRecovery(window, `The renderer process exited (${details.reason || 'unknown'})`), 500);
   });
   window.webContents.on('destroyed', () => rendererHeartbeats.delete(window.webContents.id));
 }
@@ -214,7 +227,7 @@ function installRendererHeartbeat() {
     for (const window of electron.BrowserWindow.getAllWindows()) {
       if (window.isDestroyed() || !window.isVisible()) continue;
       const last = rendererHeartbeats.get(window.webContents.id) || now;
-      if (now - last > RENDERER_HEARTBEAT_TIMEOUT_MS) reloadWindow(window, 'a missed renderer heartbeat');
+      if (now - last > RENDERER_HEARTBEAT_TIMEOUT_MS) offerRendererRecovery(window, 'The renderer heartbeat stopped');
     }
   }, 5000);
   rendererWatchdog.unref?.();
@@ -226,8 +239,8 @@ function installNativeMenu() {
     {
       label: 'File',
       submenu: [
-        { label: 'Reload Interface', accelerator: 'CmdOrCtrl+R', click: () => BrowserWindow.getFocusedWindow()?.webContents.reloadIgnoringCache() },
-        { label: 'Restart Khaos Nexus', click: () => { app.relaunch(); app.exit(0); } },
+        { label: 'Restart Interface', accelerator: 'CmdOrCtrl+R', click: restartApplication },
+        { label: 'Restart Khaos Nexus', click: restartApplication },
         { type: 'separator' },
         { label: 'Open Local Data Folder', click: () => shell.openPath(app.getPath('userData')) },
         { type: 'separator' },
@@ -238,8 +251,6 @@ function installNativeMenu() {
     {
       label: 'View',
       submenu: [
-        { role: 'reload' },
-        { role: 'forceReload' },
         { role: 'toggleDevTools' },
         { type: 'separator' },
         { role: 'resetZoom' },
@@ -252,14 +263,15 @@ function installNativeMenu() {
     { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'close' }] }
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  for (const window of BrowserWindow.getAllWindows()) attachWindowRecovery(window);
 }
 
 function install() {
   if (installed) return;
   installed = true;
 
-  // Khaos Nexus is an operator dashboard, not a 3D application. Software rendering
-  // avoids Chromium compositor freezes seen on mixed-DPI, multi-monitor Windows setups.
+  // This is a 2D operator dashboard. Software rendering avoids Chromium compositor
+  // freezes observed on mixed-DPI, multi-monitor Windows systems.
   electron.app.disableHardwareAcceleration();
   electron.app.commandLine.appendSwitch('disable-gpu-compositing');
   electron.app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
