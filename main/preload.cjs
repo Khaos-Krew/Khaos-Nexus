@@ -28,5 +28,10 @@ contextBridge.exposeInMainWorld('khaos', {
     const listener = (_event, state) => callback(state);
     ipcRenderer.on('discord-observability:state', listener);
     return () => ipcRenderer.removeListener('discord-observability:state', listener);
+  },
+  onStatusPanels: (callback) => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on('status-panels:update', listener);
+    return () => ipcRenderer.removeListener('status-panels:update', listener);
   }
 });
