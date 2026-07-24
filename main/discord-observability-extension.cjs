@@ -16,6 +16,7 @@ const refs = {
 };
 let installed = false;
 let initialized = false;
+let lastMonitorIssueUrl = null;
 
 function patchConfigStore() {
   const target = require('./services/config-store.cjs');
@@ -104,7 +105,11 @@ function pushState() {
   const payload = refs.service?.getState?.();
   if (!payload) return;
   for (const window of electron.BrowserWindow.getAllWindows()) {
-    if (!window.isDestroyed()) window.webContents.send('discord-observability:state', payload);
+    try {
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('discord-observability:state', payload);
+    } catch (error) {
+      refs.logger?.warn?.('Could not push Discord observability state to a renderer.', { message: error.message });
+    }
   }
 }
 
@@ -153,6 +158,26 @@ function registerIpc() {
   });
 }
 
+function handleMonitorState() {
+  const monitor = refs.applicationMonitor?.getState?.() || {};
+  const issueUrl = String(monitor.lastIssueUrl || '').trim();
+  if (!issueUrl || issueUrl === lastMonitorIssueUrl) {
+    pushState();
+    return;
+  }
+  lastMonitorIssueUrl = issueUrl;
+  const error = refs.supervisor?.getState?.().lastError;
+  refs.service.publishError({
+    id: error?.id || 'reported-error',
+    source: 'application-monitor',
+    severity: 'error',
+    title: 'Khaos Nexus error report created',
+    summary: error?.message || 'Application Monitor created or updated a redacted GitHub issue.',
+    issueUrl,
+    time: error?.time || new Date().toISOString()
+  }).catch(() => {}).finally(pushState);
+}
+
 function initialize() {
   if (initialized || !refs.configStore || !refs.logger || !refs.supervisor || !refs.updateService || !refs.discordAuth || !refs.autonomy) return false;
   initialized = true;
@@ -163,15 +188,16 @@ function initialize() {
   });
 
   refs.supervisor.on('state', (state) => {
-    refs.service.handleSupervisorState(state).finally(pushState);
+    refs.service.handleSupervisorState(state).catch(() => {}).finally(pushState);
   });
   refs.updateService.on('state', (state) => {
-    refs.service.handleUpdateState(state).finally(pushState);
+    refs.service.handleUpdateState(state).catch(() => {}).finally(pushState);
   });
-  refs.applicationMonitor?.on?.('state', pushState);
+  refs.applicationMonitor?.on?.('state', handleMonitorState);
 
   registerIpc();
-  setTimeout(() => refs.service.refreshHeartbeat().catch(() => {}), 10000).unref?.();
+  const initialHeartbeatTimer = setTimeout(() => refs.service.refreshHeartbeat().catch(() => {}), 10000);
+  initialHeartbeatTimer.unref?.();
   electron.app.on('before-quit', () => refs.service?.stop?.());
   return true;
 }
@@ -180,7 +206,8 @@ function scheduleInitialize() {
   if (initialized) return;
   setImmediate(() => {
     if (initialize()) return;
-    setTimeout(scheduleInitialize, 100).unref?.();
+    const timer = setTimeout(scheduleInitialize, 100);
+    timer.unref?.();
   });
 }
 
@@ -189,21 +216,32 @@ function patchBrowserLoader() {
   if (!prototype || prototype.__khaosObservabilityUiPatched) return;
   const original = prototype.loadFile;
   prototype.loadFile = function patchedLoadFile(...args) {
-    this.webContents.once('did-finish-load', () => {
-      this.webContents.executeJavaScript(`(() => {
-        if (!document.querySelector('link[href="discord-observability.css"]')) {
+    const window = this;
+    const webContentsId = window.webContents.id;
+    window.webContents.once('did-finish-load', () => {
+      if (window.isDestroyed() || window.webContents.isDestroyed() || window.webContents.id !== webContentsId) return;
+      window.webContents.executeJavaScript(`(() => {
+        const addStyle = (href) => {
+          if (document.querySelector('link[href="' + href + '"]')) return;
           const link = document.createElement('link');
           link.rel = 'stylesheet';
-          link.href = 'discord-observability.css';
+          link.href = href;
           document.head.appendChild(link);
-        }
-        if (!document.querySelector('script[src="discord-observability.js"]')) {
+        };
+        const addScript = (src) => {
+          if (document.querySelector('script[src="' + src + '"]')) return;
           const script = document.createElement('script');
-          script.src = 'discord-observability.js';
+          script.src = src;
           script.defer = true;
           document.body.appendChild(script);
-        }
-      })();`).catch(() => {});
+        };
+        addStyle('nexus-shell-v14.css');
+        addStyle('discord-observability.css');
+        addScript('nexus-shell-v14.js');
+        addScript('discord-observability.js');
+      })();`).catch((error) => {
+        refs.logger?.warn?.('Could not load the v0.14 renderer shell.', { message: error.message });
+      });
     });
     return original.apply(this, args);
   };
