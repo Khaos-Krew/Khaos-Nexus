@@ -1,5 +1,6 @@
 'use strict';
 
+require('./crash-diagnostics-extension.cjs').install();
 require('./stability-extension.cjs').install();
 require('./access-recovery-extension.cjs').install();
 require('./brand-update-extension.cjs').install();
