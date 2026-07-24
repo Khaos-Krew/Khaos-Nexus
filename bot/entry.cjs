@@ -2,6 +2,7 @@
 
 const { Client } = require('discord.js');
 const { installDiscordAutomationRuntime } = require('./discord-automation-runtime.cjs');
+const { installStatusPanelRuntime } = require('./status-panel-runtime.cjs');
 
 const parent = process.parentPort;
 let bootstrap = null;
@@ -13,14 +14,16 @@ parent?.on('message', (event) => {
 
 const originalLogin = Client.prototype.login;
 Client.prototype.login = function patchedLogin(...args) {
-  installDiscordAutomationRuntime({
+  const runtime = {
     client: this,
     getBootstrap: () => bootstrap,
     send: (type, payload = {}) => parent?.postMessage({ type, payload }),
     log: (level, message, meta = {}) => parent?.postMessage({
       type: 'log', payload: { time: new Date().toISOString(), source: 'bot', level, message, meta }
     })
-  });
+  };
+  installDiscordAutomationRuntime(runtime);
+  installStatusPanelRuntime(runtime);
   return originalLogin.apply(this, args);
 };
 
