@@ -1,0 +1,53 @@
+.nexus-access-recovery {
+  position: fixed;
+  inset: 0;
+  z-index: 50000;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background:
+    radial-gradient(circle at 50% 20%, rgba(229,45,62,.20), transparent 32%),
+    rgba(3,4,7,.94);
+  backdrop-filter: blur(12px);
+}
+.nexus-access-recovery.hidden { display: none !important; }
+body.nexus-access-locked { overflow: hidden !important; }
+body.nexus-access-locked > *:not(.nexus-access-recovery):not(#toast) { pointer-events: none !important; user-select: none !important; }
+.nexus-access-recovery-card {
+  width: min(620px, 100%);
+  position: relative;
+  overflow: hidden;
+  padding: 34px;
+  border: 1px solid rgba(255,58,87,.50);
+  border-radius: 20px;
+  background: linear-gradient(145deg, rgba(22,11,17,.99), rgba(10,13,20,.99) 58%, rgba(8,16,23,.99));
+  box-shadow: 0 30px 90px rgba(0,0,0,.58), 0 0 45px rgba(229,45,62,.12), inset 0 0 70px rgba(255,45,75,.04);
+}
+.nexus-access-recovery-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: linear-gradient(135deg, rgba(0,0,0,.8), transparent 72%);
+}
+.nexus-access-recovery-card > * { position: relative; z-index: 1; }
+.nexus-access-recovery-sigil { width: 78px; height: 78px; margin-bottom: 18px; }
+.nexus-access-recovery-sigil img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 0 20px rgba(255,54,84,.40)); }
+.nexus-access-kicker { color: #ff4965; font-size: 10px; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase; }
+.nexus-access-recovery-card h1 { margin: 6px 0 8px; font-size: 32px; }
+.nexus-access-recovery-card p { margin-bottom: 20px; }
+.nexus-access-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.nexus-access-recovery-form { display: grid; gap: 13px; margin-top: 20px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,.09); }
+.nexus-access-recovery-form.hidden { display: none !important; }
+.nexus-access-warning { border: 1px solid rgba(246,186,75,.32); background: rgba(246,186,75,.07); color: #f2d79d; border-radius: 10px; padding: 12px 14px; font-size: 12px; }
+.nexus-access-recovery-form label { color: #dfe3ea; }
+.nexus-access-recovery-form input { background: #080a0f !important; color: #fff !important; border-color: rgba(255,62,91,.46) !important; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .6px; }
+.nexus-access-recovery-card small { display: block; margin-top: 17px; color: #7f8999; }
+@media (max-width: 680px) {
+  .nexus-access-recovery { padding: 14px; }
+  .nexus-access-recovery-card { padding: 24px; }
+  .nexus-access-recovery-card h1 { font-size: 26px; }
+  .nexus-access-actions .button { width: 100%; }
+}
