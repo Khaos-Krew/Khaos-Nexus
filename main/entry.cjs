@@ -1,5 +1,6 @@
 'use strict';
 
+require('./access-recovery-extension.cjs').install();
 require('./brand-update-extension.cjs').install();
 require('./palworld-main-extension.cjs').install();
 require('./discord-studio-extension.cjs').install();
