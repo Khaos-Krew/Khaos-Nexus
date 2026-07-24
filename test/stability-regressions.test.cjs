@@ -45,23 +45,37 @@ test('renderer fail-safe exposes recovery, navigation, heartbeat, and version co
   assert.match(script, /setInterval\(sendHeartbeat, 2000\)/);
 });
 
-test('main stability extension guards bot startup and renderer freezes', () => {
+test('main stability extension guards bot startup and sustained renderer freezes', () => {
   const script = read('main/stability-extension.cjs');
   assert.match(script, /BOT_STARTUP_TIMEOUT/);
   assert.match(script, /armKhaosStartupTimer/);
   assert.match(script, /Discord bot launch failed/);
   assert.match(script, /status:\s*'error'/);
-  assert.match(script, /disableHardwareAcceleration/);
-  assert.match(script, /disable-gpu-compositing/);
   assert.match(script, /stability:heartbeat/);
   assert.match(script, /Interface Not Responding/);
   assert.match(script, /Restart Interface/);
+  assert.match(script, /RENDERER_STARTUP_GRACE_MS\s*=\s*60000/);
+  assert.match(script, /RENDERER_HEARTBEAT_TIMEOUT_MS\s*=\s*30000/);
+  assert.match(script, /NATIVE_UNRESPONSIVE_CONFIRM_MS\s*=\s*12000/);
+  assert.match(script, /scheduleNativeUnresponsiveConfirmation/);
+  assert.match(script, /window\.on\('responsive'/);
+  assert.match(script, /lastHeartbeat > signalAt/);
+});
+
+test('hardware acceleration stays enabled unless safe rendering is explicitly requested', () => {
+  const script = read('main/stability-extension.cjs');
+  assert.match(script, /softwareRenderingRequested/);
+  assert.match(script, /--safe-renderer/);
+  assert.match(script, /KHAOS_NEXUS_SOFTWARE_RENDERING/);
+  assert.match(script, /if \(!softwareRenderingRequested\(\)\) return false/);
+  assert.match(script, /configureGraphicsMode\(\);/);
+  assert.doesNotMatch(script, /installed = true;\s*\n\s*electron\.app\.disableHardwareAcceleration\(\)/);
 });
 
 test('renderer recovery captures webContents IDs and handles every asynchronous recovery', () => {
   const script = read('main/stability-extension.cjs');
   assert.match(script, /const webContentsId = webContents\.id/);
-  assert.match(script, /webContents\.on\('destroyed', \(\) => rendererHeartbeats\.delete\(webContentsId\)\)/);
+  assert.match(script, /webContents\.on\('destroyed', \(\) => cleanupRendererTracking\(webContentsId\)\)/);
   assert.doesNotMatch(script, /on\('destroyed',[\s\S]{0,100}window\.webContents\.id/);
   assert.match(script, /offerRendererRecovery\([\s\S]*?\)\.catch/);
   assert.match(script, /usableWindow\(window\)/);
