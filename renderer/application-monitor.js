@@ -6,11 +6,12 @@
   }
 
   const byId = (id) => document.getElementById(id);
+  const recentRendererErrors = new Map();
   let current = null;
   let configSignature = '';
 
   function titleCase(value) {
-    return String(value || 'idle').replace(/(^|[-_\s])\w/g, (char) => char.toUpperCase());
+    return String(value || 'idle').replace(/(^|[-_\s])\w/g, (character) => character.toUpperCase());
   }
 
   function relativeTime(value) {
@@ -26,19 +27,15 @@
   function notify(message) {
     const toast = byId('toast');
     if (!toast) return;
-    toast.textContent = message;
+    toast.textContent = String(message || 'Done.');
     toast.classList.add('show');
     clearTimeout(notify.timer);
     notify.timer = setTimeout(() => toast.classList.remove('show'), 3600);
   }
 
   async function invoke(channel, payload) {
-    try {
-      return await window.khaos.invoke(channel, payload);
-    } catch (error) {
-      notify(error.message || String(error));
-      throw error;
-    }
+    try { return await window.khaos.invoke(channel, payload); }
+    catch (error) { notify(error.message || String(error)); throw error; }
   }
 
   function render(next) {
@@ -50,23 +47,27 @@
 
     if (nextSignature !== configSignature) {
       configSignature = nextSignature;
-      byId('autoReportEnabled').checked = Boolean(config.autoReportEnabled);
-      byId('monitorRepository').value = config.reportRepository || '';
-      byId('monitorLabels').value = Array.isArray(config.reportLabels) ? config.reportLabels.join(', ') : '';
-      byId('duplicateWindowHours').value = Number(config.duplicateWindowHours || 72);
-      byId('maxReportsPerDay').value = Number(config.maxReportsPerDay || 10);
-      byId('githubTokenState').textContent = next?.config?.hasGithubToken
-        ? 'A GitHub token is stored in Windows protected credential storage.'
-        : 'No GitHub monitor token is stored. Automatic reports will remain queued locally.';
+      if (byId('autoReportEnabled')) byId('autoReportEnabled').checked = Boolean(config.autoReportEnabled);
+      if (byId('monitorRepository')) byId('monitorRepository').value = config.reportRepository || '';
+      if (byId('monitorLabels')) byId('monitorLabels').value = Array.isArray(config.reportLabels) ? config.reportLabels.join(', ') : '';
+      if (byId('duplicateWindowHours')) byId('duplicateWindowHours').value = Number(config.duplicateWindowHours || 72);
+      if (byId('maxReportsPerDay')) byId('maxReportsPerDay').value = Number(config.maxReportsPerDay || 10);
+      if (byId('githubTokenState')) {
+        byId('githubTokenState').textContent = next?.config?.hasGithubToken
+          ? 'A GitHub token is stored in Windows protected credential storage.'
+          : 'No GitHub monitor token is stored. Automatic reports will remain queued locally.';
+      }
     }
 
     const status = monitor.status || (config.autoReportEnabled ? 'waiting-for-token' : 'disabled');
-    byId('autoReportStatus').textContent = config.autoReportEnabled ? titleCase(status) : 'Disabled';
-    byId('autoReportStatus').className = `severity monitor-${status}`;
-    byId('monitorQueueDepth').textContent = String(monitor.queueDepth || 0);
-    byId('monitorSentToday').textContent = `${monitor.sentToday || 0} / ${monitor.maxReportsPerDay || config.maxReportsPerDay || 10}`;
-    byId('monitorLastDelivery').textContent = relativeTime(monitor.lastDeliveryAt);
-    byId('monitorDestination').textContent = monitor.repository || config.reportRepository || 'Not configured';
+    if (byId('autoReportStatus')) {
+      byId('autoReportStatus').textContent = config.autoReportEnabled ? titleCase(status) : 'Disabled';
+      byId('autoReportStatus').className = `severity monitor-${status}`;
+    }
+    if (byId('monitorQueueDepth')) byId('monitorQueueDepth').textContent = String(monitor.queueDepth || 0);
+    if (byId('monitorSentToday')) byId('monitorSentToday').textContent = `${monitor.sentToday || 0} / ${monitor.maxReportsPerDay || config.maxReportsPerDay || 10}`;
+    if (byId('monitorLastDelivery')) byId('monitorLastDelivery').textContent = relativeTime(monitor.lastDeliveryAt);
+    if (byId('monitorDestination')) byId('monitorDestination').textContent = monitor.repository || config.reportRepository || 'Not configured';
 
     const deliveryParts = [];
     if (!config.autoReportEnabled) deliveryParts.push('Automatic reporting is off.');
@@ -75,24 +76,24 @@
     if (monitor.queueDepth) deliveryParts.push(`${monitor.queueDepth} report${monitor.queueDepth === 1 ? '' : 's'} queued.`);
     if (monitor.lastDeliveryAction) deliveryParts.push(`Last action: ${monitor.lastDeliveryAction}.`);
     if (monitor.lastError) deliveryParts.push(`Last delivery error: ${monitor.lastError}`);
-    byId('monitorDeliveryState').textContent = deliveryParts.join(' ');
+    if (byId('monitorDeliveryState')) byId('monitorDeliveryState').textContent = deliveryParts.join(' ');
 
-    byId('sendCurrentErrorButton').disabled = !botError;
-    byId('processMonitorQueueButton').disabled = !monitor.queueDepth || !next?.config?.hasGithubToken;
-    byId('clearMonitorQueueButton').disabled = !monitor.queueDepth;
-    byId('openLastIssueButton').disabled = !monitor.lastIssueUrl;
+    if (byId('sendCurrentErrorButton')) byId('sendCurrentErrorButton').disabled = !botError;
+    if (byId('processMonitorQueueButton')) byId('processMonitorQueueButton').disabled = !monitor.queueDepth || !next?.config?.hasGithubToken;
+    if (byId('clearMonitorQueueButton')) byId('clearMonitorQueueButton').disabled = !monitor.queueDepth;
+    if (byId('openLastIssueButton')) byId('openLastIssueButton').disabled = !monitor.lastIssueUrl;
   }
 
   async function saveSettings(showMessage = true) {
     const payload = {
-      autoReportEnabled: byId('autoReportEnabled').checked,
-      reportRepository: byId('monitorRepository').value,
-      reportLabels: byId('monitorLabels').value.split(',').map((item) => item.trim()).filter(Boolean),
-      duplicateWindowHours: Number(byId('duplicateWindowHours').value),
-      maxReportsPerDay: Number(byId('maxReportsPerDay').value)
+      autoReportEnabled: Boolean(byId('autoReportEnabled')?.checked),
+      reportRepository: byId('monitorRepository')?.value || '',
+      reportLabels: String(byId('monitorLabels')?.value || '').split(',').map((item) => item.trim()).filter(Boolean),
+      duplicateWindowHours: Number(byId('duplicateWindowHours')?.value || 72),
+      maxReportsPerDay: Number(byId('maxReportsPerDay')?.value || 10)
     };
     await invoke('config:save-monitor', payload);
-    const token = byId('githubToken').value.trim();
+    const token = String(byId('githubToken')?.value || '').trim();
     if (token) {
       await invoke('secret:set-github-token', token);
       byId('githubToken').value = '';
@@ -103,48 +104,52 @@
     return latest;
   }
 
+  function captureRendererError(errorLike) {
+    const error = errorLike instanceof Error ? errorLike : new Error(String(errorLike || 'Renderer error'));
+    const message = String(error.message || 'Renderer error').slice(0, 1000);
+    const stack = String(error.stack || '').slice(0, 12000);
+    const key = `${message}\n${stack}`;
+    const now = Date.now();
+    const previous = recentRendererErrors.get(key) || 0;
+    recentRendererErrors.set(key, now);
+    for (const [entry, time] of recentRendererErrors) if (now - time > 5 * 60 * 1000) recentRendererErrors.delete(entry);
+    if (now - previous < 60000) return;
+    window.khaos.invoke('monitor:capture-renderer', { message, stack }).catch(() => {});
+  }
+
   function bind() {
-    byId('saveMonitorButton').addEventListener('click', () => saveSettings(true));
-    byId('verifyGithubButton').addEventListener('click', async () => {
+    byId('saveMonitorButton')?.addEventListener('click', () => saveSettings(true));
+    byId('verifyGithubButton')?.addEventListener('click', async () => {
       await saveSettings(false);
       const result = await invoke('monitor:verify');
       notify(`GitHub connection verified for ${result.repository}.`);
     });
-    byId('removeGithubTokenButton').addEventListener('click', async () => {
+    byId('removeGithubTokenButton')?.addEventListener('click', async () => {
       if (!confirm('Remove the protected GitHub monitor token? Queued reports will remain local.')) return;
       await invoke('secret:set-github-token', '');
       render(await invoke('app:get-state'));
       notify('GitHub monitor token removed.');
     });
-    byId('sendCurrentErrorButton').addEventListener('click', async () => {
+    byId('sendCurrentErrorButton')?.addEventListener('click', async () => {
       const result = await invoke('monitor:send-current');
       render(await invoke('app:get-state'));
       notify(result.delivered ? `Error report ${result.action} on GitHub.` : 'Error report queued locally.');
     });
-    byId('processMonitorQueueButton').addEventListener('click', async () => {
+    byId('processMonitorQueueButton')?.addEventListener('click', async () => {
       const result = await invoke('monitor:process-queue');
       render(await invoke('app:get-state'));
       notify(`Monitor queue processed. ${result.delivered || 0} delivered.`);
     });
-    byId('clearMonitorQueueButton').addEventListener('click', async () => {
+    byId('clearMonitorQueueButton')?.addEventListener('click', async () => {
       if (!confirm('Clear all locally queued application reports?')) return;
       await invoke('monitor:clear-queue');
       render(await invoke('app:get-state'));
       notify('Application Monitor queue cleared.');
     });
-    byId('openLastIssueButton').addEventListener('click', () => invoke('monitor:open-last-issue'));
+    byId('openLastIssueButton')?.addEventListener('click', () => invoke('monitor:open-last-issue'));
 
-    window.addEventListener('error', (event) => {
-      window.khaos.invoke('monitor:capture-renderer', {
-        message: event.error?.message || event.message || 'Renderer error',
-        stack: event.error?.stack || ''
-      }).catch(() => {});
-    });
-    window.addEventListener('unhandledrejection', (event) => {
-      const reason = event.reason instanceof Error ? event.reason : new Error(String(event.reason));
-      window.khaos.invoke('monitor:capture-renderer', { message: reason.message, stack: reason.stack || '' }).catch(() => {});
-    });
-
+    window.addEventListener('error', (event) => captureRendererError(event.error || new Error(event.message || 'Renderer error')));
+    window.addEventListener('unhandledrejection', (event) => captureRendererError(event.reason));
     window.khaos.onState(render);
   }
 
@@ -164,7 +169,7 @@
     loadExtension('readiness.js');
     loadExtension('permission-state.js');
     setInterval(() => {
-      if (current?.applicationMonitor?.lastDeliveryAt) {
+      if (current?.applicationMonitor?.lastDeliveryAt && byId('monitorLastDelivery')) {
         byId('monitorLastDelivery').textContent = relativeTime(current.applicationMonitor.lastDeliveryAt);
       }
     }, 30000);
