@@ -7,9 +7,13 @@ const {
   startupTimeoutMessage
 } = require('../shared/startup-guard.cjs');
 
-const RENDERER_HEARTBEAT_TIMEOUT_MS = 15000;
+const RENDERER_HEARTBEAT_TIMEOUT_MS = 30000;
+const RENDERER_STARTUP_GRACE_MS = 60000;
+const NATIVE_UNRESPONSIVE_CONFIRM_MS = 12000;
 const RENDERER_RECOVERY_COOLDOWN_MS = 60000;
 const rendererHeartbeats = new Map();
+const rendererLoadedAt = new Map();
+const nativeUnresponsiveTimers = new Map();
 let rendererWatchdog = null;
 let recoveryPromptOpen = false;
 let installed = false;
@@ -20,12 +24,36 @@ function restartApplication() {
   electron.app.exit(0);
 }
 
+function softwareRenderingRequested() {
+  return process.argv.includes('--safe-renderer') || process.argv.includes('--disable-gpu') || process.env.KHAOS_NEXUS_SOFTWARE_RENDERING === '1';
+}
+
+function configureGraphicsMode() {
+  if (!softwareRenderingRequested()) return false;
+  electron.app.disableHardwareAcceleration();
+  electron.app.commandLine.appendSwitch('disable-gpu-compositing');
+  electron.app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+  return true;
+}
+
 function usableWindow(window) {
   try {
     return Boolean(window && !window.isDestroyed() && window.webContents && !window.webContents.isDestroyed());
   } catch {
     return false;
   }
+}
+
+function clearNativeUnresponsiveTimer(webContentsId) {
+  const timer = nativeUnresponsiveTimers.get(webContentsId);
+  if (timer) clearTimeout(timer);
+  nativeUnresponsiveTimers.delete(webContentsId);
+}
+
+function cleanupRendererTracking(webContentsId) {
+  clearNativeUnresponsiveTimer(webContentsId);
+  rendererHeartbeats.delete(webContentsId);
+  rendererLoadedAt.delete(webContentsId);
 }
 
 function patchBotSupervisor() {
@@ -184,19 +212,47 @@ async function offerRendererRecovery(window, reason, webContentsId = null) {
   }
 }
 
+function scheduleNativeUnresponsiveConfirmation(window, webContentsId) {
+  if (!usableWindow(window) || nativeUnresponsiveTimers.has(webContentsId) || electron.app.isQuitting) return;
+  const signalAt = Date.now();
+  const timer = setTimeout(() => {
+    nativeUnresponsiveTimers.delete(webContentsId);
+    if (!usableWindow(window) || window.webContents.id !== webContentsId || electron.app.isQuitting) return;
+    const now = Date.now();
+    const loadedAt = rendererLoadedAt.get(webContentsId) || signalAt;
+    const lastHeartbeat = rendererHeartbeats.get(webContentsId) || loadedAt;
+    if (now - loadedAt < RENDERER_STARTUP_GRACE_MS) return;
+    if (lastHeartbeat > signalAt || now - lastHeartbeat <= RENDERER_HEARTBEAT_TIMEOUT_MS) return;
+    offerRendererRecovery(window, 'The renderer remained unresponsive and stopped sending health heartbeats', webContentsId).catch((error) => {
+      console.error('[Khaos Nexus] Sustained unresponsive-renderer recovery failed.', error);
+    });
+  }, NATIVE_UNRESPONSIVE_CONFIRM_MS);
+  timer.unref?.();
+  nativeUnresponsiveTimers.set(webContentsId, timer);
+}
+
 function attachWindowRecovery(window) {
   if (!usableWindow(window) || window.__khaosRendererRecoveryAttached) return;
   window.__khaosRendererRecoveryAttached = true;
   const webContents = window.webContents;
   const webContentsId = webContents.id;
-  rendererHeartbeats.set(webContentsId, Date.now());
+  const attachedAt = Date.now();
+  rendererHeartbeats.set(webContentsId, attachedAt);
+  rendererLoadedAt.set(webContentsId, attachedAt);
 
   window.on('unresponsive', () => {
-    offerRendererRecovery(window, 'Electron reported an unresponsive renderer', webContentsId).catch((error) => {
-      console.error('[Khaos Nexus] Unresponsive-renderer recovery failed.', error);
-    });
+    console.warn('[Khaos Nexus] Electron reported a temporarily unresponsive renderer; waiting for heartbeat confirmation.');
+    scheduleNativeUnresponsiveConfirmation(window, webContentsId);
   });
-  webContents.on('did-finish-load', () => rendererHeartbeats.set(webContentsId, Date.now()));
+  window.on('responsive', () => {
+    clearNativeUnresponsiveTimer(webContentsId);
+    rendererHeartbeats.set(webContentsId, Date.now());
+  });
+  webContents.on('did-finish-load', () => {
+    const now = Date.now();
+    rendererLoadedAt.set(webContentsId, now);
+    rendererHeartbeats.set(webContentsId, now);
+  });
   webContents.on('render-process-gone', (_event, details) => {
     console.error('[Khaos Nexus] Renderer process exited.', details);
     if (electron.app.isQuitting) return;
@@ -207,8 +263,8 @@ function attachWindowRecovery(window) {
     }, 500);
     timer.unref?.();
   });
-  webContents.on('destroyed', () => rendererHeartbeats.delete(webContentsId));
-  window.on('closed', () => rendererHeartbeats.delete(webContentsId));
+  webContents.on('destroyed', () => cleanupRendererTracking(webContentsId));
+  window.on('closed', () => cleanupRendererTracking(webContentsId));
 }
 
 function patchBrowserLoader() {
@@ -248,7 +304,10 @@ function installRendererHeartbeat() {
   if (installRendererHeartbeat.done) return;
   installRendererHeartbeat.done = true;
   electron.ipcMain.handle('stability:heartbeat', (event) => {
-    rendererHeartbeats.set(event.sender.id, Date.now());
+    const now = Date.now();
+    rendererHeartbeats.set(event.sender.id, now);
+    if (!rendererLoadedAt.has(event.sender.id)) rendererLoadedAt.set(event.sender.id, now);
+    clearNativeUnresponsiveTimer(event.sender.id);
     return { ok: true };
   });
 
@@ -258,9 +317,11 @@ function installRendererHeartbeat() {
       try {
         if (!usableWindow(window) || !window.isVisible()) continue;
         const webContentsId = window.webContents.id;
-        const last = rendererHeartbeats.get(webContentsId) || now;
+        const loadedAt = rendererLoadedAt.get(webContentsId) || now;
+        if (now - loadedAt < RENDERER_STARTUP_GRACE_MS) continue;
+        const last = rendererHeartbeats.get(webContentsId) || loadedAt;
         if (now - last > RENDERER_HEARTBEAT_TIMEOUT_MS) {
-          offerRendererRecovery(window, 'The renderer heartbeat stopped', webContentsId).catch((error) => {
+          offerRendererRecovery(window, 'The renderer heartbeat stopped for more than 30 seconds', webContentsId).catch((error) => {
             console.error('[Khaos Nexus] Heartbeat recovery failed.', error);
           });
         }
@@ -309,10 +370,7 @@ function install() {
   if (installed) return;
   installed = true;
 
-  electron.app.disableHardwareAcceleration();
-  electron.app.commandLine.appendSwitch('disable-gpu-compositing');
-  electron.app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
-
+  configureGraphicsMode();
   patchBotSupervisor();
   patchRendererErrorCapture();
   patchBrowserLoader();
@@ -323,7 +381,17 @@ function install() {
   electron.app.on('before-quit', () => {
     electron.app.isQuitting = true;
     if (rendererWatchdog) clearInterval(rendererWatchdog);
+    for (const id of nativeUnresponsiveTimers.keys()) clearNativeUnresponsiveTimer(id);
   });
 }
 
-module.exports = { install, usableWindow, offerRendererRecovery };
+module.exports = {
+  install,
+  usableWindow,
+  offerRendererRecovery,
+  softwareRenderingRequested,
+  configureGraphicsMode,
+  RENDERER_HEARTBEAT_TIMEOUT_MS,
+  RENDERER_STARTUP_GRACE_MS,
+  NATIVE_UNRESPONSIVE_CONFIRM_MS
+};
