@@ -1,7 +1,7 @@
 {
   "name": "khaos-nexus",
-  "version": "0.14.1",
-  "description": "Local-first Khaos Nexus desktop command center with sustained renderer recovery, hardware-accelerated UI, Discord observability, persistent game-server status panels, crash diagnostics, and a futuristic operator interface.",
+  "version": "0.14.2",
+  "description": "Local-first Khaos Nexus desktop command center with guaranteed window reveal, single-instance focus recovery, sustained renderer recovery, hardware-accelerated UI, Discord observability, persistent game-server status panels, and crash diagnostics.",
   "main": "main/entry.cjs",
   "author": "Khaos Krew",
   "license": "MIT",
