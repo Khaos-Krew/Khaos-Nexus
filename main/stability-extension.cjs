@@ -7,6 +7,10 @@ const {
   startupTimeoutMessage
 } = require('../shared/startup-guard.cjs');
 
+const RENDERER_HEARTBEAT_TIMEOUT_MS = 15000;
+const RENDERER_RELOAD_COOLDOWN_MS = 60000;
+const rendererHeartbeats = new Map();
+let rendererWatchdog = null;
 let installed = false;
 
 function patchBotSupervisor() {
@@ -114,12 +118,67 @@ function patchBotSupervisor() {
   target.BotSupervisor = StableBotSupervisor;
 }
 
+function patchRendererErrorCapture() {
+  const ipcMain = electron.ipcMain;
+  if (!ipcMain || ipcMain.__khaosRendererErrorDeduped) return;
+  const originalHandle = ipcMain.handle.bind(ipcMain);
+  const recent = new Map();
+
+  ipcMain.handle = function patchedHandle(channel, listener) {
+    if (channel !== 'monitor:capture-renderer') return originalHandle(channel, listener);
+    return originalHandle(channel, (event, payload = {}) => {
+      const message = String(payload.message || 'Unknown renderer error').slice(0, 1000);
+      const stack = String(payload.stack || '').slice(0, 12000);
+      const key = `${message}\n${stack}`;
+      const now = Date.now();
+      const previous = recent.get(key) || 0;
+      recent.set(key, now);
+      for (const [entry, time] of recent) if (now - time > 5 * 60 * 1000) recent.delete(entry);
+      if (now - previous < 60000) return { captured: false, duplicate: true };
+      return listener(event, { ...payload, message, stack });
+    });
+  };
+
+  Object.defineProperty(ipcMain, '__khaosRendererErrorDeduped', { value: true });
+}
+
+function reloadWindow(window, reason) {
+  if (!window || window.isDestroyed()) return false;
+  const now = Date.now();
+  if (now - Number(window.__khaosLastRendererReload || 0) < RENDERER_RELOAD_COOLDOWN_MS) return false;
+  window.__khaosLastRendererReload = now;
+  rendererHeartbeats.set(window.webContents.id, now);
+  console.warn(`[Khaos Nexus] Reloading the renderer after ${reason}.`);
+  try {
+    window.webContents.reloadIgnoringCache();
+    return true;
+  } catch (error) {
+    console.error('[Khaos Nexus] Renderer reload failed.', error);
+    return false;
+  }
+}
+
+function attachWindowRecovery(window) {
+  if (!window || window.__khaosRendererRecoveryAttached) return;
+  window.__khaosRendererRecoveryAttached = true;
+  rendererHeartbeats.set(window.webContents.id, Date.now());
+
+  window.on('unresponsive', () => reloadWindow(window, 'an unresponsive event'));
+  window.webContents.on('did-finish-load', () => rendererHeartbeats.set(window.webContents.id, Date.now()));
+  window.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[Khaos Nexus] Renderer process exited.', details);
+    if (!electron.app.isQuitting) setTimeout(() => reloadWindow(window, `renderer process exit: ${details.reason || 'unknown'}`), 750);
+  });
+  window.webContents.on('destroyed', () => rendererHeartbeats.delete(window.webContents.id));
+}
+
 function patchBrowserLoader() {
   const prototype = electron.BrowserWindow?.prototype;
   if (!prototype || prototype.__khaosStabilityUiPatched) return;
   const original = prototype.loadFile;
 
   prototype.loadFile = function patchedLoadFile(...args) {
+    attachWindowRecovery(this);
     this.webContents.once('did-finish-load', () => {
       this.webContents.executeJavaScript(`(() => {
         if (!document.querySelector('link[href="stability-fixes.css"]')) {
@@ -142,11 +201,80 @@ function patchBrowserLoader() {
   Object.defineProperty(prototype, '__khaosStabilityUiPatched', { value: true });
 }
 
+function installRendererHeartbeat() {
+  if (installRendererHeartbeat.done) return;
+  installRendererHeartbeat.done = true;
+  electron.ipcMain.handle('stability:heartbeat', (event) => {
+    rendererHeartbeats.set(event.sender.id, Date.now());
+    return { ok: true };
+  });
+
+  rendererWatchdog = setInterval(() => {
+    const now = Date.now();
+    for (const window of electron.BrowserWindow.getAllWindows()) {
+      if (window.isDestroyed() || !window.isVisible()) continue;
+      const last = rendererHeartbeats.get(window.webContents.id) || now;
+      if (now - last > RENDERER_HEARTBEAT_TIMEOUT_MS) reloadWindow(window, 'a missed renderer heartbeat');
+    }
+  }, 5000);
+  rendererWatchdog.unref?.();
+}
+
+function installNativeMenu() {
+  const { app, BrowserWindow, Menu, shell } = electron;
+  const template = [
+    {
+      label: 'File',
+      submenu: [
+        { label: 'Reload Interface', accelerator: 'CmdOrCtrl+R', click: () => BrowserWindow.getFocusedWindow()?.webContents.reloadIgnoringCache() },
+        { label: 'Restart Khaos Nexus', click: () => { app.relaunch(); app.exit(0); } },
+        { type: 'separator' },
+        { label: 'Open Local Data Folder', click: () => shell.openPath(app.getPath('userData')) },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    },
+    { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'close' }] }
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 function install() {
   if (installed) return;
   installed = true;
+
+  // Khaos Nexus is an operator dashboard, not a 3D application. Software rendering
+  // avoids Chromium compositor freezes seen on mixed-DPI, multi-monitor Windows setups.
+  electron.app.disableHardwareAcceleration();
+  electron.app.commandLine.appendSwitch('disable-gpu-compositing');
+  electron.app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+
   patchBotSupervisor();
+  patchRendererErrorCapture();
   patchBrowserLoader();
+  electron.app.whenReady().then(() => {
+    installRendererHeartbeat();
+    installNativeMenu();
+  });
+  electron.app.on('before-quit', () => {
+    electron.app.isQuitting = true;
+    if (rendererWatchdog) clearInterval(rendererWatchdog);
+  });
 }
 
 module.exports = { install };
