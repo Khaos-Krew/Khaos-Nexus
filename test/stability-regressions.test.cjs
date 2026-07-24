@@ -58,6 +58,25 @@ test('main stability extension guards bot startup and renderer freezes', () => {
   assert.match(script, /Restart Interface/);
 });
 
+test('renderer recovery captures webContents IDs and handles every asynchronous recovery', () => {
+  const script = read('main/stability-extension.cjs');
+  assert.match(script, /const webContentsId = webContents\.id/);
+  assert.match(script, /webContents\.on\('destroyed', \(\) => rendererHeartbeats\.delete\(webContentsId\)\)/);
+  assert.doesNotMatch(script, /on\('destroyed',[\s\S]{0,100}window\.webContents\.id/);
+  assert.match(script, /offerRendererRecovery\([\s\S]*?\)\.catch/);
+  assert.match(script, /usableWindow\(window\)/);
+});
+
+test('main-process crash diagnostics create redacted local reports and IPC recovery actions', () => {
+  const script = read('main/crash-diagnostics-extension.cjs');
+  assert.match(script, /uncaughtExceptionMonitor/);
+  assert.match(script, /khaos-nexus-crash-report/);
+  assert.match(script, /crash-diagnostics:get-last/);
+  assert.match(script, /crash-diagnostics:open-folder/);
+  assert.match(script, /crash-diagnostics:copy-last/);
+  assert.match(script, /redactText/);
+});
+
 test('module migration UI no longer installs a whole-document mutation observer', () => {
   const script = read('renderer/module-hub.js');
   assert.doesNotMatch(script, /new MutationObserver/);
