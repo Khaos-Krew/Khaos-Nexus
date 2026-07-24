@@ -2,8 +2,23 @@
 
 (() => {
   const RECOVERY_PHRASE = 'UNLOCK KHAOS NEXUS';
+  const VIEW_TITLES = {
+    dashboard: 'Command Center',
+    setup: 'Discord',
+    'discord-studio': 'Discord Studio',
+    'discord-automation': 'Discord Automation',
+    servers: 'Game Servers',
+    modules: 'Modules',
+    autonomy: 'Operator Console',
+    readiness: 'Readiness Center',
+    monitor: 'Application Monitor',
+    logs: 'Live Logs',
+    mobile: 'Mobile Companion',
+    settings: 'Settings'
+  };
   let latestState = null;
-  let pollTimer = null;
+  let stateTimer = null;
+  let heartbeatTimer = null;
 
   const byId = (id) => document.getElementById(id);
 
@@ -32,6 +47,27 @@
   function setFallbackStatus(message) {
     const status = byId('nexusStabilityRecoveryStatus');
     if (status) status.textContent = String(message || '');
+  }
+
+  function showView(name) {
+    const target = document.getElementById(`view-${name}`);
+    if (!target) return false;
+    document.querySelectorAll('.view').forEach((view) => view.classList.toggle('active', view === target));
+    document.querySelectorAll('[data-view]').forEach((button) => button.classList.toggle('active', button.dataset.view === name));
+    const title = byId('viewTitle');
+    if (title) title.textContent = VIEW_TITLES[name] || name.replace(/(^|[-_\s])\w/g, (character) => character.toUpperCase());
+    return true;
+  }
+
+  function bindFailSafeNavigation() {
+    if (document.documentElement.dataset.khaosFailSafeNavigation === 'ready') return;
+    document.documentElement.dataset.khaosFailSafeNavigation = 'ready';
+    document.addEventListener('click', (event) => {
+      const link = event.target.closest('[data-view], [data-view-link]');
+      if (!link) return;
+      const name = link.dataset.view || link.dataset.viewLink;
+      if (showView(name)) event.preventDefault();
+    }, true);
   }
 
   async function refreshState() {
@@ -103,15 +139,17 @@
   function applyLockedState(state) {
     const locked = isLocked(state);
     document.body.classList.toggle('nexus-access-locked', locked);
-
     const overlay = byId('nexusAccessRecovery');
     const fallback = byId('nexusStabilityRecovery');
 
     if (!locked) {
       document.body.classList.remove('nexus-access-locked');
+      document.documentElement.style.pointerEvents = 'auto';
+      document.body.style.pointerEvents = 'auto';
       if (overlay) {
         overlay.classList.add('hidden');
-        overlay.style.removeProperty('display');
+        overlay.style.setProperty('display', 'none', 'important');
+        overlay.style.pointerEvents = 'none';
       }
       if (fallback) fallback.remove();
       return;
@@ -121,6 +159,7 @@
     if (overlay) {
       overlay.classList.remove('hidden');
       overlay.style.setProperty('display', 'grid', 'important');
+      overlay.style.pointerEvents = 'auto';
       const reasonElement = byId('nexusAccessRecoveryReason');
       if (reasonElement) reasonElement.textContent = reason;
       if (fallback) fallback.remove();
@@ -136,12 +175,20 @@
     applyLockedState(latestState);
   }
 
+  function sendHeartbeat() {
+    window.khaos.invoke('stability:heartbeat').catch(() => {});
+  }
+
   function initialize() {
+    bindFailSafeNavigation();
     window.khaos.onState(applyState);
     refreshState();
-    pollTimer = window.setInterval(refreshState, 5000);
+    sendHeartbeat();
+    stateTimer = window.setInterval(refreshState, 5000);
+    heartbeatTimer = window.setInterval(sendHeartbeat, 2000);
     window.addEventListener('beforeunload', () => {
-      if (pollTimer) window.clearInterval(pollTimer);
+      if (stateTimer) window.clearInterval(stateTimer);
+      if (heartbeatTimer) window.clearInterval(heartbeatTimer);
     });
   }
 
