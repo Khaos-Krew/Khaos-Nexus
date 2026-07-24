@@ -1,0 +1,63 @@
+/* Khaos Nexus v0.13 usability corrections */
+html,
+body,
+select,
+option,
+optgroup {
+  color-scheme: dark;
+}
+
+select {
+  background-color: #0d0f14 !important;
+  color: #f4f5f7 !important;
+  border-color: #343946 !important;
+}
+
+select option,
+select optgroup {
+  background-color: #11131a !important;
+  color: #f4f5f7 !important;
+}
+
+select option:checked,
+select option:hover,
+select option:focus {
+  background-color: #8f1424 !important;
+  color: #ffffff !important;
+}
+
+select:disabled {
+  background-color: #11131a !important;
+  color: #777f8e !important;
+}
+
+#nexusUpdateCheck,
+#nexusUpdateDownload,
+#nexusUpdateInstall,
+#nexusUpdateBannerActions {
+  display: none !important;
+}
+
+.nexus-simple-update-primary {
+  min-width: 178px;
+}
+
+.nexus-simple-update-primary.busy {
+  cursor: progress;
+}
+
+.nexus-simple-banner-action {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.nexus-update-banner.hidden .nexus-simple-banner-action {
+  display: none !important;
+}
+
+@media (max-width: 760px) {
+  .nexus-simple-banner-action {
+    width: 100%;
+    margin-left: 0;
+  }
+}
