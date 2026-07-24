@@ -1,0 +1,47 @@
+.mobile-hero { position: relative; overflow: hidden; min-height: 190px; display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 28px; border: 1px solid rgba(255,55,84,.42); border-radius: 18px; background: radial-gradient(circle at 86% 30%, rgba(73,207,255,.15), transparent 25%), radial-gradient(circle at 72% 100%, rgba(255,39,71,.18), transparent 34%), linear-gradient(125deg, rgba(23,7,13,.98), rgba(11,14,21,.98) 58%, rgba(8,19,27,.98)); box-shadow: 0 22px 70px rgba(0,0,0,.35), inset 0 0 70px rgba(255,40,70,.05); }
+.mobile-hero::before { content: ''; position: absolute; inset: 0; background-image: linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px); background-size: 34px 34px; mask-image: linear-gradient(90deg, rgba(0,0,0,.35), #000, transparent); pointer-events: none; }
+.mobile-hero > * { position: relative; z-index: 1; }
+.mobile-hero h2 { margin: 5px 0 8px; font-size: clamp(30px, 3vw, 44px); letter-spacing: -.9px; }
+.mobile-hero p { max-width: 810px; margin: 0; }
+.mobile-hero-badge { min-width: 190px; padding: 18px; border: 1px solid rgba(97,220,255,.35); border-radius: 14px; background: rgba(6,14,21,.72); box-shadow: 0 0 30px rgba(83,210,255,.07), inset 0 0 28px rgba(255,43,75,.04); text-align: right; }
+.mobile-hero-badge span, .mobile-hero-badge strong, .mobile-hero-badge small { display: block; }
+.mobile-hero-badge span { color: #6bdcff; font-size: 9px; letter-spacing: 1.6px; font-weight: 800; }
+.mobile-hero-badge strong { margin: 8px 0 4px; color: #ff536d; font-size: 20px; letter-spacing: .8px; }
+.mobile-hero-badge small { color: #7e8898; }
+.mobile-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+.mobile-summary-grid article { position: relative; overflow: hidden; min-height: 106px; padding: 16px; border: 1px solid #2c3340; border-radius: 13px; background: linear-gradient(145deg, rgba(20,23,32,.98), rgba(9,12,17,.98)); box-shadow: 0 13px 30px rgba(0,0,0,.22); }
+.mobile-summary-grid article::after { content: ''; position: absolute; width: 70px; height: 70px; right: -35px; bottom: -35px; border: 1px solid rgba(255,49,78,.3); transform: rotate(45deg); }
+.mobile-summary-grid span, .mobile-summary-grid small { display: block; color: #7f899a; }
+.mobile-summary-grid strong { display: block; margin: 8px 0 3px; font-size: 22px; text-transform: capitalize; }
+.mobile-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, .65fr); gap: 16px; align-items: start; }
+.mobile-control-panel, .mobile-pair-panel, .mobile-device-panel { padding: 20px; }
+.mobile-safety-callout { display: grid; gap: 4px; margin: 14px 0 18px; padding: 14px; border-left: 3px solid #56d9ff; background: linear-gradient(90deg, rgba(75,207,255,.08), transparent); color: #98a4b6; }
+.mobile-safety-callout strong { color: #dce8f3; }
+.mobile-pairing-card { min-height: 154px; display: grid; place-content: center; gap: 7px; margin: 14px 0; border: 1px solid rgba(255,55,84,.38); border-radius: 14px; background: radial-gradient(circle at 50% 50%, rgba(255,38,72,.15), transparent 58%), #080a0f; text-align: center; box-shadow: inset 0 0 38px rgba(255,45,74,.045); }
+.mobile-pairing-card strong { font-size: 42px; letter-spacing: 8px; color: white; text-shadow: 0 0 20px rgba(255,54,84,.42); }
+.mobile-pairing-card small { color: #8a94a4; text-transform: capitalize; }
+.mobile-pair-label { color: #ff5871; font-size: 9px; letter-spacing: 1.6px; font-weight: 800; }
+.mobile-pair-placeholder { color: #667183; }
+.mobile-device-panel { margin-top: 16px; }
+.mobile-device-list { display: grid; gap: 10px; }
+.mobile-device-card { display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center; padding: 14px; border: 1px solid #2b3240; border-radius: 12px; background: rgba(9,12,17,.64); }
+.mobile-device-card.revoked { opacity: .62; }
+.mobile-device-icon { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid rgba(255,55,84,.4); border-radius: 11px; color: #ff526c; background: rgba(255,42,72,.06); }
+.mobile-device-card strong, .mobile-device-card span, .mobile-device-card small { display: block; }
+.mobile-device-card span { margin: 3px 0; color: #929cad; text-transform: capitalize; }
+.mobile-device-card small { color: #687284; }
+.mobile-device-actions { display: flex; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
+.mobile-empty { display: grid; place-items: center; min-height: 145px; text-align: center; color: #747f90; }
+.mobile-empty strong, .mobile-empty span { display: block; }
+.mobile-empty strong { color: #cbd2dd; margin-bottom: 6px; }
+.mobile-roadmap { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
+.mobile-phase { position: relative; min-height: 156px; display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; padding: 15px; border: 1px solid #29303c; border-radius: 13px; background: linear-gradient(145deg, rgba(18,21,29,.98), rgba(8,11,16,.98)); }
+.mobile-phase > span { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid #363e4d; border-radius: 9px; color: #7c8798; font-size: 10px; }
+.mobile-phase strong, .mobile-phase small { display: block; }
+.mobile-phase small { margin-top: 6px; color: #707b8c; line-height: 1.45; }
+.mobile-phase.complete { border-color: rgba(78,218,158,.28); }
+.mobile-phase.complete > span { color: #67e8ad; border-color: rgba(78,218,158,.4); }
+.mobile-phase.active { border-color: rgba(255,56,85,.45); box-shadow: 0 0 28px rgba(255,44,74,.06); }
+.mobile-phase.active > span { color: #ff5972; border-color: rgba(255,56,85,.5); background: rgba(255,45,74,.06); }
+@media (max-width: 1280px) { .mobile-summary-grid { grid-template-columns: repeat(2, 1fr); } .mobile-roadmap { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 900px) { .mobile-hero { align-items: flex-start; flex-direction: column; } .mobile-hero-badge { width: 100%; text-align: left; } .mobile-layout { grid-template-columns: 1fr; } .mobile-summary-grid, .mobile-roadmap { grid-template-columns: 1fr; } .mobile-device-card { grid-template-columns: auto 1fr; } .mobile-device-actions { grid-column: 1 / -1; justify-content: flex-start; } }
