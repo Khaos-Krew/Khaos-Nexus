@@ -28,7 +28,7 @@ const DEFAULT_DISCORD_OBSERVABILITY = Object.freeze({
     releases: Object.freeze({ ...DEFAULT_ROUTE, cooldownSeconds: 300 }),
     errors: Object.freeze({ ...DEFAULT_ROUTE, minimumSeverity: 'error', cooldownSeconds: 300 }),
     heartbeat: Object.freeze({ ...DEFAULT_ROUTE, cooldownSeconds: 60 }),
-    health: Object.freeze({ ...DEFAULT_ROUTE, minimumSeverity: 'warning', cooldownSeconds: 120 })
+    health: Object.freeze({ ...DEFAULT_ROUTE, minimumSeverity: 'info', cooldownSeconds: 120 })
   }),
   deliveryHistory: Object.freeze([]),
   announcedVersions: Object.freeze([]),
