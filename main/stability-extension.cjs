@@ -15,8 +15,17 @@ let recoveryPromptOpen = false;
 let installed = false;
 
 function restartApplication() {
+  if (electron.app.isQuitting) return;
   electron.app.relaunch();
   electron.app.exit(0);
+}
+
+function usableWindow(window) {
+  try {
+    return Boolean(window && !window.isDestroyed() && window.webContents && !window.webContents.isDestroyed());
+  } catch {
+    return false;
+  }
 }
 
 function patchBotSupervisor() {
@@ -146,8 +155,9 @@ function patchRendererErrorCapture() {
   Object.defineProperty(ipcMain, '__khaosRendererErrorDeduped', { value: true });
 }
 
-async function offerRendererRecovery(window, reason) {
-  if (!window || window.isDestroyed() || recoveryPromptOpen) return false;
+async function offerRendererRecovery(window, reason, webContentsId = null) {
+  if (!usableWindow(window) || recoveryPromptOpen || electron.app.isQuitting) return false;
+  const id = webContentsId || window.webContents.id;
   const now = Date.now();
   if (now - Number(window.__khaosLastRendererRecoveryPrompt || 0) < RENDERER_RECOVERY_COOLDOWN_MS) return false;
   window.__khaosLastRendererRecoveryPrompt = now;
@@ -165,24 +175,40 @@ async function offerRendererRecovery(window, reason) {
     });
     if (result.response === 0) restartApplication();
     return result.response === 0;
+  } catch (error) {
+    console.error('[Khaos Nexus] Renderer recovery prompt failed.', error);
+    return false;
   } finally {
     recoveryPromptOpen = false;
-    rendererHeartbeats.set(window.webContents.id, Date.now());
+    rendererHeartbeats.set(id, Date.now());
   }
 }
 
 function attachWindowRecovery(window) {
-  if (!window || window.__khaosRendererRecoveryAttached) return;
+  if (!usableWindow(window) || window.__khaosRendererRecoveryAttached) return;
   window.__khaosRendererRecoveryAttached = true;
-  rendererHeartbeats.set(window.webContents.id, Date.now());
+  const webContents = window.webContents;
+  const webContentsId = webContents.id;
+  rendererHeartbeats.set(webContentsId, Date.now());
 
-  window.on('unresponsive', () => offerRendererRecovery(window, 'Electron reported an unresponsive renderer'));
-  window.webContents.on('did-finish-load', () => rendererHeartbeats.set(window.webContents.id, Date.now()));
-  window.webContents.on('render-process-gone', (_event, details) => {
-    console.error('[Khaos Nexus] Renderer process exited.', details);
-    if (!electron.app.isQuitting) setTimeout(() => offerRendererRecovery(window, `The renderer process exited (${details.reason || 'unknown'})`), 500);
+  window.on('unresponsive', () => {
+    offerRendererRecovery(window, 'Electron reported an unresponsive renderer', webContentsId).catch((error) => {
+      console.error('[Khaos Nexus] Unresponsive-renderer recovery failed.', error);
+    });
   });
-  window.webContents.on('destroyed', () => rendererHeartbeats.delete(window.webContents.id));
+  webContents.on('did-finish-load', () => rendererHeartbeats.set(webContentsId, Date.now()));
+  webContents.on('render-process-gone', (_event, details) => {
+    console.error('[Khaos Nexus] Renderer process exited.', details);
+    if (electron.app.isQuitting) return;
+    const timer = setTimeout(() => {
+      offerRendererRecovery(window, `The renderer process exited (${details.reason || 'unknown'})`, webContentsId).catch((error) => {
+        console.error('[Khaos Nexus] Renderer-process recovery failed.', error);
+      });
+    }, 500);
+    timer.unref?.();
+  });
+  webContents.on('destroyed', () => rendererHeartbeats.delete(webContentsId));
+  window.on('closed', () => rendererHeartbeats.delete(webContentsId));
 }
 
 function patchBrowserLoader() {
@@ -191,9 +217,13 @@ function patchBrowserLoader() {
   const original = prototype.loadFile;
 
   prototype.loadFile = function patchedLoadFile(...args) {
-    attachWindowRecovery(this);
-    this.webContents.once('did-finish-load', () => {
-      this.webContents.executeJavaScript(`(() => {
+    const window = this;
+    attachWindowRecovery(window);
+    const webContents = window.webContents;
+    const webContentsId = webContents.id;
+    webContents.once('did-finish-load', () => {
+      if (!usableWindow(window) || window.webContents.id !== webContentsId) return;
+      window.webContents.executeJavaScript(`(() => {
         if (!document.querySelector('link[href="stability-fixes.css"]')) {
           const link = document.createElement('link');
           link.rel = 'stylesheet';
@@ -206,9 +236,9 @@ function patchBrowserLoader() {
           script.defer = true;
           document.body.appendChild(script);
         }
-      })();`).catch(() => {});
+      })();`).catch((error) => console.error('[Khaos Nexus] Stability renderer bootstrap failed.', error));
     });
-    return original.apply(this, args);
+    return original.apply(window, args);
   };
 
   Object.defineProperty(prototype, '__khaosStabilityUiPatched', { value: true });
@@ -225,9 +255,18 @@ function installRendererHeartbeat() {
   rendererWatchdog = setInterval(() => {
     const now = Date.now();
     for (const window of electron.BrowserWindow.getAllWindows()) {
-      if (window.isDestroyed() || !window.isVisible()) continue;
-      const last = rendererHeartbeats.get(window.webContents.id) || now;
-      if (now - last > RENDERER_HEARTBEAT_TIMEOUT_MS) offerRendererRecovery(window, 'The renderer heartbeat stopped');
+      try {
+        if (!usableWindow(window) || !window.isVisible()) continue;
+        const webContentsId = window.webContents.id;
+        const last = rendererHeartbeats.get(webContentsId) || now;
+        if (now - last > RENDERER_HEARTBEAT_TIMEOUT_MS) {
+          offerRendererRecovery(window, 'The renderer heartbeat stopped', webContentsId).catch((error) => {
+            console.error('[Khaos Nexus] Heartbeat recovery failed.', error);
+          });
+        }
+      } catch (error) {
+        console.error('[Khaos Nexus] Renderer watchdog skipped a closing window.', error);
+      }
     }
   }, 5000);
   rendererWatchdog.unref?.();
@@ -242,7 +281,7 @@ function installNativeMenu() {
         { label: 'Restart Interface', accelerator: 'CmdOrCtrl+R', click: restartApplication },
         { label: 'Restart Khaos Nexus', click: restartApplication },
         { type: 'separator' },
-        { label: 'Open Local Data Folder', click: () => shell.openPath(app.getPath('userData')) },
+        { label: 'Open Local Data Folder', click: () => shell.openPath(app.getPath('userData')).catch((error) => console.error('[Khaos Nexus] Could not open local data folder.', error)) },
         { type: 'separator' },
         { role: 'quit' }
       ]
@@ -270,8 +309,6 @@ function install() {
   if (installed) return;
   installed = true;
 
-  // This is a 2D operator dashboard. Software rendering avoids Chromium compositor
-  // freezes observed on mixed-DPI, multi-monitor Windows systems.
   electron.app.disableHardwareAcceleration();
   electron.app.commandLine.appendSwitch('disable-gpu-compositing');
   electron.app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
@@ -282,11 +319,11 @@ function install() {
   electron.app.whenReady().then(() => {
     installRendererHeartbeat();
     installNativeMenu();
-  });
+  }).catch((error) => console.error('[Khaos Nexus] Stability initialization failed.', error));
   electron.app.on('before-quit', () => {
     electron.app.isQuitting = true;
     if (rendererWatchdog) clearInterval(rendererWatchdog);
   });
 }
 
-module.exports = { install };
+module.exports = { install, usableWindow, offerRendererRecovery };
