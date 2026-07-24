@@ -7,5 +7,6 @@ require('./palworld-main-extension.cjs').install();
 require('./discord-studio-extension.cjs').install();
 require('./mobile-gateway-extension.cjs').install();
 require('./discord-automation-extension.cjs').install();
+require('./discord-observability-extension.cjs').install();
 require('./module-foundation-extension.cjs').install();
 require('./main.cjs');
