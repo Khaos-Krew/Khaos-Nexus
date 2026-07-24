@@ -1,7 +1,7 @@
 {
   "name": "khaos-nexus",
-  "version": "0.14.0",
-  "description": "Audited local-first Khaos Nexus desktop command center with Discord release, error, heartbeat, and health routing, lifecycle-safe recovery, crash diagnostics, and a redesigned futuristic interface.",
+  "version": "0.14.1",
+  "description": "Local-first Khaos Nexus desktop command center with sustained renderer recovery, hardware-accelerated UI, Discord observability, persistent game-server status panels, crash diagnostics, and a futuristic operator interface.",
   "main": "main/entry.cjs",
   "author": "Khaos Krew",
   "license": "MIT",
