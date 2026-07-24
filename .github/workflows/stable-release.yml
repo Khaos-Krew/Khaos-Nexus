@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  actions: read
+  statuses: write
 
 concurrency:
   group: stable-release-${{ github.ref }}
@@ -14,92 +16,152 @@ concurrency:
 
 jobs:
   publish-windows-release:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
       - name: Validate release branch and package version
         id: version
-        shell: pwsh
+        shell: bash
         run: |
-          $package = Get-Content package.json -Raw | ConvertFrom-Json
-          $version = [string]$package.version
-          $expectedBranch = "release/v$version"
-          if ($env:GITHUB_REF_NAME -ne $expectedBranch) {
-            throw "Release branch '$env:GITHUB_REF_NAME' does not match package version '$version'. Expected '$expectedBranch'."
-          }
-          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "tag=v$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          expected_branch="release/v${version}"
+          if [[ "$GITHUB_REF_NAME" != "$expected_branch" ]]; then
+            echo "Release branch '$GITHUB_REF_NAME' does not match package version '$version'. Expected '$expected_branch'." >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
 
-      - name: Install dependencies
-        run: npm install
-
-      - name: Run complete tests
-        run: npm test
-
-      - name: Run syntax and package checks
-        run: npm run check
-
-      - name: Build installer and portable executable
-        run: npm run dist:win
-
-      - name: Verify updater assets and create checksums
-        shell: pwsh
-        run: |
-          $version = "${{ steps.version.outputs.version }}"
-          $required = @(
-            "dist/Khaos-Nexus-Setup-$version-x64.exe",
-            "dist/Khaos-Nexus-Setup-$version-x64.exe.blockmap",
-            "dist/Khaos-Nexus-Portable-$version-x64.exe",
-            "dist/latest.yml"
-          )
-          foreach ($file in $required) {
-            if (-not (Test-Path $file)) { throw "Required updater asset was not generated: $file" }
-          }
-          $required | ForEach-Object {
-            $hash = (Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash  $([System.IO.Path]::GetFileName($_))"
-          } | Set-Content -Path release-checksums.txt -Encoding utf8
-
-      - name: Publish stable GitHub Release
-        shell: pwsh
+      - name: Download exact validated Windows artifact
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $version = "${{ steps.version.outputs.version }}"
-          $tag = "${{ steps.version.outputs.tag }}"
-          gh release view $tag *> $null
-          if ($LASTEXITCODE -eq 0) { throw "Stable release $tag already exists. Increase package.json before publishing again." }
+          set -euo pipefail
+          run_id=30062564756
+          expected_head_sha="bf7a98ce0add563a16282041b7c136332f0f24af"
+          run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")"
+          [[ "$(jq -r '.name' <<<"$run_json")" == "Windows Build" ]] || { echo "Run $run_id is not Windows Build." >&2; exit 1; }
+          [[ "$(jq -r '.conclusion' <<<"$run_json")" == "success" ]] || { echo "Run $run_id was not successful." >&2; exit 1; }
+          [[ "$(jq -r '.head_sha' <<<"$run_json")" == "$expected_head_sha" ]] || { echo "Run $run_id used the wrong source commit." >&2; exit 1; }
+          mkdir -p dist
+          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name "Khaos-Nexus-Windows" --dir dist
 
-          @"
-          ## Khaos Nexus $tag
+      - name: Verify updater assets and create checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          required=(
+            "dist/Khaos-Nexus-Setup-${version}-x64.exe"
+            "dist/Khaos-Nexus-Setup-${version}-x64.exe.blockmap"
+            "dist/Khaos-Nexus-Portable-${version}-x64.exe"
+            "dist/latest.yml"
+          )
+          for file in "${required[@]}"; do
+            [[ -f "$file" ]] || { echo "Required updater asset is missing: $file" >&2; exit 1; }
+          done
+          grep -Eq "^version:[[:space:]]*${version}[[:space:]]*$" dist/latest.yml || { echo "latest.yml does not identify version $version." >&2; exit 1; }
+          sha256sum "${required[@]}" | sed 's#  dist/#  #' > release-checksums.txt
 
-          This is a validated stable Windows release for the Khaos Nexus in-app update channel.
+      - name: Publish stable GitHub Release atomically
+        id: publish
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          exec > >(tee release-publish-output.txt) 2>&1
+
+          version="${{ steps.version.outputs.version }}"
+          tag="${{ steps.version.outputs.tag }}"
+          source_sha="bf7a98ce0add563a16282041b7c136332f0f24af"
+          assets=(
+            "dist/Khaos-Nexus-Setup-${version}-x64.exe"
+            "dist/Khaos-Nexus-Setup-${version}-x64.exe.blockmap"
+            "dist/Khaos-Nexus-Portable-${version}-x64.exe"
+            "dist/latest.yml"
+            "release-checksums.txt"
+          )
+
+          cat > release-notes.md <<EOF
+          ## Khaos Nexus ${tag}
+
+          Usability update for the Khaos Nexus stable Windows channel.
 
           ### Included
-          - Windows installer
-          - Portable Windows executable
-          - electron-updater metadata
-          - NSIS blockmap
-          - SHA-256 checksum manifest
+          - readable dark dropdown menus throughout the application
+          - one-step Check & Update flow
+          - automatic download verification
+          - verified pre-update settings backup
+          - automatic install and restart
+          - Windows installer and portable executable
+          - electron-updater metadata, blockmap, and checksums
 
-          The release was rebuilt from commit `$env:GITHUB_SHA` and passed the complete tests and syntax checks before publication.
-          "@ | Set-Content -Path release-notes.md -Encoding utf8
+          The published files are the exact artifact from successful Windows Build run 30062564756 for commit ${source_sha}.
+          EOF
 
-          gh release create $tag --target $env:GITHUB_SHA --title "Khaos Nexus $tag" --notes-file release-notes.md --draft
-          if ($LASTEXITCODE -ne 0) { throw "GitHub draft release creation failed." }
+          if release_json="$(gh release view "$tag" --json isDraft,assets 2>/dev/null)"; then
+            if [[ "$(jq -r '.isDraft' <<<"$release_json")" == "false" ]]; then
+              for asset in "${assets[@]}"; do
+                name="$(basename "$asset")"
+                jq -e --arg name "$name" '.assets[] | select(.name == $name)' <<<"$release_json" >/dev/null || { echo "Published release $tag is missing $name." >&2; exit 1; }
+              done
+              echo "Release $tag is already published with every required asset."
+              exit 0
+            fi
+            echo "Removing incomplete draft release $tag before atomic recreation."
+            gh release delete "$tag" --cleanup-tag --yes
+          fi
 
-          $assets = Get-ChildItem dist -File | Where-Object { $_.Extension -in '.exe', '.yml', '.blockmap' }
-          foreach ($asset in $assets) {
-            gh release upload $tag $asset.FullName
-            if ($LASTEXITCODE -ne 0) { throw "Failed to upload $($asset.Name)." }
-          }
-          gh release upload $tag release-checksums.txt
-          if ($LASTEXITCODE -ne 0) { throw "Failed to upload release-checksums.txt." }
+          gh release create "$tag" "${assets[@]}" --target "$source_sha" --title "Khaos Nexus $tag" --notes-file release-notes.md --draft
 
-          gh release edit $tag --draft=false --latest
-          if ($LASTEXITCODE -ne 0) { throw "Failed to publish stable release $tag." }
+          draft_json="$(gh release view "$tag" --json isDraft,assets)"
+          [[ "$(jq -r '.isDraft' <<<"$draft_json")" == "true" ]] || { echo "Expected $tag to remain a draft during verification." >&2; exit 1; }
+          for asset in "${assets[@]}"; do
+            name="$(basename "$asset")"
+            jq -e --arg name "$name" '.assets[] | select(.name == $name)' <<<"$draft_json" >/dev/null || { echo "Draft release is missing $name." >&2; exit 1; }
+          done
+
+          gh release edit "$tag" --draft=false --latest
+          published_json="$(gh release view "$tag" --json isDraft,assets)"
+          [[ "$(jq -r '.isDraft' <<<"$published_json")" == "false" ]] || { echo "Release $tag was not published." >&2; exit 1; }
+          echo "Published $tag with every required updater asset."
+
+      - name: Upload release publication transcript
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stable-release-output
+          path: release-publish-output.txt
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Record stable release verification status
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          source_sha="bf7a98ce0add563a16282041b7c136332f0f24af"
+          state="success"
+          description="v0.13.0 release assets verified and published"
+          if [[ "${{ steps.publish.outcome }}" == "failure" ]]; then
+            state="failure"
+            description="v0.13.0 release publication failed"
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$source_sha" \
+            -f state="$state" \
+            -f context="stable-release/v0.13.0" \
+            -f description="$description" \
+            -f target_url="https://github.com/$GITHUB_REPOSITORY/releases/tag/v0.13.0"
+
+      - name: Fail if release publication failed
+        if: steps.publish.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "Stable release publication failed. See the stable-release-output artifact." >&2
+          exit 1
