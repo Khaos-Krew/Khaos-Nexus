@@ -13,7 +13,7 @@ function makeStore(overrides = {}) {
       releases: { enabled: true, channelId: '1111111111' },
       errors: { enabled: true, channelId: '2222222222', minimumSeverity: 'error' },
       heartbeat: { enabled: true, channelId: '3333333333' },
-      health: { enabled: true, channelId: '4444444444', minimumSeverity: 'warning' }
+      health: { enabled: true, channelId: '4444444444', minimumSeverity: 'info' }
     },
     ...overrides
   });
