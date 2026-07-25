@@ -54,9 +54,10 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.14.4 identifies the software-safe branding build', () => {
+test('v0.15.0 keeps the verified software-safe renderer and adds server scheduling', () => {
   const packageJson = JSON.parse(read('package.json'));
-  assert.equal(packageJson.version, '0.14.4');
-  assert.match(packageJson.description, /software-renderer-safe visuals/i);
-  assert.match(packageJson.description, /serialized feature startup/i);
+  assert.equal(packageJson.version, '0.15.0');
+  assert.match(packageJson.description, /server schedules/i);
+  assert.match(packageJson.description, /host-managed restart verification/i);
+  assert.match(packageJson.description, /software-renderer-safe startup/i);
 });
