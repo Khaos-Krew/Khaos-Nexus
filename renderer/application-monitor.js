@@ -161,13 +161,21 @@
     document.body.appendChild(script);
   }
 
+  function scheduleOptionalExtensions() {
+    const extensions = ['discord-auth.js', 'autonomy.js', 'readiness.js', 'permission-state.js'];
+    const begin = () => {
+      window.khaos?.reportBootStage?.('optional-features-queued', { count: extensions.length });
+      extensions.forEach(loadExtension);
+    };
+    if (document.readyState === 'complete') setTimeout(begin, 1000);
+    else window.addEventListener('load', () => setTimeout(begin, 1000), { once: true });
+  }
+
   async function initializeMonitorUi() {
     bind();
     render(await invoke('app:get-state'));
-    loadExtension('discord-auth.js');
-    loadExtension('autonomy.js');
-    loadExtension('readiness.js');
-    loadExtension('permission-state.js');
+    window.khaos?.reportBootStage?.('monitor-ready');
+    scheduleOptionalExtensions();
     setInterval(() => {
       if (current?.applicationMonitor?.lastDeliveryAt && byId('monitorLastDelivery')) {
         byId('monitorLastDelivery').textContent = relativeTime(current.applicationMonitor.lastDeliveryAt);
