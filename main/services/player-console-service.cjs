@@ -47,9 +47,10 @@ class PlayerConsoleService extends EventEmitter {
     fs.renameSync(temporary, this.historyPath);
   }
 
-  runtimeServers(serverIds = []) {
-    const wanted = new Set(Array.isArray(serverIds) ? serverIds : []);
-    return this.configStore.getRuntimeBootstrap().config.servers.filter((server) => server.enabled !== false && (!wanted.size || wanted.has(server.id)));
+  runtimeServers(serverIds) {
+    const filtered = Array.isArray(serverIds);
+    const wanted = new Set(filtered ? serverIds : []);
+    return this.configStore.getRuntimeBootstrap().config.servers.filter((server) => server.enabled !== false && (!filtered || wanted.has(server.id)));
   }
 
   pruneTokens() {
@@ -70,7 +71,7 @@ class PlayerConsoleService extends EventEmitter {
     return token;
   }
 
-  async refresh(serverIds = []) {
+  async refresh(serverIds) {
     this.tokens.clear();
     const servers = this.runtimeServers(serverIds);
     const players = [];
