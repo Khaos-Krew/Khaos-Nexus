@@ -10,7 +10,7 @@
   ];
   const VIEW_DETAIL = {
     dashboard: 'Command Center', setup: 'Discord Runtime', 'discord-studio': 'Discord Studio', 'discord-automation': 'Discord Automation', observability: 'Discord Observability',
-    servers: 'Game Servers', scheduler: 'Server Scheduler', players: 'Players & Moderation', modules: 'Module Network', operator: 'Operator Console', readiness: 'Readiness Center', monitor: 'Application Monitor',
+    servers: 'Game Servers', scheduler: 'Server Scheduler', players: 'Players & Moderation', 'hosted-servers': 'Hosted Server Control', modules: 'Module Network', operator: 'Operator Console', readiness: 'Readiness Center', monitor: 'Application Monitor',
     logs: 'Live Logs', mobile: 'Mobile Companion', settings: 'Settings'
   };
   const state = { app: null, observability: null, initialized: false, activeCommandIndex: 0 };
@@ -40,7 +40,7 @@
 
   function workspaceForView(view) {
     if (['dashboard'].includes(view)) return 'dashboard';
-    if (['servers', 'scheduler', 'players', 'operator', 'readiness'].includes(view)) return 'servers';
+    if (['servers', 'scheduler', 'players', 'hosted-servers', 'operator', 'readiness'].includes(view)) return 'servers';
     if (['setup', 'discord-studio', 'discord-automation', 'observability'].includes(view)) return 'setup';
     if (['modules', 'mobile'].includes(view)) return 'modules';
     return 'settings';
@@ -84,7 +84,7 @@
     palette.setAttribute('aria-label', 'Khaos Nexus command palette');
     palette.innerHTML = `
       <div class="nexus-command-panel">
-        <div class="nexus-command-search"><span>⌕</span><input id="nexusCommandInput" autocomplete="off" placeholder="Search workspaces, Discord, servers, players, logs, settings…"></div>
+        <div class="nexus-command-search"><span>⌕</span><input id="nexusCommandInput" autocomplete="off" placeholder="Search workspaces, Discord, hosted servers, players, logs, settings…"></div>
         <div class="nexus-command-results" id="nexusCommandResults"></div>
         <div class="nexus-command-footer"><span>↑ ↓ Navigate • Enter Open • Esc Close</span><span>Ctrl K • Khaos Nexus Command Search</span></div>
       </div>`;
