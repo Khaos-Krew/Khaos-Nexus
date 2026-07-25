@@ -6,11 +6,16 @@ Khaos Nexus is a local-first Windows desktop control center for Discord automati
 
 - Supervised Discord bot startup, recovery, slash commands, and operator access.
 - ARK, Palworld REST/RCON, and generic Source RCON server connections.
+- Cross-server connected-player visibility with guarded kick and owner-confirmed ban workflows.
 - Persistent Discord server-status panels with privacy-safe player summaries.
 - Discord Studio, role menus, channel automation, and routed observability feeds.
 - Verified local backups, crash diagnostics, application monitoring, and updates.
 - Recurring server schedules with warnings, save-before-shutdown protection, host-managed restart verification, Discord reports, cancellation, and execution history.
 - Software-renderer compatibility mode and serialized feature startup for stable Windows operation.
+
+## Players & Moderation
+
+The player console refreshes connected players across selected servers, supports name/server/game search, and uses short-lived internal moderation tokens rather than exposing player account IDs or raw RCON commands to the renderer. Kick requires Operator access; ban and history clearing require Owner access. Every action requires a reason and is recorded locally.
 
 ## Server Scheduler
 
@@ -30,6 +35,8 @@ The repository packages both:
 - `Khaos-Nexus-Portable-<version>-x64.exe`
 
 Owner-test builds remain on draft branches until they have been verified on the target Windows PC. Stable releases are published only after startup, navigation, server operations, Discord delivery, and update behavior pass real-device testing.
+
+See [TEST_BUILDS.md](TEST_BUILDS.md) for preserved owner-test checkpoints and checksums.
 
 ## Security
 
