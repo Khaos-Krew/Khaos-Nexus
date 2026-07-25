@@ -1,7 +1,7 @@
 {
   "name": "khaos-nexus",
-  "version": "0.16.0",
-  "description": "Local-first Khaos Nexus desktop command center with cross-server players and guarded moderation, recurring server schedules, host-managed restart verification, software-renderer-safe startup, Discord observability, persistent status panels, and crash diagnostics.",
+  "version": "0.17.0",
+  "description": "Local-first Khaos Nexus desktop command center with encrypted Pterodactyl hosted-server control, cross-server players and guarded moderation, recurring schedules, software-renderer-safe startup, Discord observability, persistent status panels, and crash diagnostics.",
   "main": "main/entry.cjs",
   "author": "Khaos Krew",
   "license": "MIT",
