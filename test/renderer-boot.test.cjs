@@ -34,6 +34,16 @@ test('optional monitor extensions wait until the base document has loaded', () =
   assert.match(monitor, /setTimeout\(begin, 1000\)/);
 });
 
+test('Windows compatibility mode defaults to software rendering with an explicit hardware override', () => {
+  const graphics = read('main/software-rendering-extension.cjs');
+  const entry = read('main/entry.cjs');
+  assert.match(graphics, /disableHardwareAcceleration/);
+  assert.match(graphics, /disable-gpu-compositing/);
+  assert.match(graphics, /--hardware-renderer/);
+  assert.match(graphics, /KHAOS_NEXUS_HARDWARE_RENDERING/);
+  assert.match(entry, /software-rendering-extension\.cjs/);
+});
+
 test('v0.14.3 identifies the serialized startup build', () => {
   const packageJson = JSON.parse(read('package.json'));
   assert.equal(packageJson.version, '0.14.3');
