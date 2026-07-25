@@ -8,6 +8,7 @@ if (!hasSingleInstanceLock) {
   app.quit();
 } else {
   require('./window-visibility-extension.cjs').install();
+  require('./renderer-boot-coordinator-extension.cjs').install();
   require('./crash-diagnostics-extension.cjs').install();
   require('./stability-extension.cjs').install();
   require('./access-recovery-extension.cjs').install();
