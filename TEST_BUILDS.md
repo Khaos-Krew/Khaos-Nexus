@@ -20,6 +20,16 @@ Every owner-test milestone is preserved as a dedicated Git branch and a separate
 - Owner status: awaiting live-device scheduler testing.
 - Main changes: compact dashboard, recurring saves, warning sequences, safe shutdown, host-managed restart verification, Discord reports, cancellation, and execution history.
 
+## v0.16.0 — Players & Moderation
+
+- Source branch: `test/v0.16.0-players-moderation`
+- Application source commit: `789246cde7f089c26ce526714e04cd276203eb16`
+- Packaged checkpoint commit: `373537c3df3af10e9b451148472d92303e4d796f`
+- Test package: `Khaos-Nexus-v0.16.0-players-moderation.zip`
+- Package SHA-256: `48d4da00471b6c66ad93c7df7626aae352ba4a89a68ef61124960de6829078c8`
+- Owner status: awaiting live-device player-list and moderation testing.
+- Main changes: cross-server connected-player view, server/name/game filtering, automatic refresh, short-lived moderation tokens, Operator kick, Owner ban, required reasons, and local moderation history without retained account IDs.
+
 ## Test-build policy
 
 1. Each milestone receives a unique semantic version.
