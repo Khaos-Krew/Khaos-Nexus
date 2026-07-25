@@ -44,8 +44,19 @@ test('Windows compatibility mode defaults to software rendering with an explicit
   assert.match(entry, /software-rendering-extension\.cjs/);
 });
 
-test('v0.14.3 identifies the serialized startup build', () => {
+test('software compatibility mode skips the expensive global brand renderer', () => {
+  const extension = read('main/brand-update-extension.cjs');
+  assert.match(extension, /hardwareRenderingRequested/);
+  assert.match(extension, /if \(richBrandEnabled\)/);
+  assert.match(extension, /addScript\('brand-ui\.js'\)/);
+  assert.match(extension, /rich-brand-skipped/);
+  assert.match(extension, /nexus-compatibility-visuals/);
+  assert.match(extension, /addScript\('simple-updater\.js'\)/);
+});
+
+test('v0.14.4 identifies the software-safe branding build', () => {
   const packageJson = JSON.parse(read('package.json'));
-  assert.equal(packageJson.version, '0.14.3');
+  assert.equal(packageJson.version, '0.14.4');
+  assert.match(packageJson.description, /software-renderer-safe visuals/i);
   assert.match(packageJson.description, /serialized feature startup/i);
 });
