@@ -31,5 +31,6 @@ contextBridge.exposeInMainWorld('khaos', {
   onDiscordObservability: (callback) => subscribe('discord-observability:state', callback),
   onStatusPanels: (callback) => subscribe('status-panels:update', callback),
   onServerScheduler: (callback) => subscribe('server-scheduler:update', callback),
-  onPlayerConsole: (callback) => subscribe('player-console:update', callback)
+  onPlayerConsole: (callback) => subscribe('player-console:update', callback),
+  onHostedServer: (callback) => subscribe('hosted-server:update', callback)
 });
