@@ -1,0 +1,53 @@
+name: Bot Manager bug report
+description: Report a reproducible manager, Discord, monitoring, or RCON problem.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Remove all tokens, passwords, server addresses you consider private, and personal information before submitting.
+  - type: input
+    id: version
+    attributes:
+      label: Manager version
+      placeholder: 0.1.1
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Desktop manager
+        - Discord connection or commands
+        - Health Monitor
+        - Ark RCON
+        - Palworld RCON
+        - Generic RCON
+        - Installer or updater
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Include the Health Monitor error ID when available.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open...
+        2. Click...
+        3. Observe...
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics
+      description: Paste the report copied by the Health Monitor after reviewing it.
+      render: text

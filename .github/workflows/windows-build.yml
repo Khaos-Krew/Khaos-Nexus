@@ -1,0 +1,40 @@
+name: Windows Build
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main, "agent/**"]
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm test
+      - run: npm run check
+      - name: Build installer and portable executable
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: npm run dist:win
+      - name: Build and publish GitHub Release
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: npm run release:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/upload-artifact@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        with:
+          name: Khaos-Nexus-Windows
+          path: |
+            dist/*.exe
+            dist/*.yml
+            dist/*.blockmap
+          if-no-files-found: error
