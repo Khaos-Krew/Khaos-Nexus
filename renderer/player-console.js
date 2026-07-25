@@ -1,7 +1,7 @@
 'use strict';
 
 (() => {
-  const state = { payload: null, selectedServers: new Set(), query: '', autoTimer: null };
+  const state = { payload: null, selectedServers: new Set(), filtersInitialized: false, query: '', autoTimer: null };
   const $ = (id) => document.getElementById(id);
 
   function escapeHtml(value) {
@@ -34,10 +34,18 @@
     return state.payload?.snapshot?.players || [];
   }
 
+  function initializeFilters() {
+    if (state.filtersInitialized || !state.payload) return;
+    for (const server of state.payload.servers || []) {
+      if (server.enabled !== false) state.selectedServers.add(server.id);
+    }
+    state.filtersInitialized = true;
+  }
+
   function filteredPlayers() {
     const query = state.query.trim().toLowerCase();
     return players().filter((player) => {
-      if (state.selectedServers.size && !state.selectedServers.has(player.serverId)) return false;
+      if (state.filtersInitialized && !state.selectedServers.has(player.serverId)) return false;
       if (!query) return true;
       return `${player.name} ${player.serverName} ${player.game} ${player.accountType}`.toLowerCase().includes(query);
     });
@@ -147,7 +155,7 @@
           <button class="button" data-player-kick="${escapeHtml(player.token)}" data-player-name="${escapeHtml(player.name)}" ${canOperate() ? '' : 'disabled'}>Kick</button>
           <button class="button danger" data-player-ban="${escapeHtml(player.token)}" data-player-name="${escapeHtml(player.name)}" ${canOwn() ? '' : 'disabled'}>Ban</button>
         </span>
-      </article>`).join('') : `<div class="player-console-empty">${state.payload?.snapshot?.refreshedAt ? 'No connected players match the current filters.' : 'Refresh the player list to begin.'}</div>`;
+      </article>`).join('') : `<div class="player-console-empty">${state.payload?.snapshot?.refreshedAt ? 'No connected players match the current server and search filters.' : 'Refresh the player list to begin.'}</div>`;
   }
 
   function renderHistory() {
@@ -172,6 +180,7 @@
 
   function render() {
     if (!state.payload) return;
+    initializeFilters();
     renderSummary();
     renderServerFilters();
     renderErrors();
