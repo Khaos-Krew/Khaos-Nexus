@@ -11,6 +11,12 @@ const rendererHeartbeatTimer = setInterval(sendRendererHeartbeat, 2000);
 
 process.once('exit', () => clearInterval(rendererHeartbeatTimer));
 
+function subscribe(channel, callback) {
+  const listener = (_event, state) => callback(state);
+  ipcRenderer.on(channel, listener);
+  return () => ipcRenderer.removeListener(channel, listener);
+}
+
 contextBridge.exposeInMainWorld('khaos', {
   invoke: (channel, payload) => ipcRenderer.invoke(channel, payload),
   reportBootStage: (stage, detail = {}) => ipcRenderer.send('renderer-boot:stage', {
@@ -18,39 +24,12 @@ contextBridge.exposeInMainWorld('khaos', {
     detail: detail && typeof detail === 'object' ? detail : {},
     time: new Date().toISOString()
   }),
-  onState: (callback) => {
-    const listener = (_event, state) => callback(state);
-    ipcRenderer.on('state:update', listener);
-    return () => ipcRenderer.removeListener('state:update', listener);
-  },
-  onLog: (callback) => {
-    const listener = (_event, entry) => callback(entry);
-    ipcRenderer.on('log:entry', listener);
-    return () => ipcRenderer.removeListener('log:entry', listener);
-  },
-  onUpdate: (callback) => {
-    const listener = (_event, state) => callback(state);
-    ipcRenderer.on('update:state', listener);
-    return () => ipcRenderer.removeListener('update:state', listener);
-  },
-  onDiscordAutomation: (callback) => {
-    const listener = (_event, state) => callback(state);
-    ipcRenderer.on('discord-automation:update', listener);
-    return () => ipcRenderer.removeListener('discord-automation:update', listener);
-  },
-  onDiscordObservability: (callback) => {
-    const listener = (_event, state) => callback(state);
-    ipcRenderer.on('discord-observability:state', listener);
-    return () => ipcRenderer.removeListener('discord-observability:state', listener);
-  },
-  onStatusPanels: (callback) => {
-    const listener = (_event, state) => callback(state);
-    ipcRenderer.on('status-panels:update', listener);
-    return () => ipcRenderer.removeListener('status-panels:update', listener);
-  },
-  onServerScheduler: (callback) => {
-    const listener = (_event, state) => callback(state);
-    ipcRenderer.on('server-scheduler:update', listener);
-    return () => ipcRenderer.removeListener('server-scheduler:update', listener);
-  }
+  onState: (callback) => subscribe('state:update', callback),
+  onLog: (callback) => subscribe('log:entry', callback),
+  onUpdate: (callback) => subscribe('update:state', callback),
+  onDiscordAutomation: (callback) => subscribe('discord-automation:update', callback),
+  onDiscordObservability: (callback) => subscribe('discord-observability:state', callback),
+  onStatusPanels: (callback) => subscribe('status-panels:update', callback),
+  onServerScheduler: (callback) => subscribe('server-scheduler:update', callback),
+  onPlayerConsole: (callback) => subscribe('player-console:update', callback)
 });
