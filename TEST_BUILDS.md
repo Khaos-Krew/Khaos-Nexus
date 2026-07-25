@@ -30,6 +30,16 @@ Every owner-test milestone is preserved as a dedicated Git branch and a separate
 - Owner status: awaiting live-device player-list and moderation testing.
 - Main changes: cross-server connected-player view, server/name/game filtering, automatic refresh, short-lived moderation tokens, Operator kick, Owner ban, required reasons, and local moderation history without retained account IDs.
 
+## v0.17.0 — Pterodactyl Hosted Server Control
+
+- Source branch: `test/v0.17.0-pterodactyl-control`
+- Application source commit: `ab5d7ac0b37f5be20cac115d65104fb926926b99`
+- Packaged checkpoint commit: `0deee6fb0e7ae87089dad7b9e050f326a79df65e`
+- Test package: `Khaos-Nexus-v0.17.0-pterodactyl-control.zip`
+- Package SHA-256: `c065129cbe730f9e0bae01fd8cfe9e8d1e30e37375996a9f21c4845ddb582952`
+- Owner status: awaiting live-device Pterodactyl connection and power-control testing.
+- Main changes: encrypted Client API keys, HTTPS enforcement, provider testing, server discovery, CPU/memory/disk/network/uptime cards, short-lived action tokens, Operator start/restart/stop, Owner-only emergency kill, and local provider action history.
+
 ## Test-build policy
 
 1. Each milestone receives a unique semantic version.
