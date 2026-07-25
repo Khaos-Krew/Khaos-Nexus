@@ -8,14 +8,15 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
-test('v0.14 shell provides primary workspaces and a command palette', () => {
+test('v0.14 shell uses the sidebar as primary navigation and retains command search', () => {
   const script = read('renderer/nexus-shell-v14.js');
   const css = read('renderer/nexus-shell-v14.css');
   for (const workspace of ['Command', 'Operations', 'Discord', 'Modules', 'System']) assert.match(script, new RegExp(workspace));
+  assert.match(script, /removeWorkspaceRail/);
+  assert.doesNotMatch(script, /insertAdjacentElement\('afterend', rail\)/);
   assert.match(script, /Ctrl K/);
   assert.match(script, /nexusCommandPalette/);
   assert.match(script, /nexusTaskRail/);
-  assert.match(css, /\.nexus-workspace-rail/);
   assert.match(css, /\.nexus-command-palette/);
   assert.match(css, /:focus-visible/);
 });
