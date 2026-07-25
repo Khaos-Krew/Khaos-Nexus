@@ -54,10 +54,10 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.16.0 keeps the verified renderer and adds guarded player moderation', () => {
+test('v0.17.0 keeps the verified renderer and adds encrypted Pterodactyl control', () => {
   const packageJson = JSON.parse(read('package.json'));
-  assert.equal(packageJson.version, '0.16.0');
-  assert.match(packageJson.description, /cross-server players/i);
-  assert.match(packageJson.description, /guarded moderation/i);
+  assert.equal(packageJson.version, '0.17.0');
+  assert.match(packageJson.description, /encrypted Pterodactyl/i);
+  assert.match(packageJson.description, /hosted-server control/i);
   assert.match(packageJson.description, /software-renderer-safe startup/i);
 });
