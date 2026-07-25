@@ -20,21 +20,8 @@
     return String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
   }
 
-  function ensureRail() {
-    if ($('nexusWorkspaceRail')) return;
-    const topbar = document.querySelector('.topbar');
-    if (!topbar) return;
-    const rail = document.createElement('nav');
-    rail.id = 'nexusWorkspaceRail';
-    rail.className = 'nexus-workspace-rail';
-    rail.setAttribute('aria-label', 'Primary workspaces');
-    rail.innerHTML = WORKSPACES.map((workspace) => `<button class="nexus-workspace-button" data-nexus-workspace="${workspace.key}" title="${escapeHtml(workspace.detail)}"><span>${workspace.icon}</span>${escapeHtml(workspace.label)}</button>`).join('') + '<button class="nexus-workspace-button nexus-command-trigger" id="nexusCommandTrigger"><span>⌕</span>Find anything <kbd>Ctrl K</kbd></button>';
-    topbar.insertAdjacentElement('afterend', rail);
-    rail.addEventListener('click', (event) => {
-      const workspace = event.target.closest('[data-nexus-workspace]');
-      if (workspace) activateView(workspace.dataset.nexusWorkspace);
-      if (event.target.closest('#nexusCommandTrigger')) openPalette();
-    });
+  function removeWorkspaceRail() {
+    $('nexusWorkspaceRail')?.remove();
   }
 
   function ensureTaskRail() {
@@ -59,21 +46,14 @@
     return 'settings';
   }
 
-  function updateRailActive() {
-    const workspace = workspaceForView(currentView());
-    document.querySelectorAll('[data-nexus-workspace]').forEach((button) => button.classList.toggle('active', button.dataset.nexusWorkspace === workspace));
-  }
-
   function activateView(view) {
     const target = document.querySelector(`[data-view="${CSS.escape(view)}"]`);
     if (target) {
       target.click();
-      setTimeout(updateRailActive, 0);
       return true;
     }
     if (view === 'observability') {
       $('observabilityNavButton')?.click();
-      setTimeout(updateRailActive, 0);
       return true;
     }
     return false;
@@ -106,7 +86,7 @@
       <div class="nexus-command-panel">
         <div class="nexus-command-search"><span>⌕</span><input id="nexusCommandInput" autocomplete="off" placeholder="Search workspaces, Discord, servers, logs, settings…"></div>
         <div class="nexus-command-results" id="nexusCommandResults"></div>
-        <div class="nexus-command-footer"><span>↑ ↓ Navigate • Enter Open • Esc Close</span><span>Khaos Nexus Command Search</span></div>
+        <div class="nexus-command-footer"><span>↑ ↓ Navigate • Enter Open • Esc Close</span><span>Ctrl K • Khaos Nexus Command Search</span></div>
       </div>`;
     document.body.appendChild(palette);
     palette.addEventListener('mousedown', (event) => { if (event.target === palette) closePalette(); });
@@ -190,17 +170,15 @@
     if (state.initialized) return;
     state.initialized = true;
     document.body.classList.add('nexus-shell-v14');
-    ensureRail();
+    removeWorkspaceRail();
     ensureTaskRail();
     ensurePalette();
-    updateRailActive();
     document.addEventListener('keydown', keydown);
-    document.addEventListener('click', (event) => { if (event.target.closest('.nav-item[data-view]')) setTimeout(updateRailActive, 0); });
     window.khaos.onState((next) => { state.app = next; renderTasks(); });
     window.khaos.onDiscordObservability?.((next) => { state.observability = next; renderTasks(); });
     window.khaos.invoke('app:get-state').then((next) => { state.app = next; renderTasks(); }).catch(() => {});
     window.khaos.invoke('discord-observability:get').then((next) => { state.observability = next; renderTasks(); }).catch(() => {});
-    setTimeout(() => { ensureRail(); updateRailActive(); renderTasks(); }, 1200);
+    setTimeout(() => { removeWorkspaceRail(); renderTasks(); }, 1200);
   }
 
   initialize();
