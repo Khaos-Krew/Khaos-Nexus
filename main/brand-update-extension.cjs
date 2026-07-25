@@ -2,6 +2,7 @@
 
 const electron = require('electron');
 const { runUpdateFlow } = require('../shared/update-flow.cjs');
+const { hardwareRenderingRequested } = require('./software-rendering-extension.cjs');
 
 const refs = { configStore: null, updateService: null, autonomy: null, logger: null, discordAuth: null };
 let installed = false;
@@ -78,9 +79,14 @@ function patchBrowserLoader() {
   const prototype = electron.BrowserWindow?.prototype;
   if (!prototype || prototype.__khaosBrandUiPatched) return;
   const original = prototype.loadFile;
+  const richBrandEnabled = hardwareRenderingRequested();
+
   prototype.loadFile = function patchedLoadFile(...args) {
-    this.webContents.once('did-finish-load', () => {
-      this.webContents.executeJavaScript(`(() => {
+    const window = this;
+    const webContentsId = window.webContents.id;
+    window.webContents.once('did-finish-load', () => {
+      if (window.isDestroyed() || window.webContents.isDestroyed() || window.webContents.id !== webContentsId) return;
+      window.webContents.executeJavaScript(`(() => {
         const addStyle = (href) => {
           if (document.querySelector('link[href="' + href + '"]')) return;
           const link = document.createElement('link');
@@ -95,13 +101,22 @@ function patchBrowserLoader() {
           script.async = false;
           document.body.appendChild(script);
         };
-        addStyle('brand-ui.css');
+        const richBrandEnabled = ${richBrandEnabled ? 'true' : 'false'};
         addStyle('ui-fixes.css');
-        addScript('brand-ui.js');
+        if (richBrandEnabled) {
+          addStyle('brand-ui.css');
+          addScript('brand-ui.js');
+        } else {
+          document.body.classList.add('nexus-compatibility-visuals');
+          window.khaos?.reportBootStage?.('rich-brand-skipped', { mode: 'software' });
+          console.info('[Khaos Nexus] Rich brand renderer skipped in software compatibility mode.');
+        }
         addScript('simple-updater.js');
-      })();`).catch(() => {});
+      })();`).catch((error) => {
+        console.error('[Khaos Nexus] Brand/update renderer bootstrap failed.', error);
+      });
     });
-    return original.apply(this, args);
+    return original.apply(window, args);
   };
   Object.defineProperty(prototype, '__khaosBrandUiPatched', { value: true });
 }
@@ -141,4 +156,4 @@ function install() {
   electron.app.whenReady().then(() => setImmediate(registerIpc));
 }
 
-module.exports = { install, refs };
+module.exports = { install, refs, patchBrowserLoader };
