@@ -47,5 +47,10 @@ contextBridge.exposeInMainWorld('khaos', {
     const listener = (_event, state) => callback(state);
     ipcRenderer.on('status-panels:update', listener);
     return () => ipcRenderer.removeListener('status-panels:update', listener);
+  },
+  onServerScheduler: (callback) => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on('server-scheduler:update', listener);
+    return () => ipcRenderer.removeListener('server-scheduler:update', listener);
   }
 });
