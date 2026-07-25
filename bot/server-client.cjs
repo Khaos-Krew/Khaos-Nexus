@@ -12,7 +12,8 @@ function legacyCommand(server, action, value = '') {
   const commands = {
     ark: {
       status: 'ListPlayers', players: 'ListPlayers', save: 'SaveWorld',
-      announce: `Broadcast ${value}`, kick: `KickPlayer ${value}`, ban: `BanPlayer ${value}`
+      announce: `Broadcast ${value}`, kick: `KickPlayer ${value}`, ban: `BanPlayer ${value}`,
+      shutdown: 'DoExit', stop: 'DoExit'
     },
     palworld: {
       status: 'Info', players: 'ShowPlayers', save: 'Save',
@@ -82,7 +83,9 @@ class ServerConnection {
       : ['kick', 'ban', 'unban'].includes(action) ? (payload.userid || payload.player)
         : action === 'shutdown' ? `${Math.max(0, Number(payload.waittime) || 0)} ${payload.message || ''}`.trim()
           : '';
-    return this.rcon.execute(legacyCommand(this.server, action, value));
+    const command = legacyCommand(this.server, action, value);
+    if (!command) throw new Error(`Unsupported ${this.server.game || 'generic'} server action: ${action}`);
+    return this.rcon.execute(command);
   }
 
   async execute(command) {
