@@ -54,10 +54,10 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.15.0 keeps the verified software-safe renderer and adds server scheduling', () => {
+test('v0.16.0 keeps the verified renderer and adds guarded player moderation', () => {
   const packageJson = JSON.parse(read('package.json'));
-  assert.equal(packageJson.version, '0.15.0');
-  assert.match(packageJson.description, /server schedules/i);
-  assert.match(packageJson.description, /host-managed restart verification/i);
+  assert.equal(packageJson.version, '0.16.0');
+  assert.match(packageJson.description, /cross-server players/i);
+  assert.match(packageJson.description, /guarded moderation/i);
   assert.match(packageJson.description, /software-renderer-safe startup/i);
 });
