@@ -3,12 +3,18 @@
 (() => {
   const RECOVERY_PHRASE = 'UNLOCK KHAOS NEXUS';
   let latestState = null;
+  let startupState = null;
   let loginRunning = false;
   let recoveryRunning = false;
 
   const $ = (id) => document.getElementById(id);
 
+  function startupComplete() {
+    return Boolean(startupState?.configLoaded && startupState?.authRestoreComplete);
+  }
+
   function isLocked(state) {
+    if (!startupComplete()) return false;
     const access = state?.autonomy?.access;
     return Boolean(access?.enabled && access?.role === 'locked' && !access?.canView);
   }
@@ -64,7 +70,11 @@
   }
 
   async function refreshState() {
-    const state = await window.khaos.invoke('app:get-state');
+    const [state, startup] = await Promise.all([
+      window.khaos.invoke('app:get-state'),
+      window.khaos.invoke('startup:get-state')
+    ]);
+    startupState = startup;
     render(state);
     return state;
   }
@@ -139,7 +149,11 @@
 
   async function initialize() {
     ensureOverlay();
-    window.khaos.onState(render);
+    window.khaos.onState((state) => render(state));
+    window.khaos.onStartupState?.((startup) => {
+      startupState = startup;
+      render(latestState);
+    });
     await refreshState();
   }
 
