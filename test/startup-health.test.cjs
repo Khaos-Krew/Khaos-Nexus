@@ -7,9 +7,9 @@ const os = require('node:os');
 const path = require('node:path');
 const {
   MINIMUM_SPLASH_MS,
-  profileSummary,
-  recoverProfileIfNeeded
+  profileSummary
 } = require('../main/startup-health-extension.cjs');
+const { recoverProfileSafely } = require('../main/profile-recovery.cjs');
 
 function temporaryRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'khaos-startup-health-'));
@@ -81,7 +81,7 @@ test('startup health keeps the splash visible for at least thirty seconds', () =
   assert.equal(MINIMUM_SPLASH_MS, 30000);
 });
 
-test('transactional recovery restores a recorded v0.17 profile over an empty v0.18 profile', () => {
+test('staged recovery restores a recorded v0.17 profile over an empty v0.18 profile', () => {
   const root = temporaryRoot();
   withProfileEnvironment(root, () => {
     const destination = path.join(root, 'Khaos Nexus');
@@ -94,6 +94,8 @@ test('transactional recovery restores a recorded v0.17 profile over an empty v0.
       monitor: {},
       servers: []
     });
+    fs.mkdirSync(path.join(destination, 'GPUCache'), { recursive: true });
+    fs.writeFileSync(path.join(destination, 'GPUCache', 'open-cache-file'), 'leave untouched', 'utf8');
     writeJson(path.join(backup, 'config.json'), meaningfulConfig('Recovered Server', 2));
     fs.writeFileSync(path.join(backup, 'secrets.bin'), Buffer.alloc(96, 7));
     writeJson(path.join(backup, 'status-panels.json'), [{ id: 'panel-1', name: 'Recovered Panel' }]);
@@ -104,7 +106,7 @@ test('transactional recovery restores a recorded v0.17 profile over an empty v0.
     });
 
     const before = profileSummary(destination);
-    const result = recoverProfileIfNeeded(destination);
+    const result = recoverProfileSafely(destination);
     const restored = profileSummary(destination);
     const restoredConfig = JSON.parse(fs.readFileSync(path.join(destination, 'config.json'), 'utf8'));
 
@@ -115,6 +117,7 @@ test('transactional recovery restores a recorded v0.17 profile over an empty v0.
     assert.equal(restoredConfig.servers[0].name, 'Recovered Server 1');
     assert.equal(fs.existsSync(result.backup), true);
     assert.equal(fs.existsSync(path.join(destination, 'status-panels.json')), true);
+    assert.equal(fs.readFileSync(path.join(destination, 'GPUCache', 'open-cache-file'), 'utf8'), 'leave untouched');
   });
 });
 
@@ -128,7 +131,7 @@ test('a meaningful current v0.17 profile is never replaced by a weaker candidate
     writeJson(path.join(destination, 'server-scheduler-state.json'), { schedules: [{ id: 'daily' }] });
     writeJson(path.join(weaker, 'config.json'), meaningfulConfig('Old Server', 1));
 
-    const result = recoverProfileIfNeeded(destination);
+    const result = recoverProfileSafely(destination);
     const current = JSON.parse(fs.readFileSync(path.join(destination, 'config.json'), 'utf8'));
 
     assert.equal(result.recovered, false);
@@ -137,7 +140,7 @@ test('a meaningful current v0.17 profile is never replaced by a weaker candidate
   });
 });
 
-test('invalid recovered data fails verification without destroying the current profile', () => {
+test('invalid recovery candidates are ignored without destroying the current profile', () => {
   const root = temporaryRoot();
   withProfileEnvironment(root, () => {
     const destination = path.join(root, 'Khaos Nexus');
@@ -147,7 +150,7 @@ test('invalid recovered data fails verification without destroying the current p
     fs.writeFileSync(path.join(backup, 'config.json'), '{not valid json', 'utf8');
     writeJson(path.join(destination, 'user-data-migration.json'), { backup, migrated: true });
 
-    const result = recoverProfileIfNeeded(destination);
+    const result = recoverProfileSafely(destination);
     const current = JSON.parse(fs.readFileSync(path.join(destination, 'config.json'), 'utf8'));
 
     assert.equal(result.recovered, false);
