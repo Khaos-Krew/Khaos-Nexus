@@ -77,8 +77,18 @@ Every owner-test milestone is preserved as a dedicated Git branch and a separate
 - Packaged checkpoint commit: `38915140a352a689fae734738dbfcdd0d5110f7d`
 - Test package: `Khaos-Nexus-v0.18.0-startup-splash.zip`
 - Package SHA-256: `95b26459740a0ded56066d151485c7fa9118d9e62fe4e5715e346b497549d9c3`
-- Owner status: awaiting live-device startup testing.
+- Owner status: failed live-device startup testing: prior configuration appeared missing, the splash did not render correctly, and access control displayed before saved Discord restoration completed.
 - Main changes: branded startup screen, interaction lock while modules load, real renderer module progress, automatic unlock on `features-ready`, a 45-second timeout, Retry Interface, Open Limited Mode, and all v0.17.3 scheduled error batching behavior retained.
+
+## v0.18.1 — Startup Restoration & Configuration Recovery
+
+- Source branch: `test/v0.18.1-startup-restore`
+- Application source commit: `a1459526dc3cf281d144ba615da3cab2191499fb`
+- Packaged checkpoint commit: `ae7e2956b0830cf3b6fd193070d20a49e5146d19`
+- Test package: `Khaos-Nexus-v0.18.1-startup-restore.zip`
+- Package SHA-256: `02311b3c79ec49a00bbe14fbcf502f9be47308a2c09caafb2f09cd97675b5abf`
+- Owner status: awaiting live-device verification.
+- Main changes: discovers meaningful prior Khaos Nexus profiles across legacy, installed, and portable data paths; backs up the empty/current profile before migration; restores configuration and encrypted credentials before services initialize; starts saved Discord restoration immediately; prevents the access overlay from locking until restoration completes; renders the splash from preload with a CSP-safe external stylesheet; and unlocks only after both configuration/auth restoration and renderer modules are ready.
 
 ## Test-build policy
 
