@@ -54,19 +54,34 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.18.0 adds a real startup interaction lock while retaining scheduled error batches', () => {
+test('v0.18.1 restores prior data and Discord access before enforcing the desktop lock', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
-  const splash = read('main/startup-splash-extension.cjs');
+  const preload = read('main/preload.cjs');
+  const startupState = read('main/startup-state-extension.cjs');
+  const migration = read('main/user-data-migration-extension.cjs');
+  const recovery = read('renderer/access-recovery.js');
+  const splashCss = read('renderer/startup-splash.css');
   const monitor = read('main/services/application-monitor.cjs');
-  assert.equal(packageJson.version, '0.18.0');
-  assert.match(packageJson.description, /startup interaction lock/i);
-  assert.match(packageJson.description, /scheduled error batching/i);
-  assert.match(entry, /startup-splash-extension\.cjs/);
-  assert.match(splash, /STARTUP_TIMEOUT_MS = 45000/);
-  assert.match(splash, /khaos:features-ready/);
-  assert.match(splash, /Retry Interface/);
-  assert.match(splash, /Open Limited Mode/);
+
+  assert.equal(packageJson.version, '0.18.1');
+  assert.match(packageJson.description, /prior-configuration recovery/i);
+  assert.match(packageJson.description, /Discord session restoration before access enforcement/i);
+  assert.match(packageJson.description, /CSP-safe first-frame startup lock/i);
+  assert.match(entry, /user-data-migration-extension\.cjs/);
+  assert.match(entry, /startup-state-extension\.cjs/);
+  assert.match(startupState, /authRestoreComplete/);
+  assert.match(startupState, /startup:get-state/);
+  assert.match(startupState, /refs\.discordAuth\.restore\(\)/);
+  assert.match(migration, /configurationValueScore/);
+  assert.match(migration, /PORTABLE_EXECUTABLE_DIR/);
+  assert.match(preload, /startup-splash\.css/);
+  assert.match(preload, /scheduleSplashInstall\(\)/);
+  assert.match(preload, /modulesReady && startupReady\(\)/);
+  assert.match(preload, /onStartupState/);
+  assert.match(splashCss, /z-index: 2147483647/);
+  assert.match(recovery, /startupState\?\.authRestoreComplete/);
+  assert.match(recovery, /startup:get-state/);
   assert.match(monitor, /STARTUP_BATCH_DELAY_MS = 5 \* 60 \* 1000/);
   assert.match(monitor, /ERROR_BATCH_INTERVAL_MS = 30 \* 60 \* 1000/);
 });
