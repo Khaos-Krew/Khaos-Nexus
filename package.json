@@ -1,7 +1,7 @@
 {
   "name": "khaos-nexus",
-  "version": "0.17.3",
-  "description": "Local-first Khaos Nexus desktop command center with five-minute startup error batching, maintained thirty-minute error scans, pre-login-safe diagnostics, encrypted Pterodactyl control, cross-server players, guarded moderation, recurring schedules, and software-renderer-safe startup.",
+  "version": "0.18.3",
+  "description": "Local-first Khaos Nexus desktop command center with v0.17-compatible profile recovery, a dedicated 30-second minimum startup health screen, transactional data validation, five-minute startup error batching, maintained thirty-minute error scans, encrypted Pterodactyl control, cross-server players, guarded moderation, recurring schedules, and software-renderer-safe startup.",
   "main": "main/entry.cjs",
   "author": "Khaos Krew",
   "license": "MIT",
