@@ -54,10 +54,10 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.17.0 keeps the verified renderer and adds encrypted Pterodactyl control', () => {
+test('v0.17.1 keeps the verified renderer and adds retained button error reporting', () => {
   const packageJson = JSON.parse(read('package.json'));
-  assert.equal(packageJson.version, '0.17.0');
+  assert.equal(packageJson.version, '0.17.1');
+  assert.match(packageJson.description, /UI action error reporting/i);
   assert.match(packageJson.description, /encrypted Pterodactyl/i);
-  assert.match(packageJson.description, /hosted-server control/i);
   assert.match(packageJson.description, /software-renderer-safe startup/i);
 });
