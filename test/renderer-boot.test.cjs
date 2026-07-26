@@ -54,21 +54,25 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.18.3 restores the v0.17 data path and gates the desktop behind startup health', () => {
+test('v0.18.4 preserves startup health without monitoring the splash as the main renderer', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
   const health = read('main/startup-health-extension.cjs');
   const profileRecovery = read('main/startup-profile-recovery-extension.cjs');
   const windowGate = read('main/startup-window-gate-extension.cjs');
+  const baseReady = read('main/startup-base-ready-extension.cjs');
+  const stability = read('main/stability-extension.cjs');
   const splashHtml = read('renderer/startup-health.html');
   const recovery = read('renderer/access-recovery.js');
   const monitor = read('main/services/application-monitor.cjs');
 
-  assert.equal(packageJson.version, '0.18.3');
+  assert.equal(packageJson.version, '0.18.4');
   assert.match(packageJson.description, /v0\.17-compatible profile recovery/i);
   assert.match(packageJson.description, /30-second minimum startup health screen/i);
+  assert.match(packageJson.description, /splash-safe renderer monitoring/i);
   assert.match(entry, /startup-profile-recovery-extension\.cjs/);
   assert.match(entry, /startup-health-extension\.cjs/);
+  assert.match(entry, /startup-base-ready-extension\.cjs/);
   assert.match(entry, /startup-window-gate-extension\.cjs/);
   assert.doesNotMatch(entry, /user-data-migration-extension\.cjs/);
   assert.match(health, /MINIMUM_SPLASH_MS = 30 \* 1000/);
@@ -78,6 +82,15 @@ test('v0.18.3 restores the v0.17 data path and gates the desktop behind startup 
   assert.match(health, /before-v0\.18\.3/);
   assert.match(profileRecovery, /before window creation/i);
   assert.match(windowGate, /startupGatedShow/);
+  assert.match(baseReady, /OPTIONAL_MODULE_GRACE_MS = 15000/);
+  assert.match(baseReady, /stage !== 'monitor-ready'/);
+  assert.match(baseReady, /stage: 'features-ready'/);
+  assert.match(baseReady, /optionalModulesContinuing: true/);
+  assert.match(stability, /function isMainInterfaceWindow/);
+  assert.match(stability, /preloadName\(window\) === 'preload\.cjs'/);
+  assert.match(stability, /window\.__khaosStartupSplashWindow/);
+  assert.match(stability, /if \(!isMainInterfaceWindow\(window\) \|\| !window\.isVisible\(\)\) continue/);
+  assert.match(stability, /if \(managed\) attachWindowRecovery\(window\)/);
   assert.match(splashHtml, /Entering the Khaos Nexus/);
   assert.match(splashHtml, /Minimum startup check: 30s/);
   assert.match(recovery, /startupReleased/);
