@@ -1,0 +1,171 @@
+html.khaos-starting,
+body.khaos-starting {
+  overflow: hidden !important;
+  background: #050608 !important;
+}
+
+body.khaos-starting > *:not(#khaosStartupSplash):not(script):not(style):not(link) {
+  pointer-events: none !important;
+  user-select: none !important;
+  visibility: hidden !important;
+}
+
+#khaosStartupSplash {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 50% 38%, rgba(196, 24, 58, .18), transparent 31%),
+    linear-gradient(145deg, #050608 0%, #090b10 52%, #030405 100%);
+  color: #f6f7f9;
+  font-family: "Segoe UI", Arial, sans-serif;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity .42s ease, visibility .42s ease;
+}
+
+#khaosStartupSplash.is-closing {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.khaos-splash-shell {
+  width: min(540px, calc(100vw - 48px));
+  text-align: center;
+}
+
+.khaos-splash-logo-wrap {
+  position: relative;
+  width: 178px;
+  height: 178px;
+  margin: 0 auto 22px;
+  display: grid;
+  place-items: center;
+}
+
+.khaos-splash-logo-wrap::before,
+.khaos-splash-logo-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  border: 1px solid rgba(230, 41, 78, .28);
+  box-shadow: 0 0 38px rgba(213, 28, 62, .24), inset 0 0 34px rgba(213, 28, 62, .12);
+  animation: khaosSplashPulse 2.2s ease-in-out infinite;
+}
+
+.khaos-splash-logo-wrap::after {
+  inset: -4px;
+  opacity: .42;
+  animation-delay: -.8s;
+}
+
+.khaos-splash-logo {
+  width: 142px;
+  height: 142px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 24px rgba(226, 35, 72, .42));
+}
+
+.khaos-splash-title {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+.khaos-splash-subtitle {
+  margin: 8px 0 28px;
+  color: #a9afb9;
+  font-size: 12px;
+  letter-spacing: .24em;
+  text-transform: uppercase;
+}
+
+.khaos-splash-status {
+  min-height: 22px;
+  margin-bottom: 14px;
+  color: #e4e7ec;
+  font-size: 14px;
+}
+
+.khaos-splash-track {
+  height: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(239, 55, 90, .26);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .055);
+  box-shadow: inset 0 1px 5px rgba(0, 0, 0, .65);
+}
+
+.khaos-splash-progress {
+  width: 6%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #721226, #e3264f 65%, #ff6a83);
+  box-shadow: 0 0 18px rgba(227, 38, 79, .7);
+  transition: width .32s ease;
+}
+
+.khaos-splash-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 10px;
+  color: #777f8b;
+  font-size: 11px;
+}
+
+.khaos-splash-error {
+  display: none;
+  margin-top: 20px;
+  padding: 14px;
+  border: 1px solid rgba(239, 55, 90, .35);
+  border-radius: 12px;
+  background: rgba(93, 10, 28, .2);
+  text-align: left;
+}
+
+.khaos-splash-error.is-visible {
+  display: block;
+}
+
+.khaos-splash-error strong {
+  display: block;
+  margin-bottom: 5px;
+  color: #ff9bad;
+}
+
+.khaos-splash-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.khaos-splash-button {
+  border: 1px solid rgba(239, 55, 90, .48);
+  border-radius: 8px;
+  padding: 9px 13px;
+  background: rgba(227, 38, 79, .13);
+  color: #fff;
+  cursor: pointer;
+}
+
+.khaos-splash-button:hover {
+  background: rgba(227, 38, 79, .25);
+}
+
+@keyframes khaosSplashPulse {
+  0%, 100% { transform: scale(.97); opacity: .48; }
+  50% { transform: scale(1.035); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .khaos-splash-logo-wrap::before,
+  .khaos-splash-logo-wrap::after {
+    animation: none;
+  }
+}
