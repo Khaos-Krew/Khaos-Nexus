@@ -107,8 +107,18 @@ Every owner-test milestone is preserved as a dedicated Git branch and a separate
 - Packaged checkpoint commit: `cf81c80e1509a2afef34c6f522459b405bca518e`
 - Test package: `Khaos-Nexus-v0.18.4-startup-watchdog-fix.zip`
 - Package SHA-256: `3ef7c9685c1d6b248de3bdfe6ed427b11e63622d6bf9ba502142901e226ddc76`
+- Owner status: failed live-device startup at 94%; data and protected values loaded, but the 75-second timeout fired because the release fallback still depended on Application Monitor emitting `monitor-ready`.
+- Main changes: the stability watchdog and `stability-fixes.js` apply only to the real desktop window using `main/preload.cjs`; the startup-health window is excluded from renderer-heartbeat recovery; the splash remains visible for a strict minimum of 30 seconds.
+
+## v0.18.5 — Independent Verified Release Gate
+
+- Source branch: `test/v0.18.5-release-gate-fix`
+- Application source commit: `168b31fb8cc97f23136a3d060a5a9e167dbc1867`
+- Packaged checkpoint commit: `f419371179c008051286c3ce3247fa55c24e62ca`
+- Test package: `Khaos-Nexus-v0.18.5-release-gate-fix.zip`
+- Package SHA-256: `98d48e8587aa32b4d7555e3768cdc64bccdd713bc0fd3812c18da9fc429e49cf`
 - Owner status: awaiting live-device verification.
-- Main changes: the stability watchdog and `stability-fixes.js` now apply only to the real desktop window using `main/preload.cjs`; the dedicated startup-health window is never treated as an unresponsive main interface; configuration and renderer bridge checks remain mandatory; once the base Application Monitor interface has initialized, optional modules receive a 15-second completion grace period and can no longer trap the app on the splash; the splash still remains visible for a strict minimum of 30 seconds before the main interface is revealed.
+- Main changes: the release fallback no longer depends on Application Monitor or `monitor-ready`; the actual main renderer must successfully read `app:get-state` and `logs:get`; it reports verified base-interface readiness, waits 15 seconds for optional modules, then satisfies the preserved renderer gate; profile integrity, configuration loading, secure storage, IPC, and the strict 30-second splash minimum remain mandatory; the splash remains excluded from stability monitoring.
 
 ## Test-build policy
 
