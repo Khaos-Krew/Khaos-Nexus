@@ -57,8 +57,18 @@ Every owner-test milestone is preserved as a dedicated Git branch and a separate
 - Packaged checkpoint commit: `5ee18be2f3af83cfc8ae1a68aef45263ad9649c5`
 - Test package: `Khaos-Nexus-v0.17.2-prelogin-diagnostics-fix.zip`
 - Package SHA-256: `1066f23460ca798f00a8049405162bc7c882df435f10f38f0f12742b81fee76d`
-- Owner status: awaiting verification that Application Monitor initializes before Discord sign-in and retains the actual failing buttons.
+- Owner status: pre-login diagnostics opened successfully; an expected signed-out Player Console access denial was still classified as an error.
 - Main changes: redacted diagnostic viewing and copy access before sign-in, Owner-only clearing, automatic removal of the obsolete v0.17.1 authorization-loop record, and regression coverage for locked access-control startup.
+
+## v0.17.3 — Scheduled Automatic Error Batches
+
+- Source branch: `test/v0.17.3-scheduled-error-batches`
+- Application source commit: `3cd1217f64c80a2f948fc1fce58d80c594c40a91`
+- Packaged checkpoint commit: `93f2814dc67951dcc272b12677455d74fe6517a6`
+- Test package: `Khaos-Nexus-v0.17.3-scheduled-error-batches.zip`
+- Package SHA-256: `bd41753870b7187b5894adabc7356f5db5fd2a6246193dbece80ade2a72376ee`
+- Owner status: awaiting live-device verification of the five-minute startup batch and maintained thirty-minute cycle.
+- Main changes: immediate local error retention; first complete upload five minutes after startup; recurring thirty-minute scans while the application remains open; all new errors and occurrence deltas uploaded; one daily GitHub issue thread; failed uploads retained for retry; expected access-control denials ignored and removed.
 
 ## Test-build policy
 
