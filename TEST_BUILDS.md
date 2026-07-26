@@ -87,8 +87,18 @@ Every owner-test milestone is preserved as a dedicated Git branch and a separate
 - Packaged checkpoint commit: `ae7e2956b0830cf3b6fd193070d20a49e5146d19`
 - Test package: `Khaos-Nexus-v0.18.1-startup-restore.zip`
 - Package SHA-256: `02311b3c79ec49a00bbe14fbcf502f9be47308a2c09caafb2f09cd97675b5abf`
-- Owner status: awaiting live-device verification.
+- Owner status: failed live-device startup testing: preload stopped before exposing `window.khaos`, causing Access Recovery to force a false lock screen with `Cannot read properties of undefined (reading 'onState')`.
 - Main changes: discovers meaningful prior Khaos Nexus profiles across legacy, installed, and portable data paths; backs up the empty/current profile before migration; restores configuration and encrypted credentials before services initialize; starts saved Discord restoration immediately; prevents the access overlay from locking until restoration completes; renders the splash from preload with a CSP-safe external stylesheet; and unlocks only after both configuration/auth restoration and renderer modules are ready.
+
+## v0.18.2 — Preload Bridge & False Lockout Fix
+
+- Source branch: `test/v0.18.2-preload-bridge-fix`
+- Application source commit: `7b95c0145940ad0145d262e1603f055f62806954`
+- Packaged checkpoint commit: `ada5b35f3bf92fc7836afddfed2b56296c8f3464`
+- Test package: `Khaos-Nexus-v0.18.2-preload-bridge-fix.zip`
+- Package SHA-256: `39bacea6c80dc1ecd15abed46f0e13b9144c28b42e138909281e42edb1ea5e74`
+- Owner status: awaiting live-device verification.
+- Main changes: exposes the protected `window.khaos` bridge before any optional DOM work; defers splash installation until the document exists; removes the duplicate main-process splash injector; retains configuration and saved Discord restoration; waits up to 15 seconds for the bridge in Access Recovery; and keeps the recovery overlay hidden when bridge initialization fails instead of converting a startup fault into an access lockout.
 
 ## Test-build policy
 
