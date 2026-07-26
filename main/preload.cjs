@@ -12,12 +12,14 @@ const REPORT_EXCLUDED_CHANNELS = new Set([
   'startup:get-state'
 ]);
 const STARTUP_TIMEOUT_MS = 45 * 1000;
+const bootStageCallbacks = new Set();
 let lastInteraction = null;
 let startupSnapshot = null;
 let modulesReady = false;
 let splashCompleted = false;
 let splashProgress = 6;
 let splashTimeout = null;
+let splashInstallScheduled = false;
 
 function sendRendererHeartbeat() {
   ipcRenderer.invoke('stability:heartbeat').catch(() => {});
@@ -53,13 +55,20 @@ function elementContext(element) {
 }
 
 function currentView() {
-  return cleanText(document.querySelector?.('.view.active')?.id || 'unknown-view', 100).replace(/^view-/, '');
+  try {
+    return cleanText(document.querySelector?.('.view.active')?.id || 'unknown-view', 100).replace(/^view-/, '');
+  } catch {
+    return 'unknown-view';
+  }
 }
 
 function reportRendererActionError(input = {}) {
-  if (isExpectedAccessDenial(input.error || input.message || input.reason || input)) return { ignored: true, reason: 'expected-access-denial' };
+  if (isExpectedAccessDenial(input.error || input.message || input.reason || input)) {
+    return { ignored: true, reason: 'expected-access-denial' };
+  }
   const error = input.error instanceof Error ? input.error : null;
-  const interaction = input.interaction || lastInteraction || elementContext(document.activeElement);
+  let interaction = input.interaction || lastInteraction || {};
+  try { if (!Object.keys(interaction).length) interaction = elementContext(document.activeElement); } catch {}
   ipcRenderer.send('renderer-action:error', {
     source: input.source || 'manual',
     channel: cleanText(input.channel || '', 140),
@@ -87,16 +96,24 @@ async function invoke(channel, payload) {
 }
 
 function splashElement(id) {
-  return document.getElementById(id);
+  try { return document.getElementById(id); }
+  catch { return null; }
 }
 
 function ensureSplashStyles() {
-  if (document.querySelector('link[data-khaos-startup-splash]')) return;
-  const link = document.createElement('link');
-  link.rel = 'stylesheet';
-  link.href = 'startup-splash.css';
-  link.dataset.khaosStartupSplash = 'true';
-  (document.head || document.documentElement).appendChild(link);
+  try {
+    if (document.querySelector('link[data-khaos-startup-splash]')) return true;
+    const parent = document.head || document.documentElement;
+    if (!parent) return false;
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'startup-splash.css';
+    link.dataset.khaosStartupSplash = 'true';
+    parent.appendChild(link);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function splashMarkup() {
@@ -120,45 +137,62 @@ function splashMarkup() {
 }
 
 function installSplashDom() {
-  ensureSplashStyles();
-  document.documentElement?.classList.add('khaos-starting');
-  if (!document.body) return false;
-  document.body.classList.add('khaos-starting');
-  let splash = splashElement('khaosStartupSplash');
-  if (!splash) {
-    splash = document.createElement('section');
-    splash.id = 'khaosStartupSplash';
-    splash.setAttribute('role', 'status');
-    splash.setAttribute('aria-live', 'polite');
-    splash.innerHTML = splashMarkup();
-    document.body.prepend(splash);
-    splashElement('khaosSplashRetry')?.addEventListener('click', () => location.reload());
-    splashElement('khaosSplashContinue')?.addEventListener('click', () => unlockSplash(true));
+  try {
+    if (typeof document === 'undefined' || !document.documentElement || !document.body) return false;
+    ensureSplashStyles();
+    document.documentElement.classList.add('khaos-starting');
+    document.body.classList.add('khaos-starting');
+    let splash = splashElement('khaosStartupSplash');
+    if (!splash) {
+      splash = document.createElement('section');
+      splash.id = 'khaosStartupSplash';
+      splash.setAttribute('role', 'status');
+      splash.setAttribute('aria-live', 'polite');
+      splash.innerHTML = splashMarkup();
+      document.body.prepend(splash);
+      splashElement('khaosSplashRetry')?.addEventListener('click', () => location.reload());
+      splashElement('khaosSplashContinue')?.addEventListener('click', () => unlockSplash(true));
+    }
+    if (!splashTimeout) {
+      splashTimeout = setTimeout(() => {
+        if (splashCompleted) return;
+        updateSplash('Startup needs attention', Math.max(splashProgress, 88), 'Waiting for configuration or remaining modules');
+        splashElement('khaosSplashError')?.classList.add('is-visible');
+      }, STARTUP_TIMEOUT_MS);
+    }
+    return true;
+  } catch (error) {
+    ipcRenderer.send('renderer-action:error', {
+      source: 'startup-splash',
+      channel: 'preload:splash-install',
+      view: 'startup',
+      operation: 'install-startup-splash',
+      message: cleanText(error.message || String(error), 1600),
+      stack: String(error.stack || '').slice(0, 12000),
+      time: new Date().toISOString()
+    });
+    return false;
   }
-  if (!splashTimeout) {
-    splashTimeout = setTimeout(() => {
-      if (splashCompleted) return;
-      updateSplash('Startup needs attention', Math.max(splashProgress, 88), 'Waiting for configuration or remaining modules');
-      splashElement('khaosSplashError')?.classList.add('is-visible');
-    }, STARTUP_TIMEOUT_MS);
-  }
-  return true;
 }
 
 function scheduleSplashInstall() {
-  ensureSplashStyles();
-  document.documentElement?.classList.add('khaos-starting');
-  if (installSplashDom()) return;
-  const observer = new MutationObserver(() => {
-    ensureSplashStyles();
-    if (installSplashDom()) observer.disconnect();
-  });
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+  if (splashInstallScheduled) return;
+  splashInstallScheduled = true;
+  const begin = () => {
+    if (installSplashDom()) {
+      renderStartupState();
+      return;
+    }
+    setTimeout(begin, 25);
+  };
+  if (typeof document !== 'undefined' && document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', begin, { once: true });
+  }
+  setTimeout(begin, 0);
 }
 
 function updateSplash(message, value, detail = '') {
-  if (splashCompleted) return;
-  installSplashDom();
+  if (splashCompleted || !installSplashDom()) return;
   splashProgress = Math.max(splashProgress, Math.min(100, Number(value) || splashProgress));
   const status = splashElement('khaosSplashStatus');
   const progress = splashElement('khaosSplashProgress');
@@ -182,7 +216,11 @@ function unlockSplash(limited = false) {
   if (splashCompleted) return;
   if (splashTimeout) clearTimeout(splashTimeout);
   splashTimeout = null;
-  updateSplash(limited ? 'Opened in limited mode' : 'Khaos Nexus is ready', 100, limited ? 'Some services may still be restoring' : 'Configuration and modules loaded');
+  updateSplash(
+    limited ? 'Opened in limited mode' : 'Khaos Nexus is ready',
+    100,
+    limited ? 'Some services may still be restoring' : 'Configuration and modules loaded'
+  );
   splashCompleted = true;
   const splash = splashElement('khaosStartupSplash');
   setTimeout(() => {
@@ -216,6 +254,10 @@ function renderStartupState() {
 }
 
 function handleBootStage(stage, detail = {}) {
+  const payload = { stage, detail };
+  for (const callback of [...bootStageCallbacks]) {
+    try { callback(payload); } catch {}
+  }
   if (splashCompleted) return;
   if (stage === 'features-ready') {
     modulesReady = true;
@@ -232,28 +274,15 @@ function handleBootStage(stage, detail = {}) {
     const value = 34 + (position / total) * 55;
     updateSplash(detail.source ? `Loading ${detail.source}…` : 'Loading desktop modules…', value, `${position} of ${total} modules`);
   }
-  if (stage === 'feature-ready' && detail.source) updateSplash(`${detail.source} ready`, Math.max(splashProgress, 72), 'Initializing remaining services');
-  if (stage === 'feature-failed') updateSplash('A module reported a startup warning…', Math.max(splashProgress, 82), detail.source || 'Module warning retained');
+  if (stage === 'feature-ready' && detail.source) {
+    updateSplash(`${detail.source} ready`, Math.max(splashProgress, 72), 'Initializing remaining services');
+  }
+  if (stage === 'feature-failed') {
+    updateSplash('A module reported a startup warning…', Math.max(splashProgress, 82), detail.source || 'Module warning retained');
+  }
 }
 
-window.addEventListener('click', (event) => {
-  lastInteraction = elementContext(event.target);
-}, true);
-
-scheduleSplashInstall();
-subscribe('startup:state', (snapshot) => {
-  startupSnapshot = snapshot;
-  renderStartupState();
-});
-ipcRenderer.invoke('startup:get-state').then((snapshot) => {
-  startupSnapshot = snapshot;
-  renderStartupState();
-}).catch((error) => {
-  updateSplash('Could not read startup state', Math.max(splashProgress, 40), cleanText(error.message, 120));
-});
-
-contextBridge.exposeInMainWorld('__khaosStartupSplashInstalled', true);
-contextBridge.exposeInMainWorld('khaos', {
+const bridge = {
   invoke,
   reportRendererActionError: (payload) => reportRendererActionError(payload || {}),
   isExpectedAccessDenial: (value) => isExpectedAccessDenial(value),
@@ -261,14 +290,15 @@ contextBridge.exposeInMainWorld('khaos', {
     const normalizedStage = String(stage || 'unknown').slice(0, 80);
     const normalizedDetail = detail && typeof detail === 'object' ? detail : {};
     handleBootStage(normalizedStage, normalizedDetail);
-    try {
-      window.dispatchEvent(new CustomEvent('khaos:boot-stage', { detail: { stage: normalizedStage, detail: normalizedDetail } }));
-    } catch {}
     ipcRenderer.send('renderer-boot:stage', {
       stage: normalizedStage,
       detail: normalizedDetail,
       time: new Date().toISOString()
     });
+  },
+  onBootStage: (callback) => {
+    bootStageCallbacks.add(callback);
+    return () => bootStageCallbacks.delete(callback);
   },
   onState: (callback) => subscribe('state:update', callback),
   onStartupState: (callback) => subscribe('startup:state', callback),
@@ -281,4 +311,28 @@ contextBridge.exposeInMainWorld('khaos', {
   onPlayerConsole: (callback) => subscribe('player-console:update', callback),
   onHostedServer: (callback) => subscribe('hosted-server:update', callback),
   onRendererErrors: (callback) => subscribe('renderer-errors:update', callback)
+};
+
+// The renderer bridge must exist before any optional DOM work. A splash failure must never remove app access.
+contextBridge.exposeInMainWorld('__khaosStartupSplashInstalled', true);
+contextBridge.exposeInMainWorld('khaos', bridge);
+
+try {
+  window.addEventListener('click', (event) => {
+    lastInteraction = elementContext(event.target);
+  }, true);
+} catch {}
+
+subscribe('startup:state', (snapshot) => {
+  startupSnapshot = snapshot;
+  renderStartupState();
 });
+
+ipcRenderer.invoke('startup:get-state').then((snapshot) => {
+  startupSnapshot = snapshot;
+  renderStartupState();
+}).catch((error) => {
+  updateSplash('Could not read startup state', Math.max(splashProgress, 40), cleanText(error.message, 120));
+});
+
+scheduleSplashInstall();
