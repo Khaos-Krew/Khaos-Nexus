@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const { redactObject, redactText } = require('../../shared/redaction.cjs');
+const { runtimePaths } = require('../portable-runtime.cjs');
 
 class AppLogger extends EventEmitter {
   constructor(logDirectory, explicitSecretsProvider = () => []) {
@@ -13,23 +14,31 @@ class AppLogger extends EventEmitter {
     this.explicitSecretsProvider = explicitSecretsProvider;
     this.entries = [];
     fs.mkdirSync(logDirectory, { recursive: true });
+    const portable = runtimePaths();
+    this.portableLogFile = portable ? path.join(portable.logs, 'manager.log') : null;
   }
 
-  rotateIfNeeded() {
+  rotateFileIfNeeded(logFile) {
+    if (!logFile) return;
     try {
-      const stat = fs.statSync(this.logFile);
+      const stat = fs.statSync(logFile);
       if (stat.size < 2 * 1024 * 1024) return;
-      const oldest = `${this.logFile}.5`;
+      const oldest = `${logFile}.5`;
       if (fs.existsSync(oldest)) fs.unlinkSync(oldest);
       for (let index = 4; index >= 1; index -= 1) {
-        const current = `${this.logFile}.${index}`;
-        const next = `${this.logFile}.${index + 1}`;
+        const current = `${logFile}.${index}`;
+        const next = `${logFile}.${index + 1}`;
         if (fs.existsSync(current)) fs.renameSync(current, next);
       }
-      fs.renameSync(this.logFile, `${this.logFile}.1`);
+      fs.renameSync(logFile, `${logFile}.1`);
     } catch (error) {
       if (error.code !== 'ENOENT') console.error(error);
     }
+  }
+
+  rotateIfNeeded() {
+    this.rotateFileIfNeeded(this.logFile);
+    this.rotateFileIfNeeded(this.portableLogFile);
   }
 
   write(level, message, meta = {}, source = 'manager') {
@@ -44,7 +53,12 @@ class AppLogger extends EventEmitter {
     this.entries.push(entry);
     if (this.entries.length > 1000) this.entries.splice(0, this.entries.length - 1000);
     this.rotateIfNeeded();
-    fs.appendFileSync(this.logFile, `${JSON.stringify(entry)}\n`, 'utf8');
+    const line = `${JSON.stringify(entry)}\n`;
+    fs.appendFileSync(this.logFile, line, 'utf8');
+    if (this.portableLogFile) {
+      try { fs.appendFileSync(this.portableLogFile, line, 'utf8'); }
+      catch (error) { console.error('[Khaos Nexus] Could not mirror manager log to portable data.', error); }
+    }
     this.emit('entry', entry);
     return entry;
   }
@@ -65,6 +79,9 @@ class AppLogger extends EventEmitter {
   clear() {
     this.entries = [];
     fs.writeFileSync(this.logFile, '', 'utf8');
+    if (this.portableLogFile) {
+      try { fs.writeFileSync(this.portableLogFile, '', 'utf8'); } catch {}
+    }
     this.emit('cleared');
   }
 }
