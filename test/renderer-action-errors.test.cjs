@@ -8,9 +8,10 @@ const path = require('node:path');
 const {
   normalizeRendererActionError,
   normalizeRendererActionErrorState,
-  rendererActionErrorSummary
+  rendererActionErrorSummary,
+  isExpectedAccessDenial
 } = require('../shared/renderer-action-errors.cjs');
-const { RendererActionErrorService, isObsoleteBootstrapAccessError } = require('../main/services/renderer-action-error-service.cjs');
+const { RendererActionErrorService } = require('../main/services/renderer-action-error-service.cjs');
 
 function temporaryDirectory() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'khaos-renderer-errors-'));
@@ -82,18 +83,22 @@ test('renderer action error service persists and counts repeated button failures
   assert.match(reloaded.latestText(), /hosted-server:power/);
 });
 
-test('obsolete v0.17.1 diagnostic authorization failure is removed at startup', () => {
+test('expected access-control denials are classified and removed from retained diagnostics', () => {
   const directory = temporaryDirectory();
   const statePath = path.join(directory, 'renderer-action-errors.json');
-  fs.writeFileSync(statePath, JSON.stringify(normalizeRendererActionErrorState({
+  const denied = {
+    channel: 'player-console:get',
+    operation: 'Players & Moderation',
+    view: 'dashboard',
+    message: "Error invoking remote method 'player-console:get': Error: View connected players requires viewer access. Sign in with an authorized Discord account."
+  };
+  assert.equal(isExpectedAccessDenial(denied), true);
+  assert.equal(isExpectedAccessDenial({ message: 'Provider rejected the restart request.' }), false);
+
+  fs.writeFileSync(statePath, JSON.stringify({
     totalCaptured: 2,
     entries: [
-      {
-        channel: 'initialization',
-        operation: 'initialization',
-        view: 'dashboard',
-        message: "Error invoking remote method 'renderer-errors:get': Error: View UI action errors requires viewer access. Sign in with an authorized Discord account."
-      },
+      denied,
       {
         channel: 'hosted-server:power',
         operation: 'restart',
@@ -101,12 +106,7 @@ test('obsolete v0.17.1 diagnostic authorization failure is removed at startup', 
         message: 'Provider rejected the restart request.'
       }
     ]
-  })), 'utf8');
-
-  assert.equal(isObsoleteBootstrapAccessError({
-    channel: 'initialization', operation: 'initialization',
-    message: "Error invoking remote method 'renderer-errors:get': Error: View UI action errors requires viewer access."
-  }), true);
+  }), 'utf8');
 
   const service = new RendererActionErrorService({
     dataDirectory: directory,
@@ -116,13 +116,17 @@ test('obsolete v0.17.1 diagnostic authorization failure is removed at startup', 
   assert.equal(service.getState().entries.length, 1);
   assert.equal(service.getState().entries[0].channel, 'hosted-server:power');
   assert.equal(service.getState().totalCaptured, 2);
+  const ignored = service.record(denied);
+  assert.equal(ignored.ignored, true);
+  assert.equal(service.getState().entries.length, 1);
 });
 
-test('preload reports failed IPC actions without including the IPC payload', () => {
+test('preload reports real failed IPC actions without payloads and suppresses permission gates', () => {
   const root = path.join(__dirname, '..');
   const preload = fs.readFileSync(path.join(root, 'main/preload.cjs'), 'utf8');
   assert.match(preload, /renderer-action:error/);
   assert.match(preload, /async function invoke\(channel, payload\)/);
+  assert.match(preload, /!isExpectedAccessDenial\(error\)/);
   assert.match(preload, /reportRendererActionError\(\{ source: 'ipc', channel, error/);
   assert.doesNotMatch(preload, /renderer-action:error[^\n]+payload/);
   assert.match(preload, /onRendererErrors/);
@@ -137,6 +141,15 @@ test('diagnostic reads work before Discord sign-in while clearing remains Owner-
   assert.doesNotMatch(copyHandler, /assertAccess/);
   assert.match(extension, /assertAccess\('owner', 'Clear UI action errors'\)/);
   assert.match(extension, /must work before Discord sign-in/);
+});
+
+test('retained UI failures feed scheduled batches while legacy early queue hooks are blocked', () => {
+  const root = path.join(__dirname, '..');
+  const extension = fs.readFileSync(path.join(root, 'main/renderer-action-error-extension.cjs'), 'utf8');
+  assert.match(extension, /captureRetainedErrors/);
+  assert.match(extension, /scheduled-batch-pending/);
+  assert.match(extension, /guardLegacyImmediateQueueProcessing/);
+  assert.match(extension, /isExpectedAccessDenial/);
 });
 
 test('Application Monitor exposes retained UI action errors and copy controls', () => {
