@@ -142,7 +142,6 @@ function installSplashDom() {
       splashElement('khaosSplashError')?.classList.add('is-visible');
     }, STARTUP_TIMEOUT_MS);
   }
-  renderStartupState();
   return true;
 }
 
@@ -181,10 +180,10 @@ function maybeUnlockSplash() {
 
 function unlockSplash(limited = false) {
   if (splashCompleted) return;
-  splashCompleted = true;
   if (splashTimeout) clearTimeout(splashTimeout);
   splashTimeout = null;
   updateSplash(limited ? 'Opened in limited mode' : 'Khaos Nexus is ready', 100, limited ? 'Some services may still be restoring' : 'Configuration and modules loaded');
+  splashCompleted = true;
   const splash = splashElement('khaosStartupSplash');
   setTimeout(() => {
     splash?.classList.add('is-closing');
