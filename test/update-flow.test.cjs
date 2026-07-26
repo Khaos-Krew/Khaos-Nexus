@@ -6,7 +6,7 @@ const { runUpdateFlow } = require('../shared/update-flow.cjs');
 
 function fakeService(initial = 'idle', checkResult = 'available') {
   const calls = [];
-  let state = { status: initial, version: '0.13.0' };
+  let state = { status: initial, version: '0.18.6' };
   return {
     calls,
     getState() { return { ...state }; },
@@ -16,34 +16,38 @@ function fakeService(initial = 'idle', checkResult = 'available') {
   };
 }
 
-test('one-step update flow checks, downloads, verifies, installs, and restarts', async () => {
+test('first update action checks and downloads but does not install', async () => {
   const service = fakeService('idle', 'available');
   const result = await runUpdateFlow(service);
-  assert.deepEqual(service.calls, ['check', 'download', 'install']);
+  assert.deepEqual(service.calls, ['check', 'download']);
+  assert.equal(result.status, 'downloaded');
+});
+
+test('available update action downloads and waits for explicit installation', async () => {
+  const service = fakeService('available');
+  const result = await runUpdateFlow(service);
+  assert.deepEqual(service.calls, ['download']);
+  assert.equal(result.status, 'downloaded');
+});
+
+test('downloaded update action installs and restarts', async () => {
+  const service = fakeService('downloaded');
+  const result = await runUpdateFlow(service);
+  assert.deepEqual(service.calls, ['install']);
   assert.equal(result.status, 'installing');
 });
 
-test('one-step update flow skips checking when an update is already available', async () => {
-  const service = fakeService('available');
-  await runUpdateFlow(service);
-  assert.deepEqual(service.calls, ['download', 'install']);
-});
-
-test('one-step update flow installs an already downloaded update', async () => {
-  const service = fakeService('downloaded');
-  await runUpdateFlow(service);
-  assert.deepEqual(service.calls, ['install']);
-});
-
-test('one-step update flow returns without installing when current', async () => {
+test('update flow returns without downloading when current', async () => {
   const service = fakeService('idle', 'current');
   const result = await runUpdateFlow(service);
   assert.deepEqual(service.calls, ['check']);
   assert.equal(result.status, 'current');
 });
 
-test('one-step update flow blocks duplicate busy operations', async () => {
-  const service = fakeService('downloading');
-  await assert.rejects(() => runUpdateFlow(service), /already in progress/i);
-  assert.deepEqual(service.calls, []);
+test('update flow blocks duplicate busy and backup operations', async () => {
+  for (const status of ['downloading', 'backing-up', 'installing']) {
+    const service = fakeService(status);
+    await assert.rejects(() => runUpdateFlow(service), /already in progress/i);
+    assert.deepEqual(service.calls, []);
+  }
 });
