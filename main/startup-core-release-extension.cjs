@@ -4,18 +4,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
 const startupHealth = require('./startup-health-extension.cjs');
+const {
+  REQUIRED_CHECKS,
+  readiness
+} = require('../shared/startup-core-readiness.cjs');
 
 const POLL_INTERVAL_MS = 250;
 const READY_STABILITY_MS = 1500;
-const REQUIRED_CHECKS = Object.freeze({
-  'profile-location': new Set(['pass']),
-  'config-file': new Set(['pass', 'warn']),
-  'data-integrity': new Set(['pass']),
-  'data-write': new Set(['pass']),
-  'secure-storage': new Set(['pass', 'warn']),
-  'config-store': new Set(['pass']),
-  'renderer-bridge': new Set(['pass'])
-});
 
 let installed = false;
 let pollTimer = null;
@@ -88,34 +83,6 @@ function writeRecord(stage, detail = {}, health = null) {
   }
 }
 
-function checkMap(health) {
-  return new Map((health?.checks || []).map((check) => [String(check.id || ''), check]));
-}
-
-function readiness(health) {
-  const checks = checkMap(health);
-  const blockers = [];
-
-  if (!health?.configStoreReady) blockers.push('configuration services are not ready');
-  if (!health?.rendererBridgeReady) blockers.push('the protected renderer bridge is not ready');
-
-  for (const [id, allowed] of Object.entries(REQUIRED_CHECKS)) {
-    const check = checks.get(id);
-    if (!check) {
-      blockers.push(`${id} has not reported`);
-      continue;
-    }
-    if (!allowed.has(String(check.status || ''))) blockers.push(`${id} is ${check.status || 'unknown'}`);
-  }
-
-  const unrelatedCriticalFailures = (health?.checks || []).filter((check) =>
-    check.critical && check.status === 'fail' && !['renderer-modules', 'startup-timeout'].includes(check.id)
-  );
-  for (const check of unrelatedCriticalFailures) blockers.push(`${check.id} failed: ${check.detail || check.label}`);
-
-  return { ready: blockers.length === 0, blockers };
-}
-
 function fingerprint(stage, detail) {
   return JSON.stringify([stage, detail]);
 }
@@ -164,13 +131,21 @@ function tick() {
   const result = readiness(health);
   if (!result.ready) {
     readySince = 0;
-    recordChanged('waiting-for-core-health', { blockers: result.blockers }, health);
+    recordChanged('waiting-for-core-health', {
+      blockers: result.blockers,
+      discordDesktopSignInRequired: result.discordDesktopSignInRequired,
+      optionalModuleCompletionRequired: result.optionalModuleCompletionRequired
+    }, health);
     return;
   }
 
   if (!readySince) {
     readySince = Date.now();
-    writeRecord('core-health-ready', { stabilizingForMs: READY_STABILITY_MS }, health);
+    writeRecord('core-health-ready', {
+      stabilizingForMs: READY_STABILITY_MS,
+      discordDesktopSignInRequired: false,
+      optionalModuleCompletionRequired: false
+    }, health);
     return;
   }
 
