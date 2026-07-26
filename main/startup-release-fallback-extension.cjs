@@ -43,9 +43,12 @@ function mainWebContents() {
 function isMainInterfaceWindow(target) {
   const webContents = target?.webContents || target;
   if (!webContents || webContents.isDestroyed?.()) return false;
+  const preload = preloadName(webContents);
+  const rendererFile = rendererFileName(webContents);
+  if (preload === 'startup-health-preload.cjs' || rendererFile === 'startup-health.html') return false;
+  if (preload === 'preload.cjs' && rendererFile === 'index.html') return true;
   const main = mainWebContents();
-  if (main && main.id === webContents.id) return true;
-  return preloadName(webContents) === 'preload.cjs' && rendererFileName(webContents) === 'index.html';
+  return Boolean(main && main.id === webContents.id && preload === 'preload.cjs');
 }
 
 function diagnosticsPath() {
@@ -105,7 +108,8 @@ function record(stage, detail = {}, level = 'info') {
   const logger = startupHealth.refs.logger;
   const message = `Startup release: ${stage}.`;
   if (logger?.[level]) logger[level](message, detail);
-  else console[level] ? console[level](`[Khaos Nexus] ${message}`, detail) : console.log(`[Khaos Nexus] ${message}`, detail);
+  else if (typeof console[level] === 'function') console[level](`[Khaos Nexus] ${message}`, detail);
+  else console.log(`[Khaos Nexus] ${message}`, detail);
 }
 
 function emitFallbackReady() {
