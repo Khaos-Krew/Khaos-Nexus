@@ -10,6 +10,14 @@ const {
   rendererActionErrorSummary
 } = require('../../shared/renderer-action-errors.cjs');
 
+function isObsoleteBootstrapAccessError(entry = {}) {
+  const message = String(entry.message || '');
+  const context = `${entry.channel || ''} ${entry.operation || ''} ${entry.source || ''}`;
+  return /renderer-errors:get/i.test(message)
+    && /requires viewer access|authorized Discord account/i.test(message)
+    && /initialization|renderer-errors:get/i.test(context);
+}
+
 class RendererActionErrorService extends EventEmitter {
   constructor({ dataDirectory, configStore, logger, now = () => Date.now() } = {}) {
     super();
@@ -18,6 +26,12 @@ class RendererActionErrorService extends EventEmitter {
     this.now = now;
     this.statePath = path.join(dataDirectory, 'renderer-action-errors.json');
     this.state = this.loadState();
+    const retained = this.state.entries.filter((entry) => !isObsoleteBootstrapAccessError(entry));
+    if (retained.length !== this.state.entries.length) {
+      this.state.entries = retained;
+      this.saveState();
+      this.logger?.write?.('info', 'Removed an obsolete UI diagnostic authorization error from the v0.17.1 bootstrap.', {}, 'renderer-action');
+    }
   }
 
   loadState() {
@@ -102,4 +116,4 @@ class RendererActionErrorService extends EventEmitter {
   }
 }
 
-module.exports = { RendererActionErrorService };
+module.exports = { RendererActionErrorService, isObsoleteBootstrapAccessError };
