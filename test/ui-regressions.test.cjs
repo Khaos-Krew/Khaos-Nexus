@@ -14,10 +14,15 @@ test('dropdown theme explicitly uses dark native option colors', () => {
   assert.match(css, /select\s+option[\s\S]*color:\s*#f4f5f7/i);
 });
 
-test('simplified updater exposes one smart update operation', () => {
+test('simplified updater exposes explicit download and install steps', () => {
   const source = fs.readFileSync(path.join(root, 'renderer', 'simple-updater.js'), 'utf8');
-  const css = fs.readFileSync(path.join(root, 'renderer', 'ui-fixes.css'), 'utf8');
-  assert.match(source, /update:apply/);
-  assert.match(source, /Update to v\$\{update\.version/);
-  assert.match(css, /#nexusUpdateCheck,[\s\S]*#nexusUpdateDownload,[\s\S]*#nexusUpdateInstall/);
+  assert.match(source, /invoke\('update:download'\)/);
+  assert.match(source, /invoke\('update:install'\)/);
+  assert.doesNotMatch(source, /invoke\('update:apply'\)/);
+  assert.match(source, /Download v\$\{update\.version/);
+  assert.match(source, /Install & Restart/);
+  assert.match(source, /verified backup is mandatory/i);
+  assert.match(source, /checkUpdatesButton/);
+  assert.match(source, /downloadUpdateButton/);
+  assert.match(source, /installUpdateButton/);
 });
