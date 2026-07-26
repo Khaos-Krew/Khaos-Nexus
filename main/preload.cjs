@@ -1,6 +1,7 @@
 'use strict';
 
 const { contextBridge, ipcRenderer } = require('electron');
+const { isExpectedAccessDenial } = require('../shared/renderer-action-errors.cjs');
 
 const REPORT_EXCLUDED_CHANNELS = new Set([
   'stability:heartbeat',
@@ -49,6 +50,7 @@ function currentView() {
 }
 
 function reportRendererActionError(input = {}) {
+  if (isExpectedAccessDenial(input.error || input.message || input.reason || input)) return { ignored: true, reason: 'expected-access-denial' };
   const error = input.error instanceof Error ? input.error : null;
   const interaction = input.interaction || lastInteraction || elementContext(document.activeElement);
   ipcRenderer.send('renderer-action:error', {
@@ -63,13 +65,14 @@ function reportRendererActionError(input = {}) {
     stack: String(input.stack || error?.stack || '').slice(0, 12000),
     time: new Date().toISOString()
   });
+  return { reported: true };
 }
 
 async function invoke(channel, payload) {
   try {
     return await ipcRenderer.invoke(channel, payload);
   } catch (error) {
-    if (!REPORT_EXCLUDED_CHANNELS.has(channel)) {
+    if (!REPORT_EXCLUDED_CHANNELS.has(channel) && !isExpectedAccessDenial(error)) {
       reportRendererActionError({ source: 'ipc', channel, error, interaction: lastInteraction });
     }
     throw error;
@@ -83,6 +86,7 @@ window.addEventListener('click', (event) => {
 contextBridge.exposeInMainWorld('khaos', {
   invoke,
   reportRendererActionError: (payload) => reportRendererActionError(payload || {}),
+  isExpectedAccessDenial: (value) => isExpectedAccessDenial(value),
   reportBootStage: (stage, detail = {}) => ipcRenderer.send('renderer-boot:stage', {
     stage: String(stage || 'unknown').slice(0, 80),
     detail: detail && typeof detail === 'object' ? detail : {},
