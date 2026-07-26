@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
 const startupHealth = require('./startup-health-extension.cjs');
+const { appendLog, writeDiagnostic } = require('./portable-runtime.cjs');
 const {
   REQUIRED_CHECKS,
   readiness
@@ -77,7 +78,12 @@ function writeRecord(stage, detail = {}, health = null) {
       fs.renameSync(temporary, diagnosticsFile);
     }
     fs.mkdirSync(path.dirname(textLogFile), { recursive: true });
-    fs.appendFileSync(textLogFile, `[${payload.health.time}] ${stage} ${JSON.stringify(detail)}\n`, 'utf8');
+    const line = `[${payload.health.time}] ${stage} ${JSON.stringify(detail)}`;
+    fs.appendFileSync(textLogFile, `${line}\n`, 'utf8');
+    try {
+      writeDiagnostic('startup-core-release-diagnostics.json', payload);
+      appendLog('startup-core-release.log', line);
+    } catch {}
   } catch (error) {
     console.error('[Khaos Nexus] Could not retain core startup release diagnostics.', error);
   }
