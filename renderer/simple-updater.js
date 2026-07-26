@@ -27,17 +27,18 @@
     const status = update.status || 'idle';
     if (status === 'checking') return 'Checking…';
     if (status === 'downloading') return `Downloading${Number.isFinite(Number(update.progress)) ? ` ${Math.round(Number(update.progress))}%` : '…'}`;
-    if (status === 'installing') return 'Restarting…';
-    if (status === 'available') return `Update to v${update.version || 'latest'} & Restart`;
-    if (status === 'downloaded') return 'Restart to Finish Update';
-    if (status === 'error') return 'Retry Update';
+    if (status === 'backing-up') return 'Creating Verified Backup…';
+    if (status === 'installing') return 'Installing & Restarting…';
+    if (status === 'available') return `Download v${update.version || 'Latest'}`;
+    if (status === 'downloaded') return 'Install & Restart';
+    if (status === 'error') return 'Check Again';
     if (status === 'current') return 'Check Again';
     if (status === 'development') return 'Updates Unavailable';
-    return 'Check & Update';
+    return 'Check for Updates';
   }
 
   function isBusy(update = {}) {
-    return ['checking', 'downloading', 'installing'].includes(update.status);
+    return ['checking', 'downloading', 'backing-up', 'installing'].includes(update.status);
   }
 
   function ensureControls() {
@@ -45,7 +46,14 @@
     const actions = center?.querySelector('.form-actions');
     if (center) {
       const description = center.querySelector('.panel-heading p');
-      if (description) description.textContent = 'One button checks the stable channel, downloads and verifies the update, creates a backup, then restarts Khaos Nexus.';
+      if (description) {
+        description.textContent = 'Check once, download the update, then use Install & Restart. A verified backup is mandatory before installation.';
+      }
+    }
+
+    for (const id of ['checkUpdatesButton', 'downloadUpdateButton', 'installUpdateButton']) {
+      const legacy = $(id);
+      if (legacy) legacy.classList.add('hidden');
     }
 
     if (actions && !$('nexusSimpleUpdatePrimary')) {
@@ -85,26 +93,41 @@
 
     const bannerButton = $('nexusSimpleUpdateBanner');
     if (bannerButton) {
-      const show = ['available', 'downloaded', 'error', 'downloading', 'installing'].includes(updateState.status);
+      const show = ['available', 'downloaded', 'error', 'downloading', 'backing-up', 'installing'].includes(updateState.status);
       bannerButton.classList.toggle('hidden', !show);
     }
-  }
 
-  function confirmationText(update = {}) {
-    const version = update.version ? ` v${update.version}` : '';
-    if (update.status === 'available' || update.status === 'downloaded') {
-      return `Update Khaos Nexus${version} now? The app will verify the download, create a settings backup, install the update, and restart automatically.`;
+    const status = $('updateStatus');
+    if (status && updateState.backupStatus === 'verified' && updateState.status === 'downloaded') {
+      status.textContent = `Update downloaded and verified. Backup ready. Press Install & Restart to finish v${updateState.version || 'the update'}.`;
     }
-    return 'Check for a Khaos Nexus update now? If a newer stable version is found, it will be downloaded, verified, backed up, installed, and restarted automatically.';
   }
 
   async function runSimpleUpdate() {
     if (isBusy(updateState || {})) return;
-    if (!confirm(confirmationText(updateState || {}))) return;
-    notify('Khaos Nexus is checking and preparing the update…');
-    const result = await invoke('update:apply');
+    const status = updateState?.status || 'idle';
+
+    if (status === 'available') {
+      notify('Downloading and verifying the update…');
+      const result = await invoke('update:download');
+      render(result || updateState || {});
+      notify('Update downloaded. Press Install & Restart when ready.');
+      return;
+    }
+
+    if (status === 'downloaded') {
+      const version = updateState?.version ? ` v${updateState.version}` : '';
+      if (!confirm(`Install Khaos Nexus${version} now? A verified backup will be created first. The app will close, finish installation, and restart automatically.`)) return;
+      notify('Creating a verified backup before installation…');
+      await invoke('update:install');
+      return;
+    }
+
+    notify('Checking the stable update channel…');
+    const result = await invoke('update:check');
     render(result || updateState || {});
-    if (result?.status === 'current') notify('Khaos Nexus is already up to date.');
+    if (result?.status === 'available') notify(`v${result.version || 'A new version'} is ready to download.`);
+    else if (result?.status === 'current') notify('Khaos Nexus is already up to date.');
   }
 
   function bind() {
