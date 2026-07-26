@@ -54,10 +54,10 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.17.1 keeps the verified renderer and adds retained button error reporting', () => {
+test('v0.17.2 keeps retained diagnostics available before Discord authorization', () => {
   const packageJson = JSON.parse(read('package.json'));
-  assert.equal(packageJson.version, '0.17.1');
-  assert.match(packageJson.description, /UI action error reporting/i);
+  assert.equal(packageJson.version, '0.17.2');
+  assert.match(packageJson.description, /pre-login-safe retained UI action diagnostics/i);
   assert.match(packageJson.description, /encrypted Pterodactyl/i);
   assert.match(packageJson.description, /software-renderer-safe startup/i);
 });
