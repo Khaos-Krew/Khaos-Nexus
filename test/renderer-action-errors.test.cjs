@@ -10,7 +10,7 @@ const {
   normalizeRendererActionErrorState,
   rendererActionErrorSummary
 } = require('../shared/renderer-action-errors.cjs');
-const { RendererActionErrorService } = require('../main/services/renderer-action-error-service.cjs');
+const { RendererActionErrorService, isObsoleteBootstrapAccessError } = require('../main/services/renderer-action-error-service.cjs');
 
 function temporaryDirectory() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'khaos-renderer-errors-'));
@@ -82,6 +82,42 @@ test('renderer action error service persists and counts repeated button failures
   assert.match(reloaded.latestText(), /hosted-server:power/);
 });
 
+test('obsolete v0.17.1 diagnostic authorization failure is removed at startup', () => {
+  const directory = temporaryDirectory();
+  const statePath = path.join(directory, 'renderer-action-errors.json');
+  fs.writeFileSync(statePath, JSON.stringify(normalizeRendererActionErrorState({
+    totalCaptured: 2,
+    entries: [
+      {
+        channel: 'initialization',
+        operation: 'initialization',
+        view: 'dashboard',
+        message: "Error invoking remote method 'renderer-errors:get': Error: View UI action errors requires viewer access. Sign in with an authorized Discord account."
+      },
+      {
+        channel: 'hosted-server:power',
+        operation: 'restart',
+        view: 'hosted-servers',
+        message: 'Provider rejected the restart request.'
+      }
+    ]
+  })), 'utf8');
+
+  assert.equal(isObsoleteBootstrapAccessError({
+    channel: 'initialization', operation: 'initialization',
+    message: "Error invoking remote method 'renderer-errors:get': Error: View UI action errors requires viewer access."
+  }), true);
+
+  const service = new RendererActionErrorService({
+    dataDirectory: directory,
+    configStore: { getSecretValues: () => [] },
+    logger: { write() {} }
+  });
+  assert.equal(service.getState().entries.length, 1);
+  assert.equal(service.getState().entries[0].channel, 'hosted-server:power');
+  assert.equal(service.getState().totalCaptured, 2);
+});
+
 test('preload reports failed IPC actions without including the IPC payload', () => {
   const root = path.join(__dirname, '..');
   const preload = fs.readFileSync(path.join(root, 'main/preload.cjs'), 'utf8');
@@ -90,6 +126,17 @@ test('preload reports failed IPC actions without including the IPC payload', () 
   assert.match(preload, /reportRendererActionError\(\{ source: 'ipc', channel, error/);
   assert.doesNotMatch(preload, /renderer-action:error[^\n]+payload/);
   assert.match(preload, /onRendererErrors/);
+});
+
+test('diagnostic reads work before Discord sign-in while clearing remains Owner-only', () => {
+  const root = path.join(__dirname, '..');
+  const extension = fs.readFileSync(path.join(root, 'main/renderer-action-error-extension.cjs'), 'utf8');
+  const getHandler = extension.slice(extension.indexOf("handle('renderer-errors:get'"), extension.indexOf("handle('renderer-errors:clear'"));
+  const copyHandler = extension.slice(extension.indexOf("handle('renderer-errors:copy-latest'"), extension.indexOf('\n  });\n}', extension.indexOf("handle('renderer-errors:copy-latest'")));
+  assert.doesNotMatch(getHandler, /assertAccess/);
+  assert.doesNotMatch(copyHandler, /assertAccess/);
+  assert.match(extension, /assertAccess\('owner', 'Clear UI action errors'\)/);
+  assert.match(extension, /must work before Discord sign-in/);
 });
 
 test('Application Monitor exposes retained UI action errors and copy controls', () => {
