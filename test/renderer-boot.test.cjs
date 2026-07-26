@@ -8,15 +8,14 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
-test('preload starts heartbeat and directly reports base interface readiness', () => {
+test('preload starts the renderer heartbeat and reports protected bridge readiness', () => {
   const preload = read('main/preload.cjs');
   assert.match(preload, /sendRendererHeartbeat\(\);/);
   assert.match(preload, /setInterval\(sendRendererHeartbeat, 2000\)/);
   assert.match(preload, /reportBootStage/);
-  assert.match(preload, /reportBaseInterfaceReady/);
-  assert.match(preload, /startup-health:base-ui-ready/);
-  assert.match(preload, /BASE_UI_SIGNAL_MAX_ATTEMPTS = 30/);
-  assert.match(preload, /source: 'main-preload-direct'/);
+  assert.match(preload, /startup-health:renderer-ready/);
+  assert.doesNotMatch(preload, /startup-health:base-ui-ready/);
+  assert.doesNotMatch(preload, /reportBaseInterfaceReady/);
 });
 
 test('renderer feature scripts remain serialized with progress and timeout protection', () => {
@@ -58,32 +57,37 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.18.7 uses direct startup signalling and persists release diagnostics', () => {
+test('v0.18.8 releases from core health without BrowserWindow or Discord dependencies', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
   const health = read('main/startup-health-extension.cjs');
-  const releaseFallback = read('main/startup-release-fallback-extension.cjs');
+  const coreRelease = read('main/startup-core-release-extension.cjs');
   const splashRenderer = read('renderer/startup-health.js');
   const stability = read('main/stability-extension.cjs');
   const splashHtml = read('renderer/startup-health.html');
   const recovery = read('renderer/access-recovery.js');
   const monitor = read('main/services/application-monitor.cjs');
 
-  assert.equal(packageJson.version, '0.18.7');
-  assert.match(packageJson.description, /direct preload-to-main startup readiness/i);
-  assert.match(packageJson.description, /retained startup release diagnostics/i);
-  assert.match(entry, /startup-release-fallback-extension\.cjs/);
-  assert.doesNotMatch(entry, /startup-base-ready-extension\.cjs/);
+  assert.equal(packageJson.version, '0.18.8');
+  assert.match(packageJson.description, /deterministic main-process startup release controller/i);
+  assert.match(packageJson.description, /immediate retained startup diagnostics/i);
+  assert.match(entry, /startup-core-release-extension\.cjs/);
+  assert.doesNotMatch(entry, /startup-release-fallback-extension\.cjs/);
   assert.match(health, /MINIMUM_SPLASH_MS = 30 \* 1000/);
-  assert.match(releaseFallback, /OPTIONAL_MODULE_GRACE_MS = 15 \* 1000/);
-  assert.match(releaseFallback, /startup-health:base-ui-ready/);
-  assert.match(releaseFallback, /mainWebContents/);
-  assert.match(releaseFallback, /event\.sender/);
-  assert.match(releaseFallback, /startup-release-diagnostics\.json/);
-  assert.match(releaseFallback, /main-document-backup/);
-  assert.match(releaseFallback, /stage: 'features-ready'/);
-  assert.match(releaseFallback, /optionalModulesContinuing: true/);
-  assert.doesNotMatch(releaseFallback, /monitor-ready/);
+  assert.match(coreRelease, /POLL_INTERVAL_MS = 250/);
+  assert.match(coreRelease, /READY_STABILITY_MS = 1500/);
+  assert.match(coreRelease, /startup-core-release-diagnostics\.json/);
+  assert.match(coreRelease, /startup-core-release\.log/);
+  assert.match(coreRelease, /controller-installed/);
+  assert.match(coreRelease, /configStoreReady/);
+  assert.match(coreRelease, /rendererBridgeReady/);
+  assert.match(coreRelease, /renderer-boot:stage/);
+  assert.match(coreRelease, /stage: 'features-ready'/);
+  assert.match(coreRelease, /discordDesktopSignInRequired: false/);
+  assert.match(coreRelease, /optionalModuleCompletionRequired: false/);
+  assert.doesNotMatch(coreRelease, /BrowserWindow\.prototype/);
+  assert.doesNotMatch(coreRelease, /startup-health:base-ui-ready/);
+  assert.doesNotMatch(coreRelease, /discordAuth/);
   assert.match(splashRenderer, /Discord desktop sign-in \(optional\)/);
   assert.match(splashRenderer, /This does not block local startup/);
   assert.match(stability, /function isMainInterfaceWindow/);
