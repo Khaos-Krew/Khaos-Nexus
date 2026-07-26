@@ -2,13 +2,18 @@
 
 (() => {
   if (typeof viewMeta !== 'undefined') {
-    viewMeta.monitor = ['Application Monitor', 'Automatic recovery, redacted diagnostics, and GitHub issue delivery.'];
+    viewMeta.monitor = ['Application Monitor', 'Automatic recovery, redacted diagnostics, GitHub issue delivery, and retained UI action errors.'];
   }
 
   const byId = (id) => document.getElementById(id);
   const recentRendererErrors = new Map();
   let current = null;
+  let rendererErrorState = { entries: [], totalCaptured: 0, lastClearedAt: null };
   let configSignature = '';
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
+  }
 
   function titleCase(value) {
     return String(value || 'idle').replace(/(^|[-_\s])\w/g, (character) => character.toUpperCase());
@@ -30,12 +35,73 @@
     toast.textContent = String(message || 'Done.');
     toast.classList.add('show');
     clearTimeout(notify.timer);
-    notify.timer = setTimeout(() => toast.classList.remove('show'), 3600);
+    notify.timer = setTimeout(() => toast.classList.remove('show'), 4200);
   }
 
   async function invoke(channel, payload) {
     try { return await window.khaos.invoke(channel, payload); }
     catch (error) { notify(error.message || String(error)); throw error; }
+  }
+
+  function ensureRendererErrorPanel() {
+    const view = byId('view-monitor');
+    if (!view || byId('rendererActionErrorPanel')) return;
+    const panel = document.createElement('article');
+    panel.id = 'rendererActionErrorPanel';
+    panel.className = 'panel monitor-renderer-errors';
+    panel.innerHTML = `
+      <div class="panel-heading monitor-heading">
+        <div><span class="eyebrow">Retained UI Diagnostics</span><h3>UI Action Errors</h3><p>Button and workspace failures are stored locally with protected values redacted.</p></div>
+        <span class="severity" id="rendererErrorCount">0 captured</span>
+      </div>
+      <div class="monitor-renderer-error-actions">
+        <button class="button" id="copyLatestRendererError">Copy Latest Error</button>
+        <button class="button danger" id="clearRendererErrors">Clear UI Error History</button>
+      </div>
+      <div id="rendererActionErrorList" class="monitor-renderer-error-list"></div>`;
+    view.appendChild(panel);
+
+    byId('copyLatestRendererError')?.addEventListener('click', async () => {
+      await invoke('renderer-errors:copy-latest');
+      notify('Latest UI action error copied.');
+    });
+    byId('clearRendererErrors')?.addEventListener('click', async () => {
+      if (!confirm('Clear all locally retained UI action errors?')) return;
+      rendererErrorState = await invoke('renderer-errors:clear');
+      renderRendererErrors();
+      notify('UI action error history cleared.');
+    });
+  }
+
+  function renderRendererErrors(next = rendererErrorState) {
+    rendererErrorState = next || { entries: [], totalCaptured: 0, lastClearedAt: null };
+    ensureRendererErrorPanel();
+    const entries = rendererErrorState.entries || [];
+    if (byId('rendererErrorCount')) {
+      byId('rendererErrorCount').textContent = `${entries.length} retained • ${rendererErrorState.totalCaptured || 0} total`;
+      byId('rendererErrorCount').className = `severity ${entries.length ? 'bad' : 'good'}`;
+    }
+    if (byId('copyLatestRendererError')) byId('copyLatestRendererError').disabled = !entries.length;
+    if (byId('clearRendererErrors')) byId('clearRendererErrors').disabled = !entries.length;
+    if (!byId('rendererActionErrorList')) return;
+    byId('rendererActionErrorList').innerHTML = entries.length ? entries.map((entry) => `
+      <details class="monitor-renderer-error-entry">
+        <summary>
+          <span class="monitor-renderer-error-icon">!</span>
+          <span><strong>${escapeHtml(entry.elementText || entry.operation || entry.channel)}</strong><small>${escapeHtml(entry.view)} • ${escapeHtml(entry.channel)} • ${escapeHtml(relativeTime(entry.lastSeenAt))}${entry.occurrences > 1 ? ` • ${entry.occurrences} occurrences` : ''}</small></span>
+          <code>${escapeHtml(entry.id)}</code>
+        </summary>
+        <div class="monitor-renderer-error-body">
+          <p>${escapeHtml(entry.message)}</p>
+          <dl>
+            <div><dt>Action</dt><dd>${escapeHtml(entry.operation || 'Unknown')}</dd></div>
+            <div><dt>Element</dt><dd>${escapeHtml(`${entry.elementTag || 'unknown'}#${entry.elementId || 'none'}`)}</dd></div>
+            <div><dt>First seen</dt><dd>${escapeHtml(new Date(entry.time).toLocaleString())}</dd></div>
+            <div><dt>Last seen</dt><dd>${escapeHtml(new Date(entry.lastSeenAt).toLocaleString())}</dd></div>
+          </dl>
+          <pre>${escapeHtml(entry.stack || 'No renderer stack was supplied.')}</pre>
+        </div>
+      </details>`).join('') : '<div class="monitor-renderer-error-empty">No UI action errors have been captured.</div>';
   }
 
   function render(next) {
@@ -104,9 +170,9 @@
     return latest;
   }
 
-  function captureRendererError(errorLike) {
+  function captureRendererError(errorLike, source = 'window-error') {
     const error = errorLike instanceof Error ? errorLike : new Error(String(errorLike || 'Renderer error'));
-    const message = String(error.message || 'Renderer error').slice(0, 1000);
+    const message = String(error.message || 'Renderer error').slice(0, 1600);
     const stack = String(error.stack || '').slice(0, 12000);
     const key = `${message}\n${stack}`;
     const now = Date.now();
@@ -114,7 +180,7 @@
     recentRendererErrors.set(key, now);
     for (const [entry, time] of recentRendererErrors) if (now - time > 5 * 60 * 1000) recentRendererErrors.delete(entry);
     if (now - previous < 60000) return;
-    window.khaos.invoke('monitor:capture-renderer', { message, stack }).catch(() => {});
+    window.khaos.reportRendererActionError?.({ source, message, stack, operation: source });
   }
 
   function bind() {
@@ -148,9 +214,10 @@
     });
     byId('openLastIssueButton')?.addEventListener('click', () => invoke('monitor:open-last-issue'));
 
-    window.addEventListener('error', (event) => captureRendererError(event.error || new Error(event.message || 'Renderer error')));
-    window.addEventListener('unhandledrejection', (event) => captureRendererError(event.reason));
+    window.addEventListener('error', (event) => captureRendererError(event.error || new Error(event.message || 'Renderer error'), 'window-error'));
+    window.addEventListener('unhandledrejection', (event) => captureRendererError(event.reason, 'unhandled-rejection'));
     window.khaos.onState(render);
+    window.khaos.onRendererErrors?.(renderRendererErrors);
   }
 
   function loadExtension(src) {
@@ -172,8 +239,14 @@
   }
 
   async function initializeMonitorUi() {
+    ensureRendererErrorPanel();
     bind();
-    render(await invoke('app:get-state'));
+    const [appState, errorState] = await Promise.all([
+      invoke('app:get-state'),
+      invoke('renderer-errors:get')
+    ]);
+    render(appState);
+    renderRendererErrors(errorState);
     window.khaos?.reportBootStage?.('monitor-ready');
     scheduleOptionalExtensions();
     setInterval(() => {
@@ -183,5 +256,8 @@
     }, 30000);
   }
 
-  initializeMonitorUi().catch((error) => notify(`Application Monitor UI failed: ${error.message}`));
+  initializeMonitorUi().catch((error) => {
+    captureRendererError(error, 'initialization');
+    notify(`Application Monitor UI failed: ${error.message}`);
+  });
 })();
