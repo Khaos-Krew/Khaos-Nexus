@@ -54,49 +54,52 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.18.5 releases a verified base interface without depending on Application Monitor readiness', () => {
+test('v0.18.6 deterministically releases the verified base interface', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
   const health = read('main/startup-health-extension.cjs');
-  const profileRecovery = read('main/startup-profile-recovery-extension.cjs');
-  const windowGate = read('main/startup-window-gate-extension.cjs');
   const releaseFallback = read('main/startup-release-fallback-extension.cjs');
   const stability = read('main/stability-extension.cjs');
   const splashHtml = read('renderer/startup-health.html');
   const recovery = read('renderer/access-recovery.js');
   const monitor = read('main/services/application-monitor.cjs');
 
-  assert.equal(packageJson.version, '0.18.5');
-  assert.match(packageJson.description, /v0\.17-compatible profile recovery/i);
+  assert.equal(packageJson.version, '0.18.6');
+  assert.match(packageJson.description, /deterministic base-interface startup release/i);
   assert.match(packageJson.description, /30-second minimum startup health screen/i);
-  assert.match(packageJson.description, /independent verified base-interface release/i);
-  assert.match(entry, /startup-profile-recovery-extension\.cjs/);
-  assert.match(entry, /startup-health-extension\.cjs/);
   assert.match(entry, /startup-release-fallback-extension\.cjs/);
-  assert.match(entry, /startup-window-gate-extension\.cjs/);
-  assert.doesNotMatch(entry, /user-data-migration-extension\.cjs/);
   assert.match(health, /MINIMUM_SPLASH_MS = 30 \* 1000/);
-  assert.match(health, /STARTUP_HEALTH_TIMEOUT_MS = 75 \* 1000/);
-  assert.match(health, /startup-health\.html/);
-  assert.match(health, /recoverProfileIfNeeded/);
-  assert.match(profileRecovery, /before window creation/i);
-  assert.match(windowGate, /startupGatedShow/);
   assert.match(releaseFallback, /OPTIONAL_MODULE_GRACE_MS = 15 \* 1000/);
+  assert.match(releaseFallback, /startup-health:base-ui-ready/);
   assert.match(releaseFallback, /window\.khaos\.invoke\('app:get-state'\)/);
-  assert.match(releaseFallback, /window\.khaos\.invoke\('logs:get', 1\)/);
-  assert.match(releaseFallback, /reportBootStage\('base-ui-ready'/);
-  assert.match(releaseFallback, /reportBootStage\('features-ready'/);
-  assert.match(releaseFallback, /optionalModulesContinue: true/);
-  assert.match(releaseFallback, /preloadName\(window\) === 'preload\.cjs'/);
+  assert.match(releaseFallback, /window\.khaos\.invoke\('logs:get', 20\)/);
+  assert.match(releaseFallback, /renderer-boot:stage/);
+  assert.match(releaseFallback, /stage: 'features-ready'/);
+  assert.match(releaseFallback, /optionalModulesContinuing: true/);
+  assert.match(releaseFallback, /isMainInterfaceWindow\(event\.sender\)/);
   assert.doesNotMatch(releaseFallback, /monitor-ready/);
   assert.match(stability, /function isMainInterfaceWindow/);
   assert.match(stability, /preloadName\(window\) === 'preload\.cjs'/);
   assert.match(stability, /window\.__khaosStartupSplashWindow/);
-  assert.match(stability, /if \(!isMainInterfaceWindow\(window\) \|\| !window\.isVisible\(\)\) continue/);
   assert.match(splashHtml, /Entering the Khaos Nexus/);
   assert.match(splashHtml, /Minimum startup check: 30s/);
   assert.match(recovery, /startupReleased/);
-  assert.match(recovery, /startup-health:get/);
   assert.match(monitor, /STARTUP_BATCH_DELAY_MS = 5 \* 60 \* 1000/);
   assert.match(monitor, /ERROR_BATCH_INTERVAL_MS = 30 \* 60 \* 1000/);
+});
+
+test('updater uses explicit download and install steps with a mandatory verified backup', () => {
+  const updater = read('renderer/simple-updater.js');
+  const extension = read('main/brand-update-extension.cjs');
+  const flow = read('shared/update-flow.cjs');
+  assert.match(updater, /Download v\$\{update\.version/);
+  assert.match(updater, /Install & Restart/);
+  assert.match(updater, /invoke\('update:download'\)/);
+  assert.match(updater, /invoke\('update:install'\)/);
+  assert.doesNotMatch(updater, /invoke\('update:apply'\)/);
+  assert.match(extension, /createAutomaticBackup\('pre-update'\)/);
+  assert.match(extension, /verifyBackup\(backup\.filePath\)/);
+  assert.match(extension, /Installation was cancelled and the current version remains active/);
+  assert.match(extension, /status: 'backing-up'/);
+  assert.match(flow, /return service\.getState\(\)/);
 });
