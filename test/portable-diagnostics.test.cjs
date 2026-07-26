@@ -18,6 +18,23 @@ function tempDirectory() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'khaos-portable-'));
 }
 
+function withPortableEnvironment(root, callback) {
+  const previousDirectory = process.env.PORTABLE_EXECUTABLE_DIR;
+  const previousFile = process.env.PORTABLE_EXECUTABLE_FILE;
+  process.env.PORTABLE_EXECUTABLE_DIR = root;
+  process.env.PORTABLE_EXECUTABLE_FILE = path.join(root, 'Khaos-Nexus-Portable-0.18.10-x64.exe');
+  const runtimePath = require.resolve('../main/portable-runtime.cjs');
+  delete require.cache[runtimePath];
+  try { return callback(require('../main/portable-runtime.cjs')); }
+  finally {
+    delete require.cache[runtimePath];
+    if (previousDirectory === undefined) delete process.env.PORTABLE_EXECUTABLE_DIR;
+    else process.env.PORTABLE_EXECUTABLE_DIR = previousDirectory;
+    if (previousFile === undefined) delete process.env.PORTABLE_EXECUTABLE_FILE;
+    else process.env.PORTABLE_EXECUTABLE_FILE = previousFile;
+  }
+}
+
 test('portable paths resolve beside the electron-builder portable executable', () => {
   const root = tempDirectory();
   const env = {
@@ -45,6 +62,24 @@ test('installed builds do not create a portable sidecar path', () => {
   assert.equal(portableDataRoot(env, 'C:\\Program Files\\Khaos Nexus\\Khaos Nexus.exe'), null);
 });
 
+test('portable runtime creates real visible log, diagnostic, and readme files', () => {
+  const root = tempDirectory();
+  withPortableEnvironment(root, (runtime) => {
+    const paths = runtime.runtimePaths();
+    assert.equal(paths.root, path.join(root, PORTABLE_DATA_DIRECTORY_NAME));
+    const logFile = runtime.appendLog('bootstrap.log', { event: 'test-start' });
+    const diagnosticFile = runtime.writeDiagnostic('test-diagnostic.json', { ok: true });
+    const readmeFile = runtime.writeReadme({ appVersion: '0.18.10', canonicalUserData: 'C:\\Users\\Test\\AppData\\Roaming\\khaos-nexus' });
+
+    assert.equal(fs.existsSync(logFile), true);
+    assert.equal(fs.existsSync(diagnosticFile), true);
+    assert.equal(fs.existsSync(readmeFile), true);
+    assert.match(fs.readFileSync(logFile, 'utf8'), /test-start/);
+    assert.deepEqual(JSON.parse(fs.readFileSync(diagnosticFile, 'utf8')), { ok: true });
+    assert.match(fs.readFileSync(readmeFile, 'utf8'), /canonical Windows profile/i);
+  });
+});
+
 test('portable bootstrap initializes before the single-instance lock', () => {
   const entry = fs.readFileSync(path.join(__dirname, '..', 'main', 'entry.cjs'), 'utf8');
   const bootstrapIndex = entry.indexOf('portable-bootstrap-extension.cjs');
@@ -53,7 +88,7 @@ test('portable bootstrap initializes before the single-instance lock', () => {
   assert.ok(bootstrapIndex < lockIndex, 'portable diagnostics must start before the single-instance lock');
 });
 
-test('portable runtime creates visible sidecar logs and diagnostics', () => {
+test('critical diagnostics are mirrored into the portable sidecar', () => {
   const pathsSource = fs.readFileSync(path.join(__dirname, '..', 'main', 'portable-paths.cjs'), 'utf8');
   const runtime = fs.readFileSync(path.join(__dirname, '..', 'main', 'portable-runtime.cjs'), 'utf8');
   const bootstrap = fs.readFileSync(path.join(__dirname, '..', 'main', 'portable-bootstrap-extension.cjs'), 'utf8');
@@ -76,11 +111,11 @@ test('portable runtime creates visible sidecar logs and diagnostics', () => {
   assert.match(preloadDiagnostics, /appendLog\('startup-preload-error\.log'/);
 });
 
-test('portable sidecar never copies protected configuration files', () => {
+test('portable sidecar does not copy the canonical profile or protected files', () => {
   const runtime = fs.readFileSync(path.join(__dirname, '..', 'main', 'portable-runtime.cjs'), 'utf8');
   const bootstrap = fs.readFileSync(path.join(__dirname, '..', 'main', 'portable-bootstrap-extension.cjs'), 'utf8');
   const combined = `${runtime}\n${bootstrap}`;
   assert.doesNotMatch(combined, /copyFileSync/);
-  assert.doesNotMatch(combined, /secrets\.bin/);
-  assert.doesNotMatch(combined, /config\.json/);
+  assert.doesNotMatch(combined, /readFileSync/);
+  assert.doesNotMatch(combined, /app\.setPath\(['"]userData/);
 });
