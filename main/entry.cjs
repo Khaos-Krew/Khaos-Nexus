@@ -2,6 +2,8 @@
 
 const { app } = require('electron');
 
+require('./portable-bootstrap-extension.cjs').install();
+
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
 if (!hasSingleInstanceLock) {
