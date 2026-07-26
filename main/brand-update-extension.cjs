@@ -43,14 +43,65 @@ function patchUpdateService() {
       refs.updateService = this;
       const enabled = Boolean(refs.configStore?.getConfig?.().general?.checkUpdates);
       this.configureAutomaticChecks(enabled);
+      this.set({
+        backupStatus: 'idle',
+        backupPath: null,
+        backupCreatedAt: null
+      });
     }
 
     install() {
-      try {
-        refs.autonomy?.createAutomaticBackup?.('pre-update');
-      } catch (error) {
-        refs.logger?.warn?.('Could not create the pre-update backup.', { message: error.message });
+      const current = this.getState();
+      if (current.status !== 'downloaded' || !current.canInstall) {
+        throw new Error('Download the update before installing it.');
       }
+
+      this.set({
+        status: 'backing-up',
+        canDownload: false,
+        canInstall: false,
+        backupStatus: 'creating',
+        backupPath: null,
+        backupCreatedAt: null,
+        error: null
+      });
+
+      let backup;
+      try {
+        if (!refs.autonomy?.createAutomaticBackup || !refs.autonomy?.verifyBackup) {
+          throw new Error('The verified backup service is not ready.');
+        }
+        backup = refs.autonomy.createAutomaticBackup('pre-update');
+        if (!backup?.valid || !backup.filePath) throw new Error('The backup service did not return a verified backup file.');
+        refs.autonomy.verifyBackup(backup.filePath);
+        this.set({
+          status: 'downloaded',
+          canDownload: false,
+          canInstall: true,
+          backupStatus: 'verified',
+          backupPath: backup.filePath,
+          backupCreatedAt: backup.createdAt || new Date().toISOString(),
+          error: null
+        });
+        refs.logger?.info?.('Mandatory pre-update backup created and verified.', {
+          version: current.version,
+          filePath: backup.filePath
+        });
+      } catch (error) {
+        const message = `Pre-update backup failed: ${error.message || String(error)}`;
+        this.set({
+          status: 'downloaded',
+          canDownload: false,
+          canInstall: true,
+          backupStatus: 'failed',
+          backupPath: null,
+          backupCreatedAt: null,
+          error: message
+        });
+        refs.logger?.error?.('Update installation stopped because the mandatory backup failed.', { message });
+        throw new Error(`${message}. Installation was cancelled and the current version remains active.`);
+      }
+
       return super.install();
     }
   }
@@ -135,7 +186,7 @@ function registerIpc() {
   });
 
   electron.ipcMain.handle('update:apply', () => {
-    refs.autonomy?.assertAccess?.(refs.discordAuth?.getState?.(), 'owner', 'Update and restart Khaos Nexus');
+    refs.autonomy?.assertAccess?.(refs.discordAuth?.getState?.(), 'owner', 'Update Khaos Nexus');
     if (!refs.updateService) throw new Error('The Khaos Nexus update service is not ready.');
     if (updateApplyPromise) return updateApplyPromise;
     updateApplyPromise = runUpdateFlow(refs.updateService)
