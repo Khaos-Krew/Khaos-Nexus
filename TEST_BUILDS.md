@@ -47,8 +47,18 @@ Every owner-test milestone is preserved as a dedicated Git branch and a separate
 - Packaged checkpoint commit: `457541a4588dc837b3b3c4c60d80d58fa2a524ed`
 - Test package: `Khaos-Nexus-v0.17.1-button-error-reporting.zip`
 - Package SHA-256: `5d4a8bf78f8dc3cac395316ef56c7130a14006fb5ca88eec35cedc30ee9d18e5`
-- Owner status: awaiting live-device verification of failed-button retention and reporting.
+- Owner status: startup exposed an authorization loop because the diagnostics panel required Viewer access before Discord sign-in.
 - Main changes: centralized failed IPC capture, active page/button/action context, redacted local persistence, repeat counting, Health Monitor routing, and a copyable UI Action Errors panel in Application Monitor.
+
+## v0.17.2 — Pre-login Diagnostics Authorization Fix
+
+- Source branch: `test/v0.17.2-prelogin-diagnostics`
+- Application source commit: `ef0ad348c055e4b9de7475dea3e402a8400c7eb1`
+- Packaged checkpoint commit: `5ee18be2f3af83cfc8ae1a68aef45263ad9649c5`
+- Test package: `Khaos-Nexus-v0.17.2-prelogin-diagnostics-fix.zip`
+- Package SHA-256: `1066f23460ca798f00a8049405162bc7c882df435f10f38f0f12742b81fee76d`
+- Owner status: awaiting verification that Application Monitor initializes before Discord sign-in and retains the actual failing buttons.
+- Main changes: redacted diagnostic viewing and copy access before sign-in, Owner-only clearing, automatic removal of the obsolete v0.17.1 authorization-loop record, and regression coverage for locked access-control startup.
 
 ## Test-build policy
 
