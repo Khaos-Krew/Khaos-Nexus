@@ -134,9 +134,18 @@ Every owner-test milestone is preserved as a dedicated Git branch and a separate
 - Packaged checkpoint commit: `b277e19e102ccadf7d2a8be57719a367e0753220`
 - Test package: `Khaos-Nexus-v0.18.7-direct-startup-gate.zip`
 - Package SHA-256: `61fd9f94c37bc2f74fbcbae0432e6c1f38e9ae4ef2776a788990b2033b12ce44`
-- Owner status: awaiting live-device verification.
+- Owner status: failed live-device startup at 94%; the expected `startup-release-diagnostics.json` was absent, proving the separate BrowserWindow/preload release helper never reached its first retained stage on the target PC.
 - Archive investigation: current configuration matches the final v0.17.2 manual backup except for module timestamps; current `secrets.bin` matches the final v0.17.2 manual and pre-recovery backups exactly; access control is disabled; bot and Palworld health checks are succeeding. The saved Discord desktop OAuth session is absent from the final v0.17.2 secrets snapshot, which explains signed-out status but does not block local startup.
-- Main changes: direct readiness acknowledgement from `main/preload.cjs`; strict rejection of the startup splash as a readiness sender; a main-document backup verifier; 15-second optional-module grace; retained `startup-release-diagnostics.json`; manager-log release stages; Discord desktop sign-in explicitly labeled optional; 30-second minimum splash retained; safe two-step updater and mandatory pre-update backup retained.
+
+## v0.18.8 — Main-Process Core Startup Release
+
+- Source branch: `test/v0.18.8-core-startup-release`
+- Application source commit: `148fb9aa5557aac9a8c6f7db6fe43a0be05485a5`
+- Packaged checkpoint commit: `5f985953415c217a49ea9ace9421ed9a9c67d313`
+- Test package: `Khaos-Nexus-v0.18.8-core-startup-release.zip`
+- Package SHA-256: `ca637013bed208082aeccfadd7d145990a7a7e397f080f0d3a08140e2a2b72bf`
+- Owner status: awaiting live-device verification.
+- Main changes: removes the BrowserWindow/preload-owned release helper; starts a main-process controller before the desktop window; immediately writes `startup-core-release-diagnostics.json` and `logs/startup-core-release.log`; polls the existing health state every 250 ms; treats profile location, configuration, retained data, write access, secure storage, loaded configuration services, and protected renderer IPC as the only release requirements; explicitly excludes Discord desktop sign-in and optional module completion; requires a stable healthy state for 1.5 seconds; preserves the strict 30-second minimum splash; includes executable tests reproducing the exact live 94% state and requiring it to be releasable; retains the safe two-step updater and mandatory verified pre-update backup.
 
 ## Test-build policy
 
