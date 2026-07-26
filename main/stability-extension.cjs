@@ -1,5 +1,6 @@
 'use strict';
 
+const path = require('node:path');
 const electron = require('electron');
 const {
   BOT_STARTUP_TIMEOUT_MS,
@@ -42,6 +43,20 @@ function usableWindow(window) {
   } catch {
     return false;
   }
+}
+
+function preloadName(window) {
+  try {
+    const preferences = window?.webContents?.getLastWebPreferences?.() || {};
+    return path.basename(String(preferences.preload || ''));
+  } catch {
+    return '';
+  }
+}
+
+function isMainInterfaceWindow(window) {
+  if (!usableWindow(window) || window.__khaosStartupSplashWindow) return false;
+  return preloadName(window) === 'preload.cjs';
 }
 
 function clearNativeUnresponsiveTimer(webContentsId) {
@@ -184,7 +199,7 @@ function patchRendererErrorCapture() {
 }
 
 async function offerRendererRecovery(window, reason, webContentsId = null) {
-  if (!usableWindow(window) || recoveryPromptOpen || electron.app.isQuitting) return false;
+  if (!isMainInterfaceWindow(window) || recoveryPromptOpen || electron.app.isQuitting) return false;
   const id = webContentsId || window.webContents.id;
   const now = Date.now();
   if (now - Number(window.__khaosLastRendererRecoveryPrompt || 0) < RENDERER_RECOVERY_COOLDOWN_MS) return false;
@@ -213,11 +228,11 @@ async function offerRendererRecovery(window, reason, webContentsId = null) {
 }
 
 function scheduleNativeUnresponsiveConfirmation(window, webContentsId) {
-  if (!usableWindow(window) || nativeUnresponsiveTimers.has(webContentsId) || electron.app.isQuitting) return;
+  if (!isMainInterfaceWindow(window) || nativeUnresponsiveTimers.has(webContentsId) || electron.app.isQuitting) return;
   const signalAt = Date.now();
   const timer = setTimeout(() => {
     nativeUnresponsiveTimers.delete(webContentsId);
-    if (!usableWindow(window) || window.webContents.id !== webContentsId || electron.app.isQuitting) return;
+    if (!isMainInterfaceWindow(window) || window.webContents.id !== webContentsId || electron.app.isQuitting) return;
     const now = Date.now();
     const loadedAt = rendererLoadedAt.get(webContentsId) || signalAt;
     const lastHeartbeat = rendererHeartbeats.get(webContentsId) || loadedAt;
@@ -232,7 +247,7 @@ function scheduleNativeUnresponsiveConfirmation(window, webContentsId) {
 }
 
 function attachWindowRecovery(window) {
-  if (!usableWindow(window) || window.__khaosRendererRecoveryAttached) return;
+  if (!isMainInterfaceWindow(window) || window.__khaosRendererRecoveryAttached) return;
   window.__khaosRendererRecoveryAttached = true;
   const webContents = window.webContents;
   const webContentsId = webContents.id;
@@ -241,7 +256,7 @@ function attachWindowRecovery(window) {
   rendererLoadedAt.set(webContentsId, attachedAt);
 
   window.on('unresponsive', () => {
-    console.warn('[Khaos Nexus] Electron reported a temporarily unresponsive renderer; waiting for heartbeat confirmation.');
+    console.warn('[Khaos Nexus] Electron reported a temporarily unresponsive main renderer; waiting for heartbeat confirmation.');
     scheduleNativeUnresponsiveConfirmation(window, webContentsId);
   });
   window.on('responsive', () => {
@@ -254,7 +269,7 @@ function attachWindowRecovery(window) {
     rendererHeartbeats.set(webContentsId, now);
   });
   webContents.on('render-process-gone', (_event, details) => {
-    console.error('[Khaos Nexus] Renderer process exited.', details);
+    console.error('[Khaos Nexus] Main renderer process exited.', details);
     if (electron.app.isQuitting) return;
     const timer = setTimeout(() => {
       offerRendererRecovery(window, `The renderer process exited (${details.reason || 'unknown'})`, webContentsId).catch((error) => {
@@ -274,26 +289,29 @@ function patchBrowserLoader() {
 
   prototype.loadFile = function patchedLoadFile(...args) {
     const window = this;
-    attachWindowRecovery(window);
+    const managed = isMainInterfaceWindow(window);
+    if (managed) attachWindowRecovery(window);
     const webContents = window.webContents;
     const webContentsId = webContents.id;
-    webContents.once('did-finish-load', () => {
-      if (!usableWindow(window) || window.webContents.id !== webContentsId) return;
-      window.webContents.executeJavaScript(`(() => {
-        if (!document.querySelector('link[href="stability-fixes.css"]')) {
-          const link = document.createElement('link');
-          link.rel = 'stylesheet';
-          link.href = 'stability-fixes.css';
-          document.head.appendChild(link);
-        }
-        if (!document.querySelector('script[src="stability-fixes.js"]')) {
-          const script = document.createElement('script');
-          script.src = 'stability-fixes.js';
-          script.defer = true;
-          document.body.appendChild(script);
-        }
-      })();`).catch((error) => console.error('[Khaos Nexus] Stability renderer bootstrap failed.', error));
-    });
+    if (managed) {
+      webContents.once('did-finish-load', () => {
+        if (!isMainInterfaceWindow(window) || window.webContents.id !== webContentsId) return;
+        window.webContents.executeJavaScript(`(() => {
+          if (!document.querySelector('link[href="stability-fixes.css"]')) {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = 'stability-fixes.css';
+            document.head.appendChild(link);
+          }
+          if (!document.querySelector('script[src="stability-fixes.js"]')) {
+            const script = document.createElement('script');
+            script.src = 'stability-fixes.js';
+            script.defer = true;
+            document.body.appendChild(script);
+          }
+        })();`).catch((error) => console.error('[Khaos Nexus] Stability renderer bootstrap failed.', error));
+      });
+    }
     return original.apply(window, args);
   };
 
@@ -315,8 +333,9 @@ function installRendererHeartbeat() {
     const now = Date.now();
     for (const window of electron.BrowserWindow.getAllWindows()) {
       try {
-        if (!usableWindow(window) || !window.isVisible()) continue;
+        if (!isMainInterfaceWindow(window) || !window.isVisible()) continue;
         const webContentsId = window.webContents.id;
+        if (!rendererHeartbeats.has(webContentsId)) continue;
         const loadedAt = rendererLoadedAt.get(webContentsId) || now;
         if (now - loadedAt < RENDERER_STARTUP_GRACE_MS) continue;
         const last = rendererHeartbeats.get(webContentsId) || loadedAt;
@@ -388,6 +407,8 @@ function install() {
 module.exports = {
   install,
   usableWindow,
+  preloadName,
+  isMainInterfaceWindow,
   offerRendererRecovery,
   softwareRenderingRequested,
   configureGraphicsMode,
