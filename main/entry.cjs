@@ -10,6 +10,7 @@ if (!hasSingleInstanceLock) {
   require('./software-rendering-extension.cjs').install();
   require('./startup-profile-recovery-extension.cjs').install();
   require('./startup-health-extension.cjs').install();
+  require('./startup-base-ready-extension.cjs').install();
   require('./startup-window-gate-extension.cjs').install();
   require('./window-visibility-extension.cjs').install();
   require('./renderer-boot-coordinator-extension.cjs').install();
