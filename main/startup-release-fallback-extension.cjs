@@ -4,6 +4,8 @@ const path = require('node:path');
 const electron = require('electron');
 
 const OPTIONAL_MODULE_GRACE_MS = 15 * 1000;
+const BASE_UI_RETRY_MS = 500;
+const BASE_UI_MAX_ATTEMPTS = 20;
 let installed = false;
 let baseUiVerified = false;
 let featuresReadyObserved = false;
@@ -68,11 +70,12 @@ function registerIpc() {
   electron.ipcMain.on('renderer-boot:stage', observeBootStage);
   electron.ipcMain.handle('startup-health:base-ui-ready', (event, payload = {}) => {
     if (!isMainInterfaceWindow(event.sender)) throw new Error('Only the protected main interface can complete the base startup check.');
+    const wasVerified = baseUiVerified;
     scheduleRelease(event, payload);
     return {
       verified: true,
       optionalGraceMs: OPTIONAL_MODULE_GRACE_MS,
-      alreadyVerified: baseUiVerified
+      alreadyVerified: wasVerified
     };
   });
 }
@@ -83,8 +86,8 @@ function verifyBaseInterface(window) {
   const webContents = window.webContents;
   const webContentsId = webContents.id;
 
-  const run = () => {
-    if (window.isDestroyed() || webContents.isDestroyed() || webContents.id !== webContentsId) return;
+  const run = (attempt = 1) => {
+    if (window.isDestroyed() || webContents.isDestroyed() || webContents.id !== webContentsId || baseUiVerified) return;
     webContents.executeJavaScript(`(async () => {
       if (!window.khaos || typeof window.khaos.invoke !== 'function') throw new Error('The protected renderer bridge is unavailable.');
       const [appState, logs] = await Promise.all([
@@ -101,12 +104,15 @@ function verifyBaseInterface(window) {
     })()`).then((result) => {
       if (!result?.verified) throw new Error('The startup base-interface verification did not complete.');
     }).catch((error) => {
-      console.error('[Khaos Nexus] Base interface readiness verification failed.', error);
+      if (attempt < BASE_UI_MAX_ATTEMPTS && !baseUiVerified) {
+        setTimeout(() => run(attempt + 1), BASE_UI_RETRY_MS);
+        return;
+      }
+      console.error('[Khaos Nexus] Base interface readiness verification failed after retries.', error);
     });
   };
 
-  if (webContents.isLoading()) webContents.once('did-finish-load', () => setTimeout(run, 750));
-  else setTimeout(run, 750);
+  webContents.once('did-finish-load', () => setTimeout(() => run(1), 350));
 }
 
 function patchBrowserLoader() {
@@ -126,10 +132,6 @@ function install() {
   installed = true;
   registerIpc();
   patchBrowserLoader();
-  electron.app.on('browser-window-created', (_event, window) => verifyBaseInterface(window));
-  electron.app.whenReady().then(() => {
-    for (const window of electron.BrowserWindow.getAllWindows()) verifyBaseInterface(window);
-  }).catch(() => {});
   electron.app.on('before-quit', () => {
     clearTimeout(fallbackTimer);
     fallbackTimer = null;
@@ -138,6 +140,8 @@ function install() {
 
 module.exports = {
   OPTIONAL_MODULE_GRACE_MS,
+  BASE_UI_RETRY_MS,
+  BASE_UI_MAX_ATTEMPTS,
   preloadName,
   isMainInterfaceWindow,
   verifyBaseInterface,
