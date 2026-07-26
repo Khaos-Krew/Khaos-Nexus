@@ -1,7 +1,7 @@
 {
   "name": "khaos-nexus",
-  "version": "0.18.0",
-  "description": "Local-first Khaos Nexus desktop command center with a branded startup interaction lock, real module-loading progress, timeout recovery, scheduled error batching, encrypted Pterodactyl control, cross-server players, guarded moderation, recurring schedules, and software-renderer-safe startup.",
+  "version": "0.18.1",
+  "description": "Local-first Khaos Nexus desktop command center with prior-configuration recovery, saved Discord session restoration before access enforcement, a CSP-safe first-frame startup lock, real module progress, scheduled error batching, encrypted Pterodactyl control, cross-server players, guarded moderation, recurring schedules, and software-renderer-safe startup.",
   "main": "main/entry.cjs",
   "author": "Khaos Krew",
   "license": "MIT",
