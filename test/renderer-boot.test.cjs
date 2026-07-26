@@ -57,7 +57,7 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.18.8 releases from core health without BrowserWindow or Discord dependencies', () => {
+test('v0.18.9 combines sandbox-compatible preload startup with core health release', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
   const health = read('main/startup-health-extension.cjs');
@@ -67,11 +67,13 @@ test('v0.18.8 releases from core health without BrowserWindow or Discord depende
   const splashHtml = read('renderer/startup-health.html');
   const recovery = read('renderer/access-recovery.js');
   const monitor = read('main/services/application-monitor.cjs');
+  const preload = read('main/preload.cjs');
 
-  assert.equal(packageJson.version, '0.18.8');
-  assert.match(packageJson.description, /deterministic main-process startup release controller/i);
-  assert.match(packageJson.description, /immediate retained startup diagnostics/i);
+  assert.equal(packageJson.version, '0.18.9');
+  assert.match(packageJson.description, /sandbox-compatible main preload/i);
+  assert.match(packageJson.description, /protected renderer bridge startup acknowledgement/i);
   assert.match(entry, /startup-core-release-extension\.cjs/);
+  assert.match(entry, /startup-preload-diagnostics-extension\.cjs/);
   assert.doesNotMatch(entry, /startup-release-fallback-extension\.cjs/);
   assert.match(health, /MINIMUM_SPLASH_MS = 30 \* 1000/);
   assert.match(coreRelease, /POLL_INTERVAL_MS = 250/);
@@ -88,6 +90,7 @@ test('v0.18.8 releases from core health without BrowserWindow or Discord depende
   assert.doesNotMatch(coreRelease, /BrowserWindow\.prototype/);
   assert.doesNotMatch(coreRelease, /startup-health:base-ui-ready/);
   assert.doesNotMatch(coreRelease, /discordAuth/);
+  assert.doesNotMatch(preload, /require\(['"]\.\.?\//);
   assert.match(splashRenderer, /Discord desktop sign-in \(optional\)/);
   assert.match(splashRenderer, /This does not block local startup/);
   assert.match(stability, /function isMainInterfaceWindow/);
