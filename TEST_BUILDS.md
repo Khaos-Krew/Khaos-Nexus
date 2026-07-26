@@ -37,8 +37,18 @@ Every owner-test milestone is preserved as a dedicated Git branch and a separate
 - Packaged checkpoint commit: `0deee6fb0e7ae87089dad7b9e050f326a79df65e`
 - Test package: `Khaos-Nexus-v0.17.0-pterodactyl-control.zip`
 - Package SHA-256: `c065129cbe730f9e0bae01fd8cfe9e8d1e30e37375996a9f21c4845ddb582952`
-- Owner status: awaiting live-device Pterodactyl connection and power-control testing.
+- Owner status: portable build works on the target Windows PC; several button failures were observed but were not retained by Application Monitor.
 - Main changes: encrypted Client API keys, HTTPS enforcement, provider testing, server discovery, CPU/memory/disk/network/uptime cards, short-lived action tokens, Operator start/restart/stop, Owner-only emergency kill, and local provider action history.
+
+## v0.17.1 — Button & UI Action Error Reporting
+
+- Source branch: `test/v0.17.1-button-error-reporting`
+- Application source commit: `be1e665f3990844a243270ecca982cfd452c223f`
+- Packaged checkpoint commit: `457541a4588dc837b3b3c4c60d80d58fa2a524ed`
+- Test package: `Khaos-Nexus-v0.17.1-button-error-reporting.zip`
+- Package SHA-256: `5d4a8bf78f8dc3cac395316ef56c7130a14006fb5ca88eec35cedc30ee9d18e5`
+- Owner status: awaiting live-device verification of failed-button retention and reporting.
+- Main changes: centralized failed IPC capture, active page/button/action context, redacted local persistence, repeat counting, Health Monitor routing, and a copyable UI Action Errors panel in Application Monitor.
 
 ## Test-build policy
 
