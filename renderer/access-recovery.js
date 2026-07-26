@@ -2,6 +2,7 @@
 
 (() => {
   const RECOVERY_PHRASE = 'UNLOCK KHAOS NEXUS';
+  const BRIDGE_WAIT_TIMEOUT_MS = 15000;
   let latestState = null;
   let startupState = null;
   let loginRunning = false;
@@ -54,6 +55,12 @@
     bindOverlay();
   }
 
+  function hideOverlay() {
+    ensureOverlay();
+    $('nexusAccessRecovery')?.classList.add('hidden');
+    document.body.classList.remove('nexus-access-locked');
+  }
+
   function render(state) {
     latestState = state || latestState;
     ensureOverlay();
@@ -69,10 +76,30 @@
     $('nexusAccessShowRecovery').disabled = loginRunning || recoveryRunning;
   }
 
+  function waitForBridge() {
+    const startedAt = Date.now();
+    return new Promise((resolve, reject) => {
+      const check = () => {
+        const bridge = window.khaos;
+        if (bridge && typeof bridge.invoke === 'function' && typeof bridge.onState === 'function') {
+          resolve(bridge);
+          return;
+        }
+        if (Date.now() - startedAt >= BRIDGE_WAIT_TIMEOUT_MS) {
+          reject(new Error('The protected renderer bridge did not become available.'));
+          return;
+        }
+        setTimeout(check, 100);
+      };
+      check();
+    });
+  }
+
   async function refreshState() {
+    const bridge = await waitForBridge();
     const [state, startup] = await Promise.all([
-      window.khaos.invoke('app:get-state'),
-      window.khaos.invoke('startup:get-state')
+      bridge.invoke('app:get-state'),
+      bridge.invoke('startup:get-state')
     ]);
     startupState = startup;
     render(state);
@@ -85,7 +112,8 @@
     $('nexusAccessRecoveryStatus').textContent = 'Opening Discord sign-in in your browser…';
     render(latestState);
     try {
-      await window.khaos.invoke('discord-auth:login');
+      const bridge = await waitForBridge();
+      await bridge.invoke('discord-auth:login');
       const state = await refreshState();
       if (isLocked(state)) {
         $('nexusAccessRecoveryStatus').textContent = state?.autonomy?.access?.reason || 'That Discord account is not authorized.';
@@ -122,7 +150,8 @@
     $('nexusAccessCancelRecovery').disabled = true;
     $('nexusAccessRecoveryStatus').textContent = 'Disabling access control and restarting Khaos Nexus…';
     try {
-      await window.khaos.invoke('access-recovery:disable', { phrase, reason: 'locked-interface' });
+      const bridge = await waitForBridge();
+      await bridge.invoke('access-recovery:disable', { phrase, reason: 'locked-interface' });
     } catch (error) {
       recoveryRunning = false;
       $('nexusAccessCancelRecovery').disabled = false;
@@ -149,8 +178,10 @@
 
   async function initialize() {
     ensureOverlay();
-    window.khaos.onState((state) => render(state));
-    window.khaos.onStartupState?.((startup) => {
+    hideOverlay();
+    const bridge = await waitForBridge();
+    bridge.onState((state) => render(state));
+    bridge.onStartupState?.((startup) => {
       startupState = startup;
       render(latestState);
     });
@@ -158,8 +189,15 @@
   }
 
   initialize().catch((error) => {
-    ensureOverlay();
-    $('nexusAccessRecovery').classList.remove('hidden');
-    $('nexusAccessRecoveryStatus').textContent = `Access recovery failed to initialize: ${error.message || String(error)}`;
+    // A missing renderer bridge is a startup fault, not proof that access control is locked.
+    hideOverlay();
+    console.error('[Khaos Nexus] Access Recovery could not initialize.', error);
+    window.khaos?.reportRendererActionError?.({
+      source: 'access-recovery',
+      channel: 'access-recovery:initialize',
+      operation: 'initialize-access-recovery',
+      message: error.message || String(error),
+      stack: error.stack || ''
+    });
   });
 })();
