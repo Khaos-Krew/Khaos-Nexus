@@ -31,6 +31,14 @@ test('portable paths resolve beside the electron-builder portable executable', (
   assert.equal(portableDiagnosticsDirectory(env), path.join(root, PORTABLE_DATA_DIRECTORY_NAME, 'diagnostics'));
 });
 
+test('portable executable file alone resolves the correct sidecar directory', () => {
+  const root = tempDirectory();
+  const executable = path.join(root, 'Khaos-Nexus-Portable-0.18.10-x64.exe');
+  const env = { PORTABLE_EXECUTABLE_FILE: executable };
+  assert.equal(executableDirectory(env), root);
+  assert.equal(portableDataRoot(env), path.join(root, PORTABLE_DATA_DIRECTORY_NAME));
+});
+
 test('installed builds do not create a portable sidecar path', () => {
   const env = {};
   assert.equal(isPortableRuntime(env), false);
@@ -46,13 +54,33 @@ test('portable bootstrap initializes before the single-instance lock', () => {
 });
 
 test('portable runtime creates visible sidecar logs and diagnostics', () => {
+  const pathsSource = fs.readFileSync(path.join(__dirname, '..', 'main', 'portable-paths.cjs'), 'utf8');
   const runtime = fs.readFileSync(path.join(__dirname, '..', 'main', 'portable-runtime.cjs'), 'utf8');
   const bootstrap = fs.readFileSync(path.join(__dirname, '..', 'main', 'portable-bootstrap-extension.cjs'), 'utf8');
-  assert.match(runtime, /Khaos-Nexus-Portable-Data/);
+  const logger = fs.readFileSync(path.join(__dirname, '..', 'main', 'services', 'logger.cjs'), 'utf8');
+  const coreRelease = fs.readFileSync(path.join(__dirname, '..', 'main', 'startup-core-release-extension.cjs'), 'utf8');
+  const preloadDiagnostics = fs.readFileSync(path.join(__dirname, '..', 'main', 'startup-preload-diagnostics-extension.cjs'), 'utf8');
+
+  assert.match(pathsSource, /Khaos-Nexus-Portable-Data/);
   assert.match(runtime, /PORTABLE-README\.txt/);
   assert.match(bootstrap, /bootstrap\.log/);
   assert.match(bootstrap, /latest-bootstrap-error\.json/);
   assert.match(bootstrap, /preload-error/);
   assert.match(bootstrap, /render-process-gone/);
   assert.match(bootstrap, /child-process-gone/);
+  assert.match(logger, /portableLogFile/);
+  assert.match(logger, /manager\.log/);
+  assert.match(coreRelease, /writeDiagnostic\('startup-core-release-diagnostics\.json'/);
+  assert.match(coreRelease, /appendLog\('startup-core-release\.log'/);
+  assert.match(preloadDiagnostics, /writeDiagnostic\('startup-preload-error\.json'/);
+  assert.match(preloadDiagnostics, /appendLog\('startup-preload-error\.log'/);
+});
+
+test('portable sidecar never copies protected configuration files', () => {
+  const runtime = fs.readFileSync(path.join(__dirname, '..', 'main', 'portable-runtime.cjs'), 'utf8');
+  const bootstrap = fs.readFileSync(path.join(__dirname, '..', 'main', 'portable-bootstrap-extension.cjs'), 'utf8');
+  const combined = `${runtime}\n${bootstrap}`;
+  assert.doesNotMatch(combined, /copyFileSync/);
+  assert.doesNotMatch(combined, /secrets\.bin/);
+  assert.doesNotMatch(combined, /config\.json/);
 });
