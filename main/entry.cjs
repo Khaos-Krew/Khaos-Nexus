@@ -9,6 +9,7 @@ if (!hasSingleInstanceLock) {
 } else {
   require('./software-rendering-extension.cjs').install();
   require('./user-data-migration-extension.cjs').install();
+  require('./startup-state-extension.cjs').install();
   require('./window-visibility-extension.cjs').install();
   require('./startup-splash-extension.cjs').install();
   require('./renderer-boot-coordinator-extension.cjs').install();
