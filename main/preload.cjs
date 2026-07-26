@@ -2,13 +2,21 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
+const REPORT_EXCLUDED_CHANNELS = new Set([
+  'stability:heartbeat',
+  'monitor:capture-renderer',
+  'renderer-errors:get',
+  'renderer-errors:clear',
+  'renderer-errors:copy-latest'
+]);
+let lastInteraction = null;
+
 function sendRendererHeartbeat() {
   ipcRenderer.invoke('stability:heartbeat').catch(() => {});
 }
 
 sendRendererHeartbeat();
 const rendererHeartbeatTimer = setInterval(sendRendererHeartbeat, 2000);
-
 process.once('exit', () => clearInterval(rendererHeartbeatTimer));
 
 function subscribe(channel, callback) {
@@ -17,8 +25,64 @@ function subscribe(channel, callback) {
   return () => ipcRenderer.removeListener(channel, listener);
 }
 
+function cleanText(value, max = 160) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
+function elementContext(element) {
+  const target = element?.closest?.('button, [role="button"], a, input, select, textarea') || element;
+  if (!target || typeof target !== 'object') return {};
+  return {
+    elementId: cleanText(target.id, 120),
+    elementText: cleanText(target.getAttribute?.('aria-label') || target.title || target.textContent || target.value, 160),
+    elementTag: cleanText(target.tagName, 40).toLowerCase(),
+    operation: cleanText(
+      target.dataset?.hostedSignal || target.dataset?.view || target.dataset?.viewLink || target.dataset?.commandView ||
+      target.getAttribute?.('name') || target.id || target.textContent,
+      140
+    )
+  };
+}
+
+function currentView() {
+  return cleanText(document.querySelector?.('.view.active')?.id || 'unknown-view', 100).replace(/^view-/, '');
+}
+
+function reportRendererActionError(input = {}) {
+  const error = input.error instanceof Error ? input.error : null;
+  const interaction = input.interaction || lastInteraction || elementContext(document.activeElement);
+  ipcRenderer.send('renderer-action:error', {
+    source: input.source || 'manual',
+    channel: cleanText(input.channel || '', 140),
+    view: cleanText(input.view || currentView(), 100),
+    operation: cleanText(input.operation || interaction?.operation || '', 140),
+    elementId: cleanText(input.elementId || interaction?.elementId || '', 120),
+    elementText: cleanText(input.elementText || interaction?.elementText || '', 160),
+    elementTag: cleanText(input.elementTag || interaction?.elementTag || '', 40),
+    message: cleanText(input.message || error?.message || String(input.reason || 'Unknown renderer error'), 1600),
+    stack: String(input.stack || error?.stack || '').slice(0, 12000),
+    time: new Date().toISOString()
+  });
+}
+
+async function invoke(channel, payload) {
+  try {
+    return await ipcRenderer.invoke(channel, payload);
+  } catch (error) {
+    if (!REPORT_EXCLUDED_CHANNELS.has(channel)) {
+      reportRendererActionError({ source: 'ipc', channel, error, interaction: lastInteraction });
+    }
+    throw error;
+  }
+}
+
+window.addEventListener('click', (event) => {
+  lastInteraction = elementContext(event.target);
+}, true);
+
 contextBridge.exposeInMainWorld('khaos', {
-  invoke: (channel, payload) => ipcRenderer.invoke(channel, payload),
+  invoke,
+  reportRendererActionError: (payload) => reportRendererActionError(payload || {}),
   reportBootStage: (stage, detail = {}) => ipcRenderer.send('renderer-boot:stage', {
     stage: String(stage || 'unknown').slice(0, 80),
     detail: detail && typeof detail === 'object' ? detail : {},
@@ -32,5 +96,6 @@ contextBridge.exposeInMainWorld('khaos', {
   onStatusPanels: (callback) => subscribe('status-panels:update', callback),
   onServerScheduler: (callback) => subscribe('server-scheduler:update', callback),
   onPlayerConsole: (callback) => subscribe('player-console:update', callback),
-  onHostedServer: (callback) => subscribe('hosted-server:update', callback)
+  onHostedServer: (callback) => subscribe('hosted-server:update', callback),
+  onRendererErrors: (callback) => subscribe('renderer-errors:update', callback)
 });
