@@ -1,7 +1,7 @@
 {
   "name": "khaos-nexus",
-  "version": "0.18.7",
-  "description": "Local-first Khaos Nexus desktop command center with direct preload-to-main startup readiness, retained startup release diagnostics, a dedicated 30-second minimum startup health screen, v0.17-compatible profile recovery, a two-step download then install-and-restart updater, mandatory verified pre-update backups, five-minute startup error batching, maintained thirty-minute error scans, encrypted Pterodactyl control, cross-server players, guarded moderation, recurring schedules, and software-renderer-safe startup.",
+  "version": "0.18.8",
+  "description": "Local-first Khaos Nexus desktop command center with a deterministic main-process startup release controller, immediate retained startup diagnostics, a dedicated 30-second minimum startup health screen, v0.17-compatible profile recovery, a two-step download then install-and-restart updater, mandatory verified pre-update backups, five-minute startup error batching, maintained thirty-minute error scans, encrypted Pterodactyl control, cross-server players, guarded moderation, recurring schedules, and software-renderer-safe startup.",
   "main": "main/entry.cjs",
   "author": "Khaos Krew",
   "license": "MIT",
