@@ -54,10 +54,13 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.17.2 keeps retained diagnostics available before Discord authorization', () => {
+test('v0.17.3 keeps pre-login diagnostics and maintains scheduled error batches', () => {
   const packageJson = JSON.parse(read('package.json'));
-  assert.equal(packageJson.version, '0.17.2');
-  assert.match(packageJson.description, /pre-login-safe retained UI action diagnostics/i);
-  assert.match(packageJson.description, /encrypted Pterodactyl/i);
-  assert.match(packageJson.description, /software-renderer-safe startup/i);
+  const monitor = read('main/services/application-monitor.cjs');
+  assert.equal(packageJson.version, '0.17.3');
+  assert.match(packageJson.description, /five-minute startup error batching/i);
+  assert.match(packageJson.description, /thirty-minute error scans/i);
+  assert.match(packageJson.description, /pre-login-safe diagnostics/i);
+  assert.match(monitor, /STARTUP_BATCH_DELAY_MS = 5 \* 60 \* 1000/);
+  assert.match(monitor, /ERROR_BATCH_INTERVAL_MS = 30 \* 60 \* 1000/);
 });
