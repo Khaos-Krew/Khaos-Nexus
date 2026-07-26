@@ -33,6 +33,22 @@ function captureClass(modulePath, exportName, refName) {
   target[exportName] = Captured;
 }
 
+function guardLegacyImmediateQueueProcessing() {
+  const target = require('./services/application-monitor.cjs');
+  const prototype = target.ApplicationMonitor?.prototype;
+  if (!prototype || prototype.__khaosScheduledBatchGuard) return;
+  const original = prototype.processQueue;
+  prototype.processQueue = function guardedProcessQueue(options = {}) {
+    if (options?.force === true) return original.call(this, options);
+    const dueAt = new Date(this.state?.nextBatchAt || 0).getTime();
+    if (Number.isFinite(dueAt) && dueAt > this.now()) {
+      return Promise.resolve({ skipped: true, reason: 'scheduled-batch-pending', nextBatchAt: this.state.nextBatchAt });
+    }
+    return original.call(this, options);
+  };
+  Object.defineProperty(prototype, '__khaosScheduledBatchGuard', { value: true });
+}
+
 function accessRole() {
   try { return refs.autonomy?.accessState?.(refs.discordAuth?.getState?.())?.role || 'local-admin'; }
   catch { return 'local-admin'; }
@@ -119,6 +135,7 @@ function install() {
   captureClass('./services/logger.cjs', 'AppLogger', 'logger');
   captureClass('./services/bot-supervisor.cjs', 'BotSupervisor', 'supervisor');
   captureClass('./services/application-monitor.cjs', 'ApplicationMonitor', 'applicationMonitor');
+  guardLegacyImmediateQueueProcessing();
   captureClass('./services/autonomy-service.cjs', 'AutonomyService', 'autonomy');
   captureClass('./services/discord-auth.cjs', 'DiscordAuth', 'discordAuth');
   electron.app.whenReady().then(() => {
@@ -133,4 +150,4 @@ function install() {
   }).catch((error) => console.error('[Khaos Nexus] Renderer action error reporting failed to initialize.', error));
 }
 
-module.exports = { install, refs, ensureService, record, syncRetainedErrors };
+module.exports = { install, refs, ensureService, record, syncRetainedErrors, guardLegacyImmediateQueueProcessing };
