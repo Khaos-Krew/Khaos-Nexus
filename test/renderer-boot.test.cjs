@@ -54,13 +54,19 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.17.3 keeps pre-login diagnostics and maintains scheduled error batches', () => {
+test('v0.18.0 adds a real startup interaction lock while retaining scheduled error batches', () => {
   const packageJson = JSON.parse(read('package.json'));
+  const entry = read('main/entry.cjs');
+  const splash = read('main/startup-splash-extension.cjs');
   const monitor = read('main/services/application-monitor.cjs');
-  assert.equal(packageJson.version, '0.17.3');
-  assert.match(packageJson.description, /five-minute startup error batching/i);
-  assert.match(packageJson.description, /thirty-minute error scans/i);
-  assert.match(packageJson.description, /pre-login-safe diagnostics/i);
+  assert.equal(packageJson.version, '0.18.0');
+  assert.match(packageJson.description, /startup interaction lock/i);
+  assert.match(packageJson.description, /scheduled error batching/i);
+  assert.match(entry, /startup-splash-extension\.cjs/);
+  assert.match(splash, /STARTUP_TIMEOUT_MS = 45000/);
+  assert.match(splash, /khaos:features-ready/);
+  assert.match(splash, /Retry Interface/);
+  assert.match(splash, /Open Limited Mode/);
   assert.match(monitor, /STARTUP_BATCH_DELAY_MS = 5 \* 60 \* 1000/);
   assert.match(monitor, /ERROR_BATCH_INTERVAL_MS = 30 \* 60 \* 1000/);
 });
