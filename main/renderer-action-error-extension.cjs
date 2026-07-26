@@ -63,24 +63,33 @@ function broadcast() {
   }
 }
 
-function reportToApplicationMonitor(entry, duplicateWithinMinute) {
-  if (duplicateWithinMinute || !refs.applicationMonitor) return;
+function reportToHealthMonitor(entry, duplicateWithinMinute) {
+  if (duplicateWithinMinute) return;
   const action = entry.operation || entry.channel || 'UI action';
   const error = new Error(`${action} failed on ${entry.view}: ${entry.message}`);
+  error.id = entry.id;
   if (entry.stack) error.stack = entry.stack;
-  refs.applicationMonitor.capture(error, { source: `renderer-action:${entry.channel || entry.source}` }).catch((captureError) => {
-    refs.logger?.warn?.('Application Monitor could not process a UI action error.', {
-      errorId: entry.id,
-      message: captureError.message
+
+  if (refs.supervisor?.recordError) {
+    refs.supervisor.recordError(error);
+    return;
+  }
+
+  if (refs.applicationMonitor?.capture) {
+    refs.applicationMonitor.capture(error, { source: `renderer-action:${entry.channel || entry.source}` }).catch((captureError) => {
+      refs.logger?.warn?.('Application Monitor could not process a UI action error.', {
+        errorId: entry.id,
+        message: captureError.message
+      });
     });
-  });
+  }
 }
 
 function record(payload) {
   const service = ensureService();
   if (!service) return null;
   const result = service.record(payload || {});
-  reportToApplicationMonitor(result.entry, result.duplicateWithinMinute);
+  reportToHealthMonitor(result.entry, result.duplicateWithinMinute);
   return result;
 }
 
