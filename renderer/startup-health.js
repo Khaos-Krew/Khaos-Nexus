@@ -17,6 +17,20 @@
     return '·';
   }
 
+  function displayLabel(check) {
+    if (check?.id === 'discord-restore') return 'Discord desktop sign-in (optional)';
+    if (check?.id === 'renderer-modules') return 'Optional desktop modules';
+    return check?.label || 'Startup check';
+  }
+
+  function displayDetail(check) {
+    const detail = String(check?.detail || check?.status || '');
+    if (check?.id === 'discord-restore' && !/optional|does not block/i.test(detail)) {
+      return `${detail} This does not block local startup.`;
+    }
+    return detail;
+  }
+
   function progressFor(payload) {
     const checks = payload?.checks || [];
     const total = Math.max(1, checks.length + 2);
@@ -41,20 +55,20 @@
   function detailFor(payload) {
     const checks = payload?.checks || [];
     const running = checks.find((check) => check.status === 'running' || check.status === 'pending');
-    if (running) return running.detail || running.label;
+    if (running) return displayDetail(running);
     const failed = checks.find((check) => check.status === 'fail');
-    if (failed) return failed.detail || failed.label;
+    if (failed) return displayDetail(failed);
     if (payload?.profile?.recovered) return 'The v0.17-compatible profile was restored transactionally before services loaded.';
-    if (payload?.completed) return 'Local data, protected storage, IPC, and desktop modules were checked.';
+    if (payload?.completed) return 'Local data, protected storage, IPC, and the base desktop interface were checked.';
     return 'Loading the same canonical data path used by v0.17.2…';
   }
 
   function renderChecks(payload) {
     const checks = payload?.checks || [];
     $('startupChecks').innerHTML = checks.length ? checks.map((check) => `
-      <div class="check-row ${escapeHtml(check.status)}">
+      <div class="check-row ${escapeHtml(check.status)}" data-startup-check="${escapeHtml(check.id || '')}">
         <span class="check-icon">${iconFor(check.status)}</span>
-        <span><strong>${escapeHtml(check.label)}</strong><small>${escapeHtml(check.detail || check.status)}</small></span>
+        <span><strong>${escapeHtml(displayLabel(check))}</strong><small>${escapeHtml(displayDetail(check))}</small></span>
       </div>`).join('') : `
       <div class="check-row running">
         <span class="check-icon">•</span>
@@ -81,7 +95,7 @@
     const attention = criticalFailures.length > 0 || (state.elapsedMs >= 75000 && !state.completed);
     $('startupAttention').classList.toggle('hidden', !attention);
     $('startupAttentionText').textContent = criticalFailures.length
-      ? criticalFailures.map((check) => `${check.label}: ${check.detail}`).join(' • ')
+      ? criticalFailures.map((check) => `${displayLabel(check)}: ${displayDetail(check)}`).join(' • ')
       : 'The startup health check did not complete within the expected time.';
 
     for (const id of ['retryStartup', 'openDataFolder', 'continueLimited']) $(id).disabled = actionRunning;
