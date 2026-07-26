@@ -10,13 +10,9 @@ const REPORT_EXCLUDED_CHANNELS = new Set([
   'renderer-errors:clear',
   'renderer-errors:copy-latest',
   'startup-health:get',
-  'startup-health:renderer-ready',
-  'startup-health:base-ui-ready'
+  'startup-health:renderer-ready'
 ]);
-const BASE_UI_SIGNAL_RETRY_MS = 500;
-const BASE_UI_SIGNAL_MAX_ATTEMPTS = 30;
 let lastInteraction = null;
-let baseUiSignalComplete = false;
 
 function sendRendererHeartbeat() {
   ipcRenderer.invoke('stability:heartbeat').catch(() => {});
@@ -87,47 +83,6 @@ async function invoke(channel, payload) {
   }
 }
 
-async function reportBaseInterfaceReady(attempt = 1) {
-  if (baseUiSignalComplete) return;
-  try {
-    const [appState, logs] = await Promise.all([
-      ipcRenderer.invoke('app:get-state'),
-      ipcRenderer.invoke('logs:get', 20)
-    ]);
-    const config = appState?.config && typeof appState.config === 'object' ? appState.config : {};
-    const result = await ipcRenderer.invoke('startup-health:base-ui-ready', {
-      version: appState?.app?.version || '',
-      servers: Array.isArray(config.servers) ? config.servers.length : 0,
-      configSections: Object.keys(config).length,
-      logEntries: Array.isArray(logs) ? logs.length : 0,
-      documentReadyState: typeof document === 'undefined' ? 'preload' : document.readyState,
-      source: 'main-preload-direct'
-    });
-    if (!result?.verified) throw new Error('The startup base-interface acknowledgement was not accepted.');
-    baseUiSignalComplete = true;
-  } catch (error) {
-    if (attempt < BASE_UI_SIGNAL_MAX_ATTEMPTS) {
-      setTimeout(() => reportBaseInterfaceReady(attempt + 1), BASE_UI_SIGNAL_RETRY_MS);
-      return;
-    }
-    reportRendererActionError({
-      source: 'startup-health',
-      channel: 'startup-health:base-ui-ready',
-      operation: 'report-base-interface-ready',
-      error
-    });
-  }
-}
-
-function scheduleBaseInterfaceSignal() {
-  const begin = () => setTimeout(() => reportBaseInterfaceReady(1), 250);
-  if (typeof document !== 'undefined' && document.readyState === 'loading') {
-    window.addEventListener('DOMContentLoaded', begin, { once: true });
-  } else {
-    begin();
-  }
-}
-
 try {
   window.addEventListener('click', (event) => {
     lastInteraction = elementContext(event.target);
@@ -159,5 +114,3 @@ contextBridge.exposeInMainWorld('khaos', {
 ipcRenderer.invoke('startup-health:renderer-ready').catch((error) => {
   reportRendererActionError({ source: 'startup-health', channel: 'startup-health:renderer-ready', error });
 });
-
-scheduleBaseInterfaceSignal();
