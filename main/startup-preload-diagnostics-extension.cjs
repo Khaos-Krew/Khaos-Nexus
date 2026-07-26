@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
+const { appendLog, writeDiagnostic } = require('./portable-runtime.cjs');
 
 let installed = false;
 
@@ -29,7 +30,12 @@ function retain(payload) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, JSON.stringify(record, null, 2), 'utf8');
     fs.mkdirSync(path.dirname(logPath), { recursive: true });
-    fs.appendFileSync(logPath, `[${record.reportedAt}] ${record.stage}: ${record.message}\n${record.stack}\n`, 'utf8');
+    const line = `[${record.reportedAt}] ${record.stage}: ${record.message}\n${record.stack}`;
+    fs.appendFileSync(logPath, `${line}\n`, 'utf8');
+    try {
+      writeDiagnostic('startup-preload-error.json', record);
+      appendLog('startup-preload-error.log', line);
+    } catch {}
   } catch (error) {
     console.error('[Khaos Nexus] Could not retain preload failure diagnostics.', error);
   }
