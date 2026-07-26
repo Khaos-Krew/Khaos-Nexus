@@ -70,6 +70,16 @@ Every owner-test milestone is preserved as a dedicated Git branch and a separate
 - Owner status: awaiting live-device verification of the five-minute startup batch and maintained thirty-minute cycle.
 - Main changes: immediate local error retention; first complete upload five minutes after startup; recurring thirty-minute scans while the application remains open; all new errors and occurrence deltas uploaded; one daily GitHub issue thread; failed uploads retained for retry; expected access-control denials ignored and removed.
 
+## v0.18.0 — Branded Startup Interaction Lock
+
+- Source branch: `test/v0.18.0-startup-splash`
+- Application source commit: `f9b44a7963a2dbf0858f82a96977959b1a2236ca`
+- Packaged checkpoint commit: `38915140a352a689fae734738dbfcdd0d5110f7d`
+- Test package: `Khaos-Nexus-v0.18.0-startup-splash.zip`
+- Package SHA-256: `95b26459740a0ded56066d151485c7fa9118d9e62fe4e5715e346b497549d9c3`
+- Owner status: awaiting live-device startup testing.
+- Main changes: branded startup screen, interaction lock while modules load, real renderer module progress, automatic unlock on `features-ready`, a 45-second timeout, Retry Interface, Open Limited Mode, and all v0.17.3 scheduled error batching behavior retained.
+
 ## Test-build policy
 
 1. Each milestone receives a unique semantic version.
