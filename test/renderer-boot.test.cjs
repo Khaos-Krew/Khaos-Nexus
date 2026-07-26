@@ -54,7 +54,7 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.18.1 restores prior data and Discord access before enforcing the desktop lock', () => {
+test('v0.18.2 exposes the protected bridge before optional splash DOM work', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
   const preload = read('main/preload.cjs');
@@ -64,24 +64,27 @@ test('v0.18.1 restores prior data and Discord access before enforcing the deskto
   const splashCss = read('renderer/startup-splash.css');
   const monitor = read('main/services/application-monitor.cjs');
 
-  assert.equal(packageJson.version, '0.18.1');
-  assert.match(packageJson.description, /prior-configuration recovery/i);
-  assert.match(packageJson.description, /Discord session restoration before access enforcement/i);
-  assert.match(packageJson.description, /CSP-safe first-frame startup lock/i);
+  assert.equal(packageJson.version, '0.18.2');
+  assert.match(packageJson.description, /bridge-first startup splash/i);
+  assert.match(packageJson.description, /safe access-recovery fallback/i);
   assert.match(entry, /user-data-migration-extension\.cjs/);
   assert.match(entry, /startup-state-extension\.cjs/);
+  assert.doesNotMatch(entry, /startup-splash-extension\.cjs/);
   assert.match(startupState, /authRestoreComplete/);
   assert.match(startupState, /startup:get-state/);
   assert.match(startupState, /refs\.discordAuth\.restore\(\)/);
-  assert.match(migration, /configurationValueScore/);
   assert.match(migration, /PORTABLE_EXECUTABLE_DIR/);
   assert.match(preload, /startup-splash\.css/);
-  assert.match(preload, /scheduleSplashInstall\(\)/);
+  assert.match(preload, /const bridge =/);
+  assert.match(preload, /The renderer bridge must exist before any optional DOM work/);
+  assert.ok(preload.indexOf("contextBridge.exposeInMainWorld('khaos', bridge)") < preload.lastIndexOf('scheduleSplashInstall();'));
+  assert.match(preload, /document\.head \|\| document\.documentElement/);
+  assert.match(preload, /setTimeout\(begin, 25\)/);
   assert.match(preload, /modulesReady && startupReady\(\)/);
-  assert.match(preload, /onStartupState/);
   assert.match(splashCss, /z-index: 2147483647/);
-  assert.match(recovery, /startupState\?\.authRestoreComplete/);
-  assert.match(recovery, /startup:get-state/);
+  assert.match(recovery, /waitForBridge/);
+  assert.match(recovery, /A missing renderer bridge is a startup fault, not proof that access control is locked/);
+  assert.doesNotMatch(recovery, /classList\.remove\('hidden'\).*Access recovery failed/s);
   assert.match(monitor, /STARTUP_BATCH_DELAY_MS = 5 \* 60 \* 1000/);
   assert.match(monitor, /ERROR_BATCH_INTERVAL_MS = 30 \* 60 \* 1000/);
 });
