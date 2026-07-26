@@ -9,6 +9,10 @@ const {
   portableDiagnosticsDirectory
 } = require('./portable-paths.cjs');
 
+let cachedPaths;
+let pathInitializationAttempted = false;
+let pathInitializationError = null;
+
 function ensureDirectory(directory) {
   if (!directory) return null;
   fs.mkdirSync(directory, { recursive: true });
@@ -17,10 +21,33 @@ function ensureDirectory(directory) {
 
 function runtimePaths() {
   if (!isPortableRuntime()) return null;
-  const root = ensureDirectory(portableDataRoot());
-  const logs = ensureDirectory(portableLogDirectory());
-  const diagnostics = ensureDirectory(portableDiagnosticsDirectory());
-  return { root, logs, diagnostics };
+  if (pathInitializationAttempted) return cachedPaths || null;
+  pathInitializationAttempted = true;
+  try {
+    const root = ensureDirectory(portableDataRoot());
+    const logs = ensureDirectory(portableLogDirectory());
+    const diagnostics = ensureDirectory(portableDiagnosticsDirectory());
+    cachedPaths = { root, logs, diagnostics };
+    return cachedPaths;
+  } catch (error) {
+    pathInitializationError = error;
+    cachedPaths = null;
+    try {
+      process.stderr.write(`[Khaos Nexus] Portable diagnostic folder could not be created: ${error.message}\n`);
+    } catch {}
+    return null;
+  }
+}
+
+function runtimeStatus() {
+  return {
+    portable: isPortableRuntime(),
+    paths: runtimePaths(),
+    error: pathInitializationError ? {
+      code: pathInitializationError.code || null,
+      message: pathInitializationError.message || String(pathInitializationError)
+    } : null
+  };
 }
 
 function safeJson(value) {
@@ -31,10 +58,15 @@ function safeJson(value) {
 function appendLog(fileName, entry) {
   const paths = runtimePaths();
   if (!paths) return null;
-  const target = path.join(paths.logs, fileName);
-  const line = typeof entry === 'string' ? entry : safeJson(entry);
-  fs.appendFileSync(target, `${line.endsWith('\n') ? line : `${line}\n`}`, 'utf8');
-  return target;
+  try {
+    const target = path.join(paths.logs, fileName);
+    const line = typeof entry === 'string' ? entry : safeJson(entry);
+    fs.appendFileSync(target, `${line.endsWith('\n') ? line : `${line}\n`}`, 'utf8');
+    return target;
+  } catch (error) {
+    try { process.stderr.write(`[Khaos Nexus] Portable log write failed: ${error.message}\n`); } catch {}
+    return null;
+  }
 }
 
 function writeDiagnostic(fileName, value) {
@@ -42,13 +74,19 @@ function writeDiagnostic(fileName, value) {
   if (!paths) return null;
   const target = path.join(paths.diagnostics, fileName);
   const temporary = `${target}.tmp-${process.pid}`;
-  fs.writeFileSync(temporary, JSON.stringify(value, null, 2), 'utf8');
-  try { fs.renameSync(temporary, target); }
-  catch {
-    fs.rmSync(target, { force: true });
-    fs.renameSync(temporary, target);
+  try {
+    fs.writeFileSync(temporary, JSON.stringify(value, null, 2), 'utf8');
+    try { fs.renameSync(temporary, target); }
+    catch {
+      fs.rmSync(target, { force: true });
+      fs.renameSync(temporary, target);
+    }
+    return target;
+  } catch (error) {
+    try { fs.rmSync(temporary, { force: true }); } catch {}
+    try { process.stderr.write(`[Khaos Nexus] Portable diagnostic write failed: ${error.message}\n`); } catch {}
+    return null;
   }
-  return target;
 }
 
 function writeReadme({ appVersion = 'unknown', canonicalUserData = null } = {}) {
@@ -60,7 +98,7 @@ function writeReadme({ appVersion = 'unknown', canonicalUserData = null } = {}) 
     '=====================================',
     '',
     `Application version: ${appVersion}`,
-    `Created: ${new Date().toISOString()}`,
+    `Updated: ${new Date().toISOString()}`,
     '',
     'This folder is created immediately by the portable executable.',
     'Startup, preload, renderer, and manager diagnostics are mirrored here so failures can be inspected without searching AppData.',
@@ -68,14 +106,20 @@ function writeReadme({ appVersion = 'unknown', canonicalUserData = null } = {}) 
     'Existing Khaos Nexus configuration remains in the canonical Windows profile so portable testing uses the same saved servers and protected settings.',
     canonicalUserData ? `Canonical profile: ${canonicalUserData}` : 'Canonical profile: available after Electron initialization.',
     '',
-    'Do not publish secrets.bin or raw configuration files. Logs and diagnostics are designed to avoid protected credential values.'
+    'Do not publish protected credential or raw configuration files. This sidecar contains diagnostic output only.'
   ].join('\r\n');
-  fs.writeFileSync(target, content, 'utf8');
-  return target;
+  try {
+    fs.writeFileSync(target, content, 'utf8');
+    return target;
+  } catch (error) {
+    try { process.stderr.write(`[Khaos Nexus] Portable README write failed: ${error.message}\n`); } catch {}
+    return null;
+  }
 }
 
 module.exports = {
   runtimePaths,
+  runtimeStatus,
   appendLog,
   writeDiagnostic,
   writeReadme
