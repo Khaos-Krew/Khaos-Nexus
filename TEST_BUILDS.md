@@ -98,7 +98,6 @@ Every owner-test milestone is preserved as a dedicated Git branch and a separate
 - Test package: `Khaos-Nexus-v0.18.3-stable-startup-health.zip`
 - Package SHA-256: `dd702644267c912b68307723488e29cc0bc3d0df0a1297150108b739a71caf16`
 - Owner status: failed live-device startup at 68%; the startup splash was incorrectly enrolled in the main renderer heartbeat watchdog, and the gate waited indefinitely for optional module completion.
-- Main changes: rebuilt from the v0.17.3 data-loading foundation; removed the v0.18 heuristic migration layer; uses the canonical v0.17 data path; transactionally recovers a recorded v0.18 pre-migration backup only when the current profile is empty, invalid, or clearly less complete; leaves live Chromium cache directories untouched; shows a dedicated startup window first for at least 30 seconds; verifies config JSON, retained module data, write access, secure storage, loaded configuration counts, renderer IPC, and serialized modules before revealing the main interface; Access Recovery remains hidden until the health gate releases the desktop.
 
 ## v0.18.4 — Startup Splash Watchdog & Release Fix
 
@@ -108,7 +107,6 @@ Every owner-test milestone is preserved as a dedicated Git branch and a separate
 - Test package: `Khaos-Nexus-v0.18.4-startup-watchdog-fix.zip`
 - Package SHA-256: `3ef7c9685c1d6b248de3bdfe6ed427b11e63622d6bf9ba502142901e226ddc76`
 - Owner status: failed live-device startup at 94%; data and protected values loaded, but the 75-second timeout fired because the release fallback still depended on Application Monitor emitting `monitor-ready`.
-- Main changes: the stability watchdog and `stability-fixes.js` apply only to the real desktop window using `main/preload.cjs`; the startup-health window is excluded from renderer-heartbeat recovery; the splash remains visible for a strict minimum of 30 seconds.
 
 ## v0.18.5 — Independent Verified Release Gate
 
@@ -117,8 +115,17 @@ Every owner-test milestone is preserved as a dedicated Git branch and a separate
 - Packaged checkpoint commit: `f419371179c008051286c3ce3247fa55c24e62ca`
 - Test package: `Khaos-Nexus-v0.18.5-release-gate-fix.zip`
 - Package SHA-256: `98d48e8587aa32b4d7555e3768cdc64bccdd713bc0fd3812c18da9fc429e49cf`
+- Owner status: failed live-device startup at 94%; the base-interface verifier could attach before `loadFile()` started, mark itself installed, and exhaust its only attempt against an empty renderer.
+
+## v0.18.6 — Deterministic Startup & Safe Two-Step Updates
+
+- Source branch: `test/v0.18.6-startup-update-safety`
+- Application source commit: `af6be1b966c94e0d03da3cb0126bead32f54715b`
+- Packaged checkpoint commit: `647a97740397f665c233c8a5b97e34b723532a12`
+- Test package: `Khaos-Nexus-v0.18.6-startup-update-safety.zip`
+- Package SHA-256: `84d30049d930bbe9c786f1435b685d9fba7eb32ff8cd431da6325a585e26f8b3`
 - Owner status: awaiting live-device verification.
-- Main changes: the release fallback no longer depends on Application Monitor or `monitor-ready`; the actual main renderer must successfully read `app:get-state` and `logs:get`; it reports verified base-interface readiness, waits 15 seconds for optional modules, then satisfies the preserved renderer gate; profile integrity, configuration loading, secure storage, IPC, and the strict 30-second splash minimum remain mandatory; the splash remains excluded from stability monitoring.
+- Main changes: attaches base-interface verification only after the actual main document finishes loading; retries transient renderer readiness failures for up to ten seconds; releases the verified base interface after a 15-second optional-module grace while preserving the strict 30-second splash minimum; replaces the one-click updater with explicit Download Update and Install & Restart steps; creates and verifies a mandatory `pre-update` backup before installation; and cancels installation without closing the current version when backup creation or verification fails.
 
 ## Test-build policy
 
