@@ -23,10 +23,13 @@ test('renderer-ready acknowledgement occurs after the context bridge is exposed'
   assert.ok(readyIndex > bridgeIndex, 'renderer-ready must be sent only after bridge exposure');
 });
 
-test('preload initialization failures are sent to the startup health service', () => {
+test('preload initialization failures are retained outside the renderer', () => {
   const preload = read('main/preload.cjs');
-  const health = read('main/startup-health-extension.cjs');
+  const diagnostics = read('main/startup-preload-diagnostics-extension.cjs');
+  const entry = read('main/entry.cjs');
   assert.match(preload, /startup-health:preload-failed/);
-  assert.match(health, /startup-health:preload-failed/);
-  assert.match(health, /Protected renderer bridge/);
+  assert.match(diagnostics, /startup-health:preload-failed/);
+  assert.match(diagnostics, /startup-preload-error\.json/);
+  assert.match(diagnostics, /startup-preload-error\.log/);
+  assert.match(entry, /startup-preload-diagnostics-extension\.cjs/);
 });
