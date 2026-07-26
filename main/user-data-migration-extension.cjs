@@ -46,26 +46,30 @@ function readJson(filePath) {
   catch { return null; }
 }
 
+function configurationValueScore(directory) {
+  if (!directory || !fs.existsSync(directory)) return 0;
+  const config = readJson(path.join(directory, 'config.json'));
+  if (!config || typeof config !== 'object') return 0;
+  const discord = config.discord || {};
+  const monitor = config.monitor || {};
+  const general = config.general || {};
+  const servers = Array.isArray(config.servers) ? config.servers : [];
+  let score = servers.length * 25;
+  if (discord.guildId) score += 12;
+  if (discord.ownerUserId) score += 12;
+  if (discord.oauthClientId) score += 12;
+  if (Array.isArray(discord.operatorUserIds) && discord.operatorUserIds.length) score += 8;
+  if (monitor.autoReportEnabled) score += 6;
+  if (monitor.reportRepository && monitor.reportRepository !== 'Khaos-Krew/Khaos-Nexus-Bot-Manager') score += 4;
+  if (general.startWithWindows) score += 2;
+  if (general.autoStartBot === false || general.autoRestart === false || general.minimizeToTray === false || general.checkUpdates === false) score += 2;
+  if (Object.keys(config).some((key) => !['schemaVersion', 'general', 'discord', 'monitor', 'servers'].includes(key))) score += 10;
+  return score;
+}
+
 function configScore(directory) {
   if (!directory || !fs.existsSync(directory)) return 0;
-  let score = 0;
-  const config = readJson(path.join(directory, 'config.json'));
-  if (config && typeof config === 'object') {
-    const discord = config.discord || {};
-    const monitor = config.monitor || {};
-    const general = config.general || {};
-    const servers = Array.isArray(config.servers) ? config.servers : [];
-    score += servers.length * 25;
-    if (discord.guildId) score += 12;
-    if (discord.ownerUserId) score += 12;
-    if (discord.oauthClientId) score += 12;
-    if (Array.isArray(discord.operatorUserIds) && discord.operatorUserIds.length) score += 8;
-    if (monitor.autoReportEnabled) score += 6;
-    if (monitor.reportRepository && monitor.reportRepository !== 'Khaos-Krew/Khaos-Nexus-Bot-Manager') score += 4;
-    if (general.startWithWindows) score += 2;
-    if (general.autoStartBot === false || general.autoRestart === false || general.minimizeToTray === false || general.checkUpdates === false) score += 2;
-    if (Object.keys(config).some((key) => !['schemaVersion', 'general', 'discord', 'monitor', 'servers'].includes(key))) score += 10;
-  }
+  let score = configurationValueScore(directory);
 
   try {
     const secretStats = fs.statSync(path.join(directory, 'secrets.bin'));
@@ -110,6 +114,7 @@ function candidateDirectories(destination) {
   })();
   const localAppData = process.env.LOCALAPPDATA || '';
   for (const root of [appData, localAppData]) {
+    if (!root) continue;
     for (const name of APP_DIRECTORY_NAMES) add(path.join(root, name));
   }
 
@@ -137,7 +142,7 @@ function copyTree(source, destination) {
     const to = path.join(destination, entry.name);
     if (shouldSkip(from)) continue;
     if (entry.isDirectory()) {
-      copyTree(from, to);
+      files += copyTree(from, to);
       continue;
     }
     if (!entry.isFile()) continue;
@@ -167,10 +172,15 @@ function backupDestination(destination) {
 function migrateUserData() {
   const destination = electron.app.getPath('userData');
   const destinationScore = configScore(destination);
+  const destinationConfigValue = configurationValueScore(destination);
   const candidates = candidateDirectories(destination)
-    .map((directory) => ({ directory, score: configScore(directory) }))
+    .map((directory) => ({
+      directory,
+      score: configScore(directory),
+      configValue: configurationValueScore(directory)
+    }))
     .filter((candidate) => candidate.score > 0)
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => (b.configValue - a.configValue) || (b.score - a.score));
   const best = candidates[0] || null;
 
   migrationResult = {
@@ -179,11 +189,16 @@ function migrateUserData() {
     source: null,
     destination,
     score: destinationScore,
+    configValue: destinationConfigValue,
     files: 0,
     error: null
   };
 
-  if (!best || best.score <= destinationScore || destinationScore >= 20) return clone(migrationResult);
+  const shouldMigrate = Boolean(best && (
+    (destinationConfigValue === 0 && best.configValue > 0) ||
+    (best.score > destinationScore && destinationScore < 20)
+  ));
+  if (!shouldMigrate) return clone(migrationResult);
 
   try {
     const backup = backupDestination(destination);
@@ -194,7 +209,9 @@ function migrateUserData() {
       source: best.directory,
       destination,
       score: best.score,
+      configValue: best.configValue,
       previousScore: destinationScore,
+      previousConfigValue: destinationConfigValue,
       files,
       backup,
       error: null
@@ -210,6 +227,7 @@ function migrateUserData() {
       source: best.directory,
       destination,
       score: best.score,
+      configValue: best.configValue,
       files: 0,
       error: error.message
     };
@@ -236,6 +254,7 @@ function install() {
 
 module.exports = {
   APP_DIRECTORY_NAMES,
+  configurationValueScore,
   configScore,
   candidateDirectories,
   migrateUserData,
