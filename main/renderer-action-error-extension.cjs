@@ -3,6 +3,7 @@
 const path = require('node:path');
 const electron = require('electron');
 const { RendererActionErrorService } = require('./services/renderer-action-error-service.cjs');
+const { isExpectedAccessDenial } = require('../shared/renderer-action-errors.cjs');
 
 const refs = {
   configStore: null,
@@ -25,6 +26,7 @@ function captureClass(modulePath, exportName, refName) {
       super(...args);
       refs[refName] = this;
       ensureService();
+      syncRetainedErrors();
     }
   }
   Object.defineProperty(Captured, '__khaosRendererActionErrorsPatched', { value: true });
@@ -43,6 +45,16 @@ function assertAccess(minimumRole, action) {
   return true;
 }
 
+function syncRetainedErrors(state = null) {
+  if (!refs.applicationMonitor?.captureRetainedErrors || !refs.service) return { skipped: true, reason: 'monitor-not-ready' };
+  try {
+    return refs.applicationMonitor.captureRetainedErrors((state || refs.service.getState()).entries, { source: 'renderer-action' });
+  } catch (error) {
+    refs.logger?.warn?.('Application Monitor could not import retained UI errors.', { message: error.message });
+    return { skipped: true, reason: error.message };
+  }
+}
+
 function ensureService() {
   if (refs.service || !refs.configStore || !refs.logger) return refs.service;
   refs.service = new RendererActionErrorService({
@@ -50,8 +62,12 @@ function ensureService() {
     configStore: refs.configStore,
     logger: refs.logger
   });
-  refs.service.on('state', broadcast);
+  refs.service.on('state', (state) => {
+    broadcast();
+    syncRetainedErrors(state);
+  });
   setImmediate(registerIpc);
+  setImmediate(syncRetainedErrors);
   return refs.service;
 }
 
@@ -63,34 +79,11 @@ function broadcast() {
   }
 }
 
-function reportToHealthMonitor(entry, duplicateWithinMinute) {
-  if (duplicateWithinMinute) return;
-  const action = entry.operation || entry.channel || 'UI action';
-  const error = new Error(`${action} failed on ${entry.view}: ${entry.message}`);
-  error.id = entry.id;
-  if (entry.stack) error.stack = entry.stack;
-
-  if (refs.supervisor?.recordError) {
-    refs.supervisor.recordError(error);
-    return;
-  }
-
-  if (refs.applicationMonitor?.capture) {
-    refs.applicationMonitor.capture(error, { source: `renderer-action:${entry.channel || entry.source}` }).catch((captureError) => {
-      refs.logger?.warn?.('Application Monitor could not process a UI action error.', {
-        errorId: entry.id,
-        message: captureError.message
-      });
-    });
-  }
-}
-
 function record(payload) {
+  if (isExpectedAccessDenial(payload)) return { ignored: true, reason: 'expected-access-denial' };
   const service = ensureService();
   if (!service) return null;
-  const result = service.record(payload || {});
-  reportToHealthMonitor(result.entry, result.duplicateWithinMinute);
-  return result;
+  return service.record(payload || {});
 }
 
 function registerIpc() {
@@ -133,10 +126,11 @@ function install() {
       if (refs.configStore && refs.logger) {
         ensureService();
         registerIpc();
+        syncRetainedErrors();
       } else setTimeout(wait, 100);
     };
     wait();
   }).catch((error) => console.error('[Khaos Nexus] Renderer action error reporting failed to initialize.', error));
 }
 
-module.exports = { install, refs, ensureService, record };
+module.exports = { install, refs, ensureService, record, syncRetainedErrors };
