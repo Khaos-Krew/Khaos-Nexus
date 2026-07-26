@@ -124,8 +124,19 @@ Every owner-test milestone is preserved as a dedicated Git branch and a separate
 - Packaged checkpoint commit: `647a97740397f665c233c8a5b97e34b723532a12`
 - Test package: `Khaos-Nexus-v0.18.6-startup-update-safety.zip`
 - Package SHA-256: `84d30049d930bbe9c786f1435b685d9fba7eb32ff8cd431da6325a585e26f8b3`
+- Owner status: failed live-device startup at 94%; the base-interface acknowledgement was not retained, so the core `rendererModulesReady` prerequisite remained false and the 75-second timeout fired.
+- Main changes: explicit Download Update and Install & Restart steps; mandatory verified `pre-update` backup; initial retry-based base-interface fallback.
+
+## v0.18.7 — Direct Startup Gate & Retained Release Diagnostics
+
+- Source branch: `test/v0.18.7-direct-startup-gate`
+- Application source commit: `e57e01c6f8f830fc91d42d3661bb3a92afb410d6`
+- Packaged checkpoint commit: `b277e19e102ccadf7d2a8be57719a367e0753220`
+- Test package: `Khaos-Nexus-v0.18.7-direct-startup-gate.zip`
+- Package SHA-256: `61fd9f94c37bc2f74fbcbae0432e6c1f38e9ae4ef2776a788990b2033b12ce44`
 - Owner status: awaiting live-device verification.
-- Main changes: attaches base-interface verification only after the actual main document finishes loading; retries transient renderer readiness failures for up to ten seconds; releases the verified base interface after a 15-second optional-module grace while preserving the strict 30-second splash minimum; replaces the one-click updater with explicit Download Update and Install & Restart steps; creates and verifies a mandatory `pre-update` backup before installation; and cancels installation without closing the current version when backup creation or verification fails.
+- Archive investigation: current configuration matches the final v0.17.2 manual backup except for module timestamps; current `secrets.bin` matches the final v0.17.2 manual and pre-recovery backups exactly; access control is disabled; bot and Palworld health checks are succeeding. The saved Discord desktop OAuth session is absent from the final v0.17.2 secrets snapshot, which explains signed-out status but does not block local startup.
+- Main changes: direct readiness acknowledgement from `main/preload.cjs`; strict rejection of the startup splash as a readiness sender; a main-document backup verifier; 15-second optional-module grace; retained `startup-release-diagnostics.json`; manager-log release stages; Discord desktop sign-in explicitly labeled optional; 30-second minimum splash retained; safe two-step updater and mandatory pre-update backup retained.
 
 ## Test-build policy
 
