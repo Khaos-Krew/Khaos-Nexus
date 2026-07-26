@@ -8,7 +8,9 @@ const REPORT_EXCLUDED_CHANNELS = new Set([
   'monitor:capture-renderer',
   'renderer-errors:get',
   'renderer-errors:clear',
-  'renderer-errors:copy-latest'
+  'renderer-errors:copy-latest',
+  'startup-health:get',
+  'startup-health:renderer-ready'
 ]);
 let lastInteraction = null;
 
@@ -46,13 +48,15 @@ function elementContext(element) {
 }
 
 function currentView() {
-  return cleanText(document.querySelector?.('.view.active')?.id || 'unknown-view', 100).replace(/^view-/, '');
+  try { return cleanText(document.querySelector?.('.view.active')?.id || 'unknown-view', 100).replace(/^view-/, ''); }
+  catch { return 'unknown-view'; }
 }
 
 function reportRendererActionError(input = {}) {
   if (isExpectedAccessDenial(input.error || input.message || input.reason || input)) return { ignored: true, reason: 'expected-access-denial' };
   const error = input.error instanceof Error ? input.error : null;
-  const interaction = input.interaction || lastInteraction || elementContext(document.activeElement);
+  let interaction = input.interaction || lastInteraction || {};
+  try { if (!Object.keys(interaction).length) interaction = elementContext(document.activeElement); } catch {}
   ipcRenderer.send('renderer-action:error', {
     source: input.source || 'manual',
     channel: cleanText(input.channel || '', 140),
@@ -79,9 +83,11 @@ async function invoke(channel, payload) {
   }
 }
 
-window.addEventListener('click', (event) => {
-  lastInteraction = elementContext(event.target);
-}, true);
+try {
+  window.addEventListener('click', (event) => {
+    lastInteraction = elementContext(event.target);
+  }, true);
+} catch {}
 
 contextBridge.exposeInMainWorld('khaos', {
   invoke,
@@ -93,6 +99,7 @@ contextBridge.exposeInMainWorld('khaos', {
     time: new Date().toISOString()
   }),
   onState: (callback) => subscribe('state:update', callback),
+  onStartupHealth: (callback) => subscribe('startup-health:update', callback),
   onLog: (callback) => subscribe('log:entry', callback),
   onUpdate: (callback) => subscribe('update:state', callback),
   onDiscordAutomation: (callback) => subscribe('discord-automation:update', callback),
@@ -102,4 +109,8 @@ contextBridge.exposeInMainWorld('khaos', {
   onPlayerConsole: (callback) => subscribe('player-console:update', callback),
   onHostedServer: (callback) => subscribe('hosted-server:update', callback),
   onRendererErrors: (callback) => subscribe('renderer-errors:update', callback)
+});
+
+ipcRenderer.invoke('startup-health:renderer-ready').catch((error) => {
+  reportRendererActionError({ source: 'startup-health', channel: 'startup-health:renderer-ready', error });
 });
