@@ -54,13 +54,34 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.17.3 keeps pre-login diagnostics and maintains scheduled error batches', () => {
+test('v0.18.3 restores the v0.17 data path and gates the desktop behind startup health', () => {
   const packageJson = JSON.parse(read('package.json'));
+  const entry = read('main/entry.cjs');
+  const health = read('main/startup-health-extension.cjs');
+  const profileRecovery = read('main/startup-profile-recovery-extension.cjs');
+  const windowGate = read('main/startup-window-gate-extension.cjs');
+  const splashHtml = read('renderer/startup-health.html');
+  const recovery = read('renderer/access-recovery.js');
   const monitor = read('main/services/application-monitor.cjs');
-  assert.equal(packageJson.version, '0.17.3');
-  assert.match(packageJson.description, /five-minute startup error batching/i);
-  assert.match(packageJson.description, /thirty-minute error scans/i);
-  assert.match(packageJson.description, /pre-login-safe diagnostics/i);
+
+  assert.equal(packageJson.version, '0.18.3');
+  assert.match(packageJson.description, /v0\.17-compatible profile recovery/i);
+  assert.match(packageJson.description, /30-second minimum startup health screen/i);
+  assert.match(entry, /startup-profile-recovery-extension\.cjs/);
+  assert.match(entry, /startup-health-extension\.cjs/);
+  assert.match(entry, /startup-window-gate-extension\.cjs/);
+  assert.doesNotMatch(entry, /user-data-migration-extension\.cjs/);
+  assert.match(health, /MINIMUM_SPLASH_MS = 30 \* 1000/);
+  assert.match(health, /STARTUP_HEALTH_TIMEOUT_MS = 75 \* 1000/);
+  assert.match(health, /startup-health\.html/);
+  assert.match(health, /recoverProfileIfNeeded/);
+  assert.match(health, /before-v0\.18\.3/);
+  assert.match(profileRecovery, /before window creation/i);
+  assert.match(windowGate, /startupGatedShow/);
+  assert.match(splashHtml, /Entering the Khaos Nexus/);
+  assert.match(splashHtml, /Minimum startup check: 30s/);
+  assert.match(recovery, /startupReleased/);
+  assert.match(recovery, /startup-health:get/);
   assert.match(monitor, /STARTUP_BATCH_DELAY_MS = 5 \* 60 \* 1000/);
   assert.match(monitor, /ERROR_BATCH_INTERVAL_MS = 30 \* 60 \* 1000/);
 });
