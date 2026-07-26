@@ -3,12 +3,18 @@
 (() => {
   const RECOVERY_PHRASE = 'UNLOCK KHAOS NEXUS';
   let latestState = null;
+  let startupHealth = null;
   let loginRunning = false;
   let recoveryRunning = false;
 
   const $ = (id) => document.getElementById(id);
 
+  function startupReleased() {
+    return Boolean(startupHealth?.released || startupHealth?.limitedMode);
+  }
+
   function isLocked(state) {
+    if (!startupReleased()) return false;
     const access = state?.autonomy?.access;
     return Boolean(access?.enabled && access?.role === 'locked' && !access?.canView);
   }
@@ -48,6 +54,12 @@
     bindOverlay();
   }
 
+  function hideOverlay() {
+    ensureOverlay();
+    $('nexusAccessRecovery').classList.add('hidden');
+    document.body.classList.remove('nexus-access-locked');
+  }
+
   function render(state) {
     latestState = state || latestState;
     ensureOverlay();
@@ -64,7 +76,11 @@
   }
 
   async function refreshState() {
-    const state = await window.khaos.invoke('app:get-state');
+    const [state, health] = await Promise.all([
+      window.khaos.invoke('app:get-state'),
+      window.khaos.invoke('startup-health:get')
+    ]);
+    startupHealth = health;
     render(state);
     return state;
   }
@@ -139,13 +155,24 @@
 
   async function initialize() {
     ensureOverlay();
-    window.khaos.onState(render);
+    hideOverlay();
+    window.khaos.onState((state) => render(state));
+    window.khaos.onStartupHealth?.((health) => {
+      startupHealth = health;
+      render(latestState);
+    });
     await refreshState();
   }
 
   initialize().catch((error) => {
-    ensureOverlay();
-    $('nexusAccessRecovery').classList.remove('hidden');
-    $('nexusAccessRecoveryStatus').textContent = `Access recovery failed to initialize: ${error.message || String(error)}`;
+    hideOverlay();
+    console.error('[Khaos Nexus] Access Recovery could not initialize.', error);
+    window.khaos?.reportRendererActionError?.({
+      source: 'access-recovery',
+      channel: 'access-recovery:initialize',
+      operation: 'initialize-access-recovery',
+      message: error.message || String(error),
+      stack: error.stack || ''
+    });
   });
 })();
