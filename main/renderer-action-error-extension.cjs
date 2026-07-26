@@ -102,10 +102,9 @@ function registerIpc() {
     catch (error) { refs.logger?.error?.('Failed to retain a renderer action error.', { message: error.message }); }
   });
 
-  electron.ipcMain.handle('renderer-errors:get', () => {
-    assertAccess('viewer', 'View UI action errors');
-    return refs.service.getState();
-  });
+  // Reading and copying redacted local diagnostics must work before Discord sign-in.
+  // Otherwise the diagnostic panel creates its own authorization failure during startup.
+  electron.ipcMain.handle('renderer-errors:get', () => refs.service.getState());
 
   electron.ipcMain.handle('renderer-errors:clear', () => {
     assertAccess('owner', 'Clear UI action errors');
@@ -114,7 +113,6 @@ function registerIpc() {
   });
 
   electron.ipcMain.handle('renderer-errors:copy-latest', () => {
-    assertAccess('viewer', 'Copy the latest UI action error');
     const text = refs.service.latestText();
     electron.clipboard.writeText(text);
     return { copied: true };
