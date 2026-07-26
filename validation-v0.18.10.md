@@ -1,0 +1,3 @@
+# v0.18.10 validation
+
+Validate that the electron-builder portable executable creates `Khaos-Nexus-Portable-Data` beside itself before the single-instance lock, immediately writes `PORTABLE-README.txt` and `logs/bootstrap.log`, retains early main-process, preload, renderer-process, and child-process failures, mirrors redacted `manager.log`, startup-core release diagnostics, and preload diagnostics, preserves the canonical `%APPDATA%\khaos-nexus` configuration profile without copying protected files, leaves installed builds unchanged, preserves the sandbox preload fix and 30-second minimum startup gate, and packages both Windows installer and portable executable.
