@@ -1,6 +1,6 @@
 'use strict';
 
-const BUSY_UPDATE_STATES = Object.freeze(new Set(['checking', 'downloading', 'installing']));
+const BUSY_UPDATE_STATES = Object.freeze(new Set(['checking', 'downloading', 'backing-up', 'installing']));
 
 async function runUpdateFlow(service) {
   if (!service || typeof service.getState !== 'function') {
@@ -25,7 +25,7 @@ async function runUpdateFlow(service) {
   if (state.status === 'available') {
     if (typeof service.download !== 'function') throw new Error('The update service cannot download releases.');
     await service.download();
-    state = service.getState();
+    return service.getState();
   }
 
   if (state.status === 'downloaded') {
@@ -33,7 +33,6 @@ async function runUpdateFlow(service) {
     return service.install();
   }
 
-  if (state.status === 'installing') return state;
   if (state.status === 'error') throw new Error(state.error || 'The update operation failed.');
   throw new Error(`The update could not continue from state '${state.status || 'unknown'}'.`);
 }
