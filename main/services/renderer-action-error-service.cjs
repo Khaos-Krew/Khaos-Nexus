@@ -7,16 +7,9 @@ const {
   MAX_RENDERER_ACTION_ERRORS,
   normalizeRendererActionError,
   normalizeRendererActionErrorState,
-  rendererActionErrorSummary
+  rendererActionErrorSummary,
+  isExpectedAccessDenial
 } = require('../../shared/renderer-action-errors.cjs');
-
-function isObsoleteBootstrapAccessError(entry = {}) {
-  const message = String(entry.message || '');
-  const context = `${entry.channel || ''} ${entry.operation || ''} ${entry.source || ''}`;
-  return /renderer-errors:get/i.test(message)
-    && /requires viewer access|authorized Discord account/i.test(message)
-    && /initialization|renderer-errors:get/i.test(context);
-}
 
 class RendererActionErrorService extends EventEmitter {
   constructor({ dataDirectory, configStore, logger, now = () => Date.now() } = {}) {
@@ -26,11 +19,12 @@ class RendererActionErrorService extends EventEmitter {
     this.now = now;
     this.statePath = path.join(dataDirectory, 'renderer-action-errors.json');
     this.state = this.loadState();
-    const retained = this.state.entries.filter((entry) => !isObsoleteBootstrapAccessError(entry));
+    const retained = this.state.entries.filter((entry) => !isExpectedAccessDenial(entry));
     if (retained.length !== this.state.entries.length) {
+      const removed = this.state.entries.length - retained.length;
       this.state.entries = retained;
       this.saveState();
-      this.logger?.write?.('info', 'Removed an obsolete UI diagnostic authorization error from the v0.17.1 bootstrap.', {}, 'renderer-action');
+      this.logger?.write?.('info', `Removed ${removed} expected access-control denial${removed === 1 ? '' : 's'} from retained UI diagnostics.`, {}, 'renderer-action');
     }
   }
 
@@ -57,8 +51,10 @@ class RendererActionErrorService extends EventEmitter {
   }
 
   record(input = {}) {
+    if (isExpectedAccessDenial(input)) return { ignored: true, reason: 'expected-access-denial', state: this.getState() };
     const secrets = this.configStore?.getSecretValues?.() || [];
     const entry = normalizeRendererActionError({ ...input, time: input.time || new Date(this.now()).toISOString() }, secrets);
+    if (isExpectedAccessDenial(entry)) return { ignored: true, reason: 'expected-access-denial', state: this.getState() };
     const existingIndex = this.state.entries.findIndex((item) => item.id === entry.id && item.channel === entry.channel && item.view === entry.view);
     const previous = existingIndex >= 0 ? this.state.entries[existingIndex] : null;
     const previousSeenAt = previous ? new Date(previous.lastSeenAt).getTime() : 0;
@@ -116,4 +112,4 @@ class RendererActionErrorService extends EventEmitter {
   }
 }
 
-module.exports = { RendererActionErrorService, isObsoleteBootstrapAccessError };
+module.exports = { RendererActionErrorService };
