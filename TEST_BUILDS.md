@@ -97,8 +97,18 @@ Every owner-test milestone is preserved as a dedicated Git branch and a separate
 - Packaged checkpoint commit: `cfcecfb526ebbc8551919bf79b84811d4fba04a3`
 - Test package: `Khaos-Nexus-v0.18.3-stable-startup-health.zip`
 - Package SHA-256: `dd702644267c912b68307723488e29cc0bc3d0df0a1297150108b739a71caf16`
-- Owner status: awaiting live-device verification.
+- Owner status: failed live-device startup at 68%; the startup splash was incorrectly enrolled in the main renderer heartbeat watchdog, and the gate waited indefinitely for optional module completion.
 - Main changes: rebuilt from the v0.17.3 data-loading foundation; removed the v0.18 heuristic migration layer; uses the canonical v0.17 data path; transactionally recovers a recorded v0.18 pre-migration backup only when the current profile is empty, invalid, or clearly less complete; leaves live Chromium cache directories untouched; shows a dedicated startup window first for at least 30 seconds; verifies config JSON, retained module data, write access, secure storage, loaded configuration counts, renderer IPC, and serialized modules before revealing the main interface; Access Recovery remains hidden until the health gate releases the desktop.
+
+## v0.18.4 — Startup Splash Watchdog & Release Fix
+
+- Source branch: `test/v0.18.4-startup-watchdog-fix`
+- Application source commit: `205606b5b5c76793bc116a139f8e89d2e3db26a4`
+- Packaged checkpoint commit: `cf81c80e1509a2afef34c6f522459b405bca518e`
+- Test package: `Khaos-Nexus-v0.18.4-startup-watchdog-fix.zip`
+- Package SHA-256: `3ef7c9685c1d6b248de3bdfe6ed427b11e63622d6bf9ba502142901e226ddc76`
+- Owner status: awaiting live-device verification.
+- Main changes: the stability watchdog and `stability-fixes.js` now apply only to the real desktop window using `main/preload.cjs`; the dedicated startup-health window is never treated as an unresponsive main interface; configuration and renderer bridge checks remain mandatory; once the base Application Monitor interface has initialized, optional modules receive a 15-second completion grace period and can no longer trap the app on the splash; the splash still remains visible for a strict minimum of 30 seconds before the main interface is revealed.
 
 ## Test-build policy
 
