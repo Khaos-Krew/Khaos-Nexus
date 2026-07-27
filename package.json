@@ -1,0 +1,76 @@
+{
+  "name": "khaos-nexus",
+  "version": "0.8.0",
+  "description": "Local-first desktop control center for the Khaos Nexus community, Discord bot, and game servers.",
+  "main": "main/entry.cjs",
+  "author": "Khaos Krew",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "node scripts/materialize-assets.cjs && electron .",
+    "test": "node --test",
+    "check": "node scripts/check.cjs",
+    "pack": "node scripts/materialize-assets.cjs && electron-builder --dir",
+    "dist:win": "node scripts/materialize-assets.cjs && electron-builder --win --x64",
+    "release:win": "node scripts/materialize-assets.cjs && electron-builder --win --x64 --publish always"
+  },
+  "dependencies": {
+    "discord.js": "14.26.4",
+    "electron-updater": "6.8.9"
+  },
+  "devDependencies": {
+    "electron": "43.2.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.khaosnexus.desktop",
+    "productName": "Khaos Nexus",
+    "electronUpdaterCompatibility": ">=2.16",
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "main/**/*",
+      "bot/**/*",
+      "renderer/**/*",
+      "shared/**/*",
+      "assets/**/*",
+      "package.json",
+      "LICENSE"
+    ],
+    "asar": true,
+    "win": {
+      "icon": "assets/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Khaos Nexus",
+      "artifactName": "Khaos-Nexus-Setup-${version}-${arch}.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Khaos-Krew",
+        "repo": "Khaos-Nexus",
+        "releaseType": "release"
+      }
+    ],
+    "portable": {
+      "artifactName": "Khaos-Nexus-Portable-${version}-${arch}.${ext}"
+    }
+  }
+}
