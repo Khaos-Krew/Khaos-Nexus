@@ -1,0 +1,3 @@
+Khaos Nexus v0.18.12
+
+Publish the validated grouped-navigation maintenance patch, Windows installer, portable executable, update metadata, and release notes.
