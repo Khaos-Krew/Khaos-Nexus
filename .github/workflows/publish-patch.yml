@@ -1,0 +1,47 @@
+name: Publish Patch Release
+
+on:
+  push:
+    branches: ["release/v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish-windows-patch:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify release branch matches package version
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $expected = "release/v$version"
+          if ("${{ github.ref_name }}" -ne $expected) {
+            Write-Error "Release branch must be $expected but was ${{ github.ref_name }}."
+            exit 1
+          }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            Write-Error "Production patch version must be stable semantic versioning."
+            exit 1
+          }
+
+      - run: npm install
+      - run: npm test
+      - run: npm run check
+
+      - name: Build and publish installer, portable executable, and update metadata
+        run: npm run release:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EP_DRAFT: "false"
+          EP_PRE_RELEASE: "false"
