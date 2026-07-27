@@ -134,9 +134,65 @@ Every owner-test milestone is preserved as a dedicated Git branch and a separate
 - Packaged checkpoint commit: `b277e19e102ccadf7d2a8be57719a367e0753220`
 - Test package: `Khaos-Nexus-v0.18.7-direct-startup-gate.zip`
 - Package SHA-256: `61fd9f94c37bc2f74fbcbae0432e6c1f38e9ae4ef2776a788990b2033b12ce44`
-- Owner status: awaiting live-device verification.
-- Archive investigation: current configuration matches the final v0.17.2 manual backup except for module timestamps; current `secrets.bin` matches the final v0.17.2 manual and pre-recovery backups exactly; access control is disabled; bot and Palworld health checks are succeeding. The saved Discord desktop OAuth session is absent from the final v0.17.2 secrets snapshot, which explains signed-out status but does not block local startup.
-- Main changes: direct readiness acknowledgement from `main/preload.cjs`; strict rejection of the startup splash as a readiness sender; a main-document backup verifier; 15-second optional-module grace; retained `startup-release-diagnostics.json`; manager-log release stages; Discord desktop sign-in explicitly labeled optional; 30-second minimum splash retained; safe two-step updater and mandatory pre-update backup retained.
+- Owner status: failed live-device startup at 94%; the separate BrowserWindow/preload release helper did not produce its expected retained diagnostic stage.
+- Main changes: direct readiness acknowledgement from `main/preload.cjs`; strict rejection of the startup splash as a readiness sender; a main-document backup verifier; 15-second optional-module grace; retained release diagnostics; Discord desktop sign-in explicitly labeled optional; safe two-step updater and mandatory pre-update backup retained.
+
+## v0.18.8 — Main-Process Core Startup Release
+
+- Source branch: `test/v0.18.8-core-startup-release`
+- Application source commit: `148fb9aa5557aac9a8c6f7db6fe43a0be05485a5`
+- Packaged checkpoint commit: `5f985953415c217a49ea9ace9421ed9a9c67d313`
+- Test package: `Khaos-Nexus-v0.18.8-core-startup-release.zip`
+- Package SHA-256: `ca637013bed208082aeccfadd7d145990a7a7e397f080f0d3a08140e2a2b72bf`
+- Owner status: failed live-device startup at 68%; configuration and storage passed, but the protected renderer bridge never acknowledged.
+
+## v0.18.9 — Sandboxed Main Preload Fix
+
+- Source branch: `test/v0.18.9-sandbox-preload-fix`
+- Application source commit: `6fd3f0c1d9218bc177db5918bd23d6b3d0f8b3d5`
+- Packaged checkpoint commit: `472129aedb00dadd1d9f96714690f3d6b6fd6e6b`
+- Test package: `Khaos-Nexus-v0.18.9-sandbox-preload-fix.zip`
+- Package SHA-256: `710f75a1780bb8b64a946fd7431c42d1d842ee44775de48565653ac4065e8490`
+- Owner status: awaiting live-device verification; fixed the sandboxed preload's unsupported local CommonJS import and added retained preload-error diagnostics.
+
+## v0.18.10 — Portable Sidecar Diagnostics
+
+- Source branch: `test/v0.18.10-portable-sidecar-diagnostics`
+- Application source commit: `00f0254c8232100ca230969770340acf7c3afaa3`
+- Packaged checkpoint commit: `d39eb05b0b3aef7d2e5f322a313929c4124cb07d`
+- Test package: `Khaos-Nexus-v0.18.10-portable-sidecar-diagnostics.zip`
+- Package SHA-256: `c0734fd4eb8ab9b49946e4e2908ba7b24bbd44a082457e1d11563f5de846b1ec`
+- Owner status: fully loaded successfully on the target Windows PC. Startup released normally after approximately 30.46 seconds.
+- Main changes: immediately creates visible portable sidecar logs and diagnostics beside the executable while continuing to use the canonical AppData configuration profile.
+
+## v0.18.11 — Independent Pane Scrolling
+
+- Source branch: `test/v0.18.11-scroll-layout-fix`
+- Application source commit: `2891db3a3abc3b9b0e1f7580d824c3179cf71825`
+- Packaged checkpoint commit: `836ab8246cbd5d9d48449bdd6319d783156e660f`
+- Test package: `Khaos-Nexus-v0.18.11-scroll-layout-fix.zip`
+- Package SHA-256: `b2c79828c634890998c87fdd4f8a6e4a10006e2dcbc1607566fd18bab70089b6`
+- Owner status: verified fully working on the target Windows PC, including startup and scrolling.
+- Main changes: independent vertical scrolling for the sidebar and workspace in software and rich-brand modes; nested logs and diagnostics retain their own scrolling.
+
+## v0.18.12 — Validation-Only Version Collision
+
+- Source branch: `test/v0.18.12-menu-release-patch`
+- Application source commit: `2300277da0b71dca6f836bdd5259c3d31778caff`
+- Packaged checkpoint commit: `84ab96a9298fc05641fb9a9c454f762528bd0491`
+- Validation package: `Khaos-Nexus-v0.18.12-menu-release-patch.zip`
+- Package SHA-256: `9fbe774b6f4b597f8afb317988ee217e044dcf7083740896939cfbaa7c3ff55e`
+- Status: CI and Windows packaging passed, but publication was intentionally cancelled because Git tag `v0.18.12` already pointed to the older stable-release-workflow commit `7475b173b5191c4ba637c2f76164b0d4cf69bbfb`. No menu patch was published under this version.
+
+## v0.18.13 — Grouped Navigation & Stable In-App Release
+
+- Source branch: `test/v0.18.13-menu-release-patch`
+- Application source commit: `92249beddcd35073e2e3885d7713f0db8f1fa4eb`
+- Packaged checkpoint commit: `61d3e7a6e54a6bc3d78ee6ee368df95efa310403`
+- Test package: `Khaos-Nexus-v0.18.13-menu-release-patch.zip`
+- Package SHA-256: `79df069d5ca96c67fe60d0d6866a29ba4dd137da78be8bab6746ad8592c5cb22`
+- Owner status: awaiting in-app update and live navigation verification.
+- Main changes: Command Center remains pinned; searchable collapsible Servers, Discord & Community, Automation, Modules & Tools, and System groups; one open group at a time; dynamic classification of injected future pages; duplicate navigation suppression; preserved scrolling, startup, portable diagnostics, and mandatory pre-update backup.
 
 ## Test-build policy
 
@@ -144,5 +200,5 @@ Every owner-test milestone is preserved as a dedicated Git branch and a separate
 2. The exact source commit is preserved on a `test/vX.Y.Z-*` branch.
 3. Installer and portable executables are retained in a uniquely named ZIP.
 4. Package SHA-256 values are recorded here and in the validation pull request.
-5. Stable in-app publication waits for owner testing.
+5. Stable in-app publication waits for validation and a collision-free semantic version.
 6. Later development never overwrites a previous versioned test package.
