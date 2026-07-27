@@ -61,7 +61,7 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.18.15 retains startup foundations and installs the independent interface watchdog', () => {
+test('v0.18.16 retains startup foundations and requires a continuously visible interface', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
   const health = read('main/startup-health-extension.cjs');
@@ -75,9 +75,10 @@ test('v0.18.15 retains startup foundations and installs the independent interfac
   const portableBootstrap = read('main/portable-bootstrap-extension.cjs');
   const watchdog = read('main/interface-watchdog-extension.cjs');
 
-  assert.equal(packageJson.version, '0.18.15');
-  assert.match(packageJson.description, /verified real-document renderer readiness/i);
-  assert.match(packageJson.description, /main-process blank-interface watchdog/i);
+  assert.equal(packageJson.version, '0.18.16');
+  assert.match(packageJson.description, /continuous visible-interface startup gate/i);
+  assert.match(packageJson.description, /repeated main-window discovery/i);
+  assert.match(packageJson.description, /post-release blank-surface detection/i);
   assert.match(packageJson.description, /always-visible in-app update control/i);
   assert.match(packageJson.description, /immediate portable sidecar logs and diagnostics/i);
   assert.match(packageJson.description, /canonical v0\.17-compatible AppData configuration/i);
@@ -88,9 +89,13 @@ test('v0.18.15 retains startup foundations and installs the independent interfac
   assert.match(entry, /startup-preload-diagnostics-extension\.cjs/);
   assert.match(entry, /interface-watchdog-extension\.cjs/);
   assert.doesNotMatch(entry, /startup-release-fallback-extension\.cjs/);
+  assert.match(watchdog, /DISCOVERY_INTERVAL_MS = 250/);
+  assert.match(watchdog, /INSPECTION_INTERVAL_MS = 500/);
+  assert.match(watchdog, /INTERFACE_STABILITY_MS = 3000/);
+  assert.match(watchdog, /capturePage\(\)/);
   assert.match(watchdog, /did-fail-load/);
   assert.match(watchdog, /render-process-gone/);
-  assert.match(watchdog, /startup-deadline/);
+  assert.match(watchdog, /interface-watchdog-state\.json/);
   assert.match(watchdog, /interface-watchdog-error\.json/);
   assert.match(watchdog, /interface-watchdog\.log/);
   assert.match(watchdog, /queueAutomaticReport/);
@@ -101,6 +106,8 @@ test('v0.18.15 retains startup foundations and installs the independent interfac
   assert.match(health, /MINIMUM_SPLASH_MS = 30 \* 1000/);
   assert.match(coreRelease, /POLL_INTERVAL_MS = 250/);
   assert.match(coreRelease, /READY_STABILITY_MS = 1500/);
+  assert.match(coreRelease, /visibleInterfaceRequired: true/);
+  assert.match(coreRelease, /interfaceWatchdog\.publicState\(\)/);
   assert.match(coreRelease, /startup-core-release-diagnostics\.json/);
   assert.match(coreRelease, /startup-core-release\.log/);
   assert.match(coreRelease, /controller-installed/);
