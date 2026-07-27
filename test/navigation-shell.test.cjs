@@ -29,20 +29,21 @@ test('safe UI layer preserves original navigation containers and scrolling', () 
   assert.match(extension, /addScript\('navigation-shell\.js'\)/);
 });
 
-test('v0.18.16 is configured for the guarded in-app GitHub release channel', () => {
+test('v0.18.17 is configured for the guarded in-app GitHub release channel', () => {
   const packageJson = JSON.parse(read('package.json'));
-  const notes = read('release-notes/v0.18.16.md');
+  const notes = read('release-notes/v0.18.17.md');
   const workflow = read('.github/workflows/stable-release.yml');
-  assert.equal(packageJson.version, '0.18.16');
-  assert.match(packageJson.description, /continuous visible-interface startup gate/i);
+  assert.equal(packageJson.version, '0.18.17');
+  assert.match(packageJson.description, /bounded idempotent in-app updater UI/i);
+  assert.match(packageJson.description, /renderer-unresponsive reporting/i);
   assert.match(packageJson.description, /always-visible in-app update control/i);
   assert.equal(packageJson.build.publish[0].provider, 'github');
   assert.equal(packageJson.build.publish[0].releaseType, 'release');
   assert.equal(packageJson.build.publish[0].tagNamePrefix, 'v');
-  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.18.16.md');
-  assert.match(notes, /visible interface startup gate/i);
+  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.18.17.md');
+  assert.match(notes, /Renderer unfreeze correction/);
+  assert.match(notes, /MutationObserver/);
   assert.match(notes, /verified pre-update backup/i);
-  assert.match(notes, /interface-watchdog-state\.json/);
   assert.match(workflow, /branches:\s*\n\s*- "release\/v\*"/);
   assert.match(workflow, /pull_request_target/);
   assert.match(workflow, /github\.event\.pull_request\.head\.repo\.full_name == github\.repository/);
@@ -55,7 +56,7 @@ test('v0.18.16 is configured for the guarded in-app GitHub release channel', () 
   assert.match(workflow, /dist\/latest\.yml/);
 });
 
-test('simple updater creates a replacement button without requiring nexusUpdateCenter', () => {
+test('simple updater creates a replacement button without permanent DOM observation', () => {
   const updater = read('renderer/simple-updater.js');
   assert.doesNotThrow(() => new Function(updater));
   assert.match(updater, /settingsPanel\?\.querySelector\('\.form-actions'\)/);
@@ -64,4 +65,6 @@ test('simple updater creates a replacement button without requiring nexusUpdateC
   assert.match(updater, /const replacementReady = Boolean\(\$\('nexusSimpleUpdatePrimary'\)\)/);
   assert.match(updater, /legacy\.classList\.toggle\('hidden', replacementReady\)/);
   assert.match(updater, /exportBackupButton/);
+  assert.match(updater, /RECONCILE_DELAYS_MS/);
+  assert.doesNotMatch(updater, /new MutationObserver/);
 });
