@@ -2,13 +2,15 @@
 
 (() => {
   const $ = (id) => document.getElementById(id);
+  const RECONCILE_DELAYS_MS = Object.freeze([250, 1000, 3000]);
   let updateState = null;
   let bound = false;
 
   function notify(message) {
     const toast = $('toast');
     if (!toast) return;
-    toast.textContent = String(message || 'Done.');
+    const next = String(message || 'Done.');
+    if (toast.textContent !== next) toast.textContent = next;
     toast.classList.add('show');
     clearTimeout(notify.timer);
     notify.timer = setTimeout(() => toast.classList.remove('show'), 4200);
@@ -39,6 +41,12 @@
 
   function isBusy(update = {}) {
     return ['checking', 'downloading', 'backing-up', 'installing'].includes(update.status);
+  }
+
+  function setText(element, value) {
+    if (!element) return;
+    const next = String(value ?? '');
+    if (element.textContent !== next) element.textContent = next;
   }
 
   function ensureFallbackCenter() {
@@ -81,9 +89,7 @@
     const { center, actions } = findActions();
     if (center) {
       const description = center.querySelector('.panel-heading p');
-      if (description) {
-        description.textContent = 'Check once, download the update, then use Install & Restart. A verified backup is mandatory before installation.';
-      }
+      setText(description, 'Check once, download the update, then use Install & Restart. A verified backup is mandatory before installation.');
     }
 
     if (actions && !$('nexusSimpleUpdatePrimary')) {
@@ -124,8 +130,8 @@
     for (const id of ['nexusSimpleUpdatePrimary', 'nexusSimpleUpdateBanner']) {
       const button = $(id);
       if (!button) continue;
-      button.textContent = label;
-      button.disabled = disabled;
+      setText(button, label);
+      if (button.disabled !== disabled) button.disabled = disabled;
       button.classList.toggle('busy', isBusy(updateState));
     }
 
@@ -137,7 +143,7 @@
 
     const status = $('updateStatus');
     if (status && updateState.backupStatus === 'verified' && updateState.status === 'downloaded') {
-      status.textContent = `Update downloaded and verified. Backup ready. Press Install & Restart to finish v${updateState.version || 'the update'}.`;
+      setText(status, `Update downloaded and verified. Backup ready. Press Install & Restart to finish v${updateState.version || 'the update'}.`);
     }
   }
 
@@ -175,16 +181,21 @@
     window.khaos.onState((state) => render(state?.update || updateState || {}));
   }
 
+  function scheduleBoundedReconciliation() {
+    for (const delay of RECONCILE_DELAYS_MS) {
+      setTimeout(() => {
+        ensureControls();
+        if (updateState) render(updateState);
+      }, delay);
+    }
+  }
+
   async function initialize() {
     bind();
     ensureControls();
     const state = await invoke('app:get-state');
     render(state?.update || {});
-    const observer = new MutationObserver(() => {
-      ensureControls();
-      render(updateState || {});
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
+    scheduleBoundedReconciliation();
   }
 
   initialize().catch((error) => notify(`The simplified updater failed to initialize: ${error.message}`));
