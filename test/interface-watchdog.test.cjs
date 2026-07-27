@@ -66,9 +66,12 @@ test('startup release controller requires stable watchdog state before it can em
   assert.match(release, /visibleInterfaceRequired: true/);
   assert.match(release, /visibleInterfaceStable: true/);
   assert.match(release, /the main interface is not stably visible/);
-  const interfaceGate = release.indexOf('!interfaceState.installed || !interfaceState.attached || !interfaceState.stable');
-  const emit = release.indexOf('emitCoreReady(health, interfaceState)');
-  assert.ok(interfaceGate >= 0 && emit > interfaceGate, 'features-ready must be emitted only after the visible interface gate');
+  const tickStart = release.indexOf('function tick()');
+  const interfaceGate = release.indexOf('!interfaceState.installed || !interfaceState.attached || !interfaceState.stable', tickStart);
+  const emitCall = release.indexOf('emitCoreReady(health, interfaceState);', tickStart);
+  assert.ok(tickStart >= 0, 'the polling tick must exist');
+  assert.ok(interfaceGate > tickStart, 'the visible interface gate must execute inside tick');
+  assert.ok(emitCall > interfaceGate, 'features-ready must be emitted only after the visible interface gate');
 });
 
 test('healthy and failed watchdog states are retained in AppData and portable diagnostics', () => {
