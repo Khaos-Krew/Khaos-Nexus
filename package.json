@@ -1,6 +1,6 @@
 {
   "name": "khaos-nexus",
-  "version": "0.18.12",
+  "version": "0.18.13",
   "description": "Local-first Khaos Nexus desktop command center with searchable collapsible navigation groups, independently scrollable navigation and workspace panes, immediate portable sidecar logs and diagnostics beside the executable, canonical v0.17-compatible AppData configuration, a sandbox-compatible main preload, protected renderer bridge startup acknowledgement, deterministic main-process startup release diagnostics, a dedicated 30-second minimum startup health screen, a two-step download then install-and-restart updater, mandatory verified pre-update backups, five-minute startup error batching, maintained thirty-minute error scans, encrypted Pterodactyl control, cross-server players, guarded moderation, recurring schedules, and software-renderer-safe startup.",
   "main": "main/entry.cjs",
   "author": "Khaos Krew",
@@ -27,8 +27,8 @@
     "productName": "Khaos Nexus",
     "electronUpdaterCompatibility": ">=2.16",
     "releaseInfo": {
-      "releaseName": "Khaos Nexus v0.18.12",
-      "releaseNotesFile": "release-notes/v0.18.12.md"
+      "releaseName": "Khaos Nexus v0.18.13",
+      "releaseNotesFile": "release-notes/v0.18.13.md"
     },
     "directories": {
       "output": "dist",
