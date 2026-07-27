@@ -66,6 +66,18 @@ jobs:
           "tag=v$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "target_sha=$targetSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
+      - name: Mark stable release workflow started
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.version.outputs.tag }}"
+          $targetSha = "${{ steps.version.outputs.target_sha }}"
+          $startTag = "publishing-$tag"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f $startTag $targetSha
+          git push origin "refs/tags/$startTag" --force
+          if ($LASTEXITCODE -ne 0) { throw "Failed to create release start tag $startTag." }
+
       - name: Install dependencies
         run: npm install
 
