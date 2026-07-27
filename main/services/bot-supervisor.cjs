@@ -64,8 +64,12 @@ class BotSupervisor extends EventEmitter {
       stdio: 'pipe'
     });
     this.child = child;
-    this.update({ pid: child.pid, startedAt: new Date().toISOString(), ready: null, heartbeat: null });
+    this.update({ pid: child.pid || null, startedAt: new Date().toISOString(), ready: null, heartbeat: null });
 
+    child.once('spawn', () => {
+      if (this.child !== child) return;
+      this.update({ pid: child.pid || null });
+    });
     child.stdout?.on('data', (chunk) => this.logger.write('info', chunk.toString().trim(), {}, 'bot-stdout'));
     child.stderr?.on('data', (chunk) => this.logger.write('error', chunk.toString().trim(), {}, 'bot-stderr'));
 
@@ -73,7 +77,7 @@ class BotSupervisor extends EventEmitter {
     child.on('exit', (code) => this.handleExit(code));
 
     child.postMessage({ type: 'bootstrap', payload: bootstrap });
-    this.logger.info('Bot runtime process started.', { pid: child.pid });
+    this.logger.info('Bot runtime process started.', { pid: child.pid || null });
     return this.getState();
   }
 
