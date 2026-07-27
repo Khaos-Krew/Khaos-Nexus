@@ -13,7 +13,7 @@
     servers: 'Game Servers', scheduler: 'Server Scheduler', players: 'Players & Moderation', 'hosted-servers': 'Hosted Server Control', modules: 'Module Network', operator: 'Operator Console', readiness: 'Readiness Center', monitor: 'Application Monitor',
     logs: 'Live Logs', mobile: 'Mobile Companion', settings: 'Settings'
   };
-  const state = { app: null, observability: null, initialized: false, activeCommandIndex: 0 };
+  const state = { app: null, observability: null, initialized: false, activeCommandIndex: 0, liveStateSeen: false };
   const $ = (id) => document.getElementById(id);
 
   function escapeHtml(value) {
@@ -147,6 +147,13 @@
     return `<article class="nexus-task ${tone}"><span class="nexus-task-icon">${icon}</span><span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(detail)}</small></span></article>`;
   }
 
+  function applyAppState(next, source = 'live') {
+    if (source === 'snapshot' && state.liveStateSeen) return;
+    if (source === 'live') state.liveStateSeen = true;
+    state.app = next;
+    renderTasks();
+  }
+
   function renderTasks() {
     ensureTaskRail();
     const rail = $('nexusTaskRail');
@@ -156,11 +163,16 @@
     const access = app.autonomy?.access || {};
     const update = app.update || {};
     const obs = state.observability || {};
-    const botTone = bot.status === 'online' ? 'good' : bot.status === 'error' || bot.status === 'crashed' ? 'error' : 'warning';
+    const rawBotStatus = bot.status || 'stopped';
+    const botStatus = bot.ready && ['starting', 'connecting'].includes(rawBotStatus) ? 'online' : rawBotStatus;
+    const botTone = botStatus === 'online' ? 'good' : botStatus === 'error' || botStatus === 'crashed' ? 'error' : 'warning';
+    const botDetail = botStatus === 'online'
+      ? `${bot.ready?.username || 'Discord bot'} • supervised and healthy`
+      : bot.ready?.username || bot.lastError?.message || 'Supervised runtime';
     const updateTone = update.status === 'error' ? 'error' : update.available ? 'warning' : 'good';
     const routed = Object.values(obs.config?.routes || {}).filter((route) => route.enabled && route.channelId).length;
     rail.innerHTML = [
-      taskCard('◉', `Discord ${bot.status || 'stopped'}`, bot.ready?.username || bot.lastError?.message || 'Supervised runtime', botTone),
+      taskCard('◉', `Discord ${botStatus}`, botDetail, botTone),
       taskCard('↗', update.available ? `Update ${update.latestVersion || ''} available` : `Release ${update.status || 'idle'}`, update.error || 'Stable GitHub release channel', updateTone),
       taskCard('⌁', `${routed} Discord streams routed`, `${access.role || 'local-admin'} access • ${obs.config?.lastHeartbeatAt ? 'heartbeat active' : 'heartbeat not published'}`, routed ? 'good' : 'warning')
     ].join('');
@@ -174,9 +186,9 @@
     ensureTaskRail();
     ensurePalette();
     document.addEventListener('keydown', keydown);
-    window.khaos.onState((next) => { state.app = next; renderTasks(); });
+    window.khaos.onState((next) => applyAppState(next, 'live'));
     window.khaos.onDiscordObservability?.((next) => { state.observability = next; renderTasks(); });
-    window.khaos.invoke('app:get-state').then((next) => { state.app = next; renderTasks(); }).catch(() => {});
+    window.khaos.invoke('app:get-state').then((next) => applyAppState(next, 'snapshot')).catch(() => {});
     window.khaos.invoke('discord-observability:get').then((next) => { state.observability = next; renderTasks(); }).catch(() => {});
     setTimeout(() => { removeWorkspaceRail(); renderTasks(); }, 1200);
   }
