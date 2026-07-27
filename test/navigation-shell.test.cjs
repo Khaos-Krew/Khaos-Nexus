@@ -65,12 +65,17 @@ test('v0.18.13 is configured for the guarded in-app GitHub release channel', () 
   assert.match(notes, /Download Update → Install & Restart/);
   assert.match(notes, /mandatory verified pre-update backup/i);
   assert.match(workflow, /branches:\s*\n\s*- "release\/v\*"/);
+  assert.match(workflow, /pull_request_target/);
+  assert.match(workflow, /github\.event\.pull_request\.head\.repo\.full_name == github\.repository/);
+  assert.match(workflow, /startsWith\(github\.event\.pull_request\.head\.ref, 'publish\/v'\)/);
+  assert.match(workflow, /ref: \$\{\{ github\.event_name == 'pull_request_target' && github\.event\.pull_request\.base\.sha \|\| github\.sha \}\}/);
+  assert.match(workflow, /Approval branch '\$approvalBranch' does not match '\$expectedApprovalBranch'/);
   assert.match(workflow, /npm test/);
   assert.match(workflow, /npm run check/);
   assert.match(workflow, /npm run dist:win/);
   assert.match(workflow, /Khaos-Nexus-Setup-\$version-x64\.exe/);
   assert.match(workflow, /Khaos-Nexus-Portable-\$version-x64\.exe/);
   assert.match(workflow, /dist\/latest\.yml/);
-  assert.match(workflow, /gh release create \$tag/);
+  assert.match(workflow, /gh release create \$tag --target \$targetSha/);
   assert.match(workflow, /gh release edit \$tag --draft=false --latest/);
 });
