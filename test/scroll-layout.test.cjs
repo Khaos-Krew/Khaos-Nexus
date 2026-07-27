@@ -35,19 +35,21 @@ test('nested logs and diagnostic outputs retain their own scrolling', () => {
   }
 });
 
-test('v0.18.15 retains the verified startup, scrolling, navigation, updater, and portable foundations', () => {
+test('v0.18.16 retains the verified startup, scrolling, navigation, updater, and portable foundations', () => {
   const packageJson = JSON.parse(read('package.json'));
   const preload = read('main/preload.cjs');
   const portable = read('main/portable-bootstrap-extension.cjs');
   const health = read('main/startup-health-extension.cjs');
   const entry = read('main/entry.cjs');
-  assert.equal(packageJson.version, '0.18.15');
+  const watchdog = read('main/interface-watchdog-extension.cjs');
+  assert.equal(packageJson.version, '0.18.16');
   assert.match(packageJson.description, /independently scrollable navigation and workspace panes/i);
   assert.match(packageJson.description, /searchable collapsible navigation groups/i);
   assert.match(packageJson.description, /always-visible in-app update control/i);
-  assert.match(packageJson.description, /main-process blank-interface watchdog/i);
+  assert.match(packageJson.description, /continuous visible-interface startup gate/i);
   assert.doesNotMatch(preload, /require\(['"]\.\.?\//);
   assert.match(portable, /bootstrap\.log/);
   assert.match(health, /MINIMUM_SPLASH_MS = 30 \* 1000/);
   assert.match(entry, /interface-watchdog-extension\.cjs/);
+  assert.match(watchdog, /interface-watchdog-state\.json/);
 });
