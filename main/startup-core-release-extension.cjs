@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
 const startupHealth = require('./startup-health-extension.cjs');
+const interfaceWatchdog = require('./interface-watchdog-extension.cjs');
 const { appendLog, writeDiagnostic } = require('./portable-runtime.cjs');
 const {
   REQUIRED_CHECKS,
@@ -45,6 +46,29 @@ function compactState(health) {
   };
 }
 
+function compactInterfaceState() {
+  try {
+    const current = interfaceWatchdog.publicState();
+    return {
+      installed: Boolean(current.installed),
+      attached: Boolean(current.attached),
+      windowId: current.windowId || null,
+      stage: current.stage || null,
+      stable: Boolean(current.stable),
+      stableSince: current.stableSince || null,
+      inspectionCount: Number(current.inspectionCount || 0),
+      lastInspectionAt: current.lastInspectionAt || null,
+      lastReason: current.lastReason || null,
+      lastSnapshot: current.lastSnapshot || null,
+      lastVisual: current.lastVisual || null,
+      failureReported: Boolean(current.failureReported),
+      failureId: current.failureId || null
+    };
+  } catch (error) {
+    return { installed: false, attached: false, stable: false, error: error.message || String(error) };
+  }
+}
+
 function initializePaths() {
   if (diagnosticsFile) return;
   const userData = electron.app.getPath('userData');
@@ -57,7 +81,7 @@ function writeRecord(stage, detail = {}, health = null) {
     initializePaths();
     const payload = {
       format: 'khaos-nexus-startup-core-release',
-      formatVersion: 1,
+      formatVersion: 2,
       stage,
       detail,
       controller: {
@@ -65,8 +89,10 @@ function writeRecord(stage, detail = {}, health = null) {
         emitted,
         readySince: readySince ? new Date(readySince).toISOString() : null,
         pollIntervalMs: POLL_INTERVAL_MS,
-        readyStabilityMs: READY_STABILITY_MS
+        readyStabilityMs: READY_STABILITY_MS,
+        visibleInterfaceRequired: true
       },
+      interface: compactInterfaceState(),
       health: compactState(health || startupHealth.publicState())
     };
     fs.mkdirSync(path.dirname(diagnosticsFile), { recursive: true });
@@ -100,7 +126,7 @@ function recordChanged(stage, detail, health) {
   writeRecord(stage, detail, health);
 }
 
-function emitCoreReady(health) {
+function emitCoreReady(health, interfaceState) {
   if (emitted || electron.app.isQuitting) return;
   emitted = true;
   const detail = {
@@ -108,8 +134,10 @@ function emitCoreReady(health) {
     fallback: true,
     coreStartupController: true,
     baseInterfaceVerified: true,
+    visibleInterfaceStable: true,
+    visibleInterfaceStableSince: interfaceState.stableSince || null,
     optionalModulesContinuing: !health.rendererModulesReady,
-    reason: 'Profile, configuration, protected storage, local write access, and the main renderer bridge passed in the core startup process.'
+    reason: 'Profile, configuration, protected storage, local write access, renderer bridge, and a continuously visible main interface passed in the core startup process.'
   };
   writeRecord('core-ready-emitted', detail, health);
   electron.ipcMain.emit('renderer-boot:stage', { sender: startupHealth.refs.mainWindow?.webContents || null }, {
@@ -135,10 +163,27 @@ function tick() {
   }
 
   const result = readiness(health);
+  const interfaceState = compactInterfaceState();
+  if (!interfaceState.installed || !interfaceState.attached || !interfaceState.stable) {
+    result.ready = false;
+    result.blockers.push(!interfaceState.installed
+      ? 'the continuous interface watchdog is not installed'
+      : !interfaceState.attached
+        ? 'the continuous interface watchdog has not attached to the main window'
+        : `the main interface is not stably visible (${interfaceState.stage || 'unknown state'})`);
+  }
+  if (interfaceState.failureReported) {
+    result.ready = false;
+    result.blockers.push(`the interface watchdog reported failure ${interfaceState.failureId || ''}`.trim());
+  }
+
   if (!result.ready) {
     readySince = 0;
     recordChanged('waiting-for-core-health', {
       blockers: result.blockers,
+      interfaceStage: interfaceState.stage || null,
+      interfaceStable: Boolean(interfaceState.stable),
+      interfaceAttached: Boolean(interfaceState.attached),
       discordDesktopSignInRequired: result.discordDesktopSignInRequired,
       optionalModuleCompletionRequired: result.optionalModuleCompletionRequired
     }, health);
@@ -149,6 +194,8 @@ function tick() {
     readySince = Date.now();
     writeRecord('core-health-ready', {
       stabilizingForMs: READY_STABILITY_MS,
+      visibleInterfaceRequired: true,
+      interfaceStableSince: interfaceState.stableSince || null,
       discordDesktopSignInRequired: false,
       optionalModuleCompletionRequired: false
     }, health);
@@ -157,11 +204,15 @@ function tick() {
 
   const stableForMs = Date.now() - readySince;
   if (stableForMs < READY_STABILITY_MS) {
-    recordChanged('core-health-stabilizing', { stableForMs, requiredMs: READY_STABILITY_MS }, health);
+    recordChanged('core-health-stabilizing', {
+      stableForMs,
+      requiredMs: READY_STABILITY_MS,
+      interfaceStableSince: interfaceState.stableSince || null
+    }, health);
     return;
   }
 
-  emitCoreReady(health);
+  emitCoreReady(health, interfaceState);
 }
 
 function install() {
@@ -171,6 +222,7 @@ function install() {
   electron.app.whenReady().then(() => {
     writeRecord('controller-installed', {
       userData: electron.app.getPath('userData'),
+      visibleInterfaceRequired: true,
       discordDesktopSignInRequired: false,
       optionalModuleCompletionRequired: false
     });
@@ -192,6 +244,7 @@ module.exports = {
   READY_STABILITY_MS,
   REQUIRED_CHECKS,
   compactState,
+  compactInterfaceState,
   readiness,
   install
 };
