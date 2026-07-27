@@ -52,19 +52,25 @@ test('always-on UI layer loads grouped navigation in software and rich modes', (
   assert.match(extension, /addScript\('simple-updater\.js'\);\s*addScript\('navigation-shell\.js'\)/);
 });
 
-test('v0.18.12 is configured as an in-app GitHub release update', () => {
+test('v0.18.13 is configured for the guarded in-app GitHub release channel', () => {
   const packageJson = JSON.parse(read('package.json'));
-  const notes = read('release-notes/v0.18.12.md');
-  const workflow = read('.github/workflows/publish-patch.yml');
-  assert.equal(packageJson.version, '0.18.12');
+  const notes = read('release-notes/v0.18.13.md');
+  const workflow = read('.github/workflows/stable-release.yml');
+  assert.equal(packageJson.version, '0.18.13');
   assert.match(packageJson.description, /searchable collapsible navigation groups/i);
   assert.equal(packageJson.build.publish[0].provider, 'github');
   assert.equal(packageJson.build.publish[0].releaseType, 'release');
   assert.equal(packageJson.build.publish[0].tagNamePrefix, 'v');
-  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.18.12.md');
+  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.18.13.md');
   assert.match(notes, /Download Update → Install & Restart/);
   assert.match(notes, /mandatory verified pre-update backup/i);
-  assert.match(workflow, /npm run release:win/);
-  assert.match(workflow, /branches: \[\"release\/v\*\"\]/);
-  assert.match(workflow, /\$expected = \"release\/v\$version\"/);
+  assert.match(workflow, /branches:\s*\n\s*- "release\/v\*"/);
+  assert.match(workflow, /npm test/);
+  assert.match(workflow, /npm run check/);
+  assert.match(workflow, /npm run dist:win/);
+  assert.match(workflow, /Khaos-Nexus-Setup-\$version-x64\.exe/);
+  assert.match(workflow, /Khaos-Nexus-Portable-\$version-x64\.exe/);
+  assert.match(workflow, /dist\/latest\.yml/);
+  assert.match(workflow, /gh release create \$tag/);
+  assert.match(workflow, /gh release edit \$tag --draft=false --latest/);
 });
