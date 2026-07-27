@@ -35,21 +35,25 @@ test('nested logs and diagnostic outputs retain their own scrolling', () => {
   }
 });
 
-test('v0.18.16 retains the verified startup, scrolling, navigation, updater, and portable foundations', () => {
+test('v0.18.17 retains verified startup, scrolling, safe navigation, updater, and portable foundations', () => {
   const packageJson = JSON.parse(read('package.json'));
   const preload = read('main/preload.cjs');
   const portable = read('main/portable-bootstrap-extension.cjs');
   const health = read('main/startup-health-extension.cjs');
   const entry = read('main/entry.cjs');
   const watchdog = read('main/interface-watchdog-extension.cjs');
-  assert.equal(packageJson.version, '0.18.16');
+  const updater = read('renderer/simple-updater.js');
+  assert.equal(packageJson.version, '0.18.17');
   assert.match(packageJson.description, /independently scrollable navigation and workspace panes/i);
-  assert.match(packageJson.description, /searchable collapsible navigation groups/i);
+  assert.match(packageJson.description, /safe original navigation structure/i);
   assert.match(packageJson.description, /always-visible in-app update control/i);
   assert.match(packageJson.description, /continuous visible-interface startup gate/i);
+  assert.match(packageJson.description, /renderer-unresponsive reporting/i);
   assert.doesNotMatch(preload, /require\(['"]\.\.?\//);
+  assert.doesNotMatch(updater, /new MutationObserver/);
   assert.match(portable, /bootstrap\.log/);
   assert.match(health, /MINIMUM_SPLASH_MS = 30 \* 1000/);
   assert.match(entry, /interface-watchdog-extension\.cjs/);
+  assert.match(entry, /renderer-unresponsive-extension\.cjs/);
   assert.match(watchdog, /interface-watchdog-state\.json/);
 });
