@@ -1,0 +1,3 @@
+Approve publication of the validated release/v0.18.13 base commit through the guarded stable GitHub release workflow.
+
+The default-branch workflow checks out only the validated release base SHA, verifies every updater asset and latest-release state, then creates the published-v0.18.13 completion tag.
