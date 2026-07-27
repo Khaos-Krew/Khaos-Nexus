@@ -15,15 +15,16 @@ test('sandboxed main preload imports only Electron and no local CommonJS files',
   assert.doesNotMatch(preload, /require\(['"]\.\.?\//);
 });
 
-test('renderer-ready acknowledgement occurs after bridge exposure and interface verification', () => {
+test('renderer-ready execution is scheduled after bridge exposure and requires interface verification', () => {
   const preload = read('main/preload.cjs');
   const bridgeIndex = preload.indexOf("contextBridge.exposeInMainWorld('khaos'");
   const verificationIndex = preload.indexOf('snapshot.expectedDocument && snapshot.hasShell && snapshot.hasSidebar && snapshot.hasContent && snapshot.hasActiveView');
   const readyIndex = preload.indexOf("ipcRenderer.invoke('startup-health:renderer-ready', snapshot)");
+  const schedulingIndex = preload.indexOf("window.addEventListener('DOMContentLoaded', reportRendererReadyWhenInterfaceExists");
   assert.ok(bridgeIndex >= 0, 'the protected context bridge must be exposed');
   assert.ok(verificationIndex >= 0, 'the real application document must be verified');
-  assert.ok(readyIndex > bridgeIndex, 'renderer-ready must be sent only after bridge exposure');
-  assert.ok(readyIndex > verificationIndex, 'renderer-ready must be sent only after the interface structure is verified');
+  assert.ok(readyIndex > verificationIndex, 'the readiness function must invoke only after structural verification');
+  assert.ok(schedulingIndex > bridgeIndex, 'the readiness function must only be scheduled after bridge exposure');
 });
 
 test('preload initialization failures are retained outside the renderer', () => {
