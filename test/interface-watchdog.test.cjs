@@ -30,22 +30,53 @@ test('preload verifies the expected file document and required interface element
   assert.match(preload, /startup-health:preload-failed/);
 });
 
-test('main-process watchdog covers load failure, renderer exit, blank document, and hidden shell cases', () => {
+test('watchdog repeatedly discovers and continuously inspects the real main window', () => {
   const watchdog = read('main/interface-watchdog-extension.cjs');
   assert.doesNotThrow(() => new Function(watchdog));
+  assert.match(watchdog, /DISCOVERY_INTERVAL_MS = 250/);
+  assert.match(watchdog, /INSPECTION_INTERVAL_MS = 500/);
+  assert.match(watchdog, /INTERFACE_STABILITY_MS = 3000/);
+  assert.match(watchdog, /for \(const delay of \[0, 50, 250, 1000\]\)/);
+  assert.match(watchdog, /setInterval\(discover, DISCOVERY_INTERVAL_MS\)/);
+  assert.match(watchdog, /setInterval\(\(\) => scheduleInspection\('continuous'\), INSPECTION_INTERVAL_MS\)/);
+  assert.match(watchdog, /window === startupHealth\.refs\.mainWindow/);
+  assert.match(watchdog, /preloadName\(window\) === 'preload\.cjs'/);
+});
+
+test('watchdog covers load failure, renderer exit, blank document, hidden shell, zero-size layout, and visually blank output', () => {
+  const watchdog = read('main/interface-watchdog-extension.cjs');
   assert.match(watchdog, /did-fail-load/);
   assert.match(watchdog, /render-process-gone/);
-  assert.match(watchdog, /STARTUP_DEADLINE_MS = 12000/);
+  assert.match(watchdog, /STARTUP_DEADLINE_MS = 45000/);
   assert.match(watchdog, /safe\.bodyTextLength > 20/);
   assert.match(watchdog, /safe\.shellDisplay !== 'none'/);
   assert.match(watchdog, /safe\.shellVisibility !== 'hidden'/);
   assert.match(watchdog, /safe\.shellOpacity !== '0'/);
+  assert.match(watchdog, /safe\.shellWidth > 100/);
+  assert.match(watchdog, /safe\.contentHeight > 100/);
+  assert.match(watchdog, /capturePage\(\)/);
+  assert.match(watchdog, /visuallyBlank/);
+  assert.match(watchdog, /nonDarkRatio < 0\.001/);
 });
 
-test('interface failures are retained locally, mirrored to portable diagnostics, and queued for Application Monitor', () => {
+test('startup release controller requires stable watchdog state before it can emit features-ready', () => {
+  const release = read('main/startup-core-release-extension.cjs');
+  assert.match(release, /interfaceWatchdog\.publicState\(\)/);
+  assert.match(release, /!interfaceState\.installed \|\| !interfaceState\.attached \|\| !interfaceState\.stable/);
+  assert.match(release, /visibleInterfaceRequired: true/);
+  assert.match(release, /visibleInterfaceStable: true/);
+  assert.match(release, /the main interface is not stably visible/);
+  const interfaceGate = release.indexOf('!interfaceState.installed || !interfaceState.attached || !interfaceState.stable');
+  const emit = release.indexOf('emitCoreReady(health, interfaceState)');
+  assert.ok(interfaceGate >= 0 && emit > interfaceGate, 'features-ready must be emitted only after the visible interface gate');
+});
+
+test('healthy and failed watchdog states are retained in AppData and portable diagnostics', () => {
   const watchdog = read('main/interface-watchdog-extension.cjs');
+  assert.match(watchdog, /interface-watchdog-state\.json/);
   assert.match(watchdog, /interface-watchdog-error\.json/);
-  assert.match(watchdog, /interface-watchdog\.log/);
+  assert.match(watchdog, /path\.join\('logs', 'interface-watchdog\.log'\)/);
+  assert.match(watchdog, /writeDiagnostic\('interface-watchdog-state\.json'/);
   assert.match(watchdog, /writeDiagnostic\('interface-watchdog-error\.json'/);
   assert.match(watchdog, /appendLog\('interface-watchdog\.log'/);
   assert.match(watchdog, /crashDiagnostics\.writeCrashReport/);
@@ -61,4 +92,5 @@ test('blank interface recovery replaces the black window with a visible diagnost
   assert.match(watchdog, /Error ID:/);
   assert.match(watchdog, /Retry interface/);
   assert.match(watchdog, /document\.open\(\);document\.write/);
+  assert.match(watchdog, /data:text\/html;charset=utf-8/);
 });
