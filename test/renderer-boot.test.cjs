@@ -8,11 +8,15 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
-test('preload starts the renderer heartbeat and reports protected bridge readiness', () => {
+test('preload starts the renderer heartbeat but waits for the real application document before readiness', () => {
   const preload = read('main/preload.cjs');
   assert.match(preload, /sendRendererHeartbeat\(\);/);
   assert.match(preload, /setInterval\(sendRendererHeartbeat, 2000\)/);
   assert.match(preload, /reportBootStage/);
+  assert.match(preload, /interfaceSnapshot/);
+  assert.match(preload, /snapshot\.href === 'about:blank'/);
+  assert.match(preload, /snapshot\.expectedDocument && snapshot\.hasShell && snapshot\.hasSidebar && snapshot\.hasContent && snapshot\.hasActiveView/);
+  assert.match(preload, /DOMContentLoaded/);
   assert.match(preload, /startup-health:renderer-ready/);
   assert.doesNotMatch(preload, /startup-health:base-ui-ready/);
   assert.doesNotMatch(preload, /reportBaseInterfaceReady/);
@@ -57,7 +61,7 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.18.14 retains sandbox startup, core release, and immediate portable diagnostics', () => {
+test('v0.18.15 retains startup foundations and installs the independent interface watchdog', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
   const health = read('main/startup-health-extension.cjs');
@@ -69,8 +73,11 @@ test('v0.18.14 retains sandbox startup, core release, and immediate portable dia
   const monitor = read('main/services/application-monitor.cjs');
   const preload = read('main/preload.cjs');
   const portableBootstrap = read('main/portable-bootstrap-extension.cjs');
+  const watchdog = read('main/interface-watchdog-extension.cjs');
 
-  assert.equal(packageJson.version, '0.18.14');
+  assert.equal(packageJson.version, '0.18.15');
+  assert.match(packageJson.description, /verified real-document renderer readiness/i);
+  assert.match(packageJson.description, /main-process blank-interface watchdog/i);
   assert.match(packageJson.description, /always-visible in-app update control/i);
   assert.match(packageJson.description, /immediate portable sidecar logs and diagnostics/i);
   assert.match(packageJson.description, /canonical v0\.17-compatible AppData configuration/i);
@@ -79,7 +86,16 @@ test('v0.18.14 retains sandbox startup, core release, and immediate portable dia
   assert.ok(entry.indexOf('portable-bootstrap-extension.cjs') < entry.indexOf('requestSingleInstanceLock'));
   assert.match(entry, /startup-core-release-extension\.cjs/);
   assert.match(entry, /startup-preload-diagnostics-extension\.cjs/);
+  assert.match(entry, /interface-watchdog-extension\.cjs/);
   assert.doesNotMatch(entry, /startup-release-fallback-extension\.cjs/);
+  assert.match(watchdog, /did-fail-load/);
+  assert.match(watchdog, /render-process-gone/);
+  assert.match(watchdog, /startup-deadline/);
+  assert.match(watchdog, /interface-watchdog-error\.json/);
+  assert.match(watchdog, /interface-watchdog\.log/);
+  assert.match(watchdog, /queueAutomaticReport/);
+  assert.match(watchdog, /rendererErrors\.record/);
+  assert.match(watchdog, /Interface recovery/);
   assert.match(portableBootstrap, /process-started/);
   assert.match(portableBootstrap, /bootstrap\.log/);
   assert.match(health, /MINIMUM_SPLASH_MS = 30 \* 1000/);
