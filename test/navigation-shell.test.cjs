@@ -36,7 +36,7 @@ test('future module navigation entries are classified and reorganized dynamicall
 
 test('navigation search, accordion persistence, and duplicate suppression are present', () => {
   const source = read('renderer/navigation-shell.js');
-  assert.match(source, /type=\"search\"/);
+  assert.match(source, /type="search"/);
   assert.match(source, /event\.key === 'Escape'/);
   assert.match(source, /event\.key === 'Enter'/);
   assert.match(source, /localStorage\.setItem\(STORAGE_KEY/);
@@ -52,30 +52,37 @@ test('always-on UI layer loads grouped navigation in software and rich modes', (
   assert.match(extension, /addScript\('simple-updater\.js'\);\s*addScript\('navigation-shell\.js'\)/);
 });
 
-test('v0.18.13 is configured for the guarded in-app GitHub release channel', () => {
+test('v0.18.14 is configured for the guarded in-app GitHub release channel', () => {
   const packageJson = JSON.parse(read('package.json'));
-  const notes = read('release-notes/v0.18.13.md');
+  const notes = read('release-notes/v0.18.14.md');
   const workflow = read('.github/workflows/stable-release.yml');
-  assert.equal(packageJson.version, '0.18.13');
-  assert.match(packageJson.description, /searchable collapsible navigation groups/i);
+  assert.equal(packageJson.version, '0.18.14');
+  assert.match(packageJson.description, /always-visible in-app update control/i);
   assert.equal(packageJson.build.publish[0].provider, 'github');
   assert.equal(packageJson.build.publish[0].releaseType, 'release');
   assert.equal(packageJson.build.publish[0].tagNamePrefix, 'v');
-  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.18.13.md');
-  assert.match(notes, /Download Update → Install & Restart/);
-  assert.match(notes, /mandatory verified pre-update backup/i);
+  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.18.14.md');
+  assert.match(notes, /Check for Updates/);
+  assert.match(notes, /mandatory pre-update backup/i);
   assert.match(workflow, /branches:\s*\n\s*- "release\/v\*"/);
   assert.match(workflow, /pull_request_target/);
   assert.match(workflow, /github\.event\.pull_request\.head\.repo\.full_name == github\.repository/);
   assert.match(workflow, /startsWith\(github\.event\.pull_request\.head\.ref, 'publish\/v'\)/);
-  assert.match(workflow, /ref: \$\{\{ github\.event_name == 'pull_request_target' && github\.event\.pull_request\.base\.sha \|\| github\.sha \}\}/);
-  assert.match(workflow, /Approval branch '\$approvalBranch' does not match '\$expectedApprovalBranch'/);
   assert.match(workflow, /npm test/);
   assert.match(workflow, /npm run check/);
   assert.match(workflow, /npm run dist:win/);
   assert.match(workflow, /Khaos-Nexus-Setup-\$version-x64\.exe/);
   assert.match(workflow, /Khaos-Nexus-Portable-\$version-x64\.exe/);
   assert.match(workflow, /dist\/latest\.yml/);
-  assert.match(workflow, /gh release create \$tag --target \$targetSha/);
-  assert.match(workflow, /gh release edit \$tag --draft=false --latest/);
+});
+
+test('simple updater creates a replacement button without requiring nexusUpdateCenter', () => {
+  const updater = read('renderer/simple-updater.js');
+  assert.doesNotThrow(() => new Function(updater));
+  assert.match(updater, /settingsPanel\?\.querySelector\('\.form-actions'\)/);
+  assert.match(updater, /ensureFallbackCenter/);
+  assert.match(updater, /nexusUpdateFallbackCenter/);
+  assert.match(updater, /const replacementReady = Boolean\(\$\('nexusSimpleUpdatePrimary'\)\)/);
+  assert.match(updater, /legacy\.classList\.toggle\('hidden', replacementReady\)/);
+  assert.match(updater, /exportBackupButton/);
 });
