@@ -22,7 +22,7 @@ test('preload does not allow the initial about:blank document to satisfy rendere
 test('preload verifies the expected file document and required interface elements', () => {
   const preload = read('main/preload.cjs');
   assert.match(preload, /href\.startsWith\('file:'\)/);
-  assert.match(preload, /renderer\/index\\\.html/);
+  assert.ok(preload.includes('/\\/renderer\\/index\\.html'), 'the expected renderer/index.html file URL must be required');
   for (const selector of ['.app-shell', '.sidebar', '.content', '.view.active']) {
     assert.ok(preload.includes(selector), `${selector} must be required for readiness`);
   }
