@@ -52,20 +52,20 @@ test('always-on UI layer loads grouped navigation in software and rich modes', (
   assert.match(extension, /addScript\('simple-updater\.js'\);\s*addScript\('navigation-shell\.js'\)/);
 });
 
-test('v0.18.15 is configured for the guarded in-app GitHub release channel', () => {
+test('v0.18.16 is configured for the guarded in-app GitHub release channel', () => {
   const packageJson = JSON.parse(read('package.json'));
-  const notes = read('release-notes/v0.18.15.md');
+  const notes = read('release-notes/v0.18.16.md');
   const workflow = read('.github/workflows/stable-release.yml');
-  assert.equal(packageJson.version, '0.18.15');
-  assert.match(packageJson.description, /main-process blank-interface watchdog/i);
+  assert.equal(packageJson.version, '0.18.16');
+  assert.match(packageJson.description, /continuous visible-interface startup gate/i);
   assert.match(packageJson.description, /always-visible in-app update control/i);
   assert.equal(packageJson.build.publish[0].provider, 'github');
   assert.equal(packageJson.build.publish[0].releaseType, 'release');
   assert.equal(packageJson.build.publish[0].tagNamePrefix, 'v');
-  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.18.15.md');
-  assert.match(notes, /Check for Updates/);
-  assert.match(notes, /mandatory verified pre-update backup/i);
-  assert.match(notes, /about:blank/);
+  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.18.16.md');
+  assert.match(notes, /visible interface startup gate/i);
+  assert.match(notes, /verified pre-update backup/i);
+  assert.match(notes, /interface-watchdog-state\.json/);
   assert.match(workflow, /branches:\s*\n\s*- "release\/v\*"/);
   assert.match(workflow, /pull_request_target/);
   assert.match(workflow, /github\.event\.pull_request\.head\.repo\.full_name == github\.repository/);
