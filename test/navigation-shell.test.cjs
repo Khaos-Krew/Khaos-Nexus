@@ -65,5 +65,6 @@ test('v0.18.12 is configured as an in-app GitHub release update', () => {
   assert.match(notes, /Download Update → Install & Restart/);
   assert.match(notes, /mandatory verified pre-update backup/i);
   assert.match(workflow, /npm run release:win/);
-  assert.match(workflow, /release\/v\$\{VERSION\}/);
+  assert.match(workflow, /branches: \[\"release\/v\*\"\]/);
+  assert.match(workflow, /\$expected = \"release\/v\$version\"/);
 });
