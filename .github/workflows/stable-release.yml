@@ -96,7 +96,7 @@ jobs:
             "$hash  $([System.IO.Path]::GetFileName($_))"
           } | Set-Content -Path release-checksums.txt -Encoding utf8
 
-      - name: Publish stable GitHub Release
+      - name: Publish and verify stable GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -104,10 +104,40 @@ jobs:
           $version = "${{ steps.version.outputs.version }}"
           $tag = "${{ steps.version.outputs.tag }}"
           $targetSha = "${{ steps.version.outputs.target_sha }}"
-          gh release view $tag *> $null
-          if ($LASTEXITCODE -eq 0) { throw "Stable release $tag already exists. Increase package.json before publishing again." }
+          $completionTag = "published-$tag"
+          $requiredAssetNames = @(
+            "Khaos-Nexus-Setup-$version-x64.exe",
+            "Khaos-Nexus-Setup-$version-x64.exe.blockmap",
+            "Khaos-Nexus-Portable-$version-x64.exe",
+            "latest.yml",
+            "release-checksums.txt"
+          )
 
-          @"
+          function Read-ReleaseState {
+            $json = gh release view $tag --json isDraft,isPrerelease,isLatest,targetCommitish,assets 2>$null
+            if ($LASTEXITCODE -ne 0) { return $null }
+            return $json | ConvertFrom-Json
+          }
+
+          function Assert-ReleaseComplete($release) {
+            if ($null -eq $release) { throw "Stable release $tag was not found after publication." }
+            if ($release.isDraft) { throw "Stable release $tag is still a draft." }
+            if ($release.isPrerelease) { throw "Stable release $tag was incorrectly marked as a prerelease." }
+            if (-not $release.isLatest) { throw "Stable release $tag is not marked as the latest release." }
+            if ([string]$release.targetCommitish -ne $targetSha) {
+              throw "Stable release $tag targets '$($release.targetCommitish)' instead of validated commit '$targetSha'."
+            }
+            $assetNames = @($release.assets | ForEach-Object { [string]$_.name })
+            foreach ($requiredName in $requiredAssetNames) {
+              if ($assetNames -notcontains $requiredName) {
+                throw "Stable release $tag is missing required asset $requiredName."
+              }
+            }
+          }
+
+          $existing = Read-ReleaseState
+          if ($null -eq $existing) {
+            @"
           ## Khaos Nexus $tag
 
           This validated Windows maintenance release simplifies navigation while retaining the verified startup, scrolling, portable diagnostics, and protected update flow.
@@ -122,16 +152,26 @@ jobs:
           The release was rebuilt from validated release commit `$targetSha` and passed the complete tests and syntax checks before publication.
           "@ | Set-Content -Path release-notes.md -Encoding utf8
 
-          gh release create $tag --target $targetSha --title "Khaos Nexus $tag" --notes-file release-notes.md --draft
-          if ($LASTEXITCODE -ne 0) { throw "GitHub draft release creation failed." }
+            gh release create $tag --target $targetSha --title "Khaos Nexus $tag" --notes-file release-notes.md --draft
+            if ($LASTEXITCODE -ne 0) { throw "GitHub draft release creation failed." }
 
-          $assets = Get-ChildItem dist -File | Where-Object { $_.Extension -in '.exe', '.yml', '.blockmap' }
-          foreach ($asset in $assets) {
-            gh release upload $tag $asset.FullName
-            if ($LASTEXITCODE -ne 0) { throw "Failed to upload $($asset.Name)." }
+            $assets = Get-ChildItem dist -File | Where-Object { $_.Extension -in '.exe', '.yml', '.blockmap' }
+            foreach ($asset in $assets) {
+              gh release upload $tag $asset.FullName
+              if ($LASTEXITCODE -ne 0) { throw "Failed to upload $($asset.Name)." }
+            }
+            gh release upload $tag release-checksums.txt
+            if ($LASTEXITCODE -ne 0) { throw "Failed to upload release-checksums.txt." }
+
+            gh release edit $tag --draft=false --latest
+            if ($LASTEXITCODE -ne 0) { throw "Failed to publish stable release $tag." }
           }
-          gh release upload $tag release-checksums.txt
-          if ($LASTEXITCODE -ne 0) { throw "Failed to upload release-checksums.txt." }
 
-          gh release edit $tag --draft=false --latest
-          if ($LASTEXITCODE -ne 0) { throw "Failed to publish stable release $tag." }
+          $verified = Read-ReleaseState
+          Assert-ReleaseComplete $verified
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f $completionTag $targetSha
+          git push origin "refs/tags/$completionTag" --force
+          if ($LASTEXITCODE -ne 0) { throw "Failed to create release completion tag $completionTag." }
