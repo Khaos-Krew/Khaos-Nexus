@@ -57,7 +57,7 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.18.13 retains sandbox startup, core release, and immediate portable diagnostics', () => {
+test('v0.18.14 retains sandbox startup, core release, and immediate portable diagnostics', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
   const health = read('main/startup-health-extension.cjs');
@@ -70,7 +70,8 @@ test('v0.18.13 retains sandbox startup, core release, and immediate portable dia
   const preload = read('main/preload.cjs');
   const portableBootstrap = read('main/portable-bootstrap-extension.cjs');
 
-  assert.equal(packageJson.version, '0.18.13');
+  assert.equal(packageJson.version, '0.18.14');
+  assert.match(packageJson.description, /always-visible in-app update control/i);
   assert.match(packageJson.description, /immediate portable sidecar logs and diagnostics/i);
   assert.match(packageJson.description, /canonical v0\.17-compatible AppData configuration/i);
   assert.match(packageJson.description, /sandbox-compatible main preload/i);
@@ -109,10 +110,13 @@ test('v0.18.13 retains sandbox startup, core release, and immediate portable dia
   assert.match(monitor, /ERROR_BATCH_INTERVAL_MS = 30 \* 60 \* 1000/);
 });
 
-test('updater uses explicit download and install steps with a mandatory verified backup', () => {
+test('updater always exposes a control and retains protected install flow', () => {
   const updater = read('renderer/simple-updater.js');
   const extension = read('main/brand-update-extension.cjs');
   const flow = read('shared/update-flow.cjs');
+  assert.match(updater, /settingsPanel\?\.querySelector\('\.form-actions'\)/);
+  assert.match(updater, /ensureFallbackCenter/);
+  assert.match(updater, /replacementReady/);
   assert.match(updater, /Download v\$\{update\.version/);
   assert.match(updater, /Install & Restart/);
   assert.match(updater, /invoke\('update:download'\)/);
