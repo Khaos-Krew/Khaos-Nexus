@@ -35,13 +35,14 @@ test('nested logs and diagnostic outputs retain their own scrolling', () => {
   }
 });
 
-test('v0.18.11 retains the verified startup and portable diagnostic features', () => {
+test('v0.18.12 retains the verified startup, scrolling, and portable diagnostics foundation', () => {
   const packageJson = JSON.parse(read('package.json'));
   const preload = read('main/preload.cjs');
   const portable = read('main/portable-bootstrap-extension.cjs');
   const health = read('main/startup-health-extension.cjs');
-  assert.equal(packageJson.version, '0.18.11');
+  assert.equal(packageJson.version, '0.18.12');
   assert.match(packageJson.description, /independently scrollable navigation and workspace panes/i);
+  assert.match(packageJson.description, /searchable collapsible navigation groups/i);
   assert.doesNotMatch(preload, /require\(['"]\.\.?\//);
   assert.match(portable, /bootstrap\.log/);
   assert.match(health, /MINIMUM_SPLASH_MS = 30 \* 1000/);
