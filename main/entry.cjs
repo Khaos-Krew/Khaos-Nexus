@@ -19,6 +19,7 @@ if (!hasSingleInstanceLock) {
   require('./renderer-boot-coordinator-extension.cjs').install();
   require('./renderer-action-error-extension.cjs').install();
   require('./crash-diagnostics-extension.cjs').install();
+  require('./interface-watchdog-extension.cjs').install();
   require('./stability-extension.cjs').install();
   require('./access-recovery-extension.cjs').install();
   require('./brand-update-extension.cjs').install();
