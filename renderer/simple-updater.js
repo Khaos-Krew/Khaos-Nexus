@@ -41,19 +41,49 @@
     return ['checking', 'downloading', 'backing-up', 'installing'].includes(update.status);
   }
 
-  function ensureControls() {
+  function ensureFallbackCenter() {
+    const settingsView = $('view-settings');
+    if (!settingsView || $('nexusUpdateFallbackCenter')) return $('nexusUpdateFallbackCenter');
+
+    const panel = document.createElement('article');
+    panel.id = 'nexusUpdateFallbackCenter';
+    panel.className = 'panel form-panel nexus-update-fallback-center';
+    panel.innerHTML = `
+      <div class="panel-heading">
+        <div>
+          <span class="eyebrow">Application updates</span>
+          <h3>Update Khaos Nexus</h3>
+          <p>Check once, download the update, then use Install & Restart. A verified backup is mandatory before installation.</p>
+        </div>
+      </div>
+      <div class="form-actions nexus-update-fallback-actions"></div>
+    `;
+    settingsView.appendChild(panel);
+    return panel;
+  }
+
+  function findActions() {
     const center = $('nexusUpdateCenter');
-    const actions = center?.querySelector('.form-actions');
+    const settingsPanel = document.querySelector('#view-settings .settings-list');
+    let actions = center?.querySelector('.form-actions')
+      || settingsPanel?.querySelector('.form-actions')
+      || document.querySelector('#view-settings .form-actions');
+
+    if (!actions) {
+      const fallback = ensureFallbackCenter();
+      actions = fallback?.querySelector('.form-actions') || null;
+    }
+
+    return { center, actions };
+  }
+
+  function ensureControls() {
+    const { center, actions } = findActions();
     if (center) {
       const description = center.querySelector('.panel-heading p');
       if (description) {
         description.textContent = 'Check once, download the update, then use Install & Restart. A verified backup is mandatory before installation.';
       }
-    }
-
-    for (const id of ['checkUpdatesButton', 'downloadUpdateButton', 'installUpdateButton']) {
-      const legacy = $(id);
-      if (legacy) legacy.classList.add('hidden');
     }
 
     if (actions && !$('nexusSimpleUpdatePrimary')) {
@@ -62,9 +92,17 @@
       button.className = 'button primary nexus-simple-update-primary';
       button.type = 'button';
       const release = $('nexusUpdateRelease');
-      if (release) actions.insertBefore(button, release);
+      const backup = $('exportBackupButton');
+      if (release && release.parentElement === actions) actions.insertBefore(button, release);
+      else if (backup && backup.parentElement === actions) actions.insertBefore(button, backup);
       else actions.appendChild(button);
       button.addEventListener('click', () => runSimpleUpdate().catch(() => {}));
+    }
+
+    const replacementReady = Boolean($('nexusSimpleUpdatePrimary'));
+    for (const id of ['checkUpdatesButton', 'downloadUpdateButton', 'installUpdateButton']) {
+      const legacy = $(id);
+      if (legacy) legacy.classList.toggle('hidden', replacementReady);
     }
 
     const banner = $('nexusUpdateBanner');
