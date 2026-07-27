@@ -1,0 +1,3 @@
+# v0.18.16 validation
+
+Validate the exact live-device failure exposed by `startup-core-release-diagnostics.json`: startup must not release merely because IPC and configuration are ready while UI modules continue changing the document. Require repeated main-window discovery, three seconds of continuous usable interface structure before release, continuous post-release inspection, blank-surface capture detection, AppData watchdog state and logs on healthy and failed runs, recovery UI and automatic report queueing on failure, and navigation safe mode that preserves the original v0.18.11 DOM. Preserve the visible updater, mandatory verified pre-update backup, scrolling fixes, portable diagnostics, server control, Discord automation, and Windows installer/portable packaging.
