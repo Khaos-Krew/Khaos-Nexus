@@ -57,7 +57,7 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.18.12 retains sandbox startup, core release, and immediate portable diagnostics', () => {
+test('v0.18.13 retains sandbox startup, core release, and immediate portable diagnostics', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
   const health = read('main/startup-health-extension.cjs');
@@ -70,7 +70,7 @@ test('v0.18.12 retains sandbox startup, core release, and immediate portable dia
   const preload = read('main/preload.cjs');
   const portableBootstrap = read('main/portable-bootstrap-extension.cjs');
 
-  assert.equal(packageJson.version, '0.18.12');
+  assert.equal(packageJson.version, '0.18.13');
   assert.match(packageJson.description, /immediate portable sidecar logs and diagnostics/i);
   assert.match(packageJson.description, /canonical v0\.17-compatible AppData configuration/i);
   assert.match(packageJson.description, /sandbox-compatible main preload/i);
