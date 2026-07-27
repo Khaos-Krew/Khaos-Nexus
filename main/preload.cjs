@@ -17,12 +17,13 @@ function isExpectedAccessDenial(value) {
   return requiresRole && authorizationReason;
 }
 
-function reportPreloadFailure(error, stage) {
+function reportPreloadFailure(error, stage, detail = {}) {
   try {
     ipcRenderer.send('startup-health:preload-failed', {
       stage: String(stage || 'unknown').slice(0, 100),
       message: String(error?.message || error || 'Unknown preload failure').slice(0, 1600),
       stack: String(error?.stack || '').slice(0, 12000),
+      detail: detail && typeof detail === 'object' ? detail : {},
       time: new Date().toISOString()
     });
   } catch {}
@@ -39,6 +40,7 @@ try {
     'startup-health:renderer-ready'
   ]);
   let lastInteraction = null;
+  let rendererReadyReported = false;
 
   function sendRendererHeartbeat() {
     ipcRenderer.invoke('stability:heartbeat').catch(() => {});
@@ -109,6 +111,53 @@ try {
     }
   }
 
+  function interfaceSnapshot() {
+    const href = String(window.location?.href || '');
+    const shell = document.querySelector('.app-shell');
+    const sidebar = document.querySelector('.sidebar');
+    const content = document.querySelector('.content');
+    const activeView = document.querySelector('.view.active');
+    return {
+      href,
+      readyState: document.readyState,
+      expectedDocument: href.startsWith('file:') && /\/renderer\/index\.html(?:[?#]|$)/i.test(href.replace(/\\/g, '/')),
+      hasShell: Boolean(shell),
+      hasSidebar: Boolean(sidebar),
+      hasContent: Boolean(content),
+      hasActiveView: Boolean(activeView),
+      activeViewId: cleanText(activeView?.id || '', 100),
+      bodyChildCount: Number(document.body?.children?.length || 0),
+      bodyTextLength: cleanText(document.body?.innerText || '', 20000).length
+    };
+  }
+
+  function reportRendererReadyWhenInterfaceExists() {
+    if (rendererReadyReported) return;
+    const snapshot = interfaceSnapshot();
+    if (snapshot.href === 'about:blank' || !snapshot.href) return;
+
+    const valid = snapshot.expectedDocument && snapshot.hasShell && snapshot.hasSidebar && snapshot.hasContent && snapshot.hasActiveView;
+    if (!valid) {
+      const error = new Error(`The Khaos Nexus interface document did not contain the required application shell. URL: ${snapshot.href || 'unknown'}`);
+      reportRendererActionError({
+        source: 'startup-interface',
+        channel: 'startup-health:renderer-ready',
+        operation: 'verify-main-interface',
+        view: snapshot.activeViewId || 'unavailable',
+        error
+      });
+      reportPreloadFailure(error, 'interface-verification', snapshot);
+      return;
+    }
+
+    rendererReadyReported = true;
+    ipcRenderer.invoke('startup-health:renderer-ready', snapshot).catch((error) => {
+      rendererReadyReported = false;
+      reportRendererActionError({ source: 'startup-health', channel: 'startup-health:renderer-ready', error });
+      reportPreloadFailure(error, 'renderer-ready-acknowledgement', snapshot);
+    });
+  }
+
   try {
     window.addEventListener('click', (event) => {
       lastInteraction = elementContext(event.target);
@@ -137,10 +186,11 @@ try {
     onRendererErrors: (callback) => subscribe('renderer-errors:update', callback)
   });
 
-  ipcRenderer.invoke('startup-health:renderer-ready').catch((error) => {
-    reportRendererActionError({ source: 'startup-health', channel: 'startup-health:renderer-ready', error });
-    reportPreloadFailure(error, 'renderer-ready-acknowledgement');
-  });
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', reportRendererReadyWhenInterfaceExists, { once: true });
+  } else {
+    queueMicrotask(reportRendererReadyWhenInterfaceExists);
+  }
 } catch (error) {
   reportPreloadFailure(error, 'preload-initialization');
 }
