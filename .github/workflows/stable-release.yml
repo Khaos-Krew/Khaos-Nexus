@@ -4,36 +4,67 @@ on:
   push:
     branches:
       - "release/v*"
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    branches:
+      - "release/v*"
 
 permissions:
   contents: write
 
 concurrency:
-  group: stable-release-${{ github.ref }}
+  group: stable-release-${{ github.event.pull_request.base.ref || github.ref }}
   cancel-in-progress: false
 
 jobs:
   publish-windows-release:
+    if: >-
+      github.event_name == 'push' ||
+      (
+        github.event_name == 'pull_request_target' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        startsWith(github.event.pull_request.head.ref, 'publish/v')
+      )
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out validated release source only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || github.sha }}
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Validate release branch and package version
+      - name: Validate release source, approval branch, and package version
         id: version
         shell: pwsh
         run: |
           $package = Get-Content package.json -Raw | ConvertFrom-Json
           $version = [string]$package.version
-          $expectedBranch = "release/v$version"
-          if ($env:GITHUB_REF_NAME -ne $expectedBranch) {
-            throw "Release branch '$env:GITHUB_REF_NAME' does not match package version '$version'. Expected '$expectedBranch'."
+          $expectedReleaseBranch = "release/v$version"
+          $releaseBranch = if ($env:GITHUB_EVENT_NAME -eq 'pull_request_target') { "${{ github.event.pull_request.base.ref }}" } else { $env:GITHUB_REF_NAME }
+          $targetSha = if ($env:GITHUB_EVENT_NAME -eq 'pull_request_target') { "${{ github.event.pull_request.base.sha }}" } else { $env:GITHUB_SHA }
+
+          if ($releaseBranch -ne $expectedReleaseBranch) {
+            throw "Release branch '$releaseBranch' does not match package version '$version'. Expected '$expectedReleaseBranch'."
           }
+
+          if ($env:GITHUB_EVENT_NAME -eq 'pull_request_target') {
+            $expectedApprovalBranch = "publish/v$version"
+            $approvalBranch = "${{ github.event.pull_request.head.ref }}"
+            $headRepository = "${{ github.event.pull_request.head.repo.full_name }}"
+            if ($headRepository -ne $env:GITHUB_REPOSITORY) {
+              throw "Stable publication approval must originate from the same repository."
+            }
+            if ($approvalBranch -ne $expectedApprovalBranch) {
+              throw "Approval branch '$approvalBranch' does not match '$expectedApprovalBranch'."
+            }
+          }
+
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "tag=v$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "target_sha=$targetSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Install dependencies
         run: npm install
@@ -72,13 +103,14 @@ jobs:
         run: |
           $version = "${{ steps.version.outputs.version }}"
           $tag = "${{ steps.version.outputs.tag }}"
+          $targetSha = "${{ steps.version.outputs.target_sha }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) { throw "Stable release $tag already exists. Increase package.json before publishing again." }
 
           @"
           ## Khaos Nexus $tag
 
-          This is a validated stable Windows release for the Khaos Nexus in-app update channel.
+          This validated Windows maintenance release simplifies navigation while retaining the verified startup, scrolling, portable diagnostics, and protected update flow.
 
           ### Included
           - Windows installer
@@ -87,10 +119,10 @@ jobs:
           - NSIS blockmap
           - SHA-256 checksum manifest
 
-          The release was rebuilt from commit `$env:GITHUB_SHA` and passed the complete tests and syntax checks before publication.
+          The release was rebuilt from validated release commit `$targetSha` and passed the complete tests and syntax checks before publication.
           "@ | Set-Content -Path release-notes.md -Encoding utf8
 
-          gh release create $tag --target $env:GITHUB_SHA --title "Khaos Nexus $tag" --notes-file release-notes.md --draft
+          gh release create $tag --target $targetSha --title "Khaos Nexus $tag" --notes-file release-notes.md --draft
           if ($LASTEXITCODE -ne 0) { throw "GitHub draft release creation failed." }
 
           $assets = Get-ChildItem dist -File | Where-Object { $_.Extension -in '.exe', '.yml', '.blockmap' }
