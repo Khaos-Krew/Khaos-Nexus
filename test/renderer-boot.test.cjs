@@ -61,7 +61,7 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.18.16 retains startup foundations and requires a continuously visible interface', () => {
+test('v0.18.17 retains startup foundations and reports a blocked renderer from the main process', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
   const health = read('main/startup-health-extension.cjs');
@@ -74,12 +74,13 @@ test('v0.18.16 retains startup foundations and requires a continuously visible i
   const preload = read('main/preload.cjs');
   const portableBootstrap = read('main/portable-bootstrap-extension.cjs');
   const watchdog = read('main/interface-watchdog-extension.cjs');
+  const unresponsive = read('main/renderer-unresponsive-extension.cjs');
 
-  assert.equal(packageJson.version, '0.18.16');
+  assert.equal(packageJson.version, '0.18.17');
+  assert.match(packageJson.description, /bounded idempotent in-app updater UI/i);
+  assert.match(packageJson.description, /renderer-unresponsive reporting/i);
   assert.match(packageJson.description, /continuous visible-interface startup gate/i);
-  assert.match(packageJson.description, /repeated main-window discovery/i);
-  assert.match(packageJson.description, /post-release blank-surface detection/i);
-  assert.match(packageJson.description, /always-visible in-app update control/i);
+  assert.match(packageJson.description, /safe original navigation structure/i);
   assert.match(packageJson.description, /immediate portable sidecar logs and diagnostics/i);
   assert.match(packageJson.description, /canonical v0\.17-compatible AppData configuration/i);
   assert.match(packageJson.description, /sandbox-compatible main preload/i);
@@ -88,7 +89,12 @@ test('v0.18.16 retains startup foundations and requires a continuously visible i
   assert.match(entry, /startup-core-release-extension\.cjs/);
   assert.match(entry, /startup-preload-diagnostics-extension\.cjs/);
   assert.match(entry, /interface-watchdog-extension\.cjs/);
+  assert.match(entry, /renderer-unresponsive-extension\.cjs/);
   assert.doesNotMatch(entry, /startup-release-fallback-extension\.cjs/);
+  assert.match(unresponsive, /window\.on\('unresponsive'/);
+  assert.match(unresponsive, /window\.webContents\.on\('unresponsive'/);
+  assert.match(unresponsive, /watchdog\.reportFailure/);
+  assert.match(unresponsive, /renderer-unresponsive/);
   assert.match(watchdog, /DISCOVERY_INTERVAL_MS = 250/);
   assert.match(watchdog, /INSPECTION_INTERVAL_MS = 500/);
   assert.match(watchdog, /INTERFACE_STABILITY_MS = 3000/);
@@ -133,10 +139,17 @@ test('v0.18.16 retains startup foundations and requires a continuously visible i
   assert.match(monitor, /ERROR_BATCH_INTERVAL_MS = 30 \* 60 \* 1000/);
 });
 
-test('updater always exposes a control and retains protected install flow', () => {
+test('updater uses bounded idempotent reconciliation and retains protected install flow', () => {
   const updater = read('renderer/simple-updater.js');
   const extension = read('main/brand-update-extension.cjs');
   const flow = read('shared/update-flow.cjs');
+  assert.doesNotThrow(() => new Function(updater));
+  assert.match(updater, /RECONCILE_DELAYS_MS = Object\.freeze\(\[250, 1000, 3000\]\)/);
+  assert.match(updater, /function setText\(element, value\)/);
+  assert.match(updater, /if \(element\.textContent !== next\) element\.textContent = next/);
+  assert.match(updater, /scheduleBoundedReconciliation/);
+  assert.doesNotMatch(updater, /new MutationObserver/);
+  assert.doesNotMatch(updater, /observer\.observe\(document\.body/);
   assert.match(updater, /settingsPanel\?\.querySelector\('\.form-actions'\)/);
   assert.match(updater, /ensureFallbackCenter/);
   assert.match(updater, /replacementReady/);
