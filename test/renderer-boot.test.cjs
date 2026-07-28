@@ -61,7 +61,7 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.18.18 retains startup foundations and reports a blocked renderer from the main process', () => {
+test('v0.18.19 retains startup foundations and reports a blocked renderer from the main process', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
   const health = read('main/startup-health-extension.cjs');
@@ -76,7 +76,7 @@ test('v0.18.18 retains startup foundations and reports a blocked renderer from t
   const watchdog = read('main/interface-watchdog-extension.cjs');
   const unresponsive = read('main/renderer-unresponsive-extension.cjs');
 
-  assert.equal(packageJson.version, '0.18.18');
+  assert.equal(packageJson.version, '0.18.19');
   assert.match(packageJson.description, /bounded idempotent in-app updater UI/i);
   assert.match(packageJson.description, /renderer-unresponsive reporting/i);
   assert.match(packageJson.description, /continuous visible-interface startup gate/i);
