@@ -61,7 +61,7 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.18.19 retains startup foundations and reports a blocked renderer from the main process', () => {
+test('v0.18.20 retains startup foundations and reports a blocked renderer from the main process', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
   const health = read('main/startup-health-extension.cjs');
@@ -76,11 +76,12 @@ test('v0.18.19 retains startup foundations and reports a blocked renderer from t
   const watchdog = read('main/interface-watchdog-extension.cjs');
   const unresponsive = read('main/renderer-unresponsive-extension.cjs');
 
-  assert.equal(packageJson.version, '0.18.19');
-  assert.match(packageJson.description, /bounded idempotent in-app updater UI/i);
+  assert.equal(packageJson.version, '0.18.20');
+  assert.match(packageJson.description, /safe grouped proxy navigation/i);
+  assert.match(packageJson.description, /always-visible in-app update center/i);
+  assert.match(packageJson.description, /bounded idempotent updater UI/i);
   assert.match(packageJson.description, /renderer-unresponsive reporting/i);
   assert.match(packageJson.description, /continuous visible-interface startup gate/i);
-  assert.match(packageJson.description, /safe original navigation structure/i);
   assert.match(packageJson.description, /immediate portable sidecar logs and diagnostics/i);
   assert.match(packageJson.description, /canonical v0\.17-compatible AppData configuration/i);
   assert.match(packageJson.description, /sandbox-compatible main preload/i);
@@ -144,14 +145,14 @@ test('updater uses bounded idempotent reconciliation and retains protected insta
   const extension = read('main/brand-update-extension.cjs');
   const flow = read('shared/update-flow.cjs');
   assert.doesNotThrow(() => new Function(updater));
-  assert.match(updater, /RECONCILE_DELAYS_MS = Object\.freeze\(\[250, 1000, 3000\]\)/);
+  assert.match(updater, /RECONCILE_DELAYS_MS = Object\.freeze\(\[250, 1000, 3000, 6000\]\)/);
   assert.match(updater, /function setText\(element, value\)/);
   assert.match(updater, /if \(element\.textContent !== next\) element\.textContent = next/);
   assert.match(updater, /scheduleBoundedReconciliation/);
   assert.doesNotMatch(updater, /new MutationObserver/);
   assert.doesNotMatch(updater, /observer\.observe\(document\.body/);
-  assert.match(updater, /settingsPanel\?\.querySelector\('\.form-actions'\)/);
   assert.match(updater, /ensureFallbackCenter/);
+  assert.match(updater, /nexusHeaderUpdateButton/);
   assert.match(updater, /replacementReady/);
   assert.match(updater, /Download v\$\{update\.version/);
   assert.match(updater, /Install & Restart/);
