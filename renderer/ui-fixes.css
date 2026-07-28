@@ -1,6 +1,7 @@
 @import url('scroll-layout.css');
+@import url('navigation-shell.css');
 
-/* Khaos Nexus v0.13 usability corrections */
+/* Khaos Nexus usability corrections */
 html,
 body,
 select,
@@ -33,6 +34,22 @@ select:disabled {
   color: #777f8e !important;
 }
 
+/* Static proxy navigation leaves the working original buttons in place. */
+body:not(.nexus-static-navigation-active) .sidebar > .nav-label {
+  display: block !important;
+}
+
+.nexus-original-nav-item {
+  display: none !important;
+}
+
+.nexus-navigation-link strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 #nexusUpdateCheck,
 #nexusUpdateDownload,
 #nexusUpdateInstall,
@@ -40,12 +57,63 @@ select:disabled {
   display: none !important;
 }
 
-.nexus-simple-update-primary {
+.nexus-simple-update-primary,
+.nexus-header-update-button {
   min-width: 178px;
 }
 
-.nexus-simple-update-primary.busy {
+.nexus-simple-update-primary.busy,
+.nexus-header-update-button.busy {
   cursor: progress;
+}
+
+.nexus-header-update-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.nexus-update-fallback-center {
+  max-width: none;
+  margin-bottom: 18px;
+  border-color: rgba(229, 45, 62, .34);
+  background: linear-gradient(135deg, rgba(52, 11, 24, .72), rgba(13, 16, 23, .98) 58%);
+}
+
+.nexus-update-fallback-center .panel-heading {
+  align-items: flex-start;
+}
+
+.nexus-update-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.nexus-update-summary > div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #2b303c;
+  border-radius: 10px;
+  background: rgba(7, 9, 13, .58);
+}
+
+.nexus-update-summary span,
+.nexus-update-summary small {
+  display: block;
+  color: var(--muted);
+}
+
+.nexus-update-summary strong {
+  display: block;
+  overflow: hidden;
+  margin: 5px 0 2px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nexus-update-fallback-status {
+  margin: 14px 0 0;
 }
 
 .nexus-simple-banner-action {
@@ -57,8 +125,20 @@ select:disabled {
   display: none !important;
 }
 
+@media (max-width: 900px) {
+  .nexus-update-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .nexus-header-update-button {
+    min-width: 0;
+  }
+}
+
 @media (max-width: 760px) {
-  .nexus-simple-banner-action {
+  .nexus-simple-banner-action,
+  .nexus-simple-update-primary,
+  .nexus-header-update-button {
     width: 100%;
     margin-left: 0;
   }
