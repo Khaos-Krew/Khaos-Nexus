@@ -164,7 +164,7 @@ function renderStatusPanel(panelInput, snapshotInput, options = {}) {
     payload.components = [{
       type: 1,
       components: [
-        { type: 2, style: 1, label: 'Refresh Status', custom_id: statusButtonId('refresh', panel.id), emoji: { name: '↻' } },
+        { type: 2, style: 1, label: 'Refresh Status', custom_id: statusButtonId('refresh', panel.id), emoji: { name: '🔄' } },
         { type: 2, style: 2, label: 'Show Players', custom_id: statusButtonId('players', panel.id), emoji: { name: '👥' } }
       ]
     }];
