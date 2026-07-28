@@ -29,11 +29,12 @@ test('safe UI layer preserves original navigation containers and scrolling', () 
   assert.match(extension, /addScript\('navigation-shell\.js'\)/);
 });
 
-test('v0.18.18 is configured for the guarded in-app GitHub release channel', () => {
+test('v0.18.19 is configured for the guarded in-app GitHub release channel', () => {
   const packageJson = JSON.parse(read('package.json'));
-  const notes = read('release-notes/v0.18.18.md');
+  const notes = read('release-notes/v0.18.19.md');
   const workflow = read('.github/workflows/stable-release.yml');
-  assert.equal(packageJson.version, '0.18.18');
+  assert.equal(packageJson.version, '0.18.19');
+  assert.match(packageJson.description, /compact production dashboard density/i);
   assert.match(packageJson.description, /synchronized live Discord runtime status/i);
   assert.match(packageJson.description, /spawn-confirmed supervised process IDs/i);
   assert.match(packageJson.description, /bounded idempotent in-app updater UI/i);
@@ -42,11 +43,13 @@ test('v0.18.18 is configured for the guarded in-app GitHub release channel', () 
   assert.equal(packageJson.build.publish[0].provider, 'github');
   assert.equal(packageJson.build.publish[0].releaseType, 'release');
   assert.equal(packageJson.build.publish[0].tagNamePrefix, 'v');
-  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.18.18.md');
+  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.18.19.md');
+  assert.match(notes, /Production UI cleanup/i);
   assert.match(notes, /Discord runtime state synchronization/i);
   assert.match(notes, /older startup snapshot/i);
   assert.match(notes, /utility-process PID/i);
   assert.match(notes, /v0\.18\.17 startup and renderer-unfreeze behavior/i);
+  assert.match(notes, /original-DOM navigation safe mode/i);
   assert.match(workflow, /branches:\s*\n\s*- "release\/v\*"/);
   assert.match(workflow, /pull_request_target/);
   assert.match(workflow, /github\.event\.pull_request\.head\.repo\.full_name == github\.repository/);
