@@ -35,7 +35,7 @@ test('nested logs and diagnostic outputs retain their own scrolling', () => {
   }
 });
 
-test('v0.18.18 retains verified startup, scrolling, safe navigation, updater, and portable foundations', () => {
+test('v0.18.19 retains verified startup, scrolling, safe navigation, updater, and portable foundations', () => {
   const packageJson = JSON.parse(read('package.json'));
   const preload = read('main/preload.cjs');
   const portable = read('main/portable-bootstrap-extension.cjs');
@@ -43,7 +43,8 @@ test('v0.18.18 retains verified startup, scrolling, safe navigation, updater, an
   const entry = read('main/entry.cjs');
   const watchdog = read('main/interface-watchdog-extension.cjs');
   const updater = read('renderer/simple-updater.js');
-  assert.equal(packageJson.version, '0.18.18');
+  assert.equal(packageJson.version, '0.18.19');
+  assert.match(packageJson.description, /compact production dashboard density/i);
   assert.match(packageJson.description, /independently scrollable navigation and workspace panes/i);
   assert.match(packageJson.description, /safe original navigation structure/i);
   assert.match(packageJson.description, /always-visible in-app update control/i);
