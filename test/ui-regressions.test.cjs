@@ -26,3 +26,16 @@ test('simplified updater exposes explicit download and install steps', () => {
   assert.match(source, /downloadUpdateButton/);
   assert.match(source, /installUpdateButton/);
 });
+
+test('production dashboard cleanup reduces density without hiding runtime surfaces', () => {
+  const css = fs.readFileSync(path.join(root, 'renderer', 'nexus-shell-v14.css'), 'utf8');
+  assert.match(css, /\.nexus-shell-v14 \.app-shell\s*\{[^}]*grid-template-columns:\s*258px minmax\(0, 1fr\)/s);
+  assert.match(css, /\.nexus-shell-v14 \.nav-item\s*\{[^}]*min-height:\s*39px[^}]*white-space:\s*nowrap/s);
+  assert.match(css, /\.nexus-task-rail\s*\{[^}]*repeat\(auto-fit, minmax\(225px, 1fr\)\)/s);
+  assert.match(css, /\.nexus-shell-v14 \.hero-panel\s*\{[^}]*min-height:\s*154px/s);
+  assert.match(css, /\.nexus-shell-v14 \.metric-card\s*\{[^}]*min-height:\s*108px/s);
+  assert.match(css, /\.nexus-shell-v14 \.button\.primary:disabled/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.doesNotMatch(css, /#view-dashboard\s*\{[^}]*display:\s*none/s);
+  assert.doesNotMatch(css, /\.nexus-task-rail\s*\{[^}]*display:\s*none/s);
+});
