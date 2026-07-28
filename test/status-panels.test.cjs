@@ -57,6 +57,15 @@ test('rendered status panel exposes names only when privacy option is enabled', 
   assert.doesNotMatch(publicText, /private-user-id|private-player-id|192\.0\.2\.1/);
 });
 
+test('status panel buttons use Discord-valid emoji instead of the rejected text glyph', () => {
+  const payload = renderStatusPanel({ id: 'palworld-panel' }, {
+    status: 'online', serverName: 'Nexus Palworld', game: 'palworld', connectionLabel: 'Palworld REST'
+  });
+  assert.equal(payload.components[0].components[0].emoji.name, '🔄');
+  assert.equal(payload.components[0].components[1].emoji.name, '👥');
+  assert.doesNotMatch(JSON.stringify(payload), /↻/);
+});
+
 test('automatic refresh only runs for enabled published panels that are due', () => {
   const now = new Date('2026-07-24T12:10:00.000Z').getTime();
   assert.equal(dueForRefresh({ enabled: true, channelId: '123456', messageId: '654321', refreshMinutes: 5, lastRefreshedAt: '2026-07-24T12:00:00.000Z' }, now), true);
@@ -106,6 +115,8 @@ test('status panel service publishes a persistent public-safe Palworld message',
   const sent = JSON.stringify(calls[0].body);
   assert.match(sent, /Palworld Status/);
   assert.match(sent, /1 \/ 16/);
+  assert.match(sent, /🔄/);
+  assert.doesNotMatch(sent, /↻/);
   assert.doesNotMatch(sent, /private-id|192\.0\.2\.10|secret/);
 
   await service.refresh({
