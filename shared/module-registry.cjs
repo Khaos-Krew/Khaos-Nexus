@@ -52,6 +52,13 @@ const IMPLEMENTED_PATCHES = Object.freeze({
 
 const ADDITIONAL_MODULES = Object.freeze([
   {
+    id: 'rust-server-operations', name: 'Rust Server Operations', category: 'Server Operations', workspace: 'Operations',
+    stage: 'live', availability: 'implemented', priority: 15, launchView: 'servers', requiredRole: 'viewer',
+    description: 'Vanilla-safe Rust WebRCON status, players, saves, announcements, moderation, guarded console access and Discord status panels.',
+    features: ['WebRCON status', 'JSON player list', 'World save', 'Announcements', 'Kick, ban and unban', 'Owner raw console', 'Confirmed shutdown', 'Discord status panels'],
+    sourceRoutes: ['/rust', '/servers/rust'], dependencies: ['game-server-control']
+  },
+  {
     id: 'discord-observability', name: 'Discord Observability', category: 'Discord Automation', workspace: 'Discord',
     stage: 'live', availability: 'implemented', priority: 19, launchView: 'discord-observability', requiredRole: 'viewer',
     description: 'Discord heartbeat, release, error and server-health delivery with protected routing and retained history.',
@@ -69,6 +76,7 @@ const ADDITIONAL_MODULES = Object.freeze([
 
 const VIEW_RULES = Object.freeze({
   // Discord Setup remains visible so an access-controlled Owner can always authenticate and re-enable the bot runtime.
+  // Game Servers remains visible when a game adapter is disabled so the Owner can repair its configuration.
   servers: { allOf: ['game-server-control'] },
   monitor: { allOf: ['application-monitor'] },
   operator: { allOf: ['operator-console'] },
@@ -211,6 +219,14 @@ function decisionEnabled(runtime, decision) {
   return true;
 }
 
+function configuredServer(configStore, id) {
+  try {
+    return configStore?.getConfig?.().servers?.find((server) => String(server.id) === String(id)) || null;
+  } catch {
+    return null;
+  }
+}
+
 function moduleDecisionForChannel(channel, args = [], configStore = null) {
   const name = String(channel || '');
   if (!name || name.startsWith('modules:') || name.startsWith('startup-health:') || name.startsWith('stability:')) return null;
@@ -218,6 +234,12 @@ function moduleDecisionForChannel(channel, args = [], configStore = null) {
   if (name.startsWith('discord-auth:')) return null;
   if (name.startsWith('bot:') || ['config:save-discord', 'secret:set-discord-token'].includes(name)) return { allOf: ['discord-runtime'] };
   if (name === 'server:palworld-action') return { allOf: ['palworld-operations'] };
+  if (name === 'server:rust-action') return { allOf: ['rust-server-operations'] };
+  if (name === 'server:test') {
+    const server = configuredServer(configStore, args?.[0]);
+    if (String(server?.game || '').toLowerCase() === 'rust') return { allOf: ['game-server-control', 'rust-server-operations'] };
+    if (String(server?.game || '').toLowerCase() === 'palworld') return { allOf: ['game-server-control', 'palworld-operations'] };
+  }
   if (name.startsWith('server:')) return { allOf: ['game-server-control'] };
   if (name.startsWith('autonomy:')) return { allOf: ['operator-console'] };
   if (name.startsWith('status-panels:')) return { allOf: ['server-status-panels'] };
