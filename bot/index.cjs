@@ -7,7 +7,7 @@ const {
   REST,
   Routes
 } = require('discord.js');
-const { createCommands, isAdministrator, requiresAdministrator } = require('./commands.cjs');
+const { createCommands, isAdministrator, requiresAdministrator, COMMAND_MODULES } = require('./commands.cjs');
 const { ServerConnection, isPalworldRest } = require('./server-client.cjs');
 const { redactText, errorFingerprint } = require('../shared/redaction.cjs');
 
@@ -15,6 +15,7 @@ const parent = process.parentPort;
 let client = null;
 let bootstrap = null;
 let heartbeatTimer = null;
+let commandRegistrationTimer = null;
 let readyAt = null;
 
 function send(type, payload = {}) {
@@ -31,8 +32,61 @@ function log(level, message, meta = {}) {
   });
 }
 
+function mutateBootstrap(target, source) {
+  if (!target || !source || typeof target !== 'object' || typeof source !== 'object') return source || target;
+  for (const key of Object.keys(target)) delete target[key];
+  Object.assign(target, source);
+  target.secretValues = [target.discordToken, ...(target.config?.servers || []).map((server) => server.password).filter(Boolean)];
+  return target;
+}
+
+function moduleRuntime(id) {
+  return bootstrap?.config?.moduleRuntime?.[id] || null;
+}
+
+function isModuleEnabled(id) {
+  const state = moduleRuntime(id);
+  return state ? Boolean(state.effectiveEnabled) : true;
+}
+
+function moduleName(id) {
+  const names = {
+    'discord-runtime': 'Discord Runtime',
+    'game-server-control': 'Game Server Control',
+    'palworld-operations': 'Palworld Operations',
+    'ark-server-operations': 'ARK Server Operations',
+    'other-game-operations': 'Additional Game Operations'
+  };
+  return names[id] || id;
+}
+
+function moduleDisabledError(id) {
+  const state = moduleRuntime(id) || {};
+  const suffix = state.reason === 'dependency-disabled' && state.blockedBy?.length
+    ? ` It is blocked by ${state.blockedBy.map(moduleName).join(', ')}.`
+    : state.reason === 'not-implemented' ? ' It is not implemented in this build.' : ' It is disabled by the owner.';
+  const error = new Error(`${moduleName(id)} is unavailable.${suffix}`);
+  error.code = 'MODULE_DISABLED';
+  return error;
+}
+
+function assertModule(id) {
+  if (!isModuleEnabled(id)) throw moduleDisabledError(id);
+}
+
+function serverModuleId(server) {
+  const game = String(server?.game || 'generic').toLowerCase();
+  if (game === 'palworld') return 'palworld-operations';
+  if (game === 'ark') return 'ark-server-operations';
+  return 'other-game-operations';
+}
+
+function serverAvailable(server) {
+  return isModuleEnabled('game-server-control') && isModuleEnabled(serverModuleId(server));
+}
+
 function getServer(name) {
-  const servers = bootstrap.config.servers.filter((server) => server.enabled !== false);
+  const servers = (bootstrap?.config?.servers || []).filter((server) => server.enabled !== false && serverAvailable(server));
   if (!name && servers.length === 1) return servers[0];
   return servers.find((server) => server.name.toLowerCase() === String(name || '').toLowerCase());
 }
@@ -97,12 +151,38 @@ function formatResult(action, result) {
   return JSON.stringify(result, null, 2);
 }
 
+async function registerCommands() {
+  if (!client?.isReady?.() || !bootstrap?.discordToken) return 0;
+  const commands = createCommands({ isModuleEnabled });
+  const rest = new REST({ version: '10' }).setToken(bootstrap.discordToken);
+  const route = bootstrap.config.discord.guildId
+    ? Routes.applicationGuildCommands(client.user.id, bootstrap.config.discord.guildId)
+    : Routes.applicationCommands(client.user.id);
+  await rest.put(route, { body: commands });
+  log('info', `Registered ${commands.length} module-aware Discord commands.`);
+  return commands.length;
+}
+
+function scheduleCommandRegistration() {
+  clearTimeout(commandRegistrationTimer);
+  commandRegistrationTimer = setTimeout(() => {
+    registerCommands().catch((error) => {
+      const id = errorFingerprint(error);
+      log('error', `Discord command refresh failed [${id}]: ${error.stack || error.message}`);
+      send('error', { id, message: error.message, stack: error.stack });
+    });
+  }, 1200);
+  commandRegistrationTimer.unref?.();
+}
+
 async function executeServerAction(interaction, command) {
+  assertModule('game-server-control');
   const server = getServer(interaction.options.getString('server'));
   if (!server) {
-    await interaction.reply({ content: 'That server is not configured or enabled.', ephemeral: true });
+    await interaction.reply({ content: 'That server is not configured, enabled, or its game module is disabled.', ephemeral: true });
     return;
   }
+  assertModule(serverModuleId(server));
   if (!server.password) {
     await interaction.reply({ content: 'That server is missing its protected AdminPassword or RCON password.', ephemeral: true });
     return;
@@ -136,9 +216,13 @@ async function executeServerAction(interaction, command) {
 
 async function handleInteraction(interaction) {
   if (interaction.isAutocomplete()) {
+    if (!isModuleEnabled('game-server-control')) {
+      await interaction.respond([]);
+      return;
+    }
     const focused = interaction.options.getFocused().toLowerCase();
-    const choices = bootstrap.config.servers
-      .filter((server) => server.enabled !== false && server.name.toLowerCase().includes(focused))
+    const choices = (bootstrap?.config?.servers || [])
+      .filter((server) => server.enabled !== false && serverAvailable(server) && server.name.toLowerCase().includes(focused))
       .slice(0, 25)
       .map((server) => ({ name: `${server.name} (${server.game} ${isPalworldRest(server) ? 'REST' : 'RCON'})`, value: server.name }));
     await interaction.respond(choices);
@@ -147,6 +231,11 @@ async function handleInteraction(interaction) {
 
   if (!interaction.isChatInputCommand()) return;
   const command = interaction.commandName;
+  const commandModule = COMMAND_MODULES[command] || 'discord-runtime';
+  if (!isModuleEnabled(commandModule)) {
+    await interaction.reply({ content: moduleDisabledError(commandModule).message, ephemeral: true });
+    return;
+  }
 
   if (requiresAdministrator(command) && !isAdministrator(interaction, bootstrap.config.discord.ownerUserId)) {
     await interaction.reply({ content: 'This command requires the configured bot owner or a Discord administrator.', ephemeral: true });
@@ -168,10 +257,10 @@ async function handleInteraction(interaction) {
   }
 
   if (command === 'listservers') {
-    const servers = bootstrap.config.servers.filter((server) => server.enabled !== false);
+    const servers = (bootstrap?.config?.servers || []).filter((server) => server.enabled !== false && serverAvailable(server));
     const lines = servers.length
       ? servers.map((server) => `• ${server.name} — ${server.game} (${isPalworldRest(server) ? 'REST API' : 'RCON'})`).join('\n')
-      : 'No servers are enabled.';
+      : 'No servers are enabled for the currently active modules.';
     await interaction.reply({ content: lines, ephemeral: true });
     return;
   }
@@ -190,6 +279,7 @@ async function start(payload) {
   bootstrap.secretValues = [payload.discordToken, ...payload.config.servers.map((server) => server.password).filter(Boolean)];
 
   if (!payload.discordToken) throw new Error('Discord bot token is not configured.');
+  assertModule('discord-runtime');
 
   client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
@@ -208,19 +298,13 @@ async function start(payload) {
     (async () => {
       readyAt = new Date().toISOString();
       clearTimeout(startupTimer);
-      const commands = createCommands();
-      const rest = new REST({ version: '10' }).setToken(payload.discordToken);
-      const route = payload.config.discord.guildId
-        ? Routes.applicationGuildCommands(client.user.id, payload.config.discord.guildId)
-        : Routes.applicationCommands(client.user.id);
-
-      await rest.put(route, { body: commands });
-      log('info', `Logged in as ${client.user.tag}; registered ${commands.length} commands.`);
+      const registeredCommands = await registerCommands();
+      log('info', `Logged in as ${client.user.tag}; registered ${registeredCommands} commands.`);
       send('ready', {
         username: client.user.tag,
         userId: client.user.id,
         guildCount: client.guilds.cache.size,
-        registeredCommands: commands.length,
+        registeredCommands,
         readyAt
       });
 
@@ -246,11 +330,14 @@ async function start(payload) {
   client.on(Events.InteractionCreate, (interaction) => {
     handleInteraction(interaction).catch(async (error) => {
       const id = errorFingerprint(error);
-      log('error', `Interaction failed [${id}]: ${error.stack || error.message}`);
-      const content = `Command failed. Error ID: **${id}** — ${String(error.message || 'Unknown error').slice(0, 500)}`;
+      const expectedModuleBlock = error?.code === 'MODULE_DISABLED';
+      log(expectedModuleBlock ? 'warn' : 'error', `Interaction failed [${id}]: ${error.stack || error.message}`);
+      const content = expectedModuleBlock
+        ? String(error.message || 'That module is disabled.').slice(0, 500)
+        : `Command failed. Error ID: **${id}** — ${String(error.message || 'Unknown error').slice(0, 500)}`;
       if (interaction.deferred || interaction.replied) await interaction.editReply({ content }).catch(() => {});
       else await interaction.reply({ content, ephemeral: true }).catch(() => {});
-      send('error', { id, message: error.message, stack: error.stack });
+      if (!expectedModuleBlock) send('error', { id, message: error.message, stack: error.stack });
     });
   });
 
@@ -273,8 +360,14 @@ parent?.on('message', (event) => {
       setTimeout(() => process.exit(1), 50);
     });
   }
+  if (message?.type === 'config-update') {
+    if (bootstrap) mutateBootstrap(bootstrap, message.payload || {});
+    else bootstrap = message.payload || {};
+    if (client?.isReady?.()) scheduleCommandRegistration();
+  }
   if (message?.type === 'shutdown') {
     clearInterval(heartbeatTimer);
+    clearTimeout(commandRegistrationTimer);
     Promise.resolve(client?.destroy()).finally(() => process.exit(0));
   }
 });
@@ -299,3 +392,5 @@ setTimeout(() => {
     process.exit(1);
   }
 }, 30000).unref();
+
+module.exports = { mutateBootstrap, isModuleEnabled, serverModuleId, serverAvailable };
