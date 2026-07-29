@@ -16,6 +16,8 @@ jobs:
         with:
           node-version: 22
       - run: npm install --ignore-scripts
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
       - name: Run tests
         id: tests
         shell: bash
