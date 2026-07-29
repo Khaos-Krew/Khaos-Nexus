@@ -1,7 +1,7 @@
 {
   "name": "khaos-nexus",
-  "version": "0.20.0",
-  "description": "Local-first Khaos Nexus desktop command center with a typed Game Adapter SDK, explicit capability manifests, role-aware destructive-action policy, stable redacted adapter errors, bounded opt-in protocol fixtures, Palworld REST and ARK/generic RCON adapter bridges, authoritative Owner module switches, dependency-aware runtime gating, completed implementation migration classification, module-aware Discord commands and buttons, full production runtime audit repairs, verified click-through grouped proxy navigation, live supervised bot configuration updates, resilient error-monitor batching, stale server-health cleanup, interrupted scheduler recovery, retryable updater installation failures, spawn-safe Discord supervision, an always-visible in-app update center and header update action, compact production dashboard density, synchronized live Discord runtime status, spawn-confirmed supervised process IDs, bounded idempotent updater UI, main-process renderer-unresponsive reporting, a continuous visible-interface startup gate, retained watchdog state and AppData logs, automatic retained interface failure reports, a visible recovery screen, independently scrollable navigation and workspace panes, immediate portable sidecar logs and diagnostics, sandbox-compatible preload, deterministic startup diagnostics, mandatory verified pre-update backups, encrypted Pterodactyl control, cross-server players, guarded moderation, recurring schedules, and software-renderer-safe startup.",
+  "version": "0.21.0",
+  "description": "Local-first Khaos Nexus desktop command center with dedicated Rust WebRCON operations, vanilla-safe typed Rust status, players, saves, announcements and moderation, Owner-only raw Rust console access, Rust Discord status and queue panels, a typed Game Adapter SDK, explicit capability manifests, role-aware destructive-action policy, stable redacted adapter errors, bounded opt-in protocol fixtures, Palworld REST and ARK/generic RCON adapter bridges, authoritative Owner module switches, dependency-aware runtime gating, completed implementation migration classification, module-aware Discord commands and buttons, full production runtime audit repairs, verified click-through grouped proxy navigation, live supervised bot configuration updates, resilient error-monitor batching, stale server-health cleanup, interrupted scheduler recovery, retryable updater installation failures, spawn-safe Discord supervision, an always-visible in-app update center and header update action, compact production dashboard density, synchronized live Discord runtime status, spawn-confirmed supervised process IDs, bounded idempotent updater UI, main-process renderer-unresponsive reporting, a continuous visible-interface startup gate, retained watchdog state and AppData logs, automatic retained interface failure reports, a visible recovery screen, independently scrollable navigation and workspace panes, immediate portable sidecar logs and diagnostics, sandbox-compatible preload, deterministic startup diagnostics, mandatory verified pre-update backups, encrypted Pterodactyl control, cross-server players, guarded moderation, recurring schedules, and software-renderer-safe startup.",
   "main": "main/entry.cjs",
   "author": "Khaos Krew",
   "license": "MIT",
@@ -27,8 +27,8 @@
     "productName": "Khaos Nexus",
     "electronUpdaterCompatibility": ">=2.16",
     "releaseInfo": {
-      "releaseName": "Khaos Nexus v0.20.0",
-      "releaseNotesFile": "release-notes/v0.20.0.md"
+      "releaseName": "Khaos Nexus v0.21.0",
+      "releaseNotesFile": "release-notes/v0.21.0.md"
     },
     "directories": {
       "output": "dist",
