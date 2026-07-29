@@ -15,7 +15,7 @@
     "release:win": "node scripts/materialize-assets.cjs && electron-builder --win --x64 --publish always"
   },
   "dependencies": {
-    "discord.js": "14.26.4",
+    "discord.js": "14.27.0",
     "electron-updater": "6.8.9"
   },
   "devDependencies": {
