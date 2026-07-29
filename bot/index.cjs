@@ -8,7 +8,9 @@ const {
   Routes
 } = require('discord.js');
 const { createCommands, isAdministrator, requiresAdministrator, COMMAND_MODULES } = require('./commands.cjs');
-const { ServerConnection, isPalworldRest, isRustWebRcon } = require('./server-client.cjs');
+const { isPalworldRest, isRustWebRcon } = require('./server-client.cjs');
+const { createCurrentServerAdapter, capabilityMapForServer } = require('./game-adapters/current-server-adapter.cjs');
+const { executeAdapterOperation } = require('../shared/game-adapter-sdk.cjs');
 const { redactText, errorFingerprint } = require('../shared/redaction.cjs');
 
 const parent = process.parentPort;
@@ -175,6 +177,21 @@ function formatResult(action, result) {
   return JSON.stringify(result, null, 2);
 }
 
+function actionForCommand(command) {
+  return ({ saveworld: 'save', broadcast: 'announce', snapshot: 'game-data-summary', forcestop: 'stop', rcon: 'raw' })[command] || command;
+}
+
+function isConfiguredOwner(interaction) {
+  const ownerUserId = String(bootstrap?.config?.discord?.ownerUserId || '');
+  return Boolean(ownerUserId && interaction?.user?.id === ownerUserId);
+}
+
+function adapterRoleForInteraction(interaction, command) {
+  if (isConfiguredOwner(interaction)) return 'owner';
+  if (requiresAdministrator(command) && isAdministrator(interaction, bootstrap?.config?.discord?.ownerUserId)) return 'owner';
+  return 'viewer';
+}
+
 async function registerCommands() {
   if (!client?.isReady?.() || !bootstrap?.discordToken) return 0;
   const commands = createCommands({ isModuleEnabled });
@@ -215,12 +232,13 @@ async function executeServerAction(interaction, command) {
     await interaction.reply({ content: 'Emergency force-stop was not confirmed.', ephemeral: true });
     return;
   }
+  if (command === 'rcon' && !isConfiguredOwner(interaction)) {
+    await interaction.reply({ content: 'Raw server console commands are restricted to the configured Khaos Nexus Owner account.', ephemeral: true });
+    return;
+  }
 
   await interaction.deferReply({ ephemeral: true });
-  const actionMap = {
-    saveworld: 'save', broadcast: 'announce', snapshot: 'game-data-summary', forcestop: 'stop', rcon: 'raw'
-  };
-  const action = actionMap[command] || command;
+  const action = actionForCommand(command);
   const payload = {};
   if (command === 'broadcast') payload.message = interaction.options.getString('message');
   if (['kick', 'ban', 'unban'].includes(command)) {
@@ -233,14 +251,17 @@ async function executeServerAction(interaction, command) {
   }
   if (command === 'rcon') payload.command = interaction.options.getString('command');
 
-  const connection = new ServerConnection(server);
-  const result = await connection.action(action, payload);
-  await interaction.editReply({ content: `**${server.name}** — ${connectionLabel(server)}\n${formatCodeBlock(formatResult(action, result))}` });
+  const adapter = createCurrentServerAdapter(server);
+  const envelope = await executeAdapterOperation(adapter, action, payload, {
+    role: adapterRoleForInteraction(interaction, command),
+    explicitSecrets: [server.password]
+  });
+  await interaction.editReply({ content: `**${server.name}** — ${connectionLabel(server)}\n${formatCodeBlock(formatResult(action, envelope.data))}` });
 }
 
 function commandSupportsServer(commandName, server) {
-  if (['settings', 'metrics', 'snapshot'].includes(commandName)) return isPalworldRest(server);
-  return true;
+  const action = actionForCommand(commandName);
+  return Boolean(capabilityMapForServer(server)[action]);
 }
 
 async function handleInteraction(interaction) {
@@ -429,7 +450,10 @@ module.exports = {
   serverModuleId,
   serverAvailable,
   connectionLabel,
+  actionForCommand,
   commandSupportsServer,
+  isConfiguredOwner,
+  adapterRoleForInteraction,
   publicPlayers,
   formatResult
 };
