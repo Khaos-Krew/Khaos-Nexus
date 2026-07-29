@@ -18,7 +18,17 @@ function normalizeRustHost(value) {
   if (/^[a-z]+:\/\//i.test(host) || /[/?#]/.test(host)) {
     throw new Error('Enter only the Rust server host or IP. Do not include a protocol, path, or port.');
   }
-  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
+
+  const bracketed = host.match(/^\[([^\]]+)\](?::(\d+))?$/);
+  if (bracketed) {
+    if (bracketed[2]) throw new Error('Enter the Rust WebRCON port in the separate port field.');
+    host = bracketed[1];
+  } else if (/^[^:]+:\d+$/.test(host)) {
+    throw new Error('Enter the Rust WebRCON port in the separate port field.');
+  } else if (/[\[\]]/.test(host)) {
+    throw new Error('Rust WebRCON host is invalid.');
+  }
+
   if (!host || /\s/.test(host)) throw new Error('Rust WebRCON host is invalid.');
   return host;
 }
@@ -45,7 +55,7 @@ function normalizeRustWebRconServer(server = {}) {
 }
 
 function hostForUrl(host) {
-  return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+  return host.includes(':') ? `[${host}]` : host;
 }
 
 function rustWebRconUrl(serverInput = {}) {
@@ -227,8 +237,8 @@ class RustWebRconClient {
 
       add('open', () => {
         try {
-          socket.send(JSON.stringify({ Identifier: identifier, Message: command, Name: this.server.rconName }));
           commandSent = true;
+          socket.send(JSON.stringify({ Identifier: identifier, Message: command, Name: this.server.rconName }));
         } catch (error) {
           finish(Object.assign(error, { code: 'CONNECTION_FAILED', retryable: true }));
         }
