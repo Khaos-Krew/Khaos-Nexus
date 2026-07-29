@@ -2,9 +2,14 @@
 
 const { SourceRcon } = require('./rcon.cjs');
 const { PalworldRestClient, normalizeServerAddress, summarizeGameData } = require('./palworld-rest.cjs');
+const { RustWebRconClient } = require('./rust-webrcon.cjs');
 
 function isPalworldRest(server = {}) {
   return String(server.game || '').toLowerCase() === 'palworld' && String(server.connectionType || 'rest').toLowerCase() !== 'rcon';
+}
+
+function isRustWebRcon(server = {}) {
+  return String(server.game || '').toLowerCase() === 'rust';
 }
 
 function legacyCommand(server, action, value = '') {
@@ -33,14 +38,21 @@ function legacyCommand(server, action, value = '') {
 function formatPlayers(payload) {
   const players = Array.isArray(payload?.players) ? payload.players : [];
   if (!players.length) return 'No players are currently connected.';
-  return players.map((player) => `${player.name || player.accountName || 'Unknown'} | ${player.userId || player.playerId || 'no id'} | Lv ${player.level ?? '?'} | ${Math.round(Number(player.ping) || 0)} ms`).join('\n');
+  return players.map((player) => {
+    const name = player.name || player.accountName || player.DisplayName || 'Unknown';
+    const id = player.userId || player.playerId || player.identifier || player.steamId || player.SteamID || 'no id';
+    const level = player.level ?? player.CurrentLevel;
+    const ping = Math.round(Number(player.ping ?? player.Ping) || 0);
+    return `${name} | ${id}${level === undefined || level === null ? '' : ` | Lv ${level}`} | ${ping} ms`;
+  }).join('\n');
 }
 
 class ServerConnection {
   constructor(server, options = {}) {
-    this.server = normalizeServerAddress(server);
-    this.rest = isPalworldRest(server) ? new PalworldRestClient({ ...this.server, password: server.password }, options) : null;
-    this.rcon = this.rest ? null : new SourceRcon(server);
+    this.server = isPalworldRest(server) ? normalizeServerAddress(server) : { ...server };
+    this.rest = isPalworldRest(server) ? new PalworldRestClient({ ...this.server, password: server.password }, options.palworld || options) : null;
+    this.rust = isRustWebRcon(server) ? new RustWebRconClient({ ...server, password: server.password }, options.rust || options) : null;
+    this.rcon = this.rest || this.rust ? null : new SourceRcon(server);
   }
 
   async resolveUserId(identifier) {
@@ -54,6 +66,8 @@ class ServerConnection {
   }
 
   async action(action, payload = {}) {
+    if (this.rust) return this.rust.action(action, payload, { signal: payload.signal });
+
     if (this.rest) {
       switch (action) {
         case 'status': return { info: await this.rest.info(), metrics: await this.rest.metrics() };
@@ -89,6 +103,7 @@ class ServerConnection {
   }
 
   async execute(command) {
+    if (this.rust) return this.rust.execute(command);
     if (!this.rest) return this.rcon.execute(command);
     const text = String(command || '').trim();
     if (/^Info$/i.test(text)) return JSON.stringify(await this.rest.info(), null, 2);
@@ -109,4 +124,4 @@ class ServerConnection {
   }
 }
 
-module.exports = { ServerConnection, isPalworldRest, legacyCommand, formatPlayers };
+module.exports = { ServerConnection, isPalworldRest, isRustWebRcon, legacyCommand, formatPlayers };
