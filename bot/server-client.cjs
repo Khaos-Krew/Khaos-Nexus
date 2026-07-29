@@ -65,8 +65,8 @@ class ServerConnection {
     return player?.userId || value;
   }
 
-  async action(action, payload = {}) {
-    if (this.rust) return this.rust.action(action, payload, { signal: payload.signal });
+  async action(action, payload = {}, options = {}) {
+    if (this.rust) return this.rust.action(action, payload, { signal: options.signal });
 
     if (this.rest) {
       switch (action) {
