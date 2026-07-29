@@ -3,9 +3,21 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
-const { MIGRATION_STEPS, catalogForRole, getModule, mergeModuleStates, summarizeMigration, moduleProgress, roleAtLeast } = require('../shared/module-catalog.cjs');
+const {
+  MIGRATION_STEPS,
+  VIEW_RULES,
+  catalog,
+  catalogForRole,
+  getModule,
+  mergeModuleStates,
+  normalizeModuleOverrides,
+  summarizeMigration,
+  moduleProgress,
+  buildModuleRuntime,
+  roleAtLeast
+} = require('../shared/module-registry.cjs');
 
-const refs = { configStore: null, autonomy: null, discordAuth: null, logger: null };
+const refs = { configStore: null, autonomy: null, discordAuth: null, logger: null, supervisor: null };
 let installed = false;
 
 function activeRole() {
@@ -19,41 +31,108 @@ function assertAccess(requiredRole, action) {
   return true;
 }
 
-function ensureModuleConfig(store) {
-  if (!store?.config?.general) return;
-  const previous = store.config.general.moduleMigration;
-  const merged = mergeModuleStates(previous, store.config.general.modules || {});
-  const changed = JSON.stringify(previous || {}) !== JSON.stringify(merged);
+function reconcileModuleConfig(store) {
+  if (!store?.config?.general) return false;
+  const previousStates = store.config.general.moduleMigration;
+  const previousOverrides = store.config.general.moduleOverrides;
+  const overrides = normalizeModuleOverrides(previousOverrides || {});
+  const merged = mergeModuleStates(previousStates, store.config.general.modules || {}, overrides);
+  const changed = JSON.stringify(previousStates || {}) !== JSON.stringify(merged)
+    || JSON.stringify(previousOverrides || {}) !== JSON.stringify(overrides);
   store.config.general.moduleMigration = merged;
-  if (changed) store.saveConfig();
+  store.config.general.moduleOverrides = overrides;
+  return changed;
+}
+
+function ensureModuleConfig(store) {
+  if (reconcileModuleConfig(store)) store.saveConfig();
 }
 
 function patchConfigStore() {
   const target = require('./services/config-store.cjs');
   const Original = target.ConfigStore;
   if (!Original || Original.__khaosModuleFoundationPatched) return;
+
   class ModuleConfigStore extends Original {
-    constructor(...args) { super(...args); refs.configStore = this; ensureModuleConfig(this); }
-    getModuleStates() { ensureModuleConfig(this); return mergeModuleStates(this.config.general.moduleMigration, this.config.general.modules || {}); }
+    constructor(...args) {
+      super(...args);
+      refs.configStore = this;
+      ensureModuleConfig(this);
+    }
+
+    saveConfig(...args) {
+      reconcileModuleConfig(this);
+      return super.saveConfig(...args);
+    }
+
+    getModuleStates() {
+      reconcileModuleConfig(this);
+      return mergeModuleStates(
+        this.config.general.moduleMigration,
+        this.config.general.modules || {},
+        this.config.general.moduleOverrides || {}
+      );
+    }
+
+    getModuleRuntime() {
+      return buildModuleRuntime(this.getModuleStates());
+    }
+
+    getRuntimeBootstrap(...args) {
+      const runtime = super.getRuntimeBootstrap(...args);
+      runtime.config.moduleStates = this.getModuleStates();
+      runtime.config.moduleRuntime = this.getModuleRuntime();
+      return runtime;
+    }
+
     setModuleState(id, patch = {}) {
-      if (!getModule(id)) throw new Error('The selected Nexus module was not found.');
+      const module = getModule(id);
+      if (!module) throw new Error('The selected Nexus module was not found.');
       const states = this.getModuleStates();
       const current = states[id];
       const validSteps = new Set(MIGRATION_STEPS.map((step) => step.id));
       const completedSteps = Object.prototype.hasOwnProperty.call(patch, 'completedSteps')
         ? [...new Set((Array.isArray(patch.completedSteps) ? patch.completedSteps : []).filter((step) => validSteps.has(step)))]
         : current.completedSteps;
+
+      if (Object.prototype.hasOwnProperty.call(patch, 'enabled')) {
+        const enabled = Boolean(patch.enabled);
+        if (enabled && module.availability === 'planned') {
+          throw new Error(`${module.name} is inventoried but has no runnable desktop implementation yet.`);
+        }
+        this.config.general.moduleOverrides ||= {};
+        this.config.general.moduleOverrides[id] = { enabled, updatedAt: new Date().toISOString() };
+        current.enabled = enabled;
+      }
+
       states[id] = {
-        enabled: Object.prototype.hasOwnProperty.call(patch, 'enabled') ? Boolean(patch.enabled) : current.enabled,
+        enabled: current.enabled,
         completedSteps,
         notes: Object.prototype.hasOwnProperty.call(patch, 'notes') ? String(patch.notes || '').slice(0, 2000) : current.notes,
         updatedAt: new Date().toISOString()
       };
       this.config.general.moduleMigration = states;
       this.saveConfig();
-      return states[id];
+      return this.getModuleStates()[id];
+    }
+
+    setModuleBulkMode(mode) {
+      const value = String(mode || '');
+      const items = catalog();
+      const enabledByMode = (module) => {
+        if (value === 'validated') return module.availability === 'implemented';
+        if (value === 'safe-mode') return ['application-monitor', 'backup-update-center'].includes(module.id);
+        if (value === 'disable-optional') return false;
+        throw new Error('Unknown module bulk mode.');
+      };
+      const now = new Date().toISOString();
+      this.config.general.moduleOverrides ||= {};
+      for (const module of items) this.config.general.moduleOverrides[module.id] = { enabled: enabledByMode(module), updatedAt: now };
+      this.saveConfig();
+      return this.getModuleStates();
     }
   }
+
   Object.defineProperty(ModuleConfigStore, '__khaosModuleFoundationPatched', { value: true });
   target.ConfigStore = ModuleConfigStore;
 }
@@ -62,7 +141,12 @@ function captureClass(modulePath, exportName, refName) {
   const target = require(modulePath);
   const Original = target[exportName];
   if (!Original || Original.__khaosModuleCapturePatched) return;
-  class Captured extends Original { constructor(...args) { super(...args); refs[refName] = this; } }
+  class Captured extends Original {
+    constructor(...args) {
+      super(...args);
+      refs[refName] = this;
+    }
+  }
   Object.defineProperty(Captured, '__khaosModuleCapturePatched', { value: true });
   target[exportName] = Captured;
 }
@@ -70,8 +154,45 @@ function captureClass(modulePath, exportName, refName) {
 function payload() {
   const role = activeRole();
   const states = refs.configStore?.getModuleStates?.() || mergeModuleStates({});
-  const catalog = catalogForRole(role).map((module) => ({ ...module, state: states[module.id], progress: moduleProgress(states[module.id]) }));
-  return { role, steps: MIGRATION_STEPS, catalog, summary: summarizeMigration(states, role), states };
+  const runtime = buildModuleRuntime(states);
+  const visible = catalogForRole(role).map((module) => ({
+    ...module,
+    state: states[module.id],
+    runtime: runtime[module.id],
+    progress: moduleProgress(states[module.id])
+  }));
+  return {
+    role,
+    ownerControls: ['owner', 'local-admin'].includes(role),
+    steps: MIGRATION_STEPS,
+    catalog: visible,
+    summary: summarizeMigration(states, role),
+    states,
+    runtime,
+    viewRules: VIEW_RULES
+  };
+}
+
+function broadcast(snapshot = payload()) {
+  for (const window of electron.BrowserWindow.getAllWindows()) {
+    try {
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('modules:state', snapshot);
+    } catch {}
+  }
+  return snapshot;
+}
+
+async function applyRuntimeChange(moduleId) {
+  const snapshot = payload();
+  const discordEnabled = snapshot.runtime['discord-runtime']?.effectiveEnabled;
+  if (moduleId === 'discord-runtime' && !discordEnabled && refs.supervisor?.child) {
+    await refs.supervisor.stop();
+    refs.logger?.warn?.('Discord Runtime was stopped because the owner disabled its module.', { moduleId });
+  }
+  if (refs.supervisor?.child) {
+    refs.supervisor.child.postMessage({ type: 'config-update', payload: refs.configStore.getRuntimeBootstrap() });
+  }
+  return broadcast(snapshot);
 }
 
 function patchBrowserLoader() {
@@ -81,8 +202,13 @@ function patchBrowserLoader() {
   prototype.loadFile = function patchedLoadFile(...args) {
     this.webContents.once('did-finish-load', () => {
       this.webContents.executeJavaScript(`(() => {
-        if (!document.querySelector('link[href="module-hub.css"]')) { const link = document.createElement('link'); link.rel = 'stylesheet'; link.href = 'module-hub.css'; document.head.appendChild(link); }
-        if (!document.querySelector('script[src="module-hub.js"]')) { const script = document.createElement('script'); script.src = 'module-hub.js'; script.defer = true; document.body.appendChild(script); }
+        const style = (href) => { if (document.querySelector('link[href="' + href + '"]')) return; const node = document.createElement('link'); node.rel = 'stylesheet'; node.href = href; document.head.appendChild(node); };
+        const script = (src) => { if (document.querySelector('script[src="' + src + '"]')) return; const node = document.createElement('script'); node.src = src; node.defer = true; document.body.appendChild(node); };
+        style('module-hub.css');
+        style('module-runtime.css');
+        script('module-hub.js');
+        script('module-runtime.js');
+        script('module-owner-controls.js');
       })();`).catch(() => {});
     });
     return original.apply(this, args);
@@ -93,13 +219,34 @@ function patchBrowserLoader() {
 function registerIpc() {
   if (registerIpc.done || !refs.configStore) return;
   registerIpc.done = true;
-  electron.ipcMain.handle('modules:get', () => { assertAccess('viewer', 'View the module migration center'); return payload(); });
-  electron.ipcMain.handle('modules:update', (_event, request = {}) => {
-    assertAccess('owner', 'Change module migration settings');
-    const result = refs.configStore.setModuleState(String(request.id || ''), request.patch || {});
-    refs.logger?.info?.('Nexus module migration state updated.', { moduleId: request.id, enabled: result.enabled, progress: moduleProgress(result) });
+
+  electron.ipcMain.handle('modules:get', () => {
+    assertAccess('viewer', 'View the module migration center');
     return payload();
   });
+
+  electron.ipcMain.handle('modules:update', async (_event, request = {}) => {
+    assertAccess('owner', 'Change module runtime settings');
+    const id = String(request.id || '');
+    const result = refs.configStore.setModuleState(id, request.patch || {});
+    refs.logger?.info?.('Owner module state updated.', {
+      moduleId: id,
+      requestedEnabled: result.enabled,
+      effectiveEnabled: refs.configStore.getModuleRuntime()[id]?.effectiveEnabled,
+      progress: moduleProgress(result)
+    });
+    return applyRuntimeChange(id);
+  });
+
+  electron.ipcMain.handle('modules:bulk-update', async (_event, mode) => {
+    assertAccess('owner', 'Change all module runtime settings');
+    refs.configStore.setModuleBulkMode(mode);
+    refs.logger?.warn?.('Owner module bulk mode applied.', { mode: String(mode || '') });
+    if (refs.supervisor?.child && !refs.configStore.getModuleRuntime()['discord-runtime']?.effectiveEnabled) await refs.supervisor.stop();
+    if (refs.supervisor?.child) refs.supervisor.child.postMessage({ type: 'config-update', payload: refs.configStore.getRuntimeBootstrap() });
+    return broadcast(payload());
+  });
+
   electron.ipcMain.handle('modules:mark-step', (_event, request = {}) => {
     assertAccess('owner', 'Change module migration progress');
     const id = String(request.id || '');
@@ -110,8 +257,9 @@ function registerIpc() {
     const completed = new Set(current.completedSteps || []);
     if (request.completed === false) completed.delete(stepId); else completed.add(stepId);
     refs.configStore.setModuleState(id, { completedSteps: [...completed] });
-    return payload();
+    return broadcast(payload());
   });
+
   electron.ipcMain.handle('modules:export-roadmap', async () => {
     assertAccess('owner', 'Export the module migration roadmap');
     const snapshot = payload();
@@ -134,6 +282,7 @@ function install() {
   captureClass('./services/autonomy-service.cjs', 'AutonomyService', 'autonomy');
   captureClass('./services/discord-auth.cjs', 'DiscordAuth', 'discordAuth');
   captureClass('./services/logger.cjs', 'AppLogger', 'logger');
+  captureClass('./services/bot-supervisor.cjs', 'BotSupervisor', 'supervisor');
   patchBrowserLoader();
   electron.app.whenReady().then(() => {
     const wait = () => { if (refs.configStore) registerIpc(); else setTimeout(wait, 100); };
@@ -141,4 +290,4 @@ function install() {
   });
 }
 
-module.exports = { install, refs, ensureModuleConfig };
+module.exports = { install, refs, ensureModuleConfig, reconcileModuleConfig, payload, broadcast, applyRuntimeChange };
