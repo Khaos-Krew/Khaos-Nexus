@@ -1,13 +1,14 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const { redactText, redactObject, errorFingerprint } = require('./redaction.cjs');
+const { redactText, errorFingerprint } = require('./redaction.cjs');
 
 const ADAPTER_SCHEMA_VERSION = 1;
 const ROLE_RANK = Object.freeze({ locked: 0, viewer: 1, operator: 2, owner: 3, 'local-admin': 3 });
 const CAPABILITY_ID_PATTERN = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/;
 const ADAPTER_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{1,79}$/;
 const DEFAULT_TIMEOUT_MS = 15000;
+const SENSITIVE_FIELD_PATTERN = /password|token|secret|api[_-]?key|authorization|cookie|credential|session|private[_-]?key|rcon/i;
 
 const CORE_CAPABILITY_DEFINITIONS = Object.freeze({
   status: { requiredRole: 'viewer', destructive: false, timeoutMs: 10000 },
@@ -50,6 +51,24 @@ function clamp(value, min, max, fallback) {
   return Number.isFinite(number) ? Math.min(max, Math.max(min, Math.round(number))) : fallback;
 }
 
+function redactAdapterValue(value, explicitSecrets = [], depth = 0) {
+  if (depth > 12) return '[TRUNCATED_DEPTH]';
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string') return redactText(value, explicitSecrets).slice(0, 20000);
+  if (typeof value === 'number' || typeof value === 'boolean') return value;
+  if (typeof value === 'bigint') return String(value);
+  if (Array.isArray(value)) return value.slice(0, 500).map((item) => redactAdapterValue(item, explicitSecrets, depth + 1));
+  if (typeof value !== 'object') return cleanText(value, 2000);
+  const result = {};
+  for (const [key, item] of Object.entries(value).slice(0, 500)) {
+    const safeKey = cleanText(key, 120, 'field');
+    result[safeKey] = SENSITIVE_FIELD_PATTERN.test(key)
+      ? (item ? '[REDACTED]' : item)
+      : redactAdapterValue(item, explicitSecrets, depth + 1);
+  }
+  return result;
+}
+
 function normalizeCapabilityId(value) {
   const id = cleanText(value, 100).toLowerCase();
   if (!CAPABILITY_ID_PATTERN.test(id)) throw new Error(`Invalid game-adapter capability ID: ${value}`);
@@ -68,14 +87,23 @@ function roleAtLeast(role, requiredRole) {
 
 function normalizeCapabilityDefinition(idInput, input = true) {
   const id = normalizeCapabilityId(idInput);
-  const defaults = CORE_CAPABILITY_DEFINITIONS[id] || { requiredRole: 'viewer', destructive: false, timeoutMs: DEFAULT_TIMEOUT_MS };
+  const coreDefaults = CORE_CAPABILITY_DEFINITIONS[id] || null;
+  const defaults = coreDefaults || { requiredRole: 'viewer', destructive: false, timeoutMs: DEFAULT_TIMEOUT_MS };
   const source = input && typeof input === 'object' ? input : {};
-  const requiredRole = Object.prototype.hasOwnProperty.call(ROLE_RANK, source.requiredRole) ? source.requiredRole : defaults.requiredRole;
+  const supported = input !== false && source.supported !== false;
+  const hasRole = Object.prototype.hasOwnProperty.call(source, 'requiredRole');
+  const hasDestructive = Object.prototype.hasOwnProperty.call(source, 'destructive');
+  if (hasRole && !Object.prototype.hasOwnProperty.call(ROLE_RANK, source.requiredRole)) {
+    throw new Error(`Invalid required role for game-adapter capability ${id}: ${source.requiredRole}`);
+  }
+  if (!coreDefaults && supported && (!hasRole || !hasDestructive)) {
+    throw new Error(`Custom game-adapter capability ${id} must declare requiredRole and destructive.`);
+  }
   return {
     id,
-    supported: input !== false && source.supported !== false,
-    requiredRole,
-    destructive: source.destructive === undefined ? Boolean(defaults.destructive) : Boolean(source.destructive),
+    supported,
+    requiredRole: hasRole ? source.requiredRole : defaults.requiredRole,
+    destructive: hasDestructive ? Boolean(source.destructive) : Boolean(defaults.destructive),
     timeoutMs: clamp(source.timeoutMs, 250, 300000, defaults.timeoutMs || DEFAULT_TIMEOUT_MS),
     supportsDryRun: Boolean(source.supportsDryRun),
     description: cleanText(source.description, 500)
@@ -107,7 +135,7 @@ function normalizeCapabilityManifest(input = {}) {
     adapterVersion: cleanText(input.adapterVersion || input.version || '1.0.0', 40, '1.0.0'),
     serverVersion: cleanText(input.serverVersion, 80),
     capabilities: Object.freeze(capabilities),
-    metadata: Object.freeze(redactObject(input.metadata && typeof input.metadata === 'object' ? input.metadata : {}))
+    metadata: Object.freeze(redactAdapterValue(input.metadata && typeof input.metadata === 'object' ? input.metadata : {}))
   });
 }
 
@@ -121,7 +149,7 @@ class GameAdapterError extends Error {
     this.capability = cleanText(options.capability, 100);
     this.retryable = Boolean(options.retryable);
     this.status = Number.isFinite(Number(options.status)) ? Number(options.status) : null;
-    this.details = redactObject(options.details && typeof options.details === 'object' ? options.details : {}, options.explicitSecrets || []);
+    this.details = redactAdapterValue(options.details && typeof options.details === 'object' ? options.details : {}, options.explicitSecrets || []);
     this.id = cleanText(options.id, 40) || errorFingerprint(`${this.code}\n${this.adapterId}\n${this.capability}\n${this.message}`);
     if (options.cause) this.cause = options.cause;
   }
@@ -217,11 +245,11 @@ function adapterManifest(adapter) {
 }
 
 async function withTimeout(operation, timeoutMs, context = {}) {
-  const controller = new AbortController();
   const externalSignal = context.signal;
+  if (externalSignal?.aborted) throw new GameAdapterError('CANCELLED', 'Game adapter operation was cancelled.');
+  const controller = new AbortController();
   const abort = () => controller.abort(externalSignal?.reason);
-  if (externalSignal?.aborted) abort();
-  else externalSignal?.addEventListener?.('abort', abort, { once: true });
+  externalSignal?.addEventListener?.('abort', abort, { once: true });
   let timer;
   let abortListener;
   try {
@@ -234,8 +262,9 @@ async function withTimeout(operation, timeoutMs, context = {}) {
       abortPromise,
       new Promise((_, reject) => {
         timer = setTimeout(() => {
-          reject(new GameAdapterError('TIMEOUT', `Game adapter operation timed out after ${timeoutMs} ms.`, { retryable: true }));
-          controller.abort(new Error('Game adapter operation timed out.'));
+          const timeoutError = new GameAdapterError('TIMEOUT', `Game adapter operation timed out after ${timeoutMs} ms.`, { retryable: true });
+          reject(timeoutError);
+          controller.abort(timeoutError);
         }, timeoutMs);
         timer.unref?.();
       })
@@ -296,7 +325,7 @@ async function executeAdapterOperation(adapter, capabilityInput, payload = {}, c
       startedAt,
       finishedAt: new Date(finishedAtMs).toISOString(),
       durationMs: Math.max(0, finishedAtMs - startedAtMs),
-      data: context.redactResult === false ? data : redactObject(data, context.explicitSecrets || [])
+      data: redactAdapterValue(data, context.explicitSecrets || [])
     };
   } catch (error) {
     throw normalizeAdapterError(error, {
@@ -367,7 +396,7 @@ function normalizeStatusResult(input = {}) {
     maxPlayers: Math.max(0, Number(input.maxPlayers) || 0),
     uptimeSeconds: Math.max(0, Number(input.uptimeSeconds) || 0),
     checkedAt: input.checkedAt ? String(input.checkedAt) : new Date().toISOString(),
-    metadata: redactObject(input.metadata && typeof input.metadata === 'object' ? input.metadata : {})
+    metadata: redactAdapterValue(input.metadata && typeof input.metadata === 'object' ? input.metadata : {})
   };
 }
 
@@ -378,7 +407,7 @@ function normalizePlayersResult(input = {}) {
       id: cleanText(typeof player === 'string' ? '' : player?.id || player?.userId || player?.playerId, 150),
       name: cleanText(typeof player === 'string' ? player : player?.name || player?.accountName, 100, 'Unknown'),
       ping: Number.isFinite(Number(player?.ping)) ? Number(player.ping) : null,
-      metadata: redactObject(player?.metadata && typeof player.metadata === 'object' ? player.metadata : {})
+      metadata: redactAdapterValue(player?.metadata && typeof player.metadata === 'object' ? player.metadata : {})
     }))
   };
 }
@@ -391,6 +420,7 @@ module.exports = {
   GameAdapterError,
   BaseGameAdapter,
   GameAdapterRegistry,
+  redactAdapterValue,
   normalizeCapabilityId,
   normalizeAdapterId,
   normalizeCapabilityDefinition,
