@@ -75,6 +75,33 @@ function filterRustWhenDisabled(runtime) {
   };
 }
 
+function autonomyCommand(server, action, value = '') {
+  const game = String(server?.game || 'generic').toLowerCase();
+  const commands = {
+    rust: {
+      status: 'status',
+      save: 'save-all',
+      broadcast: `broadcast ${value}`
+    },
+    ark: {
+      status: 'ListPlayers',
+      save: 'SaveWorld',
+      broadcast: `Broadcast ${value}`
+    },
+    palworld: {
+      status: 'Info',
+      save: 'Save',
+      broadcast: `Broadcast ${value}`
+    },
+    generic: {
+      status: server.statusCommand || 'status',
+      save: server.saveCommand || 'save-all',
+      broadcast: `${server.broadcastCommand || 'broadcast'} ${value}`
+    }
+  };
+  return (commands[game] || commands.generic)[action];
+}
+
 function patchConfigStore() {
   const target = require('./services/config-store.cjs');
   const Original = target.ConfigStore;
@@ -209,11 +236,8 @@ function patchAutonomyService() {
           }
           const rcon = this.rconFactory(server);
           try {
-            const warning = String(server.game || '').toLowerCase() === 'rust'
-              ? `broadcast ${this.settings.maintenanceWarning}`
-              : this.constructor.commandFor?.(server, 'broadcast', this.settings.maintenanceWarning);
-            if (warning) await rcon.execute(warning);
-            await rcon.execute(String(server.game || '').toLowerCase() === 'rust' ? 'save-all' : (server.game === 'ark' ? 'SaveWorld' : server.game === 'palworld' ? 'Save' : server.saveCommand || 'save-all'));
+            await rcon.execute(autonomyCommand(server, 'broadcast', this.settings.maintenanceWarning));
+            await rcon.execute(autonomyCommand(server, 'save'));
             results.push({ step: 'server', server: server.name, ok: true, detail: 'Players warned and world save requested.' });
           } catch (error) {
             results.push({ step: 'server', server: server.name, ok: false, detail: error.message });
@@ -371,5 +395,6 @@ module.exports = {
   rustModuleEnabled,
   rustModuleEnabledFromRuntime,
   filterRustWhenDisabled,
-  rustAutonomyConnection
+  rustAutonomyConnection,
+  autonomyCommand
 };
