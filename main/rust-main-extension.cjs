@@ -10,6 +10,10 @@ const { normalizeRustHost } = require('../bot/rust-webrcon.cjs');
 const refs = { configStore: null, autonomy: null, discordAuth: null, logger: null };
 let installed = false;
 
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 function captureClass(modulePath, exportName, refName) {
   const target = require(modulePath);
   const Original = target[exportName];
@@ -51,10 +55,24 @@ function normalizeRustServer(server = {}) {
   };
 }
 
-function rustModuleEnabled(configStore) {
-  const runtime = configStore?.getRuntimeBootstrap?.();
+function rustModuleEnabledFromRuntime(runtime) {
   const state = runtime?.config?.moduleRuntime?.['rust-server-operations'];
   return state ? Boolean(state.effectiveEnabled) : true;
+}
+
+function rustModuleEnabled(configStore) {
+  return rustModuleEnabledFromRuntime(configStore?.getRuntimeBootstrap?.());
+}
+
+function filterRustWhenDisabled(runtime) {
+  if (rustModuleEnabledFromRuntime(runtime)) return runtime;
+  return {
+    ...runtime,
+    config: {
+      ...runtime.config,
+      servers: (runtime.config?.servers || []).filter((server) => String(server.game || '').toLowerCase() !== 'rust')
+    }
+  };
 }
 
 function patchConfigStore() {
@@ -97,17 +115,6 @@ function patchConfigStore() {
   target.ConfigStore = RustConfigStore;
 }
 
-function filterRustWhenDisabled(runtime, configStore) {
-  if (rustModuleEnabled(configStore)) return runtime;
-  return {
-    ...runtime,
-    config: {
-      ...runtime.config,
-      servers: (runtime.config?.servers || []).filter((server) => String(server.game || '').toLowerCase() !== 'rust')
-    }
-  };
-}
-
 function rustAutonomyConnection(server) {
   if (String(server?.game || '').toLowerCase() !== 'rust') return new ServerConnection(server);
   const connection = new ServerConnection(server);
@@ -139,29 +146,103 @@ function patchAutonomyService() {
     }
 
     async checkServers() {
-      const original = this.configStore.getRuntimeBootstrap.bind(this.configStore);
-      this.configStore.getRuntimeBootstrap = () => filterRustWhenDisabled(original(), this.configStore);
+      if (this.healthRunning) return { skipped: true, reason: 'already-running' };
+      this.healthRunning = true;
       try {
-        const result = await super.checkServers();
-        if (!rustModuleEnabled(this.configStore)) {
-          const rustIds = new Set(this.configStore.getConfig().servers.filter((server) => String(server.game || '').toLowerCase() === 'rust').map((server) => server.id));
-          const health = { ...this.state.serverHealth };
-          for (const id of rustIds) delete health[id];
-          const attention = Object.values(health).filter((entry) => entry.status === 'offline').map((entry) => `A configured game server is unreachable: ${entry.detail}`);
-          this.updateState({ serverHealth: health, attention, status: attention.length ? 'attention' : 'ready', lastError: attention[0] || null });
-          return { ...result, health, offline: Object.values(health).filter((entry) => entry.status === 'offline').length };
+        const runtime = filterRustWhenDisabled(this.configStore.getRuntimeBootstrap());
+        const enabledServers = runtime.config.servers.filter((server) => server.enabled !== false);
+        const activeIds = new Set(enabledServers.map((server) => server.id));
+        const health = Object.fromEntries(Object.entries(this.state.serverHealth || {}).filter(([id]) => activeIds.has(id)));
+        const checkedAt = new Date(this.now()).toISOString();
+
+        for (const server of enabledServers) {
+          try {
+            const detail = await this.testServer(server);
+            health[server.id] = { name: server.name, game: server.game, status: 'online', checkedAt, failures: 0, detail };
+          } catch (error) {
+            const previous = health[server.id] || {};
+            health[server.id] = {
+              name: server.name,
+              game: server.game,
+              status: 'offline',
+              checkedAt,
+              failures: Number(previous.failures || 0) + 1,
+              detail: error.message
+            };
+          }
         }
-        return result;
+
+        const offline = Object.values(health).filter((entry) => entry.status === 'offline');
+        const attention = offline.map((entry) => `A configured game server is unreachable: ${entry.detail}`);
+        this.updateState({
+          status: attention.length ? 'attention' : 'ready',
+          lastHealthCheckAt: checkedAt,
+          serverHealth: health,
+          attention,
+          lastError: attention[0] || null
+        });
+        if (offline.some((entry) => entry.failures >= 3)) {
+          await this.notify('Khaos Nexus server attention required', `${offline.length} configured server connection(s) are failing repeatedly.`, 'warning').catch(() => {});
+        }
+        return { checkedAt, health: clone(health), offline: offline.length };
       } finally {
-        this.configStore.getRuntimeBootstrap = original;
+        this.healthRunning = false;
       }
     }
 
     async runMaintenance() {
-      const original = this.configStore.getRuntimeBootstrap.bind(this.configStore);
-      this.configStore.getRuntimeBootstrap = () => filterRustWhenDisabled(original(), this.configStore);
-      try { return await super.runMaintenance(); }
-      finally { this.configStore.getRuntimeBootstrap = original; }
+      if (this.maintenanceRunning) throw new Error('Maintenance Mode is already running.');
+      this.maintenanceRunning = true;
+      const startedAt = new Date(this.now()).toISOString();
+      this.updateState({ status: 'maintenance', maintenanceActive: true, lastError: null });
+      const results = [];
+      try {
+        this.createAutomaticBackup('pre-maintenance');
+        results.push({ step: 'backup', ok: true, detail: 'Verified backup created.' });
+        await this.notify('Khaos Nexus maintenance starting', this.settings.maintenanceWarning, 'warning').catch(() => {});
+
+        const runtime = filterRustWhenDisabled(this.configStore.getRuntimeBootstrap());
+        for (const server of runtime.config.servers.filter((item) => item.enabled !== false)) {
+          if (!server.password) {
+            results.push({ step: 'server', server: server.name, ok: false, detail: 'RCON password missing.' });
+            continue;
+          }
+          const rcon = this.rconFactory(server);
+          try {
+            const warning = String(server.game || '').toLowerCase() === 'rust'
+              ? `broadcast ${this.settings.maintenanceWarning}`
+              : this.constructor.commandFor?.(server, 'broadcast', this.settings.maintenanceWarning);
+            if (warning) await rcon.execute(warning);
+            await rcon.execute(String(server.game || '').toLowerCase() === 'rust' ? 'save-all' : (server.game === 'ark' ? 'SaveWorld' : server.game === 'palworld' ? 'Save' : server.saveCommand || 'save-all'));
+            results.push({ step: 'server', server: server.name, ok: true, detail: 'Players warned and world save requested.' });
+          } catch (error) {
+            results.push({ step: 'server', server: server.name, ok: false, detail: error.message });
+          }
+        }
+
+        if (this.settings.maintenanceRestartBot) {
+          await this.supervisor.restart();
+          results.push({ step: 'bot', ok: true, detail: 'Supervised bot restart requested.' });
+        }
+
+        const failed = results.filter((item) => !item.ok);
+        const summary = { ok: failed.length === 0, startedAt, completedAt: new Date(this.now()).toISOString(), results };
+        this.updateState({
+          status: summary.ok ? 'ready' : 'attention',
+          maintenanceActive: false,
+          lastMaintenanceAt: summary.completedAt,
+          lastMaintenanceSummary: summary,
+          lastError: failed[0]?.detail || null
+        });
+        await this.notify('Khaos Nexus maintenance completed', summary.ok ? 'All maintenance steps completed.' : `${failed.length} maintenance step(s) need attention.`, summary.ok ? 'info' : 'warning').catch(() => {});
+        return summary;
+      } catch (error) {
+        this.updateState({ status: 'attention', maintenanceActive: false, lastError: error.message });
+        await this.notify('Khaos Nexus maintenance failed', error.message, 'error').catch(() => {});
+        throw error;
+      } finally {
+        this.maintenanceRunning = false;
+      }
     }
   }
 
@@ -288,6 +369,7 @@ module.exports = {
   normalizeRustServer,
   executeRust,
   rustModuleEnabled,
+  rustModuleEnabledFromRuntime,
   filterRustWhenDisabled,
   rustAutonomyConnection
 };
