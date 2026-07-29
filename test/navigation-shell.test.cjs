@@ -58,6 +58,7 @@ test('v0.20.0 is configured for the guarded Game Adapter SDK release channel', (
   const runtime = read('main/module-runtime-extension.cjs');
   const botRuntime = read('bot/module-runtime.cjs');
   const workflow = read('.github/workflows/stable-release.yml');
+  const ciWorkflow = read('.github/workflows/ci.yml');
 
   assert.equal(packageJson.version, '0.20.0');
   assert.match(packageJson.description, /typed Game Adapter SDK/i);
@@ -95,7 +96,7 @@ test('v0.20.0 is configured for the guarded Game Adapter SDK release channel', (
   assert.match(notes, /Preserved v0\.19\.0 foundations/i);
   assert.match(workflow, /branches:\s*\n\s*- "release\/v\*"/);
   assert.match(workflow, /pull_request_target/);
-  assert.match(workflow, /npm audit --omit=dev --audit-level=high/);
+  assert.match(ciWorkflow, /npm audit --omit=dev --audit-level=high/);
   assert.match(workflow, /npm test/);
   assert.match(workflow, /npm run check/);
   assert.match(workflow, /npm run dist:win/);
