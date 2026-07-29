@@ -52,15 +52,17 @@ function clamp(value, min, max, fallback) {
 }
 
 function redactAdapterValue(value, explicitSecrets = [], depth = 0) {
-  if (depth > 12) return '[TRUNCATED_DEPTH]';
+  if (depth > 32) return '[MAX_DEPTH]';
   if (value === null || value === undefined) return value;
-  if (typeof value === 'string') return redactText(value, explicitSecrets).slice(0, 20000);
+  if (typeof value === 'string') return redactText(value, explicitSecrets);
   if (typeof value === 'number' || typeof value === 'boolean') return value;
   if (typeof value === 'bigint') return String(value);
-  if (Array.isArray(value)) return value.slice(0, 500).map((item) => redactAdapterValue(item, explicitSecrets, depth + 1));
-  if (typeof value !== 'object') return cleanText(value, 2000);
+  if (Array.isArray(value)) return value.map((item) => redactAdapterValue(item, explicitSecrets, depth + 1));
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.toISOString() : null;
+  if (Buffer.isBuffer(value)) return { type: 'Buffer', byteLength: value.length };
+  if (typeof value !== 'object') return String(value);
   const result = {};
-  for (const [key, item] of Object.entries(value).slice(0, 500)) {
+  for (const [key, item] of Object.entries(value)) {
     const safeKey = cleanText(key, 120, 'field');
     result[safeKey] = SENSITIVE_FIELD_PATTERN.test(key)
       ? (item ? '[REDACTED]' : item)
@@ -185,15 +187,16 @@ function inferAdapterErrorCode(error) {
 }
 
 function normalizeAdapterError(error, context = {}) {
-  if (error instanceof GameAdapterError) return error;
   const code = context.code || inferAdapterErrorCode(error);
+  const existing = error instanceof GameAdapterError ? error : null;
   return new GameAdapterError(code, error?.message || error || 'Game adapter operation failed.', {
-    adapterId: context.adapterId,
-    gameId: context.gameId,
-    capability: context.capability,
-    retryable: context.retryable ?? ['CONNECTION_FAILED', 'TIMEOUT', 'RATE_LIMITED', 'ADAPTER_UNAVAILABLE'].includes(code),
-    status: error?.status || error?.statusCode,
-    details: context.details,
+    id: existing?.id,
+    adapterId: context.adapterId || existing?.adapterId,
+    gameId: context.gameId || existing?.gameId,
+    capability: context.capability || existing?.capability,
+    retryable: context.retryable ?? existing?.retryable ?? ['CONNECTION_FAILED', 'TIMEOUT', 'RATE_LIMITED', 'ADAPTER_UNAVAILABLE'].includes(code),
+    status: error?.status || error?.statusCode || existing?.status,
+    details: { ...(existing?.details || {}), ...(context.details || {}) },
     explicitSecrets: context.explicitSecrets,
     cause: error
   });
