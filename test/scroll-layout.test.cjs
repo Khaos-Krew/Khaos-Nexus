@@ -35,7 +35,7 @@ test('nested logs and diagnostic outputs retain their own scrolling', () => {
   }
 });
 
-test('v0.18.20 retains verified startup, scrolling, grouped navigation, updater, and portable foundations', () => {
+test('v0.18.21 retains verified startup, scrolling, grouped navigation, updater, and portable foundations', () => {
   const packageJson = JSON.parse(read('package.json'));
   const preload = read('main/preload.cjs');
   const portable = read('main/portable-bootstrap-extension.cjs');
@@ -44,16 +44,17 @@ test('v0.18.20 retains verified startup, scrolling, grouped navigation, updater,
   const watchdog = read('main/interface-watchdog-extension.cjs');
   const updater = read('renderer/simple-updater.js');
   const navigation = read('renderer/navigation-shell.js');
-  assert.equal(packageJson.version, '0.18.20');
+  assert.equal(packageJson.version, '0.18.21');
   assert.match(packageJson.description, /compact production dashboard density/i);
   assert.match(packageJson.description, /independently scrollable navigation and workspace panes/i);
-  assert.match(packageJson.description, /safe grouped proxy navigation/i);
+  assert.match(packageJson.description, /verified click-through grouped proxy navigation/i);
   assert.match(packageJson.description, /always-visible in-app update center/i);
   assert.match(packageJson.description, /continuous visible-interface startup gate/i);
   assert.match(packageJson.description, /renderer-unresponsive reporting/i);
   assert.doesNotMatch(preload, /require\(['"]\.\.?\//);
   assert.doesNotMatch(updater, /new MutationObserver/);
   assert.doesNotMatch(navigation, /new MutationObserver/);
+  assert.match(navigation, /proxy\.dataset\.viewProxy/);
   assert.match(portable, /bootstrap\.log/);
   assert.match(health, /MINIMUM_SPLASH_MS = 30 \* 1000/);
   assert.match(entry, /interface-watchdog-extension\.cjs/);
