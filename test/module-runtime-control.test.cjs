@@ -94,6 +94,7 @@ test('desktop views and IPC channels resolve to the correct module gates without
   const runtime = buildModuleRuntime(states);
   assert.equal(decisionEnabled(runtime, VIEW_RULES.scheduler), false);
   assert.equal(decisionEnabled(runtime, VIEW_RULES['discord-studio']), true);
+  assert.equal(VIEW_RULES.setup, undefined);
   assert.deepEqual(moduleDecisionForChannel('server:palworld-action'), { allOf: ['palworld-operations'] });
   assert.deepEqual(moduleDecisionForChannel('server-scheduler:run-now'), { allOf: ['server-scheduler'] });
   assert.deepEqual(moduleDecisionForChannel('discord-studio:save-template'), { allOf: ['embed-studio'] });
