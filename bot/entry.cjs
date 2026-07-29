@@ -1,6 +1,7 @@
 'use strict';
 
 const { Client } = require('discord.js');
+const { installModuleRuntime } = require('./module-runtime.cjs');
 const { installDiscordAutomationRuntime } = require('./discord-automation-runtime.cjs');
 const { installStatusPanelRuntime } = require('./status-panel-runtime.cjs');
 
@@ -11,6 +12,8 @@ parent?.on('message', (event) => {
   const message = event?.data ?? event;
   if (message?.type === 'bootstrap' || message?.type === 'config-update') bootstrap = message.payload;
 });
+
+installModuleRuntime({ ClientClass: Client, getBootstrap: () => bootstrap });
 
 const originalLogin = Client.prototype.login;
 Client.prototype.login = function patchedLogin(...args) {
