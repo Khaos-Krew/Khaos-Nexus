@@ -68,7 +68,7 @@ const ADDITIONAL_MODULES = Object.freeze([
 ]);
 
 const VIEW_RULES = Object.freeze({
-  setup: { allOf: ['discord-runtime'] },
+  // Discord Setup remains visible so an access-controlled Owner can always authenticate and re-enable the bot runtime.
   servers: { allOf: ['game-server-control'] },
   monitor: { allOf: ['application-monitor'] },
   operator: { allOf: ['operator-console'] },
