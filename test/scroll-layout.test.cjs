@@ -35,7 +35,7 @@ test('nested logs and diagnostic outputs retain their own scrolling', () => {
   }
 });
 
-test('v0.19.0 retains startup and scrolling while module switches hide only disabled workspaces', () => {
+test('v0.20.0 retains startup, scrolling and Owner module workspace behavior', () => {
   const packageJson = JSON.parse(read('package.json'));
   const preload = read('main/preload.cjs');
   const portable = read('main/portable-bootstrap-extension.cjs');
@@ -46,9 +46,11 @@ test('v0.19.0 retains startup and scrolling while module switches hide only disa
   const navigation = read('renderer/navigation-shell.js');
   const moduleRuntime = read('renderer/module-runtime.js');
   const moduleCss = read('renderer/module-runtime.css');
+  const adapterSdk = read('shared/game-adapter-sdk.cjs');
   const audit = read('main/audit-repair-extension.cjs');
 
-  assert.equal(packageJson.version, '0.19.0');
+  assert.equal(packageJson.version, '0.20.0');
+  assert.match(packageJson.description, /typed Game Adapter SDK/i);
   assert.match(packageJson.description, /compact production dashboard density/i);
   assert.match(packageJson.description, /independently scrollable navigation and workspace panes/i);
   assert.match(packageJson.description, /verified click-through grouped proxy navigation/i);
@@ -65,6 +67,8 @@ test('v0.19.0 retains startup and scrolling while module switches hide only disa
   assert.match(moduleRuntime, /state\.botStatus/);
   assert.match(moduleRuntime, /Not Implemented/);
   assert.match(moduleCss, /display:\s*none\s*!important/);
+  assert.match(adapterSdk, /roleAtLeast/);
+  assert.match(adapterSdk, /redactAdapterValue/);
   assert.match(audit, /serverHealth: health/);
   assert.match(audit, /Recovered interrupted server scheduler state/);
   assert.match(portable, /bootstrap\.log/);
