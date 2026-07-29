@@ -61,9 +61,10 @@ test('v0.19.0 is configured for the guarded owner-controlled release channel', (
   assert.match(packageJson.description, /dependency-aware runtime gating/i);
   assert.match(packageJson.description, /module-aware Discord commands and buttons/i);
   assert.match(packageJson.description, /full production runtime audit repairs/i);
-  assert.match(registry, /moduleOverrides/);
+  assert.match(registry, /normalizeModuleOverrides/);
   assert.match(registry, /not-implemented/);
   assert.match(registry, /discord-auth:/);
+  assert.match(foundation, /moduleOverrides/);
   assert.match(foundation, /modules:bulk-update/);
   assert.match(foundation, /safe-mode/);
   assert.match(runtime, /moduleDecisionForChannel/);
