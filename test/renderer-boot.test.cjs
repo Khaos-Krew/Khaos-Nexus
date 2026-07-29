@@ -61,7 +61,7 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.20.0 retains startup and Owner module foundations while adding transport-neutral adapters', () => {
+test('v0.21.0 retains startup, Owner modules and transport-neutral adapters while adding audited Rust services', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
   const health = read('main/startup-health-extension.cjs');
@@ -81,8 +81,11 @@ test('v0.20.0 retains startup and Owner module foundations while adding transpor
   const adapterSdk = read('shared/game-adapter-sdk.cjs');
   const statusPanels = read('main/services/status-panel-service.cjs');
   const palworld = read('main/palworld-main-extension.cjs');
+  const rust = read('main/rust-main-extension.cjs');
+  const rustGate = read('main/rust-module-gate-extension.cjs');
 
-  assert.equal(packageJson.version, '0.20.0');
+  assert.equal(packageJson.version, '0.21.0');
+  assert.match(packageJson.description, /dedicated Rust WebRCON operations/i);
   assert.match(packageJson.description, /typed Game Adapter SDK/i);
   assert.match(packageJson.description, /authoritative Owner module switches/i);
   assert.match(packageJson.description, /full production runtime audit repairs/i);
@@ -104,7 +107,11 @@ test('v0.20.0 retains startup and Owner module foundations while adding transpor
   assert.ok(entry.indexOf('module-runtime-extension.cjs') < entry.indexOf('discord-studio-extension.cjs'));
   assert.ok(entry.indexOf('module-runtime-extension.cjs') < entry.indexOf('server-scheduler-extension.cjs'));
   assert.match(entry, /audit-repair-extension\.cjs/);
-  assert.ok(entry.indexOf('audit-repair-extension.cjs') < entry.indexOf("require('./main.cjs')"));
+  assert.match(entry, /rust-main-extension\.cjs/);
+  assert.match(entry, /rust-module-gate-extension\.cjs/);
+  assert.ok(entry.indexOf('audit-repair-extension.cjs') < entry.indexOf('rust-main-extension.cjs'));
+  assert.ok(entry.indexOf('rust-main-extension.cjs') < entry.indexOf('rust-module-gate-extension.cjs'));
+  assert.ok(entry.indexOf('rust-module-gate-extension.cjs') < entry.indexOf("require('./main.cjs')"));
   assert.doesNotMatch(entry, /startup-release-fallback-extension\.cjs/);
   assert.match(moduleFoundation, /moduleOverrides/);
   assert.match(moduleFoundation, /modules:bulk-update/);
@@ -114,7 +121,11 @@ test('v0.20.0 retains startup and Owner module foundations while adding transpor
   assert.match(adapterSdk, /executeAdapterOperation/);
   assert.match(adapterSdk, /GameAdapterRegistry/);
   assert.match(statusPanels, /createCurrentServerAdapter/);
+  assert.match(statusPanels, /Rust WebRCON/);
   assert.match(palworld, /executeAdapterOperation/);
+  assert.match(rust, /class RustAutonomyService extends Original/);
+  assert.match(rust, /filterRustWhenDisabled/);
+  assert.match(rustGate, /assertModule\('operator-console'/);
   assert.match(audit, /Bot runtime could not be spawned/);
   assert.match(audit, /reconcileInterruptedRuns/);
   assert.match(audit, /retryable|status: 'downloaded'/i);
