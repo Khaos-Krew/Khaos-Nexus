@@ -117,11 +117,23 @@
         open.classList.toggle('module-open-disabled', !runtime?.effectiveEnabled);
       }
     }
+
+    const selectedId = document.querySelector('.nexus-module-card.selected')?.dataset.moduleId;
+    const selected = catalog.find((module) => module.id === selectedId);
+    const toggle = document.getElementById('moduleToggleButton');
+    if (toggle && selected) {
+      const cannotEnable = selected.availability === 'planned' && selected.state?.enabled !== true;
+      toggle.disabled = cannotEnable;
+      toggle.title = cannotEnable ? `${selected.name} has no runnable desktop implementation yet.` : '';
+      toggle.textContent = cannotEnable ? 'Not Implemented' : (selected.state?.enabled ? 'Disable Module' : 'Enable Module');
+    }
   }
 
   function applyPayload(payload) {
     if (!payload || !Array.isArray(payload.catalog)) return;
     state.payload = payload;
+    const metric = document.getElementById('metricModules');
+    if (metric) metric.textContent = String(payload.summary?.enabled || 0);
     applyViewRules();
     applyDashboardControls();
     decorateModuleCards();
@@ -156,6 +168,8 @@
       const timer = setTimeout(() => {
         state.timers.delete(timer);
         if (state.payload) {
+          const metric = document.getElementById('metricModules');
+          if (metric) metric.textContent = String(state.payload.summary?.enabled || 0);
           applyViewRules();
           applyDashboardControls();
           decorateModuleCards();
@@ -173,7 +187,7 @@
       notify(blocked.dataset.moduleDisabledReason || blocked.title || 'That module is disabled.');
       return;
     }
-    if (event.target.closest('#moduleToggleButton, [data-module-owner-control], [data-view="modules"], [data-view-link="modules"]')) {
+    if (event.target.closest('#moduleToggleButton, [data-module-owner-control], [data-view="modules"], [data-view-link="modules"], [data-module-details], [data-module-id]')) {
       setTimeout(() => refresh().then(scheduleApply), 250);
     }
   }, true);
