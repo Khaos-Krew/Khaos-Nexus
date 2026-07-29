@@ -5,6 +5,8 @@ const path = require('node:path');
 const electron = require('electron');
 const { ServerConnection, isPalworldRest } = require('../bot/server-client.cjs');
 const { normalizeServerAddress, summarizeGameData } = require('../bot/palworld-rest.cjs');
+const { createCurrentServerAdapter } = require('../bot/game-adapters/current-server-adapter.cjs');
+const { executeAdapterOperation } = require('../shared/game-adapter-sdk.cjs');
 
 const refs = { configStore: null, autonomy: null, discordAuth: null, logger: null };
 let installed = false;
@@ -116,8 +118,7 @@ function cleanText(value, max, label) {
   return result.slice(0, max);
 }
 
-async function executeAction(server, action, payload = {}) {
-  const connection = new ServerConnection(server);
+async function executeAction(server, action, payload = {}, role = 'owner') {
   if (action === 'announce') payload.message = cleanText(payload.message, 500, 'Announcement message');
   if (['kick', 'ban', 'unban'].includes(action)) payload.player = cleanText(payload.player || payload.userid, 150, 'Player name or user ID');
   if (['kick', 'ban'].includes(action) && payload.message) payload.message = String(payload.message).trim().slice(0, 300);
@@ -129,7 +130,12 @@ async function executeAction(server, action, payload = {}) {
   if (action === 'stop' && String(payload.confirmation || '').trim().toUpperCase() !== 'FORCE STOP') {
     throw new Error('Type FORCE STOP to confirm an immediate server stop.');
   }
-  return connection.action(action, payload);
+  const adapter = createCurrentServerAdapter(server, { logger: refs.logger });
+  const result = await executeAdapterOperation(adapter, action, payload, {
+    role,
+    explicitSecrets: [server.password]
+  });
+  return result.data;
 }
 
 function registerIpc() {
@@ -153,7 +159,7 @@ function registerIpc() {
     const server = getPalworldServer(request.id);
 
     if (action === 'game-data-export') {
-      const snapshot = await executeAction(server, 'game-data', request.payload);
+      const snapshot = await executeAction(server, 'game-data', request.payload, role);
       const defaultPath = path.join(electron.app.getPath('documents'), `palworld-world-snapshot-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
       const choice = await electron.dialog.showSaveDialog({
         title: 'Export Palworld world actor snapshot',
@@ -166,7 +172,7 @@ function registerIpc() {
       return { canceled: false, filePath: choice.filePath, summary: summarizeGameData(snapshot) };
     }
 
-    const result = await executeAction(server, action, request.payload || {});
+    const result = await executeAction(server, action, request.payload || {}, role);
     refs.logger?.info('Palworld REST action completed.', { server: server.name, action });
     return { action, server: server.name, result };
   });
@@ -184,4 +190,4 @@ function install() {
   electron.app.whenReady().then(() => setImmediate(registerIpc));
 }
 
-module.exports = { install, refs };
+module.exports = { install, refs, executeAction };
