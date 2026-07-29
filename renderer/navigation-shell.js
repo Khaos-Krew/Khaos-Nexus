@@ -81,10 +81,19 @@
     shell.addEventListener('click', (event) => {
       const proxy = event.target.closest('[data-view-proxy]');
       if (!proxy) return;
-      const original = originalFor(proxy.dataset.view);
-      if (!original) return;
+      const view = String(proxy.dataset.viewProxy || '').trim();
+      const original = originalFor(view);
+      if (!view || !original) {
+        window.khaos?.reportBootStage?.('navigation-proxy-missing-target', { view });
+        return;
+      }
+      event.preventDefault();
       original.click();
-      setTimeout(syncActiveState, 0);
+      setTimeout(() => {
+        syncActiveState();
+        const activeView = currentActiveView();
+        if (activeView !== view) window.khaos?.reportBootStage?.('navigation-proxy-routing-warning', { view, activeView });
+      }, 0);
     });
 
     shell.addEventListener('toggle', (event) => {
