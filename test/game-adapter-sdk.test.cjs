@@ -22,7 +22,14 @@ function adapter(overrides = {}) {
       capabilities: { status: true, announce: true, ban: true, metrics: true }
     },
     operations: {
-      status: async () => ({ status: 'online', token: 'secret-value', authorization: 'Bearer hidden', sessionCookie: 'private-cookie' }),
+      status: async () => ({
+        status: 'online',
+        token: 'secret-value',
+        authorization: 'Bearer hidden',
+        sessionCookie: 'private-cookie',
+        longText: 'x'.repeat(25000),
+        values: Array.from({ length: 750 }, (_, index) => index)
+      }),
       announce: async (payload) => ({ delivered: payload.message }),
       ban: async (payload) => ({ banned: payload.player }),
       metrics: async () => new Promise((resolve) => setTimeout(() => resolve({ fps: 60 }), 400)),
@@ -45,13 +52,15 @@ test('capability manifests normalize roles and require explicit custom safety po
   }), /must declare requiredRole and destructive/i);
 });
 
-test('adapter execution enforces roles and redacts every secret-shaped result field', async () => {
+test('adapter execution enforces roles, redacts secrets and preserves full operational payloads', async () => {
   const instance = adapter();
   const status = await executeAdapterOperation(instance, 'status', {}, { role: 'viewer' });
   assert.equal(status.ok, true);
   assert.equal(status.data.token, '[REDACTED]');
   assert.equal(status.data.authorization, '[REDACTED]');
   assert.equal(status.data.sessionCookie, '[REDACTED]');
+  assert.equal(status.data.longText.length, 25000);
+  assert.equal(status.data.values.length, 750);
   await assert.rejects(() => executeAdapterOperation(instance, 'ban', { player: 'bad' }, { role: 'operator' }), (error) => {
     assert.equal(error.code, 'ACCESS_DENIED');
     return true;
@@ -60,9 +69,15 @@ test('adapter execution enforces roles and redacts every secret-shaped result fi
   assert.equal(ban.data.banned, 'bad');
 });
 
-test('unsupported capabilities, timeouts, cancellations and connection failures use stable codes', async () => {
+test('unsupported capabilities, timeouts, cancellations and connection failures use stable contextual codes', async () => {
   await assert.rejects(() => executeAdapterOperation(adapter(), 'save', {}, { role: 'operator' }), (error) => error.code === 'CAPABILITY_UNSUPPORTED');
-  await assert.rejects(() => executeAdapterOperation(adapter(), 'metrics', {}, { role: 'viewer', timeoutMs: 250 }), (error) => error.code === 'TIMEOUT' && error.retryable);
+  await assert.rejects(() => executeAdapterOperation(adapter(), 'metrics', {}, { role: 'viewer', timeoutMs: 250 }), (error) => {
+    assert.equal(error.code, 'TIMEOUT');
+    assert.equal(error.retryable, true);
+    assert.equal(error.adapterId, 'test-adapter');
+    assert.equal(error.capability, 'metrics');
+    return true;
+  });
   const controller = new AbortController();
   controller.abort();
   await assert.rejects(() => executeAdapterOperation(adapter(), 'status', {}, { role: 'viewer', signal: controller.signal }), (error) => error.code === 'CANCELLED');
@@ -79,7 +94,7 @@ test('registry refuses duplicates and validates factory identity', () => {
   assert.equal(registry.create('test-adapter').manifest.adapterId, 'test-adapter');
 });
 
-test('fixture recorder redacts credentials, bounds data, rotates, and can be cleared', () => {
+test('fixture recorder redacts credentials, bounds data, accepts numeric clocks, rotates, and can be cleared', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'khaos-adapter-fixtures-'));
   try {
     const recorder = new GameAdapterFixtureRecorder({ directory, enabled: true, maxEntryBytes: 4096, maxFileBytes: 8192, now: () => Date.now() });
