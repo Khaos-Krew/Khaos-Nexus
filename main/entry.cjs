@@ -24,6 +24,11 @@ if (!hasSingleInstanceLock) {
   require('./stability-extension.cjs').install();
   require('./access-recovery-extension.cjs').install();
   require('./brand-update-extension.cjs').install();
+
+  // The module registry must wrap IPC and service prototypes before optional modules register handlers or start timers.
+  require('./module-foundation-extension.cjs').install();
+  require('./module-runtime-extension.cjs').install();
+
   require('./palworld-main-extension.cjs').install();
   require('./discord-studio-extension.cjs').install();
   require('./mobile-gateway-extension.cjs').install();
@@ -33,7 +38,6 @@ if (!hasSingleInstanceLock) {
   require('./player-console-extension.cjs').install();
   require('./hosted-server-extension.cjs').install();
   require('./discord-observability-extension.cjs').install();
-  require('./module-foundation-extension.cjs').install();
   require('./rcon-validation-extension.cjs').install();
   require('./audit-repair-extension.cjs').install();
   require('./main.cjs');
