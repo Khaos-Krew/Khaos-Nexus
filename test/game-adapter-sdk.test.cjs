@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const {
   BaseGameAdapter,
+  CORE_CAPABILITY_DEFINITIONS,
   GameAdapterRegistry,
   normalizeCapabilityManifest,
   executeAdapterOperation,
@@ -44,6 +45,8 @@ test('capability manifests normalize roles, require explicit custom policy and f
     capabilities: { status: true, ban: true, 'rust.queue': { requiredRole: 'viewer', destructive: false, timeoutMs: 5000 } }
   });
   assert.equal(manifest.capabilities.status.requiredRole, 'viewer');
+  assert.throws(() => { CORE_CAPABILITY_DEFINITIONS.ban.requiredRole = 'viewer'; }, TypeError);
+  assert.equal(CORE_CAPABILITY_DEFINITIONS.ban.requiredRole, 'owner');
   assert.equal(manifest.capabilities.ban.requiredRole, 'owner');
   assert.equal(manifest.capabilities.ban.destructive, true);
   assert.equal(manifest.capabilities['rust.queue'].supported, true);
