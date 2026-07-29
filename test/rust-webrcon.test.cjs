@@ -10,7 +10,8 @@ const {
   normalizeRustPlayers,
   safeRustArgument,
   steam64,
-  rawCommand
+  rawCommand,
+  redactRustError
 } = require('../bot/rust-webrcon.cjs');
 const { ServerConnection, isRustWebRcon } = require('../bot/server-client.cjs');
 const { capabilityMapForServer, manifestForServer, createCurrentServerAdapter } = require('../bot/game-adapters/current-server-adapter.cjs');
@@ -70,10 +71,22 @@ const server = {
   connectionType: 'webrcon'
 };
 
-test('Rust WebRCON URL encodes the password and validates endpoints', () => {
+test('Rust WebRCON URL encodes passwords, supports IPv6 and rejects combined endpoints', () => {
   assert.equal(rustWebRconUrl(server), 'ws://127.0.0.1:28016/p%40ss%20word%2Fsecret');
+  assert.equal(rustWebRconUrl({ ...server, host: '::1' }), 'ws://[::1]:28016/p%40ss%20word%2Fsecret');
+  assert.equal(rustWebRconUrl({ ...server, host: '[::1]' }), 'ws://[::1]:28016/p%40ss%20word%2Fsecret');
   assert.throws(() => rustWebRconUrl({ ...server, host: 'ws://127.0.0.1:28016' }), /only the Rust server host/i);
+  assert.throws(() => rustWebRconUrl({ ...server, host: 'rust.example.com:28016' }), /separate port field/i);
+  assert.throws(() => rustWebRconUrl({ ...server, host: '[::1]:28016' }), /separate port field/i);
   assert.throws(() => rustWebRconUrl({ ...server, port: 70000 }), /between 1 and 65535/i);
+});
+
+test('Rust error redaction removes raw, encoded and URL-embedded passwords', () => {
+  const url = rustWebRconUrl(server);
+  const result = redactRustError(new Error(`Unable to connect to ${url}; password=${server.password}`), server.password);
+  assert.equal(result.message.includes(server.password), false);
+  assert.equal(result.message.includes(encodeURIComponent(server.password)), false);
+  assert.match(result.message, /\[REDACTED\]/);
 });
 
 test('Rust WebRCON matches response identifiers and ignores unsolicited packets', async () => {
@@ -172,13 +185,22 @@ test('Rust adapter advertises only implemented vanilla-safe capabilities', async
   assert.ok(calls[0].options.signal instanceof AbortSignal);
 });
 
-test('ServerConnection delegates Rust operations to the WebRCON client', async () => {
+test('ServerConnection delegates typed and legacy-compatible Rust operations', async () => {
+  const commands = [];
   const MockWebSocket = webSocketMock((socket, sent) => {
-    socket.emit('message', { data: JSON.stringify({ Identifier: sent.Identifier, Message: 'Saved', Type: 'Generic', Stacktrace: '' }) });
+    commands.push(sent.Message);
+    const message = sent.Message === 'serverinfo'
+      ? JSON.stringify({ Hostname: 'Khaos Rust', Players: 1, MaxPlayers: 100 })
+      : sent.Message === 'playerlist'
+        ? JSON.stringify([{ SteamID: '76561198000000001', DisplayName: 'Kirito', Ping: 30 }])
+        : 'Saved';
+    socket.emit('message', { data: JSON.stringify({ Identifier: sent.Identifier, Message: message, Type: 'Generic', Stacktrace: '' }) });
   });
   const connection = new ServerConnection(server, { rust: { WebSocketImpl: MockWebSocket, timeoutMs: 1000 } });
   assert.equal(await connection.action('save'), 'Saved');
-  assert.equal(MockWebSocket.instances.length, 1);
+  assert.match(await connection.execute('status'), /Khaos Rust/);
+  assert.match(await connection.execute('list'), /Kirito/);
+  assert.deepEqual(commands, ['save', 'serverinfo', 'playerlist']);
 });
 
 test('Rust graceful shutdown saves first and accepts the expected quit disconnect', async () => {
@@ -219,6 +241,7 @@ test('Rust integration source retains UI, scheduler, player, status-panel and Di
   assert.match(read('main/entry.cjs'), /rust-main-extension\.cjs/);
   assert.match(read('main/rust-main-extension.cjs'), /patchSchedulerService/);
   assert.match(read('main/rust-main-extension.cjs'), /RUN RAW COMMAND/);
+  assert.match(read('main/rust-main-extension.cjs'), /filterRustWhenDisabled/);
   assert.match(read('renderer/rust-webrcon-ui.js'), /Rust WebRCON Operations/);
   assert.match(read('renderer/rust-webrcon-ui.js'), /rcon\.web 1/);
   assert.match(read('main/services/status-panel-service.cjs'), /Rust WebRCON/);
