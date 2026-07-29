@@ -3,6 +3,10 @@
 const base = require('./module-catalog.cjs');
 
 const IMPLEMENTED_PATCHES = Object.freeze({
+  'operator-console': {
+    dependencies: ['game-server-control'],
+    description: 'Safe Recovery, Maintenance Mode, server health and guarded self-healing without requiring the Discord bot to remain enabled.'
+  },
   'server-scheduler': {
     stage: 'live', launchView: 'scheduler', availability: 'implemented',
     description: 'Recurring saves and host-managed restart workflows with warnings, cancellation, verification, Discord reporting and execution history.'
@@ -17,7 +21,9 @@ const IMPLEMENTED_PATCHES = Object.freeze({
   },
   'pterodactyl-control': {
     stage: 'live', launchView: 'hosted-servers', availability: 'implemented',
-    description: 'Encrypted Pterodactyl Client API connections, live resources and guarded power controls.'
+    description: 'Encrypted Pterodactyl Client API connections, live resource snapshots and guarded start, stop, restart and kill controls.',
+    features: ['Encrypted provider profiles', 'Server discovery', 'Live resource snapshots', 'Start, stop, restart and kill', 'Short-lived action tokens', 'Protected action history'],
+    dependencies: ['game-server-control']
   },
   'ark-server-operations': {
     stage: 'live', launchView: 'servers', availability: 'implemented',
@@ -36,7 +42,8 @@ const IMPLEMENTED_PATCHES = Object.freeze({
     stage: 'live', launchView: 'discord-automation', availability: 'implemented'
   },
   'discord-audit-logging': {
-    stage: 'live', launchView: 'discord-automation', availability: 'implemented'
+    stage: 'live', launchView: 'discord-automation', availability: 'implemented',
+    dependencies: ['discord-runtime']
   },
   'admin-command-center': {
     stage: 'live', launchView: 'operator', availability: 'implemented'
@@ -207,7 +214,9 @@ function decisionEnabled(runtime, decision) {
 function moduleDecisionForChannel(channel, args = [], configStore = null) {
   const name = String(channel || '');
   if (!name || name.startsWith('modules:') || name.startsWith('startup-health:') || name.startsWith('stability:')) return null;
-  if (/^(bot:|discord-auth:)/.test(name) || ['config:save-discord', 'secret:set-discord-token'].includes(name)) return { allOf: ['discord-runtime'] };
+  // Desktop Discord OAuth remains available so an access-controlled Owner can always sign in and re-enable Discord Runtime.
+  if (name.startsWith('discord-auth:')) return null;
+  if (name.startsWith('bot:') || ['config:save-discord', 'secret:set-discord-token'].includes(name)) return { allOf: ['discord-runtime'] };
   if (name === 'server:palworld-action') return { allOf: ['palworld-operations'] };
   if (name.startsWith('server:')) return { allOf: ['game-server-control'] };
   if (name.startsWith('autonomy:')) return { allOf: ['operator-console'] };
@@ -231,7 +240,7 @@ function moduleDecisionForChannel(channel, args = [], configStore = null) {
       if (!kind && typeof args?.[0] === 'string') {
         try { kind = String(configStore?.getDiscordAutomation?.().roleMenus?.find((item) => item.id === args[0])?.kind || '').toLowerCase(); } catch {}
       }
-      return { allOf: [kind === 'color' ? 'color-roles' : 'role-menus'] };
+      return { allOf: [kind === 'color' || kind === 'colors' ? 'color-roles' : 'role-menus'] };
     }
     return { anyOf: ['role-menus', 'color-roles', 'discord-organization', 'discord-audit-logging'] };
   }
