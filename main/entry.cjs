@@ -43,5 +43,6 @@ if (!hasSingleInstanceLock) {
 
   // Game adapters that extend audited service classes install after the common audit repairs.
   require('./rust-main-extension.cjs').install();
+  require('./rust-module-gate-extension.cjs').install();
   require('./main.cjs');
 }
