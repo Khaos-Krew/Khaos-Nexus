@@ -35,7 +35,7 @@ test('nested logs and diagnostic outputs retain their own scrolling', () => {
   }
 });
 
-test('v0.20.0 retains startup, scrolling and Owner module workspace behavior', () => {
+test('v0.21.0 retains startup, scrolling and Owner module workspace behavior', () => {
   const packageJson = JSON.parse(read('package.json'));
   const preload = read('main/preload.cjs');
   const portable = read('main/portable-bootstrap-extension.cjs');
@@ -47,9 +47,12 @@ test('v0.20.0 retains startup, scrolling and Owner module workspace behavior', (
   const moduleRuntime = read('renderer/module-runtime.js');
   const moduleCss = read('renderer/module-runtime.css');
   const adapterSdk = read('shared/game-adapter-sdk.cjs');
+  const rustUi = read('renderer/rust-webrcon-ui.js');
+  const rustCss = read('renderer/rust-webrcon-ui.css');
   const audit = read('main/audit-repair-extension.cjs');
 
-  assert.equal(packageJson.version, '0.20.0');
+  assert.equal(packageJson.version, '0.21.0');
+  assert.match(packageJson.description, /dedicated Rust WebRCON operations/i);
   assert.match(packageJson.description, /typed Game Adapter SDK/i);
   assert.match(packageJson.description, /compact production dashboard density/i);
   assert.match(packageJson.description, /independently scrollable navigation and workspace panes/i);
@@ -61,12 +64,15 @@ test('v0.20.0 retains startup, scrolling and Owner module workspace behavior', (
   assert.doesNotMatch(preload, /require\(['"]\.\.?\//);
   assert.doesNotMatch(updater, /new MutationObserver/);
   assert.doesNotMatch(navigation, /new MutationObserver/);
+  assert.doesNotMatch(rustUi, /new MutationObserver/);
   assert.match(navigation, /proxy\.dataset\.viewProxy/);
   assert.match(moduleRuntime, /nexus-module-disabled-target/);
   assert.match(moduleRuntime, /metricModules/);
   assert.match(moduleRuntime, /state\.botStatus/);
   assert.match(moduleRuntime, /Not Implemented/);
   assert.match(moduleCss, /display:\s*none\s*!important/);
+  assert.match(rustCss, /rust-operation-output/);
+  assert.match(rustCss, /overflow:\s*auto/);
   assert.match(adapterSdk, /roleAtLeast/);
   assert.match(adapterSdk, /redactAdapterValue/);
   assert.match(audit, /serverHealth: health/);
@@ -77,5 +83,6 @@ test('v0.20.0 retains startup, scrolling and Owner module workspace behavior', (
   assert.match(entry, /renderer-unresponsive-extension\.cjs/);
   assert.match(entry, /module-runtime-extension\.cjs/);
   assert.match(entry, /audit-repair-extension\.cjs/);
+  assert.match(entry, /rust-main-extension\.cjs/);
   assert.match(watchdog, /interface-watchdog-state\.json/);
 });
