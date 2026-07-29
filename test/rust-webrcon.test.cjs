@@ -7,7 +7,6 @@ const path = require('node:path');
 const {
   RustWebRconClient,
   rustWebRconUrl,
-  normalizeRustServerInfo,
   normalizeRustPlayers,
   safeRustArgument,
   steam64,
@@ -164,11 +163,13 @@ test('Rust adapter advertises only implemented vanilla-safe capabilities', async
 
   const calls = [];
   const adapter = createCurrentServerAdapter(server, {
-    connectionFactory: () => ({ action: async (action, payload) => { calls.push({ action, payload }); return { players: [] }; } })
+    connectionFactory: () => ({ action: async (action, payload, options) => { calls.push({ action, payload, options }); return { players: [] }; } })
   });
   const result = await executeAdapterOperation(adapter, 'players', {}, { role: 'viewer', explicitSecrets: [server.password] });
   assert.equal(result.ok, true);
   assert.equal(calls[0].action, 'players');
+  assert.deepEqual(calls[0].payload, {});
+  assert.ok(calls[0].options.signal instanceof AbortSignal);
 });
 
 test('ServerConnection delegates Rust operations to the WebRCON client', async () => {
@@ -178,6 +179,22 @@ test('ServerConnection delegates Rust operations to the WebRCON client', async (
   const connection = new ServerConnection(server, { rust: { WebSocketImpl: MockWebSocket, timeoutMs: 1000 } });
   assert.equal(await connection.action('save'), 'Saved');
   assert.equal(MockWebSocket.instances.length, 1);
+});
+
+test('Rust graceful shutdown saves first and accepts the expected quit disconnect', async () => {
+  const commands = [];
+  const MockWebSocket = webSocketMock((socket, sent) => {
+    commands.push(sent.Message);
+    if (sent.Message === 'save') {
+      socket.emit('message', { data: JSON.stringify({ Identifier: sent.Identifier, Message: 'Saved', Type: 'Generic', Stacktrace: '' }) });
+    } else {
+      socket.close(1001, 'server shutting down');
+    }
+  });
+  const client = new RustWebRconClient(server, { WebSocketImpl: MockWebSocket, timeoutMs: 1000 });
+  const result = await client.action('shutdown');
+  assert.deepEqual(commands, ['save', 'quit']);
+  assert.match(result, /save completed and shutdown/i);
 });
 
 test('Rust module is implemented, dependency-aware, and gates operations without hiding repair configuration', () => {
