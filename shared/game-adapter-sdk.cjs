@@ -33,6 +33,7 @@ const CORE_CAPABILITY_DEFINITIONS = Object.freeze({
   'config-read': { requiredRole: 'operator', destructive: false, timeoutMs: 10000 },
   'config-write': { requiredRole: 'owner', destructive: true, timeoutMs: 30000 }
 });
+Object.values(CORE_CAPABILITY_DEFINITIONS).forEach((definition) => Object.freeze(definition));
 
 const ADAPTER_ERROR_CODES = Object.freeze([
   'ADAPTER_UNAVAILABLE', 'CAPABILITY_UNSUPPORTED', 'ACCESS_DENIED', 'AUTH_FAILED', 'CONNECTION_FAILED',
