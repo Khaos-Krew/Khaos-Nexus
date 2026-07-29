@@ -36,3 +36,11 @@ test('Rust service overrides retain Operator Console module enforcement', () => 
   assert.match(source, /wrap\(prototype, 'checkServers'/);
   assert.match(source, /wrap\(prototype, 'runMaintenance'/);
 });
+
+test('scheduled Rust shutdown falls back to WebRCON only when no hosted provider is linked', () => {
+  const source = read('main/rust-module-gate-extension.cjs');
+  assert.match(source, /signal !== 'stop' \|\| hosted/);
+  assert.match(source, /assertModule\('rust-server-operations'/);
+  assert.match(source, /new ServerConnection\(server\)\.action\('shutdown'\)/);
+  assert.match(source, /provider: 'rust-webrcon'/);
+});
