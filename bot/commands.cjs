@@ -16,14 +16,14 @@ const COMMAND_MODULES = Object.freeze({
   broadcast: 'game-server-control',
   kick: 'game-server-control',
   ban: 'game-server-control',
+  unban: 'game-server-control',
+  shutdown: 'game-server-control',
+  forcestop: 'game-server-control',
   rcon: 'game-server-control',
   listservers: 'game-server-control',
   settings: 'palworld-operations',
   metrics: 'palworld-operations',
-  snapshot: 'palworld-operations',
-  unban: 'palworld-operations',
-  shutdown: 'palworld-operations',
-  forcestop: 'palworld-operations'
+  snapshot: 'palworld-operations'
 });
 
 function createCommands({ isModuleEnabled = () => true } = {}) {
@@ -35,7 +35,7 @@ function createCommands({ isModuleEnabled = () => true } = {}) {
       .setAutocomplete(true));
 
   const playerOption = (builder) => builder
-    .addStringOption((option) => option.setName('player').setDescription('Player name, user ID, or platform ID').setRequired(true));
+    .addStringOption((option) => option.setName('player').setDescription('Player name, user ID, Steam64 ID, or platform ID').setRequired(true));
 
   const commands = [
     new SlashCommandBuilder().setName('ping').setDescription('Check whether the bot is responding.'),
@@ -52,14 +52,14 @@ function createCommands({ isModuleEnabled = () => true } = {}) {
       .addStringOption((option) => option.setName('message').setDescription('Optional reason shown to the player').setMaxLength(300)),
     playerOption(serverOption(new SlashCommandBuilder().setName('ban').setDescription('Ban a player from a game server.')))
       .addStringOption((option) => option.setName('message').setDescription('Optional reason shown to the player').setMaxLength(300)),
-    playerOption(serverOption(new SlashCommandBuilder().setName('unban').setDescription('Unban a Palworld player by user ID.'))),
-    serverOption(new SlashCommandBuilder().setName('shutdown').setDescription('Schedule a graceful Palworld server shutdown.'))
-      .addIntegerOption((option) => option.setName('seconds').setDescription('Delay before shutdown').setRequired(true).setMinValue(5).setMaxValue(3600))
-      .addStringOption((option) => option.setName('message').setDescription('Message shown before shutdown').setMaxLength(500)),
-    serverOption(new SlashCommandBuilder().setName('forcestop').setDescription('Immediately force-stop a Palworld server.'))
+    playerOption(serverOption(new SlashCommandBuilder().setName('unban').setDescription('Unban a supported game-server account or Steam64 ID.'))),
+    serverOption(new SlashCommandBuilder().setName('shutdown').setDescription('Schedule or request a graceful game-server shutdown.'))
+      .addIntegerOption((option) => option.setName('seconds').setDescription('Delay before shutdown when supported').setRequired(true).setMinValue(5).setMaxValue(3600))
+      .addStringOption((option) => option.setName('message').setDescription('Message shown before shutdown when supported').setMaxLength(500)),
+    serverOption(new SlashCommandBuilder().setName('forcestop').setDescription('Immediately stop a supported game server.'))
       .addBooleanOption((option) => option.setName('confirm').setDescription('Confirm emergency force-stop').setRequired(true)),
-    serverOption(new SlashCommandBuilder().setName('rcon').setDescription('Run an advanced command on a legacy RCON connection.'))
-      .addStringOption((option) => option.setName('command').setDescription('Raw RCON command').setRequired(true)),
+    serverOption(new SlashCommandBuilder().setName('rcon').setDescription('Run an advanced Owner console command on a supported connection.'))
+      .addStringOption((option) => option.setName('command').setDescription('Raw server console command').setRequired(true).setMaxLength(1000)),
     new SlashCommandBuilder().setName('listservers').setDescription('List enabled game servers and connection types.'),
     new SlashCommandBuilder().setName('managerrestart').setDescription('Ask the desktop manager to restart the bot runtime.')
   ];
