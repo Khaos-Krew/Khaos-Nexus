@@ -46,21 +46,37 @@ test('safe UI layer loads grouped navigation while preserving independent scroll
   assert.match(extension, /addScript\('navigation-shell\.js'\)/);
 });
 
-test('v0.19.0 is configured for the guarded owner-controlled release channel', () => {
+test('v0.20.0 is configured for the guarded Game Adapter SDK release channel', () => {
   const packageJson = JSON.parse(read('package.json'));
-  const notes = read('release-notes/v0.19.0.md');
+  const notes = read('release-notes/v0.20.0.md');
+  const sdk = read('shared/game-adapter-sdk.cjs');
+  const fixtures = read('shared/game-adapter-fixtures.cjs');
+  const bridge = read('bot/game-adapters/current-server-adapter.cjs');
+  const sdkDocs = read('docs/GAME_ADAPTER_SDK_v0.20.0.md');
   const registry = read('shared/module-registry.cjs');
   const foundation = read('main/module-foundation-extension.cjs');
   const runtime = read('main/module-runtime-extension.cjs');
   const botRuntime = read('bot/module-runtime.cjs');
-  const research = read('docs/GAME_INTEGRATION_RESEARCH_2026-07-29.md');
   const workflow = read('.github/workflows/stable-release.yml');
 
-  assert.equal(packageJson.version, '0.19.0');
+  assert.equal(packageJson.version, '0.20.0');
+  assert.match(packageJson.description, /typed Game Adapter SDK/i);
+  assert.match(packageJson.description, /explicit capability manifests/i);
+  assert.match(packageJson.description, /role-aware destructive-action policy/i);
+  assert.match(packageJson.description, /bounded opt-in protocol fixtures/i);
   assert.match(packageJson.description, /authoritative Owner module switches/i);
-  assert.match(packageJson.description, /dependency-aware runtime gating/i);
-  assert.match(packageJson.description, /module-aware Discord commands and buttons/i);
   assert.match(packageJson.description, /full production runtime audit repairs/i);
+  assert.match(sdk, /CORE_CAPABILITY_DEFINITIONS/);
+  assert.match(sdk, /Custom game-adapter capability/);
+  assert.match(sdk, /executeAdapterOperation/);
+  assert.match(sdk, /SENSITIVE_FIELD_PATTERN/);
+  assert.match(sdk, /GameAdapterRegistry/);
+  assert.match(fixtures, /GameAdapterFixtureRecorder/);
+  assert.match(fixtures, /SENSITIVE_KEY/);
+  assert.match(bridge, /createCurrentServerAdapter/);
+  assert.match(bridge, /palworld-rest/);
+  assert.match(sdkDocs, /Game Adapter SDK/);
+  assert.match(sdkDocs, /Rust WebRCON/);
   assert.match(registry, /normalizeModuleOverrides/);
   assert.match(registry, /not-implemented/);
   assert.match(registry, /discord-auth:/);
@@ -72,18 +88,14 @@ test('v0.19.0 is configured for the guarded owner-controlled release channel', (
   assert.equal(packageJson.build.publish[0].provider, 'github');
   assert.equal(packageJson.build.publish[0].releaseType, 'release');
   assert.equal(packageJson.build.publish[0].tagNamePrefix, 'v');
-  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.19.0.md');
-  assert.match(notes, /Owner-controlled module runtime/i);
-  assert.match(notes, /Disable All/i);
-  assert.match(notes, /Safe Mode/i);
-  assert.match(notes, /Enable Validated/i);
-  assert.match(notes, /complete supervised Discord entry chain/i);
-  assert.match(research, /Rust/);
-  assert.match(research, /Satisfactory/);
-  assert.match(research, /Minecraft Bedrock/);
-  assert.match(research, /7 Days to Die/);
+  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.20.0.md');
+  assert.match(notes, /Game Adapter SDK foundation/i);
+  assert.match(notes, /Custom, game-specific capabilities/i);
+  assert.match(notes, /Operational payloads are not truncated/i);
+  assert.match(notes, /Preserved v0\.19\.0 foundations/i);
   assert.match(workflow, /branches:\s*\n\s*- "release\/v\*"/);
   assert.match(workflow, /pull_request_target/);
+  assert.match(workflow, /npm audit --omit=dev --audit-level=high/);
   assert.match(workflow, /npm test/);
   assert.match(workflow, /npm run check/);
   assert.match(workflow, /npm run dist:win/);
