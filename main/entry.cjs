@@ -30,7 +30,6 @@ if (!hasSingleInstanceLock) {
   require('./module-runtime-extension.cjs').install();
 
   require('./palworld-main-extension.cjs').install();
-  require('./rust-main-extension.cjs').install();
   require('./discord-studio-extension.cjs').install();
   require('./mobile-gateway-extension.cjs').install();
   require('./discord-automation-extension.cjs').install();
@@ -41,5 +40,8 @@ if (!hasSingleInstanceLock) {
   require('./discord-observability-extension.cjs').install();
   require('./rcon-validation-extension.cjs').install();
   require('./audit-repair-extension.cjs').install();
+
+  // Game adapters that extend audited service classes install after the common audit repairs.
+  require('./rust-main-extension.cjs').install();
   require('./main.cjs');
 }
