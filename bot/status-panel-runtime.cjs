@@ -6,6 +6,11 @@ const { normalizeStatusPanelsConfig, parseStatusButtonId, renderStatusPanel } = 
 
 const installedClients = new WeakSet();
 
+function runtimeEnabled(bootstrap, id) {
+  const state = bootstrap?.config?.moduleRuntime?.[id];
+  return state ? Boolean(state.effectiveEnabled) : true;
+}
+
 function installStatusPanelRuntime({ client, getBootstrap, send, log, now } = {}) {
   if (!client || installedClients.has(client)) return;
   installedClients.add(client);
@@ -40,6 +45,10 @@ function installStatusPanelRuntime({ client, getBootstrap, send, log, now } = {}
     if (!interaction.isButton()) return;
     const parsed = parseStatusButtonId(interaction.customId);
     if (!parsed) return;
+    if (!runtimeEnabled(bootstrap(), 'server-status-panels')) {
+      await interaction.reply({ content: 'Server Status Panels are temporarily disabled by the Khaos Nexus owner.', ephemeral: true }).catch(() => {});
+      return;
+    }
     const panel = panels().find((item) => item.id === parsed.panelId && item.enabled !== false);
     if (!panel) {
       await interaction.reply({ content: 'This Khaos Nexus status panel is no longer configured.', ephemeral: true }).catch(() => {});
@@ -87,4 +96,4 @@ function installStatusPanelRuntime({ client, getBootstrap, send, log, now } = {}
   });
 }
 
-module.exports = { installStatusPanelRuntime };
+module.exports = { installStatusPanelRuntime, runtimeEnabled };
