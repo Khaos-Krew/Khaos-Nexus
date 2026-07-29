@@ -46,27 +46,32 @@ test('safe UI layer loads grouped navigation while preserving independent scroll
   assert.match(extension, /addScript\('navigation-shell\.js'\)/);
 });
 
-test('v0.18.21 is configured for the guarded in-app GitHub release channel', () => {
+test('v0.18.22 is configured for the guarded in-app GitHub release channel', () => {
   const packageJson = JSON.parse(read('package.json'));
-  const notes = read('release-notes/v0.18.21.md');
+  const notes = read('release-notes/v0.18.22.md');
+  const audit = read('main/audit-repair-extension.cjs');
+  const runtimeAudit = read('bot/runtime-audit.cjs');
   const workflow = read('.github/workflows/stable-release.yml');
-  assert.equal(packageJson.version, '0.18.21');
+  assert.equal(packageJson.version, '0.18.22');
+  assert.match(packageJson.description, /full production runtime audit repairs/i);
   assert.match(packageJson.description, /verified click-through grouped proxy navigation/i);
-  assert.match(packageJson.description, /always-visible in-app update center and header update action/i);
-  assert.match(packageJson.description, /synchronized live Discord runtime status/i);
-  assert.match(packageJson.description, /spawn-confirmed supervised process IDs/i);
-  assert.match(packageJson.description, /bounded idempotent updater UI/i);
-  assert.match(packageJson.description, /renderer-unresponsive reporting/i);
+  assert.match(packageJson.description, /live supervised bot configuration updates/i);
+  assert.match(packageJson.description, /functional Discord status-panel buttons/i);
+  assert.match(packageJson.description, /resilient error-monitor batching/i);
+  assert.match(packageJson.description, /retryable updater installation failures/i);
+  assert.match(audit, /reconcileInterruptedRuns/);
+  assert.match(audit, /daily delivery limit/i);
+  assert.match(runtimeAudit, /handleStatusButton/);
   assert.equal(packageJson.build.publish[0].provider, 'github');
   assert.equal(packageJson.build.publish[0].releaseType, 'release');
   assert.equal(packageJson.build.publish[0].tagNamePrefix, 'v');
-  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.18.21.md');
-  assert.match(notes, /Grouped navigation click routing/i);
-  assert.match(notes, /dataset\.viewProxy/i);
-  assert.match(notes, /Palworld status-panel/i);
+  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.18.22.md');
+  assert.match(notes, /Full production runtime audit and repair/i);
+  assert.match(notes, /live `config-update`/i);
+  assert.match(notes, /Refresh Status/i);
+  assert.match(notes, /daily GitHub delivery limit/i);
+  assert.match(notes, /interrupted by an application restart/i);
   assert.match(notes, /mandatory verified pre-update backup/i);
-  assert.match(notes, /five-minute startup error batch/i);
-  assert.match(notes, /thirty-minute maintenance scans/i);
   assert.match(workflow, /branches:\s*\n\s*- "release\/v\*"/);
   assert.match(workflow, /pull_request_target/);
   assert.match(workflow, /npm test/);
