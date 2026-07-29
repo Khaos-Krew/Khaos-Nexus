@@ -13,6 +13,15 @@ const {
   safeReason
 } = require('../../shared/player-console.cjs');
 
+function gameModuleEnabled(runtime, server) {
+  const game = String(server?.game || '').toLowerCase();
+  const moduleId = game === 'rust' ? 'rust-server-operations'
+    : game === 'palworld' ? 'palworld-operations'
+      : game === 'ark' ? 'ark-server-operations'
+        : null;
+  return !moduleId || runtime?.config?.moduleRuntime?.[moduleId]?.effectiveEnabled !== false;
+}
+
 class PlayerConsoleService extends EventEmitter {
   constructor({ dataDirectory, configStore, logger, connectionFactory, now = () => Date.now() } = {}) {
     super();
@@ -50,7 +59,8 @@ class PlayerConsoleService extends EventEmitter {
   runtimeServers(serverIds) {
     const filtered = Array.isArray(serverIds);
     const wanted = new Set(filtered ? serverIds : []);
-    return this.configStore.getRuntimeBootstrap().config.servers.filter((server) => server.enabled !== false && (!filtered || wanted.has(server.id)));
+    const runtime = this.configStore.getRuntimeBootstrap();
+    return runtime.config.servers.filter((server) => server.enabled !== false && gameModuleEnabled(runtime, server) && (!filtered || wanted.has(server.id)));
   }
 
   pruneTokens() {
@@ -144,7 +154,7 @@ class PlayerConsoleService extends EventEmitter {
     const safeModerationReason = safeReason(reason);
     const target = this.resolveToken(token);
     const server = this.runtimeServers([target.serverId])[0];
-    if (!server) throw new Error('The selected server is no longer available.');
+    if (!server) throw new Error('The selected server is no longer available or its game module is disabled.');
 
     let outcome = 'failed';
     let message = '';
@@ -152,6 +162,7 @@ class PlayerConsoleService extends EventEmitter {
       const result = await this.connectionFactory(server).action(action, {
         userid: target.identifier,
         player: target.identifier,
+        playerName: target.playerName,
         message: safeModerationReason
       });
       outcome = 'success';
@@ -201,4 +212,4 @@ class PlayerConsoleService extends EventEmitter {
   }
 }
 
-module.exports = { PlayerConsoleService };
+module.exports = { PlayerConsoleService, gameModuleEnabled };
