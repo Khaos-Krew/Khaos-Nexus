@@ -22,7 +22,7 @@ function adapter(overrides = {}) {
       capabilities: { status: true, announce: true, ban: true, metrics: true }
     },
     operations: {
-      status: async () => ({ status: 'online', token: 'secret-value' }),
+      status: async () => ({ status: 'online', token: 'secret-value', authorization: 'Bearer hidden', sessionCookie: 'private-cookie' }),
       announce: async (payload) => ({ delivered: payload.message }),
       ban: async (payload) => ({ banned: payload.player }),
       metrics: async () => new Promise((resolve) => setTimeout(() => resolve({ fps: 60 }), 400)),
@@ -31,22 +31,27 @@ function adapter(overrides = {}) {
   });
 }
 
-test('capability manifests normalize roles and destructive safety metadata', () => {
+test('capability manifests normalize roles and require explicit custom safety policy', () => {
   const manifest = normalizeCapabilityManifest({
     adapterId: 'rust-web-rcon', gameId: 'rust', displayName: 'Rust WebRCON', transport: 'websocket',
-    capabilities: { status: true, ban: true, 'rust.queue': { requiredRole: 'viewer', timeoutMs: 5000 } }
+    capabilities: { status: true, ban: true, 'rust.queue': { requiredRole: 'viewer', destructive: false, timeoutMs: 5000 } }
   });
   assert.equal(manifest.capabilities.status.requiredRole, 'viewer');
   assert.equal(manifest.capabilities.ban.requiredRole, 'owner');
   assert.equal(manifest.capabilities.ban.destructive, true);
   assert.equal(manifest.capabilities['rust.queue'].supported, true);
+  assert.throws(() => normalizeCapabilityManifest({
+    adapterId: 'unsafe-custom', gameId: 'test', capabilities: { 'test.admin': true }
+  }), /must declare requiredRole and destructive/i);
 });
 
-test('adapter execution enforces roles and redacts secret-shaped result fields', async () => {
+test('adapter execution enforces roles and redacts every secret-shaped result field', async () => {
   const instance = adapter();
   const status = await executeAdapterOperation(instance, 'status', {}, { role: 'viewer' });
   assert.equal(status.ok, true);
   assert.equal(status.data.token, '[REDACTED]');
+  assert.equal(status.data.authorization, '[REDACTED]');
+  assert.equal(status.data.sessionCookie, '[REDACTED]');
   await assert.rejects(() => executeAdapterOperation(instance, 'ban', { player: 'bad' }, { role: 'operator' }), (error) => {
     assert.equal(error.code, 'ACCESS_DENIED');
     return true;
@@ -55,9 +60,12 @@ test('adapter execution enforces roles and redacts secret-shaped result fields',
   assert.equal(ban.data.banned, 'bad');
 });
 
-test('unsupported capabilities and timeouts use stable adapter error codes', async () => {
+test('unsupported capabilities, timeouts, cancellations and connection failures use stable codes', async () => {
   await assert.rejects(() => executeAdapterOperation(adapter(), 'save', {}, { role: 'operator' }), (error) => error.code === 'CAPABILITY_UNSUPPORTED');
   await assert.rejects(() => executeAdapterOperation(adapter(), 'metrics', {}, { role: 'viewer', timeoutMs: 250 }), (error) => error.code === 'TIMEOUT' && error.retryable);
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(() => executeAdapterOperation(adapter(), 'status', {}, { role: 'viewer', signal: controller.signal }), (error) => error.code === 'CANCELLED');
   const normalized = normalizeAdapterError(new Error('connect ECONNREFUSED 127.0.0.1'));
   assert.equal(normalized.code, 'CONNECTION_FAILED');
 });
@@ -74,7 +82,7 @@ test('registry refuses duplicates and validates factory identity', () => {
 test('fixture recorder redacts credentials, bounds data, rotates, and can be cleared', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'khaos-adapter-fixtures-'));
   try {
-    const recorder = new GameAdapterFixtureRecorder({ directory, enabled: true, maxEntryBytes: 4096, maxFileBytes: 8192 });
+    const recorder = new GameAdapterFixtureRecorder({ directory, enabled: true, maxEntryBytes: 4096, maxFileBytes: 8192, now: () => Date.now() });
     const result = recorder.record({
       adapterId: 'test-adapter', gameId: 'test', capability: 'status', requestId: 'req-1',
       request: { password: 'hunter2', authorization: 'Bearer abcdefghijklmnop', nested: { sessionToken: 'token-value' } },
@@ -111,7 +119,7 @@ test('current server bridge declares transport-specific capabilities and delegat
   assert.deepEqual(calls, [{ action: 'players', payload: {} }]);
 });
 
-test('status panel service and Palworld desktop operations use the SDK bridge', () => {
+test('status panels and Palworld desktop operations use the SDK bridge', () => {
   const statusService = fs.readFileSync(path.join(__dirname, '..', 'main', 'services', 'status-panel-service.cjs'), 'utf8');
   const palworldExtension = fs.readFileSync(path.join(__dirname, '..', 'main', 'palworld-main-extension.cjs'), 'utf8');
   assert.match(statusService, /createCurrentServerAdapter/);
