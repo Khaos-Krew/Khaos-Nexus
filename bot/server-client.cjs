@@ -103,7 +103,15 @@ class ServerConnection {
   }
 
   async execute(command) {
-    if (this.rust) return this.rust.execute(command);
+    if (this.rust) {
+      const text = String(command || '').trim();
+      if (/^(status|serverinfo)$/i.test(text)) return JSON.stringify(await this.rust.action('status'), null, 2);
+      if (/^(list|players|playerlist)$/i.test(text)) return formatPlayers(await this.rust.action('players'));
+      if (/^(save|save-all)$/i.test(text)) return this.rust.action('save');
+      const announce = text.match(/^(?:broadcast|say)\s+(.+)$/i);
+      if (announce) return this.rust.action('announce', { message: announce[1] });
+      return this.rust.execute(text);
+    }
     if (!this.rest) return this.rcon.execute(command);
     const text = String(command || '').trim();
     if (/^Info$/i.test(text)) return JSON.stringify(await this.rest.info(), null, 2);
