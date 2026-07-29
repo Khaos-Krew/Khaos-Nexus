@@ -57,7 +57,7 @@ function redactRustError(error, password = '') {
   const message = redactText(error?.message || error || 'Rust WebRCON operation failed.', [password]);
   const result = new Error(message);
   result.name = 'RustWebRconError';
-  result.code = error?.code || 'RUST_WEBCON_ERROR';
+  result.code = error?.code || 'RUST_WEBRCON_ERROR';
   result.retryable = Boolean(error?.retryable);
   result.status = Number.isFinite(Number(error?.status)) ? Number(error.status) : null;
   return result;
@@ -139,7 +139,7 @@ function normalizeRustPlayer(input = {}) {
 function normalizeRustPlayers(payload) {
   const parsed = parseJsonMessage(payload, []);
   const source = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.players) ? parsed.players : [];
-  return source.map(normalizeRustPlayer).filter((player) => player.identifier);
+  return source.map(normalizeRustPlayer).filter((player) => STEAM64_PATTERN.test(player.identifier));
 }
 
 function safeRustArgument(value, label, max = 250) {
@@ -194,6 +194,7 @@ class RustWebRconClient {
       let socket;
       let settled = false;
       let timer;
+      let commandSent = false;
 
       const finish = (error, packet) => {
         if (settled) return;
@@ -227,6 +228,7 @@ class RustWebRconClient {
       add('open', () => {
         try {
           socket.send(JSON.stringify({ Identifier: identifier, Message: command, Name: this.server.rconName }));
+          commandSent = true;
         } catch (error) {
           finish(Object.assign(error, { code: 'CONNECTION_FAILED', retryable: true }));
         }
@@ -266,6 +268,10 @@ class RustWebRconClient {
         const code = Number(eventOrCode?.code ?? eventOrCode);
         const reason = cleanText(eventOrCode?.reason ?? maybeReason, 300);
         const auth = code === 1008 || /password|auth|forbidden|unauthor/i.test(reason);
+        if (options.allowCloseAsSuccess && commandSent && !auth) {
+          finish(null, { identifier, message: options.closeSuccessMessage || 'Rust accepted the shutdown command.', type: 'Generic', stacktrace: '', raw: null });
+          return;
+        }
         finish(Object.assign(new Error(auth ? 'Rust rejected the WebRCON password or temporarily blocked this client.' : `Rust WebRCON closed before replying${code ? ` (code ${code})` : ''}.`), {
           code: auth ? 'AUTH_FAILED' : 'CONNECTION_FAILED',
           retryable: !auth
@@ -303,9 +309,12 @@ class RustWebRconClient {
       }
       case 'unban':
         return this.execute(`unban ${steam64(payload.userid || payload.player)}`, options);
-      case 'shutdown':
+      case 'shutdown': {
+        await this.execute('save', options);
+        return this.execute('quit', { ...options, allowCloseAsSuccess: true, closeSuccessMessage: 'Rust world save completed and shutdown was requested.' });
+      }
       case 'stop':
-        return this.execute('quit', options);
+        return this.execute('quit', { ...options, allowCloseAsSuccess: true, closeSuccessMessage: 'Rust shutdown was requested.' });
       case 'raw':
         return this.execute(rawCommand(payload.command), options);
       default:
