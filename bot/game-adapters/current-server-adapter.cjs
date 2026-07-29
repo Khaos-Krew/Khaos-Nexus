@@ -67,7 +67,7 @@ function manifestForServer(server = {}) {
     gameId: game,
     displayName: `${cleanText(server.name, 80, game)} ${label} adapter`,
     transport,
-    adapterVersion: rust ? '1.0.0' : '1.0.0',
+    adapterVersion: '1.0.0',
     capabilities: capabilityMapForServer(server),
     metadata: {
       connectionType: rust ? 'webrcon' : rest ? 'rest' : 'rcon',
@@ -87,7 +87,7 @@ function createCurrentServerAdapter(server = {}, options = {}) {
   const operations = {};
   for (const [capability, definition] of Object.entries(manifest.capabilities)) {
     if (!definition.supported) continue;
-    operations[capability] = (payload, context) => connection.action(capability, { ...(payload || {}), signal: context?.signal });
+    operations[capability] = (payload, context) => connection.action(capability, payload || {}, { signal: context?.signal });
   }
   return new BaseGameAdapter({ manifest, operations, logger: options.logger, now: options.now });
 }
