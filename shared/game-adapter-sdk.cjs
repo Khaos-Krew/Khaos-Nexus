@@ -51,24 +51,36 @@ function clamp(value, min, max, fallback) {
   return Number.isFinite(number) ? Math.min(max, Math.max(min, Math.round(number))) : fallback;
 }
 
-function redactAdapterValue(value, explicitSecrets = [], depth = 0) {
+function clockMilliseconds(clock) {
+  const value = typeof clock === 'function' ? clock() : Date.now();
+  const milliseconds = Number(value);
+  return Number.isFinite(milliseconds) ? milliseconds : Date.now();
+}
+
+function redactAdapterValue(value, explicitSecrets = [], depth = 0, seen = new WeakSet()) {
   if (depth > 32) return '[MAX_DEPTH]';
   if (value === null || value === undefined) return value;
   if (typeof value === 'string') return redactText(value, explicitSecrets);
   if (typeof value === 'number' || typeof value === 'boolean') return value;
   if (typeof value === 'bigint') return String(value);
-  if (Array.isArray(value)) return value.map((item) => redactAdapterValue(item, explicitSecrets, depth + 1));
   if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.toISOString() : null;
   if (Buffer.isBuffer(value)) return { type: 'Buffer', byteLength: value.length };
   if (typeof value !== 'object') return String(value);
-  const result = {};
-  for (const [key, item] of Object.entries(value)) {
-    const safeKey = cleanText(key, 120, 'field');
-    result[safeKey] = SENSITIVE_FIELD_PATTERN.test(key)
-      ? (item ? '[REDACTED]' : item)
-      : redactAdapterValue(item, explicitSecrets, depth + 1);
+  if (seen.has(value)) return '[CIRCULAR]';
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) return value.map((item) => redactAdapterValue(item, explicitSecrets, depth + 1, seen));
+    const result = {};
+    for (const [key, item] of Object.entries(value)) {
+      const safeKey = cleanText(key, 120, 'field');
+      result[safeKey] = SENSITIVE_FIELD_PATTERN.test(key)
+        ? (item ? '[REDACTED]' : item)
+        : redactAdapterValue(item, explicitSecrets, depth + 1, seen);
+    }
+    return result;
+  } finally {
+    seen.delete(value);
   }
-  return result;
 }
 
 function normalizeCapabilityId(value) {
@@ -118,7 +130,7 @@ function normalizeCapabilities(input = {}) {
   for (const [id, value] of entries) {
     const normalized = normalizeCapabilityDefinition(id, value);
     if (result[normalized.id]) throw new Error(`Duplicate game-adapter capability: ${normalized.id}`);
-    result[normalized.id] = normalized;
+    result[normalized.id] = Object.freeze(normalized);
   }
   return result;
 }
@@ -153,7 +165,6 @@ class GameAdapterError extends Error {
     this.status = Number.isFinite(Number(options.status)) ? Number(options.status) : null;
     this.details = redactAdapterValue(options.details && typeof options.details === 'object' ? options.details : {}, options.explicitSecrets || []);
     this.id = cleanText(options.id, 40) || errorFingerprint(`${this.code}\n${this.adapterId}\n${this.capability}\n${this.message}`);
-    if (options.cause) this.cause = options.cause;
   }
 
   toJSON() {
@@ -197,8 +208,7 @@ function normalizeAdapterError(error, context = {}) {
     retryable: context.retryable ?? existing?.retryable ?? ['CONNECTION_FAILED', 'TIMEOUT', 'RATE_LIMITED', 'ADAPTER_UNAVAILABLE'].includes(code),
     status: error?.status || error?.statusCode || existing?.status,
     details: { ...(existing?.details || {}), ...(context.details || {}) },
-    explicitSecrets: context.explicitSecrets,
-    cause: error
+    explicitSecrets: context.explicitSecrets
   });
 }
 
@@ -297,7 +307,7 @@ async function executeAdapterOperation(adapter, capabilityInput, payload = {}, c
   }
 
   const requestId = cleanText(context.requestId, 80) || crypto.randomUUID();
-  const startedAtMs = Number(context.now?.() ?? Date.now());
+  const startedAtMs = clockMilliseconds(context.now);
   const startedAt = new Date(startedAtMs).toISOString();
   const operationContext = {
     ...context,
@@ -316,7 +326,7 @@ async function executeAdapterOperation(adapter, capabilityInput, payload = {}, c
       if (typeof adapter[capability] === 'function') return adapter[capability](payload, operationContext);
       throw new GameAdapterError('CAPABILITY_UNSUPPORTED', `${manifest.displayName} has no operation handler for ${capability}.`);
     }, context.timeoutMs ? clamp(context.timeoutMs, 250, 300000, definition.timeoutMs) : definition.timeoutMs, context);
-    const finishedAtMs = Number(context.now?.() ?? Date.now());
+    const finishedAtMs = clockMilliseconds(context.now);
     return {
       ok: true,
       schemaVersion: ADAPTER_SCHEMA_VERSION,
