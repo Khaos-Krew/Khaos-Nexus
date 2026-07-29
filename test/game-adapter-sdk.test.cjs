@@ -38,7 +38,7 @@ function adapter(overrides = {}) {
   });
 }
 
-test('capability manifests normalize roles and require explicit custom safety policy', () => {
+test('capability manifests normalize roles, require explicit custom policy and freeze security definitions', () => {
   const manifest = normalizeCapabilityManifest({
     adapterId: 'rust-web-rcon', gameId: 'rust', displayName: 'Rust WebRCON', transport: 'websocket',
     capabilities: { status: true, ban: true, 'rust.queue': { requiredRole: 'viewer', destructive: false, timeoutMs: 5000 } }
@@ -47,6 +47,8 @@ test('capability manifests normalize roles and require explicit custom safety po
   assert.equal(manifest.capabilities.ban.requiredRole, 'owner');
   assert.equal(manifest.capabilities.ban.destructive, true);
   assert.equal(manifest.capabilities['rust.queue'].supported, true);
+  assert.throws(() => { manifest.capabilities['rust.queue'].requiredRole = 'owner'; }, TypeError);
+  assert.equal(manifest.capabilities['rust.queue'].requiredRole, 'viewer');
   assert.throws(() => normalizeCapabilityManifest({
     adapterId: 'unsafe-custom', gameId: 'test', capabilities: { 'test.admin': true }
   }), /must declare requiredRole and destructive/i);
@@ -61,6 +63,10 @@ test('adapter execution enforces roles, redacts secrets and preserves full opera
   assert.equal(status.data.sessionCookie, '[REDACTED]');
   assert.equal(status.data.longText.length, 25000);
   assert.equal(status.data.values.length, 750);
+  const circular = {};
+  circular.self = circular;
+  const circularResult = await executeAdapterOperation(adapter({ status: async () => circular }), 'status', {}, { role: 'viewer' });
+  assert.equal(circularResult.data.self, '[CIRCULAR]');
   await assert.rejects(() => executeAdapterOperation(instance, 'ban', { player: 'bad' }, { role: 'operator' }), (error) => {
     assert.equal(error.code, 'ACCESS_DENIED');
     return true;
@@ -81,8 +87,10 @@ test('unsupported capabilities, timeouts, cancellations and connection failures 
   const controller = new AbortController();
   controller.abort();
   await assert.rejects(() => executeAdapterOperation(adapter(), 'status', {}, { role: 'viewer', signal: controller.signal }), (error) => error.code === 'CANCELLED');
-  const normalized = normalizeAdapterError(new Error('connect ECONNREFUSED 127.0.0.1'));
+  const normalized = normalizeAdapterError(new Error('connect ECONNREFUSED 127.0.0.1 password=hidden'), { explicitSecrets: ['hidden'] });
   assert.equal(normalized.code, 'CONNECTION_FAILED');
+  assert.equal(normalized.message.includes('hidden'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(normalized, 'cause'), false);
 });
 
 test('registry refuses duplicates and validates factory identity', () => {
