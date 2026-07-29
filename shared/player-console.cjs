@@ -63,8 +63,36 @@ function parseCsvLine(line) {
   return values;
 }
 
+function rustValue(object, names) {
+  if (!object || typeof object !== 'object') return undefined;
+  const entries = Object.entries(object);
+  for (const name of names) {
+    const found = entries.find(([key]) => String(key).toLowerCase() === String(name).toLowerCase());
+    if (found) return found[1];
+  }
+  return undefined;
+}
+
+function normalizeRustPlayers(payload) {
+  let source = payload;
+  if (typeof source === 'string') {
+    try { source = JSON.parse(source); } catch { return []; }
+  }
+  const players = Array.isArray(source) ? source : Array.isArray(source?.players) ? source.players : [];
+  return players.map((player) => ({
+    name: safePlayerName(rustValue(player, ['DisplayName', 'Name', 'Username'])),
+    identifier: cleanText(rustValue(player, ['SteamID', 'SteamId', 'UserID', 'UserId']), 32),
+    accountType: 'Steam',
+    level: null,
+    ping: safeNumber(rustValue(player, ['Ping'])),
+    connectedSeconds: safeNumber(rustValue(player, ['ConnectedSeconds', 'ConnectedTime']))
+  })).filter((player) => /^7656\d{13}$/.test(player.identifier));
+}
+
 function parseRconPlayers(gameInput, payload) {
   const game = cleanText(gameInput, 30, 'generic').toLowerCase();
+  if (game === 'rust') return normalizeRustPlayers(payload);
+
   const text = String(payload || '').trim();
   if (!text || /no players? (are )?(currently )?connected|no players connected/i.test(text)) return [];
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
@@ -163,5 +191,6 @@ module.exports = {
   playerToken,
   parseRconPlayers,
   normalizeRestPlayers,
+  normalizeRustPlayers,
   normalizeModerationHistory
 };
