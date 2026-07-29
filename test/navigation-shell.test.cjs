@@ -80,7 +80,7 @@ test('v0.21.0 is configured for the guarded Rust WebRCON release channel', () =>
   assert.match(rustMain, /RUN RAW COMMAND/);
   assert.match(rustUi, /Rust WebRCON Operations/);
   assert.match(rustUi, /rcon\.web 1/);
-  assert.match(rustDocs, /Vanilla-safe/);
+  assert.match(rustDocs, /vanilla-safe/i);
   assert.match(rustDocs, /Owner module behavior/);
   assert.match(sdk, /CORE_CAPABILITY_DEFINITIONS/);
   assert.match(sdk, /Custom game-adapter capability/);
