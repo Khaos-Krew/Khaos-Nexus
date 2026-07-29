@@ -64,7 +64,9 @@ function rustWebRconUrl(serverInput = {}) {
 }
 
 function redactRustError(error, password = '') {
-  const message = redactText(error?.message || error || 'Rust WebRCON operation failed.', [password]);
+  const secrets = [password, password ? encodeURIComponent(password) : ''].filter(Boolean);
+  let message = redactText(error?.message || error || 'Rust WebRCON operation failed.', secrets);
+  message = message.replace(/(wss?:\/\/[^/\s]+\/)[^\s)\]}>]+/gi, '$1[REDACTED]');
   const result = new Error(message);
   result.name = 'RustWebRconError';
   result.code = error?.code || 'RUST_WEBRCON_ERROR';
