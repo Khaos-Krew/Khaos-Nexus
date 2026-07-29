@@ -30,6 +30,7 @@ if (!hasSingleInstanceLock) {
   require('./module-runtime-extension.cjs').install();
 
   require('./palworld-main-extension.cjs').install();
+  require('./rust-main-extension.cjs').install();
   require('./discord-studio-extension.cjs').install();
   require('./mobile-gateway-extension.cjs').install();
   require('./discord-automation-extension.cjs').install();
