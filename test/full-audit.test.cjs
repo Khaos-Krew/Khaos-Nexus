@@ -19,16 +19,20 @@ function response(status, payload) {
   return { ok: status >= 200 && status < 300, status, async json() { return payload; } };
 }
 
-test('production entry installs audited repairs and starts the bot through the wrapper', () => {
+test('production entry installs audited repairs and starts the complete bot runtime through the wrapper', () => {
   const root = path.join(__dirname, '..');
   const entry = fs.readFileSync(path.join(root, 'main', 'entry.cjs'), 'utf8');
   const repair = fs.readFileSync(path.join(root, 'main', 'audit-repair-extension.cjs'), 'utf8');
   const wrapper = fs.readFileSync(path.join(root, 'bot', 'audit-wrapper.cjs'), 'utf8');
+  const botEntry = fs.readFileSync(path.join(root, 'bot', 'entry.cjs'), 'utf8');
   assert.match(entry, /audit-repair-extension\.cjs/);
   assert.ok(entry.indexOf('audit-repair-extension.cjs') < entry.indexOf("require('./main.cjs')"));
   assert.match(repair, /audit-wrapper\.cjs/);
-  assert.match(wrapper, /installRuntimeAudit/);
-  assert.match(wrapper, /require\('\.\/index\.cjs'\)/);
+  assert.match(wrapper, /require\('\.\/entry\.cjs'\)/);
+  assert.match(botEntry, /installModuleRuntime/);
+  assert.match(botEntry, /installDiscordAutomationRuntime/);
+  assert.match(botEntry, /installStatusPanelRuntime/);
+  assert.doesNotMatch(wrapper, /require\('\.\/index\.cjs'\)/);
 });
 
 test('manual monitor processing bypasses the scheduled delay and enforces the daily limit', async (t) => {
