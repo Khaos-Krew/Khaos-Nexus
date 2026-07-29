@@ -4,7 +4,7 @@
   if (window.__khaosModuleRuntimeInstalled) return;
   window.__khaosModuleRuntimeInstalled = true;
 
-  const state = { payload: null, timers: new Set(), refreshing: false };
+  const state = { payload: null, timers: new Set(), refreshing: false, botStatus: 'stopped' };
   const DELAYS = Object.freeze([0, 200, 600, 1200, 2500, 5000]);
 
   function notify(message) {
@@ -79,12 +79,20 @@
   }
 
   function applyDashboardControls() {
-    const enabled = Boolean(state.payload?.runtime?.['discord-runtime']?.effectiveEnabled);
-    for (const id of ['startButton', 'restartButton', 'stopButton', 'saveAndStartButton']) {
+    const moduleEnabled = Boolean(state.payload?.runtime?.['discord-runtime']?.effectiveEnabled);
+    const status = state.botStatus || 'stopped';
+    const desired = {
+      startButton: ['starting', 'connecting', 'online', 'restarting'].includes(status),
+      restartButton: ['stopped', 'stopping'].includes(status),
+      stopButton: ['stopped', 'stopping'].includes(status),
+      saveAndStartButton: false
+    };
+    for (const [id, supervisorDisabled] of Object.entries(desired)) {
       const button = document.getElementById(id);
       if (!button) continue;
-      button.disabled = !enabled;
-      button.title = enabled ? '' : reasonForModule('discord-runtime');
+      button.disabled = !moduleEnabled || supervisorDisabled;
+      button.title = moduleEnabled ? '' : reasonForModule('discord-runtime');
+      button.dataset.moduleRuntimeGate = moduleEnabled ? 'enabled' : 'disabled';
     }
   }
 
@@ -125,7 +133,11 @@
     if (state.refreshing) return state.payload;
     state.refreshing = true;
     try {
-      const payload = await window.khaos.invoke('modules:get');
+      const [payload, appState] = await Promise.all([
+        window.khaos.invoke('modules:get'),
+        window.khaos.invoke('app:get-state').catch(() => null)
+      ]);
+      if (appState?.bot?.status) state.botStatus = appState.bot.status;
       applyPayload(payload);
       return payload;
     } catch (error) {
@@ -167,7 +179,13 @@
   }, true);
 
   window.addEventListener('khaos:modules-refresh', () => refresh().then(scheduleApply));
-  window.khaos?.onState?.(() => setTimeout(() => refresh().then(scheduleApply), 100));
+  window.khaos?.onState?.((next) => {
+    if (next?.bot?.status) state.botStatus = next.bot.status;
+    setTimeout(() => {
+      applyDashboardControls();
+      refresh().then(scheduleApply);
+    }, 100);
+  });
 
   window.khaosModuleRuntime = {
     refresh,
