@@ -61,7 +61,7 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.18.22 retains startup foundations and adds audited runtime repairs', () => {
+test('v0.19.0 retains startup foundations and installs module control before optional services', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
   const health = read('main/startup-health-extension.cjs');
@@ -76,8 +76,11 @@ test('v0.18.22 retains startup foundations and adds audited runtime repairs', ()
   const watchdog = read('main/interface-watchdog-extension.cjs');
   const unresponsive = read('main/renderer-unresponsive-extension.cjs');
   const audit = read('main/audit-repair-extension.cjs');
+  const moduleFoundation = read('main/module-foundation-extension.cjs');
+  const moduleRuntime = read('main/module-runtime-extension.cjs');
 
-  assert.equal(packageJson.version, '0.18.22');
+  assert.equal(packageJson.version, '0.19.0');
+  assert.match(packageJson.description, /authoritative Owner module switches/i);
   assert.match(packageJson.description, /full production runtime audit repairs/i);
   assert.match(packageJson.description, /verified click-through grouped proxy navigation/i);
   assert.match(packageJson.description, /always-visible in-app update center/i);
@@ -85,17 +88,25 @@ test('v0.18.22 retains startup foundations and adds audited runtime repairs', ()
   assert.match(packageJson.description, /renderer-unresponsive reporting/i);
   assert.match(packageJson.description, /continuous visible-interface startup gate/i);
   assert.match(packageJson.description, /immediate portable sidecar logs and diagnostics/i);
-  assert.match(packageJson.description, /canonical v0\.17-compatible AppData configuration/i);
-  assert.match(packageJson.description, /sandbox-compatible main preload/i);
+  assert.match(packageJson.description, /sandbox-compatible preload/i);
   assert.match(entry, /portable-bootstrap-extension\.cjs/);
   assert.ok(entry.indexOf('portable-bootstrap-extension.cjs') < entry.indexOf('requestSingleInstanceLock'));
   assert.match(entry, /startup-core-release-extension\.cjs/);
   assert.match(entry, /startup-preload-diagnostics-extension\.cjs/);
   assert.match(entry, /interface-watchdog-extension\.cjs/);
   assert.match(entry, /renderer-unresponsive-extension\.cjs/);
+  assert.match(entry, /module-foundation-extension\.cjs/);
+  assert.match(entry, /module-runtime-extension\.cjs/);
+  assert.ok(entry.indexOf('module-runtime-extension.cjs') < entry.indexOf('discord-studio-extension.cjs'));
+  assert.ok(entry.indexOf('module-runtime-extension.cjs') < entry.indexOf('server-scheduler-extension.cjs'));
   assert.match(entry, /audit-repair-extension\.cjs/);
   assert.ok(entry.indexOf('audit-repair-extension.cjs') < entry.indexOf("require('./main.cjs')"));
   assert.doesNotMatch(entry, /startup-release-fallback-extension\.cjs/);
+  assert.match(moduleFoundation, /moduleOverrides/);
+  assert.match(moduleFoundation, /modules:bulk-update/);
+  assert.match(moduleRuntime, /patchIpcHandlers/);
+  assert.match(moduleRuntime, /patchBotSupervisor/);
+  assert.match(moduleRuntime, /patchApplicationMonitor/);
   assert.match(audit, /Bot runtime could not be spawned/);
   assert.match(audit, /reconcileInterruptedRuns/);
   assert.match(audit, /retryable|status: 'downloaded'/i);
@@ -135,6 +146,7 @@ test('v0.18.22 retains startup foundations and adds audited runtime repairs', ()
   assert.doesNotMatch(coreRelease, /startup-health:base-ui-ready/);
   assert.doesNotMatch(coreRelease, /discordAuth/);
   assert.doesNotMatch(preload, /require\(['"]\.\.?\//);
+  assert.match(preload, /module_disabled/);
   assert.match(splashRenderer, /Discord desktop sign-in \(optional\)/);
   assert.match(splashRenderer, /This does not block local startup/);
   assert.match(stability, /function isMainInterfaceWindow/);
