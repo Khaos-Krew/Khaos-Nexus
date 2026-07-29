@@ -35,6 +35,11 @@ function clamp(value, min, max, fallback) {
   return Number.isFinite(number) ? Math.min(max, Math.max(min, Math.round(number))) : fallback;
 }
 
+function optionalNumber(value, minimum = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(minimum, number) : null;
+}
+
 function normalizeStatusPanel(panel = {}) {
   return {
     id: normalizeId(panel.id, 'status-panel'),
@@ -111,6 +116,10 @@ function normalizeStatusSnapshot(snapshot = {}) {
     version: cleanText(snapshot.version, 80, 'Unknown'),
     players: Math.max(0, Number(snapshot.players) || 0),
     maxPlayers: Math.max(0, Number(snapshot.maxPlayers) || 0),
+    queued: optionalNumber(snapshot.queued),
+    joining: optionalNumber(snapshot.joining),
+    entityCount: optionalNumber(snapshot.entityCount),
+    map: cleanText(snapshot.map, 120),
     fps: Number.isFinite(Number(snapshot.fps)) ? Number(snapshot.fps) : null,
     frameTime: Number.isFinite(Number(snapshot.frameTime)) ? Number(snapshot.frameTime) : null,
     uptimeSeconds: Math.max(0, Number(snapshot.uptimeSeconds) || 0),
@@ -134,10 +143,14 @@ function renderStatusPanel(panelInput, snapshotInput, options = {}) {
     { name: 'Players', value: playerValue, inline: true },
     { name: 'Connection', value: snapshot.connectionLabel, inline: true }
   ];
+  if (snapshot.queued !== null) fields.push({ name: 'Queued', value: String(Math.round(snapshot.queued)), inline: true });
+  if (snapshot.joining !== null) fields.push({ name: 'Joining', value: String(Math.round(snapshot.joining)), inline: true });
+  if (snapshot.map) fields.push({ name: 'Map', value: snapshot.map, inline: true });
   if (snapshot.version !== 'Unknown') fields.push({ name: 'Version', value: snapshot.version, inline: true });
   if (snapshot.fps !== null) fields.push({ name: 'Server FPS', value: String(Math.round(snapshot.fps * 10) / 10), inline: true });
   if (snapshot.frameTime !== null) fields.push({ name: 'Frame Time', value: `${Math.round(snapshot.frameTime * 100) / 100} ms`, inline: true });
   if (snapshot.uptimeSeconds > 0) fields.push({ name: 'Uptime', value: formatDuration(snapshot.uptimeSeconds), inline: true });
+  if (snapshot.entityCount !== null) fields.push({ name: 'Entities', value: String(Math.round(snapshot.entityCount)), inline: true });
   if (snapshot.worldDay !== null) fields.push({ name: 'World Day', value: String(snapshot.worldDay), inline: true });
   if (panel.showPlayerNames) {
     fields.push({

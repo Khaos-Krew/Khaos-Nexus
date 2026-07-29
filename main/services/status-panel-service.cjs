@@ -1,7 +1,7 @@
 'use strict';
 
 const { REST, Routes } = require('discord.js');
-const { isPalworldRest } = require('../../bot/server-client.cjs');
+const { isPalworldRest, isRustWebRcon } = require('../../bot/server-client.cjs');
 const { createCurrentServerAdapter } = require('../../bot/game-adapters/current-server-adapter.cjs');
 const { executeAdapterOperation } = require('../../shared/game-adapter-sdk.cjs');
 const {
@@ -36,6 +36,20 @@ function parseRconPlayers(value) {
   return safePlayerNames(names);
 }
 
+function requiredGameModule(server = {}) {
+  const game = String(server.game || '').toLowerCase();
+  if (game === 'rust') return 'rust-server-operations';
+  if (game === 'palworld') return 'palworld-operations';
+  if (game === 'ark') return 'ark-server-operations';
+  return null;
+}
+
+function connectionLabel(server = {}) {
+  if (isRustWebRcon(server)) return 'Rust WebRCON';
+  if (isPalworldRest(server)) return 'Palworld REST';
+  return `${String(server.game || 'generic').toUpperCase()} RCON`;
+}
+
 class StatusPanelService {
   constructor({ configStore, logger, restFactory, connectionFactory, adapterFactory, now } = {}) {
     this.configStore = configStore;
@@ -67,8 +81,13 @@ class StatusPanelService {
   }
 
   server(serverId) {
-    const server = this.bootstrap().config.servers.find((item) => String(item.id) === String(serverId));
+    const bootstrap = this.bootstrap();
+    const server = bootstrap.config.servers.find((item) => String(item.id) === String(serverId));
     if (!server || server.enabled === false) throw new Error('The selected game server is not configured or enabled.');
+    const moduleId = requiredGameModule(server);
+    if (moduleId && bootstrap.config.moduleRuntime?.[moduleId]?.effectiveEnabled === false) {
+      throw new Error(`${connectionLabel(server)} operations are disabled by the Khaos Nexus owner.`);
+    }
     if (!server.password) throw new Error('The selected server is missing its protected AdminPassword or RCON password.');
     return server;
   }
@@ -107,7 +126,7 @@ class StatusPanelService {
         status: 'offline',
         serverName: server.name,
         game: server.game,
-        connectionLabel: isPalworldRest(server) ? 'Palworld REST' : `${String(server.game || 'generic').toUpperCase()} RCON`,
+        connectionLabel: connectionLabel(server),
         checkedAt: this.now().toISOString(),
         error: 'The server did not respond to its status or player check.'
       });
@@ -135,12 +154,35 @@ class StatusPanelService {
       });
     }
 
+    if (isRustWebRcon(server)) {
+      const players = Array.isArray(playerResult?.players) ? playerResult.players : [];
+      const playerNames = safePlayerNames(players.map((player) => player?.name || player?.DisplayName));
+      return normalizeStatusSnapshot({
+        status: statusError || playerError ? 'degraded' : 'online',
+        serverName: statusResult?.serverName || server.name,
+        game: 'rust',
+        connectionLabel: 'Rust WebRCON',
+        version: statusResult?.version,
+        players: statusResult?.players ?? players.length,
+        maxPlayers: statusResult?.maxPlayers,
+        queued: statusResult?.queued,
+        joining: statusResult?.joining,
+        entityCount: statusResult?.entityCount,
+        map: statusResult?.map,
+        fps: statusResult?.fps,
+        uptimeSeconds: statusResult?.uptimeSeconds,
+        playerNames,
+        checkedAt: this.now().toISOString(),
+        error: statusError || playerError ? 'One Rust WebRCON health source did not respond; the remaining live data is shown.' : ''
+      });
+    }
+
     const playerNames = parseRconPlayers(playerResult);
     return normalizeStatusSnapshot({
       status: statusError || playerError ? 'degraded' : 'online',
       serverName: server.name,
       game: server.game,
-      connectionLabel: `${String(server.game || 'generic').toUpperCase()} RCON`,
+      connectionLabel: connectionLabel(server),
       players: playerNames.length,
       playerNames,
       checkedAt: this.now().toISOString(),
@@ -212,4 +254,4 @@ class StatusPanelService {
   }
 }
 
-module.exports = { StatusPanelService, discordError, parseRconPlayers };
+module.exports = { StatusPanelService, discordError, parseRconPlayers, requiredGameModule, connectionLabel };

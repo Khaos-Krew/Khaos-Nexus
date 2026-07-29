@@ -1,0 +1,59 @@
+.rust-webrcon-fields.hidden,
+.rust-operations-panel.hidden {
+  display: none !important;
+}
+
+.rust-webrcon-note {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.rust-operations-panel {
+  margin-top: 18px;
+}
+
+.rust-operation-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(260px, 2fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.rust-operation-controls {
+  display: grid;
+  gap: 12px;
+}
+
+.rust-operation-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.rust-operation-row label {
+  flex: 1 1 220px;
+}
+
+.rust-operation-output {
+  min-height: 260px;
+  max-height: 520px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: 12px;
+  padding: 14px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.rust-danger-zone {
+  border-top: 1px solid rgba(227, 38, 79, 0.28);
+  padding-top: 12px;
+}
+
+@media (max-width: 920px) {
+  .rust-operation-grid {
+    grid-template-columns: 1fr;
+  }
+}

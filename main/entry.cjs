@@ -40,5 +40,9 @@ if (!hasSingleInstanceLock) {
   require('./discord-observability-extension.cjs').install();
   require('./rcon-validation-extension.cjs').install();
   require('./audit-repair-extension.cjs').install();
+
+  // Game adapters that extend audited service classes install after the common audit repairs.
+  require('./rust-main-extension.cjs').install();
+  require('./rust-module-gate-extension.cjs').install();
   require('./main.cjs');
 }

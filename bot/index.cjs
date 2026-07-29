@@ -8,7 +8,9 @@ const {
   Routes
 } = require('discord.js');
 const { createCommands, isAdministrator, requiresAdministrator, COMMAND_MODULES } = require('./commands.cjs');
-const { ServerConnection, isPalworldRest } = require('./server-client.cjs');
+const { isPalworldRest, isRustWebRcon } = require('./server-client.cjs');
+const { createCurrentServerAdapter, capabilityMapForServer } = require('./game-adapters/current-server-adapter.cjs');
+const { executeAdapterOperation } = require('../shared/game-adapter-sdk.cjs');
 const { redactText, errorFingerprint } = require('../shared/redaction.cjs');
 
 const parent = process.parentPort;
@@ -55,6 +57,7 @@ function moduleName(id) {
     'game-server-control': 'Game Server Control',
     'palworld-operations': 'Palworld Operations',
     'ark-server-operations': 'ARK Server Operations',
+    'rust-server-operations': 'Rust Server Operations',
     'other-game-operations': 'Additional Game Operations'
   };
   return names[id] || id;
@@ -78,11 +81,18 @@ function serverModuleId(server) {
   const game = String(server?.game || 'generic').toLowerCase();
   if (game === 'palworld') return 'palworld-operations';
   if (game === 'ark') return 'ark-server-operations';
+  if (game === 'rust') return 'rust-server-operations';
   return 'other-game-operations';
 }
 
 function serverAvailable(server) {
   return isModuleEnabled('game-server-control') && isModuleEnabled(serverModuleId(server));
+}
+
+function connectionLabel(server) {
+  if (isPalworldRest(server)) return 'Palworld REST';
+  if (isRustWebRcon(server)) return `Rust ${String(server.protocol || 'ws').toUpperCase()} WebRCON`;
+  return 'RCON';
 }
 
 function getServer(name) {
@@ -107,12 +117,15 @@ function formatDuration(seconds) {
 function publicPlayers(payload) {
   const players = Array.isArray(payload?.players) ? payload.players : [];
   if (!players.length) return 'No players are currently connected.';
-  return players.map((player) => [
-    player.name || player.accountName || 'Unknown',
-    player.userId || player.playerId || 'no user ID',
-    `Lv ${player.level ?? '?'}`,
-    `${Math.round(Number(player.ping) || 0)} ms`
-  ].join(' | ')).join('\n');
+  return players.map((player) => {
+    const parts = [
+      player.name || player.accountName || player.DisplayName || 'Unknown',
+      player.userId || player.playerId || player.identifier || player.steamId || player.SteamID || 'no user ID'
+    ];
+    if (player.level !== undefined && player.level !== null) parts.push(`Lv ${player.level}`);
+    if (player.ping !== undefined && player.ping !== null) parts.push(`${Math.round(Number(player.ping) || 0)} ms`);
+    return parts.join(' | ');
+  }).join('\n');
 }
 
 function formatResult(action, result) {
@@ -128,6 +141,19 @@ function formatResult(action, result) {
       `Uptime: ${formatDuration(metrics.uptime)}`,
       `World day: ${metrics.days ?? '?'}`
     ].join('\n');
+  }
+  if (action === 'status' && result?.serverName) {
+    return [
+      `Name: ${result.serverName}`,
+      `Version: ${result.version || 'Unknown'}`,
+      `Players: ${result.players ?? '?'} / ${result.maxPlayers ?? '?'}`,
+      `Queued: ${result.queued ?? 0}`,
+      `Joining: ${result.joining ?? 0}`,
+      `Server FPS: ${result.fps ?? '?'}`,
+      `Uptime: ${formatDuration(result.uptimeSeconds)}`,
+      result.map ? `Map: ${result.map}` : null,
+      result.entityCount ? `Entities: ${result.entityCount}` : null
+    ].filter(Boolean).join('\n');
   }
   if (action === 'metrics') {
     return [
@@ -149,6 +175,21 @@ function formatResult(action, result) {
   }
   if (typeof result === 'string') return result;
   return JSON.stringify(result, null, 2);
+}
+
+function actionForCommand(command) {
+  return ({ saveworld: 'save', broadcast: 'announce', snapshot: 'game-data-summary', forcestop: 'stop', rcon: 'raw' })[command] || command;
+}
+
+function isConfiguredOwner(interaction) {
+  const ownerUserId = String(bootstrap?.config?.discord?.ownerUserId || '');
+  return Boolean(ownerUserId && interaction?.user?.id === ownerUserId);
+}
+
+function adapterRoleForInteraction(interaction, command) {
+  if (isConfiguredOwner(interaction)) return 'owner';
+  if (requiresAdministrator(command) && isAdministrator(interaction, bootstrap?.config?.discord?.ownerUserId)) return 'owner';
+  return 'viewer';
 }
 
 async function registerCommands() {
@@ -191,12 +232,13 @@ async function executeServerAction(interaction, command) {
     await interaction.reply({ content: 'Emergency force-stop was not confirmed.', ephemeral: true });
     return;
   }
+  if (command === 'rcon' && !isConfiguredOwner(interaction)) {
+    await interaction.reply({ content: 'Raw server console commands are restricted to the configured Khaos Nexus Owner account.', ephemeral: true });
+    return;
+  }
 
   await interaction.deferReply({ ephemeral: true });
-  const actionMap = {
-    saveworld: 'save', broadcast: 'announce', snapshot: 'game-data-summary', forcestop: 'stop', rcon: 'raw'
-  };
-  const action = actionMap[command] || command;
+  const action = actionForCommand(command);
   const payload = {};
   if (command === 'broadcast') payload.message = interaction.options.getString('message');
   if (['kick', 'ban', 'unban'].includes(command)) {
@@ -209,9 +251,17 @@ async function executeServerAction(interaction, command) {
   }
   if (command === 'rcon') payload.command = interaction.options.getString('command');
 
-  const connection = new ServerConnection(server);
-  const result = await connection.action(action, payload);
-  await interaction.editReply({ content: `**${server.name}** — ${isPalworldRest(server) ? 'Palworld REST' : 'RCON'}\n${formatCodeBlock(formatResult(action, result))}` });
+  const adapter = createCurrentServerAdapter(server);
+  const envelope = await executeAdapterOperation(adapter, action, payload, {
+    role: adapterRoleForInteraction(interaction, command),
+    explicitSecrets: [server.password]
+  });
+  await interaction.editReply({ content: `**${server.name}** — ${connectionLabel(server)}\n${formatCodeBlock(formatResult(action, envelope.data))}` });
+}
+
+function commandSupportsServer(commandName, server) {
+  const action = actionForCommand(commandName);
+  return Boolean(capabilityMapForServer(server)[action]);
 }
 
 async function handleInteraction(interaction) {
@@ -221,10 +271,11 @@ async function handleInteraction(interaction) {
       return;
     }
     const focused = interaction.options.getFocused().toLowerCase();
+    const commandName = interaction.commandName;
     const choices = (bootstrap?.config?.servers || [])
-      .filter((server) => server.enabled !== false && serverAvailable(server) && server.name.toLowerCase().includes(focused))
+      .filter((server) => server.enabled !== false && serverAvailable(server) && commandSupportsServer(commandName, server) && server.name.toLowerCase().includes(focused))
       .slice(0, 25)
-      .map((server) => ({ name: `${server.name} (${server.game} ${isPalworldRest(server) ? 'REST' : 'RCON'})`, value: server.name }));
+      .map((server) => ({ name: `${server.name} (${server.game} ${connectionLabel(server)})`, value: server.name }));
     await interaction.respond(choices);
     return;
   }
@@ -259,7 +310,7 @@ async function handleInteraction(interaction) {
   if (command === 'listservers') {
     const servers = (bootstrap?.config?.servers || []).filter((server) => server.enabled !== false && serverAvailable(server));
     const lines = servers.length
-      ? servers.map((server) => `• ${server.name} — ${server.game} (${isPalworldRest(server) ? 'REST API' : 'RCON'})`).join('\n')
+      ? servers.map((server) => `• ${server.name} — ${server.game} (${connectionLabel(server)})`).join('\n')
       : 'No servers are enabled for the currently active modules.';
     await interaction.reply({ content: lines, ephemeral: true });
     return;
@@ -393,4 +444,16 @@ setTimeout(() => {
   }
 }, 30000).unref();
 
-module.exports = { mutateBootstrap, isModuleEnabled, serverModuleId, serverAvailable };
+module.exports = {
+  mutateBootstrap,
+  isModuleEnabled,
+  serverModuleId,
+  serverAvailable,
+  connectionLabel,
+  actionForCommand,
+  commandSupportsServer,
+  isConfiguredOwner,
+  adapterRoleForInteraction,
+  publicPlayers,
+  formatResult
+};
