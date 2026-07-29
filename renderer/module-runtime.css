@@ -1,0 +1,60 @@
+.nexus-module-disabled-target {
+  display: none !important;
+}
+
+.module-enabled-state.blocked {
+  color: #ffb74d;
+  border-color: rgba(255, 183, 77, 0.45);
+  background: rgba(255, 183, 77, 0.08);
+}
+
+.module-open-disabled {
+  opacity: 0.48;
+  cursor: not-allowed !important;
+}
+
+.module-owner-control-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  margin: 0 0 18px;
+  padding: 16px 18px;
+  border: 1px solid rgba(230, 53, 76, 0.28);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(230, 53, 76, 0.1), rgba(10, 11, 16, 0.88));
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.module-owner-control-copy {
+  display: grid;
+  gap: 5px;
+}
+
+.module-owner-control-copy strong {
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+}
+
+.module-owner-control-copy span {
+  color: var(--muted, #9ba0aa);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.module-owner-control-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 900px) {
+  .module-owner-control-group {
+    grid-template-columns: 1fr;
+  }
+
+  .module-owner-control-actions {
+    justify-content: flex-start;
+  }
+}
