@@ -91,7 +91,8 @@ class GameAdapterFixtureRecorder {
     const adapterId = normalizeAdapterId(input.adapterId);
     const capability = normalizeCapabilityId(input.capability);
     const explicitSecrets = Array.isArray(input.explicitSecrets) ? input.explicitSecrets : [];
-    const time = input.time ? new Date(input.time) : this.now();
+    const sourceTime = input.time ?? this.now();
+    const time = sourceTime instanceof Date ? sourceTime : new Date(sourceTime);
     const record = {
       schemaVersion: FIXTURE_SCHEMA_VERSION,
       id: cleanText(input.id, 80) || crypto.randomUUID(),
