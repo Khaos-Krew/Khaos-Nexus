@@ -6,7 +6,27 @@ const ADMIN_COMMANDS = new Set([
   'saveworld', 'broadcast', 'kick', 'ban', 'unban', 'shutdown', 'forcestop', 'rcon', 'managerrestart'
 ]);
 
-function createCommands() {
+const COMMAND_MODULES = Object.freeze({
+  ping: 'discord-runtime',
+  health: 'discord-runtime',
+  managerrestart: 'discord-runtime',
+  status: 'game-server-control',
+  players: 'game-server-control',
+  saveworld: 'game-server-control',
+  broadcast: 'game-server-control',
+  kick: 'game-server-control',
+  ban: 'game-server-control',
+  rcon: 'game-server-control',
+  listservers: 'game-server-control',
+  settings: 'palworld-operations',
+  metrics: 'palworld-operations',
+  snapshot: 'palworld-operations',
+  unban: 'palworld-operations',
+  shutdown: 'palworld-operations',
+  forcestop: 'palworld-operations'
+});
+
+function createCommands({ isModuleEnabled = () => true } = {}) {
   const serverOption = (builder, required = true) => builder
     .addStringOption((option) => option
       .setName('server')
@@ -17,7 +37,7 @@ function createCommands() {
   const playerOption = (builder) => builder
     .addStringOption((option) => option.setName('player').setDescription('Player name, user ID, or platform ID').setRequired(true));
 
-  return [
+  const commands = [
     new SlashCommandBuilder().setName('ping').setDescription('Check whether the bot is responding.'),
     new SlashCommandBuilder().setName('health').setDescription('Show bot runtime health.'),
     serverOption(new SlashCommandBuilder().setName('status').setDescription('Show game-server status and health.')),
@@ -42,7 +62,11 @@ function createCommands() {
       .addStringOption((option) => option.setName('command').setDescription('Raw RCON command').setRequired(true)),
     new SlashCommandBuilder().setName('listservers').setDescription('List enabled game servers and connection types.'),
     new SlashCommandBuilder().setName('managerrestart').setDescription('Ask the desktop manager to restart the bot runtime.')
-  ].map((command) => command.toJSON());
+  ];
+
+  return commands
+    .filter((command) => isModuleEnabled(COMMAND_MODULES[command.name] || 'discord-runtime'))
+    .map((command) => command.toJSON());
 }
 
 function isAdministrator(interaction, ownerUserId) {
@@ -54,4 +78,4 @@ function requiresAdministrator(commandName) {
   return ADMIN_COMMANDS.has(commandName);
 }
 
-module.exports = { createCommands, isAdministrator, requiresAdministrator };
+module.exports = { createCommands, isAdministrator, requiresAdministrator, COMMAND_MODULES };
