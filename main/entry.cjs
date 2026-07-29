@@ -34,6 +34,7 @@ if (!hasSingleInstanceLock) {
   require('./hosted-server-extension.cjs').install();
   require('./discord-observability-extension.cjs').install();
   require('./module-foundation-extension.cjs').install();
+  require('./rcon-validation-extension.cjs').install();
   require('./audit-repair-extension.cjs').install();
   require('./main.cjs');
 }
