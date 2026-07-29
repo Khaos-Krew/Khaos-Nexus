@@ -46,9 +46,13 @@ test('safe UI layer loads grouped navigation while preserving independent scroll
   assert.match(extension, /addScript\('navigation-shell\.js'\)/);
 });
 
-test('v0.20.0 is configured for the guarded Game Adapter SDK release channel', () => {
+test('v0.21.0 is configured for the guarded Rust WebRCON release channel', () => {
   const packageJson = JSON.parse(read('package.json'));
-  const notes = read('release-notes/v0.20.0.md');
+  const notes = read('release-notes/v0.21.0.md');
+  const rust = read('bot/rust-webrcon.cjs');
+  const rustMain = read('main/rust-main-extension.cjs');
+  const rustUi = read('renderer/rust-webrcon-ui.js');
+  const rustDocs = read('docs/RUST_WEBRCON_v0.21.0.md');
   const sdk = read('shared/game-adapter-sdk.cjs');
   const fixtures = read('shared/game-adapter-fixtures.cjs');
   const bridge = read('bot/game-adapters/current-server-adapter.cjs');
@@ -60,13 +64,24 @@ test('v0.20.0 is configured for the guarded Game Adapter SDK release channel', (
   const workflow = read('.github/workflows/stable-release.yml');
   const ciWorkflow = read('.github/workflows/ci.yml');
 
-  assert.equal(packageJson.version, '0.20.0');
+  assert.equal(packageJson.version, '0.21.0');
+  assert.match(packageJson.description, /dedicated Rust WebRCON operations/i);
+  assert.match(packageJson.description, /Owner-only raw Rust console access/i);
   assert.match(packageJson.description, /typed Game Adapter SDK/i);
   assert.match(packageJson.description, /explicit capability manifests/i);
-  assert.match(packageJson.description, /role-aware destructive-action policy/i);
-  assert.match(packageJson.description, /bounded opt-in protocol fixtures/i);
   assert.match(packageJson.description, /authoritative Owner module switches/i);
   assert.match(packageJson.description, /full production runtime audit repairs/i);
+  assert.match(rust, /class RustWebRconClient/);
+  assert.match(rust, /serverinfo/);
+  assert.match(rust, /playerlist/);
+  assert.match(rust, /encodeURIComponent\(server\.password\)/);
+  assert.match(rust, /allowCloseAsSuccess/);
+  assert.match(rustMain, /server:rust-action/);
+  assert.match(rustMain, /RUN RAW COMMAND/);
+  assert.match(rustUi, /Rust WebRCON Operations/);
+  assert.match(rustUi, /rcon\.web 1/);
+  assert.match(rustDocs, /Vanilla-safe/);
+  assert.match(rustDocs, /Owner module behavior/);
   assert.match(sdk, /CORE_CAPABILITY_DEFINITIONS/);
   assert.match(sdk, /Custom game-adapter capability/);
   assert.match(sdk, /executeAdapterOperation/);
@@ -75,9 +90,10 @@ test('v0.20.0 is configured for the guarded Game Adapter SDK release channel', (
   assert.match(fixtures, /GameAdapterFixtureRecorder/);
   assert.match(fixtures, /SENSITIVE_KEY/);
   assert.match(bridge, /createCurrentServerAdapter/);
+  assert.match(bridge, /rust-webrcon/);
   assert.match(bridge, /palworld-rest/);
   assert.match(sdkDocs, /Game Adapter SDK/);
-  assert.match(sdkDocs, /Rust WebRCON/);
+  assert.match(registry, /rust-server-operations/);
   assert.match(registry, /normalizeModuleOverrides/);
   assert.match(registry, /not-implemented/);
   assert.match(registry, /discord-auth:/);
@@ -89,11 +105,11 @@ test('v0.20.0 is configured for the guarded Game Adapter SDK release channel', (
   assert.equal(packageJson.build.publish[0].provider, 'github');
   assert.equal(packageJson.build.publish[0].releaseType, 'release');
   assert.equal(packageJson.build.publish[0].tagNamePrefix, 'v');
-  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.20.0.md');
-  assert.match(notes, /Game Adapter SDK foundation/i);
-  assert.match(notes, /Custom, game-specific capabilities/i);
-  assert.match(notes, /Operational payloads are not truncated/i);
-  assert.match(notes, /Preserved v0\.19\.0 foundations/i);
+  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.21.0.md');
+  assert.match(notes, /Rust WebRCON Operations/i);
+  assert.match(notes, /Owner Module Control/i);
+  assert.match(notes, /Raw console commands are restricted/i);
+  assert.match(notes, /Preserved v0\.20\.0 Foundations/i);
   assert.match(workflow, /branches:\s*\n\s*- "release\/v\*"/);
   assert.match(workflow, /pull_request_target/);
   assert.match(ciWorkflow, /npm audit --omit=dev --audit-level=high/);
