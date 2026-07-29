@@ -11,10 +11,11 @@ function errorText(value) {
 function isExpectedAccessDenial(value) {
   const text = errorText(value).toLowerCase();
   if (!text) return false;
-  if (/\baccess_denied\b/.test(text)) return true;
+  if (/\baccess_denied\b|\bmodule_disabled\b/.test(text)) return true;
   const requiresRole = /requires\s+(viewer|operator|owner)\s+access/.test(text);
   const authorizationReason = /sign in with an authorized discord account|discord account is not approved|configured owner account|desktop access control|access control is enabled/.test(text);
-  return requiresRole && authorizationReason;
+  const expectedModuleState = /requires an enabled nexus module|disabled by the owner|temporarily disabled by the khaos nexus owner|inventoried but has no runnable desktop implementation|is blocked because .+ disabled/.test(text);
+  return (requiresRole && authorizationReason) || expectedModuleState;
 }
 
 function reportPreloadFailure(error, stage, detail = {}) {
