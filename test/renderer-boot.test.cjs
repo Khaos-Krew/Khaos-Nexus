@@ -61,7 +61,7 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.18.21 retains startup foundations and reports a blocked renderer from the main process', () => {
+test('v0.18.22 retains startup foundations and adds audited runtime repairs', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
   const health = read('main/startup-health-extension.cjs');
@@ -75,8 +75,10 @@ test('v0.18.21 retains startup foundations and reports a blocked renderer from t
   const portableBootstrap = read('main/portable-bootstrap-extension.cjs');
   const watchdog = read('main/interface-watchdog-extension.cjs');
   const unresponsive = read('main/renderer-unresponsive-extension.cjs');
+  const audit = read('main/audit-repair-extension.cjs');
 
-  assert.equal(packageJson.version, '0.18.21');
+  assert.equal(packageJson.version, '0.18.22');
+  assert.match(packageJson.description, /full production runtime audit repairs/i);
   assert.match(packageJson.description, /verified click-through grouped proxy navigation/i);
   assert.match(packageJson.description, /always-visible in-app update center/i);
   assert.match(packageJson.description, /bounded idempotent updater UI/i);
@@ -91,7 +93,12 @@ test('v0.18.21 retains startup foundations and reports a blocked renderer from t
   assert.match(entry, /startup-preload-diagnostics-extension\.cjs/);
   assert.match(entry, /interface-watchdog-extension\.cjs/);
   assert.match(entry, /renderer-unresponsive-extension\.cjs/);
+  assert.match(entry, /audit-repair-extension\.cjs/);
+  assert.ok(entry.indexOf('audit-repair-extension.cjs') < entry.indexOf("require('./main.cjs')"));
   assert.doesNotMatch(entry, /startup-release-fallback-extension\.cjs/);
+  assert.match(audit, /Bot runtime could not be spawned/);
+  assert.match(audit, /reconcileInterruptedRuns/);
+  assert.match(audit, /retryable|status: 'downloaded'/i);
   assert.match(unresponsive, /window\.on\('unresponsive'/);
   assert.match(unresponsive, /window\.webContents\.on\('unresponsive'/);
   assert.match(unresponsive, /watchdog\.reportFailure/);
@@ -143,6 +150,7 @@ test('v0.18.21 retains startup foundations and reports a blocked renderer from t
 test('updater uses bounded idempotent reconciliation and retains protected install flow', () => {
   const updater = read('renderer/simple-updater.js');
   const extension = read('main/brand-update-extension.cjs');
+  const audit = read('main/audit-repair-extension.cjs');
   const flow = read('shared/update-flow.cjs');
   assert.doesNotThrow(() => new Function(updater));
   assert.match(updater, /RECONCILE_DELAYS_MS = Object\.freeze\(\[250, 1000, 3000, 6000\]\)/);
@@ -163,5 +171,7 @@ test('updater uses bounded idempotent reconciliation and retains protected insta
   assert.match(extension, /verifyBackup\(backup\.filePath\)/);
   assert.match(extension, /Installation was cancelled and the current version remains active/);
   assert.match(extension, /status: 'backing-up'/);
+  assert.match(audit, /The staged portable update file is missing/);
+  assert.match(audit, /status: 'downloaded'/);
   assert.match(flow, /return service\.getState\(\)/);
 });
