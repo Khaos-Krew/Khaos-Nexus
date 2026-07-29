@@ -61,7 +61,7 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.19.0 retains startup foundations and installs module control before optional services', () => {
+test('v0.20.0 retains startup and Owner module foundations while adding transport-neutral adapters', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
   const health = read('main/startup-health-extension.cjs');
@@ -78,8 +78,12 @@ test('v0.19.0 retains startup foundations and installs module control before opt
   const audit = read('main/audit-repair-extension.cjs');
   const moduleFoundation = read('main/module-foundation-extension.cjs');
   const moduleRuntime = read('main/module-runtime-extension.cjs');
+  const adapterSdk = read('shared/game-adapter-sdk.cjs');
+  const statusPanels = read('main/services/status-panel-service.cjs');
+  const palworld = read('main/palworld-main-extension.cjs');
 
-  assert.equal(packageJson.version, '0.19.0');
+  assert.equal(packageJson.version, '0.20.0');
+  assert.match(packageJson.description, /typed Game Adapter SDK/i);
   assert.match(packageJson.description, /authoritative Owner module switches/i);
   assert.match(packageJson.description, /full production runtime audit repairs/i);
   assert.match(packageJson.description, /verified click-through grouped proxy navigation/i);
@@ -107,6 +111,10 @@ test('v0.19.0 retains startup foundations and installs module control before opt
   assert.match(moduleRuntime, /patchIpcHandlers/);
   assert.match(moduleRuntime, /patchBotSupervisor/);
   assert.match(moduleRuntime, /patchApplicationMonitor/);
+  assert.match(adapterSdk, /executeAdapterOperation/);
+  assert.match(adapterSdk, /GameAdapterRegistry/);
+  assert.match(statusPanels, /createCurrentServerAdapter/);
+  assert.match(palworld, /executeAdapterOperation/);
   assert.match(audit, /Bot runtime could not be spawned/);
   assert.match(audit, /reconcileInterruptedRuns/);
   assert.match(audit, /retryable|status: 'downloaded'/i);
