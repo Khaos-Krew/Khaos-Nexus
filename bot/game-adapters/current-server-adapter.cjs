@@ -1,7 +1,7 @@
 'use strict';
 
 const { BaseGameAdapter, normalizeCapabilityManifest } = require('../../shared/game-adapter-sdk.cjs');
-const { ServerConnection, isPalworldRest } = require('../server-client.cjs');
+const { ServerConnection, isPalworldRest, isRustWebRcon } = require('../server-client.cjs');
 
 function cleanText(value, max = 100, fallback = '') {
   const text = String(value ?? '').replace(/\u0000/g, '').trim();
@@ -16,6 +16,23 @@ function slug(value, fallback = 'generic') {
 function capabilityMapForServer(server = {}) {
   const game = slug(server.game);
   const rest = isPalworldRest(server);
+  const rust = isRustWebRcon(server);
+  if (rust) {
+    return {
+      status: true,
+      info: true,
+      players: true,
+      announce: true,
+      save: true,
+      kick: true,
+      ban: true,
+      unban: true,
+      shutdown: true,
+      stop: true,
+      raw: true
+    };
+  }
+
   const capabilities = {
     status: true,
     players: true,
@@ -41,16 +58,20 @@ function capabilityMapForServer(server = {}) {
 function manifestForServer(server = {}) {
   const game = slug(server.game);
   const rest = isPalworldRest(server);
+  const rust = isRustWebRcon(server);
   const id = slug(server.id, 'configured');
+  const transport = rust ? 'rust-webrcon' : rest ? 'palworld-rest' : `${game}-rcon`;
+  const label = rust ? 'WebRCON' : rest ? 'REST' : 'RCON';
   return normalizeCapabilityManifest({
     adapterId: `current-${game}-${id}`.slice(0, 80),
     gameId: game,
-    displayName: `${cleanText(server.name, 80, game)} ${rest ? 'REST' : 'RCON'} adapter`,
-    transport: rest ? 'palworld-rest' : `${game}-rcon`,
-    adapterVersion: '1.0.0',
+    displayName: `${cleanText(server.name, 80, game)} ${label} adapter`,
+    transport,
+    adapterVersion: rust ? '1.0.0' : '1.0.0',
     capabilities: capabilityMapForServer(server),
     metadata: {
-      connectionType: rest ? 'rest' : 'rcon',
+      connectionType: rust ? 'webrcon' : rest ? 'rest' : 'rcon',
+      secureTransport: rust ? String(server.protocol || 'ws').toLowerCase() === 'wss' : rest ? String(server.protocol || 'http').toLowerCase() === 'https' : false,
       serverId: cleanText(server.id, 100),
       configuredHost: Boolean(server.host),
       configuredPort: Boolean(server.port)
@@ -66,7 +87,7 @@ function createCurrentServerAdapter(server = {}, options = {}) {
   const operations = {};
   for (const [capability, definition] of Object.entries(manifest.capabilities)) {
     if (!definition.supported) continue;
-    operations[capability] = (payload) => connection.action(capability, payload || {});
+    operations[capability] = (payload, context) => connection.action(capability, { ...(payload || {}), signal: context?.signal });
   }
   return new BaseGameAdapter({ manifest, operations, logger: options.logger, now: options.now });
 }
