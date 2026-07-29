@@ -2,6 +2,7 @@
 
 const crypto = require('node:crypto');
 const electron = require('electron');
+const { ServerConnection } = require('../bot/server-client.cjs');
 const { createCurrentServerAdapter } = require('../bot/game-adapters/current-server-adapter.cjs');
 const { executeAdapterOperation } = require('../shared/game-adapter-sdk.cjs');
 const { normalizeRustHost } = require('../bot/rust-webrcon.cjs');
@@ -50,6 +51,12 @@ function normalizeRustServer(server = {}) {
   };
 }
 
+function rustModuleEnabled(configStore) {
+  const runtime = configStore?.getRuntimeBootstrap?.();
+  const state = runtime?.config?.moduleRuntime?.['rust-server-operations'];
+  return state ? Boolean(state.effectiveEnabled) : true;
+}
+
 function patchConfigStore() {
   const target = require('./services/config-store.cjs');
   const Original = target.ConfigStore;
@@ -88,6 +95,92 @@ function patchConfigStore() {
 
   Object.defineProperty(RustConfigStore, '__khaosRustPatched', { value: true });
   target.ConfigStore = RustConfigStore;
+}
+
+function filterRustWhenDisabled(runtime, configStore) {
+  if (rustModuleEnabled(configStore)) return runtime;
+  return {
+    ...runtime,
+    config: {
+      ...runtime.config,
+      servers: (runtime.config?.servers || []).filter((server) => String(server.game || '').toLowerCase() !== 'rust')
+    }
+  };
+}
+
+function rustAutonomyConnection(server) {
+  if (String(server?.game || '').toLowerCase() !== 'rust') return new ServerConnection(server);
+  const connection = new ServerConnection(server);
+  return {
+    async execute(command) {
+      const text = String(command || '').trim();
+      if (/^status$/i.test(text)) return JSON.stringify(await connection.action('status'), null, 2);
+      if (/^save-all$/i.test(text)) return connection.action('save');
+      const broadcast = text.match(/^broadcast\s+(.+)$/i);
+      if (broadcast) return connection.action('announce', { message: broadcast[1] });
+      return connection.action('raw', { command: text });
+    }
+  };
+}
+
+function patchAutonomyService() {
+  const target = require('./services/autonomy-service.cjs');
+  const Original = target.AutonomyService;
+  if (!Original || Original.__khaosRustPatched) return;
+
+  class RustAutonomyService extends Original {
+    constructor(...args) {
+      super(...args);
+      refs.autonomy = this;
+      const originalFactory = this.rconFactory;
+      this.rconFactory = (server) => String(server?.game || '').toLowerCase() === 'rust'
+        ? rustAutonomyConnection(server)
+        : originalFactory(server);
+    }
+
+    async checkServers() {
+      const original = this.configStore.getRuntimeBootstrap.bind(this.configStore);
+      this.configStore.getRuntimeBootstrap = () => filterRustWhenDisabled(original(), this.configStore);
+      try {
+        const result = await super.checkServers();
+        if (!rustModuleEnabled(this.configStore)) {
+          const rustIds = new Set(this.configStore.getConfig().servers.filter((server) => String(server.game || '').toLowerCase() === 'rust').map((server) => server.id));
+          const health = { ...this.state.serverHealth };
+          for (const id of rustIds) delete health[id];
+          const attention = Object.values(health).filter((entry) => entry.status === 'offline').map((entry) => `A configured game server is unreachable: ${entry.detail}`);
+          this.updateState({ serverHealth: health, attention, status: attention.length ? 'attention' : 'ready', lastError: attention[0] || null });
+          return { ...result, health, offline: Object.values(health).filter((entry) => entry.status === 'offline').length };
+        }
+        return result;
+      } finally {
+        this.configStore.getRuntimeBootstrap = original;
+      }
+    }
+
+    async runMaintenance() {
+      const original = this.configStore.getRuntimeBootstrap.bind(this.configStore);
+      this.configStore.getRuntimeBootstrap = () => filterRustWhenDisabled(original(), this.configStore);
+      try { return await super.runMaintenance(); }
+      finally { this.configStore.getRuntimeBootstrap = original; }
+    }
+  }
+
+  Object.defineProperty(RustAutonomyService, '__khaosRustPatched', { value: true });
+  target.AutonomyService = RustAutonomyService;
+}
+
+function patchSchedulerService() {
+  const target = require('./services/server-scheduler-service.cjs');
+  const prototype = target.ServerSchedulerService?.prototype;
+  if (!prototype || prototype.__khaosRustPatched) return;
+  const original = prototype.runtimeServers;
+  prototype.runtimeServers = function rustAwareRuntimeServers(schedule) {
+    return original.call(this, schedule).filter((server) => {
+      if (String(server.game || '').toLowerCase() !== 'rust') return true;
+      return rustModuleEnabled(this.configStore);
+    });
+  };
+  Object.defineProperty(prototype, '__khaosRustPatched', { value: true });
 }
 
 function patchBrowserLoader() {
@@ -181,11 +274,20 @@ function install() {
   if (installed) return;
   installed = true;
   patchConfigStore();
+  patchAutonomyService();
+  patchSchedulerService();
   patchBrowserLoader();
-  captureClass('./services/autonomy-service.cjs', 'AutonomyService', 'autonomy');
   captureClass('./services/discord-auth.cjs', 'DiscordAuth', 'discordAuth');
   captureClass('./services/logger.cjs', 'AppLogger', 'logger');
   electron.app.whenReady().then(() => setImmediate(registerIpc));
 }
 
-module.exports = { install, refs, normalizeRustServer, executeRust };
+module.exports = {
+  install,
+  refs,
+  normalizeRustServer,
+  executeRust,
+  rustModuleEnabled,
+  filterRustWhenDisabled,
+  rustAutonomyConnection
+};
