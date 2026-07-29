@@ -1,7 +1,9 @@
 'use strict';
 
 const { REST, Routes } = require('discord.js');
-const { ServerConnection, isPalworldRest } = require('../../bot/server-client.cjs');
+const { isPalworldRest } = require('../../bot/server-client.cjs');
+const { createCurrentServerAdapter } = require('../../bot/game-adapters/current-server-adapter.cjs');
+const { executeAdapterOperation } = require('../../shared/game-adapter-sdk.cjs');
 const {
   normalizeStatusPanel,
   normalizeStatusSnapshot,
@@ -35,12 +37,17 @@ function parseRconPlayers(value) {
 }
 
 class StatusPanelService {
-  constructor({ configStore, logger, restFactory, connectionFactory, now } = {}) {
+  constructor({ configStore, logger, restFactory, connectionFactory, adapterFactory, now } = {}) {
     this.configStore = configStore;
     this.logger = logger;
     this.restFactory = restFactory || ((token) => new REST({ version: '10' }).setToken(token));
-    this.connectionFactory = connectionFactory || ((server) => new ServerConnection(server));
     this.now = now || (() => new Date());
+    this.connectionFactory = connectionFactory || null;
+    this.adapterFactory = adapterFactory || ((server) => createCurrentServerAdapter(server, {
+      connectionFactory: this.connectionFactory || undefined,
+      logger: this.logger,
+      now: () => this.now().getTime()
+    }));
   }
 
   bootstrap() {
@@ -85,14 +92,15 @@ class StatusPanelService {
   async snapshot(panelInput) {
     const panel = normalizeStatusPanel(panelInput);
     const server = this.server(panel.serverId);
-    const connection = this.connectionFactory(server);
+    const adapter = this.adapterFactory(server);
+    const context = { role: 'viewer', explicitSecrets: [server.password] };
     let statusResult = null;
     let playerResult = null;
     let statusError = null;
     let playerError = null;
 
-    try { statusResult = await connection.action('status'); } catch (error) { statusError = error; }
-    try { playerResult = await connection.action('players'); } catch (error) { playerError = error; }
+    try { statusResult = (await executeAdapterOperation(adapter, 'status', {}, context)).data; } catch (error) { statusError = error; }
+    try { playerResult = (await executeAdapterOperation(adapter, 'players', {}, context)).data; } catch (error) { playerError = error; }
 
     if (statusError && playerError) {
       return normalizeStatusSnapshot({
