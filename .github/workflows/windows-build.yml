@@ -29,6 +29,22 @@ jobs:
         run: npm run release:win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify Windows artifacts
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        shell: pwsh
+        run: |
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          $expected = @(
+            "dist/Khaos-Nexus-Setup-$($package.version)-x64.exe",
+            "dist/Khaos-Nexus-Portable-$($package.version)-x64.exe"
+          )
+          foreach ($path in $expected) {
+            if (-not (Test-Path -LiteralPath $path)) { throw "Missing required Windows artifact: $path" }
+            $item = Get-Item -LiteralPath $path
+            if ($item.Length -lt 1MB) { throw "Windows artifact is unexpectedly small: $path" }
+            $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $path
+            Write-Host "$($item.Name) | $($item.Length) bytes | SHA256 $($hash.Hash)"
+          }
       - uses: actions/upload-artifact@v4
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         with:
