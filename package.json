@@ -1,7 +1,7 @@
 {
   "name": "khaos-nexus",
-  "version": "0.18.20",
-  "description": "Local-first Khaos Nexus desktop command center with safe grouped proxy navigation, an always-visible in-app update center and header update action, compact production dashboard density, synchronized live Discord runtime status, spawn-confirmed supervised process IDs, a bounded idempotent updater UI, main-process renderer-unresponsive reporting, a continuous visible-interface startup gate, repeated main-window discovery, retained watchdog state and AppData logs, post-release blank-surface detection, automatic retained interface failure reports, a visible recovery screen, independently scrollable navigation and workspace panes, immediate portable sidecar logs and diagnostics beside the executable, canonical v0.17-compatible AppData configuration, a sandbox-compatible main preload, deterministic main-process startup release diagnostics, a dedicated 30-second minimum startup health screen, a two-step download then install-and-restart updater, mandatory verified pre-update backups, five-minute startup error batching, maintained thirty-minute error scans, encrypted Pterodactyl control, cross-server players, guarded moderation, recurring schedules, and software-renderer-safe startup.",
+  "version": "0.18.21",
+  "description": "Local-first Khaos Nexus desktop command center with verified click-through grouped proxy navigation, an always-visible in-app update center and header update action, compact production dashboard density, synchronized live Discord runtime status, spawn-confirmed supervised process IDs, a bounded idempotent updater UI, main-process renderer-unresponsive reporting, a continuous visible-interface startup gate, repeated main-window discovery, retained watchdog state and AppData logs, post-release blank-surface detection, automatic retained interface failure reports, a visible recovery screen, independently scrollable navigation and workspace panes, immediate portable sidecar logs and diagnostics beside the executable, canonical v0.17-compatible AppData configuration, a sandbox-compatible main preload, deterministic main-process startup release diagnostics, a dedicated 30-second minimum startup health screen, a two-step download then install-and-restart updater, mandatory verified pre-update backups, five-minute startup error batching, maintained thirty-minute error scans, encrypted Pterodactyl control, cross-server players, guarded moderation, recurring schedules, and software-renderer-safe startup.",
   "main": "main/entry.cjs",
   "author": "Khaos Krew",
   "license": "MIT",
@@ -27,8 +27,8 @@
     "productName": "Khaos Nexus",
     "electronUpdaterCompatibility": ">=2.16",
     "releaseInfo": {
-      "releaseName": "Khaos Nexus v0.18.20",
-      "releaseNotesFile": "release-notes/v0.18.20.md"
+      "releaseName": "Khaos Nexus v0.18.21",
+      "releaseNotesFile": "release-notes/v0.18.21.md"
     },
     "directories": {
       "output": "dist",
