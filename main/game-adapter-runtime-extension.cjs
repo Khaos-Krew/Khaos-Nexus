@@ -13,6 +13,7 @@ function patchAutonomy() {
   const { createCurrentServerAdapter } = require('../bot/game-adapters/current-server-adapter.cjs');
   const { executeAdapterOperation } = require('../shared/game-adapter-sdk.cjs');
   const { filterEnabledGameServers, connectionLabel } = require('../shared/game-module-policy.cjs');
+  const { assertModule } = require('./module-runtime-extension.cjs');
 
   prototype.testServer = async function adapterAwareTestServer(server) {
     if (!server?.password) throw new Error('The protected server credential is missing.');
@@ -37,6 +38,7 @@ function patchAutonomy() {
   };
 
   prototype.checkServers = async function adapterAwareCheckServers() {
+    assertModule('operator-console', 'Run game-server health checks', this);
     if (this.healthRunning) return { skipped: true, reason: 'already-running' };
     this.healthRunning = true;
     try {
@@ -79,6 +81,7 @@ function patchAutonomy() {
   };
 
   prototype.runMaintenance = async function adapterAwareMaintenance() {
+    assertModule('operator-console', 'Run Maintenance Mode', this);
     if (this.maintenanceRunning) throw new Error('Maintenance Mode is already running.');
     this.maintenanceRunning = true;
     const startedAt = new Date(this.now()).toISOString();
