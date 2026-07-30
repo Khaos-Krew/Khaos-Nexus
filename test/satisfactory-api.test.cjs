@@ -17,6 +17,7 @@ const {
   readServerState
 } = require('../bot/satisfactory-api.cjs');
 const { capabilityMapForServer, manifestForServer } = require('../bot/game-adapters/current-server-adapter.cjs');
+const { moduleForServer, serverModuleEnabled, filterEnabledGameServers, connectionLabel } = require('../shared/game-module-policy.cjs');
 
 function lightweightPacket({ cookie = 42n, state = 3, name = 'Khaos Factory', netCl = 12345, flags = 0n } = {}) {
   const nameBytes = Buffer.from(name, 'utf8');
@@ -100,13 +101,35 @@ test('Satisfactory adapter advertises only official and implemented capabilities
   assert.equal(manifest.metadata.lightweightQuery, true);
 });
 
-test('Satisfactory module registry adds one implemented dependency-aware module', () => {
+test('shared game-module policy covers every implemented adapter without drift', () => {
+  const runtime = {
+    config: {
+      moduleRuntime: {
+        'game-server-control': { effectiveEnabled: true },
+        'satisfactory-server-operations': { effectiveEnabled: false },
+        'rust-server-operations': { effectiveEnabled: true }
+      },
+      servers: [
+        { id: 'sat', game: 'satisfactory', enabled: true },
+        { id: 'rust', game: 'rust', enabled: true }
+      ]
+    }
+  };
+  assert.equal(moduleForServer({ game: 'satisfactory' }), 'satisfactory-server-operations');
+  assert.equal(moduleForServer({ game: 'rust' }), 'rust-server-operations');
+  assert.equal(serverModuleEnabled(runtime, runtime.config.servers[0]), false);
+  assert.deepEqual(filterEnabledGameServers(runtime).map((server) => server.id), ['rust']);
+  assert.equal(connectionLabel({ game: 'satisfactory' }), 'Satisfactory HTTPS API');
+});
+
+test('Satisfactory module registry adds one implemented dependency-aware module and keeps repair access', () => {
   const registry = require('../shared/module-registry.cjs');
   require('../main/satisfactory-module-registry-extension.cjs').install();
   const modules = registry.catalog().filter((module) => module.id === 'satisfactory-server-operations');
   assert.equal(modules.length, 1);
   assert.equal(modules[0].availability, 'implemented');
   assert.deepEqual(modules[0].dependencies, ['game-server-control']);
+  assert.equal(registry.catalogForRole('locked').some((module) => module.id === 'satisfactory-server-operations'), false);
   const defaults = registry.defaultModuleStates();
   assert.equal(defaults['satisfactory-server-operations'].enabled, true);
   const disabled = registry.mergeModuleStates({ 'satisfactory-server-operations': { enabled: false } });
@@ -118,15 +141,31 @@ test('Satisfactory module registry adds one implemented dependency-aware module'
   const state = registry.buildModuleRuntime(dependencyOff)['satisfactory-server-operations'];
   assert.equal(state.effectiveEnabled, false);
   assert.deepEqual(state.blockedBy, ['game-server-control']);
+  assert.equal(registry.moduleDecisionForChannel('server:satisfactory-trust-certificate'), null);
+  assert.deepEqual(registry.moduleDecisionForChannel('server:satisfactory-action'), { allOf: ['satisfactory-server-operations'] });
 });
 
-test('Satisfactory extension order preserves module gating and status panel capture', () => {
+test('Satisfactory startup order installs shared adapter policy last and removes redundant status subclass', () => {
   const entry = read('main/entry.cjs');
   assert.ok(entry.indexOf('satisfactory-module-registry-extension.cjs') < entry.indexOf('module-foundation-extension.cjs'));
-  assert.ok(entry.indexOf('satisfactory-status-panel-extension.cjs') < entry.indexOf('status-panels-extension.cjs'));
   assert.ok(entry.indexOf('rust-module-gate-extension.cjs') < entry.indexOf('satisfactory-main-extension.cjs'));
   assert.ok(entry.indexOf('satisfactory-main-extension.cjs') < entry.indexOf('satisfactory-module-gate-extension.cjs'));
-  assert.ok(entry.indexOf('satisfactory-module-gate-extension.cjs') < entry.indexOf("require('./main.cjs')"));
+  assert.ok(entry.indexOf('satisfactory-module-gate-extension.cjs') < entry.indexOf('game-adapter-runtime-extension.cjs'));
+  assert.ok(entry.indexOf('game-adapter-runtime-extension.cjs') < entry.indexOf("require('./main.cjs')"));
+  assert.doesNotMatch(entry, /satisfactory-status-panel-extension/);
+  assert.equal(fs.existsSync(path.join(root, 'main/satisfactory-status-panel-extension.cjs')), false);
+  const statusService = read('main/services/status-panel-service.cjs');
+  assert.match(statusService, /snapshotSatisfactory/);
+  assert.match(statusService, /Avoid a redundant second API call/);
+});
+
+test('shared adapter runtime filters disabled modules and avoids unsupported maintenance broadcasts', () => {
+  const source = read('main/game-adapter-runtime-extension.cjs');
+  assert.match(source, /filterEnabledGameServers/);
+  assert.match(source, /adapter\.supports\('announce'\)/);
+  assert.match(source, /adapter\.supports\('save'\)/);
+  assert.match(source, /this\.state\.serverHealth/);
+  assert.match(source, /serverHealth: health/);
 });
 
 test('Satisfactory desktop UI retains protected trust and destructive confirmation controls', () => {
@@ -138,6 +177,7 @@ test('Satisfactory desktop UI retains protected trust and destructive confirmati
   assert.match(ui, /RUN RAW COMMAND/);
   assert.match(ui, /Save & Shut Down/);
   assert.match(main, /server:satisfactory-trust-certificate/);
+  assert.match(main, /requireModule: false/);
   assert.match(main, /server:satisfactory-action/);
   assert.match(main, /Type the exact server name/);
   assert.match(main, /explicitSecrets: \[server\.password\]/);
