@@ -1,0 +1,57 @@
+name: Android Stable Release
+
+on:
+  push:
+    tags: ["v*-android"]
+
+permissions:
+  contents: write
+
+jobs:
+  release-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.5.0"
+      - name: Require permanent signing secrets
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.KHAOS_ANDROID_KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.KHAOS_ANDROID_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KHAOS_ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KHAOS_ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for value in "$KEYSTORE_B64" "$STORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD"; do test -n "$value"; done
+          mkdir -p android/signing
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > android/signing/khaos-nexus-release.jks
+      - name: Test, lint, and build permanent-signed APK
+        env:
+          KHAOS_ANDROID_KEYSTORE: ../signing/khaos-nexus-release.jks
+          KHAOS_ANDROID_STORE_PASSWORD: ${{ secrets.KHAOS_ANDROID_STORE_PASSWORD }}
+          KHAOS_ANDROID_KEY_ALIAS: ${{ secrets.KHAOS_ANDROID_KEY_ALIAS }}
+          KHAOS_ANDROID_KEY_PASSWORD: ${{ secrets.KHAOS_ANDROID_KEY_PASSWORD }}
+        run: gradle --project-dir android testDebugUnitTest lintRelease assembleRelease --stacktrace
+      - name: Verify signature and prepare release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p android/dist
+          apk="android/app/build/outputs/apk/release/app-release.apk"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk"
+          cp "$apk" android/dist/Khaos-Nexus-Mobile.apk
+          sha256sum android/dist/Khaos-Nexus-Mobile.apk | tee android/dist/Khaos-Nexus-Mobile.sha256
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            android/dist/Khaos-Nexus-Mobile.apk
+            android/dist/Khaos-Nexus-Mobile.sha256
+          generate_release_notes: true

@@ -46,9 +46,14 @@ test('safe UI layer loads grouped navigation while preserving independent scroll
   assert.match(extension, /addScript\('navigation-shell\.js'\)/);
 });
 
-test('v0.21.0 is configured for the guarded Rust WebRCON release channel', () => {
+test('v0.22.0 is configured for the guarded Android companion and HTTPS gateway release channel', () => {
   const packageJson = JSON.parse(read('package.json'));
-  const notes = read('release-notes/v0.21.0.md');
+  const notes = read('release-notes/v0.22.0.md');
+  const mobileDocs = read('docs/ANDROID_COMPANION_v0.22.0.md');
+  const mobileShared = read('shared/mobile-gateway.cjs');
+  const mobileService = read('main/services/mobile-gateway-service.cjs');
+  const mobileSecurity = read('main/mobile-gateway-security-extension.cjs');
+  const androidWorkflow = read('.github/workflows/android-build.yml');
   const rust = read('bot/rust-webrcon.cjs');
   const rustMain = read('main/rust-main-extension.cjs');
   const rustUi = read('renderer/rust-webrcon-ui.js');
@@ -64,13 +69,25 @@ test('v0.21.0 is configured for the guarded Rust WebRCON release channel', () =>
   const workflow = read('.github/workflows/stable-release.yml');
   const ciWorkflow = read('.github/workflows/ci.yml');
 
-  assert.equal(packageJson.version, '0.21.0');
+  assert.equal(packageJson.version, '0.22.0');
+  assert.match(packageJson.description, /native read-only Android companion/i);
+  assert.match(packageJson.description, /certificate-pinned HTTPS Mobile Gateway/i);
+  assert.match(packageJson.description, /P-256 signed mobile requests/i);
   assert.match(packageJson.description, /dedicated Rust WebRCON operations/i);
   assert.match(packageJson.description, /Owner-only raw Rust console access/i);
   assert.match(packageJson.description, /typed Game Adapter SDK/i);
   assert.match(packageJson.description, /explicit capability manifests/i);
   assert.match(packageJson.description, /authoritative Owner module switches/i);
   assert.match(packageJson.description, /full production runtime audit repairs/i);
+  assert.match(mobileShared, /verifyMobileRequestSignature/);
+  assert.match(mobileShared, /issueDeviceCredential/);
+  assert.match(mobileService, /class MobileGatewayService/);
+  assert.match(mobileService, /TLSv1\.2/);
+  assert.match(mobileSecurity, /OneTimeDelivery|oneTimePairingRoute/);
+  assert.match(mobileDocs, /Android Keystore/);
+  assert.match(mobileDocs, /Phase 1 API/);
+  assert.match(androidWorkflow, /lintDebug/);
+  assert.match(androidWorkflow, /apksigner/);
   assert.match(rust, /class RustWebRconClient/);
   assert.match(rust, /serverinfo/);
   assert.match(rust, /playerlist/);
@@ -105,11 +122,11 @@ test('v0.21.0 is configured for the guarded Rust WebRCON release channel', () =>
   assert.equal(packageJson.build.publish[0].provider, 'github');
   assert.equal(packageJson.build.publish[0].releaseType, 'release');
   assert.equal(packageJson.build.publish[0].tagNamePrefix, 'v');
-  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.21.0.md');
-  assert.match(notes, /Rust WebRCON Operations/i);
-  assert.match(notes, /Owner Module Control/i);
-  assert.match(notes, /Raw console commands are restricted/i);
-  assert.match(notes, /Preserved v0\.20\.0 Foundations/i);
+  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.22.0.md');
+  assert.match(notes, /Native Android Companion/i);
+  assert.match(notes, /Desktop HTTPS Mobile Gateway/i);
+  assert.match(notes, /Request and Credential Security/i);
+  assert.match(notes, /existing v0\.21\.0 Rust WebRCON/i);
   assert.match(workflow, /branches:\s*\n\s*- "release\/v\*"/);
   assert.match(workflow, /pull_request_target/);
   assert.match(ciWorkflow, /npm audit --omit=dev --audit-level=high/);
