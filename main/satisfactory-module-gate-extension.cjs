@@ -21,26 +21,10 @@ function patchSchedulerShutdown() {
   Object.defineProperty(prototype, '__khaosSatisfactoryShutdownFallbackPatched', { value: true });
 }
 
-function patchAutonomyServerTest() {
-  const prototype = require('./services/autonomy-service.cjs').AutonomyService?.prototype;
-  if (!prototype || prototype.__khaosSatisfactoryTestGatePatched || typeof prototype.testServer !== 'function') return;
-  const original = prototype.testServer;
-  prototype.testServer = async function satisfactoryAwareTestServer(server) {
-    if (String(server?.game || '').toLowerCase() === 'satisfactory') {
-      const runtime = this.configStore?.getRuntimeBootstrap?.();
-      const moduleState = runtime?.config?.moduleRuntime?.['satisfactory-server-operations'];
-      if (moduleState && !moduleState.effectiveEnabled) return 'Skipped because Satisfactory Server Operations are disabled by the owner.';
-    }
-    return original.call(this, server);
-  };
-  Object.defineProperty(prototype, '__khaosSatisfactoryTestGatePatched', { value: true });
-}
-
 function install() {
   if (installed) return;
   installed = true;
   patchSchedulerShutdown();
-  patchAutonomyServerTest();
 }
 
-module.exports = { install, patchSchedulerShutdown, patchAutonomyServerTest };
+module.exports = { install, patchSchedulerShutdown };
