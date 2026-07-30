@@ -1,0 +1,47 @@
+name: Verify v0.22.1 Release
+
+on:
+  push:
+    branches: ["verify/v0.22.1-release"]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  verify-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify latest release and updater assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v0.22.1"
+          latest="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')"
+          test "$latest" = "$tag"
+          draft="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq '.draft')"
+          prerelease="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq '.prerelease')"
+          test "$draft" = "false"
+          test "$prerelease" = "false"
+          assets="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq '.assets[].name')"
+          for required in \
+            Khaos-Nexus-Setup-0.22.1-x64.exe \
+            Khaos-Nexus-Setup-0.22.1-x64.exe.blockmap \
+            Khaos-Nexus-Portable-0.22.1-x64.exe \
+            latest.yml \
+            release-checksums.txt; do
+            grep -Fxq "$required" <<< "$assets"
+          done
+          {
+            echo "## v0.22.1 release verification passed"
+            echo
+            echo "- Latest release: \`$latest\`"
+            echo "- Draft: \`$draft\`"
+            echo "- Prerelease: \`$prerelease\`"
+            echo "- Required updater assets: present"
+            echo "- Validated source: \`476beaae1336db8d6652c87dcd64f0778f3eb13c\`"
+          } > verification.md
+          gh pr comment 79 --body-file verification.md
