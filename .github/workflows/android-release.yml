@@ -35,7 +35,7 @@ jobs:
           printf '%s' "$KEYSTORE_B64" | base64 --decode > android/signing/khaos-nexus-release.jks
       - name: Test, lint, and build permanent-signed APK
         env:
-          KHAOS_ANDROID_KEYSTORE: signing/khaos-nexus-release.jks
+          KHAOS_ANDROID_KEYSTORE: ../signing/khaos-nexus-release.jks
           KHAOS_ANDROID_STORE_PASSWORD: ${{ secrets.KHAOS_ANDROID_STORE_PASSWORD }}
           KHAOS_ANDROID_KEY_ALIAS: ${{ secrets.KHAOS_ANDROID_KEY_ALIAS }}
           KHAOS_ANDROID_KEY_PASSWORD: ${{ secrets.KHAOS_ANDROID_KEY_PASSWORD }}
