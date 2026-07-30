@@ -1,0 +1,36 @@
+name: v0.22.0 Lockfile Refresh
+
+on:
+  push:
+    branches: ["agent/v0.22.0-android-phase1"]
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-lockfile:
+    if: ${{ !contains(github.event.head_commit.message, '[lockfile-refresh]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/v0.22.0-android-phase1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Refresh committed dependency graph
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Commit lockfile when changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- package-lock.json; then
+            echo "package-lock.json is already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "Refresh v0.22.0 dependency lock [lockfile-refresh]"
+          git push origin HEAD:agent/v0.22.0-android-phase1
