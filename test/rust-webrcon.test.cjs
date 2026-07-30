@@ -245,7 +245,8 @@ test('Rust integration source retains UI, scheduler, player, status-panel and Di
   assert.match(read('renderer/rust-webrcon-ui.js'), /Rust WebRCON Operations/);
   assert.match(read('renderer/rust-webrcon-ui.js'), /rcon\.web 1/);
   assert.match(read('main/services/status-panel-service.cjs'), /Rust WebRCON/);
-  assert.match(read('main/services/player-console-service.cjs'), /rust-server-operations/);
-  assert.match(read('bot/index.cjs'), /rust-server-operations/);
+  assert.match(read('main/services/player-console-service.cjs'), /game-module-policy\.cjs/);
+  assert.match(read('shared/game-module-policy.cjs'), /rust-server-operations/);
+  assert.match(read('bot/index.cjs'), /moduleForServer/);
   assert.match(read('bot/commands.cjs'), /Steam64 ID/);
 });
