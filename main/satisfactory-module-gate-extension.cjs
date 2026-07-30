@@ -15,7 +15,6 @@ function patchSchedulerShutdown() {
     const { assertModule } = require('./module-runtime-extension.cjs');
     assertModule('satisfactory-server-operations', 'Run scheduled Satisfactory shutdown', this);
     if (!server?.password) throw new Error('The scheduled Satisfactory server is missing its protected application token.');
-    if (!server?.tlsFingerprint) throw new Error('Trust the Satisfactory TLS certificate before using scheduled shutdown.');
     const result = await new ServerConnection(server).action('shutdown', { saveFirst: true });
     return { provider: 'satisfactory-https', server: server.name, signal: 'stop', result };
   };
@@ -31,7 +30,6 @@ function patchAutonomyServerTest() {
       const runtime = this.configStore?.getRuntimeBootstrap?.();
       const moduleState = runtime?.config?.moduleRuntime?.['satisfactory-server-operations'];
       if (moduleState && !moduleState.effectiveEnabled) return 'Skipped because Satisfactory Server Operations are disabled by the owner.';
-      if (!server?.tlsFingerprint) throw new Error('Satisfactory TLS certificate trust is required.');
     }
     return original.call(this, server);
   };
