@@ -122,9 +122,8 @@ test('shared game-module policy covers every implemented adapter without drift',
   assert.equal(connectionLabel({ game: 'satisfactory' }), 'Satisfactory HTTPS API');
 });
 
-test('Satisfactory module registry adds one implemented dependency-aware module and keeps repair access', () => {
+test('authoritative registry contains one dependency-aware Satisfactory module and keeps repair access', () => {
   const registry = require('../shared/module-registry.cjs');
-  require('../main/satisfactory-module-registry-extension.cjs').install();
   const modules = registry.catalog().filter((module) => module.id === 'satisfactory-server-operations');
   assert.equal(modules.length, 1);
   assert.equal(modules[0].availability, 'implemented');
@@ -145,18 +144,20 @@ test('Satisfactory module registry adds one implemented dependency-aware module 
   assert.deepEqual(registry.moduleDecisionForChannel('server:satisfactory-action'), { allOf: ['satisfactory-server-operations'] });
 });
 
-test('Satisfactory startup order installs shared adapter policy last and removes redundant status subclass', () => {
+test('Satisfactory startup uses native registry and shared status/runtime paths without redundant subclasses', () => {
   const entry = read('main/entry.cjs');
-  assert.ok(entry.indexOf('satisfactory-module-registry-extension.cjs') < entry.indexOf('module-foundation-extension.cjs'));
+  assert.doesNotMatch(entry, /satisfactory-module-registry-extension/);
   assert.ok(entry.indexOf('rust-module-gate-extension.cjs') < entry.indexOf('satisfactory-main-extension.cjs'));
   assert.ok(entry.indexOf('satisfactory-main-extension.cjs') < entry.indexOf('satisfactory-module-gate-extension.cjs'));
   assert.ok(entry.indexOf('satisfactory-module-gate-extension.cjs') < entry.indexOf('game-adapter-runtime-extension.cjs'));
   assert.ok(entry.indexOf('game-adapter-runtime-extension.cjs') < entry.indexOf("require('./main.cjs')"));
   assert.doesNotMatch(entry, /satisfactory-status-panel-extension/);
+  assert.equal(fs.existsSync(path.join(root, 'main/satisfactory-module-registry-extension.cjs')), false);
   assert.equal(fs.existsSync(path.join(root, 'main/satisfactory-status-panel-extension.cjs')), false);
   const statusService = read('main/services/status-panel-service.cjs');
   assert.match(statusService, /snapshotSatisfactory/);
   assert.match(statusService, /Avoid a redundant second API call/);
+  assert.match(read('shared/module-registry.cjs'), /satisfactory-server-operations/);
 });
 
 test('shared adapter runtime filters disabled modules and avoids unsupported maintenance broadcasts', () => {
