@@ -163,14 +163,14 @@ function requireAccess(role, action) {
   return refs.autonomy.assertAccess(refs.discordAuth?.getState(), role, action);
 }
 
-function runtimeServer(id, { requireToken = true } = {}) {
+function runtimeServer(id, { requireToken = true, requireModule = true } = {}) {
   const runtime = refs.configStore?.getRuntimeBootstrap();
   const server = runtime?.config?.servers?.find((item) => String(item.id) === String(id));
   if (!server || server.enabled === false) throw new Error('The selected Satisfactory server is not configured or enabled.');
   if (String(server.game || '').toLowerCase() !== 'satisfactory') throw new Error('This action requires a Satisfactory server.');
   if (requireToken && !server.password) throw new Error('Save the protected Satisfactory application token before using server operations.');
   const moduleState = runtime?.config?.moduleRuntime?.['satisfactory-server-operations'];
-  if (moduleState && !moduleState.effectiveEnabled) throw new Error('Satisfactory Server Operations are disabled or blocked by a module dependency.');
+  if (requireModule && moduleState && !moduleState.effectiveEnabled) throw new Error('Satisfactory Server Operations are disabled or blocked by a module dependency.');
   return server;
 }
 
@@ -196,7 +196,7 @@ function registerIpc() {
 
   electron.ipcMain.handle('server:satisfactory-trust-certificate', async (_event, request = {}) => {
     requireAccess('owner', 'Trust a Satisfactory TLS certificate');
-    const server = runtimeServer(request.id, { requireToken: false });
+    const server = runtimeServer(request.id, { requireToken: false, requireModule: false });
     const certificate = await new SatisfactoryApiClient(server).probeCertificate();
     const fingerprint = refs.configStore.trustSatisfactoryCertificate(server.id, certificate.fingerprint);
     refs.logger?.warn('Satisfactory TLS certificate trusted by the local owner.', { server: server.name, fingerprint });
@@ -244,5 +244,6 @@ module.exports = {
   normalizeSatisfactoryServer,
   satisfactoryModuleEnabled,
   satisfactoryModuleEnabledFromRuntime,
-  executeSatisfactory
+  executeSatisfactory,
+  runtimeServer
 };
