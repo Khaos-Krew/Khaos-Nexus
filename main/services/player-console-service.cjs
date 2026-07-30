@@ -4,7 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
-const { ServerConnection, isPalworldRest } = require('../../bot/server-client.cjs');
+const { ServerConnection, isPalworldRest, isSatisfactoryApi } = require('../../bot/server-client.cjs');
+const { serverModuleEnabled } = require('../../shared/game-module-policy.cjs');
 const {
   playerToken,
   parseRconPlayers,
@@ -14,12 +15,7 @@ const {
 } = require('../../shared/player-console.cjs');
 
 function gameModuleEnabled(runtime, server) {
-  const game = String(server?.game || '').toLowerCase();
-  const moduleId = game === 'rust' ? 'rust-server-operations'
-    : game === 'palworld' ? 'palworld-operations'
-      : game === 'ark' ? 'ark-server-operations'
-        : null;
-  return !moduleId || runtime?.config?.moduleRuntime?.[moduleId]?.effectiveEnabled !== false;
+  return serverModuleEnabled(runtime, server);
 }
 
 class PlayerConsoleService extends EventEmitter {
@@ -96,7 +92,8 @@ class PlayerConsoleService extends EventEmitter {
       }
       try {
         const payload = await this.connectionFactory(server).action('players');
-        const normalized = isPalworldRest(server) ? normalizeRestPlayers(payload) : parseRconPlayers(server.game, payload);
+        const countOnly = isSatisfactoryApi(server);
+        const normalized = countOnly ? [] : isPalworldRest(server) ? normalizeRestPlayers(payload) : parseRconPlayers(server.game, payload);
         for (const player of normalized) {
           players.push({
             token: this.issueToken(server, player),
@@ -109,7 +106,15 @@ class PlayerConsoleService extends EventEmitter {
             ping: player.ping
           });
         }
-        summaries.push({ id: server.id, name: server.name, game: server.game, status: 'online', playerCount: normalized.length });
+        const playerCount = countOnly ? Math.max(0, Number(payload?.count) || 0) : normalized.length;
+        summaries.push({
+          id: server.id,
+          name: server.name,
+          game: server.game,
+          status: 'online',
+          playerCount,
+          namesUnavailable: countOnly && playerCount > 0
+        });
       } catch (error) {
         errors.push({ serverId: server.id, serverName: server.name, message: String(error.message || error).slice(0, 300) });
         summaries.push({ id: server.id, name: server.name, game: server.game, status: 'error', playerCount: 0 });
