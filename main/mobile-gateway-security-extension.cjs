@@ -40,11 +40,52 @@ function patchOneTimeCredentialDelivery() {
   Object.defineProperty(prototype, '__khaosMobileOneTimeDeliveryPatched', { value: true });
 }
 
+function reconcileGatewaySoon() {
+  queueMicrotask(() => {
+    const extension = require('./mobile-gateway-extension.cjs');
+    const service = extension.ensureService?.();
+    Promise.resolve(service?.applyConfig?.()).catch((error) => {
+      extension.refs?.logger?.warn?.('Mobile Gateway module reconciliation failed.', { message: String(error?.message || error) });
+    });
+  });
+}
+
+function patchImmediateModuleReconciliation() {
+  const prototype = require('./services/config-store.cjs').ConfigStore?.prototype;
+  if (!prototype || prototype.__khaosMobileModuleReconcilePatched) return;
+
+  if (typeof prototype.setModuleState === 'function') {
+    const originalSetModuleState = prototype.setModuleState;
+    prototype.setModuleState = function mobileAwareSetModuleState(id, ...args) {
+      const result = originalSetModuleState.call(this, id, ...args);
+      if (String(id || '') === 'mobile-gateway') reconcileGatewaySoon();
+      return result;
+    };
+  }
+
+  if (typeof prototype.setModuleBulkMode === 'function') {
+    const originalSetModuleBulkMode = prototype.setModuleBulkMode;
+    prototype.setModuleBulkMode = function mobileAwareBulkMode(...args) {
+      const result = originalSetModuleBulkMode.apply(this, args);
+      reconcileGatewaySoon();
+      return result;
+    };
+  }
+
+  Object.defineProperty(prototype, '__khaosMobileModuleReconcilePatched', { value: true });
+}
+
 function install() {
   if (installed) return;
   installed = true;
   patchOwnerStateAccess();
   patchOneTimeCredentialDelivery();
+  patchImmediateModuleReconciliation();
 }
 
-module.exports = { install, patchOwnerStateAccess, patchOneTimeCredentialDelivery };
+module.exports = {
+  install,
+  patchOwnerStateAccess,
+  patchOneTimeCredentialDelivery,
+  patchImmediateModuleReconciliation
+};
