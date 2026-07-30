@@ -5,6 +5,7 @@ const dgram = require('node:dgram');
 const https = require('node:https');
 const net = require('node:net');
 const tls = require('node:tls');
+const { redactText } = require('../shared/redaction.cjs');
 
 const DEFAULT_PORT = 7777;
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
@@ -24,9 +25,7 @@ function normalizeHost(value) {
     throw new Error('Enter only the Satisfactory host or IP address, without a protocol, port, or path.');
   }
   if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
-  if (host.includes(':') && net.isIP(host) !== 6) {
-    throw new Error('Enter the HTTPS/query port in the separate port field.');
-  }
+  if (host.includes(':') && net.isIP(host) !== 6) throw new Error('Enter the HTTPS/query port in the separate port field.');
   return host;
 }
 
@@ -54,6 +53,19 @@ function certificateFingerprint(certificate) {
 
 function serverNameForTls(host) {
   return net.isIP(host) ? undefined : host;
+}
+
+function credentialForms(token) {
+  const value = String(token || '');
+  if (!value) return [];
+  const values = [value];
+  try { values.push(encodeURIComponent(value)); } catch {}
+  try { values.push(Buffer.from(value, 'utf8').toString('base64')); } catch {}
+  return [...new Set(values.filter(Boolean))];
+}
+
+function safeTransportMessage(error, token = '') {
+  return cleanText(redactText(error?.message || error, credentialForms(token)), 1000, 'Satisfactory connection failed.');
 }
 
 class SatisfactoryApiError extends Error {
@@ -102,6 +114,7 @@ function readServerState(payload = {}) {
 
 function parseLightweightResponse(buffer, expectedCookie) {
   if (!Buffer.isBuffer(buffer) || buffer.length < 29) throw new SatisfactoryApiError('Satisfactory lightweight query returned a truncated response.', { code: 'INVALID_RESPONSE' });
+  if (buffer.readUInt8(buffer.length - 1) !== 0x01) throw new SatisfactoryApiError('Satisfactory lightweight query response is missing the required terminator byte.', { code: 'INVALID_RESPONSE' });
   if (buffer.readUInt16LE(0) !== 0xF6D5 || buffer.readUInt8(2) !== 1 || buffer.readUInt8(3) !== 1) {
     throw new SatisfactoryApiError('Satisfactory lightweight query returned an unsupported envelope.', { code: 'INVALID_RESPONSE' });
   }
@@ -112,10 +125,10 @@ function parseLightweightResponse(buffer, expectedCookie) {
   const flags = buffer.readBigUInt64LE(17);
   const subStateCount = buffer.readUInt8(25);
   let offset = 26 + (subStateCount * 3);
-  if (offset + 2 > buffer.length) throw new SatisfactoryApiError('Satisfactory lightweight query sub-state data is malformed.', { code: 'INVALID_RESPONSE' });
+  if (offset + 2 > buffer.length - 1) throw new SatisfactoryApiError('Satisfactory lightweight query sub-state data is malformed.', { code: 'INVALID_RESPONSE' });
   const nameLength = buffer.readUInt16LE(offset);
   offset += 2;
-  if (offset + nameLength > buffer.length) throw new SatisfactoryApiError('Satisfactory lightweight query server name is malformed.', { code: 'INVALID_RESPONSE' });
+  if (offset + nameLength !== buffer.length - 1) throw new SatisfactoryApiError('Satisfactory lightweight query server name is malformed.', { code: 'INVALID_RESPONSE' });
   const serverName = buffer.subarray(offset, offset + nameLength).toString('utf8').replace(/\u0000/g, '').trim().slice(0, 200);
   return {
     state: STATE_NAMES[stateCode] || 'unknown',
@@ -125,6 +138,15 @@ function parseLightweightResponse(buffer, expectedCookie) {
     modded: Boolean(flags & 1n),
     subStateCount
   };
+}
+
+function validateCommandResult(result) {
+  const returnValue = result?.ReturnValue ?? result?.returnValue;
+  if (returnValue === false) {
+    const commandResult = cleanText(result?.CommandResult || result?.commandResult, 1000, 'The Satisfactory console command reported failure.');
+    throw new SatisfactoryApiError(commandResult, { code: 'ACTION_REJECTED', details: { returnValue: false } });
+  }
+  return result;
 }
 
 class SatisfactoryApiClient {
@@ -150,12 +172,7 @@ class SatisfactoryApiClient {
     const timeoutMs = Math.max(500, Math.min(15000, Number(options.timeoutMs || this.queryTimeoutMs)));
     return new Promise((resolve, reject) => {
       let settled = false;
-      const socket = this.tlsModule.connect({
-        host: this.host,
-        port: this.port,
-        servername: serverNameForTls(this.host),
-        rejectUnauthorized: false
-      });
+      const socket = this.tlsModule.connect({ host: this.host, port: this.port, servername: serverNameForTls(this.host), rejectUnauthorized: false });
       const finish = (error, value) => {
         if (settled) return;
         settled = true;
@@ -170,7 +187,7 @@ class SatisfactoryApiClient {
           finish(null, { fingerprint, formattedFingerprint: formatFingerprint(fingerprint), authorized: Boolean(socket.authorized), authorizationError: cleanText(socket.authorizationError, 300) });
         } catch (error) { finish(error); }
       });
-      socket.once('error', (error) => finish(new SatisfactoryApiError(error.message, { code: 'CONNECTION_FAILED', retryable: true })));
+      socket.once('error', (error) => finish(new SatisfactoryApiError(safeTransportMessage(error, this.token), { code: 'CONNECTION_FAILED', retryable: true })));
     });
   }
 
@@ -195,13 +212,13 @@ class SatisfactoryApiClient {
         if (error) reject(error); else resolve(value);
       };
       const timer = setTimeout(() => finish(new SatisfactoryApiError('Satisfactory lightweight query timed out.', { code: 'TIMEOUT', retryable: true })), timeoutMs);
-      socket.once('error', (error) => finish(new SatisfactoryApiError(error.message, { code: 'CONNECTION_FAILED', retryable: true })));
+      socket.once('error', (error) => finish(new SatisfactoryApiError(safeTransportMessage(error, this.token), { code: 'CONNECTION_FAILED', retryable: true })));
       socket.on('message', (message) => {
         try { finish(null, parseLightweightResponse(message, cookie)); }
         catch (error) { finish(error); }
       });
       socket.send(request, this.port, this.host, (error) => {
-        if (error) finish(new SatisfactoryApiError(error.message, { code: 'CONNECTION_FAILED', retryable: true }));
+        if (error) finish(new SatisfactoryApiError(safeTransportMessage(error, this.token), { code: 'CONNECTION_FAILED', retryable: true }));
       });
     });
   }
@@ -216,10 +233,12 @@ class SatisfactoryApiClient {
     return new Promise((resolve, reject) => {
       let settled = false;
       let received = 0;
+      let abortListener = null;
       const chunks = [];
       const finish = (error, value) => {
         if (settled) return;
         settled = true;
+        if (abortListener) options.signal?.removeEventListener?.('abort', abortListener);
         if (error) reject(error); else resolve(value);
       };
       const request = this.httpsModule.request({
@@ -265,7 +284,7 @@ class SatisfactoryApiClient {
       request.setTimeout(this.timeoutMs, () => request.destroy(new SatisfactoryApiError('Satisfactory API request timed out.', { code: 'TIMEOUT', retryable: true })));
       request.once('error', (error) => {
         if (error instanceof SatisfactoryApiError) return finish(error);
-        const text = cleanText(error?.message || error, 1000);
+        const text = safeTransportMessage(error, token);
         const certificateFailure = /self[- ]signed|unable to verify|certificate|issuer/i.test(text);
         finish(new SatisfactoryApiError(certificateFailure
           ? 'The Satisfactory server uses an untrusted certificate. Use Trust Current Certificate in Khaos Nexus before connecting.'
@@ -274,7 +293,9 @@ class SatisfactoryApiClient {
           retryable: !certificateFailure
         }));
       });
-      options.signal?.addEventListener?.('abort', () => request.destroy(new SatisfactoryApiError('Satisfactory API operation was cancelled.', { code: 'CANCELLED' })), { once: true });
+      abortListener = () => request.destroy(new SatisfactoryApiError('Satisfactory API operation was cancelled.', { code: 'CANCELLED' }));
+      if (options.signal?.aborted) abortListener();
+      else options.signal?.addEventListener?.('abort', abortListener, { once: true });
       request.end(body);
     });
   }
@@ -283,10 +304,10 @@ class SatisfactoryApiClient {
   queryServerState(options = {}) { return this.request('QueryServerState', {}, options); }
   getServerOptions(options = {}) { return this.request('GetServerOptions', {}, options); }
   enumerateSessions(options = {}) { return this.request('EnumerateSessions', {}, options); }
-  runCommand(command, options = {}) {
+  async runCommand(command, options = {}) {
     const value = cleanText(command, 1000);
     if (!value) throw new SatisfactoryApiError('A Satisfactory console command is required.', { code: 'INVALID_REQUEST' });
-    return this.request('RunCommand', { Command: value }, options);
+    return validateCommandResult(await this.request('RunCommand', { Command: value }, options));
   }
   save(saveName, options = {}) {
     const fallback = `KhaosNexus-${new Date(this.now()).toISOString().replace(/[:.]/g, '-')}`;
@@ -298,7 +319,7 @@ class SatisfactoryApiClient {
   async status(options = {}) {
     let lightweight;
     try { lightweight = await this.queryLightweight(options); }
-    catch (error) { lightweight = { state: 'unknown', error: cleanText(error.message, 500) }; }
+    catch (error) { lightweight = { state: 'unknown', error: safeTransportMessage(error, this.token) }; }
     if (lightweight.state === 'loading') return { ...lightweight, online: true, apiAvailable: false, players: 0, maxPlayers: 0 };
     const [health, statePayload] = await Promise.all([this.health(options), this.queryServerState(options)]);
     const state = readServerState(statePayload);
@@ -345,7 +366,10 @@ module.exports = {
   normalizeFingerprint,
   formatFingerprint,
   certificateFingerprint,
+  credentialForms,
+  safeTransportMessage,
   parseApiPayload,
   parseLightweightResponse,
+  validateCommandResult,
   readServerState
 };
