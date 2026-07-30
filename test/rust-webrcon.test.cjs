@@ -235,13 +235,19 @@ test('Rust module is implemented, dependency-aware, and gates operations without
   assert.deepEqual(moduleDecisionForChannel('server:save', [{ server: { game: 'rust' } }]), { allOf: ['game-server-control'] });
 });
 
-test('Rust integration source retains UI, scheduler, player, status-panel and Discord boundaries', () => {
+test('Rust integration retains unique UI and shutdown behavior while shared runtime owns health and maintenance', () => {
   const root = path.join(__dirname, '..');
   const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
+  const rustMain = read('main/rust-main-extension.cjs');
+  const rustGate = read('main/rust-module-gate-extension.cjs');
+  const sharedRuntime = read('main/game-adapter-runtime-extension.cjs');
   assert.match(read('main/entry.cjs'), /rust-main-extension\.cjs/);
-  assert.match(read('main/rust-main-extension.cjs'), /patchSchedulerService/);
-  assert.match(read('main/rust-main-extension.cjs'), /RUN RAW COMMAND/);
-  assert.match(read('main/rust-main-extension.cjs'), /filterRustWhenDisabled/);
+  assert.match(rustMain, /RUN RAW COMMAND/);
+  assert.doesNotMatch(rustMain, /patchSchedulerService|filterRustWhenDisabled|async checkServers|async runMaintenance|autonomyCommand|rustAutonomyConnection/);
+  assert.match(rustGate, /patchSchedulerShutdown/);
+  assert.doesNotMatch(rustGate, /function wrap\(|checkServers|runMaintenance/);
+  assert.match(sharedRuntime, /assertModule\('operator-console', 'Run game-server health checks'/);
+  assert.match(sharedRuntime, /assertModule\('operator-console', 'Run Maintenance Mode'/);
   assert.match(read('renderer/rust-webrcon-ui.js'), /Rust WebRCON Operations/);
   assert.match(read('renderer/rust-webrcon-ui.js'), /rcon\.web 1/);
   assert.match(read('main/services/status-panel-service.cjs'), /Rust WebRCON/);
