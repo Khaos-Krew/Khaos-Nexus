@@ -25,9 +25,8 @@ if (!hasSingleInstanceLock) {
   require('./access-recovery-extension.cjs').install();
   require('./brand-update-extension.cjs').install();
 
-  // Promote validated modules before module consumers capture registry functions.
+  // Promote validated extension-backed modules before module consumers capture registry functions.
   require('./mobile-module-registry-extension.cjs').install();
-  require('./satisfactory-module-registry-extension.cjs').install();
 
   // The module registry must wrap IPC and service prototypes before optional modules register handlers or start timers.
   require('./module-foundation-extension.cjs').install();
