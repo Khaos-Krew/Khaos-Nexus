@@ -8,9 +8,8 @@ function forceLocalModuleAuthority() {
   if (!refs || refs.__khaosLocalModuleAuthority) return;
 
   // Module management is a recovery surface owned by the person running this
-  // desktop installation. It must never depend on Discord authentication or a
-  // Discord role, otherwise a broken/offline Discord session can lock the
-  // local owner out of their own application.
+  // desktop installation. It must never depend on Discord authentication or a Discord role,
+  // otherwise a broken/offline Discord session can lock the local owner out of their own application.
   for (const key of ['autonomy', 'discordAuth']) {
     Object.defineProperty(refs, key, {
       configurable: false,
