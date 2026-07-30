@@ -2,10 +2,10 @@
 
 const crypto = require('node:crypto');
 const electron = require('electron');
-const { ServerConnection } = require('../bot/server-client.cjs');
 const { createCurrentServerAdapter } = require('../bot/game-adapters/current-server-adapter.cjs');
 const { executeAdapterOperation } = require('../shared/game-adapter-sdk.cjs');
 const { SatisfactoryApiClient, normalizeHost, normalizePort, normalizeFingerprint, formatFingerprint } = require('../bot/satisfactory-api.cjs');
+const { serverModuleEnabled } = require('../shared/game-module-policy.cjs');
 
 const refs = { configStore: null, autonomy: null, discordAuth: null, logger: null };
 let installed = false;
@@ -50,8 +50,7 @@ function normalizeSatisfactoryServer(server = {}) {
 }
 
 function satisfactoryModuleEnabledFromRuntime(runtime) {
-  const state = runtime?.config?.moduleRuntime?.['satisfactory-server-operations'];
-  return state ? Boolean(state.effectiveEnabled) : true;
+  return serverModuleEnabled(runtime, { game: 'satisfactory' });
 }
 
 function satisfactoryModuleEnabled(configStore) {
@@ -106,38 +105,6 @@ function patchConfigStore() {
   target.ConfigStore = SatisfactoryConfigStore;
 }
 
-function patchAutonomyService() {
-  const target = require('./services/autonomy-service.cjs');
-  const Original = target.AutonomyService;
-  if (!Original || Original.__khaosSatisfactoryPatched) return;
-  class SatisfactoryAutonomyService extends Original {
-    constructor(...args) {
-      super(...args);
-      refs.autonomy = this;
-      const originalFactory = this.rconFactory;
-      this.rconFactory = (server) => String(server?.game || '').toLowerCase() === 'satisfactory'
-        ? new ServerConnection(server)
-        : originalFactory(server);
-    }
-  }
-  Object.defineProperty(SatisfactoryAutonomyService, '__khaosSatisfactoryPatched', { value: true });
-  target.AutonomyService = SatisfactoryAutonomyService;
-}
-
-function patchSchedulerService() {
-  const target = require('./services/server-scheduler-service.cjs');
-  const prototype = target.ServerSchedulerService?.prototype;
-  if (!prototype || prototype.__khaosSatisfactoryPatched) return;
-  const originalRuntimeServers = prototype.runtimeServers;
-  prototype.runtimeServers = function satisfactoryAwareRuntimeServers(schedule) {
-    return originalRuntimeServers.call(this, schedule).filter((server) => {
-      if (String(server.game || '').toLowerCase() !== 'satisfactory') return true;
-      return satisfactoryModuleEnabled(this.configStore);
-    });
-  };
-  Object.defineProperty(prototype, '__khaosSatisfactoryPatched', { value: true });
-}
-
 function patchBrowserLoader() {
   const prototype = electron.BrowserWindow?.prototype;
   if (!prototype || prototype.__khaosSatisfactoryUiPatched) return;
@@ -169,8 +136,7 @@ function runtimeServer(id, { requireToken = true, requireModule = true } = {}) {
   if (!server || server.enabled === false) throw new Error('The selected Satisfactory server is not configured or enabled.');
   if (String(server.game || '').toLowerCase() !== 'satisfactory') throw new Error('This action requires a Satisfactory server.');
   if (requireToken && !server.password) throw new Error('Save the protected Satisfactory application token before using server operations.');
-  const moduleState = runtime?.config?.moduleRuntime?.['satisfactory-server-operations'];
-  if (requireModule && moduleState && !moduleState.effectiveEnabled) throw new Error('Satisfactory Server Operations are disabled or blocked by a module dependency.');
+  if (requireModule && !satisfactoryModuleEnabledFromRuntime(runtime)) throw new Error('Satisfactory Server Operations are disabled or blocked by a module dependency.');
   return server;
 }
 
@@ -230,9 +196,8 @@ function install() {
   if (installed) return;
   installed = true;
   patchConfigStore();
-  patchAutonomyService();
-  patchSchedulerService();
   patchBrowserLoader();
+  captureClass('./services/autonomy-service.cjs', 'AutonomyService', 'autonomy');
   captureClass('./services/discord-auth.cjs', 'DiscordAuth', 'discordAuth');
   captureClass('./services/logger.cjs', 'AppLogger', 'logger');
   electron.app.whenReady().then(() => setImmediate(registerIpc));
