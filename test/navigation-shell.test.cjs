@@ -46,9 +46,9 @@ test('safe UI layer loads grouped navigation while preserving independent scroll
   assert.match(extension, /addScript\('navigation-shell\.js'\)/);
 });
 
-test('v0.22.0 is configured for the guarded Android companion and HTTPS gateway release channel', () => {
+test('v0.22.1 is configured for the local module recovery hotfix release channel', () => {
   const packageJson = JSON.parse(read('package.json'));
-  const notes = read('release-notes/v0.22.0.md');
+  const notes = read('release-notes/v0.22.1.md');
   const mobileDocs = read('docs/ANDROID_COMPANION_v0.22.0.md');
   const mobileShared = read('shared/mobile-gateway.cjs');
   const mobileService = read('main/services/mobile-gateway-service.cjs');
@@ -64,12 +64,14 @@ test('v0.22.0 is configured for the guarded Android companion and HTTPS gateway 
   const sdkDocs = read('docs/GAME_ADAPTER_SDK_v0.20.0.md');
   const registry = read('shared/module-registry.cjs');
   const foundation = read('main/module-foundation-extension.cjs');
+  const localAuthority = read('main/local-module-authority-extension.cjs');
   const runtime = read('main/module-runtime-extension.cjs');
   const botRuntime = read('bot/module-runtime.cjs');
   const workflow = read('.github/workflows/stable-release.yml');
   const ciWorkflow = read('.github/workflows/ci.yml');
 
-  assert.equal(packageJson.version, '0.22.0');
+  assert.equal(packageJson.version, '0.22.1');
+  assert.match(packageJson.description, /unconditional local-desktop module recovery controls/i);
   assert.match(packageJson.description, /native read-only Android companion/i);
   assert.match(packageJson.description, /certificate-pinned HTTPS Mobile Gateway/i);
   assert.match(packageJson.description, /P-256 signed mobile requests/i);
@@ -79,6 +81,9 @@ test('v0.22.0 is configured for the guarded Android companion and HTTPS gateway 
   assert.match(packageJson.description, /explicit capability manifests/i);
   assert.match(packageJson.description, /authoritative Owner module switches/i);
   assert.match(packageJson.description, /full production runtime audit repairs/i);
+  assert.match(localAuthority, /Discord authentication or a Discord role/);
+  assert.match(localAuthority, /get: \(\) => null/);
+  assert.match(localAuthority, /set: \(\) => \{\}/);
   assert.match(mobileShared, /verifyMobileRequestSignature/);
   assert.match(mobileShared, /issueDeviceCredential/);
   assert.match(mobileService, /class MobileGatewayService/);
@@ -122,11 +127,10 @@ test('v0.22.0 is configured for the guarded Android companion and HTTPS gateway 
   assert.equal(packageJson.build.publish[0].provider, 'github');
   assert.equal(packageJson.build.publish[0].releaseType, 'release');
   assert.equal(packageJson.build.publish[0].tagNamePrefix, 'v');
-  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.22.0.md');
-  assert.match(notes, /Native Android Companion/i);
-  assert.match(notes, /Desktop HTTPS Mobile Gateway/i);
-  assert.match(notes, /Request and Credential Security/i);
-  assert.match(notes, /existing v0\.21\.0 Rust WebRCON/i);
+  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.22.1.md');
+  assert.match(notes, /Local Module Recovery Hotfix/i);
+  assert.match(notes, /never depend on Discord ownership/i);
+  assert.match(notes, /Discord, mobile, game-server, and remote-operation permission checks remain unchanged/i);
   assert.match(workflow, /branches:\s*\n\s*- "release\/v\*"/);
   assert.match(workflow, /pull_request_target/);
   assert.match(ciWorkflow, /npm audit --omit=dev --audit-level=high/);
