@@ -25,6 +25,9 @@ if (!hasSingleInstanceLock) {
   require('./access-recovery-extension.cjs').install();
   require('./brand-update-extension.cjs').install();
 
+  // Promote the validated Android gateway before module consumers capture registry functions.
+  require('./mobile-module-registry-extension.cjs').install();
+
   // The module registry must wrap IPC and service prototypes before optional modules register handlers or start timers.
   require('./module-foundation-extension.cjs').install();
   require('./module-runtime-extension.cjs').install();
@@ -32,6 +35,7 @@ if (!hasSingleInstanceLock) {
   require('./palworld-main-extension.cjs').install();
   require('./discord-studio-extension.cjs').install();
   require('./mobile-gateway-extension.cjs').install();
+  require('./mobile-gateway-security-extension.cjs').install();
   require('./discord-automation-extension.cjs').install();
   require('./status-panels-extension.cjs').install();
   require('./server-scheduler-extension.cjs').install();
