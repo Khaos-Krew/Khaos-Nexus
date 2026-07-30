@@ -1,36 +1,37 @@
-name: v0.22.0 Lockfile Refresh
+name: v0.22.0 Lockfile Artifact
 
 on:
-  push:
-    branches: ["agent/v0.22.0-android-phase1"]
+  pull_request:
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  refresh-lockfile:
-    if: ${{ !contains(github.event.head_commit.message, '[lockfile-refresh]') }}
+  generate-lockfile:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: agent/v0.22.0-android-phase1
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - name: Refresh committed dependency graph
+      - name: Generate exact dependency lock
         run: npm install --package-lock-only --ignore-scripts
-      - name: Commit lockfile when changed
+      - name: Verify lockfile dependency roots
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet -- package-lock.json; then
-            echo "package-lock.json is already current."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package-lock.json
-          git commit -m "Refresh v0.22.0 dependency lock [lockfile-refresh]"
-          git push origin HEAD:agent/v0.22.0-android-phase1
+          test -s package-lock.json
+          node - <<'NODE'
+          const lock = require('./package-lock.json');
+          const root = lock.packages?.[''] || {};
+          for (const name of ['discord.js', 'electron-updater', 'qrcode', 'selfsigned']) {
+            if (!root.dependencies?.[name]) throw new Error(`Missing locked dependency: ${name}`);
+          }
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Khaos-Nexus-v0.22.0-package-lock
+          path: package-lock.json
+          if-no-files-found: error
+          retention-days: 7
