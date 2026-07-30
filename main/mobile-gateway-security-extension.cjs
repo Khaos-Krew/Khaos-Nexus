@@ -2,6 +2,7 @@
 
 const electron = require('electron');
 let installed = false;
+const LAST_SEEN_WRITE_INTERVAL_MS = 60 * 1000;
 
 function patchOwnerStateAccess() {
   const ipcMain = electron.ipcMain;
@@ -75,17 +76,35 @@ function patchImmediateModuleReconciliation() {
   Object.defineProperty(prototype, '__khaosMobileModuleReconcilePatched', { value: true });
 }
 
+function patchDeviceHeartbeatPersistence() {
+  const prototype = require('./services/config-store.cjs').ConfigStore?.prototype;
+  if (!prototype || prototype.__khaosMobileHeartbeatThrottlePatched || typeof prototype.touchMobileDevice !== 'function') return;
+  const originalTouch = prototype.touchMobileDevice;
+  prototype.touchMobileDevice = function throttledMobileHeartbeat(id, patch = {}) {
+    const current = this.config?.mobileGateway?.devices?.find((device) => device.id === String(id || ''));
+    const previousAt = current?.lastSeenAt ? new Date(current.lastSeenAt).getTime() : 0;
+    const nextAt = patch.lastSeenAt ? new Date(patch.lastSeenAt).getTime() : Date.now();
+    const addressChanged = Boolean(patch.lastAddress && patch.lastAddress !== current?.lastAddress);
+    if (current && !addressChanged && Number.isFinite(previousAt) && Number.isFinite(nextAt) && nextAt - previousAt < LAST_SEEN_WRITE_INTERVAL_MS) return current;
+    return originalTouch.call(this, id, patch);
+  };
+  Object.defineProperty(prototype, '__khaosMobileHeartbeatThrottlePatched', { value: true });
+}
+
 function install() {
   if (installed) return;
   installed = true;
   patchOwnerStateAccess();
   patchOneTimeCredentialDelivery();
   patchImmediateModuleReconciliation();
+  patchDeviceHeartbeatPersistence();
 }
 
 module.exports = {
   install,
   patchOwnerStateAccess,
   patchOneTimeCredentialDelivery,
-  patchImmediateModuleReconciliation
+  patchImmediateModuleReconciliation,
+  patchDeviceHeartbeatPersistence,
+  LAST_SEEN_WRITE_INTERVAL_MS
 };
