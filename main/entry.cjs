@@ -53,5 +53,7 @@ if (!hasSingleInstanceLock) {
   require('./rust-module-gate-extension.cjs').install();
   require('./satisfactory-main-extension.cjs').install();
   require('./satisfactory-module-gate-extension.cjs').install();
+  // Final shared policy supersedes game-specific health, maintenance and scheduler wrappers.
+  require('./game-adapter-runtime-extension.cjs').install();
   require('./main.cjs');
 }
