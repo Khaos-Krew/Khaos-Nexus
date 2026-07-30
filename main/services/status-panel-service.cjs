@@ -1,9 +1,10 @@
 'use strict';
 
 const { REST, Routes } = require('discord.js');
-const { isPalworldRest, isRustWebRcon } = require('../../bot/server-client.cjs');
+const { isPalworldRest, isRustWebRcon, isSatisfactoryApi } = require('../../bot/server-client.cjs');
 const { createCurrentServerAdapter } = require('../../bot/game-adapters/current-server-adapter.cjs');
 const { executeAdapterOperation } = require('../../shared/game-adapter-sdk.cjs');
+const { moduleForServer, connectionLabel: policyConnectionLabel } = require('../../shared/game-module-policy.cjs');
 const {
   normalizeStatusPanel,
   normalizeStatusSnapshot,
@@ -37,17 +38,14 @@ function parseRconPlayers(value) {
 }
 
 function requiredGameModule(server = {}) {
-  const game = String(server.game || '').toLowerCase();
-  if (game === 'rust') return 'rust-server-operations';
-  if (game === 'palworld') return 'palworld-operations';
-  if (game === 'ark') return 'ark-server-operations';
-  return null;
+  return moduleForServer(server);
 }
 
 function connectionLabel(server = {}) {
-  if (isRustWebRcon(server)) return 'Rust WebRCON';
   if (isPalworldRest(server)) return 'Palworld REST';
-  return `${String(server.game || 'generic').toUpperCase()} RCON`;
+  if (isRustWebRcon(server)) return 'Rust WebRCON';
+  if (isSatisfactoryApi(server)) return 'Satisfactory HTTPS API';
+  return policyConnectionLabel(server);
 }
 
 class StatusPanelService {
@@ -88,7 +86,7 @@ class StatusPanelService {
     if (moduleId && bootstrap.config.moduleRuntime?.[moduleId]?.effectiveEnabled === false) {
       throw new Error(`${connectionLabel(server)} operations are disabled by the Khaos Nexus owner.`);
     }
-    if (!server.password) throw new Error('The selected server is missing its protected AdminPassword or RCON password.');
+    if (!server.password) throw new Error('The selected server is missing its protected AdminPassword, application token, or RCON password.');
     return server;
   }
 
@@ -108,11 +106,44 @@ class StatusPanelService {
     }
   }
 
+  async snapshotSatisfactory(server, adapter, context) {
+    try {
+      const status = (await executeAdapterOperation(adapter, 'status', {}, context)).data || {};
+      const loading = String(status.state || '').toLowerCase() === 'loading';
+      return normalizeStatusSnapshot({
+        status: loading ? 'degraded' : 'online',
+        serverName: status.serverName || server.name,
+        game: 'satisfactory',
+        connectionLabel: 'Satisfactory HTTPS API',
+        version: status.serverNetCl ? `CL ${status.serverNetCl}` : '',
+        players: Number(status.players || 0),
+        maxPlayers: Number(status.maxPlayers || 0),
+        map: status.sessionName || status.gamePhase || status.state,
+        playerNames: [],
+        checkedAt: this.now().toISOString(),
+        error: loading ? 'The server is loading a save or changing maps; HTTPS operations are temporarily unavailable.' : ''
+      });
+    } catch {
+      return normalizeStatusSnapshot({
+        status: 'offline',
+        serverName: server.name,
+        game: 'satisfactory',
+        connectionLabel: 'Satisfactory HTTPS API',
+        checkedAt: this.now().toISOString(),
+        error: 'The Satisfactory HTTPS and lightweight query APIs did not respond.'
+      });
+    }
+  }
+
   async snapshot(panelInput) {
     const panel = normalizeStatusPanel(panelInput);
     const server = this.server(panel.serverId);
     const adapter = this.adapterFactory(server);
     const context = { role: 'viewer', explicitSecrets: [server.password] };
+
+    // QueryServerState already contains Satisfactory player counts. Avoid a redundant second API call.
+    if (isSatisfactoryApi(server)) return this.snapshotSatisfactory(server, adapter, context);
+
     let statusResult = null;
     let playerResult = null;
     let statusError = null;
