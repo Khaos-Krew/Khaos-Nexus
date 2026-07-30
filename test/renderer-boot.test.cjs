@@ -61,7 +61,7 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.21.0 retains startup, Owner modules and transport-neutral adapters while adding audited Rust services', () => {
+test('v0.22.0 retains startup, Owner modules and transport-neutral adapters while adding the audited Android gateway', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
   const health = read('main/startup-health-extension.cjs');
@@ -83,8 +83,11 @@ test('v0.21.0 retains startup, Owner modules and transport-neutral adapters whil
   const palworld = read('main/palworld-main-extension.cjs');
   const rust = read('main/rust-main-extension.cjs');
   const rustGate = read('main/rust-module-gate-extension.cjs');
+  const mobile = read('main/services/mobile-gateway-service.cjs');
+  const mobileSecurity = read('main/mobile-gateway-security-extension.cjs');
 
-  assert.equal(packageJson.version, '0.21.0');
+  assert.equal(packageJson.version, '0.22.0');
+  assert.match(packageJson.description, /native read-only Android companion/i);
   assert.match(packageJson.description, /dedicated Rust WebRCON operations/i);
   assert.match(packageJson.description, /typed Game Adapter SDK/i);
   assert.match(packageJson.description, /authoritative Owner module switches/i);
@@ -102,10 +105,14 @@ test('v0.21.0 retains startup, Owner modules and transport-neutral adapters whil
   assert.match(entry, /startup-preload-diagnostics-extension\.cjs/);
   assert.match(entry, /interface-watchdog-extension\.cjs/);
   assert.match(entry, /renderer-unresponsive-extension\.cjs/);
+  assert.match(entry, /mobile-module-registry-extension\.cjs/);
+  assert.match(entry, /mobile-gateway-security-extension\.cjs/);
   assert.match(entry, /module-foundation-extension\.cjs/);
   assert.match(entry, /module-runtime-extension\.cjs/);
+  assert.ok(entry.indexOf('mobile-module-registry-extension.cjs') < entry.indexOf('module-foundation-extension.cjs'));
   assert.ok(entry.indexOf('module-runtime-extension.cjs') < entry.indexOf('discord-studio-extension.cjs'));
   assert.ok(entry.indexOf('module-runtime-extension.cjs') < entry.indexOf('server-scheduler-extension.cjs'));
+  assert.ok(entry.indexOf('mobile-gateway-extension.cjs') < entry.indexOf('mobile-gateway-security-extension.cjs'));
   assert.match(entry, /audit-repair-extension\.cjs/);
   assert.match(entry, /rust-main-extension\.cjs/);
   assert.match(entry, /rust-module-gate-extension\.cjs/);
@@ -126,6 +133,9 @@ test('v0.21.0 retains startup, Owner modules and transport-neutral adapters whil
   assert.match(rust, /class RustAutonomyService extends Original/);
   assert.match(rust, /filterRustWhenDisabled/);
   assert.match(rustGate, /assertModule\('operator-console'/);
+  assert.match(mobile, /class MobileGatewayService/);
+  assert.match(mobile, /TLSv1\.2/);
+  assert.match(mobileSecurity, /LAST_SEEN_WRITE_INTERVAL_MS/);
   assert.match(audit, /Bot runtime could not be spawned/);
   assert.match(audit, /reconcileInterruptedRuns/);
   assert.match(audit, /retryable|status: 'downloaded'/i);
