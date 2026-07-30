@@ -1,0 +1,46 @@
+name: Android Owner Test
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main, "agent/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK 37
+        run: sdkmanager "platforms;android-37" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.5.0"
+      - name: Unit tests and lint
+        run: gradle --project-dir android testDebugUnitTest lintDebug --stacktrace
+      - name: Build signed Owner-test APK
+        run: gradle --project-dir android assembleRelease --stacktrace
+      - name: Verify APK signature and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p android/dist
+          apk="android/app/build/outputs/apk/release/app-release.apk"
+          test -s "$apk"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk"
+          cp "$apk" android/dist/Khaos-Nexus-Mobile-0.22.0-owner-test.apk
+          sha256sum android/dist/Khaos-Nexus-Mobile-0.22.0-owner-test.apk | tee android/dist/Khaos-Nexus-Mobile-0.22.0-owner-test.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Khaos-Nexus-Mobile-Android
+          path: android/dist/*
+          if-no-files-found: error
+          retention-days: 90
