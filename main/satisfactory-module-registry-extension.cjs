@@ -33,10 +33,14 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function sortModules(items) {
+  return items.sort((left, right) => Number(left.priority || 999) - Number(right.priority || 999));
+}
+
 function appendModule(items) {
   const list = Array.isArray(items) ? items.map(clone) : [];
   if (!list.some((item) => item.id === MODULE_ID)) list.push(clone(MODULE));
-  return list.sort((left, right) => Number(left.priority || 999) - Number(right.priority || 999));
+  return sortModules(list);
 }
 
 function defaultState(registry) {
@@ -82,9 +86,9 @@ function install() {
 
   registry.catalog = (...args) => appendModule(originalCatalog(...args));
   registry.catalogForRole = (role = 'local-admin') => {
-    const list = originalCatalogForRole(role);
-    if (registry.moduleVisibleForRole(MODULE, role)) list.push(clone(MODULE));
-    return appendModule(list);
+    const list = originalCatalogForRole(role).map(clone);
+    if (registry.moduleVisibleForRole(MODULE, role) && !list.some((item) => item.id === MODULE_ID)) list.push(clone(MODULE));
+    return sortModules(list);
   };
   registry.getModule = (id) => String(id) === MODULE_ID ? clone(MODULE) : originalGetModule(id);
 
@@ -122,7 +126,9 @@ function install() {
 
   registry.moduleDecisionForChannel = (channel, args = [], configStore = null) => {
     const name = String(channel || '');
-    if (name === 'server:satisfactory-action' || name === 'server:satisfactory-trust-certificate') return { allOf: [MODULE_ID] };
+    // Certificate trust is a local repair/configuration action and remains available while the module is disabled.
+    if (name === 'server:satisfactory-trust-certificate') return null;
+    if (name === 'server:satisfactory-action') return { allOf: [MODULE_ID] };
     if (name === 'server:test') {
       let server = null;
       try { server = configStore?.getConfig?.().servers?.find((item) => String(item.id) === String(args?.[0])); } catch {}
