@@ -1,26 +1,28 @@
-name: v0.22.0 Lockfile Artifact
+name: v0.22.0 Lockfile Commit
 
 on:
   pull_request:
-  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  generate-lockfile:
+  commit-lockfile:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Generate exact dependency lock
-        run: npm install --package-lock-only --ignore-scripts
-      - name: Verify lockfile dependency roots
+      - name: Generate and verify exact dependency lock
         shell: bash
         run: |
           set -euo pipefail
+          npm install --package-lock-only --ignore-scripts
           test -s package-lock.json
           node - <<'NODE'
           const lock = require('./package-lock.json');
@@ -29,9 +31,17 @@ jobs:
             if (!root.dependencies?.[name]) throw new Error(`Missing locked dependency: ${name}`);
           }
           NODE
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Khaos-Nexus-v0.22.0-package-lock
-          path: package-lock.json
-          if-no-files-found: error
-          retention-days: 7
+      - name: Commit package-lock.json only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git reset
+          git add package-lock.json
+          if git diff --cached --quiet; then
+            echo "package-lock.json is already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Commit v0.22.0 dependency lock [skip ci]"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
