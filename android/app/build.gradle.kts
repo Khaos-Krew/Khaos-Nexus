@@ -12,7 +12,7 @@ val releaseKeyPassword = providers.environmentVariable("KHAOS_ANDROID_KEY_PASSWO
 
 android {
     namespace = "com.khaosnexus.mobile"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.khaosnexus.mobile"
