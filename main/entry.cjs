@@ -30,6 +30,8 @@ if (!hasSingleInstanceLock) {
 
   // The module registry must wrap IPC and service prototypes before optional modules register handlers or start timers.
   require('./module-foundation-extension.cjs').install();
+  // Local module recovery belongs to the desktop installation and must never depend on Discord ownership.
+  require('./local-module-authority-extension.cjs').install();
   require('./module-runtime-extension.cjs').install();
 
   require('./palworld-main-extension.cjs').install();
