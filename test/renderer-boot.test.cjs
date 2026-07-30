@@ -61,7 +61,7 @@ test('software compatibility mode skips the expensive global brand renderer', ()
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.22.0 retains startup, Owner modules and transport-neutral adapters while adding the audited Android gateway', () => {
+test('v0.22.1 retains startup, adapters and Android while guaranteeing local module recovery', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
   const health = read('main/startup-health-extension.cjs');
@@ -77,6 +77,7 @@ test('v0.22.0 retains startup, Owner modules and transport-neutral adapters whil
   const unresponsive = read('main/renderer-unresponsive-extension.cjs');
   const audit = read('main/audit-repair-extension.cjs');
   const moduleFoundation = read('main/module-foundation-extension.cjs');
+  const localAuthority = read('main/local-module-authority-extension.cjs');
   const moduleRuntime = read('main/module-runtime-extension.cjs');
   const adapterSdk = read('shared/game-adapter-sdk.cjs');
   const statusPanels = read('main/services/status-panel-service.cjs');
@@ -86,7 +87,8 @@ test('v0.22.0 retains startup, Owner modules and transport-neutral adapters whil
   const mobile = read('main/services/mobile-gateway-service.cjs');
   const mobileSecurity = read('main/mobile-gateway-security-extension.cjs');
 
-  assert.equal(packageJson.version, '0.22.0');
+  assert.equal(packageJson.version, '0.22.1');
+  assert.match(packageJson.description, /unconditional local-desktop module recovery controls/i);
   assert.match(packageJson.description, /native read-only Android companion/i);
   assert.match(packageJson.description, /dedicated Rust WebRCON operations/i);
   assert.match(packageJson.description, /typed Game Adapter SDK/i);
@@ -108,8 +110,11 @@ test('v0.22.0 retains startup, Owner modules and transport-neutral adapters whil
   assert.match(entry, /mobile-module-registry-extension\.cjs/);
   assert.match(entry, /mobile-gateway-security-extension\.cjs/);
   assert.match(entry, /module-foundation-extension\.cjs/);
+  assert.match(entry, /local-module-authority-extension\.cjs/);
   assert.match(entry, /module-runtime-extension\.cjs/);
   assert.ok(entry.indexOf('mobile-module-registry-extension.cjs') < entry.indexOf('module-foundation-extension.cjs'));
+  assert.ok(entry.indexOf('module-foundation-extension.cjs') < entry.indexOf('local-module-authority-extension.cjs'));
+  assert.ok(entry.indexOf('local-module-authority-extension.cjs') < entry.indexOf('module-runtime-extension.cjs'));
   assert.ok(entry.indexOf('module-runtime-extension.cjs') < entry.indexOf('discord-studio-extension.cjs'));
   assert.ok(entry.indexOf('module-runtime-extension.cjs') < entry.indexOf('server-scheduler-extension.cjs'));
   assert.ok(entry.indexOf('mobile-gateway-extension.cjs') < entry.indexOf('mobile-gateway-security-extension.cjs'));
@@ -120,6 +125,9 @@ test('v0.22.0 retains startup, Owner modules and transport-neutral adapters whil
   assert.ok(entry.indexOf('rust-main-extension.cjs') < entry.indexOf('rust-module-gate-extension.cjs'));
   assert.ok(entry.indexOf('rust-module-gate-extension.cjs') < entry.indexOf("require('./main.cjs')"));
   assert.doesNotMatch(entry, /startup-release-fallback-extension\.cjs/);
+  assert.match(localAuthority, /for \(const key of \['autonomy', 'discordAuth'\]\)/);
+  assert.match(localAuthority, /get: \(\) => null/);
+  assert.match(localAuthority, /set: \(\) => \{\}/);
   assert.match(moduleFoundation, /moduleOverrides/);
   assert.match(moduleFoundation, /modules:bulk-update/);
   assert.match(moduleRuntime, /patchIpcHandlers/);
