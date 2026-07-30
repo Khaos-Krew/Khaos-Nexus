@@ -1,7 +1,7 @@
 'use strict';
 
 const { BaseGameAdapter, normalizeCapabilityManifest } = require('../../shared/game-adapter-sdk.cjs');
-const { ServerConnection, isPalworldRest, isRustWebRcon } = require('../server-client.cjs');
+const { ServerConnection, isPalworldRest, isRustWebRcon, isSatisfactoryApi } = require('../server-client.cjs');
 
 function cleanText(value, max = 100, fallback = '') {
   const text = String(value ?? '').replace(/\u0000/g, '').trim();
@@ -17,6 +17,7 @@ function capabilityMapForServer(server = {}) {
   const game = slug(server.game);
   const rest = isPalworldRest(server);
   const rust = isRustWebRcon(server);
+  const satisfactory = isSatisfactoryApi(server);
   if (rust) {
     return {
       status: true,
@@ -29,6 +30,26 @@ function capabilityMapForServer(server = {}) {
       unban: true,
       shutdown: true,
       stop: true,
+      raw: true
+    };
+  }
+  if (satisfactory) {
+    return {
+      status: true,
+      health: true,
+      info: true,
+      players: true,
+      settings: true,
+      saves: {
+        supported: true,
+        requiredRole: 'viewer',
+        destructive: false,
+        timeoutMs: 30000,
+        description: 'Enumerate Satisfactory sessions and save files without creating or modifying a save.'
+      },
+      save: true,
+      shutdown: { supported: true, timeoutMs: 120000 },
+      stop: { supported: true, timeoutMs: 60000 },
       raw: true
     };
   }
@@ -59,9 +80,10 @@ function manifestForServer(server = {}) {
   const game = slug(server.game);
   const rest = isPalworldRest(server);
   const rust = isRustWebRcon(server);
+  const satisfactory = isSatisfactoryApi(server);
   const id = slug(server.id, 'configured');
-  const transport = rust ? 'rust-webrcon' : rest ? 'palworld-rest' : `${game}-rcon`;
-  const label = rust ? 'WebRCON' : rest ? 'REST' : 'RCON';
+  const transport = rust ? 'rust-webrcon' : satisfactory ? 'satisfactory-https' : rest ? 'palworld-rest' : `${game}-rcon`;
+  const label = rust ? 'WebRCON' : satisfactory ? 'HTTPS API' : rest ? 'REST' : 'RCON';
   return normalizeCapabilityManifest({
     adapterId: `current-${game}-${id}`.slice(0, 80),
     gameId: game,
@@ -70,8 +92,10 @@ function manifestForServer(server = {}) {
     adapterVersion: '1.0.0',
     capabilities: capabilityMapForServer(server),
     metadata: {
-      connectionType: rust ? 'webrcon' : rest ? 'rest' : 'rcon',
-      secureTransport: rust ? String(server.protocol || 'ws').toLowerCase() === 'wss' : rest ? String(server.protocol || 'http').toLowerCase() === 'https' : false,
+      connectionType: rust ? 'webrcon' : satisfactory ? 'https-api' : rest ? 'rest' : 'rcon',
+      secureTransport: satisfactory || (rust ? String(server.protocol || 'ws').toLowerCase() === 'wss' : rest ? String(server.protocol || 'http').toLowerCase() === 'https' : false),
+      certificatePinned: satisfactory ? Boolean(server.tlsFingerprint) : undefined,
+      lightweightQuery: satisfactory ? true : undefined,
       serverId: cleanText(server.id, 100),
       configuredHost: Boolean(server.host),
       configuredPort: Boolean(server.port)

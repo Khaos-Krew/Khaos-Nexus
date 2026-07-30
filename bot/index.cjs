@@ -8,9 +8,14 @@ const {
   Routes
 } = require('discord.js');
 const { createCommands, isAdministrator, requiresAdministrator, COMMAND_MODULES } = require('./commands.cjs');
-const { isPalworldRest, isRustWebRcon } = require('./server-client.cjs');
 const { createCurrentServerAdapter, capabilityMapForServer } = require('./game-adapters/current-server-adapter.cjs');
 const { executeAdapterOperation } = require('../shared/game-adapter-sdk.cjs');
+const {
+  moduleForServer,
+  moduleName: gameModuleName,
+  serverModuleEnabled,
+  connectionLabel: gameConnectionLabel
+} = require('../shared/game-module-policy.cjs');
 const { redactText, errorFingerprint } = require('../shared/redaction.cjs');
 
 const parent = process.parentPort;
@@ -54,13 +59,9 @@ function isModuleEnabled(id) {
 function moduleName(id) {
   const names = {
     'discord-runtime': 'Discord Runtime',
-    'game-server-control': 'Game Server Control',
-    'palworld-operations': 'Palworld Operations',
-    'ark-server-operations': 'ARK Server Operations',
-    'rust-server-operations': 'Rust Server Operations',
-    'other-game-operations': 'Additional Game Operations'
+    'game-server-control': 'Game Server Control'
   };
-  return names[id] || id;
+  return names[id] || gameModuleName(id);
 }
 
 function moduleDisabledError(id) {
@@ -78,21 +79,15 @@ function assertModule(id) {
 }
 
 function serverModuleId(server) {
-  const game = String(server?.game || 'generic').toLowerCase();
-  if (game === 'palworld') return 'palworld-operations';
-  if (game === 'ark') return 'ark-server-operations';
-  if (game === 'rust') return 'rust-server-operations';
-  return 'other-game-operations';
+  return moduleForServer(server);
 }
 
 function serverAvailable(server) {
-  return isModuleEnabled('game-server-control') && isModuleEnabled(serverModuleId(server));
+  return serverModuleEnabled(bootstrap, server);
 }
 
 function connectionLabel(server) {
-  if (isPalworldRest(server)) return 'Palworld REST';
-  if (isRustWebRcon(server)) return `Rust ${String(server.protocol || 'ws').toUpperCase()} WebRCON`;
-  return 'RCON';
+  return gameConnectionLabel(server);
 }
 
 function getServer(name) {
@@ -116,7 +111,12 @@ function formatDuration(seconds) {
 
 function publicPlayers(payload) {
   const players = Array.isArray(payload?.players) ? payload.players : [];
-  if (!players.length) return 'No players are currently connected.';
+  if (!players.length) {
+    const count = Number(payload?.count);
+    return Number.isFinite(count) && count > 0
+      ? `${count} player(s) are connected, but this server API does not expose player names.`
+      : 'No players are currently connected.';
+  }
   return players.map((player) => {
     const parts = [
       player.name || player.accountName || player.DisplayName || 'Unknown',
@@ -141,6 +141,18 @@ function formatResult(action, result) {
       `Uptime: ${formatDuration(metrics.uptime)}`,
       `World day: ${metrics.days ?? '?'}`
     ].join('\n');
+  }
+  if (action === 'status' && result?.state) {
+    return [
+      `Name: ${result.serverName || result.sessionName || 'Satisfactory server'}`,
+      `State: ${result.state}`,
+      result.sessionName ? `Session: ${result.sessionName}` : null,
+      `Players: ${result.players ?? '?'} / ${result.maxPlayers ?? '?'}`,
+      `HTTPS API: ${result.apiAvailable === false ? 'temporarily unavailable while loading' : 'available'}`,
+      result.serverNetCl ? `Server CL: ${result.serverNetCl}` : null,
+      result.gamePhase ? `Game phase: ${result.gamePhase}` : null,
+      result.modded ? 'Modded: yes' : null
+    ].filter(Boolean).join('\n');
   }
   if (action === 'status' && result?.serverName) {
     return [
@@ -225,7 +237,7 @@ async function executeServerAction(interaction, command) {
   }
   assertModule(serverModuleId(server));
   if (!server.password) {
-    await interaction.reply({ content: 'That server is missing its protected AdminPassword or RCON password.', ephemeral: true });
+    await interaction.reply({ content: 'That server is missing its protected AdminPassword, application token, or RCON password.', ephemeral: true });
     return;
   }
   if (command === 'forcestop' && !interaction.options.getBoolean('confirm')) {

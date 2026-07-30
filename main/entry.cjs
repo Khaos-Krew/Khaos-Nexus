@@ -25,7 +25,7 @@ if (!hasSingleInstanceLock) {
   require('./access-recovery-extension.cjs').install();
   require('./brand-update-extension.cjs').install();
 
-  // Promote the validated Android gateway before module consumers capture registry functions.
+  // Promote validated extension-backed modules before module consumers capture registry functions.
   require('./mobile-module-registry-extension.cjs').install();
 
   // The module registry must wrap IPC and service prototypes before optional modules register handlers or start timers.
@@ -50,5 +50,9 @@ if (!hasSingleInstanceLock) {
   // Game adapters that extend audited service classes install after the common audit repairs.
   require('./rust-main-extension.cjs').install();
   require('./rust-module-gate-extension.cjs').install();
+  require('./satisfactory-main-extension.cjs').install();
+  require('./satisfactory-module-gate-extension.cjs').install();
+  // Final shared policy supersedes game-specific health, maintenance and scheduler wrappers.
+  require('./game-adapter-runtime-extension.cjs').install();
   require('./main.cjs');
 }

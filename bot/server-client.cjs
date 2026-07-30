@@ -3,6 +3,7 @@
 const { SourceRcon } = require('./rcon.cjs');
 const { PalworldRestClient, normalizeServerAddress, summarizeGameData } = require('./palworld-rest.cjs');
 const { RustWebRconClient } = require('./rust-webrcon.cjs');
+const { SatisfactoryApiClient } = require('./satisfactory-api.cjs');
 
 function isPalworldRest(server = {}) {
   return String(server.game || '').toLowerCase() === 'palworld' && String(server.connectionType || 'rest').toLowerCase() !== 'rcon';
@@ -10,6 +11,10 @@ function isPalworldRest(server = {}) {
 
 function isRustWebRcon(server = {}) {
   return String(server.game || '').toLowerCase() === 'rust';
+}
+
+function isSatisfactoryApi(server = {}) {
+  return String(server.game || '').toLowerCase() === 'satisfactory';
 }
 
 function legacyCommand(server, action, value = '') {
@@ -37,7 +42,12 @@ function legacyCommand(server, action, value = '') {
 
 function formatPlayers(payload) {
   const players = Array.isArray(payload?.players) ? payload.players : [];
-  if (!players.length) return 'No players are currently connected.';
+  if (!players.length) {
+    const count = Number(payload?.count);
+    return Number.isFinite(count) && count > 0
+      ? `${count} player(s) are connected, but this server API does not expose player names.`
+      : 'No players are currently connected.';
+  }
   return players.map((player) => {
     const name = player.name || player.accountName || player.DisplayName || 'Unknown';
     const id = player.userId || player.playerId || player.identifier || player.steamId || player.SteamID || 'no id';
@@ -52,7 +62,8 @@ class ServerConnection {
     this.server = isPalworldRest(server) ? normalizeServerAddress(server) : { ...server };
     this.rest = isPalworldRest(server) ? new PalworldRestClient({ ...this.server, password: server.password }, options.palworld || options) : null;
     this.rust = isRustWebRcon(server) ? new RustWebRconClient({ ...server, password: server.password }, options.rust || options) : null;
-    this.rcon = this.rest || this.rust ? null : new SourceRcon(server);
+    this.satisfactory = isSatisfactoryApi(server) ? new SatisfactoryApiClient({ ...server, password: server.password }, options.satisfactory || options) : null;
+    this.rcon = this.rest || this.rust || this.satisfactory ? null : new SourceRcon(server);
   }
 
   async resolveUserId(identifier) {
@@ -67,6 +78,7 @@ class ServerConnection {
 
   async action(action, payload = {}, options = {}) {
     if (this.rust) return this.rust.action(action, payload, { signal: options.signal });
+    if (this.satisfactory) return this.satisfactory.action(action, payload, { signal: options.signal });
 
     if (this.rest) {
       switch (action) {
@@ -90,7 +102,7 @@ class ServerConnection {
     }
 
     if (['settings', 'metrics', 'game-data', 'game-data-summary'].includes(action)) {
-      throw new Error(`${action} is only available for Palworld REST connections.`);
+      throw new Error(`${action} is only available for typed REST/API connections.`);
     }
     if (action === 'raw') return this.rcon.execute(String(payload.command || ''));
     const value = action === 'announce' ? payload.message
@@ -112,6 +124,14 @@ class ServerConnection {
       if (announce) return this.rust.action('announce', { message: announce[1] });
       return this.rust.execute(text);
     }
+    if (this.satisfactory) {
+      const text = String(command || '').trim();
+      if (/^(status|serverinfo)$/i.test(text)) return JSON.stringify(await this.satisfactory.action('status'), null, 2);
+      if (/^(list|players|playerlist)$/i.test(text)) return formatPlayers(await this.satisfactory.action('players'));
+      if (/^(save|save-all)$/i.test(text)) return this.satisfactory.action('save');
+      if (/^(shutdown|stop|quit)$/i.test(text)) return this.satisfactory.action('shutdown', { saveFirst: true });
+      return this.satisfactory.action('raw', { command: text });
+    }
     if (!this.rest) return this.rcon.execute(command);
     const text = String(command || '').trim();
     if (/^Info$/i.test(text)) return JSON.stringify(await this.rest.info(), null, 2);
@@ -132,4 +152,4 @@ class ServerConnection {
   }
 }
 
-module.exports = { ServerConnection, isPalworldRest, isRustWebRcon, legacyCommand, formatPlayers };
+module.exports = { ServerConnection, isPalworldRest, isRustWebRcon, isSatisfactoryApi, legacyCommand, formatPlayers };
