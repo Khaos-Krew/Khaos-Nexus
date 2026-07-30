@@ -1,6 +1,7 @@
 'use strict';
 
 const base = require('./module-catalog.cjs');
+const { moduleForServer } = require('./game-module-policy.cjs');
 
 const IMPLEMENTED_PATCHES = Object.freeze({
   'operator-console': {
@@ -57,6 +58,13 @@ const ADDITIONAL_MODULES = Object.freeze([
     description: 'Vanilla-safe Rust WebRCON status, players, saves, announcements, moderation, guarded console access and Discord status panels.',
     features: ['WebRCON status', 'JSON player list', 'World save', 'Announcements', 'Kick, ban and unban', 'Owner raw console', 'Confirmed shutdown', 'Discord status panels'],
     sourceRoutes: ['/rust', '/servers/rust'], dependencies: ['game-server-control']
+  },
+  {
+    id: 'satisfactory-server-operations', name: 'Satisfactory Server Operations', category: 'Server Operations', workspace: 'Operations',
+    stage: 'live', availability: 'implemented', priority: 16, launchView: 'servers', requiredRole: 'viewer',
+    description: 'Official Satisfactory HTTPS API and lightweight UDP query status, saves, server options, console access, shutdown and Discord status panels.',
+    features: ['HTTPS API health and state', 'Lightweight loading-state query', 'TLS certificate pinning', 'Application token authentication', 'Connected player counts', 'Server options', 'Save enumeration and world saves', 'Owner console commands', 'Save-first shutdown', 'Discord status panels'],
+    sourceRoutes: ['/satisfactory', '/servers/satisfactory'], dependencies: ['game-server-control']
   },
   {
     id: 'discord-observability', name: 'Discord Observability', category: 'Discord Automation', workspace: 'Discord',
@@ -232,13 +240,15 @@ function moduleDecisionForChannel(channel, args = [], configStore = null) {
   if (!name || name.startsWith('modules:') || name.startsWith('startup-health:') || name.startsWith('stability:')) return null;
   // Desktop Discord OAuth remains available so an access-controlled Owner can always sign in and re-enable Discord Runtime.
   if (name.startsWith('discord-auth:')) return null;
+  // Satisfactory certificate trust is a local repair/configuration action and remains available while its operations module is disabled.
+  if (name === 'server:satisfactory-trust-certificate') return null;
   if (name.startsWith('bot:') || ['config:save-discord', 'secret:set-discord-token'].includes(name)) return { allOf: ['discord-runtime'] };
   if (name === 'server:palworld-action') return { allOf: ['palworld-operations'] };
   if (name === 'server:rust-action') return { allOf: ['rust-server-operations'] };
+  if (name === 'server:satisfactory-action') return { allOf: ['satisfactory-server-operations'] };
   if (name === 'server:test') {
     const server = configuredServer(configStore, args?.[0]);
-    if (String(server?.game || '').toLowerCase() === 'rust') return { allOf: ['game-server-control', 'rust-server-operations'] };
-    if (String(server?.game || '').toLowerCase() === 'palworld') return { allOf: ['game-server-control', 'palworld-operations'] };
+    if (server) return { allOf: ['game-server-control', moduleForServer(server)] };
   }
   if (name.startsWith('server:')) return { allOf: ['game-server-control'] };
   if (name.startsWith('autonomy:')) return { allOf: ['operator-console'] };
