@@ -40,7 +40,6 @@ if (!hasSingleInstanceLock) {
   require('./mobile-gateway-extension.cjs').install();
   require('./mobile-gateway-security-extension.cjs').install();
   require('./discord-automation-extension.cjs').install();
-  require('./satisfactory-status-panel-extension.cjs').install();
   require('./status-panels-extension.cjs').install();
   require('./server-scheduler-extension.cjs').install();
   require('./player-console-extension.cjs').install();
