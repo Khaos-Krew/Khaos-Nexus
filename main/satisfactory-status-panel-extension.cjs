@@ -18,7 +18,6 @@ function install() {
       if (String(server.game || '').toLowerCase() === 'satisfactory') {
         const runtime = this.bootstrap().config.moduleRuntime?.['satisfactory-server-operations'];
         if (runtime && !runtime.effectiveEnabled) throw new Error('Satisfactory HTTPS API operations are disabled by the Khaos Nexus owner.');
-        if (!server.tlsFingerprint) throw new Error('Trust the Satisfactory server TLS certificate before publishing its status panel.');
       }
       return server;
     }
