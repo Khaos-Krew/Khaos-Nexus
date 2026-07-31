@@ -2,7 +2,13 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { selectableCampaignIds, validateCampaignUse } = require('../bot/dnd-runtime-policy.cjs');
+const { PermissionFlagsBits } = require('discord.js');
+const {
+  selectableCampaignIds,
+  validateCampaignUse,
+  hasSafeDmPermissions,
+  preflightBlindRoll
+} = require('../bot/dnd-runtime-policy.cjs');
 
 const bindings = [
   { campaignId: 'exact-a', appId: 'app', guildId: 'guild', resourceType: 'thread', resourceId: 'thread', active: true },
@@ -55,4 +61,54 @@ test('/campaign use accepts a campaign explicitly bound to the current resource'
     getBootstrap: () => ({ config: { discordApp: { id: 'app' }, dnd: { bindings } } })
   };
   assert.doesNotThrow(() => validateCampaignUse(interaction, runtime));
+});
+
+test('safe DM permission preflight requires view and the correct send permission', () => {
+  const clientUser = { id: 'bot' };
+  const channel = {
+    isTextBased: () => true,
+    isThread: () => false,
+    permissionsFor: () => ({
+      has: (permission) => permission === PermissionFlagsBits.ViewChannel || permission === PermissionFlagsBits.SendMessages
+    })
+  };
+  assert.equal(hasSafeDmPermissions(channel, clientUser), true);
+  const unsafe = { ...channel, permissionsFor: () => ({ has: (permission) => permission === PermissionFlagsBits.ViewChannel }) };
+  assert.equal(hasSafeDmPermissions(unsafe, clientUser), false);
+});
+
+test('blind roll permission preflight rejects before the roll runtime when DM delivery is unsafe', async () => {
+  const guildId = '100000000000000001';
+  const channelId = '100000000000000002';
+  const dmChannelId = '100000000000000003';
+  const state = {
+    campaigns: [{ id: 'campaign' }],
+    contexts: [],
+    bindings: [
+      { campaignId: 'campaign', appId: 'app', guildId, resourceType: 'channel', resourceId: channelId, purpose: 'main', active: true },
+      { campaignId: 'campaign', appId: 'app', guildId, resourceType: 'channel', resourceId: dmChannelId, purpose: 'dm_private', active: true }
+    ]
+  };
+  const interaction = {
+    commandName: 'roll',
+    guildId,
+    channelId,
+    channel: {},
+    isChatInputCommand: () => true,
+    options: { getString: (name) => name === 'privacy' ? 'blind' : 'd20' }
+  };
+  const runtime = {
+    getBootstrap: () => ({ config: { discordApp: { id: 'app' }, dnd: state } }),
+    client: {
+      user: { id: 'bot' },
+      channels: {
+        fetch: async () => ({
+          isTextBased: () => true,
+          isThread: () => false,
+          permissionsFor: () => ({ has: (permission) => permission === PermissionFlagsBits.ViewChannel })
+        })
+      }
+    }
+  };
+  await assert.rejects(() => preflightBlindRoll(interaction, runtime), (error) => error.code === 'UNSAFE_DM_ROLL_DESTINATION');
 });
