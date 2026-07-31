@@ -1,5 +1,5 @@
 version: 1
-register_revision: R3
+register_revision: R4
 repository: Khaos-Krew/Khaos-Nexus
 rules:
   existing_application: true
