@@ -1,5 +1,5 @@
-version: 1
-register_revision: R4
+version: 2
+register_revision: R5
 repository: Khaos-Krew/Khaos-Nexus
 rules:
   existing_application: true
@@ -12,12 +12,88 @@ rules:
   secondary_handoffs_only_when_action_required: true
   update_existing_issue_before_creating_duplicate: true
   main_is_not_automatically_application_baseline: true
+  assistant_led_development: true
+  owner_limited_participation: true
+  exhaust_automated_validation_before_owner: true
+  owner_questions_only_when_unresolvable_elsewhere: true
+  owner_physical_or_private_execution_only: true
+  approved_test_distribution_required: true
+  owner_final_product_and_release_approval: true
+  owner_not_assigned_engineering_or_repository_work: true
 
 sources_of_truth:
   code: Khaos-Krew/Khaos-Nexus
   decisions: https://docs.google.com/document/d/14lSPuROBAEa8YLe_gPTyyxIiILVik-a0NT_hUkPcYog
   work: github_issues
   implementation: linked_pull_request
+
+responsibility_model:
+  production_agents:
+    own:
+      - repository inspection and current-behavior analysis
+      - architecture and implementation planning
+      - development, refactoring, and defect repair
+      - automated, integration, packaging, artifact, signature, and checksum validation
+      - diagnostics, security review, and evidence interpretation
+      - GitHub coordination, issue routing, branch and pull-request management
+      - release preparation and test-candidate publication requests
+      - conversion of Owner observations into structured evidence and follow-up work
+    must_not_delegate_to_owner:
+      - code edits or local builds
+      - branch, pull-request, merge-conflict, or repository administration
+      - CI or diagnostics interpretation
+      - release assembly or artifact selection
+      - defect ownership or routing decisions
+  owner:
+    retains:
+      - final product authority
+      - final release approval
+      - private credential and environment control
+      - approval of destructive operations
+    participation_limited_to:
+      - focused questions that cannot be answered from existing evidence
+      - approved builds on physical hardware or private environments
+      - concise result, screenshot, log, or support-bundle reporting
+      - final product, material architecture, and release approval
+
+owner_question_contract:
+  required_before_asking:
+    - inspect repository and current behavior
+    - inspect relevant issues, pull requests, project instructions, and current register
+    - confirm the answer cannot be resolved safely elsewhere
+    - avoid repeating an answered question
+  request_fields:
+    - exact_issue
+    - reason_owner_answer_is_required
+    - focused_question
+    - concrete_options_when_known
+    - implementation_or_release_impact
+  issue_state:
+    label: status:blocked
+    evidence_heading: Owner question request
+
+owner_test_session_contract:
+  required_before_requesting:
+    - exhaust available automated and repository-based validation
+    - publish the exact approved candidate through the approved test distribution path
+    - verify version, source commit, artifacts, checksums, signing identity, backup, and rollback
+  request_fields:
+    - exact_issue_and_feature
+    - reason_physical_or_private_execution_is_required
+    - version_branch_commit_and_pull_request
+    - artifact_or_update_channel
+    - checksum_and_signing_identity
+    - backup_and_rollback_state
+    - short_numbered_test_checklist
+    - expected_results
+    - stop_conditions
+    - evidence_return_method
+  issue_state:
+    label: status:validation
+    evidence_heading: Owner test session
+  windows_distribution: owner-test_in_app_update_channel
+  android_distribution: verified_apk_with_signature_and_checksum
+  unchanged_binary_retest: prohibited_unless_environment_changed_and_reason_recorded
 
 owners:
   architecture:
@@ -55,6 +131,7 @@ owners:
       - Windows packaging
       - release publication
       - updater assets and checksums
+      - approved Owner-test candidate publication
 
   discord-runtime:
     chat: "Khaos Nexus Bot Core"
@@ -106,6 +183,7 @@ owners:
       - mobile gateway
       - pairing and device trust
       - Android application
+      - verified Owner-test APK preparation
 
   dnd:
     chat: "Khaos Nexus Dungeons and Dragons"
@@ -138,6 +216,9 @@ handoff_required_fields:
   - dependencies
   - expected_result
   - questions
+  - owner_participation_expected
+  - owner_question_gate
+  - owner_test_session_plan
 
 coordination_check:
   - register_revision
@@ -147,3 +228,5 @@ coordination_check:
   - baseline_branch_commit_and_pr
   - conflicts_or_blockers
   - existing_behavior_inspected
+  - automated_validation_completed
+  - owner_action_required
