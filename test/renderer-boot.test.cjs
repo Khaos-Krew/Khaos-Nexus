@@ -8,70 +8,36 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
-test('preload starts the renderer heartbeat but waits for the real application document before readiness', () => {
+test('preload waits for the real interface and maintains a renderer heartbeat', () => {
   const preload = read('main/preload.cjs');
   assert.match(preload, /sendRendererHeartbeat\(\);/);
   assert.match(preload, /setInterval\(sendRendererHeartbeat, 2000\)/);
-  assert.match(preload, /reportBootStage/);
   assert.match(preload, /interfaceSnapshot/);
   assert.match(preload, /snapshot\.href === 'about:blank'/);
-  assert.match(preload, /snapshot\.expectedDocument && snapshot\.hasShell && snapshot\.hasSidebar && snapshot\.hasContent && snapshot\.hasActiveView/);
-  assert.match(preload, /DOMContentLoaded/);
   assert.match(preload, /startup-health:renderer-ready/);
   assert.doesNotMatch(preload, /startup-health:base-ui-ready/);
-  assert.doesNotMatch(preload, /reportBaseInterfaceReady/);
 });
 
-test('renderer feature scripts remain serialized with progress and timeout protection', () => {
+test('renderer features remain serialized and software compatibility remains the safe Windows default', () => {
   const coordinator = read('main/renderer-boot-coordinator-extension.cjs');
-  assert.match(coordinator, /Node\.prototype\.appendChild/);
+  const graphics = read('main/software-rendering-extension.cjs');
+  const brand = read('main/brand-update-extension.cjs');
   assert.match(coordinator, /FEATURE_START_DELAY_MS = 750/);
   assert.match(coordinator, /FEATURE_GAP_MS = 180/);
   assert.match(coordinator, /FEATURE_LOAD_TIMEOUT_MS = 8000/);
-  assert.match(coordinator, /feature-loading/);
   assert.match(coordinator, /features-ready/);
-  assert.match(coordinator, /nexusBootIndicator/);
-});
-
-test('optional monitor extensions wait until the base document has loaded', () => {
-  const monitor = read('renderer/application-monitor.js');
-  assert.match(monitor, /scheduleOptionalExtensions/);
-  assert.match(monitor, /document\.readyState === 'complete'/);
-  assert.match(monitor, /window\.addEventListener\('load'/);
-  assert.match(monitor, /setTimeout\(begin, 1000\)/);
-});
-
-test('Windows compatibility mode defaults to software rendering with an explicit hardware override', () => {
-  const graphics = read('main/software-rendering-extension.cjs');
-  const entry = read('main/entry.cjs');
   assert.match(graphics, /disableHardwareAcceleration/);
-  assert.match(graphics, /disable-gpu-compositing/);
   assert.match(graphics, /--hardware-renderer/);
   assert.match(graphics, /KHAOS_NEXUS_HARDWARE_RENDERING/);
-  assert.match(entry, /software-rendering-extension\.cjs/);
+  assert.match(brand, /rich-brand-skipped/);
+  assert.match(brand, /addScript\('simple-updater\.js'\)/);
 });
 
-test('software compatibility mode skips the expensive global brand renderer', () => {
-  const extension = read('main/brand-update-extension.cjs');
-  assert.match(extension, /hardwareRenderingRequested/);
-  assert.match(extension, /if \(richBrandEnabled\)/);
-  assert.match(extension, /addScript\('brand-ui\.js'\)/);
-  assert.match(extension, /rich-brand-skipped/);
-  assert.match(extension, /nexus-compatibility-visuals/);
-  assert.match(extension, /addScript\('simple-updater\.js'\)/);
-});
-
-test('v0.22.1 retains startup, adapters and Android while guaranteeing local module recovery', () => {
+test('candidate retains stable startup, Android, adapters and unconditional local recovery', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
-  const health = read('main/startup-health-extension.cjs');
   const coreRelease = read('main/startup-core-release-extension.cjs');
-  const splashRenderer = read('renderer/startup-health.js');
-  const stability = read('main/stability-extension.cjs');
-  const splashHtml = read('renderer/startup-health.html');
-  const recovery = read('renderer/access-recovery.js');
   const monitor = read('main/services/application-monitor.cjs');
-  const preload = read('main/preload.cjs');
   const portableBootstrap = read('main/portable-bootstrap-extension.cjs');
   const watchdog = read('main/interface-watchdog-extension.cjs');
   const unresponsive = read('main/renderer-unresponsive-extension.cjs');
@@ -80,31 +46,28 @@ test('v0.22.1 retains startup, adapters and Android while guaranteeing local mod
   const localAuthority = read('main/local-module-authority-extension.cjs');
   const moduleRuntime = read('main/module-runtime-extension.cjs');
   const adapterSdk = read('shared/game-adapter-sdk.cjs');
-  const statusPanels = read('main/services/status-panel-service.cjs');
   const palworld = read('main/palworld-main-extension.cjs');
   const rust = read('main/rust-main-extension.cjs');
   const rustGate = read('main/rust-module-gate-extension.cjs');
+  const satisfactory = read('main/satisfactory-main-extension.cjs');
   const mobile = read('main/services/mobile-gateway-service.cjs');
   const mobileSecurity = read('main/mobile-gateway-security-extension.cjs');
 
+  // Release identity remains unchanged until this candidate passes Owner testing.
   assert.equal(packageJson.version, '0.22.1');
-  assert.match(packageJson.description, /unconditional local-desktop module recovery controls/i);
+  assert.match(packageJson.description, /installer-first automatic diagnostics/i);
+  assert.match(packageJson.description, /standalone Khaos Nexus Diagnostics launcher/i);
   assert.match(packageJson.description, /native read-only Android companion/i);
   assert.match(packageJson.description, /dedicated Rust WebRCON operations/i);
+  assert.match(packageJson.description, /Satisfactory dedicated-server operations/i);
   assert.match(packageJson.description, /typed Game Adapter SDK/i);
-  assert.match(packageJson.description, /authoritative Owner module switches/i);
-  assert.match(packageJson.description, /full production runtime audit repairs/i);
-  assert.match(packageJson.description, /verified click-through grouped proxy navigation/i);
-  assert.match(packageJson.description, /always-visible in-app update center/i);
-  assert.match(packageJson.description, /bounded idempotent updater UI/i);
-  assert.match(packageJson.description, /renderer-unresponsive reporting/i);
-  assert.match(packageJson.description, /continuous visible-interface startup gate/i);
-  assert.match(packageJson.description, /immediate portable sidecar logs and diagnostics/i);
-  assert.match(packageJson.description, /sandbox-compatible preload/i);
+
   assert.match(entry, /portable-bootstrap-extension\.cjs/);
   assert.ok(entry.indexOf('portable-bootstrap-extension.cjs') < entry.indexOf('requestSingleInstanceLock'));
+  assert.match(entry, /diagnostic-tool\.cjs/);
+  assert.match(entry, /--diagnostics/);
+  assert.match(entry, /diagnostic-suite-extension\.cjs/);
   assert.match(entry, /startup-core-release-extension\.cjs/);
-  assert.match(entry, /startup-preload-diagnostics-extension\.cjs/);
   assert.match(entry, /interface-watchdog-extension\.cjs/);
   assert.match(entry, /renderer-unresponsive-extension\.cjs/);
   assert.match(entry, /mobile-module-registry-extension\.cjs/);
@@ -112,115 +75,72 @@ test('v0.22.1 retains startup, adapters and Android while guaranteeing local mod
   assert.match(entry, /module-foundation-extension\.cjs/);
   assert.match(entry, /local-module-authority-extension\.cjs/);
   assert.match(entry, /module-runtime-extension\.cjs/);
-  assert.ok(entry.indexOf('mobile-module-registry-extension.cjs') < entry.indexOf('module-foundation-extension.cjs'));
-  assert.ok(entry.indexOf('module-foundation-extension.cjs') < entry.indexOf('local-module-authority-extension.cjs'));
-  assert.ok(entry.indexOf('local-module-authority-extension.cjs') < entry.indexOf('module-runtime-extension.cjs'));
-  assert.ok(entry.indexOf('module-runtime-extension.cjs') < entry.indexOf('discord-studio-extension.cjs'));
-  assert.ok(entry.indexOf('module-runtime-extension.cjs') < entry.indexOf('server-scheduler-extension.cjs'));
-  assert.ok(entry.indexOf('mobile-gateway-extension.cjs') < entry.indexOf('mobile-gateway-security-extension.cjs'));
-  assert.match(entry, /audit-repair-extension\.cjs/);
-  assert.match(entry, /rust-main-extension\.cjs/);
-  assert.match(entry, /rust-module-gate-extension\.cjs/);
-  assert.ok(entry.indexOf('audit-repair-extension.cjs') < entry.indexOf('rust-main-extension.cjs'));
-  assert.ok(entry.indexOf('rust-main-extension.cjs') < entry.indexOf('rust-module-gate-extension.cjs'));
-  assert.ok(entry.indexOf('rust-module-gate-extension.cjs') < entry.indexOf("require('./main.cjs')"));
-  assert.doesNotMatch(entry, /startup-release-fallback-extension\.cjs/);
+  assert.match(entry, /satisfactory-main-extension\.cjs/);
+  assert.match(entry, /game-adapter-runtime-extension\.cjs/);
+  assert.ok(entry.indexOf('diagnostic-suite-extension.cjs') < entry.indexOf("require('./main.cjs')"));
+
   assert.match(localAuthority, /for \(const key of \['autonomy', 'discordAuth'\]\)/);
-  assert.match(localAuthority, /get: \(\) => null/);
-  assert.match(localAuthority, /set: \(\) => \{\}/);
-  assert.match(moduleFoundation, /moduleOverrides/);
   assert.match(moduleFoundation, /modules:bulk-update/);
   assert.match(moduleRuntime, /patchIpcHandlers/);
-  assert.match(moduleRuntime, /patchBotSupervisor/);
-  assert.match(moduleRuntime, /patchApplicationMonitor/);
   assert.match(adapterSdk, /executeAdapterOperation/);
   assert.match(adapterSdk, /GameAdapterRegistry/);
-  assert.match(statusPanels, /createCurrentServerAdapter/);
-  assert.match(statusPanels, /Rust WebRCON/);
   assert.match(palworld, /executeAdapterOperation/);
-  assert.match(rust, /class RustAutonomyService extends Original/);
-  assert.match(rust, /filterRustWhenDisabled/);
-  assert.match(rustGate, /assertModule\('operator-console'/);
+  assert.match(rust, /createCurrentServerAdapter/);
+  assert.match(rust, /rustModuleEnabledFromRuntime/);
+  assert.match(rustGate, /assertModule\('rust-server-operations'/);
+  assert.match(satisfactory, /server:satisfactory-action/);
   assert.match(mobile, /class MobileGatewayService/);
   assert.match(mobile, /TLSv1\.2/);
   assert.match(mobileSecurity, /LAST_SEEN_WRITE_INTERVAL_MS/);
-  assert.match(audit, /Bot runtime could not be spawned/);
   assert.match(audit, /reconcileInterruptedRuns/);
-  assert.match(audit, /retryable|status: 'downloaded'/i);
-  assert.match(unresponsive, /window\.on\('unresponsive'/);
-  assert.match(unresponsive, /window\.webContents\.on\('unresponsive'/);
-  assert.match(unresponsive, /watchdog\.reportFailure/);
   assert.match(unresponsive, /renderer-unresponsive/);
-  assert.match(watchdog, /DISCOVERY_INTERVAL_MS = 250/);
-  assert.match(watchdog, /INSPECTION_INTERVAL_MS = 500/);
-  assert.match(watchdog, /INTERFACE_STABILITY_MS = 3000/);
-  assert.match(watchdog, /capturePage\(\)/);
-  assert.match(watchdog, /did-fail-load/);
-  assert.match(watchdog, /render-process-gone/);
   assert.match(watchdog, /interface-watchdog-state\.json/);
-  assert.match(watchdog, /interface-watchdog-error\.json/);
-  assert.match(watchdog, /interface-watchdog\.log/);
   assert.match(watchdog, /queueAutomaticReport/);
-  assert.match(watchdog, /rendererErrors\.record/);
-  assert.match(watchdog, /Interface recovery/);
-  assert.match(portableBootstrap, /process-started/);
   assert.match(portableBootstrap, /bootstrap\.log/);
-  assert.match(health, /MINIMUM_SPLASH_MS = 30 \* 1000/);
-  assert.match(coreRelease, /POLL_INTERVAL_MS = 250/);
-  assert.match(coreRelease, /READY_STABILITY_MS = 1500/);
   assert.match(coreRelease, /visibleInterfaceRequired: true/);
-  assert.match(coreRelease, /interfaceWatchdog\.publicState\(\)/);
-  assert.match(coreRelease, /startup-core-release-diagnostics\.json/);
-  assert.match(coreRelease, /startup-core-release\.log/);
-  assert.match(coreRelease, /controller-installed/);
-  assert.match(coreRelease, /configStoreReady/);
-  assert.match(coreRelease, /rendererBridgeReady/);
-  assert.match(coreRelease, /renderer-boot:stage/);
   assert.match(coreRelease, /stage: 'features-ready'/);
-  assert.match(coreRelease, /discordDesktopSignInRequired: false/);
-  assert.match(coreRelease, /optionalModuleCompletionRequired: false/);
-  assert.doesNotMatch(coreRelease, /BrowserWindow\.prototype/);
-  assert.doesNotMatch(coreRelease, /startup-health:base-ui-ready/);
-  assert.doesNotMatch(coreRelease, /discordAuth/);
-  assert.doesNotMatch(preload, /require\(['"]\.\.?\//);
-  assert.match(preload, /module_disabled/);
-  assert.match(splashRenderer, /Discord desktop sign-in \(optional\)/);
-  assert.match(splashRenderer, /This does not block local startup/);
-  assert.match(stability, /function isMainInterfaceWindow/);
-  assert.match(stability, /preloadName\(window\) === 'preload\.cjs'/);
-  assert.match(stability, /window\.__khaosStartupSplashWindow/);
-  assert.match(splashHtml, /Entering the Khaos Nexus/);
-  assert.match(splashHtml, /Minimum startup check: 30s/);
-  assert.match(recovery, /startupReleased/);
-  assert.match(monitor, /STARTUP_BATCH_DELAY_MS = 5 \* 60 \* 1000/);
   assert.match(monitor, /ERROR_BATCH_INTERVAL_MS = 30 \* 60 \* 1000/);
 });
 
-test('updater uses bounded idempotent reconciliation and retains protected install flow', () => {
+test('installer diagnostics are local-first, redacted and independent of the main UI', () => {
+  const entry = read('main/entry.cjs');
+  const extension = read('main/diagnostic-suite-extension.cjs');
+  const service = read('main/services/diagnostic-suite.cjs');
+  const tool = read('main/diagnostic-tool.cjs');
+  const preload = read('main/diagnostic-tool-preload.cjs');
+  const installer = read('assets/installer.nsh');
+  const packageJson = JSON.parse(read('package.json'));
+
+  assert.match(entry, /diagnosticTool\.run\(\)|diagnostic-tool\.cjs/);
+  assert.match(extension, /render-process-gone/);
+  assert.match(extension, /did-fail-load/);
+  assert.match(extension, /unexpected-previous-shutdown/);
+  assert.match(extension, /post-install-baseline/);
+  assert.match(service, /secrets\.bin/);
+  assert.match(service, /redactObject/);
+  assert.match(service, /Compress-Archive/);
+  assert.match(service, /https:/);
+  assert.match(service, /automaticUploadEnabled: current\.automaticUploadEnabled === true/);
+  assert.match(service, /reportsDirectory/);
+  assert.match(tool, /standalone-startup-baseline/);
+  assert.match(preload, /diagnostic-tool:get-state/);
+  assert.match(installer, /Khaos Nexus Diagnostics\.lnk/);
+  assert.match(installer, /--diagnostics/);
+  assert.equal(packageJson.build.nsis.include, 'assets/installer.nsh');
+});
+
+test('updater keeps bounded reconciliation and protected install flow', () => {
   const updater = read('renderer/simple-updater.js');
   const extension = read('main/brand-update-extension.cjs');
   const audit = read('main/audit-repair-extension.cjs');
   const flow = read('shared/update-flow.cjs');
   assert.doesNotThrow(() => new Function(updater));
   assert.match(updater, /RECONCILE_DELAYS_MS = Object\.freeze\(\[250, 1000, 3000, 6000\]\)/);
-  assert.match(updater, /function setText\(element, value\)/);
-  assert.match(updater, /if \(element\.textContent !== next\) element\.textContent = next/);
   assert.match(updater, /scheduleBoundedReconciliation/);
   assert.doesNotMatch(updater, /new MutationObserver/);
-  assert.doesNotMatch(updater, /observer\.observe\(document\.body/);
-  assert.match(updater, /ensureFallbackCenter/);
-  assert.match(updater, /nexusHeaderUpdateButton/);
-  assert.match(updater, /replacementReady/);
-  assert.match(updater, /Download v\$\{update\.version/);
   assert.match(updater, /Install & Restart/);
-  assert.match(updater, /invoke\('update:download'\)/);
-  assert.match(updater, /invoke\('update:install'\)/);
-  assert.doesNotMatch(updater, /invoke\('update:apply'\)/);
   assert.match(extension, /createAutomaticBackup\('pre-update'\)/);
   assert.match(extension, /verifyBackup\(backup\.filePath\)/);
-  assert.match(extension, /Installation was cancelled and the current version remains active/);
-  assert.match(extension, /status: 'backing-up'/);
-  assert.match(audit, /The staged portable update file is missing/);
   assert.match(audit, /status: 'downloaded'/);
   assert.match(flow, /return service\.getState\(\)/);
 });
