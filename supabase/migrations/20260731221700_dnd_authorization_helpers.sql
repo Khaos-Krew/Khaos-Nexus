@@ -20,8 +20,8 @@ security definer
 set search_path = public, pg_temp
 as $$
   select case
-    when public.nexus_tenant_role(c.tenant_id) in ('owner','admin') then 'admin'
     when c.owner_user_id = auth.uid() then 'dm'
+    when public.nexus_tenant_role(c.tenant_id) in ('owner','admin') then 'admin'
     else (select m.role from public.dnd_campaign_members m where m.campaign_id = p_campaign_id and m.user_id = auth.uid() and m.active limit 1)
   end
   from public.dnd_campaigns c where c.id = p_campaign_id;
@@ -63,21 +63,36 @@ $$;
 create or replace function public.dnd_get_public_bindings(p_campaign_id uuid)
 returns table (
   id uuid,
+  campaign_id uuid,
   registered_app_id uuid,
   guild_id text,
   resource_type text,
+  resource_id text,
   display_name text,
   purpose text,
   is_primary boolean,
   active boolean,
-  verified_at timestamptz
+  verified_at timestamptz,
+  last_error_code text
 )
 language sql
 stable
 security definer
 set search_path = public, pg_temp
 as $$
-  select b.id, b.registered_app_id, b.guild_id, b.resource_type, b.display_name, b.purpose, b.is_primary, b.active, b.verified_at
+  select
+    b.id,
+    b.campaign_id,
+    b.registered_app_id,
+    b.guild_id,
+    b.resource_type,
+    b.resource_id,
+    b.display_name,
+    b.purpose,
+    b.is_primary,
+    b.active,
+    b.verified_at,
+    b.last_error_code
   from public.dnd_discord_bindings b
   where b.campaign_id = p_campaign_id
     and b.active
