@@ -35,6 +35,7 @@ if (diagnosticsMode) {
     // Promote validated extension-backed modules before module consumers capture registry functions.
     require('./mobile-module-registry-extension.cjs').install();
     require('./dnd-campaign-extension.cjs').install();
+    require('./dnd-authorization-summary-extension.cjs').install();
 
     // The module registry must wrap IPC and service prototypes before optional modules register handlers or start timers.
     require('./module-foundation-extension.cjs').install();
