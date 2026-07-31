@@ -39,6 +39,30 @@ function setAppDndPreference(state, appId, enabled, updatedAt = new Date().toISO
   return state.appModulePreferences[appId];
 }
 
+function toPublicDndConfig(input, registeredApps = []) {
+  const state = applyAppModulePreferences(input || {});
+  const appsById = new Map((registeredApps || []).map((app) => [app.id, app]));
+  return {
+    schemaVersion: state.schemaVersion || 1,
+    campaignCount: Array.isArray(state.campaigns) ? state.campaigns.length : 0,
+    registeredApps: state.registeredApps.map((app) => {
+      const publicApp = appsById.get(app.id) || app;
+      return {
+        id: app.id,
+        applicationId: app.applicationId || '',
+        botUserId: app.botUserId || '',
+        name: app.name || 'Registered Discord App',
+        enabled: app.enabled !== false,
+        dndEnabled: app.dndEnabled !== false,
+        modules: [...(app.modules || [])],
+        guildIds: [...(app.guildIds || [])],
+        legacyNexusBot: Boolean(app.legacyNexusBot),
+        hasToken: Boolean(publicApp.hasToken)
+      };
+    })
+  };
+}
+
 function isOwnerRole(role) {
   return role === 'owner' || role === 'local-admin';
 }
@@ -48,5 +72,6 @@ module.exports = {
   appDndEnabled,
   applyAppModulePreferences,
   setAppDndPreference,
+  toPublicDndConfig,
   isOwnerRole
 };
