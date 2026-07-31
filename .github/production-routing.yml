@@ -1,5 +1,5 @@
-version: 3
-register_revision: R6
+version: 4
+register_revision: R7
 repository: Khaos-Krew/Khaos-Nexus
 rules:
   existing_application: true
@@ -23,8 +23,8 @@ rules:
   legacy_lovable_website_retired: true
   archived_website_repository_noncanonical: true
   canonical_application_repository_locked: true
-  supabase_retention_requires_owner_decision: true
-  no_supabase_pause_export_or_delete_without_issue_95_decision: true
+  supabase_independent_active_shared_service: true
+  website_retirement_does_not_apply_to_supabase: true
 
 sources_of_truth:
   code: Khaos-Krew/Khaos-Nexus
@@ -49,24 +49,30 @@ retired_surfaces:
     status: deleted
     canonical: false
     implementation_source: none
+    managed_cloud: lovable_managed
   archived_website_repository:
     repository: Khaos-Krew/chaos-nexus-hub
     status: archived_private_historical_evidence
     canonical: false
     implementation_baseline_allowed: false
 
-external_service_holds:
-  legacy_website_supabase:
-    status: active_pending_owner_retention_decision
-    decision_issue: 95
-    allowed_before_decision:
-      - read-only inspection
-      - existing approved non-destructive application use
-    prohibited_before_decision:
-      - pause
-      - export_as_retirement_action
-      - delete
-    note: A future desktop use must be documented as an explicit shared-service dependency, not as restoration of the retired website architecture.
+active_shared_services:
+  supabase:
+    project_ref: gcdgcftsjorsubutsamh
+    status: active
+    role: independent_khaos_nexus_shared_service
+    independent_of_lovable_website: true
+    website_retirement_applies: false
+    approved_use:
+      - inspection under an assigned application handoff
+      - schema and RLS work under an assigned shared-service scope
+      - non-destructive application integration and validation
+    safeguards:
+      - preserve existing data, schema, authentication, RLS, storage, and integrations
+      - do not use the archived website repository as a schema or implementation source
+      - destructive lifecycle changes require a separate explicit handoff and Owner approval
+    current_consumer_handoffs:
+      - 94
 
 responsibility_model:
   production_agents:
