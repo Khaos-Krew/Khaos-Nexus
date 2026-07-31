@@ -22,7 +22,7 @@ The project is designed around a local-first security model: credentials remain 
 <!-- CURRENT_FEATURES:START -->
 ## Current Features
 
-Khaos Nexus currently includes **16 production-ready capabilities** across the desktop platform, Discord automation, game-server operations, mobile access, and reliability tooling.
+Khaos Nexus currently includes **15 production-ready capabilities** across the desktop platform, Discord automation, game-server operations, and reliability tooling.
 
 ### Core Desktop Platform
 
@@ -159,15 +159,6 @@ Uses explicit capability manifests, guarded destructive-action policies, stable 
 ### Mobile, Diagnostics, and Reliability
 
 <details>
-<summary><strong>Android Companion and Mobile Gateway</strong> — Provides a read-only Android companion with an optional protected connection to the desktop application.</summary>
-
-**Status:** Available
-
-Uses certificate-pinned HTTPS, one-time Owner-approved pairing, P-256 signed requests, hashed device credentials, replay protection, immediate revocation, and Android Keystore storage.
-
-</details>
-
-<details>
 <summary><strong>Backups, Monitoring, and Support Bundles</strong> — Captures actionable diagnostics while keeping secrets out of logs and exports.</summary>
 
 **Status:** Available
@@ -197,6 +188,19 @@ Development work covers typed server operations, capability reporting, safe admi
 Development work provides a dedicated Khaos Nexus Diagnostics launcher, startup environment checks, portable sidecar reporting, and clearer recovery guidance for installation or launch failures.
 
 </details>
+
+## Paused
+
+These **1 capabilities** are preserved but excluded from active production and release scope until an explicit architecture decision resumes them.
+
+<details>
+<summary><strong>Android Companion and Mobile Gateway</strong> — Preserved but excluded from active production and desktop release scope by Owner directive.</summary>
+
+**Status:** Paused
+
+Existing certificate-pinned HTTPS, Owner-approved pairing, signed-request, replay-protection, revocation, and Android Keystore work is preserved. APK publication, real-device testing, feature/toolchain repair, and Mobile Gateway activation remain prohibited until a new architecture decision explicitly resumes production.
+
+</details>
 <!-- CURRENT_FEATURES:END -->
 
 ---
@@ -211,10 +215,11 @@ Development work provides a dedicated Khaos Nexus Diagnostics launcher, startup 
 | [Pterodactyl setup](PTERODACTYL_SETUP.md) | Connect compatible hosted servers through the Pterodactyl Client API. |
 | [Scheduler setup](SERVER_SCHEDULER_SETUP.md) | Configure warnings, saves, shutdowns, restarts, and verification. |
 | [Owner test builds](TEST_BUILDS.md) | Review preserved validation checkpoints and test-build guidance. |
+| [Android production hold](docs/ANDROID_PRODUCTION_HOLD.md) | Review the reversible Android and Mobile Gateway pause, exclusion, and resumption contract. |
 
 ## Feature Documentation Monitor
 
-Feature documentation is maintained through [`docs/features.json`](docs/features.json), which serves as the machine-readable registry for released, in-development, and planned capabilities.
+Feature documentation is maintained through [`docs/features.json`](docs/features.json), which serves as the machine-readable registry for released, in-development, paused, and planned capabilities.
 
 The accompanying GitHub Action:
 
@@ -257,7 +262,7 @@ Stable releases may include:
 - updater metadata and blockmaps
 - SHA-256 checksum manifests
 
-Release candidates remain on validation branches until startup, navigation, Discord delivery, server operations, diagnostics, and update behavior pass real-device testing.
+Release candidates remain on validation branches until required startup, navigation, Discord delivery, server operations, diagnostics, and update behavior pass their approved validation scope. Android Companion and Mobile Gateway are excluded while ADR-008 remains active.
 
 ---
 

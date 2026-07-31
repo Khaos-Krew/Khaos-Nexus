@@ -2,6 +2,7 @@
   "legend": {
     "available": "Available",
     "beta": "In development",
+    "paused": "Paused",
     "planned": "Planned"
   },
   "categories": [
@@ -115,9 +116,9 @@
       "features": [
         {
           "name": "Android Companion and Mobile Gateway",
-          "status": "available",
-          "summary": "Provides a read-only Android companion with an optional protected connection to the desktop application.",
-          "description": "Uses certificate-pinned HTTPS, one-time Owner-approved pairing, P-256 signed requests, hashed device credentials, replay protection, immediate revocation, and Android Keystore storage."
+          "status": "paused",
+          "summary": "Preserved but excluded from active production and desktop release scope by Owner directive.",
+          "description": "Existing certificate-pinned HTTPS, Owner-approved pairing, signed-request, replay-protection, revocation, and Android Keystore work is preserved. APK publication, real-device testing, feature/toolchain repair, and Mobile Gateway activation remain prohibited until a new architecture decision explicitly resumes production."
         },
         {
           "name": "Backups, Monitoring, and Support Bundles",

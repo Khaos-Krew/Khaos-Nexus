@@ -21,6 +21,7 @@ const markers = {
 const statusLabels = {
   available: "Available",
   beta: "In development",
+  paused: "Paused",
   planned: "Planned"
 };
 
@@ -93,11 +94,12 @@ function featuresByStatus(registry, status) {
 function renderCurrentFeatures(registry) {
   const available = featuresByStatus(registry, "available");
   const inDevelopment = featuresByStatus(registry, "beta");
+  const paused = featuresByStatus(registry, "paused");
   const lines = [
     markers.current.start,
     "## Current Features",
     "",
-    `Khaos Nexus currently includes **${available.length} production-ready capabilities** across the desktop platform, Discord automation, game-server operations, mobile access, and reliability tooling.`
+    `Khaos Nexus currently includes **${available.length} production-ready capabilities** across the desktop platform, Discord automation, game-server operations, and reliability tooling.`
   ];
 
   for (const category of registry.categories) {
@@ -123,6 +125,19 @@ function renderCurrentFeatures(registry) {
     lines.push("", inDevelopment.map(renderFeature).join("\n\n"));
   } else {
     lines.push("", "_No features are currently marked as in development._");
+  }
+
+  lines.push(
+    "",
+    "## Paused",
+    "",
+    `These **${paused.length} capabilities** are preserved but excluded from active production and release scope until an explicit architecture decision resumes them.`
+  );
+
+  if (paused.length > 0) {
+    lines.push("", paused.map(renderFeature).join("\n\n"));
+  } else {
+    lines.push("", "_No features are currently paused._");
   }
 
   lines.push(markers.current.end);

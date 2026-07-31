@@ -1,5 +1,5 @@
-version: 4
-register_revision: R7
+version: 5
+register_revision: R8
 repository: Khaos-Krew/Khaos-Nexus
 rules:
   existing_application: true
@@ -25,6 +25,11 @@ rules:
   canonical_application_repository_locked: true
   supabase_independent_active_shared_service: true
   website_retirement_does_not_apply_to_supabase: true
+  android_production_halted: true
+  mobile_gateway_disabled_in_active_candidates: true
+  no_android_apk_publication_or_owner_testing: true
+  android_ci_non_gating_for_unrelated_work: true
+  android_code_and_security_evidence_preserved: true
 
 sources_of_truth:
   code: Khaos-Krew/Khaos-Nexus
@@ -73,6 +78,94 @@ active_shared_services:
       - destructive lifecycle changes require a separate explicit handoff and Owner approval
     current_consumer_handoffs:
       - 94
+
+production_holds:
+  android_companion:
+    decision: ADR-008
+    source_issue: 101
+    effective_date: 2026-07-31
+    status: paused_by_owner_directive
+    release_scope: excluded
+    validation_scope: paused
+    owner_testing_allowed: false
+    apk_publication_allowed: false
+    feature_or_toolchain_repair_allowed: false
+    preserved_baselines:
+      integrated_candidate:
+        pull_request: 81
+        branch: agent/v0.24.0-installer-diagnostics
+        commit: 1cff97f7c1cbf12b2cb6aea04cb9e4d3dc971dae
+      android_checkpoint:
+        pull_request: 77
+        branch: agent/v0.22.0-android-phase1
+        commit: 125a01270672be7bb0a2d99189498d3e45fa7c54
+    preserved_records:
+      - android source and tests
+      - Mobile Gateway source and tests
+      - branches and pull-request history
+      - APK signature and checksum evidence
+      - certificate pinning and pairing contracts
+      - device-key and signed-request evidence
+      - replay protection and revocation evidence
+      - Android Keystore and protected-storage evidence
+      - workflows and signing configuration references
+    desktop_exclusion:
+      mechanism: explicit_off_by_default_runtime_policy
+      activation_variable: KHAOS_NEXUS_MOBILE_GATEWAY_ENABLED
+      enabled_value: "1"
+      default_state: disabled
+      release_candidate_value: disabled
+      disabled_behavior:
+        - do not install Mobile Gateway registry promotion
+        - do not register Mobile Gateway IPC handlers or security wrappers
+        - do not open listeners or pairing endpoints
+        - do not start Mobile Gateway timers
+        - do not expose the Mobile Companion navigation route or setup controls
+        - force saved module enablement ineffective
+        - report Paused and unavailable by Owner directive
+    ci_policy:
+      during_hold: workflow_dispatch_only
+      unrelated_pull_requests: no_android_check
+      artifact_upload: prohibited
+      automatic_pull_request_trigger: prohibited
+      broad_agent_push_trigger: prohibited
+      future_resumption_trigger: path_scoped
+      future_paths:
+        - android/**
+        - main/mobile-gateway-*.cjs
+        - main/mobile-module-registry-extension.cjs
+        - main/services/mobile-gateway-service.cjs
+        - renderer/mobile-companion.*
+        - shared/mobile-gateway.cjs
+        - test/mobile-gateway*.test.cjs
+        - .github/workflows/android-build.yml
+        - .github/workflows/android-release.yml
+    issue_disposition:
+      real_device_validation_89: retained_open_paused_non_gating
+      android_ci_defect_100: deferred_close_not_planned
+      android_checkpoint_pr_77: preserved_non_active
+    release_evidence_required:
+      - exact version branch pull request and commit
+      - disabled activation policy in packaged candidate
+      - no gateway listener pairing service timer or IPC registration
+      - module unavailable despite saved prior enablement
+      - no active Mobile Companion navigation or pairing UI
+      - no bundled linked or published APK
+      - Android CI absent from unrelated release gates
+      - Update Center and release notes state exclusion
+      - source branches workflows and security evidence remain preserved
+    resumption_gate:
+      - explicit Owner directive to resume
+      - new or amended architecture decision superseding ADR-008
+      - current Register and project-instruction review
+      - fresh repository CI dependency and security inspection
+      - exact application branch pull request and commit
+      - exact preserved Android checkpoint and ancestry decision
+      - new targeted Android Desktop Core and Release and CI handoffs as applicable
+      - current threat and security review
+      - restored path-scoped unit-test and lint validation
+      - explicit signing and artifact-publication authorization
+      - automated validation before any Owner test request
 
 responsibility_model:
   production_agents:
@@ -139,7 +232,7 @@ owner_test_session_contract:
     label: status:validation
     evidence_heading: Owner test session
   windows_distribution: owner-test_in_app_update_channel
-  android_distribution: verified_apk_with_signature_and_checksum
+  android_distribution: prohibited_while_ADR_008_active
   unchanged_binary_retest: prohibited_unless_environment_changed_and_reason_recorded
 
 owners:
@@ -179,6 +272,7 @@ owners:
       - release publication
       - updater assets and checksums
       - approved Owner-test candidate publication
+      - Android workflow suspension and future path-scoped restoration
 
   discord-runtime:
     chat: "Khaos Nexus Bot Core"
@@ -226,11 +320,11 @@ owners:
   android:
     chat: "Khaos Nexus Android Companion"
     label: owner:android
+    status: paused_by_ADR_008
     scope:
-      - mobile gateway
-      - pairing and device trust
-      - Android application
-      - verified Owner-test APK preparation
+      - preserve Android and Mobile Gateway source and security evidence
+      - do not implement repair build publish sign or test while paused
+      - participate only after a future resumption handoff
 
   dnd:
     chat: "Khaos Nexus Dungeons and Dragons"
