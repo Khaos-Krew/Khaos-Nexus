@@ -80,14 +80,18 @@ test('install mode distinguishes installer, portable and development runs', () =
   assert.equal(installMode({ isPackaged: false }), 'development');
 });
 
-test('installer and desktop entry expose the standalone diagnostic tool', () => {
+test('installer and desktop entry expose the standalone updateable diagnostic tool', () => {
   const entry = read('main/entry.cjs');
+  const updater = read('main/diagnostic-runtime-updater.cjs');
   const packageJson = JSON.parse(read('package.json'));
   const include = read('assets/installer.nsh');
   const html = read('renderer/diagnostics.html');
   assert.match(entry, /--diagnostics/);
-  assert.match(entry, /diagnostic-tool\.cjs/);
+  assert.match(entry, /diagnostic-runtime-updater\.cjs/);
   assert.match(entry, /diagnostic-suite-extension\.cjs/);
+  assert.match(updater, /Khaos-Krew\/Khaos-Nexus-Diagnostics/);
+  assert.match(updater, /runDiagnosticTool/);
+  assert.match(updater, /require\('\.\/diagnostic-tool\.cjs'\)/);
   assert.equal(packageJson.build.nsis.include, 'assets/installer.nsh');
   assert.match(include, /Khaos Nexus Diagnostics\.lnk/);
   assert.match(include, /--diagnostics/);
