@@ -1,5 +1,6 @@
 'use strict';
 
+const { PermissionFlagsBits } = require('discord.js');
 const base = require('./dnd-runtime.cjs');
 
 function currentAppId(runtime) {
@@ -65,11 +66,60 @@ function validateCampaignUse(interaction, runtime) {
   }
 }
 
+function hasSafeDmPermissions(channel, clientUser) {
+  if (!channel?.isTextBased?.() || !clientUser || typeof channel.permissionsFor !== 'function') return false;
+  const permissions = channel.permissionsFor(clientUser);
+  if (!permissions?.has?.(PermissionFlagsBits.ViewChannel)) return false;
+  const sendPermission = channel.isThread?.()
+    ? PermissionFlagsBits.SendMessagesInThreads
+    : PermissionFlagsBits.SendMessages;
+  return Boolean(permissions.has(sendPermission));
+}
+
+function isBlindRoll(interaction) {
+  return Boolean(
+    interaction?.isChatInputCommand?.() &&
+    interaction.commandName === 'roll' &&
+    interaction.options?.getString?.('privacy') === 'blind'
+  );
+}
+
+async function preflightBlindRoll(interaction, runtime) {
+  if (!isBlindRoll(interaction)) return;
+  const bootstrap = runtime.getBootstrap();
+  const state = bootstrap?.config?.dnd;
+  const context = base.contextFor(interaction, bootstrap);
+  const binding = state?.bindings?.find((item) =>
+    item.active !== false &&
+    item.campaignId === context.campaignId &&
+    item.appId === currentAppId(runtime) &&
+    item.guildId === currentGuildId(interaction) &&
+    item.purpose === 'dm_private'
+  );
+  if (!binding) {
+    const error = new Error('A blind roll requires a configured DM-only destination. No roll was executed or saved.');
+    error.code = 'MISSING_DM_ROLL_DESTINATION';
+    throw error;
+  }
+  let channel = null;
+  try {
+    channel = await runtime.client.channels.fetch(binding.resourceId);
+  } catch {
+    channel = null;
+  }
+  if (!hasSafeDmPermissions(channel, runtime.client.user)) {
+    const error = new Error('The configured DM-only destination is unavailable or lacks View Channel and send-message permission. No roll was executed or saved.');
+    error.code = 'UNSAFE_DM_ROLL_DESTINATION';
+    throw error;
+  }
+}
+
 async function handleDndInteraction(interaction, runtime) {
   try {
     validateCampaignUse(interaction, runtime);
+    await preflightBlindRoll(interaction, runtime);
   } catch (error) {
-    runtime.log?.('warn', `D&D campaign selection rejected: ${error.code || error.message}`);
+    runtime.log?.('warn', `D&D interaction rejected before execution: ${error.code || error.message}`);
     const response = { content: error.message, ephemeral: true };
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply(response).catch(() => interaction.followUp(response).catch(() => {}));
@@ -86,5 +136,8 @@ module.exports = {
   handleDndInteraction,
   selectableCampaignIds,
   validateCampaignUse,
-  isCampaignUse
+  isCampaignUse,
+  hasSafeDmPermissions,
+  preflightBlindRoll,
+  isBlindRoll
 };
