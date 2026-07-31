@@ -1,0 +1,171 @@
+name: Production handoff
+description: Route a confirmed Khaos Nexus requirement to one production chat without duplicating work.
+title: "[Handoff] "
+labels:
+  - "type:handoff"
+  - "status:needs-inspection"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form only after Input and Routing confirms the requirement. GitHub is the work source of truth; the Architecture and Decisions Register is the decision source of truth.
+
+  - type: input
+    id: register_revision
+    attributes:
+      label: Register revision
+      description: Current Architecture and Decisions Register revision, for example R3.
+      placeholder: R3
+    validations:
+      required: true
+
+  - type: input
+    id: decision_ids
+    attributes:
+      label: Applicable decision IDs
+      description: List the platform decision IDs that govern this work, or None.
+      placeholder: ADR-001, ADR-002
+    validations:
+      required: true
+
+  - type: input
+    id: primary_chat
+    attributes:
+      label: Primary production chat
+      description: Exact chat that owns implementation or validation.
+      placeholder: Khaos Nexus Diagnostics
+    validations:
+      required: true
+
+  - type: textarea
+    id: secondary_chats
+    attributes:
+      label: Secondary chats requiring action
+      description: List only chats that must do something. Write None when no additional handoff is required.
+      placeholder: |
+        - Release and CI — account for packaging changes
+    validations:
+      required: true
+
+  - type: dropdown
+    id: request_type
+    attributes:
+      label: Type
+      options:
+        - Feature
+        - Bug
+        - Decision
+        - Research
+        - Architecture change
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - Low
+        - Normal
+        - High
+        - Blocking
+    validations:
+      required: true
+
+  - type: textarea
+    id: requested_change
+    attributes:
+      label: Requested change
+      description: State exactly what the assigned chat must change, inspect, repair, validate, or decide.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reason
+    attributes:
+      label: Why it is needed
+      description: Describe the user or production problem this solves.
+    validations:
+      required: true
+
+  - type: textarea
+    id: confirmed_requirements
+    attributes:
+      label: Confirmed requirements
+      description: Include only confirmed requirements. Put suggestions in the separate field below.
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestions
+    attributes:
+      label: Suggestions
+      description: Optional ideas that are not yet requirements.
+      placeholder: None
+
+  - type: textarea
+    id: current_system
+    attributes:
+      label: Existing system inspection
+      description: Record what currently works, what is incomplete or broken, and the evidence inspected. This must be completed before implementation begins.
+      placeholder: |
+        Working:
+        Incomplete or broken:
+        Evidence inspected:
+    validations:
+      required: true
+
+  - type: input
+    id: baseline
+    attributes:
+      label: Approved repository baseline
+      description: Exact repository branch, pull request, and commit. Do not assume main is the application-code baseline.
+      placeholder: agent/v0.24.0-installer-diagnostics @ 1cff97f... (PR #81)
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Important constraints
+      description: Include compatibility, security, data preservation, ownership, release, and no-rewrite constraints.
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies and related work
+      description: Link prerequisite issues, pull requests, branches, decisions, or external repositories. Write None when there are none.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_result
+    attributes:
+      label: Expected result
+      description: Define the observable completion state.
+    validations:
+      required: true
+
+  - type: textarea
+    id: questions
+    attributes:
+      label: Questions the assigned chat must resolve
+      description: List unresolved implementation or ownership questions. Write None if there are none.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: readiness
+    attributes:
+      label: Routing checks
+      options:
+        - label: I inspected the relevant existing repository state before routing this work.
+          required: true
+        - label: This issue has one primary owner and does not duplicate another active issue or pull request.
+          required: true
+        - label: Working systems, data, configuration, integrations, and user workflows must remain compatible.
+          required: true
+        - label: A rewrite is not authorized unless repository evidence proves repair or extension is impractical.
+          required: true

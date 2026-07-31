@@ -1,0 +1,149 @@
+version: 1
+register_revision: R3
+repository: Khaos-Krew/Khaos-Nexus
+rules:
+  existing_application: true
+  inspect_before_planning: true
+  exact_baseline_required: true
+  preserve_working_systems: true
+  preserve_data_and_workflows: true
+  no_rewrite_without_evidence: true
+  one_primary_owner: true
+  secondary_handoffs_only_when_action_required: true
+  update_existing_issue_before_creating_duplicate: true
+  main_is_not_automatically_application_baseline: true
+
+sources_of_truth:
+  code: Khaos-Krew/Khaos-Nexus
+  decisions: https://docs.google.com/document/d/14lSPuROBAEa8YLe_gPTyyxIiILVik-a0NT_hUkPcYog
+  work: github_issues
+  implementation: linked_pull_request
+
+owners:
+  architecture:
+    chat: "1. Product Architecture"
+    label: owner:architecture
+    scope:
+      - platform architecture
+      - cross-module contracts
+      - branch ownership
+      - compatibility policy
+      - security boundaries
+
+  desktop-core:
+    chat: "Khaos Nexus Desktop Application Core"
+    label: owner:desktop-core
+    scope:
+      - Electron main and renderer shell
+      - startup and recovery
+      - navigation and shared desktop UI
+      - local configuration and secure storage integration
+
+  diagnostics:
+    chat: "Khaos Nexus Diagnostics"
+    label: owner:diagnostics
+    scope:
+      - diagnostics launcher and runtime
+      - monitoring and support bundles
+      - redaction and failure evidence
+
+  release-ci:
+    chat: "Khaos Nexus Release and CI"
+    label: owner:release-ci
+    scope:
+      - GitHub Actions
+      - Windows packaging
+      - release publication
+      - updater assets and checksums
+
+  discord-runtime:
+    chat: "Khaos Nexus Bot Core"
+    label: owner:discord-runtime
+    scope:
+      - supervised Discord bot runtime
+      - commands and interactions
+      - runtime configuration
+      - Discord delivery contracts
+
+  discord-studio:
+    chat: "Khaos Nexus Discord Features"
+    label: owner:discord-studio
+    scope:
+      - embeds and persistent panels
+      - role menus and automation
+      - logs and Discord-facing features
+
+  discord-onboarding:
+    chat: "Khaos Nexus Discord Onboarding"
+    label: owner:discord-onboarding
+    scope:
+      - server onboarding
+      - shared bot and bring-your-own-bot flows
+      - initial Discord setup and permissions
+
+  scheduler:
+    chat: "Khaos Nexus Scheduler Design"
+    label: owner:scheduler
+    scope:
+      - recurring schedules
+      - warning, save, shutdown, restart, and verification workflows
+      - interrupted-job recovery
+
+  game-adapters:
+    chat: "Khaos Nexus Game Adapters"
+    label: owner:game-adapters
+    scope:
+      - typed Game Adapter SDK
+      - ARK and generic RCON
+      - Palworld REST and RCON
+      - Rust WebRCON
+      - Satisfactory dedicated-server API
+
+  android:
+    chat: "Khaos Nexus Android Companion"
+    label: owner:android
+    scope:
+      - mobile gateway
+      - pairing and device trust
+      - Android application
+
+  dnd:
+    chat: "Khaos Nexus Dungeons and Dragons"
+    label: owner:dnd
+    scope:
+      - D&D campaign workspace
+      - characters, sessions, encounters, and homebrew
+
+  module-center:
+    chat: "Khaos Nexus Module Center"
+    label: owner:module-center
+    scope:
+      - module catalog and dependencies
+      - module enablement and recovery
+      - migration tracking
+
+handoff_required_fields:
+  - register_revision
+  - decision_ids
+  - primary_chat
+  - secondary_chats_requiring_action
+  - type
+  - priority
+  - requested_change
+  - reason
+  - confirmed_requirements
+  - current_system_inspection
+  - approved_repository_baseline
+  - constraints
+  - dependencies
+  - expected_result
+  - questions
+
+coordination_check:
+  - register_revision
+  - decision_ids
+  - handoff_issue
+  - primary_owner
+  - baseline_branch_commit_and_pr
+  - conflicts_or_blockers
+  - existing_behavior_inspected
