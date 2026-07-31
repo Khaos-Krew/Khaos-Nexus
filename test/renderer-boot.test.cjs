@@ -64,7 +64,8 @@ test('candidate retains stable startup, Android, adapters and unconditional loca
 
   assert.match(entry, /portable-bootstrap-extension\.cjs/);
   assert.ok(entry.indexOf('portable-bootstrap-extension.cjs') < entry.indexOf('requestSingleInstanceLock'));
-  assert.match(entry, /diagnostic-tool\.cjs/);
+  assert.match(entry, /diagnostic-runtime-updater\.cjs/);
+  assert.match(entry, /runDiagnosticTool/);
   assert.match(entry, /--diagnostics/);
   assert.match(entry, /diagnostic-suite-extension\.cjs/);
   assert.match(entry, /startup-core-release-extension\.cjs/);
@@ -105,13 +106,18 @@ test('candidate retains stable startup, Android, adapters and unconditional loca
 test('installer diagnostics are local-first, redacted and independent of the main UI', () => {
   const entry = read('main/entry.cjs');
   const extension = read('main/diagnostic-suite-extension.cjs');
+  const updater = read('main/diagnostic-runtime-updater.cjs');
   const service = read('main/services/diagnostic-suite.cjs');
   const tool = read('main/diagnostic-tool.cjs');
   const preload = read('main/diagnostic-tool-preload.cjs');
   const installer = read('assets/installer.nsh');
   const packageJson = JSON.parse(read('package.json'));
 
-  assert.match(entry, /diagnosticTool\.run\(\)|diagnostic-tool\.cjs/);
+  assert.match(entry, /diagnostic-runtime-updater\.cjs/);
+  assert.match(entry, /runDiagnosticTool/);
+  assert.match(updater, /Khaos-Krew\/Khaos-Nexus-Diagnostics/);
+  assert.match(updater, /require\('\.\/diagnostic-tool\.cjs'\)/);
+  assert.match(updater, /require\('\.\/services\/diagnostic-suite\.cjs'\)/);
   assert.match(extension, /render-process-gone/);
   assert.match(extension, /did-fail-load/);
   assert.match(extension, /unexpected-previous-shutdown/);
