@@ -1,40 +1,42 @@
 # D&D Discord Campaign Integration
 
-## Status and architecture
+## Architecture
 
-This feature extends the existing local-first Khaos Nexus desktop application. It does not replace the supervised Discord runtime, Discord Studio, encrypted credential storage, module registry, audit log, or existing game-server commands.
+This feature extends the existing local-first Khaos Nexus Electron application. It preserves the supervised Discord runtime, Discord Studio, encrypted credential storage, module registry, audit logging, game-server commands, and existing Nexus Bot configuration.
 
-The D&D module is a first-class `dnd-workspace` module. Nexus Bot and additional registered Discord apps run the same D&D command definitions, campaign-context resolver, grants, scopes, dice privacy rules, initiative rules, and session lifecycle.
+`dnd-workspace` is a first-class registered-bot module. Nexus Bot is represented as the legacy registered app and uses the same command definitions, campaign resolver, grants, scopes, privacy rules, initiative rules, and session lifecycle as additional registered Discord apps. No production Discord application ID is hardcoded.
 
-The desktop remains authoritative for active Discord gateway interactions. Supabase stores the optional multi-tenant shared-data model and RLS boundaries. The migration intentionally contains no bot-token column. Bot tokens remain protected by Electron `safeStorage` on the installation that runs each bot.
+The desktop gateway remains the authority for Discord interactions. Supabase provides the multi-tenant shared-data and RLS foundation. No bot-token column exists in the API-facing schema; desktop bot tokens remain protected with Electron `safeStorage` and are never returned to the renderer.
 
-## Existing behavior preserved
+## Schema and migrations
 
-- Existing Nexus Bot configuration and token remain valid.
-- Existing non-D&D slash commands remain registered through the original module gates.
-- Existing Discord Automation and persistent game status panels continue to run through `bot/entry.cjs`.
-- Existing local backups include the encrypted secret blob and D&D local configuration.
-- Existing campaigns and local D&D records are normalized in place rather than deleted when the module is disabled.
+Fresh environments apply these migrations in order:
 
-## Schema
+1. `20260731221500_dnd_foundation.sql`
+2. `20260731221600_dnd_play_and_discord_entities.sql`
+3. `20260731221700_dnd_authorization_helpers.sql`
+4. `20260731221800_dnd_rls_policies.sql`
+5. `20260731223000_dnd_security_definer_hardening.sql`
+6. `20260731224500_dnd_rls_performance_hardening.sql`
+7. `20260731225000_dnd_index_deduplication.sql`
 
-The migration `supabase/migrations/20260731221500_dnd_discord_campaign_integration.sql` creates the tenant, registered-app, campaign, content, character, encounter, session, roll, binding, grant, context, panel, and audit foundations.
+The series creates tenant, registered-app, campaign, member, source, content, homebrew, character, quest, world, loot, session, attendance, calendar, encounter, initiative, dice-roll, Discord binding, bot-grant, channel-context, persistent-panel, and audit structures.
 
-Core Discord integration tables:
+Core Discord records:
 
-- `discord_registered_apps`: safe app metadata only; never stores tokens.
+- `discord_registered_apps`: non-secret application metadata.
 - `discord_app_managers`: users explicitly authorized to manage an app.
 - `dnd_discord_bindings`: campaign-to-channel/thread/forum-post bindings.
-- `dnd_bot_campaign_grants`: campaign and guild scopes for one registered app.
+- `dnd_bot_campaign_grants`: campaign/guild scopes for a registered app.
 - `dnd_shared_channel_contexts`: explicit active campaign for a shared channel.
 - `dnd_campaign_panels`: one persistent message per binding.
 - `dnd_session_attendance`: attending, maybe, unavailable, or late.
 
-Database constraints prevent duplicate active bindings and more than one active primary `main` binding per campaign, registered app, and guild.
+Constraints prevent duplicate active campaign-resource bindings and more than one active primary `main` binding for the same campaign, app, and guild.
 
 ## Setup flow
 
-The default setup mode is **Do not create anything**. Saving that mode performs no Discord REST request and creates no Discord resource.
+The default setup mode is **Do not create anything**. Saving that option performs no Discord REST request and creates no Discord resource.
 
 Supported modes:
 
@@ -42,22 +44,22 @@ Supported modes:
 2. Assign an existing text channel.
 3. Assign an existing thread.
 4. Assign an existing forum post.
-5. Create one thread in an explicitly selected parent text channel.
+5. Create one thread in an explicitly selected text channel.
 6. Create one forum post in an explicitly selected forum.
 
-Thread and forum-post creation require an explicit confirmation. Each operation creates at most one Discord resource. Category creation and full campaign server scaffolding are unavailable.
+Creation requires deliberate confirmation and each operation creates at most one resource. Category creation, multiple channel creation, voice-channel creation, and full campaign server scaffolding are unavailable.
 
-Manual Discord IDs are supported when synced guild/channel data is unavailable. Enable Discord Developer Mode, then use **Copy Server ID**, **Copy Channel ID**, or **Copy Link** as appropriate.
+When synced resources are unavailable, users can enable Discord Developer Mode and copy the server, channel, thread, or forum-post ID manually.
 
 ## Registered-bot authorization
 
 A registered app must:
 
 - Be enabled.
-- Have the `dnd-workspace` module enabled.
+- Have `dnd-workspace` enabled.
 - Have a protected token on the desktop installation running it.
 - Have a campaign grant for the campaign and guild.
-- Have every required D&D scope.
+- Have every scope required by the command.
 - Be owned by, or explicitly manageable by, the user configuring it.
 
 Supported scopes:
@@ -71,21 +73,21 @@ Supported scopes:
 - `quests:read`
 - `panels:manage`
 
-Nexus Bot is represented as the legacy registered-app record and uses the same D&D routing. Its Discord application ID is read from configuration; no production Discord ID is hardcoded.
+The campaign Discord interface shows each registered app, whether D&D is enabled, token-presence status without exposing the token, and every authorized campaign, guild, and scope set.
 
 ## Campaign-context resolution
 
-Commands resolve campaign context in this order:
+Commands resolve context in this order:
 
 1. Exact binding for the current channel, thread, or forum post.
-2. Valid parent binding for a child thread or forum post.
+2. Valid parent-channel binding for a child thread or forum post.
 3. Explicit shared-channel active campaign.
 
-When multiple campaigns share the exact channel or its parent, `/campaign use` must explicitly select an active campaign. Khaos Nexus never chooses one implicitly.
+When more than one campaign is eligible, Khaos Nexus never guesses. `/campaign use` can select only a campaign already bound to the exact resource or its valid parent.
 
 ## Channel, thread, and forum behavior
 
-Bindings support `channel`, `thread`, and `forum_post` resource types and these purposes:
+Bindings support `channel`, `thread`, and `forum_post` resource types with these purposes:
 
 - `main`
 - `dm_private`
@@ -96,11 +98,11 @@ Bindings support `channel`, `thread`, and `forum_post` resource types and these 
 - `announcements`
 - `voice`
 
-Players do not receive private DM destination details through the public binding RPC. Deleted resources remain as stale bindings with an error status so campaign data and audit history are preserved.
+Player-safe reads exclude `dm_private` destinations. Deleted resources remain as stale bindings with error state so campaign data and audit history are preserved. Unbinding never deletes the Discord resource.
 
 ## Commands
 
-Commands are registered only when `dnd-workspace` is enabled for the running app:
+Commands register only when `dnd-workspace` is enabled for the selected app:
 
 - `/campaign info`
 - `/campaign use`
@@ -115,25 +117,33 @@ Commands are registered only when `dnd-workspace` is enabled for the running app
 - `/session end`
 - `/quest list`
 
-DM-only commands require the campaign role `admin`, `dm`, or `assistant_dm`; Discord Administrator alone is not campaign authorization.
+Campaign owner, DM, or assistant DM authorization is required for management actions. Discord Administrator alone does not grant campaign authority.
 
-## Permissions and scopes
+## Permissions and RLS
 
-Campaign roles are `admin`, `dm`, `assistant_dm`, `player`, and `viewer`. Campaign owner, DM, and assistant DM may manage Discord integration records. Players can read non-sensitive campaign integration information through safe views/RPCs but cannot see `dm_private` destinations.
+Campaign roles are `admin`, `dm`, `assistant_dm`, `player`, and `viewer`.
 
-Security-definer helper functions use a fixed search path, revoke execution from `public` and `anon`, and grant only to `authenticated` and `service_role` where required. Discord role mappings are constrained to `viewer` and `operator`; they cannot grant Nexus owner or administrator privileges.
+- Owner, DM, and assistant DM may manage bindings, grants, explicit channel context, panels, sessions, and attendance.
+- Players can read non-sensitive campaign integration information.
+- Players cannot read private DM destinations or GM-only campaign records.
+- A user can grant only an app they own or are explicitly authorized to manage.
+- Discord role mappings are constrained to `viewer` and `operator` and cannot grant Nexus owner/admin.
+- Privileged authorization helpers live in a non-exposed `private` schema.
+- Public wrappers are security invokers.
+- Anonymous/public execution is revoked.
+- Service functions may resolve bot interactions without returning credentials.
 
 ## Dice privacy
 
-- **Public:** visible in the command channel and persisted.
-- **DM only:** shown ephemerally to the roller and delivered to an authorized DM destination when available. The response states when DM delivery failed.
-- **Blind:** the roll is not generated or persisted until a safe DM destination is verified and delivery succeeds.
+- **Public:** posted normally and persisted.
+- **DM only:** shown ephemerally to the roller and delivered to a configured DM destination when available. The response states when delivery failed.
+- **Blind:** not generated or persisted unless a safe DM destination is available and delivery succeeds.
 
-Dice expressions use a bounded parser. User input is never executed as code. Individual dice, kept indexes, modifier, total, normalized expression, parser version, Discord context, and interaction ID are retained. Interaction IDs are unique per registered app to prevent duplicate persistence.
+The bounded parser supports common notation such as `d20`, `2d6+3`, `2d20kh1+5`, and `2d20kl1`. Input is never evaluated as code. Persistence retains individual dice, kept indexes, modifier, total, normalized expression, privacy, parser version, Discord context, and interaction ID. Interaction IDs are unique per registered app.
 
 ## Initiative
 
-Initiative order is deterministic: initiative descending, Dexterity descending, then stable combatant ID. The stored order is not destructively rotated. `current_turn_index` advances through the sorted order, and the round increments only after the final combatant completes a turn.
+Initiative order is deterministic: initiative descending, Dexterity descending, then stable combatant ID. The order is not destructively rotated. `current_turn_index` advances through the stable order, and the round increments only after the final combatant completes a turn.
 
 Players may join using a selected character. Only campaign owner, DM, or assistant DM may advance turns.
 
@@ -143,44 +153,43 @@ Only one active session is allowed per campaign.
 
 Starting a session:
 
-- Activates a planned session or creates the selected active record.
+- Activates a selected or planned session.
 - Optionally resets active initiative only after explicit confirmation.
-- Refreshes the persistent panel.
-- Posts one compact session-start message.
+- Refreshes the persistent campaign panel.
+- Posts one compact session-start response.
 
 Ending a session:
 
-- Marks the session complete.
-- Preserves rolls, attendance, encounter state, and initiative history.
+- Marks the session completed.
+- Preserves rolls, attendance, encounters, and initiative history.
 - Creates an unapproved structured recap draft from Nexus-recorded activity only.
-- Does not scrape arbitrary Discord history.
-- Does not publish the recap without DM approval.
+- Never scrapes arbitrary Discord history.
+- Never publishes the recap without DM approval.
 - Refreshes the campaign panel.
 
 ## Persistent campaign panel
 
-Each binding has at most one panel row and one editable Discord message. Refresh edits the existing message. A missing/deleted message is replaced once and the new message ID is retained.
+Each binding has one panel record and one editable Discord message. Refresh edits the existing message. A deleted message is replaced once and the replacement ID is retained.
 
-The hash uses stable campaign, party, quest, location, and session data. Audit timestamps and refresh timestamps are not included, preventing unnecessary Discord edits.
+The content hash includes stable campaign, party, quest, location, and session data. Audit and refresh timestamps are excluded so unchanged panels are not edited unnecessarily.
 
 ## Deployment requirements
 
-1. Apply the database migration to the verified Khaos Nexus Supabase project.
+1. Apply the ordered database migrations to the verified Khaos Nexus Supabase project.
 2. Run Supabase security and performance advisors.
-3. Build and test the desktop branch.
+3. Run focused D&D tests, the full test suite, syntax/type checks, and the production build.
 4. Configure each Discord application token through protected desktop storage.
-5. Invite each bot with `bot` and `applications.commands` and only the channel/thread permissions it needs.
-6. Start or restart the supervised desktop Discord runtime so module-aware commands register.
-7. Bind campaigns and grant scopes from the campaign Discord tab.
-8. Test access and refresh the persistent panel.
+5. Invite each bot with `bot` and `applications.commands` plus only the channel/thread permissions it needs.
+6. Restart the supervised desktop Discord runtime so module-gated commands register.
+7. Grant campaign scopes, bind resources, test access, and refresh the persistent panel.
 
-The existing application uses a supervised Discord gateway runtime. A separate cloud interaction webhook or cloud command-registration authority must not be deployed without an approved architecture decision because it would create a second command/router owner.
+The current application has no cloud interaction router. Deploying a Supabase Edge Function as a second Discord router or command-registration authority requires a separate approved architecture decision and Discord Bot Core handoff.
 
 ## Known limitations
 
-- The desktop foundation is local-first. Supabase shared records are not yet synchronized into the desktop local store automatically.
-- Registered apps require their protected token on the installation that runs them.
-- Discord permission checks can verify resource visibility immediately; actual message/thread permissions are also exercised when creating or refreshing a panel.
+- The desktop foundation is local-first; automatic Supabase-to-desktop synchronization is not part of this foundational phase.
+- Registered apps require protected credentials on the installation running them.
+- Resource listing verifies visibility; actual message/thread write permission is exercised by resource creation or panel refresh.
 - Full campaign category creation is intentionally unavailable.
-- D&D Beyond content is link-only or user-controlled import unless a documented authorized API or export path permits more.
-- Paid rulebook text is not included by this feature.
+- D&D Beyond remains link-only or user-controlled import unless an authorized public/partner API or permitted export path exists.
+- Paid rulebook text is not included or reproduced.
