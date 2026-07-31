@@ -40,7 +40,7 @@ function capabilityMapForServer(server = {}) {
       info: true,
       players: true,
       settings: true,
-      saves: {
+      backup: {
         supported: true,
         requiredRole: 'viewer',
         destructive: false,
