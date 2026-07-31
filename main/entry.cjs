@@ -8,7 +8,7 @@ const diagnosticsMode = process.argv.includes('--diagnostics');
 
 if (diagnosticsMode) {
   require('./software-rendering-extension.cjs').install();
-  require('./diagnostic-tool.cjs').run();
+  require('./diagnostic-runtime-updater.cjs').runDiagnosticTool();
 } else {
   const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
