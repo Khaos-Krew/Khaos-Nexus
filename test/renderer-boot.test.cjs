@@ -33,7 +33,7 @@ test('renderer features remain serialized and software compatibility remains the
   assert.match(brand, /addScript\('simple-updater\.js'\)/);
 });
 
-test('candidate retains stable startup, Android, adapters and unconditional local recovery', () => {
+test('v0.25.0 retains stable startup, adapters, preserved Android evidence and unconditional local recovery', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
   const coreRelease = read('main/startup-core-release-extension.cjs');
@@ -52,12 +52,13 @@ test('candidate retains stable startup, Android, adapters and unconditional loca
   const satisfactory = read('main/satisfactory-main-extension.cjs');
   const mobile = read('main/services/mobile-gateway-service.cjs');
   const mobileSecurity = read('main/mobile-gateway-security-extension.cjs');
+  const mobileHold = read('main/mobile-production-hold-extension.cjs');
 
-  // Release identity remains unchanged until this candidate passes Owner testing.
-  assert.equal(packageJson.version, '0.22.1');
+  assert.equal(packageJson.version, '0.25.0');
   assert.match(packageJson.description, /installer-first automatic diagnostics/i);
   assert.match(packageJson.description, /standalone Khaos Nexus Diagnostics launcher/i);
-  assert.match(packageJson.description, /native read-only Android companion/i);
+  assert.match(packageJson.description, /preserved but paused Android Companion and Mobile Gateway/i);
+  assert.match(packageJson.description, /D&D campaign integration/i);
   assert.match(packageJson.description, /dedicated Rust WebRCON operations/i);
   assert.match(packageJson.description, /Satisfactory dedicated-server operations/i);
   assert.match(packageJson.description, /typed Game Adapter SDK/i);
@@ -71,8 +72,10 @@ test('candidate retains stable startup, Android, adapters and unconditional loca
   assert.match(entry, /startup-core-release-extension\.cjs/);
   assert.match(entry, /interface-watchdog-extension\.cjs/);
   assert.match(entry, /renderer-unresponsive-extension\.cjs/);
-  assert.match(entry, /mobile-module-registry-extension\.cjs/);
-  assert.match(entry, /mobile-gateway-security-extension\.cjs/);
+  assert.match(entry, /mobile-production-hold-extension\.cjs/);
+  assert.match(entry, /mobileGatewayPolicyEnabled/);
+  assert.match(entry, /if \(mobileGatewayEnabled\) require\('\.\/mobile-module-registry-extension\.cjs'\)\.install\(\)/);
+  assert.match(entry, /if \(mobileGatewayEnabled\) \{\s*require\('\.\/mobile-gateway-extension\.cjs'\)\.install\(\);\s*require\('\.\/mobile-gateway-security-extension\.cjs'\)\.install\(\);/s);
   assert.match(entry, /module-foundation-extension\.cjs/);
   assert.match(entry, /local-module-authority-extension\.cjs/);
   assert.match(entry, /module-runtime-extension\.cjs/);
@@ -90,9 +93,15 @@ test('candidate retains stable startup, Android, adapters and unconditional loca
   assert.match(rust, /rustModuleEnabledFromRuntime/);
   assert.match(rustGate, /assertModule\('rust-server-operations'/);
   assert.match(satisfactory, /server:satisfactory-action/);
+
+  // Dormant Android and Mobile Gateway implementation remains intact for future authorized resumption.
   assert.match(mobile, /class MobileGatewayService/);
   assert.match(mobile, /TLSv1\.2/);
   assert.match(mobileSecurity, /LAST_SEEN_WRITE_INTERVAL_MS/);
+  assert.match(mobileHold, /String\(env\?\.\[ENABLE_VARIABLE\] \|\| ''\) === '1'/);
+  assert.match(mobileHold, /reason: 'paused-by-owner-directive'/);
+  assert.match(mobileHold, /effectiveEnabled: false/);
+
   assert.match(audit, /reconcileInterruptedRuns/);
   assert.match(unresponsive, /renderer-unresponsive/);
   assert.match(watchdog, /interface-watchdog-state\.json/);
