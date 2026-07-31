@@ -1,0 +1,166 @@
+{
+  "legend": {
+    "available": "Available",
+    "beta": "In development",
+    "planned": "Planned"
+  },
+  "categories": [
+    {
+      "name": "Core Desktop Platform",
+      "features": [
+        {
+          "name": "Local-First Desktop Command Center",
+          "status": "available",
+          "summary": "Runs Khaos Nexus as a standalone Windows application.",
+          "description": "Provides one control surface for Discord automation, game-server operations, modules, updates, diagnostics, and local configuration. Sensitive values are protected through Windows secure storage."
+        },
+        {
+          "name": "Module Center and Local Recovery",
+          "status": "available",
+          "summary": "Lets the local desktop owner enable, disable, recover, and safely gate application modules.",
+          "description": "Includes dependency-aware module switching, Disable All, Safe Mode, validated-module recovery, migration notes, and local recovery controls that remain available when Discord is offline or misconfigured."
+        },
+        {
+          "name": "Startup Guard, Watchdog, and Recovery",
+          "status": "available",
+          "summary": "Detects failed or unresponsive launches and presents a usable recovery path.",
+          "description": "Uses serialized startup, visible-interface health checks, renderer monitoring, retained watchdog state, software-renderer compatibility, and recovery diagnostics instead of leaving the application frozen."
+        },
+        {
+          "name": "Windows Installer, Portable Build, and Updates",
+          "status": "available",
+          "summary": "Ships installable and portable Windows builds with a protected update flow.",
+          "description": "Supports installer and portable executables, updater metadata, checksums, mandatory pre-update backups, retryable installation, and an always-visible in-app update center."
+        }
+      ]
+    },
+    {
+      "name": "Discord Automation",
+      "features": [
+        {
+          "name": "Supervised Discord Bot Runtime",
+          "status": "available",
+          "summary": "Starts, monitors, configures, and recovers the Discord bot from the desktop application.",
+          "description": "Includes spawn-confirmed process supervision, slash-command support, live configuration updates, operator access controls, synchronized runtime status, and error reporting."
+        },
+        {
+          "name": "Discord Studio and Server Automation",
+          "status": "available",
+          "summary": "Builds and manages Discord-facing tools without manually recreating each server element.",
+          "description": "Supports Discord Studio workflows, role menus, category and channel automation, module-aware commands and buttons, routed logs, and persistent server panels."
+        },
+        {
+          "name": "Privacy-Safe Status and Queue Panels",
+          "status": "available",
+          "summary": "Publishes persistent game-server information without exposing protected connection data.",
+          "description": "Provides live server status, player summaries, queue information where supported, and refresh controls while excluding credentials, IP addresses, and platform identifiers from public output."
+        }
+      ]
+    },
+    {
+      "name": "Game Server Operations",
+      "features": [
+        {
+          "name": "ARK and Generic RCON",
+          "status": "available",
+          "summary": "Connects to ARK and other compatible servers through guarded RCON operations.",
+          "description": "Supports status checks, announcements, player visibility, saves, moderation, schedules, and adapter-based command handling without exposing raw credentials to the interface."
+        },
+        {
+          "name": "Palworld REST and RCON",
+          "status": "available",
+          "summary": "Combines Palworld REST capabilities with RCON-backed administration.",
+          "description": "Provides typed server status, connected-player operations, announcements, save and shutdown workflows, Discord delivery, and stable redacted adapter errors."
+        },
+        {
+          "name": "Rust WebRCON",
+          "status": "available",
+          "summary": "Adds dedicated Rust server administration through WebRCON.",
+          "description": "Includes vanilla-safe status, players, saves, announcements, moderation, Discord status and queue panels, and Owner-only raw console access."
+        },
+        {
+          "name": "Encrypted Pterodactyl Hosting Control",
+          "status": "available",
+          "summary": "Controls hosted servers through the Pterodactyl Client API without exposing API keys to the renderer.",
+          "description": "Discovers hosted servers, reads resource state, and provides guarded start, restart, stop, and Owner-confirmed emergency kill actions through encrypted credentials and short-lived action tokens."
+        },
+        {
+          "name": "Cross-Server Players and Moderation",
+          "status": "available",
+          "summary": "Shows connected players across selected servers and centralizes guarded moderation.",
+          "description": "Supports game, server, and player search; reason-required kicks; Owner-confirmed bans; protected identifiers; local action history; and short-lived moderation tokens."
+        },
+        {
+          "name": "Recurring Server Scheduler",
+          "status": "available",
+          "summary": "Automates warnings, saves, shutdowns, restarts, and recovery checks.",
+          "description": "Includes countdown broadcasts, save-before-shutdown protection, game-specific safe shutdowns, provider restart verification, cancellation, interrupted-job recovery, Discord reports, and execution history."
+        },
+        {
+          "name": "Typed Game Adapter SDK",
+          "status": "available",
+          "summary": "Provides a consistent extension layer for adding supported games.",
+          "description": "Uses explicit capability manifests, guarded destructive-action policies, stable redacted errors, bounded protocol fixtures, and shared bridges for Palworld REST, ARK and generic RCON, and Rust WebRCON."
+        },
+        {
+          "name": "Satisfactory Dedicated-Server Adapter",
+          "status": "beta",
+          "summary": "Extends the shared adapter system to Satisfactory's dedicated-server API.",
+          "description": "Development work covers typed server operations, capability reporting, safe administrative actions, and integration with the shared Nexus status and control surfaces."
+        }
+      ]
+    },
+    {
+      "name": "Mobile, Diagnostics, and Reliability",
+      "features": [
+        {
+          "name": "Android Companion and Mobile Gateway",
+          "status": "available",
+          "summary": "Provides a read-only Android companion with an optional protected connection to the desktop application.",
+          "description": "Uses certificate-pinned HTTPS, one-time Owner-approved pairing, P-256 signed requests, hashed device credentials, replay protection, immediate revocation, and Android Keystore storage."
+        },
+        {
+          "name": "Backups, Monitoring, and Support Bundles",
+          "status": "available",
+          "summary": "Captures actionable diagnostics while keeping secrets out of logs and exports.",
+          "description": "Includes verified local backups, rolling breadcrumbs, unclean-shutdown detection, retained AppData logs, stale-health cleanup, redacted support bundles, and optional HTTPS diagnostics delivery."
+        },
+        {
+          "name": "Standalone Installer Diagnostics",
+          "status": "beta",
+          "summary": "Adds installer-first troubleshooting before the main interface has to load.",
+          "description": "Development work provides a dedicated Khaos Nexus Diagnostics launcher, startup environment checks, portable sidecar reporting, and clearer recovery guidance for installation or launch failures."
+        }
+      ]
+    },
+    {
+      "name": "Roadmap",
+      "features": [
+        {
+          "name": "Shared Bot Onboarding and Bring Your Own Bot",
+          "status": "planned",
+          "summary": "Makes one shared multi-server Nexus bot the default while preserving an advanced custom-bot path.",
+          "description": "The default onboarding flow will connect communities to the managed Nexus bot. Advanced users will be able to supply their own Discord application and token for separate branding or isolation."
+        },
+        {
+          "name": "D&D Campaign Workspace",
+          "status": "planned",
+          "summary": "Adds campaign, character, session, encounter, homebrew, and Discord-channel tools.",
+          "description": "Campaigns will bind to existing Discord channels instead of creating duplicates, with role-aware campaign access and support for user-created or otherwise permitted content imports."
+        },
+        {
+          "name": "Website Migration Import",
+          "status": "planned",
+          "summary": "Moves supported Khaos Nexus website settings and module data into the desktop application.",
+          "description": "The migration path will classify legacy data, import supported settings safely, preserve an audit trail, and clearly identify anything that requires manual review."
+        },
+        {
+          "name": "Additional Game Adapters",
+          "status": "planned",
+          "summary": "Expands the Nexus through the typed adapter SDK as reliable server APIs become available.",
+          "description": "Future adapters will reuse the same capability, permission, status, scheduling, moderation, and redaction contracts instead of introducing one-off control paths."
+        }
+      ]
+    }
+  ]
+}

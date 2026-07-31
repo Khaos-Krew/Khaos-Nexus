@@ -1,0 +1,71 @@
+name: README Feature Monitor
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "17 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: readme-feature-monitor-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sync-readme:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Flag feature-impacting changes without registry review
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git diff --name-only "$BASE_SHA" "$HEAD_SHA" > changed-files.txt
+          cat changed-files.txt
+
+          if grep -Eq '^(main|bot|renderer|shared|release-notes)/' changed-files.txt \
+            && ! grep -qx 'docs/features.json' changed-files.txt; then
+            echo "::warning title=Feature registry review needed::App or release files changed without docs/features.json. Confirm whether the README feature list or roadmap should be updated."
+          fi
+
+      - name: Generate expandable README features
+        run: node .github/scripts/sync-readme-features.mjs
+
+      - name: Verify pull request is synchronized
+        if: github.event_name == 'pull_request'
+        run: git diff --exit-code -- README.md
+
+      - name: Commit synchronized README
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          if git diff --quiet -- README.md; then
+            echo "README feature sections are already synchronized."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "Sync README feature registry"
+          git push
