@@ -4,6 +4,7 @@ const electron = require('electron');
 const {
   applyAppModulePreferences,
   setAppDndPreference,
+  toPublicDndConfig,
   isOwnerRole
 } = require('../shared/dnd-app-policy.cjs');
 
@@ -59,6 +60,13 @@ function patchConfigStore() {
 
     getDndState() {
       return applyAppModulePreferences(super.getDndState());
+    }
+
+    getPublicConfig() {
+      const config = super.getPublicConfig();
+      const state = this.getDndState();
+      config.dnd = toPublicDndConfig(state, this.getRegisteredAppsPublic());
+      return config;
     }
 
     setDndAppEnabled(appId, enabled) {
