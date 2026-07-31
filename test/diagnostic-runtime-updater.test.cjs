@@ -79,8 +79,11 @@ test('verified runtime activation rejects missing, changed, and path-traversal f
   assert.equal(result.version, '0.1.0');
   fs.appendFileSync(path.join(directory, 'main', 'diagnostic-tool.cjs'), '// tampered\n');
   assert.throws(() => updater.verifyRuntime(directory, manifest, '0.22.1'), /size mismatch|hash mismatch/i);
-  const unsafe = { ...manifest, files: [...manifest.files, { path: '../escape.cjs', sha256: 'a'.repeat(64), size: 1 }] };
-  assert.throws(() => updater.verifyRuntime(directory, unsafe, '0.22.1'), /Unsafe diagnostics runtime path/i);
+
+  const unsafeDirectory = tempDirectory();
+  const unsafeBase = writeRuntime(unsafeDirectory);
+  const unsafe = { ...unsafeBase, files: [...unsafeBase.files, { path: '../escape.cjs', sha256: 'a'.repeat(64), size: 1 }] };
+  assert.throws(() => updater.verifyRuntime(unsafeDirectory, unsafe, '0.22.1'), /Unsafe diagnostics runtime path/i);
 });
 
 test('desktop entry and capture extension use the external runtime with fallback', () => {
