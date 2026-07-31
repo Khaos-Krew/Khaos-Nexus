@@ -40,16 +40,10 @@ function capabilityMapForServer(server = {}) {
       info: true,
       players: true,
       settings: true,
-      saves: {
-        supported: true,
-        requiredRole: 'viewer',
-        destructive: false,
-        timeoutMs: 30000,
-        description: 'Enumerate Satisfactory sessions and save files without creating or modifying a save.'
-      },
+      backup: true,
       save: true,
-      shutdown: { supported: true, timeoutMs: 120000 },
-      stop: { supported: true, timeoutMs: 60000 },
+      shutdown: true,
+      stop: true,
       raw: true
     };
   }
