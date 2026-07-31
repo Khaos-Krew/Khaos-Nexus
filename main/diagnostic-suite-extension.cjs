@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
-const { DiagnosticSuite } = require('./services/diagnostic-suite.cjs');
+const diagnosticRuntime = require('./diagnostic-runtime-updater.cjs');
 
 let installed = false;
 let service = null;
@@ -117,14 +117,20 @@ function installIpc() {
 
 function initialize() {
   if (service) return service;
-  service = new DiagnosticSuite({
+  const runtime = diagnosticRuntime.runtimeService({
+    dataDirectory: electron.app.getPath('userData'),
+    desktopVersion: electron.app.getVersion()
+  });
+  service = new runtime.DiagnosticSuite({
     dataDirectory: electron.app.getPath('userData'),
     appVersion: electron.app.getVersion(),
+    runtimeVersion: runtime.version,
     executablePath: process.execPath,
     resourcesPath: process.resourcesPath,
     isPackaged: electron.app.isPackaged
   });
-  service.startSession({ source: 'desktop', argv: process.argv.filter((value) => !/token|password|secret/i.test(value)).slice(0, 20) });
+  service.runtimeVersion = runtime.version;
+  service.startSession({ source: 'desktop', diagnosticsRuntime: runtime.version, argv: process.argv.filter((value) => !/token|password|secret/i.test(value)).slice(0, 20) });
   installIpc();
   for (const window of electron.BrowserWindow.getAllWindows()) attachWindow(window);
   electron.app.on('browser-window-created', (_event, window) => attachWindow(window));
@@ -140,7 +146,7 @@ function initialize() {
   }
 
   baselineTimer = setTimeout(() => {
-    const marker = path.join(service.diagnosticsDirectory, `baseline-${electron.app.getVersion()}.json`);
+    const marker = path.join(service.diagnosticsDirectory, `baseline-${electron.app.getVersion()}-${runtime.version}.json`);
     if (!fs.existsSync(marker)) {
       const report = service.createReport({
         type: 'post-install-baseline',
@@ -148,7 +154,7 @@ function initialize() {
         severity: 'info',
         automatic: true
       }, context());
-      fs.writeFileSync(marker, JSON.stringify({ reportId: report.reportId, createdAt: report.createdAt }, null, 2), 'utf8');
+      fs.writeFileSync(marker, JSON.stringify({ reportId: report.reportId, createdAt: report.createdAt, diagnosticsRuntime: runtime.version }, null, 2), 'utf8');
       broadcast();
     }
   }, 10000);
@@ -156,6 +162,7 @@ function initialize() {
 
   flushTimer = setInterval(() => service.flushOutbox().then(broadcast).catch(() => {}), 30 * 60 * 1000);
   flushTimer.unref?.();
+  diagnosticRuntime.scheduleBackgroundUpdate({ delayMs: 15000 });
   broadcast();
   return service;
 }
