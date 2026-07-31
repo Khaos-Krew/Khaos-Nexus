@@ -85,6 +85,13 @@ function fileMetadata(filePath) {
   } catch { return { exists: false, size: 0, modifiedAt: null }; }
 }
 
+function isProcessAlive(pid) {
+  const value = Number(pid);
+  if (!Number.isInteger(value) || value < 1) return false;
+  try { process.kill(value, 0); return true; }
+  catch (error) { return error?.code === 'EPERM'; }
+}
+
 function diskSnapshot(directory) {
   try {
     if (typeof fs.statfsSync !== 'function') return null;
@@ -177,7 +184,8 @@ class DiagnosticSuite {
   findUncleanSession() {
     for (const file of listFiles(this.sessionsDirectory, (name) => name.endsWith('.json'), 20)) {
       const session = safeJsonRead(file.filePath, null);
-      if (session?.id && Number(session.pid) !== this.pid) return { ...session, filePath: file.filePath };
+      if (!session?.id || Number(session.pid) === this.pid || isProcessAlive(session.pid)) continue;
+      return { ...session, filePath: file.filePath };
     }
     return null;
   }
@@ -385,4 +393,4 @@ class DiagnosticSuite {
   }
 }
 
-module.exports = { DiagnosticSuite, FORMAT, FORMAT_VERSION, normalizeEndpoint, installMode, atomicJsonWrite, safeJsonRead, tailFile, processSnapshot, diskSnapshot };
+module.exports = { DiagnosticSuite, FORMAT, FORMAT_VERSION, normalizeEndpoint, installMode, atomicJsonWrite, safeJsonRead, tailFile, processSnapshot, diskSnapshot, isProcessAlive };
