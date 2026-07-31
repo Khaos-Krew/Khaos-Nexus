@@ -264,7 +264,7 @@ Release candidates remain on validation branches until startup, navigation, Disc
 <!-- ROADMAP:START -->
 ## Planned Roadmap
 
-The roadmap currently contains **4 planned capabilities**. Priorities may change as the desktop platform, Discord runtime, and game adapters mature.
+The roadmap currently contains **3 planned capabilities**. Priorities may change as the desktop platform, Discord runtime, and game adapters mature.
 
 <details>
 <summary><strong>Shared Bot Onboarding and Bring Your Own Bot</strong> — Makes one shared multi-server Nexus bot the default while preserving an advanced custom-bot path.</summary>
@@ -281,15 +281,6 @@ The default onboarding flow will connect communities to the managed Nexus bot. A
 **Status:** Planned
 
 Campaigns will bind to existing Discord channels instead of creating duplicates, with role-aware campaign access and support for user-created or otherwise permitted content imports.
-
-</details>
-
-<details>
-<summary><strong>Website Migration Import</strong> — Moves supported Khaos Nexus website settings and module data into the desktop application.</summary>
-
-**Status:** Planned
-
-The migration path will classify legacy data, import supported settings safely, preserve an audit trail, and clearly identify anything that requires manual review.
 
 </details>
 
