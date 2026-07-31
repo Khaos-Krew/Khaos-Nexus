@@ -149,12 +149,6 @@
           "description": "Campaigns will bind to existing Discord channels instead of creating duplicates, with role-aware campaign access and support for user-created or otherwise permitted content imports."
         },
         {
-          "name": "Website Migration Import",
-          "status": "planned",
-          "summary": "Moves supported Khaos Nexus website settings and module data into the desktop application.",
-          "description": "The migration path will classify legacy data, import supported settings safely, preserve an audit trail, and clearly identify anything that requires manual review."
-        },
-        {
           "name": "Additional Game Adapters",
           "status": "planned",
           "summary": "Expands the Nexus through the typed adapter SDK as reliable server APIs become available.",
