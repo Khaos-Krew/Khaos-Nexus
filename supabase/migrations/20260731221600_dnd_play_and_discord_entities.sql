@@ -39,8 +39,9 @@ create table public.dnd_loot (
   campaign_id uuid not null references public.dnd_campaigns(id) on delete cascade,
   name text not null,
   quantity numeric not null default 1,
-  status text not null default 'available',
+  shared boolean not null default true,
   gm_only boolean not null default false,
+  assigned_character_id uuid references public.dnd_characters(id) on delete set null,
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -50,10 +51,12 @@ create table public.dnd_sessions (
   id uuid primary key default extensions.gen_random_uuid(),
   campaign_id uuid not null references public.dnd_campaigns(id) on delete cascade,
   title text not null,
-  status text not null default 'planned' check (status in ('planned','active','completed','cancelled')),
+  status text not null default 'planned' check (status in ('draft','planned','confirmed','active','completed','cancelled')),
   starts_at timestamptz,
   ends_at timestamptz,
   timezone text not null default 'UTC',
+  agenda text not null default '',
+  dm_notes text not null default '',
   recap_draft text not null default '',
   recap_approved_by uuid references auth.users(id) on delete restrict,
   recap_approved_at timestamptz,
@@ -61,7 +64,7 @@ create table public.dnd_sessions (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-create unique index dnd_sessions_one_active_per_campaign on public.dnd_sessions(campaign_id) where status = 'active';
+create unique index dnd_one_active_session_per_campaign on public.dnd_sessions(campaign_id) where status = 'active';
 
 create table public.dnd_session_attendance (
   id uuid primary key default extensions.gen_random_uuid(),
@@ -71,6 +74,7 @@ create table public.dnd_session_attendance (
   discord_user_id text check (discord_user_id is null or discord_user_id ~ '^[0-9]{5,25}$'),
   status text not null check (status in ('attending','maybe','unavailable','late')),
   note text not null default '',
+  updated_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   check (user_id is not null or discord_user_id is not null)
@@ -81,7 +85,7 @@ create unique index dnd_attendance_discord_unique on public.dnd_session_attendan
 create table public.dnd_calendar_events (
   id uuid primary key default extensions.gen_random_uuid(),
   campaign_id uuid not null references public.dnd_campaigns(id) on delete cascade,
-  session_id uuid references public.dnd_sessions(id) on delete set null,
+  session_id uuid references public.dnd_sessions(id) on delete cascade,
   title text not null,
   starts_at timestamptz not null,
   ends_at timestamptz,
