@@ -26,15 +26,24 @@ test('diagnostics API remains HTTPS-only and automatic uploads remain opt-in', (
 
 test('installer diagnostics detect an unclean prior session automatically', () => {
   const directory = tempDirectory();
-  const first = new DiagnosticSuite({ dataDirectory: directory, appVersion: '0.24.0', installMode: 'installed', pid: 111 });
+  const first = new DiagnosticSuite({ dataDirectory: directory, appVersion: '0.24.0', installMode: 'installed', pid: 987654321 });
   const old = first.startSession({ source: 'test' });
-  const second = new DiagnosticSuite({ dataDirectory: directory, appVersion: '0.24.0', installMode: 'installed', pid: 222 });
+  const second = new DiagnosticSuite({ dataDirectory: directory, appVersion: '0.24.0', installMode: 'installed', pid: 987654322 });
   second.startSession({ source: 'restarted-test' });
   assert.equal(second.hadUncleanPreviousSession(), true);
   assert.equal(second.previousSession.id, old.id);
   const report = second.captureAutomatic({ type: 'unexpected-previous-shutdown', reason: 'Prior session stopped unexpectedly.' });
   assert.equal(report.summary.warnings >= 1, true);
   assert.equal(report.checks.some((item) => item.id === 'previous-shutdown' && item.status === 'warning'), true);
+});
+
+test('a live main-app session is not misclassified when the standalone tool opens', () => {
+  const directory = tempDirectory();
+  const main = new DiagnosticSuite({ dataDirectory: directory, appVersion: '0.24.0', installMode: 'installed', pid: process.pid });
+  main.startSession({ source: 'live-main-process' });
+  const tool = new DiagnosticSuite({ dataDirectory: directory, appVersion: '0.24.0', installMode: 'installed', pid: process.pid + 100000 });
+  assert.equal(tool.hadUncleanPreviousSession(), false);
+  main.endSession('test-cleanup');
 });
 
 test('diagnostic reports redact credentials before writing evidence', () => {
