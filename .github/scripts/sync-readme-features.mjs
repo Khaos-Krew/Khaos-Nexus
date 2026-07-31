@@ -6,13 +6,22 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptDirectory, "../..");
 const registryPath = path.join(repositoryRoot, "docs", "features.json");
 const readmePath = path.join(repositoryRoot, "README.md");
-const startMarker = "<!-- FEATURES:START -->";
-const endMarker = "<!-- FEATURES:END -->";
 
-const statusDisplay = {
-  available: { icon: "✅", label: "Available" },
-  beta: { icon: "🧪", label: "In development" },
-  planned: { icon: "🌘", label: "Planned" }
+const markers = {
+  current: {
+    start: "<!-- CURRENT_FEATURES:START -->",
+    end: "<!-- CURRENT_FEATURES:END -->"
+  },
+  roadmap: {
+    start: "<!-- ROADMAP:START -->",
+    end: "<!-- ROADMAP:END -->"
+  }
+};
+
+const statusLabels = {
+  available: "Available",
+  beta: "In development",
+  planned: "Planned"
 };
 
 function fail(message) {
@@ -22,6 +31,7 @@ function fail(message) {
 
 function readRegistry() {
   let registry;
+
   try {
     registry = JSON.parse(fs.readFileSync(registryPath, "utf8"));
   } catch (error) {
@@ -32,6 +42,8 @@ function readRegistry() {
     fail("docs/features.json must contain at least one category.");
   }
 
+  const featureNames = new Set();
+
   for (const category of registry.categories) {
     if (!category.name || !Array.isArray(category.features)) {
       fail("Every category needs a name and a features array.");
@@ -41,9 +53,16 @@ function readRegistry() {
       if (!feature.name || !feature.summary || !feature.description) {
         fail(`Feature entries in "${category.name}" need name, summary, and description fields.`);
       }
-      if (!statusDisplay[feature.status]) {
+
+      if (!statusLabels[feature.status]) {
         fail(`Feature "${feature.name}" has unsupported status "${feature.status}".`);
       }
+
+      if (featureNames.has(feature.name)) {
+        fail(`Feature names must be unique. Duplicate: "${feature.name}".`);
+      }
+
+      featureNames.add(feature.name);
     }
   }
 
@@ -51,12 +70,11 @@ function readRegistry() {
 }
 
 function renderFeature(feature) {
-  const status = statusDisplay[feature.status];
   return [
     "<details>",
-    `<summary><strong>${status.icon} ${feature.name}</strong> — ${feature.summary}</summary>`,
+    `<summary><strong>${feature.name}</strong> — ${feature.summary}</summary>`,
     "",
-    `**Status:** ${status.label}`,
+    `**Status:** ${statusLabels[feature.status]}`,
     "",
     feature.description,
     "",
@@ -64,49 +82,107 @@ function renderFeature(feature) {
   ].join("\n");
 }
 
-function renderRegistry(registry) {
-  const counts = { available: 0, beta: 0, planned: 0 };
-  for (const category of registry.categories) {
-    for (const feature of category.features) counts[feature.status] += 1;
-  }
+function featuresByStatus(registry, status) {
+  return registry.categories.flatMap((category) =>
+    category.features
+      .filter((feature) => feature.status === status)
+      .map((feature) => ({ ...feature, category: category.name }))
+  );
+}
 
-  const sections = [
-    "### Nexus feature status",
+function renderCurrentFeatures(registry) {
+  const available = featuresByStatus(registry, "available");
+  const inDevelopment = featuresByStatus(registry, "beta");
+  const lines = [
+    markers.current.start,
+    "## Current Features",
     "",
-    `**${counts.available} available** · **${counts.beta} in development** · **${counts.planned} planned**`,
-    "",
-    "> The sections below are generated from [`docs/features.json`](docs/features.json). Edit the registry—not this block—when a feature is added, changes status, or enters the roadmap."
+    `Khaos Nexus currently includes **${available.length} production-ready capabilities** across the desktop platform, Discord automation, game-server operations, mobile access, and reliability tooling.`
   ];
 
   for (const category of registry.categories) {
-    sections.push("", `## ${category.icon || "◆"} ${category.name}`, "");
-    sections.push(category.features.map(renderFeature).join("\n\n"));
+    const features = category.features.filter((feature) => feature.status === "available");
+    if (features.length === 0) continue;
+
+    lines.push(
+      "",
+      `### ${category.name}`,
+      "",
+      features.map(renderFeature).join("\n\n")
+    );
   }
 
-  return sections.join("\n");
+  lines.push(
+    "",
+    "## In Development",
+    "",
+    `These **${inDevelopment.length} capabilities** are actively being built or validated and are not yet presented as fully released features.`
+  );
+
+  if (inDevelopment.length > 0) {
+    lines.push("", inDevelopment.map(renderFeature).join("\n\n"));
+  } else {
+    lines.push("", "_No features are currently marked as in development._");
+  }
+
+  lines.push(markers.current.end);
+  return lines.join("\n");
+}
+
+function renderRoadmap(registry) {
+  const planned = featuresByStatus(registry, "planned");
+  const lines = [
+    markers.roadmap.start,
+    "## Planned Roadmap",
+    "",
+    `The roadmap currently contains **${planned.length} planned capabilities**. Priorities may change as the desktop platform, Discord runtime, and game adapters mature.`
+  ];
+
+  if (planned.length > 0) {
+    lines.push("", planned.map(renderFeature).join("\n\n"));
+  } else {
+    lines.push("", "_No features are currently listed on the roadmap._");
+  }
+
+  lines.push(markers.roadmap.end);
+  return lines.join("\n");
+}
+
+function replaceBlock(content, marker, replacement) {
+  const startIndex = content.indexOf(marker.start);
+  const endIndex = content.indexOf(marker.end);
+
+  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
+    fail(`README.md must contain ${marker.start} and ${marker.end}.`);
+  }
+
+  return (
+    content.slice(0, startIndex) +
+    replacement +
+    content.slice(endIndex + marker.end.length)
+  );
 }
 
 const registry = readRegistry();
 const currentReadme = fs.readFileSync(readmePath, "utf8");
-const startIndex = currentReadme.indexOf(startMarker);
-const endIndex = currentReadme.indexOf(endMarker);
-
-if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
-  fail(`README.md must contain ${startMarker} and ${endMarker}.`);
-}
-
-const generatedBlock = `${startMarker}\n${renderRegistry(registry)}\n${endMarker}`;
-const updatedReadme =
-  currentReadme.slice(0, startIndex) +
-  generatedBlock +
-  currentReadme.slice(endIndex + endMarker.length);
+let updatedReadme = replaceBlock(
+  currentReadme,
+  markers.current,
+  renderCurrentFeatures(registry)
+);
+updatedReadme = replaceBlock(
+  updatedReadme,
+  markers.roadmap,
+  renderRoadmap(registry)
+);
 
 if (process.argv.includes("--check")) {
   if (updatedReadme !== currentReadme) {
     fail("README.md is out of sync. Run: node .github/scripts/sync-readme-features.mjs");
   }
+
   console.log("[readme-feature-monitor] README.md is synchronized.");
 } else {
   fs.writeFileSync(readmePath, updatedReadme);
-  console.log("[readme-feature-monitor] README.md feature sections updated.");
+  console.log("[readme-feature-monitor] README.md current features and roadmap updated.");
 }
