@@ -4,7 +4,7 @@ const { Client, Events } = require('discord.js');
 const { installModuleRuntime } = require('./module-runtime.cjs');
 const { installDiscordAutomationRuntime } = require('./discord-automation-runtime.cjs');
 const { installStatusPanelRuntime } = require('./status-panel-runtime.cjs');
-const { isDndInteraction, handleDndInteraction } = require('./dnd-runtime.cjs');
+const { isDndInteraction, handleDndInteraction } = require('./dnd-runtime-policy.cjs');
 
 const parent = process.parentPort;
 let bootstrap = null;
