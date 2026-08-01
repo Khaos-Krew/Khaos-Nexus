@@ -43,6 +43,7 @@ if (diagnosticsMode) {
     require('./dnd-owner-workflows-extension.cjs').install();
     require('./dnd-owner-license-default-extension.cjs').install();
     require('./dnd-world-content-extension.cjs').install();
+    require('./dnd-npc-tool-extension.cjs').install();
     require('./dnd-access-policy-extension.cjs').install();
     require('./dnd-authorization-summary-extension.cjs').install();
 
