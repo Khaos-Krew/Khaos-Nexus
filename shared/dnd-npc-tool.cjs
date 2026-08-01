@@ -273,6 +273,7 @@ function generateNpcDraft(input = {}) {
   const abilityScores = {};
   for (const ability of ABILITY_NAMES) abilityScores[ability] = 8 + Math.floor(random() * 11);
   const maxHp = mode === 'combat' ? Math.max(1, 6 + level * (4 + Math.floor(random() * 5))) : 0;
+  const generatedAttackId = `npc_action_${sha256(`${seed}:basic-attack`).slice(0, 36)}`;
   const generated = normalizeNpc({
     campaignId, name, mode, ancestry, occupation, role: clean(input.role || occupation, 160), disposition,
     personalityTraits: [choose(random, TRAITS)], motivations: [choose(random, MOTIVATIONS)], goals: [choose(random, MOTIVATIONS)],
@@ -283,7 +284,7 @@ function generateNpcDraft(input = {}) {
     combat: mode === 'combat' ? {
       level, challengeRating: clean(input.challengeRating || '', 30), armorClass: 10 + Math.floor(random() * 7), hp: maxHp, maxHp,
       speed: '30 ft.', abilities: abilityScores, initiativeModifier: Math.floor((abilityScores.dexterity - 10) / 2),
-      attacks: [{ name: 'Basic Attack', description: 'A simple weapon or natural attack. Review before use.', attackBonus: Math.max(2, level + 2), damageExpression: `${Math.max(1, Math.ceil(level / 4))}d6+${Math.max(0, Math.floor((abilityScores.strength - 10) / 2))}`, active: true }]
+      attacks: [{ id: generatedAttackId, name: 'Basic Attack', description: 'A simple weapon or natural attack. Review before use.', attackBonus: Math.max(2, level + 2), damageExpression: `${Math.max(1, Math.ceil(level / 4))}d6+${Math.max(0, Math.floor((abilityScores.strength - 10) / 2))}`, active: true }]
     } : {}
   });
   generated.metadata = { ...generated.metadata, generation: { provider: 'local-deterministic', seed, generatedAt: nowIso(), reviewed: false } };
