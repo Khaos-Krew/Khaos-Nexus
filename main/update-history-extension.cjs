@@ -25,6 +25,15 @@ function getService() {
   return service;
 }
 
+function publicIdentity() {
+  const state = getService().getState();
+  return {
+    currentVersion: state.currentVersion,
+    currentLabel: state.currentLabel,
+    channel: state.channel
+  };
+}
+
 function patchBrowserLoader() {
   const prototype = electron.BrowserWindow?.prototype;
   if (!prototype || prototype.__khaosUpdateHistoryPatched) return;
@@ -51,6 +60,7 @@ function patchBrowserLoader() {
           document.body.appendChild(script);
         };
         addStyle('update-history.css');
+        addScript('release-label-display.js');
         addScript('update-history.js');
       })();`).catch((error) => {
         console.error('[Khaos Nexus] Update history renderer bootstrap failed.', error);
@@ -64,6 +74,8 @@ function patchBrowserLoader() {
 function registerIpc() {
   if (registerIpc.done) return;
   registerIpc.done = true;
+
+  electron.ipcMain.handle('update-history:identity', () => publicIdentity());
 
   electron.ipcMain.handle('update-history:get', () => {
     const instance = getService();
@@ -87,4 +99,4 @@ function install() {
   electron.app.whenReady().then(() => setImmediate(registerIpc));
 }
 
-module.exports = { install, getService, patchBrowserLoader };
+module.exports = { install, getService, publicIdentity, patchBrowserLoader };
