@@ -76,15 +76,21 @@ jobs:
       - name: Verify updater metadata, packaged identity, assets, and ADR-008 exclusion
         shell: pwsh
         run: |
-          $required = @(
+          $largeAssets = @(
             'dist/Khaos-Nexus-Setup-0.26.5-beta-x64.exe',
+            'dist/Khaos-Nexus-Portable-0.26.5-beta-x64.exe'
+          )
+          $metadataAssets = @(
             'dist/Khaos-Nexus-Setup-0.26.5-beta-x64.exe.blockmap',
-            'dist/Khaos-Nexus-Portable-0.26.5-beta-x64.exe',
             'dist/latest.yml'
           )
-          foreach ($file in $required) {
-            if (-not (Test-Path -LiteralPath $file)) { throw "Required updater asset was not generated: $file" }
-            if ((Get-Item -LiteralPath $file).Length -le 1MB) { throw "Generated updater asset is unexpectedly small: $file" }
+          foreach ($file in $largeAssets) {
+            if (-not (Test-Path -LiteralPath $file)) { throw "Required executable was not generated: $file" }
+            if ((Get-Item -LiteralPath $file).Length -le 1MB) { throw "Generated executable is unexpectedly small: $file" }
+          }
+          foreach ($file in $metadataAssets) {
+            if (-not (Test-Path -LiteralPath $file)) { throw "Required updater metadata was not generated: $file" }
+            if ((Get-Item -LiteralPath $file).Length -le 0) { throw "Generated updater metadata is empty: $file" }
           }
 
           $metadata = Get-Content -LiteralPath 'dist/latest.yml' -Raw
@@ -101,7 +107,7 @@ jobs:
           node -e "const asar=require('@electron/asar'); const pkg=JSON.parse(asar.extractFile('dist/win-unpacked/resources/app.asar','package.json').toString('utf8')); if(pkg.version!=='0.26.5') throw new Error('Packaged updater version is '+pkg.version); if(pkg.khaosRelease?.displayVersion!=='0.26.5-beta') throw new Error('Packaged display label is '+pkg.khaosRelease?.displayVersion); console.log('Packaged identity verified:',pkg.version,pkg.khaosRelease.displayVersion);"
           if ($LASTEXITCODE -ne 0) { throw "Packaged application identity verification failed." }
 
-          $required | ForEach-Object {
+          @($largeAssets + $metadataAssets) | ForEach-Object {
             $hash = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant()
             "$hash  $([System.IO.Path]::GetFileName($_))"
           } | Set-Content -Path release-checksums.txt -Encoding utf8
