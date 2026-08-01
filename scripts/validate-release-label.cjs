@@ -50,7 +50,8 @@ function validateReleaseIdentity(packageJson, tagName = '') {
 if (require.main === module) {
   const packagePath = path.join(__dirname, '..', 'package.json');
   const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
-  const tagName = process.env.KHAOS_RELEASE_TAG || process.env.GITHUB_REF_NAME || '';
+  const hasExplicitTagOverride = Object.prototype.hasOwnProperty.call(process.env, 'KHAOS_RELEASE_TAG');
+  const tagName = hasExplicitTagOverride ? process.env.KHAOS_RELEASE_TAG : (process.env.GITHUB_REF_NAME || '');
   const result = validateReleaseIdentity(packageJson, tagName);
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
