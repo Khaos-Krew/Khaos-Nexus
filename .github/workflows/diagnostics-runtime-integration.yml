@@ -4,6 +4,12 @@ on:
   pull_request:
     paths:
       - main/diagnostic-runtime-updater.cjs
+      - main/services/release-history-service.cjs
+      - main/update-history-extension.cjs
+      - renderer/update-history.js
+      - renderer/update-history.css
+      - shared/release-labels.cjs
+      - scripts/validate-release-label.cjs
       - scripts/verify-diagnostics-runtime-release.cjs
       - .github/workflows/diagnostics-runtime-integration.yml
       - package.json

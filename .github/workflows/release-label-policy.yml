@@ -1,0 +1,27 @@
+name: Release Label Policy
+
+on:
+  pull_request:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-release-label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate internal SemVer and public release label
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            KHAOS_RELEASE_TAG="$GITHUB_REF_NAME" node scripts/validate-release-label.cjs
+          else
+            KHAOS_RELEASE_TAG="" node scripts/validate-release-label.cjs
+          fi
