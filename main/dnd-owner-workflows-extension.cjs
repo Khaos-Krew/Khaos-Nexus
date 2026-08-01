@@ -7,6 +7,7 @@ const { normalizeAttendance } = require('../shared/dnd-discord.cjs');
 const {
   normalizeSource,
   normalizeQuest,
+  activateQuest,
   saveEncounter,
   saveCombatant,
   removeCombatant,
@@ -83,6 +84,15 @@ function patchConfigStore() {
     existingDndItem(collection, input = {}) {
       if (!input.id) return null;
       return this.getDndState()[collection]?.find((item) => item.id === input.id) || null;
+    }
+
+    upsertDndCampaign(input) {
+      const value = super.upsertDndCampaign(input);
+      if (!Object.prototype.hasOwnProperty.call(input, 'activeQuestId')) return value;
+      return this.mutateDnd((state) => {
+        const result = activateQuest(state, value.id, value.activeQuestId);
+        return clone(result.campaign);
+      });
     }
 
     upsertDndSource(input) {
