@@ -124,10 +124,11 @@ test('production wiring includes protected storage, Owner IPC, Maps tab, draggin
   assert.match(extension, /safeInside/);
   assert.match(extension, /isSymbolicLink/);
   assert.match(extension, /inspectUploadedImage/);
+  assert.match(extension, /characters: clone/);
+  assert.match(extension, /npcs: clone/);
   assert.match(renderer, /data-dnd-map-tab/);
   assert.match(renderer, /Upload Map/);
   assert.match(renderer, /Generate Map/);
   assert.match(renderer, /pointermove/);
   assert.match(renderer, /Export PNG/);
-  assert.match(renderer, /characters: clone/);
 });
