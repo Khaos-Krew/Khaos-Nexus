@@ -35,7 +35,9 @@ jobs:
         run: |
           $package = Get-Content package.json -Raw | ConvertFrom-Json
           $artifactVersion = [string]$package.version
-          if ($null -ne $package.build.extraMetadata -and $package.build.extraMetadata.version) {
+          if ($null -ne $package.khaosRelease -and $package.khaosRelease.artifactVersion) {
+            $artifactVersion = [string]$package.khaosRelease.artifactVersion
+          } elseif ($null -ne $package.build.extraMetadata -and $package.build.extraMetadata.version) {
             $artifactVersion = [string]$package.build.extraMetadata.version
           }
           $expected = @(
