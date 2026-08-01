@@ -79,13 +79,22 @@ test('draft capture and restore preserve values, selections, focus, and scroll',
   assert.equal(name.selectionEnd, 8);
 });
 
+test('equivalent background payloads are skipped before DOM replacement', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'dnd-usability-stability.js'), 'utf8');
+  assert.match(source, /lastAppliedHtml/);
+  assert.match(source, /if \(html === state\.lastAppliedHtml\) return;/);
+  assert.match(source, /state\.lastAppliedHtml = html;/);
+});
+
 test('encounter panel stability wrapper loads in the required order', () => {
   const entry = fs.readFileSync(path.join(__dirname, '..', 'main', 'entry.cjs'), 'utf8');
   const primary = entry.indexOf("require('./dnd-encounter-panels-extension.cjs').install();");
   const stability = entry.indexOf("require('./dnd-encounter-panels-stability-extension.cjs').install();");
+  const draft = entry.indexOf("require('./dnd-draft-preservation-extension.cjs').install();");
   const access = entry.indexOf("require('./dnd-access-policy-extension.cjs').install();");
   assert.ok(primary >= 0, 'primary encounter panel extension must load');
   assert.ok(stability > primary, 'stability wrapper must load after the primary extension');
-  assert.ok(access > stability, 'access policy must load after the stability wrapper');
+  assert.ok(draft > stability, 'draft-preservation styles must load after encounter stability');
+  assert.ok(access > draft, 'access policy must load after the draft-preservation layer');
   assert.ok(fs.existsSync(path.join(__dirname, '..', 'main', 'dnd-encounter-panels-stability-extension.cjs')));
 });
