@@ -11,7 +11,11 @@ const {
 const {
   ensureEncounterPanelCollections,
   panelPayload,
-  validateButtonExecution
+  validateButtonExecution,
+  buttonId,
+  actionsForTurn,
+  currentEncounterState,
+  managerFor
 } = require('../shared/dnd-encounter-panels.cjs');
 
 function appId(runtime) { return String(runtime.getBootstrap()?.config?.discordApp?.id || 'nexus-bot'); }
@@ -34,14 +38,45 @@ function emitMutation(runtime, operation, data, interaction = null) {
 function isEncounterRollButton(interaction) {
   return Boolean(interaction?.isButton?.() && String(interaction.customId || '').startsWith('dnd:er:'));
 }
+function isEncounterMoreButton(interaction) {
+  return Boolean(interaction?.isButton?.() && String(interaction.customId || '').startsWith('dnd:em:'));
+}
 function bindingFor(state, panel) {
   return (state.bindings || []).find((item) => item.id === panel.bindingId && item.active !== false) || null;
 }
-function panelForMessage(state, panelToken) {
-  return state.encounterPanels.find((item) => item.panelToken === panelToken) || null;
-}
 function dmBinding(state, panel, runtime) {
   return (state.bindings || []).find((item) => item.active !== false && item.campaignId === panel.campaignId && item.appId === appId(runtime) && item.guildId === panel.guildId && item.purpose === 'dm_private') || null;
+}
+function componentStyle(action) {
+  return action.rollType === 'damage' ? 4 : action.rollType === 'healing' ? 3 : 1;
+}
+function actionRows(actions, panel, encounter, currentIndex) {
+  const rows = [];
+  for (let offset = 0; offset < actions.length; offset += 5) {
+    rows.push({
+      type: 1,
+      components: actions.slice(offset, offset + 5).map((action) => ({
+        type: 2,
+        style: componentStyle(action),
+        label: action.label.slice(0, 80),
+        custom_id: buttonId(panel, action, encounter, currentIndex)
+      }))
+    });
+  }
+  return rows;
+}
+function moreButtonId(panel, encounter, currentIndex) {
+  return `dnd:em:${panel.panelToken}:${panel.actionRevision}:${encounter.round || 1}:${currentIndex}:v1`;
+}
+function parseMoreButtonId(customId) {
+  const parts = String(customId || '').split(':');
+  if (parts.length !== 7 || parts[0] !== 'dnd' || parts[1] !== 'em' || parts[6] !== 'v1') return null;
+  return {
+    panelToken: clean(parts[2], 24),
+    actionRevision: Number(parts[3]),
+    round: Number(parts[4]),
+    currentIndex: Number(parts[5])
+  };
 }
 
 class EncounterPanelController {
@@ -96,7 +131,16 @@ class EncounterPanelController {
     const channel = await this.runtime.client.channels.fetch(binding.resourceId);
     if (!channel?.isTextBased?.()) throw new Error('Encounter panel binding is not text-capable.');
     const rendered = panelPayload(state, panel);
-    if (panel.status === 'completed' || rendered.snapshot.encounter?.status === 'completed' || rendered.snapshot.encounter?.status === 'archived') rendered.body.components = [];
+    const encounterDone = panel.status === 'completed' || rendered.snapshot.encounter?.status === 'completed' || rendered.snapshot.encounter?.status === 'archived';
+    if (encounterDone) {
+      rendered.body.components = [];
+    } else if (rendered.actions.length > 19) {
+      rendered.body.components = actionRows(rendered.actions.slice(0, 19), panel, rendered.snapshot.encounter, rendered.snapshot.currentIndex);
+      rendered.body.components.push({
+        type: 1,
+        components: [{ type: 2, style: 2, label: 'More Actions…', custom_id: moreButtonId(panel, rendered.snapshot.encounter, rendered.snapshot.currentIndex) }]
+      });
+    }
     let message = null;
     if (panel.messageId) {
       try { message = await channel.messages.fetch(panel.messageId); }
@@ -142,6 +186,13 @@ function rollDetail(interaction, action, result, current, manager) {
   const override = manager && current.discordUserId !== interaction.user.id ? ' · DM override' : '';
   return `**${actor}** used **${action.label}** for **${current.nameSnapshot || current.name || 'the current combatant'}**${override}\n\`${result.normalized}\`: [${result.rolls.join(', ')}]${result.modifier ? ` ${result.modifier > 0 ? '+' : ''}${result.modifier}` : ''} = **${result.total}**`;
 }
+function assertBindingContext(state, panel, interaction, runtime) {
+  const binding = bindingFor(state, panel);
+  if (!binding || binding.appId !== appId(runtime) || binding.guildId !== guildId(interaction) || binding.resourceId !== channelId(interaction)) {
+    throw Object.assign(new Error('This encounter action is not valid in the current Discord resource.'), { code: 'DND_ENCOUNTER_BUTTON_CONTEXT' });
+  }
+  return binding;
+}
 
 async function handleEncounterRoll(interaction, runtime, controller) {
   const state = dndState(runtime);
@@ -149,10 +200,7 @@ async function handleEncounterRoll(interaction, runtime, controller) {
   const execution = validateButtonExecution(state, { customId: interaction.customId, discordUserId: interaction.user.id });
   const { panel, action, snapshot, current, manager } = execution;
   requireScope(state, panel.campaignId, appId(runtime), guildId(interaction), 'rolls:create');
-  const binding = bindingFor(state, panel);
-  if (!binding || binding.appId !== appId(runtime) || binding.guildId !== guildId(interaction) || binding.resourceId !== channelId(interaction)) {
-    throw Object.assign(new Error('This encounter action is not valid in the current Discord resource.'), { code: 'DND_ENCOUNTER_BUTTON_CONTEXT' });
-  }
+  assertBindingContext(state, panel, interaction, runtime);
   let destination = null;
   if (action.privacy !== 'public') {
     destination = await safeDmDestination(runtime, state, panel);
@@ -206,11 +254,46 @@ async function handleEncounterRoll(interaction, runtime, controller) {
   await controller.refreshOne(panel).catch(() => null);
 }
 
+function validateMoreExecution(state, interaction, runtime) {
+  const parsed = parseMoreButtonId(interaction.customId);
+  if (!parsed) throw Object.assign(new Error('More Actions button is invalid.'), { code: 'DND_ENCOUNTER_BUTTON_INVALID' });
+  const panel = state.encounterPanels.find((item) => item.panelToken === parsed.panelToken && item.status === 'active');
+  if (!panel) throw Object.assign(new Error('Encounter panel is no longer active.'), { code: 'DND_ENCOUNTER_BUTTON_STALE' });
+  requireScope(state, panel.campaignId, appId(runtime), guildId(interaction), 'rolls:create');
+  assertBindingContext(state, panel, interaction, runtime);
+  const snapshot = currentEncounterState(state, panel.encounterId);
+  if (!snapshot.encounter || snapshot.encounter.status !== 'active' || parsed.actionRevision !== panel.actionRevision || parsed.round !== Number(snapshot.encounter.round || 1) || parsed.currentIndex !== snapshot.currentIndex) {
+    throw Object.assign(new Error('This More Actions button belongs to a previous turn or action revision.'), { code: 'DND_ENCOUNTER_BUTTON_STALE' });
+  }
+  const current = snapshot.currentCombatant;
+  const manager = managerFor(state, panel.campaignId, interaction.user.id);
+  if (!current || !manager && (!current.discordUserId || current.discordUserId !== interaction.user.id)) {
+    throw Object.assign(new Error('Only the current character or a campaign DM may view these actions.'), { code: 'DND_ENCOUNTER_BUTTON_FORBIDDEN' });
+  }
+  return { panel, snapshot, current, manager, actions: actionsForTurn(state, panel, current).slice(19) };
+}
+
+async function handleMoreActions(interaction, runtime) {
+  const state = dndState(runtime);
+  if (!state) throw Object.assign(new Error('D&D encounter data is unavailable.'), { code: 'DND_STATE_UNAVAILABLE' });
+  const result = validateMoreExecution(state, interaction, runtime);
+  if (!result.actions.length) {
+    await interaction.reply({ content: 'No additional actions are available for this turn.', ephemeral: true });
+    return;
+  }
+  await interaction.reply({
+    content: `Additional actions for **${result.current.nameSnapshot || result.current.name || 'the current combatant'}**`,
+    components: actionRows(result.actions.slice(0, 6), result.panel, result.snapshot.encounter, result.snapshot.currentIndex),
+    ephemeral: true
+  });
+}
+
 async function handleDndInteraction(interaction, runtime) {
-  if (!isEncounterRollButton(interaction)) return base.handleDndInteraction(interaction, runtime);
+  if (!isEncounterRollButton(interaction) && !isEncounterMoreButton(interaction)) return base.handleDndInteraction(interaction, runtime);
   try {
     const controller = runtime.__dndEncounterPanelController || installEncounterPanelRuntime(runtime);
-    await handleEncounterRoll(interaction, runtime, controller);
+    if (isEncounterMoreButton(interaction)) await handleMoreActions(interaction, runtime);
+    else await handleEncounterRoll(interaction, runtime, controller);
     return true;
   } catch (error) {
     runtime.log?.('warn', `D&D encounter action rejected: ${error.code || error.message}`);
@@ -234,8 +317,14 @@ module.exports = {
   ...base,
   handleDndInteraction,
   isEncounterRollButton,
+  isEncounterMoreButton,
   installEncounterPanelRuntime,
   EncounterPanelController,
   safeDmDestination,
-  handleEncounterRoll
+  handleEncounterRoll,
+  handleMoreActions,
+  validateMoreExecution,
+  moreButtonId,
+  parseMoreButtonId,
+  actionRows
 };
