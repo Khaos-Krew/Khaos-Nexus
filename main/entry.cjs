@@ -40,6 +40,7 @@ if (diagnosticsMode) {
     else mobileHold.install();
     require('./dnd-campaign-extension.cjs').install();
     require('./dnd-usability-repair-extension.cjs').install();
+    require('./dnd-owner-workflows-extension.cjs').install();
     require('./dnd-access-policy-extension.cjs').install();
     require('./dnd-authorization-summary-extension.cjs').install();
 
