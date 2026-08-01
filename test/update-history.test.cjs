@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { EventEmitter } = require('node:events');
 const {
   MAX_RELEASE_HISTORY,
   parseReleaseVersion,
@@ -19,6 +20,7 @@ const {
 const {
   trustedGithubUrl,
   publicRelease,
+  waitForChildLaunch,
   ReleaseHistoryService
 } = require('../main/services/release-history-service.cjs');
 
@@ -133,6 +135,14 @@ test('confirmation and checksum contracts require exact values', () => {
   assert.equal(checksumForAsset(`${'b'.repeat(64)}  other.exe\n`, 'Khaos-Nexus-Setup-0.26.0-x64.exe'), null);
 });
 
+test('installer launch confirmation accepts a real process ID and rejects an error event', async () => {
+  await assert.doesNotReject(() => waitForChildLaunch({ pid: 42 }));
+  const child = new EventEmitter();
+  const result = waitForChildLaunch(child, 100);
+  process.nextTick(() => child.emit('error', new Error('launch failed')));
+  await assert.rejects(() => result, /launch failed/);
+});
+
 test('verified rollback creates and verifies backup before download and launch', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'khaos-update-history-'));
   const payload = Buffer.from('verified rollback installer');
@@ -159,7 +169,7 @@ test('verified rollback creates and verifies backup before download and launch',
     getAutonomy: () => autonomy,
     getDiscordAuth: () => ({ getState: () => ({ role: 'owner' }) }),
     currentVersion: '0.26.5',
-    currentLabel: '0.26.5-beta',
+    currentLabel: 'v0.26.5-beta',
     dataCompatibilityFloor: '0.26.0',
     requestJson: async () => [releaseFixture('0.26.0', { digest: `sha256:${digest}` })],
     downloadFile: async (_url, filePath) => {
@@ -171,7 +181,7 @@ test('verified rollback creates and verifies backup before download and launch',
     spawn: (filePath) => {
       order.push('spawn');
       spawned = filePath;
-      return { unref() {} };
+      return { pid: 4242, unref() {} };
     },
     quitDelayMs: 0
   });
@@ -204,6 +214,49 @@ test('rollback rejects an incorrect confirmation before backup or download', asy
   });
   await assert.rejects(() => service.rollback({ tagName: 'v0.26.0', confirmation: 'yes' }), /Type ROLL BACK TO v0\.26\.0 exactly/);
   assert.equal(touched, false);
+});
+
+test('failed installer launch keeps the current app active and retains backup evidence', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'khaos-update-launch-'));
+  const payload = Buffer.from('verified rollback installer');
+  const digest = crypto.createHash('sha256').update(payload).digest('hex');
+  let quitCalled = false;
+  const service = new ReleaseHistoryService({
+    app: { getPath: () => root, getVersion: () => '0.26.5', quit: () => { quitCalled = true; } },
+    getAutonomy: () => ({
+      assertAccess() {},
+      createAutomaticBackup() {
+        const filePath = path.join(root, 'backup.knx');
+        fs.writeFileSync(filePath, 'backup');
+        return { valid: true, filePath };
+      },
+      verifyBackup() {}
+    }),
+    getDiscordAuth: () => ({ getState: () => ({ role: 'owner' }) }),
+    currentVersion: '0.26.5',
+    dataCompatibilityFloor: '0.26.0',
+    requestJson: async () => [releaseFixture('0.26.0', { digest: `sha256:${digest}` })],
+    downloadFile: async (_url, filePath) => {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, payload);
+      return { filePath, bytes: payload.length, sha256: digest };
+    },
+    spawn: () => {
+      const child = new EventEmitter();
+      process.nextTick(() => child.emit('error', new Error('installer launch failed')));
+      return child;
+    },
+    launchTimeoutMs: 100,
+    quitDelayMs: 0
+  });
+
+  await assert.rejects(
+    () => service.rollback({ tagName: 'v0.26.0', confirmation: 'ROLL BACK TO v0.26.0' }),
+    /installer launch failed.*current version remains active/i
+  );
+  assert.equal(quitCalled, false);
+  assert.equal(service.getState().rollbackHistory[0].status, 'failed');
+  assert.equal(service.getState().rollbackHistory[0].backupName, 'backup.knx');
 });
 
 test('production wiring adds Settings UI without replacing the existing updater', () => {
