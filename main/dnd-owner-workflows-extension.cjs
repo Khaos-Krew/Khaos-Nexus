@@ -219,11 +219,13 @@ function scheduleRegister() {
 function installRendererAssets() {
   const cssPath = path.join(__dirname, '..', 'renderer', 'dnd-owner-workflows.css');
   const jsPath = path.join(__dirname, '..', 'renderer', 'dnd-owner-workflows.js');
+  const attendancePath = path.join(__dirname, '..', 'renderer', 'dnd-owner-attendance-stability.js');
   electron.app.on('browser-window-created', (_event, window) => {
     window.webContents.on('did-finish-load', async () => {
       try {
         await window.webContents.insertCSS(fs.readFileSync(cssPath, 'utf8'));
         await window.webContents.executeJavaScript(fs.readFileSync(jsPath, 'utf8'), true);
+        await window.webContents.executeJavaScript(fs.readFileSync(attendancePath, 'utf8'), true);
       } catch (error) {
         refs.logger?.error?.('D&D Owner workflow assets failed to load.', { message: error.message });
       }
