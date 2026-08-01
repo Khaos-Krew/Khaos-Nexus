@@ -46,9 +46,9 @@ test('safe UI layer loads grouped navigation while preserving independent scroll
   assert.match(extension, /addScript\('navigation-shell\.js'\)/);
 });
 
-test('v0.25.0 is configured for stable Windows release with Android production paused', () => {
+test('v0.26.0 is configured for stable Windows release with Android production paused', () => {
   const packageJson = JSON.parse(read('package.json'));
-  const notes = read('release-notes/v0.25.0.md');
+  const notes = read('release-notes/v0.26.0.md');
   const mobileDocs = read('docs/ANDROID_COMPANION_v0.22.0.md');
   const mobileShared = read('shared/mobile-gateway.cjs');
   const mobileService = read('main/services/mobile-gateway-service.cjs');
@@ -71,10 +71,10 @@ test('v0.25.0 is configured for stable Windows release with Android production p
   const workflow = read('.github/workflows/stable-release.yml');
   const ciWorkflow = read('.github/workflows/ci.yml');
 
-  assert.equal(packageJson.version, '0.25.0');
+  assert.equal(packageJson.version, '0.26.0');
   assert.match(packageJson.description, /unconditional local-desktop module recovery controls/i);
   assert.match(packageJson.description, /preserved but paused Android Companion and Mobile Gateway/i);
-  assert.match(packageJson.description, /D&D campaign integration/i);
+  assert.match(packageJson.description, /complete D&D campaign management/i);
   assert.match(packageJson.description, /dedicated Rust WebRCON operations/i);
   assert.match(packageJson.description, /Owner-only raw Rust console access/i);
   assert.match(packageJson.description, /typed Game Adapter SDK/i);
@@ -138,9 +138,9 @@ test('v0.25.0 is configured for stable Windows release with Android production p
   assert.equal(packageJson.build.publish[0].provider, 'github');
   assert.equal(packageJson.build.publish[0].releaseType, 'release');
   assert.equal(packageJson.build.publish[0].tagNamePrefix, 'v');
-  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.25.0.md');
+  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.26.0.md');
   assert.match(notes, /Android Companion and Mobile Gateway are paused and excluded/i);
-  assert.match(notes, /D&D campaign integration/i);
+  assert.match(notes, /complete D&D campaign management/i);
   assert.match(notes, /No APK or Android setup link/i);
   assert.match(workflow, /branches:\s*\n\s*- "release\/v\*"/);
   assert.match(workflow, /pull_request_target/);

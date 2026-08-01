@@ -33,7 +33,7 @@ test('renderer features remain serialized and software compatibility remains the
   assert.match(brand, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.25.0 retains stable startup, adapters, preserved Android evidence and unconditional local recovery', () => {
+test('v0.26.0 retains stable startup, adapters, preserved Android evidence and unconditional local recovery', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
   const coreRelease = read('main/startup-core-release-extension.cjs');
@@ -54,11 +54,11 @@ test('v0.25.0 retains stable startup, adapters, preserved Android evidence and u
   const mobileSecurity = read('main/mobile-gateway-security-extension.cjs');
   const mobileHold = read('main/mobile-production-hold-extension.cjs');
 
-  assert.equal(packageJson.version, '0.25.0');
+  assert.equal(packageJson.version, '0.26.0');
   assert.match(packageJson.description, /installer-first automatic diagnostics/i);
   assert.match(packageJson.description, /standalone Khaos Nexus Diagnostics launcher/i);
   assert.match(packageJson.description, /preserved but paused Android Companion and Mobile Gateway/i);
-  assert.match(packageJson.description, /D&D campaign integration/i);
+  assert.match(packageJson.description, /complete D&D campaign management/i);
   assert.match(packageJson.description, /dedicated Rust WebRCON operations/i);
   assert.match(packageJson.description, /Satisfactory dedicated-server operations/i);
   assert.match(packageJson.description, /typed Game Adapter SDK/i);
