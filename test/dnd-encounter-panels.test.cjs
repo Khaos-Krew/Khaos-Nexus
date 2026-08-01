@@ -57,7 +57,7 @@ function baseState() {
       { id: 'pc1', encounterId: 'e1', campaignId: 'c1', characterId: 'char1', discordUserId: '11111', nameSnapshot: 'Aria', initiative: 20, dexterity: 4, hp: 22, maxHp: 30, conditions: [], active: true, hidden: false },
       { id: 'boss1', encounterId: 'e1', campaignId: 'c1', npcId: 'npc1', nameSnapshot: 'Ancient Dragon', initiative: 18, dexterity: 2, hp: 120, maxHp: 200, conditions: ['slowed'], active: true, hidden: false },
       { id: 'pc2', encounterId: 'e1', campaignId: 'c1', characterId: 'char2', discordUserId: '22222', nameSnapshot: 'Brom', initiative: 12, dexterity: 1, hp: 18, maxHp: 40, conditions: ['poisoned'], active: true, hidden: false },
-      { id: 'secret', encounterId: 'e1', campaignId: 'c1', nameSnapshot: 'Hidden Assassin', initiative: 25, dexterity: 5, hp: 10, maxHp: 10, conditions: [], active: true, hidden: true }
+      { id: 'secret', encounterId: 'e1', campaignId: 'c1', nameSnapshot: 'Hidden Assassin', initiative: 5, dexterity: 5, hp: 10, maxHp: 10, conditions: [], active: true, hidden: true }
     ],
     encounterPanels: [],
     encounterTurnActions: [],
