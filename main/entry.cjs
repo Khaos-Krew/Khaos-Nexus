@@ -45,6 +45,7 @@ if (diagnosticsMode) {
     require('./dnd-world-content-extension.cjs').install();
     require('./dnd-content-catalog-extension.cjs').install();
     require('./dnd-live-maps-extension.cjs').install();
+    require('./dnd-npc-tool-extension.cjs').install();
     require('./dnd-access-policy-extension.cjs').install();
     require('./dnd-authorization-summary-extension.cjs').install();
 
