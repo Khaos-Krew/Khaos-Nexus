@@ -1,0 +1,187 @@
+name: Protected Updater Beta Approval
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - "release/v0.26.5-beta"
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: protected-updater-v0.26.5-beta
+  cancel-in-progress: true
+
+jobs:
+  publish-approved-updater-beta:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'updater/v0.26.5-beta' &&
+      github.event.pull_request.base.ref == 'release/v0.26.5-beta' &&
+      github.event.pull_request.head.sha == '68fc19cc693cc00db3e35539585b59e901be011e'
+    runs-on: windows-latest
+    steps:
+      - name: Check out immutable approved candidate
+        uses: actions/checkout@v4
+        with:
+          ref: 68fc19cc693cc00db3e35539585b59e901be011e
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate immutable release identity
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_SHA -eq '') { Write-Host 'pull_request_target base SHA retained separately.' }
+          $actual = git rev-parse HEAD
+          if ($actual -ne '68fc19cc693cc00db3e35539585b59e901be011e') {
+            throw "Immutable candidate mismatch: $actual"
+          }
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          if ([string]$package.version -ne '0.26.5') { throw "Internal updater version must be 0.26.5." }
+          if ([string]$package.khaosRelease.displayVersion -ne '0.26.5-beta') { throw "Display version mismatch." }
+          if ([string]$package.khaosRelease.artifactVersion -ne '0.26.5-beta') { throw "Artifact version mismatch." }
+          if ([string]$package.khaosRelease.publicTag -ne 'v0.26.5-beta') { throw "Public tag mismatch." }
+          if ([string]$package.khaosRelease.channel -ne 'beta') { throw "Release channel mismatch." }
+          if ([string]$package.khaosRelease.updaterVersion -ne '0.26.5') { throw "Updater version mismatch." }
+          if ([string]$package.build.publish[0].releaseType -ne 'release') { throw "Updater-visible beta must use the stable release feed." }
+          if ([string]$package.build.releaseInfo.releaseNotesFile -ne 'release-notes/v0.26.5.md') { throw "Release notes path mismatch." }
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Run complete test suite
+        run: npm test
+
+      - name: Run syntax and package checks
+        run: npm run check
+
+      - name: Build Windows installer and portable executable
+        run: npm run dist:win
+
+      - name: Verify updater metadata, packaged identity, assets, and ADR-008 exclusion
+        shell: pwsh
+        run: |
+          $required = @(
+            'dist/Khaos-Nexus-Setup-0.26.5-beta-x64.exe',
+            'dist/Khaos-Nexus-Setup-0.26.5-beta-x64.exe.blockmap',
+            'dist/Khaos-Nexus-Portable-0.26.5-beta-x64.exe',
+            'dist/latest.yml'
+          )
+          foreach ($file in $required) {
+            if (-not (Test-Path -LiteralPath $file)) { throw "Required updater asset was not generated: $file" }
+            if ((Get-Item -LiteralPath $file).Length -le 1MB) { throw "Generated updater asset is unexpectedly small: $file" }
+          }
+
+          $metadata = Get-Content -LiteralPath 'dist/latest.yml' -Raw
+          if ($metadata -notmatch '(?m)^version:\s*0\.26\.5\s*$') {
+            throw "The updater feed does not advertise internal version 0.26.5."
+          }
+          if ($metadata -notmatch 'Khaos-Nexus-Setup-0\.26\.5-beta-x64\.exe') {
+            throw "The updater feed does not reference the v0.26.5-beta installer."
+          }
+
+          $androidAssets = Get-ChildItem dist -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -eq '.apk' }
+          if ($androidAssets) { throw "ADR-008 violation: an APK was generated." }
+
+          node -e "const asar=require('@electron/asar'); const pkg=JSON.parse(asar.extractFile('dist/win-unpacked/resources/app.asar','package.json').toString('utf8')); if(pkg.version!=='0.26.5') throw new Error('Packaged updater version is '+pkg.version); if(pkg.khaosRelease?.displayVersion!=='0.26.5-beta') throw new Error('Packaged display label is '+pkg.khaosRelease?.displayVersion); console.log('Packaged identity verified:',pkg.version,pkg.khaosRelease.displayVersion);"
+          if ($LASTEXITCODE -ne 0) { throw "Packaged application identity verification failed." }
+
+          $required | ForEach-Object {
+            $hash = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $([System.IO.Path]::GetFileName($_))"
+          } | Set-Content -Path release-checksums.txt -Encoding utf8
+
+      - name: Publish updater-visible v0.26.5-beta release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPROVED_SHA: 68fc19cc693cc00db3e35539585b59e901be011e
+        run: |
+          $tag = 'v0.26.5-beta'
+          $notesPath = 'release-notes/v0.26.5.md'
+          $assets = @(
+            'dist/Khaos-Nexus-Setup-0.26.5-beta-x64.exe',
+            'dist/Khaos-Nexus-Setup-0.26.5-beta-x64.exe.blockmap',
+            'dist/Khaos-Nexus-Portable-0.26.5-beta-x64.exe',
+            'dist/latest.yml',
+            'release-checksums.txt'
+          )
+
+          gh release view $tag --json tagName,targetCommitish *> $null
+          if ($LASTEXITCODE -eq 0) {
+            $ref = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$tag" | ConvertFrom-Json
+            if ([string]$ref.object.sha -ne $env:APPROVED_SHA) {
+              throw "Existing tag $tag does not resolve to the approved SHA."
+            }
+            foreach ($asset in $assets) {
+              gh release upload $tag $asset --clobber
+              if ($LASTEXITCODE -ne 0) { throw "Failed to restore verified asset $asset." }
+            }
+            gh release edit $tag --title 'Khaos Nexus v0.26.5-beta' --notes-file $notesPath --draft=false --prerelease=false --latest
+          } else {
+            gh release create $tag --target $env:APPROVED_SHA --title 'Khaos Nexus v0.26.5-beta' --notes-file $notesPath --latest @assets
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Updater release publication failed." }
+
+      - name: Verify public tag and release assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPROVED_SHA: 68fc19cc693cc00db3e35539585b59e901be011e
+        run: |
+          $tag = 'v0.26.5-beta'
+          $ref = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$tag" | ConvertFrom-Json
+          if ([string]$ref.object.sha -ne $env:APPROVED_SHA) { throw "Published tag does not resolve to approved SHA." }
+          $release = gh release view $tag --json isDraft,isPrerelease,isLatest,assets | ConvertFrom-Json
+          if ($release.isDraft) { throw "Published release is still a draft." }
+          if ($release.isPrerelease) { throw "Updater-visible beta was incorrectly hidden from the stable updater feed." }
+          if (-not $release.isLatest) { throw "Updater-visible beta is not marked latest." }
+          $names = @($release.assets | ForEach-Object { $_.name })
+          foreach ($name in @('Khaos-Nexus-Setup-0.26.5-beta-x64.exe','Khaos-Nexus-Setup-0.26.5-beta-x64.exe.blockmap','Khaos-Nexus-Portable-0.26.5-beta-x64.exe','latest.yml','release-checksums.txt')) {
+            if ($names -notcontains $name) { throw "Published release is missing $name." }
+          }
+
+      - name: Upload publication evidence artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Khaos-Nexus-v0.26.5-beta-Updater
+          path: |
+            dist/Khaos-Nexus-Setup-0.26.5-beta-x64.exe
+            dist/Khaos-Nexus-Setup-0.26.5-beta-x64.exe.blockmap
+            dist/Khaos-Nexus-Portable-0.26.5-beta-x64.exe
+            dist/latest.yml
+            release-checksums.txt
+          if-no-files-found: error
+
+      - name: Record publication evidence
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $checksums = Get-Content -LiteralPath release-checksums.txt -Raw
+          $body = @"
+          ## v0.26.5-beta updater publication complete
+
+          - Public tag/release: ``v0.26.5-beta``
+          - Exact source: ``68fc19cc693cc00db3e35539585b59e901be011e``
+          - Internal installed/updater version: ``0.26.5``
+          - Public channel label and artifact identity: ``0.26.5-beta``
+          - Stable rollback: ``v0.26.0`` / ``6fbe660cf17b752e592ea8dd7f954a77ef5beb47``
+          - Android/Mobile assets: excluded under ADR-008
+
+          ### SHA-256
+
+          ``````text
+          $checksums
+          ``````
+          "@
+          gh issue comment 119 --body $body
+          gh issue comment 136 --body "The v0.26.5-beta publication dependency is satisfied at exact source ``68fc19cc693cc00db3e35539585b59e901be011e``. Desktop Core may now create the update-history/rollback implementation branch from this tag."
