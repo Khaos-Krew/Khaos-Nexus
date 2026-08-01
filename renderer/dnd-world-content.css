@@ -1,0 +1,67 @@
+.dnd-world-content { display: grid; gap: 16px; }
+.dnd-world-two-column { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.dnd-world-list { display: grid; gap: 10px; }
+.dnd-world-card,
+.dnd-roll-history {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 13px;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 10px;
+  background: rgba(255,255,255,.025);
+}
+.dnd-world-card > div:first-child,
+.dnd-roll-history > div:first-child { min-width: 0; }
+.dnd-world-card small,
+.dnd-roll-history span,
+.dnd-roll-history small { display: block; opacity: .78; }
+.dnd-roll-history b { min-width: 52px; text-align: center; font-size: 24px; }
+.dnd-roll-result {
+  margin-top: 16px;
+  padding: 18px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(214,54,54,.45);
+  border-radius: 12px;
+  background: rgba(140,20,20,.12);
+}
+.dnd-roll-result strong { font-size: 46px; line-height: 1; margin: 6px 0; }
+.dnd-world-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10090;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow: auto;
+  background: rgba(0,0,0,.76);
+}
+.dnd-world-modal {
+  width: min(840px,100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 14px;
+  background: var(--panel,#17191f);
+  box-shadow: 0 24px 80px rgba(0,0,0,.62);
+}
+.dnd-world-modal-error {
+  margin: 10px 0 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(160,30,30,.24);
+  color: #ffd6d6;
+}
+.dnd-world-modal-error[hidden] { display: none; }
+@media (max-width: 900px) {
+  .dnd-world-two-column { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+  .dnd-world-modal-backdrop { padding: 8px; place-items: start center; }
+  .dnd-world-modal { max-height: calc(100vh - 16px); padding: 16px; }
+  .dnd-world-card { align-items: stretch; flex-direction: column; }
+  .dnd-world-card .server-actions { justify-content: flex-start; flex-wrap: wrap; }
+}
