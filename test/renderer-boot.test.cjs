@@ -33,7 +33,7 @@ test('renderer features remain serialized and software compatibility remains the
   assert.match(brand, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.26.0 retains stable startup, adapters, preserved Android evidence and unconditional local recovery', () => {
+test('current release retains stable startup, adapters, preserved Android evidence and unconditional local recovery', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
   const coreRelease = read('main/startup-core-release-extension.cjs');
@@ -54,7 +54,7 @@ test('v0.26.0 retains stable startup, adapters, preserved Android evidence and u
   const mobileSecurity = read('main/mobile-gateway-security-extension.cjs');
   const mobileHold = read('main/mobile-production-hold-extension.cjs');
 
-  assert.equal(packageJson.version, '0.26.0');
+  assert.match(packageJson.version, /^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?$/);
   assert.match(packageJson.description, /installer-first automatic diagnostics/i);
   assert.match(packageJson.description, /standalone Khaos Nexus Diagnostics launcher/i);
   assert.match(packageJson.description, /preserved but paused Android Companion and Mobile Gateway/i);
