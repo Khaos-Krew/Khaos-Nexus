@@ -12,8 +12,8 @@
         {
           "name": "Local-First Desktop Command Center",
           "status": "available",
-          "summary": "Runs Khaos Nexus as a standalone Windows application.",
-          "description": "Provides one control surface for Discord automation, game-server operations, modules, updates, diagnostics, and local configuration. Sensitive values are protected through Windows secure storage."
+          "summary": "Runs Khaos Nexus as a standalone Windows operations platform.",
+          "description": "Brings Discord automation, game-server control, D&D campaign management, modules, updates, diagnostics, and local configuration into one desktop application. Sensitive values remain protected through Windows secure storage."
         },
         {
           "name": "Module Center and Local Recovery",
@@ -41,13 +41,13 @@
         {
           "name": "Supervised Discord Bot Runtime",
           "status": "available",
-          "summary": "Starts, monitors, configures, and recovers the Discord bot from the desktop application.",
+          "summary": "Starts, monitors, configures, and recovers Discord bots from the desktop application.",
           "description": "Includes spawn-confirmed process supervision, slash-command support, live configuration updates, operator access controls, synchronized runtime status, and error reporting."
         },
         {
           "name": "Discord Studio and Server Automation",
           "status": "available",
-          "summary": "Builds and manages Discord-facing tools without manually recreating each server element.",
+          "summary": "Builds and manages Discord-facing tools without manually recreating every server element.",
           "description": "Supports Discord Studio workflows, role menus, category and channel automation, module-aware commands and buttons, routed logs, and persistent server panels."
         },
         {
@@ -107,19 +107,48 @@
           "name": "Satisfactory Dedicated-Server Adapter",
           "status": "beta",
           "summary": "Extends the shared adapter system to Satisfactory's dedicated-server API.",
-          "description": "Development work covers typed server operations, capability reporting, safe administrative actions, and integration with the shared Nexus status and control surfaces."
+          "description": "Active validation covers typed server operations, capability reporting, safe administrative actions, and integration with the shared Nexus status and control surfaces."
         }
       ]
     },
     {
-      "name": "Mobile, Diagnostics, and Reliability",
+      "name": "Dungeons & Dragons",
       "features": [
         {
-          "name": "Android Companion and Mobile Gateway",
-          "status": "paused",
-          "summary": "Preserved but excluded from active production and desktop release scope by Owner directive.",
-          "description": "Existing certificate-pinned HTTPS, Owner-approved pairing, signed-request, replay-protection, revocation, and Android Keystore work is preserved. APK publication, real-device testing, feature/toolchain repair, and Mobile Gateway activation remain prohibited until a new architecture decision explicitly resumes production."
+          "name": "D&D Campaign Workspace",
+          "status": "available",
+          "summary": "Manages complete campaigns from the desktop app and approved Discord resources.",
+          "description": "Stable workflows cover campaigns, members, sources, characters, quests, sessions, attendance, encounters, combatants, deterministic initiative, NPCs, locations, factions, loot, licensed content metadata, homebrew revisions, secure dice history, registered-bot grants, bindings, and persistent campaign panels."
         },
+        {
+          "name": "D&D Content Catalog and Character Imports",
+          "status": "beta",
+          "summary": "Adds verified free-content packs, Homebrew sources, and reviewable character imports.",
+          "description": "The beta channel includes signed catalog validation, explicit Owner-controlled SRD package installation, source provenance, Khaos Nexus and generic JSON character imports, collision protection, and import review before saving."
+        },
+        {
+          "name": "Live Campaign Maps",
+          "status": "beta",
+          "summary": "Adds uploaded or locally generated maps with persistent campaign markers.",
+          "description": "The beta channel supports validated PNG, JPEG, and WebP uploads, deterministic local generation, pan and zoom, square or hex grids, party and campaign markers, GM-hidden data, normalized coordinates, and map snapshot export."
+        },
+        {
+          "name": "Advanced NPC Builder and Encounter Integration",
+          "status": "beta",
+          "summary": "Expands NPC records into reusable narrative and combat-ready campaign tools.",
+          "description": "The beta channel adds structured identity, personality, relationships, optional combat statistics, deterministic generation, import and export, reveal controls, encounter insertion, explicit stat synchronization, and featured-boss support."
+        },
+        {
+          "name": "Persistent Discord Encounter Panels",
+          "status": "beta",
+          "summary": "Turns active encounters into live Discord combat panels with secure turn actions.",
+          "description": "The beta channel adds one persistent message per encounter binding, boss and party health presentation, initiative updates, repairable panel records, DM-configured roll buttons, stale-action rejection, privacy enforcement, and audited DM controls."
+        }
+      ]
+    },
+    {
+      "name": "Diagnostics and Reliability",
+      "features": [
         {
           "name": "Backups, Monitoring, and Support Bundles",
           "status": "available",
@@ -128,9 +157,15 @@
         },
         {
           "name": "Standalone Installer Diagnostics",
-          "status": "beta",
-          "summary": "Adds installer-first troubleshooting before the main interface has to load.",
-          "description": "Development work provides a dedicated Khaos Nexus Diagnostics launcher, startup environment checks, portable sidecar reporting, and clearer recovery guidance for installation or launch failures."
+          "status": "available",
+          "summary": "Provides installer-first troubleshooting before the main interface has to load.",
+          "description": "Includes the dedicated Khaos Nexus Diagnostics launcher, startup environment checks, portable sidecar reporting, offline guidance, support-bundle creation, and clearer recovery paths for installation or launch failures."
+        },
+        {
+          "name": "Android Companion and Mobile Gateway",
+          "status": "paused",
+          "summary": "Preserved but excluded from active production and desktop release scope by Owner directive.",
+          "description": "Existing certificate-pinned HTTPS, Owner-approved pairing, signed-request, replay-protection, revocation, and Android Keystore work is preserved. APK publication, real-device testing, feature/toolchain repair, and Mobile Gateway activation remain prohibited until a new architecture decision explicitly resumes production."
         }
       ]
     },
@@ -138,16 +173,28 @@
       "name": "Roadmap",
       "features": [
         {
+          "name": "Unified Desktop Interface System",
+          "status": "planned",
+          "summary": "Consolidates the desktop and D&D interface into one responsive, accessible design system.",
+          "description": "The planned refresh will unify navigation, cards, forms, dialogs, status presentation, responsive behavior, keyboard access, Windows scaling, and D&D workspace layouts without replacing working application contracts."
+        },
+        {
+          "name": "Release History and Safe Rollback",
+          "status": "planned",
+          "summary": "Adds a Settings-based release history with protected rollback controls.",
+          "description": "The planned update center will show the latest compatible Windows releases, distinguish beta and stable labels, create a verified backup, confirm the exact target, validate release assets, and record rollback history."
+        },
+        {
           "name": "Shared Bot Onboarding and Bring Your Own Bot",
           "status": "planned",
           "summary": "Makes one shared multi-server Nexus bot the default while preserving an advanced custom-bot path.",
           "description": "The default onboarding flow will connect communities to the managed Nexus bot. Advanced users will be able to supply their own Discord application and token for separate branding or isolation."
         },
         {
-          "name": "D&D Campaign Workspace",
+          "name": "Remote D&D Player Experience",
           "status": "planned",
-          "summary": "Adds campaign, character, session, encounter, homebrew, and Discord-channel tools.",
-          "description": "Campaigns will bind to existing Discord channels instead of creating duplicates, with role-aware campaign access and support for user-created or otherwise permitted content imports."
+          "summary": "Explores a secure remote player view for approved campaign information and live maps.",
+          "description": "Any browser or remote-player experience requires a separate architecture decision for authentication, hosting, privacy, transport, and player-safe projections before implementation."
         },
         {
           "name": "Additional Game Adapters",
