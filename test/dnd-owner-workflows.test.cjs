@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const {
   normalizeSource,
   normalizeQuest,
+  activateQuest,
   saveEncounter,
   saveCombatant,
   removeCombatant,
@@ -40,6 +41,25 @@ test('quest form and storage normalize public and GM fields without placeholder 
   assert.equal(quest.title, 'Find the Gate');
   assert.equal(quest.gmNotes, 'Secret');
   assert.equal(quest.visibleToPlayers, true);
+});
+
+test('active campaign quest selection synchronizes lifecycle and rejects terminal quests', () => {
+  const state = {
+    campaigns: [{ id: 'campaign', activeQuestId: 'old' }],
+    quests: [
+      { id: 'old', campaignId: 'campaign', status: 'active' },
+      { id: 'next', campaignId: 'campaign', status: 'available' },
+      { id: 'done', campaignId: 'campaign', status: 'completed' }
+    ]
+  };
+  const result = activateQuest(state, 'campaign', 'next');
+  assert.equal(result.campaign.activeQuestId, 'next');
+  assert.equal(state.quests.find((item) => item.id === 'old').status, 'available');
+  assert.equal(state.quests.find((item) => item.id === 'next').status, 'active');
+  assert.throws(() => activateQuest(state, 'campaign', 'done'), (error) => error.code === 'DND_QUEST_TERMINAL');
+  activateQuest(state, 'campaign', '');
+  assert.equal(state.campaigns[0].activeQuestId, '');
+  assert.equal(state.quests.find((item) => item.id === 'next').status, 'available');
 });
 
 test('activating an encounter pauses the previously active encounter in the same campaign', () => {
@@ -128,8 +148,10 @@ test('production startup loads usability repair before core workflows and licens
   assert.ok(repair >= 0 && repair < workflows && workflows < licensing);
 });
 
-test('core workflow extension centrally deduplicates attendance and exposes audited Owner handlers', () => {
+test('core workflow extension centrally enforces active quest and attendance consistency with audited Owner handlers', () => {
   const source = fs.readFileSync(require.resolve('../main/dnd-owner-workflows-extension.cjs'), 'utf8');
+  assert.match(source, /upsertDndCampaign\(input\)/);
+  assert.match(source, /activateQuest\(state, value\.id, value\.activeQuestId\)/);
   assert.match(source, /upsertDndAttendance\(input\)/);
   assert.match(source, /item\.sessionId === input\.sessionId/);
   for (const channel of ['dnd:source-save', 'dnd:quest-save', 'dnd:encounter-save', 'dnd:combatant-save', 'dnd:combatant-remove', 'dnd:encounter-advance']) assert.match(source, new RegExp(channel));
