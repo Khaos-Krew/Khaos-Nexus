@@ -1,0 +1,60 @@
+.nexus-update-history { margin-top: 18px; }
+.nexus-update-heading p { margin: 5px 0 0; max-width: 720px; }
+.nexus-update-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.nexus-update-summary > div { min-width: 0; border: 1px solid var(--line-soft); background: var(--panel-2); border-radius: 11px; padding: 13px; }
+.nexus-update-summary span, .nexus-update-summary small { display: block; color: var(--muted); }
+.nexus-update-summary strong { display: block; margin: 5px 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nexus-update-message { margin-bottom: 12px; }
+.nexus-update-message.error { border-color: rgba(229,45,62,.5); color: #ff9aa4; }
+.nexus-release-list { display: grid; gap: 10px; }
+.nexus-release-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; border: 1px solid var(--line-soft); background: rgba(23,26,35,.72); border-radius: 11px; padding: 14px; }
+.nexus-release-entry.current { border-color: rgba(75,216,156,.38); background: linear-gradient(90deg, rgba(75,216,156,.07), rgba(23,26,35,.74)); }
+.nexus-release-main { min-width: 0; }
+.nexus-release-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.nexus-release-title-row > strong { font-size: 15px; }
+.nexus-release-meta { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; }
+.nexus-release-main p { margin: 7px 0 0; font-size: 13px; }
+.nexus-channel-badge { display: inline-flex; align-items: center; min-height: 22px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 7px; font-size: 9px; font-weight: 800; letter-spacing: .8px; }
+.nexus-channel-badge.beta { color: var(--amber); border-color: rgba(246,186,75,.35); background: rgba(246,186,75,.07); }
+.nexus-channel-badge.stable { color: var(--green); border-color: rgba(75,216,156,.35); background: rgba(75,216,156,.07); }
+.nexus-channel-badge.legacy { color: var(--muted); }
+.nexus-release-actions { display: flex; align-items: center; justify-content: flex-end; max-width: 230px; text-align: right; }
+.nexus-release-blocked { color: var(--muted); font-size: 12px; }
+.nexus-release-empty { border: 1px dashed var(--line); border-radius: 11px; padding: 20px; color: var(--muted); text-align: center; }
+.nexus-rollback-history { margin-top: 14px; border-top: 1px solid var(--line-soft); padding-top: 12px; }
+.nexus-rollback-history summary { cursor: pointer; color: var(--text); font-weight: 700; }
+.nexus-rollback-events { display: grid; gap: 8px; margin-top: 10px; }
+.nexus-rollback-event { display: flex; justify-content: space-between; gap: 16px; border: 1px solid var(--line-soft); border-radius: 9px; padding: 10px 12px; }
+.nexus-rollback-event strong, .nexus-rollback-event span, .nexus-rollback-event small { display: block; }
+.nexus-rollback-event span, .nexus-rollback-event small { color: var(--muted); font-size: 12px; }
+.nexus-history-status { align-self: center; text-transform: uppercase; letter-spacing: .8px; font-size: 9px; border: 1px solid var(--line); border-radius: 999px; padding: 3px 7px; }
+.nexus-history-status.good { color: var(--green); border-color: rgba(75,216,156,.35); }
+.nexus-history-status.bad { color: #ff8490; border-color: rgba(229,45,62,.45); }
+.nexus-rollback-overlay { position: fixed; inset: 0; z-index: 10020; display: grid; place-items: center; padding: 24px; background: rgba(4,5,8,.78); backdrop-filter: blur(7px); }
+.nexus-history-hidden { display: none !important; }
+.nexus-rollback-dialog { width: min(620px, 100%); max-height: min(760px, calc(100vh - 48px)); overflow: auto; border: 1px solid rgba(229,45,62,.5); border-radius: 15px; background: var(--panel); box-shadow: 0 24px 80px rgba(0,0,0,.58); padding: 23px; }
+.nexus-rollback-dialog h3 { font-size: 21px; margin: 4px 0 8px; }
+.nexus-rollback-dialog label { display: grid; gap: 7px; color: var(--muted); margin: 14px 0 8px; }
+.nexus-rollback-dialog code { color: var(--text); background: #090a0e; border: 1px solid var(--line); border-radius: 6px; padding: 2px 5px; overflow-wrap: anywhere; }
+.nexus-rollback-dialog input { width: 100%; border: 1px solid var(--line); background: #0b0d12; color: var(--text); border-radius: 9px; padding: 10px 11px; }
+.nexus-rollback-dialog input:focus-visible, .nexus-update-history button:focus-visible { outline: 2px solid var(--red-bright); outline-offset: 2px; }
+.nexus-rollback-target { display: flex; justify-content: space-between; gap: 14px; border: 1px solid var(--line-soft); background: var(--panel-2); border-radius: 9px; padding: 11px 12px; }
+.nexus-rollback-target span { color: var(--muted); }
+.nexus-rollback-dialog .callout { margin: 13px 0; }
+
+@media (max-width: 1100px) {
+  .nexus-update-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 720px) {
+  .nexus-update-heading, .nexus-release-entry { grid-template-columns: 1fr; align-items: stretch; }
+  .nexus-update-heading { display: grid; }
+  .nexus-release-actions { justify-content: flex-start; max-width: none; text-align: left; }
+  .nexus-update-summary { grid-template-columns: 1fr; }
+  .nexus-rollback-overlay { padding: 12px; }
+  .nexus-rollback-dialog { max-height: calc(100vh - 24px); padding: 18px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nexus-update-history *, .nexus-rollback-overlay * { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
+}
