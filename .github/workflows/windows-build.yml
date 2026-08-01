@@ -24,19 +24,37 @@ jobs:
       - name: Build installer and portable executable
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: npm run dist:win
-      - name: Build and publish GitHub Release
+      - name: Build tagged Windows release
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
-        run: npm run release:win
+        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          $customTag = [string]$package.khaosRelease.publicTag
+          if ($customTag) {
+            if ($env:GITHUB_REF_NAME -ne $customTag) {
+              throw "Custom release tag mismatch: expected $customTag, received $env:GITHUB_REF_NAME"
+            }
+            Write-Host "Custom public tag $customTag is owned by its protected publisher; rebuilding assets without creating a second release."
+            npm run dist:win
+          } else {
+            npm run release:win
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Tagged Windows build failed." }
       - name: Verify Windows artifacts
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         shell: pwsh
         run: |
           $package = Get-Content package.json -Raw | ConvertFrom-Json
+          $artifactVersion = [string]$package.version
+          if ($null -ne $package.khaosRelease -and $package.khaosRelease.artifactVersion) {
+            $artifactVersion = [string]$package.khaosRelease.artifactVersion
+          } elseif ($null -ne $package.build.extraMetadata -and $package.build.extraMetadata.version) {
+            $artifactVersion = [string]$package.build.extraMetadata.version
+          }
           $expected = @(
-            "dist/Khaos-Nexus-Setup-$($package.version)-x64.exe",
-            "dist/Khaos-Nexus-Portable-$($package.version)-x64.exe"
+            "dist/Khaos-Nexus-Setup-$artifactVersion-x64.exe",
+            "dist/Khaos-Nexus-Portable-$artifactVersion-x64.exe"
           )
           foreach ($path in $expected) {
             if (-not (Test-Path -LiteralPath $path)) { throw "Missing required Windows artifact: $path" }
@@ -46,7 +64,6 @@ jobs:
             Write-Host "$($item.Name) | $($item.Length) bytes | SHA256 $($hash.Hash)"
           }
       - uses: actions/upload-artifact@v4
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         with:
           name: Khaos-Nexus-Windows
           path: |
