@@ -17,6 +17,7 @@ const SOURCE_LICENSES = Object.freeze([
 const FULL_TEXT_LICENSES = new Set(['srd_cc_by', 'user_authored', 'user_supplied_private', 'partner_api']);
 const QUEST_STATUSES = Object.freeze(['draft', 'available', 'active', 'completed', 'failed', 'abandoned', 'archived']);
 const ENCOUNTER_STATUSES = Object.freeze(['draft', 'ready', 'active', 'paused', 'completed', 'archived']);
+const TERMINAL_QUEST_STATUSES = new Set(['completed', 'failed', 'abandoned', 'archived']);
 
 function finiteInteger(value, fallback = 0) {
   const number = Number(value);
@@ -100,7 +101,7 @@ function normalizeCombatant(input = {}) {
   if (discordUserId) normalizeSnowflake(discordUserId, 'Discord user ID');
   const hp = input.hp === '' || input.hp === null || input.hp === undefined ? null : finiteInteger(input.hp);
   const maxHp = input.maxHp === '' || input.maxHp === null || input.maxHp === undefined ? null : finiteInteger(input.maxHp);
-  if (hp !== null && hp < 0 || maxHp !== null && maxHp < 0) throw Object.assign(new Error('Combatant HP cannot be negative.'), { code: 'DND_COMBATANT_HP_INVALID' });
+  if ((hp !== null && hp < 0) || (maxHp !== null && maxHp < 0)) throw Object.assign(new Error('Combatant HP cannot be negative.'), { code: 'DND_COMBATANT_HP_INVALID' });
   if (hp !== null && maxHp !== null && hp > maxHp) throw Object.assign(new Error('Combatant HP cannot exceed maximum HP.'), { code: 'DND_COMBATANT_HP_INVALID' });
   return {
     id: clean(input.id, 100) || id('combatant'),
@@ -131,6 +132,28 @@ function upsertById(list, value) {
   return value;
 }
 
+function activateQuest(state, campaignId, questId = '') {
+  const campaign = state.campaigns.find((item) => item.id === campaignId);
+  if (!campaign) throw Object.assign(new Error('Campaign not found.'), { code: 'DND_CAMPAIGN_NOT_FOUND' });
+  const selectedId = clean(questId, 100);
+  const selected = selectedId ? state.quests.find((item) => item.id === selectedId && item.campaignId === campaignId) : null;
+  if (selectedId && !selected) throw Object.assign(new Error('The selected quest does not belong to this campaign.'), { code: 'DND_QUEST_NOT_FOUND' });
+  if (selected && TERMINAL_QUEST_STATUSES.has(selected.status)) {
+    throw Object.assign(new Error('A completed, failed, abandoned, or archived quest cannot become the active campaign quest.'), { code: 'DND_QUEST_TERMINAL' });
+  }
+  for (const quest of state.quests.filter((item) => item.campaignId === campaignId)) {
+    if (quest.id === selectedId) quest.status = 'active';
+    else if (quest.status === 'active') quest.status = 'available';
+    quest.updatedAt = nowIso();
+  }
+  campaign.activeQuestId = selectedId;
+  campaign.updatedAt = nowIso();
+  return {
+    campaign: clone(campaign),
+    quest: selected ? clone(selected) : null
+  };
+}
+
 function saveEncounter(state, input) {
   const value = normalizeEncounter(input);
   if (value.status === 'active') {
@@ -145,10 +168,6 @@ function saveEncounter(state, input) {
 
 function saveCombatant(state, input) {
   const value = normalizeCombatant(input);
-  if (!value.id && value.characterId) {
-    const existing = state.combatants.find((item) => item.encounterId === value.encounterId && item.characterId === value.characterId && item.active !== false);
-    if (existing) value.id = existing.id;
-  }
   const duplicate = value.characterId && state.combatants.find((item) => item.id !== value.id && item.encounterId === value.encounterId && item.characterId === value.characterId && item.active !== false);
   if (duplicate) value.id = duplicate.id;
   upsertById(state.combatants, value);
@@ -192,6 +211,7 @@ module.exports = {
   normalizeQuest,
   normalizeEncounter,
   normalizeCombatant,
+  activateQuest,
   saveEncounter,
   saveCombatant,
   removeCombatant,
