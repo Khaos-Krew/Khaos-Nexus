@@ -1,4 +1,5 @@
 name: Approved v0.26.6-B Hotfix Release
+# Registered in the parent commit so this push reliably triggers publication.
 
 on:
   push:
