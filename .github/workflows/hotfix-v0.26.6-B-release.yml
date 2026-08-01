@@ -1,0 +1,201 @@
+name: Approved v0.26.6-B Hotfix Release
+
+on:
+  push:
+    branches:
+      - "hotfix/v0.26.6-B-draft-preservation"
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: approved-hotfix-v0.26.6-B
+  cancel-in-progress: true
+
+jobs:
+  publish-windows-hotfix:
+    if: github.event.head_commit.message == 'release: publish v0.26.6-B hotfix'
+    runs-on: windows-latest
+    steps:
+      - name: Check out exact hotfix publisher head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate approved source and release identity
+        shell: pwsh
+        env:
+          APPROVED_APP_SHA: 8b7a792f6d85cc1f824a9b7a5b5aba76b8231577
+        run: |
+          $head = git rev-parse HEAD
+          if ($head -ne '${{ github.sha }}') { throw "Head checkout mismatch: $head" }
+          git merge-base --is-ancestor $env:APPROVED_APP_SHA HEAD
+          if ($LASTEXITCODE -ne 0) { throw "Approved hotfix source is not an ancestor of the publisher head." }
+          $changed = @(git diff --name-only "$env:APPROVED_APP_SHA..HEAD")
+          if ($changed.Count -ne 1 -or $changed[0] -ne '.github/workflows/hotfix-v0.26.6-B-release.yml') {
+            throw "Only the guarded publisher workflow may differ from approved application source. Changed: $($changed -join ', ')"
+          }
+
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          if ([string]$package.version -ne '0.26.6') { throw "Internal version must be 0.26.6." }
+          if ([string]$package.khaosRelease.displayVersion -ne '0.26.6-B') { throw "Display version mismatch." }
+          if ([string]$package.khaosRelease.artifactVersion -ne '0.26.6-B') { throw "Artifact version mismatch." }
+          if ([string]$package.khaosRelease.publicTag -ne 'v0.26.6-B') { throw "Public tag mismatch." }
+          if ([string]$package.khaosRelease.channel -ne 'beta') { throw "Release channel must be beta." }
+          if ([string]$package.khaosRelease.updaterVersion -ne '0.26.6') { throw "Updater version mismatch." }
+          if ([string]$package.khaosRelease.rollbackTag -ne 'v0.26.5-beta') { throw "Immediate rollback tag mismatch." }
+          if ([string]$package.build.publish[0].releaseType -ne 'release') { throw "Updater-visible beta must use the release feed." }
+          if ([string]$package.build.releaseInfo.releaseNotesFile -ne 'release-notes/v0.26.6.md') { throw "Release notes path mismatch." }
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Run complete test suite
+        run: npm test
+
+      - name: Run syntax and package checks
+        run: npm run check
+
+      - name: Verify diagnostics runtime
+        run: node scripts/verify-diagnostics-runtime-release.cjs
+
+      - name: Build Windows installer and portable executable
+        run: npm run dist:win
+
+      - name: Verify updater assets, identity, and ADR-008 exclusion
+        shell: pwsh
+        run: |
+          $largeAssets = @(
+            'dist/Khaos-Nexus-Setup-0.26.6-B-x64.exe',
+            'dist/Khaos-Nexus-Portable-0.26.6-B-x64.exe'
+          )
+          $metadataAssets = @(
+            'dist/Khaos-Nexus-Setup-0.26.6-B-x64.exe.blockmap',
+            'dist/latest.yml'
+          )
+          foreach ($file in $largeAssets) {
+            if (-not (Test-Path -LiteralPath $file)) { throw "Required executable was not generated: $file" }
+            if ((Get-Item -LiteralPath $file).Length -le 1MB) { throw "Generated executable is unexpectedly small: $file" }
+          }
+          foreach ($file in $metadataAssets) {
+            if (-not (Test-Path -LiteralPath $file)) { throw "Required updater metadata was not generated: $file" }
+            if ((Get-Item -LiteralPath $file).Length -le 0) { throw "Generated updater metadata is empty: $file" }
+          }
+
+          $metadata = Get-Content -LiteralPath 'dist/latest.yml' -Raw
+          if ($metadata -notmatch '(?m)^version:\s*0\.26\.6\s*$') {
+            throw "The updater feed does not advertise internal version 0.26.6."
+          }
+          if ($metadata -notmatch 'Khaos-Nexus-Setup-0\.26\.6-B-x64\.exe') {
+            throw "The updater feed does not reference the v0.26.6-B installer."
+          }
+
+          $androidAssets = Get-ChildItem dist -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -eq '.apk' -or $_.Name -match 'Android|Mobile' }
+          if ($androidAssets) { throw "ADR-008 violation: Android or Mobile assets were generated." }
+
+          node -e "const asar=require('@electron/asar'); const pkg=JSON.parse(asar.extractFile('dist/win-unpacked/resources/app.asar','package.json').toString('utf8')); if(pkg.version!=='0.26.6') throw new Error('Packaged updater version is '+pkg.version); if(pkg.khaosRelease?.displayVersion!=='0.26.6-B') throw new Error('Packaged display label is '+pkg.khaosRelease?.displayVersion); console.log('Packaged identity verified:',pkg.version,pkg.khaosRelease.displayVersion);"
+          if ($LASTEXITCODE -ne 0) { throw "Packaged application identity verification failed." }
+
+          @($largeAssets + $metadataAssets) | ForEach-Object {
+            $hash = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $([System.IO.Path]::GetFileName($_))"
+          } | Set-Content -Path release-checksums.txt -Encoding utf8
+
+      - name: Publish updater-visible v0.26.6-B release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          $tag = 'v0.26.6-B'
+          $notesPath = 'release-notes/v0.26.6.md'
+          $assets = @(
+            'dist/Khaos-Nexus-Setup-0.26.6-B-x64.exe',
+            'dist/Khaos-Nexus-Setup-0.26.6-B-x64.exe.blockmap',
+            'dist/Khaos-Nexus-Portable-0.26.6-B-x64.exe',
+            'dist/latest.yml',
+            'release-checksums.txt'
+          )
+
+          gh release view $tag --json tagName,targetCommitish *> $null
+          if ($LASTEXITCODE -eq 0) {
+            $ref = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$tag" | ConvertFrom-Json
+            if ([string]$ref.object.sha -ne $env:RELEASE_SHA) {
+              throw "Existing tag $tag does not resolve to the approved publisher SHA."
+            }
+            foreach ($asset in $assets) {
+              gh release upload $tag $asset --clobber
+              if ($LASTEXITCODE -ne 0) { throw "Failed to restore verified asset $asset." }
+            }
+            gh release edit $tag --title 'Khaos Nexus v0.26.6-B — Draft Preservation Hotfix' --notes-file $notesPath --draft=false --prerelease=false --latest
+          } else {
+            gh release create $tag --target $env:RELEASE_SHA --title 'Khaos Nexus v0.26.6-B — Draft Preservation Hotfix' --notes-file $notesPath --latest @assets
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Hotfix release publication failed." }
+
+      - name: Verify public tag, latest channel, and assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          $tag = 'v0.26.6-B'
+          $ref = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$tag" | ConvertFrom-Json
+          if ([string]$ref.object.sha -ne $env:RELEASE_SHA) { throw "Published tag does not resolve to the approved publisher SHA." }
+          $release = gh release view $tag --json isDraft,isPrerelease,assets | ConvertFrom-Json
+          if ($release.isDraft) { throw "Published release is still a draft." }
+          if ($release.isPrerelease) { throw "Updater-visible beta was hidden from the installed updater." }
+          $latest = gh api "repos/$env:GITHUB_REPOSITORY/releases/latest" | ConvertFrom-Json
+          if ([string]$latest.tag_name -ne $tag) { throw "v0.26.6-B is not the current updater release." }
+          $names = @($release.assets | ForEach-Object { $_.name })
+          foreach ($name in @('Khaos-Nexus-Setup-0.26.6-B-x64.exe','Khaos-Nexus-Setup-0.26.6-B-x64.exe.blockmap','Khaos-Nexus-Portable-0.26.6-B-x64.exe','latest.yml','release-checksums.txt')) {
+            if ($names -notcontains $name) { throw "Published release is missing $name." }
+          }
+
+      - name: Upload publication evidence artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Khaos-Nexus-v0.26.6-B-Updater
+          path: |
+            dist/Khaos-Nexus-Setup-0.26.6-B-x64.exe
+            dist/Khaos-Nexus-Setup-0.26.6-B-x64.exe.blockmap
+            dist/Khaos-Nexus-Portable-0.26.6-B-x64.exe
+            dist/latest.yml
+            release-checksums.txt
+          if-no-files-found: error
+
+      - name: Record publication evidence
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $checksums = Get-Content -LiteralPath release-checksums.txt -Raw
+          $body = @"
+          ## v0.26.6-B hotfix publication complete
+
+          - Public tag/release: ``v0.26.6-B``
+          - Approved application source: ``8b7a792f6d85cc1f824a9b7a5b5aba76b8231577``
+          - Publisher/tag source: ``${{ github.sha }}``
+          - Internal installed/updater version: ``0.26.6``
+          - Immediate rollback: ``v0.26.5-beta``
+          - Stable fallback: ``v0.26.0``
+          - Android/Mobile assets: excluded under ADR-008
+
+          ### SHA-256
+
+          ``````text
+          $checksums
+          ``````
+          "@
+          gh issue comment 141 --body $body
+          gh pr comment 142 --body $body
