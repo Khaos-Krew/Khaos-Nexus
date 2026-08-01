@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 concurrency:
   group: updater-beta-v0.26.5
@@ -141,3 +142,27 @@ jobs:
             dist/latest.yml
             release-checksums.txt
           if-no-files-found: error
+
+      - name: Record publication evidence on release handoff
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $checksums = Get-Content -LiteralPath release-checksums.txt -Raw
+          $body = @"
+          ## v0.26.5-beta updater publication complete
+
+          - Release: https://github.com/Khaos-Krew/Khaos-Nexus/releases/tag/v0.26.5-beta
+          - Exact source: ``$env:GITHUB_SHA``
+          - Packaged display version: ``0.26.5-beta``
+          - Updater feed version: ``0.26.5``
+          - Android/Mobile assets: excluded under ADR-008
+          - Stable rollback: ``v0.26.0`` / ``6fbe660cf17b752e592ea8dd7f954a77ef5beb47``
+
+          ### SHA-256
+
+          ``````text
+          $checksums
+          ``````
+          "@
+          gh issue comment 119 --body $body
