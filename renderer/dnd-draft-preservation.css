@@ -1,0 +1,58 @@
+.dnd-draft-refresh-status {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 14px;
+  padding: 11px 13px;
+  border: 1px solid rgba(246, 186, 75, .48);
+  border-radius: 10px;
+  background: rgba(48, 35, 12, .96);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .28);
+  color: var(--text, #f4f4f5);
+}
+
+.dnd-draft-refresh-status div {
+  min-width: 0;
+}
+
+.dnd-draft-refresh-status strong,
+.dnd-draft-refresh-status span {
+  display: block;
+}
+
+.dnd-draft-refresh-status strong {
+  margin-bottom: 3px;
+  color: #ffd889;
+}
+
+.dnd-draft-refresh-status span {
+  color: var(--muted, #b8bbc5);
+  font-size: 12px;
+}
+
+.dnd-draft-refresh-status .button {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 720px) {
+  .dnd-draft-refresh-status {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dnd-draft-refresh-status .button {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dnd-draft-refresh-status,
+  .dnd-draft-refresh-status * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
