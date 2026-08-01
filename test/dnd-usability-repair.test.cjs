@@ -10,6 +10,10 @@ const {
   saveCharacterFlow,
   unavailableMessage
 } = require('../renderer/dnd-usability-repair.js');
+const {
+  nodeRestoresBaseWorkspace,
+  shouldEnhanceMutation
+} = require('../renderer/dnd-usability-stability.js');
 
 test('campaign creation validates and sends an in-app form payload through existing IPC', async () => {
   const calls = [];
@@ -74,4 +78,38 @@ test('disabled module errors become a stable non-destructive workspace message',
 
 test('condition parsing is stable and deduplicated', () => {
   assert.deepEqual(parseConditions('blinded, prone, blinded'), ['blinded', 'prone']);
+});
+
+test('stability observer reacts to base D&D rerenders but ignores character-management writes', () => {
+  const baseNode = {
+    nodeType: 1,
+    id: '',
+    matches: () => false,
+    querySelector: (selector) => selector.includes('.dnd-tabs') ? {} : null
+  };
+  const repairNode = {
+    nodeType: 1,
+    id: '',
+    matches: (selector) => selector.includes('.dnd-character-management'),
+    querySelector: () => null
+  };
+  assert.equal(nodeRestoresBaseWorkspace(baseNode), true);
+  assert.equal(nodeRestoresBaseWorkspace(repairNode), false);
+  assert.equal(shouldEnhanceMutation([{
+    type: 'childList',
+    target: { closest: () => null },
+    addedNodes: [baseNode]
+  }]), true);
+  assert.equal(shouldEnhanceMutation([{
+    type: 'childList',
+    target: { closest: () => ({ className: 'dnd-character-management' }) },
+    addedNodes: [baseNode]
+  }]), false);
+});
+
+test('production loader executes the repair before the bounded stability guard', () => {
+  const fs = require('node:fs');
+  const extension = fs.readFileSync(require.resolve('../main/dnd-usability-repair-extension.cjs'), 'utf8');
+  assert.ok(extension.indexOf('executeJavaScript(script') < extension.indexOf('executeJavaScript(stability'));
+  assert.match(extension, /dnd-usability-stability\.js/);
 });
