@@ -1,0 +1,33 @@
+name: D&D Catalog Hash Probe
+
+on:
+  push:
+    branches:
+      - agent/v0.27.0-dnd-content-catalog-import
+    paths:
+      - .github/workflows/dnd-catalog-hash-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  hash-official-srds:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download official SRD files
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --max-time 120 \
+            --output SRD_CC_v5.2.1.pdf \
+            https://media.dndbeyond.com/compendium-images/srd/5.2/SRD_CC_v5.2.1.pdf
+          curl --fail --location --retry 3 --max-time 120 \
+            --output SRD_CC_v5.1.pdf \
+            https://media.wizards.com/2023/downloads/dnd/SRD_CC_v5.1.pdf
+      - name: Record sizes and SHA-256
+        shell: bash
+        run: |
+          set -euo pipefail
+          wc -c SRD_CC_v5.2.1.pdf SRD_CC_v5.1.pdf
+          sha256sum SRD_CC_v5.2.1.pdf SRD_CC_v5.1.pdf
