@@ -112,6 +112,7 @@
       snapshot: null,
       patchedRoot: null,
       descriptor: null,
+      lastAppliedHtml: null,
       suppressGuard: false,
       observer: null,
       retry: null,
@@ -163,9 +164,11 @@
 
     function rawSet(root, html) {
       if (!root || !state.descriptor?.set) return false;
+      const value = String(html ?? '');
       state.suppressGuard = true;
       try {
-        state.descriptor.set.call(root, String(html ?? ''));
+        state.descriptor.set.call(root, value);
+        state.lastAppliedHtml = value;
       } finally {
         state.suppressGuard = false;
       }
@@ -199,19 +202,23 @@
       if (!root || state.patchedRoot === root) return;
       state.descriptor = findInnerHtmlDescriptor(win);
       if (!state.descriptor) return;
+      state.lastAppliedHtml = state.descriptor.get.call(root);
       try {
         Object.defineProperty(root, 'innerHTML', {
           configurable: true,
           enumerable: state.descriptor.enumerable,
           get() { return state.descriptor.get.call(root); },
           set(value) {
+            const html = String(value ?? '');
+            if (html === state.lastAppliedHtml) return;
             if (shouldBlockWorkspaceRender(state)) {
-              state.pendingHtml = String(value ?? '');
+              state.pendingHtml = html;
               state.pendingExternal = true;
               showNotice();
               return;
             }
-            state.descriptor.set.call(root, value);
+            state.descriptor.set.call(root, html);
+            state.lastAppliedHtml = html;
           }
         });
         state.patchedRoot = root;
