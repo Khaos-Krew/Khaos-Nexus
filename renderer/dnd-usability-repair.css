@@ -1,0 +1,70 @@
+.dnd-usability-status {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 10px;
+  background: rgba(125,25,25,.18);
+}
+.dnd-usability-status.warning { background: rgba(145,100,18,.18); }
+.dnd-usability-status[hidden] { display: none; }
+.dnd-usability-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0,0,0,.72);
+  overflow: auto;
+}
+.dnd-usability-modal {
+  width: min(780px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 14px;
+  background: var(--panel, #17191f);
+  box-shadow: 0 24px 80px rgba(0,0,0,.55);
+}
+.dnd-usability-modal-error {
+  margin: 10px 0 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(160,30,30,.24);
+  color: #ffd6d6;
+}
+.dnd-usability-modal-error[hidden] { display: none; }
+.dnd-character-management .panel { min-height: 220px; }
+.dnd-manage-character-list { display: grid; gap: 12px; }
+.dnd-manage-character {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 10px;
+  background: rgba(255,255,255,.025);
+}
+.dnd-manage-character-main { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.dnd-manage-character-main img,
+.dnd-manage-portrait {
+  width: 64px;
+  height: 64px;
+  flex: 0 0 64px;
+  border-radius: 10px;
+  object-fit: cover;
+  display: grid;
+  place-items: center;
+  background: rgba(255,255,255,.06);
+  font-size: 26px;
+}
+.dnd-check-grid { display: flex; flex-wrap: wrap; gap: 18px; margin: 12px 0; }
+.dnd-check-grid label { display: flex; align-items: center; gap: 8px; }
+@media (max-width: 760px) {
+  .dnd-usability-modal-backdrop { padding: 8px; place-items: start center; }
+  .dnd-usability-modal { max-height: calc(100vh - 16px); padding: 16px; }
+  .dnd-manage-character { align-items: stretch; flex-direction: column; }
+  .dnd-manage-character .server-actions { justify-content: flex-start; flex-wrap: wrap; }
+}
