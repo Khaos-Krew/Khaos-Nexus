@@ -4,15 +4,23 @@ const { Client, Events } = require('discord.js');
 const { installModuleRuntime } = require('./module-runtime.cjs');
 const { installDiscordAutomationRuntime } = require('./discord-automation-runtime.cjs');
 const { installStatusPanelRuntime } = require('./status-panel-runtime.cjs');
-const { isDndInteraction, handleDndInteraction } = require('./dnd-runtime-policy.cjs');
+const {
+  isDndInteraction,
+  handleDndInteraction,
+  installEncounterPanelRuntime
+} = require('./dnd-encounter-panel-policy.cjs');
 
 const parent = process.parentPort;
 let bootstrap = null;
 let dndRuntime = null;
+let encounterPanelController = null;
 
 parent?.on('message', (event) => {
   const message = event?.data ?? event;
-  if (message?.type === 'bootstrap' || message?.type === 'config-update') bootstrap = message.payload;
+  if (message?.type === 'bootstrap' || message?.type === 'config-update') {
+    bootstrap = message.payload;
+    encounterPanelController?.onConfigUpdate();
+  }
 });
 
 installModuleRuntime({ ClientClass: Client, getBootstrap: () => bootstrap });
@@ -40,6 +48,7 @@ Client.prototype.login = function patchedLogin(...args) {
     })
   };
   dndRuntime = runtime;
+  encounterPanelController = installEncounterPanelRuntime(runtime);
   installDiscordAutomationRuntime(runtime);
   installStatusPanelRuntime(runtime);
   return originalLogin.apply(this, args);
