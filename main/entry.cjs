@@ -39,6 +39,7 @@ if (diagnosticsMode) {
     if (mobileGatewayEnabled) require('./mobile-module-registry-extension.cjs').install();
     else mobileHold.install();
     require('./dnd-campaign-extension.cjs').install();
+    require('./dnd-usability-repair-extension.cjs').install();
     require('./dnd-access-policy-extension.cjs').install();
     require('./dnd-authorization-summary-extension.cjs').install();
 
