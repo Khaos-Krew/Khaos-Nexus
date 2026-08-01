@@ -35,7 +35,7 @@ test('nested logs and diagnostic outputs retain their own scrolling', () => {
   }
 });
 
-test('v0.26.0 retains scrolling, Owner modules, Android exclusion and local recovery behavior', () => {
+test('current release retains scrolling, Owner modules, Android exclusion and local recovery behavior', () => {
   const packageJson = JSON.parse(read('package.json'));
   const preload = read('main/preload.cjs');
   const portable = read('main/portable-bootstrap-extension.cjs');
@@ -55,7 +55,7 @@ test('v0.26.0 retains scrolling, Owner modules, Android exclusion and local reco
   const mobileHold = read('main/mobile-production-hold-extension.cjs');
   const audit = read('main/audit-repair-extension.cjs');
 
-  assert.equal(packageJson.version, '0.26.0');
+  assert.match(packageJson.version, /^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?$/);
   assert.match(packageJson.description, /unconditional local-desktop module recovery controls/i);
   assert.match(packageJson.description, /preserved but paused Android Companion and Mobile Gateway/i);
   assert.match(packageJson.description, /complete D&D campaign management/i);
