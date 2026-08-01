@@ -35,7 +35,7 @@ test('nested logs and diagnostic outputs retain their own scrolling', () => {
   }
 });
 
-test('v0.25.0 retains scrolling, Owner modules, Android exclusion and local recovery behavior', () => {
+test('v0.26.0 retains scrolling, Owner modules, Android exclusion and local recovery behavior', () => {
   const packageJson = JSON.parse(read('package.json'));
   const preload = read('main/preload.cjs');
   const portable = read('main/portable-bootstrap-extension.cjs');
@@ -55,10 +55,10 @@ test('v0.25.0 retains scrolling, Owner modules, Android exclusion and local reco
   const mobileHold = read('main/mobile-production-hold-extension.cjs');
   const audit = read('main/audit-repair-extension.cjs');
 
-  assert.equal(packageJson.version, '0.25.0');
+  assert.equal(packageJson.version, '0.26.0');
   assert.match(packageJson.description, /unconditional local-desktop module recovery controls/i);
   assert.match(packageJson.description, /preserved but paused Android Companion and Mobile Gateway/i);
-  assert.match(packageJson.description, /D&D campaign integration/i);
+  assert.match(packageJson.description, /complete D&D campaign management/i);
   assert.match(packageJson.description, /dedicated Rust WebRCON operations/i);
   assert.match(packageJson.description, /typed Game Adapter SDK/i);
   assert.match(packageJson.description, /compact production dashboard density/i);
