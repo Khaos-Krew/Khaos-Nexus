@@ -23,8 +23,58 @@ const COMMAND_MODULES = Object.freeze({
   listservers: 'game-server-control',
   settings: 'palworld-operations',
   metrics: 'palworld-operations',
-  snapshot: 'palworld-operations'
+  snapshot: 'palworld-operations',
+  campaign: 'dnd-workspace',
+  character: 'dnd-workspace',
+  roll: 'dnd-workspace',
+  initiative: 'dnd-workspace',
+  session: 'dnd-workspace',
+  quest: 'dnd-workspace'
 });
+
+function dndCommands() {
+  return [
+    new SlashCommandBuilder()
+      .setName('campaign')
+      .setDescription('View or select the D&D campaign for this Discord resource.')
+      .addSubcommand((sub) => sub.setName('info').setDescription('Show the current campaign summary.'))
+      .addSubcommand((sub) => sub.setName('use').setDescription('Explicitly select the active campaign for a shared channel.')
+        .addStringOption((option) => option.setName('campaign').setDescription('Khaos Nexus campaign ID').setRequired(true).setMaxLength(100)))
+      .addSubcommand((sub) => sub.setName('panel').setDescription('Create or refresh the persistent campaign panel.')),
+    new SlashCommandBuilder()
+      .setName('character')
+      .setDescription('View D&D character information.')
+      .addSubcommand((sub) => sub.setName('view').setDescription('View your selected character or another visible character.')
+        .addStringOption((option) => option.setName('character').setDescription('Optional character ID or exact name').setMaxLength(120))),
+    new SlashCommandBuilder()
+      .setName('roll')
+      .setDescription('Roll dice using the current campaign context.')
+      .addStringOption((option) => option.setName('expression').setDescription('Examples: d20, 2d6+3, 2d20kh1+5').setRequired(true).setMaxLength(80))
+      .addStringOption((option) => option.setName('privacy').setDescription('Who can see the result').addChoices(
+        { name: 'Public', value: 'public' },
+        { name: 'DM only', value: 'dm_only' },
+        { name: 'Blind', value: 'blind' }
+      )),
+    new SlashCommandBuilder()
+      .setName('initiative')
+      .setDescription('View or manage the active encounter initiative.')
+      .addSubcommand((sub) => sub.setName('view').setDescription('View deterministic initiative order and the current turn.'))
+      .addSubcommand((sub) => sub.setName('join').setDescription('Join initiative with your selected character.'))
+      .addSubcommand((sub) => sub.setName('next').setDescription('Advance to the next turn. DM access required.')),
+    new SlashCommandBuilder()
+      .setName('session')
+      .setDescription('View or manage campaign sessions.')
+      .addSubcommand((sub) => sub.setName('status').setDescription('Show the active or next planned session.'))
+      .addSubcommand((sub) => sub.setName('start').setDescription('Start a planned session. DM access required.')
+        .addStringOption((option) => option.setName('session').setDescription('Optional session ID').setMaxLength(100))
+        .addBooleanOption((option) => option.setName('reset_initiative').setDescription('Reset active initiative after explicit confirmation.')))
+      .addSubcommand((sub) => sub.setName('end').setDescription('End the active session and create an unapproved activity-only recap.')),
+    new SlashCommandBuilder()
+      .setName('quest')
+      .setDescription('View D&D campaign quests.')
+      .addSubcommand((sub) => sub.setName('list').setDescription('List visible campaign quests.'))
+  ];
+}
 
 function createCommands({ isModuleEnabled = () => true } = {}) {
   const serverOption = (builder, required = true) => builder
@@ -61,7 +111,8 @@ function createCommands({ isModuleEnabled = () => true } = {}) {
     serverOption(new SlashCommandBuilder().setName('rcon').setDescription('Run an advanced Owner console command on a supported connection.'))
       .addStringOption((option) => option.setName('command').setDescription('Raw server console command').setRequired(true).setMaxLength(1000)),
     new SlashCommandBuilder().setName('listservers').setDescription('List enabled game servers and connection types.'),
-    new SlashCommandBuilder().setName('managerrestart').setDescription('Ask the desktop manager to restart the bot runtime.')
+    new SlashCommandBuilder().setName('managerrestart').setDescription('Ask the desktop manager to restart the bot runtime.'),
+    ...dndCommands()
   ];
 
   return commands
@@ -78,4 +129,4 @@ function requiresAdministrator(commandName) {
   return ADMIN_COMMANDS.has(commandName);
 }
 
-module.exports = { createCommands, isAdministrator, requiresAdministrator, COMMAND_MODULES };
+module.exports = { createCommands, isAdministrator, requiresAdministrator, COMMAND_MODULES, dndCommands };

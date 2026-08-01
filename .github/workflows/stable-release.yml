@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: stable-release-${{ github.event.pull_request.base.ref || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   publish-windows-release:
@@ -78,7 +78,7 @@ jobs:
       - name: Build installer and portable executable
         run: npm run dist:win
 
-      - name: Verify updater assets and create checksums
+      - name: Verify updater assets, Android exclusion, and create checksums
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
@@ -90,6 +90,10 @@ jobs:
           )
           foreach ($file in $required) {
             if (-not (Test-Path $file)) { throw "Required updater asset was not generated: $file" }
+          }
+          $androidAssets = Get-ChildItem dist -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -eq '.apk' -or $_.Name -match 'Android|Mobile' }
+          if ($androidAssets) {
+            throw "ADR-008 violation: Android or Mobile assets were generated for the stable Windows release."
           }
           $required | ForEach-Object {
             $hash = (Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -107,22 +111,12 @@ jobs:
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) { throw "Stable release $tag already exists. Increase package.json before publishing again." }
 
-          @"
-          ## Khaos Nexus $tag
+          $notesPath = "release-notes/v$version.md"
+          if (-not (Test-Path $notesPath)) {
+            throw "Stable release notes are missing: $notesPath"
+          }
 
-          This validated Windows maintenance release simplifies navigation while retaining the verified startup, scrolling, portable diagnostics, and protected update flow.
-
-          ### Included
-          - Windows installer
-          - Portable Windows executable
-          - electron-updater metadata
-          - NSIS blockmap
-          - SHA-256 checksum manifest
-
-          The release was rebuilt from validated release commit `$targetSha` and passed the complete tests and syntax checks before publication.
-          "@ | Set-Content -Path release-notes.md -Encoding utf8
-
-          gh release create $tag --target $targetSha --title "Khaos Nexus $tag" --notes-file release-notes.md --draft
+          gh release create $tag --target $targetSha --title "Khaos Nexus $tag" --notes-file $notesPath --draft
           if ($LASTEXITCODE -ne 0) { throw "GitHub draft release creation failed." }
 
           $assets = Get-ChildItem dist -File | Where-Object { $_.Extension -in '.exe', '.yml', '.blockmap' }

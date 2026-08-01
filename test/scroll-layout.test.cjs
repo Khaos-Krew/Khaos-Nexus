@@ -35,7 +35,7 @@ test('nested logs and diagnostic outputs retain their own scrolling', () => {
   }
 });
 
-test('v0.22.1 retains scrolling, Owner modules and local recovery behavior', () => {
+test('v0.25.0 retains scrolling, Owner modules, Android exclusion and local recovery behavior', () => {
   const packageJson = JSON.parse(read('package.json'));
   const preload = read('main/preload.cjs');
   const portable = read('main/portable-bootstrap-extension.cjs');
@@ -52,11 +52,13 @@ test('v0.22.1 retains scrolling, Owner modules and local recovery behavior', () 
   const rustCss = read('renderer/rust-webrcon-ui.css');
   const mobileUi = read('renderer/mobile-companion.js');
   const mobileCss = read('renderer/mobile-companion.css');
+  const mobileHold = read('main/mobile-production-hold-extension.cjs');
   const audit = read('main/audit-repair-extension.cjs');
 
-  assert.equal(packageJson.version, '0.22.1');
+  assert.equal(packageJson.version, '0.25.0');
   assert.match(packageJson.description, /unconditional local-desktop module recovery controls/i);
-  assert.match(packageJson.description, /native read-only Android companion/i);
+  assert.match(packageJson.description, /preserved but paused Android Companion and Mobile Gateway/i);
+  assert.match(packageJson.description, /D&D campaign integration/i);
   assert.match(packageJson.description, /dedicated Rust WebRCON operations/i);
   assert.match(packageJson.description, /typed Game Adapter SDK/i);
   assert.match(packageJson.description, /compact production dashboard density/i);
@@ -80,8 +82,15 @@ test('v0.22.1 retains scrolling, Owner modules and local recovery behavior', () 
   assert.match(moduleCss, /display:\s*none\s*!important/);
   assert.match(rustCss, /rust-operation-output/);
   assert.match(rustCss, /overflow:\s*auto/);
+
+  // Mobile renderer and security assets remain preserved, but runtime/navigation activation is blocked.
   assert.match(mobileCss, /mobile-device-list/);
   assert.match(mobileCss, /overflow-wrap:\s*anywhere/);
+  assert.match(mobileHold, /launchView: null/);
+  assert.match(mobileHold, /enabled: false/);
+  assert.match(mobileHold, /effectiveEnabled: false/);
+  assert.match(mobileHold, /paused-by-owner-directive/);
+
   assert.match(adapterSdk, /roleAtLeast/);
   assert.match(adapterSdk, /redactAdapterValue/);
   assert.match(audit, /serverHealth: health/);
@@ -92,7 +101,8 @@ test('v0.22.1 retains scrolling, Owner modules and local recovery behavior', () 
   assert.match(entry, /renderer-unresponsive-extension\.cjs/);
   assert.match(entry, /local-module-authority-extension\.cjs/);
   assert.match(entry, /module-runtime-extension\.cjs/);
-  assert.match(entry, /mobile-gateway-extension\.cjs/);
+  assert.match(entry, /mobile-production-hold-extension\.cjs/);
+  assert.match(entry, /if \(mobileGatewayEnabled\)/);
   assert.match(entry, /audit-repair-extension\.cjs/);
   assert.match(entry, /rust-main-extension\.cjs/);
   assert.match(watchdog, /interface-watchdog-state\.json/);

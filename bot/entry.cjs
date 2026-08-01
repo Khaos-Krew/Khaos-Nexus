@@ -1,12 +1,14 @@
 'use strict';
 
-const { Client } = require('discord.js');
+const { Client, Events } = require('discord.js');
 const { installModuleRuntime } = require('./module-runtime.cjs');
 const { installDiscordAutomationRuntime } = require('./discord-automation-runtime.cjs');
 const { installStatusPanelRuntime } = require('./status-panel-runtime.cjs');
+const { isDndInteraction, handleDndInteraction } = require('./dnd-runtime-policy.cjs');
 
 const parent = process.parentPort;
 let bootstrap = null;
+let dndRuntime = null;
 
 parent?.on('message', (event) => {
   const message = event?.data ?? event;
@@ -14,6 +16,18 @@ parent?.on('message', (event) => {
 });
 
 installModuleRuntime({ ClientClass: Client, getBootstrap: () => bootstrap });
+
+const originalEmit = Client.prototype.emit;
+Client.prototype.emit = function dndAwareEmit(eventName, ...args) {
+  const interaction = eventName === Events.InteractionCreate ? args[0] : null;
+  if (interaction && dndRuntime && isDndInteraction(interaction)) {
+    Promise.resolve(handleDndInteraction(interaction, dndRuntime)).catch((error) => {
+      dndRuntime.log('error', `Unhandled D&D interaction failure: ${error.stack || error.message}`);
+    });
+    return true;
+  }
+  return originalEmit.call(this, eventName, ...args);
+};
 
 const originalLogin = Client.prototype.login;
 Client.prototype.login = function patchedLogin(...args) {
@@ -25,6 +39,7 @@ Client.prototype.login = function patchedLogin(...args) {
       type: 'log', payload: { time: new Date().toISOString(), source: 'bot', level, message, meta }
     })
   };
+  dndRuntime = runtime;
   installDiscordAutomationRuntime(runtime);
   installStatusPanelRuntime(runtime);
   return originalLogin.apply(this, args);
