@@ -25,3 +25,12 @@ test('bridge only clears selector-created dirty state after the primary guard', 
   assert.match(bridge, /state\.commitPending === false/);
   assert.match(bridge, /state\.dirty = false/);
 });
+
+test('bridge releases a pending draft only after a successful save message and queued render', () => {
+  const bridge = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'dnd-draft-preservation-bridge.js'), 'utf8');
+  assert.match(bridge, /SUCCESS_MESSAGE/);
+  assert.match(bridge, /state\?\.commitPending/);
+  assert.match(bridge, /state\.pendingHtml === null/);
+  assert.match(bridge, /guard\.discardDraft\(\)/);
+  assert.match(bridge, /MutationObserver/);
+});
