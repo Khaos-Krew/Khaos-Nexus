@@ -46,8 +46,7 @@ function requestBuffer(url, options = {}, redirects = 0) {
       const location = response.headers.location;
       if (response.statusCode >= 300 && response.statusCode < 400 && location) {
         response.resume();
-        const next = new URL(location, url).toString();
-        requestBuffer(next, options, redirects + 1).then(resolve, reject);
+        requestBuffer(new URL(location, url).toString(), options, redirects + 1).then(resolve, reject);
         return;
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -100,8 +99,7 @@ function downloadFile(url, filePath, redirects = 0) {
       const location = response.headers.location;
       if (response.statusCode >= 300 && response.statusCode < 400 && location) {
         response.resume();
-        const next = new URL(location, url).toString();
-        downloadFile(next, filePath, redirects + 1).then(resolve, reject);
+        downloadFile(new URL(location, url).toString(), filePath, redirects + 1).then(resolve, reject);
         return;
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -132,7 +130,7 @@ function downloadFile(url, filePath, redirects = 0) {
       });
       response.on('error', fail);
       output.on('error', fail);
-      output.on('finish', () => {
+      output.on('close', () => {
         if (settled) return;
         settled = true;
         try {
@@ -150,6 +148,30 @@ function downloadFile(url, filePath, redirects = 0) {
       try { fs.rmSync(`${filePath}.partial`, { force: true }); } catch {}
       reject(error);
     });
+  });
+}
+
+function waitForChildLaunch(child, timeoutMs = 5000) {
+  if (!child || typeof child !== 'object') return Promise.reject(new Error('The rollback installer process was not created.'));
+  if (Number.isInteger(child.pid) && child.pid > 0) return Promise.resolve(child);
+  if (typeof child.once !== 'function') return Promise.reject(new Error('The rollback installer did not expose a launch signal.'));
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.removeListener?.('spawn', onSpawn);
+      child.removeListener?.('error', onError);
+      if (error) reject(error);
+      else resolve(child);
+    };
+    const onSpawn = () => finish();
+    const onError = (error) => finish(error instanceof Error ? error : new Error(String(error || 'Rollback installer launch failed.')));
+    const timer = setTimeout(() => finish(new Error('The rollback installer did not start within the safety window.')), timeoutMs);
+    timer.unref?.();
+    child.once('spawn', onSpawn);
+    child.once('error', onError);
   });
 }
 
@@ -204,9 +226,10 @@ class ReleaseHistoryService extends EventEmitter {
     this.spawn = options.spawn || spawn;
     this.clock = options.clock || (() => new Date());
     this.quitDelayMs = Number.isFinite(options.quitDelayMs) ? options.quitDelayMs : 700;
+    this.launchTimeoutMs = Number.isFinite(options.launchTimeoutMs) ? options.launchTimeoutMs : 5000;
     this.mode = options.mode || (process.env.PORTABLE_EXECUTABLE_FILE ? 'portable' : 'installed');
     this.currentVersion = String(options.currentVersion || this.app?.getVersion?.() || packageInfo.version || '0.0.0');
-    this.currentLabel = String(options.currentLabel || packageInfo.khaosRelease?.displayVersion || this.currentVersion);
+    this.currentLabel = String(options.currentLabel || packageInfo.khaosRelease?.publicTag || packageInfo.khaosRelease?.displayVersion || this.currentVersion);
     this.channel = String(options.channel || packageInfo.khaosRelease?.channel || 'stable');
     this.dataCompatibilityFloor = String(options.dataCompatibilityFloor || packageInfo.khaosRelease?.dataCompatibilityFloor || '0.26.0');
     this.cache = { at: 0, releases: [] };
@@ -326,7 +349,6 @@ class ReleaseHistoryService extends EventEmitter {
 
     const asset = this.mode === 'portable' ? release.assets.portable : release.assets.installer;
     if (!asset?.url || !asset?.name) throw new Error('The selected release is missing its Windows rollback asset.');
-    const startedAt = this.clock().toISOString();
     const record = safeHistoryEntry({
       id: crypto.randomUUID(),
       status: 'starting',
@@ -334,7 +356,7 @@ class ReleaseHistoryService extends EventEmitter {
       targetVersion: release.internalVersion,
       targetTag: release.tagName,
       assetName: asset.name,
-      startedAt
+      startedAt: this.clock().toISOString()
     });
     this.writeHistory([record, ...this.state.rollbackHistory]);
     this.updateState({ status: 'backing-up', error: null });
@@ -367,6 +389,7 @@ class ReleaseHistoryService extends EventEmitter {
       this.updateState({ status: 'launching', error: null });
 
       const child = this.spawn(destination, [], { detached: true, stdio: 'ignore', windowsHide: false });
+      await waitForChildLaunch(child, this.launchTimeoutMs);
       child.unref?.();
       record.status = 'launched';
       record.finishedAt = this.clock().toISOString();
@@ -379,7 +402,8 @@ class ReleaseHistoryService extends EventEmitter {
         assetName: asset.name,
         sha256: downloaded.sha256
       });
-      setTimeout(() => this.app.quit(), this.quitDelayMs).unref?.();
+      const quitTimer = setTimeout(() => this.app.quit(), this.quitDelayMs);
+      quitTimer.unref?.();
       return {
         launched: true,
         targetTag: release.tagName,
@@ -412,6 +436,7 @@ module.exports = {
   requestJson,
   requestText,
   downloadFile,
+  waitForChildLaunch,
   publicRelease,
   safeHistoryEntry,
   ReleaseHistoryService
