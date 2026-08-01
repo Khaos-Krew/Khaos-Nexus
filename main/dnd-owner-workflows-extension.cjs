@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
+const { normalizeAttendance } = require('../shared/dnd-discord.cjs');
 const {
   normalizeSource,
   normalizeQuest,
@@ -79,10 +80,52 @@ function patchConfigStore() {
       scheduleRegister();
     }
 
-    upsertDndSource(input) { return this.upsertDndItem('sources', input, normalizeSource); }
-    upsertDndQuest(input) { return this.upsertDndItem('quests', input, normalizeQuest); }
-    upsertDndEncounter(input) { return this.mutateDnd((state) => saveEncounter(state, input)); }
-    upsertDndCombatant(input) { return this.mutateDnd((state) => saveCombatant(state, input)); }
+    existingDndItem(collection, input = {}) {
+      if (!input.id) return null;
+      return this.getDndState()[collection]?.find((item) => item.id === input.id) || null;
+    }
+
+    upsertDndSource(input) {
+      const existing = this.existingDndItem('sources', input);
+      return this.upsertDndItem('sources', { ...existing, ...input }, normalizeSource);
+    }
+
+    upsertDndQuest(input) {
+      const existing = this.existingDndItem('quests', input);
+      return this.upsertDndItem('quests', { ...existing, ...input }, normalizeQuest);
+    }
+
+    upsertDndEncounter(input) {
+      const existing = this.existingDndItem('encounters', input);
+      return this.mutateDnd((state) => saveEncounter(state, { ...existing, ...input }));
+    }
+
+    upsertDndCombatant(input) {
+      const existing = this.existingDndItem('combatants', input);
+      return this.mutateDnd((state) => saveCombatant(state, { ...existing, ...input }));
+    }
+
+    upsertDndAttendance(input) {
+      if (!input.userId && !input.discordUserId) {
+        const error = new Error('Attendance requires a linked Nexus user or Discord user.');
+        error.code = 'DND_ATTENDANCE_IDENTITY_REQUIRED';
+        throw error;
+      }
+      return this.mutateDnd((state) => {
+        const index = state.attendance.findIndex((item) =>
+          item.id === input.id || item.sessionId === input.sessionId && (
+            input.userId && item.userId === input.userId ||
+            input.discordUserId && item.discordUserId === input.discordUserId
+          )
+        );
+        const existing = index >= 0 ? state.attendance[index] : null;
+        const value = normalizeAttendance({ ...existing, ...input, id: existing?.id || input.id });
+        if (index >= 0) state.attendance[index] = value;
+        else state.attendance.push(value);
+        return clone(value);
+      });
+    }
+
     removeDndCombatant(input) { return this.mutateDnd((state) => removeCombatant(state, input.combatantId)); }
     advanceDndEncounter(input) { return this.mutateDnd((state) => clone(advanceEncounter(state, input.encounterId))); }
   }
