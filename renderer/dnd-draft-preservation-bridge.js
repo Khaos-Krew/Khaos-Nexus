@@ -25,8 +25,12 @@
     const guard = win.__khaosDndUsabilityStability;
     const state = guard?.state;
     const toast = win.document.getElementById('toast');
-    if (!guard || !state?.commitPending || state.pendingHtml === null || !toast) return;
+    if (!guard || !state?.commitPending || !toast) return;
     if (!SUCCESS_MESSAGE.test(String(toast.textContent || ''))) return;
+    if (state.pendingHtml === null) {
+      state.commitPending = false;
+      return;
+    }
     guard.discardDraft();
   }
 
