@@ -114,9 +114,47 @@ async function preflightBlindRoll(interaction, runtime) {
   }
 }
 
+function isSessionStart(interaction) {
+  return Boolean(
+    interaction?.isChatInputCommand?.() &&
+    interaction.commandName === 'session' &&
+    interaction.options?.getSubcommand?.(false) === 'start'
+  );
+}
+
+function preflightSessionStart(interaction, runtime) {
+  if (!isSessionStart(interaction)) return null;
+
+  const bootstrap = runtime.getBootstrap();
+  const state = bootstrap?.config?.dnd;
+  const context = base.contextFor(interaction, bootstrap);
+  const sessions = (state?.sessions || []).filter((item) => item.campaignId === context.campaignId);
+  const requestedId = String(interaction.options?.getString?.('session') || '');
+  const session = requestedId
+    ? sessions.find((item) => item.id === requestedId)
+    : sessions.find((item) => item.status === 'planned');
+
+  if (!session) {
+    const error = new Error(requestedId
+      ? 'The selected session was not found in this campaign.'
+      : 'No planned session is available to start.');
+    error.code = 'SESSION_NOT_FOUND';
+    throw error;
+  }
+
+  if (session.status !== 'planned') {
+    const error = new Error('Only a planned session can be started.');
+    error.code = 'SESSION_NOT_STARTABLE';
+    throw error;
+  }
+
+  return session;
+}
+
 async function handleDndInteraction(interaction, runtime) {
   try {
     validateCampaignUse(interaction, runtime);
+    preflightSessionStart(interaction, runtime);
     await preflightBlindRoll(interaction, runtime);
   } catch (error) {
     runtime.log?.('warn', `D&D interaction rejected before execution: ${error.code || error.message}`);
@@ -139,5 +177,7 @@ module.exports = {
   isCampaignUse,
   hasSafeDmPermissions,
   preflightBlindRoll,
-  isBlindRoll
+  isBlindRoll,
+  preflightSessionStart,
+  isSessionStart
 };

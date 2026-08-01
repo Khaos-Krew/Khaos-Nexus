@@ -46,13 +46,14 @@ test('safe UI layer loads grouped navigation while preserving independent scroll
   assert.match(extension, /addScript\('navigation-shell\.js'\)/);
 });
 
-test('v0.22.1 is configured for the local module recovery hotfix release channel', () => {
+test('v0.25.0 is configured for stable Windows release with Android production paused', () => {
   const packageJson = JSON.parse(read('package.json'));
-  const notes = read('release-notes/v0.22.1.md');
+  const notes = read('release-notes/v0.25.0.md');
   const mobileDocs = read('docs/ANDROID_COMPANION_v0.22.0.md');
   const mobileShared = read('shared/mobile-gateway.cjs');
   const mobileService = read('main/services/mobile-gateway-service.cjs');
   const mobileSecurity = read('main/mobile-gateway-security-extension.cjs');
+  const mobileHold = read('main/mobile-production-hold-extension.cjs');
   const androidWorkflow = read('.github/workflows/android-build.yml');
   const rust = read('bot/rust-webrcon.cjs');
   const rustMain = read('main/rust-main-extension.cjs');
@@ -70,11 +71,10 @@ test('v0.22.1 is configured for the local module recovery hotfix release channel
   const workflow = read('.github/workflows/stable-release.yml');
   const ciWorkflow = read('.github/workflows/ci.yml');
 
-  assert.equal(packageJson.version, '0.22.1');
+  assert.equal(packageJson.version, '0.25.0');
   assert.match(packageJson.description, /unconditional local-desktop module recovery controls/i);
-  assert.match(packageJson.description, /native read-only Android companion/i);
-  assert.match(packageJson.description, /certificate-pinned HTTPS Mobile Gateway/i);
-  assert.match(packageJson.description, /P-256 signed mobile requests/i);
+  assert.match(packageJson.description, /preserved but paused Android Companion and Mobile Gateway/i);
+  assert.match(packageJson.description, /D&D campaign integration/i);
   assert.match(packageJson.description, /dedicated Rust WebRCON operations/i);
   assert.match(packageJson.description, /Owner-only raw Rust console access/i);
   assert.match(packageJson.description, /typed Game Adapter SDK/i);
@@ -84,6 +84,8 @@ test('v0.22.1 is configured for the local module recovery hotfix release channel
   assert.match(localAuthority, /Discord authentication or a Discord role/);
   assert.match(localAuthority, /get: \(\) => null/);
   assert.match(localAuthority, /set: \(\) => \{\}/);
+
+  // Android and Mobile Gateway implementation evidence remains preserved while production is disabled.
   assert.match(mobileShared, /verifyMobileRequestSignature/);
   assert.match(mobileShared, /issueDeviceCredential/);
   assert.match(mobileService, /class MobileGatewayService/);
@@ -91,8 +93,16 @@ test('v0.22.1 is configured for the local module recovery hotfix release channel
   assert.match(mobileSecurity, /OneTimeDelivery|oneTimePairingRoute/);
   assert.match(mobileDocs, /Android Keystore/);
   assert.match(mobileDocs, /Phase 1 API/);
-  assert.match(androidWorkflow, /lintDebug/);
-  assert.match(androidWorkflow, /apksigner/);
+  assert.match(mobileHold, /KHAOS_NEXUS_MOBILE_GATEWAY_ENABLED/);
+  assert.match(mobileHold, /paused-by-owner-directive/);
+  assert.match(mobileHold, /launchView: null/);
+  assert.match(androidWorkflow, /name: Android Production Hold/);
+  assert.match(androidWorkflow, /workflow_dispatch/);
+  assert.match(androidWorkflow, /ADR-008/);
+  assert.doesNotMatch(androidWorkflow, /lintDebug/);
+  assert.doesNotMatch(androidWorkflow, /apksigner/);
+  assert.doesNotMatch(androidWorkflow, /upload-artifact/);
+
   assert.match(rust, /class RustWebRconClient/);
   assert.match(rust, /serverinfo/);
   assert.match(rust, /playerlist/);
@@ -124,15 +134,18 @@ test('v0.22.1 is configured for the local module recovery hotfix release channel
   assert.match(foundation, /safe-mode/);
   assert.match(runtime, /moduleDecisionForChannel/);
   assert.match(botRuntime, /blockedModuleForInteraction/);
+
   assert.equal(packageJson.build.publish[0].provider, 'github');
   assert.equal(packageJson.build.publish[0].releaseType, 'release');
   assert.equal(packageJson.build.publish[0].tagNamePrefix, 'v');
-  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.22.1.md');
-  assert.match(notes, /Local Module Recovery Hotfix/i);
-  assert.match(notes, /never depend on Discord ownership/i);
-  assert.match(notes, /Discord, mobile, game-server, and remote-operation permission checks remain unchanged/i);
+  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, 'release-notes/v0.25.0.md');
+  assert.match(notes, /Android Companion and Mobile Gateway are paused and excluded/i);
+  assert.match(notes, /D&D campaign integration/i);
+  assert.match(notes, /No APK or Android setup link/i);
   assert.match(workflow, /branches:\s*\n\s*- "release\/v\*"/);
   assert.match(workflow, /pull_request_target/);
+  assert.match(workflow, /ADR-008 violation/);
+  assert.match(workflow, /release-notes\/v\$version\.md/);
   assert.match(ciWorkflow, /npm audit --omit=dev --audit-level=high/);
   assert.match(workflow, /npm test/);
   assert.match(workflow, /npm run check/);
