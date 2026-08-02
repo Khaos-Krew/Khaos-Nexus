@@ -86,15 +86,17 @@ test('equivalent background payloads are skipped before DOM replacement', () => 
   assert.match(source, /state\.lastAppliedHtml = html;/);
 });
 
-test('encounter panel stability wrapper loads in the required order', () => {
+test('startup recovery uses the existing D&D usability loader only', () => {
   const entry = fs.readFileSync(path.join(__dirname, '..', 'main', 'entry.cjs'), 'utf8');
-  const primary = entry.indexOf("require('./dnd-encounter-panels-extension.cjs').install();");
-  const stability = entry.indexOf("require('./dnd-encounter-panels-stability-extension.cjs').install();");
-  const draft = entry.indexOf("require('./dnd-draft-preservation-extension.cjs').install();");
-  const access = entry.indexOf("require('./dnd-access-policy-extension.cjs').install();");
-  assert.ok(primary >= 0, 'primary encounter panel extension must load');
-  assert.ok(stability > primary, 'stability wrapper must load after the primary extension');
-  assert.ok(draft > stability, 'draft-preservation styles must load after encounter stability');
-  assert.ok(access > draft, 'access policy must load after the draft-preservation layer');
-  assert.ok(fs.existsSync(path.join(__dirname, '..', 'main', 'dnd-encounter-panels-stability-extension.cjs')));
+  const extension = fs.readFileSync(path.join(__dirname, '..', 'main', 'dnd-usability-repair-extension.cjs'), 'utf8');
+  const usability = entry.indexOf("require('./dnd-usability-repair-extension.cjs').install();");
+  const workflows = entry.indexOf("require('./dnd-owner-workflows-extension.cjs').install();");
+  assert.ok(usability >= 0, 'existing usability extension must load');
+  assert.ok(workflows > usability, 'Owner workflows must still load after usability repair');
+  assert.doesNotMatch(entry, /dnd-draft-preservation-extension/);
+  assert.match(extension, /dnd-draft-preservation\.css/);
+  assert.match(extension, /dnd-draft-preservation-bridge\.js/);
+  assert.match(extension, /insertCSS\(draftCss\)/);
+  assert.match(extension, /executeJavaScript\(draftBridge, true\)/);
+  assert.equal(fs.existsSync(path.join(__dirname, '..', 'main', 'dnd-draft-preservation-extension.cjs')), false);
 });
