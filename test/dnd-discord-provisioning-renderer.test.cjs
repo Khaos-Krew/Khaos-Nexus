@@ -46,9 +46,11 @@ test('renderer summaries distinguish created reused and failed resources', () =>
 
 test('provisioning extension registers preview start and status without replacing the startup chain', () => {
   const extension = fs.readFileSync(path.join(root, 'main', 'dnd-discord-provisioning-extension.cjs'), 'utf8');
+  const runtimeExtension = fs.readFileSync(path.join(root, 'main', 'dnd-discord-provisioning-runtime-extension.cjs'), 'utf8');
+  const runtimeService = fs.readFileSync(path.join(root, 'main', 'services', 'dnd-discord-provisioning-runtime.cjs'), 'utf8');
   const entry = fs.readFileSync(path.join(root, 'main', 'entry.cjs'), 'utf8');
   const ownerIndex = entry.indexOf("require('./dnd-owner-workflows-extension.cjs').install();");
-  const provisioningIndex = entry.indexOf("require('./dnd-discord-provisioning-extension.cjs').install();");
+  const provisioningIndex = entry.indexOf("require('./dnd-discord-provisioning-runtime-extension.cjs').install();");
   const licenseIndex = entry.indexOf("require('./dnd-owner-license-default-extension.cjs').install();");
 
   assert.match(extension, /dnd-provision:preview/);
@@ -56,8 +58,12 @@ test('provisioning extension registers preview start and status without replacin
   assert.match(extension, /dnd-provision:status/);
   assert.match(extension, /dnd-discord-provisioning\.css/);
   assert.match(extension, /dnd-discord-provisioning\.js/);
+  assert.match(runtimeExtension, /DndDiscordProvisioningService/);
+  assert.match(runtimeService, /retryDelayMs/);
+  assert.match(runtimeService, /panelService\.discord = this\.discord\.bind\(this\)/);
   assert.ok(ownerIndex >= 0 && provisioningIndex > ownerIndex && licenseIndex > provisioningIndex);
-  assert.equal((entry.match(/dnd-discord-provisioning-extension/g) || []).length, 1);
+  assert.equal((entry.match(/dnd-discord-provisioning-runtime-extension/g) || []).length, 1);
+  assert.doesNotMatch(entry, /require\('\.\/dnd-discord-provisioning-extension\.cjs'\)\.install\(\)/);
 });
 
 test('provisioning renderer avoids MutationObserver and permanent fast polling', () => {
