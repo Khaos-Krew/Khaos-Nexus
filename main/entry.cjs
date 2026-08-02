@@ -18,6 +18,9 @@ if (diagnosticsMode) {
     require('./software-rendering-extension.cjs').install();
     require('./startup-profile-recovery-extension.cjs').install();
     require('./startup-health-extension.cjs').install();
+    if (process.env.KHAOS_PACKAGED_STARTUP_SMOKE === '1') {
+      require('./startup-smoke-evidence-extension.cjs').install();
+    }
     require('./startup-preload-diagnostics-extension.cjs').install();
     require('./startup-core-release-extension.cjs').install();
     require('./startup-window-gate-extension.cjs').install();
