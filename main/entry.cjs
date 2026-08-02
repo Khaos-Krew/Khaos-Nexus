@@ -44,6 +44,7 @@ if (diagnosticsMode) {
     require('./dnd-campaign-extension.cjs').install();
     require('./dnd-usability-repair-extension.cjs').install();
     require('./dnd-owner-workflows-extension.cjs').install();
+    require('./dnd-discord-provisioning-extension.cjs').install();
     require('./dnd-owner-license-default-extension.cjs').install();
     require('./dnd-world-content-extension.cjs').install();
     require('./dnd-content-catalog-extension.cjs').install();
