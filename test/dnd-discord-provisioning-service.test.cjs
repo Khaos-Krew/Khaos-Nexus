@@ -13,7 +13,7 @@ const {
 } = require('../shared/dnd-discord-provisioning.cjs');
 const {
   DndDiscordProvisioningService
-} = require('../main/services/dnd-discord-provisioning-service.cjs');
+} = require('../main/services/dnd-discord-provisioning-runtime.cjs');
 
 function http(status, payload, headers = {}) {
   return {
