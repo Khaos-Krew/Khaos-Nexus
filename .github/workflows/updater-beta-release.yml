@@ -214,3 +214,5 @@ jobs:
           gh issue comment 145 --body $body
           gh pr comment 153 --body $body
           gh pr comment ${{ github.event.pull_request.number }} --body $body
+
+# Publisher activation: startup-smoke-validated-2026-08-02
