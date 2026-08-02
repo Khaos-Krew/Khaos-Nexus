@@ -1,18 +1,18 @@
 {
   "name": "khaos-nexus",
-  "version": "0.26.5",
+  "version": "0.26.7",
   "description": "Local-first Khaos Nexus desktop command center with installer-first automatic diagnostics, a standalone Khaos Nexus Diagnostics launcher, rolling breadcrumbs, unclean-shutdown detection, redacted support bundles, optional HTTPS diagnostics API delivery, Satisfactory dedicated-server operations, unconditional local-desktop module recovery controls that never depend on Discord ownership, preserved but paused Android Companion and Mobile Gateway source under ADR-008, dedicated Rust WebRCON operations, vanilla-safe typed Rust status, players, saves, announcements and moderation, Owner-only raw Rust console access, Rust Discord status and queue panels, a typed Game Adapter SDK, explicit capability manifests, role-aware destructive-action policy, stable redacted adapter errors, bounded opt-in protocol fixtures, Palworld REST and ARK/generic RCON adapter bridges, authoritative Owner module switches, dependency-aware runtime gating, completed implementation migration classification, module-aware Discord commands and buttons, complete D&D campaign management with characters, sources, quests, sessions, attendance, encounters, initiative, world records, loot, licensed content metadata, homebrew workflows, desktop dice history, registered-bot Discord bindings, free-content catalog and character import, protected local campaign maps, full NPC builder and encounter integration, persistent Discord encounter panels and turn-roll controls, persistent local data, full production runtime audit repairs, verified click-through grouped proxy navigation, live supervised bot configuration updates, resilient error-monitor batching, stale server-health cleanup, interrupted scheduler recovery, retryable updater installation failures, spawn-safe Discord supervision, an always-visible in-app update center and header update action, compact production dashboard density, synchronized live Discord runtime status, spawn-confirmed supervised process IDs, bounded idempotent updater UI, main-process renderer-unresponsive reporting, a continuous visible-interface startup gate, retained watchdog state and AppData logs, automatic retained interface failure reports, a visible recovery screen, independently scrollable navigation and workspace panes, immediate portable sidecar logs and diagnostics, sandbox-compatible preload, deterministic startup diagnostics, mandatory verified pre-update backups, encrypted Pterodactyl control, cross-server players, guarded moderation, recurring schedules, and software-renderer-safe startup.",
   "main": "main/entry.cjs",
   "author": "Khaos Krew",
   "license": "MIT",
   "private": true,
   "khaosRelease": {
-    "displayVersion": "0.26.5-beta",
-    "artifactVersion": "0.26.5-beta",
-    "publicTag": "v0.26.5-beta",
+    "displayVersion": "0.26.7-B",
+    "artifactVersion": "0.26.7-B",
+    "publicTag": "v0.26.7-B",
     "channel": "beta",
-    "updaterVersion": "0.26.5",
-    "rollbackTag": "v0.26.0"
+    "updaterVersion": "0.26.7",
+    "rollbackTag": "v0.26.5-beta"
   },
   "scripts": {
     "start": "node scripts/materialize-assets.cjs && electron .",
@@ -37,8 +37,8 @@
     "productName": "Khaos Nexus",
     "electronUpdaterCompatibility": ">=2.16",
     "releaseInfo": {
-      "releaseName": "Khaos Nexus v0.26.5-beta — D&D Feature Test",
-      "releaseNotesFile": "release-notes/v0.26.5.md"
+      "releaseName": "Khaos Nexus v0.26.7-B — Startup-Safe Draft Preservation",
+      "releaseNotesFile": "release-notes/v0.26.7.md"
     },
     "directories": {
       "output": "dist",
@@ -77,7 +77,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Khaos Nexus",
-      "artifactName": "Khaos-Nexus-Setup-0.26.5-beta-${arch}.${ext}",
+      "artifactName": "Khaos-Nexus-Setup-0.26.7-B-${arch}.${ext}",
       "include": "assets/installer.nsh"
     },
     "publish": [
@@ -90,7 +90,7 @@
       }
     ],
     "portable": {
-      "artifactName": "Khaos-Nexus-Portable-0.26.5-beta-${arch}.${ext}"
+      "artifactName": "Khaos-Nexus-Portable-0.26.7-B-${arch}.${ext}"
     }
   }
 }

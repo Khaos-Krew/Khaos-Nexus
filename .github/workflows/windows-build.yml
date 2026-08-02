@@ -42,6 +42,9 @@ jobs:
             npm run release:win
           }
           if ($LASTEXITCODE -ne 0) { throw "Tagged Windows build failed." }
+      - name: Smoke-test packaged application startup
+        shell: pwsh
+        run: ./scripts/smoke-packaged-startup.ps1
       - name: Verify Windows artifacts
         shell: pwsh
         run: |
