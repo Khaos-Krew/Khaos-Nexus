@@ -4,9 +4,11 @@ on:
   pull_request:
     paths:
       - 'main/dnd-co-dm-*.cjs'
+      - 'main/dnd-ai-*.cjs'
       - 'renderer/dnd-co-dm.*'
+      - 'renderer/dnd-ai-*.*'
       - 'shared/dnd-co-dm.cjs'
-      - 'shared/dnd-ai-service.cjs'
+      - 'shared/dnd-ai-*.cjs'
       - 'scripts/verify-dnd-ai-integration.cjs'
       - '.github/workflows/dnd-ai-integration.yml'
   workflow_dispatch:
@@ -20,12 +22,12 @@ jobs:
     timeout-minutes: 10
     env:
       KHAOS_AI_ENDPOINT: http://127.0.0.1:8787
-      KHAOS_AI_MVP_COMMIT: 5524dcbda06c70a51774bdc843a2f9e739f7ba50
+      KHAOS_AI_MVP_COMMIT: 4036c6732061436038d1f9661a6b7e7e8768fac3
     steps:
       - name: Check out Khaos Nexus desktop
         uses: actions/checkout@v4
 
-      - name: Check out validated Khaos Nexus AI MVP
+      - name: Check out validated Khaos Nexus AI homebrew snapshot
         uses: actions/checkout@v4
         with:
           repository: Khaos-Krew/Khaos-Nexus-AI
