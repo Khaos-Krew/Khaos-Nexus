@@ -6,10 +6,11 @@ const {
   normalizeStatusPanel,
   normalizeStatusPanelsConfig,
   parseStatusButtonId,
+  validateStatusPanelPayload,
   renderStatusPanel,
   dueForRefresh
 } = require('../shared/status-panels.cjs');
-const { StatusPanelService, parseRconPlayers } = require('../main/services/status-panel-service.cjs');
+const { StatusPanelService, discordError, parseRconPlayers } = require('../main/services/status-panel-service.cjs');
 
 test('status panel normalization bounds refresh and strips invalid Discord IDs', () => {
   const panel = normalizeStatusPanel({
@@ -57,13 +58,65 @@ test('rendered status panel exposes names only when privacy option is enabled', 
   assert.doesNotMatch(publicText, /private-user-id|private-player-id|192\.0\.2\.1/);
 });
 
-test('status panel buttons use Discord-valid emoji instead of the rejected text glyph', () => {
+test('status panel buttons use validated Discord emoji instead of the rejected text glyph', () => {
   const payload = renderStatusPanel({ id: 'palworld-panel' }, {
     status: 'online', serverName: 'Nexus Palworld', game: 'palworld', connectionLabel: 'Palworld REST'
   });
   assert.equal(payload.components[0].components[0].emoji.name, '🔄');
   assert.equal(payload.components[0].components[1].emoji.name, '👥');
+  assert.doesNotThrow(() => validateStatusPanelPayload(payload));
   assert.doesNotMatch(JSON.stringify(payload), /↻/);
+});
+
+test('status panel payload validation rejects a text symbol before Discord is called', () => {
+  assert.throws(
+    () => validateStatusPanelPayload({
+      components: [{
+        type: 1,
+        components: [{ type: 2, style: 1, label: 'Refresh', custom_id: 'kn-status:refresh:panel', emoji: { name: '↻' } }]
+      }]
+    }),
+    (error) => error.code === 'STATUS_PANEL_PAYLOAD_INVALID' && error.field === 'components[0].components[0].emoji.name'
+  );
+});
+
+test('status panel payload validation reports malformed action rows precisely', () => {
+  assert.throws(
+    () => validateStatusPanelPayload({ components: [[{ type: 2, style: 1, label: 'Refresh', custom_id: 'kn-status:refresh:panel' }]] }),
+    (error) => error.code === 'STATUS_PANEL_PAYLOAD_INVALID' && error.field === 'components[0]'
+  );
+});
+
+test('Discord invalid-form errors map to a redacted status-panel field path', () => {
+  const error = discordError({
+    code: 50035,
+    status: 400,
+    rawError: {
+      message: 'Invalid Form Body',
+      errors: {
+        components: { 0: { components: { 0: { emoji: { name: { _errors: [{ code: 'COMPONENT_INVALID_EMOJI', message: 'Invalid emoji' }] } } } } } }
+      }
+    }
+  });
+  assert.equal(error.code, 'STATUS_PANEL_PAYLOAD_REJECTED');
+  assert.equal(error.field, 'components.0.components.0.emoji.name');
+  assert.match(error.message, /components\.0\.components\.0\.emoji\.name/);
+  assert.doesNotMatch(error.message, /token|password|secret/i);
+});
+
+test('status panel send boundary refuses invalid payloads without a REST call', async () => {
+  let posts = 0;
+  const service = new StatusPanelService({
+    configStore: { getRuntimeBootstrap: () => ({ discordToken: 'token', config: { discord: {}, servers: [] } }) },
+    restFactory: () => ({ post: async () => { posts += 1; return { id: 'message' }; } })
+  });
+  await assert.rejects(
+    () => service.sendMessage('222222', {
+      components: [{ type: 1, components: [{ type: 2, style: 1, label: 'Refresh', custom_id: 'kn-status:refresh:panel', emoji: { name: '↻' } }] }]
+    }),
+    (error) => error.code === 'STATUS_PANEL_PAYLOAD_INVALID'
+  );
+  assert.equal(posts, 0);
 });
 
 test('automatic refresh only runs for enabled published panels that are due', () => {
@@ -79,7 +132,7 @@ test('RCON player parsing returns names without platform identifiers', () => {
   assert.deepEqual(parseRconPlayers('No Players Connected'), []);
 });
 
-test('status panel service publishes a persistent public-safe Palworld message', async () => {
+test('status panel service publishes and refreshes a persistent public-safe Palworld message', async () => {
   const calls = [];
   const rest = {
     get: async () => [{ id: '222222', name: 'server-status', type: 0, position: 1 }],
@@ -124,4 +177,5 @@ test('status panel service publishes a persistent public-safe Palworld message',
     title: 'Palworld Status', showPlayerNames: false, refreshMinutes: 5
   });
   assert.equal(calls[1].method, 'patch');
+  assert.doesNotThrow(() => validateStatusPanelPayload(calls[1].body.body));
 });
