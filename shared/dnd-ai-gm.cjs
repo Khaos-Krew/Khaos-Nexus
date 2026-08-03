@@ -326,8 +326,8 @@ function buildTurnRequest(input = {}) {
 function recordPendingTurn(stateInput, input = {}) {
   const state = ensureAiGmState(stateInput);
   const session = state.aiGmSessions.find((item) => item.id === input.aiGmSessionId);
+  if (session?.safetyLocked) throw validationError('AI Game Master generation is paused by a safety lock. Resume explicitly before another turn.', 'DND_AI_GM_SAFETY_LOCKED', 'aiGmSessionId');
   if (!session || !['ready', 'active'].includes(session.mode)) throw validationError('AI Game Master mode is not ready for this session.', 'DND_AI_GM_NOT_READY', 'aiGmSessionId');
-  if (session.safetyLocked) throw validationError('AI Game Master generation is paused by a safety lock. Resume explicitly before another turn.', 'DND_AI_GM_SAFETY_LOCKED', 'aiGmSessionId');
   const request = buildTurnRequest(input);
   const clientTurnId = cleanLine(input.clientTurnId, 100) || crypto.randomUUID();
   const existing = state.aiGmTurns.find((item) => item.clientTurnId === clientTurnId);

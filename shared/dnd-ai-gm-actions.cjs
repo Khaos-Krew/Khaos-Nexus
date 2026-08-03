@@ -38,11 +38,11 @@ function retryFailedTurn(stateInput, turnIdInput) {
     throw actionError('Only a failed retryable AI Game Master turn can be retried.', 'DND_AI_GM_TURN_NOT_RETRYABLE', 'turnId');
   }
   const session = state.aiGmSessions.find((item) => item.id === turn.aiGmSessionId);
+  if (session?.safetyLocked) {
+    throw actionError('AI Game Master generation is paused by a safety lock.', 'DND_AI_GM_SAFETY_LOCKED', 'turnId');
+  }
   if (!session || !['ready', 'active'].includes(session.mode)) {
     throw actionError('AI Game Master mode is not ready for this retry.', 'DND_AI_GM_NOT_READY', 'turnId');
-  }
-  if (session.safetyLocked) {
-    throw actionError('AI Game Master generation is paused by a safety lock.', 'DND_AI_GM_SAFETY_LOCKED', 'turnId');
   }
   const request = assertRequestSize({ actor: turn.actor, message: turn.message, dmGuidance: turn.dmGuidance });
   const timestamp = nowIso();
