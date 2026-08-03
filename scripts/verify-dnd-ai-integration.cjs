@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+require('../shared/dnd-ai-context-privacy.cjs').install();
 const {
   ensureCoDmState,
   buildCampaignContext,
@@ -46,6 +47,12 @@ function integrationState() {
       name: 'Emberforge Integration',
       description: 'A test campaign used only for cross-repository validation.',
       ruleset: 'D&D 5e-compatible',
+      contentRating: 'teen',
+      safety: {
+        lines: ['No sexual violence'],
+        veils: ['Graphic torture'],
+        pauseWords: ['pause', 'red card']
+      },
       status: 'active',
       active: true
     }],
@@ -53,6 +60,7 @@ function integrationState() {
     characters: [{
       id: 'character-1',
       campaignId: 'integration-campaign',
+      playerName: 'Private Player Name',
       name: 'Vorkesh Emberforge',
       race: 'Dragonborn',
       className: 'Artificer',
@@ -82,8 +90,14 @@ async function main() {
     includePublicRolls: false
   });
   assert.match(context.text, /Vorkesh Emberforge/);
+  assert.match(context.text, /Safety settings/);
+  assert.match(context.text, /No sexual violence/);
+  assert.ok(context.sections.some((item) => item.id === 'safety' && item.reason === 'included'));
 
   const campaignRequest = buildLegacyCampaignRequest(state, 'integration-campaign', context);
+  const serializedRequest = JSON.stringify(campaignRequest);
+  assert.doesNotMatch(serializedRequest, /character-1|Private Player Name/);
+  assert.match(serializedRequest, /No sexual violence/);
   const campaignResponse = await jsonRequest(CAMPAIGNS_PATH, { method: 'POST', body: campaignRequest });
   const serviceCampaign = parseLegacyCampaignResponse(campaignResponse);
   assert.match(serviceCampaign.id, /^[0-9a-f-]{36}$/i);
@@ -108,7 +122,9 @@ async function main() {
     provider: generated.provider,
     model: generated.model,
     serviceCampaignId: serviceCampaign.id,
-    draftCharacters: generated.content.length
+    draftCharacters: generated.content.length,
+    safetyPreviewed: true,
+    internalCharacterIdentifiersRemoved: true
   }, null, 2));
 }
 
