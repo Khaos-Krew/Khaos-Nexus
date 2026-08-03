@@ -29,6 +29,7 @@ if (diagnosticsMode) {
     require('./renderer-action-error-extension.cjs').install();
     require('./crash-diagnostics-extension.cjs').install();
     require('./diagnostic-suite-extension.cjs').install();
+    require('./diagnostic-application-monitor-extension.cjs').install();
     require('./interface-watchdog-extension.cjs').install();
     require('./renderer-unresponsive-extension.cjs').install();
     require('./stability-extension.cjs').install();
