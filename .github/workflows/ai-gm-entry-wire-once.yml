@@ -1,0 +1,52 @@
+name: AI GM Entry Wire Once
+
+on:
+  push:
+    branches: [integration/v0.31.0-dnd-ai-gm]
+    paths: [.github/workflows/ai-gm-entry-wire-once.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  wire:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: integration/v0.31.0-dnd-ai-gm
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Wire AI GM persistence and runtime
+        shell: python
+        run: |
+          from pathlib import Path
+          entry = Path('main/entry.cjs')
+          text = entry.read_text()
+          marker = "    require('./dnd-ai-map-persistence-extension.cjs').install();\n"
+          insertion = marker + "    require('./dnd-ai-gm-persistence-extension.cjs').install();\n"
+          if "dnd-ai-gm-persistence-extension" not in text:
+              if marker not in text: raise SystemExit('persistence marker missing')
+              text = text.replace(marker, insertion, 1)
+          marker = "    require('./dnd-ai-map-stability-extension.cjs').install();\n"
+          insertion = marker + "    require('./dnd-ai-gm-extension.cjs').install();\n"
+          if "dnd-ai-gm-extension.cjs" not in text:
+              if marker not in text: raise SystemExit('runtime marker missing')
+              text = text.replace(marker, insertion, 1)
+          entry.write_text(text)
+      - name: Validate repository
+        run: |
+          npm install --ignore-scripts
+          node --test test/dnd-ai-gm.test.cjs test/dnd-ai-gm-actions.test.cjs test/dnd-ai-gm-wiring.test.cjs
+          npm run check
+      - name: Remove workflow and commit
+        run: |
+          rm .github/workflows/ai-gm-entry-wire-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add main/entry.cjs .github/workflows/ai-gm-entry-wire-once.yml
+          git commit -m "feat(dnd): wire AI Game Master runtime"
+          git push origin HEAD:integration/v0.31.0-dnd-ai-gm
