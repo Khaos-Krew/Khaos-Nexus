@@ -22,8 +22,10 @@ jobs:
       - name: Run tests
         shell: pwsh
         run: |
-          npm test 2>&1 | Tee-Object -FilePath test-output.txt
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmd.exe /d /s /c "npm test > test-output.txt 2>&1"
+          $testExitCode = $LASTEXITCODE
+          Get-Content -LiteralPath test-output.txt
+          if ($testExitCode -ne 0) { exit $testExitCode }
       - name: Upload failed Windows test output
         if: failure()
         uses: actions/upload-artifact@v4
