@@ -83,6 +83,10 @@ function install() {
       return result;
     }
 
+    saveDndCoDmDraft(input = {}) {
+      return super.saveDndCoDmDraft({ ...input, updatedAt: new Date().toISOString() });
+    }
+
     upsertDndCampaign(input = {}) {
       const campaignId = String(input.id || '').trim();
       const current = campaignId ? this.getDndState().campaigns.find((item) => item.id === campaignId) : null;
