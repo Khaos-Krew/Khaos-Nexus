@@ -6,6 +6,9 @@ const electron = require('electron');
 const diagnosticRuntime = require('./diagnostic-runtime-updater.cjs');
 const { DiagnosticGithubBridge } = require('./diagnostic-github-bridge.cjs');
 
+const STARTUP_HEALTH_TYPE = 'startup-health-check';
+const POST_INSTALL_BASELINE_COMPATIBILITY = 'post-install-baseline';
+
 let installed = false;
 let service = null;
 let baselineTimer = null;
@@ -135,11 +138,14 @@ function connectApplicationMonitor(monitor, logger = console) {
 async function runStartupHealthCheck(runtimeVersion) {
   if (!service) return { skipped: true, reason: 'diagnostics-unavailable' };
   const report = service.createReport({
-    type: 'startup-health-check',
+    type: STARTUP_HEALTH_TYPE,
     reason: 'Automatic in-app startup health check.',
     severity: 'info',
     automatic: true,
-    detail: { diagnosticsRuntime: runtimeVersion }
+    detail: {
+      diagnosticsRuntime: runtimeVersion,
+      compatibilityType: POST_INSTALL_BASELINE_COMPATIBILITY
+    }
   }, context());
   const marker = path.join(service.diagnosticsDirectory, 'startup-health-latest.json');
   fs.writeFileSync(marker, JSON.stringify({
@@ -222,6 +228,8 @@ function install() {
 }
 
 module.exports = {
+  STARTUP_HEALTH_TYPE,
+  POST_INSTALL_BASELINE_COMPATIBILITY,
   install,
   initialize,
   capture,
