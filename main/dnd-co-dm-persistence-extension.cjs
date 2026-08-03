@@ -1,11 +1,38 @@
 'use strict';
 
 const { safeStorage } = require('electron');
+const { ensureCoDmState } = require('../shared/dnd-co-dm.cjs');
 
 let installed = false;
 
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+}
+
+function captureCustomState(state = {}) {
+  const campaignNotes = {};
+  for (const campaign of Array.isArray(state.campaigns) ? state.campaigns : []) {
+    if (campaign?.id && Object.prototype.hasOwnProperty.call(campaign, 'coDmNotes')) {
+      campaignNotes[campaign.id] = String(campaign.coDmNotes || '').slice(0, 40000);
+    }
+  }
+  return {
+    coDmSettings: state.coDmSettings ? clone(state.coDmSettings) : null,
+    coDmDrafts: Array.isArray(state.coDmDrafts) ? clone(state.coDmDrafts) : [],
+    campaignNotes
+  };
+}
+
+function restoreCustomState(state, custom) {
+  if (!state || !custom) return state;
+  if (custom.coDmSettings) state.coDmSettings = clone(custom.coDmSettings);
+  state.coDmDrafts = clone(custom.coDmDrafts || []);
+  for (const campaign of Array.isArray(state.campaigns) ? state.campaigns : []) {
+    if (campaign?.id && Object.prototype.hasOwnProperty.call(custom.campaignNotes || {}, campaign.id)) {
+      campaign.coDmNotes = custom.campaignNotes[campaign.id];
+    }
+  }
+  return state;
 }
 
 function install() {
@@ -16,6 +43,33 @@ function install() {
   if (!Original || Original.__khaosDndCoDmPersistence) return;
 
   class DndCoDmPersistenceStore extends Original {
+    getDndState() {
+      const custom = captureCustomState(this.config?.dnd || {});
+      const normalized = super.getDndState();
+      restoreCustomState(normalized, custom);
+      restoreCustomState(this.config.dnd, custom);
+      ensureCoDmState(normalized);
+      ensureCoDmState(this.config.dnd);
+      this.saveConfig();
+      return clone(normalized);
+    }
+
+    mutateDnd(mutator) {
+      const before = captureCustomState(this.config?.dnd || {});
+      let after = before;
+      const result = super.mutateDnd((state) => {
+        restoreCustomState(state, before);
+        ensureCoDmState(state);
+        const outcome = mutator(state);
+        after = captureCustomState(state);
+        return outcome;
+      });
+      restoreCustomState(this.config.dnd, after);
+      ensureCoDmState(this.config.dnd);
+      this.saveConfig();
+      return result;
+    }
+
     upsertDndCampaign(input = {}) {
       const campaignId = String(input.id || '').trim();
       const current = campaignId ? this.getDndState().campaigns.find((item) => item.id === campaignId) : null;
@@ -50,4 +104,8 @@ function install() {
   target.ConfigStore = DndCoDmPersistenceStore;
 }
 
-module.exports = { install };
+module.exports = {
+  install,
+  captureCustomState,
+  restoreCustomState
+};
