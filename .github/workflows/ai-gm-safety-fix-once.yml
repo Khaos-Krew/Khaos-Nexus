@@ -1,0 +1,74 @@
+name: AI GM Safety Fix Once
+
+on:
+  push:
+    branches:
+      - integration/v0.31.0-dnd-ai-gm
+    paths:
+      - .github/workflows/ai-gm-safety-fix-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: integration/v0.31.0-dnd-ai-gm
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply safety-lock precedence
+        shell: python
+        run: |
+          from pathlib import Path
+
+          actions = Path('shared/dnd-ai-gm-actions.cjs')
+          text = actions.read_text()
+          old = """  if (!session || !['ready', 'active'].includes(session.mode)) {
+              throw actionError('AI Game Master mode is not ready for this retry.', 'DND_AI_GM_NOT_READY', 'turnId');
+            }
+            if (session.safetyLocked) {
+              throw actionError('AI Game Master generation is paused by a safety lock.', 'DND_AI_GM_SAFETY_LOCKED', 'turnId');
+            }
+          """
+          new = """  if (session?.safetyLocked) {
+              throw actionError('AI Game Master generation is paused by a safety lock.', 'DND_AI_GM_SAFETY_LOCKED', 'turnId');
+            }
+            if (!session || !['ready', 'active'].includes(session.mode)) {
+              throw actionError('AI Game Master mode is not ready for this retry.', 'DND_AI_GM_NOT_READY', 'turnId');
+            }
+          """
+          if old not in text:
+              raise SystemExit('retry guard pattern not found')
+          actions.write_text(text.replace(old, new))
+
+          core = Path('shared/dnd-ai-gm.cjs')
+          text = core.read_text()
+          old = """  const session = state.aiGmSessions.find((item) => item.id === input.aiGmSessionId);
+            if (!session || !['ready', 'active'].includes(session.mode)) throw validationError('AI Game Master mode is not ready for this session.', 'DND_AI_GM_NOT_READY', 'aiGmSessionId');
+            if (session.safetyLocked) throw validationError('AI Game Master generation is paused by a safety lock. Resume explicitly before another turn.', 'DND_AI_GM_SAFETY_LOCKED', 'aiGmSessionId');
+          """
+          new = """  const session = state.aiGmSessions.find((item) => item.id === input.aiGmSessionId);
+            if (session?.safetyLocked) throw validationError('AI Game Master generation is paused by a safety lock. Resume explicitly before another turn.', 'DND_AI_GM_SAFETY_LOCKED', 'aiGmSessionId');
+            if (!session || !['ready', 'active'].includes(session.mode)) throw validationError('AI Game Master mode is not ready for this session.', 'DND_AI_GM_NOT_READY', 'aiGmSessionId');
+          """
+          if old not in text:
+              raise SystemExit('turn guard pattern not found')
+          core.write_text(text.replace(old, new))
+      - name: Run focused tests
+        run: |
+          npm install --ignore-scripts
+          node --test test/dnd-ai-gm.test.cjs test/dnd-ai-gm-actions.test.cjs
+      - name: Remove one-shot workflow and commit
+        run: |
+          rm .github/workflows/ai-gm-safety-fix-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add shared/dnd-ai-gm.cjs shared/dnd-ai-gm-actions.cjs .github/workflows/ai-gm-safety-fix-once.yml
+          git commit -m "fix(dnd): prioritize AI GM safety locks"
+          git push origin HEAD:integration/v0.31.0-dnd-ai-gm
