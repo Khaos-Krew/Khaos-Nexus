@@ -19,6 +19,7 @@ function captureCustomState(state = {}) {
   return {
     coDmSettings: state.coDmSettings ? clone(state.coDmSettings) : null,
     coDmDrafts: Array.isArray(state.coDmDrafts) ? clone(state.coDmDrafts) : [],
+    coDmServiceBindings: Array.isArray(state.coDmServiceBindings) ? clone(state.coDmServiceBindings) : [],
     campaignNotes
   };
 }
@@ -27,6 +28,7 @@ function restoreCustomState(state, custom) {
   if (!state || !custom) return state;
   if (custom.coDmSettings) state.coDmSettings = clone(custom.coDmSettings);
   state.coDmDrafts = clone(custom.coDmDrafts || []);
+  state.coDmServiceBindings = clone(custom.coDmServiceBindings || []);
   for (const campaign of Array.isArray(state.campaigns) ? state.campaigns : []) {
     if (campaign?.id && Object.prototype.hasOwnProperty.call(custom.campaignNotes || {}, campaign.id)) {
       campaign.coDmNotes = custom.campaignNotes[campaign.id];
@@ -40,6 +42,7 @@ function sanitizeCoDmForExternal(state) {
   const safe = clone(state);
   delete safe.coDmSettings;
   delete safe.coDmDrafts;
+  delete safe.coDmServiceBindings;
   safe.campaigns = (safe.campaigns || []).map((campaign) => {
     const value = { ...campaign };
     delete value.coDmNotes;
@@ -127,16 +130,18 @@ function install() {
 
     createBackupPayload(appVersion) {
       const payload = super.createBackupPayload(appVersion);
-      if (!this.secrets?.dndCoDmOpenAiKey) return payload;
+      const hasPrivateAiSecret = Boolean(this.secrets?.dndAiServiceToken || this.secrets?.dndCoDmOpenAiKey);
+      if (!hasPrivateAiSecret) return payload;
       if (!safeStorage.isEncryptionAvailable()) {
         payload.encryptedSecrets = null;
-        payload.note = `${payload.note} The D&D Co-DM API key and protected secrets were excluded because protected storage was unavailable.`;
+        payload.note = `${payload.note} The Khaos Nexus AI service token and protected secrets were excluded because protected storage was unavailable.`;
         return payload;
       }
       const sanitized = { ...this.secrets };
+      delete sanitized.dndAiServiceToken;
       delete sanitized.dndCoDmOpenAiKey;
       payload.encryptedSecrets = safeStorage.encryptString(JSON.stringify(sanitized)).toString('base64');
-      payload.note = `${payload.note} The D&D Co-DM API key is intentionally excluded from backups.`;
+      payload.note = `${payload.note} The Khaos Nexus AI service token is intentionally excluded from backups.`;
       return payload;
     }
   }
