@@ -57,11 +57,13 @@ if (diagnosticsMode) {
     require('../shared/dnd-ai-context-privacy.cjs').install();
     require('./dnd-co-dm-extension.cjs').install();
     require('./dnd-co-dm-persistence-extension.cjs').install();
+    require('./dnd-ai-map-persistence-extension.cjs').install();
     require('./dnd-ai-secret-migration-extension.cjs').install();
     require('../shared/dnd-ai-homebrew-input-boundary.cjs').install();
     require('./dnd-ai-homebrew-extension.cjs').install();
     require('./dnd-ai-homebrew-conversion-guard-extension.cjs').install();
     require('./dnd-ai-homebrew-ui-contract-extension.cjs').install();
+    require('./dnd-ai-maps-extension.cjs').install();
     require('./dnd-co-dm-stability-extension.cjs').install();
     require('./dnd-access-policy-extension.cjs').install();
     require('./dnd-authorization-summary-extension.cjs').install();
