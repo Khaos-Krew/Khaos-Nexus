@@ -111,7 +111,7 @@ test('provider call uses fixed Responses endpoint, store false body, and returns
 
 test('readiness reports provider, campaign data, Discord binding, panel, and session state', () => {
   const value = buildReadiness(campaignState(), 'c1', { provider: 'OpenAI', model: 'gpt-5-mini', hasApiKey: true });
-  assert.equal(value.totalCount, 9);
+  assert.equal(value.totalCount, 10);
   assert.equal(value.ready, true);
   assert.ok(value.checks.every((item) => typeof item.ready === 'boolean'));
 });
@@ -124,19 +124,26 @@ test('drafts are bounded local records and workflows are complete', () => {
   assert.match(draft.id, /^codm_draft_/);
 });
 
-test('entry loads Co-DM after context providers and renderer remains explicit-action only', () => {
+test('entry loads Co-DM persistence and stability after context providers', () => {
   const root = path.join(__dirname, '..');
   const entry = fs.readFileSync(path.join(root, 'main', 'entry.cjs'), 'utf8');
   const worldIndex = entry.indexOf("require('./dnd-world-content-extension.cjs').install()");
   const panelIndex = entry.indexOf("require('./dnd-encounter-panels-extension.cjs').install()");
   const coDmIndex = entry.indexOf("require('./dnd-co-dm-extension.cjs').install()");
+  const persistenceIndex = entry.indexOf("require('./dnd-co-dm-persistence-extension.cjs').install()");
+  const stabilityIndex = entry.indexOf("require('./dnd-co-dm-stability-extension.cjs').install()");
   assert.ok(worldIndex >= 0);
   assert.ok(panelIndex > worldIndex);
   assert.ok(coDmIndex > panelIndex);
+  assert.ok(persistenceIndex > coDmIndex);
+  assert.ok(stabilityIndex > persistenceIndex);
+});
 
+test('renderer remains explicit-action only and has no Discord publication channel', () => {
+  const root = path.join(__dirname, '..');
   const renderer = fs.readFileSync(path.join(root, 'renderer', 'dnd-co-dm.js'), 'utf8');
   assert.doesNotMatch(renderer, /setInterval/);
-  assert.doesNotMatch(renderer, /discord.*post|status-panels:publish/i);
+  assert.doesNotMatch(renderer, /status-panels:publish|discord-studio:publish-panel|dnd:panel-refresh/i);
   assert.match(renderer, /Generate Draft/);
   assert.match(renderer, /win\.confirm/);
 
@@ -145,4 +152,13 @@ test('entry loads Co-DM after context providers and renderer remains explicit-ac
   assert.match(extension, /getDndCoDmApiKey/);
   assert.match(extension, /storeProviderResponses: false/);
   assert.doesNotMatch(extension, /web_search|computer_use|function_call/);
+});
+
+test('persistence guard preserves campaign notes and excludes the Co-DM key from backups', () => {
+  const root = path.join(__dirname, '..');
+  const source = fs.readFileSync(path.join(root, 'main', 'dnd-co-dm-persistence-extension.cjs'), 'utf8');
+  assert.match(source, /upsertDndCampaign\(input/);
+  assert.match(source, /campaign\.coDmNotes/);
+  assert.match(source, /delete sanitized\.dndCoDmOpenAiKey/);
+  assert.match(source, /intentionally excluded from backups/);
 });
