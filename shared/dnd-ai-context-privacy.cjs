@@ -13,16 +13,24 @@ function cleanArray(value, maximumItems = 100, maximumLength = 1000) {
     .filter(Boolean);
 }
 
+function boundedSafetyRecord(input = {}) {
+  const pauseWords = cleanArray(input.pauseWords);
+  return {
+    contentRating: ['family', 'teen', 'mature'].includes(input.contentRating) ? input.contentRating : 'teen',
+    lines: cleanArray(input.lines),
+    veils: cleanArray(input.veils),
+    pauseWords: pauseWords.length ? pauseWords : ['pause', 'red card']
+  };
+}
+
 function safetyRecord(state = {}, campaignId = '') {
   const campaign = (state.campaigns || []).find((item) => item.id === campaignId && item.active !== false) || {};
-  return {
-    contentRating: ['family', 'teen', 'mature'].includes(campaign.contentRating) ? campaign.contentRating : 'teen',
-    lines: cleanArray(campaign.safety?.lines),
-    veils: cleanArray(campaign.safety?.veils),
-    pauseWords: cleanArray(campaign.safety?.pauseWords).length
-      ? cleanArray(campaign.safety?.pauseWords)
-      : ['pause', 'red card']
-  };
+  return boundedSafetyRecord({
+    contentRating: campaign.contentRating,
+    lines: campaign.safety?.lines,
+    veils: campaign.safety?.veils,
+    pauseWords: campaign.safety?.pauseWords
+  });
 }
 
 function safetyText(state, campaignId) {
@@ -62,7 +70,13 @@ function sanitizeLegacyCampaignRequest(request = {}) {
     playerCharacters: (request.playerCharacters || []).map((item) => ({
       name: clean(item.name, 100),
       summary: clean(item.summary, 4000)
-    }))
+    })),
+    safety: boundedSafetyRecord({
+      contentRating: request.contentRating,
+      lines: request.safety?.lines,
+      veils: request.safety?.veils,
+      pauseWords: request.safety?.pauseWords
+    })
   };
 }
 
@@ -97,6 +111,7 @@ function install() {
 
 module.exports = {
   install,
+  boundedSafetyRecord,
   safetyRecord,
   safetyText,
   appendSafetyContext,
