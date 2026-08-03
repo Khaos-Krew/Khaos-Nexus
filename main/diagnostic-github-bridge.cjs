@@ -8,6 +8,10 @@ const { redactObject, redactText } = require('../shared/redaction.cjs');
 const STATE_FORMAT = 1;
 const UNHEALTHY_REPEAT_MS = 24 * 60 * 60 * 1000;
 const MAX_LOG_TEXT = 6000;
+const PUBLIC_DETAIL_KEYS = new Set([
+  'exists', 'size', 'freeMb', 'totalMb', 'count', 'visibleCount', 'focusedCount',
+  'unresponsiveCount', 'packaged', 'installMode', 'status', 'reason'
+]);
 
 function safeJsonRead(filePath, fallback = null) {
   try { return JSON.parse(fs.readFileSync(filePath, 'utf8')); }
@@ -26,6 +30,23 @@ function sha256(value) {
   return crypto.createHash('sha256').update(String(value || '')).digest('hex');
 }
 
+function strictRedactText(value) {
+  return redactText(String(value ?? ''))
+    .replace(/(authorization\s*:\s*)(?:bearer\s+)?[^\r\n]+/gi, '$1[REDACTED]')
+    .replace(/\b(bearer)\s+[A-Za-z0-9._~+\/-]{8,}/gi, '$1 [REDACTED]')
+    .replace(/\b(password|passwd|token|secret|api[_ -]?key|client[_ -]?secret)\s*[:=]\s*[^\s\r\n]+/gi, '$1=[REDACTED]')
+    .replace(/https?:\/\/[^\s/@:]+:[^\s/@]+@/gi, 'https://[REDACTED]@');
+}
+
+function publicCheckDetail(detail) {
+  if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return {};
+  const redacted = redactObject(detail);
+  return Object.fromEntries(Object.entries(redacted).filter(([key, value]) => {
+    if (!PUBLIC_DETAIL_KEYS.has(key)) return false;
+    return ['string', 'number', 'boolean'].includes(typeof value) || value === null;
+  }));
+}
+
 function runtimeIdentity(report = {}) {
   return String(report.trigger?.detail?.diagnosticsRuntime || report.application?.diagnosticsRuntime || 'embedded').slice(0, 80);
 }
@@ -35,7 +56,7 @@ function healthSignature(report = {}) {
   const payload = checks.map((check) => ({
     id: String(check.id || ''),
     status: String(check.status || ''),
-    summary: redactText(check.summary || '').slice(0, 300)
+    summary: strictRedactText(check.summary || '').slice(0, 300)
   }));
   return sha256(JSON.stringify(payload)).slice(0, 16);
 }
@@ -73,25 +94,27 @@ function deliveryPolicy(report, state = {}, now = Date.now()) {
 
 function checkLines(report = {}) {
   return (Array.isArray(report.checks) ? report.checks : []).map((check) => {
-    const detail = check.detail && typeof check.detail === 'object' && Object.keys(check.detail).length
-      ? ` — \`${JSON.stringify(redactObject(check.detail)).slice(0, 800)}\``
+    const detail = publicCheckDetail(check.detail);
+    const suffix = Object.keys(detail).length
+      ? ` — \`${strictRedactText(JSON.stringify(detail)).slice(0, 800)}\``
       : '';
-    return `- **${String(check.status || 'info').toUpperCase()} — ${redactText(check.id || 'check')}**: ${redactText(check.summary || '')}${detail}`;
+    return `- **${String(check.status || 'info').toUpperCase()} — ${strictRedactText(check.id || 'check')}**: ${strictRedactText(check.summary || '')}${suffix}`;
   });
 }
 
 function diagnosticMarkdown(report = {}) {
   const system = redactObject(report.system || {});
   const processState = redactObject(report.process || {});
-  const logs = redactText(report.evidence?.recentLogs || '').slice(0, MAX_LOG_TEXT);
+  const logs = strictRedactText(report.evidence?.recentLogs || '').slice(0, MAX_LOG_TEXT);
+  const snapshot = strictRedactText(JSON.stringify({ system, process: processState }, null, 2)).slice(0, 8000);
   const lines = [
     '# Khaos Nexus automatic startup diagnostics',
     '',
-    `- **Report ID:** ${redactText(report.reportId || 'unknown')}`,
-    `- **Created:** ${redactText(report.createdAt || 'unknown')}`,
-    `- **Application:** ${redactText(report.application?.version || 'unknown')}`,
-    `- **Diagnostics runtime:** ${redactText(runtimeIdentity(report))}`,
-    `- **Install mode:** ${redactText(report.application?.installMode || 'unknown')}`,
+    `- **Report ID:** ${strictRedactText(report.reportId || 'unknown')}`,
+    `- **Created:** ${strictRedactText(report.createdAt || 'unknown')}`,
+    `- **Application:** ${strictRedactText(report.application?.version || 'unknown')}`,
+    `- **Diagnostics runtime:** ${strictRedactText(runtimeIdentity(report))}`,
+    `- **Install mode:** ${strictRedactText(report.application?.installMode || 'unknown')}`,
     `- **Health:** ${severity(report)}`,
     `- **Summary:** ${Number(report.summary?.passed || 0)} passed, ${Number(report.summary?.warnings || 0)} warning(s), ${Number(report.summary?.failed || 0)} failed`,
     '',
@@ -102,7 +125,7 @@ function diagnosticMarkdown(report = {}) {
     '## Redacted runtime snapshot',
     '',
     '```json',
-    JSON.stringify({ system, process: processState }, null, 2).slice(0, 8000),
+    snapshot,
     '```'
   ];
   if (logs) {
@@ -190,6 +213,8 @@ module.exports = {
   DiagnosticGithubBridge,
   STATE_FORMAT,
   UNHEALTHY_REPEAT_MS,
+  strictRedactText,
+  publicCheckDetail,
   healthSignature,
   reportIdentity,
   severity,
