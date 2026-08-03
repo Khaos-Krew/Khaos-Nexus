@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {
   install,
+  boundedSafetyRecord,
   safetyRecord,
   appendSafetyContext,
   sanitizeLegacyCampaignRequest
@@ -66,6 +67,24 @@ test('legacy compatibility request omits internal character identifiers and play
   assert.equal('id' in request.playerCharacters[0], false);
   assert.equal('playerName' in request.playerCharacters[0], false);
   assert.doesNotMatch(serialized, /internal-character-id|Private Player/);
+  assert.deepEqual(request.safety, safetyRecord(campaignState, 'c1'));
+});
+
+test('outgoing safety data is bounded exactly like the preview', () => {
+  const long = 'x'.repeat(1500);
+  const input = {
+    contentRating: 'mature',
+    lines: Array.from({ length: 120 }, (_, index) => `${index}-${long}`),
+    veils: [long],
+    pauseWords: []
+  };
+  const bounded = boundedSafetyRecord(input);
+  const request = sanitizeLegacyCampaignRequest({ contentRating: 'mature', safety: input, playerCharacters: [] });
+  assert.equal(bounded.lines.length, 100);
+  assert.equal(bounded.lines[0].length, 1000);
+  assert.equal(bounded.veils[0].length, 1000);
+  assert.deepEqual(bounded.pauseWords, ['pause', 'red card']);
+  assert.deepEqual(request.safety, bounded);
 });
 
 test('privacy helpers are deterministic and bounded', () => {
