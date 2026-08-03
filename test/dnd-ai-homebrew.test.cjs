@@ -24,7 +24,7 @@ function validInput(overrides = {}) {
     system: 'D&D 5e-compatible',
     titleHint: 'Emberforged Savant',
     concept: 'An original artificer specialist who channels heat through defensive inventions and must balance protection with escalating risk.',
-    targetTier: 'tier-2',
+    targetTier: 'mid',
     powerLevel: 'standard',
     constraints: 'Avoid extra reactions and keep resource tracking simple.',
     inspirations: [],
@@ -65,6 +65,7 @@ test('homebrew request permits an original concept without inspiration records',
   assert.equal(normalized.campaignId, 'campaign-1');
   assert.deepEqual(normalized.request.inspirations, []);
   assert.equal(normalized.request.contentType, 'subclass');
+  assert.equal(normalized.request.targetTier, 'mid');
 });
 
 test('authorized inspiration requires confirmation and bounded summaries', () => {
@@ -73,6 +74,7 @@ test('authorized inspiration requires confirmation and bounded summaries', () =>
   assert.throws(() => normalizeHomebrewRequest(validInput({ inspirations: [{ label: 'Summary', authorization: 'summary-only', permissionConfirmed: true, summary: 'x'.repeat(MAX_SUMMARY + 1) }] })), /1800-character/i);
   const valid = normalizeHomebrewRequest(validInput({ inspirations: [{ label: 'My notes', authorization: 'user-owned', permissionConfirmed: true, summary: 'A heat-based defensive theme.', designSignals: 'heat, defense, inventor' }] }));
   assert.equal(valid.request.inspirations[0].designSignals.length, 3);
+  assert.equal(valid.request.inspirations[0].confirmedRightToUse, true);
 });
 
 test('combined inspiration is capped and raw material appears only in the transient preview request', () => {
@@ -87,10 +89,10 @@ test('copy, reconstruction, OCR, and full-book requests are rejected locally', (
   for (const concept of [
     'Copy the complete published subclass exactly.',
     'Reconstruct the full sourcebook chapter.',
-    'OCR this commercial adventure and turn it into a class.',
-    'Make an identical published monster stat block.'
+    'OCR this commercial adventure and turn it into a subclass.',
+    'Replicate an identical published monster stat block.'
   ]) {
-    assert.throws(() => normalizeHomebrewRequest(validInput({ concept })), /cannot copy or reconstruct/i);
+    assert.throws(() => normalizeHomebrewRequest(validInput({ concept })), /copy or closely reconstruct/i);
   }
 });
 
@@ -145,8 +147,10 @@ test('entry loads AI homebrew after private persistence and renderer remains exp
   const entry = fs.readFileSync(path.join(root, 'main', 'entry.cjs'), 'utf8');
   const persistence = entry.indexOf("require('./dnd-co-dm-persistence-extension.cjs').install()");
   const homebrew = entry.indexOf("require('./dnd-ai-homebrew-extension.cjs').install()");
+  const uiContract = entry.indexOf("require('./dnd-ai-homebrew-ui-contract-extension.cjs').install()");
   assert.ok(persistence >= 0);
   assert.ok(homebrew > persistence);
+  assert.ok(uiContract > homebrew);
 
   const renderer = fs.readFileSync(path.join(root, 'renderer', 'dnd-ai-homebrew.js'), 'utf8');
   assert.doesNotMatch(renderer, /setInterval/);
