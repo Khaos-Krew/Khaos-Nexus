@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+require('../shared/dnd-ai-homebrew-input-boundary.cjs').install();
 const {
   MAX_INSPIRATION_TOTAL,
   MAX_SHORT_EXCERPT,
