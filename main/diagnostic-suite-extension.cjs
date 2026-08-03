@@ -4,11 +4,18 @@ const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
 const diagnosticRuntime = require('./diagnostic-runtime-updater.cjs');
+const { DiagnosticGithubBridge } = require('./diagnostic-github-bridge.cjs');
+
+const STARTUP_HEALTH_TYPE = 'startup-health-check';
+const POST_INSTALL_BASELINE_COMPATIBILITY = 'post-install-baseline';
 
 let installed = false;
 let service = null;
 let baselineTimer = null;
 let flushTimer = null;
+let applicationMonitor = null;
+let bridgeLogger = console;
+let githubBridge = null;
 const attachedWebContents = new WeakSet();
 
 function windowState() {
@@ -115,6 +122,46 @@ function installIpc() {
   });
 }
 
+function connectApplicationMonitor(monitor, logger = console) {
+  applicationMonitor = monitor || null;
+  bridgeLogger = logger || console;
+  if (service && applicationMonitor) {
+    githubBridge = new DiagnosticGithubBridge({
+      applicationMonitor,
+      dataDirectory: electron.app.getPath('userData'),
+      logger: bridgeLogger
+    });
+  }
+  return Boolean(githubBridge);
+}
+
+async function runStartupHealthCheck(runtimeVersion) {
+  if (!service) return { skipped: true, reason: 'diagnostics-unavailable' };
+  const report = service.createReport({
+    type: STARTUP_HEALTH_TYPE,
+    reason: 'Automatic in-app startup health check.',
+    severity: 'info',
+    automatic: true,
+    detail: {
+      diagnosticsRuntime: runtimeVersion,
+      compatibilityType: POST_INSTALL_BASELINE_COMPATIBILITY
+    }
+  }, context());
+  const marker = path.join(service.diagnosticsDirectory, 'startup-health-latest.json');
+  fs.writeFileSync(marker, JSON.stringify({
+    reportId: report.reportId,
+    createdAt: report.createdAt,
+    appVersion: electron.app.getVersion(),
+    diagnosticsRuntime: runtimeVersion,
+    summary: report.summary
+  }, null, 2), 'utf8');
+  broadcast();
+  if (!githubBridge && applicationMonitor) connectApplicationMonitor(applicationMonitor, bridgeLogger);
+  if (!githubBridge) return { report, skipped: true, reason: 'github-bridge-unavailable' };
+  const delivery = await githubBridge.submit(report);
+  return { report, delivery };
+}
+
 function initialize() {
   if (service) return service;
   const runtime = diagnosticRuntime.runtimeService({
@@ -135,6 +182,7 @@ function initialize() {
   for (const window of electron.BrowserWindow.getAllWindows()) attachWindow(window);
   electron.app.on('browser-window-created', (_event, window) => attachWindow(window));
   electron.app.on('web-contents-created', (_event, contents) => attachWebContents(contents));
+  if (applicationMonitor) connectApplicationMonitor(applicationMonitor, bridgeLogger);
 
   if (service.hadUncleanPreviousSession()) {
     service.captureAutomatic({
@@ -146,17 +194,9 @@ function initialize() {
   }
 
   baselineTimer = setTimeout(() => {
-    const marker = path.join(service.diagnosticsDirectory, `baseline-${electron.app.getVersion()}-${runtime.version}.json`);
-    if (!fs.existsSync(marker)) {
-      const report = service.createReport({
-        type: 'post-install-baseline',
-        reason: 'Automatic installer/update baseline health check.',
-        severity: 'info',
-        automatic: true
-      }, context());
-      fs.writeFileSync(marker, JSON.stringify({ reportId: report.reportId, createdAt: report.createdAt, diagnosticsRuntime: runtime.version }, null, 2), 'utf8');
-      broadcast();
-    }
+    runStartupHealthCheck(runtime.version).catch((error) => {
+      bridgeLogger?.warn?.('Automatic startup diagnostics failed.', { message: error.message });
+    });
   }, 10000);
   baselineTimer.unref?.();
 
@@ -187,4 +227,15 @@ function install() {
   });
 }
 
-module.exports = { install, initialize, capture, context, get service() { return service; } };
+module.exports = {
+  STARTUP_HEALTH_TYPE,
+  POST_INSTALL_BASELINE_COMPATIBILITY,
+  install,
+  initialize,
+  capture,
+  context,
+  connectApplicationMonitor,
+  runStartupHealthCheck,
+  get service() { return service; },
+  get githubBridge() { return githubBridge; }
+};
