@@ -64,6 +64,7 @@ if (diagnosticsMode) {
     require('./dnd-ai-homebrew-conversion-guard-extension.cjs').install();
     require('./dnd-ai-homebrew-ui-contract-extension.cjs').install();
     require('./dnd-ai-maps-extension.cjs').install();
+    require('./dnd-ai-map-stability-extension.cjs').install();
     require('./dnd-co-dm-stability-extension.cjs').install();
     require('./dnd-access-policy-extension.cjs').install();
     require('./dnd-authorization-summary-extension.cjs').install();
