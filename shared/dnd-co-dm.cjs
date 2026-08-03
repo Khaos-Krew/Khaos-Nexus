@@ -96,6 +96,7 @@ function normalizeDraft(input = {}) {
   const workflow = CO_DM_WORKFLOWS[input.workflow] ? input.workflow : 'session_prep';
   const content = clean(input.content, 40000);
   if (!content) throw Object.assign(new Error('Co-DM drafts require generated text.'), { code: 'DND_CO_DM_DRAFT_EMPTY' });
+  const createdAt = input.createdAt || nowIso();
   return {
     id: cleanLine(input.id, 100) || id('codm_draft'),
     campaignId: cleanLine(input.campaignId, 100),
@@ -105,8 +106,8 @@ function normalizeDraft(input = {}) {
     model: cleanLine(input.model, 80),
     pinned: Boolean(input.pinned),
     contextSummary: input.contextSummary && typeof input.contextSummary === 'object' ? clone(input.contextSummary) : {},
-    createdAt: input.createdAt || nowIso(),
-    updatedAt: nowIso()
+    createdAt,
+    updatedAt: input.updatedAt || createdAt
   };
 }
 
@@ -163,7 +164,9 @@ function buildCampaignContext(stateInput, campaignIdInput, optionsInput = {}, se
   const sourceIds = enabledSourceIds(state, campaignId);
   const sections = [];
 
-  sections.push(section('campaign', 'Campaign', [pick(campaign, ['name', 'description', 'status', 'ruleset', 'currentLocation', 'coDmNotes'])]));
+  const campaignContext = pick(campaign, ['name', 'description', 'status', 'ruleset', 'currentLocation']);
+  if (options.includeGmNotes) Object.assign(campaignContext, pick(campaign, ['coDmNotes']));
+  sections.push(section('campaign', 'Campaign', [campaignContext]));
   sections.push(section('members', 'Campaign roles', (state.members || []).filter((item) => item.campaignId === campaignId && item.active !== false).map((item) => pick(item, ['displayName', 'role', 'active']))));
 
   if (options.includeCharacterDetails) {
