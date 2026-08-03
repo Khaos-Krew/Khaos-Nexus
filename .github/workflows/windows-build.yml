@@ -19,7 +19,21 @@ jobs:
         with:
           node-version: 22
       - run: npm install
-      - run: npm test
+      - name: Run tests
+        shell: pwsh
+        run: |
+          cmd.exe /d /s /c "npm test > test-output.txt 2>&1"
+          $testExitCode = $LASTEXITCODE
+          Get-Content -LiteralPath test-output.txt
+          if ($testExitCode -ne 0) { exit $testExitCode }
+      - name: Upload failed Windows test output
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-test-output
+          path: test-output.txt
+          retention-days: 7
+          if-no-files-found: warn
       - run: npm run check
       - name: Build installer and portable executable
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
