@@ -12,16 +12,17 @@ const DIFFICULTIES = Object.freeze(['easy', 'moderate', 'hard', 'deadly', 'varia
 const MAX_PROPOSALS = 50;
 const MAX_SVG_BYTES = 256 * 1024;
 const CELL_PIXELS = 20;
+const STANDARD_SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
 const PROTECTED_MAP_PATTERN = /\b(recreate|replicate|copy|trace|duplicate|reconstruct|redraw|transcribe|scan|ocr)\b.{0,80}\b(exact|identical|official|published|commercial|paid|copyrighted|adventure|module|sourcebook|map|layout|dungeon|region)\b|\b(exact|identical)\b.{0,80}\b(layout|map|dungeon|region|adventure)\b|\b(from|out of)\b.{0,80}\b(paid module|paid adventure|commercial sourcebook)\b|\b(ignore|bypass|evade)\b.{0,30}\bcopyright\b/i;
-const DANGEROUS_SVG_PATTERN = /<!doctype|<!entity|<\?xml|<\s*(?:script|foreignobject|image|use|a|iframe|object|embed|canvas|video|audio|animate|set|mpath|filter)\b|\bon[a-z]+\s*=|\b(?:href|xlink:href|src)\s*=|javascript\s*:|data\s*:|file\s*:|https?\s*:|@import|url\s*\(/i;
+const DANGEROUS_SVG_PATTERN = /<!doctype|<!entity|<\?xml|<\s*(?:script|foreignobject|image|use|a|iframe|object|embed|canvas|video|audio|animate|set|mpath|filter)\b|\bon[a-z]+\s*=|\b(?:href|xlink:href|src)\s*=|javascript\s*:|data\s*:|file\s*:|@import|url\s*\(|expression\s*\(|behavior\s*:|-moz-binding/i;
 const ALLOWED_SVG_ELEMENTS = new Set(['svg', 'g', 'rect', 'line', 'polygon', 'polyline', 'path', 'circle', 'ellipse', 'text', 'tspan', 'style', 'title', 'desc']);
 const ALLOWED_SVG_ATTRIBUTES = new Set([
-  'xmlns', 'width', 'height', 'viewbox', 'class', 'x', 'y', 'x1', 'y1', 'x2', 'y2',
+  'xmlns', 'width', 'height', 'viewbox', 'class', 'id', 'x', 'y', 'x1', 'y1', 'x2', 'y2',
   'cx', 'cy', 'r', 'rx', 'ry', 'd', 'points', 'transform', 'fill', 'stroke',
-  'stroke-width', 'stroke-opacity', 'stroke-linecap', 'stroke-linejoin', 'fill-opacity',
+  'stroke-width', 'stroke-opacity', 'stroke-linecap', 'stroke-linejoin', 'stroke-dasharray', 'fill-opacity',
   'opacity', 'font-size', 'font-family', 'font-weight', 'text-anchor', 'dominant-baseline',
-  'vector-effect', 'role', 'aria-label', 'data-seed', 'data-map-type'
+  'vector-effect', 'role', 'aria-label', 'aria-labelledby', 'data-seed', 'data-map-type'
 ]);
 
 function clone(value) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); }
@@ -222,6 +223,11 @@ function validateServiceSvg(svg) {
   if (!source || bytes > MAX_SVG_BYTES || !/^<svg\b/i.test(source) || !/<\/svg>$/i.test(source)) {
     throw validationError('Khaos Nexus AI returned an invalid or oversized SVG preview.', 'svg', 'DND_AI_MAP_SVG_INVALID');
   }
+  const openingTag = source.match(/^<svg\b[^>]*>/i)?.[0] || '';
+  const namespaceMatches = [...openingTag.matchAll(/\sxmlns\s*=\s*(["'])(.*?)\1/gi)];
+  if (namespaceMatches.length !== 1 || namespaceMatches[0][2] !== STANDARD_SVG_NAMESPACE) {
+    throw validationError('Khaos Nexus AI returned an SVG with an unsupported namespace.', 'svg.xmlns', 'DND_AI_MAP_SVG_UNSAFE');
+  }
   if (DANGEROUS_SVG_PATTERN.test(source)) throw validationError('Khaos Nexus AI returned unsafe SVG content.', 'svg', 'DND_AI_MAP_SVG_UNSAFE');
   const tagPattern = /<\/?\s*([a-zA-Z][\w:-]*)\b[^>]*>/g;
   let match;
@@ -234,6 +240,10 @@ function validateServiceSvg(svg) {
     while ((attribute = attributePattern.exec(match[0]))) {
       const attributeName = attribute[1].toLowerCase();
       if (!ALLOWED_SVG_ATTRIBUTES.has(attributeName)) throw validationError(`SVG attribute ${attributeName} is not permitted.`, 'svg', 'DND_AI_MAP_SVG_UNSAFE');
+      if (attributeName === 'xmlns') {
+        const namespaceValue = match[0].match(/\sxmlns\s*=\s*(["'])(.*?)\1/i)?.[2] || '';
+        if (namespaceValue !== STANDARD_SVG_NAMESPACE) throw validationError('SVG namespace is not permitted.', 'svg.xmlns', 'DND_AI_MAP_SVG_UNSAFE');
+      }
     }
   }
   return { bytes, sha256: crypto.createHash('sha256').update(source).digest('hex') };
@@ -373,7 +383,7 @@ function proposalAuditMetadata(proposalInput = {}) {
 }
 
 module.exports = {
-  AI_MAP_PATH, MAP_TYPES, GRID_TYPES, DENSITIES, THEMES, DIFFICULTIES, MAX_PROPOSALS, MAX_SVG_BYTES, CELL_PIXELS,
+  AI_MAP_PATH, MAP_TYPES, GRID_TYPES, DENSITIES, THEMES, DIFFICULTIES, MAX_PROPOSALS, MAX_SVG_BYTES, CELL_PIXELS, STANDARD_SVG_NAMESPACE,
   normalizeMapRequest, previewMapRequest, assertOriginalMapRequest, normalizeMapResult,
   validateServiceSvg, renderStructuredMapSvg, parseMapResponse,
   normalizeProposal, ensureMapProposalState, proposalFromGeneration, proposalToMapImport, proposalAuditMetadata
