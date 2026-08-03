@@ -49,10 +49,11 @@ function serviceUrl(endpoint, pathname) {
 }
 
 function normalizeHealth(payload = {}, endpoint = DEFAULT_AI_SERVICE_ENDPOINT) {
-  const capabilities = Array.isArray(payload.capabilities)
+  const advertisedCapabilities = Array.isArray(payload.capabilities);
+  const capabilities = advertisedCapabilities
     ? [...new Set(payload.capabilities.map((item) => cleanLine(item, 120)).filter(Boolean))]
     : [];
-  if (!capabilities.includes('dnd.campaign.turn') && cleanLine(payload.service, 120) === 'khaos-nexus-ai') {
+  if (!advertisedCapabilities && cleanLine(payload.service, 120) === 'khaos-nexus-ai') {
     capabilities.push('dnd.campaign.turn');
   }
   return {
@@ -160,21 +161,23 @@ function buildLegacyCampaignRequest(state = {}, campaignId, context = {}) {
   const campaign = campaignRecord(state, campaignId);
   if (!campaign) throw Object.assign(new Error('The selected campaign is unavailable.'), { code: 'DND_CAMPAIGN_REQUIRED' });
   const rating = ['family', 'teen', 'mature'].includes(campaign.contentRating) ? campaign.contentRating : 'teen';
-  const playerCharacters = (state.characters || [])
-    .filter((item) => item.campaignId === campaignId && item.active !== false)
-    .slice(0, 20)
-    .map((item) => ({
-      id: cleanLine(item.id, 100) || undefined,
-      name: cleanLine(item.name || 'Unnamed character', 100),
-      playerName: cleanLine(item.playerName || item.ownerName || '', 100),
-      summary: clean([
-        item.race || item.ancestry,
-        item.className || item.class,
-        item.level ? `Level ${item.level}` : '',
-        item.background,
-        item.notes
-      ].filter(Boolean).join(' — '), 4000)
-    }));
+  const playerCharacters = context.options?.includeCharacterDetails === false
+    ? []
+    : (state.characters || [])
+      .filter((item) => item.campaignId === campaignId && item.active !== false)
+      .slice(0, 20)
+      .map((item) => ({
+        id: cleanLine(item.id, 100) || undefined,
+        name: cleanLine(item.name || 'Unnamed character', 100),
+        playerName: cleanLine(item.playerName || item.ownerName || '', 100),
+        summary: clean([
+          item.race || item.ancestry,
+          item.className || item.class,
+          item.level ? `Level ${item.level}` : '',
+          item.background,
+          item.notes
+        ].filter(Boolean).join(' — '), 4000)
+      }));
   return assertRequestSize({
     name: cleanLine(`${campaign.name || 'Campaign'} — Khaos Nexus Desktop`, 120),
     system: cleanLine(campaign.ruleset || campaign.system || 'D&D 5e-compatible', 100),
