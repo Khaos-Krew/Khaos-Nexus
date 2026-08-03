@@ -69,6 +69,6 @@ test('renderer observation is bounded to the D&D root and stabilized after studi
   assert.match(renderer, /observer\.observe\(rootNode/);
   assert.doesNotMatch(renderer, /observer\.observe\(doc(?:ument)?\.(?:body|documentElement)/);
   assert.match(stability, /api\.state\.observer\?\.disconnect/);
-  assert.match(stability, /!mapsView\.querySelector\(\['"]\[data-dnd-ai-map-studio\]/);
+  assert.match(stability, /!mapsView\.querySelector\('\[data-dnd-ai-map-studio\]'\)/);
   assert.doesNotMatch(stability, /setInterval/);
 });
