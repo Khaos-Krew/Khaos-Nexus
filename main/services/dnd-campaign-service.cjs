@@ -16,16 +16,153 @@ const DISCORD_API = 'https://discord.com/api/v10';
 const CHANNEL_TYPES = Object.freeze({
   0: 'channel', 2: 'voice', 5: 'channel', 10: 'thread', 11: 'thread', 12: 'thread', 15: 'forum', 16: 'forum'
 });
+const DISCORD_MESSAGE_LIMITS = Object.freeze({
+  content: 2000,
+  embeds: 10,
+  embedTitle: 256,
+  embedDescription: 4096,
+  embedFields: 25,
+  embedFieldName: 256,
+  embedFieldValue: 1024,
+  embedFooter: 2048,
+  embedTotal: 6000,
+  actionRows: 5,
+  rowComponents: 5,
+  buttonLabel: 80,
+  customId: 100,
+  url: 2048
+});
+
+function payloadError(path, message, code = 'DND_DISCORD_PAYLOAD_INVALID') {
+  const error = new Error(`D&D Discord payload ${path}: ${message}`);
+  error.code = code;
+  error.field = path;
+  return error;
+}
+
+function validateOptionalText(value, path, maximum, { required = false } = {}) {
+  if (value === undefined || value === null) {
+    if (required) throw payloadError(path, 'is required.');
+    return 0;
+  }
+  if (typeof value !== 'string') throw payloadError(path, 'must be text.');
+  if (required && !value.trim()) throw payloadError(path, 'must not be empty.');
+  if (value.length > maximum) throw payloadError(path, `must be ${maximum} characters or fewer.`);
+  return value.length;
+}
+
+function validateDiscordUrl(value, path) {
+  validateOptionalText(value, path, DISCORD_MESSAGE_LIMITS.url, { required: true });
+  let parsed;
+  try { parsed = new URL(value); } catch { throw payloadError(path, 'must be a valid URL.'); }
+  if (!['http:', 'https:'].includes(parsed.protocol)) throw payloadError(path, 'must use HTTP or HTTPS.');
+}
+
+function validateDiscordEmoji(emoji, path) {
+  if (!emoji || typeof emoji !== 'object' || Array.isArray(emoji)) throw payloadError(path, 'must be an emoji object.');
+  const hasId = emoji.id !== undefined && emoji.id !== null && String(emoji.id).trim();
+  const hasName = emoji.name !== undefined && emoji.name !== null && String(emoji.name).trim();
+  if (!hasId && !hasName) throw payloadError(path, 'must contain an emoji name or ID.');
+  if (hasId && !/^\d{5,25}$/.test(String(emoji.id))) throw payloadError(`${path}.id`, 'must be a valid Discord emoji ID.');
+  if (hasName) validateOptionalText(String(emoji.name), `${path}.name`, 32, { required: true });
+}
+
+function validateDiscordMessagePayload(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw payloadError('body', 'must be an object.');
+  validateOptionalText(payload.content, 'content', DISCORD_MESSAGE_LIMITS.content);
+
+  const embeds = payload.embeds === undefined ? [] : payload.embeds;
+  if (!Array.isArray(embeds)) throw payloadError('embeds', 'must be an array.');
+  if (embeds.length > DISCORD_MESSAGE_LIMITS.embeds) throw payloadError('embeds', `may contain at most ${DISCORD_MESSAGE_LIMITS.embeds} embeds.`);
+  let embedCharacters = 0;
+  embeds.forEach((embed, embedIndex) => {
+    const path = `embeds[${embedIndex}]`;
+    if (!embed || typeof embed !== 'object' || Array.isArray(embed)) throw payloadError(path, 'must be an object.');
+    embedCharacters += validateOptionalText(embed.title, `${path}.title`, DISCORD_MESSAGE_LIMITS.embedTitle);
+    embedCharacters += validateOptionalText(embed.description, `${path}.description`, DISCORD_MESSAGE_LIMITS.embedDescription);
+    if (embed.url !== undefined) validateDiscordUrl(embed.url, `${path}.url`);
+    if (embed.thumbnail?.url !== undefined) validateDiscordUrl(embed.thumbnail.url, `${path}.thumbnail.url`);
+    if (embed.image?.url !== undefined) validateDiscordUrl(embed.image.url, `${path}.image.url`);
+    if (embed.footer !== undefined) {
+      if (!embed.footer || typeof embed.footer !== 'object' || Array.isArray(embed.footer)) throw payloadError(`${path}.footer`, 'must be an object.');
+      embedCharacters += validateOptionalText(embed.footer.text, `${path}.footer.text`, DISCORD_MESSAGE_LIMITS.embedFooter, { required: true });
+      if (embed.footer.icon_url !== undefined) validateDiscordUrl(embed.footer.icon_url, `${path}.footer.icon_url`);
+    }
+    const fields = embed.fields === undefined ? [] : embed.fields;
+    if (!Array.isArray(fields)) throw payloadError(`${path}.fields`, 'must be an array.');
+    if (fields.length > DISCORD_MESSAGE_LIMITS.embedFields) throw payloadError(`${path}.fields`, `may contain at most ${DISCORD_MESSAGE_LIMITS.embedFields} fields.`);
+    fields.forEach((field, fieldIndex) => {
+      const fieldPath = `${path}.fields[${fieldIndex}]`;
+      if (!field || typeof field !== 'object' || Array.isArray(field)) throw payloadError(fieldPath, 'must be an object.');
+      embedCharacters += validateOptionalText(field.name, `${fieldPath}.name`, DISCORD_MESSAGE_LIMITS.embedFieldName, { required: true });
+      embedCharacters += validateOptionalText(field.value, `${fieldPath}.value`, DISCORD_MESSAGE_LIMITS.embedFieldValue, { required: true });
+      if (field.inline !== undefined && typeof field.inline !== 'boolean') throw payloadError(`${fieldPath}.inline`, 'must be true or false.');
+    });
+  });
+  if (embedCharacters > DISCORD_MESSAGE_LIMITS.embedTotal) throw payloadError('embeds', `combined embed text must be ${DISCORD_MESSAGE_LIMITS.embedTotal} characters or fewer.`);
+
+  const rows = payload.components === undefined ? [] : payload.components;
+  if (!Array.isArray(rows)) throw payloadError('components', 'must be an array.');
+  if (rows.length > DISCORD_MESSAGE_LIMITS.actionRows) throw payloadError('components', `may contain at most ${DISCORD_MESSAGE_LIMITS.actionRows} action rows.`);
+  rows.forEach((row, rowIndex) => {
+    const rowPath = `components[${rowIndex}]`;
+    if (!row || typeof row !== 'object' || Array.isArray(row)) throw payloadError(rowPath, 'must be an action-row object.');
+    if (row.type !== 1) throw payloadError(`${rowPath}.type`, 'must be Discord action-row type 1.');
+    if (!Array.isArray(row.components) || !row.components.length) throw payloadError(`${rowPath}.components`, 'must contain at least one component.');
+    if (row.components.length > DISCORD_MESSAGE_LIMITS.rowComponents) throw payloadError(`${rowPath}.components`, `may contain at most ${DISCORD_MESSAGE_LIMITS.rowComponents} components.`);
+    row.components.forEach((component, componentIndex) => {
+      const componentPath = `${rowPath}.components[${componentIndex}]`;
+      if (!component || typeof component !== 'object' || Array.isArray(component)) throw payloadError(componentPath, 'must be an object.');
+      if (component.type !== 2) throw payloadError(`${componentPath}.type`, 'must be Discord button type 2.');
+      if (![1, 2, 3, 4, 5].includes(component.style)) throw payloadError(`${componentPath}.style`, 'must be a valid Discord button style.');
+      validateOptionalText(component.label, `${componentPath}.label`, DISCORD_MESSAGE_LIMITS.buttonLabel, { required: !component.emoji });
+      if (component.emoji !== undefined) validateDiscordEmoji(component.emoji, `${componentPath}.emoji`);
+      if (component.style === 5) {
+        if (component.custom_id !== undefined) throw payloadError(`${componentPath}.custom_id`, 'is not allowed on a link button.');
+        validateDiscordUrl(component.url, `${componentPath}.url`);
+      } else {
+        validateOptionalText(component.custom_id, `${componentPath}.custom_id`, DISCORD_MESSAGE_LIMITS.customId, { required: true });
+        if (component.url !== undefined) throw payloadError(`${componentPath}.url`, 'is only allowed on a link button.');
+      }
+      if (component.disabled !== undefined && typeof component.disabled !== 'boolean') throw payloadError(`${componentPath}.disabled`, 'must be true or false.');
+    });
+  });
+
+  if (!payload.content && !embeds.length && !rows.length) throw payloadError('body', 'must contain content, an embed, or components.');
+  return payload;
+}
+
+function discordValidationDetail(body) {
+  const visit = (node, path = '') => {
+    if (!node || typeof node !== 'object') return null;
+    if (Array.isArray(node._errors) && node._errors.length) {
+      const message = clean(node._errors[0]?.message || node._errors[0]?.code || 'Invalid value.', 240);
+      return { path: path || 'body', message };
+    }
+    for (const [key, value] of Object.entries(node)) {
+      if (key === '_errors') continue;
+      const result = visit(value, path ? `${path}.${key}` : key);
+      if (result) return result;
+    }
+    return null;
+  };
+  return visit(body?.errors);
+}
 
 function discordError(status, body, fallback) {
-  const message = body?.message || fallback || `Discord request failed with HTTP ${status}.`;
+  const detail = discordValidationDetail(body);
+  const message = detail
+    ? `Discord rejected the D&D message payload at ${detail.path}: ${detail.message}`
+    : body?.message || fallback || `Discord request failed with HTTP ${status}.`;
   const error = new Error(message);
   error.status = status;
   error.discordCode = body?.code;
   if (status === 401) error.code = 'DISCORD_TOKEN_INVALID';
   else if (status === 403) error.code = 'DISCORD_PERMISSION_MISSING';
   else if (status === 404) error.code = 'DISCORD_RESOURCE_STALE';
+  else if (status === 400 && body?.code === 50035) error.code = 'DND_DISCORD_PAYLOAD_REJECTED';
   else error.code = 'DISCORD_REQUEST_FAILED';
+  if (detail) error.field = detail.path;
   return error;
 }
 
@@ -144,17 +281,20 @@ class DndCampaignService {
       { name: 'Active quest', value: data.activeQuest?.title || 'None', inline: false },
       { name: 'Party', value: party.slice(0, 1024), inline: false }
     ];
-    const payload = {
+    const payload = validateDiscordMessagePayload({
       embeds: [{
         title: data.campaign.name,
         description: `Campaign status: **${data.campaign.status}**`,
         fields,
         footer: { text: 'Khaos Nexus D&D · Persistent campaign panel' }
       }],
-      components: [[
-        ['Characters', 'characters'], ['Attendance', 'attendance'], ['Quests', 'quests'], ['Shared loot', 'loot'], ['Roll dice', 'roll']
-      ].map(([label, action]) => ({ type: 2, style: 2, label, custom_id: `dnd:${action}:${campaignId}` }))]
-    };
+      components: [{
+        type: 1,
+        components: [
+          ['Characters', 'characters'], ['Attendance', 'attendance'], ['Quests', 'quests'], ['Shared loot', 'loot'], ['Roll dice', 'roll']
+        ].map(([label, action]) => ({ type: 2, style: 2, label, custom_id: `dnd:${action}:${campaignId}` }))
+      }]
+    });
     return { data, payload, hash: stableHash(data) };
   }
 
@@ -222,4 +362,12 @@ class DndCampaignService {
   }
 }
 
-module.exports = { DndCampaignService, CHANNEL_TYPES, DISCORD_API };
+module.exports = {
+  DndCampaignService,
+  CHANNEL_TYPES,
+  DISCORD_API,
+  DISCORD_MESSAGE_LIMITS,
+  validateDiscordMessagePayload,
+  discordValidationDetail,
+  discordError
+};

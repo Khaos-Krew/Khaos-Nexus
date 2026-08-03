@@ -2,7 +2,11 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { DndCampaignService } = require('../main/services/dnd-campaign-service.cjs');
+const {
+  DndCampaignService,
+  validateDiscordMessagePayload,
+  discordError
+} = require('../main/services/dnd-campaign-service.cjs');
 const { defaultDndState, normalizeBinding } = require('../shared/dnd-discord.cjs');
 
 const snowflake = (n) => String(100000000000000000n + BigInt(n));
@@ -20,6 +24,13 @@ function storeWith(state = defaultDndState()) {
 
 function response(status, payload) {
   return { ok: status >= 200 && status < 300, status, text: async () => payload === null ? '' : JSON.stringify(payload) };
+}
+
+function campaignState() {
+  const state = defaultDndState();
+  state.campaigns.push({ id: 'c1', name: 'Campaign', status: 'active', ruleset: '5e_2024', currentLocation: '', activeQuestId: '' });
+  state.bindings.push(normalizeBinding({ id: 'b1', campaignId: 'c1', appId: 'a1', guildId: snowflake(1), resourceType: 'channel', resourceId: snowflake(2), purpose: 'main', active: true }));
+  return state;
 }
 
 test('default setup creates no Discord resource and performs no network request', async () => {
@@ -57,11 +68,62 @@ test('explicit thread creation creates exactly one resource', async () => {
   } finally { global.fetch = original; }
 });
 
+test('campaign panel uses a valid Discord action row instead of a nested button array', () => {
+  const service = new DndCampaignService({ configStore: storeWith(campaignState()), logger: console });
+  const built = service.buildPanel('c1');
+  assert.equal(built.payload.components.length, 1);
+  assert.equal(built.payload.components[0].type, 1);
+  assert.equal(built.payload.components[0].components.length, 5);
+  assert.doesNotThrow(() => validateDiscordMessagePayload(built.payload));
+});
+
+test('payload validation reports the exact malformed action-row field', () => {
+  assert.throws(
+    () => validateDiscordMessagePayload({ components: [[{ type: 2, style: 2, label: 'Broken', custom_id: 'dnd:broken' }]] }),
+    (error) => error.code === 'DND_DISCORD_PAYLOAD_INVALID' && error.field === 'components[0]'
+  );
+});
+
+test('payload validation rejects overlong button custom IDs before Discord is called', () => {
+  assert.throws(
+    () => validateDiscordMessagePayload({ components: [{ type: 1, components: [{ type: 2, style: 2, label: 'Broken', custom_id: 'x'.repeat(101) }] }] }),
+    (error) => error.code === 'DND_DISCORD_PAYLOAD_INVALID' && error.field === 'components[0].components[0].custom_id'
+  );
+});
+
+test('Discord invalid-form errors are reduced to a specific redacted field path', () => {
+  const error = discordError(400, {
+    code: 50035,
+    message: 'Invalid Form Body',
+    errors: { components: { 0: { type: { _errors: [{ code: 'BASE_TYPE_BAD_LENGTH', message: 'This field is required' }] } } } }
+  });
+  assert.equal(error.code, 'DND_DISCORD_PAYLOAD_REJECTED');
+  assert.equal(error.field, 'components.0.type');
+  assert.match(error.message, /components\.0\.type/);
+  assert.doesNotMatch(error.message, /token|campaign secret/i);
+});
+
+test('persistent panel refresh sends the validated action-row payload and stores the message', async () => {
+  const state = campaignState();
+  const store = storeWith(state);
+  const service = new DndCampaignService({ configStore: store, logger: console });
+  const original = global.fetch;
+  let sentBody = null;
+  global.fetch = async (_url, options = {}) => {
+    sentBody = JSON.parse(options.body);
+    return response(200, { id: snowflake(7) });
+  };
+  try {
+    const result = await service.refreshPanel('b1');
+    assert.equal(result.unchanged, false);
+    assert.equal(sentBody.components[0].type, 1);
+    assert.equal(sentBody.components[0].components.length, 5);
+    assert.equal(store.state.panels[0].messageId, snowflake(7));
+  } finally { global.fetch = original; }
+});
+
 test('persistent panel refresh skips Discord edit when stable content hash is unchanged', async () => {
-  const state = defaultDndState();
-  state.campaigns.push({ id: 'c1', name: 'Campaign', status: 'active', ruleset: '5e_2024', currentLocation: '', activeQuestId: '' });
-  const binding = normalizeBinding({ id: 'b1', campaignId: 'c1', appId: 'a1', guildId: snowflake(1), resourceType: 'channel', resourceId: snowflake(2), purpose: 'main', active: true });
-  state.bindings.push(binding);
+  const state = campaignState();
   const store = storeWith(state);
   const service = new DndCampaignService({ configStore: store, logger: console });
   const built = service.buildPanel('c1');
