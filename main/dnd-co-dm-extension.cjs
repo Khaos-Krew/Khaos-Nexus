@@ -8,24 +8,39 @@ const {
   normalizeCoDmSettings,
   normalizeContextOptions,
   normalizeDraft,
+  normalizeServiceBinding,
   normalizeGenerationInput,
   ensureCoDmState,
   buildCampaignContext,
   buildReadiness,
-  buildOpenAiRequest,
-  parseOpenAiResponse,
-  sanitizeProviderError,
-  clean,
   cleanLine,
   nowIso
 } = require('../shared/dnd-co-dm.cjs');
+const {
+  HEALTH_PATH,
+  CAMPAIGNS_PATH,
+  DRAFTS_PATH,
+  serviceUrl,
+  normalizeHealth,
+  unavailableHealth,
+  contextFingerprint,
+  buildDedicatedDraftRequest,
+  buildLegacyCampaignRequest,
+  buildLegacyTurnRequest,
+  parseDedicatedDraftResponse,
+  parseLegacyCampaignResponse,
+  parseLegacyTurnResponse,
+  sanitizeServiceError
+} = require('../shared/dnd-ai-service.cjs');
 
-const OPENAI_RESPONSES_ENDPOINT = 'https://api.openai.com/v1/responses';
 const REQUEST_TIMEOUT_MS = 90000;
+const HEALTH_CACHE_MS = 30000;
+const MAX_RESPONSE_CHARACTERS = 1_000_000;
 const refs = { configStore: null, autonomy: null, discordAuth: null, supervisor: null, logger: null };
 let installed = false;
 let registered = false;
 let registerTimer = null;
+let healthCache = null;
 
 function clone(value) { return JSON.parse(JSON.stringify(value)); }
 function actorId() { return String(refs.discordAuth?.getState?.().user?.id || 'local-owner'); }
@@ -56,35 +71,39 @@ function patchConfigStore() {
       scheduleRegister();
     }
 
-    getDndCoDmApiKey() { return String(this.secrets.dndCoDmOpenAiKey || ''); }
+    getDndAiServiceToken() { return String(this.secrets.dndAiServiceToken || ''); }
 
-    setDndCoDmApiKey(value) {
-      const key = String(value || '').trim();
-      if (key && (!key.startsWith('sk-') || key.length < 20 || key.length > 300)) {
-        throw Object.assign(new Error('Enter a valid OpenAI API key.'), { code: 'DND_CO_DM_API_KEY_INVALID', field: 'apiKey' });
+    setDndAiServiceToken(value) {
+      const token = String(value || '').trim();
+      if (token && (token.length < 8 || token.length > 500 || /\s/.test(token))) {
+        throw Object.assign(new Error('The Khaos Nexus AI service token must be 8–500 characters without spaces.'), { code: 'DND_AI_SERVICE_TOKEN_INVALID', field: 'serviceToken' });
       }
-      if (key) this.secrets.dndCoDmOpenAiKey = key;
-      else delete this.secrets.dndCoDmOpenAiKey;
+      if (token) this.secrets.dndAiServiceToken = token;
+      else delete this.secrets.dndAiServiceToken;
+      delete this.secrets.dndCoDmOpenAiKey;
       this.saveSecrets();
-      return { hasApiKey: Boolean(key) };
+      healthCache = null;
+      return { hasServiceToken: Boolean(token) };
     }
 
     getSecretValues() {
-      return [...super.getSecretValues(), this.secrets.dndCoDmOpenAiKey].filter(Boolean);
+      return [...super.getSecretValues(), this.secrets.dndAiServiceToken].filter(Boolean);
     }
 
     getDndCoDmSettings() {
       const state = this.getDndState();
       ensureCoDmState(state);
-      return { ...clone(state.coDmSettings), hasApiKey: Boolean(this.getDndCoDmApiKey()) };
+      return { ...clone(state.coDmSettings), hasServiceToken: Boolean(this.getDndAiServiceToken()) };
     }
 
     setDndCoDmSettings(input = {}) {
-      return this.mutateDnd((state) => {
+      const result = this.mutateDnd((state) => {
         ensureCoDmState(state);
         state.coDmSettings = normalizeCoDmSettings({ ...state.coDmSettings, ...input, updatedAt: nowIso() });
         return clone(state.coDmSettings);
       });
+      healthCache = null;
+      return result;
     }
 
     saveDndCoDmDraft(input = {}) {
@@ -117,6 +136,17 @@ function patchConfigStore() {
         if (index < 0) return false;
         state.coDmDrafts.splice(index, 1);
         return true;
+      });
+    }
+
+    upsertDndCoDmServiceBinding(input = {}) {
+      return this.mutateDnd((state) => {
+        ensureCoDmState(state);
+        const binding = normalizeServiceBinding(input);
+        const index = state.coDmServiceBindings.findIndex((item) => item.id === binding.id || (item.campaignId === binding.campaignId && item.endpoint === binding.endpoint));
+        if (index >= 0) state.coDmServiceBindings[index] = { ...binding, id: state.coDmServiceBindings[index].id, createdAt: state.coDmServiceBindings[index].createdAt };
+        else state.coDmServiceBindings.push(binding);
+        return clone(index >= 0 ? state.coDmServiceBindings[index] : binding);
       });
     }
 
@@ -166,41 +196,40 @@ function captureClass(modulePath, exportName, refName) {
   target[exportName] = Captured;
 }
 
-function providerSettings() {
-  const settings = refs.configStore.getDndCoDmSettings();
-  return {
-    provider: 'OpenAI',
-    model: settings.model,
-    hasApiKey: settings.hasApiKey,
-    endpoint: 'OpenAI Responses API',
-    storeProviderResponses: false,
-    toolsEnabled: false
-  };
+function cachedServiceStatus(settings) {
+  if (healthCache?.endpoint === settings.serviceEndpoint) return clone(healthCache);
+  return unavailableHealth(settings.serviceEndpoint, 'Connection has not been checked yet.');
 }
 
 function readiness(campaignId) {
-  return buildReadiness(refs.configStore.getDndState(), campaignId, providerSettings());
+  const settings = refs.configStore.getDndCoDmSettings();
+  return buildReadiness(refs.configStore.getDndState(), campaignId, cachedServiceStatus(settings));
 }
 
 function publicPayload(campaignId = '') {
   const state = refs.configStore.getDndState();
   ensureCoDmState(state);
+  const settings = refs.configStore.getDndCoDmSettings();
+  const service = cachedServiceStatus(settings);
   const selected = cleanLine(campaignId, 100) || state.campaigns.find((item) => item.active !== false)?.id || '';
   return {
     role: currentRole(),
-    settings: refs.configStore.getDndCoDmSettings(),
+    settings,
+    service,
     workflows: clone(CO_DM_WORKFLOWS),
     campaigns: (state.campaigns || []).filter((item) => item.active !== false).map((item) => ({ id: item.id, name: item.name, status: item.status })),
     selectedCampaignId: selected,
-    readiness: readiness(selected),
+    readiness: buildReadiness(state, selected, service),
     drafts: (state.coDmDrafts || []).filter((item) => !selected || item.campaignId === selected).sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || String(b.updatedAt).localeCompare(String(a.updatedAt))).map(clone),
     policy: {
+      serviceRepository: 'Khaos-Krew/Khaos-Nexus-AI',
       explicitGenerationOnly: true,
       autonomousActions: false,
       discordPosting: false,
-      providerStorage: false,
-      providerTools: false,
-      licensedFullTextIncludedByDefault: false
+      desktopProviderCredentials: false,
+      providerToolsControlledByService: true,
+      licensedFullTextIncludedByDefault: false,
+      legacyCampaignPersistence: service.legacyCampaignTurns && !service.dedicatedDrafts
     }
   };
 }
@@ -227,62 +256,169 @@ function push(campaignId = '') {
   return value;
 }
 
-async function callOpenAi(apiKey, request, fetchImpl = global.fetch) {
-  if (typeof fetchImpl !== 'function') throw Object.assign(new Error('Network requests are unavailable in this build.'), { code: 'DND_CO_DM_NETWORK_UNAVAILABLE' });
+function responseError(payload, status) {
+  const value = payload?.error;
+  const error = new Error(typeof value === 'string' ? value : value?.message || `Khaos Nexus AI returned HTTP ${status}.`);
+  error.code = typeof value === 'object' ? value.code : 'DND_AI_SERVICE_HTTP_ERROR';
+  error.retryable = Boolean(typeof value === 'object' && value.retryable);
+  error.status = status;
+  return error;
+}
+
+async function callAiService(endpoint, pathname, { method = 'GET', body = null, token = '', fetchImpl = global.fetch } = {}) {
+  if (typeof fetchImpl !== 'function') throw Object.assign(new Error('Network requests are unavailable in this build.'), { code: 'DND_AI_NETWORK_UNAVAILABLE' });
+  const requestId = cryptoRandomId();
+  const headers = {
+    accept: 'application/json',
+    'user-agent': 'Khaos-Nexus-Desktop-DnD/1',
+    'x-khaos-request-id': requestId
+  };
+  if (body !== null) headers['content-type'] = 'application/json';
+  if (token) headers.authorization = `Bearer ${token}`;
   let response;
   try {
-    response = await fetchImpl(OPENAI_RESPONSES_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${apiKey}`,
-        'content-type': 'application/json',
-        'user-agent': 'Khaos-Nexus-Co-DM/1'
-      },
-      body: JSON.stringify(request),
+    response = await fetchImpl(serviceUrl(endpoint, pathname), {
+      method,
+      headers,
+      ...(body !== null ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
     });
   } catch (error) {
-    throw sanitizeProviderError(error, apiKey);
+    throw sanitizeServiceError(error, token);
+  }
+  const declaredLength = Number(response.headers?.get?.('content-length') || 0);
+  if (declaredLength > MAX_RESPONSE_CHARACTERS) {
+    throw Object.assign(new Error('Khaos Nexus AI returned an oversized response.'), { code: 'DND_AI_RESPONSE_TOO_LARGE', status: response.status });
   }
   const text = await response.text();
+  if (text.length > MAX_RESPONSE_CHARACTERS) {
+    throw Object.assign(new Error('Khaos Nexus AI returned an oversized response.'), { code: 'DND_AI_RESPONSE_TOO_LARGE', status: response.status });
+  }
   let payload = {};
   try { payload = text ? JSON.parse(text) : {}; }
-  catch { payload = {}; }
-  if (!response.ok) {
-    const error = new Error(payload?.error?.message || `OpenAI returned HTTP ${response.status}.`);
-    error.code = payload?.error?.code || 'DND_CO_DM_PROVIDER_ERROR';
-    error.status = response.status;
-    throw sanitizeProviderError(error, apiKey);
+  catch {
+    throw Object.assign(new Error('Khaos Nexus AI returned invalid JSON.'), { code: 'DND_AI_INVALID_JSON', status: response.status });
   }
-  return payload;
+  if (!response.ok) throw sanitizeServiceError(responseError(payload, response.status), token);
+  return { payload, requestId };
 }
 
-async function generate(input = {}) {
+function cryptoRandomId() {
+  try { return require('node:crypto').randomUUID(); }
+  catch { return `${Date.now()}-${Math.random().toString(16).slice(2)}`; }
+}
+
+async function checkService({ force = false, fetchImpl = global.fetch } = {}) {
+  const settings = refs.configStore.getDndCoDmSettings();
+  if (!force && healthCache?.endpoint === settings.serviceEndpoint) {
+    const age = Date.now() - Date.parse(healthCache.checkedAt || 0);
+    if (age >= 0 && age < HEALTH_CACHE_MS) return clone(healthCache);
+  }
+  try {
+    const { payload } = await callAiService(settings.serviceEndpoint, HEALTH_PATH, {
+      token: refs.configStore.getDndAiServiceToken(),
+      fetchImpl
+    });
+    healthCache = normalizeHealth(payload, settings.serviceEndpoint);
+  } catch (error) {
+    const safe = sanitizeServiceError(error, refs.configStore.getDndAiServiceToken());
+    healthCache = unavailableHealth(settings.serviceEndpoint, safe);
+  }
+  return clone(healthCache);
+}
+
+function findServiceBinding(state, campaignId, endpoint) {
+  return (state.coDmServiceBindings || []).find((item) => item.campaignId === campaignId && item.endpoint === endpoint) || null;
+}
+
+async function ensureLegacyCampaign(state, settings, service, context, token, fetchImpl) {
+  const fingerprint = contextFingerprint(context);
+  const existing = findServiceBinding(state, context.campaignId, settings.serviceEndpoint);
+  if (existing?.serviceCampaignId && existing.contextFingerprint === fingerprint) return existing;
+  const request = buildLegacyCampaignRequest(state, context.campaignId, context);
+  const { payload } = await callAiService(settings.serviceEndpoint, CAMPAIGNS_PATH, {
+    method: 'POST', body: request, token, fetchImpl
+  });
+  const created = parseLegacyCampaignResponse(payload);
+  return refs.configStore.upsertDndCoDmServiceBinding({
+    id: existing?.id,
+    campaignId: context.campaignId,
+    endpoint: settings.serviceEndpoint,
+    serviceCampaignId: created.id,
+    contextFingerprint: fingerprint,
+    serviceVersion: service.version,
+    createdAt: existing?.createdAt,
+    updatedAt: nowIso()
+  });
+}
+
+async function generate(input = {}, fetchImpl = global.fetch) {
   const generation = normalizeGenerationInput(input);
-  const apiKey = refs.configStore.getDndCoDmApiKey();
-  if (!apiKey) throw Object.assign(new Error('Add an OpenAI API key in Co-DM settings before generating a draft.'), { code: 'DND_CO_DM_API_KEY_REQUIRED' });
   const state = refs.configStore.getDndState();
   ensureCoDmState(state);
   const settings = normalizeCoDmSettings(state.coDmSettings);
   const context = buildCampaignContext(state, generation.campaignId, generation.contextOptions, settings);
-  const request = buildOpenAiRequest(settings, generation, context);
-  const payload = await callOpenAi(apiKey, request);
-  const content = parseOpenAiResponse(payload);
+  const service = await checkService({ force: true, fetchImpl });
+  if (!service.reachable) throw Object.assign(new Error(service.error || 'Khaos Nexus AI is unavailable.'), { code: 'DND_AI_SERVICE_UNAVAILABLE', retryable: true });
+  const token = refs.configStore.getDndAiServiceToken();
+  let generated;
+  let mode;
+
+  if (service.dedicatedDrafts) {
+    const request = buildDedicatedDraftRequest(settings, generation, context);
+    const { payload } = await callAiService(settings.serviceEndpoint, DRAFTS_PATH, {
+      method: 'POST', body: request, token, fetchImpl
+    });
+    generated = parseDedicatedDraftResponse(payload);
+    mode = 'dedicated-draft';
+  } else if (service.legacyCampaignTurns) {
+    if (!input.allowLegacyCampaignPersistence) {
+      throw Object.assign(new Error('The current Khaos Nexus AI compatibility mode stores a synchronized campaign copy and turn history. Confirm that behavior before generating.'), { code: 'DND_AI_LEGACY_PERSISTENCE_CONFIRMATION_REQUIRED', field: 'allowLegacyCampaignPersistence' });
+    }
+    const binding = await ensureLegacyCampaign(state, settings, service, context, token, fetchImpl);
+    const request = buildLegacyTurnRequest(CO_DM_WORKFLOWS[generation.workflow], generation);
+    const { payload } = await callAiService(settings.serviceEndpoint, `${CAMPAIGNS_PATH}/${encodeURIComponent(binding.serviceCampaignId)}/turns`, {
+      method: 'POST', body: request, token, fetchImpl
+    });
+    generated = parseLegacyTurnResponse(payload);
+    mode = 'campaign-turn-compatibility';
+  } else {
+    throw Object.assign(new Error('This Khaos Nexus AI service does not expose a supported D&D Co-DM capability.'), { code: 'DND_AI_CAPABILITY_UNAVAILABLE' });
+  }
+
+  const model = generated.model || service.model || settings.model;
+  const provider = generated.provider || service.provider || service.service;
   const draft = refs.configStore.saveDndCoDmDraft({
     campaignId: generation.campaignId,
     workflow: generation.workflow,
     title: `${CO_DM_WORKFLOWS[generation.workflow].label} — ${new Date().toLocaleDateString()}`,
-    content,
-    model: settings.model,
+    content: generated.content,
+    model,
+    provider,
+    serviceVersion: service.version,
     contextSummary: {
       characters: context.characters,
       characterLimit: context.characterLimit,
       sectionCounts: Object.fromEntries(context.sections.map((item) => [item.id, item.count])),
-      options: context.options
+      options: context.options,
+      serviceMode: mode
     }
   });
-  audit('co-dm.generated', draft, { workflow: draft.workflow, model: draft.model, outputCharacters: draft.content.length, contextCharacters: context.characters });
-  return { draft, context: { ...context, text: undefined, preview: context.preview }, state: push(generation.campaignId) };
+  audit('co-dm.generated', draft, {
+    workflow: draft.workflow,
+    serviceMode: mode,
+    provider,
+    model,
+    serviceVersion: service.version,
+    outputCharacters: draft.content.length,
+    contextCharacters: context.characters
+  });
+  return {
+    draft,
+    service,
+    context: { ...context, text: undefined, preview: context.preview },
+    state: push(generation.campaignId)
+  };
 }
 
 function registerHandlers() {
@@ -290,17 +426,28 @@ function registerHandlers() {
   registered = true;
   const ipc = electron.ipcMain;
   ipc.handle('dnd:co-dm-get', (_event, input = {}) => { assertOwner('View the D&D Co-DM workspace'); return publicPayload(input.campaignId); });
-  ipc.handle('dnd:co-dm-set-api-key', (_event, input = {}) => {
-    assertOwner('Change the D&D Co-DM API key');
-    const result = refs.configStore.setDndCoDmApiKey(input.apiKey);
-    audit(input.apiKey ? 'co-dm.api-key-saved' : 'co-dm.api-key-removed', {}, { configured: result.hasApiKey });
+  ipc.handle('dnd:co-dm-service-check', async (_event, input = {}) => {
+    assertOwner('Check the Khaos Nexus AI service');
+    const service = await checkService({ force: true });
+    audit('co-dm.service-checked', { campaignId: input.campaignId }, { reachable: service.reachable, serviceVersion: service.version, capabilities: service.capabilities });
+    return { service, state: push(input.campaignId) };
+  });
+  ipc.handle('dnd:co-dm-set-service-token', (_event, input = {}) => {
+    assertOwner('Change the Khaos Nexus AI service token');
+    const result = refs.configStore.setDndAiServiceToken(input.serviceToken);
+    audit(input.serviceToken ? 'co-dm.service-token-saved' : 'co-dm.service-token-removed', {}, { configured: result.hasServiceToken });
     return { ...result, state: push(input.campaignId) };
   });
   ipc.handle('dnd:co-dm-set-settings', (_event, input = {}) => {
     assertOwner('Change D&D Co-DM settings');
     const settings = refs.configStore.setDndCoDmSettings(input);
-    audit('co-dm.settings-saved', {}, { model: settings.model, maxOutputTokens: settings.maxOutputTokens, contextCharacterLimit: settings.contextCharacterLimit });
-    return { settings: { ...settings, hasApiKey: Boolean(refs.configStore.getDndCoDmApiKey()) }, state: push(input.campaignId) };
+    audit('co-dm.settings-saved', {}, {
+      serviceEndpoint: settings.serviceEndpoint,
+      model: settings.model,
+      maxOutputCharacters: settings.maxOutputCharacters,
+      contextCharacterLimit: settings.contextCharacterLimit
+    });
+    return { settings: { ...settings, hasServiceToken: Boolean(refs.configStore.getDndAiServiceToken()) }, state: push(input.campaignId) };
   });
   ipc.handle('dnd:co-dm-preview-context', (_event, input = {}) => {
     assertOwner('Preview D&D Co-DM context');
@@ -328,7 +475,12 @@ function registerHandlers() {
     const result = refs.configStore.applyDndCoDmDraft(input);
     const state = refs.configStore.getDndState();
     const draft = state.coDmDrafts?.find((item) => item.id === input.draftId);
-    audit('co-dm.draft-applied', { ...draft, draftId: input.draftId }, { destination: result.destination, targetId: result.targetId, mode: input.mode === 'append' ? 'append' : 'replace', characters: result.characters });
+    audit('co-dm.draft-applied', { ...draft, draftId: input.draftId }, {
+      destination: result.destination,
+      targetId: result.targetId,
+      mode: input.mode === 'append' ? 'append' : 'replace',
+      characters: result.characters
+    });
     return { result, state: push(draft?.campaignId || input.campaignId) };
   });
   return true;
@@ -349,7 +501,7 @@ function installRendererAssets() {
         await window.webContents.insertCSS(fs.readFileSync(cssPath, 'utf8'));
         await window.webContents.executeJavaScript(fs.readFileSync(jsPath, 'utf8'), true);
       } catch (error) {
-        refs.logger?.error?.('D&D Co-DM assets failed to load.', { message: sanitizeProviderError(error).message });
+        refs.logger?.error?.('D&D Co-DM assets failed to load.', { message: sanitizeServiceError(error).message });
       }
     });
   });
@@ -360,8 +512,8 @@ function promoteCatalog() {
     const { MODULE_CATALOG } = require('../shared/module-catalog.cjs');
     const module = MODULE_CATALOG.find((item) => item.id === 'dnd-workspace');
     if (module) {
-      module.description = 'Complete private campaign operations with characters, content, maps, NPCs, encounters, Discord workflows, readiness checks, and explicit AI Co-DM drafting.';
-      module.features = [...new Set([...(module.features || []), 'Private AI Co-DM drafts', 'Campaign readiness and context preview'])];
+      module.description = 'Complete private campaign operations with characters, content, maps, NPCs, encounters, Discord workflows, readiness checks, and Khaos Nexus AI Co-DM drafting.';
+      module.features = [...new Set([...(module.features || []), 'Khaos Nexus AI Co-DM drafts', 'Campaign readiness and context preview'])];
     }
   } catch {}
 }
@@ -381,10 +533,10 @@ function install() {
 
 module.exports = {
   install,
-  OPENAI_RESPONSES_ENDPOINT,
   REQUEST_TIMEOUT_MS,
-  callOpenAi,
+  HEALTH_CACHE_MS,
+  callAiService,
+  checkService,
   publicPayload,
-  generate,
-  providerSettings
+  generate
 };
