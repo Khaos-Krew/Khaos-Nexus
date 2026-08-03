@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   AI_MAP_PATH,
+  STANDARD_SVG_NAMESPACE,
   normalizeMapRequest,
   previewMapRequest,
   normalizeMapResult,
@@ -71,7 +72,7 @@ function result(overrides = {}) {
 }
 
 function serviceSvg() {
-  return '<svg xmlns="http://www.w3.org/2000/svg" width="720" height="560" viewBox="0 0 720 560" data-seed="emberforge-map-001" data-map-type="dungeon"><style>.zone{fill:#29262b;stroke:#b9a8c7}</style><rect class="zone" x="20" y="20" width="200" height="120"/></svg>';
+  return '<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="map-title map-description" viewBox="0 0 720 560" width="720" height="560"><title id="map-title">The Emberforged Vault</title><desc id="map-description">An original forge dungeon.</desc><rect width="720" height="560" fill="#111"/><line x1="20" y1="20" x2="300" y2="240" stroke="#888" stroke-width="3" stroke-dasharray="8 6" opacity="0.8"/><text x="30" y="45" fill="#fff" font-family="sans-serif" font-size="12" font-weight="700">Cooling Hall</text><circle cx="120" cy="140" r="6" fill="#d2a84a" stroke="#fff" stroke-width="2"/></svg>';
 }
 
 function response(overrides = {}) {
@@ -85,6 +86,7 @@ function response(overrides = {}) {
 
 test('map endpoint and normalized request match the validated AI service contract', () => {
   assert.equal(AI_MAP_PATH, '/api/v1/maps/generations');
+  assert.equal(STANDARD_SVG_NAMESPACE, 'http://www.w3.org/2000/svg');
   const normalized = normalizeMapRequest(request());
   assert.equal(normalized.campaignId, 'campaign-1');
   assert.deepEqual(normalized.request, {
@@ -130,16 +132,18 @@ test('structured map validation rejects duplicate IDs, out-of-bounds zones, and 
   })), /unknown zone/i);
 });
 
-test('service SVG inspection accepts the deterministic preview and rejects active content', () => {
+test('service SVG inspection accepts the pinned inert output and rejects active or external content', () => {
   const safe = validateServiceSvg(serviceSvg());
   assert.equal(safe.bytes > 0, true);
   assert.match(safe.sha256, /^[a-f0-9]{64}$/);
   for (const svg of [
+    '<svg xmlns="https://example.com/not-svg"><rect width="1" height="1"/></svg>',
     '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
     '<svg xmlns="http://www.w3.org/2000/svg"><image href="https://example.com/map.png"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg"><rect style="fill:url(https://example.com/fill.svg)"/></svg>',
     '<svg xmlns="http://www.w3.org/2000/svg"><rect onload="alert(1)"/></svg>',
     '<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><div>unsafe</div></foreignObject></svg>'
-  ]) assert.throws(() => validateServiceSvg(svg), /unsafe|not permitted/i);
+  ]) assert.throws(() => validateServiceSvg(svg), /namespace|unsafe|not permitted/i);
 });
 
 test('desktop renders deterministic player and GM SVG from structured data', () => {
