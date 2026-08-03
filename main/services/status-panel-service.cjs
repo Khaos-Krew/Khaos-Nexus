@@ -5,20 +5,34 @@ const { isPalworldRest, isRustWebRcon, isSatisfactoryApi } = require('../../bot/
 const { createCurrentServerAdapter } = require('../../bot/game-adapters/current-server-adapter.cjs');
 const { executeAdapterOperation } = require('../../shared/game-adapter-sdk.cjs');
 const { moduleForServer, connectionLabel: policyConnectionLabel } = require('../../shared/game-module-policy.cjs');
+const { discordValidationDetail } = require('../../shared/discord-message-payload.cjs');
 const {
   normalizeStatusPanel,
   normalizeStatusSnapshot,
+  validateStatusPanelPayload,
   renderStatusPanel,
   safePlayerNames
 } = require('../../shared/status-panels.cjs');
 
 function discordError(error) {
+  if (error?.code === 'STATUS_PANEL_PAYLOAD_INVALID') return error;
   const code = Number(error?.code);
   const status = Number(error?.status);
   if (code === 50013 || status === 403) return new Error('The Discord bot is missing View Channel, Send Messages, Embed Links, Read Message History, or Use External Emojis permission for that channel.');
   if (code === 50001) return new Error('The Discord bot cannot access the selected server or channel.');
   if ([10003, 10004, 10008].includes(code) || status === 404) return new Error('The selected Discord server, channel, or status message no longer exists.');
   if (status === 401) return new Error('Discord rejected the stored bot token. Update it in Discord Setup.');
+  if (code === 50035 || status === 400) {
+    const detail = discordValidationDetail(error);
+    const mapped = new Error(detail
+      ? `Discord rejected the status panel payload at ${detail.path}: ${detail.message}`
+      : 'Discord rejected the status panel payload. Review the panel content and button configuration.');
+    mapped.code = 'STATUS_PANEL_PAYLOAD_REJECTED';
+    mapped.discordCode = code || undefined;
+    mapped.status = status || undefined;
+    if (detail) mapped.field = detail.path;
+    return mapped;
+  }
   return error instanceof Error ? error : new Error(String(error || 'Discord request failed.'));
 }
 
@@ -141,7 +155,6 @@ class StatusPanelService {
     const adapter = this.adapterFactory(server);
     const context = { role: 'viewer', explicitSecrets: [server.password] };
 
-    // QueryServerState already contains Satisfactory player counts. Avoid a redundant second API call.
     if (isSatisfactoryApi(server)) return this.snapshotSatisfactory(server, adapter, context);
 
     let statusResult = null;
@@ -222,13 +235,17 @@ class StatusPanelService {
   }
 
   async sendMessage(channelId, payload) {
-    try { return await this.rest().post(Routes.channelMessages(channelId), { body: payload }); }
-    catch (error) { throw discordError(error); }
+    try {
+      const validated = validateStatusPanelPayload(payload);
+      return await this.rest().post(Routes.channelMessages(channelId), { body: validated });
+    } catch (error) { throw discordError(error); }
   }
 
   async editMessage(channelId, messageId, payload) {
-    try { return await this.rest().patch(Routes.channelMessage(channelId, messageId), { body: payload }); }
-    catch (error) { throw discordError(error); }
+    try {
+      const validated = validateStatusPanelPayload(payload);
+      return await this.rest().patch(Routes.channelMessage(channelId, messageId), { body: validated });
+    } catch (error) { throw discordError(error); }
   }
 
   async deleteMessage(channelId, messageId) {
