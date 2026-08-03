@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 require('../shared/dnd-ai-context-privacy.cjs').install();
+require('../shared/dnd-ai-homebrew-input-boundary.cjs').install();
 const {
   ensureCoDmState,
   buildCampaignContext,
@@ -126,7 +127,7 @@ async function verifyHomebrewGeneration() {
     system: 'D&D 5e-compatible',
     titleHint: 'Emberforged Savant',
     concept: 'Create an original artificer specialist focused on heat-driven defensive inventions, ally protection, and escalating risk.',
-    targetTier: 'tier-2',
+    targetTier: 'mid',
     powerLevel: 'standard',
     constraints: 'Keep action economy simple and avoid unlimited defensive stacking.',
     inspirations: [{
@@ -137,6 +138,8 @@ async function verifyHomebrewGeneration() {
       designSignals: ['glowing dragonborn', 'protective inventor', 'heat risk']
     }]
   });
+  assert.equal(normalized.request.targetTier, 'mid');
+  assert.equal(normalized.request.inspirations[0].confirmedRightToUse, true);
   const payload = await jsonRequest(AI_HOMEBREW_PATH, { method: 'POST', body: normalized.request });
   const generated = parseHomebrewResponse(payload);
   const proposal = proposalFromGeneration({ campaignId: normalized.campaignId, request: normalized.request, response: generated });
