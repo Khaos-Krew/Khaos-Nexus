@@ -7,7 +7,8 @@ const path = require('node:path');
 const {
   isMutationChannel,
   isEditableControl,
-  shouldBlockWorkspaceRender
+  shouldBlockWorkspaceRender,
+  subscribeToInvokeSuccess
 } = require('../renderer/dnd-refresh-guard.js');
 
 const root = path.join(__dirname, '..');
@@ -60,6 +61,43 @@ test('dirty forms block changed background renders but not equivalent HTML', () 
   assert.equal(shouldBlockWorkspaceRender({ ...state, allowRender: true }, '<div>new</div>'), false);
 });
 
+test('frozen preload bridge is observed without replacing invoke', () => {
+  let listener = null;
+  let cleared = 0;
+  let unsubscribed = false;
+  const invoke = async () => ({ ok: true });
+  const bridge = Object.freeze({
+    invoke,
+    onInvokeSuccess(callback) {
+      listener = callback;
+      return () => {
+        unsubscribed = true;
+        listener = null;
+      };
+    }
+  });
+
+  const unsubscribe = subscribeToInvokeSuccess({ khaos: bridge }, () => { cleared += 1; });
+  assert.equal(Object.isFrozen(bridge), true);
+  assert.equal(bridge.invoke, invoke);
+  assert.equal(typeof listener, 'function');
+
+  listener({ channel: 'dnd:get' });
+  assert.equal(cleared, 0);
+  listener({ channel: 'dnd:campaign-save' });
+  assert.equal(cleared, 1);
+
+  unsubscribe();
+  assert.equal(unsubscribed, true);
+  assert.equal(listener, null);
+  assert.equal(bridge.invoke, invoke);
+});
+
+test('missing invoke-success subscription degrades safely', () => {
+  assert.doesNotThrow(() => subscribeToInvokeSuccess({ khaos: Object.freeze({ invoke: async () => {} }) }, () => {})());
+  assert.doesNotThrow(() => subscribeToInvokeSuccess(null, () => {})());
+});
+
 test('guard is loaded through the existing usability loader after stability', () => {
   const loader = fs.readFileSync(path.join(root, 'main', 'dnd-usability-repair-extension.cjs'), 'utf8');
   const stabilityIndex = loader.indexOf('executeJavaScript(stability');
@@ -69,11 +107,24 @@ test('guard is loaded through the existing usability loader after stability', ()
   assert.ok(guardIndex > stabilityIndex);
 });
 
-test('guard adds no MutationObserver or main entry startup hook', () => {
+test('preload owns invoke reporting and exposes a channel-only success subscription', () => {
+  const preload = fs.readFileSync(path.join(root, 'main', 'preload.cjs'), 'utf8');
+  assert.match(preload, /const invokeSuccessListeners = new Set\(\)/);
+  assert.match(preload, /notifyInvokeSuccess\(channel\)/);
+  assert.match(preload, /onInvokeSuccess: \(callback\) => subscribeInvokeSuccess\(callback\)/);
+  assert.match(preload, /reportRendererActionError\(\{ source: 'ipc', channel, error/);
+  assert.doesNotMatch(preload, /notifyInvokeSuccess\([^)]*payload/);
+  assert.doesNotMatch(preload, /notifyInvokeSuccess\([^)]*result/);
+});
+
+test('guard adds no MutationObserver, preload mutation, or main entry startup hook', () => {
   const guard = fs.readFileSync(path.join(root, 'renderer', 'dnd-refresh-guard.js'), 'utf8');
   const entry = fs.readFileSync(path.join(root, 'main', 'entry.cjs'), 'utf8');
   assert.doesNotMatch(guard, /MutationObserver/);
+  assert.doesNotMatch(guard, /(?:win|window)\.khaos\.invoke\s*=/);
+  assert.doesNotMatch(guard, /originalInvoke/);
   assert.doesNotMatch(entry, /dnd-refresh-guard/);
+  assert.match(guard, /onInvokeSuccess/);
   assert.match(guard, /clearAfterSuccessfulMutation/);
   assert.match(guard, /stopImmediatePropagation/);
   assert.match(guard, /pendingHtml/);
