@@ -9,12 +9,22 @@ const {
   ensureCoDmState,
   buildCampaignContext,
   buildReadiness,
-  buildOpenAiRequest,
-  parseOpenAiResponse,
-  sanitizeProviderError,
   normalizeDraft
 } = require('../shared/dnd-co-dm.cjs');
-const { callOpenAi, OPENAI_RESPONSES_ENDPOINT } = require('../main/dnd-co-dm-extension.cjs');
+const {
+  DEFAULT_AI_SERVICE_ENDPOINT,
+  normalizeEndpoint,
+  normalizeHealth,
+  contextFingerprint,
+  buildDedicatedDraftRequest,
+  buildLegacyCampaignRequest,
+  buildLegacyTurnRequest,
+  parseDedicatedDraftResponse,
+  parseLegacyCampaignResponse,
+  parseLegacyTurnResponse,
+  sanitizeServiceError
+} = require('../shared/dnd-ai-service.cjs');
+const { callAiService } = require('../main/dnd-co-dm-extension.cjs');
 
 function campaignState() {
   return ensureCoDmState({
@@ -71,56 +81,133 @@ test('GM notes and approved homebrew require explicit inclusion', () => {
   assert.match(context.text, /local approved infusion rule/);
 });
 
-test('Co-DM request disables provider storage and has no tools or autonomous action claim', () => {
+test('AI service endpoints allow loopback HTTP and require HTTPS remotely', () => {
+  assert.equal(normalizeEndpoint('http://127.0.0.1:8787/'), DEFAULT_AI_SERVICE_ENDPOINT);
+  assert.equal(normalizeEndpoint('https://ai.khaos.example/api/'), 'https://ai.khaos.example/api');
+  assert.throws(() => normalizeEndpoint('http://ai.khaos.example'), /must use HTTPS/i);
+  assert.throws(() => normalizeEndpoint('https://user:pass@ai.khaos.example'), /cannot contain credentials/i);
+});
+
+test('current Khaos Nexus AI health contract is recognized as campaign-turn compatibility', () => {
+  const value = normalizeHealth({ status: 'ok', service: 'khaos-nexus-ai', provider: 'mock', model: 'deterministic-mock' }, DEFAULT_AI_SERVICE_ENDPOINT);
+  assert.equal(value.reachable, true);
+  assert.equal(value.legacyCampaignTurns, true);
+  assert.equal(value.dedicatedDrafts, false);
+  assert.ok(value.capabilities.includes('dnd.campaign.turn'));
+});
+
+test('dedicated Co-DM request contains bounded context and prohibits autonomous behavior', () => {
   const state = campaignState();
   const context = buildCampaignContext(state, 'c1');
-  const request = buildOpenAiRequest(state.coDmSettings, { campaignId: 'c1', workflow: 'session_prep', prompt: 'Prepare the next session.' }, context);
-  assert.equal(request.store, false);
-  assert.equal(request.model, 'gpt-5-mini');
-  assert.equal('tools' in request, false);
-  assert.match(request.instructions, /not an autonomous action/i);
-  assert.match(request.instructions, /untrusted reference data/i);
-  assert.match(request.input[0].content[0].text, /Prepare the next session/);
+  const request = buildDedicatedDraftRequest(state.coDmSettings, { campaignId: 'c1', workflow: 'session_prep', prompt: 'Prepare the next session.' }, context);
+  assert.equal(request.apiVersion, '1');
+  assert.equal(request.workflow, 'session_prep');
+  assert.equal(request.policy.explicitUserAction, true);
+  assert.equal(request.policy.autonomousActionsAllowed, false);
+  assert.equal(request.policy.providerStorageAllowed, false);
+  assert.equal(request.policy.toolsAllowed, false);
+  assert.match(request.context.text, /Vorkesh/);
+  assert.doesNotMatch(JSON.stringify(request), /private-guild|COPYRIGHTED FULL BOOK TEXT/);
 });
 
-test('OpenAI response parsing supports output_text and nested output content', () => {
-  assert.equal(parseOpenAiResponse({ output_text: 'Draft one' }), 'Draft one');
-  assert.equal(parseOpenAiResponse({ output: [{ content: [{ type: 'output_text', text: 'Draft two' }] }] }), 'Draft two');
-  assert.throws(() => parseOpenAiResponse({ output: [] }), /no draft text/i);
+test('legacy AI campaign adapter matches the current service MVP without provider credentials', () => {
+  const state = campaignState();
+  const context = buildCampaignContext(state, 'c1');
+  const request = buildLegacyCampaignRequest(state, 'c1', context);
+  assert.equal(request.mode, 'co-dm');
+  assert.equal(request.name, 'Emberfall — Khaos Nexus Desktop');
+  assert.equal(request.playerCharacters[0].name, 'Vorkesh');
+  assert.ok(request.lore.length > 0);
+  assert.doesNotMatch(JSON.stringify(request), /private-guild|private-channel|COPYRIGHTED FULL BOOK TEXT/);
+  assert.equal('apiKey' in request, false);
+  assert.equal('provider' in request, false);
 });
 
-test('provider errors redact protected API keys', () => {
-  const key = 'sk-project-super-secret-key-value';
-  const error = sanitizeProviderError(new Error(`Authorization: Bearer ${key}`), key);
-  assert.doesNotMatch(error.message, /super-secret-key-value/);
+test('legacy turn adapter and structured result formatter create a reviewable local draft', () => {
+  const turn = buildLegacyTurnRequest(CO_DM_WORKFLOWS.session_prep, { prompt: 'Prepare the next session.' });
+  assert.equal(turn.actor, 'Khaos Nexus Owner');
+  assert.match(turn.dmGuidance, /reviewable material only/i);
+  const parsed = parseLegacyTurnResponse({
+    result: {
+      narration: 'The party arrives at the Ash Market.',
+      spokenDialogue: [{ speaker: 'Mara', text: 'The forge is not what it seems.' }],
+      suggestedChecks: [{ character: 'Vorkesh', ability: 'Intelligence', skill: 'Arcana', dc: 15, reason: 'Read the runes.' }],
+      choices: ['Inspect the forge', 'Question Mara'],
+      stateUpdates: { currentScene: 'Ash Market', addWorldFacts: ['The runes are draconic.'], addOpenThreads: [], resolveOpenThreads: [], addNotes: [] },
+      safety: { status: 'ok', reason: '' }
+    },
+    meta: { provider: 'mock', model: 'deterministic-mock' }
+  });
+  assert.match(parsed.content, /Ash Market/);
+  assert.match(parsed.content, /## Dialogue/);
+  assert.match(parsed.content, /## Suggested Checks/);
+  assert.match(parsed.content, /## Suggested Campaign Updates/);
+  assert.equal(parsed.provider, 'mock');
+});
+
+test('dedicated and legacy service responses require valid draft and campaign IDs', () => {
+  assert.equal(parseDedicatedDraftResponse({ draft: { content: 'Draft one', model: 'service/model' } }).content, 'Draft one');
+  assert.throws(() => parseDedicatedDraftResponse({ draft: {} }), /no Co-DM draft/i);
+  assert.equal(parseLegacyCampaignResponse({ campaign: { id: '11111111-1111-1111-1111-111111111111' } }).id, '11111111-1111-1111-1111-111111111111');
+  assert.throws(() => parseLegacyCampaignResponse({ campaign: {} }), /campaign ID/i);
+});
+
+test('service errors redact protected service tokens', () => {
+  const token = 'desktop-service-token-value';
+  const error = sanitizeServiceError(new Error(`Authorization: Bearer ${token}`), token);
+  assert.doesNotMatch(error.message, /desktop-service-token-value/);
   assert.match(error.message, /REDACTED/);
 });
 
-test('provider call uses fixed Responses endpoint, store false body, and returns parsed JSON', async () => {
+test('service client uses configured Khaos Nexus AI endpoint and optional service token', async () => {
   let request = null;
-  const payload = await callOpenAi('sk-project-example-key-value', { model: 'gpt-5-mini', store: false, input: 'Hello' }, async (url, options) => {
-    request = { url, options };
-    return { ok: true, status: 200, text: async () => JSON.stringify({ output_text: 'Ready' }) };
+  const result = await callAiService('http://127.0.0.1:8787', '/health', {
+    token: 'local-service-token',
+    fetchImpl: async (url, options) => {
+      request = { url, options };
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        text: async () => JSON.stringify({ status: 'ok', service: 'khaos-nexus-ai', provider: 'mock' })
+      };
+    }
   });
-  assert.equal(request.url, OPENAI_RESPONSES_ENDPOINT);
-  assert.equal(request.options.method, 'POST');
-  assert.match(request.options.headers.authorization, /^Bearer sk-/);
-  assert.equal(JSON.parse(request.options.body).store, false);
-  assert.equal(payload.output_text, 'Ready');
+  assert.equal(request.url, 'http://127.0.0.1:8787/health');
+  assert.equal(request.options.method, 'GET');
+  assert.equal(request.options.headers.authorization, 'Bearer local-service-token');
+  assert.equal(result.payload.service, 'khaos-nexus-ai');
 });
 
-test('readiness reports provider, campaign data, Discord binding, panel, and session state', () => {
-  const value = buildReadiness(campaignState(), 'c1', { provider: 'OpenAI', model: 'gpt-5-mini', hasApiKey: true });
-  assert.equal(value.totalCount, 10);
+test('context fingerprints are stable and change with selected context', () => {
+  const base = buildCampaignContext(campaignState(), 'c1', { includeGmNotes: false });
+  const same = buildCampaignContext(campaignState(), 'c1', { includeGmNotes: false });
+  const changed = buildCampaignContext(campaignState(), 'c1', { includeGmNotes: true });
+  assert.equal(contextFingerprint(base), contextFingerprint(same));
+  assert.notEqual(contextFingerprint(base), contextFingerprint(changed));
+});
+
+test('readiness reports AI service, campaign data, Discord binding, panel, and session state', () => {
+  const value = buildReadiness(campaignState(), 'c1', {
+    reachable: true,
+    endpoint: DEFAULT_AI_SERVICE_ENDPOINT,
+    service: 'khaos-nexus-ai',
+    provider: 'mock',
+    model: 'deterministic-mock',
+    dedicatedDrafts: true,
+    legacyCampaignTurns: true
+  });
+  assert.equal(value.totalCount, 11);
   assert.equal(value.ready, true);
   assert.ok(value.checks.every((item) => typeof item.ready === 'boolean'));
 });
 
 test('drafts are bounded local records and workflows are complete', () => {
   assert.deepEqual(Object.keys(CO_DM_WORKFLOWS).sort(), ['encounter_review', 'npc_dialogue', 'rules_research', 'session_prep', 'session_recap', 'world_hooks']);
-  const draft = normalizeDraft({ campaignId: 'c1', workflow: 'npc_dialogue', content: 'Roleplay notes', title: 'Mara' });
+  const draft = normalizeDraft({ campaignId: 'c1', workflow: 'npc_dialogue', content: 'Roleplay notes', title: 'Mara', provider: 'mock', model: 'deterministic-mock' });
   assert.equal(draft.campaignId, 'c1');
   assert.equal(draft.content, 'Roleplay notes');
+  assert.equal(draft.provider, 'mock');
   assert.match(draft.id, /^codm_draft_/);
 });
 
@@ -139,26 +226,27 @@ test('entry loads Co-DM persistence and stability after context providers', () =
   assert.ok(stabilityIndex > persistenceIndex);
 });
 
-test('renderer remains explicit-action only and has no Discord publication channel', () => {
+test('desktop Co-DM contains no direct OpenAI provider path or Discord publication channel', () => {
   const root = path.join(__dirname, '..');
   const renderer = fs.readFileSync(path.join(root, 'renderer', 'dnd-co-dm.js'), 'utf8');
+  const extension = fs.readFileSync(path.join(root, 'main', 'dnd-co-dm-extension.cjs'), 'utf8');
+  const service = fs.readFileSync(path.join(root, 'shared', 'dnd-ai-service.cjs'), 'utf8');
+  const combined = `${renderer}\n${extension}\n${service}`;
   assert.doesNotMatch(renderer, /setInterval/);
   assert.doesNotMatch(renderer, /status-panels:publish|discord-studio:publish-panel|dnd:panel-refresh/i);
-  assert.match(renderer, /Generate Draft/);
-  assert.match(renderer, /win\.confirm/);
-
-  const extension = fs.readFileSync(path.join(root, 'main', 'dnd-co-dm-extension.cjs'), 'utf8');
-  assert.match(extension, /OPENAI_RESPONSES_ENDPOINT/);
-  assert.match(extension, /getDndCoDmApiKey/);
-  assert.match(extension, /storeProviderResponses: false/);
-  assert.doesNotMatch(extension, /web_search|computer_use|function_call/);
+  assert.match(renderer, /Khaos Nexus AI/);
+  assert.match(renderer, /compatibility mode stores a synchronized campaign copy/i);
+  assert.doesNotMatch(combined, /api\.openai\.com|OPENAI_API_KEY|getDndCoDmApiKey|OpenAiProvider/);
+  assert.match(extension, /DRAFTS_PATH/);
+  assert.match(extension, /allowLegacyCampaignPersistence/);
 });
 
-test('persistence guard preserves campaign notes and excludes the Co-DM key from backups', () => {
+test('persistence guard preserves notes and excludes AI service secrets from backups', () => {
   const root = path.join(__dirname, '..');
   const source = fs.readFileSync(path.join(root, 'main', 'dnd-co-dm-persistence-extension.cjs'), 'utf8');
   assert.match(source, /upsertDndCampaign\(input/);
   assert.match(source, /campaign\.coDmNotes/);
+  assert.match(source, /delete sanitized\.dndAiServiceToken/);
   assert.match(source, /delete sanitized\.dndCoDmOpenAiKey/);
-  assert.match(source, /intentionally excluded from backups/);
+  assert.match(source, /AI service token is intentionally excluded from backups/);
 });
