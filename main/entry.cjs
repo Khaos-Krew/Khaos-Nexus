@@ -55,6 +55,7 @@ if (diagnosticsMode) {
     require('./dnd-npc-tool-extension.cjs').install();
     require('./dnd-encounter-panels-extension.cjs').install();
     require('./dnd-co-dm-extension.cjs').install();
+    require('./dnd-co-dm-persistence-extension.cjs').install();
     require('./dnd-co-dm-stability-extension.cjs').install();
     require('./dnd-access-policy-extension.cjs').install();
     require('./dnd-authorization-summary-extension.cjs').install();
