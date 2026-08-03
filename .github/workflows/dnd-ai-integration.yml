@@ -1,0 +1,89 @@
+name: D&D AI Integration
+
+on:
+  pull_request:
+    paths:
+      - 'main/dnd-co-dm-*.cjs'
+      - 'renderer/dnd-co-dm.*'
+      - 'shared/dnd-co-dm.cjs'
+      - 'shared/dnd-ai-service.cjs'
+      - 'scripts/verify-dnd-ai-integration.cjs'
+      - '.github/workflows/dnd-ai-integration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      KHAOS_AI_ENDPOINT: http://127.0.0.1:8787
+    steps:
+      - name: Check out Khaos Nexus desktop
+        uses: actions/checkout@v4
+
+      - name: Check out Khaos Nexus AI MVP
+        uses: actions/checkout@v4
+        with:
+          repository: Khaos-Krew/Khaos-Nexus-AI
+          ref: agent/issue-1-dnd-ai-mvp
+          path: ai-service
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ai-service/package-lock.json
+
+      - name: Install AI service
+        working-directory: ai-service
+        run: npm ci
+
+      - name: Start deterministic AI service
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/khaos-ai-data"
+          (
+            cd ai-service
+            AI_PROVIDER=mock \
+            PORT=8787 \
+            DATA_DIR="$RUNNER_TEMP/khaos-ai-data" \
+            CORS_ORIGIN=http://localhost \
+            npm start >"$RUNNER_TEMP/khaos-ai.log" 2>&1
+          ) &
+          echo $! >"$RUNNER_TEMP/khaos-ai.pid"
+
+      - name: Wait for AI service health
+        shell: bash
+        run: |
+          for attempt in {1..30}; do
+            if curl --fail --silent "$KHAOS_AI_ENDPOINT/health" >"$RUNNER_TEMP/khaos-ai-health.json"; then
+              cat "$RUNNER_TEMP/khaos-ai-health.json"
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/khaos-ai.log" || true
+          exit 1
+
+      - name: Verify desktop-to-AI contract
+        run: node scripts/verify-dnd-ai-integration.cjs
+
+      - name: Upload AI service log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dnd-ai-integration-log
+          path: ${{ runner.temp }}/khaos-ai.log
+          if-no-files-found: ignore
+
+      - name: Stop AI service
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/khaos-ai.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/khaos-ai.pid")" 2>/dev/null || true
+          fi
