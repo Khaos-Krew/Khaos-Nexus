@@ -34,6 +34,10 @@ async function jsonRequest(pathname, body) {
   return payload;
 }
 
+function escapedPattern(value) {
+  return new RegExp(String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+}
+
 async function main() {
   const normalized = normalizeMapRequest({
     campaignId: 'integration-campaign',
@@ -66,14 +70,16 @@ async function main() {
   assert.equal(first.result.grid.scale, normalized.request.scale);
   assert.ok(first.result.zones.length > 0);
 
+  const visibleNames = new Set(first.result.pointsOfInterest.filter((item) => !item.secret).map((item) => String(item.name || '').toLowerCase()).filter(Boolean));
   const secretNames = first.result.pointsOfInterest.filter((item) => item.secret).map((item) => item.name).filter(Boolean);
-  for (const name of secretNames) assert.doesNotMatch(first.playerSvg, new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+  const secretOnlyNames = secretNames.filter((name) => !visibleNames.has(String(name).toLowerCase()));
+  for (const name of secretOnlyNames) assert.doesNotMatch(first.playerSvg, escapedPattern(name));
   for (const note of first.result.gmNotes) {
-    const pattern = new RegExp(note.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    const pattern = escapedPattern(note);
     assert.doesNotMatch(first.playerSvg, pattern);
     assert.doesNotMatch(first.gmSvg, pattern);
   }
-  if (secretNames.length) assert.ok(secretNames.some((name) => first.gmSvg.includes(name)));
+  if (secretOnlyNames.length) assert.ok(secretOnlyNames.some((name) => first.gmSvg.includes(name)));
   assert.doesNotMatch(first.playerSvg, /<script|foreignObject|onload=|href=/i);
   assert.doesNotMatch(first.gmSvg, /<script|foreignObject|onload=|href=/i);
 
@@ -90,7 +96,7 @@ async function main() {
   assert.equal(imported.mapInput.metadata.aiGenerated, true);
   assert.equal(imported.mapInput.metadata.playerSafePreview, true);
   assert.deepEqual(imported.mapInput.metadata.structuredMap, first.result);
-  for (const name of secretNames) assert.doesNotMatch(imported.svg, new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+  for (const name of secretOnlyNames) assert.doesNotMatch(imported.svg, escapedPattern(name));
 
   console.log(JSON.stringify({
     ok: true,
@@ -103,6 +109,7 @@ async function main() {
     zones: first.result.zones.length,
     publicPoints: first.result.pointsOfInterest.filter((item) => !item.secret).length,
     secretPoints: secretNames.length,
+    secretOnlyLabels: secretOnlyNames.length,
     deterministicStructuredResult: true,
     deterministicServiceSvg: true,
     playerSafePreview: true,
