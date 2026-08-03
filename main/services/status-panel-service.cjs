@@ -155,6 +155,7 @@ class StatusPanelService {
     const adapter = this.adapterFactory(server);
     const context = { role: 'viewer', explicitSecrets: [server.password] };
 
+    // QueryServerState already contains Satisfactory player counts. Avoid a redundant second API call.
     if (isSatisfactoryApi(server)) return this.snapshotSatisfactory(server, adapter, context);
 
     let statusResult = null;
