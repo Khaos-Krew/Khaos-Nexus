@@ -58,6 +58,7 @@ if (diagnosticsMode) {
     require('./dnd-co-dm-extension.cjs').install();
     require('./dnd-co-dm-persistence-extension.cjs').install();
     require('./dnd-ai-secret-migration-extension.cjs').install();
+    require('../shared/dnd-ai-homebrew-input-boundary.cjs').install();
     require('./dnd-ai-homebrew-extension.cjs').install();
     require('./dnd-co-dm-stability-extension.cjs').install();
     require('./dnd-access-policy-extension.cjs').install();
