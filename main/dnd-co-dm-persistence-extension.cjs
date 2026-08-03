@@ -35,6 +35,19 @@ function restoreCustomState(state, custom) {
   return state;
 }
 
+function sanitizeCoDmForExternal(state) {
+  if (!state || typeof state !== 'object') return state;
+  const safe = clone(state);
+  delete safe.coDmSettings;
+  delete safe.coDmDrafts;
+  safe.campaigns = (safe.campaigns || []).map((campaign) => {
+    const value = { ...campaign };
+    delete value.coDmNotes;
+    return value;
+  });
+  return safe;
+}
+
 function install() {
   if (installed) return;
   installed = true;
@@ -84,6 +97,30 @@ function install() {
       });
     }
 
+    getPublicConfig() {
+      const config = super.getPublicConfig();
+      if (config.dnd) config.dnd = sanitizeCoDmForExternal(config.dnd);
+      return config;
+    }
+
+    exportSafeConfig() {
+      return this.getPublicConfig();
+    }
+
+    getRuntimeBootstrap() {
+      const bootstrap = super.getRuntimeBootstrap();
+      if (bootstrap?.config?.dnd) bootstrap.config.dnd = sanitizeCoDmForExternal(bootstrap.config.dnd);
+      return bootstrap;
+    }
+
+    getRegisteredBotBootstraps() {
+      return super.getRegisteredBotBootstraps().map((bootstrap) => {
+        const value = clone(bootstrap);
+        if (value?.config?.dnd) value.config.dnd = sanitizeCoDmForExternal(value.config.dnd);
+        return value;
+      });
+    }
+
     createBackupPayload(appVersion) {
       const payload = super.createBackupPayload(appVersion);
       if (!this.secrets?.dndCoDmOpenAiKey) return payload;
@@ -107,5 +144,6 @@ function install() {
 module.exports = {
   install,
   captureCustomState,
-  restoreCustomState
+  restoreCustomState,
+  sanitizeCoDmForExternal
 };
