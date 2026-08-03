@@ -88,8 +88,9 @@ async function main() {
     request: normalized.request,
     response: first
   });
-  const serializedProposal = JSON.stringify(proposal);
-  assert.doesNotMatch(serializedProposal, /branching route, defensive machinery/i);
+  assert.equal(Object.prototype.hasOwnProperty.call(proposal, 'prompt'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(proposal.requestSummary, 'prompt'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(proposal.requestSummary, 'rawRequest'), false);
   const imported = proposalToMapImport(proposal, { acknowledgedOriginality: true });
   assert.equal(imported.mapInput.active, false);
   assert.equal(imported.mapInput.revealed, false);
@@ -112,6 +113,7 @@ async function main() {
     secretOnlyLabels: secretOnlyNames.length,
     deterministicStructuredResult: true,
     deterministicServiceSvg: true,
+    promptMetadataStored: false,
     playerSafePreview: true,
     importedActive: imported.mapInput.active,
     importedRevealed: imported.mapInput.revealed
