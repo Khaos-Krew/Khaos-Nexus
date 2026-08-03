@@ -40,6 +40,7 @@ try {
     'startup-health:get',
     'startup-health:renderer-ready'
   ]);
+  const invokeSuccessListeners = new Set();
   let lastInteraction = null;
   let rendererReadyReported = false;
 
@@ -101,9 +102,27 @@ try {
     return { reported: true };
   }
 
+  function subscribeInvokeSuccess(callback) {
+    if (typeof callback !== 'function') return () => {};
+    invokeSuccessListeners.add(callback);
+    return () => invokeSuccessListeners.delete(callback);
+  }
+
+  function notifyInvokeSuccess(channel) {
+    const event = Object.freeze({
+      channel: cleanText(channel, 140),
+      time: new Date().toISOString()
+    });
+    for (const listener of [...invokeSuccessListeners]) {
+      try { listener(event); } catch {}
+    }
+  }
+
   async function invoke(channel, payload) {
     try {
-      return await ipcRenderer.invoke(channel, payload);
+      const result = await ipcRenderer.invoke(channel, payload);
+      notifyInvokeSuccess(channel);
+      return result;
     } catch (error) {
       if (!REPORT_EXCLUDED_CHANNELS.has(channel) && !isExpectedAccessDenial(error)) {
         reportRendererActionError({ source: 'ipc', channel, error, interaction: lastInteraction });
@@ -167,6 +186,7 @@ try {
 
   contextBridge.exposeInMainWorld('khaos', {
     invoke,
+    onInvokeSuccess: (callback) => subscribeInvokeSuccess(callback),
     reportRendererActionError: (payload) => reportRendererActionError(payload || {}),
     isExpectedAccessDenial: (value) => isExpectedAccessDenial(value),
     reportBootStage: (stage, detail = {}) => ipcRenderer.send('renderer-boot:stage', {
