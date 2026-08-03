@@ -18,6 +18,7 @@ const POWER_LEVEL_ALIASES = Object.freeze({
   low: 'conservative',
   high: 'cinematic'
 });
+const PROTECTED_COPY_PATTERN = /\b(copy|reproduce|recreate|reconstruct|replicate|clone|transcribe|ocr|scan)\b.{0,100}\b(subclass|species|feat|spell|item|monster|background|encounter|setting(?:[- ]element)?|class|book|chapter|sourcebook|adventure|module|rules?(?: text)?|stat block|content)\b/i;
 
 function meaningfulInspiration(item = {}) {
   return Boolean(
@@ -29,8 +30,23 @@ function meaningfulInspiration(item = {}) {
   );
 }
 
+function assertNoProtectedCopy(input = {}) {
+  const text = [input.titleHint, input.concept]
+    .concat(Array.isArray(input.constraints) ? input.constraints : [input.constraints])
+    .concat((Array.isArray(input.inspirations) ? input.inspirations : []).flatMap((item) => [item?.label, item?.summary, item?.designSignals]))
+    .filter(Boolean)
+    .join('\n');
+  if (PROTECTED_COPY_PATTERN.test(text)) {
+    throw Object.assign(new Error('Requests to copy or closely reconstruct protected source material are not supported. Describe high-level themes and mechanics for an original design instead.'), {
+      code: 'DND_AI_HOMEBREW_COPY_REQUEST',
+      field: 'concept'
+    });
+  }
+  return true;
+}
+
 function alignUiAliases(input = {}) {
-  return {
+  const aligned = {
     ...input,
     contentType: CONTENT_TYPE_ALIASES[input.contentType] || input.contentType,
     targetTier: TARGET_TIER_ALIASES[input.targetTier] || input.targetTier,
@@ -42,6 +58,8 @@ function alignUiAliases(input = {}) {
         confirmedRightToUse: item.confirmedRightToUse === true || item.permissionConfirmed === true
       }))
   };
+  assertNoProtectedCopy(aligned);
+  return aligned;
 }
 
 function stripEmptyInspirations(input = {}) {
@@ -69,7 +87,9 @@ module.exports = {
   CONTENT_TYPE_ALIASES,
   TARGET_TIER_ALIASES,
   POWER_LEVEL_ALIASES,
+  PROTECTED_COPY_PATTERN,
   meaningfulInspiration,
+  assertNoProtectedCopy,
   alignUiAliases,
   stripEmptyInspirations
 };
