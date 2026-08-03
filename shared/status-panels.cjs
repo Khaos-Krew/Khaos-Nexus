@@ -1,9 +1,14 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const { validateDiscordMessagePayload } = require('./discord-message-payload.cjs');
 
 const MAX_STATUS_PANELS = 40;
 const STATUS_BUTTON_ACTIONS = new Set(['refresh', 'players']);
+const STATUS_PANEL_PAYLOAD_OPTIONS = Object.freeze({
+  code: 'STATUS_PANEL_PAYLOAD_INVALID',
+  label: 'Status panel payload'
+});
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -130,6 +135,10 @@ function normalizeStatusSnapshot(snapshot = {}) {
   };
 }
 
+function validateStatusPanelPayload(payload) {
+  return validateDiscordMessagePayload(payload, STATUS_PANEL_PAYLOAD_OPTIONS);
+}
+
 function renderStatusPanel(panelInput, snapshotInput, options = {}) {
   const panel = normalizeStatusPanel(panelInput);
   const snapshot = normalizeStatusSnapshot(snapshotInput);
@@ -182,7 +191,7 @@ function renderStatusPanel(panelInput, snapshotInput, options = {}) {
       ]
     }];
   }
-  return payload;
+  return validateStatusPanelPayload(payload);
 }
 
 function dueForRefresh(panelInput, now = Date.now()) {
@@ -195,6 +204,7 @@ function dueForRefresh(panelInput, now = Date.now()) {
 
 module.exports = {
   MAX_STATUS_PANELS,
+  STATUS_PANEL_PAYLOAD_OPTIONS,
   normalizeStatusPanel,
   normalizeStatusPanelsConfig,
   normalizeStatusSnapshot,
@@ -202,6 +212,7 @@ module.exports = {
   parseStatusButtonId,
   safePlayerNames,
   formatDuration,
+  validateStatusPanelPayload,
   renderStatusPanel,
   dueForRefresh,
   clone

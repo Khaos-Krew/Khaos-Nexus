@@ -40,6 +40,14 @@
     return null;
   }
 
+  function subscribeToInvokeSuccess(win, callback) {
+    if (typeof win?.khaos?.onInvokeSuccess !== 'function' || typeof callback !== 'function') return () => {};
+    const unsubscribe = win.khaos.onInvokeSuccess((event = {}) => {
+      if (isMutationChannel(event.channel)) callback(event.channel);
+    });
+    return typeof unsubscribe === 'function' ? unsubscribe : () => {};
+  }
+
   function install(win) {
     if (!win?.document || win.__khaosDndRefreshGuard) return win?.__khaosDndRefreshGuard || null;
 
@@ -52,7 +60,7 @@
       patchedRoot: null,
       descriptor: null,
       retry: null,
-      originalInvoke: null
+      unsubscribeInvokeSuccess: null
     };
 
     const workspace = () => win.document.getElementById('view-dnd');
@@ -185,19 +193,9 @@
       }
     }
 
-    function wrapInvoke() {
-      if (!win.khaos?.invoke || state.originalInvoke) return;
-      state.originalInvoke = win.khaos.invoke.bind(win.khaos);
-      win.khaos.invoke = async function guardedDndInvoke(channel, payload) {
-        const result = await state.originalInvoke(channel, payload);
-        if (isMutationChannel(channel)) clearAfterSuccessfulMutation();
-        return result;
-      };
-    }
-
     function attach() {
       const root = workspace();
-      if (!root || !win.khaos?.invoke) {
+      if (!root || !win.khaos?.invoke || typeof win.khaos?.onInvokeSuccess !== 'function') {
         state.retry = win.setTimeout(attach, 25);
         return;
       }
@@ -205,7 +203,7 @@
         state.retry = win.setTimeout(attach, 50);
         return;
       }
-      wrapInvoke();
+      state.unsubscribeInvokeSuccess = subscribeToInvokeSuccess(win, clearAfterSuccessfulMutation);
 
       win.document.addEventListener('input', (event) => markDirty(event.target), true);
       win.document.addEventListener('change', (event) => {
@@ -236,7 +234,8 @@
         clearAfterSuccessfulMutation,
         disconnect() {
           if (state.retry) win.clearTimeout(state.retry);
-          if (state.originalInvoke) win.khaos.invoke = state.originalInvoke;
+          state.unsubscribeInvokeSuccess?.();
+          state.unsubscribeInvokeSuccess = null;
           removeNotice();
         }
       };
@@ -253,6 +252,7 @@
     isEditableControl,
     shouldBlockWorkspaceRender,
     findInnerHtmlDescriptor,
+    subscribeToInvokeSuccess,
     install
   };
 });

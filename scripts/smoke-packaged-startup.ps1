@@ -86,7 +86,11 @@ try {
   throw "Packaged Khaos Nexus did not reach phase=ready within $ReadyTimeoutSeconds seconds. Last state: $summary"
 } finally {
   if ($process -and -not $process.HasExited) {
-    & taskkill.exe /PID $process.Id /T /F | Out-Null
+    try {
+      Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    } catch {
+      Write-Warning "Packaged startup process cleanup was incomplete after validation: $($_.Exception.Message)"
+    }
   }
   foreach ($name in $previous.Keys) {
     if ($null -eq $previous[$name]) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }

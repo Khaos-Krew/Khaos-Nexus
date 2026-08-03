@@ -41,9 +41,12 @@ if (diagnosticsMode) {
     // Promote validated extension-backed modules before module consumers capture registry functions.
     if (mobileGatewayEnabled) require('./mobile-module-registry-extension.cjs').install();
     else mobileHold.install();
+    require('./dnd-action-rejection-boundary-extension.cjs').install();
     require('./dnd-campaign-extension.cjs').install();
     require('./dnd-usability-repair-extension.cjs').install();
     require('./dnd-owner-workflows-extension.cjs').install();
+    require('./dnd-discord-provisioning-runtime-extension.cjs').install();
+    require('./dnd-discord-bot-registry-bridge-extension.cjs').install();
     require('./dnd-owner-license-default-extension.cjs').install();
     require('./dnd-world-content-extension.cjs').install();
     require('./dnd-content-catalog-extension.cjs').install();
