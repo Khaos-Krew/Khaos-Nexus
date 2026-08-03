@@ -2,6 +2,7 @@
 
 const { safeStorage } = require('electron');
 const { ensureCoDmState } = require('../shared/dnd-co-dm.cjs');
+const { ensureHomebrewProposalState } = require('../shared/dnd-ai-homebrew.cjs');
 
 let installed = false;
 
@@ -20,6 +21,7 @@ function captureCustomState(state = {}) {
     coDmSettings: state.coDmSettings ? clone(state.coDmSettings) : null,
     coDmDrafts: Array.isArray(state.coDmDrafts) ? clone(state.coDmDrafts) : [],
     coDmServiceBindings: Array.isArray(state.coDmServiceBindings) ? clone(state.coDmServiceBindings) : [],
+    aiHomebrewProposals: Array.isArray(state.aiHomebrewProposals) ? clone(state.aiHomebrewProposals) : [],
     campaignNotes
   };
 }
@@ -29,11 +31,18 @@ function restoreCustomState(state, custom) {
   if (custom.coDmSettings) state.coDmSettings = clone(custom.coDmSettings);
   state.coDmDrafts = clone(custom.coDmDrafts || []);
   state.coDmServiceBindings = clone(custom.coDmServiceBindings || []);
+  state.aiHomebrewProposals = clone(custom.aiHomebrewProposals || []);
   for (const campaign of Array.isArray(state.campaigns) ? state.campaigns : []) {
     if (campaign?.id && Object.prototype.hasOwnProperty.call(custom.campaignNotes || {}, campaign.id)) {
       campaign.coDmNotes = custom.campaignNotes[campaign.id];
     }
   }
+  return state;
+}
+
+function ensurePrivateDndState(state) {
+  ensureCoDmState(state);
+  ensureHomebrewProposalState(state);
   return state;
 }
 
@@ -43,6 +52,7 @@ function sanitizeCoDmForExternal(state) {
   delete safe.coDmSettings;
   delete safe.coDmDrafts;
   delete safe.coDmServiceBindings;
+  delete safe.aiHomebrewProposals;
   safe.campaigns = (safe.campaigns || []).map((campaign) => {
     const value = { ...campaign };
     delete value.coDmNotes;
@@ -64,8 +74,8 @@ function install() {
       const normalized = super.getDndState();
       restoreCustomState(normalized, custom);
       restoreCustomState(this.config.dnd, custom);
-      ensureCoDmState(normalized);
-      ensureCoDmState(this.config.dnd);
+      ensurePrivateDndState(normalized);
+      ensurePrivateDndState(this.config.dnd);
       this.saveConfig();
       return clone(normalized);
     }
@@ -75,13 +85,13 @@ function install() {
       let after = before;
       const result = super.mutateDnd((state) => {
         restoreCustomState(state, before);
-        ensureCoDmState(state);
+        ensurePrivateDndState(state);
         const outcome = mutator(state);
         after = captureCustomState(state);
         return outcome;
       });
       restoreCustomState(this.config.dnd, after);
-      ensureCoDmState(this.config.dnd);
+      ensurePrivateDndState(this.config.dnd);
       this.saveConfig();
       return result;
     }
@@ -154,5 +164,6 @@ module.exports = {
   install,
   captureCustomState,
   restoreCustomState,
+  ensurePrivateDndState,
   sanitizeCoDmForExternal
 };
