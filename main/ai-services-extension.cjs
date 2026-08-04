@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
 const { safeStorage } = electron;
+const { removePrivateAiServiceState } = require('./ai-services-privacy-extension.cjs');
 const {
   DND_AI_REPOSITORY,
   AI_CORE_REPOSITORY,
@@ -160,6 +161,7 @@ function patchConfigStore() {
 
     createBackupPayload(appVersion) {
       const payload = super.createBackupPayload(appVersion);
+      payload.config = removePrivateAiServiceState(payload.config);
       if (!this.secrets?.aiCoreServiceToken) return payload;
       if (!safeStorage.isEncryptionAvailable()) {
         payload.encryptedSecrets = null;
