@@ -35,6 +35,22 @@
     document.querySelectorAll('[data-server-edit], [data-server-remove]').forEach((button) => { button.disabled = !canOwn; });
   }
 
+  function loadUiRefresh() {
+    if (document.querySelector('script[src="ui-refresh.js"]')) return;
+    const script = document.createElement('script');
+    script.src = 'ui-refresh.js';
+    script.async = false;
+    script.addEventListener('error', () => {
+      window.khaos?.reportRendererActionError?.({
+        source: 'ui-refresh-loader',
+        operation: 'load-ui-refresh',
+        message: 'The optional Khaos Nexus UI refresh could not be loaded. The legacy interface remains available.'
+      });
+    }, { once: true });
+    document.body.appendChild(script);
+  }
+
   window.khaos.onState((next) => setTimeout(() => apply(next), 0));
   window.khaos.invoke('app:get-state').then((next) => setTimeout(() => apply(next), 250)).catch(() => {});
+  loadUiRefresh();
 })();
