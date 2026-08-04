@@ -10,12 +10,14 @@ const {
   normalizeAiGmSession,
   recordPendingTurn,
   completeTurn,
+  failTurn,
   resumeAiGmSession,
+  bindingIsStale,
   ensureAiGmState,
   campaignPath,
   campaignTurnsPath
 } = require('../shared/dnd-ai-gm.cjs');
-const { applySelectedSuggestions } = require('../shared/dnd-ai-gm-actions.cjs');
+const { retryFailedTurn, applySelectedSuggestions } = require('../shared/dnd-ai-gm-actions.cjs');
 
 const endpoint = process.env.KHAOS_AI_ENDPOINT || DEFAULT_AI_SERVICE_ENDPOINT;
 
@@ -102,6 +104,8 @@ async function main() {
   assert.equal(preview.disclosure.automaticDesktopMutation, false);
   assert.equal(preview.disclosure.automaticDiscordPublication, false);
   assert.equal(preview.disclosure.automaticRolls, false);
+  assert.match(preview.request.rulesNotes.join('\n'), /Preserve player agency/i);
+  assert.match(preview.request.rulesNotes.join('\n'), /Never roll dice/i);
   const serializedPreview = JSON.stringify(preview);
   assert.doesNotMatch(serializedPreview, /character-ai-gm|member-ai-gm|Private Player Name/);
   assert.match(serializedPreview, /Private Owner Name/);
@@ -126,6 +130,8 @@ async function main() {
     provider: 'mock',
     model: 'deterministic-local'
   });
+  assert.equal(bindingIsStale(binding, preview.contextFingerprint), false);
+  assert.equal(bindingIsStale(binding, `${preview.contextFingerprint}-changed`), true);
   state.aiGmBindings.push(binding);
   const aiSession = normalizeAiGmSession({
     campaignId: preview.campaignId,
@@ -135,6 +141,26 @@ async function main() {
   });
   state.aiGmSessions.push(aiSession);
   ensureAiGmState(state);
+
+  const retryPending = recordPendingTurn(state, {
+    aiGmSessionId: aiSession.id,
+    serviceCampaignId: serviceCampaign.id,
+    clientTurnId: 'integration-turn-retry',
+    actor: 'Party',
+    message: 'Hold position while the connection recovers.',
+    dmGuidance: 'Do not advance the scene.'
+  });
+  state = retryPending.state;
+  const failed = failTurn(state, retryPending.turn.id, { message: 'Temporary integration transport failure.', retryable: true });
+  state = failed.state;
+  assert.equal(failed.turn.status, 'failed');
+  assert.equal(failed.turn.retryable, true);
+  assert.match(failed.turn.message, /Hold position/);
+  const retried = retryFailedTurn(state, failed.turn.id);
+  state = retried.state;
+  assert.equal(retried.turn.status, 'pending');
+  assert.equal(retried.request.message, retryPending.request.message);
+  assert.equal(retried.request.dmGuidance, retryPending.request.dmGuidance);
 
   const desktopCampaignBeforeTurn = JSON.stringify(state.campaigns);
   const desktopSessionsBeforeTurn = JSON.stringify(state.sessions);
@@ -155,6 +181,7 @@ async function main() {
   state = completed.state;
   assert.equal(completed.turn.status, 'completed');
   assert.ok(completed.turn.response.narration.length > 20);
+  assert.doesNotMatch(completed.turn.response.narration, /Vorkesh Emberforge.{0,40}(thinks|says|decides|chooses|agrees|attacks|casts)/i);
   assert.equal(completed.turn.response.suggestedChecks.length, 1);
   assert.equal(completed.turn.response.suggestedChecks[0].dc, 13);
   assert.ok(completed.turn.response.suggestions.length > 0);
@@ -219,7 +246,12 @@ async function main() {
     mode: fetchedPayload.campaign.mode,
     provider: generatedPayload.meta?.provider,
     model: generatedPayload.meta?.model,
+    stableBindingVerified: true,
+    staleBindingDetected: true,
+    failedInputPreserved: true,
+    retryRestored: true,
     persistedBeforeNetwork: true,
+    playerAgencyPolicyVerified: true,
     unresolvedChecks: completed.turn.response.suggestedChecks.length,
     explicitSuggestionApplication: applied.applied.length,
     duplicateApplicationBlocked: duplicate.duplicate,
