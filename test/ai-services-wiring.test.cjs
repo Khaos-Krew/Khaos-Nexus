@@ -38,8 +38,8 @@ test('pristine config projections tolerate constructor-time virtual dispatch', (
   assert.ok(source.includes('store.config ||= {};'));
   assert.ok(source.includes('store.config.aiServices ||= {};'));
   assert.ok(source.includes('this.secrets?.aiCoreServiceToken'));
-  assert.ok(source.includes('currentAiCoreSettings(this)'));
-  assert.equal(source.includes('clone(this.config.aiServices.core)'), false);
+  assert.ok(source.includes('config.aiServices.core = {\n        ...clone(currentAiCoreSettings(this)),'));
+  assert.ok(source.includes('const connection = aiCoreBootstrap(currentAiCoreSettings(this), this.getAiCoreServiceToken());'));
 });
 
 test('primary bot sidecar performs health and capability discovery only', () => {
