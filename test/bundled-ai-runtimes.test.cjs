@@ -28,7 +28,9 @@ test('bundled services use Electron embedded Node and never require global node 
 test('D&D and AI Core runtimes remain separately addressed and isolated', () => {
   const source = read('main/bundled-ai-runtimes-extension.cjs');
   assert.match(source, /endpoint:\s*'http:\/\/127\.0\.0\.1:8787'/);
-  assert.match(source, /endpoint:\s*'http:\/\/127\.0\.0\.1:8790'/);
+  assert.match(source, /core:\s*\{[\s\S]*?endpoint:\s*''[\s\S]*?PORT:\s*'0'/);
+  assert.match(source, /return `http:\/\/127\.0\.0\.1:\$\{readiness\.port\}`/);
+  assert.match(source, /readiness\.host !== '127\.0\.0\.1'/);
   assert.match(source, /AI_PROVIDER:\s*'mock'/);
   assert.match(source, /AI_PROVIDER:\s*'deterministic-local'/);
   assert.match(source, /CAMPAIGN_STORE:\s*'json'/);
