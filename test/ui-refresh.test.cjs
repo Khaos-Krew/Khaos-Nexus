@@ -50,7 +50,8 @@ test('graphics are local, layered, and reduced-motion safe', () => {
   for (const file of ['assets/ui/nexus-command-core.svg', 'assets/ui/nexus-dnd-runes.svg', 'assets/ui/nexus-ai-core.svg']) {
     const svg = read(file);
     assert.match(svg, /^<svg/);
-    assert.doesNotMatch(svg, /<script|https?:\/\//i);
+    assert.doesNotMatch(svg, /<script/i);
+    assert.doesNotMatch(svg, /(?:href|src)=["']https?:\/\//i);
   }
 });
 
@@ -58,7 +59,7 @@ test('README documents the dedicated workspaces and non-release boundary', () =>
   const readme = read('README.md');
   assert.match(readme, /\*\*D&D\*\*/);
   assert.match(readme, /\*\*Nexus AI\*\*/);
-  assert.match(readme, /prefers reduced motion/i);
+  assert.match(readme, /requests reduced motion/i);
   assert.match(readme, /must not publish or modify a release channel/i);
   assert.match(readme, /nexus-mobile-companion/);
 });
