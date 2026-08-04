@@ -21,7 +21,7 @@ const assignments = [
     commit: '300c653e5643e0ee2e15590f8cb53e30ee7a79ff',
     version: '0.7.0',
     source: process.env.KHAOS_AI_CORE_SOURCE || path.join(root, '.ai-sources', 'ai-core'),
-    entry: 'src/index.js'
+    entry: 'src/sidecar.js'
   }
 ];
 
