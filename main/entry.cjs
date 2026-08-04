@@ -39,7 +39,6 @@ if (diagnosticsMode) {
     const mobileHold = require('./mobile-production-hold-extension.cjs');
     const mobileGatewayEnabled = mobileHold.mobileGatewayPolicyEnabled();
 
-    // Promote validated extension-backed modules before module consumers capture registry functions.
     if (mobileGatewayEnabled) require('./mobile-module-registry-extension.cjs').install();
     else mobileHold.install();
     require('./dnd-action-rejection-boundary-extension.cjs').install();
@@ -72,10 +71,9 @@ if (diagnosticsMode) {
     require('./dnd-authorization-summary-extension.cjs').install();
     require('./ai-services-extension.cjs').install();
     require('./ai-services-privacy-extension.cjs').install();
+    require('./bundled-ai-runtimes-extension.cjs').install();
 
-    // The module registry must wrap IPC and service prototypes before optional modules register handlers or start timers.
     require('./module-foundation-extension.cjs').install();
-    // Local module recovery belongs to the desktop installation and must never depend on Discord ownership.
     require('./local-module-authority-extension.cjs').install();
     require('./module-runtime-extension.cjs').install();
 
@@ -94,12 +92,10 @@ if (diagnosticsMode) {
     require('./rcon-validation-extension.cjs').install();
     require('./audit-repair-extension.cjs').install();
 
-    // Game adapters that extend audited service classes install after the common audit repairs.
     require('./rust-main-extension.cjs').install();
     require('./rust-module-gate-extension.cjs').install();
     require('./satisfactory-main-extension.cjs').install();
     require('./satisfactory-module-gate-extension.cjs').install();
-    // Final shared policy supersedes game-specific health, maintenance and scheduler wrappers.
     require('./game-adapter-runtime-extension.cjs').install();
     require('./main.cjs');
   }
