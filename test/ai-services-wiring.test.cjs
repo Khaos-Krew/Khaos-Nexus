@@ -34,12 +34,12 @@ test('desktop exposes independent connection controls and no provider credential
 
 test('pristine config projections tolerate constructor-time virtual dispatch', () => {
   const source = read('main/ai-services-extension.cjs');
-  assert.match(source, /store\?\.config\?\.aiServices\?\.core\s*\|\|\s*\{\}/);
-  assert.match(source, /store\.config\s*\|\|=\s*\{\}/);
-  assert.match(source, /store\.config\.aiServices\s*\|\|=\s*\{\}/);
-  assert.match(source, /this\.secrets\?\.aiCoreServiceToken/);
-  assert.match(source, /currentAiCoreSettings\(this\)/);
-  assert.doesNotMatch(source, /clone\(this\.config\.aiServices\.core\)/);
+  assert.ok(source.includes("const current = store?.config?.aiServices?.core || {};"));
+  assert.ok(source.includes('store.config ||= {};'));
+  assert.ok(source.includes('store.config.aiServices ||= {};'));
+  assert.ok(source.includes('this.secrets?.aiCoreServiceToken'));
+  assert.ok(source.includes('currentAiCoreSettings(this)'));
+  assert.equal(source.includes('clone(this.config.aiServices.core)'), false);
 });
 
 test('primary bot sidecar performs health and capability discovery only', () => {
