@@ -1,0 +1,92 @@
+name: Nexus AI Core Integration
+
+on:
+  pull_request:
+    paths:
+      - 'main/ai-services-*.cjs'
+      - 'bot/ai-core-client.cjs'
+      - 'bot/dual-ai-index.cjs'
+      - 'renderer/ai-services.*'
+      - 'shared/ai-service-connections.cjs'
+      - 'scripts/verify-ai-core-connection.cjs'
+      - 'test/ai-service*.test.cjs'
+      - '.github/workflows/ai-core-integration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ai-core-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      KHAOS_AI_CORE_ENDPOINT: http://127.0.0.1:8790
+      KHAOS_AI_CORE_COMMIT: 300c653e5643e0ee2e15590f8cb53e30ee7a79ff
+    steps:
+      - name: Check out Khaos Nexus desktop
+        uses: actions/checkout@v4
+
+      - name: Check out validated Nexus AI Core snapshot
+        uses: actions/checkout@v4
+        with:
+          repository: Khaos-Krew/Khaos-Nexus-AI-Core
+          ref: ${{ env.KHAOS_AI_CORE_COMMIT }}
+          path: ai-core
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ai-core/package-lock.json
+
+      - name: Install Nexus AI Core
+        working-directory: ai-core
+        run: npm ci
+
+      - name: Start deterministic Nexus AI Core
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/khaos-ai-core-data"
+          (
+            cd ai-core
+            AI_PROVIDER=deterministic-local \
+            PORT=8790 \
+            DATA_DIR="$RUNNER_TEMP/khaos-ai-core-data" \
+            CORS_ORIGIN=http://localhost \
+            npm start >"$RUNNER_TEMP/khaos-ai-core.log" 2>&1
+          ) &
+          echo $! >"$RUNNER_TEMP/khaos-ai-core.pid"
+
+      - name: Wait for Nexus AI Core health
+        shell: bash
+        run: |
+          for attempt in {1..30}; do
+            if curl --fail --silent "$KHAOS_AI_CORE_ENDPOINT/health" >"$RUNNER_TEMP/khaos-ai-core-health.json"; then
+              cat "$RUNNER_TEMP/khaos-ai-core-health.json"
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/khaos-ai-core.log" || true
+          exit 1
+
+      - name: Verify isolated desktop and primary-bot connection contracts
+        run: node scripts/verify-ai-core-connection.cjs
+
+      - name: Upload Nexus AI Core log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-ai-core-integration-log
+          path: ${{ runner.temp }}/khaos-ai-core.log
+          if-no-files-found: ignore
+
+      - name: Stop Nexus AI Core
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/khaos-ai-core.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/khaos-ai-core.pid")" 2>/dev/null || true
+          fi

@@ -4,6 +4,11 @@ on:
   pull_request:
     paths:
       - main/diagnostic-runtime-updater.cjs
+      - main/ai-services-*.cjs
+      - bot/ai-core-client.cjs
+      - bot/dual-ai-index.cjs
+      - renderer/ai-services.*
+      - shared/ai-service-connections.cjs
       - scripts/verify-diagnostics-runtime-release.cjs
       - .github/workflows/diagnostics-runtime-integration.yml
       - package.json
