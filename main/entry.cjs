@@ -72,6 +72,7 @@ if (diagnosticsMode) {
     require('./ai-services-extension.cjs').install();
     require('./ai-services-privacy-extension.cjs').install();
     require('./bundled-ai-runtimes-extension.cjs').install();
+    require('./nexus-ai-core-operations-extension.cjs').install();
 
     require('./module-foundation-extension.cjs').install();
     require('./local-module-authority-extension.cjs').install();
