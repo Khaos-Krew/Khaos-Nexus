@@ -70,6 +70,7 @@ if (diagnosticsMode) {
     require('./dnd-co-dm-stability-extension.cjs').install();
     require('./dnd-access-policy-extension.cjs').install();
     require('./dnd-authorization-summary-extension.cjs').install();
+    require('./ai-services-extension.cjs').install();
 
     // The module registry must wrap IPC and service prototypes before optional modules register handlers or start timers.
     require('./module-foundation-extension.cjs').install();
