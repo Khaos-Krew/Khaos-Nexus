@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 10
     env:
       KHAOS_AI_CORE_ENDPOINT: http://127.0.0.1:8790
-      KHAOS_AI_CORE_COMMIT: 181f6cb25e1ccc46344b8ac7fd82437918a4a4b0
+      KHAOS_AI_CORE_COMMIT: 300c653e5643e0ee2e15590f8cb53e30ee7a79ff
     steps:
       - name: Check out Khaos Nexus desktop
         uses: actions/checkout@v4
