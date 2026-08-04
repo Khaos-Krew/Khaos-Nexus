@@ -62,3 +62,9 @@ test('privacy projection strips audit records and secondary-bot AI metadata', ()
   assert.match(source, /getRuntimeBootstrap/);
   assert.match(source, /getRegisteredBotBootstraps/);
 });
+
+test('backup composition removes connection audit before preserving settings', () => {
+  const source = read('main/ai-services-extension.cjs');
+  assert.match(source, /payload\.config\s*=\s*removePrivateAiServiceState\(payload\.config\)/);
+  assert.match(source, /sanitizeAiServiceBackupSecrets\(this\.secrets\)/);
+});
