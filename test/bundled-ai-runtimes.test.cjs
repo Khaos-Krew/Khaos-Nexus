@@ -42,7 +42,9 @@ test('bundle builder pins exact repositories and snapshots and records file hash
   assert.match(source, /bundle-manifest\.json/);
   assert.match(source, /sha256/);
   assert.match(source, /electronRunAsNode:\s*true/);
-  assert.doesNotMatch(source, /\.env['"]?\s*[,)]/);
+  assert.match(source, /const excluded = new Set\(\[[^\]]*'\.env'[^\]]*'\.env\.local'[^\]]*\]\)/);
+  assert.match(source, /if \(excluded\.has\(entry\.name\)\) continue;/);
+  assert.doesNotMatch(source, /copyFileSync\([^\n]*['"]\.env(?:\.local)?['"]/);
 });
 
 test('v0.33 freeze adds updater-compatible resources and rollback metadata', () => {
