@@ -15,6 +15,7 @@ const {
   cleanText,
   normalizeServiceEndpoint,
   normalizeServiceToken,
+  sanitizeAiServiceBackupSecrets,
   normalizeAiCoreSettings,
   normalizeAiCoreHealth,
   normalizeAiCoreCapabilities,
@@ -162,13 +163,12 @@ function patchConfigStore() {
       if (!this.secrets?.aiCoreServiceToken) return payload;
       if (!safeStorage.isEncryptionAvailable()) {
         payload.encryptedSecrets = null;
-        payload.note = `${payload.note} The Nexus AI Core service token was excluded because protected storage was unavailable.`;
+        payload.note = `${payload.note} The D&D AI and Nexus AI Core service tokens were excluded because protected storage was unavailable.`;
         return payload;
       }
-      const sanitized = { ...this.secrets };
-      delete sanitized.aiCoreServiceToken;
+      const sanitized = sanitizeAiServiceBackupSecrets(this.secrets);
       payload.encryptedSecrets = safeStorage.encryptString(JSON.stringify(sanitized)).toString('base64');
-      payload.note = `${payload.note} The Nexus AI Core service token is intentionally excluded from backups.`;
+      payload.note = `${payload.note} The D&D AI and Nexus AI Core service tokens are intentionally excluded from backups.`;
       return payload;
     }
   }
