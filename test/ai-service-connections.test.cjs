@@ -7,6 +7,7 @@ const {
   DEFAULT_AI_CORE_ENDPOINT,
   normalizeServiceEndpoint,
   normalizeServiceToken,
+  sanitizeAiServiceBackupSecrets,
   normalizeAiCoreSettings,
   normalizeAiCoreHealth,
   normalizeAiCoreCapabilities,
@@ -37,6 +38,21 @@ test('service tokens and AI Core settings are bounded and provider configuration
   assert.equal(settings.linkToPrimaryBot, true);
   assert.throws(() => normalizeAiCoreSettings({ openaiApiKey: 'secret-value' }), /configured only in Nexus AI Core/i);
   assert.throws(() => normalizeAiCoreSettings({ model: 'provider-model' }), /configured only in Nexus AI Core/i);
+});
+
+test('backup sanitization preserves both AI service secret exclusions', () => {
+  const sanitized = sanitizeAiServiceBackupSecrets({
+    discordToken: 'discord-secret',
+    dndAiServiceToken: 'dnd-service-secret',
+    dndCoDmOpenAiKey: 'legacy-provider-secret',
+    aiCoreServiceToken: 'core-service-secret',
+    pterodactylApiKey: 'unrelated-secret'
+  });
+  assert.equal(sanitized.discordToken, 'discord-secret');
+  assert.equal(sanitized.pterodactylApiKey, 'unrelated-secret');
+  assert.equal('dndAiServiceToken' in sanitized, false);
+  assert.equal('dndCoDmOpenAiKey' in sanitized, false);
+  assert.equal('aiCoreServiceToken' in sanitized, false);
 });
 
 test('AI Core health and capabilities require exact identity and advisory isolation', () => {
