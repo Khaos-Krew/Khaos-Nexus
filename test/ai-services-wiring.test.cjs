@@ -24,7 +24,7 @@ test('desktop exposes independent connection controls and no provider credential
   for (const channel of ['ai:connections-get', 'ai:connections-check', 'ai:core-set-settings', 'ai:core-set-token']) {
     assert.match(source, new RegExp(channel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
-  assert.match(source, /getDndAiServiceToken/);
+  assert.match(source, /require\('\.\/dnd-co-dm-extension\.cjs'\)\.publicPayload\(''\)/);
   assert.match(source, /getAiCoreServiceToken/);
   assert.match(source, /registeredBotsReceiveAiCore:\s*false/);
   assert.match(source, /automaticDiscordPublication:\s*false/);
