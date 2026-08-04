@@ -3,6 +3,7 @@
 const {
   AI_CORE_HEALTH_PATH,
   AI_CORE_CAPABILITIES_PATH,
+  redactServiceSecret,
   normalizeServiceEndpoint,
   normalizeAiCoreHealth,
   normalizeAiCoreCapabilities,
@@ -14,17 +15,10 @@ const REQUEST_TIMEOUT_MS = 15000;
 const MAX_RESPONSE_CHARACTERS = 512000;
 
 function cleanError(error, token = '') {
-  const secret = String(token || '');
-  const message = String(error?.message || error || 'Nexus AI Core request failed.')
-    .split(secret).join('[REDACTED]')
-    .replace(/[\u0000-\u001f\u007f]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 800);
   return {
     code: String(error?.code || 'AI_CORE_REQUEST_FAILED').slice(0, 100),
     status: Number(error?.status || 0) || null,
-    message
+    message: redactServiceSecret(error?.message || error || 'Nexus AI Core request failed.', token, 800)
   };
 }
 
@@ -49,7 +43,7 @@ async function jsonGet(connection, pathname, fetchImpl = global.fetch) {
   catch { throw Object.assign(new Error('Nexus AI Core returned invalid JSON.'), { code: 'AI_CORE_INVALID_JSON', status: response.status }); }
   if (!response.ok) {
     const message = typeof payload?.error === 'string' ? payload.error : payload?.error?.message || `Nexus AI Core returned HTTP ${response.status}.`;
-    throw Object.assign(new Error(String(message).slice(0, 800)), { code: payload?.error?.code || 'AI_CORE_HTTP_ERROR', status: response.status });
+    throw Object.assign(new Error(redactServiceSecret(message, token, 800)), { code: payload?.error?.code || 'AI_CORE_HTTP_ERROR', status: response.status });
   }
   return payload;
 }
