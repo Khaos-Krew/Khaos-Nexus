@@ -58,9 +58,15 @@ function safeError(error, token = '') {
   };
 }
 
+function currentAiCoreSettings(store) {
+  const current = store?.config?.aiServices?.core || {};
+  return normalizeAiCoreSettings(current, current);
+}
+
 function ensureAiServicesConfig(store) {
+  store.config ||= {};
   store.config.aiServices ||= {};
-  store.config.aiServices.core = normalizeAiCoreSettings(store.config.aiServices.core || {}, store.config.aiServices.core || {});
+  store.config.aiServices.core = currentAiCoreSettings(store);
   store.config.aiServices.audit = Array.isArray(store.config.aiServices.audit) ? store.config.aiServices.audit.slice(-MAX_AUDIT_ENTRIES) : [];
 }
 
@@ -79,10 +85,11 @@ function patchConfigStore() {
     }
 
     getAiCoreServiceToken() {
-      return String(this.secrets.aiCoreServiceToken || '');
+      return String(this.secrets?.aiCoreServiceToken || '');
     }
 
     setAiCoreServiceToken(value) {
+      this.secrets ||= {};
       const token = normalizeServiceToken(value);
       if (token) this.secrets.aiCoreServiceToken = token;
       else delete this.secrets.aiCoreServiceToken;
@@ -128,14 +135,14 @@ function patchConfigStore() {
     }
 
     getSecretValues() {
-      return [...super.getSecretValues(), this.secrets.aiCoreServiceToken].filter(Boolean);
+      return [...super.getSecretValues(), this.secrets?.aiCoreServiceToken].filter(Boolean);
     }
 
     getPublicConfig() {
       const config = super.getPublicConfig();
       config.aiServices ||= {};
       config.aiServices.core = {
-        ...clone(this.config.aiServices.core),
+        ...clone(currentAiCoreSettings(this)),
         hasServiceToken: Boolean(this.getAiCoreServiceToken())
       };
       return config;
@@ -143,7 +150,7 @@ function patchConfigStore() {
 
     getRuntimeBootstrap() {
       const bootstrap = super.getRuntimeBootstrap();
-      const connection = aiCoreBootstrap(this.config.aiServices?.core || {}, this.getAiCoreServiceToken());
+      const connection = aiCoreBootstrap(currentAiCoreSettings(this), this.getAiCoreServiceToken());
       if (connection) bootstrap.aiCore = connection;
       else delete bootstrap.aiCore;
       return bootstrap;
@@ -414,5 +421,7 @@ module.exports = {
   jsonRequest,
   checkCore,
   publicPayload,
-  safeError
+  safeError,
+  currentAiCoreSettings,
+  ensureAiServicesConfig
 };
