@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img" aria-label="Abstract Nexus AI circuitry and intelligence core background">
+  <defs>
+    <radialGradient id="mind" cx="70%" cy="46%" r="52%">
+      <stop offset="0" stop-color="#ff5b77" stop-opacity=".48"/>
+      <stop offset=".13" stop-color="#c52b82" stop-opacity=".3"/>
+      <stop offset=".32" stop-color="#7921a8" stop-opacity=".18"/>
+      <stop offset=".62" stop-color="#271038" stop-opacity=".08"/>
+      <stop offset="1" stop-color="#06070b" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="aiGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="7" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <pattern id="nodes" width="70" height="70" patternUnits="userSpaceOnUse">
+      <path d="M0 35H70M35 0V70" stroke="#ffffff" stroke-opacity=".022"/>
+      <circle cx="35" cy="35" r="1.4" fill="#c03cff" fill-opacity=".15"/>
+    </pattern>
+  </defs>
+  <rect width="1600" height="900" fill="url(#nodes)"/>
+  <ellipse cx="1110" cy="390" rx="560" ry="470" fill="url(#mind)"/>
+  <g transform="translate(1110 390)" fill="none" filter="url(#aiGlow)">
+    <circle r="74" stroke="#ff6480" stroke-opacity=".56"/>
+    <circle r="132" stroke="#d147ff" stroke-opacity=".28" stroke-dasharray="4 13"/>
+    <circle r="198" stroke="#ff3c61" stroke-opacity=".2" stroke-dasharray="24 12"/>
+    <circle r="292" stroke="#c83cff" stroke-opacity=".1" stroke-dasharray="3 24"/>
+    <path d="M-292 0H-198M198 0H292M0-292V-198M0 198V292" stroke="#ff5574" stroke-opacity=".32"/>
+    <path d="M-206-206-140-140M206-206 140-140M-206 206-140 140M206 206 140 140" stroke="#d147ff" stroke-opacity=".2"/>
+  </g>
+  <g fill="none" stroke-width="2">
+    <path d="M40 174H260L360 270H598L700 360H910" stroke="#d03cff" stroke-opacity=".18"/>
+    <path d="M70 690H330L430 594H650L780 494H910" stroke="#ff4568" stroke-opacity=".19"/>
+    <path d="M240 90V220L350 330V492" stroke="#ff4568" stroke-opacity=".11"/>
+    <path d="M520 810V675L640 555" stroke="#d03cff" stroke-opacity=".12"/>
+  </g>
+  <g fill="#ff5e7a" fill-opacity=".58">
+    <circle cx="260" cy="174" r="4"/><circle cx="598" cy="270" r="4"/><circle cx="700" cy="360" r="5"/>
+    <circle cx="330" cy="690" r="4"/><circle cx="650" cy="594" r="4"/><circle cx="780" cy="494" r="5"/>
+  </g>
+  <g transform="translate(1110 390)">
+    <circle r="46" fill="#190713" stroke="#ff6682" stroke-opacity=".72"/>
+    <circle r="25" fill="#a20f42" fill-opacity=".7"/>
+    <circle r="10" fill="#fff" fill-opacity=".85"/>
+  </g>
+</svg>
