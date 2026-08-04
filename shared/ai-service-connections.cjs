@@ -18,6 +18,12 @@ function cleanText(value, max = 500) {
   return String(value ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
+function redactServiceSecret(value, secret, max = 1000) {
+  const text = String(value ?? '');
+  const token = String(secret || '');
+  return cleanText(token ? text.split(token).join('[REDACTED]') : text, max);
+}
+
 function serviceError(message, code, field) {
   return Object.assign(new Error(message), { code, ...(field ? { field } : {}) });
 }
@@ -232,6 +238,7 @@ module.exports = {
   AI_CORE_TARGET,
   clone,
   cleanText,
+  redactServiceSecret,
   isLoopbackHostname,
   normalizeServiceEndpoint,
   normalizeServiceToken,
