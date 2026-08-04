@@ -61,6 +61,14 @@ function normalizeServiceToken(value) {
   return token;
 }
 
+function sanitizeAiServiceBackupSecrets(secrets = {}) {
+  const sanitized = { ...(secrets && typeof secrets === 'object' ? secrets : {}) };
+  delete sanitized.aiCoreServiceToken;
+  delete sanitized.dndAiServiceToken;
+  delete sanitized.dndCoDmOpenAiKey;
+  return sanitized;
+}
+
 function normalizeAiCoreSettings(input = {}, current = {}) {
   for (const field of ['apiKey', 'openAiKey', 'openaiApiKey', 'providerKey', 'providerEndpoint', 'providerBaseUrl', 'model']) {
     if (Object.prototype.hasOwnProperty.call(input, field) && cleanText(input[field], 20)) {
@@ -227,6 +235,7 @@ module.exports = {
   isLoopbackHostname,
   normalizeServiceEndpoint,
   normalizeServiceToken,
+  sanitizeAiServiceBackupSecrets,
   normalizeAiCoreSettings,
   normalizeAiCoreHealth,
   normalizeAiCoreCapabilities,
