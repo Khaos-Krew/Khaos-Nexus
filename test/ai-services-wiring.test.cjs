@@ -32,6 +32,16 @@ test('desktop exposes independent connection controls and no provider credential
   assert.doesNotMatch(source, /setOpenAi|setProviderKey|OPENAI_API_KEY/);
 });
 
+test('pristine config projections tolerate constructor-time virtual dispatch', () => {
+  const source = read('main/ai-services-extension.cjs');
+  assert.match(source, /store\?\.config\?\.aiServices\?\.core\s*\|\|\s*\{\}/);
+  assert.match(source, /store\.config\s*\|\|=\s*\{\}/);
+  assert.match(source, /store\.config\.aiServices\s*\|\|=\s*\{\}/);
+  assert.match(source, /this\.secrets\?\.aiCoreServiceToken/);
+  assert.match(source, /currentAiCoreSettings\(this\)/);
+  assert.doesNotMatch(source, /clone\(this\.config\.aiServices\.core\)/);
+});
+
 test('primary bot sidecar performs health and capability discovery only', () => {
   const client = read('bot/ai-core-client.cjs');
   const wrapper = read('bot/dual-ai-index.cjs');
