@@ -1,0 +1,123 @@
+.ai-service-policy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 18px;
+}
+
+.ai-services-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
+.ai-service-card {
+  min-width: 0;
+}
+
+.ai-service-card .panel-heading {
+  align-items: flex-start;
+}
+
+.ai-service-card .panel-heading > .tag,
+.ai-service-card .panel-heading > span {
+  flex: 0 0 auto;
+}
+
+.ai-service-card .panel-heading > p,
+.ai-service-error {
+  margin: 4px 0 0;
+  color: var(--muted, #9ba6b7);
+  font-size: 0.82rem;
+}
+
+.ai-service-boundary {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 16px 0;
+  padding: 12px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 10px;
+  background: rgba(0,0,0,.16);
+}
+
+.ai-service-boundary strong {
+  color: var(--muted, #9ba6b7);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.ai-service-boundary code {
+  overflow-wrap: anywhere;
+  color: inherit;
+}
+
+.ai-service-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.ai-provider-summary {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(0,0,0,.16);
+}
+
+.ai-provider-summary span {
+  color: var(--muted, #9ba6b7);
+}
+
+.ai-provider-summary strong {
+  overflow-wrap: anywhere;
+}
+
+.ai-capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 180px;
+  overflow: auto;
+  padding: 4px 2px;
+}
+
+.ai-isolation-panel,
+.ai-service-audit {
+  margin-top: 18px;
+}
+
+.ai-boundary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ai-boundary-grid span {
+  padding: 12px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 10px;
+  background: rgba(0,0,0,.14);
+}
+
+@media (max-width: 1080px) {
+  .ai-services-grid,
+  .ai-boundary-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #view-ai-services *,
+  #view-ai-services *::before,
+  #view-ai-services *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+    animation: none !important;
+  }
+}
