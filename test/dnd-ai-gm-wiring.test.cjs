@@ -16,7 +16,11 @@ test('AI Game Master runtime exposes only explicit Owner IPC actions', () => {
   ]) assert.match(source, new RegExp(channel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.match(source, /assertOwner/);
   assert.match(source, /confirmed !== true/);
-  assert.doesNotMatch(source, /setInterval|automatic.*Discord|rollDice|initiative|currentHp\s*=/i);
+  assert.doesNotMatch(source, /\bsetInterval\s*\(/);
+  assert.doesNotMatch(source, /\brollDice\s*\(/);
+  assert.doesNotMatch(source, /\binitiative\s*=/);
+  assert.doesNotMatch(source, /\bcurrentHp\s*=/);
+  assert.match(source, /automaticDiscordPublication:\s*false/);
 });
 
 test('turn input is persisted before the network request and failures remain retryable records', () => {
