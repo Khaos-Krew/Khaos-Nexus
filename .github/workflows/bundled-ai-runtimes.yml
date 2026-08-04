@@ -6,8 +6,10 @@ on:
       - 'main/bundled-ai-runtimes-extension.cjs'
       - 'scripts/build-bundled-ai-runtimes.cjs'
       - 'scripts/freeze-v0.33-bundled-ai.cjs'
+      - 'scripts/freeze-v0.35-ui-refresh.cjs'
       - 'test/bundled-ai-runtimes.test.cjs'
       - 'release-notes/v0.33.0.md'
+      - 'release-notes/v0.35.0.md'
       - '.github/workflows/bundled-ai-runtimes.yml'
       - 'main/entry.cjs'
       - 'package.json'
@@ -61,8 +63,8 @@ jobs:
       - name: Build and verify bundled service resources
         run: node scripts/build-bundled-ai-runtimes.cjs
 
-      - name: Freeze v0.33.0-B candidate metadata
-        run: node scripts/freeze-v0.33-bundled-ai.cjs
+      - name: Freeze v0.35.0-B candidate metadata
+        run: node scripts/freeze-v0.35-ui-refresh.cjs
 
       - name: Run repository tests
         run: npm test
@@ -76,8 +78,8 @@ jobs:
       - name: Verify bundled resources and updater files
         shell: pwsh
         run: |
-          $installer = Get-ChildItem dist -Filter 'Khaos-Nexus-Setup-0.33.0-B-x64.exe' | Select-Object -First 1
-          $portable = Get-ChildItem dist -Filter 'Khaos-Nexus-Portable-0.33.0-B-x64.exe' | Select-Object -First 1
+          $installer = Get-ChildItem dist -Filter 'Khaos-Nexus-Setup-0.35.0-B-x64.exe' | Select-Object -First 1
+          $portable = Get-ChildItem dist -Filter 'Khaos-Nexus-Portable-0.35.0-B-x64.exe' | Select-Object -First 1
           $latest = Get-ChildItem dist -Filter 'latest.yml' | Select-Object -First 1
           $blockmap = Get-ChildItem dist -Filter '*.blockmap' | Select-Object -First 1
           if (-not $installer -or -not $portable -or -not $latest -or -not $blockmap) { throw 'Required updater artifacts are missing.' }
@@ -86,15 +88,17 @@ jobs:
             $manifest = Join-Path $unpacked "$service/bundle-manifest.json"
             if (-not (Test-Path $manifest)) { throw "Missing packaged manifest: $manifest" }
           }
-          if (Get-Command node -ErrorAction SilentlyContinue) { Write-Host 'Build runner has Node for CI; packaged runtime still uses the Electron executable.' }
+          $latestText = Get-Content $latest.FullName -Raw
+          if ($latestText -notmatch 'version:\s*0\.35\.0') { throw 'latest.yml does not advertise v0.35.0.' }
+          if ($latestText -notmatch 'Khaos-Nexus-Setup-0\.35\.0-B-x64\.exe') { throw 'latest.yml does not reference the v0.35.0-B installer.' }
 
       - name: Upload Node-free Windows candidate
         uses: actions/upload-artifact@v4
         with:
-          name: Khaos-Nexus-Windows-v0.33.0-B
+          name: Khaos-Nexus-Windows-v0.35.0-B
           path: |
-            dist/Khaos-Nexus-Setup-0.33.0-B-x64.exe
-            dist/Khaos-Nexus-Portable-0.33.0-B-x64.exe
+            dist/Khaos-Nexus-Setup-0.35.0-B-x64.exe
+            dist/Khaos-Nexus-Portable-0.35.0-B-x64.exe
             dist/*.blockmap
             dist/latest.yml
             dist/builder-debug.yml
