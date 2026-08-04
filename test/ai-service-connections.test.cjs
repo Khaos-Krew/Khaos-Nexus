@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const {
   AI_CORE_SNAPSHOT,
   DEFAULT_AI_CORE_ENDPOINT,
+  redactServiceSecret,
   normalizeServiceEndpoint,
   normalizeServiceToken,
   sanitizeAiServiceBackupSecrets,
@@ -38,6 +39,12 @@ test('service tokens and AI Core settings are bounded and provider configuration
   assert.equal(settings.linkToPrimaryBot, true);
   assert.throws(() => normalizeAiCoreSettings({ openaiApiKey: 'secret-value' }), /configured only in Nexus AI Core/i);
   assert.throws(() => normalizeAiCoreSettings({ model: 'provider-model' }), /configured only in Nexus AI Core/i);
+});
+
+test('error redaction preserves tokenless messages and removes configured tokens', () => {
+  assert.equal(redactServiceSecret('Connection refused at loopback.', ''), 'Connection refused at loopback.');
+  assert.equal(redactServiceSecret('Authorization abcdefgh was rejected.', 'abcdefgh'), 'Authorization [REDACTED] was rejected.');
+  assert.equal(redactServiceSecret('line one\nline two', '', 100), 'line one line two');
 });
 
 test('backup sanitization preserves both AI service secret exclusions', () => {
