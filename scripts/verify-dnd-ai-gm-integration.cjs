@@ -103,7 +103,8 @@ async function main() {
   assert.equal(preview.disclosure.automaticDiscordPublication, false);
   assert.equal(preview.disclosure.automaticRolls, false);
   const serializedPreview = JSON.stringify(preview);
-  assert.doesNotMatch(serializedPreview, /character-ai-gm|member-ai-gm|Private Player Name|Private Owner Name/);
+  assert.doesNotMatch(serializedPreview, /character-ai-gm|member-ai-gm|Private Player Name/);
+  assert.match(serializedPreview, /Private Owner Name/);
   assert.match(serializedPreview, /Vorkesh Emberforge/);
   assert.match(serializedPreview, /No sexual violence/);
 
@@ -225,6 +226,7 @@ async function main() {
     safetyLockVerified: true,
     explicitResumeVerified: true,
     protectedIdentifiersExcluded: true,
+    campaignRoleDisplayNameIncludedBySelection: true,
     automaticDesktopMutation: false,
     automaticDiscordPublication: false,
     automaticRolls: false
