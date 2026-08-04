@@ -11,6 +11,7 @@ on:
       - 'shared/dnd-ai-*.cjs'
       - 'scripts/verify-dnd-ai-integration.cjs'
       - 'scripts/verify-dnd-ai-maps-integration.cjs'
+      - 'scripts/verify-dnd-ai-gm-integration.cjs'
       - '.github/workflows/dnd-ai-integration.yml'
   workflow_dispatch:
 
@@ -164,4 +165,78 @@ jobs:
         run: |
           if [ -f "$RUNNER_TEMP/khaos-ai-map.pid" ]; then
             kill "$(cat "$RUNNER_TEMP/khaos-ai-map.pid")" 2>/dev/null || true
+          fi
+
+  ai-gm-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      KHAOS_AI_ENDPOINT: http://127.0.0.1:8789
+      KHAOS_AI_GM_COMMIT: 5524dcbda06c70a51774bdc843a2f9e739f7ba50
+    steps:
+      - name: Check out Khaos Nexus desktop
+        uses: actions/checkout@v4
+
+      - name: Check out validated Khaos Nexus AI Game Master snapshot
+        uses: actions/checkout@v4
+        with:
+          repository: Khaos-Krew/Khaos-Nexus-AI
+          ref: ${{ env.KHAOS_AI_GM_COMMIT }}
+          path: ai-service
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ai-service/package-lock.json
+
+      - name: Install AI service
+        working-directory: ai-service
+        run: npm ci
+
+      - name: Start deterministic AI Game Master service
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/khaos-ai-gm-data"
+          (
+            cd ai-service
+            AI_PROVIDER=mock \
+            PORT=8789 \
+            DATA_DIR="$RUNNER_TEMP/khaos-ai-gm-data" \
+            CORS_ORIGIN=http://localhost \
+            npm start >"$RUNNER_TEMP/khaos-ai-gm.log" 2>&1
+          ) &
+          echo $! >"$RUNNER_TEMP/khaos-ai-gm.pid"
+
+      - name: Wait for AI Game Master service health
+        shell: bash
+        run: |
+          for attempt in {1..30}; do
+            if curl --fail --silent "$KHAOS_AI_ENDPOINT/health" >"$RUNNER_TEMP/khaos-ai-gm-health.json"; then
+              cat "$RUNNER_TEMP/khaos-ai-gm-health.json"
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/khaos-ai-gm.log" || true
+          exit 1
+
+      - name: Verify explicit AI Game Master session contract
+        run: node scripts/verify-dnd-ai-gm-integration.cjs
+
+      - name: Upload AI Game Master service log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dnd-ai-gm-integration-log
+          path: ${{ runner.temp }}/khaos-ai-gm.log
+          if-no-files-found: ignore
+
+      - name: Stop AI Game Master service
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/khaos-ai-gm.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/khaos-ai-gm.pid")" 2>/dev/null || true
           fi
