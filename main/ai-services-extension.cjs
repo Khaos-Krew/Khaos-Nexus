@@ -14,6 +14,7 @@ const {
   AI_CORE_CAPABILITIES_PATH,
   clone,
   cleanText,
+  redactServiceSecret,
   normalizeServiceEndpoint,
   normalizeServiceToken,
   sanitizeAiServiceBackupSecrets,
@@ -50,12 +51,10 @@ function assertOwner(action) {
 }
 
 function safeError(error, token = '') {
-  const secret = String(token || '');
-  const replace = (value) => cleanText(String(value || '').split(secret).join('[REDACTED]'), 1000);
   return {
     code: cleanText(error?.code || 'AI_SERVICE_REQUEST_FAILED', 100),
     status: Number(error?.status || 0) || null,
-    message: replace(error?.message || error || 'AI service request failed.')
+    message: redactServiceSecret(error?.message || error || 'AI service request failed.', token, 1000)
   };
 }
 
@@ -242,7 +241,7 @@ async function jsonRequest(endpoint, pathname, token = '', fetchImpl = global.fe
   try {
     response = await fetchImpl(`${normalizedEndpoint}${pathname}`, { method: 'GET', headers, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   } catch (error) {
-    throw Object.assign(new Error(cleanText(error?.message || 'AI service connection failed.', 800)), { code: error?.name === 'TimeoutError' ? 'AI_SERVICE_TIMEOUT' : 'AI_SERVICE_NETWORK_ERROR' });
+    throw Object.assign(new Error(redactServiceSecret(error?.message || 'AI service connection failed.', token, 800)), { code: error?.name === 'TimeoutError' ? 'AI_SERVICE_TIMEOUT' : 'AI_SERVICE_NETWORK_ERROR' });
   }
   const declaredLength = Number(response.headers?.get?.('content-length') || 0);
   if (declaredLength > MAX_RESPONSE_CHARACTERS) throw Object.assign(new Error('AI service returned an oversized response.'), { code: 'AI_SERVICE_RESPONSE_TOO_LARGE', status: response.status });
@@ -253,7 +252,7 @@ async function jsonRequest(endpoint, pathname, token = '', fetchImpl = global.fe
   catch { throw Object.assign(new Error('AI service returned invalid JSON.'), { code: 'AI_SERVICE_INVALID_JSON', status: response.status }); }
   if (!response.ok) {
     const message = typeof payload?.error === 'string' ? payload.error : payload?.error?.message || `AI service returned HTTP ${response.status}.`;
-    throw Object.assign(new Error(cleanText(message, 800)), { code: cleanText(payload?.error?.code || 'AI_SERVICE_HTTP_ERROR', 100), status: response.status });
+    throw Object.assign(new Error(redactServiceSecret(message, token, 800)), { code: cleanText(payload?.error?.code || 'AI_SERVICE_HTTP_ERROR', 100), status: response.status });
   }
   return payload;
 }
