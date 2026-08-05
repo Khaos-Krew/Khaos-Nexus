@@ -109,7 +109,27 @@ jobs:
         run: npm run check
 
       - name: Verify diagnostics runtime
-        run: node scripts/verify-diagnostics-runtime-release.cjs
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          @'
+          'use strict';
+          const originalFetch = global.fetch;
+          global.fetch = (url, options = {}) => {
+            const target = String(url);
+            const headers = new Headers(options.headers || {});
+            if (/^https:\/\/(api\.)?github\.com\//i.test(target)) {
+              headers.set('authorization', `Bearer ${process.env.GH_TOKEN}`);
+              headers.set('x-github-api-version', '2022-11-28');
+            }
+            return originalFetch(url, { ...options, headers });
+          };
+          require('./scripts/verify-diagnostics-runtime-release.cjs');
+          '@ | Set-Content -LiteralPath .github-diagnostics-auth.cjs -Encoding utf8
+          node .github-diagnostics-auth.cjs
+          if ($LASTEXITCODE -ne 0) { throw "Authenticated diagnostics runtime verification failed." }
+          Remove-Item -LiteralPath .github-diagnostics-auth.cjs -Force -ErrorAction SilentlyContinue
 
       - name: Build Windows installer and portable executable
         run: npm run dist:win
