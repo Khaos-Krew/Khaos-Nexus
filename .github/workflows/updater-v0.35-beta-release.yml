@@ -1,0 +1,238 @@
+# Protected publication activation for v0.35.0-B.
+name: Approved v0.35.0-B Beta Updater
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - "release/v0.35.0-B"
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: approved-updater-v0.35.0-B
+  cancel-in-progress: true
+
+jobs:
+  publish-windows-updater-beta:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'publish/v0.35.0-B' &&
+      github.event.pull_request.base.ref == 'release/v0.35.0-B'
+    runs-on: windows-latest
+    timeout-minutes: 50
+    env:
+      APPROVED_APP_SHA: 22aafbd8f0dfcadc0c574b19e1436efffbc2d083
+      DND_AI_COMMIT: 19c718917377d6148f9baaee8ac8dcb937692f32
+      AI_CORE_COMMIT: 300c653e5643e0ee2e15590f8cb53e30ee7a79ff
+    steps:
+      - name: Check out exact same-repository publisher
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate workflow-only publisher lineage
+        shell: pwsh
+        run: |
+          $head = git rev-parse HEAD
+          if ($head -ne '${{ github.event.pull_request.head.sha }}') { throw "Head checkout mismatch: $head" }
+          git merge-base --is-ancestor $env:APPROVED_APP_SHA HEAD
+          if ($LASTEXITCODE -ne 0) { throw "Approved application source is not an ancestor of the publisher head." }
+          $changed = @(git diff --name-only "$env:APPROVED_APP_SHA..HEAD")
+          if ($changed.Count -ne 1 -or $changed[0] -ne '.github/workflows/updater-v0.35-beta-release.yml') {
+            throw "Only the protected publisher workflow may differ from the approved application source. Changed: $($changed -join ', ')"
+          }
+
+      - name: Check out D&D AI snapshot
+        uses: actions/checkout@v4
+        with:
+          repository: Khaos-Krew/Khaos-Nexus-AI
+          ref: ${{ env.DND_AI_COMMIT }}
+          path: .ai-sources/dnd-ai
+
+      - name: Check out Nexus AI Core snapshot
+        uses: actions/checkout@v4
+        with:
+          repository: Khaos-Krew/Khaos-Nexus-AI-Core
+          ref: ${{ env.AI_CORE_COMMIT }}
+          path: .ai-sources/ai-core
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install desktop dependencies
+        run: npm ci
+
+      - name: Install D&D AI production dependencies
+        working-directory: .ai-sources/dnd-ai
+        run: npm ci --omit=dev
+
+      - name: Install Nexus AI Core production dependencies
+        working-directory: .ai-sources/ai-core
+        run: npm ci --omit=dev
+
+      - name: Build and verify bundled AI resources
+        run: node scripts/build-bundled-ai-runtimes.cjs
+
+      - name: Freeze v0.35.0-B release identity
+        run: node scripts/freeze-v0.35-ui-refresh.cjs
+
+      - name: Validate frozen release identity
+        shell: pwsh
+        run: |
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          if ([string]$package.version -ne '0.35.0') { throw "Internal updater version must be 0.35.0." }
+          if ([string]$package.khaosRelease.displayVersion -ne '0.35.0-B') { throw "Display version mismatch." }
+          if ([string]$package.khaosRelease.artifactVersion -ne '0.35.0-B') { throw "Artifact version mismatch." }
+          if ([string]$package.khaosRelease.publicTag -ne 'v0.35.0-B') { throw "Public tag mismatch." }
+          if ([string]$package.khaosRelease.channel -ne 'beta') { throw "Release channel mismatch." }
+          if ([string]$package.khaosRelease.updaterVersion -ne '0.35.0') { throw "Updater version mismatch." }
+          if ([string]$package.khaosRelease.rollbackTag -ne 'v0.32.0-B') { throw "Rollback identity mismatch." }
+          if ([string]$package.build.publish[0].releaseType -ne 'release') { throw "Updater-visible beta must use the release feed." }
+          if ([string]$package.build.releaseInfo.releaseNotesFile -ne 'release-notes/v0.35.0.md') { throw "Release notes path mismatch." }
+          $notes = Get-Content release-notes/v0.35.0.md -Raw
+          if ($notes -notmatch 'Android Companion and Mobile Gateway remain paused and excluded') { throw "Required mobile exclusion statement is missing." }
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Run complete test suite
+        run: npm test
+
+      - name: Run syntax and package checks
+        run: npm run check
+
+      - name: Verify diagnostics runtime
+        run: node scripts/verify-diagnostics-runtime-release.cjs
+
+      - name: Build Windows installer and portable executable
+        run: npm run dist:win
+
+      - name: Require packaged full startup readiness
+        shell: pwsh
+        run: ./scripts/smoke-packaged-startup.ps1
+
+      - name: Verify updater assets, bundled AIs, and identity
+        shell: pwsh
+        run: |
+          $installer = 'dist/Khaos-Nexus-Setup-0.35.0-B-x64.exe'
+          $portable = 'dist/Khaos-Nexus-Portable-0.35.0-B-x64.exe'
+          $blockmap = 'dist/Khaos-Nexus-Setup-0.35.0-B-x64.exe.blockmap'
+          $latest = 'dist/latest.yml'
+          foreach ($file in @($installer,$portable)) {
+            if (-not (Test-Path -LiteralPath $file)) { throw "Required executable was not generated: $file" }
+            if ((Get-Item -LiteralPath $file).Length -le 1MB) { throw "Generated executable is unexpectedly small: $file" }
+          }
+          foreach ($file in @($blockmap,$latest)) {
+            if (-not (Test-Path -LiteralPath $file)) { throw "Required updater metadata was not generated: $file" }
+            if ((Get-Item -LiteralPath $file).Length -le 0) { throw "Generated updater metadata is empty: $file" }
+          }
+          $metadata = Get-Content -LiteralPath $latest -Raw
+          if ($metadata -notmatch '(?m)^version:\s*0\.35\.0\s*$') { throw "The updater feed does not advertise internal version 0.35.0." }
+          if ($metadata -notmatch 'Khaos-Nexus-Setup-0\.35\.0-B-x64\.exe') { throw "The updater feed does not reference the v0.35.0-B installer." }
+          $unpacked = Join-Path $PWD 'dist/win-unpacked/resources/ai-services'
+          foreach ($service in @('dnd-ai','ai-core')) {
+            $manifest = Join-Path $unpacked "$service/bundle-manifest.json"
+            if (-not (Test-Path -LiteralPath $manifest)) { throw "Missing packaged AI manifest: $manifest" }
+          }
+          $androidAssets = Get-ChildItem dist -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -eq '.apk' -or $_.Name -match 'Android|Mobile' }
+          if ($androidAssets) { throw "Android Companion or Mobile Gateway assets were generated in the Windows package." }
+          node -e "const asar=require('@electron/asar'); const pkg=JSON.parse(asar.extractFile('dist/win-unpacked/resources/app.asar','package.json').toString('utf8')); if(pkg.version!=='0.35.0') throw new Error('Packaged updater version is '+pkg.version); if(pkg.khaosRelease?.displayVersion!=='0.35.0-B') throw new Error('Packaged display label is '+pkg.khaosRelease?.displayVersion); console.log('Packaged identity verified:',pkg.version,pkg.khaosRelease.displayVersion);"
+          if ($LASTEXITCODE -ne 0) { throw "Packaged application identity verification failed." }
+          @($installer,$blockmap,$portable,$latest) | ForEach-Object {
+            $hash = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $([System.IO.Path]::GetFileName($_))"
+          } | Set-Content -Path release-checksums.txt -Encoding utf8
+
+      - name: Publish updater-visible v0.35.0-B beta
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $tag = 'v0.35.0-B'
+          $notesPath = 'release-notes/v0.35.0.md'
+          $assets = @(
+            'dist/Khaos-Nexus-Setup-0.35.0-B-x64.exe',
+            'dist/Khaos-Nexus-Setup-0.35.0-B-x64.exe.blockmap',
+            'dist/Khaos-Nexus-Portable-0.35.0-B-x64.exe',
+            'dist/latest.yml',
+            'release-checksums.txt'
+          )
+          gh release view $tag --json tagName,targetCommitish *> $null
+          if ($LASTEXITCODE -eq 0) {
+            $ref = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$tag" | ConvertFrom-Json
+            if ([string]$ref.object.sha -ne $env:RELEASE_SHA) { throw "Existing tag $tag does not resolve to the approved publisher SHA." }
+            foreach ($asset in $assets) {
+              gh release upload $tag $asset --clobber
+              if ($LASTEXITCODE -ne 0) { throw "Failed to upload verified asset $asset." }
+            }
+            gh release edit $tag --title 'Khaos Nexus v0.35.0-B — Navigation and Visual Overhaul' --notes-file $notesPath --draft=false --prerelease=false --latest
+          } else {
+            gh release create $tag --target $env:RELEASE_SHA --title 'Khaos Nexus v0.35.0-B — Navigation and Visual Overhaul' --notes-file $notesPath --latest @assets
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Beta release publication failed." }
+
+      - name: Verify public tag, latest channel, and assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $tag = 'v0.35.0-B'
+          $ref = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$tag" | ConvertFrom-Json
+          if ([string]$ref.object.sha -ne $env:RELEASE_SHA) { throw "Published tag does not resolve to approved publisher SHA." }
+          $release = gh release view $tag --json isDraft,isPrerelease,assets | ConvertFrom-Json
+          if ($release.isDraft) { throw "Published beta is still a draft." }
+          if ($release.isPrerelease) { throw "Updater-visible beta was hidden from installed clients." }
+          $latest = gh api "repos/$env:GITHUB_REPOSITORY/releases/latest" | ConvertFrom-Json
+          if ([string]$latest.tag_name -ne $tag) { throw "v0.35.0-B is not the current updater release." }
+          $names = @($release.assets | ForEach-Object { $_.name })
+          foreach ($name in @('Khaos-Nexus-Setup-0.35.0-B-x64.exe','Khaos-Nexus-Setup-0.35.0-B-x64.exe.blockmap','Khaos-Nexus-Portable-0.35.0-B-x64.exe','latest.yml','release-checksums.txt')) {
+            if ($names -notcontains $name) { throw "Published beta is missing $name." }
+          }
+
+      - name: Upload publication evidence artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Khaos-Nexus-v0.35.0-B-Updater
+          path: |
+            dist/Khaos-Nexus-Setup-0.35.0-B-x64.exe
+            dist/Khaos-Nexus-Setup-0.35.0-B-x64.exe.blockmap
+            dist/Khaos-Nexus-Portable-0.35.0-B-x64.exe
+            dist/latest.yml
+            release-checksums.txt
+          if-no-files-found: error
+
+      - name: Record publication evidence
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $checksums = Get-Content -LiteralPath release-checksums.txt -Raw
+          $body = @"
+          ## v0.35.0-B updater publication complete
+
+          - Public tag/release: ``v0.35.0-B``
+          - Approved application source: ``22aafbd8f0dfcadc0c574b19e1436efffbc2d083``
+          - Publisher/tag source: ``${{ github.event.pull_request.head.sha }}``
+          - Immediate rollback: ``v0.32.0-B``
+          - Packaged startup: passed
+          - Bundled D&D AI: verified
+          - Bundled Nexus AI Core: verified
+          - Android Companion and Mobile Gateway: paused and excluded from the Windows package
+
+          ### SHA-256
+
+          ``````text
+          $checksums
+          ``````
+          "@
+          gh issue comment 196 --body $body
