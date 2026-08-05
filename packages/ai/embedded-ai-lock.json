@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "services": [
+    {
+      "id": "dnd-ai",
+      "directory": "packages/ai/dnd-ai",
+      "repository": "Khaos-Krew/Khaos-Nexus-AI",
+      "commit": "19c718917377d6148f9baaee8ac8dcb937692f32",
+      "version": "0.12.1",
+      "entry": "src/index.js",
+      "fileCount": 93,
+      "totalBytes": 639839,
+      "snapshotSha256": "c5f5afc5cde427dcf0011f2c3a7b2eba963183cd7e94abe710834ca819abca9f"
+    },
+    {
+      "id": "ai-core",
+      "directory": "packages/ai/ai-core",
+      "repository": "Khaos-Krew/Khaos-Nexus-AI-Core",
+      "commit": "300c653e5643e0ee2e15590f8cb53e30ee7a79ff",
+      "version": "0.7.0",
+      "entry": "src/sidecar.js",
+      "fileCount": 46,
+      "totalBytes": 244632,
+      "snapshotSha256": "c6f35502aad485b1e7e639a6db50b5a8872f97866391fe271452853d83d2506e"
+    }
+  ]
+}
