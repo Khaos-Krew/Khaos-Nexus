@@ -19,11 +19,15 @@ test('Nexus AI workspace loads real bundled service controls after the UI refres
   assert.match(controls, /data-ai-action="stop"/);
 });
 
-test('AI lifecycle buttons invoke the existing main-process runtime supervisor', () => {
+test('AI lifecycle buttons invoke only allowlisted runtime supervisor channels', () => {
   const controls = read('renderer/ai-runtime-controls-hotfix.js');
   const runtime = read('main/bundled-ai-runtimes-extension.cjs');
+  assert.match(controls, /VALID_ACTIONS = new Set\(\['start', 'restart', 'stop'\]\)/);
+  assert.match(controls, /VALID_SERVICES = new Set\(\['dnd', 'core', 'all'\]\)/);
   assert.match(controls, /window\.khaos\.invoke\(`ai:runtimes-\$\{action\}`/);
   assert.match(controls, /window\.khaos\.invoke\('ai:runtimes-status'\)/);
+  assert.match(runtime, /function serviceKey\(value, allowAll = false\)/);
+  assert.match(runtime, /function actionKey\(value\)/);
   for (const channel of ['status', 'start', 'stop', 'restart']) {
     assert.match(runtime, new RegExp(`ai:runtimes-${channel}`));
   }
@@ -34,4 +38,23 @@ test('AI start action stays in the Nexus AI workspace instead of routing to Sett
   assert.match(controls, /heroButton\.removeAttribute\('data-khaos-open'\)/);
   assert.match(controls, /heroButton\.dataset\.aiService = 'all'/);
   assert.doesNotMatch(controls, /data-view-link="settings"/);
+});
+
+test('AI lifecycle renderer retries and polling are bounded', () => {
+  const controls = read('renderer/ai-runtime-controls-hotfix.js');
+  assert.match(controls, /MAX_INSTALL_ATTEMPTS = 300/);
+  assert.match(controls, /installAttempts >= MAX_INSTALL_ATTEMPTS/);
+  assert.match(controls, /POLL_INTERVAL_MS = 5000/);
+  assert.match(controls, /if \(pollTimer \|\| document\.hidden\) return/);
+  assert.match(controls, /document\.addEventListener\('visibilitychange', handleVisibilityChange\)/);
+  assert.match(controls, /document\.removeEventListener\('visibilitychange', handleVisibilityChange\)/);
+  assert.doesNotMatch(controls, /setInterval\(refresh, 2500\)/);
+});
+
+test('Start All and service controls share one synchronized busy and runtime state', () => {
+  const controls = read('renderer/ai-runtime-controls-hotfix.js');
+  assert.match(controls, /document\.querySelectorAll\('\[data-ai-action\]\[data-ai-service\]'\)/);
+  assert.match(controls, /if \(service === 'all'\)/);
+  assert.match(controls, /states\.every\(\(state\) => ACTIVE_STATES\.has\(state\)\)/);
+  assert.match(controls, /button\.setAttribute\('aria-busy', busy \? 'true' : 'false'\)/);
 });

@@ -21,7 +21,8 @@ test('AI Core sidecar uses dynamic loopback port, per-launch secrets, and IPC sh
   assert.match(source, /NEXUS_AI_CORE_SERVICE_TOKEN/);
   assert.match(source, /NEXUS_AI_CORE_STARTUP_NONCE/);
   assert.match(source, /NEXUS_AI_CORE_PARENT_PID/);
-  assert.match(source, /stdio:\s*key === 'core' \? \['ignore', log, log, 'ipc'\]/);
+  assert.match(source, /stdio:\s*key === 'core' \? \['ignore', descriptor, descriptor, 'ipc'\]/);
+  assert.match(source, /closeDescriptor\(descriptor\)/);
   assert.match(source, /nexus-ai-core\.shutdown/);
   assert.doesNotMatch(source, /\/shutdown|http[^\n]*shutdown/i);
 });
