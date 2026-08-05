@@ -5,9 +5,12 @@ on:
     paths:
       - 'main/bundled-ai-runtimes-extension.cjs'
       - 'scripts/build-bundled-ai-runtimes.cjs'
+      - 'scripts/materialize-assets.cjs'
+      - 'scripts/verify-packaged-ai-runtimes.cjs'
       - 'scripts/freeze-v0.33-bundled-ai.cjs'
       - 'scripts/freeze-v0.35-ui-refresh.cjs'
       - 'test/bundled-ai-runtimes.test.cjs'
+      - 'test/bundled-ai-packaging.test.cjs'
       - 'release-notes/v0.33.0.md'
       - 'release-notes/v0.35.0.md'
       - '.github/workflows/bundled-ai-runtimes.yml'
@@ -75,7 +78,10 @@ jobs:
       - name: Build installer and portable executable
         run: npm run dist:win
 
-      - name: Verify bundled resources and updater files
+      - name: Verify all packaged AI runtime files
+        run: node scripts/verify-packaged-ai-runtimes.cjs
+
+      - name: Verify updater files
         shell: pwsh
         run: |
           $installer = Get-ChildItem dist -Filter 'Khaos-Nexus-Setup-0.35.0-B-x64.exe' | Select-Object -First 1
@@ -83,11 +89,6 @@ jobs:
           $latest = Get-ChildItem dist -Filter 'latest.yml' | Select-Object -First 1
           $blockmap = Get-ChildItem dist -Filter '*.blockmap' | Select-Object -First 1
           if (-not $installer -or -not $portable -or -not $latest -or -not $blockmap) { throw 'Required updater artifacts are missing.' }
-          $unpacked = Join-Path $PWD 'dist/win-unpacked/resources/ai-services'
-          foreach ($service in @('dnd-ai','ai-core')) {
-            $manifest = Join-Path $unpacked "$service/bundle-manifest.json"
-            if (-not (Test-Path $manifest)) { throw "Missing packaged manifest: $manifest" }
-          }
           $latestText = Get-Content $latest.FullName -Raw
           if ($latestText -notmatch 'version:\s*0\.35\.0') { throw 'latest.yml does not advertise v0.35.0.' }
           if ($latestText -notmatch 'Khaos-Nexus-Setup-0\.35\.0-B-x64\.exe') { throw 'latest.yml does not reference the v0.35.0-B installer.' }
