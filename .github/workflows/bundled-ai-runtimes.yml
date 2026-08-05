@@ -3,17 +3,22 @@ name: Bundled AI Runtimes
 on:
   pull_request:
     paths:
+      - 'packages/ai/**'
+      - 'config/embedded-ai-sources.json'
       - 'main/bundled-ai-runtimes-extension.cjs'
       - 'scripts/build-bundled-ai-runtimes.cjs'
+      - 'scripts/sync-embedded-ai-sources.cjs'
+      - 'scripts/verify-embedded-ai-sources.cjs'
       - 'scripts/materialize-assets.cjs'
       - 'scripts/verify-packaged-ai-runtimes.cjs'
       - 'scripts/freeze-v0.33-bundled-ai.cjs'
       - 'scripts/freeze-v0.35-ui-refresh.cjs'
+      - 'scripts/smoke-packaged-startup.ps1'
       - 'test/bundled-ai-runtimes.test.cjs'
       - 'test/bundled-ai-packaging.test.cjs'
-      - 'release-notes/v0.33.0.md'
-      - 'release-notes/v0.35.0.md'
+      - 'test/embedded-ai-sources.test.cjs'
       - '.github/workflows/bundled-ai-runtimes.yml'
+      - '.github/workflows/embed-ai-sources.yml'
       - 'main/entry.cjs'
       - 'package.json'
   workflow_dispatch:
@@ -21,30 +26,17 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: bundled-ai-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  windows-node-free-package:
+  windows-embedded-source-package:
     runs-on: windows-latest
-    timeout-minutes: 35
-    env:
-      DND_AI_COMMIT: 19c718917377d6148f9baaee8ac8dcb937692f32
-      AI_CORE_COMMIT: 300c653e5643e0ee2e15590f8cb53e30ee7a79ff
+    timeout-minutes: 60
     steps:
-      - name: Check out Khaos Nexus desktop
+      - name: Check out Khaos Nexus desktop with embedded AI source
         uses: actions/checkout@v4
-
-      - name: Check out D&D AI snapshot
-        uses: actions/checkout@v4
-        with:
-          repository: Khaos-Krew/Khaos-Nexus-AI
-          ref: ${{ env.DND_AI_COMMIT }}
-          path: .ai-sources/dnd-ai
-
-      - name: Check out Nexus AI Core snapshot
-        uses: actions/checkout@v4
-        with:
-          repository: Khaos-Krew/Khaos-Nexus-AI-Core
-          ref: ${{ env.AI_CORE_COMMIT }}
-          path: .ai-sources/ai-core
 
       - name: Set up build Node.js
         uses: actions/setup-node@v4
@@ -55,48 +47,74 @@ jobs:
       - name: Install desktop dependencies
         run: npm ci
 
-      - name: Install D&D AI production dependencies
-        working-directory: .ai-sources/dnd-ai
-        run: npm ci --omit=dev
+      - name: Verify embedded source integrity
+        run: node scripts/verify-embedded-ai-sources.cjs
 
-      - name: Install AI Core production dependencies
-        working-directory: .ai-sources/ai-core
-        run: npm ci --omit=dev
+      - name: Validate embedded service source
+        shell: pwsh
+        run: |
+          npm run build --prefix packages/ai/dnd-ai
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build --prefix packages/ai/ai-core
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Build and verify bundled service resources
-        run: node scripts/build-bundled-ai-runtimes.cjs
-
-      - name: Freeze v0.35.0-B candidate metadata
+      - name: Freeze v0.35.0-B integration candidate metadata
         run: node scripts/freeze-v0.35-ui-refresh.cjs
 
-      - name: Run repository tests
-        run: npm test
-
-      - name: Run repository checks
-        run: npm run check
+      - name: Run complete repository validation
+        shell: pwsh
+        run: |
+          npm audit --omit=dev --audit-level=high
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build installer and portable executable
         run: npm run dist:win
 
-      - name: Verify all packaged AI runtime files
+      - name: Verify all unpacked AI runtime files
         run: node scripts/verify-packaged-ai-runtimes.cjs
+
+      - name: Require packaged startup readiness
+        shell: pwsh
+        run: ./scripts/smoke-packaged-startup.ps1
+
+      - name: Silently install and verify all installed AI runtime files
+        shell: pwsh
+        run: |
+          $installer = Resolve-Path 'dist/Khaos-Nexus-Setup-0.35.0-B-x64.exe'
+          $installRoot = 'C:\khaos-nexus-embedded-ai-pr-ci'
+          Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue
+          $process = Start-Process -FilePath $installer -ArgumentList '/S', "/D=$installRoot" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Silent installer failed with exit code $($process.ExitCode)." }
+          node scripts/verify-packaged-ai-runtimes.cjs (Join-Path $installRoot 'resources\ai-services')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $uninstaller = Join-Path $installRoot 'Uninstall Khaos Nexus.exe'
+          if (Test-Path -LiteralPath $uninstaller) {
+            Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait | Out-Null
+          }
+          Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue
 
       - name: Verify updater files
         shell: pwsh
         run: |
-          $installer = Get-ChildItem dist -Filter 'Khaos-Nexus-Setup-0.35.0-B-x64.exe' | Select-Object -First 1
-          $portable = Get-ChildItem dist -Filter 'Khaos-Nexus-Portable-0.35.0-B-x64.exe' | Select-Object -First 1
-          $latest = Get-ChildItem dist -Filter 'latest.yml' | Select-Object -First 1
-          $blockmap = Get-ChildItem dist -Filter '*.blockmap' | Select-Object -First 1
-          if (-not $installer -or -not $portable -or -not $latest -or -not $blockmap) { throw 'Required updater artifacts are missing.' }
+          $installer = Get-Item 'dist/Khaos-Nexus-Setup-0.35.0-B-x64.exe'
+          $portable = Get-Item 'dist/Khaos-Nexus-Portable-0.35.0-B-x64.exe'
+          $latest = Get-Item 'dist/latest.yml'
+          $blockmap = Get-Item 'dist/Khaos-Nexus-Setup-0.35.0-B-x64.exe.blockmap'
+          foreach ($item in @($installer, $portable, $latest, $blockmap)) {
+            if ($item.Length -le 0) { throw "Required updater artifact is empty: $($item.FullName)" }
+          }
           $latestText = Get-Content $latest.FullName -Raw
-          if ($latestText -notmatch 'version:\s*0\.35\.0') { throw 'latest.yml does not advertise v0.35.0.' }
+          if ($latestText -notmatch '(?m)^version:\s*0\.35\.0\s*$') { throw 'latest.yml does not advertise v0.35.0.' }
           if ($latestText -notmatch 'Khaos-Nexus-Setup-0\.35\.0-B-x64\.exe') { throw 'latest.yml does not reference the v0.35.0-B installer.' }
 
-      - name: Upload Node-free Windows candidate
+      - name: Upload embedded-source Windows candidate
         uses: actions/upload-artifact@v4
         with:
-          name: Khaos-Nexus-Windows-v0.35.0-B
+          name: Khaos-Nexus-Windows-embedded-ai
           path: |
             dist/Khaos-Nexus-Setup-0.35.0-B-x64.exe
             dist/Khaos-Nexus-Portable-0.35.0-B-x64.exe

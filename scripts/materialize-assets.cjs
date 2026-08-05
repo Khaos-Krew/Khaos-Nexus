@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { buildBundledAiRuntimes } = require('./build-bundled-ai-runtimes.cjs');
 
 const AI_SERVICE_IDS = Object.freeze(['dnd-ai', 'ai-core']);
 
@@ -69,14 +70,20 @@ function materializeAssets(root) {
   }
 }
 
-function main() {
-  const root = path.resolve(__dirname, '..');
+function prepareApplicationAssets(root) {
+  const bundle = buildBundledAiRuntimes(root);
   materializeAssets(root);
   const inspection = configureBundledAiResources(root);
-  const suffix = inspection.status === 'complete'
-    ? ' Bundled AI services will be included.'
-    : ' No bundled AI runtime directory is present for this build.';
-  console.log(`Application assets are ready.${suffix}`);
+  if (inspection.status !== 'complete') {
+    throw new Error('Embedded AI source build did not produce both required service bundles.');
+  }
+  return { bundle, inspection };
+}
+
+function main() {
+  const root = path.resolve(__dirname, '..');
+  const result = prepareApplicationAssets(root);
+  console.log(`Application assets are ready. ${result.bundle.assignments.length} embedded AI services will be included.`);
 }
 
 if (require.main === module) main();
@@ -85,5 +92,6 @@ module.exports = {
   AI_SERVICE_IDS,
   configureBundledAiResources,
   inspectBundledAiResources,
-  materializeAssets
+  materializeAssets,
+  prepareApplicationAssets
 };
