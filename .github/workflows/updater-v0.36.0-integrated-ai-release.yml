@@ -1,0 +1,218 @@
+name: Approved v0.36.0 Integrated AI Release
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - "release/v0.35.0-B"
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: approved-updater-v0.36.0
+  cancel-in-progress: true
+
+jobs:
+  publish-windows-release:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'publish/v0.36.0' &&
+      github.event.pull_request.base.ref == 'release/v0.35.0-B'
+    runs-on: windows-latest
+    timeout-minutes: 75
+    env:
+      APPROVED_APP_SHA: 3ac65e24618beb112f52304a1ee502cfd16f9140
+      DND_AI_COMMIT: 19c718917377d6148f9baaee8ac8dcb937692f32
+      AI_CORE_COMMIT: 300c653e5643e0ee2e15590f8cb53e30ee7a79ff
+    steps:
+      - name: Check out exact publisher head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate workflow-only lineage
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor $env:APPROVED_APP_SHA HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Approved v0.36.0 application source is not an ancestor.' }
+          $changed = @(git diff --name-only "$env:APPROVED_APP_SHA..HEAD")
+          if ($changed.Count -ne 1 -or $changed[0] -ne '.github/workflows/updater-v0.36.0-integrated-ai-release.yml') {
+            throw "Publisher may differ only by its workflow. Changed: $($changed -join ', ')"
+          }
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install desktop dependencies
+        run: npm ci
+
+      - name: Verify authoritative embedded AI source
+        shell: pwsh
+        run: |
+          node scripts/verify-embedded-ai-sources.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build --prefix packages/ai/dnd-ai
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build --prefix packages/ai/ai-core
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run complete validation before release mutation
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npm audit --omit=dev --audit-level=high
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          @'
+          'use strict';
+          const originalFetch = global.fetch;
+          global.fetch = (url, options = {}) => {
+            const headers = new Headers(options.headers || {});
+            if (/^https:\/\/(api\.)?github\.com\//i.test(String(url))) {
+              headers.set('authorization', `Bearer ${process.env.GH_TOKEN}`);
+              headers.set('x-github-api-version', '2022-11-28');
+            }
+            return originalFetch(url, { ...options, headers });
+          };
+          require('./scripts/verify-diagnostics-runtime-release.cjs');
+          '@ | Set-Content .github-diagnostics-auth.cjs -Encoding utf8
+          node .github-diagnostics-auth.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Freeze v0.36.0 release identity
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-notes | Out-Null
+          @'
+          # Khaos Nexus v0.36.0 — Integrated AI Operations
+
+          This release makes the Khaos Nexus desktop repository the authoritative production source for D&D AI and Nexus AI Core. Both services remain isolated Electron-embedded Node sidecars, but normal app start, packaging, installation, and updates now build from the source committed with the desktop application instead of relying on release-time external repository checkouts.
+
+          The dedicated AI repositories remain available for isolated bug reproduction, service-specific testing, experiments, and candidate fixes. A fix reaches production only after its exact green commit is synchronized into the desktop repository, provenance-locked, reviewed, and validated through the full Windows installer gates.
+
+          The release also includes the v0.36 Nexus AI operations integration: shared scheduler coordination, maintenance advisory workflows, monitored operational health, and controlled Discord operations while preserving desktop ownership, service-token boundaries, D&D isolation, and advisory-only maintenance authority.
+
+          Every embedded source snapshot is checked for exact repository, commit, version, entrypoint, file count, byte count, and SHA-256 integrity. The resulting runtime manifests are verified in the unpacked package and again after a clean silent Windows installation.
+
+          Android Companion and Mobile Gateway remain paused and excluded under ADR-008. No APK or Android setup link is included.
+          '@ | Set-Content release-notes/v0.36.0.md -Encoding utf8
+          $p = Get-Content package.json -Raw | ConvertFrom-Json
+          $p.version = '0.36.0'
+          $p.khaosRelease.displayVersion = '0.36.0'
+          $p.khaosRelease.artifactVersion = '0.36.0'
+          $p.khaosRelease.publicTag = 'v0.36.0'
+          $p.khaosRelease.channel = 'beta'
+          $p.khaosRelease.updaterVersion = '0.36.0'
+          $p.khaosRelease.rollbackTag = 'v0.35.3'
+          $p.build.releaseInfo.releaseName = 'Khaos Nexus v0.36.0 — Integrated AI Operations'
+          $p.build.releaseInfo.releaseNotesFile = 'release-notes/v0.36.0.md'
+          $p.build.nsis.artifactName = 'Khaos-Nexus-Setup-0.36.0-${arch}.${ext}'
+          $p.build.portable.artifactName = 'Khaos-Nexus-Portable-0.36.0-${arch}.${ext}'
+          $p | ConvertTo-Json -Depth 30 | Set-Content package.json -Encoding utf8
+
+      - name: Build Windows updater assets from embedded source
+        run: npm run dist:win
+
+      - name: Verify unpacked packaged AI resources
+        run: node scripts/verify-packaged-ai-runtimes.cjs
+
+      - name: Require packaged startup readiness
+        shell: pwsh
+        run: ./scripts/smoke-packaged-startup.ps1
+
+      - name: Silently install and verify installed AI resources
+        shell: pwsh
+        run: |
+          $installer = Resolve-Path 'dist/Khaos-Nexus-Setup-0.36.0-x64.exe'
+          $installRoot = 'C:\khaos-nexus-v0360-publisher'
+          Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue
+          $process = Start-Process -FilePath $installer -ArgumentList '/S', "/D=$installRoot" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Silent installer failed with exit code $($process.ExitCode)." }
+          $resources = Join-Path $installRoot 'resources\ai-services'
+          node scripts/verify-packaged-ai-runtimes.cjs $resources
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $uninstaller = Join-Path $installRoot 'Uninstall Khaos Nexus.exe'
+          if (Test-Path -LiteralPath $uninstaller) {
+            Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait | Out-Null
+          }
+          Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue
+
+      - name: Verify release assets and package identity
+        shell: pwsh
+        run: |
+          $files = @(
+            'dist/Khaos-Nexus-Setup-0.36.0-x64.exe',
+            'dist/Khaos-Nexus-Setup-0.36.0-x64.exe.blockmap',
+            'dist/Khaos-Nexus-Portable-0.36.0-x64.exe',
+            'dist/latest.yml'
+          )
+          foreach ($file in $files) {
+            if (-not (Test-Path -LiteralPath $file)) { throw "Missing required release asset: $file" }
+            if ((Get-Item -LiteralPath $file).Length -le 0) { throw "Empty release asset: $file" }
+          }
+          $latest = Get-Content dist/latest.yml -Raw
+          if ($latest -notmatch '(?m)^version:\s*0\.36\.0\s*$') { throw 'latest.yml does not advertise 0.36.0.' }
+          if ($latest -notmatch 'Khaos-Nexus-Setup-0\.36\.0-x64\.exe') { throw 'latest.yml installer name mismatch.' }
+          $asar = 'dist/win-unpacked/resources/app.asar'
+          node -e "const a=require('@electron/asar');const p=JSON.parse(a.extractFile('$asar','package.json'));if(p.version!=='0.36.0')throw Error('bad version');if(p.khaosRelease.rollbackTag!=='v0.35.3')throw Error('bad rollback');"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $android = Get-ChildItem dist -Recurse -File | Where-Object { $_.Extension -eq '.apk' -or $_.Name -match 'Android|Mobile' }
+          if ($android) { throw 'Mobile assets leaked into Windows package.' }
+          $files | ForEach-Object {
+            "$( (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant() )  $([IO.Path]::GetFileName($_))"
+          } | Set-Content release-checksums.txt
+
+      - name: Publish updater-visible v0.36.0
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $tag = 'v0.36.0'
+          $assets = @(
+            'dist/Khaos-Nexus-Setup-0.36.0-x64.exe',
+            'dist/Khaos-Nexus-Setup-0.36.0-x64.exe.blockmap',
+            'dist/Khaos-Nexus-Portable-0.36.0-x64.exe',
+            'dist/latest.yml',
+            'release-checksums.txt'
+          )
+          gh release create $tag --target $env:RELEASE_SHA --title 'Khaos Nexus v0.36.0 — Integrated AI Operations' --notes-file release-notes/v0.36.0.md --latest @assets
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }
+
+      - name: Verify latest release and assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $ref = gh api repos/$env:GITHUB_REPOSITORY/git/ref/tags/v0.36.0 | ConvertFrom-Json
+          if ([string]$ref.object.sha -ne $env:RELEASE_SHA) { throw 'Tag target mismatch.' }
+          $latest = gh api repos/$env:GITHUB_REPOSITORY/releases/latest | ConvertFrom-Json
+          if ([string]$latest.tag_name -ne 'v0.36.0') { throw 'v0.36.0 is not latest.' }
+          $names = @($latest.assets | ForEach-Object name)
+          foreach ($name in @('Khaos-Nexus-Setup-0.36.0-x64.exe','Khaos-Nexus-Setup-0.36.0-x64.exe.blockmap','Khaos-Nexus-Portable-0.36.0-x64.exe','latest.yml','release-checksums.txt')) {
+            if ($names -notcontains $name) { throw "Published release missing $name" }
+          }
+
+      - name: Upload publication evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: Khaos-Nexus-v0.36.0-Updater
+          path: |
+            dist/Khaos-Nexus-Setup-0.36.0-x64.exe
+            dist/Khaos-Nexus-Setup-0.36.0-x64.exe.blockmap
+            dist/Khaos-Nexus-Portable-0.36.0-x64.exe
+            dist/latest.yml
+            release-checksums.txt
+          if-no-files-found: error
