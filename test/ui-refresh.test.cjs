@@ -12,7 +12,8 @@ const legacyViews = ['dashboard', 'setup', 'servers', 'modules', 'monitor', 'log
 
 test('UI refresh loads through the existing optional renderer extension path', () => {
   const permissionState = read('renderer/permission-state.js');
-  assert.match(permissionState, /script\.src = 'ui-refresh\.js'/);
+  assert.match(permissionState, /appendScript\('ui-refresh\.js'/);
+  assert.match(permissionState, /\.then\(\(\) => appendScript\('ai-runtime-controls-hotfix\.js'/);
   assert.match(permissionState, /The legacy interface remains available/);
 });
 
