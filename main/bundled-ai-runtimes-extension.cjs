@@ -316,7 +316,7 @@ function start(inputKey) {
     clearTimer(value, 'readyTimer');
     emit();
   });
-  child.once('exit', (code, signal) => finalizeExit(key, value, child, code, signal));
+  child.once('close', (code, signal) => finalizeExit(key, value, child, code, signal));
   emit();
   return stateFor(key);
 }
@@ -327,7 +327,11 @@ async function stop(inputKey, options = {}) {
   const key = serviceKey(inputKey);
   const value = runtime.get(key);
   const child = value?.child;
-  if (!child || !childAlive(value, child)) return stateFor(key);
+  if (!child) return stateFor(key);
+  if (!childAlive(value, child)) {
+    await (value.exitPromise || Promise.resolve());
+    return stateFor(key);
+  }
   if (value.stopPromise) return value.stopPromise;
 
   const timeoutMs = Number.isFinite(Number(options.timeoutMs)) ? Math.max(100, Number(options.timeoutMs)) : STOP_TIMEOUT_MS;
@@ -388,7 +392,7 @@ async function restart(inputKey) {
 function startAll() {
   return Object.keys(services).map((key) => {
     try { return start(key); }
-    catch (error) { return recordFailure(key, error); }
+    catch (error) { return stateFor(key); }
   });
 }
 async function stopAll(options = {}) {
