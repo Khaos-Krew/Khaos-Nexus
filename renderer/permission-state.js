@@ -35,19 +35,29 @@
     document.querySelectorAll('[data-server-edit], [data-server-remove]').forEach((button) => { button.disabled = !canOwn; });
   }
 
+  function appendScript(src, errorMessage) {
+    if (document.querySelector(`script[src="${src}"]`)) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = src;
+      script.async = false;
+      script.addEventListener('load', resolve, { once: true });
+      script.addEventListener('error', () => {
+        window.khaos?.reportRendererActionError?.({
+          source: 'ui-refresh-loader',
+          operation: `load-${src}`,
+          message: errorMessage
+        });
+        reject(new Error(errorMessage));
+      }, { once: true });
+      document.body.appendChild(script);
+    });
+  }
+
   function loadUiRefresh() {
-    if (document.querySelector('script[src="ui-refresh.js"]')) return;
-    const script = document.createElement('script');
-    script.src = 'ui-refresh.js';
-    script.async = false;
-    script.addEventListener('error', () => {
-      window.khaos?.reportRendererActionError?.({
-        source: 'ui-refresh-loader',
-        operation: 'load-ui-refresh',
-        message: 'The optional Khaos Nexus UI refresh could not be loaded. The legacy interface remains available.'
-      });
-    }, { once: true });
-    document.body.appendChild(script);
+    appendScript('ui-refresh.js', 'The optional Khaos Nexus UI refresh could not be loaded. The legacy interface remains available.')
+      .then(() => appendScript('ai-runtime-controls-hotfix.js', 'The AI service lifecycle controls could not be loaded.'))
+      .catch(() => {});
   }
 
   window.khaos.onState((next) => setTimeout(() => apply(next), 0));
