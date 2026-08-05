@@ -209,6 +209,15 @@ function normalizeMonitorConfig(input = {}) {
   };
 }
 
+function publicSubscriptions(values = []) {
+  return values.map((item) => ({
+    sourceId: item.sourceId,
+    guildId: item.guildId,
+    channelId: item.channelId,
+    createdAt: item.createdAt
+  }));
+}
+
 function ensureMonitorConfig(store) {
   store.config ||= {};
   const normalized = normalizeMonitorConfig(store.config.nexusAiMonitor || {});
@@ -238,8 +247,9 @@ function patchConfigStore() {
       const current = ensureMonitorConfig(this);
       const enabled = input.enabled === undefined ? current.enabled : input.enabled === true;
       const intervalMinutes = boundedInteger(input.intervalMinutes, current.intervalMinutes, MIN_INTERVAL_MINUTES, MAX_INTERVAL_MINUTES);
+      const intervalChanged = intervalMinutes !== current.intervalMinutes;
       const nextRunAt = enabled
-        ? (current.nextRunAt || nowIso(Date.now() + intervalMinutes * 60 * 1000))
+        ? (!current.enabled || intervalChanged || !current.nextRunAt ? nowIso(Date.now() + intervalMinutes * 60 * 1000) : current.nextRunAt)
         : null;
       this.config.nexusAiMonitor = normalizeMonitorConfig({
         ...current,
@@ -336,7 +346,8 @@ function patchConfigStore() {
 
     getPublicConfig() {
       const config = super.getPublicConfig();
-      config.nexusAiMonitor = this.getNexusAiMonitorConfig();
+      const monitor = this.getNexusAiMonitorConfig();
+      config.nexusAiMonitor = { ...monitor, subscriptions: publicSubscriptions(monitor.subscriptions) };
       return config;
     }
   }
@@ -531,7 +542,7 @@ async function monitorPublicState({ includeCore = true } = {}) {
       lastSummary: config.lastSummary
     },
     sources: clone(config.sources),
-    subscriptions: clone(config.subscriptions),
+    subscriptions: clone(publicSubscriptions(config.subscriptions)),
     history: clone(config.history.slice(0, 20)),
     service,
     coreState,
@@ -694,12 +705,12 @@ async function handleBotRequest(payload = {}) {
     });
     audit('monitor.subscribe', 'success', { actorId: actor.userId, actorName: actor.username, actorRole: actor.role, sourceId: source.id, summary: 'Discord monitor subscription saved for review-only updates.' });
     broadcastMonitor();
-    result = { source, subscription, automaticPublicAnnouncement: false };
+    result = { source, subscription: publicSubscriptions([subscription])[0], automaticPublicAnnouncement: false };
   } else if (action === 'unsubscribe') {
     const removed = refs.configStore.removeNexusAiSubscription({ sourceId: input.sourceId, userId: actor.userId, channelId: actor.channelId });
     audit('monitor.unsubscribe', 'success', { actorId: actor.userId, actorName: actor.username, actorRole: actor.role, sourceId: input.sourceId, summary: `${removed.removed} Discord monitor subscription(s) removed.` });
     broadcastMonitor();
-    result = removed;
+    result = { removed: removed.removed };
   } else throw new Error('Unsupported Nexus AI Discord action.');
   audit(`discord.${action}`, 'success', { actorId: actor.userId, actorName: actor.username, actorRole: actor.role, action, summary: `Nexus AI ${action} completed.` });
   return { id, action, result };
@@ -760,7 +771,7 @@ function patchBotSupervisor() {
 function broadcastMonitor() {
   if (!refs.configStore?.getNexusAiMonitorConfig) return;
   const config = refs.configStore.getNexusAiMonitorConfig();
-  const payload = { settings: monitorPublicSettings(config), sources: config.sources, subscriptions: config.subscriptions, history: config.history.slice(0, 20) };
+  const payload = { settings: monitorPublicSettings(config), sources: config.sources, subscriptions: publicSubscriptions(config.subscriptions), history: config.history.slice(0, 20) };
   for (const window of electron.BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('nexus-ai-core:monitor-update', payload);
   }
