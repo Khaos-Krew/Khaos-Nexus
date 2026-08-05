@@ -6,6 +6,9 @@ const crypto = require('node:crypto');
 const { loadConfig, safeTarget } = require('./sync-embedded-ai-sources.cjs');
 const { verifyEmbeddedAiSources } = require('./verify-embedded-ai-sources.cjs');
 
+// The authoritative pins are loaded from config/embedded-ai-sources.json.
+// D&D AI: 19c718917377d6148f9baaee8ac8dcb937692f32
+// Nexus AI Core: 300c653e5643e0ee2e15590f8cb53e30ee7a79ff
 const root = path.join(__dirname, '..');
 const outputRoot = path.join(root, '.runtime', 'ai-services');
 const excluded = new Set(['.git', '.github', 'node_modules', 'test', 'tests', 'coverage', 'dist', '.env', '.env.local']);
