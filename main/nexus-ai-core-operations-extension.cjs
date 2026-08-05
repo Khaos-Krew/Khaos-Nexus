@@ -27,6 +27,7 @@ const refs = {
 let installed = false;
 let ipcInstalled = false;
 let schedulerPollInFlight = false;
+let monitorRunInFlight = false;
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -520,7 +521,8 @@ async function proposeMaintenance(input = {}) {
 
 async function monitorPublicState({ includeCore = true } = {}) {
   const config = refs.configStore?.getNexusAiMonitorConfig?.() || defaultMonitorConfig();
-  let service = null;
+  const runtime = runtimes.status().services.find((item) => item.key === 'core');
+  let service = { runtime, ready: runtime?.status === 'ready' };
   let coreState = null;
   if (includeCore) {
     service = await status();
@@ -562,6 +564,12 @@ function outcomeFor(result) {
 }
 
 async function runRecordedCheck({ source = 'desktop-manual', actor = {}, reason = 'owner-manual-check' } = {}) {
+  if (monitorRunInFlight) {
+    const error = new Error('A Nexus AI update check is already running.');
+    error.code = 'NEXUS_AI_MONITOR_BUSY';
+    throw error;
+  }
+  monitorRunInFlight = true;
   const startedAt = nowIso();
   let completedAt;
   try {
@@ -613,11 +621,13 @@ async function runRecordedCheck({ source = 'desktop-manual', actor = {}, reason 
     broadcastMonitor();
     error.monitorEntry = entry;
     throw error;
+  } finally {
+    monitorRunInFlight = false;
   }
 }
 
 async function runScheduledMonitorTick({ now = Date.now() } = {}) {
-  if (schedulerPollInFlight || !refs.configStore?.getNexusAiMonitorConfig) return { skipped: true, reason: 'unavailable-or-running' };
+  if (schedulerPollInFlight || monitorRunInFlight || !refs.configStore?.getNexusAiMonitorConfig) return { skipped: true, reason: 'unavailable-or-running' };
   const config = refs.configStore.getNexusAiMonitorConfig();
   if (!config.enabled || !config.sources.length) return { skipped: true, reason: !config.enabled ? 'disabled' : 'no-sources' };
   const intervalMs = config.intervalMinutes * 60 * 1000;
