@@ -1,0 +1,157 @@
+name: v0.35.3 Bundled AI Installation Hotfix
+
+on:
+  pull_request:
+    branches:
+      - maintenance/v0.35.2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v0.35.3-bundled-ai-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-installed-ai-bundles:
+    runs-on: windows-latest
+    timeout-minutes: 55
+    env:
+      DND_AI_COMMIT: 19c718917377d6148f9baaee8ac8dcb937692f32
+      AI_CORE_COMMIT: 300c653e5643e0ee2e15590f8cb53e30ee7a79ff
+    steps:
+      - name: Check out desktop hotfix
+        uses: actions/checkout@v4
+
+      - name: Check out pinned D&D AI
+        uses: actions/checkout@v4
+        with:
+          repository: Khaos-Krew/Khaos-Nexus-AI
+          ref: ${{ env.DND_AI_COMMIT }}
+          path: .ai-sources/dnd-ai
+
+      - name: Check out pinned Nexus AI Core
+        uses: actions/checkout@v4
+        with:
+          repository: Khaos-Krew/Khaos-Nexus-AI-Core
+          ref: ${{ env.AI_CORE_COMMIT }}
+          path: .ai-sources/ai-core
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install desktop dependencies
+        run: npm ci
+
+      - name: Install bundled AI production dependencies
+        shell: pwsh
+        run: |
+          Push-Location .ai-sources/dnd-ai
+          npm ci --omit=dev
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+          Push-Location .ai-sources/ai-core
+          npm ci --omit=dev
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+
+      - name: Build pinned AI bundles
+        run: node scripts/build-bundled-ai-runtimes.cjs
+
+      - name: Freeze maintenance candidate identity
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-notes | Out-Null
+          @'
+          # Khaos Nexus v0.35.3 — Bundled AI Installation Repair
+
+          Repairs the Windows packaging path so the pinned D&D AI and Nexus AI Core resources are included in installed and portable builds. The installer is now validated by a silent installation followed by full manifest size and SHA-256 verification.
+          '@ | Set-Content release-notes/v0.35.3.md -Encoding utf8
+          $p = Get-Content package.json -Raw | ConvertFrom-Json
+          $p.version = '0.35.3'
+          $p.khaosRelease.displayVersion = '0.35.3'
+          $p.khaosRelease.artifactVersion = '0.35.3'
+          $p.khaosRelease.publicTag = 'v0.35.3'
+          $p.khaosRelease.channel = 'beta'
+          $p.khaosRelease.updaterVersion = '0.35.3'
+          $p.khaosRelease.rollbackTag = 'v0.35.2'
+          $p.build.releaseInfo.releaseName = 'Khaos Nexus v0.35.3 — Bundled AI Installation Repair'
+          $p.build.releaseInfo.releaseNotesFile = 'release-notes/v0.35.3.md'
+          $p.build.nsis.artifactName = 'Khaos-Nexus-Setup-0.35.3-${arch}.${ext}'
+          $p.build.portable.artifactName = 'Khaos-Nexus-Portable-0.35.3-${arch}.${ext}'
+          $p | ConvertTo-Json -Depth 30 | Set-Content package.json -Encoding utf8
+
+      - name: Run complete repository validation
+        shell: pwsh
+        run: |
+          npm audit --omit=dev --audit-level=high
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build installer and portable executable
+        run: npm run dist:win
+
+      - name: Verify unpacked packaged AI resources
+        run: node scripts/verify-packaged-ai-runtimes.cjs
+
+      - name: Require packaged startup readiness
+        shell: pwsh
+        run: ./scripts/smoke-packaged-startup.ps1
+
+      - name: Silently install and verify installed AI resources
+        shell: pwsh
+        run: |
+          $installer = Resolve-Path 'dist/Khaos-Nexus-Setup-0.35.3-x64.exe'
+          $installRoot = 'C:\khaos-nexus-v0353-ci'
+          Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue
+          $process = Start-Process -FilePath $installer -ArgumentList '/S', "/D=$installRoot" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Silent installer failed with exit code $($process.ExitCode)." }
+          $resources = Join-Path $installRoot 'resources\ai-services'
+          node scripts/verify-packaged-ai-runtimes.cjs $resources
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $uninstaller = Join-Path $installRoot 'Uninstall Khaos Nexus.exe'
+          if (Test-Path -LiteralPath $uninstaller) {
+            Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait | Out-Null
+          }
+          Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue
+
+      - name: Verify updater and Windows artifacts
+        shell: pwsh
+        run: |
+          $files = @(
+            'dist/Khaos-Nexus-Setup-0.35.3-x64.exe',
+            'dist/Khaos-Nexus-Setup-0.35.3-x64.exe.blockmap',
+            'dist/Khaos-Nexus-Portable-0.35.3-x64.exe',
+            'dist/latest.yml'
+          )
+          foreach ($file in $files) {
+            if (-not (Test-Path -LiteralPath $file)) { throw "Missing required artifact: $file" }
+            if ((Get-Item -LiteralPath $file).Length -le 0) { throw "Empty artifact: $file" }
+          }
+          $latest = Get-Content dist/latest.yml -Raw
+          if ($latest -notmatch '(?m)^version:\s*0\.35\.3\s*$') { throw 'latest.yml does not advertise 0.35.3.' }
+          if ($latest -notmatch 'Khaos-Nexus-Setup-0\.35\.3-x64\.exe') { throw 'latest.yml installer name mismatch.' }
+          $files | ForEach-Object {
+            $item = Get-Item -LiteralPath $_
+            $hash = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant()
+            Write-Host "$($item.Name) | $($item.Length) bytes | SHA256 $hash"
+          }
+
+      - name: Upload validated maintenance candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: Khaos-Nexus-v0.35.3-bundled-ai-hotfix
+          path: |
+            dist/Khaos-Nexus-Setup-0.35.3-x64.exe
+            dist/Khaos-Nexus-Setup-0.35.3-x64.exe.blockmap
+            dist/Khaos-Nexus-Portable-0.35.3-x64.exe
+            dist/latest.yml
+            dist/builder-debug.yml
+          if-no-files-found: error
