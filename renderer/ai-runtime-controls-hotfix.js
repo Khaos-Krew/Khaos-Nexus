@@ -185,7 +185,7 @@
     }
 
     document.addEventListener('click', (event) => {
-      const button = event.target.closest('[data-ai-action][data-ai-service]');
+      const button = event.target?.closest?.('[data-ai-action][data-ai-service]');
       if (!button) return;
       const action = String(button.dataset.aiAction || '').toLowerCase();
       const service = String(button.dataset.aiService || '').toLowerCase();
