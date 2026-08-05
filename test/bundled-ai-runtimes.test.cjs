@@ -94,3 +94,14 @@ test('bulk runtime operations isolate failures per service', () => {
   assert.match(source, /async function restartAll\(\)/);
   assert.doesNotMatch(source, /for \(const key of Object\.keys\(services\)\) runtime\.set\(key, \{ status: 'failed'/);
 });
+
+test('Nexus AI operations consume the supervised bundled connection without exporting its token', () => {
+  const operations = read('main/nexus-ai-core-operations-extension.cjs');
+  const bot = read('bot/nexus-ai-index.cjs');
+  const renderer = read('renderer/nexus-ai-operations.js');
+  assert.match(operations, /runtimes\.coreConnection\(\)/);
+  assert.match(operations, /Authorization:\s*`Bearer \$\{serviceToken\}`/);
+  assert.match(operations, /message\?\.type === 'nexus-ai-request'/);
+  assert.doesNotMatch(bot, /serviceToken|NEXUS_AI_CORE_SERVICE_TOKEN|Authorization:\s*`Bearer/);
+  assert.doesNotMatch(renderer, /serviceToken|NEXUS_AI_CORE_SERVICE_TOKEN|Authorization:\s*`Bearer/);
+});
