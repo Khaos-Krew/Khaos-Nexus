@@ -13,8 +13,14 @@ const IGNORED_NAMES = new Set([
   'coverage',
   'dist',
   '.env',
-  '.env.local'
+  'config.json'
 ]);
+
+function isIgnoredName(name) {
+  return IGNORED_NAMES.has(name)
+    || name.startsWith('.env.')
+    || name.endsWith('.log');
+}
 
 function sha256(buffer) {
   return crypto.createHash('sha256').update(buffer).digest('hex');
@@ -41,7 +47,7 @@ function safeTarget(root, relative) {
 function copyTree(source, destination) {
   fs.mkdirSync(destination, { recursive: true });
   for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
-    if (IGNORED_NAMES.has(entry.name)) continue;
+    if (isIgnoredName(entry.name)) continue;
     const from = path.join(source, entry.name);
     const to = path.join(destination, entry.name);
     if (entry.isSymbolicLink()) {
@@ -156,6 +162,7 @@ if (require.main === module) main();
 module.exports = {
   IGNORED_NAMES,
   copyTree,
+  isIgnoredName,
   listFiles,
   loadConfig,
   safeTarget,
