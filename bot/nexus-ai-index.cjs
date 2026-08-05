@@ -234,20 +234,18 @@ async function handleNexus(interaction) {
 }
 
 function installClientInterceptor() {
-  const BaseClient = discord.Client;
-  if (BaseClient.__khaosNexusAiOperations) return;
-  class NexusAiClient extends BaseClient {
-    emit(eventName, ...args) {
-      const interaction = args[0];
-      if (eventName === discord.Events.InteractionCreate && interaction?.isChatInputCommand?.() && interaction.commandName === 'nexus') {
-        void handleNexus(interaction);
-        return true;
-      }
-      return super.emit(eventName, ...args);
+  const prototype = discord.Client?.prototype;
+  if (!prototype || prototype.__khaosNexusAiOperations) return;
+  const originalEmit = prototype.emit;
+  prototype.emit = function nexusAiInteractionInterceptor(eventName, ...args) {
+    const interaction = args[0];
+    if (eventName === discord.Events.InteractionCreate && interaction?.isChatInputCommand?.() && interaction.commandName === 'nexus') {
+      void handleNexus(interaction);
+      return true;
     }
-  }
-  Object.defineProperty(NexusAiClient, '__khaosNexusAiOperations', { value: true });
-  discord.Client = NexusAiClient;
+    return originalEmit.call(this, eventName, ...args);
+  };
+  Object.defineProperty(prototype, '__khaosNexusAiOperations', { value: true });
 }
 
 parent?.on('message', (event) => {
