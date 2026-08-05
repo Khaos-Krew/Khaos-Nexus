@@ -70,6 +70,8 @@ jobs:
           # Khaos Nexus v0.35.3 — Bundled AI Installation Repair
 
           Repairs the Windows packaging path so the pinned D&D AI and Nexus AI Core resources are included in installed and portable builds. The installer is now validated by a silent installation followed by full manifest size and SHA-256 verification.
+
+          Android Companion and Mobile Gateway remain paused and excluded under ADR-008. No APK or Android setup link is included.
           '@ | Set-Content release-notes/v0.35.3.md -Encoding utf8
           $p = Get-Content package.json -Raw | ConvertFrom-Json
           $p.version = '0.35.3'
