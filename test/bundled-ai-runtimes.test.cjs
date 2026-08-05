@@ -57,3 +57,40 @@ test('v0.33 freeze adds updater-compatible resources and rollback metadata', () 
   assert.match(source, /extraResources/);
   assert.match(source, /\.runtime\/ai-services/);
 });
+
+test('runtime restart waits for the exact child exit and retains a forced termination fallback', () => {
+  const source = read('main/bundled-ai-runtimes-extension.cjs');
+  assert.match(source, /await stop\(key\)/);
+  assert.match(source, /value\.exitPromise/);
+  assert.match(source, /childAlive\(value, child\)/);
+  assert.match(source, /child\.kill\('SIGKILL'\)/);
+  assert.match(source, /AI_RUNTIME_STOP_TIMEOUT/);
+  assert.doesNotMatch(source, /child\.killed/);
+  assert.doesNotMatch(source, /setTimeout\(\(\) => resolve\(start\(key\)\), 500\)/);
+});
+
+test('runtime startup closes parent log descriptors and bounds AI Core readiness', () => {
+  const source = read('main/bundled-ai-runtimes-extension.cjs');
+  assert.match(source, /fs\.closeSync\(descriptor\)/);
+  assert.match(source, /CORE_READY_TIMEOUT_MS = 15000/);
+  assert.match(source, /did not report readiness before the startup timeout/);
+  assert.match(source, /readyTimer\.unref/);
+});
+
+test('manual runtime lifecycle controls require Owner access and write bounded audit evidence', () => {
+  const source = read('main/bundled-ai-runtimes-extension.cjs');
+  assert.match(source, /assertAccess\(refs\.discordAuth\?\.getState\?\.\(\), 'owner', action\)/);
+  assert.match(source, /appendAiServiceAudit/);
+  assert.match(source, /runtime\.\$\{action\}/);
+  assert.match(source, /manualAction\('start', input\)/);
+  assert.match(source, /manualAction\('stop', input\)/);
+  assert.match(source, /manualAction\('restart', input\)/);
+});
+
+test('bulk runtime operations isolate failures per service', () => {
+  const source = read('main/bundled-ai-runtimes-extension.cjs');
+  assert.match(source, /function startAll\(\)[\s\S]*?try \{ return start\(key\); \}[\s\S]*?catch \(error\)/);
+  assert.match(source, /async function stopAll\(options = \{\}\)/);
+  assert.match(source, /async function restartAll\(\)/);
+  assert.doesNotMatch(source, /for \(const key of Object\.keys\(services\)\) runtime\.set\(key, \{ status: 'failed'/);
+});
