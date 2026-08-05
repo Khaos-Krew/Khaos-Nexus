@@ -7,11 +7,25 @@ const path = require('node:path');
 
 const root = path.join(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8').replace(/\r\n/g, '\n');
+const readJson = (file) => JSON.parse(read(file));
 
-test('AI Core is packaged through the validated sidecar entrypoint', () => {
-  const source = read('scripts/build-bundled-ai-runtimes.cjs');
-  assert.match(source, /id:\s*'ai-core'[\s\S]*entry:\s*'src\/sidecar\.js'/);
-  assert.match(source, /300c653e5643e0ee2e15590f8cb53e30ee7a79ff/);
+test('AI Core is packaged from the pinned embedded source through the validated sidecar entrypoint', () => {
+  const config = readJson('config/embedded-ai-sources.json');
+  const service = config.services.find((candidate) => candidate.id === 'ai-core');
+  assert.ok(service, 'AI Core must remain in the authoritative embedded source configuration.');
+  assert.equal(service.repository, 'Khaos-Krew/Khaos-Nexus-AI-Core');
+  assert.equal(service.commit, '300c653e5643e0ee2e15590f8cb53e30ee7a79ff');
+  assert.equal(service.version, '0.7.0');
+  assert.equal(service.entry, 'src/sidecar.js');
+  assert.equal(service.directory, 'packages/ai/ai-core');
+
+  const builder = read('scripts/build-bundled-ai-runtimes.cjs');
+  assert.match(builder, /loadConfig/);
+  assert.match(builder, /verifyEmbeddedAiSources/);
+  assert.match(builder, /source:\s*safeTarget\(rootDirectory, service\.directory\)/);
+  assert.match(builder, /entry:\s*assignment\.entry/);
+  assert.match(builder, /mode:\s*'embedded'/);
+  assert.doesNotMatch(builder, /\.ai-sources/);
 });
 
 test('AI Core sidecar uses dynamic loopback port, per-launch secrets, and IPC shutdown', () => {
