@@ -290,7 +290,7 @@ function installRendererAssets() {
     try {
       await window.webContents.insertCSS(fs.readFileSync(cssPath, 'utf8'));
       await window.webContents.executeJavaScript(fs.readFileSync(jsPath, 'utf8'), true);
-    } catch (error) { refs.logger?.error?.('D&D AI Game Master assets failed to load.', { message: error.message }); }
+    } catch (error) { refs.logger?.error?.('Veyra Game Master assets failed to load.', { message: error.message }); }
   }));
 }
 function install() {

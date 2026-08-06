@@ -22,7 +22,7 @@ async function refreshAiCore(bootstrap) {
       endpoint: connection?.endpoint || '',
       checkedAt: new Date().toISOString(),
       capabilities: [],
-      error: 'Nexus AI Core is not linked to the primary bot.'
+      error: 'Nexus Sentinel is not linked to the primary bot.'
     });
     return;
   }
@@ -42,7 +42,7 @@ parent?.on('message', (event) => {
         endpoint: String(message.payload?.aiCore?.endpoint || ''),
         checkedAt: new Date().toISOString(),
         capabilities: [],
-        error: String(error?.message || 'Nexus AI Core status check failed.').slice(0, 800)
+        error: String(error?.message || 'Nexus Sentinel status check failed.').slice(0, 800)
       });
     });
   }

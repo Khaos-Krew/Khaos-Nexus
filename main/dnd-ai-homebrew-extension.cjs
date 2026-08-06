@@ -252,7 +252,7 @@ function installRendererAssets() {
         await window.webContents.insertCSS(fs.readFileSync(cssPath, 'utf8'));
         await window.webContents.executeJavaScript(fs.readFileSync(jsPath, 'utf8'), true);
       } catch (error) {
-        refs.logger?.error?.('D&D AI homebrew assets failed to load.', { message: error.message });
+        refs.logger?.error?.('Veyra homebrew assets failed to load.', { message: error.message });
       }
     });
   });

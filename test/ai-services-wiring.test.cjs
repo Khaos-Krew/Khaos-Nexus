@@ -8,7 +8,7 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8').replace(/\r\n/g, '\n');
 
-test('dual AI services install after D&D privacy and before module runtime consumers', () => {
+test('unified AI connections install after D&D privacy and before module runtime consumers', () => {
   const entry = read('main/entry.cjs');
   const dnd = entry.indexOf("require('./dnd-authorization-summary-extension.cjs').install()");
   const services = entry.indexOf("require('./ai-services-extension.cjs').install()");
@@ -26,6 +26,9 @@ test('desktop exposes independent connection controls and no provider credential
   }
   assert.match(source, /require\('\.\/dnd-co-dm-extension\.cjs'\)\.publicPayload\(''\)/);
   assert.match(source, /getAiCoreServiceToken/);
+  assert.match(source, /singleRuntimeHost:\s*true/);
+  assert.match(source, /independentAgentWorkers:\s*true/);
+  assert.match(source, /independentAgentMemory:\s*true/);
   assert.match(source, /registeredBotsReceiveAiCore:\s*false/);
   assert.match(source, /automaticDiscordPublication:\s*false/);
   assert.match(source, /automaticExecution:\s*false/);
@@ -54,14 +57,17 @@ test('primary bot sidecar performs health and capability discovery only', () => 
   assert.doesNotMatch(wrapper, /dnd:|dnd\.|Khaos-Nexus-AI'/);
 });
 
-test('renderer clearly separates D&D AI and Nexus AI Core consumers', () => {
+test('renderer clearly separates Veyra and Nexus Sentinel consumers', () => {
   const source = read('renderer/ai-services.js');
-  assert.match(source, /Khaos Nexus D&D AI/);
-  assert.match(source, /Nexus AI Core/);
+  assert.match(source, /Khaos Nexus AI Runtime/);
+  assert.match(source, /Veyra/);
+  assert.match(source, /Nexus Sentinel/);
   assert.match(source, /Desktop D&D workspace only/);
   assert.match(source, /primary Nexus Bot/);
   assert.match(source, /Registered secondary bots remain excluded/);
   assert.match(source, /No automatic execution/);
+  assert.match(source, /Shared runtime host/);
+  assert.match(source, /Isolated agent workers/);
 });
 
 test('privacy projection strips audit records and secondary-bot AI metadata', () => {

@@ -85,8 +85,8 @@
         updateCard('dnd', serviceState(payload, 'dnd'));
         updateCard('core', serviceState(payload, 'core'));
       } catch (error) {
-        updateCard('dnd', { status: 'failed', error: error?.message || 'Unable to read service status.' });
-        updateCard('core', { status: 'failed', error: error?.message || 'Unable to read service status.' });
+        updateCard('dnd', { status: 'failed', error: error?.message || 'Unable to read agent status.' });
+        updateCard('core', { status: 'failed', error: error?.message || 'Unable to read agent status.' });
       } finally {
         syncControls();
         refreshInFlight = null;
@@ -96,7 +96,7 @@
   }
 
   function labelFor(service) {
-    return service === 'all' ? 'AI services' : service === 'dnd' ? 'D&D AI' : 'Nexus AI Core';
+    return service === 'all' ? 'Khaos Nexus AI Runtime' : service === 'dnd' ? 'Veyra' : 'Nexus Sentinel';
   }
 
   async function perform(action, service) {
@@ -107,11 +107,11 @@
       await window.khaos.invoke(`ai:runtimes-${action}`, { service });
       toast(`${labelFor(service)} ${action} requested.`);
     } catch (error) {
-      toast(error?.message || `Unable to ${action} AI service.`);
+      toast(error?.message || `Unable to ${action} AI agent.`);
       window.khaos?.reportRendererActionError?.({
         source: 'ai-runtime-controls',
         operation: `${action}-${service}`,
-        message: error?.message || `Unable to ${action} AI service.`
+        message: error?.message || `Unable to ${action} AI agent.`
       });
     } finally {
       busy = false;
@@ -120,7 +120,7 @@
   }
 
   function controls(key) {
-    return `<div class="nexus-inline-actions ai-runtime-actions" aria-label="AI service controls">
+    return `<div class="nexus-inline-actions ai-runtime-actions" aria-label="AI agent controls">
       <button class="button primary" type="button" data-ai-action="start" data-ai-service="${key}">Start</button>
       <button class="button" type="button" data-ai-action="restart" data-ai-service="${key}">Restart</button>
       <button class="button" type="button" data-ai-action="stop" data-ai-service="${key}">Stop</button>
@@ -150,7 +150,7 @@
     window.khaos?.reportRendererActionError?.({
       source: 'ai-runtime-controls',
       operation: 'install-controls',
-      message: 'The AI service cards did not become available before the lifecycle control installation timeout.'
+      message: 'The AI agent cards did not become available before the lifecycle control installation timeout.'
     });
   }
 
@@ -181,7 +181,7 @@
       heroButton.removeAttribute('data-khaos-open');
       heroButton.dataset.aiAction = 'start';
       heroButton.dataset.aiService = 'all';
-      heroButton.textContent = 'Start All AI Services';
+      heroButton.textContent = 'Start Khaos Nexus AI Runtime';
     }
 
     document.addEventListener('click', (event) => {

@@ -124,7 +124,7 @@
     }
 
     function previewPanel() {
-      if (!state.preview) return '<div class="dnd-ai-map-preview empty-state"><p>Preview the exact normalized request before anything is sent to Khaos Nexus AI.</p></div>';
+      if (!state.preview) return '<div class="dnd-ai-map-preview empty-state"><p>Preview the exact normalized request before anything is sent to Veyra.</p></div>';
       const request = state.preview.request;
       return `<div class="dnd-ai-map-preview">
         <div class="panel-heading"><div><span class="eyebrow">Exact outgoing request</span><h4>Ready for confirmation</h4></div><span class="tag">${state.preview.metrics.requestBytes} bytes</span></div>
@@ -178,7 +178,7 @@
       const proposals = state.payload?.proposals || [];
       return `<article class="panel dnd-ai-map-studio" data-dnd-ai-map-studio>
         <div class="panel-heading">
-          <div><span class="eyebrow">Separate Khaos Nexus AI runtime</span><h3>AI Map Studio</h3><p>Create original structured map proposals, then review and import them explicitly.</p></div>
+          <div><span class="eyebrow">Veyra agent worker</span><h3>AI Map Studio</h3><p>Create original structured map proposals, then review and import them explicitly.</p></div>
           <div class="dnd-ai-map-service"><span class="tag">${escapeHtml(state.payload?.service?.endpoint || 'Not loaded')}</span><button class="button" data-dnd-ai-map-action="refresh">Refresh</button></div>
         </div>
         <div class="callout">Existing uploaded and locally generated maps remain unchanged. The AI service receives only the form below—never an existing map image, scan, screenshot, protected asset, or campaign map file.</div>

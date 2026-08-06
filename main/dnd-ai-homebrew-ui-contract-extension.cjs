@@ -15,7 +15,7 @@ function install() {
       try {
         await window.webContents.executeJavaScript(fs.readFileSync(scriptPath, 'utf8'), true);
       } catch (error) {
-        console.error('D&D AI homebrew UI contract failed to load.', error);
+        console.error('Veyra homebrew UI contract failed to load.', error);
       }
     });
   });

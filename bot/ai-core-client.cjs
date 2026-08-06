@@ -18,7 +18,7 @@ function cleanError(error, token = '') {
   return {
     code: String(error?.code || 'AI_CORE_REQUEST_FAILED').slice(0, 100),
     status: Number(error?.status || 0) || null,
-    message: redactServiceSecret(error?.message || error || 'Nexus AI Core request failed.', token, 800)
+    message: redactServiceSecret(error?.message || error || 'Nexus Sentinel request failed.', token, 800)
   };
 }
 
@@ -35,14 +35,14 @@ async function jsonGet(connection, pathname, fetchImpl = global.fetch) {
     throw Object.assign(new Error(cleanError(error, token).message), { code: error?.name === 'TimeoutError' ? 'AI_CORE_TIMEOUT' : 'AI_CORE_NETWORK_ERROR' });
   }
   const declaredLength = Number(response.headers?.get?.('content-length') || 0);
-  if (declaredLength > MAX_RESPONSE_CHARACTERS) throw Object.assign(new Error('Nexus AI Core returned an oversized response.'), { code: 'AI_CORE_RESPONSE_TOO_LARGE', status: response.status });
+  if (declaredLength > MAX_RESPONSE_CHARACTERS) throw Object.assign(new Error('Nexus Sentinel returned an oversized response.'), { code: 'AI_CORE_RESPONSE_TOO_LARGE', status: response.status });
   const text = await response.text();
-  if (text.length > MAX_RESPONSE_CHARACTERS) throw Object.assign(new Error('Nexus AI Core returned an oversized response.'), { code: 'AI_CORE_RESPONSE_TOO_LARGE', status: response.status });
+  if (text.length > MAX_RESPONSE_CHARACTERS) throw Object.assign(new Error('Nexus Sentinel returned an oversized response.'), { code: 'AI_CORE_RESPONSE_TOO_LARGE', status: response.status });
   let payload;
   try { payload = text ? JSON.parse(text) : {}; }
-  catch { throw Object.assign(new Error('Nexus AI Core returned invalid JSON.'), { code: 'AI_CORE_INVALID_JSON', status: response.status }); }
+  catch { throw Object.assign(new Error('Nexus Sentinel returned invalid JSON.'), { code: 'AI_CORE_INVALID_JSON', status: response.status }); }
   if (!response.ok) {
-    const message = typeof payload?.error === 'string' ? payload.error : payload?.error?.message || `Nexus AI Core returned HTTP ${response.status}.`;
+    const message = typeof payload?.error === 'string' ? payload.error : payload?.error?.message || `Nexus Sentinel returned HTTP ${response.status}.`;
     throw Object.assign(new Error(redactServiceSecret(message, token, 800)), { code: payload?.error?.code || 'AI_CORE_HTTP_ERROR', status: response.status });
   }
   return payload;
@@ -54,7 +54,7 @@ function createAiCoreClient(connection = {}, fetchImpl = global.fetch) {
   return Object.freeze({
     connection: publicConnection,
     async check() {
-      if (!value.enabled) return { ...unavailableAiCore(value.endpoint, 'Nexus AI Core is not linked to the primary bot.'), enabled: false };
+      if (!value.enabled) return { ...unavailableAiCore(value.endpoint, 'Nexus Sentinel is not linked to the primary bot.'), enabled: false };
       try {
         const health = normalizeAiCoreHealth(await jsonGet(value, AI_CORE_HEALTH_PATH, fetchImpl), value.endpoint);
         const capabilities = normalizeAiCoreCapabilities(await jsonGet(value, AI_CORE_CAPABILITIES_PATH, fetchImpl), value.endpoint);

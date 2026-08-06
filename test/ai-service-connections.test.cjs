@@ -37,8 +37,8 @@ test('service tokens and AI Core settings are bounded and provider configuration
   const settings = normalizeAiCoreSettings({ enabled: true, linkToPrimaryBot: true, endpoint: 'http://127.0.0.1:8790' });
   assert.equal(settings.enabled, true);
   assert.equal(settings.linkToPrimaryBot, true);
-  assert.throws(() => normalizeAiCoreSettings({ openaiApiKey: 'secret-value' }), /configured only in Nexus AI Core/i);
-  assert.throws(() => normalizeAiCoreSettings({ model: 'provider-model' }), /configured only in Nexus AI Core/i);
+  assert.throws(() => normalizeAiCoreSettings({ openaiApiKey: 'secret-value' }), /configured only in Nexus Sentinel/i);
+  assert.throws(() => normalizeAiCoreSettings({ model: 'provider-model' }), /configured only in Nexus Sentinel/i);
 });
 
 test('error redaction preserves tokenless messages and removes configured tokens', () => {

@@ -15,14 +15,20 @@ function entryText(args = []) {
   return String(Array.isArray(args) ? args[0] || '' : '').replaceAll('\\', '/').toLowerCase();
 }
 
+function runtimeHostEntry(args = [], options = {}) {
+  if (options?.env?.KHAOS_NEXUS_BUNDLED_SERVICE !== '1') return false;
+  return entryText(args).endsWith('/main/ai-runtime-host.cjs');
+}
+
 function bundledAiEntry(args = [], options = {}) {
   if (options?.env?.KHAOS_NEXUS_BUNDLED_SERVICE !== '1') return false;
   const entry = entryText(args);
-  return entry.includes('/ai-services/') && (entry.includes('/dnd-ai/') || entry.includes('/ai-core/'));
+  return runtimeHostEntry(args, options)
+    || (entry.includes('/ai-services/') && (entry.includes('/dnd-ai/') || entry.includes('/ai-core/')));
 }
 
 function coreAiEntry(args = [], options = {}) {
-  return bundledAiEntry(args, options) && entryText(args).includes('/ai-core/');
+  return !runtimeHostEntry(args, options) && bundledAiEntry(args, options) && entryText(args).includes('/ai-core/');
 }
 
 function guardSpawnOptions(command, args, options = {}) {
@@ -47,7 +53,7 @@ function attachCoreDiagnostic(child, context) {
     if (code === 0) return;
     const diagnostic = readLatestSidecarDiagnostic(context.logPath, context.startOffset);
     if (!diagnostic || child.listenerCount('error') < 1) return;
-    const error = new Error(formatSidecarDiagnostic('Nexus AI Core', diagnostic));
+    const error = new Error(formatSidecarDiagnostic('Nexus Sentinel', diagnostic));
     error.code = diagnostic.code;
     error.exitCode = diagnostic.exitCode;
     error.event = diagnostic.event;
@@ -72,6 +78,7 @@ function install() {
 
 module.exports = {
   install,
+  runtimeHostEntry,
   bundledAiEntry,
   coreAiEntry,
   guardSpawnOptions,

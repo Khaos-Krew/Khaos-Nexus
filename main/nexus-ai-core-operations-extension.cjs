@@ -398,13 +398,13 @@ function audit(action, outcome, metadata = {}) {
 
 async function request(pathname, { method = 'GET', capability = null, body = null } = {}) {
   const { endpoint, serviceToken } = runtimes.coreConnection();
-  if (capability && !allowedCapabilities.has(capability)) throw new Error('Unsupported Nexus AI Core capability.');
+  if (capability && !allowedCapabilities.has(capability)) throw new Error('Unsupported Nexus Sentinel capability.');
   const requestId = method === 'POST' ? randomUUID() : null;
   const payload = method === 'POST' ? {
     ...(body && typeof body === 'object' && !Array.isArray(body) ? body : {}),
-    apiVersion: 'v1',
+    apiVersion: '1',
     requestId,
-    targetService: 'khaos-nexus',
+    targetService: 'nexus-ai-core',
     routingDepth: 0,
     capability
   } : undefined;
@@ -429,10 +429,10 @@ async function request(pathname, { method = 'GET', capability = null, body = nul
     clearTimeout(timer);
   }
   const contentType = response.headers.get('content-type') || '';
-  if (!contentType.toLowerCase().includes('application/json')) throw new Error('Nexus AI Core returned an invalid content type.');
+  if (!contentType.toLowerCase().includes('application/json')) throw new Error('Nexus Sentinel returned an invalid content type.');
   const data = await response.json();
-  if (!response.ok) throw new Error(safeText(data?.error?.message || 'Nexus AI Core request failed.', 500));
-  if (requestId && data.requestId !== requestId) throw new Error('Nexus AI Core response identity did not match.');
+  if (!response.ok) throw new Error(safeText(data?.error?.message || 'Nexus Sentinel request failed.', 500));
+  if (requestId && data.requestId !== requestId) throw new Error('Nexus Sentinel response identity did not match.');
   return data;
 }
 
@@ -442,10 +442,10 @@ async function negotiate() {
     request('/api/v1/capabilities'),
     request('/api/v1/contracts')
   ]);
-  if (health.apiVersion !== 'v1' || capabilities.apiVersion !== 'v1') throw new Error('Nexus AI Core API version is incompatible.');
-  if (health.targetService !== 'khaos-nexus' || capabilities.targetService !== 'khaos-nexus') throw new Error('Nexus AI Core target is incompatible.');
-  if (capabilities.directExecution !== false || capabilities.directDiscordConnection !== false || capabilities.directServiceForwarding !== false) throw new Error('Nexus AI Core authority contract is unsafe.');
-  if ((capabilities.capabilities || []).some((item) => String(item).startsWith('dnd.'))) throw new Error('Nexus AI Core advertised a D&D capability.');
+  if (health.apiVersion !== '1' || capabilities.apiVersion !== '1') throw new Error('Nexus Sentinel API version is incompatible.');
+  if (health.targetService !== 'nexus-ai-core' || capabilities.targetService !== 'nexus-ai-core') throw new Error('Nexus Sentinel target is incompatible.');
+  if (capabilities.directExecution !== false || capabilities.directDiscordConnection !== false || capabilities.directServiceForwarding !== false) throw new Error('Nexus Sentinel authority contract is unsafe.');
+  if ((capabilities.capabilities || []).some((item) => String(item).startsWith('dnd.'))) throw new Error('Nexus Sentinel advertised a D&D capability.');
   return {
     ready: true,
     service: health.service,

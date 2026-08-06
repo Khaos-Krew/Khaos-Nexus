@@ -13,7 +13,7 @@ test('Nexus AI workspace loads real bundled service controls after the UI refres
   const controls = read('renderer/ai-runtime-controls-hotfix.js');
   assert.match(loader, /appendScript\('ui-refresh\.js'/);
   assert.match(loader, /\.then\(\(\) => appendScript\('ai-runtime-controls-hotfix\.js'/);
-  assert.match(controls, /Start All AI Services/);
+  assert.match(controls, /Start Khaos Nexus AI Runtime/);
   assert.match(controls, /data-ai-action="start"/);
   assert.match(controls, /data-ai-action="restart"/);
   assert.match(controls, /data-ai-action="stop"/);
@@ -26,8 +26,10 @@ test('AI lifecycle buttons invoke only allowlisted runtime supervisor channels',
   assert.match(controls, /VALID_SERVICES = new Set\(\['dnd', 'core', 'all'\]\)/);
   assert.match(controls, /window\.khaos\.invoke\(`ai:runtimes-\$\{action\}`/);
   assert.match(controls, /window\.khaos\.invoke\('ai:runtimes-status'\)/);
-  assert.match(runtime, /function serviceKey\(value, allowAll = false\)/);
-  assert.match(runtime, /function actionKey\(value\)/);
+  const contract = read('main/ai-runtime-contract.cjs');
+  assert.match(runtime, /serviceKey:\s*agentKey/);
+  assert.match(contract, /function agentKey\(value, allowAll = false\)/);
+  assert.match(contract, /function actionKey\(value\)/);
   for (const channel of ['status', 'start', 'stop', 'restart']) {
     assert.match(runtime, new RegExp(`ai:runtimes-${channel}`));
   }
@@ -51,7 +53,7 @@ test('AI lifecycle renderer retries and polling are bounded', () => {
   assert.doesNotMatch(controls, /setInterval\(refresh, 2500\)/);
 });
 
-test('Start All and service controls share one synchronized busy and runtime state', () => {
+test('Runtime and agent controls share one synchronized busy and runtime state', () => {
   const controls = read('renderer/ai-runtime-controls-hotfix.js');
   assert.match(controls, /document\.querySelectorAll\('\[data-ai-action\]\[data-ai-service\]'\)/);
   assert.match(controls, /if \(service === 'all'\)/);

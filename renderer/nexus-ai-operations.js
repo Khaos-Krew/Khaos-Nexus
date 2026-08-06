@@ -33,7 +33,7 @@
         </div>
 
         <div class="nexus-ai-monitor-summary" aria-live="polite">
-          <div><span>Service</span><strong id="nexusAiMonitorService">Checking</strong><small id="nexusAiMonitorVersion">Bundled Nexus AI Core</small></div>
+          <div><span>Service</span><strong id="nexusAiMonitorService">Checking</strong><small id="nexusAiMonitorVersion">Bundled Nexus Sentinel</small></div>
           <div><span>Last check</span><strong id="nexusAiMonitorLastOutcome">Never</strong><small id="nexusAiMonitorLastRun">Not run</small></div>
           <div><span>Next check</span><strong id="nexusAiMonitorNextRun">Not scheduled</strong><small id="nexusAiMonitorCadence">Shared scheduler</small></div>
           <div><span>Sources</span><strong id="nexusAiMonitorSourceCount">0</strong><small id="nexusAiMonitorSubscriptionCount">0 subscriptions</small></div>
@@ -191,7 +191,7 @@
     byId('nexusAiOperationsBadge').textContent = service.ready ? 'Ready' : runtime.status || 'Unavailable';
     byId('nexusAiOperationsBadge').classList.toggle('good', Boolean(service.ready));
     byId('nexusAiMonitorService').textContent = service.ready ? 'Ready' : text(runtime.status, 'Unavailable');
-    byId('nexusAiMonitorVersion').textContent = service.version ? `Nexus AI Core v${service.version}` : text(service.error, 'Bundled Nexus AI Core');
+    byId('nexusAiMonitorVersion').textContent = service.version ? `Nexus Sentinel v${service.version}` : text(service.error, 'Bundled Nexus Sentinel');
     byId('nexusAiMonitorLastOutcome').textContent = text(settings.lastOutcome, 'Never');
     byId('nexusAiMonitorLastRun').textContent = displayTime(settings.lastRunAt);
     byId('nexusAiMonitorNextRun').textContent = displayTime(settings.nextRunAt);

@@ -39,10 +39,10 @@ function installCommand() {
     if (!enabled || values.some((command) => command.name === 'nexus')) return values;
     const command = new discord.SlashCommandBuilder()
       .setName('nexus')
-      .setDescription('Use the supervised Nexus AI Core without granting it execution authority.')
-      .addSubcommand((subcommand) => subcommand.setName('status').setDescription('Show Nexus AI runtime and monitor status.'))
-      .addSubcommand((subcommand) => subcommand.setName('ask').setDescription('Ask Nexus AI for bounded advisory help.')
-        .addStringOption((option) => option.setName('prompt').setDescription('Question for Nexus AI').setRequired(true).setMaxLength(1000)))
+      .setDescription('Use Nexus Sentinel without granting it execution authority.')
+      .addSubcommand((subcommand) => subcommand.setName('status').setDescription('Show Nexus Sentinel runtime and monitor status.'))
+      .addSubcommand((subcommand) => subcommand.setName('ask').setDescription('Ask Nexus Sentinel for bounded advisory help.')
+        .addStringOption((option) => option.setName('prompt').setDescription('Question for Nexus Sentinel').setRequired(true).setMaxLength(1000)))
       .addSubcommand((subcommand) => subcommand.setName('updates').setDescription('Review recent update-monitor checks.')
         .addIntegerOption((option) => option.setName('limit').setDescription('Number of recent checks').setMinValue(1).setMaxValue(10)))
       .addSubcommand((subcommand) => subcommand.setName('check').setDescription('Run a review-only update check now.'))
@@ -77,7 +77,7 @@ function assertAuthorizedChannel(interaction) {
   if (!interaction.guildId || !interaction.channelId) throw new Error('Use /nexus inside an authorized Discord server channel.');
   const configuredGuild = String(latestBootstrap?.config?.discord?.guildId || '');
   if (configuredGuild && interaction.guildId !== configuredGuild) throw new Error('This Discord server is not authorized for Khaos Nexus commands.');
-  if (!moduleEnabled('discord-runtime') || !moduleEnabled('nexus-ai-core')) throw new Error('Nexus AI commands are disabled by the current module policy.');
+  if (!moduleEnabled('discord-runtime') || !moduleEnabled('nexus-ai-core')) throw new Error('Nexus Sentinel commands are disabled by the current module policy.');
 }
 
 function assertRateLimit(interaction, action) {
@@ -90,7 +90,7 @@ function assertRateLimit(interaction, action) {
     return;
   }
   bucket.count += 1;
-  if (bucket.count > (limits[action] || 5)) throw new Error('That Nexus AI command is rate-limited. Try again in a moment.');
+  if (bucket.count > (limits[action] || 5)) throw new Error('That Nexus Sentinel command is rate-limited. Try again in a moment.');
 }
 
 function actor(interaction) {
@@ -108,7 +108,7 @@ function requestMain(action, input, interaction) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pending.delete(id);
-      reject(new Error('The Khaos Nexus desktop did not answer the Nexus AI request in time.'));
+      reject(new Error('The Khaos Nexus desktop did not answer the Nexus Sentinel request in time.'));
     }, REQUEST_TIMEOUT_MS);
     timer.unref?.();
     pending.set(id, { resolve, reject, timer });
@@ -137,21 +137,21 @@ function formatStatus(value) {
   const settings = result?.settings || {};
   const sourceCount = Array.isArray(result?.sources) ? result.sources.length : Number(result?.coreState?.sourceCount || 0);
   return [
-    '**Nexus AI Core**',
+    '**Nexus Sentinel**',
     `Runtime: **${safeText(runtime.status || (result?.service?.ready ? 'ready' : 'unavailable'), 60)}**`,
     `Service: **${result?.service?.ready ? 'ready' : 'not ready'}**${result?.service?.version ? ` · v${safeText(result.service.version, 30)}` : ''}`,
     `Update monitor: **${settings.enabled ? 'enabled' : 'disabled'}** · ${sourceCount} source${sourceCount === 1 ? '' : 's'}`,
     `Last check: ${displayTime(settings.lastRunAt)} · **${safeText(settings.lastOutcome || 'never', 30)}**`,
     `Next check: ${displayTime(settings.nextRunAt)}`,
     '',
-    '_Advisory only. No Discord, game-server, updater, scheduler, permission, download, or maintenance action can execute from Nexus AI output._'
+    '_Advisory only. No Discord, game-server, updater, scheduler, permission, download, or maintenance action can execute from Nexus Sentinel output._'
   ].join('\n');
 }
 
 function formatUpdates(value) {
   const result = unwrap(value);
   const history = Array.isArray(result?.history) ? result.history : [];
-  if (!history.length) return 'No Nexus AI update checks have been recorded yet.';
+  if (!history.length) return 'No Nexus Sentinel update checks have been recorded yet.';
   return history.map((entry) => {
     const time = entry.completedAt || entry.startedAt;
     return `• ${displayTime(time)} · **${safeText(entry.outcome, 20)}** · ${safeText(entry.summary || entry.error || 'No summary', 280)}`;
@@ -162,7 +162,7 @@ function formatCheck(value) {
   const result = unwrap(value);
   const entry = result?.entry || {};
   return [
-    '**Nexus AI update check complete**',
+    '**Nexus Sentinel update check complete**',
     `Outcome: **${safeText(entry.outcome || 'unknown', 30)}**`,
     safeText(entry.summary || 'The check completed without a summary.', 500),
     entry.error ? `Error: ${safeText(entry.error, 500)}` : null,
@@ -187,7 +187,7 @@ function formatPlan(value) {
 
 function formatSubscription(value, removed = false) {
   const result = unwrap(value);
-  if (removed) return `${Number(result?.removed || 0)} review-only Nexus AI subscription${Number(result?.removed || 0) === 1 ? '' : 's'} removed.`;
+  if (removed) return `${Number(result?.removed || 0)} review-only Nexus Sentinel subscription${Number(result?.removed || 0) === 1 ? '' : 's'} removed.`;
   return [
     `Saved **${safeText(result?.source?.id || 'source', 100)}** as a review-only subscription for this channel.`,
     '_Scheduled checks remain private in Khaos Nexus; this does not enable automatic public announcements._'
@@ -195,7 +195,7 @@ function formatSubscription(value, removed = false) {
 }
 
 async function replyError(interaction, error) {
-  const payload = { content: safeText(error?.message || 'Nexus AI request failed.', 1800), ephemeral: true, allowedMentions: { parse: [] } };
+  const payload = { content: safeText(error?.message || 'Nexus Sentinel request failed.', 1800), ephemeral: true, allowedMentions: { parse: [] } };
   if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
   else await interaction.reply(payload).catch(() => {});
 }
@@ -206,7 +206,7 @@ async function handleNexus(interaction) {
     const action = interaction.options.getSubcommand();
     assertRateLimit(interaction, action);
     if (['check', 'plan', 'subscribe', 'unsubscribe'].includes(action) && !isOwnerOrAdministrator(interaction)) {
-      throw new Error('This Nexus AI command requires the configured Owner or a Discord administrator.');
+      throw new Error('This Nexus Sentinel command requires the configured Owner or a Discord administrator.');
     }
     await interaction.deferReply({ ephemeral: true });
     let input = {};
@@ -258,7 +258,7 @@ parent?.on('message', (event) => {
     clearTimeout(waiting.timer);
     pending.delete(response.id);
     if (response.ok) waiting.resolve(response.value);
-    else waiting.reject(Object.assign(new Error(safeText(response.error || 'Nexus AI request failed.', 500)), { code: response.code || 'NEXUS_AI_REQUEST_FAILED' }));
+    else waiting.reject(Object.assign(new Error(safeText(response.error || 'Nexus Sentinel request failed.', 500)), { code: response.code || 'NEXUS_AI_REQUEST_FAILED' }));
   }
   if (message?.type === 'shutdown') {
     for (const waiting of pending.values()) {
