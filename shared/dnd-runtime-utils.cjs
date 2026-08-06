@@ -15,7 +15,7 @@ const fail = (message,code='DND_RUNTIME_INVALID') => { throw Object.assign(new E
 function ensureCampaignRuntimeState(state={}) {
   state.runtimeSchemaVersion=1;
   state.runtimeGate={status:state.runtimeGate?.status==='owner_preview'?'owner_preview':'development_only',enabledBy:clean(state.runtimeGate?.enabledBy,100),enabledAt:state.runtimeGate?.enabledAt||'',releaseAuthorized:false};
-  for(const key of ['playProfiles','playerSeats','campaignRuns','scenes','turnCycles','stateEvents','checkpoints','knowledgeRecords','runtimeInventory']) if(!Array.isArray(state[key])) state[key]=[];
+  for(const key of ['playProfiles','playerSeats','campaignRuns','scenes','turnCycles','stateEvents','checkpoints','knowledgeRecords','runtimeInventory','soloAdventures','runtimeCombats','runtimeMemories']) if(!Array.isArray(state[key])) state[key]=[];
   return state;
 }
 function assertOwnerPreview(state){ensureCampaignRuntimeState(state);if(state.runtimeGate.status!=='owner_preview')fail('Owner preview must be enabled before using the D&D campaign runtime.','DND_RUNTIME_PREVIEW_REQUIRED');}
