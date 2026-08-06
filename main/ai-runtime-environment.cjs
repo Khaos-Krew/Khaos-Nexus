@@ -98,24 +98,32 @@ function buildServiceEnvironment({ serviceEnv = {}, serviceData = '', parentEnv 
   });
 }
 
-function readTail(filePath, maxBytes = 64 * 1024) {
+function fileSize(filePath) {
+  try { return filePath && fs.existsSync(filePath) ? fs.statSync(filePath).size : 0; }
+  catch { return 0; }
+}
+
+function readRangeTail(filePath, startOffset = 0, maxBytes = 64 * 1024) {
   if (!filePath || !fs.existsSync(filePath)) return '';
   const size = fs.statSync(filePath).size;
-  const length = Math.min(size, maxBytes);
+  const boundedStart = Math.max(0, Math.min(size, Number(startOffset) || 0));
+  const available = size - boundedStart;
+  const length = Math.min(available, maxBytes);
   if (length <= 0) return '';
+  const offset = size - length;
   const descriptor = fs.openSync(filePath, 'r');
   try {
     const buffer = Buffer.alloc(length);
-    fs.readSync(descriptor, buffer, 0, length, size - length);
+    fs.readSync(descriptor, buffer, 0, length, offset);
     return buffer.toString('utf8');
   } finally {
     fs.closeSync(descriptor);
   }
 }
 
-function readLatestSidecarDiagnostic(filePath) {
+function readLatestSidecarDiagnostic(filePath, startOffset = 0) {
   let text = '';
-  try { text = readTail(filePath); } catch { return null; }
+  try { text = readRangeTail(filePath, startOffset); } catch { return null; }
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).reverse();
   for (const line of lines) {
     if (!line.startsWith('{') || !line.endsWith('}')) continue;
@@ -144,6 +152,7 @@ module.exports = {
   safeParentEnvironment,
   sanitizeBundledAiEnvironment,
   buildServiceEnvironment,
+  fileSize,
   readLatestSidecarDiagnostic,
   formatSidecarDiagnostic
 };
