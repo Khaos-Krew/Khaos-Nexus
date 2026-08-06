@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
-      - "release/v0.35.0-B"
+      - release/v0.35.0-B
 
 permissions:
   contents: write
@@ -24,8 +24,7 @@ jobs:
     timeout-minutes: 120
     env:
       APPROVED_APP_SHA: 952deee11b61bb569d9fe6cbc33319bf9701fbc4
-      DND_AI_COMMIT: 19c718917377d6148f9baaee8ac8dcb937692f32
-      AI_CORE_COMMIT: 300c653e5643e0ee2e15590f8cb53e30ee7a79ff
+      RELEASE_SHA: ${{ github.event.pull_request.head.sha }}
       RELEASE_VERSION: 0.37.0
       RELEASE_TAG: v0.37.0
     steps:
@@ -40,11 +39,11 @@ jobs:
         shell: pwsh
         run: |
           git merge-base --is-ancestor $env:APPROVED_APP_SHA HEAD
-          if ($LASTEXITCODE -ne 0) { throw 'Approved v0.37.0 application source is not an ancestor.' }
+          if ($LASTEXITCODE -ne 0) { throw 'Approved application source is not an ancestor.' }
           $changed = @(git diff --name-only "$env:APPROVED_APP_SHA..HEAD")
           $expected = '.github/workflows/updater-v0.37.0-unified-ai-runtime-release.yml'
           if ($changed.Count -ne 1 -or $changed[0] -ne $expected) {
-            throw "Publisher may differ only by its workflow. Changed: $($changed -join ', ')"
+            throw "Publisher must be workflow-only. Changed: $($changed -join ', ')"
           }
 
       - name: Set up Node.js
@@ -53,24 +52,19 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install desktop dependencies
-        run: npm ci
-
-      - name: Verify authoritative embedded AI source
+      - name: Install and validate authoritative source
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/verify-embedded-ai-sources.cjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run build --prefix packages/ai/dnd-ai
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run build --prefix packages/ai/ai-core
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Run complete validation before release mutation
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
           npm audit --omit=dev --audit-level=high
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm test
@@ -100,17 +94,15 @@ jobs:
           @'
           # Khaos Nexus v0.37.0 — Veyra and Nexus Sentinel
 
-          Khaos Nexus now starts one supervised AI runtime host containing two strongly separated agents.
+          Khaos Nexus now uses one supervised AI runtime host with two strongly separated workers.
 
           **Veyra** is the dedicated D&D Lorewarden and Co-DM. She supports campaigns, characters, encounters, homebrew, maps, and explicit AI Game Master sessions. Veyra cannot access application diagnostics, maintenance authority, or system credentials.
 
           **Nexus Sentinel** is the system-health and assistance AI. It supports diagnostics, update intelligence, module guidance, and advisory maintenance proposals. Nexus Sentinel cannot access campaign, character, homebrew, or DM-only context.
 
-          Each agent retains its own worker process, private data directory, endpoint, token boundary, readiness contract, logs, tools, memory, and restart path. Either worker can fail or restart without terminating the other worker or the shared runtime host.
+          Each agent retains its own process, private data directory, endpoint, token boundary, readiness contract, logs, tools, memory, and restart path. Either worker can fail or restart without terminating the other worker or the shared host.
 
-          This release replaces the blocked v0.36.1 startup repair. The protected publisher silently installs the application, launches it with deliberately contaminated inherited AI variables, proves Veyra's listener belongs to that exact installation, and requires both Veyra and Nexus Sentinel to reach their verified loopback readiness contracts before publication.
-
-          The isolated D&D AI and Nexus AI Core repositories remain focused bug-reproduction and candidate-fix lanes. The desktop repository remains the authoritative production source. Android Companion and Mobile Gateway remain paused and excluded under ADR-008.
+          The protected publisher silently installs the application, launches it with contaminated inherited AI settings, proves Veyra's listener belongs to that installation, and requires launch-scoped Nexus Sentinel readiness before publication.
           '@ | Set-Content release-notes/v0.37.0.md -Encoding utf8
 
           $p = Get-Content package.json -Raw | ConvertFrom-Json
@@ -127,15 +119,16 @@ jobs:
           $p.build.portable.artifactName = 'Khaos-Nexus-Portable-0.37.0-${arch}.${ext}'
           $p | ConvertTo-Json -Depth 30 | Set-Content package.json -Encoding utf8
 
-      - name: Build Windows updater assets from embedded source
+      - name: Build Windows updater assets
         run: npm run dist:win
 
-      - name: Verify unpacked packaged AI resources
-        run: node scripts/verify-packaged-ai-runtimes.cjs
-
-      - name: Require packaged unified runtime startup
+      - name: Verify packaged resources and startup
         shell: pwsh
-        run: ./scripts/smoke-packaged-startup.ps1
+        run: |
+          node scripts/verify-packaged-ai-runtimes.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/smoke-packaged-startup.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Silently install and verify both agents under hostile owner environment
         shell: pwsh
@@ -145,53 +138,65 @@ jobs:
           $unpackedRoot = (Resolve-Path 'dist/win-unpacked').Path
           $installRoot = 'C:\khaos-nexus-v0370-publisher'
           $profileRoot = 'C:\khaos-nexus-v0370-owner-profile'
-          $diagnosticsRoot = Join-Path $env:GITHUB_WORKSPACE '.publisher-diagnostics'
-          Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue
-          Remove-Item -LiteralPath $profileRoot -Recurse -Force -ErrorAction SilentlyContinue
-          Remove-Item -LiteralPath $diagnosticsRoot -Recurse -Force -ErrorAction SilentlyContinue
+          $diagnosticsRoot = Join-Path $env:GITHUB_WORKSPACE 'publisher-diagnostics'
+
+          Remove-Item $installRoot, $profileRoot, $diagnosticsRoot -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $diagnosticsRoot | Out-Null
 
-          function Test-PathUnderRoot([string]$Path, [string]$Root) {
+          function Test-UnderRoot {
+            param([string]$Path, [string]$Root)
             if ([string]::IsNullOrWhiteSpace($Path) -or [string]::IsNullOrWhiteSpace($Root)) { return $false }
             try {
-              $normalizedPath = [IO.Path]::GetFullPath($Path).TrimEnd('\')
-              $normalizedRoot = [IO.Path]::GetFullPath($Root).TrimEnd('\')
-              return $normalizedPath.Equals($normalizedRoot, [StringComparison]::OrdinalIgnoreCase) -or
-                $normalizedPath.StartsWith($normalizedRoot + '\', [StringComparison]::OrdinalIgnoreCase)
+              $p = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+              $r = [IO.Path]::GetFullPath($Root).TrimEnd('\')
+              return $p.Equals($r, [StringComparison]::OrdinalIgnoreCase) -or
+                $p.StartsWith($r + '\', [StringComparison]::OrdinalIgnoreCase)
             } catch { return $false }
           }
 
-          function Get-CandidateProcesses([string[]]$Roots) {
-            return @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+          function Get-AllProcesses {
+            return @(Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue)
+          }
+
+          function Get-ProcessById {
+            param([int]$ProcessId)
+            return @(Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $ProcessId" -ErrorAction SilentlyContinue) |
+              Select-Object -First 1
+          }
+
+          function Get-ProcessesUnderRoots {
+            param([string[]]$Roots)
+            return @(Get-AllProcesses | Where-Object {
               $process = $_
               $exe = [string]$process.ExecutablePath
               $command = [string]$process.CommandLine
-              $matchesRoot = $false
               foreach ($root in $Roots) {
-                if ((Test-PathUnderRoot $exe $root) -or
-                    (-not [string]::IsNullOrWhiteSpace($command) -and $command.IndexOf($root, [StringComparison]::OrdinalIgnoreCase) -ge 0)) {
-                  $matchesRoot = $true
-                  break
+                if ((Test-UnderRoot -Path $exe -Root $root) -or
+                    (-not [string]::IsNullOrWhiteSpace($command) -and
+                     $command.IndexOf($root, [StringComparison]::OrdinalIgnoreCase) -ge 0)) {
+                  return $true
                 }
               }
-              $matchesRoot -or [string]$process.Name -eq 'Khaos Nexus.exe'
+              return $false
             })
           }
 
-          function Stop-CandidateProcesses([string[]]$Roots) {
-            foreach ($candidate in @(Get-CandidateProcesses $Roots)) {
-              Write-Host "Stopping leftover candidate PID $($candidate.ProcessId): $($candidate.ExecutablePath)"
-              & taskkill.exe /PID $candidate.ProcessId /T /F 2>$null | Out-Null
+          function Stop-ProcessesUnderRoots {
+            param([string[]]$Roots)
+            foreach ($process in @(Get-ProcessesUnderRoots -Roots $Roots)) {
+              Write-Host "Stopping candidate PID $($process.ProcessId): $($process.ExecutablePath)"
+              & taskkill.exe /PID $process.ProcessId /T /F 2>$null | Out-Null
             }
           }
 
-          function Capture-PublisherDiagnostics(
-            [string]$Reason,
-            [bool]$VeyraReady,
-            [bool]$SentinelReady,
-            [string]$SentinelPath,
-            [datetime]$LaunchStarted
-          ) {
+          function Capture-Diagnostics {
+            param(
+              [string]$Reason,
+              [bool]$VeyraReady,
+              [bool]$SentinelReady,
+              [string]$SentinelReadyPath,
+              [datetime]$LaunchStarted
+            )
             New-Item -ItemType Directory -Force -Path $diagnosticsRoot | Out-Null
             @(
               "reason=$Reason",
@@ -199,12 +204,12 @@ jobs:
               "capturedUtc=$([datetime]::UtcNow.ToString('o'))",
               "veyraReady=$VeyraReady",
               "nexusSentinelReady=$SentinelReady",
-              "sentinelReadyPath=$SentinelPath",
+              "sentinelReadyPath=$SentinelReadyPath",
               "installRoot=$installRoot",
               "profileRoot=$profileRoot"
             ) | Set-Content (Join-Path $diagnosticsRoot 'status.txt') -Encoding utf8
 
-            Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Get-AllProcesses |
               Select-Object ProcessId, ParentProcessId, Name, ExecutablePath, CommandLine |
               Export-Csv (Join-Path $diagnosticsRoot 'processes.csv') -NoTypeInformation -Encoding utf8
 
@@ -213,56 +218,51 @@ jobs:
                 Select-Object State, LocalAddress, LocalPort, RemoteAddress, RemotePort, OwningProcess |
                 Export-Csv (Join-Path $diagnosticsRoot 'tcp-connections.csv') -NoTypeInformation -Encoding utf8
             } catch {
-              "Get-NetTCPConnection failed: $($_.Exception.Message)" |
-                Set-Content (Join-Path $diagnosticsRoot 'tcp-connections-error.txt') -Encoding utf8
+              $_.Exception.Message | Set-Content (Join-Path $diagnosticsRoot 'tcp-error.txt') -Encoding utf8
             }
 
-            if (Test-Path -LiteralPath $profileRoot) {
-              $files = @(Get-ChildItem -LiteralPath $profileRoot -Recurse -File -Force -ErrorAction SilentlyContinue)
+            if (Test-Path $profileRoot) {
+              $files = @(Get-ChildItem $profileRoot -Recurse -File -Force -ErrorAction SilentlyContinue)
               $files | Select-Object FullName, Length, CreationTimeUtc, LastWriteTimeUtc |
                 Export-Csv (Join-Path $diagnosticsRoot 'profile-files.csv') -NoTypeInformation -Encoding utf8
-
               foreach ($file in $files) {
-                $copy = $file.Extension -in @('.log','.json','.txt','.yml','.yaml') -or
-                  $file.Name -in @('Local State','Preferences')
-                if (-not $copy -or $file.Length -gt 5MB) { continue }
+                if ($file.Length -gt 5MB) { continue }
+                if ($file.Extension -notin @('.log','.json','.txt','.yml','.yaml') -and
+                    $file.Name -notin @('Local State','Preferences')) { continue }
                 $relative = $file.FullName.Substring($profileRoot.Length).TrimStart('\')
                 $destination = Join-Path (Join-Path $diagnosticsRoot 'profile') $relative
                 New-Item -ItemType Directory -Force -Path ([IO.Path]::GetDirectoryName($destination)) | Out-Null
-                Copy-Item -LiteralPath $file.FullName -Destination $destination -Force -ErrorAction SilentlyContinue
+                Copy-Item $file.FullName $destination -Force -ErrorAction SilentlyContinue
               }
             }
           }
 
-          $candidateRoots = @($unpackedRoot, $installRoot)
-          Stop-CandidateProcesses $candidateRoots
+          Stop-ProcessesUnderRoots -Roots @($unpackedRoot, $installRoot)
           Start-Sleep -Seconds 3
 
-          $existingVeyraListeners = @(Get-NetTCPConnection -LocalPort 8787 -State Listen -ErrorAction SilentlyContinue)
-          foreach ($listener in $existingVeyraListeners) {
-            $owner = Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)" -ErrorAction SilentlyContinue
-            if ($owner -and ((Test-PathUnderRoot ([string]$owner.ExecutablePath) $unpackedRoot) -or
-                             (Test-PathUnderRoot ([string]$owner.ExecutablePath) $installRoot) -or
-                             [string]$owner.Name -eq 'Khaos Nexus.exe')) {
+          foreach ($listener in @(Get-NetTCPConnection -LocalPort 8787 -State Listen -ErrorAction SilentlyContinue)) {
+            $owner = Get-ProcessById -ProcessId ([int]$listener.OwningProcess)
+            if ($owner -and ((Test-UnderRoot $owner.ExecutablePath $unpackedRoot) -or
+                             (Test-UnderRoot $owner.ExecutablePath $installRoot))) {
               & taskkill.exe /PID $listener.OwningProcess /T /F 2>$null | Out-Null
             } else {
-              throw "Port 8787 is occupied before installed launch by PID $($listener.OwningProcess): $([string]$owner.ExecutablePath)"
+              throw "Port 8787 is occupied by unrelated PID $($listener.OwningProcess): $($owner.ExecutablePath)"
             }
           }
           Start-Sleep -Seconds 2
           if (@(Get-NetTCPConnection -LocalPort 8787 -State Listen -ErrorAction SilentlyContinue).Count -ne 0) {
-            throw 'Port 8787 remained occupied after candidate cleanup.'
+            throw 'Port 8787 remained occupied after cleanup.'
           }
 
-          $install = Start-Process -FilePath $installer -ArgumentList '/S', "/D=$installRoot" -Wait -PassThru
-          if ($install.ExitCode -ne 0) { throw "Silent installer failed with exit code $($install.ExitCode)." }
+          $install = Start-Process $installer -ArgumentList '/S', "/D=$installRoot" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Silent installer failed with code $($install.ExitCode)." }
 
           $resources = Join-Path $installRoot 'resources\ai-services'
           node scripts/verify-packaged-ai-runtimes.cjs $resources
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           $appExe = Join-Path $installRoot 'Khaos Nexus.exe'
-          if (-not (Test-Path -LiteralPath $appExe)) { throw 'Installed Khaos Nexus executable is missing.' }
+          if (-not (Test-Path $appExe)) { throw 'Installed executable is missing.' }
 
           $roaming = Join-Path $profileRoot 'AppData\Roaming'
           $local = Join-Path $profileRoot 'AppData\Local'
@@ -278,12 +278,11 @@ jobs:
           $previous = @{}
           foreach ($name in $names) { $previous[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 
-          $appProcess = $null
           $launchStarted = Get-Date
           $veyraReady = $false
           $sentinelReady = $false
-          $sentinelFile = $null
-          $failureReason = $null
+          $sentinelFile = ''
+          $appProcess = $null
 
           try {
             $env:APPDATA = $roaming
@@ -305,34 +304,28 @@ jobs:
             $env:AUTH_REQUIRED = 'true'
 
             $launchStarted = Get-Date
-            $appProcess = Start-Process -FilePath $appExe -ArgumentList @('--disable-gpu') -PassThru
+            $appProcess = Start-Process $appExe -ArgumentList '--disable-gpu' -PassThru
             $deadline = (Get-Date).AddSeconds(180)
 
             while ((Get-Date) -lt $deadline) {
               Start-Sleep -Milliseconds 500
-              $installedProcesses = @(Get-CandidateProcesses @($installRoot) | Where-Object {
-                Test-PathUnderRoot ([string]$_.ExecutablePath) $installRoot
-              })
-
+              $installedProcesses = @(Get-ProcessesUnderRoots -Roots @($installRoot))
               if (((Get-Date) - $launchStarted).TotalSeconds -gt 10 -and $installedProcesses.Count -eq 0) {
-                $exitText = if ($appProcess) {
-                  try { $appProcess.Refresh(); if ($appProcess.HasExited) { " exitCode=$($appProcess.ExitCode)" } else { '' } } catch { '' }
-                } else { '' }
-                throw "No installed Khaos Nexus process remained after launch.$exitText"
+                $exitCode = ''
+                try { $appProcess.Refresh(); if ($appProcess.HasExited) { $exitCode = " code=$($appProcess.ExitCode)" } } catch {}
+                throw "No installed Khaos Nexus process remained after launch.$exitCode"
               }
 
               if (-not $veyraReady) {
                 try {
-                  $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -TimeoutSec 2
-                  $listeners = @(Get-NetTCPConnection -LocalPort 8787 -State Listen -ErrorAction SilentlyContinue)
-                  foreach ($listener in $listeners) {
-                    $owner = Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)" -ErrorAction SilentlyContinue
+                  $health = Invoke-RestMethod 'http://127.0.0.1:8787/health' -TimeoutSec 2
+                  foreach ($listener in @(Get-NetTCPConnection -LocalPort 8787 -State Listen -ErrorAction SilentlyContinue)) {
+                    $owner = Get-ProcessById -ProcessId ([int]$listener.OwningProcess)
                     if ([string]$health.status -eq 'ok' -and
                         [string]$health.service -eq 'khaos-nexus-ai' -and
-                        $owner -and
-                        (Test-PathUnderRoot ([string]$owner.ExecutablePath) $installRoot)) {
+                        $owner -and (Test-UnderRoot $owner.ExecutablePath $installRoot)) {
                       $veyraReady = $true
-                      Write-Host "Installed Veyra reached launch-owned health on PID $($listener.OwningProcess)."
+                      Write-Host "Veyra ready on installed PID $($listener.OwningProcess)."
                       break
                     }
                   }
@@ -340,19 +333,17 @@ jobs:
               }
 
               if (-not $sentinelReady) {
-                $searchRoots = @($profileRoot)
-                $defaultRoaming = Join-Path $env:USERPROFILE 'AppData\Roaming\Khaos Nexus'
-                if (-not (Test-PathUnderRoot $defaultRoaming $profileRoot)) { $searchRoots += $defaultRoaming }
-                $candidates = @()
-                foreach ($root in $searchRoots) {
-                  if (Test-Path -LiteralPath $root) {
-                    $candidates += Get-ChildItem -LiteralPath $root -Recurse -File -Filter 'ready-*.json' -ErrorAction SilentlyContinue |
+                $roots = @($profileRoot, (Join-Path $env:USERPROFILE 'AppData\Roaming\Khaos Nexus')) | Select-Object -Unique
+                $readyFiles = @()
+                foreach ($root in $roots) {
+                  if (Test-Path $root) {
+                    $readyFiles += Get-ChildItem $root -Recurse -File -Filter 'ready-*.json' -ErrorAction SilentlyContinue |
                       Where-Object { $_.LastWriteTime -ge $launchStarted }
                   }
                 }
-                foreach ($candidate in @($candidates | Sort-Object LastWriteTimeUtc -Descending)) {
+                foreach ($candidate in @($readyFiles | Sort-Object LastWriteTimeUtc -Descending)) {
                   try {
-                    $payload = Get-Content -LiteralPath $candidate.FullName -Raw | ConvertFrom-Json
+                    $payload = Get-Content $candidate.FullName -Raw | ConvertFrom-Json
                     if ([string]$payload.event -eq 'nexus-ai-core.ready' -and
                         [string]$payload.service -eq 'khaos-nexus-ai-core' -and
                         [string]$payload.serviceVersion -eq '0.7.0' -and
@@ -363,7 +354,7 @@ jobs:
                         [bool]$payload.boundaries.directDndCallsAllowed -eq $false) {
                       $sentinelReady = $true
                       $sentinelFile = $candidate.FullName
-                      Write-Host "Installed Nexus Sentinel reached launch-scoped authenticated readiness: $sentinelFile"
+                      Write-Host "Nexus Sentinel ready: $sentinelFile"
                       break
                     }
                   } catch {}
@@ -374,32 +365,39 @@ jobs:
             }
 
             if (-not ($veyraReady -and $sentinelReady)) {
-              throw "Installed unified AI readiness timed out after 180 seconds. Veyra=$veyraReady NexusSentinel=$sentinelReady"
+              throw "Installed readiness timed out. Veyra=$veyraReady NexusSentinel=$sentinelReady"
             }
           } catch {
-            $failureReason = $_.Exception.Message
-            Capture-PublisherDiagnostics $failureReason $veyraReady $sentinelReady $sentinelFile $launchStarted
+            $reason = $_.Exception.Message
+            try {
+              Capture-Diagnostics -Reason $reason -VeyraReady $veyraReady -SentinelReady $sentinelReady -SentinelReadyPath $sentinelFile -LaunchStarted $launchStarted
+              Write-Host '--- installed runtime status ---'
+              Get-Content (Join-Path $diagnosticsRoot 'status.txt') | Write-Host
+              Write-Host '--- profile file map ---'
+              Get-Content (Join-Path $diagnosticsRoot 'profile-files.csv') -ErrorAction SilentlyContinue | Select-Object -First 200 | Write-Host
+            } catch {
+              @("diagnosticCaptureFailure=$($_.Exception.Message)", "originalFailure=$reason") |
+                Set-Content (Join-Path $diagnosticsRoot 'capture-failure.txt') -Encoding utf8
+            }
             throw
           } finally {
-            Stop-CandidateProcesses @($installRoot)
+            Stop-ProcessesUnderRoots -Roots @($installRoot)
             foreach ($name in $names) {
               if ($null -eq $previous[$name]) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
               else { Set-Item "Env:$name" $previous[$name] }
             }
           }
 
-          $uninstaller = Join-Path $installRoot 'Uninstall Khaos Nexus.exe'
-          if (Test-Path -LiteralPath $uninstaller) {
-            Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait | Out-Null
-          }
-          Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue
-          Remove-Item -LiteralPath $profileRoot -Recurse -Force -ErrorAction SilentlyContinue
           @(
             'Installed unified AI runtime passed.',
             "veyraReady=$veyraReady",
             "nexusSentinelReady=$sentinelReady",
             "sentinelReadyPath=$sentinelFile"
           ) | Set-Content (Join-Path $diagnosticsRoot 'success.txt') -Encoding utf8
+
+          $uninstaller = Join-Path $installRoot 'Uninstall Khaos Nexus.exe'
+          if (Test-Path $uninstaller) { Start-Process $uninstaller -ArgumentList '/S' -Wait | Out-Null }
+          Remove-Item $installRoot, $profileRoot -Recurse -Force -ErrorAction SilentlyContinue
 
       - name: Verify release assets and package identity
         shell: pwsh
@@ -411,26 +409,24 @@ jobs:
             'dist/latest.yml'
           )
           foreach ($file in $files) {
-            if (-not (Test-Path -LiteralPath $file)) { throw "Missing required release asset: $file" }
-            if ((Get-Item -LiteralPath $file).Length -le 0) { throw "Empty release asset: $file" }
+            if (-not (Test-Path $file)) { throw "Missing asset: $file" }
+            if ((Get-Item $file).Length -le 0) { throw "Empty asset: $file" }
           }
           $latest = Get-Content dist/latest.yml -Raw
-          if ($latest -notmatch '(?m)^version:\s*0\.37\.0\s*$') { throw 'latest.yml does not advertise 0.37.0.' }
-          if ($latest -notmatch 'Khaos-Nexus-Setup-0\.37\.0-x64\.exe') { throw 'latest.yml installer name mismatch.' }
-          $asar = 'dist/win-unpacked/resources/app.asar'
-          node -e "const a=require('@electron/asar');const p=JSON.parse(a.extractFile('$asar','package.json'));if(p.version!=='0.37.0')throw Error('bad version');if(p.khaosRelease.rollbackTag!=='v0.35.3')throw Error('bad rollback');"
+          if ($latest -notmatch '(?m)^version:\s*0\.37\.0\s*$') { throw 'latest.yml version mismatch.' }
+          if ($latest -notmatch 'Khaos-Nexus-Setup-0\.37\.0-x64\.exe') { throw 'latest.yml installer mismatch.' }
+          node -e "const a=require('@electron/asar');const p=JSON.parse(a.extractFile('dist/win-unpacked/resources/app.asar','package.json'));if(p.version!=='0.37.0'||p.khaosRelease.rollbackTag!=='v0.35.3')throw Error('bad release identity');"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $android = Get-ChildItem dist -Recurse -File | Where-Object { $_.Extension -eq '.apk' -or $_.Name -match 'Android|Mobile' }
-          if ($android) { throw 'Mobile assets leaked into Windows package.' }
+          $mobile = Get-ChildItem dist -Recurse -File | Where-Object { $_.Extension -eq '.apk' -or $_.Name -match 'Android|Mobile' }
+          if ($mobile) { throw 'Mobile assets leaked into Windows release.' }
           $files | ForEach-Object {
-            "$( (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant() )  $([IO.Path]::GetFileName($_))"
+            "$((Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($_))"
           } | Set-Content release-checksums.txt
 
       - name: Publish updater-visible v0.37.0
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           $assets = @(
             'dist/Khaos-Nexus-Setup-0.37.0-x64.exe',
@@ -442,11 +438,10 @@ jobs:
           gh release create v0.37.0 --target $env:RELEASE_SHA --title 'Khaos Nexus v0.37.0 — Veyra and Nexus Sentinel' --notes-file release-notes/v0.37.0.md --latest @assets
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }
 
-      - name: Verify latest release and assets
+      - name: Verify published release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           $ref = gh api repos/$env:GITHUB_REPOSITORY/git/ref/tags/v0.37.0 | ConvertFrom-Json
           if ([string]$ref.object.sha -ne $env:RELEASE_SHA) { throw 'Tag target mismatch.' }
@@ -468,9 +463,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: v0.37.0-installed-runtime-diagnostics
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
-          path: .publisher-diagnostics/**
+          path: publisher-diagnostics/**
 
       - name: Upload publication evidence
         if: always()
