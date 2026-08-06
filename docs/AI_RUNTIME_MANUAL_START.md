@@ -18,3 +18,5 @@ This policy prevents AI initialization from delaying normal desktop startup and 
 The updater candidate must prove that a clean-installed desktop reaches its normal interface with no AI host or agent process. The release test must then invoke the same authorized lifecycle contract used by the in-app Start control and verify Veyra and Nexus Sentinel readiness before publication.
 
 After the exact application head passes repository and Windows gates, the corrected build is published through the protected updater workflow for Owner-device testing. Issue #214 remains open until the in-app update is installed and confirmed on the Owner device.
+
+Validation workflows use branch-scoped concurrency so superseded runs cannot delay the exact review head.
