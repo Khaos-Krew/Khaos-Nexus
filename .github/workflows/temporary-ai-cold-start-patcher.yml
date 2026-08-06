@@ -1,0 +1,347 @@
+name: Apply AI Cold Start Repair
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - release/v0.35.0-B
+
+permissions:
+  contents: write
+
+jobs:
+  apply-repair:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'hotfix/v0.37.0-ai-cold-start'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out hotfix branch
+        uses: actions/checkout@v4
+        with:
+          ref: hotfix/v0.37.0-ai-cold-start
+          fetch-depth: 0
+
+      - name: Move bundle verification into parallel agent launchers
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              source = path.read_text(encoding='utf-8')
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one match, found {count}: {old[:100]!r}')
+              path.write_text(source.replace(old, new, 1), encoding='utf-8')
+
+          supervisor = Path('main/bundled-ai-runtimes-extension.cjs')
+          old_verify = '''function verifyBundle(service) {
+            const root = path.join(runtimeRoot(), service.id);
+            const manifestPath = path.join(root, 'bundle-manifest.json');
+            if (!fs.existsSync(manifestPath)) throw new Error(`${service.label} bundle is not installed.`);
+            const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+            if (manifest.id !== service.id || manifest.runtime?.electronRunAsNode !== true) throw new Error(`${service.label} bundle manifest is invalid.`);
+            for (const item of manifest.files || []) {
+              const file = safeRelative(root, item.path);
+              if (!fs.existsSync(file) || fs.statSync(file).size !== item.size || sha256(file) !== item.sha256) {
+                throw new Error(`${service.label} bundle integrity check failed for ${item.path}.`);
+              }
+            }
+            const entry = safeRelative(root, manifest.entry);
+            if (!fs.existsSync(entry)) throw new Error(`${service.label} entry point is missing.`);
+            return { root, entry, manifest };
+          }'''
+          new_verify = '''function describeBundle(service) {
+            const root = path.join(runtimeRoot(), service.id);
+            const manifestPath = path.join(root, 'bundle-manifest.json');
+            if (!fs.existsSync(manifestPath)) throw new Error(`${service.label} bundle is not installed.`);
+            const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+            if (manifest.id !== service.id || manifest.runtime?.electronRunAsNode !== true || !Array.isArray(manifest.files)) {
+              throw new Error(`${service.label} bundle manifest is invalid.`);
+            }
+            const entry = safeRelative(root, manifest.entry);
+            if (!fs.existsSync(entry)) throw new Error(`${service.label} entry point is missing.`);
+            return { root, entry, manifest };
+          }
+          function verifyBundle(service) {
+            const bundle = describeBundle(service);
+            for (const item of bundle.manifest.files) {
+              const file = safeRelative(bundle.root, item.path);
+              if (!fs.existsSync(file) || fs.statSync(file).size !== item.size || sha256(file) !== item.sha256) {
+                throw new Error(`${service.label} bundle integrity check failed for ${item.path}.`);
+              }
+            }
+            return bundle;
+          }'''
+          replace_once(supervisor, old_verify, new_verify)
+          replace_once(supervisor, '  const dndBundle = verifyBundle(AGENTS.dnd);\n  const coreBundle = verifyBundle(AGENTS.core);',
+                       '  const dndBundle = describeBundle(AGENTS.dnd);\n  const coreBundle = describeBundle(AGENTS.core);')
+          replace_once(supervisor, '  verifyBundle,\n  status,', '  verifyBundle,\n  describeBundle,\n  status,')
+
+          host = Path('main/ai-runtime-host.cjs')
+          replace_once(host, "const READY_TIMEOUT_MS = 15000;\nconst HEALTH_POLL_MS = 150;",
+                       "const READY_TIMEOUT_MS = 15000;\nconst VERIFICATION_TIMEOUT_MS = 300000;\nconst HEALTH_POLL_MS = 150;")
+          replace_once(host, "  clearTimer(value, 'readyTimer');\n  if (value.child !== child) return;",
+                       "  clearTimer(value, 'readyTimer');\n  clearTimer(value, 'verificationTimer');\n  if (value.child !== child) return;")
+          replace_once(host, "    readyTimer: null,\n    logStartOffset: fileSize(config.logPath)",
+                       "    readyTimer: null,\n    verificationTimer: null,\n    verifiedAt: null,\n    logStartOffset: fileSize(config.logPath)")
+          replace_once(host, "    child = spawn(process.execPath, [launcherPath, key, config.entry], {",
+                       "    child = spawn(process.execPath, [launcherPath, key, config.root, config.entry], {")
+
+          old_readiness = '''  child.once('spawn', () => emitStatus());
+          if (key === 'dnd') void waitForVeyra(value, child);
+          if (key === 'core') {
+            value.readyTimer = setTimeout(() => {
+              if (!childAlive(value, child) || value.status !== 'starting') return;
+              value.status = 'failed';
+              value.error = 'Nexus Sentinel did not report readiness before the startup timeout.';
+              try { child.kill(); } catch {}
+              emitStatus();
+            }, READY_TIMEOUT_MS);
+            value.readyTimer.unref?.();
+            child.on('message', (message) => {
+              if (!childAlive(value, child) || value.status !== 'starting') return;
+              try {
+                value.endpoint = validateCoreReadiness(message, config.startupNonce);
+                value.readiness = message;
+                value.status = 'ready';
+                value.error = '';
+                clearTimer(value, 'readyTimer');
+                emitStatus();
+              } catch (error) {
+                value.status = 'failed';
+                value.error = cleanText(error?.message || error);
+                clearTimer(value, 'readyTimer');
+                try { child.kill(); } catch {}
+                emitStatus();
+              }
+            });
+          }'''
+          new_readiness = '''  child.once('spawn', () => emitStatus());
+          value.verificationTimer = setTimeout(() => {
+            if (!childAlive(value, child) || value.status !== 'starting' || value.verifiedAt) return;
+            value.status = 'failed';
+            value.error = `${AGENTS[key].label} bundle verification did not finish before the integrity timeout.`;
+            try { child.kill(); } catch {}
+            emitStatus();
+          }, VERIFICATION_TIMEOUT_MS);
+          value.verificationTimer.unref?.();
+          child.on('message', (message) => {
+            if (!childAlive(value, child) || value.status !== 'starting') return;
+            if (message?.type === 'khaos-nexus-ai-runtime.agent-verified') {
+              if (message.agent !== key || message.bundleId !== AGENTS[key].id) {
+                value.status = 'failed';
+                value.error = `${AGENTS[key].label} verification identity is incompatible.`;
+                clearTimer(value, 'verificationTimer');
+                try { child.kill(); } catch {}
+                emitStatus();
+                return;
+              }
+              value.verifiedAt = nowIso();
+              clearTimer(value, 'verificationTimer');
+              if (key === 'dnd') void waitForVeyra(value, child);
+              if (key === 'core') {
+                value.readyTimer = setTimeout(() => {
+                  if (!childAlive(value, child) || value.status !== 'starting') return;
+                  value.status = 'failed';
+                  value.error = 'Nexus Sentinel did not report readiness before the startup timeout.';
+                  try { child.kill(); } catch {}
+                  emitStatus();
+                }, READY_TIMEOUT_MS);
+                value.readyTimer.unref?.();
+              }
+              emitStatus();
+              return;
+            }
+            if (key !== 'core' || !value.verifiedAt) return;
+            try {
+              value.endpoint = validateCoreReadiness(message, config.startupNonce);
+              value.readiness = message;
+              value.status = 'ready';
+              value.error = '';
+              clearTimer(value, 'readyTimer');
+              emitStatus();
+            } catch (error) {
+              value.status = 'failed';
+              value.error = cleanText(error?.message || error);
+              clearTimer(value, 'readyTimer');
+              try { child.kill(); } catch {}
+              emitStatus();
+            }
+          });'''
+          replace_once(host, old_readiness, new_readiness)
+          replace_once(host, "    clearTimer(value, 'readyTimer');\n    emitStatus();",
+                       "    clearTimer(value, 'readyTimer');\n    clearTimer(value, 'verificationTimer');\n    emitStatus();")
+          replace_once(host, "    clearTimer(value, 'readyTimer');\n    try {",
+                       "    clearTimer(value, 'readyTimer');\n    clearTimer(value, 'verificationTimer');\n    try {")
+          replace_once(host, "  READY_TIMEOUT_MS\n};", "  READY_TIMEOUT_MS,\n  VERIFICATION_TIMEOUT_MS\n};")
+
+          launcher = Path('main/ai-runtime-agent-launcher.cjs')
+          launcher.write_text(r'''\'use strict\';
+
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
+const { AGENTS } = require('./ai-runtime-contract.cjs');
+
+const agentKey = String(process.argv[2] || '').trim().toLowerCase();
+const root = path.resolve(String(process.argv[3] || ''));
+const entry = path.resolve(String(process.argv[4] || ''));
+const allowedAgents = new Set(['dnd', 'core']);
+let shuttingDown = false;
+
+function diagnostic(code, message) {
+  return JSON.stringify({
+    event: 'khaos-nexus-ai-runtime.agent-launch-error',
+    agent: agentKey || 'unknown',
+    code,
+    message: String(message || code).replace(/\\s+/g, ' ').trim().slice(0, 500),
+    exitCode: 70
+  });
+}
+function log(event, extra = {}) {
+  process.stderr.write(`${JSON.stringify({ event, agent: agentKey || 'unknown', time: new Date().toISOString(), ...extra })}\\n`);
+}
+function shutdown(reason = 'parent-disconnected') {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  try { process.emit('SIGTERM', reason); } catch {}
+  const timer = setTimeout(() => process.exit(0), 1500);
+  timer.unref?.();
+}
+function safeFile(relativePath, label) {
+  const raw = String(relativePath || '').trim();
+  if (!raw || path.isAbsolute(raw)) throw new Error(`${label} is invalid.`);
+  const absolute = path.resolve(root, raw);
+  const relative = path.relative(root, absolute);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error(`${label} is outside the bundle.`);
+  return absolute;
+}
+function samePath(left, right) {
+  const a = path.resolve(left);
+  const b = path.resolve(right);
+  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+function sha256(file) {
+  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+function verifyBundle() {
+  const agent = AGENTS[agentKey];
+  const manifestPath = path.join(root, 'bundle-manifest.json');
+  if (!fs.existsSync(manifestPath)) throw new Error(`${agent.label} bundle manifest is missing.`);
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  if (manifest.id !== agent.id || manifest.runtime?.electronRunAsNode !== true || !Array.isArray(manifest.files)) {
+    throw new Error(`${agent.label} bundle manifest is invalid.`);
+  }
+  const manifestEntry = safeFile(manifest.entry, `${agent.label} entry point`);
+  if (!samePath(manifestEntry, entry)) throw new Error(`${agent.label} entry point does not match its manifest.`);
+  const seen = new Set();
+  log('khaos-nexus-ai-runtime.bundle-verification-started', { bundleId: manifest.id, files: manifest.files.length });
+  for (let index = 0; index < manifest.files.length; index += 1) {
+    const item = manifest.files[index] || {};
+    const key = String(item.path || '').replace(/\\\\/g, '/');
+    if (!key || seen.has(key)) throw new Error(`${agent.label} bundle manifest contains an invalid duplicate path.`);
+    seen.add(key);
+    const file = safeFile(item.path, `${agent.label} bundle file`);
+    if (!fs.existsSync(file) || fs.statSync(file).size !== item.size || sha256(file) !== item.sha256) {
+      throw new Error(`${agent.label} bundle integrity check failed for ${item.path}.`);
+    }
+    if ((index + 1) % 500 === 0) {
+      log('khaos-nexus-ai-runtime.bundle-verification-progress', { bundleId: manifest.id, verified: index + 1, files: manifest.files.length });
+    }
+  }
+  log('khaos-nexus-ai-runtime.bundle-verified', { bundleId: manifest.id, files: manifest.files.length, version: manifest.version || '' });
+  return manifest;
+}
+function sendVerified(manifest) {
+  if (!process.connected) throw new Error('AI runtime host IPC is unavailable.');
+  process.send({
+    type: 'khaos-nexus-ai-runtime.agent-verified',
+    agent: agentKey,
+    bundleId: manifest.id,
+    version: String(manifest.version || ''),
+    files: manifest.files.length
+  });
+}
+async function main() {
+  if (!allowedAgents.has(agentKey)) throw Object.assign(new Error('The runtime host supplied an invalid agent key.'), { code: 'AI_AGENT_LAUNCHER_AGENT_INVALID' });
+  if (!root || !path.isAbsolute(root) || !fs.existsSync(root)) throw Object.assign(new Error('The runtime host supplied an invalid bundle root.'), { code: 'AI_AGENT_LAUNCHER_ROOT_INVALID' });
+  if (!entry || !path.isAbsolute(entry) || !fs.existsSync(entry)) throw Object.assign(new Error('The runtime host supplied an invalid entry point.'), { code: 'AI_AGENT_LAUNCHER_ENTRY_INVALID' });
+  const relativeEntry = path.relative(root, entry);
+  if (!relativeEntry || relativeEntry.startsWith('..') || path.isAbsolute(relativeEntry)) throw Object.assign(new Error('The agent entry point is outside its bundle.'), { code: 'AI_AGENT_LAUNCHER_ENTRY_OUTSIDE_BUNDLE' });
+
+  process.on('disconnect', () => shutdown());
+  const manifest = verifyBundle();
+  sendVerified(manifest);
+  await import(pathToFileURL(entry).href);
+}
+
+main().catch((error) => {
+  process.stderr.write(`${diagnostic(error?.code || 'AI_AGENT_LAUNCHER_FAILED', error?.message || error)}\\n`);
+  process.exitCode = 70;
+});
+''', encoding='utf-8')
+
+          bundled_test = Path('test/bundled-ai-runtimes.test.cjs')
+          replace_once(bundled_test,
+                       r"assert.match(host, /spawn\\(process\\.execPath, \\[launcherPath, key, config\\.entry\\]\\)/);",
+                       r"assert.match(host, /spawn\\(process\\.execPath, \\[launcherPath, key, config\\.root, config\\.entry\\]\\)/);")
+          replace_once(bundled_test,
+                       "  assert.match(host, /READY_TIMEOUT_MS = 15000/);\n",
+                       "  assert.match(host, /READY_TIMEOUT_MS = 15000/);\n  assert.match(host, /VERIFICATION_TIMEOUT_MS = 300000/);\n  assert.match(host, /agent-verified/);\n")
+
+          Path('test/ai-runtime-cold-start.test.cjs').write_text(r'''\'use strict\';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = path.join(__dirname, '..');
+const read = (file) => fs.readFileSync(path.join(root, file), 'utf8').replace(/\\r\\n/g, '\\n');
+
+test('Electron describes bundles without hashing thousands of files on its main thread', () => {
+  const source = read('main/bundled-ai-runtimes-extension.cjs');
+  assert.match(source, /function describeBundle\\(service\\)/);
+  assert.match(source, /const dndBundle = describeBundle\\(AGENTS\\.dnd\\)/);
+  assert.match(source, /const coreBundle = describeBundle\\(AGENTS\\.core\\)/);
+  assert.match(source, /function verifyBundle\\(service\\)[\\s\\S]*sha256\\(file\\)/);
+});
+
+test('each launcher fully verifies its own manifest before importing agent code', () => {
+  const source = read('main/ai-runtime-agent-launcher.cjs');
+  const verify = source.indexOf('const manifest = verifyBundle()');
+  const signal = source.indexOf('sendVerified(manifest)');
+  const execute = source.indexOf('await import(pathToFileURL(entry).href)');
+  assert.ok(verify >= 0 && signal > verify && execute > signal);
+  assert.match(source, /bundle-manifest\\.json/);
+  assert.match(source, /sha256\\(file\\) !== item\\.sha256/);
+  assert.match(source, /bundle-verification-progress/);
+});
+
+test('host starts workers in parallel and separates integrity timeout from service readiness', () => {
+  const source = read('main/ai-runtime-host.cjs');
+  assert.match(source, /spawn\\(process\\.execPath, \\[launcherPath, key, config\\.root, config\\.entry\\]/);
+  assert.match(source, /VERIFICATION_TIMEOUT_MS = 300000/);
+  assert.match(source, /message\\?\\.type === 'khaos-nexus-ai-runtime\\.agent-verified'/);
+  assert.match(source, /if \\(key === 'dnd'\\) void waitForVeyra/);
+  assert.match(source, /if \\(key === 'core'\\) \\{[\\s\\S]*value\\.readyTimer = setTimeout/);
+  assert.match(source, /Object\\.keys\\(AGENTS\\)\\.map/);
+});
+''', encoding='utf-8')
+
+          Path('docs/AI_RUNTIME_COLD_START_REPAIR.md').write_text('''# AI Runtime Cold-Start Repair\n\nThe installed Windows diagnostic showed Electron alive for three minutes with no runtime host or agent process. Both bundle manifests were being hashed serially and synchronously on Electron's main thread before the host could be spawned.\n\nThis repair preserves full per-file SHA-256 verification while moving it into the two isolated agent launcher processes. Veyra and Nexus Sentinel now verify concurrently. The shared runtime host is created immediately, produces launch-scoped logs, and starts the 15-second service-readiness timer only after the corresponding bundle has passed integrity verification.\n\nNo agent code executes before its own manifest, file sizes, and hashes pass. Identity, path-containment, environment, credentials, memory, tool, restart, and failure boundaries remain separate.\n''', encoding='utf-8')
+
+          Path('.github/workflows/temporary-ai-cold-start-patcher.yml').unlink()
+
+      - name: Commit repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Move AI bundle verification off the Electron main thread"
+          git push origin HEAD:hotfix/v0.37.0-ai-cold-start
