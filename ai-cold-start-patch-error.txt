@@ -1,1 +1,1 @@
-Trigger the corrected trusted CI cold-start repair job.
+Trigger the manual-only AI Runtime startup policy repair.
