@@ -71,6 +71,7 @@ if (diagnosticsMode) {
     require('./dnd-authorization-summary-extension.cjs').install();
     require('./ai-services-extension.cjs').install();
     require('./ai-services-privacy-extension.cjs').install();
+    require('./ai-runtime-spawn-boundary.cjs').install();
     require('./bundled-ai-runtimes-extension.cjs').install();
     require('./nexus-ai-core-operations-extension.cjs').install();
 
