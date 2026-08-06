@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feature/unified-ai-runtime
+  pull_request:
+    branches:
+      - release/v0.35.0-B
 
 permissions:
   contents: read
