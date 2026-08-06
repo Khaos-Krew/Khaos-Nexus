@@ -1,17 +1,19 @@
 name: Apply D&D Campaign Runtime Foundation
 
 on:
-  push:
+  pull_request:
+    types: [opened, synchronize, reopened]
     branches:
-      - feature/dnd-campaign-runtime-foundation
-    paths:
-      - .dnd-runtime-foundation-trigger
+      - hotfix/v0.37.0-ai-cold-start
 
 permissions:
   contents: write
 
 jobs:
   apply-foundation:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'feature/dnd-campaign-runtime-foundation'
     runs-on: ubuntu-latest
     steps:
       - name: Check out private feature branch
