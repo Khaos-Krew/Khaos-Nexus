@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/home/runner/work/_temp/39b9c8d0-2b43-4f98-a955-a0461cac99ff.py", line 11, in <module>
+    exec(compile(program, str(workflow), 'exec'), {'__name__': '__main__'})
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ".github/workflows/temporary-ai-cold-start-patcher.yml", line 1
+    name: Apply AI Cold Start Repair
+             ^
+IndentationError: unexpected indent
