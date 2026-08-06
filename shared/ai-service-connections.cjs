@@ -78,7 +78,7 @@ function sanitizeAiServiceBackupSecrets(secrets = {}) {
 function normalizeAiCoreSettings(input = {}, current = {}) {
   for (const field of ['apiKey', 'openAiKey', 'openaiApiKey', 'providerKey', 'providerEndpoint', 'providerBaseUrl', 'model']) {
     if (Object.prototype.hasOwnProperty.call(input, field) && cleanText(input[field], 20)) {
-      throw serviceError('AI provider credentials, provider endpoints, and models are configured only in Nexus AI Core.', 'AI_CORE_PROVIDER_SETTINGS_SERVER_OWNED', field);
+      throw serviceError('AI provider credentials, provider endpoints, and models are configured only in Nexus Sentinel.', 'AI_CORE_PROVIDER_SETTINGS_SERVER_OWNED', field);
     }
   }
   return {
@@ -91,10 +91,10 @@ function normalizeAiCoreSettings(input = {}, current = {}) {
 
 function assertAiCoreIdentity(payload, endpoint) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    throw serviceError('Nexus AI Core returned an invalid JSON object.', 'AI_CORE_RESPONSE_INVALID');
+    throw serviceError('Nexus Sentinel returned an invalid JSON object.', 'AI_CORE_RESPONSE_INVALID');
   }
   if (payload.service !== AI_CORE_SERVICE || payload.targetService !== AI_CORE_TARGET) {
-    throw serviceError(`The service at ${endpoint} is not the expected Nexus AI Core runtime.`, 'AI_CORE_IDENTITY_MISMATCH');
+    throw serviceError(`The service at ${endpoint} is not the expected Nexus Sentinel runtime.`, 'AI_CORE_IDENTITY_MISMATCH');
   }
 }
 
@@ -119,10 +119,10 @@ function normalizeProviderStatus(value = {}) {
 
 function normalizeAiCoreHealth(payload, endpoint) {
   assertAiCoreIdentity(payload, endpoint);
-  if (payload.status !== 'ok') throw serviceError('Nexus AI Core did not report a healthy status.', 'AI_CORE_UNHEALTHY');
+  if (payload.status !== 'ok') throw serviceError('Nexus Sentinel did not report a healthy status.', 'AI_CORE_UNHEALTHY');
   const isolation = payload.isolation || {};
   if (isolation.directAiToAiCallsAllowed !== false) {
-    throw serviceError('Nexus AI Core did not confirm direct AI-to-AI isolation.', 'AI_CORE_ISOLATION_UNCONFIRMED');
+    throw serviceError('Nexus Sentinel did not confirm direct AI-to-AI isolation.', 'AI_CORE_ISOLATION_UNCONFIRMED');
   }
   return {
     reachable: true,
@@ -149,14 +149,14 @@ function normalizeAiCoreCapabilities(payload, endpoint) {
     .map((item) => cleanText(item, 120))
     .filter(Boolean))].sort();
   if (!capabilities.length || capabilities.some((item) => item.startsWith('dnd.')) || capabilities.some((item) => !item.startsWith('nexus.'))) {
-    throw serviceError('Nexus AI Core returned an invalid or cross-domain capability list.', 'AI_CORE_CAPABILITIES_INVALID');
+    throw serviceError('Nexus Sentinel returned an invalid or cross-domain capability list.', 'AI_CORE_CAPABILITIES_INVALID');
   }
   const rejectedNamespaces = (Array.isArray(payload.rejectedNamespaces) ? payload.rejectedNamespaces : []).map((item) => cleanText(item, 80));
   if (!rejectedNamespaces.includes('dnd.*')) {
-    throw serviceError('Nexus AI Core did not confirm rejection of the D&D namespace.', 'AI_CORE_DND_ISOLATION_UNCONFIRMED');
+    throw serviceError('Nexus Sentinel did not confirm rejection of the D&D namespace.', 'AI_CORE_DND_ISOLATION_UNCONFIRMED');
   }
   if (payload.directServiceForwarding !== false || payload.directDiscordConnection !== false || payload.directExecution !== false) {
-    throw serviceError('Nexus AI Core did not confirm advisory-only operation.', 'AI_CORE_AUTHORITY_BOUNDARY_UNCONFIRMED');
+    throw serviceError('Nexus Sentinel did not confirm advisory-only operation.', 'AI_CORE_AUTHORITY_BOUNDARY_UNCONFIRMED');
   }
   return {
     apiVersion: cleanText(payload.apiVersion, 20),
@@ -191,7 +191,7 @@ function unavailableAiCore(endpoint, error = 'Connection has not been checked ye
     directServiceForwarding: false,
     directDiscordConnection: false,
     directExecution: false,
-    error: value || 'Nexus AI Core is unavailable.'
+    error: value || 'Nexus Sentinel is unavailable.'
   };
 }
 

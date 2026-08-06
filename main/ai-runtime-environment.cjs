@@ -74,11 +74,11 @@ function safeParentEnvironment(parentEnv = process.env) {
   return copyAllowedEnvironment(parentEnv, SAFE_PARENT_ENV_KEYS);
 }
 
-function sanitizeBundledAiEnvironment(candidateEnv = {}) {
+function sanitizeBundledAiEnvironment(candidateEnv = {}, { nodeEnv = 'production' } = {}) {
   const allowed = new Set([...SAFE_PARENT_ENV_KEYS, ...SAFE_SERVICE_ENV_KEYS]);
   const env = copyAllowedEnvironment(candidateEnv, allowed);
   env.ELECTRON_RUN_AS_NODE = '1';
-  env.NODE_ENV = 'production';
+  env.NODE_ENV = nodeEnv === 'development' ? 'development' : 'production';
   env.KHAOS_NEXUS_BUNDLED_SERVICE = '1';
   delete env.NODE_OPTIONS;
   delete env.Node_Options;
@@ -87,15 +87,15 @@ function sanitizeBundledAiEnvironment(candidateEnv = {}) {
   return env;
 }
 
-function buildServiceEnvironment({ serviceEnv = {}, serviceData = '', parentEnv = process.env } = {}) {
+function buildServiceEnvironment({ serviceEnv = {}, serviceData = '', parentEnv = process.env, nodeEnv = 'production' } = {}) {
   return sanitizeBundledAiEnvironment({
     ...safeParentEnvironment(parentEnv),
     ...serviceEnv,
     ELECTRON_RUN_AS_NODE: '1',
-    NODE_ENV: 'production',
+    NODE_ENV: nodeEnv === 'development' ? 'development' : 'production',
     DATA_DIR: String(serviceData || ''),
     KHAOS_NEXUS_BUNDLED_SERVICE: '1'
-  });
+  }, { nodeEnv });
 }
 
 function fileSize(filePath) {

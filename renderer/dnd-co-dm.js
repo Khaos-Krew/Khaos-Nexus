@@ -75,20 +75,20 @@
       if (!service.reachable) return escapeHtml(service.error || 'Connection has not been checked.');
       const parts = [service.service, service.version && `v${service.version}`, service.provider, service.model].filter(Boolean);
       const mode = service.dedicatedDrafts ? 'Dedicated draft mode' : service.legacyCampaignTurns ? 'Campaign-turn compatibility mode' : 'Unsupported capability';
-      return `${escapeHtml(parts.join(' · ') || 'Khaos Nexus AI')}<br><small>${escapeHtml(mode)}</small>`;
+      return `${escapeHtml(parts.join(' · ') || 'Veyra')}<br><small>${escapeHtml(mode)}</small>`;
     }
 
     function settingsHtml() {
       const settings = state.payload?.settings || {};
       const service = state.payload?.service || {};
       const legacyWarning = service.reachable && service.legacyCampaignTurns && !service.dedicatedDrafts
-        ? '<div class="callout warning"><strong>Compatibility storage:</strong> The current AI MVP stores a synchronized campaign copy and generated turn history in the Khaos Nexus AI service. Each generation requires confirmation until the dedicated stateless draft endpoint is available.</div>'
+        ? '<div class="callout warning"><strong>Compatibility storage:</strong> The current AI MVP stores a synchronized campaign copy and generated turn history in the Veyra worker. Each generation requires confirmation until the dedicated stateless draft endpoint is available.</div>'
         : '';
-      return `<article class="panel dnd-co-dm-settings"><div class="panel-heading"><div><span class="eyebrow">Separate AI runtime</span><h3>Khaos Nexus AI Service</h3></div><span class="tag ${service.reachable ? 'success' : 'warning'}">${service.reachable ? 'Connected' : 'Not connected'}</span></div><div class="callout">AI providers and provider credentials are owned by the separate <strong>Khaos-Nexus-AI</strong> service. The desktop stores no OpenAI key and sends campaign context only after an explicit generation action.</div>${legacyWarning}<div class="dnd-co-dm-service-summary">${serviceSummary()}</div><form id="dndCoDmSettingsForm" class="dnd-co-dm-settings-form"><label>Service endpoint<input name="serviceEndpoint" type="url" maxlength="500" value="${escapeHtml(settings.serviceEndpoint || 'http://127.0.0.1:8787')}" placeholder="http://127.0.0.1:8787"></label><label>Optional service token<input name="serviceToken" type="password" autocomplete="off" maxlength="500" placeholder="${settings.hasServiceToken ? 'Stored — enter a new token to replace' : 'Leave blank when local service authentication is disabled'}"></label><div class="form-grid three"><label>Preferred model alias<input name="model" maxlength="120" value="${escapeHtml(settings.model || 'default')}"><small>The current MVP chooses its model server-side.</small></label><label>Maximum draft characters<input name="maxOutputCharacters" type="number" min="1000" max="40000" value="${Number(settings.maxOutputCharacters || 40000)}"></label><label>Context character limit<input name="contextCharacterLimit" type="number" min="8000" max="100000" value="${Number(settings.contextCharacterLimit || 48000)}"></label></div><div class="form-grid"><label>Local draft history limit<input name="historyLimit" type="number" min="5" max="100" value="${Number(settings.historyLimit || 40)}"></label><div class="form-actions dnd-co-dm-key-actions"><button class="button" type="button" data-dnd-co-dm-action="service-check">Test Connection</button><button class="button" type="button" data-dnd-co-dm-action="remove-token" ${settings.hasServiceToken ? '' : 'disabled'}>Remove Token</button><button class="button primary" type="submit">Save Settings</button></div></div></form></article>`;
+      return `<article class="panel dnd-co-dm-settings"><div class="panel-heading"><div><span class="eyebrow">Veyra worker</span><h3>Veyra</h3></div><span class="tag ${service.reachable ? 'success' : 'warning'}">${service.reachable ? 'Connected' : 'Not connected'}</span></div><div class="callout"><strong>Veyra</strong> runs as the D&amp;D worker inside the <strong>Khaos Nexus AI Runtime</strong>. Provider credentials remain isolated from the desktop, which stores no OpenAI key and sends campaign context only after an explicit generation action.</div>${legacyWarning}<div class="dnd-co-dm-service-summary">${serviceSummary()}</div><form id="dndCoDmSettingsForm" class="dnd-co-dm-settings-form"><label>Service endpoint<input name="serviceEndpoint" type="url" maxlength="500" value="${escapeHtml(settings.serviceEndpoint || 'http://127.0.0.1:8787')}" placeholder="http://127.0.0.1:8787"></label><label>Optional service token<input name="serviceToken" type="password" autocomplete="off" maxlength="500" placeholder="${settings.hasServiceToken ? 'Stored — enter a new token to replace' : 'Leave blank when local service authentication is disabled'}"></label><div class="form-grid three"><label>Preferred model alias<input name="model" maxlength="120" value="${escapeHtml(settings.model || 'default')}"><small>The current MVP chooses its model server-side.</small></label><label>Maximum draft characters<input name="maxOutputCharacters" type="number" min="1000" max="40000" value="${Number(settings.maxOutputCharacters || 40000)}"></label><label>Context character limit<input name="contextCharacterLimit" type="number" min="8000" max="100000" value="${Number(settings.contextCharacterLimit || 48000)}"></label></div><div class="form-grid"><label>Local draft history limit<input name="historyLimit" type="number" min="5" max="100" value="${Number(settings.historyLimit || 40)}"></label><div class="form-actions dnd-co-dm-key-actions"><button class="button" type="button" data-dnd-co-dm-action="service-check">Test Connection</button><button class="button" type="button" data-dnd-co-dm-action="remove-token" ${settings.hasServiceToken ? '' : 'disabled'}>Remove Token</button><button class="button primary" type="submit">Save Settings</button></div></div></form></article>`;
     }
 
     function contextPreviewHtml() {
-      if (!state.context) return '<div class="callout">Preview shows exactly which local sections will be included before a request is sent to Khaos Nexus AI.</div>';
+      if (!state.context) return '<div class="callout">Preview shows exactly which local sections will be included before a request is sent to Veyra.</div>';
       return `<article class="dnd-co-dm-context-preview"><div class="panel-heading"><div><span class="eyebrow">Context preview</span><h4>${state.context.characters.toLocaleString()} / ${state.context.characterLimit.toLocaleString()} characters</h4></div></div><div class="dnd-co-dm-context-sections">${(state.context.sections || []).map((item) => `<span class="tag ${item.reason === 'included' ? 'success' : item.reason.startsWith('truncated') ? 'warning' : ''}" title="${escapeHtml(item.reason)}">${escapeHtml(item.label)} · ${Number(item.count || 0)}</span>`).join('')}</div><details><summary>Review redacted context text</summary><pre>${escapeHtml(state.context.preview || '')}</pre></details></article>`;
     }
 
@@ -100,13 +100,13 @@
 
     function draftCard(draft) {
       const workflow = state.payload?.workflows?.[draft.workflow]?.label || draft.workflow;
-      const runtime = [draft.provider, draft.model].filter(Boolean).join(' / ') || 'Khaos Nexus AI';
+      const runtime = [draft.provider, draft.model].filter(Boolean).join(' / ') || 'Veyra';
       return `<article class="panel dnd-co-dm-draft" data-draft-id="${escapeHtml(draft.id)}"><div class="panel-heading"><div><span class="eyebrow">${escapeHtml(workflow)} · ${escapeHtml(runtime)}</span><h3>${escapeHtml(draft.title)}</h3><small>${escapeHtml(draft.updatedAt || draft.createdAt || '')}${draft.serviceVersion ? ` · AI v${escapeHtml(draft.serviceVersion)}` : ''}${draft.pinned ? ' · Pinned' : ''}</small></div><div class="server-actions"><button class="button" data-dnd-co-dm-action="copy-draft" data-draft-id="${escapeHtml(draft.id)}">Copy</button><button class="button" data-dnd-co-dm-action="rename-draft" data-draft-id="${escapeHtml(draft.id)}">Rename</button><button class="button" data-dnd-co-dm-action="pin-draft" data-draft-id="${escapeHtml(draft.id)}">${draft.pinned ? 'Unpin' : 'Pin'}</button><button class="button danger" data-dnd-co-dm-action="delete-draft" data-draft-id="${escapeHtml(draft.id)}">Delete</button></div></div><pre class="dnd-co-dm-draft-text">${escapeHtml(draft.content)}</pre><div class="form-actions"><button class="button" data-dnd-co-dm-action="apply-recap" data-draft-id="${escapeHtml(draft.id)}">Copy to Session Recap</button><button class="button" data-dnd-co-dm-action="apply-notes" data-draft-id="${escapeHtml(draft.id)}">Copy to Campaign Notes</button></div></article>`;
     }
 
     function draftsHtml() {
       const drafts = state.payload?.drafts || [];
-      return `<section class="dnd-co-dm-history"><div class="panel-heading"><div><span class="eyebrow">Protected local history</span><h2>Co-DM Drafts</h2></div><span class="tag">${drafts.length} saved</span></div>${drafts.length ? drafts.map(draftCard).join('') : '<article class="panel empty-state"><h3>No Co-DM drafts yet</h3><p>Connect Khaos Nexus AI, preview the campaign context, then explicitly generate a session, encounter, NPC, world, recap, or rules draft.</p></article>'}</section>`;
+      return `<section class="dnd-co-dm-history"><div class="panel-heading"><div><span class="eyebrow">Protected local history</span><h2>Co-DM Drafts</h2></div><span class="tag">${drafts.length} saved</span></div>${drafts.length ? drafts.map(draftCard).join('') : '<article class="panel empty-state"><h3>No Co-DM drafts yet</h3><p>Connect Veyra, preview the campaign context, then explicitly generate a session, encounter, NPC, world, recap, or rules draft.</p></article>'}</section>`;
     }
 
     function render(rootElement) {
@@ -115,7 +115,7 @@
       if (!panel) return;
       rootElement.querySelectorAll('[data-dnd-tab],[data-dnd-owner-tab],[data-dnd-world-tab],[data-dnd-map-tab]').forEach((item) => item.classList.remove('active'));
       ensureTab(rootElement)?.classList.add('active');
-      panel.innerHTML = `<div class="dnd-co-dm"><div class="dnd-co-dm-hero"><div><span class="eyebrow">D&D private workspace</span><h2>AI Co-DM</h2><p>Build redacted campaign context, send explicit requests to the separate Khaos Nexus AI runtime, and review every result before copying it into campaign records.</p></div><div class="dnd-co-dm-policy"><span class="tag success">Explicit only</span><span class="tag">Separate AI service</span><span class="tag">No Discord posting</span><span class="tag">No automatic campaign changes</span></div></div><div class="dnd-co-dm-grid">${readinessHtml()}${settingsHtml()}</div>${generatorHtml()}${draftsHtml()}</div>`;
+      panel.innerHTML = `<div class="dnd-co-dm"><div class="dnd-co-dm-hero"><div><span class="eyebrow">D&D private workspace</span><h2>AI Co-DM</h2><p>Build redacted campaign context, send explicit requests to the isolated Veyra worker, and review every result before copying it into campaign records.</p></div><div class="dnd-co-dm-policy"><span class="tag success">Explicit only</span><span class="tag">Isolated Veyra worker</span><span class="tag">No Discord posting</span><span class="tag">No automatic campaign changes</span></div></div><div class="dnd-co-dm-grid">${readinessHtml()}${settingsHtml()}</div>${generatorHtml()}${draftsHtml()}</div>`;
     }
 
     async function load(force = false) {
@@ -168,7 +168,7 @@
       const service = state.payload?.service || {};
       let allowLegacyCampaignPersistence = false;
       if (service.legacyCampaignTurns && !service.dedicatedDrafts) {
-        allowLegacyCampaignPersistence = win.confirm('The current Khaos Nexus AI compatibility mode stores a synchronized campaign copy and generated turn history inside the AI service. Continue with this generation?');
+        allowLegacyCampaignPersistence = win.confirm('The current Veyra compatibility mode stores a synchronized campaign copy and generated turn history inside the AI service. Continue with this generation?');
         if (!allowLegacyCampaignPersistence) return;
       }
       state.busy = true;
@@ -183,7 +183,7 @@
         });
         state.payload = result.state;
         state.context = result.context;
-        notify('Co-DM draft generated by Khaos Nexus AI and saved locally.');
+        notify('Co-DM draft generated by Veyra and saved locally.');
       } finally {
         state.busy = false;
         scheduleRender();
@@ -201,13 +201,13 @@
       if (action === 'preview-context') return preview(doc.getElementById('dndCoDmGenerateForm'));
       if (action === 'service-check') {
         const service = await checkService();
-        notify(service.reachable ? 'Khaos Nexus AI connection succeeded.' : service.error || 'Khaos Nexus AI is unavailable.');
+        notify(service.reachable ? 'Veyra connection succeeded.' : service.error || 'Veyra is unavailable.');
         return;
       }
       if (action === 'remove-token') {
-        if (!win.confirm('Remove the protected Khaos Nexus AI service token from this desktop installation?')) return;
+        if (!win.confirm('Remove the protected Veyra service token from this desktop installation?')) return;
         await invoke('dnd:co-dm-set-service-token', { campaignId: selectedCampaignId(), serviceToken: '' });
-        notify('Khaos Nexus AI service token removed.');
+        notify('Veyra service token removed.');
         return refresh();
       }
       if (!draft) return;

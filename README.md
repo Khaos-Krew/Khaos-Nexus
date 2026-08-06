@@ -1,6 +1,6 @@
 # Khaos Nexus
 
-Khaos Nexus is a local-first Windows desktop command network for Discord automation, game-server operations, D&D campaign management, and isolated AI services. It runs independently from the retired website workflow and stores protected credentials through Windows secure storage.
+Khaos Nexus is a local-first Windows desktop command network for Discord automation, game-server operations, D&D campaign management, and a unified AI runtime with isolated agents. It runs independently from the retired website workflow and stores protected credentials through Windows secure storage.
 
 ## Current desktop capabilities
 
@@ -11,7 +11,7 @@ Khaos Nexus is a local-first Windows desktop command network for Discord automat
 - Persistent Discord server-status panels with privacy-safe player summaries.
 - Discord Studio, role menus, channel automation, and routed observability feeds.
 - Complete local D&D campaign workflows for campaigns, members, characters, sources, sessions, encounters, NPCs, loot, maps, homebrew, Discord bindings, Co-DM drafts, procedural map proposals, and explicit AI Game Master sessions.
-- Isolated bundled D&D AI and Nexus AI Core services with separate processes, endpoints, tokens, logs, readiness, shutdown handling, and authority boundaries.
+- One bundled Khaos Nexus AI Runtime supervising **Veyra** (D&D Lorewarden and Co-DM) and **Nexus Sentinel** (system health and assistance) as separate worker processes with independent endpoints, memory, tokens, logs, readiness, shutdown handling, and authority boundaries.
 - Verified local backups, crash diagnostics, application monitoring, and updates.
 - Recurring server schedules with warnings, save-before-shutdown protection, host-managed restart verification, Discord reports, cancellation, and execution history.
 - Software-renderer compatibility mode and serialized feature startup for stable Windows operation.
@@ -23,11 +23,11 @@ The refreshed application shell keeps all existing views and controls while orga
 - **Command Center** — runtime health, activity, metrics, and quick actions.
 - **Connected Systems** — Discord setup and game-server management.
 - **D&D** — a dedicated campaign command-table hub for campaign, character, session, encounter, homebrew, map, Co-DM, and AI Game Master workflows.
-- **Nexus AI** — a dedicated service hub for D&D AI, Nexus AI Core, assistant surfaces, game/mod monitors, integrations, activity, and protected settings.
+- **Nexus AI** — a dedicated runtime hub for Veyra, Nexus Sentinel, assistant surfaces, game/mod monitors, integrations, activity, and protected settings.
 - **All Modules** — feature switches and companion workspaces.
 - **System** — Application Monitor, live logs, updates, backups, and desktop settings.
 
-The D&D and Nexus AI tabs are presentation and navigation layers over the existing authoritative services. They do not create duplicate storage, permissions, schedulers, Discord logic, AI processes, or game-server control paths.
+The D&D and Nexus AI tabs are presentation and navigation layers over the existing authoritative services. They do not create duplicate storage, permissions, schedulers, Discord logic, agent workers, or game-server control paths.
 
 ## Khaos Nexus visual system
 
@@ -43,10 +43,10 @@ Readability and performance remain higher priority than decoration:
 
 ## D&D and AI boundaries
 
-- D&D AI is the only AI service allowed to receive explicitly approved and redacted campaign context.
-- Nexus AI Core does not receive D&D campaign records and remains advisory-only.
+- **Veyra** is the only AI agent allowed to receive explicitly approved and redacted campaign context.
+- **Nexus Sentinel** does not receive D&D campaign records and remains advisory-only.
 - AI output stays private until a user explicitly reviews and applies an approved proposal.
-- AI services do not directly own the shared scheduler, Discord authority, game adapters, or server commands.
+- The agents do not directly own the shared scheduler, Discord authority, game adapters, or server commands.
 - Provider credentials and service tokens remain outside renderer-visible state, logs, diagnostics, backups, and registered-bot configuration.
 
 ## Hosted Server Control

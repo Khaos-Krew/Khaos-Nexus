@@ -8,7 +8,7 @@
     },
     ai: {
       title: 'Nexus AI',
-      subtitle: 'Manage the isolated D&D AI and Nexus AI Core services without weakening their security or authority boundaries.'
+      subtitle: 'Manage one supervised Khaos Nexus AI Runtime with Veyra and Nexus Sentinel kept inside separate security and data boundaries.'
     }
   };
 
@@ -110,7 +110,7 @@
           <div class="nexus-hero-copy">
             <span class="eyebrow">Emberforge Archive</span>
             <h2>Your campaign command table</h2>
-            <p>Plan sessions, manage characters and sources, run encounters, review homebrew, work with maps, and use the isolated D&D AI service from one first-class destination.</p>
+            <p>Plan sessions, manage characters and sources, run encounters, review homebrew, work with maps, and use Veyra, the isolated D&D Lorewarden and Co-DM from one first-class destination.</p>
             <div class="nexus-action-row">
               <button class="button primary" type="button" data-khaos-open="dnd">Open Existing D&D Workspace</button>
               <button class="button" type="button" data-view-link="modules">Manage D&D Modules</button>
@@ -125,7 +125,7 @@
 
         <div class="nexus-status-strip">
           <div><span class="nexus-status-dot"></span><strong>D&D workspace</strong><small>Local campaign authority preserved</small></div>
-          <div><span class="nexus-status-dot"></span><strong id="dndAiRuntimeStatus">Checking D&D AI</strong><small id="dndAiRuntimeDetail">Isolated service status</small></div>
+          <div><span class="nexus-status-dot"></span><strong id="dndAiRuntimeStatus">Checking Veyra</strong><small id="dndAiRuntimeDetail">Isolated agent status</small></div>
           <div><span class="nexus-status-dot"></span><strong>Discord binding</strong><small>Existing-channel workflow retained</small></div>
         </div>
 
@@ -156,7 +156,7 @@
           <article class="panel nexus-boundary-panel">
             <div class="panel-heading"><div><span class="eyebrow">Authority Boundary</span><h3>Campaign data stays with D&D</h3></div><span class="tag good">Protected</span></div>
             <ul class="nexus-check-list">
-              <li>D&D AI is the only AI service allowed to receive approved campaign context.</li>
+              <li>Veyra is the only AI agent allowed to receive approved campaign context.</li>
               <li>Every outgoing context package is bounded, redacted, and explicitly reviewed.</li>
               <li>AI output remains a private proposal until a user applies an approved change.</li>
               <li>No automatic Discord post, roll resolution, encounter mutation, or campaign publication.</li>
@@ -179,11 +179,11 @@
       <div class="nexus-workspace nexus-ai-workspace">
         <section class="nexus-hero nexus-ai-hero">
           <div class="nexus-hero-copy">
-            <span class="eyebrow">Nexus Intelligence Core</span>
-            <h2>Two isolated services. One controlled interface.</h2>
-            <p>Review service health, open existing AI controls, coordinate update monitoring, and keep D&D campaign context separated from application-wide intelligence.</p>
+            <span class="eyebrow">Khaos Nexus AI Runtime</span>
+            <h2>One supervised runtime. Two dedicated agents.</h2>
+            <p>Run Veyra and Nexus Sentinel through one protected local host while preserving separate memory, prompts, tools, credentials, endpoints, logs, and restart boundaries.</p>
             <div class="nexus-action-row">
-              <button class="button primary" type="button" data-khaos-open="ai">Open Existing AI Services</button>
+              <button class="button primary" type="button" data-khaos-open="ai">Open AI Runtime</button>
               <button class="button" type="button" data-view-link="monitor">Open Application Monitor</button>
             </div>
           </div>
@@ -197,21 +197,21 @@
 
         <div class="nexus-service-grid">
           <article class="nexus-service-card service-dnd-ai">
-            <div class="nexus-service-heading"><span class="nexus-service-mark">D20</span><div><span class="eyebrow">Campaign Intelligence</span><h3>D&D AI Service</h3></div><span class="tag" id="dndAiServiceBadge">Checking</span></div>
+            <div class="nexus-service-heading"><span class="nexus-service-mark">D20</span><div><span class="eyebrow">D&D Lorewarden and Co-DM</span><h3>Veyra</h3></div><span class="tag" id="dndAiServiceBadge">Checking</span></div>
             <p>Co-DM drafts, copyright-safe homebrew proposals, procedural map proposals, and explicit AI Game Master sessions.</p>
             <dl class="nexus-service-details">
               <div><dt>Context</dt><dd>Approved D&D only</dd></div>
               <div><dt>Authority</dt><dd>Review and apply</dd></div>
-              <div><dt>Runtime</dt><dd id="dndAiServiceRuntime">Bundled / isolated</dd></div>
+              <div><dt>Worker</dt><dd id="dndAiServiceRuntime">Bundled / isolated</dd></div>
             </dl>
           </article>
           <article class="nexus-service-card service-core-ai">
-            <div class="nexus-service-heading"><span class="nexus-service-mark">NX</span><div><span class="eyebrow">Platform Intelligence</span><h3>Nexus AI Core</h3></div><span class="tag" id="nexusAiServiceBadge">Checking</span></div>
+            <div class="nexus-service-heading"><span class="nexus-service-mark">NX</span><div><span class="eyebrow">System Health and Assistance AI</span><h3>Nexus Sentinel</h3></div><span class="tag" id="nexusAiServiceBadge">Checking</span></div>
             <p>Application assistance, game and mod update monitoring, advisory maintenance proposals, and Nexus Bot integration.</p>
             <dl class="nexus-service-details">
               <div><dt>Context</dt><dd>No D&D campaign data</dd></div>
               <div><dt>Authority</dt><dd>Advisory only</dd></div>
-              <div><dt>Runtime</dt><dd id="nexusAiServiceRuntime">Bundled / isolated</dd></div>
+              <div><dt>Worker</dt><dd id="nexusAiServiceRuntime">Bundled / isolated</dd></div>
             </dl>
           </article>
         </div>
@@ -224,14 +224,14 @@
         </div>
 
         <article class="panel nexus-boundary-panel nexus-ai-boundary">
-          <div class="panel-heading"><div><span class="eyebrow">Security Contract</span><h3>Isolation remains visible and enforceable</h3></div><span class="tag good">Local-first</span></div>
+          <div class="panel-heading"><div><span class="eyebrow">Security Contract</span><h3>Shared host, enforceable agent isolation</h3></div><span class="tag good">Local-first</span></div>
           <div class="nexus-boundary-columns">
             <ul class="nexus-check-list">
-              <li>Separate processes, endpoints, protected tokens, logs, readiness, and shutdown handling.</li>
+              <li>One supervised host owns two separate worker processes with independent endpoints, protected tokens, logs, readiness, and shutdown handling.</li>
               <li>No provider credentials, service tokens, or campaign records exposed to renderer state.</li>
             </ul>
             <ul class="nexus-check-list">
-              <li>Nexus AI Core remains advisory and cannot issue game-server commands directly.</li>
+              <li>Nexus Sentinel remains advisory and cannot issue game-server commands directly.</li>
               <li>Recurring monitor execution remains owned by the shared Khaos Nexus scheduler.</li>
             </ul>
           </div>
@@ -414,7 +414,7 @@
     };
     setBadge('dndAiServiceBadge', dnd);
     setBadge('nexusAiServiceBadge', core);
-    if (byId('dndAiRuntimeStatus')) byId('dndAiRuntimeStatus').textContent = `D&D AI: ${dnd.label}`;
+    if (byId('dndAiRuntimeStatus')) byId('dndAiRuntimeStatus').textContent = `Veyra: ${dnd.label}`;
     if (byId('dndAiRuntimeDetail')) byId('dndAiRuntimeDetail').textContent = dnd.detail;
     if (byId('dndAiServiceRuntime')) byId('dndAiServiceRuntime').textContent = dnd.detail;
     if (byId('nexusAiServiceRuntime')) byId('nexusAiServiceRuntime').textContent = core.detail;

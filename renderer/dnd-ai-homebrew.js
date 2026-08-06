@@ -98,7 +98,7 @@
     }
 
     function previewHtml() {
-      if (!state.preview) return '<div class="callout">Preview validates copyright authorization and shows the exact bounded request before anything is sent to Khaos Nexus AI.</div>';
+      if (!state.preview) return '<div class="callout">Preview validates copyright authorization and shows the exact bounded request before anything is sent to Veyra.</div>';
       const metrics = state.preview.metrics || {};
       return `<article class="dnd-ai-homebrew-preview"><div class="panel-heading"><div><span class="eyebrow">Validated request preview</span><h4>${Number(metrics.requestCharacters || 0).toLocaleString()} request characters</h4></div><div class="dnd-ai-homebrew-metrics"><span class="tag success">${Number(metrics.inspirations || 0)} inspirations</span><span class="tag">${Number(metrics.inspirationCharacters || 0)} / ${Number(metrics.inspirationLimit || 6000)}</span></div></div><details open><summary>Exact request sent to the AI service</summary><pre>${escapeHtml(JSON.stringify(state.preview.request || {}, null, 2))}</pre></details><p class="dnd-ai-homebrew-policy">Raw inspiration is used only for this explicit request and is not saved in local proposals, audits, diagnostics, public state, or Discord runtime data.</p></article>`;
     }
@@ -119,7 +119,7 @@
       const needsReview = originality.status === 'needs-review';
       const mechanics = (result.mechanics || []).map((item) => `<article class="dnd-ai-homebrew-mechanic"><strong>${escapeHtml(item.name || 'Mechanic')}</strong><p>${escapeHtml(item.description || '')}</p>${item.activation ? `<small>Activation: ${escapeHtml(item.activation)}</small>` : ''}${item.limits ? `<small>Limits: ${escapeHtml(item.limits)}</small>` : ''}${item.scaling ? `<small>Scaling: ${escapeHtml(item.scaling)}</small>` : ''}</article>`).join('');
       const sections = (result.sections || []).map((item) => `<section><h5>${escapeHtml(item.heading || 'Rules')}</h5><p>${escapeHtml(item.rulesText || '')}</p></section>`).join('');
-      return `<article class="panel dnd-ai-homebrew-proposal" data-proposal-id="${escapeHtml(proposal.id)}"><div class="panel-heading"><div><span class="eyebrow">${escapeHtml(result.contentType || 'other')} · ${escapeHtml(proposal.provider || 'Khaos Nexus AI')} / ${escapeHtml(proposal.model || 'service model')}</span><h3>${escapeHtml(result.title)}</h3><small>${escapeHtml(proposal.generatedAt || proposal.createdAt || '')}</small></div><span class="tag ${needsReview ? 'warning' : 'success'}">${escapeHtml(originality.status || 'original')}</span></div><p>${escapeHtml(result.summary)}</p>${arrayList('Design goals', result.designGoals)}${sections}${mechanics ? `<section><h5>Mechanics</h5><div class="dnd-ai-homebrew-mechanics">${mechanics}</div></section>` : ''}${arrayList('Balance assumptions', result.balance?.assumptions)}${arrayList('Balance risks', result.balance?.risks)}${arrayList('Playtest checks', result.balance?.playtestChecks)}${arrayList('Originality concerns', originality.concerns)}<details><summary>Provenance and generation details</summary><pre>${escapeHtml(JSON.stringify({ provenance: result.provenance, requestSummary: proposal.requestSummary }, null, 2))}</pre></details><div class="form-actions"><button class="button" data-ai-homebrew-action="copy-proposal" data-id="${escapeHtml(proposal.id)}">Copy Proposal</button><button class="button danger" data-ai-homebrew-action="delete-proposal" data-id="${escapeHtml(proposal.id)}">Delete</button><button class="button primary" data-ai-homebrew-action="convert-proposal" data-id="${escapeHtml(proposal.id)}">Convert to Homebrew Draft</button></div></article>`;
+      return `<article class="panel dnd-ai-homebrew-proposal" data-proposal-id="${escapeHtml(proposal.id)}"><div class="panel-heading"><div><span class="eyebrow">${escapeHtml(result.contentType || 'other')} · ${escapeHtml(proposal.provider || 'Veyra')} / ${escapeHtml(proposal.model || 'service model')}</span><h3>${escapeHtml(result.title)}</h3><small>${escapeHtml(proposal.generatedAt || proposal.createdAt || '')}</small></div><span class="tag ${needsReview ? 'warning' : 'success'}">${escapeHtml(originality.status || 'original')}</span></div><p>${escapeHtml(result.summary)}</p>${arrayList('Design goals', result.designGoals)}${sections}${mechanics ? `<section><h5>Mechanics</h5><div class="dnd-ai-homebrew-mechanics">${mechanics}</div></section>` : ''}${arrayList('Balance assumptions', result.balance?.assumptions)}${arrayList('Balance risks', result.balance?.risks)}${arrayList('Playtest checks', result.balance?.playtestChecks)}${arrayList('Originality concerns', originality.concerns)}<details><summary>Provenance and generation details</summary><pre>${escapeHtml(JSON.stringify({ provenance: result.provenance, requestSummary: proposal.requestSummary }, null, 2))}</pre></details><div class="form-actions"><button class="button" data-ai-homebrew-action="copy-proposal" data-id="${escapeHtml(proposal.id)}">Copy Proposal</button><button class="button danger" data-ai-homebrew-action="delete-proposal" data-id="${escapeHtml(proposal.id)}">Delete</button><button class="button primary" data-ai-homebrew-action="convert-proposal" data-id="${escapeHtml(proposal.id)}">Convert to Homebrew Draft</button></div></article>`;
     }
 
     function proposalsHtml() {
@@ -134,7 +134,7 @@
       if (!rootElement || !panel) return;
       rootElement.querySelectorAll('.dnd-tabs button').forEach((item) => item.classList.remove('active'));
       ensureTab(rootElement)?.classList.add('active');
-      panel.innerHTML = `<div class="dnd-ai-homebrew"><div class="dnd-ai-homebrew-hero"><div><span class="eyebrow">D&D AI-assisted creation</span><h2>AI Homebrew Studio</h2><p>Generate original, copyright-safe proposals through Khaos Nexus AI and route approved ideas into the existing draft, submit, review, and approval workflow.</p></div><div><span class="tag success">Proposal first</span> <span class="tag">Never auto-approved</span></div></div>${generatorHtml()}${proposalsHtml()}</div>`;
+      panel.innerHTML = `<div class="dnd-ai-homebrew"><div class="dnd-ai-homebrew-hero"><div><span class="eyebrow">D&D AI-assisted creation</span><h2>AI Homebrew Studio</h2><p>Generate original, copyright-safe proposals through Veyra and route approved ideas into the existing draft, submit, review, and approval workflow.</p></div><div><span class="tag success">Proposal first</span> <span class="tag">Never auto-approved</span></div></div>${generatorHtml()}${proposalsHtml()}</div>`;
     }
 
     async function refresh(refreshService = false) {
@@ -166,7 +166,7 @@
       }
       if (action === 'refresh-service') {
         await refresh(true);
-        return notify(state.payload?.service?.reachable ? 'Khaos Nexus AI connection succeeded.' : state.payload?.service?.error || 'Khaos Nexus AI is unavailable.');
+        return notify(state.payload?.service?.reachable ? 'Veyra connection succeeded.' : state.payload?.service?.error || 'Veyra is unavailable.');
       }
       if (action === 'preview') {
         state.input = collectInput();
@@ -206,7 +206,7 @@
       if (state.busy) return;
       state.input = collectInput();
       state.preview = await invoke('dnd:ai-homebrew-preview', state.input);
-      if (!win.confirm(`Send this validated request to Khaos Nexus AI?\n\n${state.preview.metrics.inspirations} inspiration record(s), ${state.preview.metrics.inspirationCharacters} authorized inspiration characters. Raw inspiration will not be saved in the desktop proposal.`)) {
+      if (!win.confirm(`Send this validated request to Veyra?\n\n${state.preview.metrics.inspirations} inspiration record(s), ${state.preview.metrics.inspirationCharacters} authorized inspiration characters. Raw inspiration will not be saved in the desktop proposal.`)) {
         return render();
       }
       state.busy = true;

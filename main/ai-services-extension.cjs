@@ -5,6 +5,7 @@ const path = require('node:path');
 const electron = require('electron');
 const { safeStorage } = electron;
 const { removePrivateAiServiceState } = require('./ai-services-privacy-extension.cjs');
+const { RUNTIME, AGENTS } = require('./ai-runtime-contract.cjs');
 const {
   DND_AI_REPOSITORY,
   AI_CORE_REPOSITORY,
@@ -171,12 +172,12 @@ function patchConfigStore() {
       if (!this.secrets?.aiCoreServiceToken) return payload;
       if (!safeStorage.isEncryptionAvailable()) {
         payload.encryptedSecrets = null;
-        payload.note = `${payload.note} The D&D AI and Nexus AI Core service tokens were excluded because protected storage was unavailable.`;
+        payload.note = `${payload.note} The Veyra and Nexus Sentinel service tokens were excluded because protected storage was unavailable.`;
         return payload;
       }
       const sanitized = sanitizeAiServiceBackupSecrets(this.secrets);
       payload.encryptedSecrets = safeStorage.encryptString(JSON.stringify(sanitized)).toString('base64');
-      payload.note = `${payload.note} The D&D AI and Nexus AI Core service tokens are intentionally excluded from backups.`;
+      payload.note = `${payload.note} The Veyra and Nexus Sentinel service tokens are intentionally excluded from backups.`;
       return payload;
     }
   }
@@ -209,8 +210,8 @@ function patchBotSupervisor() {
         const value = message.payload && typeof message.payload === 'object' ? clone(message.payload) : {};
         this.update({ aiCore: value });
         const detail = value.reachable
-          ? `Nexus AI Core linked to the primary bot at ${value.endpoint}.`
-          : value.enabled ? `Nexus AI Core is linked but unavailable: ${value.error || 'connection failed'}` : 'Nexus AI Core is not linked to the primary bot.';
+          ? `Nexus Sentinel linked to the primary bot at ${value.endpoint}.`
+          : value.enabled ? `Nexus Sentinel is linked but unavailable: ${value.error || 'connection failed'}` : 'Nexus Sentinel is not linked to the primary bot.';
         this.logger.write(value.reachable ? 'info' : value.enabled ? 'warn' : 'info', detail, {
           enabled: Boolean(value.enabled), reachable: Boolean(value.reachable), version: value.version || '', capabilities: Number(value.capabilities?.length || 0)
         }, 'ai-core');
@@ -294,7 +295,7 @@ function dndConnection() {
     const value = require('./dnd-co-dm-extension.cjs').publicPayload('');
     return {
       repository: DND_AI_REPOSITORY,
-      role: 'D&D campaign intelligence, Co-DM, homebrew, maps, and explicit AI GM sessions',
+      role: AGENTS.dnd.role,
       consumers: ['desktop-dnd'],
       settings: {
         endpoint: value.settings?.serviceEndpoint || 'http://127.0.0.1:8787',
@@ -306,10 +307,10 @@ function dndConnection() {
   } catch (error) {
     return {
       repository: DND_AI_REPOSITORY,
-      role: 'D&D campaign intelligence, Co-DM, homebrew, maps, and explicit AI GM sessions',
+      role: AGENTS.dnd.role,
       consumers: ['desktop-dnd'],
       settings: { endpoint: 'http://127.0.0.1:8787', hasServiceToken: false },
-      service: { reachable: false, error: cleanText(error?.message || 'D&D AI connection is unavailable.', 800) },
+      service: { reachable: false, error: cleanText(error?.message || 'Veyra connection is unavailable.', 800) },
       policy: { desktopOnly: true, nexusBotAccess: false }
     };
   }
@@ -320,11 +321,22 @@ function publicPayload() {
   const service = cachedCore(settings);
   return {
     role: currentRole(),
-    dnd: dndConnection(),
+    runtime: {
+      id: RUNTIME.id,
+      label: RUNTIME.label,
+      version: RUNTIME.version,
+      agents: [
+        { key: AGENTS.dnd.key, name: AGENTS.dnd.name, title: AGENTS.dnd.title, role: AGENTS.dnd.role },
+        { key: AGENTS.core.key, name: AGENTS.core.name, title: AGENTS.core.title, role: AGENTS.core.role }
+      ]
+    },
+    dnd: { ...dndConnection(), name: AGENTS.dnd.name, title: AGENTS.dnd.title },
     core: {
+      name: AGENTS.core.name,
+      title: AGENTS.core.title,
       repository: AI_CORE_REPOSITORY,
       snapshot: AI_CORE_SNAPSHOT,
-      role: 'General app and Nexus Bot intelligence, update monitoring, diagnostics, Discord-safe drafts, and advisory maintenance proposals',
+      role: AGENTS.core.role,
       consumers: settings.linkToPrimaryBot ? ['desktop', 'primary-nexus-bot'] : ['desktop'],
       settings,
       service,
@@ -332,6 +344,10 @@ function publicPayload() {
     },
     audit: refs.configStore.getAiServiceAudit(),
     policy: {
+      singleRuntimeHost: true,
+      independentAgentWorkers: true,
+      independentAgentMemory: true,
+      independentAgentPermissions: true,
       independentEndpoints: true,
       independentTokens: true,
       dndAiDesktopOnly: true,
@@ -365,14 +381,14 @@ function registerHandlers() {
     return publicPayload();
   });
   ipc.handle('ai:core-set-settings', (_event, input = {}) => {
-    assertOwner('Change Nexus AI Core connection settings');
+    assertOwner('Change Nexus Sentinel connection settings');
     const settings = refs.configStore.setAiCoreSettings(input);
     audit('core.settings-saved', { endpoint: settings.endpoint, enabled: settings.enabled, linkToPrimaryBot: settings.linkToPrimaryBot });
     const botState = refs.supervisor?.getState?.() || {};
     return { settings, restartRequired: Boolean(botState.pid), state: publicPayload() };
   });
   ipc.handle('ai:core-set-token', (_event, input = {}) => {
-    assertOwner('Change the Nexus AI Core service token');
+    assertOwner('Change the Nexus Sentinel service token');
     const result = refs.configStore.setAiCoreServiceToken(input.serviceToken);
     audit(input.serviceToken ? 'core.token-saved' : 'core.token-removed', { configured: result.hasServiceToken });
     const botState = refs.supervisor?.getState?.() || {};
@@ -396,7 +412,7 @@ function installRendererAssets() {
         await window.webContents.insertCSS(fs.readFileSync(cssPath, 'utf8'));
         await window.webContents.executeJavaScript(fs.readFileSync(jsPath, 'utf8'), true);
       } catch (error) {
-        refs.logger?.write?.('error', 'AI Services assets failed to load.', { message: safeError(error).message }, 'ai-services');
+        refs.logger?.write?.('error', 'AI Runtime assets failed to load.', { message: safeError(error).message }, 'ai-services');
       }
     });
   });

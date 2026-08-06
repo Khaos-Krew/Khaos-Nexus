@@ -28,28 +28,41 @@ test('AI Core is packaged from the pinned embedded source through the validated 
   assert.doesNotMatch(builder, /\.ai-sources/);
 });
 
-test('AI Core sidecar uses dynamic loopback port, per-launch secrets, and IPC shutdown', () => {
-  const source = read('main/bundled-ai-runtimes-extension.cjs');
-  assert.match(source, /PORT:\s*'0'/);
-  assert.match(source, /crypto\.randomBytes\(48\)/);
-  assert.match(source, /NEXUS_AI_CORE_SERVICE_TOKEN/);
-  assert.match(source, /NEXUS_AI_CORE_STARTUP_NONCE/);
-  assert.match(source, /NEXUS_AI_CORE_PARENT_PID/);
-  assert.match(source, /stdio:\s*key === 'core' \? \['ignore', descriptor, descriptor, 'ipc'\]/);
-  assert.match(source, /closeDescriptor\(descriptor\)/);
-  assert.match(source, /nexus-ai-core\.shutdown/);
-  assert.doesNotMatch(source, /\/shutdown|http[^\n]*shutdown/i);
+test('Nexus Sentinel worker uses dynamic loopback port, per-launch secrets, and IPC shutdown', () => {
+  const supervisor = read('main/bundled-ai-runtimes-extension.cjs');
+  const host = read('main/ai-runtime-host.cjs');
+  const contract = read('main/ai-runtime-contract.cjs');
+  assert.match(contract, /PORT:\s*'0'/);
+  assert.match(supervisor, /crypto\.randomBytes\(48\)/);
+  assert.match(host, /NEXUS_AI_CORE_SERVICE_TOKEN/);
+  assert.match(host, /NEXUS_AI_CORE_STARTUP_NONCE/);
+  assert.match(host, /NEXUS_AI_CORE_PARENT_PID/);
+  assert.match(host, /stdio:\s*\['ignore', descriptor, descriptor, 'ipc'\]/);
+  assert.match(host, /closeDescriptor\(descriptor\)/);
+  assert.match(host, /nexus-ai-core\.shutdown/);
+  assert.doesNotMatch(host, /\/shutdown|http[^\n]*shutdown/i);
 });
 
-test('readiness enforces contracts, authority boundaries, and D&D isolation', () => {
-  const source = read('main/bundled-ai-runtimes-extension.cjs');
+test('readiness enforces the exact pinned contract, authority boundaries, and D&D isolation', () => {
+  const source = read('main/ai-runtime-contract.cjs');
   assert.match(source, /startupNonce !== nonce/);
   assert.match(source, /serviceVersion !== '0\.7\.0'/);
-  assert.match(source, /apiVersion !== 'v1'/);
+  assert.match(source, /apiVersion !== '1'/);
+  assert.match(source, /targetService !== 'nexus-ai-core'/);
   assert.match(source, /directExecution !== false/);
   assert.match(source, /directDiscordConnection !== false/);
   assert.match(source, /directDndCallsAllowed !== false/);
   assert.match(source, /schedulerOwnedExternally !== true/);
+});
+
+test('operations use the pinned API envelope instead of obsolete identifiers', () => {
+  const source = read('main/nexus-ai-core-operations-extension.cjs');
+  assert.match(source, /apiVersion:\s*'1'/);
+  assert.match(source, /targetService:\s*'nexus-ai-core'/);
+  assert.match(source, /health\.apiVersion !== '1'/);
+  assert.match(source, /health\.targetService !== 'nexus-ai-core'/);
+  assert.doesNotMatch(source, /apiVersion:\s*'v1'/);
+  assert.doesNotMatch(source, /targetService:\s*'khaos-nexus'/);
 });
 
 test('operational bridge keeps tokens in main process and maintenance advisory-only', () => {

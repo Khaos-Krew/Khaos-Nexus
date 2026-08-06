@@ -26,7 +26,10 @@ test('D&D and Nexus AI are dedicated first-class views', () => {
   assert.match(source, /createNavButton\('dnd'/);
   assert.match(source, /createNavButton\('ai'/);
   assert.match(source, /Campaign data stays with D&D/);
-  assert.match(source, /Nexus AI Core remains advisory/);
+  assert.match(source, /One supervised runtime\. Two dedicated agents\./);
+  assert.match(source, /Veyra/);
+  assert.match(source, /Nexus Sentinel/);
+  assert.match(source, /Nexus Sentinel remains advisory/);
 });
 
 test('legacy navigation view IDs and controls remain present', () => {

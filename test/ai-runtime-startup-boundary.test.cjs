@@ -13,6 +13,7 @@ const {
   readLatestSidecarDiagnostic
 } = require('../main/ai-runtime-environment.cjs');
 const {
+  runtimeHostEntry,
   bundledAiEntry,
   coreAiEntry,
   guardSpawnOptions,
@@ -52,9 +53,12 @@ test('bundled AI environment drops parent injection and unapproved sidecar overr
   assert.equal(result.NEXUS_AI_CORE_PARENT_CHECK_INTERVAL_MS, undefined);
   assert.equal(result.RATE_LIMIT_PER_MINUTE, undefined);
   assert.equal(result.OPENAI_API_KEY, undefined);
+
+  const veyra = sanitizeBundledAiEnvironment({ ...result, NODE_ENV: 'development' }, { nodeEnv: 'development' });
+  assert.equal(veyra.NODE_ENV, 'development');
 });
 
-test('spawn boundary only rewrites Electron embedded AI sidecars', () => {
+test('spawn boundary rewrites the unified host and retains direct sidecar defense', () => {
   const entry = 'C:\\Program Files\\Khaos Nexus\\resources\\ai-services\\ai-core\\src\\sidecar.js';
   const options = {
     env: {
@@ -72,6 +76,13 @@ test('spawn boundary only rewrites Electron embedded AI sidecars', () => {
   assert.notEqual(guarded, options);
   assert.equal(guarded.env.NODE_OPTIONS, undefined);
   assert.equal(guarded.env.NODE_ENV, 'production');
+
+  const hostEntry = String.raw`C:\Program Files\Khaos Nexus\resources\app.asar\main\ai-runtime-host.cjs`;
+  const hostOptions = { env: { ...options.env, NODE_OPTIONS: String.raw`--require C:\bad.cjs` } };
+  assert.equal(runtimeHostEntry([hostEntry], hostOptions), true);
+  assert.equal(bundledAiEntry([hostEntry], hostOptions), true);
+  assert.equal(coreAiEntry([hostEntry], hostOptions), false);
+  assert.equal(guardSpawnOptions(process.execPath, [hostEntry], hostOptions).env.NODE_OPTIONS, undefined);
 
   const ordinary = { env: { NODE_OPTIONS: '--inspect' } };
   assert.equal(guardSpawnOptions('other.exe', ['script.js'], ordinary), ordinary);
@@ -108,7 +119,7 @@ test('AI Core close converts the current structured diagnostic into the runtime 
   assert.ok(observed);
   assert.equal(observed.code, 'SIDECAR_PORT_INVALID');
   assert.equal(observed.exitCode, 64);
-  assert.match(observed.message, /Nexus AI Core startup failed/);
+  assert.match(observed.message, /Nexus Sentinel startup failed/);
   fs.rmSync(directory, { recursive: true, force: true });
 });
 
