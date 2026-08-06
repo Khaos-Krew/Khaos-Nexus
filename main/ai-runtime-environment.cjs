@@ -39,29 +39,63 @@ const SAFE_PARENT_ENV_KEYS = new Set([
   'windir'
 ]);
 
+const SAFE_SERVICE_ENV_KEYS = new Set([
+  'host',
+  'port',
+  'ai_provider',
+  'campaign_store',
+  'auth_required',
+  'electron_run_as_node',
+  'node_env',
+  'data_dir',
+  'khaos_nexus_bundled_service',
+  'nexus_ai_core_service_token',
+  'nexus_ai_core_startup_nonce',
+  'nexus_ai_core_ready_file',
+  'monitor_state_file',
+  'nexus_ai_core_parent_pid'
+]);
+
 function cleanText(value, max = 200) {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
-function safeParentEnvironment(parentEnv = process.env) {
+function copyAllowedEnvironment(source, allowedKeys) {
   const result = {};
-  for (const [key, value] of Object.entries(parentEnv || {})) {
-    if (!SAFE_PARENT_ENV_KEYS.has(String(key).toLowerCase())) continue;
+  for (const [key, value] of Object.entries(source || {})) {
+    if (!allowedKeys.has(String(key).toLowerCase())) continue;
     if (value === undefined || value === null) continue;
     result[key] = String(value);
   }
   return result;
 }
 
+function safeParentEnvironment(parentEnv = process.env) {
+  return copyAllowedEnvironment(parentEnv, SAFE_PARENT_ENV_KEYS);
+}
+
+function sanitizeBundledAiEnvironment(candidateEnv = {}) {
+  const allowed = new Set([...SAFE_PARENT_ENV_KEYS, ...SAFE_SERVICE_ENV_KEYS]);
+  const env = copyAllowedEnvironment(candidateEnv, allowed);
+  env.ELECTRON_RUN_AS_NODE = '1';
+  env.NODE_ENV = 'production';
+  env.KHAOS_NEXUS_BUNDLED_SERVICE = '1';
+  delete env.NODE_OPTIONS;
+  delete env.Node_Options;
+  delete env.NODE_PATH;
+  delete env.Node_Path;
+  return env;
+}
+
 function buildServiceEnvironment({ serviceEnv = {}, serviceData = '', parentEnv = process.env } = {}) {
-  return {
+  return sanitizeBundledAiEnvironment({
     ...safeParentEnvironment(parentEnv),
     ...serviceEnv,
     ELECTRON_RUN_AS_NODE: '1',
     NODE_ENV: 'production',
     DATA_DIR: String(serviceData || ''),
     KHAOS_NEXUS_BUNDLED_SERVICE: '1'
-  };
+  });
 }
 
 function readTail(filePath, maxBytes = 64 * 1024) {
@@ -106,7 +140,9 @@ function formatSidecarDiagnostic(label, diagnostic) {
 
 module.exports = {
   SAFE_PARENT_ENV_KEYS,
+  SAFE_SERVICE_ENV_KEYS,
   safeParentEnvironment,
+  sanitizeBundledAiEnvironment,
   buildServiceEnvironment,
   readLatestSidecarDiagnostic,
   formatSidecarDiagnostic
