@@ -1,1 +1,1 @@
-Trigger the registered base/default-branch cold-start repair workflow.
+Trigger the trusted CI-assisted cold-start repair job.
