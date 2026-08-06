@@ -171,7 +171,15 @@ async function resolveTurn(input = {}) {
     aiSession = (state.aiGmSessions || []).find((item) => item.campaignId === turn.campaignId && item.mode !== 'ended');
     return true;
   });
-  if (!aiSession) throw Object.assign(new Error('Start an explicit Veyra AI Game Master session before resolving runtime turns.'), { code: 'DND_AI_GM_SESSION_REQUIRED' });
+  if (!aiSession) {
+    refs.configStore.mutateCampaignRuntime((state) => {
+      const current = state.turnCycles.find((item) => item.id === turn.id);
+      if (current) { current.status = 'locked'; current.error = 'An explicit Veyra AI Game Master session is required.'; current.updatedAt = new Date().toISOString(); }
+      return true;
+    });
+    push(turn.campaignId);
+    throw Object.assign(new Error('Start an explicit Veyra AI Game Master session before resolving runtime turns.'), { code: 'DND_AI_GM_SESSION_REQUIRED' });
+  }
   try {
     const generated = await aiGm.submitTurn({
       aiGmSessionId: aiSession.id, actor: 'Party',
