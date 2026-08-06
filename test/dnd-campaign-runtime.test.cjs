@@ -89,6 +89,26 @@ test('group turn collection requires locked actions before Veyra resolution', ()
   assert.equal(resolving.status, 'resolving');
 });
 
+test('runtime prevents overlapping turns and multiple actions from the same seat', () => {
+  const { value, seat, run, scene } = readyState();
+  const turn = runtime.openTurnCycle(value, { campaignId: 'campaign-1', runId: run.id, sceneId: scene.id, requiredSeatIds: [seat.id] });
+  assert.throws(() => runtime.openTurnCycle(value, { campaignId: 'campaign-1', runId: run.id, sceneId: scene.id }), /active turn/);
+  runtime.submitTurnAction(value, { turnCycleId: turn.id, seatId: seat.id, text: 'I inspect the forge.', clientActionId: 'seat-action-1' });
+  assert.throws(() => runtime.submitTurnAction(value, { turnCycleId: turn.id, seatId: seat.id, text: 'I also open the vault.', clientActionId: 'seat-action-2' }), /already submitted/);
+});
+
+test('shared Veyra context excludes character-specific secrets', () => {
+  const { value, seat, run, scene } = readyState();
+  value.knowledgeRecords.push({ id: 'secret-1', campaignId: 'campaign-1', runId: run.id, text: 'The duke is a vampire.', visibility: 'selected_characters', characterIds: ['character-1'] });
+  const turn = runtime.openTurnCycle(value, { campaignId: 'campaign-1', runId: run.id, sceneId: scene.id, requiredSeatIds: [seat.id] });
+  const action = runtime.submitTurnAction(value, { turnCycleId: turn.id, seatId: seat.id, text: 'I watch the duke.', clientActionId: 'secret-action' });
+  runtime.lockTurnAction(value, { turnCycleId: turn.id, actionId: action.action.id });
+  const shared = runtime.buildVeyraRuntimeEnvelope(value, { campaignId: 'campaign-1', runId: run.id, sceneId: scene.id, turnCycleId: turn.id });
+  const privateEnvelope = runtime.buildVeyraRuntimeEnvelope(value, { campaignId: 'campaign-1', runId: run.id, sceneId: scene.id, turnCycleId: turn.id, audienceCharacterIds: ['character-1'] });
+  assert.doesNotMatch(JSON.stringify(shared), /duke is a vampire/);
+  assert.match(JSON.stringify(privateEnvelope), /duke is a vampire/);
+});
+
 test('state events are idempotent and deterministic', () => {
   const { value, run, scene } = readyState();
   const first = runtime.appendStateEvent(value, {
