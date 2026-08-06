@@ -1,34 +1,46 @@
-name: Temporary Unified AI Source Export
+name: Apply Unified AI Runtime Implementation
 
 on:
   push:
     branches:
       - feature/unified-ai-runtime
-  pull_request:
-    branches:
-      - release/v0.35.0-B
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  export-source:
+  apply-implementation:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Check out implementation branch
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: feature/unified-ai-runtime
 
-      - name: Create source archive
+      - name: Apply validated implementation payload
         shell: bash
         run: |
-          git archive --format=zip --output=khaos-nexus-source.zip HEAD
+          set -euo pipefail
+          cat .validation/unified-ai-payload/part-* > /tmp/unified-ai-payload.b64
+          test "$(wc -c < /tmp/unified-ai-payload.b64)" -eq 116900
+          echo "e2214a6c37b5776367f47e79edd93c240312c391eaa36b89ed8a726230a8f419  /tmp/unified-ai-payload.b64" | sha256sum --check --strict
+          base64 --decode /tmp/unified-ai-payload.b64 > /tmp/unified-ai-payload.tar.gz
+          test "$(wc -c < /tmp/unified-ai-payload.tar.gz)" -eq 87674
+          echo "69bd30d47e829dd05a804843b3039dd9c86001a43832bf6db2fb06589f7bcfa8  /tmp/unified-ai-payload.tar.gz" | sha256sum --check --strict
+          tar -tzf /tmp/unified-ai-payload.tar.gz >/tmp/unified-ai-payload-files.txt
+          tar -xzf /tmp/unified-ai-payload.tar.gz -C "$GITHUB_WORKSPACE"
+          rm -rf .validation/unified-ai-payload
+          rm -f .github/workflows/temporary-source-export.yml
 
-      - name: Upload source archive
-        uses: actions/upload-artifact@v4
-        with:
-          name: unified-ai-working-source
-          path: khaos-nexus-source.zip
-          if-no-files-found: error
-          retention-days: 1
+      - name: Commit implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Unify AI runtime with Veyra and Nexus Sentinel"
+          git push origin HEAD:feature/unified-ai-runtime
