@@ -74,3 +74,5 @@ jobs:
           git diff --cached --check
           git commit -m "Fix v0.37.0 installed-runtime process inspection"
           git push origin HEAD:publish/v0.37.0
+
+# Triggered after the workflow existed on the branch.
