@@ -43,3 +43,5 @@ jobs:
           git diff --cached --check
           git commit -m "Move AI bundle verification off the Electron main thread"
           git push origin HEAD:hotfix/v0.37.0-ai-cold-start
+
+# Triggered after registration.
