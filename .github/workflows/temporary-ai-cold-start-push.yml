@@ -24,16 +24,21 @@ jobs:
         run: |
           from pathlib import Path
           import textwrap
+          import traceback
 
-          workflow = Path('.github/workflows/temporary-ai-cold-start-patcher.yml')
-          lines = workflow.read_text(encoding='utf-8').splitlines()
-          start = next(index for index, line in enumerate(lines) if line == '          from pathlib import Path')
-          end = next(index for index, line in enumerate(lines[start + 1:], start + 1) if line == '      - name: Commit repair')
-          program = textwrap.dedent('\n'.join(lines[start:end]))
-          exec(compile(program, str(workflow), 'exec'), {'__name__': '__main__'})
-          Path('.github/workflows/temporary-ai-cold-start-push.yml').unlink()
+          try:
+              workflow = Path('.github/workflows/temporary-ai-cold-start-patcher.yml')
+              lines = workflow.read_text(encoding='utf-8').splitlines()
+              start = next(index for index, line in enumerate(lines) if line == '          from pathlib import Path')
+              end = next(index for index, line in enumerate(lines[start + 1:], start + 1) if line == '      - name: Commit repair')
+              program = textwrap.dedent('\n'.join(lines[start:end]))
+              exec(compile(program, str(workflow), 'exec'), {'__name__': '__main__'})
+              Path('.github/workflows/temporary-ai-cold-start-push.yml').unlink()
+              Path('ai-cold-start-patch-error.txt').unlink(missing_ok=True)
+          except Exception:
+              Path('ai-cold-start-patch-error.txt').write_text(traceback.format_exc(), encoding='utf-8')
 
-      - name: Commit production repair
+      - name: Commit repair or diagnostic
         shell: bash
         run: |
           set -euo pipefail
@@ -41,7 +46,13 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git diff --cached --check
-          git commit -m "Move AI bundle verification off the Electron main thread"
+          if git diff --cached --quiet; then
+            echo 'Runner made no changes.' > ai-cold-start-patch-error.txt
+            git add ai-cold-start-patch-error.txt
+          fi
+          if test -f ai-cold-start-patch-error.txt; then
+            git commit -m "Record AI cold-start patch failure"
+          else
+            git commit -m "Move AI bundle verification off the Electron main thread"
+          fi
           git push origin HEAD:hotfix/v0.37.0-ai-cold-start
-
-# Triggered after registration.
