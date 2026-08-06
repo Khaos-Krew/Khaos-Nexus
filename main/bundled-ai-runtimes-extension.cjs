@@ -439,7 +439,6 @@ function install() {
   captureClass('./services/logger.cjs', 'AppLogger', 'logger');
   electron.app.whenReady().then(() => {
     registerIpc();
-    startAll();
   });
   electron.app.on('before-quit', () => { void stopAll({ timeoutMs: 1500 }); });
 }
