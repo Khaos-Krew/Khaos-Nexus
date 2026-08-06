@@ -1,0 +1,45 @@
+name: Run AI Cold Start Repair
+
+on:
+  push:
+    branches:
+      - hotfix/v0.37.0-ai-cold-start
+
+permissions:
+  contents: write
+
+jobs:
+  apply-repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out hotfix branch
+        uses: actions/checkout@v4
+        with:
+          ref: hotfix/v0.37.0-ai-cold-start
+          fetch-depth: 0
+
+      - name: Execute reviewed repair program
+        shell: python
+        run: |
+          from pathlib import Path
+          import textwrap
+
+          workflow = Path('.github/workflows/temporary-ai-cold-start-patcher.yml')
+          lines = workflow.read_text(encoding='utf-8').splitlines()
+          start = next(index for index, line in enumerate(lines) if line == '          from pathlib import Path')
+          end = next(index for index, line in enumerate(lines[start + 1:], start + 1) if line == '      - name: Commit repair')
+          program = textwrap.dedent('\n'.join(lines[start:end]))
+          exec(compile(program, str(workflow), 'exec'), {'__name__': '__main__'})
+          Path('.github/workflows/temporary-ai-cold-start-push.yml').unlink()
+
+      - name: Commit production repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Move AI bundle verification off the Electron main thread"
+          git push origin HEAD:hotfix/v0.37.0-ai-cold-start
