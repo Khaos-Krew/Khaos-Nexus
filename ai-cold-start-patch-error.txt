@@ -1,5 +1,5 @@
 Traceback (most recent call last):
-  File "/home/runner/work/_temp/3253f04d-4fd6-4c63-8ba0-b59c44c06a81.py", line 6, in <module>
+  File "/home/runner/work/_temp/3826519c-60ca-46b9-9cd3-ee31280dbeba.py", line 6, in <module>
     lines = workflow.read_text(encoding='utf-8').splitlines()
             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File "/usr/lib/python3.12/pathlib.py", line 1029, in read_text
