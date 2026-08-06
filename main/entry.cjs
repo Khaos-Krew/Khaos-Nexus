@@ -65,6 +65,7 @@ if (diagnosticsMode) {
     require('./dnd-ai-homebrew-ui-contract-extension.cjs').install();
     require('./dnd-ai-maps-extension.cjs').install();
     require('./dnd-ai-gm-extension.cjs').install();
+    require('./dnd-campaign-runtime-extension.cjs').install();
     require('./dnd-ai-map-stability-extension.cjs').install();
     require('./dnd-co-dm-stability-extension.cjs').install();
     require('./dnd-access-policy-extension.cjs').install();
