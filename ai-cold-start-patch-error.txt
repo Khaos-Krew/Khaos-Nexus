@@ -1,1 +1,1 @@
-Trigger the trusted CI-assisted cold-start repair job.
+Trigger the corrected trusted CI cold-start repair job.
