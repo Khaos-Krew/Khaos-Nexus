@@ -24,6 +24,10 @@ Application source under validation: `9794a4dd36c3baee537b090c3fc86c702802b3b4`
 - Absolute entrypoint and private-file containment checks prevent the host from launching or writing outside the verified bundle and per-agent data roots.
 - One worker can fail or restart without terminating the other worker or the desktop runtime host.
 
+## Exact-head refresh
+
+Exact branch-head inspection confirmed that both the unified host implementation and the replacement Nexus Sentinel lifecycle test are present. A prior pull-request run reported the pre-unification lifecycle assertion, so this evidence-only commit intentionally regenerates GitHub's synthetic pull-request merge snapshot and reruns the complete validation matrix without weakening any assertion or changing production behavior.
+
 ## Release acceptance boundary
 
 Local validation is supporting evidence only. Merge and publication remain blocked until the exact PR head passes repository CI, Windows packaging, bundled-runtime verification, packaged startup, clean installation, installed runtime integrity, hostile owner-environment startup, updater identity, and protected publication checks.
