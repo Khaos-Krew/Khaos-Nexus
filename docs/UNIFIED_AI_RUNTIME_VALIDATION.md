@@ -1,6 +1,6 @@
 # Unified AI Runtime Validation
 
-Application source under validation: `9794a4dd36c3baee537b090c3fc86c702802b3b4`
+Application source under validation: `b27b1cdc6ea84cccc7b7838ff775bc113d8c1f8c`
 
 ## Approved architecture
 
@@ -26,7 +26,9 @@ Application source under validation: `9794a4dd36c3baee537b090c3fc86c702802b3b4`
 
 ## Exact-head refresh
 
-Exact branch-head inspection confirmed that both the unified host implementation and the replacement Nexus Sentinel lifecycle test are present. A prior pull-request run reported the pre-unification lifecycle assertion, so this evidence-only commit intentionally regenerates GitHub's synthetic pull-request merge snapshot and reruns the complete validation matrix without weakening any assertion or changing production behavior.
+Exact branch-head inspection confirmed that both the unified host implementation and the replacement Nexus Sentinel lifecycle test are present. A prior pull-request run reported the pre-unification lifecycle assertion, so an evidence-only commit regenerated GitHub's synthetic pull-request merge snapshot without weakening any assertion or changing production behavior.
+
+The refreshed suite then found one legitimate branding-contract mismatch: the Co-DM security test requires the renderer to disclose the shared host, while the new copy named only Veyra. The renderer now states that **Veyra runs as the D&D worker inside the Khaos Nexus AI Runtime**, while preserving the credential-isolation and explicit-context-transfer disclosure. The temporary patch workflow removed itself before this owner-authored validation head.
 
 ## Release acceptance boundary
 
