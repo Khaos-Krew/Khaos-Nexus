@@ -16,48 +16,64 @@ jobs:
       github.event.pull_request.base.ref == 'release/v0.35.0-B'
     runs-on: ubuntu-latest
     steps:
-      - name: Check out hotfix head
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: hotfix/v0.37.0-ai-cold-start
           fetch-depth: 0
-
-      - name: Apply reviewed cold-start repair
+      - name: Apply corrected cold-start repair
         shell: python
         run: |
           from pathlib import Path
+          import base64
           import traceback
 
           try:
+              payload = Path('.validation/ai-cold-start')
+              launcher = base64.b64decode((payload / 'launcher.b64').read_text().strip()).decode()
+              cold_test = base64.b64decode((payload / 'test.b64').read_text().strip()).decode()
+              documentation = base64.b64decode((payload / 'doc.b64').read_text().strip()).decode()
+
               workflow = Path('.github/workflows/temporary-ai-cold-start-patcher.yml')
               lines = workflow.read_text(encoding='utf-8').splitlines()
-              start = next(index for index, line in enumerate(lines) if line == '          from pathlib import Path')
-              end = next(index for index, line in enumerate(lines[start + 1:], start + 1) if line == '      - name: Commit repair')
+              start = next(i for i, line in enumerate(lines) if line == '          from pathlib import Path')
+              end = next(i for i, line in enumerate(lines[start + 1:], start + 1) if line == '      - name: Commit repair')
               program = '\n'.join(line[10:] if line.startswith('          ') else line for line in lines[start:end])
+
+              for name in ('old_readiness', 'new_readiness'):
+                  marker = name + " = '''"
+                  block_start = program.index(marker) + len(marker)
+                  block_end = program.index("'''", block_start)
+                  body = program[block_start:block_end]
+                  rows = body.split('\n')
+                  fixed = '\n'.join([rows[0]] + [('  ' + row) if row else row for row in rows[1:]])
+                  program = program[:block_start] + fixed + program[block_end:]
+
               exec(compile(program, str(workflow), 'exec'), {'__name__': '__main__'})
-              Path('.github/workflows/temporary-ai-cold-start-push.yml').unlink(missing_ok=True)
-              Path('.github/workflows/temporary-ai-cold-start-ready.yml').unlink(missing_ok=True)
+              Path('main/ai-runtime-agent-launcher.cjs').write_text(launcher, encoding='utf-8')
+              Path('test/ai-runtime-cold-start.test.cjs').write_text(cold_test, encoding='utf-8')
+              Path('docs/AI_RUNTIME_COLD_START_REPAIR.md').write_text(documentation, encoding='utf-8')
               Path('ai-cold-start-patch-error.txt').unlink(missing_ok=True)
           except Exception:
               Path('ai-cold-start-patch-error.txt').write_text(traceback.format_exc(), encoding='utf-8')
-
-      - name: Commit repair or diagnostic
+      - name: Validate and commit repair
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if test -f ai-cold-start-patch-error.txt; then
+            git add -A
+            git commit -m "Record AI cold-start patch failure"
+            git push origin HEAD:hotfix/v0.37.0-ai-cold-start
+            exit 1
+          fi
+          node --check main/bundled-ai-runtimes-extension.cjs
+          node --check main/ai-runtime-host.cjs
+          node --check main/ai-runtime-agent-launcher.cjs
+          node --test test/ai-runtime-cold-start.test.cjs test/bundled-ai-runtimes.test.cjs
           git add -A
           git diff --cached --check
-          if git diff --cached --quiet; then
-            echo 'CI-assisted runner made no changes.' > ai-cold-start-patch-error.txt
-            git add ai-cold-start-patch-error.txt
-          fi
-          if test -f ai-cold-start-patch-error.txt; then
-            git commit -m "Record AI cold-start patch failure"
-          else
-            git commit -m "Move AI bundle verification off the Electron main thread"
-          fi
+          git commit -m "Move AI bundle verification off the Electron main thread"
           git push origin HEAD:hotfix/v0.37.0-ai-cold-start
 
   test:
