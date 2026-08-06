@@ -1,1 +1,1 @@
-Retry requested after correcting the YAML block indentation extractor.
+Trigger the registered base/default-branch cold-start repair workflow.
