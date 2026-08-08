@@ -1,0 +1,35 @@
+name: Production Cleanup Source Snapshot
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: ["release/v0.35.0-B"]
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    if: github.event.pull_request.head.ref == 'fix/v0.40.1-production-cleanup'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Upload production cleanup source
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-cleanup-source
+          retention-days: 1
+          if-no-files-found: error
+          path: |
+            main/**
+            renderer/**
+            shared/**
+            scripts/**
+            test/**
+            config/**
+            docs/**
+            package.json
+            package-lock.json
