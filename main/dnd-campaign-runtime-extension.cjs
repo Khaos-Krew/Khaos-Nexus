@@ -6,7 +6,7 @@ const electron = require('electron');
 const runtime = require('../shared/dnd-campaign-runtime.cjs');
 const aiGm = require('./dnd-ai-gm-extension.cjs');
 
-const ENABLE_PHRASE = 'ENABLE D&D RUNTIME PREVIEW';
+const ENABLE_PHRASE = 'ENABLE D&D RUNTIME';
 const refs = { configStore: null, autonomy: null, discordAuth: null, supervisor: null, logger: null };
 let installed = false;
 let registered = false;
@@ -64,13 +64,13 @@ function campaignPayload(campaignId = '') {
     role: currentRole(),
     selectedCampaignId: selected,
     campaigns: (state.campaigns || []).filter((item) => item.active !== false).map((item) => ({ id: item.id, name: item.name, status: item.status })),
-    gate: { ...clone(state.runtimeGate), releaseAuthorized: false },
+    gate: { ...clone(state.runtimeGate), releaseAuthorized: true },
     profiles: campaignFilter(state.playProfiles), seats: campaignFilter(state.playerSeats),
     runs: campaignFilter(state.campaignRuns), scenes: campaignFilter(state.scenes), turns: campaignFilter(state.turnCycles),
     checkpoints: campaignFilter(state.checkpoints).map((item) => ({ id: item.id, campaignId: item.campaignId, runId: item.runId, label: item.label, createdAt: item.createdAt, createdBy: item.createdBy })),
     recentEvents: campaignFilter(state.stateEvents).slice(-50),
     policy: {
-      privateDevelopmentOnly: true, releaseAuthorized: false, enablePhrase: ENABLE_PHRASE,
+      privateDevelopmentOnly: false, releaseAuthorized: true, enablePhrase: ENABLE_PHRASE,
       automaticDiscordPublication: false, automaticMechanicalEvents: false,
       veyraDirectStorageAccess: false, nexusSentinelCampaignAccess: false
     }
@@ -93,14 +93,14 @@ function mutate(action, input, fn) {
     action: `campaign-runtime.${action}`, outcome: 'success', actorId: actorId(),
     campaignId: String(input?.campaignId || result?.campaignId || '').slice(0, 100),
     targetId: String(result?.id || input?.id || input?.turnCycleId || '').slice(0, 100),
-    metadata: { privateDevelopmentOnly: true, releaseAuthorized: false }
+    metadata: { privateDevelopmentOnly: false, releaseAuthorized: true }
   });
   return result;
 }
 
 function enablePreview(input = {}) {
-  if (String(input.confirmation || '') !== ENABLE_PHRASE) throw Object.assign(new Error(`Type ${ENABLE_PHRASE} exactly to enable the private preview.`), { code: 'CONFIRMATION_REQUIRED' });
-  const gate = mutate('preview-enabled', input, (state) => runtime.enableOwnerPreview(state, actorId()));
+  if (String(input.confirmation || '') !== ENABLE_PHRASE) throw Object.assign(new Error(`Type ${ENABLE_PHRASE} exactly to enable the D&D runtime.`), { code: 'CONFIRMATION_REQUIRED' });
+  const gate = mutate('runtime-enabled', input, (state) => runtime.enableOwnerPreview(state, actorId()));
   return { gate, state: push(input.campaignId) };
 }
 
@@ -208,7 +208,7 @@ async function resolveTurn(input = {}) {
     });
     refs.configStore.appendDndAudit?.({
       action: 'campaign-runtime.turn-resolved', outcome: 'success', actorId: actorId(), campaignId: turn.campaignId,
-      targetId: turn.id, metadata: { veyraTurnId: generated.turn.id, releaseAuthorized: false }
+      targetId: turn.id, metadata: { veyraTurnId: generated.turn.id, releaseAuthorized: true }
     });
     return { turn: completed, state: push(turn.campaignId) };
   } catch (error) {
@@ -227,7 +227,7 @@ function registerHandlers() {
   registered = true;
   const ipc = electron.ipcMain;
   ipc.handle('dnd:campaign-runtime-get', (_event, input = {}) => { assertOwner('View D&D campaign runtime'); return campaignPayload(input.campaignId); });
-  ipc.handle('dnd:campaign-runtime-enable', (_event, input = {}) => { assertOwner('Enable D&D runtime preview'); return enablePreview(input); });
+  ipc.handle('dnd:campaign-runtime-enable', (_event, input = {}) => { assertOwner('Enable D&D runtime'); return enablePreview(input); });
   ipc.handle('dnd:campaign-runtime-profile-upsert', (_event, input = {}) => { assertOwner('Configure D&D runtime profile'); return profileUpsert(input); });
   ipc.handle('dnd:campaign-runtime-seat-upsert', (_event, input = {}) => { assertOwner('Configure D&D runtime seat'); return seatUpsert(input); });
   ipc.handle('dnd:campaign-runtime-run-start', (_event, input = {}) => { assertOwner('Start D&D campaign run'); return runStart(input); });
@@ -276,5 +276,5 @@ function install() {
 module.exports = {
   ENABLE_PHRASE, install, campaignPayload, enablePreview, profileUpsert, seatUpsert, runStart, sceneStart,
   turnOpen, actionSubmit, actionLock, resolveTurn, eventAppend, checkpointCreate, checkpointRestore,
-  releaseAuthorized: false
+  releaseAuthorized: true
 };
