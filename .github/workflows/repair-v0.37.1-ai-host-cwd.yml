@@ -1,0 +1,75 @@
+name: Apply v0.37.1 AI Host CWD Repair
+
+on:
+  push:
+    branches:
+      - hotfix/v0.37.1-ai-host-cwd
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repair-v0.37.1-ai-host-cwd
+  cancel-in-progress: true
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hotfix/v0.37.1-ai-host-cwd
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Patch packaged AI host working directory and regression coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          runtime = Path('main/bundled-ai-runtimes-extension.cjs')
+          source = runtime.read_text(encoding='utf-8')
+          old = "      cwd: __dirname,\n"
+          new = "      cwd: electron.app.isPackaged ? process.resourcesPath : __dirname,\n"
+          if source.count(old) != 1:
+              raise SystemExit(f'Expected exactly one host cwd occurrence, found {source.count(old)}')
+          runtime.write_text(source.replace(old, new, 1), encoding='utf-8', newline='\n')
+
+          test = Path('test/ai-runtime-manual-start.test.cjs')
+          text = test.read_text(encoding='utf-8')
+          anchor = "test('desktop shutdown still stops a manually started runtime', () => {\n"
+          addition = """test('packaged AI Runtime host uses a real OS working directory', () => {\n  const source = read('main/bundled-ai-runtimes-extension.cjs');\n  const startHost = source.match(/function startHost\\(startAgents[\\s\\S]*?\\n\\}/)?.[0] || '';\n\n  assert.match(\n    startHost,\n    /cwd:\\s*electron\\.app\\.isPackaged\\s*\\?\\s*process\\.resourcesPath\\s*:\\s*__dirname/\n  );\n  assert.doesNotMatch(startHost, /cwd:\\s*__dirname\\s*,/);\n});\n\n"""
+          if anchor not in text:
+              raise SystemExit('Manual-start regression insertion point not found')
+          if "packaged AI Runtime host uses a real OS working directory" not in text:
+              text = text.replace(anchor, addition + anchor, 1)
+          test.write_text(text, encoding='utf-8', newline='\n')
+          PY
+
+      - name: Validate repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm audit --omit=dev --audit-level=high
+          node --test test/ai-runtime-manual-start.test.cjs
+          npm test
+          npm run check
+
+      - name: Commit repair and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/repair-v0.37.1-ai-host-cwd.yml
+          git add main/bundled-ai-runtimes-extension.cjs test/ai-runtime-manual-start.test.cjs
+          git commit -m "Fix packaged AI runtime host working directory"
+          git push origin HEAD:hotfix/v0.37.1-ai-host-cwd
