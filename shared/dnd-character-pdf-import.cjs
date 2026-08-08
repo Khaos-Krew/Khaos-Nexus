@@ -170,6 +170,14 @@ function pickField(index, aliases) {
   return undefined;
 }
 
+function pickExactField(index, aliases) {
+  for (const alias of aliases) {
+    const field = index.get(normalizeFieldName(alias));
+    if (field && String(field.value ?? '').trim() !== '') return field.value;
+  }
+  return undefined;
+}
+
 function numberValue(value) {
   if (value === undefined || value === null || String(value).trim() === '') return null;
   const match = String(value).replace(/,/g, '').match(/[+-]?\d+/);
@@ -183,13 +191,20 @@ function booleanValue(value) {
 }
 
 function classAndLevel(index) {
-  const explicitClass = pickField(index, ['ClassName', 'Class']);
-  const explicitLevel = numberValue(pickField(index, ['CharacterLevel', 'Level']));
-  const combined = String(pickField(index, ['ClassLevel', 'ClassAndLevel', 'Class Level']) || '').trim();
-  const className = String(explicitClass || combined.replace(/\b(?:[1-9]|1\d|20)\b/g, '').replace(/\s*[/,;|]\s*/g, ' / ').replace(/\s{2,}/g, ' ').replace(/^\s*\/|\/\s*$/g, '').trim()).slice(0, 120);
+  const explicitClass = pickExactField(index, ['ClassName', 'Class']);
+  const explicitLevel = numberValue(pickExactField(index, ['CharacterLevel', 'Level']));
+  const combined = String(pickExactField(index, ['ClassLevel', 'ClassAndLevel', 'Class Level']) || '').trim();
+  const classSource = String(explicitClass || combined).trim();
+  const className = classSource
+    .split(/\s*[/,;|]\s*/)
+    .map((part) => part.replace(/\b(?:[1-9]|1\d|20)\b/g, '').replace(/\s{2,}/g, ' ').trim())
+    .filter(Boolean)
+    .join(' / ')
+    .slice(0, 120);
   let level = explicitLevel;
-  if (level === null && combined) {
-    const levels = [...combined.matchAll(/\b([1-9]|1\d|20)\b/g)].map((match) => Number(match[1]));
+  const levelSource = combined || classSource;
+  if (level === null && levelSource) {
+    const levels = [...levelSource.matchAll(/\b([1-9]|1\d|20)\b/g)].map((match) => Number(match[1]));
     const total = levels.reduce((sum, item) => sum + item, 0);
     if (total > 0 && total <= 30) level = total;
   }
