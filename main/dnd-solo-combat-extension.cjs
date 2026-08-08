@@ -65,7 +65,7 @@ function payload(campaignId = '') {
     activeCombat: combats.find((item) => item.status === 'active') || null,
     recentCombats: combats.filter((item) => item.status !== 'active').slice(-10),
     memories: filter(state.runtimeMemories).slice(-100),
-    policy: { privateDevelopmentOnly: true, releaseAuthorized: false, automaticDiscordPublication: false }
+    policy: { privateDevelopmentOnly: false, releaseAuthorized: true, automaticDiscordPublication: false }
   };
 }
 function push(campaignId = '') {
@@ -83,7 +83,7 @@ function mutate(action, input, fn) {
     action: `solo-combat.${action}`, outcome: 'success', actorId: actorId(),
     campaignId: String(input?.campaignId || result?.campaignId || result?.combat?.campaignId || '').slice(0, 100),
     targetId: String(result?.id || result?.combat?.id || input?.combatId || '').slice(0, 100),
-    metadata: { privateDevelopmentOnly: true, releaseAuthorized: false }
+    metadata: { privateDevelopmentOnly: false, releaseAuthorized: true }
   });
   return result;
 }
@@ -113,7 +113,7 @@ function registerHandlers() {
   const ipc = electron.ipcMain;
   ipc.handle('dnd:solo-combat-get', (_event, input = {}) => { assertOwner('View D&D solo and combat runtime'); return payload(input.campaignId); });
   ipc.handle('dnd:solo-adventure-start', (_event, input = {}) => {
-    assertOwner('Start a private solo adventure');
+    assertOwner('Start solo adventure');
     const result = mutate('adventure-started', input, (state) => solo.startSoloAdventure(state, { ...input, actorId: actorId() }));
     return { ...result, state: push(input.campaignId) };
   });
@@ -187,4 +187,4 @@ function install() {
   scheduleRegister();
 }
 
-module.exports = { install, payload, releaseAuthorized: false };
+module.exports = { install, payload, releaseAuthorized: true };
