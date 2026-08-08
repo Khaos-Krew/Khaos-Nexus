@@ -112,7 +112,7 @@
   doc.addEventListener('click', click);
   doc.addEventListener('change', (event) => { if (event.target?.id === 'dndCampaignSelect') { state.payload = null; refresh(true).catch(() => {}); } });
   root.khaos?.on?.('dnd:campaign-runtime-update', (payload) => { state.payload = payload; state.campaignId = payload.selectedCampaignId || state.campaignId; schedule(); });
-  const observer = new MutationObserver(() => { if (doc.getElementById('view-dnd') && !doc.querySelector('[data-dnd-campaign-runtime]')) schedule(); }); observer.observe(doc.documentElement, { childList: true, subtree: true });
+  root.khaosDndDomHub?.subscribe(() => { if (doc.getElementById('view-dnd') && !doc.querySelector('[data-dnd-campaign-runtime]')) schedule(); });
   root.__khaosDndCampaignRuntime = { refresh };
   let startupAttempts = 0; const start = () => refresh(true).catch(() => { if (++startupAttempts < 20) root.setTimeout(start, 250); }); start(); schedule();
 })(typeof window !== 'undefined' ? window : null);

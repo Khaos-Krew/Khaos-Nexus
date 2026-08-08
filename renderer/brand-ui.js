@@ -287,7 +287,7 @@
     $('nexusUpdateDownload')?.addEventListener('click', () => runUpdateAction('download').catch(() => {}));
     $('nexusUpdateInstall')?.addEventListener('click', () => runUpdateAction('install').catch(() => {}));
     $('nexusUpdateRelease')?.addEventListener('click', () => runUpdateAction('release').catch(() => {}));
-    window.khaos.onState(renderState);
+    window.khaosStateHub.subscribe(renderState);
     window.khaos.onUpdate((update) => renderUpdate(update));
   }
 

@@ -216,7 +216,7 @@
 
     window.addEventListener('error', (event) => captureRendererError(event.error || new Error(event.message || 'Renderer error'), 'window-error'));
     window.addEventListener('unhandledrejection', (event) => captureRendererError(event.reason, 'unhandled-rejection'));
-    window.khaos.onState(render);
+    window.khaosStateHub.subscribe(render);
     window.khaos.onRendererErrors?.(renderRendererErrors);
   }
 
@@ -250,6 +250,7 @@
     window.khaos?.reportBootStage?.('monitor-ready');
     scheduleOptionalExtensions();
     setInterval(() => {
+      if (document.hidden || !byId('view-monitor')?.classList.contains('active')) return;
       if (current?.applicationMonitor?.lastDeliveryAt && byId('monitorLastDelivery')) {
         byId('monitorLastDelivery').textContent = relativeTime(current.applicationMonitor.lastDeliveryAt);
       }

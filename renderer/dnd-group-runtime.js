@@ -76,6 +76,6 @@
   }
   doc.addEventListener('submit',submit);doc.addEventListener('click',click);doc.addEventListener('change',(event)=>{if(event.target?.id==='dndCampaignSelect'){state.payload=null;refresh(true).catch(()=>{});}});
   root.khaos?.on?.('dnd:group-runtime-update',(next)=>{state.payload=next;state.campaignId=next.selectedCampaignId||state.campaignId;schedule();});
-  const observer=new MutationObserver(()=>{if(doc.getElementById('view-dnd')&&!doc.querySelector('[data-dnd-group-runtime]'))schedule();});observer.observe(doc.documentElement,{childList:true,subtree:true});
+  root.khaosDndDomHub?.subscribe(()=>{if(doc.getElementById('view-dnd')&&!doc.querySelector('[data-dnd-group-runtime]'))schedule();});
   root.__khaosDndGroupRuntime={refresh};const start=()=>refresh(true).catch(()=>{if(++state.attempts<20)root.setTimeout(start,250);});start();schedule();
 })(typeof window!=='undefined'?window:null);

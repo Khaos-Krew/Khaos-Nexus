@@ -176,7 +176,7 @@
       notify(`Copied ${result.redirectUri}`);
     });
     byId('openDiscordDeveloperPortalButton').addEventListener('click', () => invoke('discord-auth:open-developer-portal'));
-    window.khaos.onState(render);
+    window.khaosStateHub.subscribe(render);
   }
 
   async function initializeDiscordAuthUi() {

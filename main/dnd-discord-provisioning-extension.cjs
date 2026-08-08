@@ -5,6 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const electron = require('electron');
 const { DndDiscordProvisioningService } = require('./services/dnd-discord-provisioning-service.cjs');
+const { registerRendererBundle } = require('./renderer-asset-loader.cjs');
 
 const refs = {
   configStore: null,
@@ -204,17 +205,11 @@ function scheduleRegister() {
 }
 
 function installRendererAssets() {
-  const cssPath = path.join(__dirname, '..', 'renderer', 'dnd-discord-provisioning.css');
-  const jsPath = path.join(__dirname, '..', 'renderer', 'dnd-discord-provisioning.js');
-  electron.app.on('browser-window-created', (_event, window) => {
-    window.webContents.on('did-finish-load', async () => {
-      try {
-        await window.webContents.insertCSS(fs.readFileSync(cssPath, 'utf8'));
-        await window.webContents.executeJavaScript(fs.readFileSync(jsPath, 'utf8'), true);
-      } catch (error) {
-        refs.logger?.error?.('D&D Discord provisioning assets failed to load.', { message: error.message });
-      }
-    });
+  registerRendererBundle({
+    id: 'dnd-discord-provisioning',
+    styles: [path.join(__dirname, '..', 'renderer', 'dnd-discord-provisioning.css')],
+    scripts: [path.join(__dirname, '..', 'renderer', 'dnd-discord-provisioning.js')],
+    source: 'dnd-discord-provisioning-extension.cjs'
   });
 }
 

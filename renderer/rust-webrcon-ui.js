@@ -290,7 +290,7 @@
     updateBaseCopy();
     bind();
     updateFormMode();
-    window.khaos.onState((next) => {
+    window.khaosStateHub.subscribe((next) => {
       currentState = next;
       renderOperations();
     });

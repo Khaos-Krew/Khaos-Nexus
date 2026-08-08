@@ -5,6 +5,7 @@ const path = require('node:path');
 const electron = require('electron');
 const runtime = require('../shared/dnd-campaign-runtime.cjs');
 const aiGm = require('./dnd-ai-gm-extension.cjs');
+const { registerRendererBundle } = require('./renderer-asset-loader.cjs');
 
 const ENABLE_PHRASE = 'ENABLE D&D RUNTIME';
 const refs = { configStore: null, autonomy: null, discordAuth: null, supervisor: null, logger: null };
@@ -251,14 +252,12 @@ function scheduleRegister() {
 }
 
 function installRendererAssets() {
-  const cssPath = path.join(__dirname, '..', 'renderer', 'dnd-campaign-runtime.css');
-  const jsPath = path.join(__dirname, '..', 'renderer', 'dnd-campaign-runtime.js');
-  electron.app.on('browser-window-created', (_event, window) => window.webContents.on('did-finish-load', async () => {
-    try {
-      await window.webContents.insertCSS(fs.readFileSync(cssPath, 'utf8'));
-      await window.webContents.executeJavaScript(fs.readFileSync(jsPath, 'utf8'), true);
-    } catch (error) { refs.logger?.error?.('D&D campaign runtime assets failed to load.', { message: error.message }); }
-  }));
+  registerRendererBundle({
+    id: 'dnd-campaign-runtime',
+    styles: [path.join(__dirname, '..', 'renderer', 'dnd-campaign-runtime.css')],
+    scripts: [path.join(__dirname, '..', 'renderer', 'dnd-campaign-runtime.js')],
+    source: 'dnd-campaign-runtime-extension.cjs'
+  });
 }
 
 function install() {

@@ -305,7 +305,7 @@
       await refresh();
       notify('Autonomous operation settings saved.');
     });
-    window.khaos.onState(render);
+    window.khaosStateHub.subscribe(render);
   }
 
   async function initialize() {
@@ -313,6 +313,7 @@
     bind();
     render(await invoke('app:get-state'));
     setInterval(() => {
+      if (document.hidden || !byId('view-autonomy')?.classList.contains('active')) return;
       if (!current?.autonomy) return;
       byId('lastAutoBackup').textContent = relativeTime(current.autonomy.lastBackupAt);
       byId('lastHealthCheck').textContent = relativeTime(current.autonomy.lastHealthCheckAt);

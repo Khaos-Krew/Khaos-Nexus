@@ -98,8 +98,7 @@
   doc.addEventListener('click', click);
   doc.addEventListener('change', (event) => { if (event.target?.id === 'dndCampaignSelect') { state.payload = null; refresh(true).catch(() => {}); } });
   root.khaos?.on?.('dnd:solo-combat-update', (next) => { state.payload = next; state.campaignId = next.selectedCampaignId || state.campaignId; schedule(); });
-  const observer = new MutationObserver(() => { if (doc.getElementById('view-dnd') && !doc.querySelector('[data-dnd-solo-combat]')) schedule(); });
-  observer.observe(doc.documentElement, { childList: true, subtree: true });
+  root.khaosDndDomHub?.subscribe(() => { if (doc.getElementById('view-dnd') && !doc.querySelector('[data-dnd-solo-combat]')) schedule(); });
   root.__khaosDndSoloCombat = { refresh };
   const start = () => refresh(true).catch(() => { if (++state.attempts < 20) root.setTimeout(start, 250); });
   start(); schedule();

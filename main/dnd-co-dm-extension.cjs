@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
+const { registerRendererBundle } = require('./renderer-asset-loader.cjs');
 const {
   CO_DM_WORKFLOWS,
   normalizeCoDmSettings,
@@ -493,17 +494,11 @@ function scheduleRegister() {
 }
 
 function installRendererAssets() {
-  const cssPath = path.join(__dirname, '..', 'renderer', 'dnd-co-dm.css');
-  const jsPath = path.join(__dirname, '..', 'renderer', 'dnd-co-dm.js');
-  electron.app.on('browser-window-created', (_event, window) => {
-    window.webContents.on('did-finish-load', async () => {
-      try {
-        await window.webContents.insertCSS(fs.readFileSync(cssPath, 'utf8'));
-        await window.webContents.executeJavaScript(fs.readFileSync(jsPath, 'utf8'), true);
-      } catch (error) {
-        refs.logger?.error?.('D&D Co-DM assets failed to load.', { message: sanitizeServiceError(error).message });
-      }
-    });
+  registerRendererBundle({
+    id: 'dnd-co-dm',
+    styles: [path.join(__dirname, '..', 'renderer', 'dnd-co-dm.css')],
+    scripts: [path.join(__dirname, '..', 'renderer', 'dnd-co-dm.js')],
+    source: 'dnd-co-dm-extension.cjs'
   });
 }
 

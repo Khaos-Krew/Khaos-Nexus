@@ -107,9 +107,14 @@ test('stability observer reacts to base D&D rerenders but ignores character-mana
   }]), false);
 });
 
-test('production loader executes the repair before the bounded stability guard', () => {
+test('production loader registers repair, stability, and refresh guard in deterministic order', () => {
   const fs = require('node:fs');
   const extension = fs.readFileSync(require.resolve('../main/dnd-usability-repair-extension.cjs'), 'utf8');
-  assert.ok(extension.indexOf('executeJavaScript(script') < extension.indexOf('executeJavaScript(stability'));
-  assert.match(extension, /dnd-usability-stability\.js/);
+  const repairIndex = extension.indexOf('dnd-usability-repair.js');
+  const stabilityIndex = extension.indexOf('dnd-usability-stability.js');
+  const guardIndex = extension.indexOf('dnd-refresh-guard.js');
+  assert.match(extension, /registerRendererBundle/);
+  assert.ok(repairIndex >= 0);
+  assert.ok(stabilityIndex > repairIndex);
+  assert.ok(guardIndex > stabilityIndex);
 });

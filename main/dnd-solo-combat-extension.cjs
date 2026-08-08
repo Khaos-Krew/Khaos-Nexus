@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
 const solo = require('../shared/dnd-solo-combat.cjs');
+const { registerRendererBundle } = require('./renderer-asset-loader.cjs');
 
 const refs = { configStore: null, autonomy: null, discordAuth: null, supervisor: null, logger: null };
 let installed = false;
@@ -166,14 +167,12 @@ function scheduleRegister() {
   timer.unref?.();
 }
 function installRendererAssets() {
-  const cssPath = path.join(__dirname, '..', 'renderer', 'dnd-solo-combat.css');
-  const jsPath = path.join(__dirname, '..', 'renderer', 'dnd-solo-combat.js');
-  electron.app.on('browser-window-created', (_event, window) => window.webContents.on('did-finish-load', async () => {
-    try {
-      await window.webContents.insertCSS(fs.readFileSync(cssPath, 'utf8'));
-      await window.webContents.executeJavaScript(fs.readFileSync(jsPath, 'utf8'), true);
-    } catch (error) { refs.logger?.error?.('D&D solo/combat assets failed to load.', { message: error.message }); }
-  }));
+  registerRendererBundle({
+    id: 'dnd-solo-combat',
+    styles: [path.join(__dirname, '..', 'renderer', 'dnd-solo-combat.css')],
+    scripts: [path.join(__dirname, '..', 'renderer', 'dnd-solo-combat.js')],
+    source: 'dnd-solo-combat-extension.cjs'
+  });
 }
 function install() {
   if (installed) return;
