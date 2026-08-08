@@ -1,0 +1,193 @@
+name: Approved v0.40.0 AI Recovery Test Release
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: ["release/v0.35.0-B"]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: approved-updater-v0.40.0-ai-recovery-test
+  cancel-in-progress: true
+
+jobs:
+  publish-windows-ai-recovery-test:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'publish/v0.40.0-ai-recovery-test' &&
+      github.event.pull_request.base.ref == 'release/v0.35.0-B'
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      APPROVED_APP_SHA: 9d21649bec069096fe8eb706b762fb7a40e4e686
+      RELEASE_VERSION: 0.40.0
+      RELEASE_TAG: v0.40.0
+    steps:
+      - name: Check out exact publisher head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate workflow-only lineage
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor $env:APPROVED_APP_SHA HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Approved v0.40.0 application source is not an ancestor.' }
+          $changed = @(git diff --name-only "$env:APPROVED_APP_SHA..HEAD")
+          $expected = '.github/workflows/updater-v0.40.0-ai-recovery-test-release.yml'
+          if ($changed.Count -ne 1 -or $changed[0] -ne $expected) {
+            throw "Publisher differs outside its workflow: $($changed -join ', ')"
+          }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate exact application and embedded agents
+        shell: pwsh
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm audit --omit=dev --audit-level=high
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-embedded-ai-sources.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build --prefix packages/ai/dnd-ai
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build --prefix packages/ai/ai-core
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test test/ai-recovery-governor.test.cjs test/ai-runtime-manual-start.test.cjs test/dnd-pdf-character-import.test.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Freeze v0.40.0 identity
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-notes | Out-Null
+          @'
+          # Khaos Nexus v0.40.0 — Self-Healing AI Test Build
+
+          v0.40.0 is the first public beta test build of the Khaos Nexus deterministic AI Recovery Supervisor and adaptive resource governor.
+
+          The Recovery Supervisor sits below Veyra and Nexus Sentinel and can recover common AI runtime failures without depending on either AI agent being healthy. Automatic recovery is intentionally bounded: it can only restart AI agents that the Owner had already started in the current desktop session. A cold or intentionally stopped AI Runtime remains stopped.
+
+          The adaptive resource governor provides low-end-first CPU/RAM/GPU-aware budgeting with Eco, Gaming, Balanced, and AI Priority profiles. It can scale model tier, context budget, concurrency, CPU threads, and GPU-offload guidance as verified resources become available, while degrading conservatively under pressure.
+
+          Recovery safety includes allowlisted repair levels, known-good state, bounded checkpoints, verification, rollback hooks, a repair journal, repeated-crash detection, and Recovery Safe Mode. L2/L3 changes such as component/service reconfiguration, source code, database schema, permissions, credentials, updater, and security changes require Owner approval. There is no generic shell repair executor.
+
+          Veyra has no system-repair authority. Nexus Sentinel may diagnose and propose repairs but does not directly execute them. D&D campaign/character/private content remains isolated from Sentinel.
+
+          This build retains the v0.39 D&D Beyond fillable-PDF and JSON character importer.
+
+          This release establishes the recovery/resource foundation only; it does not yet bundle a large local inference model or Ollama/llama.cpp runtime.
+          '@ | Set-Content release-notes/v0.40.0.md -Encoding utf8
+
+          $p = Get-Content package.json -Raw | ConvertFrom-Json
+          $p.version = '0.40.0'
+          $p.khaosRelease.displayVersion = '0.40.0'
+          $p.khaosRelease.artifactVersion = '0.40.0'
+          $p.khaosRelease.publicTag = 'v0.40.0'
+          $p.khaosRelease.channel = 'beta'
+          $p.khaosRelease.updaterVersion = '0.40.0'
+          $p.khaosRelease.rollbackTag = 'v0.39.0'
+          $p.build.releaseInfo.releaseName = 'Khaos Nexus v0.40.0 — Self-Healing AI Test Build'
+          $p.build.releaseInfo.releaseNotesFile = 'release-notes/v0.40.0.md'
+          $p.build.nsis.artifactName = 'Khaos-Nexus-Setup-0.40.0-${arch}.${ext}'
+          $p.build.portable.artifactName = 'Khaos-Nexus-Portable-0.40.0-${arch}.${ext}'
+          $p | ConvertTo-Json -Depth 30 | Set-Content package.json -Encoding utf8
+
+      - name: Build and smoke-test Windows package
+        shell: pwsh
+        run: |
+          npm run dist:win
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-packaged-ai-runtimes.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/smoke-packaged-startup.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify packaged recovery, manual-start, and Character import wiring
+        shell: pwsh
+        run: |
+          @'
+          'use strict';
+          const asar = require('@electron/asar');
+          const archive = 'dist/win-unpacked/resources/app.asar';
+          const pkg = JSON.parse(asar.extractFile(archive, 'package.json').toString('utf8'));
+          const bootstrap = asar.extractFile(archive, 'main/entry-pdf-import.cjs').toString('utf8');
+          const entry = asar.extractFile(archive, 'main/entry.cjs').toString('utf8');
+          const recovery = asar.extractFile(archive, 'main/ai-recovery-supervisor-extension.cjs').toString('utf8');
+          const governor = asar.extractFile(archive, 'shared/ai-recovery-governor.cjs').toString('utf8');
+          const pdfExtension = asar.extractFile(archive, 'main/dnd-character-pdf-import-extension.cjs').toString('utf8');
+          const pdfParser = asar.extractFile(archive, 'shared/dnd-character-pdf-import.cjs').toString('utf8');
+          if (pkg.version !== '0.40.0' || pkg.khaosRelease?.publicTag !== 'v0.40.0') throw new Error('Packaged release identity is invalid.');
+          if (pkg.khaosRelease?.rollbackTag !== 'v0.39.0') throw new Error('Packaged rollback target is invalid.');
+          if (pkg.main !== 'main/entry-pdf-import.cjs') throw new Error('PDF import bootstrap is not the packaged desktop entrypoint.');
+          if (!bootstrap.includes("dnd-character-pdf-import-extension.cjs") || !bootstrap.includes("require('./entry.cjs')")) throw new Error('Desktop bootstrap wiring is incomplete.');
+          if (!entry.includes("require('./ai-recovery-supervisor-extension.cjs').install()")) throw new Error('Recovery Supervisor is not installed by the packaged desktop entrypoint.');
+          for (const marker of ['RecoveryStore', 'selectRuntimeBudget', 'authorizedAgents', 'store.safeMode().active', 'runtime.restart-authorized']) {
+            if (!recovery.includes(marker)) throw new Error(`Packaged Recovery Supervisor is missing marker: ${marker}`);
+          }
+          for (const marker of ['REPAIR_ACTIONS', 'selectRuntimeBudget', 'selectProvider', 'selectModel', 'executeRepair', 'RECOVERY_OWNER_APPROVAL_REQUIRED']) {
+            if (!governor.includes(marker)) throw new Error(`Packaged recovery governor is missing marker: ${marker}`);
+          }
+          if (!governor.includes("actor === 'veyra'") || !governor.includes('Nexus Sentinel may diagnose and propose repairs')) throw new Error('Packaged repair authority boundaries are missing.');
+          if (!pdfExtension.includes("extensions: ['pdf', 'json']") || !pdfExtension.includes('parsePdfCharacterImportBuffer') || !pdfExtension.includes('parseCharacterImportBuffer')) throw new Error('Packaged Character importer does not retain PDF + JSON support.');
+          if (!pdfParser.includes('dnd-character-pdf-form-v1')) throw new Error('Packaged fillable-PDF parser is missing.');
+          console.log('Packaged recovery/resource governor, manual-start wiring, and PDF + JSON Character import verified.');
+          '@ | Set-Content .github-verify-v040.cjs -Encoding utf8
+          node .github-verify-v040.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify release assets and identity
+        shell: pwsh
+        run: |
+          $files = @('dist/Khaos-Nexus-Setup-0.40.0-x64.exe','dist/Khaos-Nexus-Setup-0.40.0-x64.exe.blockmap','dist/Khaos-Nexus-Portable-0.40.0-x64.exe','dist/latest.yml')
+          foreach ($file in $files) {
+            if (-not (Test-Path $file) -or (Get-Item $file).Length -le 0) { throw "Invalid release asset: $file" }
+          }
+          $latest = Get-Content dist/latest.yml -Raw
+          if ($latest -notmatch '(?m)^version:\s*0\.40\.0\s*$' -or $latest -notmatch 'Khaos-Nexus-Setup-0\.40\.0-x64\.exe') { throw 'Updater metadata is invalid.' }
+          $files | ForEach-Object { "$( (Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant() )  $([IO.Path]::GetFileName($_))" } | Set-Content release-checksums.txt
+
+      - name: Publish and verify updater-visible v0.40.0
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $assets = @('dist/Khaos-Nexus-Setup-0.40.0-x64.exe','dist/Khaos-Nexus-Setup-0.40.0-x64.exe.blockmap','dist/Khaos-Nexus-Portable-0.40.0-x64.exe','dist/latest.yml','release-checksums.txt')
+          gh release create v0.40.0 --target $env:RELEASE_SHA --title 'Khaos Nexus v0.40.0 — Self-Healing AI Test Build' --notes-file release-notes/v0.40.0.md --latest @assets
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }
+          $ref = gh api repos/$env:GITHUB_REPOSITORY/git/ref/tags/v0.40.0 | ConvertFrom-Json
+          if ([string]$ref.object.sha -ne $env:RELEASE_SHA) { throw 'Tag target mismatch.' }
+          $latest = gh api repos/$env:GITHUB_REPOSITORY/releases/latest | ConvertFrom-Json
+          if ([string]$latest.tag_name -ne 'v0.40.0') { throw 'v0.40.0 is not latest.' }
+          $names = @($latest.assets | ForEach-Object name)
+          foreach ($name in @('Khaos-Nexus-Setup-0.40.0-x64.exe','Khaos-Nexus-Setup-0.40.0-x64.exe.blockmap','Khaos-Nexus-Portable-0.40.0-x64.exe','latest.yml','release-checksums.txt')) {
+            if ($names -notcontains $name) { throw "Published release missing $name" }
+          }
+
+      - name: Upload publication evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Khaos-Nexus-v0.40.0-AI-Recovery-Test
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            dist/Khaos-Nexus-Setup-0.40.0-x64.exe
+            dist/Khaos-Nexus-Setup-0.40.0-x64.exe.blockmap
+            dist/Khaos-Nexus-Portable-0.40.0-x64.exe
+            dist/latest.yml
+            release-checksums.txt
+            release-notes/v0.40.0.md
