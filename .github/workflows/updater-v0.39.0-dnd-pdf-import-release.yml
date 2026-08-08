@@ -1,0 +1,182 @@
+name: Approved v0.39.0 D&D PDF Character Import Release
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: ["release/v0.35.0-B"]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: approved-updater-v0.39.0-dnd-pdf-import
+  cancel-in-progress: true
+
+jobs:
+  publish-windows-dnd-pdf-import:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'publish/v0.39.0-dnd-pdf-import' &&
+      github.event.pull_request.base.ref == 'release/v0.35.0-B'
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      APPROVED_APP_SHA: ba09c0f59d721f2f82590e319ab1044212d54bf2
+      RELEASE_VERSION: 0.39.0
+      RELEASE_TAG: v0.39.0
+    steps:
+      - name: Check out exact publisher head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate workflow-only lineage
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor $env:APPROVED_APP_SHA HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Approved v0.39.0 application source is not an ancestor.' }
+          $changed = @(git diff --name-only "$env:APPROVED_APP_SHA..HEAD")
+          $expected = '.github/workflows/updater-v0.39.0-dnd-pdf-import-release.yml'
+          if ($changed.Count -ne 1 -or $changed[0] -ne $expected) {
+            throw "Publisher differs outside its workflow: $($changed -join ', ')"
+          }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate exact application and embedded agents
+        shell: pwsh
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm audit --omit=dev --audit-level=high
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-embedded-ai-sources.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build --prefix packages/ai/dnd-ai
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build --prefix packages/ai/ai-core
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test test/dnd-pdf-character-import.test.cjs test/dnd-content-catalog.test.cjs test/ai-runtime-manual-start.test.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Freeze v0.39.0 identity
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-notes | Out-Null
+          @'
+          # Khaos Nexus v0.39.0 — D&D Beyond PDF Character Import
+
+          v0.39.0 updates the D&D Characters importer to match the format exported by D&D Beyond.
+
+          Character import now accepts fillable PDF character sheets as well as Khaos Nexus/native JSON files. PDF processing stays entirely local and reads embedded form fields directly; it does not use OCR, Acrobat automation, browser scraping, a D&D Beyond login, or private D&D Beyond APIs.
+
+          The importer maps core character data including character name, class and multiclass levels, current and maximum HP, Armor Class, initiative, inspiration, and ability scores/modifiers when those fields are present. Useful ancestry/species, background, player-name, and alignment data is retained as import metadata.
+
+          Existing safeguards remain unchanged: imported characters are reviewed before save, source SHA-256 provenance is retained, same-name collisions are warned about, and import always creates a new character instead of overwriting an existing one. JSON import remains supported.
+
+          Flattened or printed PDFs without readable form fields are rejected with guidance to use D&D Beyond's Export PDF option.
+          '@ | Set-Content release-notes/v0.39.0.md -Encoding utf8
+
+          $p = Get-Content package.json -Raw | ConvertFrom-Json
+          $p.version = '0.39.0'
+          $p.khaosRelease.displayVersion = '0.39.0'
+          $p.khaosRelease.artifactVersion = '0.39.0'
+          $p.khaosRelease.publicTag = 'v0.39.0'
+          $p.khaosRelease.channel = 'beta'
+          $p.khaosRelease.updaterVersion = '0.39.0'
+          $p.khaosRelease.rollbackTag = 'v0.38.1'
+          $p.build.releaseInfo.releaseName = 'Khaos Nexus v0.39.0 — D&D Beyond PDF Character Import'
+          $p.build.releaseInfo.releaseNotesFile = 'release-notes/v0.39.0.md'
+          $p.build.nsis.artifactName = 'Khaos-Nexus-Setup-0.39.0-${arch}.${ext}'
+          $p.build.portable.artifactName = 'Khaos-Nexus-Portable-0.39.0-${arch}.${ext}'
+          $p | ConvertTo-Json -Depth 30 | Set-Content package.json -Encoding utf8
+
+      - name: Build and smoke-test Windows package
+        shell: pwsh
+        run: |
+          npm run dist:win
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-packaged-ai-runtimes.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/smoke-packaged-startup.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify packaged PDF and JSON Character import wiring
+        shell: pwsh
+        run: |
+          @'
+          'use strict';
+          const asar = require('@electron/asar');
+          const archive = 'dist/win-unpacked/resources/app.asar';
+          const pkg = JSON.parse(asar.extractFile(archive, 'package.json').toString('utf8'));
+          const bootstrap = asar.extractFile(archive, 'main/entry-pdf-import.cjs').toString('utf8');
+          const extension = asar.extractFile(archive, 'main/dnd-character-pdf-import-extension.cjs').toString('utf8');
+          const parser = asar.extractFile(archive, 'shared/dnd-character-pdf-import.cjs').toString('utf8');
+          const renderer = asar.extractFile(archive, 'renderer/dnd-content-catalog.js').toString('utf8');
+          if (pkg.version !== '0.39.0' || pkg.khaosRelease?.publicTag !== 'v0.39.0') throw new Error('Packaged release identity is invalid.');
+          if (pkg.main !== 'main/entry-pdf-import.cjs') throw new Error('PDF import bootstrap is not the packaged desktop entrypoint.');
+          if (!bootstrap.includes("dnd-character-pdf-import-extension.cjs") || !bootstrap.includes("require('./entry.cjs')")) throw new Error('PDF import bootstrap wiring is incomplete.');
+          if (!extension.includes("extensions: ['pdf', 'json']")) throw new Error('Packaged picker does not accept both PDF and JSON.');
+          if (!extension.includes('parsePdfCharacterImportBuffer') || !extension.includes('parseCharacterImportBuffer')) throw new Error('Packaged importer does not retain both parsers.');
+          if (!extension.includes("dnd:character-import-pick")) throw new Error('Character import IPC override is missing.');
+          if (!parser.includes('dnd-character-pdf-form-v1')) throw new Error('PDF import format marker is missing.');
+          if (!parser.includes('Export PDF rather than Print to PDF')) throw new Error('Flattened-PDF guidance is missing.');
+          if (!renderer.includes("button.textContent = 'Import Character'")) throw new Error('Import Character UI is missing.');
+          console.log('Packaged PDF + JSON D&D Character import wiring verified.');
+          '@ | Set-Content .github-verify-dnd-pdf-import.cjs -Encoding utf8
+          node .github-verify-dnd-pdf-import.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify release assets and identity
+        shell: pwsh
+        run: |
+          $files = @('dist/Khaos-Nexus-Setup-0.39.0-x64.exe','dist/Khaos-Nexus-Setup-0.39.0-x64.exe.blockmap','dist/Khaos-Nexus-Portable-0.39.0-x64.exe','dist/latest.yml')
+          foreach ($file in $files) {
+            if (-not (Test-Path $file) -or (Get-Item $file).Length -le 0) { throw "Invalid release asset: $file" }
+          }
+          $latest = Get-Content dist/latest.yml -Raw
+          if ($latest -notmatch '(?m)^version:\s*0\.39\.0\s*$' -or $latest -notmatch 'Khaos-Nexus-Setup-0\.39\.0-x64\.exe') { throw 'Updater metadata is invalid.' }
+          $files | ForEach-Object { "$( (Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant() )  $([IO.Path]::GetFileName($_))" } | Set-Content release-checksums.txt
+
+      - name: Publish and verify updater-visible v0.39.0
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $assets = @('dist/Khaos-Nexus-Setup-0.39.0-x64.exe','dist/Khaos-Nexus-Setup-0.39.0-x64.exe.blockmap','dist/Khaos-Nexus-Portable-0.39.0-x64.exe','dist/latest.yml','release-checksums.txt')
+          gh release create v0.39.0 --target $env:RELEASE_SHA --title 'Khaos Nexus v0.39.0 — D&D Beyond PDF Character Import' --notes-file release-notes/v0.39.0.md --latest @assets
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }
+          $ref = gh api repos/$env:GITHUB_REPOSITORY/git/ref/tags/v0.39.0 | ConvertFrom-Json
+          if ([string]$ref.object.sha -ne $env:RELEASE_SHA) { throw 'Tag target mismatch.' }
+          $latest = gh api repos/$env:GITHUB_REPOSITORY/releases/latest | ConvertFrom-Json
+          if ([string]$latest.tag_name -ne 'v0.39.0') { throw 'v0.39.0 is not latest.' }
+          $names = @($latest.assets | ForEach-Object name)
+          foreach ($name in @('Khaos-Nexus-Setup-0.39.0-x64.exe','Khaos-Nexus-Setup-0.39.0-x64.exe.blockmap','Khaos-Nexus-Portable-0.39.0-x64.exe','latest.yml','release-checksums.txt')) {
+            if ($names -notcontains $name) { throw "Published release missing $name" }
+          }
+
+      - name: Upload publication evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Khaos-Nexus-v0.39.0-DND-PDF-Character-Import
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            dist/Khaos-Nexus-Setup-0.39.0-x64.exe
+            dist/Khaos-Nexus-Setup-0.39.0-x64.exe.blockmap
+            dist/Khaos-Nexus-Portable-0.39.0-x64.exe
+            dist/latest.yml
+            release-checksums.txt
+            release-notes/v0.39.0.md
