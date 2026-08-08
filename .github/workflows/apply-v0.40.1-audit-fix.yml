@@ -1,0 +1,37 @@
+name: Apply v0.40.1 Performance Navigation Audit Fix
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: ["release/v0.35.0-B"]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-audit-fix:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'fix/v0.40.1-performance-navigation-audit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Apply reviewed audit patch and clean temporary audit files
+        shell: bash
+        run: |
+          base64 -d .audit/v0.40.1-performance-navigation.patch.xz.b64 | xz -d > /tmp/khaos-audit.patch
+          git apply --check /tmp/khaos-audit.patch
+          git apply /tmp/khaos-audit.patch
+          rm -rf .audit
+          rm -f .github/workflows/audit-source-snapshot.yml .github/workflows/apply-v0.40.1-audit-fix.yml
+          git add -A
+          git diff --cached --check
+          git config user.name 'Khaos Nexus Audit Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git commit -m 'fix(perf): bound watchdog work and restore navigation ownership'
+          git push origin HEAD:fix/v0.40.1-performance-navigation-audit
