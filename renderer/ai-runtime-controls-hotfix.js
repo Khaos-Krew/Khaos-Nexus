@@ -127,6 +127,10 @@
     </div>`;
   }
 
+  function aiWorkspaceActive() {
+    return Boolean(byId('view-ai')?.classList.contains('active'));
+  }
+
   function stopPolling() {
     if (!pollTimer) return;
     clearInterval(pollTimer);
@@ -134,16 +138,25 @@
   }
 
   function startPolling() {
-    if (pollTimer || document.hidden) return;
+    if (pollTimer || document.hidden || !aiWorkspaceActive()) return;
     pollTimer = setInterval(() => refresh(), POLL_INTERVAL_MS);
   }
 
   function handleVisibilityChange() {
-    if (document.hidden) stopPolling();
+    if (document.hidden || !aiWorkspaceActive()) stopPolling();
     else {
       refresh({ force: true });
       startPolling();
     }
+  }
+
+  function handleNavigationChange(event) {
+    if (!event.target?.closest?.('[data-view], [data-view-link]')) return;
+    setTimeout(() => {
+      if (!aiWorkspaceActive()) return stopPolling();
+      refresh({ force: true });
+      startPolling();
+    }, 0);
   }
 
   function reportInstallFailure() {
@@ -195,6 +208,7 @@
       perform(action, service);
     });
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    document.addEventListener('click', handleNavigationChange);
 
     refresh({ force: true });
     startPolling();
@@ -202,6 +216,7 @@
       clearTimeout(installTimer);
       stopPolling();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.removeEventListener('click', handleNavigationChange);
     }, { once: true });
   }
 

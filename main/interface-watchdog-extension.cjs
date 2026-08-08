@@ -8,8 +8,8 @@ const crashDiagnostics = require('./crash-diagnostics-extension.cjs');
 const rendererErrors = require('./renderer-action-error-extension.cjs');
 const { appendLog, writeDiagnostic } = require('./portable-runtime.cjs');
 
-const DISCOVERY_INTERVAL_MS = 250;
-const INSPECTION_INTERVAL_MS = 500;
+const DISCOVERY_INTERVAL_MS = 1000;
+const INSPECTION_INTERVAL_MS = 1000;
 const INTERFACE_STABILITY_MS = 3000;
 const FAILURE_STABILITY_MS = 1500;
 const STARTUP_DEADLINE_MS = 45000;
@@ -398,19 +398,33 @@ async function inspect(window, reason = 'inspection') {
   return { usable: true, stable, stableForMs, snapshot: safe, visual };
 }
 
+function stopDiscovery() {
+  if (discoveryTimer) clearInterval(discoveryTimer);
+  discoveryTimer = null;
+}
+
 function stopInspection() {
   if (inspectionTimer) clearInterval(inspectionTimer);
   inspectionTimer = null;
-  inspectionInFlight = false;
 }
 
 function scheduleInspection(reason) {
   const window = currentWindow;
   if (!window || window.isDestroyed() || window.webContents.isDestroyed() || inspectionInFlight) return;
   inspectionInFlight = true;
-  inspect(window, reason).catch((error) => {
+  inspect(window, reason).then((result) => {
+    if (result?.stable) stopInspection();
+  }).catch((error) => {
     console.error('[Khaos Nexus] Interface watchdog inspection failed unexpectedly.', error);
   }).finally(() => { inspectionInFlight = false; });
+}
+
+function startInspection(reason) {
+  if (!currentWindow || currentWindow.isDestroyed() || currentWindow.webContents.isDestroyed()) return;
+  if (inspectionTimer) return scheduleInspection(reason);
+  scheduleInspection(reason);
+  inspectionTimer = setInterval(() => scheduleInspection('stabilizing'), INSPECTION_INTERVAL_MS);
+  inspectionTimer.unref?.();
 }
 
 function attach(window) {
@@ -418,6 +432,7 @@ function attach(window) {
   if (window === currentWindow && window.__khaosInterfaceWatchdogAttached) return true;
 
   stopInspection();
+  stopDiscovery();
   currentWindow = window;
   attachedAt = Date.now();
   stableSince = 0;
@@ -434,14 +449,14 @@ function attach(window) {
     title: window.getTitle?.() || ''
   }, true);
 
-  window.webContents.on('dom-ready', () => scheduleInspection('dom-ready'));
-  window.webContents.on('did-finish-load', () => scheduleInspection('did-finish-load'));
+  window.webContents.on('dom-ready', () => startInspection('dom-ready'));
+  window.webContents.on('did-finish-load', () => startInspection('did-finish-load'));
   window.webContents.on('did-navigate', () => {
     stableSince = 0;
     failureSince = 0;
     state.stable = false;
     state.stableSince = null;
-    scheduleInspection('did-navigate');
+    startInspection('did-navigate');
   });
   window.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => {
     if (!isMainFrame) return;
@@ -450,7 +465,7 @@ function attach(window) {
   window.webContents.on('render-process-gone', (_event, details) => {
     reportFailure(window, 'render-process-gone', `The main renderer process exited: ${details?.reason || 'unknown reason'}.`, { href: window.webContents.getURL?.() || '' }, { details });
   });
-  window.on('show', () => scheduleInspection('window-show'));
+  window.on('show', () => startInspection('window-show'));
   window.on('closed', () => {
     if (currentWindow === window) {
       stopInspection();
@@ -460,12 +475,11 @@ function attach(window) {
       state.stable = false;
       state.stableSince = null;
       writeState('window-closed', {}, true);
+      startDiscovery();
     }
   });
 
-  scheduleInspection('attached');
-  inspectionTimer = setInterval(() => scheduleInspection('continuous'), INSPECTION_INTERVAL_MS);
-  inspectionTimer.unref?.();
+  startInspection('attached');
   return true;
 }
 
@@ -487,9 +501,20 @@ function discover() {
   return null;
 }
 
+function startDiscovery() {
+  if (currentWindow && !currentWindow.isDestroyed() && isMainInterfaceWindow(currentWindow)) return currentWindow;
+  const found = discover();
+  if (found || discoveryTimer) return found;
+  discoveryTimer = setInterval(() => {
+    if (discover()) stopDiscovery();
+  }, DISCOVERY_INTERVAL_MS);
+  discoveryTimer.unref?.();
+  return null;
+}
+
 function scheduleDiscovery() {
   for (const delay of [0, 50, 250, 1000]) {
-    const timer = setTimeout(() => discover(), delay);
+    const timer = setTimeout(() => startDiscovery(), delay);
     timer.unref?.();
   }
 }
@@ -503,16 +528,13 @@ function install() {
   electron.app.on('browser-window-created', () => scheduleDiscovery());
   electron.app.whenReady().then(() => {
     writeState('controller-installed', { userData: electron.app.getPath('userData') }, true);
-    discover();
-    discoveryTimer = setInterval(discover, DISCOVERY_INTERVAL_MS);
-    discoveryTimer.unref?.();
+    startDiscovery();
   }).catch((error) => {
     crashDiagnostics.writeCrashReport(error, 'interface-watchdog-initialization');
   });
 
   electron.app.on('before-quit', () => {
-    if (discoveryTimer) clearInterval(discoveryTimer);
-    discoveryTimer = null;
+    stopDiscovery();
     stopInspection();
   });
 }

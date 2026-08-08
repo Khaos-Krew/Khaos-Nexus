@@ -35,7 +35,7 @@ test('grouped proxy clicks resolve data-view-proxy through dataset.viewProxy', (
   assert.doesNotMatch(source, /originalFor\(proxy\.dataset\.view\)/);
 });
 
-test('safe UI layer loads grouped navigation while preserving independent scrolling', () => {
+test('safe UI layer loads one primary navigation owner while preserving independent scrolling', () => {
   const css = read('renderer/ui-fixes.css');
   const extension = read('main/brand-update-extension.cjs');
   assert.match(css, /^@import url\(['"]scroll-layout\.css['"]\);/);
@@ -43,7 +43,8 @@ test('safe UI layer loads grouped navigation while preserving independent scroll
   assert.match(css, /nexus-original-nav-item/);
   assert.match(css, /body:not\(\.nexus-static-navigation-active\)/);
   assert.match(extension, /addScript\('simple-updater\.js'\)/);
-  assert.match(extension, /addScript\('navigation-shell\.js'\)/);
+  assert.match(extension, /addScript\('ui-refresh\.js'\)/);
+  assert.doesNotMatch(extension, /addScript\('navigation-shell\.js'\)/);
 });
 
 test('current Windows release preserves Android production hold and release metadata integrity', () => {

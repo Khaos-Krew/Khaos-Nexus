@@ -34,15 +34,18 @@ test('stability CSS keeps the sidebar scrollable and overrides stale click block
   assert.match(css, /\.nexus-version-chip/);
 });
 
-test('renderer fail-safe exposes recovery, navigation, heartbeat, and version controls', () => {
+test('renderer fail-safe exposes recovery and navigation without duplicating preload heartbeat polling', () => {
   const script = read('renderer/stability-fixes.js');
+  const preload = read('main/preload.cjs');
   assert.match(script, /Sign In with Discord/);
   assert.match(script, /Emergency Local Recovery/);
   assert.match(script, /UNLOCK KHAOS NEXUS/);
   assert.match(script, /nexusAlwaysVisibleVersion/);
   assert.match(script, /bindFailSafeNavigation/);
-  assert.match(script, /stability:heartbeat/);
-  assert.match(script, /setInterval\(sendHeartbeat, 2000\)/);
+  assert.doesNotMatch(script, /stability:heartbeat/);
+  assert.doesNotMatch(script, /setInterval\(refreshState/);
+  assert.match(preload, /ipcRenderer\.invoke\('stability:heartbeat'\)/);
+  assert.match(preload, /setInterval\(sendRendererHeartbeat, 2000\)/);
 });
 
 test('main stability extension guards bot startup and sustained renderer freezes', () => {

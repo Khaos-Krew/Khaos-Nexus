@@ -47,7 +47,9 @@ test('AI lifecycle renderer retries and polling are bounded', () => {
   assert.match(controls, /MAX_INSTALL_ATTEMPTS = 300/);
   assert.match(controls, /installAttempts >= MAX_INSTALL_ATTEMPTS/);
   assert.match(controls, /POLL_INTERVAL_MS = 5000/);
-  assert.match(controls, /if \(pollTimer \|\| document\.hidden\) return/);
+  assert.match(controls, /if \(pollTimer \|\| document\.hidden \|\| !aiWorkspaceActive\(\)\) return/);
+  assert.match(controls, /function aiWorkspaceActive\(\)/);
+  assert.match(controls, /document\.addEventListener\('click', handleNavigationChange\)/);
   assert.match(controls, /document\.addEventListener\('visibilitychange', handleVisibilityChange\)/);
   assert.match(controls, /document\.removeEventListener\('visibilitychange', handleVisibilityChange\)/);
   assert.doesNotMatch(controls, /setInterval\(refresh, 2500\)/);

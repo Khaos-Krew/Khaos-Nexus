@@ -23,8 +23,10 @@ test('D&D and Nexus AI are dedicated first-class views', () => {
   assert.match(source, /ai:\s*\{/);
   assert.match(source, /id = 'view-dnd'/);
   assert.match(source, /id = 'view-ai'/);
-  assert.match(source, /createNavButton\('dnd'/);
-  assert.match(source, /createNavButton\('ai'/);
+  assert.match(source, /id: 'dnd', label: 'D&D'/);
+  assert.match(source, /id: 'ai', label: 'Nexus AI'/);
+  assert.match(source, /return 'modules'/);
+  assert.doesNotMatch(source, /return 'settings';/);
   assert.match(source, /Campaign data stays with D&D/);
   assert.match(source, /One supervised runtime\. Two dedicated agents\./);
   assert.match(source, /Veyra/);

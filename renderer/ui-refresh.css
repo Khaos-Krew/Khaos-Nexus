@@ -99,6 +99,11 @@ body.khaos-ui-refresh::after {
   font-weight: 800;
 }
 
+.khaos-ui-refresh .sidebar > .nexus-legacy-navigation,
+.khaos-ui-refresh #nexusStaticNavigation {
+  display: none !important;
+}
+
 .nexus-navigation {
   position: relative;
   z-index: 1;

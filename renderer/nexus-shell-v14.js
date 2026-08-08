@@ -2,16 +2,21 @@
 
 (() => {
   const WORKSPACES = [
-    { key: 'dashboard', label: 'Command', icon: '⌂', detail: 'Overview and urgent actions' },
-    { key: 'servers', label: 'Operations', icon: '▦', detail: 'Game servers and recovery' },
-    { key: 'setup', label: 'Discord', icon: '◉', detail: 'Runtime and automation' },
-    { key: 'modules', label: 'Modules', icon: '◆', detail: 'Migration and companions' },
-    { key: 'settings', label: 'System', icon: '⚙', detail: 'Settings, logs, updates, access' }
+    { key: 'command', label: 'Command', icon: '⌂', detail: 'Overview and urgent actions' },
+    { key: 'dnd', label: 'D&D', icon: '✦', detail: 'Campaign and table tools' },
+    { key: 'ai', label: 'Nexus AI', icon: '◉', detail: 'Veyra, Sentinel, and services' },
+    { key: 'discord', label: 'Discord & Community', icon: '⬢', detail: 'Runtime, panels, and automation' },
+    { key: 'servers', label: 'Game Servers', icon: '▦', detail: 'Servers, schedules, and players' },
+    { key: 'operations', label: 'Operations & Access', icon: '⚡', detail: 'Readiness and owner controls' },
+    { key: 'modules', label: 'Modules & Tools', icon: '◆', detail: 'Features and companion tools' },
+    { key: 'system', label: 'System', icon: '⚙', detail: 'Health, logs, updates, and settings' }
   ];
   const VIEW_DETAIL = {
-    dashboard: 'Command Center', setup: 'Discord Runtime', 'discord-studio': 'Discord Studio', 'discord-automation': 'Discord Automation', observability: 'Discord Observability',
-    servers: 'Game Servers', scheduler: 'Server Scheduler', players: 'Players & Moderation', 'hosted-servers': 'Hosted Server Control', modules: 'Module Network', operator: 'Operator Console', readiness: 'Readiness Center', monitor: 'Application Monitor',
-    logs: 'Live Logs', mobile: 'Mobile Companion', settings: 'Settings'
+    dashboard: 'Command Center', dnd: 'D&D Command Table', ai: 'Nexus AI', 'ai-services': 'AI Services',
+    setup: 'Discord Runtime', 'discord-studio': 'Discord Studio', 'discord-automation': 'Discord Automation', 'status-panels': 'Status Panels', observability: 'Discord Observability',
+    servers: 'Game Servers', scheduler: 'Server Scheduler', players: 'Players & Moderation', 'hosted-servers': 'Hosted Server Control',
+    modules: 'Module Network', autonomy: 'Operator Console', operator: 'Operator Console', readiness: 'Readiness Center',
+    monitor: 'Application Monitor', logs: 'Live Logs', mobile: 'Mobile Companion', 'mobile-companion': 'Mobile Companion', settings: 'Settings'
   };
   const state = { app: null, observability: null, initialized: false, activeCommandIndex: 0, liveStateSeen: false };
   const $ = (id) => document.getElementById(id);
@@ -39,11 +44,14 @@
   }
 
   function workspaceForView(view) {
-    if (['dashboard'].includes(view)) return 'dashboard';
-    if (['servers', 'scheduler', 'players', 'hosted-servers', 'operator', 'readiness'].includes(view)) return 'servers';
-    if (['setup', 'discord-studio', 'discord-automation', 'observability'].includes(view)) return 'setup';
-    if (['modules', 'mobile'].includes(view)) return 'modules';
-    return 'settings';
+    if (view === 'dashboard') return 'command';
+    if (view === 'dnd') return 'dnd';
+    if (['ai', 'ai-services'].includes(view)) return 'ai';
+    if (['setup', 'discord-studio', 'discord-automation', 'status-panels', 'observability'].includes(view)) return 'discord';
+    if (['servers', 'scheduler', 'players', 'hosted-servers'].includes(view)) return 'servers';
+    if (['autonomy', 'operator', 'readiness'].includes(view)) return 'operations';
+    if (['monitor', 'logs', 'settings'].includes(view)) return 'system';
+    return 'modules';
   }
 
   function activateView(view) {
@@ -69,7 +77,7 @@
     }).map((item) => ({
       key: item.dataset.view,
       label: (VIEW_DETAIL[item.dataset.view] || item.textContent || item.dataset.view).trim(),
-      group: WORKSPACES.find((workspace) => workspace.key === workspaceForView(item.dataset.view))?.label || 'System',
+      group: WORKSPACES.find((workspace) => workspace.key === workspaceForView(item.dataset.view))?.label || 'Modules & Tools',
       icon: item.querySelector('span')?.textContent?.trim() || '◇'
     }));
   }
