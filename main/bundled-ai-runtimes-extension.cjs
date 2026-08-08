@@ -236,7 +236,7 @@ function startHost(startAgents = Object.keys(AGENTS)) {
   try {
     descriptor = fs.openSync(logPath, 'a');
     child = spawn(process.execPath, [hostEntry], {
-      cwd: __dirname,
+      cwd: electron.app.isPackaged ? process.resourcesPath : __dirname,
       env: hostEnvironment(),
       windowsHide: true,
       stdio: ['ignore', descriptor, descriptor, 'ipc']
@@ -439,7 +439,6 @@ function install() {
   captureClass('./services/logger.cjs', 'AppLogger', 'logger');
   electron.app.whenReady().then(() => {
     registerIpc();
-    startAll();
   });
   electron.app.on('before-quit', () => { void stopAll({ timeoutMs: 1500 }); });
 }
