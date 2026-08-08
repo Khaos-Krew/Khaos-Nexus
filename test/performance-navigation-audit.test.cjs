@@ -33,7 +33,7 @@ test('interface watchdog retains startup visual validation but does not capture 
   const watchdog = read('main/interface-watchdog-extension.cjs');
   assert.match(watchdog, /capturePage\(\)/);
   assert.match(watchdog, /if \(result\?\.stable\) stopInspection\(\)/);
-  assert.match(watchdog, /stopDiscovery\(\);\n  currentWindow = window/);
+  assert.match(watchdog, /stopDiscovery\(\);\r?\n  currentWindow = window/);
   assert.match(watchdog, /startInspection\('did-navigate'\)/);
   assert.doesNotMatch(watchdog, /scheduleInspection\('continuous'\)/);
   assert.doesNotMatch(watchdog, /setInterval\(discover, DISCOVERY_INTERVAL_MS\)/);
