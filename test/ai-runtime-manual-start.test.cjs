@@ -27,7 +27,9 @@ test('AI Runtime starts only through an explicit in-app lifecycle action', () =>
   assert.match(runtime, /ipcMain\.handle\('ai:runtimes-start'/);
   assert.match(runtime, /manualAction\('start', input\)/);
   assert.match(controls, /Start Khaos Nexus AI Runtime/);
-  assert.match(controls, /data-ai-action="start" data-ai-service="all"/);
+  assert.match(controls, /heroButton\.dataset\.aiAction = 'start';/);
+  assert.match(controls, /heroButton\.dataset\.aiService = 'all';/);
+  assert.match(controls, /heroButton\.removeAttribute\('data-khaos-open'\);/);
 });
 
 test('desktop shutdown still stops a manually started runtime', () => {
