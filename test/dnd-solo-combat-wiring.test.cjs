@@ -14,11 +14,13 @@ test('solo combat extension installs after the campaign runtime', () => {
   assert.ok(solo > foundation);
 });
 
-test('solo combat slice contains no release or automatic Discord path', () => {
+test('solo combat is production-authorized with no automatic Discord path', () => {
   const main = read('main/dnd-solo-combat-extension.cjs');
   const shared = read('shared/dnd-solo-combat.cjs');
   const renderer = read('renderer/dnd-solo-combat.js');
-  assert.match(main, /releaseAuthorized:\s*false/);
-  assert.match(renderer, /Release prohibited/);
+  assert.match(main, /releaseAuthorized:\s*true/);
+  assert.match(main, /privateDevelopmentOnly:\s*false/);
+  assert.match(renderer, /Production D&D runtime/);
+  assert.doesNotMatch(renderer, /Release prohibited|Private development slice/);
   assert.doesNotMatch(`${main}\n${shared}`, /electron-updater|publish always|createRelease|webhook|discord\.js/);
 });
