@@ -1,0 +1,61 @@
+name: Apply v0.40.1 Production Cleanup
+
+on:
+  push:
+    branches: ["fix/v0.40.1-production-cleanup"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-v0.40.1-production-cleanup
+  cancel-in-progress: true
+
+jobs:
+  apply-cleanup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply reviewed cleanup patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 -d .github/production-cleanup.patch | gunzip > /tmp/production-cleanup.patch
+          patch -p1 --dry-run < /tmp/production-cleanup.patch
+          patch -p1 < /tmp/production-cleanup.patch
+          rm -f .github/production-cleanup.patch
+          rm -f .github/workflows/production-cleanup-source-snapshot.yml
+          rm -f .github/workflows/apply-v0.40.1-production-cleanup.yml
+          rm -f docs/placeholder.txt docs/placeholder2.txt
+      - name: Run focused cleanup validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test \
+            test/renderer-lifecycle-cleanup.test.cjs \
+            test/performance-navigation-audit.test.cjs \
+            test/interface-watchdog.test.cjs \
+            test/stability-regressions.test.cjs \
+            test/dnd-usability-repair.test.cjs \
+            test/dnd-refresh-guard.test.cjs \
+            test/dnd-campaign-runtime.test.cjs \
+            test/dnd-group-runtime.test.cjs \
+            test/dnd-solo-combat.test.cjs \
+            test/dnd-ai-gm.test.cjs
+          node --check main/renderer-asset-loader.cjs
+          node --check renderer/state-hub.js
+          node --check renderer/dnd-dom-hub.js
+      - name: Commit production cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Khaos Nexus Release Automation'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'perf(renderer): consolidate lifecycle and state fanout'
+          git push origin HEAD:fix/v0.40.1-production-cleanup
