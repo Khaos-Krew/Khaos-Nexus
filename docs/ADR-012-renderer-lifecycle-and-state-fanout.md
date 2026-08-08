@@ -25,3 +25,4 @@ Khaos Nexus accumulated renderer features as independent Electron extensions. Ma
 - Fewer independent lifecycle listeners means lower fan-out during startup, reload, recovery, and navigation.
 - New renderer bundles should use the shared loader rather than adding a new BrowserWindow lifecycle hook unless a documented exception is required.
 - New global state consumers should subscribe through the state hub rather than directly to `window.khaos.onState`.
+- Regression tests enforce the shared-loader/state-hub boundaries and the reduced lifecycle fan-out before Windows packaging can pass.
