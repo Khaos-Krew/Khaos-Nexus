@@ -236,7 +236,7 @@ function startHost(startAgents = Object.keys(AGENTS)) {
   try {
     descriptor = fs.openSync(logPath, 'a');
     child = spawn(process.execPath, [hostEntry], {
-      cwd: __dirname,
+      cwd: electron.app.isPackaged ? process.resourcesPath : __dirname,
       env: hostEnvironment(),
       windowsHide: true,
       stdio: ['ignore', descriptor, descriptor, 'ipc']

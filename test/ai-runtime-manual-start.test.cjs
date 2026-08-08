@@ -32,6 +32,17 @@ test('AI Runtime starts only through an explicit in-app lifecycle action', () =>
   assert.match(controls, /heroButton\.removeAttribute\('data-khaos-open'\);/);
 });
 
+test('packaged AI Runtime host uses a real OS working directory', () => {
+  const source = read('main/bundled-ai-runtimes-extension.cjs');
+  const startHost = source.match(/function startHost\(startAgents[\s\S]*?\n\}/)?.[0] || '';
+
+  assert.match(
+    startHost,
+    /cwd:\s*electron\.app\.isPackaged\s*\?\s*process\.resourcesPath\s*:\s*__dirname/
+  );
+  assert.doesNotMatch(startHost, /cwd:\s*__dirname\s*,/);
+});
+
 test('desktop shutdown still stops a manually started runtime', () => {
   const source = read('main/bundled-ai-runtimes-extension.cjs');
   assert.match(
