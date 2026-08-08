@@ -24,6 +24,9 @@ test('primary navigation owns explicit product directories and never defaults un
   assert.doesNotMatch(brand, /addScript\('navigation-shell\.js'\)/);
   assert.match(ui, /new MutationObserver/);
   assert.match(ui, /navigationObserver\.observe\(sidebar, \{ childList: true, subtree: true \}\)/);
+  assert.match(ui, /nexus-legacy-navigation/);
+  assert.match(ui, /installDndFallbackWorkspace/);
+  assert.doesNotMatch(ui, /ensureView\('dnd'/);
 });
 
 test('interface watchdog retains startup visual validation but does not capture the desktop forever', () => {
