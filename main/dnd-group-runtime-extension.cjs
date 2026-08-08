@@ -61,7 +61,7 @@ function payload(campaignId = '') {
     runs: filter(state.campaignRuns), scenes: filter(state.scenes),
     sessions: filter(state.groupSessions), rounds: filter(state.groupRounds), decisions: filter(state.groupDecisions),
     deliveries: filter(state.groupDeliveries).slice(-100),
-    policy: { privateDevelopmentOnly: true, releaseAuthorized: false, automaticDiscordPublication: false, existingDiscordBindingsOnly: true }
+    policy: { privateDevelopmentOnly: false, releaseAuthorized: true, automaticDiscordPublication: false, existingDiscordBindingsOnly: true }
   };
 }
 function push(campaignId = '') {
@@ -79,7 +79,7 @@ function mutate(action, input, fn) {
     action: `group-runtime.${action}`, outcome: 'success', actorId: actorId(),
     campaignId: String(input?.campaignId || result?.campaignId || result?.session?.campaignId || '').slice(0, 100),
     targetId: String(result?.id || result?.session?.id || result?.round?.id || input?.roundId || '').slice(0, 100),
-    metadata: { privateDevelopmentOnly: true, automaticDiscordPublication: false, releaseAuthorized: false }
+    metadata: { privateDevelopmentOnly: false, automaticDiscordPublication: false, releaseAuthorized: true }
   });
   return result;
 }
@@ -196,4 +196,4 @@ function install() {
   installRendererAssets();
   scheduleRegister();
 }
-module.exports = { install, payload, resolveRound, releaseAuthorized: false };
+module.exports = { install, payload, resolveRound, releaseAuthorized: true };
