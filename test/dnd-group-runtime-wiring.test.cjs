@@ -14,13 +14,16 @@ test('group runtime installs after solo combat runtime', () => {
   assert.ok(group > solo);
 });
 
-test('group runtime has no automatic Discord or release path', () => {
+test('group runtime is production-authorized with no automatic Discord path', () => {
   const main = read('main/dnd-group-runtime-extension.cjs');
   const delivery = read('shared/dnd-group-delivery.cjs');
   const renderer = read('renderer/dnd-group-runtime.js');
   assert.match(main, /automaticDiscordPublication:\s*false/);
-  assert.match(main, /releaseAuthorized:\s*false/);
+  assert.match(main, /releaseAuthorized:\s*true/);
+  assert.match(main, /privateDevelopmentOnly:\s*false/);
   assert.match(delivery, /discordPublished:\s*false/);
   assert.match(renderer, /No Discord message is sent automatically/);
+  assert.match(renderer, /Production D&D runtime/);
+  assert.doesNotMatch(renderer, /Release prohibited|Private development slice/);
   assert.doesNotMatch(`${main}\n${delivery}`, /electron-updater|publish always|createRelease|WebhookClient|new Client\(/);
 });
