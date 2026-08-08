@@ -1,0 +1,34 @@
+name: Audit Source Snapshot
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: ["release/v0.35.0-B"]
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    if: github.event.pull_request.head.ref == 'fix/v0.40.1-performance-navigation-audit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Upload audit source
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-navigation-audit-source
+          retention-days: 1
+          if-no-files-found: error
+          path: |
+            main/**
+            renderer/**
+            shared/**
+            scripts/**
+            test/**
+            config/**
+            package.json
+            package-lock.json
