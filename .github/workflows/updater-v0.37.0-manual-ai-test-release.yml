@@ -22,7 +22,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 90
     env:
-      APPROVED_APP_SHA: ec7f26d56f7f24cc2b1b9e6d0d3f4ce355e54c98
+      APPROVED_APP_SHA: 9f9ee22f9edb50d8288a8f7aee4ee5853ac7dfa6
       RELEASE_VERSION: 0.37.0
       RELEASE_TAG: v0.37.0
     steps:
@@ -227,18 +227,21 @@ jobs:
           gh release create v0.37.0 --target $env:RELEASE_SHA --title 'Khaos Nexus v0.37.0 — Veyra and Nexus Sentinel Owner Test' --notes-file release-notes/v0.37.0.md --latest @assets
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }
           $ref = gh api repos/$env:GITHUB_REPOSITORY/git/ref/tags/v0.37.0 | ConvertFrom-Json
+          if ([string]$ref.object.sha -ne $env:RELEASE_SHA) { throw 'Tag target mismatch.' }
           $latest = gh api repos/$env:GITHUB_REPOSITORY/releases/latest | ConvertFrom-Json
-          if ([string]$ref.object.sha -ne $env:RELEASE_SHA -or [string]$latest.tag_name -ne 'v0.37.0') { throw 'Published release identity failed verification.' }
+          if ([string]$latest.tag_name -ne 'v0.37.0') { throw 'v0.37.0 is not latest.' }
           $names = @($latest.assets | ForEach-Object name)
-          foreach ($name in @('Khaos-Nexus-Setup-0.37.0-x64.exe','Khaos-Nexus-Setup-0.37.0-x64.exe.blockmap','Khaos-Nexus-Portable-0.37.0-x64.exe','latest.yml','release-checksums.txt')) { if ($names -notcontains $name) { throw "Published release missing $name" } }
+          foreach ($name in @('Khaos-Nexus-Setup-0.37.0-x64.exe','Khaos-Nexus-Setup-0.37.0-x64.exe.blockmap','Khaos-Nexus-Portable-0.37.0-x64.exe','latest.yml','release-checksums.txt')) {
+            if ($names -notcontains $name) { throw "Published release missing $name" }
+          }
 
       - name: Upload publication evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Khaos-Nexus-v0.37.0-Manual-AI-Test
-          retention-days: 14
           if-no-files-found: warn
+          retention-days: 14
           path: |
             dist/Khaos-Nexus-Setup-0.37.0-x64.exe
             dist/Khaos-Nexus-Setup-0.37.0-x64.exe.blockmap
@@ -246,3 +249,5 @@ jobs:
             dist/latest.yml
             release-checksums.txt
             release-notes/v0.37.0.md
+
+# publisher source refresh 2026-08-07T20:38:00-05:00
