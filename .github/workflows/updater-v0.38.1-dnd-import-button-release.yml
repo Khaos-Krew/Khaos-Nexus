@@ -1,0 +1,167 @@
+name: Approved v0.38.1 D&D Character Import Button Hotfix
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: ["release/v0.35.0-B"]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: approved-updater-v0.38.1-dnd-import-button
+  cancel-in-progress: true
+
+jobs:
+  publish-windows-hotfix:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'publish/v0.38.1-dnd-import-button' &&
+      github.event.pull_request.base.ref == 'release/v0.35.0-B'
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      APPROVED_APP_SHA: cc2b7038855560e65421ad23eb547634e70a2f80
+      RELEASE_VERSION: 0.38.1
+      RELEASE_TAG: v0.38.1
+    steps:
+      - name: Check out exact publisher head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate workflow-only lineage
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor $env:APPROVED_APP_SHA HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Approved v0.38.1 application source is not an ancestor.' }
+          $changed = @(git diff --name-only "$env:APPROVED_APP_SHA..HEAD")
+          $expected = '.github/workflows/updater-v0.38.1-dnd-import-button-release.yml'
+          if ($changed.Count -ne 1 -or $changed[0] -ne $expected) {
+            throw "Publisher differs outside its workflow: $($changed -join ', ')"
+          }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate exact application
+        shell: pwsh
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm audit --omit=dev --audit-level=high
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Freeze v0.38.1 identity
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-notes | Out-Null
+          @'
+          # Khaos Nexus v0.38.1 — D&D Character Import Button Hotfix
+
+          v0.38.1 fixes the D&D Characters tab not showing the existing **Import Character** control after the tab is rendered.
+
+          The Character JSON import backend, file picker, provenance review, validation, collision warning, and create-new/no-overwrite behavior were already present in v0.38.0. The renderer observer failed to notice when the Character management wrapper itself was mounted, so the button enhancer did not run.
+
+          This hotfix makes the observer detect both directly-mounted Character management nodes and matching descendants, and adds regression coverage for that render path.
+
+          No campaign mechanics, Veyra behavior, AI Runtime startup policy, Discord publishing policy, or importer backend behavior changed.
+          '@ | Set-Content release-notes/v0.38.1.md -Encoding utf8
+
+          $p = Get-Content package.json -Raw | ConvertFrom-Json
+          $p.version = '0.38.1'
+          $p.khaosRelease.displayVersion = '0.38.1'
+          $p.khaosRelease.artifactVersion = '0.38.1'
+          $p.khaosRelease.publicTag = 'v0.38.1'
+          $p.khaosRelease.channel = 'beta'
+          $p.khaosRelease.updaterVersion = '0.38.1'
+          $p.khaosRelease.rollbackTag = 'v0.38.0'
+          $p.build.releaseInfo.releaseName = 'Khaos Nexus v0.38.1 — D&D Character Import Button Hotfix'
+          $p.build.releaseInfo.releaseNotesFile = 'release-notes/v0.38.1.md'
+          $p.build.nsis.artifactName = 'Khaos-Nexus-Setup-0.38.1-${arch}.${ext}'
+          $p.build.portable.artifactName = 'Khaos-Nexus-Portable-0.38.1-${arch}.${ext}'
+          $p | ConvertTo-Json -Depth 30 | Set-Content package.json -Encoding utf8
+
+      - name: Build and smoke-test Windows package
+        shell: pwsh
+        run: |
+          npm run dist:win
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-packaged-ai-runtimes.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/smoke-packaged-startup.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify packaged Character import UI wiring
+        shell: pwsh
+        run: |
+          @'
+          'use strict';
+          const asar = require('@electron/asar');
+          const archive = 'dist/win-unpacked/resources/app.asar';
+          const renderer = asar.extractFile(archive, 'renderer/dnd-content-catalog.js').toString('utf8');
+          const extension = asar.extractFile(archive, 'main/dnd-content-catalog-extension.cjs').toString('utf8');
+          const pkg = JSON.parse(asar.extractFile(archive, 'package.json').toString('utf8'));
+          if (!renderer.includes("node.matches?.('.dnd-source-list,.dnd-character-management')")) throw new Error('Direct Character-management mutation detection is missing.');
+          if (!renderer.includes("button.textContent = 'Import Character'")) throw new Error('Import Character button enhancer is missing.');
+          if (!renderer.includes("dnd:character-import-pick")) throw new Error('Character import picker wiring is missing from renderer.');
+          if (!renderer.includes('Review Imported Character') || !renderer.includes('Import New Character')) throw new Error('Character import review flow is missing.');
+          if (!extension.includes("dnd:character-import-pick")) throw new Error('Owner IPC character import picker is missing.');
+          if (pkg.version !== '0.38.1' || pkg.khaosRelease?.publicTag !== 'v0.38.1') throw new Error('Packaged release identity is invalid.');
+          console.log('Packaged D&D Character import button and picker wiring verified.');
+          '@ | Set-Content .github-verify-dnd-import-hotfix.cjs -Encoding utf8
+          node .github-verify-dnd-import-hotfix.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify release assets and identity
+        shell: pwsh
+        run: |
+          $files = @('dist/Khaos-Nexus-Setup-0.38.1-x64.exe','dist/Khaos-Nexus-Setup-0.38.1-x64.exe.blockmap','dist/Khaos-Nexus-Portable-0.38.1-x64.exe','dist/latest.yml')
+          foreach ($file in $files) {
+            if (-not (Test-Path $file) -or (Get-Item $file).Length -le 0) { throw "Invalid release asset: $file" }
+          }
+          $latest = Get-Content dist/latest.yml -Raw
+          if ($latest -notmatch '(?m)^version:\s*0\.38\.1\s*$' -or $latest -notmatch 'Khaos-Nexus-Setup-0\.38\.1-x64\.exe') { throw 'Updater metadata is invalid.' }
+          $files | ForEach-Object { "$( (Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant() )  $([IO.Path]::GetFileName($_))" } | Set-Content release-checksums.txt
+
+      - name: Publish and verify updater-visible v0.38.1
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $assets = @('dist/Khaos-Nexus-Setup-0.38.1-x64.exe','dist/Khaos-Nexus-Setup-0.38.1-x64.exe.blockmap','dist/Khaos-Nexus-Portable-0.38.1-x64.exe','dist/latest.yml','release-checksums.txt')
+          gh release create v0.38.1 --target $env:RELEASE_SHA --title 'Khaos Nexus v0.38.1 — D&D Character Import Button Hotfix' --notes-file release-notes/v0.38.1.md --latest @assets
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }
+          $ref = gh api repos/$env:GITHUB_REPOSITORY/git/ref/tags/v0.38.1 | ConvertFrom-Json
+          if ([string]$ref.object.sha -ne $env:RELEASE_SHA) { throw 'Tag target mismatch.' }
+          $latest = gh api repos/$env:GITHUB_REPOSITORY/releases/latest | ConvertFrom-Json
+          if ([string]$latest.tag_name -ne 'v0.38.1') { throw 'v0.38.1 is not latest.' }
+          $names = @($latest.assets | ForEach-Object name)
+          foreach ($name in @('Khaos-Nexus-Setup-0.38.1-x64.exe','Khaos-Nexus-Setup-0.38.1-x64.exe.blockmap','Khaos-Nexus-Portable-0.38.1-x64.exe','latest.yml','release-checksums.txt')) {
+            if ($names -notcontains $name) { throw "Published release missing $name" }
+          }
+
+      - name: Upload publication evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Khaos-Nexus-v0.38.1-DND-Character-Import-Hotfix
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            dist/Khaos-Nexus-Setup-0.38.1-x64.exe
+            dist/Khaos-Nexus-Setup-0.38.1-x64.exe.blockmap
+            dist/Khaos-Nexus-Portable-0.38.1-x64.exe
+            dist/latest.yml
+            release-checksums.txt
+            release-notes/v0.38.1.md
