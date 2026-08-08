@@ -41,16 +41,16 @@ function readyState() {
   return { value, seat, run, scene };
 }
 
-test('runtime state initializes behind a development-only gate', () => {
+test('runtime state initializes release-authorized behind an Owner enable gate', () => {
   const value = state();
   runtime.ensureCampaignRuntimeState(value);
   assert.equal(value.runtimeSchemaVersion, 1);
   assert.equal(value.runtimeGate.status, 'development_only');
-  assert.equal(value.runtimeGate.releaseAuthorized, false);
-  assert.throws(() => runtime.upsertPlayProfile(value, { campaignId: 'campaign-1', enabled: true }), /Owner preview/);
+  assert.equal(value.runtimeGate.releaseAuthorized, true);
+  assert.throws(() => runtime.upsertPlayProfile(value, { campaignId: 'campaign-1', enabled: true }), /Owner must enable/);
 });
 
-test('owner preview enables a solo or group profile without authorizing release', () => {
+test('Owner enable activates solo or group profiles with production release authorization', () => {
   const value = state();
   runtime.ensureCampaignRuntimeState(value);
   const gate = runtime.enableOwnerPreview(value, 'owner');
@@ -58,7 +58,7 @@ test('owner preview enables a solo or group profile without authorizing release'
     campaignId: 'campaign-1', enabled: true, mode: 'solo_ai_dm', pace: 'live', automationLevel: 'full_ai_dm'
   });
   assert.equal(gate.status, 'owner_preview');
-  assert.equal(gate.releaseAuthorized, false);
+  assert.equal(gate.releaseAuthorized, true);
   assert.equal(profile.mode, 'solo_ai_dm');
   assert.equal(profile.automation.applyMechanicalEvents, false);
   assert.equal(profile.automation.publishDiscord, false);
@@ -148,7 +148,7 @@ test('Veyra context excludes Discord identifiers and preserves player declaratio
   const serialized = JSON.stringify(envelope);
   assert.match(serialized, /I inspect the anvil/);
   assert.doesNotMatch(serialized, /123456789012345678/);
-  assert.equal(envelope.safety.releaseAuthorized, false);
+  assert.equal(envelope.safety.releaseAuthorized, true);
 });
 
 test('Veyra proposals reject player dialogue and mechanical state events', () => {
