@@ -14,11 +14,11 @@ const stableHash = (value) => crypto.createHash('sha256').update(JSON.stringify(
 const fail = (message,code='DND_RUNTIME_INVALID') => { throw Object.assign(new Error(message),{code}); };
 function ensureCampaignRuntimeState(state={}) {
   state.runtimeSchemaVersion=1;
-  state.runtimeGate={status:state.runtimeGate?.status==='owner_preview'?'owner_preview':'development_only',enabledBy:clean(state.runtimeGate?.enabledBy,100),enabledAt:state.runtimeGate?.enabledAt||'',releaseAuthorized:false};
+  state.runtimeGate={status:state.runtimeGate?.status==='owner_preview'?'owner_preview':'development_only',enabledBy:clean(state.runtimeGate?.enabledBy,100),enabledAt:state.runtimeGate?.enabledAt||'',releaseAuthorized:true};
   for(const key of ['playProfiles','playerSeats','campaignRuns','scenes','turnCycles','stateEvents','checkpoints','knowledgeRecords','runtimeInventory','soloAdventures','runtimeCombats','runtimeMemories','groupSessions','groupRounds','groupDecisions','groupDeliveries']) if(!Array.isArray(state[key])) state[key]=[];
   return state;
 }
-function assertOwnerPreview(state){ensureCampaignRuntimeState(state);if(state.runtimeGate.status!=='owner_preview')fail('Owner preview must be enabled before using the D&D campaign runtime.','DND_RUNTIME_PREVIEW_REQUIRED');}
-function enableOwnerPreview(state,actorId='local-owner'){ensureCampaignRuntimeState(state);state.runtimeGate={status:'owner_preview',enabledBy:clean(actorId,100),enabledAt:nowIso(),releaseAuthorized:false};return clone(state.runtimeGate);}
+function assertOwnerPreview(state){ensureCampaignRuntimeState(state);if(state.runtimeGate.status!=='owner_preview')fail('The Owner must enable the D&D campaign runtime before using it.','DND_RUNTIME_ENABLE_REQUIRED');}
+function enableOwnerPreview(state,actorId='local-owner'){ensureCampaignRuntimeState(state);state.runtimeGate={status:'owner_preview',enabledBy:clean(actorId,100),enabledAt:nowIso(),releaseAuthorized:true};return clone(state.runtimeGate);}
 function campaignExists(state,campaignId){return (state.campaigns||[]).some((item)=>item.id===campaignId&&item.active!==false);}
 module.exports={MODES,PACES,AUTOMATION_LEVELS,SEAT_TYPES,NARRATIVE_EVENT_TYPES,EVENT_TYPES,clone,nowIso,makeId,clean,stableHash,fail,ensureCampaignRuntimeState,assertOwnerPreview,enableOwnerPreview,campaignExists};
