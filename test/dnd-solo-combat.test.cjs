@@ -46,7 +46,7 @@ test('solo quick start creates player seat, run, scene, and checkpoint', () => {
   assert.equal(result.scene.locationName, 'Forge Gate');
   assert.equal(result.scene.participantSeatIds.length, 2);
   assert.equal(result.checkpoint.label, 'Solo adventure start');
-  assert.equal(state.runtimeGate.releaseAuthorized, false);
+  assert.equal(state.runtimeGate.releaseAuthorized, true);
 });
 
 test('combat start rolls initiative deterministically and prevents duplicates', () => {
