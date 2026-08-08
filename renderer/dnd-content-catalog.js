@@ -218,7 +218,7 @@
       if (target) { event.preventDefault(); handleAction(target); }
     });
     state.observer = new win.MutationObserver((mutations) => {
-      if (mutations.some((mutation) => [...mutation.addedNodes].some((node) => node?.nodeType === 1 && (node.id === 'view-dnd' || node.querySelector?.('.dnd-source-list,.dnd-character-management'))))) schedule();
+      if (mutations.some((mutation) => [...mutation.addedNodes].some((node) => node?.nodeType === 1 && (node.id === 'view-dnd' || node.matches?.('.dnd-source-list,.dnd-character-management') || node.querySelector?.('.dnd-source-list,.dnd-character-management'))))) schedule();
     });
     state.observer.observe(doc.body, { childList: true, subtree: true });
     schedule();
