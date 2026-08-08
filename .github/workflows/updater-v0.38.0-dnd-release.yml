@@ -1,0 +1,347 @@
+name: Approved v0.38.0 D&D Production Release
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: ["release/v0.35.0-B"]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: approved-updater-v0.38.0-dnd
+  cancel-in-progress: true
+
+jobs:
+  publish-windows-dnd:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'publish/v0.38.0-dnd' &&
+      github.event.pull_request.base.ref == 'release/v0.35.0-B'
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      APPROVED_APP_SHA: 8c0563f17f364b1e98cbb4a9cee3a1a2dc3dbf89
+      RELEASE_VERSION: 0.38.0
+      RELEASE_TAG: v0.38.0
+    steps:
+      - name: Check out exact publisher head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate workflow-only lineage
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor $env:APPROVED_APP_SHA HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Approved v0.38.0 application source is not an ancestor.' }
+          $changed = @(git diff --name-only "$env:APPROVED_APP_SHA..HEAD")
+          $expected = '.github/workflows/updater-v0.38.0-dnd-release.yml'
+          if ($changed.Count -ne 1 -or $changed[0] -ne $expected) {
+            throw "Publisher differs outside its workflow: $($changed -join ', ')"
+          }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate exact application, D&D runtime, and embedded agents
+        shell: pwsh
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm audit --omit=dev --audit-level=high
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-embedded-ai-sources.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build --prefix packages/ai/dnd-ai
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build --prefix packages/ai/ai-core
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test test/ai-runtime-manual-start.test.cjs test/dnd-campaign-runtime.test.cjs test/dnd-campaign-runtime-wiring.test.cjs test/dnd-solo-combat.test.cjs test/dnd-solo-combat-wiring.test.cjs test/dnd-group-runtime.test.cjs test/dnd-group-runtime-wiring.test.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Freeze v0.38.0 identity
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-notes | Out-Null
+          @'
+          # Khaos Nexus v0.38.0 — D&D Campaign Runtime
+
+          v0.38.0 releases the production D&D campaign runtime after successful real-device verification of the shared Khaos Nexus AI Runtime.
+
+          Included in this release:
+          - Campaign runs, scenes, player seats, turn cycles, state events, checkpoints, and recovery controls.
+          - Solo AI-DM campaign foundation with inspectable memory and deterministic checks.
+          - Deterministic combat foundation including initiative, attacks, damage, action economy, concentration, spell resources, death saves, and combat checkpoints.
+          - Group play coordination with participant readiness, action collection and locking, deadlines, absence policies, voting, and reviewed delivery drafts.
+          - Veyra narration and Co-DM integration with player-agency and private-knowledge safeguards.
+
+          Safety boundaries remain unchanged: the shared AI Runtime starts only after explicit Owner action; Veyra cannot directly apply mechanical state changes or decide player-character actions, thoughts, or dialogue; automatic Discord publication remains disabled; and Nexus Sentinel remains isolated from D&D campaign content.
+          '@ | Set-Content release-notes/v0.38.0.md -Encoding utf8
+
+          $p = Get-Content package.json -Raw | ConvertFrom-Json
+          $p.version = '0.38.0'
+          $p.khaosRelease.displayVersion = '0.38.0'
+          $p.khaosRelease.artifactVersion = '0.38.0'
+          $p.khaosRelease.publicTag = 'v0.38.0'
+          $p.khaosRelease.channel = 'beta'
+          $p.khaosRelease.updaterVersion = '0.38.0'
+          $p.khaosRelease.rollbackTag = 'v0.35.3'
+          $p.build.releaseInfo.releaseName = 'Khaos Nexus v0.38.0 — D&D Campaign Runtime'
+          $p.build.releaseInfo.releaseNotesFile = 'release-notes/v0.38.0.md'
+          $p.build.nsis.artifactName = 'Khaos-Nexus-Setup-0.38.0-${arch}.${ext}'
+          $p.build.portable.artifactName = 'Khaos-Nexus-Portable-0.38.0-${arch}.${ext}'
+          $p | ConvertTo-Json -Depth 30 | Set-Content package.json -Encoding utf8
+
+      - name: Build and verify Windows package
+        shell: pwsh
+        run: |
+          npm run dist:win
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-packaged-ai-runtimes.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/smoke-packaged-startup.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify packaged D&D production boundary
+        shell: pwsh
+        run: |
+          @'
+          'use strict';
+          const asar = require('@electron/asar');
+          const archive = 'dist/win-unpacked/resources/app.asar';
+          const files = {
+            campaign: 'main/dnd-campaign-runtime-extension.cjs',
+            solo: 'main/dnd-solo-combat-extension.cjs',
+            group: 'main/dnd-group-runtime-extension.cjs',
+            campaignUi: 'renderer/dnd-campaign-runtime.js',
+            soloUi: 'renderer/dnd-solo-combat.js',
+            groupUi: 'renderer/dnd-group-runtime.js'
+          };
+          const text = Object.fromEntries(Object.entries(files).map(([k, f]) => [k, asar.extractFile(archive, f).toString('utf8')]));
+          for (const key of ['campaign', 'solo', 'group']) {
+            if (!/releaseAuthorized:\s*true/.test(text[key])) throw new Error(`${key} is not production-authorized in packaged app`);
+            if (!/privateDevelopmentOnly:\s*false/.test(text[key])) throw new Error(`${key} is still marked private development in packaged app`);
+          }
+          if (!/automaticDiscordPublication:\s*false/.test(text.campaign) || !/automaticDiscordPublication:\s*false/.test(text.group)) {
+            throw new Error('Automatic Discord publication boundary changed.');
+          }
+          for (const key of ['campaignUi', 'soloUi', 'groupUi']) {
+            if (!/Production D&D runtime/.test(text[key])) throw new Error(`${key} production UI marker is missing`);
+          }
+          console.log('Packaged D&D production boundary verified.');
+          '@ | Set-Content .github-verify-dnd-package.cjs -Encoding utf8
+          node .github-verify-dnd-package.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Silently install candidate and prove cold desktop startup
+        shell: pwsh
+        run: |
+          $installer = Resolve-Path 'dist/Khaos-Nexus-Setup-0.38.0-x64.exe'
+          $installRoot = 'C:\khaos-nexus-v0380-test'
+          $smokeRoot = 'C:\khaos-nexus-v0380-smoke'
+          $evidence = Join-Path $smokeRoot 'startup-health.json'
+          $profile = Join-Path $env:APPDATA 'khaos-nexus'
+          Remove-Item $installRoot,$smokeRoot,$profile -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $smokeRoot | Out-Null
+
+          $install = Start-Process $installer -ArgumentList '/S', "/D=$installRoot" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Silent installer failed: $($install.ExitCode)" }
+          node scripts/verify-packaged-ai-runtimes.cjs (Join-Path $installRoot 'resources\ai-services')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $appExe = Join-Path $installRoot 'Khaos Nexus.exe'
+          if (-not (Test-Path $appExe)) { throw 'Installed executable is missing.' }
+          $env:KHAOS_PACKAGED_STARTUP_SMOKE = '1'
+          $env:KHAOS_PACKAGED_STARTUP_SMOKE_FILE = $evidence
+          $desktop = Start-Process $appExe -ArgumentList '--disable-gpu' -PassThru
+          try {
+            $deadline = (Get-Date).AddSeconds(95)
+            $lastState = $null
+            $ready = $false
+            while ((Get-Date) -lt $deadline) {
+              Start-Sleep -Milliseconds 500
+              $desktop.Refresh()
+              if ($desktop.HasExited) { throw "Installed desktop exited: $($desktop.ExitCode)" }
+              if (-not (Test-Path $evidence)) { continue }
+              try { $lastState = (Get-Content $evidence -Raw | ConvertFrom-Json).state } catch { continue }
+              if ([string]$lastState.phase -eq 'ready' -and $lastState.released -eq $true -and $lastState.completed -eq $true -and $lastState.releaseAllowed -eq $true -and $lastState.limitedMode -ne $true) { $ready = $true; break }
+              if ($lastState.limitedMode -eq $true -or [string]$lastState.overall -eq 'failed') { throw "Installed desktop startup failed: $($lastState | ConvertTo-Json -Depth 8 -Compress)" }
+            }
+            if (-not $ready) { throw 'Installed desktop did not become ready.' }
+            Start-Sleep -Seconds 3
+            $processes = @(Get-CimInstance Win32_Process | Where-Object { ([string]$_.ExecutablePath).StartsWith($installRoot,[StringComparison]::OrdinalIgnoreCase) -or ([string]$_.CommandLine).Contains($installRoot,[StringComparison]::OrdinalIgnoreCase) })
+            $ai = @($processes | Where-Object { [string]$_.CommandLine -match 'ai-runtime-host\.cjs|ai-runtime-agent-launcher\.cjs|khaos-nexus-ai-core|khaos-nexus-dnd-ai' })
+            if ($ai.Count) { throw "AI started without Owner action: $($ai.CommandLine -join ' | ')" }
+          } finally {
+            if ($desktop -and -not $desktop.HasExited) { & taskkill.exe /PID $desktop.Id /T /F | Out-Null }
+            Remove-Item Env:KHAOS_PACKAGED_STARTUP_SMOKE -ErrorAction SilentlyContinue
+            Remove-Item Env:KHAOS_PACKAGED_STARTUP_SMOKE_FILE -ErrorAction SilentlyContinue
+          }
+          "INSTALL_ROOT=$installRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Prove installed AI host and both agents reach readiness
+        shell: pwsh
+        run: |
+          @'
+          'use strict';
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const crypto = require('node:crypto');
+          const { spawn } = require('node:child_process');
+          const installRoot = process.env.INSTALL_ROOT;
+          const resources = path.join(installRoot, 'resources');
+          const appExe = path.join(installRoot, 'Khaos Nexus.exe');
+          const hostEntry = path.join(resources, 'app.asar', 'main', 'ai-runtime-host.cjs');
+          const launcher = path.join(resources, 'app.asar', 'main', 'ai-runtime-agent-launcher.cjs');
+          const testRoot = path.join(process.env.TEMP, `khaos-v0380-runtime-${process.pid}`);
+          fs.rmSync(testRoot, { recursive: true, force: true });
+          fs.mkdirSync(testRoot, { recursive: true });
+          function bundle(id) {
+            const root = path.join(resources, 'ai-services', id);
+            const manifest = JSON.parse(fs.readFileSync(path.join(root, 'bundle-manifest.json'), 'utf8'));
+            return { root, entry: path.join(root, manifest.entry), version: manifest.version, commit: manifest.commit };
+          }
+          const dnd = bundle('dnd-ai');
+          const core = bundle('ai-core');
+          const dndData = path.join(testRoot, 'dnd-ai');
+          const coreData = path.join(testRoot, 'ai-core');
+          fs.mkdirSync(dndData, { recursive: true });
+          fs.mkdirSync(coreData, { recursive: true });
+          const nonce = crypto.randomBytes(24).toString('hex');
+          const startupNonce = crypto.randomBytes(24).toString('hex');
+          const config = {
+            nonce,
+            launcher,
+            startAgents: ['dnd', 'core'],
+            agents: {
+              dnd: { ...dnd, dataDir: dndData },
+              core: {
+                ...core,
+                dataDir: coreData,
+                serviceToken: crypto.randomBytes(32).toString('hex'),
+                startupNonce,
+                readyFile: path.join(coreData, 'ready.json'),
+                monitorStateFile: path.join(coreData, 'monitor-state.json')
+              }
+            }
+          };
+          const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_ENV: 'production', KHAOS_NEXUS_BUNDLED_SERVICE: '1' };
+          delete env.NODE_OPTIONS;
+          delete env.NODE_PATH;
+          delete env.OPENAI_API_KEY;
+          let stdout = '';
+          let stderr = '';
+          let initialized = false;
+          let completed = false;
+          let shutdownSent = false;
+          const child = spawn(appExe, [hostEntry], { cwd: resources, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
+          child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+          child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+          function fail(message) {
+            if (completed) return;
+            completed = true;
+            try { child.kill(); } catch {}
+            console.error(message);
+            if (stdout) console.error(`stdout: ${stdout}`);
+            if (stderr) console.error(`stderr: ${stderr}`);
+            process.exitCode = 1;
+          }
+          const timer = setTimeout(() => fail('Installed AI Runtime did not make both agents ready before timeout.'), 45000);
+          child.on('error', (error) => fail(`Installed AI Runtime spawn failed: ${error.message}`));
+          child.on('exit', (code, signal) => {
+            if (!completed && !shutdownSent) fail(`Installed AI Runtime exited early: code=${code} signal=${signal}`);
+          });
+          child.on('message', (message) => {
+            if (completed) return;
+            if (message?.type === 'khaos-nexus-ai-runtime.host-online' && !initialized) {
+              initialized = true;
+              child.send({ type: 'khaos-nexus-ai-runtime.initialize', payload: config });
+              return;
+            }
+            if (message?.type === 'khaos-nexus-ai-runtime.fatal') {
+              fail(`Installed AI Runtime fatal: ${message.error || message.code}`);
+              return;
+            }
+            if (message?.type === 'khaos-nexus-ai-runtime.status') {
+              const agents = Array.isArray(message.payload?.agents) ? message.payload.agents : [];
+              const failed = agents.filter((agent) => agent.status === 'failed');
+              if (failed.length) {
+                fail(`Installed AI agent failed: ${failed.map((agent) => `${agent.key}: ${agent.error}`).join(' | ')}`);
+                return;
+              }
+              const dndReady = agents.find((agent) => agent.key === 'dnd')?.status === 'ready';
+              const coreReady = agents.find((agent) => agent.key === 'core')?.status === 'ready';
+              if (dndReady && coreReady && !shutdownSent) {
+                shutdownSent = true;
+                child.send({ type: 'khaos-nexus-ai-runtime.shutdown', nonce });
+              }
+              return;
+            }
+            if (message?.type === 'khaos-nexus-ai-runtime.stopped' && shutdownSent) {
+              clearTimeout(timer);
+              completed = true;
+              console.log('Installed v0.38.0 AI Runtime passed: Veyra ready, Nexus Sentinel ready, clean shutdown complete.');
+              fs.rmSync(testRoot, { recursive: true, force: true });
+            }
+          });
+          process.on('beforeExit', () => {
+            if (!completed) fail('Installed AI Runtime test ended without completion.');
+          });
+          '@ | Set-Content .github-installed-ai-runtime-test.cjs -Encoding utf8
+          node .github-installed-ai-runtime-test.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify release assets and identity
+        shell: pwsh
+        run: |
+          $files = @('dist/Khaos-Nexus-Setup-0.38.0-x64.exe','dist/Khaos-Nexus-Setup-0.38.0-x64.exe.blockmap','dist/Khaos-Nexus-Portable-0.38.0-x64.exe','dist/latest.yml')
+          foreach ($file in $files) { if (-not (Test-Path $file) -or (Get-Item $file).Length -le 0) { throw "Invalid release asset: $file" } }
+          $latest = Get-Content dist/latest.yml -Raw
+          if ($latest -notmatch '(?m)^version:\s*0\.38\.0\s*$' -or $latest -notmatch 'Khaos-Nexus-Setup-0\.38\.0-x64\.exe') { throw 'Updater metadata is invalid.' }
+          $asar = 'dist/win-unpacked/resources/app.asar'
+          node -e "const a=require('@electron/asar');const p=JSON.parse(a.extractFile('$asar','package.json'));if(p.version!=='0.38.0'||p.khaosRelease.rollbackTag!=='v0.35.3')throw Error('bad identity')"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $files | ForEach-Object { "$( (Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant() )  $([IO.Path]::GetFileName($_))" } | Set-Content release-checksums.txt
+
+      - name: Publish and verify updater-visible v0.38.0
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $assets = @('dist/Khaos-Nexus-Setup-0.38.0-x64.exe','dist/Khaos-Nexus-Setup-0.38.0-x64.exe.blockmap','dist/Khaos-Nexus-Portable-0.38.0-x64.exe','dist/latest.yml','release-checksums.txt')
+          gh release create v0.38.0 --target $env:RELEASE_SHA --title 'Khaos Nexus v0.38.0 — D&D Campaign Runtime' --notes-file release-notes/v0.38.0.md --latest @assets
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }
+          $ref = gh api repos/$env:GITHUB_REPOSITORY/git/ref/tags/v0.38.0 | ConvertFrom-Json
+          if ([string]$ref.object.sha -ne $env:RELEASE_SHA) { throw 'Tag target mismatch.' }
+          $latest = gh api repos/$env:GITHUB_REPOSITORY/releases/latest | ConvertFrom-Json
+          if ([string]$latest.tag_name -ne 'v0.38.0') { throw 'v0.38.0 is not latest.' }
+          $names = @($latest.assets | ForEach-Object name)
+          foreach ($name in @('Khaos-Nexus-Setup-0.38.0-x64.exe','Khaos-Nexus-Setup-0.38.0-x64.exe.blockmap','Khaos-Nexus-Portable-0.38.0-x64.exe','latest.yml','release-checksums.txt')) {
+            if ($names -notcontains $name) { throw "Published release missing $name" }
+          }
+
+      - name: Upload publication evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Khaos-Nexus-v0.38.0-DND-Production-Release
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            dist/Khaos-Nexus-Setup-0.38.0-x64.exe
+            dist/Khaos-Nexus-Setup-0.38.0-x64.exe.blockmap
+            dist/Khaos-Nexus-Portable-0.38.0-x64.exe
+            dist/latest.yml
+            release-checksums.txt
+            release-notes/v0.38.0.md
