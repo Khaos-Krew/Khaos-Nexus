@@ -13,7 +13,7 @@ function rendererSource() {
 test('character import enhancer observes a directly-added character management mount', () => {
   const renderer = rendererSource();
   assert.match(renderer, /node\.matches\?\.\('\.dnd-source-list,\.dnd-character-management'\)/);
-  assert.match(renderer, /data-dnd-catalog-action=\\"import-character\\"/);
+  assert.match(renderer, /data-dnd-catalog-action="import-character"/);
   assert.match(renderer, /button\.textContent = 'Import Character'/);
 });
 
