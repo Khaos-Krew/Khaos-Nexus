@@ -17,8 +17,6 @@
     settings: 'Settings'
   };
   let latestState = null;
-  let stateTimer = null;
-  let heartbeatTimer = null;
 
   const byId = (id) => document.getElementById(id);
 
@@ -175,21 +173,12 @@
     applyLockedState(latestState);
   }
 
-  function sendHeartbeat() {
-    window.khaos.invoke('stability:heartbeat').catch(() => {});
-  }
-
   function initialize() {
     bindFailSafeNavigation();
     window.khaos.onState(applyState);
+    // The preload owns the single renderer liveness heartbeat. Keep one initial
+    // state read for fail-safe recovery, then rely on the existing push channel.
     refreshState();
-    sendHeartbeat();
-    stateTimer = window.setInterval(refreshState, 5000);
-    heartbeatTimer = window.setInterval(sendHeartbeat, 2000);
-    window.addEventListener('beforeunload', () => {
-      if (stateTimer) window.clearInterval(stateTimer);
-      if (heartbeatTimer) window.clearInterval(heartbeatTimer);
-    });
   }
 
   initialize();

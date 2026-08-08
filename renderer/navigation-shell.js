@@ -6,7 +6,9 @@
 
   const RECONCILE_DELAYS_MS = Object.freeze([0, 250, 1000, 3000, 6000]);
   const GROUPS = Object.freeze([
-    { id: 'servers', title: 'Servers', detail: 'Hosting, schedules, and players', icon: '▦', views: ['servers', 'scheduler', 'players', 'hosted-servers'] },
+    { id: 'dnd', title: 'D&D', detail: 'Campaign and table tools', icon: '✦', views: ['dnd'] },
+    { id: 'ai', title: 'Nexus AI', detail: 'Veyra, Sentinel, and services', icon: '◉', views: ['ai', 'ai-services'] },
+    { id: 'servers', title: 'Game Servers', detail: 'Hosting, schedules, and players', icon: '▦', views: ['servers', 'scheduler', 'players', 'hosted-servers'] },
     { id: 'discord', title: 'Discord & Community', detail: 'Bot, panels, and delivery', icon: '◉', views: ['setup', 'discord-studio', 'discord-automation', 'status-panels', 'observability'] },
     { id: 'automation', title: 'Automation', detail: 'Operations and readiness', icon: '⚡', views: ['operator', 'readiness'] },
     { id: 'modules', title: 'Modules & Tools', detail: 'Features and companion tools', icon: '◆', views: ['modules', 'mobile'] },
@@ -48,11 +50,13 @@
   function groupIdFor(view, label) {
     for (const group of GROUPS) if (group.views.includes(view)) return group.id;
     const search = `${view} ${label}`.toLowerCase();
+    if (/(d&d|dnd|campaign|tabletop|co-dm|game master)/.test(search)) return 'dnd';
+    if (/(\bai\b|veyra|sentinel|intelligen|assistant)/.test(search)) return 'ai';
     if (/(server|player|hosted|scheduler|palworld|rcon)/.test(search)) return 'servers';
     if (/(discord|status.?panel|observab|community)/.test(search)) return 'discord';
     if (/(operator|readiness|automation|recovery)/.test(search)) return 'automation';
     if (/(module|mobile|companion|embed|tool)/.test(search)) return 'modules';
-    return 'system';
+    return 'modules';
   }
 
   function ensureShell() {

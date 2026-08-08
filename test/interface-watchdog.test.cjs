@@ -30,15 +30,19 @@ test('preload verifies the expected file document and required interface element
   assert.match(preload, /startup-health:preload-failed/);
 });
 
-test('watchdog repeatedly discovers and continuously inspects the real main window', () => {
+test('watchdog uses bounded startup discovery and stops visual inspection after stability', () => {
   const watchdog = read('main/interface-watchdog-extension.cjs');
   assert.doesNotThrow(() => new Function(watchdog));
-  assert.match(watchdog, /DISCOVERY_INTERVAL_MS = 250/);
-  assert.match(watchdog, /INSPECTION_INTERVAL_MS = 500/);
+  assert.match(watchdog, /DISCOVERY_INTERVAL_MS = 1000/);
+  assert.match(watchdog, /INSPECTION_INTERVAL_MS = 1000/);
   assert.match(watchdog, /INTERFACE_STABILITY_MS = 3000/);
   assert.match(watchdog, /for \(const delay of \[0, 50, 250, 1000\]\)/);
-  assert.match(watchdog, /setInterval\(discover, DISCOVERY_INTERVAL_MS\)/);
-  assert.match(watchdog, /setInterval\(\(\) => scheduleInspection\('continuous'\), INSPECTION_INTERVAL_MS\)/);
+  assert.match(watchdog, /function stopDiscovery\(\)/);
+  assert.match(watchdog, /function startDiscovery\(\)/);
+  assert.match(watchdog, /if \(result\?\.stable\) stopInspection\(\)/);
+  assert.match(watchdog, /setInterval\(\(\) => scheduleInspection\('stabilizing'\), INSPECTION_INTERVAL_MS\)/);
+  assert.doesNotMatch(watchdog, /scheduleInspection\('continuous'\)/);
+  assert.doesNotMatch(watchdog, /setInterval\(discover, DISCOVERY_INTERVAL_MS\)/);
   assert.match(watchdog, /window === startupHealth\.refs\.mainWindow/);
   assert.match(watchdog, /preloadName\(window\) === 'preload\.cjs'/);
 });

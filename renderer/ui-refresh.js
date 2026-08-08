@@ -26,6 +26,65 @@
     document.head.appendChild(link);
   }
 
+  const NAV_GROUPS = Object.freeze([
+    { id: 'command', label: 'Command', views: ['dashboard'] },
+    { id: 'dnd', label: 'D&D', views: ['dnd'] },
+    { id: 'ai', label: 'Nexus AI', views: ['ai', 'ai-services'] },
+    { id: 'discord', label: 'Discord & Community', views: ['setup', 'discord-studio', 'discord-automation', 'status-panels', 'observability'] },
+    { id: 'servers', label: 'Game Servers', views: ['servers', 'scheduler', 'players', 'hosted-servers'] },
+    { id: 'operations', label: 'Operations & Access', views: ['autonomy', 'operator', 'readiness'] },
+    { id: 'modules', label: 'Modules & Tools', views: ['modules', 'mobile', 'mobile-companion'] },
+    { id: 'system', label: 'System', views: ['monitor', 'logs', 'settings'] }
+  ]);
+
+  const NAV_META = Object.freeze({
+    dashboard: ['⌂', 'Command Center', 'Health, activity, and quick actions'],
+    dnd: ['✦', 'D&D', 'Campaigns, characters, encounters, and table tools'],
+    ai: ['◉', 'Nexus AI', 'Veyra, Sentinel, runtime, and health'],
+    'ai-services': ['◎', 'AI Services', 'Bundled agent lifecycle and service status'],
+    setup: ['◈', 'Discord', 'Bot identity and connection'],
+    'discord-studio': ['⬡', 'Discord Studio', 'Embeds and persistent status panels'],
+    'discord-automation': ['⬢', 'Discord Automation', 'Roles, layouts, and community workflows'],
+    'status-panels': ['◉', 'Status Panels', 'Persistent game-server Discord panels'],
+    observability: ['◌', 'Discord Observability', 'Release, error, heartbeat, and health streams'],
+    servers: ['▦', 'Game Servers', 'ARK, Palworld, RCON, and hosted servers'],
+    scheduler: ['◷', 'Server Scheduler', 'Shared saves, restarts, and warning workflows'],
+    players: ['◎', 'Players & Moderation', 'Cross-server players and guarded moderation'],
+    'hosted-servers': ['⬡', 'Hosted Servers', 'Provider-backed server controls'],
+    autonomy: ['♜', 'Operator Console', 'Owner access, autonomy, and safety controls'],
+    operator: ['♜', 'Operator Console', 'Owner access and operations'],
+    readiness: ['✓', 'Readiness Center', 'Setup checks and safe connection tests'],
+    modules: ['◆', 'All Modules', 'Feature switches and companion tools'],
+    mobile: ['◇', 'Mobile Companion', 'Paused companion workspace'],
+    'mobile-companion': ['◇', 'Mobile Companion', 'Paused companion workspace'],
+    monitor: ['♡', 'Application Monitor', 'Recovery, reports, and diagnostics'],
+    logs: ['≡', 'Live Logs', 'Runtime and desktop activity'],
+    settings: ['⚙', 'Settings', 'Startup, updates, backups, and preferences']
+  });
+
+  let navigationObserver = null;
+  let navigationReconcileTimer = null;
+  let navigationRendering = false;
+
+  function cleanNavLabel(item) {
+    if (!item) return '';
+    const copy = item.cloneNode(true);
+    copy.querySelectorAll('span').forEach((span) => span.remove());
+    return String(copy.textContent || '').trim().replace(/\s+/g, ' ');
+  }
+
+  function navGroupFor(view, label = '') {
+    for (const group of NAV_GROUPS) if (group.views.includes(view)) return group.id;
+    const search = `${view} ${label}`.toLowerCase();
+    if (/(d&d|dnd|campaign|tabletop|co-dm|game master)/.test(search)) return 'dnd';
+    if (/(\bai\b|veyra|sentinel|intelligen|assistant)/.test(search)) return 'ai';
+    if (/(discord|community|status.?panel|observab|embed)/.test(search)) return 'discord';
+    if (/(server|player|hosted|scheduler|palworld|ark|rcon|satisfactory|rust)/.test(search)) return 'servers';
+    if (/(operator|readiness|autonomy|access|automation|recovery)/.test(search)) return 'operations';
+    if (/(monitor|log|setting|update|diagnostic)/.test(search)) return 'system';
+    return 'modules';
+  }
+
   function createNavButton(view, icon, label, description) {
     const button = document.createElement('button');
     button.className = 'nav-item nexus-nav-item';
@@ -36,9 +95,10 @@
     return button;
   }
 
-  function createNavGroup(label, buttons) {
+  function createNavGroup(label, buttons, id) {
     const group = document.createElement('section');
     group.className = 'nexus-nav-group';
+    group.dataset.navGroup = id;
     const heading = document.createElement('div');
     heading.className = 'nav-label nexus-nav-label';
     heading.textContent = label;
@@ -49,51 +109,116 @@
     return group;
   }
 
-  function enhanceExistingButton(button, label, description) {
-    if (!button) return null;
-    const icon = button.querySelector(':scope > span')?.textContent || '◆';
-    button.classList.add('nexus-nav-item');
-    button.type = 'button';
-    button.innerHTML = `<span class="nexus-nav-icon" aria-hidden="true">${icon}</span><span class="nexus-nav-copy"><strong>${label}</strong><small>${description}</small></span>`;
-    button.setAttribute('aria-label', `${label}: ${description}`);
-    return button;
+  function legacyNavigationItems(sidebar) {
+    const seen = new Set();
+    return [...sidebar.querySelectorAll('.nav-item[data-view]')].filter((item) => {
+      if (item.closest('#nexusNavigation')) return false;
+      const view = String(item.dataset.view || '').trim();
+      if (!view || seen.has(view)) return false;
+      seen.add(view);
+      return true;
+    });
+  }
+
+  function markLegacyNavigation(sidebar) {
+    for (const child of [...sidebar.children]) {
+      if (child.id === 'nexusNavigation') continue;
+      if (child.matches?.('.nav-label, nav')) child.classList.add('nexus-legacy-navigation');
+    }
+  }
+
+  function ensureNavigationContainer(sidebar) {
+    let navigation = byId('nexusNavigation');
+    if (navigation) return navigation;
+    navigation = document.createElement('div');
+    navigation.id = 'nexusNavigation';
+    navigation.className = 'nexus-navigation';
+    navigation.setAttribute('aria-label', 'Khaos Nexus workspaces');
+    const footer = sidebar.querySelector('.sidebar-footer');
+    sidebar.insertBefore(navigation, footer || null);
+    return navigation;
+  }
+
+  function navigationEntries(sidebar) {
+    const entries = new Map();
+    for (const item of legacyNavigationItems(sidebar)) {
+      const view = String(item.dataset.view || '').trim();
+      const meta = NAV_META[view] || [];
+      const icon = meta[0] || String(item.querySelector('span')?.textContent || '◇').trim() || '◇';
+      const label = meta[1] || cleanNavLabel(item) || view;
+      const description = meta[2] || 'Khaos Nexus workspace';
+      entries.set(view, { view, icon, label, description });
+    }
+
+    for (const view of ['dnd', 'ai']) {
+      const meta = NAV_META[view];
+      if (!entries.has(view)) entries.set(view, { view, icon: meta[0], label: meta[1], description: meta[2] });
+    }
+    return [...entries.values()];
+  }
+
+  function reconcileNavigation() {
+    if (navigationRendering) return;
+    const sidebar = document.querySelector('.sidebar');
+    if (!sidebar) return;
+    navigationRendering = true;
+    try {
+      markLegacyNavigation(sidebar);
+      const navigation = ensureNavigationContainer(sidebar);
+      const previousScrollTop = navigation.scrollTop;
+      const activeView = document.querySelector('.view.active')?.id?.replace(/^view-/, '') || 'dashboard';
+      const entries = navigationEntries(sidebar);
+      const groups = new Map(NAV_GROUPS.map((group) => [group.id, []]));
+      for (const entry of entries) groups.get(navGroupFor(entry.view, entry.label))?.push(entry);
+
+      const fragment = document.createDocumentFragment();
+      for (const group of NAV_GROUPS) {
+        const groupEntries = groups.get(group.id) || [];
+        if (!groupEntries.length) continue;
+        const buttons = groupEntries.map((entry) => createNavButton(entry.view, entry.icon, entry.label, entry.description));
+        fragment.appendChild(createNavGroup(group.label, buttons, group.id));
+      }
+      navigation.replaceChildren(fragment);
+      navigation.scrollTop = previousScrollTop;
+      navigation.querySelectorAll('.nav-item[data-view]').forEach((button) => {
+        const active = button.dataset.view === activeView;
+        button.classList.toggle('active', active);
+        if (active) button.setAttribute('aria-current', 'page');
+        else button.removeAttribute('aria-current');
+      });
+      window.khaos?.reportBootStage?.('primary-navigation-ready', { items: entries.length, groups: [...groups.values()].filter((items) => items.length).length });
+    } finally {
+      navigationRendering = false;
+    }
+  }
+
+  function scheduleNavigationReconcile() {
+    clearTimeout(navigationReconcileTimer);
+    navigationReconcileTimer = setTimeout(reconcileNavigation, 50);
   }
 
   function installNavigation() {
     const sidebar = document.querySelector('.sidebar');
-    if (!sidebar || byId('nexusNavigation')) return;
-
-    const buttons = Object.fromEntries(
-      [...sidebar.querySelectorAll('.nav-item[data-view]')].map((button) => [button.dataset.view, button])
-    );
-
-    enhanceExistingButton(buttons.dashboard, 'Command Center', 'Health, activity, and quick actions');
-    enhanceExistingButton(buttons.setup, 'Discord', 'Bot identity and connection');
-    enhanceExistingButton(buttons.servers, 'Game Servers', 'ARK, Palworld, and RCON');
-    enhanceExistingButton(buttons.modules, 'All Modules', 'Feature switches and companion tools');
-    enhanceExistingButton(buttons.monitor, 'Application Monitor', 'Recovery, reports, and diagnostics');
-    enhanceExistingButton(buttons.logs, 'Live Logs', 'Runtime and desktop activity');
-    enhanceExistingButton(buttons.settings, 'Settings', 'Startup, updates, and backups');
-
-    const dndButton = createNavButton('dnd', '✦', 'D&D', 'Campaign and table command');
-    const aiButton = createNavButton('ai', '◉', 'Nexus AI', 'Assistant, monitors, and services');
-
-    const navigation = document.createElement('div');
-    navigation.id = 'nexusNavigation';
-    navigation.className = 'nexus-navigation';
-    navigation.append(
-      createNavGroup('Command', [buttons.dashboard]),
-      createNavGroup('Connected Systems', [buttons.setup, buttons.servers]),
-      createNavGroup('Nexus Workspaces', [dndButton, aiButton, buttons.modules]),
-      createNavGroup('System', [buttons.monitor, buttons.logs, buttons.settings])
-    );
-
-    [...sidebar.children].forEach((child) => {
-      if (child.matches?.('.nav-label, nav')) child.remove();
-    });
-
-    const footer = sidebar.querySelector('.sidebar-footer');
-    sidebar.insertBefore(navigation, footer || null);
+    if (!sidebar) return;
+    reconcileNavigation();
+    if (!navigationObserver) {
+      navigationObserver = new MutationObserver((mutations) => {
+        const relevant = mutations.some((mutation) => {
+          if (!mutation.target.closest?.('#nexusNavigation')) return true;
+          return [...mutation.addedNodes].some((node) => node?.nodeType === 1 && (
+            node.matches?.('.nav-item[data-view]:not(.nexus-nav-item)') ||
+            node.querySelector?.('.nav-item[data-view]:not(.nexus-nav-item)')
+          ));
+        });
+        if (relevant) scheduleNavigationReconcile();
+      });
+      navigationObserver.observe(sidebar, { childList: true, subtree: true });
+      window.addEventListener('beforeunload', () => {
+        navigationObserver?.disconnect();
+        navigationObserver = null;
+        clearTimeout(navigationReconcileTimer);
+      }, { once: true });
+    }
 
     const brand = sidebar.querySelector('.brand');
     if (brand) {
@@ -243,18 +368,31 @@
       </div>`;
   }
 
+  function installDndFallbackWorkspace() {
+    if (byId('view-dnd')) return;
+    const content = document.querySelector('main.content');
+    if (!content) return;
+    const insertionPoint = byId('view-monitor') || byId('view-logs') || byId('view-settings');
+    const dnd = document.createElement('section');
+    dnd.className = 'view nexus-view nexus-fallback-workspace';
+    dnd.id = 'view-dnd';
+    dnd.setAttribute('aria-labelledby', 'viewTitle');
+    dnd.innerHTML = dndWorkspaceMarkup();
+    content.insertBefore(dnd, insertionPoint || null);
+    scheduleNavigationReconcile();
+  }
+
   function installWorkspaces() {
     const content = document.querySelector('main.content');
     if (!content) return;
     const insertionPoint = byId('view-monitor') || byId('view-logs') || byId('view-settings');
 
+    // The real D&D renderer owns view-dnd. Creating a placeholder too early can
+    // win a startup race and prevent the functional D&D workspace from mounting.
+    // Only add the presentation fallback after extension startup has had time to finish.
     if (!byId('view-dnd')) {
-      const dnd = document.createElement('section');
-      dnd.className = 'view nexus-view';
-      dnd.id = 'view-dnd';
-      dnd.setAttribute('aria-labelledby', 'viewTitle');
-      dnd.innerHTML = dndWorkspaceMarkup();
-      content.insertBefore(dnd, insertionPoint || null);
+      window.addEventListener('khaos:features-ready', installDndFallbackWorkspace, { once: true });
+      setTimeout(installDndFallbackWorkspace, 5000);
     }
 
     if (!byId('view-ai')) {
@@ -345,11 +483,12 @@
       existing.click();
       return;
     }
-    const fallback = kind === 'dnd' ? 'modules' : 'settings';
-    document.querySelector(`[data-view="${fallback}"]`)?.click();
+    const fallbackCandidates = kind === 'dnd' ? ['modules'] : ['ai-services', 'modules'];
+    const fallback = fallbackCandidates.find((view) => document.querySelector(`[data-view="${view}"]`));
+    if (fallback) document.querySelector(`[data-view="${fallback}"]`)?.click();
     showNotice(kind === 'dnd'
-      ? 'The D&D command tab is ready. Existing campaign controls remain under the current module workspace until their renderer extension is active.'
-      : 'The Nexus AI tab is ready. Existing protected service controls remain under the current AI/desktop settings surface.');
+      ? 'The D&D command tab is ready. Existing campaign controls remain in the D&D/module workspace until their renderer extension is active.'
+      : 'The Nexus AI tab is ready. Existing protected service controls remain in the Nexus AI or Modules workspace.');
   }
 
   function bindNavigation() {

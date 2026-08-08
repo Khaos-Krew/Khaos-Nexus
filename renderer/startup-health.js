@@ -3,6 +3,7 @@
 (() => {
   let state = null;
   let actionRunning = false;
+  let countdownTimer = null;
   const $ = (id) => document.getElementById(id);
 
   function escapeHtml(value) {
@@ -79,6 +80,10 @@
   function render(payload) {
     state = payload || state;
     if (!state) return;
+    if (state.released && countdownTimer) {
+      clearInterval(countdownTimer);
+      countdownTimer = null;
+    }
     const progress = progressFor(state);
     $('startupTitle').textContent = titleFor(state);
     $('startupPercent').textContent = `${Math.round(progress)}%`;
@@ -125,7 +130,7 @@
     $('startupAttentionText').textContent = `Startup health state could not be read: ${error.message || String(error)}`;
   });
 
-  setInterval(() => {
+  countdownTimer = setInterval(() => {
     if (!state || state.released) return;
     state = { ...state, elapsedMs: Number(state.elapsedMs || 0) + 250, minimumRemainingMs: Math.max(0, Number(state.minimumRemainingMs || 0) - 250) };
     render(state);

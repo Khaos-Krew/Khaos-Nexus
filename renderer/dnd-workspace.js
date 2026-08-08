@@ -362,7 +362,7 @@
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, { once: true });
   else mount();
-  setInterval(() => {
-    if (!dndUi.loading && document.getElementById('view-dnd')?.classList.contains('active')) load().catch(() => {});
-  }, 15000);
+  // D&D state is already pushed through window.khaos.onDnd and every explicit
+  // mutation refreshes its payload. Avoid rebuilding the entire workspace on a
+  // background timer; that used to remount every D&D extension every 15 seconds.
 })();
