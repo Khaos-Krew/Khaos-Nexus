@@ -47,7 +47,8 @@ function nowIso(now = Date.now()) {
   return new Date(now).toISOString();
 }
 function hashJson(value) {
-  return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  const encoded = JSON.stringify(value);
+  return crypto.createHash('sha256').update(encoded === undefined ? 'null' : encoded).digest('hex');
 }
 function tierRank(value) {
   const rank = MODEL_TIERS.indexOf(String(value || '').toLowerCase());
@@ -58,15 +59,20 @@ function lowerTier(left, right) {
 }
 
 function normalizeSystemSnapshot(input = {}) {
+  const nestedGpu = input.gpu && typeof input.gpu === 'object' ? input.gpu : {};
   const cpuThreads = Math.max(1, Math.floor(Number(input.cpuThreads || input.logicalCpuCount || 1)));
   const totalRamBytes = bytes(input.totalRamBytes);
   const freeRamBytes = Math.min(totalRamBytes || Infinity, bytes(input.freeRamBytes));
-  const gpuTotalVramBytes = bytes(input.gpuTotalVramBytes);
+  const gpuTotalVramBytes = bytes(input.gpuTotalVramBytes ?? nestedGpu.totalVramBytes);
+  const gpuFreeSource = input.gpuFreeVramBytes ?? nestedGpu.freeVramBytes;
   const gpuFreeVramBytes = gpuTotalVramBytes
-    ? Math.min(gpuTotalVramBytes, bytes(input.gpuFreeVramBytes))
-    : bytes(input.gpuFreeVramBytes);
+    ? Math.min(gpuTotalVramBytes, bytes(gpuFreeSource))
+    : bytes(gpuFreeSource);
   const cpuLoad = clamp(input.cpuLoad, 0, 1);
-  const gpuLoad = clamp(input.gpuLoad, 0, 1);
+  const gpuLoad = clamp(input.gpuLoad ?? nestedGpu.load, 0, 1);
+  const gpuVendorIdSource = input.gpuVendorId ?? nestedGpu.vendorId;
+  const gpuDeviceIdSource = input.gpuDeviceId ?? nestedGpu.deviceId;
+  const gpuName = input.gpuName ?? nestedGpu.name ?? '';
   return {
     capturedAt: String(input.capturedAt || nowIso()),
     platform: String(input.platform || process.platform),
@@ -76,14 +82,14 @@ function normalizeSystemSnapshot(input = {}) {
     totalRamBytes,
     freeRamBytes,
     gpu: {
-      available: input.gpuAvailable === true || gpuTotalVramBytes > 0 || Boolean(input.gpuName),
-      name: String(input.gpuName || '').slice(0, 160),
-      vendorId: Number.isFinite(Number(input.gpuVendorId)) ? Number(input.gpuVendorId) : null,
-      deviceId: Number.isFinite(Number(input.gpuDeviceId)) ? Number(input.gpuDeviceId) : null,
+      available: input.gpuAvailable === true || nestedGpu.available === true || gpuTotalVramBytes > 0 || Boolean(gpuName),
+      name: String(gpuName).slice(0, 160),
+      vendorId: Number.isFinite(Number(gpuVendorIdSource)) ? Number(gpuVendorIdSource) : null,
+      deviceId: Number.isFinite(Number(gpuDeviceIdSource)) ? Number(gpuDeviceIdSource) : null,
       totalVramBytes: gpuTotalVramBytes,
       freeVramBytes: gpuFreeVramBytes,
       load: gpuLoad,
-      vramKnown: gpuTotalVramBytes > 0
+      vramKnown: nestedGpu.vramKnown === true || gpuTotalVramBytes > 0
     },
     onBattery: input.onBattery === true,
     gameActive: input.gameActive === true,
@@ -109,7 +115,6 @@ function capabilityTier(snapshotInput) {
   const freeRamGb = gb(snapshot.freeRamBytes);
   const totalRamGb = gb(snapshot.totalRamBytes);
   const freeVramGb = gb(snapshot.gpu.freeVramBytes);
-  const totalVramGb = gb(snapshot.gpu.totalVramBytes);
 
   if (freeRamGb < 3 || totalRamGb <= 8 || snapshot.cpuThreads <= 2) return 'tiny';
   if (snapshot.gpu.vramKnown) {
@@ -164,7 +169,10 @@ function selectRuntimeBudget(snapshotInput, policy = {}) {
   const requestedProfile = String(policy.profile || 'auto').toLowerCase();
   const profile = PROFILE_NAMES.includes(requestedProfile) ? requestedProfile : inferAutoProfile(snapshot);
   let tier = lowerTier(capabilityTier(snapshot), profileCap(profile));
-  if (Number.isFinite(Number(policy.maxTierRank))) tier = MODEL_TIERS[Math.min(tierRank(tier), clamp(policy.maxTierRank, 0, MODEL_TIERS.length - 1))];
+  if (Number.isFinite(Number(policy.maxTierRank))) {
+    const requestedMaxTierRank = Math.floor(clamp(policy.maxTierRank, 0, MODEL_TIERS.length - 1));
+    tier = MODEL_TIERS[Math.min(tierRank(tier), requestedMaxTierRank)];
+  }
   const budget = budgetForTier(tier, snapshot, profile);
   if (snapshot.cpuLoad >= 0.9 || snapshot.gpu.load >= 0.9 || snapshot.providerPressure >= 0.9) {
     budget.modelTier = lowerTier(budget.modelTier, 'tiny');
