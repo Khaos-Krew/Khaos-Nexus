@@ -164,7 +164,6 @@ function patchBrowserLoader() {
         }
         addScript('simple-updater.js');
         addScript('state-hub.js');
-        addScript('refresh-stability.js');
         addScript('ui-refresh.js');
       })();`).catch((error) => {
         console.error('[Khaos Nexus] Brand/update/primary-navigation renderer bootstrap failed.', error);
