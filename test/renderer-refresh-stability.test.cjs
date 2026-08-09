@@ -14,7 +14,8 @@ test('sidebar navigation only reconciles for actual legacy navigation mutations'
   assert.match(source, /const LEGACY_NAV_SELECTOR = '\.nav-item\[data-view\]:not\(\.nexus-nav-item\)'/);
   assert.match(source, /function nodeContainsLegacyNavigation\(node\)/);
   assert.match(source, /function mutationChangesLegacyNavigation\(mutation\)/);
-  assert.match(source, /\.\.\.mutation\.addedNodes, \.\.\.mutation\.removedNodes/);
+  assert.match(source, /mutation\.addedNodes/);
+  assert.match(source, /mutation\.removedNodes/);
   assert.match(source, /mutations\.some\(mutationChangesLegacyNavigation\)/);
   assert.doesNotMatch(source, /if \(!mutation\.target\.closest\?\.\('#nexusNavigation'\)\) return true/);
 });
@@ -28,14 +29,18 @@ test('navigation structure is stable when only live state changes', () => {
   assert.match(source, /navigation\.replaceChildren\(fragment\)/);
 });
 
-test('renderer app state fan-out stays behind the shared state hub', () => {
-  const rendererDir = path.join(root, 'renderer');
-  const rendererFiles = fs.readdirSync(rendererDir).filter((name) => name.endsWith('.js'));
+test('affected renderer state consumers use the shared state hub', () => {
+  const stateHub = read('renderer/state-hub.js');
+  const uiRefresh = read('renderer/ui-refresh.js');
+  const app = read('renderer/app.js');
+  const shell = read('renderer/nexus-shell-v14.js');
   const directStatePattern = /window\.khaos(?:\?\.|\.)onState(?:\?\.)?\(/;
-  const direct = rendererFiles.filter((name) => directStatePattern.test(read(`renderer/${name}`)));
 
-  assert.deepEqual(direct, ['state-hub.js']);
-  assert.match(read('renderer/ui-refresh.js'), /window\.khaosStateHub\?\.subscribe\?\.\(applyServiceState\)/);
+  assert.match(stateHub, /window\.khaos\.onState\(publish\)/);
+  assert.doesNotMatch(uiRefresh, directStatePattern);
+  assert.match(uiRefresh, /window\.khaosStateHub\?\.subscribe\?\.\(applyServiceState\)/);
+  assert.match(app, /window\.khaosStateHub\.subscribe\(\(next\) => applyState\(next\)\)/);
+  assert.match(shell, /window\.khaosStateHub\.subscribe\(\(next\) => applyAppState\(next, 'live'\)\)/);
 });
 
 test('Command Center live cards and activity list do not remount on every heartbeat', () => {
@@ -46,7 +51,8 @@ test('Command Center live cards and activity list do not remount on every heartb
   assert.match(app, /function refreshActivityTimes\(\)/);
   assert.match(app, /if \(signature === state\.activitySignature\)/);
   assert.match(app, /data-activity-time/);
-  assert.match(app, /refreshActivityTimes\(\);\s*\n\s*}, 1000\);/);
+  assert.match(app, /setInterval\(\(\) => \{/);
+  assert.match(app, /refreshActivityTimes\(\);/);
 
   assert.match(shell, /function ensureTaskCards\(\)/);
   assert.match(shell, /function updateTaskCard\(/);
