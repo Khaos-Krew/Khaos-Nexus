@@ -1,6 +1,6 @@
 'use strict';
 
-const state = { app: null, config: null, bot: null, update: null, logs: [], configSignature: '' };
+const state = { app: null, config: null, bot: null, update: null, logs: [], configSignature: '', activitySignature: null };
 const viewMeta = {
   dashboard: ['Command Center', 'Run Khaos Nexus locally without depending on the Lovable website.'],
   setup: ['Discord', 'Connect the Discord application using protected local credentials.'],
@@ -27,9 +27,16 @@ const moduleCatalog = [
 const $ = (id) => document.getElementById(id);
 const titleCase = (value) => String(value || '').replace(/(^|[-_\s])\w/g, (char) => char.toUpperCase());
 
+function setText(id, value) {
+  const element = $(id);
+  if (!element) return;
+  const text = String(value ?? '');
+  if (element.textContent !== text) element.textContent = text;
+}
+
 function toast(message) {
   const element = $('toast');
-  element.textContent = message;
+  setText('toast', message);
   element.classList.add('show');
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => element.classList.remove('show'), 3200);
@@ -39,8 +46,8 @@ function showView(name) {
   if (!viewMeta[name]) return;
   document.querySelectorAll('.view').forEach((element) => element.classList.toggle('active', element.id === `view-${name}`));
   document.querySelectorAll('.nav-item').forEach((element) => element.classList.toggle('active', element.dataset.view === name));
-  $('viewTitle').textContent = viewMeta[name][0];
-  $('viewSubtitle').textContent = viewMeta[name][1];
+  setText('viewTitle', viewMeta[name][0]);
+  setText('viewSubtitle', viewMeta[name][1]);
 }
 
 function formatDuration(seconds) {
@@ -75,18 +82,20 @@ function applyState(next) {
   const status = bot.status || 'stopped';
   const statusText = titleCase(status);
 
-  $('topStatus').className = `status-pill ${status}`;
-  $('topStatus').querySelector('strong').textContent = statusText;
-  $('metricStatus').textContent = statusText;
-  $('metricUser').textContent = bot.ready?.username || 'Not connected';
-  $('metricUptime').textContent = formatDuration(bot.heartbeat?.uptimeSeconds || 0);
-  $('metricServers').textContent = String(config.servers?.length || 0);
+  const topStatusClass = `status-pill ${status}`;
+  if ($('topStatus').className !== topStatusClass) $('topStatus').className = topStatusClass;
+  const topStatusText = $('topStatus').querySelector('strong');
+  if (topStatusText.textContent !== statusText) topStatusText.textContent = statusText;
+  setText('metricStatus', statusText);
+  setText('metricUser', bot.ready?.username || 'Not connected');
+  setText('metricUptime', formatDuration(bot.heartbeat?.uptimeSeconds || 0));
+  setText('metricServers', String(config.servers?.length || 0));
   const moduleSettings = getModuleSettings(config);
-  $('metricModules').textContent = String(Object.values(moduleSettings).filter(Boolean).length);
-  $('detailPid').textContent = bot.pid || '—';
-  $('detailGuilds').textContent = bot.heartbeat?.guildCount ?? bot.ready?.guildCount ?? '—';
-  $('detailMemory').textContent = bot.heartbeat?.memoryMb ? `${bot.heartbeat.memoryMb} MB` : '—';
-  $('detailHeartbeat').textContent = relativeTime(bot.lastHeartbeatAt);
+  setText('metricModules', String(Object.values(moduleSettings).filter(Boolean).length));
+  setText('detailPid', bot.pid || '—');
+  setText('detailGuilds', bot.heartbeat?.guildCount ?? bot.ready?.guildCount ?? '—');
+  setText('detailMemory', bot.heartbeat?.memoryMb ? `${bot.heartbeat.memoryMb} MB` : '—');
+  setText('detailHeartbeat', relativeTime(bot.lastHeartbeatAt));
 
   const hero = {
     stopped: ['Bot is stopped', 'Start it when Discord configuration is ready.'],
@@ -98,22 +107,22 @@ function applyState(next) {
     crashed: ['Bot runtime crashed', 'The Health Monitor captured the failure and is deciding whether to restart.'],
     error: ['Khaos Nexus requires attention', bot.lastError?.message || 'Open the Health Monitor for details.']
   }[status] || ['Bot status unknown', 'Check the Health Monitor.'];
-  $('heroStatus').textContent = hero[0];
-  $('heroDetail').textContent = hero[1];
+  setText('heroStatus', hero[0]);
+  setText('heroDetail', hero[1]);
 
   $('startButton').disabled = ['starting', 'connecting', 'online', 'restarting'].includes(status);
   $('restartButton').disabled = ['stopped', 'stopping'].includes(status);
   $('stopButton').disabled = ['stopped', 'stopping'].includes(status);
 
-  $('versionLabel').textContent = state.app ? `Version ${state.app.version}` : 'Version';
-  $('secureLabel').textContent = state.app?.secureStorageAvailable ? 'Protected credential storage ready' : 'Protected storage unavailable';
+  setText('versionLabel', state.app ? `Version ${state.app.version}` : 'Version');
+  setText('secureLabel', state.app?.secureStorageAvailable ? 'Protected credential storage ready' : 'Protected storage unavailable');
 
   if (configChanged) {
     $('guildId').value = config.discord?.guildId || '';
     $('ownerUserId').value = config.discord?.ownerUserId || '';
-    $('tokenState').textContent = config.hasDiscordToken
+    setText('tokenState', config.hasDiscordToken
       ? 'A Discord token is stored in protected operating-system storage.'
-      : 'No Discord token is stored yet.';
+      : 'No Discord token is stored yet.');
 
     for (const key of ['autoStartBot', 'autoRestart', 'startWithWindows', 'minimizeToTray', 'checkUpdates']) {
       $(key).checked = Boolean(config.general?.[key]);
@@ -165,21 +174,38 @@ function renderModules() {
 function renderMonitor() {
   const bot = state.bot || {};
   const error = bot.lastError;
-  $('monitorState').textContent = bot.autoRestartBlocked ? 'Safety lock' : titleCase(bot.status || 'idle');
-  $('monitorStateDetail').textContent = bot.autoRestartBlocked ? 'Too many crashes in the configured window' : 'Supervisor is active';
-  $('monitorRestarts').textContent = bot.restartHistory?.length || 0;
-  $('monitorErrorId').textContent = error?.id || '—';
-  $('monitorHeartbeat').textContent = relativeTime(bot.lastHeartbeatAt);
-  $('lastErrorTitle').textContent = error?.message || 'No error captured';
-  $('lastErrorStack').textContent = error?.stack || 'The monitor will show a redacted stack trace here if the bot or desktop manager reports a problem.';
-  $('errorSeverity').textContent = error ? 'Attention' : 'Healthy';
+  setText('monitorState', bot.autoRestartBlocked ? 'Safety lock' : titleCase(bot.status || 'idle'));
+  setText('monitorStateDetail', bot.autoRestartBlocked ? 'Too many crashes in the configured window' : 'Supervisor is active');
+  setText('monitorRestarts', bot.restartHistory?.length || 0);
+  setText('monitorErrorId', error?.id || '—');
+  setText('monitorHeartbeat', relativeTime(bot.lastHeartbeatAt));
+  setText('lastErrorTitle', error?.message || 'No error captured');
+  setText('lastErrorStack', error?.stack || 'The monitor will show a redacted stack trace here if the bot or desktop manager reports a problem.');
+  setText('errorSeverity', error ? 'Attention' : 'Healthy');
   $('errorSeverity').classList.toggle('bad', Boolean(error));
+}
+
+function activityKey(items) {
+  return JSON.stringify(items.map((entry) => [String(entry.time || ''), String(entry.level || ''), String(entry.message || '')]));
+}
+
+function refreshActivityTimes() {
+  $('activityList').querySelectorAll('[data-activity-time]').forEach((element) => {
+    const next = relativeTime(element.dataset.activityTime);
+    if (element.textContent !== next) element.textContent = next;
+  });
 }
 
 function renderActivity() {
   const items = state.logs.slice(-6).reverse();
+  const signature = activityKey(items);
+  if (signature === state.activitySignature) {
+    refreshActivityTimes();
+    return;
+  }
+  state.activitySignature = signature;
   $('activityList').innerHTML = items.length ? items.map((entry) => `
-    <div class="activity ${entry.level}"><span class="activity-dot"></span><div>${escapeHtml(entry.message)}</div><small>${relativeTime(entry.time)}</small></div>
+    <div class="activity ${entry.level}"><span class="activity-dot"></span><div>${escapeHtml(entry.message)}</div><small data-activity-time="${escapeHtml(entry.time || '')}">${relativeTime(entry.time)}</small></div>
   `).join('') : '<p>No activity recorded yet.</p>';
 }
 
@@ -195,7 +221,7 @@ function renderLogs() {
 
 function renderUpdate(update) {
   const detail = update.progress !== null && update.progress !== undefined ? ` (${update.progress}%)` : '';
-  $('updateStatus').textContent = `Update status: ${titleCase(update.status || 'idle')}${update.version ? ` — ${update.version}` : ''}${detail}${update.error ? ` — ${update.error}` : ''}`;
+  setText('updateStatus', `Update status: ${titleCase(update.status || 'idle')}${update.version ? ` — ${update.version}` : ''}${detail}${update.error ? ` — ${update.error}` : ''}`);
   $('downloadUpdateButton').classList.toggle('hidden', update.status !== 'available');
   $('installUpdateButton').classList.toggle('hidden', update.status !== 'downloaded');
 }
@@ -217,7 +243,7 @@ async function invoke(channel, payload, successMessage) {
 
 function openServerEditor(server = {}) {
   $('serverEditor').classList.remove('hidden');
-  $('serverEditorTitle').textContent = server.id ? `Edit ${server.name}` : 'Add game server';
+  setText('serverEditorTitle', server.id ? `Edit ${server.name}` : 'Add game server');
   $('serverId').value = server.id || '';
   $('serverName').value = server.name || '';
   $('serverGame').value = server.game || 'palworld';
@@ -297,7 +323,9 @@ function bindEvents() {
     if (!toggle) return;
     const card = toggle.closest('.module-card');
     card.classList.toggle('enabled', toggle.checked);
-    card.querySelector('.module-toggle span').textContent = toggle.checked ? 'Enabled' : 'Disabled';
+    const status = card.querySelector('.module-toggle span');
+    const next = toggle.checked ? 'Enabled' : 'Disabled';
+    if (status.textContent !== next) status.textContent = next;
   });
 
   $('saveModulesButton').addEventListener('click', async () => {
@@ -352,10 +380,11 @@ async function initialize() {
     if (document.hidden) return;
     if (state.bot?.heartbeat?.uptimeSeconds !== undefined && state.bot.status === 'online') {
       state.bot.heartbeat.uptimeSeconds += 1;
-      $('metricUptime').textContent = formatDuration(state.bot.heartbeat.uptimeSeconds);
+      setText('metricUptime', formatDuration(state.bot.heartbeat.uptimeSeconds));
     }
-    $('detailHeartbeat').textContent = relativeTime(state.bot?.lastHeartbeatAt);
-    $('monitorHeartbeat').textContent = relativeTime(state.bot?.lastHeartbeatAt);
+    setText('detailHeartbeat', relativeTime(state.bot?.lastHeartbeatAt));
+    setText('monitorHeartbeat', relativeTime(state.bot?.lastHeartbeatAt));
+    refreshActivityTimes();
   }, 1000);
 }
 
