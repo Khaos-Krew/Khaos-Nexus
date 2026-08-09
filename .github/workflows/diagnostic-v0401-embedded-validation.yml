@@ -1,9 +1,9 @@
 name: Diagnostic v0.40.1 Embedded Validation
 
 on:
-  push:
+  pull_request:
     branches:
-      - diagnostic/v0401-embedded-validation
+      - release/v0.35.0-B
 
 permissions:
   contents: read
