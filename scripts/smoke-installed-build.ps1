@@ -1,9 +1,21 @@
 param(
   [string]$Installer = "",
-  [string]$InstallRoot = ""
+  [string]$InstallRoot = "",
+  [int]$InstallTimeoutSeconds = 120,
+  [int]$UninstallTimeoutSeconds = 90
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Wait-BoundedProcess([System.Diagnostics.Process]$Process, [int]$TimeoutSeconds, [string]$Label) {
+  if (-not $Process.WaitForExit($TimeoutSeconds * 1000)) {
+    try { Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue } catch {}
+    throw "$Label exceeded the $TimeoutSeconds second timeout."
+  }
+  $Process.Refresh()
+  return $Process.ExitCode
+}
+
 if (-not $Installer) {
   $candidate = @(Get-ChildItem -LiteralPath 'dist' -Filter 'Khaos-Nexus-Setup-*-x64.exe' -File | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1)
   if ($candidate.Count -eq 0) { throw 'No candidate Khaos Nexus installer found under dist.' }
@@ -20,8 +32,9 @@ New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
 
 try {
   Write-Host "Installing clean candidate: $Installer"
-  $install = Start-Process -FilePath $Installer -ArgumentList @('/S', "/D=$InstallRoot") -Wait -PassThru
-  if ($install.ExitCode -ne 0) { throw "Silent installer failed with exit code $($install.ExitCode)." }
+  $install = Start-Process -FilePath $Installer -ArgumentList @('/S', "/D=$InstallRoot") -PassThru
+  $installExitCode = Wait-BoundedProcess $install $InstallTimeoutSeconds 'Silent installer'
+  if ($installExitCode -ne 0) { throw "Silent installer failed with exit code $installExitCode." }
   if (-not (Test-Path -LiteralPath $exe)) { throw "Installed executable is missing: $exe" }
 
   & (Join-Path $PSScriptRoot 'smoke-packaged-startup.ps1') -Executable $exe -SmokeRoot $smokeRoot
@@ -30,7 +43,12 @@ try {
 } finally {
   $uninstaller = @(Get-ChildItem -LiteralPath $InstallRoot -Filter 'Uninstall*.exe' -File -ErrorAction SilentlyContinue | Select-Object -First 1)
   if ($uninstaller.Count -gt 0) {
-    try { Start-Process -FilePath $uninstaller[0].FullName -ArgumentList '/S' -Wait | Out-Null } catch { Write-Warning "Silent uninstall cleanup failed: $($_.Exception.Message)" }
+    try {
+      $uninstall = Start-Process -FilePath $uninstaller[0].FullName -ArgumentList '/S' -PassThru
+      $null = Wait-BoundedProcess $uninstall $UninstallTimeoutSeconds 'Silent uninstaller'
+    } catch {
+      Write-Warning "Silent uninstall cleanup failed: $($_.Exception.Message)"
+    }
   }
   Remove-Item -LiteralPath (Split-Path $InstallRoot -Parent) -Recurse -Force -ErrorAction SilentlyContinue
 }
