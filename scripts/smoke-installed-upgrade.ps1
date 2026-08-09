@@ -51,8 +51,9 @@ try {
   if ($previousExitCode -ne 0) { throw "Previous installer failed with exit code $previousExitCode." }
   if (-not (Test-Path -LiteralPath $exe)) { throw 'Previous installed executable is missing.' }
 
+  # Nested PowerShell scripts signal failure by terminating error. $LASTEXITCODE
+  # belongs to native commands (for example gh/NSIS) and must not be reused here.
   & (Join-Path $PSScriptRoot 'smoke-packaged-startup.ps1') -Executable $exe -SmokeRoot $session -KeepSmokeRoot
-  if ($LASTEXITCODE -ne 0) { throw 'Previous release startup smoke failed.' }
 
   New-Item -ItemType Directory -Force -Path (Split-Path $marker -Parent) | Out-Null
   [pscustomobject]@{ previousTag = $PreviousTag; preserved = $true } | ConvertTo-Json | Set-Content -LiteralPath $marker -Encoding utf8
@@ -64,7 +65,6 @@ try {
   if (-not (Test-Path -LiteralPath $exe)) { throw 'Candidate installed executable is missing after upgrade.' }
 
   & (Join-Path $PSScriptRoot 'smoke-packaged-startup.ps1') -Executable $exe -SmokeRoot $session -ReuseSmokeRoot -KeepSmokeRoot
-  if ($LASTEXITCODE -ne 0) { throw 'Upgraded release startup smoke failed.' }
   if (-not (Test-Path -LiteralPath $marker)) { throw 'Isolated user-data preservation marker was lost during upgrade.' }
 
   Write-Host "Upgrade smoke passed: $PreviousTag -> candidate; startup and isolated user data survived."
