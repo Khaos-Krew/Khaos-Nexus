@@ -5,7 +5,7 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -19,7 +19,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install --ignore-scripts
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci --ignore-scripts
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
       - name: Run tests
