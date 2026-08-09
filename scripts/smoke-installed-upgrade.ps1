@@ -1,13 +1,26 @@
 param(
   [string]$PreviousTag = "",
   [string]$CandidateInstaller = "",
-  [string]$InstallRoot = ""
+  [string]$InstallRoot = "",
+  [int]$InstallTimeoutSeconds = 120,
+  [int]$UninstallTimeoutSeconds = 90
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Wait-BoundedProcess([System.Diagnostics.Process]$Process, [int]$TimeoutSeconds, [string]$Label) {
+  if (-not $Process.WaitForExit($TimeoutSeconds * 1000)) {
+    try { Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue } catch {}
+    throw "$Label exceeded the $TimeoutSeconds second timeout."
+  }
+  $Process.Refresh()
+  return $Process.ExitCode
+}
+
 $p = Get-Content package.json -Raw | ConvertFrom-Json
 if (-not $PreviousTag) { $PreviousTag = [string]$p.khaosRelease.rollbackTag }
 if (-not $PreviousTag) { throw 'PreviousTag was not provided and package.json has no khaosRelease.rollbackTag.' }
+if (-not $env:GITHUB_REPOSITORY) { throw 'GITHUB_REPOSITORY is required to download the previous public release.' }
 if (-not $CandidateInstaller) {
   $candidate = @(Get-ChildItem -LiteralPath 'dist' -Filter 'Khaos-Nexus-Setup-*-x64.exe' -File | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1)
   if ($candidate.Count -eq 0) { throw 'No candidate Khaos Nexus installer found under dist.' }
@@ -33,8 +46,9 @@ try {
   gh release download $PreviousTag --repo $env:GITHUB_REPOSITORY --pattern $previousName --dir $download --clobber
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $previousInstaller)) { throw "Unable to download previous installer for $PreviousTag." }
 
-  $installPrevious = Start-Process -FilePath $previousInstaller -ArgumentList @('/S', "/D=$InstallRoot") -Wait -PassThru
-  if ($installPrevious.ExitCode -ne 0) { throw "Previous installer failed with exit code $($installPrevious.ExitCode)." }
+  $installPrevious = Start-Process -FilePath $previousInstaller -ArgumentList @('/S', "/D=$InstallRoot") -PassThru
+  $previousExitCode = Wait-BoundedProcess $installPrevious $InstallTimeoutSeconds 'Previous release installer'
+  if ($previousExitCode -ne 0) { throw "Previous installer failed with exit code $previousExitCode." }
   if (-not (Test-Path -LiteralPath $exe)) { throw 'Previous installed executable is missing.' }
 
   & (Join-Path $PSScriptRoot 'smoke-packaged-startup.ps1') -Executable $exe -SmokeRoot $session -KeepSmokeRoot
@@ -44,8 +58,9 @@ try {
   [pscustomobject]@{ previousTag = $PreviousTag; preserved = $true } | ConvertTo-Json | Set-Content -LiteralPath $marker -Encoding utf8
 
   Write-Host "Installing candidate over $PreviousTag using the same install root."
-  $installCandidate = Start-Process -FilePath $CandidateInstaller -ArgumentList @('/S', "/D=$InstallRoot") -Wait -PassThru
-  if ($installCandidate.ExitCode -ne 0) { throw "Candidate upgrade installer failed with exit code $($installCandidate.ExitCode)." }
+  $installCandidate = Start-Process -FilePath $CandidateInstaller -ArgumentList @('/S', "/D=$InstallRoot") -PassThru
+  $candidateExitCode = Wait-BoundedProcess $installCandidate $InstallTimeoutSeconds 'Candidate upgrade installer'
+  if ($candidateExitCode -ne 0) { throw "Candidate upgrade installer failed with exit code $candidateExitCode." }
   if (-not (Test-Path -LiteralPath $exe)) { throw 'Candidate installed executable is missing after upgrade.' }
 
   & (Join-Path $PSScriptRoot 'smoke-packaged-startup.ps1') -Executable $exe -SmokeRoot $session -ReuseSmokeRoot -KeepSmokeRoot
@@ -56,7 +71,12 @@ try {
 } finally {
   $uninstaller = @(Get-ChildItem -LiteralPath $InstallRoot -Filter 'Uninstall*.exe' -File -ErrorAction SilentlyContinue | Select-Object -First 1)
   if ($uninstaller.Count -gt 0) {
-    try { Start-Process -FilePath $uninstaller[0].FullName -ArgumentList '/S' -Wait | Out-Null } catch { Write-Warning "Silent uninstall cleanup failed: $($_.Exception.Message)" }
+    try {
+      $uninstall = Start-Process -FilePath $uninstaller[0].FullName -ArgumentList '/S' -PassThru
+      $null = Wait-BoundedProcess $uninstall $UninstallTimeoutSeconds 'Silent uninstaller'
+    } catch {
+      Write-Warning "Silent uninstall cleanup failed: $($_.Exception.Message)"
+    }
   }
   Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
 }
