@@ -1,0 +1,46 @@
+name: Diagnostic v0.40.1 Embedded Validation
+
+on:
+  push:
+    branches:
+      - diagnostic/v0401-embedded-validation
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact diagnostic head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Verify embedded AI provenance
+        run: node scripts/verify-embedded-ai-sources.cjs
+
+      - name: Build D&D AI source
+        run: npm run build --prefix packages/ai/dnd-ai
+
+      - name: Build AI Core source
+        run: npm run build --prefix packages/ai/ai-core
+
+      - name: Run repository tests
+        run: npm test
+
+      - name: Run repository checks
+        run: npm run check
