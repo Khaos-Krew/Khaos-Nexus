@@ -151,8 +151,31 @@
     if (event.key === 'Enter' && results[state.activeCommandIndex]) { event.preventDefault(); activateView(results[state.activeCommandIndex].key); closePalette(); }
   }
 
-  function taskCard(icon, title, detail, tone = '') {
-    return `<article class="nexus-task ${tone}"><span class="nexus-task-icon">${icon}</span><span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(detail)}</small></span></article>`;
+  function taskCard(key, icon) {
+    return `<article class="nexus-task" data-nexus-task="${escapeHtml(key)}"><span class="nexus-task-icon">${escapeHtml(icon)}</span><span><strong></strong><small></small></span></article>`;
+  }
+
+  function ensureTaskCards() {
+    ensureTaskRail();
+    const rail = $('nexusTaskRail');
+    if (!rail) return null;
+    const expected = ['discord', 'release', 'streams'];
+    const current = [...rail.querySelectorAll('[data-nexus-task]')].map((card) => card.dataset.nexusTask);
+    if (current.length !== expected.length || current.some((key, index) => key !== expected[index])) {
+      rail.innerHTML = [taskCard('discord', '◉'), taskCard('release', '↗'), taskCard('streams', '⌁')].join('');
+    }
+    return rail;
+  }
+
+  function updateTaskCard(key, title, detail, tone = '') {
+    const card = $('nexusTaskRail')?.querySelector(`[data-nexus-task="${CSS.escape(key)}"]`);
+    if (!card) return;
+    const className = `nexus-task ${tone}`.trim();
+    if (card.className !== className) card.className = className;
+    const strong = card.querySelector('strong');
+    const small = card.querySelector('small');
+    if (strong && strong.textContent !== title) strong.textContent = title;
+    if (small && small.textContent !== detail) small.textContent = detail;
   }
 
   function applyAppState(next, source = 'live') {
@@ -163,9 +186,7 @@
   }
 
   function renderTasks() {
-    ensureTaskRail();
-    const rail = $('nexusTaskRail');
-    if (!rail) return;
+    if (!ensureTaskCards()) return;
     const app = state.app || {};
     const bot = app.bot || {};
     const access = app.autonomy?.access || {};
@@ -179,11 +200,10 @@
       : bot.ready?.username || bot.lastError?.message || 'Supervised runtime';
     const updateTone = update.status === 'error' ? 'error' : update.available ? 'warning' : 'good';
     const routed = Object.values(obs.config?.routes || {}).filter((route) => route.enabled && route.channelId).length;
-    rail.innerHTML = [
-      taskCard('◉', `Discord ${botStatus}`, botDetail, botTone),
-      taskCard('↗', update.available ? `Update ${update.latestVersion || ''} available` : `Release ${update.status || 'idle'}`, update.error || 'Stable GitHub release channel', updateTone),
-      taskCard('⌁', `${routed} Discord streams routed`, `${access.role || 'local-admin'} access • ${obs.config?.lastHeartbeatAt ? 'heartbeat active' : 'heartbeat not published'}`, routed ? 'good' : 'warning')
-    ].join('');
+
+    updateTaskCard('discord', `Discord ${botStatus}`, botDetail, botTone);
+    updateTaskCard('release', update.available ? `Update ${update.latestVersion || ''} available` : `Release ${update.status || 'idle'}`, update.error || 'Stable GitHub release channel', updateTone);
+    updateTaskCard('streams', `${routed} Discord streams routed`, `${access.role || 'local-admin'} access • ${obs.config?.lastHeartbeatAt ? 'heartbeat active' : 'heartbeat not published'}`, routed ? 'good' : 'warning');
   }
 
   function initialize() {
