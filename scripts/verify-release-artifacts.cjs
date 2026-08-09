@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { latestYmlAdvertisesVersion } = require('./release-metadata.cjs');
 
 const root = path.resolve(__dirname, '..');
 const dist = path.join(root, 'dist');
@@ -43,8 +44,7 @@ for (const item of expected) {
 if (requireUpdaterMetadata) {
   const latestPath = path.join(dist, 'latest.yml');
   const latest = fs.readFileSync(latestPath, 'utf8');
-  const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  if (!new RegExp(`(?m)^version:\\s*${escaped}\\s*$`).test(latest)) {
+  if (!latestYmlAdvertisesVersion(latest, version)) {
     throw new Error(`latest.yml does not advertise version ${version}.`);
   }
   if (!latest.includes(`Khaos-Nexus-Setup-${version}-${arch}.exe`)) {
