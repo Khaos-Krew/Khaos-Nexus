@@ -62,6 +62,7 @@
     settings: ['⚙', 'Settings', 'Startup, updates, backups, and preferences']
   });
 
+  const LEGACY_NAV_SELECTOR = '.nav-item[data-view]:not(.nexus-nav-item)';
   let navigationObserver = null;
   let navigationReconcileTimer = null;
   let navigationRendering = false;
@@ -157,6 +158,26 @@
     return [...entries.values()];
   }
 
+  function navigationSignature(entries) {
+    return JSON.stringify(entries.map((entry) => [
+      entry.view,
+      entry.icon,
+      entry.label,
+      entry.description,
+      navGroupFor(entry.view, entry.label)
+    ]));
+  }
+
+  function nodeContainsLegacyNavigation(node) {
+    if (!node || node.nodeType !== 1) return false;
+    if (node.matches?.(LEGACY_NAV_SELECTOR)) return true;
+    return Boolean(node.querySelector?.(LEGACY_NAV_SELECTOR));
+  }
+
+  function mutationChangesLegacyNavigation(mutation) {
+    return [...mutation.addedNodes, ...mutation.removedNodes].some(nodeContainsLegacyNavigation);
+  }
+
   function reconcileNavigation() {
     if (navigationRendering) return;
     const sidebar = document.querySelector('.sidebar');
@@ -171,14 +192,19 @@
       const groups = new Map(NAV_GROUPS.map((group) => [group.id, []]));
       for (const entry of entries) groups.get(navGroupFor(entry.view, entry.label))?.push(entry);
 
-      const fragment = document.createDocumentFragment();
-      for (const group of NAV_GROUPS) {
-        const groupEntries = groups.get(group.id) || [];
-        if (!groupEntries.length) continue;
-        const buttons = groupEntries.map((entry) => createNavButton(entry.view, entry.icon, entry.label, entry.description));
-        fragment.appendChild(createNavGroup(group.label, buttons, group.id));
+      const signature = navigationSignature(entries);
+      if (navigation.dataset.structureSignature !== signature) {
+        const fragment = document.createDocumentFragment();
+        for (const group of NAV_GROUPS) {
+          const groupEntries = groups.get(group.id) || [];
+          if (!groupEntries.length) continue;
+          const buttons = groupEntries.map((entry) => createNavButton(entry.view, entry.icon, entry.label, entry.description));
+          fragment.appendChild(createNavGroup(group.label, buttons, group.id));
+        }
+        navigation.replaceChildren(fragment);
+        navigation.dataset.structureSignature = signature;
       }
-      navigation.replaceChildren(fragment);
+
       navigation.scrollTop = previousScrollTop;
       navigation.querySelectorAll('.nav-item[data-view]').forEach((button) => {
         const active = button.dataset.view === activeView;
@@ -203,14 +229,7 @@
     reconcileNavigation();
     if (!navigationObserver) {
       navigationObserver = new MutationObserver((mutations) => {
-        const relevant = mutations.some((mutation) => {
-          if (!mutation.target.closest?.('#nexusNavigation')) return true;
-          return [...mutation.addedNodes].some((node) => node?.nodeType === 1 && (
-            node.matches?.('.nav-item[data-view]:not(.nexus-nav-item)') ||
-            node.querySelector?.('.nav-item[data-view]:not(.nexus-nav-item)')
-          ));
-        });
-        if (relevant) scheduleNavigationReconcile();
+        if (mutations.some(mutationChangesLegacyNavigation)) scheduleNavigationReconcile();
       });
       navigationObserver.observe(sidebar, { childList: true, subtree: true });
       window.addEventListener('beforeunload', () => {
@@ -224,7 +243,7 @@
     if (brand) {
       brand.classList.add('nexus-brand');
       const subtitle = brand.querySelector('span');
-      if (subtitle) subtitle.textContent = 'Command Network';
+      if (subtitle && subtitle.textContent !== 'Command Network') subtitle.textContent = 'Command Network';
     }
   }
 
@@ -437,8 +456,8 @@
 
     const title = byId('viewTitle');
     const subtitle = byId('viewSubtitle');
-    if (title) title.textContent = meta.title;
-    if (subtitle) subtitle.textContent = meta.subtitle;
+    if (title && title.textContent !== meta.title) title.textContent = meta.title;
+    if (subtitle && subtitle.textContent !== meta.subtitle) subtitle.textContent = meta.subtitle;
     document.body.dataset.nexusView = name;
     document.querySelector('main.content')?.scrollTo({ top: 0, behavior: 'auto' });
     return true;
@@ -458,7 +477,7 @@
   function showNotice(message) {
     const toast = byId('toast');
     if (!toast) return;
-    toast.textContent = message;
+    if (toast.textContent !== message) toast.textContent = message;
     toast.classList.add('show');
     clearTimeout(showNotice.timer);
     showNotice.timer = setTimeout(() => toast.classList.remove('show'), 4200);
@@ -542,25 +561,32 @@
     return { label, tone, detail };
   }
 
+  function setNodeText(node, value) {
+    if (!node) return;
+    const text = String(value ?? '');
+    if (node.textContent !== text) node.textContent = text;
+  }
+
   function applyServiceState(state) {
     const dnd = normalizeServiceStatus(readServiceCandidate(state, 'dnd'));
     const core = normalizeServiceStatus(readServiceCandidate(state, 'core'));
     const setBadge = (id, status) => {
       const badge = byId(id);
       if (!badge) return;
-      badge.textContent = status.label;
-      badge.className = `tag ${status.tone}`.trim();
+      setNodeText(badge, status.label);
+      const className = `tag ${status.tone}`.trim();
+      if (badge.className !== className) badge.className = className;
     };
     setBadge('dndAiServiceBadge', dnd);
     setBadge('nexusAiServiceBadge', core);
-    if (byId('dndAiRuntimeStatus')) byId('dndAiRuntimeStatus').textContent = `Veyra: ${dnd.label}`;
-    if (byId('dndAiRuntimeDetail')) byId('dndAiRuntimeDetail').textContent = dnd.detail;
-    if (byId('dndAiServiceRuntime')) byId('dndAiServiceRuntime').textContent = dnd.detail;
-    if (byId('nexusAiServiceRuntime')) byId('nexusAiServiceRuntime').textContent = core.detail;
+    setNodeText(byId('dndAiRuntimeStatus'), `Veyra: ${dnd.label}`);
+    setNodeText(byId('dndAiRuntimeDetail'), dnd.detail);
+    setNodeText(byId('dndAiServiceRuntime'), dnd.detail);
+    setNodeText(byId('nexusAiServiceRuntime'), core.detail);
   }
 
   function bindServiceState() {
-    window.khaos?.onState?.(applyServiceState);
+    window.khaosStateHub?.subscribe?.(applyServiceState);
     window.khaos?.invoke?.('app:get-state').then(applyServiceState).catch(() => {
       applyServiceState(null);
     });
