@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
+const { registerRendererBundle } = require('./renderer-asset-loader.cjs');
 const {
   MAP_MAX_BYTES,
   ensureMapCollections,
@@ -190,11 +191,12 @@ function registerHandlers() {
 }
 function scheduleRegister() { clearTimeout(timer); timer = setTimeout(() => { if (!registerHandlers()) scheduleRegister(); }, 100); timer.unref?.(); }
 function installRendererAssets() {
-  const cssPath = path.join(__dirname, '..', 'renderer', 'dnd-live-maps.css'); const jsPath = path.join(__dirname, '..', 'renderer', 'dnd-live-maps.js');
-  electron.app.on('browser-window-created', (_event, window) => window.webContents.on('did-finish-load', async () => {
-    try { await window.webContents.insertCSS(fs.readFileSync(cssPath, 'utf8')); await window.webContents.executeJavaScript(fs.readFileSync(jsPath, 'utf8'), true); }
-    catch (error) { refs.logger?.error?.('D&D live map assets failed to load.', { message: error.message }); }
-  }));
+  registerRendererBundle({
+    id: 'dnd-live-maps',
+    styles: [path.join(__dirname, '..', 'renderer', 'dnd-live-maps.css')],
+    scripts: [path.join(__dirname, '..', 'renderer', 'dnd-live-maps.js')],
+    source: 'dnd-live-maps-extension.cjs'
+  });
 }
 function install() {
   if (installed) return; installed = true; patchConfigStore();

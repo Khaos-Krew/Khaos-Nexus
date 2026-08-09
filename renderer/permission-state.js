@@ -60,7 +60,7 @@
       .catch(() => {});
   }
 
-  window.khaos.onState((next) => setTimeout(() => apply(next), 0));
+  window.khaosStateHub.subscribe((next) => setTimeout(() => apply(next), 0));
   window.khaos.invoke('app:get-state').then((next) => setTimeout(() => apply(next), 250)).catch(() => {});
   loadUiRefresh();
 })();

@@ -156,7 +156,7 @@
   async function initialize() {
     ensureOverlay();
     hideOverlay();
-    window.khaos.onState((state) => render(state));
+    window.khaosStateHub.subscribe((state) => render(state));
     window.khaos.onStartupHealth?.((health) => {
       startupHealth = health;
       render(latestState);

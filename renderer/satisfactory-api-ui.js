@@ -285,7 +285,7 @@
     updateBaseCopy();
     bind();
     updateFormMode();
-    window.khaos.onState((next) => { currentState = next; renderOperations(); });
+    window.khaosStateHub.subscribe((next) => { currentState = next; renderOperations(); });
     refreshState().catch((error) => notify(errorMessage(error)));
   }
 

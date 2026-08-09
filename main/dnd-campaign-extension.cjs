@@ -24,6 +24,7 @@ const {
   nowIso
 } = require('../shared/dnd-discord.cjs');
 const { DndCampaignService } = require('./services/dnd-campaign-service.cjs');
+const { registerRendererBundle } = require('./renderer-asset-loader.cjs');
 
 const refs = { configStore: null, logger: null, supervisor: null, autonomy: null, discordAuth: null, service: null };
 let installed = false;
@@ -45,19 +46,11 @@ function patchModuleRegistry() {
 }
 
 function installRendererAssets() {
-  const cssPath = path.join(__dirname, '..', 'renderer', 'dnd-workspace.css');
-  const jsPath = path.join(__dirname, '..', 'renderer', 'dnd-workspace.js');
-  electron.app.on('browser-window-created', (_event, window) => {
-    window.webContents.on('did-finish-load', async () => {
-      try {
-        const css = fs.readFileSync(cssPath, 'utf8');
-        const script = fs.readFileSync(jsPath, 'utf8');
-        await window.webContents.insertCSS(css);
-        await window.webContents.executeJavaScript(script, true);
-      } catch (error) {
-        refs.logger?.error?.('D&D workspace assets failed to load.', { message: error.message });
-      }
-    });
+  registerRendererBundle({
+    id: 'dnd-campaign',
+    styles: [path.join(__dirname, '..', 'renderer', 'dnd-workspace.css')],
+    scripts: [path.join(__dirname, '..', 'renderer', 'dnd-workspace.js')],
+    source: 'dnd-campaign-extension.cjs'
   });
 }
 

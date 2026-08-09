@@ -98,11 +98,11 @@ test('missing invoke-success subscription degrades safely', () => {
   assert.doesNotThrow(() => subscribeToInvokeSuccess(null, () => {})());
 });
 
-test('guard is loaded through the existing usability loader after stability', () => {
+test('guard is registered through the centralized usability bundle after stability', () => {
   const loader = fs.readFileSync(path.join(root, 'main', 'dnd-usability-repair-extension.cjs'), 'utf8');
-  const stabilityIndex = loader.indexOf('executeJavaScript(stability');
-  const guardIndex = loader.indexOf('executeJavaScript(refreshGuard');
-  assert.ok(loader.includes("renderer', 'dnd-refresh-guard.js"));
+  const stabilityIndex = loader.indexOf('dnd-usability-stability.js');
+  const guardIndex = loader.indexOf('dnd-refresh-guard.js');
+  assert.match(loader, /registerRendererBundle/);
   assert.ok(stabilityIndex >= 0);
   assert.ok(guardIndex > stabilityIndex);
 });

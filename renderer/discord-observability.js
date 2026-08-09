@@ -244,7 +244,7 @@
     ui.initialized = true;
     ensureNavigation();
     ensureView();
-    window.khaos.onState((state) => { ui.appState = state; if ($('view-observability')?.classList.contains('active')) render(); });
+    window.khaosStateHub.subscribe((state) => { ui.appState = state; if ($('view-observability')?.classList.contains('active')) render(); });
     window.khaos.onDiscordObservability?.((payload) => { ui.payload = payload; if ($('view-observability')?.classList.contains('active')) render(); });
     ui.appState = await invoke('app:get-state').catch(() => null);
     await refresh();

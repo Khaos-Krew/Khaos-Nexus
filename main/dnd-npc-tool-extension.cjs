@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const electron = require('electron');
+const { registerRendererBundle } = require('./renderer-asset-loader.cjs');
 const {
   NPC_IMPORT_MAX_BYTES,
   ensureNpcToolCollections,
@@ -180,11 +181,12 @@ function registerHandlers() {
 }
 function scheduleRegister() { clearTimeout(timer); timer = setTimeout(() => { if (!registerHandlers()) scheduleRegister(); }, 100); timer.unref?.(); }
 function installRendererAssets() {
-  const cssPath = path.join(__dirname, '..', 'renderer', 'dnd-npc-tool.css'); const jsPath = path.join(__dirname, '..', 'renderer', 'dnd-npc-tool.js');
-  electron.app.on('browser-window-created', (_event, window) => window.webContents.on('did-finish-load', async () => {
-    try { await window.webContents.insertCSS(fs.readFileSync(cssPath, 'utf8')); await window.webContents.executeJavaScript(fs.readFileSync(jsPath, 'utf8'), true); }
-    catch (error) { refs.logger?.error?.('D&D NPC tool assets failed to load.', { message: error.message }); }
-  }));
+  registerRendererBundle({
+    id: 'dnd-npc-tool',
+    styles: [path.join(__dirname, '..', 'renderer', 'dnd-npc-tool.css')],
+    scripts: [path.join(__dirname, '..', 'renderer', 'dnd-npc-tool.js')],
+    source: 'dnd-npc-tool-extension.cjs'
+  });
 }
 function install() {
   if (installed) return; installed = true; patchConfigStore();

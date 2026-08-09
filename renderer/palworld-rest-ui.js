@@ -243,7 +243,7 @@
       confirmation: $('palworldShutdownConfirm').value
     }));
     $('palworldForceStopButton').addEventListener('click', () => runAction('stop', { confirmation: $('palworldForceStopConfirm').value }));
-    window.khaos.onState(render);
+    window.khaosStateHub.subscribe(render);
   }
 
   async function initialize() {

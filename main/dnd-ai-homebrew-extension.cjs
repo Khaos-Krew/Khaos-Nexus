@@ -17,6 +17,7 @@ const {
   nowIso
 } = require('../shared/dnd-ai-homebrew.cjs');
 const { callAiService, checkService } = require('./dnd-co-dm-extension.cjs');
+const { registerRendererBundle } = require('./renderer-asset-loader.cjs');
 
 const refs = { configStore: null, autonomy: null, discordAuth: null, supervisor: null, logger: null };
 let installed = false;
@@ -244,17 +245,11 @@ function scheduleRegister() {
 }
 
 function installRendererAssets() {
-  const cssPath = path.join(__dirname, '..', 'renderer', 'dnd-ai-homebrew.css');
-  const jsPath = path.join(__dirname, '..', 'renderer', 'dnd-ai-homebrew.js');
-  electron.app.on('browser-window-created', (_event, window) => {
-    window.webContents.on('did-finish-load', async () => {
-      try {
-        await window.webContents.insertCSS(fs.readFileSync(cssPath, 'utf8'));
-        await window.webContents.executeJavaScript(fs.readFileSync(jsPath, 'utf8'), true);
-      } catch (error) {
-        refs.logger?.error?.('Veyra homebrew assets failed to load.', { message: error.message });
-      }
-    });
+  registerRendererBundle({
+    id: 'dnd-ai-homebrew',
+    styles: [path.join(__dirname, '..', 'renderer', 'dnd-ai-homebrew.css')],
+    scripts: [path.join(__dirname, '..', 'renderer', 'dnd-ai-homebrew.js')],
+    source: 'dnd-ai-homebrew-extension.cjs'
   });
 }
 

@@ -1,23 +1,18 @@
 'use strict';
 
-const fs = require('node:fs');
 const path = require('node:path');
-const electron = require('electron');
+const { registerRendererBundle } = require('./renderer-asset-loader.cjs');
 
 let installed = false;
 
 function install() {
   if (installed) return;
   installed = true;
-  const scriptPath = path.join(__dirname, '..', 'renderer', 'dnd-ai-homebrew-contract.js');
-  electron.app.on('browser-window-created', (_event, window) => {
-    window.webContents.on('did-finish-load', async () => {
-      try {
-        await window.webContents.executeJavaScript(fs.readFileSync(scriptPath, 'utf8'), true);
-      } catch (error) {
-        console.error('Veyra homebrew UI contract failed to load.', error);
-      }
-    });
+  registerRendererBundle({
+    id: 'dnd-ai-homebrew-ui-contract',
+    styles: [],
+    scripts: [path.join(__dirname, '..', 'renderer', 'dnd-ai-homebrew-contract.js')],
+    source: 'dnd-ai-homebrew-ui-contract-extension.cjs'
   });
 }
 

@@ -6,6 +6,7 @@ const electron = require('electron');
 const group = require('../shared/dnd-group-runtime.cjs');
 const runtime = require('../shared/dnd-campaign-runtime.cjs');
 const aiGm = require('./dnd-ai-gm-extension.cjs');
+const { registerRendererBundle } = require('./renderer-asset-loader.cjs');
 
 const refs = { configStore: null, autonomy: null, discordAuth: null, supervisor: null, logger: null };
 let installed = false;
@@ -176,14 +177,12 @@ function scheduleRegister() {
   timer.unref?.();
 }
 function installRendererAssets() {
-  const cssPath = path.join(__dirname, '..', 'renderer', 'dnd-group-runtime.css');
-  const jsPath = path.join(__dirname, '..', 'renderer', 'dnd-group-runtime.js');
-  electron.app.on('browser-window-created', (_event, window) => window.webContents.on('did-finish-load', async () => {
-    try {
-      await window.webContents.insertCSS(fs.readFileSync(cssPath, 'utf8'));
-      await window.webContents.executeJavaScript(fs.readFileSync(jsPath, 'utf8'), true);
-    } catch (error) { refs.logger?.error?.('D&D group runtime assets failed to load.', { message: error.message }); }
-  }));
+  registerRendererBundle({
+    id: 'dnd-group-runtime',
+    styles: [path.join(__dirname, '..', 'renderer', 'dnd-group-runtime.css')],
+    scripts: [path.join(__dirname, '..', 'renderer', 'dnd-group-runtime.js')],
+    source: 'dnd-group-runtime-extension.cjs'
+  });
 }
 function install() {
   if (installed) return;

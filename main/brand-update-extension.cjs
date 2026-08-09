@@ -163,6 +163,7 @@ function patchBrowserLoader() {
           console.info('[Khaos Nexus] Rich brand renderer skipped in software compatibility mode.');
         }
         addScript('simple-updater.js');
+        addScript('state-hub.js');
         addScript('ui-refresh.js');
       })();`).catch((error) => {
         console.error('[Khaos Nexus] Brand/update/primary-navigation renderer bootstrap failed.', error);

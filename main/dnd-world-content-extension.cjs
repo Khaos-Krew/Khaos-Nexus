@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
+const { registerRendererBundle } = require('./renderer-asset-loader.cjs');
 const {
   ensureWorldCollections,
   normalizeWorldRecord,
@@ -203,17 +204,11 @@ function scheduleRegister() {
 }
 
 function installRendererAssets() {
-  const cssPath = path.join(__dirname, '..', 'renderer', 'dnd-world-content.css');
-  const jsPath = path.join(__dirname, '..', 'renderer', 'dnd-world-content.js');
-  electron.app.on('browser-window-created', (_event, window) => {
-    window.webContents.on('did-finish-load', async () => {
-      try {
-        await window.webContents.insertCSS(fs.readFileSync(cssPath, 'utf8'));
-        await window.webContents.executeJavaScript(fs.readFileSync(jsPath, 'utf8'), true);
-      } catch (error) {
-        refs.logger?.error?.('D&D world/content assets failed to load.', { message: error.message });
-      }
-    });
+  registerRendererBundle({
+    id: 'dnd-world-content',
+    styles: [path.join(__dirname, '..', 'renderer', 'dnd-world-content.css')],
+    scripts: [path.join(__dirname, '..', 'renderer', 'dnd-world-content.js')],
+    source: 'dnd-world-content-extension.cjs'
   });
 }
 

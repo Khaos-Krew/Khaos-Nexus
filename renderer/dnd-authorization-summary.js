@@ -75,8 +75,7 @@
     setTimeout(renderAuthorizationSummary, 80);
   }
 
-  const observer = new MutationObserver(schedule);
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+  window.khaosDndDomHub?.subscribe(schedule);
   document.addEventListener('click', async (event) => {
     const toggle = event.target.closest('[data-dnd-toggle-app]');
     if (toggle) {

@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const https = require('node:https');
 const electron = require('electron');
+const { registerRendererBundle } = require('./renderer-asset-loader.cjs');
 const {
   CATALOG_MAX_BYTES,
   PACK_MAX_BYTES,
@@ -390,17 +391,11 @@ function scheduleRegister() {
 }
 
 function installRendererAssets() {
-  const cssPath = path.join(__dirname, '..', 'renderer', 'dnd-content-catalog.css');
-  const jsPath = path.join(__dirname, '..', 'renderer', 'dnd-content-catalog.js');
-  electron.app.on('browser-window-created', (_event, window) => {
-    window.webContents.on('did-finish-load', async () => {
-      try {
-        await window.webContents.insertCSS(fs.readFileSync(cssPath, 'utf8'));
-        await window.webContents.executeJavaScript(fs.readFileSync(jsPath, 'utf8'), true);
-      } catch (error) {
-        refs.logger?.error?.('D&D content catalog assets failed to load.', { message: error.message });
-      }
-    });
+  registerRendererBundle({
+    id: 'dnd-content-catalog',
+    styles: [path.join(__dirname, '..', 'renderer', 'dnd-content-catalog.css')],
+    scripts: [path.join(__dirname, '..', 'renderer', 'dnd-content-catalog.js')],
+    source: 'dnd-content-catalog-extension.cjs'
   });
 }
 

@@ -261,7 +261,7 @@
       notify(`RCON health check completed. ${result.offline || 0} server(s) offline.`);
       render(await invoke('app:get-state'));
     });
-    window.khaos.onState(render);
+    window.khaosStateHub.subscribe(render);
   }
 
   async function initialize() {

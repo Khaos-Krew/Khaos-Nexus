@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
+const { registerRendererBundle } = require('./renderer-asset-loader.cjs');
 const {
   mergeProvisioningApps,
   publicProvisioningApps
@@ -135,15 +136,11 @@ function captureClass(modulePath, exportName, refName) {
 }
 
 function installRendererAsset() {
-  const scriptPath = path.join(__dirname, '..', 'renderer', 'dnd-discord-bot-registry-bridge.js');
-  electron.app.on('browser-window-created', (_event, window) => {
-    window.webContents.on('did-finish-load', async () => {
-      try {
-        await window.webContents.executeJavaScript(fs.readFileSync(scriptPath, 'utf8'), true);
-      } catch (error) {
-        refs.logger?.error?.('D&D bot registry bridge renderer asset failed to load.', { message: error.message });
-      }
-    });
+  registerRendererBundle({
+    id: 'dnd-discord-bot-registry-bridge',
+    styles: [],
+    scripts: [path.join(__dirname, '..', 'renderer', 'dnd-discord-bot-registry-bridge.js')],
+    source: 'dnd-discord-bot-registry-bridge-extension.cjs'
   });
 }
 

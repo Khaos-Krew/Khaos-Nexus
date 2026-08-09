@@ -70,7 +70,7 @@ test('Command Center ignores an older startup snapshot after a live state update
   const script = read('renderer/nexus-shell-v14.js');
   assert.match(script, /liveStateSeen/);
   assert.match(script, /source === 'snapshot' && state\.liveStateSeen/);
-  assert.match(script, /onState\(\(next\) => applyAppState\(next, 'live'\)\)/);
+  assert.match(script, /khaosStateHub\.subscribe\(\(next\) => applyAppState\(next, 'live'\)\)/);
   assert.match(script, /app:get-state'\)\.then\(\(next\) => applyAppState\(next, 'snapshot'\)\)/);
 });
 

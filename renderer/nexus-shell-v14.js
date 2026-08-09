@@ -194,7 +194,7 @@
     ensureTaskRail();
     ensurePalette();
     document.addEventListener('keydown', keydown);
-    window.khaos.onState((next) => applyAppState(next, 'live'));
+    window.khaosStateHub.subscribe((next) => applyAppState(next, 'live'));
     window.khaos.onDiscordObservability?.((next) => { state.observability = next; renderTasks(); });
     window.khaos.invoke('app:get-state').then((next) => applyAppState(next, 'snapshot')).catch(() => {});
     window.khaos.invoke('discord-observability:get').then((next) => { state.observability = next; renderTasks(); }).catch(() => {});

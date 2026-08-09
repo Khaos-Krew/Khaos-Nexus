@@ -336,7 +336,7 @@ async function initialize() {
   applyState(initial);
   renderLogs();
 
-  window.khaos.onState((next) => applyState(next));
+  window.khaosStateHub.subscribe((next) => applyState(next));
   window.khaos.onLog((entry) => {
     if (entry.cleared) state.logs = [];
     else {
@@ -349,6 +349,7 @@ async function initialize() {
   window.khaos.onUpdate((update) => { state.update = update; renderUpdate(update); });
 
   setInterval(() => {
+    if (document.hidden) return;
     if (state.bot?.heartbeat?.uptimeSeconds !== undefined && state.bot.status === 'online') {
       state.bot.heartbeat.uptimeSeconds += 1;
       $('metricUptime').textContent = formatDuration(state.bot.heartbeat.uptimeSeconds);
