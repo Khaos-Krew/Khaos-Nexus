@@ -37,8 +37,10 @@ try {
   if ($installExitCode -ne 0) { throw "Silent installer failed with exit code $installExitCode." }
   if (-not (Test-Path -LiteralPath $exe)) { throw "Installed executable is missing: $exe" }
 
+  # This is another PowerShell script, so a terminating error is the failure signal.
+  # Do not inspect $LASTEXITCODE here; it belongs to the most recent native process
+  # and can retain a stale value even after the PowerShell smoke script succeeds.
   & (Join-Path $PSScriptRoot 'smoke-packaged-startup.ps1') -Executable $exe -SmokeRoot $smokeRoot
-  if ($LASTEXITCODE -ne 0) { throw 'Installed application startup smoke failed.' }
   Write-Host 'Clean installer smoke passed.'
 } finally {
   $uninstaller = @(Get-ChildItem -LiteralPath $InstallRoot -Filter 'Uninstall*.exe' -File -ErrorAction SilentlyContinue | Select-Object -First 1)
