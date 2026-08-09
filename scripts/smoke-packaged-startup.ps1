@@ -1,19 +1,26 @@
 param(
   [string]$Executable = "dist/win-unpacked/Khaos Nexus.exe",
   [int]$ReadyTimeoutSeconds = 95,
-  [int]$WindowTimeoutSeconds = 25
+  [int]$WindowTimeoutSeconds = 25,
+  [string]$SmokeRoot = "",
+  [switch]$ReuseSmokeRoot,
+  [switch]$KeepSmokeRoot
 )
 
 $ErrorActionPreference = 'Stop'
 $resolvedExecutable = Resolve-Path -LiteralPath $Executable
-$smokeRoot = Join-Path $PWD '.packaged-startup-smoke'
+if (-not $SmokeRoot) { $SmokeRoot = Join-Path $PWD '.packaged-startup-smoke' }
+$smokeRoot = [IO.Path]::GetFullPath($SmokeRoot)
 $roaming = Join-Path $smokeRoot 'AppData/Roaming'
 $local = Join-Path $smokeRoot 'AppData/Local'
 $temp = Join-Path $smokeRoot 'Temp'
 $evidence = Join-Path $smokeRoot 'startup-health.json'
 
-Remove-Item -LiteralPath $smokeRoot -Recurse -Force -ErrorAction SilentlyContinue
+if (-not $ReuseSmokeRoot) {
+  Remove-Item -LiteralPath $smokeRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
 New-Item -ItemType Directory -Force -Path $roaming, $local, $temp | Out-Null
+Remove-Item -LiteralPath $evidence -Force -ErrorAction SilentlyContinue
 
 $previous = @{
   APPDATA = $env:APPDATA
@@ -96,5 +103,7 @@ try {
     if ($null -eq $previous[$name]) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
     else { Set-Item "Env:$name" $previous[$name] }
   }
-  Remove-Item -LiteralPath $smokeRoot -Recurse -Force -ErrorAction SilentlyContinue
+  if (-not $KeepSmokeRoot) {
+    Remove-Item -LiteralPath $smokeRoot -Recurse -Force -ErrorAction SilentlyContinue
+  }
 }
