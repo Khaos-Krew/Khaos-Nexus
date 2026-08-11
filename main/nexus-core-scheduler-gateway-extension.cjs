@@ -1,9 +1,6 @@
 'use strict';
 
-const path = require('node:path');
-const { FileEventJournal } = require('../shared/nexus-core/event-journal.cjs');
-const { FileOperationStore } = require('../shared/nexus-core/operation-store.cjs');
-const { CommandGateway } = require('../shared/nexus-core/command-gateway.cjs');
+const { getNexusCoreService } = require('./services/nexus-core-service.cjs');
 
 let installed = false;
 const runtimes = new WeakMap();
@@ -30,12 +27,11 @@ function runtimeFor(service) {
   const existing = runtimes.get(service);
   if (existing) return existing;
 
-  const root = path.join(service.dataDirectory, 'nexus-core');
-  const journal = new FileEventJournal({ filePath: path.join(root, 'events.ndjson') });
-  const operationStore = new FileOperationStore({ directory: path.join(root, 'operations') });
-  const gateway = new CommandGateway({ journal, operationStore });
-
-  gateway.register('scheduler.game.operation', {
+  const core = getNexusCoreService({
+    dataDirectory: service.dataDirectory,
+    logger: service.logger
+  });
+  core.registerAction('scheduler.game.operation', {
     requiredCapabilities: requiredCapabilitiesForSchedulerAction,
     execute: async (request) => {
       const operation = String(request.input.operation || '');
@@ -63,9 +59,8 @@ function runtimeFor(service) {
     }
   });
 
-  const runtime = Object.freeze({ journal, operationStore, gateway });
-  runtimes.set(service, runtime);
-  return runtime;
+  runtimes.set(service, core);
+  return core;
 }
 
 function recoverInterruptedSchedulerState(service) {
@@ -163,7 +158,7 @@ function patchScheduler() {
       const operationPayload = typeof payload === 'function' ? payload(server) : payload;
       try {
         const request = actionEnvelope(this, schedule, server, operation, operationPayload, historyId, stage);
-        const result = await core.gateway.dispatch(request, {
+        const result = await core.commandGateway.dispatch(request, {
           role: 'locked',
           grantedCapabilities: [capability]
         });
