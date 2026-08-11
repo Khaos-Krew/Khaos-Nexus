@@ -3,6 +3,7 @@
 const path = require('node:path');
 const { FileEventJournal } = require('../../shared/nexus-core/event-journal.cjs');
 const { FileOperationStore } = require('../../shared/nexus-core/operation-store.cjs');
+const { FileSnapshotStore } = require('../../shared/nexus-core/snapshot-store.cjs');
 const { CommandGateway } = require('../../shared/nexus-core/command-gateway.cjs');
 const { WorkerSupervisor } = require('../../shared/nexus-core/worker-supervisor.cjs');
 const { ContextBroker } = require('../../shared/nexus-core/context-broker.cjs');
@@ -32,7 +33,18 @@ class NexusCoreService {
       filePath: path.join(this.rootDirectory, 'events.ndjson')
     });
     this.operationStore = new FileOperationStore({
-      directory: path.join(this.rootDirectory, 'operations')
+      directory: path.join(this.rootDirectory, 'operations'),
+      now: options.now
+    });
+    this.operationRecovery = this.operationStore.reconcileInterrupted();
+    if (this.operationRecovery.interrupted) {
+      this.logger?.warn?.('Nexus Core recovered interrupted operations as uncertain without replay.', {
+        interrupted: this.operationRecovery.interrupted,
+        scanned: this.operationRecovery.scanned
+      });
+    }
+    this.snapshotStore = new FileSnapshotStore({
+      directory: path.join(this.rootDirectory, 'snapshots')
     });
     this.commandGateway = new CommandGateway({
       journal: this.journal,
@@ -103,10 +115,30 @@ class NexusCoreService {
     this.aiToolGateway.approvalVerifier = verifier;
   }
 
+  saveSnapshot(name, state, options = {}) {
+    const sequence = Number.isSafeInteger(Number(options.sequence))
+      ? Number(options.sequence)
+      : this.journal.stats().lastSequence;
+    return this.snapshotStore.save(name, {
+      schemaVersion: Number.isSafeInteger(Number(options.schemaVersion)) ? Number(options.schemaVersion) : 1,
+      sequence,
+      createdAt: options.createdAt,
+      state
+    });
+  }
+
+  loadSnapshot(name) {
+    return this.snapshotStore.load(name);
+  }
+
   snapshot() {
     const journal = this.journal.stats();
     return Object.freeze({
       journal,
+      recovery: Object.freeze({
+        interruptedOperations: this.operationRecovery.interrupted,
+        scannedOperations: this.operationRecovery.scanned
+      }),
       actions: this.registeredActions.size,
       tools: this.registeredTools.size,
       contextProviders: this.registeredContextProviders.size,
@@ -119,11 +151,14 @@ class NexusCoreService {
     const snapshot = this.snapshot();
     return Object.freeze({
       schemaVersion: CORE_PROJECTION_VERSION,
-      status: 'ready',
+      status: snapshot.recovery.interruptedOperations ? 'attention' : 'ready',
       journal: Object.freeze({
         records: snapshot.journal.records,
         scopes: snapshot.journal.scopes,
         lastSequence: snapshot.journal.lastSequence
+      }),
+      recovery: Object.freeze({
+        interruptedOperations: snapshot.recovery.interruptedOperations
       }),
       registry: Object.freeze({
         actions: snapshot.actions,
