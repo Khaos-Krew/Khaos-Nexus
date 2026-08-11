@@ -162,3 +162,30 @@ test('registered executor capability requirements are authoritative even when ca
   assert.equal(result.status, 'denied');
   assert.match(result.error.message, /game\.server\.restart/);
 });
+
+test('dynamic executor capability requirements cannot be weakened by the caller', async () => {
+  const { gateway, journal } = harness();
+  let executions = 0;
+  gateway.register('game.server.operation', {
+    requiredCapabilities: (request) => request.input.operation === 'save'
+      ? ['game.server.save']
+      : ['game.server.restart'],
+    execute: async () => {
+      executions += 1;
+      return { ok: true };
+    }
+  });
+
+  const request = action({
+    action: 'game.server.operation',
+    requiredCapabilities: [],
+    input: { operation: 'save' }
+  });
+  const denied = await gateway.dispatch(request, { role: 'viewer' });
+  assert.equal(denied.status, 'denied');
+  assert.equal(executions, 0);
+  assert.match(denied.error.message, /game\.server\.save/);
+
+  const requested = journal.list({ type: 'core.action.requested' })[0];
+  assert.deepEqual(requested.event.payload.requiredCapabilities, ['game.server.save']);
+});
