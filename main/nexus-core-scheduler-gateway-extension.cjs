@@ -14,6 +14,8 @@ const OPERATION_CAPABILITY = Object.freeze({
   shutdown: 'game.server.restart'
 });
 
+const INTERRUPTED_SUMMARY = 'Nexus Core detected that this workflow was interrupted by a desktop/runtime restart. Destructive steps will not be replayed automatically; verify server state before running the workflow again.';
+
 function capabilityForSchedulerOperation(operation) {
   return OPERATION_CAPABILITY[String(operation || '')] || null;
 }
@@ -66,6 +68,57 @@ function runtimeFor(service) {
   return runtime;
 }
 
+function recoverInterruptedSchedulerState(service) {
+  if (!service || !service.runtime || !Array.isArray(service.history)) {
+    return Object.freeze({ recoveredOccurrences: 0, recoveredHistory: 0 });
+  }
+
+  const completedAt = new Date(service.now()).toISOString();
+  let recoveredOccurrences = 0;
+  let runtimeChanged = false;
+
+  for (const state of Object.values(service.runtime.occurrences || {})) {
+    if (!state || state.completed || !state.finalStarted) continue;
+    state.completed = true;
+    state.outcome = 'failed';
+    state.recoveryReason = 'interrupted-runtime';
+    state.updatedAt = completedAt;
+    recoveredOccurrences += 1;
+    runtimeChanged = true;
+  }
+  if (runtimeChanged) service.saveRuntime();
+
+  let recoveredHistory = 0;
+  for (const entry of [...service.history]) {
+    if (entry?.outcome !== 'running') continue;
+    const details = [...(entry.details || []), {
+      time: completedAt,
+      stage: entry.stage || 'recovery',
+      serverId: '',
+      serverName: '',
+      outcome: 'warning',
+      message: INTERRUPTED_SUMMARY
+    }].slice(-100);
+    service.updateHistory(entry.id, {
+      outcome: 'failed',
+      completedAt,
+      stage: 'completed',
+      summary: INTERRUPTED_SUMMARY,
+      details
+    });
+    recoveredHistory += 1;
+  }
+
+  if (recoveredOccurrences || recoveredHistory) {
+    service.logger?.warn?.('Interrupted scheduler workflows were reconciled without replay.', {
+      recoveredOccurrences,
+      recoveredHistory
+    });
+  }
+
+  return Object.freeze({ recoveredOccurrences, recoveredHistory });
+}
+
 function actionEnvelope(service, schedule, server, operation, payload, historyId, stage) {
   if (!capabilityForSchedulerOperation(operation)) return null;
   const operationId = `scheduler:${historyId}:${stage}:${server.id}:${operation}`;
@@ -92,11 +145,17 @@ function patchScheduler() {
   const prototype = target.ServerSchedulerService?.prototype;
   if (!prototype || prototype.__khaosNexusCoreGatewayPatched) return;
   const { safeResult } = target;
-  const original = prototype.actionAcrossServers;
+  const originalActionAcrossServers = prototype.actionAcrossServers;
+  const originalStart = prototype.start;
+
+  prototype.start = function nexusCoreSchedulerStart(...args) {
+    recoverInterruptedSchedulerState(this);
+    return originalStart.apply(this, args);
+  };
 
   prototype.actionAcrossServers = async function nexusCoreActionAcrossServers(schedule, servers, operation, payload, historyId, stage) {
     const capability = capabilityForSchedulerOperation(operation);
-    if (!capability) return original.call(this, schedule, servers, operation, payload, historyId, stage);
+    if (!capability) return originalActionAcrossServers.call(this, schedule, servers, operation, payload, historyId, stage);
 
     const core = runtimeFor(this);
     const results = [];
@@ -158,5 +217,7 @@ module.exports = {
   runtimeFor,
   actionEnvelope,
   capabilityForSchedulerOperation,
-  requiredCapabilitiesForSchedulerAction
+  requiredCapabilitiesForSchedulerAction,
+  recoverInterruptedSchedulerState,
+  INTERRUPTED_SUMMARY
 };
