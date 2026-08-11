@@ -8,17 +8,19 @@ const { latestYmlAdvertisesVersion } = require('./release-metadata.cjs');
 const root = path.resolve(__dirname, '..');
 const dist = path.join(root, 'dist');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-const version = String(pkg.khaosRelease?.artifactVersion || pkg.build?.extraMetadata?.version || pkg.version || '').trim();
+const artifactVersion = String(pkg.khaosRelease?.artifactVersion || pkg.build?.extraMetadata?.version || pkg.version || '').trim();
+const updaterVersion = String(pkg.khaosRelease?.updaterVersion || pkg.version || artifactVersion).trim();
 const arch = String(process.env.KHAOS_RELEASE_ARCH || 'x64').trim();
 const requireUpdaterMetadata = process.env.KHAOS_REQUIRE_UPDATER_METADATA === '1';
 
-if (!version) throw new Error('Unable to resolve release artifact version from package.json.');
+if (!artifactVersion) throw new Error('Unable to resolve release artifact version from package.json.');
+if (!updaterVersion) throw new Error('Unable to resolve updater version from package.json.');
 if (!fs.existsSync(dist)) throw new Error(`Missing dist directory: ${dist}`);
 
 const expected = [
-  { name: `Khaos-Nexus-Setup-${version}-${arch}.exe`, required: true, minBytes: 1024 * 1024 },
-  { name: `Khaos-Nexus-Portable-${version}-${arch}.exe`, required: true, minBytes: 1024 * 1024 },
-  { name: `Khaos-Nexus-Setup-${version}-${arch}.exe.blockmap`, required: requireUpdaterMetadata, minBytes: 1 },
+  { name: `Khaos-Nexus-Setup-${artifactVersion}-${arch}.exe`, required: true, minBytes: 1024 * 1024 },
+  { name: `Khaos-Nexus-Portable-${artifactVersion}-${arch}.exe`, required: true, minBytes: 1024 * 1024 },
+  { name: `Khaos-Nexus-Setup-${artifactVersion}-${arch}.exe.blockmap`, required: requireUpdaterMetadata, minBytes: 1 },
   { name: 'latest.yml', required: requireUpdaterMetadata, minBytes: 1 }
 ];
 
@@ -44,18 +46,20 @@ for (const item of expected) {
 if (requireUpdaterMetadata) {
   const latestPath = path.join(dist, 'latest.yml');
   const latest = fs.readFileSync(latestPath, 'utf8');
-  if (!latestYmlAdvertisesVersion(latest, version)) {
-    throw new Error(`latest.yml does not advertise version ${version}.`);
+  if (!latestYmlAdvertisesVersion(latest, updaterVersion)) {
+    throw new Error(`latest.yml does not advertise updater version ${updaterVersion}.`);
   }
-  if (!latest.includes(`Khaos-Nexus-Setup-${version}-${arch}.exe`)) {
+  if (!latest.includes(`Khaos-Nexus-Setup-${artifactVersion}-${arch}.exe`)) {
     throw new Error('latest.yml does not reference the expected installer artifact.');
   }
 }
 
 const manifest = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   product: 'Khaos Nexus',
-  version,
+  version: artifactVersion,
+  artifactVersion,
+  updaterVersion,
   arch,
   sourceCommit: process.env.GITHUB_SHA || null,
   workflowRunId: process.env.GITHUB_RUN_ID || null,
@@ -68,4 +72,6 @@ const manifest = {
 const manifestPath = path.join(dist, 'release-manifest.json');
 fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 for (const file of files) console.log(`${file.name} | ${file.bytes} bytes | SHA256 ${file.sha256}`);
+console.log(`Artifact version: ${artifactVersion}`);
+console.log(`Updater version: ${updaterVersion}`);
 console.log(`Release manifest written: ${path.relative(root, manifestPath)}`);
