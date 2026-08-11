@@ -42,7 +42,8 @@ test('all live game mutation modules dispatch through Nexus Core', () => {
 
 test('owner-only direct shutdown, force-stop, ban, and raw console capabilities are absent from operator role', () => {
   const source = read('shared/nexus-core/capability-registry.cjs');
-  const operatorBlock = source.match(/operator: Object\.freeze\(\[([\s\S]*?)\]\),\n  'community-manager'/)?.[1] || '';
+  const operatorBlock = source.match(/operator: Object\.freeze\(\[([\s\S]*?)\]\),\s*'community-manager'/)?.[1] || '';
+  assert.notEqual(operatorBlock, '', 'operator capability block should be discoverable on LF and CRLF checkouts');
   assert.doesNotMatch(operatorBlock, /game\.server\.shutdown/);
   assert.doesNotMatch(operatorBlock, /game\.server\.stop/);
   assert.doesNotMatch(operatorBlock, /game\.player\.ban/);
