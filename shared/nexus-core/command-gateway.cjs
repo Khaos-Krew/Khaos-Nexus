@@ -17,6 +17,12 @@ function normalizeError(error) {
   };
 }
 
+function normalizeCapabilities(value, field = 'requiredCapabilities') {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw gatewayError(`${field} must resolve to an array.`);
+  return [...new Set(value.map((entry) => String(entry || '').trim()).filter(Boolean))].sort();
+}
+
 class CommandGateway {
   constructor(options = {}) {
     if (!options.operationStore) throw gatewayError('operationStore is required.');
@@ -33,9 +39,20 @@ class CommandGateway {
     if (!name) throw gatewayError('actionName is required.');
     if (typeof definition.execute !== 'function') throw gatewayError(`${name} requires an execute function.`);
     if (this.executors.has(name)) throw gatewayError(`${name} is already registered.`, 'NEXUS_ACTION_ALREADY_REGISTERED');
-    const requiredCapabilities = [...new Set((definition.requiredCapabilities || []).map(String))].sort();
+
+    let resolveRequiredCapabilities;
+    if (typeof definition.requiredCapabilities === 'function') {
+      resolveRequiredCapabilities = (action) => normalizeCapabilities(
+        definition.requiredCapabilities(action),
+        `${name}.requiredCapabilities`
+      );
+    } else {
+      const configured = Object.freeze(normalizeCapabilities(definition.requiredCapabilities));
+      resolveRequiredCapabilities = () => configured;
+    }
+
     this.executors.set(name, Object.freeze({
-      requiredCapabilities: Object.freeze(requiredCapabilities),
+      resolveRequiredCapabilities,
       execute: definition.execute,
       verify: typeof definition.verify === 'function' ? definition.verify : null
     }));
@@ -65,8 +82,9 @@ class CommandGateway {
     const definition = this.executors.get(action.action);
     if (!definition) throw gatewayError(`No executor is registered for ${action.action}.`, 'NEXUS_ACTION_NOT_REGISTERED');
 
+    const executorCapabilities = definition.resolveRequiredCapabilities(action);
     const requiredCapabilities = [...new Set([
-      ...definition.requiredCapabilities,
+      ...executorCapabilities,
       ...action.requiredCapabilities
     ])].sort();
 
