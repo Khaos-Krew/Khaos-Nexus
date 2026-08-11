@@ -66,7 +66,10 @@ test('AI tool boundary has no raw infrastructure dependencies', () => {
 
 test('Core context broker never imports game, Discord, database, or model providers directly', () => {
   const source = fs.readFileSync(path.join(root, 'shared', 'nexus-core', 'context-broker.cjs'), 'utf8');
-  assert.doesNotMatch(source, /rcon|discord\.js|supabase|postgres|openai|anthropic|ollama/i);
+  const forbiddenImport = /require\(['"][^'"]*(?:rcon|discord|supabase|postgres|openai|anthropic|ollama)[^'"]*['"]\)/i;
+  assert.doesNotMatch(source, forbiddenImport);
   assert.match(source, /registerProvider/);
   assert.match(source, /registerWorker/);
+  assert.match(source, /rconpassword/);
+  assert.match(source, /openaiapikey/);
 });
