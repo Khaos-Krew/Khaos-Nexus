@@ -99,7 +99,9 @@ class FileOperationStore {
     const filePath = this.filePath(idempotencyKey);
     const temporary = `${filePath}.${process.pid}.${Date.now()}.tmp`;
     fs.writeFileSync(temporary, JSON.stringify(next, null, 2), 'utf8');
-    const fd = fs.openSync(temporary, 'r');
+    // Windows rejects fsync on a read-only descriptor. Open the completed
+    // record read/write so durability semantics remain enabled cross-platform.
+    const fd = fs.openSync(temporary, 'r+');
     try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
     fs.renameSync(temporary, filePath);
     return Object.freeze(clone(next));
