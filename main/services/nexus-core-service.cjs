@@ -8,6 +8,7 @@ const { WorkerSupervisor } = require('../../shared/nexus-core/worker-supervisor.
 const { ContextBroker } = require('../../shared/nexus-core/context-broker.cjs');
 const { AiToolGateway } = require('../../shared/nexus-core/ai-tool-gateway.cjs');
 
+const CORE_PROJECTION_VERSION = 1;
 const instances = new Map();
 
 function coreError(message, code = 'NEXUS_CORE_SERVICE_INVALID') {
@@ -113,6 +114,34 @@ class NexusCoreService {
       workerStates: this.workerSupervisor.all()
     });
   }
+
+  publicSnapshot() {
+    const snapshot = this.snapshot();
+    return Object.freeze({
+      schemaVersion: CORE_PROJECTION_VERSION,
+      status: 'ready',
+      journal: Object.freeze({
+        records: snapshot.journal.records,
+        scopes: snapshot.journal.scopes,
+        lastSequence: snapshot.journal.lastSequence
+      }),
+      registry: Object.freeze({
+        actions: snapshot.actions,
+        tools: snapshot.tools,
+        contextProviders: snapshot.contextProviders,
+        workers: snapshot.workers
+      }),
+      workers: Object.freeze(snapshot.workerStates.map((worker) => Object.freeze({
+        id: worker.id,
+        status: worker.status,
+        desiredRunning: worker.desiredRunning,
+        readyAt: worker.readyAt,
+        failedAt: worker.failedAt,
+        restartCount: worker.restartCount,
+        circuitOpen: worker.circuitOpen
+      })))
+    });
+  }
 }
 
 function getNexusCoreService(options = {}) {
@@ -130,6 +159,7 @@ function getNexusCoreService(options = {}) {
 }
 
 module.exports = {
+  CORE_PROJECTION_VERSION,
   NexusCoreService,
   getNexusCoreService
 };
