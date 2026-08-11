@@ -31,6 +31,19 @@ function patchConfigStore() {
       refs.configStore = this;
       ensureCore();
     }
+
+    getPublicConfig() {
+      const config = super.getPublicConfig();
+      const core = ensureCore();
+      config.nexusCore = core?.publicSnapshot?.() || {
+        schemaVersion: 1,
+        status: 'starting',
+        journal: { records: 0, scopes: 0, lastSequence: 0 },
+        registry: { actions: 0, tools: 0, contextProviders: 0, workers: 0 },
+        workers: []
+      };
+      return config;
+    }
   }
 
   Object.defineProperty(NexusCoreConfigStore, '__khaosNexusCoreFoundationPatched', { value: true });
