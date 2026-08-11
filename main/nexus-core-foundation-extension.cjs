@@ -10,6 +10,61 @@ const refs = {
 };
 let installed = false;
 
+function registerCoreBoundaries(core) {
+  if (!core) return;
+
+  core.registerWorker('nexus-sentinel', {
+    allowedScopeKinds: ['server', 'module', 'user'],
+    deniedScopeKinds: ['campaign', 'dnd-session'],
+    maxScopes: 8
+  });
+  core.registerWorker('veyra', {
+    allowedScopeKinds: ['campaign', 'dnd-session', 'user'],
+    deniedScopeKinds: ['server', 'module', 'hosted-server'],
+    maxScopes: 8
+  });
+
+  core.registerContextProvider('server', async (scope) => {
+    const config = refs.configStore?.getPublicConfig?.() || {};
+    const server = (config.servers || []).find((item) => String(item.id) === String(scope.id));
+    if (!server) return { found: false, id: scope.id };
+    return {
+      found: true,
+      id: server.id,
+      name: server.name,
+      game: server.game,
+      enabled: server.enabled !== false,
+      connectionType: server.connectionType || (server.game === 'palworld' ? 'rest' : 'rcon'),
+      configured: Boolean(server.hasPassword)
+    };
+  });
+
+  core.registerContextProvider('module', async (scope) => {
+    const config = refs.configStore?.getPublicConfig?.() || {};
+    const migration = config.general?.moduleMigration?.[scope.id] || null;
+    return migration
+      ? {
+          found: true,
+          id: scope.id,
+          enabled: migration.enabled !== false,
+          completedSteps: Array.isArray(migration.completedSteps) ? migration.completedSteps.slice(0, 20) : [],
+          updatedAt: migration.updatedAt || null
+        }
+      : { found: false, id: scope.id };
+  });
+
+  core.registerContextProvider('user', async (scope) => {
+    const config = refs.configStore?.getPublicConfig?.() || {};
+    const id = String(scope.id);
+    const ownerId = String(config.discord?.ownerUserId || '');
+    const operators = Array.isArray(config.discord?.operatorUserIds) ? config.discord.operatorUserIds.map(String) : [];
+    return {
+      id,
+      role: id && id === ownerId ? 'owner' : operators.includes(id) ? 'operator' : 'viewer'
+    };
+  });
+}
+
 function ensureCore() {
   const configPath = refs.configStore?.configPath;
   if (!configPath) return refs.core;
@@ -17,6 +72,7 @@ function ensureCore() {
     dataDirectory: path.dirname(configPath),
     logger: refs.logger
   });
+  registerCoreBoundaries(refs.core);
   return refs.core;
 }
 
@@ -77,5 +133,6 @@ function install() {
 module.exports = {
   install,
   refs,
-  ensureCore
+  ensureCore,
+  registerCoreBoundaries
 };
