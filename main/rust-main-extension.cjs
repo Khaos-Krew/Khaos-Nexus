@@ -1,14 +1,28 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const path = require('node:path');
 const electron = require('electron');
 const { createCurrentServerAdapter } = require('../bot/game-adapters/current-server-adapter.cjs');
 const { executeAdapterOperation } = require('../shared/game-adapter-sdk.cjs');
 const { normalizeRustHost } = require('../bot/rust-webrcon.cjs');
 const { serverModuleEnabled } = require('../shared/game-module-policy.cjs');
+const { getNexusCoreService } = require('./services/nexus-core-service.cjs');
 
 const refs = { configStore: null, autonomy: null, discordAuth: null, logger: null };
 let installed = false;
+let coreActionRegistered = false;
+
+const RUST_MUTATION_CAPABILITIES = Object.freeze({
+  announce: 'game.server.broadcast',
+  save: 'game.server.save',
+  kick: 'game.player.moderate',
+  ban: 'game.player.ban',
+  unban: 'game.player.ban',
+  shutdown: 'game.server.shutdown',
+  stop: 'game.server.stop',
+  raw: 'game.console.raw'
+});
 
 function captureClass(modulePath, exportName, refName) {
   const target = require(modulePath);
@@ -138,12 +152,70 @@ function actorRole() {
   return refs.autonomy?.accessState(refs.discordAuth?.getState())?.role || 'local-admin';
 }
 
-async function executeRust(server, action, payload = {}) {
+async function executeRustAdapter(server, action, payload = {}, role = actorRole()) {
   const adapter = createCurrentServerAdapter(server, { logger: refs.logger });
   return executeAdapterOperation(adapter, action, payload, {
-    role: actorRole(),
+    role,
     explicitSecrets: [server.password]
   });
+}
+
+function coreForRust() {
+  if (!refs.configStore?.configPath) throw new Error('Nexus Core is still initializing for Rust operations.');
+  const core = getNexusCoreService({ dataDirectory: path.dirname(refs.configStore.configPath), logger: refs.logger });
+  if (!coreActionRegistered) {
+    core.registerAction('rust.server.mutation', {
+      requiredCapabilities: (request) => {
+        const capability = RUST_MUTATION_CAPABILITIES[String(request.input.action || '')];
+        return capability ? [capability] : ['rust.unsupported-mutation'];
+      },
+      execute: async (request) => {
+        const action = String(request.input.action || '');
+        if (!RUST_MUTATION_CAPABILITIES[action]) {
+          const error = new Error(`Unsupported Rust mutation: ${action}`);
+          error.code = 'NEXUS_RUST_MUTATION_UNSUPPORTED';
+          throw error;
+        }
+        return executeRustAdapter(getRustServer(request.input.serverId), action, request.input.payload || {}, request.input.role || 'owner');
+      }
+    });
+    coreActionRegistered = true;
+  }
+  return core;
+}
+
+function rustOperationId(server, action, payload, explicitId) {
+  if (explicitId) return String(explicitId).slice(0, 190);
+  const digest = crypto.createHash('sha256').update(JSON.stringify([server.id, action, payload || {}])).digest('hex').slice(0, 20);
+  return `rust:${action}:${server.id}:${Math.floor(Date.now() / 2000)}:${digest}`;
+}
+
+async function executeRust(server, action, payload = {}, options = {}) {
+  const role = options.role || actorRole();
+  const capability = RUST_MUTATION_CAPABILITIES[action];
+  if (!capability) return executeRustAdapter(server, action, payload, role);
+  const core = coreForRust();
+  const operationId = rustOperationId(server, action, payload, options.operationId);
+  const auth = refs.discordAuth?.getState?.() || {};
+  const result = await core.commandGateway.dispatch({
+    operationId,
+    action: 'rust.server.mutation',
+    requestedAt: new Date().toISOString(),
+    scope: { kind: 'server', id: String(server.id) },
+    actor: { kind: 'user', id: String(auth.user?.id || 'local') },
+    source: { kind: 'desktop', id: 'rust-operations' },
+    correlationId: operationId,
+    idempotencyKey: operationId,
+    requiredCapabilities: [],
+    input: { serverId: String(server.id), action, payload, role }
+  }, { role });
+  if (result.status === 'succeeded') return result.output;
+  if (result.status === 'duplicate' && result.output?.originalState === 'completed' && result.output?.originalResultStatus === 'succeeded') {
+    return { ok: true, duplicate: true, data: { message: 'Nexus Core suppressed a duplicate Rust mutation.' } };
+  }
+  const error = new Error(result.error?.message || `Rust ${action} was blocked by Nexus Core (${result.status}).`);
+  error.code = result.error?.code || 'NEXUS_RUST_MUTATION_BLOCKED';
+  throw error;
 }
 
 function registerIpc() {
@@ -174,7 +246,7 @@ function registerIpc() {
       throw new Error('Type RUN RAW COMMAND to confirm an unrestricted Owner console command.');
     }
 
-    const result = await executeRust(server, action, payload);
+    const result = await executeRust(server, action, payload, { role, operationId: request.operationId });
     refs.logger?.info('Rust WebRCON action completed.', {
       server: server.name,
       action,
@@ -201,6 +273,8 @@ module.exports = {
   refs,
   normalizeRustServer,
   executeRust,
+  executeRustAdapter,
+  RUST_MUTATION_CAPABILITIES,
   rustModuleEnabled,
   rustModuleEnabledFromRuntime,
   getRustServer
