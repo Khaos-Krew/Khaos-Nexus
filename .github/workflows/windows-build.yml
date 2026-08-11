@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   pull_request:
   push:
-    branches: [main, "agent/**", "rollback/**"]
+    branches: [main, "agent/**", "rollback/**", "release/**"]
     tags: ["v*"]
 
 permissions:
@@ -34,6 +34,8 @@ jobs:
           restore-keys: |
             electron-windows-
       - run: npm ci
+      - name: Freeze v0.41.0-B Nexus Core candidate metadata
+        run: node scripts/freeze-v0.41-nexus-core.cjs
       - name: Run tests
         shell: pwsh
         run: |
@@ -99,6 +101,7 @@ jobs:
       - name: Verify Windows release artifacts and write manifest
         env:
           KHAOS_REQUIRE_SIGNING: ${{ vars.KHAOS_REQUIRE_SIGNING }}
+          KHAOS_REQUIRE_UPDATER_METADATA: '1'
         run: node scripts/verify-release-artifacts.cjs
       - name: Verify Windows Authenticode policy
         shell: pwsh
