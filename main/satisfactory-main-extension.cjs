@@ -1,14 +1,25 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const path = require('node:path');
 const electron = require('electron');
 const { createCurrentServerAdapter } = require('../bot/game-adapters/current-server-adapter.cjs');
 const { executeAdapterOperation } = require('../shared/game-adapter-sdk.cjs');
 const { SatisfactoryApiClient, normalizeHost, normalizePort, normalizeFingerprint, formatFingerprint } = require('../bot/satisfactory-api.cjs');
 const { serverModuleEnabled } = require('../shared/game-module-policy.cjs');
+const { getNexusCoreService } = require('./services/nexus-core-service.cjs');
 
 const refs = { configStore: null, autonomy: null, discordAuth: null, logger: null };
 let installed = false;
+let coreActionRegistered = false;
+
+const SATISFACTORY_MUTATION_CAPABILITIES = Object.freeze({
+  backup: 'backup.create',
+  save: 'game.server.save',
+  shutdown: 'game.server.shutdown',
+  stop: 'game.server.stop',
+  raw: 'game.console.raw'
+});
 
 function captureClass(modulePath, exportName, refName) {
   const target = require(modulePath);
@@ -144,12 +155,70 @@ function actorRole() {
   return refs.autonomy?.accessState(refs.discordAuth?.getState())?.role || 'local-admin';
 }
 
-async function executeSatisfactory(server, action, payload = {}) {
+async function executeSatisfactoryAdapter(server, action, payload = {}, role = actorRole()) {
   const adapter = createCurrentServerAdapter(server, { logger: refs.logger });
   return executeAdapterOperation(adapter, action, payload, {
-    role: actorRole(),
+    role,
     explicitSecrets: [server.password]
   });
+}
+
+function coreForSatisfactory() {
+  if (!refs.configStore?.configPath) throw new Error('Nexus Core is still initializing for Satisfactory operations.');
+  const core = getNexusCoreService({ dataDirectory: path.dirname(refs.configStore.configPath), logger: refs.logger });
+  if (!coreActionRegistered) {
+    core.registerAction('satisfactory.server.mutation', {
+      requiredCapabilities: (request) => {
+        const capability = SATISFACTORY_MUTATION_CAPABILITIES[String(request.input.action || '')];
+        return capability ? [capability] : ['satisfactory.unsupported-mutation'];
+      },
+      execute: async (request) => {
+        const action = String(request.input.action || '');
+        if (!SATISFACTORY_MUTATION_CAPABILITIES[action]) {
+          const error = new Error(`Unsupported Satisfactory mutation: ${action}`);
+          error.code = 'NEXUS_SATISFACTORY_MUTATION_UNSUPPORTED';
+          throw error;
+        }
+        return executeSatisfactoryAdapter(runtimeServer(request.input.serverId), action, request.input.payload || {}, request.input.role || 'owner');
+      }
+    });
+    coreActionRegistered = true;
+  }
+  return core;
+}
+
+function satisfactoryOperationId(server, action, payload, explicitId) {
+  if (explicitId) return String(explicitId).slice(0, 190);
+  const digest = crypto.createHash('sha256').update(JSON.stringify([server.id, action, payload || {}])).digest('hex').slice(0, 20);
+  return `satisfactory:${action}:${server.id}:${Math.floor(Date.now() / 2000)}:${digest}`;
+}
+
+async function executeSatisfactory(server, action, payload = {}, options = {}) {
+  const role = options.role || actorRole();
+  const capability = SATISFACTORY_MUTATION_CAPABILITIES[action];
+  if (!capability) return executeSatisfactoryAdapter(server, action, payload, role);
+  const core = coreForSatisfactory();
+  const operationId = satisfactoryOperationId(server, action, payload, options.operationId);
+  const auth = refs.discordAuth?.getState?.() || {};
+  const result = await core.commandGateway.dispatch({
+    operationId,
+    action: 'satisfactory.server.mutation',
+    requestedAt: new Date().toISOString(),
+    scope: { kind: 'server', id: String(server.id) },
+    actor: { kind: 'user', id: String(auth.user?.id || 'local') },
+    source: { kind: 'desktop', id: 'satisfactory-operations' },
+    correlationId: operationId,
+    idempotencyKey: operationId,
+    requiredCapabilities: [],
+    input: { serverId: String(server.id), action, payload, role }
+  }, { role });
+  if (result.status === 'succeeded') return result.output;
+  if (result.status === 'duplicate' && result.output?.originalState === 'completed' && result.output?.originalResultStatus === 'succeeded') {
+    return { ok: true, duplicate: true, data: { message: 'Nexus Core suppressed a duplicate Satisfactory mutation.' } };
+  }
+  const error = new Error(result.error?.message || `Satisfactory ${action} was blocked by Nexus Core (${result.status}).`);
+  error.code = result.error?.code || 'NEXUS_SATISFACTORY_MUTATION_BLOCKED';
+  throw error;
 }
 
 function registerIpc() {
@@ -186,7 +255,7 @@ function registerIpc() {
     if (action === 'raw' && String(payload.confirmation || '').trim().toUpperCase() !== 'RUN RAW COMMAND') {
       throw new Error('Type RUN RAW COMMAND to confirm an unrestricted Owner console command.');
     }
-    const result = await executeSatisfactory(server, action, payload);
+    const result = await executeSatisfactory(server, action, payload, { role, operationId: request.operationId });
     refs.logger?.info('Satisfactory API action completed.', { server: server.name, action, requestId: result.requestId, durationMs: result.durationMs });
     return { action, server: server.name, result };
   });
@@ -210,5 +279,7 @@ module.exports = {
   satisfactoryModuleEnabled,
   satisfactoryModuleEnabledFromRuntime,
   executeSatisfactory,
+  executeSatisfactoryAdapter,
+  SATISFACTORY_MUTATION_CAPABILITIES,
   runtimeServer
 };
