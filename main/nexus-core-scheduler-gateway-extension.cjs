@@ -18,6 +18,12 @@ function capabilityForSchedulerOperation(operation) {
   return OPERATION_CAPABILITY[String(operation || '')] || null;
 }
 
+function requiredCapabilitiesForSchedulerAction(request) {
+  const operation = String(request?.input?.operation || '');
+  const capability = capabilityForSchedulerOperation(operation);
+  return capability ? [capability] : ['scheduler.unsupported-operation'];
+}
+
 function runtimeFor(service) {
   const existing = runtimes.get(service);
   if (existing) return existing;
@@ -28,7 +34,7 @@ function runtimeFor(service) {
   const gateway = new CommandGateway({ journal, operationStore });
 
   gateway.register('scheduler.game.operation', {
-    requiredCapabilities: [],
+    requiredCapabilities: requiredCapabilitiesForSchedulerAction,
     execute: async (request) => {
       const operation = String(request.input.operation || '');
       const capability = capabilityForSchedulerOperation(operation);
@@ -61,8 +67,7 @@ function runtimeFor(service) {
 }
 
 function actionEnvelope(service, schedule, server, operation, payload, historyId, stage) {
-  const capability = capabilityForSchedulerOperation(operation);
-  if (!capability) return null;
+  if (!capabilityForSchedulerOperation(operation)) return null;
   const operationId = `scheduler:${historyId}:${stage}:${server.id}:${operation}`;
   return {
     operationId,
@@ -73,7 +78,7 @@ function actionEnvelope(service, schedule, server, operation, payload, historyId
     source: { kind: 'scheduler', id: String(schedule.id) },
     correlationId: String(historyId),
     idempotencyKey: operationId,
-    requiredCapabilities: [capability],
+    requiredCapabilities: [],
     input: {
       serverId: String(server.id),
       operation: String(operation),
@@ -152,5 +157,6 @@ module.exports = {
   patchScheduler,
   runtimeFor,
   actionEnvelope,
-  capabilityForSchedulerOperation
+  capabilityForSchedulerOperation,
+  requiredCapabilitiesForSchedulerAction
 };
