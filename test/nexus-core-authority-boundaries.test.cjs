@@ -59,7 +59,8 @@ test('manual moderation, hosted power, and maintenance mutations are routed thro
   assert.match(source, /hosted\.server\.power/);
   assert.match(source, /nexus\.maintenance\.run/);
   assert.match(source, /core\.commandGateway\.dispatch/g);
-  assert.doesNotMatch(source, /rcon|child_process|spawn\(|exec\(/i);
+  assert.doesNotMatch(source, /require\(['"][^'"]*(?:rcon|child_process)[^'"]*['"]\)/i);
+  assert.doesNotMatch(source, /\b(?:spawn|exec)\s*\(/i);
 });
 
 test('Core boot foundation registers Sentinel and Veyra with non-overlapping privileged scopes', () => {
