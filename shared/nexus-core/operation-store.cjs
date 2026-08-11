@@ -31,6 +31,15 @@ class FileOperationStore {
     return path.join(this.directory, fileNameFor(idempotencyKey));
   }
 
+  writeAtomic(filePath, record) {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    const temporary = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(temporary, JSON.stringify(record, null, 2), 'utf8');
+    const fd = fs.openSync(temporary, 'r+');
+    try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    fs.renameSync(temporary, filePath);
+  }
+
   read(idempotencyKey) {
     const filePath = this.filePath(idempotencyKey);
     try {
@@ -60,6 +69,7 @@ class FileOperationStore {
       state: 'running',
       startedAt: this.now(),
       completedAt: null,
+      reconciledAt: null,
       resultStatus: null,
       errorCode: null
     };
@@ -88,6 +98,9 @@ class FileOperationStore {
     if (current.operationId !== action.operationId || current.action !== action.action) {
       throw storeError('Operation completion does not match the acquired operation.', 'NEXUS_OPERATION_CONFLICT');
     }
+    if (current.state !== 'running') {
+      throw storeError(`Operation cannot complete from ${current.state} state.`, 'NEXUS_OPERATION_NOT_RUNNING');
+    }
 
     const next = {
       ...current,
@@ -96,15 +109,60 @@ class FileOperationStore {
       resultStatus: String(result?.status || 'failed'),
       errorCode: result?.error?.code ? String(result.error.code) : null
     };
-    const filePath = this.filePath(idempotencyKey);
-    const temporary = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-    fs.writeFileSync(temporary, JSON.stringify(next, null, 2), 'utf8');
-    // Windows rejects fsync on a read-only descriptor. Open the completed
-    // record read/write so durability semantics remain enabled cross-platform.
-    const fd = fs.openSync(temporary, 'r+');
-    try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-    fs.renameSync(temporary, filePath);
+    this.writeAtomic(this.filePath(idempotencyKey), next);
     return Object.freeze(clone(next));
+  }
+
+  reconcileInterrupted() {
+    if (!fs.existsSync(this.directory)) {
+      return Object.freeze({ scanned: 0, interrupted: 0, completed: 0, uncertainKeys: Object.freeze([]) });
+    }
+
+    let scanned = 0;
+    let interrupted = 0;
+    let completed = 0;
+    const uncertainKeys = [];
+    for (const name of fs.readdirSync(this.directory)) {
+      if (!/^[a-f0-9]{64}\.json$/i.test(name)) continue;
+      scanned += 1;
+      const filePath = path.join(this.directory, name);
+      let record;
+      try { record = JSON.parse(fs.readFileSync(filePath, 'utf8')); }
+      catch (error) { throw storeError(`Operation store contains unreadable record ${name}: ${error.message}`, 'NEXUS_OPERATION_STORE_CORRUPT'); }
+      if (record?.storeVersion !== STORE_VERSION || !record.idempotencyKey || fileNameFor(record.idempotencyKey) !== name) {
+        throw storeError(`Operation store record ${name} failed validation.`, 'NEXUS_OPERATION_STORE_CORRUPT');
+      }
+      if (record.state === 'completed') {
+        completed += 1;
+        continue;
+      }
+      if (record.state === 'uncertain') {
+        interrupted += 1;
+        uncertainKeys.push(record.idempotencyKey);
+        continue;
+      }
+      if (record.state !== 'running') {
+        throw storeError(`Operation store record ${name} has unsupported state ${record.state}.`, 'NEXUS_OPERATION_STORE_CORRUPT');
+      }
+
+      const next = {
+        ...record,
+        state: 'uncertain',
+        reconciledAt: this.now(),
+        resultStatus: null,
+        errorCode: 'NEXUS_OPERATION_INTERRUPTED'
+      };
+      this.writeAtomic(filePath, next);
+      interrupted += 1;
+      uncertainKeys.push(record.idempotencyKey);
+    }
+
+    return Object.freeze({
+      scanned,
+      interrupted,
+      completed,
+      uncertainKeys: Object.freeze(uncertainKeys.slice().sort())
+    });
   }
 }
 
