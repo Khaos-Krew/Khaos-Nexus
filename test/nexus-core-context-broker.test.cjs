@@ -48,7 +48,7 @@ test('Veyra receives only authorized D&D context and provider secrets are redact
   const result = await broker.resolve('veyra', request([{ kind: 'campaign', id: 'campaign-1' }]));
   assert.equal(result.contexts.length, 1);
   assert.equal(result.contexts[0].data.title, 'Ashes of the Nexus');
-  assert.equal(result.contexts[0].data.credentials.apiKey, '[REDACTED]');
+  assert.equal(result.contexts[0].data.credentials, '[REDACTED]');
   assert.equal(result.contexts[0].data.nested.discordToken, '[REDACTED]');
   assert.equal(result.contexts[0].data.nested.safe, true);
   assert.equal(Object.isFrozen(result.contexts[0].data), true);
