@@ -103,6 +103,7 @@ if (diagnosticsMode) {
     require('./satisfactory-main-extension.cjs').install();
     require('./satisfactory-module-gate-extension.cjs').install();
     require('./game-adapter-runtime-extension.cjs').install();
+    require('./nexus-core-foundation-extension.cjs').install();
     require('./nexus-core-scheduler-gateway-extension.cjs').install();
     require('./main.cjs');
   }
