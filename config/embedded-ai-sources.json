@@ -14,7 +14,7 @@
       "id": "ai-core",
       "directory": "packages/ai/ai-core",
       "repository": "Khaos-Krew/Khaos-Nexus-AI-Core",
-      "commit": "300c653e5643e0ee2e15590f8cb53e30ee7a79ff",
+      "commit": "b0f94a23c9276a98d24588b9ce5556a05c16636e",
       "version": "0.7.0",
       "entry": "src/sidecar.js",
       "sourceEnvironment": "KHAOS_AI_CORE_SOURCE"

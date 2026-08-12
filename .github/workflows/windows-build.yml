@@ -34,8 +34,8 @@ jobs:
           restore-keys: |
             electron-windows-
       - run: npm ci
-      - name: Freeze v0.41.0-B Nexus Core candidate metadata
-        run: node scripts/freeze-v0.41-nexus-core.cjs
+      - name: Freeze v0.41.1-B acceptance candidate metadata
+        run: node scripts/freeze-v0.41.1-hotfix.cjs
       - name: Run tests
         shell: pwsh
         run: |
@@ -75,6 +75,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Tagged Windows build failed." }
       - name: Audit packaged app contents
         run: node scripts/audit-packaged-contents.cjs
+      - name: Verify packaged AI runtimes
+        run: node scripts/verify-packaged-ai-runtimes.cjs
       - name: Smoke-test packaged full startup readiness
         shell: pwsh
         run: ./scripts/smoke-packaged-startup.ps1
@@ -108,9 +110,15 @@ jobs:
         env:
           KHAOS_REQUIRE_SIGNING: ${{ vars.KHAOS_REQUIRE_SIGNING }}
         run: ./scripts/verify-windows-signatures.ps1
+      - name: Verify Test/Beta updater metadata
+        shell: pwsh
+        run: |
+          $beta = Get-Content 'dist/beta.yml' -Raw
+          if ($beta -notmatch '(?m)^version:\s*0\.41\.1\s*$') { throw 'beta.yml does not advertise 0.41.1.' }
+          if ($beta -notmatch 'Khaos-Nexus-Setup-0\.41\.1-B-x64\.exe') { throw 'beta.yml does not reference the v0.41.1-B installer.' }
       - uses: actions/upload-artifact@v4
         with:
-          name: Khaos-Nexus-Windows
+          name: Khaos-Nexus-Windows-v0.41.1-B
           path: |
             dist/*.exe
             dist/*.yml
