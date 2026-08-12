@@ -19,7 +19,7 @@
     "test": "node --test",
     "check": "node scripts/check.cjs",
     "pack": "node scripts/materialize-assets.cjs && electron-builder --dir",
-    "dist:win": "node scripts/materialize-assets.cjs && electron-builder --win --x64",
+    "dist:win": "node scripts/materialize-assets.cjs && electron-builder --win --x64 --publish never",
     "release:win": "node scripts/materialize-assets.cjs && electron-builder --win --x64 --publish always"
   },
   "dependencies": {
