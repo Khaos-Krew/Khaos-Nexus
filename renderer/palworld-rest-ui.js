@@ -43,14 +43,20 @@
     block.id = 'palworldRestFields';
     block.className = 'palworld-rest-fields';
     block.innerHTML = `
-      <div class="palworld-api-heading"><div><span class="eyebrow">Palworld 1.0 management</span><h4>REST API connection</h4></div><span class="tag good">Recommended</span></div>
-      <div class="form-grid four">
-        <label>Connection type<select id="serverConnectionType"><option value="rest">Palworld REST API</option><option value="rcon">Legacy RCON</option></select></label>
+      <div class="palworld-api-heading"><div><span class="eyebrow">Palworld primary control</span><h4>REST API connection</h4></div><span class="tag good">Required</span></div>
+      <div class="form-grid three">
         <label>Protocol<select id="serverProtocol"><option value="http">HTTP</option><option value="https">HTTPS / reverse proxy</option></select></label>
         <label>API username<input id="serverApiUsername" value="admin" autocomplete="username" placeholder="admin"></label>
         <label>API base path<input id="serverApiPath" value="/v1/api" placeholder="/v1/api"></label>
       </div>
-      <div class="palworld-security-note"><strong>Security:</strong> Pocketpair recommends keeping this API off the public internet. Use your host’s protected endpoint, firewall rules, VPN, or a secured reverse proxy whenever possible.</div>`;
+      <div class="palworld-security-note"><strong>REST is authoritative:</strong> Khaos Nexus uses the Palworld REST API for normal status, player, save, moderation, and shutdown operations. The server password field is the protected Palworld AdminPassword used for REST authentication.</div>
+      <div class="palworld-api-heading"><div><span class="eyebrow">Compatibility / testing</span><h4>Optional RCON endpoint</h4></div><span class="tag">Optional</span></div>
+      <label class="toggle-row"><span><strong>Enable optional RCON compatibility/testing</strong><small>REST remains required and authoritative. RCON is only a secondary endpoint for compatibility tests and commands you explicitly run.</small></span><input id="serverRconEnabled" type="checkbox"></label>
+      <div class="form-grid two" id="serverRconFields">
+        <label>RCON host override<input id="serverRconHost" placeholder="Blank = use REST host"></label>
+        <label>RCON port<input id="serverRconPort" type="number" min="1" max="65535" value="25575" placeholder="25575"></label>
+      </div>
+      <div class="palworld-security-note"><strong>Compatibility note:</strong> Optional RCON reuses the same protected Palworld AdminPassword. Keep it disabled unless your host exposes RCON and you want to test that path.</div>`;
     editor.insertBefore(block, details);
     updateEditorMode();
   }
@@ -59,35 +65,44 @@
     return (current?.config?.servers || []).filter((server) => String(server.game).toLowerCase() === 'palworld');
   }
 
-  function updateEditorMode(server = null) {
+  function updateRconEditorState() {
+    const enabled = Boolean($('serverRconEnabled')?.checked);
+    $('serverRconFields')?.classList.toggle('disabled', !enabled);
+    ['serverRconHost', 'serverRconPort'].forEach((id) => {
+      if ($(id)) $(id).disabled = !enabled;
+    });
+  }
+
+  function updateEditorMode() {
     const isPalworld = $('serverGame')?.value === 'palworld';
     $('palworldRestFields')?.classList.toggle('hidden', !isPalworld);
-    const mode = $('serverConnectionType')?.value || server?.connectionType || 'rest';
-    const rest = isPalworld && mode !== 'rcon';
     const portInput = $('serverPort');
     const portLabel = portInput?.closest('label');
-    if (portLabel) {
-      const text = rest ? 'REST API port' : 'RCON port';
+    if (portLabel && isPalworld) {
       for (const node of [...portLabel.childNodes]) {
-        if (node.nodeType === Node.TEXT_NODE) node.textContent = text;
+        if (node.nodeType === Node.TEXT_NODE) node.textContent = 'REST API port';
       }
     }
     const passwordLabel = $('serverPassword')?.closest('label');
-    if (passwordLabel) {
+    if (passwordLabel && isPalworld) {
       for (const node of [...passwordLabel.childNodes]) {
-        if (node.nodeType === Node.TEXT_NODE) node.textContent = rest ? 'AdminPassword / API password' : 'RCON password';
+        if (node.nodeType === Node.TEXT_NODE) node.textContent = 'AdminPassword / API password';
       }
     }
-    if (rest && portInput && !portInput.value) portInput.placeholder = '8212';
+    if (isPalworld && portInput && !portInput.value) portInput.placeholder = '8212';
+    updateRconEditorState();
   }
 
   function populateRestFields(server = {}) {
     ensureEditorFields();
-    $('serverConnectionType').value = server.connectionType === 'rcon' ? 'rcon' : 'rest';
     $('serverProtocol').value = server.protocol === 'https' ? 'https' : 'http';
     $('serverApiUsername').value = server.username || 'admin';
     $('serverApiPath').value = server.apiPath || '/v1/api';
-    updateEditorMode(server);
+    $('serverRconEnabled').checked = Boolean(server.rconEnabled);
+    $('serverRconHost').value = server.rconHost || '';
+    $('serverRconPort').value = server.rconPort || 25575;
+    updateEditorMode();
+    if (server.restNeedsVerification) notify('This server was migrated from legacy RCON. Verify the REST host/port before using production controls.');
   }
 
   function normalizeAddress(hostValue, portValue) {
@@ -116,7 +131,7 @@
     panel.id = 'palworldOperations';
     panel.className = 'panel palworld-operations';
     panel.innerHTML = `
-      <div class="panel-heading"><div><span class="eyebrow">Palworld REST API</span><h3>Palworld Operations Center</h3><p>Read server state, save the world, message players, moderate accounts, and perform controlled shutdowns.</p></div><span class="severity good" id="palworldApiState">Ready</span></div>
+      <div class="panel-heading"><div><span class="eyebrow">Palworld REST API</span><h3>Palworld Operations Center</h3><p>REST is the required production control path. Optional RCON can be tested independently below.</p></div><span class="severity good" id="palworldApiState">Ready</span></div>
       <div class="palworld-toolbar">
         <label>Palworld server<select id="palworldServerSelect"></select></label>
         <button class="button" data-pal-read="status">Overview</button>
@@ -130,9 +145,23 @@
       <div class="palworld-action-grid">
         <section><h4>World operations</h4><label>Announcement<textarea id="palworldAnnouncement" rows="3" placeholder="Message shown to connected players"></textarea></label><div class="form-actions"><button class="button primary" id="palworldAnnounceButton">Announce</button><button class="button" id="palworldSaveButton">Save World</button></div></section>
         <section><h4>Player moderation</h4><label>Player name or user ID<input id="palworldPlayerId" placeholder="steam_... or connected player name"></label><label>Optional reason<input id="palworldModerationMessage" placeholder="Reason shown to the player"></label><div class="form-actions"><button class="button" id="palworldKickButton">Kick</button><button class="button danger" id="palworldBanButton">Ban</button><button class="button" id="palworldUnbanButton">Unban</button></div></section>
-        <section class="danger-zone"><h4>Controlled shutdown</h4><div class="form-grid"><label>Delay in seconds<input id="palworldShutdownSeconds" type="number" min="5" max="3600" value="30"></label><label>Type server name to confirm<input id="palworldShutdownConfirm" placeholder="Exact server name"></label></div><label>Shutdown message<input id="palworldShutdownMessage" value="Server maintenance is starting."></label><button class="button danger" id="palworldShutdownButton">Schedule Shutdown</button></section>
-        <section class="danger-zone"><h4>Emergency force stop</h4><p>This does not wait for players and should only be used when graceful shutdown is impossible.</p><label>Type FORCE STOP<input id="palworldForceStopConfirm" placeholder="FORCE STOP"></label><button class="button danger" id="palworldForceStopButton">Force Stop Server</button></section>
-      </div>`;
+        <section class="danger-zone"><h4>Controlled REST shutdown</h4><div class="form-grid"><label>Delay in seconds<input id="palworldShutdownSeconds" type="number" min="5" max="3600" value="30"></label><label>Type server name to confirm<input id="palworldShutdownConfirm" placeholder="Exact server name"></label></div><label>Shutdown message<input id="palworldShutdownMessage" value="Server maintenance is starting."></label><button class="button danger" id="palworldShutdownButton">Schedule Shutdown</button></section>
+        <section class="danger-zone"><h4>Emergency REST force stop</h4><p>This does not wait for players and should only be used when graceful shutdown is impossible.</p><label>Type FORCE STOP<input id="palworldForceStopConfirm" placeholder="FORCE STOP"></label><button class="button danger" id="palworldForceStopButton">Force Stop Server</button></section>
+      </div>
+      <section class="danger-zone" id="palworldRconConsole">
+        <div class="panel-heading"><div><span class="eyebrow">Optional secondary transport</span><h4>RCON Compatibility Test</h4><p>Use this to verify the RCON endpoint exposed by your host. These tests never replace REST as the primary connection.</p></div><span class="severity" id="palworldRconState">Disabled</span></div>
+        <div class="form-actions">
+          <button class="button" data-pal-rcon="Info">RCON Info</button>
+          <button class="button" data-pal-rcon="ShowPlayers">RCON Players</button>
+          <button class="button" data-pal-rcon="Save">RCON Save</button>
+        </div>
+        <div class="form-grid two">
+          <label>RCON command<input id="palworldRconCommand" placeholder="Example: Broadcast Nexus RCON test"></label>
+          <label>Confirmation for destructive/raw commands<input id="palworldRconConfirm" placeholder="Exact server name when required"></label>
+        </div>
+        <button class="button danger" id="palworldRconRun">Run RCON Command</button>
+        <pre class="palworld-output" id="palworldRconOutput">Enable optional RCON on the selected Palworld server to test it.</pre>
+      </section>`;
     view.appendChild(panel);
   }
 
@@ -150,17 +179,26 @@
     const previous = select.value;
     const servers = palworldServers();
     select.innerHTML = servers.length
-      ? servers.map((server) => `<option value="${escapeHtml(server.id)}">${escapeHtml(server.name)} — ${server.connectionType === 'rcon' ? 'Legacy RCON' : 'REST'} ${escapeHtml(server.host)}:${server.port}</option>`).join('')
+      ? servers.map((server) => `<option value="${escapeHtml(server.id)}">${escapeHtml(server.name)} — REST ${escapeHtml(server.host)}:${server.port}${server.rconEnabled ? ` + RCON ${escapeHtml(server.rconHost || server.host)}:${server.rconPort || 25575}` : ''}</option>`).join('')
       : '<option value="">No Palworld server configured</option>';
     if (servers.some((server) => server.id === previous)) select.value = previous;
     const active = selectedServer();
-    $('palworldApiState').textContent = !active ? 'Not Configured' : active.connectionType === 'rcon' ? 'Legacy RCON' : active.enabled === false ? 'Disabled' : 'REST Ready';
-    $('palworldApiState').className = `severity ${active && active.connectionType !== 'rcon' ? 'good' : 'bad'}`;
-    panelButtonsEnabled(Boolean(active && active.connectionType !== 'rcon'));
+    $('palworldApiState').textContent = !active ? 'Not Configured' : active.enabled === false ? 'Disabled' : active.restNeedsVerification ? 'Verify REST' : 'REST Required';
+    $('palworldApiState').className = `severity ${active && active.enabled !== false && !active.restNeedsVerification ? 'good' : 'bad'}`;
+    restButtonsEnabled(Boolean(active));
+    const rconReady = Boolean(active?.rconEnabled);
+    $('palworldRconState').textContent = !active ? 'No Server' : rconReady ? `RCON ${active.rconHost || active.host}:${active.rconPort || 25575}` : 'Disabled';
+    $('palworldRconState').className = `severity ${rconReady ? 'good' : ''}`;
+    rconButtonsEnabled(rconReady);
   }
 
-  function panelButtonsEnabled(enabled) {
-    document.querySelectorAll('#palworldOperations button').forEach((button) => { button.disabled = !enabled; });
+  function restButtonsEnabled(enabled) {
+    document.querySelectorAll('#palworldOperations > .palworld-toolbar button, #palworldOperations > .palworld-action-grid button').forEach((button) => { button.disabled = !enabled; });
+  }
+
+  function rconButtonsEnabled(enabled) {
+    document.querySelectorAll('#palworldRconConsole button').forEach((button) => { button.disabled = !enabled; });
+    ['palworldRconCommand', 'palworldRconConfirm'].forEach((id) => { if ($(id)) $(id).disabled = !enabled; });
   }
 
   async function runAction(action, payload = {}) {
@@ -173,13 +211,30 @@
       return response;
     }
     $('palworldOutput').textContent = pretty(response?.result ?? response);
-    notify(`Palworld ${action} completed for ${server.name}.`);
+    notify(`Palworld REST ${action} completed for ${server.name}.`);
+    return response;
+  }
+
+  async function runRcon(command, confirmation = '') {
+    const server = selectedServer();
+    if (!server) throw new Error('Select a Palworld server first.');
+    if (!server.rconEnabled) throw new Error('Enable optional RCON for this Palworld server first.');
+    const text = String(command || '').trim();
+    if (!text) throw new Error('Enter an RCON command first.');
+    $('palworldRconOutput').textContent = `Running RCON ${text} on ${server.name}…`;
+    const response = await invoke('server:palworld-rcon-command', {
+      id: server.id,
+      command: text,
+      confirmation: String(confirmation || '').trim()
+    });
+    $('palworldRconOutput').textContent = pretty(response?.result ?? response);
+    notify(`Palworld RCON ${response?.kind || 'command'} completed for ${server.name}.`);
     return response;
   }
 
   function bind() {
     $('serverGame')?.addEventListener('change', updateEditorMode);
-    $('serverConnectionType')?.addEventListener('change', updateEditorMode);
+    $('serverRconEnabled')?.addEventListener('change', updateRconEditorState);
 
     document.addEventListener('click', (event) => {
       const add = event.target.closest('#newServerButton');
@@ -203,10 +258,13 @@
         enabled: $('serverEnabled').value === 'true',
         host: address.host,
         port: address.port,
-        connectionType: $('serverConnectionType').value,
+        connectionType: 'rest',
         protocol: $('serverProtocol').value,
         username: $('serverApiUsername').value,
         apiPath: $('serverApiPath').value,
+        rconEnabled: $('serverRconEnabled').checked,
+        rconHost: $('serverRconHost').value,
+        rconPort: Number($('serverRconPort').value || 25575),
         statusCommand: $('statusCommand').value,
         playersCommand: $('playersCommand').value,
         saveCommand: $('saveCommand').value,
@@ -217,14 +275,14 @@
       await invoke('server:save', { server, password: $('serverPassword').value });
       $('serverEditor').classList.add('hidden');
       render(await invoke('app:get-state'));
-      notify('Palworld server saved with REST API settings.');
+      notify(`Palworld server saved. REST required${server.rconEnabled ? '; optional RCON enabled.' : '.'}`);
     }, true);
 
     $('serverList')?.addEventListener('click', async (event) => {
       const test = event.target.closest('[data-server-test]');
       if (!test) return;
       const server = current?.config?.servers?.find((item) => item.id === test.dataset.serverTest);
-      if (!server || server.game !== 'palworld' || server.connectionType === 'rcon') return;
+      if (!server || server.game !== 'palworld') return;
       event.preventDefault();
       event.stopImmediatePropagation();
       const result = await invoke('server:test', server.id);
@@ -243,6 +301,9 @@
       confirmation: $('palworldShutdownConfirm').value
     }));
     $('palworldForceStopButton').addEventListener('click', () => runAction('stop', { confirmation: $('palworldForceStopConfirm').value }));
+    document.querySelectorAll('[data-pal-rcon]').forEach((button) => button.addEventListener('click', () => runRcon(button.dataset.palRcon)));
+    $('palworldRconRun').addEventListener('click', () => runRcon($('palworldRconCommand').value, $('palworldRconConfirm').value));
+    $('palworldServerSelect').addEventListener('change', () => render(current));
     window.khaosStateHub.subscribe(render);
   }
 
