@@ -3,15 +3,18 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { loadConfig, safeTarget } = require('./sync-embedded-ai-sources.cjs');
-const { verifyEmbeddedAiSources } = require('./verify-embedded-ai-sources.cjs');
 
-// The authoritative pins are loaded from config/embedded-ai-sources.json.
+// The authoritative embedded pins remain unchanged by runtime overlays.
 // D&D AI: 19c718917377d6148f9baaee8ac8dcb937692f32
 // Nexus AI Core: 300c653e5643e0ee2e15590f8cb53e30ee7a79ff
 const root = path.join(__dirname, '..');
 const outputRoot = path.join(root, '.runtime', 'ai-services');
 const excluded = new Set(['.git', '.github', 'node_modules', 'test', 'tests', 'coverage', 'dist', '.env', '.env.local']);
+const AI_CORE_LOCAL_PROVIDER_OVERLAY = Object.freeze({
+  id: 'nexus-local-ollama-provider',
+  revision: '1',
+  directory: 'main/ai-overlays/ai-core'
+});
 
 function sha256(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
@@ -43,6 +46,8 @@ function filesUnder(directory, prefix = '') {
 }
 
 function assignmentsFor(rootDirectory) {
+  const { loadConfig, safeTarget } = require('./sync-embedded-ai-sources.cjs');
+  const { verifyEmbeddedAiSources } = require('./verify-embedded-ai-sources.cjs');
   const config = loadConfig(rootDirectory);
   const verified = new Map(verifyEmbeddedAiSources(rootDirectory).map((service) => [service.id, service]));
   return config.services.map((service) => ({
@@ -50,6 +55,22 @@ function assignmentsFor(rootDirectory) {
     source: safeTarget(rootDirectory, service.directory),
     sourceSummary: verified.get(service.id)
   }));
+}
+
+function applyRuntimeOverlay(rootDirectory, assignment, destination) {
+  if (assignment.id !== 'ai-core') return null;
+  const overlayRoot = path.resolve(rootDirectory, AI_CORE_LOCAL_PROVIDER_OVERLAY.directory);
+  if (!overlayRoot.startsWith(`${path.resolve(rootDirectory)}${path.sep}`)) throw new Error('Nexus Sentinel local-provider overlay path is unsafe.');
+  if (!fs.existsSync(overlayRoot)) throw new Error('Nexus Sentinel local-provider overlay is missing.');
+  const overlayFiles = filesUnder(overlayRoot);
+  if (!overlayFiles.length) throw new Error('Nexus Sentinel local-provider overlay is empty.');
+  copyTree(overlayRoot, destination);
+  return {
+    id: AI_CORE_LOCAL_PROVIDER_OVERLAY.id,
+    revision: AI_CORE_LOCAL_PROVIDER_OVERLAY.revision,
+    directory: AI_CORE_LOCAL_PROVIDER_OVERLAY.directory,
+    files: overlayFiles
+  };
 }
 
 function buildBundledAiRuntimes(rootDirectory = root) {
@@ -61,6 +82,7 @@ function buildBundledAiRuntimes(rootDirectory = root) {
   for (const assignment of assignments) {
     const destination = path.join(runtimeRoot, assignment.id);
     copyTree(assignment.source, destination);
+    const overlay = applyRuntimeOverlay(rootDirectory, assignment, destination);
     const packageJson = JSON.parse(fs.readFileSync(path.join(destination, 'package.json'), 'utf8'));
     if (packageJson.version !== assignment.version) {
       throw new Error(`${assignment.id} version mismatch: expected ${assignment.version}, received ${packageJson.version}.`);
@@ -80,6 +102,7 @@ function buildBundledAiRuntimes(rootDirectory = root) {
         directory: assignment.directory,
         snapshotSha256: assignment.sourceSummary.snapshotSha256
       },
+      ...(overlay ? { overlay } : {}),
       runtime: { executable: 'electron', electronRunAsNode: true, minimumNodeMajor: 22 },
       files: filesUnder(destination).filter((item) => item.path !== 'bundle-manifest.json')
     };
@@ -100,7 +123,9 @@ function main() {
 if (require.main === module) main();
 
 module.exports = {
+  AI_CORE_LOCAL_PROVIDER_OVERLAY,
   assignmentsFor,
+  applyRuntimeOverlay,
   buildBundledAiRuntimes,
   copyTree,
   excluded,

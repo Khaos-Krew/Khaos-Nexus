@@ -36,13 +36,26 @@ const SAFE_PARENT_ENV_KEYS = new Set([
   'userdomain',
   'username',
   'userprofile',
-  'windir'
+  'windir',
+  'khaos_sentinel_ai_provider',
+  'khaos_sentinel_ai_provider_fallback',
+  'khaos_sentinel_ollama_model',
+  'khaos_sentinel_ollama_endpoint',
+  'khaos_sentinel_ollama_timeout_ms',
+  'khaos_sentinel_ollama_max_response_bytes',
+  'khaos_sentinel_ollama_retries'
 ]);
 
 const SAFE_SERVICE_ENV_KEYS = new Set([
   'host',
   'port',
   'ai_provider',
+  'ai_provider_fallback',
+  'ollama_model',
+  'ollama_endpoint',
+  'ollama_timeout_ms',
+  'ollama_max_response_bytes',
+  'ollama_retries',
   'campaign_store',
   'auth_required',
   'electron_run_as_node',

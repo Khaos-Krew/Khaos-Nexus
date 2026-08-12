@@ -6,6 +6,21 @@ const RUNTIME = Object.freeze({
   version: '1.0.0'
 });
 
+function bridgeEnv(name, fallback = '', max = 500) {
+  return String(process.env[name] ?? fallback).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max);
+}
+
+function sentinelProvider() {
+  const value = bridgeEnv('KHAOS_SENTINEL_AI_PROVIDER', 'deterministic-local', 50).toLowerCase();
+  return value === 'ollama-local' ? value : 'deterministic-local';
+}
+
+function sentinelFallback() {
+  return bridgeEnv('KHAOS_SENTINEL_AI_PROVIDER_FALLBACK', 'disabled', 30).toLowerCase() === 'deterministic'
+    ? 'deterministic'
+    : 'disabled';
+}
+
 const AGENTS = Object.freeze({
   dnd: Object.freeze({
     key: 'dnd',
@@ -35,7 +50,13 @@ const AGENTS = Object.freeze({
     env: Object.freeze({
       HOST: '127.0.0.1',
       PORT: '0',
-      AI_PROVIDER: 'deterministic-local'
+      get AI_PROVIDER() { return sentinelProvider(); },
+      get AI_PROVIDER_FALLBACK() { return sentinelFallback(); },
+      get OLLAMA_MODEL() { return bridgeEnv('KHAOS_SENTINEL_OLLAMA_MODEL', '', 200); },
+      get OLLAMA_ENDPOINT() { return bridgeEnv('KHAOS_SENTINEL_OLLAMA_ENDPOINT', 'http://127.0.0.1:11434', 500); },
+      get OLLAMA_TIMEOUT_MS() { return bridgeEnv('KHAOS_SENTINEL_OLLAMA_TIMEOUT_MS', '12000', 20); },
+      get OLLAMA_MAX_RESPONSE_BYTES() { return bridgeEnv('KHAOS_SENTINEL_OLLAMA_MAX_RESPONSE_BYTES', '1000000', 20); },
+      get OLLAMA_RETRIES() { return bridgeEnv('KHAOS_SENTINEL_OLLAMA_RETRIES', '0', 10); }
     })
   })
 });

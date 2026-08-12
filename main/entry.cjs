@@ -73,6 +73,7 @@ if (diagnosticsMode) {
     require('./dnd-access-policy-extension.cjs').install();
     require('./dnd-authorization-summary-extension.cjs').install();
     require('./ai-services-extension.cjs').install();
+    require('./sentinel-local-provider-extension.cjs').install();
     require('./ai-services-privacy-extension.cjs').install();
     require('./ai-runtime-spawn-boundary.cjs').install();
     require('./bundled-ai-runtimes-extension.cjs').install();
@@ -107,6 +108,7 @@ if (diagnosticsMode) {
     require('./nexus-core-foundation-extension.cjs').install();
     require('./nexus-core-live-migrations-extension.cjs').install();
     require('./nexus-core-scheduler-gateway-extension.cjs').install();
+    require('./responsive-layout-extension.cjs').install();
     require('./main.cjs');
   }
 }

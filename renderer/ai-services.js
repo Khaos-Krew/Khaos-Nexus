@@ -8,6 +8,7 @@
   const toast = (message) => typeof win.toast === 'function' ? win.toast(message) : console.info(message);
   const clean = (value, max = 500) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]);
+  const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
   function ensureNavigation() {
     const systemLabel = [...doc.querySelectorAll('.nav-label')].find((item) => item.textContent.trim() === 'System');
@@ -69,6 +70,7 @@
     const settings = core.settings || {};
     const service = core.service || {};
     const provider = service.providerStatus || {};
+    const providerMode = settings.providerMode || 'deterministic-local';
     return `<article class="panel ai-service-card">
       <div class="panel-heading"><div><span class="eyebrow">System Health and Assistance AI</span><h3>Nexus Sentinel</h3></div>${serviceStatus(service)}</div>
       <p>${escapeHtml(core.role || '')}</p>
@@ -76,12 +78,20 @@
       <div class="callout">Nexus Sentinel is advisory. It can return diagnostics, update intelligence, Discord-safe drafts, and maintenance proposals, but Khaos Nexus remains authoritative and performs every approved action.</div>
       <form id="aiCoreConnectionForm" class="ai-service-form">
         <label class="toggle-row"><span><strong>Enable Nexus Sentinel</strong><small>Allows desktop health and capability discovery.</small></span><input name="enabled" type="checkbox" ${settings.enabled ? 'checked' : ''}></label>
-        <label class="toggle-row"><span><strong>Link to the primary Nexus Bot</strong><small>Passes only the bounded endpoint/token contract to the supervised primary bot. Registered secondary bots remain excluded.</small></span><input name="linkToPrimaryBot" type="checkbox" ${settings.linkToPrimaryBot ? 'checked' : ''}></label>
+        <label class="toggle-row"><span><strong>Link to the primary Nexus Bot</strong><small>Enables the existing /nexus commands through the supervised desktop bridge. Registered secondary bots remain excluded.</small></span><input name="linkToPrimaryBot" type="checkbox" ${settings.linkToPrimaryBot ? 'checked' : ''}></label>
         <label>Service endpoint<input name="endpoint" type="url" maxlength="500" value="${escapeHtml(settings.endpoint || 'http://127.0.0.1:8790')}"></label>
+        <label>Conversation provider<select name="providerMode">
+          <option value="deterministic-local" ${providerMode === 'deterministic-local' ? 'selected' : ''}>Deterministic Local — $0 API cost</option>
+          <option value="ollama-local" ${providerMode === 'ollama-local' ? 'selected' : ''}>Local LLM (Ollama) — $0 API cost</option>
+        </select></label>
+        <div class="callout"><strong>Local LLM mode does not use an OpenAI API key.</strong> It talks only to Ollama on this PC. Install Ollama and pull a local model separately, then enter that exact model name below. Your ChatGPT subscription is not used as a bot credential.</div>
+        <label>Local Ollama model<input name="ollamaModel" type="text" maxlength="200" value="${escapeHtml(settings.ollamaModel || '')}" placeholder="Example: qwen3:4b"></label>
+        <label>Local Ollama endpoint<input name="ollamaEndpoint" type="url" maxlength="500" value="${escapeHtml(settings.ollamaEndpoint || 'http://127.0.0.1:11434')}"></label>
+        <label class="toggle-row"><span><strong>Fallback to Deterministic Local</strong><small>If Ollama is unavailable or times out, keep /nexus ask working without switching to a paid provider.</small></span><input name="fallbackToDeterministic" type="checkbox" ${settings.fallbackToDeterministic !== false ? 'checked' : ''}></label>
         <label>Optional service token<input name="serviceToken" type="password" autocomplete="off" maxlength="500" placeholder="${settings.hasServiceToken ? 'Stored — enter a replacement token' : 'Leave blank if local authentication is disabled'}"></label>
-        <div class="ai-provider-summary"><span>Provider</span><strong>${escapeHtml(provider.name || service.provider || 'Unknown')}</strong><span>Model</span><strong>${escapeHtml(provider.model || service.model || 'Server controlled')}</strong><span>Ready</span><strong>${provider.ready === false ? 'No' : service.reachable ? 'Yes' : 'Unknown'}</strong><span>Circuit</span><strong>${escapeHtml(provider.circuit?.state || 'Unknown')}</strong></div>
+        <div class="ai-provider-summary"><span>Active provider</span><strong>${escapeHtml(provider.name || service.provider || 'Unknown')}</strong><span>Model</span><strong>${escapeHtml(provider.model || service.model || 'Not loaded')}</strong><span>Ready</span><strong>${provider.ready === false ? 'No' : service.reachable ? 'Yes' : 'Unknown'}</strong><span>Circuit</span><strong>${escapeHtml(provider.circuit?.state || 'Unknown')}</strong></div>
         <div class="ai-capabilities">${capabilityTags(service.capabilities || [])}</div>
-        <div class="form-actions"><button class="button" type="button" data-ai-action="check-core">Test Nexus Sentinel</button><button class="button" type="button" data-ai-action="remove-core-token" ${settings.hasServiceToken ? '' : 'disabled'}>Remove Token</button><button class="button primary" type="submit">Save Nexus Sentinel Connection</button></div>
+        <div class="form-actions"><button class="button" type="button" data-ai-action="check-core">Test Nexus Sentinel</button><button class="button" type="button" data-ai-action="restart-runtime">Restart AI Runtime</button><button class="button" type="button" data-ai-action="remove-core-token" ${settings.hasServiceToken ? '' : 'disabled'}>Remove Token</button><button class="button primary" type="submit">Save Nexus Sentinel Settings</button></div>
       </form>
     </article>`;
   }
@@ -134,6 +144,37 @@
     }
   }
 
+  async function waitForSentinelReady(timeoutMs = 20000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const runtime = await invoke('ai:runtimes-status', {});
+      const services = Array.isArray(runtime?.services) ? runtime.services : Array.isArray(runtime?.agents) ? runtime.agents : [];
+      const core = services.find((item) => item?.key === 'core' || item?.id === 'ai-core');
+      if (core?.status === 'ready') return runtime;
+      if (core?.status === 'failed') throw new Error(core.error || 'Nexus Sentinel failed while restarting.');
+      await sleep(300);
+    }
+    throw new Error('Nexus Sentinel did not become ready before the restart timeout.');
+  }
+
+  async function restartRuntime() {
+    if (state.busy) return;
+    state.busy = true;
+    render();
+    try {
+      // A full host cycle is intentional: provider settings are inherited when the
+      // supervised runtime host starts, so restarting workers alone would retain stale settings.
+      await invoke('ai:runtimes-stop', { service: 'all' });
+      await invoke('ai:runtimes-start', { service: 'all' });
+      await waitForSentinelReady();
+      state.payload = await invoke('ai:connections-check', { service: 'core' });
+      toast('AI Runtime restarted. The saved Nexus Sentinel provider is now active.');
+    } finally {
+      state.busy = false;
+      render();
+    }
+  }
+
   async function saveDnd(form) {
     const endpoint = clean(form.elements.endpoint.value, 500);
     await invoke('dnd:co-dm-set-settings', { serviceEndpoint: endpoint });
@@ -149,7 +190,11 @@
     const result = await invoke('ai:core-set-settings', {
       enabled: Boolean(form.elements.enabled.checked),
       linkToPrimaryBot: Boolean(form.elements.linkToPrimaryBot.checked),
-      endpoint: clean(form.elements.endpoint.value, 500)
+      endpoint: clean(form.elements.endpoint.value, 500),
+      providerMode: clean(form.elements.providerMode.value, 50),
+      ollamaModel: clean(form.elements.ollamaModel.value, 200),
+      ollamaEndpoint: clean(form.elements.ollamaEndpoint.value, 500),
+      fallbackToDeterministic: Boolean(form.elements.fallbackToDeterministic.checked)
     });
     const serviceToken = String(form.elements.serviceToken.value || '').trim();
     let restartRequired = Boolean(result.restartRequired);
@@ -158,8 +203,10 @@
       restartRequired ||= Boolean(tokenResult.restartRequired);
     }
     form.elements.serviceToken.value = '';
-    state.payload = await invoke('ai:connections-check', { service: 'core' });
-    toast(restartRequired ? 'Nexus Sentinel saved. Restart Nexus Bot to apply the bot link.' : 'Nexus Sentinel connection saved.');
+    state.payload = await invoke('ai:connections-get', {});
+    toast(restartRequired
+      ? 'Nexus Sentinel settings saved. Restart the AI Runtime to apply the provider; restart Nexus Bot too if its link settings changed.'
+      : 'Nexus Sentinel settings saved. Use Restart AI Runtime to apply provider changes.');
     render();
   }
 
@@ -178,6 +225,7 @@
       if (action === 'check-all') return check('all');
       if (action === 'check-dnd') return check('dnd');
       if (action === 'check-core') return check('core');
+      if (action === 'restart-runtime') return restartRuntime();
       if (action === 'remove-dnd-token') {
         await invoke('dnd:co-dm-set-service-token', { serviceToken: '' });
         state.payload = await invoke('ai:connections-get', {});

@@ -4,6 +4,8 @@ const DND_AI_REPOSITORY = 'Khaos-Krew/Khaos-Nexus-AI';
 const AI_CORE_REPOSITORY = 'Khaos-Krew/Khaos-Nexus-AI-Core';
 const AI_CORE_SNAPSHOT = '181f6cb25e1ccc46344b8ac7fd82437918a4a4b0';
 const DEFAULT_AI_CORE_ENDPOINT = 'http://127.0.0.1:8790';
+const DEFAULT_OLLAMA_ENDPOINT = 'http://127.0.0.1:11434';
+const AI_CORE_PROVIDER_MODES = Object.freeze(['deterministic-local', 'ollama-local']);
 const AI_CORE_HEALTH_PATH = '/health';
 const AI_CORE_CAPABILITIES_PATH = '/api/v1/capabilities';
 const AI_CORE_PROVIDER_STATUS_PATH = '/api/v1/provider/status';
@@ -58,6 +60,31 @@ function normalizeServiceEndpoint(value, fallback = DEFAULT_AI_CORE_ENDPOINT) {
   return url.origin;
 }
 
+function normalizeOllamaEndpoint(value, fallback = DEFAULT_OLLAMA_ENDPOINT) {
+  let url;
+  try {
+    url = new URL(String(value || fallback).trim());
+  } catch {
+    throw serviceError('Local LLM endpoint must be a valid URL.', 'OLLAMA_ENDPOINT_INVALID', 'ollamaEndpoint');
+  }
+  if (url.protocol !== 'http:' || !isLoopbackHostname(url.hostname)) {
+    throw serviceError('Local LLM access is restricted to an HTTP loopback endpoint on this PC.', 'OLLAMA_ENDPOINT_NOT_LOOPBACK', 'ollamaEndpoint');
+  }
+  if (url.username || url.password || url.search || url.hash || (url.pathname && url.pathname !== '/')) {
+    throw serviceError('Local LLM endpoint must be a credential-free local origin without a path, query, or fragment.', 'OLLAMA_ENDPOINT_INVALID', 'ollamaEndpoint');
+  }
+  return url.origin;
+}
+
+function normalizeOllamaModel(value) {
+  const model = String(value ?? '').trim();
+  if (!model) return '';
+  if (model.length > 200 || /[\u0000-\u001f\u007f\s]/.test(model)) {
+    throw serviceError('Local LLM model name is invalid.', 'OLLAMA_MODEL_INVALID', 'ollamaModel');
+  }
+  return model;
+}
+
 function normalizeServiceToken(value) {
   const token = String(value || '').trim();
   if (!token) return '';
@@ -78,13 +105,28 @@ function sanitizeAiServiceBackupSecrets(secrets = {}) {
 function normalizeAiCoreSettings(input = {}, current = {}) {
   for (const field of ['apiKey', 'openAiKey', 'openaiApiKey', 'providerKey', 'providerEndpoint', 'providerBaseUrl', 'model']) {
     if (Object.prototype.hasOwnProperty.call(input, field) && cleanText(input[field], 20)) {
-      throw serviceError('AI provider credentials, provider endpoints, and models are configured only in Nexus Sentinel.', 'AI_CORE_PROVIDER_SETTINGS_SERVER_OWNED', field);
+      throw serviceError('Paid provider credentials and arbitrary provider endpoints remain server-owned and are not accepted by this control.', 'AI_CORE_PROVIDER_SETTINGS_SERVER_OWNED', field);
     }
+  }
+  const providerMode = cleanText(input.providerMode || current.providerMode || 'deterministic-local', 50).toLowerCase();
+  if (!AI_CORE_PROVIDER_MODES.includes(providerMode)) {
+    throw serviceError('Select Deterministic Local or Local LLM (Ollama).', 'AI_CORE_PROVIDER_MODE_INVALID', 'providerMode');
+  }
+  const ollamaModel = normalizeOllamaModel(Object.prototype.hasOwnProperty.call(input, 'ollamaModel') ? input.ollamaModel : current.ollamaModel);
+  const ollamaEndpoint = normalizeOllamaEndpoint(input.ollamaEndpoint || current.ollamaEndpoint || DEFAULT_OLLAMA_ENDPOINT);
+  if (providerMode === 'ollama-local' && !ollamaModel) {
+    throw serviceError('Select the locally installed Ollama model before enabling Local LLM mode.', 'OLLAMA_MODEL_REQUIRED', 'ollamaModel');
   }
   return {
     enabled: Object.prototype.hasOwnProperty.call(input, 'enabled') ? Boolean(input.enabled) : Boolean(current.enabled),
     linkToPrimaryBot: Object.prototype.hasOwnProperty.call(input, 'linkToPrimaryBot') ? Boolean(input.linkToPrimaryBot) : Boolean(current.linkToPrimaryBot),
     endpoint: normalizeServiceEndpoint(input.endpoint || current.endpoint || DEFAULT_AI_CORE_ENDPOINT),
+    providerMode,
+    ollamaModel,
+    ollamaEndpoint,
+    fallbackToDeterministic: Object.prototype.hasOwnProperty.call(input, 'fallbackToDeterministic')
+      ? Boolean(input.fallbackToDeterministic)
+      : Object.prototype.hasOwnProperty.call(current, 'fallbackToDeterministic') ? Boolean(current.fallbackToDeterministic) : true,
     updatedAt: cleanText(input.updatedAt || current.updatedAt || new Date().toISOString(), 40)
   };
 }
@@ -231,6 +273,8 @@ module.exports = {
   AI_CORE_REPOSITORY,
   AI_CORE_SNAPSHOT,
   DEFAULT_AI_CORE_ENDPOINT,
+  DEFAULT_OLLAMA_ENDPOINT,
+  AI_CORE_PROVIDER_MODES,
   AI_CORE_HEALTH_PATH,
   AI_CORE_CAPABILITIES_PATH,
   AI_CORE_PROVIDER_STATUS_PATH,
@@ -241,9 +285,12 @@ module.exports = {
   redactServiceSecret,
   isLoopbackHostname,
   normalizeServiceEndpoint,
+  normalizeOllamaEndpoint,
+  normalizeOllamaModel,
   normalizeServiceToken,
   sanitizeAiServiceBackupSecrets,
   normalizeAiCoreSettings,
+  normalizeProviderStatus,
   normalizeAiCoreHealth,
   normalizeAiCoreCapabilities,
   unavailableAiCore,

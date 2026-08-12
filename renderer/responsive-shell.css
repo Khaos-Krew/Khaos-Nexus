@@ -1,0 +1,461 @@
+/* Khaos Nexus responsive application shell.
+ * Loaded as the final presentation layer so every module inherits safe viewport behavior.
+ */
+:root {
+  --nexus-responsive-sidebar: clamp(270px, 20vw, 320px);
+  --nexus-responsive-gutter: clamp(14px, 2.4vw, 38px);
+}
+
+html,
+body,
+.app-shell,
+.sidebar,
+.content,
+.view,
+.view.active {
+  min-width: 0;
+  min-height: 0;
+}
+
+body .app-shell,
+body.nexus-shell-v14 .app-shell,
+body.khaos-ui-refresh .app-shell {
+  grid-template-columns: var(--nexus-responsive-sidebar) minmax(0, 1fr) !important;
+  width: 100% !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  overflow: hidden !important;
+}
+
+body .sidebar,
+body.nexus-shell-v14 .sidebar,
+body.khaos-ui-refresh .sidebar {
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  max-height: 100vh !important;
+  max-height: 100dvh !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  scrollbar-gutter: stable;
+}
+
+body .content,
+body.nexus-shell-v14 .content,
+body.khaos-ui-refresh .content {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  max-height: 100vh !important;
+  max-height: 100dvh !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+
+/* Navigation titles are information, not decoration: never ellipsize them. */
+body .nav-item,
+body .nexus-nav-item,
+body .nexus-navigation-link {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal !important;
+}
+
+body .nexus-nav-copy,
+body .nexus-navigation-group-copy {
+  min-width: 0;
+  max-width: 100%;
+}
+
+body .nexus-nav-copy strong,
+body .nexus-nav-copy small,
+body .nexus-navigation-group-copy strong,
+body .nexus-navigation-group-copy small {
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+body .nexus-nav-item,
+body .nexus-navigation-group > summary,
+body .nexus-navigation-link.nav-item {
+  height: auto !important;
+}
+
+body .nexus-navigation,
+body .nexus-navigation-shell {
+  min-width: 0;
+  overflow-x: hidden !important;
+}
+
+/* Let flex/grid descendants shrink instead of forcing the viewport wider. */
+.content *,
+.content *::before,
+.content *::after {
+  min-width: 0;
+}
+
+.content :is(img, video, canvas, svg, iframe) {
+  max-width: 100%;
+}
+
+.content :is(input, select, textarea) {
+  max-width: 100%;
+}
+
+.content :is(pre, code) {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.content pre,
+.content table {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.content table {
+  display: block;
+}
+
+.panel,
+.metric-card,
+.server-card,
+.module-card,
+.nexus-feature-card,
+.nexus-service-card,
+.form-panel,
+.settings-list,
+.checklist-panel {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.metric-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)) !important;
+}
+
+.quick-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr)) !important;
+}
+
+.server-grid,
+.module-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr)) !important;
+}
+
+.form-grid,
+.form-grid.three {
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)) !important;
+}
+
+.nexus-task-rail {
+  grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)) !important;
+}
+
+.nexus-feature-grid,
+.nexus-service-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)) !important;
+}
+
+.control-row,
+.form-actions,
+.toolbar,
+.nexus-action-row,
+.nexus-inline-actions,
+.server-actions {
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap !important;
+}
+
+.button,
+button,
+.status-pill,
+.tag,
+.severity {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.activity {
+  grid-template-columns: 9px minmax(0, 1fr) auto !important;
+}
+
+.log-line {
+  grid-template-columns: minmax(120px, 165px) minmax(50px, 62px) minmax(70px, 95px) minmax(0, 1fr) !important;
+}
+
+.nexus-service-details dd,
+.detail-list dd {
+  max-width: 65%;
+  overflow-wrap: anywhere;
+}
+
+/* Medium desktop: preserve readable navigation instead of shrinking it into ellipses. */
+@media (max-width: 1180px) and (min-width: 960px) {
+  :root { --nexus-responsive-sidebar: clamp(260px, 24vw, 290px); }
+
+  body .content,
+  body.nexus-shell-v14 .content,
+  body.khaos-ui-refresh .content {
+    padding-left: max(18px, 2vw) !important;
+    padding-right: max(18px, 2vw) !important;
+  }
+
+  .nexus-hero {
+    grid-template-columns: minmax(0, 1fr) minmax(180px, .45fr) !important;
+    gap: 20px !important;
+    padding: 26px !important;
+  }
+}
+
+/* Portrait-like / narrow desktop orientation: navigation becomes a top pane. */
+@media (max-width: 959px) {
+  body .app-shell,
+  body.nexus-shell-v14 .app-shell,
+  body.khaos-ui-refresh .app-shell {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: clamp(210px, 36dvh, 360px) minmax(0, 1fr) !important;
+  }
+
+  body .sidebar,
+  body.nexus-shell-v14 .sidebar,
+  body.khaos-ui-refresh .sidebar {
+    position: relative !important;
+    inset: auto !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    border-right: 0 !important;
+    border-bottom: 1px solid rgba(255, 53, 86, .2);
+    padding: 12px !important;
+    overflow-y: auto !important;
+  }
+
+  body .brand,
+  body .nexus-brand,
+  body.nexus-shell-v14 .brand,
+  body.khaos-ui-refresh .nexus-brand {
+    position: relative !important;
+    top: auto !important;
+    margin-bottom: 8px !important;
+    padding-top: 6px !important;
+    padding-bottom: 10px !important;
+  }
+
+  body .brand img,
+  body .nexus-brand img,
+  body.nexus-shell-v14 .brand img,
+  body.khaos-ui-refresh .nexus-brand img {
+    width: 42px !important;
+    height: 42px !important;
+  }
+
+  body .nexus-navigation {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: start;
+    overflow: visible !important;
+  }
+
+  body .nexus-navigation-shell {
+    overflow: visible !important;
+  }
+
+  body .sidebar-footer {
+    margin-top: 10px !important;
+  }
+
+  body .content,
+  body.nexus-shell-v14 .content,
+  body.khaos-ui-refresh .content {
+    position: relative !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    padding: 16px 18px 32px !important;
+    overflow-y: auto !important;
+  }
+
+  body.khaos-ui-refresh .content::before {
+    left: 0 !important;
+  }
+
+  .topbar,
+  body.nexus-shell-v14 .topbar,
+  body.khaos-ui-refresh .topbar,
+  .nexus-workspace-rail {
+    position: relative !important;
+    top: auto !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+
+  .topbar,
+  .section-intro.inline,
+  .local-banner,
+  .hero-panel,
+  .panel-heading {
+    align-items: flex-start !important;
+    flex-wrap: wrap !important;
+  }
+
+  .nexus-hero {
+    min-height: 0 !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 18px !important;
+    padding: clamp(20px, 4vw, 30px) !important;
+  }
+
+  .nexus-emblem {
+    min-height: 150px !important;
+    transform: scale(.82);
+  }
+
+  .two-column,
+  .migration-panel,
+  .nexus-boundary-columns {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .nexus-status-strip {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+/* A short landscape window uses the available horizontal space instead of consuming it with a top pane. */
+@media (max-width: 959px) and (min-width: 760px) and (orientation: landscape) {
+  body .app-shell,
+  body.nexus-shell-v14 .app-shell,
+  body.khaos-ui-refresh .app-shell {
+    grid-template-columns: clamp(240px, 31vw, 270px) minmax(0, 1fr) !important;
+    grid-template-rows: minmax(0, 1fr) !important;
+  }
+
+  body .sidebar,
+  body.nexus-shell-v14 .sidebar,
+  body.khaos-ui-refresh .sidebar {
+    width: auto !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-height: 100vh !important;
+    max-height: 100dvh !important;
+    border-right: 1px solid rgba(255, 53, 86, .2) !important;
+    border-bottom: 0 !important;
+  }
+
+  body .nexus-navigation {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body .content,
+  body.nexus-shell-v14 .content,
+  body.khaos-ui-refresh .content {
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-height: 100vh !important;
+    max-height: 100dvh !important;
+  }
+}
+
+@media (max-width: 680px) {
+  body .nexus-navigation {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .topbar,
+  .section-intro.inline,
+  .local-banner,
+  .hero-panel,
+  .panel-heading,
+  .toggle-row,
+  .check-item,
+  .server-card header,
+  .detail-list div,
+  .nexus-service-details div,
+  .nexus-service-heading {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 9px !important;
+  }
+
+  .nexus-service-details dd,
+  .detail-list dd {
+    max-width: 100%;
+    margin-left: 0;
+    text-align: left !important;
+  }
+
+  .activity,
+  .log-line {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .activity-dot {
+    display: none;
+  }
+
+  .activity small {
+    white-space: normal !important;
+  }
+
+  .migration-steps,
+  .form-grid,
+  .form-grid.three,
+  .metric-grid,
+  .quick-grid,
+  .server-grid,
+  .module-grid,
+  .nexus-task-rail,
+  .nexus-feature-grid,
+  .nexus-service-grid,
+  .nexus-status-strip {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .toast {
+    left: 12px !important;
+    right: 12px !important;
+    bottom: 12px !important;
+    width: auto !important;
+    max-width: none !important;
+  }
+}
+
+@media (max-width: 520px) {
+  body .content,
+  body.nexus-shell-v14 .content,
+  body.khaos-ui-refresh .content {
+    padding: 12px 12px 26px !important;
+  }
+
+  .control-row > .button,
+  .form-actions > .button,
+  .toolbar > .button,
+  .nexus-action-row > .button,
+  .nexus-inline-actions > .button,
+  .server-actions > .button {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .nexus-hero-copy h2 {
+    font-size: clamp(25px, 9vw, 34px) !important;
+  }
+}
+
+@media (max-height: 620px) and (max-width: 759px) {
+  body .app-shell,
+  body.nexus-shell-v14 .app-shell,
+  body.khaos-ui-refresh .app-shell {
+    grid-template-rows: clamp(150px, 29dvh, 205px) minmax(0, 1fr) !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nexus-emblem { transform: none; }
+}

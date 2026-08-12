@@ -49,7 +49,9 @@ test('agent workers retain separate endpoint, data, environment, and authority c
   assert.match(contract, /endpoint:\s*'http:\/\/127\.0\.0\.1:8787'/);
   assert.match(contract, /PORT:\s*'0'/);
   assert.match(contract, /AI_PROVIDER:\s*'mock'/);
-  assert.match(contract, /AI_PROVIDER:\s*'deterministic-local'/);
+  assert.match(contract, /function sentinelProvider\(\)/);
+  assert.match(contract, /get AI_PROVIDER\(\) \{ return sentinelProvider\(\); \}/);
+  assert.match(contract, /KHAOS_SENTINEL_OLLAMA_MODEL/);
   assert.match(contract, /CAMPAIGN_STORE:\s*'json'/);
   assert.match(contract, /AUTH_REQUIRED:\s*'false'/);
   assert.match(supervisor, /path\.join\(dataRoot\(\), AGENTS\.core\.id\)/);
@@ -58,10 +60,13 @@ test('agent workers retain separate endpoint, data, environment, and authority c
   assert.match(contract, /directDndCallsAllowed !== false/);
 });
 
-test('bundle builder pins exact repositories and snapshots and records file hashes', () => {
+test('bundle builder pins exact repositories and snapshots, records file hashes, and applies the reviewed local-provider overlay', () => {
   const source = read('scripts/build-bundled-ai-runtimes.cjs');
   assert.match(source, /19c718917377d6148f9baaee8ac8dcb937692f32/);
   assert.match(source, /300c653e5643e0ee2e15590f8cb53e30ee7a79ff/);
+  assert.match(source, /AI_CORE_LOCAL_PROVIDER_OVERLAY/);
+  assert.match(source, /main\/ai-overlays\/ai-core/);
+  assert.match(source, /applyRuntimeOverlay/);
   assert.match(source, /bundle-manifest\.json/);
   assert.match(source, /sha256/);
   assert.match(source, /electronRunAsNode:\s*true/);

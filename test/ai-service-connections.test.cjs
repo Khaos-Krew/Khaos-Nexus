@@ -5,11 +5,16 @@ const assert = require('node:assert/strict');
 const {
   AI_CORE_SNAPSHOT,
   DEFAULT_AI_CORE_ENDPOINT,
+  DEFAULT_OLLAMA_ENDPOINT,
+  AI_CORE_PROVIDER_MODES,
   redactServiceSecret,
   normalizeServiceEndpoint,
+  normalizeOllamaEndpoint,
+  normalizeOllamaModel,
   normalizeServiceToken,
   sanitizeAiServiceBackupSecrets,
   normalizeAiCoreSettings,
+  normalizeProviderStatus,
   normalizeAiCoreHealth,
   normalizeAiCoreCapabilities,
   aiCoreBootstrap,
@@ -30,15 +35,41 @@ test('AI service endpoint policy permits loopback HTTP and requires remote HTTPS
   assert.throws(() => normalizeServiceEndpoint('https://ai.example.com?key=value'), /query string/i);
 });
 
-test('service tokens and AI Core settings are bounded and provider configuration remains server-owned', () => {
+test('local Ollama endpoint is loopback-only and model names are bounded', () => {
+  assert.equal(normalizeOllamaEndpoint('http://127.0.0.1:11434/'), DEFAULT_OLLAMA_ENDPOINT);
+  assert.equal(normalizeOllamaEndpoint('http://localhost:11434'), 'http://localhost:11434');
+  assert.throws(() => normalizeOllamaEndpoint('http://192.168.1.25:11434'), /loopback/i);
+  assert.throws(() => normalizeOllamaEndpoint('https://127.0.0.1:11434'), /loopback/i);
+  assert.equal(normalizeOllamaModel('qwen3:4b'), 'qwen3:4b');
+  assert.throws(() => normalizeOllamaModel('model with spaces'), /invalid/i);
+});
+
+test('service tokens and AI Core settings permit only zero-cost local provider modes', () => {
   assert.equal(normalizeServiceToken('abcdefgh'), 'abcdefgh');
   assert.throws(() => normalizeServiceToken('short'), /8–500/);
   assert.throws(() => normalizeServiceToken('contains spaces'), /without spaces/);
-  const settings = normalizeAiCoreSettings({ enabled: true, linkToPrimaryBot: true, endpoint: 'http://127.0.0.1:8790' });
-  assert.equal(settings.enabled, true);
-  assert.equal(settings.linkToPrimaryBot, true);
-  assert.throws(() => normalizeAiCoreSettings({ openaiApiKey: 'secret-value' }), /configured only in Nexus Sentinel/i);
-  assert.throws(() => normalizeAiCoreSettings({ model: 'provider-model' }), /configured only in Nexus Sentinel/i);
+  assert.deepEqual(AI_CORE_PROVIDER_MODES, ['deterministic-local', 'ollama-local']);
+
+  const deterministic = normalizeAiCoreSettings({ enabled: true, linkToPrimaryBot: true, endpoint: DEFAULT_AI_CORE_ENDPOINT });
+  assert.equal(deterministic.providerMode, 'deterministic-local');
+  assert.equal(deterministic.fallbackToDeterministic, true);
+
+  const local = normalizeAiCoreSettings({
+    enabled: true,
+    linkToPrimaryBot: true,
+    endpoint: DEFAULT_AI_CORE_ENDPOINT,
+    providerMode: 'ollama-local',
+    ollamaModel: 'qwen3:4b',
+    ollamaEndpoint: DEFAULT_OLLAMA_ENDPOINT,
+    fallbackToDeterministic: true
+  });
+  assert.equal(local.providerMode, 'ollama-local');
+  assert.equal(local.ollamaModel, 'qwen3:4b');
+  assert.equal(local.ollamaEndpoint, DEFAULT_OLLAMA_ENDPOINT);
+  assert.throws(() => normalizeAiCoreSettings({ providerMode: 'ollama-local', ollamaModel: '' }), /model before enabling/i);
+  assert.throws(() => normalizeAiCoreSettings({ providerMode: 'openai-responses' }), /Deterministic Local or Local LLM/i);
+  assert.throws(() => normalizeAiCoreSettings({ openaiApiKey: 'secret-value' }), /server-owned/i);
+  assert.throws(() => normalizeAiCoreSettings({ model: 'provider-model' }), /server-owned/i);
 });
 
 test('error redaction preserves tokenless messages and removes configured tokens', () => {
@@ -62,21 +93,47 @@ test('backup sanitization preserves both AI service secret exclusions', () => {
   assert.equal('aiCoreServiceToken' in sanitized, false);
 });
 
+test('provider status projection keeps only safe operational metadata', () => {
+  const provider = normalizeProviderStatus({
+    name: 'ollama-local',
+    model: 'qwen3:4b',
+    ready: true,
+    store: false,
+    toolsAllowed: false,
+    endpoint: 'http://127.0.0.1:11434',
+    fallback: { enabled: true, name: 'deterministic-local', model: 'deterministic-local' },
+    circuit: { state: 'closed', openUntil: null },
+    telemetry: { requestPrompts: ['private'] }
+  });
+  assert.deepEqual(provider, {
+    name: 'ollama-local',
+    model: 'qwen3:4b',
+    ready: true,
+    store: false,
+    toolsAllowed: false,
+    fallback: { enabled: true, name: 'deterministic-local', model: 'deterministic-local' },
+    circuit: { state: 'closed', openUntil: '' }
+  });
+  assert.equal('endpoint' in provider, false);
+  assert.equal('telemetry' in provider, false);
+});
+
 test('AI Core health and capabilities require exact identity and advisory isolation', () => {
   const health = normalizeAiCoreHealth({
     status: 'ok',
     service: 'khaos-nexus-ai-core',
     apiVersion: '1',
-    version: '0.5.0',
+    version: '0.7.0',
     targetService: 'nexus-ai-core',
-    provider: 'deterministic-local',
-    model: 'deterministic-local',
-    providerStatus: { name: 'deterministic-local', model: 'deterministic-local', ready: true, store: false, toolsAllowed: false },
+    provider: 'ollama-local',
+    model: 'qwen3:4b',
+    providerStatus: { name: 'ollama-local', model: 'qwen3:4b', ready: true, store: false, toolsAllowed: false },
     updateMonitor: { available: true, schedulerOwnedExternally: true },
     isolation: { directAiToAiCallsAllowed: false, executionAuthority: 'Khaos Nexus desktop and Nexus Bot' }
   }, DEFAULT_AI_CORE_ENDPOINT);
   assert.equal(health.reachable, true);
   assert.equal(health.directAiToAiCallsAllowed, false);
+  assert.equal(health.providerStatus.name, 'ollama-local');
   assert.equal(health.providerStatus.store, false);
   assert.equal(health.providerStatus.toolsAllowed, false);
 
