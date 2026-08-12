@@ -8,6 +8,11 @@ const { ServerConnection, isPalworldRest } = require('../bot/server-client.cjs')
 const { normalizeServerAddress, summarizeGameData } = require('../bot/palworld-rest.cjs');
 const { createCurrentServerAdapter } = require('../bot/game-adapters/current-server-adapter.cjs');
 const { executeAdapterOperation } = require('../shared/game-adapter-sdk.cjs');
+const {
+  normalizePalworldControl,
+  buildPalworldRconMirror,
+  classifyPalworldRconCommand
+} = require('../shared/palworld-control-profile.cjs');
 const { getNexusCoreService } = require('./services/nexus-core-service.cjs');
 
 const refs = { configStore: null, autonomy: null, discordAuth: null, logger: null };
@@ -22,6 +27,19 @@ const MUTATION_CAPABILITIES = Object.freeze({
   unban: 'game.player.ban',
   shutdown: 'game.server.shutdown',
   stop: 'game.server.stop'
+});
+
+const RCON_ROLE_BY_KIND = Object.freeze({
+  info: 'viewer',
+  players: 'viewer',
+  save: 'operator',
+  broadcast: 'operator',
+  kick: 'operator',
+  ban: 'owner',
+  unban: 'owner',
+  shutdown: 'owner',
+  stop: 'owner',
+  raw: 'owner'
 });
 
 function captureClass(modulePath, exportName, refName, enhance) {
@@ -47,10 +65,30 @@ function migrateConfig() {
   }
   for (const server of this.config?.servers || []) {
     if (String(server.game).toLowerCase() !== 'palworld') continue;
-    if (!server.connectionType) { server.connectionType = 'rest'; changed = true; }
-    if (!server.protocol) { server.protocol = 'http'; changed = true; }
-    if (!server.username) { server.username = 'admin'; changed = true; }
-    if (!server.apiPath) { server.apiPath = '/v1/api'; changed = true; }
+    const before = JSON.stringify({
+      connectionType: server.connectionType,
+      port: server.port,
+      protocol: server.protocol,
+      username: server.username,
+      apiPath: server.apiPath,
+      rconEnabled: server.rconEnabled,
+      rconHost: server.rconHost,
+      rconPort: server.rconPort,
+      restNeedsVerification: server.restNeedsVerification
+    });
+    Object.assign(server, normalizePalworldControl(server));
+    const after = JSON.stringify({
+      connectionType: server.connectionType,
+      port: server.port,
+      protocol: server.protocol,
+      username: server.username,
+      apiPath: server.apiPath,
+      rconEnabled: server.rconEnabled,
+      rconHost: server.rconHost,
+      rconPort: server.rconPort,
+      restNeedsVerification: server.restNeedsVerification
+    });
+    if (before !== after) changed = true;
   }
   if (changed) this.saveConfig();
 }
@@ -67,16 +105,25 @@ function patchConfigStore() {
     }
 
     upsertServer(server, password) {
-      const normalized = normalizeServerAddress(server || {});
+      const isPalworld = String(server?.game || '').toLowerCase() === 'palworld';
+      const control = isPalworld ? normalizePalworldControl({ ...server, restNeedsVerification: false }) : null;
+      const input = isPalworld ? {
+        ...server,
+        ...control,
+        connectionType: 'rest'
+      } : server;
+      const normalized = normalizeServerAddress(input || {});
       const id = super.upsertServer(normalized, password);
       const saved = this.config.servers.find((item) => item.id === id);
       if (saved) {
-        saved.connectionType = String(server?.game).toLowerCase() === 'palworld'
-          ? (String(server?.connectionType || 'rest').toLowerCase() === 'rcon' ? 'rcon' : 'rest')
-          : 'rcon';
-        saved.protocol = normalized.protocol;
-        saved.username = normalized.username;
-        saved.apiPath = normalized.apiPath;
+        if (isPalworld) {
+          Object.assign(saved, control, { connectionType: 'rest', restNeedsVerification: false });
+        } else {
+          saved.connectionType = 'rcon';
+          saved.protocol = normalized.protocol;
+          saved.username = normalized.username;
+          saved.apiPath = normalized.apiPath;
+        }
         this.saveConfig();
       }
       return id;
@@ -120,9 +167,13 @@ function getPalworldServer(id) {
   const server = refs.configStore?.getRuntimeBootstrap()?.config?.servers?.find((item) => item.id === id);
   if (!server) throw new Error('Server configuration was not found.');
   if (String(server.game).toLowerCase() !== 'palworld') throw new Error('This action requires a Palworld server.');
-  if (!isPalworldRest(server)) throw new Error('This Palworld entry is configured for legacy RCON. Change Connection type to Palworld REST API.');
+  if (!isPalworldRest(server)) throw new Error('Palworld REST is required as the primary connection. Re-save this server using the REST configuration.');
   if (!server.password) throw new Error('Save the Palworld AdminPassword before using REST operations.');
   return server;
+}
+
+function getPalworldRconServer(id) {
+  return buildPalworldRconMirror(getPalworldServer(id));
 }
 
 function cleanText(value, max, label) {
@@ -180,6 +231,16 @@ function coreForPalworld() {
         return executeAdapterAction(server, action, request.input.payload || {}, request.input.role || 'owner');
       }
     });
+
+    core.registerAction('palworld.rcon.compatibility-mutation', {
+      requiredCapabilities: (request) => [classifyPalworldRconCommand(request.input.command).capability],
+      execute: async (request) => {
+        const classified = classifyPalworldRconCommand(request.input.command);
+        if (!classified.mutation) throw new Error('Read-only RCON commands do not use the mutation gateway.');
+        const rconServer = getPalworldRconServer(request.input.serverId);
+        return new ServerConnection(rconServer).action('raw', { command: classified.command });
+      }
+    });
     coreActionRegistered = true;
   }
   return core;
@@ -228,6 +289,49 @@ async function executeAction(server, action, payload = {}, role = 'owner', optio
   throw error;
 }
 
+function rconOperationId(server, classified, options = {}) {
+  if (options.operationId) return String(options.operationId).slice(0, 190);
+  const digest = crypto.createHash('sha256').update(`${server.id}\n${classified.command}`).digest('hex').slice(0, 20);
+  const bucket = Math.floor(Date.now() / 2000);
+  return `palworld:rcon:${classified.kind}:${server.id}:${bucket}:${digest}`;
+}
+
+async function executeRconCommand(server, command, role, confirmation = '', options = {}) {
+  const classified = classifyPalworldRconCommand(command);
+  const requiredRole = RCON_ROLE_BY_KIND[classified.kind] || 'owner';
+  requireAccess(requiredRole, `Palworld RCON ${classified.kind}`);
+  if (classified.destructive && String(confirmation || '') !== server.name) {
+    throw new Error(`Type the exact server name “${server.name}” to confirm this RCON command.`);
+  }
+
+  const rconServer = getPalworldRconServer(server.id);
+  if (!classified.mutation) return new ServerConnection(rconServer).action('raw', { command: classified.command });
+
+  const operationId = rconOperationId(server, classified, options);
+  const auth = refs.discordAuth?.getState?.() || {};
+  const core = coreForPalworld();
+  const result = await core.commandGateway.dispatch({
+    operationId,
+    action: 'palworld.rcon.compatibility-mutation',
+    requestedAt: new Date().toISOString(),
+    scope: { kind: 'server', id: String(server.id) },
+    actor: { kind: 'user', id: String(auth.user?.id || 'local') },
+    source: { kind: 'desktop', id: 'palworld-rcon-compatibility' },
+    correlationId: operationId,
+    idempotencyKey: operationId,
+    requiredCapabilities: [],
+    input: { serverId: String(server.id), command: classified.command }
+  }, { role });
+
+  if (result.status === 'succeeded') return result.output;
+  if (result.status === 'duplicate' && result.output?.originalState === 'completed' && result.output?.originalResultStatus === 'succeeded') {
+    return { duplicate: true, message: 'Nexus Core suppressed a duplicate Palworld RCON command.' };
+  }
+  const error = new Error(result.error?.message || `Palworld RCON command was blocked by Nexus Core (${result.status}).`);
+  error.code = result.error?.code || 'NEXUS_PALWORLD_RCON_BLOCKED';
+  throw error;
+}
+
 function registerIpc() {
   if (!refs.configStore || !refs.autonomy) {
     setTimeout(registerIpc, 100);
@@ -266,6 +370,19 @@ function registerIpc() {
     refs.logger?.info('Palworld REST action completed.', { server: server.name, action });
     return { action, server: server.name, result };
   });
+
+  electron.ipcMain.handle('server:palworld-rcon-command', async (_event, request = {}) => {
+    const server = getPalworldServer(request.id);
+    const classified = classifyPalworldRconCommand(request.command);
+    const role = RCON_ROLE_BY_KIND[classified.kind] || 'owner';
+    const result = await executeRconCommand(server, classified.command, role, request.confirmation, { operationId: request.operationId });
+    refs.logger?.info('Palworld optional RCON command completed.', {
+      server: server.name,
+      kind: classified.kind,
+      mutation: classified.mutation
+    });
+    return { command: classified.command, kind: classified.kind, server: server.name, result };
+  });
 }
 
 function install() {
@@ -285,7 +402,11 @@ module.exports = {
   refs,
   executeAction,
   executeAdapterAction,
+  executeRconCommand,
+  getPalworldRconServer,
   normalizedActionPayload,
   MUTATION_CAPABILITIES,
-  palworldOperationId
+  RCON_ROLE_BY_KIND,
+  palworldOperationId,
+  rconOperationId
 };
