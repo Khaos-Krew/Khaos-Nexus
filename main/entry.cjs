@@ -84,6 +84,7 @@ if (diagnosticsMode) {
     require('./module-runtime-extension.cjs').install();
 
     require('./palworld-main-extension.cjs').install();
+    require('./palworld-update-automation-extension.cjs').install();
     require('./discord-studio-extension.cjs').install();
     if (mobileGatewayEnabled) {
       require('./mobile-gateway-extension.cjs').install();
