@@ -8,7 +8,7 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
 
-test('v0.41 freeze script produces the intended in-app updater identity', () => {
+test('v0.41 bridge freeze script preserves the published stable updater identity', () => {
   const source = read('scripts/freeze-v0.41-nexus-core.cjs');
   assert.match(source, /pkg\.version = '0\.41\.0'/);
   assert.match(source, /displayVersion: '0\.41\.0-B'/);
@@ -17,6 +17,18 @@ test('v0.41 freeze script produces the intended in-app updater identity', () => 
   assert.match(source, /channel: 'latest'/);
   assert.match(source, /Khaos-Nexus-Setup-0\.41\.0-B/);
   assert.match(source, /Khaos-Nexus-Portable-0\.41\.0-B/);
+});
+
+test('v0.41.1 acceptance freeze script targets the opt-in Test/Beta updater feed', () => {
+  const source = read('scripts/freeze-v0.41.1-hotfix.cjs');
+  assert.match(source, /pkg\.version = '0\.41\.1'/);
+  assert.match(source, /displayVersion: '0\.41\.1-B'/);
+  assert.match(source, /publicTag: 'v0\.41\.1-B'/);
+  assert.match(source, /channel: 'beta'/);
+  assert.match(source, /rollbackTag: 'v0\.41\.0-B'/);
+  assert.match(source, /generateUpdatesFilesForAllChannels = true/);
+  assert.match(source, /Khaos-Nexus-Setup-0\.41\.1-B/);
+  assert.match(source, /Khaos-Nexus-Portable-0\.41\.1-B/);
 });
 
 test('stable remains the default updater channel and test channel is explicit opt-in', () => {
@@ -37,15 +49,17 @@ test('pre-update backup remains mandatory after channel support', () => {
   assert.match(source, /Installation was cancelled and the current version remains active/);
 });
 
-test('Windows candidate workflow freezes v0.41 and requires updater metadata', () => {
+test('Windows acceptance candidate freezes v0.41.1 and verifies beta updater metadata', () => {
   const workflow = read('.github/workflows/windows-build.yml');
-  assert.match(workflow, /freeze-v0\.41-nexus-core\.cjs/);
+  assert.match(workflow, /freeze-v0\.41\.1-hotfix\.cjs/);
   assert.match(workflow, /KHAOS_REQUIRE_UPDATER_METADATA: '1'/);
   assert.match(workflow, /Smoke-test clean installer/);
   assert.match(workflow, /Smoke-test packaged full startup readiness/);
+  assert.match(workflow, /Verify Test\/Beta updater metadata/);
+  assert.match(workflow, /dist\/beta\.yml/);
 });
 
-test('protected test-update publisher validates before creating tag or release', () => {
+test('protected v0.41.0 bridge publisher remains immutable rollback evidence', () => {
   const workflow = read('.github/workflows/nexus-core-test-release.yml');
   const tests = workflow.indexOf('Run complete tests');
   const cleanInstall = workflow.indexOf('Smoke-test clean installer');
@@ -62,10 +76,18 @@ test('protected test-update publisher validates before creating tag or release',
   assert.match(workflow, /releases\/latest/);
 });
 
-test('release notes identify the build as an in-app update test without weakening local authority', () => {
+test('v0.41.0 release notes preserve the stable bridge safety contract', () => {
   const notes = read('release-notes/v0.41.0.md');
   assert.match(notes, /in-app update testing/i);
   assert.match(notes, /mandatory verified pre-update backups/i);
   assert.match(notes, /does not move desktop authority to Railway/i);
   assert.match(notes, /refuses automatic destructive replay/i);
+});
+
+test('v0.41.1 acceptance notes keep Palworld restart and beta exposure gated', () => {
+  const notes = read('release-notes/v0.41.1.md');
+  assert.match(notes, /opt-in Test\/Beta update channel/i);
+  assert.match(notes, /v0\.41\.0-B remains the Stable\/latest rollback point/i);
+  assert.match(notes, /Automatic Palworld maintenance restart remains disabled/i);
+  assert.match(notes, /fail closed/i);
 });

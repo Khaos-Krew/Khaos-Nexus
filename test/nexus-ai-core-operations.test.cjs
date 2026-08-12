@@ -14,10 +14,16 @@ test('AI Core is packaged from the pinned embedded source through the validated 
   const service = config.services.find((candidate) => candidate.id === 'ai-core');
   assert.ok(service, 'AI Core must remain in the authoritative embedded source configuration.');
   assert.equal(service.repository, 'Khaos-Krew/Khaos-Nexus-AI-Core');
-  assert.equal(service.commit, '300c653e5643e0ee2e15590f8cb53e30ee7a79ff');
+  assert.equal(service.commit, 'b0f94a23c9276a98d24588b9ce5556a05c16636e');
   assert.equal(service.version, '0.7.0');
   assert.equal(service.entry, 'src/sidecar.js');
   assert.equal(service.directory, 'packages/ai/ai-core');
+
+  const provenance = readJson('packages/ai/ai-core/source-provenance.json');
+  assert.equal(provenance.repository, service.repository);
+  assert.equal(provenance.commit, service.commit);
+  assert.equal(provenance.version, service.version);
+  assert.equal(provenance.entry, service.entry);
 
   const builder = read('scripts/build-bundled-ai-runtimes.cjs');
   assert.match(builder, /loadConfig/);
