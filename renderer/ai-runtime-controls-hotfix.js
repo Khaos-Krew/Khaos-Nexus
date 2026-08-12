@@ -10,6 +10,7 @@
   const POLL_INTERVAL_MS = 5000;
   const byId = (id) => document.getElementById(id);
   const serviceCache = new Map();
+  const bundleCache = new Map();
   let busy = false;
   let installed = false;
   let installAttempts = 0;
@@ -30,11 +31,19 @@
     return payload?.services?.find((service) => service.key === key) || { key, status: 'stopped', error: '' };
   }
 
+  function bundleState(payload, key) {
+    return payload?.bundles?.[key] || { key, status: 'unknown', error: 'Bundle health has not been reported yet.' };
+  }
+
   function statusTone(status) {
     const value = String(status || '').toLowerCase();
-    if (RUNNING_STATES.has(value)) return 'good';
-    if (value === 'failed') return 'bad';
+    if (RUNNING_STATES.has(value) || value === 'ready') return 'good';
+    if (['failed', 'missing', 'invalid', 'corrupt', 'blocked'].includes(value)) return 'bad';
     return '';
+  }
+
+  function bundleReady(key) {
+    return String(bundleCache.get(key)?.status || '').toLowerCase() === 'ready';
   }
 
   function controlDisabled(button) {
@@ -43,13 +52,14 @@
     if (busy || !VALID_ACTIONS.has(action) || !VALID_SERVICES.has(service)) return true;
     if (service === 'all') {
       const states = ['dnd', 'core'].map((key) => String(serviceCache.get(key)?.status || 'stopped').toLowerCase());
-      if (action === 'start') return states.every((state) => ACTIVE_STATES.has(state));
+      const readyBundles = ['dnd', 'core'].filter(bundleReady);
+      if (action === 'start') return !readyBundles.length || states.every((state, index) => !readyBundles.includes(['dnd', 'core'][index]) || ACTIVE_STATES.has(state));
       if (action === 'restart') return !states.some((state) => RUNNING_STATES.has(state));
       return !states.some((state) => ACTIVE_STATES.has(state));
     }
     const status = String(serviceCache.get(service)?.status || 'stopped').toLowerCase();
-    if (action === 'start') return ACTIVE_STATES.has(status);
-    if (action === 'restart') return !RUNNING_STATES.has(status);
+    if (action === 'start') return !bundleReady(service) || ACTIVE_STATES.has(status);
+    if (action === 'restart') return !bundleReady(service) || !RUNNING_STATES.has(status);
     return !ACTIVE_STATES.has(status);
   }
 
@@ -60,19 +70,24 @@
     });
   }
 
-  function updateCard(key, service) {
+  function updateCard(key, service, bundle) {
     serviceCache.set(key, service);
+    bundleCache.set(key, bundle);
     const prefix = key === 'dnd' ? 'dndAi' : 'nexusAi';
     const badge = byId(`${prefix}ServiceBadge`);
     const runtime = byId(`${prefix}ServiceRuntime`);
+    const bundleStatus = String(bundle?.status || 'unknown').toLowerCase();
+    const blocked = bundleStatus !== 'ready' && !ACTIVE_STATES.has(String(service.status || '').toLowerCase());
     if (badge) {
-      badge.textContent = service.status || 'stopped';
-      badge.className = `tag ${statusTone(service.status)}`.trim();
+      badge.textContent = blocked ? `bundle ${bundleStatus}` : service.status || 'stopped';
+      badge.className = `tag ${statusTone(blocked ? bundleStatus : service.status)}`.trim();
     }
     if (runtime) {
-      runtime.textContent = service.error
-        ? `Error: ${service.error}`
-        : service.endpoint || (service.version ? `Version ${service.version}` : 'Bundled / isolated');
+      runtime.textContent = blocked
+        ? `Bundle: ${bundle?.error || 'Packaged AI resource is unavailable.'}`
+        : service.error
+          ? `Error: ${service.error}`
+          : service.endpoint || (service.version ? `Version ${service.version}` : bundle?.version ? `Bundle ${bundle.version} • verified on start` : 'Bundled / isolated');
     }
   }
 
@@ -82,11 +97,12 @@
     refreshInFlight = (async () => {
       try {
         const payload = await window.khaos.invoke('ai:runtimes-status');
-        updateCard('dnd', serviceState(payload, 'dnd'));
-        updateCard('core', serviceState(payload, 'core'));
+        updateCard('dnd', serviceState(payload, 'dnd'), bundleState(payload, 'dnd'));
+        updateCard('core', serviceState(payload, 'core'), bundleState(payload, 'core'));
       } catch (error) {
-        updateCard('dnd', { status: 'failed', error: error?.message || 'Unable to read agent status.' });
-        updateCard('core', { status: 'failed', error: error?.message || 'Unable to read agent status.' });
+        const failed = { status: 'failed', error: error?.message || 'Unable to read agent status.' };
+        updateCard('dnd', failed, { status: 'unknown', error: failed.error });
+        updateCard('core', failed, { status: 'unknown', error: failed.error });
       } finally {
         syncControls();
         refreshInFlight = null;
@@ -101,6 +117,10 @@
 
   async function perform(action, service) {
     if (busy || !VALID_ACTIONS.has(action) || !VALID_SERVICES.has(service)) return;
+    if (action !== 'stop' && service !== 'all' && !bundleReady(service)) {
+      const bundle = bundleCache.get(service);
+      return toast(bundle?.error || `${labelFor(service)} bundle is not ready.`);
+    }
     busy = true;
     syncControls();
     try {
@@ -194,7 +214,7 @@
       heroButton.removeAttribute('data-khaos-open');
       heroButton.dataset.aiAction = 'start';
       heroButton.dataset.aiService = 'all';
-      heroButton.textContent = 'Start Khaos Nexus AI Runtime';
+      heroButton.textContent = 'Start Available AI Workers';
     }
 
     document.addEventListener('click', (event) => {
