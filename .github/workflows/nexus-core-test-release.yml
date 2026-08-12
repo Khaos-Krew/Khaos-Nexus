@@ -71,7 +71,26 @@ jobs:
         run: npm run check
 
       - name: Build installer and portable updater assets
-        run: npm run dist:win
+        shell: pwsh
+        run: |
+          cmd.exe /d /s /c "npm run dist:win > release-build-output.txt 2>&1"
+          $buildExitCode = $LASTEXITCODE
+          Get-Content -LiteralPath release-build-output.txt
+          if ($buildExitCode -ne 0) {
+            $tail = (Get-Content -LiteralPath release-build-output.txt -Tail 35) -join '%0A'
+            $tail = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=electron-builder packaging failure::$tail"
+            exit $buildExitCode
+          }
+
+      - name: Retain failed packaging diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Khaos-Nexus-v0.41.0-B-packaging-diagnostics
+          path: release-build-output.txt
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Audit packaged app contents
         run: node scripts/audit-packaged-contents.cjs
