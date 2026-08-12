@@ -119,14 +119,20 @@ function initialize(input = {}) {
   if (launcherRelative.startsWith('..') || path.isAbsolute(launcherRelative)) {
     throw new Error('AI runtime agent launcher is outside the application source.');
   }
-  configuration = {
-    dnd: normalizeAgentConfig('dnd', input.agents?.dnd),
-    core: normalizeAgentConfig('core', input.agents?.core),
-    startAgents: Array.isArray(input.startAgents)
-      ? [...new Set(input.startAgents.map((key) => agentKey(key))) ]
-      : Object.keys(AGENTS)
-  };
-  if (!configuration.core.serviceToken || !configuration.core.startupNonce || !configuration.core.readyFile || !configuration.core.monitorStateFile) {
+  const startAgents = Array.isArray(input.startAgents)
+    ? [...new Set(input.startAgents.map((key) => agentKey(key)))]
+    : Object.keys(AGENTS);
+  configuration = { startAgents };
+  for (const key of Object.keys(AGENTS)) {
+    if (input.agents?.[key]) configuration[key] = normalizeAgentConfig(key, input.agents[key]);
+  }
+  for (const key of startAgents) {
+    if (configuration[key]) continue;
+    const error = new Error(`${AGENTS[key].label} bundle is unavailable to the unified runtime host.`);
+    error.code = 'AI_RUNTIME_AGENT_UNAVAILABLE';
+    throw error;
+  }
+  if (configuration.core && (!configuration.core.serviceToken || !configuration.core.startupNonce || !configuration.core.readyFile || !configuration.core.monitorStateFile)) {
     throw new Error('Nexus Sentinel private startup contract is incomplete.');
   }
   initialized = true;
@@ -309,6 +315,11 @@ function startAgent(inputKey) {
   const current = agents.get(key);
   if (current?.child) return stateFor(key);
   const config = configuration[key];
+  if (!config) {
+    const error = new Error(`${AGENTS[key].label} bundle was not supplied to this runtime host. Restart the AI runtime after repairing the bundle.`);
+    error.code = 'AI_RUNTIME_AGENT_UNAVAILABLE';
+    throw error;
+  }
   const value = {
     config,
     child: null,
