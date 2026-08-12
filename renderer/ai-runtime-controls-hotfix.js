@@ -53,7 +53,12 @@
     if (service === 'all') {
       const states = ['dnd', 'core'].map((key) => String(serviceCache.get(key)?.status || 'stopped').toLowerCase());
       const readyBundles = ['dnd', 'core'].filter(bundleReady);
-      if (action === 'start') return !readyBundles.length || states.every((state, index) => !readyBundles.includes(['dnd', 'core'][index]) || ACTIVE_STATES.has(state));
+      const allWorkerStatesActive = states.every((state) => ACTIVE_STATES.has(state));
+      if (action === 'start') {
+        if (!readyBundles.length) return true;
+        if (readyBundles.length === states.length) return allWorkerStatesActive;
+        return states.every((state, index) => !readyBundles.includes(['dnd', 'core'][index]) || ACTIVE_STATES.has(state));
+      }
       if (action === 'restart') return !states.some((state) => RUNNING_STATES.has(state));
       return !states.some((state) => ACTIVE_STATES.has(state));
     }
@@ -214,7 +219,7 @@
       heroButton.removeAttribute('data-khaos-open');
       heroButton.dataset.aiAction = 'start';
       heroButton.dataset.aiService = 'all';
-      heroButton.textContent = 'Start Available AI Workers';
+      heroButton.textContent = 'Start Khaos Nexus AI Runtime · Available Workers';
     }
 
     document.addEventListener('click', (event) => {
