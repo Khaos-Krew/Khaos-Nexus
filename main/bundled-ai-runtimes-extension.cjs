@@ -81,18 +81,68 @@ function audit(action, service, outcome, detail = '') {
 function verifyBundle(service) {
   const root = path.join(runtimeRoot(), service.id);
   const manifestPath = path.join(root, 'bundle-manifest.json');
-  if (!fs.existsSync(manifestPath)) throw new Error(`${service.label} bundle is not installed.`);
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  if (manifest.id !== service.id || manifest.runtime?.electronRunAsNode !== true) throw new Error(`${service.label} bundle manifest is invalid.`);
+  if (!fs.existsSync(manifestPath)) {
+    const error = new Error(`${service.label} bundle is not installed.`);
+    error.code = 'AI_RUNTIME_BUNDLE_MISSING';
+    throw error;
+  }
+  let manifest;
+  try { manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')); }
+  catch (cause) {
+    const error = new Error(`${service.label} bundle manifest cannot be read.`);
+    error.code = 'AI_RUNTIME_BUNDLE_INVALID';
+    error.cause = cause;
+    throw error;
+  }
+  if (manifest.id !== service.id || manifest.runtime?.electronRunAsNode !== true) {
+    const error = new Error(`${service.label} bundle manifest is invalid.`);
+    error.code = 'AI_RUNTIME_BUNDLE_INVALID';
+    throw error;
+  }
   for (const item of manifest.files || []) {
     const file = safeRelative(root, item.path);
     if (!fs.existsSync(file) || fs.statSync(file).size !== item.size || sha256(file) !== item.sha256) {
-      throw new Error(`${service.label} bundle integrity check failed for ${item.path}.`);
+      const error = new Error(`${service.label} bundle integrity check failed for ${item.path}.`);
+      error.code = 'AI_RUNTIME_BUNDLE_CORRUPT';
+      throw error;
     }
   }
   const entry = safeRelative(root, manifest.entry);
-  if (!fs.existsSync(entry)) throw new Error(`${service.label} entry point is missing.`);
+  if (!fs.existsSync(entry)) {
+    const error = new Error(`${service.label} entry point is missing.`);
+    error.code = 'AI_RUNTIME_BUNDLE_CORRUPT';
+    throw error;
+  }
   return { root, entry, manifest };
+}
+
+function inspectBundle(service) {
+  const root = path.join(runtimeRoot(), service.id);
+  const manifestPath = path.join(root, 'bundle-manifest.json');
+  if (!fs.existsSync(manifestPath)) return { key: service.key || service.id, id: service.id, label: service.label, status: 'missing', error: `${service.label} bundle is not installed.` };
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    if (manifest.id !== service.id || manifest.runtime?.electronRunAsNode !== true) return { key: service.key || service.id, id: service.id, label: service.label, status: 'invalid', error: `${service.label} bundle manifest is invalid.` };
+    const entry = safeRelative(root, manifest.entry);
+    if (!fs.existsSync(entry)) return { key: service.key || service.id, id: service.id, label: service.label, status: 'corrupt', error: `${service.label} entry point is missing.` };
+    return {
+      key: service.key || service.id,
+      id: service.id,
+      label: service.label,
+      status: 'ready',
+      version: cleanText(manifest.version, 80),
+      commit: cleanText(manifest.commit, 120),
+      fileCount: Array.isArray(manifest.files) ? manifest.files.length : 0,
+      integrity: 'verified-on-start',
+      error: ''
+    };
+  } catch (error) {
+    return { key: service.key || service.id, id: service.id, label: service.label, status: 'invalid', error: cleanText(error?.message || error, 500) };
+  }
+}
+
+function bundleStates() {
+  return Object.fromEntries(Object.entries(AGENTS).map(([key, service]) => [key, inspectBundle({ ...service, key })]));
 }
 
 function emit() {
@@ -124,7 +174,8 @@ function status() {
     runtimeLabel: RUNTIME.label,
     host: runtime,
     agents,
-    services: agents
+    services: agents,
+    bundles: bundleStates()
   };
 }
 function rejectPending(error) {
@@ -158,39 +209,50 @@ function hostEnvironment() {
   };
 }
 function hostConfiguration(startAgents) {
-  const dndBundle = verifyBundle(AGENTS.dnd);
-  const coreBundle = verifyBundle(AGENTS.core);
-  coreServiceToken = secret();
+  const requested = [...new Set(startAgents.map((key) => agentKey(key)))];
+  const bundles = {};
+  for (const [key, service] of Object.entries(AGENTS)) {
+    try { bundles[key] = verifyBundle(service); }
+    catch (error) {
+      if (requested.includes(key)) throw error;
+      audit('bundle.skipped', key, 'failed', error.message);
+    }
+  }
+  coreServiceToken = bundles.core ? secret() : '';
   runtimeNonce = secret();
-  const coreData = path.join(dataRoot(), AGENTS.core.id);
-  const dndData = path.join(dataRoot(), AGENTS.dnd.id);
-  fs.mkdirSync(coreData, { recursive: true });
-  fs.mkdirSync(dndData, { recursive: true });
-  const startupNonce = secret();
+  const agentConfig = {};
+  if (bundles.dnd) {
+    const dndData = path.join(dataRoot(), AGENTS.dnd.id);
+    fs.mkdirSync(dndData, { recursive: true });
+    agentConfig.dnd = {
+      root: bundles.dnd.root,
+      entry: bundles.dnd.entry,
+      dataDir: dndData,
+      version: bundles.dnd.manifest.version,
+      commit: bundles.dnd.manifest.commit
+    };
+  }
+  if (bundles.core) {
+    const coreData = path.join(dataRoot(), AGENTS.core.id);
+    fs.mkdirSync(coreData, { recursive: true });
+    const startupNonce = secret();
+    agentConfig.core = {
+      root: bundles.core.root,
+      entry: bundles.core.entry,
+      dataDir: coreData,
+      version: bundles.core.manifest.version,
+      commit: bundles.core.manifest.commit,
+      serviceToken: coreServiceToken,
+      startupNonce,
+      readyFile: path.join(coreData, `ready-${process.pid}-${Date.now()}.json`),
+      monitorStateFile: path.join(coreData, 'monitor-state.json')
+    };
+  }
   return {
     nonce: runtimeNonce,
     launcher: path.join(__dirname, 'ai-runtime-agent-launcher.cjs'),
-    startAgents,
-    agents: {
-      dnd: {
-        root: dndBundle.root,
-        entry: dndBundle.entry,
-        dataDir: dndData,
-        version: dndBundle.manifest.version,
-        commit: dndBundle.manifest.commit
-      },
-      core: {
-        root: coreBundle.root,
-        entry: coreBundle.entry,
-        dataDir: coreData,
-        version: coreBundle.manifest.version,
-        commit: coreBundle.manifest.commit,
-        serviceToken: coreServiceToken,
-        startupNonce,
-        readyFile: path.join(coreData, `ready-${process.pid}-${Date.now()}.json`),
-        monitorStateFile: path.join(coreData, 'monitor-state.json')
-      }
-    }
+    startAgents: requested,
+    agents: agentConfig
   };
 }
 function finalizeHostExit(child, code, signal, stopRequested) {
@@ -294,7 +356,7 @@ function sendCommand(actionInput, serviceInput, options = {}) {
   const service = agentKey(serviceInput, true);
   if (!hostAlive()) {
     if (action === 'start') {
-      startHost(service === 'all' ? Object.keys(AGENTS) : [service]);
+      startHost(service === 'all' ? Object.keys(AGENTS).filter((key) => inspectBundle({ ...AGENTS[key], key }).status === 'ready') : [service]);
       return Promise.resolve(service === 'all' ? serviceStates() : serviceStates().find((item) => item.key === service));
     }
     return Promise.resolve(service === 'all' ? serviceStates() : serviceStates().find((item) => item.key === service));
@@ -369,9 +431,18 @@ async function restart(inputKey) {
   }
   return sendCommand('restart', key);
 }
+function availableAgentKeys() {
+  return Object.keys(AGENTS).filter((key) => inspectBundle({ ...AGENTS[key], key }).status === 'ready');
+}
 function startAll() {
   if (!hostAlive()) {
-    startHost(Object.keys(AGENTS));
+    const available = availableAgentKeys();
+    if (!available.length) {
+      const error = new Error('No verified AI runtime bundles are available. Reinstall or update Khaos Nexus to repair packaged AI resources.');
+      error.code = 'AI_RUNTIME_BUNDLES_UNAVAILABLE';
+      throw error;
+    }
+    startHost(available);
     return serviceStates();
   }
   return sendCommand('start', 'all');
@@ -379,7 +450,13 @@ function startAll() {
 async function stopAll(options = {}) { return stopHost(options); }
 async function restartAll() {
   if (!hostAlive()) {
-    startHost(Object.keys(AGENTS));
+    const available = availableAgentKeys();
+    if (!available.length) {
+      const error = new Error('No verified AI runtime bundles are available. Reinstall or update Khaos Nexus to repair packaged AI resources.');
+      error.code = 'AI_RUNTIME_BUNDLES_UNAVAILABLE';
+      throw error;
+    }
+    startHost(available);
     return serviceStates();
   }
   return sendCommand('restart', 'all');
@@ -446,6 +523,8 @@ function install() {
 module.exports = {
   install,
   verifyBundle,
+  inspectBundle,
+  bundleStates,
   status,
   start,
   stop,
