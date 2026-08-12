@@ -16,12 +16,12 @@
       "id": "ai-core",
       "directory": "packages/ai/ai-core",
       "repository": "Khaos-Krew/Khaos-Nexus-AI-Core",
-      "commit": "300c653e5643e0ee2e15590f8cb53e30ee7a79ff",
+      "commit": "b0f94a23c9276a98d24588b9ce5556a05c16636e",
       "version": "0.7.0",
       "entry": "src/sidecar.js",
-      "fileCount": 45,
-      "totalBytes": 243058,
-      "snapshotSha256": "333f77bbee250fcada72a9bc13d3c7cbcc240633bf04eb7936eec9f8c24f4004"
+      "fileCount": 46,
+      "totalBytes": 256134,
+      "snapshotSha256": "59b08d0e3556959ac4f13e52bbc90d8e55af36cc04a53cf48e65066764b56f6f"
     }
   ]
 }
