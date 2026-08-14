@@ -19,11 +19,16 @@ concurrency:
 jobs:
   publish-windows-release:
     if: >-
-      github.event_name == 'push' ||
+      (
+        github.event_name == 'push' &&
+        !endsWith(github.ref_name, '-validation') &&
+        !endsWith(github.ref_name, '-B')
+      ) ||
       (
         github.event_name == 'pull_request_target' &&
         github.event.pull_request.head.repo.full_name == github.repository &&
-        startsWith(github.event.pull_request.head.ref, 'publish/v')
+        startsWith(github.event.pull_request.head.ref, 'publish/v') &&
+        !endsWith(github.event.pull_request.base.ref, '-B')
       )
     runs-on: windows-latest
     steps:
