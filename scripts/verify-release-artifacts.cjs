@@ -10,6 +10,8 @@ const dist = path.join(root, 'dist');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const artifactVersion = String(pkg.khaosRelease?.artifactVersion || pkg.build?.extraMetadata?.version || pkg.version || '').trim();
 const updaterVersion = String(pkg.khaosRelease?.updaterVersion || pkg.version || artifactVersion).trim();
+const releaseChannel = String(pkg.khaosRelease?.channel || 'latest').trim().toLowerCase();
+const updaterMetadataName = releaseChannel === 'beta' ? 'beta.yml' : 'latest.yml';
 const arch = String(process.env.KHAOS_RELEASE_ARCH || 'x64').trim();
 const requireUpdaterMetadata = process.env.KHAOS_REQUIRE_UPDATER_METADATA === '1';
 
@@ -21,7 +23,7 @@ const expected = [
   { name: `Khaos-Nexus-Setup-${artifactVersion}-${arch}.exe`, required: true, minBytes: 1024 * 1024 },
   { name: `Khaos-Nexus-Portable-${artifactVersion}-${arch}.exe`, required: true, minBytes: 1024 * 1024 },
   { name: `Khaos-Nexus-Setup-${artifactVersion}-${arch}.exe.blockmap`, required: requireUpdaterMetadata, minBytes: 1 },
-  { name: 'latest.yml', required: requireUpdaterMetadata, minBytes: 1 }
+  { name: updaterMetadataName, required: requireUpdaterMetadata, minBytes: 1 }
 ];
 
 function sha256(filePath) {
@@ -44,13 +46,13 @@ for (const item of expected) {
 }
 
 if (requireUpdaterMetadata) {
-  const latestPath = path.join(dist, 'latest.yml');
-  const latest = fs.readFileSync(latestPath, 'utf8');
-  if (!latestYmlAdvertisesVersion(latest, updaterVersion)) {
-    throw new Error(`latest.yml does not advertise updater version ${updaterVersion}.`);
+  const metadataPath = path.join(dist, updaterMetadataName);
+  const metadata = fs.readFileSync(metadataPath, 'utf8');
+  if (!latestYmlAdvertisesVersion(metadata, updaterVersion)) {
+    throw new Error(`${updaterMetadataName} does not advertise updater version ${updaterVersion}.`);
   }
-  if (!latest.includes(`Khaos-Nexus-Setup-${artifactVersion}-${arch}.exe`)) {
-    throw new Error('latest.yml does not reference the expected installer artifact.');
+  if (!metadata.includes(`Khaos-Nexus-Setup-${artifactVersion}-${arch}.exe`)) {
+    throw new Error(`${updaterMetadataName} does not reference the expected installer artifact.`);
   }
 }
 
@@ -60,6 +62,8 @@ const manifest = {
   version: artifactVersion,
   artifactVersion,
   updaterVersion,
+  releaseChannel,
+  updaterMetadataName,
   arch,
   sourceCommit: process.env.GITHUB_SHA || null,
   workflowRunId: process.env.GITHUB_RUN_ID || null,
@@ -74,4 +78,6 @@ fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
 for (const file of files) console.log(`${file.name} | ${file.bytes} bytes | SHA256 ${file.sha256}`);
 console.log(`Artifact version: ${artifactVersion}`);
 console.log(`Updater version: ${updaterVersion}`);
+console.log(`Release channel: ${releaseChannel}`);
+console.log(`Updater metadata: ${updaterMetadataName}`);
 console.log(`Release manifest written: ${path.relative(root, manifestPath)}`);
