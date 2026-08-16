@@ -1,16 +1,16 @@
-name: Nexus Core v0.41 Test Update
+name: Nexus Core v0.41.2 Test Update
 
 on:
   push:
     branches:
-      - 'release/test-update-v0.41.0-B'
+      - 'release/test-update-v0.41.2-B'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: nexus-core-v041-test-update
+  group: nexus-core-v0412-test-update
   cancel-in-progress: false
 
 jobs:
@@ -53,8 +53,8 @@ jobs:
           npm run build --prefix packages/ai/ai-core
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Freeze v0.41.0-B Nexus Core metadata
-        run: node scripts/freeze-v0.41-nexus-core.cjs
+      - name: Freeze v0.41.2-B Nexus Core metadata
+        run: node scripts/freeze-v0.41.2-nexus-core.cjs
 
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
@@ -105,12 +105,12 @@ jobs:
         shell: pwsh
         run: |
           $latest = Get-Content 'dist/latest.yml' -Raw
-          if ($latest -notmatch '(?m)^version:\s*0\.41\.0\s*$') { throw 'latest.yml does not advertise 0.41.0.' }
-          if ($latest -notmatch 'Khaos-Nexus-Setup-0\.41\.0-B-x64\.exe') { throw 'latest.yml does not point at the v0.41.0-B installer.' }
+          if ($latest -notmatch '(?m)^version:\s*0\.41\.2\s*$') { throw 'latest.yml does not advertise 0.41.2.' }
+          if ($latest -notmatch 'Khaos-Nexus-Setup-0\.41\.2-B-x64\.exe') { throw 'latest.yml does not point at the v0.41.2-B installer.' }
           foreach ($required in @(
-            'dist/Khaos-Nexus-Setup-0.41.0-B-x64.exe',
-            'dist/Khaos-Nexus-Portable-0.41.0-B-x64.exe',
-            'dist/Khaos-Nexus-Setup-0.41.0-B-x64.exe.blockmap',
+            'dist/Khaos-Nexus-Setup-0.41.2-B-x64.exe',
+            'dist/Khaos-Nexus-Portable-0.41.2-B-x64.exe',
+            'dist/Khaos-Nexus-Setup-0.41.2-B-x64.exe.blockmap',
             'dist/latest.yml',
             'dist/release-manifest.json'
           )) {
@@ -122,11 +122,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release view v0.41.0-B --repo $env:GITHUB_REPOSITORY *> $null
-          if ($LASTEXITCODE -eq 0) { throw 'Release v0.41.0-B already exists. Refusing to overwrite it.' }
+          gh release view v0.41.2-B --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) { throw 'Release v0.41.2-B already exists. Refusing to overwrite it.' }
           $LASTEXITCODE = 0
-          git ls-remote --exit-code --tags origin refs/tags/v0.41.0-B *> $null
-          if ($LASTEXITCODE -eq 0) { throw 'Tag v0.41.0-B already exists. Refusing to move it.' }
+          git ls-remote --exit-code --tags origin refs/tags/v0.41.2-B *> $null
+          if ($LASTEXITCODE -eq 0) { throw 'Tag v0.41.2-B already exists. Refusing to move it.' }
           $LASTEXITCODE = 0
 
       - name: Create immutable release tag
@@ -134,8 +134,8 @@ jobs:
         run: |
           git config user.name 'Khaos Nexus Release Bot'
           git config user.email 'actions@users.noreply.github.com'
-          git tag -a v0.41.0-B $env:GITHUB_SHA -m 'Khaos Nexus v0.41.0-B Nexus Core v1 test update'
-          git push origin refs/tags/v0.41.0-B
+          git tag -a v0.41.2-B $env:GITHUB_SHA -m 'Khaos Nexus v0.41.2-B Nexus Core v1 validation update'
+          git push origin refs/tags/v0.41.2-B
 
       - name: Publish in-app update release
         shell: pwsh
@@ -143,9 +143,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $assets = @(
-            'dist/Khaos-Nexus-Setup-0.41.0-B-x64.exe',
-            'dist/Khaos-Nexus-Portable-0.41.0-B-x64.exe',
-            'dist/Khaos-Nexus-Setup-0.41.0-B-x64.exe.blockmap',
+            'dist/Khaos-Nexus-Setup-0.41.2-B-x64.exe',
+            'dist/Khaos-Nexus-Portable-0.41.2-B-x64.exe',
+            'dist/Khaos-Nexus-Setup-0.41.2-B-x64.exe.blockmap',
             'dist/latest.yml',
             'dist/release-manifest.json',
             'dist/package-content-audit.json',
@@ -154,10 +154,10 @@ jobs:
           foreach ($optional in @('dist/beta.yml', 'dist/alpha.yml')) {
             if (Test-Path -LiteralPath $optional) { $assets += $optional }
           }
-          gh release create v0.41.0-B $assets `
+          gh release create v0.41.2-B $assets `
             --repo $env:GITHUB_REPOSITORY `
-            --title 'Khaos Nexus v0.41.0-B — Nexus Core v1 Test Update' `
-            --notes-file 'release-notes/v0.41.0.md' `
+            --title 'Khaos Nexus v0.41.2-B — Nexus Core v1 Validation Update' `
+            --notes-file 'release-notes/v0.41.2.md' `
             --latest
 
       - name: Verify published update is discoverable
@@ -166,12 +166,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $release = gh api repos/$env:GITHUB_REPOSITORY/releases/latest | ConvertFrom-Json
-          if ($release.tag_name -ne 'v0.41.0-B') { throw "Latest release is $($release.tag_name), expected v0.41.0-B." }
+          if ($release.tag_name -ne 'v0.41.2-B') { throw "Latest release is $($release.tag_name), expected v0.41.2-B." }
           $names = @($release.assets | ForEach-Object { $_.name })
           foreach ($required in @(
-            'Khaos-Nexus-Setup-0.41.0-B-x64.exe',
-            'Khaos-Nexus-Portable-0.41.0-B-x64.exe',
-            'Khaos-Nexus-Setup-0.41.0-B-x64.exe.blockmap',
+            'Khaos-Nexus-Setup-0.41.2-B-x64.exe',
+            'Khaos-Nexus-Portable-0.41.2-B-x64.exe',
+            'Khaos-Nexus-Setup-0.41.2-B-x64.exe.blockmap',
             'latest.yml'
           )) {
             if ($names -notcontains $required) { throw "Published release is missing $required." }
@@ -180,7 +180,7 @@ jobs:
       - name: Retain release evidence
         uses: actions/upload-artifact@v4
         with:
-          name: Khaos-Nexus-v0.41.0-B-release-evidence
+          name: Khaos-Nexus-v0.41.2-B-release-evidence
           path: |
             dist/release-manifest.json
             dist/package-content-audit.json
