@@ -166,3 +166,7 @@ Compatibility paths may remain only for read-only queries, configuration/local U
 The release candidate is intentionally a normal latest GitHub release so legacy installed builds — which do not yet support the new opt-in Test/Beta selector — can discover this bridge update through their existing stable updater. Once v0.41.0-B is installed, future prerelease testing can use the opt-in Test/Beta channel while Stable remains the default.
 
 No Railway service is required for this cutover. `just-warmth` remains reserved for future always-on ingress/relay/sync/scoped-worker workloads and does not become the desktop control plane.
+
+## Handoff
+
+Core v1 is code-complete on this branch and the non-publication CI gates are green. The implementation is review-ready. Public release publication remains a separate explicit Owner-authorized action.
