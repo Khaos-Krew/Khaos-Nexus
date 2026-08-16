@@ -34,8 +34,8 @@ jobs:
           restore-keys: |
             electron-windows-
       - run: npm ci
-      - name: Freeze v0.41.0-B Nexus Core candidate metadata
-        run: node scripts/freeze-v0.41-nexus-core.cjs
+      - name: Freeze v0.41.2-B Nexus Core candidate metadata
+        run: node scripts/freeze-v0.41.2-nexus-core.cjs
       - name: Run tests
         shell: pwsh
         run: |
