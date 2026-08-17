@@ -33,6 +33,7 @@ test('standalone entry loads D&D, Discord Store policy and AI but not game-serve
     'ai-services-extension.cjs',
     'bundled-ai-runtimes-extension.cjs',
     'nexus-ai-core-operations-extension.cjs',
+    'dnd-standalone-update-boundary-extension.cjs',
     'dnd-standalone-shell-extension.cjs'
   ]) {
     assert.match(source, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
@@ -49,6 +50,23 @@ test('standalone entry loads D&D, Discord Store policy and AI but not game-serve
   ]) {
     assert.doesNotMatch(source, new RegExp(forbidden.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
+});
+
+test('standalone update boundary cannot consume the Khaos Nexus release feed', () => {
+  const source = read('main/dnd-standalone-update-boundary-extension.cjs');
+  assert.match(source, /status: 'disabled'/);
+  assert.match(source, /mode: 'standalone'/);
+  assert.match(source, /standaloneUpdateDisabled: true/);
+  assert.match(source, /do not download Khaos Nexus updates/);
+  assert.doesNotMatch(source, /api\.github\.com\/repos\/Khaos-Krew\/Khaos-Nexus/);
+  assert.doesNotMatch(source, /electron-updater/);
+});
+
+test('standalone installer diagnostics shortcut points only at Nexus D&D', () => {
+  const installer = read('assets/installer.nsh');
+  assert.match(installer, /Nexus D&D Diagnostics\.lnk/);
+  assert.match(installer, /Nexus D&D\.exe/);
+  assert.doesNotMatch(installer, /Khaos Nexus\.exe/);
 });
 
 test('standalone Discord worker only registers D&D and health commands with entitlement gating', () => {
