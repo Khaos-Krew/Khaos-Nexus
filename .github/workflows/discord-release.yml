@@ -1,0 +1,95 @@
+name: Discord Release Announcement
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: discord-release-${{ github.event.release.id }}
+  cancel-in-progress: false
+
+jobs:
+  notify-discord:
+    name: Post published release to Discord
+    if: ${{ github.event.release.draft == false }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Publish Nexus release announcement
+        shell: bash
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          RELEASE_JSON: ${{ toJson(github.event.release) }}
+          REPOSITORY_JSON: ${{ toJson(github.event.repository) }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "::error::Repository secret DISCORD_RELEASE_WEBHOOK is not configured."
+            exit 1
+          fi
+
+          node <<'NODE'
+          const release = JSON.parse(process.env.RELEASE_JSON || '{}');
+          const repository = JSON.parse(process.env.REPOSITORY_JSON || '{}');
+          const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+
+          const tag = String(release.tag_name || 'unknown');
+          const releaseName = String(release.name || '').trim() || `Khaos Nexus ${tag}`;
+          const releaseUrl = String(release.html_url || repository.html_url || '');
+          const publishedAt = release.published_at || new Date().toISOString();
+          const releaseType = release.prerelease ? 'Pre-release' : 'Stable Release';
+          const assetCount = Array.isArray(release.assets) ? release.assets.length : 0;
+
+          let notes = String(release.body || '').trim();
+          if (!notes) {
+            notes = 'No patch notes were included with this GitHub Release.';
+          }
+
+          // Discord allows 4096 characters in one embed description and 6000
+          // aggregate embed characters. Keep room for the title, fields and footer.
+          const maxDescription = 3650;
+          if (notes.length > maxDescription) {
+            const suffix = `\n\n…\n[Read the full patch notes on GitHub](${releaseUrl})`;
+            const available = Math.max(0, maxDescription - suffix.length);
+            notes = `${notes.slice(0, available).trimEnd()}${suffix}`;
+          }
+
+          const payload = {
+            username: 'Khaos Nexus • Releases',
+            avatar_url: repository.owner?.avatar_url || release.author?.avatar_url || undefined,
+            allowed_mentions: { parse: [] },
+            embeds: [
+              {
+                title: `🔴 ${releaseName}`.slice(0, 256),
+                url: releaseUrl || undefined,
+                description: notes,
+                color: 0xD10F2F,
+                fields: [
+                  { name: 'Version', value: `\`${tag}\``, inline: true },
+                  { name: 'Release', value: releaseType, inline: true },
+                  { name: 'Downloads', value: String(assetCount), inline: true }
+                ],
+                footer: { text: 'Khaos Nexus • GitHub Release' },
+                timestamp: publishedAt,
+                thumbnail: release.author?.avatar_url ? { url: release.author.avatar_url } : undefined
+              }
+            ]
+          };
+
+          const response = await fetch(`${webhookUrl}?wait=true`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          if (!response.ok) {
+            const body = await response.text();
+            throw new Error(`Discord webhook failed with HTTP ${response.status}: ${body.slice(0, 1200)}`);
+          }
+
+          console.log(`Posted ${tag} release announcement to Discord.`);
+          NODE
