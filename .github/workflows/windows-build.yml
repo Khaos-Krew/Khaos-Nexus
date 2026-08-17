@@ -118,4 +118,5 @@ jobs:
             dist/release-manifest.json
             dist/package-content-audit.json
             dist/signing-audit.json
+          retention-days: 14
           if-no-files-found: error
