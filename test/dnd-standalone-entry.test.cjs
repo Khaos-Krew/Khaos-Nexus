@@ -8,7 +8,7 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 
-test('package targets the standalone D&D Windows product', () => {
+test('package targets the standalone D&D Windows product without CI publishing', () => {
   const pkg = JSON.parse(read('package.json'));
   assert.equal(pkg.main, 'main/entry-dnd-standalone.cjs');
   assert.equal(pkg.build.appId, 'com.khaosnexus.dnd');
@@ -16,9 +16,10 @@ test('package targets the standalone D&D Windows product', () => {
   assert.equal(pkg.build.directories.output, 'dist-dnd');
   assert.match(pkg.build.nsis.artifactName, /^Nexus-DnD-Setup-/);
   assert.match(pkg.build.portable.artifactName, /^Nexus-DnD-Portable-/);
+  assert.match(pkg.scripts['dist:win'], /--publish never/);
 });
 
-test('standalone entry loads D&D, Discord Store policy and AI but not game-server stacks', () => {
+test('standalone entry loads D&D, Discord Store policy and Veyra but not game-server or Sentinel AI surfaces', () => {
   const source = read('main/entry-dnd-standalone.cjs');
 
   for (const required of [
@@ -32,7 +33,7 @@ test('standalone entry loads D&D, Discord Store policy and AI but not game-serve
     'dnd-monetization-extension.cjs',
     'ai-services-extension.cjs',
     'bundled-ai-runtimes-extension.cjs',
-    'nexus-ai-core-operations-extension.cjs',
+    'dnd-standalone-ai-runtime-boundary-extension.cjs',
     'dnd-standalone-update-boundary-extension.cjs',
     'dnd-standalone-shell-extension.cjs'
   ]) {
@@ -40,6 +41,7 @@ test('standalone entry loads D&D, Discord Store policy and AI but not game-serve
   }
 
   for (const forbidden of [
+    'nexus-ai-core-operations-extension.cjs',
     'hosted-server-control-extension.cjs',
     'rust-webrcon-extension.cjs',
     'satisfactory-extension.cjs',
@@ -50,6 +52,16 @@ test('standalone entry loads D&D, Discord Store policy and AI but not game-serve
   ]) {
     assert.doesNotMatch(source, new RegExp(forbidden.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
+});
+
+test('standalone Veyra lifecycle boundary rejects the Nexus Sentinel worker', () => {
+  const source = read('main/dnd-standalone-ai-runtime-boundary-extension.cjs');
+  assert.match(source, /allowedAgents: \['dnd'\]/);
+  assert.match(source, /return runtimes\.start\('dnd'\)/);
+  assert.match(source, /return runtimes\.restart\('dnd'\)/);
+  assert.match(source, /return runtimes\.stop\('dnd'\)/);
+  assert.match(source, /Nexus D&D can start only the Veyra D&D AI runtime/);
+  assert.match(source, /removeHandler\('ai:runtimes-start'\)/);
 });
 
 test('standalone update boundary cannot consume the Khaos Nexus release feed', () => {
@@ -94,10 +106,12 @@ test('Discord Store policy has an owner editor in the standalone D&D renderer', 
   assert.match(renderer, /Save Discord Store Policy/);
 });
 
-test('standalone shell exposes only campaign, bot, AI, logs and settings surfaces', () => {
+test('standalone shell exposes only campaign, bot, Veyra, logs and settings surfaces', () => {
   const source = read('renderer/dnd-standalone-shell.js');
   assert.match(source, /const PRODUCT = 'Nexus D&D'/);
-  assert.match(source, /new Set\(\['dnd', 'setup', 'ai-services', 'nexus-ai', 'logs', 'settings'\]\)/);
+  assert.match(source, /new Set\(\['dnd', 'setup', 'ai-services', 'logs', 'settings'\]\)/);
+  assert.doesNotMatch(source, /new Set\([^\n]*'nexus-ai'/);
+  assert.match(source, /Veyra AI Runtime/);
   assert.match(source, /Dedicated D&D Discord bot/);
-  assert.match(source, /Nexus Sentinel/);
+  assert.match(source, /aiCoreConnectionForm/);
 });
