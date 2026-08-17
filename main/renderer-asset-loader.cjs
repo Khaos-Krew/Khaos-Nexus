@@ -37,6 +37,15 @@ function stateFor(window) {
   return state;
 }
 
+function isMainRendererWindow(window) {
+  try {
+    const url = String(window?.webContents?.getURL?.() || '').replace(/\\/g, '/');
+    return /\/renderer\/index\.html(?:[?#]|$)/i.test(url);
+  } catch {
+    return false;
+  }
+}
+
 async function applyBundle(window, bundle, expectedGeneration) {
   if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return false;
   const state = stateFor(window);
@@ -55,7 +64,7 @@ async function applyBundle(window, bundle, expectedGeneration) {
 }
 
 function reportFeaturesReady(window, selected, generation) {
-  if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return false;
+  if (!window || window.isDestroyed() || window.webContents.isDestroyed() || !isMainRendererWindow(window)) return false;
   const state = stateFor(window);
   if (state.generation !== generation) return false;
   const scripts = selected.reduce((total, bundle) => total + bundle.scripts.length, 0);
@@ -135,4 +144,4 @@ function status() {
   return { installed, bundles: [...bundles.values()].map((bundle) => ({ id: bundle.id, styles: bundle.styles.length, scripts: bundle.scripts.length, source: bundle.source })) };
 }
 
-module.exports = { install, registerRendererBundle, status, reportFeaturesReady };
+module.exports = { install, registerRendererBundle, status, isMainRendererWindow, reportFeaturesReady };
