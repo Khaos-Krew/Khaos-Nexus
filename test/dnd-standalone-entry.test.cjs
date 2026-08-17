@@ -35,7 +35,8 @@ test('standalone entry loads D&D, Discord Store policy and Veyra but not game-se
     'bundled-ai-runtimes-extension.cjs',
     'dnd-standalone-ai-runtime-boundary-extension.cjs',
     'dnd-standalone-update-boundary-extension.cjs',
-    'dnd-standalone-shell-extension.cjs'
+    'dnd-standalone-shell-extension.cjs',
+    'dnd-standalone-bot-supervisor-boundary-extension.cjs'
   ]) {
     assert.match(source, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
@@ -52,6 +53,20 @@ test('standalone entry loads D&D, Discord Store policy and Veyra but not game-se
   ]) {
     assert.doesNotMatch(source, new RegExp(forbidden.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
+});
+
+test('standalone desktop supervisor spawns only the dedicated D&D Discord worker', () => {
+  const source = read('main/dnd-standalone-bot-supervisor-boundary-extension.cjs');
+  assert.match(source, /class DndStandaloneBotSupervisor extends Original/);
+  assert.match(source, /'bot', 'entry\.cjs'/);
+  assert.match(source, /'\.\.', 'bot', 'entry\.cjs'/);
+  assert.doesNotMatch(source, /'bot', 'index\.cjs'/);
+
+  const entry = read('main/entry-dnd-standalone.cjs');
+  assert.ok(
+    entry.indexOf('dnd-standalone-bot-supervisor-boundary-extension.cjs') < entry.indexOf("require('./main.cjs')"),
+    'The dedicated D&D supervisor boundary must install before main.cjs constructs BotSupervisor.'
+  );
 });
 
 test('standalone Veyra lifecycle boundary rejects the Nexus Sentinel worker', () => {
