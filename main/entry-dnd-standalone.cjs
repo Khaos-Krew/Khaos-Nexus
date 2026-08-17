@@ -90,6 +90,10 @@ if (diagnosticsMode) {
     require('./dnd-standalone-update-boundary-extension.cjs').install();
     require('./dnd-standalone-shell-extension.cjs').install();
 
+    // Force the shared desktop supervisor to spawn the dedicated D&D Discord
+    // worker instead of the legacy generic bot chain.
+    require('./dnd-standalone-bot-supervisor-boundary-extension.cjs').install();
+
     // Reuse the hardened desktop window, protected storage, bot supervisor,
     // backup plumbing and diagnostics. Game-server IPC remains dormant/hidden.
     require('./main.cjs');
