@@ -68,6 +68,10 @@ if (diagnosticsMode) {
     // modules, Nexus Sentinel branding, and simplified desktop navigation.
     require('./sentinel-scope-extension.cjs').install();
 
+    // Force the shared desktop supervisor to start the Sentinel wrapper, which
+    // installs the Discord/module/status runtimes before delegating to bot/index.cjs.
+    require('./sentinel-bot-supervisor-boundary-extension.cjs').install();
+
     require('./main.cjs');
   }
 }
