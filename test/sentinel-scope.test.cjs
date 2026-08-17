@@ -47,7 +47,8 @@ test('Sentinel desktop startup contains only the Discord and Palworld active pro
     'game-adapter-runtime-extension.cjs',
     'nexus-core-foundation-extension.cjs',
     'sentinel-scope-extension.cjs',
-    'sentinel-bot-supervisor-boundary-extension.cjs'
+    'sentinel-bot-supervisor-boundary-extension.cjs',
+    'sentinel-test-update-boundary-extension.cjs'
   ]) assert.match(source, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 
   for (const forbidden of [
@@ -75,6 +76,22 @@ test('Sentinel desktop supervisor spawns the Sentinel wrapper instead of raw bot
   assert.ok(
     entry.indexOf('sentinel-bot-supervisor-boundary-extension.cjs') < entry.indexOf("require('./main.cjs')"),
     'The Sentinel supervisor boundary must install before main.cjs constructs BotSupervisor.'
+  );
+});
+
+test('Sentinel split test build cannot consume the legacy Khaos Nexus release feed', () => {
+  const source = read('main/sentinel-test-update-boundary-extension.cjs');
+  assert.match(source, /status: 'disabled'/);
+  assert.match(source, /mode: 'sentinel-test'/);
+  assert.match(source, /sentinelTestUpdateDisabled: true/);
+  assert.match(source, /do not download legacy Khaos Nexus updates/);
+  assert.doesNotMatch(source, /api\.github\.com\/repos\/Khaos-Krew\/Khaos-Nexus/);
+  assert.doesNotMatch(source, /electron-updater/);
+
+  const entry = read('main/entry.cjs');
+  assert.ok(
+    entry.indexOf('sentinel-test-update-boundary-extension.cjs') < entry.indexOf("require('./main.cjs')"),
+    'The Sentinel update boundary must install before main.cjs constructs UpdateService.'
   );
 });
 
