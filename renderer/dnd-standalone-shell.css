@@ -1,0 +1,30 @@
+html[data-nexus-product="dnd-standalone"] .dnd-standalone-hidden {
+  display: none !important;
+}
+
+html[data-nexus-product="dnd-standalone"] .brand strong {
+  letter-spacing: 0.02em;
+}
+
+html[data-nexus-product="dnd-standalone"] .brand span {
+  max-width: 180px;
+}
+
+html[data-nexus-product="dnd-standalone"] .sidebar .nav-label:first-of-type {
+  font-size: 0;
+}
+
+html[data-nexus-product="dnd-standalone"] .sidebar .nav-label:first-of-type::after {
+  content: 'Campaign';
+  font-size: 11px;
+}
+
+html[data-nexus-product="dnd-standalone"] #view-dnd,
+html[data-nexus-product="dnd-standalone"] #view-ai-services,
+html[data-nexus-product="dnd-standalone"] #view-nexus-ai {
+  min-height: 100%;
+}
+
+html[data-nexus-product="dnd-standalone"] .local-badge {
+  white-space: nowrap;
+}
