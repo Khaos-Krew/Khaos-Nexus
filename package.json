@@ -1,16 +1,16 @@
 {
   "name": "khaos-nexus",
   "version": "0.32.0",
-  "description": "Local-first Khaos Nexus desktop command center with one supervised Khaos Nexus AI Runtime containing isolated Veyra and Nexus Sentinel workers, protected service tokens, independent health and capability discovery, primary Nexus Bot linkage to Nexus Sentinel limited to health and capability checks, an explicit opt-in AI Game Master session mode through Veyra, exact campaign synchronization preview, private session bindings, locally persisted retryable turns, player-agency response validation, safety pause locks, explicit selected-suggestion application, review-only recap drafts, a private D&D Co-DM workspace, copyright-safe AI Homebrew Studio, and explicit procedural AI Map Studio integrated through Veyra, deterministic seeded structured map proposals, strict SVG safety validation, player-safe and GM previews, hidden inactive one-time map import, explicit proposal review and conversion into existing D&D workflows, capability-negotiated dedicated draft support, explicit compatibility-mode campaign synchronization, bounded redacted context preview, protected AI service tokens, local review drafts, campaign readiness checks, automatic in-app startup diagnostics, consent-bound redacted GitHub health reporting through the existing Application Monitor, installer-first automatic diagnostics, a standalone Khaos Nexus Diagnostics launcher, rolling breadcrumbs, unclean-shutdown detection, redacted support bundles, optional HTTPS diagnostics API delivery, Satisfactory dedicated-server operations, unconditional local-desktop module recovery controls that never depend on Discord ownership, preserved but paused Android Companion and Mobile Gateway source under ADR-008, dedicated Rust WebRCON operations, vanilla-safe typed Rust status, players, saves, announcements and moderation, Owner-only raw Rust console access, Rust Discord status and queue panels, a typed Game Adapter SDK, explicit capability manifests, role-aware destructive-action policy, stable redacted adapter errors, bounded opt-in protocol fixtures, Palworld REST and ARK/generic RCON adapter bridges, authoritative Owner module switches, dependency-aware runtime gating, completed implementation migration classification, module-aware Discord commands and buttons, complete D&D campaign management with characters, sources, quests, sessions, attendance, encounters, initiative, world records, loot, licensed content metadata, homebrew workflows, desktop dice history, registered-bot Discord bindings, free-content catalog and character import, protected local campaign maps, full NPC builder and encounter integration, persistent Discord encounter panels and turn-roll controls, explicit previewed D&D Discord campaign-space provisioning, hidden-view render deferral, frame-batched visible updates, persistent local data, full production runtime audit repairs, verified click-through grouped proxy navigation, live supervised bot configuration updates, resilient error-monitor batching, stale server-health cleanup, interrupted scheduler recovery, retryable updater installation failures, spawn-safe Discord supervision, an always-visible in-app update center and header update action, compact production dashboard density, synchronized live Discord runtime status, spawn-confirmed supervised process IDs, bounded idempotent updater UI, main-process renderer-unresponsive reporting, a continuous visible-interface startup gate, retained watchdog state and AppData logs, automatic retained interface failure reports, a visible recovery screen, independently scrollable navigation and workspace panes, immediate portable sidecar logs and diagnostics, sandbox-compatible preload, deterministic startup diagnostics, mandatory verified pre-update backups, encrypted Pterodactyl control, cross-server players, guarded moderation, recurring schedules, and software-renderer-safe startup.",
-  "main": "main/entry-pdf-import.cjs",
+  "description": "Local-first Khaos Nexus desktop command center with Nexus Sentinel for Discord community administration, Palworld server status, players, saves, announcements, moderation, metrics, backups, diagnostics, and protected local operator controls.",
+  "main": "main/entry.cjs",
   "author": "Khaos Krew",
   "license": "MIT",
   "private": true,
   "khaosRelease": {
-    "displayVersion": "0.32.0-B",
-    "artifactVersion": "0.32.0-B",
-    "publicTag": "v0.32.0-B",
-    "channel": "beta",
+    "displayVersion": "0.32.0-SENTINEL-TEST",
+    "artifactVersion": "0.32.0-SENTINEL-TEST",
+    "publicTag": "v0.32.0-sentinel-test",
+    "channel": "test",
     "updaterVersion": "0.32.0",
     "rollbackTag": "v0.31.0-B"
   },
@@ -18,9 +18,9 @@
     "start": "node scripts/materialize-assets.cjs && electron .",
     "test": "node --test",
     "check": "node scripts/check.cjs",
-    "pack": "node scripts/materialize-assets.cjs && electron-builder --dir",
-    "dist:win": "node scripts/materialize-assets.cjs && electron-builder --win --x64",
-    "release:win": "node scripts/materialize-assets.cjs && electron-builder --win --x64 --publish always"
+    "pack": "node scripts/materialize-assets.cjs && electron-builder --dir --publish never",
+    "dist:win": "node scripts/materialize-assets.cjs && electron-builder --win --x64 --publish never",
+    "release:win": "node scripts/materialize-assets.cjs && electron-builder --win --x64 --publish never"
   },
   "dependencies": {
     "discord.js": "14.27.0",
@@ -37,8 +37,7 @@
     "productName": "Khaos Nexus",
     "electronUpdaterCompatibility": ">=2.16",
     "releaseInfo": {
-      "releaseName": "Khaos Nexus v0.32.0-B — Dual AI Service Foundation",
-      "releaseNotesFile": "release-notes/v0.32.0.md"
+      "releaseName": "Khaos Nexus — Nexus Sentinel Discord + Palworld Test"
     },
     "directories": {
       "output": "dist",
@@ -51,7 +50,20 @@
       "shared/**/*",
       "assets/**/*",
       "package.json",
-      "LICENSE"
+      "LICENSE",
+      "!main/dnd-*",
+      "!bot/dnd-*",
+      "!renderer/dnd-*",
+      "!shared/dnd-*",
+      "!main/entry-pdf-import.cjs",
+      "!main/hosted-server-*",
+      "!main/services/hosted-server-*",
+      "!shared/hosted-server-*",
+      "!renderer/hosted-server-*",
+      "!main/**/*pterodactyl*",
+      "!bot/**/*pterodactyl*",
+      "!shared/**/*pterodactyl*",
+      "!renderer/**/*pterodactyl*"
     ],
     "asar": true,
     "win": {
@@ -59,15 +71,11 @@
       "target": [
         {
           "target": "nsis",
-          "arch": [
-            "x64"
-          ]
+          "arch": ["x64"]
         },
         {
           "target": "portable",
-          "arch": [
-            "x64"
-          ]
+          "arch": ["x64"]
         }
       ]
     },
@@ -77,7 +85,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Khaos Nexus",
-      "artifactName": "Khaos-Nexus-Setup-0.32.0-B-${arch}.${ext}",
+      "artifactName": "Khaos-Nexus-Sentinel-Setup-0.32.0-TEST-${arch}.${ext}",
       "include": "assets/installer.nsh"
     },
     "publish": [
@@ -90,7 +98,7 @@
       }
     ],
     "portable": {
-      "artifactName": "Khaos-Nexus-Portable-0.32.0-B-${arch}.${ext}"
+      "artifactName": "Khaos-Nexus-Sentinel-Portable-0.32.0-TEST-${arch}.${ext}"
     }
   }
 }
