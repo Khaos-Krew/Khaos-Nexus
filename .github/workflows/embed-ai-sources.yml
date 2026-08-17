@@ -123,8 +123,8 @@ jobs:
           npm run build --prefix packages/ai/ai-core
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Freeze integration candidate identity
-        run: node scripts/freeze-v0.35-ui-refresh.cjs
+      - name: Freeze v0.41.2-B integration candidate identity
+        run: node scripts/freeze-v0.41.2-nexus-core.cjs
 
       - name: Run complete repository validation
         shell: pwsh
@@ -173,4 +173,5 @@ jobs:
             dist/Khaos-Nexus-Portable-*-x64.exe
             dist/latest.yml
             dist/builder-debug.yml
+          retention-days: 14
           if-no-files-found: error
