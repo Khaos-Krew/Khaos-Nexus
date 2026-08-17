@@ -1,7 +1,7 @@
 !macro customInstall
-  CreateShortCut "$SMPROGRAMS\Khaos Nexus Diagnostics.lnk" "$INSTDIR\Khaos Nexus.exe" "--diagnostics" "$INSTDIR\Khaos Nexus.exe" 0
+  CreateShortCut "$SMPROGRAMS\Nexus D&D Diagnostics.lnk" "$INSTDIR\Nexus D&D.exe" "--diagnostics" "$INSTDIR\Nexus D&D.exe" 0
 !macroend
 
 !macro customUnInstall
-  Delete "$SMPROGRAMS\Khaos Nexus Diagnostics.lnk"
+  Delete "$SMPROGRAMS\Nexus D&D Diagnostics.lnk"
 !macroend
