@@ -1,0 +1,25 @@
+html[data-nexus-product="sentinel"] .sentinel-hidden {
+  display: none !important;
+}
+
+html[data-nexus-product="sentinel"] #serverGame:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+html[data-nexus-product="sentinel"] .sentinel-legacy-rcon-options {
+  opacity: 0.78;
+}
+
+html[data-nexus-product="sentinel"] .sentinel-legacy-rcon-options > summary::after {
+  content: ' (Palworld RCON only)';
+  opacity: 0.7;
+}
+
+html[data-nexus-product="sentinel"] #nexusModuleCenter .module-hero {
+  margin-top: 0;
+}
+
+html[data-nexus-product="sentinel"] .local-badge {
+  white-space: nowrap;
+}
