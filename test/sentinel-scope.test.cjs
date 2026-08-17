@@ -25,6 +25,7 @@ test('Sentinel package uses the normal desktop entry and excludes D&D and hosted
     '!main/services/hosted-server-*',
     '!shared/hosted-server-*',
     '!renderer/hosted-server-*',
+    '!main/nexus-core-live-migrations-extension.cjs',
     '!main/**/*pterodactyl*'
   ]) {
     assert.equal(files.has(excluded), true, `missing package exclusion ${excluded}`);
@@ -61,6 +62,7 @@ test('Sentinel desktop startup contains only the Discord and Palworld active pro
     'satisfactory-extension.cjs',
     'server-scheduler-extension.cjs',
     'nexus-core-scheduler-gateway-extension.cjs',
+    'nexus-core-live-migrations-extension.cjs',
     'mobile-gateway-extension.cjs'
   ]) assert.doesNotMatch(source, new RegExp(forbidden.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });
