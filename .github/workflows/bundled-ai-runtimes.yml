@@ -13,7 +13,7 @@ on:
       - 'scripts/verify-embedded-ai-sources.cjs'
       - 'scripts/materialize-assets.cjs'
       - 'scripts/verify-packaged-ai-runtimes.cjs'
-      - 'scripts/freeze-v0.41-nexus-core.cjs'
+      - 'scripts/freeze-v0.41.2-nexus-core.cjs'
       - 'scripts/smoke-packaged-startup.ps1'
       - 'test/bundled-ai-runtimes.test.cjs'
       - 'test/bundled-ai-packaging.test.cjs'
@@ -62,8 +62,8 @@ jobs:
           npm run build --prefix packages/ai/ai-core
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Freeze v0.41.0-B Nexus Core candidate metadata
-        run: node scripts/freeze-v0.41-nexus-core.cjs
+      - name: Freeze v0.41.2-B Nexus Core candidate metadata
+        run: node scripts/freeze-v0.41.2-nexus-core.cjs
 
       - name: Run complete repository validation
         shell: pwsh
@@ -88,8 +88,8 @@ jobs:
       - name: Silently install and verify all installed AI runtime files
         shell: pwsh
         run: |
-          $installer = Resolve-Path 'dist/Khaos-Nexus-Setup-0.41.0-B-x64.exe'
-          $installRoot = 'C:\khaos-nexus-core-v041-pr-ci'
+          $installer = Resolve-Path 'dist/Khaos-Nexus-Setup-0.41.2-B-x64.exe'
+          $installRoot = 'C:\khaos-nexus-core-v0412-pr-ci'
           Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue
           $process = Start-Process -FilePath $installer -ArgumentList '/S', "/D=$installRoot" -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "Silent installer failed with exit code $($process.ExitCode)." }
@@ -104,25 +104,26 @@ jobs:
       - name: Verify updater files
         shell: pwsh
         run: |
-          $installer = Get-Item 'dist/Khaos-Nexus-Setup-0.41.0-B-x64.exe'
-          $portable = Get-Item 'dist/Khaos-Nexus-Portable-0.41.0-B-x64.exe'
+          $installer = Get-Item 'dist/Khaos-Nexus-Setup-0.41.2-B-x64.exe'
+          $portable = Get-Item 'dist/Khaos-Nexus-Portable-0.41.2-B-x64.exe'
           $latest = Get-Item 'dist/latest.yml'
-          $blockmap = Get-Item 'dist/Khaos-Nexus-Setup-0.41.0-B-x64.exe.blockmap'
+          $blockmap = Get-Item 'dist/Khaos-Nexus-Setup-0.41.2-B-x64.exe.blockmap'
           foreach ($item in @($installer, $portable, $latest, $blockmap)) {
             if ($item.Length -le 0) { throw "Required updater artifact is empty: $($item.FullName)" }
           }
           $latestText = Get-Content $latest.FullName -Raw
-          if ($latestText -notmatch '(?m)^version:\s*0\.41\.0\s*$') { throw 'latest.yml does not advertise v0.41.0.' }
-          if ($latestText -notmatch 'Khaos-Nexus-Setup-0\.41\.0-B-x64\.exe') { throw 'latest.yml does not reference the v0.41.0-B installer.' }
+          if ($latestText -notmatch '(?m)^version:\s*0\.41\.2\s*$') { throw 'latest.yml does not advertise v0.41.2.' }
+          if ($latestText -notmatch 'Khaos-Nexus-Setup-0\.41\.2-B-x64\.exe') { throw 'latest.yml does not reference the v0.41.2-B installer.' }
 
       - name: Upload embedded-source Windows candidate
         uses: actions/upload-artifact@v4
         with:
           name: Khaos-Nexus-Windows-embedded-ai
           path: |
-            dist/Khaos-Nexus-Setup-0.41.0-B-x64.exe
-            dist/Khaos-Nexus-Portable-0.41.0-B-x64.exe
+            dist/Khaos-Nexus-Setup-0.41.2-B-x64.exe
+            dist/Khaos-Nexus-Portable-0.41.2-B-x64.exe
             dist/*.blockmap
             dist/*.yml
             dist/builder-debug.yml
+          retention-days: 14
           if-no-files-found: error
