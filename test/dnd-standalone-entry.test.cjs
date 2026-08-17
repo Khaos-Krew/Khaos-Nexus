@@ -18,7 +18,7 @@ test('package targets the standalone D&D Windows product', () => {
   assert.match(pkg.build.portable.artifactName, /^Nexus-DnD-Portable-/);
 });
 
-test('standalone entry loads D&D and AI but not game-server stacks', () => {
+test('standalone entry loads D&D, Discord Store policy and AI but not game-server stacks', () => {
   const source = read('main/entry-dnd-standalone.cjs');
 
   for (const required of [
@@ -29,6 +29,7 @@ test('standalone entry loads D&D and AI but not game-server stacks', () => {
     'dnd-co-dm-extension.cjs',
     'dnd-campaign-runtime-extension.cjs',
     'dnd-group-runtime-extension.cjs',
+    'dnd-monetization-extension.cjs',
     'ai-services-extension.cjs',
     'bundled-ai-runtimes-extension.cjs',
     'nexus-ai-core-operations-extension.cjs',
@@ -50,16 +51,29 @@ test('standalone entry loads D&D and AI but not game-server stacks', () => {
   }
 });
 
-test('standalone Discord worker only registers D&D and health commands', () => {
+test('standalone Discord worker only registers D&D and health commands with entitlement gating', () => {
   const source = read('bot/entry.cjs');
   assert.match(source, /dndCommands/);
   assert.match(source, /Nexus D&D bot runtime health/);
   assert.match(source, /handleDndInteraction/);
+  assert.match(source, /discord-entitlement-policy\.cjs/);
+  assert.match(source, /enforceStoreAccess/);
   assert.doesNotMatch(source, /installModuleRuntime/);
   assert.doesNotMatch(source, /installStatusPanelRuntime/);
   assert.doesNotMatch(source, /installDiscordAutomationRuntime/);
   assert.doesNotMatch(source, /game-adapters/);
   assert.doesNotMatch(source, /executeServerAction/);
+});
+
+test('Discord Store policy has an owner editor in the standalone D&D renderer', () => {
+  const main = read('main/dnd-monetization-extension.cjs');
+  const renderer = read('renderer/dnd-monetization.js');
+  assert.match(main, /dnd:monetization-get/);
+  assert.match(main, /dnd:monetization-set/);
+  assert.match(main, /pushDndConfig/);
+  assert.match(renderer, /Discord Store ranks &amp; feature locks/);
+  assert.match(renderer, /dnd\.roll/);
+  assert.match(renderer, /Save Discord Store Policy/);
 });
 
 test('standalone shell exposes only campaign, bot, AI, logs and settings surfaces', () => {
