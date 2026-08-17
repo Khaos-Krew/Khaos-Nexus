@@ -1,0 +1,94 @@
+name: Nexus Sentinel Test Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["split/nexus-sentinel"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nexus-sentinel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify Electron runtime install
+        shell: pwsh
+        run: |
+          node -e "console.log(require('electron'))"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify Sentinel source syntax
+        shell: pwsh
+        run: |
+          node --check main/entry.cjs
+          node --check main/sentinel-scope-extension.cjs
+          node --check renderer/sentinel-scope.js
+          node --check bot/entry.cjs
+          node --check bot/commands.cjs
+
+      - name: Run Sentinel, Discord, Palworld and retained-control tests
+        shell: pwsh
+        run: |
+          $tests = @(
+            'test/sentinel-scope.test.cjs',
+            'test/palworld-rest.test.cjs',
+            'test/server-client.test.cjs',
+            'test/game-adapter-sdk.test.cjs',
+            'test/player-console.test.cjs',
+            'test/status-panels.test.cjs',
+            'test/module-runtime-control.test.cjs',
+            'test/application-monitor.test.cjs',
+            'test/discord-auth.test.cjs',
+            'test/discord-automation.test.cjs',
+            'test/discord-automation-layout-edge.test.cjs',
+            'test/discord-observability.test.cjs',
+            'test/discord-observability-service.test.cjs',
+            'test/discord-studio.test.cjs',
+            'test/discord-studio-service.test.cjs',
+            'test/redaction.test.cjs',
+            'test/rcon-protocol.test.cjs',
+            'test/rcon-guidance.test.cjs',
+            'test/startup-health.test.cjs',
+            'test/interface-watchdog.test.cjs',
+            'test/window-visibility.test.cjs'
+          )
+          node --test --test-concurrency=1 $tests
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build Sentinel installer and portable executable
+        run: npm run dist:win
+
+      - name: Verify Sentinel artifacts
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-Setup-*.exe'
+          $portable = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-Portable-*.exe'
+          if (-not $setup) { throw 'Nexus Sentinel installer was not produced.' }
+          if (-not $portable) { throw 'Nexus Sentinel portable executable was not produced.' }
+          Write-Host "Installer: $($setup.Name)"
+          Write-Host "Portable: $($portable.Name)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nexus-Sentinel-Windows-Test
+          path: |
+            dist/*.exe
+            dist/*.yml
+            dist/*.blockmap
+          retention-days: 14
+          if-no-files-found: error
