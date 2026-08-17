@@ -74,6 +74,7 @@ if (diagnosticsMode) {
     require('./dnd-ai-map-stability-extension.cjs').install();
     require('./dnd-co-dm-stability-extension.cjs').install();
     require('./dnd-access-policy-extension.cjs').install();
+    require('./dnd-monetization-extension.cjs').install();
     require('./dnd-authorization-summary-extension.cjs').install();
 
     // Local AI runtime. No game-server modules are started in this product.
