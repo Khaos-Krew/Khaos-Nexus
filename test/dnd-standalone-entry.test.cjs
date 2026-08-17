@@ -61,7 +61,8 @@ test('standalone Veyra lifecycle boundary rejects the Nexus Sentinel worker', ()
   assert.match(source, /return runtimes\.restart\('dnd'\)/);
   assert.match(source, /return runtimes\.stop\('dnd'\)/);
   assert.match(source, /Nexus D&D can start only the Veyra D&D AI runtime/);
-  assert.match(source, /removeHandler\('ai:runtimes-start'\)/);
+  assert.match(source, /'ai:runtimes-start'/);
+  assert.match(source, /electron\.ipcMain\.removeHandler\(channel\)/);
 });
 
 test('standalone update boundary cannot consume the Khaos Nexus release feed', () => {
