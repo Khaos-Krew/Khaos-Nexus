@@ -139,3 +139,12 @@ test('Sentinel renderer hides deferred product surfaces and forces Palworld serv
   assert.match(source, /Discord \+ Palworld Control Center/);
   assert.match(source, /Start Sentinel/);
 });
+
+test('renderer asset loader reports feature readiness only for the real desktop window after bundle injection', () => {
+  const source = read('main/renderer-asset-loader.cjs');
+  assert.match(source, /function isMainRendererWindow/);
+  assert.match(source, /renderer\\\/index\\\.html/);
+  assert.match(source, /stage: 'features-ready'/);
+  assert.match(source, /source: 'renderer-asset-loader'/);
+  assert.match(source, /if \(!onlyId\) reportFeaturesReady\(window, selected, generation\)/);
+});
