@@ -25,6 +25,7 @@ test('startup HUD exposes the approved Nexus boot surfaces', () => {
     'NEXUS OVERVIEW',
     'WHERE <strong>CHAOS</strong> MEETS CONTROL',
     'moduleAI',
+    'AI CORE',
     'startupAttention'
   ];
 
@@ -46,7 +47,7 @@ test('startup HUD renderer maps to protected startup state instead of fabricated
   assert.match(script, /renderer-modules/);
   assert.match(script, /secure-storage/);
   assert.match(script, /discord-restore/);
-  assert.match(script, /AI CORE/);
+  assert.match(script, /moduleAI/);
   assert.match(script, /STANDBY/);
   assert.doesNotMatch(script, /colony|cryo|life support/i);
 });
