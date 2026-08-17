@@ -2,11 +2,48 @@
 
 (() => {
   const PRODUCT = 'Nexus D&D';
-  const KEEP_VIEWS = new Set(['dnd', 'setup', 'ai-services', 'nexus-ai', 'logs', 'settings']);
+  const KEEP_VIEWS = new Set(['dnd', 'setup', 'ai-services', 'logs', 'settings']);
 
   function text(selector, value) {
     const node = document.querySelector(selector);
     if (node) node.textContent = value;
+  }
+
+  function scopeVeyraView() {
+    const view = document.getElementById('view-ai-services');
+    if (!view) return;
+
+    const intro = view.querySelector('.section-intro');
+    if (intro) {
+      const h2 = intro.querySelector('h2');
+      const p = intro.querySelector('p');
+      if (h2) h2.textContent = 'Veyra AI Runtime';
+      if (p) p.textContent = 'Run and configure the local D&D Lorewarden and Co-DM used by Nexus D&D.';
+      const check = intro.querySelector('[data-ai-action="check-all"]');
+      if (check) {
+        check.dataset.aiAction = 'check-dnd';
+        check.textContent = check.disabled ? 'Checking…' : 'Test Veyra';
+      }
+    }
+
+    const coreForm = view.querySelector('#aiCoreConnectionForm');
+    coreForm?.closest('article')?.classList.add('dnd-standalone-hidden');
+
+    const policyPanel = view.querySelector('.ai-isolation-panel');
+    if (policyPanel) policyPanel.classList.add('dnd-standalone-hidden');
+
+    const grid = view.querySelector('.ai-services-grid');
+    if (grid) grid.dataset.dndStandalone = 'veyra-only';
+
+    view.querySelectorAll('p, span, small, strong, h3').forEach((node) => {
+      const value = node.textContent || '';
+      if (/Veyra and Nexus Sentinel|Both AI agents|shared runtime host runs Veyra and Nexus Sentinel/i.test(value)) {
+        node.textContent = value
+          .replace(/Veyra and Nexus Sentinel/gi, 'Veyra')
+          .replace(/Both AI agents/gi, 'Veyra')
+          .replace(/One supervised local host runs Veyra and Nexus Sentinel as isolated workers with separate memory, tools, credentials, endpoints, and authority\./gi, 'A supervised local runtime runs Veyra for campaign-aware D&D assistance.');
+      }
+    });
   }
 
   function scopeNavigation() {
@@ -23,7 +60,7 @@
       button.classList.toggle('dnd-standalone-hidden', !KEEP_VIEWS.has(view));
       if (view === 'setup') button.innerHTML = '<span>◈</span>D&amp;D Bot Setup';
       if (view === 'dnd') button.innerHTML = '<span>⚔</span>Campaigns';
-      if (view === 'ai-services' || view === 'nexus-ai') {
+      if (view === 'ai-services') {
         const label = button.querySelector('span')?.outerHTML || '<span>✦</span>';
         button.innerHTML = `${label}Veyra AI`;
       }
@@ -37,8 +74,7 @@
     if (typeof viewMeta === 'object' && viewMeta) {
       viewMeta.dnd = ['Campaigns', 'Run campaigns, characters, encounters, maps, NPCs, sessions, Discord play, and AI-assisted game mastering.'];
       viewMeta.setup = ['D&D Bot Setup', 'Connect the dedicated D&D Discord application using protected local credentials.'];
-      if (viewMeta['ai-services']) viewMeta['ai-services'] = ['Veyra AI', 'Local AI runtime, model health, and D&D intelligence services.'];
-      if (viewMeta['nexus-ai']) viewMeta['nexus-ai'] = ['Veyra AI', 'Local AI tools used by the D&D command center.'];
+      if (viewMeta['ai-services']) viewMeta['ai-services'] = ['Veyra AI', 'Local Veyra runtime, model health, and D&D intelligence services.'];
       viewMeta.logs = ['Runtime Logs', 'Local D&D app, bot, and AI runtime events.'];
       viewMeta.settings = ['Desktop Settings', 'Startup, updates, backup, restore, and local data controls.'];
     }
@@ -48,7 +84,7 @@
     });
 
     const footerBadge = document.querySelector('.local-badge');
-    if (footerBadge) footerBadge.textContent = 'LOCAL D&D + AI';
+    if (footerBadge) footerBadge.textContent = 'LOCAL D&D + VEYRA';
 
     const setupIntro = document.querySelector('#view-setup .section-intro');
     if (setupIntro) {
@@ -65,6 +101,8 @@
       if (h2) h2.textContent = 'Nexus D&D desktop settings';
       if (p) p.textContent = 'Control startup, recovery, updates, backups, and local data for the standalone D&D app.';
     }
+
+    scopeVeyraView();
   }
 
   function openDefaultView() {
