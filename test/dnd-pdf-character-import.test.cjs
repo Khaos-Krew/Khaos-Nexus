@@ -102,13 +102,15 @@ test('printed or flattened PDFs fail with an export-specific message', async () 
   });
 });
 
-test('desktop bootstrap and import override are wired for PDF and JSON', () => {
+test('standalone desktop bootstrap and import override are wired for PDF and JSON', () => {
   const packageJson = JSON.parse(fs.readFileSync(require.resolve('../package.json'), 'utf8'));
-  const bootstrap = fs.readFileSync(require.resolve('../main/entry-pdf-import.cjs'), 'utf8');
+  const standaloneBootstrap = fs.readFileSync(require.resolve('../main/entry-dnd-standalone.cjs'), 'utf8');
+  const compatibilityBootstrap = fs.readFileSync(require.resolve('../main/entry-pdf-import.cjs'), 'utf8');
   const extension = fs.readFileSync(require.resolve('../main/dnd-character-pdf-import-extension.cjs'), 'utf8');
-  assert.equal(packageJson.main, 'main/entry-pdf-import.cjs');
-  assert.match(bootstrap, /dnd-character-pdf-import-extension/);
-  assert.match(bootstrap, /require\('\.\/entry\.cjs'\)/);
+  assert.equal(packageJson.main, 'main/entry-dnd-standalone.cjs');
+  assert.match(standaloneBootstrap, /dnd-character-pdf-import-extension/);
+  assert.match(compatibilityBootstrap, /dnd-character-pdf-import-extension/);
+  assert.match(compatibilityBootstrap, /require\('\.\/entry\.cjs'\)/);
   assert.match(extension, /extensions: \['pdf', 'json'\]/);
   assert.match(extension, /parsePdfCharacterImportBuffer/);
   assert.match(extension, /parseCharacterImportBuffer/);
