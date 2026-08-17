@@ -46,14 +46,17 @@ test('safe UI layer loads grouped navigation while preserving independent scroll
   assert.match(extension, /addScript\('navigation-shell\.js'\)/);
 });
 
-test('v0.25.0 is configured for stable Windows release with Android production paused', () => {
+test('v0.25.0 baseline remains stable while ADR-009 resumes Android Owner-test builds', () => {
   const packageJson = JSON.parse(read('package.json'));
   const notes = read('release-notes/v0.25.0.md');
   const mobileDocs = read('docs/ANDROID_COMPANION_v0.22.0.md');
   const mobileShared = read('shared/mobile-gateway.cjs');
+  const mobileLoginShared = read('shared/mobile-login.cjs');
   const mobileService = read('main/services/mobile-gateway-service.cjs');
   const mobileSecurity = read('main/mobile-gateway-security-extension.cjs');
   const mobileHold = read('main/mobile-production-hold-extension.cjs');
+  const mobileLogin = read('main/mobile-login-extension.cjs');
+  const androidAdr = read('docs/ADR-009-android-mobile-resumption.md');
   const androidWorkflow = read('.github/workflows/android-build.yml');
   const rust = read('bot/rust-webrcon.cjs');
   const rustMain = read('main/rust-main-extension.cjs');
@@ -85,7 +88,7 @@ test('v0.25.0 is configured for stable Windows release with Android production p
   assert.match(localAuthority, /get: \(\) => null/);
   assert.match(localAuthority, /set: \(\) => \{\}/);
 
-  // Android and Mobile Gateway implementation evidence remains preserved while production is disabled.
+  // ADR-009 resumes Android Owner testing without weakening the preserved transport protections.
   assert.match(mobileShared, /verifyMobileRequestSignature/);
   assert.match(mobileShared, /issueDeviceCredential/);
   assert.match(mobileService, /class MobileGatewayService/);
@@ -94,14 +97,16 @@ test('v0.25.0 is configured for stable Windows release with Android production p
   assert.match(mobileDocs, /Android Keystore/);
   assert.match(mobileDocs, /Phase 1 API/);
   assert.match(mobileHold, /KHAOS_NEXUS_MOBILE_GATEWAY_ENABLED/);
-  assert.match(mobileHold, /paused-by-owner-directive/);
-  assert.match(mobileHold, /launchView: null/);
-  assert.match(androidWorkflow, /name: Android Production Hold/);
+  assert.match(mobileLogin, /\/v1\/auth\/login/);
+  assert.match(mobileLogin, /LOGIN_RATE_LIMIT = 8/);
+  assert.match(mobileLoginShared, /scryptSync/);
+  assert.match(androidAdr, /ADR-008/);
+  assert.match(androidAdr, /account login/i);
+  assert.match(androidWorkflow, /name: Android Owner Test/);
   assert.match(androidWorkflow, /workflow_dispatch/);
-  assert.match(androidWorkflow, /ADR-008/);
-  assert.doesNotMatch(androidWorkflow, /lintDebug/);
-  assert.doesNotMatch(androidWorkflow, /apksigner/);
-  assert.doesNotMatch(androidWorkflow, /upload-artifact/);
+  assert.match(androidWorkflow, /lintDebug/);
+  assert.match(androidWorkflow, /apksigner/);
+  assert.match(androidWorkflow, /upload-artifact/);
 
   assert.match(rust, /class RustWebRconClient/);
   assert.match(rust, /serverinfo/);

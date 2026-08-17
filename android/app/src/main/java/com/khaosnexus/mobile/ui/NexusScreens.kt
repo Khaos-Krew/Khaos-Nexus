@@ -12,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.khaosnexus.mobile.NexusUiState
@@ -23,12 +24,14 @@ import java.util.Date
 @Composable
 fun NexusApp(
     state: NexusUiState,
-    onScan: () -> Unit,
-    onPairingText: (String) -> Unit,
-    onLoadPairing: (String) -> Unit,
+    onNexusAddress: (String) -> Unit,
+    onUsername: (String) -> Unit,
+    onPassword: (String) -> Unit,
     onDeviceName: (String) -> Unit,
+    onProbe: () -> Unit,
     onFingerprintConfirmed: (Boolean) -> Unit,
-    onPair: () -> Unit,
+    onSignIn: () -> Unit,
+    onUnlock: () -> Unit,
     onRefresh: () -> Unit,
     onSelectSection: (NexusSection) -> Unit,
     onForget: () -> Unit
@@ -36,53 +39,115 @@ fun NexusApp(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Column { Text("Khaos Nexus", fontWeight = FontWeight.Black); Text(if (state.session == null) "Secure Pairing" else "Read-only Command Deck", style = MaterialTheme.typography.labelSmall) } },
-                actions = { if (state.session != null) TextButton(onClick = onRefresh, enabled = !state.refreshing) { Text(if (state.refreshing) "Refreshing" else "Refresh") } }
+                title = {
+                    Column {
+                        Text("Khaos Nexus", fontWeight = FontWeight.Black)
+                        Text(
+                            when {
+                                state.session == null -> "Secure Account Login"
+                                !state.sessionUnlocked -> "Nexus Locked"
+                                else -> "Remote Command Deck"
+                            },
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                },
+                actions = {
+                    if (state.session != null && state.sessionUnlocked) {
+                        TextButton(onClick = onRefresh, enabled = !state.refreshing) { Text(if (state.refreshing) "Refreshing" else "Refresh") }
+                    }
+                }
             )
         }
     ) { padding ->
-        if (state.loading) Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-        else if (state.session == null) PairingScreen(state, onScan, onPairingText, onLoadPairing, onDeviceName, onFingerprintConfirmed, onPair, Modifier.padding(padding))
-        else DashboardScreen(state, onSelectSection, onForget, Modifier.padding(padding))
+        when {
+            state.loading -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            state.session == null -> LoginScreen(state, onNexusAddress, onUsername, onPassword, onDeviceName, onProbe, onFingerprintConfirmed, onSignIn, Modifier.padding(padding))
+            !state.sessionUnlocked -> LockedScreen(state, onUnlock, onForget, Modifier.padding(padding))
+            else -> DashboardScreen(state, onSelectSection, onForget, Modifier.padding(padding))
+        }
     }
 }
 
 @Composable
-private fun PairingScreen(
+private fun LoginScreen(
     state: NexusUiState,
-    onScan: () -> Unit,
-    onPairingText: (String) -> Unit,
-    onLoadPairing: (String) -> Unit,
+    onNexusAddress: (String) -> Unit,
+    onUsername: (String) -> Unit,
+    onPassword: (String) -> Unit,
     onDeviceName: (String) -> Unit,
+    onProbe: () -> Unit,
     onFingerprintConfirmed: (Boolean) -> Unit,
-    onPair: () -> Unit,
+    onSignIn: () -> Unit,
     modifier: Modifier
 ) {
     LazyColumn(modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item { Hero("Pair this phone", "Scan the one-time desktop QR code. RCON, Discord, GitHub, hosting, and game credentials remain on the PC.") }
+        item { Hero("Sign in to your Nexus", "Connect through your trusted private network/VPN. The app verifies the Nexus certificate before it will send your password.") }
         item { ErrorBanner(state.error) }
         item {
             NexusCard {
-                Button(onClick = onScan, modifier = Modifier.fillMaxWidth()) { Text("Scan Desktop QR Code") }
-                OutlinedTextField(value = state.pairingText, onValueChange = onPairingText, label = { Text("Pairing link") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
-                OutlinedButton(onClick = { onLoadPairing(state.pairingText) }, modifier = Modifier.fillMaxWidth()) { Text("Load Pairing Link") }
-            }
-        }
-        state.pairingPayload?.let { payload ->
-            item {
-                NexusCard {
-                    Text("Desktop certificate SHA-256", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
-                    Text(payload.fingerprint, style = MaterialTheme.typography.bodySmall)
-                    Text("Compare this fingerprint with the desktop before continuing.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = state.fingerprintConfirmed, onCheckedChange = onFingerprintConfirmed)
-                        Text("I verified the fingerprint")
-                    }
-                    OutlinedTextField(value = state.deviceName, onValueChange = onDeviceName, label = { Text("Device name") }, modifier = Modifier.fillMaxWidth())
-                    Button(onClick = onPair, enabled = state.fingerprintConfirmed && !state.pairingBusy, modifier = Modifier.fillMaxWidth()) { Text(if (state.pairingBusy) "Waiting for Owner approval…" else "Request Pairing") }
-                    if (state.pairingStatus.isNotBlank()) Text(state.pairingStatus, color = MaterialTheme.colorScheme.secondary)
+                Text("1 • Find Nexus", fontWeight = FontWeight.Bold)
+                OutlinedTextField(
+                    value = state.nexusAddress,
+                    onValueChange = onNexusAddress,
+                    label = { Text("Nexus address") },
+                    supportingText = { Text("Example: 100.x.x.x:43120 or your private-network hostname") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Button(onClick = onProbe, enabled = !state.loginBusy, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (state.loginBusy && state.probe == null) "Checking Nexus…" else "Verify Nexus Connection")
                 }
             }
+        }
+        state.probe?.let { probe ->
+            item {
+                NexusCard {
+                    Text("2 • Verify certificate", fontWeight = FontWeight.Bold)
+                    Text("${probe.service} • ${probe.version}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Certificate SHA-256", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
+                    Text(probe.fingerprint, style = MaterialTheme.typography.bodySmall)
+                    Text("Compare this once with the certificate fingerprint shown on the Nexus desktop Mobile Companion page.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = state.fingerprintConfirmed, onCheckedChange = onFingerprintConfirmed)
+                        Text("I verified this Nexus certificate")
+                    }
+                }
+            }
+            item {
+                NexusCard {
+                    Text("3 • Account login", fontWeight = FontWeight.Bold)
+                    OutlinedTextField(value = state.username, onValueChange = onUsername, label = { Text("Nexus username") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(
+                        value = state.password,
+                        onValueChange = onPassword,
+                        label = { Text("Password") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(value = state.deviceName, onValueChange = onDeviceName, label = { Text("This phone") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    Button(onClick = onSignIn, enabled = state.fingerprintConfirmed && !state.loginBusy, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (state.loginBusy) "Signing in…" else "Sign In")
+                    }
+                    if (state.loginStatus.isNotBlank()) Text(state.loginStatus, color = MaterialTheme.colorScheme.secondary)
+                    Text("Your password is used only for this sign-in. Nexus replaces it with a revocable encrypted device credential stored using Android Keystore.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LockedScreen(state: NexusUiState, onUnlock: () -> Unit, onForget: () -> Unit, modifier: Modifier) {
+    Box(modifier.fillMaxSize().padding(22.dp), contentAlignment = Alignment.Center) {
+        NexusCard {
+            Text("Nexus session locked", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+            Text("Unlock with your phone biometrics or device credential. Your saved Nexus session remains encrypted in Android Keystore.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(state.session?.endpoint.orEmpty(), style = MaterialTheme.typography.bodySmall)
+            Button(onClick = onUnlock, modifier = Modifier.fillMaxWidth()) { Text("Unlock Nexus") }
+            OutlinedButton(onClick = onForget, modifier = Modifier.fillMaxWidth()) { Text("Forget This Nexus") }
+            ErrorBanner(state.error)
         }
     }
 }
@@ -108,7 +173,7 @@ private fun DashboardScreen(state: NexusUiState, onSelectSection: (NexusSection)
 
 @Composable
 private fun CommandDeck(state: NexusUiState) = LazyColumn(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-    item { Hero("Command Deck", "Live public-safe status from the paired Khaos Nexus desktop.") }
+    item { Hero("Command Deck", "Live public-safe status from your authenticated Khaos Nexus desktop.") }
     item {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Metric("Discord", state.dashboard.discordStatus, Modifier.weight(1f))
@@ -125,7 +190,7 @@ private fun DiscordScreen(value: DiscordData) = ScreenList("Discord Runtime", li
 
 @Composable
 private fun ServerScreen(values: List<ServerData>) = LazyColumn(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-    item { Hero("Game Servers", "Read-only health. No direct RCON connection exists on this phone.") }
+    item { Hero("Game Servers", "Remote health through Nexus. RCON and hosting credentials remain on the desktop.") }
     if (values.isEmpty()) item { EmptyState("No configured servers") }
     items(values, key = { it.id }) { value -> NexusCard { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Column(Modifier.weight(1f)) { Text(value.name, fontWeight = FontWeight.Bold); Text(value.game.uppercase(), color = MaterialTheme.colorScheme.onSurfaceVariant); if (value.error.isNotBlank()) Text(value.error, color = MaterialTheme.colorScheme.error) }; Status(value.status) } } }
 }
@@ -138,7 +203,7 @@ private fun ModuleScreen(values: List<ModuleData>) = LazyColumn(Modifier.fillMax
 
 @Composable
 private fun LogScreen(values: List<LogData>) = LazyColumn(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-    item { Hero("Activity Logs", "Recent redacted desktop events. Protected values are removed before transport.") }
+    item { Hero("Activity Logs", "Recent redacted Nexus events. Protected values are removed before transport.") }
     items(values.takeLast(200).reversed()) { value -> NexusCard { Text("${value.level.uppercase()} • ${value.source}", color = logColor(value.level), style = MaterialTheme.typography.labelMedium); Text(value.message, maxLines = 5, overflow = TextOverflow.Ellipsis); Text(value.time, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall) } }
 }
 
@@ -150,13 +215,13 @@ private fun PanelScreen(values: List<StatusPanelData>) = LazyColumn(Modifier.fil
 
 @Composable
 private fun SettingsScreen(state: NexusUiState, onForget: () -> Unit) = LazyColumn(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-    item { Hero("Device Session", "The device credential is encrypted with Android Keystore and each request is P-256 signed.") }
-    item { NexusCard { Text("Desktop", fontWeight = FontWeight.Bold); Text(state.session?.endpoint.orEmpty()); Text("Role: ${state.session?.role.orEmpty()}"); Text("Last refresh: ${time(state.lastUpdatedAt)}"); HorizontalDivider(); Button(onClick = onForget, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error), modifier = Modifier.fillMaxWidth()) { Text("Forget Desktop") } } }
+    item { Hero("Device Session", "Account login establishes a revocable device credential; each API request is certificate-pinned and P-256 signed.") }
+    item { NexusCard { Text("Nexus", fontWeight = FontWeight.Bold); Text(state.session?.endpoint.orEmpty()); Text("Role: ${state.session?.role.orEmpty()}"); Text("Last refresh: ${time(state.lastUpdatedAt)}"); HorizontalDivider(); Button(onClick = onForget, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error), modifier = Modifier.fillMaxWidth()) { Text("Forget Nexus & Sign Out") } } }
 }
 
 @Composable
 private fun ScreenList(title: String, values: List<Pair<String, String>>) = LazyColumn(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-    item { Hero(title, "Live read-only desktop state.") }
+    item { Hero(title, "Live read-only Nexus state.") }
     items(values.filter { it.second.isNotBlank() }) { (name, value) -> Metric(name, value, Modifier.fillMaxWidth()) }
 }
 

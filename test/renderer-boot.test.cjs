@@ -33,7 +33,7 @@ test('renderer features remain serialized and software compatibility remains the
   assert.match(brand, /addScript\('simple-updater\.js'\)/);
 });
 
-test('v0.25.0 retains stable startup, adapters, preserved Android evidence and unconditional local recovery', () => {
+test('v0.25.0 baseline retains stable startup and adapters while ADR-009 resumes mobile', () => {
   const packageJson = JSON.parse(read('package.json'));
   const entry = read('main/entry.cjs');
   const coreRelease = read('main/startup-core-release-extension.cjs');
@@ -52,7 +52,7 @@ test('v0.25.0 retains stable startup, adapters, preserved Android evidence and u
   const satisfactory = read('main/satisfactory-main-extension.cjs');
   const mobile = read('main/services/mobile-gateway-service.cjs');
   const mobileSecurity = read('main/mobile-gateway-security-extension.cjs');
-  const mobileHold = read('main/mobile-production-hold-extension.cjs');
+  const mobileLogin = read('main/mobile-login-extension.cjs');
 
   assert.equal(packageJson.version, '0.25.0');
   assert.match(packageJson.description, /installer-first automatic diagnostics/i);
@@ -72,10 +72,12 @@ test('v0.25.0 retains stable startup, adapters, preserved Android evidence and u
   assert.match(entry, /startup-core-release-extension\.cjs/);
   assert.match(entry, /interface-watchdog-extension\.cjs/);
   assert.match(entry, /renderer-unresponsive-extension\.cjs/);
-  assert.match(entry, /mobile-production-hold-extension\.cjs/);
-  assert.match(entry, /mobileGatewayPolicyEnabled/);
-  assert.match(entry, /if \(mobileGatewayEnabled\) require\('\.\/mobile-module-registry-extension\.cjs'\)\.install\(\)/);
-  assert.match(entry, /if \(mobileGatewayEnabled\) \{\s*require\('\.\/mobile-gateway-extension\.cjs'\)\.install\(\);\s*require\('\.\/mobile-gateway-security-extension\.cjs'\)\.install\(\);/s);
+  assert.doesNotMatch(entry, /mobile-production-hold-extension\.cjs/);
+  assert.match(entry, /mobile-module-registry-extension\.cjs/);
+  assert.match(entry, /mobile-login-extension\.cjs/);
+  assert.match(entry, /mobile-gateway-extension\.cjs/);
+  assert.match(entry, /mobile-gateway-security-extension\.cjs/);
+  assert.ok(entry.indexOf('mobile-module-registry-extension.cjs') < entry.indexOf('module-foundation-extension.cjs'));
   assert.match(entry, /module-foundation-extension\.cjs/);
   assert.match(entry, /local-module-authority-extension\.cjs/);
   assert.match(entry, /module-runtime-extension\.cjs/);
@@ -94,13 +96,13 @@ test('v0.25.0 retains stable startup, adapters, preserved Android evidence and u
   assert.match(rustGate, /assertModule\('rust-server-operations'/);
   assert.match(satisfactory, /server:satisfactory-action/);
 
-  // Dormant Android and Mobile Gateway implementation remains intact for future authorized resumption.
+  // ADR-009 resumes the Mobile Gateway while preserving the existing transport protections.
   assert.match(mobile, /class MobileGatewayService/);
   assert.match(mobile, /TLSv1\.2/);
   assert.match(mobileSecurity, /LAST_SEEN_WRITE_INTERVAL_MS/);
-  assert.match(mobileHold, /String\(env\?\.\[ENABLE_VARIABLE\] \|\| ''\) === '1'/);
-  assert.match(mobileHold, /reason: 'paused-by-owner-directive'/);
-  assert.match(mobileHold, /effectiveEnabled: false/);
+  assert.match(mobileLogin, /\/v1\/auth\/login/);
+  assert.match(mobileLogin, /LOGIN_RATE_LIMIT = 8/);
+  assert.match(mobileLogin, /issueDeviceCredential/);
 
   assert.match(audit, /reconcileInterruptedRuns/);
   assert.match(unresponsive, /renderer-unresponsive/);
