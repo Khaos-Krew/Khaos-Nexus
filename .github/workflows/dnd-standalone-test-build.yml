@@ -43,10 +43,7 @@ jobs:
           $tests += Get-ChildItem test -Filter 'embedded-ai-*.test.cjs'
           $paths = $tests.FullName | Sort-Object -Unique
           if (-not $paths -or $paths.Count -eq 0) { throw 'No standalone D&D/AI tests were discovered.' }
-          # The v0.33 freeze assertion validates a deleted historical Nexus release script,
-          # not the standalone product. Keep every functional runtime test in the same file.
-          $pattern = '^(?!v0\.33 freeze retains updater-compatible resources and rollback metadata$).*'
-          node --test --test-name-pattern $pattern $paths
+          node --test $paths
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build installer and portable executable
