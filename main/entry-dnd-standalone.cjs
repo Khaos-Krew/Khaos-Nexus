@@ -85,11 +85,12 @@ if (diagnosticsMode) {
     require('./ai-recovery-supervisor-extension.cjs').install();
     require('./nexus-ai-core-operations-extension.cjs').install();
 
-    // Scope and brand the shared renderer after D&D/AI bundles register.
+    // Scope the inherited desktop shell and hard-block the main Nexus release feed.
+    require('./dnd-standalone-update-boundary-extension.cjs').install();
     require('./dnd-standalone-shell-extension.cjs').install();
 
-    // Reuse the hardened desktop window, secure storage, bot supervisor,
-    // updater and backup plumbing. Server IPC remains dormant and hidden.
+    // Reuse the hardened desktop window, protected storage, bot supervisor,
+    // backup plumbing and diagnostics. Game-server IPC remains dormant/hidden.
     require('./main.cjs');
   }
 }
