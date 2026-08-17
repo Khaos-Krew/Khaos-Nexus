@@ -6,6 +6,7 @@
   let updateState = null;
   let appVersion = '';
   let bound = false;
+  let stateBound = false;
 
   function notify(message) {
     const toast = $('toast');
@@ -229,14 +230,23 @@
     else if (result?.status === 'current') notify('Khaos Nexus is already up to date.');
   }
 
+  function applyAppState(state) {
+    appVersion = state?.app?.version || appVersion;
+    render(state?.update || updateState || {});
+  }
+
+  function bindStateHub() {
+    if (stateBound || !window.khaosStateHub?.subscribe) return stateBound;
+    stateBound = true;
+    window.khaosStateHub.subscribe(applyAppState, { replay: true });
+    return true;
+  }
+
   function bind() {
     if (bound) return;
     bound = true;
     window.khaos.onUpdate?.((update) => render(update));
-    window.khaos.onState?.((state) => {
-      appVersion = state?.app?.version || appVersion;
-      render(state?.update || updateState || {});
-    });
+    if (!bindStateHub()) window.addEventListener('khaos:state-hub-ready', bindStateHub, { once: true });
   }
 
   function scheduleBoundedReconciliation() {

@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
@@ -7,9 +8,21 @@ const { ServerConnection, isPalworldRest } = require('../bot/server-client.cjs')
 const { normalizeServerAddress, summarizeGameData } = require('../bot/palworld-rest.cjs');
 const { createCurrentServerAdapter } = require('../bot/game-adapters/current-server-adapter.cjs');
 const { executeAdapterOperation } = require('../shared/game-adapter-sdk.cjs');
+const { getNexusCoreService } = require('./services/nexus-core-service.cjs');
 
 const refs = { configStore: null, autonomy: null, discordAuth: null, logger: null };
 let installed = false;
+let coreActionRegistered = false;
+
+const MUTATION_CAPABILITIES = Object.freeze({
+  announce: 'game.server.broadcast',
+  save: 'game.server.save',
+  kick: 'game.player.moderate',
+  ban: 'game.player.ban',
+  unban: 'game.player.ban',
+  shutdown: 'game.server.shutdown',
+  stop: 'game.server.stop'
+});
 
 function captureClass(modulePath, exportName, refName, enhance) {
   const target = require(modulePath);
@@ -118,7 +131,8 @@ function cleanText(value, max, label) {
   return result.slice(0, max);
 }
 
-async function executeAction(server, action, payload = {}, role = 'owner') {
+function normalizedActionPayload(server, action, input = {}) {
+  const payload = { ...(input || {}) };
   if (action === 'announce') payload.message = cleanText(payload.message, 500, 'Announcement message');
   if (['kick', 'ban', 'unban'].includes(action)) payload.player = cleanText(payload.player || payload.userid, 150, 'Player name or user ID');
   if (['kick', 'ban'].includes(action) && payload.message) payload.message = String(payload.message).trim().slice(0, 300);
@@ -130,12 +144,88 @@ async function executeAction(server, action, payload = {}, role = 'owner') {
   if (action === 'stop' && String(payload.confirmation || '').trim().toUpperCase() !== 'FORCE STOP') {
     throw new Error('Type FORCE STOP to confirm an immediate server stop.');
   }
+  return payload;
+}
+
+async function executeAdapterAction(server, action, payload = {}, role = 'owner') {
+  const normalized = normalizedActionPayload(server, action, payload);
   const adapter = createCurrentServerAdapter(server, { logger: refs.logger });
-  const result = await executeAdapterOperation(adapter, action, payload, {
+  const result = await executeAdapterOperation(adapter, action, normalized, {
     role,
     explicitSecrets: [server.password]
   });
   return result.data;
+}
+
+function coreForPalworld() {
+  if (!refs.configStore?.configPath) throw new Error('Nexus Core is still initializing for Palworld operations.');
+  const core = getNexusCoreService({
+    dataDirectory: path.dirname(refs.configStore.configPath),
+    logger: refs.logger
+  });
+  if (!coreActionRegistered) {
+    core.registerAction('palworld.server.mutation', {
+      requiredCapabilities: (request) => {
+        const capability = MUTATION_CAPABILITIES[String(request.input.action || '')];
+        return capability ? [capability] : ['palworld.unsupported-mutation'];
+      },
+      execute: async (request) => {
+        const action = String(request.input.action || '');
+        if (!MUTATION_CAPABILITIES[action]) {
+          const error = new Error(`Unsupported Palworld mutation: ${action}`);
+          error.code = 'NEXUS_PALWORLD_MUTATION_UNSUPPORTED';
+          throw error;
+        }
+        const server = getPalworldServer(request.input.serverId);
+        return executeAdapterAction(server, action, request.input.payload || {}, request.input.role || 'owner');
+      }
+    });
+    coreActionRegistered = true;
+  }
+  return core;
+}
+
+function palworldOperationId(server, action, payload, options = {}) {
+  if (options.operationId) return String(options.operationId).slice(0, 190);
+  const body = JSON.stringify([server.id, action, payload || {}]);
+  const digest = crypto.createHash('sha256').update(body).digest('hex').slice(0, 20);
+  const bucket = Math.floor(Date.now() / 2000);
+  return `palworld:${action}:${server.id}:${bucket}:${digest}`;
+}
+
+async function executeAction(server, action, payload = {}, role = 'owner', options = {}) {
+  const capability = MUTATION_CAPABILITIES[action];
+  if (!capability) return executeAdapterAction(server, action, payload, role);
+
+  const normalized = normalizedActionPayload(server, action, payload);
+  const core = coreForPalworld();
+  const operationId = palworldOperationId(server, action, normalized, options);
+  const auth = refs.discordAuth?.getState?.() || {};
+  const result = await core.commandGateway.dispatch({
+    operationId,
+    action: 'palworld.server.mutation',
+    requestedAt: new Date().toISOString(),
+    scope: { kind: 'server', id: String(server.id) },
+    actor: { kind: 'user', id: String(auth.user?.id || 'local') },
+    source: { kind: 'desktop', id: 'palworld-operations' },
+    correlationId: operationId,
+    idempotencyKey: operationId,
+    requiredCapabilities: [],
+    input: {
+      serverId: String(server.id),
+      action,
+      payload: normalized,
+      role
+    }
+  }, { role });
+
+  if (result.status === 'succeeded') return result.output;
+  if (result.status === 'duplicate' && result.output?.originalState === 'completed' && result.output?.originalResultStatus === 'succeeded') {
+    return { duplicate: true, message: 'Nexus Core suppressed a duplicate Palworld mutation.' };
+  }
+  const error = new Error(result.error?.message || `Palworld ${action} was blocked by Nexus Core (${result.status}).`);
+  error.code = result.error?.code || 'NEXUS_PALWORLD_MUTATION_BLOCKED';
+  throw error;
 }
 
 function registerIpc() {
@@ -172,7 +262,7 @@ function registerIpc() {
       return { canceled: false, filePath: choice.filePath, summary: summarizeGameData(snapshot) };
     }
 
-    const result = await executeAction(server, action, request.payload || {}, role);
+    const result = await executeAction(server, action, request.payload || {}, role, { operationId: request.operationId });
     refs.logger?.info('Palworld REST action completed.', { server: server.name, action });
     return { action, server: server.name, result };
   });
@@ -190,4 +280,12 @@ function install() {
   electron.app.whenReady().then(() => setImmediate(registerIpc));
 }
 
-module.exports = { install, refs, executeAction };
+module.exports = {
+  install,
+  refs,
+  executeAction,
+  executeAdapterAction,
+  normalizedActionPayload,
+  MUTATION_CAPABILITIES,
+  palworldOperationId
+};

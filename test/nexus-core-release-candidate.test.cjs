@@ -1,0 +1,74 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = path.join(__dirname, '..');
+const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
+
+test('v0.41.2 freeze script produces the intended forward-only in-app updater identity', () => {
+  const source = read('scripts/freeze-v0.41.2-nexus-core.cjs');
+  assert.match(source, /pkg\.version = '0\.41\.2'/);
+  assert.match(source, /displayVersion: '0\.41\.2-B'/);
+  assert.match(source, /publicTag: 'v0\.41\.2-B'/);
+  assert.match(source, /rollbackTag: 'v0\.41\.1-B'/);
+  assert.match(source, /generateUpdatesFilesForAllChannels = true/);
+  assert.match(source, /channel: 'latest'/);
+  assert.match(source, /Khaos-Nexus-Setup-0\.41\.2-B/);
+  assert.match(source, /Khaos-Nexus-Portable-0\.41\.2-B/);
+});
+
+test('stable remains the default updater channel and test channel is explicit opt-in', () => {
+  const source = read('main/brand-update-extension.cjs');
+  assert.match(source, /normalizeUpdateChannel/);
+  assert.match(source, /=== 'test' \? 'test' : 'stable'/);
+  assert.match(source, /this\.updater\.channel = channel === 'test' \? 'beta' : 'latest'/);
+  assert.match(source, /this\.updater\.allowPrerelease = channel === 'test'/);
+  assert.match(source, /releases\?per_page=30/);
+  assert.match(source, /!item\.prerelease/);
+  assert.match(source, /return super\.checkPortableRelease\(\)/);
+});
+
+test('pre-update backup remains mandatory after channel support', () => {
+  const source = read('main/brand-update-extension.cjs');
+  assert.match(source, /createAutomaticBackup\('pre-update'\)/);
+  assert.match(source, /verifyBackup\(backup\.filePath\)/);
+  assert.match(source, /Installation was cancelled and the current version remains active/);
+});
+
+test('Windows candidate workflow freezes v0.41.2 and requires updater metadata', () => {
+  const workflow = read('.github/workflows/windows-build.yml');
+  assert.match(workflow, /freeze-v0\.41\.2-nexus-core\.cjs/);
+  assert.match(workflow, /KHAOS_REQUIRE_UPDATER_METADATA: '1'/);
+  assert.match(workflow, /Smoke-test clean installer/);
+  assert.match(workflow, /Smoke-test packaged full startup readiness/);
+});
+
+test('protected test-update publisher validates v0.41.2 before creating tag or release', () => {
+  const workflow = read('.github/workflows/nexus-core-test-release.yml');
+  const tests = workflow.indexOf('Run complete tests');
+  const cleanInstall = workflow.indexOf('Smoke-test clean installer');
+  const verifyMetadata = workflow.indexOf('Verify in-app update metadata');
+  const tag = workflow.indexOf('Create immutable release tag');
+  const publish = workflow.indexOf('Publish in-app update release');
+  assert.ok(tests >= 0);
+  assert.ok(cleanInstall > tests);
+  assert.ok(verifyMetadata > cleanInstall);
+  assert.ok(tag > verifyMetadata);
+  assert.ok(publish > tag);
+  assert.match(workflow, /freeze-v0\.41\.2-nexus-core\.cjs/);
+  assert.match(workflow, /gh release create v0\.41\.2-B/);
+  assert.match(workflow, /expected v0\.41\.2-B/);
+  assert.match(workflow, /--latest/);
+  assert.match(workflow, /releases\/latest/);
+});
+
+test('v0.41.2 release notes identify the build as a validation update without weakening local authority', () => {
+  const notes = read('release-notes/v0.41.2.md');
+  assert.match(notes, /validation\/test build/i);
+  assert.match(notes, /verified pre-update backups/i);
+  assert.match(notes, /v0\.41\.1-B as the rollback target/i);
+  assert.match(notes, /deterministic Core authority boundaries/i);
+});

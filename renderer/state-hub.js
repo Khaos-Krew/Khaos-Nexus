@@ -1,7 +1,11 @@
 'use strict';
 
 (() => {
-  if (window.khaosStateHub?.subscribe) return;
+  if (window.khaosStateHub?.subscribe) {
+    window.dispatchEvent(new CustomEvent('khaos:state-hub-ready'));
+    return;
+  }
+
   const listeners = new Set();
   let current = null;
   let sequence = 0;
@@ -39,6 +43,8 @@
   });
 
   ensureSubscription();
+  window.dispatchEvent(new CustomEvent('khaos:state-hub-ready'));
+
   window.addEventListener('beforeunload', () => {
     try { unsubscribe?.(); } catch {}
     unsubscribe = null;

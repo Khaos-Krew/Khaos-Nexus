@@ -179,6 +179,20 @@
     }
   }
 
+  function onAppState(next) {
+    if (next?.bot?.status) state.botStatus = next.bot.status;
+    setTimeout(() => {
+      applyDashboardControls();
+      refresh().then(scheduleApply);
+    }, 100);
+  }
+
+  function bindStateHub() {
+    if (!window.khaosStateHub?.subscribe) return false;
+    window.khaosStateHub.subscribe(onAppState, { replay: true });
+    return true;
+  }
+
   document.addEventListener('click', (event) => {
     const blocked = event.target.closest('.nexus-module-disabled-target, .module-open-disabled');
     if (blocked) {
@@ -193,13 +207,7 @@
   }, true);
 
   window.addEventListener('khaos:modules-refresh', () => refresh().then(scheduleApply));
-  window.khaos?.onState?.((next) => {
-    if (next?.bot?.status) state.botStatus = next.bot.status;
-    setTimeout(() => {
-      applyDashboardControls();
-      refresh().then(scheduleApply);
-    }, 100);
-  });
+  if (!bindStateHub()) window.addEventListener('khaos:state-hub-ready', bindStateHub, { once: true });
 
   window.khaosModuleRuntime = {
     refresh,

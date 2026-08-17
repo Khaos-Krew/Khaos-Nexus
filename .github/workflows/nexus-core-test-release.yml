@@ -1,0 +1,192 @@
+name: Nexus Core v0.41.2 Test Update
+
+on:
+  push:
+    branches:
+      - 'release/test-update-v0.41.2-B'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nexus-core-v0412-test-update
+  cancel-in-progress: false
+
+jobs:
+  validate-and-publish:
+    runs-on: windows-latest
+    timeout-minutes: 75
+    steps:
+      - name: Check out exact candidate commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Cache Electron build downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: electron-windows-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            electron-windows-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify embedded AI source integrity
+        run: node scripts/verify-embedded-ai-sources.cjs
+
+      - name: Validate embedded AI source
+        shell: pwsh
+        run: |
+          npm run build --prefix packages/ai/dnd-ai
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build --prefix packages/ai/ai-core
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Freeze v0.41.2-B Nexus Core metadata
+        run: node scripts/freeze-v0.41.2-nexus-core.cjs
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Run complete tests
+        shell: pwsh
+        run: |
+          cmd.exe /d /s /c "npm test > release-test-output.txt 2>&1"
+          $exitCode = $LASTEXITCODE
+          Get-Content -LiteralPath release-test-output.txt
+          if ($exitCode -ne 0) { exit $exitCode }
+
+      - name: Run repository checks
+        run: npm run check
+
+      - name: Build installer and portable updater assets
+        run: npm run dist:win
+
+      - name: Audit packaged app contents
+        run: node scripts/audit-packaged-contents.cjs
+
+      - name: Verify packaged AI runtimes
+        run: node scripts/verify-packaged-ai-runtimes.cjs
+
+      - name: Smoke-test packaged startup readiness
+        shell: pwsh
+        run: ./scripts/smoke-packaged-startup.ps1
+
+      - name: Smoke-test clean installer
+        shell: pwsh
+        run: |
+          & ./scripts/smoke-installed-build.ps1 *>&1 | Tee-Object -FilePath release-clean-install-smoke.txt
+          if (-not $?) { throw 'Clean installer smoke failed.' }
+
+      - name: Verify update artifacts and write manifest
+        env:
+          KHAOS_REQUIRE_UPDATER_METADATA: '1'
+          KHAOS_REQUIRE_SIGNING: ${{ vars.KHAOS_REQUIRE_SIGNING }}
+        run: node scripts/verify-release-artifacts.cjs
+
+      - name: Verify Windows Authenticode policy
+        shell: pwsh
+        env:
+          KHAOS_REQUIRE_SIGNING: ${{ vars.KHAOS_REQUIRE_SIGNING }}
+        run: ./scripts/verify-windows-signatures.ps1
+
+      - name: Verify in-app update metadata
+        shell: pwsh
+        run: |
+          $latest = Get-Content 'dist/latest.yml' -Raw
+          if ($latest -notmatch '(?m)^version:\s*0\.41\.2\s*$') { throw 'latest.yml does not advertise 0.41.2.' }
+          if ($latest -notmatch 'Khaos-Nexus-Setup-0\.41\.2-B-x64\.exe') { throw 'latest.yml does not point at the v0.41.2-B installer.' }
+          foreach ($required in @(
+            'dist/Khaos-Nexus-Setup-0.41.2-B-x64.exe',
+            'dist/Khaos-Nexus-Portable-0.41.2-B-x64.exe',
+            'dist/Khaos-Nexus-Setup-0.41.2-B-x64.exe.blockmap',
+            'dist/latest.yml',
+            'dist/release-manifest.json'
+          )) {
+            if (-not (Test-Path -LiteralPath $required)) { throw "Missing release asset: $required" }
+          }
+
+      - name: Guard against release overwrite
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view v0.41.2-B --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) { throw 'Release v0.41.2-B already exists. Refusing to overwrite it.' }
+          $LASTEXITCODE = 0
+          git ls-remote --exit-code --tags origin refs/tags/v0.41.2-B *> $null
+          if ($LASTEXITCODE -eq 0) { throw 'Tag v0.41.2-B already exists. Refusing to move it.' }
+          $LASTEXITCODE = 0
+
+      - name: Create immutable release tag
+        shell: pwsh
+        run: |
+          git config user.name 'Khaos Nexus Release Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git tag -a v0.41.2-B $env:GITHUB_SHA -m 'Khaos Nexus v0.41.2-B Nexus Core v1 validation update'
+          git push origin refs/tags/v0.41.2-B
+
+      - name: Publish in-app update release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $assets = @(
+            'dist/Khaos-Nexus-Setup-0.41.2-B-x64.exe',
+            'dist/Khaos-Nexus-Portable-0.41.2-B-x64.exe',
+            'dist/Khaos-Nexus-Setup-0.41.2-B-x64.exe.blockmap',
+            'dist/latest.yml',
+            'dist/release-manifest.json',
+            'dist/package-content-audit.json',
+            'dist/signing-audit.json'
+          )
+          foreach ($optional in @('dist/beta.yml', 'dist/alpha.yml')) {
+            if (Test-Path -LiteralPath $optional) { $assets += $optional }
+          }
+          gh release create v0.41.2-B $assets `
+            --repo $env:GITHUB_REPOSITORY `
+            --title 'Khaos Nexus v0.41.2-B — Nexus Core v1 Validation Update' `
+            --notes-file 'release-notes/v0.41.2.md' `
+            --latest
+
+      - name: Verify published update is discoverable
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $release = gh api repos/$env:GITHUB_REPOSITORY/releases/latest | ConvertFrom-Json
+          if ($release.tag_name -ne 'v0.41.2-B') { throw "Latest release is $($release.tag_name), expected v0.41.2-B." }
+          $names = @($release.assets | ForEach-Object { $_.name })
+          foreach ($required in @(
+            'Khaos-Nexus-Setup-0.41.2-B-x64.exe',
+            'Khaos-Nexus-Portable-0.41.2-B-x64.exe',
+            'Khaos-Nexus-Setup-0.41.2-B-x64.exe.blockmap',
+            'latest.yml'
+          )) {
+            if ($names -notcontains $required) { throw "Published release is missing $required." }
+          }
+
+      - name: Retain release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: Khaos-Nexus-v0.41.2-B-release-evidence
+          path: |
+            dist/release-manifest.json
+            dist/package-content-audit.json
+            dist/signing-audit.json
+            dist/latest.yml
+            release-test-output.txt
+            release-clean-install-smoke.txt
+          if-no-files-found: error
+          retention-days: 30
