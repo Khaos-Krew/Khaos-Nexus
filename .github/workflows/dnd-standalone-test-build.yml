@@ -37,6 +37,7 @@ jobs:
         run: |
           node --check main/entry-dnd-standalone.cjs
           node --check main/dnd-standalone-shell-extension.cjs
+          node --check main/renderer-asset-loader.cjs
           node --check renderer/dnd-standalone-shell.js
 
       - name: Run D&D and local AI tests
@@ -94,6 +95,10 @@ jobs:
             }
             if ($state.overall -notin @('healthy', 'warning')) { throw "Unexpected Nexus D&D startup health: $($state.overall)" }
             Write-Host "Packaged Nexus D&D startup passed: $($state.overall) / $($state.phase)"
+          } catch {
+            Write-Host '--- Nexus D&D packaged startup evidence ---'
+            if (Test-Path $evidence) { Get-Content $evidence -Raw | Write-Host }
+            throw
           } finally {
             if ($process -and -not $process.HasExited) {
               taskkill /PID $process.Id /T /F 2>$null | Out-Null
