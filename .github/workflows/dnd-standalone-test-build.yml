@@ -1,0 +1,70 @@
+name: D&D Standalone Test Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["split/dnd-standalone"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dnd-standalone-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify standalone source syntax
+        shell: pwsh
+        run: |
+          node --check main/entry-dnd-standalone.cjs
+          node --check main/dnd-standalone-shell-extension.cjs
+          node --check renderer/dnd-standalone-shell.js
+
+      - name: Run D&D and local AI tests
+        shell: pwsh
+        run: |
+          $tests = @()
+          $tests += Get-ChildItem test -Filter 'dnd-*.test.cjs'
+          $tests += Get-ChildItem test -Filter 'ai-*.test.cjs'
+          $tests += Get-ChildItem test -Filter 'bundled-ai-*.test.cjs'
+          $tests += Get-ChildItem test -Filter 'embedded-ai-*.test.cjs'
+          $paths = $tests.FullName | Sort-Object -Unique
+          if (-not $paths -or $paths.Count -eq 0) { throw 'No standalone D&D/AI tests were discovered.' }
+          node --test $paths
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build installer and portable executable
+        run: npm run dist:win
+
+      - name: Verify standalone artifacts
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist-dnd -Filter 'Nexus-DnD-Setup-*.exe'
+          $portable = Get-ChildItem dist-dnd -Filter 'Nexus-DnD-Portable-*.exe'
+          if (-not $setup) { throw 'Standalone D&D installer was not produced.' }
+          if (-not $portable) { throw 'Standalone D&D portable executable was not produced.' }
+          Write-Host "Installer: $($setup.Name)"
+          Write-Host "Portable: $($portable.Name)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nexus-DnD-Windows-Test
+          path: |
+            dist-dnd/*.exe
+            dist-dnd/*.yml
+            dist-dnd/*.blockmap
+          retention-days: 14
+          if-no-files-found: error
