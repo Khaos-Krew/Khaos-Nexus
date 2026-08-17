@@ -16,23 +16,69 @@ import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 
 class GatewayException(val status: Int, val code: String, override val message: String) : Exception(message)
-data class PairingRequestResult(val requestId: String, val claimSecret: String, val expiresAt: String, val pollAfterMs: Long)
-data class PairingCompleteResult(val pending: Boolean, val credential: String = "", val deviceId: String = "", val role: String = "viewer", val certificateFingerprint: String = "", val pollAfterMs: Long = 1500)
+data class GatewayProbe(val endpoint: String, val fingerprint: String, val service: String, val version: String)
 
 class MobileGatewayClient(private val secureStore: SecureStore) {
     private val random = SecureRandom()
 
-    fun requestPairing(payload: PairingPayload, deviceName: String): PairingRequestResult {
-        val body = JSONObject().put("code", payload.code).put("name", deviceName.trim().take(80)).put("publicKeyPem", secureStore.signingPublicKeyPem()).toString().toByteArray()
-        val response = request("POST", "${payload.endpoint}/v1/pairing/request", payload.fingerprint, body = body)
-        return PairingRequestResult(response.getString("requestId"), response.getString("claimSecret"), response.optString("expiresAt"), response.optLong("pollAfterMs", 1500))
+    fun probe(endpoint: String): GatewayProbe {
+        val normalizedEndpoint = normalizeEndpoint(endpoint)
+        val connection = URL("$normalizedEndpoint/v1/health").openConnection() as HttpsURLConnection
+        connection.sslSocketFactory = discoverySslSocketFactory()
+        connection.hostnameVerifier = HostnameVerifier { _, _ -> true }
+        connection.requestMethod = "GET"
+        connection.connectTimeout = 12_000
+        connection.readTimeout = 12_000
+        connection.useCaches = false
+        connection.setRequestProperty("Accept", "application/json")
+        connection.setRequestProperty("User-Agent", "Khaos-Nexus-Mobile/${BuildConfig.VERSION_NAME}")
+
+        try {
+            val status = connection.responseCode
+            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            val payload = runCatching { JSONObject(text.ifBlank { "{}" }) }.getOrElse { JSONObject() }
+            if (status !in 200..299) {
+                val error = payload.optJSONObject("error")
+                throw GatewayException(status, error?.optString("code", "HTTP_$status") ?: "HTTP_$status", error?.optString("message", "Nexus could not be reached.") ?: "Nexus could not be reached.")
+            }
+
+            val certificate = connection.serverCertificates.firstOrNull() as? X509Certificate
+                ?: throw GatewayException(495, "CERTIFICATE_MISSING", "Nexus did not provide a TLS certificate.")
+            certificate.checkValidity()
+            val peerFingerprint = RequestCanonical.fingerprint(certificate)
+            val advertised = RequestCanonical.normalizeFingerprint(payload.optString("certificateFingerprint"))
+            if (advertised.isNotBlank() && advertised != peerFingerprint) {
+                throw GatewayException(495, "CERTIFICATE_MISMATCH", "Nexus reported a certificate fingerprint that does not match the TLS connection.")
+            }
+            return GatewayProbe(
+                endpoint = normalizedEndpoint,
+                fingerprint = peerFingerprint,
+                service = payload.optString("service", "Khaos Nexus Mobile Gateway"),
+                version = payload.optString("version", "unknown")
+            )
+        } finally {
+            connection.disconnect()
+        }
     }
 
-    fun completePairing(payload: PairingPayload, requestId: String, claimSecret: String): PairingCompleteResult {
-        val body = JSONObject().put("requestId", requestId).put("claimSecret", claimSecret).toString().toByteArray()
-        val response = request("POST", "${payload.endpoint}/v1/pairing/complete", payload.fingerprint, body = body, allowPending = true)
-        if (response.optString("status") == "pending-owner-approval") return PairingCompleteResult(pending = true, pollAfterMs = response.optLong("pollAfterMs", 1500))
-        return PairingCompleteResult(false, response.getString("credential"), response.getString("deviceId"), response.optString("role", "viewer"), response.optString("certificateFingerprint", payload.fingerprint))
+    fun login(endpoint: String, fingerprint: String, username: String, password: String, deviceName: String): StoredSession {
+        val normalizedEndpoint = normalizeEndpoint(endpoint)
+        val body = JSONObject()
+            .put("username", username.trim().take(64))
+            .put("password", password)
+            .put("deviceName", deviceName.trim().take(80))
+            .put("publicKeyPem", secureStore.signingPublicKeyPem())
+            .toString()
+            .toByteArray()
+        val response = request("POST", "$normalizedEndpoint/v1/auth/login", fingerprint, body = body)
+        return StoredSession(
+            endpoint = normalizedEndpoint,
+            fingerprint = RequestCanonical.normalizeFingerprint(response.optString("certificateFingerprint", fingerprint)),
+            deviceId = response.getString("deviceId"),
+            role = response.optString("role", "owner"),
+            credential = response.getString("credential")
+        )
     }
 
     fun get(session: StoredSession, pathAndQuery: String): JSONObject {
@@ -93,13 +139,13 @@ class MobileGatewayClient(private val secureStore: SecureStore) {
         return UpdateData(value.optString("status", "idle"), value.optString("currentVersion"), value.optString("availableVersion"), value.optBoolean("available"), value.optBoolean("downloaded"), value.optInt("progressPercent"), value.optString("error"))
     }
 
-    private fun request(method: String, urlValue: String, fingerprint: String, session: StoredSession? = null, body: ByteArray = ByteArray(0), allowPending: Boolean = false): JSONObject {
+    private fun request(method: String, urlValue: String, fingerprint: String, session: StoredSession? = null, body: ByteArray = ByteArray(0)): JSONObject {
         val connection = URL(urlValue).openConnection() as HttpsURLConnection
         connection.sslSocketFactory = pinnedSslSocketFactory(fingerprint)
         connection.hostnameVerifier = pinnedHostnameVerifier(fingerprint)
         connection.requestMethod = method
-        connection.connectTimeout = 15000
-        connection.readTimeout = 20000
+        connection.connectTimeout = 15_000
+        connection.readTimeout = 20_000
         connection.useCaches = false
         connection.setRequestProperty("Accept", "application/json")
         connection.setRequestProperty("User-Agent", "Khaos-Nexus-Mobile/${BuildConfig.VERSION_NAME}")
@@ -109,16 +155,19 @@ class MobileGatewayClient(private val secureStore: SecureStore) {
             connection.setRequestProperty("Content-Type", "application/json")
             connection.outputStream.use { it.write(body) }
         }
-        val status = connection.responseCode
-        val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-        val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-        val payload = runCatching { JSONObject(text.ifBlank { "{}" }) }.getOrElse { JSONObject() }
-        connection.disconnect()
-        if (status !in 200..299 && !(allowPending && status == 202)) {
-            val error = payload.optJSONObject("error")
-            throw GatewayException(status, error?.optString("code", "HTTP_$status") ?: "HTTP_$status", error?.optString("message", "Gateway request failed.") ?: "Gateway request failed.")
+        try {
+            val status = connection.responseCode
+            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            val payload = runCatching { JSONObject(text.ifBlank { "{}" }) }.getOrElse { JSONObject() }
+            if (status !in 200..299) {
+                val error = payload.optJSONObject("error")
+                throw GatewayException(status, error?.optString("code", "HTTP_$status") ?: "HTTP_$status", error?.optString("message", "Gateway request failed.") ?: "Gateway request failed.")
+            }
+            return payload
+        } finally {
+            connection.disconnect()
         }
-        return payload
     }
 
     private fun addAuthentication(connection: HttpsURLConnection, session: StoredSession, body: ByteArray) {
@@ -133,6 +182,18 @@ class MobileGatewayClient(private val secureStore: SecureStore) {
         connection.setRequestProperty("X-Khaos-Signature", secureStore.sign(canonical))
     }
 
+    private fun discoverySslSocketFactory(): javax.net.ssl.SSLSocketFactory {
+        val manager = object : X509TrustManager {
+            override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
+                val certificate = chain?.firstOrNull() ?: throw java.security.cert.CertificateException("Nexus did not provide a certificate.")
+                certificate.checkValidity()
+            }
+        }
+        return SSLContext.getInstance("TLS").apply { init(null, arrayOf<TrustManager>(manager), random) }.socketFactory
+    }
+
     private fun pinnedSslSocketFactory(expected: String): javax.net.ssl.SSLSocketFactory {
         val normalized = RequestCanonical.normalizeFingerprint(expected)
         val manager = object : X509TrustManager {
@@ -140,7 +201,7 @@ class MobileGatewayClient(private val secureStore: SecureStore) {
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = throw java.security.cert.CertificateException("Client certificates are not accepted.")
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
                 val certificate = chain?.firstOrNull() ?: throw java.security.cert.CertificateException("The desktop did not provide a certificate.")
-                if (RequestCanonical.fingerprint(certificate) != normalized) throw java.security.cert.CertificateException("The desktop certificate fingerprint changed.")
+                if (RequestCanonical.fingerprint(certificate) != normalized) throw java.security.cert.CertificateException("The Nexus certificate fingerprint changed.")
                 certificate.checkValidity()
             }
         }
@@ -150,6 +211,19 @@ class MobileGatewayClient(private val secureStore: SecureStore) {
     private fun pinnedHostnameVerifier(expected: String): HostnameVerifier {
         val normalized = RequestCanonical.normalizeFingerprint(expected)
         return HostnameVerifier { _, session -> runCatching { RequestCanonical.fingerprint(session.peerCertificates.first() as X509Certificate) == normalized }.getOrDefault(false) }
+    }
+
+    companion object {
+        fun normalizeEndpoint(value: String): String {
+            var endpoint = value.trim().trimEnd('/')
+            if (endpoint.isBlank()) throw IllegalArgumentException("Enter the Nexus address.")
+            if (!endpoint.contains("://")) endpoint = "https://$endpoint"
+            val url = URL(endpoint)
+            if (url.protocol.lowercase() != "https") throw IllegalArgumentException("The Nexus mobile gateway requires HTTPS.")
+            if (url.host.isBlank()) throw IllegalArgumentException("Enter a valid Nexus host or private-network address.")
+            val port = if (url.port > 0) url.port else 43120
+            return "https://${url.host}:$port"
+        }
     }
 }
 
