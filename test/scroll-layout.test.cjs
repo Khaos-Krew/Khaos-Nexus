@@ -35,7 +35,7 @@ test('nested logs and diagnostic outputs retain their own scrolling', () => {
   }
 });
 
-test('v0.25.0 retains scrolling, Owner modules, Android exclusion and local recovery behavior', () => {
+test('v0.25.0 baseline retains scrolling and Owner modules while ADR-009 resumes mobile', () => {
   const packageJson = JSON.parse(read('package.json'));
   const preload = read('main/preload.cjs');
   const portable = read('main/portable-bootstrap-extension.cjs');
@@ -52,7 +52,7 @@ test('v0.25.0 retains scrolling, Owner modules, Android exclusion and local reco
   const rustCss = read('renderer/rust-webrcon-ui.css');
   const mobileUi = read('renderer/mobile-companion.js');
   const mobileCss = read('renderer/mobile-companion.css');
-  const mobileHold = read('main/mobile-production-hold-extension.cjs');
+  const mobileLogin = read('main/mobile-login-extension.cjs');
   const audit = read('main/audit-repair-extension.cjs');
 
   assert.equal(packageJson.version, '0.25.0');
@@ -83,13 +83,12 @@ test('v0.25.0 retains scrolling, Owner modules, Android exclusion and local reco
   assert.match(rustCss, /rust-operation-output/);
   assert.match(rustCss, /overflow:\s*auto/);
 
-  // Mobile renderer and security assets remain preserved, but runtime/navigation activation is blocked.
+  // Mobile renderer remains bounded and ADR-009 activates the secure login/gateway path.
   assert.match(mobileCss, /mobile-device-list/);
   assert.match(mobileCss, /overflow-wrap:\s*anywhere/);
-  assert.match(mobileHold, /launchView: null/);
-  assert.match(mobileHold, /enabled: false/);
-  assert.match(mobileHold, /effectiveEnabled: false/);
-  assert.match(mobileHold, /paused-by-owner-directive/);
+  assert.match(mobileLogin, /\/v1\/auth\/login/);
+  assert.match(mobileLogin, /LOGIN_RATE_LIMIT = 8/);
+  assert.match(mobileLogin, /issueDeviceCredential/);
 
   assert.match(adapterSdk, /roleAtLeast/);
   assert.match(adapterSdk, /redactAdapterValue/);
@@ -101,8 +100,10 @@ test('v0.25.0 retains scrolling, Owner modules, Android exclusion and local reco
   assert.match(entry, /renderer-unresponsive-extension\.cjs/);
   assert.match(entry, /local-module-authority-extension\.cjs/);
   assert.match(entry, /module-runtime-extension\.cjs/);
-  assert.match(entry, /mobile-production-hold-extension\.cjs/);
-  assert.match(entry, /if \(mobileGatewayEnabled\)/);
+  assert.doesNotMatch(entry, /mobile-production-hold-extension\.cjs/);
+  assert.match(entry, /mobile-login-extension\.cjs/);
+  assert.match(entry, /mobile-gateway-extension\.cjs/);
+  assert.match(entry, /mobile-gateway-security-extension\.cjs/);
   assert.match(entry, /audit-repair-extension\.cjs/);
   assert.match(entry, /rust-main-extension\.cjs/);
   assert.match(watchdog, /interface-watchdog-state\.json/);
