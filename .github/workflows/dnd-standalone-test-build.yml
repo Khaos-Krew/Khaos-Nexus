@@ -55,6 +55,53 @@ jobs:
       - name: Build installer and portable executable
         run: npm run dist:win
 
+      - name: Smoke-launch packaged D&D portable
+        shell: pwsh
+        run: |
+          $portable = Get-ChildItem dist-dnd -Filter 'Nexus-DnD-Portable-*.exe' | Select-Object -First 1
+          if (-not $portable) { throw 'Standalone D&D portable executable was not produced.' }
+
+          $evidence = Join-Path $env:RUNNER_TEMP 'nexus-dnd-startup-smoke.json'
+          Remove-Item $evidence -Force -ErrorAction SilentlyContinue
+          $env:KHAOS_PACKAGED_STARTUP_SMOKE = '1'
+          $env:KHAOS_PACKAGED_STARTUP_SMOKE_FILE = $evidence
+          $process = Start-Process -FilePath $portable.FullName -PassThru
+
+          try {
+            $deadline = (Get-Date).AddSeconds(80)
+            $state = $null
+            while ((Get-Date) -lt $deadline) {
+              Start-Sleep -Milliseconds 500
+              if (Test-Path $evidence) {
+                try {
+                  $payload = Get-Content $evidence -Raw | ConvertFrom-Json
+                  $state = $payload.state
+                } catch {}
+                if ($state -and $state.completed) { break }
+              }
+              if ($process.HasExited) { throw "Nexus D&D exited before packaged startup completed (exit $($process.ExitCode))." }
+            }
+
+            if (-not $state) { throw 'Nexus D&D did not write packaged startup evidence.' }
+            if (-not $state.completed) { throw "Nexus D&D startup did not complete. Phase: $($state.phase); overall: $($state.overall)" }
+            if (-not $state.rendererBridgeReady) { throw 'Nexus D&D renderer IPC bridge did not become ready.' }
+            if (-not $state.rendererModulesReady) { throw 'Nexus D&D renderer feature modules did not become ready.' }
+            if (-not $state.configStoreReady) { throw 'Nexus D&D configuration service did not become ready.' }
+            $criticalFailures = @($state.checks | Where-Object { $_.critical -and $_.status -eq 'fail' })
+            if ($criticalFailures.Count -gt 0) {
+              $detail = ($criticalFailures | ForEach-Object { "$($_.id): $($_.detail)" }) -join '; '
+              throw "Nexus D&D packaged startup has critical failures: $detail"
+            }
+            if ($state.overall -notin @('healthy', 'warning')) { throw "Unexpected Nexus D&D startup health: $($state.overall)" }
+            Write-Host "Packaged Nexus D&D startup passed: $($state.overall) / $($state.phase)"
+          } finally {
+            if ($process -and -not $process.HasExited) {
+              taskkill /PID $process.Id /T /F 2>$null | Out-Null
+            }
+            Remove-Item Env:KHAOS_PACKAGED_STARTUP_SMOKE -ErrorAction SilentlyContinue
+            Remove-Item Env:KHAOS_PACKAGED_STARTUP_SMOKE_FILE -ErrorAction SilentlyContinue
+          }
+
       - name: Verify standalone artifacts
         shell: pwsh
         run: |
