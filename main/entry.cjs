@@ -71,11 +71,12 @@ if (diagnosticsMode) {
     installTracked('./rcon-validation-extension.cjs');
     installTracked('./audit-repair-extension.cjs');
 
-    // Typed Palworld adapter + Nexus Core safety gateway used by destructive
-    // Palworld operations. No scheduler gateway is started in this scope.
+    // Typed Palworld adapter + Nexus Core safety foundation used by destructive
+    // Palworld operations. The legacy live-migration layer is intentionally not
+    // loaded because it patches hosted-server/autonomy services removed from
+    // the Sentinel product.
     installTracked('./game-adapter-runtime-extension.cjs');
     installTracked('./nexus-core-foundation-extension.cjs');
-    installTracked('./nexus-core-live-migrations-extension.cjs');
 
     // Final product boundary: Palworld-only server runtime, disabled deferred
     // modules, Nexus Sentinel branding, and simplified desktop navigation.
