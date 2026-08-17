@@ -37,6 +37,7 @@ jobs:
         run: |
           node --check main/entry.cjs
           node --check main/sentinel-scope-extension.cjs
+          node --check main/renderer-asset-loader.cjs
           node --check renderer/sentinel-scope.js
           node --check bot/entry.cjs
           node --check bot/commands.cjs
@@ -112,6 +113,10 @@ jobs:
             }
             if ($state.overall -notin @('healthy', 'warning')) { throw "Unexpected Nexus Sentinel startup health: $($state.overall)" }
             Write-Host "Packaged Nexus Sentinel startup passed: $($state.overall) / $($state.phase)"
+          } catch {
+            Write-Host '--- Nexus Sentinel packaged startup evidence ---'
+            if (Test-Path $evidence) { Get-Content $evidence -Raw | Write-Host }
+            throw
           } finally {
             if ($process -and -not $process.HasExited) {
               taskkill /PID $process.Id /T /F 2>$null | Out-Null
