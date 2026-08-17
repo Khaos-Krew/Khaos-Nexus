@@ -50,6 +50,18 @@ test('standalone entry loads D&D and AI but not game-server stacks', () => {
   }
 });
 
+test('standalone Discord worker only registers D&D and health commands', () => {
+  const source = read('bot/entry.cjs');
+  assert.match(source, /dndCommands/);
+  assert.match(source, /Nexus D&D bot runtime health/);
+  assert.match(source, /handleDndInteraction/);
+  assert.doesNotMatch(source, /installModuleRuntime/);
+  assert.doesNotMatch(source, /installStatusPanelRuntime/);
+  assert.doesNotMatch(source, /installDiscordAutomationRuntime/);
+  assert.doesNotMatch(source, /game-adapters/);
+  assert.doesNotMatch(source, /executeServerAction/);
+});
+
 test('standalone shell exposes only campaign, bot, AI, logs and settings surfaces', () => {
   const source = read('renderer/dnd-standalone-shell.js');
   assert.match(source, /const PRODUCT = 'Nexus D&D'/);
