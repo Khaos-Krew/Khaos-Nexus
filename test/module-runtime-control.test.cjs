@@ -121,7 +121,7 @@ test('module-aware Discord command registration removes disabled game operations
 
 test('Discord button guard blocks status panels and the correct role-menu module', () => {
   const statusInteraction = { customId: 'kn-status:refresh:panel-1', isButton: () => true };
-  const bootstrap = { config: { moduleRuntime: { 'server-status-panels': { effectiveEnabled: false } } } };
+  const bootstrap = { config: { moduleRuntime: { 'server-status-panels': { effectiveEnabled: false } } };
   assert.equal(blockedModuleForInteraction(bootstrap, statusInteraction), 'Server Status Panels');
 
   const roleBootstrap = {
@@ -140,7 +140,7 @@ test('owner-disabled module messages are expected outcomes instead of error repo
   assert.equal(isExpectedAccessDenial(new Error('This action requires an enabled Nexus module: Server Scheduler.')), true);
 });
 
-test('production entry installs module control before optional services and preserves the full bot entry chain', () => {
+test('Sentinel production entry installs module control before Discord and Palworld services and preserves the bot entry chain', () => {
   const entry = read('main/entry.cjs');
   const foundation = read('main/module-foundation-extension.cjs');
   const runtime = read('main/module-runtime-extension.cjs');
@@ -149,8 +149,19 @@ test('production entry installs module control before optional services and pres
   const bot = read('bot/index.cjs');
   const renderer = read('renderer/module-runtime.js');
 
-  assert.ok(entry.indexOf('module-foundation-extension.cjs') < entry.indexOf('discord-studio-extension.cjs'));
-  assert.ok(entry.indexOf('module-runtime-extension.cjs') < entry.indexOf('server-scheduler-extension.cjs'));
+  const foundationIndex = entry.indexOf('module-foundation-extension.cjs');
+  const runtimeIndex = entry.indexOf('module-runtime-extension.cjs');
+  const palworldIndex = entry.indexOf('palworld-main-extension.cjs');
+  const studioIndex = entry.indexOf('discord-studio-extension.cjs');
+  const scopeIndex = entry.indexOf('sentinel-scope-extension.cjs');
+  assert.ok(foundationIndex >= 0 && runtimeIndex > foundationIndex);
+  assert.ok(palworldIndex > runtimeIndex);
+  assert.ok(studioIndex > runtimeIndex);
+  assert.ok(scopeIndex > palworldIndex && scopeIndex > studioIndex);
+  assert.doesNotMatch(entry, /server-scheduler-extension\.cjs/);
+  assert.doesNotMatch(entry, /hosted-server-extension\.cjs/);
+  assert.doesNotMatch(entry, /dnd-/);
+  assert.doesNotMatch(entry, /bundled-ai-runtimes-extension\.cjs/);
   assert.match(foundation, /moduleOverrides/);
   assert.match(foundation, /modules:bulk-update/);
   assert.match(runtime, /moduleDecisionForChannel/);
@@ -159,6 +170,7 @@ test('production entry installs module control before optional services and pres
   assert.match(botEntry, /installModuleRuntime/);
   assert.match(botEntry, /installDiscordAutomationRuntime/);
   assert.match(botEntry, /installStatusPanelRuntime/);
+  assert.doesNotMatch(botEntry, /dnd/i);
   assert.match(bot, /message\?\.type === 'config-update'/);
   assert.match(bot, /scheduleCommandRegistration/);
   assert.match(renderer, /nexus-module-disabled-target/);
