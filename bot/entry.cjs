@@ -14,7 +14,17 @@ const {
   handleDndInteraction,
   installEncounterPanelRuntime
 } = require('./dnd-encounter-panel-policy.cjs');
+const { assertFeatureAccess } = require('../shared/discord-entitlement-policy.cjs');
 const { redactText, errorFingerprint } = require('../shared/redaction.cjs');
+
+const DND_FEATURE_BY_COMMAND = Object.freeze({
+  campaign: 'dnd.campaign',
+  character: 'dnd.character',
+  roll: 'dnd.roll',
+  initiative: 'dnd.initiative',
+  session: 'dnd.session',
+  quest: 'dnd.quest'
+});
 
 const parent = process.parentPort;
 let bootstrap = null;
@@ -95,6 +105,36 @@ function scheduleCommandRegistration() {
   commandRegistrationTimer.unref?.();
 }
 
+function featureForInteraction(interaction) {
+  if (interaction?.isChatInputCommand?.()) return DND_FEATURE_BY_COMMAND[interaction.commandName] || 'dnd.campaign';
+  if (interaction?.isButton?.() && String(interaction.customId || '').startsWith('dnd:')) {
+    const action = String(interaction.customId || '').split(':')[1] || '';
+    if (action === 'roll') return 'dnd.roll';
+    if (action === 'characters') return 'dnd.character';
+    if (action === 'quests') return 'dnd.quest';
+    return 'dnd.campaign';
+  }
+  return 'dnd.campaign';
+}
+
+async function enforceStoreAccess(interaction) {
+  try {
+    return assertFeatureAccess({
+      policy: bootstrap?.config?.dnd?.monetization,
+      interaction,
+      ownerUserId: bootstrap?.config?.discord?.ownerUserId,
+      feature: featureForInteraction(interaction)
+    });
+  } catch (error) {
+    if (error?.code !== 'DISCORD_ENTITLEMENT_REQUIRED') throw error;
+    log('info', `D&D premium feature blocked for user ${interaction.user?.id || 'unknown'}: ${featureForInteraction(interaction)}`);
+    const response = { content: error.message, ephemeral: true };
+    if (interaction.deferred || interaction.replied) await interaction.editReply(response).catch(() => {});
+    else await interaction.reply(response).catch(() => {});
+    return null;
+  }
+}
+
 async function handleInteraction(interaction) {
   if (interaction.isChatInputCommand?.() && interaction.commandName === 'ping') {
     await interaction.reply({ content: `Pong — ${Math.max(0, client.ws.ping)} ms`, ephemeral: true });
@@ -111,6 +151,8 @@ async function handleInteraction(interaction) {
   }
 
   if (!isDndInteraction(interaction)) return;
+  const access = await enforceStoreAccess(interaction);
+  if (!access) return;
   await handleDndInteraction(interaction, runtime);
 }
 
@@ -242,5 +284,7 @@ module.exports = {
   mutateBootstrap,
   registrationGuildId,
   commandPayload,
-  coreCommands
+  coreCommands,
+  featureForInteraction,
+  enforceStoreAccess
 };
