@@ -46,7 +46,8 @@ test('Sentinel desktop startup contains only the Discord and Palworld active pro
     'discord-observability-extension.cjs',
     'game-adapter-runtime-extension.cjs',
     'nexus-core-foundation-extension.cjs',
-    'sentinel-scope-extension.cjs'
+    'sentinel-scope-extension.cjs',
+    'sentinel-bot-supervisor-boundary-extension.cjs'
   ]) assert.match(source, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 
   for (const forbidden of [
@@ -63,12 +64,27 @@ test('Sentinel desktop startup contains only the Discord and Palworld active pro
   ]) assert.doesNotMatch(source, new RegExp(forbidden.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });
 
+test('Sentinel desktop supervisor spawns the Sentinel wrapper instead of raw bot/index.cjs', () => {
+  const source = read('main/sentinel-bot-supervisor-boundary-extension.cjs');
+  assert.match(source, /class SentinelBotSupervisor extends Original/);
+  assert.match(source, /'bot', 'entry\.cjs'/);
+  assert.match(source, /'\.\.', 'bot', 'entry\.cjs'/);
+  assert.doesNotMatch(source, /'bot', 'index\.cjs'/);
+
+  const entry = read('main/entry.cjs');
+  assert.ok(
+    entry.indexOf('sentinel-bot-supervisor-boundary-extension.cjs') < entry.indexOf("require('./main.cjs')"),
+    'The Sentinel supervisor boundary must install before main.cjs constructs BotSupervisor.'
+  );
+});
+
 test('primary Sentinel Discord worker has no D&D runtime', () => {
   const entry = read('bot/entry.cjs');
   assert.match(entry, /installModuleRuntime/);
   assert.match(entry, /installDiscordAutomationRuntime/);
   assert.match(entry, /installStatusPanelRuntime/);
   assert.match(entry, /sentinel-bot/);
+  assert.match(entry, /require\('\.\/index\.cjs'\)/);
   assert.doesNotMatch(entry, /dnd/i);
 });
 
