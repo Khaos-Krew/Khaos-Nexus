@@ -121,7 +121,7 @@ test('module-aware Discord command registration removes disabled game operations
 
 test('Discord button guard blocks status panels and the correct role-menu module', () => {
   const statusInteraction = { customId: 'kn-status:refresh:panel-1', isButton: () => true };
-  const bootstrap = { config: { moduleRuntime: { 'server-status-panels': { effectiveEnabled: false } } };
+  const bootstrap = { config: { moduleRuntime: { 'server-status-panels': { effectiveEnabled: false } } } };
   assert.equal(blockedModuleForInteraction(bootstrap, statusInteraction), 'Server Status Panels');
 
   const roleBootstrap = {
