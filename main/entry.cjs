@@ -4,6 +4,10 @@ const { app } = require('electron');
 
 require('./portable-bootstrap-extension.cjs').install();
 
+const packagedSmoke = process.env.KHAOS_PACKAGED_STARTUP_SMOKE === '1';
+const smokeEvidence = packagedSmoke ? require('./startup-smoke-evidence-extension.cjs') : null;
+if (smokeEvidence) smokeEvidence.install();
+
 const diagnosticsMode = process.argv.includes('--diagnostics');
 
 if (diagnosticsMode) {
@@ -11,6 +15,9 @@ if (diagnosticsMode) {
   require('./diagnostic-runtime-updater.cjs').runDiagnosticTool();
 } else {
   const hasSingleInstanceLock = app.requestSingleInstanceLock();
+  if (smokeEvidence) {
+    try { smokeEvidence.writePhase('single-instance-lock', { acquired: hasSingleInstanceLock }); } catch {}
+  }
 
   if (!hasSingleInstanceLock) {
     app.quit();
@@ -19,9 +26,6 @@ if (diagnosticsMode) {
     require('./software-rendering-extension.cjs').install();
     require('./startup-profile-recovery-extension.cjs').install();
     require('./startup-health-extension.cjs').install();
-    if (process.env.KHAOS_PACKAGED_STARTUP_SMOKE === '1') {
-      require('./startup-smoke-evidence-extension.cjs').install();
-    }
     require('./startup-preload-diagnostics-extension.cjs').install();
     require('./startup-core-release-extension.cjs').install();
     require('./startup-window-gate-extension.cjs').install();
@@ -76,6 +80,9 @@ if (diagnosticsMode) {
     // feed replace it before Sentinel has its own production release channel.
     require('./sentinel-test-update-boundary-extension.cjs').install();
 
+    if (smokeEvidence) {
+      try { smokeEvidence.writePhase('extensions-installed', { enteringMain: true }); } catch {}
+    }
     require('./main.cjs');
   }
 }
