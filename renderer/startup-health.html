@@ -8,46 +8,211 @@
   <link rel="stylesheet" href="startup-health.css">
 </head>
 <body>
-  <main class="startup-shell">
-    <section class="startup-brand">
-      <div class="sigil-wrap">
-        <span class="sigil-ring ring-one"></span>
-        <span class="sigil-ring ring-two"></span>
-        <img src="../assets/icon.png" alt="Khaos Nexus">
-      </div>
-      <span class="eyebrow">Entering the Khaos Nexus</span>
-      <h1>Khaos Nexus</h1>
-      <p>Desktop Control Center</p>
-    </section>
+  <div id="bootShell" class="boot-shell" data-overall="running">
+    <div class="ambient ambient-grid" aria-hidden="true"></div>
+    <div class="ambient ambient-scan" aria-hidden="true"></div>
+    <div class="ambient ambient-vignette" aria-hidden="true"></div>
 
-    <section class="startup-status" aria-live="polite">
-      <div class="status-heading">
+    <header class="boot-header">
+      <div class="brand-lockup">
+        <img src="../assets/icon.png" alt="" class="brand-icon">
         <div>
-          <span class="eyebrow">Protected startup</span>
-          <h2 id="startupTitle">Preparing local profile</h2>
+          <span class="micro-label">NEXUS SECURE BOOT</span>
+          <strong>KHAOS NEXUS</strong>
         </div>
-        <strong id="startupPercent">0%</strong>
       </div>
 
-      <div class="progress-track"><div id="startupProgress" class="progress-value"></div></div>
-      <div class="progress-meta">
-        <span id="startupDetail">Loading the same local data path used by v0.17.2…</span>
-        <span id="startupCountdown">Minimum startup check: 30s</span>
+      <div class="title-lockup">
+        <h1>KHAOS NEXUS</h1>
+        <p>COMMAND CENTER INITIALIZATION</p>
       </div>
 
-      <div id="startupChecks" class="check-list"></div>
+      <div class="header-meta">
+        <span class="micro-label">NEXUS OS</span>
+        <strong id="startupVersion">DESKTOP</strong>
+        <small id="startupRuntime">SECURE LINK ACTIVE</small>
+      </div>
+    </header>
 
-      <section id="startupAttention" class="attention hidden">
-        <strong>Startup needs attention</strong>
-        <p id="startupAttentionText">One or more critical checks did not finish successfully.</p>
-        <div class="actions">
-          <button id="retryStartup" class="button primary" type="button">Retry Startup</button>
-          <button id="openDataFolder" class="button" type="button">Open Data Folder</button>
-          <button id="continueLimited" class="button" type="button">Open Limited Mode</button>
+    <main class="boot-grid">
+      <aside class="hud-panel diagnostics-panel" aria-label="Nexus diagnostics">
+        <div class="panel-cap">
+          <span>NEXUS DIAGNOSTICS</span>
+          <i aria-hidden="true"></i>
         </div>
+
+        <section class="integrity-block">
+          <span class="section-label">SYSTEM INTEGRITY</span>
+          <div id="integrityRing" class="integrity-ring" style="--integrity: 8%">
+            <div class="integrity-ring-inner">
+              <strong id="integrityValue">8%</strong>
+              <small id="integrityLabel">INITIALIZING</small>
+            </div>
+          </div>
+        </section>
+
+        <section class="diagnostic-bars">
+          <div class="diagnostic-row" data-diagnostic="core">
+            <div><span>CORE HEALTH</span><strong id="diagCoreValue">0%</strong></div>
+            <div class="diagnostic-track"><span id="diagCoreBar"></span></div>
+          </div>
+          <div class="diagnostic-row" data-diagnostic="security">
+            <div><span>SECURITY MATRIX</span><strong id="diagSecurityValue">0%</strong></div>
+            <div class="diagnostic-track"><span id="diagSecurityBar"></span></div>
+          </div>
+          <div class="diagnostic-row" data-diagnostic="modules">
+            <div><span>MODULE GRID</span><strong id="diagModulesValue">0%</strong></div>
+            <div class="diagnostic-track"><span id="diagModulesBar"></span></div>
+          </div>
+          <div class="diagnostic-row" data-diagnostic="renderer">
+            <div><span>RENDERER BRIDGE</span><strong id="diagRendererValue">0%</strong></div>
+            <div class="diagnostic-track"><span id="diagRendererBar"></span></div>
+          </div>
+        </section>
+
+        <section class="overall-card">
+          <span class="section-label">OVERALL STATUS</span>
+          <strong id="overallStatus">INITIALIZING</strong>
+          <small id="overallDetail">Protected startup gate active</small>
+        </section>
+      </aside>
+
+      <section class="core-stage" aria-live="polite">
+        <div class="reactor-wrap" aria-hidden="true">
+          <div class="reactor-halo halo-a"></div>
+          <div class="reactor-halo halo-b"></div>
+          <div class="reactor-halo halo-c"></div>
+          <div class="reactor-ring ring-a"></div>
+          <div class="reactor-ring ring-b"></div>
+          <div class="reactor-ring ring-c"></div>
+          <div class="reactor-ring ring-d"></div>
+          <div class="reactor-crosshair"></div>
+          <div class="reactor-core">
+            <img src="../assets/icon.png" alt="Khaos Nexus">
+          </div>
+          <span class="reactor-node node-n"></span>
+          <span class="reactor-node node-e"></span>
+          <span class="reactor-node node-s"></span>
+          <span class="reactor-node node-w"></span>
+        </div>
+
+        <div class="core-readout readout-left">
+          <span class="micro-label">NEXUS CORE</span>
+          <dl>
+            <div><dt>PROFILE</dt><dd id="profileState">PENDING</dd></div>
+            <div><dt>CHECKS</dt><dd id="checkCount">00 / 00</dd></div>
+            <div><dt>MODE</dt><dd id="modeState">PROTECTED</dd></div>
+          </dl>
+        </div>
+
+        <div class="core-readout readout-right">
+          <span class="micro-label">RUNTIME</span>
+          <dl>
+            <div><dt>PLATFORM</dt><dd id="platformState">WINDOWS</dd></div>
+            <div><dt>ARCH</dt><dd id="archState">X64</dd></div>
+            <div><dt>UPTIME</dt><dd id="elapsedState">00:00</dd></div>
+          </dl>
+        </div>
+
+        <div class="primary-status">
+          <span class="micro-label">NEXUS CORE STATUS</span>
+          <h2 id="startupTitle">INITIALIZING NEXUS CORE</h2>
+          <p id="startupDetail">Establishing protected local startup state…</p>
+        </div>
+
+        <div class="progress-cluster">
+          <div class="progress-heading">
+            <span>BOOT PROGRESS</span>
+            <strong id="startupPercent">0%</strong>
+          </div>
+          <div class="progress-frame">
+            <div class="progress-track">
+              <div id="startupProgress" class="progress-value"></div>
+            </div>
+          </div>
+          <div class="progress-meta">
+            <span id="startupCountdown">RELEASE GATE 00:30</span>
+            <span id="progressPhase">PROTECTED STARTUP</span>
+          </div>
+        </div>
+
+        <section id="startupAttention" class="attention hidden" aria-live="assertive">
+          <div>
+            <span class="micro-label">NEXUS RECOVERY MODE</span>
+            <strong>Startup needs attention</strong>
+            <p id="startupAttentionText">One or more critical checks did not finish successfully.</p>
+          </div>
+          <div class="actions">
+            <button id="retryStartup" class="button primary" type="button">Retry Startup</button>
+            <button id="openDataFolder" class="button" type="button">Open Data Folder</button>
+            <button id="continueLimited" class="button" type="button">Open Limited Mode</button>
+          </div>
+        </section>
       </section>
+
+      <aside class="hud-panel sequence-panel" aria-label="Boot sequence">
+        <div class="panel-cap">
+          <span>BOOT SEQUENCE</span>
+          <i aria-hidden="true"></i>
+        </div>
+        <div id="startupChecks" class="sequence-list"></div>
+
+        <section class="overview-card">
+          <div class="overview-heading">
+            <span>NEXUS OVERVIEW</span>
+            <i class="overview-orbit" aria-hidden="true"></i>
+          </div>
+          <dl>
+            <div><dt>NEXUS VERSION</dt><dd id="overviewVersion">—</dd></div>
+            <div><dt>PROFILE STATUS</dt><dd id="overviewProfile">PENDING</dd></div>
+            <div><dt>ACTIVE CHECKS</dt><dd id="overviewChecks">0</dd></div>
+            <div><dt>RENDERER LINK</dt><dd id="overviewRenderer">PENDING</dd></div>
+            <div><dt>SECURITY STATE</dt><dd id="overviewSecurity">VERIFYING</dd></div>
+          </dl>
+        </section>
+      </aside>
+    </main>
+
+    <section class="module-strip" aria-label="Nexus subsystem status">
+      <article class="module-card" id="moduleCore" data-state="pending">
+        <span class="module-icon icon-core" aria-hidden="true"></span>
+        <div><strong>CORE</strong><small>NEXUS PROFILE</small></div>
+        <em>WAITING</em>
+      </article>
+      <article class="module-card" id="moduleSecurity" data-state="pending">
+        <span class="module-icon icon-shield" aria-hidden="true"></span>
+        <div><strong>SECURITY</strong><small>SECURITY MATRIX</small></div>
+        <em>WAITING</em>
+      </article>
+      <article class="module-card" id="moduleModules" data-state="pending">
+        <span class="module-icon icon-grid" aria-hidden="true"></span>
+        <div><strong>MODULES</strong><small>COMMAND GRID</small></div>
+        <em>WAITING</em>
+      </article>
+      <article class="module-card" id="moduleNetwork" data-state="pending">
+        <span class="module-icon icon-network" aria-hidden="true"></span>
+        <div><strong>NETWORK</strong><small>DISCORD LINK</small></div>
+        <em>WAITING</em>
+      </article>
+      <article class="module-card" id="moduleAI" data-state="standby">
+        <span class="module-icon icon-ai" aria-hidden="true"></span>
+        <div><strong>AI CORE</strong><small>NEXUS AI RUNTIME</small></div>
+        <em>STANDBY</em>
+      </article>
+      <article class="module-card" id="moduleCommand" data-state="pending">
+        <span class="module-icon icon-command" aria-hidden="true"></span>
+        <div><strong>COMMAND</strong><small>COMMAND CENTER</small></div>
+        <em>PENDING</em>
+      </article>
     </section>
-  </main>
+
+    <footer class="boot-footer">
+      <span class="secure-line"><i aria-hidden="true"></i>NEXUS SECURE LINK: <strong>ACTIVE</strong></span>
+      <p>WHERE <strong>CHAOS</strong> MEETS CONTROL</p>
+      <span id="footerProtocol">STARTUP PROTOCOL v1</span>
+    </footer>
+  </div>
+
   <script src="startup-health.js"></script>
 </body>
 </html>
