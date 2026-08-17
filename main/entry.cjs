@@ -72,6 +72,10 @@ if (diagnosticsMode) {
     // installs the Discord/module/status runtimes before delegating to bot/index.cjs.
     require('./sentinel-bot-supervisor-boundary-extension.cjs').install();
 
+    // This split branch is a test product. Never let the legacy monolith release
+    // feed replace it before Sentinel has its own production release channel.
+    require('./sentinel-test-update-boundary-extension.cjs').install();
+
     require('./main.cjs');
   }
 }
