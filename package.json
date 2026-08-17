@@ -60,6 +60,7 @@
       "!main/services/hosted-server-*",
       "!shared/hosted-server-*",
       "!renderer/hosted-server-*",
+      "!main/nexus-core-live-migrations-extension.cjs",
       "!main/**/*pterodactyl*",
       "!bot/**/*pterodactyl*",
       "!shared/**/*pterodactyl*",
