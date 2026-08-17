@@ -54,6 +54,23 @@ async function applyBundle(window, bundle, expectedGeneration) {
   return true;
 }
 
+function reportFeaturesReady(window, selected, generation) {
+  if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return false;
+  const state = stateFor(window);
+  if (state.generation !== generation) return false;
+  const scripts = selected.reduce((total, bundle) => total + bundle.scripts.length, 0);
+  electron.ipcMain.emit('renderer-boot:stage', { sender: window.webContents }, {
+    stage: 'features-ready',
+    detail: {
+      loaded: scripts,
+      bundles: selected.length,
+      source: 'renderer-asset-loader'
+    },
+    time: new Date().toISOString()
+  });
+  return true;
+}
+
 function queueApply(window, onlyId = '') {
   if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return Promise.resolve(false);
   const state = stateFor(window);
@@ -67,6 +84,7 @@ function queueApply(window, onlyId = '') {
         console.error(`[Khaos Nexus] Renderer bundle ${bundle.id} failed to load.`, error);
       }
     }
+    if (!onlyId) reportFeaturesReady(window, selected, generation);
     return true;
   });
   return state.applying;
@@ -117,4 +135,4 @@ function status() {
   return { installed, bundles: [...bundles.values()].map((bundle) => ({ id: bundle.id, styles: bundle.styles.length, scripts: bundle.scripts.length, source: bundle.source })) };
 }
 
-module.exports = { install, registerRendererBundle, status };
+module.exports = { install, registerRendererBundle, status, reportFeaturesReady };
