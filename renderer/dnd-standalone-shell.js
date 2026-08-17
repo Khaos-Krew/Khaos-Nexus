@@ -4,9 +4,20 @@
   const PRODUCT = 'Nexus D&D';
   const KEEP_VIEWS = new Set(['dnd', 'setup', 'ai-services', 'logs', 'settings']);
 
+  function setNodeText(node, value) {
+    if (!node) return;
+    const next = String(value ?? '');
+    if (node.textContent !== next) node.textContent = next;
+  }
+
   function text(selector, value) {
-    const node = document.querySelector(selector);
-    if (node) node.textContent = value;
+    setNodeText(document.querySelector(selector), value);
+  }
+
+  function setNodeHtml(node, value) {
+    if (!node) return;
+    const next = String(value ?? '');
+    if (node.innerHTML !== next) node.innerHTML = next;
   }
 
   function scopeVeyraView() {
@@ -17,12 +28,12 @@
     if (intro) {
       const h2 = intro.querySelector('h2');
       const p = intro.querySelector('p');
-      if (h2) h2.textContent = 'Veyra AI Runtime';
-      if (p) p.textContent = 'Run and configure the local D&D Lorewarden and Co-DM used by Nexus D&D.';
+      setNodeText(h2, 'Veyra AI Runtime');
+      setNodeText(p, 'Run and configure the local D&D Lorewarden and Co-DM used by Nexus D&D.');
       const check = intro.querySelector('[data-ai-action="check-all"]');
       if (check) {
         check.dataset.aiAction = 'check-dnd';
-        check.textContent = check.disabled ? 'Checking…' : 'Test Veyra';
+        setNodeText(check, check.disabled ? 'Checking…' : 'Test Veyra');
       }
     }
 
@@ -38,10 +49,10 @@
     view.querySelectorAll('p, span, small, strong, h3').forEach((node) => {
       const value = node.textContent || '';
       if (/Veyra and Nexus Sentinel|Both AI agents|shared runtime host runs Veyra and Nexus Sentinel/i.test(value)) {
-        node.textContent = value
+        setNodeText(node, value
           .replace(/Veyra and Nexus Sentinel/gi, 'Veyra')
           .replace(/Both AI agents/gi, 'Veyra')
-          .replace(/One supervised local host runs Veyra and Nexus Sentinel as isolated workers with separate memory, tools, credentials, endpoints, and authority\./gi, 'A supervised local runtime runs Veyra for campaign-aware D&D assistance.');
+          .replace(/One supervised local host runs Veyra and Nexus Sentinel as isolated workers with separate memory, tools, credentials, endpoints, and authority\./gi, 'A supervised local runtime runs Veyra for campaign-aware D&D assistance.'));
       }
     });
   }
@@ -58,11 +69,11 @@
     document.querySelectorAll('.nav-item[data-view]').forEach((button) => {
       const view = String(button.dataset.view || '');
       button.classList.toggle('dnd-standalone-hidden', !KEEP_VIEWS.has(view));
-      if (view === 'setup') button.innerHTML = '<span>◈</span>D&amp;D Bot Setup';
-      if (view === 'dnd') button.innerHTML = '<span>⚔</span>Campaigns';
+      if (view === 'setup') setNodeHtml(button, '<span>◈</span>D&amp;D Bot Setup');
+      if (view === 'dnd') setNodeHtml(button, '<span>⚔</span>Campaigns');
       if (view === 'ai-services') {
         const label = button.querySelector('span')?.outerHTML || '<span>✦</span>';
-        button.innerHTML = `${label}Veyra AI`;
+        setNodeHtml(button, `${label}Veyra AI`);
       }
     });
 
@@ -83,23 +94,18 @@
       if (!KEEP_VIEWS.has(String(node.dataset.viewLink || ''))) node.classList.add('dnd-standalone-hidden');
     });
 
-    const footerBadge = document.querySelector('.local-badge');
-    if (footerBadge) footerBadge.textContent = 'LOCAL D&D + VEYRA';
+    setNodeText(document.querySelector('.local-badge'), 'LOCAL D&D + VEYRA');
 
     const setupIntro = document.querySelector('#view-setup .section-intro');
     if (setupIntro) {
-      const h2 = setupIntro.querySelector('h2');
-      const p = setupIntro.querySelector('p');
-      if (h2) h2.textContent = 'Dedicated D&D Discord bot';
-      if (p) p.textContent = 'Use a Discord application/token dedicated to Nexus D&D. These credentials are stored separately from Nexus Sentinel.';
+      setNodeText(setupIntro.querySelector('h2'), 'Dedicated D&D Discord bot');
+      setNodeText(setupIntro.querySelector('p'), 'Use a Discord application/token dedicated to Nexus D&D. These credentials are stored separately from Nexus Sentinel.');
     }
 
     const settingsIntro = document.querySelector('#view-settings .section-intro');
     if (settingsIntro) {
-      const h2 = settingsIntro.querySelector('h2');
-      const p = settingsIntro.querySelector('p');
-      if (h2) h2.textContent = 'Nexus D&D desktop settings';
-      if (p) p.textContent = 'Control startup, recovery, updates, backups, and local data for the standalone D&D app.';
+      setNodeText(settingsIntro.querySelector('h2'), 'Nexus D&D desktop settings');
+      setNodeText(settingsIntro.querySelector('p'), 'Control startup, recovery, updates, backups, and local data for the standalone D&D app.');
     }
 
     scopeVeyraView();
