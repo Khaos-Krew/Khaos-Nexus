@@ -77,13 +77,14 @@ if (diagnosticsMode) {
     require('./dnd-monetization-extension.cjs').install();
     require('./dnd-authorization-summary-extension.cjs').install();
 
-    // Local AI runtime. No game-server modules are started in this product.
+    // Local AI runtime. The inherited host can supervise multiple workers, but
+    // the standalone lifecycle boundary permits only the Veyra D&D worker.
     require('./ai-services-extension.cjs').install();
     require('./ai-services-privacy-extension.cjs').install();
     require('./ai-runtime-spawn-boundary.cjs').install();
     require('./bundled-ai-runtimes-extension.cjs').install();
     require('./ai-recovery-supervisor-extension.cjs').install();
-    require('./nexus-ai-core-operations-extension.cjs').install();
+    require('./dnd-standalone-ai-runtime-boundary-extension.cjs').install();
 
     // Scope the inherited desktop shell and hard-block the main Nexus release feed.
     require('./dnd-standalone-update-boundary-extension.cjs').install();
