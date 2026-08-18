@@ -1,11 +1,15 @@
 'use strict';
 
+const path = require('node:path');
 const { app } = require('electron');
 
-// Standalone product identity. This also gives the D&D app an independent
-// Electron userData directory so its Discord credentials and campaign data do
-// not collide with Nexus Sentinel.
+// Standalone product identity. Keep D&D on its own stable Windows profile so
+// the legacy Khaos Nexus recovery path can never copy Sentinel credentials,
+// servers, or desktop state into the D&D product.
 app.setName('Nexus D&D');
+process.env.KHAOS_PRODUCT_SCOPE = 'dnd-standalone';
+const appDataRoot = process.env.APPDATA || app.getPath('appData');
+app.setPath('userData', path.join(appDataRoot, 'Nexus D&D Standalone'));
 
 require('./portable-bootstrap-extension.cjs').install();
 require('./dnd-character-pdf-import-extension.cjs').install();
@@ -21,16 +25,14 @@ if (diagnosticsMode) {
   if (!hasSingleInstanceLock) {
     app.quit();
   } else {
-    // Keep only the desktop reliability foundation needed by the standalone app.
+    // Standalone reliability foundation. Do not install the inherited Khaos
+    // Nexus profile-recovery/startup-splash gate here: it can synchronously
+    // import the main product profile and can hold the D&D window indefinitely.
     require('./software-rendering-extension.cjs').install();
-    require('./startup-profile-recovery-extension.cjs').install();
-    require('./startup-health-extension.cjs').install();
     if (process.env.KHAOS_PACKAGED_STARTUP_SMOKE === '1') {
       require('./startup-smoke-evidence-extension.cjs').install();
     }
     require('./startup-preload-diagnostics-extension.cjs').install();
-    require('./startup-core-release-extension.cjs').install();
-    require('./startup-window-gate-extension.cjs').install();
     require('./window-visibility-extension.cjs').install();
     require('./renderer-boot-coordinator-extension.cjs').install();
     require('./renderer-action-error-extension.cjs').install();
