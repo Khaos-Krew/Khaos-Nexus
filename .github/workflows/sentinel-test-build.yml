@@ -38,7 +38,9 @@ jobs:
           node --check main/entry.cjs
           node --check main/sentinel-scope-extension.cjs
           node --check main/renderer-asset-loader.cjs
+          node --check main/startup-smoke-evidence-extension.cjs
           node --check renderer/sentinel-scope.js
+          node --check renderer/sentinel-navigation-guard.js
           node --check bot/entry.cjs
           node --check bot/commands.cjs
 
@@ -89,14 +91,16 @@ jobs:
           try {
             $deadline = (Get-Date).AddSeconds(80)
             $state = $null
+            $ui = $null
             while ((Get-Date) -lt $deadline) {
               Start-Sleep -Milliseconds 500
               if (Test-Path $evidence) {
                 try {
                   $payload = Get-Content $evidence -Raw | ConvertFrom-Json
                   $state = $payload.state
+                  $ui = $payload.ui
                 } catch {}
-                if ($state -and $state.completed) { break }
+                if ($state -and $state.completed -and $ui -and $ui.ready) { break }
               }
               if ($process.HasExited) { throw "Nexus Sentinel exited before packaged startup completed (exit $($process.ExitCode))." }
             }
@@ -112,7 +116,21 @@ jobs:
               throw "Nexus Sentinel packaged startup has critical failures: $detail"
             }
             if ($state.overall -notin @('healthy', 'warning')) { throw "Unexpected Nexus Sentinel startup health: $($state.overall)" }
+
+            if (-not $ui) { throw 'Nexus Sentinel did not write final renderer scope evidence.' }
+            if (-not $ui.ready) {
+              $forbidden = @($ui.forbiddenVisible) -join ', '
+              throw "Nexus Sentinel final renderer scope is wrong. product=$($ui.product), guard=$($ui.guard), scopeReady=$($ui.scopeReady), brand='$($ui.brandSubtitle)', forbidden='$forbidden', serverOptions='$(@($ui.serverOptions) -join ',')'"
+            }
+            if ($ui.product -ne 'sentinel') { throw "Nexus Sentinel renderer product marker is '$($ui.product)'." }
+            if ($ui.brandSubtitle -ne 'Discord + Palworld Control Center') { throw "Nexus Sentinel renderer brand is '$($ui.brandSubtitle)'." }
+            if (@($ui.forbiddenVisible).Count -gt 0) { throw "Forbidden monolith views remain visible: $(@($ui.forbiddenVisible) -join ', ')." }
+            if (@($ui.serverOptions).Count -gt 1 -or (@($ui.serverOptions).Count -eq 1 -and $ui.serverOptions[0] -ne 'palworld')) {
+              throw "Nexus Sentinel server selector still exposes non-Palworld options: $(@($ui.serverOptions) -join ', ')."
+            }
+
             Write-Host "Packaged Nexus Sentinel startup passed: $($state.overall) / $($state.phase)"
+            Write-Host "Final Sentinel UI passed: $($ui.brandSubtitle); forbidden views visible: $(@($ui.forbiddenVisible).Count)"
           } catch {
             Write-Host '--- Nexus Sentinel packaged startup evidence ---'
             if (Test-Path $evidence) { Get-Content $evidence -Raw | Write-Host }
