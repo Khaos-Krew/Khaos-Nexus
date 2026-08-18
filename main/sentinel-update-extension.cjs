@@ -114,6 +114,22 @@ function startRollbackWatchdog(marker, spawnImpl = spawn) {
   return scriptPath;
 }
 
+function cancelRollbackWatchdog(marker, reason = 'installation-cancelled') {
+  if (!marker?.acceptancePath || !marker?.targetVersion) return false;
+  try {
+    writeJsonAtomic(marker.acceptancePath, {
+      accepted: true,
+      cancelled: true,
+      version: String(marker.targetVersion),
+      reason: String(reason || 'installation-cancelled').slice(0, 300),
+      acceptedAt: new Date().toISOString()
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function prepareRollbackSnapshot(service, targetVersion) {
   const appAdapter = service.app || electron.app;
   const currentVersion = service.state?.currentVersion || appAdapter.getVersion();
@@ -180,7 +196,7 @@ function patchUpdateService() {
       super(...args);
       this.sentinelRelease = null;
       this.rollbackMarker = null;
-      this.initialStageTimer = null;
+      this.initialStageTimer = this.initialStageTimer || null;
       this.set({
         product: 'nexus-sentinel',
         updateScope: 'sentinel-only',
@@ -355,7 +371,15 @@ function patchUpdateService() {
         this.set({ rollbackStatus: 'failed', error: `Rollback snapshot failed: ${error.message || error}` });
         throw new Error(`Sentinel update was cancelled because rollback protection could not be prepared: ${error.message || error}`);
       }
-      return super.install();
+
+      try {
+        return await Promise.resolve(super.install());
+      } catch (error) {
+        cancelRollbackWatchdog(this.rollbackMarker, error.message || 'installation-cancelled');
+        this.rollbackMarker = null;
+        this.set({ rollbackStatus: 'cancelled' });
+        throw error;
+      }
     }
 
     destroy() {
@@ -415,6 +439,8 @@ module.exports = {
   pendingMarkerPath,
   acceptanceMarkerPath,
   buildRollbackWatchdog,
+  startRollbackWatchdog,
+  cancelRollbackWatchdog,
   prepareRollbackSnapshot,
   resolvePortableDigest
 };
