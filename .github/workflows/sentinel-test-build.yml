@@ -40,6 +40,7 @@ jobs:
           node --check main/sentinel-owner-monitor-boundary-extension.cjs
           node --check main/sentinel-bot-supervisor-boundary-extension.cjs
           node --check main/sentinel-production-update-extension.cjs
+          node --check main/sentinel-update-settings-bridge-extension.cjs
           node --check main/sentinel-lifecycle-extension.cjs
           node --check main/renderer-asset-loader.cjs
           node --check main/startup-smoke-evidence-extension.cjs
@@ -61,6 +62,7 @@ jobs:
             'test/sentinel-roadmap-hardening.test.cjs',
             'test/sentinel-update-policy.test.cjs',
             'test/sentinel-production-update.test.cjs',
+            'test/sentinel-update-settings-bridge.test.cjs',
             'test/palworld-rest.test.cjs',
             'test/server-client.test.cjs',
             'test/game-adapter-sdk.test.cjs',
