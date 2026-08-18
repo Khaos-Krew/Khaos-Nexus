@@ -143,6 +143,43 @@ function patchConfigStore() {
   target.ConfigStore = SentinelConfigStore;
 }
 
+function patchAutonomyService() {
+  const target = require('./services/autonomy-service.cjs');
+  const Original = target.AutonomyService;
+  if (!Original || Original.__nexusSentinelScopePatched) return;
+
+  class SentinelAutonomyService extends Original {
+    pruneServerHealth() {
+      const ids = new Set((this.configStore?.getRuntimeBootstrap?.().config?.servers || []).map((server) => String(server.id)));
+      const current = this.state?.serverHealth && typeof this.state.serverHealth === 'object' ? this.state.serverHealth : {};
+      const filtered = Object.fromEntries(Object.entries(current).filter(([id]) => ids.has(String(id))));
+      const changed = JSON.stringify(current) !== JSON.stringify(filtered);
+      if (changed) {
+        this.state.serverHealth = filtered;
+        this.state.attention = (Array.isArray(this.state.attention) ? this.state.attention : [])
+          .filter((entry) => !/configured game server is unreachable/i.test(String(entry || '')));
+        this.saveState?.();
+      }
+      return changed;
+    }
+
+    async checkServers(...args) {
+      this.pruneServerHealth();
+      const result = await super.checkServers(...args);
+      this.pruneServerHealth();
+      return result;
+    }
+
+    getState(...args) {
+      this.pruneServerHealth();
+      return super.getState(...args);
+    }
+  }
+
+  Object.defineProperty(SentinelAutonomyService, '__nexusSentinelScopePatched', { value: true });
+  target.AutonomyService = SentinelAutonomyService;
+}
+
 function installRendererAssets() {
   registerRendererBundle({
     id: 'nexus-sentinel-scope',
@@ -164,12 +201,14 @@ function install() {
   installed = true;
   enforceCatalogScope();
   patchConfigStore();
+  patchAutonomyService();
   installRendererAssets();
 }
 
 module.exports = {
   install,
   patchConfigStore,
+  patchAutonomyService,
   enforceCatalogScope,
   enforceDeferredModules,
   onlyPalworldServers,
