@@ -1,18 +1,18 @@
 {
   "name": "khaos-nexus",
-  "version": "0.32.0",
-  "description": "Local-first Khaos Nexus desktop command center with Nexus Sentinel for Discord community administration, Palworld server status, players, saves, announcements, moderation, metrics, backups, diagnostics, and protected local operator controls.",
+  "version": "0.33.0",
+  "description": "Local-first Khaos Nexus desktop command center with Nexus Sentinel for Discord community administration, Palworld server status, players, saves, announcements, moderation, metrics, backups, diagnostics, protected local operator controls, and staged rollback-safe updates.",
   "main": "main/entry.cjs",
   "author": "Khaos Krew",
   "license": "MIT",
   "private": true,
   "khaosRelease": {
-    "displayVersion": "0.32.0-SENTINEL-ROADMAP",
-    "artifactVersion": "0.32.0-SENTINEL-ROADMAP",
-    "publicTag": "v0.32.0-sentinel-roadmap",
-    "channel": "test",
-    "updaterVersion": "0.32.0",
-    "rollbackTag": "v0.31.0-B"
+    "displayVersion": "0.33.0-SENTINEL-FULL",
+    "artifactVersion": "0.33.0-SENTINEL-FULL",
+    "publicTag": "v0.33.0-sentinel",
+    "channel": "sentinel",
+    "updaterVersion": "0.33.0",
+    "rollbackTag": "v0.32.0-sentinel"
   },
   "scripts": {
     "start": "node scripts/materialize-assets.cjs && electron .",
@@ -20,7 +20,8 @@
     "check": "node scripts/check.cjs",
     "pack": "node scripts/materialize-assets.cjs && electron-builder --dir --publish never",
     "dist:win": "node scripts/materialize-assets.cjs && electron-builder --win --x64 --publish never",
-    "release:win": "node scripts/materialize-assets.cjs && electron-builder --win --x64 --publish never"
+    "release:win": "node scripts/materialize-assets.cjs && electron-builder --win --x64 --publish never",
+    "sentinel:checksums": "node scripts/write-sentinel-checksums.cjs dist"
   },
   "dependencies": {
     "discord.js": "14.27.0",
@@ -37,7 +38,7 @@
     "productName": "Khaos Nexus",
     "electronUpdaterCompatibility": ">=2.16",
     "releaseInfo": {
-      "releaseName": "Khaos Nexus — Nexus Sentinel Discord + Palworld Roadmap Acceptance"
+      "releaseName": "Khaos Nexus — Nexus Sentinel Discord + Palworld Full Roadmap"
     },
     "directories": {
       "output": "dist",
@@ -86,7 +87,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Khaos Nexus",
-      "artifactName": "Khaos-Nexus-Sentinel-Setup-0.32.0-ROADMAP-${arch}.${ext}",
+      "artifactName": "Khaos-Nexus-Sentinel-Setup-${version}-${arch}.${ext}",
       "include": "assets/installer.nsh"
     },
     "publish": [
@@ -99,7 +100,7 @@
       }
     ],
     "portable": {
-      "artifactName": "Khaos-Nexus-Sentinel-Portable-0.32.0-ROADMAP-${arch}.${ext}"
+      "artifactName": "Khaos-Nexus-Sentinel-Portable-${version}-${arch}.${ext}"
     }
   }
 }
