@@ -47,6 +47,7 @@ jobs:
           node --check renderer/sentinel-navigation-guard.js
           node --check renderer/sentinel-roadmap.js
           node --check renderer/sentinel-live-copy.js
+          node --check renderer/sentinel-update-ui.js
           node --check shared/sentinel-update-policy.cjs
           node --check scripts/write-sentinel-checksums.cjs
           node --check bot/entry.cjs
@@ -135,7 +136,7 @@ jobs:
             if (-not $ui) { throw 'Nexus Sentinel did not write final renderer scope evidence.' }
             if (-not $ui.ready) {
               $forbidden = @($ui.forbiddenVisible) -join ', '
-              throw "Nexus Sentinel final renderer scope is wrong. product=$($ui.product), guard=$($ui.guard), scopeReady=$($ui.scopeReady), brand='$($ui.brandSubtitle)', forbidden='$forbidden', serverOptions='$(@($ui.serverOptions) -join ',')', serverIntro='$($ui.serverIntro)', emptyServerHeading='$($ui.emptyServerHeading)', serverCopyScoped=$($ui.serverCopyScoped), dashboardRoadmap=$($ui.dashboardRoadmap), moduleCenter=$($ui.moduleCenter), moduleCardCount=$($ui.moduleCardCount), legacyModuleCenterHidden=$($ui.legacyModuleCenterHidden), legacyBaseModuleVisible=$($ui.legacyBaseModuleVisible), roadmapLabels='$(@($ui.roadmapLabels) -join ',')'"
+              throw "Nexus Sentinel final renderer scope is wrong. product=$($ui.product), guard=$($ui.guard), scopeReady=$($ui.scopeReady), brand='$($ui.brandSubtitle)', forbidden='$forbidden', serverOptions='$(@($ui.serverOptions) -join ',')', serverIntro='$($ui.serverIntro)', emptyServerHeading='$($ui.emptyServerHeading)', serverCopyScoped=$($ui.serverCopyScoped), dashboardRoadmap=$($ui.dashboardRoadmap), moduleCenter=$($ui.moduleCenter), moduleCardCount=$($ui.moduleCardCount), updateSecurity=$($ui.updateSecurity), legacyModuleCenterHidden=$($ui.legacyModuleCenterHidden), legacyBaseModuleVisible=$($ui.legacyBaseModuleVisible), roadmapLabels='$(@($ui.roadmapLabels) -join ',')'"
             }
             if ($ui.product -ne 'sentinel') { throw "Nexus Sentinel renderer product marker is '$($ui.product)'." }
             if ($ui.brandSubtitle -ne 'Discord + Palworld Control Center') { throw "Nexus Sentinel renderer brand is '$($ui.brandSubtitle)'." }
@@ -145,6 +146,7 @@ jobs:
             if (-not $ui.dashboardRoadmap) { throw 'Nexus Sentinel acceptance roadmap did not render on Command Center.' }
             if (-not $ui.moduleCenter) { throw 'Nexus Sentinel operational Module Center did not render.' }
             if ([int]$ui.moduleCardCount -lt 1) { throw 'Nexus Sentinel operational Module Center rendered without scoped module cards.' }
+            if (-not $ui.updateSecurity) { throw 'Nexus Sentinel protected update status panel did not render.' }
             if (-not $ui.legacyModuleCenterHidden) { throw 'Legacy migration Module Center remains visible.' }
             if ($ui.legacyBaseModuleVisible) { throw 'Inherited pre-split module grid or migration UI remains visible.' }
             if (-not $ui.validRoadmapLabels) { throw "Module Center emitted an unsupported status: $(@($ui.roadmapLabels) -join ', ')." }
@@ -152,7 +154,7 @@ jobs:
             Write-Host "Packaged Nexus Sentinel startup passed: $($state.overall) / $($state.phase)"
             Write-Host "Final Sentinel UI passed: $($ui.brandSubtitle); forbidden views visible: $(@($ui.forbiddenVisible).Count)"
             Write-Host "Palworld copy passed: $($ui.serverIntro)"
-            Write-Host "Operational roadmap passed: dashboard=$($ui.dashboardRoadmap); modules=$($ui.moduleCenter); cards=$($ui.moduleCardCount); statuses=$(@($ui.roadmapLabels) -join ', ')"
+            Write-Host "Operational roadmap passed: dashboard=$($ui.dashboardRoadmap); modules=$($ui.moduleCenter); cards=$($ui.moduleCardCount); updater=$($ui.updateSecurity); statuses=$(@($ui.roadmapLabels) -join ', ')"
           } catch {
             Write-Host '--- Nexus Sentinel packaged startup evidence ---'
             if (Test-Path $evidence) { Get-Content $evidence -Raw | Write-Host }
