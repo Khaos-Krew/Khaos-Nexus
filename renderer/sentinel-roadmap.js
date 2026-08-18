@@ -35,8 +35,10 @@
   let moduleRefreshPromise = null;
   let renderTimer = null;
   let observer = null;
+  let disposed = false;
 
   const $ = (id) => document.getElementById(id);
+  const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>'"]/g, (character) => ({
@@ -231,6 +233,21 @@
     return moduleRefreshPromise;
   }
 
+  async function warmModules(maxAttempts = 24) {
+    for (let attempt = 0; attempt < maxAttempts && !disposed && !modulePayload; attempt += 1) {
+      try {
+        const payload = await window.khaos.invoke('modules:get');
+        if (payload?.catalog) {
+          modulePayload = payload;
+          renderAll();
+          return payload;
+        }
+      } catch {}
+      await delay(250);
+    }
+    return modulePayload;
+  }
+
   function openView(view) {
     const target = document.querySelector(`[data-view="${CSS.escape(view)}"], [data-view-link="${CSS.escape(view)}"]`);
     if (target && !target.classList.contains('sentinel-hidden')) {
@@ -325,8 +342,9 @@
         renderAll();
       });
     }
-    try { appState = await invoke('app:get-state'); } catch {}
-    await refreshModules();
+    try { appState = await window.khaos.invoke('app:get-state'); } catch {}
+    renderAll();
+    await warmModules();
     renderAll();
 
     document.addEventListener('click', (event) => {
@@ -339,6 +357,7 @@
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });
     window.addEventListener('beforeunload', () => {
+      disposed = true;
       observer?.disconnect();
       clearTimeout(renderTimer);
     }, { once: true });
