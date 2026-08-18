@@ -123,7 +123,10 @@ function installRendererAssets() {
   registerRendererBundle({
     id: 'nexus-sentinel-scope',
     styles: [path.join(__dirname, '..', 'renderer', 'sentinel-scope.css')],
-    scripts: [path.join(__dirname, '..', 'renderer', 'sentinel-scope.js')],
+    scripts: [
+      path.join(__dirname, '..', 'renderer', 'sentinel-scope.js'),
+      path.join(__dirname, '..', 'renderer', 'sentinel-navigation-guard.js')
+    ],
     source: 'sentinel-scope-extension.cjs'
   });
 }
