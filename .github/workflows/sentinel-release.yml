@@ -52,11 +52,13 @@ jobs:
           node --check main/entry.cjs
           node --check main/sentinel-scope-extension.cjs
           node --check main/sentinel-production-update-extension.cjs
+          node --check main/sentinel-update-settings-bridge-extension.cjs
           node --check main/sentinel-lifecycle-extension.cjs
           node --check renderer/sentinel-scope.js
           node --check renderer/sentinel-navigation-guard.js
           node --check renderer/sentinel-roadmap.js
           node --check renderer/sentinel-live-copy.js
+          node --check renderer/sentinel-update-ui.js
           node --check shared/sentinel-update-policy.cjs
           node --check scripts/write-sentinel-checksums.cjs
 
@@ -68,6 +70,7 @@ jobs:
             'test/sentinel-roadmap-hardening.test.cjs',
             'test/sentinel-update-policy.test.cjs',
             'test/sentinel-production-update.test.cjs',
+            'test/sentinel-update-settings-bridge.test.cjs',
             'test/palworld-rest.test.cjs',
             'test/server-client.test.cjs',
             'test/game-adapter-sdk.test.cjs',
@@ -108,7 +111,10 @@ jobs:
             "dist/Khaos-Nexus-Sentinel-$version-sha256.json"
           )
           foreach ($file in $required) { if (-not (Test-Path $file)) { throw "Missing Sentinel release asset: $file" } }
-          Get-Content "dist/Khaos-Nexus-Sentinel-$version-sha256.json" -Raw | ConvertFrom-Json | Out-Null
+          $manifest = Get-Content "dist/Khaos-Nexus-Sentinel-$version-sha256.json" -Raw | ConvertFrom-Json
+          if ($manifest.channel -ne 'sentinel' -or $manifest.version -ne $version) { throw 'Sentinel release manifest identity is invalid.' }
+          if (-not $manifest.assets."Khaos-Nexus-Sentinel-Setup-$version-x64.exe".sha256) { throw 'Installer digest is missing.' }
+          if (-not $manifest.assets."Khaos-Nexus-Sentinel-Portable-$version-x64.exe".sha256) { throw 'Portable digest is missing.' }
 
       - name: Create Sentinel GitHub release
         shell: pwsh
@@ -123,7 +129,7 @@ jobs:
 
           Product scope: Discord + Palworld.
           Update channel: sentinel.
-          Includes staged SHA-256 verified updates, verified pre-update backup, startup-health validation, and automatic rollback.
+          Includes staged SHA-256 verified updates, background Sentinel-channel checks, verified pre-update backup, startup-health validation, and automatic rollback.
           "@
           gh release view $tag 2>$null
           if ($LASTEXITCODE -eq 0) { throw "Release $tag already exists. Refusing to overwrite a production Sentinel release." }
