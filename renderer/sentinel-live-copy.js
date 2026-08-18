@@ -26,7 +26,7 @@
       viewMeta.modules = ['Modules', 'Control the Discord, Palworld, and supporting desktop modules available in Nexus Sentinel.'];
       viewMeta.monitor = ['Application Monitor', 'Owner-only redacted diagnostics, recovery evidence, and optional GitHub reporting.'];
       viewMeta.logs = ['Live Logs', 'Inspect current Nexus Sentinel desktop and Discord runtime activity.'];
-      viewMeta.settings = ['Settings', 'Control startup, access, backups, recovery, and local desktop preferences.'];
+      viewMeta.settings = ['Settings', 'Control startup, access, backups, recovery, and protected Sentinel updates.'];
       viewMeta.autonomy = ['Operator Console', 'Safe recovery, Palworld maintenance, backups, health checks, and role-based access.'];
       viewMeta.readiness = ['Readiness Center', 'Verify Nexus Sentinel, Discord, protected storage, backups, and Palworld connectivity.'];
       viewMeta.observability = ['Discord Observability', 'Route releases, redacted errors, heartbeat, and health events to dedicated Discord channels.'];
@@ -49,9 +49,7 @@
         setText(card.querySelector('strong'), 'Palworld Servers');
         setText(card.querySelector('span'), 'Status, players, saves, moderation, settings, and guarded controls');
       }
-      if (/Application Monitor/i.test(card.textContent || '')) {
-        setText(card.querySelector('span'), 'Owner-only recovery, reports, and redacted diagnostics');
-      }
+      if (/Application Monitor/i.test(card.textContent || '')) setText(card.querySelector('span'), 'Owner-only recovery, reports, and redacted diagnostics');
     }
 
     const heroStatus = document.getElementById('heroStatus');
@@ -133,12 +131,57 @@
     });
   }
 
-  function patchSettings() {
-    const intro = document.querySelector('#view-settings .section-intro');
-    if (intro) {
-      const heading = intro.querySelector('h2');
-      if (heading && /settings/i.test(heading.textContent || '')) setText(heading, 'Nexus Sentinel desktop settings');
+  function patchReadiness() {
+    const view = document.getElementById('view-readiness');
+    if (!view) return;
+    setText(view.querySelector('.section-intro h2'), 'Nexus Sentinel Readiness Center');
+    setText(view.querySelector('.section-intro p'), 'Verify protected local state first, then explicitly test Discord and Palworld connections in a controlled order.');
+    const groupHeadings = [...view.querySelectorAll('.readiness-group > h3')];
+    groupHeadings.forEach((heading) => {
+      const value = String(heading.textContent || '');
+      if (/Game servers and reporting/i.test(value)) setText(heading, 'Palworld and reporting');
+    });
+    const serverCard = [...view.querySelectorAll('.live-test-card')].find((card) => /game-server|rcon/i.test(card.textContent || ''));
+    if (serverCard) {
+      setText(serverCard.querySelector('h4'), 'Palworld connectivity');
+      setText(serverCard.querySelector('p'), 'Run the existing read-only status check against every enabled Palworld server.');
+      setText(serverCard.querySelector('button'), 'Check Palworld Servers');
     }
+    view.querySelectorAll('.readiness-item strong,.readiness-item small').forEach((node) => {
+      const value = String(node.textContent || '');
+      const next = value
+        .replace(/Configured game servers/g, 'Configured Palworld servers')
+        .replace(/enabled RCON target\(s\)/g, 'enabled Palworld target(s)')
+        .replace(/RCON passwords/g, 'Palworld credentials')
+        .replace(/RCON addresses/g, 'Palworld addresses')
+        .replace(/game servers?/gi, 'Palworld server')
+        .replace(/Khaos Nexus server ID/g, 'Nexus Sentinel server ID');
+      if (next !== value) setText(node, next);
+    });
+  }
+
+  function patchSettings() {
+    const view = document.getElementById('view-settings');
+    if (!view) return;
+    const intro = view.querySelector('.section-intro');
+    if (intro) {
+      setText(intro.querySelector('h2'), 'Nexus Sentinel desktop settings');
+      setText(intro.querySelector('p'), 'Control Sentinel startup, crash recovery, tray behavior, verified backups, and protected Sentinel-only updates.');
+    }
+    view.querySelectorAll('.toggle-row strong,.toggle-row small').forEach((node) => {
+      const value = String(node.textContent || '');
+      const next = value
+        .replace(/Start bot when Khaos Nexus opens/g, 'Start Nexus Sentinel when the desktop opens')
+        .replace(/Start Khaos Nexus with Windows/g, 'Start Nexus Sentinel with Windows')
+        .replace(/Keeps the bot available/g, 'Keeps Nexus Sentinel available')
+        .replace(/Closing the window keeps Khaos Nexus and the bot running/g, 'Closing the window keeps Nexus Sentinel running')
+        .replace(/Check GitHub Releases for updates/g, 'Check the Nexus Sentinel channel for updates')
+        .replace(/Download and install published fixes from the desktop app/g, 'Only dedicated, verified Sentinel releases are accepted');
+      if (next !== value) setText(node, next);
+    });
+    setText(document.getElementById('checkUpdatesButton'), 'Check Sentinel Updates');
+    setText(document.getElementById('downloadUpdateButton'), 'Download & Verify');
+    setText(document.getElementById('installUpdateButton'), 'Install & Restart');
   }
 
   function openAliasedModule(button) {
@@ -159,6 +202,7 @@
     patchServers();
     patchModules();
     patchOperator();
+    patchReadiness();
     patchSettings();
   }
 
