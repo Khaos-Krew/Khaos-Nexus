@@ -16,6 +16,7 @@ test('Sentinel scopes catalog names and Application Monitor role at the product 
   assert.match(source, /name: 'Palworld Status Panels'/);
   assert.match(source, /'application-monitor':[\s\S]*requiredRole: 'owner'/);
   assert.match(source, /Owner-only redacted diagnostics/);
+  assert.match(source, /sentinel-live-copy\.js/);
 });
 
 test('Sentinel readiness prunes server health that is outside the current Palworld runtime', () => {
@@ -28,11 +29,27 @@ test('Sentinel readiness prunes server health that is outside the current Palwor
   assert.match(source, /this\.pruneServerHealth\(\);[\s\S]*super\.checkServers/);
 });
 
-test('Sentinel packaged UI requires populated operational module cards', () => {
+test('Sentinel dynamic renderer copy cannot regress to the pre-split server and module wording', () => {
+  const source = read('renderer/sentinel-live-copy.js');
+  assert.match(source, /No Palworld servers configured/);
+  assert.match(source, /Palworld REST or legacy RCON/);
+  assert.match(source, /sentinel-legacy-module-ui/);
+  assert.match(source, /Self-healing Sentinel startup/);
+  assert.match(source, /Check Palworld Servers/);
+  assert.match(source, /'operator-console': 'autonomy'/);
+  assert.match(source, /'admin-command-center': 'autonomy'/);
+  assert.match(source, /'discord-observability': 'observability'/);
+  assert.doesNotMatch(source, /Add your first ARK/);
+});
+
+test('Sentinel packaged UI requires populated operational module cards and split live copy', () => {
   const evidence = read('main/startup-smoke-evidence-extension.cjs');
   assert.match(evidence, /moduleCardCount/);
   assert.match(evidence, /moduleCardCount > 0/);
   assert.match(evidence, /roadmapLabels\.length === moduleCardCount/);
+  assert.match(evidence, /legacyBaseModuleVisible/);
+  assert.match(evidence, /serverCopyScoped/);
+  assert.match(evidence, /No Palworld servers configured/);
   assert.match(evidence, /Operational/);
   assert.match(evidence, /Migrate in progress/);
   assert.match(evidence, /Disabled/);
