@@ -7,9 +7,9 @@
   "license": "MIT",
   "private": true,
   "khaosRelease": {
-    "displayVersion": "0.1.0-DND-TEST",
-    "artifactVersion": "0.1.0-DND-TEST",
-    "publicTag": "dnd-v0.1.0-test",
+    "displayVersion": "0.1.0-DND-STARTUPFIX",
+    "artifactVersion": "0.1.0-DND-STARTUPFIX",
+    "publicTag": "dnd-v0.1.0-startupfix",
     "channel": "test",
     "updaterVersion": "0.32.0",
     "rollbackTag": "v0.31.0-B"
@@ -70,11 +70,11 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Nexus D&D",
-      "artifactName": "Nexus-DnD-Setup-0.1.0-TEST-${arch}.${ext}",
+      "artifactName": "Nexus-DnD-Setup-0.1.0-STARTUPFIX-${arch}.${ext}",
       "include": "assets/installer.nsh"
     },
     "portable": {
-      "artifactName": "Nexus-DnD-Portable-0.1.0-TEST-${arch}.${ext}"
+      "artifactName": "Nexus-DnD-Portable-0.1.0-STARTUPFIX-${arch}.${ext}"
     }
   }
 }
