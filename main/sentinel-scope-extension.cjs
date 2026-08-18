@@ -19,7 +19,6 @@ const ACTIVE_MODULES = new Set([
   'discord-organization',
   'discord-audit-logging',
   'discord-observability',
-  'palworld-companion',
   'admin-command-center'
 ]);
 
@@ -45,6 +44,10 @@ function enforceCatalogScope() {
     'application-monitor': {
       requiredRole: 'owner',
       description: 'Owner-only redacted diagnostics, error fingerprints, offline report queueing and opt-in GitHub issue delivery.'
+    },
+    'backup-update-center': {
+      name: 'Backup, Recovery & Update Center',
+      description: 'Integrity-checked backups, transactional restore, Sentinel-only background updates, startup acceptance and automatic rollback protection.'
     }
   };
   for (const [id, patch] of Object.entries(patches)) {
@@ -108,7 +111,7 @@ function patchConfigStore() {
     upsertServer(server, password) {
       const requestedGame = String(server?.game || 'palworld').toLowerCase();
       if (requestedGame !== 'palworld') {
-        const error = new Error('Nexus Sentinel test scope accepts Palworld servers only. Other game modules are preserved for later but currently disabled.');
+        const error = new Error('Nexus Sentinel accepts Palworld servers only. Other game modules are preserved for later but currently disabled.');
         error.code = 'SENTINEL_PALWORLD_ONLY';
         throw error;
       }
@@ -125,7 +128,7 @@ function patchConfigStore() {
 
     setModuleState(id, patch = {}) {
       if (!isActiveModule(id) && patch?.enabled === true) {
-        const error = new Error('That module is deferred in the current Nexus Sentinel test scope. Only Discord and Palworld modules can be enabled right now.');
+        const error = new Error('That module is deferred in the current Nexus Sentinel scope. Only completed Discord, Palworld server-management and supporting desktop modules can be enabled.');
         error.code = 'SENTINEL_MODULE_DEFERRED';
         throw error;
       }
