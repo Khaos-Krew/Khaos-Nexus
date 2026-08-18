@@ -1,4 +1,5 @@
-html[data-nexus-product="sentinel"] .sentinel-owner-only-hidden {
+html[data-nexus-product="sentinel"] .sentinel-owner-only-hidden,
+html[data-nexus-product="sentinel"] .sentinel-legacy-module-ui {
   display: none !important;
 }
 
