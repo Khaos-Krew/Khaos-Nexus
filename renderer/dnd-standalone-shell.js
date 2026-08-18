@@ -3,6 +3,10 @@
 (() => {
   const PRODUCT = 'Nexus D&D';
   const KEEP_VIEWS = new Set(['dnd', 'setup', 'ai-services', 'logs', 'settings']);
+  const RELEVANT_MUTATION_SELECTOR = '.sidebar, .nav-item[data-view], .view[id^="view-"], [data-view-link], #view-ai-services';
+
+  let scopeTimer = null;
+  let scopeRunning = false;
 
   function setNodeText(node, value) {
     if (!node) return;
@@ -58,57 +62,63 @@
   }
 
   function scopeNavigation() {
-    document.documentElement.dataset.nexusProduct = 'dnd-standalone';
-    document.title = PRODUCT;
+    if (scopeRunning) return;
+    scopeRunning = true;
+    try {
+      document.documentElement.dataset.nexusProduct = 'dnd-standalone';
+      document.title = PRODUCT;
 
-    text('.brand strong', PRODUCT);
-    text('.brand span', 'Local AI Campaign Command Center');
-    const image = document.querySelector('.brand img');
-    if (image) image.alt = PRODUCT;
+      text('.brand strong', PRODUCT);
+      text('.brand span', 'Local AI Campaign Command Center');
+      const image = document.querySelector('.brand img');
+      if (image) image.alt = PRODUCT;
 
-    document.querySelectorAll('.nav-item[data-view]').forEach((button) => {
-      const view = String(button.dataset.view || '');
-      button.classList.toggle('dnd-standalone-hidden', !KEEP_VIEWS.has(view));
-      if (view === 'setup') setNodeHtml(button, '<span>◈</span>D&amp;D Bot Setup');
-      if (view === 'dnd') setNodeHtml(button, '<span>⚔</span>Campaigns');
-      if (view === 'ai-services') {
-        const label = button.querySelector('span')?.outerHTML || '<span>✦</span>';
-        setNodeHtml(button, `${label}Veyra AI`);
+      document.querySelectorAll('.nav-item[data-view]').forEach((button) => {
+        const view = String(button.dataset.view || '');
+        button.classList.toggle('dnd-standalone-hidden', !KEEP_VIEWS.has(view));
+        if (view === 'setup') setNodeHtml(button, '<span>◈</span>D&amp;D Bot Setup');
+        if (view === 'dnd') setNodeHtml(button, '<span>⚔</span>Campaigns');
+        if (view === 'ai-services') {
+          const label = button.querySelector('span')?.outerHTML || '<span>✦</span>';
+          setNodeHtml(button, `${label}Veyra AI`);
+        }
+      });
+
+      document.querySelectorAll('.view[id^="view-"]').forEach((section) => {
+        const view = section.id.replace(/^view-/, '');
+        section.classList.toggle('dnd-standalone-hidden', !KEEP_VIEWS.has(view));
+      });
+
+      if (typeof viewMeta === 'object' && viewMeta) {
+        viewMeta.dnd = ['Campaigns', 'Run campaigns, characters, encounters, maps, NPCs, sessions, Discord play, and AI-assisted game mastering.'];
+        viewMeta.setup = ['D&D Bot Setup', 'Connect the dedicated D&D Discord application using protected local credentials.'];
+        if (viewMeta['ai-services']) viewMeta['ai-services'] = ['Veyra AI', 'Local Veyra runtime, model health, and D&D intelligence services.'];
+        viewMeta.logs = ['Runtime Logs', 'Local D&D app, bot, and AI runtime events.'];
+        viewMeta.settings = ['Desktop Settings', 'Startup, updates, backup, restore, and local data controls.'];
       }
-    });
 
-    document.querySelectorAll('.view[id^="view-"]').forEach((section) => {
-      const view = section.id.replace(/^view-/, '');
-      if (!KEEP_VIEWS.has(view)) section.classList.add('dnd-standalone-hidden');
-    });
+      document.querySelectorAll('[data-view-link]').forEach((node) => {
+        node.classList.toggle('dnd-standalone-hidden', !KEEP_VIEWS.has(String(node.dataset.viewLink || '')));
+      });
 
-    if (typeof viewMeta === 'object' && viewMeta) {
-      viewMeta.dnd = ['Campaigns', 'Run campaigns, characters, encounters, maps, NPCs, sessions, Discord play, and AI-assisted game mastering.'];
-      viewMeta.setup = ['D&D Bot Setup', 'Connect the dedicated D&D Discord application using protected local credentials.'];
-      if (viewMeta['ai-services']) viewMeta['ai-services'] = ['Veyra AI', 'Local Veyra runtime, model health, and D&D intelligence services.'];
-      viewMeta.logs = ['Runtime Logs', 'Local D&D app, bot, and AI runtime events.'];
-      viewMeta.settings = ['Desktop Settings', 'Startup, updates, backup, restore, and local data controls.'];
+      setNodeText(document.querySelector('.local-badge'), 'LOCAL D&D + VEYRA');
+
+      const setupIntro = document.querySelector('#view-setup .section-intro');
+      if (setupIntro) {
+        setNodeText(setupIntro.querySelector('h2'), 'Dedicated D&D Discord bot');
+        setNodeText(setupIntro.querySelector('p'), 'Use a Discord application/token dedicated to Nexus D&D. These credentials are stored separately from Nexus Sentinel.');
+      }
+
+      const settingsIntro = document.querySelector('#view-settings .section-intro');
+      if (settingsIntro) {
+        setNodeText(settingsIntro.querySelector('h2'), 'Nexus D&D desktop settings');
+        setNodeText(settingsIntro.querySelector('p'), 'Control startup, recovery, updates, backups, and local data for the standalone D&D app.');
+      }
+
+      scopeVeyraView();
+    } finally {
+      scopeRunning = false;
     }
-
-    document.querySelectorAll('[data-view-link]').forEach((node) => {
-      if (!KEEP_VIEWS.has(String(node.dataset.viewLink || ''))) node.classList.add('dnd-standalone-hidden');
-    });
-
-    setNodeText(document.querySelector('.local-badge'), 'LOCAL D&D + VEYRA');
-
-    const setupIntro = document.querySelector('#view-setup .section-intro');
-    if (setupIntro) {
-      setNodeText(setupIntro.querySelector('h2'), 'Dedicated D&D Discord bot');
-      setNodeText(setupIntro.querySelector('p'), 'Use a Discord application/token dedicated to Nexus D&D. These credentials are stored separately from Nexus Sentinel.');
-    }
-
-    const settingsIntro = document.querySelector('#view-settings .section-intro');
-    if (settingsIntro) {
-      setNodeText(settingsIntro.querySelector('h2'), 'Nexus D&D desktop settings');
-      setNodeText(settingsIntro.querySelector('p'), 'Control startup, recovery, updates, backups, and local data for the standalone D&D app.');
-    }
-
-    scopeVeyraView();
   }
 
   function openDefaultView() {
@@ -124,7 +134,21 @@
     if (!openDefaultView()) return false;
     text('#viewTitle', 'Campaigns');
     text('#viewSubtitle', 'Standalone local D&D command center with Veyra AI and a dedicated Discord bot.');
+    document.documentElement.dataset.dndStandaloneShellReady = 'true';
     return true;
+  }
+
+  function scheduleScope() {
+    clearTimeout(scopeTimer);
+    scopeTimer = setTimeout(() => {
+      scopeTimer = null;
+      scopeNavigation();
+    }, 50);
+  }
+
+  function relevantNode(node) {
+    if (!node || node.nodeType !== 1) return false;
+    return Boolean(node.matches?.(RELEVANT_MUTATION_SELECTOR) || node.querySelector?.(RELEVANT_MUTATION_SELECTOR));
   }
 
   let attempts = 0;
@@ -139,7 +163,20 @@
     queueMicrotask(apply);
   }
 
-  const observer = new MutationObserver(() => scopeNavigation());
+  const observer = new MutationObserver((mutations) => {
+    if (mutations.some((mutation) => [...mutation.addedNodes, ...mutation.removedNodes].some(relevantNode))) scheduleScope();
+  });
   observer.observe(document.documentElement, { childList: true, subtree: true });
-  setTimeout(() => observer.disconnect(), 12000);
+
+  window.addEventListener('khaos:features-ready', () => {
+    scheduleScope();
+    setTimeout(() => observer.disconnect(), 1500);
+  }, { once: true });
+
+  setTimeout(() => observer.disconnect(), 8000);
+  window.addEventListener('beforeunload', () => {
+    observer.disconnect();
+    clearInterval(timer);
+    clearTimeout(scopeTimer);
+  }, { once: true });
 })();
