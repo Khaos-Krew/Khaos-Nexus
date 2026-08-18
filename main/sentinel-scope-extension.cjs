@@ -29,6 +29,30 @@ function isActiveModule(id) {
   return ACTIVE_MODULES.has(String(id || ''));
 }
 
+function enforceCatalogScope() {
+  const { MODULE_CATALOG } = require('../shared/module-catalog.cjs');
+  const patches = {
+    'game-server-control': {
+      name: 'Palworld Server Control',
+      description: 'Protected local configuration, connectivity checks and guarded control for Palworld REST or legacy RCON servers.'
+    },
+    'players-console': {
+      name: 'Palworld Players & Moderation'
+    },
+    'server-status-panels': {
+      name: 'Palworld Status Panels'
+    },
+    'application-monitor': {
+      requiredRole: 'owner',
+      description: 'Owner-only redacted diagnostics, error fingerprints, offline report queueing and opt-in GitHub issue delivery.'
+    }
+  };
+  for (const [id, patch] of Object.entries(patches)) {
+    const module = MODULE_CATALOG.find((item) => item.id === id);
+    if (module) Object.assign(module, patch);
+  }
+}
+
 function enforceDeferredModules(store) {
   if (!store?.config?.general) return false;
   store.config.general.moduleOverrides ||= {};
@@ -138,6 +162,7 @@ function installRendererAssets() {
 function install() {
   if (installed) return;
   installed = true;
+  enforceCatalogScope();
   patchConfigStore();
   installRendererAssets();
 }
@@ -145,6 +170,7 @@ function install() {
 module.exports = {
   install,
   patchConfigStore,
+  enforceCatalogScope,
   enforceDeferredModules,
   onlyPalworldServers,
   isActiveModule,
