@@ -14,6 +14,9 @@ test('Sentinel package uses the normal desktop entry and excludes D&D and hosted
   assert.match(pkg.description, /Nexus Sentinel/);
   assert.match(pkg.description, /Palworld/);
   assert.match(pkg.scripts['dist:win'], /--publish never/);
+  assert.match(pkg.khaosRelease.displayVersion, /SENTINEL-ROADMAP/);
+  assert.match(pkg.build.nsis.artifactName, /ROADMAP/);
+  assert.match(pkg.build.portable.artifactName, /ROADMAP/);
   const files = new Set(pkg.build.files);
   for (const excluded of [
     '!main/dnd-*',
@@ -30,8 +33,6 @@ test('Sentinel package uses the normal desktop entry and excludes D&D and hosted
   ]) {
     assert.equal(files.has(excluded), true, `missing package exclusion ${excluded}`);
   }
-  assert.match(pkg.build.nsis.artifactName, /Sentinel/);
-  assert.match(pkg.build.portable.artifactName, /Sentinel/);
 });
 
 test('Sentinel desktop startup contains only the Discord and Palworld active product graph', () => {
@@ -48,6 +49,7 @@ test('Sentinel desktop startup contains only the Discord and Palworld active pro
     'game-adapter-runtime-extension.cjs',
     'nexus-core-foundation-extension.cjs',
     'sentinel-scope-extension.cjs',
+    'sentinel-owner-monitor-boundary-extension.cjs',
     'sentinel-bot-supervisor-boundary-extension.cjs',
     'sentinel-test-update-boundary-extension.cjs'
   ]) assert.match(source, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
@@ -97,6 +99,22 @@ test('Sentinel split test build cannot consume the legacy Khaos Nexus release fe
   );
 });
 
+test('Application Monitor user actions are owner-only at the backend boundary', () => {
+  const source = read('main/sentinel-owner-monitor-boundary-extension.cjs');
+  for (const channel of ['monitor:verify', 'monitor:process-queue', 'monitor:clear-queue', 'monitor:send-current', 'monitor:open-last-issue']) {
+    assert.match(source, new RegExp(channel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+  assert.match(source, /assertAccess\(refs\.discordAuth\?\.getState\?\.\(\), 'owner'/);
+  assert.match(source, /SENTINEL_OWNER_ACCESS_NOT_READY/);
+  assert.doesNotMatch(source, /monitor:capture-renderer/);
+
+  const entry = read('main/entry.cjs');
+  assert.ok(
+    entry.indexOf('sentinel-owner-monitor-boundary-extension.cjs') < entry.indexOf("require('./main.cjs')"),
+    'The owner-only monitor boundary must install before main.cjs registers monitor handlers.'
+  );
+});
+
 test('primary Sentinel Discord worker has no D&D runtime', () => {
   const entry = read('bot/entry.cjs');
   assert.match(entry, /installModuleRuntime/);
@@ -127,12 +145,14 @@ test('Sentinel config boundary preserves deferred modules while blocking non-Pal
   assert.match(source, /SENTINEL_MODULE_DEFERRED/);
   assert.match(source, /primaryBotName = 'Nexus Sentinel'/);
   assert.match(source, /productScope = 'discord-palworld'/);
+  assert.match(source, /sentinel-roadmap\.js/);
+  assert.match(source, /sentinel-roadmap\.css/);
   assert.doesNotMatch(source, /'pterodactyl-control'/);
 });
 
 test('Sentinel renderer hides deferred product surfaces and forces Palworld server creation', () => {
   const source = read('renderer/sentinel-scope.js');
-  for (const view of ['dnd', 'ai-services', 'nexus-ai', 'scheduler', 'hosted-servers', 'mobile-companion', 'rust', 'satisfactory']) {
+  for (const view of ['dnd', 'ai', 'ai-services', 'nexus-ai', 'scheduler', 'hosted-servers', 'mobile', 'mobile-companion', 'rust', 'satisfactory']) {
     assert.match(source, new RegExp(`'${view.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'`));
   }
   assert.match(source, /option\.value !== 'palworld'/);
@@ -140,6 +160,29 @@ test('Sentinel renderer hides deferred product surfaces and forces Palworld serv
   assert.match(source, /select\.disabled = true/);
   assert.match(source, /Discord \+ Palworld Control Center/);
   assert.match(source, /Start Sentinel/);
+  assert.match(source, /RELEVANT_SELECTOR/);
+  assert.match(source, /setTimeout\(\(\) => observer\.disconnect\(\), 12000\)/);
+});
+
+test('Sentinel operational roadmap replaces migration UI with runtime statuses and test path', () => {
+  const source = read('renderer/sentinel-roadmap.js');
+  for (const label of ['Operational', 'Migrate in progress', 'Disabled', 'Blocked']) assert.match(source, new RegExp(label));
+  assert.match(source, /sentinelTestRoadmap/);
+  assert.match(source, /sentinelModuleCenter/);
+  assert.match(source, /modules:get/);
+  assert.match(source, /modules:update/);
+  assert.match(source, /sentinel-owner-only-hidden/);
+  assert.match(source, /Application Monitor/);
+  assert.match(source, /Check Palworld Servers/);
+  assert.doesNotMatch(source, /% migrated/);
+
+  const roadmap = read('docs/NEXUS-SENTINEL-TEST-ROADMAP.md');
+  for (const phase of ['Phase 0', 'Phase 1', 'Phase 2', 'Phase 3', 'Phase 4', 'Phase 5', 'Phase 6', 'Phase 7', 'Phase 8', 'Phase 9', 'Phase 10']) {
+    assert.match(roadmap, new RegExp(phase));
+  }
+  assert.match(roadmap, /Home test order/);
+  assert.match(roadmap, /Operational/);
+  assert.match(roadmap, /owner-only/);
 });
 
 test('Sentinel persistent navigation guard blocks late monolith navigation rebuilds', () => {
@@ -160,18 +203,24 @@ test('Sentinel persistent navigation guard blocks late monolith navigation rebui
   assert.match(extension, /sentinel-navigation-guard\.js/);
 });
 
-test('packaged Sentinel smoke evidence inspects the final renderer scope', () => {
+test('packaged Sentinel smoke evidence inspects the final renderer scope and operational roadmap', () => {
   const evidence = read('main/startup-smoke-evidence-extension.cjs');
   assert.match(evidence, /async function captureUiState/);
   assert.match(evidence, /forbiddenVisible/);
   assert.match(evidence, /brandSubtitle === 'Discord \+ Palworld Control Center'/);
   assert.match(evidence, /product === 'sentinel'/);
   assert.match(evidence, /serverOptions\.length === 1 && serverOptions\[0\] === 'palworld'/);
+  assert.match(evidence, /dashboardRoadmap/);
+  assert.match(evidence, /moduleCenter/);
+  assert.match(evidence, /legacyModuleCenterHidden/);
+  assert.match(evidence, /validRoadmapLabels/);
 
   const workflow = read('.github/workflows/sentinel-test-build.yml');
   assert.match(workflow, /\$ui -and \$ui\.ready/);
   assert.match(workflow, /Forbidden monolith views remain visible/);
-  assert.match(workflow, /Final Sentinel UI passed/);
+  assert.match(workflow, /Nexus Sentinel acceptance roadmap did not render/);
+  assert.match(workflow, /Legacy migration Module Center remains visible/);
+  assert.match(workflow, /Nexus-Sentinel-Roadmap-Windows-Test/);
 });
 
 test('renderer asset loader reports feature readiness only for the real desktop window after bundle injection', () => {
