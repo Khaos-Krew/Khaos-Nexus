@@ -56,7 +56,7 @@ test('Sentinel packaged UI requires populated operational module cards and split
   assert.match(evidence, /Blocked/);
 });
 
-test('Sentinel roadmap contains a staged home acceptance path and smoother update plan', () => {
+test('Sentinel roadmap is backed by an implemented staged update and rollback release pipeline', () => {
   const roadmap = read('docs/NEXUS-SENTINEL-TEST-ROADMAP.md');
   assert.match(roadmap, /Product boundary and first launch/);
   assert.match(roadmap, /Discord identity and Nexus Sentinel runtime/);
@@ -66,4 +66,15 @@ test('Sentinel roadmap contains a staged home acceptance path and smoother updat
   assert.match(roadmap, /Update experience/);
   assert.match(roadmap, /rollback/i);
   assert.match(roadmap, /Home test order/);
+
+  const updater = read('main/sentinel-production-update-extension.cjs');
+  const policy = read('shared/sentinel-update-policy.cjs');
+  const release = read('.github/workflows/sentinel-release.yml');
+  assert.match(updater, /createAutomaticBackup\('pre-update'\)/);
+  assert.match(updater, /Wait-Health/);
+  assert.match(updater, /Restore-Rollback/);
+  assert.match(policy, /SENTINEL_TAG/);
+  assert.match(release, /v\*-sentinel/);
+  assert.match(release, /sentinel:checksums/);
+  assert.match(release, /gh release create/);
 });
