@@ -79,8 +79,13 @@ if (diagnosticsMode) {
     installTracked('./nexus-core-foundation-extension.cjs');
 
     // Final product boundary: Palworld-only server runtime, disabled deferred
-    // modules, Nexus Sentinel branding, and simplified desktop navigation.
+    // modules, Nexus Sentinel branding, simplified desktop navigation, and an
+    // operational module/test roadmap with no D&D surfaces.
     installTracked('./sentinel-scope-extension.cjs');
+
+    // Application Monitor is an owner-only diagnostic surface in Sentinel.
+    // Install this before main.cjs registers the inherited monitor IPC handlers.
+    installTracked('./sentinel-owner-monitor-boundary-extension.cjs');
 
     // Force the shared desktop supervisor to start the Sentinel wrapper, which
     // installs the Discord/module/status runtimes before delegating to bot/index.cjs.
