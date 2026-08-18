@@ -36,15 +36,15 @@ function enforceCatalogScope() {
       name: 'Palworld Server Control',
       description: 'Protected local configuration, connectivity checks and guarded control for Palworld REST or legacy RCON servers.'
     },
-    'players-console': {
-      name: 'Palworld Players & Moderation'
-    },
-    'server-status-panels': {
-      name: 'Palworld Status Panels'
-    },
+    'players-console': { name: 'Palworld Players & Moderation' },
+    'server-status-panels': { name: 'Palworld Status Panels' },
     'application-monitor': {
       requiredRole: 'owner',
       description: 'Owner-only redacted diagnostics, error fingerprints, offline report queueing and opt-in GitHub issue delivery.'
+    },
+    'backup-update-center': {
+      name: 'Backup & Sentinel Update Center',
+      description: 'Verified configuration backups, restore, Sentinel-only release checks, SHA-256 staging, startup-health acceptance and automatic rollback.'
     }
   };
   for (const [id, patch] of Object.entries(patches)) {
@@ -108,7 +108,7 @@ function patchConfigStore() {
     upsertServer(server, password) {
       const requestedGame = String(server?.game || 'palworld').toLowerCase();
       if (requestedGame !== 'palworld') {
-        const error = new Error('Nexus Sentinel test scope accepts Palworld servers only. Other game modules are preserved for later but currently disabled.');
+        const error = new Error('Nexus Sentinel currently accepts Palworld servers only. Deferred game modules are preserved for later but cannot be activated in this product scope.');
         error.code = 'SENTINEL_PALWORLD_ONLY';
         throw error;
       }
@@ -117,15 +117,13 @@ function patchConfigStore() {
 
     getModuleStates(...args) {
       const states = typeof super.getModuleStates === 'function' ? super.getModuleStates(...args) : {};
-      for (const [id, state] of Object.entries(states || {})) {
-        if (!isActiveModule(id)) state.enabled = false;
-      }
+      for (const [id, state] of Object.entries(states || {})) if (!isActiveModule(id)) state.enabled = false;
       return states;
     }
 
     setModuleState(id, patch = {}) {
       if (!isActiveModule(id) && patch?.enabled === true) {
-        const error = new Error('That module is deferred in the current Nexus Sentinel test scope. Only Discord and Palworld modules can be enabled right now.');
+        const error = new Error('That module is deferred in Nexus Sentinel. Only the current Discord, Palworld and supporting desktop modules can be enabled.');
         error.code = 'SENTINEL_MODULE_DEFERRED';
         throw error;
       }
@@ -185,13 +183,15 @@ function installRendererAssets() {
     id: 'nexus-sentinel-scope',
     styles: [
       path.join(__dirname, '..', 'renderer', 'sentinel-scope.css'),
-      path.join(__dirname, '..', 'renderer', 'sentinel-roadmap.css')
+      path.join(__dirname, '..', 'renderer', 'sentinel-roadmap.css'),
+      path.join(__dirname, '..', 'renderer', 'sentinel-update-ui.css')
     ],
     scripts: [
       path.join(__dirname, '..', 'renderer', 'sentinel-scope.js'),
       path.join(__dirname, '..', 'renderer', 'sentinel-navigation-guard.js'),
       path.join(__dirname, '..', 'renderer', 'sentinel-live-copy.js'),
-      path.join(__dirname, '..', 'renderer', 'sentinel-roadmap.js')
+      path.join(__dirname, '..', 'renderer', 'sentinel-roadmap.js'),
+      path.join(__dirname, '..', 'renderer', 'sentinel-update-ui.js')
     ],
     source: 'sentinel-scope-extension.cjs'
   });
