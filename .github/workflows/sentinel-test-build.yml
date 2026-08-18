@@ -1,15 +1,15 @@
-name: Nexus Sentinel Test Build
+name: Nexus Sentinel Complete Roadmap Build
 
 on:
   workflow_dispatch:
   push:
-    branches: ["split/nexus-sentinel"]
+    branches: ["build/sentinel-roadmap-complete"]
 
 permissions:
   contents: read
 
 concurrency:
-  group: nexus-sentinel-${{ github.ref }}
+  group: nexus-sentinel-complete-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -35,24 +35,40 @@ jobs:
       - name: Verify Sentinel source syntax
         shell: pwsh
         run: |
-          node --check main/entry.cjs
-          node --check main/sentinel-scope-extension.cjs
-          node --check main/sentinel-owner-monitor-boundary-extension.cjs
-          node --check main/renderer-asset-loader.cjs
-          node --check main/startup-smoke-evidence-extension.cjs
-          node --check renderer/sentinel-scope.js
-          node --check renderer/sentinel-navigation-guard.js
-          node --check renderer/sentinel-live-copy.js
-          node --check renderer/sentinel-roadmap.js
-          node --check bot/entry.cjs
-          node --check bot/commands.cjs
+          $files = @(
+            'main/entry.cjs',
+            'main/sentinel-scope-extension.cjs',
+            'main/sentinel-readiness-extension.cjs',
+            'main/sentinel-backup-safety-extension.cjs',
+            'main/sentinel-update-extension.cjs',
+            'main/sentinel-owner-monitor-boundary-extension.cjs',
+            'main/renderer-asset-loader.cjs',
+            'main/startup-smoke-evidence-extension.cjs',
+            'shared/sentinel-update-policy.cjs',
+            'shared/sentinel-backup-integrity.cjs',
+            'renderer/sentinel-scope.js',
+            'renderer/sentinel-navigation-guard.js',
+            'renderer/sentinel-live-copy.js',
+            'renderer/sentinel-roadmap.js',
+            'renderer/sentinel-roadmap-finalizer.js',
+            'renderer/readiness.js',
+            'bot/entry.cjs',
+            'bot/commands.cjs'
+          )
+          foreach ($file in $files) {
+            node --check $file
+            if ($LASTEXITCODE -ne 0) { throw "Syntax validation failed: $file" }
+          }
 
-      - name: Run Sentinel, Discord, Palworld and retained-control tests
+      - name: Run Sentinel, Discord, Palworld and recovery tests
         shell: pwsh
         run: |
           $tests = @(
             'test/sentinel-scope.test.cjs',
             'test/sentinel-roadmap-hardening.test.cjs',
+            'test/sentinel-roadmap-completion.test.cjs',
+            'test/sentinel-update-policy.test.cjs',
+            'test/sentinel-backup-integrity.test.cjs',
             'test/palworld-rest.test.cjs',
             'test/server-client.test.cjs',
             'test/game-adapter-sdk.test.cjs',
@@ -80,11 +96,19 @@ jobs:
       - name: Build Sentinel installer and portable executable
         run: npm run dist:win
 
+      - name: Create release integrity sidecars
+        shell: pwsh
+        run: |
+          Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-*-0.33.0-RC1-x64.exe' | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)" | Set-Content -Encoding ascii "$($_.FullName).sha256"
+          }
+
       - name: Smoke-launch packaged Sentinel portable
         shell: pwsh
         run: |
-          $portable = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-Portable-0.32.0-ROADMAP-x64.exe' | Select-Object -First 1
-          if (-not $portable) { throw 'Nexus Sentinel ROADMAP portable executable was not produced.' }
+          $portable = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-Portable-0.33.0-RC1-x64.exe' | Select-Object -First 1
+          if (-not $portable) { throw 'Nexus Sentinel RC1 portable executable was not produced.' }
 
           $evidence = Join-Path $env:RUNNER_TEMP 'nexus-sentinel-startup-smoke.json'
           Remove-Item $evidence -Force -ErrorAction SilentlyContinue
@@ -93,7 +117,7 @@ jobs:
           $process = Start-Process -FilePath $portable.FullName -PassThru
 
           try {
-            $deadline = (Get-Date).AddSeconds(80)
+            $deadline = (Get-Date).AddSeconds(95)
             $state = $null
             $ui = $null
             while ((Get-Date) -lt $deadline) {
@@ -124,7 +148,7 @@ jobs:
             if (-not $ui) { throw 'Nexus Sentinel did not write final renderer scope evidence.' }
             if (-not $ui.ready) {
               $forbidden = @($ui.forbiddenVisible) -join ', '
-              throw "Nexus Sentinel final renderer scope is wrong. product=$($ui.product), guard=$($ui.guard), scopeReady=$($ui.scopeReady), brand='$($ui.brandSubtitle)', forbidden='$forbidden', serverOptions='$(@($ui.serverOptions) -join ',')', serverIntro='$($ui.serverIntro)', emptyServerHeading='$($ui.emptyServerHeading)', serverCopyScoped=$($ui.serverCopyScoped), dashboardRoadmap=$($ui.dashboardRoadmap), moduleCenter=$($ui.moduleCenter), moduleCardCount=$($ui.moduleCardCount), legacyModuleCenterHidden=$($ui.legacyModuleCenterHidden), legacyBaseModuleVisible=$($ui.legacyBaseModuleVisible), roadmapLabels='$(@($ui.roadmapLabels) -join ',')'"
+              throw "Nexus Sentinel final renderer scope is wrong. product=$($ui.product), guard=$($ui.guard), scopeReady=$($ui.scopeReady), brand='$($ui.brandSubtitle)', forbidden='$forbidden', serverOptions='$(@($ui.serverOptions) -join ',')', serverCopyScoped=$($ui.serverCopyScoped), dashboardRoadmap=$($ui.dashboardRoadmap), readinessCenter=$($ui.readinessCenter), moduleCenter=$($ui.moduleCenter), moduleCardCount=$($ui.moduleCardCount), legacyModuleCenterHidden=$($ui.legacyModuleCenterHidden), legacyBaseModuleVisible=$($ui.legacyBaseModuleVisible), roadmapLabels='$(@($ui.roadmapLabels) -join ',')'"
             }
             if ($ui.product -ne 'sentinel') { throw "Nexus Sentinel renderer product marker is '$($ui.product)'." }
             if ($ui.brandSubtitle -ne 'Discord + Palworld Control Center') { throw "Nexus Sentinel renderer brand is '$($ui.brandSubtitle)'." }
@@ -132,18 +156,18 @@ jobs:
             if (@($ui.serverOptions).Count -gt 1 -or (@($ui.serverOptions).Count -eq 1 -and $ui.serverOptions[0] -ne 'palworld')) {
               throw "Nexus Sentinel server selector still exposes non-Palworld options: $(@($ui.serverOptions) -join ', ')."
             }
-            if (-not $ui.serverCopyScoped) { throw "Nexus Sentinel server workspace still contains pre-split game copy: '$($ui.serverIntro)' / '$($ui.emptyServerHeading)'." }
+            if (-not $ui.serverCopyScoped) { throw 'Nexus Sentinel server workspace still contains pre-split game copy.' }
             if (-not $ui.dashboardRoadmap) { throw 'Nexus Sentinel acceptance roadmap did not render on Command Center.' }
+            if (-not $ui.readinessCenter) { throw 'Nexus Sentinel Readiness Center did not render.' }
             if (-not $ui.moduleCenter) { throw 'Nexus Sentinel operational Module Center did not render.' }
             if ([int]$ui.moduleCardCount -lt 1) { throw 'Nexus Sentinel operational Module Center rendered without scoped module cards.' }
             if (-not $ui.legacyModuleCenterHidden) { throw 'Legacy migration Module Center remains visible.' }
             if ($ui.legacyBaseModuleVisible) { throw 'Inherited pre-split module grid or migration UI remains visible.' }
             if (-not $ui.validRoadmapLabels) { throw "Module Center emitted an unsupported status: $(@($ui.roadmapLabels) -join ', ')." }
+            if (@($ui.roadmapLabels) -contains 'Migrate in progress') { throw 'A current-scope Sentinel module is still incomplete.' }
 
             Write-Host "Packaged Nexus Sentinel startup passed: $($state.overall) / $($state.phase)"
-            Write-Host "Final Sentinel UI passed: $($ui.brandSubtitle); forbidden views visible: $(@($ui.forbiddenVisible).Count)"
-            Write-Host "Palworld copy passed: $($ui.serverIntro)"
-            Write-Host "Operational roadmap passed: dashboard=$($ui.dashboardRoadmap); modules=$($ui.moduleCenter); cards=$($ui.moduleCardCount); statuses=$(@($ui.roadmapLabels) -join ', ')"
+            Write-Host "Final Sentinel UI passed: $($ui.brandSubtitle); readiness=$($ui.readinessCenter); modules=$($ui.moduleCardCount)"
           } catch {
             Write-Host '--- Nexus Sentinel packaged startup evidence ---'
             if (Test-Path $evidence) { Get-Content $evidence -Raw | Write-Host }
@@ -159,18 +183,23 @@ jobs:
       - name: Verify Sentinel artifacts
         shell: pwsh
         run: |
-          $setup = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-Setup-0.32.0-ROADMAP-x64.exe'
-          $portable = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-Portable-0.32.0-ROADMAP-x64.exe'
-          if (-not $setup) { throw 'Nexus Sentinel ROADMAP installer was not produced.' }
-          if (-not $portable) { throw 'Nexus Sentinel ROADMAP portable executable was not produced.' }
+          $setup = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-Setup-0.33.0-RC1-x64.exe'
+          $portable = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-Portable-0.33.0-RC1-x64.exe'
+          $metadata = Get-ChildItem dist -Filter 'latest.yml'
+          if (-not $setup) { throw 'Nexus Sentinel RC1 installer was not produced.' }
+          if (-not $portable) { throw 'Nexus Sentinel RC1 portable executable was not produced.' }
+          if (-not $metadata) { throw 'Nexus Sentinel updater metadata latest.yml was not produced.' }
+          if (-not (Test-Path "$($setup.FullName).sha256")) { throw 'Installer SHA-256 sidecar is missing.' }
+          if (-not (Test-Path "$($portable.FullName).sha256")) { throw 'Portable SHA-256 sidecar is missing.' }
           Write-Host "Installer: $($setup.Name)"
           Write-Host "Portable: $($portable.Name)"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Nexus-Sentinel-Roadmap-Windows-Test
+          name: Nexus-Sentinel-Complete-Roadmap-RC1
           path: |
             dist/*.exe
+            dist/*.exe.sha256
             dist/*.yml
             dist/*.blockmap
           retention-days: 14
