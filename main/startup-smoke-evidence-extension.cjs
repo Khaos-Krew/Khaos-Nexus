@@ -20,11 +20,7 @@ function writePayload(payload) {
   const target = evidencePath();
   const temporary = `${target}.${process.pid}.tmp`;
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(temporary, JSON.stringify({
-    capturedAt: new Date().toISOString(),
-    processId: process.pid,
-    ...payload
-  }, null, 2), 'utf8');
+  fs.writeFileSync(temporary, JSON.stringify({ capturedAt: new Date().toISOString(), processId: process.pid, ...payload }, null, 2), 'utf8');
   try { fs.renameSync(temporary, target); }
   catch {
     fs.rmSync(target, { force: true });
@@ -83,6 +79,7 @@ async function captureUiState() {
       const scopeReady = String(document.documentElement.dataset.sentinelUiReady || '');
       const dashboardRoadmap = Boolean(document.getElementById('sentinelTestRoadmap'));
       const moduleCenter = Boolean(document.getElementById('sentinelModuleCenter'));
+      const updateSecurity = Boolean(document.getElementById('sentinelUpdateSecurity'));
       const legacyModuleCenter = document.getElementById('nexusModuleCenter');
       const legacyModuleCenterHidden = !legacyModuleCenter || !visible(legacyModuleCenter);
       const roadmapLabels = [...document.querySelectorAll('#sentinelModuleCenter .sentinel-module-status')].map((node) => String(node.textContent || '').trim());
@@ -102,6 +99,7 @@ async function captureUiState() {
         && dashboardRoadmap
         && moduleCenter
         && moduleCardCount > 0
+        && updateSecurity
         && legacyModuleCenterHidden
         && !legacyBaseModuleVisible
         && validRoadmapLabels
@@ -121,6 +119,7 @@ async function captureUiState() {
         dashboardRoadmap,
         moduleCenter,
         moduleCardCount,
+        updateSecurity,
         legacyModuleCenterHidden,
         legacyBaseModuleVisible,
         roadmapLabels,
@@ -129,10 +128,7 @@ async function captureUiState() {
       };
     })();`, true);
   } catch (error) {
-    latestUiState = {
-      ready: false,
-      error: String(error?.message || error).slice(0, 500)
-    };
+    latestUiState = { ready: false, error: String(error?.message || error).slice(0, 500) };
   } finally {
     uiCaptureInFlight = false;
   }
