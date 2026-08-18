@@ -16,7 +16,7 @@ const {
 
 const RELEASES_URL = 'https://api.github.com/repos/Khaos-Krew/Khaos-Nexus/releases?per_page=50';
 const RELEASE_DOWNLOAD_ROOT = 'https://github.com/Khaos-Krew/Khaos-Nexus/releases/download';
-const ROLLBACK_TIMEOUT_SECONDS = 150;
+const ROLLBACK_TIMEOUT_SECONDS = 210;
 
 let installed = false;
 
@@ -51,12 +51,10 @@ function copyDirectory(source, destination) {
 }
 
 function buildRollbackWatchdog(marker) {
-  const markerPath = marker.markerPath;
-  const acceptancePath = marker.acceptancePath;
   const lines = [
     "$ErrorActionPreference = 'SilentlyContinue'",
-    `$markerPath = ${psQuote(markerPath)}`,
-    `$acceptancePath = ${psQuote(acceptancePath)}`,
+    `$markerPath = ${psQuote(marker.markerPath)}`,
+    `$acceptancePath = ${psQuote(marker.acceptancePath)}`,
     `$targetExe = ${psQuote(marker.targetExe)}`,
     `$targetVersion = ${psQuote(marker.targetVersion)}`,
     `$deadline = (Get-Date).AddSeconds(${ROLLBACK_TIMEOUT_SECONDS})`,
@@ -90,7 +88,7 @@ function buildRollbackWatchdog(marker) {
       `$snapshotDir = ${psQuote(marker.rollbackPath)}`,
       'if (Test-Path -LiteralPath $targetDir) { Remove-Item -LiteralPath $targetDir -Recurse -Force -ErrorAction SilentlyContinue }',
       'New-Item -ItemType Directory -Path $targetDir -Force | Out-Null',
-      'Copy-Item -LiteralPath (Join-Path $snapshotDir "*") -Destination $targetDir -Recurse -Force',
+      'Copy-Item -Path (Join-Path $snapshotDir "*") -Destination $targetDir -Recurse -Force',
       'Start-Process -FilePath $targetExe'
     );
   }
@@ -184,6 +182,7 @@ function patchUpdateService() {
       this.set({
         product: 'nexus-sentinel',
         updateScope: 'sentinel-only',
+        backgroundDownload: true,
         rollbackProtected: true,
         rollbackStatus: 'idle'
       });
@@ -201,6 +200,20 @@ function patchUpdateService() {
       if (!response.ok) throw new Error(`Sentinel release check failed with status ${response.status}.`);
       const releases = await response.json();
       return selectSentinelRelease(releases, this.state.currentVersion, this.updateChannel || 'stable');
+    }
+
+    async check() {
+      const result = await super.check();
+      if (this.state.automaticChecks && result.status === 'available') {
+        try {
+          this.logger?.info?.('A Sentinel update is available; staging it in the background.', { version: result.version });
+          return await this.download();
+        } catch (error) {
+          this.logger?.warn?.('Automatic Sentinel update staging failed.', { message: error.message || String(error) });
+          throw error;
+        }
+      }
+      return result;
     }
 
     async performCheck() {
@@ -322,7 +335,7 @@ function monitorPostUpdateAcceptance() {
     if (String(marker?.product || '') !== 'nexus-sentinel') return;
     if (String(marker.targetVersion || '') !== String(electron.app.getVersion())) return;
 
-    const deadline = Date.now() + ((ROLLBACK_TIMEOUT_SECONDS - 20) * 1000);
+    const deadline = Date.now() + ((ROLLBACK_TIMEOUT_SECONDS - 30) * 1000);
     const timer = setInterval(() => {
       try {
         const startup = require('./startup-health-extension.cjs').publicState();
