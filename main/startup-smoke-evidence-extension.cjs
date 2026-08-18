@@ -77,12 +77,22 @@ async function captureUiState() {
       const product = String(document.documentElement.dataset.nexusProduct || '');
       const guard = String(document.documentElement.dataset.sentinelUiGuard || '');
       const scopeReady = String(document.documentElement.dataset.sentinelUiReady || '');
+      const dashboardRoadmap = Boolean(document.getElementById('sentinelTestRoadmap'));
+      const moduleCenter = Boolean(document.getElementById('sentinelModuleCenter'));
+      const legacyModuleCenter = document.getElementById('nexusModuleCenter');
+      const legacyModuleCenterHidden = !legacyModuleCenter || !visible(legacyModuleCenter);
+      const roadmapLabels = [...document.querySelectorAll('#sentinelModuleCenter .sentinel-module-status')].map((node) => String(node.textContent || '').trim());
+      const validRoadmapLabels = roadmapLabels.every((label) => ['Operational','Migrate in progress','Disabled','Blocked'].includes(label));
       const uniqueForbidden = [...new Set(forbiddenVisible)];
       const ready = product === 'sentinel'
         && guard === 'active'
         && scopeReady === 'true'
         && uniqueForbidden.length === 0
         && brandSubtitle === 'Discord + Palworld Control Center'
+        && dashboardRoadmap
+        && moduleCenter
+        && legacyModuleCenterHidden
+        && validRoadmapLabels
         && (serverOptions.length === 0 || (serverOptions.length === 1 && serverOptions[0] === 'palworld'));
       return {
         ready,
@@ -92,6 +102,11 @@ async function captureUiState() {
         brandSubtitle,
         forbiddenVisible: uniqueForbidden,
         serverOptions,
+        dashboardRoadmap,
+        moduleCenter,
+        legacyModuleCenterHidden,
+        roadmapLabels,
+        validRoadmapLabels,
         title: document.title
       };
     })();`, true);
