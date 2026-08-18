@@ -1,0 +1,85 @@
+html[data-nexus-product="sentinel"] .sentinel-update-security {
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid rgba(58, 194, 132, 0.2);
+  border-radius: 14px;
+  background: rgba(8, 11, 16, 0.78);
+}
+
+html[data-nexus-product="sentinel"] .sentinel-update-security-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+html[data-nexus-product="sentinel"] .sentinel-update-security-heading h3 {
+  margin: 4px 0 0;
+}
+
+html[data-nexus-product="sentinel"] .sentinel-update-security-heading p {
+  max-width: 850px;
+  margin: 7px 0 0;
+  color: var(--muted, #9ca3af);
+  line-height: 1.45;
+}
+
+html[data-nexus-product="sentinel"] .sentinel-update-security-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+html[data-nexus-product="sentinel"] .sentinel-update-cell {
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+html[data-nexus-product="sentinel"] .sentinel-update-cell span,
+html[data-nexus-product="sentinel"] .sentinel-update-cell small {
+  display: block;
+  color: var(--muted, #9299a7);
+}
+
+html[data-nexus-product="sentinel"] .sentinel-update-cell span {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+html[data-nexus-product="sentinel"] .sentinel-update-cell strong {
+  display: block;
+  margin: 4px 0;
+}
+
+html[data-nexus-product="sentinel"] .sentinel-update-cell small {
+  line-height: 1.35;
+}
+
+html[data-nexus-product="sentinel"] .sentinel-update-notes {
+  margin-top: 12px;
+}
+
+html[data-nexus-product="sentinel"] .sentinel-update-notes pre {
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: #abb2bf;
+}
+
+@media (max-width: 1100px) {
+  html[data-nexus-product="sentinel"] .sentinel-update-security-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  html[data-nexus-product="sentinel"] .sentinel-update-security-grid {
+    grid-template-columns: 1fr;
+  }
+}
