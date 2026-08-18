@@ -21,7 +21,10 @@ function response({ status = 200, json, text, bytes }) {
     body: null,
     async json() { return json; },
     async text() { return text ?? Buffer.from(bytes || []).toString('utf8'); },
-    async arrayBuffer() { return Buffer.from(bytes || []).buffer.slice(Buffer.from(bytes || []).byteOffset, Buffer.from(bytes || []).byteOffset + Buffer.from(bytes || []).byteLength); }
+    async arrayBuffer() {
+      const buffer = Buffer.from(bytes || []);
+      return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+    }
   };
 }
 
