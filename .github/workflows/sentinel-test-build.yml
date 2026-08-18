@@ -4,6 +4,8 @@ on:
   workflow_dispatch:
   push:
     branches: ["build/sentinel-roadmap-complete"]
+  pull_request:
+    branches: ["split/nexus-sentinel"]
 
 permissions:
   contents: read
