@@ -55,6 +55,34 @@ test('standalone entry loads D&D, Discord Store policy and Veyra but not game-se
   }
 });
 
+test('standalone startup never imports the legacy Nexus profile or blocks behind the old splash gate', () => {
+  const source = read('main/entry-dnd-standalone.cjs');
+  assert.match(source, /KHAOS_PRODUCT_SCOPE = 'dnd-standalone'/);
+  assert.match(source, /Nexus D&D Standalone/);
+  assert.match(source, /app\.setPath\('userData'/);
+
+  for (const forbidden of [
+    'startup-profile-recovery-extension.cjs',
+    'startup-health-extension.cjs',
+    'startup-core-release-extension.cjs',
+    'startup-window-gate-extension.cjs'
+  ]) {
+    assert.doesNotMatch(source, new RegExp(forbidden.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+});
+
+test('packaged D&D smoke evidence requires a visible usable D&D window', () => {
+  const source = read('main/startup-smoke-evidence-extension.cjs');
+  assert.match(source, /mainWindowVisible/);
+  assert.match(source, /rendererReady/);
+  assert.match(source, /product === 'dnd-standalone'/);
+  assert.match(source, /brand === 'Nexus D&D'/);
+  assert.match(source, /activeView === 'view-dnd'/);
+  assert.match(source, /forbiddenVisible\.length === 0/);
+  assert.match(source, /isolatedProfile/);
+  assert.doesNotMatch(source, /startupHealth\.publicState/);
+});
+
 test('standalone desktop supervisor spawns only the dedicated D&D Discord worker', () => {
   const source = read('main/dnd-standalone-bot-supervisor-boundary-extension.cjs');
   assert.match(source, /class DndStandaloneBotSupervisor extends Original/);
