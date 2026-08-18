@@ -31,6 +31,9 @@ if (diagnosticsMode) {
   if (!hasSingleInstanceLock) {
     app.quit();
   } else {
+    // Complete Windows lifecycle behavior before the primary window is created.
+    installTracked('./sentinel-lifecycle-extension.cjs');
+
     // Desktop reliability, recovery, diagnostics and protected local access.
     installTracked('./software-rendering-extension.cjs');
     installTracked('./startup-profile-recovery-extension.cjs');
@@ -51,7 +54,7 @@ if (diagnosticsMode) {
     installTracked('./brand-update-extension.cjs');
 
     // Keep the mobile companion explicitly held. It is not an active module in
-    // the Discord + Palworld test scope.
+    // the Discord + Palworld acceptance scope.
     installTracked('./mobile-production-hold-extension.cjs');
 
     // Owner-controlled module/runtime foundation. The Sentinel scope extension
@@ -79,8 +82,8 @@ if (diagnosticsMode) {
     installTracked('./nexus-core-foundation-extension.cjs');
 
     // Final product boundary: Palworld-only server runtime, disabled deferred
-    // modules, Nexus Sentinel branding, simplified desktop navigation, and an
-    // operational module/test roadmap with no D&D surfaces.
+    // modules, Nexus Sentinel branding, simplified desktop navigation, and the
+    // operational acceptance roadmap with no D&D surfaces.
     installTracked('./sentinel-scope-extension.cjs');
 
     // Application Monitor is an owner-only diagnostic surface in Sentinel.
@@ -91,9 +94,9 @@ if (diagnosticsMode) {
     // installs the Discord/module/status runtimes before delegating to bot/index.cjs.
     installTracked('./sentinel-bot-supervisor-boundary-extension.cjs');
 
-    // This split branch is a test product. Never let the legacy monolith release
-    // feed replace it before Sentinel has its own production release channel.
-    installTracked('./sentinel-test-update-boundary-extension.cjs');
+    // Dedicated Sentinel release channel. Updates are hash-verified, backed up,
+    // staged, startup-health checked, and automatically rolled back on failure.
+    installTracked('./sentinel-production-update-extension.cjs');
 
     if (smokeEvidence) {
       try { smokeEvidence.writePhase('extensions-installed', { enteringMain: true }); } catch {}
