@@ -82,7 +82,10 @@ async function captureUiState() {
       const legacyModuleCenter = document.getElementById('nexusModuleCenter');
       const legacyModuleCenterHidden = !legacyModuleCenter || !visible(legacyModuleCenter);
       const roadmapLabels = [...document.querySelectorAll('#sentinelModuleCenter .sentinel-module-status')].map((node) => String(node.textContent || '').trim());
-      const validRoadmapLabels = roadmapLabels.every((label) => ['Operational','Migrate in progress','Disabled','Blocked'].includes(label));
+      const moduleCardCount = document.querySelectorAll('#sentinelModuleCenter [data-sentinel-module]').length;
+      const validRoadmapLabels = roadmapLabels.length > 0
+        && roadmapLabels.length === moduleCardCount
+        && roadmapLabels.every((label) => ['Operational','Migrate in progress','Disabled','Blocked'].includes(label));
       const uniqueForbidden = [...new Set(forbiddenVisible)];
       const ready = product === 'sentinel'
         && guard === 'active'
@@ -91,6 +94,7 @@ async function captureUiState() {
         && brandSubtitle === 'Discord + Palworld Control Center'
         && dashboardRoadmap
         && moduleCenter
+        && moduleCardCount > 0
         && legacyModuleCenterHidden
         && validRoadmapLabels
         && (serverOptions.length === 0 || (serverOptions.length === 1 && serverOptions[0] === 'palworld'));
@@ -104,6 +108,7 @@ async function captureUiState() {
         serverOptions,
         dashboardRoadmap,
         moduleCenter,
+        moduleCardCount,
         legacyModuleCenterHidden,
         roadmapLabels,
         validRoadmapLabels,
