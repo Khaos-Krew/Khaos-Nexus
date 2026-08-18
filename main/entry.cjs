@@ -31,10 +31,8 @@ if (diagnosticsMode) {
   if (!hasSingleInstanceLock) {
     app.quit();
   } else {
-    // Complete Windows lifecycle behavior before the primary window is created.
     installTracked('./sentinel-lifecycle-extension.cjs');
 
-    // Desktop reliability, recovery, diagnostics and protected local access.
     installTracked('./software-rendering-extension.cjs');
     installTracked('./startup-profile-recovery-extension.cjs');
     installTracked('./startup-health-extension.cjs');
@@ -53,18 +51,12 @@ if (diagnosticsMode) {
     installTracked('./access-recovery-extension.cjs');
     installTracked('./brand-update-extension.cjs');
 
-    // Keep the mobile companion explicitly held. It is not an active module in
-    // the Discord + Palworld acceptance scope.
     installTracked('./mobile-production-hold-extension.cjs');
 
-    // Owner-controlled module/runtime foundation. The Sentinel scope extension
-    // below forces every non-Discord/non-Palworld module inactive while keeping
-    // its stored configuration recoverable for a future re-enable.
     installTracked('./module-foundation-extension.cjs');
     installTracked('./local-module-authority-extension.cjs');
     installTracked('./module-runtime-extension.cjs');
 
-    // Active product capabilities: Discord management and Palworld moderation.
     installTracked('./palworld-main-extension.cjs');
     installTracked('./discord-studio-extension.cjs');
     installTracked('./discord-automation-extension.cjs');
@@ -74,29 +66,19 @@ if (diagnosticsMode) {
     installTracked('./rcon-validation-extension.cjs');
     installTracked('./audit-repair-extension.cjs');
 
-    // Typed Palworld adapter + Nexus Core safety foundation used by destructive
-    // Palworld operations. The legacy live-migration layer is intentionally not
-    // loaded because it patches hosted-server/autonomy services removed from
-    // the Sentinel product.
     installTracked('./game-adapter-runtime-extension.cjs');
     installTracked('./nexus-core-foundation-extension.cjs');
 
-    // Final product boundary: Palworld-only server runtime, disabled deferred
-    // modules, Nexus Sentinel branding, simplified desktop navigation, and the
-    // operational acceptance roadmap with no D&D surfaces.
     installTracked('./sentinel-scope-extension.cjs');
-
-    // Application Monitor is an owner-only diagnostic surface in Sentinel.
-    // Install this before main.cjs registers the inherited monitor IPC handlers.
     installTracked('./sentinel-owner-monitor-boundary-extension.cjs');
-
-    // Force the shared desktop supervisor to start the Sentinel wrapper, which
-    // installs the Discord/module/status runtimes before delegating to bot/index.cjs.
     installTracked('./sentinel-bot-supervisor-boundary-extension.cjs');
 
-    // Dedicated Sentinel release channel. Updates are hash-verified, backed up,
-    // staged, startup-health checked, and automatically rolled back on failure.
+    // Dedicated Sentinel release channel. Updates are hash-verified, protected
+    // by a verified backup, startup-health checked, and automatically rolled
+    // back. The settings bridge keeps periodic checks synchronized with the
+    // user's existing Check Updates preference.
     installTracked('./sentinel-production-update-extension.cjs');
+    installTracked('./sentinel-update-settings-bridge-extension.cjs');
 
     if (smokeEvidence) {
       try { smokeEvidence.writePhase('extensions-installed', { enteringMain: true }); } catch {}
