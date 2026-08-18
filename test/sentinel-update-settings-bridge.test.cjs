@@ -16,6 +16,13 @@ test('Sentinel background update checks follow the existing desktop preference',
   assert.match(source, /setGeneral\(\.\.\.args\)/);
 });
 
+test('Sentinel packaged smoke can suppress release-network traffic without changing production defaults', () => {
+  assert.match(source, /KHAOS_DISABLE_UPDATE_NETWORK/);
+  assert.match(source, /status: 'suppressed'/);
+  assert.match(source, /if \(!updateNetworkSuppressed\(\)\) return super\.check/);
+  assert.match(source, /!updateNetworkSuppressed\(\) && Boolean/);
+});
+
 test('Sentinel update settings bridge wraps the production updater before main constructs services', () => {
   const updater = entry.indexOf("sentinel-production-update-extension.cjs");
   const bridge = entry.indexOf("sentinel-update-settings-bridge-extension.cjs");
