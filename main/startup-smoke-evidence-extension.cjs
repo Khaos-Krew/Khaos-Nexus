@@ -71,8 +71,12 @@ async function captureUiState() {
         const view = String(valueFor(node));
         if (forbidden.has(view) && visible(node)) forbiddenVisible.push(view);
       });
+
       const serverGame = document.getElementById('serverGame');
       const serverOptions = serverGame ? [...serverGame.options].map((option) => option.value) : [];
+      const serverIntro = String(document.querySelector('#view-servers .section-intro p')?.textContent || '').trim();
+      const emptyServerHeading = String(document.querySelector('#view-servers .empty-state h3')?.textContent || '').trim();
+      const legacyBaseModuleVisible = [...document.querySelectorAll('#view-modules > .section-intro, #view-modules > .migration-panel, #view-modules > #moduleGrid, #view-modules > .callout')].some(visible);
       const brandSubtitle = String(document.querySelector('.brand span')?.textContent || '').trim();
       const product = String(document.documentElement.dataset.nexusProduct || '');
       const guard = String(document.documentElement.dataset.sentinelUiGuard || '');
@@ -87,6 +91,9 @@ async function captureUiState() {
         && roadmapLabels.length === moduleCardCount
         && roadmapLabels.every((label) => ['Operational','Migrate in progress','Disabled','Blocked'].includes(label));
       const uniqueForbidden = [...new Set(forbiddenVisible)];
+      const serverCopyScoped = /Palworld/i.test(serverIntro)
+        && !/ARK|generic Source RCON/i.test(serverIntro)
+        && (!emptyServerHeading || emptyServerHeading === 'No Palworld servers configured');
       const ready = product === 'sentinel'
         && guard === 'active'
         && scopeReady === 'true'
@@ -96,7 +103,9 @@ async function captureUiState() {
         && moduleCenter
         && moduleCardCount > 0
         && legacyModuleCenterHidden
+        && !legacyBaseModuleVisible
         && validRoadmapLabels
+        && serverCopyScoped
         && (serverOptions.length === 0 || (serverOptions.length === 1 && serverOptions[0] === 'palworld'));
       return {
         ready,
@@ -106,10 +115,14 @@ async function captureUiState() {
         brandSubtitle,
         forbiddenVisible: uniqueForbidden,
         serverOptions,
+        serverIntro,
+        emptyServerHeading,
+        serverCopyScoped,
         dashboardRoadmap,
         moduleCenter,
         moduleCardCount,
         legacyModuleCenterHidden,
+        legacyBaseModuleVisible,
         roadmapLabels,
         validRoadmapLabels,
         title: document.title
