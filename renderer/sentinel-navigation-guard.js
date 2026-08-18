@@ -28,6 +28,17 @@
     'data-khaos-open'
   ]);
 
+  const RELEVANT_SELECTOR = [
+    '.sidebar',
+    '.brand',
+    '#nexusNavigation',
+    '#nexusStaticNavigation',
+    '#nexusCommandPalette',
+    '#serverGame',
+    '[id^="view-"]',
+    ...VIEW_ATTRIBUTES.map((attribute) => `[${attribute}]`)
+  ].join(',');
+
   let applyQueued = false;
 
   function setText(node, value) {
@@ -135,6 +146,16 @@
     queueMicrotask(apply);
   }
 
+  function relevantNode(node) {
+    if (!node || node.nodeType !== 1) return false;
+    return Boolean(node.matches?.(RELEVANT_SELECTOR) || node.querySelector?.(RELEVANT_SELECTOR));
+  }
+
+  function relevantMutation(mutation) {
+    if (mutation.target?.closest?.('.brand, .sidebar, #nexusCommandPalette')) return true;
+    return [...mutation.addedNodes, ...mutation.removedNodes].some(relevantNode);
+  }
+
   window.applyNexusSentinelNavigationGuard = apply;
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', apply, { once: true });
@@ -143,7 +164,9 @@
   window.addEventListener('load', scheduleApply, { once: true });
   window.addEventListener('khaos:features-ready', scheduleApply);
 
-  const observer = new MutationObserver(scheduleApply);
+  const observer = new MutationObserver((mutations) => {
+    if (mutations.some(relevantMutation)) scheduleApply();
+  });
   observer.observe(document.documentElement, { childList: true, subtree: true });
   window.addEventListener('beforeunload', () => observer.disconnect(), { once: true });
 })();
