@@ -16,6 +16,10 @@ concurrency:
 
 jobs:
   build-windows:
+    # Sentinel PRs build and smoke-test their own scoped Windows product in
+    # sentinel-test-build.yml. This generic job freezes and tests the monolith
+    # candidate, including D&D/AI code intentionally excluded from Sentinel.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'split/nexus-sentinel' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

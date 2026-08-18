@@ -20,11 +20,7 @@ function writePayload(payload) {
   const target = evidencePath();
   const temporary = `${target}.${process.pid}.tmp`;
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(temporary, JSON.stringify({
-    capturedAt: new Date().toISOString(),
-    processId: process.pid,
-    ...payload
-  }, null, 2), 'utf8');
+  fs.writeFileSync(temporary, JSON.stringify({ capturedAt: new Date().toISOString(), processId: process.pid, ...payload }, null, 2), 'utf8');
   try { fs.renameSync(temporary, target); }
   catch {
     fs.rmSync(target, { force: true });
@@ -82,6 +78,8 @@ async function captureUiState() {
       const guard = String(document.documentElement.dataset.sentinelUiGuard || '');
       const scopeReady = String(document.documentElement.dataset.sentinelUiReady || '');
       const dashboardRoadmap = Boolean(document.getElementById('sentinelTestRoadmap'));
+      const roadmapCompleteBadge = String(document.querySelector('#sentinelTestRoadmap .sentinel-roadmap-complete')?.textContent || '').trim();
+      const readinessCenter = Boolean(document.getElementById('view-readiness') && document.getElementById('runLocalSelfTestButton'));
       const moduleCenter = Boolean(document.getElementById('sentinelModuleCenter'));
       const legacyModuleCenter = document.getElementById('nexusModuleCenter');
       const legacyModuleCenterHidden = !legacyModuleCenter || !visible(legacyModuleCenter);
@@ -89,7 +87,7 @@ async function captureUiState() {
       const moduleCardCount = document.querySelectorAll('#sentinelModuleCenter [data-sentinel-module]').length;
       const validRoadmapLabels = roadmapLabels.length > 0
         && roadmapLabels.length === moduleCardCount
-        && roadmapLabels.every((label) => ['Operational','Migrate in progress','Disabled','Blocked'].includes(label));
+        && roadmapLabels.every((label) => ['Operational','Disabled','Blocked'].includes(label));
       const uniqueForbidden = [...new Set(forbiddenVisible)];
       const serverCopyScoped = /Palworld/i.test(serverIntro)
         && !/ARK|generic Source RCON/i.test(serverIntro)
@@ -100,6 +98,8 @@ async function captureUiState() {
         && uniqueForbidden.length === 0
         && brandSubtitle === 'Discord + Palworld Control Center'
         && dashboardRoadmap
+        && roadmapCompleteBadge === '11 phases implemented'
+        && readinessCenter
         && moduleCenter
         && moduleCardCount > 0
         && legacyModuleCenterHidden
@@ -119,6 +119,8 @@ async function captureUiState() {
         emptyServerHeading,
         serverCopyScoped,
         dashboardRoadmap,
+        roadmapCompleteBadge,
+        readinessCenter,
         moduleCenter,
         moduleCardCount,
         legacyModuleCenterHidden,
@@ -129,10 +131,7 @@ async function captureUiState() {
       };
     })();`, true);
   } catch (error) {
-    latestUiState = {
-      ready: false,
-      error: String(error?.message || error).slice(0, 500)
-    };
+    latestUiState = { ready: false, error: String(error?.message || error).slice(0, 500) };
   } finally {
     uiCaptureInFlight = false;
   }

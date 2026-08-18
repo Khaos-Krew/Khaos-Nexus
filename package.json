@@ -1,18 +1,18 @@
 {
   "name": "khaos-nexus",
-  "version": "0.32.0",
-  "description": "Local-first Khaos Nexus desktop command center with Nexus Sentinel for Discord community administration, Palworld server status, players, saves, announcements, moderation, metrics, backups, diagnostics, and protected local operator controls.",
+  "version": "0.33.0",
+  "description": "Local-first Khaos Nexus desktop command center with Nexus Sentinel for Discord community administration, Palworld server status, players, saves, announcements, moderation, metrics, integrity-checked backups, automatic rollback updates, diagnostics, and protected local operator controls.",
   "main": "main/entry.cjs",
   "author": "Khaos Krew",
   "license": "MIT",
   "private": true,
   "khaosRelease": {
-    "displayVersion": "0.32.0-SENTINEL-ROADMAP",
-    "artifactVersion": "0.32.0-SENTINEL-ROADMAP",
-    "publicTag": "v0.32.0-sentinel-roadmap",
+    "displayVersion": "0.33.0-SENTINEL-RC1",
+    "artifactVersion": "0.33.0-SENTINEL-RC1",
+    "publicTag": "v0.33.0-sentinel-rc1",
     "channel": "test",
-    "updaterVersion": "0.32.0",
-    "rollbackTag": "v0.31.0-B"
+    "updaterVersion": "0.33.0",
+    "rollbackTag": "v0.32.0-sentinel-roadmap"
   },
   "scripts": {
     "start": "node scripts/materialize-assets.cjs && electron .",
@@ -37,7 +37,7 @@
     "productName": "Khaos Nexus",
     "electronUpdaterCompatibility": ">=2.16",
     "releaseInfo": {
-      "releaseName": "Khaos Nexus — Nexus Sentinel Discord + Palworld Roadmap Acceptance"
+      "releaseName": "Khaos Nexus — Nexus Sentinel Discord + Palworld Complete Roadmap RC1"
     },
     "directories": {
       "output": "dist",
@@ -61,6 +61,7 @@
       "!shared/hosted-server-*",
       "!renderer/hosted-server-*",
       "!main/nexus-core-live-migrations-extension.cjs",
+      "!main/sentinel-test-update-boundary-extension.cjs",
       "!main/**/*pterodactyl*",
       "!bot/**/*pterodactyl*",
       "!shared/**/*pterodactyl*",
@@ -86,7 +87,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Khaos Nexus",
-      "artifactName": "Khaos-Nexus-Sentinel-Setup-0.32.0-ROADMAP-${arch}.${ext}",
+      "artifactName": "Khaos-Nexus-Sentinel-Setup-0.33.0-RC1-${arch}.${ext}",
       "include": "assets/installer.nsh"
     },
     "publish": [
@@ -99,7 +100,7 @@
       }
     ],
     "portable": {
-      "artifactName": "Khaos-Nexus-Sentinel-Portable-0.32.0-ROADMAP-${arch}.${ext}"
+      "artifactName": "Khaos-Nexus-Sentinel-Portable-0.33.0-RC1-${arch}.${ext}"
     }
   }
 }

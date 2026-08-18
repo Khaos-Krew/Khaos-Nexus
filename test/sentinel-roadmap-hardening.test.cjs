@@ -16,6 +16,7 @@ test('Sentinel scopes catalog names and Application Monitor role at the product 
   assert.match(source, /name: 'Palworld Status Panels'/);
   assert.match(source, /'application-monitor':[\s\S]*requiredRole: 'owner'/);
   assert.match(source, /Owner-only redacted diagnostics/);
+  assert.match(source, /Backup, Recovery & Update Center/);
   assert.match(source, /sentinel-live-copy\.js/);
 });
 
@@ -29,7 +30,7 @@ test('Sentinel readiness prunes server health that is outside the current Palwor
   assert.match(source, /this\.pruneServerHealth\(\);[\s\S]*super\.checkServers/);
 });
 
-test('Sentinel dynamic renderer copy cannot regress to the pre-split server and module wording', () => {
+test('Sentinel dynamic renderer copy cannot regress to pre-split server and module wording', () => {
   const source = read('renderer/sentinel-live-copy.js');
   assert.match(source, /No Palworld servers configured/);
   assert.match(source, /Palworld REST or legacy RCON/);
@@ -42,8 +43,10 @@ test('Sentinel dynamic renderer copy cannot regress to the pre-split server and 
   assert.doesNotMatch(source, /Add your first ARK/);
 });
 
-test('Sentinel packaged UI requires populated operational module cards and split live copy', () => {
+test('Sentinel packaged UI requires Readiness and completed operational module cards', () => {
   const evidence = read('main/startup-smoke-evidence-extension.cjs');
+  assert.match(evidence, /readinessCenter/);
+  assert.match(evidence, /roadmapCompleteBadge/);
   assert.match(evidence, /moduleCardCount/);
   assert.match(evidence, /moduleCardCount > 0/);
   assert.match(evidence, /roadmapLabels\.length === moduleCardCount/);
@@ -51,12 +54,12 @@ test('Sentinel packaged UI requires populated operational module cards and split
   assert.match(evidence, /serverCopyScoped/);
   assert.match(evidence, /No Palworld servers configured/);
   assert.match(evidence, /Operational/);
-  assert.match(evidence, /Migrate in progress/);
   assert.match(evidence, /Disabled/);
   assert.match(evidence, /Blocked/);
+  assert.doesNotMatch(evidence, /\['Operational','Migrate in progress'/);
 });
 
-test('Sentinel roadmap contains a staged home acceptance path and smoother update plan', () => {
+test('Sentinel roadmap contains staged home acceptance path and protected update plan', () => {
   const roadmap = read('docs/NEXUS-SENTINEL-TEST-ROADMAP.md');
   assert.match(roadmap, /Product boundary and first launch/);
   assert.match(roadmap, /Discord identity and Nexus Sentinel runtime/);
