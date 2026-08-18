@@ -8,9 +8,13 @@
     'discord-audit-logging', 'discord-observability', 'palworld-companion', 'admin-command-center'
   ]);
   const HIDDEN_VIEWS = new Set([
-    'dnd', 'ai-services', 'nexus-ai', 'scheduler', 'hosted-servers', 'mobile-companion',
+    'dnd', 'ai', 'ai-services', 'nexus-ai', 'scheduler', 'hosted-servers', 'mobile', 'mobile-companion',
     'rust', 'satisfactory'
   ]);
+  const RELEVANT_SELECTOR = '.brand, [data-view], [data-view-link], #serverGame, #serverEditor, #nexusModuleCenter, #view-dashboard, #view-setup, #view-servers';
+
+  let scopeTimer = null;
+  let applying = false;
 
   function setNodeText(node, value) {
     if (!node) return;
@@ -24,7 +28,7 @@
 
   function scopeStaticShell() {
     document.documentElement.dataset.nexusProduct = 'sentinel';
-    document.title = 'Khaos Nexus';
+    document.title = 'Khaos Nexus — Nexus Sentinel';
     setText('.brand strong', 'Khaos Nexus');
     setText('.brand span', 'Discord + Palworld Control Center');
     setText('#viewSubtitle', 'Run Nexus Sentinel, Discord automation, and Palworld moderation from this PC.');
@@ -47,7 +51,7 @@
 
     document.querySelectorAll('[data-view], [data-view-link]').forEach((node) => {
       const view = String(node.dataset.view || node.dataset.viewLink || '');
-      if (HIDDEN_VIEWS.has(view)) node.classList.add('sentinel-hidden');
+      node.classList.toggle('sentinel-hidden', HIDDEN_VIEWS.has(view));
     });
 
     document.querySelectorAll('#view-modules .migration-panel, #view-modules .module-migration-panel, #view-modules [data-module-migration]').forEach((migration) => {
@@ -57,7 +61,7 @@
     const quickCards = document.querySelectorAll('#view-dashboard .quick-card');
     quickCards.forEach((card) => {
       const value = card.textContent || '';
-      if (/Game Servers/i.test(value)) {
+      if (/Game Servers|Palworld Servers/i.test(value)) {
         setNodeText(card.querySelector('strong'), 'Palworld Servers');
         setNodeText(card.querySelector('span'), 'Status, players, saves, moderation and server controls');
       }
@@ -93,16 +97,9 @@
     }
   }
 
-  function scopeModuleCenter() {
+  function scopeLegacyModuleCenter() {
     const center = document.getElementById('nexusModuleCenter');
     if (!center) return;
-
-    const hero = center.querySelector('.module-hero-copy');
-    if (hero) {
-      setNodeText(hero.querySelector('.eyebrow'), 'Active Product Scope');
-      setNodeText(hero.querySelector('h2'), 'Discord + Palworld Modules');
-      setNodeText(hero.querySelector('p'), 'Only the Discord, Palworld, moderation, monitoring, backup, and status modules needed for the current deployment are active. Deferred game modules remain disabled for later.');
-    }
 
     const exportButton = document.getElementById('moduleExportButton');
     if (exportButton) exportButton.classList.add('sentinel-hidden');
@@ -110,30 +107,44 @@
     center.querySelectorAll('[data-module-id]').forEach((card) => {
       if (!ACTIVE_MODULES.has(String(card.dataset.moduleId || ''))) card.classList.add('sentinel-hidden');
     });
-
-    const detail = document.getElementById('nexusModuleDetail');
-    if (detail) {
-      const selected = document.querySelector('.nexus-module-card.selected')?.dataset?.moduleId;
-      if (selected && !ACTIVE_MODULES.has(selected)) detail.classList.add('sentinel-hidden');
-      else detail.classList.remove('sentinel-hidden');
-    }
-
-    const search = document.getElementById('moduleSearchInput');
-    if (search && search.placeholder !== 'Search Discord, Palworld, moderation, status…') {
-      search.placeholder = 'Search Discord, Palworld, moderation, status…';
-    }
   }
 
   function apply() {
-    scopeStaticShell();
-    scopeServerEditor();
-    scopeModuleCenter();
+    if (applying) return;
+    applying = true;
+    try {
+      scopeStaticShell();
+      scopeServerEditor();
+      scopeLegacyModuleCenter();
+      window.applyNexusSentinelNavigationGuard?.();
+    } finally {
+      applying = false;
+    }
+  }
+
+  function scheduleApply() {
+    clearTimeout(scopeTimer);
+    scopeTimer = setTimeout(() => {
+      scopeTimer = null;
+      apply();
+    }, 50);
+  }
+
+  function relevantNode(node) {
+    if (!node || node.nodeType !== 1) return false;
+    return Boolean(node.matches?.(RELEVANT_SELECTOR) || node.querySelector?.(RELEVANT_SELECTOR));
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', apply, { once: true });
   else queueMicrotask(apply);
 
-  const observer = new MutationObserver(apply);
+  const observer = new MutationObserver((mutations) => {
+    if (mutations.some((mutation) => [...mutation.addedNodes, ...mutation.removedNodes].some(relevantNode))) scheduleApply();
+  });
   observer.observe(document.documentElement, { childList: true, subtree: true });
-  setTimeout(() => observer.disconnect(), 20000);
+  setTimeout(() => observer.disconnect(), 12000);
+  window.addEventListener('beforeunload', () => {
+    observer.disconnect();
+    clearTimeout(scopeTimer);
+  }, { once: true });
 })();
