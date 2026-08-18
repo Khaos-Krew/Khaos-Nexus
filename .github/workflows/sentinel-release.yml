@@ -54,6 +54,7 @@ jobs:
           node --check main/sentinel-production-update-extension.cjs
           node --check main/sentinel-update-settings-bridge-extension.cjs
           node --check main/sentinel-lifecycle-extension.cjs
+          node --check main/startup-smoke-evidence-extension.cjs
           node --check renderer/sentinel-scope.js
           node --check renderer/sentinel-navigation-guard.js
           node --check renderer/sentinel-roadmap.js
@@ -116,6 +117,52 @@ jobs:
           if (-not $manifest.assets."Khaos-Nexus-Sentinel-Setup-$version-x64.exe".sha256) { throw 'Installer digest is missing.' }
           if (-not $manifest.assets."Khaos-Nexus-Sentinel-Portable-$version-x64.exe".sha256) { throw 'Portable digest is missing.' }
 
+      - name: Smoke-launch production Sentinel portable
+        shell: pwsh
+        run: |
+          $version = '${{ steps.release.outputs.version }}'
+          $portable = Get-ChildItem dist -Filter "Khaos-Nexus-Sentinel-Portable-$version-x64.exe" | Select-Object -First 1
+          if (-not $portable) { throw 'Production Sentinel portable executable was not produced.' }
+          $evidence = Join-Path $env:RUNNER_TEMP 'nexus-sentinel-release-smoke.json'
+          Remove-Item $evidence -Force -ErrorAction SilentlyContinue
+          $env:KHAOS_PACKAGED_STARTUP_SMOKE = '1'
+          $env:KHAOS_PACKAGED_STARTUP_SMOKE_FILE = $evidence
+          $env:KHAOS_DISABLE_UPDATE_NETWORK = '1'
+          $process = Start-Process -FilePath $portable.FullName -PassThru
+          try {
+            $deadline = (Get-Date).AddSeconds(90)
+            $state = $null
+            $ui = $null
+            while ((Get-Date) -lt $deadline) {
+              Start-Sleep -Milliseconds 500
+              if (Test-Path $evidence) {
+                try {
+                  $payload = Get-Content $evidence -Raw | ConvertFrom-Json
+                  $state = $payload.state
+                  $ui = $payload.ui
+                } catch {}
+                if ($state -and $state.completed -and $ui -and $ui.ready) { break }
+              }
+              if ($process.HasExited) { throw "Production Sentinel exited before startup acceptance (exit $($process.ExitCode))." }
+            }
+            if (-not $state -or -not $state.completed) { throw 'Production Sentinel did not complete packaged startup health.' }
+            $criticalFailures = @($state.checks | Where-Object { $_.critical -and $_.status -eq 'fail' })
+            if ($criticalFailures.Count -gt 0) {
+              $detail = ($criticalFailures | ForEach-Object { "$($_.id): $($_.detail)" }) -join '; '
+              throw "Production Sentinel has critical startup failures: $detail"
+            }
+            if (-not $ui -or -not $ui.ready) { throw 'Production Sentinel final renderer acceptance failed.' }
+            if ($ui.product -ne 'sentinel') { throw 'Production executable is not scoped as Sentinel.' }
+            if ($ui.brandSubtitle -ne 'Discord + Palworld Control Center') { throw 'Production Sentinel branding is incorrect.' }
+            if (-not $ui.updateSecurity) { throw 'Production Sentinel updater security panel did not render.' }
+            if (@($ui.forbiddenVisible).Count -gt 0) { throw "Production Sentinel exposed deferred views: $(@($ui.forbiddenVisible) -join ', ')." }
+          } finally {
+            if ($process -and -not $process.HasExited) { taskkill /PID $process.Id /T /F 2>$null | Out-Null }
+            Remove-Item Env:KHAOS_PACKAGED_STARTUP_SMOKE -ErrorAction SilentlyContinue
+            Remove-Item Env:KHAOS_PACKAGED_STARTUP_SMOKE_FILE -ErrorAction SilentlyContinue
+            Remove-Item Env:KHAOS_DISABLE_UPDATE_NETWORK -ErrorAction SilentlyContinue
+          }
+
       - name: Create Sentinel GitHub release
         shell: pwsh
         env:
@@ -133,10 +180,17 @@ jobs:
           "@
           gh release view $tag 2>$null
           if ($LASTEXITCODE -eq 0) { throw "Release $tag already exists. Refusing to overwrite a production Sentinel release." }
-          gh release create $tag `
-            "dist/Khaos-Nexus-Sentinel-Setup-$version-x64.exe" `
-            "dist/Khaos-Nexus-Sentinel-Portable-$version-x64.exe" `
-            "dist/Khaos-Nexus-Sentinel-$version-sha256.json" `
-            --title $title `
-            --notes $notes `
-            --latest=false
+          $args = @(
+            'release', 'create', $tag,
+            "dist/Khaos-Nexus-Sentinel-Setup-$version-x64.exe",
+            "dist/Khaos-Nexus-Sentinel-Portable-$version-x64.exe",
+            "dist/Khaos-Nexus-Sentinel-$version-sha256.json",
+            '--title', $title,
+            '--notes', $notes,
+            '--latest=false'
+          )
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            $args += @('--target', '${{ github.sha }}')
+          }
+          & gh @args
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
