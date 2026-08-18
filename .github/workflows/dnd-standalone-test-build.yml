@@ -38,6 +38,7 @@ jobs:
           node --check main/entry-dnd-standalone.cjs
           node --check main/dnd-standalone-shell-extension.cjs
           node --check main/renderer-asset-loader.cjs
+          node --check main/startup-smoke-evidence-extension.cjs
           node --check renderer/dnd-standalone-shell.js
 
       - name: Run D&D and local AI tests
@@ -69,8 +70,9 @@ jobs:
           $process = Start-Process -FilePath $portable.FullName -PassThru
 
           try {
-            $deadline = (Get-Date).AddSeconds(80)
+            $deadline = (Get-Date).AddSeconds(60)
             $state = $null
+            $readySince = $null
             while ((Get-Date) -lt $deadline) {
               Start-Sleep -Milliseconds 500
               if (Test-Path $evidence) {
@@ -78,23 +80,35 @@ jobs:
                   $payload = Get-Content $evidence -Raw | ConvertFrom-Json
                   $state = $payload.state
                 } catch {}
-                if ($state -and $state.completed) { break }
+
+                if ($state -and $state.ready) {
+                  if (-not $readySince) { $readySince = Get-Date }
+                  if (((Get-Date) - $readySince).TotalSeconds -ge 3) { break }
+                } else {
+                  $readySince = $null
+                }
               }
-              if ($process.HasExited) { throw "Nexus D&D exited before packaged startup completed (exit $($process.ExitCode))." }
+              if ($process.HasExited) { throw "Nexus D&D exited before its packaged interface became usable (exit $($process.ExitCode))." }
             }
 
             if (-not $state) { throw 'Nexus D&D did not write packaged startup evidence.' }
-            if (-not $state.completed) { throw "Nexus D&D startup did not complete. Phase: $($state.phase); overall: $($state.overall)" }
-            if (-not $state.rendererBridgeReady) { throw 'Nexus D&D renderer IPC bridge did not become ready.' }
-            if (-not $state.rendererModulesReady) { throw 'Nexus D&D renderer feature modules did not become ready.' }
-            if (-not $state.configStoreReady) { throw 'Nexus D&D configuration service did not become ready.' }
-            $criticalFailures = @($state.checks | Where-Object { $_.critical -and $_.status -eq 'fail' })
-            if ($criticalFailures.Count -gt 0) {
-              $detail = ($criticalFailures | ForEach-Object { "$($_.id): $($_.detail)" }) -join '; '
-              throw "Nexus D&D packaged startup has critical failures: $detail"
+            if (-not $state.ready) {
+              throw "Nexus D&D never reached a usable packaged interface. found=$($state.mainWindowFound), visible=$($state.mainWindowVisible), rendererReady=$($state.rendererReady), product=$($state.product), brand='$($state.brand)', activeView=$($state.activeView), isolatedProfile=$($state.isolatedProfile), forbidden='$(@($state.forbiddenVisible) -join ',')', error='$($state.error)'"
             }
-            if ($state.overall -notin @('healthy', 'warning')) { throw "Unexpected Nexus D&D startup health: $($state.overall)" }
-            Write-Host "Packaged Nexus D&D startup passed: $($state.overall) / $($state.phase)"
+            if (-not $readySince -or ((Get-Date) - $readySince).TotalSeconds -lt 3) {
+              throw 'Nexus D&D reached ready state but did not remain stable for three seconds.'
+            }
+            if (-not $state.mainWindowVisible) { throw 'Nexus D&D main window remained hidden behind a loading/startup gate.' }
+            if (-not $state.rendererReady) { throw 'Nexus D&D renderer did not become usable.' }
+            if ($state.product -ne 'dnd-standalone') { throw "Unexpected product marker: $($state.product)" }
+            if ($state.brand -ne 'Nexus D&D') { throw "Unexpected D&D brand: $($state.brand)" }
+            if ($state.activeView -ne 'view-dnd') { throw "D&D did not open on the Campaigns workspace: $($state.activeView)" }
+            if (-not $state.isolatedProfile) { throw "D&D is not using the isolated profile: $($state.userDataPath)" }
+            if (@($state.forbiddenVisible).Count -gt 0) { throw "Non-D&D workspaces remain visible: $(@($state.forbiddenVisible) -join ', ')" }
+
+            Write-Host "Packaged Nexus D&D interface passed and stayed usable for three seconds."
+            Write-Host "Profile: $($state.userDataPath)"
+            Write-Host "Visible navigation: $(@($state.visibleNavViews) -join ', ')"
           } catch {
             Write-Host '--- Nexus D&D packaged startup evidence ---'
             if (Test-Path $evidence) { Get-Content $evidence -Raw | Write-Host }
