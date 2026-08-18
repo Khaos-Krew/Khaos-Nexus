@@ -17,6 +17,7 @@ const {
 const RELEASES_URL = 'https://api.github.com/repos/Khaos-Krew/Khaos-Nexus/releases?per_page=50';
 const RELEASE_DOWNLOAD_ROOT = 'https://github.com/Khaos-Krew/Khaos-Nexus/releases/download';
 const ROLLBACK_TIMEOUT_SECONDS = 210;
+const INITIAL_BACKGROUND_STAGE_DELAY_MS = 15000;
 
 let installed = false;
 
@@ -179,6 +180,7 @@ function patchUpdateService() {
       super(...args);
       this.sentinelRelease = null;
       this.rollbackMarker = null;
+      this.initialStageTimer = null;
       this.set({
         product: 'nexus-sentinel',
         updateScope: 'sentinel-only',
@@ -186,6 +188,56 @@ function patchUpdateService() {
         rollbackProtected: true,
         rollbackStatus: 'idle'
       });
+      this.scheduleInitialBackgroundStage();
+    }
+
+    scheduleInitialBackgroundStage() {
+      if (!this.state.automaticChecks || this.mode === 'development' || this.initialStageTimer) return;
+      this.initialStageTimer = this.setTimeoutImpl(() => {
+        this.initialStageTimer = null;
+        this.stageAvailableOrCheck().catch((error) => {
+          this.logger?.warn?.('Initial Sentinel background update staging failed.', { message: error.message || String(error) });
+        });
+      }, INITIAL_BACKGROUND_STAGE_DELAY_MS);
+      this.initialStageTimer?.unref?.();
+    }
+
+    configureAutomaticChecks(enabled, intervalMs = target.UPDATE_INTERVAL_MS) {
+      if (this.automaticTimer) this.clearIntervalImpl(this.automaticTimer);
+      this.automaticTimer = null;
+      if (this.initialStageTimer) this.clearTimeoutImpl(this.initialStageTimer);
+      this.initialStageTimer = null;
+      const active = Boolean(enabled && this.mode !== 'development');
+      this.set({ automaticChecks: active });
+      if (!active) return this.getState();
+      this.automaticTimer = this.setIntervalImpl(() => {
+        this.checkAndStage().catch((error) => this.logger?.warn?.('Scheduled Sentinel update check failed.', { message: error.message || String(error) }));
+      }, Math.max(15 * 60 * 1000, Number(intervalMs) || target.UPDATE_INTERVAL_MS));
+      this.automaticTimer?.unref?.();
+      this.scheduleInitialBackgroundStage();
+      return this.getState();
+    }
+
+    async checkAndStage() {
+      const state = await super.check();
+      if (state.status === 'available') return this.download();
+      return state;
+    }
+
+    async stageAvailableOrCheck() {
+      const state = this.getState();
+      if (state.status === 'available') return this.download();
+      if (['downloading', 'downloaded', 'backing-up', 'installing'].includes(state.status)) return state;
+      return this.checkAndStage();
+    }
+
+    async checkIfDue(maxAgeMs = target.UPDATE_INTERVAL_MS) {
+      const last = this.state.lastCheckedAt ? new Date(this.state.lastCheckedAt).getTime() : 0;
+      if (last && Date.now() - last < maxAgeMs) {
+        if (this.state.status === 'available') return this.download();
+        return this.getState();
+      }
+      return this.checkAndStage();
     }
 
     async findRelease() {
@@ -200,20 +252,6 @@ function patchUpdateService() {
       if (!response.ok) throw new Error(`Sentinel release check failed with status ${response.status}.`);
       const releases = await response.json();
       return selectSentinelRelease(releases, this.state.currentVersion, this.updateChannel || 'stable');
-    }
-
-    async check() {
-      const result = await super.check();
-      if (this.state.automaticChecks && result.status === 'available') {
-        try {
-          this.logger?.info?.('A Sentinel update is available; staging it in the background.', { version: result.version });
-          return await this.download();
-        } catch (error) {
-          this.logger?.warn?.('Automatic Sentinel update staging failed.', { message: error.message || String(error) });
-          throw error;
-        }
-      }
-      return result;
     }
 
     async performCheck() {
@@ -318,6 +356,12 @@ function patchUpdateService() {
         throw new Error(`Sentinel update was cancelled because rollback protection could not be prepared: ${error.message || error}`);
       }
       return super.install();
+    }
+
+    destroy() {
+      if (this.initialStageTimer) this.clearTimeoutImpl(this.initialStageTimer);
+      this.initialStageTimer = null;
+      return super.destroy();
     }
   }
 
