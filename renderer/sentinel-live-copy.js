@@ -4,6 +4,12 @@
   if (window.__nexusSentinelLiveCopyInstalled) return;
   window.__nexusSentinelLiveCopyInstalled = true;
 
+  const MODULE_VIEW_ALIASES = Object.freeze({
+    'operator-console': 'autonomy',
+    'admin-command-center': 'autonomy',
+    'discord-observability': 'observability'
+  });
+
   let scheduled = false;
   let observer = null;
 
@@ -21,6 +27,9 @@
       viewMeta.monitor = ['Application Monitor', 'Owner-only redacted diagnostics, recovery evidence, and optional GitHub reporting.'];
       viewMeta.logs = ['Live Logs', 'Inspect current Nexus Sentinel desktop and Discord runtime activity.'];
       viewMeta.settings = ['Settings', 'Control startup, access, backups, recovery, and local desktop preferences.'];
+      viewMeta.autonomy = ['Operator Console', 'Safe recovery, Palworld maintenance, backups, health checks, and role-based access.'];
+      viewMeta.readiness = ['Readiness Center', 'Verify Nexus Sentinel, Discord, protected storage, backups, and Palworld connectivity.'];
+      viewMeta.observability = ['Discord Observability', 'Route releases, redacted errors, heartbeat, and health events to dedicated Discord channels.'];
     } catch {}
   }
 
@@ -101,12 +110,45 @@
     }
   }
 
+  function patchOperator() {
+    const view = document.getElementById('view-autonomy');
+    if (!view) return;
+    const intro = view.querySelector('.section-intro');
+    if (intro) {
+      setText(intro.querySelector('h2'), 'Operator Console');
+      setText(intro.querySelector('p'), 'Safe recovery, Palworld maintenance, verified backups, health checks, and role-based access.');
+    }
+    setText(document.getElementById('runHealthCheckButton'), 'Check Palworld Servers');
+    setText(view.querySelector('.server-health-list')?.previousElementSibling?.querySelector('h3'), 'Palworld connectivity');
+
+    view.querySelectorAll('strong,small,p,h3').forEach((node) => {
+      const value = String(node.textContent || '');
+      const next = value
+        .replace(/Self-healing bot startup/g, 'Self-healing Sentinel startup')
+        .replace(/Restart the Discord bot during Maintenance Mode/g, 'Restart Nexus Sentinel during Maintenance Mode')
+        .replace(/Game servers are warned and saved/g, 'Palworld servers are warned and saved')
+        .replace(/No server health check has completed/g, 'No Palworld health check has completed')
+        .replace(/RCON connectivity/g, 'Palworld connectivity');
+      if (next !== value) setText(node, next);
+    });
+  }
+
   function patchSettings() {
     const intro = document.querySelector('#view-settings .section-intro');
     if (intro) {
       const heading = intro.querySelector('h2');
       if (heading && /settings/i.test(heading.textContent || '')) setText(heading, 'Nexus Sentinel desktop settings');
     }
+  }
+
+  function openAliasedModule(button) {
+    const moduleId = String(button?.dataset?.sentinelModuleOpen || '');
+    const view = MODULE_VIEW_ALIASES[moduleId];
+    if (!view) return false;
+    const target = document.querySelector(`[data-view="${CSS.escape(view)}"]`) || (view === 'observability' ? document.getElementById('observabilityNavButton') : null);
+    if (!target) return false;
+    target.click();
+    return true;
   }
 
   function apply() {
@@ -116,6 +158,7 @@
     patchSetup();
     patchServers();
     patchModules();
+    patchOperator();
     patchSettings();
   }
 
@@ -124,6 +167,15 @@
     scheduled = true;
     requestAnimationFrame(apply);
   }
+
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-sentinel-module-open]');
+    if (!button || !MODULE_VIEW_ALIASES[button.dataset.sentinelModuleOpen]) return;
+    if (openAliasedModule(button)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  }, true);
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', apply, { once: true });
   else queueMicrotask(apply);
