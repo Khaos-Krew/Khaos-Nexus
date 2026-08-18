@@ -190,6 +190,7 @@ function installRendererAssets() {
     scripts: [
       path.join(__dirname, '..', 'renderer', 'sentinel-scope.js'),
       path.join(__dirname, '..', 'renderer', 'sentinel-navigation-guard.js'),
+      path.join(__dirname, '..', 'renderer', 'sentinel-live-copy.js'),
       path.join(__dirname, '..', 'renderer', 'sentinel-roadmap.js')
     ],
     source: 'sentinel-scope-extension.cjs'
