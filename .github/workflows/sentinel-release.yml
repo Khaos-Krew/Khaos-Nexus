@@ -1,0 +1,88 @@
+name: Nexus Sentinel Release
+
+on:
+  push:
+    tags:
+      - 'v*-sentinel*'
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Validate Sentinel release identity
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          if ($tag -notmatch '^v\d+\.\d+\.\d+-sentinel(?:[-.][a-zA-Z0-9.-]+)?$') {
+            throw "Release tag is not a Nexus Sentinel tag: $tag"
+          }
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          $tagVersion = [regex]::Match($tag, '^v(\d+\.\d+\.\d+)-sentinel').Groups[1].Value
+          if ($pkg.version -ne $tagVersion) {
+            throw "package.json version $($pkg.version) does not match Sentinel tag version $tagVersion"
+          }
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate complete Sentinel roadmap
+        shell: pwsh
+        run: |
+          node --check main/entry.cjs
+          node --check main/sentinel-update-extension.cjs
+          node --check main/sentinel-backup-safety-extension.cjs
+          node --check renderer/readiness.js
+          node --check renderer/sentinel-roadmap-finalizer.js
+          node --test --test-concurrency=1 test/sentinel-scope.test.cjs test/sentinel-roadmap-hardening.test.cjs test/sentinel-roadmap-completion.test.cjs test/sentinel-update-policy.test.cjs test/sentinel-backup-integrity.test.cjs test/palworld-rest.test.cjs test/server-client.test.cjs test/game-adapter-sdk.test.cjs test/player-console.test.cjs test/status-panels.test.cjs test/module-runtime-control.test.cjs test/application-monitor.test.cjs test/discord-auth.test.cjs test/discord-automation.test.cjs test/discord-automation-layout-edge.test.cjs test/discord-observability.test.cjs test/discord-observability-service.test.cjs test/discord-studio.test.cjs test/discord-studio-service.test.cjs test/redaction.test.cjs test/startup-health.test.cjs test/interface-watchdog.test.cjs test/window-visibility.test.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build Windows release assets
+        run: npm run dist:win
+
+      - name: Generate SHA-256 sidecars
+        shell: pwsh
+        run: |
+          Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-*-x64.exe' | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)" | Set-Content -Encoding ascii "$($_.FullName).sha256"
+          }
+
+      - name: Verify updater release payload
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-Setup-*-x64.exe' | Select-Object -First 1
+          $portable = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-Portable-*-x64.exe' | Select-Object -First 1
+          $latest = Get-ChildItem dist -Filter 'latest.yml' | Select-Object -First 1
+          if (-not $setup -or -not $portable -or -not $latest) { throw 'Required Sentinel release assets are missing.' }
+          if (-not (Test-Path "$($setup.FullName).sha256")) { throw 'Setup SHA-256 sidecar missing.' }
+          if (-not (Test-Path "$($portable.FullName).sha256")) { throw 'Portable SHA-256 sidecar missing.' }
+
+      - name: Publish isolated Sentinel release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $pre = $tag -match '(?i)(rc|beta|alpha|test)'
+          $notes = @"
+          Nexus Sentinel Windows release.
+
+          Scope: Discord + Palworld server management only.
+          Updates are accepted only by the Sentinel release policy. Installed updates use latest.yml; portable updates require SHA-256 verification. Both modes create rollback protection before installation.
+          "@
+          $args = @('release', 'create', $tag, '--title', "Nexus Sentinel $tag", '--notes', $notes)
+          if ($pre) { $args += '--prerelease' }
+          & gh @args
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub release creation failed.' }
+          gh release upload $tag dist/*.exe dist/*.exe.sha256 dist/latest.yml dist/*.blockmap --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub release asset upload failed.' }
