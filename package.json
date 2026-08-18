@@ -7,9 +7,9 @@
   "license": "MIT",
   "private": true,
   "khaosRelease": {
-    "displayVersion": "0.32.0-SENTINEL-UIFIX",
-    "artifactVersion": "0.32.0-SENTINEL-UIFIX",
-    "publicTag": "v0.32.0-sentinel-uifix",
+    "displayVersion": "0.32.0-SENTINEL-ROADMAP",
+    "artifactVersion": "0.32.0-SENTINEL-ROADMAP",
+    "publicTag": "v0.32.0-sentinel-roadmap",
     "channel": "test",
     "updaterVersion": "0.32.0",
     "rollbackTag": "v0.31.0-B"
@@ -37,7 +37,7 @@
     "productName": "Khaos Nexus",
     "electronUpdaterCompatibility": ">=2.16",
     "releaseInfo": {
-      "releaseName": "Khaos Nexus — Nexus Sentinel Discord + Palworld UI Fix Test"
+      "releaseName": "Khaos Nexus — Nexus Sentinel Discord + Palworld Roadmap Acceptance"
     },
     "directories": {
       "output": "dist",
@@ -86,7 +86,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Khaos Nexus",
-      "artifactName": "Khaos-Nexus-Sentinel-Setup-0.32.0-UIFIX-${arch}.${ext}",
+      "artifactName": "Khaos-Nexus-Sentinel-Setup-0.32.0-ROADMAP-${arch}.${ext}",
       "include": "assets/installer.nsh"
     },
     "publish": [
@@ -99,7 +99,7 @@
       }
     ],
     "portable": {
-      "artifactName": "Khaos-Nexus-Sentinel-Portable-0.32.0-UIFIX-${arch}.${ext}"
+      "artifactName": "Khaos-Nexus-Sentinel-Portable-0.32.0-ROADMAP-${arch}.${ext}"
     }
   }
 }
