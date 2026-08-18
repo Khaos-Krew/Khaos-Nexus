@@ -4,8 +4,12 @@ const refs = { configStore: null, updateService: null };
 let installed = false;
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
+function updateNetworkSuppressed() {
+  return process.env.KHAOS_DISABLE_UPDATE_NETWORK === '1';
+}
+
 function updatePreference() {
-  return Boolean(refs.configStore?.getConfig?.().general?.checkUpdates);
+  return !updateNetworkSuppressed() && Boolean(refs.configStore?.getConfig?.().general?.checkUpdates);
 }
 
 function applyPreference() {
@@ -47,6 +51,19 @@ function patchUpdateService() {
       refs.updateService = this;
       setImmediate(applyPreference);
     }
+
+    async check(...args) {
+      if (!updateNetworkSuppressed()) return super.check(...args);
+      this.set?.({
+        status: 'suppressed',
+        error: null,
+        canDownload: false,
+        canInstall: false,
+        automaticChecks: false,
+        lastCheckedAt: new Date().toISOString()
+      });
+      return this.getState?.() || { status: 'suppressed' };
+    }
   }
 
   Object.defineProperty(SentinelUpdateSettingsService, '__nexusSentinelUpdateSettingsPatched', { value: true });
@@ -66,6 +83,7 @@ module.exports = {
   patchUpdateService,
   applyPreference,
   updatePreference,
+  updateNetworkSuppressed,
   CHECK_INTERVAL_MS,
   refs
 };
