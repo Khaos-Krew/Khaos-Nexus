@@ -13,6 +13,10 @@ concurrency:
 
 jobs:
   test:
+    # PRs targeting the split Sentinel product use sentinel-test-build.yml as the
+    # authoritative gate. The generic suite intentionally includes D&D/AI and
+    # monolith-only assertions that are outside the Sentinel package boundary.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'split/nexus-sentinel' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
