@@ -11,7 +11,10 @@ function install() {
   registerRendererBundle({
     id: 'nexus-sentinel-readiness',
     styles: [path.join(__dirname, '..', 'renderer', 'readiness.css')],
-    scripts: [path.join(__dirname, '..', 'renderer', 'readiness.js')],
+    scripts: [
+      path.join(__dirname, '..', 'renderer', 'readiness.js'),
+      path.join(__dirname, '..', 'renderer', 'sentinel-roadmap-finalizer.js')
+    ],
     source: 'sentinel-readiness-extension.cjs'
   });
 }
