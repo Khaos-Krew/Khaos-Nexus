@@ -142,6 +142,38 @@ test('Sentinel renderer hides deferred product surfaces and forces Palworld serv
   assert.match(source, /Start Sentinel/);
 });
 
+test('Sentinel persistent navigation guard blocks late monolith navigation rebuilds', () => {
+  const guard = read('renderer/sentinel-navigation-guard.js');
+  for (const view of ['dnd', 'ai', 'ai-services', 'nexus-ai', 'scheduler', 'hosted-servers', 'mobile', 'mobile-companion', 'rust', 'satisfactory']) {
+    assert.match(guard, new RegExp(`'${view.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'`));
+  }
+  for (const attribute of ['data-view', 'data-view-link', 'data-view-proxy', 'data-command-view', 'data-khaos-open']) {
+    assert.match(guard, new RegExp(attribute));
+  }
+  assert.match(guard, /Discord \+ Palworld Control Center/);
+  assert.match(guard, /sentinelUiGuard = 'active'/);
+  assert.match(guard, /sentinelUiReady/);
+  assert.match(guard, /new MutationObserver\(scheduleApply\)/);
+  assert.match(guard, /Palworld Servers/);
+
+  const extension = read('main/sentinel-scope-extension.cjs');
+  assert.match(extension, /sentinel-navigation-guard\.js/);
+});
+
+test('packaged Sentinel smoke evidence inspects the final renderer scope', () => {
+  const evidence = read('main/startup-smoke-evidence-extension.cjs');
+  assert.match(evidence, /async function captureUiState/);
+  assert.match(evidence, /forbiddenVisible/);
+  assert.match(evidence, /brandSubtitle === 'Discord \+ Palworld Control Center'/);
+  assert.match(evidence, /product === 'sentinel'/);
+  assert.match(evidence, /serverOptions\.length === 1 && serverOptions\[0\] === 'palworld'/);
+
+  const workflow = read('.github/workflows/sentinel-test-build.yml');
+  assert.match(workflow, /\$ui -and \$ui\.ready/);
+  assert.match(workflow, /Forbidden monolith views remain visible/);
+  assert.match(workflow, /Final Sentinel UI passed/);
+});
+
 test('renderer asset loader reports feature readiness only for the real desktop window after bundle injection', () => {
   const source = read('main/renderer-asset-loader.cjs');
   assert.match(source, /function isMainRendererWindow/);
