@@ -191,6 +191,7 @@ function installRendererAssets() {
       path.join(__dirname, '..', 'renderer', 'sentinel-roadmap.css')
     ],
     scripts: [
+      path.join(__dirname, '..', 'renderer', 'state-hub.js'),
       path.join(__dirname, '..', 'renderer', 'sentinel-scope.js'),
       path.join(__dirname, '..', 'renderer', 'sentinel-navigation-guard.js'),
       path.join(__dirname, '..', 'renderer', 'sentinel-live-copy.js'),
