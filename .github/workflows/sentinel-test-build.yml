@@ -1,4 +1,4 @@
-name: Nexus Sentinel Test Build
+name: Nexus Sentinel Full Roadmap Build
 
 on:
   workflow_dispatch:
@@ -38,21 +38,28 @@ jobs:
           node --check main/entry.cjs
           node --check main/sentinel-scope-extension.cjs
           node --check main/sentinel-owner-monitor-boundary-extension.cjs
+          node --check main/sentinel-bot-supervisor-boundary-extension.cjs
+          node --check main/sentinel-production-update-extension.cjs
+          node --check main/sentinel-lifecycle-extension.cjs
           node --check main/renderer-asset-loader.cjs
           node --check main/startup-smoke-evidence-extension.cjs
           node --check renderer/sentinel-scope.js
           node --check renderer/sentinel-navigation-guard.js
-          node --check renderer/sentinel-live-copy.js
           node --check renderer/sentinel-roadmap.js
+          node --check renderer/sentinel-live-copy.js
+          node --check shared/sentinel-update-policy.cjs
+          node --check scripts/write-sentinel-checksums.cjs
           node --check bot/entry.cjs
           node --check bot/commands.cjs
 
-      - name: Run Sentinel, Discord, Palworld and retained-control tests
+      - name: Run Sentinel, Discord, Palworld, update and retained-control tests
         shell: pwsh
         run: |
           $tests = @(
             'test/sentinel-scope.test.cjs',
             'test/sentinel-roadmap-hardening.test.cjs',
+            'test/sentinel-update-policy.test.cjs',
+            'test/sentinel-production-update.test.cjs',
             'test/palworld-rest.test.cjs',
             'test/server-client.test.cjs',
             'test/game-adapter-sdk.test.cjs',
@@ -80,20 +87,24 @@ jobs:
       - name: Build Sentinel installer and portable executable
         run: npm run dist:win
 
+      - name: Generate Sentinel checksum manifest
+        run: npm run sentinel:checksums
+
       - name: Smoke-launch packaged Sentinel portable
         shell: pwsh
         run: |
-          $portable = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-Portable-0.32.0-ROADMAP-x64.exe' | Select-Object -First 1
-          if (-not $portable) { throw 'Nexus Sentinel ROADMAP portable executable was not produced.' }
+          $portable = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-Portable-0.33.0-x64.exe' | Select-Object -First 1
+          if (-not $portable) { throw 'Nexus Sentinel 0.33.0 portable executable was not produced.' }
 
           $evidence = Join-Path $env:RUNNER_TEMP 'nexus-sentinel-startup-smoke.json'
           Remove-Item $evidence -Force -ErrorAction SilentlyContinue
           $env:KHAOS_PACKAGED_STARTUP_SMOKE = '1'
           $env:KHAOS_PACKAGED_STARTUP_SMOKE_FILE = $evidence
+          $env:KHAOS_DISABLE_UPDATE_NETWORK = '1'
           $process = Start-Process -FilePath $portable.FullName -PassThru
 
           try {
-            $deadline = (Get-Date).AddSeconds(80)
+            $deadline = (Get-Date).AddSeconds(90)
             $state = $null
             $ui = $null
             while ((Get-Date) -lt $deadline) {
@@ -129,9 +140,7 @@ jobs:
             if ($ui.product -ne 'sentinel') { throw "Nexus Sentinel renderer product marker is '$($ui.product)'." }
             if ($ui.brandSubtitle -ne 'Discord + Palworld Control Center') { throw "Nexus Sentinel renderer brand is '$($ui.brandSubtitle)'." }
             if (@($ui.forbiddenVisible).Count -gt 0) { throw "Forbidden monolith views remain visible: $(@($ui.forbiddenVisible) -join ', ')." }
-            if (@($ui.serverOptions).Count -gt 1 -or (@($ui.serverOptions).Count -eq 1 -and $ui.serverOptions[0] -ne 'palworld')) {
-              throw "Nexus Sentinel server selector still exposes non-Palworld options: $(@($ui.serverOptions) -join ', ')."
-            }
+            if (@($ui.serverOptions).Count -gt 1 -or (@($ui.serverOptions).Count -eq 1 -and $ui.serverOptions[0] -ne 'palworld')) { throw "Nexus Sentinel server selector still exposes non-Palworld options: $(@($ui.serverOptions) -join ', ')." }
             if (-not $ui.serverCopyScoped) { throw "Nexus Sentinel server workspace still contains pre-split game copy: '$($ui.serverIntro)' / '$($ui.emptyServerHeading)'." }
             if (-not $ui.dashboardRoadmap) { throw 'Nexus Sentinel acceptance roadmap did not render on Command Center.' }
             if (-not $ui.moduleCenter) { throw 'Nexus Sentinel operational Module Center did not render.' }
@@ -149,28 +158,36 @@ jobs:
             if (Test-Path $evidence) { Get-Content $evidence -Raw | Write-Host }
             throw
           } finally {
-            if ($process -and -not $process.HasExited) {
-              taskkill /PID $process.Id /T /F 2>$null | Out-Null
-            }
+            if ($process -and -not $process.HasExited) { taskkill /PID $process.Id /T /F 2>$null | Out-Null }
             Remove-Item Env:KHAOS_PACKAGED_STARTUP_SMOKE -ErrorAction SilentlyContinue
             Remove-Item Env:KHAOS_PACKAGED_STARTUP_SMOKE_FILE -ErrorAction SilentlyContinue
+            Remove-Item Env:KHAOS_DISABLE_UPDATE_NETWORK -ErrorAction SilentlyContinue
           }
 
-      - name: Verify Sentinel artifacts
+      - name: Verify Sentinel artifacts and checksum contract
         shell: pwsh
         run: |
-          $setup = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-Setup-0.32.0-ROADMAP-x64.exe'
-          $portable = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-Portable-0.32.0-ROADMAP-x64.exe'
-          if (-not $setup) { throw 'Nexus Sentinel ROADMAP installer was not produced.' }
-          if (-not $portable) { throw 'Nexus Sentinel ROADMAP portable executable was not produced.' }
+          $setup = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-Setup-0.33.0-x64.exe'
+          $portable = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-Portable-0.33.0-x64.exe'
+          $manifest = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-0.33.0-sha256.json'
+          if (-not $setup) { throw 'Nexus Sentinel 0.33.0 installer was not produced.' }
+          if (-not $portable) { throw 'Nexus Sentinel 0.33.0 portable executable was not produced.' }
+          if (-not $manifest) { throw 'Nexus Sentinel 0.33.0 checksum manifest was not produced.' }
+          $data = Get-Content $manifest.FullName -Raw | ConvertFrom-Json
+          if ($data.channel -ne 'sentinel' -or $data.version -ne '0.33.0') { throw 'Sentinel checksum manifest has the wrong release identity.' }
+          if (-not $data.assets.'Khaos-Nexus-Sentinel-Setup-0.33.0-x64.exe'.sha256) { throw 'Installer SHA-256 is missing.' }
+          if (-not $data.assets.'Khaos-Nexus-Sentinel-Portable-0.33.0-x64.exe'.sha256) { throw 'Portable SHA-256 is missing.' }
           Write-Host "Installer: $($setup.Name)"
           Write-Host "Portable: $($portable.Name)"
+          Write-Host "Manifest: $($manifest.Name)"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Nexus-Sentinel-Roadmap-Windows-Test
+          name: Nexus-Sentinel-Full-Windows-Test
           path: |
-            dist/*.exe
+            dist/Khaos-Nexus-Sentinel-Setup-0.33.0-x64.exe
+            dist/Khaos-Nexus-Sentinel-Portable-0.33.0-x64.exe
+            dist/Khaos-Nexus-Sentinel-0.33.0-sha256.json
             dist/*.yml
             dist/*.blockmap
           retention-days: 14
