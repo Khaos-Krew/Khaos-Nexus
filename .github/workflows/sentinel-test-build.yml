@@ -37,10 +37,12 @@ jobs:
         run: |
           node --check main/entry.cjs
           node --check main/sentinel-scope-extension.cjs
+          node --check main/sentinel-owner-monitor-boundary-extension.cjs
           node --check main/renderer-asset-loader.cjs
           node --check main/startup-smoke-evidence-extension.cjs
           node --check renderer/sentinel-scope.js
           node --check renderer/sentinel-navigation-guard.js
+          node --check renderer/sentinel-roadmap.js
           node --check bot/entry.cjs
           node --check bot/commands.cjs
 
@@ -79,8 +81,8 @@ jobs:
       - name: Smoke-launch packaged Sentinel portable
         shell: pwsh
         run: |
-          $portable = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-Portable-*.exe' | Select-Object -First 1
-          if (-not $portable) { throw 'Nexus Sentinel portable executable was not produced.' }
+          $portable = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-Portable-0.32.0-ROADMAP-x64.exe' | Select-Object -First 1
+          if (-not $portable) { throw 'Nexus Sentinel ROADMAP portable executable was not produced.' }
 
           $evidence = Join-Path $env:RUNNER_TEMP 'nexus-sentinel-startup-smoke.json'
           Remove-Item $evidence -Force -ErrorAction SilentlyContinue
@@ -120,7 +122,7 @@ jobs:
             if (-not $ui) { throw 'Nexus Sentinel did not write final renderer scope evidence.' }
             if (-not $ui.ready) {
               $forbidden = @($ui.forbiddenVisible) -join ', '
-              throw "Nexus Sentinel final renderer scope is wrong. product=$($ui.product), guard=$($ui.guard), scopeReady=$($ui.scopeReady), brand='$($ui.brandSubtitle)', forbidden='$forbidden', serverOptions='$(@($ui.serverOptions) -join ',')'"
+              throw "Nexus Sentinel final renderer scope is wrong. product=$($ui.product), guard=$($ui.guard), scopeReady=$($ui.scopeReady), brand='$($ui.brandSubtitle)', forbidden='$forbidden', serverOptions='$(@($ui.serverOptions) -join ',')', dashboardRoadmap=$($ui.dashboardRoadmap), moduleCenter=$($ui.moduleCenter), legacyModuleCenterHidden=$($ui.legacyModuleCenterHidden), roadmapLabels='$(@($ui.roadmapLabels) -join ',')'"
             }
             if ($ui.product -ne 'sentinel') { throw "Nexus Sentinel renderer product marker is '$($ui.product)'." }
             if ($ui.brandSubtitle -ne 'Discord + Palworld Control Center') { throw "Nexus Sentinel renderer brand is '$($ui.brandSubtitle)'." }
@@ -128,9 +130,14 @@ jobs:
             if (@($ui.serverOptions).Count -gt 1 -or (@($ui.serverOptions).Count -eq 1 -and $ui.serverOptions[0] -ne 'palworld')) {
               throw "Nexus Sentinel server selector still exposes non-Palworld options: $(@($ui.serverOptions) -join ', ')."
             }
+            if (-not $ui.dashboardRoadmap) { throw 'Nexus Sentinel acceptance roadmap did not render on Command Center.' }
+            if (-not $ui.moduleCenter) { throw 'Nexus Sentinel operational Module Center did not render.' }
+            if (-not $ui.legacyModuleCenterHidden) { throw 'Legacy migration Module Center remains visible.' }
+            if (-not $ui.validRoadmapLabels) { throw "Module Center emitted an unsupported status: $(@($ui.roadmapLabels) -join ', ')." }
 
             Write-Host "Packaged Nexus Sentinel startup passed: $($state.overall) / $($state.phase)"
             Write-Host "Final Sentinel UI passed: $($ui.brandSubtitle); forbidden views visible: $(@($ui.forbiddenVisible).Count)"
+            Write-Host "Operational roadmap passed: dashboard=$($ui.dashboardRoadmap); modules=$($ui.moduleCenter); statuses=$(@($ui.roadmapLabels) -join ', ')"
           } catch {
             Write-Host '--- Nexus Sentinel packaged startup evidence ---'
             if (Test-Path $evidence) { Get-Content $evidence -Raw | Write-Host }
@@ -146,16 +153,16 @@ jobs:
       - name: Verify Sentinel artifacts
         shell: pwsh
         run: |
-          $setup = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-Setup-*.exe'
-          $portable = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-Portable-*.exe'
-          if (-not $setup) { throw 'Nexus Sentinel installer was not produced.' }
-          if (-not $portable) { throw 'Nexus Sentinel portable executable was not produced.' }
+          $setup = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-Setup-0.32.0-ROADMAP-x64.exe'
+          $portable = Get-ChildItem dist -Filter 'Khaos-Nexus-Sentinel-Portable-0.32.0-ROADMAP-x64.exe'
+          if (-not $setup) { throw 'Nexus Sentinel ROADMAP installer was not produced.' }
+          if (-not $portable) { throw 'Nexus Sentinel ROADMAP portable executable was not produced.' }
           Write-Host "Installer: $($setup.Name)"
           Write-Host "Portable: $($portable.Name)"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Nexus-Sentinel-Windows-Test
+          name: Nexus-Sentinel-Roadmap-Windows-Test
           path: |
             dist/*.exe
             dist/*.yml
