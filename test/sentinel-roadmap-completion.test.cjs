@@ -33,6 +33,16 @@ test('Readiness Center is guaranteed to be packaged through serialized renderer 
   assert.match(readiness, /autonomy:health-check/);
 });
 
+test('Sentinel state hub is serialized before live roadmap subscribers', () => {
+  const scope = read('main/sentinel-scope-extension.cjs');
+  const hub = scope.indexOf("'renderer', 'state-hub.js'");
+  const sentinel = scope.indexOf("'renderer', 'sentinel-scope.js'");
+  const roadmap = scope.indexOf("'renderer', 'sentinel-roadmap.js'");
+  assert.ok(hub >= 0, 'state-hub.js must be part of the serialized Sentinel bundle');
+  assert.ok(hub < sentinel, 'state hub must load before Sentinel scope renderer');
+  assert.ok(hub < roadmap, 'state hub must load before roadmap state subscriptions');
+});
+
 test('current operational scope contains only completed modules and defers Palworld companion expansion', () => {
   const scope = read('main/sentinel-scope-extension.cjs');
   assert.doesNotMatch(scope.match(/const ACTIVE_MODULES = new Set\(\[[\s\S]*?\]\);/)?.[0] || '', /palworld-companion/);
@@ -51,14 +61,21 @@ test('Phase 9 uses integrity-checked transactional restore', () => {
   assert.match(source, /post-write validation/);
 });
 
-test('Phase 10 uses Sentinel-only release discovery, background updater metadata and rollback watchdog', () => {
+test('Phase 10 separates manual checks from background staging and protects rollback cancellation', () => {
   const source = read('main/sentinel-update-extension.cjs');
   assert.match(source, /selectSentinelRelease/);
   assert.match(source, /updateScope: 'sentinel-only'/);
+  assert.match(source, /backgroundDownload: true/);
   assert.match(source, /sentinelUpdateMetadataAsset/);
   assert.match(source, /setFeedURL\(\{ provider: 'generic'/);
+  assert.match(source, /configureAutomaticChecks/);
+  assert.match(source, /checkAndStage/);
+  assert.match(source, /stageAvailableOrCheck/);
   assert.match(source, /prepareRollbackSnapshot/);
   assert.match(source, /startRollbackWatchdog/);
+  assert.match(source, /cancelRollbackWatchdog/);
+  assert.match(source, /rollbackStatus: 'cancelled'/);
+  assert.match(source, /this\.initialStageTimer = this\.initialStageTimer \|\| null/);
   assert.match(source, /startupAccepted/);
   assert.match(source, /Rollback snapshot failed/);
 });
