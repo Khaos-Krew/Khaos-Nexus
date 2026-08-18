@@ -210,7 +210,9 @@ test('Sentinel persistent navigation guard blocks late monolith navigation rebui
   assert.match(guard, /Discord \+ Palworld Control Center/);
   assert.match(guard, /sentinelUiGuard = 'active'/);
   assert.match(guard, /sentinelUiReady/);
-  assert.match(guard, /new MutationObserver\(scheduleApply\)/);
+  assert.match(guard, /new MutationObserver\(\(mutations\) =>/);
+  assert.match(guard, /mutations\.some\(relevantMutation\)/);
+  assert.match(guard, /if \(mutations\.some\(relevantMutation\)\) scheduleApply\(\)/);
   assert.match(guard, /Palworld Servers/);
 
   const extension = read('main/sentinel-scope-extension.cjs');
