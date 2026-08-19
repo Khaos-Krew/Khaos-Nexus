@@ -1,17 +1,17 @@
 # Discord Shop rank sync
 
-Nexus Sentinel discovers Premium App Shop products by name and maps them to existing Discord roles. No Discord IDs are required.
+Nexus Sentinel uses Discord Server Shop Premium Roles as the source of truth. Discord grants the purchased role immediately; Sentinel arranges those roles and maintains cumulative channel access. No Discord IDs or Premium App SKUs are required.
 
 ## Required names
 
-Both the published Shop products and existing Discord roles must use these names (capitalization and punctuation do not matter):
+The Server Shop Premium Roles must use these names (capitalization and punctuation do not matter):
 
 1. Cipher Runner
 2. Nexus Raider
 3. Khaos Warden
 4. Blackout Legend
 
-The bot assigns rank roles cumulatively. Blackout Legend receives all four roles; Khaos Warden receives Cipher Runner, Nexus Raider, and Khaos Warden; and so on.
+Channel access is cumulative without duplicating member roles. Blackout Legend can see all four channel tiers; Khaos Warden can see Cipher, Raider, and Warden; and so on.
 
 During setup, Sentinel also moves the four shop roles directly below `Origin Founder`, ordered from highest to lowest as Blackout Legend, Khaos Warden, Nexus Raider, and Cipher Runner.
 
@@ -26,6 +26,6 @@ Nexus Sentinel needs `Manage Roles`, `Manage Channels`, `View Channels`, and `Se
 3. Sentinel finds or creates `SUPPORTER HUB` and creates two locked text channels for each rank inside it.
 4. Review the private setup response. It reports missing products, roles, permissions, or role-order problems without making unsafe guesses.
 
-Use `/ranks status` to validate the setup and `/ranks sync` to manually reconcile every current and former purchaser. Sentinel also processes entitlement events immediately and performs a full repair pass every 15 minutes by default.
+Use `/ranks status` to validate the setup and `/ranks sync` to repair role order and channel permissions. Sentinel also performs a full repair pass every 15 minutes by default.
 
 Set `SHOP_RANK_SYNC_SECONDS` in Railway to change the repair interval. Set it to `0` to disable only the scheduled repair; entitlement event handling remains active.

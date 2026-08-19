@@ -12,7 +12,6 @@ import {
   handleRankCommand,
   registerRankCommand,
   startRankReconciliation,
-  syncEntitlementUser,
 } from "./rank-sync.js";
 
 const TOKEN = process.env.NEXUS_BOT_TOKEN;
@@ -85,18 +84,6 @@ client.on(Events.Warn, (msg) => console.warn("[client] warn:", msg));
 client.on(Events.InteractionCreate, (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   handleRankCommand(interaction).catch((err) => console.error("[ranks] interaction failed:", err));
-});
-client.on(Events.EntitlementCreate, (entitlement) => {
-  if (!client.isReady()) return;
-  syncEntitlementUser(client, entitlement).catch((err) => console.error("[ranks] entitlement create sync failed:", err));
-});
-client.on(Events.EntitlementUpdate, (_oldEntitlement, entitlement) => {
-  if (!client.isReady()) return;
-  syncEntitlementUser(client, entitlement).catch((err) => console.error("[ranks] entitlement update sync failed:", err));
-});
-client.on(Events.EntitlementDelete, (entitlement) => {
-  if (!client.isReady()) return;
-  syncEntitlementUser(client, entitlement).catch((err) => console.error("[ranks] entitlement delete sync failed:", err));
 });
 
 client.on(Events.GuildCreate, (guild) => {
