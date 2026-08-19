@@ -4,6 +4,7 @@ import {
   ChannelType,
   Client,
   EmbedBuilder,
+  PermissionFlagsBits,
   type CategoryChannel,
   type Guild,
   type TextChannel,
@@ -15,11 +16,18 @@ const WEBHOOK_PATH = "/github/webhook";
 const HEALTH_PATH = "/health";
 const DELIVERY_CACHE_LIMIT = 500;
 const MAX_BODY_BYTES = 1_000_000;
+const TOPIC_PREFIX = "GitHub progress for ";
+const TOPIC_SUFFIX = " • managed by Nexus Sentinel";
 
 const seenDeliveries = new Set<string>();
 const deliveryOrder: string[] = [];
 
 type GithubPayload = any;
+type ManagedChannelState = {
+  repoFullName: string;
+  archived: boolean;
+  reason?: string;
+};
 
 function envList(name: string): string[] {
   return String(process.env[name] ?? "")
@@ -37,6 +45,32 @@ export function githubChannelName(repoFullName: string): string {
     .replace(/^-|-$/g, "")
     .slice(0, 91);
   return `github-${slug || "repository"}`;
+}
+
+function archivedGithubChannelName(repoFullName: string): string {
+  return `archived-${githubChannelName(repoFullName).slice(0, 91)}`;
+}
+
+function activeTopic(repoFullName: string): string {
+  return `${TOPIC_PREFIX}${repoFullName}${TOPIC_SUFFIX}`;
+}
+
+function archivedTopic(repoFullName: string, reason: string): string {
+  return `${TOPIC_PREFIX}${repoFullName} • ARCHIVED:${reason}${TOPIC_SUFFIX}`;
+}
+
+function managedChannelState(topic: string | null | undefined): ManagedChannelState | null {
+  const value = String(topic || "");
+  if (!value.startsWith(TOPIC_PREFIX) || !value.endsWith(TOPIC_SUFFIX)) return null;
+  const body = value.slice(TOPIC_PREFIX.length, -TOPIC_SUFFIX.length);
+  const archiveMarker = " • ARCHIVED:";
+  const archiveIndex = body.indexOf(archiveMarker);
+  if (archiveIndex < 0) return { repoFullName: body, archived: false };
+  return {
+    repoFullName: body.slice(0, archiveIndex),
+    archived: true,
+    reason: body.slice(archiveIndex + archiveMarker.length) || "unknown",
+  };
 }
 
 export function verifyGithubSignature(secret: string, rawBody: Buffer, signature: string | undefined): boolean {
@@ -99,22 +133,103 @@ async function ensureCategory(guild: Guild): Promise<CategoryChannel> {
   return created;
 }
 
+async function setArchivedLock(guild: Guild, channel: TextChannel): Promise<void> {
+  await channel.permissionOverwrites.edit(guild.roles.everyone, {
+    SendMessages: false,
+    AddReactions: false,
+    CreatePublicThreads: false,
+    CreatePrivateThreads: false,
+    SendMessagesInThreads: false,
+  }, { reason: "Nexus Sentinel archived repository channel" });
+}
+
+async function clearArchivedLock(guild: Guild, channel: TextChannel): Promise<void> {
+  await channel.permissionOverwrites.edit(guild.roles.everyone, {
+    SendMessages: null,
+    AddReactions: null,
+    CreatePublicThreads: null,
+    CreatePrivateThreads: null,
+    SendMessagesInThreads: null,
+  }, { reason: "Nexus Sentinel restored repository channel" });
+}
+
+function findManagedRepositoryChannel(guild: Guild, repoFullName: string): TextChannel | null {
+  const normalized = repoFullName.toLowerCase();
+  const activeName = githubChannelName(repoFullName);
+  const archivedName = archivedGithubChannelName(repoFullName);
+  const found = guild.channels.cache.find((channel) => {
+    if (channel.type !== ChannelType.GuildText) return false;
+    const state = managedChannelState(channel.topic);
+    return channel.name === activeName
+      || channel.name === archivedName
+      || state?.repoFullName.toLowerCase() === normalized;
+  });
+  return found?.type === ChannelType.GuildText ? found : null;
+}
+
+async function archiveRepositoryChannel(
+  guild: Guild,
+  repoFullName: string,
+  category: CategoryChannel,
+  reason: string,
+): Promise<TextChannel | null> {
+  const channel = findManagedRepositoryChannel(guild, repoFullName);
+  if (!channel) return null;
+
+  const state = managedChannelState(channel.topic);
+  const alreadyArchived = Boolean(state?.archived);
+  if (!alreadyArchived) {
+    try {
+      await channel.send({
+        content: `🔒 **Repository archived by Nexus Sentinel**\n\`${repoFullName}\` is no longer active in the GitHub routing registry. Message history is preserved. If the repository returns, Sentinel can restore this channel automatically.`,
+      });
+    } catch (error) {
+      console.warn(`[github] archive notice failed repo=${repoFullName}:`, error);
+    }
+  }
+
+  if (channel.parentId !== category.id) {
+    await channel.setParent(category.id, { lockPermissions: false, reason: "Keep archived GitHub channel under Khaos Nexus" });
+  }
+  if (channel.name !== archivedGithubChannelName(repoFullName)) {
+    await channel.setName(archivedGithubChannelName(repoFullName));
+  }
+  const desiredTopic = archivedTopic(repoFullName, reason);
+  if (channel.topic !== desiredTopic) await channel.setTopic(desiredTopic);
+  await setArchivedLock(guild, channel);
+  console.log(`[github] repository channel archived repo=${repoFullName} reason=${reason} channel=${channel.name} id=${channel.id}`);
+  return channel;
+}
+
 async function ensureRepositoryChannel(
   guild: Guild,
   repoFullName: string,
   category?: CategoryChannel,
+  forceRestore = false,
 ): Promise<TextChannel> {
   const parent = category || await ensureCategory(guild);
   const name = githubChannelName(repoFullName);
-  const topicMarker = `GitHub progress for ${repoFullName} •`;
-  const existing = guild.channels.cache.find((channel) => {
-    if (channel.type !== ChannelType.GuildText) return false;
-    return channel.name === name || String(channel.topic || "").startsWith(topicMarker);
-  });
+  const existing = findManagedRepositoryChannel(guild, repoFullName);
 
-  if (existing && existing.type === ChannelType.GuildText) {
+  if (existing) {
+    const state = managedChannelState(existing.topic);
+    const deletionTombstone = state?.archived && state.reason === "repository-deleted";
+    if (deletionTombstone && !forceRestore) return existing;
+
+    const wasArchived = Boolean(state?.archived);
     if (existing.parentId !== parent.id) {
       await existing.setParent(parent.id, { lockPermissions: false, reason: "Keep Sentinel GitHub channels under Khaos Nexus" });
+    }
+    if (existing.name !== name) await existing.setName(name);
+    if (existing.topic !== activeTopic(repoFullName)) await existing.setTopic(activeTopic(repoFullName));
+    if (wasArchived) {
+      await clearArchivedLock(guild, existing);
+      try {
+        await existing.send({ content: `🔓 **Repository restored by Nexus Sentinel**\n\`${repoFullName}\` is active again. GitHub progress routing has resumed.` });
+      } catch (error) {
+        console.warn(`[github] restore notice failed repo=${repoFullName}:`, error);
+      }
+      console.log(`[github] repository channel restored repo=${repoFullName} channel=${existing.name} id=${existing.id}`);
     }
     return existing;
   }
@@ -123,14 +238,38 @@ async function ensureRepositoryChannel(
     name,
     type: ChannelType.GuildText,
     parent: parent.id,
-    topic: `${topicMarker} managed by Nexus Sentinel`,
+    topic: activeTopic(repoFullName),
     reason: `Nexus Sentinel repository channel for ${repoFullName}`,
   });
+}
+
+async function archiveStaleManagedChannels(
+  guild: Guild,
+  category: CategoryChannel,
+  activeRepositories: string[],
+): Promise<number> {
+  const active = new Set(activeRepositories.map((repo) => repo.toLowerCase()));
+  const stale = guild.channels.cache.filter((channel) => {
+    if (channel.type !== ChannelType.GuildText) return false;
+    const state = managedChannelState(channel.topic);
+    return Boolean(state && !active.has(state.repoFullName.toLowerCase()));
+  });
+
+  let archived = 0;
+  for (const channel of stale.values()) {
+    if (channel.type !== ChannelType.GuildText) continue;
+    const state = managedChannelState(channel.topic);
+    if (!state) continue;
+    await archiveRepositoryChannel(guild, state.repoFullName, category, "not-configured");
+    archived += 1;
+  }
+  return archived;
 }
 
 export async function provisionGithubChannels(client: Client): Promise<number> {
   if (!client.isReady()) return 0;
   const guild = await resolveGuild(client);
+  await guild.channels.fetch();
   const repos = configuredRepositories().filter(repositoryAllowed);
   console.log(`[github] provisioning start guild=${guild.id} repositories=${repos.length}`);
   const category = await ensureCategory(guild);
@@ -140,10 +279,12 @@ export async function provisionGithubChannels(client: Client): Promise<number> {
   for (const repo of repos) {
     const channel = await ensureRepositoryChannel(guild, repo, category);
     createdOrVerified += 1;
-    console.log(`[github] repository channel ready repo=${repo} channel=${channel.name} id=${channel.id}`);
+    const state = managedChannelState(channel.topic);
+    console.log(`[github] repository channel ready repo=${repo} channel=${channel.name} archived=${Boolean(state?.archived)} id=${channel.id}`);
   }
 
-  console.log(`[github] provisioning complete category=${category.name} repositories=${createdOrVerified}`);
+  const archived = await archiveStaleManagedChannels(guild, category, repos);
+  console.log(`[github] provisioning complete category=${category.name} repositories=${createdOrVerified} archived=${archived}`);
   return createdOrVerified;
 }
 
@@ -280,6 +421,52 @@ function writeJson(res: ServerResponse, statusCode: number, body: Record<string,
   res.end(json);
 }
 
+async function handleRepositoryLifecycleEvent(
+  client: Client,
+  payload: GithubPayload,
+  res: ServerResponse,
+): Promise<boolean> {
+  const repoFullName = String(payload?.repository?.full_name || "");
+  const action = String(payload?.action || "");
+  if (!repoFullName) {
+    writeJson(res, 202, { ok: true, ignored: "repository_missing" });
+    return true;
+  }
+  if (!client.isReady()) {
+    writeJson(res, 503, { ok: false, error: "discord_not_ready" });
+    return true;
+  }
+
+  const guild = await resolveGuild(client);
+  await guild.channels.fetch();
+  const category = await ensureCategory(guild);
+
+  if (action === "deleted") {
+    const channel = await archiveRepositoryChannel(guild, repoFullName, category, "repository-deleted");
+    writeJson(res, 202, { ok: true, archived: Boolean(channel), repository: repoFullName, action });
+    return true;
+  }
+
+  if (action === "archived") {
+    const channel = await archiveRepositoryChannel(guild, repoFullName, category, "repository-archived");
+    writeJson(res, 202, { ok: true, archived: Boolean(channel), repository: repoFullName, action });
+    return true;
+  }
+
+  if (action === "created" || action === "unarchived") {
+    if (!repositoryAllowed(repoFullName)) {
+      writeJson(res, 202, { ok: true, ignored: "repository_not_routed", repository: repoFullName, action });
+      return true;
+    }
+    const channel = await ensureRepositoryChannel(guild, repoFullName, category, true);
+    writeJson(res, 202, { ok: true, restored: true, repository: repoFullName, action, channel: channel.id });
+    return true;
+  }
+
+  writeJson(res, 202, { ok: true, ignored: "repository_action_not_managed", repository: repoFullName, action });
+  return true;
+}
+
 async function handleWebhook(client: Client, req: IncomingMessage, res: ServerResponse) {
   const secret = process.env.GITHUB_WEBHOOK_SECRET || "";
   if (!secret) {
@@ -315,6 +502,11 @@ async function handleWebhook(client: Client, req: IncomingMessage, res: ServerRe
     return;
   }
 
+  if (eventName === "repository") {
+    await handleRepositoryLifecycleEvent(client, payload, res);
+    return;
+  }
+
   const repoFullName = String(payload?.repository?.full_name || "");
   if (!repoFullName || !repositoryAllowed(repoFullName)) {
     writeJson(res, 202, { ok: true, ignored: "repository_not_routed" });
@@ -333,7 +525,7 @@ async function handleWebhook(client: Client, req: IncomingMessage, res: ServerRe
   }
 
   const guild = await resolveGuild(client);
-  const channel = await ensureRepositoryChannel(guild, repoFullName);
+  const channel = await ensureRepositoryChannel(guild, repoFullName, undefined, true);
   await channel.send({ embeds: [embed] });
   console.log(`[github] routed event=${eventName} repo=${repoFullName} delivery=${deliveryId || "unknown"} channel=${channel.id}`);
   writeJson(res, 202, { ok: true, routed: true, event: eventName, repository: repoFullName });
