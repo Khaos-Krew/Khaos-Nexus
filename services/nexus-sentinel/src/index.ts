@@ -8,6 +8,12 @@ import {
   verifyPresenceMatches,
 } from "./presence.js";
 import { startJobScheduler, notifyGuildSync } from "./jobs.js";
+import {
+  handleRankCommand,
+  registerRankCommand,
+  startRankReconciliation,
+  syncEntitlementUser,
+} from "./rank-sync.js";
 
 const TOKEN = process.env.NEXUS_BOT_TOKEN;
 if (!TOKEN) {
@@ -63,6 +69,8 @@ client.once(Events.ClientReady, async (c) => {
   }, 60_000);
 
   startJobScheduler();
+  await registerRankCommand(c);
+  await startRankReconciliation(c);
 });
 
 client.on(Events.ClientReady, () => reapplyPresence("ready"));
@@ -74,6 +82,22 @@ client.on(Events.ShardError, (err, shardId) => console.error(`[gateway] shardErr
 client.on(Events.Invalidated, () => console.error("[gateway] session invalidated"));
 client.on(Events.Error, (err) => console.error("[client] error:", err));
 client.on(Events.Warn, (msg) => console.warn("[client] warn:", msg));
+client.on(Events.InteractionCreate, (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+  handleRankCommand(interaction).catch((err) => console.error("[ranks] interaction failed:", err));
+});
+client.on(Events.EntitlementCreate, (entitlement) => {
+  if (!client.isReady()) return;
+  syncEntitlementUser(client, entitlement).catch((err) => console.error("[ranks] entitlement create sync failed:", err));
+});
+client.on(Events.EntitlementUpdate, (_oldEntitlement, entitlement) => {
+  if (!client.isReady()) return;
+  syncEntitlementUser(client, entitlement).catch((err) => console.error("[ranks] entitlement update sync failed:", err));
+});
+client.on(Events.EntitlementDelete, (entitlement) => {
+  if (!client.isReady()) return;
+  syncEntitlementUser(client, entitlement).catch((err) => console.error("[ranks] entitlement delete sync failed:", err));
+});
 
 client.on(Events.GuildCreate, (guild) => {
   console.log(`[guildCreate] joined guild=${guild.id} name=${guild.name} members=${guild.memberCount}`);
