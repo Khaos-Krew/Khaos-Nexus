@@ -1,7 +1,7 @@
 {
   "name": "khaos-nexus",
   "version": "0.41.2",
-  "description": "Local-first Windows desktop command center for Discord operations, game-server management, shared automation, D&D tooling, diagnostics, and Nexus services.",
+  "description": "Local-first Windows desktop command center with unconditional local-desktop module recovery controls, installer-first automatic diagnostics and a standalone Khaos Nexus Diagnostics launcher; preserved but paused Android Companion and Mobile Gateway; complete D&D campaign management; dedicated Rust WebRCON operations with Owner-only raw Rust console access; Satisfactory dedicated-server operations; a typed Game Adapter SDK with explicit capability manifests; authoritative Owner module switches; full production runtime audit repairs; compact production dashboard density; independently scrollable navigation and workspace panes; verified click-through grouped proxy navigation; an always-visible in-app update center; a continuous visible-interface startup gate; and renderer-unresponsive reporting.",
   "main": "main/entry-pdf-import.cjs",
   "author": "Khaos Krew",
   "license": "MIT",
