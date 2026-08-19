@@ -60,6 +60,18 @@ The current stabilization policy requires at least **8/12** gates before an owne
 
 See [`docs/NEXUS_STABILIZATION_RESET.md`](docs/NEXUS_STABILIZATION_RESET.md) for the full stabilization contract.
 
+## Roadmap
+
+The public roadmap is synchronized from [`docs/NEXUS_ROADMAP_STATUS.md`](docs/NEXUS_ROADMAP_STATUS.md), which is the canonical roadmap/status handoff for the Nexus Doc Watch.
+
+- **Now — Stabilization Reset:** protect the approved modern desktop shell and reach a dependable functional baseline.
+- **Next — Core reliability:** persistence, module control, shared scheduler, backup/recovery, and removal of conflicting legacy paths.
+- **Then — Discord + Palworld acceptance:** validate real operational flows without regressing the desktop shell.
+- **Release hardening:** keep one release identity and ensure the artifact delivered for testing is the exact packaged build that passed validation.
+- **Later — Self-hosted web + Windows agent:** deferred until the desktop baseline is accepted.
+
+The detailed phase and gate status lives in the canonical roadmap document so the README stays concise while the Nexus Doc Watch can keep this summary current from repository evidence.
+
 ## Platform and architecture
 
 Khaos Nexus is currently a **Windows x64 Electron desktop application**. The repository separates the privileged main-process runtime, renderer/UI, Discord bot runtime, shared contracts, adapters, and supporting assets.
@@ -126,6 +138,7 @@ Start with [`docs/README.md`](docs/README.md) for the documentation map and guid
 Important current references:
 
 - [`docs/NEXUS_STABILIZATION_RESET.md`](docs/NEXUS_STABILIZATION_RESET.md) — active stabilization policy and acceptance gates
+- [`docs/NEXUS_ROADMAP_STATUS.md`](docs/NEXUS_ROADMAP_STATUS.md) — canonical roadmap/status source used by Nexus Doc Watch
 - [`config/release-identity.json`](config/release-identity.json) — authoritative stabilization version identity
 - [`release-notes/v0.41.2.md`](release-notes/v0.41.2.md) — current candidate notes
 - [`RUN_FROM_SOURCE.md`](RUN_FROM_SOURCE.md) — Windows source setup and validation
