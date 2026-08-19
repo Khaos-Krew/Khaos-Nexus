@@ -39,6 +39,14 @@ The stabilization branch contains a working Electron desktop codebase with estab
 
 **Presence in the repository is not the same as current release acceptance.** During the reset, the items below are the explicit stability gates. Other implemented surfaces remain subject to revalidation and should not be described as production-ready merely because their code is present.
 
+## Desktop workspaces and UI boundaries
+
+The current desktop shell includes dedicated presentation/workspace areas for **D&D** and **Nexus AI** alongside the command center, connected systems, modules, and system tooling. These workspaces organize existing services; they do not establish a separate release line or bypass the shared desktop authority boundaries.
+
+The visual layer prioritizes readability and accessibility. Dense operational surfaces retain usable backgrounds, decorative assets do not own input, and motion is reduced when the operating system **requests reduced motion**.
+
+Development, UI-refresh, stabilization, and owner-test branches **must not publish or modify a release channel** merely because their code packages successfully. Release publication remains a separate authorized action. Mobile-only product work belongs in `Khaos-Krew/nexus-mobile-companion`; preserved Android/Mobile Gateway evidence in this repository remains historical or paused unless a current architecture decision explicitly resumes it.
+
 ## Current stabilization gates
 
 A test candidate is evaluated against these 12 functional gates:
