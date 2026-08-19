@@ -10,11 +10,6 @@ import {
 } from "discord.js";
 
 const token = String(process.env.VEYRA_DISCORD_TOKEN ?? "").trim();
-if (!token) {
-  console.error("[boot] VEYRA_DISCORD_TOKEN missing — aborting.");
-  process.exit(1);
-}
-
 const aiBaseUrl = String(process.env.VEYRA_AI_BASE_URL ?? "").trim().replace(/\/$/, "");
 const activityText = String(process.env.VEYRA_ACTIVITY_TEXT ?? "Watching over the Nexus archives").trim();
 const startedAt = Date.now();
@@ -137,8 +132,15 @@ process.once("SIGINT", () => shutdown("SIGINT"));
 process.on("unhandledRejection", (reason) => console.error("[process] unhandledRejection:", reason));
 process.on("uncaughtException", (error) => console.error("[process] uncaughtException:", error));
 
-console.log("[boot] starting Veyra Discord gateway in prep-only mode");
-client.login(token).catch((error) => {
-  console.error("[boot] Discord login failed:", error);
-  process.exit(1);
-});
+if (!token) {
+  console.warn("[boot] VEYRA_DISCORD_TOKEN is not configured yet; gateway is staged and waiting safely offline.");
+  setInterval(() => {
+    console.log("[heartbeat] waiting for VEYRA_DISCORD_TOKEN; Discord connection has not been attempted.");
+  }, 300_000);
+} else {
+  console.log("[boot] starting Veyra Discord gateway in prep-only mode");
+  client.login(token).catch((error) => {
+    console.error("[boot] Discord login failed:", error);
+    process.exit(1);
+  });
+}
