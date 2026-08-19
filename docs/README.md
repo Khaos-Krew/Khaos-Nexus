@@ -4,15 +4,29 @@ This directory contains both current architecture/operations records and histori
 
 ## Current authority during stabilization
 
-Use these sources first when determining current product direction or release identity:
+Use these sources first when determining current product direction, roadmap status, or release identity:
 
 1. [`NEXUS_STABILIZATION_RESET.md`](NEXUS_STABILIZATION_RESET.md) — active stabilization rules, golden desktop baseline, functional gates, release gates, and exit criteria.
-2. [`../config/release-identity.json`](../config/release-identity.json) — current stabilization version identity, public tag target, channel, release-note file, and rollback target.
-3. [`../package.json`](../package.json) — application/package metadata. During stabilization it must remain synchronized with the release-identity file.
-4. [`../release-notes/v0.41.2.md`](../release-notes/v0.41.2.md) — notes for the current `v0.41.2-B` stability candidate.
-5. [`../README.md`](../README.md) — public project overview and contributor orientation.
+2. [`NEXUS_ROADMAP_STATUS.md`](NEXUS_ROADMAP_STATUS.md) — canonical roadmap/status handoff for README roadmap updates and Nexus Doc Watch. Roadmap claims must still be verified against repository reality before being presented as implemented or complete.
+3. [`../config/release-identity.json`](../config/release-identity.json) — current stabilization version identity, public tag target, channel, release-note file, and rollback target.
+4. [`../package.json`](../package.json) — application/package metadata. During stabilization it must remain synchronized with the release-identity file.
+5. [`../release-notes/v0.41.2.md`](../release-notes/v0.41.2.md) — notes for the current `v0.41.2-B` stability candidate.
+6. [`../README.md`](../README.md) — public project overview, concise roadmap summary, and contributor orientation.
 
 The current desktop development line is `0.41.x`. `v0.41.2-B` is the stabilization candidate identity and `v0.41.1-B` is the recorded rollback target. A version appearing in these files does **not** prove that a GitHub Release/artifact has been published.
+
+## Roadmap synchronization
+
+[`NEXUS_ROADMAP_STATUS.md`](NEXUS_ROADMAP_STATUS.md) is the active source of truth for README roadmap/status synchronization. The README should summarize that document rather than duplicate its full gate table.
+
+For roadmap-related README changes:
+
+1. Read `NEXUS_ROADMAP_STATUS.md`.
+2. Inspect the active stabilization branch and PR.
+3. Verify relevant implementation, tests, workflows, and release metadata.
+4. Treat roadmap state such as **planned**, **next**, **blocked**, or **deferred** as planning/status information—not proof that functionality is implemented.
+5. Do not mark a phase complete or claim a numeric stability score unless repository evidence establishes it.
+6. When production materially changes a phase or gate, the roadmap document should be updated first or in the same change set, then the README should be synchronized.
 
 ## Operational and developer setup
 
@@ -68,9 +82,10 @@ A self-hosted web/backend architecture with a lightweight Windows Nexus Agent ma
 
 Before updating public project information:
 
-1. Inspect the active branch and relevant PRs.
-2. Check `config/release-identity.json` and `package.json` together.
-3. Confirm whether a capability is merely present, currently validated, paused, or planned.
-4. Keep candidate, published-release, and rollback terminology separate.
-5. Prefer current authority documents over old test-build or roadmap language.
-6. Preserve useful history, but label historical records so they cannot be mistaken for current instructions.
+1. Read `NEXUS_ROADMAP_STATUS.md` when roadmap, phase, gate, readiness, or future-direction information is involved.
+2. Inspect the active branch and relevant PRs.
+3. Check `config/release-identity.json` and `package.json` together.
+4. Confirm whether a capability is merely present, currently validated, paused, or planned.
+5. Keep candidate, published-release, and rollback terminology separate.
+6. Prefer current authority documents over old test-build, release-note, or roadmap history.
+7. Preserve useful history, but label historical records so they cannot be mistaken for current instructions.
