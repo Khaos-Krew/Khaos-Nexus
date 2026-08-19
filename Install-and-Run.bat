@@ -1,13 +1,13 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
-title Khaos Nexus Bot Manager Setup
+title Khaos Nexus Desktop Setup
 
 set "MIN_NODE_MAJOR=22"
 set "NODE_READY=0"
 
 echo ==================================================
-echo   Khaos Nexus Bot Manager - One-Click Setup
+echo   Khaos Nexus Desktop - One-Click Setup
 echo ==================================================
 echo.
 echo This setup can download a private Node.js LTS runtime.
@@ -41,11 +41,11 @@ if not exist node_modules (
 )
 
 echo.
-echo Starting Khaos Nexus Bot Manager...
+echo Starting Khaos Nexus...
 call npm start
 if errorlevel 1 (
   echo.
-  echo The manager stopped with an error. Review the output above.
+  echo Khaos Nexus stopped with an error. Review the output above.
   pause
 )
 exit /b 0
