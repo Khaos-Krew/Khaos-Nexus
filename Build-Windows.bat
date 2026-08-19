@@ -1,13 +1,13 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
-title Build Khaos Nexus Bot Manager
+title Build Khaos Nexus Desktop
 
 set "MIN_NODE_MAJOR=22"
 set "NODE_READY=0"
 
 echo ==================================================
-echo   Build Windows Installer and Portable App
+echo   Build Khaos Nexus Windows Installer and Portable App
 echo ==================================================
 echo.
 
