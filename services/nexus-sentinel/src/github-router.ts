@@ -4,6 +4,7 @@ import {
   ChannelType,
   Client,
   EmbedBuilder,
+  type CategoryChannel,
   type Guild,
   type TextChannel,
 } from "discord.js";
@@ -82,32 +83,38 @@ async function resolveGuild(client: Client): Promise<Guild> {
   return client.guilds.fetch(first.id);
 }
 
-async function ensureCategory(guild: Guild) {
-  await guild.channels.fetch();
+async function ensureCategory(guild: Guild): Promise<CategoryChannel> {
   const categoryName = process.env.GITHUB_DISCORD_CATEGORY || DEFAULT_CATEGORY;
   const existing = guild.channels.cache.find((channel) =>
     channel.type === ChannelType.GuildCategory && channel.name.toLowerCase() === categoryName.toLowerCase()
   );
   if (existing && existing.type === ChannelType.GuildCategory) return existing;
-  return guild.channels.create({
+
+  const created = await guild.channels.create({
     name: categoryName,
     type: ChannelType.GuildCategory,
     reason: "Nexus Sentinel GitHub progress routing",
   });
+  if (created.type !== ChannelType.GuildCategory) throw new Error("Discord did not create the GitHub category as a category channel.");
+  return created;
 }
 
-async function ensureRepositoryChannel(guild: Guild, repoFullName: string): Promise<TextChannel> {
-  const category = await ensureCategory(guild);
+async function ensureRepositoryChannel(
+  guild: Guild,
+  repoFullName: string,
+  category?: CategoryChannel,
+): Promise<TextChannel> {
+  const parent = category || await ensureCategory(guild);
   const name = githubChannelName(repoFullName);
   const topicMarker = `GitHub progress for ${repoFullName}`;
-  const existing = guild.channels.cache.find((channel) =>
-    channel.type === ChannelType.GuildText &&
-    (channel.name === name || String(channel.topic || "").startsWith(topicMarker))
-  );
+  const existing = guild.channels.cache.find((channel) => {
+    if (channel.type !== ChannelType.GuildText) return false;
+    return channel.name === name || String(channel.topic || "").startsWith(topicMarker);
+  });
 
   if (existing && existing.type === ChannelType.GuildText) {
-    if (existing.parentId !== category.id) {
-      await existing.setParent(category.id, { lockPermissions: false, reason: "Keep Sentinel GitHub channels under Khaos Nexus" });
+    if (existing.parentId !== parent.id) {
+      await existing.setParent(parent.id, { lockPermissions: false, reason: "Keep Sentinel GitHub channels under Khaos Nexus" });
     }
     return existing;
   }
@@ -115,7 +122,7 @@ async function ensureRepositoryChannel(guild: Guild, repoFullName: string): Prom
   return guild.channels.create({
     name,
     type: ChannelType.GuildText,
-    parent: category.id,
+    parent: parent.id,
     topic: `${topicMarker} • managed by Nexus Sentinel`,
     reason: `Nexus Sentinel repository channel for ${repoFullName}`,
   });
@@ -124,15 +131,19 @@ async function ensureRepositoryChannel(guild: Guild, repoFullName: string): Prom
 export async function provisionGithubChannels(client: Client): Promise<number> {
   if (!client.isReady()) return 0;
   const guild = await resolveGuild(client);
-  const repos = configuredRepositories();
-  await ensureCategory(guild);
+  const repos = configuredRepositories().filter(repositoryAllowed);
+  console.log(`[github] provisioning start guild=${guild.id} repositories=${repos.length}`);
+  const category = await ensureCategory(guild);
+  console.log(`[github] category ready name=${category.name} id=${category.id}`);
+
   let createdOrVerified = 0;
   for (const repo of repos) {
-    if (!repositoryAllowed(repo)) continue;
-    await ensureRepositoryChannel(guild, repo);
+    const channel = await ensureRepositoryChannel(guild, repo, category);
     createdOrVerified += 1;
+    console.log(`[github] repository channel ready repo=${repo} channel=${channel.name} id=${channel.id}`);
   }
-  console.log(`[github] category=${process.env.GITHUB_DISCORD_CATEGORY || DEFAULT_CATEGORY} repositories=${createdOrVerified}`);
+
+  console.log(`[github] provisioning complete category=${category.name} repositories=${createdOrVerified}`);
   return createdOrVerified;
 }
 
