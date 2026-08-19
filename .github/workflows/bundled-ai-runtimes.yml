@@ -5,14 +5,14 @@ on:
     paths:
       - 'packages/ai/**'
       - 'config/embedded-ai-sources.json'
+      - 'config/release-identity.json'
       - 'main/bundled-ai-runtimes-extension.cjs'
+      - 'scripts/apply-release-identity.cjs'
       - 'scripts/build-bundled-ai-runtimes.cjs'
       - 'scripts/sync-embedded-ai-sources.cjs'
       - 'scripts/verify-embedded-ai-sources.cjs'
       - 'scripts/materialize-assets.cjs'
       - 'scripts/verify-packaged-ai-runtimes.cjs'
-      - 'scripts/freeze-v0.33-bundled-ai.cjs'
-      - 'scripts/freeze-v0.35-ui-refresh.cjs'
       - 'scripts/smoke-packaged-startup.ps1'
       - 'test/bundled-ai-runtimes.test.cjs'
       - 'test/bundled-ai-packaging.test.cjs'
@@ -58,8 +58,8 @@ jobs:
           npm run build --prefix packages/ai/ai-core
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Freeze v0.35.0-B integration candidate metadata
-        run: node scripts/freeze-v0.35-ui-refresh.cjs
+      - name: Apply authoritative release identity
+        run: node scripts/apply-release-identity.cjs
 
       - name: Run complete repository validation
         shell: pwsh
@@ -84,7 +84,8 @@ jobs:
       - name: Silently install and verify all installed AI runtime files
         shell: pwsh
         run: |
-          $installer = Resolve-Path 'dist/Khaos-Nexus-Setup-0.35.0-B-x64.exe'
+          $identity = Get-Content 'config/release-identity.json' -Raw | ConvertFrom-Json
+          $installer = Resolve-Path ("dist/Khaos-Nexus-Setup-{0}-x64.exe" -f $identity.displayVersion)
           $installRoot = 'C:\khaos-nexus-embedded-ai-pr-ci'
           Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue
           $process = Start-Process -FilePath $installer -ArgumentList '/S', "/D=$installRoot" -Wait -PassThru
@@ -100,24 +101,29 @@ jobs:
       - name: Verify updater files
         shell: pwsh
         run: |
-          $installer = Get-Item 'dist/Khaos-Nexus-Setup-0.35.0-B-x64.exe'
-          $portable = Get-Item 'dist/Khaos-Nexus-Portable-0.35.0-B-x64.exe'
+          $identity = Get-Content 'config/release-identity.json' -Raw | ConvertFrom-Json
+          $display = [regex]::Escape([string]$identity.displayVersion)
+          $version = [regex]::Escape([string]$identity.updaterVersion)
+          $installerName = "Khaos-Nexus-Setup-$($identity.displayVersion)-x64.exe"
+          $portableName = "Khaos-Nexus-Portable-$($identity.displayVersion)-x64.exe"
+          $installer = Get-Item (Join-Path 'dist' $installerName)
+          $portable = Get-Item (Join-Path 'dist' $portableName)
           $latest = Get-Item 'dist/latest.yml'
-          $blockmap = Get-Item 'dist/Khaos-Nexus-Setup-0.35.0-B-x64.exe.blockmap'
+          $blockmap = Get-Item (Join-Path 'dist' "$installerName.blockmap")
           foreach ($item in @($installer, $portable, $latest, $blockmap)) {
             if ($item.Length -le 0) { throw "Required updater artifact is empty: $($item.FullName)" }
           }
           $latestText = Get-Content $latest.FullName -Raw
-          if ($latestText -notmatch '(?m)^version:\s*0\.35\.0\s*$') { throw 'latest.yml does not advertise v0.35.0.' }
-          if ($latestText -notmatch 'Khaos-Nexus-Setup-0\.35\.0-B-x64\.exe') { throw 'latest.yml does not reference the v0.35.0-B installer.' }
+          if ($latestText -notmatch "(?m)^version:\s*$version\s*$") { throw "latest.yml does not advertise v$($identity.updaterVersion)." }
+          if ($latestText -notmatch [regex]::Escape($installerName)) { throw "latest.yml does not reference $installerName." }
 
       - name: Upload embedded-source Windows candidate
         uses: actions/upload-artifact@v4
         with:
           name: Khaos-Nexus-Windows-embedded-ai
           path: |
-            dist/Khaos-Nexus-Setup-0.35.0-B-x64.exe
-            dist/Khaos-Nexus-Portable-0.35.0-B-x64.exe
+            dist/Khaos-Nexus-Setup-*-x64.exe
+            dist/Khaos-Nexus-Portable-*-x64.exe
             dist/*.blockmap
             dist/latest.yml
             dist/builder-debug.yml
