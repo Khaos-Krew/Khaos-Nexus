@@ -17,24 +17,28 @@ const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const startedAt = new Date();
 const results = [];
 
-function runStep(name, command, args) {
+function runStep(name, command, args, options = {}) {
   const stepStarted = Date.now();
   console.log(`\n== ${name} ==`);
   const result = spawnSync(command, args, {
     cwd: root,
     encoding: 'utf8',
     env: { ...process.env, NODE_ENV: process.env.NODE_ENV || 'test' },
+    shell: options.shell ?? (process.platform === 'win32' && /\.cmd$/i.test(command)),
   });
 
   if (result.stdout) process.stdout.write(result.stdout);
   if (result.stderr) process.stderr.write(result.stderr);
+  if (result.error) console.error(`Unable to start ${command}: ${result.error.message}`);
 
-  const passed = result.status === 0;
+  const passed = result.status === 0 && !result.error;
+  const errors = result.error ? [result.error.message] : undefined;
   results.push({
     name,
     passed,
     exitCode: result.status ?? 1,
     durationMs: Date.now() - stepStarted,
+    ...(errors ? { errors } : {}),
   });
 
   console.log(`${passed ? 'PASS' : 'FAIL'}: ${name}`);
@@ -107,7 +111,7 @@ function runQuickSmokeTests() {
     return true;
   }
 
-  return runStep('Critical smoke tests', process.execPath, ['--test', ...candidates]);
+  return runStep('Critical smoke tests', process.execPath, ['--test', ...candidates], { shell: false });
 }
 
 validatePackageContract();
@@ -150,7 +154,7 @@ const markdown = [
   '',
   '## Checks',
   '',
-  ...results.map((result) => `- ${result.passed ? '✅' : '❌'} ${result.name}${result.skipped ? ' (skipped)' : ''} — ${result.durationMs} ms`),
+  ...results.map((result) => `- ${result.passed ? '✅' : '❌'} ${result.name}${result.skipped ? ' (skipped)' : ''} — ${result.durationMs} ms${result.errors?.length ? ` — ${result.errors.join('; ')}` : ''}`),
   '',
 ];
 fs.writeFileSync(path.join(reportDir, 'latest.md'), `${markdown.join('\n')}\n`);
