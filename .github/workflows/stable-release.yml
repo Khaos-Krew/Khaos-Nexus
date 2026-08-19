@@ -71,14 +71,20 @@ jobs:
           "tag=v$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "target_sha=$targetSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-      - name: Install dependencies
-        run: npm install
+      - name: Install locked dependencies
+        run: npm ci
 
-      - name: Run complete tests
-        run: npm test
+      - name: Run Nexus QA release gate
+        run: node scripts/qa.cjs full
 
-      - name: Run syntax and package checks
-        run: npm run check
+      - name: Upload QA report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-release-qa-${{ github.run_id }}
+          path: .validation/qa/
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Build installer and portable executable
         run: npm run dist:win

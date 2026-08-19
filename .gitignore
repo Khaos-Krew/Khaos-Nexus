@@ -9,3 +9,4 @@ secrets.bin
 .DS_Store
 Thumbs.db
 .runtime/
+.validation/qa/
