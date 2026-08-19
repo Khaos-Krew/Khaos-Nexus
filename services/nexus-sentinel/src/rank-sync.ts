@@ -341,19 +341,35 @@ export async function registerRankCommand(client: Client<true>): Promise<void> {
 }
 
 export async function handleRankCommand(interaction: ChatInputCommandInteraction): Promise<boolean> {
-  if (interaction.commandName !== rankCommand.name || !interaction.inCachedGuild()) return false;
-  await interaction.deferReply({ ephemeral: true });
+  if (interaction.commandName !== rankCommand.name) return false;
+  console.log(
+    `[ranks] received subcommand=${interaction.options.getSubcommand(false) ?? "unknown"} guild=${interaction.guildId ?? "dm"} user=${interaction.user.id}`,
+  );
   try {
+    // Acknowledge before any cache fetch or API call. Discord invalidates an
+    // interaction token if the first response takes more than three seconds.
+    await interaction.deferReply({ ephemeral: true });
+    const guild = interaction.guild;
+    if (!guild) {
+      await interaction.editReply("Rank commands can only be used inside a Discord server.");
+      return true;
+    }
     const subcommand = interaction.options.getSubcommand();
     const result = subcommand === "setup"
-      ? await setupGuild(interaction.client, interaction.guild)
+      ? await setupGuild(interaction.client, guild)
       : subcommand === "sync"
-        ? await syncGuildRanks(interaction.client, interaction.guild)
-        : await statusGuild(interaction.client, interaction.guild);
+        ? await syncGuildRanks(interaction.client, guild)
+        : await statusGuild(interaction.client, guild);
     await interaction.editReply(result);
   } catch (error) {
     console.error("[ranks] command failed:", error);
-    await interaction.editReply(`Rank operation failed: ${error instanceof Error ? error.message : "unknown error"}`);
+    const message = `Rank operation failed: ${error instanceof Error ? error.message : "unknown error"}`;
+    try {
+      if (interaction.deferred || interaction.replied) await interaction.editReply(message);
+      else await interaction.reply({ content: message, ephemeral: true });
+    } catch (replyError) {
+      console.error("[ranks] failed to acknowledge interaction:", replyError);
+    }
   }
   return true;
 }
