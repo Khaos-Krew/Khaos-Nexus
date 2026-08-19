@@ -1,0 +1,11 @@
+{
+  "version": "0.41.2",
+  "displayVersion": "0.41.2-B",
+  "artifactVersion": "0.41.2-B",
+  "publicTag": "v0.41.2-B",
+  "channel": "beta",
+  "updaterVersion": "0.41.2",
+  "rollbackTag": "v0.41.1-B",
+  "releaseName": "Khaos Nexus v0.41.2-B — Stability Baseline",
+  "releaseNotesFile": "release-notes/v0.41.2.md"
+}
