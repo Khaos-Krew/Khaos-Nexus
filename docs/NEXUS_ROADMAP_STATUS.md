@@ -51,8 +51,8 @@ The stabilization score is measured against these 12 gates:
 
 | # | Gate | Current roadmap state |
 |---|---|---|
-| 1 | Startup/loading | Stabilization required |
-| 2 | Sidebar/navigation | Golden baseline protected; regression test required |
+| 1 | Startup/loading | Automated startup checks and packaged startup/clean-install smoke pass; packaged visual/loading-presentation proof still required |
+| 2 | Sidebar/navigation | Golden-shell source regression tests pass; packaged visual/navigation-invariant proof still required |
 | 3 | Settings persistence | Stabilization required |
 | 4 | Discord login/bot supervision | Stabilization required |
 | 5 | Discord status/control panel | Stabilization required |
@@ -89,6 +89,13 @@ Goals:
 ### Phase S1 — Golden desktop shell
 
 Status: **IN PROGRESS**
+
+Current evidence:
+
+- repository CI is green on the current PR #266 head;
+- the golden-shell regression tests verify the `nexus-v8` branding layer, 286px sidebar invariant, and protection against heartbeat-driven navigation rebuilds;
+- the packaged Windows executable reaches full startup readiness in both packaged-startup and clean-install smoke tests;
+- the packaged startup smoke verifies readiness and visible-window exposure, but does not yet prove the exact packaged visual/sidebar/loading invariants required to exit S1.
 
 Goals:
 
