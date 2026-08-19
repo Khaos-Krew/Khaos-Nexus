@@ -14,6 +14,17 @@ function secs(envName: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+function flag(envName: string, fallback = false): boolean {
+  const raw = process.env[envName];
+  if (raw === undefined || raw.trim() === "") return fallback;
+  return /^(1|true|yes|on)$/i.test(raw.trim());
+}
+
+// The archived worker depended on website-era Supabase Edge Functions that are
+// no longer part of the current Khaos Nexus backend. Keep the compatibility
+// scheduler available for deliberate migrations, but never enable it by default.
+const LEGACY_EDGE_JOBS_ENABLED = flag("ENABLE_LEGACY_EDGE_JOBS", false);
+
 async function runEdge(fnName: string, opts: { useCronSecret?: boolean; body?: unknown } = {}): Promise<void> {
   const started = Date.now();
   const result = await invokeEdgeFunction(fnName, opts);
@@ -26,48 +37,51 @@ export const jobs: Job[] = [
   {
     name: "module-embed-refresh",
     intervalSeconds: secs("WARFRAME_EMBED_REFRESH_SECONDS", 300),
-    enabled: true,
-    note: "Refreshes Warframe/server module embeds via module-embeds-cron.",
+    enabled: LEGACY_EDGE_JOBS_ENABLED,
+    note: "Legacy compatibility: module-embeds-cron.",
     run: () => runEdge("module-embeds-cron", { useCronSecret: true }),
   },
   {
     name: "server-status-refresh",
     intervalSeconds: secs("SERVER_STATUS_REFRESH_SECONDS", 300),
-    enabled: true,
-    note: "Refreshes per-guild server status embeds via discord-status-cron.",
+    enabled: LEGACY_EDGE_JOBS_ENABLED,
+    note: "Legacy compatibility: discord-status-cron.",
     run: () => runEdge("discord-status-cron", { useCronSecret: true }),
   },
   {
     name: "patch-notes-check",
     intervalSeconds: secs("PATCH_NOTES_CHECK_SECONDS", 300),
-    enabled: true,
-    note: "Posts pending patch notes via cron-patch-notes-discord.",
+    enabled: LEGACY_EDGE_JOBS_ENABLED,
+    note: "Legacy compatibility: cron-patch-notes-discord.",
     run: () => runEdge("cron-patch-notes-discord", { useCronSecret: true }),
   },
   {
     name: "role-sync-check",
     intervalSeconds: secs("ROLE_SYNC_INTERVAL_SECONDS", 900),
-    enabled: true,
-    note: "Runs scheduled Discord role sync via discord-role-sync-cron.",
+    enabled: LEGACY_EDGE_JOBS_ENABLED,
+    note: "Legacy compatibility: discord-role-sync-cron.",
     run: () => runEdge("discord-role-sync-cron", { useCronSecret: true }),
   },
   {
     name: "website-health-probe",
     intervalSeconds: secs("WEBSITE_HEALTH_INTERVAL_SECONDS", 300),
-    enabled: true,
-    note: "Runs platform health probe via website-health-probe.",
+    enabled: LEGACY_EDGE_JOBS_ENABLED,
+    note: "Legacy compatibility: website-health-probe.",
     run: () => runEdge("website-health-probe", { useCronSecret: true }),
   },
   {
     name: "community-rank-role-sync",
     intervalSeconds: secs("COMMUNITY_RANK_ROLE_SYNC_SECONDS", 900),
-    enabled: true,
-    note: "Recomputes community rank tiers and applies Discord rank roles.",
+    enabled: LEGACY_EDGE_JOBS_ENABLED,
+    note: "Legacy compatibility: community-rank-sync.",
     run: () => runEdge("community-rank-sync", { useCronSecret: true }),
   },
 ];
 
 export function startJobScheduler() {
+  if (!LEGACY_EDGE_JOBS_ENABLED) {
+    console.log("[scheduler] legacy Supabase Edge Function jobs are disabled; set ENABLE_LEGACY_EDGE_JOBS=true only after their backend is restored.");
+  }
   for (const job of jobs) {
     if (!job.enabled) {
       console.log(`[scheduler] ${job.name} DISABLED — ${job.note ?? ""}`);
@@ -83,7 +97,7 @@ export function startJobScheduler() {
 }
 
 export async function notifyGuildSync(guildIds: string[]): Promise<void> {
-  if (!guildIds.length) return;
+  if (!LEGACY_EDGE_JOBS_ENABLED || !guildIds.length) return;
   const result = await invokeEdgeFunction("community-bot-sync", {
     useCronSecret: true,
     body: { guild_ids: guildIds, source: "nexus-sentinel:gateway" },
