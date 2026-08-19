@@ -13,6 +13,7 @@ import {
   registerRankCommand,
   startRankReconciliation,
 } from "./rank-sync.js";
+import { provisionGithubChannels, startGithubRouter } from "./github-router.js";
 
 const TOKEN = process.env.NEXUS_BOT_TOKEN;
 if (!TOKEN) {
@@ -24,6 +25,7 @@ const CONFIGURED_APP_ID = process.env.NEXUS_BOT_APPLICATION_ID ?? null;
 const STARTED_AT = Date.now();
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const githubRouter = startGithubRouter(client);
 
 function reapplyPresence(reason: string) {
   applyPresence(client);
@@ -70,6 +72,7 @@ client.once(Events.ClientReady, async (c) => {
   startJobScheduler();
   await registerRankCommand(c);
   await startRankReconciliation(c);
+  await provisionGithubChannels(c).catch((err) => console.error("[github] channel provisioning failed:", err));
 });
 
 client.on(Events.ClientReady, () => reapplyPresence("ready"));
@@ -89,6 +92,7 @@ client.on(Events.InteractionCreate, (interaction) => {
 client.on(Events.GuildCreate, (guild) => {
   console.log(`[guildCreate] joined guild=${guild.id} name=${guild.name} members=${guild.memberCount}`);
   notifyGuildSync([guild.id]).catch((err) => console.error("[guildCreate] notify failed:", err));
+  provisionGithubChannels(client).catch((err) => console.error("[github] guildCreate provisioning failed:", err));
 });
 client.on(Events.GuildUpdate, (_old, guild) => {
   console.log(`[guildUpdate] guild=${guild.id} name=${guild.name}`);
@@ -104,6 +108,7 @@ process.on("unhandledRejection", (reason) => console.error("[process] unhandledR
 
 async function shutdown(signal: string) {
   console.log(`[shutdown] received ${signal} — destroying client`);
+  try { githubRouter.close(); } catch (err) { console.error("[shutdown] error closing GitHub router:", err); }
   try { await client.destroy(); } catch (err) { console.error("[shutdown] error destroying client:", err); }
   process.exit(0);
 }
