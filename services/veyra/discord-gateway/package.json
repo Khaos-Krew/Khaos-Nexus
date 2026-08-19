@@ -1,0 +1,16 @@
+{
+  "name": "khaos-nexus-veyra-discord-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Minimal Discord gateway for Veyra - Lore Master. Keeps the bot online and exposes readiness-only slash commands without reading message content or owning campaign logic.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "discord.js": "14.27.0"
+  }
+}
