@@ -106,7 +106,7 @@ async function ensureRepositoryChannel(
 ): Promise<TextChannel> {
   const parent = category || await ensureCategory(guild);
   const name = githubChannelName(repoFullName);
-  const topicMarker = `GitHub progress for ${repoFullName}`;
+  const topicMarker = `GitHub progress for ${repoFullName} •`;
   const existing = guild.channels.cache.find((channel) => {
     if (channel.type !== ChannelType.GuildText) return false;
     return channel.name === name || String(channel.topic || "").startsWith(topicMarker);
@@ -123,7 +123,7 @@ async function ensureRepositoryChannel(
     name,
     type: ChannelType.GuildText,
     parent: parent.id,
-    topic: `${topicMarker} • managed by Nexus Sentinel`,
+    topic: `${topicMarker} managed by Nexus Sentinel`,
     reason: `Nexus Sentinel repository channel for ${repoFullName}`,
   });
 }
