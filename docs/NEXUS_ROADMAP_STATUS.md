@@ -61,7 +61,7 @@ The stabilization score is measured against these 12 gates:
 | 8 | Palworld command/action execution | Stabilization required |
 | 9 | Shared scheduler | Stabilization required |
 | 10 | Module enable/disable | Stabilization required |
-| 11 | Updater/manual release detection | Stabilization required |
+| 11 | Updater/manual release detection | Authoritative release identity is now consumed by bundled-AI Windows packaging; updater/manual release acceptance still required |
 | 12 | Backup/restore | Stabilization required |
 
 Thresholds:
@@ -144,6 +144,15 @@ Goals:
 ### Phase S5 — Release and updater reliability
 
 Status: **PLANNED**
+
+Current evidence:
+
+- `config/release-identity.json` remains the authoritative `0.41.2-B` / `v0.41.1-B` identity source;
+- the bundled-AI Windows workflow now applies that authoritative release identity instead of freezing old `0.35.0-B` metadata;
+- installer, portable, blockmap, and `latest.yml` verification in that workflow are derived from the authoritative identity rather than hard-coded legacy version strings;
+- the current bundled-AI workflow run is green on the PR #266 head.
+
+This is partial release-hardening evidence only. It does **not** establish completion of S5, publication of `v0.41.2-B`, manual release detection acceptance, in-app updater acceptance, or owner release readiness.
 
 Goals:
 
