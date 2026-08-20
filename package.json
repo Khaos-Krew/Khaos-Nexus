@@ -16,7 +16,7 @@
   },
   "scripts": {
     "start": "node scripts/materialize-assets.cjs && electron .",
-    "test": "npm run test:desktop && npm run test:services",
+    "test": "npm run test:services && npm run test:desktop",
     "test:desktop": "node scripts/test-desktop.cjs",
     "test:services": "node scripts/test-services.cjs",
     "check": "node scripts/check.cjs",
