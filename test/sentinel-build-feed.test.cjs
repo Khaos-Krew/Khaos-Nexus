@@ -197,10 +197,10 @@ test('service posts one matched test package, suppresses duplicates, then announ
   assert.match(messages[1].body.embeds[0].title, /New Beta/);
 });
 
-test('combined Windows and Android checklist includes end-to-end pairing', () => {
+test('combined Windows and Android checklist includes end-to-end pairing and explicit pass/fail guidance', () => {
   const checklist = testChecklist(['Windows', 'Android'], 'owner-test/mobile');
   assert.ok(checklist.some((item) => /pair Android/i.test(item)));
-  assert.ok(checklist.some((item) => /PASS|FAIL/_i.test ? true : true));
+  assert.ok(checklist.some((item) => /PASS or ❌ FAIL/i.test(item)));
 });
 
 test('production entry installs Sentinel build feed before loading the desktop entry', () => {
