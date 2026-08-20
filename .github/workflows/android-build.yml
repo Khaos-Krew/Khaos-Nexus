@@ -1,16 +1,64 @@
-name: Android Production Hold
+name: Android Owner Test
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - owner-test/android-resume-v0.41.2
+    paths:
+      - 'android/**'
+      - 'main/mobile-*.cjs'
+      - 'shared/module-registry.cjs'
+      - '.github/workflows/android-build.yml'
+  pull_request:
+    branches:
+      - stabilize/nexus-66-baseline
+    paths:
+      - 'android/**'
+      - 'main/mobile-*.cjs'
+      - 'shared/module-registry.cjs'
+      - '.github/workflows/android-build.yml'
 
 permissions:
   contents: read
 
+concurrency:
+  group: android-owner-test-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  android-production-hold:
+  build-android:
     runs-on: ubuntu-latest
     steps:
-      - name: Report ADR-008 hold
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK 36
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - name: Unit tests and lint
+        run: gradle --project-dir android testDebugUnitTest lintDebug --stacktrace --no-daemon
+      - name: Build signed Owner-test APK
+        run: gradle --project-dir android assembleRelease --stacktrace --no-daemon
+      - name: Verify APK signature and checksum
+        shell: bash
         run: |
-          echo "Android Companion and Mobile Gateway are paused and excluded by Owner directive under ADR-008."
-          echo "No Android toolchain setup, build, signing, checksum, artifact upload, or Owner-test APK publication is authorized."
+          set -euo pipefail
+          mkdir -p android/dist
+          apk='android/app/build/outputs/apk/release/app-release.apk'
+          out='android/dist/Khaos-Nexus-Mobile-0.41.2-B-owner-test.apk'
+          test -s "$apk"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk" | tee android/dist/apk-signature.txt
+          cp "$apk" "$out"
+          sha256sum "$out" | tee android/dist/Khaos-Nexus-Mobile-0.41.2-B-owner-test.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Khaos-Nexus-Mobile-Android-0.41.2-B-owner-test
+          path: android/dist/*
+          if-no-files-found: error
+          retention-days: 90
