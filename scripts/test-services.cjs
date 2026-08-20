@@ -6,7 +6,12 @@ const { spawnSync } = require('node:child_process');
 
 const repoRoot = path.resolve(__dirname, '..');
 const servicesRoot = path.join(repoRoot, 'services');
-const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const npmExecPath = process.env.npm_execpath;
+
+if (!npmExecPath || !fs.existsSync(npmExecPath)) {
+  console.error('npm_execpath is unavailable. Run hosted service tests through npm so the npm CLI can be invoked portably.');
+  process.exit(1);
+}
 
 if (!fs.existsSync(servicesRoot)) {
   console.log('No services directory found; no hosted service tests to run.');
@@ -65,7 +70,7 @@ function walk(current) {
 }
 
 function runNpm(args, cwd, label) {
-  const result = spawnSync(npmCommand, args, {
+  const result = spawnSync(process.execPath, [npmExecPath, ...args], {
     cwd,
     stdio: 'inherit',
     env: process.env,
