@@ -100,12 +100,15 @@ function inferStabilizationGate(report = {}) {
   const gate = (number, label) => ({ number, label });
   if (/sidebar|navigation|\bnav\b|nexus-v8|desktop shell/.test(text)) return gate(2, 'Sidebar/navigation');
   if (/startup|loading|renderer-load-failed|render-process-gone|renderer-process-gone|window-unresponsive|renderer-unresponsive/.test(text)) return gate(1, 'Startup/loading');
-  if (/(settings?|config(?:uration)?)\b/.test(text) && /persist|save|restore|reload|restart/.test(text)) return gate(3, 'Settings persistence');
+
+  // Prefer domain-specific gates before generic settings/configuration matching.
   if (/discord/.test(text) && /(login|auth|oauth|bot|supervis|runtime|connect)/.test(text)) return gate(4, 'Discord login/bot supervision');
   if (/discord/.test(text) && /(status|control|panel)/.test(text)) return gate(5, 'Discord status/control panel');
   if (/palworld/.test(text) && /(config|setting|persist)/.test(text)) return gate(6, 'Palworld server configuration');
   if (/palworld/.test(text) && /(status|player|read|rest)/.test(text)) return gate(7, 'Palworld status/player reads');
   if (/palworld/.test(text) && /(command|action|save|broadcast|kick|ban|shutdown|restart|execute)/.test(text)) return gate(8, 'Palworld command/action execution');
+
+  if (/(settings?|config(?:uration)?)\b/.test(text) && /persist|save|restore|reload|restart/.test(text)) return gate(3, 'Settings persistence');
   if (/scheduler|scheduled|schedule/.test(text)) return gate(9, 'Shared scheduler');
   if (/module/.test(text) && /(enable|disable|toggle|runtime)/.test(text)) return gate(10, 'Module enable/disable');
   if (/updater|update|release detection|download path|latest\.yml/.test(text)) return gate(11, 'Updater/manual release detection');
