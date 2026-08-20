@@ -16,7 +16,9 @@
   },
   "scripts": {
     "start": "node scripts/materialize-assets.cjs && electron .",
-    "test": "node --test",
+    "test": "npm run test:desktop && npm run test:services",
+    "test:desktop": "node scripts/test-desktop.cjs",
+    "test:services": "node scripts/test-services.cjs",
     "check": "node scripts/check.cjs",
     "pack": "node scripts/materialize-assets.cjs && electron-builder --dir",
     "dist:win": "node scripts/materialize-assets.cjs && electron-builder --win --x64",
