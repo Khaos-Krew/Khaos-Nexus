@@ -8,6 +8,8 @@ The desktop application remains the primary Khaos Nexus product. These services 
 
 Hosted Node services own their own build and test commands. Root desktop CI must not auto-discover raw service test files. Instead, the stabilization test runner discovers service packages with a `test` script, requires a committed `package-lock.json`, performs a deterministic `npm ci --ignore-scripts`, and then runs that service's own `npm test` command. This keeps TypeScript compilation and runtime test execution inside the service boundary that defines them.
 
+The same service-owned test contract is exercised on Linux CI and the Windows build path. The shared runner invokes the active npm CLI through Node rather than platform-specific command shims, preventing Linux-only success or Windows-only `npm.cmd` spawning failures.
+
 ## Services
 
 ### `nexus-sentinel`
