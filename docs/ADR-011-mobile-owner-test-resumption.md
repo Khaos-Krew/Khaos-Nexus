@@ -53,13 +53,26 @@ Every Owner-test APK candidate must pass all of the following on the exact candi
 6. Android lint;
 7. debug package smoke build;
 8. release APK assembly;
-9. APK signature verification;
-10. application ID, version, minimum SDK, and target SDK verification;
-11. SHA-256 checksum generation;
-12. build evidence recording the exact branch, commit, and workflow run;
-13. artifact upload only after all desktop-contract and Android validation jobs pass.
+9. persistent Nexus mobile release-keystore requirement;
+10. APK signature verification against the approved signing-certificate SHA-256 fingerprint;
+11. application ID, version, minimum SDK, and target SDK verification;
+12. APK SHA-256 checksum generation;
+13. build evidence recording the exact branch, commit, workflow run, and signing-certificate fingerprint;
+14. artifact upload only after all desktop-contract and Android validation jobs pass.
+
+The release workflow must fail closed when the persistent signing identity is unavailable or changes unexpectedly. This preserves Android package continuity so later Owner-test builds can be installed as upgrades and provides the signing foundation required for a future in-app update flow.
 
 The CI artifact is an **Owner-test artifact**, not a public release. Publication remains a separate explicit authorization.
+
+### Required protected signing secrets
+
+- `KHAOS_ANDROID_KEYSTORE_B64`
+- `KHAOS_ANDROID_STORE_PASSWORD`
+- `KHAOS_ANDROID_KEY_ALIAS`
+- `KHAOS_ANDROID_KEY_PASSWORD`
+- `KHAOS_ANDROID_CERT_SHA256`
+
+These values must remain in repository/environment secrets. The keystore must never be committed to the repository or included in an artifact.
 
 ## Current Owner-test identity
 
