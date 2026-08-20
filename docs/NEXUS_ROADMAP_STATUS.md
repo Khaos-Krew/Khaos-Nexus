@@ -32,6 +32,8 @@ Feature expansion is frozen while the desktop application is brought to a depend
 
 The planned self-hosted web/backend migration remains deferred until the desktop stabilization target is accepted.
 
+Android Companion / Mobile Gateway **owner-test validation has been explicitly resumed** for the active 0.41.x stabilization effort, including pairing and read-only validation paths. This does not lift the current production hold: Android/Mobile Gateway production exposure remains disabled unless separately accepted and released.
+
 ## Golden UI baseline
 
 The approved modern desktop shell is required.
@@ -92,10 +94,11 @@ Status: **IN PROGRESS**
 
 Current evidence:
 
-- repository CI is green on the current PR #266 head;
+- core CI, Diagnostics Runtime Integration, and Bundled AI Runtimes are green on the current PR #266 head;
+- Windows Build is currently blocked in its test step by an Electron dependency-install failure on the GitHub-hosted Windows runner, so packaging did not execute for that head;
 - the golden-shell regression tests verify the `nexus-v8` branding layer, 286px sidebar invariant, and protection against heartbeat-driven navigation rebuilds;
-- the packaged Windows executable reaches full startup readiness in both packaged-startup and clean-install smoke tests;
-- the packaged startup smoke verifies readiness and visible-window exposure, but does not yet prove the exact packaged visual/sidebar/loading invariants required to exit S1.
+- the packaged Windows executable reached full startup readiness in prior packaged-startup and clean-install smoke tests;
+- those packaged startup smokes verify readiness and visible-window exposure, but do not yet prove the exact packaged visual/sidebar/loading invariants required to exit S1.
 
 Goals:
 
@@ -150,7 +153,8 @@ Current evidence:
 - `config/release-identity.json` remains the authoritative `0.41.2-B` / `v0.41.1-B` identity source;
 - the bundled-AI Windows workflow now applies that authoritative release identity instead of freezing old `0.35.0-B` metadata;
 - installer, portable, blockmap, and `latest.yml` verification in that workflow are derived from the authoritative identity rather than hard-coded legacy version strings;
-- the current bundled-AI workflow run is green on the PR #266 head.
+- the current bundled-AI workflow run is green on the PR #266 head;
+- the current general Windows Build did not reach packaging because its test step failed in the hosted runner's Electron dependency installation.
 
 This is partial release-hardening evidence only. It does **not** establish completion of S5, publication of `v0.41.2-B`, manual release detection acceptance, in-app updater acceptance, or owner release readiness.
 
@@ -183,6 +187,16 @@ Direction:
 - lightweight Windows Nexus Agent for local-machine authority
 
 This phase does not begin until the desktop baseline is accepted.
+
+## Mobile owner-test validation
+
+Status: **RESUMED FOR OWNER TEST / PRODUCTION HOLD REMAINS**
+
+Current evidence:
+
+- active stabilization tests cover Android owner-test security policy, Mobile Gateway HTTPS/TLS health, QR pairing, read-only module promotion, and combined Windows/Android owner-test guidance;
+- production-policy tests continue to enforce the Mobile Gateway hold and prevent paused production routes from being reactivated by saved state;
+- this work is validation/supporting infrastructure for owner testing and does not establish Android production release acceptance.
 
 ## Recently rejected direction
 
