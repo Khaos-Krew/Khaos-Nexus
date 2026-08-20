@@ -14,6 +14,12 @@ import {
   startRankReconciliation,
 } from "./rank-sync.js";
 import { provisionGithubChannels, startGithubRouter } from "./github-router.js";
+import {
+  handleProjectReportCommand,
+  provisionProjectReportChannel,
+  registerProjectReportCommand,
+  startProjectReportScheduler,
+} from "./project-report.js";
 
 const TOKEN = process.env.NEXUS_BOT_TOKEN;
 if (!TOKEN) {
@@ -71,8 +77,11 @@ client.once(Events.ClientReady, async (c) => {
 
   startJobScheduler();
   await registerRankCommand(c);
+  await registerProjectReportCommand(c);
   await startRankReconciliation(c);
   await provisionGithubChannels(c).catch((err) => console.error("[github] channel provisioning failed:", err));
+  await provisionProjectReportChannel(c).catch((err) => console.error("[report] channel provisioning failed:", err));
+  await startProjectReportScheduler(c).catch((err) => console.error("[report] scheduler startup failed:", err));
 });
 
 client.on(Events.ClientReady, () => reapplyPresence("ready"));
@@ -86,13 +95,17 @@ client.on(Events.Error, (err) => console.error("[client] error:", err));
 client.on(Events.Warn, (msg) => console.warn("[client] warn:", msg));
 client.on(Events.InteractionCreate, (interaction) => {
   if (!interaction.isChatInputCommand()) return;
-  handleRankCommand(interaction).catch((err) => console.error("[ranks] interaction failed:", err));
+  void (async () => {
+    if (await handleRankCommand(interaction)) return;
+    await handleProjectReportCommand(interaction);
+  })().catch((err) => console.error("[commands] interaction failed:", err));
 });
 
 client.on(Events.GuildCreate, (guild) => {
   console.log(`[guildCreate] joined guild=${guild.id} name=${guild.name} members=${guild.memberCount}`);
   notifyGuildSync([guild.id]).catch((err) => console.error("[guildCreate] notify failed:", err));
   provisionGithubChannels(client).catch((err) => console.error("[github] guildCreate provisioning failed:", err));
+  provisionProjectReportChannel(client).catch((err) => console.error("[report] guildCreate provisioning failed:", err));
 });
 client.on(Events.GuildUpdate, (_old, guild) => {
   console.log(`[guildUpdate] guild=${guild.id} name=${guild.name}`);
