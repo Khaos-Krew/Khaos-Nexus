@@ -36,11 +36,18 @@ if (diagnosticsMode) {
     require('./access-recovery-extension.cjs').install();
     require('./brand-update-extension.cjs').install();
 
+    // Owner-test mobile resumption is intentionally isolated to this integration line.
+    // The historical ADR-008 hold remains available as an explicit emergency kill path.
     const mobileHold = require('./mobile-production-hold-extension.cjs');
-    const mobileGatewayEnabled = mobileHold.mobileGatewayPolicyEnabled();
+    const { mobileOwnerTestEnabled } = require('../shared/mobile-owner-test-policy.cjs');
+    const mobileGatewayEnabled = mobileOwnerTestEnabled();
 
-    if (mobileGatewayEnabled) require('./mobile-module-registry-extension.cjs').install();
-    else mobileHold.install();
+    if (mobileGatewayEnabled) {
+      require('./mobile-module-registry-extension.cjs').install();
+      require('./mobile-login-extension.cjs').install();
+    } else {
+      mobileHold.install();
+    }
     require('./dnd-action-rejection-boundary-extension.cjs').install();
     require('./dnd-campaign-extension.cjs').install();
     require('./dnd-usability-repair-extension.cjs').install();
