@@ -12,8 +12,8 @@ function read(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-test('root test command keeps desktop and hosted service test boundaries explicit', () => {
-  assert.equal(packageJson.scripts.test, 'npm run test:desktop && npm run test:services');
+test('root test command keeps desktop and hosted service test boundaries explicit and fails fast on services', () => {
+  assert.equal(packageJson.scripts.test, 'npm run test:services && npm run test:desktop');
   assert.equal(packageJson.scripts['test:desktop'], 'node scripts/test-desktop.cjs');
   assert.equal(packageJson.scripts['test:services'], 'node scripts/test-services.cjs');
 });
