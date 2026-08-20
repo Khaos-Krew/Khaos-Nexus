@@ -32,3 +32,11 @@ test('service test runner requires lockfiles and runs each service through its o
   assert.match(source, /\['ci', '--ignore-scripts'\]/);
   assert.match(source, /\['test'\]/);
 });
+
+test('service test runner invokes the current npm CLI through Node on every OS', () => {
+  const source = read('scripts/test-services.cjs');
+  assert.match(source, /process\.env\.npm_execpath/);
+  assert.match(source, /spawnSync\(process\.execPath, \[npmExecPath, \.\.\.args\]/);
+  assert.doesNotMatch(source, /npm\.cmd/);
+  assert.doesNotMatch(source, /process\.platform === ['"]win32['"]/);
+});
