@@ -104,9 +104,36 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.5.0"
+      - name: Require persistent Owner-test signing identity
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.KHAOS_ANDROID_KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.KHAOS_ANDROID_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KHAOS_ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KHAOS_ANDROID_KEY_PASSWORD }}
+          EXPECTED_CERT_SHA256: ${{ secrets.KHAOS_ANDROID_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          for value in "$KEYSTORE_B64" "$STORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" "$EXPECTED_CERT_SHA256"; do
+            test -n "$value" || { echo "Persistent Android signing secrets are not fully configured." >&2; exit 1; }
+          done
+
+          signing_dir="$RUNNER_TEMP/khaos-nexus-mobile-signing"
+          mkdir -p "$signing_dir"
+          chmod 700 "$signing_dir"
+          keystore="$signing_dir/owner-test.jks"
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$keystore"
+          test -s "$keystore"
+          chmod 600 "$keystore"
+
+          echo "KHAOS_ANDROID_KEYSTORE=$keystore" >> "$GITHUB_ENV"
+          echo "KHAOS_ANDROID_STORE_PASSWORD=$STORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "KHAOS_ANDROID_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "KHAOS_ANDROID_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+          echo "KHAOS_ANDROID_EXPECTED_CERT_SHA256=$EXPECTED_CERT_SHA256" >> "$GITHUB_ENV"
       - name: Build Owner-test release APK
         run: gradle --project-dir android assembleRelease --stacktrace
-      - name: Verify APK identity signature and checksum
+      - name: Verify APK identity signer and checksum
         shell: bash
         run: |
           set -euo pipefail
@@ -116,6 +143,11 @@ jobs:
           test -s "$apk"
 
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk" | tee android/dist/apk-signature.txt
+          actual_cert="$(awk -F': ' '/Signer #1 certificate SHA-256 digest:/ {print $2; exit}' android/dist/apk-signature.txt | tr -d ':[:space:]' | tr '[:lower:]' '[:upper:]')"
+          expected_cert="$(printf '%s' "$KHAOS_ANDROID_EXPECTED_CERT_SHA256" | tr -d ':[:space:]' | tr '[:lower:]' '[:upper:]')"
+          test -n "$actual_cert"
+          test "$actual_cert" = "$expected_cert" || { echo "APK signing certificate does not match the approved Nexus mobile signer." >&2; exit 1; }
+
           app_id="$($ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer manifest application-id "$apk")"
           version_name="$($ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer manifest version-name "$apk")"
           min_sdk="$($ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer manifest min-sdk "$apk")"
@@ -136,6 +168,7 @@ jobs:
             echo "version_name=${version_name}"
             echo "min_sdk=${min_sdk}"
             echo "target_sdk=${target_sdk}"
+            echo "signing_cert_sha256=${actual_cert}"
           } > android/dist/build-evidence.txt
       - name: Upload validated Owner-test artifact
         uses: actions/upload-artifact@v4
