@@ -10,7 +10,7 @@
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test dist/rank-sync.test.js"
+    "test": "npm run build && node --test dist/*.test.js"
   },
   "engines": {
     "node": ">=20"
