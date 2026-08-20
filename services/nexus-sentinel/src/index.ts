@@ -14,6 +14,7 @@ import {
   startRankReconciliation,
 } from "./rank-sync.js";
 import { provisionGithubChannels, startGithubRouter } from "./github-router.js";
+import { startBuildFeed } from "./build-feed.js";
 import {
   handleProjectReportCommand,
   provisionProjectReportChannel,
@@ -32,6 +33,7 @@ const STARTED_AT = Date.now();
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const githubRouter = startGithubRouter(client);
+const buildFeed = startBuildFeed(client);
 
 function reapplyPresence(reason: string) {
   applyPresence(client);
@@ -121,6 +123,7 @@ process.on("unhandledRejection", (reason) => console.error("[process] unhandledR
 
 async function shutdown(signal: string) {
   console.log(`[shutdown] received ${signal} — destroying client`);
+  try { buildFeed.close(); } catch (err) { console.error("[shutdown] error closing build feed:", err); }
   try { githubRouter.close(); } catch (err) { console.error("[shutdown] error closing GitHub router:", err); }
   try { await client.destroy(); } catch (err) { console.error("[shutdown] error destroying client:", err); }
   process.exit(0);
