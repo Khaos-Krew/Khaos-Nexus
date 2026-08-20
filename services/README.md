@@ -4,6 +4,10 @@ This directory contains deployment boundaries for long-running services that are
 
 The desktop application remains the primary Khaos Nexus product. These services do not replace desktop-owned configuration, permission, scheduler, or game-server authority.
 
+## CI contract
+
+Hosted Node services own their own build and test commands. Root desktop CI must not auto-discover raw service test files. Instead, the stabilization test runner discovers service packages with a `test` script, requires a committed `package-lock.json`, performs a deterministic `npm ci --ignore-scripts`, and then runs that service's own `npm test` command. This keeps TypeScript compilation and runtime test execution inside the service boundary that defines them.
+
 ## Services
 
 ### `nexus-sentinel`
