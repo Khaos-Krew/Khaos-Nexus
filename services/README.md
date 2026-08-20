@@ -10,6 +10,8 @@ Hosted Node services own their own build and test commands. Root desktop CI must
 
 The same service-owned test contract is exercised on Linux CI and the Windows build path. The shared runner invokes the active npm CLI through Node rather than platform-specific command shims, preventing Linux-only success or Windows-only `npm.cmd` spawning failures.
 
+Hosted service validation runs before the larger desktop test suite. A missing lockfile, failed service build, or failed service test therefore stops the PR early without spending the full desktop-test and packaging budget first.
+
 ## Services
 
 ### `nexus-sentinel`
