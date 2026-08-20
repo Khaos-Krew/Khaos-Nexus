@@ -5,8 +5,22 @@ let installed = false;
 const MOBILE_ID = 'mobile-gateway';
 const ENABLE_VARIABLE = 'KHAOS_NEXUS_MOBILE_GATEWAY_ENABLED';
 
+function ownerTestAuthorizationEnabled() {
+  try {
+    const authorization = require('./mobile-owner-test-authorization.cjs');
+    return authorization?.enabled === true && authorization?.scope === 'owner-test' && authorization?.architectureDecision === 'ADR-009';
+  } catch {
+    return false;
+  }
+}
+
 function mobileGatewayPolicyEnabled(env = process.env) {
-  return String(env?.[ENABLE_VARIABLE] || '') === '1';
+  if (String(env?.[ENABLE_VARIABLE] || '') === '1') return true;
+
+  // Preserve the original exact-env contract for unit tests and normal releases.
+  // Only the isolated ADR-009 owner-test branch contains the packaged authorization marker.
+  if (env !== process.env) return false;
+  return ownerTestAuthorizationEnabled();
 }
 
 function holdModule(module) {
@@ -93,6 +107,7 @@ function install() {
 module.exports = {
   install,
   mobileGatewayPolicyEnabled,
+  ownerTestAuthorizationEnabled,
   holdModule,
   holdRuntime,
   MOBILE_ID,
