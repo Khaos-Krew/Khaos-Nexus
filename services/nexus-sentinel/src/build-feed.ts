@@ -295,7 +295,7 @@ export function startBuildFeed(client: Client) {
   let polling = false;
 
   async function ensureReadyChannel(): Promise<TextChannel> {
-    if (channel && !channel.deleted) return channel;
+    if (channel) return channel;
     channel = await provisionBuildFeedChannel(client);
     if (!initialized) {
       await seedSeenKeys(channel, seen);
@@ -366,6 +366,7 @@ export function startBuildFeed(client: Client) {
       await pollBuilds(target);
       await pollReleases(target);
     } catch (error) {
+      channel = null;
       console.error("[build-feed] poll failed:", error);
     } finally {
       polling = false;
