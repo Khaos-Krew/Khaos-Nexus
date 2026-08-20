@@ -56,6 +56,18 @@ Owner-test builds require at least **8/12** gates, beta quality requires **10/12
 
 Read the active contract: [`docs/NEXUS_STABILIZATION_RESET.md` on the stabilization branch](../../blob/stabilize/nexus-66-baseline/docs/NEXUS_STABILIZATION_RESET.md).
 
+## Roadmap
+
+The public roadmap summary follows the canonical [`docs/NEXUS_ROADMAP_STATUS.md`](../../blob/stabilize/nexus-66-baseline/docs/NEXUS_ROADMAP_STATUS.md) handoff and is synchronized only when repository evidence supports the status.
+
+- **Now — Stabilization Reset:** protect the approved modern desktop shell and establish the functional baseline.
+- **Next — Core reliability:** validate persistence, module controls, the shared scheduler, and backup/recovery behavior.
+- **Then — Discord + Palworld acceptance:** validate real operational flows without regressing the desktop shell.
+- **Release hardening:** keep release identity and updater metadata consistent and ensure the delivered artifact is the exact tested package.
+- **Later — Self-hosted web + Windows agent:** deferred until the desktop baseline is accepted.
+
+Detailed phase/gate evidence belongs in the canonical roadmap document. A phase is not complete merely because related code exists, and no numeric stabilization score should be inferred from this summary.
+
 ## Release terminology
 
 Khaos Nexus keeps these concepts separate:
@@ -90,6 +102,7 @@ For the active desktop source and current documentation, start on the stabilizat
 - [Active stabilization source](../../tree/stabilize/nexus-66-baseline)
 - [Stabilization README](../../blob/stabilize/nexus-66-baseline/README.md)
 - [Documentation index](../../blob/stabilize/nexus-66-baseline/docs/README.md)
+- [Canonical roadmap/status](../../blob/stabilize/nexus-66-baseline/docs/NEXUS_ROADMAP_STATUS.md)
 - [Run from source](../../blob/stabilize/nexus-66-baseline/RUN_FROM_SOURCE.md)
 - [Security policy](../../blob/stabilize/nexus-66-baseline/SECURITY.md)
 - [Current release identity](../../blob/stabilize/nexus-66-baseline/config/release-identity.json)
