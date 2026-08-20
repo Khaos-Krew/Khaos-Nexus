@@ -19,8 +19,22 @@ data class StoredSession(val endpoint: String, val fingerprint: String, val devi
 data class DashboardData(val desktopVersion: String = "Unknown", val discordStatus: String = "Unknown", val onlineServers: Int = 0, val totalServers: Int = 0, val players: Int = 0, val enabledModules: Int = 0, val totalModules: Int = 0, val updateAvailable: Boolean = false, val alerts: List<String> = emptyList(), val checkedAt: String = "")
 data class DiscordData(val status: String = "stopped", val username: String = "", val latencyMs: Int = 0, val uptimeSeconds: Long = 0, val memoryMb: Int = 0, val guildCount: Int = 0, val attention: String = "")
 data class ServerData(val id: String, val name: String, val game: String, val status: String, val players: Int, val maxPlayers: Int, val fps: Double?, val uptimeSeconds: Long, val map: String, val error: String)
-data class ModuleData(val id: String, val name: String, val category: String, val stage: String, val availability: String, val enabled: Boolean, val reason: String, val progress: Int)
+data class ModuleData(
+    val id: String,
+    val name: String,
+    val category: String,
+    val stage: String,
+    val availability: String,
+    val enabled: Boolean,
+    val reason: String,
+    val progress: Int,
+    val workspace: String = "",
+    val description: String = "",
+    val requiredRole: String = "viewer",
+    val features: List<String> = emptyList(),
+    val statusLabel: String = ""
+)
 data class LogData(val time: String, val source: String, val level: String, val message: String)
 data class StatusPanelData(val id: String, val name: String, val serverName: String, val published: Boolean, val lastRefreshedAt: String, val lastError: String)
 data class UpdateData(val status: String = "idle", val currentVersion: String = "", val availableVersion: String = "", val available: Boolean = false, val downloaded: Boolean = false, val progressPercent: Int = 0, val error: String = "")
-enum class NexusSection(val label: String) { COMMAND_DECK("Command Deck"), DISCORD("Discord"), SERVERS("Servers"), MODULES("Modules"), LOGS("Logs"), PANELS("Panels"), SETTINGS("Settings") }
+enum class NexusSection(val label: String) { COMMAND_DECK("Command Deck"), DISCORD("Discord"), SERVERS("Servers"), MODULES("Functions"), LOGS("Logs"), PANELS("Panels"), SETTINGS("Settings") }
