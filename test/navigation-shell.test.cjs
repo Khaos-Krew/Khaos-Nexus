@@ -120,7 +120,7 @@ test('current Windows release preserves Android production boundaries and releas
     assert.match(androidWorkflow, /owner-test\/android-resume-v0\.41\.2/);
     assert.match(androidWorkflow, /testDebugUnitTest lintDebug/);
     assert.match(androidWorkflow, /assembleRelease/);
-    assert.match(androidWorkflow, /apksigner verify/);
+    assert.match(androidWorkflow, /apksigner"?\s+verify/);
     assert.match(androidWorkflow, /Khaos-Nexus-Mobile-Android-0\.41\.2-B-owner-test/);
     assert.match(androidWorkflow, /actions\/upload-artifact@v4/);
     assert.doesNotMatch(androidWorkflow, /gh release create|gh release edit|softprops\/action-gh-release/);
