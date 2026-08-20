@@ -9,7 +9,7 @@ On startup, when the Discord bot token and guild ID are configured, Sentinel fin
 - Category: `KHAOS NEXUS`
 - Text channel: `#nexus-builds`
 
-Creation is additive only. Existing categories and channels are not deleted, renamed, moved, or replaced.
+Creation is additive only. Existing categories and channels are not deleted, renamed, moved, or replaced. GitHub polling begins automatically when the protected GitHub token is available; a missing token or temporary network failure never blocks normal desktop startup.
 
 ## Manual testing notices
 
