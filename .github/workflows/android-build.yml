@@ -1,16 +1,138 @@
-name: Android Production Hold
+name: Android Owner Test
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - "integration/mobile-owner-test-*"
+    paths:
+      - "android/**"
+      - "main/mobile-*.cjs"
+      - "main/services/mobile-gateway-service.cjs"
+      - "renderer/mobile-*.js"
+      - "shared/mobile-*.cjs"
+      - "test/mobile-*.test.cjs"
+      - "docs/ADR-011-mobile-owner-test-resumption.md"
+      - ".github/workflows/android-build.yml"
+  pull_request:
+    branches:
+      - "release/v0.35.0-B"
+    paths:
+      - "android/**"
+      - "main/mobile-*.cjs"
+      - "main/services/mobile-gateway-service.cjs"
+      - "renderer/mobile-*.js"
+      - "shared/mobile-*.cjs"
+      - "test/mobile-*.test.cjs"
+      - "docs/ADR-011-mobile-owner-test-resumption.md"
+      - ".github/workflows/android-build.yml"
 
 permissions:
   contents: read
 
+concurrency:
+  group: android-owner-test-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  android-production-hold:
+  desktop-contract:
+    name: Desktop gateway contract
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - name: Report ADR-008 hold
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install exact production source
+        run: npm ci
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Mobile security and capability tests
+        run: node --test test/mobile-login.test.cjs test/mobile-functions.test.cjs test/mobile-owner-test-policy.test.cjs test/mobile-production-hold.test.cjs test/mobile-gateway.test.cjs test/mobile-gateway-service.test.cjs test/mobile-gateway-integration.test.cjs
+      - name: Full repository regression suite
+        run: npm test
+      - name: Repository checks
+        run: npm run check
+
+  android-validation:
+    name: Android unit lint and debug build
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK 36
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.5.0"
+      - name: Unit tests
+        run: gradle --project-dir android testDebugUnitTest --stacktrace
+      - name: Android lint
+        run: gradle --project-dir android lintDebug --stacktrace
+      - name: Debug package smoke build
+        run: gradle --project-dir android assembleDebug --stacktrace
+
+  owner-test-apk:
+    name: Signed Owner-test APK
+    needs: [desktop-contract, android-validation]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK 36
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.5.0"
+      - name: Build Owner-test release APK
+        run: gradle --project-dir android assembleRelease --stacktrace
+      - name: Verify APK identity signature and checksum
+        shell: bash
         run: |
-          echo "Android Companion and Mobile Gateway are paused and excluded by Owner directive under ADR-008."
-          echo "No Android toolchain setup, build, signing, checksum, artifact upload, or Owner-test APK publication is authorized."
+          set -euo pipefail
+          mkdir -p android/dist
+          apk="android/app/build/outputs/apk/release/app-release.apk"
+          out="android/dist/Khaos-Nexus-Mobile-0.38.0-owner-test.apk"
+          test -s "$apk"
+
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk" | tee android/dist/apk-signature.txt
+          app_id="$($ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer manifest application-id "$apk")"
+          version_name="$($ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer manifest version-name "$apk")"
+          min_sdk="$($ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer manifest min-sdk "$apk")"
+          target_sdk="$($ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer manifest target-sdk "$apk")"
+
+          test "$app_id" = "com.khaosnexus.mobile"
+          test "$version_name" = "0.38.0-owner-test"
+          test "$min_sdk" = "23"
+          test "$target_sdk" = "36"
+
+          cp "$apk" "$out"
+          sha256sum "$out" | tee android/dist/Khaos-Nexus-Mobile-0.38.0-owner-test.sha256
+          {
+            echo "branch=${GITHUB_REF_NAME}"
+            echo "commit=${GITHUB_SHA}"
+            echo "workflow_run=${GITHUB_RUN_ID}"
+            echo "application_id=${app_id}"
+            echo "version_name=${version_name}"
+            echo "min_sdk=${min_sdk}"
+            echo "target_sdk=${target_sdk}"
+          } > android/dist/build-evidence.txt
+      - name: Upload validated Owner-test artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Khaos-Nexus-Mobile-Android-0.38.0-owner-test
+          path: android/dist/*
+          if-no-files-found: error
+          retention-days: 90
