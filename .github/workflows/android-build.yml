@@ -49,8 +49,8 @@ jobs:
         run: npm ci
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
-      - name: Mobile security and capability tests
-        run: node --test test/mobile-login.test.cjs test/mobile-functions.test.cjs test/mobile-owner-test-policy.test.cjs test/mobile-production-hold.test.cjs test/mobile-gateway.test.cjs test/mobile-gateway-service.test.cjs test/mobile-gateway-integration.test.cjs
+      - name: Mobile security capability and release-contract tests
+        run: node --test test/mobile-login.test.cjs test/mobile-functions.test.cjs test/mobile-owner-test-policy.test.cjs test/mobile-release-contract.test.cjs test/mobile-production-hold.test.cjs test/mobile-gateway.test.cjs test/mobile-gateway-service.test.cjs test/mobile-gateway-integration.test.cjs
       - name: Full repository regression suite
         run: npm test
       - name: Repository checks
