@@ -7,17 +7,19 @@ const MOBILE_PATCH = Object.freeze({
   stage: 'live',
   availability: 'implemented',
   launchView: 'mobile-companion',
-  description: 'Owner-controlled HTTPS Android companion gateway with certificate pinning, one-time pairing, signed requests, immediate revocation and public-safe read-only status.',
+  description: 'Owner-test HTTPS Android companion gateway with certificate-first Nexus account enrollment, biometric trusted sessions, signed requests, immediate revocation and a live Nexus Functions catalog.',
   features: [
-    'Per-install HTTPS certificate',
-    'Certificate fingerprint pinning',
-    'One-time QR and six-digit pairing',
-    'Explicit Owner approval',
-    'P-256 signed requests',
-    'Hashed device credentials',
+    'Private-network HTTPS gateway',
+    'Certificate SHA-256 fingerprint verification and pinning',
+    'Nexus username/password enrollment with salted scrypt verifier',
+    'Revocable device credential after first sign-in',
+    'Android Keystore P-256 signing key',
+    'Biometric or device-credential session unlock',
+    'Timestamped P-256 signed requests',
     'Nonce replay protection',
-    'Immediate revocation',
-    'Read-only Android command deck'
+    'Immediate trusted-device revocation',
+    'Live Nexus Functions catalog',
+    'Legacy pairing backend retained for recovery compatibility'
   ]
 });
 
