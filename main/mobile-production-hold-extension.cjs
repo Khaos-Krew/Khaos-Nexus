@@ -1,14 +1,25 @@
 'use strict';
 
+const fs = require('node:fs');
+const path = require('node:path');
+
 let installed = false;
 
 const MOBILE_ID = 'mobile-gateway';
 const ENABLE_VARIABLE = 'KHAOS_NEXUS_MOBILE_GATEWAY_ENABLED';
+const OWNER_TEST_MARKER = 'mobile-owner-test-authorization.json';
 
-function ownerTestAuthorizationEnabled() {
+function ownerTestAuthorizationEnabled(resourcesPath = process.resourcesPath) {
+  if (typeof resourcesPath !== 'string' || !resourcesPath.trim()) return false;
+
   try {
-    const authorization = require('./mobile-owner-test-authorization.cjs');
-    return authorization?.enabled === true && authorization?.scope === 'owner-test' && authorization?.architectureDecision === 'ADR-009';
+    const markerPath = path.join(resourcesPath, OWNER_TEST_MARKER);
+    const authorization = JSON.parse(fs.readFileSync(markerPath, 'utf8'));
+    return authorization?.enabled === true
+      && authorization?.scope === 'owner-test'
+      && authorization?.architectureDecision === 'ADR-009'
+      && authorization?.trackingIssue === 276
+      && authorization?.desktopBaseline === 'v0.41.2-B';
   } catch {
     return false;
   }
@@ -17,8 +28,8 @@ function ownerTestAuthorizationEnabled() {
 function mobileGatewayPolicyEnabled(env = process.env) {
   if (String(env?.[ENABLE_VARIABLE] || '') === '1') return true;
 
-  // Preserve the original exact-env contract for unit tests and normal releases.
-  // Only the isolated ADR-009 owner-test branch contains the packaged authorization marker.
+  // Preserve exact opt-in semantics for normal source/test environments.
+  // Only a packaged owner-test installer carries the external ADR-009 marker.
   if (env !== process.env) return false;
   return ownerTestAuthorizationEnabled();
 }
@@ -111,5 +122,6 @@ module.exports = {
   holdModule,
   holdRuntime,
   MOBILE_ID,
-  ENABLE_VARIABLE
+  ENABLE_VARIABLE,
+  OWNER_TEST_MARKER
 };
