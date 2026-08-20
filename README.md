@@ -20,6 +20,7 @@ The Windows desktop application is the current primary product. Khaos Nexus is u
 | `v0.41.2-B` | **Development/test candidate** for the stability baseline; candidate metadata does not by itself mean a GitHub release has been published |
 | `v0.41.1-B` | **Rollback target** recorded by the current release identity |
 | Nexus Sentinel `0.33.0 RC1` | **Rejected temporary integration line**; retained only as development history/reference |
+| Android Companion / Mobile Gateway | **Owner-test validation resumed**; production exposure remains held/disabled pending separate acceptance |
 | Feature expansion | **Frozen during stabilization** |
 | Self-hosted web/backend migration | **Deferred** until the desktop baseline is accepted |
 
@@ -45,7 +46,7 @@ The current desktop shell includes dedicated presentation/workspace areas for **
 
 The visual layer prioritizes readability and accessibility. Dense operational surfaces retain usable backgrounds, decorative assets do not own input, and motion is reduced when the operating system **requests reduced motion**.
 
-Development, UI-refresh, stabilization, and owner-test branches **must not publish or modify a release channel** merely because their code packages successfully. Release publication remains a separate authorized action. Mobile-only product work belongs in `Khaos-Krew/nexus-mobile-companion`; preserved Android/Mobile Gateway evidence in this repository remains historical or paused unless a current architecture decision explicitly resumes it.
+Development, UI-refresh, stabilization, and owner-test branches **must not publish or modify a release channel** merely because their code packages successfully. Release publication remains a separate authorized action. Mobile-only product work remains associated with `Khaos-Krew/nexus-mobile-companion`; Android Companion / Mobile Gateway owner-test validation has been explicitly resumed for the current stabilization effort, while production exposure remains held/disabled until separately accepted.
 
 ## Current stabilization gates
 
@@ -72,11 +73,13 @@ See [`docs/NEXUS_STABILIZATION_RESET.md`](docs/NEXUS_STABILIZATION_RESET.md) for
 
 The public roadmap is synchronized from [`docs/NEXUS_ROADMAP_STATUS.md`](docs/NEXUS_ROADMAP_STATUS.md), which is the canonical roadmap/status handoff for the Nexus Doc Watch.
 
-- **Now — Stabilization Reset:** protect the approved modern desktop shell and reach a dependable functional baseline.
+- **Now — Stabilization Reset:** protect the approved modern desktop shell and reach a dependable functional baseline. Core CI, diagnostics integration, and bundled-AI validation are green on the current PR head, while the general Windows Build is presently blocked before packaging by an Electron dependency-install failure on the hosted runner.
 - **Next — Core reliability:** persistence, module control, shared scheduler, backup/recovery, and removal of conflicting legacy paths.
 - **Then — Discord + Palworld acceptance:** validate real operational flows without regressing the desktop shell.
 - **Release hardening:** keep one release identity and ensure the artifact delivered for testing is the exact packaged build that passed validation.
 - **Later — Self-hosted web + Windows agent:** deferred until the desktop baseline is accepted.
+
+Android Companion / Mobile Gateway owner-test validation is running alongside stabilization support work, but it does not lift the production hold or change the primary Windows product line.
 
 The detailed phase and gate status lives in the canonical roadmap document so the README stays concise while the Nexus Doc Watch can keep this summary current from repository evidence.
 
