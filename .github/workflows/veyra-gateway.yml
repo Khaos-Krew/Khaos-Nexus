@@ -34,11 +34,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
-          cache-dependency-path: services/veyra/discord-gateway/package-lock.json
 
       - name: Install gateway dependencies
-        run: npm ci --ignore-scripts --no-audit --no-fund
+        run: npm install --ignore-scripts --no-audit --no-fund
 
       - name: Run Veyra utility tests
         run: npm test
