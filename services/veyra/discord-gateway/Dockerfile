@@ -7,4 +7,4 @@ RUN npm install --omit=dev
 COPY services/veyra/discord-gateway/src ./src
 
 ENV NODE_ENV=production
-CMD ["node", "src/index.js"]
+CMD ["node", "--import", "./src/health-server.js", "src/index.js"]
