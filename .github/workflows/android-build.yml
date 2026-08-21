@@ -5,43 +5,9 @@ on:
   push:
     branches:
       - 'owner-test/**'
-    paths:
-      - 'package.json'
-      - 'config/release-identity.json'
-      - 'android/**'
-      - 'main/mobile-*.cjs'
-      - 'main/entry.cjs'
-      - 'main/owner-test-center-extension.cjs'
-      - 'renderer/mobile-*.js'
-      - 'renderer/mobile-*.css'
-      - 'renderer/owner-test-center.js'
-      - 'renderer/owner-test-center.css'
-      - 'renderer/ui-refresh.js'
-      - 'renderer/ui-refresh.css'
-      - 'test/mobile-*.test.cjs'
-      - 'test/owner-test-center.test.cjs'
-      - 'shared/module-registry.cjs'
-      - '.github/workflows/android-build.yml'
   pull_request:
     branches:
       - stabilize/nexus-66-baseline
-    paths:
-      - 'package.json'
-      - 'config/release-identity.json'
-      - 'android/**'
-      - 'main/mobile-*.cjs'
-      - 'main/entry.cjs'
-      - 'main/owner-test-center-extension.cjs'
-      - 'renderer/mobile-*.js'
-      - 'renderer/mobile-*.css'
-      - 'renderer/owner-test-center.js'
-      - 'renderer/owner-test-center.css'
-      - 'renderer/ui-refresh.js'
-      - 'renderer/ui-refresh.css'
-      - 'test/mobile-*.test.cjs'
-      - 'test/owner-test-center.test.cjs'
-      - 'shared/module-registry.cjs'
-      - '.github/workflows/android-build.yml'
 
 permissions:
   contents: read
