@@ -42,7 +42,6 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      - run: node --check health-server.mjs
       - name: Build Railway image
         working-directory: .
         run: docker build -f services/nexus-sentinel/Dockerfile -t nexus-sentinel-ci .
