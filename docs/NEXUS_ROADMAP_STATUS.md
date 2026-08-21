@@ -94,7 +94,7 @@ Status: **IN PROGRESS**
 
 Current evidence:
 
-- core CI, Windows Build, Diagnostics Runtime Integration, and Bundled AI Runtimes are green on the current PR #266 head;
+- core CI, Windows Build, Diagnostics Runtime Integration, and Bundled AI Runtimes were green on validated implementation head `41f6933eab1ae592b3539d9dfeb79cf6a7e0311d`; later documentation-only commits advanced PR #266 after that validation;
 - the golden-shell regression tests verify the `nexus-v8` branding layer, 286px sidebar invariant, and protection against heartbeat-driven navigation rebuilds;
 - the packaged Windows executable reached full startup readiness in prior packaged-startup and clean-install smoke tests;
 - those packaged startup smokes verify readiness and visible-window exposure, but do not yet prove the exact packaged visual/sidebar/loading invariants required to exit S1.
@@ -152,7 +152,7 @@ Current evidence:
 - `config/release-identity.json` remains the authoritative `0.41.2-B` / `v0.41.1-B` identity source;
 - the bundled-AI Windows workflow now applies that authoritative release identity instead of freezing old `0.35.0-B` metadata;
 - installer, portable, blockmap, and `latest.yml` verification in that workflow are derived from the authoritative identity rather than hard-coded legacy version strings;
-- the current CI, Windows Build, Diagnostics Runtime Integration, and Bundled AI Runtimes workflow runs are green on the PR #266 head.
+- CI, Windows Build, Diagnostics Runtime Integration, and Bundled AI Runtimes all passed on validated implementation head `41f6933eab1ae592b3539d9dfeb79cf6a7e0311d`.
 
 This is partial release-hardening evidence only. It does **not** establish completion of S5, publication of `v0.41.2-B`, manual release detection acceptance, in-app updater acceptance, or owner release readiness.
 
