@@ -1,7 +1,7 @@
 'use strict';
 
 const electron = require('electron');
-const { SentinelBuildFeedService } = require('./services/sentinel-build-feed-service.cjs');
+const { SentinelBuildDashboardService } = require('./services/sentinel-build-dashboard-service.cjs');
 
 const refs = {
   configStore: null,
@@ -32,14 +32,14 @@ function captureClass(modulePath, exportName, refName) {
 function initialize() {
   if (initialized || !refs.configStore) return false;
   initialized = true;
-  refs.service = new SentinelBuildFeedService({
+  refs.service = new SentinelBuildDashboardService({
     configStore: refs.configStore,
     logger: refs.logger,
     dataDirectory: electron.app.getPath('userData')
   });
   refs.service.start();
   electron.app.on('before-quit', () => refs.service?.stop?.());
-  refs.logger?.info?.('Nexus Sentinel build testing and release feed initialized.');
+  refs.logger?.info?.('Nexus Sentinel live build testing dashboard and release feed initialized.');
   return true;
 }
 
