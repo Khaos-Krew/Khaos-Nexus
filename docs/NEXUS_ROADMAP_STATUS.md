@@ -94,8 +94,7 @@ Status: **IN PROGRESS**
 
 Current evidence:
 
-- core CI, Diagnostics Runtime Integration, and Bundled AI Runtimes are green on the current PR #266 head;
-- Windows Build is currently blocked in its test step by an Electron dependency-install failure on the GitHub-hosted Windows runner, so packaging did not execute for that head;
+- core CI, Windows Build, Diagnostics Runtime Integration, and Bundled AI Runtimes are green on the current PR #266 head;
 - the golden-shell regression tests verify the `nexus-v8` branding layer, 286px sidebar invariant, and protection against heartbeat-driven navigation rebuilds;
 - the packaged Windows executable reached full startup readiness in prior packaged-startup and clean-install smoke tests;
 - those packaged startup smokes verify readiness and visible-window exposure, but do not yet prove the exact packaged visual/sidebar/loading invariants required to exit S1.
@@ -153,8 +152,7 @@ Current evidence:
 - `config/release-identity.json` remains the authoritative `0.41.2-B` / `v0.41.1-B` identity source;
 - the bundled-AI Windows workflow now applies that authoritative release identity instead of freezing old `0.35.0-B` metadata;
 - installer, portable, blockmap, and `latest.yml` verification in that workflow are derived from the authoritative identity rather than hard-coded legacy version strings;
-- the current bundled-AI workflow run is green on the PR #266 head;
-- the current general Windows Build did not reach packaging because its test step failed in the hosted runner's Electron dependency installation.
+- the current CI, Windows Build, Diagnostics Runtime Integration, and Bundled AI Runtimes workflow runs are green on the PR #266 head.
 
 This is partial release-hardening evidence only. It does **not** establish completion of S5, publication of `v0.41.2-B`, manual release detection acceptance, in-app updater acceptance, or owner release readiness.
 
