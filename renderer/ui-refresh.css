@@ -186,11 +186,17 @@ body.khaos-ui-refresh::after {
   box-shadow: 0 0 16px rgba(255,53,86,.23);
 }
 
+/* The legacy stylesheet fixes every .nav-item span to 18px. The refreshed
+   navigation uses a span for its copy column, so explicitly restore normal
+   flexible sizing here while keeping only the icon fixed-width. */
 .nexus-nav-copy {
+  flex: 1 1 auto;
+  width: auto !important;
   min-width: 0;
   display: grid;
   gap: 1px;
   line-height: 1.2;
+  text-align: left;
 }
 
 .nexus-nav-copy strong,
@@ -259,480 +265,204 @@ body.khaos-ui-refresh::after {
   content: '';
   position: absolute;
   left: 0;
+  right: 0;
   bottom: -1px;
-  width: 170px;
   height: 1px;
-  background: linear-gradient(90deg, var(--nexus-crimson), transparent);
-  box-shadow: 0 0 16px rgba(255,53,86,.55);
+  background: linear-gradient(90deg, var(--nexus-crimson), rgba(255,53,86,.1) 36%, transparent 78%);
 }
 
-.khaos-ui-refresh h1 {
-  font-size: 29px;
-  letter-spacing: -.65px;
-  text-shadow: 0 0 28px rgba(255,53,86,.12);
+.khaos-ui-refresh .topbar h1 {
+  font-size: clamp(25px, 2vw, 32px);
+  letter-spacing: -.8px;
+  margin-bottom: 4px;
+}
+
+.khaos-ui-refresh .topbar p {
+  max-width: 780px;
+  margin-bottom: 0;
 }
 
 .khaos-ui-refresh .status-pill {
-  border-color: rgba(255,255,255,.09);
-  background: rgba(12,14,19,.84);
-  backdrop-filter: blur(14px);
+  border-color: rgba(255,255,255,.08);
+  background: rgba(12,14,20,.8);
+  backdrop-filter: blur(18px);
 }
 
-.khaos-ui-refresh .panel,
+.khaos-ui-refresh .local-banner,
+.khaos-ui-refresh .hero-panel,
 .khaos-ui-refresh .metric-card,
+.khaos-ui-refresh .panel,
 .khaos-ui-refresh .server-card,
-.khaos-ui-refresh .module-card {
-  background:
-    linear-gradient(145deg, rgba(255,255,255,.018), transparent 42%),
-    var(--nexus-panel);
+.khaos-ui-refresh .module-card,
+.khaos-ui-refresh .migration-panel {
+  position: relative;
+  overflow: hidden;
   border-color: rgba(255,255,255,.075);
-  box-shadow: 0 18px 45px rgba(0,0,0,.22), inset 0 1px rgba(255,255,255,.025);
-  backdrop-filter: blur(13px);
+  background: linear-gradient(180deg, rgba(17,19,26,.91), rgba(9,11,16,.94));
+  box-shadow: 0 18px 46px rgba(0,0,0,.22);
+  backdrop-filter: blur(16px);
 }
 
-.khaos-ui-refresh .panel:hover,
-.khaos-ui-refresh .metric-card:hover {
-  border-color: rgba(255,53,86,.17);
+.khaos-ui-refresh .hero-panel::before,
+.khaos-ui-refresh .panel::before,
+.khaos-ui-refresh .metric-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.12), transparent);
+  pointer-events: none;
 }
 
 .khaos-ui-refresh .hero-panel {
-  position: relative;
-  overflow: hidden;
+  min-height: 180px;
   background:
-    linear-gradient(112deg, rgba(215,25,54,.31), rgba(16,18,25,.95) 52%, rgba(8,9,13,.98)),
-    url('../assets/ui/nexus-command-core.svg') center/cover;
-  border-color: rgba(255,53,86,.35);
-  box-shadow: 0 24px 70px rgba(0,0,0,.3), 0 0 38px rgba(215,25,54,.11);
+    linear-gradient(118deg, rgba(123, 10, 34, .48), rgba(15,17,24,.94) 54%),
+    url('../assets/ui/nexus-command-core.svg') right center/cover;
+  border-color: rgba(255,53,86,.22);
 }
 
-.khaos-ui-refresh .hero-panel::after {
-  content: '';
-  position: absolute;
-  width: 260px;
-  height: 260px;
-  right: -80px;
-  top: -90px;
-  border: 1px solid rgba(255,53,86,.17);
-  border-radius: 50%;
-  box-shadow: inset 0 0 44px rgba(255,53,86,.06), 0 0 44px rgba(255,53,86,.06);
+.khaos-ui-refresh .hero-panel h2 {
+  font-size: clamp(26px, 3vw, 38px);
+  letter-spacing: -1px;
 }
 
-.khaos-ui-refresh .quick-grid {
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+.khaos-ui-refresh .button.primary {
+  background: linear-gradient(180deg, #ff4562, #c71935);
+  border-color: rgba(255,117,139,.74);
+  box-shadow: 0 9px 26px rgba(215,25,54,.2), inset 0 1px rgba(255,255,255,.17);
 }
 
-.khaos-ui-refresh .nexus-quick-card {
-  min-height: 94px;
-  border-color: rgba(255,53,86,.19);
-  background:
-    linear-gradient(135deg, rgba(215,25,54,.12), transparent 55%),
-    rgba(8,10,14,.91);
+.khaos-ui-refresh .button:not(.primary):not(.danger) {
+  background: rgba(16,18,24,.9);
+  border-color: rgba(255,255,255,.09);
 }
 
-.khaos-ui-refresh .nexus-quick-card:first-child {
-  background:
-    linear-gradient(135deg, rgba(255,96,55,.15), transparent 55%),
-    url('../assets/ui/nexus-dnd-runes.svg') right center/cover,
-    rgba(8,10,14,.94);
+.khaos-ui-refresh .button:hover {
+  border-color: rgba(255,72,103,.46);
+  box-shadow: 0 10px 24px rgba(0,0,0,.2);
 }
 
-.nexus-view {
-  position: relative;
+.khaos-ui-refresh .metric-card strong {
+  color: #fff;
+  text-shadow: 0 0 22px rgba(255,53,86,.12);
 }
 
-.nexus-workspace {
+.khaos-ui-refresh .tag.good {
+  color: #ff9cab;
+  border-color: rgba(255,53,86,.24);
+  background: rgba(215,25,54,.1);
+}
+
+.khaos-ui-refresh .nexus-workspace {
   display: grid;
   gap: 18px;
 }
 
 .nexus-hero {
   position: relative;
-  min-height: 280px;
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(230px, .65fr);
-  gap: 32px;
-  align-items: center;
+  min-height: 230px;
   overflow: hidden;
-  padding: 36px;
-  border: 1px solid rgba(255,53,86,.3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 34px;
+  padding: clamp(24px, 4vw, 42px);
+  border: 1px solid rgba(255,255,255,.075);
   border-radius: 22px;
-  background-color: rgba(8,10,14,.94);
-  box-shadow: 0 28px 80px rgba(0,0,0,.34), 0 0 52px rgba(215,25,54,.1);
+  background:
+    radial-gradient(circle at 82% 30%, rgba(255,53,86,.15), transparent 30%),
+    linear-gradient(125deg, rgba(104,8,31,.42), rgba(10,12,17,.96) 54%);
+  box-shadow: 0 24px 70px rgba(0,0,0,.3), inset 0 1px rgba(255,255,255,.035);
 }
 
-.nexus-hero::before,
 .nexus-hero::after {
   content: '';
   position: absolute;
-  pointer-events: none;
-}
-
-.nexus-hero::before {
-  inset: 0;
-  background: linear-gradient(90deg, rgba(4,5,8,.02), rgba(4,5,8,.24) 52%, rgba(4,5,8,.66));
-}
-
-.nexus-hero::after {
-  inset: auto -120px -170px auto;
-  width: 480px;
-  height: 480px;
-  border: 1px solid rgba(255,53,86,.13);
+  right: -80px;
+  bottom: -120px;
+  width: 320px;
+  height: 320px;
+  border: 1px solid rgba(255,53,86,.12);
   border-radius: 50%;
-  box-shadow: inset 0 0 90px rgba(255,53,86,.05);
+  box-shadow: 0 0 0 28px rgba(255,53,86,.025), 0 0 0 64px rgba(255,53,86,.015);
 }
 
-.nexus-dnd-hero {
-  background-image:
-    linear-gradient(108deg, rgba(116,18,27,.64), rgba(14,15,21,.9) 45%, rgba(6,7,10,.96)),
-    url('../assets/ui/nexus-dnd-runes.svg');
-  background-size: cover;
-  background-position: center;
-}
-
-.nexus-ai-hero {
-  background-image:
-    linear-gradient(108deg, rgba(81,10,36,.7), rgba(13,14,21,.91) 45%, rgba(5,6,9,.97)),
-    url('../assets/ui/nexus-ai-core.svg');
-  background-size: cover;
-  background-position: center;
-}
-
-.nexus-hero-copy,
-.nexus-emblem {
-  position: relative;
-  z-index: 1;
-}
-
-.nexus-hero-copy h2 {
-  max-width: 780px;
-  margin: 8px 0 10px;
-  font-size: clamp(28px, 3.5vw, 48px);
-  line-height: 1.02;
-  letter-spacing: -1.5px;
-}
-
-.nexus-hero-copy p {
-  max-width: 720px;
-  margin-bottom: 0;
-  color: #c0b6ba;
-  font-size: 14px;
-  line-height: 1.7;
-}
-
-.nexus-action-row,
-.nexus-inline-actions {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-top: 22px;
-}
-
-.nexus-emblem {
-  min-height: 220px;
-  display: grid;
-  place-items: center;
-}
-
-.nexus-orbit,
-.nexus-core-ring {
-  position: absolute;
-  border-radius: 50%;
-  border: 1px solid rgba(255,103,61,.4);
-  box-shadow: inset 0 0 34px rgba(255,53,86,.08), 0 0 26px rgba(255,53,86,.09);
-}
-
-.nexus-dnd-emblem .orbit-one { width: 190px; height: 190px; animation: nexus-spin 30s linear infinite; }
-.nexus-dnd-emblem .orbit-two { width: 145px; height: 145px; border-style: dashed; animation: nexus-spin-reverse 22s linear infinite; }
-
-.nexus-die {
-  width: 104px;
-  height: 104px;
-  display: grid;
-  place-items: center;
-  clip-path: polygon(50% 0%, 96% 27%, 84% 82%, 50% 100%, 16% 82%, 4% 27%);
-  background: linear-gradient(145deg, rgba(255,99,55,.44), rgba(92,5,28,.72));
-  border: 1px solid rgba(255,255,255,.25);
-  color: white;
-  font-size: 28px;
-  font-weight: 900;
-  text-shadow: 0 0 14px rgba(255,255,255,.55);
-  box-shadow: 0 0 46px rgba(255,53,86,.28);
-}
-
-.nexus-ai-emblem .ring-one { width: 200px; height: 200px; animation: nexus-spin 34s linear infinite; }
-.nexus-ai-emblem .ring-two { width: 150px; height: 150px; border-style: dashed; animation: nexus-spin-reverse 20s linear infinite; }
-.nexus-ai-emblem .ring-three { width: 98px; height: 98px; border-color: rgba(169,60,255,.5); animation: nexus-pulse 3.8s ease-in-out infinite; }
-
-.nexus-core-eye {
-  width: 58px;
-  height: 58px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 50% 44%, white 0 4%, #ff8aa0 6%, #ff3556 20%, #661026 44%, #090a0e 72%);
-  box-shadow: 0 0 18px rgba(255,53,86,.85), 0 0 58px rgba(215,25,54,.4);
-}
-
+.nexus-hero-copy { position: relative; z-index: 1; max-width: 760px; }
+.nexus-hero-copy h2 { font-size: clamp(28px, 4vw, 46px); letter-spacing: -1.6px; margin: 5px 0 8px; }
+.nexus-hero-copy p { max-width: 720px; font-size: 14px; }
+.nexus-action-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+.nexus-emblem { position: relative; z-index: 1; flex: 0 0 180px; width: 180px; height: 180px; display: grid; place-items: center; }
+.nexus-orbit { position: absolute; inset: 8px; border: 1px solid rgba(255,53,86,.22); border-radius: 50%; box-shadow: 0 0 30px rgba(215,25,54,.08); }
+.orbit-two { inset: 28px; border-style: dashed; animation: nexus-spin 16s linear infinite reverse; }
+.orbit-one { animation: nexus-spin 24s linear infinite; }
 @keyframes nexus-spin { to { transform: rotate(360deg); } }
-@keyframes nexus-spin-reverse { to { transform: rotate(-360deg); } }
-@keyframes nexus-pulse { 50% { transform: scale(1.06); opacity: .68; } }
+.nexus-die { width: 82px; height: 82px; display: grid; place-items: center; clip-path: polygon(50% 0, 94% 25%, 94% 75%, 50% 100%, 6% 75%, 6% 25%); background: radial-gradient(circle, #ff4d6b, #7f0e2a 72%); box-shadow: 0 0 36px rgba(255,53,86,.3); color: white; font-size: 25px; font-weight: 900; }
 
 .nexus-status-strip {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 1px;
-  overflow: hidden;
-  border: 1px solid rgba(255,255,255,.07);
-  border-radius: 14px;
-  background: rgba(255,255,255,.055);
+  gap: 10px;
 }
 
 .nexus-status-strip > div {
-  position: relative;
   display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0 10px;
+  grid-template-columns: 10px 1fr;
+  gap: 2px 9px;
   align-items: center;
-  padding: 14px 16px;
-  background: rgba(9,11,15,.91);
+  padding: 13px 15px;
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 13px;
+  background: rgba(9,11,16,.82);
 }
 
 .nexus-status-strip strong,
-.nexus-status-strip small { display: block; }
-.nexus-status-strip small { grid-column: 2; color: #746f77; font-size: 10px; }
+.nexus-status-strip small { grid-column: 2; }
+.nexus-status-strip small { color: #76717a; }
+.nexus-status-dot { grid-row: 1 / span 2; width: 8px; height: 8px; border-radius: 50%; background: var(--nexus-crimson); box-shadow: 0 0 13px rgba(255,53,86,.5); }
 
-.nexus-status-dot {
-  grid-row: 1 / 3;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--nexus-crimson);
-  box-shadow: 0 0 14px rgba(255,53,86,.75);
-}
-
-.nexus-feature-grid,
-.nexus-service-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.nexus-feature-card,
-.nexus-service-card {
-  position: relative;
-  overflow: hidden;
-  display: grid;
-  gap: 14px;
+.nexus-feature-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px; }
+.nexus-feature-card {
   min-height: 220px;
-  padding: 22px;
-  border: 1px solid rgba(255,255,255,.075);
-  border-radius: 16px;
-  background:
-    linear-gradient(145deg, rgba(255,53,86,.075), transparent 46%),
-    rgba(12,14,20,.9);
-  box-shadow: 0 18px 46px rgba(0,0,0,.22), inset 0 1px rgba(255,255,255,.025);
-  transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
-}
-
-.nexus-feature-card::after,
-.nexus-service-card::after {
-  content: '';
-  position: absolute;
-  inset: auto -30px -70px auto;
-  width: 170px;
-  height: 170px;
-  border: 1px solid rgba(255,53,86,.1);
-  border-radius: 50%;
-}
-
-.nexus-feature-card:hover,
-.nexus-service-card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(255,53,86,.29);
-  box-shadow: 0 24px 58px rgba(0,0,0,.28), 0 0 28px rgba(215,25,54,.07);
-}
-
-.nexus-feature-icon {
-  width: 46px;
-  height: 46px;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(255,53,86,.28);
-  border-radius: 14px;
-  background: radial-gradient(circle, rgba(255,53,86,.22), rgba(78,7,23,.09));
-  color: #ff8b9f;
-  font-size: 20px;
-  box-shadow: 0 0 22px rgba(215,25,54,.09);
-}
-
-.nexus-feature-card h3,
-.nexus-service-card h3 { margin: 5px 0 7px; font-size: 19px; }
-.nexus-feature-card p,
-.nexus-service-card p { margin: 0; line-height: 1.65; }
-.nexus-feature-card .text-button { justify-self: start; align-self: end; }
-
-.nexus-service-card {
-  min-height: 250px;
-  gap: 18px;
-}
-
-.nexus-service-heading {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 13px;
-  align-items: center;
-}
-
-.nexus-service-mark {
-  width: 50px;
-  height: 50px;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(255,53,86,.34);
-  border-radius: 15px;
-  background: linear-gradient(145deg, rgba(255,53,86,.25), rgba(68,5,20,.2));
-  color: white;
-  font-weight: 900;
-  font-size: 11px;
-  box-shadow: 0 0 24px rgba(215,25,54,.12);
-}
-
-.service-core-ai .nexus-service-mark {
-  border-color: rgba(169,60,255,.35);
-  background: linear-gradient(145deg, rgba(169,60,255,.28), rgba(64,8,91,.18));
-  box-shadow: 0 0 24px rgba(169,60,255,.12);
-}
-
-.nexus-service-details {
-  display: grid;
-  gap: 0;
-  margin: 0;
-}
-
-.nexus-service-details div {
   display: flex;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 10px 0;
-  border-top: 1px solid rgba(255,255,255,.055);
+  flex-direction: column;
+  gap: 16px;
+  padding: 19px;
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(17,19,26,.93), rgba(8,10,14,.93));
+  box-shadow: 0 16px 38px rgba(0,0,0,.18);
 }
-
-.nexus-service-details dt { color: #77717a; }
-.nexus-service-details dd { text-align: right; color: #ded8dc; }
-
+.nexus-feature-card h3 { margin: 3px 0 7px; }
+.nexus-feature-card p { font-size: 12px; }
+.nexus-feature-card .text-button { margin-top: auto; align-self: flex-start; }
+.nexus-feature-icon { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid rgba(255,53,86,.22); border-radius: 13px; background: rgba(215,25,54,.09); color: #ff7790; font-size: 18px; }
+.nexus-check-list { margin: 0; padding-left: 18px; color: #a7a1a8; }
+.nexus-check-list li + li { margin-top: 8px; }
 .nexus-boundary-grid { align-items: stretch; }
-.nexus-boundary-panel { border-color: rgba(255,53,86,.13) !important; }
-.nexus-boundary-panel p { line-height: 1.7; }
-.nexus-ai-boundary { padding: 24px !important; }
-.nexus-boundary-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+.nexus-boundary-panel { min-height: 250px; }
+.nexus-runtime-grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
+.nexus-runtime-grid .metric-card small { min-height: 36px; }
+.nexus-runtime-detail { min-height: 86px; }
+.nexus-runtime-agent { display: flex; gap: 12px; align-items: flex-start; padding: 13px 0; border-bottom: 1px solid rgba(255,255,255,.055); }
+.nexus-runtime-agent:last-child { border-bottom: 0; }
+.nexus-agent-icon { flex: 0 0 32px; width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid rgba(255,53,86,.22); border-radius: 10px; background: rgba(215,25,54,.08); color: #ff7b91; }
+.nexus-runtime-agent strong,
+.nexus-runtime-agent small { display: block; }
+.nexus-runtime-agent small { color: #77717a; margin-top: 2px; }
 
-.nexus-check-list {
-  display: grid;
-  gap: 10px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+@media (max-width: 1220px) {
+  .nexus-feature-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .nexus-runtime-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
 }
 
-.nexus-check-list li {
-  position: relative;
-  padding-left: 23px;
-  color: #ada5aa;
-  line-height: 1.55;
-}
-
-.nexus-check-list li::before {
-  content: '◆';
-  position: absolute;
-  left: 0;
-  top: 1px;
-  color: var(--nexus-crimson);
-  font-size: 10px;
-  text-shadow: 0 0 9px rgba(255,53,86,.6);
-}
-
-body[data-nexus-view='dnd'] .content::before {
-  background:
-    linear-gradient(180deg, rgba(128,26,18,.12), transparent),
-    url('../assets/ui/nexus-dnd-runes.svg') center top/cover no-repeat;
-  opacity: .8;
-}
-
-body[data-nexus-view='ai'] .content::before {
-  background:
-    linear-gradient(180deg, rgba(132,14,57,.12), transparent),
-    url('../assets/ui/nexus-ai-core.svg') center top/cover no-repeat;
-  opacity: .84;
-}
-
-.khaos-ui-refresh #view-logs .log-console,
-.khaos-ui-refresh #view-settings .panel,
-.khaos-ui-refresh #view-monitor .panel,
-.khaos-ui-refresh .form-panel {
-  background: var(--nexus-panel-strong);
-  backdrop-filter: none;
-}
-
-.khaos-ui-refresh input,
-.khaos-ui-refresh select {
-  border-color: rgba(255,255,255,.11);
-  background: rgba(5,6,9,.9);
-}
-
-.khaos-ui-refresh input:focus,
-.khaos-ui-refresh select:focus {
-  border-color: var(--nexus-crimson);
-  box-shadow: 0 0 0 3px rgba(255,53,86,.11), 0 0 22px rgba(215,25,54,.08);
-}
-
-.khaos-ui-refresh .button.primary {
-  background: linear-gradient(180deg, #ff4563, #c50f31);
-  border-color: #ff6980;
-  box-shadow: 0 10px 24px rgba(215,25,54,.22), inset 0 1px rgba(255,255,255,.18);
-}
-
-.khaos-ui-refresh .button:hover {
-  border-color: rgba(255,105,128,.55);
-}
-
-.khaos-ui-refresh .eyebrow {
-  color: #ff6c84;
-  text-shadow: 0 0 12px rgba(255,53,86,.24);
-}
-
-.khaos-ui-refresh .tag.bad { color: #ff8195; border-color: rgba(255,53,86,.36); background: rgba(215,25,54,.1); }
-
-@media (max-width: 1100px) {
-  .khaos-ui-refresh .app-shell { grid-template-columns: 242px minmax(0, 1fr); }
-  .khaos-ui-refresh .content::before { left: 242px; }
-  .nexus-hero { grid-template-columns: 1fr; }
-  .nexus-emblem { position: absolute; right: 18px; bottom: -52px; width: 240px; opacity: .35; }
-  .nexus-status-strip { grid-template-columns: 1fr; }
-}
-
-@media (max-width: 820px) {
-  .khaos-ui-refresh .app-shell { grid-template-columns: 206px minmax(0, 1fr); }
-  .khaos-ui-refresh .content { padding: 22px 22px 46px; }
-  .khaos-ui-refresh .content::before { left: 206px; }
+@media (max-width: 860px) {
+  .khaos-ui-refresh .app-shell { grid-template-columns: 228px minmax(0, 1fr); }
+  .khaos-ui-refresh .content { padding-inline: 22px; }
+  .khaos-ui-refresh .content::before { left: 228px; }
   .nexus-nav-copy small { display: none; }
   .nexus-feature-grid,
-  .nexus-service-grid,
-  .nexus-boundary-columns,
-  .nexus-boundary-grid { grid-template-columns: 1fr; }
-  .nexus-hero { padding: 26px; min-height: 250px; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .nexus-orbit,
-  .nexus-core-ring,
-  .nexus-feature-card,
-  .nexus-service-card,
-  .nexus-nav-item,
-  .khaos-ui-refresh .view.active {
-    animation: none !important;
-    transition: none !important;
-  }
-  .nexus-feature-card:hover,
-  .nexus-service-card:hover,
-  .khaos-ui-refresh .nexus-nav-item:hover {
-    transform: none;
-  }
+  .nexus-status-strip,
+  .nexus-runtime-grid { grid-template-columns: 1fr; }
+  .nexus-emblem { display: none; }
 }
