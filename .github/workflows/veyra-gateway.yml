@@ -1,0 +1,68 @@
+name: Veyra Gateway
+
+on:
+  push:
+    branches:
+      - agent/railway-hosted-services
+      - feature/veyra-**
+    paths:
+      - 'services/veyra/discord-gateway/**'
+      - '.github/workflows/veyra-gateway.yml'
+  pull_request:
+    paths:
+      - 'services/veyra/discord-gateway/**'
+      - '.github/workflows/veyra-gateway.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gateway:
+    name: veyra-discord-gateway
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: services/veyra/discord-gateway
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install gateway dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Run Veyra utility tests
+        run: npm test
+
+      - name: Syntax-check gateway entry
+        run: node --check src/index.js
+
+      - name: Syntax-check tabletop engine
+        run: node --check src/tabletop.js
+
+      - name: Guard Discord authority boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -Eq 'GatewayIntentBits\.(MessageContent|GuildMembers|GuildPresences)' src/index.js; then
+            echo 'Veyra utility gateway must remain Guilds-intent only for this milestone.' >&2
+            exit 1
+          fi
+          if grep -Eq 'Events\.MessageCreate|messageCreate' src/index.js; then
+            echo 'Veyra utility gateway must not read ordinary Discord messages.' >&2
+            exit 1
+          fi
+          if grep -Eq '/api/v1/(campaign|co-dm|homebrew|maps|encounter|workspace)' src/index.js; then
+            echo 'Campaign/AI mutation or read routes require an explicit authenticated integration milestone.' >&2
+            exit 1
+          fi
+          grep -q 'veyra-roll' src/index.js
+          grep -q 'veyra-initiative' src/index.js
+          grep -q 'veyra-hook' src/index.js
