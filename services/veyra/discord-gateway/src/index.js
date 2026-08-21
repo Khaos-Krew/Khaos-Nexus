@@ -93,8 +93,10 @@ async function checkAiHealth() {
 
 async function registerCommands(applicationId) {
   const rest = new REST({ version: "10" }).setToken(token);
-  await rest.put(Routes.applicationCommands(applicationId), { body: commands });
-  console.log(`[commands] registered ${commands.length} global Veyra commands for application=${applicationId}`);
+  for (const command of commands) {
+    await rest.post(Routes.applicationCommands(applicationId), { body: command });
+  }
+  console.log(`[commands] upserted ${commands.length} global Veyra commands for application=${applicationId}; Activity Entry Point preserved`);
 }
 
 function signedModifier(value) {
