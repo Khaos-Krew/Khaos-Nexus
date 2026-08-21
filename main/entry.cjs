@@ -35,6 +35,7 @@ if (diagnosticsMode) {
     require('./stability-extension.cjs').install();
     require('./access-recovery-extension.cjs').install();
     require('./brand-update-extension.cjs').install();
+    require('./build-identity-extension.cjs').install();
 
     const mobileHold = require('./mobile-production-hold-extension.cjs');
     const mobileGatewayEnabled = mobileHold.mobileGatewayPolicyEnabled();
