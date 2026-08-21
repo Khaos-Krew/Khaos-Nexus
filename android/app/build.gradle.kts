@@ -18,7 +18,7 @@ android {
         applicationId = "com.khaosnexus.mobile"
         minSdk = 23
         targetSdk = 36
-        versionCode = 41201
+        versionCode = 410201
         versionName = "0.41.2.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
