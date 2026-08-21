@@ -1,0 +1,87 @@
+name: Railway Hosted Services
+
+on:
+  push:
+    branches:
+      - agent/railway-hosted-services
+    paths:
+      - "services/nexus-sentinel/**"
+      - "services/veyra/**"
+      - "packages/ai/dnd-ai/**"
+      - ".github/workflows/railway-hosted-services.yml"
+  pull_request:
+    branches:
+      - agent/railway-hosted-services
+    paths:
+      - "services/nexus-sentinel/**"
+      - "services/veyra/**"
+      - "packages/ai/dnd-ai/**"
+      - ".github/workflows/railway-hosted-services.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: railway-hosted-services-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sentinel:
+    name: Sentinel
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/nexus-sentinel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: services/nexus-sentinel/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: node --check health-server.mjs
+      - name: Build Railway image
+        working-directory: .
+        run: docker build -f services/nexus-sentinel/Dockerfile -t nexus-sentinel-ci .
+
+  veyra-ai:
+    name: Veyra AI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/ai/dnd-ai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: packages/ai/dnd-ai/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - name: Build Railway image
+        working-directory: .
+        run: docker build -f services/veyra/Dockerfile -t veyra-ai-ci .
+
+  veyra-gateway:
+    name: Veyra Discord Gateway
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/veyra/discord-gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm test
+      - run: node --check src/index.js
+      - run: node --check src/health-server.js
+      - name: Build Railway image
+        working-directory: .
+        run: docker build -f services/veyra/discord-gateway/Dockerfile -t veyra-gateway-ci .
