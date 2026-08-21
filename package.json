@@ -21,6 +21,7 @@
     "test:desktop": "node scripts/test-desktop.cjs",
     "test:services": "node scripts/test-services.cjs",
     "check": "node scripts/check.cjs",
+    "version:next-owner-test": "node scripts/bump-owner-test.cjs",
     "pack": "node scripts/materialize-assets.cjs && electron-builder --dir",
     "dist:win": "node scripts/materialize-assets.cjs && electron-builder --win --x64",
     "release:win": "node scripts/materialize-assets.cjs && electron-builder --win --x64 --publish always"
