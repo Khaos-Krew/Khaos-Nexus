@@ -8,6 +8,9 @@ on:
     paths:
       - 'android/**'
       - 'main/mobile-*.cjs'
+      - 'renderer/mobile-*.js'
+      - 'renderer/mobile-*.css'
+      - 'test/mobile-*.test.cjs'
       - 'shared/module-registry.cjs'
       - '.github/workflows/android-build.yml'
   pull_request:
@@ -16,6 +19,9 @@ on:
     paths:
       - 'android/**'
       - 'main/mobile-*.cjs'
+      - 'renderer/mobile-*.js'
+      - 'renderer/mobile-*.css'
+      - 'test/mobile-*.test.cjs'
       - 'shared/module-registry.cjs'
       - '.github/workflows/android-build.yml'
 
