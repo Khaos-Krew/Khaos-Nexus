@@ -73,7 +73,7 @@ See [`docs/NEXUS_STABILIZATION_RESET.md`](docs/NEXUS_STABILIZATION_RESET.md) for
 
 The public roadmap is synchronized from [`docs/NEXUS_ROADMAP_STATUS.md`](docs/NEXUS_ROADMAP_STATUS.md), which is the canonical roadmap/status handoff for the Nexus Doc Watch.
 
-- **Now — Stabilization Reset:** protect the approved modern desktop shell and reach a dependable functional baseline. Core CI, Windows Build, diagnostics integration, and bundled-AI validation all passed on validated implementation head `41f6933eab1ae592b3539d9dfeb79cf6a7e0311d`; later documentation-only commits advanced PR #266 after that validation. Packaged visual/sidebar/loading proof is still required before the golden-shell phase can exit.
+- **Now — Stabilization Reset:** protect the approved modern desktop shell and reach a dependable functional baseline. Core CI, Windows Build, Diagnostics Runtime Integration, and Bundled AI Runtimes are green on the current validated implementation head `9f0f9c3fc5fcdd33858ff9adaacf36c830f316ae`. A healthy installed `0.41.2` startup diagnostic also exists, but it does not identify the exact Git commit and therefore is not treated as owner acceptance or proof that the golden-shell gate passed. Packaged visual/sidebar/loading proof is still required before the golden-shell phase can exit.
 - **Next — Core reliability:** persistence, module control, shared scheduler, backup/recovery, and removal of conflicting legacy paths.
 - **Then — Discord + Palworld acceptance:** validate real operational flows without regressing the desktop shell.
 - **Release hardening:** keep one release identity and ensure the artifact delivered for testing is the exact packaged build that passed validation.
