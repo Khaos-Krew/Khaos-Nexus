@@ -73,7 +73,7 @@ See [`docs/NEXUS_STABILIZATION_RESET.md`](docs/NEXUS_STABILIZATION_RESET.md) for
 
 The public roadmap is synchronized from [`docs/NEXUS_ROADMAP_STATUS.md`](docs/NEXUS_ROADMAP_STATUS.md), which is the canonical roadmap/status handoff for the Nexus Doc Watch.
 
-- **Now — Stabilization Reset:** protect the approved modern desktop shell and reach a dependable functional baseline. Core CI, diagnostics integration, and bundled-AI validation are green on the current PR head, while the general Windows Build is presently blocked before packaging by an Electron dependency-install failure on the hosted runner.
+- **Now — Stabilization Reset:** protect the approved modern desktop shell and reach a dependable functional baseline. Core CI, Windows Build, diagnostics integration, and bundled-AI validation are green on the current PR head; packaged visual/sidebar/loading proof is still required before the golden-shell phase can exit.
 - **Next — Core reliability:** persistence, module control, shared scheduler, backup/recovery, and removal of conflicting legacy paths.
 - **Then — Discord + Palworld acceptance:** validate real operational flows without regressing the desktop shell.
 - **Release hardening:** keep one release identity and ensure the artifact delivered for testing is the exact packaged build that passed validation.
