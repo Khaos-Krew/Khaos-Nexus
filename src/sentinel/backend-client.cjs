@@ -1,0 +1,30 @@
+'use strict';
+
+const { envSecret } = require('../shared/config.cjs');
+
+class BackendClient {
+  constructor(config) {
+    this.baseUrl = String(config.backend?.publicBaseUrl || `http://${config.backend?.host || '127.0.0.1'}:${config.backend?.port || 3210}`).replace(/\/$/, '');
+    this.token = envSecret(config.backend?.serviceTokenEnv);
+  }
+
+  async request(path, options = {}) {
+    const headers = { 'content-type': 'application/json', ...(options.headers || {}) };
+    if (this.token) headers.authorization = `Bearer ${this.token}`;
+    const response = await fetch(`${this.baseUrl}${path}`, { ...options, headers });
+    const body = await response.json().catch(() => ({ ok: false, message: `Backend returned HTTP ${response.status}.` }));
+    return { status: response.status, ...body };
+  }
+
+  modules() { return this.request('/v1/modules'); }
+  health() { return this.request('/health'); }
+  invoke(moduleId, actionId, payload, context) {
+    return this.request(`/v1/modules/${encodeURIComponent(moduleId)}/actions/${encodeURIComponent(actionId)}`, {
+      method: 'POST',
+      headers: { 'x-nexus-role': context.role || 'viewer', 'x-nexus-actor': context.actorId || '' },
+      body: JSON.stringify({ payload: payload || {} })
+    });
+  }
+}
+
+module.exports = { BackendClient };

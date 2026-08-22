@@ -2,33 +2,10 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
-
-const roots = ['main', 'bot', 'renderer', 'shared', 'scripts', 'test'];
-const files = [];
-for (const root of roots) {
-  walk(path.join(process.cwd(), root));
-}
-
-function walk(current) {
-  if (!fs.existsSync(current)) return;
-  const stat = fs.statSync(current);
-  if (stat.isDirectory()) {
-    for (const name of fs.readdirSync(current)) walk(path.join(current, name));
-    return;
-  }
-  if (/\.(?:js|cjs|mjs)$/.test(current)) files.push(current);
-}
-
-let failures = 0;
-for (const file of files) {
-  const result = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
-  if (result.status !== 0) {
-    failures += 1;
-    console.error(result.stderr || result.stdout);
-  }
-}
-
-if (failures) process.exit(1);
-console.log(`Syntax check passed for ${files.length} JavaScript files.`);
-require('./check-version-identity.cjs');
+const root = path.resolve(__dirname, '..');
+const required = ['package.json','config.example.json','src/main.cjs','src/backend/server.cjs','src/sentinel/bot.cjs','src/backend/modules/catalog.cjs'];
+let failed = false;
+for (const file of required) { const ok = fs.existsSync(path.join(root,file)); console.log(`${ok?'OK':'MISSING'} ${file}`); if(!ok) failed=true; }
+const pkg = require(path.join(root,'package.json'));
+if (pkg.version !== '0.1.0') { console.error(`Version must remain 0.1.0 for the rebuild baseline; found ${pkg.version}`); failed=true; }
+if (failed) process.exitCode=1; else console.log('Nexus rebuild structure check passed.');

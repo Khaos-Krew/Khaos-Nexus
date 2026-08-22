@@ -1,0 +1,29 @@
+{
+  "backend": {
+    "host": "127.0.0.1",
+    "port": 3210,
+    "publicBaseUrl": "http://127.0.0.1:3210",
+    "serviceTokenEnv": "NEXUS_BACKEND_TOKEN"
+  },
+  "discord": {
+    "tokenEnv": "NEXUS_SENTINEL_TOKEN",
+    "guildId": "",
+    "ownerUserIds": [],
+    "operatorRoleIds": []
+  },
+  "thora": {
+    "enabled": false,
+    "executableEnv": "NEXUS_THORA_PATH"
+  },
+  "modules": {
+    "ark": { "enabled": true, "channelId": "", "provider": {} },
+    "palworld": { "enabled": true, "channelId": "", "provider": {} },
+    "minecraft": { "enabled": true, "channelId": "", "provider": {} },
+    "warframe": { "enabled": true, "channelId": "", "provider": {} },
+    "division2": { "enabled": true, "channelId": "", "provider": {} },
+    "rust": { "enabled": true, "channelId": "", "provider": {} },
+    "satisfactory": { "enabled": true, "channelId": "", "provider": {} },
+    "idleon": { "enabled": true, "channelId": "", "provider": {} },
+    "dnd": { "enabled": true, "channelId": "", "surface": "veyra", "provider": {} }
+  }
+}

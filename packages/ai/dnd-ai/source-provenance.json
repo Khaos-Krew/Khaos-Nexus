@@ -1,9 +1,0 @@
-{
-  "schemaVersion": 1,
-  "mode": "embedded-source-snapshot",
-  "id": "dnd-ai",
-  "repository": "Khaos-Krew/Khaos-Nexus-AI",
-  "commit": "19c718917377d6148f9baaee8ac8dcb937692f32",
-  "version": "0.12.1",
-  "entry": "src/index.js"
-}

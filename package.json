@@ -1,106 +1,39 @@
 {
   "name": "khaos-nexus",
-  "version": "0.41.3-test.1",
-  "description": "Local-first Windows desktop command center with unconditional local-desktop module recovery controls, installer-first automatic diagnostics and a standalone Khaos Nexus Diagnostics launcher; preserved but paused Android Companion and Mobile Gateway; complete D&D campaign management; dedicated Rust WebRCON operations with Owner-only raw Rust console access; Satisfactory dedicated-server operations; a typed Game Adapter SDK with explicit capability manifests; authoritative Owner module switches; full production runtime audit repairs; compact production dashboard density; independently scrollable navigation and workspace panes; verified click-through grouped proxy navigation; an always-visible in-app update center; a continuous visible-interface startup gate; and renderer-unresponsive reporting.",
-  "main": "main/entry-pdf-import.cjs",
+  "version": "0.1.0",
+  "description": "Khaos Nexus Admin Control Center with backend-first game modules and Nexus Sentinel Discord consoles.",
+  "main": "src/main.cjs",
   "author": "Khaos Krew",
   "license": "MIT",
   "private": true,
-  "khaosRelease": {
-    "displayVersion": "0.41.2.1",
-    "artifactVersion": "0.41.2.1",
-    "publicTag": "",
-    "channel": "owner-test",
-    "updaterVersion": "0.41.3-test.1",
-    "rollbackTag": "v0.41.2-B",
-    "versionScheme": "release.beta.test.hotfix"
-  },
   "scripts": {
-    "start": "node scripts/materialize-assets.cjs && electron .",
-    "test": "npm run test:services && npm run test:desktop",
-    "test:desktop": "node scripts/test-desktop.cjs",
-    "test:services": "node scripts/test-services.cjs",
+    "start": "electron .",
+    "backend": "node src/backend/server.cjs",
+    "sentinel": "node src/sentinel/bot.cjs",
     "check": "node scripts/check.cjs",
-    "version:next-owner-test": "node scripts/bump-owner-test.cjs",
-    "pack": "node scripts/materialize-assets.cjs && electron-builder --dir",
-    "dist:win": "node scripts/materialize-assets.cjs && electron-builder --win --x64",
-    "release:win": "node scripts/materialize-assets.cjs && electron-builder --win --x64 --publish always"
+    "test": "node --test tests/*.test.cjs",
+    "dist:win": "electron-builder --win --x64"
   },
   "dependencies": {
-    "discord.js": "14.27.0",
-    "electron-updater": "6.8.9",
-    "qrcode": "1.5.4",
-    "selfsigned": "5.5.0"
+    "discord.js": "14.27.0"
   },
   "devDependencies": {
     "electron": "43.2.0",
     "electron-builder": "26.15.3"
   },
   "build": {
-    "appId": "com.khaosnexus.desktop",
+    "appId": "com.khaosnexus.admin",
     "productName": "Khaos Nexus",
-    "electronUpdaterCompatibility": ">=2.16",
-    "releaseInfo": {
-      "releaseName": "Khaos Nexus 0.41.2.1 — Owner Test",
-      "releaseNotesFile": "release-notes/v0.41.2.md"
-    },
-    "directories": {
-      "output": "dist",
-      "buildResources": "assets"
-    },
-    "files": [
-      "main/**/*",
-      "bot/**/*",
-      "renderer/**/*",
-      "shared/**/*",
-      "assets/**/*",
-      "package.json",
-      "LICENSE"
-    ],
-    "extraResources": [
-      {
-        "from": "config/mobile-owner-test-authorization.json",
-        "to": "mobile-owner-test-authorization.json"
-      }
-    ],
+    "directories": { "output": "dist" },
+    "files": ["src/**/*", "config.example.json", "package.json", "README.md", "REBUILD_SCOPE.md"],
     "asar": true,
-    "win": {
-      "icon": "assets/icon.png",
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
-        }
-      ]
-    },
+    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }] },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Khaos Nexus",
-      "artifactName": "Khaos-Nexus-Setup-0.41.2.1-${arch}.${ext}",
-      "include": "assets/installer.nsh"
-    },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "Khaos-Krew",
-        "repo": "Khaos-Nexus",
-        "releaseType": "release",
-        "tagNamePrefix": "v"
-      }
-    ],
-    "portable": {
-      "artifactName": "Khaos-Nexus-Portable-0.41.2.1-${arch}.${ext}"
+      "shortcutName": "Khaos Nexus"
     }
   }
 }

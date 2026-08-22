@@ -1,1 +1,0 @@
-The portable target was no-install, not self-contained. It used AppData and had no sidecar bootstrap log beside the executable.

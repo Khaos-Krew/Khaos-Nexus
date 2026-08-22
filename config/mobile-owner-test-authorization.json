@@ -1,7 +1,0 @@
-{
-  "enabled": true,
-  "scope": "owner-test",
-  "architectureDecision": "ADR-009",
-  "trackingIssue": 276,
-  "desktopBaseline": "v0.41.2-B"
-}

@@ -1,11 +1,8 @@
 node_modules/
 dist/
-out/
-*.log
-.env
-.env.*
 config.json
-secrets.bin
+data/
+.env
+*.log
 .DS_Store
 Thumbs.db
-.runtime/
