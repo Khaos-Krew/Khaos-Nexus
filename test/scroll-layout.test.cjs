@@ -55,7 +55,7 @@ test('current release retains scrolling, Owner modules, Android exclusion and lo
   const mobileHold = read('main/mobile-production-hold-extension.cjs');
   const audit = read('main/audit-repair-extension.cjs');
 
-  assert.match(packageJson.version, /^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?$/);
+  assert.match(packageJson.version, /^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc|test)\.\d+)?$/);
   assert.match(packageJson.description, /unconditional local-desktop module recovery controls/i);
   assert.match(packageJson.description, /preserved but paused Android Companion and Mobile Gateway/i);
   assert.match(packageJson.description, /complete D&D campaign management/i);
@@ -83,13 +83,14 @@ test('current release retains scrolling, Owner modules, Android exclusion and lo
   assert.match(rustCss, /rust-operation-output/);
   assert.match(rustCss, /overflow:\s*auto/);
 
-  // Mobile renderer and security assets remain preserved, but runtime/navigation activation is blocked.
+  // Stable/public Mobile hold behavior remains present alongside the private ADR-009 owner-test bypass.
   assert.match(mobileCss, /mobile-device-list/);
   assert.match(mobileCss, /overflow-wrap:\s*anywhere/);
   assert.match(mobileHold, /launchView: null/);
   assert.match(mobileHold, /enabled: false/);
   assert.match(mobileHold, /effectiveEnabled: false/);
   assert.match(mobileHold, /paused-by-owner-directive/);
+  assert.match(mobileHold, /OWNER_TEST_MARKER/);
 
   assert.match(adapterSdk, /roleAtLeast/);
   assert.match(adapterSdk, /redactAdapterValue/);

@@ -49,6 +49,7 @@ test('safe UI layer loads one primary navigation owner while preserving independ
 
 test('current Windows release preserves Android production boundaries and release metadata integrity', () => {
   const packageJson = JSON.parse(read('package.json'));
+  const releaseIdentity = JSON.parse(read('config/release-identity.json'));
   const notes = read(packageJson.build.releaseInfo.releaseNotesFile);
   const mobileDocs = read('docs/ANDROID_COMPANION_v0.22.0.md');
   const mobileShared = read('shared/mobile-gateway.cjs');
@@ -84,7 +85,7 @@ test('current Windows release preserves Android production boundaries and releas
   const ciWorkflow = read('.github/workflows/ci.yml');
   const prerelease = packageJson.version.includes('-');
 
-  assert.match(packageJson.version, /^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?$/);
+  assert.match(packageJson.version, /^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc|test)\.\d+)?$/);
   assert.match(packageJson.description, /unconditional local-desktop module recovery controls/i);
   assert.match(packageJson.description, /preserved but paused Android Companion and Mobile Gateway/i);
   assert.match(packageJson.description, /complete D&D campaign management/i);
@@ -117,11 +118,11 @@ test('current Windows release preserves Android production boundaries and releas
     assert.equal(ownerTestAuthorization.trackingIssue, 276);
     assert.equal(ownerTestAuthorization.desktopBaseline, 'v0.41.2-B');
     assert.match(androidWorkflow, /name: Android Owner Test/);
-    assert.match(androidWorkflow, /owner-test\/android-resume-v0\.41\.2/);
+    assert.match(androidWorkflow, /owner-test\/\*\*/);
     assert.match(androidWorkflow, /testDebugUnitTest lintDebug/);
     assert.match(androidWorkflow, /assembleRelease/);
     assert.match(androidWorkflow, /apksigner"?\s+verify/);
-    assert.match(androidWorkflow, /Khaos-Nexus-Mobile-Android-0\.41\.2-B-owner-test/);
+    assert.match(androidWorkflow, /Khaos-Nexus-Mobile-Android-\$\{\{ steps\.identity\.outputs\.display \}\}-owner-test/);
     assert.match(androidWorkflow, /actions\/upload-artifact@v4/);
     assert.doesNotMatch(androidWorkflow, /gh release create|gh release edit|softprops\/action-gh-release/);
   } else {
@@ -168,7 +169,11 @@ test('current Windows release preserves Android production boundaries and releas
   assert.equal(packageJson.build.publish[0].provider, 'github');
   assert.equal(packageJson.build.publish[0].releaseType, prerelease ? 'prerelease' : 'release');
   assert.equal(packageJson.build.publish[0].tagNamePrefix, 'v');
-  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, `release-notes/v${packageJson.version}.md`);
+  if (releaseIdentity.channel === 'owner-test') {
+    assert.equal(packageJson.build.releaseInfo.releaseNotesFile, releaseIdentity.releaseNotesFile);
+  } else {
+    assert.equal(packageJson.build.releaseInfo.releaseNotesFile, `release-notes/v${packageJson.version}.md`);
+  }
   assert.match(notes, /Android Companion and Mobile Gateway (?:are|remain) paused and excluded/i);
   assert.match(notes, /D&D/i);
   assert.match(notes, /No APK or Android setup link|Android Companion and Mobile Gateway remain paused and excluded/i);

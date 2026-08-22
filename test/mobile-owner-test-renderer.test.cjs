@@ -17,8 +17,7 @@ test('ADR-009 owner-test policy visibly wires the Mobile Companion renderer', ()
 
   // Stable/public builds must still cross the exact Mobile Gateway policy gate.
   assert.match(entry, /mobileGatewayEnabled\s*=\s*mobileHold\.mobileGatewayPolicyEnabled\(\)/);
-  assert.match(entry, /if \(mobileGatewayEnabled\) require\('\.\/mobile-module-registry-extension\.cjs'\)\.install\(\)/);
-  assert.match(entry, /else mobileHold\.install\(\)/);
+  assert.match(entry, /if \(mobileGatewayEnabled\) \{\s*require\('\.\/mobile-module-registry-extension\.cjs'\)\.install\(\);\s*require\('\.\/owner-test-center-extension\.cjs'\)\.install\(\);\s*\} else mobileHold\.install\(\);/s);
   assert.match(hold, /KHAOS_NEXUS_MOBILE_GATEWAY_ENABLED/);
   assert.match(hold, /OWNER_TEST_MARKER/);
   assert.match(hold, /architectureDecision\s*===\s*'ADR-009'/);
