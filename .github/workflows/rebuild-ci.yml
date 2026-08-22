@@ -1,0 +1,41 @@
+name: Nexus Rebuild CI
+
+on:
+  push:
+    branches:
+      - 'rebuild/**'
+  pull_request:
+    branches:
+      - 'rebuild/**'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      - run: npm run check
+      - run: npm test
+
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      - run: npm run check
+      - run: npm test
+      - run: npm run dist:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: khaos-nexus-0.1-windows
+          path: dist/*.exe
+          if-no-files-found: error
