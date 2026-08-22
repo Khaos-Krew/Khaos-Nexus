@@ -41,9 +41,9 @@ function renderModuleConsole(moduleId, backendState = {}) {
   return {
     embeds: [{
       title: `KHAOS NEXUS • ${module.name.toUpperCase()}`,
-      description: `**${state}**\nUse the controls below for common actions. Advanced/parameterized actions remain available through Sentinel commands as they are added.`,
+      description: `**${state}**\nUse the controls below for common actions. Advanced/parameterized actions remain available through Sentinal commands as they are added.`,
       fields: [
-        { name: 'Interface', value: module.surface === 'veyra' ? 'Veyra' : 'Nexus Sentinel', inline: true },
+        { name: 'Interface', value: module.surface === 'veyra' ? 'Veyra' : 'Nexus Sentinal', inline: true },
         { name: 'Backend', value: configured ? 'Provider configured' : 'Waiting for provider configuration', inline: true }
       ],
       footer: { text: 'Nexus 0.1 • Backend-first module console' }
