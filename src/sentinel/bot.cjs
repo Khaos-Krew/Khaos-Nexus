@@ -7,6 +7,7 @@ const { getModule, MODULES } = require('../backend/modules/catalog.cjs');
 const { BackendClient } = require('./backend-client.cjs');
 const { StateStore } = require('./state-store.cjs');
 const { ModuleProvisioner } = require('./module-provisioner.cjs');
+const { hasAdministrator, assertAdministrator } = require('./discord-permissions.cjs');
 const { parseActionId, renderModuleConsole, renderHelp } = require('./module-console.cjs');
 
 const config = loadConfig();
@@ -125,6 +126,7 @@ async function ensureAllConsoles() {
 
 async function provisionModule(interaction, moduleId, categoryId = '') {
   if (!canSetup(interaction)) throw new Error('Module setup requires Nexus owner access or Discord Manage Server permission.');
+  assertAdministrator(interaction.guild);
   const setup = await provisioner.provision(interaction.guild, moduleId, categoryId);
   const consoleMessage = await ensureConsole(moduleId);
   const module = getModule(moduleId);
@@ -159,6 +161,10 @@ async function runAction(interaction, moduleId, actionId, payload = {}) {
 
 client.once('ready', async () => {
   console.log(`[Nexus Sentinal] logged in as ${client.user.tag}`);
+  const guild = await client.guilds.fetch(guildId);
+  if (!hasAdministrator(guild)) {
+    console.error('[Nexus Sentinal] Administrator permission is required. Re-authorize the bot with Discord Administrator before running module setup or temporary lobby management.');
+  }
   await registerCommands();
   await provisioner.cleanupOrphanedLobbies(client);
   await ensureAllConsoles();
@@ -172,6 +178,7 @@ client.on('interactionCreate', async (interaction) => {
   try {
     if (interaction.isStringSelectMenu() && interaction.customId === 'nexussetup:module') {
       if (!canSetup(interaction)) return interaction.reply({ content: 'Module setup requires Nexus owner access or Discord Manage Server permission.', ephemeral: true });
+      assertAdministrator(interaction.guild);
       return interaction.update(setupCategoryPicker(interaction.values[0]));
     }
 
@@ -215,12 +222,14 @@ client.on('interactionCreate', async (interaction) => {
     const sub = interaction.options.getSubcommand();
     if (sub === 'setup') {
       if (!canSetup(interaction)) return interaction.reply({ content: 'Module setup requires Nexus owner access or Discord Manage Server permission.', ephemeral: true });
+      assertAdministrator(interaction.guild);
       return interaction.reply({ ...setupStart(), ephemeral: true });
     }
     if (sub === 'modules') {
       const result = await backend.modules();
       const setups = state.listModuleSetups();
-      const lines = (result.modules || []).map((m) => `${m.enabled ? '🟢' : '⚫'} **${m.name}** — ${m.configured ? 'provider ready' : 'provider setup needed'} • ${setups[m.id] ? 'Discord ready' : 'run /nexus setup'}`);
+      const admin = hasAdministrator(interaction.guild) ? 'Administrator ready' : '⚠️ Administrator missing';
+      const lines = [`**Sentinal:** ${admin}`, ...(result.modules || []).map((m) => `${m.enabled ? '🟢' : '⚫'} **${m.name}** — ${m.configured ? 'provider ready' : 'provider setup needed'} • ${setups[m.id] ? 'Discord ready' : 'run /nexus setup'}`)];
       return interaction.reply({ content: lines.join('\n') || 'No modules registered.', ephemeral: true });
     }
     if (sub === 'refresh') {
