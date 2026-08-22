@@ -10,9 +10,9 @@ const { parseActionId, renderModuleConsole, renderHelp } = require('./module-con
 
 const config = loadConfig();
 const token = envSecret(config.discord?.tokenEnv);
-if (!token) throw new Error(`Set ${config.discord?.tokenEnv || 'NEXUS_SENTINEL_TOKEN'} before starting Nexus Sentinel.`);
+if (!token) throw new Error(`Set ${config.discord?.tokenEnv || 'NEXUS_SENTINEL_TOKEN'} before starting Nexus Sentinal.`);
 const guildId = String(config.discord?.guildId || '');
-if (!guildId) throw new Error('Set discord.guildId in config.json before starting Nexus Sentinel.');
+if (!guildId) throw new Error('Set discord.guildId in config.json before starting Nexus Sentinal.');
 
 const backend = new BackendClient(config);
 const state = new StateStore();
@@ -70,14 +70,14 @@ async function ensureConsole(moduleId) {
 
 async function ensureAllConsoles() {
   for (const moduleId of Object.keys(config.modules || {})) {
-    try { await ensureConsole(moduleId); } catch (error) { console.error(`[Sentinel] ${moduleId} console:`, error.message); }
+    try { await ensureConsole(moduleId); } catch (error) { console.error(`[Sentinal] ${moduleId} console:`, error.message); }
   }
 }
 
 async function registerCommands() {
   const command = new SlashCommandBuilder()
     .setName('nexus')
-    .setDescription('Nexus Sentinel module tools')
+    .setDescription('Nexus Sentinal module tools')
     .addSubcommand((sub) => sub.setName('modules').setDescription('Show backend module health'))
     .addSubcommand((sub) => sub.setName('refresh').setDescription('Refresh a module console').addStringOption((opt) => opt.setName('module').setDescription('Module id').setRequired(true)))
     .addSubcommand((sub) => sub.setName('run').setDescription('Run an advanced module action').addStringOption((opt) => opt.setName('module').setDescription('Module id').setRequired(true)).addStringOption((opt) => opt.setName('action').setDescription('Action id').setRequired(true)).addStringOption((opt) => opt.setName('input').setDescription('Optional text input')));
@@ -89,14 +89,14 @@ async function runAction(interaction, moduleId, actionId, payload = {}) {
   const result = await backend.invoke(moduleId, actionId, payload, { role: roleFor(interaction), actorId: String(interaction.user.id), confirmed: false });
   if (result.code === 'CONFIRMATION_REQUIRED') {
     const nonce = createPending(interaction, moduleId, actionId, payload);
-    return { content: `⚠️ **Confirmation required**\n${result.message}`, components: confirmationRow(nonce), ephemeral: true };
+    return { content: `⚠️ **Confirmation required**\n${result.message}`, components: confirmationRow(nonce) };
   }
-  if (!result.ok) return { content: `⚠️ ${result.message || result.code}`, components: [], ephemeral: true };
-  return { content: `✅ ${getModule(moduleId)?.name || moduleId}: ${actionId} completed.\n\`\`\`${JSON.stringify(result.data, null, 2).slice(0, 1600)}\`\`\``, components: [], ephemeral: true };
+  if (!result.ok) return { content: `⚠️ ${result.message || result.code}`, components: [] };
+  return { content: `✅ ${getModule(moduleId)?.name || moduleId}: ${actionId} completed.\n\`\`\`${JSON.stringify(result.data, null, 2).slice(0, 1600)}\`\`\``, components: [] };
 }
 
 client.once('ready', async () => {
-  console.log(`[Nexus Sentinel] logged in as ${client.user.tag}`);
+  console.log(`[Nexus Sentinal] logged in as ${client.user.tag}`);
   await registerCommands();
   await ensureAllConsoles();
 });
@@ -143,7 +143,7 @@ client.on('interactionCreate', async (interaction) => {
       const moduleId = interaction.options.getString('module', true).toLowerCase();
       const actionId = interaction.options.getString('action', true).toLowerCase();
       const input = interaction.options.getString('input') || '';
-      return interaction.reply(await runAction(interaction, moduleId, actionId, { input }));
+      return interaction.reply({ ...(await runAction(interaction, moduleId, actionId, { input })), ephemeral: true });
     }
   } catch (error) {
     const payload = { content: `⚠️ ${String(error?.message || error)}`.slice(0, 1900), ephemeral: true };
