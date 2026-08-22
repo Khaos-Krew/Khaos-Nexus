@@ -1,11 +1,12 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, PermissionFlagsBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const { loadConfig, envSecret } = require('../shared/config.cjs');
-const { getModule } = require('../backend/modules/catalog.cjs');
+const { getModule, MODULES } = require('../backend/modules/catalog.cjs');
 const { BackendClient } = require('./backend-client.cjs');
 const { StateStore } = require('./state-store.cjs');
+const { ModuleProvisioner } = require('./module-provisioner.cjs');
 const { parseActionId, renderModuleConsole, renderHelp } = require('./module-console.cjs');
 
 const config = loadConfig();
@@ -17,7 +18,8 @@ if (!guildId) throw new Error('Set discord.guildId in config.json before startin
 const backend = new BackendClient(config);
 const state = new StateStore();
 const pending = new Map();
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const provisioner = new ModuleProvisioner({ state, maxLobbiesPerModule: config.discord?.maxTemporaryLobbiesPerModule || 20 });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
 
 function roleFor(interaction) {
   if ((config.discord?.ownerUserIds || []).includes(String(interaction.user.id))) return 'owner';
@@ -26,11 +28,44 @@ function roleFor(interaction) {
   return 'viewer';
 }
 
+function canSetup(interaction) {
+  if (roleFor(interaction) === 'owner') return true;
+  return Boolean(interaction.memberPermissions?.has?.(PermissionFlagsBits.ManageGuild));
+}
+
 function confirmationRow(nonce) {
   return [{ type: 1, components: [
     { type: 2, style: 4, label: 'Confirm', custom_id: `nexusconfirm:${nonce}` },
     { type: 2, style: 2, label: 'Cancel', custom_id: `nexuscancel:${nonce}` }
   ] }];
+}
+
+function setupStart() {
+  return {
+    content: '**Nexus Sentinal • Game Module Setup**\nChoose the game module you want to assign. Sentinal can create a new category or build inside an existing category.',
+    components: [{
+      type: 1,
+      components: [{
+        type: 3,
+        custom_id: 'nexussetup:module',
+        placeholder: 'Choose a game module',
+        min_values: 1,
+        max_values: 1,
+        options: MODULES.map((module) => ({ label: module.name.slice(0, 100), value: module.id, description: `${module.console === false ? 'Veyra' : 'Sentinal'} surface • build Discord channels`.slice(0, 100) }))
+      }]
+    }]
+  };
+}
+
+function setupCategoryPicker(moduleId) {
+  const module = getModule(moduleId);
+  return {
+    content: `**${module.name}**\nChoose an existing category, or let Sentinal create the default category and channel layout automatically. Re-running this later repairs missing channels instead of duplicating them.`,
+    components: [
+      { type: 1, components: [{ type: 8, custom_id: `nexussetup:category:${moduleId}`, placeholder: 'Use an existing Discord category', min_values: 1, max_values: 1, channel_types: [4] }] },
+      { type: 1, components: [{ type: 2, style: 3, label: 'Create Default Category', custom_id: `nexussetup:create:${moduleId}` }] }
+    ]
+  };
 }
 
 function createPending(interaction, moduleId, actionId, payload) {
@@ -54,13 +89,15 @@ async function manifestState(moduleId) {
 async function ensureConsole(moduleId) {
   const moduleConfig = config.modules?.[moduleId] || {};
   const module = getModule(moduleId);
-  if (!module || module.console === false || moduleConfig.enabled === false || !moduleConfig.channelId) return null;
-  const channel = await client.channels.fetch(String(moduleConfig.channelId));
+  const setup = state.getModuleSetup(moduleId);
+  const channelId = setup?.consoleChannelId || moduleConfig.channelId || '';
+  if (!module || module.console === false || moduleConfig.enabled === false || !channelId) return null;
+  const channel = await client.channels.fetch(String(channelId));
   if (!channel?.isTextBased?.()) throw new Error(`${module.name}: configured channel is not text-capable.`);
   const payload = renderModuleConsole(moduleId, await manifestState(moduleId));
   const saved = state.getConsole(moduleId);
   let message = null;
-  if (saved?.messageId) {
+  if (saved?.messageId && saved.channelId === String(channel.id)) {
     try { message = await channel.messages.fetch(saved.messageId); await message.edit(payload); } catch { message = null; }
   }
   if (!message) message = await channel.send(payload);
@@ -69,15 +106,29 @@ async function ensureConsole(moduleId) {
 }
 
 async function ensureAllConsoles() {
-  for (const moduleId of Object.keys(config.modules || {})) {
+  const moduleIds = new Set([...Object.keys(config.modules || {}), ...Object.keys(state.listModuleSetups())]);
+  for (const moduleId of moduleIds) {
     try { await ensureConsole(moduleId); } catch (error) { console.error(`[Sentinal] ${moduleId} console:`, error.message); }
   }
+}
+
+async function provisionModule(interaction, moduleId, categoryId = '') {
+  if (!canSetup(interaction)) throw new Error('Module setup requires Nexus owner access or Discord Manage Server permission.');
+  const setup = await provisioner.provision(interaction.guild, moduleId, categoryId);
+  const consoleMessage = await ensureConsole(moduleId);
+  const module = getModule(moduleId);
+  const channels = setup.textChannels.map((channel) => `<#${channel.id}>`).join(' • ');
+  return {
+    content: `✅ **${module.name} Discord setup complete**\nCategory: <#${setup.categoryId}>\nChannels: ${channels}\nJoin-to-build: <#${setup.lobbyBuilderChannelId}>\n${consoleMessage ? 'Sentinal console published/reconciled.' : module.surface === 'veyra' ? 'Channel layout is ready; Veyra remains the interactive D&D surface.' : 'Console will publish when the module surface is enabled.'}`,
+    components: []
+  };
 }
 
 async function registerCommands() {
   const command = new SlashCommandBuilder()
     .setName('nexus')
     .setDescription('Nexus Sentinal module tools')
+    .addSubcommand((sub) => sub.setName('setup').setDescription('Build or repair a game module Discord category and channels'))
     .addSubcommand((sub) => sub.setName('modules').setDescription('Show backend module health'))
     .addSubcommand((sub) => sub.setName('refresh').setDescription('Refresh a module console').addStringOption((opt) => opt.setName('module').setDescription('Module id').setRequired(true)))
     .addSubcommand((sub) => sub.setName('run').setDescription('Run an advanced module action').addStringOption((opt) => opt.setName('module').setDescription('Module id').setRequired(true)).addStringOption((opt) => opt.setName('action').setDescription('Action id').setRequired(true)).addStringOption((opt) => opt.setName('input').setDescription('Optional text input')));
@@ -98,12 +149,34 @@ async function runAction(interaction, moduleId, actionId, payload = {}) {
 client.once('ready', async () => {
   console.log(`[Nexus Sentinal] logged in as ${client.user.tag}`);
   await registerCommands();
+  await provisioner.cleanupOrphanedLobbies(client);
   await ensureAllConsoles();
+});
+
+client.on('voiceStateUpdate', (oldState, newState) => {
+  provisioner.handleVoiceState(oldState, newState).catch((error) => console.error('[Sentinal] voice lobby event:', error.message));
 });
 
 client.on('interactionCreate', async (interaction) => {
   try {
+    if (interaction.isStringSelectMenu() && interaction.customId === 'nexussetup:module') {
+      if (!canSetup(interaction)) return interaction.reply({ content: 'Module setup requires Nexus owner access or Discord Manage Server permission.', ephemeral: true });
+      return interaction.update(setupCategoryPicker(interaction.values[0]));
+    }
+
+    if (interaction.isChannelSelectMenu() && interaction.customId.startsWith('nexussetup:category:')) {
+      const moduleId = interaction.customId.split(':')[2];
+      await interaction.deferUpdate();
+      return interaction.editReply(await provisionModule(interaction, moduleId, interaction.values[0]));
+    }
+
     if (interaction.isButton()) {
+      const setupCreate = /^nexussetup:create:([a-z0-9-]+)$/.exec(interaction.customId);
+      if (setupCreate) {
+        await interaction.deferUpdate();
+        return interaction.editReply(await provisionModule(interaction, setupCreate[1], ''));
+      }
+
       const confirm = /^(nexusconfirm|nexuscancel):([a-f0-9]{24})$/.exec(interaction.customId);
       if (confirm) {
         const item = pending.get(confirm[2]);
@@ -129,9 +202,14 @@ client.on('interactionCreate', async (interaction) => {
 
     if (!interaction.isChatInputCommand() || interaction.commandName !== 'nexus') return;
     const sub = interaction.options.getSubcommand();
+    if (sub === 'setup') {
+      if (!canSetup(interaction)) return interaction.reply({ content: 'Module setup requires Nexus owner access or Discord Manage Server permission.', ephemeral: true });
+      return interaction.reply({ ...setupStart(), ephemeral: true });
+    }
     if (sub === 'modules') {
       const result = await backend.modules();
-      const lines = (result.modules || []).map((m) => `${m.enabled ? '🟢' : '⚫'} **${m.name}** — ${m.configured ? 'provider ready' : 'provider setup needed'}`);
+      const setups = state.listModuleSetups();
+      const lines = (result.modules || []).map((m) => `${m.enabled ? '🟢' : '⚫'} **${m.name}** — ${m.configured ? 'provider ready' : 'provider setup needed'} • ${setups[m.id] ? 'Discord ready' : 'run /nexus setup'}`);
       return interaction.reply({ content: lines.join('\n') || 'No modules registered.', ephemeral: true });
     }
     if (sub === 'refresh') {
