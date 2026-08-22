@@ -1,7 +1,7 @@
 {
   "name": "khaos-nexus",
   "version": "0.1.0",
-  "description": "Khaos Nexus Admin Control Center with backend-first game modules and Nexus Sentinel Discord consoles.",
+  "description": "Khaos Nexus Admin Control Center with backend-first game modules and Nexus Sentinal Discord consoles.",
   "main": "src/main.cjs",
   "author": "Khaos Krew",
   "license": "MIT",
