@@ -9,7 +9,8 @@
     "tokenEnv": "NEXUS_SENTINEL_TOKEN",
     "guildId": "",
     "ownerUserIds": [],
-    "operatorRoleIds": []
+    "operatorRoleIds": [],
+    "maxTemporaryLobbiesPerModule": 20
   },
   "thora": {
     "enabled": false,
