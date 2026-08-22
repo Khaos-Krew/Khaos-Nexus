@@ -1,0 +1,33 @@
+name: One-time Stabilization Release Cleanup
+
+on:
+  push:
+    branches:
+      - stabilize/nexus-66-baseline
+    paths:
+      - .github/workflows/stabilization-release-cleanup.yml
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup-old-release-assets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove obsolete GitHub Releases but keep rollback/current line
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          keep_regex='^(v0\.41\.1-B|v0\.41\.2-B)$'
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '.[].tagName' > releases.txt
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            if [[ "$tag" =~ $keep_regex ]]; then
+              echo "Keeping release $tag"
+              continue
+            fi
+            echo "Deleting obsolete release $tag (tag retained for repository history)"
+            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes
+          done < releases.txt

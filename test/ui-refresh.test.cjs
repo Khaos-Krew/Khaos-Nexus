@@ -46,7 +46,9 @@ test('legacy navigation view IDs and controls remain present', () => {
 });
 
 test('graphics are local, layered, and reduced-motion safe', () => {
-  const css = read('renderer/ui-refresh.css');
+  const uiFixes = read('renderer/ui-fixes.css');
+  const css = `${read('renderer/ui-refresh.css')}\n${read('renderer/ui-refresh-regression-fixes.css')}`;
+  assert.match(uiFixes, /@import url\(['"]ui-refresh-regression-fixes\.css['"]\);/);
   assert.match(css, /nexus-command-core\.svg/);
   assert.match(css, /nexus-dnd-runes\.svg/);
   assert.match(css, /nexus-ai-core\.svg/);

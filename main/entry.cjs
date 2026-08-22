@@ -35,12 +35,15 @@ if (diagnosticsMode) {
     require('./stability-extension.cjs').install();
     require('./access-recovery-extension.cjs').install();
     require('./brand-update-extension.cjs').install();
+    require('./build-identity-extension.cjs').install();
 
     const mobileHold = require('./mobile-production-hold-extension.cjs');
     const mobileGatewayEnabled = mobileHold.mobileGatewayPolicyEnabled();
 
-    if (mobileGatewayEnabled) require('./mobile-module-registry-extension.cjs').install();
-    else mobileHold.install();
+    if (mobileGatewayEnabled) {
+      require('./mobile-module-registry-extension.cjs').install();
+      require('./owner-test-center-extension.cjs').install();
+    } else mobileHold.install();
     require('./dnd-action-rejection-boundary-extension.cjs').install();
     require('./dnd-campaign-extension.cjs').install();
     require('./dnd-usability-repair-extension.cjs').install();

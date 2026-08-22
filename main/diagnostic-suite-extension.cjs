@@ -8,11 +8,14 @@ const { DiagnosticGithubBridge } = require('./diagnostic-github-bridge.cjs');
 
 const STARTUP_HEALTH_TYPE = 'startup-health-check';
 const POST_INSTALL_BASELINE_COMPATIBILITY = 'post-install-baseline';
+const OWNER_TEST_HEALTH_INTERVAL_MS = 10 * 60 * 1000;
 
 let installed = false;
 let service = null;
 let baselineTimer = null;
 let flushTimer = null;
+let ownerTestHealthTimer = null;
+let ownerTestCheckRunning = false;
 let applicationMonitor = null;
 let bridgeLogger = console;
 let githubBridge = null;
@@ -47,10 +50,25 @@ function broadcast() {
   }
 }
 
+function submitRuntimeReport(report, trigger = 'owner-test-live-diagnostic') {
+  if (!report || report.skipped) return;
+  if (!githubBridge && applicationMonitor) connectApplicationMonitor(applicationMonitor, bridgeLogger);
+  if (!githubBridge) return;
+  Promise.resolve(githubBridge.submitRuntime(report, { trigger })).catch((error) => {
+    bridgeLogger?.warn?.('Owner-test diagnostic delivery failed.', {
+      reportId: report.reportId,
+      message: error.message
+    });
+  });
+}
+
 function capture(type, reason, error = null, detail = {}, severity = 'error') {
   if (!service) return null;
   const report = service.captureAutomatic({ type, reason, error, detail, severity }, context());
-  if (!report?.skipped) broadcast();
+  if (!report?.skipped) {
+    broadcast();
+    submitRuntimeReport(report, 'owner-test-runtime-fault');
+  }
   return report;
 }
 
@@ -96,6 +114,7 @@ function installIpc() {
       automatic: false
     }, context());
     broadcast();
+    submitRuntimeReport(report, 'owner-test-manual-system-check');
     return report;
   });
   ipc.handle('diagnostic-suite:package-latest', () => service.packageReport(service.latestReport()));
@@ -122,6 +141,16 @@ function installIpc() {
   });
 }
 
+function scheduleOwnerTestHealthChecks() {
+  if (ownerTestHealthTimer) return;
+  ownerTestHealthTimer = setInterval(() => {
+    runOwnerTestHealthCheck().catch((error) => {
+      bridgeLogger?.warn?.('Owner-test periodic system check failed.', { message: error.message });
+    });
+  }, OWNER_TEST_HEALTH_INTERVAL_MS);
+  ownerTestHealthTimer.unref?.();
+}
+
 function connectApplicationMonitor(monitor, logger = console) {
   applicationMonitor = monitor || null;
   bridgeLogger = logger || console;
@@ -131,6 +160,7 @@ function connectApplicationMonitor(monitor, logger = console) {
       dataDirectory: electron.app.getPath('userData'),
       logger: bridgeLogger
     });
+    scheduleOwnerTestHealthChecks();
   }
   return Boolean(githubBridge);
 }
@@ -162,6 +192,34 @@ async function runStartupHealthCheck(runtimeVersion) {
   return { report, delivery };
 }
 
+async function runOwnerTestHealthCheck() {
+  if (!service) return { skipped: true, reason: 'diagnostics-unavailable' };
+  if (ownerTestCheckRunning) return { skipped: true, reason: 'owner-test-check-already-running' };
+  const monitorState = applicationMonitor?.getState?.() || {};
+  if (!monitorState.enabled) return { skipped: true, reason: 'application-monitor-disabled' };
+
+  ownerTestCheckRunning = true;
+  try {
+    const report = service.createReport({
+      type: 'owner-test-system-check',
+      reason: 'Periodic owner-test system health check.',
+      severity: 'info',
+      automatic: true,
+      detail: {
+        diagnosticsRuntime: service.runtimeVersion || 'embedded',
+        ownerTest: true
+      }
+    }, context());
+    broadcast();
+    if (!githubBridge && applicationMonitor) connectApplicationMonitor(applicationMonitor, bridgeLogger);
+    if (!githubBridge) return { report, skipped: true, reason: 'github-bridge-unavailable' };
+    const delivery = await githubBridge.submitRuntime(report, { trigger: 'owner-test-periodic-system-check' });
+    return { report, delivery };
+  } finally {
+    ownerTestCheckRunning = false;
+  }
+}
+
 function initialize() {
   if (service) return service;
   const runtime = diagnosticRuntime.runtimeService({
@@ -185,11 +243,12 @@ function initialize() {
   if (applicationMonitor) connectApplicationMonitor(applicationMonitor, bridgeLogger);
 
   if (service.hadUncleanPreviousSession()) {
-    service.captureAutomatic({
+    const report = service.captureAutomatic({
       type: 'unexpected-previous-shutdown',
       reason: 'The previous Khaos Nexus session ended without recording a clean shutdown.',
       severity: 'warning'
     }, context());
+    submitRuntimeReport(report, 'owner-test-unclean-previous-session');
     service.acknowledgePreviousSession('unexpected-previous-shutdown-captured');
   }
 
@@ -224,18 +283,23 @@ function install() {
     try { service?.endSession('clean-exit'); } catch {}
     clearTimeout(baselineTimer);
     clearInterval(flushTimer);
+    clearInterval(ownerTestHealthTimer);
+    ownerTestHealthTimer = null;
   });
 }
 
 module.exports = {
   STARTUP_HEALTH_TYPE,
   POST_INSTALL_BASELINE_COMPATIBILITY,
+  OWNER_TEST_HEALTH_INTERVAL_MS,
   install,
   initialize,
   capture,
   context,
   connectApplicationMonitor,
   runStartupHealthCheck,
+  runOwnerTestHealthCheck,
+  scheduleOwnerTestHealthChecks,
   get service() { return service; },
   get githubBridge() { return githubBridge; }
 };
