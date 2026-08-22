@@ -50,8 +50,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && match) {
       const body = await readBody(req);
       const role = String(req.headers['x-nexus-role'] || 'viewer');
-      const result = await runtime.invoke(match[1], match[2], body.payload || {}, { role, actorId: String(req.headers['x-nexus-actor'] || '') });
-      return json(res, result.ok ? 200 : result.code === 'ACCESS_DENIED' ? 403 : 409, result);
+      const confirmed = String(req.headers['x-nexus-confirmed'] || '').toLowerCase() === 'true';
+      const result = await runtime.invoke(match[1], match[2], body.payload || {}, {
+        role,
+        confirmed,
+        actorId: String(req.headers['x-nexus-actor'] || '')
+      });
+      const status = result.ok ? 200 : result.code === 'ACCESS_DENIED' ? 403 : result.code === 'CONFIRMATION_REQUIRED' ? 428 : 409;
+      return json(res, status, result);
     }
     return json(res, 404, { ok: false, code: 'NOT_FOUND' });
   } catch (error) {
