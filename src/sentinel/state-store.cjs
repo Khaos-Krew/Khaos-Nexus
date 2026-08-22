@@ -3,22 +3,71 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
+function emptyState() {
+  return { consoles: {}, moduleSetups: {}, tempLobbies: {} };
+}
+
 class StateStore {
-  constructor(root = path.resolve(__dirname, '../..')) {
-    this.dir = path.join(root, 'data');
-    this.file = path.join(this.dir, 'sentinel-state.json');
+  constructor(root = process.env.NEXUS_DATA_DIR || path.resolve(__dirname, '../..')) {
+    this.dir = process.env.NEXUS_DATA_DIR ? path.resolve(root) : path.join(root, 'data');
+    this.file = path.join(this.dir, 'sentinal-state.json');
+    this.legacyFile = path.join(this.dir, 'sentinel-state.json');
   }
+
   read() {
-    try { return JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch { return { consoles: {} }; }
+    let state = null;
+    for (const file of [this.file, this.legacyFile]) {
+      try { state = JSON.parse(fs.readFileSync(file, 'utf8')); break; } catch {}
+    }
+    state ||= emptyState();
+    state.consoles ||= {};
+    state.moduleSetups ||= {};
+    state.tempLobbies ||= {};
+    return state;
   }
+
   write(state) {
     fs.mkdirSync(this.dir, { recursive: true });
     const tmp = `${this.file}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
     fs.renameSync(tmp, this.file);
   }
+
   getConsole(moduleId) { return this.read().consoles?.[moduleId] || null; }
-  setConsole(moduleId, value) { const state = this.read(); state.consoles ||= {}; state.consoles[moduleId] = value; this.write(state); return value; }
+  setConsole(moduleId, value) {
+    const state = this.read();
+    state.consoles[moduleId] = value;
+    this.write(state);
+    return value;
+  }
+
+  getModuleSetup(moduleId) { return this.read().moduleSetups?.[moduleId] || null; }
+  listModuleSetups() { return { ...this.read().moduleSetups }; }
+  setModuleSetup(moduleId, value) {
+    const state = this.read();
+    state.moduleSetups[moduleId] = value;
+    this.write(state);
+    return value;
+  }
+
+  getTempLobby(channelId) { return this.read().tempLobbies?.[channelId] || null; }
+  listTempLobbies() { return { ...this.read().tempLobbies }; }
+  findTempLobbyByOwner(moduleId, ownerId) {
+    return Object.values(this.read().tempLobbies).find((item) => item.moduleId === moduleId && item.ownerId === ownerId) || null;
+  }
+  setTempLobby(channelId, value) {
+    const state = this.read();
+    state.tempLobbies[channelId] = value;
+    this.write(state);
+    return value;
+  }
+  removeTempLobby(channelId) {
+    const state = this.read();
+    const existing = state.tempLobbies[channelId] || null;
+    delete state.tempLobbies[channelId];
+    this.write(state);
+    return existing;
+  }
 }
 
-module.exports = { StateStore };
+module.exports = { StateStore, emptyState };
