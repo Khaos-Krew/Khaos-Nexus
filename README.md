@@ -2,11 +2,12 @@
 
 **Khaos Nexus is a local-first Windows desktop command center for Discord operations, game-server management, shared automation, D&D tooling, diagnostics, and Nexus services.**
 
-The Windows desktop application is the current primary product. Khaos Nexus is undergoing a **stabilization reset**: feature expansion is frozen while the approved desktop shell and core operational workflows are brought back to a dependable baseline.
+The Windows desktop application is the current primary product. Khaos Nexus is undergoing a **stabilization reset with active owner testing**: feature expansion remains frozen while the approved desktop shell and core operational workflows are brought back to a dependable baseline.
 
 > **Current development line:** `0.41.x`  
-> **Stabilization candidate:** `v0.41.2-B`  
-> **Known-good rollback target:** `v0.41.1-B`  
+> **Active owner-test version:** `0.41.2.1`  
+> **Internal updater identity:** `0.41.3-test.1`  
+> **Owner-test rollback target:** `v0.41.2-B`  
 > **Stabilization branch:** `stabilize/nexus-66-baseline`  
 > **Stabilization PR:** [#266 — stabilization: establish Nexus 66% golden baseline](../../pull/266)
 
@@ -16,19 +17,20 @@ The Windows desktop application is the current primary product. Khaos Nexus is u
 
 | Area | Current status |
 | --- | --- |
-| Windows desktop application | **Active — stabilization** |
-| `v0.41.2-B` | **Development/test candidate** for the stability baseline; candidate metadata does not by itself mean a GitHub release has been published |
-| `v0.41.1-B` | **Rollback target** recorded by the current release identity |
+| Windows desktop application | **Active — stabilization / owner test** |
+| `0.41.2.1` | **Active owner-test display version**; internal Electron/npm identity is `0.41.3-test.1` |
+| `v0.41.2-B` | **Rollback baseline for the current owner-test line** |
+| PR #281 | **Merged** owner-test versioning/packaging line for matched Windows + Android testing |
 | Nexus Sentinel `0.33.0 RC1` | **Rejected temporary integration line**; retained only as development history/reference |
-| Android Companion / Mobile Gateway | **Owner-test validation resumed**; production exposure remains held/disabled pending separate acceptance |
+| Android Companion / Mobile Gateway | **Owner-test validation active**; public/stable production publication is not authorized by the owner-test line |
 | Feature expansion | **Frozen during stabilization** |
 | Self-hosted web/backend migration | **Deferred** until the desktop baseline is accepted |
 
-Published artifacts and tags are a separate concern from development-version metadata. Use the [GitHub Releases page](../../releases) to determine which builds are actually available for download; do not infer publication from `package.json`, a branch, a PR, or release notes alone.
+Published artifacts and tags are separate from development-version metadata. The active `config/release-identity.json` intentionally has **no public tag** for the current owner-test identity, so `0.41.2.1` must not be described as a published stable GitHub Release merely because build artifacts exist. Use the [GitHub Releases page](../../releases) to determine which builds are actually published.
 
 ## What Khaos Nexus currently contains
 
-The stabilization branch contains a working Electron desktop codebase with established subsystems for:
+The stabilization branch contains an established Electron desktop codebase with subsystems for:
 
 - the Khaos Nexus desktop shell, module controls, local configuration, recovery, diagnostics, backups, and update infrastructure;
 - supervised Discord bot operation, Discord setup/automation, status/control surfaces, and routed operational output;
@@ -38,15 +40,15 @@ The stabilization branch contains a working Electron desktop codebase with estab
 - the Nexus AI runtime work that includes Veyra and Nexus Sentinel services;
 - local monitoring, watchdog, support, and recovery tooling.
 
-**Presence in the repository is not the same as current release acceptance.** During the reset, the items below are the explicit stability gates. Other implemented surfaces remain subject to revalidation and should not be described as production-ready merely because their code is present.
+**Presence in the repository is not the same as current release acceptance.** During stabilization, implemented surfaces remain subject to revalidation and should not be described as production-ready merely because their code exists.
 
 ## Desktop workspaces and UI boundaries
 
-The current desktop shell includes dedicated presentation/workspace areas for **D&D** and **Nexus AI** alongside the command center, connected systems, modules, and system tooling. These workspaces organize existing services; they do not establish a separate release line or bypass the shared desktop authority boundaries.
+The current desktop shell includes dedicated presentation/workspace areas for **D&D** and **Nexus AI** alongside the command center, connected systems, modules, and system tooling. These workspaces organize existing services; they do not establish separate release lines or bypass shared desktop authority boundaries.
 
-The visual layer prioritizes readability and accessibility. Dense operational surfaces retain usable backgrounds, decorative assets do not own input, and motion is reduced when the operating system **requests reduced motion**.
+The visual layer prioritizes readability and accessibility. Dense operational surfaces retain usable backgrounds, decorative assets do not own input, and motion is reduced when the operating system requests reduced motion.
 
-Development, UI-refresh, stabilization, and owner-test branches **must not publish or modify a release channel** merely because their code packages successfully. Release publication remains a separate authorized action. Mobile-only product work remains associated with `Khaos-Krew/nexus-mobile-companion`; Android Companion / Mobile Gateway owner-test validation has been explicitly resumed for the current stabilization effort, while production exposure remains held/disabled until separately accepted.
+Development, UI-refresh, stabilization, and owner-test branches **must not publish or modify a public release channel merely because their code packages successfully**. Release publication remains a separate authorized action.
 
 ## Current stabilization gates
 
@@ -65,23 +67,23 @@ A test candidate is evaluated against these 12 functional gates:
 11. Updater/manual release detection
 12. Backup/restore
 
-The current stabilization policy requires at least **8/12** gates before an owner test build is appropriate, **10/12** for beta quality, and **12/12** for release-candidate quality. Stabilization does not end until a candidate reaches at least 10/12 with no major UI regression and survives an owner acceptance pass.
+The stabilization policy defines **8/12** as the minimum owner-test threshold, **10/12** as beta quality, and **12/12** as release-candidate quality. This README does **not** claim a current numeric score because repository evidence does not yet establish every gate as passed or failed.
 
 See [`docs/NEXUS_STABILIZATION_RESET.md`](docs/NEXUS_STABILIZATION_RESET.md) for the full stabilization contract.
 
 ## Roadmap
 
-The public roadmap is synchronized from [`docs/NEXUS_ROADMAP_STATUS.md`](docs/NEXUS_ROADMAP_STATUS.md), which is the canonical roadmap/status handoff for the Nexus Doc Watch.
+The public roadmap is synchronized from [`docs/NEXUS_ROADMAP_STATUS.md`](docs/NEXUS_ROADMAP_STATUS.md), which is the canonical roadmap/status handoff for Nexus Doc Watch.
 
-- **Now — Stabilization Reset:** protect the approved modern desktop shell and reach a dependable functional baseline. Core CI, Windows Build, Diagnostics Runtime Integration, and Bundled AI Runtimes are green on the current validated implementation head `9f0f9c3fc5fcdd33858ff9adaacf36c830f316ae`. A healthy installed `0.41.2` startup diagnostic also exists, but it does not identify the exact Git commit and therefore is not treated as owner acceptance or proof that the golden-shell gate passed. Packaged visual/sidebar/loading proof is still required before the golden-shell phase can exit.
+- **Now — Stabilization Reset / Owner Test:** PR #281 has been merged into the active stabilization branch. The exact merge head `614e3179794ff659fefa24122b4ee02157b0dee2` passed CI, Windows Build, Diagnostics Runtime Integration, and Bundled AI Runtimes. A fresh installed `0.41.3-test.1` startup diagnostic also reports **8 passed, 0 warnings, 0 failures** with responsive desktop windows and protected storage present. It does not record an exact Git commit/branch, so it is supporting runtime evidence rather than final owner acceptance or proof that the golden-shell phase is complete. Packaged visual/sidebar/loading proof is still required.
 - **Next — Core reliability:** persistence, module control, shared scheduler, backup/recovery, and removal of conflicting legacy paths.
 - **Then — Discord + Palworld acceptance:** validate real operational flows without regressing the desktop shell.
-- **Release hardening:** keep one release identity and ensure the artifact delivered for testing is the exact packaged build that passed validation.
+- **Release hardening:** keep one authoritative identity, preserve matched tested artifacts, separate owner-test artifacts from public/stable publication, and validate updater/manual-download behavior.
 - **Later — Self-hosted web + Windows agent:** deferred until the desktop baseline is accepted.
 
-Android Companion / Mobile Gateway owner-test validation is running alongside stabilization support work, but it does not lift the production hold or change the primary Windows product line.
+Android Companion / Mobile Gateway owner-test validation is running alongside stabilization. PR #281 introduced matched Windows/Android owner-test identity and artifact handling, but it does not authorize public/stable Android publication.
 
-The detailed phase and gate status lives in the canonical roadmap document so the README stays concise while the Nexus Doc Watch can keep this summary current from repository evidence.
+The detailed phase and gate status lives in the canonical roadmap document so this README stays concise.
 
 ## Platform and architecture
 
@@ -106,7 +108,7 @@ Sensitive credentials are intended to remain outside renderer-visible state. Pub
 
 ### Future architecture
 
-A longer-term direction may evolve toward a self-hosted **Khaos Nexus Web + Khaos Nexus Backend + lightweight Windows Nexus Agent** architecture. That is **future direction, not the current product architecture**, and the migration is explicitly deferred during stabilization.
+A longer-term direction may evolve toward a self-hosted **Khaos Nexus Web + Khaos Nexus Backend + lightweight Windows Nexus Agent** architecture. That is **future direction, not the current product architecture**, and the migration remains explicitly deferred during stabilization.
 
 ## Running from source
 
@@ -115,7 +117,7 @@ For current stabilization work, use the `stabilize/nexus-66-baseline` branch rat
 The Windows helper scripts support a private Node.js runtime and local dependency setup:
 
 1. Check out or extract the stabilization source.
-2. Run `Install-and-Run.bat` for the assisted Windows setup, or install dependencies manually and run `npm start`.
+2. Run `Install-and-Run.bat` for assisted Windows setup, or install dependencies manually and run `npm start`.
 3. Run `npm test` and `npm run check` before proposing changes.
 4. Use `Build-Windows.bat` or `npm run dist:win` only when Windows packaging validation is required.
 
@@ -123,12 +125,12 @@ See [`RUN_FROM_SOURCE.md`](RUN_FROM_SOURCE.md) for details.
 
 ## Windows builds
 
-The current package configuration supports Windows x64 installer and portable targets using names in this form:
+The current owner-test package configuration uses visible version `0.41.2.1` in Windows installer and portable artifact names, for example:
 
-- `Khaos-Nexus-Setup-<version>-x64.exe`
-- `Khaos-Nexus-Portable-<version>-x64.exe`
+- `Khaos-Nexus-Setup-0.41.2.1-x64.exe`
+- `Khaos-Nexus-Portable-0.41.2.1-x64.exe`
 
-A successfully packaged executable is **not automatically an authorized or published release**. Release publication, updater metadata, release notes, artifact identity, rollback identity, and the tested commit must agree before a build can be promoted.
+A successfully packaged executable is **not automatically an authorized or published release**. Release publication, updater metadata, release notes, artifact identity, rollback identity, and tested commit must agree before a build can be promoted.
 
 ## Security
 
@@ -138,7 +140,7 @@ Repository policy includes the following boundaries:
 - Protected values use operating-system-backed secure storage where supported.
 - Renderer/UI code should receive safe projections rather than raw secrets.
 - Diagnostic reports and support bundles are expected to be redacted and still require review before sharing.
-- Destructive Discord/server actions remain permission-gated and should not bypass the established main-process authority boundaries.
+- Destructive Discord/server actions remain permission-gated and should not bypass established main-process authority boundaries.
 
 See [`SECURITY.md`](SECURITY.md).
 
@@ -150,24 +152,25 @@ Important current references:
 
 - [`docs/NEXUS_STABILIZATION_RESET.md`](docs/NEXUS_STABILIZATION_RESET.md) — active stabilization policy and acceptance gates
 - [`docs/NEXUS_ROADMAP_STATUS.md`](docs/NEXUS_ROADMAP_STATUS.md) — canonical roadmap/status source used by Nexus Doc Watch
-- [`config/release-identity.json`](config/release-identity.json) — authoritative stabilization version identity
-- [`release-notes/v0.41.2.md`](release-notes/v0.41.2.md) — current candidate notes
+- [`docs/VERSIONING.md`](docs/VERSIONING.md) — owner-test visible/internal version mapping and artifact rules
+- [`config/release-identity.json`](config/release-identity.json) — authoritative active build identity
+- [`release-notes/v0.41.2.md`](release-notes/v0.41.2.md) — current 0.41.2-line notes
 - [`RUN_FROM_SOURCE.md`](RUN_FROM_SOURCE.md) — Windows source setup and validation
 - [`SECURITY.md`](SECURITY.md) — security/reporting rules
 - [`SERVER_SCHEDULER_SETUP.md`](SERVER_SCHEDULER_SETUP.md) — scheduler setup and operational safety
 - [`PTERODACTYL_SETUP.md`](PTERODACTYL_SETUP.md) — hosted-server provider setup
-- [`TEST_BUILDS.md`](TEST_BUILDS.md) — historical owner-test checkpoints; **not** the current release line
+- [`TEST_BUILDS.md`](TEST_BUILDS.md) — historical owner-test checkpoints; **not** the active release line
 
 ## Contributor orientation
 
 During the stabilization reset:
 
-- do not add new product features or modules;
+- do not add unapproved product features or modules;
 - do not begin the web migration;
 - preserve the approved modern desktop shell and navigation behavior;
 - keep version, artifact, updater, notes, and rollback metadata synchronized;
 - treat owner-reported regressions as candidates for permanent automated guards;
-- do not treat a roadmap, old test build, branch name, PR title, or unmerged implementation as evidence that a capability is currently released;
+- do not treat a roadmap, old test build, branch name, PR title, or implementation commit as evidence that a capability is publicly released;
 - do not publish or authorize releases as part of ordinary development/documentation work.
 
-For the exact golden-UI invariants and release gates, read [`docs/NEXUS_STABILIZATION_RESET.md`](docs/NEXUS_STABILIZATION_RESET.md) before changing the desktop baseline.
+For exact golden-UI invariants and release gates, read [`docs/NEXUS_STABILIZATION_RESET.md`](docs/NEXUS_STABILIZATION_RESET.md) before changing the desktop baseline.
