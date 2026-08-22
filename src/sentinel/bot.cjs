@@ -86,6 +86,16 @@ async function manifestState(moduleId) {
   return result.modules?.find((module) => module.id === moduleId) || { id: moduleId, enabled: true, configured: false };
 }
 
+async function retireOldConsole(saved, newChannelId) {
+  if (!saved?.messageId || !saved.channelId || saved.channelId === String(newChannelId)) return;
+  try {
+    const oldChannel = await client.channels.fetch(String(saved.channelId));
+    if (!oldChannel?.isTextBased?.()) return;
+    const oldMessage = await oldChannel.messages.fetch(String(saved.messageId));
+    await oldMessage.delete();
+  } catch {}
+}
+
 async function ensureConsole(moduleId) {
   const moduleConfig = config.modules?.[moduleId] || {};
   const module = getModule(moduleId);
@@ -96,6 +106,7 @@ async function ensureConsole(moduleId) {
   if (!channel?.isTextBased?.()) throw new Error(`${module.name}: configured channel is not text-capable.`);
   const payload = renderModuleConsole(moduleId, await manifestState(moduleId));
   const saved = state.getConsole(moduleId);
+  await retireOldConsole(saved, channel.id);
   let message = null;
   if (saved?.messageId && saved.channelId === String(channel.id)) {
     try { message = await channel.messages.fetch(saved.messageId); await message.edit(payload); } catch { message = null; }
