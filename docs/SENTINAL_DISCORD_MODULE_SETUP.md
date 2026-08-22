@@ -7,13 +7,20 @@ Game modules are backend-first. Nexus Sentinal is the normal Discord surface, an
 ## Initial setup
 
 1. Start Nexus Backend and Nexus Sentinal.
-2. Make sure the bot has **View Channels**, **Send Messages**, **Embed Links**, **Read Message History**, **Manage Channels**, **Connect**, and **Move Members** in the server/category where modules will be installed.
-3. Run `/nexus setup` in Discord.
-4. Choose a game module.
-5. Either choose an existing Discord category or press **Create Default Category**.
-6. Sentinal reconciles the category, creates any missing module channels, creates the module's **Join to Create** voice channel, and publishes/reconciles the module console when that module uses Sentinal as its surface.
+2. Invite or re-authorize Nexus Sentinal with the Discord **Administrator** permission. This is the supported permission model for module setup, channel reconciliation, and temporary voice-lobby management.
+3. Use the `bot` and `applications.commands` OAuth2 scopes when authorizing the application. Administrator corresponds to the Discord bot permission value `8`.
+4. Run `/nexus setup` in Discord.
+5. Choose a game module.
+6. Either choose an existing Discord category or press **Create Default Category**.
+7. Sentinal reconciles the category, creates any missing module channels, creates the module's **Join to Create** voice channel, and publishes/reconciles the module console when that module uses Sentinal as its surface.
+
+Sentinal checks its own guild permissions. If Administrator is missing, setup stops with a clear re-authorization message instead of partially creating Discord structure. `/nexus modules` also reports whether Administrator is ready.
 
 Running `/nexus setup` again is safe. Existing matching channels are reused; missing channels are recreated instead of blindly duplicating the layout.
+
+## Setup authorization
+
+The bot itself is expected to have **Administrator**. That is separate from who may run Nexus setup. The setup wizard remains restricted to the configured Nexus owner or a Discord member with **Manage Server** permission so ordinary members cannot restructure the server.
 
 ## Join-to-build voice lobbies
 
