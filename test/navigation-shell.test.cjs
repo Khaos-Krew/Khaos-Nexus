@@ -84,6 +84,11 @@ test('current Windows release preserves Android production boundaries and releas
   const workflow = read('.github/workflows/stable-release.yml');
   const ciWorkflow = read('.github/workflows/ci.yml');
   const prerelease = packageJson.version.includes('-');
+  const expectedReleaseType = releaseIdentity.channel === 'owner-test'
+    ? 'release'
+    : prerelease
+      ? 'prerelease'
+      : 'release';
 
   assert.match(packageJson.version, /^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc|test)\.\d+)?$/);
   assert.match(packageJson.description, /unconditional local-desktop module recovery controls/i);
@@ -167,7 +172,7 @@ test('current Windows release preserves Android production boundaries and releas
   assert.match(botRuntime, /blockedModuleForInteraction/);
 
   assert.equal(packageJson.build.publish[0].provider, 'github');
-  assert.equal(packageJson.build.publish[0].releaseType, prerelease ? 'prerelease' : 'release');
+  assert.equal(packageJson.build.publish[0].releaseType, expectedReleaseType);
   assert.equal(packageJson.build.publish[0].tagNamePrefix, 'v');
   if (releaseIdentity.channel === 'owner-test') {
     assert.equal(packageJson.build.releaseInfo.releaseNotesFile, releaseIdentity.releaseNotesFile);
