@@ -4,16 +4,22 @@ const http = require('node:http');
 const { URL } = require('node:url');
 const { loadConfig, envSecret } = require('../shared/config.cjs');
 const { BackendRuntime } = require('./core/runtime.cjs');
+const { providersFromConfig } = require('./providers/http-provider.cjs');
 
 const config = loadConfig();
-const runtime = new BackendRuntime({ config });
 const token = envSecret(config.backend?.serviceTokenEnv);
 const host = config.backend?.host || '127.0.0.1';
 const port = Number(config.backend?.port || 3210);
+const loopback = new Set(['127.0.0.1', 'localhost', '::1']);
+if (!loopback.has(host) && !token) {
+  throw new Error(`Refusing to expose Nexus Backend on ${host} without ${config.backend?.serviceTokenEnv || 'NEXUS_BACKEND_TOKEN'}.`);
+}
+
+const runtime = new BackendRuntime({ config, providers: providersFromConfig(config) });
 
 function json(res, status, body) {
   const payload = Buffer.from(JSON.stringify(body));
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': payload.length });
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': payload.length, 'cache-control': 'no-store' });
   res.end(payload);
 }
 
