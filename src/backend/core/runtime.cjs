@@ -37,6 +37,9 @@ class BackendRuntime {
     if (!capability) return { ok: false, code: 'CAPABILITY_UNKNOWN', message: `${module.name} does not expose ${actionId}.` };
     const role = context.role || 'viewer';
     if ((ROLE_RANK[role] || 0) < (ROLE_RANK[capability.requiredRole] || 0)) return { ok: false, code: 'ACCESS_DENIED', message: `${capability.label} requires ${capability.requiredRole} access.` };
+    if (capability.destructive && context.confirmed !== true) {
+      return { ok: false, code: 'CONFIRMATION_REQUIRED', message: `${capability.label} requires explicit confirmation.`, moduleId, actionId };
+    }
     const provider = this.providers[moduleId];
     if (!provider || typeof provider.invoke !== 'function') {
       return { ok: false, code: 'PROVIDER_NOT_CONFIGURED', message: `${module.name} is wired to Nexus Backend, but its provider transport has not been configured yet.`, moduleId, actionId };
