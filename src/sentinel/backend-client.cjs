@@ -18,10 +18,14 @@ class BackendClient {
 
   modules() { return this.request('/v1/modules'); }
   health() { return this.request('/health'); }
-  invoke(moduleId, actionId, payload, context) {
+  invoke(moduleId, actionId, payload, context = {}) {
     return this.request(`/v1/modules/${encodeURIComponent(moduleId)}/actions/${encodeURIComponent(actionId)}`, {
       method: 'POST',
-      headers: { 'x-nexus-role': context.role || 'viewer', 'x-nexus-actor': context.actorId || '' },
+      headers: {
+        'x-nexus-role': context.role || 'viewer',
+        'x-nexus-actor': context.actorId || '',
+        'x-nexus-confirmed': context.confirmed === true ? 'true' : 'false'
+      },
       body: JSON.stringify({ payload: payload || {} })
     });
   }
