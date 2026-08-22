@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   pull_request:
   push:
-    branches: [main, "agent/**", "rollback/**"]
+    branches: [main, "agent/**", "rollback/**", "owner-test/**"]
     tags: ["v*"]
 
 permissions:
@@ -19,6 +19,15 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Read Nexus build identity
+        id: identity
+        shell: pwsh
+        run: |
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          $display = [string]$package.khaosRelease.displayVersion
+          if (-not $display) { throw 'khaosRelease.displayVersion is required.' }
+          "display=$display" >> $env:GITHUB_OUTPUT
+          Write-Host "Khaos Nexus display version: $display"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -45,7 +54,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: windows-test-output
+          name: windows-test-output-${{ steps.identity.outputs.display }}
           path: test-output.txt
           retention-days: 7
           if-no-files-found: warn
@@ -92,7 +101,7 @@ jobs:
         if: failure() && steps.clean_install_smoke.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
-          name: clean-install-smoke-output
+          name: clean-install-smoke-output-${{ steps.identity.outputs.display }}
           path: clean-install-smoke-output.txt
           retention-days: 7
           if-no-files-found: error
@@ -107,7 +116,7 @@ jobs:
         run: ./scripts/verify-windows-signatures.ps1
       - uses: actions/upload-artifact@v4
         with:
-          name: Khaos-Nexus-Windows
+          name: Khaos-Nexus-Windows-${{ steps.identity.outputs.display }}
           path: |
             dist/*.exe
             dist/*.yml

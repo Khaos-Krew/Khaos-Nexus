@@ -1,18 +1,19 @@
 {
   "name": "khaos-nexus",
-  "version": "0.41.2",
+  "version": "0.41.3-test.1",
   "description": "Local-first Windows desktop command center with unconditional local-desktop module recovery controls, installer-first automatic diagnostics and a standalone Khaos Nexus Diagnostics launcher; preserved but paused Android Companion and Mobile Gateway; complete D&D campaign management; dedicated Rust WebRCON operations with Owner-only raw Rust console access; Satisfactory dedicated-server operations; a typed Game Adapter SDK with explicit capability manifests; authoritative Owner module switches; full production runtime audit repairs; compact production dashboard density; independently scrollable navigation and workspace panes; verified click-through grouped proxy navigation; an always-visible in-app update center; a continuous visible-interface startup gate; and renderer-unresponsive reporting.",
   "main": "main/entry-pdf-import.cjs",
   "author": "Khaos Krew",
   "license": "MIT",
   "private": true,
   "khaosRelease": {
-    "displayVersion": "0.41.2-B",
-    "artifactVersion": "0.41.2-B",
-    "publicTag": "v0.41.2-B",
-    "channel": "beta",
-    "updaterVersion": "0.41.2",
-    "rollbackTag": "v0.41.1-B"
+    "displayVersion": "0.41.2.1",
+    "artifactVersion": "0.41.2.1",
+    "publicTag": "",
+    "channel": "owner-test",
+    "updaterVersion": "0.41.3-test.1",
+    "rollbackTag": "v0.41.2-B",
+    "versionScheme": "release.beta.test.hotfix"
   },
   "scripts": {
     "start": "node scripts/materialize-assets.cjs && electron .",
@@ -20,6 +21,7 @@
     "test:desktop": "node scripts/test-desktop.cjs",
     "test:services": "node scripts/test-services.cjs",
     "check": "node scripts/check.cjs",
+    "version:next-owner-test": "node scripts/bump-owner-test.cjs",
     "pack": "node scripts/materialize-assets.cjs && electron-builder --dir",
     "dist:win": "node scripts/materialize-assets.cjs && electron-builder --win --x64",
     "release:win": "node scripts/materialize-assets.cjs && electron-builder --win --x64 --publish always"
@@ -39,7 +41,7 @@
     "productName": "Khaos Nexus",
     "electronUpdaterCompatibility": ">=2.16",
     "releaseInfo": {
-      "releaseName": "Khaos Nexus v0.41.2-B — Stability Baseline",
+      "releaseName": "Khaos Nexus 0.41.2.1 — Owner Test",
       "releaseNotesFile": "release-notes/v0.41.2.md"
     },
     "directories": {
@@ -54,6 +56,12 @@
       "assets/**/*",
       "package.json",
       "LICENSE"
+    ],
+    "extraResources": [
+      {
+        "from": "config/mobile-owner-test-authorization.json",
+        "to": "mobile-owner-test-authorization.json"
+      }
     ],
     "asar": true,
     "win": {
@@ -79,7 +87,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Khaos Nexus",
-      "artifactName": "Khaos-Nexus-Setup-0.41.2-B-${arch}.${ext}",
+      "artifactName": "Khaos-Nexus-Setup-0.41.2.1-${arch}.${ext}",
       "include": "assets/installer.nsh"
     },
     "publish": [
@@ -92,7 +100,7 @@
       }
     ],
     "portable": {
-      "artifactName": "Khaos-Nexus-Portable-0.41.2-B-${arch}.${ext}"
+      "artifactName": "Khaos-Nexus-Portable-0.41.2.1-${arch}.${ext}"
     }
   }
 }

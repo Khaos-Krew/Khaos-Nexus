@@ -1,0 +1,34 @@
+/* Owner-test regression repair: restore view-specific Nexus art layers that were
+   accidentally dropped during the 0.41.2.1 density refresh. Keep these in the
+   always-on UI correction layer so the newer layout remains intact. */
+body[data-nexus-view='dnd'] .content::before {
+  background:
+    linear-gradient(180deg, rgba(128,26,18,.12), transparent),
+    url('../assets/ui/nexus-dnd-runes.svg') center top/cover no-repeat;
+  opacity: .8;
+}
+
+body[data-nexus-view='ai'] .content::before {
+  background:
+    linear-gradient(180deg, rgba(132,14,57,.12), transparent),
+    url('../assets/ui/nexus-ai-core.svg') center top/cover no-repeat;
+  opacity: .84;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nexus-orbit,
+  .nexus-core-ring,
+  .nexus-feature-card,
+  .nexus-service-card,
+  .nexus-nav-item,
+  .khaos-ui-refresh .view.active {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .nexus-feature-card:hover,
+  .nexus-service-card:hover,
+  .khaos-ui-refresh .nexus-nav-item:hover {
+    transform: none;
+  }
+}

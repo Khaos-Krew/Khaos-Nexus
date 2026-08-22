@@ -1,5 +1,7 @@
 'use strict';
 
+const path = require('node:path');
+
 let installed = false;
 
 const MOBILE_ID = 'mobile-gateway';
@@ -25,9 +27,29 @@ function promote(module) {
   return module?.id === MOBILE_ID ? { ...module, ...MOBILE_PATCH } : module;
 }
 
+function registerMobileRenderer() {
+  const { registerRendererBundle } = require('./renderer-asset-loader.cjs');
+  const rendererRoot = path.join(__dirname, '..', 'renderer');
+  return registerRendererBundle({
+    id: 'mobile-companion-owner-test',
+    styles: [path.join(rendererRoot, 'mobile-companion.css')],
+    scripts: [
+      path.join(rendererRoot, 'mobile-companion.js'),
+      path.join(rendererRoot, 'mobile-owner-test-badge.js')
+    ],
+    source: 'mobile-module-registry-extension'
+  });
+}
+
 function install() {
   if (installed) return;
   installed = true;
+
+  // This extension is invoked only after mobileGatewayPolicyEnabled() is true.
+  // Registering the UI here preserves the stable/public ADR-008 boundary while
+  // making the explicitly authorized ADR-009 owner-test package visibly testable.
+  registerMobileRenderer();
+
   const registry = require('../shared/module-registry.cjs');
   if (registry.__khaosMobileModulePromoted) return;
 
@@ -89,4 +111,4 @@ function install() {
   Object.defineProperty(registry, '__khaosMobileModulePromoted', { value: true });
 }
 
-module.exports = { install, promote, MOBILE_PATCH };
+module.exports = { install, promote, registerMobileRenderer, MOBILE_PATCH };
