@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('node:crypto');
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const { loadConfig, envSecret } = require('../shared/config.cjs');
 const { getModule } = require('../backend/modules/catalog.cjs');
@@ -15,6 +16,7 @@ if (!guildId) throw new Error('Set discord.guildId in config.json before startin
 
 const backend = new BackendClient(config);
 const state = new StateStore();
+const pending = new Map();
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 function roleFor(interaction) {
@@ -22,6 +24,26 @@ function roleFor(interaction) {
   const roles = interaction.member?.roles?.cache;
   if (roles && (config.discord?.operatorRoleIds || []).some((id) => roles.has(String(id)))) return 'operator';
   return 'viewer';
+}
+
+function confirmationRow(nonce) {
+  return [{ type: 1, components: [
+    { type: 2, style: 4, label: 'Confirm', custom_id: `nexusconfirm:${nonce}` },
+    { type: 2, style: 2, label: 'Cancel', custom_id: `nexuscancel:${nonce}` }
+  ] }];
+}
+
+function createPending(interaction, moduleId, actionId, payload) {
+  const nonce = crypto.randomBytes(12).toString('hex');
+  pending.set(nonce, {
+    moduleId,
+    actionId,
+    payload,
+    userId: String(interaction.user.id),
+    role: roleFor(interaction),
+    expiresAt: Date.now() + 5 * 60 * 1000
+  });
+  return nonce;
 }
 
 async function manifestState(moduleId) {
@@ -63,6 +85,16 @@ async function registerCommands() {
   await rest.put(Routes.applicationGuildCommands(client.user.id, guildId), { body: [command.toJSON()] });
 }
 
+async function runAction(interaction, moduleId, actionId, payload = {}) {
+  const result = await backend.invoke(moduleId, actionId, payload, { role: roleFor(interaction), actorId: String(interaction.user.id), confirmed: false });
+  if (result.code === 'CONFIRMATION_REQUIRED') {
+    const nonce = createPending(interaction, moduleId, actionId, payload);
+    return { content: `⚠️ **Confirmation required**\n${result.message}`, components: confirmationRow(nonce), ephemeral: true };
+  }
+  if (!result.ok) return { content: `⚠️ ${result.message || result.code}`, components: [], ephemeral: true };
+  return { content: `✅ ${getModule(moduleId)?.name || moduleId}: ${actionId} completed.\n\`\`\`${JSON.stringify(result.data, null, 2).slice(0, 1600)}\`\`\``, components: [], ephemeral: true };
+}
+
 client.once('ready', async () => {
   console.log(`[Nexus Sentinel] logged in as ${client.user.tag}`);
   await registerCommands();
@@ -72,14 +104,29 @@ client.once('ready', async () => {
 client.on('interactionCreate', async (interaction) => {
   try {
     if (interaction.isButton()) {
+      const confirm = /^(nexusconfirm|nexuscancel):([a-f0-9]{24})$/.exec(interaction.customId);
+      if (confirm) {
+        const item = pending.get(confirm[2]);
+        if (!item || item.expiresAt < Date.now()) {
+          pending.delete(confirm[2]);
+          return interaction.reply({ content: 'That confirmation expired. Run the action again.', ephemeral: true });
+        }
+        if (item.userId !== String(interaction.user.id)) return interaction.reply({ content: 'Only the user who requested this action can confirm it.', ephemeral: true });
+        pending.delete(confirm[2]);
+        if (confirm[1] === 'nexuscancel') return interaction.update({ content: 'Action cancelled.', components: [] });
+        await interaction.deferUpdate();
+        const result = await backend.invoke(item.moduleId, item.actionId, item.payload, { role: item.role, actorId: item.userId, confirmed: true });
+        return interaction.editReply({ content: result.ok ? `✅ ${getModule(item.moduleId)?.name || item.moduleId}: ${item.actionId} completed.\n\`\`\`${JSON.stringify(result.data, null, 2).slice(0, 1600)}\`\`\`` : `⚠️ ${result.message || result.code}`, components: [] });
+      }
+
       const parsed = parseActionId(interaction.customId);
       if (!parsed) return;
       if (parsed.actionId === 'help') return interaction.reply(renderHelp(parsed.moduleId));
       if (parsed.actionId === 'refresh') { await ensureConsole(parsed.moduleId); return interaction.reply({ content: 'Module console refreshed.', ephemeral: true }); }
       await interaction.deferReply({ ephemeral: true });
-      const result = await backend.invoke(parsed.moduleId, parsed.actionId, {}, { role: roleFor(interaction), actorId: String(interaction.user.id) });
-      return interaction.editReply(result.ok ? `✅ ${getModule(parsed.moduleId)?.name}: ${parsed.actionId} completed.\n\`\`\`${JSON.stringify(result.data, null, 2).slice(0, 1600)}\`\`\`` : `⚠️ ${result.message || result.code}`);
+      return interaction.editReply(await runAction(interaction, parsed.moduleId, parsed.actionId, {}));
     }
+
     if (!interaction.isChatInputCommand() || interaction.commandName !== 'nexus') return;
     const sub = interaction.options.getSubcommand();
     if (sub === 'modules') {
@@ -96,14 +143,18 @@ client.on('interactionCreate', async (interaction) => {
       const moduleId = interaction.options.getString('module', true).toLowerCase();
       const actionId = interaction.options.getString('action', true).toLowerCase();
       const input = interaction.options.getString('input') || '';
-      const result = await backend.invoke(moduleId, actionId, { input }, { role: roleFor(interaction), actorId: String(interaction.user.id) });
-      return interaction.reply({ content: result.ok ? `✅ ${JSON.stringify(result.data).slice(0, 1700)}` : `⚠️ ${result.message || result.code}`, ephemeral: true });
+      return interaction.reply(await runAction(interaction, moduleId, actionId, { input }));
     }
   } catch (error) {
     const payload = { content: `⚠️ ${String(error?.message || error)}`.slice(0, 1900), ephemeral: true };
-    if (interaction.deferred || interaction.replied) return interaction.editReply({ content: payload.content });
+    if (interaction.deferred || interaction.replied) return interaction.editReply({ content: payload.content, components: [] });
     return interaction.reply(payload);
   }
 });
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [nonce, item] of pending) if (item.expiresAt < now) pending.delete(nonce);
+}, 60_000).unref();
 
 client.login(token);
