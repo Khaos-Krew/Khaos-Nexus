@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const { Client, GatewayIntentBits, PermissionFlagsBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
+const { Client, Events, GatewayIntentBits, PermissionFlagsBits, SlashCommandBuilder } = require('discord.js');
 const { loadConfig, envSecret } = require('../shared/config.cjs');
 const { getModule, MODULES } = require('../backend/modules/catalog.cjs');
 const { BackendClient } = require('./backend-client.cjs');
@@ -14,7 +14,7 @@ const config = loadConfig();
 const token = envSecret(config.discord?.tokenEnv);
 if (!token) throw new Error(`Set ${config.discord?.tokenEnv || 'NEXUS_SENTINEL_TOKEN'} before starting Nexus Sentinal.`);
 const guildId = String(config.discord?.guildId || '');
-if (!guildId) throw new Error('Set discord.guildId in config.json before starting Nexus Sentinal.');
+if (!guildId) throw new Error('Set discord.guildId in config.json or NEXUS_DISCORD_GUILD_ID before starting Nexus Sentinal.');
 
 const backend = new BackendClient(config);
 const state = new StateStore();
@@ -137,16 +137,23 @@ async function provisionModule(interaction, moduleId, categoryId = '') {
   };
 }
 
-async function registerCommands() {
-  const command = new SlashCommandBuilder()
+function nexusCommand() {
+  return new SlashCommandBuilder()
     .setName('nexus')
     .setDescription('Nexus Sentinal module tools')
     .addSubcommand((sub) => sub.setName('setup').setDescription('Build or repair a game module Discord category and channels'))
     .addSubcommand((sub) => sub.setName('modules').setDescription('Show backend module health'))
     .addSubcommand((sub) => sub.setName('refresh').setDescription('Refresh a module console').addStringOption((opt) => opt.setName('module').setDescription('Module id').setRequired(true)))
     .addSubcommand((sub) => sub.setName('run').setDescription('Run an advanced module action').addStringOption((opt) => opt.setName('module').setDescription('Module id').setRequired(true)).addStringOption((opt) => opt.setName('action').setDescription('Action id').setRequired(true)).addStringOption((opt) => opt.setName('input').setDescription('Optional text input')));
-  const rest = new REST({ version: '10' }).setToken(token);
-  await rest.put(Routes.applicationGuildCommands(client.user.id, guildId), { body: [command.toJSON()] });
+}
+
+async function registerCommands(guild) {
+  const command = nexusCommand();
+  const commands = await guild.commands.fetch();
+  const existing = commands.find((item) => item.name === command.name);
+  if (existing) await guild.commands.edit(existing, command.toJSON());
+  else await guild.commands.create(command.toJSON());
+  console.log(`[Nexus Sentinal] registered /nexus in guild ${guild.id} without replacing existing commands`);
 }
 
 async function runAction(interaction, moduleId, actionId, payload = {}) {
@@ -159,13 +166,13 @@ async function runAction(interaction, moduleId, actionId, payload = {}) {
   return { content: `✅ ${getModule(moduleId)?.name || moduleId}: ${actionId} completed.\n\`\`\`${JSON.stringify(result.data, null, 2).slice(0, 1600)}\`\`\``, components: [] };
 }
 
-client.once('ready', async () => {
+client.once(Events.ClientReady, async () => {
   console.log(`[Nexus Sentinal] logged in as ${client.user.tag}`);
   const guild = await client.guilds.fetch(guildId);
   if (!hasAdministrator(guild)) {
     console.error('[Nexus Sentinal] Administrator permission is required. Re-authorize the bot with Discord Administrator before running module setup or temporary lobby management.');
   }
-  await registerCommands();
+  await registerCommands(guild);
   await provisioner.cleanupOrphanedLobbies(client);
   await ensureAllConsoles();
 });
