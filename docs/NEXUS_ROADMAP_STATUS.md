@@ -7,7 +7,7 @@ Repository: `Khaos-Krew/Khaos-Nexus`
 
 ## Purpose
 
-This file is the canonical, machine-readable-enough roadmap/status handoff between production work and the **Nexus Doc Watch** documentation monitor.
+This file is the canonical roadmap/status handoff between production work and the **Nexus Doc Watch** documentation monitor.
 
 The README roadmap must be updated from **repository reality plus this file**, not from chat memory, old release notes, abandoned branches, or rejected test builds.
 
@@ -16,27 +16,32 @@ The Doc Watch may update README roadmap/status content without owner approval wh
 ## Current product line
 
 - Main product line: **0.41.x**
-- Current intended stabilization version: **v0.41.2-B**
-- Known-good rollback target: **v0.41.1-B**
+- Active owner-test display version: **0.41.2.1**
+- Internal Electron/npm updater identity: **0.41.3-test.1**
+- Owner-test channel: **owner-test**
+- Current rollback target for the owner-test line: **v0.41.2-B**
 - Active stabilization branch: `stabilize/nexus-66-baseline`
 - Active stabilization PR: **#266 — stabilization: establish Nexus 66% golden baseline**
+- Merged owner-test implementation source: **#281 — owner-test: Nexus 0.41.2.1 versioned test line**
 - Temporary `Nexus Sentinel 0.33.0 RC1`: **REJECTED / HISTORICAL ONLY**
+
+`config/release-identity.json` is authoritative for the active build identity. The current owner-test identity has no public tag and must not be described as a published GitHub Release merely because artifacts or package metadata exist.
 
 The 0.33.0 Sentinel RC1 line must never be presented as a successor to the main 0.41.x Khaos Nexus line.
 
 ## Current phase
 
-**STABILIZATION RESET**
+**STABILIZATION RESET — OWNER TEST ACTIVE**
 
-Feature expansion is frozen while the desktop application is brought to a dependable baseline.
+Feature expansion remains frozen while the desktop application is brought to a dependable baseline.
 
 The planned self-hosted web/backend migration remains deferred until the desktop stabilization target is accepted.
 
-Android Companion / Mobile Gateway **owner-test validation has been explicitly resumed** for the active 0.41.x stabilization effort, including pairing and read-only validation paths. This does not lift the current production hold: Android/Mobile Gateway production exposure remains disabled unless separately accepted and released.
+Android Companion / Mobile Gateway **owner-test validation is explicitly resumed** for the active 0.41.x stabilization effort. PR #281 merged matched Windows + Android owner-test packaging and versioning into the stabilization branch. This does not authorize public/stable Android publication.
 
 ## Golden UI baseline
 
-The approved modern desktop shell is required.
+The approved modern desktop shell remains required.
 
 Required invariants:
 
@@ -53,8 +58,8 @@ The stabilization score is measured against these 12 gates:
 
 | # | Gate | Current roadmap state |
 |---|---|---|
-| 1 | Startup/loading | Automated startup checks and packaged startup/clean-install smoke pass; packaged visual/loading-presentation proof still required |
-| 2 | Sidebar/navigation | Golden-shell source regression tests pass; packaged visual/navigation-invariant proof still required |
+| 1 | Startup/loading | Automated startup checks and packaged startup/clean-install smoke pass; installed owner-test startup health is clean; packaged visual/loading-presentation proof still required |
+| 2 | Sidebar/navigation | Golden-shell source regression tests pass and the 0.41.2.1 owner-test line includes the sidebar-label regression repair; packaged visual/navigation-invariant proof still required |
 | 3 | Settings persistence | Stabilization required |
 | 4 | Discord login/bot supervision | Stabilization required |
 | 5 | Discord status/control panel | Stabilization required |
@@ -63,16 +68,16 @@ The stabilization score is measured against these 12 gates:
 | 8 | Palworld command/action execution | Stabilization required |
 | 9 | Shared scheduler | Stabilization required |
 | 10 | Module enable/disable | Stabilization required |
-| 11 | Updater/manual release detection | Authoritative release identity is now consumed by bundled-AI Windows packaging; updater/manual release acceptance still required |
+| 11 | Updater/manual release detection | Owner-test version/artifact identity is enforced; public-release/manual updater acceptance still required |
 | 12 | Backup/restore | Stabilization required |
 
-Thresholds:
+Thresholds remain:
 
 - **8/12** = minimum owner-test candidate
 - **10/12** = beta quality
 - **12/12** = release-candidate quality
 
-The Doc Watch must not claim a numeric score unless repository evidence establishes which gates pass.
+The Doc Watch must not claim a numeric score unless repository and owner-test evidence establishes which gates pass.
 
 ## Active roadmap
 
@@ -94,12 +99,13 @@ Status: **IN PROGRESS**
 
 Current evidence:
 
-- core CI, Windows Build, Diagnostics Runtime Integration, and Bundled AI Runtimes are green on the latest validated implementation head `9f0f9c3fc5fcdd33858ff9adaacf36c830f316ae` within PR #266;
-- later documentation-only PR heads are not automatically treated as implementation validation, and current-head workflow failures do not invalidate the exact-head evidence above unless they establish an application regression;
-- the golden-shell regression tests verify the `nexus-v8` branding layer, 286px sidebar invariant, and protection against heartbeat-driven navigation rebuilds;
-- the packaged Windows executable reached full startup readiness in prior packaged-startup and clean-install smoke tests;
-- an installed `0.41.2` startup diagnostic created on 2026-08-21 reported 8 passed, 0 warnings, and 0 failures, but the report does not include an exact Git commit/branch identity and therefore is not treated as proof that the current PR head passed owner acceptance or that S1 is complete;
-- those packaged startup smokes and startup diagnostics verify readiness/responsiveness, but do not yet prove the exact packaged visual/sidebar/loading invariants required to exit S1.
+- PR #281 was merged into `stabilize/nexus-66-baseline` as merge commit `614e3179794ff659fefa24122b4ee02157b0dee2`;
+- CI, Windows Build, Diagnostics Runtime Integration, and Bundled AI Runtimes all passed on that exact merge head;
+- the merged 0.41.2.1 owner-test line includes the sidebar-label regression repair, visible four-part build identity, matched Windows/Android owner-test artifact identity, and owner-test version enforcement;
+- the golden-shell regression tests continue to verify the `nexus-v8` branding layer and 286px sidebar invariant;
+- a new installed owner-test startup diagnostic created on 2026-08-22 reports application `0.41.3-test.1` with **8 passed, 0 warnings, 0 failures**, responsive desktop windows, writable application data, configuration present, protected storage present, and no unclean previous session;
+- that startup diagnostic confirms a healthy installed owner-test session but does not record an exact Git commit/branch identity, so it is supporting runtime evidence rather than proof that the exact PR #266 head passed owner acceptance;
+- packaged startup smokes and startup diagnostics verify readiness/responsiveness, but do not yet prove the exact packaged visual/sidebar/loading invariants required to exit S1.
 
 Goals:
 
@@ -109,7 +115,7 @@ Goals:
 - Add packaged-app UI/visual regression checks.
 - Reject any candidate that falls back to a legacy shell.
 
-Exit condition: startup/loading and sidebar/navigation gates are proven by automated packaged-app checks.
+Exit condition: startup/loading and sidebar/navigation gates are proven by automated packaged-app checks and owner acceptance does not reveal a shell regression.
 
 ### Phase S2 — Core persistence and module stability
 
@@ -147,34 +153,45 @@ Goals:
 
 ### Phase S5 — Release and updater reliability
 
-Status: **PLANNED**
+Status: **IN PROGRESS / OWNER-TEST HARDENING**
 
 Current evidence:
 
-- `config/release-identity.json` remains the authoritative `0.41.2-B` / `v0.41.1-B` identity source;
-- the bundled-AI Windows workflow now applies that authoritative release identity instead of freezing old `0.35.0-B` metadata;
-- installer, portable, blockmap, and `latest.yml` verification in that workflow are derived from the authoritative identity rather than hard-coded legacy version strings;
-- CI, Windows Build, Diagnostics Runtime Integration, and Bundled AI Runtimes all passed on the latest validated implementation head `9f0f9c3fc5fcdd33858ff9adaacf36c830f316ae` within PR #266.
+- `config/release-identity.json` now owns the active owner-test identity `0.41.2.1` / internal `0.41.3-test.1` / rollback `v0.41.2-B`;
+- the active owner-test identity intentionally has an empty public tag and channel `owner-test`;
+- Windows installer and portable artifact names carry visible version `0.41.2.1`;
+- Android `versionName`/`versionCode` and owner-test artifact naming are tied to the same visible identity;
+- CI, Windows Build, Diagnostics Runtime Integration, and Bundled AI Runtimes all passed on merge head `614e3179794ff659fefa24122b4ee02157b0dee2`;
+- PR #281 records that the owner-test pair is not a public Android or stable release.
 
-This is partial release-hardening evidence only. It does **not** establish completion of S5, publication of `v0.41.2-B`, manual release detection acceptance, in-app updater acceptance, or owner release readiness.
+This is partial release-hardening evidence only. It does **not** establish public publication, stable release readiness, manual release detection acceptance, in-app updater acceptance, or final owner release approval.
 
 Goals:
 
 - Use one authoritative release identity.
-- Keep package version, display version, updater version, tag, artifact names, notes, and rollback target synchronized.
+- Keep package version, display version, updater version, artifact names, notes, and rollback target synchronized.
 - Ensure the artifact delivered to the owner is the same packaged build that passed CI.
 - Verify manual release detection/download path.
-- Repair and validate the in-app updater separately from manual-download readiness.
+- Repair and validate the in-app updater separately from owner-test artifact readiness.
+- Keep owner-test artifacts clearly separated from public/stable release publication.
 
 ### Phase S6 — Owner acceptance
 
-Status: **BLOCKED UNTIL >= 8/12**
+Status: **IN PROGRESS — OWNER TEST ACTIVE**
+
+Current evidence:
+
+- the 0.41.2.1 owner-test line is merged into the active stabilization branch;
+- exact merge-head CI/Windows/Diagnostics/Bundled-AI validation is green;
+- an installed `0.41.3-test.1` startup session produced a healthy automatic diagnostic with 8/8 startup health checks passing;
+- no final owner acceptance result is recorded by this evidence alone.
 
 Rules:
 
-- Do not send normal owner-test builds below 8/12.
 - Owner testing should focus on real-world behavior automation cannot prove.
 - A major shell/loading/navigation regression automatically fails the candidate regardless of numeric score.
+- Do not infer a final stabilization score from the owner-test version or from a healthy startup diagnostic.
+- Do not mark owner acceptance complete until an explicit acceptance result is recorded.
 
 ### Phase W1 — Self-hosted web migration
 
@@ -190,13 +207,14 @@ This phase does not begin until the desktop baseline is accepted.
 
 ## Mobile owner-test validation
 
-Status: **RESUMED FOR OWNER TEST / PRODUCTION HOLD REMAINS**
+Status: **ACTIVE FOR OWNER TEST / PUBLIC-STABLE RELEASE NOT AUTHORIZED**
 
 Current evidence:
 
-- active stabilization tests cover Android owner-test security policy, Mobile Gateway HTTPS/TLS health, QR pairing, read-only module promotion, and combined Windows/Android owner-test guidance;
-- production-policy tests continue to enforce the Mobile Gateway hold and prevent paused production routes from being reactivated by saved state;
-- this work is validation/supporting infrastructure for owner testing and does not establish Android production release acceptance.
+- PR #281 merged the resumed owner-test Android workflow and matched Windows/Android build identity into the stabilization branch;
+- active tests cover Android owner-test security policy, Mobile Gateway HTTPS/TLS health, QR pairing, read-only module promotion, version identity, and combined Windows/Android owner-test guidance;
+- the owner-test Android workflow builds and verifies signed/checksummed APK artifacts for the authorized owner-test scope;
+- this does not establish public/stable Android publication or production exposure acceptance.
 
 ## Recently rejected direction
 
@@ -225,19 +243,19 @@ When updating the README:
 4. Inspect current GitHub Actions and actual published releases when release status is mentioned.
 5. Update only facts supported by repository evidence.
 6. Keep rejected/historical lines clearly labeled.
-7. Do not claim a roadmap phase is complete merely because code exists on an unmerged branch.
+7. Do not claim a roadmap phase is complete merely because code exists.
 8. Do not claim a build is published unless a real GitHub Release exists.
 9. Do not change the roadmap direction based only on chat text when repository state disagrees.
 10. If production materially changes phase/status, update this file first or in the same change set, then synchronize README.
 
 ## Recommended README roadmap format
 
-The README should keep the roadmap compact. Use approximately this structure:
+The README should keep the roadmap compact:
 
-- **Now — Stabilization Reset:** golden shell + functional baseline.
+- **Now — Stabilization Reset / Owner Test:** golden shell + active 0.41.2.1 owner-test baseline.
 - **Next — Core reliability:** persistence, modules, scheduler, backup/recovery.
 - **Then — Discord + Palworld acceptance:** real operational flows.
-- **Release hardening:** immutable tested artifact, version/updater consistency.
+- **Release hardening:** immutable tested artifact, version/updater consistency, owner-test/public-release separation.
 - **Later — Self-hosted web + Windows agent:** deferred until desktop stability is accepted.
 
 Detailed gate status belongs in this file; the README should summarize rather than duplicate every implementation detail.
@@ -246,7 +264,7 @@ Detailed gate status belongs in this file; the README should summarize rather th
 
 Update this document whenever one of these materially changes:
 
-- current development version;
+- current development/owner-test version;
 - rollback target;
 - stabilization branch/PR;
 - active phase;
