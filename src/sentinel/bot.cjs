@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const { Client, Events, GatewayIntentBits, PermissionFlagsBits, SlashCommandBuilder } = require('discord.js');
+const { Client, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } = require('discord.js');
 const { loadConfig, envSecret } = require('../shared/config.cjs');
 const { getModule, MODULES } = require('../backend/modules/catalog.cjs');
 const { BackendClient } = require('./backend-client.cjs');
@@ -32,6 +32,10 @@ function roleFor(interaction) {
 function canSetup(interaction) {
   if (roleFor(interaction) === 'owner') return true;
   return Boolean(interaction.memberPermissions?.has?.(PermissionFlagsBits.ManageGuild));
+}
+
+function interactionAlreadyAcknowledged(error) {
+  return Number(error?.code) === 40060 || Number(error?.rawError?.code) === 40060;
 }
 
 function confirmationRow(nonce) {
@@ -204,6 +208,11 @@ client.once(Events.ClientReady, async () => {
   await ensureAllConsoles();
 });
 
+client.on(Events.Error, (error) => {
+  if (interactionAlreadyAcknowledged(error)) return;
+  console.error('[Nexus Sentinal] Discord client error:', error);
+});
+
 client.on('voiceStateUpdate', (oldState, newState) => {
   provisioner.handleVoiceState(oldState, newState).catch((error) => console.error('[Sentinal] voice lobby event:', error.message));
 });
@@ -211,7 +220,7 @@ client.on('voiceStateUpdate', (oldState, newState) => {
 client.on('interactionCreate', async (interaction) => {
   try {
     if (interaction.isStringSelectMenu() && interaction.customId === 'nexussetup:module') {
-      if (!canSetup(interaction)) return interaction.reply({ content: 'Module setup requires Nexus owner access or Discord Manage Server permission.', ephemeral: true });
+      if (!canSetup(interaction)) return interaction.reply({ content: 'Module setup requires Nexus owner access or Discord Manage Server permission.', flags: MessageFlags.Ephemeral });
       assertAdministrator(interaction.guild);
       await interaction.deferUpdate();
       return interaction.editReply(await provisionModule(interaction, interaction.values[0]));
@@ -223,9 +232,9 @@ client.on('interactionCreate', async (interaction) => {
         const item = pending.get(confirm[2]);
         if (!item || item.expiresAt < Date.now()) {
           pending.delete(confirm[2]);
-          return interaction.reply({ content: 'That confirmation expired. Run the action again.', ephemeral: true });
+          return interaction.reply({ content: 'That confirmation expired. Run the action again.', flags: MessageFlags.Ephemeral });
         }
-        if (item.userId !== String(interaction.user.id)) return interaction.reply({ content: 'Only the user who requested this action can confirm it.', ephemeral: true });
+        if (item.userId !== String(interaction.user.id)) return interaction.reply({ content: 'Only the user who requested this action can confirm it.', flags: MessageFlags.Ephemeral });
         pending.delete(confirm[2]);
         if (confirm[1] === 'nexuscancel') return interaction.update({ content: 'Action cancelled.', components: [] });
         await interaction.deferUpdate();
@@ -236,21 +245,26 @@ client.on('interactionCreate', async (interaction) => {
       const parsed = parseActionId(interaction.customId);
       if (!parsed) return;
       if (parsed.actionId === 'help') return interaction.reply(renderHelp(parsed.moduleId));
-      if (parsed.actionId === 'refresh') { await ensureConsole(parsed.moduleId); return interaction.reply({ content: 'Module console refreshed.', ephemeral: true }); }
-      await interaction.deferReply({ ephemeral: true });
+      if (parsed.actionId === 'refresh') { await ensureConsole(parsed.moduleId); return interaction.reply({ content: 'Module console refreshed.', flags: MessageFlags.Ephemeral }); }
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       return interaction.editReply(await runAction(interaction, parsed.moduleId, parsed.actionId, {}));
     }
 
     if (!interaction.isChatInputCommand() || interaction.commandName !== 'nexus') return;
+
+    // Claim the interaction immediately. Legacy desktop runtimes may still be connected to
+    // the same Discord application while the rebuild is being tested; acknowledging first
+    // prevents an old unknown-command fallback from routing /nexus into a game adapter.
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
     const sub = interaction.options.getSubcommand();
     if (sub === 'setup') {
-      if (!canSetup(interaction)) return interaction.reply({ content: 'Module setup requires Nexus owner access or Discord Manage Server permission.', ephemeral: true });
+      if (!canSetup(interaction)) return interaction.editReply({ content: 'Module setup requires Nexus owner access or Discord Manage Server permission.' });
       assertAdministrator(interaction.guild);
-      return interaction.reply({ ...setupStart(), ephemeral: true });
+      return interaction.editReply(setupStart());
     }
     if (sub === 'repair') {
       const moduleId = interaction.options.getString('module') || '';
-      await interaction.deferReply({ ephemeral: true });
       return interaction.editReply(await repairModules(interaction, moduleId));
     }
     if (sub === 'modules') {
@@ -262,23 +276,31 @@ client.on('interactionCreate', async (interaction) => {
         const connection = m.configured ? ' • connected' : '';
         return `${m.enabled ? '🟢' : '⚫'} **${m.name}** — ${discordStatus}${connection}`;
       })];
-      return interaction.reply({ content: lines.join('\n') || 'No modules registered.', ephemeral: true });
+      return interaction.editReply({ content: lines.join('\n') || 'No modules registered.' });
     }
     if (sub === 'refresh') {
       const moduleId = interaction.options.getString('module', true).toLowerCase();
       await ensureConsole(moduleId);
-      return interaction.reply({ content: `Refreshed ${moduleId}.`, ephemeral: true });
+      return interaction.editReply({ content: `Refreshed ${moduleId}.` });
     }
     if (sub === 'run') {
       const moduleId = interaction.options.getString('module', true).toLowerCase();
       const actionId = interaction.options.getString('action', true).toLowerCase();
       const input = interaction.options.getString('input') || '';
-      return interaction.reply({ ...(await runAction(interaction, moduleId, actionId, { input })), ephemeral: true });
+      return interaction.editReply(await runAction(interaction, moduleId, actionId, { input }));
     }
   } catch (error) {
-    const payload = { content: `⚠️ ${String(error?.message || error)}`.slice(0, 1900), ephemeral: true };
-    if (interaction.deferred || interaction.replied) return interaction.editReply({ content: payload.content, components: [] });
-    return interaction.reply(payload);
+    if (interactionAlreadyAcknowledged(error)) {
+      console.warn('[Nexus Sentinal] interaction already acknowledged by another runtime; ignoring duplicate response.');
+      return;
+    }
+    const content = `⚠️ ${String(error?.message || error)}`.slice(0, 1900);
+    try {
+      if (interaction.deferred || interaction.replied) await interaction.editReply({ content, components: [] });
+      else await interaction.reply({ content, flags: MessageFlags.Ephemeral });
+    } catch (replyError) {
+      if (!interactionAlreadyAcknowledged(replyError)) console.error('[Nexus Sentinal] failed to report interaction error:', replyError);
+    }
   }
 });
 
