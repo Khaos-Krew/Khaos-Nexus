@@ -59,10 +59,10 @@ test('friendly commands translate typed options to backend payloads', () => {
 
 test('module help teaches friendly commands instead of backend action syntax', () => {
   const arkHelp = JSON.stringify(renderHelp('ark'));
-  assert.match(arkHelp, /\\\/ark status/);
+  assert.ok(arkHelp.includes('/ark status'));
   assert.doesNotMatch(arkHelp, /module:ark action:/);
   const pogoHelp = JSON.stringify(renderHelp('pokemongo'));
-  assert.match(pogoHelp, /\\\/pogo raid create/);
+  assert.ok(pogoHelp.includes('/pogo raid create'));
   assert.doesNotMatch(pogoHelp, /nexus run module:/i);
 });
 
@@ -75,7 +75,7 @@ test('module console points users at short commands', () => {
     providerAvailableActions: ['news', 'fissures', 'market']
   });
   const text = JSON.stringify(payload);
-  assert.match(text, /\\\/warframe news/);
+  assert.ok(text.includes('/warframe news'));
   assert.doesNotMatch(text, /nexus run module:/i);
 });
 
