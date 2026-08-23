@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('nexusAdmin', {
   state: () => ipcRenderer.invoke('nexus:state'),
+  startupHealth: () => ipcRenderer.invoke('nexus:startup-health'),
   diagnostics: () => ipcRenderer.invoke('nexus:diagnostics'),
   exportDiagnostics: () => ipcRenderer.invoke('nexus:export-diagnostics'),
   restartBackend: () => ipcRenderer.invoke('nexus:restart-backend'),
@@ -14,6 +15,22 @@ contextBridge.exposeInMainWorld('nexusAdmin', {
   linkDiscordOAuth: (role) => ipcRenderer.invoke('nexus:link-discord-oauth', role),
   removeAccount: (accountId) => ipcRenderer.invoke('nexus:remove-account', accountId),
   validateProviders: (moduleId) => ipcRenderer.invoke('nexus:validate-providers', moduleId || ''),
+
+  sentinalStatus: () => ipcRenderer.invoke('nexus:sentinal-status'),
+  sentinalPermissions: () => ipcRenderer.invoke('nexus:sentinal-permissions'),
+  sentinalCommands: () => ipcRenderer.invoke('nexus:sentinal-commands'),
+  sentinalChannels: (moduleId) => ipcRenderer.invoke('nexus:sentinal-channels', moduleId || ''),
+  sentinalRoles: () => ipcRenderer.invoke('nexus:sentinal-roles'),
+  sentinalScan: () => ipcRenderer.invoke('nexus:sentinal-scan'),
+  sentinalSyncCommands: () => ipcRenderer.invoke('nexus:sentinal-sync-commands'),
+  sentinalReconcileChannels: (moduleId) => ipcRenderer.invoke('nexus:sentinal-reconcile-channels', moduleId || ''),
+  sentinalRefreshConsoles: (moduleId) => ipcRenderer.invoke('nexus:sentinal-refresh-consoles', moduleId || ''),
+  sentinalReconcileRoles: () => ipcRenderer.invoke('nexus:sentinal-reconcile-roles'),
+  sentinalRepair: () => ipcRenderer.invoke('nexus:sentinal-repair'),
+
+  ownerTest: () => ipcRenderer.invoke('nexus:owner-test'),
+  setOwnerTestFeedback: (version, itemId, status, note) => ipcRenderer.invoke('nexus:owner-test-feedback', version, itemId, status, note || ''),
+
   updateStatus: () => ipcRenderer.invoke('nexus:update-status'),
   checkForUpdate: () => ipcRenderer.invoke('nexus:update-check'),
   prepareUpdate: () => ipcRenderer.invoke('nexus:update-prepare'),
