@@ -1,6 +1,8 @@
 'use strict';
 
+const fs = require('node:fs');
 const http = require('node:http');
+const path = require('node:path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { AdminPairingStore, cleanCode, hashCode } = require('../src/sentinel/admin-pairing.cjs');
@@ -49,4 +51,15 @@ test('/nexus-pair command has a dedicated admin pairing surface', () => {
   const json = pairingCommand().toJSON();
   assert.equal(json.name, 'nexus-pair');
   assert.match(json.description.toLowerCase(), /pair/);
+});
+
+test('sandboxed preload delegates pairing to main process IPC', () => {
+  const preload = fs.readFileSync(path.join(__dirname, '../src/preload.cjs'), 'utf8');
+  const main = fs.readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8');
+  assert.match(preload, /ipcRenderer\.invoke\('nexus:sentinal-pair'/);
+  assert.doesNotMatch(preload, /sentinal-pairing\.cjs|node:https|node:http/);
+  assert.match(main, /require\('\.\/desktop\/sentinal-pairing\.cjs'\)/);
+  assert.match(main, /ipcMain\.handle\('nexus:sentinal-pair'/);
+  assert.match(main, /vault\.set\(tokenEnv, paired\.token\)/);
+  assert.doesNotMatch(preload, /paired\.token/);
 });
