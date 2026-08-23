@@ -4,6 +4,7 @@ const { PermissionFlagsBits } = require('discord.js');
 const { envSecret } = require('../shared/config.cjs');
 const { MODULES, getModule } = require('../backend/modules/catalog.cjs');
 const { NEXUS_RANKS, highestRankForEntitlements, rankRoleIds } = require('../shared/ranks.cjs');
+const { inspectModuleLayout } = require('./module-inspector.cjs');
 
 const REQUIRED_PERMISSIONS = Object.freeze([
   ['administrator', 'Administrator', PermissionFlagsBits.Administrator],
@@ -123,9 +124,9 @@ class SentinalAdminOps {
       const module = getModule(id);
       if (!module) continue;
       try {
-        modules.push(await this.provisioner.inspect(this.guild, id));
+        modules.push(await inspectModuleLayout(this.guild, id));
       } catch (error) {
-        modules.push({ moduleId: id, name: module.name, ok: false, error: safeError(error) });
+        modules.push({ moduleId: id, name: module.name, ok: false, complete: false, error: safeError(error) });
       }
     }
     return { ok: modules.every((item) => item.ok !== false && item.complete !== false), modules };
@@ -201,6 +202,7 @@ class SentinalAdminOps {
 
   async rolePlan() {
     const roles = await this.guild.roles.fetch();
+    const me = this.guild.members.me || await this.guild.members.fetchMe();
     const linked = await this.backend.accounts().catch(() => ({ ok: false, accounts: [] }));
     const entitlements = await this.fetchEntitlements();
     const entitlementsByUser = new Map();
@@ -237,6 +239,22 @@ class SentinalAdminOps {
       const currentRankRoles = [...member.roles.cache.keys()].filter((roleId) => mappedRoleIds.has(String(roleId)));
       const add = member.roles.cache.has(desiredRoleId) ? [] : [desiredRoleId];
       const remove = currentRankRoles.filter((roleId) => roleId !== desiredRoleId);
+      const rolesToChange = [...new Set([...add, ...remove])].map((roleId) => roles.get(String(roleId))).filter(Boolean);
+      const blockedRole = rolesToChange.find((role) => role.id === this.guild.id || me.roles.highest.position <= role.position);
+      if (blockedRole) {
+        items.push({
+          userId,
+          displayName: clean(member.displayName || member.user?.username, 80),
+          rankId: rank.id,
+          rank: rank.name,
+          roleId: desiredRoleId,
+          roleName: desiredRole.name,
+          ok: false,
+          action: 'blocked',
+          reason: `Sentinal's highest role must be above ${blockedRole.name}.`
+        });
+        continue;
+      }
       items.push({
         userId,
         displayName: clean(member.displayName || member.user?.username, 80),
