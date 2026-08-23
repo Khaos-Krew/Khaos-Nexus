@@ -17,13 +17,36 @@ const REQUIRED_PERMISSIONS = Object.freeze([
 function clean(value, max = 180) {
   return String(value ?? '').replace(/[\r\n\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 }
-
+function snowflake(value) {
+  const id = clean(value, 32);
+  return /^\d{15,24}$/.test(id) ? id : '';
+}
+function safeError(error) { return clean(error?.message || error || 'Unknown error', 240); }
 function enabledModuleIds(config = {}) {
   return MODULES.filter((module) => config.modules?.[module.id]?.enabled !== false).map((module) => module.id);
 }
-
-function safeError(error) {
-  return clean(error?.message || error || 'Unknown error', 240);
+function sanitizeAdminSettings(input = {}, current = {}) {
+  const rankRoles = {};
+  const rankSkus = {};
+  const moduleEnabled = {};
+  for (const rank of NEXUS_RANKS) {
+    const role = Object.prototype.hasOwnProperty.call(input.rankRoles || {}, rank.id)
+      ? snowflake(input.rankRoles[rank.id])
+      : snowflake(current.rankRoles?.[rank.id]);
+    rankRoles[rank.id] = role;
+    const raw = Object.prototype.hasOwnProperty.call(input.rankSkus || {}, rank.id)
+      ? input.rankSkus[rank.id]
+      : current.rankSkus?.[rank.id] || [];
+    rankSkus[rank.id] = [...new Set((Array.isArray(raw) ? raw : String(raw || '').split(','))
+      .map(snowflake).filter(Boolean))].slice(0, 25);
+  }
+  for (const module of MODULES) {
+    const incoming = input.moduleEnabled?.[module.id];
+    const previous = current.moduleEnabled?.[module.id];
+    if (typeof incoming === 'boolean') moduleEnabled[module.id] = incoming;
+    else if (typeof previous === 'boolean') moduleEnabled[module.id] = previous;
+  }
+  return { rankRoles, rankSkus, moduleEnabled };
 }
 
 class SentinalAdminOps {
@@ -40,9 +63,38 @@ class SentinalAdminOps {
     this.startedAt = Date.now();
   }
 
+  adminConfig() {
+    return sanitizeAdminSettings({}, this.state?.getAdminSettings?.() || {});
+  }
+
+  configure(input = {}) {
+    const next = sanitizeAdminSettings(input, this.adminConfig());
+    this.state.setAdminSettings(next);
+    return { ok: true, settings: this.adminConfig() };
+  }
+
+  effectiveConfig() {
+    const admin = this.adminConfig();
+    const modules = { ...(this.config.modules || {}) };
+    for (const module of MODULES) {
+      modules[module.id] = { ...(modules[module.id] || {}) };
+      if (typeof admin.moduleEnabled[module.id] === 'boolean') modules[module.id].enabled = admin.moduleEnabled[module.id];
+    }
+    return {
+      ...this.config,
+      discord: {
+        ...(this.config.discord || {}),
+        rankRoles: { ...(this.config.discord?.rankRoles || {}), ...admin.rankRoles },
+        rankSkus: { ...(this.config.discord?.rankSkus || {}), ...admin.rankSkus }
+      },
+      modules
+    };
+  }
+
   async status() {
     const backend = await this.backend?.health?.().catch((error) => ({ ok: false, message: safeError(error) })) || { ok: false };
     const guild = this.guild;
+    const config = this.effectiveConfig();
     return {
       ok: Boolean(this.client?.isReady?.() && guild),
       service: 'nexus-sentinal',
@@ -54,31 +106,24 @@ class SentinalAdminOps {
       backend: { ok: Boolean(backend?.ok), message: clean(backend?.message || '', 180) },
       moduleSetups: Object.keys(this.state?.listModuleSetups?.() || {}).length,
       consoles: Object.keys(this.state?.read?.().consoles || {}).length,
-      enabledModules: enabledModuleIds(this.config)
+      enabledModules: enabledModuleIds(config)
     };
   }
 
   async permissions() {
     const guild = this.guild;
     if (!guild) return { ok: false, code: 'GUILD_UNAVAILABLE', permissions: [] };
+    const config = this.effectiveConfig();
     const me = guild.members.me || await guild.members.fetchMe();
     const administrator = me.permissions.has(PermissionFlagsBits.Administrator);
-    const permissions = REQUIRED_PERMISSIONS.map(([id, label, bit]) => ({
-      id,
-      label,
-      granted: administrator || me.permissions.has(bit)
-    }));
+    const permissions = REQUIRED_PERMISSIONS.map(([id, label, bit]) => ({ id, label, granted: administrator || me.permissions.has(bit) }));
     const roles = await guild.roles.fetch();
     const highest = me.roles.highest;
-    const configured = [];
-    for (const rank of NEXUS_RANKS) {
-      const roleId = String(this.config.discord?.rankRoles?.[rank.id] || '');
-      if (!roleId) {
-        configured.push({ rankId: rank.id, rank: rank.name, roleId: '', exists: false, manageable: false, reason: 'not-configured' });
-        continue;
-      }
+    const rankRoles = NEXUS_RANKS.map((rank) => {
+      const roleId = String(config.discord?.rankRoles?.[rank.id] || '');
+      if (!roleId) return { rankId: rank.id, rank: rank.name, roleId: '', exists: false, manageable: false, reason: 'not-configured' };
       const role = roles.get(roleId) || null;
-      configured.push({
+      return {
         rankId: rank.id,
         rank: rank.name,
         roleId,
@@ -86,79 +131,58 @@ class SentinalAdminOps {
         exists: Boolean(role),
         manageable: Boolean(role && role.id !== guild.id && highest && highest.position > role.position),
         reason: !role ? 'missing-role' : highest.position <= role.position ? 'role-above-sentinal' : ''
-      });
-    }
+      };
+    });
     return {
-      ok: permissions.every((item) => item.granted),
-      administrator,
+      ok: permissions.every((item) => item.granted), administrator,
       botHighestRole: highest ? { id: String(highest.id), name: clean(highest.name, 100), position: highest.position } : null,
-      permissions,
-      rankRoles: configured
+      permissions, rankRoles
     };
   }
 
   async commands() {
     const commands = await this.guild.commands.fetch();
     const desired = ['nexus', 'market'];
-    const existing = desired.map((name) => {
+    const current = desired.map((name) => {
       const command = commands.find((item) => item.name === name);
       return { name, registered: Boolean(command), id: command ? String(command.id) : '' };
     });
-    return {
-      ok: existing.every((item) => item.registered),
-      desired,
-      commands: existing,
-      unrelatedCommandsPreserved: true
-    };
+    return { ok: current.every((item) => item.registered), desired, commands: current, unrelatedCommandsPreserved: true };
   }
-
-  async syncCommands() {
-    await this.registerCommands(this.guild);
-    return this.commands();
-  }
+  async syncCommands() { await this.registerCommands(this.guild); return this.commands(); }
 
   async inspectChannels(moduleId = '') {
-    const ids = moduleId ? [moduleId] : enabledModuleIds(this.config);
+    const config = this.effectiveConfig();
+    const ids = moduleId ? [moduleId] : enabledModuleIds(config);
     const modules = [];
     for (const id of ids) {
       const module = getModule(id);
       if (!module) continue;
-      try {
-        modules.push(await inspectModuleLayout(this.guild, id));
-      } catch (error) {
-        modules.push({ moduleId: id, name: module.name, ok: false, complete: false, error: safeError(error) });
-      }
+      try { modules.push(await inspectModuleLayout(this.guild, id)); }
+      catch (error) { modules.push({ moduleId: id, name: module.name, ok: false, complete: false, error: safeError(error) }); }
     }
     return { ok: modules.every((item) => item.ok !== false && item.complete !== false), modules };
   }
 
   async reconcileChannels(moduleId = '') {
-    const ids = moduleId ? [moduleId] : enabledModuleIds(this.config);
+    const config = this.effectiveConfig();
+    const ids = moduleId ? [moduleId] : enabledModuleIds(config);
     const modules = [];
     for (const id of ids) {
       const module = getModule(id);
       if (!module) continue;
       try {
         const setup = await this.provisioner.provision(this.guild, id);
-        modules.push({
-          moduleId: id,
-          name: module.name,
-          ok: true,
-          categoryId: setup.categoryId,
-          categoryName: setup.categoryName,
-          categoryCreated: Boolean(setup.categoryCreated),
-          createdChannels: [...(setup.createdChannels || [])],
-          consoleChannelId: setup.consoleChannelId
-        });
-      } catch (error) {
-        modules.push({ moduleId: id, name: module.name, ok: false, error: safeError(error) });
-      }
+        modules.push({ moduleId: id, name: module.name, ok: true, categoryId: setup.categoryId, categoryName: setup.categoryName,
+          categoryCreated: Boolean(setup.categoryCreated), createdChannels: [...(setup.createdChannels || [])], consoleChannelId: setup.consoleChannelId });
+      } catch (error) { modules.push({ moduleId: id, name: module.name, ok: false, error: safeError(error) }); }
     }
     return { ok: modules.every((item) => item.ok), modules };
   }
 
   async refreshConsoles(moduleId = '') {
-    const ids = moduleId ? [moduleId] : enabledModuleIds(this.config);
+    const config = this.effectiveConfig();
+    const ids = moduleId ? [moduleId] : enabledModuleIds(config);
     const modules = [];
     for (const id of ids) {
       const module = getModule(id);
@@ -166,15 +190,14 @@ class SentinalAdminOps {
       try {
         const message = await this.ensureConsole(id);
         modules.push({ moduleId: id, name: module.name, ok: Boolean(message), messageId: message ? String(message.id) : '', channelId: message ? String(message.channelId || message.channel?.id || '') : '' });
-      } catch (error) {
-        modules.push({ moduleId: id, name: module.name, ok: false, error: safeError(error) });
-      }
+      } catch (error) { modules.push({ moduleId: id, name: module.name, ok: false, error: safeError(error) }); }
     }
     return { ok: modules.every((item) => item.ok), modules };
   }
 
   async fetchEntitlements() {
-    const token = envSecret(this.config.discord?.tokenEnv);
+    const config = this.effectiveConfig();
+    const token = envSecret(config.discord?.tokenEnv);
     const applicationId = String(this.client?.application?.id || '');
     const guildId = String(this.guild?.id || '');
     if (!token || !applicationId || !guildId) throw new Error('Sentinal cannot read Discord entitlements until its application, guild, and bot token are available.');
@@ -186,9 +209,7 @@ class SentinalAdminOps {
       url.searchParams.set('limit', '100');
       url.searchParams.set('exclude_ended', 'true');
       if (after) url.searchParams.set('after', after);
-      const response = await this.fetchImpl(url, {
-        headers: { authorization: `Bot ${token}`, accept: 'application/json', 'user-agent': 'Khaos-Nexus-Sentinal/0.1' }
-      });
+      const response = await this.fetchImpl(url, { headers: { authorization: `Bot ${token}`, accept: 'application/json', 'user-agent': 'Khaos-Nexus-Sentinal/0.1' } });
       if (!response.ok) throw new Error(`Discord entitlement API returned HTTP ${response.status}.`);
       const items = await response.json();
       if (!Array.isArray(items)) throw new Error('Discord entitlement API returned an unexpected response.');
@@ -201,6 +222,7 @@ class SentinalAdminOps {
   }
 
   async rolePlan() {
+    const config = this.effectiveConfig();
     const roles = await this.guild.roles.fetch();
     const me = this.guild.members.me || await this.guild.members.fetchMe();
     const linked = await this.backend.accounts().catch(() => ({ ok: false, accounts: [] }));
@@ -214,59 +236,31 @@ class SentinalAdminOps {
     }
     const linkedIds = new Set((linked.accounts || []).map((account) => String(account.discord?.id || '')).filter(Boolean));
     const userIds = new Set([...entitlementsByUser.keys(), ...linkedIds]);
-    const mappedRoleIds = new Set(rankRoleIds(this.config));
+    const mappedRoleIds = new Set(rankRoleIds(config));
     const items = [];
     for (const userId of userIds) {
-      const premiumRank = highestRankForEntitlements(entitlementsByUser.get(userId) || [], this.config);
+      const premiumRank = highestRankForEntitlements(entitlementsByUser.get(userId) || [], config);
       const rank = premiumRank || (linkedIds.has(userId) ? NEXUS_RANKS[0] : null);
       if (!rank) continue;
-      const desiredRoleId = String(this.config.discord?.rankRoles?.[rank.id] || '');
-      if (!desiredRoleId) {
-        items.push({ userId, rankId: rank.id, rank: rank.name, ok: false, action: 'configure-role', reason: 'No Discord role ID is mapped for this rank.' });
-        continue;
-      }
+      const desiredRoleId = String(config.discord?.rankRoles?.[rank.id] || '');
+      if (!desiredRoleId) { items.push({ userId, rankId: rank.id, rank: rank.name, ok: false, action: 'configure-role', reason: 'No Discord role ID is mapped for this rank.' }); continue; }
       let member = null;
       try { member = await this.guild.members.fetch(userId); } catch {}
-      if (!member) {
-        items.push({ userId, rankId: rank.id, rank: rank.name, roleId: desiredRoleId, ok: false, action: 'skip', reason: 'User is not currently a member of this Discord server.' });
-        continue;
-      }
+      if (!member) { items.push({ userId, rankId: rank.id, rank: rank.name, roleId: desiredRoleId, ok: false, action: 'skip', reason: 'User is not currently a member of this Discord server.' }); continue; }
       const desiredRole = roles.get(desiredRoleId) || null;
-      if (!desiredRole) {
-        items.push({ userId, displayName: clean(member.displayName || member.user?.username, 80), rankId: rank.id, rank: rank.name, roleId: desiredRoleId, ok: false, action: 'configure-role', reason: 'Mapped Discord role does not exist.' });
-        continue;
-      }
+      if (!desiredRole) { items.push({ userId, displayName: clean(member.displayName || member.user?.username, 80), rankId: rank.id, rank: rank.name, roleId: desiredRoleId, ok: false, action: 'configure-role', reason: 'Mapped Discord role does not exist.' }); continue; }
       const currentRankRoles = [...member.roles.cache.keys()].filter((roleId) => mappedRoleIds.has(String(roleId)));
       const add = member.roles.cache.has(desiredRoleId) ? [] : [desiredRoleId];
       const remove = currentRankRoles.filter((roleId) => roleId !== desiredRoleId);
       const rolesToChange = [...new Set([...add, ...remove])].map((roleId) => roles.get(String(roleId))).filter(Boolean);
       const blockedRole = rolesToChange.find((role) => role.id === this.guild.id || me.roles.highest.position <= role.position);
       if (blockedRole) {
-        items.push({
-          userId,
-          displayName: clean(member.displayName || member.user?.username, 80),
-          rankId: rank.id,
-          rank: rank.name,
-          roleId: desiredRoleId,
-          roleName: desiredRole.name,
-          ok: false,
-          action: 'blocked',
-          reason: `Sentinal's highest role must be above ${blockedRole.name}.`
-        });
+        items.push({ userId, displayName: clean(member.displayName || member.user?.username, 80), rankId: rank.id, rank: rank.name, roleId: desiredRoleId, roleName: desiredRole.name,
+          ok: false, action: 'blocked', reason: `Sentinal's highest role must be above ${blockedRole.name}.` });
         continue;
       }
-      items.push({
-        userId,
-        displayName: clean(member.displayName || member.user?.username, 80),
-        rankId: rank.id,
-        rank: rank.name,
-        roleId: desiredRoleId,
-        roleName: desiredRole.name,
-        ok: true,
-        action: add.length || remove.length ? 'reconcile' : 'none',
-        add,
-        remove
-      });
+      items.push({ userId, displayName: clean(member.displayName || member.user?.username, 80), rankId: rank.id, rank: rank.name,
+        roleId: desiredRoleId, roleName: desiredRole.name, ok: true, action: add.length || remove.length ? 'reconcile' : 'none', add, remove });
     }
     return { ok: items.every((item) => item.ok), entitlementCount: entitlements.length, linkedAccountCount: linkedIds.size, items };
   }
@@ -288,14 +282,11 @@ class SentinalAdminOps {
 
   async scan() {
     const [status, permissions, commands, channels, roles] = await Promise.all([
-      this.status(),
-      this.permissions(),
-      this.commands(),
-      this.inspectChannels(),
+      this.status(), this.permissions(), this.commands(), this.inspectChannels(),
       this.rolePlan().catch((error) => ({ ok: false, entitlementCount: 0, linkedAccountCount: 0, items: [], error: safeError(error) }))
     ]);
     const sections = { status, permissions, commands, channels, roles };
-    return { ok: Object.values(sections).every((section) => section?.ok !== false), sections };
+    return { ok: Object.values(sections).every((section) => section?.ok !== false), settings: this.adminConfig(), sections };
   }
 
   async repair() {
@@ -309,8 +300,8 @@ class SentinalAdminOps {
     sections.consoles = await this.refreshConsoles().catch((error) => ({ ok: false, error: safeError(error) }));
     sections.roles = await this.reconcileRoles({ dryRun: false }).catch((error) => ({ ok: false, changed: 0, error: safeError(error) }));
     sections.status = await this.status();
-    return { ok: Object.values(sections).every((section) => section?.ok !== false), sections };
+    return { ok: Object.values(sections).every((section) => section?.ok !== false), settings: this.adminConfig(), sections };
   }
 }
 
-module.exports = { REQUIRED_PERMISSIONS, SentinalAdminOps, enabledModuleIds };
+module.exports = { REQUIRED_PERMISSIONS, SentinalAdminOps, enabledModuleIds, sanitizeAdminSettings };
