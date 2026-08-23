@@ -33,6 +33,17 @@ jobs:
       - run: npm install --no-audit --no-fund
       - run: npm run check
       - run: npm test
+      - shell: pwsh
+        run: |
+          foreach ($script in @('src/updater/apply-update.ps1', 'scripts/build-update-bundle.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $script), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              throw "PowerShell syntax validation failed for $script"
+            }
+          }
       - run: npm run dist:win
       - run: npm run dist:update
       - shell: pwsh
