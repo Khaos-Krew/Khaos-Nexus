@@ -7,15 +7,20 @@ const root = path.resolve(__dirname, '..');
 const required = [
   'package.json', 'config.example.json', 'src/main.cjs', 'src/backend/server.cjs',
   'src/backend/providers/http-provider.cjs', 'src/backend/providers/native-providers.cjs',
-  'src/backend/providers/warframe-provider.cjs', 'src/sentinel/bot.cjs',
-  'src/sentinel/module-provisioner.cjs', 'src/sentinel/module-layouts.cjs',
+  'src/backend/providers/warframe-provider.cjs', 'src/backend/providers/server-providers.cjs',
+  'src/backend/providers/source-rcon-provider.cjs', 'src/backend/providers/palworld-provider.cjs',
+  'src/backend/transports/source-rcon.cjs', 'src/backend/transports/rcon-protocol.cjs',
+  'src/sentinel/bot.cjs', 'src/sentinel/module-provisioner.cjs', 'src/sentinel/module-layouts.cjs',
   'src/sentinel/state-store.cjs', 'src/backend/modules/catalog.cjs'
 ];
 const syntaxFiles = [
   'src/backend/server.cjs', 'src/backend/core/runtime.cjs',
   'src/backend/providers/http-provider.cjs', 'src/backend/providers/native-providers.cjs',
-  'src/backend/providers/warframe-provider.cjs', 'src/sentinel/bot.cjs',
-  'src/sentinel/module-provisioner.cjs', 'src/sentinel/module-layouts.cjs', 'src/sentinel/state-store.cjs'
+  'src/backend/providers/warframe-provider.cjs', 'src/backend/providers/server-providers.cjs',
+  'src/backend/providers/source-rcon-provider.cjs', 'src/backend/providers/palworld-provider.cjs',
+  'src/backend/transports/source-rcon.cjs', 'src/backend/transports/rcon-protocol.cjs',
+  'src/sentinel/bot.cjs', 'src/sentinel/module-provisioner.cjs',
+  'src/sentinel/module-layouts.cjs', 'src/sentinel/state-store.cjs'
 ];
 let failed = false;
 for (const file of required) {
