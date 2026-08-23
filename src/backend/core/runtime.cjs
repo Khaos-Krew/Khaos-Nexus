@@ -27,6 +27,12 @@ class BackendRuntime {
     return { ...changed };
   }
 
+  replaceProviders(config, providers = {}) {
+    this.config = config || this.config;
+    this.providers = { ...providers };
+    return this.manifests();
+  }
+
   capabilityAvailable(module, capability, provider) {
     if (capability.service) {
       const service = this.services[capability.service];
