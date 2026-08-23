@@ -5,6 +5,7 @@ const { loadConfig } = require('../shared/config.cjs');
 const { BackendClient } = require('./backend-client.cjs');
 const { pogoCommand, handlePokemonGoCommand, handlePokemonGoButton } = require('./pokemon-go.cjs');
 const { handlePokemonGoEventList } = require('./pokemon-go-event-ui.cjs');
+const { normalizeRequiredOptions } = require('./discord-command-schema.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.pogo.extension');
 
@@ -32,10 +33,11 @@ function installPokemonGoExtension() {
         if (!guildId) return;
         const guild = await this.guilds.fetch(guildId);
         const definition = pogoCommand();
+        const commandJson = normalizeRequiredOptions(definition.toJSON());
         const commands = await guild.commands.fetch();
         const existing = commands.find((item) => item.name === definition.name);
-        if (existing) await guild.commands.edit(existing, definition.toJSON());
-        else await guild.commands.create(definition.toJSON());
+        if (existing) await guild.commands.edit(existing, commandJson);
+        else await guild.commands.create(commandJson);
         console.log(`[Nexus Sentinal] registered /pogo in guild ${guild.id}`);
       } catch (error) {
         console.error('[Nexus Sentinal] Pokémon GO command registration:', error);
