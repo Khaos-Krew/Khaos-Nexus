@@ -1,6 +1,7 @@
 'use strict';
 
 const { getModule } = require('../backend/modules/catalog.cjs');
+const { usageForModule } = require('./friendly-commands.cjs');
 
 const CUSTOM_ID_PREFIX = 'nexusmod';
 
@@ -52,7 +53,7 @@ function renderModuleConsole(moduleId, backendState = {}) {
   const rows = [];
   for (let i = 0; i < buttons.length; i += 5) rows.push({ type: 1, components: buttons.slice(i, i + 5) });
   rows.push({ type: 1, components: [
-    { type: 2, style: 2, label: 'Features / Commands', custom_id: actionId(module.id, 'help') },
+    { type: 2, style: 2, label: 'Commands / Help', custom_id: actionId(module.id, 'help') },
     { type: 2, style: 2, label: 'Refresh', custom_id: actionId(module.id, 'refresh') }
   ]});
 
@@ -61,14 +62,20 @@ function renderModuleConsole(moduleId, backendState = {}) {
     { name: 'Backend', value: `${availableCount}/${module.capabilities.length} actions`, inline: true }
   ];
   if (providerKind !== 'none') fields.push({ name: 'Provider', value: providerKind.slice(0, 100), inline: true });
-  if (serviceActions.length) fields.push({ name: 'Shared Services', value: serviceActions.map((id) => `\`${id}\``).join(', ').slice(0, 1000), inline: false });
+
+  const friendly = usageForModule(moduleId);
+  const commandHint = friendly.length
+    ? `Try **${friendly[0]}** or press **Commands / Help** for the full easy command list.`
+    : module.surface === 'veyra'
+      ? 'Use Veyra for normal D&D interaction.'
+      : 'Use the buttons below for normal interaction.';
 
   return {
     embeds: [{
       title: `KHAOS NEXUS • ${module.name.toUpperCase()}`,
-      description: `**${state}**\nUse buttons for quick actions. Parameterized and advanced actions are available through \`/nexus run\`; use **Features / Commands** for the exact action names.`,
+      description: `**${state}**\nUse the buttons below or the short module commands. ${commandHint}`,
       fields,
-      footer: { text: 'Nexus 0.1 • Backend-first module console' }
+      footer: { text: 'Nexus 0.1 • Simple commands • Backend-first module console' }
     }],
     components: rows,
     allowed_mentions: { parse: [] }
@@ -78,15 +85,23 @@ function renderModuleConsole(moduleId, backendState = {}) {
 function renderHelp(moduleId) {
   const module = getModule(moduleId);
   if (!module) throw new Error(`Unknown module: ${moduleId}`);
-  const lines = module.capabilities.map((cap) => {
-    const input = cap.input ? ` • input: \`${cap.input}\`` : '';
-    const confirm = cap.destructive ? ' • confirmation required' : '';
-    return `• \`${cap.id}\` — **${cap.label}** • ${cap.requiredRole}${confirm}${input}`;
-  });
+  const commands = usageForModule(moduleId);
+  if (!commands.length) {
+    return {
+      embeds: [{
+        title: `${module.name} • Commands`,
+        description: module.surface === 'veyra'
+          ? 'This module is designed to be used through **Veyra** rather than raw Nexus Sentinal capability commands.'
+          : 'Use the module panel buttons for normal actions.'
+      }]
+    };
+  }
+  const lines = commands.map((command) => `• \`${command}\``);
   return {
     embeds: [{
-      title: `${module.name} • Backend Features`,
-      description: `${lines.join('\n') || 'No capabilities registered.'}\n\nAdvanced usage: \`/nexus run module:${module.id} action:<action> input:<value>\``.slice(0, 4000)
+      title: `${module.name} • Easy Commands`,
+      description: `${lines.join('\n')}\n\nYou do **not** need backend action IDs for normal use.`.slice(0, 4000),
+      footer: { text: 'Advanced /nexus run remains available only for compatibility and troubleshooting.' }
     }]
   };
 }
