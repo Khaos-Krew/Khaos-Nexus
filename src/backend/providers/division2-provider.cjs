@@ -1,8 +1,13 @@
 'use strict';
 
+const path = require('node:path');
+const crypto = require('node:crypto');
+const { JsonStore } = require('../core/json-store.cjs');
+
 const DATA_BASE = 'https://raw.githubusercontent.com/div2hub/game-data/main';
+const OFFICIAL_NEWS_URL = 'https://www.ubisoft.com/en-us/game/the-division/the-division-2/news-updates';
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-const DIVISION2_ACTIONS = Object.freeze(['gear', 'builds', 'farming']);
+const DIVISION2_ACTIONS = Object.freeze(['gear', 'builds', 'optimize', 'compare', 'farming', 'wishlist', 'inventory', 'weekly', 'lfg', 'news']);
 
 const GEAR_FILES = Object.freeze([
   'gear/masks.csv', 'gear/backpacks.csv', 'gear/chests.csv',
@@ -13,6 +18,14 @@ const WEAPON_FILES = Object.freeze([
   'weapons/pistols.csv', 'weapons/rifles.csv', 'weapons/shotguns.csv', 'weapons/smgs.csv'
 ]);
 const TALENT_FILES = Object.freeze(['gear/gear_talents.csv', 'weapons/weapon_talents.csv']);
+const DEFAULT_WEEKLY = Object.freeze([
+  'Review weekly project and priority objectives',
+  'Advance current season or manhunt progression',
+  'Complete raid/incursion goals',
+  'Farm priority targeted-loot upgrades',
+  'Review Dark Zone / PvP goals',
+  'Clear inventory and recalibration candidates'
+]);
 
 function cleanText(value, max = 500) {
   return String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -107,13 +120,117 @@ function farmingTarget(item) {
   return { type: slot ? 'gear slot' : 'item name', target: slot || item.name || 'unknown' };
 }
 
+function actorKey(context = {}) {
+  return cleanText(context.actorId || 'shared', 120) || 'shared';
+}
+
+function ensureUser(state, context = {}) {
+  const key = actorKey(context);
+  state.users ||= {};
+  state.users[key] ||= { wishlist: [], inventory: [], weekly: {}, updatedAt: '' };
+  return state.users[key];
+}
+
+function parseCollectionCommand(input) {
+  const text = cleanText(input, 500);
+  if (!text || /^list$/i.test(text)) return { op: 'list', value: '' };
+  const match = /^(add|remove)\s+(.+)$/i.exec(text);
+  return match ? { op: match[1].toLowerCase(), value: cleanText(match[2], 220) } : { op: 'add', value: text };
+}
+
+function mutateCollection(store, field, payload, context) {
+  const command = parseCollectionCommand(payload.input || payload.item || '');
+  let result;
+  store.update((state) => {
+    const user = ensureUser(state, context);
+    user[field] ||= [];
+    if (command.op === 'add' && command.value) {
+      if (!user[field].some((item) => item.toLowerCase() === command.value.toLowerCase())) user[field].push(command.value);
+    } else if (command.op === 'remove' && command.value) {
+      user[field] = user[field].filter((item) => item.toLowerCase() !== command.value.toLowerCase());
+    }
+    user.updatedAt = new Date().toISOString();
+    result = { items: [...user[field]], operation: command.op, value: command.value };
+  });
+  return result;
+}
+
+function weeklyChecklist(store, payload, context) {
+  const input = cleanText(payload.input, 300);
+  let output;
+  store.update((state) => {
+    const user = ensureUser(state, context);
+    const week = new Date().toISOString().slice(0, 10);
+    if (!user.weekly || user.weekly.week !== week || /^reset$/i.test(input)) {
+      user.weekly = { week, items: DEFAULT_WEEKLY.map((label, index) => ({ id: index + 1, label, done: false })) };
+    }
+    const toggle = /^(?:done|toggle)\s+(\d+)$/i.exec(input);
+    if (toggle) {
+      const item = user.weekly.items.find((entry) => entry.id === Number(toggle[1]));
+      if (!item) throw new Error(`Weekly checklist item ${toggle[1]} does not exist.`);
+      item.done = !item.done;
+    }
+    user.updatedAt = new Date().toISOString();
+    output = { ...user.weekly, note: 'This is a personal planning checklist. Nexus does not claim these are the live weekly rotation rewards.' };
+  });
+  return output;
+}
+
+function parseLfg(input) {
+  const text = cleanText(input, 300);
+  if (!text || /^list$/i.test(text)) return { op: 'list' };
+  if (/^leave$/i.test(text)) return { op: 'leave' };
+  const join = /^join\s+(.+)$/i.exec(text);
+  if (join) return { op: 'join', activity: cleanText(join[1], 160) };
+  return { op: 'join', activity: text };
+}
+
+function lfgAction(store, payload, context) {
+  const command = parseLfg(payload.input);
+  const actor = actorKey(context);
+  let result;
+  store.update((state) => {
+    state.lfg ||= [];
+    state.lfg = state.lfg.filter((entry) => Date.now() - Date.parse(entry.createdAt) < 12 * 60 * 60 * 1000);
+    if (command.op === 'leave') state.lfg = state.lfg.filter((entry) => entry.actorId !== actor);
+    if (command.op === 'join') {
+      state.lfg = state.lfg.filter((entry) => entry.actorId !== actor);
+      state.lfg.push({ id: crypto.randomBytes(4).toString('hex'), actorId: actor, activity: command.activity, createdAt: new Date().toISOString() });
+    }
+    result = { entries: state.lfg.map((entry) => ({ ...entry })), operation: command.op };
+  });
+  return result;
+}
+
+function decodeHtml(value) {
+  return String(value || '').replace(/&quot;/g, '"').replace(/&#x27;|&#39;/g, "'").replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+}
+
+function parseOfficialNews(html) {
+  const text = String(html || '');
+  const results = [];
+  const seen = new Set();
+  const regex = /href=["']([^"']*\/the-division-2\/news-updates\/[^"'#?]+)["'][^>]*>([\s\S]{0,1400}?)<\/a>/gi;
+  let match;
+  while ((match = regex.exec(text)) && results.length < 12) {
+    const href = match[1].startsWith('http') ? match[1] : `https://www.ubisoft.com${match[1]}`;
+    const body = decodeHtml(match[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+    if (!body || seen.has(href)) continue;
+    seen.add(href);
+    results.push({ title: cleanText(body, 220), url: href });
+  }
+  return results;
+}
+
 class Division2Provider {
   constructor(options = {}) {
     this.fetchImpl = options.fetchImpl || globalThis.fetch;
     if (typeof this.fetchImpl !== 'function') throw new Error('Division 2 provider requires fetch support.');
     this.baseUrl = String(options.baseUrl || DATA_BASE).replace(/\/$/, '');
+    this.newsUrl = String(options.newsUrl || OFFICIAL_NEWS_URL);
     this.cacheTtlMs = Math.max(60_000, Number(options.cacheTtlMs || CACHE_TTL_MS));
     this.cache = new Map();
+    this.store = options.store || new JsonStore(options.stateFile || path.join(process.cwd(), 'data', 'division2-state.json'), { users: {}, lfg: [] });
     this.connected = false;
     this.providerKind = 'community-data';
     this.supportedActions = [...DIVISION2_ACTIONS];
@@ -131,7 +248,7 @@ class Division2Provider {
     return rows;
   }
 
-  async search(sources, query, limit = 12) {
+  async searchScored(sources, query, limit = 12) {
     const normalized = cleanText(query, 160);
     if (!normalized) return [];
     const datasets = await Promise.all(sources.map(async (source) => ({ source, rows: await this.rowsFor(source) })));
@@ -142,40 +259,51 @@ class Division2Provider {
         if (score > 0) scored.push({ score, item: compactRow(row, dataset.source) });
       }
     }
-    return scored.sort((a, b) => b.score - a.score || String(a.item.name || '').localeCompare(String(b.item.name || ''))).slice(0, limit).map(({ item }) => item);
+    return scored.sort((a, b) => b.score - a.score || String(a.item.name || '').localeCompare(String(b.item.name || ''))).slice(0, limit);
   }
+
+  async search(sources, query, limit = 12) { return (await this.searchScored(sources, query, limit)).map(({ item }) => item); }
 
   async gear(payload = {}) {
     const query = cleanText(payload.query || payload.input || '', 160);
     if (!query) return { usage: 'Use /nexus run module:division2 action:gear input:<gear, weapon, brand, set, or talent>.' };
-    return {
-      query,
-      results: await this.search([...GEAR_FILES, ...WEAPON_FILES, ...TALENT_FILES], query, 15),
-      source: 'div2hub/game-data'
-    };
+    return { query, results: await this.search([...GEAR_FILES, ...WEAPON_FILES, ...TALENT_FILES], query, 15), source: 'div2hub/game-data' };
   }
 
   async builds(payload = {}) {
     const query = cleanText(payload.query || payload.input || '', 160);
-    if (!query) {
-      return {
-        usage: 'Use /nexus run module:division2 action:builds input:<build goal or keywords>.',
-        examples: ['crit SMG', 'skill damage turret drone', 'status effects eclipse']
-      };
-    }
+    if (!query) return { usage: 'Use /nexus run module:division2 action:builds input:<build goal or keywords>.', examples: ['crit SMG', 'skill damage turret drone', 'status effects eclipse'] };
     const [gear, weapons, talents] = await Promise.all([
-      this.search(GEAR_FILES, query, 8),
-      this.search(WEAPON_FILES, query, 6),
-      this.search(TALENT_FILES, query, 8)
+      this.search(GEAR_FILES, query, 8), this.search(WEAPON_FILES, query, 6), this.search(TALENT_FILES, query, 8)
     ]);
+    return { query, gear, weapons, talents, note: 'Build Research ranks community game-data matches by the requested keywords.', source: 'div2hub/game-data' };
+  }
+
+  async optimize(payload = {}) {
+    const query = cleanText(payload.query || payload.input || '', 160);
+    if (!query) return { usage: 'Use /nexus run module:division2 action:optimize input:<build goal>. Example: crit SMG survivability' };
+    const scored = await this.searchScored([...GEAR_FILES, ...WEAPON_FILES, ...TALENT_FILES], query, 30);
+    const byKind = {};
+    for (const entry of scored) {
+      const kind = entry.item.kind || 'data';
+      byKind[kind] ||= [];
+      if (byKind[kind].length < 8) byKind[kind].push({ score: entry.score, ...entry.item });
+    }
     return {
       query,
-      gear,
-      weapons,
-      talents,
-      note: 'Build Research ranks live game-data matches by the requested keywords. The mathematical optimizer remains disabled until its scoring engine is complete.',
-      source: 'div2hub/game-data'
+      recommendations: byKind,
+      method: 'Keyword/attribute relevance heuristic over community game data.',
+      note: 'This is intentionally not fake DPS math. A future stat engine can replace the heuristic without changing the backend/Sentinal contract.'
     };
+  }
+
+  async compare(payload = {}) {
+    const raw = cleanText(payload.input || '', 360);
+    const [left, right] = raw.split('|').map((value) => cleanText(value, 160));
+    if (!left || !right) return { usage: 'Use /nexus run module:division2 action:compare input:<item A>|<item B>.' };
+    const sources = [...GEAR_FILES, ...WEAPON_FILES, ...TALENT_FILES];
+    const [leftMatches, rightMatches] = await Promise.all([this.searchScored(sources, left, 3), this.searchScored(sources, right, 3)]);
+    return { left: { query: left, matches: leftMatches.map((entry) => ({ score: entry.score, ...entry.item })) }, right: { query: right, matches: rightMatches.map((entry) => ({ score: entry.score, ...entry.item })) } };
   }
 
   async farming(payload = {}) {
@@ -190,22 +318,37 @@ class Division2Provider {
     };
   }
 
-  async invoke(actionId, payload = {}) {
+  async news() {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
+    timer.unref?.();
+    try {
+      const response = await this.fetchImpl(this.newsUrl, { headers: { accept: 'text/html', 'user-agent': 'Khaos-Nexus/0.1 Division2 backend' }, signal: controller.signal });
+      if (!response.ok) throw new Error(`Official Ubisoft news returned HTTP ${response.status}.`);
+      const headlines = parseOfficialNews(await response.text());
+      return { source: 'Ubisoft', url: this.newsUrl, headlines, note: headlines.length ? 'Current official Division 2 news links.' : 'Ubisoft news page is reachable, but its page structure did not expose parseable headlines. Use the source URL.' };
+    } catch (error) {
+      return { source: 'Ubisoft', url: this.newsUrl, headlines: [], warning: cleanText(error?.message || error, 300) };
+    } finally { clearTimeout(timer); }
+  }
+
+  async invoke(actionId, payload = {}, context = {}) {
     if (actionId === 'gear') return this.gear(payload);
     if (actionId === 'builds') return this.builds(payload);
+    if (actionId === 'optimize') return this.optimize(payload);
+    if (actionId === 'compare') return this.compare(payload);
     if (actionId === 'farming') return this.farming(payload);
-    throw new Error(`Division 2 community-data provider does not expose ${actionId} yet.`);
+    if (actionId === 'wishlist') return mutateCollection(this.store, 'wishlist', payload, context);
+    if (actionId === 'inventory') return mutateCollection(this.store, 'inventory', payload, context);
+    if (actionId === 'weekly') return weeklyChecklist(this.store, payload, context);
+    if (actionId === 'lfg') return lfgAction(this.store, payload, context);
+    if (actionId === 'news') return this.news();
+    throw new Error(`Division 2 provider does not expose ${actionId}.`);
   }
 }
 
 module.exports = {
-  Division2Provider,
-  DIVISION2_ACTIONS,
-  GEAR_FILES,
-  WEAPON_FILES,
-  TALENT_FILES,
-  parseCsv,
-  rowScore,
-  compactRow,
-  farmingTarget
+  Division2Provider, DIVISION2_ACTIONS, GEAR_FILES, WEAPON_FILES, TALENT_FILES, DEFAULT_WEEKLY,
+  parseCsv, rowScore, compactRow, farmingTarget, parseCollectionCommand, mutateCollection,
+  weeklyChecklist, parseLfg, lfgAction, parseOfficialNews
 };
