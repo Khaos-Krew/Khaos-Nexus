@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('nexusAdmin', {
   removeAccount: (accountId) => ipcRenderer.invoke('nexus:remove-account', accountId),
   validateProviders: (moduleId) => ipcRenderer.invoke('nexus:validate-providers', moduleId || ''),
 
+  sentinalPair: (url, code) => ipcRenderer.invoke('nexus:sentinal-pair', url, code),
   sentinalStatus: () => ipcRenderer.invoke('nexus:sentinal-status'),
   sentinalPermissions: () => ipcRenderer.invoke('nexus:sentinal-permissions'),
   sentinalCommands: () => ipcRenderer.invoke('nexus:sentinal-commands'),

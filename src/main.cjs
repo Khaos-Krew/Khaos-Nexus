@@ -8,6 +8,7 @@ const { BackendClient } = require('./sentinel/backend-client.cjs');
 const { thoraStatus, launchThora } = require('./thora/bridge.cjs');
 const { StagedUpdater } = require('./updater/service.cjs');
 const { SentinalAdminClient } = require('./desktop/sentinal-admin-client.cjs');
+const { pairRequest } = require('./desktop/sentinal-pairing.cjs');
 const { OwnerTestService } = require('./desktop/owner-test-service.cjs');
 const {
   applyPublicSettings,
@@ -270,6 +271,19 @@ function registerIpc() {
     return backendClient.validateProviders(String(moduleId || ''));
   });
 
+  ipcMain.handle('nexus:sentinal-pair', async (_event, url, code) => {
+    const paired = await pairRequest(String(url || ''), String(code || ''));
+    const tokenEnv = String(storedConfig.discord?.sentinalAdminTokenEnv || 'NEXUS_SENTINAL_ADMIN_TOKEN').toUpperCase();
+    const allowed = new Set(collectSecretEnvNames(storedConfig));
+    if (!allowed.has(tokenEnv)) throw new Error('The Sentinal admin credential slot is not available in this Nexus configuration.');
+    vault.set(tokenEnv, paired.token);
+    storedConfig.discord ||= {};
+    storedConfig.discord.sentinalAdminUrl = paired.baseUrl;
+    saveUserConfig(configPath, storedConfig);
+    storedConfig = loadStoredConfig();
+    await startBackend();
+    return currentState();
+  });
   ipcMain.handle('nexus:sentinal-status', () => requireSentinalAdmin().status());
   ipcMain.handle('nexus:sentinal-permissions', () => requireSentinalAdmin().permissions());
   ipcMain.handle('nexus:sentinal-commands', () => requireSentinalAdmin().commands());
