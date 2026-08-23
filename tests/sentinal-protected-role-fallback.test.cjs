@@ -4,20 +4,22 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { installManageableRoleFallback } = require('../src/sentinel/role-menu-extension.cjs');
 
+function collection(items = []) {
+  return {
+    find(predicate) { return items.find(predicate); }
+  };
+}
+
 test('protected alias roles are left unchanged and replaced by a manageable access role', async () => {
   const protectedRole = { id: '1', name: 'Nexus D&D', editable: false };
   const createdRole = { id: '2', name: 'Nexus D&D Access', editable: true };
   const writes = [];
-  const manager = {
-    ensureAccessRole: async () => protectedRole
-  };
-  const state = {
-    setAccessRole(moduleId, value) { writes.push({ moduleId, value }); }
-  };
+  const manager = { ensureAccessRole: async () => protectedRole };
+  const state = { setAccessRole(moduleId, value) { writes.push({ moduleId, value }); } };
   const guild = {
     id: 'guild-1',
     roles: {
-      async fetch() { return new Map([['1', protectedRole]]); },
+      async fetch() { return collection([protectedRole]); },
       async create(input) {
         assert.equal(input.name, 'Nexus D&D Access');
         return createdRole;
@@ -36,7 +38,7 @@ test('editable access roles are reused without creating a replacement', async ()
   let created = 0;
   const manager = { ensureAccessRole: async () => editableRole };
   const state = { setAccessRole() { throw new Error('unexpected state rewrite'); } };
-  const guild = { roles: { async fetch() { return new Map(); }, async create() { created += 1; } } };
+  const guild = { roles: { async fetch() { return collection(); }, async create() { created += 1; } } };
   installManageableRoleFallback(manager, state);
   const result = await manager.ensureAccessRole(guild, { moduleId: 'ark', roleName: 'ARK Access' });
   assert.equal(result, editableRole);
