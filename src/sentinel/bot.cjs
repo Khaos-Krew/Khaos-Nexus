@@ -43,7 +43,7 @@ function confirmationRow(nonce) {
 
 function setupStart() {
   return {
-    content: '**Nexus Sentinal • Game Module Setup**\nChoose the game module you want to assign. Sentinal can create a new category or build inside an existing category.',
+    content: '**Nexus Sentinal • Game Module Setup**\nChoose a module. Sentinal will automatically reuse a matching/similar category when one already exists, populate any missing module channels, or create a new category when no match exists.',
     components: [{
       type: 1,
       components: [{
@@ -52,20 +52,9 @@ function setupStart() {
         placeholder: 'Choose a game module',
         min_values: 1,
         max_values: 1,
-        options: MODULES.map((module) => ({ label: module.name.slice(0, 100), value: module.id, description: `${module.console === false ? 'Veyra' : 'Sentinal'} surface • build Discord channels`.slice(0, 100) }))
+        options: MODULES.map((module) => ({ label: module.name.slice(0, 100), value: module.id, description: `${module.console === false ? 'Veyra' : 'Sentinal'} surface • reconcile Discord channels`.slice(0, 100) }))
       }]
     }]
-  };
-}
-
-function setupCategoryPicker(moduleId) {
-  const module = getModule(moduleId);
-  return {
-    content: `**${module.name}**\nChoose an existing category, or let Sentinal create the default category and channel layout automatically. Re-running this later repairs missing channels instead of duplicating them.`,
-    components: [
-      { type: 1, components: [{ type: 8, custom_id: `nexussetup:category:${moduleId}`, placeholder: 'Use an existing Discord category', min_values: 1, max_values: 1, channel_types: [4] }] },
-      { type: 1, components: [{ type: 2, style: 3, label: 'Create Default Category', custom_id: `nexussetup:create:${moduleId}` }] }
-    ]
   };
 }
 
@@ -124,25 +113,63 @@ async function ensureAllConsoles() {
   }
 }
 
-async function provisionModule(interaction, moduleId, categoryId = '') {
+function setupSummary(module, setup, consoleMessage) {
+  const categoryResult = setup.categoryCreated
+    ? `Created **${setup.categoryName}**`
+    : setup.categorySource === 'similar'
+      ? `Reused matching category **${setup.categoryName}**`
+      : `Reused **${setup.categoryName}**`;
+  const additions = setup.createdChannels.length
+    ? `Added missing channels: ${setup.createdChannels.map((name) => `\`${name}\``).join(', ')}`
+    : 'No channels were missing.';
+  const surface = consoleMessage
+    ? 'Sentinal console published/reconciled.'
+    : module.surface === 'veyra'
+      ? 'Channel layout is ready; Veyra remains the interactive D&D surface.'
+      : 'Module channel layout is ready.';
+  return `✅ **${module.name} Discord setup complete**\n${categoryResult}\n${additions}\nJoin-to-build: <#${setup.lobbyBuilderChannelId}>\n${surface}`;
+}
+
+async function provisionModule(interaction, moduleId) {
   if (!canSetup(interaction)) throw new Error('Module setup requires Nexus owner access or Discord Manage Server permission.');
   assertAdministrator(interaction.guild);
-  const setup = await provisioner.provision(interaction.guild, moduleId, categoryId);
+  const setup = await provisioner.provision(interaction.guild, moduleId);
   const consoleMessage = await ensureConsole(moduleId);
   const module = getModule(moduleId);
-  const channels = setup.textChannels.map((channel) => `<#${channel.id}>`).join(' • ');
-  return {
-    content: `✅ **${module.name} Discord setup complete**\nCategory: <#${setup.categoryId}>\nChannels: ${channels}\nJoin-to-build: <#${setup.lobbyBuilderChannelId}>\n${consoleMessage ? 'Sentinal console published/reconciled.' : module.surface === 'veyra' ? 'Channel layout is ready; Veyra remains the interactive D&D surface.' : 'Console will publish when the module surface is enabled.'}`,
-    components: []
-  };
+  return { content: setupSummary(module, setup, consoleMessage), components: [] };
+}
+
+async function repairModules(interaction, requestedModuleId = '') {
+  if (!canSetup(interaction)) throw new Error('Module repair requires Nexus owner access or Discord Manage Server permission.');
+  assertAdministrator(interaction.guild);
+  const moduleIds = requestedModuleId ? [requestedModuleId] : await provisioner.discoverModuleIds(interaction.guild);
+  if (!moduleIds.length) return 'No existing Nexus module categories were detected. Run `/nexus setup` to install the first module.';
+
+  const lines = [];
+  for (const moduleId of moduleIds) {
+    const module = getModule(moduleId);
+    if (!module) continue;
+    const setup = await provisioner.provision(interaction.guild, moduleId);
+    await ensureConsole(moduleId);
+    lines.push(`✅ **${module.name}** — ${setup.createdChannels.length ? `restored ${setup.createdChannels.length} missing channel${setup.createdChannels.length === 1 ? '' : 's'}` : 'layout already complete'}`);
+  }
+  return `**Nexus repair complete**\n${lines.join('\n')}`;
 }
 
 function nexusCommand() {
   return new SlashCommandBuilder()
     .setName('nexus')
     .setDescription('Nexus Sentinal module tools')
-    .addSubcommand((sub) => sub.setName('setup').setDescription('Build or repair a game module Discord category and channels'))
-    .addSubcommand((sub) => sub.setName('modules').setDescription('Show backend module health'))
+    .addSubcommand((sub) => sub.setName('setup').setDescription('Detect/reuse a game category or build a new module layout'))
+    .addSubcommand((sub) => sub
+      .setName('repair')
+      .setDescription('Repair missing module channels and consoles')
+      .addStringOption((opt) => opt
+        .setName('module')
+        .setDescription('Optional module to repair; omit to repair all detected modules')
+        .setRequired(false)
+        .addChoices(...MODULES.map((module) => ({ name: module.name.slice(0, 100), value: module.id })))))
+    .addSubcommand((sub) => sub.setName('modules').setDescription('Show Nexus module Discord status'))
     .addSubcommand((sub) => sub.setName('refresh').setDescription('Refresh a module console').addStringOption((opt) => opt.setName('module').setDescription('Module id').setRequired(true)))
     .addSubcommand((sub) => sub.setName('run').setDescription('Run an advanced module action').addStringOption((opt) => opt.setName('module').setDescription('Module id').setRequired(true)).addStringOption((opt) => opt.setName('action').setDescription('Action id').setRequired(true)).addStringOption((opt) => opt.setName('input').setDescription('Optional text input')));
 }
@@ -186,22 +213,11 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isStringSelectMenu() && interaction.customId === 'nexussetup:module') {
       if (!canSetup(interaction)) return interaction.reply({ content: 'Module setup requires Nexus owner access or Discord Manage Server permission.', ephemeral: true });
       assertAdministrator(interaction.guild);
-      return interaction.update(setupCategoryPicker(interaction.values[0]));
-    }
-
-    if (interaction.isChannelSelectMenu() && interaction.customId.startsWith('nexussetup:category:')) {
-      const moduleId = interaction.customId.split(':')[2];
       await interaction.deferUpdate();
-      return interaction.editReply(await provisionModule(interaction, moduleId, interaction.values[0]));
+      return interaction.editReply(await provisionModule(interaction, interaction.values[0]));
     }
 
     if (interaction.isButton()) {
-      const setupCreate = /^nexussetup:create:([a-z0-9-]+)$/.exec(interaction.customId);
-      if (setupCreate) {
-        await interaction.deferUpdate();
-        return interaction.editReply(await provisionModule(interaction, setupCreate[1], ''));
-      }
-
       const confirm = /^(nexusconfirm|nexuscancel):([a-f0-9]{24})$/.exec(interaction.customId);
       if (confirm) {
         const item = pending.get(confirm[2]);
@@ -232,11 +248,20 @@ client.on('interactionCreate', async (interaction) => {
       assertAdministrator(interaction.guild);
       return interaction.reply({ ...setupStart(), ephemeral: true });
     }
+    if (sub === 'repair') {
+      const moduleId = interaction.options.getString('module') || '';
+      await interaction.deferReply({ ephemeral: true });
+      return interaction.editReply(await repairModules(interaction, moduleId));
+    }
     if (sub === 'modules') {
       const result = await backend.modules();
-      const setups = state.listModuleSetups();
+      const discovered = new Set(await provisioner.discoverModuleIds(interaction.guild));
       const admin = hasAdministrator(interaction.guild) ? 'Administrator ready' : '⚠️ Administrator missing';
-      const lines = [`**Sentinal:** ${admin}`, ...(result.modules || []).map((m) => `${m.enabled ? '🟢' : '⚫'} **${m.name}** — ${m.configured ? 'provider ready' : 'provider setup needed'} • ${setups[m.id] ? 'Discord ready' : 'run /nexus setup'}`)];
+      const lines = [`**Sentinal:** ${admin}`, ...(result.modules || []).map((m) => {
+        const discordStatus = discovered.has(m.id) ? 'Discord ready' : 'not set up';
+        const connection = m.configured ? ' • connected' : '';
+        return `${m.enabled ? '🟢' : '⚫'} **${m.name}** — ${discordStatus}${connection}`;
+      })];
       return interaction.reply({ content: lines.join('\n') || 'No modules registered.', ephemeral: true });
     }
     if (sub === 'refresh') {
