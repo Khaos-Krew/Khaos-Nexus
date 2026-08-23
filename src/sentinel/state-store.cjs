@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 function emptyState() {
-  return { consoles: {}, moduleSetups: {}, tempLobbies: {} };
+  return { consoles: {}, moduleSetups: {}, tempLobbies: {}, accessRoles: {}, roleMenu: null };
 }
 
 class StateStore {
@@ -23,6 +23,8 @@ class StateStore {
     state.consoles ||= {};
     state.moduleSetups ||= {};
     state.tempLobbies ||= {};
+    state.accessRoles ||= {};
+    state.roleMenu ??= null;
     return state;
   }
 
@@ -46,6 +48,23 @@ class StateStore {
   setModuleSetup(moduleId, value) {
     const state = this.read();
     state.moduleSetups[moduleId] = value;
+    this.write(state);
+    return value;
+  }
+
+  getAccessRole(moduleId) { return this.read().accessRoles?.[moduleId] || null; }
+  listAccessRoles() { return { ...this.read().accessRoles }; }
+  setAccessRole(moduleId, value) {
+    const state = this.read();
+    state.accessRoles[moduleId] = value;
+    this.write(state);
+    return value;
+  }
+
+  getRoleMenu() { return this.read().roleMenu || null; }
+  setRoleMenu(value) {
+    const state = this.read();
+    state.roleMenu = value;
     this.write(state);
     return value;
   }
