@@ -9,6 +9,7 @@ const required = [
   'src/backend/providers/http-provider.cjs', 'src/backend/providers/native-providers.cjs',
   'src/backend/providers/warframe-provider.cjs', 'src/backend/providers/server-providers.cjs',
   'src/backend/providers/source-rcon-provider.cjs', 'src/backend/providers/palworld-provider.cjs',
+  'src/backend/providers/rust-provider.cjs',
   'src/backend/transports/source-rcon.cjs', 'src/backend/transports/rcon-protocol.cjs',
   'src/sentinel/bot.cjs', 'src/sentinel/module-provisioner.cjs', 'src/sentinel/module-layouts.cjs',
   'src/sentinel/state-store.cjs', 'src/backend/modules/catalog.cjs'
@@ -18,6 +19,7 @@ const syntaxFiles = [
   'src/backend/providers/http-provider.cjs', 'src/backend/providers/native-providers.cjs',
   'src/backend/providers/warframe-provider.cjs', 'src/backend/providers/server-providers.cjs',
   'src/backend/providers/source-rcon-provider.cjs', 'src/backend/providers/palworld-provider.cjs',
+  'src/backend/providers/rust-provider.cjs',
   'src/backend/transports/source-rcon.cjs', 'src/backend/transports/rcon-protocol.cjs',
   'src/sentinel/bot.cjs', 'src/sentinel/module-provisioner.cjs',
   'src/sentinel/module-layouts.cjs', 'src/sentinel/state-store.cjs'
