@@ -31,6 +31,23 @@ function decryptSecret(record, key) {
   decipher.setAuthTag(Buffer.from(record.tag, 'base64'));
   return Buffer.concat([decipher.update(Buffer.from(record.data, 'base64')), decipher.final()]).toString('utf8');
 }
+function clean(value, max = 240) {
+  return String(value ?? '').replace(/[\r\n\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+function safeValidation(moduleId, validation = {}) {
+  const item = Array.isArray(validation.results) ? validation.results[0] : null;
+  return {
+    moduleId: String(moduleId || '').slice(0, 60),
+    ok: Boolean(item?.ok),
+    skipped: Boolean(item?.skipped),
+    code: clean(item?.code || validation.code || '', 80),
+    name: clean(item?.name || moduleId || '', 100),
+    providerKind: clean(item?.providerKind || '', 80),
+    latencyMs: Number.isFinite(item?.latencyMs) ? Math.max(0, Math.round(item.latencyMs)) : null,
+    message: clean(item?.message || validation.message || '', 240),
+    checkedAt: new Date().toISOString()
+  };
+}
 
 class HostedProviderStore {
   constructor({ root = process.cwd(), token = '', templateConfig }) {
@@ -42,7 +59,7 @@ class HostedProviderStore {
     this.runtimeFile = path.join(root, 'data', 'hosted-runtime-config.json');
   }
 
-  empty() { return { version: 1, modules: {}, secrets: {}, updatedAt: null }; }
+  empty() { return { version: 1, modules: {}, secrets: {}, validations: {}, updatedAt: null }; }
   read() {
     if (!fs.existsSync(this.file)) return this.empty();
     try {
@@ -51,6 +68,7 @@ class HostedProviderStore {
         version: 1,
         modules: value?.modules && typeof value.modules === 'object' ? value.modules : {},
         secrets: value?.secrets && typeof value.secrets === 'object' ? value.secrets : {},
+        validations: value?.validations && typeof value.validations === 'object' ? value.validations : {},
         updatedAt: value?.updatedAt || null
       };
     } catch { return this.empty(); }
@@ -95,6 +113,7 @@ class HostedProviderStore {
       updatedAt: state.updatedAt,
       secretEncryptionReady: Boolean(this.key),
       configuredSecrets: secretNames.map((name) => ({ name, configured: true })),
+      lastValidations: clone(state.validations || {}),
       modules: sanitizeProviderModules(state.modules || {}, this.templateConfig)
     };
   }
@@ -119,11 +138,21 @@ class HostedProviderStore {
       const name = String(rawName || '').trim().toUpperCase();
       if (allowed.has(name)) { delete secrets[name]; delete process.env[name]; }
     }
-    const state = { version: 1, modules, secrets, updatedAt: new Date().toISOString() };
+    const state = { version: 1, modules, secrets, validations: { ...(current.validations || {}) }, updatedAt: new Date().toISOString() };
     atomicWrite(this.file, state);
     this.materializeRuntimeConfig();
     const applied = this.applySecrets();
     return { ...this.status(), secretApply: applied };
+  }
+
+  recordValidation(moduleId, validation = {}) {
+    const id = String(moduleId || '').trim().toLowerCase();
+    if (!/^[a-z0-9-]{1,60}$/.test(id)) return null;
+    const current = this.read();
+    current.validations ||= {};
+    current.validations[id] = safeValidation(id, validation);
+    atomicWrite(this.file, current);
+    return current.validations[id];
   }
 }
 
@@ -147,5 +176,6 @@ module.exports = {
   currentHostedProviderStore,
   decryptSecret,
   encryptSecret,
-  keyFromToken
+  keyFromToken,
+  safeValidation
 };
