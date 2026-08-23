@@ -9,6 +9,7 @@ const { StateStore } = require('./state-store.cjs');
 const { ModuleProvisioner } = require('./module-provisioner.cjs');
 const { hasAdministrator, assertAdministrator } = require('./discord-permissions.cjs');
 const { parseActionId, renderModuleConsole, renderHelp } = require('./module-console.cjs');
+const { formatActionResult: renderActionResult } = require('./action-formatters.cjs');
 
 const config = loadConfig();
 const token = envSecret(config.discord?.tokenEnv);
@@ -238,14 +239,7 @@ async function registerCommands(guild) {
 }
 
 function formatActionResult(moduleId, actionId, result) {
-  if (!result.ok) return { content: `⚠️ ${result.message || result.code}`, components: [] };
-  let rendered;
-  try { rendered = JSON.stringify(result.data, null, 2); }
-  catch { rendered = String(result.data); }
-  return {
-    content: `✅ ${getModule(moduleId)?.name || moduleId}: ${actionId} completed.\n\`\`\`json\n${String(rendered || '{}').slice(0, 1550)}\n\`\`\``,
-    components: []
-  };
+  return renderActionResult(moduleId, actionId, result);
 }
 
 async function runAction(interaction, moduleId, actionId, payload = {}) {
