@@ -64,7 +64,7 @@ test('partial provider enables only supported actions', () => {
   const byLabel = Object.fromEntries(buttons(payload).map((button) => [button.label, button]));
   assert.equal(byLabel.Status.disabled, false);
   assert.equal(byLabel.Players.disabled, false);
-  assert.equal(byLabel['Save World'].disabled, true);
+  assert.equal(byLabel.Save.disabled, true);
   assert.equal(byLabel.Broadcast.disabled, true);
 });
 
