@@ -14,12 +14,17 @@ class BackendRuntime {
   manifests() {
     return MODULES.map((module) => {
       const provider = this.providers[module.id];
+      const allActions = module.capabilities.map((capability) => capability.id);
+      const availableActions = provider
+        ? Array.isArray(provider.supportedActions) ? provider.supportedActions.filter((id) => allActions.includes(id)) : allActions
+        : [];
       return {
         ...publicManifest(module),
         enabled: this.config.modules?.[module.id]?.enabled !== false,
         configured: Boolean(provider),
         connected: provider?.connected === true,
-        providerKind: provider?.providerKind || (provider ? 'provider' : 'none')
+        providerKind: provider?.providerKind || (provider ? 'provider' : 'none'),
+        availableActions
       };
     });
   }
@@ -29,7 +34,9 @@ class BackendRuntime {
       ok: true,
       version: '0.1.0',
       uptimeSeconds: Math.floor((Date.now() - this.startedAt) / 1000),
-      modules: this.manifests().map(({ id, enabled, configured, connected, providerKind }) => ({ id, enabled, configured, connected, providerKind }))
+      modules: this.manifests().map(({ id, enabled, configured, connected, providerKind, availableActions }) => ({
+        id, enabled, configured, connected, providerKind, availableActions
+      }))
     };
   }
 
@@ -52,6 +59,9 @@ class BackendRuntime {
     const provider = this.providers[moduleId];
     if (!provider || typeof provider.invoke !== 'function') {
       return { ok: false, code: 'PROVIDER_NOT_CONFIGURED', message: `${module.name} is not available from Nexus Backend yet.`, moduleId, actionId };
+    }
+    if (Array.isArray(provider.supportedActions) && !provider.supportedActions.includes(actionId)) {
+      return { ok: false, code: 'CAPABILITY_UNAVAILABLE', message: `${capability.label} is not available on this ${module.name} connection yet.`, moduleId, actionId };
     }
     try {
       const data = await provider.invoke(actionId, payload, { ...context, capability, module });
