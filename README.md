@@ -5,7 +5,7 @@ This branch is the active clean rebuild of Khaos Nexus. The previous `0.41.x` st
 > **Active implementation branch:** `rebuild/nexus-0.1`  
 > **Current package version:** `0.1.0`  
 > **Current phase:** rebuild foundation + provider services + Sentinal acceptance + release hardening  
-> **Public/stable release:** not established by this branch, package version, CI, or deployment alone
+> **Public/stable release:** not established by this branch, package version, CI, deployment, or merge state alone
 
 ## Product boundaries
 
@@ -33,9 +33,11 @@ PR #301 adds exact-match discovery for existing supporter-rank roles and Premium
 
 PR #306 supersedes the earlier draft Thora-control proposal with the current private sidecar bridge: Nexus can discover current/future Thora executables, report component readiness and invoke only allowlisted launch targets while keeping Thora household data outside Nexus.
 
-The latest exact merged implementation head with completed rebuild validation is PR #306 head `acdea59f485b581f82a90b68a18ca7ca7f4efe89`: **Nexus Rebuild CI run #194 passed**. The active branch then incorporated that change as `ec1558ae3651ec2ceaddc1171ac1741f2dee0b14`. Exact-head rebuild CI also passed for the recent command-schema, rank-discovery, module-access and warning-diagnostic slices. This is automated evidence only; owner acceptance, real-guild behavior, live-provider correctness, Thora owner validation and public/stable release remain separate gates.
+PR #307 is now merged: if an existing module-named Discord role is above Sentinal in the hierarchy, Nexus preserves it and creates/reuses a manageable `<Module> Access` role instead. PR #309 is also merged and hardens staged-update publisher SHA-256 verification by removing the remaining `Get-FileHash` dependency; it does not publish an update or release.
 
-Open PR #307 proposes the narrow protected-role fallback for existing module roles that sit above Sentinal in the Discord hierarchy. Open draft PR #302 proposes secure one-time desktop-to-hosted-Sentinal pairing. Neither is part of the active merged baseline yet.
+The latest exact merged implementation head with completed rebuild validation is PR #309 head `cfde3c530e8752c4cdf55bec52b0eb7d5aeac734`: **Nexus Rebuild CI run #201 passed**. PR #307 head `ddc86bd21694efd2a08e108abf22ec1eeb73bbf6` also passed **run #200** before merge. This is automated evidence only; owner acceptance, real-guild behavior, live-provider correctness, Thora owner validation and public/stable release remain separate gates.
+
+Open PR #310 is the current secure desktop-to-hosted-Sentinal pairing proposal. Its exact head `40e598a8cc93b4ddd425813b6f91327156c3122d` passed **Nexus Rebuild CI run #204**, but the PR is not merged and hosted pairing is therefore not part of the active baseline yet. Earlier pairing PRs #302/#308 are superseded by this current-baseline proposal.
 
 ## Roadmap
 
@@ -43,8 +45,8 @@ The canonical roadmap/status handoff is [`docs/NEXUS_ROADMAP_STATUS.md`](docs/NE
 
 - **Now — Rebuild foundation:** automated baseline is green; owner-test the packaged Admin Control Center, Accounts & Access, Owner Test Center, startup-health surface, Sentinal administration, safe Repair Nexus flow and current Thora sidecar bridge while preserving exact commit/artifact correlation.
 - **Next — Provider-backed game services:** providers, guarded read-only validation and event feeds are merged; exercise Palworld first, then other supported providers, and validate Pokémon GO's credential-free official event feed against live public data and real Discord presentation.
-- **Then — Sentinal operational acceptance:** setup/repair, persistent panels, friendly commands, event feeds, rank/SKU discovery, module-access reconciliation and warning diagnostics are merged; validate them on the real guild, with PR #307 still pending for protected existing module roles.
-- **Release hardening:** staged updating and the Owner Test Center are merged; next validate a real installed Owner Test update through download, verification, staging, explicit restart/apply, startup confirmation and rollback while keeping NSIS for first install/recovery.
+- **Then — Sentinal operational acceptance:** setup/repair, persistent panels, friendly commands, event feeds, rank/SKU discovery, module-access reconciliation, warning diagnostics and the protected-role fallback are merged; validate them on the real guild. Hosted desktop-to-Sentinal pairing remains pending in PR #310.
+- **Release hardening:** staged updating, updater hash hardening and the Owner Test Center are merged; next validate a real installed Owner Test update through download, verification, staging, explicit restart/apply, startup confirmation and rollback while keeping NSIS for first install/recovery.
 - **Later — Selective migration and expansion:** port only legacy behavior that fits the backend/admin/Sentinal architecture, expand provider-backed services, keep routine game dashboards out of the desktop, keep Thora bridged from its canonical private project, and consider future web/public surfaces only when they support rather than duplicate protected authority.
 
 The earlier self-hosted web + Windows Agent roadmap is no longer the immediate successor phase for Nexus 0.1.
