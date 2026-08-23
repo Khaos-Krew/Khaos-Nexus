@@ -22,9 +22,9 @@ function style(cap) {
 function renderModuleConsole(moduleId, backendState = {}) {
   const module = getModule(moduleId);
   if (!module) throw new Error(`Unknown module: ${moduleId}`);
-  const configured = backendState.configured === true;
+  const connected = backendState.configured === true;
   const enabled = backendState.enabled !== false;
-  const state = !enabled ? 'DISABLED' : configured ? 'READY' : 'BACKEND READY • PROVIDER SETUP NEEDED';
+  const state = !enabled ? 'DISABLED' : connected ? 'READY • CONNECTED' : 'READY';
   const buttons = module.capabilities.slice(0, 20).map((cap) => ({
     type: 2,
     style: style(cap),
@@ -38,14 +38,15 @@ function renderModuleConsole(moduleId, backendState = {}) {
     { type: 2, style: 2, label: 'Features / Commands', custom_id: actionId(module.id, 'help') },
     { type: 2, style: 2, label: 'Refresh', custom_id: actionId(module.id, 'refresh') }
   ]});
+  const fields = [
+    { name: 'Interface', value: module.surface === 'veyra' ? 'Veyra' : 'Nexus Sentinal', inline: true }
+  ];
+  if (connected) fields.push({ name: 'Connection', value: 'Connected', inline: true });
   return {
     embeds: [{
       title: `KHAOS NEXUS • ${module.name.toUpperCase()}`,
       description: `**${state}**\nUse the controls below for common actions. Advanced/parameterized actions remain available through Sentinal commands as they are added.`,
-      fields: [
-        { name: 'Interface', value: module.surface === 'veyra' ? 'Veyra' : 'Nexus Sentinal', inline: true },
-        { name: 'Backend', value: configured ? 'Provider configured' : 'Waiting for provider configuration', inline: true }
-      ],
+      fields,
       footer: { text: 'Nexus 0.1 • Backend-first module console' }
     }],
     components: rows,
