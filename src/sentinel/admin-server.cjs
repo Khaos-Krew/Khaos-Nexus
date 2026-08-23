@@ -150,6 +150,12 @@ function createSentinalAdminServer(options = {}) {
         const backend = await controller.backend?.configureProviders?.(saved.modules || {}).catch((error) => ({ ok: false, message: String(error?.message || error).slice(0, 240), modules: [] }));
         return json(res, backend?.ok === false ? 502 : 200, { ok: backend?.ok !== false, providerConfig: saved, backend: backend || null });
       }
+      if (req.method === 'POST' && url.pathname === '/v1/providers/validate') {
+        const input = await body(req);
+        const moduleId = safeModuleId(input.moduleId || input.module || '');
+        const validation = await controller.backend?.validateProviders?.(moduleId).catch((error) => ({ ok: false, message: String(error?.message || error).slice(0, 240), results: [] }));
+        return json(res, validation?.ok === false ? 502 : 200, validation || { ok: false, code: 'BACKEND_UNAVAILABLE', results: [] });
+      }
       if (req.method === 'POST' && url.pathname === '/v1/commands/sync') {
         await controller.syncCommands();
         return json(res, 200, await commandStatus(controller));
