@@ -23,13 +23,13 @@ The rebuild currently includes the thin Electron Admin Control Center, backend m
 
 Concrete backend provider implementations are also present for Division 2, Palworld, Warframe, Rust, Satisfactory and IdleOn, with shared HTTP, Source RCON, server-provider and native-provider transport foundations. Focused automated tests cover provider behavior, server providers, scheduler behavior, module contracts, consoles, provisioning, permissions and backend runtime behavior.
 
-Presence in the branch and passing focused tests are not the same as live-provider validation, owner acceptance or release readiness. Dedicated rebuild CI and Windows-build workflows exist, but README status must only call the current head green after exact-head workflow evidence is available.
+PR #287 established an exact-head automated owner-test baseline on `5624e7628581f1f8f89d09cfb873564317ebf58a`: Nexus Rebuild CI passed, 63/63 automated tests passed, Windows structure/syntax checks and Windows tests passed, NSIS packaging passed, and `Khaos-Nexus-0.1.0-Setup.exe` was uploaded as the owner-test artifact. This is build/package evidence only; live-provider validation, owner acceptance, and public/stable release remain separate gates.
 
 ## Roadmap
 
 The canonical roadmap/status handoff is [`docs/NEXUS_ROADMAP_STATUS.md`](docs/NEXUS_ROADMAP_STATUS.md).
 
-- **Now — Rebuild foundation:** stabilize the thin admin desktop, backend module contract, capability model, Sentinal setup/reconciliation, permissions/redaction boundaries, and exact-head CI/Windows packaging.
+- **Now — Rebuild foundation:** automated baseline is green; exercise the packaged Admin Control Center on the owner Windows environment while continuing to stabilize the thin admin desktop, backend contract, Sentinal setup/reconciliation, permissions/redaction boundaries, and exact commit/artifact correlation.
 - **Next — Provider-backed game services:** concrete provider implementations now exist for multiple modules; continue hardening and live/provider validation behind the shared backend contract instead of putting game logic back into Electron or Discord handlers.
 - **Then — Sentinal operational acceptance:** validate `/nexus setup`, persistent consoles, degraded-backend behavior, permissions/confirmations, restart recovery, temporary lobby lifecycle, and Veyra/D&D presentation on real Discord infrastructure.
 - **Release hardening:** establish one rebuild release identity, correlate tested commit and installer artifacts, validate diagnostics/update/recovery paths, and keep public/stable publication behind a separate explicit owner decision.
