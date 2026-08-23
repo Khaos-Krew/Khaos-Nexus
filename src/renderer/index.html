@@ -1,3 +1,35 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Khaos Nexus</title><link rel="stylesheet" href="style.css"></head>
-<body><div class="shell"><aside><h1>Khaos Nexus</h1><small>Admin Control Center</small><nav><button data-view="overview">Overview</button><button data-view="discord">Discord & Sentinal</button><button data-view="accounts">Accounts & Access</button><button data-view="modules">Backend Modules</button><button data-view="diagnostics">Diagnostics</button><button data-view="thora">Thora</button><button data-view="settings">Settings</button></nav></aside><main><header><div><h2 id="title">Overview</h2><p id="subtitle">Nexus 0.1 rebuild • admin-only desktop surface</p></div><span id="health">Loading…</span></header><section id="content"></section></main></div><script src="app.js"></script></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Khaos Nexus</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <div class="brand"><div class="brand-mark">N</div><div><h1>Khaos Nexus</h1><small>Admin Control Center • 0.1</small></div></div>
+      <nav>
+        <button class="active" data-view="overview">Overview</button>
+        <button data-view="discord">Discord & Sentinal</button>
+        <button data-view="modules">Backend Modules</button>
+        <button data-view="credentials">Credentials</button>
+        <button data-view="diagnostics">Diagnostics</button>
+        <button data-view="thora">Thora</button>
+        <button data-view="settings">Settings</button>
+      </nav>
+      <div class="side-status"><span id="sideDot" class="dot"></span><span id="sideStatus">Starting backend…</span></div>
+    </aside>
+    <main>
+      <header>
+        <div><h2 id="title">Overview</h2><p id="subtitle">Backend-first Nexus administration</p></div>
+        <div class="header-actions"><button id="refresh" class="secondary">Refresh</button><span id="health" class="pill">Loading…</span></div>
+      </header>
+      <section id="content" aria-live="polite"></section>
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status"></div>
+  <script src="app.js"></script>
+</body>
+</html>
