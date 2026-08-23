@@ -1,0 +1,110 @@
+.admin-action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 4px 0 20px;
+}
+
+.admin-summary .metric,
+.owner-test-summary .metric {
+  font-size: 27px;
+  font-weight: 800;
+  letter-spacing: .02em;
+}
+
+.admin-op-row,
+.build-history-row,
+.owner-test-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255,255,255,.07);
+}
+
+.admin-op-row:last-child,
+.build-history-row:last-child {
+  border-bottom: 0;
+}
+
+.owner-test-list {
+  display: grid;
+  gap: 12px;
+}
+
+.owner-test-item {
+  padding: 16px;
+  border: 1px solid rgba(255,255,255,.09);
+  border-radius: 12px;
+  background: rgba(255,255,255,.025);
+}
+
+.owner-test-head > div,
+.build-history-row > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.owner-test-head small,
+.build-history-row small {
+  opacity: .7;
+}
+
+.owner-test-note {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 12px 0;
+}
+
+.rank-config-head,
+.rank-config-row {
+  display: grid;
+  grid-template-columns: minmax(150px, .8fr) minmax(180px, 1fr) minmax(240px, 1.5fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.rank-config-head {
+  padding: 0 0 9px;
+  opacity: .75;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.rank-config-row {
+  padding: 8px 0;
+  border-top: 1px solid rgba(255,255,255,.07);
+}
+
+.admin-module-list {
+  display: grid;
+  gap: 7px;
+}
+
+.admin-module-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
+
+.admin-module-toggle span {
+  display: grid;
+  gap: 2px;
+}
+
+.admin-module-toggle small {
+  opacity: .7;
+}
+
+.admin-details {
+  margin-top: 20px;
+}
+
+@media (max-width: 980px) {
+  .rank-config-head { display: none; }
+  .rank-config-row { grid-template-columns: 1fr; }
+}

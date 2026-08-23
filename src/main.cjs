@@ -7,6 +7,8 @@ const { createBackendApplication } = require('./backend/application.cjs');
 const { BackendClient } = require('./sentinel/backend-client.cjs');
 const { thoraStatus, launchThora } = require('./thora/bridge.cjs');
 const { StagedUpdater } = require('./updater/service.cjs');
+const { SentinalAdminClient } = require('./desktop/sentinal-admin-client.cjs');
+const { OwnerTestService } = require('./desktop/owner-test-service.cjs');
 const {
   applyPublicSettings,
   collectSecretEnvNames,
@@ -28,6 +30,8 @@ let activeConfig = null;
 let vault = null;
 let backendApp = null;
 let backendClient = null;
+let sentinalAdmin = null;
+let ownerTest = null;
 let updater = null;
 let backendMode = 'starting';
 let backendError = '';
@@ -65,6 +69,7 @@ async function startBackend() {
   applyStoredSecrets();
   activeConfig = runtimeConfig(storedConfig, userDataPath, configPath);
   backendClient = new BackendClient(activeConfig);
+  sentinalAdmin = new SentinalAdminClient(activeConfig);
   backendError = '';
   backendMode = 'starting';
 
@@ -89,9 +94,13 @@ async function startBackend() {
 }
 
 async function currentState() {
-  const backend = backendClient
-    ? await backendClient.health().catch((error) => ({ ok: false, message: error.message }))
-    : { ok: false, message: backendError || 'Backend is not initialized.' };
+  const backendPromise = backendClient
+    ? backendClient.health().catch((error) => ({ ok: false, message: error.message }))
+    : Promise.resolve({ ok: false, message: backendError || 'Backend is not initialized.' });
+  const sentinalPromise = sentinalAdmin?.configured()
+    ? sentinalAdmin.health()
+    : Promise.resolve({ ok: false, code: 'SENTINAL_ADMIN_NOT_CONFIGURED', message: 'Nexus Sentinal admin URL is not configured.' });
+  const [backend, sentinal] = await Promise.all([backendPromise, sentinalPromise]);
   const modules = backendClient && backend?.ok
     ? await backendClient.modules().catch((error) => ({ ok: false, message: error.message, modules: [] }))
     : { ok: false, modules: [] };
@@ -107,6 +116,7 @@ async function currentState() {
     backendMode,
     backendError,
     backend,
+    sentinal,
     modules,
     accounts,
     discordOAuthReady: discordOAuthAvailable(activeConfig || storedConfig),
@@ -117,6 +127,24 @@ async function currentState() {
     thora: thoraStatus(activeConfig || storedConfig),
     updater: updater?.status?.() || null
   };
+}
+
+async function startupHealth() {
+  const state = await currentState();
+  const modules = state.modules?.modules || [];
+  const enabledModules = modules.filter((module) => module.enabled !== false);
+  const configuredModules = enabledModules.filter((module) => module.configured).length;
+  const thoraEnabled = state.settings?.thora?.enabled === true;
+  const sentinalConfigured = sentinalAdmin?.configured?.() === true;
+  const items = [
+    { id: 'backend', label: 'Local Backend', state: state.backend?.ok ? 'ready' : 'failed', detail: state.backend?.ok ? state.backendMode : state.backendError || state.backend?.message || 'Offline' },
+    { id: 'accounts', label: 'Accounts & Access', state: state.accounts?.ok ? 'ready' : state.backend?.ok ? 'warning' : 'waiting', detail: state.accounts?.ok ? `${(state.accounts.accounts || []).length} linked` : 'Waiting for backend' },
+    { id: 'sentinal', label: 'Nexus Sentinal', state: !sentinalConfigured ? 'skipped' : state.sentinal?.discordReady || state.sentinal?.sentinal?.discordReady ? 'ready' : state.sentinal?.ok ? 'warning' : 'warning', detail: !sentinalConfigured ? 'Admin endpoint not configured' : state.sentinal?.sentinal?.guild?.name || state.sentinal?.message || 'Checking Discord service' },
+    { id: 'updater', label: 'Updater', state: state.updater ? 'ready' : 'warning', detail: state.updater ? `${state.updater.channel || 'owner-test'} • ${state.updater.phase || 'idle'}` : 'Unavailable' },
+    { id: 'thora', label: 'Thora', state: !thoraEnabled ? 'skipped' : state.thora?.executableExists ? 'ready' : 'warning', detail: !thoraEnabled ? 'Private integration disabled' : state.thora?.executableExists ? 'Private runtime available' : 'Runtime not found' },
+    { id: 'modules', label: 'Game Providers', state: enabledModules.length === 0 ? 'skipped' : configuredModules === enabledModules.length ? 'ready' : 'warning', detail: `${configuredModules}/${enabledModules.length} configured` }
+  ];
+  return { ok: Boolean(state.backend?.ok), ready: Boolean(state.backend?.ok), items };
 }
 
 async function diagnostics() {
@@ -134,6 +162,7 @@ async function diagnostics() {
     backendMode: state.backendMode,
     backendError: state.backendError,
     backend: state.backend,
+    sentinal: state.sentinal,
     updater: state.updater,
     accounts: (state.accounts?.accounts || []).map((account) => ({
       id: account.id,
@@ -170,8 +199,19 @@ function rememberLinkedOwner(account) {
   }
 }
 
+function requireSentinalAdmin() {
+  if (!sentinalAdmin) throw new Error('Nexus Sentinal admin client is unavailable.');
+  return sentinalAdmin;
+}
+
+function requireOwnerTest() {
+  if (!ownerTest) throw new Error('Owner Test Center is unavailable.');
+  return ownerTest;
+}
+
 function registerIpc() {
   ipcMain.handle('nexus:state', () => currentState());
+  ipcMain.handle('nexus:startup-health', () => startupHealth());
   ipcMain.handle('nexus:diagnostics', () => diagnostics());
   ipcMain.handle('nexus:restart-backend', async () => {
     await startBackend();
@@ -229,6 +269,22 @@ function registerIpc() {
     if (!backendClient) throw new Error('Nexus Backend is unavailable.');
     return backendClient.validateProviders(String(moduleId || ''));
   });
+
+  ipcMain.handle('nexus:sentinal-status', () => requireSentinalAdmin().status());
+  ipcMain.handle('nexus:sentinal-permissions', () => requireSentinalAdmin().permissions());
+  ipcMain.handle('nexus:sentinal-commands', () => requireSentinalAdmin().commands());
+  ipcMain.handle('nexus:sentinal-channels', (_event, moduleId) => requireSentinalAdmin().channels(String(moduleId || '')));
+  ipcMain.handle('nexus:sentinal-roles', () => requireSentinalAdmin().roles());
+  ipcMain.handle('nexus:sentinal-scan', () => requireSentinalAdmin().scan());
+  ipcMain.handle('nexus:sentinal-sync-commands', () => requireSentinalAdmin().syncCommands());
+  ipcMain.handle('nexus:sentinal-reconcile-channels', (_event, moduleId) => requireSentinalAdmin().reconcileChannels(String(moduleId || '')));
+  ipcMain.handle('nexus:sentinal-refresh-consoles', (_event, moduleId) => requireSentinalAdmin().refreshConsoles(String(moduleId || '')));
+  ipcMain.handle('nexus:sentinal-reconcile-roles', () => requireSentinalAdmin().reconcileRoles());
+  ipcMain.handle('nexus:sentinal-repair', () => requireSentinalAdmin().repair());
+
+  ipcMain.handle('nexus:owner-test', () => requireOwnerTest().snapshot());
+  ipcMain.handle('nexus:owner-test-feedback', (_event, version, itemId, status, note) => requireOwnerTest().setFeedback(version, itemId, status, note));
+
   ipcMain.handle('nexus:update-status', () => updater?.status() || { phase: 'idle', enabled: false, currentVersion: app.getVersion() });
   ipcMain.handle('nexus:update-check', () => {
     if (!updater) throw new Error('Nexus updater is unavailable.');
@@ -344,6 +400,7 @@ async function bootstrap() {
     autoDownload: storedConfig.updates?.autoDownload !== false,
     isPackaged: app.isPackaged
   });
+  ownerTest = new OwnerTestService({ currentVersion: app.getVersion(), userDataPath });
   registerIpc();
   await startBackend();
   createWindow();

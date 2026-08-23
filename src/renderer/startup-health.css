@@ -1,0 +1,91 @@
+.startup-health-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: radial-gradient(circle at 50% 25%, rgba(125,18,27,.2), transparent 40%), #08090c;
+  opacity: 1;
+  transition: opacity .25s ease;
+}
+
+.startup-health-overlay.leaving {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.startup-health-panel {
+  width: min(620px, 100%);
+  padding: 30px;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 18px;
+  background: rgba(14,15,20,.94);
+  box-shadow: 0 24px 80px rgba(0,0,0,.45);
+}
+
+.startup-health-brand {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .22em;
+  opacity: .65;
+}
+
+.startup-health-panel h1 {
+  margin: 8px 0 6px;
+  font-size: 28px;
+}
+
+.startup-health-panel > p {
+  margin: 0 0 22px;
+  opacity: .75;
+}
+
+.startup-health-items {
+  display: grid;
+  gap: 8px;
+}
+
+.startup-health-item {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255,255,255,.035);
+}
+
+.startup-health-item > div {
+  display: grid;
+  gap: 2px;
+}
+
+.startup-health-item small {
+  opacity: .65;
+}
+
+.startup-health-symbol {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  font-weight: 800;
+  background: rgba(255,255,255,.08);
+}
+
+.startup-health-item.ready .startup-health-symbol { background: rgba(46,160,67,.22); }
+.startup-health-item.warning .startup-health-symbol { background: rgba(210,153,34,.24); }
+.startup-health-item.failed .startup-health-symbol { background: rgba(248,81,73,.22); }
+.startup-health-item.skipped { opacity: .62; }
+
+.startup-health-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .startup-health-overlay { transition: none; }
+}

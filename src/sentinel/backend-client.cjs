@@ -23,6 +23,7 @@ class BackendClient {
   createPairingCode(role) { return this.request('/v1/accounts/pairing-codes', { method: 'POST', body: JSON.stringify({ role }) }); }
   linkAccount(code, discord) { return this.request('/v1/accounts/link', { method: 'POST', body: JSON.stringify({ code, discord }) }); }
   removeAccount(accountId) { return this.request(`/v1/accounts/${encodeURIComponent(accountId)}`, { method: 'DELETE' }); }
+  configureModules(enabled) { return this.request('/v1/admin/modules', { method: 'POST', body: JSON.stringify({ enabled: enabled || {} }) }); }
   validateProviders(moduleId = '') { return this.request('/v1/providers/validate', { method: 'POST', body: JSON.stringify({ moduleId }) }); }
   invoke(moduleId, actionId, payload, context = {}) {
     return this.request(`/v1/modules/${encodeURIComponent(moduleId)}/actions/${encodeURIComponent(actionId)}`, {

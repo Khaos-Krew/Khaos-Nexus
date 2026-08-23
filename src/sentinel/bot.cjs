@@ -11,6 +11,8 @@ const { hasAdministrator, assertAdministrator } = require('./discord-permissions
 const { parseActionId, renderModuleConsole, renderHelp } = require('./module-console.cjs');
 const { formatActionResult: renderActionResult } = require('./action-formatters.cjs');
 const { marketCommand } = require('./commands.cjs');
+const { SentinalAdminOps } = require('./admin-ops.cjs');
+const { createSentinalAdminServer } = require('./admin-server.cjs');
 
 const config = loadConfig();
 const token = envSecret(config.discord?.tokenEnv);
@@ -23,6 +25,19 @@ const state = new StateStore();
 const pending = new Map();
 const provisioner = new ModuleProvisioner({ state, maxLobbiesPerModule: config.discord?.maxTemporaryLobbiesPerModule || 20 });
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
+let adminOps = null;
+
+const adminToken = envSecret(config.discord?.sentinalAdminTokenEnv || 'NEXUS_SENTINAL_ADMIN_TOKEN');
+const railwayAdmin = Boolean(adminToken && process.env.PORT);
+const adminHost = String(process.env.NEXUS_SENTINAL_ADMIN_HOST || (railwayAdmin ? '0.0.0.0' : '127.0.0.1'));
+const adminPort = Number(process.env.NEXUS_SENTINAL_ADMIN_PORT || (railwayAdmin ? process.env.PORT : 3220));
+const adminServer = createSentinalAdminServer({
+  host: adminHost,
+  port: adminPort,
+  token: adminToken,
+  getController: () => adminOps
+});
+adminServer.start().catch((error) => console.error('[Nexus Sentinal Admin] startup failed:', error.message));
 
 const moduleChoices = () => MODULES.map((module) => ({ name: module.name.slice(0, 100), value: module.id }));
 const enabledModuleIds = () => MODULES.filter((module) => config.modules?.[module.id]?.enabled !== false).map((module) => module.id);
@@ -290,6 +305,7 @@ async function autocompleteActions(interaction) {
 client.once(Events.ClientReady, async () => {
   console.log(`[Nexus Sentinal] logged in as ${client.user.tag}`);
   const guild = await client.guilds.fetch(guildId);
+  adminOps = new SentinalAdminOps({ client, guild, config, state, provisioner, backend, ensureConsole, registerCommands });
   if (!hasAdministrator(guild)) {
     console.error('[Nexus Sentinal] Administrator permission is required. Re-authorize the bot with Discord Administrator before running module setup or temporary lobby management.');
   }

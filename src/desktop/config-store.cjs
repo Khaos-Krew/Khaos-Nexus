@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { NEXUS_RANKS } = require('../shared/ranks.cjs');
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -58,6 +59,15 @@ function safeEnvName(value, fallback = '') {
   return /^NEXUS_[A-Z0-9_]+$/.test(name) ? name : fallback;
 }
 
+function safeSnowflake(value) {
+  const id = safeText(value, 32);
+  return /^\d{15,24}$/.test(id) ? id : '';
+}
+
+function safeSnowflakeList(value, maxItems = 50) {
+  return safeList(value, maxItems, 32).map(safeSnowflake).filter(Boolean);
+}
+
 function safeDiscordRedirect(value, fallback = 'http://127.0.0.1:53117/callback') {
   const text = safeText(value, 300);
   try {
@@ -69,9 +79,38 @@ function safeDiscordRedirect(value, fallback = 'http://127.0.0.1:53117/callback'
   }
 }
 
+function safeSentinalAdminUrl(value, fallback = 'http://127.0.0.1:3220') {
+  const text = safeText(value, 500);
+  try {
+    const parsed = new URL(text || fallback);
+    const loopback = ['127.0.0.1', 'localhost', '::1'].includes(parsed.hostname);
+    if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && loopback)) return fallback;
+    parsed.hash = '';
+    parsed.search = '';
+    return parsed.toString().replace(/\/$/, '');
+  } catch {
+    return fallback;
+  }
+}
+
 function safeUpdateChannel(value, fallback = 'owner-test') {
   const channel = safeText(value, 40).toLowerCase();
   return ['owner-test', 'stable'].includes(channel) ? channel : fallback;
+}
+
+function normalizeRankRoles(input = {}, previous = {}) {
+  const result = {};
+  for (const rank of NEXUS_RANKS) result[rank.id] = safeSnowflake(input?.[rank.id]) || safeSnowflake(previous?.[rank.id]);
+  return result;
+}
+
+function normalizeRankSkus(input = {}, previous = {}) {
+  const result = {};
+  for (const rank of NEXUS_RANKS) {
+    const incoming = Object.prototype.hasOwnProperty.call(input || {}, rank.id) ? input[rank.id] : previous?.[rank.id] || [];
+    result[rank.id] = safeSnowflakeList(incoming, 25);
+  }
+  return result;
 }
 
 function normalizeServer(server = {}, previous = {}) {
@@ -130,18 +169,22 @@ function applyPublicSettings(currentConfig, input = {}) {
   config.scheduler.timeZone = safeText(input.scheduler?.timeZone, 80) || config.scheduler.timeZone || 'America/Chicago';
 
   config.discord ||= {};
-  config.discord.guildId = safeText(input.discord?.guildId, 32);
-  config.discord.ownerUserIds = safeList(input.discord?.ownerUserIds, 20, 32);
-  config.discord.operatorRoleIds = safeList(input.discord?.operatorRoleIds, 50, 32);
+  config.discord.guildId = safeSnowflake(input.discord?.guildId) || safeSnowflake(config.discord.guildId);
+  config.discord.ownerUserIds = safeSnowflakeList(input.discord?.ownerUserIds, 20);
+  config.discord.operatorRoleIds = safeSnowflakeList(input.discord?.operatorRoleIds, 50);
   config.discord.maxTemporaryLobbiesPerModule = safeInteger(
     input.discord?.maxTemporaryLobbiesPerModule,
     Number(config.discord.maxTemporaryLobbiesPerModule || 20),
     1,
     100
   );
-  config.discord.oauthClientId = safeText(input.discord?.oauthClientId, 32);
+  config.discord.oauthClientId = safeSnowflake(input.discord?.oauthClientId) || safeSnowflake(config.discord.oauthClientId);
   config.discord.oauthClientSecretEnv = safeEnvName(config.discord.oauthClientSecretEnv, 'NEXUS_DISCORD_OAUTH_CLIENT_SECRET');
   config.discord.oauthRedirectUri = safeDiscordRedirect(input.discord?.oauthRedirectUri || config.discord.oauthRedirectUri);
+  config.discord.sentinalAdminUrl = safeSentinalAdminUrl(input.discord?.sentinalAdminUrl || config.discord.sentinalAdminUrl);
+  config.discord.sentinalAdminTokenEnv = safeEnvName(config.discord.sentinalAdminTokenEnv, 'NEXUS_SENTINAL_ADMIN_TOKEN');
+  config.discord.rankRoles = normalizeRankRoles(input.discord?.rankRoles || {}, config.discord.rankRoles || {});
+  config.discord.rankSkus = normalizeRankSkus(input.discord?.rankSkus || {}, config.discord.rankSkus || {});
 
   config.thora ||= {};
   config.thora.enabled = safeBoolean(input.thora?.enabled, Boolean(config.thora.enabled));
@@ -157,7 +200,7 @@ function applyPublicSettings(currentConfig, input = {}) {
   for (const [moduleId, existing] of Object.entries(config.modules)) {
     const incoming = incomingModules[moduleId] && typeof incomingModules[moduleId] === 'object' ? incomingModules[moduleId] : {};
     existing.enabled = safeBoolean(incoming.enabled, existing.enabled !== false);
-    existing.channelId = safeText(incoming.channelId, 32);
+    existing.channelId = safeSnowflake(incoming.channelId) || '';
     if (Object.prototype.hasOwnProperty.call(existing, 'platform')) existing.platform = safeText(incoming.platform, 20).toLowerCase() || existing.platform || 'pc';
     if (Object.prototype.hasOwnProperty.call(existing, 'marketPlatform')) existing.marketPlatform = safeText(incoming.marketPlatform, 20).toLowerCase() || existing.marketPlatform || 'pc';
     if (existing.connection && typeof existing.connection === 'object') existing.connection = normalizeConnection(incoming.connection || {}, existing.connection);
@@ -186,7 +229,10 @@ function publicSettings(config) {
       operatorRoleIds: [...(config.discord?.operatorRoleIds || [])],
       maxTemporaryLobbiesPerModule: Number(config.discord?.maxTemporaryLobbiesPerModule || 20),
       oauthClientId: config.discord?.oauthClientId || '',
-      oauthRedirectUri: config.discord?.oauthRedirectUri || 'http://127.0.0.1:53117/callback'
+      oauthRedirectUri: config.discord?.oauthRedirectUri || 'http://127.0.0.1:53117/callback',
+      sentinalAdminUrl: safeSentinalAdminUrl(config.discord?.sentinalAdminUrl),
+      rankRoles: normalizeRankRoles(config.discord?.rankRoles || {}, {}),
+      rankSkus: normalizeRankSkus(config.discord?.rankSkus || {}, {})
     },
     thora: {
       enabled: config.thora?.enabled === true,
@@ -238,6 +284,7 @@ function collectSecretEnvNames(config) {
   add(config.backend?.serviceTokenEnv);
   add(config.discord?.tokenEnv);
   add(config.discord?.oauthClientSecretEnv);
+  add(config.discord?.sentinalAdminTokenEnv);
   for (const moduleConfig of Object.values(config.modules || {})) {
     add(moduleConfig?.provider?.tokenEnv);
     add(moduleConfig?.connection?.passwordEnv);
@@ -251,6 +298,9 @@ function configWarnings(config) {
   if (!config.discord?.guildId) warnings.push('Discord guild ID is not configured.');
   if (!(config.discord?.ownerUserIds || []).length) warnings.push('No legacy Nexus owner user IDs are configured; Accounts & Access can link the Owner instead.');
   if (config.discord?.oauthClientId && !config.discord?.oauthRedirectUri) warnings.push('Discord OAuth redirect URI is not configured.');
+  if (!config.discord?.sentinalAdminUrl) warnings.push('Nexus Sentinal admin URL is not configured.');
+  const mappedRanks = NEXUS_RANKS.filter((rank) => config.discord?.rankRoles?.[rank.id]);
+  if (mappedRanks.length && mappedRanks.length < NEXUS_RANKS.length) warnings.push(`Discord rank-role mapping is incomplete (${mappedRanks.length}/${NEXUS_RANKS.length}).`);
   for (const [moduleId, moduleConfig] of Object.entries(config.modules || {})) {
     if (moduleConfig.enabled !== false && !moduleConfig.channelId && moduleId !== 'dnd') warnings.push(`${moduleId}: Sentinal channel binding is not configured.`);
   }
@@ -263,9 +313,12 @@ module.exports = {
   collectSecretEnvNames,
   configWarnings,
   ensureUserConfig,
+  normalizeRankRoles,
+  normalizeRankSkus,
   publicSettings,
   readJson,
   runtimeConfig,
+  safeSentinalAdminUrl,
   safeUpdateChannel,
   saveUserConfig
 };

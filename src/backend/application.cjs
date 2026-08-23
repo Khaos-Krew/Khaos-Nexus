@@ -84,6 +84,11 @@ function createBackendApplication(config, options = {}) {
         return json(res, removed ? 200 : 404, removed ? { ok: true } : { ok: false, code: 'ACCOUNT_NOT_FOUND' });
       }
 
+      if (req.method === 'POST' && url.pathname === '/v1/admin/modules') {
+        const body = await readBody(req);
+        const enabled = body.enabled && typeof body.enabled === 'object' && !Array.isArray(body.enabled) ? body.enabled : {};
+        return json(res, 200, { ok: true, enabled: runtime.setModuleEnabled(enabled), modules: runtime.manifests() });
+      }
       if (req.method === 'POST' && url.pathname === '/v1/providers/validate') {
         const body = await readBody(req);
         return json(res, 200, await providerValidator.validate(body.moduleId || body.module || ''));

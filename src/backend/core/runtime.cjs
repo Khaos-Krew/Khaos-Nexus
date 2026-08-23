@@ -9,7 +9,22 @@ class BackendRuntime {
     this.config = config;
     this.providers = { ...providers };
     this.services = { ...services };
+    this.moduleEnabled = Object.fromEntries(MODULES.map((module) => [module.id, this.config.modules?.[module.id]?.enabled !== false]));
     this.startedAt = Date.now();
+  }
+
+  isModuleEnabled(moduleId) {
+    return this.moduleEnabled[moduleId] !== false;
+  }
+
+  setModuleEnabled(values = {}) {
+    const changed = {};
+    for (const module of MODULES) {
+      if (typeof values[module.id] !== 'boolean') continue;
+      this.moduleEnabled[module.id] = values[module.id];
+      changed[module.id] = values[module.id];
+    }
+    return { ...changed };
   }
 
   capabilityAvailable(module, capability, provider) {
@@ -26,14 +41,15 @@ class BackendRuntime {
       const provider = this.providers[module.id];
       const providerCapabilityIds = module.capabilities.filter((capability) => !capability.service).map((capability) => capability.id);
       const serviceCapabilityIds = module.capabilities.filter((capability) => capability.service).map((capability) => capability.id);
-      const availableActions = module.capabilities
+      const enabled = this.isModuleEnabled(module.id);
+      const availableActions = enabled ? module.capabilities
         .filter((capability) => this.capabilityAvailable(module, capability, provider))
-        .map((capability) => capability.id);
+        .map((capability) => capability.id) : [];
       const providerAvailableActions = availableActions.filter((id) => providerCapabilityIds.includes(id));
       const serviceAvailableActions = availableActions.filter((id) => serviceCapabilityIds.includes(id));
       return {
         ...publicManifest(module),
-        enabled: this.config.modules?.[module.id]?.enabled !== false,
+        enabled,
         configured: Boolean(provider),
         connected: provider?.connected === true,
         providerKind: provider?.providerKind || (provider ? 'provider' : 'none'),
@@ -69,7 +85,7 @@ class BackendRuntime {
   async invoke(moduleId, actionId, payload = {}, context = {}) {
     const module = getModule(moduleId);
     if (!module) return { ok: false, code: 'MODULE_UNKNOWN', message: 'Unknown game module.' };
-    if (this.config.modules?.[moduleId]?.enabled === false) return { ok: false, code: 'MODULE_DISABLED', message: `${module.name} is disabled.` };
+    if (!this.isModuleEnabled(moduleId)) return { ok: false, code: 'MODULE_DISABLED', message: `${module.name} is disabled.` };
     const capability = module.capabilities.find((cap) => cap.id === actionId);
     if (!capability) return { ok: false, code: 'CAPABILITY_UNKNOWN', message: `${module.name} does not expose ${actionId}.` };
     const role = context.role || 'viewer';

@@ -20,7 +20,25 @@
     "maxTemporaryLobbiesPerModule": 20,
     "oauthClientId": "",
     "oauthClientSecretEnv": "NEXUS_DISCORD_OAUTH_CLIENT_SECRET",
-    "oauthRedirectUri": "http://127.0.0.1:53117/callback"
+    "oauthRedirectUri": "http://127.0.0.1:53117/callback",
+    "sentinalAdminUrl": "http://127.0.0.1:3220",
+    "sentinalAdminTokenEnv": "NEXUS_SENTINAL_ADMIN_TOKEN",
+    "rankRoles": {
+      "shadow-recruit": "",
+      "cipher-runner": "",
+      "nexus-raider": "",
+      "khaos-warden": "",
+      "blackout-legend": "",
+      "origin-founder": ""
+    },
+    "rankSkus": {
+      "shadow-recruit": [],
+      "cipher-runner": [],
+      "nexus-raider": [],
+      "khaos-warden": [],
+      "blackout-legend": [],
+      "origin-founder": []
+    }
   },
   "thora": {
     "enabled": false,

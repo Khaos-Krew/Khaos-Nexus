@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 function emptyState() {
-  return { consoles: {}, moduleSetups: {}, tempLobbies: {} };
+  return { consoles: {}, moduleSetups: {}, tempLobbies: {}, adminSettings: { rankRoles: {}, rankSkus: {}, moduleEnabled: {} } };
 }
 
 class StateStore {
@@ -23,6 +23,10 @@ class StateStore {
     state.consoles ||= {};
     state.moduleSetups ||= {};
     state.tempLobbies ||= {};
+    state.adminSettings ||= {};
+    state.adminSettings.rankRoles ||= {};
+    state.adminSettings.rankSkus ||= {};
+    state.adminSettings.moduleEnabled ||= {};
     return state;
   }
 
@@ -48,6 +52,22 @@ class StateStore {
     state.moduleSetups[moduleId] = value;
     this.write(state);
     return value;
+  }
+
+  getAdminSettings() {
+    const settings = this.read().adminSettings;
+    return JSON.parse(JSON.stringify(settings));
+  }
+
+  setAdminSettings(value = {}) {
+    const state = this.read();
+    state.adminSettings = {
+      rankRoles: { ...(value.rankRoles || {}) },
+      rankSkus: Object.fromEntries(Object.entries(value.rankSkus || {}).map(([key, items]) => [key, Array.isArray(items) ? [...items] : []])),
+      moduleEnabled: { ...(value.moduleEnabled || {}) }
+    };
+    this.write(state);
+    return this.getAdminSettings();
   }
 
   getTempLobby(channelId) { return this.read().tempLobbies?.[channelId] || null; }

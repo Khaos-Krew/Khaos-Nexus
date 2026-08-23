@@ -5,8 +5,8 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
 const required = [
-  'package.json', 'config.example.json', 'src/main.cjs', 'src/preload.cjs', 'src/shared/config.cjs',
-  'src/desktop/config-store.cjs', 'src/desktop/secret-vault.cjs', 'src/thora/bridge.cjs',
+  'package.json', 'config.example.json', 'src/main.cjs', 'src/preload.cjs', 'src/shared/config.cjs', 'src/shared/ranks.cjs',
+  'src/desktop/config-store.cjs', 'src/desktop/secret-vault.cjs', 'src/desktop/sentinal-admin-client.cjs', 'src/desktop/owner-test-service.cjs', 'src/thora/bridge.cjs',
   'src/updater/service.cjs', 'src/updater/apply-update.ps1', 'scripts/build-update-bundle.ps1',
   'src/backend/application.cjs', 'src/backend/server.cjs',
   'src/backend/core/runtime.cjs', 'src/backend/core/scheduler.cjs', 'src/backend/core/json-store.cjs',
@@ -17,10 +17,12 @@ const required = [
   'src/backend/providers/rust-provider.cjs', 'src/backend/providers/satisfactory-provider.cjs',
   'src/backend/transports/source-rcon.cjs', 'src/backend/transports/rcon-protocol.cjs',
   'src/sentinel/bot.cjs', 'src/sentinel/commands.cjs', 'src/sentinel/action-formatters.cjs',
+  'src/sentinel/admin-ops.cjs', 'src/sentinel/admin-server.cjs', 'src/sentinel/module-inspector.cjs',
   'src/sentinel/module-console.cjs', 'src/sentinel/module-provisioner.cjs', 'src/sentinel/module-layouts.cjs',
   'src/sentinel/state-store.cjs', 'src/backend/modules/catalog.cjs',
   'src/renderer/index.html', 'src/renderer/app.js', 'src/renderer/style.css',
-  'src/renderer/updater-ui.js', 'src/renderer/updater.css'
+  'src/renderer/updater-ui.js', 'src/renderer/updater.css', 'src/renderer/admin-ops-ui.js', 'src/renderer/admin-ops.css',
+  'src/renderer/startup-health.js', 'src/renderer/startup-health.css'
 ];
 const syntaxFiles = required.filter((file) => /\.(?:cjs|js)$/.test(file));
 let failed = false;
