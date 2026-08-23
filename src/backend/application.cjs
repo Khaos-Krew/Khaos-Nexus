@@ -69,7 +69,6 @@ function createBackendApplication(config, options = {}) {
   });
   const accounts = new AccountStore({ filePath: config.accounts?.stateFile || path.join(process.cwd(), 'data', 'accounts.json') });
   runtime.registerService('scheduler', scheduler);
-  runtime.registerService('accounts', accounts);
   scheduler.registerExecutor((moduleId, actionId, payload, context) => runtime.invoke(moduleId, actionId, payload, context));
 
   function authorized(req) {
