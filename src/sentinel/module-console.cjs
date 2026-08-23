@@ -19,14 +19,26 @@ function style(cap) {
   return 1;
 }
 
+function buttonCapabilities(module) {
+  return module.capabilities.filter((cap) => cap.button !== false).slice(0, 20);
+}
+
 function renderModuleConsole(moduleId, backendState = {}) {
   const module = getModule(moduleId);
   if (!module) throw new Error(`Unknown module: ${moduleId}`);
   const connected = backendState.connected === true;
   const enabled = backendState.enabled !== false;
+  const configured = backendState.configured === true;
   const availableActions = new Set(Array.isArray(backendState.availableActions) ? backendState.availableActions : []);
-  const state = !enabled ? 'DISABLED' : connected ? 'READY • CONNECTED' : 'READY';
-  const buttons = module.capabilities.slice(0, 20).map((cap) => ({
+  const providerKind = String(backendState.providerKind || 'none');
+  const availableCount = availableActions.size;
+  const state = !enabled
+    ? 'DISABLED'
+    : availableCount > 0
+      ? connected ? 'READY • CONNECTED' : 'READY • BACKEND ACTIVE'
+      : configured ? 'BACKEND ACTIVE • FEATURES UNAVAILABLE' : 'BACKEND READY • PROVIDER SETUP NEEDED';
+
+  const buttons = buttonCapabilities(module).map((cap) => ({
     type: 2,
     style: style(cap),
     label: cap.label.slice(0, 80),
@@ -39,14 +51,17 @@ function renderModuleConsole(moduleId, backendState = {}) {
     { type: 2, style: 2, label: 'Features / Commands', custom_id: actionId(module.id, 'help') },
     { type: 2, style: 2, label: 'Refresh', custom_id: actionId(module.id, 'refresh') }
   ]});
+
   const fields = [
-    { name: 'Interface', value: module.surface === 'veyra' ? 'Veyra' : 'Nexus Sentinal', inline: true }
+    { name: 'Interface', value: module.surface === 'veyra' ? 'Veyra' : 'Nexus Sentinal', inline: true },
+    { name: 'Backend', value: `${availableCount}/${module.capabilities.length} actions`, inline: true }
   ];
-  if (connected) fields.push({ name: 'Connection', value: 'Connected', inline: true });
+  if (providerKind !== 'none') fields.push({ name: 'Provider', value: providerKind.slice(0, 100), inline: true });
+
   return {
     embeds: [{
       title: `KHAOS NEXUS • ${module.name.toUpperCase()}`,
-      description: `**${state}**\nUse the available controls below for common actions. Advanced/parameterized actions remain available through Sentinal commands as they are added.`,
+      description: `**${state}**\nUse buttons for quick actions. Parameterized and advanced actions are available through \`/nexus run\`; use **Features / Commands** for the exact action names.`,
       fields,
       footer: { text: 'Nexus 0.1 • Backend-first module console' }
     }],
@@ -57,8 +72,19 @@ function renderModuleConsole(moduleId, backendState = {}) {
 
 function renderHelp(moduleId) {
   const module = getModule(moduleId);
-  const lines = module.capabilities.map((cap) => `• **${cap.label}** — ${cap.requiredRole}${cap.destructive ? ' • confirmation required' : ''}`);
-  return { embeds: [{ title: `${module.name} • Features`, description: lines.join('\n') || 'No capabilities registered.' }], ephemeral: true };
+  if (!module) throw new Error(`Unknown module: ${moduleId}`);
+  const lines = module.capabilities.map((cap) => {
+    const input = cap.input ? ` • input: \`${cap.input}\`` : '';
+    const confirm = cap.destructive ? ' • confirmation required' : '';
+    return `• \`${cap.id}\` — **${cap.label}** • ${cap.requiredRole}${confirm}${input}`;
+  });
+  return {
+    embeds: [{
+      title: `${module.name} • Backend Features`,
+      description: `${lines.join('\n') || 'No capabilities registered.'}\n\nAdvanced usage: \`/nexus run module:${module.id} action:<action> input:<value>\``.slice(0, 4000)
+    }],
+    ephemeral: true
+  };
 }
 
-module.exports = { actionId, parseActionId, renderModuleConsole, renderHelp };
+module.exports = { actionId, parseActionId, renderModuleConsole, renderHelp, buttonCapabilities };
