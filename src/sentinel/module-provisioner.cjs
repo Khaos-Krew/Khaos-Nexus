@@ -1,12 +1,59 @@
 'use strict';
 
 const { ChannelType } = require('discord.js');
-const { getModule } = require('../backend/modules/catalog.cjs');
+const { getModule, MODULES } = require('../backend/modules/catalog.cjs');
 const { layoutFor } = require('./module-layouts.cjs');
+
+const CATEGORY_MATCH_THRESHOLD = 0.72;
 
 function cleanLobbyOwner(value) {
   const cleaned = String(value || 'Player').replace(/[\r\n]/g, ' ').replace(/\s+/g, ' ').trim();
   return (cleaned || 'Player').slice(0, 60);
+}
+
+function normalizeDiscordName(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((part) => !['khaos', 'nexus', 'server', 'servers', 'game', 'games', 'module', 'modules', 'category', 'hub', 'the'].includes(part))
+    .join(' ')
+    .trim();
+}
+
+function similarityScore(left, right) {
+  const a = normalizeDiscordName(left);
+  const b = normalizeDiscordName(right);
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+
+  const aTokens = new Set(a.split(' '));
+  const bTokens = new Set(b.split(' '));
+  const intersection = [...aTokens].filter((token) => bTokens.has(token)).length;
+  const union = new Set([...aTokens, ...bTokens]).size;
+  const jaccard = union ? intersection / union : 0;
+  const containment = Math.min(aTokens.size, bTokens.size) ? intersection / Math.min(aTokens.size, bTokens.size) : 0;
+  const substring = a.includes(b) || b.includes(a) ? Math.min(a.length, b.length) / Math.max(a.length, b.length) : 0;
+  return Math.max(jaccard, containment * 0.92, substring);
+}
+
+function categoryCandidates(moduleId) {
+  const module = getModule(moduleId);
+  const layout = layoutFor(moduleId);
+  return [...new Set([layout.category, module?.name, ...(layout.aliases || [])].filter(Boolean))];
+}
+
+function bestCategoryMatch(channels, moduleId) {
+  const categories = [...channels.values()].filter((channel) => channel?.type === ChannelType.GuildCategory);
+  const candidates = categoryCandidates(moduleId);
+  let best = null;
+  for (const category of categories) {
+    const score = Math.max(...candidates.map((candidate) => similarityScore(category.name, candidate)));
+    if (!best || score > best.score) best = { category, score };
+  }
+  return best && best.score >= CATEGORY_MATCH_THRESHOLD ? best : null;
 }
 
 class ModuleProvisioner {
@@ -20,53 +67,81 @@ class ModuleProvisioner {
     if (categoryId) {
       const selected = await guild.channels.fetch(String(categoryId));
       if (!selected || selected.type !== ChannelType.GuildCategory) throw new Error('The selected Discord channel is not a category.');
-      return selected;
+      return { category: selected, created: false, matchScore: 1, source: 'selected' };
     }
+
     const all = await guild.channels.fetch();
-    const existing = all.find((channel) => channel?.type === ChannelType.GuildCategory && channel.name === layout.category);
-    if (existing) return existing;
-    return guild.channels.create({ name: layout.category, type: ChannelType.GuildCategory, reason: `Nexus Sentinal module setup: ${moduleId}` });
+    const exact = all.find((channel) => channel?.type === ChannelType.GuildCategory && channel.name === layout.category);
+    if (exact) return { category: exact, created: false, matchScore: 1, source: 'exact' };
+
+    const similar = bestCategoryMatch(all, moduleId);
+    if (similar) return { category: similar.category, created: false, matchScore: similar.score, source: 'similar' };
+
+    const created = await guild.channels.create({ name: layout.category, type: ChannelType.GuildCategory, reason: `Nexus Sentinal module setup: ${moduleId}` });
+    return { category: created, created: true, matchScore: 0, source: 'created' };
   }
 
   async textChannel(guild, category, name) {
     const all = await guild.channels.fetch();
     const existing = all.find((channel) => channel?.type === ChannelType.GuildText && channel.parentId === category.id && channel.name === name);
-    if (existing) return existing;
-    return guild.channels.create({ name, type: ChannelType.GuildText, parent: category.id, reason: 'Nexus Sentinal module setup' });
+    if (existing) return { channel: existing, created: false };
+    const created = await guild.channels.create({ name, type: ChannelType.GuildText, parent: category.id, reason: 'Nexus Sentinal module setup/repair' });
+    return { channel: created, created: true };
   }
 
   async lobbyBuilder(guild, category, name) {
     const all = await guild.channels.fetch();
     const existing = all.find((channel) => channel?.type === ChannelType.GuildVoice && channel.parentId === category.id && channel.name === name);
-    if (existing) return existing;
-    return guild.channels.create({ name, type: ChannelType.GuildVoice, parent: category.id, reason: 'Nexus Sentinal join-to-build lobby setup' });
+    if (existing) return { channel: existing, created: false };
+    const created = await guild.channels.create({ name, type: ChannelType.GuildVoice, parent: category.id, reason: 'Nexus Sentinal join-to-build lobby setup/repair' });
+    return { channel: created, created: true };
   }
 
   async provision(guild, moduleId, categoryId = '') {
     const module = getModule(moduleId);
     if (!module) throw new Error(`Unknown module: ${moduleId}`);
     const layout = layoutFor(moduleId);
-    const category = await this.category(guild, moduleId, categoryId);
+    const categoryResult = await this.category(guild, moduleId, categoryId);
+    const category = categoryResult.category;
     const textChannels = [];
+    const createdChannels = [];
+
     for (const name of layout.text) {
-      const channel = await this.textChannel(guild, category, name);
-      textChannels.push({ name, id: String(channel.id) });
+      const result = await this.textChannel(guild, category, name);
+      textChannels.push({ name, id: String(result.channel.id) });
+      if (result.created) createdChannels.push(name);
     }
-    const builder = await this.lobbyBuilder(guild, category, layout.lobbyBuilder);
+
+    const builderResult = await this.lobbyBuilder(guild, category, layout.lobbyBuilder);
+    const builder = builderResult.channel;
+    if (builderResult.created) createdChannels.push(layout.lobbyBuilder);
     const consoleChannel = textChannels.find((channel) => channel.name === layout.consoleChannel) || textChannels[0] || null;
     const setup = {
       moduleId,
       guildId: String(guild.id),
       categoryId: String(category.id),
       categoryName: String(category.name),
+      categoryCreated: categoryResult.created,
+      categorySource: categoryResult.source,
+      categoryMatchScore: Number(categoryResult.matchScore.toFixed(3)),
       consoleChannelId: consoleChannel?.id || '',
       textChannels,
       lobbyBuilderChannelId: String(builder.id),
       lobbyBuilderName: String(builder.name),
+      createdChannels,
       updatedAt: new Date().toISOString()
     };
     this.state.setModuleSetup(moduleId, setup);
     return setup;
+  }
+
+  async discoverModuleIds(guild) {
+    const discovered = new Set(Object.keys(this.state.listModuleSetups()));
+    const all = await guild.channels.fetch();
+    for (const module of MODULES) {
+      if (bestCategoryMatch(all, module.id)) discovered.add(module.id);
+    }
+    return [...discovered].filter((moduleId) => getModule(moduleId));
   }
 
   setupForBuilder(guildId, channelId) {
@@ -138,4 +213,11 @@ class ModuleProvisioner {
   }
 }
 
-module.exports = { ModuleProvisioner, cleanLobbyOwner };
+module.exports = {
+  CATEGORY_MATCH_THRESHOLD,
+  ModuleProvisioner,
+  bestCategoryMatch,
+  cleanLobbyOwner,
+  normalizeDiscordName,
+  similarityScore
+};
