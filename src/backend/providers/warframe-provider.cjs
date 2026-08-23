@@ -24,10 +24,50 @@ function takeArray(value, limit = 12) {
   return (Array.isArray(value) ? value : []).slice(0, limit);
 }
 
+function rewardItemName(item) {
+  if (typeof item === 'string') return cleanText(item);
+  if (!item || typeof item !== 'object') return '';
+  return cleanText(item.name || item.item || item.type || item.itemType || item.ItemType || '');
+}
+
 function rewardText(value) {
   if (!value) return '';
   if (typeof value === 'string') return cleanText(value);
-  return cleanText(value.asString || value.itemString || value.items?.join?.(', ') || value.countedItems?.map?.((item) => `${item.count || 1} ${item.type || ''}`).join(', ') || '');
+  const direct = cleanText(value.asString || value.itemString || '');
+  if (direct) return direct;
+
+  const parts = [];
+  const items = takeArray(value.items, 12).map(rewardItemName).filter(Boolean);
+  if (items.length) parts.push(items.join(', '));
+
+  const counted = takeArray(value.countedItems, 12).map((item) => {
+    if (!item || typeof item !== 'object') return rewardItemName(item);
+    const count = Number(item.count ?? item.Count ?? item.quantity ?? 1) || 1;
+    const name = rewardItemName(item);
+    return name ? `${count}× ${name}` : '';
+  }).filter(Boolean);
+  if (counted.length) parts.push(counted.join(', '));
+
+  const credits = Number(value.credits ?? value.Credits ?? 0) || 0;
+  if (credits > 0) parts.push(`${credits.toLocaleString('en-US')} Credits`);
+  return cleanText(parts.join(' • '), 400);
+}
+
+function etaFromExpiry(expiry) {
+  if (!expiry) return '';
+  const timestamp = new Date(expiry).getTime();
+  if (!Number.isFinite(timestamp)) return '';
+  const remaining = timestamp - Date.now();
+  if (remaining <= 0) return 'Expired';
+  const totalMinutes = Math.max(1, Math.ceil(remaining / 60000));
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  const parts = [];
+  if (days) parts.push(`${days}d`);
+  if (hours) parts.push(`${hours}h`);
+  if (minutes || !parts.length) parts.push(`${minutes}m`);
+  return parts.join(' ');
 }
 
 function summarizeAlerts(data) {
@@ -36,7 +76,8 @@ function summarizeAlerts(data) {
     type: cleanText(alert?.mission?.type || alert?.missionType || ''),
     faction: cleanText(alert?.mission?.faction || alert?.faction || ''),
     reward: rewardText(alert?.mission?.reward || alert?.reward),
-    eta: cleanText(alert?.eta || ''),
+    eta: cleanText(alert?.eta || etaFromExpiry(alert?.expiry) || ''),
+    expiry: cleanText(alert?.expiry || ''),
     expired: Boolean(alert?.expired)
   }));
 }
@@ -47,14 +88,14 @@ function summarizeFissures(data) {
     .slice(0, 20)
     .map((item) => ({
       tier: cleanText(item?.tier || ''), node: cleanText(item?.node || ''), mission: cleanText(item?.missionType || ''),
-      enemy: cleanText(item?.enemy || ''), eta: cleanText(item?.eta || ''), storm: Boolean(item?.isStorm), hard: Boolean(item?.isHard)
+      enemy: cleanText(item?.enemy || ''), eta: cleanText(item?.eta || etaFromExpiry(item?.expiry) || ''), storm: Boolean(item?.isStorm), hard: Boolean(item?.isHard)
     }));
 }
 
 function summarizeSortie(data) {
   if (!data || typeof data !== 'object') return data;
   return {
-    boss: cleanText(data.boss || ''), faction: cleanText(data.faction || ''), eta: cleanText(data.eta || ''),
+    boss: cleanText(data.boss || ''), faction: cleanText(data.faction || ''), eta: cleanText(data.eta || etaFromExpiry(data.expiry) || ''),
     variants: takeArray(data.variants, 6).map((variant) => ({
       node: cleanText(variant?.node || ''), mission: cleanText(variant?.missionType || ''),
       modifier: cleanText(variant?.modifier || variant?.modifierDescription || '')
@@ -66,7 +107,7 @@ function summarizeArbitration(data) {
   if (!data || typeof data !== 'object') return data;
   return {
     node: cleanText(data.node || ''), enemy: cleanText(data.enemy || ''), mission: cleanText(data.type || data.missionType || ''),
-    eta: cleanText(data.eta || ''), expired: Boolean(data.expired)
+    eta: cleanText(data.eta || etaFromExpiry(data.expiry) || ''), expired: Boolean(data.expired)
   };
 }
 
@@ -75,11 +116,11 @@ function summarizeNightwave(data) {
   return {
     season: Number.isFinite(Number(data.season)) ? Number(data.season) : null,
     phase: Number.isFinite(Number(data.phase)) ? Number(data.phase) : null,
-    tag: cleanText(data.tag || ''), eta: cleanText(data.eta || ''),
+    tag: cleanText(data.tag || ''), eta: cleanText(data.eta || etaFromExpiry(data.expiry) || ''),
     challenges: takeArray(data.activeChallenges || data.challenges, 20).map((challenge) => ({
       title: cleanText(challenge?.title || ''), description: cleanText(challenge?.desc || challenge?.description || '', 320),
       reputation: Number(challenge?.reputation || 0), daily: Boolean(challenge?.isDaily || challenge?.daily),
-      elite: Boolean(challenge?.isElite || challenge?.elite), eta: cleanText(challenge?.eta || '')
+      elite: Boolean(challenge?.isElite || challenge?.elite), eta: cleanText(challenge?.eta || etaFromExpiry(challenge?.expiry) || '')
     }))
   };
 }
@@ -94,7 +135,7 @@ function summarizeNews(data) {
 function summarizeEvents(data) {
   return takeArray(data, 15).filter((item) => !item?.expired).map((item) => ({
     description: cleanText(item?.description || item?.name || item?.tooltip || ''), node: cleanText(item?.node || ''),
-    eta: cleanText(item?.eta || ''), scoreLocTag: cleanText(item?.scoreLocTag || ''), health: Number(item?.health || 0) || null
+    eta: cleanText(item?.eta || etaFromExpiry(item?.expiry) || ''), scoreLocTag: cleanText(item?.scoreLocTag || ''), health: Number(item?.health || 0) || null
   }));
 }
 
@@ -103,7 +144,7 @@ function summarizeInvasions(data) {
     node: cleanText(item?.node || ''), description: cleanText(item?.desc || item?.description || ''),
     attacker: cleanText(item?.attackingFaction || item?.attacker?.faction || ''), attackerReward: rewardText(item?.attacker?.reward),
     defender: cleanText(item?.defendingFaction || item?.defender?.faction || ''), defenderReward: rewardText(item?.defender?.reward),
-    completion: Number(item?.completion || 0), eta: cleanText(item?.eta || '')
+    completion: Number(item?.completion || 0), eta: cleanText(item?.eta || etaFromExpiry(item?.expiry) || '')
   }));
 }
 
@@ -111,7 +152,7 @@ function summarizeVoidTrader(data) {
   if (!data || typeof data !== 'object') return data;
   return {
     character: cleanText(data.character || 'Baro Ki\'Teer'), location: cleanText(data.location || ''),
-    active: Boolean(data.active), activation: cleanText(data.activation || ''), expiry: cleanText(data.expiry || ''), eta: cleanText(data.eta || ''),
+    active: Boolean(data.active), activation: cleanText(data.activation || ''), expiry: cleanText(data.expiry || ''), eta: cleanText(data.eta || etaFromExpiry(data.expiry) || ''),
     inventory: takeArray(data.inventory, 20).map((item) => ({ item: cleanText(item?.item || ''), ducats: Number(item?.ducats || 0), credits: Number(item?.credits || 0) }))
   };
 }
@@ -120,7 +161,7 @@ function summarizeSteelPath(data) {
   if (!data || typeof data !== 'object') return data;
   return {
     currentReward: cleanText(data.currentReward?.name || data.currentReward || ''),
-    remaining: cleanText(data.remaining || data.eta || ''),
+    remaining: cleanText(data.remaining || data.eta || etaFromExpiry(data.expiry) || ''),
     rotation: takeArray(data.rotation, 8).map((item) => ({ name: cleanText(item?.name || item), cost: Number(item?.cost || 0) || null }))
   };
 }
@@ -128,14 +169,14 @@ function summarizeSteelPath(data) {
 function summarizeKuva(data) {
   return takeArray(data, 20).map((item) => ({
     node: cleanText(item?.node || ''), mission: cleanText(item?.type || item?.missionType || ''),
-    enemy: cleanText(item?.enemy || ''), eta: cleanText(item?.eta || '')
+    enemy: cleanText(item?.enemy || ''), eta: cleanText(item?.eta || etaFromExpiry(item?.expiry) || '')
   }));
 }
 
 function summarizeCycle(data) {
   if (!data || typeof data !== 'object') return data;
   return {
-    state: cleanText(data.state || data.cycle || ''), timeLeft: cleanText(data.timeLeft || data.eta || ''),
+    state: cleanText(data.state || data.cycle || ''), timeLeft: cleanText(data.timeLeft || data.eta || etaFromExpiry(data.expiry) || ''),
     shortString: cleanText(data.shortString || ''), isDay: data.isDay ?? null, isCetus: data.isCetus ?? null
   };
 }
@@ -248,7 +289,7 @@ class WarframeProvider {
 }
 
 module.exports = {
-  WarframeProvider, WARFRAME_ACTIONS, cleanText, marketSlug, summarizeAlerts, summarizeFissures,
+  WarframeProvider, WARFRAME_ACTIONS, cleanText, marketSlug, rewardText, etaFromExpiry, summarizeAlerts, summarizeFissures,
   summarizeSortie, summarizeArbitration, summarizeNightwave, summarizeNews, summarizeEvents,
   summarizeInvasions, summarizeVoidTrader, summarizeSteelPath, summarizeKuva, summarizeCycle, summarizeMarketOrder
 };
