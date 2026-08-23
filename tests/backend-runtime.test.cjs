@@ -60,3 +60,28 @@ test('backend rejects capability calls the active provider does not advertise', 
   assert.equal(result.ok, false);
   assert.equal(result.code, 'CAPABILITY_UNAVAILABLE');
 });
+
+test('shared scheduler actions stay available without making a game provider look configured', async () => {
+  const calls = [];
+  const instance = new BackendRuntime({
+    config: { modules: { ark: { enabled: true } } },
+    providers: {},
+    services: {
+      scheduler: {
+        invoke: async (...args) => { calls.push(args); return { accepted: true }; }
+      }
+    }
+  });
+  const manifest = instance.manifests().find((item) => item.id === 'ark');
+  assert.equal(manifest.configured, false);
+  assert.deepEqual(manifest.providerAvailableActions, []);
+  assert.deepEqual(manifest.serviceAvailableActions, ['schedule-list', 'schedule-add', 'schedule-remove']);
+
+  const list = await instance.invoke('ark', 'schedule-list', {}, { role: 'viewer' });
+  assert.equal(list.ok, true);
+  const unconfirmed = await instance.invoke('ark', 'schedule-add', { input: 'daily 06:00 restart' }, { role: 'owner', confirmed: false });
+  assert.equal(unconfirmed.code, 'CONFIRMATION_REQUIRED');
+  const confirmed = await instance.invoke('ark', 'schedule-add', { input: 'daily 06:00 restart' }, { role: 'owner', confirmed: true });
+  assert.equal(confirmed.ok, true);
+  assert.equal(calls.length, 2);
+});
