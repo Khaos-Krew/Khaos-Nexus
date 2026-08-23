@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { SourceRconProvider, parseArkPlayers, parseMinecraftPlayers } = require('../src/backend/providers/source-rcon-provider.cjs');
 const { PalworldProvider } = require('../src/backend/providers/palworld-provider.cjs');
+const { RustProvider, normalizeServerInfo, normalizePlayers } = require('../src/backend/providers/rust-provider.cjs');
 const { configuredConnection } = require('../src/backend/providers/server-providers.cjs');
 
 function mockRcon(responses = {}) {
@@ -74,6 +75,33 @@ test('Palworld provider exposes only safe catalog actions backed by official RES
   await provider.invoke('broadcast', { input: 'Hello Palpagos' });
   assert.deepEqual(calls, ['info', 'metrics', 'players', 'save', 'announce:Hello Palpagos']);
   assert.deepEqual(provider.supportedActions, ['status', 'players', 'save', 'broadcast']);
+});
+
+test('Rust provider maps serverinfo playerlist save and safe say commands', async () => {
+  const commands = [];
+  const client = {
+    async command(command) {
+      commands.push(command);
+      if (command === 'serverinfo') return JSON.stringify({ Hostname: 'Nexus Rust', Players: 2, MaxPlayers: 100, Framerate: 60 });
+      if (command === 'playerlist') return JSON.stringify([{ DisplayName: 'Raider', SteamID: '76561190000000001', Ping: 42 }]);
+      return 'OK';
+    }
+  };
+  const provider = new RustProvider({ name: 'Nexus Rust' }, { client });
+  const status = await provider.invoke('status');
+  const players = await provider.invoke('players');
+  await provider.invoke('save');
+  await provider.invoke('broadcast', { input: 'Cargo is up' });
+  assert.equal(status.serverName, 'Nexus Rust');
+  assert.equal(status.players, 2);
+  assert.equal(players.players[0].name, 'Raider');
+  assert.deepEqual(commands, ['serverinfo', 'playerlist', 'save', 'say "Cargo is up"']);
+  assert.deepEqual(provider.supportedActions, ['status', 'players', 'save', 'broadcast']);
+});
+
+test('Rust normalizers accept common serverinfo and playerlist shapes', () => {
+  assert.equal(normalizeServerInfo(JSON.stringify({ Hostname: 'Test', Players: 3 })).players, 3);
+  assert.equal(normalizePlayers(JSON.stringify([{ DisplayName: 'Khaos', SteamID: '76561190000000001' }]))[0].name, 'Khaos');
 });
 
 test('connection resolver refuses incomplete server credentials', () => {
