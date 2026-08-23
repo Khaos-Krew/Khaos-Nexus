@@ -5,6 +5,7 @@ const path = require('node:path');
 const { URL } = require('node:url');
 const { envSecret } = require('../shared/config.cjs');
 const { AccountStore } = require('./core/account-store.cjs');
+const { ProviderValidator } = require('./core/provider-validator.cjs');
 const { BackendRuntime } = require('./core/runtime.cjs');
 const { SharedScheduler } = require('./core/scheduler.cjs');
 const { providersFromConfig } = require('./providers/http-provider.cjs');
@@ -58,9 +59,9 @@ function createBackendApplication(config, options = {}) {
   }
 
   const providers = {
-    ...nativeProvidersFromConfig(config),
-    ...serverProvidersFromConfig(config),
-    ...providersFromConfig(config)
+    ...nativeProvidersFromConfig(config, options),
+    ...serverProvidersFromConfig(config, options),
+    ...providersFromConfig(config, options)
   };
   const runtime = new BackendRuntime({ config, providers });
   const scheduler = new SharedScheduler({
@@ -68,8 +69,8 @@ function createBackendApplication(config, options = {}) {
     timeZone: config.scheduler?.timeZone || 'America/Chicago'
   });
   const accounts = new AccountStore({ filePath: config.accounts?.stateFile || path.join(process.cwd(), 'data', 'accounts.json') });
+  const providerValidator = new ProviderValidator({ runtime });
   runtime.registerService('scheduler', scheduler);
-  runtime.registerService('accounts', accounts);
   scheduler.registerExecutor((moduleId, actionId, payload, context) => runtime.invoke(moduleId, actionId, payload, context));
 
   function authorized(req) {
@@ -107,6 +108,10 @@ function createBackendApplication(config, options = {}) {
         return json(res, removed ? 200 : 404, removed ? { ok: true } : { ok: false, code: 'ACCOUNT_NOT_FOUND' });
       }
 
+      if (req.method === 'POST' && url.pathname === '/v1/providers/validate') {
+        const body = await readBody(req);
+        return json(res, 200, await providerValidator.validate(body.moduleId || body.module || ''));
+      }
       if (req.method === 'GET' && url.pathname === '/v1/modules') return json(res, 200, { ok: true, modules: runtime.manifests() });
       if (req.method === 'GET' && url.pathname === '/v1/schedules') return json(res, 200, { ok: true, timeZone: scheduler.timeZone, schedules: scheduler.list() });
       const match = /^\/v1\/modules\/([a-z0-9-]+)\/actions\/([a-z0-9-]+)$/.exec(url.pathname);
@@ -168,6 +173,7 @@ function createBackendApplication(config, options = {}) {
     runtime,
     scheduler,
     accounts,
+    providerValidator,
     server,
     start,
     stop,
