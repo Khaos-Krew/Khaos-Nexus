@@ -57,6 +57,13 @@ const LAYOUTS = {
     text: ['idleon-hub', 'idleon-progression', 'idleon-builds', 'idleon-goals', 'idleon-farming'],
     lobbyBuilder: '➕ Join to Create IdleOn Lobby'
   },
+  pokemongo: {
+    category: 'Pokémon GO',
+    aliases: ['Pokémon GO', 'Pokemon GO', 'PoGo', 'Pokemon Go'],
+    consoleChannel: 'pokemon-go-hub',
+    text: ['pokemon-go-hub', 'pokemon-go-raids', 'pokemon-go-trades', 'pokemon-go-events', 'pokemon-go-showcase', 'pokemon-go-lfg'],
+    lobbyBuilder: '➕ Join to Create Pokémon GO Group'
+  },
   dnd: {
     category: 'Nexus D&D',
     aliases: ['Nexus D&D', 'Nexus DnD', 'D&D', 'DnD'],
