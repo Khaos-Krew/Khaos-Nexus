@@ -3,6 +3,7 @@
 const { envSecret } = require('../../shared/config.cjs');
 const { SourceRconProvider } = require('./source-rcon-provider.cjs');
 const { PalworldProvider } = require('./palworld-provider.cjs');
+const { RustProvider } = require('./rust-provider.cjs');
 
 function env(name) {
   return String(process.env[name] || '').trim();
@@ -49,6 +50,19 @@ function serverProvidersFromConfig(config = {}) {
       protocol: palworld.protocol || env('NEXUS_PALWORLD_REST_PROTOCOL') || 'http',
       apiPath: palworld.apiPath || env('NEXUS_PALWORLD_REST_API_PATH') || '/v1/api',
       username: palworld.username || env('NEXUS_PALWORLD_REST_USERNAME') || 'admin'
+    });
+  }
+
+  const rust = configuredConnection(config.modules?.rust, {
+    hostEnv: 'NEXUS_RUST_RCON_HOST',
+    portEnv: 'NEXUS_RUST_RCON_PORT',
+    passwordEnv: 'NEXUS_RUST_RCON_PASSWORD'
+  });
+  if (config.modules?.rust?.enabled !== false && rust) {
+    providers.rust = new RustProvider({
+      ...rust,
+      protocol: rust.protocol || env('NEXUS_RUST_RCON_PROTOCOL') || 'ws',
+      rconName: rust.rconName || 'Khaos Nexus'
     });
   }
 
