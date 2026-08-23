@@ -4,7 +4,7 @@ This branch is the active clean rebuild of Khaos Nexus. The previous `0.41.x` st
 
 > **Active implementation branch:** `rebuild/nexus-0.1`  
 > **Current package version:** `0.1.0`  
-> **Current phase:** rebuild foundation  
+> **Current phase:** rebuild foundation + provider validation  
 > **Public/stable release:** not established by this branch or package version alone
 
 ## Product boundaries
@@ -15,25 +15,31 @@ This branch is the active clean rebuild of Khaos Nexus. The previous `0.41.x` st
 - **Thora** remains a private/local capability and is bridged from its canonical project rather than duplicated here.
 - **Veyra** may remain the dedicated D&D presentation client while D&D logic follows the same backend-first rule.
 
-The first rebuild milestone intentionally establishes clean contracts and Discord wiring before selectively porting and validating provider-specific behavior. Old code is reference material, not an automatic dependency.
+The rebuild intentionally keeps routine game logic out of Electron and Discord handlers. Legacy code is reference material, not an automatic dependency.
 
 ## Current implementation state
 
-The rebuild currently includes the thin Electron Admin Control Center, backend module/runtime foundations, a shared scheduler, module registrations for ARK, Palworld, Minecraft, Warframe, The Division 2, Rust, Satisfactory, IdleOn and D&D, persistent Sentinal module consoles, Discord module provisioning/reconciliation, join-to-create temporary voice lobbies, and Administrator-permission preflight for provisioning.
+The rebuild includes the thin Electron Admin Control Center, backend module/runtime foundations, shared scheduler, module registrations for ARK, Palworld, Minecraft, Warframe, The Division 2, Rust, Satisfactory, IdleOn and D&D, persistent Sentinal module consoles, Discord provisioning/reconciliation, temporary voice lobbies and permission preflight.
 
-Concrete backend provider implementations are also present for Division 2, Palworld, Warframe, Rust, Satisfactory and IdleOn, with shared HTTP, Source RCON, server-provider and native-provider transport foundations. Focused automated tests cover provider behavior, server providers, scheduler behavior, module contracts, consoles, provisioning, permissions and backend runtime behavior.
+Concrete backend providers are present for Division 2, Palworld, Warframe, Rust, Satisfactory and IdleOn, with shared HTTP, Source RCON, server-provider and native-provider foundations.
 
-PR #287 established an exact-head automated owner-test baseline on `5624e7628581f1f8f89d09cfb873564317ebf58a`: Nexus Rebuild CI passed, 63/63 automated tests passed, Windows structure/syntax checks and Windows tests passed, NSIS packaging passed, and `Khaos-Nexus-0.1.0-Setup.exe` was uploaded as the owner-test artifact. This is build/package evidence only; live-provider validation, owner acceptance, and public/stable release remain separate gates.
+Accounts & Access is now merged through PR #288: household Owner/Co-Owner records, Discord OAuth linking, one-time pairing codes, and Sentinal `/nexus link` / `/nexus account` flows are implemented. Owner-environment OAuth and second-account pairing still require explicit validation.
+
+Provider validation is also merged. PR #290 added an authenticated read-only backend validation endpoint with predefined viewer-safe probes, and PR #291 exposed it in the Admin Control Center as **Live Provider Validation** without moving provider logic into the renderer. Palworld is the first recommended real-provider acceptance target.
+
+The latest exact implementation head with completed rebuild CI is PR #291 head `88168acd6be4591c96d6e5eaa6b71de98e9556cf`: Nexus Rebuild CI passed, including repository checks/tests, the Windows job, `npm run dist:win`, and artifact upload. PR #291 then merged into `rebuild/nexus-0.1` as `a7cfcdd59083db975137945ac6f48027668bc659`. This is automated build/package evidence only; live-provider validation, owner acceptance and public/stable release remain separate gates.
+
+Draft PR #292 proposes deeper private Thora controls for the owner household. It is not merged and is not part of the active implementation baseline yet.
 
 ## Roadmap
 
 The canonical roadmap/status handoff is [`docs/NEXUS_ROADMAP_STATUS.md`](docs/NEXUS_ROADMAP_STATUS.md).
 
-- **Now — Rebuild foundation:** automated baseline is green; exercise the packaged Admin Control Center on the owner Windows environment while continuing to stabilize the thin admin desktop, backend contract, Sentinal setup/reconciliation, permissions/redaction boundaries, and exact commit/artifact correlation.
-- **Next — Provider-backed game services:** concrete provider implementations now exist for multiple modules; continue hardening and live/provider validation behind the shared backend contract instead of putting game logic back into Electron or Discord handlers.
-- **Then — Sentinal operational acceptance:** validate `/nexus setup`, persistent consoles, degraded-backend behavior, permissions/confirmations, restart recovery, temporary lobby lifecycle, and Veyra/D&D presentation on real Discord infrastructure.
+- **Now — Rebuild foundation:** automated baseline is green; owner-test the packaged Admin Control Center plus merged Accounts & Access flows while continuing to stabilize the thin admin desktop, backend contract, Sentinal setup/reconciliation, permissions/redaction boundaries and exact commit/artifact correlation.
+- **Next — Provider-backed game services:** the guarded read-only validation path is merged; exercise Palworld first and then other supported providers against real configured services while keeping destructive actions outside validation and game logic out of Electron/Discord handlers.
+- **Then — Sentinal operational acceptance:** validate `/nexus setup`, persistent consoles, degraded-backend behavior, permissions/confirmations, restart recovery, temporary lobby lifecycle and Veyra/D&D presentation on real Discord infrastructure.
 - **Release hardening:** establish one rebuild release identity, correlate tested commit and installer artifacts, validate diagnostics/update/recovery paths, and keep public/stable publication behind a separate explicit owner decision.
-- **Later — Selective migration and expansion:** port only legacy behavior that fits the backend/admin/Sentinal architecture, expand capability-driven game services, keep routine game dashboards out of the desktop, and consider future web/public surfaces only when they support rather than duplicate protected authority.
+- **Later — Selective migration and expansion:** port only legacy behavior that fits the backend/admin/Sentinal architecture, expand capability-driven game services, keep routine game dashboards out of the desktop, integrate Thora through the approved private bridge, and consider future web/public surfaces only when they support rather than duplicate protected authority.
 
 The earlier self-hosted web + Windows Agent roadmap is no longer the immediate successor phase for Nexus 0.1.
 
