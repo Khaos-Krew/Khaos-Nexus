@@ -50,13 +50,14 @@ function safeValidation(moduleId, validation = {}) {
 }
 
 class HostedProviderStore {
-  constructor({ root = process.cwd(), token = '', templateConfig }) {
+  constructor({ root = process.cwd(), dataDir = '', token = '', templateConfig }) {
     this.root = root;
+    this.dataDir = dataDir ? path.resolve(dataDir) : path.join(root, 'data');
     this.token = String(token || '');
     this.key = keyFromToken(this.token);
     this.templateConfig = clone(templateConfig || {});
-    this.file = path.join(root, 'data', 'hosted-provider-config.json');
-    this.runtimeFile = path.join(root, 'data', 'hosted-runtime-config.json');
+    this.file = path.join(this.dataDir, 'hosted-provider-config.json');
+    this.runtimeFile = path.join(this.dataDir, 'hosted-runtime-config.json');
   }
 
   empty() { return { version: 1, modules: {}, secrets: {}, validations: {}, updatedAt: null }; }
@@ -158,9 +159,10 @@ class HostedProviderStore {
 
 function bootstrapHostedProviderStore(options = {}) {
   const root = options.root || process.cwd();
+  const dataDir = options.dataDir || process.env.NEXUS_DATA_DIR || '';
   const templatePath = options.templatePath || path.join(root, 'config.example.json');
   const templateConfig = options.templateConfig || JSON.parse(fs.readFileSync(templatePath, 'utf8'));
-  const store = new HostedProviderStore({ root, token: options.token || process.env.NEXUS_SENTINAL_ADMIN_TOKEN || '', templateConfig });
+  const store = new HostedProviderStore({ root, dataDir, token: options.token || process.env.NEXUS_SENTINAL_ADMIN_TOKEN || '', templateConfig });
   const runtimeFile = store.materializeRuntimeConfig();
   const secretState = store.applySecrets();
   process.env.NEXUS_CONFIG = runtimeFile;
