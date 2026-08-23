@@ -9,11 +9,19 @@ class HttpProvider {
     this.token = envSecret(config.tokenEnv);
     this.connected = true;
     this.providerKind = 'external-http';
+    this.supportedActions = Array.isArray(config.actions)
+      ? [...new Set(config.actions.map((value) => String(value || '').trim().toLowerCase()).filter(Boolean))]
+      : undefined;
     if (!this.baseUrl) throw new Error(`${moduleId}: HTTP provider requires baseUrl.`);
   }
 
   async invoke(actionId, payload = {}, context = {}) {
-    const headers = { 'content-type': 'application/json', 'x-nexus-role': context.role || 'viewer', 'x-nexus-actor': context.actorId || '' };
+    const headers = {
+      'content-type': 'application/json',
+      'x-nexus-role': context.role || 'viewer',
+      'x-nexus-actor': context.actorId || '',
+      'x-nexus-confirmed': context.confirmed === true ? 'true' : 'false'
+    };
     if (this.token) headers.authorization = `Bearer ${this.token}`;
     const response = await fetch(`${this.baseUrl}/actions/${encodeURIComponent(actionId)}`, {
       method: 'POST',
