@@ -24,6 +24,7 @@
   "build": {
     "appId": "com.khaosnexus.admin",
     "productName": "Khaos Nexus",
+    "artifactName": "Khaos-Nexus-${version}-Setup.${ext}",
     "directories": { "output": "dist" },
     "files": ["src/**/*", "config.example.json", "package.json", "README.md", "REBUILD_SCOPE.md"],
     "asar": true,
