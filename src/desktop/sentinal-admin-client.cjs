@@ -13,9 +13,7 @@ class SentinalAdminClient {
     this.fetchImpl = options.fetchImpl || global.fetch;
   }
 
-  configured() {
-    return Boolean(this.baseUrl);
-  }
+  configured() { return Boolean(this.baseUrl); }
 
   async request(path, options = {}) {
     if (!this.baseUrl) return { ok: false, code: 'SENTINAL_ADMIN_NOT_CONFIGURED', message: 'Configure the Nexus Sentinal admin URL first.' };
@@ -37,6 +35,8 @@ class SentinalAdminClient {
 
   health() { return this.request('/health', { timeoutMs: 5000 }); }
   status() { return this.request('/v1/status'); }
+  config() { return this.request('/v1/config'); }
+  configure(settings) { return this.request('/v1/config', { method: 'POST', body: JSON.stringify(settings || {}) }); }
   permissions() { return this.request('/v1/permissions'); }
   commands() { return this.request('/v1/commands'); }
   channels(moduleId = '') { return this.request(`/v1/channels${moduleId ? `?module=${encodeURIComponent(moduleId)}` : ''}`); }
