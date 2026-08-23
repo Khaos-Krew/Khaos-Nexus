@@ -87,7 +87,7 @@ function createSentinalAdminServer(options = {}) {
   const getController = typeof options.getController === 'function' ? options.getController : () => options.controller || null;
   const logger = options.logger || console;
   const pairingAllowed = createPairingLimiter();
-  if (!LOOPBACK.has(host) && !validAdminToken(token)) throw new Error('Sentinal admin API requires a protected token of at least 32 non-whitespace characters before it can listen outside loopback.');
+  if (!LOOPBACK.has(host) && !validAdminToken(token)) throw new Error('Sentinal admin API requires a token of at least 32 non-whitespace characters before it can listen outside loopback.');
 
   function authorized(req) {
     if (!token) return LOOPBACK.has(host);
