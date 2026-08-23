@@ -11,6 +11,7 @@ const { hasAdministrator, assertAdministrator } = require('./discord-permissions
 const { parseActionId, renderModuleConsole, renderHelp } = require('./module-console.cjs');
 const { formatActionResult: renderActionResult } = require('./action-formatters.cjs');
 const { marketCommand } = require('./commands.cjs');
+const { commandDefinitions: friendlyCommandDefinitions, commandNames: friendlyCommandNames, isFriendlyCommand, resolveFriendlyCommand } = require('./friendly-commands.cjs');
 const { SentinalAdminOps } = require('./admin-ops.cjs');
 const { createSentinalAdminServer } = require('./admin-server.cjs');
 
@@ -223,7 +224,7 @@ async function repairAllModules(interaction) {
 function nexusCommand() {
   return new SlashCommandBuilder()
     .setName('nexus')
-    .setDescription('Nexus Sentinal module tools')
+    .setDescription('Nexus Sentinal setup and administration')
     .addSubcommand((sub) => sub.setName('setup').setDescription('Detect/reuse a game category or build a new module layout'))
     .addSubcommand((sub) => sub
       .setName('link')
@@ -244,7 +245,7 @@ function nexusCommand() {
     .addSubcommand((sub) => sub.setName('modules').setDescription('Show Nexus module Discord/backend status'))
     .addSubcommand((sub) => sub
       .setName('features')
-      .setDescription('Show all backend features and action ids for a module')
+      .setDescription('Show the easy commands for a module')
       .addStringOption((opt) => opt.setName('module').setDescription('Game module').setRequired(true).addChoices(...moduleChoices())))
     .addSubcommand((sub) => sub
       .setName('refresh')
@@ -252,21 +253,21 @@ function nexusCommand() {
       .addStringOption((opt) => opt.setName('module').setDescription('Game module').setRequired(true).addChoices(...moduleChoices())))
     .addSubcommand((sub) => sub
       .setName('run')
-      .setDescription('Run a backend game-module action')
+      .setDescription('Advanced compatibility tool for backend actions')
       .addStringOption((opt) => opt.setName('module').setDescription('Game module').setRequired(true).addChoices(...moduleChoices()))
-      .addStringOption((opt) => opt.setName('action').setDescription('Backend action; suggestions follow the selected module').setRequired(true).setAutocomplete(true))
-      .addStringOption((opt) => opt.setName('input').setDescription('Optional action input')));
+      .addStringOption((opt) => opt.setName('action').setDescription('Advanced backend action').setRequired(true).setAutocomplete(true))
+      .addStringOption((opt) => opt.setName('input').setDescription('Advanced action input')));
 }
 
 async function registerCommands(guild) {
-  const definitions = [nexusCommand(), marketCommand()];
+  const definitions = [nexusCommand(), marketCommand(), ...friendlyCommandDefinitions()];
   const commands = await guild.commands.fetch();
   for (const command of definitions) {
     const existing = commands.find((item) => item.name === command.name);
     if (existing) await guild.commands.edit(existing, command.toJSON());
     else await guild.commands.create(command.toJSON());
   }
-  console.log(`[Nexus Sentinal] registered /nexus and /market in guild ${guild.id} without replacing unrelated commands`);
+  console.log(`[Nexus Sentinal] registered ${definitions.map((item) => `/${item.name}`).join(', ')} in guild ${guild.id} without replacing unrelated commands`);
 }
 
 function formatActionResult(moduleId, actionId, result) {
@@ -300,6 +301,12 @@ async function autocompleteActions(interaction) {
     .slice(0, 25)
     .map((capability) => ({ name: `${capability.label} (${capability.id})`.slice(0, 100), value: capability.id }));
   return interaction.respond(choices);
+}
+
+function friendlyResponsePrivate(invocation) {
+  const module = getModule(invocation.moduleId);
+  const capability = module?.capabilities.find((item) => item.id === invocation.actionId);
+  return Boolean(capability && (capability.destructive || capability.requiredRole !== 'viewer'));
 }
 
 client.once(Events.ClientReady, async () => {
@@ -371,6 +378,14 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.deferReply();
       const item = interaction.options.getString('item', true).trim();
       return interaction.editReply(await runAction(interaction, 'warframe', 'market', { item, input: item }));
+    }
+
+    if (interaction.isChatInputCommand() && isFriendlyCommand(interaction.commandName)) {
+      const invocation = resolveFriendlyCommand(interaction);
+      if (!invocation) return interaction.reply({ content: 'That module command is not available.', flags: MessageFlags.Ephemeral });
+      if (friendlyResponsePrivate(invocation)) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      else await interaction.deferReply();
+      return interaction.editReply(await runAction(interaction, invocation.moduleId, invocation.actionId, invocation.payload));
     }
 
     if (!interaction.isChatInputCommand() || interaction.commandName !== 'nexus') return;
