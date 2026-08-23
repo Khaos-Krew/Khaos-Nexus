@@ -24,10 +24,15 @@ function installRoleMenuExtension() {
       try {
         const guild = await this.guilds.fetch(guildId);
         const result = await manager.reconcile(guild);
-        if (result.skipped) console.warn(`[Nexus Sentinal] module access menu skipped (${reason}): ${result.reason}`);
-        else console.log(`[Nexus Sentinal] module access menu reconciled (${reason}): roles=${result.roles} messages=${result.messages} warnings=${result.warnings.length}`);
+        if (result.skipped) {
+          console.warn(`[Nexus Sentinal] module access menu skipped (${reason}): ${result.reason}`);
+        } else {
+          console.log(`[Nexus Sentinal] module access menu reconciled (${reason}): roles=${result.roles} messages=${result.messages} warnings=${result.warnings.length}`);
+          for (const warning of result.warnings || []) console.warn(`[Nexus Sentinal] module access warning (${reason}): ${warning}`);
+        }
         const rules = await manager.removeRulesWebsiteLinks(guild);
-        if (rules.edited || rules.deleted) console.log(`[Nexus Sentinal] rules website cleanup (${reason}): edited=${rules.edited} deleted=${rules.deleted}`);
+        if (rules.skipped) console.warn(`[Nexus Sentinal] rules website cleanup skipped (${reason}): ${rules.reason}`);
+        else if (rules.edited || rules.deleted) console.log(`[Nexus Sentinal] rules website cleanup (${reason}): edited=${rules.edited} deleted=${rules.deleted}`);
       } catch (error) {
         console.error(`[Nexus Sentinal] module access reconciliation (${reason}):`, error);
       }
