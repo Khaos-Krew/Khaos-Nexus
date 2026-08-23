@@ -4,6 +4,14 @@ const { getModule } = require('../backend/modules/catalog.cjs');
 const { usageForModule } = require('./friendly-commands.cjs');
 
 const CUSTOM_ID_PREFIX = 'nexusmod';
+const POGO_COMMANDS = Object.freeze([
+  '/pogo panel', '/pogo profile show', '/pogo profile set', '/pogo friends',
+  '/pogo raid list', '/pogo raid create', '/pogo raid rsvp', '/pogo raid cancel',
+  '/pogo trade list', '/pogo trade add', '/pogo trade matches', '/pogo trade remove',
+  '/pogo vivillon', '/pogo collection list', '/pogo collection add', '/pogo collection remove',
+  '/pogo showcase list', '/pogo showcase add', '/pogo meetup list', '/pogo meetup create', '/pogo meetup rsvp',
+  '/pogo event list', '/pogo event add', '/pogo event remove', '/pogo counter', '/pogo pvp'
+]);
 
 function actionId(moduleId, actionId) { return `${CUSTOM_ID_PREFIX}:${moduleId}:${actionId}`; }
 
@@ -19,6 +27,7 @@ function style(cap) {
 }
 
 function buttonCapabilities(module) { return module.capabilities.filter((cap) => cap.button !== false).slice(0, 20); }
+function friendlyUsage(moduleId) { return moduleId === 'pokemongo' ? [...POGO_COMMANDS] : usageForModule(moduleId); }
 
 function renderModuleConsole(moduleId, backendState = {}) {
   const module = getModule(moduleId);
@@ -68,7 +77,7 @@ function renderModuleConsole(moduleId, backendState = {}) {
     inline: false
   });
 
-  const friendly = usageForModule(moduleId);
+  const friendly = friendlyUsage(moduleId);
   const commandHint = friendly.length
     ? `Try **${friendly[0]}** or press **Commands / Help** for the full easy command list.`
     : module.surface === 'veyra'
@@ -90,7 +99,7 @@ function renderModuleConsole(moduleId, backendState = {}) {
 function renderHelp(moduleId) {
   const module = getModule(moduleId);
   if (!module) throw new Error(`Unknown module: ${moduleId}`);
-  const commands = usageForModule(moduleId);
+  const commands = friendlyUsage(moduleId);
   if (!commands.length) {
     return {
       embeds: [{
@@ -111,4 +120,4 @@ function renderHelp(moduleId) {
   };
 }
 
-module.exports = { actionId, parseActionId, renderModuleConsole, renderHelp, buttonCapabilities };
+module.exports = { actionId, parseActionId, renderModuleConsole, renderHelp, buttonCapabilities, friendlyUsage };
