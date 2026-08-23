@@ -7,9 +7,10 @@ COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 
 COPY src ./src
+COPY scripts ./scripts
 COPY tests ./tests
 COPY config.example.json ./config.example.json
 
-RUN npm test
+RUN npm run check && npm test
 
 CMD ["node", "src/railway/sentinal-service.cjs"]
