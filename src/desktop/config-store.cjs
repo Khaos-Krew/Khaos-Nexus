@@ -69,6 +69,11 @@ function safeDiscordRedirect(value, fallback = 'http://127.0.0.1:53117/callback'
   }
 }
 
+function safeUpdateChannel(value, fallback = 'owner-test') {
+  const channel = safeText(value, 40).toLowerCase();
+  return ['owner-test', 'stable'].includes(channel) ? channel : fallback;
+}
+
 function normalizeServer(server = {}, previous = {}) {
   return {
     ...previous,
@@ -142,6 +147,11 @@ function applyPublicSettings(currentConfig, input = {}) {
   config.thora.enabled = safeBoolean(input.thora?.enabled, Boolean(config.thora.enabled));
   config.thora.executablePath = safeText(input.thora?.executablePath, 1200);
 
+  config.updates ||= {};
+  config.updates.enabled = safeBoolean(input.updates?.enabled, config.updates.enabled !== false);
+  config.updates.channel = safeUpdateChannel(input.updates?.channel, safeUpdateChannel(config.updates.channel));
+  config.updates.autoDownload = safeBoolean(input.updates?.autoDownload, config.updates.autoDownload !== false);
+
   config.modules ||= {};
   const incomingModules = input.modules && typeof input.modules === 'object' ? input.modules : {};
   for (const [moduleId, existing] of Object.entries(config.modules)) {
@@ -181,6 +191,11 @@ function publicSettings(config) {
     thora: {
       enabled: config.thora?.enabled === true,
       executablePath: config.thora?.executablePath || ''
+    },
+    updates: {
+      enabled: config.updates?.enabled !== false,
+      channel: safeUpdateChannel(config.updates?.channel),
+      autoDownload: config.updates?.autoDownload !== false
     },
     modules
   };
@@ -251,5 +266,6 @@ module.exports = {
   publicSettings,
   readJson,
   runtimeConfig,
+  safeUpdateChannel,
   saveUserConfig
 };
