@@ -4,6 +4,7 @@ const { Client, Events, MessageFlags } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { BackendClient } = require('./backend-client.cjs');
 const { pogoCommand, handlePokemonGoCommand, handlePokemonGoButton } = require('./pokemon-go.cjs');
+const { handlePokemonGoEventList } = require('./pokemon-go-event-ui.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.pogo.extension');
 
@@ -48,6 +49,9 @@ function installPokemonGoExtension() {
 
       try {
         if (isPogoButton) return handlePokemonGoButton(interaction, { backend, roleFor });
+        const group = interaction.options.getSubcommandGroup(false);
+        const sub = interaction.options.getSubcommand(false);
+        if (group === 'event' && sub === 'list') return handlePokemonGoEventList(interaction, { backend, roleFor });
         return handlePokemonGoCommand(interaction, { backend, roleFor });
       } catch (error) {
         const content = `⚠️ ${String(error?.message || error)}`.slice(0, 1900);
