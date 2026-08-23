@@ -56,7 +56,11 @@ function setupStart() {
         placeholder: 'Choose a game module',
         min_values: 1,
         max_values: 1,
-        options: MODULES.map((module) => ({ label: module.name.slice(0, 100), value: module.id, description: `${module.console === false ? 'Veyra' : 'Sentinal'} surface • reconcile Discord channels`.slice(0, 100) }))
+        options: MODULES.map((module) => ({
+          label: module.name.slice(0, 100),
+          value: module.id,
+          description: `${module.console === false ? 'Veyra' : 'Sentinal'} surface • reconcile Discord channels`.slice(0, 100)
+        }))
       }]
     }]
   };
@@ -77,7 +81,12 @@ function createPending(interaction, moduleId, actionId, payload) {
 
 async function manifestState(moduleId) {
   const result = await backend.modules();
-  return result.modules?.find((module) => module.id === moduleId) || { id: moduleId, enabled: true, configured: false };
+  return result.modules?.find((module) => module.id === moduleId) || {
+    id: moduleId,
+    enabled: true,
+    configured: false,
+    connected: false
+  };
 }
 
 async function retireOldConsole(saved, newChannelId) {
@@ -103,17 +112,28 @@ async function ensureConsole(moduleId) {
   await retireOldConsole(saved, channel.id);
   let message = null;
   if (saved?.messageId && saved.channelId === String(channel.id)) {
-    try { message = await channel.messages.fetch(saved.messageId); await message.edit(payload); } catch { message = null; }
+    try {
+      message = await channel.messages.fetch(saved.messageId);
+      await message.edit(payload);
+    } catch {
+      message = null;
+    }
   }
   if (!message) message = await channel.send(payload);
-  state.setConsole(moduleId, { guildId, channelId: String(channel.id), messageId: String(message.id), updatedAt: new Date().toISOString() });
+  state.setConsole(moduleId, {
+    guildId,
+    channelId: String(channel.id),
+    messageId: String(message.id),
+    updatedAt: new Date().toISOString()
+  });
   return message;
 }
 
 async function ensureAllConsoles() {
   const moduleIds = new Set([...Object.keys(config.modules || {}), ...Object.keys(state.listModuleSetups())]);
   for (const moduleId of moduleIds) {
-    try { await ensureConsole(moduleId); } catch (error) { console.error(`[Sentinal] ${moduleId} console:`, error.message); }
+    try { await ensureConsole(moduleId); }
+    catch (error) { console.error(`[Sentinal] ${moduleId} console:`, error.message); }
   }
 }
 
@@ -143,21 +163,36 @@ async function provisionModule(interaction, moduleId) {
   return { content: setupSummary(module, setup, consoleMessage), components: [] };
 }
 
-async function repairModules(interaction, requestedModuleId = '') {
+async function repairModuleIds(interaction, moduleIds, title) {
   if (!canSetup(interaction)) throw new Error('Module repair requires Nexus owner access or Discord Manage Server permission.');
   assertAdministrator(interaction.guild);
-  const moduleIds = requestedModuleId ? [requestedModuleId] : await provisioner.discoverModuleIds(interaction.guild);
-  if (!moduleIds.length) return 'No existing Nexus module categories were detected. Run `/nexus setup` to install the first module.';
 
   const lines = [];
   for (const moduleId of moduleIds) {
     const module = getModule(moduleId);
     if (!module) continue;
-    const setup = await provisioner.provision(interaction.guild, moduleId);
-    await ensureConsole(moduleId);
-    lines.push(`✅ **${module.name}** — ${setup.createdChannels.length ? `restored ${setup.createdChannels.length} missing channel${setup.createdChannels.length === 1 ? '' : 's'}` : 'layout already complete'}`);
+    try {
+      const setup = await provisioner.provision(interaction.guild, moduleId);
+      await ensureConsole(moduleId);
+      const changes = [];
+      if (setup.categoryCreated) changes.push('created category');
+      if (setup.createdChannels.length) changes.push(`restored ${setup.createdChannels.length} channel${setup.createdChannels.length === 1 ? '' : 's'}`);
+      lines.push(`✅ **${module.name}** — ${changes.length ? changes.join(' • ') : 'layout already complete'}`);
+    } catch (error) {
+      lines.push(`⚠️ **${module.name}** — ${String(error?.message || error).slice(0, 160)}`);
+    }
   }
-  return `**Nexus repair complete**\n${lines.join('\n')}`;
+  return `**${title}**\n${lines.join('\n')}`;
+}
+
+async function repairModules(interaction, requestedModuleId = '') {
+  const moduleIds = requestedModuleId ? [requestedModuleId] : await provisioner.discoverModuleIds(interaction.guild);
+  if (!moduleIds.length) return 'No existing Nexus module categories were detected. Run `/nexus setup` or `/nexus repair-all`.';
+  return repairModuleIds(interaction, moduleIds, 'Nexus repair complete');
+}
+
+async function repairAllModules(interaction) {
+  return repairModuleIds(interaction, MODULES.map((module) => module.id), 'Nexus Repair All complete');
 }
 
 function nexusCommand() {
@@ -167,15 +202,26 @@ function nexusCommand() {
     .addSubcommand((sub) => sub.setName('setup').setDescription('Detect/reuse a game category or build a new module layout'))
     .addSubcommand((sub) => sub
       .setName('repair')
-      .setDescription('Repair missing module channels and consoles')
+      .setDescription('Repair an installed module or all detected module layouts')
       .addStringOption((opt) => opt
         .setName('module')
-        .setDescription('Optional module to repair; omit to repair all detected modules')
+        .setDescription('Optional module to repair; omit to repair detected modules')
         .setRequired(false)
         .addChoices(...MODULES.map((module) => ({ name: module.name.slice(0, 100), value: module.id })))))
+    .addSubcommand((sub) => sub
+      .setName('repair-all')
+      .setDescription('Create or repair every Nexus module category, channel, lobby, and console'))
     .addSubcommand((sub) => sub.setName('modules').setDescription('Show Nexus module Discord status'))
-    .addSubcommand((sub) => sub.setName('refresh').setDescription('Refresh a module console').addStringOption((opt) => opt.setName('module').setDescription('Module id').setRequired(true)))
-    .addSubcommand((sub) => sub.setName('run').setDescription('Run an advanced module action').addStringOption((opt) => opt.setName('module').setDescription('Module id').setRequired(true)).addStringOption((opt) => opt.setName('action').setDescription('Action id').setRequired(true)).addStringOption((opt) => opt.setName('input').setDescription('Optional text input')));
+    .addSubcommand((sub) => sub
+      .setName('refresh')
+      .setDescription('Refresh a module console')
+      .addStringOption((opt) => opt.setName('module').setDescription('Module id').setRequired(true)))
+    .addSubcommand((sub) => sub
+      .setName('run')
+      .setDescription('Run an advanced module action')
+      .addStringOption((opt) => opt.setName('module').setDescription('Module id').setRequired(true))
+      .addStringOption((opt) => opt.setName('action').setDescription('Action id').setRequired(true))
+      .addStringOption((opt) => opt.setName('input').setDescription('Optional text input')));
 }
 
 async function registerCommands(guild) {
@@ -188,13 +234,20 @@ async function registerCommands(guild) {
 }
 
 async function runAction(interaction, moduleId, actionId, payload = {}) {
-  const result = await backend.invoke(moduleId, actionId, payload, { role: roleFor(interaction), actorId: String(interaction.user.id), confirmed: false });
+  const result = await backend.invoke(moduleId, actionId, payload, {
+    role: roleFor(interaction),
+    actorId: String(interaction.user.id),
+    confirmed: false
+  });
   if (result.code === 'CONFIRMATION_REQUIRED') {
     const nonce = createPending(interaction, moduleId, actionId, payload);
     return { content: `⚠️ **Confirmation required**\n${result.message}`, components: confirmationRow(nonce) };
   }
   if (!result.ok) return { content: `⚠️ ${result.message || result.code}`, components: [] };
-  return { content: `✅ ${getModule(moduleId)?.name || moduleId}: ${actionId} completed.\n\`\`\`${JSON.stringify(result.data, null, 2).slice(0, 1600)}\`\`\``, components: [] };
+  return {
+    content: `✅ ${getModule(moduleId)?.name || moduleId}: ${actionId} completed.\n\`\`\`${JSON.stringify(result.data, null, 2).slice(0, 1600)}\`\`\``,
+    components: []
+  };
 }
 
 client.once(Events.ClientReady, async () => {
@@ -220,7 +273,9 @@ client.on('voiceStateUpdate', (oldState, newState) => {
 client.on('interactionCreate', async (interaction) => {
   try {
     if (interaction.isStringSelectMenu() && interaction.customId === 'nexussetup:module') {
-      if (!canSetup(interaction)) return interaction.reply({ content: 'Module setup requires Nexus owner access or Discord Manage Server permission.', flags: MessageFlags.Ephemeral });
+      if (!canSetup(interaction)) {
+        return interaction.reply({ content: 'Module setup requires Nexus owner access or Discord Manage Server permission.', flags: MessageFlags.Ephemeral });
+      }
       assertAdministrator(interaction.guild);
       await interaction.deferUpdate();
       return interaction.editReply(await provisionModule(interaction, interaction.values[0]));
@@ -234,18 +289,32 @@ client.on('interactionCreate', async (interaction) => {
           pending.delete(confirm[2]);
           return interaction.reply({ content: 'That confirmation expired. Run the action again.', flags: MessageFlags.Ephemeral });
         }
-        if (item.userId !== String(interaction.user.id)) return interaction.reply({ content: 'Only the user who requested this action can confirm it.', flags: MessageFlags.Ephemeral });
+        if (item.userId !== String(interaction.user.id)) {
+          return interaction.reply({ content: 'Only the user who requested this action can confirm it.', flags: MessageFlags.Ephemeral });
+        }
         pending.delete(confirm[2]);
         if (confirm[1] === 'nexuscancel') return interaction.update({ content: 'Action cancelled.', components: [] });
         await interaction.deferUpdate();
-        const result = await backend.invoke(item.moduleId, item.actionId, item.payload, { role: item.role, actorId: item.userId, confirmed: true });
-        return interaction.editReply({ content: result.ok ? `✅ ${getModule(item.moduleId)?.name || item.moduleId}: ${item.actionId} completed.\n\`\`\`${JSON.stringify(result.data, null, 2).slice(0, 1600)}\`\`\`` : `⚠️ ${result.message || result.code}`, components: [] });
+        const result = await backend.invoke(item.moduleId, item.actionId, item.payload, {
+          role: item.role,
+          actorId: item.userId,
+          confirmed: true
+        });
+        return interaction.editReply({
+          content: result.ok
+            ? `✅ ${getModule(item.moduleId)?.name || item.moduleId}: ${item.actionId} completed.\n\`\`\`${JSON.stringify(result.data, null, 2).slice(0, 1600)}\`\`\``
+            : `⚠️ ${result.message || result.code}`,
+          components: []
+        });
       }
 
       const parsed = parseActionId(interaction.customId);
       if (!parsed) return;
       if (parsed.actionId === 'help') return interaction.reply(renderHelp(parsed.moduleId));
-      if (parsed.actionId === 'refresh') { await ensureConsole(parsed.moduleId); return interaction.reply({ content: 'Module console refreshed.', flags: MessageFlags.Ephemeral }); }
+      if (parsed.actionId === 'refresh') {
+        await ensureConsole(parsed.moduleId);
+        return interaction.reply({ content: 'Module console refreshed.', flags: MessageFlags.Ephemeral });
+      }
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       return interaction.editReply(await runAction(interaction, parsed.moduleId, parsed.actionId, {}));
     }
@@ -267,13 +336,16 @@ client.on('interactionCreate', async (interaction) => {
       const moduleId = interaction.options.getString('module') || '';
       return interaction.editReply(await repairModules(interaction, moduleId));
     }
+    if (sub === 'repair-all') {
+      return interaction.editReply(await repairAllModules(interaction));
+    }
     if (sub === 'modules') {
       const result = await backend.modules();
       const discovered = new Set(await provisioner.discoverModuleIds(interaction.guild));
       const admin = hasAdministrator(interaction.guild) ? 'Administrator ready' : '⚠️ Administrator missing';
       const lines = [`**Sentinal:** ${admin}`, ...(result.modules || []).map((m) => {
         const discordStatus = discovered.has(m.id) ? 'Discord ready' : 'not set up';
-        const connection = m.configured ? ' • connected' : '';
+        const connection = m.connected === true ? ' • connected' : '';
         return `${m.enabled ? '🟢' : '⚫'} **${m.name}** — ${discordStatus}${connection}`;
       })];
       return interaction.editReply({ content: lines.join('\n') || 'No modules registered.' });
