@@ -60,7 +60,7 @@ These are implementation facts, not release or owner-acceptance claims. The pres
 
 Status: **AUTOMATED REBUILD BASELINE GREEN — OWNER/LIVE VALIDATION STILL REQUIRED**
 
-PR #287 (`Desktop 0.1 testable Admin Control Center`) was merged by fast-forward into `rebuild/nexus-0.1` at exact head `5624e7628581f1f8f89d09cfb873564317ebf58a`. That commit is also the current rebuild branch head at this synchronization point.
+PR #287 (`Desktop 0.1 testable Admin Control Center`) was merged by fast-forward into `rebuild/nexus-0.1` at exact head `5624e7628581f1f8f89d09cfb873564317ebf58a`. That commit remains the latest validated implementation head; later documentation-only commits have advanced the branch without changing the implementation evidence established on that SHA.
 
 Exact-head evidence establishes:
 
