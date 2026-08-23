@@ -1,6 +1,6 @@
 'use strict';
 
-const { Client, Events } = require('discord.js');
+const { Client, Events, MessageFlags } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { clearCommand, handleClearCommand } = require('./moderation-commands.cjs');
 
@@ -43,7 +43,7 @@ function installModerationExtension() {
         const content = `⚠️ ${String(error?.message || error)}`.slice(0, 1900);
         try {
           if (interaction.deferred || interaction.replied) await interaction.editReply({ content });
-          else await interaction.reply({ content, ephemeral: true });
+          else await interaction.reply({ content, flags: MessageFlags.Ephemeral });
         } catch (replyError) {
           console.error('[Nexus Sentinal] /clear response error:', replyError);
         }
