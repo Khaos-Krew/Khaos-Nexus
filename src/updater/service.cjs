@@ -183,21 +183,23 @@ class StagedUpdater {
     ensureDirectory(this.updateRoot);
     const persisted = readJson(this.statePath, {});
     const lastResult = readJson(this.lastResultPath, null);
+    const persistedChannelMatches = Boolean(persisted.channel) && normalizeChannel(persisted.channel) === this.channel;
+    const persistedReady = persistedChannelMatches && persisted.phase === 'ready' && persisted.readyVersion && persisted.stagePath && fs.existsSync(persisted.stagePath);
     this.state = {
-      phase: persisted.phase === 'ready' && persisted.readyVersion && persisted.stagePath && fs.existsSync(persisted.stagePath) ? 'ready' : 'idle',
+      phase: persistedReady ? 'ready' : 'idle',
       currentVersion: this.currentVersion,
       channel: this.channel,
-      availableVersion: persisted.availableVersion || '',
-      releaseName: persisted.releaseName || '',
-      releaseUrl: persisted.releaseUrl || '',
-      notes: persisted.notes || '',
-      packageUrl: persisted.packageUrl || '',
-      packageName: persisted.packageName || '',
-      sha256: persisted.sha256 || '',
-      totalBytes: Number(persisted.totalBytes || 0),
+      availableVersion: persistedReady ? persisted.availableVersion || persisted.readyVersion || '' : '',
+      releaseName: persistedReady ? persisted.releaseName || '' : '',
+      releaseUrl: persistedReady ? persisted.releaseUrl || '' : '',
+      notes: persistedReady ? persisted.notes || '' : '',
+      packageUrl: persistedReady ? persisted.packageUrl || '' : '',
+      packageName: persistedReady ? persisted.packageName || '' : '',
+      sha256: persistedReady ? persisted.sha256 || '' : '',
+      totalBytes: persistedReady ? Number(persisted.totalBytes || 0) : 0,
       downloadedBytes: 0,
-      readyVersion: persisted.readyVersion || '',
-      stagePath: persisted.stagePath || '',
+      readyVersion: persistedReady ? persisted.readyVersion || '' : '',
+      stagePath: persistedReady ? persisted.stagePath || '' : '',
       lastError: '',
       lastCheckedAt: persisted.lastCheckedAt || '',
       lastResult
@@ -205,10 +207,41 @@ class StagedUpdater {
     this.persist();
   }
 
+  discardCandidate() {
+    const oldStagePath = String(this.state.stagePath || '');
+    if (oldStagePath) {
+      const stagingRoot = path.resolve(this.updateRoot, 'staging');
+      const resolvedStage = path.resolve(oldStagePath);
+      if (resolvedStage.startsWith(`${stagingRoot}${path.sep}`)) {
+        const versionRoot = path.dirname(resolvedStage);
+        try { fs.rmSync(versionRoot, { recursive: true, force: true }); } catch {}
+      }
+    }
+    this.state = {
+      ...this.state,
+      phase: 'idle',
+      availableVersion: '',
+      releaseName: '',
+      releaseUrl: '',
+      notes: '',
+      packageUrl: '',
+      packageName: '',
+      sha256: '',
+      totalBytes: 0,
+      downloadedBytes: 0,
+      readyVersion: '',
+      stagePath: '',
+      lastError: ''
+    };
+  }
+
   configure(options = {}) {
+    const nextChannel = normalizeChannel(options.channel || this.channel);
+    const channelChanged = nextChannel !== this.channel;
     this.enabled = options.enabled !== false;
     this.autoDownload = options.autoDownload !== false;
-    this.channel = normalizeChannel(options.channel || this.channel);
+    this.channel = nextChannel;
+    if (channelChanged) this.discardCandidate();
     this.state.channel = this.channel;
     this.persist();
   }
