@@ -81,10 +81,10 @@ function Restore-Backup {
 }
 
 function Wait-For-Exit {
-  param([int]$Pid, [int]$TimeoutSeconds = 60)
+  param([int]$ProcessId, [int]$TimeoutSeconds = 60)
   $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
   while ([DateTime]::UtcNow -lt $deadline) {
-    if (-not (Get-Process -Id $Pid -ErrorAction SilentlyContinue)) { return $true }
+    if (-not (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) { return $true }
     Start-Sleep -Milliseconds 200
   }
   return $false
@@ -108,7 +108,7 @@ $rollbackNeeded = $false
 $newProcess = $null
 
 try {
-  if (-not (Wait-For-Exit -Pid ([int]$tx.pid) -TimeoutSeconds 60)) {
+  if (-not (Wait-For-Exit -ProcessId ([int]$tx.pid) -TimeoutSeconds 60)) {
     throw 'Nexus did not exit in time for the staged update.'
   }
 
@@ -117,7 +117,8 @@ try {
   Apply-StagedPayload -StagedDir $stagedDir -TargetDir $targetDir
 
   Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue
-  $newProcess = Start-Process -FilePath $executablePath -ArgumentList @('--nexus-post-update', $transactionPath) -WorkingDirectory $targetDir -PassThru
+  $quotedTransaction = '"' + $transactionPath + '"'
+  $newProcess = Start-Process -FilePath $executablePath -ArgumentList @('--nexus-post-update', $quotedTransaction) -WorkingDirectory $targetDir -PassThru
 
   $deadline = [DateTime]::UtcNow.AddSeconds($startupTimeout)
   while ([DateTime]::UtcNow -lt $deadline) {
