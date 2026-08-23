@@ -97,7 +97,7 @@ async function currentState() {
     : { ok: false, modules: [] };
   const accounts = backendClient && backend?.ok
     ? await backendClient.accounts().catch((error) => ({ ok: false, message: error.message, accounts: [] }))
-    : { ok: false, modules: [], accounts: [] };
+    : { ok: false, accounts: [] };
   const secretNames = collectSecretEnvNames(storedConfig);
   return {
     version: app.getVersion(),
@@ -280,6 +280,25 @@ function startAutomaticUpdateCheck() {
   }, 2500);
 }
 
+async function confirmHealthyPostUpdate() {
+  if (!updater || !process.argv.includes('--nexus-post-update')) return false;
+  if (backendMode === 'error' || !backendClient) {
+    console.error('[Khaos Nexus] refusing post-update startup confirmation because the local backend did not start.');
+    return false;
+  }
+  const health = await backendClient.health().catch((error) => ({ ok: false, message: error.message }));
+  if (!health?.ok) {
+    console.error('[Khaos Nexus] refusing post-update startup confirmation because backend health failed:', health?.message || 'unknown error');
+    return false;
+  }
+  try {
+    return updater.confirmPostUpdateFromArgs(process.argv);
+  } catch (error) {
+    console.warn('[Khaos Nexus] update startup confirmation:', error.message);
+    return false;
+  }
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1380,
@@ -299,9 +318,8 @@ function createWindow() {
   win.removeMenu();
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event) => event.preventDefault());
-  win.webContents.once('did-finish-load', () => {
-    try { updater?.confirmPostUpdateFromArgs(process.argv); }
-    catch (error) { console.warn('[Khaos Nexus] update startup confirmation:', error.message); }
+  win.webContents.once('did-finish-load', async () => {
+    await confirmHealthyPostUpdate();
     startAutomaticUpdateCheck();
   });
   win.once('ready-to-show', () => win.show());
