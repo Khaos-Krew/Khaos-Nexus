@@ -6,6 +6,7 @@ const { loadConfig, envSecret } = require('../shared/config.cjs');
 const { BackendRuntime } = require('./core/runtime.cjs');
 const { providersFromConfig } = require('./providers/http-provider.cjs');
 const { nativeProvidersFromConfig } = require('./providers/native-providers.cjs');
+const { serverProvidersFromConfig } = require('./providers/server-providers.cjs');
 
 const config = loadConfig();
 const token = envSecret(config.backend?.serviceTokenEnv);
@@ -18,6 +19,7 @@ if (!loopback.has(host) && !token) {
 
 const providers = {
   ...nativeProvidersFromConfig(config),
+  ...serverProvidersFromConfig(config),
   ...providersFromConfig(config)
 };
 const runtime = new BackendRuntime({ config, providers });
