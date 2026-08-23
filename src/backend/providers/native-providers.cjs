@@ -1,29 +1,36 @@
 'use strict';
 
-const { WarframeProvider } = require('./warframe-provider.cjs');
+const { WarframeProvider, WARFRAME_ACTIONS } = require('./warframe-provider.cjs');
 const { Division2Provider, DIVISION2_ACTIONS } = require('./division2-provider.cjs');
-
-const WARFRAME_ACTIONS = Object.freeze([
-  'alerts', 'fissures', 'sortie', 'arbitration', 'nightwave', 'market', 'builds'
-]);
+const { IdleOnProvider, IDLEON_ACTIONS } = require('./idleon-provider.cjs');
 
 function nativeProvidersFromConfig(config = {}, options = {}) {
   const providers = {};
+
   if (config.modules?.warframe?.enabled !== false) {
-    const warframe = new WarframeProvider({
+    providers.warframe = new WarframeProvider({
       platform: config.modules?.warframe?.platform,
       marketPlatform: config.modules?.warframe?.marketPlatform,
+      worldstateBase: config.modules?.warframe?.worldstateBase,
+      marketBase: config.modules?.warframe?.marketBase,
       fetchImpl: options.fetchImpl
     });
-    warframe.supportedActions = [...WARFRAME_ACTIONS];
-    providers.warframe = warframe;
   }
+
   if (config.modules?.division2?.enabled !== false) {
-    const division2 = new Division2Provider({ fetchImpl: options.fetchImpl });
-    division2.supportedActions = [...DIVISION2_ACTIONS];
-    providers.division2 = division2;
+    providers.division2 = new Division2Provider({
+      baseUrl: config.modules?.division2?.dataBaseUrl,
+      newsUrl: config.modules?.division2?.newsUrl,
+      stateFile: config.modules?.division2?.stateFile,
+      fetchImpl: options.fetchImpl
+    });
   }
+
+  if (config.modules?.idleon?.enabled !== false) {
+    providers.idleon = new IdleOnProvider({ stateFile: config.modules?.idleon?.stateFile });
+  }
+
   return providers;
 }
 
-module.exports = { nativeProvidersFromConfig, WARFRAME_ACTIONS, DIVISION2_ACTIONS };
+module.exports = { nativeProvidersFromConfig, WARFRAME_ACTIONS, DIVISION2_ACTIONS, IDLEON_ACTIONS };
