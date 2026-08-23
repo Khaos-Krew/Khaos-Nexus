@@ -4,6 +4,7 @@ const { envSecret } = require('../../shared/config.cjs');
 const { SourceRconProvider } = require('./source-rcon-provider.cjs');
 const { PalworldProvider } = require('./palworld-provider.cjs');
 const { RustProvider } = require('./rust-provider.cjs');
+const { SatisfactoryProvider } = require('./satisfactory-provider.cjs');
 
 function env(name) {
   return String(process.env[name] || '').trim();
@@ -63,6 +64,18 @@ function serverProvidersFromConfig(config = {}) {
       ...rust,
       protocol: rust.protocol || env('NEXUS_RUST_RCON_PROTOCOL') || 'ws',
       rconName: rust.rconName || 'Khaos Nexus'
+    });
+  }
+
+  const satisfactory = configuredConnection(config.modules?.satisfactory, {
+    hostEnv: 'NEXUS_SATISFACTORY_HOST',
+    portEnv: 'NEXUS_SATISFACTORY_PORT',
+    passwordEnv: 'NEXUS_SATISFACTORY_TOKEN'
+  });
+  if (config.modules?.satisfactory?.enabled !== false && satisfactory) {
+    providers.satisfactory = new SatisfactoryProvider({
+      ...satisfactory,
+      tlsFingerprint: satisfactory.tlsFingerprint || env('NEXUS_SATISFACTORY_TLS_FINGERPRINT')
     });
   }
 
