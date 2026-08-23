@@ -54,27 +54,30 @@ Repository evidence on `rebuild/nexus-0.1` currently establishes:
 - a merged authenticated read-only provider-validation endpoint from PR #290 with predefined non-destructive viewer probes, redacted results, and safe skipping for disabled/unconfigured providers;
 - a merged Admin Control Center **Live Provider Validation** panel from PR #291 that invokes the backend validation endpoint rather than providers directly and exposes PASS / SKIPPED / FAIL without provider payload data;
 - Palworld selected as the first recommended real-provider acceptance target for the read-only validation flow;
+- a merged staged in-app updater from PR #293 that checks the approved GitHub channel, verifies SHA-256 and manifest metadata, stages a full update payload without rerunning NSIS, requires explicit Owner restart to apply, and uses an external helper with backup/startup-confirmation rollback behavior;
+- Owner Test and Stable updater channels kept separate, with installer-required manifests rejected fail-closed;
 - private Thora launch/status bridge boundaries; deeper private Thora controls are currently proposed in draft PR #292 and are not yet part of the active branch;
 - dedicated rebuild CI and Windows build workflow definitions;
 - a self-contained Admin Control Center owner-test installer path with desktop and Start Menu shortcuts.
 
-These are implementation facts, not release or owner-acceptance claims. The presence of provider code, account-linking code, validation UI, and automated tests does not establish live-provider correctness, production credentials, real-server compatibility, owner acceptance, or release readiness.
+These are implementation facts, not release or owner-acceptance claims. The presence of provider code, account-linking code, validation UI, updater code, and automated tests does not establish live-provider correctness, production credentials, real-server compatibility, successful owner update/rollback behavior, owner acceptance, or release readiness.
 
 ## Validation state
 
 Status: **AUTOMATED REBUILD BASELINE GREEN — OWNER/LIVE VALIDATION STILL REQUIRED**
 
-The original packaged rebuild baseline was PR #287 at `5624e7628581f1f8f89d09cfb873564317ebf58a`. Since then, Accounts & Access (PR #288), the read-only provider-validation backend (PR #290), and its Admin Control Center UI (PR #291) have merged into `rebuild/nexus-0.1`.
+The original packaged rebuild baseline was PR #287 at `5624e7628581f1f8f89d09cfb873564317ebf58a`. Since then, Accounts & Access (PR #288), the read-only provider-validation backend (PR #290), its Admin Control Center UI (PR #291), and the staged updater (PR #293) have merged into `rebuild/nexus-0.1`.
 
-The latest exact implementation head with completed rebuild validation is PR #291 head `88168acd6be4591c96d6e5eaa6b71de98e9556cf`. Nexus Rebuild CI run #151 completed successfully on that exact SHA. Its Linux/test job passed, and its Windows job passed repository checks/tests, `npm run dist:win`, and artifact upload. PR #291 then merged into the rebuild branch as `a7cfcdd59083db975137945ac6f48027668bc659`; no separate workflow run is recorded on that merge commit, so validation claims remain tied to the exact tested PR head rather than inferred from merge state.
+The latest exact implementation head with completed rebuild validation is PR #293 head `6350dafb70cd9bd69507acb90b8c34c33e98a883`. Nexus Rebuild CI run #163 completed successfully on that exact SHA. Its test job passed repository checks/tests, and its Windows job passed repository checks/tests, PowerShell updater-script syntax validation, `npm run dist:win`, `npm run dist:update`, update-manifest/hash verification, payload extraction verification, and artifact upload.
 
-This automated evidence establishes that the merged Accounts & Access plus read-only provider-validation/UI slice passed the normal rebuild test and Windows packaging gate. It does **not** establish successful Discord OAuth/pairing on the owner household, successful live Palworld/provider communication, owner acceptance, or public/stable release readiness.
+This automated evidence establishes that the merged Accounts & Access, read-only provider-validation/UI, and staged updater slices pass the normal rebuild test and Windows packaging/update-bundle gate. It does **not** establish successful Discord OAuth/pairing on the owner household, successful live Palworld/provider communication, a successful real installed update/apply/rollback cycle, owner acceptance, or public/stable release readiness.
 
 Therefore:
 
 - do not claim owner acceptance until an explicit owner-test result is recorded;
 - do not claim Accounts & Access owner validation until browser OAuth and the second-account pairing flow are exercised in the intended environment;
 - do not claim live-provider correctness until provider paths are exercised against real supported services/servers;
+- do not claim updater owner validation until an installed owner-test build successfully stages, applies, confirms startup, and exercises rollback behavior where appropriate;
 - do not claim public/stable release status from CI, packaging, PR merge state, or package version alone;
 - do not carry the old 0.41.x twelve-gate numeric stabilization score into the 0.1 rebuild as if it were already applicable;
 - define new acceptance gates around the clean rebuild rather than inheriting legacy scores by default.
@@ -126,12 +129,15 @@ Goals:
 
 ### Release hardening
 
-Status: **PLANNED**
+Status: **IN PROGRESS — STAGED UPDATER MERGED; OWNER UPDATE/ROLLBACK VALIDATION PENDING**
+
+PR #293 establishes the rebuild's staged updater implementation and automated Windows update-bundle checks. The NSIS installer remains the first-install/recovery path; normal approved updates are intended to stage and apply without launching the installer again.
 
 Goals:
 
 - establish one authoritative rebuild release identity and artifact naming policy;
-- keep tested commit, installer artifact, updater metadata, release notes, and rollback target correlated;
+- keep tested commit, installer artifact, update ZIP/manifest, release notes, and rollback target correlated;
+- validate a real installed owner-test update cycle: check, download, SHA-256/manifest verification, staging, explicit restart/apply, startup confirmation, and rollback behavior;
 - verify Windows installer behavior, protected configuration, diagnostics/recovery, and update paths;
 - create owner-test artifacts only after exact-head automated validation;
 - keep public/stable publication a separate explicit owner decision.
