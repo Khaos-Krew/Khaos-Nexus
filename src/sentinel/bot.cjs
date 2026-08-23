@@ -27,15 +27,23 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBit
 const moduleChoices = () => MODULES.map((module) => ({ name: module.name.slice(0, 100), value: module.id }));
 const enabledModuleIds = () => MODULES.filter((module) => config.modules?.[module.id]?.enabled !== false).map((module) => module.id);
 
-function roleFor(interaction) {
+function configuredRoleFor(interaction) {
   if ((config.discord?.ownerUserIds || []).includes(String(interaction.user.id))) return 'owner';
   const roles = interaction.member?.roles?.cache;
   if (roles && (config.discord?.operatorRoleIds || []).some((id) => roles.has(String(id)))) return 'operator';
   return 'viewer';
 }
 
-function canSetup(interaction) {
-  if (roleFor(interaction) === 'owner') return true;
+async function roleFor(interaction) {
+  const configured = configuredRoleFor(interaction);
+  if (configured !== 'viewer') return configured;
+  const linked = await backend.accountByDiscord(String(interaction.user.id)).catch(() => null);
+  if (linked?.ok && ['owner', 'co-owner'].includes(linked.account?.role)) return 'owner';
+  return 'viewer';
+}
+
+async function canSetup(interaction) {
+  if (await roleFor(interaction) === 'owner') return true;
   return Boolean(interaction.memberPermissions?.has?.(PermissionFlagsBits.ManageGuild));
 }
 
@@ -71,14 +79,14 @@ function setupStart() {
   };
 }
 
-function createPending(interaction, moduleId, actionId, payload) {
+function createPending(interaction, moduleId, actionId, payload, role) {
   const nonce = crypto.randomBytes(12).toString('hex');
   pending.set(nonce, {
     moduleId,
     actionId,
     payload,
     userId: String(interaction.user.id),
-    role: roleFor(interaction),
+    role,
     expiresAt: Date.now() + 5 * 60 * 1000
   });
   return nonce;
@@ -159,7 +167,7 @@ function setupSummary(module, setup, consoleMessage) {
 }
 
 async function provisionModule(interaction, moduleId) {
-  if (!canSetup(interaction)) throw new Error('Module setup requires Nexus owner access or Discord Manage Server permission.');
+  if (!(await canSetup(interaction))) throw new Error('Module setup requires Nexus owner access or Discord Manage Server permission.');
   assertAdministrator(interaction.guild);
   const setup = await provisioner.provision(interaction.guild, moduleId);
   const consoleMessage = await ensureConsole(moduleId);
@@ -168,7 +176,7 @@ async function provisionModule(interaction, moduleId) {
 }
 
 async function repairModuleIds(interaction, moduleIds, title) {
-  if (!canSetup(interaction)) throw new Error('Module repair requires Nexus owner access or Discord Manage Server permission.');
+  if (!(await canSetup(interaction))) throw new Error('Module repair requires Nexus owner access or Discord Manage Server permission.');
   assertAdministrator(interaction.guild);
   const lines = [];
   for (const moduleId of moduleIds) {
@@ -202,6 +210,11 @@ function nexusCommand() {
     .setName('nexus')
     .setDescription('Nexus Sentinal module tools')
     .addSubcommand((sub) => sub.setName('setup').setDescription('Detect/reuse a game category or build a new module layout'))
+    .addSubcommand((sub) => sub
+      .setName('link')
+      .setDescription('Link this Discord account to a Nexus household account')
+      .addStringOption((opt) => opt.setName('code').setDescription('One-time code from Accounts & Access').setRequired(true)))
+    .addSubcommand((sub) => sub.setName('account').setDescription('Show your linked Nexus account status'))
     .addSubcommand((sub) => sub
       .setName('repair')
       .setDescription('Repair every enabled Nexus module, or one selected module')
@@ -246,13 +259,14 @@ function formatActionResult(moduleId, actionId, result) {
 }
 
 async function runAction(interaction, moduleId, actionId, payload = {}) {
+  const role = await roleFor(interaction);
   const result = await backend.invoke(moduleId, actionId, payload, {
-    role: roleFor(interaction),
+    role,
     actorId: String(interaction.user.id),
     confirmed: false
   });
   if (result.code === 'CONFIRMATION_REQUIRED') {
-    const nonce = createPending(interaction, moduleId, actionId, payload);
+    const nonce = createPending(interaction, moduleId, actionId, payload, role);
     return { content: `⚠️ **Confirmation required**\n${result.message}`, components: confirmationRow(nonce) };
   }
   return formatActionResult(moduleId, actionId, result);
@@ -298,7 +312,7 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isAutocomplete()) return autocompleteActions(interaction);
 
     if (interaction.isStringSelectMenu() && interaction.customId === 'nexussetup:module') {
-      if (!canSetup(interaction)) return interaction.reply({ content: 'Module setup requires Nexus owner access or Discord Manage Server permission.', flags: MessageFlags.Ephemeral });
+      if (!(await canSetup(interaction))) return interaction.reply({ content: 'Module setup requires Nexus owner access or Discord Manage Server permission.', flags: MessageFlags.Ephemeral });
       assertAdministrator(interaction.guild);
       await interaction.deferUpdate();
       return interaction.editReply(await provisionModule(interaction, interaction.values[0]));
@@ -338,22 +352,33 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.isChatInputCommand() && interaction.commandName === 'market') {
-      // Claim the dedicated command immediately so legacy runtimes cannot answer it first.
       await interaction.deferReply();
       const item = interaction.options.getString('item', true).trim();
       return interaction.editReply(await runAction(interaction, 'warframe', 'market', { item, input: item }));
     }
 
     if (!interaction.isChatInputCommand() || interaction.commandName !== 'nexus') return;
-
-    // Claim the interaction immediately. Legacy desktop runtimes may still be connected to
-    // the same Discord application while the rebuild is being tested; acknowledging first
-    // prevents an old unknown-command fallback from routing /nexus into a game adapter.
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const sub = interaction.options.getSubcommand();
+    if (sub === 'link') {
+      const code = interaction.options.getString('code', true).trim().toUpperCase();
+      const linked = await backend.linkAccount(code, {
+        id: String(interaction.user.id),
+        username: interaction.user.username,
+        globalName: interaction.user.globalName,
+        avatar: interaction.user.avatar
+      });
+      if (!linked.ok) return interaction.editReply({ content: `⚠️ ${linked.message || 'That Nexus link code is invalid or expired.'}` });
+      return interaction.editReply({ content: `✅ **Nexus account linked**\n${linked.account.displayName} • ${linked.account.role === 'owner' ? 'Owner' : 'Co-Owner'}\nYour Discord ID now resolves to Nexus account \`${linked.account.id}\`.` });
+    }
+    if (sub === 'account') {
+      const linked = await backend.accountByDiscord(String(interaction.user.id));
+      if (!linked.ok) return interaction.editReply({ content: 'This Discord account is not linked to Nexus yet. Create a code in **Accounts & Access** and run `/nexus link`.' });
+      return interaction.editReply({ content: `**Nexus Account**\n${linked.account.displayName}\nRole: **${linked.account.role === 'owner' ? 'Owner' : 'Co-Owner'}**\nNexus ID: \`${linked.account.id}\`` });
+    }
     if (sub === 'setup') {
-      if (!canSetup(interaction)) return interaction.editReply({ content: 'Module setup requires Nexus owner access or Discord Manage Server permission.' });
+      if (!(await canSetup(interaction))) return interaction.editReply({ content: 'Module setup requires Nexus owner access or Discord Manage Server permission.' });
       assertAdministrator(interaction.guild);
       return interaction.editReply(setupStart());
     }

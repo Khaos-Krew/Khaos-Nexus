@@ -16,6 +16,7 @@ const {
   runtimeConfig,
   saveUserConfig
 } = require('./desktop/config-store.cjs');
+const { available: discordOAuthAvailable, linkDiscordWithOAuth } = require('./desktop/discord-account-link.cjs');
 const { SecretVault } = require('./desktop/secret-vault.cjs');
 
 let userDataPath = '';
@@ -82,6 +83,9 @@ async function currentState() {
   const modules = backendClient && backend?.ok
     ? await backendClient.modules().catch((error) => ({ ok: false, message: error.message, modules: [] }))
     : { ok: false, modules: [] };
+  const accounts = backendClient && backend?.ok
+    ? await backendClient.accounts().catch((error) => ({ ok: false, message: error.message, accounts: [] }))
+    : { ok: false, accounts: [] };
   const secretNames = collectSecretEnvNames(storedConfig);
   return {
     version: app.getVersion(),
@@ -92,6 +96,8 @@ async function currentState() {
     backendError,
     backend,
     modules,
+    accounts,
+    discordOAuthReady: discordOAuthAvailable(activeConfig || storedConfig),
     settings: publicSettings(storedConfig),
     secrets: vault.statuses(secretNames),
     secretEncryptionAvailable: vault.encryptionAvailable(),
@@ -115,6 +121,12 @@ async function diagnostics() {
     backendMode: state.backendMode,
     backendError: state.backendError,
     backend: state.backend,
+    accounts: (state.accounts?.accounts || []).map((account) => ({
+      id: account.id,
+      role: account.role,
+      displayName: account.displayName,
+      discordUserId: account.discord?.id || ''
+    })),
     modules: (state.modules?.modules || []).map((module) => ({
       id: module.id,
       name: module.name,
@@ -129,6 +141,19 @@ async function diagnostics() {
     secrets: state.secrets,
     paths: { config: configPath, userData: userDataPath }
   };
+}
+
+function rememberLinkedOwner(account) {
+  const discordId = String(account?.discord?.id || '');
+  if (!discordId || !['owner', 'co-owner'].includes(account?.role)) return;
+  storedConfig.discord ||= {};
+  storedConfig.discord.ownerUserIds ||= [];
+  if (!storedConfig.discord.ownerUserIds.includes(discordId)) {
+    storedConfig.discord.ownerUserIds.push(discordId);
+    saveUserConfig(configPath, storedConfig);
+    storedConfig = loadStoredConfig();
+    activeConfig = runtimeConfig(storedConfig, userDataPath, configPath);
+  }
 }
 
 function registerIpc() {
@@ -158,6 +183,31 @@ function registerIpc() {
     if (!allowed.has(String(name || '').toUpperCase())) throw new Error('That secret key is not used by the current Nexus configuration.');
     vault.remove(name);
     await startBackend();
+    return currentState();
+  });
+  ipcMain.handle('nexus:create-account-link-code', async (_event, role) => {
+    if (!backendClient) throw new Error('Nexus Backend is unavailable.');
+    const result = await backendClient.createPairingCode(role || 'co-owner');
+    if (!result.ok) throw new Error(result.message || 'Could not create account link code.');
+    return result.pairing;
+  });
+  ipcMain.handle('nexus:link-discord-oauth', async (_event, role) => {
+    if (!backendClient) throw new Error('Nexus Backend is unavailable.');
+    applyStoredSecrets();
+    activeConfig = runtimeConfig(storedConfig, userDataPath, configPath);
+    const result = await linkDiscordWithOAuth({
+      config: activeConfig,
+      backendClient,
+      role: role || 'co-owner',
+      openExternal: (url) => shell.openExternal(url)
+    });
+    rememberLinkedOwner(result.account);
+    return currentState();
+  });
+  ipcMain.handle('nexus:remove-account', async (_event, accountId) => {
+    if (!backendClient) throw new Error('Nexus Backend is unavailable.');
+    const result = await backendClient.removeAccount(accountId);
+    if (!result.ok) throw new Error(result.message || 'Could not remove Nexus account.');
     return currentState();
   });
   ipcMain.handle('nexus:open-data-folder', () => shell.openPath(userDataPath));

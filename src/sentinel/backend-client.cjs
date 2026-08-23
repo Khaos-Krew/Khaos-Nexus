@@ -18,6 +18,17 @@ class BackendClient {
 
   modules() { return this.request('/v1/modules'); }
   health() { return this.request('/health'); }
+  accounts() { return this.request('/v1/accounts'); }
+  accountByDiscord(discordId) { return this.request(`/v1/accounts/discord/${encodeURIComponent(discordId)}`); }
+  createPairingCode(role) {
+    return this.request('/v1/accounts/pairing-codes', { method: 'POST', body: JSON.stringify({ role }) });
+  }
+  linkAccount(code, discord) {
+    return this.request('/v1/accounts/link', { method: 'POST', body: JSON.stringify({ code, discord }) });
+  }
+  removeAccount(accountId) {
+    return this.request(`/v1/accounts/${encodeURIComponent(accountId)}`, { method: 'DELETE' });
+  }
   invoke(moduleId, actionId, payload, context = {}) {
     return this.request(`/v1/modules/${encodeURIComponent(moduleId)}/actions/${encodeURIComponent(actionId)}`, {
       method: 'POST',

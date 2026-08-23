@@ -58,6 +58,17 @@ function safeEnvName(value, fallback = '') {
   return /^NEXUS_[A-Z0-9_]+$/.test(name) ? name : fallback;
 }
 
+function safeDiscordRedirect(value, fallback = 'http://127.0.0.1:53117/callback') {
+  const text = safeText(value, 300);
+  try {
+    const parsed = new URL(text || fallback);
+    if (parsed.protocol !== 'http:' || !['127.0.0.1', 'localhost', '::1'].includes(parsed.hostname)) return fallback;
+    return parsed.toString();
+  } catch {
+    return fallback;
+  }
+}
+
 function normalizeServer(server = {}, previous = {}) {
   return {
     ...previous,
@@ -107,6 +118,9 @@ function applyPublicSettings(currentConfig, input = {}) {
   config.backend.port = safeInteger(input.backend?.port, Number(config.backend.port || 3210), 1024, 65535);
   config.backend.publicBaseUrl = `http://127.0.0.1:${config.backend.port}`;
 
+  config.accounts ||= {};
+  config.accounts.stateFile ||= 'data/accounts.json';
+
   config.scheduler ||= {};
   config.scheduler.timeZone = safeText(input.scheduler?.timeZone, 80) || config.scheduler.timeZone || 'America/Chicago';
 
@@ -120,6 +134,9 @@ function applyPublicSettings(currentConfig, input = {}) {
     1,
     100
   );
+  config.discord.oauthClientId = safeText(input.discord?.oauthClientId, 32);
+  config.discord.oauthClientSecretEnv = safeEnvName(config.discord.oauthClientSecretEnv, 'NEXUS_DISCORD_OAUTH_CLIENT_SECRET');
+  config.discord.oauthRedirectUri = safeDiscordRedirect(input.discord?.oauthRedirectUri || config.discord.oauthRedirectUri);
 
   config.thora ||= {};
   config.thora.enabled = safeBoolean(input.thora?.enabled, Boolean(config.thora.enabled));
@@ -157,7 +174,9 @@ function publicSettings(config) {
       guildId: config.discord?.guildId || '',
       ownerUserIds: [...(config.discord?.ownerUserIds || [])],
       operatorRoleIds: [...(config.discord?.operatorRoleIds || [])],
-      maxTemporaryLobbiesPerModule: Number(config.discord?.maxTemporaryLobbiesPerModule || 20)
+      maxTemporaryLobbiesPerModule: Number(config.discord?.maxTemporaryLobbiesPerModule || 20),
+      oauthClientId: config.discord?.oauthClientId || '',
+      oauthRedirectUri: config.discord?.oauthRedirectUri || 'http://127.0.0.1:53117/callback'
     },
     thora: {
       enabled: config.thora?.enabled === true,
@@ -179,6 +198,8 @@ function runtimeConfig(config, userDataPath, configPath) {
   next.backend.host = '127.0.0.1';
   next.backend.port = Number(next.backend.port || 3210);
   next.backend.publicBaseUrl = `http://127.0.0.1:${next.backend.port}`;
+  next.accounts ||= {};
+  next.accounts.stateFile = resolveUserDataPath(userDataPath, next.accounts.stateFile, 'accounts.json');
   next.scheduler ||= {};
   next.scheduler.stateFile = resolveUserDataPath(userDataPath, next.scheduler.stateFile, 'schedules.json');
   if (next.modules?.division2) next.modules.division2.stateFile = resolveUserDataPath(userDataPath, next.modules.division2.stateFile, 'division2-state.json');
@@ -201,6 +222,7 @@ function collectSecretEnvNames(config) {
   };
   add(config.backend?.serviceTokenEnv);
   add(config.discord?.tokenEnv);
+  add(config.discord?.oauthClientSecretEnv);
   for (const moduleConfig of Object.values(config.modules || {})) {
     add(moduleConfig?.provider?.tokenEnv);
     add(moduleConfig?.connection?.passwordEnv);
@@ -212,7 +234,8 @@ function collectSecretEnvNames(config) {
 function configWarnings(config) {
   const warnings = [];
   if (!config.discord?.guildId) warnings.push('Discord guild ID is not configured.');
-  if (!(config.discord?.ownerUserIds || []).length) warnings.push('No Nexus owner user IDs are configured.');
+  if (!(config.discord?.ownerUserIds || []).length) warnings.push('No legacy Nexus owner user IDs are configured; Accounts & Access can link the Owner instead.');
+  if (config.discord?.oauthClientId && !config.discord?.oauthRedirectUri) warnings.push('Discord OAuth redirect URI is not configured.');
   for (const [moduleId, moduleConfig] of Object.entries(config.modules || {})) {
     if (moduleConfig.enabled !== false && !moduleConfig.channelId && moduleId !== 'dnd') warnings.push(`${moduleId}: Sentinal channel binding is not configured.`);
   }

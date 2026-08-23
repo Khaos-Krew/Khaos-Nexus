@@ -4,6 +4,7 @@ const http = require('node:http');
 const path = require('node:path');
 const { URL } = require('node:url');
 const { envSecret } = require('../shared/config.cjs');
+const { AccountStore } = require('./core/account-store.cjs');
 const { BackendRuntime } = require('./core/runtime.cjs');
 const { SharedScheduler } = require('./core/scheduler.cjs');
 const { providersFromConfig } = require('./providers/http-provider.cjs');
@@ -34,6 +35,18 @@ async function readBody(req) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
+function safeAccount(account) {
+  if (!account) return null;
+  return {
+    id: account.id,
+    role: account.role,
+    displayName: account.displayName,
+    discord: account.discord,
+    createdAt: account.createdAt,
+    updatedAt: account.updatedAt
+  };
+}
+
 function createBackendApplication(config, options = {}) {
   const token = envSecret(config.backend?.serviceTokenEnv);
   const host = String(config.backend?.host || '127.0.0.1');
@@ -54,6 +67,7 @@ function createBackendApplication(config, options = {}) {
     filePath: config.scheduler?.stateFile || path.join(process.cwd(), 'data', 'schedules.json'),
     timeZone: config.scheduler?.timeZone || 'America/Chicago'
   });
+  const accounts = new AccountStore({ filePath: config.accounts?.stateFile || path.join(process.cwd(), 'data', 'accounts.json') });
   runtime.registerService('scheduler', scheduler);
   scheduler.registerExecutor((moduleId, actionId, payload, context) => runtime.invoke(moduleId, actionId, payload, context));
 
@@ -67,6 +81,31 @@ function createBackendApplication(config, options = {}) {
       const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
       if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, runtime.health());
       if (!authorized(req)) return json(res, 401, { ok: false, code: 'UNAUTHORIZED' });
+
+      if (req.method === 'GET' && url.pathname === '/v1/accounts') {
+        return json(res, 200, { ok: true, accounts: accounts.list().map(safeAccount) });
+      }
+      const accountMatch = /^\/v1\/accounts\/discord\/(\d{15,24})$/.exec(url.pathname);
+      if (req.method === 'GET' && accountMatch) {
+        const account = safeAccount(accounts.findByDiscordId(accountMatch[1]));
+        return json(res, account ? 200 : 404, account ? { ok: true, account } : { ok: false, code: 'ACCOUNT_NOT_FOUND' });
+      }
+      if (req.method === 'POST' && url.pathname === '/v1/accounts/pairing-codes') {
+        const body = await readBody(req);
+        const pairing = accounts.createPairingCode(body.role || 'co-owner');
+        return json(res, 201, { ok: true, pairing });
+      }
+      if (req.method === 'POST' && url.pathname === '/v1/accounts/link') {
+        const body = await readBody(req);
+        const account = accounts.redeemPairingCode(body.code, body.discord || {});
+        return json(res, 200, { ok: true, account: safeAccount(account) });
+      }
+      const deleteAccountMatch = /^\/v1\/accounts\/([0-9a-f-]{36})$/.exec(url.pathname);
+      if (req.method === 'DELETE' && deleteAccountMatch) {
+        const removed = accounts.remove(deleteAccountMatch[1]);
+        return json(res, removed ? 200 : 404, removed ? { ok: true } : { ok: false, code: 'ACCOUNT_NOT_FOUND' });
+      }
+
       if (req.method === 'GET' && url.pathname === '/v1/modules') return json(res, 200, { ok: true, modules: runtime.manifests() });
       if (req.method === 'GET' && url.pathname === '/v1/schedules') return json(res, 200, { ok: true, timeZone: scheduler.timeZone, schedules: scheduler.list() });
       const match = /^\/v1\/modules\/([a-z0-9-]+)\/actions\/([a-z0-9-]+)$/.exec(url.pathname);
@@ -127,6 +166,7 @@ function createBackendApplication(config, options = {}) {
     port,
     runtime,
     scheduler,
+    accounts,
     server,
     start,
     stop,
