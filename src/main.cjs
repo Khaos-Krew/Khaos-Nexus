@@ -5,6 +5,7 @@ const path = require('node:path');
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } = require('electron');
 const { createBackendApplication } = require('./backend/application.cjs');
 const { BackendClient } = require('./sentinel/backend-client.cjs');
+const { providerSecretNames } = require('./shared/provider-sync.cjs');
 const { thoraStatus, launchThora } = require('./thora/bridge.cjs');
 const { StagedUpdater } = require('./updater/service.cjs');
 const { SentinalAdminClient } = require('./desktop/sentinal-admin-client.cjs');
@@ -210,6 +211,28 @@ function requireOwnerTest() {
   return ownerTest;
 }
 
+function protectedProviderSecrets() {
+  const secrets = {};
+  for (const name of providerSecretNames(storedConfig || {})) {
+    const value = String(process.env[name] || vault?.decrypt?.(name) || '');
+    if (value) secrets[name] = value;
+  }
+  return secrets;
+}
+
+async function syncHostedProviders() {
+  const admin = requireSentinalAdmin();
+  const remote = await admin.providerConfig();
+  if (remote?.ok === false) throw new Error(remote.message || remote.code || 'Hosted provider configuration is unavailable.');
+  const secrets = protectedProviderSecrets();
+  const approved = new Set(providerSecretNames(storedConfig || {}));
+  const configuredRemote = (remote.configuredSecrets || []).map((item) => String(item?.name || '').toUpperCase()).filter((name) => approved.has(name));
+  const clearSecrets = configuredRemote.filter((name) => !secrets[name]);
+  const result = await admin.configureProviders(storedConfig.modules || {}, secrets, clearSecrets);
+  if (result?.ok === false) throw new Error(result.message || result.code || 'Hosted provider synchronization failed.');
+  return result;
+}
+
 function registerIpc() {
   ipcMain.handle('nexus:state', () => currentState());
   ipcMain.handle('nexus:startup-health', () => startupHealth());
@@ -294,6 +317,9 @@ function registerIpc() {
   ipcMain.handle('nexus:sentinal-reconcile-channels', (_event, moduleId) => requireSentinalAdmin().reconcileChannels(String(moduleId || '')));
   ipcMain.handle('nexus:sentinal-refresh-consoles', (_event, moduleId) => requireSentinalAdmin().refreshConsoles(String(moduleId || '')));
   ipcMain.handle('nexus:sentinal-reconcile-roles', () => requireSentinalAdmin().reconcileRoles());
+  ipcMain.handle('nexus:sentinal-provider-config', () => requireSentinalAdmin().providerConfig());
+  ipcMain.handle('nexus:sentinal-sync-providers', () => syncHostedProviders());
+  ipcMain.handle('nexus:sentinal-validate-provider', (_event, moduleId) => requireSentinalAdmin().validateHostedProvider(String(moduleId || '')));
   ipcMain.handle('nexus:sentinal-repair', () => requireSentinalAdmin().repair());
 
   ipcMain.handle('nexus:owner-test', () => requireOwnerTest().snapshot());

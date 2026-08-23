@@ -63,9 +63,14 @@
       const discovery = sections.rankDiscovery || null;
       const permissions = sections.permissions || null;
       const channels = sections.channels || null;
-      const enabledModules = (appState.modules?.modules || []).filter((item) => item.enabled);
-      const configuredModules = enabledModules.filter((item) => item.configured);
-      const connectedModules = enabledModules.filter((item) => item.connected);
+      const providerConfig = sections.providerConfig || null;
+      const localEnabledModules = (appState.modules?.modules || []).filter((item) => item.enabled);
+      const hostedModules = providerConfig?.backendModules || [];
+      const hostedEnabledModules = hostedModules.filter((item) => item.enabled !== false);
+      const hostedConfiguredModules = hostedEnabledModules.filter((item) => item.configured);
+      const hostedConnectedModules = hostedEnabledModules.filter((item) => item.connected);
+      const validations = Object.values(providerConfig?.lastValidations || {});
+      const passedValidations = validations.filter((item) => item?.ok === true);
 
       const backendReady = Boolean(appState.backend?.ok);
       const sentinalReady = Boolean(sentinal.discordReady || scan?.ok);
@@ -74,15 +79,26 @@
       const rankPartial = Boolean(discovery && (discovery.counts?.discoveredRoles || discovery.counts?.discoveredSkus));
       const discordReady = Boolean(permissions?.ok && channels?.ok !== false);
       const discordPartial = Boolean(permissions || channels);
-      const providersReady = enabledModules.length > 0 && configuredModules.length === enabledModules.length;
-      const providersPartial = configuredModules.length > 0;
-      const validationReady = connectedModules.length > 0;
+      const providerSynced = Boolean(providerConfig?.configured);
+      const providersReady = providerSynced && hostedEnabledModules.length > 0 && hostedConfiguredModules.length === hostedEnabledModules.length;
+      const providersPartial = providerSynced || hostedConfiguredModules.length > 0;
+      const validationReady = passedValidations.length > 0;
+      const validationPartial = validations.length > 0 && !validationReady;
       const completeCount = [backendReady, sentinalReady, accountReady, rankReady, discordReady, providersReady, validationReady].filter(Boolean).length;
 
       const rankDetail = discovery
-        ? `${discovery.counts?.attention || 0} rank mappings still need attention. Discovery now supports recurring and lifetime SKUs together.`
+        ? `${discovery.counts?.attention || 0} rank mappings still need attention. Discovery supports recurring and lifetime SKUs together.`
         : 'Pair Sentinal first, then let Nexus discover Discord rank roles and Premium App SKUs automatically.';
-      const providerDetail = `${configuredModules.length}/${enabledModules.length} enabled modules are provider-ready; ${connectedModules.length} currently report a live connection.`;
+      const providerDetail = providerConfig
+        ? providerSynced
+          ? `${hostedConfiguredModules.length}/${hostedEnabledModules.length} enabled hosted modules have a provider; ${hostedConnectedModules.length} currently report live.`
+          : 'Hosted provider settings have not been synchronized yet. Save local module settings and Credentials, then use Sync to Hosted Sentinal.'
+        : 'Pair Hosted Sentinal first. Provider configuration must be synchronized to the Railway backend Sentinal actually uses.';
+      const validationDetail = validationReady
+        ? `${passedValidations.length} hosted read-only acceptance probe${passedValidations.length === 1 ? ' has' : 's have'} passed. Most recent evidence is stored without provider payload data.`
+        : validations.length
+          ? 'A hosted read-only validation was attempted but has not passed yet. Review the provider result in Backend Modules.'
+          : 'Run a hosted read-only provider probe after syncing configuration. Palworld remains the recommended first live server acceptance target.';
       const discordDetail = scanError
         ? `Admin scan is not available yet: ${scanError}`
         : permissions
@@ -91,7 +107,7 @@
 
       content.innerHTML = `
         <div class="setup-progress card">
-          <div><h3>First-run readiness</h3><p>Complete these in order. Nexus will reuse existing Discord structure and never requires you to expose the Sentinal admin token to the renderer.</p></div>
+          <div><h3>First-run readiness</h3><p>Complete these in order. Nexus reuses existing Discord structure and never exposes Sentinal or provider secret values to the renderer.</p></div>
           <div class="setup-progress-score"><strong>${completeCount}/7</strong><span>core steps ready</span></div>
         </div>
         <div class="setup-steps">
@@ -100,8 +116,8 @@
           ${step(3, 'Create Owner / household access', accountReady ? `${accounts.length} Nexus household account${accounts.length === 1 ? '' : 's'} linked.` : 'Create the primary Owner account first; add a Co-Owner later if desired.', accountReady, false, 'Open Accounts & Access', '[data-accounts-view]')}
           ${step(4, 'Discover supporter ranks & entitlements', rankDetail, rankReady, rankPartial, rankReady ? 'Review mappings' : 'Discover mappings', '[data-admin-ops-discord]')}
           ${step(5, 'Accept Discord administration', discordDetail, discordReady, discordPartial && !discordReady, discordReady ? 'Review Discord Admin' : 'Scan / Repair Discord', '[data-admin-ops-discord]')}
-          ${step(6, 'Configure enabled game providers', providerDetail, providersReady, providersPartial && !providersReady, 'Open Backend Modules', '[data-view="modules"]', '<p class="setup-note">Passwords and server tokens belong under Credentials; connection metadata belongs under Backend Modules.</p>')}
-          ${step(7, 'Run read-only provider acceptance', validationReady ? `${connectedModules.length} enabled provider connection${connectedModules.length === 1 ? '' : 's'} currently report live.` : 'Validate configured providers with the read-only probe. Palworld remains the recommended first live server acceptance target.', validationReady, false, 'Validate Providers', '[data-view="modules"]')}
+          ${step(6, 'Configure & sync game providers', providerDetail, providersReady, providersPartial && !providersReady, providerSynced ? 'Review Hosted Sync' : 'Sync Hosted Providers', '[data-view="modules"]', '<p class="setup-note">Connection metadata is saved under Backend Modules. Passwords/tokens are stored under Credentials and transferred only by the Electron main process.</p>')}
+          ${step(7, 'Run hosted read-only provider acceptance', validationDetail, validationReady, validationPartial, 'Validate Hosted Provider', '[data-view="modules"]')}
         </div>
         <div class="setup-footer card"><div><strong>After setup</strong><p>Use Owner Test Center for build acceptance and Discord Admin → Repair Nexus for safe reconciliation.</p></div><div class="actions"><button id="setupRescan" class="secondary">Recheck setup</button><button id="setupOwnerTest" class="secondary">Owner Test Center</button></div></div>`;
 

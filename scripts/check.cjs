@@ -5,7 +5,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
 const required = [
-  'package.json', 'config.example.json', 'src/main.cjs', 'src/preload.cjs', 'src/shared/config.cjs', 'src/shared/ranks.cjs',
+  'package.json', 'config.example.json', 'src/main.cjs', 'src/preload.cjs', 'src/shared/config.cjs', 'src/shared/ranks.cjs', 'src/shared/provider-sync.cjs',
   'src/desktop/config-store.cjs', 'src/desktop/secret-vault.cjs', 'src/desktop/sentinal-admin-client.cjs', 'src/desktop/sentinal-pairing.cjs', 'src/desktop/owner-test-service.cjs', 'src/thora/bridge.cjs',
   'src/updater/service.cjs', 'src/updater/apply-update.ps1', 'scripts/build-update-bundle.ps1',
   'src/backend/application.cjs', 'src/backend/server.cjs',
@@ -17,16 +17,18 @@ const required = [
   'src/backend/providers/palworld-provider.cjs', 'src/backend/providers/rust-provider.cjs',
   'src/backend/providers/satisfactory-provider.cjs',
   'src/backend/transports/source-rcon.cjs', 'src/backend/transports/rcon-protocol.cjs',
+  'src/railway/sentinal-service.cjs', 'src/railway/hosted-provider-store.cjs',
   'src/sentinel/bot.cjs', 'src/sentinel/entry.cjs', 'src/sentinel/pokemon-go-extension.cjs',
   'src/sentinel/pokemon-go.cjs', 'src/sentinel/pokemon-go-event-ui.cjs', 'src/sentinel/discord-time.cjs',
   'src/sentinel/event-feed.cjs', 'src/sentinel/event-feed-extension.cjs', 'src/sentinel/role-menu.cjs', 'src/sentinel/role-menu-extension.cjs',
-  'src/sentinel/admin-pairing.cjs', 'src/sentinel/admin-pairing-extension.cjs',
+  'src/sentinel/admin-pairing.cjs', 'src/sentinel/admin-pairing-extension.cjs', 'src/sentinel/moderation-commands.cjs', 'src/sentinel/moderation-extension.cjs',
   'src/sentinel/commands.cjs', 'src/sentinel/friendly-commands.cjs', 'src/sentinel/action-formatters.cjs',
   'src/sentinel/admin-ops.cjs', 'src/sentinel/admin-server.cjs', 'src/sentinel/discord-admin-discovery.cjs', 'src/sentinel/module-inspector.cjs',
   'src/sentinel/module-console.cjs', 'src/sentinel/module-provisioner.cjs', 'src/sentinel/module-layouts.cjs',
   'src/sentinel/state-store.cjs', 'src/backend/modules/catalog.cjs',
   'src/renderer/index.html', 'src/renderer/app.js', 'src/renderer/style.css',
   'src/renderer/updater-ui.js', 'src/renderer/updater.css', 'src/renderer/admin-ops-ui.js', 'src/renderer/admin-ops.css', 'src/renderer/rank-discovery-ui.js', 'src/renderer/sentinal-pairing-ui.js',
+  'src/renderer/provider-validation-ui.js', 'src/renderer/hosted-provider-ui.js', 'src/renderer/setup-center.js', 'src/renderer/setup-center.css',
   'src/renderer/startup-health.js', 'src/renderer/startup-health.css'
 ];
 const syntaxFiles = required.filter((file) => /\.(?:cjs|js)$/.test(file));

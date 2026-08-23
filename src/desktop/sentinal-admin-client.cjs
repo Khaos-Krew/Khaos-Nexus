@@ -42,6 +42,21 @@ class SentinalAdminClient {
   status() { return this.request('/v1/status'); }
   config() { return this.request('/v1/config'); }
   configure(settings = this.adminSettings) { return this.request('/v1/config', { method: 'POST', body: JSON.stringify(settings || {}) }); }
+  providerConfig() { return this.request('/v1/providers/config'); }
+  configureProviders(modules = {}, secrets = {}, clearSecrets = []) {
+    return this.request('/v1/providers/config', {
+      method: 'POST',
+      body: JSON.stringify({ modules: modules || {}, secrets: secrets || {}, clearSecrets: Array.isArray(clearSecrets) ? clearSecrets : [] }),
+      timeoutMs: 30000
+    });
+  }
+  validateHostedProvider(moduleId = '') {
+    return this.request('/v1/providers/validate', {
+      method: 'POST',
+      body: JSON.stringify({ moduleId: String(moduleId || '') }),
+      timeoutMs: 30000
+    });
+  }
   async syncAdminSettings() {
     if (!this.configured()) return { ok: false, code: 'SENTINAL_ADMIN_NOT_CONFIGURED' };
     return this.configure(this.adminSettings);

@@ -4,6 +4,7 @@ const http = require('node:http');
 const path = require('node:path');
 const { URL } = require('node:url');
 const { envSecret } = require('../shared/config.cjs');
+const { mergeProviderModules, sanitizeProviderModules } = require('../shared/provider-sync.cjs');
 const { AccountStore } = require('./core/account-store.cjs');
 const { ProviderValidator } = require('./core/provider-validator.cjs');
 const { BackendRuntime } = require('./core/runtime.cjs');
@@ -37,6 +38,10 @@ function safeAccount(account) {
   return { id: account.id, role: account.role, displayName: account.displayName, discord: account.discord, createdAt: account.createdAt, updatedAt: account.updatedAt };
 }
 
+function providersForConfig(config = {}) {
+  return { ...nativeProvidersFromConfig(config), ...serverProvidersFromConfig(config), ...providersFromConfig(config) };
+}
+
 function createBackendApplication(config, options = {}) {
   const token = envSecret(config.backend?.serviceTokenEnv);
   const host = String(config.backend?.host || '127.0.0.1');
@@ -45,7 +50,7 @@ function createBackendApplication(config, options = {}) {
 
   if (!LOOPBACK_HOSTS.has(host) && !token) throw new Error(`Refusing to expose Nexus Backend on ${host} without ${config.backend?.serviceTokenEnv || 'NEXUS_BACKEND_TOKEN'}.`);
 
-  const providers = { ...nativeProvidersFromConfig(config), ...serverProvidersFromConfig(config), ...providersFromConfig(config) };
+  const providers = providersForConfig(config);
   const runtime = new BackendRuntime({ config, providers });
   const scheduler = new SharedScheduler({ filePath: config.scheduler?.stateFile || path.join(process.cwd(), 'data', 'schedules.json'), timeZone: config.scheduler?.timeZone || 'America/Chicago' });
   const accounts = new AccountStore({ filePath: config.accounts?.stateFile || path.join(process.cwd(), 'data', 'accounts.json') });
@@ -56,6 +61,14 @@ function createBackendApplication(config, options = {}) {
   function authorized(req) {
     if (!token) return true;
     return req.headers.authorization === `Bearer ${token}`;
+  }
+
+  function configureProviders(inputModules = {}) {
+    const modules = sanitizeProviderModules(inputModules, config);
+    const next = mergeProviderModules(config, modules);
+    config.modules = next.modules;
+    const manifests = runtime.replaceProviders(config, providersForConfig(config));
+    return { ok: true, modules: manifests };
   }
 
   const server = http.createServer(async (req, res) => {
@@ -88,6 +101,10 @@ function createBackendApplication(config, options = {}) {
         const body = await readBody(req);
         const enabled = body.enabled && typeof body.enabled === 'object' && !Array.isArray(body.enabled) ? body.enabled : {};
         return json(res, 200, { ok: true, enabled: runtime.setModuleEnabled(enabled), modules: runtime.manifests() });
+      }
+      if (req.method === 'POST' && url.pathname === '/v1/admin/providers') {
+        const body = await readBody(req);
+        return json(res, 200, configureProviders(body.modules || {}));
       }
       if (req.method === 'POST' && url.pathname === '/v1/providers/validate') {
         const body = await readBody(req);
@@ -132,7 +149,7 @@ function createBackendApplication(config, options = {}) {
     started = false;
   }
 
-  return { host, port, runtime, scheduler, accounts, providerValidator, server, start, stop, isStarted: () => started && server.listening };
+  return { host, port, runtime, scheduler, accounts, providerValidator, configureProviders, server, start, stop, isStarted: () => started && server.listening };
 }
 
-module.exports = { LOOPBACK_HOSTS, createBackendApplication };
+module.exports = { LOOPBACK_HOSTS, createBackendApplication, providersForConfig };

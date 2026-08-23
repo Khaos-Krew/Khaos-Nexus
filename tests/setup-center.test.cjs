@@ -24,7 +24,7 @@ test('Setup Center renderer parses cleanly and uses existing protected APIs', ()
   const syntax = spawnSync(process.execPath, ['--check', scriptPath], { encoding: 'utf8' });
   assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout);
   const source = read(scriptPath);
-  for (const expected of ['api.state()', 'api.sentinalScan()', '/nexus-pair', 'Discover supporter ranks & entitlements', 'Configure enabled game providers', 'Run read-only provider acceptance']) {
+  for (const expected of ['api.state()', 'api.sentinalScan()', '/nexus-pair', 'Discover supporter ranks & entitlements', 'Configure & sync game providers', 'Run hosted read-only provider acceptance']) {
     assert.ok(source.includes(expected), `missing setup contract: ${expected}`);
   }
   assert.doesNotMatch(source, /NEXUS_SENTINAL_ADMIN_TOKEN/);
@@ -35,5 +35,6 @@ test('Setup Center routes to existing admin surfaces instead of duplicating secr
   for (const selector of ['[data-admin-ops-discord]', '[data-accounts-view]', '[data-view="modules"]', '[data-view="diagnostics"]', '[data-admin-ops-owner]']) {
     assert.ok(source.includes(selector), `missing route ${selector}`);
   }
-  assert.match(source, /Passwords and server tokens belong under Credentials/);
+  assert.match(source, /Passwords\/tokens are stored under Credentials and transferred only by the Electron main process/);
+  assert.match(source, /lastValidations/);
 });

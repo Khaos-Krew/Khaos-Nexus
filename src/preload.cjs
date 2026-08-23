@@ -27,6 +27,9 @@ contextBridge.exposeInMainWorld('nexusAdmin', {
   sentinalReconcileChannels: (moduleId) => ipcRenderer.invoke('nexus:sentinal-reconcile-channels', moduleId || ''),
   sentinalRefreshConsoles: (moduleId) => ipcRenderer.invoke('nexus:sentinal-refresh-consoles', moduleId || ''),
   sentinalReconcileRoles: () => ipcRenderer.invoke('nexus:sentinal-reconcile-roles'),
+  sentinalProviderConfig: () => ipcRenderer.invoke('nexus:sentinal-provider-config'),
+  sentinalSyncProviders: () => ipcRenderer.invoke('nexus:sentinal-sync-providers'),
+  sentinalValidateProvider: (moduleId) => ipcRenderer.invoke('nexus:sentinal-validate-provider', moduleId || ''),
   sentinalRepair: () => ipcRenderer.invoke('nexus:sentinal-repair'),
 
   ownerTest: () => ipcRenderer.invoke('nexus:owner-test'),
