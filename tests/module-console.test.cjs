@@ -8,10 +8,19 @@ function renderedText(payload) {
   return JSON.stringify(payload).toLowerCase();
 }
 
+function buttons(payload) {
+  return payload.components.flatMap((row) => row.components);
+}
+
 test('console renders persistent controls for ARK', () => {
-  const payload = renderModuleConsole('ark', { enabled: true, configured: true, connected: true });
+  const payload = renderModuleConsole('ark', {
+    enabled: true,
+    configured: true,
+    connected: true,
+    availableActions: ['status', 'players', 'save', 'broadcast']
+  });
   assert.equal(payload.embeds.length, 1);
-  assert.ok(payload.components.flatMap((row) => row.components).some((button) => button.label === 'Players'));
+  assert.ok(buttons(payload).some((button) => button.label === 'Players'));
 });
 
 test('custom ids parse safely', () => {
@@ -19,21 +28,52 @@ test('custom ids parse safely', () => {
   assert.equal(parseActionId('bad'), null);
 });
 
-test('unconnected module console does not mention provider setup or connection state', () => {
-  const text = renderedText(renderModuleConsole('ark', { enabled: true, configured: false, connected: false }));
+test('provider-less module controls are disabled without provider/setup wording', () => {
+  const payload = renderModuleConsole('ark', { enabled: true, configured: false, connected: false, availableActions: [] });
+  const text = renderedText(payload);
+  const players = buttons(payload).find((button) => button.label === 'Players');
+  assert.equal(players.disabled, true);
   assert.equal(text.includes('provider'), false);
   assert.equal(text.includes('setup needed'), false);
   assert.equal(text.includes('waiting for'), false);
   assert.equal(text.includes('connected'), false);
 });
 
-test('native public-data provider does not pretend to be a connected server', () => {
-  const text = renderedText(renderModuleConsole('warframe', { enabled: true, configured: true, connected: false, providerKind: 'public-data' }));
-  assert.equal(text.includes('connected'), false);
-  assert.equal(text.includes('provider'), false);
+test('native Warframe provider enables public-data actions without connected wording', () => {
+  const availableActions = ['alerts', 'fissures', 'sortie', 'arbitration', 'nightwave', 'market', 'builds'];
+  const payload = renderModuleConsole('warframe', {
+    enabled: true,
+    configured: true,
+    connected: false,
+    providerKind: 'public-data',
+    availableActions
+  });
+  const actionButtons = buttons(payload).filter((button) => button.custom_id?.startsWith('nexusmod:warframe:') && !['Features / Commands', 'Refresh'].includes(button.label));
+  assert.equal(actionButtons.every((button) => button.disabled === false), true);
+  assert.equal(renderedText(payload).includes('connected'), false);
+  assert.equal(renderedText(payload).includes('provider'), false);
+});
+
+test('partial provider enables only supported actions', () => {
+  const payload = renderModuleConsole('ark', {
+    enabled: true,
+    configured: true,
+    connected: true,
+    availableActions: ['status', 'players']
+  });
+  const byLabel = Object.fromEntries(buttons(payload).map((button) => [button.label, button]));
+  assert.equal(byLabel.Status.disabled, false);
+  assert.equal(byLabel.Players.disabled, false);
+  assert.equal(byLabel['Save World'].disabled, true);
+  assert.equal(byLabel.Broadcast.disabled, true);
 });
 
 test('connected external module may show connection state', () => {
-  const text = renderedText(renderModuleConsole('ark', { enabled: true, configured: true, connected: true }));
+  const text = renderedText(renderModuleConsole('ark', {
+    enabled: true,
+    configured: true,
+    connected: true,
+    availableActions: ['status']
+  }));
   assert.equal(text.includes('connected'), true);
 });
