@@ -66,7 +66,11 @@ function createSentinalAdminServer(options = {}) {
       if (req.method === 'GET' && url.pathname === '/v1/roles') return json(res, 200, await controller.reconcileRoles({ dryRun: true }));
       if (req.method === 'GET' && url.pathname === '/v1/scan') return json(res, 200, await controller.scan());
 
-      if (req.method === 'POST' && url.pathname === '/v1/config') return json(res, 200, controller.configure(await body(req)));
+      if (req.method === 'POST' && url.pathname === '/v1/config') {
+        const configured = controller.configure(await body(req));
+        const backend = await controller.backend?.configureModules?.(configured.settings.moduleEnabled || {}).catch((error) => ({ ok: false, message: String(error?.message || error) }));
+        return json(res, backend?.ok === false ? 502 : 200, { ...configured, backend: backend || null });
+      }
       if (req.method === 'POST' && url.pathname === '/v1/commands/sync') return json(res, 200, await controller.syncCommands());
       if (req.method === 'POST' && url.pathname === '/v1/channels/reconcile') {
         const input = await body(req);
