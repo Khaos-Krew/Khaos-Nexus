@@ -5,6 +5,7 @@ const path = require('node:path');
 const { URL } = require('node:url');
 const { envSecret } = require('../shared/config.cjs');
 const { AccountStore } = require('./core/account-store.cjs');
+const { ProviderValidator } = require('./core/provider-validator.cjs');
 const { BackendRuntime } = require('./core/runtime.cjs');
 const { SharedScheduler } = require('./core/scheduler.cjs');
 const { providersFromConfig } = require('./providers/http-provider.cjs');
@@ -15,11 +16,7 @@ const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 
 function json(res, status, body) {
   const payload = Buffer.from(JSON.stringify(body));
-  res.writeHead(status, {
-    'content-type': 'application/json; charset=utf-8',
-    'content-length': payload.length,
-    'cache-control': 'no-store'
-  });
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': payload.length, 'cache-control': 'no-store' });
   res.end(payload);
 }
 
@@ -37,14 +34,7 @@ async function readBody(req) {
 
 function safeAccount(account) {
   if (!account) return null;
-  return {
-    id: account.id,
-    role: account.role,
-    displayName: account.displayName,
-    discord: account.discord,
-    createdAt: account.createdAt,
-    updatedAt: account.updatedAt
-  };
+  return { id: account.id, role: account.role, displayName: account.displayName, discord: account.discord, createdAt: account.createdAt, updatedAt: account.updatedAt };
 }
 
 function createBackendApplication(config, options = {}) {
@@ -53,21 +43,13 @@ function createBackendApplication(config, options = {}) {
   const port = Number(config.backend?.port || 3210);
   const logger = options.logger || console;
 
-  if (!LOOPBACK_HOSTS.has(host) && !token) {
-    throw new Error(`Refusing to expose Nexus Backend on ${host} without ${config.backend?.serviceTokenEnv || 'NEXUS_BACKEND_TOKEN'}.`);
-  }
+  if (!LOOPBACK_HOSTS.has(host) && !token) throw new Error(`Refusing to expose Nexus Backend on ${host} without ${config.backend?.serviceTokenEnv || 'NEXUS_BACKEND_TOKEN'}.`);
 
-  const providers = {
-    ...nativeProvidersFromConfig(config),
-    ...serverProvidersFromConfig(config),
-    ...providersFromConfig(config)
-  };
+  const providers = { ...nativeProvidersFromConfig(config), ...serverProvidersFromConfig(config), ...providersFromConfig(config) };
   const runtime = new BackendRuntime({ config, providers });
-  const scheduler = new SharedScheduler({
-    filePath: config.scheduler?.stateFile || path.join(process.cwd(), 'data', 'schedules.json'),
-    timeZone: config.scheduler?.timeZone || 'America/Chicago'
-  });
+  const scheduler = new SharedScheduler({ filePath: config.scheduler?.stateFile || path.join(process.cwd(), 'data', 'schedules.json'), timeZone: config.scheduler?.timeZone || 'America/Chicago' });
   const accounts = new AccountStore({ filePath: config.accounts?.stateFile || path.join(process.cwd(), 'data', 'accounts.json') });
+  const providerValidator = new ProviderValidator({ runtime });
   runtime.registerService('scheduler', scheduler);
   scheduler.registerExecutor((moduleId, actionId, payload, context) => runtime.invoke(moduleId, actionId, payload, context));
 
@@ -82,9 +64,7 @@ function createBackendApplication(config, options = {}) {
       if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, runtime.health());
       if (!authorized(req)) return json(res, 401, { ok: false, code: 'UNAUTHORIZED' });
 
-      if (req.method === 'GET' && url.pathname === '/v1/accounts') {
-        return json(res, 200, { ok: true, accounts: accounts.list().map(safeAccount) });
-      }
+      if (req.method === 'GET' && url.pathname === '/v1/accounts') return json(res, 200, { ok: true, accounts: accounts.list().map(safeAccount) });
       const accountMatch = /^\/v1\/accounts\/discord\/(\d{15,24})$/.exec(url.pathname);
       if (req.method === 'GET' && accountMatch) {
         const account = safeAccount(accounts.findByDiscordId(accountMatch[1]));
@@ -92,13 +72,11 @@ function createBackendApplication(config, options = {}) {
       }
       if (req.method === 'POST' && url.pathname === '/v1/accounts/pairing-codes') {
         const body = await readBody(req);
-        const pairing = accounts.createPairingCode(body.role || 'co-owner');
-        return json(res, 201, { ok: true, pairing });
+        return json(res, 201, { ok: true, pairing: accounts.createPairingCode(body.role || 'co-owner') });
       }
       if (req.method === 'POST' && url.pathname === '/v1/accounts/link') {
         const body = await readBody(req);
-        const account = accounts.redeemPairingCode(body.code, body.discord || {});
-        return json(res, 200, { ok: true, account: safeAccount(account) });
+        return json(res, 200, { ok: true, account: safeAccount(accounts.redeemPairingCode(body.code, body.discord || {})) });
       }
       const deleteAccountMatch = /^\/v1\/accounts\/([0-9a-f-]{36})$/.exec(url.pathname);
       if (req.method === 'DELETE' && deleteAccountMatch) {
@@ -106,6 +84,10 @@ function createBackendApplication(config, options = {}) {
         return json(res, removed ? 200 : 404, removed ? { ok: true } : { ok: false, code: 'ACCOUNT_NOT_FOUND' });
       }
 
+      if (req.method === 'POST' && url.pathname === '/v1/providers/validate') {
+        const body = await readBody(req);
+        return json(res, 200, await providerValidator.validate(body.moduleId || body.module || ''));
+      }
       if (req.method === 'GET' && url.pathname === '/v1/modules') return json(res, 200, { ok: true, modules: runtime.manifests() });
       if (req.method === 'GET' && url.pathname === '/v1/schedules') return json(res, 200, { ok: true, timeZone: scheduler.timeZone, schedules: scheduler.list() });
       const match = /^\/v1\/modules\/([a-z0-9-]+)\/actions\/([a-z0-9-]+)$/.exec(url.pathname);
@@ -113,11 +95,7 @@ function createBackendApplication(config, options = {}) {
         const body = await readBody(req);
         const role = String(req.headers['x-nexus-role'] || 'viewer');
         const confirmed = String(req.headers['x-nexus-confirmed'] || '').toLowerCase() === 'true';
-        const result = await runtime.invoke(match[1], match[2], body.payload || {}, {
-          role,
-          confirmed,
-          actorId: String(req.headers['x-nexus-actor'] || '')
-        });
+        const result = await runtime.invoke(match[1], match[2], body.payload || {}, { role, confirmed, actorId: String(req.headers['x-nexus-actor'] || '') });
         const status = result.ok ? 200 : result.code === 'ACCESS_DENIED' ? 403 : result.code === 'CONFIRMATION_REQUIRED' ? 428 : 409;
         return json(res, status, result);
       }
@@ -128,21 +106,12 @@ function createBackendApplication(config, options = {}) {
   });
 
   let started = false;
-
   async function start() {
     if (started) return { host, port };
     scheduler.start();
     await new Promise((resolve, reject) => {
-      const onError = (error) => {
-        server.off('listening', onListening);
-        scheduler.stop();
-        reject(error);
-      };
-      const onListening = () => {
-        server.off('error', onError);
-        started = true;
-        resolve();
-      };
+      const onError = (error) => { server.off('listening', onListening); scheduler.stop(); reject(error); };
+      const onListening = () => { server.off('error', onError); started = true; resolve(); };
       server.once('error', onError);
       server.once('listening', onListening);
       server.listen(port, host);
@@ -153,25 +122,12 @@ function createBackendApplication(config, options = {}) {
 
   async function stop() {
     scheduler.stop();
-    if (!started || !server.listening) {
-      started = false;
-      return;
-    }
+    if (!started || !server.listening) { started = false; return; }
     await new Promise((resolve) => server.close(() => resolve()));
     started = false;
   }
 
-  return {
-    host,
-    port,
-    runtime,
-    scheduler,
-    accounts,
-    server,
-    start,
-    stop,
-    isStarted: () => started && server.listening
-  };
+  return { host, port, runtime, scheduler, accounts, providerValidator, server, start, stop, isStarted: () => started && server.listening };
 }
 
 module.exports = { LOOPBACK_HOSTS, createBackendApplication };
