@@ -6,6 +6,24 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Get-Sha256Hex {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  $stream = [IO.File]::OpenRead([IO.Path]::GetFullPath($Path))
+  try {
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+      $bytes = $algorithm.ComputeHash($stream)
+      return ([BitConverter]::ToString($bytes)).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+      $algorithm.Dispose()
+    }
+  }
+  finally {
+    $stream.Dispose()
+  }
+}
+
 $packageJson = Get-Content -LiteralPath 'package.json' -Raw | ConvertFrom-Json
 $version = [string]$packageJson.version
 $source = Join-Path $DistDir 'win-unpacked'
@@ -21,7 +39,7 @@ Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $manifestPath -Force -ErrorAction SilentlyContinue
 
 Compress-Archive -Path (Join-Path $source '*') -DestinationPath $zipPath -CompressionLevel Optimal
-$hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$hash = Get-Sha256Hex -Path $zipPath
 $size = (Get-Item -LiteralPath $zipPath).Length
 
 $manifest = [ordered]@{
