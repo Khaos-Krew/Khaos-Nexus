@@ -51,20 +51,33 @@ Repository evidence on `rebuild/nexus-0.1` currently establishes:
 - join-to-create temporary voice lobby behavior with persisted topology/lobby ownership;
 - Administrator permission preflight for Sentinal provisioning while setup authorization remains separately restricted to configured owner or Discord Manage Server authority;
 - private Thora launch/status bridge boundaries;
-- dedicated rebuild CI and Windows build workflow definitions.
+- dedicated rebuild CI and Windows build workflow definitions;
+- a self-contained Admin Control Center owner-test installer path with desktop and Start Menu shortcuts.
 
 These are implementation facts, not release or owner-acceptance claims. The presence of provider code and automated tests does not establish live-provider correctness, production credentials, real-server compatibility, owner acceptance, or release readiness.
 
 ## Validation state
 
-Status: **REBUILD VALIDATION REQUIRED**
+Status: **AUTOMATED REBUILD BASELINE GREEN — OWNER/LIVE VALIDATION STILL REQUIRED**
 
-The repository contains dedicated rebuild CI and Windows-build workflow definitions. At the time of this synchronization, no completed workflow-run evidence was found for the current rebuild head that is sufficient to claim the current rebuild head is green.
+PR #287 (`Desktop 0.1 testable Admin Control Center`) was merged by fast-forward into `rebuild/nexus-0.1` at exact head `5624e7628581f1f8f89d09cfb873564317ebf58a`. That commit is also the current rebuild branch head at this synchronization point.
 
-Therefore:
+Exact-head evidence establishes:
 
-- do not claim Nexus 0.1 has passed CI or Windows packaging unless exact-head workflow evidence is available;
+- Nexus Rebuild CI completed successfully on `5624e7628581f1f8f89d09cfb873564317ebf58a`;
+- Linux structure/syntax checks passed;
+- automated tests passed 63/63;
+- Windows structure/syntax checks passed;
+- Windows tests passed;
+- NSIS packaging passed;
+- the Windows artifact upload passed;
+- the generated owner-test artifact is named `Khaos-Nexus-0.1.0-Setup.exe`.
+
+This is automated build/package evidence only. Therefore:
+
 - do not claim owner acceptance until an explicit owner-test result is recorded;
+- do not claim live-provider correctness until provider paths are exercised against real supported services/servers;
+- do not claim public/stable release status from CI, packaging, PR merge state, or package version alone;
 - do not carry the old 0.41.x twelve-gate numeric stabilization score into the 0.1 rebuild as if it were already applicable;
 - define new acceptance gates around the clean rebuild rather than inheriting legacy scores by default.
 
@@ -72,7 +85,7 @@ Therefore:
 
 ### Now — Rebuild foundation
 
-Status: **IN PROGRESS**
+Status: **IN PROGRESS — AUTOMATED BASELINE GREEN; OWNER ACCEPTANCE PENDING**
 
 Goals:
 
@@ -81,7 +94,8 @@ Goals:
 - keep Sentinal as the primary game-module user surface;
 - preserve safe permission, confirmation, redaction, audit, and secret-storage boundaries;
 - maintain deterministic Discord provisioning/reconciliation without duplicate channels, consoles, or lobbies;
-- obtain exact-head CI and Windows-package evidence for the rebuild.
+- exercise the packaged Admin Control Center on the owner Windows environment and record explicit acceptance/failures;
+- preserve exact commit/artifact correlation for any subsequent owner-test build.
 
 ### Next — Provider-backed game services
 
