@@ -7,6 +7,8 @@ class HttpProvider {
     this.moduleId = moduleId;
     this.baseUrl = String(config.baseUrl || '').replace(/\/$/, '');
     this.token = envSecret(config.tokenEnv);
+    this.connected = true;
+    this.providerKind = 'external-http';
     if (!this.baseUrl) throw new Error(`${moduleId}: HTTP provider requires baseUrl.`);
   }
 
