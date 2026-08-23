@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const https = require('node:https');
 const net = require('node:net');
 
-const SATISFACTORY_ACTIONS = Object.freeze(['status', 'players', 'save']);
+const BASE_ACTIONS = Object.freeze(['status', 'players', 'save', 'saves', 'server-options', 'advanced-settings', 'load-save', 'command', 'backups']);
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 function cleanText(value, max = 300, fallback = '') {
@@ -48,6 +48,7 @@ function readServerState(payload = {}) {
     techTier: Number(source.techTier ?? source.TechTier ?? 0) || 0,
     activeSchematic: cleanText(source.activeSchematic || source.ActiveSchematic, 300),
     gamePhase: cleanText(source.gamePhase || source.GamePhase, 200),
+    totalGameDuration: Number(source.totalGameDuration ?? source.TotalGameDuration ?? 0) || 0,
     isGameRunning: Boolean(source.isGameRunning ?? source.IsGameRunning)
   };
 }
@@ -69,7 +70,6 @@ class SatisfactoryApiClient {
     if (!name) throw new Error('A Satisfactory API function is required.');
     const body = Buffer.from(JSON.stringify({ function: name, data: data && typeof data === 'object' ? data : {} }), 'utf8');
     const pinned = Boolean(this.fingerprint);
-
     return new Promise((resolve, reject) => {
       let settled = false;
       let received = 0;
@@ -77,28 +77,17 @@ class SatisfactoryApiClient {
       const finish = (error, value) => {
         if (settled) return;
         settled = true;
-        if (error) reject(error);
-        else resolve(value);
+        if (error) reject(error); else resolve(value);
       };
       const request = this.httpsModule.request({
-        host: this.host,
-        port: this.port,
-        path: '/api/v1',
-        method: 'POST',
+        host: this.host, port: this.port, path: '/api/v1', method: 'POST',
         servername: net.isIP(this.host) ? undefined : this.host,
         rejectUnauthorized: !pinned,
-        headers: {
-          'content-type': 'application/json; charset=utf-8',
-          'content-length': String(body.length),
-          authorization: `Bearer ${this.token}`
-        }
+        headers: { 'content-type': 'application/json; charset=utf-8', 'content-length': String(body.length), authorization: `Bearer ${this.token}` }
       }, (response) => {
         response.on('data', (chunk) => {
           received += chunk.length;
-          if (received > MAX_RESPONSE_BYTES) {
-            request.destroy(new Error('Satisfactory API response exceeded the safe size limit.'));
-            return;
-          }
+          if (received > MAX_RESPONSE_BYTES) return request.destroy(new Error('Satisfactory API response exceeded the safe size limit.'));
           chunks.push(chunk);
         });
         response.once('end', () => {
@@ -111,12 +100,9 @@ class SatisfactoryApiClient {
               throw new Error(`Satisfactory API request failed with HTTP ${status}${detail ? `: ${detail}` : ''}.`);
             }
             finish(null, payload && Object.prototype.hasOwnProperty.call(payload, 'data') ? payload.data : payload);
-          } catch (error) {
-            finish(error);
-          }
+          } catch (error) { finish(error); }
         });
       });
-
       request.once('socket', (socket) => {
         if (!pinned) return;
         socket.once('secureConnect', () => {
@@ -127,26 +113,26 @@ class SatisfactoryApiClient {
             if (expectedBuffer.length !== actualBuffer.length || !crypto.timingSafeEqual(expectedBuffer, actualBuffer)) {
               request.destroy(new Error('Satisfactory TLS certificate changed. Review the new fingerprint before reconnecting.'));
             }
-          } catch (error) {
-            request.destroy(error);
-          }
+          } catch (error) { request.destroy(error); }
         });
       });
-
       request.setTimeout(this.timeoutMs, () => request.destroy(new Error('Satisfactory API request timed out.')));
       request.once('error', (error) => {
         const text = cleanText(error?.message || error, 800, 'Satisfactory connection failed.');
-        if (!pinned && /self[- ]signed|unable to verify|certificate|issuer/i.test(text)) {
-          finish(new Error('Satisfactory uses an untrusted TLS certificate. Configure its SHA-256 certificate fingerprint before connecting.'));
-        } else {
-          finish(new Error(text));
-        }
+        if (!pinned && /self[- ]signed|unable to verify|certificate|issuer/i.test(text)) finish(new Error('Satisfactory uses an untrusted TLS certificate. Configure its SHA-256 certificate fingerprint before connecting.'));
+        else finish(new Error(text));
       });
       request.end(body);
     });
   }
 
   queryServerState() { return this.request('QueryServerState', {}); }
+  getServerOptions() { return this.request('GetServerOptions', {}); }
+  getAdvancedGameSettings() { return this.request('GetAdvancedGameSettings', {}); }
+  enumerateSessions() { return this.request('EnumerateSessions', {}); }
+  runCommand(command) { return this.request('RunCommand', { Command: command }); }
+  shutdown() { return this.request('Shutdown', {}); }
+  loadGame(saveName, enableAdvancedGameSettings = false) { return this.request('LoadGame', { SaveName: saveName, EnableAdvancedGameSettings: Boolean(enableAdvancedGameSettings) }); }
 
   save(saveName) {
     const fallback = `KhaosNexus-${new Date(this.now()).toISOString().replace(/[:.]/g, '-')}`;
@@ -160,11 +146,15 @@ class SatisfactoryProvider {
     this.client = options.client || new SatisfactoryApiClient(connection, options);
     this.connected = true;
     this.providerKind = 'satisfactory-https';
-    this.supportedActions = [...SATISFACTORY_ACTIONS];
+    this.restartViaShutdown = connection.restartViaShutdown === true;
+    this.supportedActions = [...BASE_ACTIONS, ...(this.restartViaShutdown ? ['restart'] : [])];
   }
 
   async invoke(actionId, payload = {}) {
-    if (!this.supportedActions.includes(actionId)) throw new Error(`Satisfactory HTTPS API does not expose ${actionId} through Nexus yet.`);
+    if (!this.supportedActions.includes(actionId)) {
+      if (actionId === 'restart') throw new Error('Satisfactory restart requires connection.restartViaShutdown=true and an external service manager that starts the dedicated server again after Shutdown.');
+      throw new Error(`Satisfactory HTTPS API does not expose ${actionId} through Nexus yet.`);
+    }
     if (actionId === 'status') {
       const state = readServerState(await this.client.queryServerState());
       return { online: true, state: state.isGameRunning ? 'playing' : 'idle', ...state };
@@ -174,17 +164,29 @@ class SatisfactoryProvider {
       return { count: state.players, maxPlayers: state.maxPlayers, players: [], namesUnavailable: true };
     }
     if (actionId === 'save') return this.client.save(payload.saveName || payload.input);
+    if (actionId === 'saves' || actionId === 'backups') return this.client.enumerateSessions();
+    if (actionId === 'server-options') return this.client.getServerOptions();
+    if (actionId === 'advanced-settings') return this.client.getAdvancedGameSettings();
+    if (actionId === 'load-save') {
+      const saveName = cleanText(payload.saveName || payload.input, 200);
+      if (!saveName) return { usage: 'Use /nexus run module:satisfactory action:load-save input:<save name>.' };
+      return this.client.loadGame(saveName, payload.enableAdvancedGameSettings === true);
+    }
+    if (actionId === 'command') {
+      const command = cleanText(payload.command || payload.input, 1000);
+      if (!command) return { usage: 'Use /nexus run module:satisfactory action:command input:<console command>.' };
+      if (/[\r\n]/.test(command)) throw new Error('Satisfactory console commands must be a single line.');
+      return this.client.runCommand(command);
+    }
+    if (actionId === 'restart') {
+      const result = await this.client.shutdown();
+      return { accepted: true, restartExpected: true, note: 'The official Satisfactory Shutdown API was called. The configured external service manager must restart the process.', result };
+    }
     throw new Error(`Unsupported Satisfactory action: ${actionId}`);
   }
 }
 
 module.exports = {
-  SatisfactoryProvider,
-  SatisfactoryApiClient,
-  SATISFACTORY_ACTIONS,
-  normalizeHost,
-  normalizePort,
-  normalizeFingerprint,
-  certificateFingerprint,
-  readServerState
+  SatisfactoryProvider, SatisfactoryApiClient, BASE_ACTIONS, normalizeHost, normalizePort,
+  normalizeFingerprint, certificateFingerprint, readServerState
 };
