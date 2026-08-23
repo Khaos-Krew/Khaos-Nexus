@@ -4,6 +4,12 @@ const { envSecret } = require('../shared/config.cjs');
 const { NEXUS_RANKS, normalizeId } = require('../shared/ranks.cjs');
 const { commandNames } = require('./friendly-commands.cjs');
 
+const ENTITLEMENT_SKU_TYPES = new Set([2, 5]); // Discord DURABLE and SUBSCRIPTION
+const RANK_OFFERING_SUFFIXES = new Set([
+  'subscription', 'subscriber', 'monthly', 'month', 'annual', 'yearly', 'year',
+  'durable', 'lifetime', 'one', 'time', 'purchase', 'membership', 'tier', 'access'
+]);
+
 function desiredCommandNames() {
   return [...new Set(['nexus', 'nexus-pair', 'market', ...commandNames()])];
 }
@@ -40,6 +46,15 @@ function exactRankMatch(value, rank) {
   return Boolean(normalized && normalized === rank.id);
 }
 
+function rankOfferingMatch(value, rank) {
+  const normalized = normalizeId(value);
+  if (!normalized) return false;
+  if (normalized === rank.id) return true;
+  if (!normalized.startsWith(`${rank.id}-`)) return false;
+  const suffix = normalized.slice(rank.id.length + 1).split('-').filter(Boolean);
+  return suffix.length > 0 && suffix.every((token) => RANK_OFFERING_SUFFIXES.has(token));
+}
+
 function discoverMappingsFromData({ roles = [], skus = [], current = {}, guildId = '' } = {}) {
   const normalizedRoles = roleRows(roles, guildId);
   const normalizedSkus = skuRows(skus);
@@ -60,16 +75,15 @@ function discoverMappingsFromData({ roles = [], skus = [], current = {}, guildId
     if (!configuredRoleId && roleCandidates.length === 1) discoveredRoles += 1;
 
     const configuredSkuIds = Array.isArray(currentSkus[rank.id]) ? currentSkus[rank.id].map(String).filter(Boolean) : [];
-    const skuCandidates = rank.level === 0 ? [] : normalizedSkus.filter((sku) => exactRankMatch(sku.name, rank) || exactRankMatch(sku.slug, rank));
-    const nonGroupCandidates = skuCandidates.filter((sku) => sku.type !== 6);
-    const subscriptionCandidates = nonGroupCandidates.filter((sku) => sku.type === 5);
-    const preferredSkus = subscriptionCandidates.length ? subscriptionCandidates : nonGroupCandidates;
-    const suggestedSkuIds = configuredSkuIds.length ? configuredSkuIds : [...new Set(preferredSkus.map((sku) => sku.id))];
+    const entitlementSkus = rank.level === 0 ? [] : normalizedSkus.filter((sku) =>
+      ENTITLEMENT_SKU_TYPES.has(sku.type) && (rankOfferingMatch(sku.name, rank) || rankOfferingMatch(sku.slug, rank))
+    );
+    const suggestedSkuIds = configuredSkuIds.length ? configuredSkuIds : [...new Set(entitlementSkus.map((sku) => sku.id))];
     suggestedRankSkus[rank.id] = suggestedSkuIds;
     if (!configuredSkuIds.length && suggestedSkuIds.length) discoveredSkus += suggestedSkuIds.length;
 
     const roleStatus = configuredRoleId ? 'configured' : roleCandidates.length === 1 ? 'discovered' : roleCandidates.length > 1 ? 'ambiguous' : 'missing';
-    const skuStatus = rank.level === 0 ? 'free-default' : configuredSkuIds.length ? 'configured' : preferredSkus.length ? 'discovered' : 'missing';
+    const skuStatus = rank.level === 0 ? 'free-default' : configuredSkuIds.length ? 'configured' : entitlementSkus.length ? 'discovered' : 'missing';
     if (roleStatus === 'ambiguous' || roleStatus === 'missing' || (rank.level > 0 && skuStatus === 'missing')) attention += 1;
 
     ranks.push({
@@ -77,7 +91,7 @@ function discoverMappingsFromData({ roles = [], skus = [], current = {}, guildId
       name: rank.name,
       level: rank.level,
       role: { status: roleStatus, id: suggestedRoleId, candidates: roleCandidates },
-      skus: { status: skuStatus, ids: suggestedSkuIds, candidates: preferredSkus }
+      skus: { status: skuStatus, ids: suggestedSkuIds, candidates: entitlementSkus }
     });
   }
 
@@ -116,12 +130,14 @@ async function discoverRankMappings(controller) {
 }
 
 module.exports = {
+  ENTITLEMENT_SKU_TYPES,
   commandStatus,
   desiredCommandNames,
   discoverMappingsFromData,
   discoverRankMappings,
   exactRankMatch,
   fetchApplicationSkus,
+  rankOfferingMatch,
   roleRows,
   skuRows
 };
