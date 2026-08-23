@@ -6,4 +6,4 @@ process.env.NEXUS_BACKEND_URL ||= `http://${process.env.NEXUS_BACKEND_HOST}:${pr
 
 console.log('[Nexus Sentinal] starting Railway composite runtime');
 require('../backend/server.cjs');
-require('../sentinel/bot.cjs');
+require('../sentinel/entry.cjs');
