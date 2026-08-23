@@ -9,7 +9,7 @@ function renderedText(payload) {
 }
 
 test('console renders persistent controls for ARK', () => {
-  const payload = renderModuleConsole('ark', { enabled: true, configured: true });
+  const payload = renderModuleConsole('ark', { enabled: true, configured: true, connected: true });
   assert.equal(payload.embeds.length, 1);
   assert.ok(payload.components.flatMap((row) => row.components).some((button) => button.label === 'Players'));
 });
@@ -20,14 +20,20 @@ test('custom ids parse safely', () => {
 });
 
 test('unconnected module console does not mention provider setup or connection state', () => {
-  const text = renderedText(renderModuleConsole('ark', { enabled: true, configured: false }));
+  const text = renderedText(renderModuleConsole('ark', { enabled: true, configured: false, connected: false }));
   assert.equal(text.includes('provider'), false);
   assert.equal(text.includes('setup needed'), false);
   assert.equal(text.includes('waiting for'), false);
   assert.equal(text.includes('connected'), false);
 });
 
-test('connected module console may show connection state', () => {
-  const text = renderedText(renderModuleConsole('ark', { enabled: true, configured: true }));
+test('native public-data provider does not pretend to be a connected server', () => {
+  const text = renderedText(renderModuleConsole('warframe', { enabled: true, configured: true, connected: false, providerKind: 'public-data' }));
+  assert.equal(text.includes('connected'), false);
+  assert.equal(text.includes('provider'), false);
+});
+
+test('connected external module may show connection state', () => {
+  const text = renderedText(renderModuleConsole('ark', { enabled: true, configured: true, connected: true }));
   assert.equal(text.includes('connected'), true);
 });
