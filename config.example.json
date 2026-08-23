@@ -17,13 +17,51 @@
     "executableEnv": "NEXUS_THORA_PATH"
   },
   "modules": {
-    "ark": { "enabled": true, "channelId": "", "provider": {} },
-    "palworld": { "enabled": true, "channelId": "", "provider": {} },
-    "minecraft": { "enabled": true, "channelId": "", "provider": {} },
-    "warframe": { "enabled": true, "channelId": "", "platform": "pc", "marketPlatform": "pc", "provider": {} },
+    "ark": {
+      "enabled": true,
+      "channelId": "",
+      "connection": { "host": "", "port": 0, "passwordEnv": "NEXUS_ARK_RCON_PASSWORD" },
+      "provider": {}
+    },
+    "palworld": {
+      "enabled": true,
+      "channelId": "",
+      "connection": {
+        "host": "",
+        "port": 0,
+        "protocol": "http",
+        "apiPath": "/v1/api",
+        "username": "admin",
+        "passwordEnv": "NEXUS_PALWORLD_REST_PASSWORD"
+      },
+      "provider": {}
+    },
+    "minecraft": {
+      "enabled": true,
+      "channelId": "",
+      "connection": { "host": "", "port": 0, "passwordEnv": "NEXUS_MINECRAFT_RCON_PASSWORD" },
+      "provider": {}
+    },
+    "warframe": {
+      "enabled": true,
+      "channelId": "",
+      "platform": "pc",
+      "marketPlatform": "pc",
+      "provider": {}
+    },
     "division2": { "enabled": true, "channelId": "", "provider": {} },
-    "rust": { "enabled": true, "channelId": "", "provider": {} },
-    "satisfactory": { "enabled": true, "channelId": "", "provider": {} },
+    "rust": {
+      "enabled": true,
+      "channelId": "",
+      "connection": { "host": "", "port": 0, "protocol": "ws", "passwordEnv": "NEXUS_RUST_RCON_PASSWORD" },
+      "provider": {}
+    },
+    "satisfactory": {
+      "enabled": true,
+      "channelId": "",
+      "connection": { "host": "", "port": 7777, "passwordEnv": "NEXUS_SATISFACTORY_TOKEN", "tlsFingerprint": "" },
+      "provider": {}
+    },
     "idleon": { "enabled": true, "channelId": "", "provider": {} },
     "dnd": { "enabled": true, "channelId": "", "surface": "veyra", "provider": {} }
   }
