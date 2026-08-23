@@ -24,13 +24,14 @@ function renderModuleConsole(moduleId, backendState = {}) {
   if (!module) throw new Error(`Unknown module: ${moduleId}`);
   const connected = backendState.connected === true;
   const enabled = backendState.enabled !== false;
+  const availableActions = new Set(Array.isArray(backendState.availableActions) ? backendState.availableActions : []);
   const state = !enabled ? 'DISABLED' : connected ? 'READY • CONNECTED' : 'READY';
   const buttons = module.capabilities.slice(0, 20).map((cap) => ({
     type: 2,
     style: style(cap),
     label: cap.label.slice(0, 80),
     custom_id: actionId(module.id, cap.id),
-    disabled: !enabled
+    disabled: !enabled || !availableActions.has(cap.id)
   }));
   const rows = [];
   for (let i = 0; i < buttons.length; i += 5) rows.push({ type: 1, components: buttons.slice(i, i + 5) });
@@ -45,7 +46,7 @@ function renderModuleConsole(moduleId, backendState = {}) {
   return {
     embeds: [{
       title: `KHAOS NEXUS • ${module.name.toUpperCase()}`,
-      description: `**${state}**\nUse the controls below for common actions. Advanced/parameterized actions remain available through Sentinal commands as they are added.`,
+      description: `**${state}**\nUse the available controls below for common actions. Advanced/parameterized actions remain available through Sentinal commands as they are added.`,
       fields,
       footer: { text: 'Nexus 0.1 • Backend-first module console' }
     }],
