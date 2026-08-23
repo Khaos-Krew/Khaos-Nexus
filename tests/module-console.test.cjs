@@ -48,7 +48,7 @@ test('native Warframe provider enables all public-data quick actions without con
     providerAvailableActions: availableActions,
     availableActions
   });
-  const actionButtons = buttons(payload).filter((button) => button.custom_id?.startsWith('nexusmod:warframe:') && !['Features / Commands', 'Refresh'].includes(button.label));
+  const actionButtons = buttons(payload).filter((button) => button.custom_id?.startsWith('nexusmod:warframe:') && !['Commands / Help', 'Refresh'].includes(button.label));
   assert.equal(actionButtons.length > 0, true);
   assert.equal(actionButtons.every((button) => button.disabled === false), true);
   assert.equal(renderedText(payload).includes('ready • connected'), false);
