@@ -19,7 +19,7 @@ const required = [
   'src/backend/transports/source-rcon.cjs', 'src/backend/transports/rcon-protocol.cjs',
   'src/sentinel/bot.cjs', 'src/sentinel/entry.cjs', 'src/sentinel/pokemon-go-extension.cjs',
   'src/sentinel/pokemon-go.cjs', 'src/sentinel/pokemon-go-event-ui.cjs', 'src/sentinel/discord-time.cjs',
-  'src/sentinel/event-feed.cjs', 'src/sentinel/event-feed-extension.cjs',
+  'src/sentinel/event-feed.cjs', 'src/sentinel/event-feed-extension.cjs', 'src/sentinel/role-menu.cjs', 'src/sentinel/role-menu-extension.cjs',
   'src/sentinel/commands.cjs', 'src/sentinel/friendly-commands.cjs', 'src/sentinel/action-formatters.cjs',
   'src/sentinel/admin-ops.cjs', 'src/sentinel/admin-server.cjs', 'src/sentinel/discord-admin-discovery.cjs', 'src/sentinel/module-inspector.cjs',
   'src/sentinel/module-console.cjs', 'src/sentinel/module-provisioner.cjs', 'src/sentinel/module-layouts.cjs',
