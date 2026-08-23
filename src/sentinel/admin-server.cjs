@@ -59,12 +59,14 @@ function createSentinalAdminServer(options = {}) {
       if (!controller) return json(res, 503, { ok: false, code: 'SENTINAL_STARTING', message: 'Nexus Sentinal is not ready yet.' });
 
       if (req.method === 'GET' && url.pathname === '/v1/status') return json(res, 200, await controller.status());
+      if (req.method === 'GET' && url.pathname === '/v1/config') return json(res, 200, { ok: true, settings: controller.adminConfig() });
       if (req.method === 'GET' && url.pathname === '/v1/permissions') return json(res, 200, await controller.permissions());
       if (req.method === 'GET' && url.pathname === '/v1/commands') return json(res, 200, await controller.commands());
       if (req.method === 'GET' && url.pathname === '/v1/channels') return json(res, 200, await controller.inspectChannels(safeModuleId(url.searchParams.get('module'))));
       if (req.method === 'GET' && url.pathname === '/v1/roles') return json(res, 200, await controller.reconcileRoles({ dryRun: true }));
       if (req.method === 'GET' && url.pathname === '/v1/scan') return json(res, 200, await controller.scan());
 
+      if (req.method === 'POST' && url.pathname === '/v1/config') return json(res, 200, controller.configure(await body(req)));
       if (req.method === 'POST' && url.pathname === '/v1/commands/sync') return json(res, 200, await controller.syncCommands());
       if (req.method === 'POST' && url.pathname === '/v1/channels/reconcile') {
         const input = await body(req);
