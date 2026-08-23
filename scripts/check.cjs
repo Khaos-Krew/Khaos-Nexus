@@ -7,6 +7,7 @@ const root = path.resolve(__dirname, '..');
 const required = [
   'package.json', 'config.example.json', 'src/main.cjs', 'src/preload.cjs', 'src/shared/config.cjs',
   'src/desktop/config-store.cjs', 'src/desktop/secret-vault.cjs', 'src/thora/bridge.cjs',
+  'src/updater/service.cjs', 'src/updater/apply-update.ps1', 'scripts/build-update-bundle.ps1',
   'src/backend/application.cjs', 'src/backend/server.cjs',
   'src/backend/core/runtime.cjs', 'src/backend/core/scheduler.cjs', 'src/backend/core/json-store.cjs',
   'src/backend/providers/http-provider.cjs', 'src/backend/providers/native-providers.cjs',
@@ -18,7 +19,8 @@ const required = [
   'src/sentinel/bot.cjs', 'src/sentinel/commands.cjs', 'src/sentinel/action-formatters.cjs',
   'src/sentinel/module-console.cjs', 'src/sentinel/module-provisioner.cjs', 'src/sentinel/module-layouts.cjs',
   'src/sentinel/state-store.cjs', 'src/backend/modules/catalog.cjs',
-  'src/renderer/index.html', 'src/renderer/app.js', 'src/renderer/style.css'
+  'src/renderer/index.html', 'src/renderer/app.js', 'src/renderer/style.css',
+  'src/renderer/updater-ui.js', 'src/renderer/updater.css'
 ];
 const syntaxFiles = required.filter((file) => /\.(?:cjs|js)$/.test(file));
 let failed = false;
