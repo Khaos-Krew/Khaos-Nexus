@@ -5,7 +5,7 @@ const { NEXUS_RANKS, normalizeId } = require('../shared/ranks.cjs');
 const { commandNames } = require('./friendly-commands.cjs');
 
 function desiredCommandNames() {
-  return [...new Set(['nexus', 'market', ...commandNames()])];
+  return [...new Set(['nexus', 'nexus-pair', 'market', ...commandNames()])];
 }
 
 async function commandStatus(controller) {
