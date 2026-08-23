@@ -50,7 +50,7 @@ async function handleClearCommand(interaction) {
   const deletedCount = Number(deleted?.size || 0);
   const skipped = Math.max(0, amount - deletedCount);
   const detail = skipped
-    ? ` Discord only bulk-deletes messages newer than 14 days, so ${skipped} requested message${skipped === 1 ? ' was' : 's were'} left untouched.`
+    ? ` Discord cannot bulk-delete messages older than 14 days, so ${skipped} requested message${skipped === 1 ? ' was' : 's were'} left untouched.`
     : '';
 
   return interaction.editReply({
