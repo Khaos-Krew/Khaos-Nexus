@@ -29,6 +29,9 @@ class BackendClient {
   removeAccount(accountId) {
     return this.request(`/v1/accounts/${encodeURIComponent(accountId)}`, { method: 'DELETE' });
   }
+  validateProviders(moduleId = '') {
+    return this.request('/v1/providers/validate', { method: 'POST', body: JSON.stringify({ moduleId }) });
+  }
   invoke(moduleId, actionId, payload, context = {}) {
     return this.request(`/v1/modules/${encodeURIComponent(moduleId)}/actions/${encodeURIComponent(actionId)}`, {
       method: 'POST',
