@@ -59,7 +59,13 @@ jobs:
           ./scripts/build-update-bundle.ps1 -DistDir dist -Channel $env:UPDATE_CHANNEL
           $manifest = Get-Content -LiteralPath dist/nexus-update-manifest.json -Raw | ConvertFrom-Json
           $zip = Join-Path dist $manifest.package.name
-          $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $stream = [System.IO.File]::OpenRead((Resolve-Path $zip))
+          try {
+            $sha = [System.Security.Cryptography.SHA256]::Create()
+            try { $hash = ([System.BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToLowerInvariant() }
+            finally { $sha.Dispose() }
+          }
+          finally { $stream.Dispose() }
           if ($hash -ne $manifest.package.sha256) { throw 'Update bundle hash verification failed before publish.' }
       - name: Publish owner-test release
         if: ${{ inputs.channel == 'owner-test' }}
