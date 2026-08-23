@@ -68,6 +68,13 @@ test('Discord OAuth redirect is restricted to fixed loopback HTTP addresses', ()
   assert.throws(() => assertLoopbackRedirect('http://127.0.0.1/callback'), /fixed loopback port/i);
 });
 
+test('account store uses its dedicated API and is not registered as an action service', () => {
+  const application = fs.readFileSync(path.join(__dirname, '..', 'src', 'backend', 'application.cjs'), 'utf8');
+  assert.match(application, /new AccountStore/);
+  assert.match(application, /\/v1\/accounts/);
+  assert.doesNotMatch(application, /registerService\(['"]accounts['"]/);
+});
+
 test('desktop and Sentinal expose both account-link paths', () => {
   const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.cjs'), 'utf8');
   const preload = fs.readFileSync(path.join(__dirname, '..', 'src', 'preload.cjs'), 'utf8');
