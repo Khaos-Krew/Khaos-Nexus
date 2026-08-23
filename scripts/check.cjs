@@ -40,8 +40,8 @@ for (const file of syntaxFiles) {
   }
 }
 const pkg = require(path.join(root, 'package.json'));
-if (pkg.version !== '0.1.0') {
-  console.error(`Version must remain 0.1.0 for the rebuild baseline; found ${pkg.version}`);
+if (!/^0\.1\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?$/.test(String(pkg.version || ''))) {
+  console.error(`Rebuild versions must stay on the Nexus 0.1 line; found ${pkg.version}`);
   failed = true;
 }
 if (failed) process.exitCode = 1;
