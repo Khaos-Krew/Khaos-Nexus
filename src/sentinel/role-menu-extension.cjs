@@ -1,6 +1,6 @@
 'use strict';
 
-const { Client, Events } = require('discord.js');
+const { Client, Events, MessageFlags } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { StateStore } = require('./state-store.cjs');
 const { RoleMenuManager, ACCESS_BUTTON_PREFIX } = require('./role-menu.cjs');
@@ -18,7 +18,6 @@ function installRoleMenuExtension() {
   Client.prototype.login = function nexusRoleMenuLogin(...args) {
     const state = new StateStore();
     const manager = new RoleMenuManager({ client: this, state, config });
-    let reconcileTimer = null;
 
     const reconcile = async (reason) => {
       if (!guildId) return;
@@ -37,7 +36,7 @@ function installRoleMenuExtension() {
 
     this.once(Events.ClientReady, async () => {
       await reconcile('startup');
-      reconcileTimer = setInterval(() => void reconcile('periodic'), 10 * 60 * 1000);
+      const reconcileTimer = setInterval(() => void reconcile('periodic'), 10 * 60 * 1000);
       reconcileTimer.unref?.();
     });
 
@@ -52,17 +51,11 @@ function installRoleMenuExtension() {
         const content = `⚠️ ${String(error?.message || error)}`.slice(0, 1900);
         try {
           if (interaction.deferred || interaction.replied) await interaction.editReply({ content, components: [], embeds: [] });
-          else await interaction.reply({ content, ephemeral: true });
+          else await interaction.reply({ content, flags: MessageFlags.Ephemeral });
         } catch (replyError) {
           console.error('[Nexus Sentinal] module access role interaction error:', replyError);
         }
       }
-    });
-
-    this.once(Events.ClientReady, () => {
-      this.once('destroyed', () => {
-        if (reconcileTimer) clearInterval(reconcileTimer);
-      });
     });
 
     return originalLogin.apply(this, args);
