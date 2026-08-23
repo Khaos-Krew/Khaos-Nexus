@@ -41,8 +41,10 @@ Repository evidence on `rebuild/nexus-0.1` currently establishes:
 
 - package identity `0.1.0` and an Electron Admin Control Center entrypoint;
 - backend and Sentinal runtime scripts;
-- a backend module catalog/registry direction covering ARK, Palworld, Minecraft, Warframe, The Division 2, Rust, Satisfactory, IdleOn, and D&D;
-- a generic backend provider bridge for module-specific services;
+- a backend module catalog/registry covering ARK, Palworld, Minecraft, Warframe, The Division 2, Rust, Satisfactory, IdleOn, and D&D;
+- concrete backend provider implementations for Division 2, Palworld, Warframe, Rust, Satisfactory, and IdleOn, plus shared HTTP, Source RCON, server-provider, and native-provider transport foundations;
+- a shared backend scheduler implementation rather than per-module duplicate schedulers;
+- provider/domain regression tests covering provider behavior, server providers, Warframe, Division 2, scheduler behavior, module contracts, module consoles, provisioning, permissions, and backend runtime behavior;
 - persistent Sentinal module-console rendering and interaction routing;
 - `/nexus setup`, `/nexus repair`, `/nexus repair-all`, `/nexus modules`, `/nexus refresh`, and advanced `/nexus run` command surfaces;
 - Discord module provisioning/reconciliation that can reuse or create module categories/channels;
@@ -51,13 +53,13 @@ Repository evidence on `rebuild/nexus-0.1` currently establishes:
 - private Thora launch/status bridge boundaries;
 - dedicated rebuild CI and Windows build workflow definitions.
 
-These are implementation facts, not release or owner-acceptance claims.
+These are implementation facts, not release or owner-acceptance claims. The presence of provider code and automated tests does not establish live-provider correctness, production credentials, real-server compatibility, owner acceptance, or release readiness.
 
 ## Validation state
 
 Status: **REBUILD VALIDATION REQUIRED**
 
-The repository contains dedicated rebuild CI and Windows-build workflow definitions. At the time of this synchronization, no completed workflow-run evidence was found for the initial workflow commit that is sufficient to claim the current rebuild head is green.
+The repository contains dedicated rebuild CI and Windows-build workflow definitions. At the time of this synchronization, no completed workflow-run evidence was found for the current rebuild head that is sufficient to claim the current rebuild head is green.
 
 Therefore:
 
@@ -83,14 +85,17 @@ Goals:
 
 ### Next — Provider-backed game services
 
-Status: **PLANNED / PARTIALLY IMPLEMENTED FOUNDATION**
+Status: **IN PROGRESS — IMPLEMENTATIONS PRESENT; LIVE/OWNER VALIDATION REQUIRED**
+
+Current evidence already includes concrete provider implementations and regression coverage for several modules. Remaining work is to harden and validate those provider-backed paths rather than treating the provider layer as merely a future placeholder.
 
 Goals:
 
-- connect module-specific provider transports behind the shared backend contract;
-- prove the pattern with focused modules rather than reintroducing game logic into Electron or Discord handlers;
+- continue connecting and hardening module-specific provider transports behind the shared backend contract;
+- prove provider behavior against focused real/provider environments without reintroducing game logic into Electron or Discord handlers;
 - preserve shared scheduler authority and avoid per-module duplicate schedulers;
-- add domain-level tests independent of Discord rendering.
+- expand domain-level tests independent of Discord rendering;
+- record explicit capability limitations when a provider or game cannot expose a requested live function safely or reliably.
 
 ### Then — Sentinal operational acceptance
 
