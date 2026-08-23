@@ -15,20 +15,22 @@ This branch is the active clean rebuild of Khaos Nexus. The previous `0.41.x` st
 - **Thora** remains a private/local capability and is bridged from its canonical project rather than duplicated here.
 - **Veyra** may remain the dedicated D&D presentation client while D&D logic follows the same backend-first rule.
 
-The first rebuild milestone intentionally establishes clean contracts and Discord wiring before provider-specific ARK/Palworld/etc. transports are selectively ported from legacy branches. Old code is reference material, not an automatic dependency.
+The first rebuild milestone intentionally establishes clean contracts and Discord wiring before selectively porting and validating provider-specific behavior. Old code is reference material, not an automatic dependency.
 
 ## Current implementation state
 
-The rebuild currently includes the thin Electron Admin Control Center, backend module/runtime foundations, a generic provider bridge, module registrations for ARK, Palworld, Minecraft, Warframe, The Division 2, Rust, Satisfactory, IdleOn and D&D, persistent Sentinal module consoles, Discord module provisioning/reconciliation, join-to-create temporary voice lobbies, and Administrator-permission preflight for provisioning.
+The rebuild currently includes the thin Electron Admin Control Center, backend module/runtime foundations, a shared scheduler, module registrations for ARK, Palworld, Minecraft, Warframe, The Division 2, Rust, Satisfactory, IdleOn and D&D, persistent Sentinal module consoles, Discord module provisioning/reconciliation, join-to-create temporary voice lobbies, and Administrator-permission preflight for provisioning.
 
-Presence in the branch is not the same as validation or release acceptance. Dedicated rebuild CI and Windows-build workflows exist, but README status must only call the current head green after exact-head workflow evidence is available.
+Concrete backend provider implementations are also present for Division 2, Palworld, Warframe, Rust, Satisfactory and IdleOn, with shared HTTP, Source RCON, server-provider and native-provider transport foundations. Focused automated tests cover provider behavior, server providers, scheduler behavior, module contracts, consoles, provisioning, permissions and backend runtime behavior.
+
+Presence in the branch and passing focused tests are not the same as live-provider validation, owner acceptance or release readiness. Dedicated rebuild CI and Windows-build workflows exist, but README status must only call the current head green after exact-head workflow evidence is available.
 
 ## Roadmap
 
 The canonical roadmap/status handoff is [`docs/NEXUS_ROADMAP_STATUS.md`](docs/NEXUS_ROADMAP_STATUS.md).
 
 - **Now — Rebuild foundation:** stabilize the thin admin desktop, backend module contract, capability model, Sentinal setup/reconciliation, permissions/redaction boundaries, and exact-head CI/Windows packaging.
-- **Next — Provider-backed game services:** connect provider transports behind the shared backend contract and prove modules with focused domain tests instead of putting game logic back into Electron or Discord handlers.
+- **Next — Provider-backed game services:** concrete provider implementations now exist for multiple modules; continue hardening and live/provider validation behind the shared backend contract instead of putting game logic back into Electron or Discord handlers.
 - **Then — Sentinal operational acceptance:** validate `/nexus setup`, persistent consoles, degraded-backend behavior, permissions/confirmations, restart recovery, temporary lobby lifecycle, and Veyra/D&D presentation on real Discord infrastructure.
 - **Release hardening:** establish one rebuild release identity, correlate tested commit and installer artifacts, validate diagnostics/update/recovery paths, and keep public/stable publication behind a separate explicit owner decision.
 - **Later — Selective migration and expansion:** port only legacy behavior that fits the backend/admin/Sentinal architecture, expand capability-driven game services, keep routine game dashboards out of the desktop, and consider future web/public surfaces only when they support rather than duplicate protected authority.
