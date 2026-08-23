@@ -16,5 +16,5 @@ contextBridge.exposeInMainWorld('nexusAdmin', {
   validateProviders: (moduleId) => ipcRenderer.invoke('nexus:validate-providers', moduleId || ''),
   openDataFolder: () => ipcRenderer.invoke('nexus:open-data-folder'),
   chooseThora: () => ipcRenderer.invoke('nexus:choose-thora'),
-  launchThora: () => ipcRenderer.invoke('nexus:thora-launch')
+  launchThora: (target = 'home') => ipcRenderer.invoke('nexus:thora-launch', target)
 });
