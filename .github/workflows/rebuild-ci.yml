@@ -33,9 +33,37 @@ jobs:
       - run: npm install --no-audit --no-fund
       - run: npm run check
       - run: npm test
+      - shell: pwsh
+        run: |
+          foreach ($script in @('src/updater/apply-update.ps1', 'scripts/build-update-bundle.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $script), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              throw "PowerShell syntax validation failed for $script"
+            }
+          }
       - run: npm run dist:win
+      - run: npm run dist:update
+      - shell: pwsh
+        run: |
+          $manifest = Get-Content -LiteralPath dist/nexus-update-manifest.json -Raw | ConvertFrom-Json
+          if ($manifest.installerRequired -ne $false) { throw 'Staged update manifest unexpectedly requires an installer.' }
+          $zip = Join-Path dist $manifest.package.name
+          if (-not (Test-Path -LiteralPath $zip)) { throw "Update package missing: $zip" }
+          $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne $manifest.package.sha256) { throw 'Update package hash does not match manifest.' }
+          $probe = Join-Path $env:RUNNER_TEMP 'nexus-update-probe'
+          Remove-Item -LiteralPath $probe -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive -LiteralPath $zip -DestinationPath $probe -Force
+          if (-not (Test-Path -LiteralPath (Join-Path $probe 'Khaos Nexus.exe'))) { throw 'Update payload is missing Khaos Nexus.exe.' }
+          if (-not (Test-Path -LiteralPath (Join-Path $probe 'resources/app.asar'))) { throw 'Update payload is missing resources/app.asar.' }
       - uses: actions/upload-artifact@v4
         with:
           name: khaos-nexus-0.1-windows
-          path: dist/*.exe
+          path: |
+            dist/*.exe
+            dist/*-update.zip
+            dist/nexus-update-manifest.json
           if-no-files-found: error

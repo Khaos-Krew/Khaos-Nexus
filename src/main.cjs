@@ -6,6 +6,7 @@ const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } = require('ele
 const { createBackendApplication } = require('./backend/application.cjs');
 const { BackendClient } = require('./sentinel/backend-client.cjs');
 const { thoraStatus, launchThora } = require('./thora/bridge.cjs');
+const { StagedUpdater } = require('./updater/service.cjs');
 const {
   applyPublicSettings,
   collectSecretEnvNames,
@@ -27,8 +28,10 @@ let activeConfig = null;
 let vault = null;
 let backendApp = null;
 let backendClient = null;
+let updater = null;
 let backendMode = 'starting';
 let backendError = '';
+let updateAutoCheckStarted = false;
 
 function loadStoredConfig() {
   const value = readJson(configPath);
@@ -39,6 +42,15 @@ function loadStoredConfig() {
 function applyStoredSecrets() {
   const names = collectSecretEnvNames(storedConfig);
   return vault.apply(names);
+}
+
+function configureUpdater() {
+  if (!updater) return;
+  updater.configure({
+    enabled: storedConfig.updates?.enabled !== false,
+    channel: storedConfig.updates?.channel || 'owner-test',
+    autoDownload: storedConfig.updates?.autoDownload !== false
+  });
 }
 
 async function stopEmbeddedBackend() {
@@ -102,7 +114,8 @@ async function currentState() {
     secrets: vault.statuses(secretNames),
     secretEncryptionAvailable: vault.encryptionAvailable(),
     warnings: configWarnings(storedConfig),
-    thora: thoraStatus(activeConfig || storedConfig)
+    thora: thoraStatus(activeConfig || storedConfig),
+    updater: updater?.status?.() || null
   };
 }
 
@@ -121,6 +134,7 @@ async function diagnostics() {
     backendMode: state.backendMode,
     backendError: state.backendError,
     backend: state.backend,
+    updater: state.updater,
     accounts: (state.accounts?.accounts || []).map((account) => ({
       id: account.id,
       role: account.role,
@@ -168,6 +182,7 @@ function registerIpc() {
     storedConfig = applyPublicSettings(storedConfig, settings);
     saveUserConfig(configPath, storedConfig);
     storedConfig = loadStoredConfig();
+    configureUpdater();
     await startBackend();
     return currentState();
   });
@@ -214,6 +229,21 @@ function registerIpc() {
     if (!backendClient) throw new Error('Nexus Backend is unavailable.');
     return backendClient.validateProviders(String(moduleId || ''));
   });
+  ipcMain.handle('nexus:update-status', () => updater?.status() || { phase: 'idle', enabled: false, currentVersion: app.getVersion() });
+  ipcMain.handle('nexus:update-check', () => {
+    if (!updater) throw new Error('Nexus updater is unavailable.');
+    return updater.check();
+  });
+  ipcMain.handle('nexus:update-prepare', () => {
+    if (!updater) throw new Error('Nexus updater is unavailable.');
+    return updater.prepare();
+  });
+  ipcMain.handle('nexus:update-restart', () => {
+    if (!updater) throw new Error('Nexus updater is unavailable.');
+    const result = updater.beginApply({ pid: process.pid });
+    setTimeout(() => app.quit(), 450);
+    return result;
+  });
   ipcMain.handle('nexus:open-data-folder', () => shell.openPath(userDataPath));
   ipcMain.handle('nexus:export-diagnostics', async () => {
     const result = await dialog.showSaveDialog({
@@ -242,6 +272,33 @@ function registerIpc() {
   ipcMain.handle('nexus:thora-launch', () => launchThora(activeConfig || storedConfig));
 }
 
+function startAutomaticUpdateCheck() {
+  if (updateAutoCheckStarted || !updater || !app.isPackaged) return;
+  updateAutoCheckStarted = true;
+  setTimeout(() => {
+    updater.autoCheck().catch((error) => console.warn('[Khaos Nexus] update check:', error.message));
+  }, 2500);
+}
+
+async function confirmHealthyPostUpdate() {
+  if (!updater || !process.argv.includes('--nexus-post-update')) return false;
+  if (backendMode === 'error' || !backendClient) {
+    console.error('[Khaos Nexus] refusing post-update startup confirmation because the local backend did not start.');
+    return false;
+  }
+  const health = await backendClient.health().catch((error) => ({ ok: false, message: error.message }));
+  if (!health?.ok) {
+    console.error('[Khaos Nexus] refusing post-update startup confirmation because backend health failed:', health?.message || 'unknown error');
+    return false;
+  }
+  try {
+    return updater.confirmPostUpdateFromArgs(process.argv);
+  } catch (error) {
+    console.warn('[Khaos Nexus] update startup confirmation:', error.message);
+    return false;
+  }
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1380,
@@ -261,8 +318,13 @@ function createWindow() {
   win.removeMenu();
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event) => event.preventDefault());
+  win.webContents.once('did-finish-load', async () => {
+    await confirmHealthyPostUpdate();
+    startAutomaticUpdateCheck();
+  });
   win.once('ready-to-show', () => win.show());
   win.loadFile(path.join(__dirname, 'renderer/index.html'));
+  return win;
 }
 
 async function bootstrap() {
@@ -271,6 +333,17 @@ async function bootstrap() {
   configPath = ensureUserConfig(userDataPath, templatePath);
   storedConfig = loadStoredConfig();
   vault = new SecretVault({ userDataPath, safeStorage });
+  updater = new StagedUpdater({
+    currentVersion: app.getVersion(),
+    userDataPath,
+    installDir: path.dirname(process.execPath),
+    executableName: path.basename(process.execPath),
+    resourcesPath: process.resourcesPath,
+    enabled: storedConfig.updates?.enabled !== false,
+    channel: storedConfig.updates?.channel || 'owner-test',
+    autoDownload: storedConfig.updates?.autoDownload !== false,
+    isPackaged: app.isPackaged
+  });
   registerIpc();
   await startBackend();
   createWindow();
