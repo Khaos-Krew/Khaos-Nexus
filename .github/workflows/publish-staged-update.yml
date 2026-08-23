@@ -1,0 +1,100 @@
+name: Publish Nexus Staged Update
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, for example v0.1.1-owner-test'
+        required: true
+        type: string
+      channel:
+        description: 'Updater channel'
+        required: true
+        default: owner-test
+        type: choice
+        options:
+          - owner-test
+          - stable
+      title:
+        description: 'Release title (optional)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      - run: npm run check
+      - run: npm test
+      - shell: pwsh
+        run: |
+          foreach ($script in @('src/updater/apply-update.ps1', 'scripts/build-update-bundle.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $script), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              throw "PowerShell syntax validation failed for $script"
+            }
+          }
+      - run: npm run dist:win
+      - shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          UPDATE_CHANNEL: ${{ inputs.channel }}
+        run: |
+          $pkg = Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json
+          $version = [string]$pkg.version
+          if ($env:RELEASE_TAG -notmatch [regex]::Escape($version)) {
+            throw "Release tag '$env:RELEASE_TAG' must include package version '$version'."
+          }
+          ./scripts/build-update-bundle.ps1 -DistDir dist -Channel $env:UPDATE_CHANNEL
+          $manifest = Get-Content -LiteralPath dist/nexus-update-manifest.json -Raw | ConvertFrom-Json
+          $zip = Join-Path dist $manifest.package.name
+          $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne $manifest.package.sha256) { throw 'Update bundle hash verification failed before publish.' }
+      - name: Publish owner-test release
+        if: ${{ inputs.channel == 'owner-test' }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_TITLE: ${{ inputs.title }}
+        run: |
+          $pkg = Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json
+          $version = [string]$pkg.version
+          $title = if ($env:RELEASE_TITLE) { $env:RELEASE_TITLE } else { "Khaos Nexus $version Owner Test" }
+          $zip = "dist/Khaos-Nexus-$version-update.zip"
+          gh release create $env:RELEASE_TAG `
+            "dist/Khaos-Nexus-$version-Setup.exe" `
+            $zip `
+            "dist/nexus-update-manifest.json" `
+            --title $title `
+            --notes "Owner-test staged update for Khaos Nexus $version. The in-app updater uses the ZIP + manifest; the installer is retained only for first install or recovery." `
+            --prerelease
+      - name: Publish stable release
+        if: ${{ inputs.channel == 'stable' }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_TITLE: ${{ inputs.title }}
+        run: |
+          $pkg = Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json
+          $version = [string]$pkg.version
+          $title = if ($env:RELEASE_TITLE) { $env:RELEASE_TITLE } else { "Khaos Nexus $version" }
+          $zip = "dist/Khaos-Nexus-$version-update.zip"
+          gh release create $env:RELEASE_TAG `
+            "dist/Khaos-Nexus-$version-Setup.exe" `
+            $zip `
+            "dist/nexus-update-manifest.json" `
+            --title $title `
+            --notes "Stable staged update for Khaos Nexus $version. The in-app updater uses the ZIP + manifest; the installer is retained only for first install or recovery."
