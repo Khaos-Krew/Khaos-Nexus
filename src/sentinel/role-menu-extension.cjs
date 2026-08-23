@@ -7,6 +7,34 @@ const { RoleMenuManager, ACCESS_BUTTON_PREFIX } = require('./role-menu.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.moduleAccessRoles.extension');
 
+function installManageableRoleFallback(manager, state) {
+  const original = manager.ensureAccessRole.bind(manager);
+  manager.ensureAccessRole = async (guild, definition) => {
+    const resolved = await original(guild, definition);
+    if (resolved?.editable !== false) return resolved;
+
+    const roles = await guild.roles.fetch();
+    let role = roles.find((item) => item.name === definition.roleName && item.editable !== false) || null;
+    if (!role) {
+      role = await guild.roles.create({
+        name: definition.roleName,
+        hoist: false,
+        mentionable: false,
+        reason: `Nexus Sentinal manageable module access role: ${definition.moduleId}`
+      });
+    }
+    state.setAccessRole(definition.moduleId, {
+      guildId: String(guild.id),
+      roleId: String(role.id),
+      roleName: role.name,
+      updatedAt: new Date().toISOString()
+    });
+    console.log(`[Nexus Sentinal] protected role ${resolved.name} left unchanged; using manageable access role ${role.name} for ${definition.moduleId}`);
+    return role;
+  };
+  return manager;
+}
+
 function installRoleMenuExtension() {
   if (Client.prototype[INSTALLED]) return;
   Client.prototype[INSTALLED] = true;
@@ -17,7 +45,7 @@ function installRoleMenuExtension() {
 
   Client.prototype.login = function nexusRoleMenuLogin(...args) {
     const state = new StateStore();
-    const manager = new RoleMenuManager({ client: this, state, config });
+    const manager = installManageableRoleFallback(new RoleMenuManager({ client: this, state, config }), state);
 
     const reconcile = async (reason) => {
       if (!guildId) return;
@@ -63,4 +91,4 @@ function installRoleMenuExtension() {
   };
 }
 
-module.exports = { installRoleMenuExtension };
+module.exports = { installManageableRoleFallback, installRoleMenuExtension };
