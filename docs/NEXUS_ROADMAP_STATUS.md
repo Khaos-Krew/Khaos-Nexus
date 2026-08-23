@@ -52,35 +52,38 @@ Repository evidence on `rebuild/nexus-0.1` currently establishes:
 - merged backend-first Pokémon GO module from PR #295 with trainer/friend-code, raid RSVP, trade matching, Vivillon, collection/showcase, meetup/event, raid-counter, PvP weakness, persistent panel, and safe credential-free provider behavior;
 - merged friendly Sentinal module commands from PR #298 and the Discord command-schema normalization fix from PR #300;
 - merged universal Sentinal event/schedule posting from PR #299, including Discord-local absolute timestamps, persistent deduplicated feeds, official credential-free Pokémon GO news/event ingestion, and feed routing for Warframe, Division 2, ARK, Palworld, Minecraft, Rust, and Satisfactory where dated data exists;
-- merged Discord supporter-rank/SKU discovery from PR #301, which exact-matches existing mappings and fills only blank mappings for review instead of overwriting configured values;
+- merged Discord supporter-rank/SKU discovery from PR #301, followed by PR #313's correction so recurring subscription SKUs (type 5) and durable one-time purchase SKUs (type 2) can both map to the same persistent Nexus rank while subscription-group and consumable SKUs remain excluded;
 - merged self-reconciling module access roles from PR #304, replacing the superseded PR #297 line and adding conservative rules-link cleanup while preserving unrelated Discord content;
 - merged live Sentinal role-reconciliation warning diagnostics from PR #305 so hierarchy/configuration blockers are visible without exposing secrets;
 - merged current Thora sidecar integration from PR #306, replacing the superseded PR #292 line with current/future executable discovery, component readiness, and allowlisted launch-protocol support while keeping Thora data outside Nexus;
 - merged protected-role fallback from PR #307: when an existing module-named role is above Sentinal in the Discord hierarchy, Nexus preserves that protected role and creates/reuses a manageable `<Module> Access` self-role instead;
-- merged staged-update publisher hash hardening from PR #309, replacing the remaining `Get-FileHash` dependency with direct .NET SHA-256 verification without publishing an update or release;
+- merged staged-update publisher hash hardening from PR #309 and rebuild-CI hash unification from PR #311, removing remaining `Get-FileHash` dependencies from those verification paths in favor of direct .NET SHA-256 computation;
+- merged secure hosted-Sentinal pairing from PR #310: `/nexus-pair` issues a short-lived one-use code; the Electron main process exchanges it over HTTPS and stores the long-lived Sentinal admin credential in protected storage, while earlier pairing PRs #302/#308 remain superseded;
+- merged hosted-Sentinal public-surface hardening from PR #312: unauthenticated `/health` exposes readiness only, authenticated `/v1/status` retains detailed diagnostics, and non-loopback binding requires a 32+ character non-whitespace admin token;
 - dedicated rebuild CI and Windows packaging/update-bundle validation paths.
 
-Open PR #310 proposes secure one-time desktop-to-hosted-Sentinal pairing on the current merged baseline. `/nexus-pair` issues a short-lived one-use code; the Electron main process exchanges it over HTTPS and stores the long-lived Sentinal admin credential in protected storage. PR #310 is green in Nexus Rebuild CI run #204 but is not merged into the active baseline yet. Earlier pairing PRs #302/#308 are superseded by this current-baseline proposal.
-
-These are implementation facts, not release or owner-acceptance claims. Code/tests do not establish successful household OAuth/pairing, live-provider correctness, real-guild reconciliation, updater apply/rollback success on the owner PC, Thora launch success on the owner PC, owner acceptance, or public/stable release readiness.
+These are implementation facts, not release or owner-acceptance claims. Code/tests do not establish successful household OAuth/pairing, live-provider correctness, real-guild reconciliation, hosted-Sentinal owner pairing, updater apply/rollback success on the owner PC, Thora launch success on the owner PC, owner acceptance, or public/stable release readiness.
 
 ## Validation state
 
 Status: **AUTOMATED REBUILD BASELINE GREEN — OWNER/LIVE VALIDATION STILL REQUIRED**
 
-The latest exact merged implementation head with completed rebuild validation is PR #309 head `cfde3c530e8752c4cdf55bec52b0eb7d5aeac734`. **Nexus Rebuild CI run #201 completed successfully on that exact SHA.** The active branch incorporated the change as merge commit `49a15a83008cc9f3f4b5c4d2066bfc94e1cdec44`.
+The latest exact merged implementation head with completed rebuild validation is PR #313 head `2cb228b8c3ed1ff4233719ba25b24334bc64ecc3`. **Nexus Rebuild CI run #213 completed successfully on that exact SHA.**
 
-The immediately preceding protected-role repair also has exact-head green validation: PR #307 head `ddc86bd21694efd2a08e108abf22ec1eeb73bbf6` passed Nexus Rebuild CI run #200 and merged as `7726315ea3cbd322981d5d270d531956b096ce7b`. Earlier validated implementation evidence remains preserved for PR #306 run #194, PR #304 runs #190/#191, PR #305 run #193, PR #301 run #187, and PR #300 run #185.
+Immediately preceding merged implementation heads also have exact-head green validation:
 
-Open PR #310 head `40e598a8cc93b4ddd425813b6f91327156c3122d` passed Nexus Rebuild CI run #204, but that evidence applies only to the unmerged proposal and does not make hosted pairing part of the active baseline.
+- PR #312 head `a74846e591065d13fff9e2249a0d539bc33b4e8a` — Nexus Rebuild CI run #211 passed;
+- PR #311 head `837eecc441df5c5005eb2e0a119fc8a114e7662d` — Nexus Rebuild CI run #208 passed;
+- PR #310 head `40e598a8cc93b4ddd425813b6f91327156c3122d` — Nexus Rebuild CI run #204 passed before merge;
+- PR #309 and earlier validated implementation evidence remains preserved in repository history.
 
 CI evidence remains separate from owner/live acceptance. Therefore:
 
 - do not claim owner acceptance until an explicit owner-test result is recorded;
 - do not claim Accounts & Access owner validation until browser OAuth and second-account pairing are exercised in the intended household environment;
-- do not claim hosted Sentinal pairing as implemented on the active baseline until PR #310 or an equivalent validated change is merged, then owner-tested;
+- do not claim hosted Sentinal pairing owner validation until `/nexus-pair` → HTTPS exchange → protected credential storage → authenticated admin status is exercised against the intended hosted Sentinal instance;
 - do not claim live-provider correctness until provider paths are exercised against real supported services/servers;
-- do not claim real-guild Sentinal acceptance until setup, permissions, reconciliation, persistent panels, friendly commands, event feeds, restart behavior, rank/SKU discovery, module-access roles, and protected-role fallback are exercised on the intended Discord guild;
+- do not claim real-guild Sentinal acceptance until setup, permissions, reconciliation, persistent panels, friendly commands, event feeds, restart behavior, rank/SKU discovery, module-access roles, protected-role fallback, and hosted pairing are exercised on the intended Discord guild;
 - do not claim updater owner validation until an installed owner-test build successfully stages, applies, confirms startup, and exercises rollback behavior where appropriate;
 - do not claim Thora owner validation until discovery/readiness and allowlisted launch targets are exercised against the intended installed Thora build;
 - do not claim public/stable release status from CI, packaging, deployment, PR merge state, or package version alone;
@@ -95,7 +98,7 @@ Status: **IN PROGRESS — AUTOMATED BASELINE GREEN; OWNER ACCEPTANCE PENDING**
 Goals:
 
 - keep the desktop thin and admin-focused;
-- owner-test the packaged Admin Control Center, Accounts & Access, Owner Test Center, startup-health surface, Sentinal administration, module enable/config controls, safe Repair Nexus flow, and current Thora sidecar bridge;
+- owner-test the packaged Admin Control Center, Accounts & Access, Owner Test Center, startup-health surface, Sentinal administration, hosted pairing, module enable/config controls, safe Repair Nexus flow, and current Thora sidecar bridge;
 - preserve capability, permission, confirmation, redaction, audit, secret-storage, and exact commit/artifact boundaries;
 - maintain deterministic Discord provisioning/reconciliation without duplicate channels, consoles, roles, or lobbies;
 - preserve exact commit/artifact correlation for each owner-test build.
@@ -116,25 +119,25 @@ Goals:
 
 ### Then — Sentinal operational acceptance
 
-Status: **IN PROGRESS — ACCESS-ROLE RECONCILIATION + PROTECTED-ROLE FALLBACK MERGED; REAL-GUILD ACCEPTANCE PENDING**
+Status: **IN PROGRESS — HOSTED PAIRING + ACCESS-ROLE RECONCILIATION + PROTECTED-ROLE FALLBACK MERGED; REAL-GUILD ACCEPTANCE PENDING**
 
-Merged implementation now includes setup/repair, permanent module panels, friendly per-module commands, Admin Operations controls, Pokémon GO operations, universal event feeds, supporter-rank/SKU discovery, self-reconciling module access roles, role-reconciliation warning diagnostics, and the protected-role fallback from PR #307.
+Merged implementation now includes setup/repair, permanent module panels, friendly per-module commands, Admin Operations controls, Pokémon GO operations, universal event feeds, supporter-rank/SKU discovery including recurring + durable entitlement matching, self-reconciling module access roles, role-reconciliation warning diagnostics, protected-role fallback, and secure hosted desktop-to-Sentinal pairing with a minimized public health surface.
 
 Goals:
 
 - validate `/nexus setup`, reconciliation, permission checks, command synchronization, persistent panels, friendly module commands, event feeds, degraded-backend behavior, and restart recovery on the real guild;
 - validate temporary lobby lifecycle and cleanup;
-- validate rank/entitlement reconciliation and discovery against real Discord hierarchy and Premium App mappings;
+- validate rank/entitlement reconciliation and discovery against real Discord hierarchy and Premium App recurring/durable SKU mappings;
 - validate module access-role self-reconciliation on the live guild, including the merged protected-role fallback for existing roles above Sentinal;
+- validate hosted pairing against the intended Railway Sentinal instance without exposing the long-lived admin credential to the renderer;
 - verify common game workflows are discoverable without memorizing generic backend commands;
-- validate Veyra/D&D presentation against the backend-first boundary;
-- keep hosted desktop-to-Sentinal pairing pending until PR #310 or an equivalent validated change is merged and owner-tested.
+- validate Veyra/D&D presentation against the backend-first boundary.
 
 ### Release hardening
 
 Status: **IN PROGRESS — STAGED UPDATER + HASH HARDENING + OWNER TEST CENTER MERGED; OWNER UPDATE/ROLLBACK ACCEPTANCE PENDING**
 
-PR #293 provides the staged updater; PR #294 adds owner-test build tracking and per-build feedback inside the Admin Control Center; PR #309 hardens staged-update publisher SHA-256 verification without publishing an update or release.
+PR #293 provides the staged updater; PR #294 adds owner-test build tracking and per-build feedback inside the Admin Control Center; PR #309 hardens staged-update publisher SHA-256 verification; PR #311 aligns rebuild-CI update-bundle verification to the same direct .NET SHA-256 path. None of those changes publishes an update or release by itself.
 
 Goals:
 
