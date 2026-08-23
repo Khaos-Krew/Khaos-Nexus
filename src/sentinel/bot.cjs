@@ -10,6 +10,7 @@ const { ModuleProvisioner } = require('./module-provisioner.cjs');
 const { hasAdministrator, assertAdministrator } = require('./discord-permissions.cjs');
 const { parseActionId, renderModuleConsole, renderHelp } = require('./module-console.cjs');
 const { formatActionResult: renderActionResult } = require('./action-formatters.cjs');
+const { marketCommand } = require('./commands.cjs');
 
 const config = loadConfig();
 const token = envSecret(config.discord?.tokenEnv);
@@ -230,12 +231,14 @@ function nexusCommand() {
 }
 
 async function registerCommands(guild) {
-  const command = nexusCommand();
+  const definitions = [nexusCommand(), marketCommand()];
   const commands = await guild.commands.fetch();
-  const existing = commands.find((item) => item.name === command.name);
-  if (existing) await guild.commands.edit(existing, command.toJSON());
-  else await guild.commands.create(command.toJSON());
-  console.log(`[Nexus Sentinal] registered /nexus in guild ${guild.id} without replacing existing commands`);
+  for (const command of definitions) {
+    const existing = commands.find((item) => item.name === command.name);
+    if (existing) await guild.commands.edit(existing, command.toJSON());
+    else await guild.commands.create(command.toJSON());
+  }
+  console.log(`[Nexus Sentinal] registered /nexus and /market in guild ${guild.id} without replacing unrelated commands`);
 }
 
 function formatActionResult(moduleId, actionId, result) {
@@ -332,6 +335,13 @@ client.on('interactionCreate', async (interaction) => {
       }
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       return interaction.editReply(await runAction(interaction, parsed.moduleId, parsed.actionId, {}));
+    }
+
+    if (interaction.isChatInputCommand() && interaction.commandName === 'market') {
+      // Claim the dedicated command immediately so legacy runtimes cannot answer it first.
+      await interaction.deferReply();
+      const item = interaction.options.getString('item', true).trim();
+      return interaction.editReply(await runAction(interaction, 'warframe', 'market', { item, input: item }));
     }
 
     if (!interaction.isChatInputCommand() || interaction.commandName !== 'nexus') return;
