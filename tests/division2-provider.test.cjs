@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { Division2Provider, parseCsv, rowScore, farmingTarget } = require('../src/backend/providers/division2-provider.cjs');
+const { Division2Provider, DIVISION2_ACTIONS, parseCsv, rowScore, farmingTarget } = require('../src/backend/providers/division2-provider.cjs');
 
 const SAMPLE = [
   'name,brand_set,gear_set,fixed_talent,description',
@@ -43,7 +43,8 @@ test('Division 2 gear search uses community CSV data and caches files', async ()
   assert.ok(first.results.some((item) => item.name === 'Eclipse Protocol Mask'));
   assert.equal(second.results[0].name, first.results[0].name);
   assert.equal(fetches, afterFirst);
-  assert.deepEqual(provider.supportedActions, ['gear', 'builds', 'farming']);
+  assert.deepEqual(provider.supportedActions, [...DIVISION2_ACTIONS]);
+  assert.deepEqual(provider.supportedActions, ['gear', 'builds', 'optimize', 'compare', 'farming', 'wishlist', 'inventory', 'weekly', 'lfg', 'news']);
   assert.equal(provider.connected, false);
 });
 
@@ -54,7 +55,16 @@ test('Division 2 build research returns gear weapon and talent candidate groups'
   assert.ok(Array.isArray(result.gear));
   assert.ok(Array.isArray(result.weapons));
   assert.ok(Array.isArray(result.talents));
-  assert.match(result.note, /optimizer remains disabled/i);
+  assert.match(result.note, /community game-data/i);
+});
+
+test('Division 2 optimizer is a declared heuristic rather than invented DPS math', async () => {
+  const provider = new Division2Provider({ fetchImpl: async () => response() });
+  const result = await provider.invoke('optimize', { input: 'crit damage' });
+  assert.equal(result.query, 'crit damage');
+  assert.match(result.method, /heuristic/i);
+  assert.match(result.note, /not fake DPS math/i);
+  assert.ok(result.recommendations && typeof result.recommendations === 'object');
 });
 
 test('farming helper derives targeted-loot category without inventing current map location', async () => {
@@ -69,5 +79,7 @@ test('parameterized Division 2 actions provide slash-command usage when input is
   const provider = new Division2Provider({ fetchImpl: async () => { throw new Error('fetch should not run'); } });
   assert.match((await provider.invoke('gear', {})).usage, /action:gear/);
   assert.match((await provider.invoke('builds', {})).usage, /action:builds/);
+  assert.match((await provider.invoke('optimize', {})).usage, /action:optimize/);
+  assert.match((await provider.invoke('compare', {})).usage, /action:compare/);
   assert.match((await provider.invoke('farming', {})).usage, /action:farming/);
 });
