@@ -35,6 +35,23 @@ function safeModuleId(value) {
   return /^[a-z0-9-]{0,60}$/.test(id) ? id : '';
 }
 
+function validAdminToken(value) {
+  const token = String(value || '');
+  return token.length >= 32 && token.length <= 1024 && !/\s/.test(token);
+}
+
+function publicHealth(status = null) {
+  const discordReady = Boolean(status?.discordReady);
+  const backendReady = Boolean(status?.backend?.ok);
+  return {
+    ok: true,
+    service: 'nexus-sentinal-admin',
+    state: discordReady ? 'ready' : 'starting',
+    discordReady,
+    backendReady
+  };
+}
+
 async function enhancedScan(controller) {
   const scan = await controller.scan();
   scan.sections ||= {};
@@ -70,7 +87,7 @@ function createSentinalAdminServer(options = {}) {
   const getController = typeof options.getController === 'function' ? options.getController : () => options.controller || null;
   const logger = options.logger || console;
   const pairingAllowed = createPairingLimiter();
-  if (!LOOPBACK.has(host) && !token) throw new Error('Sentinal admin API requires a token before it can listen outside loopback.');
+  if (!LOOPBACK.has(host) && !validAdminToken(token)) throw new Error('Sentinal admin API requires a token of at least 32 non-whitespace characters before it can listen outside loopback.');
 
   function authorized(req) {
     if (!token) return LOOPBACK.has(host);
@@ -82,9 +99,9 @@ function createSentinalAdminServer(options = {}) {
       const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
       const controller = getController();
       if (req.method === 'GET' && url.pathname === '/health') {
-        if (!controller) return json(res, 200, { ok: true, service: 'nexus-sentinal-admin', discordReady: false, state: 'starting' });
-        const status = await controller.status().catch((error) => ({ ok: false, message: String(error?.message || error) }));
-        return json(res, 200, { ok: true, service: 'nexus-sentinal-admin', discordReady: Boolean(status?.discordReady), sentinal: status });
+        if (!controller) return json(res, 200, publicHealth());
+        const status = await controller.status().catch(() => null);
+        return json(res, 200, publicHealth(status));
       }
       if (req.method === 'POST' && url.pathname === '/v1/pair') {
         if (!token) return json(res, 503, { ok: false, code: 'PAIRING_DISABLED', message: 'Hosted Sentinal pairing requires a protected admin token.' });
@@ -155,4 +172,4 @@ function createSentinalAdminServer(options = {}) {
   return { host, port, server, start, stop, isStarted: () => started && server.listening };
 }
 
-module.exports = { LOOPBACK, createPairingLimiter, createSentinalAdminServer, enhancedScan, safeModuleId };
+module.exports = { LOOPBACK, createPairingLimiter, createSentinalAdminServer, enhancedScan, publicHealth, safeModuleId, validAdminToken };
