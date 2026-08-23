@@ -21,11 +21,11 @@ const required = [
   'src/sentinel/pokemon-go.cjs', 'src/sentinel/pokemon-go-event-ui.cjs', 'src/sentinel/discord-time.cjs',
   'src/sentinel/event-feed.cjs', 'src/sentinel/event-feed-extension.cjs',
   'src/sentinel/commands.cjs', 'src/sentinel/friendly-commands.cjs', 'src/sentinel/action-formatters.cjs',
-  'src/sentinel/admin-ops.cjs', 'src/sentinel/admin-server.cjs', 'src/sentinel/module-inspector.cjs',
+  'src/sentinel/admin-ops.cjs', 'src/sentinel/admin-server.cjs', 'src/sentinel/discord-admin-discovery.cjs', 'src/sentinel/module-inspector.cjs',
   'src/sentinel/module-console.cjs', 'src/sentinel/module-provisioner.cjs', 'src/sentinel/module-layouts.cjs',
   'src/sentinel/state-store.cjs', 'src/backend/modules/catalog.cjs',
   'src/renderer/index.html', 'src/renderer/app.js', 'src/renderer/style.css',
-  'src/renderer/updater-ui.js', 'src/renderer/updater.css', 'src/renderer/admin-ops-ui.js', 'src/renderer/admin-ops.css',
+  'src/renderer/updater-ui.js', 'src/renderer/updater.css', 'src/renderer/admin-ops-ui.js', 'src/renderer/admin-ops.css', 'src/renderer/rank-discovery-ui.js',
   'src/renderer/startup-health.js', 'src/renderer/startup-health.css'
 ];
 const syntaxFiles = required.filter((file) => /\.(?:cjs|js)$/.test(file));
