@@ -1,7 +1,6 @@
 'use strict';
 
 const { contextBridge, ipcRenderer } = require('electron');
-const { pairRequest } = require('./desktop/sentinal-pairing.cjs');
 
 contextBridge.exposeInMainWorld('nexusAdmin', {
   state: () => ipcRenderer.invoke('nexus:state'),
@@ -17,15 +16,7 @@ contextBridge.exposeInMainWorld('nexusAdmin', {
   removeAccount: (accountId) => ipcRenderer.invoke('nexus:remove-account', accountId),
   validateProviders: (moduleId) => ipcRenderer.invoke('nexus:validate-providers', moduleId || ''),
 
-  sentinalPair: async (url, code) => {
-    const paired = await pairRequest(url, code);
-    const state = await ipcRenderer.invoke('nexus:state');
-    const next = JSON.parse(JSON.stringify(state.settings || {}));
-    next.discord ||= {};
-    next.discord.sentinalAdminUrl = paired.baseUrl;
-    await ipcRenderer.invoke('nexus:set-secret', 'NEXUS_SENTINAL_ADMIN_TOKEN', paired.token);
-    return ipcRenderer.invoke('nexus:save-settings', next);
-  },
+  sentinalPair: (url, code) => ipcRenderer.invoke('nexus:sentinal-pair', url, code),
   sentinalStatus: () => ipcRenderer.invoke('nexus:sentinal-status'),
   sentinalPermissions: () => ipcRenderer.invoke('nexus:sentinal-permissions'),
   sentinalCommands: () => ipcRenderer.invoke('nexus:sentinal-commands'),
