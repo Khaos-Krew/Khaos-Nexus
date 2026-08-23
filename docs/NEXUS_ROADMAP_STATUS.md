@@ -50,32 +50,30 @@ Repository evidence on `rebuild/nexus-0.1` currently establishes:
 - Discord module provisioning/reconciliation that can reuse or create module categories/channels;
 - join-to-create temporary voice lobby behavior with persisted topology/lobby ownership;
 - Administrator permission preflight for Sentinal provisioning while setup authorization remains separately restricted to configured owner or Discord Manage Server authority;
-- private Thora launch/status bridge boundaries;
+- merged household Accounts & Access support from PR #288, including first-account Owner / additional Co-Owner roles, Discord OAuth linking, one-time pairing codes, Sentinal `/nexus link` and `/nexus account`, and protected credential handling;
+- a merged authenticated read-only provider-validation endpoint from PR #290 with predefined non-destructive viewer probes, redacted results, and safe skipping for disabled/unconfigured providers;
+- a merged Admin Control Center **Live Provider Validation** panel from PR #291 that invokes the backend validation endpoint rather than providers directly and exposes PASS / SKIPPED / FAIL without provider payload data;
+- Palworld selected as the first recommended real-provider acceptance target for the read-only validation flow;
+- private Thora launch/status bridge boundaries; deeper private Thora controls are currently proposed in draft PR #292 and are not yet part of the active branch;
 - dedicated rebuild CI and Windows build workflow definitions;
 - a self-contained Admin Control Center owner-test installer path with desktop and Start Menu shortcuts.
 
-These are implementation facts, not release or owner-acceptance claims. The presence of provider code and automated tests does not establish live-provider correctness, production credentials, real-server compatibility, owner acceptance, or release readiness.
+These are implementation facts, not release or owner-acceptance claims. The presence of provider code, account-linking code, validation UI, and automated tests does not establish live-provider correctness, production credentials, real-server compatibility, owner acceptance, or release readiness.
 
 ## Validation state
 
 Status: **AUTOMATED REBUILD BASELINE GREEN — OWNER/LIVE VALIDATION STILL REQUIRED**
 
-PR #287 (`Desktop 0.1 testable Admin Control Center`) was merged by fast-forward into `rebuild/nexus-0.1` at exact head `5624e7628581f1f8f89d09cfb873564317ebf58a`. That commit remains the latest validated implementation head; later documentation-only commits have advanced the branch without changing the implementation evidence established on that SHA.
+The original packaged rebuild baseline was PR #287 at `5624e7628581f1f8f89d09cfb873564317ebf58a`. Since then, Accounts & Access (PR #288), the read-only provider-validation backend (PR #290), and its Admin Control Center UI (PR #291) have merged into `rebuild/nexus-0.1`.
 
-Exact-head evidence establishes:
+The latest exact implementation head with completed rebuild validation is PR #291 head `88168acd6be4591c96d6e5eaa6b71de98e9556cf`. Nexus Rebuild CI run #151 completed successfully on that exact SHA. Its Linux/test job passed, and its Windows job passed repository checks/tests, `npm run dist:win`, and artifact upload. PR #291 then merged into the rebuild branch as `a7cfcdd59083db975137945ac6f48027668bc659`; no separate workflow run is recorded on that merge commit, so validation claims remain tied to the exact tested PR head rather than inferred from merge state.
 
-- Nexus Rebuild CI completed successfully on `5624e7628581f1f8f89d09cfb873564317ebf58a`;
-- Linux structure/syntax checks passed;
-- automated tests passed 63/63;
-- Windows structure/syntax checks passed;
-- Windows tests passed;
-- NSIS packaging passed;
-- the Windows artifact upload passed;
-- the generated owner-test artifact is named `Khaos-Nexus-0.1.0-Setup.exe`.
+This automated evidence establishes that the merged Accounts & Access plus read-only provider-validation/UI slice passed the normal rebuild test and Windows packaging gate. It does **not** establish successful Discord OAuth/pairing on the owner household, successful live Palworld/provider communication, owner acceptance, or public/stable release readiness.
 
-This is automated build/package evidence only. Therefore:
+Therefore:
 
 - do not claim owner acceptance until an explicit owner-test result is recorded;
+- do not claim Accounts & Access owner validation until browser OAuth and the second-account pairing flow are exercised in the intended environment;
 - do not claim live-provider correctness until provider paths are exercised against real supported services/servers;
 - do not claim public/stable release status from CI, packaging, PR merge state, or package version alone;
 - do not carry the old 0.41.x twelve-gate numeric stabilization score into the 0.1 rebuild as if it were already applicable;
@@ -94,18 +92,21 @@ Goals:
 - keep Sentinal as the primary game-module user surface;
 - preserve safe permission, confirmation, redaction, audit, and secret-storage boundaries;
 - maintain deterministic Discord provisioning/reconciliation without duplicate channels, consoles, or lobbies;
+- owner-test the merged Accounts & Access flows, including browser Discord OAuth and one-time pairing for the second trusted household account;
 - exercise the packaged Admin Control Center on the owner Windows environment and record explicit acceptance/failures;
 - preserve exact commit/artifact correlation for any subsequent owner-test build.
 
 ### Next — Provider-backed game services
 
-Status: **IN PROGRESS — IMPLEMENTATIONS PRESENT; LIVE/OWNER VALIDATION REQUIRED**
+Status: **IN PROGRESS — READ-ONLY VALIDATION PATH MERGED; LIVE/OWNER VALIDATION REQUIRED**
 
-Current evidence already includes concrete provider implementations and regression coverage for several modules. Remaining work is to harden and validate those provider-backed paths rather than treating the provider layer as merely a future placeholder.
+Concrete provider implementations and regression coverage exist for several modules. PRs #290 and #291 now provide a guarded read-only backend validation endpoint plus an Admin Control Center validation panel. The next factual gate is live/provider evidence, beginning with the intended Palworld status probe, not more renderer-side game logic.
 
 Goals:
 
+- exercise Palworld and then other supported providers through the predefined read-only validation probes against real configured services;
 - continue connecting and hardening module-specific provider transports behind the shared backend contract;
+- keep destructive provider operations outside validation and preserve explicit capability/permission/confirmation boundaries;
 - prove provider behavior against focused real/provider environments without reintroducing game logic into Electron or Discord handlers;
 - preserve shared scheduler authority and avoid per-module duplicate schedulers;
 - expand domain-level tests independent of Discord rendering;
@@ -144,7 +145,7 @@ Direction:
 - selectively port only legacy behavior that fits the backend/admin/Sentinal architecture;
 - expand provider-backed game services and capability-driven Discord module consoles;
 - thin or omit routine game dashboards from the desktop rather than rebuilding the old renderer surface;
-- integrate Thora only through the approved private bridge;
+- integrate Thora only through the approved private bridge; draft PR #292 is the current proposal for deeper owner-household Thora controls and must not be described as merged until it actually is;
 - consider any future web/public surface only if it supports this architecture and does not become a second authority for protected machine operations.
 
 The previous roadmap's self-hosted web + Windows Agent migration is not the immediate successor phase for Nexus 0.1 and must not be presented as the current next step.
@@ -152,6 +153,8 @@ The previous roadmap's self-hosted web + Windows Agent migration is not the imme
 ## Historical stabilization record
 
 The `0.41.x` stabilization work, PR #266, owner-test `0.41.2.1` / internal `0.41.3-test.1` line, and associated diagnostics remain useful historical and rollback evidence. They are not deleted or invalidated; they are superseded as the active implementation direction by the owner-approved clean Nexus 0.1 rebuild.
+
+The newest relevant legacy startup diagnostic remains issue #285 for installed `0.41.3-test.1`, reporting 8 passed, 0 warnings, and 0 failures. It is historical evidence for the legacy line and is not validation of Nexus 0.1. No newer meaningful `[Owner Test …]` or `[Startup Diagnostics …]` failure was found during the 2026-08-23 roadmap synchronization.
 
 Do not import legacy branches wholesale. Port specific behavior only after architectural fit and focused test coverage are established.
 
