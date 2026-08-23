@@ -21,7 +21,7 @@ function mockRcon(responses = {}) {
   };
 }
 
-test('ARK RCON provider maps proven status players save and broadcast commands', async () => {
+test('ARK RCON provider maps proven controls and exposes expanded admin actions', async () => {
   const mock = mockRcon({ ListPlayers: '1. Alice, 76561190000000001\n2. Bob, 76561190000000002' });
   const provider = new SourceRconProvider('ark', {}, { client: mock.client });
   const players = await provider.invoke('players');
@@ -30,18 +30,26 @@ test('ARK RCON provider maps proven status players save and broadcast commands',
   assert.deepEqual(mock.commands, ['ListPlayers', 'SaveWorld', 'Broadcast Restart in 10 minutes']);
   assert.equal(players.count, 2);
   assert.equal(players.players[0].name, 'Alice');
-  assert.deepEqual(provider.supportedActions, ['status', 'players', 'save', 'broadcast']);
+  for (const action of ['status', 'players', 'servers', 'save', 'broadcast', 'kick', 'ban', 'unban', 'rcon', 'mods']) {
+    assert.equal(provider.supportedActions.includes(action), true, `ARK should expose ${action}`);
+  }
+  assert.equal(provider.supportedActions.includes('backups'), false);
+  assert.equal(provider.supportedActions.includes('restart'), false);
 });
 
-test('Minecraft RCON provider maps list save-all and say without exposing restart/backups', async () => {
+test('Minecraft RCON provider maps cluster-aware status, save and broadcast without unconfigured restart/backups', async () => {
   const mock = mockRcon({ list: 'There are 2 of a max of 20 players online: Steve, Alex' });
   const provider = new SourceRconProvider('minecraft', {}, { client: mock.client });
   const status = await provider.invoke('status');
   await provider.invoke('save');
   await provider.invoke('broadcast', { input: 'Server event starting' });
-  assert.equal(status.count, 2);
-  assert.equal(status.maxPlayers, 20);
+  assert.equal(status.serverCount, 1);
+  assert.equal(status.servers[0].count, 2);
+  assert.equal(status.servers[0].maxPlayers, 20);
   assert.deepEqual(mock.commands, ['list', 'save-all flush', 'say Server event starting']);
+  for (const action of ['status', 'players', 'servers', 'save', 'broadcast', 'kick', 'ban', 'unban', 'rcon', 'whitelist', 'modpack']) {
+    assert.equal(provider.supportedActions.includes(action), true, `Minecraft should expose ${action}`);
+  }
   assert.equal(provider.supportedActions.includes('restart'), false);
   assert.equal(provider.supportedActions.includes('backups'), false);
 });
@@ -60,7 +68,7 @@ test('broadcast buttons return usage instead of issuing an empty command', async
   assert.equal(mock.commands.length, 0);
 });
 
-test('Palworld provider exposes only safe catalog actions backed by official REST calls', async () => {
+test('Palworld provider exposes official REST administration and snapshot actions', async () => {
   const calls = [];
   const client = {
     async info() { calls.push('info'); return { version: 'test' }; },
@@ -75,10 +83,13 @@ test('Palworld provider exposes only safe catalog actions backed by official RES
   await provider.invoke('save');
   await provider.invoke('broadcast', { input: 'Hello Palpagos' });
   assert.deepEqual(calls, ['info', 'metrics', 'players', 'save', 'announce:Hello Palpagos']);
-  assert.deepEqual(provider.supportedActions, ['status', 'players', 'save', 'broadcast']);
+  assert.deepEqual(provider.supportedActions, [
+    'status', 'players', 'settings', 'metrics', 'save', 'broadcast',
+    'kick', 'ban', 'unban', 'snapshot', 'backups', 'shutdown'
+  ]);
 });
 
-test('Rust provider maps serverinfo playerlist save and safe say commands', async () => {
+test('Rust provider maps status/player/save/broadcast and exposes moderation/restart/admin actions', async () => {
   const commands = [];
   const client = {
     async command(command) {
@@ -97,7 +108,9 @@ test('Rust provider maps serverinfo playerlist save and safe say commands', asyn
   assert.equal(status.players, 2);
   assert.equal(players.players[0].name, 'Raider');
   assert.deepEqual(commands, ['serverinfo', 'playerlist', 'save', 'say "Cargo is up"']);
-  assert.deepEqual(provider.supportedActions, ['status', 'players', 'save', 'broadcast']);
+  assert.deepEqual(provider.supportedActions, [
+    'status', 'players', 'save', 'broadcast', 'kick', 'ban', 'unban', 'restart', 'backups', 'rcon'
+  ]);
 });
 
 test('Rust normalizers accept common serverinfo and playerlist shapes', () => {
@@ -105,7 +118,7 @@ test('Rust normalizers accept common serverinfo and playerlist shapes', () => {
   assert.equal(normalizePlayers(JSON.stringify([{ DisplayName: 'Khaos', SteamID: '76561190000000001' }]))[0].name, 'Khaos');
 });
 
-test('Satisfactory provider exposes status players and save through HTTPS API', async () => {
+test('Satisfactory provider exposes HTTPS state, save management, options and console actions', async () => {
   const calls = [];
   const client = {
     async queryServerState() {
@@ -122,8 +135,9 @@ test('Satisfactory provider exposes status players and save through HTTPS API', 
   assert.equal(status.state, 'playing');
   assert.equal(players.count, 2);
   assert.deepEqual(calls, ['state', 'state', 'save:Before Update']);
-  assert.deepEqual(provider.supportedActions, ['status', 'players', 'save']);
-  assert.equal(provider.supportedActions.includes('backups'), false);
+  assert.deepEqual(provider.supportedActions, [
+    'status', 'players', 'save', 'saves', 'server-options', 'advanced-settings', 'load-save', 'command', 'backups'
+  ]);
   assert.equal(provider.supportedActions.includes('restart'), false);
 });
 
