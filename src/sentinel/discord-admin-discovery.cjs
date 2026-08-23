@@ -11,7 +11,7 @@ const RANK_OFFERING_SUFFIXES = new Set([
 ]);
 
 function desiredCommandNames() {
-  return [...new Set(['nexus', 'nexus-pair', 'market', ...commandNames()])];
+  return [...new Set(['nexus', 'nexus-pair', 'market', 'clear', ...commandNames()])];
 }
 
 async function commandStatus(controller) {
