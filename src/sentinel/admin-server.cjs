@@ -2,6 +2,7 @@
 
 const http = require('node:http');
 const { URL } = require('node:url');
+const { commandStatus, discoverRankMappings } = require('./discord-admin-discovery.cjs');
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1']);
 
@@ -33,6 +34,19 @@ function safeModuleId(value) {
   return /^[a-z0-9-]{0,60}$/.test(id) ? id : '';
 }
 
+async function enhancedScan(controller) {
+  const scan = await controller.scan();
+  scan.sections ||= {};
+  const [commands, rankDiscovery] = await Promise.all([
+    commandStatus(controller).catch((error) => ({ ok: false, commands: [], desired: [], error: String(error?.message || error).slice(0, 240) })),
+    discoverRankMappings(controller).catch((error) => ({ ok: false, ranks: [], suggestedSettings: { rankRoles: {}, rankSkus: {} }, counts: { discoveredRoles: 0, discoveredSkus: 0, attention: 0 }, error: String(error?.message || error).slice(0, 240) }))
+  ]);
+  scan.sections.commands = commands;
+  scan.sections.rankDiscovery = rankDiscovery;
+  scan.ok = Object.values(scan.sections).every((section) => section?.ok !== false);
+  return scan;
+}
+
 function createSentinalAdminServer(options = {}) {
   const host = String(options.host || '127.0.0.1');
   const port = Number(options.port || 3220);
@@ -61,17 +75,21 @@ function createSentinalAdminServer(options = {}) {
       if (req.method === 'GET' && url.pathname === '/v1/status') return json(res, 200, await controller.status());
       if (req.method === 'GET' && url.pathname === '/v1/config') return json(res, 200, { ok: true, settings: controller.adminConfig() });
       if (req.method === 'GET' && url.pathname === '/v1/permissions') return json(res, 200, await controller.permissions());
-      if (req.method === 'GET' && url.pathname === '/v1/commands') return json(res, 200, await controller.commands());
+      if (req.method === 'GET' && url.pathname === '/v1/commands') return json(res, 200, await commandStatus(controller));
       if (req.method === 'GET' && url.pathname === '/v1/channels') return json(res, 200, await controller.inspectChannels(safeModuleId(url.searchParams.get('module'))));
       if (req.method === 'GET' && url.pathname === '/v1/roles') return json(res, 200, await controller.reconcileRoles({ dryRun: true }));
-      if (req.method === 'GET' && url.pathname === '/v1/scan') return json(res, 200, await controller.scan());
+      if (req.method === 'GET' && url.pathname === '/v1/rank-mappings/discover') return json(res, 200, await discoverRankMappings(controller));
+      if (req.method === 'GET' && url.pathname === '/v1/scan') return json(res, 200, await enhancedScan(controller));
 
       if (req.method === 'POST' && url.pathname === '/v1/config') {
         const configured = controller.configure(await body(req));
         const backend = await controller.backend?.configureModules?.(configured.settings.moduleEnabled || {}).catch((error) => ({ ok: false, message: String(error?.message || error) }));
         return json(res, backend?.ok === false ? 502 : 200, { ...configured, backend: backend || null });
       }
-      if (req.method === 'POST' && url.pathname === '/v1/commands/sync') return json(res, 200, await controller.syncCommands());
+      if (req.method === 'POST' && url.pathname === '/v1/commands/sync') {
+        await controller.syncCommands();
+        return json(res, 200, await commandStatus(controller));
+      }
       if (req.method === 'POST' && url.pathname === '/v1/channels/reconcile') {
         const input = await body(req);
         return json(res, 200, await controller.reconcileChannels(safeModuleId(input.moduleId)));
@@ -112,4 +130,4 @@ function createSentinalAdminServer(options = {}) {
   return { host, port, server, start, stop, isStarted: () => started && server.listening };
 }
 
-module.exports = { LOOPBACK, createSentinalAdminServer, safeModuleId };
+module.exports = { LOOPBACK, createSentinalAdminServer, enhancedScan, safeModuleId };
