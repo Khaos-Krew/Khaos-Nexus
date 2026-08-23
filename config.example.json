@@ -26,6 +26,11 @@
     "enabled": false,
     "executableEnv": "NEXUS_THORA_PATH"
   },
+  "updates": {
+    "enabled": true,
+    "channel": "owner-test",
+    "autoDownload": true
+  },
   "modules": {
     "ark": {
       "enabled": true,
