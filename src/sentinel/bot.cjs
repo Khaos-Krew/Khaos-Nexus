@@ -11,7 +11,7 @@ const { hasAdministrator, assertAdministrator } = require('./discord-permissions
 const { parseActionId, renderModuleConsole, renderHelp } = require('./module-console.cjs');
 const { formatActionResult: renderActionResult } = require('./action-formatters.cjs');
 const { marketCommand } = require('./commands.cjs');
-const { commandDefinitions: friendlyCommandDefinitions, commandNames: friendlyCommandNames, isFriendlyCommand, resolveFriendlyCommand } = require('./friendly-commands.cjs');
+const { commandDefinitions: friendlyCommandDefinitions, isFriendlyCommand, resolveFriendlyCommand } = require('./friendly-commands.cjs');
 const { SentinalAdminOps } = require('./admin-ops.cjs');
 const { createSentinalAdminServer } = require('./admin-server.cjs');
 
@@ -27,6 +27,10 @@ const pending = new Map();
 const provisioner = new ModuleProvisioner({ state, maxLobbiesPerModule: config.discord?.maxTemporaryLobbiesPerModule || 20 });
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
 let adminOps = null;
+
+// Pokémon GO already owns /pogo through pokemon-go-extension.cjs so it can keep its richer
+// raid cards, RSVP buttons, trainer profile responses, trade flows, and meetup UI.
+const extensionOwnedCommands = new Set(['pogo']);
 
 const adminToken = envSecret(config.discord?.sentinalAdminTokenEnv || 'NEXUS_SENTINAL_ADMIN_TOKEN');
 const railwayAdmin = Boolean(adminToken && process.env.PORT);
@@ -260,7 +264,8 @@ function nexusCommand() {
 }
 
 async function registerCommands(guild) {
-  const definitions = [nexusCommand(), marketCommand(), ...friendlyCommandDefinitions()];
+  const friendly = friendlyCommandDefinitions().filter((command) => !extensionOwnedCommands.has(command.name));
+  const definitions = [nexusCommand(), marketCommand(), ...friendly];
   const commands = await guild.commands.fetch();
   for (const command of definitions) {
     const existing = commands.find((item) => item.name === command.name);
@@ -380,7 +385,7 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.editReply(await runAction(interaction, 'warframe', 'market', { item, input: item }));
     }
 
-    if (interaction.isChatInputCommand() && isFriendlyCommand(interaction.commandName)) {
+    if (interaction.isChatInputCommand() && isFriendlyCommand(interaction.commandName) && !extensionOwnedCommands.has(interaction.commandName)) {
       const invocation = resolveFriendlyCommand(interaction);
       if (!invocation) return interaction.reply({ content: 'That module command is not available.', flags: MessageFlags.Ephemeral });
       if (friendlyResponsePrivate(invocation)) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
