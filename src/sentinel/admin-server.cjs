@@ -154,6 +154,8 @@ function createSentinalAdminServer(options = {}) {
         const input = await body(req);
         const moduleId = safeModuleId(input.moduleId || input.module || '');
         const validation = await controller.backend?.validateProviders?.(moduleId).catch((error) => ({ ok: false, message: String(error?.message || error).slice(0, 240), results: [] }));
+        const store = currentHostedProviderStore();
+        if (store && moduleId && validation) store.recordValidation(moduleId, validation);
         return json(res, validation?.ok === false ? 502 : 200, validation || { ok: false, code: 'BACKEND_UNAVAILABLE', results: [] });
       }
       if (req.method === 'POST' && url.pathname === '/v1/commands/sync') {
