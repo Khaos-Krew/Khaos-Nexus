@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('nexusAdmin', {
   createAccountLinkCode: (role) => ipcRenderer.invoke('nexus:create-account-link-code', role),
   linkDiscordOAuth: (role) => ipcRenderer.invoke('nexus:link-discord-oauth', role),
   removeAccount: (accountId) => ipcRenderer.invoke('nexus:remove-account', accountId),
+  validateProviders: (moduleId) => ipcRenderer.invoke('nexus:validate-providers', moduleId || ''),
   openDataFolder: () => ipcRenderer.invoke('nexus:open-data-folder'),
   chooseThora: () => ipcRenderer.invoke('nexus:choose-thora'),
   launchThora: () => ipcRenderer.invoke('nexus:thora-launch')

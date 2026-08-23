@@ -210,6 +210,10 @@ function registerIpc() {
     if (!result.ok) throw new Error(result.message || 'Could not remove Nexus account.');
     return currentState();
   });
+  ipcMain.handle('nexus:validate-providers', async (_event, moduleId) => {
+    if (!backendClient) throw new Error('Nexus Backend is unavailable.');
+    return backendClient.validateProviders(String(moduleId || ''));
+  });
   ipcMain.handle('nexus:open-data-folder', () => shell.openPath(userDataPath));
   ipcMain.handle('nexus:export-diagnostics', async () => {
     const result = await dialog.showSaveDialog({
