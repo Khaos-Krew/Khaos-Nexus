@@ -4,9 +4,7 @@ const { getModule } = require('../backend/modules/catalog.cjs');
 
 const CUSTOM_ID_PREFIX = 'nexusmod';
 
-function actionId(moduleId, actionId) {
-  return `${CUSTOM_ID_PREFIX}:${moduleId}:${actionId}`;
-}
+function actionId(moduleId, actionId) { return `${CUSTOM_ID_PREFIX}:${moduleId}:${actionId}`; }
 
 function parseActionId(value) {
   const match = /^nexusmod:([a-z0-9-]+):([a-z0-9-]+)$/.exec(String(value || ''));
@@ -19,9 +17,7 @@ function style(cap) {
   return 1;
 }
 
-function buttonCapabilities(module) {
-  return module.capabilities.filter((cap) => cap.button !== false).slice(0, 20);
-}
+function buttonCapabilities(module) { return module.capabilities.filter((cap) => cap.button !== false).slice(0, 20); }
 
 function renderModuleConsole(moduleId, backendState = {}) {
   const module = getModule(moduleId);
@@ -30,13 +26,21 @@ function renderModuleConsole(moduleId, backendState = {}) {
   const enabled = backendState.enabled !== false;
   const configured = backendState.configured === true;
   const availableActions = new Set(Array.isArray(backendState.availableActions) ? backendState.availableActions : []);
+  const providerActions = Array.isArray(backendState.providerAvailableActions) ? backendState.providerAvailableActions : [];
+  const serviceActions = Array.isArray(backendState.serviceAvailableActions) ? backendState.serviceAvailableActions : [];
   const providerKind = String(backendState.providerKind || 'none');
   const availableCount = availableActions.size;
   const state = !enabled
     ? 'DISABLED'
-    : availableCount > 0
-      ? connected ? 'READY • CONNECTED' : 'READY • BACKEND ACTIVE'
-      : configured ? 'BACKEND ACTIVE • FEATURES UNAVAILABLE' : 'BACKEND READY • PROVIDER SETUP NEEDED';
+    : connected
+      ? 'READY • CONNECTED'
+      : configured && providerActions.length
+        ? 'READY • BACKEND ACTIVE'
+        : !configured && serviceActions.length
+          ? 'BACKEND READY • PROVIDER SETUP NEEDED'
+          : configured
+            ? 'BACKEND ACTIVE • FEATURES UNAVAILABLE'
+            : 'BACKEND READY • PROVIDER SETUP NEEDED';
 
   const buttons = buttonCapabilities(module).map((cap) => ({
     type: 2,
@@ -57,6 +61,7 @@ function renderModuleConsole(moduleId, backendState = {}) {
     { name: 'Backend', value: `${availableCount}/${module.capabilities.length} actions`, inline: true }
   ];
   if (providerKind !== 'none') fields.push({ name: 'Provider', value: providerKind.slice(0, 100), inline: true });
+  if (serviceActions.length) fields.push({ name: 'Shared Services', value: serviceActions.map((id) => `\`${id}\``).join(', ').slice(0, 1000), inline: false });
 
   return {
     embeds: [{
@@ -82,8 +87,7 @@ function renderHelp(moduleId) {
     embeds: [{
       title: `${module.name} • Backend Features`,
       description: `${lines.join('\n') || 'No capabilities registered.'}\n\nAdvanced usage: \`/nexus run module:${module.id} action:<action> input:<value>\``.slice(0, 4000)
-    }],
-    ephemeral: true
+    }]
   };
 }
 
