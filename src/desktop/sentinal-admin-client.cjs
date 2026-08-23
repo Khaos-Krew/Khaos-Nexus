@@ -50,6 +50,13 @@ class SentinalAdminClient {
       timeoutMs: 30000
     });
   }
+  validateHostedProvider(moduleId = '') {
+    return this.request('/v1/providers/validate', {
+      method: 'POST',
+      body: JSON.stringify({ moduleId: String(moduleId || '') }),
+      timeoutMs: 30000
+    });
+  }
   async syncAdminSettings() {
     if (!this.configured()) return { ok: false, code: 'SENTINAL_ADMIN_NOT_CONFIGURED' };
     return this.configure(this.adminSettings);
