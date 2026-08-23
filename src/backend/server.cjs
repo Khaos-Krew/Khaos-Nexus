@@ -1,9 +1,11 @@
 'use strict';
 
 const http = require('node:http');
+const path = require('node:path');
 const { URL } = require('node:url');
 const { loadConfig, envSecret } = require('../shared/config.cjs');
 const { BackendRuntime } = require('./core/runtime.cjs');
+const { SharedScheduler } = require('./core/scheduler.cjs');
 const { providersFromConfig } = require('./providers/http-provider.cjs');
 const { nativeProvidersFromConfig } = require('./providers/native-providers.cjs');
 const { serverProvidersFromConfig } = require('./providers/server-providers.cjs');
@@ -23,6 +25,13 @@ const providers = {
   ...providersFromConfig(config)
 };
 const runtime = new BackendRuntime({ config, providers });
+const scheduler = new SharedScheduler({
+  filePath: config.scheduler?.stateFile || path.join(process.cwd(), 'data', 'schedules.json'),
+  timeZone: config.scheduler?.timeZone || 'America/Chicago'
+});
+runtime.registerService('scheduler', scheduler);
+scheduler.registerExecutor((moduleId, actionId, payload, context) => runtime.invoke(moduleId, actionId, payload, context));
+scheduler.start();
 
 function json(res, status, body) {
   const payload = Buffer.from(JSON.stringify(body));
@@ -53,6 +62,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, runtime.health());
     if (!authorized(req)) return json(res, 401, { ok: false, code: 'UNAUTHORIZED' });
     if (req.method === 'GET' && url.pathname === '/v1/modules') return json(res, 200, { ok: true, modules: runtime.manifests() });
+    if (req.method === 'GET' && url.pathname === '/v1/schedules') return json(res, 200, { ok: true, timeZone: scheduler.timeZone, schedules: scheduler.list() });
     const match = /^\/v1\/modules\/([a-z0-9-]+)\/actions\/([a-z0-9-]+)$/.exec(url.pathname);
     if (req.method === 'POST' && match) {
       const body = await readBody(req);
@@ -73,3 +83,11 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(port, host, () => console.log(`[Nexus Backend] listening on http://${host}:${port}`));
+
+function shutdown() {
+  scheduler.stop();
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 3000).unref();
+}
+process.once('SIGINT', shutdown);
+process.once('SIGTERM', shutdown);
