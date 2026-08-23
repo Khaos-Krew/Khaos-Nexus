@@ -1,8 +1,10 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const fs = require('node:fs/promises');
+const path = require('node:path');
 
-const RUST_ACTIONS = Object.freeze(['status', 'players', 'save', 'broadcast']);
+const RUST_ACTIONS = Object.freeze(['status', 'players', 'save', 'broadcast', 'kick', 'ban', 'unban', 'restart', 'backups', 'rcon']);
 
 function cleanText(value, max = 500, fallback = '') {
   const text = String(value ?? '').replace(/\u0000/g, '').trim();
@@ -66,11 +68,36 @@ function normalizePlayers(payload) {
   }));
 }
 
-function safeRustMessage(value) {
-  const text = cleanText(value, 500);
+function safeRustArgument(value, max = 500) {
+  const text = cleanText(value, max);
   if (!text) return '';
-  if (/[\r\n;]/.test(text)) throw new Error('Rust broadcast messages cannot contain line breaks or semicolons.');
+  if (/[\r\n;]/.test(text)) throw new Error('Rust command values cannot contain line breaks or semicolons.');
   return `"${text.replace(/\\/g, '\\\\').replace(/"/g, "'")}"`;
+}
+
+function safeRustMessage(value) { return safeRustArgument(value, 500); }
+
+function parseTargetInput(payload = {}) {
+  const raw = cleanText(payload.input || payload.target || payload.player || payload.steamId, 700);
+  const [targetRaw, ...messageParts] = raw.split('|');
+  const target = cleanText(payload.target || payload.player || payload.steamId || targetRaw, 120);
+  const message = cleanText(payload.message || messageParts.join('|'), 300);
+  if (!target) throw new Error('Provide a player name or Steam ID.');
+  return { target, message };
+}
+
+async function backupEntries(rootPath) {
+  if (!rootPath) return [];
+  const root = path.resolve(rootPath);
+  const entries = await fs.readdir(root, { withFileTypes: true });
+  const rows = [];
+  for (const entry of entries.slice(0, 100)) {
+    try {
+      const stat = await fs.stat(path.join(root, entry.name));
+      rows.push({ name: entry.name.slice(0, 220), directory: entry.isDirectory(), size: entry.isFile() ? stat.size : null, modifiedAt: stat.mtime.toISOString() });
+    } catch {}
+  }
+  return rows.sort((a, b) => String(b.modifiedAt).localeCompare(String(a.modifiedAt))).slice(0, 20);
 }
 
 class RustWebRconClient {
@@ -82,10 +109,7 @@ class RustWebRconClient {
     if (typeof this.WebSocketImpl !== 'function') throw new Error('WebSocket networking is unavailable in this runtime.');
   }
 
-  nextIdentifier() {
-    this.identifier = this.identifier >= 2147483000 ? 1000 : this.identifier + 1;
-    return this.identifier;
-  }
+  nextIdentifier() { this.identifier = this.identifier >= 2147483000 ? 1000 : this.identifier + 1; return this.identifier; }
 
   command(commandInput) {
     const command = cleanText(commandInput, 1000);
@@ -93,7 +117,6 @@ class RustWebRconClient {
     const identifier = this.nextIdentifier();
     const url = rustUrl(this.server);
     const WebSocketImpl = this.WebSocketImpl;
-
     return new Promise((resolve, reject) => {
       let socket;
       let settled = false;
@@ -102,14 +125,12 @@ class RustWebRconClient {
         settled = true;
         clearTimeout(timer);
         try { socket?.close?.(1000, 'Nexus request complete'); } catch {}
-        if (error) reject(error);
-        else resolve(value);
+        if (error) reject(error); else resolve(value);
       };
       const timer = setTimeout(() => finish(new Error('Rust WebRCON request timed out.')), this.timeoutMs);
       timer.unref?.();
       try { socket = new WebSocketImpl(url); }
       catch { return finish(new Error('Rust WebRCON connection could not be opened.')); }
-
       const add = (event, handler) => {
         if (typeof socket.addEventListener === 'function') socket.addEventListener(event, handler);
         else if (typeof socket.on === 'function') socket.on(event, handler);
@@ -127,9 +148,7 @@ class RustWebRconClient {
           if (Number(packet.Identifier ?? packet.identifier) !== identifier) return;
           if (packet.Stacktrace || packet.stacktrace) return finish(new Error(cleanText(packet.Message ?? packet.message, 500, 'Rust rejected the command.')));
           finish(null, String(packet.Message ?? packet.message ?? ''));
-        } catch {
-          finish(new Error('Rust WebRCON returned an invalid response.'));
-        }
+        } catch { finish(new Error('Rust WebRCON returned an invalid response.')); }
       });
       add('error', () => finish(new Error('Rust WebRCON connection failed.')));
       add('close', (event) => {
@@ -146,6 +165,7 @@ class RustProvider {
   constructor(connection = {}, options = {}) {
     this.client = options.client || new RustWebRconClient(connection, options);
     this.serverName = cleanText(connection.name, 100, 'Rust Server');
+    this.backupPath = cleanText(connection.backupPath, 1000);
     this.connected = true;
     this.providerKind = 'rust-webrcon';
     this.supportedActions = [...RUST_ACTIONS];
@@ -164,16 +184,39 @@ class RustProvider {
       if (!message) return { usage: 'Use /nexus run module:rust action:broadcast input:<message>.' };
       return { accepted: true, response: await this.client.command(`say ${message}`) };
     }
+    if (actionId === 'kick') {
+      const { target, message } = parseTargetInput(payload);
+      const command = `kick ${safeRustArgument(target, 120)}${message ? ` ${safeRustArgument(message, 300)}` : ''}`;
+      return { accepted: true, response: await this.client.command(command) };
+    }
+    if (actionId === 'ban') {
+      const { target, message } = parseTargetInput(payload);
+      const command = `ban ${safeRustArgument(target, 120)}${message ? ` ${safeRustArgument(message, 300)}` : ''}`;
+      return { accepted: true, response: await this.client.command(command) };
+    }
+    if (actionId === 'unban') {
+      const { target } = parseTargetInput(payload);
+      return { accepted: true, response: await this.client.command(`unban ${safeRustArgument(target, 120)}`) };
+    }
+    if (actionId === 'restart') {
+      const seconds = Math.max(0, Math.min(3600, Math.floor(Number(payload.seconds ?? payload.input ?? 60) || 60)));
+      return { accepted: true, seconds, response: await this.client.command(`restart ${seconds}`) };
+    }
+    if (actionId === 'rcon') {
+      const command = cleanText(payload.command || payload.input, 1000);
+      if (!command) return { usage: 'Use /nexus run module:rust action:rcon input:<command>.' };
+      if (/[\r\n]/.test(command)) throw new Error('Raw RCON must be a single command line.');
+      return { response: await this.client.command(command) };
+    }
+    if (actionId === 'backups') {
+      if (!this.backupPath) return { configured: false, files: [], note: 'Configure connection.backupPath when Nexus Backend can access the Rust backup/save directory.' };
+      return { configured: true, files: await backupEntries(this.backupPath) };
+    }
     throw new Error(`Unsupported Rust action: ${actionId}`);
   }
 }
 
 module.exports = {
-  RustProvider,
-  RustWebRconClient,
-  RUST_ACTIONS,
-  normalizeRustConnection,
-  normalizeServerInfo,
-  normalizePlayers,
-  safeRustMessage
+  RustProvider, RustWebRconClient, RUST_ACTIONS, normalizeRustConnection, normalizeServerInfo,
+  normalizePlayers, safeRustMessage, safeRustArgument, parseTargetInput, backupEntries
 };
