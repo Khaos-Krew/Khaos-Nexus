@@ -24,19 +24,22 @@ class BackendRuntime {
   manifests() {
     return MODULES.map((module) => {
       const provider = this.providers[module.id];
+      const providerCapabilityIds = module.capabilities.filter((capability) => !capability.service).map((capability) => capability.id);
+      const serviceCapabilityIds = module.capabilities.filter((capability) => capability.service).map((capability) => capability.id);
       const availableActions = module.capabilities
         .filter((capability) => this.capabilityAvailable(module, capability, provider))
         .map((capability) => capability.id);
-      const providerActions = module.capabilities.filter((capability) => !capability.service).map((capability) => capability.id);
-      const providerAvailable = availableActions.filter((id) => providerActions.includes(id));
+      const providerAvailableActions = availableActions.filter((id) => providerCapabilityIds.includes(id));
+      const serviceAvailableActions = availableActions.filter((id) => serviceCapabilityIds.includes(id));
       return {
         ...publicManifest(module),
         enabled: this.config.modules?.[module.id]?.enabled !== false,
-        configured: Boolean(provider) || availableActions.length > 0,
+        configured: Boolean(provider),
         connected: provider?.connected === true,
         providerKind: provider?.providerKind || (provider ? 'provider' : 'none'),
         availableActions,
-        providerAvailableActions: providerAvailable
+        providerAvailableActions,
+        serviceAvailableActions
       };
     });
   }
@@ -47,8 +50,8 @@ class BackendRuntime {
       version: '0.1.0',
       uptimeSeconds: Math.floor((Date.now() - this.startedAt) / 1000),
       services: Object.keys(this.services).filter((name) => typeof this.services[name]?.invoke === 'function'),
-      modules: this.manifests().map(({ id, enabled, configured, connected, providerKind, availableActions }) => ({
-        id, enabled, configured, connected, providerKind, availableActions
+      modules: this.manifests().map(({ id, enabled, configured, connected, providerKind, availableActions, providerAvailableActions, serviceAvailableActions }) => ({
+        id, enabled, configured, connected, providerKind, availableActions, providerAvailableActions, serviceAvailableActions
       }))
     };
   }
@@ -61,15 +64,6 @@ class BackendRuntime {
   registerService(name, service) {
     if (!name || !service || typeof service.invoke !== 'function') throw new Error('Backend service must expose invoke().');
     this.services[name] = service;
-  }
-
-  async invokeTarget(target, moduleId, actionId, payload, context, capability) {
-    try {
-      const data = await target.invoke(moduleId, actionId, payload, { ...context, capability, module: getModule(moduleId) });
-      return { ok: true, moduleId, actionId, data };
-    } catch (error) {
-      return { ok: false, code: 'PROVIDER_ERROR', message: String(error?.message || error || 'Backend request failed.'), moduleId, actionId };
-    }
   }
 
   async invoke(moduleId, actionId, payload = {}, context = {}) {
