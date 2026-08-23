@@ -129,7 +129,7 @@ test('Satisfactory provider exposes status players and save through HTTPS API', 
 
 test('Satisfactory state and TLS helpers normalize official API shapes', () => {
   assert.equal(readServerState({ ServerGameState: { ActiveSessionName: 'Factory', NumConnectedPlayers: 3 } }).players, 3);
-  assert.equal(normalizeFingerprint('aa:bb'.padEnd(95, ':cc')).length === 64, false);
+  assert.throws(() => normalizeFingerprint('AA:BB'), /SHA-256/);
   assert.equal(normalizeFingerprint('A'.repeat(64)), 'A'.repeat(64));
 });
 
