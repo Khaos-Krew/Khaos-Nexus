@@ -319,6 +319,7 @@ function registerIpc() {
   ipcMain.handle('nexus:sentinal-reconcile-roles', () => requireSentinalAdmin().reconcileRoles());
   ipcMain.handle('nexus:sentinal-provider-config', () => requireSentinalAdmin().providerConfig());
   ipcMain.handle('nexus:sentinal-sync-providers', () => syncHostedProviders());
+  ipcMain.handle('nexus:sentinal-validate-provider', (_event, moduleId) => requireSentinalAdmin().validateHostedProvider(String(moduleId || '')));
   ipcMain.handle('nexus:sentinal-repair', () => requireSentinalAdmin().repair());
 
   ipcMain.handle('nexus:owner-test', () => requireOwnerTest().snapshot());
