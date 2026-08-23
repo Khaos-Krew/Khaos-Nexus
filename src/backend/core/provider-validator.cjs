@@ -11,6 +11,7 @@ const DEFAULT_PROBES = Object.freeze({
   rust: 'status',
   satisfactory: 'status',
   idleon: 'profile',
+  pokemongo: 'events',
   dnd: 'campaigns'
 });
 

@@ -3,6 +3,7 @@
 const { WarframeProvider, WARFRAME_ACTIONS } = require('./warframe-provider.cjs');
 const { Division2Provider, DIVISION2_ACTIONS } = require('./division2-provider.cjs');
 const { IdleOnProvider, IDLEON_ACTIONS } = require('./idleon-provider.cjs');
+const { PokemonGoProvider, POGO_ACTIONS } = require('./pokemon-go-provider.cjs');
 
 function nativeProvidersFromConfig(config = {}, options = {}) {
   const providers = {};
@@ -30,7 +31,11 @@ function nativeProvidersFromConfig(config = {}, options = {}) {
     providers.idleon = new IdleOnProvider({ stateFile: config.modules?.idleon?.stateFile });
   }
 
+  if (config.modules?.pokemongo?.enabled !== false) {
+    providers.pokemongo = new PokemonGoProvider({ stateFile: config.modules?.pokemongo?.stateFile });
+  }
+
   return providers;
 }
 
-module.exports = { nativeProvidersFromConfig, WARFRAME_ACTIONS, DIVISION2_ACTIONS, IDLEON_ACTIONS };
+module.exports = { nativeProvidersFromConfig, WARFRAME_ACTIONS, DIVISION2_ACTIONS, IDLEON_ACTIONS, POGO_ACTIONS };

@@ -147,6 +147,14 @@
       "stateFile": "data/idleon-state.json",
       "provider": {}
     },
+    "pokemongo": {
+      "enabled": true,
+      "channelId": "",
+      "stateFile": "data/pokemon-go-state.json",
+      "provider": {
+        "type": "local-coordination"
+      }
+    },
     "dnd": {
       "enabled": true,
       "channelId": "",

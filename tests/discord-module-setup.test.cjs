@@ -8,7 +8,7 @@ const path = require('node:path');
 const { LAYOUTS, layoutFor } = require('../src/sentinel/module-layouts.cjs');
 const { StateStore } = require('../src/sentinel/state-store.cjs');
 
-const EXPECTED = ['ark', 'palworld', 'minecraft', 'warframe', 'division2', 'rust', 'satisfactory', 'idleon', 'dnd'];
+const EXPECTED = ['ark', 'palworld', 'minecraft', 'warframe', 'division2', 'rust', 'satisfactory', 'idleon', 'pokemongo', 'dnd'];
 
 test('every registered game module has a Discord layout and join-to-build channel', () => {
   for (const id of EXPECTED) {

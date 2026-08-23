@@ -114,6 +114,21 @@ const MODULES = [
     ]
   },
   {
+    id: 'pokemongo', name: 'Pokémon GO', console: true,
+    capabilities: [
+      viewer('panel', 'Operations Panel'), viewer('raids', 'Active Raids'), viewer('events', 'Events'), viewer('friends', 'Trainer Directory'),
+      viewer('trade-matches', 'Trade Matches'), viewer('showcase', 'Catch Showcase'), viewer('meetups', 'Meetups'),
+      viewer('profile', 'Trainer Profile', { button: false }), viewer('profile-set', 'Set Trainer Profile', { button: false }),
+      viewer('trades', 'My Trades', { button: false }), viewer('trade-add', 'Add Trade', { button: false }), viewer('trade-remove', 'Remove Trade', { button: false }),
+      viewer('raid-create', 'Create Raid', { button: false }), viewer('raid-rsvp', 'Raid RSVP', { button: false }), viewer('raid-cancel', 'Cancel Raid', { button: false }),
+      viewer('vivillon', 'Vivillon Exchange', { button: false }),
+      viewer('collection', 'My Collection', { button: false }), viewer('collection-add', 'Add Collection Entry', { button: false }), viewer('collection-remove', 'Remove Collection Entry', { button: false }),
+      viewer('showcase-add', 'Share Catch', { button: false }), viewer('meetup-create', 'Create Meetup', { button: false }), viewer('meetup-rsvp', 'Meetup RSVP', { button: false }),
+      viewer('counter', 'Raid Counter Assistant', { button: false }), viewer('pvp', 'PvP Team Check', { button: false }),
+      ownerSafe('event-add', 'Add Event Reminder', { button: false }), owner('event-remove', 'Remove Event Reminder', { button: false })
+    ]
+  },
+  {
     id: 'dnd', name: 'Nexus D&D', console: false, surface: 'veyra',
     capabilities: [
       viewer('campaigns', 'Campaigns'), viewer('characters', 'Characters'), viewer('dice', 'Dice'), viewer('initiative', 'Initiative'),
