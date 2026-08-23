@@ -62,6 +62,11 @@ function renderModuleConsole(moduleId, backendState = {}) {
     { name: 'Backend', value: `${availableCount}/${module.capabilities.length} actions`, inline: true }
   ];
   if (providerKind !== 'none') fields.push({ name: 'Provider', value: providerKind.slice(0, 100), inline: true });
+  if (serviceActions.length) fields.push({
+    name: 'Shared Services',
+    value: serviceActions.map((id) => `\`${id}\``).join(', ').slice(0, 1000),
+    inline: false
+  });
 
   const friendly = usageForModule(moduleId);
   const commandHint = friendly.length
