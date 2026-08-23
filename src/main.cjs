@@ -239,7 +239,7 @@ function registerIpc() {
     activeConfig = runtimeConfig(storedConfig, userDataPath, configPath);
     return currentState();
   });
-  ipcMain.handle('nexus:thora-launch', () => launchThora(activeConfig || storedConfig));
+  ipcMain.handle('nexus:thora-launch', (_event, target) => launchThora(activeConfig || storedConfig, target || 'home'));
 }
 
 function createWindow() {
