@@ -14,6 +14,10 @@ contextBridge.exposeInMainWorld('nexusAdmin', {
   linkDiscordOAuth: (role) => ipcRenderer.invoke('nexus:link-discord-oauth', role),
   removeAccount: (accountId) => ipcRenderer.invoke('nexus:remove-account', accountId),
   validateProviders: (moduleId) => ipcRenderer.invoke('nexus:validate-providers', moduleId || ''),
+  updateStatus: () => ipcRenderer.invoke('nexus:update-status'),
+  checkForUpdate: () => ipcRenderer.invoke('nexus:update-check'),
+  prepareUpdate: () => ipcRenderer.invoke('nexus:update-prepare'),
+  restartToApplyUpdate: () => ipcRenderer.invoke('nexus:update-restart'),
   openDataFolder: () => ipcRenderer.invoke('nexus:open-data-folder'),
   chooseThora: () => ipcRenderer.invoke('nexus:choose-thora'),
   launchThora: () => ipcRenderer.invoke('nexus:thora-launch')
