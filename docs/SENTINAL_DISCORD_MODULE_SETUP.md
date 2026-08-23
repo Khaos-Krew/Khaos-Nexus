@@ -34,13 +34,17 @@ Temporary lobbies are removed automatically when empty. The default maximum is 2
 
 ## Persistent state
 
-Discord category/channel bindings, console message IDs, and temporary lobby ownership are stored in `sentinal-state.json`.
+Discord category/channel bindings, console message IDs, temporary lobby ownership, hosted provider configuration, encrypted provider credentials, and hosted provider validation evidence must share persistent storage.
 
-For Railway or another container host, mount persistent storage and set:
+By default, Sentinal stores these files in the repository/runtime `data` directory. In the Railway image that resolves to `/app/data`, so the current Railway service mounts its persistent volume at `/app/data` and does not need a `NEXUS_DATA_DIR` override.
+
+On another container host, either mount the persistent volume at the runtime's default `data` directory or set `NEXUS_DATA_DIR` to the mounted path, for example:
 
 `NEXUS_DATA_DIR=/data`
 
-Without persistent storage, a fresh container can lose the saved Discord topology and Sentinal will need `/nexus setup` again.
+When `NEXUS_DATA_DIR` is set, both `sentinal-state.json` and the hosted provider files (`hosted-provider-config.json` and `hosted-runtime-config.json`) use that same directory. The volume mount and `NEXUS_DATA_DIR` must therefore point to the same persistent location.
+
+Without persistent storage, a fresh container can lose saved Discord topology, console bindings, role-menu state, and hosted provider configuration.
 
 ## Module layouts
 

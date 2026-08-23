@@ -8,7 +8,7 @@ const path = require('node:path');
 const { BackendRuntime } = require('../src/backend/core/runtime.cjs');
 const { SentinalAdminClient } = require('../src/desktop/sentinal-admin-client.cjs');
 const { sanitizeProviderModules } = require('../src/shared/provider-sync.cjs');
-const { HostedProviderStore } = require('../src/railway/hosted-provider-store.cjs');
+const { HostedProviderStore, bootstrapHostedProviderStore } = require('../src/railway/hosted-provider-store.cjs');
 
 const root = path.resolve(__dirname, '..');
 const template = JSON.parse(fs.readFileSync(path.join(root, 'config.example.json'), 'utf8'));
@@ -48,6 +48,27 @@ test('hosted provider secrets are encrypted at rest and can be applied with the 
   assert.equal(process.env[name], secret);
   delete process.env[name];
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('hosted provider bootstrap honors NEXUS_DATA_DIR for persistent config and runtime files', () => {
+  const dir = tempDir();
+  const dataDir = path.join(dir, 'mounted-data');
+  const previousDataDir = process.env.NEXUS_DATA_DIR;
+  const previousConfig = process.env.NEXUS_CONFIG;
+  process.env.NEXUS_DATA_DIR = dataDir;
+  try {
+    const hosted = bootstrapHostedProviderStore({ root: dir, token: 'a'.repeat(64), templateConfig: template });
+    assert.equal(hosted.store.file, path.join(dataDir, 'hosted-provider-config.json'));
+    assert.equal(hosted.runtimeFile, path.join(dataDir, 'hosted-runtime-config.json'));
+    assert.equal(process.env.NEXUS_CONFIG, hosted.runtimeFile);
+    assert.equal(fs.existsSync(hosted.runtimeFile), true);
+  } finally {
+    if (previousDataDir === undefined) delete process.env.NEXUS_DATA_DIR;
+    else process.env.NEXUS_DATA_DIR = previousDataDir;
+    if (previousConfig === undefined) delete process.env.NEXUS_CONFIG;
+    else process.env.NEXUS_CONFIG = previousConfig;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('wrong hosted admin key cannot decrypt persisted provider credentials', () => {
