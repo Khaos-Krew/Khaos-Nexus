@@ -1,6 +1,7 @@
 'use strict';
 
 const { getModule } = require('../backend/modules/catalog.cjs');
+const { renderTemporal, discordTimestampPair } = require('./discord-time.cjs');
 
 function clean(value, max = 1000) {
   return String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -10,11 +11,25 @@ function humanize(value) {
   return clean(value, 80).replace(/[-_]+/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function scalar(value) {
+function urlValue(value, key = '') {
+  const text = clean(value, 1000);
+  if (!/^https?:\/\/[^\s]+$/i.test(text)) return '';
+  const label = /(?:source|official|news)/i.test(key) ? 'Official source' : 'Open link';
+  return `[${label}](${text})`;
+}
+
+function scalar(value, key = '') {
   if (value === null || value === undefined || value === '') return '';
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '';
-  if (typeof value === 'string') return clean(value);
+  if (typeof value === 'number') {
+    const temporal = renderTemporal(value, key);
+    return temporal !== String(value) ? temporal : Number.isFinite(value) ? String(value) : '';
+  }
+  if (typeof value === 'string') {
+    const link = urlValue(value, key);
+    if (link) return link;
+    return clean(renderTemporal(value, key));
+  }
   return '';
 }
 
@@ -31,7 +46,7 @@ function objectLines(object, omitted = new Set()) {
   const lines = [];
   for (const [key, value] of Object.entries(object)) {
     if (omitted.has(key)) continue;
-    const rendered = scalar(value);
+    const rendered = scalar(value, key);
     if (!rendered) continue;
     lines.push(`**${humanize(key)}:** ${rendered}`);
   }
@@ -69,7 +84,7 @@ function genericEmbed(moduleId, actionId, data) {
     if (Array.isArray(value)) {
       if (!value.length) continue;
       if (value.every((item) => item === null || ['string', 'number', 'boolean'].includes(typeof item))) {
-        fields.push({ name: humanize(key), value: clean(value.map(scalar).filter(Boolean).join(', '), 1024) || '—', inline: false });
+        fields.push({ name: humanize(key), value: clean(value.map((item) => scalar(item, key)).filter(Boolean).join(', '), 1024) || '—', inline: false });
       } else {
         fields.push(...collectionFields(value, Math.max(1, 25 - fields.length)));
       }
@@ -80,7 +95,7 @@ function genericEmbed(moduleId, actionId, data) {
       if (lines.length) fields.push({ name: humanize(key), value: clean(lines.join('\n'), 1024), inline: false });
       continue;
     }
-    const rendered = scalar(value);
+    const rendered = scalar(value, key);
     if (rendered) description.push(`**${humanize(key)}:** ${rendered}`);
   }
   return {
@@ -119,10 +134,8 @@ function warframeAlertEmbed(data) {
       if (alert.reward) lines.push(`**Reward:** ${clean(alert.reward)}`);
       else lines.push('**Reward:** No item reward reported');
       if (alert.eta) lines.push(`**Time remaining:** ${clean(alert.eta)}`);
-      if (alert.expiry) {
-        const unix = Math.floor(new Date(alert.expiry).getTime() / 1000);
-        if (Number.isFinite(unix)) lines.push(`**Expires:** <t:${unix}:R>`);
-      }
+      const expires = discordTimestampPair(alert.expiry, 'expiry');
+      if (expires) lines.push(`**Expires:** ${expires}`);
       return { name: clean(heading, 256), value: clean(lines.join('\n'), 1024), inline: false };
     })
   };

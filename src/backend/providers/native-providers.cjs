@@ -4,6 +4,7 @@ const { WarframeProvider, WARFRAME_ACTIONS } = require('./warframe-provider.cjs'
 const { Division2Provider, DIVISION2_ACTIONS } = require('./division2-provider.cjs');
 const { IdleOnProvider, IDLEON_ACTIONS } = require('./idleon-provider.cjs');
 const { PokemonGoProvider, POGO_ACTIONS } = require('./pokemon-go-provider.cjs');
+const { attachOfficialPokemonGoEvents } = require('./pokemon-go-official-events.cjs');
 
 function nativeProvidersFromConfig(config = {}, options = {}) {
   const providers = {};
@@ -32,7 +33,10 @@ function nativeProvidersFromConfig(config = {}, options = {}) {
   }
 
   if (config.modules?.pokemongo?.enabled !== false) {
-    providers.pokemongo = new PokemonGoProvider({ stateFile: config.modules?.pokemongo?.stateFile });
+    providers.pokemongo = attachOfficialPokemonGoEvents(
+      new PokemonGoProvider({ stateFile: config.modules?.pokemongo?.stateFile }),
+      { fetchImpl: options.fetchImpl, newsUrl: config.modules?.pokemongo?.newsUrl }
+    );
   }
 
   return providers;
