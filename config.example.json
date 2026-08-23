@@ -5,6 +5,10 @@
     "publicBaseUrl": "http://127.0.0.1:3210",
     "serviceTokenEnv": "NEXUS_BACKEND_TOKEN"
   },
+  "scheduler": {
+    "timeZone": "America/Chicago",
+    "stateFile": "data/schedules.json"
+  },
   "discord": {
     "tokenEnv": "NEXUS_SENTINEL_TOKEN",
     "guildId": "",
@@ -20,7 +24,20 @@
     "ark": {
       "enabled": true,
       "channelId": "",
-      "connection": { "host": "", "port": 0, "passwordEnv": "NEXUS_ARK_RCON_PASSWORD" },
+      "connection": {
+        "servers": [
+          {
+            "name": "ARK Server",
+            "host": "",
+            "port": 0,
+            "passwordEnv": "NEXUS_ARK_RCON_PASSWORD",
+            "restartOnExit": false,
+            "restartCommand": "",
+            "backupPath": "",
+            "mods": []
+          }
+        ]
+      },
       "provider": {}
     },
     "palworld": {
@@ -32,14 +49,29 @@
         "protocol": "http",
         "apiPath": "/v1/api",
         "username": "admin",
-        "passwordEnv": "NEXUS_PALWORLD_REST_PASSWORD"
+        "passwordEnv": "NEXUS_PALWORLD_REST_PASSWORD",
+        "restartViaShutdown": false,
+        "backupPath": ""
       },
       "provider": {}
     },
     "minecraft": {
       "enabled": true,
       "channelId": "",
-      "connection": { "host": "", "port": 0, "passwordEnv": "NEXUS_MINECRAFT_RCON_PASSWORD" },
+      "connection": {
+        "servers": [
+          {
+            "name": "Minecraft Server",
+            "host": "",
+            "port": 0,
+            "passwordEnv": "NEXUS_MINECRAFT_RCON_PASSWORD",
+            "restartOnExit": false,
+            "restartCommand": "",
+            "backupPath": "",
+            "modpack": ""
+          }
+        ]
+      },
       "provider": {}
     },
     "warframe": {
@@ -49,20 +81,53 @@
       "marketPlatform": "pc",
       "provider": {}
     },
-    "division2": { "enabled": true, "channelId": "", "provider": {} },
+    "division2": {
+      "enabled": true,
+      "channelId": "",
+      "stateFile": "data/division2-state.json",
+      "newsUrl": "https://www.ubisoft.com/en-us/game/the-division/the-division-2/news-updates",
+      "provider": {}
+    },
     "rust": {
       "enabled": true,
       "channelId": "",
-      "connection": { "host": "", "port": 0, "protocol": "ws", "passwordEnv": "NEXUS_RUST_RCON_PASSWORD" },
+      "connection": {
+        "host": "",
+        "port": 0,
+        "protocol": "ws",
+        "passwordEnv": "NEXUS_RUST_RCON_PASSWORD",
+        "backupPath": ""
+      },
       "provider": {}
     },
     "satisfactory": {
       "enabled": true,
       "channelId": "",
-      "connection": { "host": "", "port": 7777, "passwordEnv": "NEXUS_SATISFACTORY_TOKEN", "tlsFingerprint": "" },
+      "connection": {
+        "host": "",
+        "port": 7777,
+        "passwordEnv": "NEXUS_SATISFACTORY_TOKEN",
+        "tlsFingerprint": "",
+        "restartViaShutdown": false
+      },
       "provider": {}
     },
-    "idleon": { "enabled": true, "channelId": "", "provider": {} },
-    "dnd": { "enabled": true, "channelId": "", "surface": "veyra", "provider": {} }
+    "idleon": {
+      "enabled": true,
+      "channelId": "",
+      "stateFile": "data/idleon-state.json",
+      "provider": {}
+    },
+    "dnd": {
+      "enabled": true,
+      "channelId": "",
+      "surface": "veyra",
+      "provider": {
+        "type": "",
+        "baseUrl": "",
+        "tokenEnv": "NEXUS_DND_PROVIDER_TOKEN",
+        "actions": []
+      }
+    }
   }
 }
