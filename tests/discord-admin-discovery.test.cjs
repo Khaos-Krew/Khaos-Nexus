@@ -2,7 +2,9 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { desiredCommandNames, discoverMappingsFromData } = require('../src/sentinel/discord-admin-discovery.cjs');
+const { desiredCommandNames, discoverMappingsFromData, rankOfferingMatch } = require('../src/sentinel/discord-admin-discovery.cjs');
+
+const blackoutLegend = { id: 'blackout-legend', name: 'Blackout Legend', level: 4 };
 
 test('Discord admin command health covers Nexus and all friendly commands', () => {
   const names = desiredCommandNames();
@@ -34,14 +36,17 @@ test('rank discovery exact-matches normalized Discord roles without guessing amb
   assert.equal(result.suggestedSettings.rankRoles['khaos-warden'], '');
 });
 
-test('SKU discovery prefers entitlement subscription SKUs and ignores subscription group SKUs', () => {
+test('SKU discovery includes recurring subscriptions and durable one-time purchases while ignoring generated groups and consumables', () => {
   const result = discoverMappingsFromData({
     roles: [],
     skus: [
       { id: '200000000000000001', name: 'Cipher Runner', slug: 'cipher-runner', type: 6 },
-      { id: '200000000000000002', name: 'Cipher Runner', slug: 'cipher-runner', type: 5 },
+      { id: '200000000000000002', name: 'Cipher Runner', slug: 'cipher-runner-subscription', type: 5 },
       { id: '200000000000000003', name: 'Nexus Raider', slug: 'nexus-raider', type: 2 },
-      { id: '200000000000000004', name: 'Unrelated Product', slug: 'other', type: 5 }
+      { id: '200000000000000004', name: 'Unrelated Product', slug: 'other', type: 5 },
+      { id: '200000000000000005', name: 'Blackout Legend Monthly', slug: 'blackout-legend-monthly', type: 5 },
+      { id: '200000000000000006', name: 'Blackout Legend Lifetime', slug: 'blackout-legend-one-time-purchase', type: 2 },
+      { id: '200000000000000007', name: 'Blackout Legend Boost', slug: 'blackout-legend-boost', type: 3 }
     ],
     current: { rankRoles: {}, rankSkus: {} }
   });
@@ -49,6 +54,17 @@ test('SKU discovery prefers entitlement subscription SKUs and ignores subscripti
   assert.deepEqual(result.suggestedSettings.rankSkus['shadow-recruit'], []);
   assert.deepEqual(result.suggestedSettings.rankSkus['cipher-runner'], ['200000000000000002']);
   assert.deepEqual(result.suggestedSettings.rankSkus['nexus-raider'], ['200000000000000003']);
+  assert.deepEqual(result.suggestedSettings.rankSkus['blackout-legend'], ['200000000000000005', '200000000000000006']);
+  assert.deepEqual(result.ranks.find((rank) => rank.id === 'blackout-legend').skus.candidates.map((sku) => sku.type), [5, 2]);
+});
+
+test('rank offering matching accepts only safe monetization suffixes', () => {
+  assert.equal(rankOfferingMatch('Blackout Legend', blackoutLegend), true);
+  assert.equal(rankOfferingMatch('Blackout Legend Monthly', blackoutLegend), true);
+  assert.equal(rankOfferingMatch('blackout-legend-one-time-purchase', blackoutLegend), true);
+  assert.equal(rankOfferingMatch('Blackout Legend Lifetime Access', blackoutLegend), true);
+  assert.equal(rankOfferingMatch('Blackout Legend Booster Pack', blackoutLegend), false);
+  assert.equal(rankOfferingMatch('Blackout Legendary', blackoutLegend), false);
 });
 
 test('discovery preserves every existing mapping instead of overwriting it', () => {
