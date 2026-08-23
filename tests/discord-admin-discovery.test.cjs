@@ -6,9 +6,9 @@ const { desiredCommandNames, discoverMappingsFromData, rankOfferingMatch } = req
 
 const blackoutLegend = { id: 'blackout-legend', name: 'Blackout Legend', level: 4 };
 
-test('Discord admin command health covers Nexus and all friendly commands', () => {
+test('Discord admin command health covers Nexus, moderation, and all friendly commands', () => {
   const names = desiredCommandNames();
-  for (const expected of ['nexus', 'market', 'ark', 'palworld', 'minecraft', 'warframe', 'division2', 'rust', 'satisfactory', 'idleon', 'pogo']) {
+  for (const expected of ['nexus', 'market', 'clear', 'ark', 'palworld', 'minecraft', 'warframe', 'division2', 'rust', 'satisfactory', 'idleon', 'pogo']) {
     assert.ok(names.includes(expected), `missing /${expected}`);
   }
   assert.equal(new Set(names).size, names.length);
