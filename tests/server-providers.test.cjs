@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const { SourceRconProvider, parseArkPlayers, parseMinecraftPlayers } = require('../src/backend/providers/source-rcon-provider.cjs');
 const { PalworldProvider } = require('../src/backend/providers/palworld-provider.cjs');
 const { RustProvider, normalizeServerInfo, normalizePlayers } = require('../src/backend/providers/rust-provider.cjs');
+const { SatisfactoryProvider, readServerState, normalizeFingerprint } = require('../src/backend/providers/satisfactory-provider.cjs');
 const { configuredConnection } = require('../src/backend/providers/server-providers.cjs');
 
 function mockRcon(responses = {}) {
@@ -102,6 +103,34 @@ test('Rust provider maps serverinfo playerlist save and safe say commands', asyn
 test('Rust normalizers accept common serverinfo and playerlist shapes', () => {
   assert.equal(normalizeServerInfo(JSON.stringify({ Hostname: 'Test', Players: 3 })).players, 3);
   assert.equal(normalizePlayers(JSON.stringify([{ DisplayName: 'Khaos', SteamID: '76561190000000001' }]))[0].name, 'Khaos');
+});
+
+test('Satisfactory provider exposes status players and save through HTTPS API', async () => {
+  const calls = [];
+  const client = {
+    async queryServerState() {
+      calls.push('state');
+      return { serverGameState: { activeSessionName: 'Nexus Factory', numConnectedPlayers: 2, playerLimit: 8, isGameRunning: true } };
+    },
+    async save(name) { calls.push(`save:${name || ''}`); return { ok: true }; }
+  };
+  const provider = new SatisfactoryProvider({}, { client });
+  const status = await provider.invoke('status');
+  const players = await provider.invoke('players');
+  await provider.invoke('save', { input: 'Before Update' });
+  assert.equal(status.sessionName, 'Nexus Factory');
+  assert.equal(status.state, 'playing');
+  assert.equal(players.count, 2);
+  assert.deepEqual(calls, ['state', 'state', 'save:Before Update']);
+  assert.deepEqual(provider.supportedActions, ['status', 'players', 'save']);
+  assert.equal(provider.supportedActions.includes('backups'), false);
+  assert.equal(provider.supportedActions.includes('restart'), false);
+});
+
+test('Satisfactory state and TLS helpers normalize official API shapes', () => {
+  assert.equal(readServerState({ ServerGameState: { ActiveSessionName: 'Factory', NumConnectedPlayers: 3 } }).players, 3);
+  assert.equal(normalizeFingerprint('aa:bb'.padEnd(95, ':cc')).length === 64, false);
+  assert.equal(normalizeFingerprint('A'.repeat(64)), 'A'.repeat(64));
 });
 
 test('connection resolver refuses incomplete server credentials', () => {
