@@ -61,7 +61,7 @@
 
   function sectionResult(label, value) {
     if (!value) return `<div class="admin-op-row"><strong>${esc(label)}</strong>${badge('Not checked')}</div>`;
-    return `<div class="admin-op-row"><strong>${esc(label)}</strong>${statusBadge(value.ok !== false, value.ok === false ? 'Needs attention' : 'Ready', 'Needs attention')}</div>`;
+    return `<div class="admin-op-row"><strong>${esc(label)}</strong>${statusBadge(value.ok !== false, 'Ready', 'Needs attention')}</div>`;
   }
 
   async function renderOwnerTest() {
@@ -80,11 +80,7 @@
       <article class="owner-test-item" data-item="${esc(item.id)}">
         <div class="owner-test-head"><div><strong>${esc(item.label)}</strong><small>${item.updatedAt ? `Updated ${esc(new Date(item.updatedAt).toLocaleString())}` : 'Not tested yet'}</small></div>${badge(item.status === 'working' ? 'Working' : item.status === 'failed' ? 'Failed' : 'Not tested', item.status === 'working' ? 'good' : item.status === 'failed' ? 'bad' : '')}</div>
         <input class="owner-test-note" maxlength="500" value="${esc(item.note || '')}" placeholder="Optional note about what you observed">
-        <div class="actions">
-          <button data-test-status="working" class="primary">✓ Working</button>
-          <button data-test-status="failed" class="danger">✕ Failed</button>
-          <button data-test-status="not-tested" class="secondary">Clear</button>
-        </div>
+        <div class="actions"><button data-test-status="working" class="primary">✓ Working</button><button data-test-status="failed" class="danger">✕ Failed</button><button data-test-status="not-tested" class="secondary">Clear</button></div>
       </article>`).join('');
 
     const history = (snapshot.builds || []).length
@@ -118,11 +114,7 @@
     const roles = remote?.rankRoles || local?.rankRoles || {};
     const skus = remote?.rankSkus || local?.rankSkus || {};
     return RANKS.map(([id, name]) => `
-      <div class="rank-config-row" data-rank="${id}">
-        <strong>${esc(name)}</strong>
-        <input data-rank-role value="${esc(roles[id] || '')}" placeholder="Discord role ID">
-        <input data-rank-skus value="${esc((skus[id] || []).join(', '))}" placeholder="Discord SKU IDs, comma separated">
-      </div>`).join('');
+      <div class="rank-config-row" data-rank="${id}"><strong>${esc(name)}</strong><input data-rank-role value="${esc(roles[id] || '')}" placeholder="Discord role ID"><input data-rank-skus value="${esc((skus[id] || []).join(', '))}" placeholder="Discord SKU IDs, comma separated"></div>`).join('');
   }
 
   function moduleToggleRows(appState, remote) {
@@ -138,11 +130,7 @@
     if (active !== 'discord') return;
     activate(discordButton, 'Discord Admin', 'Nexus Sentinal health, permissions, ranks, channels, panels and repair');
     content.innerHTML = '<div class="card"><p>Reading Nexus Sentinal administration state…</p></div>';
-    const [appState, scan, remoteConfig] = await Promise.all([
-      api.state(),
-      scanOverride ? Promise.resolve(scanOverride) : api.sentinalScan(),
-      api.sentinalConfig()
-    ]);
+    const [appState, scan] = await Promise.all([api.state(), scanOverride ? Promise.resolve(scanOverride) : api.sentinalScan()]);
     if (active !== 'discord') return;
     const sections = scan?.sections || {};
     const status = sections.status || appState.sentinal?.sentinal || appState.sentinal || {};
@@ -150,7 +138,7 @@
     const commands = sections.commands || {};
     const channels = sections.channels || {};
     const roles = sections.roles || {};
-    const remoteSettings = remoteConfig?.settings || scan?.settings || {};
+    const remoteSettings = scan?.settings || {};
     const adminUrl = appState.settings?.discord?.sentinalAdminUrl || '';
     const permissionRows = (permissions.permissions || []).map((item) => `<div class="admin-op-row"><span>${esc(item.label)}</span>${badge(item.granted ? 'Granted' : 'Missing', item.granted ? 'good' : 'bad')}</div>`).join('') || '<p>Permission audit unavailable.</p>';
     const channelIssues = (channels.modules || []).filter((module) => !module.complete || module.ok === false);
@@ -164,30 +152,17 @@
         <article class="card"><h3>Discord layout</h3><div class="metric ${channelIssues.length ? 'warn' : 'good'}">${channelIssues.length}</div><p>enabled modules need layout attention</p></article>
         <article class="card"><h3>Rank synchronization</h3><div class="metric ${roleBlocks ? 'bad' : roleChanges ? 'warn' : 'good'}">${roleChanges}</div><p>${roleChanges} changes pending • ${roleBlocks} blockers</p></article>
       </div>
-
-      <div class="admin-action-bar">
-        <button id="adminScan" class="secondary">Scan</button>
-        <button id="syncCommands" class="secondary">Sync commands</button>
-        <button id="repairChannels" class="secondary">Reconcile channels</button>
-        <button id="refreshPanels" class="secondary">Refresh module panels</button>
-        <button id="syncRanks" class="secondary">Apply rank sync</button>
-        <button id="repairNexus" class="primary">Repair Nexus</button>
-      </div>
-
+      <div class="admin-action-bar"><button id="adminScan" class="secondary">Scan</button><button id="syncCommands" class="secondary">Sync commands</button><button id="repairChannels" class="secondary">Reconcile channels</button><button id="refreshPanels" class="secondary">Refresh module panels</button><button id="syncRanks" class="secondary">Apply rank sync</button><button id="repairNexus" class="primary">Repair Nexus</button></div>
       <div class="grid">
         <article class="card"><h3>Permission checker</h3>${permissionRows}${permissions.botHighestRole ? `<p class="field-note">Sentinal highest role: ${esc(permissions.botHighestRole.name)}</p>` : ''}</article>
         <article class="card"><h3>Command synchronization</h3>${(commands.commands || []).map((item) => `<div class="admin-op-row"><code>/${esc(item.name)}</code>${badge(item.registered ? 'Registered' : 'Missing', item.registered ? 'good' : 'warn')}</div>`).join('') || '<p>Command state unavailable.</p>'}<p class="field-note">Synchronization upserts Nexus commands and preserves unrelated application commands.</p></article>
       </div>
-
       <div class="section-head"><div><h3>Hosted/local Sentinal connection</h3><p>Remote admin endpoints must use HTTPS. Loopback HTTP is allowed for local testing.</p></div></div>
       <article class="card"><label class="field"><span>Sentinal admin URL</span><input id="sentinalAdminUrl" value="${esc(adminUrl)}" placeholder="https://your-sentinal-service.example"></label><p class="field-note">The matching NEXUS_SENTINAL_ADMIN_TOKEN stays in protected Credentials storage.</p><div class="actions"><button id="saveAdminUrl" class="primary">Save connection</button></div></article>
-
       <div class="section-head"><div><h3>Supporter ranks & entitlements</h3><p>Map Discord Premium App SKU IDs to existing Discord rank roles. Preview is read-only; Apply rank sync changes only mapped rank roles.</p></div></div>
-      <div class="card"><div class="rank-config-head"><strong>Rank</strong><strong>Discord role ID</strong><strong>Premium SKU IDs</strong></div>${configRankRows(appState.settings?.discord || {}, remoteSettings)}<div class="actions"><button id="saveRankMap" class="primary">Save mappings to Sentinal</button></div><p class="field-note">Entitlements seen: ${esc(roles.entitlementCount || 0)} • linked accounts: ${esc(roles.linkedAccountCount || 0)}</p></div>
-
+      <div class="card"><div class="rank-config-head"><strong>Rank</strong><strong>Discord role ID</strong><strong>Premium SKU IDs</strong></div>${configRankRows(appState.settings?.discord || {}, remoteSettings)}<div class="actions"><button id="saveRankMap" class="primary">Save mappings</button></div><p class="field-note">Entitlements seen: ${esc(roles.entitlementCount || 0)} • linked accounts: ${esc(roles.linkedAccountCount || 0)}</p></div>
       <div class="section-head"><div><h3>Module availability</h3><p>These toggles control which modules Sentinal reconciles and presents. Disabling a module does not delete its Discord history or channels.</p></div></div>
       <div class="card admin-module-list">${moduleToggleRows(appState, remoteSettings)}<div class="actions"><button id="saveModuleState" class="primary">Save module availability</button></div></div>
-
       <div class="grid admin-details">
         <article class="card"><h3>Channel/category reconcile</h3>${sectionResult('Layout state', channels)}<p>${channelIssues.length ? `${esc(channelIssues.length)} module layouts have missing or mismatched elements.` : 'All enabled module layouts match their expected structure.'}</p></article>
         <article class="card"><h3>Permanent module panels</h3>${statusBadge(status.discordReady, 'Sentinal ready to refresh panels', 'Sentinal unavailable')}<p>Panel refresh edits/recreates the persistent module message; it does not post a new message every scan.</p></article>
@@ -207,11 +182,8 @@
       const result = await action(() => api.sentinalRepair(), 'Nexus repair sequence completed.'); if (result) renderDiscordAdmin(result);
     };
     document.getElementById('saveAdminUrl').onclick = async () => {
-      const next = JSON.parse(JSON.stringify(appState.settings || {}));
-      next.discord ||= {};
-      next.discord.sentinalAdminUrl = document.getElementById('sentinalAdminUrl').value.trim();
-      const saved = await action(() => api.saveSettings(next), 'Sentinal admin connection saved.');
-      if (saved) renderDiscordAdmin();
+      const next = JSON.parse(JSON.stringify(appState.settings || {})); next.discord ||= {}; next.discord.sentinalAdminUrl = document.getElementById('sentinalAdminUrl').value.trim();
+      const saved = await action(() => api.saveSettings(next), 'Sentinal admin connection saved.'); if (saved) renderDiscordAdmin();
     };
     document.getElementById('saveRankMap').onclick = async () => {
       const rankRoles = {}; const rankSkus = {};
@@ -219,34 +191,18 @@
         rankRoles[row.dataset.rank] = row.querySelector('[data-rank-role]').value.trim();
         rankSkus[row.dataset.rank] = row.querySelector('[data-rank-skus]').value.split(',').map((item) => item.trim()).filter(Boolean);
       });
-      const result = await action(() => api.sentinalConfigure({ rankRoles, rankSkus }), 'Rank mappings saved to Nexus Sentinal.');
-      if (result) {
-        const next = JSON.parse(JSON.stringify(appState.settings || {})); next.discord ||= {}; next.discord.rankRoles = rankRoles; next.discord.rankSkus = rankSkus;
-        await api.saveSettings(next); await renderDiscordAdmin();
-      }
+      const next = JSON.parse(JSON.stringify(appState.settings || {})); next.discord ||= {}; next.discord.rankRoles = rankRoles; next.discord.rankSkus = rankSkus;
+      const saved = await action(() => api.saveSettings(next), 'Rank mappings saved and synchronized to Nexus Sentinal.'); if (saved) renderDiscordAdmin();
     };
     document.getElementById('saveModuleState').onclick = async () => {
-      const moduleEnabled = {};
-      content.querySelectorAll('[data-admin-module]').forEach((input) => { moduleEnabled[input.dataset.adminModule] = input.checked; });
-      const result = await action(() => api.sentinalConfigure({ moduleEnabled }), 'Module availability saved to Nexus Sentinal.');
-      if (result) {
-        const next = JSON.parse(JSON.stringify(appState.settings || {}));
-        for (const [moduleId, enabled] of Object.entries(moduleEnabled)) if (next.modules?.[moduleId]) next.modules[moduleId].enabled = enabled;
-        await api.saveSettings(next); await renderDiscordAdmin();
-      }
+      const next = JSON.parse(JSON.stringify(appState.settings || {}));
+      content.querySelectorAll('[data-admin-module]').forEach((input) => { if (next.modules?.[input.dataset.adminModule]) next.modules[input.dataset.adminModule].enabled = input.checked; });
+      const saved = await action(() => api.saveSettings(next), 'Module availability saved and synchronized to Nexus Sentinal.'); if (saved) renderDiscordAdmin();
     };
   }
 
-  ownerButton.onclick = () => {
-    settingsButton()?.click();
-    active = 'owner';
-    renderOwnerTest().catch((error) => { content.innerHTML = `<div class="card"><p class="bad">${esc(error.message || error)}</p></div>`; });
-  };
-  discordButton.onclick = () => {
-    settingsButton()?.click();
-    active = 'discord';
-    renderDiscordAdmin().catch((error) => { content.innerHTML = `<div class="card"><p class="bad">${esc(error.message || error)}</p></div>`; });
-  };
+  ownerButton.onclick = () => { settingsButton()?.click(); active = 'owner'; renderOwnerTest().catch((error) => { content.innerHTML = `<div class="card"><p class="bad">${esc(error.message || error)}</p></div>`; }); };
+  discordButton.onclick = () => { settingsButton()?.click(); active = 'discord'; renderDiscordAdmin().catch((error) => { content.innerHTML = `<div class="card"><p class="bad">${esc(error.message || error)}</p></div>`; }); };
   nav.querySelectorAll('button[data-view]').forEach((item) => item.addEventListener('click', () => { active = ''; }));
   refresh?.addEventListener('click', () => setTimeout(() => {
     if (active === 'owner') renderOwnerTest().catch(() => {});
