@@ -20,7 +20,7 @@
     "ark": { "enabled": true, "channelId": "", "provider": {} },
     "palworld": { "enabled": true, "channelId": "", "provider": {} },
     "minecraft": { "enabled": true, "channelId": "", "provider": {} },
-    "warframe": { "enabled": true, "channelId": "", "provider": {} },
+    "warframe": { "enabled": true, "channelId": "", "platform": "pc", "marketPlatform": "pc", "provider": {} },
     "division2": { "enabled": true, "channelId": "", "provider": {} },
     "rust": { "enabled": true, "channelId": "", "provider": {} },
     "satisfactory": { "enabled": true, "channelId": "", "provider": {} },
