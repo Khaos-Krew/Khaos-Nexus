@@ -22,7 +22,7 @@ function style(cap) {
 function renderModuleConsole(moduleId, backendState = {}) {
   const module = getModule(moduleId);
   if (!module) throw new Error(`Unknown module: ${moduleId}`);
-  const connected = backendState.configured === true;
+  const connected = backendState.connected === true;
   const enabled = backendState.enabled !== false;
   const state = !enabled ? 'DISABLED' : connected ? 'READY • CONNECTED' : 'READY';
   const buttons = module.capabilities.slice(0, 20).map((cap) => ({
