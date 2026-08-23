@@ -2,6 +2,7 @@
 
 const http = require('node:http');
 const { URL } = require('node:url');
+const { currentHostedProviderStore } = require('../railway/hosted-provider-store.cjs');
 const { adminPairingStore } = require('./admin-pairing.cjs');
 const { commandStatus, discoverRankMappings } = require('./discord-admin-discovery.cjs');
 
@@ -52,15 +53,25 @@ function publicHealth(status = null) {
   };
 }
 
+async function hostedProviderStatus(controller) {
+  const store = currentHostedProviderStore();
+  if (!store) return null;
+  const status = store.status();
+  const backend = await controller.backend?.modules?.().catch((error) => ({ ok: false, modules: [], message: String(error?.message || error).slice(0, 240) })) || { ok: false, modules: [] };
+  return { ...status, ok: status.ok !== false && backend.ok !== false, backendModules: backend.modules || [], backendMessage: backend.message || '' };
+}
+
 async function enhancedScan(controller) {
   const scan = await controller.scan();
   scan.sections ||= {};
-  const [commands, rankDiscovery] = await Promise.all([
+  const [commands, rankDiscovery, providerConfig] = await Promise.all([
     commandStatus(controller).catch((error) => ({ ok: false, commands: [], desired: [], error: String(error?.message || error).slice(0, 240) })),
-    discoverRankMappings(controller).catch((error) => ({ ok: false, ranks: [], suggestedSettings: { rankRoles: {}, rankSkus: {} }, counts: { discoveredRoles: 0, discoveredSkus: 0, attention: 0 }, error: String(error?.message || error).slice(0, 240) }))
+    discoverRankMappings(controller).catch((error) => ({ ok: false, ranks: [], suggestedSettings: { rankRoles: {}, rankSkus: {} }, counts: { discoveredRoles: 0, discoveredSkus: 0, attention: 0 }, error: String(error?.message || error).slice(0, 240) })),
+    hostedProviderStatus(controller).catch((error) => ({ ok: false, configured: false, error: String(error?.message || error).slice(0, 240) }))
   ]);
   scan.sections.commands = commands;
   scan.sections.rankDiscovery = rankDiscovery;
+  if (providerConfig) scan.sections.providerConfig = providerConfig;
   scan.ok = Object.values(scan.sections).every((section) => section?.ok !== false);
   return scan;
 }
@@ -121,12 +132,23 @@ function createSentinalAdminServer(options = {}) {
       if (req.method === 'GET' && url.pathname === '/v1/channels') return json(res, 200, await controller.inspectChannels(safeModuleId(url.searchParams.get('module'))));
       if (req.method === 'GET' && url.pathname === '/v1/roles') return json(res, 200, await controller.reconcileRoles({ dryRun: true }));
       if (req.method === 'GET' && url.pathname === '/v1/rank-mappings/discover') return json(res, 200, await discoverRankMappings(controller));
+      if (req.method === 'GET' && url.pathname === '/v1/providers/config') {
+        const status = await hostedProviderStatus(controller);
+        return status ? json(res, 200, status) : json(res, 503, { ok: false, code: 'HOSTED_PROVIDER_CONFIG_UNAVAILABLE' });
+      }
       if (req.method === 'GET' && url.pathname === '/v1/scan') return json(res, 200, await enhancedScan(controller));
 
       if (req.method === 'POST' && url.pathname === '/v1/config') {
         const configured = controller.configure(await body(req));
         const backend = await controller.backend?.configureModules?.(configured.settings.moduleEnabled || {}).catch((error) => ({ ok: false, message: String(error?.message || error) }));
         return json(res, backend?.ok === false ? 502 : 200, { ...configured, backend: backend || null });
+      }
+      if (req.method === 'POST' && url.pathname === '/v1/providers/config') {
+        const store = currentHostedProviderStore();
+        if (!store) return json(res, 503, { ok: false, code: 'HOSTED_PROVIDER_CONFIG_UNAVAILABLE' });
+        const saved = store.configure(await body(req));
+        const backend = await controller.backend?.configureProviders?.(saved.modules || {}).catch((error) => ({ ok: false, message: String(error?.message || error).slice(0, 240), modules: [] }));
+        return json(res, backend?.ok === false ? 502 : 200, { ok: backend?.ok !== false, providerConfig: saved, backend: backend || null });
       }
       if (req.method === 'POST' && url.pathname === '/v1/commands/sync') {
         await controller.syncCommands();
@@ -172,4 +194,4 @@ function createSentinalAdminServer(options = {}) {
   return { host, port, server, start, stop, isStarted: () => started && server.listening };
 }
 
-module.exports = { LOOPBACK, createPairingLimiter, createSentinalAdminServer, enhancedScan, publicHealth, safeModuleId, validAdminToken };
+module.exports = { LOOPBACK, createPairingLimiter, createSentinalAdminServer, enhancedScan, hostedProviderStatus, publicHealth, safeModuleId, validAdminToken };
