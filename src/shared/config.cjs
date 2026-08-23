@@ -11,10 +11,14 @@ function csv(value) {
   return String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
 }
 
-function loadConfig() {
+function loadConfig(options = {}) {
   const root = path.resolve(__dirname, '../..');
-  const requested = process.env.NEXUS_CONFIG ? path.resolve(process.env.NEXUS_CONFIG) : path.join(root, 'config.json');
-  const fallback = path.join(root, 'config.example.json');
+  const requested = options.requestedPath
+    ? path.resolve(options.requestedPath)
+    : process.env.NEXUS_CONFIG
+      ? path.resolve(process.env.NEXUS_CONFIG)
+      : path.join(root, 'config.json');
+  const fallback = options.fallbackPath ? path.resolve(options.fallbackPath) : path.join(root, 'config.example.json');
   const source = fs.existsSync(requested) ? requested : fallback;
   const config = readJson(source);
 
@@ -37,4 +41,4 @@ function envSecret(name) {
   return name ? String(process.env[name] || '') : '';
 }
 
-module.exports = { loadConfig, envSecret, csv };
+module.exports = { loadConfig, envSecret, csv, readJson };
