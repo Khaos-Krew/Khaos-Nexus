@@ -5,6 +5,9 @@
     "publicBaseUrl": "http://127.0.0.1:3210",
     "serviceTokenEnv": "NEXUS_BACKEND_TOKEN"
   },
+  "accounts": {
+    "stateFile": "data/accounts.json"
+  },
   "scheduler": {
     "timeZone": "America/Chicago",
     "stateFile": "data/schedules.json"
@@ -14,7 +17,10 @@
     "guildId": "",
     "ownerUserIds": [],
     "operatorRoleIds": [],
-    "maxTemporaryLobbiesPerModule": 20
+    "maxTemporaryLobbiesPerModule": 20,
+    "oauthClientId": "",
+    "oauthClientSecretEnv": "NEXUS_DISCORD_OAUTH_CLIENT_SECRET",
+    "oauthRedirectUri": "http://127.0.0.1:53117/callback"
   },
   "thora": {
     "enabled": false,
