@@ -59,7 +59,7 @@ const MODULES = [
     id: 'warframe', name: 'Warframe', console: true,
     capabilities: [
       viewer('news', 'News'), viewer('events', 'Events'), viewer('alerts', 'Alerts'), viewer('fissures', 'Fissures'),
-      viewer('sortie', 'Sortie'), viewer('arbitration', 'Arbitration'), viewer('nightwave', 'Nightwave'),
+      viewer('sortie', 'Sortie'), viewer('archon-hunt', 'Archon Hunt'), viewer('arbitration', 'Arbitration'), viewer('nightwave', 'Nightwave'),
       viewer('invasions', 'Invasions'), viewer('void-trader', 'Void Trader'), viewer('steel-path', 'Steel Path'),
       viewer('kuva', 'Kuva'), viewer('cycles', 'World Cycles'),
       viewer('market', 'Market', { button: false, input: '<item name>' }),
