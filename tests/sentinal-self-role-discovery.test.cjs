@@ -3,9 +3,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  DEEP_HISTORY_LIMIT,
   isRoleDiscoveryChannelName,
   fetchMessageHistory,
-  candidateDiscoveryChannels
+  candidateDiscoveryChannels,
+  SelfRoleManager
 } = require('../src/sentinel/deep-self-role-manager.cjs');
 
 test('recognizes current and legacy role-channel names', () => {
@@ -23,6 +25,10 @@ test('configured role channel remains a discovery candidate even with a custom n
     { id: '33333', name: 'general', isTextBased: () => true }
   ];
   assert.deepEqual(candidateDiscoveryChannels(channels, '11111').map((item) => item.id), ['11111', '22222']);
+});
+
+test('primary role history is deep enough to recover older reaction-era menus', () => {
+  assert.equal(DEEP_HISTORY_LIMIT, 2000);
 });
 
 test('message history walks backward beyond the newest 100 messages', async () => {
@@ -47,4 +53,36 @@ test('message history walks backward beyond the newest 100 messages', async () =
   assert.deepEqual(calls[0], { limit: 100 });
   assert.deepEqual(calls[1], { limit: 100, before: '901' });
   assert.deepEqual(calls[2], { limit: 50, before: '801' });
+});
+
+test('negative legacy discovery is cached for the runtime instead of rescanning every reconcile', async () => {
+  const roleChannel = { id: '11111', name: 'roles', isTextBased: () => true };
+  const general = { id: '22222', name: 'general', isTextBased: () => true };
+  const manager = new SelfRoleManager({ client: {}, state: {}, config: { discord: {} } });
+  let scans = 0;
+  manager.scanChannels = async (channels) => {
+    scans += 1;
+    return {
+      scannedMessages: channels.length,
+      legacyCandidates: 0,
+      reactionCandidates: 0,
+      reactionMapped: 0,
+      reactionAmbiguous: 0,
+      reactionDiagnostics: []
+    };
+  };
+  const guild = {
+    roles: { fetch: async () => new Map() },
+    channels: { fetch: async () => new Map([[roleChannel.id, roleChannel], [general.id, general]]) }
+  };
+
+  const first = await manager.discoverLegacyMenus(guild);
+  assert.equal(first.cached, false);
+  assert.equal(scans, 2); // primary + bounded fallback
+  assert.equal(first.warnings.length, 1);
+
+  const second = await manager.discoverLegacyMenus(guild);
+  assert.equal(second.cached, true);
+  assert.equal(scans, 2);
+  assert.deepEqual(second.warnings, []);
 });
