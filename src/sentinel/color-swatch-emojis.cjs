@@ -19,23 +19,31 @@ function emojiPayload(emoji) {
   };
 }
 
-function swatchEmojiName(label) {
+function normalizedHex(color) {
+  const value = String(color || '').replace(/^#/, '').trim().toLowerCase();
+  return /^[0-9a-f]{6}$/.test(value) ? value : '808080';
+}
+
+function swatchEmojiName(label, color) {
   const slug = normalizedName(label).replace(/-/g, '_') || 'swatch';
-  return `nexus_color_${slug}`.slice(0, 32).replace(/_+$/g, '') || 'nexus_color';
+  const hex = normalizedHex(color);
+  return `nexus_swatch_${hex}_${slug}`.slice(0, 32).replace(/_+$/g, '') || `nexus_swatch_${hex}`;
 }
 
 function swatchNamePatterns(option = {}) {
   const slug = normalizedName(option.label);
-  const hex = String(option.color || '').replace(/^#/, '').toLowerCase();
+  const hex = normalizedHex(option.color);
   return [
-    `nexus-color-${slug}`,
+    normalizedName(swatchEmojiName(option.label, option.color)),
     `color-${slug}`,
     `colour-${slug}`,
     `swatch-${slug}`,
     `square-${slug}`,
     `c-${slug}`,
     slug,
-    ...(hex ? [`nexus-color-${hex}`, `color-${hex}`, `swatch-${hex}`, hex] : [])
+    `color-${hex}`,
+    `swatch-${hex}`,
+    hex
   ].filter(Boolean);
 }
 
@@ -73,8 +81,7 @@ function pngChunk(type, data) {
 }
 
 function solidColorPng(hex, size = 32) {
-  const value = String(hex || '#808080').replace(/^#/, '');
-  const safe = /^[0-9a-fA-F]{6}$/.test(value) ? value : '808080';
+  const safe = normalizedHex(hex);
   const r = Number.parseInt(safe.slice(0, 2), 16);
   const g = Number.parseInt(safe.slice(2, 4), 16);
   const b = Number.parseInt(safe.slice(4, 6), 16);
@@ -115,6 +122,10 @@ function applicationEmojiManager(guild, options = {}) {
 
 function isGeneratedGuildSwatch(option = {}) {
   return Boolean(option.emojiId) && /^nexus[_-]color[_-]/i.test(String(option.emoji || ''));
+}
+
+function isGeneratedApplicationSwatch(option = {}) {
+  return Boolean(option.emojiId) && /^nexus[_-]swatch[_-]/i.test(String(option.emoji || ''));
 }
 
 async function removeGeneratedGuildSwatch(option, guild, logger = console) {
@@ -159,7 +170,16 @@ async function ensureColorSwatches(menuInput, guild, options = {}) {
 
   for (const option of menu.options) {
     const generatedGuildEmoji = isGeneratedGuildSwatch(option);
-    if (option.emojiId && option.emoji && !generatedGuildEmoji) {
+    const generatedApplicationEmoji = isGeneratedApplicationSwatch(option);
+    const desiredName = swatchEmojiName(option.label, option.color);
+    const currentGeneratedApplicationIsCorrect = generatedApplicationEmoji
+      && normalizedName(option.emoji) === normalizedName(desiredName);
+
+    if (option.emojiId && option.emoji && !generatedGuildEmoji && !generatedApplicationEmoji) {
+      enriched.push(option);
+      continue;
+    }
+    if (currentGeneratedApplicationIsCorrect) {
       enriched.push(option);
       continue;
     }
@@ -170,7 +190,7 @@ async function ensureColorSwatches(menuInput, guild, options = {}) {
       try {
         emoji = await manager.create({
           attachment: solidColorPng(option.color, 32),
-          name: swatchEmojiName(option.label)
+          name: desiredName
         });
         if (emoji) {
           known.push(emoji);
@@ -202,6 +222,7 @@ async function ensureColorSwatches(menuInput, guild, options = {}) {
 module.exports = {
   valuesOf,
   emojiPayload,
+  normalizedHex,
   swatchEmojiName,
   swatchNamePatterns,
   findExistingSwatch,
@@ -210,6 +231,7 @@ module.exports = {
   solidColorPng,
   applicationEmojiManager,
   isGeneratedGuildSwatch,
+  isGeneratedApplicationSwatch,
   removeGeneratedGuildSwatch,
   ensureColorSwatches
 };
