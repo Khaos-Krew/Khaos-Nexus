@@ -353,7 +353,7 @@ async function closeReport(interaction, report, channel, config, store, infrastr
   const archiveMessage = await infrastructure.archive.send({
     content: `**Archived private report ${report.caseId}**\nReporter: <@${report.reporterId}>\nClosed by: <@${interaction.user.id}>\nMessages captured: ${transcript.messageCount}${transcript.truncated ? ' • transcript truncated' : ''}`,
     files: [{ attachment: Buffer.from(transcript.text, 'utf8'), name: `${report.caseId}.txt` }],
-    allowed_mentions: { parse: [] }
+    allowedMentions: { parse: [] }
   });
 
   const closedAt = new Date().toISOString();
@@ -370,7 +370,7 @@ async function closeReport(interaction, report, channel, config, store, infrastr
   }
   try { await channel.setName(reportChannelName(report.caseId, true), `Nexus Sentinal closed report ${report.caseId}`); } catch {}
   try { await channel.setTopic(`${report.caseId} • private safety report • closed ${closedAt}`); } catch {}
-  await channel.send({ content: `🔒 **${report.caseId} closed and archived.** The channel is preserved read-only for the reporter. Authorized staff can access the restricted transcript archive.`, allowed_mentions: { parse: [] } });
+  await channel.send({ content: `🔒 **${report.caseId} closed and archived.** The channel is preserved read-only for the reporter. Authorized staff can access the restricted transcript archive.`, allowedMentions: { parse: [] } });
   return updated;
 }
 
@@ -385,7 +385,7 @@ async function handleControl(interaction, client, config, store, parsed) {
   if (parsed.action === 'claim') {
     if (!staff) return interaction.reply({ content: 'Only authorized staff can claim a report.', flags: MessageFlags.Ephemeral });
     store.set(report.caseId, { status: 'claimed', claimedBy: String(interaction.user.id), claimedAt: new Date().toISOString() });
-    await channel.send({ content: `✋ Case claimed by <@${interaction.user.id}>.`, allowed_mentions: { users: [String(interaction.user.id)], parse: [] } });
+    await channel.send({ content: `✋ Case claimed by <@${interaction.user.id}>.`, allowedMentions: { users: [String(interaction.user.id)], parse: [] } });
     return interaction.reply({ content: `Claimed ${report.caseId}.`, flags: MessageFlags.Ephemeral });
   }
 
@@ -401,7 +401,7 @@ async function handleControl(interaction, client, config, store, parsed) {
     const mentions = owners.map((id) => `<@${id}>`).join(' ');
     await channel.send({
       content: `⚠️ **${report.caseId} escalated for senior staff review.**${mentions ? ` ${mentions}` : ''}`,
-      allowed_mentions: { users: owners, roles: [], parse: [] }
+      allowedMentions: { users: owners, roles: [], parse: [] }
     });
     return interaction.reply({ content: `Escalated ${report.caseId}.`, flags: MessageFlags.Ephemeral });
   }
@@ -409,7 +409,7 @@ async function handleControl(interaction, client, config, store, parsed) {
   if (parsed.action === 'resolve') {
     if (!staff) return interaction.reply({ content: 'Only authorized staff can mark a report resolved.', flags: MessageFlags.Ephemeral });
     store.set(report.caseId, { status: 'resolved', resolvedBy: String(interaction.user.id), resolvedAt: new Date().toISOString() });
-    await channel.send({ content: `✅ **${report.caseId} marked resolved.** The channel remains open for any final follow-up until it is closed and archived.`, allowed_mentions: { parse: [] } });
+    await channel.send({ content: `✅ **${report.caseId} marked resolved.** The channel remains open for any final follow-up until it is closed and archived.`, allowedMentions: { parse: [] } });
     return interaction.reply({ content: `Marked ${report.caseId} resolved.`, flags: MessageFlags.Ephemeral });
   }
 
@@ -451,7 +451,7 @@ async function handleUserSelect(interaction, config, store, parsed) {
   store.set(report.caseId, { [key]: values });
   await channel.send({
     content: `${addingStaff ? '🛡️ Staff member' : '➕ Participant'} <@${userId}> was added to **${report.caseId}** by <@${interaction.user.id}>.`,
-    allowed_mentions: { users: [userId, String(interaction.user.id)], roles: [], parse: [] }
+    allowedMentions: { users: [userId, String(interaction.user.id)], roles: [], parse: [] }
   });
   return interaction.update({ content: `Added ${member.displayName || member.user?.username || userId} to ${report.caseId}.`, components: [] });
 }
