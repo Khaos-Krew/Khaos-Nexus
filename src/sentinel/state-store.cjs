@@ -11,6 +11,7 @@ function emptyState() {
     accessRoles: {},
     roleMenu: null,
     selfRoleMenus: {},
+    roadmapPatchNotes: {},
     adminSettings: { rankRoles: {}, rankSkus: {}, moduleEnabled: {} }
   };
 }
@@ -34,6 +35,7 @@ class StateStore {
     state.accessRoles ||= {};
     state.roleMenu ??= null;
     state.selfRoleMenus ||= {};
+    state.roadmapPatchNotes ||= {};
     state.adminSettings ||= {};
     state.adminSettings.rankRoles ||= {};
     state.adminSettings.rankSkus ||= {};
@@ -87,6 +89,15 @@ class StateStore {
   setSelfRoleMenu(menuId, value) {
     const state = this.read();
     state.selfRoleMenus[menuId] = value;
+    this.write(state);
+    return value;
+  }
+
+  getRoadmapPatchNote(key) { return this.read().roadmapPatchNotes?.[key] || null; }
+  listRoadmapPatchNotes() { return { ...this.read().roadmapPatchNotes }; }
+  setRoadmapPatchNote(key, value) {
+    const state = this.read();
+    state.roadmapPatchNotes[key] = value;
     this.write(state);
     return value;
   }
