@@ -19,6 +19,15 @@ class BackendClient {
   modules() { return this.request('/v1/modules'); }
   health() { return this.request('/health'); }
   trackedServers() { return this.request('/v1/tracked-servers'); }
+  communityLevel(userId) { return this.request(`/v1/community-xp/users/${encodeURIComponent(userId)}`); }
+  communityLeaderboard(limit = 10) { return this.request(`/v1/community-xp/leaderboard?limit=${encodeURIComponent(limit)}`); }
+  communityLevelSettings() { return this.request('/v1/community-xp/settings'); }
+  communityLevelAudit(limit = 50) { return this.request(`/v1/community-xp/audit?limit=${encodeURIComponent(limit)}`); }
+  communityAward(input) { return this.request('/v1/community-xp/award', { method: 'POST', body: JSON.stringify(input || {}) }); }
+  communityRemoveXp(input) { return this.request('/v1/community-xp/remove', { method: 'POST', body: JSON.stringify(input || {}) }); }
+  communitySetXp(input) { return this.request('/v1/community-xp/set', { method: 'POST', body: JSON.stringify(input || {}) }); }
+  communityResetXp(input) { return this.request('/v1/community-xp/reset', { method: 'POST', body: JSON.stringify(input || {}) }); }
+  communityUpdateSettings(input) { return this.request('/v1/community-xp/settings', { method: 'POST', body: JSON.stringify(input || {}) }); }
   accounts() { return this.request('/v1/accounts'); }
   accountByDiscord(discordId) { return this.request(`/v1/accounts/discord/${encodeURIComponent(discordId)}`); }
   createPairingCode(role) { return this.request('/v1/accounts/pairing-codes', { method: 'POST', body: JSON.stringify({ role }) }); }
