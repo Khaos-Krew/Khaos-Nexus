@@ -36,6 +36,13 @@ function skuToRankMap(config = {}) {
   return result;
 }
 
+function rankAuthority(config = {}) {
+  const hasPaidSkuMappings = NEXUS_RANKS
+    .filter((rank) => rank.level > 0)
+    .some((rank) => (config?.discord?.rankSkus?.[rank.id] || []).some((skuId) => String(skuId || '').trim()));
+  return hasPaidSkuMappings ? 'premium-app' : 'server-shop-roles';
+}
+
 function highestRankForEntitlements(entitlements = [], config = {}) {
   const skuMap = skuToRankMap(config);
   let selected = null;
@@ -53,6 +60,7 @@ module.exports = {
   NEXUS_RANKS,
   highestRankForEntitlements,
   normalizeId,
+  rankAuthority,
   rankById,
   rankRoleIds,
   skuToRankMap
