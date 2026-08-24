@@ -100,6 +100,11 @@ function createBackendApplication(config, options = {}) {
         return json(res, removed ? 200 : 404, removed ? { ok: true } : { ok: false, code: 'ACCOUNT_NOT_FOUND' });
       }
 
+      if (req.method === 'GET' && url.pathname === '/v1/ark/taming/species') {
+        const species = await arkCompanion.listSpecies();
+        return json(res, 200, { ok: true, species });
+      }
+
       if (req.method === 'POST' && url.pathname === '/v1/admin/modules') {
         const body = await readBody(req);
         const enabled = body.enabled && typeof body.enabled === 'object' && !Array.isArray(body.enabled) ? body.enabled : {};

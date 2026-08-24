@@ -121,6 +121,7 @@ function fieldsFromLines(name, lines, maxChunks = 6) {
 
 function capabilityLine(capability) {
   const prefix = capability.destructive ? '⚠️ ' : '• ';
+  if (capability.id === 'taming') return `${prefix}**${capability.label}** — interactive creature dropdown, level/rates, KO ammo, weapon damage, and top-five food calculator`;
   const suffix = capability.input ? ` — ${String(capability.input).slice(0, 120)}` : '';
   return `${prefix}**${capability.label}**${suffix}`;
 }
