@@ -4,15 +4,21 @@ const { ChannelType, OverwriteType, PermissionFlagsBits } = require('discord.js'
 const { MODULES } = require('../backend/modules/catalog.cjs');
 
 const STAFF_CATEGORY_NAME = '🔒 STAFF';
-const STAFF_PANEL_MARKER = 'Nexus Sentinal • Managed Staff Workspace • v1';
+const STAFF_PANEL_MARKER = 'Nexus Sentinal • Managed Staff Workspace • v2';
 const ADMIN_PANEL_MARKER = 'Nexus Sentinal • Managed Admin Commands • v1';
+const ROADMAP_PANEL_MARKER = 'Nexus Sentinal • Managed Roadmap • v1';
 const PRIVATE_DENYLIST = [/\bthora\b/i, /\basta\b/i, /private assistant/i, /household assistant/i];
 const MANAGED_TEXT_CHANNELS = Object.freeze([
   { name: 'staff-hub', topic: 'Staff announcements, policy notes, handoffs, and important Khaos Nexus coordination.' },
   { name: 'staff-ops', topic: 'Day-to-day staff operations, moderation coordination, and implementation handoffs.' },
   { name: 'admin-commands', topic: 'Nexus Sentinal managed reference for staff/admin-only commands and guarded game actions.' },
-  { name: 'staff-offices', topic: 'Private staff office threads managed by Nexus Sentinal. Keep office-specific notes inside the assigned private thread.' }
+  { name: 'roadmap', topic: 'Managed Khaos Nexus roadmap, active acceptance gates, milestones, and next-phase handoff.' }
 ]);
+const STAFF_OFFICES_FORUM = Object.freeze({
+  name: 'staff-offices',
+  topic: 'Staff office forum. One managed office post per staff member; visible only inside the protected Staff workspace.',
+  tags: Object.freeze(['Office', 'Handoff', 'Planning'])
+});
 const MANAGED_VOICE_CHANNEL = Object.freeze({ name: 'Staff Meeting Room' });
 
 function normalizeName(value) {
@@ -58,6 +64,7 @@ function staffCategoryOverwrites(guild, botId, staffRoleIds = [], ownerIds = [])
     PermissionFlagsBits.ViewChannel,
     PermissionFlagsBits.SendMessages,
     PermissionFlagsBits.SendMessagesInThreads,
+    PermissionFlagsBits.CreatePublicThreads,
     PermissionFlagsBits.ReadMessageHistory,
     PermissionFlagsBits.AttachFiles,
     PermissionFlagsBits.EmbedLinks,
@@ -131,6 +138,49 @@ function adminCommandsPayload(items = adminCommandInventory()) {
   return payload;
 }
 
+function roadmapPayload() {
+  return {
+    embeds: [{
+      title: 'KHAOS NEXUS • ROADMAP',
+      description: 'Canonical staff-facing roadmap snapshot for the active Nexus 0.1 rebuild. This panel tracks implementation milestones separately from live human acceptance.',
+      fields: [
+        {
+          name: '✅ Live / accepted',
+          value: [
+            '• Community Safety & Reporting — **100% implementation milestone published**',
+            '• Sentinal Discord Role Authority — **100% accepted**',
+            '• Nexus Service Status — **100% milestone published**',
+            '• Game module category/order/hub reconciliation — **live evidenced**'
+          ].join('\n'),
+          inline: false
+        },
+        {
+          name: '🧪 Active acceptance',
+          value: [
+            '• Community XP & Leveling — **66%**, awaiting real-member activity acceptance',
+            '• Staff Workspace — **66%**, awaiting forum/visibility/legacy cleanup acceptance',
+            '• Game Servers registry — implementation live; real tracked-server add/remove acceptance pending',
+            '• Discord + Nexus Setup Acceptance — pairing, provider sync, Repair Nexus, restart persistence, and normal-member interaction remain'
+          ].join('\n'),
+          inline: false
+        },
+        {
+          name: '➡️ Next after core acceptance',
+          value: 'Provider-backed live validation continues, then Nexus D&D production/community-beta continuation begins once the core Discord/Nexus acceptance gates are stable.',
+          inline: false
+        },
+        {
+          name: 'Milestone rule',
+          value: 'Public patch notes are posted at **66%** and **100%** only. Code/CI/deployment evidence does not automatically count as human acceptance.',
+          inline: false
+        }
+      ],
+      footer: { text: ROADMAP_PANEL_MARKER }
+    }],
+    allowedMentions: { parse: [] }
+  };
+}
+
 function staffHubPayload(channels = {}) {
   const ref = (name) => channels[name]?.id ? `<#${channels[name].id}>` : `#${name}`;
   return {
@@ -140,7 +190,8 @@ function staffHubPayload(channels = {}) {
       fields: [
         { name: 'Operations', value: `${ref('staff-ops')} — coordination, moderation handoffs, server/module operations.`, inline: false },
         { name: 'Admin reference', value: `${ref('admin-commands')} — privileged command and guarded action reference.`, inline: false },
-        { name: 'Private offices', value: `${ref('staff-offices')} — each current staff member receives a private managed office thread instead of a separate sidebar channel.`, inline: false },
+        { name: 'Roadmap', value: `${ref('roadmap')} — current milestones, acceptance gates, and next-phase direction.`, inline: false },
+        { name: 'Staff offices', value: `${ref('staff-offices')} — forum-based staff offices with one managed post per current staff member.`, inline: false },
         { name: 'Workspace rule', value: 'Do not copy private report evidence or credentials into general staff channels. Use the dedicated restricted surfaces for sensitive material.', inline: false }
       ],
       footer: { text: STAFF_PANEL_MARKER }
@@ -190,17 +241,25 @@ async function findOfficeThread(channel, userId) {
   const activeThreads = active?.threads?.values ? [...active.threads.values()] : [];
   let thread = activeThreads.find((item) => officeThreadMatches(item, userId)) || null;
   if (thread) return thread;
-  const archived = await channel.threads.fetchArchived({ type: 'private', limit: 100 }).catch(() => null);
+  const archivedType = channel.type === ChannelType.GuildForum ? 'public' : 'private';
+  const archived = await channel.threads.fetchArchived({ type: archivedType, limit: 100 }).catch(() => null);
   const archivedThreads = archived?.threads?.values ? [...archived.threads.values()] : [];
   return archivedThreads.find((item) => officeThreadMatches(item, userId)) || null;
+}
+
+function legacyOfficeChannelName(channelId = '') {
+  const suffix = String(channelId || '').slice(-4);
+  return suffix ? `staff-offices-legacy-${suffix}` : 'staff-offices-legacy';
 }
 
 module.exports = {
   STAFF_CATEGORY_NAME,
   STAFF_PANEL_MARKER,
   ADMIN_PANEL_MARKER,
+  ROADMAP_PANEL_MARKER,
   PRIVATE_DENYLIST,
   MANAGED_TEXT_CHANNELS,
+  STAFF_OFFICES_FORUM,
   MANAGED_VOICE_CHANNEL,
   normalizeName,
   normalizeIds,
@@ -211,10 +270,12 @@ module.exports = {
   adminCommandInventory,
   groupInventory,
   adminCommandsPayload,
+  roadmapPayload,
   staffHubPayload,
   panelMatches,
   reconcilePanel,
   officeThreadName,
   officeThreadMatches,
-  findOfficeThread
+  findOfficeThread,
+  legacyOfficeChannelName
 };
