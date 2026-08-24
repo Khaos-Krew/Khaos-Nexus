@@ -52,11 +52,19 @@ const SPECS = Object.freeze([
       serverAction('status', 'status', 'Show ARK server status', [textOption('server', 'Optional server name')]),
       serverAction('players', 'players', 'Show online players', [textOption('server', 'Optional server name')]),
       action('servers', 'servers', 'List configured ARK servers'),
-      action('tame', 'taming', 'Estimate tame time and open Dododex', [
-        textOption('creature', 'Creature name, for example Rex', true),
-        numberOption('rate', 'Server taming multiplier, for example 3', true, 0.1, 100),
-        intOption('base-minutes', 'Optional known 1x base tame time in minutes', false, 1, 10000)
-      ], (v) => ({ creature: v.creature, tamingRate: v.rate, ...(v['base-minutes'] != null ? { baseMinutes: v['base-minutes'] } : {}) })),
+      action('tame', 'taming', 'Plan a tame using your server rates', [
+        textOption('creature', 'What are you taming? Example: Rex', true),
+        intOption('level', 'Wild creature level', true, 1, 1000),
+        textOption('food', 'Food you want to use, for example Raw Mutton', true),
+        numberOption('taming-rate', 'Server Taming Speed multiplier, for example 3', true, 0.1, 100),
+        numberOption('food-drain', 'Dino Character Food Drain multiplier, for example 1', true, 0.01, 100)
+      ], (v) => ({
+        creature: v.creature,
+        wildLevel: v.level,
+        food: v.food,
+        tamingRate: v['taming-rate'],
+        foodDrainRate: v['food-drain']
+      })),
       serverAction('save', 'save', 'Save the world', [textOption('server', 'Optional server name')]),
       serverAction('broadcast', 'broadcast', 'Send a server announcement', [textOption('message', 'Announcement text', true), textOption('server', 'Optional server name')]),
       serverAction('kick', 'kick', 'Kick a player', [textOption('player', 'Player name or ID', true), textOption('server', 'Server name when more than one is configured')]),
