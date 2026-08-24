@@ -28,7 +28,7 @@ test('generated application swatch names include the actual role hex', () => {
 
 test('legacy gray application swatches are not reused as color-correct swatches', () => {
   const found = findExistingSwatch({ label: 'Crimson', color: '#dc143c' }, [
-    { id: 'old-gray', name: 'nexus_color_crimson', animated: false }
+    { id: '777777777777777777', name: 'nexus_color_crimson', animated: false }
   ]);
   assert.equal(found, null);
 });
@@ -74,15 +74,17 @@ test('creates a missing application swatch and attaches it to a recovered color 
 
 test('replaces a legacy gray swatch with a hex-keyed application swatch', async () => {
   const created = [];
+  const oldGrayId = '777777777777777777';
+  const correctId = '888888888888888888';
   const appManager = {
-    fetch: async () => new Map([['gray', {
-      id: 'gray',
+    fetch: async () => new Map([[oldGrayId, {
+      id: oldGrayId,
       name: 'nexus_color_crimson',
       animated: false
     }]]),
     create: async (input) => {
       created.push(input.name);
-      return { id: 'correct', name: input.name, animated: false };
+      return { id: correctId, name: input.name, animated: false };
     }
   };
   const guild = {
@@ -99,12 +101,12 @@ test('replaces a legacy gray swatch with a hex-keyed application swatch', async 
       label: 'Crimson',
       roleId: '111111111111111111',
       color: '#dc143c',
-      emoji: { id: 'gray', name: 'nexus_color_crimson' }
+      emoji: { id: oldGrayId, name: 'nexus_color_crimson' }
     }]
   };
   const result = await ensureColorSwatches(menu, guild, { logger: { warn() {} } });
   assert.equal(result.created, 1);
-  assert.equal(result.menu.options[0].emojiId, 'correct');
+  assert.equal(result.menu.options[0].emojiId, correctId);
   assert.equal(result.menu.options[0].emoji, 'nexus_swatch_dc143c_crimson');
   assert.deepEqual(created, ['nexus_swatch_dc143c_crimson']);
 });
