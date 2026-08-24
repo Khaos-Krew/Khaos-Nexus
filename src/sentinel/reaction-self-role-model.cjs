@@ -117,10 +117,16 @@ function legacyButtonMenuLooksRelevant(message) {
   return /\b(game\s*types?|playstyle|games?|notification\s*pings?|name\s*(?:color|colour)|pronouns?|region|timezone|looking\s+for\s+group|content\s+preferences?|platforms?|self[\s-]?roles?|role\s*selection)\b/i.test(text);
 }
 
+function serializedEmoji(emoji) {
+  if (!emoji) return '';
+  const name = String(emoji?.name || '').trim().slice(0, 32);
+  const id = String(emoji?.id || '').trim();
+  if (id) return { id, ...(name ? { name } : {}), animated: Boolean(emoji?.animated) };
+  return name;
+}
+
 function buttonEmoji(button) {
-  const name = String(button?.emoji?.name || '').trim();
-  const id = String(button?.emoji?.id || '').trim();
-  return id ? '' : name.slice(0, 32);
+  return serializedEmoji(button?.emoji);
 }
 
 function colorMenuHint(message, mappedRoles = []) {
@@ -275,7 +281,7 @@ function parseReactionRoleMenu(message, roles = []) {
       id: normalizedName(role.name).slice(0, 32) || String(role.id),
       label: String(role.name || 'Role').slice(0, 80),
       roleId: String(role.id),
-      emoji: reaction?.emoji?.id ? '' : String(reaction?.emoji?.name || '').slice(0, 32),
+      emoji: serializedEmoji(reaction?.emoji),
       ...(kind === 'colors' ? { color: role.hexColor || '#808080' } : {})
     }))
   });
@@ -297,6 +303,7 @@ module.exports = {
   lineForReaction,
   nexusFooter,
   legacyButtonMenuLooksRelevant,
+  serializedEmoji,
   buttonEmoji,
   colorMenuHint,
   menuTitle,
