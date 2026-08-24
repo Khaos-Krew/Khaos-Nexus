@@ -12,6 +12,7 @@ const { installPersistentPanelExtension } = require('./persistent-panel-extensio
 const { installStaffNameColorPreviewExtension } = require('./staff-name-color-preview-extension.cjs');
 const { installNexusStatusExtension } = require('./nexus-status-extension.cjs');
 const { installWelcomeExtension } = require('./welcome-extension.cjs');
+const { installGameServersExtension } = require('./game-servers-extension.cjs');
 
 installGuildMembersIntentExtension();
 installRoleMenuExtension();
@@ -25,4 +26,5 @@ installPersistentPanelExtension();
 installStaffNameColorPreviewExtension();
 installNexusStatusExtension();
 installWelcomeExtension();
+installGameServersExtension();
 require('./bot.cjs');

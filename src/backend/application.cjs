@@ -13,6 +13,7 @@ const { providersFromConfig } = require('./providers/http-provider.cjs');
 const { nativeProvidersFromConfig } = require('./providers/native-providers.cjs');
 const { serverProvidersFromConfig } = require('./providers/server-providers.cjs');
 const { ArkCompanionService } = require('./services/ark-companion-service.cjs');
+const { trackedServersResponse } = require('./tracked-servers.cjs');
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 
@@ -99,6 +100,8 @@ function createBackendApplication(config, options = {}) {
         const removed = accounts.remove(deleteAccountMatch[1]);
         return json(res, removed ? 200 : 404, removed ? { ok: true } : { ok: false, code: 'ACCOUNT_NOT_FOUND' });
       }
+
+      if (req.method === 'GET' && url.pathname === '/v1/tracked-servers') return json(res, 200, trackedServersResponse(runtime));
 
       if (req.method === 'GET' && url.pathname === '/v1/ark/taming/species') {
         const species = await arkCompanion.listSpecies();

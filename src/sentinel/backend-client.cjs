@@ -18,6 +18,7 @@ class BackendClient {
 
   modules() { return this.request('/v1/modules'); }
   health() { return this.request('/health'); }
+  trackedServers() { return this.request('/v1/tracked-servers'); }
   accounts() { return this.request('/v1/accounts'); }
   accountByDiscord(discordId) { return this.request(`/v1/accounts/discord/${encodeURIComponent(discordId)}`); }
   createPairingCode(role) { return this.request('/v1/accounts/pairing-codes', { method: 'POST', body: JSON.stringify({ role }) }); }

@@ -2,6 +2,8 @@
 
 const { MODULES } = require('../backend/modules/catalog.cjs');
 
+const MAX_TRACKED_SERVERS_PER_MODULE = 50;
+
 function clone(value) { return JSON.parse(JSON.stringify(value)); }
 function safeText(value, max = 500) { return String(value ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max); }
 function safeBoolean(value, fallback = false) { return typeof value === 'boolean' ? value : fallback; }
@@ -48,8 +50,10 @@ function sanitizeServer(input = {}, template = {}) {
 function sanitizeConnection(input = {}, template = {}) {
   const next = clone(template || {});
   if (Array.isArray(template.servers)) {
-    const incoming = Array.isArray(input.servers) ? input.servers : [];
-    next.servers = template.servers.map((server, index) => sanitizeServer(incoming[index] || {}, server));
+    const incoming = Array.isArray(input.servers) ? input.servers.slice(0, MAX_TRACKED_SERVERS_PER_MODULE) : [];
+    const source = incoming.length ? incoming : template.servers;
+    const prototype = template.servers[0] || {};
+    next.servers = source.map((server, index) => sanitizeServer(server || {}, template.servers[index] || prototype));
     return next;
   }
   if (Object.prototype.hasOwnProperty.call(template, 'host')) next.host = safeText(input.host, 255);
@@ -126,6 +130,7 @@ function providerSecretNames(config = {}) {
 }
 
 module.exports = {
+  MAX_TRACKED_SERVERS_PER_MODULE,
   mergeProviderModules,
   providerSecretNames,
   safeBaseUrl,
