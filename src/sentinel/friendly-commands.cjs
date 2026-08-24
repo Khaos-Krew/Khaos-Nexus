@@ -8,6 +8,9 @@ function textOption(name, description, required = false, choices = []) {
 function intOption(name, description, required = false, min = 0, max = 3600) {
   return { type: 'integer', name, description, required, min, max };
 }
+function numberOption(name, description, required = false, min = null, max = null) {
+  return { type: 'number', name, description, required, min, max };
+}
 function boolOption(name, description, required = false) {
   return { type: 'boolean', name, description, required };
 }
@@ -49,6 +52,11 @@ const SPECS = Object.freeze([
       serverAction('status', 'status', 'Show ARK server status', [textOption('server', 'Optional server name')]),
       serverAction('players', 'players', 'Show online players', [textOption('server', 'Optional server name')]),
       action('servers', 'servers', 'List configured ARK servers'),
+      action('tame', 'taming', 'Estimate tame time and open Dododex', [
+        textOption('creature', 'Creature name, for example Rex', true),
+        numberOption('rate', 'Server taming multiplier, for example 3', true, 0.1, 100),
+        intOption('base-minutes', 'Optional known 1x base tame time in minutes', false, 1, 10000)
+      ], (v) => ({ creature: v.creature, tamingRate: v.rate, ...(v['base-minutes'] != null ? { baseMinutes: v['base-minutes'] } : {}) })),
       serverAction('save', 'save', 'Save the world', [textOption('server', 'Optional server name')]),
       serverAction('broadcast', 'broadcast', 'Send a server announcement', [textOption('message', 'Announcement text', true), textOption('server', 'Optional server name')]),
       serverAction('kick', 'kick', 'Kick a player', [textOption('player', 'Player name or ID', true), textOption('server', 'Server name when more than one is configured')]),
@@ -224,6 +232,15 @@ function addOption(sub, option) {
     });
     return;
   }
+  if (option.type === 'number') {
+    sub.addNumberOption((builder) => {
+      builder.setName(option.name).setDescription(option.description).setRequired(option.required === true);
+      if (Number.isFinite(option.min)) builder.setMinValue(option.min);
+      if (Number.isFinite(option.max)) builder.setMaxValue(option.max);
+      return builder;
+    });
+    return;
+  }
   if (option.type === 'boolean') {
     sub.addBooleanOption((builder) => builder.setName(option.name).setDescription(option.description).setRequired(option.required === true));
     return;
@@ -275,6 +292,7 @@ function findAction(spec, groupName, subcommandName) {
 
 function optionValue(interaction, option) {
   if (option.type === 'integer') return interaction.options.getInteger(option.name);
+  if (option.type === 'number') return interaction.options.getNumber(option.name);
   if (option.type === 'boolean') return interaction.options.getBoolean(option.name);
   return interaction.options.getString(option.name);
 }
