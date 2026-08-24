@@ -112,8 +112,9 @@ function messageMatchesFeed(message, moduleId, actionId, botId = '') {
   const footer = String(message?.embeds?.[0]?.footer?.text || '');
   if (footer === feedMarker(moduleId, actionId)) return true;
   const content = String(message?.content || '');
-  const legacyAction = moduleId === 'pokemongo' && actionId === 'events' ? 'Pokémon GO Events' : actionId;
-  return content.includes('Nexus Sentinal Live Feed') && content.includes(`• ${legacyAction}`);
+  const legacyLabels = [String(actionId || '')];
+  if (moduleId === 'pokemongo' && actionId === 'events') legacyLabels.push('Pokémon GO Events');
+  return content.includes('Nexus Sentinal Live Feed') && legacyLabels.some((label) => content.includes(`• ${label}`));
 }
 
 function newestMessage(messages = []) {
