@@ -28,7 +28,7 @@ Issue #286 records the owner-approved backend-first rebuild direction.
 The active target is:
 
 - **Nexus Backend** — game logic, provider integrations, shared module contracts, permissions, health, scheduling hooks, and backend service routing.
-- **Nexus Sentinal** — primary day-to-day Discord interface for game modules through persistent module consoles, setup/reconciliation, short module commands, interactive controls, and deeper commands.
+- **Nexus Sentinal** — primary day-to-day Discord interface for game modules through persistent module consoles, setup/reconciliation, short module commands, interactive controls, self-role/rank surfaces, safety/reporting workflows, and deeper commands.
 - **Khaos Nexus Desktop** — privileged Admin Control Center for Discord/Sentinal administration, account/access linking, backend/module/service configuration, diagnostics, logs, recovery, updates, scheduler administration, integrations, owner testing, and the private Thora bridge.
 - **Veyra** — may remain the dedicated D&D presentation surface while D&D follows the same backend-first service rule.
 - **Thora** — remains private/local and should be bridged from its canonical project rather than duplicated into Nexus.
@@ -44,46 +44,46 @@ Repository evidence on `rebuild/nexus-0.1` currently establishes:
 - module registrations for ARK, Palworld, Minecraft, Warframe, The Division 2, Rust, Satisfactory, IdleOn, D&D, and Pokémon GO;
 - concrete backend provider implementations for Division 2, Palworld, Warframe, Rust, Satisfactory, IdleOn, and Pokémon GO, plus shared HTTP, Source RCON, server-provider, and native-provider foundations;
 - persistent Sentinal module consoles, Discord provisioning/reconciliation, temporary voice lobbies, Administrator permission preflight, setup/repair flows, friendly module commands, and universal event/schedule feeds;
-- capability-driven module help from PR #323, grouping backend-defined features by player/operator/owner authority while preserving backend permission and confirmation enforcement;
-- recovered read-only ARK taming planning from PR #324 behind the backend service contract, including `/ark tame`, rate-aware rough estimates, Dododex deep links, and no invented estimate for unknown creatures without an explicit base time;
-- read-only Warframe Archon Hunt support from PR #325 through the existing Warframe public-data provider and friendly `/warframe archon` command, without Warframe account credentials or private profile data;
-- household Accounts & Access from PR #288, including Owner/Co-Owner roles, Discord OAuth linking, one-time pairing codes, Sentinal account commands, and protected credential handling;
-- guarded read-only provider validation from PRs #290/#291 with predefined non-destructive viewer probes, redacted PASS/SKIPPED/FAIL results, and Palworld as the first recommended real-provider acceptance target;
-- staged in-app updater from PR #293 with approved-channel checks, SHA-256/manifest verification, staged full-payload updates, explicit Owner restart/apply, startup confirmation, and rollback behavior without rerunning NSIS for normal updates;
-- Admin Operations from PR #294: Owner Test Center, Sentinal health/admin client, rank/entitlement sync, Discord permission/layout inspection and repair, module enable/config controls enforced by backend runtime, persistent panel refresh, command synchronization, safe Repair Nexus orchestration, and startup-health/loading state;
-- backend-first Pokémon GO from PR #295, friendly per-module commands from PR #298, universal event/schedule posting from PR #299, Discord command-schema normalization from PR #300, and supporter-rank discovery from PR #301 with recurring/durable Premium App SKU support from PR #313 when that authority mode is explicitly configured;
-- Discord Server Shop authority correction from PR #320: when no paid `rankSkus` mappings are configured, the five paid Nexus ranks are treated as Discord Server Shop Premium Roles rather than missing Premium App SKUs; paid Server Shop roles are protected from Nexus reconciliation ownership while the free Shadow Recruit baseline remains Nexus-managed; explicit paid Premium App SKU mappings still enable the Premium App entitlement path;
-- desktop rank-authority presentation correction from PR #321 so Server Shop-managed paid ranks are presented as Server Shop authority instead of false Premium App SKU-missing findings;
-- self-reconciling module access roles from PR #304, warning diagnostics from PR #305, protected-role fallback from PR #307, administrator moderation from PR #314, and guided first-run Setup Center from PR #315;
+- household Accounts & Access from PR #288, guarded read-only provider validation from PRs #290/#291, staged in-app updating from PR #293, and Admin Operations / Owner Test Center from PR #294;
+- backend-first Pokémon GO from PR #295, friendly per-module commands from PR #298, universal event/schedule posting from PR #299, Discord command-schema normalization from PR #300, and supporter-rank discovery from PR #301;
+- self-reconciling module access roles from PR #304, warning diagnostics from PR #305, protected-role fallback from PR #307, hosted Sentinal pairing from PR #310, public health hardening from PR #312, recurring/durable Premium App SKU support from PR #313 when explicitly configured, administrator moderation from PR #314, and guided first-run Setup Center from PR #315;
+- hosted provider configuration synchronization from PR #316 and persistent hosted-provider path alignment from PR #317;
+- Discord Admin owner-acceptance client repairs from PRs #318/#319;
+- Discord Server Shop authority correction from PR #320 and matching desktop presentation correction from PR #321;
+- capability-driven module help from PR #323 and read-only Warframe Archon Hunt support from PR #325;
+- ARK taming companion work evolved through PRs #324/#326/#327 into the merged interactive PR #328 flow: `/ark tame` is a private Discord wizard with creature browsing, level/server-rate input, KO/tranq planning for applicable tames, top food choices, approximate timing, passive-tame handling, and final posting to the dedicated `#ark-tame-info` channel; the implementation uses upstream ARK Smart Breeding/ARKStatsExtractor data and retains its third-party notice;
+- unified Sentinal self-role ownership from PR #329: existing generic roles are adopted rather than duplicated, legacy/new role buttons are understood, name colors are mutually exclusive, color roles receive safe hierarchy priority below moderation boundaries, and old controls are retired only after a replacement menu is active;
+- expanded legacy self-role discovery from PR #330: role/self-role/reaction/color/notification channels are scanned with bounded history paging and cached discovery state so older menus outside the current configured role channel can be located without repeated deep scans;
+- private safe-space report/ticket workflow from PR #332: the Rules surface includes an **Open Private Report** path, reports use private case-ID channels and a modal, authorized staff receive claim/add/escalate/resolve/close controls, closed cases produce restricted transcripts, reporter identity is not exposed in channel names, and narrative/evidence content is kept out of routine Sentinal state/log persistence;
 - current Thora sidecar integration from PR #306 while keeping Thora household data outside Nexus;
-- hosted Sentinal pairing from PR #310 and public-surface hardening from PR #312;
 - staged-update publisher and CI hash hardening from PRs #309/#311;
-- hosted provider configuration synchronization from PR #316: the desktop main process can send sanitized provider configuration plus approved protected secrets over the existing paired HTTPS admin channel; hosted provider secrets are encrypted at rest on the persistent Railway volume; the renderer never receives provider credentials; hosted providers can be replaced live and exercised through the existing predefined read-only validation probes; Setup Center can use hosted sync/validation evidence;
-- persistent hosted-provider storage alignment from PR #317: hosted provider state honors `NEXUS_DATA_DIR`, matching Sentinal state persistence so alternate hosts do not split Discord state and provider state between persistent and ephemeral directories;
-- Discord owner-acceptance client repairs from PRs #318/#319: hosted aggregate scans have operation-specific deadlines and Nexus-specific timeout classification, and completed read-only scans with acceptance findings render their per-section results instead of being collapsed into a generic action failure;
 - dedicated `docs/DISCORD_NEXUS_SETUP_ACCEPTANCE.md` checkpoint separating verified hosted/runtime evidence, observed Owner scan progress, and still-pending Owner interaction gates;
 - dedicated Nexus Rebuild CI with Windows test, NSIS packaging, staged-update bundle construction/verification, and artifact upload.
 
-These are implementation facts, not release or final owner-acceptance claims. Code/tests do not establish successful household OAuth/pairing, live-provider correctness, successful hosted provider credential synchronization against the intended Railway instance, complete real-guild reconciliation, updater apply/rollback success on the owner PC, Thora launch success on the owner PC, final Setup Center/Discord Admin acceptance, moderation behavior on the intended guild, owner acceptance, or public/stable release readiness.
+PR #331, which proposes migration of older emoji reaction-role messages into Sentinal button menus, is **open and unmerged**. Do not describe emoji reaction-role migration/removal as part of the accepted rebuild baseline until that PR merges and is validated.
+
+These are implementation facts, not release or final owner-acceptance claims. Code/tests do not establish successful household OAuth/pairing, live-provider correctness, successful hosted provider credential synchronization against the intended Railway instance, complete real-guild reconciliation, successful migration of the legacy emoji reaction-role system, report-ticket acceptance on the intended guild, updater apply/rollback success on the owner PC, Thora launch success on the owner PC, final Setup Center/Discord Admin acceptance, owner acceptance, or public/stable release readiness.
 
 ## Validation state
 
 Status: **AUTOMATED REBUILD BASELINE GREEN — OWNER/LIVE VALIDATION IN PROGRESS**
 
-The latest exact merged implementation head with completed rebuild validation is **PR #325 head `8a0094f2fd11ed3db1ff40e0ba66c9f98afd63d4`**. **Nexus Rebuild CI run #251 completed successfully on that exact SHA.** PR #325 then merged into `rebuild/nexus-0.1`.
+The latest exact merged implementation head with completed rebuild validation is **PR #332 head `9b1dcb994dbb629a9d21d8d74ef3762c71f76136`**. **Nexus Rebuild CI run #274 completed successfully on that exact SHA**, and PR #332 then merged into `rebuild/nexus-0.1`.
 
-Immediately preceding exact-head green implementation evidence remains preserved in repository history, including PR #324 head `086bc8b372f87deeb158072646d691baec6bda8e` (run #249), PR #323 head `e02700cbc3adb9c9a45ede9874a4cabaabbe5976` (run #247), PR #321 head `1aa71b57cb4b40ab29502990737315ee84524ad8` (run #242), PR #320 head `a4b880a64bed3ba4d1d911126939ef425bd56617` (run #240), PR #319 head `298baec7b1800e0170f2f6ac94e03fd961fc4128` (run #235), PR #318 head `f23ea665e7453d21f47bc7c3ba93c3bdb16745ee` (run #233), PR #317 head `f5ce0835e846aa50b2557f5470bb9a927851e8e4` (run #227), PR #316 head `66bbed2f1d3aa6b74722aa2f13dfdfc4b10bf9f9` (run #225), PR #315 head `af46077b7ca885e7c5297923095b9c47da49844a` (run #220), PR #314 head `7d356b7ca4cfe0876e0307c266b33f5d53563a0c` (run #218), and PR #313 head `2cb228b8c3ed1ff4233719ba25b24334bc64ecc3` (run #213).
+Important preceding exact-head evidence includes PR #330 head `55b3463d8d402b7e5323cebb130b8c4983e53536` with CI run #263 green and PR #328 head `a2bc8a15e85a5b57386d1439916f9c21733be040` with CI run #260 green. Earlier green implementation evidence remains preserved in repository history, including PR #325 run #251, PR #324 run #249, PR #323 run #247, PR #321 run #242, PR #320 run #240, PR #319 run #235, PR #318 run #233, PR #317 run #227, PR #316 run #225, PR #315 run #220, PR #314 run #218, and PR #313 run #213.
 
-The current `Discord + Nexus Setup Acceptance` checkpoint records useful hosted/runtime evidence from the PR #316 deployment, including successful health, Discord login, persistent module feeds, command registration, and module-access reconciliation with 10 roles, 1 menu message, and 0 warnings. Owner acceptance testing on 2026-08-24 additionally exercised the desktop-hosted Discord admin path: the Discord Admin surface reported Sentinal online with 5/5 permissions and other readiness data, and after PR #318 the hosted `/v1/scan` request completed HTTP 200 in roughly 3 seconds. PR #319 then exposed the real per-section findings. That Owner scan was green in every surfaced section except Rank / SKU discovery. Repository inspection established that the remaining red section was caused by an incorrect authority assumption: the five paid ranks are Discord Server Shop Premium Roles, not Premium App SKUs owned by Sentinal. PR #320 corrected the runtime authority model and PR #321 corrected the desktop presentation. This is meaningful Owner-test progress, not final acceptance; one confirmation scan on the PR #321 implementation is still required.
+The current `Discord + Nexus Setup Acceptance` checkpoint records useful hosted/runtime evidence from the PR #316 deployment, including successful health, Discord login, persistent module feeds, command registration, and module-access reconciliation with 10 roles, 1 menu message, and 0 warnings. Owner acceptance testing on 2026-08-24 also exercised the desktop-hosted Discord admin path: the hosted `/v1/scan` completed successfully and PR #319 exposed the real per-section findings. The only surfaced red section was Rank / SKU discovery, which repository inspection established was a false Premium App SKU requirement for Discord Server Shop Premium Roles; PRs #320/#321 corrected that authority model and presentation.
+
+Live self-role acceptance after PR #330 also established a useful fact: a broad scan of existing text-channel history found no legacy `kn-role` button menus, supporting the conclusion that the visible old role UI belongs to the earlier emoji reaction-role system. PR #331 is the proposed migration path for those legacy emoji menus and remains unmerged.
 
 CI and hosted-runtime evidence remain separate from owner/live acceptance. Therefore:
 
 - do not claim owner acceptance until an explicit owner-test result is recorded;
 - do not claim Accounts & Access owner validation until browser OAuth and second-account pairing are exercised in the intended household environment;
-- do not claim hosted Sentinal pairing owner validation until a fresh `/nexus-pair` → HTTPS exchange → protected credential storage → authenticated admin status flow is explicitly exercised and recorded; successful authenticated hosted scans are supporting evidence but not complete proof of the fresh-code pairing ceremony;
+- do not claim hosted Sentinal pairing owner validation until a fresh `/nexus-pair` → HTTPS exchange → protected credential storage → authenticated admin status flow is explicitly exercised and recorded;
 - do not claim hosted provider synchronization owner validation until real configured provider settings/secrets are synchronized to the intended Railway Sentinal instance, survive restart/persistent-volume reload, remain redacted/protected, and successfully execute the predefined read-only validation probes;
 - do not claim live-provider correctness until provider paths are exercised against real supported services/servers;
-- do not claim real-guild Sentinal acceptance until setup, permissions, reconciliation, persistent panels, friendly commands, event feeds, restart behavior, rank-authority discovery, module-access roles, protected-role fallback, moderation, hosted pairing, relevant hosted-provider flows, and the corrected PR #321 rank presentation are exercised on the intended Discord guild;
+- do not claim real-guild Sentinal acceptance until setup, permissions, reconciliation, persistent panels, friendly commands, event feeds, restart behavior, rank authority, module-access roles, protected-role fallback, unified self-role menus, the legacy emoji-menu migration path where applicable, moderation, safety reporting, hosted pairing, and relevant hosted-provider flows are exercised on the intended Discord guild;
 - do not treat missing Premium App SKUs as an acceptance failure when the intended paid-rank authority is Discord Server Shop Premium Roles;
 - do not claim Setup Center owner acceptance until its readiness states, findings, and navigation are exercised against the intended owner configuration;
 - do not claim updater owner validation until an installed owner-test build successfully stages, applies, confirms startup, and exercises rollback behavior where appropriate;
@@ -107,36 +107,37 @@ Goals:
 
 ### Next — Provider-backed game services
 
-Status: **IN PROGRESS — PROVIDERS + HOSTED SYNC + READ-ONLY VALIDATION + EVENT FEEDS + COMPANION READS MERGED; LIVE/OWNER VALIDATION REQUIRED**
+Status: **IN PROGRESS — PROVIDERS + HOSTED SYNC + READ-ONLY VALIDATION + EVENT FEEDS + COMPANION FLOWS MERGED; LIVE/OWNER VALIDATION REQUIRED**
 
-Concrete provider implementations and regression coverage exist for several modules. Guarded read-only validation, universal Sentinal event/schedule feeds, authenticated desktop-to-hosted provider configuration synchronization, persistent hosted-provider path alignment, capability-driven module help, the ARK taming helper, and Warframe Archon Hunt reads are merged. The next factual gate is live/provider evidence, beginning with Palworld status and then other supported provider paths.
+Concrete provider implementations and regression coverage exist for several modules. Guarded read-only validation, universal Sentinal event/schedule feeds, authenticated desktop-to-hosted provider configuration synchronization, persistent hosted-provider path alignment, capability-driven module help, the interactive ARK taming workflow, and Warframe Archon Hunt reads are merged. The next factual gate is live/provider evidence, beginning with Palworld status and then other supported provider paths.
 
 Goals:
 
 - synchronize the intended real provider configuration from desktop protected storage to the paired Railway-hosted Sentinal instance and verify encrypted persistent storage/reload behavior;
-- exercise Palworld and other supported providers against real configured services using predefined read-only probes through both intended local/backend and hosted paths where applicable;
-- validate Pokémon GO's credential-free official event/news ingestion against live public data and real Discord presentation;
-- validate the new ARK taming helper and Warframe Archon Hunt presentation in the intended Discord module surfaces without treating CI coverage as live-provider/owner acceptance;
+- exercise Palworld and other supported providers against real configured services using predefined read-only probes through intended local/backend and hosted paths where applicable;
+- validate Pokémon GO credential-free event/news ingestion against live public data and real Discord presentation;
+- validate the interactive ARK taming wizard and Warframe Archon Hunt presentation in the intended Discord module surfaces without treating CI coverage as live-provider/owner acceptance;
 - keep destructive provider operations outside validation and preserve explicit capability/permission/confirmation boundaries;
 - preserve shared scheduler authority and avoid per-module duplicate schedulers;
 - record explicit capability limitations when a provider/game cannot expose a requested live function safely or reliably.
 
 ### Then — Sentinal operational acceptance
 
-Status: **IN PROGRESS — OWNER SCAN FINDINGS REVIEWED; SERVER SHOP AUTHORITY FIX MERGED; CONFIRMATION + REAL-GUILD/RAILWAY ACCEPTANCE PENDING**
+Status: **IN PROGRESS — SELF-ROLE + SAFETY SYSTEMS MERGED; LEGACY EMOJI MIGRATION + REAL-GUILD/RAILWAY ACCEPTANCE PENDING**
 
-Merged implementation now includes setup/repair, permanent module panels, friendly per-module commands, capability-driven Commands / Help, Admin Operations controls, moderation, Pokémon GO operations, universal event feeds, supporter-rank discovery, self-reconciling module access roles, hierarchy diagnostics, protected-role fallback, secure hosted desktop-to-Sentinal pairing, minimized public health metadata, hosted provider configuration/validation routes, persistent hosted-provider storage alignment, the PR #318/#319 Discord Admin acceptance fixes, and the PR #320/#321 Discord Server Shop rank-authority corrections. Owner testing has confirmed the hosted scan transport and per-section findings path; the only surfaced red section was the now-corrected false Premium App SKU requirement. Final confirmation on the PR #321 implementation and the remaining real-guild/Railway gates are still pending.
+Merged implementation now includes setup/repair, permanent module panels, friendly per-module commands, capability-driven Commands / Help, Admin Operations controls, moderation, Pokémon GO operations, universal event feeds, supporter-rank discovery, module-access reconciliation, hierarchy diagnostics, protected-role fallback, unified self-role/color menus, broader old-menu discovery, private safe-space report tickets, secure hosted desktop-to-Sentinal pairing, minimized public health metadata, hosted provider configuration/validation routes, persistent hosted-provider storage alignment, the PR #318/#319 Discord Admin acceptance fixes, and the PR #320/#321 Discord Server Shop rank-authority corrections.
 
 Goals:
 
 - validate setup, reconciliation, permission checks, command synchronization, persistent panels, friendly module commands, capability-driven help, event feeds, degraded-backend behavior, and restart recovery on the real guild;
 - validate moderation authorization, bounded clear amounts, and command-health behavior;
 - validate temporary lobby lifecycle and cleanup;
-- validate rank reconciliation against the real Discord hierarchy using the correct authority mode: Discord Server Shop Premium Roles by default for the paid ranks, or Premium App recurring/durable SKU mappings only when explicitly configured;
+- validate rank reconciliation against the real Discord hierarchy using the correct authority mode;
 - validate module access-role reconciliation including protected-role fallback;
-- re-run the hosted Discord scan on the PR #321 implementation and confirm the corrected Server Shop authority section is green without requiring nonexistent Premium App SKUs;
-- validate hosted pairing and provider synchronization against the intended Railway Sentinal instance without exposing long-lived admin or provider credentials to the renderer/public surfaces;
-- complete the remaining Owner interaction gates in `docs/DISCORD_NEXUS_SETUP_ACCEPTANCE.md`, including explicit fresh-code pairing evidence, live repair where needed, real provider sync/validation, and restart persistence;
+- validate unified self-role menus and name-color exclusivity/hierarchy on the intended guild;
+- finish the legacy emoji reaction-role migration only through a merged, validated PR #331 or successor, and retire old reactions only after replacement controls are active;
+- validate the Rules safe-space panel and private report lifecycle end-to-end, including reporter/staff permissions, claim/add/escalate/resolve/close behavior, restricted transcript archival, and privacy boundaries;
+- re-run/complete the remaining Discord + Nexus Setup Acceptance gates, including rank-authority confirmation, fresh hosted pairing evidence, live repair where needed, real provider sync/validation, and restart persistence;
 - verify common game workflows are discoverable without memorizing generic backend commands;
 - validate Veyra/D&D presentation against the backend-first boundary.
 
@@ -144,7 +145,7 @@ Goals:
 
 Status: **IN PROGRESS — STAGED UPDATER + HASH HARDENING + OWNER TEST CENTER MERGED; OWNER UPDATE/ROLLBACK ACCEPTANCE PENDING**
 
-PR #293 provides the staged updater; PR #294 adds owner-test build tracking; PRs #309/#311 harden SHA-256 verification. PR #325's green rebuild CI confirms the current implementation remains compatible with the rebuild validation pipeline; this does not publish an update or release.
+PR #293 provides the staged updater; PR #294 adds owner-test build tracking; PRs #309/#311 harden SHA-256 verification. PR #332's green rebuild CI confirms the current implementation remains compatible with the rebuild validation pipeline; this does not publish an update or release.
 
 Goals:
 
