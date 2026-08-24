@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { getModule } = require('../src/backend/modules/catalog.cjs');
-const { renderModuleConsole, parseActionId } = require('../src/sentinel/module-console.cjs');
+const { renderModuleConsole, renderHelp, parseActionId } = require('../src/sentinel/module-console.cjs');
 
 function renderedText(payload) {
   return JSON.stringify(payload).toLowerCase();
@@ -79,4 +79,53 @@ test('connected external module may show connection state', () => {
     availableActions: ['status']
   }));
   assert.equal(text.includes('connected'), true);
+});
+
+test('ARK help is capability-driven and keeps easy commands visible', () => {
+  const payload = renderHelp('ark');
+  const text = renderedText(payload);
+  const embed = payload.embeds[0];
+  assert.equal(embed.title, 'ARK: Survival Ascended • Features & Commands');
+  assert.equal(text.includes('player features'), true);
+  assert.equal(text.includes('operator / admin features'), true);
+  assert.equal(text.includes('owner controls'), true);
+  assert.equal(text.includes('status'), true);
+  assert.equal(text.includes('save all'), true);
+  assert.equal(text.includes('restart'), true);
+  assert.equal(text.includes('raw rcon'), true);
+  assert.equal(text.includes('/ark status'), true);
+  assert.equal(text.includes('/ark schedule list'), true);
+  assert.equal(text.includes('permission-gated'), true);
+});
+
+test('Warframe help exposes public companion-ready capabilities from the backend manifest', () => {
+  const payload = renderHelp('warframe');
+  const text = renderedText(payload);
+  assert.equal(text.includes('alerts'), true);
+  assert.equal(text.includes('fissures'), true);
+  assert.equal(text.includes('nightwave'), true);
+  assert.equal(text.includes('market'), true);
+  assert.equal(text.includes('build helper'), true);
+  assert.equal(text.includes('/warframe market'), true);
+  assert.equal(text.includes('backend capability contract'), true);
+});
+
+test('module help obeys Discord embed field limits', () => {
+  for (const moduleId of ['ark', 'warframe', 'pokemongo', 'division2']) {
+    const payload = renderHelp(moduleId);
+    const embed = payload.embeds[0];
+    assert.ok(embed.fields.length <= 25, `${moduleId} has too many fields`);
+    assert.ok(embed.description.length <= 4000, `${moduleId} description too long`);
+    for (const field of embed.fields) {
+      assert.ok(field.name.length <= 256, `${moduleId} field name too long`);
+      assert.ok(field.value.length <= 1024, `${moduleId} field value too long`);
+    }
+  }
+});
+
+test('D&D help preserves Veyra as the normal interaction surface', () => {
+  const payload = renderHelp('dnd');
+  const text = renderedText(payload);
+  assert.equal(text.includes('veyra'), true);
+  assert.equal(text.includes('features & commands'), true);
 });
