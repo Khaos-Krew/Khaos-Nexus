@@ -9,6 +9,7 @@ const { installModerationExtension } = require('./moderation-extension.cjs');
 const { installRoadmapPatchNoteExtension } = require('./roadmap-patch-note-extension.cjs');
 const { installSafetyReportExtension } = require('./safety-report-extension.cjs');
 const { installPersistentPanelExtension } = require('./persistent-panel-extension.cjs');
+const { installStaffNameColorPreviewExtension } = require('./staff-name-color-preview-extension.cjs');
 
 installGuildMembersIntentExtension();
 installRoleMenuExtension();
@@ -19,4 +20,5 @@ installModerationExtension();
 installRoadmapPatchNoteExtension();
 installSafetyReportExtension();
 installPersistentPanelExtension();
+installStaffNameColorPreviewExtension();
 require('./bot.cjs');
