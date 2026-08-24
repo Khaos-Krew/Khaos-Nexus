@@ -1,5 +1,6 @@
 'use strict';
 
+const { installGuildMembersIntentExtension } = require('./guild-members-intent-extension.cjs');
 const { installRoleMenuExtension } = require('./role-menu-extension.cjs');
 const { installPokemonGoExtension } = require('./pokemon-go-extension.cjs');
 const { installEventFeedExtension } = require('./event-feed-extension.cjs');
@@ -9,6 +10,7 @@ const { installRoadmapPatchNoteExtension } = require('./roadmap-patch-note-exten
 const { installSafetyReportExtension } = require('./safety-report-extension.cjs');
 const { installPersistentPanelExtension } = require('./persistent-panel-extension.cjs');
 
+installGuildMembersIntentExtension();
 installRoleMenuExtension();
 installPokemonGoExtension();
 installEventFeedExtension();
