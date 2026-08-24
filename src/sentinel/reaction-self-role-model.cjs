@@ -192,9 +192,8 @@ function reactionMenuLooksRelevant(message) {
   if (reactions.length < 1) return false;
   const text = fullMessageText(message);
   if (!text.trim()) return false;
-  const lower = text.toLowerCase();
   const hasRoleMention = /<@&\d{5,25}>/.test(text);
-  const hasRoleLanguage = /\b(role|roles|reaction|react|self.?role|color|colour|platform|pronoun|game)\b/i.test(lower);
+  const hasRoleLanguage = /\b(role|roles|self[\s-]?roles?|name\s*(?:color|colour)|colors?|colours?|platforms?|pronouns?|notifications?|game\s*(?:role|roles|access))\b/i.test(text);
   return Boolean(message?.author?.bot) && (hasRoleMention || hasRoleLanguage);
 }
 
