@@ -35,6 +35,24 @@
     </article>`;
   }
 
+  function staffColorPreviewCard(section) {
+    if (!section) return '';
+    const roles = Array.isArray(section.protectedStaffRoles) ? section.protectedStaffRoles : [];
+    const proposed = new Set((section.proposedRoleIds || []).map(String));
+    const relevant = roles.filter((role) => role.overridesSelectableColor);
+    const rows = relevant.map((role) => {
+      const eligible = proposed.has(String(role.id));
+      const blockers = (role.blockers || []).join(', ');
+      return `<div class="admin-op-row"><span><strong>${esc(role.name)}</strong><small>ID ${esc(role.id)} • position ${esc(role.position)} • ${esc(role.hexColor)}${blockers ? ` • ${esc(blockers)}` : ''}</small></span>${badge(eligible ? 'Owner preview' : 'Blocked', eligible ? 'warn' : '')}</div>`;
+    }).join('');
+    const top = section.highestSelectableColorRole;
+    return `<article class="card">
+      <div class="section-head"><div><h3>Staff Name Color Preview</h3><p>Read-only hierarchy analysis. This does not change role colors, permissions, positions, or memberships.</p></div>${section.needsOwnerReview ? badge(`${(section.proposedRoleIds || []).length} candidate${(section.proposedRoleIds || []).length === 1 ? '' : 's'}`, 'warn') : badge('No change proposed', 'good')}</div>
+      <p class="field-note">Highest selectable color: ${top ? `${esc(top.name)} • position ${esc(top.position)} • ${esc(top.hexColor)}` : 'not found'} • mutation authorized: no</p>
+      ${rows || '<p>No colored protected staff role currently overrides the selectable Nexus color roles.</p>'}
+    </article>`;
+  }
+
   async function snapshot() {
     const appState = await api.state();
     let scan = null;
@@ -64,7 +82,6 @@
       const permissions = sections.permissions || null;
       const channels = sections.channels || null;
       const providerConfig = sections.providerConfig || null;
-      const localEnabledModules = (appState.modules?.modules || []).filter((item) => item.enabled);
       const hostedModules = providerConfig?.backendModules || [];
       const hostedEnabledModules = hostedModules.filter((item) => item.enabled !== false);
       const hostedConfiguredModules = hostedEnabledModules.filter((item) => item.configured);
@@ -119,6 +136,7 @@
           ${step(6, 'Configure & sync game providers', providerDetail, providersReady, providersPartial && !providersReady, providerSynced ? 'Review Hosted Sync' : 'Sync Hosted Providers', '[data-view="modules"]', '<p class="setup-note">Connection metadata is saved under Backend Modules. Passwords/tokens are stored under Credentials and transferred only by the Electron main process.</p>')}
           ${step(7, 'Run hosted read-only provider acceptance', validationDetail, validationReady, validationPartial, 'Validate Hosted Provider', '[data-view="modules"]')}
         </div>
+        ${staffColorPreviewCard(sections.staffColors)}
         <div class="setup-footer card"><div><strong>After setup</strong><p>Use Owner Test Center for build acceptance and Discord Admin → Repair Nexus for safe reconciliation.</p></div><div class="actions"><button id="setupRescan" class="secondary">Recheck setup</button><button id="setupOwnerTest" class="secondary">Owner Test Center</button></div></div>`;
 
       content.querySelectorAll('[data-setup-open]').forEach((button) => {
