@@ -8,7 +8,8 @@ const {
   payloadPanelModuleId,
   markedPanelPayload,
   messageMatchesPanel,
-  reconcilePanelMessages
+  reconcilePanelMessages,
+  ensurePanelMessage
 } = require('../src/sentinel/persistent-panel-extension.cjs');
 
 function consolePayload(moduleId = 'warframe') {
@@ -24,7 +25,7 @@ function consolePayload(moduleId = 'warframe') {
 }
 
 function fakeMessage(id, title, createdTimestamp, authorId = '999999999999999999') {
-  const state = { edits:0, deletes:0, payload:null };
+  const state = { edits:0, deletes:0, payload:null, pins:0 };
   return {
     id,
     createdTimestamp,
@@ -32,6 +33,7 @@ function fakeMessage(id, title, createdTimestamp, authorId = '999999999999999999
     embeds:[{ title, footer:{ text:'Nexus 0.1 • Simple commands • Backend-first module console' } }],
     edit:async (payload) => { state.edits += 1; state.payload = payload; },
     delete:async () => { state.deletes += 1; },
+    pin:async () => { state.pins += 1; },
     state
   };
 }
@@ -70,4 +72,21 @@ test('hub reconciliation edits the newest existing panel instead of sending anot
   assert.equal(current.state.payload.embeds[0].footer.text, panelMarker('warframe'));
   assert.equal(old.state.deletes, 1);
   assert.equal(unrelated.state.deletes, 0);
+});
+
+test('missing managed hub panel is generated, marked, and pinned', async () => {
+  const payload = consolePayload('deadbydaylight');
+  let sentPayload = null;
+  const created = fakeMessage('200000000000000001', payload.embeds[0].title, 500, 'bot');
+  const channel = {
+    client:{ user:{ id:'bot' } },
+    messages:{ fetch:async () => new Map() },
+    send:async (value) => { sentPayload = value; return created; }
+  };
+
+  const result = await ensurePanelMessage(channel, 'deadbydaylight', payload, { botId:'bot', logger:{ warn(){} } });
+  assert.equal(result.created, true);
+  assert.equal(result.message.id, created.id);
+  assert.equal(sentPayload.embeds[0].footer.text, panelMarker('deadbydaylight'));
+  assert.equal(created.state.pins, 1);
 });

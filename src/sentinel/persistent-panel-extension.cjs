@@ -11,6 +11,8 @@ const INSTALLED = Symbol.for('khaos.nexus.persistent.panel.extension');
 const SEND_PATCHED = Symbol.for('khaos.nexus.persistent.panel.send');
 const PANEL_MARKER_PREFIX = 'Nexus Sentinal • Managed Hub • ';
 const RECENT_MESSAGE_LIMIT = 100;
+const INITIAL_SWEEP_DELAY_MS = 30_000;
+const PERIODIC_SWEEP_MS = 5 * 60 * 1000;
 
 function valuesOf(collection) {
   if (!collection) return [];
@@ -120,6 +122,17 @@ async function reconcilePanelMessages(channel, moduleId, payload, options = {}) 
   return { message: canonical, candidates: candidates.length, duplicatesRemoved, pinned };
 }
 
+async function ensurePanelMessage(channel, moduleId, payload, options = {}) {
+  const logger = options.logger || console;
+  const existing = await reconcilePanelMessages(channel, moduleId, payload, options);
+  if (existing.message) return { ...existing, created: false };
+  if (typeof channel?.send !== 'function') return { ...existing, created: false };
+
+  const message = await channel.send(markedPanelPayload(payload, moduleId));
+  const pinned = await ensurePinnedPanel(message, moduleId, logger);
+  return { message, candidates: 0, duplicatesRemoved: 0, pinned, created: true };
+}
+
 async function backendStates(backend) {
   try {
     const result = await backend.modules();
@@ -131,11 +144,12 @@ async function backendStates(backend) {
 
 async function sweepManagedPanels(client, { config, state, backend, logger = console } = {}) {
   const guildId = String(config?.discord?.guildId || '');
-  if (!guildId) return { panels: 0, duplicatesRemoved: 0, pinsAdded: 0 };
-  const guild = await client.guilds.fetch(guildId);
+  if (!guildId) return { panels: 0, created: 0, duplicatesRemoved: 0, pinsAdded: 0 };
+  await client.guilds.fetch(guildId);
   const states = await backendStates(backend);
   const moduleIds = new Set([...Object.keys(config?.modules || {}), ...Object.keys(state.listModuleSetups())]);
   let panels = 0;
+  let created = 0;
   let duplicatesRemoved = 0;
   let pinsAdded = 0;
 
@@ -154,9 +168,10 @@ async function sweepManagedPanels(client, { config, state, backend, logger = con
       connected: false,
       availableActions: []
     });
-    const result = await reconcilePanelMessages(channel, moduleId, payload, { botId: client.user?.id, logger });
+    const result = await ensurePanelMessage(channel, moduleId, payload, { botId: client.user?.id, logger });
     if (!result.message) continue;
     panels += 1;
+    if (result.created) created += 1;
     duplicatesRemoved += result.duplicatesRemoved;
     if (result.pinned) pinsAdded += 1;
     state.setConsole(moduleId, {
@@ -167,7 +182,7 @@ async function sweepManagedPanels(client, { config, state, backend, logger = con
     });
   }
 
-  return { panels, duplicatesRemoved, pinsAdded };
+  return { panels, created, duplicatesRemoved, pinsAdded };
 }
 
 function installPersistentPanelExtension() {
@@ -203,15 +218,18 @@ function installPersistentPanelExtension() {
   const originalLogin = Client.prototype.login;
   Client.prototype.login = function nexusPersistentPanelLogin(...args) {
     this.once(Events.ClientReady, () => {
-      const timer = setTimeout(async () => {
+      const runSweep = async (reason) => {
         try {
           const result = await sweepManagedPanels(this, { config, state, backend });
-          console.log(`[Nexus Sentinal] managed hub sweep: panels=${result.panels} duplicatesRemoved=${result.duplicatesRemoved} pinsAdded=${result.pinsAdded}`);
+          console.log(`[Nexus Sentinal] managed hub sweep (${reason}): panels=${result.panels} created=${result.created} duplicatesRemoved=${result.duplicatesRemoved} pinsAdded=${result.pinsAdded}`);
         } catch (error) {
-          console.error('[Nexus Sentinal] managed hub sweep:', error);
+          console.error(`[Nexus Sentinal] managed hub sweep (${reason}):`, error);
         }
-      }, 75_000);
-      timer.unref?.();
+      };
+      const initialTimer = setTimeout(() => void runSweep('startup'), INITIAL_SWEEP_DELAY_MS);
+      initialTimer.unref?.();
+      const periodicTimer = setInterval(() => void runSweep('periodic'), PERIODIC_SWEEP_MS);
+      periodicTimer.unref?.();
     });
     return originalLogin.apply(this, args);
   };
@@ -219,6 +237,9 @@ function installPersistentPanelExtension() {
 
 module.exports = {
   PANEL_MARKER_PREFIX,
+  RECENT_MESSAGE_LIMIT,
+  INITIAL_SWEEP_DELAY_MS,
+  PERIODIC_SWEEP_MS,
   panelMarker,
   panelTitle,
   payloadPanelModuleId,
@@ -227,6 +248,7 @@ module.exports = {
   newestMessage,
   ensurePinnedPanel,
   reconcilePanelMessages,
+  ensurePanelMessage,
   sweepManagedPanels,
   installPersistentPanelExtension
 };

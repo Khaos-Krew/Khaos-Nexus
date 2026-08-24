@@ -8,7 +8,7 @@ const path = require('node:path');
 const { ChannelType } = require('discord.js');
 const { getModule } = require('../src/backend/modules/catalog.cjs');
 const { layoutFor } = require('../src/sentinel/module-layouts.cjs');
-const { categoryOrderPlan } = require('../src/sentinel/category-order.cjs');
+const { categoryOrderPlan, categoryMoveSequence } = require('../src/sentinel/category-order.cjs');
 const {
   DeadByDaylightProvider, Diablo4Provider, CallOfDutyProvider,
   DBD_ACTIONS, DIABLO4_ACTIONS, COD_ACTIONS
@@ -47,6 +47,9 @@ test('category order plan alphabetizes game categories above the first staff bou
   assert.equal(plan.boundary.id, 'staff');
   assert.deepEqual(plan.modules.map((entry) => entry.label), [
     'ARK Survival Ascended', 'Call of Duty', 'Dead by Daylight', 'Diablo IV', 'Warframe'
+  ]);
+  assert.deepEqual(categoryMoveSequence(plan).map((entry) => entry.label), [
+    'Warframe', 'Diablo IV', 'Dead by Daylight', 'Call of Duty', 'ARK Survival Ascended'
   ]);
 });
 
