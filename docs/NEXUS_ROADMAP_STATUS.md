@@ -64,15 +64,16 @@ Merged role/self-role work includes:
 - owner-approved duplicate platform-role consolidation, generic `LFG` retirement, old gray-swatch cleanup, old-panel cleanup, and canonical module-hub pinning (#351);
 - safe Guild Members intent preflight/construction fixes (#352–#354);
 - serialized/coalesced role reconciliation after live duplicate-role cleanup (#355);
-- required public 100% milestone publishing for the accepted role-authority section (#356).
+- required public 100% milestone publishing for the accepted role-authority section (#356);
+- read-only staff Name Color presentation preview (#360) and display-aware conflict diagnostics (#361).
 
 Live evidence records the **Sentinal Discord Role Authority section as accepted at 100%** with 11 current self-role menus, 120 active role options, duplicate platform roles removed, zero legacy reaction candidates remaining, and moderation hierarchy preserved.
 
-The expanded module-access surface now reconciles at **13 roles / 1 menu / 0 warnings** after the Call of Duty, Dead by Daylight, and Diablo IV additions.
+The expanded module-access surface reconciles at **13 roles / 1 menu / 0 warnings** after the Call of Duty, Dead by Daylight, and Diablo IV additions.
 
 PR #356 is merged. Railway deployment of merge commit `1832bcc34dfb454f42d6a89b11a3d858d890da2a` posted `sentinal-role-authority:100` exactly once to `#patch-notes`, reported `posted=1 adopted=0 skipped=1 warnings=0`, and therefore satisfies the required public 100% milestone publication for this section.
 
-Selectable Name Color roles remain below protected moderation/admin roles. The live reconciler correctly refuses to weaken that hierarchy and emits a bounded warning for staff-visible color priority. Issue #350 tracks the already-approved follow-up design for staff-compatible selectable colors without moving shared selectable roles above moderation authority.
+Issue #350 is now resolved by live evidence rather than a role mutation. PRs #360/#361 proved the protected staff/admin roles above the selectable Name Color block are color-neutral, so Discord's display-color rule does not override the selected Nexus color. Live evidence reported `selectable=32 candidates=0 blocked=0`, `displaySafe=true conflicts=0`, and unified self-role reconciliation at 11 menus / 120 roles / 0 warnings. No staff role color or hierarchy change is required.
 
 ### Sentinal persistent-panel and Discord hardening
 
@@ -83,17 +84,15 @@ Merged persistent-panel hardening includes:
 - alphabetical game-category reconciliation above Staff/Hidden boundaries plus three new module hubs (#357);
 - correction of category insertion order plus automatic creation/self-healing of missing managed hub embeds (#358).
 
-Live Railway evidence after #357/#358/#356 now confirms:
+Live Railway evidence after #357/#358/#356 confirms:
 
 - module access startup reconciliation: **13 roles / 1 menu / 0 warnings**;
 - managed hub sweep: **12 panels / 0 created / 0 duplicates removed / 0 pins added**;
-- Call of Duty hub: existing category reused, `created=false`, `channelsAdded=0`;
-- Dead by Daylight hub: existing category reused, `created=false`, `channelsAdded=0`;
-- Diablo IV hub: existing category reused, `created=false`, `channelsAdded=0`;
+- Call of Duty, Dead by Daylight, and Diablo IV hubs reuse their existing categories with no duplicate channels;
 - module channel access reconciliation: **12 modules / 0 permission changes / 0 blocked**;
-- game categories reconciled above the protected Staff boundary in the order `ARK Survival Ascended > Call of Duty > Dead by Daylight > Diablo IV > Legends of IdleOn > Minecraft > Palworld > Pokémon GO > Rust > Satisfactory > The Division 2 > Warframe`;
-- the periodic managed-hub sweep remains idempotent with **12 panels / 0 created / 0 duplicates removed**;
-- persistent feed actions recovered or updated their existing Discord messages with **0 duplicates removed**, including Palworld, Satisfactory, Rust, Minecraft, ARK, Pokémon GO, Division 2, and Warframe feeds;
+- game categories reconcile above the protected Staff boundary in alphabetical module order;
+- periodic managed-hub sweeps remain idempotent with **12 panels / 0 created / 0 duplicates removed**;
+- persistent feed actions recover/update existing Discord messages with **0 duplicates removed**;
 - friendly command registration includes `/nexus`, `/market`, `/ark`, `/cod`, `/dbd`, `/diablo4`, `/palworld`, `/minecraft`, `/warframe`, `/division2`, `/rust`, `/satisfactory`, and `/idleon` without replacing unrelated guild commands.
 
 This live evidence closes the expanded game-category provisioning/order and managed-hub/feed idempotency evidence gates. It does **not** replace real interaction testing of buttons, commands, provider credentials, reports, moderation actions, desktop pairing, or installed updater behavior.
@@ -108,20 +107,18 @@ Status: **AUTOMATED REBUILD BASELINE GREEN — OWNER/LIVE VALIDATION IN PROGRESS
 
 Recent exact-head automated evidence:
 
-- PR #358 head `e2c7e89e355b1ec103292afa975f4715237fd20c` — Nexus Rebuild CI #344 green; merged;
-- PR #357 head `e5fae99ccb859792253e6233db3d3af2fcf4ed99` — Nexus Rebuild CI #342 green; merged;
-- PR #356 head `e10b31abf95d00505105eff1ba5c54329414a37a` — Nexus Rebuild CI #338 green; merged after that validation;
-- PR #355 head `26faed57e8015354cec88fd4e89efaf67b80649d` — green before merge;
-- PR #349 head `0d300731bf3d8c5c55fb8651cd5e4657416aa4e2` — Nexus Rebuild CI #322 green; merged;
-- PR #347 head `c3bd6e652f930c443b99ff474eea049e3a692da0` — Nexus Rebuild CI #320 green; merged.
+- PR #364 head `ce62a70715cc1aae59cb6c477aba242ba21c8e65` — Nexus Rebuild CI #372 green; merged. Windows CI now performs isolated clean NSIS install, packaged startup/backend-health validation, production staged-upgrade apply, post-update startup confirmation, payload SHA-256 match, and emits a redacted smoke report required by later artifact promotion;
+- PR #365 head `cd2e90c250e76697e2809cd296ee55a1ba9b67d7` — Nexus Rebuild CI #371 green; merged. Runtime-container tests keep deterministic dependency checks without requiring repository-only orchestration files inside the production image;
+- PR #363 head `3ec4a49699dc6961b7f0c9e822e9c1eb61448cbf` — Nexus Rebuild CI #367 green; merged. Dependency installs are locked with `package-lock.json`, `npm ci`, and keyed caches in CI/Windows/Railway paths;
+- PR #362 head `2f9b7559c7595d1ed2461a38b466afc96cdb70b4` — merged. Manual release promotion consumes the exact validated Windows artifact from a successful rebuild CI run rather than rebuilding during publication and generates release provenance;
+- PR #361 head `289d4a03b747718da6fef3b7de02650fc80cfe48` — merged after live Name Color display-safety evidence;
+- PR #358 head `e2c7e89e355b1ec103292afa975f4715237fd20c` — Nexus Rebuild CI #344 green; merged.
 
-The merged production-test branch then deployed successfully on Railway at merge commit `1832bcc34dfb454f42d6a89b11a3d858d890da2a`, where the live evidence above was recorded.
-
-Automated CI and hosted startup evidence do not replace owner/live interaction acceptance.
+The active rebuild branch reached merge commit `1db9144fdb68baf8ad249b55185907a1d0367f90` after PR #364. Automated CI, packaging, smoke validation, and hosted startup evidence do not replace owner/live interaction acceptance.
 
 ## Live acceptance state
 
-The Sentinal role-authority subsection is live-accepted at 100%. Expanded game-module provisioning, alphabetical placement, access-policy reconciliation, managed-hub idempotency, and persistent-feed recovery now also have live Railway evidence.
+The Sentinal role-authority subsection is live-accepted at 100%. Expanded game-module provisioning, alphabetical placement, access-policy reconciliation, managed-hub idempotency, persistent-feed recovery, and staff-compatible Name Color display safety also have live evidence.
 
 Remaining live/owner gates include:
 
@@ -130,9 +127,8 @@ Remaining live/owner gates include:
 - complete remaining Discord + Nexus Setup Acceptance gates, including fresh hosted pairing, desktop confirmation scan, live Repair Nexus only where needed, provider sync/validation, and desktop/hosted restart persistence;
 - validate moderation actions, temporary lobby lifecycle, discoverability, and Veyra/D&D boundaries;
 - validate at least one real provider-backed game path with actual credentials/data where required;
-- validate updater apply/startup/rollback on an installed owner-test build;
-- validate the private assistant discovery/readiness and allowlisted launch behavior on the intended machine;
-- preview and explicitly approve any live staff-presentation migration required by issue #350 before changing staff role appearance.
+- validate updater apply/startup/rollback on an installed owner-test machine despite the now-green isolated Windows CI smoke path;
+- validate the private assistant discovery/readiness and allowlisted launch behavior on the intended machine.
 
 Do not claim public/stable release status from CI, packaging, deployment, PR merge state, package version, or hosted-service availability alone.
 
@@ -152,15 +148,15 @@ Validate Palworld and other provider-backed paths in real use. Include Pokémon 
 
 ### Then — Sentinal operational acceptance
 
-Status: **IN PROGRESS — ROLE AUTHORITY + MODULE LAYOUT/IDEMPOTENCY LIVE-EVIDENCED; INTERACTION ACCEPTANCE PENDING**
+Status: **IN PROGRESS — ROLE AUTHORITY + MODULE LAYOUT/IDEMPOTENCY + NAME-COLOR DISPLAY SAFETY LIVE-EVIDENCED; INTERACTION ACCEPTANCE PENDING**
 
-The self-role/role-authority subsection is live-accepted at 100%. Expanded module layout, access reconciliation, category order, hub idempotency, and feed recovery now have live Railway evidence. Broader Sentinal operational acceptance still requires real-member interaction testing, reporting lifecycle, moderation, pairing, provider flows, Setup Acceptance, and restart behavior.
+The self-role/role-authority subsection is live-accepted at 100%. Expanded module layout, access reconciliation, category order, hub idempotency, feed recovery, and staff-compatible Name Color display safety now have live evidence. Broader Sentinal operational acceptance still requires real-member interaction testing, reporting lifecycle, moderation, pairing, provider flows, Setup Acceptance, and restart behavior.
 
 ### Release hardening
 
-Status: **IN PROGRESS — STAGED UPDATER + HASH HARDENING + OWNER TEST CENTER MERGED; OWNER UPDATE/ROLLBACK ACCEPTANCE PENDING**
+Status: **IN PROGRESS — DETERMINISTIC INSTALLS + EXACT-ARTIFACT PROMOTION + WINDOWS INSTALL/UPGRADE SMOKE MERGED; OWNER UPDATE/ROLLBACK ACCEPTANCE PENDING**
 
-Automated packaging/update verification is evidence only. Establish one authoritative rebuild release identity/artifact policy, correlate tested commit/install/update artifacts with feedback and rollback, validate a real installed update/rollback cycle, and keep public/stable publication a separate explicit owner decision.
+The rebuild now has deterministic `npm ci` dependency installs, exact validated-artifact promotion with provenance, and Windows CI that exercises a real isolated NSIS install plus staged update/apply/startup verification before an artifact is eligible for promotion. This is strong automated release evidence, not public/stable release authorization. The remaining primary release-hardening gate is an actual installed owner-machine update/startup/rollback cycle correlated to the tested artifact and feedback.
 
 ### Later — Selective migration and expansion
 
