@@ -19,7 +19,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install --no-audit --no-fund
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+      - run: npm ci --no-audit --no-fund
       - run: npm run check
       - run: npm test
 
@@ -30,7 +32,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install --no-audit --no-fund
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: nexus-electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            nexus-electron-${{ runner.os }}-
+      - run: npm ci --no-audit --no-fund
       - run: npm run check
       - run: npm test
       - shell: pwsh
