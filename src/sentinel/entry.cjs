@@ -11,6 +11,7 @@ const { installSafetyReportExtension } = require('./safety-report-extension.cjs'
 const { installPersistentPanelExtension } = require('./persistent-panel-extension.cjs');
 const { installStaffNameColorPreviewExtension } = require('./staff-name-color-preview-extension.cjs');
 const { installNexusStatusExtension } = require('./nexus-status-extension.cjs');
+const { installWelcomeExtension } = require('./welcome-extension.cjs');
 
 installGuildMembersIntentExtension();
 installRoleMenuExtension();
@@ -23,4 +24,5 @@ installSafetyReportExtension();
 installPersistentPanelExtension();
 installStaffNameColorPreviewExtension();
 installNexusStatusExtension();
+installWelcomeExtension();
 require('./bot.cjs');
