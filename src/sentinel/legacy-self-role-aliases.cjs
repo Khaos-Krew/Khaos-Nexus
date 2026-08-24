@@ -106,6 +106,14 @@ function resolveLegacyRole(menuTitle, label, roles = []) {
     : { role: null, source: 'alias-unresolved', target };
 }
 
+function roleHexColor(role) {
+  const direct = String(role?.hexColor || '').trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(direct)) return direct.toLowerCase();
+  const numeric = Number(role?.color);
+  if (!Number.isFinite(numeric)) return '';
+  return `#${(numeric >>> 0).toString(16).padStart(6, '0').slice(-6)}`;
+}
+
 function augmentedRolesForLegacyMenu(menuTitle, labels = [], roles = []) {
   const original = valuesOf(roles);
   const augmented = [...original];
@@ -116,9 +124,14 @@ function augmentedRolesForLegacyMenu(menuTitle, labels = [], roles = []) {
     const key = `${resolved.role.id}:${normalizedName(label)}`;
     if (usedIds.has(key)) continue;
     usedIds.add(key);
+    const numericColor = Number(resolved.role.color);
+    const hexColor = roleHexColor(resolved.role);
     augmented.push({
       ...resolved.role,
+      id: String(resolved.role.id),
       name: String(label || '').trim(),
+      ...(Number.isFinite(numericColor) ? { color: numericColor } : {}),
+      ...(hexColor ? { hexColor } : {}),
       __nexusLegacyAlias: resolved.target
     });
   }
@@ -136,5 +149,6 @@ module.exports = {
   shouldInspectLegacyRoleMessage,
   canonicalLegacyRoleName,
   resolveLegacyRole,
+  roleHexColor,
   augmentedRolesForLegacyMenu
 };
