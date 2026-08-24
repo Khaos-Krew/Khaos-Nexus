@@ -47,6 +47,10 @@ function categoryOrderIsCorrect(plan) {
   return actual.length === desired.length && actual.every((moduleId, index) => moduleId === desired[index]);
 }
 
+function categoryMoveSequence(plan) {
+  return [...(plan?.modules || [])].reverse();
+}
+
 async function reconcileGameCategoryOrder(guild, options = {}) {
   const channels = await guild.channels.fetch();
   const plan = categoryOrderPlan(channels, options.boundaryNames || DEFAULT_BOUNDARY_NAMES);
@@ -56,7 +60,10 @@ async function reconcileGameCategoryOrder(guild, options = {}) {
   if (categoryOrderIsCorrect(plan)) return { ok: true, skipped: false, moved: 0, ordered, boundary: String(plan.boundary.name || '') };
 
   let moved = 0;
-  for (const entry of plan.modules) {
+  // Every move inserts immediately before the Staff/Hidden Server boundary. Insert
+  // from Z -> A so the final visible order becomes A -> Z instead of reversing
+  // the list and leaving ARK at the bottom of the game block.
+  for (const entry of categoryMoveSequence(plan)) {
     const boundary = await guild.channels.fetch(String(plan.boundary.id)).catch(() => plan.boundary);
     const category = await guild.channels.fetch(String(entry.category.id)).catch(() => entry.category);
     if (!category || !boundary) continue;
@@ -75,5 +82,6 @@ module.exports = {
   moduleCategoryEntries,
   categoryOrderPlan,
   categoryOrderIsCorrect,
+  categoryMoveSequence,
   reconcileGameCategoryOrder
 };
