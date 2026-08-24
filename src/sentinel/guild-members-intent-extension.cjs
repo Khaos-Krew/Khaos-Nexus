@@ -1,66 +1,51 @@
 'use strict';
 
-const { Client, GatewayIntentBits, IntentsBitField, REST, Routes } = require('discord.js');
+const discord = require('discord.js');
+const { GatewayIntentBits, IntentsBitField } = discord;
 
-const INSTALLED = Symbol.for('khaos.nexus.guildMembersIntent.extension');
-const PREPARED = Symbol.for('khaos.nexus.guildMembersIntent.prepared');
-const GATEWAY_GUILD_MEMBERS = 1 << 14;
-const GATEWAY_GUILD_MEMBERS_LIMITED = 1 << 15;
+const ORIGINAL_CLIENT = discord.Client;
+const INSTALLED = Symbol.for('khaos.nexus.guildMembersIntent.constructor');
 
-function applicationAllowsGuildMembers(flags = 0) {
-  const value = Number(flags || 0);
-  return Boolean(value & (GATEWAY_GUILD_MEMBERS | GATEWAY_GUILD_MEMBERS_LIMITED));
+function withGuildMembersIntent(options = {}) {
+  const intents = new IntentsBitField(options.intents || []);
+  intents.add(GatewayIntentBits.GuildMembers);
+  return { ...options, intents };
 }
 
-function applyGuildMembersIntent(client) {
-  const current = Number(client?.options?.intents?.bitfield ?? client?.ws?.options?.intents ?? 0);
-  const intents = new IntentsBitField(current | GatewayIntentBits.GuildMembers).freeze();
-  if (!client?.options || !client?.ws?.options) return false;
-  client.options.intents = intents;
-  client.ws.options.intents = intents.bitfield;
-  return intents.has(GatewayIntentBits.GuildMembers)
-    && Boolean(Number(client.ws.options.intents) & GatewayIntentBits.GuildMembers);
+function clientHasGuildMembersIntent(client) {
+  const clientEnabled = Boolean(client?.options?.intents?.has?.(GatewayIntentBits.GuildMembers));
+  if (!clientEnabled) return false;
+
+  // discord.js 14.27 creates its internal @discordjs/ws manager lazily in
+  // WebSocketManager#connect(). Before login, client.options.intents is the
+  // authoritative source that connect() copies into the IDENTIFY configuration.
+  const gateway = client?.ws?._ws;
+  if (!gateway) return true;
+  return Boolean(Number(gateway?.options?.intents || 0) & GatewayIntentBits.GuildMembers);
 }
 
-async function prepareGuildMembersIntent(client, token, options = {}) {
-  if (!client || client[PREPARED]) return { prepared:true, enabled:Boolean(client?.options?.intents?.has?.(GatewayIntentBits.GuildMembers)), source:'cached' };
-  client[PREPARED] = true;
+function installGuildMembersIntentExtension(options = {}) {
   const logger = options.logger || console;
-  const rest = options.rest || new REST({ version:'10' }).setToken(String(token || ''));
+  if (discord[INSTALLED]) return discord.Client;
+  discord[INSTALLED] = true;
 
-  try {
-    const application = await rest.get(Routes.oauth2CurrentApplication());
-    const flags = Number(application?.flags || 0);
-    if (!applicationAllowsGuildMembers(flags)) {
-      logger.warn?.('[Nexus Sentinal] Discord Server Members Intent is not enabled for this application. Full member-role migrations are deferred; enable Server Members Intent in the Discord Developer Portal to allow safe duplicate-role consolidation.');
-      return { prepared:true, enabled:false, flags, source:'application-flags' };
+  class NexusSentinalClient extends ORIGINAL_CLIENT {
+    constructor(clientOptions = {}) {
+      super(withGuildMembersIntent(clientOptions));
+      if (!clientHasGuildMembersIntent(this)) {
+        throw new Error('Nexus Sentinal failed to declare Discord Guild Members intent during client construction.');
+      }
     }
-    const enabled = applyGuildMembersIntent(client);
-    if (enabled) logger.log?.('[Nexus Sentinal] Discord Guild Members intent authorized and enabled for safe member-role reconciliation.');
-    else logger.warn?.('[Nexus Sentinal] Guild Members intent is authorized, but Sentinal could not apply it to the gateway identify configuration.');
-    return { prepared:true, enabled, flags, source:'application-flags' };
-  } catch (error) {
-    logger.warn?.(`[Nexus Sentinal] Guild Members intent preflight failed; continuing without privileged member inventory: ${String(error?.message || error)}`);
-    return { prepared:true, enabled:false, flags:0, source:'preflight-error', error:String(error?.message || error) };
   }
-}
 
-function installGuildMembersIntentExtension() {
-  if (Client.prototype[INSTALLED]) return;
-  Client.prototype[INSTALLED] = true;
-  const originalLogin = Client.prototype.login;
-
-  Client.prototype.login = async function nexusGuildMembersIntentLogin(token, ...args) {
-    await prepareGuildMembersIntent(this, token);
-    return originalLogin.call(this, token, ...args);
-  };
+  discord.Client = NexusSentinalClient;
+  logger.log?.('[Nexus Sentinal] Guild Members gateway intent is declared at Discord client construction.');
+  return NexusSentinalClient;
 }
 
 module.exports = {
-  GATEWAY_GUILD_MEMBERS,
-  GATEWAY_GUILD_MEMBERS_LIMITED,
-  applicationAllowsGuildMembers,
-  applyGuildMembersIntent,
-  prepareGuildMembersIntent,
+  ORIGINAL_CLIENT,
+  withGuildMembersIntent,
+  clientHasGuildMembersIntent,
   installGuildMembersIntentExtension
 };
