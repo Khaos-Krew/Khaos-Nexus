@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - 'ci/deterministic-npm-lock'
+  pull_request:
+    branches:
+      - 'rebuild/nexus-0.1'
 
 permissions:
   contents: read
