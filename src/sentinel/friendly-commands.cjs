@@ -65,6 +65,57 @@ const SPECS = Object.freeze([
     ]
   },
   {
+    moduleId: 'callofduty', command: 'cod', description: 'Call of Duty companion tools', entries: [
+      action('loadouts', 'loadouts', 'Manage saved loadouts', [
+        textOption('action', 'What to do', true, [['List', 'list'], ['Add', 'add'], ['Remove', 'remove']]),
+        textOption('value', 'Loadout details when adding or removing')
+      ], (v) => ({ input: v.value ? `${v.action} ${v.value}` : v.action })),
+      action('lfg', 'lfg', 'Manage Call of Duty LFG', [
+        textOption('action', 'What to do', true, [['List', 'list'], ['Join', 'join'], ['Leave', 'leave']]),
+        textOption('activity', 'Warzone, Multiplayer, Zombies, Ranked, or another activity')
+      ], (v) => ({ input: v.activity ? `${v.action} ${v.activity}` : v.action })),
+      action('news', 'news', 'Open official Call of Duty patch notes'),
+      action('api', 'api-status', 'Show Call of Duty API integration status')
+    ]
+  },
+  {
+    moduleId: 'deadbydaylight', command: 'dbd', description: 'Dead by Daylight companion tools', entries: [
+      action('killers', 'killers', 'Search killer information', [textOption('query', 'Optional killer name or keyword')], (v) => ({ input: v.query || '', query: v.query || '' })),
+      action('survivors', 'survivors', 'Search survivor information', [textOption('query', 'Optional survivor name or keyword')], (v) => ({ input: v.query || '', query: v.query || '' })),
+      action('perks', 'perks', 'Search Dead by Daylight perks', [textOption('query', 'Optional perk name or keyword')], (v) => ({ input: v.query || '', query: v.query || '' })),
+      action('build', 'builds', 'Research perks for a build or playstyle', [textOption('query', 'Perk, character, or playstyle keywords', true)], (v) => ({ input: v.query, query: v.query })),
+      action('random', 'random-build', 'Generate a randomized four-perk build', [textOption('role', 'Killer or survivor', true, [['Killer', 'killer'], ['Survivor', 'survivor']])], (v) => ({ input: v.role, role: v.role })),
+      action('stats', 'stats', 'Look up a public NightLight Steam stat', [
+        textOption('steamid', '17-digit SteamID64', true),
+        textOption('stat', 'NightLight stat name, such as playtime_all or total_bloodpoints')
+      ], (v) => ({ input: `${v.steamid}|${v.stat || 'playtime_all'}` })),
+      action('lfg', 'lfg', 'Manage Dead by Daylight LFG', [
+        textOption('action', 'What to do', true, [['List', 'list'], ['Join', 'join'], ['Leave', 'leave']]),
+        textOption('activity', 'Activity or lobby description when joining')
+      ], (v) => ({ input: v.activity ? `${v.action} ${v.activity}` : v.action }))
+    ]
+  },
+  {
+    moduleId: 'diablo4', command: 'diablo4', description: 'Diablo IV companion tools', entries: [
+      action('classes', 'classes', 'Show supported Diablo IV classes'),
+      action('builds', 'builds', 'Manage your saved build notes', [
+        textOption('action', 'What to do', true, [['List', 'list'], ['Add', 'add'], ['Remove', 'remove']]),
+        textOption('value', 'Build notes when adding or removing')
+      ], (v) => ({ input: v.value ? `${v.action} ${v.value}` : v.action })),
+      action('planner', 'planner', 'Open the Nexus build-planning scaffold', [textOption('class', 'Optional class')], (v) => ({ input: v.class || '', class: v.class || '' })),
+      action('wishlist', 'wishlist', 'Manage your Diablo IV wishlist', [
+        textOption('action', 'What to do', true, [['List', 'list'], ['Add', 'add'], ['Remove', 'remove']]),
+        textOption('item', 'Item, aspect, unique, or target when adding/removing')
+      ], (v) => ({ input: v.item ? `${v.action} ${v.item}` : v.action })),
+      action('lfg', 'lfg', 'Manage Diablo IV LFG', [
+        textOption('action', 'What to do', true, [['List', 'list'], ['Join', 'join'], ['Leave', 'leave']]),
+        textOption('activity', 'Boss, dungeon, farm, or other activity')
+      ], (v) => ({ input: v.activity ? `${v.action} ${v.activity}` : v.action })),
+      action('news', 'news', 'Open official Blizzard Diablo IV news'),
+      action('api', 'api-status', 'Show Diablo IV API integration status')
+    ]
+  },
+  {
     moduleId: 'palworld', command: 'palworld', description: 'Palworld server tools', entries: [
       action('status', 'status', 'Show Palworld server status'),
       action('players', 'players', 'Show online players'),
