@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       source_run_id:
-        description: 'Successful Nexus Rebuild CI push run ID from rebuild/nexus-0.1'
+        description: 'Successful Nexus Rebuild CI run ID from rebuild/nexus-0.1'
         required: true
         type: string
       tag:
@@ -32,6 +32,8 @@ jobs:
   promote:
     runs-on: windows-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Validate source CI run and artifact
         id: source
         shell: pwsh
@@ -45,7 +47,7 @@ jobs:
           $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:SOURCE_RUN_ID" | ConvertFrom-Json
           if ([string]$run.name -ne 'Nexus Rebuild CI') { throw "Source run is '$($run.name)', not Nexus Rebuild CI." }
           if ([string]$run.conclusion -ne 'success') { throw "Source CI run conclusion is '$($run.conclusion)', not success." }
-          if ([string]$run.event -ne 'push') { throw "Source CI run must be a push run, not '$($run.event)'." }
+          if (@('push', 'workflow_dispatch') -notcontains [string]$run.event) { throw "Source CI run must be a push or explicit validation run, not '$($run.event)'." }
           if ([string]$run.head_branch -ne 'rebuild/nexus-0.1') { throw "Source CI run must come from rebuild/nexus-0.1, not '$($run.head_branch)'." }
           if ([string]$run.head_sha -notmatch '^[0-9a-fA-F]{40}$') { throw 'Source CI run does not expose a valid 40-character commit SHA.' }
 
@@ -95,8 +97,12 @@ jobs:
 
           $manifestPath = 'dist/nexus-update-manifest.json'
           $smokePath = 'dist/nexus-windows-smoke-report.json'
-          if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw 'Validated artifact is missing nexus-update-manifest.json.' }
-          if (-not (Test-Path -LiteralPath $smokePath -PathType Leaf)) { throw 'Validated artifact is missing nexus-windows-smoke-report.json.' }
+          $signingPath = 'dist/nexus-windows-signing.json'
+          $packageAuditPath = 'dist/nexus-package-audit.json'
+          foreach ($required in @($manifestPath, $smokePath, $signingPath, $packageAuditPath)) {
+            if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "Validated artifact is missing required evidence: $required" }
+          }
+
           $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
           $smoke = Get-Content -LiteralPath $smokePath -Raw | ConvertFrom-Json
           $version = [string]$manifest.version
@@ -168,69 +174,63 @@ jobs:
           }
           $provenancePath = 'dist/nexus-release-provenance.json'
           $provenance | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $provenancePath -Encoding UTF8
-          $provenanceHash = Get-Sha256Hex -Path $provenancePath
 
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "update_path=$updatePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "installer_path=$installerPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "smoke_path=$smokePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "signing_path=$signingPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "package_audit_path=$packageAuditPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "provenance_path=$provenancePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "provenance_sha256=$provenanceHash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
           Write-Host "Validated source CI run: $env:SOURCE_RUN_ID"
           Write-Host "Validated source commit: $env:SOURCE_HEAD_SHA"
           Write-Host "Validated update SHA-256: $updateHash"
           Write-Host "Validated installer SHA-256: $installerHash"
           Write-Host "Validated smoke evidence SHA-256: $smokeHash"
-          Write-Host "Promotion provenance SHA-256: $provenanceHash"
 
-      - name: Publish owner-test release from validated artifacts
-        if: ${{ inputs.channel == 'owner-test' }}
+      - name: Validate signing and package-audit evidence
+        shell: pwsh
+        run: ./scripts/augment-release-security-evidence.ps1 -Channel '${{ inputs.channel }}' -DistDir dist
+
+      - name: Publish validated release artifacts
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_TITLE: ${{ inputs.title }}
+          RELEASE_CHANNEL: ${{ inputs.channel }}
           VERSION: ${{ steps.verify.outputs.version }}
           INSTALLER_PATH: ${{ steps.verify.outputs.installer_path }}
           UPDATE_PATH: ${{ steps.verify.outputs.update_path }}
           SMOKE_PATH: ${{ steps.verify.outputs.smoke_path }}
+          SIGNING_PATH: ${{ steps.verify.outputs.signing_path }}
+          PACKAGE_AUDIT_PATH: ${{ steps.verify.outputs.package_audit_path }}
           PROVENANCE_PATH: ${{ steps.verify.outputs.provenance_path }}
           SOURCE_RUN_URL: ${{ steps.source.outputs.run_url }}
           SOURCE_HEAD_SHA: ${{ steps.source.outputs.head_sha }}
         run: |
-          $title = if ($env:RELEASE_TITLE) { $env:RELEASE_TITLE } else { "Khaos Nexus $env:VERSION Owner Test" }
-          gh release create $env:RELEASE_TAG `
-            $env:INSTALLER_PATH `
-            $env:UPDATE_PATH `
-            'dist/nexus-update-manifest.json' `
-            $env:SMOKE_PATH `
-            $env:PROVENANCE_PATH `
-            --title $title `
-            --notes "Owner-test staged update for Khaos Nexus $env:VERSION. Promoted without rebuilding from validated Nexus Rebuild CI commit $env:SOURCE_HEAD_SHA ($env:SOURCE_RUN_URL). Clean install, packaged startup, staged upgrade, and post-update health confirmation passed in the source Windows artifact." `
-            --prerelease
-
-      - name: Publish stable release from validated artifacts
-        if: ${{ inputs.channel == 'stable' }}
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
-          RELEASE_TITLE: ${{ inputs.title }}
-          VERSION: ${{ steps.verify.outputs.version }}
-          INSTALLER_PATH: ${{ steps.verify.outputs.installer_path }}
-          UPDATE_PATH: ${{ steps.verify.outputs.update_path }}
-          SMOKE_PATH: ${{ steps.verify.outputs.smoke_path }}
-          PROVENANCE_PATH: ${{ steps.verify.outputs.provenance_path }}
-          SOURCE_RUN_URL: ${{ steps.source.outputs.run_url }}
-          SOURCE_HEAD_SHA: ${{ steps.source.outputs.head_sha }}
-        run: |
-          $title = if ($env:RELEASE_TITLE) { $env:RELEASE_TITLE } else { "Khaos Nexus $env:VERSION" }
-          gh release create $env:RELEASE_TAG `
-            $env:INSTALLER_PATH `
-            $env:UPDATE_PATH `
-            'dist/nexus-update-manifest.json' `
-            $env:SMOKE_PATH `
-            $env:PROVENANCE_PATH `
-            --title $title `
-            --notes "Stable staged update for Khaos Nexus $env:VERSION. Promoted without rebuilding from validated Nexus Rebuild CI commit $env:SOURCE_HEAD_SHA ($env:SOURCE_RUN_URL). Clean install, packaged startup, staged upgrade, and post-update health confirmation passed in the source Windows artifact."
+          $ownerTest = $env:RELEASE_CHANNEL -eq 'owner-test'
+          $title = if ($env:RELEASE_TITLE) {
+            $env:RELEASE_TITLE
+          } elseif ($ownerTest) {
+            "Khaos Nexus $env:VERSION Owner Test"
+          } else {
+            "Khaos Nexus $env:VERSION"
+          }
+          $notes = "Khaos Nexus $env:VERSION $env:RELEASE_CHANNEL artifact promoted without rebuilding from validated Nexus Rebuild CI commit $env:SOURCE_HEAD_SHA ($env:SOURCE_RUN_URL). Clean install, packaged startup, staged upgrade, post-update health confirmation, package-content audit, and signing-policy validation passed in the source Windows artifact."
+          $releaseArgs = @(
+            'release', 'create', $env:RELEASE_TAG,
+            $env:INSTALLER_PATH,
+            $env:UPDATE_PATH,
+            'dist/nexus-update-manifest.json',
+            $env:SMOKE_PATH,
+            $env:SIGNING_PATH,
+            $env:PACKAGE_AUDIT_PATH,
+            $env:PROVENANCE_PATH,
+            '--title', $title,
+            '--notes', $notes
+          )
+          if ($ownerTest) { $releaseArgs += '--prerelease' }
+          & gh @releaseArgs
+          if ($LASTEXITCODE -ne 0) { throw "GitHub release creation failed with exit code $LASTEXITCODE." }
