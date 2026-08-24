@@ -1,6 +1,7 @@
 'use strict';
 
 const { installGuildMembersIntentExtension } = require('./guild-members-intent-extension.cjs');
+const { installCommunityIntentsExtension } = require('./community-intents-extension.cjs');
 const { installRoleMenuExtension } = require('./role-menu-extension.cjs');
 const { installPokemonGoExtension } = require('./pokemon-go-extension.cjs');
 const { installEventFeedExtension } = require('./event-feed-extension.cjs');
@@ -13,8 +14,10 @@ const { installStaffNameColorPreviewExtension } = require('./staff-name-color-pr
 const { installNexusStatusExtension } = require('./nexus-status-extension.cjs');
 const { installWelcomeExtension } = require('./welcome-extension.cjs');
 const { installGameServersExtension } = require('./game-servers-extension.cjs');
+const { installCommunityLevelingExtension } = require('./community-leveling-extension.cjs');
 
 installGuildMembersIntentExtension();
+installCommunityIntentsExtension();
 installRoleMenuExtension();
 installPokemonGoExtension();
 installEventFeedExtension();
@@ -27,4 +30,5 @@ installStaffNameColorPreviewExtension();
 installNexusStatusExtension();
 installWelcomeExtension();
 installGameServersExtension();
+installCommunityLevelingExtension();
 require('./bot.cjs');
