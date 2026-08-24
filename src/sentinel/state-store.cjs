@@ -10,6 +10,7 @@ function emptyState() {
     tempLobbies: {},
     accessRoles: {},
     roleMenu: null,
+    selfRoleMenus: {},
     adminSettings: { rankRoles: {}, rankSkus: {}, moduleEnabled: {} }
   };
 }
@@ -32,6 +33,7 @@ class StateStore {
     state.tempLobbies ||= {};
     state.accessRoles ||= {};
     state.roleMenu ??= null;
+    state.selfRoleMenus ||= {};
     state.adminSettings ||= {};
     state.adminSettings.rankRoles ||= {};
     state.adminSettings.rankSkus ||= {};
@@ -76,6 +78,15 @@ class StateStore {
   setRoleMenu(value) {
     const state = this.read();
     state.roleMenu = value;
+    this.write(state);
+    return value;
+  }
+
+  getSelfRoleMenu(menuId) { return this.read().selfRoleMenus?.[menuId] || null; }
+  listSelfRoleMenus() { return { ...this.read().selfRoleMenus }; }
+  setSelfRoleMenu(menuId, value) {
+    const state = this.read();
+    state.selfRoleMenus[menuId] = value;
     this.write(state);
     return value;
   }

@@ -4,6 +4,8 @@ const { Client, Events, MessageFlags } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { StateStore } = require('./state-store.cjs');
 const { RoleMenuManager, ACCESS_BUTTON_PREFIX } = require('./role-menu.cjs');
+const { SelfRoleManager } = require('./self-role-manager.cjs');
+const { SELF_ROLE_BUTTON_PREFIX, LEGACY_SELF_ROLE_BUTTON_PREFIX } = require('./self-role-model.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.moduleAccessRoles.extension');
 
@@ -45,24 +47,35 @@ function installRoleMenuExtension() {
 
   Client.prototype.login = function nexusRoleMenuLogin(...args) {
     const state = new StateStore();
-    const manager = installManageableRoleFallback(new RoleMenuManager({ client: this, state, config }), state);
+    const accessManager = installManageableRoleFallback(new RoleMenuManager({ client: this, state, config }), state);
+    const selfRoleManager = new SelfRoleManager({ client: this, state, config });
 
     const reconcile = async (reason) => {
       if (!guildId) return;
       try {
         const guild = await this.guilds.fetch(guildId);
-        const result = await manager.reconcile(guild);
-        if (result.skipped) {
-          console.warn(`[Nexus Sentinal] module access menu skipped (${reason}): ${result.reason}`);
+
+        const access = await accessManager.reconcile(guild);
+        if (access.skipped) {
+          console.warn(`[Nexus Sentinal] module access menu skipped (${reason}): ${access.reason}`);
         } else {
-          console.log(`[Nexus Sentinal] module access menu reconciled (${reason}): roles=${result.roles} messages=${result.messages} warnings=${result.warnings.length}`);
-          for (const warning of result.warnings || []) console.warn(`[Nexus Sentinal] module access warning (${reason}): ${warning}`);
+          console.log(`[Nexus Sentinal] module access menu reconciled (${reason}): roles=${access.roles} messages=${access.messages} warnings=${access.warnings.length}`);
+          for (const warning of access.warnings || []) console.warn(`[Nexus Sentinal] module access warning (${reason}): ${warning}`);
         }
-        const rules = await manager.removeRulesWebsiteLinks(guild);
+
+        const selfRoles = await selfRoleManager.reconcile(guild);
+        if (selfRoles.skipped) {
+          console.log(`[Nexus Sentinal] unified self-role menu skipped (${reason}): ${selfRoles.reason}`);
+        } else {
+          console.log(`[Nexus Sentinal] unified self-role menu reconciled (${reason}): menus=${selfRoles.menus} roles=${selfRoles.roles} messages=${selfRoles.messages} colorPriority=${selfRoles.colorPriorityChanges} reactionsCleared=${selfRoles.reactionsCleared} legacyButtonsRetired=${selfRoles.buttonsRetired} warnings=${selfRoles.warnings.length}`);
+        }
+        for (const warning of selfRoles.warnings || []) console.warn(`[Nexus Sentinal] self-role warning (${reason}): ${warning}`);
+
+        const rules = await accessManager.removeRulesWebsiteLinks(guild);
         if (rules.skipped) console.warn(`[Nexus Sentinal] rules website cleanup skipped (${reason}): ${rules.reason}`);
         else if (rules.edited || rules.deleted) console.log(`[Nexus Sentinal] rules website cleanup (${reason}): edited=${rules.edited} deleted=${rules.deleted}`);
       } catch (error) {
-        console.error(`[Nexus Sentinal] module access reconciliation (${reason}):`, error);
+        console.error(`[Nexus Sentinal] role reconciliation (${reason}):`, error);
       }
     };
 
@@ -74,16 +87,22 @@ function installRoleMenuExtension() {
     this.on(Events.GuildRoleDelete, () => void reconcile('role-delete'));
     this.on(Events.ChannelDelete, () => void reconcile('channel-delete'));
     this.on(Events.InteractionCreate, async (interaction) => {
-      if (!interaction.isButton?.() || !String(interaction.customId || '').startsWith(ACCESS_BUTTON_PREFIX)) return;
+      if (!interaction.isButton?.()) return;
+      const customId = String(interaction.customId || '');
+      const isAccessButton = customId.startsWith(ACCESS_BUTTON_PREFIX);
+      const isSelfRoleButton = customId.startsWith(SELF_ROLE_BUTTON_PREFIX) || customId.startsWith(LEGACY_SELF_ROLE_BUTTON_PREFIX);
+      if (!isAccessButton && !isSelfRoleButton) return;
+
       try {
-        await manager.handleButton(interaction);
+        if (isAccessButton) await accessManager.handleButton(interaction);
+        else await selfRoleManager.handleButton(interaction);
       } catch (error) {
         const content = `⚠️ ${String(error?.message || error)}`.slice(0, 1900);
         try {
           if (interaction.deferred || interaction.replied) await interaction.editReply({ content, components: [], embeds: [] });
           else await interaction.reply({ content, flags: MessageFlags.Ephemeral });
         } catch (replyError) {
-          console.error('[Nexus Sentinal] module access role interaction error:', replyError);
+          console.error('[Nexus Sentinal] self-role interaction error:', replyError);
         }
       }
     });
