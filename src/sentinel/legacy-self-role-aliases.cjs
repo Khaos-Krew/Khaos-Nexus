@@ -42,8 +42,47 @@ const EXPLICIT_ALIASES = Object.freeze({
   })
 });
 
+function valuesOf(collection) {
+  if (!collection) return [];
+  if (Array.isArray(collection)) return collection;
+  if (typeof collection.values === 'function') return [...collection.values()];
+  return Object.values(collection);
+}
+
 function isLegacyRoleMenuTitle(title) {
   return LEGACY_ROLE_MENU_TITLE_KEYS.has(normalizedName(title));
+}
+
+function messageTitle(message) {
+  return String(message?.embeds?.find?.((embed) => embed?.title)?.title || message?.content || '').trim();
+}
+
+function messageHasButtons(message) {
+  return (message?.components || []).some((rowSource) => {
+    const row = typeof rowSource?.toJSON === 'function' ? rowSource.toJSON() : rowSource;
+    return (row?.components || []).some((itemSource) => {
+      const item = typeof itemSource?.toJSON === 'function' ? itemSource.toJSON() : itemSource;
+      return Number(item?.type) === 2;
+    });
+  });
+}
+
+function messageText(message) {
+  const parts = [String(message?.content || '')];
+  for (const embed of message?.embeds || []) {
+    parts.push(String(embed?.title || ''), String(embed?.description || ''), String(embed?.footer?.text || ''));
+    for (const field of embed?.fields || []) parts.push(String(field?.name || ''), String(field?.value || ''));
+  }
+  return parts.join('\n');
+}
+
+function shouldInspectLegacyRoleMessage(message) {
+  if (messageHasButtons(message)) return isLegacyRoleMenuTitle(messageTitle(message));
+  const text = messageText(message);
+  if (!text.trim()) return false;
+  const hasRoleMention = /<@&\d{5,25}>/.test(text);
+  const hasRoleLanguage = /\b(role|roles|self[\s-]?roles?|name\s*(?:color|colour)|colors?|colours?|platforms?|pronouns?|notifications?|game\s*(?:role|roles|access))\b/i.test(text);
+  return (Boolean(message?.author?.bot) || hasRoleMention) && (hasRoleMention || hasRoleLanguage);
 }
 
 function canonicalLegacyRoleName(menuTitle, label) {
@@ -67,10 +106,35 @@ function resolveLegacyRole(menuTitle, label, roles = []) {
     : { role: null, source: 'alias-unresolved', target };
 }
 
+function augmentedRolesForLegacyMenu(menuTitle, labels = [], roles = []) {
+  const original = valuesOf(roles);
+  const augmented = [...original];
+  const usedIds = new Set();
+  for (const label of labels) {
+    const resolved = resolveLegacyRole(menuTitle, label, original);
+    if (!resolved.role || resolved.source !== 'alias') continue;
+    const key = `${resolved.role.id}:${normalizedName(label)}`;
+    if (usedIds.has(key)) continue;
+    usedIds.add(key);
+    augmented.push({
+      ...resolved.role,
+      name: String(label || '').trim(),
+      __nexusLegacyAlias: resolved.target
+    });
+  }
+  return augmented;
+}
+
 module.exports = {
   LEGACY_ROLE_MENU_TITLES,
   EXPLICIT_ALIASES,
+  valuesOf,
   isLegacyRoleMenuTitle,
+  messageTitle,
+  messageHasButtons,
+  messageText,
+  shouldInspectLegacyRoleMessage,
   canonicalLegacyRoleName,
-  resolveLegacyRole
+  resolveLegacyRole,
+  augmentedRolesForLegacyMenu
 };
