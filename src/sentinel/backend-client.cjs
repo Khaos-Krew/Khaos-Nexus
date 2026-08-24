@@ -26,6 +26,7 @@ class BackendClient {
   configureModules(enabled) { return this.request('/v1/admin/modules', { method: 'POST', body: JSON.stringify({ enabled: enabled || {} }) }); }
   configureProviders(modules) { return this.request('/v1/admin/providers', { method: 'POST', body: JSON.stringify({ modules: modules || {} }) }); }
   validateProviders(moduleId = '') { return this.request('/v1/providers/validate', { method: 'POST', body: JSON.stringify({ moduleId }) }); }
+  arkTamingSpecies() { return this.request('/v1/ark/taming/species'); }
   invoke(moduleId, actionId, payload, context = {}) {
     return this.request(`/v1/modules/${encodeURIComponent(moduleId)}/actions/${encodeURIComponent(actionId)}`, {
       method: 'POST',
