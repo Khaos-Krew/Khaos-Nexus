@@ -47,12 +47,17 @@ async function migrateDuplicateRole(guild, decision, options = {}) {
     result.warning = `${decision.label}: one of the approved platform roles is not manageable by Sentinal; duplicate was left untouched.`;
     return result;
   }
-
-  try {
-    if (guild.members?.fetch) await guild.members.fetch();
-  } catch (error) {
-    result.warning = `${decision.label}: member inventory could not be loaded before role migration (${String(error?.message || error)}); duplicate was left untouched.`;
+  if (options.memberInventoryReady === false) {
+    result.warning = `${decision.label}: member inventory could not be loaded before role migration; duplicate was left untouched.`;
     return result;
+  }
+  if (options.memberInventoryReady !== true) {
+    try {
+      if (guild.members?.fetch) await guild.members.fetch();
+    } catch (error) {
+      result.warning = `${decision.label}: member inventory could not be loaded before role migration (${String(error?.message || error)}); duplicate was left untouched.`;
+      return result;
+    }
   }
 
   const members = valuesOf(duplicate.members);
@@ -88,9 +93,19 @@ async function migrateDuplicateRole(guild, decision, options = {}) {
 
 async function reconcileOwnerApprovedRoles(guild, options = {}) {
   const roles = await guild.roles.fetch();
+  const hasDuplicates = PLATFORM_ROLE_MIGRATIONS.some((decision) => roleById(roles, decision.duplicateRoleId));
+  let memberInventoryReady = true;
+  if (hasDuplicates && guild.members?.fetch) {
+    try { await guild.members.fetch(); }
+    catch (error) {
+      memberInventoryReady = false;
+      options.logger?.warn?.(`[Nexus Sentinal] owner-approved platform migration could not load guild members: ${String(error?.message || error)}`);
+    }
+  }
+
   const results = [];
   for (const decision of PLATFORM_ROLE_MIGRATIONS) {
-    results.push(await migrateDuplicateRole(guild, decision, { ...options, roles }));
+    results.push(await migrateDuplicateRole(guild, decision, { ...options, roles, memberInventoryReady }));
   }
   return {
     results,
