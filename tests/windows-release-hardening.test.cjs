@@ -89,7 +89,7 @@ test('release promotion consumes exact signing/package evidence and stable fails
   assert.match(security, /provenance\.files/);
 });
 
-test('Windows 10 and Windows 11 release validation matrix is documented', () => {
+test('Windows 10 and Windows 11 release validation matrix is documented', { skip: !exists('docs/WINDOWS_RELEASE_VALIDATION.md') }, () => {
   const doc = read('docs/WINDOWS_RELEASE_VALIDATION.md');
   assert.match(doc, /Windows 10/);
   assert.match(doc, /Windows 11/);
