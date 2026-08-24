@@ -29,6 +29,19 @@ const ROADMAP_PATCH_NOTES = Object.freeze([
       'Retired legacy reaction-role ambiguity and obsolete self-role interfaces after replacement validation.',
       'Kept module access healthy while protecting moderation hierarchy and exclusive name-color behavior.'
     ])
+  }),
+  Object.freeze({
+    key: 'nexus-service-status:100',
+    section: 'Nexus Service Status',
+    percent: 100,
+    title: 'Nexus Service Status Complete',
+    summary: 'The INFORMATION service-status section now provides a persistent live view of the core Nexus Discord services.',
+    highlights: Object.freeze([
+      'Added Nexus Sentinal Discord gateway and backend health to the Nexus Status panel.',
+      'Added Veyra — Lore Master API and Discord gateway health to the same panel.',
+      'The status message is pinned, refreshed automatically, and reused instead of posting duplicates.',
+      'Status reconciliation self-heals the managed panel and reports degraded or offline components independently.'
+    ])
   })
 ]);
 
