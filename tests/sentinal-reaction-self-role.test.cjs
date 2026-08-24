@@ -11,11 +11,11 @@ function reaction(name, id = null) {
   return { emoji: { name, id, animated: false } };
 }
 
-function message({ title = 'Choose Your Roles', description, reactions, id = '777777777777777777' }) {
+function message({ title = 'Choose Your Roles', description, reactions, id = '777777777777777777', bot = true }) {
   return {
     id,
     channelId: '888888888888888888',
-    author: { id: '999999999999999999', bot: true },
+    author: { id: '999999999999999999', bot },
     content: '',
     embeds: [{ title, description }],
     reactions: { cache: new Map(reactions.map((item, index) => [String(index), item])) }
@@ -80,4 +80,25 @@ test('does not import a partially mapped reaction menu', () => {
   assert.equal(parsed.menu, null);
   assert.equal(parsed.mapped, 1);
   assert.deepEqual(parsed.unmatched, ['🎮']);
+});
+
+test('ordinary bot reaction polls are not treated as legacy role menus', () => {
+  const source = message({
+    title: '🧪 Testing Needed • Khaos Nexus 0.41.2',
+    description: 'React with ✅ if the build works or ❌ if it fails.',
+    reactions: [reaction('✅'), reaction('❌')]
+  });
+  assert.equal(reactionMenuLooksRelevant(source), false);
+  assert.deepEqual(parseReactionRoleMenu(source, []), { menu: null, candidate: false, mapped: 0, unmatched: [] });
+});
+
+test('explicit role mentions can be considered even when a legacy message is not bot-authored', () => {
+  const roles = [{ id: '111111111111111111', name: 'PC', color: 0, hexColor: '#000000' }];
+  const source = message({
+    description: '💻 <@&111111111111111111>',
+    reactions: [reaction('💻')],
+    bot: false
+  });
+  assert.equal(reactionMenuLooksRelevant(source), true);
+  assert.ok(parseReactionRoleMenu(source, roles).menu);
 });
