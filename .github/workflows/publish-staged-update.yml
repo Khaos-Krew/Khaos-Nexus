@@ -3,12 +3,16 @@ name: Publish Nexus Staged Update
 on:
   workflow_dispatch:
     inputs:
+      source_run_id:
+        description: 'Successful Nexus Rebuild CI push run ID from rebuild/nexus-0.1'
+        required: true
+        type: string
       tag:
-        description: 'Release tag, for example v0.1.1-owner-test'
+        description: 'Release tag, for example v0.1.0-owner-test.1'
         required: true
         type: string
       channel:
-        description: 'Updater channel'
+        description: 'Updater channel; must match the validated artifact manifest'
         required: true
         default: owner-test
         type: choice
@@ -21,86 +25,188 @@ on:
         type: string
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
-  publish:
+  promote:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - run: npm install --no-audit --no-fund
-      - run: npm run check
-      - run: npm test
-      - shell: pwsh
-        run: |
-          foreach ($script in @('src/updater/apply-update.ps1', 'scripts/build-update-bundle.ps1')) {
-            $tokens = $null
-            $errors = $null
-            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $script), [ref]$tokens, [ref]$errors) | Out-Null
-            if ($errors.Count -gt 0) {
-              $errors | ForEach-Object { Write-Error $_.Message }
-              throw "PowerShell syntax validation failed for $script"
-            }
-          }
-      - run: npm run dist:win
-      - shell: pwsh
+      - name: Validate source CI run and artifact
+        id: source
+        shell: pwsh
         env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:SOURCE_RUN_ID -notmatch '^\d+$') { throw 'source_run_id must be a numeric GitHub Actions run ID.' }
+
+          $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:SOURCE_RUN_ID" | ConvertFrom-Json
+          if ([string]$run.name -ne 'Nexus Rebuild CI') { throw "Source run is '$($run.name)', not Nexus Rebuild CI." }
+          if ([string]$run.conclusion -ne 'success') { throw "Source CI run conclusion is '$($run.conclusion)', not success." }
+          if ([string]$run.event -ne 'push') { throw "Source CI run must be a push run, not '$($run.event)'." }
+          if ([string]$run.head_branch -ne 'rebuild/nexus-0.1') { throw "Source CI run must come from rebuild/nexus-0.1, not '$($run.head_branch)'." }
+          if ([string]$run.head_sha -notmatch '^[0-9a-fA-F]{40}$') { throw 'Source CI run does not expose a valid 40-character commit SHA.' }
+
+          $artifacts = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:SOURCE_RUN_ID/artifacts" | ConvertFrom-Json
+          $matches = @($artifacts.artifacts | Where-Object { $_.name -eq 'khaos-nexus-0.1-windows' })
+          if ($matches.Count -ne 1) { throw "Expected exactly one khaos-nexus-0.1-windows artifact; found $($matches.Count)." }
+          $artifact = $matches[0]
+          if ($artifact.expired -eq $true) { throw 'The validated Windows artifact has expired. Run Nexus Rebuild CI again.' }
+
+          "head_sha=$($run.head_sha)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "run_url=$($run.html_url)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "artifact_id=$($artifact.id)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "artifact_digest=$([string]$artifact.digest)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Download exact validated Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: khaos-nexus-0.1-windows
+          path: dist
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run_id }}
+
+      - name: Verify artifact provenance and payload
+        id: verify
+        shell: pwsh
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_RUN_URL: ${{ steps.source.outputs.run_url }}
+          SOURCE_HEAD_SHA: ${{ steps.source.outputs.head_sha }}
+          SOURCE_ARTIFACT_ID: ${{ steps.source.outputs.artifact_id }}
+          SOURCE_ARTIFACT_DIGEST: ${{ steps.source.outputs.artifact_digest }}
           RELEASE_TAG: ${{ inputs.tag }}
           UPDATE_CHANNEL: ${{ inputs.channel }}
         run: |
-          $pkg = Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json
-          $version = [string]$pkg.version
+          $ErrorActionPreference = 'Stop'
+
+          function Get-Sha256Hex {
+            param([Parameter(Mandatory = $true)][string]$Path)
+            $stream = [System.IO.File]::OpenRead((Resolve-Path -LiteralPath $Path))
+            try {
+              $sha = [System.Security.Cryptography.SHA256]::Create()
+              try { return ([System.BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToLowerInvariant() }
+              finally { $sha.Dispose() }
+            }
+            finally { $stream.Dispose() }
+          }
+
+          $manifestPath = 'dist/nexus-update-manifest.json'
+          if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw 'Validated artifact is missing nexus-update-manifest.json.' }
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          $version = [string]$manifest.version
+          if (-not $version) { throw 'Validated update manifest has no version.' }
+          if ([string]$manifest.product -ne 'khaos-nexus') { throw "Unexpected update product '$($manifest.product)'." }
+          if ([string]$manifest.channel -ne $env:UPDATE_CHANNEL) {
+            throw "Requested channel '$env:UPDATE_CHANNEL' does not match validated artifact channel '$($manifest.channel)'. Stable publication requires a separately validated stable-channel artifact."
+          }
+          if ([string]$manifest.commitSha -ne $env:SOURCE_HEAD_SHA) {
+            throw "Manifest commit '$($manifest.commitSha)' does not match source CI commit '$env:SOURCE_HEAD_SHA'."
+          }
           if ($env:RELEASE_TAG -notmatch [regex]::Escape($version)) {
-            throw "Release tag '$env:RELEASE_TAG' must include package version '$version'."
+            throw "Release tag '$env:RELEASE_TAG' must include validated package version '$version'."
           }
-          ./scripts/build-update-bundle.ps1 -DistDir dist -Channel $env:UPDATE_CHANNEL
-          $manifest = Get-Content -LiteralPath dist/nexus-update-manifest.json -Raw | ConvertFrom-Json
-          $zip = Join-Path dist $manifest.package.name
-          $stream = [System.IO.File]::OpenRead((Resolve-Path $zip))
-          try {
-            $sha = [System.Security.Cryptography.SHA256]::Create()
-            try { $hash = ([System.BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToLowerInvariant() }
-            finally { $sha.Dispose() }
+          if ($manifest.installerRequired -ne $false) { throw 'Validated staged update unexpectedly requires an installer.' }
+
+          $updatePath = Join-Path 'dist' ([string]$manifest.package.name)
+          $installerPath = Join-Path 'dist' "Khaos-Nexus-$version-Setup.exe"
+          if (-not (Test-Path -LiteralPath $updatePath -PathType Leaf)) { throw "Validated update package missing: $updatePath" }
+          if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) { throw "Validated installer missing: $installerPath" }
+
+          $updateHash = Get-Sha256Hex -Path $updatePath
+          if ($updateHash -ne [string]$manifest.package.sha256) { throw 'Validated update package SHA-256 does not match its manifest.' }
+          $installerHash = Get-Sha256Hex -Path $installerPath
+          $manifestHash = Get-Sha256Hex -Path $manifestPath
+
+          $probe = Join-Path $env:RUNNER_TEMP 'nexus-promoted-update-probe'
+          Remove-Item -LiteralPath $probe -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive -LiteralPath $updatePath -DestinationPath $probe -Force
+          if (-not (Test-Path -LiteralPath (Join-Path $probe 'Khaos Nexus.exe'))) { throw 'Validated update payload is missing Khaos Nexus.exe.' }
+          if (-not (Test-Path -LiteralPath (Join-Path $probe 'resources/app.asar'))) { throw 'Validated update payload is missing resources/app.asar.' }
+
+          $provenance = [ordered]@{
+            schemaVersion = 1
+            product = 'khaos-nexus'
+            version = $version
+            channel = [string]$manifest.channel
+            source = [ordered]@{
+              workflow = 'Nexus Rebuild CI'
+              runId = [string]$env:SOURCE_RUN_ID
+              runUrl = [string]$env:SOURCE_RUN_URL
+              commitSha = [string]$env:SOURCE_HEAD_SHA
+              branch = 'rebuild/nexus-0.1'
+              artifactName = 'khaos-nexus-0.1-windows'
+              artifactId = [string]$env:SOURCE_ARTIFACT_ID
+              artifactDigest = [string]$env:SOURCE_ARTIFACT_DIGEST
+            }
+            files = @(
+              [ordered]@{ name = [IO.Path]::GetFileName($installerPath); sha256 = $installerHash; size = (Get-Item -LiteralPath $installerPath).Length },
+              [ordered]@{ name = [IO.Path]::GetFileName($updatePath); sha256 = $updateHash; size = (Get-Item -LiteralPath $updatePath).Length },
+              [ordered]@{ name = [IO.Path]::GetFileName($manifestPath); sha256 = $manifestHash; size = (Get-Item -LiteralPath $manifestPath).Length }
+            )
+            promotedAt = [DateTime]::UtcNow.ToString('o')
           }
-          finally { $stream.Dispose() }
-          if ($hash -ne $manifest.package.sha256) { throw 'Update bundle hash verification failed before publish.' }
-      - name: Publish owner-test release
+          $provenancePath = 'dist/nexus-release-provenance.json'
+          $provenance | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $provenancePath -Encoding UTF8
+          $provenanceHash = Get-Sha256Hex -Path $provenancePath
+
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "update_path=$updatePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "installer_path=$installerPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "provenance_path=$provenancePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "provenance_sha256=$provenanceHash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+          Write-Host "Validated source CI run: $env:SOURCE_RUN_ID"
+          Write-Host "Validated source commit: $env:SOURCE_HEAD_SHA"
+          Write-Host "Validated update SHA-256: $updateHash"
+          Write-Host "Validated installer SHA-256: $installerHash"
+          Write-Host "Promotion provenance SHA-256: $provenanceHash"
+
+      - name: Publish owner-test release from validated artifacts
         if: ${{ inputs.channel == 'owner-test' }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_TITLE: ${{ inputs.title }}
+          VERSION: ${{ steps.verify.outputs.version }}
+          INSTALLER_PATH: ${{ steps.verify.outputs.installer_path }}
+          UPDATE_PATH: ${{ steps.verify.outputs.update_path }}
+          PROVENANCE_PATH: ${{ steps.verify.outputs.provenance_path }}
+          SOURCE_RUN_URL: ${{ steps.source.outputs.run_url }}
+          SOURCE_HEAD_SHA: ${{ steps.source.outputs.head_sha }}
         run: |
-          $pkg = Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json
-          $version = [string]$pkg.version
-          $title = if ($env:RELEASE_TITLE) { $env:RELEASE_TITLE } else { "Khaos Nexus $version Owner Test" }
-          $zip = "dist/Khaos-Nexus-$version-update.zip"
+          $title = if ($env:RELEASE_TITLE) { $env:RELEASE_TITLE } else { "Khaos Nexus $env:VERSION Owner Test" }
           gh release create $env:RELEASE_TAG `
-            "dist/Khaos-Nexus-$version-Setup.exe" `
-            $zip `
-            "dist/nexus-update-manifest.json" `
+            $env:INSTALLER_PATH `
+            $env:UPDATE_PATH `
+            'dist/nexus-update-manifest.json' `
+            $env:PROVENANCE_PATH `
             --title $title `
-            --notes "Owner-test staged update for Khaos Nexus $version. The in-app updater uses the ZIP + manifest; the installer is retained only for first install or recovery." `
+            --notes "Owner-test staged update for Khaos Nexus $env:VERSION. Promoted without rebuilding from validated Nexus Rebuild CI commit $env:SOURCE_HEAD_SHA ($env:SOURCE_RUN_URL). The in-app updater uses the ZIP + manifest; the installer is retained only for first install or recovery." `
             --prerelease
-      - name: Publish stable release
+
+      - name: Publish stable release from validated artifacts
         if: ${{ inputs.channel == 'stable' }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_TITLE: ${{ inputs.title }}
+          VERSION: ${{ steps.verify.outputs.version }}
+          INSTALLER_PATH: ${{ steps.verify.outputs.installer_path }}
+          UPDATE_PATH: ${{ steps.verify.outputs.update_path }}
+          PROVENANCE_PATH: ${{ steps.verify.outputs.provenance_path }}
+          SOURCE_RUN_URL: ${{ steps.source.outputs.run_url }}
+          SOURCE_HEAD_SHA: ${{ steps.source.outputs.head_sha }}
         run: |
-          $pkg = Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json
-          $version = [string]$pkg.version
-          $title = if ($env:RELEASE_TITLE) { $env:RELEASE_TITLE } else { "Khaos Nexus $version" }
-          $zip = "dist/Khaos-Nexus-$version-update.zip"
+          $title = if ($env:RELEASE_TITLE) { $env:RELEASE_TITLE } else { "Khaos Nexus $env:VERSION" }
           gh release create $env:RELEASE_TAG `
-            "dist/Khaos-Nexus-$version-Setup.exe" `
-            $zip `
-            "dist/nexus-update-manifest.json" `
+            $env:INSTALLER_PATH `
+            $env:UPDATE_PATH `
+            'dist/nexus-update-manifest.json' `
+            $env:PROVENANCE_PATH `
             --title $title `
-            --notes "Stable staged update for Khaos Nexus $version. The in-app updater uses the ZIP + manifest; the installer is retained only for first install or recovery."
+            --notes "Stable staged update for Khaos Nexus $env:VERSION. Promoted without rebuilding from validated Nexus Rebuild CI commit $env:SOURCE_HEAD_SHA ($env:SOURCE_RUN_URL). The in-app updater uses the ZIP + manifest; the installer is retained only for first install or recovery."
