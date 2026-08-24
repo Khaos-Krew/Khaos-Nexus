@@ -5,6 +5,8 @@ const assert = require('node:assert/strict');
 const {
   findExistingSwatch,
   solidColorPng,
+  applicationEmojiManager,
+  isGeneratedGuildSwatch,
   ensureColorSwatches
 } = require('../src/sentinel/color-swatch-emojis.cjs');
 
@@ -24,18 +26,23 @@ test('solidColorPng creates a valid PNG payload', () => {
   assert.ok(png.length > 70);
 });
 
-test('creates a missing swatch and attaches it to a recovered color menu', async () => {
+test('uses the Sentinal application emoji manager instead of guild emoji capacity', () => {
+  const appManager = { fetch() {}, create() {} };
+  const guild = { client: { application: { emojis: appManager } } };
+  assert.equal(applicationEmojiManager(guild), appManager);
+});
+
+test('creates a missing application swatch and attaches it to a recovered color menu', async () => {
   const created = [];
-  const guild = {
-    emojis: {
-      fetch: async () => new Map(),
-      create: async (input) => {
-        assert.ok(Buffer.isBuffer(input.attachment));
-        created.push(input.name);
-        return { id: '444444444444444444', name: input.name, animated: false };
-      }
+  const appManager = {
+    fetch: async () => new Map(),
+    create: async (input) => {
+      assert.ok(Buffer.isBuffer(input.attachment));
+      created.push(input.name);
+      return { id: '444444444444444444', name: input.name, animated: false };
     }
   };
+  const guild = { client: { application: { emojis: appManager } } };
   const menu = {
     id: 'colors',
     kind: 'colors',
@@ -45,7 +52,51 @@ test('creates a missing swatch and attaches it to a recovered color menu', async
   };
   const result = await ensureColorSwatches(menu, guild, { logger: { warn() {} } });
   assert.equal(result.created, 1);
+  assert.equal(result.cleaned, 0);
   assert.equal(result.missing.length, 0);
   assert.equal(result.menu.options[0].emojiId, '444444444444444444');
   assert.equal(created[0], 'nexus_color_crimson');
+});
+
+test('replaces a temporary guild swatch with an application swatch and frees the guild slot', async () => {
+  let deleted = 0;
+  const guildEmoji = {
+    id: '555555555555555555',
+    name: 'nexus_color_cyan',
+    delete: async () => { deleted += 1; }
+  };
+  const appManager = {
+    fetch: async () => new Map([['666666666666666666', {
+      id: '666666666666666666',
+      name: 'nexus_color_cyan',
+      animated: false
+    }]]),
+    create: async () => { throw new Error('should reuse existing application swatch'); }
+  };
+  const guild = {
+    client: { application: { emojis: appManager } },
+    emojis: { cache: new Map([[guildEmoji.id, guildEmoji]]) }
+  };
+  const menu = {
+    id: 'colors',
+    kind: 'colors',
+    name: 'Name Colors',
+    title: 'Name Colors',
+    options: [{
+      id: 'cyan',
+      label: 'Cyan',
+      roleId: '111111111111111111',
+      color: '#00bcd4',
+      emoji: { id: guildEmoji.id, name: guildEmoji.name }
+    }]
+  };
+
+  assert.equal(isGeneratedGuildSwatch({ emojiId: guildEmoji.id, emoji: guildEmoji.name }), true);
+  const result = await ensureColorSwatches(menu, guild, { logger: { warn() {} } });
+  assert.equal(result.matched, 1);
+  assert.equal(result.created, 0);
+  assert.equal(result.cleaned, 1);
+  assert.equal(result.missing.length, 0);
+  assert.equal(result.menu.options[0].emojiId, '666666666666666666');
+  assert.equal(deleted, 1);
 });
