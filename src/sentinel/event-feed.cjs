@@ -161,28 +161,38 @@ class EventFeedPublisher {
 
   async publishAction(definition, channel, actionId) {
     const key = `${definition.moduleId}:${definition.channelName}:${actionId}`;
-    if (this.running.has(key)) return;
+    if (this.running.has(key)) return null;
     this.running.add(key);
+    const firstRecovery = !this.recovered.has(key);
     try {
       const result = await this.backend.invoke(definition.moduleId, actionId, {}, {
         role:'viewer', actorId:'sentinal-event-feed', confirmed:false
       }).catch((error) => ({ ok:false, code:'FEED_ERROR', message:String(error?.message || error) }));
       const payload = feedPayload(definition.moduleId, actionId, result);
-      if (!payload) return;
+      if (!payload) {
+        if (firstRecovery) this.logger.warn?.(`[Nexus Sentinal Feed] reconcile ${key}: unavailable code=${String(result?.code || 'NOT_OK')} message=${String(result?.message || '').slice(0, 240)}`);
+        return { key, status:'unavailable', messageId:'', source:'none', duplicatesRemoved:0 };
+      }
       const fingerprint = digest({ renderVersion:FEED_RENDER_VERSION, actionId, ok:result.ok, data:result.data, code:result.code });
       const saved = this.feedState.get(key);
       let message = null;
+      let source = 'none';
 
       if (saved?.messageId && saved.channelId === String(channel.id)) {
-        try { message = await channel.messages.fetch(String(saved.messageId)); }
-        catch { message = null; }
+        try {
+          message = await channel.messages.fetch(String(saved.messageId));
+          if (message) source = 'state';
+        } catch { message = null; }
       }
 
       let duplicatesRemoved = 0;
-      if (!this.recovered.has(key)) {
+      if (firstRecovery) {
         const candidates = await discoverFeedMessages(channel, definition.moduleId, actionId, this.client?.user?.id);
         const canonical = newestMessage(candidates);
-        if (canonical) message = canonical;
+        if (canonical) {
+          message = canonical;
+          source = 'discord';
+        }
         if (message) duplicatesRemoved = await deleteFeedDuplicates(candidates, message, this.logger);
         this.recovered.add(key);
       }
@@ -194,10 +204,20 @@ class EventFeedPublisher {
         && saved?.channelId === String(channel.id)
         && saved?.messageId === String(message.id)
       );
-      if (unchanged && !duplicatesRemoved) return;
+      if (unchanged && !duplicatesRemoved) {
+        if (firstRecovery) this.logger.log?.(`[Nexus Sentinal Feed] reconcile ${key}: status=reused source=${source} message=${message.id} duplicatesRemoved=0`);
+        return { key, status:'reused', messageId:String(message.id), source, duplicatesRemoved:0 };
+      }
 
-      if (message) await message.edit(payload);
-      else message = await channel.send(payload);
+      let status;
+      if (message) {
+        await message.edit(payload);
+        status = 'updated';
+      } else {
+        message = await channel.send(payload);
+        source = 'new';
+        status = 'created';
+      }
 
       this.feedState.set(key, {
         moduleId:definition.moduleId,
@@ -209,9 +229,11 @@ class EventFeedPublisher {
         renderVersion:FEED_RENDER_VERSION,
         updatedAt:new Date().toISOString()
       });
-      if (duplicatesRemoved) this.logger.log?.(`[Nexus Sentinal Feed] ${key}: reused ${message.id}; removed ${duplicatesRemoved} duplicate(s).`);
+      if (firstRecovery) this.logger.log?.(`[Nexus Sentinal Feed] reconcile ${key}: status=${status} source=${source} message=${message.id} duplicatesRemoved=${duplicatesRemoved}`);
+      return { key, status, messageId:String(message.id), source, duplicatesRemoved };
     } catch (error) {
       this.logger.error?.(`[Nexus Sentinal Feed] ${key}:`, String(error?.message || error));
+      return { key, status:'error', messageId:'', source:'none', duplicatesRemoved:0, error:String(error?.message || error) };
     } finally { this.running.delete(key); }
   }
 
