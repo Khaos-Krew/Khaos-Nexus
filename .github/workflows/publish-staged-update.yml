@@ -68,7 +68,7 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ inputs.source_run_id }}
 
-      - name: Verify artifact provenance and payload
+      - name: Verify artifact provenance, smoke evidence, and payload
         id: verify
         shell: pwsh
         env:
@@ -94,8 +94,11 @@ jobs:
           }
 
           $manifestPath = 'dist/nexus-update-manifest.json'
+          $smokePath = 'dist/nexus-windows-smoke-report.json'
           if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw 'Validated artifact is missing nexus-update-manifest.json.' }
+          if (-not (Test-Path -LiteralPath $smokePath -PathType Leaf)) { throw 'Validated artifact is missing nexus-windows-smoke-report.json.' }
           $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          $smoke = Get-Content -LiteralPath $smokePath -Raw | ConvertFrom-Json
           $version = [string]$manifest.version
           if (-not $version) { throw 'Validated update manifest has no version.' }
           if ([string]$manifest.product -ne 'khaos-nexus') { throw "Unexpected update product '$($manifest.product)'." }
@@ -110,6 +113,12 @@ jobs:
           }
           if ($manifest.installerRequired -ne $false) { throw 'Validated staged update unexpectedly requires an installer.' }
 
+          if ([string]$smoke.product -ne 'khaos-nexus' -or [string]$smoke.version -ne $version) { throw 'Windows smoke evidence identity does not match the validated manifest.' }
+          if ($smoke.cleanInstall.ok -ne $true -or $smoke.cleanInstall.packaged -ne $true -or $smoke.cleanInstall.backendHealthy -ne $true) { throw 'Validated Windows artifact did not pass clean-install packaged startup.' }
+          if ($smoke.stagedUpgrade.ok -ne $true -or $smoke.stagedUpgrade.packaged -ne $true -or $smoke.stagedUpgrade.backendHealthy -ne $true) { throw 'Validated Windows artifact did not pass staged-upgrade packaged startup.' }
+          if ($smoke.stagedUpgrade.postUpdateConfirmed -ne $true -or [string]$smoke.stagedUpgrade.resultStatus -ne 'success') { throw 'Validated Windows artifact did not pass post-update health confirmation.' }
+          if ($smoke.payload.matches -ne $true -or [string]$smoke.payload.installedAsarSha256 -ne [string]$smoke.payload.stagedAsarSha256) { throw 'Windows smoke evidence does not prove the installed payload matches the staged app.asar.' }
+
           $updatePath = Join-Path 'dist' ([string]$manifest.package.name)
           $installerPath = Join-Path 'dist' "Khaos-Nexus-$version-Setup.exe"
           if (-not (Test-Path -LiteralPath $updatePath -PathType Leaf)) { throw "Validated update package missing: $updatePath" }
@@ -119,6 +128,7 @@ jobs:
           if ($updateHash -ne [string]$manifest.package.sha256) { throw 'Validated update package SHA-256 does not match its manifest.' }
           $installerHash = Get-Sha256Hex -Path $installerPath
           $manifestHash = Get-Sha256Hex -Path $manifestPath
+          $smokeHash = Get-Sha256Hex -Path $smokePath
 
           $probe = Join-Path $env:RUNNER_TEMP 'nexus-promoted-update-probe'
           Remove-Item -LiteralPath $probe -Recurse -Force -ErrorAction SilentlyContinue
@@ -141,10 +151,18 @@ jobs:
               artifactId = [string]$env:SOURCE_ARTIFACT_ID
               artifactDigest = [string]$env:SOURCE_ARTIFACT_DIGEST
             }
+            validation = [ordered]@{
+              cleanInstall = 'passed'
+              packagedStartup = 'passed'
+              stagedUpgrade = 'passed'
+              postUpdateConfirmation = 'passed'
+              payloadMatch = 'passed'
+            }
             files = @(
               [ordered]@{ name = [IO.Path]::GetFileName($installerPath); sha256 = $installerHash; size = (Get-Item -LiteralPath $installerPath).Length },
               [ordered]@{ name = [IO.Path]::GetFileName($updatePath); sha256 = $updateHash; size = (Get-Item -LiteralPath $updatePath).Length },
-              [ordered]@{ name = [IO.Path]::GetFileName($manifestPath); sha256 = $manifestHash; size = (Get-Item -LiteralPath $manifestPath).Length }
+              [ordered]@{ name = [IO.Path]::GetFileName($manifestPath); sha256 = $manifestHash; size = (Get-Item -LiteralPath $manifestPath).Length },
+              [ordered]@{ name = [IO.Path]::GetFileName($smokePath); sha256 = $smokeHash; size = (Get-Item -LiteralPath $smokePath).Length }
             )
             promotedAt = [DateTime]::UtcNow.ToString('o')
           }
@@ -155,6 +173,7 @@ jobs:
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "update_path=$updatePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "installer_path=$installerPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "smoke_path=$smokePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "provenance_path=$provenancePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "provenance_sha256=$provenanceHash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
@@ -162,6 +181,7 @@ jobs:
           Write-Host "Validated source commit: $env:SOURCE_HEAD_SHA"
           Write-Host "Validated update SHA-256: $updateHash"
           Write-Host "Validated installer SHA-256: $installerHash"
+          Write-Host "Validated smoke evidence SHA-256: $smokeHash"
           Write-Host "Promotion provenance SHA-256: $provenanceHash"
 
       - name: Publish owner-test release from validated artifacts
@@ -174,6 +194,7 @@ jobs:
           VERSION: ${{ steps.verify.outputs.version }}
           INSTALLER_PATH: ${{ steps.verify.outputs.installer_path }}
           UPDATE_PATH: ${{ steps.verify.outputs.update_path }}
+          SMOKE_PATH: ${{ steps.verify.outputs.smoke_path }}
           PROVENANCE_PATH: ${{ steps.verify.outputs.provenance_path }}
           SOURCE_RUN_URL: ${{ steps.source.outputs.run_url }}
           SOURCE_HEAD_SHA: ${{ steps.source.outputs.head_sha }}
@@ -183,9 +204,10 @@ jobs:
             $env:INSTALLER_PATH `
             $env:UPDATE_PATH `
             'dist/nexus-update-manifest.json' `
+            $env:SMOKE_PATH `
             $env:PROVENANCE_PATH `
             --title $title `
-            --notes "Owner-test staged update for Khaos Nexus $env:VERSION. Promoted without rebuilding from validated Nexus Rebuild CI commit $env:SOURCE_HEAD_SHA ($env:SOURCE_RUN_URL). The in-app updater uses the ZIP + manifest; the installer is retained only for first install or recovery." `
+            --notes "Owner-test staged update for Khaos Nexus $env:VERSION. Promoted without rebuilding from validated Nexus Rebuild CI commit $env:SOURCE_HEAD_SHA ($env:SOURCE_RUN_URL). Clean install, packaged startup, staged upgrade, and post-update health confirmation passed in the source Windows artifact." `
             --prerelease
 
       - name: Publish stable release from validated artifacts
@@ -198,6 +220,7 @@ jobs:
           VERSION: ${{ steps.verify.outputs.version }}
           INSTALLER_PATH: ${{ steps.verify.outputs.installer_path }}
           UPDATE_PATH: ${{ steps.verify.outputs.update_path }}
+          SMOKE_PATH: ${{ steps.verify.outputs.smoke_path }}
           PROVENANCE_PATH: ${{ steps.verify.outputs.provenance_path }}
           SOURCE_RUN_URL: ${{ steps.source.outputs.run_url }}
           SOURCE_HEAD_SHA: ${{ steps.source.outputs.head_sha }}
@@ -207,6 +230,7 @@ jobs:
             $env:INSTALLER_PATH `
             $env:UPDATE_PATH `
             'dist/nexus-update-manifest.json' `
+            $env:SMOKE_PATH `
             $env:PROVENANCE_PATH `
             --title $title `
-            --notes "Stable staged update for Khaos Nexus $env:VERSION. Promoted without rebuilding from validated Nexus Rebuild CI commit $env:SOURCE_HEAD_SHA ($env:SOURCE_RUN_URL). The in-app updater uses the ZIP + manifest; the installer is retained only for first install or recovery."
+            --notes "Stable staged update for Khaos Nexus $env:VERSION. Promoted without rebuilding from validated Nexus Rebuild CI commit $env:SOURCE_HEAD_SHA ($env:SOURCE_RUN_URL). Clean install, packaged startup, staged upgrade, and post-update health confirmation passed in the source Windows artifact."
