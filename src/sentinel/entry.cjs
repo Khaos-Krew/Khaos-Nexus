@@ -7,6 +7,7 @@ const { installAdminPairingExtension } = require('./admin-pairing-extension.cjs'
 const { installModerationExtension } = require('./moderation-extension.cjs');
 const { installRoadmapPatchNoteExtension } = require('./roadmap-patch-note-extension.cjs');
 const { installSafetyReportExtension } = require('./safety-report-extension.cjs');
+const { installPersistentPanelExtension } = require('./persistent-panel-extension.cjs');
 
 installRoleMenuExtension();
 installPokemonGoExtension();
@@ -15,4 +16,5 @@ installAdminPairingExtension();
 installModerationExtension();
 installRoadmapPatchNoteExtension();
 installSafetyReportExtension();
+installPersistentPanelExtension();
 require('./bot.cjs');
