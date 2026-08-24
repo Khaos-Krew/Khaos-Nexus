@@ -205,6 +205,51 @@ Direction:
 
 This phase does not begin until the desktop baseline is accepted.
 
+### Phase G1 — Backend-first game module expansion
+
+Status: **PLANNED / DEFERRED UNTIL STABILIZATION ACCEPTANCE**
+
+Direction:
+
+- Game modules move toward backend-first services with Nexus Sentinel as the primary Discord-facing interface.
+- The Windows desktop remains the administrative, configuration, diagnostics, and recovery surface rather than carrying game-specific user workflows.
+- Each game module should use a manifest/adapter boundary so external data providers can be replaced without rewriting Sentinel interactions.
+- Prefer official APIs first, then stable documented third-party APIs with explicit usage permission. Do not depend on private gameplay endpoints, credential replay, client reverse engineering, or automation that violates a game's service rules.
+
+#### Planned Pokémon GO Sentinel module
+
+First usable release scope:
+
+- Module manifest and automatic Pokémon GO access-role registration.
+- External Pokémon GO data adapter with validation, normalization, caching, health checks, and provider-fallback boundaries.
+- Pokédex, moves, types, forms, evolutions, shiny availability, and related reference data.
+- Current raids and raid-boss presentation.
+- Current Max Battles.
+- Current Field Research.
+- Current events.
+- Raid/counter recommendation engine.
+- Permanent Discord Pokémon GO Hub using buttons, select menus, modals, and ephemeral interaction responses where appropriate.
+- Short fallback commands such as `/pogo`, `/pogo pokemon`, `/pogo raids`, `/pogo max`, `/pogo research`, `/pogo events`, and `/pogo counters`.
+
+Follow-on scope:
+
+- Nexus-managed trainer profiles using user-entered data rather than Pokémon GO private-account access.
+- Friend-code registry.
+- Community raid groups and host/join controls.
+- Notification preferences for raids/events.
+- Shiny/wishlist tracking with event/raid matches.
+- Community trade board and trade-match suggestions.
+- Nexus Admin controls for module status, data-source health, cache state, synchronization, Discord panel repair, alert configuration, and diagnostics.
+
+Safety/compatibility constraints:
+
+- Do not authenticate into Pokémon GO player accounts through undocumented/private endpoints.
+- Do not automate catches, spins, trades, gifts, raids, movement, or other in-game actions.
+- Do not build around archived/reverse-engineered Pokémon GO client APIs.
+- Keep external-provider calls behind the Nexus backend adapter/cache rather than issuing provider requests directly from Discord interactions.
+
+Exit condition: after stabilization acceptance and authorization to resume feature expansion, the first usable Pokémon GO scope passes backend adapter tests, cache/provider-failure tests, Discord interaction tests, access-role tests, and owner acceptance without destabilizing the desktop baseline.
+
 ## Mobile owner-test validation
 
 Status: **ACTIVE FOR OWNER TEST / PUBLIC-STABLE RELEASE NOT AUTHORIZED**
@@ -257,6 +302,7 @@ The README should keep the roadmap compact:
 - **Then — Discord + Palworld acceptance:** real operational flows.
 - **Release hardening:** immutable tested artifact, version/updater consistency, owner-test/public-release separation.
 - **Later — Self-hosted web + Windows agent:** deferred until desktop stability is accepted.
+- **Post-stabilization — Backend-first game modules:** expand Sentinel-facing game services through replaceable API adapters, beginning with the planned Pokémon GO module.
 
 Detailed gate status belongs in this file; the README should summarize rather than duplicate every implementation detail.
 
