@@ -12,6 +12,7 @@ const { parseActionId, renderModuleConsole, renderHelp } = require('./module-con
 const { formatActionResult: renderActionResult } = require('./action-formatters.cjs');
 const { marketCommand } = require('./commands.cjs');
 const { commandDefinitions: friendlyCommandDefinitions, isFriendlyCommand, resolveFriendlyCommand } = require('./friendly-commands.cjs');
+const { createArkTameUi } = require('./ark-tame-ui.cjs');
 const { SentinalAdminOps } = require('./admin-ops.cjs');
 const { createSentinalAdminServer } = require('./admin-server.cjs');
 
@@ -26,6 +27,7 @@ const state = new StateStore();
 const pending = new Map();
 const provisioner = new ModuleProvisioner({ state, maxLobbiesPerModule: config.discord?.maxTemporaryLobbiesPerModule || 20 });
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
+const arkTameUi = createArkTameUi({ backend, state });
 let adminOps = null;
 
 // Pokémon GO already owns /pogo through pokemon-go-extension.cjs so it can keep its richer
@@ -339,6 +341,9 @@ client.on('interactionCreate', async (interaction) => {
   try {
     if (interaction.isAutocomplete()) return autocompleteActions(interaction);
 
+    const tameHandled = await arkTameUi.handleComponent(interaction);
+    if (tameHandled !== false) return tameHandled;
+
     if (interaction.isStringSelectMenu() && interaction.customId === 'nexussetup:module') {
       if (!(await canSetup(interaction))) return interaction.reply({ content: 'Module setup requires Nexus owner access or Discord Manage Server permission.', flags: MessageFlags.Ephemeral });
       assertAdministrator(interaction.guild);
@@ -388,6 +393,7 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isChatInputCommand() && isFriendlyCommand(interaction.commandName) && !extensionOwnedCommands.has(interaction.commandName)) {
       const invocation = resolveFriendlyCommand(interaction);
       if (!invocation) return interaction.reply({ content: 'That module command is not available.', flags: MessageFlags.Ephemeral });
+      if (invocation.moduleId === 'ark' && invocation.actionId === 'taming') return arkTameUi.start(interaction);
       if (friendlyResponsePrivate(invocation)) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       else await interaction.deferReply();
       return interaction.editReply(await runAction(interaction, invocation.moduleId, invocation.actionId, invocation.payload));
@@ -469,6 +475,7 @@ client.on('interactionCreate', async (interaction) => {
 setInterval(() => {
   const now = Date.now();
   for (const [nonce, item] of pending) if (item.expiresAt < now) pending.delete(nonce);
+  arkTameUi.cleanup();
 }, 60_000).unref();
 
 client.login(token);
