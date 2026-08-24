@@ -13,6 +13,7 @@ const { providersFromConfig } = require('./providers/http-provider.cjs');
 const { nativeProvidersFromConfig } = require('./providers/native-providers.cjs');
 const { serverProvidersFromConfig } = require('./providers/server-providers.cjs');
 const { ArkCompanionService } = require('./services/ark-companion-service.cjs');
+const { CommunityLevelService } = require('./services/community-level-service.cjs');
 const { trackedServersResponse } = require('./tracked-servers.cjs');
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
@@ -44,6 +45,12 @@ function providersForConfig(config = {}) {
   return { ...nativeProvidersFromConfig(config), ...serverProvidersFromConfig(config), ...providersFromConfig(config) };
 }
 
+function communityLevelStateFile(config = {}) {
+  const configured = String(config.communityLeveling?.stateFile || '').trim();
+  if (configured) return configured;
+  return path.join(process.env.NEXUS_DATA_DIR || 'data', 'community-leveling.json');
+}
+
 function createBackendApplication(config, options = {}) {
   const token = envSecret(config.backend?.serviceTokenEnv);
   const host = String(config.backend?.host || '127.0.0.1');
@@ -58,6 +65,10 @@ function createBackendApplication(config, options = {}) {
   const accounts = new AccountStore({ filePath: config.accounts?.stateFile || path.join(process.cwd(), 'data', 'accounts.json') });
   const providerValidator = new ProviderValidator({ runtime });
   const arkCompanion = options.arkCompanion || new ArkCompanionService();
+  const communityLevels = options.communityLevels || new CommunityLevelService({
+    stateFile: communityLevelStateFile(config),
+    settings: config.communityLeveling || {}
+  });
   runtime.registerService('scheduler', scheduler);
   runtime.registerService('ark-companion', arkCompanion);
   scheduler.registerExecutor((moduleId, actionId, payload, context) => runtime.invoke(moduleId, actionId, payload, context));
@@ -102,6 +113,19 @@ function createBackendApplication(config, options = {}) {
       }
 
       if (req.method === 'GET' && url.pathname === '/v1/tracked-servers') return json(res, 200, trackedServersResponse(runtime));
+
+      const levelProfileMatch = /^\/v1\/community-xp\/users\/(\d{15,24})$/.exec(url.pathname);
+      if (req.method === 'GET' && levelProfileMatch) return json(res, 200, { ok: true, profile: communityLevels.profile(levelProfileMatch[1]) });
+      if (req.method === 'GET' && url.pathname === '/v1/community-xp/leaderboard') {
+        return json(res, 200, { ok: true, leaderboard: communityLevels.leaderboard(url.searchParams.get('limit') || 10) });
+      }
+      if (req.method === 'GET' && url.pathname === '/v1/community-xp/settings') return json(res, 200, { ok: true, settings: communityLevels.settings() });
+      if (req.method === 'GET' && url.pathname === '/v1/community-xp/audit') return json(res, 200, { ok: true, audit: communityLevels.audit(url.searchParams.get('limit') || 50) });
+      if (req.method === 'POST' && url.pathname === '/v1/community-xp/award') return json(res, 200, communityLevels.award(await readBody(req)));
+      if (req.method === 'POST' && url.pathname === '/v1/community-xp/remove') return json(res, 200, communityLevels.removeXp(await readBody(req)));
+      if (req.method === 'POST' && url.pathname === '/v1/community-xp/set') return json(res, 200, communityLevels.setXp(await readBody(req)));
+      if (req.method === 'POST' && url.pathname === '/v1/community-xp/reset') return json(res, 200, communityLevels.reset(await readBody(req)));
+      if (req.method === 'POST' && url.pathname === '/v1/community-xp/settings') return json(res, 200, communityLevels.updateSettings(await readBody(req)));
 
       if (req.method === 'GET' && url.pathname === '/v1/ark/taming/species') {
         const species = await arkCompanion.listSpecies();
@@ -160,7 +184,7 @@ function createBackendApplication(config, options = {}) {
     started = false;
   }
 
-  return { host, port, runtime, scheduler, arkCompanion, accounts, providerValidator, configureProviders, server, start, stop, isStarted: () => started && server.listening };
+  return { host, port, runtime, scheduler, arkCompanion, communityLevels, accounts, providerValidator, configureProviders, server, start, stop, isStarted: () => started && server.listening };
 }
 
-module.exports = { LOOPBACK_HOSTS, createBackendApplication, providersForConfig };
+module.exports = { LOOPBACK_HOSTS, communityLevelStateFile, createBackendApplication, providersForConfig };
