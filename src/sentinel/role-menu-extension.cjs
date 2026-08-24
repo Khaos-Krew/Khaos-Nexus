@@ -4,7 +4,7 @@ const { Client, Events, MessageFlags } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { StateStore } = require('./state-store.cjs');
 const { RoleMenuManager, ACCESS_BUTTON_PREFIX } = require('./role-menu.cjs');
-const { SelfRoleManager } = require('./self-role-manager.cjs');
+const { SelfRoleManager } = require('./deep-self-role-manager.cjs');
 const { SELF_ROLE_BUTTON_PREFIX, LEGACY_SELF_ROLE_BUTTON_PREFIX } = require('./self-role-model.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.moduleAccessRoles.extension');
