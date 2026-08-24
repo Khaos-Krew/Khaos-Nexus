@@ -52,6 +52,19 @@ test('name-color pages resolve only through the exact Color prefix', () => {
   assert.equal(resolved.target, 'Color: Gold');
 });
 
+test('alias augmentation preserves non-enumerable Discord role color getters', () => {
+  const liveRole = { id: '1', name: 'Color: Crimson' };
+  Object.defineProperty(liveRole, 'color', { enumerable: false, get: () => 0xdc143c });
+  Object.defineProperty(liveRole, 'hexColor', { enumerable: false, get: () => '#DC143C' });
+  const augmented = augmentedRolesForLegacyMenu('Name Color — Page 1', ['Crimson'], [liveRole]);
+  const alias = augmented.find((item) => item.name === 'Crimson');
+  assert.ok(alias);
+  assert.equal(alias.id, '1');
+  assert.equal(alias.color, 0xdc143c);
+  assert.equal(alias.hexColor, '#dc143c');
+  assert.equal(alias.__nexusLegacyAlias, 'Color: Crimson');
+});
+
 test('games resolve to the existing manageable module access role names', () => {
   const roles = [role('1', 'Warframe Access'), role('2', 'Minecraft Access'), role('3', 'Nexus D&D Access')];
   assert.equal(resolveLegacyRole('Games', 'Warframe', roles).role.id, '1');
