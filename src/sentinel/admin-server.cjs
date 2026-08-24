@@ -207,16 +207,16 @@ function createSentinalAdminServer(options = {}) {
       server.listen(port, host);
     });
     logger.log?.(`[Nexus Sentinal Admin] listening on http://${host}:${port}`);
-    return { host, port, server, start, stop, isStarted: () => started && server.listening };
-}
+    return { host, port };
+  }
 
-async function stop() {
-  if (!started || !server.listening) return;
-  await new Promise((resolve) => server.close(resolve));
-  started = false;
-}
+  async function stop() {
+    if (!started || !server.listening) return;
+    await new Promise((resolve) => server.close(resolve));
+    started = false;
+  }
 
-return { host, port, server, start, stop, isStarted: () => started && server.listening };
+  return { host, port, server, start, stop, isStarted: () => started && server.listening };
 }
 
 module.exports = { LOOPBACK, createPairingLimiter, createSentinalAdminServer, enhancedScan, hostedProviderStatus, publicHealth, safeModuleId, staffNameColorPreview, validAdminToken };
