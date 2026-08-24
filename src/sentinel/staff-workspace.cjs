@@ -57,6 +57,7 @@ function staffCategoryOverwrites(guild, botId, staffRoleIds = [], ownerIds = [])
   const staffAllow = [
     PermissionFlagsBits.ViewChannel,
     PermissionFlagsBits.SendMessages,
+    PermissionFlagsBits.SendMessagesInThreads,
     PermissionFlagsBits.ReadMessageHistory,
     PermissionFlagsBits.AttachFiles,
     PermissionFlagsBits.EmbedLinks,
