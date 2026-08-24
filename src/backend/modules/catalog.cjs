@@ -16,6 +16,7 @@ const MODULES = [
     id: 'ark', name: 'ARK: Survival Ascended', console: true,
     capabilities: [
       viewer('status', 'Status'), viewer('players', 'Players'), viewer('servers', 'Servers'),
+      viewer('taming', 'Taming Helper', { service: 'ark-companion', button: false, input: '<creature> + taming rate [+ optional 1x base minutes]' }),
       operator('save', 'Save All'), operator('broadcast', 'Broadcast', { button: false, input: '<message>' }),
       operator('kick', 'Kick Player', { destructive: true, button: false, input: '[server|]<player>' }),
       owner('ban', 'Ban Player', { button: false, input: '[server|]<player>' }),
