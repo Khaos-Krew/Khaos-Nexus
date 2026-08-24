@@ -3,8 +3,14 @@
 const { ChannelType, PermissionFlagsBits } = require('discord.js');
 const { getModule } = require('../backend/modules/catalog.cjs');
 const { enabledAccessDefinitions, ACCESS_BUTTON_PREFIX } = require('./role-menu.cjs');
-const { inspectModuleAccessPolicy, strictCategoryMatch } = require('./module-access-policy.cjs');
-const { resolveStaffRoleIds, normalizeIds } = require('./staff-workspace.cjs');
+const {
+  configuredRankRoleIds,
+  desiredViewPolicy,
+  inspectChannelViewPolicy,
+  managedCategoryChannels,
+  strictCategoryMatch
+} = require('./module-access-policy.cjs');
+const { normalizeIds } = require('./staff-workspace.cjs');
 
 const ACCESS_AUDIT_MARKER = 'Nexus Sentinal • Module Access Acceptance Preflight • v1';
 
@@ -65,16 +71,49 @@ async function fetchRoleMenuMessages(guild, state, botId = '') {
   return { channel, messages: candidates, source: 'recent-scan' };
 }
 
-async function currentStaffMembers(guild, config = {}) {
-  const staffRoleIds = await resolveStaffRoleIds(guild, config);
+function staffRoleIdsFromSnapshot(roles, guild, config = {}) {
+  const explicit = normalizeIds([
+    ...(config.discord?.safetyStaffRoleIds || []),
+    ...(config.discord?.operatorRoleIds || [])
+  ]).filter((id) => {
+    const role = roles.get(String(id));
+    return Boolean(role && role.id !== guild.id && role.managed !== true);
+  });
+  if (explicit.length) return explicit;
+  return valuesOf(roles)
+    .filter((role) => role && role.id !== guild.id && role.managed !== true)
+    .filter((role) => role.permissions?.has?.(PermissionFlagsBits.Administrator)
+      || role.permissions?.has?.(PermissionFlagsBits.ModerateMembers)
+      || role.permissions?.has?.(PermissionFlagsBits.ManageGuild))
+    .map((role) => String(role.id));
+}
+
+function staffSubjectsFromSnapshot(guild, roles, config = {}) {
+  const staffRoleIds = staffRoleIdsFromSnapshot(roles, guild, config);
   const ownerIds = normalizeIds(config.discord?.ownerUserIds || []);
-  const members = await guild.members.fetch();
-  const staff = valuesOf(members).filter((member) => {
+  const roleSubjects = staffRoleIds.map((id) => roles.get(String(id))).filter(Boolean);
+  const cachedMembers = valuesOf(guild.members?.cache).filter((member) => {
     if (!member || member.user?.bot) return false;
     if (ownerIds.includes(String(member.id))) return true;
     return staffRoleIds.some((roleId) => member.roles?.cache?.has?.(String(roleId)));
   });
-  return { staffRoleIds, ownerIds, members: staff };
+  return { staffRoleIds, ownerIds, roleSubjects, cachedMembers };
+}
+
+function inspectPolicyFromSnapshot(channels, category, context = {}) {
+  if (!category || !context.accessRoleId) return { ok: false, driftCount: 0, channels: [] };
+  const expected = desiredViewPolicy({
+    guildId: context.guildId,
+    accessRoleId: context.accessRoleId,
+    accessRoleIds: context.accessRoleIds,
+    rankRoleIds: context.rankRoleIds
+  });
+  const inspections = managedCategoryChannels(channels, category.id).map((channel) => inspectChannelViewPolicy(channel, expected));
+  return {
+    ok: inspections.every((item) => item.ok),
+    driftCount: inspections.reduce((sum, item) => sum + item.drift.length, 0),
+    channels: inspections
+  };
 }
 
 async function auditModuleAccess(guild, options = {}) {
@@ -83,14 +122,17 @@ async function auditModuleAccess(guild, options = {}) {
   const botId = String(options.botId || '');
   const admin = state?.getAdminSettings?.() || {};
   const definitions = enabledAccessDefinitions(config, admin.moduleEnabled || {});
-  const channels = await guild.channels.fetch();
-  const roles = await guild.roles.fetch();
+  const [channels, roles, menu] = await Promise.all([
+    guild.channels.fetch(),
+    guild.roles.fetch(),
+    fetchRoleMenuMessages(guild, state, botId)
+  ]);
   const everyoneRole = roles.get(String(guild.id)) || guild.roles?.everyone || null;
-  const staff = await currentStaffMembers(guild, config);
-  const menu = await fetchRoleMenuMessages(guild, state, botId);
+  const staff = staffSubjectsFromSnapshot(guild, roles, config);
   const bindings = extractButtonBindings(menu.messages, botId);
   const savedAccess = state?.listAccessRoles?.() || {};
-  const allAccessRoleIds = new Set(Object.values(savedAccess).map((item) => String(item?.roleId || '')).filter(Boolean));
+  const allAccessRoleIds = [...new Set(Object.values(savedAccess).map((item) => String(item?.roleId || '')).filter(Boolean))];
+  const rankRoleIds = configuredRankRoleIds(config, state);
   const modules = [];
 
   for (const definition of definitions) {
@@ -114,13 +156,12 @@ async function auditModuleAccess(guild, options = {}) {
       continue;
     }
 
-    const policy = await inspectModuleAccessPolicy(guild, definition.moduleId, category, { state, config }).catch((error) => ({
-      ok: false,
-      skipped: false,
-      driftCount: 0,
-      channels: [],
-      error: String(error?.message || error).slice(0, 180)
-    }));
+    const policy = inspectPolicyFromSnapshot(channels, category, {
+      guildId: String(guild.id),
+      accessRoleId,
+      accessRoleIds: allAccessRoleIds,
+      rankRoleIds
+    });
     const everyoneHidden = everyoneRole ? !viewAllowed(category, everyoneRole) : false;
     const matchingRoleVisible = accessRole ? viewAllowed(category, accessRole) : false;
     const crossRoleLeaks = [];
@@ -129,16 +170,20 @@ async function auditModuleAccess(guild, options = {}) {
       const role = roles.get(otherRoleId);
       if (role && viewAllowed(category, role)) crossRoleLeaks.push(String(role.name || otherRoleId));
     }
-    const staffHidden = staff.members.filter((member) => !viewAllowed(category, member)).map((member) => String(member.displayName || member.user?.username || member.id));
-    const ok = Boolean(accessRole && buttonBound && everyoneHidden && matchingRoleVisible && policy.ok && crossRoleLeaks.length === 0 && staffHidden.length === 0);
+
+    const staffRoleHidden = staff.roleSubjects.filter((role) => !viewAllowed(category, role)).map((role) => String(role.name || role.id));
+    const cachedStaffHidden = staff.cachedMembers.filter((member) => !viewAllowed(category, member)).map((member) => String(member.displayName || member.user?.username || member.id));
+    const ok = Boolean(accessRole && buttonBound && everyoneHidden && matchingRoleVisible && policy.ok
+      && crossRoleLeaks.length === 0 && staffRoleHidden.length === 0 && cachedStaffHidden.length === 0);
     const reasons = [];
     if (!accessRole) reasons.push('access-role-missing');
     if (!buttonBound) reasons.push('button-binding-missing');
     if (!everyoneHidden) reasons.push('everyone-can-view');
     if (!matchingRoleVisible) reasons.push('matching-role-cannot-view');
-    if (!policy.ok) reasons.push(policy.error ? `policy-error:${policy.error}` : `permission-drift:${Number(policy.driftCount || 0)}`);
+    if (!policy.ok) reasons.push(`permission-drift:${Number(policy.driftCount || 0)}`);
     if (crossRoleLeaks.length) reasons.push(`cross-role-leaks:${crossRoleLeaks.length}`);
-    if (staffHidden.length) reasons.push(`staff-hidden:${staffHidden.length}`);
+    if (staffRoleHidden.length) reasons.push(`staff-role-hidden:${staffRoleHidden.length}`);
+    if (cachedStaffHidden.length) reasons.push(`cached-staff-hidden:${cachedStaffHidden.length}`);
 
     modules.push({
       moduleId: definition.moduleId,
@@ -157,9 +202,12 @@ async function auditModuleAccess(guild, options = {}) {
       policyOk: Boolean(policy.ok),
       driftCount: Number(policy.driftCount || 0),
       crossRoleLeaks,
-      staffVisible: staff.members.length - staffHidden.length,
-      staffExpected: staff.members.length,
-      staffHidden
+      staffRoleVisible: staff.roleSubjects.length - staffRoleHidden.length,
+      staffRoleExpected: staff.roleSubjects.length,
+      staffRoleHidden,
+      cachedStaffVisible: staff.cachedMembers.length - cachedStaffHidden.length,
+      cachedStaffExpected: staff.cachedMembers.length,
+      cachedStaffHidden
     });
   }
 
@@ -171,6 +219,8 @@ async function auditModuleAccess(guild, options = {}) {
   return {
     ok: attention === 0,
     readOnly: true,
+    snapshotBased: true,
+    bulkMemberFetches: 0,
     humanInteractionStillRequired: true,
     auditedAt: new Date().toISOString(),
     menuSource: menu.source,
@@ -181,7 +231,8 @@ async function auditModuleAccess(guild, options = {}) {
       attention,
       accessRoles,
       buttonBindings,
-      staffMembers: staff.members.length
+      staffRoles: staff.roleSubjects.length,
+      cachedStaffMembers: staff.cachedMembers.length
     },
     modules
   };
@@ -207,8 +258,8 @@ function accessAuditPayload(result = {}) {
     embeds: [{
       title: 'KHAOS NEXUS • MODULE ACCESS PREFLIGHT',
       description: [
-        `Read-only audit of live module access roles, button bindings, category/channel permission drift, cross-game isolation, and current staff visibility.`,
-        `**${counts.ready || 0}/${counts.modules || 0} ready** • ${counts.attention || 0} attention • ${counts.pending || 0} pending • ${counts.buttonBindings || 0} button bindings • ${counts.staffMembers || 0} staff checked`,
+        'Read-only snapshot audit of live module access roles, button bindings, category/channel permission drift, cross-game isolation, and staff-role visibility.',
+        `**${counts.ready || 0}/${counts.modules || 0} ready** • ${counts.attention || 0} attention • ${counts.pending || 0} pending • ${counts.buttonBindings || 0} button bindings • ${counts.staffRoles || 0} staff roles checked`,
         '',
         'This reduces the remaining acceptance work, but it **does not replace a real normal-member button test**.'
       ].join('\n'),
@@ -256,7 +307,9 @@ module.exports = {
   viewAllowed,
   extractButtonBindings,
   fetchRoleMenuMessages,
-  currentStaffMembers,
+  staffRoleIdsFromSnapshot,
+  staffSubjectsFromSnapshot,
+  inspectPolicyFromSnapshot,
   auditModuleAccess,
   auditStatusIcon,
   accessAuditPayload,
