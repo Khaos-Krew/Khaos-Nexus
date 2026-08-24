@@ -1,7 +1,7 @@
 'use strict';
 
 const { MessageFlags } = require('discord.js');
-const { SelfRoleManager: DeepSelfRoleManager } = require('./deep-self-role-manager.cjs');
+const { SelfRoleManager: AliasedSelfRoleManager } = require('./aliased-self-role-manager.cjs');
 const { parseSelfRoleButton } = require('./self-role-model.cjs');
 
 function valuesOf(collection) {
@@ -39,7 +39,7 @@ function planGlobalColorMutation({ selectedRoleId, currentRoles = [], colorRoleI
   };
 }
 
-class SelfRoleManager extends DeepSelfRoleManager {
+class SelfRoleManager extends AliasedSelfRoleManager {
   allColorOptions() {
     const options = new Map();
     for (const menu of this.runtimeMenus.values()) {
