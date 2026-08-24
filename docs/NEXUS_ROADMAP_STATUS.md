@@ -42,8 +42,10 @@ Sentinal role/self-role work now includes:
 - legacy emoji reaction-role migration (#331);
 - direct adoption of old bot-authored Nexus role-button menus (#335);
 - exact old-button target diagnostics and false-positive filtering (#339), including exclusion of the Community Rules private-report control and owner-testing reaction poll from role migration;
-- deterministic title-scoped aliases for five renamed live panels (#341), while duplicate same-name roles remain blocked and generic `LFG` remains intentionally unresolved rather than guessed;
-- preservation/rendering of custom Discord color-swatch emoji during legacy migration (#342), with global Name Color exclusivity and safe hierarchy behavior unchanged.
+- deterministic title-scoped aliases for renamed live panels (#341), while duplicate same-name roles remain blocked and generic `LFG` remains intentionally unresolved rather than guessed;
+- preservation/rendering of custom Discord color-swatch emoji during legacy migration (#342);
+- restart reconstruction of current `nexus:self-role:*` menus plus deterministic recovery/creation of missing visual-only Name Color swatches (#343);
+- strict module channel visibility reconciliation (#344), where `@everyone` is denied, the matching module access role is allowed, supporter/rank and nonmatching module visibility grants are neutralized, and existing staff/admin overrides plus non-`View Channel` bits are preserved.
 
 Community Safety & Reporting (#332) and one-time 66%/100% milestone patch-note publishing (#333) are merged implementation slices. Live report-ticket acceptance remains separate from implementation completion.
 
@@ -55,27 +57,28 @@ These are implementation facts, not final owner-acceptance or release claims.
 
 Status: **AUTOMATED REBUILD BASELINE GREEN — OWNER/LIVE VALIDATION IN PROGRESS**
 
-The latest exact merged implementation head with completed rebuild validation is **PR #342 head `0702ca5c78faa156022ee45859ec0faf35fde5cb`**. **Nexus Rebuild CI run #296 completed successfully on that exact SHA**, and PR #342 then merged into `rebuild/nexus-0.1` as `8b4c847ed8995edfe74bbf9c101d0d0b23d09199`.
+The latest exact merged implementation head with completed rebuild validation is **PR #344 head `da9237a3c2634c39a87921e4cbcd586d50cfbda0`**. **Nexus Rebuild CI run #305 completed successfully on that exact SHA**, and PR #344 then merged into `rebuild/nexus-0.1` as `8070ec1c102ac1fcd901f82de3cc2bf60762b791`.
 
 Recent exact-head evidence:
 
+- PR #343 head `12e11736015172b40868b337d0e95da3bc26c63f` — Nexus Rebuild CI #299 green; merged as `3cd84cdf617619dffea9ffdd83ddb288356f2f3a`;
+- PR #342 head `0702ca5c78faa156022ee45859ec0faf35fde5cb` — Nexus Rebuild CI #296 green;
 - PR #341 head `a2e20744a0dc320fb660a074563379332f663081` — Nexus Rebuild CI #294 green;
-- PR #339 head `4762480c0d894ecf7eae3bcfa3f506d7d530f701` — Nexus Rebuild CI #291 green;
-- PR #335 head `ab92b519e21466030f6c06e89267e9eb8c2c9c08` — Nexus Rebuild CI #282 green.
+- PR #339 head `4762480c0d894ecf7eae3bcfa3f506d7d530f701` — Nexus Rebuild CI #291 green.
 
-### Active live-acceptance blocker — PR #343
+### Live acceptance state
 
-Live restart acceptance after #342 exposed an additional defect: migrated/current `nexus:self-role:*` panels were persisted by message metadata but not by their runtime option/role mappings. After a Sentinal restart, current self-role messages can therefore be skipped by discovery and the buttons can lose the runtime menu needed to assign roles. Some Name Color panels had also already been rewritten before #342, so their original custom swatch references were no longer available on the message.
+PR #343 resolved the previously documented restart-recovery implementation defect and is no longer an open blocker. Current self-role menus can be reconstructed after Sentinal restart only when every live button maps safely to exactly one existing role, and Name Color swatches can be recovered deterministically or generated from the already-configured role color.
 
-PR #343 proposes to reconstruct current self-role menus from live Discord buttons after restart, resolve them through the existing exact/title-scoped alias rules, recover deterministic existing guild swatches, and create a missing 32x32 visual-only swatch from the existing role color when necessary. It remains **open and unmerged** at head `12e11736015172b40868b337d0e95da3bc26c63f`; Nexus Rebuild CI run #299 is currently **in progress**. Do not describe #343 behavior as implemented or validated until it merges with completed evidence.
+PR #344 addresses a separate live permission defect discovered after the role-menu work: game categories/channels were not consistently enforcing their matching module access roles, allowing legacy/rank visibility to leak across module chats. The merged policy now reconciles module category and child-channel `View Channel` behavior while preserving staff/admin overrides and refusing to lock a category when the matching module role cannot be resolved.
 
-This defect means real-guild self-role acceptance is **not complete**, even though #339/#341/#342 are merged and green.
+These merges remove two implementation blockers, but they do **not** establish real-guild acceptance by themselves. Restart recovery, actual role assignment, Name Color switching/swatches, module visibility isolation, hierarchy behavior, and legacy-control retirement still require live verification on the intended guild. Generic `LFG` remains intentionally unresolved until an authoritative target exists.
 
 CI and hosted-runtime evidence remain separate from owner/live acceptance. Do not claim:
 
 - owner acceptance without an explicit owner-test result;
 - live-provider correctness without real-provider execution;
-- real-guild Sentinal acceptance until setup, permissions, reconciliation, panels, commands, event feeds, restart behavior, rank authority, module-access roles, self-role reconstruction/migration, moderation, safety reporting, hosted pairing, and relevant hosted-provider flows are exercised on the intended guild;
+- real-guild Sentinal acceptance until setup, permissions, reconciliation, panels, commands, event feeds, restart behavior, rank authority, module-access roles/channel visibility, self-role reconstruction/migration, moderation, safety reporting, hosted pairing, and relevant hosted-provider flows are exercised on the intended guild;
 - updater owner validation until a real installed owner-test update stages/applies/starts and rollback behavior is exercised where appropriate;
 - Thora owner validation until discovery/readiness and allowlisted launch behavior is exercised on the intended machine;
 - public/stable release status from CI, packaging, deployment, PR merge state, or package version alone.
@@ -96,15 +99,14 @@ The next factual gate is live/provider evidence, beginning with Palworld status 
 
 ### Then — Sentinal operational acceptance
 
-Status: **IN PROGRESS — LEGACY ROLE MIGRATION HARDENED; RESTART RECOVERY DEFECT OPEN; REAL-GUILD/RAILWAY ACCEPTANCE PENDING**
+Status: **IN PROGRESS — RESTART RECOVERY + MODULE CHANNEL ACCESS POLICY MERGED; REAL-GUILD/RAILWAY ACCEPTANCE PENDING**
 
-Merged implementation includes setup/repair, persistent module panels, friendly commands/help, moderation, Pokémon GO operations, event feeds, rank authority, module-access reconciliation, hierarchy diagnostics, protected-role fallback, unified self-role/color menus, reaction-role migration (#331), old button-menu adoption (#335), exact target diagnostics/false-positive filtering (#339), deterministic renamed-panel aliases (#341), custom Name Color swatch preservation (#342), private safe-space report tickets (#332), secure hosted pairing, hosted provider administration, and milestone patch-note publishing (#333).
-
-Current acceptance blocker: **#343 must resolve restart reconstruction of current self-role menus and swatch recovery before the role system can be considered restart-stable.** Generic `LFG` also remains intentionally unresolved until an authoritative target exists.
+Merged implementation includes setup/repair, persistent module panels, friendly commands/help, moderation, Pokémon GO operations, event feeds, rank authority, module-access reconciliation, hierarchy diagnostics, protected-role fallback, unified self-role/color menus, reaction-role migration (#331), old button-menu adoption (#335), exact target diagnostics/false-positive filtering (#339), deterministic renamed-panel aliases (#341), custom Name Color swatch preservation (#342), restart menu/swatch reconstruction (#343), strict module category/channel visibility policy (#344), private safe-space report tickets (#332), secure hosted pairing, hosted provider administration, and milestone patch-note publishing (#333).
 
 Goals:
 
-- validate the intended guild end-to-end across restart, including migrated panels, duplicate-role safety, remaining `LFG`, and actual Name Color switching/swatches;
+- validate the intended guild end-to-end across restart, including migrated/reconstructed panels, actual button assignment, duplicate-role safety, remaining `LFG`, and actual Name Color switching/swatches;
+- verify module access-role visibility isolation across game categories/channels, including Shadow Recruit/supporter-role neutrality and staff/admin preservation;
 - retire old reactions/buttons only after replacement controls are demonstrably active;
 - validate Rules/report lifecycle and restricted archive permissions;
 - complete remaining Discord + Nexus Setup Acceptance gates, including hosted pairing, live repair where needed, provider sync/validation, and restart persistence;
