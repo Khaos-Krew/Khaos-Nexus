@@ -14,8 +14,14 @@ function withGuildMembersIntent(options = {}) {
 
 function clientHasGuildMembersIntent(client) {
   const clientEnabled = Boolean(client?.options?.intents?.has?.(GatewayIntentBits.GuildMembers));
-  const websocketEnabled = Boolean(Number(client?.ws?.options?.intents || 0) & GatewayIntentBits.GuildMembers);
-  return clientEnabled && websocketEnabled;
+  if (!clientEnabled) return false;
+
+  // discord.js 14.27 creates its internal @discordjs/ws manager lazily in
+  // WebSocketManager#connect(). Before login, client.options.intents is the
+  // authoritative source that connect() copies into the IDENTIFY configuration.
+  const gateway = client?.ws?._ws;
+  if (!gateway) return true;
+  return Boolean(Number(gateway?.options?.intents || 0) & GatewayIntentBits.GuildMembers);
 }
 
 function installGuildMembersIntentExtension(options = {}) {
