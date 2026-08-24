@@ -16,6 +16,7 @@ const { installWelcomeExtension } = require('./welcome-extension.cjs');
 const { installGameServersExtension } = require('./game-servers-extension.cjs');
 const { installCommunityLevelingExtension } = require('./community-leveling-extension.cjs');
 const { installStaffWorkspaceExtension } = require('./staff-workspace-extension.cjs');
+const { installModuleAccessAuditExtension } = require('./module-access-audit-extension.cjs');
 
 installGuildMembersIntentExtension();
 installCommunityIntentsExtension();
@@ -33,4 +34,5 @@ installWelcomeExtension();
 installGameServersExtension();
 installCommunityLevelingExtension();
 installStaffWorkspaceExtension();
+installModuleAccessAuditExtension();
 require('./bot.cjs');
