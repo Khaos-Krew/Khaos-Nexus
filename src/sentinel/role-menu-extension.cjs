@@ -6,6 +6,7 @@ const { StateStore } = require('./state-store.cjs');
 const { RoleMenuManager, ACCESS_BUTTON_PREFIX } = require('./role-menu.cjs');
 const { SelfRoleManager } = require('./unified-self-role-manager.cjs');
 const { SELF_ROLE_BUTTON_PREFIX, LEGACY_SELF_ROLE_BUTTON_PREFIX } = require('./self-role-model.cjs');
+const { reconcileExistingModuleAccessPolicies } = require('./module-access-policy.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.moduleAccessRoles.extension');
 
@@ -61,6 +62,18 @@ function installRoleMenuExtension() {
         } else {
           console.log(`[Nexus Sentinal] module access menu reconciled (${reason}): roles=${access.roles} messages=${access.messages} warnings=${access.warnings.length}`);
           for (const warning of access.warnings || []) console.warn(`[Nexus Sentinal] module access warning (${reason}): ${warning}`);
+        }
+
+        const channelAccess = await reconcileExistingModuleAccessPolicies(guild, {
+          state,
+          config,
+          moduleIds: accessManager.definitions().map((definition) => definition.moduleId)
+        });
+        const locked = channelAccess.modules.filter((item) => !item.skipped && item.ok).length;
+        const blocked = channelAccess.modules.filter((item) => !item.ok).length;
+        console.log(`[Nexus Sentinal] module channel access reconciled (${reason}): modules=${locked} permissionChanges=${channelAccess.changed} blocked=${blocked}`);
+        for (const item of channelAccess.modules.filter((entry) => !entry.ok)) {
+          console.warn(`[Nexus Sentinal] module channel access warning (${reason}): ${item.moduleId}: ${item.reason || 'permission reconciliation failed'}`);
         }
 
         const selfRoles = await selfRoleManager.reconcile(guild);
