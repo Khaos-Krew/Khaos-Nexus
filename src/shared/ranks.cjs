@@ -19,12 +19,6 @@ function rankById(value) {
   return RANK_BY_ID.get(normalizeId(value)) || null;
 }
 
-function rankRoleIds(config = {}) {
-  return NEXUS_RANKS
-    .map((rank) => String(config?.discord?.rankRoles?.[rank.id] || '').trim())
-    .filter(Boolean);
-}
-
 function skuToRankMap(config = {}) {
   const result = new Map();
   for (const rank of NEXUS_RANKS) {
@@ -41,6 +35,14 @@ function rankAuthority(config = {}) {
     .filter((rank) => rank.level > 0)
     .some((rank) => (config?.discord?.rankSkus?.[rank.id] || []).some((skuId) => String(skuId || '').trim()));
   return hasPaidSkuMappings ? 'premium-app' : 'server-shop-roles';
+}
+
+function rankRoleIds(config = {}) {
+  const authority = rankAuthority(config);
+  const ranks = authority === 'server-shop-roles' ? NEXUS_RANKS.filter((rank) => rank.level === 0) : NEXUS_RANKS;
+  return ranks
+    .map((rank) => String(config?.discord?.rankRoles?.[rank.id] || '').trim())
+    .filter(Boolean);
 }
 
 function highestRankForEntitlements(entitlements = [], config = {}) {
