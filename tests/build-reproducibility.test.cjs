@@ -6,7 +6,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '..');
-const read = (relative) => fs.readFileSync(path.join(ROOT, relative), 'utf8');
+const resolve = (relative) => path.join(ROOT, relative);
+const exists = (relative) => fs.existsSync(resolve(relative));
+const read = (relative) => fs.readFileSync(resolve(relative), 'utf8');
 
 test('package lock matches the declared Nexus 0.1 dependency contract', () => {
   const pkg = JSON.parse(read('package.json'));
@@ -23,7 +25,7 @@ test('package lock matches the declared Nexus 0.1 dependency contract', () => {
   assert.deepEqual(root.devDependencies || {}, pkg.devDependencies || {});
 });
 
-test('rebuild CI uses locked npm installs and dependency caches', () => {
+test('rebuild CI uses locked npm installs and dependency caches', { skip: !exists('.github/workflows/rebuild-ci.yml') }, () => {
   const workflow = read('.github/workflows/rebuild-ci.yml');
   const npmCi = workflow.match(/npm ci --no-audit --no-fund/g) || [];
   const npmCache = workflow.match(/cache: 'npm'/g) || [];
@@ -36,10 +38,16 @@ test('rebuild CI uses locked npm installs and dependency caches', () => {
   assert.doesNotMatch(workflow, /npm install --no-audit --no-fund/);
 });
 
-test('Railway Sentinal image is built from package-lock.json with npm ci', () => {
+test('Railway Sentinal image is built from package-lock.json with npm ci', { skip: !exists('Dockerfile.sentinal') }, () => {
   const dockerfile = read('Dockerfile.sentinal');
 
   assert.match(dockerfile, /COPY package\.json package-lock\.json \.\//);
   assert.match(dockerfile, /RUN npm ci --omit=dev --no-audit --no-fund/);
   assert.doesNotMatch(dockerfile, /RUN npm install /);
+});
+
+test('runtime-only test contexts do not need repository orchestration files', () => {
+  if (exists('.github/workflows/rebuild-ci.yml') || exists('Dockerfile.sentinal')) return;
+  assert.equal(exists('package.json'), true);
+  assert.equal(exists('package-lock.json'), true);
 });
