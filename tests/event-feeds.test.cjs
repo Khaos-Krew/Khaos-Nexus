@@ -100,6 +100,12 @@ test('persistent Pokémon GO event feed uses the rich event card and managed mar
   assert.equal(payload.components[0].components[0].style, 5);
 });
 
+test('feed matching adopts both the old literal events label and the new Pokémon GO Events label', () => {
+  const base = { author:{ id:'sentinal' }, embeds:[{ footer:{ text:'old footer' } }] };
+  assert.equal(messageMatchesFeed({ ...base, content:'📡 **Nexus Sentinal Live Feed** • events\nUpdated before deploy' }, 'pokemongo', 'events', 'sentinal'), true);
+  assert.equal(messageMatchesFeed({ ...base, content:'📡 **Nexus Sentinal Live Feed** • Pokémon GO Events\nUpdated after deploy' }, 'pokemongo', 'events', 'sentinal'), true);
+});
+
 test('feed matching does not adopt another bot message', () => {
   const message = {
     author:{ id:'other' },
