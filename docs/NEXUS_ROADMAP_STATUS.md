@@ -48,14 +48,16 @@ Repository evidence on `rebuild/nexus-0.1` currently establishes:
 - guarded read-only provider validation from PRs #290/#291 with predefined non-destructive viewer probes, redacted PASS/SKIPPED/FAIL results, and Palworld as the first recommended real-provider acceptance target;
 - staged in-app updater from PR #293 with approved-channel checks, SHA-256/manifest verification, staged full-payload updates, explicit Owner restart/apply, startup confirmation, and rollback behavior without rerunning NSIS for normal updates;
 - Admin Operations from PR #294: Owner Test Center, Sentinal health/admin client, rank/entitlement sync, Discord permission/layout inspection and repair, module enable/config controls enforced by backend runtime, persistent panel refresh, command synchronization, safe Repair Nexus orchestration, and startup-health/loading state;
-- backend-first Pokémon GO from PR #295, friendly per-module commands from PR #298, universal event/schedule posting from PR #299, Discord command-schema normalization from PR #300, and supporter-rank/SKU discovery from PRs #301/#313;
+- backend-first Pokémon GO from PR #295, friendly per-module commands from PR #298, universal event/schedule posting from PR #299, Discord command-schema normalization from PR #300, and supporter-rank discovery from PR #301 with recurring/durable Premium App SKU support from PR #313 when that authority mode is explicitly configured;
+- Discord Server Shop authority correction from PR #320: when no paid `rankSkus` mappings are configured, the five paid Nexus ranks are treated as Discord Server Shop Premium Roles rather than missing Premium App SKUs; paid Server Shop roles are protected from Nexus reconciliation ownership while the free Shadow Recruit baseline remains Nexus-managed; explicit paid Premium App SKU mappings still enable the Premium App entitlement path;
+- desktop rank-authority presentation correction from PR #321 so Server Shop-managed paid ranks are presented as Server Shop authority instead of false Premium App SKU-missing findings;
 - self-reconciling module access roles from PR #304, warning diagnostics from PR #305, protected-role fallback from PR #307, administrator moderation from PR #314, and guided first-run Setup Center from PR #315;
 - current Thora sidecar integration from PR #306 while keeping Thora household data outside Nexus;
 - hosted Sentinal pairing from PR #310 and public-surface hardening from PR #312;
 - staged-update publisher and CI hash hardening from PRs #309/#311;
 - hosted provider configuration synchronization from PR #316: the desktop main process can send sanitized provider configuration plus approved protected secrets over the existing paired HTTPS admin channel; hosted provider secrets are encrypted at rest on the persistent Railway volume; the renderer never receives provider credentials; hosted providers can be replaced live and exercised through the existing predefined read-only validation probes; Setup Center can use hosted sync/validation evidence;
 - persistent hosted-provider storage alignment from PR #317: hosted provider state honors `NEXUS_DATA_DIR`, matching Sentinal state persistence so alternate hosts do not split Discord state and provider state between persistent and ephemeral directories;
-- Discord owner-acceptance client repairs from PRs #318/#319: hosted aggregate scans have operation-specific deadlines and Nexus-specific timeout classification, and completed read-only scans with acceptance findings now render their per-section results instead of being collapsed into a generic action failure; rank/Premium SKU and hosted-provider status findings are visible on the Discord Admin surface;
+- Discord owner-acceptance client repairs from PRs #318/#319: hosted aggregate scans have operation-specific deadlines and Nexus-specific timeout classification, and completed read-only scans with acceptance findings render their per-section results instead of being collapsed into a generic action failure;
 - dedicated `docs/DISCORD_NEXUS_SETUP_ACCEPTANCE.md` checkpoint separating verified hosted/runtime evidence, observed Owner scan progress, and still-pending Owner interaction gates;
 - dedicated Nexus Rebuild CI with Windows test, NSIS packaging, staged-update bundle construction/verification, and artifact upload.
 
@@ -65,11 +67,11 @@ These are implementation facts, not release or final owner-acceptance claims. Co
 
 Status: **AUTOMATED REBUILD BASELINE GREEN — OWNER/LIVE VALIDATION IN PROGRESS**
 
-The latest exact merged implementation head with completed rebuild validation is **PR #319 head `298baec7b1800e0170f2f6ac94e03fd961fc4128`**. **Nexus Rebuild CI run #235 completed successfully on that exact SHA.** PR #319 then merged into `rebuild/nexus-0.1` as merge commit `124d8c7b333b819c7ba3f0c22e88a1122e7d8455`.
+The latest exact merged implementation head with completed rebuild validation is **PR #321 head `1aa71b57cb4b40ab29502990737315ee84524ad8`**. **Nexus Rebuild CI run #242 completed successfully on that exact SHA.** PR #321 then merged into `rebuild/nexus-0.1`.
 
-Immediately preceding exact-head green implementation evidence remains preserved in repository history, including PR #318 head `f23ea665e7453d21f47bc7c3ba93c3bdb16745ee` (run #233), PR #317 head `f5ce0835e846aa50b2557f5470bb9a927851e8e4` (run #227), PR #316 head `66bbed2f1d3aa6b74722aa2f13dfdfc4b10bf9f9` (run #225), PR #315 head `af46077b7ca885e7c5297923095b9c47da49844a` (run #220), PR #314 head `7d356b7ca4cfe0876e0307c266b33f5d53563a0c` (run #218), and PR #313 head `2cb228b8c3ed1ff4233719ba25b24334bc64ecc3` (run #213).
+Immediately preceding exact-head green implementation evidence remains preserved in repository history, including PR #320 head `a4b880a64bed3ba4d1d911126939ef425bd56617` (run #240), PR #319 head `298baec7b1800e0170f2f6ac94e03fd961fc4128` (run #235), PR #318 head `f23ea665e7453d21f47bc7c3ba93c3bdb16745ee` (run #233), PR #317 head `f5ce0835e846aa50b2557f5470bb9a927851e8e4` (run #227), PR #316 head `66bbed2f1d3aa6b74722aa2f13dfdfc4b10bf9f9` (run #225), PR #315 head `af46077b7ca885e7c5297923095b9c47da49844a` (run #220), PR #314 head `7d356b7ca4cfe0876e0307c266b33f5d53563a0c` (run #218), and PR #313 head `2cb228b8c3ed1ff4233719ba25b24334bc64ecc3` (run #213).
 
-The current `Discord + Nexus Setup Acceptance` checkpoint records useful hosted/runtime evidence from the PR #316 deployment, including successful health, Discord login, persistent module feeds, command registration, and module-access reconciliation with 10 roles, 1 menu message, and 0 warnings. Owner acceptance testing on 2026-08-24 additionally exercised the desktop-hosted Discord admin path: the Discord Admin surface reported Sentinal online with 5/5 permissions and other readiness data, and after PR #318 the hosted `/v1/scan` request completed HTTP 200 in roughly 3 seconds. That test exposed a second presentation defect, repaired by PR #319, where valid read-only findings had been rendered as `Operation failed.`. This is meaningful Owner-test progress, not final acceptance. The PR #319 implementation still needs to be exercised so the actual findings can be reviewed and genuine red sections can be separated from transport/UI defects.
+The current `Discord + Nexus Setup Acceptance` checkpoint records useful hosted/runtime evidence from the PR #316 deployment, including successful health, Discord login, persistent module feeds, command registration, and module-access reconciliation with 10 roles, 1 menu message, and 0 warnings. Owner acceptance testing on 2026-08-24 additionally exercised the desktop-hosted Discord admin path: the Discord Admin surface reported Sentinal online with 5/5 permissions and other readiness data, and after PR #318 the hosted `/v1/scan` request completed HTTP 200 in roughly 3 seconds. PR #319 then exposed the real per-section findings. That Owner scan was green in every surfaced section except Rank / SKU discovery. Repository inspection established that the remaining red section was caused by an incorrect authority assumption: the five paid ranks are Discord Server Shop Premium Roles, not Premium App SKUs owned by Sentinal. PR #320 corrected the runtime authority model and PR #321 corrected the desktop presentation. This is meaningful Owner-test progress, not final acceptance; one confirmation scan on the PR #321 implementation is still required.
 
 CI and hosted-runtime evidence remain separate from owner/live acceptance. Therefore:
 
@@ -78,7 +80,8 @@ CI and hosted-runtime evidence remain separate from owner/live acceptance. There
 - do not claim hosted Sentinal pairing owner validation until a fresh `/nexus-pair` → HTTPS exchange → protected credential storage → authenticated admin status flow is explicitly exercised and recorded; successful authenticated hosted scans are supporting evidence but not complete proof of the fresh-code pairing ceremony;
 - do not claim hosted provider synchronization owner validation until real configured provider settings/secrets are synchronized to the intended Railway Sentinal instance, survive restart/persistent-volume reload, remain redacted/protected, and successfully execute the predefined read-only validation probes;
 - do not claim live-provider correctness until provider paths are exercised against real supported services/servers;
-- do not claim real-guild Sentinal acceptance until setup, permissions, reconciliation, persistent panels, friendly commands, event feeds, restart behavior, rank/SKU discovery, module-access roles, protected-role fallback, moderation, hosted pairing, relevant hosted-provider flows, and the PR #319 findings UI are exercised on the intended Discord guild;
+- do not claim real-guild Sentinal acceptance until setup, permissions, reconciliation, persistent panels, friendly commands, event feeds, restart behavior, rank-authority discovery, module-access roles, protected-role fallback, moderation, hosted pairing, relevant hosted-provider flows, and the corrected PR #321 rank presentation are exercised on the intended Discord guild;
+- do not treat missing Premium App SKUs as an acceptance failure when the intended paid-rank authority is Discord Server Shop Premium Roles;
 - do not claim Setup Center owner acceptance until its readiness states, findings, and navigation are exercised against the intended owner configuration;
 - do not claim updater owner validation until an installed owner-test build successfully stages, applies, confirms startup, and exercises rollback behavior where appropriate;
 - do not claim Thora owner validation until discovery/readiness and allowlisted launch targets are exercised against the intended installed Thora build;
@@ -116,18 +119,18 @@ Goals:
 
 ### Then — Sentinal operational acceptance
 
-Status: **IN PROGRESS — OWNER SCAN PATH EXERCISED; FINDINGS REVIEW + REAL-GUILD/RAILWAY ACCEPTANCE PENDING**
+Status: **IN PROGRESS — OWNER SCAN FINDINGS REVIEWED; SERVER SHOP AUTHORITY FIX MERGED; CONFIRMATION + REAL-GUILD/RAILWAY ACCEPTANCE PENDING**
 
-Merged implementation now includes setup/repair, permanent module panels, friendly per-module commands, Admin Operations controls, moderation, Pokémon GO operations, universal event feeds, supporter-rank/SKU discovery, self-reconciling module access roles, hierarchy diagnostics, protected-role fallback, secure hosted desktop-to-Sentinal pairing, minimized public health metadata, hosted provider configuration/validation routes, persistent hosted-provider storage alignment, and the PR #318/#319 Discord Admin acceptance fixes. Owner testing has confirmed the hosted scan transport can complete successfully; final per-section acceptance is still pending on the PR #319 implementation.
+Merged implementation now includes setup/repair, permanent module panels, friendly per-module commands, Admin Operations controls, moderation, Pokémon GO operations, universal event feeds, supporter-rank discovery, self-reconciling module access roles, hierarchy diagnostics, protected-role fallback, secure hosted desktop-to-Sentinal pairing, minimized public health metadata, hosted provider configuration/validation routes, persistent hosted-provider storage alignment, the PR #318/#319 Discord Admin acceptance fixes, and the PR #320/#321 Discord Server Shop rank-authority corrections. Owner testing has confirmed the hosted scan transport and per-section findings path; the only surfaced red section was the now-corrected false Premium App SKU requirement. Final confirmation on the PR #321 implementation and the remaining real-guild/Railway gates are still pending.
 
 Goals:
 
 - validate setup, reconciliation, permission checks, command synchronization, persistent panels, friendly module commands, event feeds, degraded-backend behavior, and restart recovery on the real guild;
 - validate moderation authorization, bounded clear amounts, and command-health behavior;
 - validate temporary lobby lifecycle and cleanup;
-- validate rank/entitlement reconciliation against the real Discord hierarchy and Premium App recurring/durable SKU mappings;
+- validate rank reconciliation against the real Discord hierarchy using the correct authority mode: Discord Server Shop Premium Roles by default for the paid ranks, or Premium App recurring/durable SKU mappings only when explicitly configured;
 - validate module access-role reconciliation including protected-role fallback;
-- re-run the hosted Discord scan on the PR #319 implementation, review the actual acceptance findings, and repair only genuine red sections;
+- re-run the hosted Discord scan on the PR #321 implementation and confirm the corrected Server Shop authority section is green without requiring nonexistent Premium App SKUs;
 - validate hosted pairing and provider synchronization against the intended Railway Sentinal instance without exposing long-lived admin or provider credentials to the renderer/public surfaces;
 - complete the remaining Owner interaction gates in `docs/DISCORD_NEXUS_SETUP_ACCEPTANCE.md`, including explicit fresh-code pairing evidence, live repair where needed, real provider sync/validation, and restart persistence;
 - verify common game workflows are discoverable without memorizing generic backend commands;
@@ -137,7 +140,7 @@ Goals:
 
 Status: **IN PROGRESS — STAGED UPDATER + HASH HARDENING + OWNER TEST CENTER MERGED; OWNER UPDATE/ROLLBACK ACCEPTANCE PENDING**
 
-PR #293 provides the staged updater; PR #294 adds owner-test build tracking; PRs #309/#311 harden SHA-256 verification. PR #319's green rebuild CI confirms the current implementation remains compatible with the rebuild validation pipeline; this does not publish an update or release.
+PR #293 provides the staged updater; PR #294 adds owner-test build tracking; PRs #309/#311 harden SHA-256 verification. PR #321's green rebuild CI confirms the current implementation remains compatible with the rebuild validation pipeline; this does not publish an update or release.
 
 Goals:
 
