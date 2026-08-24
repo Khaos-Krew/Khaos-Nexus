@@ -94,8 +94,10 @@ function buildStaffNameColorPreview({ guildId = '', roles, botHighestRole = null
   const highestColorPosition = highest ? rolePosition(highest) : 0;
   const operatorIds = new Set((config.discord?.operatorRoleIds || []).map(String));
   const botHighestPosition = rolePosition(botHighestRole);
+  const botHighestRoleId = String(botHighestRole?.id || '');
 
-  const protectedRoles = allRoles
+  const protectedRoles = highest ? allRoles
+    .filter((role) => String(role?.id || '') !== botHighestRoleId)
     .filter((role) => !isSelectableColorRole(role, configuredIds))
     .filter((role) => rolePosition(role) > highestColorPosition)
     .filter((role) => operatorIds.has(String(role?.id || '')) || roleHasStaffPower(role))
@@ -104,7 +106,7 @@ function buildStaffNameColorPreview({ guildId = '', roles, botHighestRole = null
       highestColorPosition,
       botHighestPosition
     }))
-    .sort((a, b) => b.position - a.position);
+    .sort((a, b) => b.position - a.position) : [];
 
   const proposedRoleIds = protectedRoles
     .filter((role) => role.eligibleForColorNeutralPreview)
@@ -118,6 +120,7 @@ function buildStaffNameColorPreview({ guildId = '', roles, botHighestRole = null
     readOnly: true,
     mutationAuthorized: false,
     needsOwnerReview: proposedRoleIds.length > 0,
+    reason: highest ? '' : 'no-selectable-color-roles',
     selectableColorRoleCount: selectable.length,
     highestSelectableColorRole: highest ? {
       id: String(highest.id || ''),
