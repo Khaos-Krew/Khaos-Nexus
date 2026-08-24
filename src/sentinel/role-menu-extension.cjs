@@ -8,6 +8,7 @@ const { SelfRoleManager } = require('./unified-self-role-manager.cjs');
 const { SELF_ROLE_BUTTON_PREFIX, LEGACY_SELF_ROLE_BUTTON_PREFIX } = require('./self-role-model.cjs');
 const { reconcileExistingModuleAccessPolicies } = require('./module-access-policy.cjs');
 const { reconcileOwnerApprovedRoles } = require('./owner-role-decisions.cjs');
+const { createCoalescingRunner } = require('./coalescing-runner.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.moduleAccessRoles.extension');
 
@@ -52,7 +53,7 @@ function installRoleMenuExtension() {
     const accessManager = installManageableRoleFallback(new RoleMenuManager({ client: this, state, config }), state);
     const selfRoleManager = new SelfRoleManager({ client: this, state, config });
 
-    const reconcile = async (reason) => {
+    const reconcileOnce = async (reason) => {
       if (!guildId) return;
       try {
         const guild = await this.guilds.fetch(guildId);
@@ -99,13 +100,18 @@ function installRoleMenuExtension() {
       }
     };
 
+    const reconcileRunner = createCoalescingRunner(reconcileOnce, {
+      onError: (error, reason) => console.error(`[Nexus Sentinal] reconciliation runner (${reason}):`, error)
+    });
+    const requestReconcile = (reason) => reconcileRunner.request(reason);
+
     this.once(Events.ClientReady, async () => {
-      await reconcile('startup');
-      const reconcileTimer = setInterval(() => void reconcile('periodic'), 10 * 60 * 1000);
+      await requestReconcile('startup');
+      const reconcileTimer = setInterval(() => void requestReconcile('periodic'), 10 * 60 * 1000);
       reconcileTimer.unref?.();
     });
-    this.on(Events.GuildRoleDelete, () => void reconcile('role-delete'));
-    this.on(Events.ChannelDelete, () => void reconcile('channel-delete'));
+    this.on(Events.GuildRoleDelete, () => void requestReconcile('role-delete'));
+    this.on(Events.ChannelDelete, () => void requestReconcile('channel-delete'));
     this.on(Events.InteractionCreate, async (interaction) => {
       if (!interaction.isButton?.()) return;
       const customId = String(interaction.customId || '');
