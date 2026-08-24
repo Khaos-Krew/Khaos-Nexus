@@ -11,8 +11,8 @@ This branch is the active clean rebuild of Khaos Nexus. The previous `0.41.x` st
 
 - **Nexus Backend** owns game logic, providers, scheduling hooks, permissions, health, and shared contracts.
 - **Nexus Sentinal** is the primary Discord interface for normal game-module use through persistent consoles, setup/reconciliation, friendly commands, event feeds, self-role/rank surfaces, private reporting, and deeper controls.
-- **Khaos Nexus Desktop** is an Admin Control Center for Discord/Sentinal administration, accounts/access, module/service management, owner testing, diagnostics, recovery, updates, and the private Thora bridge.
-- **Thora** remains private/local and is bridged from its canonical project rather than duplicated here.
+- **Khaos Nexus Desktop** is an Admin Control Center for Discord/Sentinal administration, accounts/access, module/service management, owner testing, diagnostics, recovery, updates, and the private assistant bridge.
+- Private assistant functionality remains local/private and is bridged from its canonical project rather than duplicated into public Sentinal surfaces.
 - **Veyra** may remain the dedicated D&D presentation client while D&D logic follows the same backend-first rule.
 
 Routine game logic remains outside Electron and Discord handlers.
@@ -25,31 +25,43 @@ Current game modules include **ARK, Palworld, Minecraft, Warframe, Division 2, R
 
 Provider-backed companion work includes capability-driven module help, read-only Warframe Archon Hunt data, the interactive `/ark tame` wizard, Pokémon GO event/operation surfaces, Dead by Daylight public/community reads through Tricky/NightLight, and safe/local Call of Duty and Diablo IV companion surfaces that deliberately avoid undocumented protected player-data routes or nonexistent live character/inventory APIs.
 
-**Sentinal now owns the role/self-role authority path.** The merged chain covers unified self-role/color menus (#329), legacy discovery/migration (#330/#331), old button-menu adoption (#335), safe target diagnostics/aliases (#339/#341), Name Color swatch preservation and restart recovery (#342/#343), strict module access policy (#344), application-owned live-role-hex color swatches (#345/#346), owner-approved platform-role/LFG/legacy-panel cleanup (#351), Guild Members intent corrections (#352–#354), and serialized reconciliation after live cleanup (#355).
+**Sentinal owns the role/self-role authority path.** The merged chain covers unified self-role/color menus (#329), legacy discovery/migration (#330/#331), old button-menu adoption (#335), safe target diagnostics/aliases (#339/#341), Name Color swatch preservation and restart recovery (#342/#343), strict module access policy (#344), application-owned live-role-hex color swatches (#345/#346), owner-approved platform-role/LFG/legacy-panel cleanup (#351), Guild Members intent corrections (#352–#354), serialized reconciliation after live cleanup (#355), and the required 100% public milestone publisher update (#356).
 
-Live evidence records the **Sentinal Discord Role Authority section as accepted at 100%** with 11 current self-role menus, 120 active role options, duplicate platform roles removed, zero legacy reaction candidates remaining, module access healthy at 10 roles / 1 menu / 0 warnings, and moderation hierarchy preserved. This accepts that subsection only; it does not complete the broader Sentinal operational phase. PR #356 contains the corresponding public 100% milestone patch note but remains open/unmerged.
+Live evidence records the **Sentinal Discord Role Authority section as accepted at 100%** with 11 current self-role menus, 120 active role options, duplicate platform roles removed, zero legacy reaction candidates remaining, and moderation hierarchy preserved. The expanded module-access surface now reconciles at **13 roles / 1 menu / 0 warnings**. PR #356 is merged, and Railway confirmed its `sentinal-role-authority:100` milestone posted exactly once to `#patch-notes` with no warnings.
 
-**Persistent Sentinal panels and module layout are also hardened.** PR #347 made managed hubs/live feeds deployment-idempotent and #349 added bounded startup acceptance telemetry. PR #357 then added backend-first Call of Duty, Dead by Daylight, and Diablo IV modules with dedicated Discord categories/access roles plus alphabetical game-category reconciliation above protected Staff/Hidden boundaries. PR #358 fixed the resulting category insertion-order regression and makes missing managed hub embeds create/self-heal automatically during startup/periodic reconciliation.
+**Persistent Sentinal panels and module layout are also hardened and live-evidenced.** PR #347 made managed hubs/live feeds deployment-idempotent and #349 added bounded startup acceptance telemetry. PR #357 added backend-first Call of Duty, Dead by Daylight, and Diablo IV modules with dedicated Discord categories/access roles plus alphabetical game-category reconciliation above protected Staff/Hidden boundaries. PR #358 fixed category insertion ordering and added missing-hub self-healing.
 
-PR #358 head `e2c7e89e355b1ec103292afa975f4715237fd20c` is the newest exact merged implementation head with completed validation: **Nexus Rebuild CI run #344 passed**. PR #357 head `e5fae99ccb859792253e6233db3d3af2fcf4ed99` passed run #342 before merge. This is automated evidence only; real-guild/provider/owner acceptance and public/stable release remain separate gates.
+Current Railway evidence confirms:
 
-The current [`Discord + Nexus Setup Acceptance`](docs/DISCORD_NEXUS_SETUP_ACCEPTANCE.md) checkpoint remains active. Role authority has live acceptance evidence, but the expanded game-module layout, managed hub self-healing/idempotency, module access isolation, reporting, moderation, pairing, provider flows, Setup Center acceptance, and restart behavior still need real-guild/owner confirmation.
+- **12 managed game hub panels**, with `created=0` and `duplicatesRemoved=0` on startup and periodic sweeps;
+- Call of Duty, Dead by Daylight, and Diablo IV categories/hubs are present and reused without creating duplicate channels;
+- **12 module channel access policies** reconcile with `blocked=0` and no permission drift to repair;
+- categories are alphabetized above the protected Staff boundary: ARK Survival Ascended, Call of Duty, Dead by Daylight, Diablo IV, Legends of IdleOn, Minecraft, Palworld, Pokémon GO, Rust, Satisfactory, The Division 2, Warframe;
+- persistent feed actions recover/update their existing Discord messages with no duplicate removals required;
+- `/nexus`, `/market`, `/ark`, `/cod`, `/dbd`, `/diablo4`, `/palworld`, `/minecraft`, `/warframe`, `/division2`, `/rust`, `/satisfactory`, and `/idleon` register without replacing unrelated guild commands;
+- the private safety-report infrastructure reports the Rules panel and restricted archive ready, while end-to-end ticket lifecycle acceptance remains pending.
+
+Recent exact-head CI evidence includes PR #358 head `e2c7e89e355b1ec103292afa975f4715237fd20c` on Nexus Rebuild CI #344, PR #357 head `e5fae99ccb859792253e6233db3d3af2fcf4ed99` on run #342, and PR #356 head `e10b31abf95d00505105eff1ba5c54329414a37a` on run #338. The merged branch then deployed successfully on Railway at merge commit `1832bcc34dfb454f42d6a89b11a3d858d890da2a`.
+
+This is automated and hosted-runtime evidence only. Real member interaction, provider credentials, desktop pairing, report lifecycle, moderation, installed updater behavior, and public/stable release remain separate gates.
+
+The current [`Discord + Nexus Setup Acceptance`](docs/DISCORD_NEXUS_SETUP_ACCEPTANCE.md) checkpoint remains active. Role authority plus the expanded game-module layout, access-policy reconciliation, category ordering, hub idempotency, and feed recovery now have live evidence. Fresh pairing, the corrected desktop confirmation scan, live Repair Nexus where needed, real provider sync/validation, and desktop/hosted restart persistence still require owner interaction.
 
 ## Roadmap
 
 The canonical roadmap/status handoff is [`docs/NEXUS_ROADMAP_STATUS.md`](docs/NEXUS_ROADMAP_STATUS.md).
 
-- **Now — Rebuild foundation:** automated baseline is green; owner-test the packaged Admin Control Center, guided Setup Center, Accounts & Access, Owner Test Center, startup-health surface, Sentinal administration, hosted pairing/provider sync, safe Repair Nexus flow, and current Thora bridge.
+- **Now — Rebuild foundation:** automated baseline is green; owner-test the packaged Admin Control Center, guided Setup Center, Accounts & Access, Owner Test Center, startup-health surface, Sentinal administration, hosted pairing/provider sync, safe Repair Nexus flow, and current private assistant bridge.
 - **Next — Provider-backed game services:** providers, authenticated hosted sync, read-only validation, event feeds, ARK taming, Pokémon GO, Warframe Archon Hunt, Dead by Daylight public/community reads, and safe/local Call of Duty/Diablo IV companion surfaces are merged; validate them in real provider/Discord use without treating CI as live acceptance.
-- **Then — Sentinal operational acceptance:** the role-authority subsection is live-accepted at 100%; broader acceptance still requires the new game categories/roles/hubs, module visibility, hub/feed idempotency, reporting, moderation, pairing, provider flows, Setup Acceptance, commands/help, and restart behavior to pass in the intended guild/Railway environment.
+- **Then — Sentinal operational acceptance:** the role-authority subsection is live-accepted at 100%, and module layout/idempotency now has live Railway evidence; broader acceptance still requires normal-member button/command use, report lifecycle, moderation, pairing, provider flows, Setup Acceptance, and restart behavior.
 - **Release hardening:** staged updating, updater/rebuild-CI hash hardening, and the Owner Test Center are merged; next validate a real installed Owner Test update through download, verification, staging, explicit restart/apply, startup confirmation, and rollback while keeping NSIS for first install/recovery.
-- **Later — Selective migration and expansion:** port only legacy behavior that fits the backend/admin/Sentinal architecture, expand provider-backed services and safe companion reads, keep routine game dashboards out of the desktop, keep Thora bridged from its canonical private project, and consider future web/public surfaces only when they support rather than duplicate protected authority.
+- **Later — Selective migration and expansion:** port only legacy behavior that fits the backend/admin/Sentinal architecture, expand provider-backed services and safe companion reads, keep routine game dashboards out of the desktop, keep private assistant functionality bridged from its canonical project, and consider future web/public surfaces only when they support rather than duplicate protected authority.
 
 The earlier self-hosted web + Windows Agent roadmap is no longer the immediate successor phase for Nexus 0.1.
 
 ## Historical stabilization line
 
-PR #266 on `stabilize/nexus-66-baseline` remains open, draft, mergeable, and unmerged. Its historical owner-test identity remains `0.41.2.1` visible / `0.41.3-test.1` internal / channel `owner-test` / rollback `v0.41.2-B`.
+PR #266 on `stabilize/nexus-66-baseline` remains open, draft, and unmerged. Its historical owner-test identity remains `0.41.2.1` visible / `0.41.3-test.1` internal / channel `owner-test` / rollback `v0.41.2-B`.
 
 The newest relevant legacy startup diagnostic remains issue #285 for installed `0.41.3-test.1`, reporting **8 passed, 0 warnings, 0 failures**. It is historical stabilization evidence only and does not validate Nexus 0.1.
 
