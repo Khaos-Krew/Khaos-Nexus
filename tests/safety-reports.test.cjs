@@ -53,7 +53,7 @@ test('/report is intentionally short and opens a five-field private modal', () =
   const command = reportCommand().toJSON();
   assert.equal(command.name, 'report');
   assert.deepEqual(command.options || [], []);
-  const modal = reportModal();
+  const modal = reportModal().toJSON();
   assert.equal(modal.custom_id, REPORT_MODAL_ID);
   assert.equal(modal.components.length, 5);
   assert.equal(modal.components.every((row) => row.components.length === 1), true);
@@ -70,6 +70,7 @@ test('rules panel states safe-space expectations and exposes a private report bu
   const button = payload.components[0].components[0];
   assert.equal(button.custom_id, REPORT_BUTTON_ID);
   assert.equal(button.label, 'Open Private Report');
+  assert.deepEqual(payload.allowedMentions, { parse: [] });
 });
 
 test('ticket controls cover claim, staff/user access, escalation, resolution, and archive closure within Discord row limits', () => {
@@ -109,8 +110,9 @@ test('private report payload keeps the report in the private ticket and explicit
   assert.match(text, /Repeated harassment/);
   assert.match(text, /need-to-know/i);
   assert.match(text, /attach screenshots\/files/i);
-  assert.equal(payload.allowed_mentions.parse.length, 0);
-  assert.deepEqual(payload.allowed_mentions.users, ['100000000000000001']);
+  assert.equal(payload.allowedMentions.parse.length, 0);
+  assert.deepEqual(payload.allowedMentions.users, ['100000000000000001']);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'allowed_mentions'), false);
 });
 
 test('safety report store persists metadata while allowing active-case counting without report narrative fields', () => {
