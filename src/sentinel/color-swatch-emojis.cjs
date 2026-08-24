@@ -125,6 +125,7 @@ async function removeGeneratedGuildSwatch(option, guild, logger = console) {
     if (!emoji && typeof guild.emojis.fetch === 'function') {
       try { emoji = await guild.emojis.fetch(id); } catch {}
     }
+    if (!emoji) return false;
     if (emoji?.delete) await emoji.delete('Replaced by Nexus Sentinal application-owned color swatch');
     else if (typeof guild.emojis.delete === 'function') await guild.emojis.delete(id, 'Replaced by Nexus Sentinal application-owned color swatch');
     else return false;
