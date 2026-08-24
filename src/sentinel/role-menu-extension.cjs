@@ -8,6 +8,7 @@ const { SelfRoleManager } = require('./unified-self-role-manager.cjs');
 const { SELF_ROLE_BUTTON_PREFIX, LEGACY_SELF_ROLE_BUTTON_PREFIX } = require('./self-role-model.cjs');
 const { reconcileExistingModuleAccessPolicies } = require('./module-access-policy.cjs');
 const { reconcileOwnerApprovedRoles } = require('./owner-role-decisions.cjs');
+const { reconcileGameCategoryOrder } = require('./category-order.cjs');
 const { createCoalescingRunner } = require('./coalescing-runner.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.moduleAccessRoles.extension');
@@ -82,6 +83,13 @@ function installRoleMenuExtension() {
         console.log(`[Nexus Sentinal] module channel access reconciled (${reason}): modules=${locked} permissionChanges=${channelAccess.changed} blocked=${blocked}`);
         for (const item of channelAccess.modules.filter((entry) => !entry.ok)) {
           console.warn(`[Nexus Sentinal] module channel access warning (${reason}): ${item.moduleId}: ${item.reason || 'permission reconciliation failed'}`);
+        }
+
+        const categoryOrder = await reconcileGameCategoryOrder(guild);
+        if (categoryOrder.skipped) {
+          console.warn(`[Nexus Sentinal] game category ordering skipped (${reason}): ${categoryOrder.reason}`);
+        } else {
+          console.log(`[Nexus Sentinal] game categories reconciled (${reason}): moved=${categoryOrder.moved} boundary=${categoryOrder.boundary} order=${categoryOrder.ordered.join(' > ')}`);
         }
 
         const selfRoles = await selfRoleManager.reconcile(guild);
