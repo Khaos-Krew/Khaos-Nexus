@@ -12,6 +12,36 @@
     "timeZone": "America/Chicago",
     "stateFile": "data/schedules.json"
   },
+  "communityLeveling": {
+    "enabled": true,
+    "stateFile": "data/community-leveling.json",
+    "globalMultiplier": 1,
+    "sources": {
+      "message": true,
+      "voice": true,
+      "event": true,
+      "module": true
+    },
+    "ignoredChannelIds": [],
+    "ignoredRoleIds": [],
+    "message": {
+      "xp": 15,
+      "cooldownSeconds": 90,
+      "dailyCap": 300,
+      "minLength": 12,
+      "minWords": 3,
+      "duplicateWindowSeconds": 600
+    },
+    "voice": {
+      "xp": 10,
+      "intervalSeconds": 600,
+      "dailyCap": 300,
+      "minHumans": 2
+    },
+    "event": { "dailyCap": 1000 },
+    "module": { "dailyCap": 300 },
+    "milestoneLevels": [5, 10, 20, 30, 50, 75, 100]
+  },
   "discord": {
     "tokenEnv": "NEXUS_SENTINEL_TOKEN",
     "guildId": "",

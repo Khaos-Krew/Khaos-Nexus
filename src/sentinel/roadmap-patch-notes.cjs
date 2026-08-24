@@ -42,6 +42,19 @@ const ROADMAP_PATCH_NOTES = Object.freeze([
       'The status message is pinned, refreshed automatically, and reused instead of posting duplicates.',
       'Status reconciliation self-heals the managed panel and reports degraded or offline components independently.'
     ])
+  }),
+  Object.freeze({
+    key: 'community-leveling:66',
+    section: 'Community XP & Leveling',
+    percent: 66,
+    title: 'Community XP & Leveling Core Ready',
+    summary: 'The Nexus community progression system has reached its implementation milestone and is ready for live member acceptance testing.',
+    highlights: Object.freeze([
+      'Added persistent backend XP profiles with nonlinear levels, source caps, multipliers, and audit-safe administration.',
+      'Added /level, /rank, /leaderboard, and staff /xp controls plus automatic #level-up announcements.',
+      'Added message and voice participation safeguards including cooldowns, daily caps, ignored channels/roles, and AFK/deaf voice exclusion.',
+      'Community milestone roles remain completely separate from Shop/supporter ranks, game access, staff authority, and Name Color roles.'
+    ])
   })
 ]);
 
