@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const { ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 
 const REPORT_BUTTON_ID = 'nexussafety:open';
 const REPORT_MODAL_ID = 'nexussafety:submit';
@@ -55,21 +56,25 @@ function parseControlId(value) {
 }
 
 function reportModal() {
-  const input = (id, label, style, required, maxLength, placeholder = '') => ({
-    type: 1,
-    components: [{ type: 4, custom_id: id, label, style, required, max_length: maxLength, ...(placeholder ? { placeholder } : {}) }]
-  });
-  return {
-    custom_id: REPORT_MODAL_ID,
-    title: 'Open a Private Report',
-    components: [
-      input('summary', 'Short summary', 1, true, 120, 'Example: harassment in voice chat'),
-      input('involved', 'Person(s) or area involved', 1, false, 160, 'Names, channel, game server, or event'),
-      input('details', 'What happened?', 2, true, 1800, 'Include the important context. Staff can ask follow-up questions privately.'),
-      input('evidence', 'Evidence or message links (optional)', 2, false, 1000, 'Links, timestamps, filenames, or a note that you will attach screenshots in the ticket'),
-      input('support', 'What support would help? (optional)', 2, false, 800, 'Example: stop contact, review messages, staff follow-up')
-    ]
-  };
+  const input = (id, label, style, required, maxLength, placeholder = '') => new ActionRowBuilder().addComponents(
+    new TextInputBuilder()
+      .setCustomId(id)
+      .setLabel(label.slice(0, 45))
+      .setStyle(style)
+      .setRequired(required)
+      .setMaxLength(maxLength)
+      .setPlaceholder(placeholder.slice(0, 100))
+  );
+  return new ModalBuilder()
+    .setCustomId(REPORT_MODAL_ID)
+    .setTitle('Open a Private Report')
+    .addComponents(
+      input('summary', 'Short summary', TextInputStyle.Short, true, 120, 'Example: harassment in voice chat'),
+      input('involved', 'Person(s) or area involved', TextInputStyle.Short, false, 160, 'Names, channel, game server, or event'),
+      input('details', 'What happened?', TextInputStyle.Paragraph, true, 1800, 'Include the important context. Staff can ask follow-up questions privately.'),
+      input('evidence', 'Evidence or message links (optional)', TextInputStyle.Paragraph, false, 1000, 'Links, timestamps, filenames, or a note that you will attach screenshots in the ticket'),
+      input('support', 'What support would help? (optional)', TextInputStyle.Paragraph, false, 800, 'Example: stop contact, review messages, staff follow-up')
+    );
 }
 
 function rulesPanel() {
