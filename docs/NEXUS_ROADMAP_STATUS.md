@@ -120,6 +120,10 @@ Status: **AUTOMATED REBUILD BASELINE GREEN — OWNER/LIVE VALIDATION IN PROGRESS
 
 Recent exact-head automated evidence includes:
 
+- PR #381 head `5aaf15f914a598a4aa16e700ece348fbffe5966e` — Nexus Rebuild CI #401 green; removes bulk Discord member fetches from the module-access preflight after live Railway startup exposed a rate-limit collision;
+- PR #379 head `1f3b12b3e6d1ea463d507492a52c9e0cd3145dc3` — Nexus Rebuild CI #399 green; adds the read-only live module-access acceptance preflight, but its first live deployment exposed the member-fetch collision corrected by #381;
+- PR #377 head `ef0a18a085a624aba49f59e608b0e18bed24e4e1` — Nexus Rebuild CI #395 green; makes `staff-offices` a real Discord Forum, preserves the legacy text channel, and adds managed `#roadmap` status presentation;
+- PR #373 head `70ea4347c62284d3a2703148180999adfb26b693` — Nexus Rebuild CI #391 green; adds backend-first community XP/leveling with explicit authority separation and keeps 100% acceptance gated on live member/voice/admin/restart testing;
 - PR #371 head `70c9bb71ac0b9a58437a1e5e1ed2472068d7cc8f` — Nexus Rebuild CI #385 green before merge; queues the public-safe Nexus Service Status 100% milestone;
 - PR #370 head `eae3b1768aa18487d771f99d2f04f82393717280` — full Nexus Rebuild CI green; preserves release-hardening assertions without requiring repository-only docs inside the production Sentinal image;
 - PR #369 head `fe38b5680088c45eb152a7be5e42c7a6fd5cbf8d` — welcome automation tests/checks green before merge;
@@ -137,14 +141,25 @@ Automated CI, packaging, smoke validation, and hosted startup evidence do not re
 
 The Sentinal role-authority subsection is live-accepted at 100%. Expanded game-module provisioning, alphabetical placement, access-policy reconciliation, managed-hub idempotency, persistent-feed recovery, staff-compatible Name Color display safety, and Nexus Sentinal/Veyra service-status visibility also have live evidence.
 
+Late-August operational acceptance work now additionally establishes:
+
+- PR #372 merged the backend-backed `#game-servers` registry and makes **Nexus D&D production/community beta** the explicit final planned continuation rather than an indefinite backlog item;
+- PR #373 merged the backend-first Community XP/Leveling system, but its 100% milestone remains gated on live member, voice, admin, badge, restart-persistence, and authority-isolation acceptance;
+- PRs #376–#378 merged the protected Staff workspace, real `staff-offices` Forum migration, managed `#roadmap`, and legacy Staff Hub panel adoption without deleting historical staff-office content;
+- PR #379 merged a read-only module-access acceptance preflight that checks menu bindings, category/channel permission isolation, and staff visibility without assigning roles or changing permissions;
+- the first live #379 deployment revealed a **Discord gateway member-request rate-limit collision** because the preflight performed a bulk member fetch while Staff Workspace was also reconciling members;
+- PR #381 merged the corrective snapshot-only audit, reports `bulkMemberFetches=0`, and leaves authoritative current-staff discovery to Staff Workspace. This fixes the audit collision; it does **not** by itself complete the normal-member button/visibility acceptance gate.
+
 Remaining live/owner gates include:
 
-- validate real module button/command usage and module access-role visibility isolation from a normal member account without breaking staff/admin visibility;
+- perform the real normal-member module-access button test and confirm the selected module becomes visible while unrelated game modules stay hidden and staff/admin visibility remains intact; use the #381 snapshot-only preflight as supporting evidence, not as a substitute for that interaction;
+- validate Staff workspace live acceptance, including non-staff invisibility, Forum office access/privacy, roadmap/admin panels, restart idempotency, and safe treatment of preserved legacy office content;
+- validate Community XP/Leveling live message, voice, admin, milestone-role, restart-persistence, and authority-isolation behavior before any 100% claim;
 - validate the complete Rules/report ticket lifecycle, evidence flow, close/archive behavior, and restricted archive permissions;
 - complete remaining Discord + Nexus Setup Acceptance gates, including fresh hosted pairing, desktop confirmation scan, live Repair Nexus only where needed, provider sync/validation, and desktop/hosted restart persistence;
 - validate moderation actions, temporary lobby lifecycle, discoverability, and Veyra/D&D boundaries;
 - validate at least one real provider-backed game path with actual credentials/data where required;
-- validate the new backend-backed `#game-servers` registry against a real tracked-server addition/removal after its implementation is deployed;
+- validate the backend-backed `#game-servers` registry against a real tracked-server addition/removal after deployment;
 - validate updater apply/startup/rollback on an installed owner-test machine despite the now-green isolated Windows CI smoke path;
 - validate the private assistant discovery/readiness and allowlisted launch behavior on the intended machine.
 
@@ -166,9 +181,9 @@ Validate Palworld and other provider-backed paths in real use. Include Pokémon 
 
 ### Then — Sentinal operational acceptance
 
-Status: **IN PROGRESS — ROLE AUTHORITY + MODULE LAYOUT/IDEMPOTENCY + NAME-COLOR DISPLAY + SERVICE STATUS LIVE-EVIDENCED; INTERACTION ACCEPTANCE PENDING**
+Status: **IN PROGRESS — ROLE AUTHORITY + MODULE LAYOUT/IDEMPOTENCY + NAME-COLOR DISPLAY + SERVICE STATUS LIVE-EVIDENCED; STAFF/MODULE/COMMUNITY INTERACTION ACCEPTANCE PENDING**
 
-The self-role/role-authority subsection is live-accepted at 100%. Expanded module layout, access reconciliation, category order, hub idempotency, feed recovery, staff-compatible Name Color display safety, Nexus service status, and new-member welcome automation now have implementation/live evidence at their respective levels. Broader Sentinal operational acceptance still requires real-member interaction testing, reporting lifecycle, moderation, pairing, provider flows, Setup Acceptance, and restart behavior.
+The self-role/role-authority subsection is live-accepted at 100%. Expanded module layout, access reconciliation, category order, hub idempotency, feed recovery, staff-compatible Name Color display safety, Nexus service status, and new-member welcome automation now have implementation/live evidence at their respective levels. The protected Staff workspace, Forum/roadmap migration, Community XP/Leveling, and read-only module-access preflight are merged and exact-head green. Broader Sentinal operational acceptance still requires real-member module interaction, Staff workspace privacy/idempotency checks, Community XP live acceptance, reporting lifecycle, moderation, pairing, provider flows, Setup Acceptance, and restart behavior.
 
 ### Release hardening
 
