@@ -55,6 +55,19 @@ const ROADMAP_PATCH_NOTES = Object.freeze([
       'Added message and voice participation safeguards including cooldowns, daily caps, ignored channels/roles, and AFK/deaf voice exclusion.',
       'Community milestone roles remain completely separate from Shop/supporter ranks, game access, staff authority, and Name Color roles.'
     ])
+  }),
+  Object.freeze({
+    key: 'staff-workspace:66',
+    section: 'Staff Workspace',
+    percent: 66,
+    title: 'Staff Workspace Core Ready',
+    summary: 'The centralized Nexus staff workspace is implemented and ready for staff access and office-migration acceptance testing.',
+    highlights: Object.freeze([
+      'Consolidated staff coordination into a protected Staff hub, operations channel, admin reference, office hub, and meeting voice room.',
+      'Replaced future one-channel-per-person office growth with private managed office threads for current staff members.',
+      'Added a persistent command reference generated from actual privileged Nexus capability contracts and Discord administration commands.',
+      'Preserved existing staff channels during the acceptance phase so final cleanup can happen only after staff confirms the replacement workspace.'
+    ])
   })
 ]);
 
