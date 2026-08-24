@@ -16,6 +16,19 @@ const ROADMAP_PATCH_NOTES = Object.freeze([
       'Added private case channels with staff claim, participant, escalation, resolve, and close controls.',
       'Added a restricted report archive and privacy safeguards that keep report details out of routine Nexus logs/state.'
     ])
+  }),
+  Object.freeze({
+    key: 'sentinal-role-authority:100',
+    section: 'Sentinal Discord Role Authority',
+    percent: 100,
+    title: 'Sentinal Discord Role Authority Complete',
+    summary: 'Sentinal is now the unified active authority for Khaos Nexus self-service Discord roles.',
+    highlights: Object.freeze([
+      'Unified 11 self-role menus with 120 live role options under Sentinal management.',
+      'Consolidated duplicate platform roles with safe member migration before deletion.',
+      'Retired legacy reaction-role ambiguity and obsolete self-role interfaces after replacement validation.',
+      'Kept module access healthy while protecting moderation hierarchy and exclusive name-color behavior.'
+    ])
   })
 ]);
 
