@@ -92,7 +92,7 @@ async function ensureManagedChannel(guild, category, definition, type) {
 }
 
 async function ensureStaffOfficesForum(guild, category) {
-  let channels = await guild.channels.fetch();
+  const channels = await guild.channels.fetch();
   let forum = channelNamed(channels, STAFF_OFFICES_FORUM.name, ChannelType.GuildForum, category.id);
   let created = false;
   let moved = false;
@@ -174,7 +174,7 @@ async function ensureOfficeThread(channel, member) {
     await thread.setArchived(false, 'Nexus Sentinal staff office remains active');
     reopened = true;
   }
-  await thread.members?.add?.(String(member.id)).catch(() => {});
+  if (thread.members?.add) await thread.members.add(String(member.id)).catch(() => {});
   return { thread, created, reopened };
 }
 
