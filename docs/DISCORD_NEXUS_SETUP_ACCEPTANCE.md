@@ -8,7 +8,8 @@ This document records the current acceptance checkpoint for the Nexus 0.1 rebuil
 **Active branch:** `rebuild/nexus-0.1`  
 **Hosted service:** `nexus-sentinal-0-1-test`  
 **Last verified deployment source:** merge commit `f3619d10b82ec67c83509c5983867721fc887641` (PR #316)  
-**Verification date:** 2026-08-23
+**Latest validated desktop acceptance implementation:** PR #319 head `298baec7b1800e0170f2f6ac94e03fd961fc4128` (Nexus Rebuild CI #235 passed)  
+**Verification date:** 2026-08-24
 
 This checkpoint does **not** authorize or imply a public/stable Nexus release.
 
@@ -31,7 +32,20 @@ Hosted runtime startup evidence confirms:
 - The friendly command set registered successfully: `/nexus`, `/market`, `/ark`, `/palworld`, `/minecraft`, `/warframe`, `/division2`, `/rust`, `/satisfactory`, and `/idleon`.
 - Command registration preserved unrelated guild commands instead of replacing the guild command set.
 
-The live Railway configuration uses a persistent volume at `/app/data`. Sentinal's normal state store resolves to that directory by default. The hosted-provider store is required to honor the same `NEXUS_DATA_DIR` override when one is configured so alternate hosts cannot split Discord state and provider state across persistent and ephemeral locations.
+The live Railway configuration uses a persistent volume at `/app/data`. Sentinal's normal state store resolves to that directory by default. PR #317 aligns hosted-provider storage with the same `NEXUS_DATA_DIR` contract so alternate hosts do not split Discord state and provider state across persistent and ephemeral locations.
+
+## Owner interaction evidence observed
+
+Owner acceptance testing on 2026-08-24 established useful partial evidence for the desktop-to-hosted Discord admin path:
+
+- the Discord Admin page reached the intended hosted Sentinal and reported Sentinal online, **5/5 permissions**, layout, rank, and registered-command readiness;
+- the original aggregate Scan request exposed a client-side false-timeout defect, repaired by PR #318;
+- after that repair, the hosted `/v1/scan` request completed with HTTP 200 in roughly 3 seconds, confirming the request/transport path itself was working;
+- the desktop then exposed a second presentation defect: completed read-only scans with acceptance findings used `ok: false`, and the generic action helper rendered them as `Operation failed.` instead of showing the findings;
+- PR #319 repairs that presentation path and exposes per-section acceptance findings, rank/Premium SKU discovery, and hosted provider configuration status;
+- PR #318 head `f23ea665e7453d21f47bc7c3ba93c3bdb16745ee` passed Nexus Rebuild CI #233, and PR #319 head `298baec7b1800e0170f2f6ac94e03fd961fc4128` passed Nexus Rebuild CI #235 before merge.
+
+This is meaningful Owner-test progress, but it is **not** final Discord + Nexus Setup Acceptance. The PR #319 build still needs to be exercised by the Owner so the actual acceptance findings can be reviewed and any genuine red sections can be separated from UI/transport defects.
 
 ## Acceptance surface already implemented
 
@@ -50,10 +64,10 @@ Repair actions remain authenticated and separate from read-only inspection. Host
 
 ## Still requires Owner interaction
 
-The following items remain intentionally **pending** because they require a real Owner action or real provider credentials and cannot be inferred from CI, a deployment success, or startup logs:
+The following items remain intentionally **pending or partially complete** because they require a real Owner action or real provider credentials and cannot be inferred from CI, a deployment success, or startup logs:
 
-1. Pair the Windows Nexus desktop to the hosted Sentinal using a fresh one-time `/nexus-pair` code.
-2. Run the Setup Center hosted scan from the paired desktop and review its real-guild permission/channel/rank/provider results.
+1. Confirm the intended one-time `/nexus-pair` → HTTPS exchange → protected credential-storage flow on the current desktop build. The successful authenticated hosted-admin scan is supporting evidence that desktop-to-hosted administration is reachable, but it does not by itself prove the complete fresh-code pairing ceremony.
+2. Re-run the Setup Center/Discord Admin hosted scan on the PR #319 implementation, review the real per-section findings now that the UI renders them correctly, and record which sections are green versus genuinely need attention.
 3. Exercise `/nexus setup` or the Setup Center repair flow against the live guild where a repair is actually required, confirming the resulting Discord layout visually.
 4. Sync at least one real game-provider configuration from the desktop to hosted Sentinal and run its read-only provider validation, beginning with Palworld when credentials are available.
 5. Confirm a desktop restart and a hosted Sentinal restart retain the paired/admin configuration and expected Discord topology without duplicate consoles, menus, or roles.
@@ -62,4 +76,4 @@ These Owner gates must remain pending until they are actually exercised.
 
 ## Exit criteria
 
-Discord + Nexus Setup Acceptance is complete when the Owner interaction items above are exercised successfully, no unresolved red acceptance section remains in Setup Center, restart persistence is confirmed, and no repair operation creates duplicate Discord topology.
+Discord + Nexus Setup Acceptance is complete when the Owner interaction items above are exercised successfully, no unresolved red acceptance section remains in Setup Center/Discord Admin, restart persistence is confirmed, and no repair operation creates duplicate Discord topology.
