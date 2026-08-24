@@ -7,6 +7,7 @@ const {
   solidColorPng,
   applicationEmojiManager,
   isGeneratedGuildSwatch,
+  removeGeneratedGuildSwatch,
   ensureColorSwatches
 } = require('../src/sentinel/color-swatch-emojis.cjs');
 
@@ -99,4 +100,22 @@ test('replaces a temporary guild swatch with an application swatch and frees the
   assert.equal(result.missing.length, 0);
   assert.equal(result.menu.options[0].emojiId, '666666666666666666');
   assert.equal(deleted, 1);
+});
+
+test('does not send an application emoji id to guild deletion when no matching guild emoji exists', async () => {
+  let deleteCalls = 0;
+  const guild = {
+    emojis: {
+      cache: new Map(),
+      fetch: async () => { throw new Error('Unknown Emoji'); },
+      delete: async () => { deleteCalls += 1; }
+    }
+  };
+  const removed = await removeGeneratedGuildSwatch({
+    label: 'Cyan',
+    emojiId: '666666666666666666',
+    emoji: 'nexus_color_cyan'
+  }, guild, { warn() {} });
+  assert.equal(removed, false);
+  assert.equal(deleteCalls, 0);
 });
