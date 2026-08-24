@@ -8,7 +8,9 @@ const path = require('node:path');
 const { ciSmokeConfig, writeCiSmokeResult } = require('../src/desktop/ci-smoke.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
-const read = (relative) => fs.readFileSync(path.join(ROOT, relative), 'utf8');
+const resolve = (relative) => path.join(ROOT, relative);
+const exists = (relative) => fs.existsSync(resolve(relative));
+const read = (relative) => fs.readFileSync(resolve(relative), 'utf8');
 
 test('CI smoke configuration is opt-in and requires isolated absolute paths', () => {
   assert.deepEqual(ciSmokeConfig({}), { enabled: false, userDataPath: '', resultPath: '' });
@@ -57,7 +59,7 @@ test('packaged application uses the CI-gated entry wrapper without replacing pro
   assert.match(entry, /waitForPostUpdateConfirmation/);
 });
 
-test('Windows CI runs the real installer/updater smoke and uploads its evidence', () => {
+test('Windows CI runs the real installer/updater smoke and uploads its evidence', { skip: !exists('.github/workflows/rebuild-ci.yml') }, () => {
   const workflow = read('.github/workflows/rebuild-ci.yml');
   const script = read('scripts/windows-install-upgrade-smoke.ps1');
 
@@ -75,7 +77,7 @@ test('Windows CI runs the real installer/updater smoke and uploads its evidence'
   assert.match(script, /Get-Sha256Hex/);
 });
 
-test('release promotion rejects artifacts without clean-install and staged-upgrade evidence', () => {
+test('release promotion rejects artifacts without clean-install and staged-upgrade evidence', { skip: !exists('.github/workflows/publish-staged-update.yml') }, () => {
   const workflow = read('.github/workflows/publish-staged-update.yml');
   assert.match(workflow, /nexus-windows-smoke-report\.json/);
   assert.match(workflow, /cleanInstall\.ok/);
@@ -85,4 +87,11 @@ test('release promotion rejects artifacts without clean-install and staged-upgra
   assert.match(workflow, /smokeHash/);
   assert.match(workflow, /SMOKE_PATH/);
   assert.match(workflow, /postUpdateConfirmation = 'passed'/);
+});
+
+test('runtime-only smoke test context retains app contracts without repository workflows', () => {
+  if (exists('.github/workflows/rebuild-ci.yml')) return;
+  assert.equal(exists('src/main-entry.cjs'), true);
+  assert.equal(exists('src/desktop/ci-smoke.cjs'), true);
+  assert.equal(exists('scripts/windows-install-upgrade-smoke.ps1'), true);
 });
