@@ -12,6 +12,7 @@ const { SharedScheduler } = require('./core/scheduler.cjs');
 const { providersFromConfig } = require('./providers/http-provider.cjs');
 const { nativeProvidersFromConfig } = require('./providers/native-providers.cjs');
 const { serverProvidersFromConfig } = require('./providers/server-providers.cjs');
+const { ArkCompanionService } = require('./services/ark-companion-service.cjs');
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 
@@ -55,7 +56,9 @@ function createBackendApplication(config, options = {}) {
   const scheduler = new SharedScheduler({ filePath: config.scheduler?.stateFile || path.join(process.cwd(), 'data', 'schedules.json'), timeZone: config.scheduler?.timeZone || 'America/Chicago' });
   const accounts = new AccountStore({ filePath: config.accounts?.stateFile || path.join(process.cwd(), 'data', 'accounts.json') });
   const providerValidator = new ProviderValidator({ runtime });
+  const arkCompanion = options.arkCompanion || new ArkCompanionService();
   runtime.registerService('scheduler', scheduler);
+  runtime.registerService('ark-companion', arkCompanion);
   scheduler.registerExecutor((moduleId, actionId, payload, context) => runtime.invoke(moduleId, actionId, payload, context));
 
   function authorized(req) {
@@ -149,7 +152,7 @@ function createBackendApplication(config, options = {}) {
     started = false;
   }
 
-  return { host, port, runtime, scheduler, accounts, providerValidator, configureProviders, server, start, stop, isStarted: () => started && server.listening };
+  return { host, port, runtime, scheduler, arkCompanion, accounts, providerValidator, configureProviders, server, start, stop, isStarted: () => started && server.listening };
 }
 
 module.exports = { LOOPBACK_HOSTS, createBackendApplication, providersForConfig };
