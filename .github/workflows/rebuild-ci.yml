@@ -47,7 +47,7 @@ jobs:
       - run: npm test
       - shell: pwsh
         run: |
-          foreach ($script in @('src/updater/apply-update.ps1', 'scripts/build-update-bundle.ps1')) {
+          foreach ($script in @('src/updater/apply-update.ps1', 'scripts/build-update-bundle.ps1', 'scripts/windows-install-upgrade-smoke.ps1')) {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $script), [ref]$tokens, [ref]$errors) | Out-Null
@@ -58,6 +58,9 @@ jobs:
           }
       - run: npm run dist:win
       - run: npm run dist:update
+      - name: Smoke-test clean install and staged upgrade
+        shell: pwsh
+        run: ./scripts/windows-install-upgrade-smoke.ps1 -DistDir dist
       - shell: pwsh
         run: |
           $manifest = Get-Content -LiteralPath dist/nexus-update-manifest.json -Raw | ConvertFrom-Json
@@ -77,6 +80,10 @@ jobs:
           Expand-Archive -LiteralPath $zip -DestinationPath $probe -Force
           if (-not (Test-Path -LiteralPath (Join-Path $probe 'Khaos Nexus.exe'))) { throw 'Update payload is missing Khaos Nexus.exe.' }
           if (-not (Test-Path -LiteralPath (Join-Path $probe 'resources/app.asar'))) { throw 'Update payload is missing resources/app.asar.' }
+          $smoke = Get-Content -LiteralPath dist/nexus-windows-smoke-report.json -Raw | ConvertFrom-Json
+          if ($smoke.product -ne 'khaos-nexus' -or $smoke.version -ne $manifest.version) { throw 'Windows smoke report identity does not match the update manifest.' }
+          if ($smoke.cleanInstall.ok -ne $true -or $smoke.cleanInstall.packaged -ne $true -or $smoke.cleanInstall.backendHealthy -ne $true) { throw 'Windows clean-install smoke evidence is incomplete.' }
+          if ($smoke.stagedUpgrade.ok -ne $true -or $smoke.stagedUpgrade.postUpdateConfirmed -ne $true -or $smoke.stagedUpgrade.resultStatus -ne 'success') { throw 'Windows staged-upgrade smoke evidence is incomplete.' }
       - uses: actions/upload-artifact@v4
         with:
           name: khaos-nexus-0.1-windows
@@ -84,4 +91,5 @@ jobs:
             dist/*.exe
             dist/*-update.zip
             dist/nexus-update-manifest.json
+            dist/nexus-windows-smoke-report.json
           if-no-files-found: error
