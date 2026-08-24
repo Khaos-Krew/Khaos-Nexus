@@ -102,6 +102,18 @@ test('does not import a partially mapped reaction menu', () => {
   assert.deepEqual(parsed.unmatched, ['🎮']);
 });
 
+test('ordinary testing polls are not treated as reaction-role menus', () => {
+  const source = message({
+    title: '🧪 Testing Needed • Khaos Nexus 0.41.2',
+    description: 'React with ✅ if the build works or ❌ if it fails.',
+    reactions: [reaction('✅'), reaction('❌')]
+  });
+  assert.equal(reactionMenuLooksRelevant(source), false);
+  const parsed = parseReactionRoleMenu(source, []);
+  assert.equal(parsed.candidate, false);
+  assert.equal(parsed.menu, null);
+});
+
 test('adopts old Khaos Nexus button menus even when their custom ids use an unknown legacy prefix', () => {
   const roles = [
     { id: '111111111111111111', name: 'PC', color: 0, hexColor: '#000000' },
