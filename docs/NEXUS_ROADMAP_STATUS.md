@@ -54,30 +54,32 @@ Repository evidence on `rebuild/nexus-0.1` currently establishes:
 - hosted Sentinal pairing from PR #310 and public-surface hardening from PR #312;
 - staged-update publisher and CI hash hardening from PRs #309/#311;
 - hosted provider configuration synchronization from PR #316: the desktop main process can send sanitized provider configuration plus approved protected secrets over the existing paired HTTPS admin channel; hosted provider secrets are encrypted at rest on the persistent Railway volume; the renderer never receives provider credentials; hosted providers can be replaced live and exercised through the existing predefined read-only validation probes; Setup Center can use hosted sync/validation evidence;
-- **persistent hosted-provider storage alignment from PR #317**: hosted provider state now honors `NEXUS_DATA_DIR`, matching Sentinal state persistence so alternate hosts do not split Discord state and provider state between persistent and ephemeral directories; the repository also now carries a dedicated `docs/DISCORD_NEXUS_SETUP_ACCEPTANCE.md` checkpoint separating verified hosted/runtime evidence from still-pending Owner interaction gates;
+- persistent hosted-provider storage alignment from PR #317: hosted provider state honors `NEXUS_DATA_DIR`, matching Sentinal state persistence so alternate hosts do not split Discord state and provider state between persistent and ephemeral directories;
+- Discord owner-acceptance client repairs from PRs #318/#319: hosted aggregate scans have operation-specific deadlines and Nexus-specific timeout classification, and completed read-only scans with acceptance findings now render their per-section results instead of being collapsed into a generic action failure; rank/Premium SKU and hosted-provider status findings are visible on the Discord Admin surface;
+- dedicated `docs/DISCORD_NEXUS_SETUP_ACCEPTANCE.md` checkpoint separating verified hosted/runtime evidence, observed Owner scan progress, and still-pending Owner interaction gates;
 - dedicated Nexus Rebuild CI with Windows test, NSIS packaging, staged-update bundle construction/verification, and artifact upload.
 
-These are implementation facts, not release or owner-acceptance claims. Code/tests do not establish successful household OAuth/pairing, live-provider correctness, successful hosted provider credential synchronization against the intended Railway instance, real-guild reconciliation, hosted-Sentinal owner pairing, updater apply/rollback success on the owner PC, Thora launch success on the owner PC, Setup Center owner usability, moderation behavior on the intended guild, owner acceptance, or public/stable release readiness.
+These are implementation facts, not release or final owner-acceptance claims. Code/tests do not establish successful household OAuth/pairing, live-provider correctness, successful hosted provider credential synchronization against the intended Railway instance, complete real-guild reconciliation, updater apply/rollback success on the owner PC, Thora launch success on the owner PC, final Setup Center/Discord Admin acceptance, moderation behavior on the intended guild, owner acceptance, or public/stable release readiness.
 
 ## Validation state
 
-Status: **AUTOMATED REBUILD BASELINE GREEN — OWNER/LIVE VALIDATION STILL REQUIRED**
+Status: **AUTOMATED REBUILD BASELINE GREEN — OWNER/LIVE VALIDATION IN PROGRESS**
 
-The latest exact merged implementation head with completed rebuild validation is **PR #317 head `f5ce0835e846aa50b2557f5470bb9a927851e8e4`**. **Nexus Rebuild CI run #227 completed successfully on that exact SHA.** PR #317 then merged into `rebuild/nexus-0.1` as merge commit `134aae1dc104d48bca4a487950dbaae3a58fa316`.
+The latest exact merged implementation head with completed rebuild validation is **PR #319 head `298baec7b1800e0170f2f6ac94e03fd961fc4128`**. **Nexus Rebuild CI run #235 completed successfully on that exact SHA.** PR #319 then merged into `rebuild/nexus-0.1` as merge commit `124d8c7b333b819c7ba3f0c22e88a1122e7d8455`.
 
-Immediately preceding exact-head green implementation evidence remains preserved in repository history, including PR #316 head `66bbed2f1d3aa6b74722aa2f13dfdfc4b10bf9f9` (run #225), PR #315 head `af46077b7ca885e7c5297923095b9c47da49844a` (run #220), PR #314 head `7d356b7ca4cfe0876e0307c266b33f5d53563a0c` (run #218), PR #313 head `2cb228b8c3ed1ff4233719ba25b24334bc64ecc3` (run #213), PR #312 head `a74846e591065d13fff9e2249a0d539bc33b4e8a` (run #211), PR #311 head `837eecc441df5c5005eb2e0a119fc8a114e7662d` (run #208), and PR #310 head `40e598a8cc93b4ddd425813b6f91327156c3122d` (run #204).
+Immediately preceding exact-head green implementation evidence remains preserved in repository history, including PR #318 head `f23ea665e7453d21f47bc7c3ba93c3bdb16745ee` (run #233), PR #317 head `f5ce0835e846aa50b2557f5470bb9a927851e8e4` (run #227), PR #316 head `66bbed2f1d3aa6b74722aa2f13dfdfc4b10bf9f9` (run #225), PR #315 head `af46077b7ca885e7c5297923095b9c47da49844a` (run #220), PR #314 head `7d356b7ca4cfe0876e0307c266b33f5d53563a0c` (run #218), and PR #313 head `2cb228b8c3ed1ff4233719ba25b24334bc64ecc3` (run #213).
 
-The current `Discord + Nexus Setup Acceptance` checkpoint records useful hosted/runtime evidence from the PR #316 deployment, including successful health, Discord login, persistent module feeds, command registration, and module-access reconciliation with 10 roles, 1 menu message, and 0 warnings. That evidence is not Owner acceptance. The remaining Owner gates include desktop `/nexus-pair`, Setup Center hosted scan, live repair where needed, at least one real provider sync/read-only validation, and desktop/hosted restart persistence checks.
+The current `Discord + Nexus Setup Acceptance` checkpoint records useful hosted/runtime evidence from the PR #316 deployment, including successful health, Discord login, persistent module feeds, command registration, and module-access reconciliation with 10 roles, 1 menu message, and 0 warnings. Owner acceptance testing on 2026-08-24 additionally exercised the desktop-hosted Discord admin path: the Discord Admin surface reported Sentinal online with 5/5 permissions and other readiness data, and after PR #318 the hosted `/v1/scan` request completed HTTP 200 in roughly 3 seconds. That test exposed a second presentation defect, repaired by PR #319, where valid read-only findings had been rendered as `Operation failed.`. This is meaningful Owner-test progress, not final acceptance. The PR #319 implementation still needs to be exercised so the actual findings can be reviewed and genuine red sections can be separated from transport/UI defects.
 
 CI and hosted-runtime evidence remain separate from owner/live acceptance. Therefore:
 
 - do not claim owner acceptance until an explicit owner-test result is recorded;
 - do not claim Accounts & Access owner validation until browser OAuth and second-account pairing are exercised in the intended household environment;
-- do not claim hosted Sentinal pairing owner validation until `/nexus-pair` → HTTPS exchange → protected credential storage → authenticated admin status is exercised against the intended hosted Sentinal instance;
+- do not claim hosted Sentinal pairing owner validation until a fresh `/nexus-pair` → HTTPS exchange → protected credential storage → authenticated admin status flow is explicitly exercised and recorded; successful authenticated hosted scans are supporting evidence but not complete proof of the fresh-code pairing ceremony;
 - do not claim hosted provider synchronization owner validation until real configured provider settings/secrets are synchronized to the intended Railway Sentinal instance, survive restart/persistent-volume reload, remain redacted/protected, and successfully execute the predefined read-only validation probes;
 - do not claim live-provider correctness until provider paths are exercised against real supported services/servers;
-- do not claim real-guild Sentinal acceptance until setup, permissions, reconciliation, persistent panels, friendly commands, event feeds, restart behavior, rank/SKU discovery, module-access roles, protected-role fallback, moderation, hosted pairing, and relevant hosted-provider flows are exercised on the intended Discord guild;
-- do not claim Setup Center owner acceptance until its readiness states and navigation are exercised against the intended owner configuration;
+- do not claim real-guild Sentinal acceptance until setup, permissions, reconciliation, persistent panels, friendly commands, event feeds, restart behavior, rank/SKU discovery, module-access roles, protected-role fallback, moderation, hosted pairing, relevant hosted-provider flows, and the PR #319 findings UI are exercised on the intended Discord guild;
+- do not claim Setup Center owner acceptance until its readiness states, findings, and navigation are exercised against the intended owner configuration;
 - do not claim updater owner validation until an installed owner-test build successfully stages, applies, confirms startup, and exercises rollback behavior where appropriate;
 - do not claim Thora owner validation until discovery/readiness and allowlisted launch targets are exercised against the intended installed Thora build;
 - do not claim public/stable release status from CI, packaging, deployment, PR merge state, or package version alone;
@@ -114,9 +116,9 @@ Goals:
 
 ### Then — Sentinal operational acceptance
 
-Status: **IN PROGRESS — HOSTED PAIRING + PROVIDER SYNC + ACCESS/ADMIN FLOWS MERGED; REAL-GUILD/RAILWAY ACCEPTANCE PENDING**
+Status: **IN PROGRESS — OWNER SCAN PATH EXERCISED; FINDINGS REVIEW + REAL-GUILD/RAILWAY ACCEPTANCE PENDING**
 
-Merged implementation now includes setup/repair, permanent module panels, friendly per-module commands, Admin Operations controls, moderation, Pokémon GO operations, universal event feeds, supporter-rank/SKU discovery, self-reconciling module access roles, hierarchy diagnostics, protected-role fallback, secure hosted desktop-to-Sentinal pairing, minimized public health metadata, hosted provider configuration/validation routes, persistent hosted-provider storage alignment, and a dedicated Discord + Nexus Setup Acceptance checkpoint.
+Merged implementation now includes setup/repair, permanent module panels, friendly per-module commands, Admin Operations controls, moderation, Pokémon GO operations, universal event feeds, supporter-rank/SKU discovery, self-reconciling module access roles, hierarchy diagnostics, protected-role fallback, secure hosted desktop-to-Sentinal pairing, minimized public health metadata, hosted provider configuration/validation routes, persistent hosted-provider storage alignment, and the PR #318/#319 Discord Admin acceptance fixes. Owner testing has confirmed the hosted scan transport can complete successfully; final per-section acceptance is still pending on the PR #319 implementation.
 
 Goals:
 
@@ -125,8 +127,9 @@ Goals:
 - validate temporary lobby lifecycle and cleanup;
 - validate rank/entitlement reconciliation against the real Discord hierarchy and Premium App recurring/durable SKU mappings;
 - validate module access-role reconciliation including protected-role fallback;
+- re-run the hosted Discord scan on the PR #319 implementation, review the actual acceptance findings, and repair only genuine red sections;
 - validate hosted pairing and provider synchronization against the intended Railway Sentinal instance without exposing long-lived admin or provider credentials to the renderer/public surfaces;
-- complete the Owner interaction gates in `docs/DISCORD_NEXUS_SETUP_ACCEPTANCE.md`, including desktop pairing, hosted Setup Center scan, live repair where needed, real provider sync/validation, and restart persistence;
+- complete the remaining Owner interaction gates in `docs/DISCORD_NEXUS_SETUP_ACCEPTANCE.md`, including explicit fresh-code pairing evidence, live repair where needed, real provider sync/validation, and restart persistence;
 - verify common game workflows are discoverable without memorizing generic backend commands;
 - validate Veyra/D&D presentation against the backend-first boundary.
 
@@ -134,7 +137,7 @@ Goals:
 
 Status: **IN PROGRESS — STAGED UPDATER + HASH HARDENING + OWNER TEST CENTER MERGED; OWNER UPDATE/ROLLBACK ACCEPTANCE PENDING**
 
-PR #293 provides the staged updater; PR #294 adds owner-test build tracking; PRs #309/#311 harden SHA-256 verification. PR #317's green rebuild CI confirms the current implementation remains compatible with the rebuild validation pipeline; this does not publish an update or release.
+PR #293 provides the staged updater; PR #294 adds owner-test build tracking; PRs #309/#311 harden SHA-256 verification. PR #319's green rebuild CI confirms the current implementation remains compatible with the rebuild validation pipeline; this does not publish an update or release.
 
 Goals:
 
@@ -164,7 +167,7 @@ The `0.41.x` stabilization work, PR #266, owner-test `0.41.2.1` / internal `0.41
 
 PR #266 remains open, draft, mergeable, and unmerged on `stabilize/nexus-66-baseline`; its state does not supersede the active rebuild branch.
 
-The newest relevant legacy startup diagnostic remains issue #285 for installed `0.41.3-test.1`, reporting **8 passed, 0 warnings, 0 failures**. No newer meaningful `[Owner Test …]` or `[Startup Diagnostics …]` failure was found during the 2026-08-23 synchronization. This is historical evidence for the legacy line and is not validation of Nexus 0.1.
+The newest relevant legacy startup diagnostic remains issue #285 for installed `0.41.3-test.1`, reporting **8 passed, 0 warnings, 0 failures**. No newer meaningful `[Owner Test …]` or `[Startup Diagnostics …]` failure was found during the 2026-08-24 synchronization. This is historical evidence for the legacy line and is not validation of Nexus 0.1.
 
 The historical stabilization release identity remains owner-test `0.41.2.1` / internal `0.41.3-test.1`, channel `owner-test`, with rollback `v0.41.2-B`; that identity does not replace the active Nexus 0.1 package identity.
 
