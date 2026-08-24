@@ -33,64 +33,89 @@ Issue #286 records the owner-approved backend-first rebuild direction.
 
 ## Current implementation evidence
 
-Repository evidence on `rebuild/nexus-0.1` establishes the thin Electron Admin Control Center, Windows NSIS packaging/shortcuts, backend and Sentinal runtimes, shared scheduler, persistent module consoles, ARK/Palworld/Minecraft/Warframe/Division 2/Rust/Satisfactory/IdleOn/D&D/Pokémon GO module registrations, provider-backed game services, household Accounts & Access, read-only provider validation, staged updating, Owner Test Center/Admin Operations, hosted pairing/provider sync, Setup Center, administrator moderation, Discord Server Shop rank authority, capability-driven help, Warframe Archon Hunt reads, and the interactive ARK tame wizard.
+Repository evidence on `rebuild/nexus-0.1` establishes the thin Electron Admin Control Center, Windows NSIS packaging/shortcuts, backend and Sentinal runtimes, shared scheduler, persistent module consoles, household Accounts & Access, read-only provider validation, staged updating, Owner Test Center/Admin Operations, hosted pairing/provider sync, Setup Center, administrator moderation, Discord Server Shop rank authority, capability-driven help, private safe-space reporting, milestone patch-note publishing, and backend-first game services.
 
-Sentinal role/self-role work now includes:
+Current game-module registrations now include ARK, Palworld, Minecraft, Warframe, Division 2, Rust, Satisfactory, IdleOn, Nexus D&D, Pokémon GO, **Call of Duty, Dead by Daylight, and Diablo IV**.
+
+Provider/companion evidence includes:
+
+- interactive ARK taming guidance and `#ark-tame-info` presentation;
+- read-only Warframe Archon Hunt data;
+- Pokémon GO backend-first operations and event surfaces;
+- Dead by Daylight public/community provider routing through Tricky/NightLight surfaces;
+- Call of Duty safe/local loadout, LFG, official patch-notes, and API-safety surfaces without protected/undocumented player-stat scraping;
+- Diablo IV class/build/LFG/news/API-safety surfaces without claiming a Blizzard live character/inventory API that does not exist.
+
+### Sentinal role/self-role authority
+
+Merged role/self-role work includes:
 
 - unified generic self-role and global Name Color ownership (#329);
 - bounded legacy-menu discovery (#330);
 - legacy emoji reaction-role migration (#331);
 - direct adoption of old bot-authored Nexus role-button menus (#335);
-- exact old-button target diagnostics and false-positive filtering (#339), including exclusion of the Community Rules private-report control and owner-testing reaction poll from role migration;
-- deterministic title-scoped aliases for renamed live panels (#341), while duplicate same-name roles remain blocked and generic `LFG` remains intentionally unresolved rather than guessed;
-- preservation/rendering of custom Discord color-swatch emoji during legacy migration (#342);
-- restart reconstruction of current `nexus:self-role:*` menus plus deterministic recovery/creation of missing visual-only Name Color swatches (#343);
-- strict module channel visibility reconciliation (#344), where `@everyone` is denied, the matching module access role is allowed, supporter/rank and nonmatching module visibility grants are neutralized, and existing staff/admin overrides plus non-`View Channel` bits are preserved;
-- application-owned generated Name Color swatches (#345), avoiding Discord guild custom-emoji capacity as the limiting resource while preserving original non-generated custom emoji;
-- live-role-hex swatch rendering (#346), preserving Discord role `color` / `hexColor` across alias augmentation, replacing fallback-gray generated swatches with deterministic `nexus_swatch_<hex>_<label>` application emoji, and refreshing automatically if the live role color later changes.
+- exact old-button target diagnostics and false-positive filtering (#339);
+- deterministic title-scoped aliases for renamed live panels (#341);
+- preservation/rendering of custom Discord color-swatch emoji (#342);
+- restart reconstruction of current self-role menus (#343);
+- strict module channel visibility reconciliation (#344);
+- application-owned generated Name Color swatches (#345);
+- live-role-hex swatch rendering (#346);
+- owner-approved duplicate platform-role consolidation, generic `LFG` retirement, old gray-swatch cleanup, old-panel cleanup, and canonical module-hub pinning (#351);
+- safe Guild Members intent preflight/construction fixes (#352–#354);
+- serialized/coalesced role reconciliation after live duplicate-role cleanup (#355).
 
-Sentinal persistent-panel hardening now also includes:
+Live evidence now records the **Sentinal Discord Role Authority section as accepted at 100%** with 11 current self-role menus, 120 active role options, duplicate platform roles removed, zero legacy reaction candidates remaining, module access healthy at 10 roles / 1 menu / 0 warnings, and moderation hierarchy preserved. This acceptance applies to the role-authority section only; it does **not** complete the entire Sentinal operational phase.
 
-- deployment-idempotent managed module hubs and persistent live feeds (#347): recover bot-owned panels from Discord when saved message pointers are missing/stale, edit the surviving panel instead of sending duplicates, remove redundant Sentinal-owned copies, persist the surviving canonical message ID, and leave unrelated/foreign-authored messages untouched;
-- first-pass live-feed reconciliation telemetry (#349): emit one bounded per-feed status line after process startup showing reused/updated/created/unavailable/error, recovery source, surviving message ID, and duplicates removed while keeping normal recurring polls quiet.
+PR #356 contains the required public 100% milestone patch note for that accepted section, but it is still open/unmerged and therefore is not part of the merged baseline yet.
 
-Community Safety & Reporting (#332) and one-time 66%/100% milestone patch-note publishing (#333) are merged implementation slices. Live report-ticket acceptance remains separate from implementation completion.
+### Sentinal persistent-panel and Discord hardening
 
-Superseded #334/#336/#337/#340 role-migration proposals are not active roadmap items; their relevant intent was overtaken by the merged #339/#341 path.
+Merged persistent-panel hardening includes:
 
-These are implementation facts, not final owner-acceptance or release claims.
+- deployment-idempotent managed module hubs and persistent live feeds (#347);
+- first-pass live-feed reconciliation telemetry (#349);
+- alphabetical game-category reconciliation above Staff/Hidden boundaries plus three new module hubs (#357);
+- correction of category insertion order plus automatic creation/self-healing of missing managed hub embeds (#358).
+
+Community Safety & Reporting (#332) and one-time 66%/100% milestone patch-note publishing (#333) remain merged implementation slices. Live report-ticket acceptance remains separate from implementation completion.
+
+Superseded #334/#336/#337/#340 role-migration proposals are historical only; their relevant intent was overtaken by later merged work.
+
+These are implementation facts, not final release claims.
 
 ## Validation state
 
 Status: **AUTOMATED REBUILD BASELINE GREEN — OWNER/LIVE VALIDATION IN PROGRESS**
 
-The latest exact merged implementation head with completed rebuild validation is **PR #349 head `0d300731bf3d8c5c55fb8651cd5e4657416aa4e2`**. **Nexus Rebuild CI run #322 completed successfully on that exact SHA**, and PR #349 then merged into `rebuild/nexus-0.1` as `48db224b4a8937a1d8ea248cd9cc599a97c5a046`.
+The latest exact merged implementation head with completed rebuild validation is **PR #358 head `e2c7e89e355b1ec103292afa975f4715237fd20c`**. **Nexus Rebuild CI run #344 completed successfully on that exact SHA**, and PR #358 then merged into `rebuild/nexus-0.1`.
 
 Recent exact-head evidence:
 
-- PR #347 head `c3bd6e652f930c443b99ff474eea049e3a692da0` — Nexus Rebuild CI #320 green; merged as `8ce043ef1b3f6e1159bd9e439fca2208981b84a6`;
-- PR #346 head `174ffa1d08edaf2bdb1eabc34d933cfe2a1e7768` — Nexus Rebuild CI #314 green; merged as `6180f99818508b4096e3ba4c87a39e7e5b144d2e`;
-- PR #345 head `28e80eda28ad41d125d96f85c40f87d60b22b5c9` — Nexus Rebuild CI #311 green; merged as `f2b7d1dccb5a725bb8be77642358064a800fa403`;
-- PR #344 head `da9237a3c2634c39a87921e4cbcd586d50cfbda0` — Nexus Rebuild CI #305 green; merged as `8070ec1c102ac1fcd901f82de3cc2bf60762b791`.
+- PR #357 head `e5fae99ccb859792253e6233db3d3af2fcf4ed99` — Nexus Rebuild CI #342 green; merged;
+- PR #355 head `26faed57e8015354cec88fd4e89efaf67b80649d` — green before merge;
+- PR #349 head `0d300731bf3d8c5c55fb8651cd5e4657416aa4e2` — Nexus Rebuild CI #322 green; merged;
+- PR #347 head `c3bd6e652f930c443b99ff474eea049e3a692da0` — Nexus Rebuild CI #320 green; merged.
 
-### Live acceptance state
+Automated CI evidence does not replace owner/live acceptance.
 
-PR #343 resolved the previously documented restart-recovery implementation defect. PR #344 addressed the separate module-category visibility leak.
+## Live acceptance state
 
-Live Name Color acceptance then exposed two additional defects. PR #345 moved generated color swatches from guild custom emoji to Sentinal application emoji after the guild reached its custom-emoji limit. PR #346 fixed the follow-up rendering defect where those generated swatches were all gray because the alias layer did not reliably retain discord.js Role color getters. Both fixes are merged and exact-head green.
+The Sentinal role-authority subsection has live acceptance evidence at 100%, but broader operational acceptance is still in progress.
 
-PR #347 addresses a separate hosted Discord acceptance problem where Sentinal could duplicate module hubs or persistent live-feed panels after deployments or stale/lost message-ledger state. PR #349 adds bounded startup telemetry specifically so the next Railway deployment can prove whether each configured feed recovered/updated the existing canonical panel versus creating a new one, and whether any duplicates were removed. These changes are merged and exact-head green, but **live deployment idempotency is still pending confirmation from the intended Railway/Discord environment**. A successful acceptance result should show existing hubs/feeds reused or updated, stable surviving message IDs, and `duplicatesRemoved=0` on subsequent clean deployments after the first cleanup pass.
+Remaining live/owner gates include:
 
-These merges remove implementation blockers, but they do **not** establish real-guild acceptance by themselves. The next Name Color acceptance result must show both pages with distinct application-owned color blocks matching their live Discord role colors, while actual role assignment, global color exclusivity, role hierarchy, restart persistence, module visibility isolation, persistent hub/feed idempotency, and legacy-control retirement still require live verification on the intended guild. Generic `LFG` remains intentionally unresolved until an authoritative target exists.
+- confirm Call of Duty, Dead by Daylight, and Diablo IV categories/roles/hub embeds provision correctly in the intended guild after #357/#358;
+- verify all managed module hubs remain alphabetized above protected Staff/Hidden boundaries and missing hubs self-heal without duplicates;
+- verify repeated Railway deployments recover/update one canonical module hub and one message per persistent feed action;
+- validate real module button/command usage and module access-role visibility isolation without breaking staff/admin visibility;
+- validate Rules/report lifecycle and restricted archive permissions;
+- complete remaining Discord + Nexus Setup Acceptance gates, including hosted pairing, live repair where needed, provider sync/validation, and restart persistence;
+- validate moderation, temporary lobby lifecycle, discoverability, and Veyra/D&D boundaries;
+- validate updater apply/startup/rollback on an installed owner-test build;
+- validate Thora discovery/readiness and allowlisted launch behavior on the intended machine.
 
-CI and hosted-runtime evidence remain separate from owner/live acceptance. Do not claim:
-
-- owner acceptance without an explicit owner-test result;
-- live-provider correctness without real-provider execution;
-- real-guild Sentinal acceptance until setup, permissions, reconciliation, panels, commands, event feeds, restart behavior, rank authority, module-access roles/channel visibility, self-role reconstruction/migration, moderation, safety reporting, hosted pairing, persistent hub/feed reconciliation, and relevant hosted-provider flows are exercised on the intended guild;
-- updater owner validation until a real installed owner-test update stages/applies/starts and rollback behavior is exercised where appropriate;
-- Thora owner validation until discovery/readiness and allowlisted launch behavior is exercised on the intended machine;
-- public/stable release status from CI, packaging, deployment, PR merge state, or package version alone.
+Do not claim public/stable release status from CI, packaging, deployment, PR merge state, or package version alone.
 
 ## Active roadmap
 
@@ -104,24 +129,13 @@ Owner-test the packaged Admin Control Center, Setup Center, Accounts & Access, O
 
 Status: **IN PROGRESS — PROVIDERS + HOSTED SYNC + READ-ONLY VALIDATION + EVENT FEEDS + COMPANION FLOWS MERGED; LIVE/OWNER VALIDATION REQUIRED**
 
-The next factual gate is live/provider evidence, beginning with Palworld status and then other supported provider paths. Validate Pokémon GO presentation, ARK tame presentation, Warframe Archon Hunt reads, and persistent event/news-feed reconciliation in intended Discord surfaces without treating CI as live acceptance.
+Validate Palworld and other provider-backed paths in real use. Include Pokémon GO, ARK taming, Warframe Archon Hunt, Dead by Daylight public/community reads, Call of Duty safe/local companion surfaces, Diablo IV safe/local companion surfaces, and persistent event/news feeds without treating CI as live acceptance.
 
 ### Then — Sentinal operational acceptance
 
-Status: **IN PROGRESS — ROLE/COLOR FIXES + MODULE ACCESS + IDEMPOTENT HUB/FEED RECONCILIATION MERGED; REAL-GUILD/RAILWAY ACCEPTANCE PENDING**
+Status: **IN PROGRESS — ROLE AUTHORITY LIVE-ACCEPTED; BROADER REAL-GUILD/RAILWAY ACCEPTANCE PENDING**
 
-Merged implementation includes setup/repair, persistent module panels, friendly commands/help, moderation, Pokémon GO operations, event feeds, rank authority, module-access reconciliation, hierarchy diagnostics, protected-role fallback, unified self-role/color menus, reaction-role migration (#331), old button-menu adoption (#335), exact target diagnostics/false-positive filtering (#339), deterministic renamed-panel aliases (#341), custom Name Color swatch preservation (#342), restart menu/swatch reconstruction (#343), strict module category/channel visibility policy (#344), application-owned generated color swatches (#345), live-role-hex color swatches (#346), deployment-idempotent module hubs/live feeds (#347), startup feed-reconciliation acceptance telemetry (#349), private safe-space report tickets (#332), secure hosted pairing, hosted provider administration, and milestone patch-note publishing (#333).
-
-Goals:
-
-- validate the intended guild end-to-end across restart, including migrated/reconstructed panels, actual button assignment, duplicate-role safety, remaining `LFG`, and actual Name Color switching;
-- confirm both Name Color pages render distinct application-owned swatches that match the live Discord role colors after #346, with no guild emoji-capacity dependency or fallback-gray regression;
-- verify module access-role visibility isolation across game categories/channels, including Shadow Recruit/supporter-role neutrality and staff/admin preservation;
-- verify repeated Railway deployments recover/update one canonical module hub and one message per persistent feed action, with no recurring duplicate creation after #347/#349;
-- retire old reactions/buttons only after replacement controls are demonstrably active;
-- validate Rules/report lifecycle and restricted archive permissions;
-- complete remaining Discord + Nexus Setup Acceptance gates, including hosted pairing, live repair where needed, provider sync/validation, and restart persistence;
-- validate moderation, temporary lobby lifecycle, discoverability, and Veyra/D&D boundaries.
+The self-role/role-authority subsection is live-accepted at 100%. Broader Sentinal operational acceptance still requires real-guild confirmation of the expanded game-module layout, managed hub self-healing/idempotency, module access isolation, commands/help, reporting, moderation, pairing, provider flows, Setup Acceptance, and restart behavior.
 
 ### Release hardening
 
@@ -145,7 +159,7 @@ PR #266 remains **open, draft, mergeable, and unmerged** on `stabilize/nexus-66-
 
 Its historical release identity remains display `0.41.2.1`, internal/updater `0.41.3-test.1`, channel `owner-test`, rollback `v0.41.2-B`.
 
-The newest relevant legacy startup diagnostic remains issue #285 for installed `0.41.3-test.1`, reporting **8 passed, 0 warnings, 0 failures**. No newer meaningful `[Owner Test …]` or `[Startup Diagnostics …]` failure was found during this 2026-08-24 synchronization. That issue is historical stabilization evidence and is not Nexus 0.1 validation.
+The newest relevant legacy startup diagnostic remains issue #285 for installed `0.41.3-test.1`, reporting **8 passed, 0 warnings, 0 failures**. No newer meaningful `[Owner Test …]` or `[Startup Diagnostics …]` failure was found during this synchronization. That issue is historical stabilization evidence and is not Nexus 0.1 validation.
 
 ## README synchronization contract
 
