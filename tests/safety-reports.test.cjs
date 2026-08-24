@@ -127,7 +127,7 @@ test('safety report store persists metadata while allowing active-case counting 
     assert.equal(store.get(caseId).caseId, caseId);
     assert.equal(store.openForReporter('100000000000000001').length, 1);
     assert.equal(activeReport(store.get(caseId)), true);
-    const raw = fs.readFileSync(path.join(dir, 'safety-reports.json'), 'utf8');
+    const raw = fs.readFileSync(store.file, 'utf8');
     assert.doesNotMatch(raw, /details|evidence|summary/i);
     store.set(caseId, { status: 'closed' });
     assert.equal(store.openForReporter('100000000000000001').length, 0);
