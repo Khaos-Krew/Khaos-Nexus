@@ -1,7 +1,7 @@
 'use strict';
 
 const { envSecret } = require('../shared/config.cjs');
-const { NEXUS_RANKS, normalizeId } = require('../shared/ranks.cjs');
+const { NEXUS_RANKS, normalizeId, rankAuthority } = require('../shared/ranks.cjs');
 const { commandNames } = require('./friendly-commands.cjs');
 
 const ENTITLEMENT_SKU_TYPES = new Set([2, 5]); // Discord DURABLE and SUBSCRIPTION
@@ -55,11 +55,12 @@ function rankOfferingMatch(value, rank) {
   return suffix.length > 0 && suffix.every((token) => RANK_OFFERING_SUFFIXES.has(token));
 }
 
-function discoverMappingsFromData({ roles = [], skus = [], current = {}, guildId = '' } = {}) {
+function discoverMappingsFromData({ roles = [], skus = [], current = {}, guildId = '', authority = '' } = {}) {
   const normalizedRoles = roleRows(roles, guildId);
   const normalizedSkus = skuRows(skus);
   const currentRoles = current.rankRoles || {};
   const currentSkus = current.rankSkus || {};
+  const source = authority || rankAuthority({ discord: { rankSkus: currentSkus } });
   const suggestedRankRoles = {};
   const suggestedRankSkus = {};
   const ranks = [];
@@ -75,16 +76,24 @@ function discoverMappingsFromData({ roles = [], skus = [], current = {}, guildId
     if (!configuredRoleId && roleCandidates.length === 1) discoveredRoles += 1;
 
     const configuredSkuIds = Array.isArray(currentSkus[rank.id]) ? currentSkus[rank.id].map(String).filter(Boolean) : [];
-    const entitlementSkus = rank.level === 0 ? [] : normalizedSkus.filter((sku) =>
+    const entitlementSkus = source === 'premium-app' && rank.level > 0 ? normalizedSkus.filter((sku) =>
       ENTITLEMENT_SKU_TYPES.has(sku.type) && (rankOfferingMatch(sku.name, rank) || rankOfferingMatch(sku.slug, rank))
-    );
+    ) : [];
     const suggestedSkuIds = configuredSkuIds.length ? configuredSkuIds : [...new Set(entitlementSkus.map((sku) => sku.id))];
     suggestedRankSkus[rank.id] = suggestedSkuIds;
     if (!configuredSkuIds.length && suggestedSkuIds.length) discoveredSkus += suggestedSkuIds.length;
 
     const roleStatus = configuredRoleId ? 'configured' : roleCandidates.length === 1 ? 'discovered' : roleCandidates.length > 1 ? 'ambiguous' : 'missing';
-    const skuStatus = rank.level === 0 ? 'free-default' : configuredSkuIds.length ? 'configured' : entitlementSkus.length ? 'discovered' : 'missing';
-    if (roleStatus === 'ambiguous' || roleStatus === 'missing' || (rank.level > 0 && skuStatus === 'missing')) attention += 1;
+    const skuStatus = rank.level === 0
+      ? 'free-default'
+      : source === 'server-shop-roles'
+        ? 'server-shop-managed'
+        : configuredSkuIds.length
+          ? 'configured'
+          : entitlementSkus.length
+            ? 'discovered'
+            : 'missing';
+    if (roleStatus === 'ambiguous' || roleStatus === 'missing' || (source === 'premium-app' && rank.level > 0 && skuStatus === 'missing')) attention += 1;
 
     ranks.push({
       id: rank.id,
@@ -97,6 +106,7 @@ function discoverMappingsFromData({ roles = [], skus = [], current = {}, guildId
 
   return {
     ok: attention === 0,
+    authority: source,
     counts: { discoveredRoles, discoveredSkus, attention },
     ranks,
     suggestedSettings: { rankRoles: suggestedRankRoles, rankSkus: suggestedRankSkus }
@@ -118,14 +128,24 @@ async function fetchApplicationSkus(controller) {
 }
 
 async function discoverRankMappings(controller) {
-  const [roles, skuResult] = await Promise.all([
-    controller.guild.roles.fetch(),
-    fetchApplicationSkus(controller)
-  ]);
+  const config = controller.effectiveConfig();
+  const authority = rankAuthority(config);
+  const roles = await controller.guild.roles.fetch();
+  if (authority === 'server-shop-roles') {
+    return {
+      ...discoverMappingsFromData({ roles, skus: [], current: controller.adminConfig(), guildId: controller.guild.id, authority }),
+      applicationId: String(controller.client?.application?.id || ''),
+      skuCount: 0,
+      skuDiscoverySkipped: true,
+      note: 'Discord Server Shop roles are authoritative; Premium App SKU mappings are not required.'
+    };
+  }
+  const skuResult = await fetchApplicationSkus(controller);
   return {
-    ...discoverMappingsFromData({ roles, skus: skuResult.skus, current: controller.adminConfig(), guildId: controller.guild.id }),
+    ...discoverMappingsFromData({ roles, skus: skuResult.skus, current: controller.adminConfig(), guildId: controller.guild.id, authority }),
     applicationId: skuResult.applicationId,
-    skuCount: skuResult.skus.length
+    skuCount: skuResult.skus.length,
+    skuDiscoverySkipped: false
   };
 }
 

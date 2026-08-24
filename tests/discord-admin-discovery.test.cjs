@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { desiredCommandNames, discoverMappingsFromData, rankOfferingMatch } = require('../src/sentinel/discord-admin-discovery.cjs');
+const { rankAuthority, rankRoleIds } = require('../src/shared/ranks.cjs');
 
 const blackoutLegend = { id: 'blackout-legend', name: 'Blackout Legend', level: 4 };
 
@@ -26,7 +27,8 @@ test('rank discovery exact-matches normalized Discord roles without guessing amb
       { id: '100000000000000005', name: 'Khaos Warden', managed: true }
     ],
     skus: [],
-    current: { rankRoles: {}, rankSkus: {} }
+    current: { rankRoles: {}, rankSkus: {} },
+    authority: 'server-shop-roles'
   });
 
   assert.equal(result.suggestedSettings.rankRoles['shadow-recruit'], '100000000000000001');
@@ -34,6 +36,54 @@ test('rank discovery exact-matches normalized Discord roles without guessing amb
   assert.equal(result.suggestedSettings.rankRoles['nexus-raider'], '');
   assert.equal(result.ranks.find((rank) => rank.id === 'nexus-raider').role.status, 'ambiguous');
   assert.equal(result.suggestedSettings.rankRoles['khaos-warden'], '');
+});
+
+test('Server Shop authority treats paid rank SKUs as not required when the roles are configured', () => {
+  const current = {
+    rankRoles: {
+      'shadow-recruit': '100000000000000001',
+      'cipher-runner': '100000000000000002',
+      'nexus-raider': '100000000000000003',
+      'khaos-warden': '100000000000000004',
+      'blackout-legend': '100000000000000005',
+      'origin-founder': '100000000000000006'
+    },
+    rankSkus: {}
+  };
+  const roles = Object.entries(current.rankRoles).map(([id, roleId]) => ({
+    id: roleId,
+    name: id.split('-').map((part) => part[0].toUpperCase() + part.slice(1)).join(' '),
+    managed: false
+  }));
+  const result = discoverMappingsFromData({ roles, current, authority: 'server-shop-roles' });
+  assert.equal(result.ok, true);
+  assert.equal(result.authority, 'server-shop-roles');
+  assert.equal(result.counts.attention, 0);
+  for (const rank of result.ranks.filter((item) => item.level > 0)) assert.equal(rank.skus.status, 'server-shop-managed');
+});
+
+test('rank authority defaults to Server Shop roles until paid Premium App SKU mappings are explicitly configured', () => {
+  const serverShop = { discord: { rankSkus: { 'cipher-runner': [], 'origin-founder': [] } } };
+  const premiumApp = { discord: { rankSkus: { 'cipher-runner': ['200000000000000001'] } } };
+  assert.equal(rankAuthority(serverShop), 'server-shop-roles');
+  assert.equal(rankAuthority(premiumApp), 'premium-app');
+});
+
+test('Server Shop authority protects paid roles from Nexus rank reconciliation ownership', () => {
+  const config = { discord: { rankRoles: {
+    'shadow-recruit': '100000000000000001',
+    'cipher-runner': '100000000000000002',
+    'nexus-raider': '100000000000000003',
+    'khaos-warden': '100000000000000004',
+    'blackout-legend': '100000000000000005',
+    'origin-founder': '100000000000000006'
+  }, rankSkus: {} } };
+  assert.deepEqual(rankRoleIds(config), ['100000000000000001']);
+  config.discord.rankSkus['cipher-runner'] = ['200000000000000001'];
+  assert.deepEqual(rankRoleIds(config), [
+    '100000000000000001', '100000000000000002', '100000000000000003',
+    '100000000000000004', '100000000000000005', '100000000000000006'
+  ]);
 });
 
 test('SKU discovery includes recurring subscriptions and durable one-time purchases while ignoring generated groups and consumables', () => {
@@ -48,7 +98,8 @@ test('SKU discovery includes recurring subscriptions and durable one-time purcha
       { id: '200000000000000006', name: 'Blackout Legend Lifetime', slug: 'blackout-legend-one-time-purchase', type: 2 },
       { id: '200000000000000007', name: 'Blackout Legend Boost', slug: 'blackout-legend-boost', type: 3 }
     ],
-    current: { rankRoles: {}, rankSkus: {} }
+    current: { rankRoles: {}, rankSkus: {} },
+    authority: 'premium-app'
   });
 
   assert.deepEqual(result.suggestedSettings.rankSkus['shadow-recruit'], []);
@@ -74,7 +125,8 @@ test('discovery preserves every existing mapping instead of overwriting it', () 
     current: {
       rankRoles: { 'cipher-runner': '100000000000009999' },
       rankSkus: { 'cipher-runner': ['200000000000009999'] }
-    }
+    },
+    authority: 'premium-app'
   });
 
   assert.equal(result.suggestedSettings.rankRoles['cipher-runner'], '100000000000009999');
