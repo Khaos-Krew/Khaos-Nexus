@@ -10,6 +10,8 @@ const {
   normalizedName
 } = require('./self-role-model.cjs');
 const { parseReactionRoleMenu } = require('./reaction-self-role-model.cjs');
+const { recoverCurrentSelfRoleMenu } = require('./current-self-role-recovery.cjs');
+const { ensureColorSwatches } = require('./color-swatch-emojis.cjs');
 const { unmatchedCandidateSummary } = require('./legacy-role-diagnostics.cjs');
 const {
   messageTitle,
@@ -53,6 +55,7 @@ class SelfRoleManager extends DeepSelfRoleManager {
     let reactionCandidates = 0;
     let reactionMapped = 0;
     let reactionAmbiguous = 0;
+    let currentRecovered = 0;
     const reactionDiagnostics = [];
 
     for (const channel of channels) {
@@ -62,12 +65,29 @@ class SelfRoleManager extends DeepSelfRoleManager {
         const messageId = String(message?.id || '');
         if (!messageId || seenMessages.has(messageId)) continue;
         seenMessages.add(messageId);
-        if (isCurrentSelfRoleMessage(message)) continue;
         if (!shouldInspectLegacyRoleMessage(message)) continue;
 
         const title = messageTitle(message) || 'untitled';
         const labels = messageButtons(message).map((button) => String(button?.label || '').trim()).filter(Boolean);
         const parseRoles = augmentedRolesForLegacyMenu(title, labels, roles);
+
+        if (isCurrentSelfRoleMessage(message)) {
+          let menu = recoverCurrentSelfRoleMenu(message, parseRoles);
+          if (!menu) {
+            warnings.push(`Current Sentinal self-role menu ${messageId} in #${channel.name || channel.id} could not be reconstructed safely.`);
+            continue;
+          }
+          if (menu.kind === 'colors') {
+            const swatches = await ensureColorSwatches(menu, message?.guild || channel?.guild, { logger: console });
+            menu = swatches.menu;
+            console.log(`[Nexus Sentinal] color swatches restored: menu=${JSON.stringify(menu.title)} matched=${swatches.matched} created=${swatches.created} missing=${swatches.missing.length}`);
+            if (swatches.missing.length) warnings.push(`${menu.title}: missing color swatches for ${swatches.missing.join(', ')}.`);
+          }
+          if (!menusById.has(menu.id)) menusById.set(menu.id, menu);
+          this.legacyLocations.set(messageId, String(channel.id));
+          currentRecovered += 1;
+          continue;
+        }
 
         const hasLegacyButton = messageButtons(message).some((button) => String(button?.custom_id || '').startsWith(LEGACY_SELF_ROLE_BUTTON_PREFIX));
         if (hasLegacyButton) {
@@ -86,8 +106,13 @@ class SelfRoleManager extends DeepSelfRoleManager {
         if (!reaction.candidate) continue;
         reactionCandidates += 1;
         if (reaction.menu) {
+          let menu = reaction.menu;
+          if (menu.kind === 'colors') {
+            const swatches = await ensureColorSwatches(menu, message?.guild || channel?.guild, { logger: console });
+            menu = swatches.menu;
+          }
           reactionMapped += 1;
-          if (!menusById.has(reaction.menu.id)) menusById.set(reaction.menu.id, reaction.menu);
+          if (!menusById.has(menu.id)) menusById.set(menu.id, menu);
           this.legacyLocations.set(messageId, String(channel.id));
           continue;
         }
@@ -101,12 +126,14 @@ class SelfRoleManager extends DeepSelfRoleManager {
       }
     }
 
+    if (currentRecovered) console.log(`[Nexus Sentinal] recovered ${currentRecovered} current self-role menu(s) from live Discord messages.`);
     return {
       scannedMessages,
       legacyCandidates,
       reactionCandidates,
       reactionMapped,
       reactionAmbiguous,
+      currentRecovered,
       reactionDiagnostics
     };
   }
