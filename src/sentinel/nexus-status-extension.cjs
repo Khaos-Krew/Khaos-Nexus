@@ -14,6 +14,7 @@ const {
 
 const INSTALLED = Symbol.for('khaos.nexus.status.extension');
 const INITIAL_DELAY_MS = 10_000;
+const SENTINAL_CLIENT_LISTENER_BUDGET = 20;
 
 function configuredStatus(config = {}) {
   const status = config?.discord?.nexusStatus || {};
@@ -79,6 +80,13 @@ async function refreshNexusStatusPanel(client, config = {}, options = {}) {
   };
 }
 
+function ensureSentinalListenerBudget(client) {
+  if (!client?.getMaxListeners || !client?.setMaxListeners) return 0;
+  const current = Number(client.getMaxListeners() || 0);
+  if (current < SENTINAL_CLIENT_LISTENER_BUDGET) client.setMaxListeners(SENTINAL_CLIENT_LISTENER_BUDGET);
+  return Number(client.getMaxListeners() || SENTINAL_CLIENT_LISTENER_BUDGET);
+}
+
 function installNexusStatusExtension() {
   if (Client.prototype[INSTALLED]) return;
   Client.prototype[INSTALLED] = true;
@@ -87,6 +95,9 @@ function installNexusStatusExtension() {
   const originalLogin = Client.prototype.login;
 
   Client.prototype.login = function nexusStatusLogin(...args) {
+    // Sentinel intentionally composes multiple isolated startup extensions on one Discord client.
+    // Raise the EventEmitter warning threshold before the wrapped login chain attaches them.
+    ensureSentinalListenerBudget(this);
     this.once(Events.ClientReady, () => {
       let running = false;
       const run = async (reason) => {
@@ -117,8 +128,10 @@ function installNexusStatusExtension() {
 
 module.exports = {
   INITIAL_DELAY_MS,
+  SENTINAL_CLIENT_LISTENER_BUDGET,
   configuredStatus,
   buildNexusStatusSnapshot,
   refreshNexusStatusPanel,
+  ensureSentinalListenerBudget,
   installNexusStatusExtension
 };
