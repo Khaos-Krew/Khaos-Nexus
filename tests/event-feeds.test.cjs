@@ -8,7 +8,14 @@ const { formatActionResult } = require('../src/sentinel/action-formatters.cjs');
 const { parseNewsIndex, parseArticle, attachOfficialPokemonGoEvents } = require('../src/backend/providers/pokemon-go-official-events.cjs');
 const { PokemonGoProvider } = require('../src/backend/providers/pokemon-go-provider.cjs');
 const { pokemonGoEventPayload } = require('../src/sentinel/pokemon-go-event-ui.cjs');
-const { feedPayload, setupChannelId } = require('../src/sentinel/event-feed.cjs');
+const {
+  FEED_RENDER_VERSION,
+  EventFeedPublisher,
+  feedMarker,
+  feedPayload,
+  messageMatchesFeed,
+  setupChannelId
+} = require('../src/sentinel/event-feed.cjs');
 
 const FIXED = '2026-08-23T18:00:00Z';
 
@@ -70,11 +77,88 @@ test('Pokémon GO event UI produces a full post rather than a bare source URL', 
   assert.equal(payload.components[0].components[0].style, 5);
 });
 
-test('feed routing prefers a module-specific feed channel and produces one bounded post per action', () => {
+test('feed routing prefers a module-specific feed channel and produces one bounded marked post per action', () => {
   const setup = { consoleChannelId:'1', textChannels:[{name:'warframe-world-state',id:'2'}] };
   assert.equal(setupChannelId(setup, 'warframe-world-state'), '2');
   const payload = feedPayload('warframe', 'news', { ok:true, data:{ news:[{title:'One',date:FIXED}] } });
   assert.equal(payload.embeds.length, 1);
   assert.match(payload.content, /Nexus Sentinal Live Feed/);
   assert.match(payload.content, /news/);
+  assert.equal(payload.embeds[0].footer.text, feedMarker('warframe', 'news'));
+  assert.match(payload.embeds[0].title, /WARFRAME • NEWS/);
+});
+
+test('persistent Pokémon GO event feed uses the rich event card and managed marker', () => {
+  const payload = feedPayload('pokemongo', 'events', { ok:true, data:{
+    officialFeed:true,
+    officialNewsUrl:'https://pokemongo.com/news',
+    events:[{ name:'Community Day', eventType:'Community Day', notes:'Featured Pokémon.', sourceUrl:'https://pokemongo.com/news/test' }]
+  }});
+  assert.match(payload.embeds[0].title, /POKÉMON GO • EVENTS/);
+  assert.match(payload.embeds[0].fields[0].value, /Featured Pokémon/);
+  assert.equal(payload.embeds[0].footer.text, feedMarker('pokemongo', 'events'));
+  assert.equal(payload.components[0].components[0].style, 5);
+});
+
+test('feed matching adopts both the old literal events label and the new Pokémon GO Events label', () => {
+  const base = { author:{ id:'sentinal' }, embeds:[{ footer:{ text:'old footer' } }] };
+  assert.equal(messageMatchesFeed({ ...base, content:'📡 **Nexus Sentinal Live Feed** • events\nUpdated before deploy' }, 'pokemongo', 'events', 'sentinal'), true);
+  assert.equal(messageMatchesFeed({ ...base, content:'📡 **Nexus Sentinal Live Feed** • Pokémon GO Events\nUpdated after deploy' }, 'pokemongo', 'events', 'sentinal'), true);
+});
+
+test('feed matching does not adopt another bot message', () => {
+  const message = {
+    author:{ id:'other' },
+    content:'📡 **Nexus Sentinal Live Feed** • news',
+    embeds:[{ footer:{ text:feedMarker('warframe', 'news') } }]
+  };
+  assert.equal(messageMatchesFeed(message, 'warframe', 'news', 'sentinal'), false);
+});
+
+test('publisher recovers an existing live feed after state loss, edits it, and removes deploy duplicates', async () => {
+  const edited = [];
+  const deleted = [];
+  const makeMessage = (id, createdTimestamp) => ({
+    id,
+    createdTimestamp,
+    author:{ id:'sentinal', bot:true },
+    content:'📡 **Nexus Sentinal Live Feed** • news\nUpdated recently',
+    embeds:[{ title:'WARFRAME • NEWS', footer:{ text:'Nexus Sentinal • Backend-first game module' } }],
+    edit:async (payload) => { edited.push({ id, payload }); },
+    delete:async () => { deleted.push(id); }
+  });
+  const old = makeMessage('100000000000000001', 100);
+  const newest = makeMessage('100000000000000002', 200);
+  let sends = 0;
+  const channel = {
+    id:'200000000000000001',
+    messages:{ fetch:async (input) => {
+      if (typeof input === 'string') throw new Error('Unknown Message');
+      return new Map([[old.id, old], [newest.id, newest]]);
+    } },
+    send:async () => { sends += 1; return { id:'new' }; }
+  };
+  const saved = new Map();
+  const publisher = new EventFeedPublisher({
+    client:{ user:{ id:'sentinal' } },
+    guild:{},
+    backend:{ invoke:async () => ({ ok:true, data:{ news:[{ title:'Current news' }] } }) },
+    state:{},
+    logger:{ log(){}, warn(){}, error(){} },
+    feeds:[]
+  });
+  publisher.feedState = {
+    get:(key) => saved.get(key) || null,
+    set:(key, value) => { saved.set(key, value); return value; }
+  };
+
+  await publisher.publishAction({ moduleId:'warframe', channelName:'warframe-world-state' }, channel, 'news');
+  assert.equal(sends, 0);
+  assert.equal(edited.length, 1);
+  assert.equal(edited[0].id, newest.id);
+  assert.deepEqual(deleted, [old.id]);
+  const state = saved.get('warframe:warframe-world-state:news');
+  assert.equal(state.messageId, newest.id);
+  assert.equal(state.renderVersion, FEED_RENDER_VERSION);
+  assert.equal(edited[0].payload.embeds[0].footer.text, feedMarker('warframe', 'news'));
 });

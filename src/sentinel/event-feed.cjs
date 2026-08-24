@@ -4,8 +4,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { formatActionResult } = require('./action-formatters.cjs');
+const { pokemonGoEventPayload } = require('./pokemon-go-event-ui.cjs');
 
 const DEFAULT_POLL_MS = 10 * 60 * 1000;
+const FEED_RENDER_VERSION = 2;
+const FEED_MARKER_PREFIX = 'Nexus Sentinal • Live Feed • ';
 const FEEDS = Object.freeze([
   { moduleId:'pokemongo', channelName:'pokemon-go-events', actions:['events'], pollMs:15 * 60 * 1000 },
   { moduleId:'warframe', channelName:'warframe-world-state', actions:['news','events','alerts','sortie','arbitration','nightwave','void-trader','steel-path'], pollMs:10 * 60 * 1000 },
@@ -19,6 +22,40 @@ const FEEDS = Object.freeze([
 
 function digest(value) {
   return crypto.createHash('sha256').update(JSON.stringify(value ?? null)).digest('hex');
+}
+
+function valuesOf(collection) {
+  if (!collection) return [];
+  if (Array.isArray(collection)) return collection;
+  if (typeof collection.values === 'function') return [...collection.values()];
+  return Object.values(collection);
+}
+
+function feedMarker(moduleId, actionId) {
+  return `${FEED_MARKER_PREFIX}${String(moduleId || '').toLowerCase()}:${String(actionId || '').toLowerCase()}:v${FEED_RENDER_VERSION}`;
+}
+
+function feedTitle(moduleId, actionId, original = '') {
+  if (moduleId === 'pokemongo' && actionId === 'events') return '📅 POKÉMON GO • EVENTS & COMMUNITY DAYS';
+  if (moduleId === 'warframe' && actionId === 'news') return '📰 WARFRAME • NEWS';
+  if (moduleId === 'warframe' && actionId === 'events') return '📅 WARFRAME • EVENTS';
+  if (moduleId === 'division2' && actionId === 'news') return '📰 THE DIVISION 2 • NEWS';
+  return String(original || '').slice(0, 256);
+}
+
+function markFeedPayload(payload = {}, moduleId, actionId) {
+  const embeds = Array.isArray(payload.embeds) ? payload.embeds.map((embed, index) => index === 0 ? {
+    ...embed,
+    title: feedTitle(moduleId, actionId, embed?.title) || embed?.title,
+    color: Number.isFinite(embed?.color) ? embed.color : 0xE3264F,
+    footer: { text: feedMarker(moduleId, actionId) }
+  } : embed) : [];
+  return {
+    ...payload,
+    embeds,
+    components: Array.isArray(payload.components) ? payload.components : [],
+    allowed_mentions: { parse:[] }
+  };
 }
 
 class FeedState {
@@ -50,15 +87,62 @@ function setupChannelId(setup, channelName) {
 
 function feedPayload(moduleId, actionId, result) {
   if (!result?.ok) return null;
-  const rendered = formatActionResult(moduleId, actionId, result);
-  if (!rendered.embeds?.[0]) return null;
   const now = Math.floor(Date.now() / 1000);
-  return {
-    content: `📡 **Nexus Sentinal Live Feed** • ${actionId}\nUpdated <t:${now}:R>`,
-    embeds: [rendered.embeds[0]],
-    components: [],
-    allowed_mentions: { parse:[] }
-  };
+  let payload;
+
+  if (moduleId === 'pokemongo' && actionId === 'events') {
+    payload = pokemonGoEventPayload(result.data || {});
+    payload.content = `📡 **Nexus Sentinal Live Feed** • Pokémon GO Events\nUpdated <t:${now}:R>`;
+  } else {
+    const rendered = formatActionResult(moduleId, actionId, result);
+    if (!rendered.embeds?.[0]) return null;
+    payload = {
+      content: `📡 **Nexus Sentinal Live Feed** • ${actionId}\nUpdated <t:${now}:R>`,
+      embeds: [rendered.embeds[0]],
+      components: [],
+      allowed_mentions: { parse:[] }
+    };
+  }
+  return markFeedPayload(payload, moduleId, actionId);
+}
+
+function messageMatchesFeed(message, moduleId, actionId, botId = '') {
+  if (!message) return false;
+  if (botId && String(message?.author?.id || '') !== String(botId)) return false;
+  const footer = String(message?.embeds?.[0]?.footer?.text || '');
+  if (footer === feedMarker(moduleId, actionId)) return true;
+  const content = String(message?.content || '');
+  const legacyLabels = [String(actionId || '')];
+  if (moduleId === 'pokemongo' && actionId === 'events') legacyLabels.push('Pokémon GO Events');
+  return content.includes('Nexus Sentinal Live Feed') && legacyLabels.some((label) => content.includes(`• ${label}`));
+}
+
+function newestMessage(messages = []) {
+  return [...messages].sort((left, right) => Number(right?.createdTimestamp || 0) - Number(left?.createdTimestamp || 0))[0] || null;
+}
+
+async function discoverFeedMessages(channel, moduleId, actionId, botId = '') {
+  if (!channel?.messages?.fetch) return [];
+  try {
+    const messages = await channel.messages.fetch({ limit:100 });
+    return valuesOf(messages).filter((message) => messageMatchesFeed(message, moduleId, actionId, botId));
+  } catch {
+    return [];
+  }
+}
+
+async function deleteFeedDuplicates(messages, canonical, logger = console) {
+  let removed = 0;
+  for (const message of messages) {
+    if (!message || String(message.id) === String(canonical?.id || '')) continue;
+    try {
+      await message.delete('Nexus Sentinal duplicate persistent feed cleanup');
+      removed += 1;
+    } catch (error) {
+      logger.warn?.(`[Nexus Sentinal Feed] duplicate message ${message.id} could not be removed: ${String(error?.message || error)}`);
+    }
+  }
+  return removed;
 }
 
 class EventFeedPublisher {
@@ -72,6 +156,7 @@ class EventFeedPublisher {
     this.feedState = new FeedState();
     this.timers = [];
     this.running = new Set();
+    this.recovered = new Set();
   }
 
   async publishAction(definition, channel, actionId) {
@@ -84,18 +169,36 @@ class EventFeedPublisher {
       }).catch((error) => ({ ok:false, code:'FEED_ERROR', message:String(error?.message || error) }));
       const payload = feedPayload(definition.moduleId, actionId, result);
       if (!payload) return;
-      const fingerprint = digest({ actionId, ok:result.ok, data:result.data, code:result.code });
+      const fingerprint = digest({ renderVersion:FEED_RENDER_VERSION, actionId, ok:result.ok, data:result.data, code:result.code });
       const saved = this.feedState.get(key);
-      if (saved?.fingerprint === fingerprint && saved.channelId === String(channel.id)) return;
-
       let message = null;
+
       if (saved?.messageId && saved.channelId === String(channel.id)) {
-        try {
-          message = await channel.messages.fetch(String(saved.messageId));
-          await message.edit(payload);
-        } catch { message = null; }
+        try { message = await channel.messages.fetch(String(saved.messageId)); }
+        catch { message = null; }
       }
-      if (!message) message = await channel.send(payload);
+
+      let duplicatesRemoved = 0;
+      if (!this.recovered.has(key)) {
+        const candidates = await discoverFeedMessages(channel, definition.moduleId, actionId, this.client?.user?.id);
+        const canonical = newestMessage(candidates);
+        if (canonical) message = canonical;
+        if (message) duplicatesRemoved = await deleteFeedDuplicates(candidates, message, this.logger);
+        this.recovered.add(key);
+      }
+
+      const unchanged = Boolean(
+        message
+        && saved?.fingerprint === fingerprint
+        && saved?.renderVersion === FEED_RENDER_VERSION
+        && saved?.channelId === String(channel.id)
+        && saved?.messageId === String(message.id)
+      );
+      if (unchanged && !duplicatesRemoved) return;
+
+      if (message) await message.edit(payload);
+      else message = await channel.send(payload);
+
       this.feedState.set(key, {
         moduleId:definition.moduleId,
         actionId,
@@ -103,8 +206,10 @@ class EventFeedPublisher {
         channelId:String(channel.id),
         messageId:String(message.id),
         fingerprint,
+        renderVersion:FEED_RENDER_VERSION,
         updatedAt:new Date().toISOString()
       });
+      if (duplicatesRemoved) this.logger.log?.(`[Nexus Sentinal Feed] ${key}: reused ${message.id}; removed ${duplicatesRemoved} duplicate(s).`);
     } catch (error) {
       this.logger.error?.(`[Nexus Sentinal Feed] ${key}:`, String(error?.message || error));
     } finally { this.running.delete(key); }
@@ -140,4 +245,19 @@ class EventFeedPublisher {
   }
 }
 
-module.exports = { FEEDS, FeedState, EventFeedPublisher, feedPayload, setupChannelId, digest };
+module.exports = {
+  FEEDS,
+  FEED_RENDER_VERSION,
+  FEED_MARKER_PREFIX,
+  FeedState,
+  EventFeedPublisher,
+  feedMarker,
+  feedTitle,
+  markFeedPayload,
+  feedPayload,
+  messageMatchesFeed,
+  discoverFeedMessages,
+  deleteFeedDuplicates,
+  setupChannelId,
+  digest
+};
