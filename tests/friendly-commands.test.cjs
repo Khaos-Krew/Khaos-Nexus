@@ -38,6 +38,7 @@ test('common commands are short and obvious', () => {
   assert.ok(optionNames(commands.ark).includes('status'));
   assert.ok(optionNames(commands.ark).includes('players'));
   assert.ok(optionNames(commands.ark).includes('tame'));
+  assert.ok(optionNames(commands.warframe).includes('archon'));
   assert.ok(optionNames(commands.warframe).includes('market'));
   assert.ok(optionNames(commands.division2).includes('gear'));
   assert.ok(optionNames(commands.idleon).includes('build'));
@@ -56,6 +57,9 @@ test('friendly commands translate typed options to backend payloads', () => {
   assert.deepEqual(resolveFriendlyCommand(fakeInteraction('warframe', 'market', null, { item: 'Arcane Energize' })), {
     moduleId: 'warframe', actionId: 'market', payload: { item: 'Arcane Energize', input: 'Arcane Energize' }, command: 'warframe', group: '', subcommand: 'market'
   });
+  assert.deepEqual(resolveFriendlyCommand(fakeInteraction('warframe', 'archon')), {
+    moduleId: 'warframe', actionId: 'archon-hunt', payload: {}, command: 'warframe', group: '', subcommand: 'archon'
+  });
   assert.deepEqual(resolveFriendlyCommand(fakeInteraction('ark', 'broadcast', null, { message: 'Restart soon', server: 'Ragnarok' })).payload, {
     server: 'Ragnarok', message: 'Restart soon'
   });
@@ -73,6 +77,9 @@ test('module help teaches friendly commands instead of backend action syntax', (
   assert.ok(arkHelp.includes('/ark tame'));
   assert.ok(arkHelp.includes('Taming Helper'));
   assert.doesNotMatch(arkHelp, /module:ark action:/);
+  const warframeHelp = JSON.stringify(renderHelp('warframe'));
+  assert.ok(warframeHelp.includes('/warframe archon'));
+  assert.ok(warframeHelp.includes('Archon Hunt'));
   const pogoHelp = JSON.stringify(renderHelp('pokemongo'));
   assert.ok(pogoHelp.includes('/pogo raid create'));
   assert.doesNotMatch(pogoHelp, /nexus run module:/i);

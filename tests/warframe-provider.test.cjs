@@ -32,6 +32,34 @@ test('world-state actions call the backend API for the configured platform', asy
   assert.equal(result.fissures[0].tier, 'Axi');
 });
 
+test('Archon Hunt read uses the public worldstate endpoint and summarizes missions safely', async () => {
+  const urls = [];
+  const provider = new WarframeProvider({
+    platform: 'pc',
+    fetchImpl: async (url) => {
+      urls.push(String(url));
+      return response({
+        active: true,
+        rewardPool: 'Archon Sortie Rewards',
+        expiry: '2099-01-01T00:00:00.000Z',
+        missions: [
+          { node: 'Carpo (Jupiter)', type: 'Extermination', faction: 'Corpus', reward: { asString: 'Reward One' } },
+          { node: 'Telesto (Saturn)', missionType: 'Survival', faction: 'Grineer', modifier: 'Enemy Physical Enhancement' }
+        ]
+      });
+    }
+  });
+  const result = await provider.invoke('archon-hunt');
+  assert.match(urls[0], /api\.warframestat\.us\/pc\/archonHunt\?language=en$/);
+  assert.equal(result.platform, 'pc');
+  assert.equal(result.active, true);
+  assert.equal(result.rewardPool, 'Archon Sortie Rewards');
+  assert.equal(result.missions[0].node, 'Carpo (Jupiter)');
+  assert.equal(result.missions[0].mission, 'Extermination');
+  assert.equal(result.missions[0].reward, 'Reward One');
+  assert.equal(result.missions[1].modifier, 'Enemy Physical Enhancement');
+});
+
 test('market lookup uses v2 top orders and does not require authentication', async () => {
   const requests = [];
   const provider = new WarframeProvider({

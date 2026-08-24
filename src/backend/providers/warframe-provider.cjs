@@ -4,7 +4,7 @@ const DEFAULT_WORLDSTATE_BASE = 'https://api.warframestat.us';
 const DEFAULT_MARKET_BASE = 'https://api.warframe.market/v2';
 const DEFAULT_TIMEOUT_MS = 10000;
 const WARFRAME_ACTIONS = Object.freeze([
-  'news', 'events', 'alerts', 'fissures', 'sortie', 'arbitration', 'nightwave',
+  'news', 'events', 'alerts', 'fissures', 'sortie', 'archon-hunt', 'arbitration', 'nightwave',
   'invasions', 'void-trader', 'steel-path', 'kuva', 'cycles', 'market', 'builds'
 ]);
 
@@ -99,6 +99,23 @@ function summarizeSortie(data) {
     variants: takeArray(data.variants, 6).map((variant) => ({
       node: cleanText(variant?.node || ''), mission: cleanText(variant?.missionType || ''),
       modifier: cleanText(variant?.modifier || variant?.modifierDescription || '')
+    }))
+  };
+}
+
+function summarizeArchonHunt(data) {
+  if (!data || typeof data !== 'object') return data;
+  return {
+    active: data.active !== false,
+    rewardPool: cleanText(data.rewardPool || ''),
+    eta: cleanText(data.eta || etaFromExpiry(data.expiry) || ''),
+    expiry: cleanText(data.expiry || ''),
+    missions: takeArray(data.missions || data.variants, 6).map((mission) => ({
+      node: cleanText(mission?.node || ''),
+      mission: cleanText(mission?.type || mission?.missionType || ''),
+      faction: cleanText(mission?.faction || ''),
+      modifier: cleanText(mission?.modifier || mission?.modifierDescription || ''),
+      reward: rewardText(mission?.reward)
     }))
   };
 }
@@ -274,6 +291,7 @@ class WarframeProvider {
       case 'alerts': return { platform: this.platform, alerts: summarizeAlerts(await this.worldstate('alerts')) };
       case 'fissures': return { platform: this.platform, fissures: summarizeFissures(await this.worldstate('fissures')) };
       case 'sortie': return { platform: this.platform, sortie: summarizeSortie(await this.worldstate('sortie')) };
+      case 'archon-hunt': return { platform: this.platform, ...summarizeArchonHunt(await this.worldstate('archonHunt')) };
       case 'arbitration': return { platform: this.platform, arbitration: summarizeArbitration(await this.worldstate('arbitration')) };
       case 'nightwave': return { platform: this.platform, nightwave: summarizeNightwave(await this.worldstate('nightwave')) };
       case 'invasions': return { platform: this.platform, invasions: summarizeInvasions(await this.worldstate('invasions')) };
@@ -290,6 +308,6 @@ class WarframeProvider {
 
 module.exports = {
   WarframeProvider, WARFRAME_ACTIONS, cleanText, marketSlug, rewardText, etaFromExpiry, summarizeAlerts, summarizeFissures,
-  summarizeSortie, summarizeArbitration, summarizeNightwave, summarizeNews, summarizeEvents,
+  summarizeSortie, summarizeArchonHunt, summarizeArbitration, summarizeNightwave, summarizeNews, summarizeEvents,
   summarizeInvasions, summarizeVoidTrader, summarizeSteelPath, summarizeKuva, summarizeCycle, summarizeMarketOrder
 };

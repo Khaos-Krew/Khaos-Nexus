@@ -110,6 +110,7 @@ const SPECS = Object.freeze([
       action('alerts', 'alerts', 'Show alerts'),
       action('fissures', 'fissures', 'Show Void Fissures'),
       action('sortie', 'sortie', 'Show today’s Sortie'),
+      action('archon', 'archon-hunt', 'Show the current Archon Hunt'),
       action('arbitration', 'arbitration', 'Show Arbitration information'),
       action('nightwave', 'nightwave', 'Show Nightwave challenges'),
       action('invasions', 'invasions', 'Show invasions'),
