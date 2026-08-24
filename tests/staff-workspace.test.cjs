@@ -7,7 +7,9 @@ const {
   STAFF_CATEGORY_NAME,
   STAFF_PANEL_MARKER,
   ADMIN_PANEL_MARKER,
+  ROADMAP_PANEL_MARKER,
   MANAGED_TEXT_CHANNELS,
+  STAFF_OFFICES_FORUM,
   MANAGED_VOICE_CHANNEL,
   normalizeName,
   isPrivateSafeText,
@@ -15,10 +17,12 @@ const {
   staffCategoryOverwrites,
   adminCommandInventory,
   adminCommandsPayload,
+  roadmapPayload,
   staffHubPayload,
   panelMatches,
   officeThreadName,
-  officeThreadMatches
+  officeThreadMatches,
+  legacyOfficeChannelName
 } = require('../src/sentinel/staff-workspace.cjs');
 const { memberIsStaff, channelNamed } = require('../src/sentinel/staff-workspace-extension.cjs');
 
@@ -39,14 +43,16 @@ test('staff category detection adopts decorated STAFF categories', () => {
   assert.equal(findStaffCategory(channels)?.id, 'b');
 });
 
-test('managed staff workspace has a compact fixed top-level channel set', () => {
+test('managed staff workspace uses a real offices forum plus roadmap channel', () => {
   assert.deepEqual(MANAGED_TEXT_CHANNELS.map((item) => item.name), [
-    'staff-hub', 'staff-ops', 'admin-commands', 'staff-offices'
+    'staff-hub', 'staff-ops', 'admin-commands', 'roadmap'
   ]);
+  assert.equal(STAFF_OFFICES_FORUM.name, 'staff-offices');
+  assert.deepEqual([...STAFF_OFFICES_FORUM.tags], ['Office', 'Handoff', 'Planning']);
   assert.equal(MANAGED_VOICE_CHANNEL.name, 'Staff Meeting Room');
 });
 
-test('staff category permissions hide everyone while allowing staff thread participation', () => {
+test('staff category permissions hide everyone while allowing forum participation', () => {
   const guild = { id: IDS.guild };
   const overwrites = staffCategoryOverwrites(guild, IDS.bot, [IDS.staff], [IDS.owner]);
   const everyone = overwrites.find((item) => item.id === IDS.guild);
@@ -58,9 +64,9 @@ test('staff category permissions hide everyone while allowing staff thread parti
   assert.ok(everyone.deny.includes(PermissionFlagsBits.ViewChannel));
   assert.ok(staff.allow.includes(PermissionFlagsBits.ViewChannel));
   assert.ok(staff.allow.includes(PermissionFlagsBits.SendMessagesInThreads));
+  assert.ok(staff.allow.includes(PermissionFlagsBits.CreatePublicThreads));
   assert.equal(staff.allow.includes(PermissionFlagsBits.ManageThreads), false);
   assert.ok(owner.allow.includes(PermissionFlagsBits.ManageThreads));
-  assert.ok(bot.allow.includes(PermissionFlagsBits.CreatePrivateThreads));
   assert.ok(bot.allow.includes(PermissionFlagsBits.ManageThreads));
 });
 
@@ -83,11 +89,18 @@ test('managed channel lookup requires the intended type and staff parent', () =>
   const channels = new Map([
     ['1', { id: '1', type: ChannelType.GuildText, name: 'staff-hub', parentId: 'staff-cat' }],
     ['2', { id: '2', type: ChannelType.GuildText, name: 'staff-hub', parentId: 'wrong-cat' }],
-    ['3', { id: '3', type: ChannelType.GuildVoice, name: 'Staff Meeting Room', parentId: 'staff-cat' }]
+    ['3', { id: '3', type: ChannelType.GuildVoice, name: 'Staff Meeting Room', parentId: 'staff-cat' }],
+    ['4', { id: '4', type: ChannelType.GuildForum, name: 'staff-offices', parentId: 'staff-cat' }]
   ]);
   assert.equal(channelNamed(channels, 'staff-hub', ChannelType.GuildText, 'staff-cat')?.id, '1');
   assert.equal(channelNamed(channels, 'Staff Meeting Room', ChannelType.GuildVoice, 'staff-cat')?.id, '3');
+  assert.equal(channelNamed(channels, 'staff-offices', ChannelType.GuildForum, 'staff-cat')?.id, '4');
   assert.equal(channelNamed(channels, 'staff-hub', ChannelType.GuildText, 'missing'), null);
+});
+
+test('legacy staff offices text channel receives a deterministic preserved name', () => {
+  assert.equal(legacyOfficeChannelName('1516602958668632237'), 'staff-offices-legacy-2237');
+  assert.equal(legacyOfficeChannelName(''), 'staff-offices-legacy');
 });
 
 test('admin reference contains core staff controls and only privileged backend capabilities', () => {
@@ -118,19 +131,33 @@ test('staff command payload is completely free of restricted private-only terms'
   assert.match(payload.embeds[0].description, /access checks, confirmations, and audit boundaries/i);
 });
 
-test('staff hub keeps safety reports separate and points to the compact workspace', () => {
+test('staff roadmap panel states active acceptance separately from completed milestones', () => {
+  const payload = roadmapPayload();
+  const text = JSON.stringify(payload);
+  assert.equal(payload.embeds[0].footer.text, ROADMAP_PANEL_MARKER);
+  assert.match(text, /Community XP & Leveling/);
+  assert.match(text, /Staff Workspace/);
+  assert.match(text, /Discord \+ Nexus Setup Acceptance/);
+  assert.match(text, /Nexus D&D/);
+  assert.match(text, /66%/);
+  assert.match(text, /100%/);
+});
+
+test('staff hub links roadmap and forum-based offices while keeping reports separate', () => {
   const payload = staffHubPayload({
     'staff-ops': { id: '555555555555555555' },
     'admin-commands': { id: '666666666666666666' },
-    'staff-offices': { id: '777777777777777777' }
+    roadmap: { id: '777777777777777777' },
+    'staff-offices': { id: '888888888888888888' }
   });
   assert.equal(payload.embeds[0].footer.text, STAFF_PANEL_MARKER);
   const text = JSON.stringify(payload);
-  assert.match(text, /private managed office thread/i);
+  assert.match(text, /forum-based staff offices/i);
+  assert.match(text, /current milestones, acceptance gates/i);
   assert.match(text, /sensitive safety reports remain in the separate restricted report system/i);
 });
 
-test('office thread names remain stable for a staff member across display-name changes', () => {
+test('office forum post names remain stable for a staff member across display-name changes', () => {
   const first = officeThreadName({ id: IDS.user, displayName: 'Khaos Loki', user: { username: 'loki' } });
   const renamed = officeThreadName({ id: IDS.user, displayName: 'Loki Updated', user: { username: 'loki' } });
   assert.match(first, /^Office • Khaos Loki • 444444$/);
