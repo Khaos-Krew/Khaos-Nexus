@@ -15,7 +15,7 @@ const {
 } = require('./self-role-model.cjs');
 const { parseReactionRoleMenu } = require('./reaction-self-role-model.cjs');
 
-const DEEP_HISTORY_LIMIT = 500;
+const DEEP_HISTORY_LIMIT = 2000;
 const FALLBACK_HISTORY_LIMIT = 100;
 const ROLE_DISCOVERY_TERMS = ['role', 'roles', 'self-role', 'self-roles', 'reaction', 'reactions', 'notification', 'notifications', 'color', 'colors', 'colour', 'colours', 'assign', 'assignment'];
 
@@ -56,6 +56,7 @@ class SelfRoleManager extends BaseSelfRoleManager {
   constructor(options) {
     super(options);
     this.discoveredMenusCache = [];
+    this.discoveryAttempted = false;
     this.legacyLocations = new Map();
     this.lastDiscoveryStats = null;
   }
@@ -111,9 +112,10 @@ class SelfRoleManager extends BaseSelfRoleManager {
   }
 
   async discoverLegacyMenus(guild) {
-    if (this.discoveredMenusCache.length) {
-      return { menus: this.discoveredMenusCache, warnings: [], ...(this.lastDiscoveryStats || {}) };
+    if (this.discoveryAttempted) {
+      return { menus: this.discoveredMenusCache, warnings: [], cached: true, ...(this.lastDiscoveryStats || {}) };
     }
+    this.discoveryAttempted = true;
 
     const warnings = [];
     const roles = valuesOf(await guild.roles.fetch());
@@ -137,17 +139,19 @@ class SelfRoleManager extends BaseSelfRoleManager {
       legacyCandidates: primaryStats.legacyCandidates + fallbackStats.legacyCandidates,
       reactionCandidates: primaryStats.reactionCandidates + fallbackStats.reactionCandidates,
       reactionMapped: primaryStats.reactionMapped + fallbackStats.reactionMapped,
-      reactionAmbiguous: primaryStats.reactionAmbiguous + fallbackStats.reactionAmbiguous
+      reactionAmbiguous: primaryStats.reactionAmbiguous + fallbackStats.reactionAmbiguous,
+      cached: false
     };
     this.lastDiscoveryStats = stats;
     this.discoveredMenusCache = [...menusById.values()];
 
-    console.log(`[Nexus Sentinal] legacy self-role discovery: roleChannels=${primary.length} fallbackChannels=${fallback.length} scannedMessages=${stats.scannedMessages} buttonCandidates=${stats.legacyCandidates} reactionCandidates=${stats.reactionCandidates} reactionMapped=${stats.reactionMapped} reactionAmbiguous=${stats.reactionAmbiguous} menus=${this.discoveredMenusCache.length}`);
+    const primaryNames = primary.map((channel) => `#${channel.name || channel.id}`).join(', ') || 'none';
+    console.log(`[Nexus Sentinal] legacy self-role discovery: roleChannels=${primary.length} (${primaryNames}) fallbackChannels=${fallback.length} scannedMessages=${stats.scannedMessages} buttonCandidates=${stats.legacyCandidates} reactionCandidates=${stats.reactionCandidates} reactionMapped=${stats.reactionMapped} reactionAmbiguous=${stats.reactionAmbiguous} menus=${this.discoveredMenusCache.length}`);
     for (const diagnostic of [...primaryStats.reactionDiagnostics, ...fallbackStats.reactionDiagnostics].slice(0, 12)) {
       console.warn(`[Nexus Sentinal] reaction-role diagnostic: ${diagnostic}`);
     }
     if (!this.discoveredMenusCache.length) {
-      warnings.push(`Legacy self-role discovery scanned ${stats.scannedChannels} text channels / ${stats.scannedMessages} messages; button candidates=${stats.legacyCandidates}, reaction candidates=${stats.reactionCandidates}, safely mapped reaction menus=${stats.reactionMapped}.`);
+      warnings.push(`Legacy self-role discovery completed one exhaustive startup pass across ${stats.scannedChannels} text channels / ${stats.scannedMessages} messages; button candidates=${stats.legacyCandidates}, reaction candidates=${stats.reactionCandidates}, safely mapped reaction menus=${stats.reactionMapped}. The negative result is cached for this runtime.`);
     }
 
     return { menus: this.discoveredMenusCache, warnings, ...stats };
