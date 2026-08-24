@@ -1,0 +1,27 @@
+name: Generate Nexus npm Lockfile
+
+on:
+  push:
+    branches:
+      - 'ci/deterministic-npm-lock'
+
+permissions:
+  contents: read
+
+jobs:
+  lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - shell: bash
+        run: |
+          node -e "const p=require('./package-lock.json'); if(p.lockfileVersion!==3) throw new Error('Expected lockfileVersion 3'); if(p.packages?.['']?.version!=='0.1.0') throw new Error('Unexpected root version');"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nexus-generated-package-lock
+          path: package-lock.json
+          if-no-files-found: error
