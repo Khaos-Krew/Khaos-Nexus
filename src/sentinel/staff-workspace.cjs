@@ -5,6 +5,7 @@ const { MODULES } = require('../backend/modules/catalog.cjs');
 
 const STAFF_CATEGORY_NAME = '🔒 STAFF';
 const STAFF_PANEL_MARKER = 'Nexus Sentinal • Managed Staff Workspace • v2';
+const LEGACY_STAFF_PANEL_MARKERS = Object.freeze(['Nexus Sentinal • Managed Staff Workspace • v1']);
 const ADMIN_PANEL_MARKER = 'Nexus Sentinal • Managed Admin Commands • v1';
 const ROADMAP_PANEL_MARKER = 'Nexus Sentinal • Managed Roadmap • v1';
 const PRIVATE_DENYLIST = [/\bthora\b/i, /\basta\b/i, /private assistant/i, /household assistant/i];
@@ -203,7 +204,10 @@ function staffHubPayload(channels = {}) {
 function panelMatches(message, marker, botId = '') {
   if (!message) return false;
   if (botId && String(message.author?.id || '') !== String(botId)) return false;
-  return (message.embeds || []).some((embed) => String(embed?.footer?.text || '') === String(marker));
+  const acceptedMarkers = marker === STAFF_PANEL_MARKER
+    ? new Set([STAFF_PANEL_MARKER, ...LEGACY_STAFF_PANEL_MARKERS])
+    : new Set([String(marker)]);
+  return (message.embeds || []).some((embed) => acceptedMarkers.has(String(embed?.footer?.text || '')));
 }
 
 async function reconcilePanel(channel, payload, marker, botId = '') {
@@ -255,6 +259,7 @@ function legacyOfficeChannelName(channelId = '') {
 module.exports = {
   STAFF_CATEGORY_NAME,
   STAFF_PANEL_MARKER,
+  LEGACY_STAFF_PANEL_MARKERS,
   ADMIN_PANEL_MARKER,
   ROADMAP_PANEL_MARKER,
   PRIVATE_DENYLIST,
