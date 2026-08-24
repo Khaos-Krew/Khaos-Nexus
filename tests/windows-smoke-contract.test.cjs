@@ -45,10 +45,13 @@ test('CI smoke result writer emits bounded JSON evidence', () => {
 test('packaged application uses the CI-gated entry wrapper without replacing production main behavior', () => {
   const pkg = JSON.parse(read('package.json'));
   const entry = read('src/main-entry.cjs');
+  const smokeHelper = read('src/desktop/ci-smoke.cjs');
   assert.equal(pkg.main, 'src/main-entry.cjs');
   assert.match(entry, /ciSmokeConfig\(\)/);
   assert.match(entry, /app\.setPath\('userData'/);
-  assert.match(entry, /NEXUS_CI_SMOKE/);
+  assert.match(smokeHelper, /NEXUS_CI_SMOKE/);
+  assert.match(smokeHelper, /NEXUS_CI_USER_DATA/);
+  assert.match(smokeHelper, /NEXUS_CI_SMOKE_RESULT/);
   assert.match(entry, /require\('\.\/main\.cjs'\)/);
   assert.match(entry, /waitForBackendHealth/);
   assert.match(entry, /waitForPostUpdateConfirmation/);
