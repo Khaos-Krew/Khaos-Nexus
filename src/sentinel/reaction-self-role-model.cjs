@@ -1,0 +1,195 @@
+'use strict';
+
+const { normalizeSelfRoleMenu, normalizedName, exactRoleForLabel } = require('./self-role-model.cjs');
+
+function valuesOf(collection) {
+  if (!collection) return [];
+  if (Array.isArray(collection)) return collection;
+  if (typeof collection.values === 'function') return [...collection.values()];
+  return Object.values(collection);
+}
+
+function messageTextParts(message) {
+  const parts = [];
+  if (message?.content) parts.push(String(message.content));
+  for (const embed of message?.embeds || []) {
+    if (embed?.title) parts.push(String(embed.title));
+    if (embed?.description) parts.push(String(embed.description));
+    for (const field of embed?.fields || []) {
+      if (field?.name) parts.push(String(field.name));
+      if (field?.value) parts.push(String(field.value));
+    }
+    if (embed?.footer?.text) parts.push(String(embed.footer.text));
+  }
+  return parts;
+}
+
+function messageLines(message) {
+  return messageTextParts(message)
+    .flatMap((part) => String(part).split(/\r?\n/))
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function fullMessageText(message) {
+  return messageTextParts(message).join('\n');
+}
+
+function messageReactions(message) {
+  return valuesOf(message?.reactions?.cache || message?.reactions).filter((reaction) => reaction?.emoji);
+}
+
+function emojiTokens(reaction) {
+  const name = String(reaction?.emoji?.name || '').trim();
+  const id = String(reaction?.emoji?.id || '').trim();
+  const animated = Boolean(reaction?.emoji?.animated);
+  const tokens = new Set();
+  if (name) tokens.add(name);
+  if (id && name) {
+    tokens.add(`<:${name}:${id}>`);
+    if (animated) tokens.add(`<a:${name}:${id}>`);
+    tokens.add(`:${name}:`);
+  }
+  return [...tokens].filter(Boolean);
+}
+
+function reactionLabel(reaction) {
+  const name = String(reaction?.emoji?.name || '').trim();
+  const id = String(reaction?.emoji?.id || '').trim();
+  return id ? `:${name}:` : name;
+}
+
+function roleMentionId(line) {
+  const match = /<@&(\d{5,25})>/.exec(String(line || ''));
+  return match?.[1] || '';
+}
+
+function cleanReactionLabel(line, tokens = []) {
+  let text = String(line || '');
+  for (const token of [...tokens].sort((a, b) => b.length - a.length)) text = text.split(token).join(' ');
+  text = text.replace(/<@&\d{5,25}>/g, ' ');
+  text = text.replace(/^[\s\-–—:|•·►▶→=]+|[\s\-–—:|•·►▶→=]+$/g, ' ');
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function roleById(roles, id) {
+  return valuesOf(roles).find((role) => String(role?.id || '') === String(id || '')) || null;
+}
+
+function roleForReactionLine(line, reaction, roles) {
+  const mentionId = roleMentionId(line);
+  if (mentionId) return roleById(roles, mentionId);
+  const label = cleanReactionLabel(line, emojiTokens(reaction));
+  if (!label) return null;
+
+  const direct = exactRoleForLabel(valuesOf(roles), label);
+  if (direct) return direct;
+
+  const simplified = label
+    .replace(/^react\s+(with|using)\s+/i, '')
+    .replace(/^(choose|select|get|remove)\s+/i, '')
+    .replace(/\s+(role|roles)$/i, '')
+    .trim();
+  if (simplified && simplified !== label) return exactRoleForLabel(valuesOf(roles), simplified);
+  return null;
+}
+
+function lineForReaction(lines, reaction) {
+  const tokens = emojiTokens(reaction);
+  if (!tokens.length) return '';
+  return lines.find((line) => tokens.some((token) => String(line).includes(token))) || '';
+}
+
+function reactionMenuLooksRelevant(message) {
+  const reactions = messageReactions(message);
+  if (reactions.length < 1) return false;
+  const text = fullMessageText(message);
+  if (!text.trim()) return false;
+  const lower = text.toLowerCase();
+  const hasRoleMention = /<@&\d{5,25}>/.test(text);
+  const hasRoleLanguage = /\b(role|roles|reaction|react|self.?role|color|colour|platform|pronoun|game)\b/i.test(lower);
+  return Boolean(message?.author?.bot) && (hasRoleMention || hasRoleLanguage);
+}
+
+function colorMenuHint(message, mappedRoles = []) {
+  const text = fullMessageText(message);
+  if (/\b(name\s*)?(color|colour)s?\b/i.test(text)) return true;
+  if (!mappedRoles.length) return false;
+  const colored = mappedRoles.filter((role) => Number(role?.color || 0) !== 0).length;
+  return colored === mappedRoles.length && /\bname\b/i.test(text);
+}
+
+function menuTitle(message, fallback) {
+  const title = message?.embeds?.find?.((embed) => embed?.title)?.title;
+  return String(title || fallback || 'Choose Your Roles').trim().slice(0, 256);
+}
+
+function parseReactionRoleMenu(message, roles = []) {
+  if (!reactionMenuLooksRelevant(message)) return { menu: null, candidate: false, mapped: 0, unmatched: [] };
+
+  const reactions = messageReactions(message);
+  const lines = messageLines(message);
+  const mapped = [];
+  const unmatched = [];
+  const seenRoles = new Set();
+
+  for (const reaction of reactions) {
+    const line = lineForReaction(lines, reaction);
+    if (!line) {
+      unmatched.push(reactionLabel(reaction));
+      continue;
+    }
+    const role = roleForReactionLine(line, reaction, roles);
+    if (!role?.id || seenRoles.has(String(role.id))) {
+      unmatched.push(reactionLabel(reaction));
+      continue;
+    }
+    seenRoles.add(String(role.id));
+    mapped.push({ reaction, role });
+  }
+
+  if (!mapped.length) return { menu: null, candidate: true, mapped: 0, unmatched };
+  if (mapped.length !== reactions.length) return { menu: null, candidate: true, mapped: mapped.length, unmatched };
+
+  const kind = colorMenuHint(message, mapped.map((item) => item.role)) ? 'colors' : 'roles';
+  const title = menuTitle(message, kind === 'colors' ? 'Choose Your Name Color' : 'Choose Your Roles');
+  const idBase = normalizedName(title).slice(0, 30) || `reaction-${String(message?.id || '').slice(-10)}`;
+  const description = String(message?.embeds?.[0]?.description || message?.content || 'Use the buttons below to update your roles.').slice(0, 4000);
+
+  const menu = normalizeSelfRoleMenu({
+    id: idBase,
+    name: title,
+    title,
+    description,
+    kind,
+    mode: kind === 'colors' ? 'exclusive' : 'toggle',
+    channelId: String(message?.channelId || message?.channel?.id || ''),
+    messageId: String(message?.id || ''),
+    options: mapped.map(({ reaction, role }) => ({
+      id: normalizedName(role.name).slice(0, 32) || String(role.id),
+      label: String(role.name || 'Role').slice(0, 80),
+      roleId: String(role.id),
+      emoji: reaction?.emoji?.id ? '' : String(reaction?.emoji?.name || '').slice(0, 32),
+      ...(kind === 'colors' ? { color: role.hexColor || '#808080' } : {})
+    }))
+  });
+
+  return { menu, candidate: true, mapped: mapped.length, unmatched: [] };
+}
+
+module.exports = {
+  valuesOf,
+  messageTextParts,
+  messageLines,
+  fullMessageText,
+  messageReactions,
+  emojiTokens,
+  reactionLabel,
+  roleMentionId,
+  cleanReactionLabel,
+  roleForReactionLine,
+  lineForReaction,
+  reactionMenuLooksRelevant,
+  colorMenuHint,
+  parseReactionRoleMenu
+};

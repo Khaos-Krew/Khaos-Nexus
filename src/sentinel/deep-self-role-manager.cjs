@@ -13,6 +13,7 @@ const {
   discoverLegacySelfRoleMenu,
   normalizedName
 } = require('./self-role-model.cjs');
+const { parseReactionRoleMenu } = require('./reaction-self-role-model.cjs');
 
 const DEEP_HISTORY_LIMIT = 500;
 const FALLBACK_HISTORY_LIMIT = 100;
@@ -62,6 +63,10 @@ class SelfRoleManager extends BaseSelfRoleManager {
   async scanChannels(channels, roles, limit, seenMessages, menusById, warnings) {
     let scannedMessages = 0;
     let legacyCandidates = 0;
+    let reactionCandidates = 0;
+    let reactionMapped = 0;
+    let reactionAmbiguous = 0;
+    const reactionDiagnostics = [];
 
     for (const channel of channels) {
       const history = await fetchMessageHistory(channel, limit);
@@ -73,19 +78,36 @@ class SelfRoleManager extends BaseSelfRoleManager {
         if (isCurrentSelfRoleMessage(message)) continue;
 
         const hasLegacyButton = messageButtons(message).some((button) => String(button?.custom_id || '').startsWith(LEGACY_SELF_ROLE_BUTTON_PREFIX));
-        if (!hasLegacyButton) continue;
-        legacyCandidates += 1;
-
-        const menu = discoverLegacySelfRoleMenu(message, roles);
-        if (!menu) {
-          warnings.push(`Could not safely map legacy role menu message ${messageId} in #${channel.name || channel.id}; it was left untouched.`);
+        if (hasLegacyButton) {
+          legacyCandidates += 1;
+          const menu = discoverLegacySelfRoleMenu(message, roles);
+          if (!menu) {
+            warnings.push(`Could not safely map legacy button-role menu ${messageId} in #${channel.name || channel.id}; it was left untouched.`);
+            continue;
+          }
+          if (!menusById.has(menu.id)) menusById.set(menu.id, menu);
+          this.legacyLocations.set(messageId, String(channel.id));
           continue;
         }
-        if (!menusById.has(menu.id)) menusById.set(menu.id, menu);
-        this.legacyLocations.set(messageId, String(channel.id));
+
+        const reaction = parseReactionRoleMenu(message, roles);
+        if (!reaction.candidate) continue;
+        reactionCandidates += 1;
+        if (reaction.menu) {
+          reactionMapped += 1;
+          if (!menusById.has(reaction.menu.id)) menusById.set(reaction.menu.id, reaction.menu);
+          this.legacyLocations.set(messageId, String(channel.id));
+          continue;
+        }
+
+        reactionAmbiguous += 1;
+        if (reactionDiagnostics.length < 12) {
+          const title = String(message?.embeds?.[0]?.title || message?.content || 'untitled').replace(/\s+/g, ' ').slice(0, 80);
+          reactionDiagnostics.push(`#${channel.name || channel.id} message=${messageId} title=${JSON.stringify(title)} mapped=${reaction.mapped} unmatched=${reaction.unmatched.join(',') || 'none'}`);
+        }
       }
     }
-    return { scannedMessages, legacyCandidates };
+    return { scannedMessages, legacyCandidates, reactionCandidates, reactionMapped, reactionAmbiguous, reactionDiagnostics };
   }
 
   async discoverLegacyMenus(guild) {
@@ -104,7 +126,7 @@ class SelfRoleManager extends BaseSelfRoleManager {
     const menusById = new Map();
 
     const primaryStats = await this.scanChannels(primary, roles, DEEP_HISTORY_LIMIT, seenMessages, menusById, warnings);
-    let fallbackStats = { scannedMessages: 0, legacyCandidates: 0 };
+    let fallbackStats = { scannedMessages: 0, legacyCandidates: 0, reactionCandidates: 0, reactionMapped: 0, reactionAmbiguous: 0, reactionDiagnostics: [] };
     if (!menusById.size && fallback.length) {
       fallbackStats = await this.scanChannels(fallback, roles, FALLBACK_HISTORY_LIMIT, seenMessages, menusById, warnings);
     }
@@ -112,14 +134,20 @@ class SelfRoleManager extends BaseSelfRoleManager {
     const stats = {
       scannedChannels: primary.length + (!menusById.size ? fallback.length : 0),
       scannedMessages: primaryStats.scannedMessages + fallbackStats.scannedMessages,
-      legacyCandidates: primaryStats.legacyCandidates + fallbackStats.legacyCandidates
+      legacyCandidates: primaryStats.legacyCandidates + fallbackStats.legacyCandidates,
+      reactionCandidates: primaryStats.reactionCandidates + fallbackStats.reactionCandidates,
+      reactionMapped: primaryStats.reactionMapped + fallbackStats.reactionMapped,
+      reactionAmbiguous: primaryStats.reactionAmbiguous + fallbackStats.reactionAmbiguous
     };
     this.lastDiscoveryStats = stats;
     this.discoveredMenusCache = [...menusById.values()];
 
-    console.log(`[Nexus Sentinal] legacy self-role discovery: roleChannels=${primary.length} fallbackChannels=${fallback.length} scannedMessages=${stats.scannedMessages} legacyCandidates=${stats.legacyCandidates} menus=${this.discoveredMenusCache.length}`);
+    console.log(`[Nexus Sentinal] legacy self-role discovery: roleChannels=${primary.length} fallbackChannels=${fallback.length} scannedMessages=${stats.scannedMessages} buttonCandidates=${stats.legacyCandidates} reactionCandidates=${stats.reactionCandidates} reactionMapped=${stats.reactionMapped} reactionAmbiguous=${stats.reactionAmbiguous} menus=${this.discoveredMenusCache.length}`);
+    for (const diagnostic of [...primaryStats.reactionDiagnostics, ...fallbackStats.reactionDiagnostics].slice(0, 12)) {
+      console.warn(`[Nexus Sentinal] reaction-role diagnostic: ${diagnostic}`);
+    }
     if (!this.discoveredMenusCache.length) {
-      warnings.push(`Legacy self-role discovery scanned ${stats.scannedChannels} text channels / ${stats.scannedMessages} messages and found ${stats.legacyCandidates} legacy Khaos role-menu candidate(s).`);
+      warnings.push(`Legacy self-role discovery scanned ${stats.scannedChannels} text channels / ${stats.scannedMessages} messages; button candidates=${stats.legacyCandidates}, reaction candidates=${stats.reactionCandidates}, safely mapped reaction menus=${stats.reactionMapped}.`);
     }
 
     return { menus: this.discoveredMenusCache, warnings, ...stats };
