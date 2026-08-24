@@ -5,6 +5,7 @@ const { URL } = require('node:url');
 const { currentHostedProviderStore } = require('../railway/hosted-provider-store.cjs');
 const { adminPairingStore } = require('./admin-pairing.cjs');
 const { commandStatus, discoverRankMappings } = require('./discord-admin-discovery.cjs');
+const { buildStaffNameColorPreview } = require('./staff-name-color-preview.cjs');
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1']);
 
@@ -61,16 +62,31 @@ async function hostedProviderStatus(controller) {
   return { ...status, ok: status.ok !== false && backend.ok !== false, backendModules: backend.modules || [], backendMessage: backend.message || '' };
 }
 
+async function staffNameColorPreview(controller) {
+  const guild = controller?.guild;
+  if (!guild) return { ok: false, readOnly: true, mutationAuthorized: false, code: 'GUILD_UNAVAILABLE' };
+  const roles = await guild.roles.fetch();
+  const me = guild.members?.me || await guild.members.fetchMe();
+  return buildStaffNameColorPreview({
+    guildId: String(guild.id || ''),
+    roles,
+    botHighestRole: me?.roles?.highest || null,
+    config: controller.effectiveConfig?.() || controller.config || {}
+  });
+}
+
 async function enhancedScan(controller) {
   const scan = await controller.scan();
   scan.sections ||= {};
-  const [commands, rankDiscovery, providerConfig] = await Promise.all([
+  const [commands, rankDiscovery, providerConfig, staffColors] = await Promise.all([
     commandStatus(controller).catch((error) => ({ ok: false, commands: [], desired: [], error: String(error?.message || error).slice(0, 240) })),
     discoverRankMappings(controller).catch((error) => ({ ok: false, ranks: [], suggestedSettings: { rankRoles: {}, rankSkus: {} }, counts: { discoveredRoles: 0, discoveredSkus: 0, attention: 0 }, error: String(error?.message || error).slice(0, 240) })),
-    hostedProviderStatus(controller).catch((error) => ({ ok: false, configured: false, error: String(error?.message || error).slice(0, 240) }))
+    hostedProviderStatus(controller).catch((error) => ({ ok: false, configured: false, error: String(error?.message || error).slice(0, 240) })),
+    staffNameColorPreview(controller).catch((error) => ({ ok: false, readOnly: true, mutationAuthorized: false, error: String(error?.message || error).slice(0, 240) }))
   ]);
   scan.sections.commands = commands;
   scan.sections.rankDiscovery = rankDiscovery;
+  scan.sections.staffColors = staffColors;
   if (providerConfig) scan.sections.providerConfig = providerConfig;
   scan.ok = Object.values(scan.sections).every((section) => section?.ok !== false);
   return scan;
@@ -131,6 +147,7 @@ function createSentinalAdminServer(options = {}) {
       if (req.method === 'GET' && url.pathname === '/v1/commands') return json(res, 200, await commandStatus(controller));
       if (req.method === 'GET' && url.pathname === '/v1/channels') return json(res, 200, await controller.inspectChannels(safeModuleId(url.searchParams.get('module'))));
       if (req.method === 'GET' && url.pathname === '/v1/roles') return json(res, 200, await controller.reconcileRoles({ dryRun: true }));
+      if (req.method === 'GET' && url.pathname === '/v1/staff-name-colors/preview') return json(res, 200, await staffNameColorPreview(controller));
       if (req.method === 'GET' && url.pathname === '/v1/rank-mappings/discover') return json(res, 200, await discoverRankMappings(controller));
       if (req.method === 'GET' && url.pathname === '/v1/providers/config') {
         const status = await hostedProviderStatus(controller);
@@ -190,16 +207,16 @@ function createSentinalAdminServer(options = {}) {
       server.listen(port, host);
     });
     logger.log?.(`[Nexus Sentinal Admin] listening on http://${host}:${port}`);
-    return { host, port };
-  }
-
-  async function stop() {
-    if (!started || !server.listening) return;
-    await new Promise((resolve) => server.close(resolve));
-    started = false;
-  }
-
-  return { host, port, server, start, stop, isStarted: () => started && server.listening };
+    return { host, port, server, start, stop, isStarted: () => started && server.listening };
 }
 
-module.exports = { LOOPBACK, createPairingLimiter, createSentinalAdminServer, enhancedScan, hostedProviderStatus, publicHealth, safeModuleId, validAdminToken };
+async function stop() {
+  if (!started || !server.listening) return;
+  await new Promise((resolve) => server.close(resolve));
+  started = false;
+}
+
+return { host, port, server, start, stop, isStarted: () => started && server.listening };
+}
+
+module.exports = { LOOPBACK, createPairingLimiter, createSentinalAdminServer, enhancedScan, hostedProviderStatus, publicHealth, safeModuleId, staffNameColorPreview, validAdminToken };
