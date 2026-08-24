@@ -99,26 +99,43 @@ This live evidence closes the expanded game-category provisioning/order and mana
 
 Community Safety & Reporting (#332) and one-time 66%/100% milestone patch-note publishing (#333) remain merged implementation slices. The current runtime reports the private safety-report system ready with three staff roles, the Rules panel ready, and the restricted archive ready; end-to-end report-ticket lifecycle acceptance remains separate.
 
+### INFORMATION category automation
+
+The INFORMATION category now has additional managed-service work:
+
+- PR #366 added the persistent **Nexus Status** panel for Nexus Sentinal gateway/backend health plus Veyra — Lore Master API/Discord gateway health;
+- live Railway evidence showed the canonical status panel created/pinned, reused on periodic refresh, and reported `sentinal=online veyra=online` without duplicates;
+- PR #367 removed the false-positive EventEmitter listener warning by applying a bounded Sentinal client listener budget rather than disabling warnings;
+- PR #369 added event-driven `#welcome` automation using the existing Guild Members intent, scoped mentions to the joining member, ignored bot joins, and linked available onboarding channels;
+- PR #371 queued the required public-safe `nexus-service-status:100` milestone note after its exact-head CI passed;
+- the current `#game-servers` implementation slice moves server inventory authority to Nexus Backend, permits dynamic ARK/Minecraft tracked-server arrays, and makes Sentinal maintain a pinned `#game-servers` registry from safe backend metadata. Hosted/live acceptance of this newest registry slice must still be recorded after merge/deployment.
+
+The `#game-servers` registry intentionally excludes network addresses, ports, RCON passwords, tokens, TLS fingerprints, and other protected connection data from the Discord-facing contract.
+
 Superseded #334/#336/#337/#340 role-migration proposals are historical only; their relevant intent was overtaken by later merged work.
 
 ## Validation state
 
 Status: **AUTOMATED REBUILD BASELINE GREEN — OWNER/LIVE VALIDATION IN PROGRESS**
 
-Recent exact-head automated evidence:
+Recent exact-head automated evidence includes:
 
-- PR #364 head `ce62a70715cc1aae59cb6c477aba242ba21c8e65` — Nexus Rebuild CI #372 green; merged. Windows CI now performs isolated clean NSIS install, packaged startup/backend-health validation, production staged-upgrade apply, post-update startup confirmation, payload SHA-256 match, and emits a redacted smoke report required by later artifact promotion;
-- PR #365 head `cd2e90c250e76697e2809cd296ee55a1ba9b67d7` — Nexus Rebuild CI #371 green; merged. Runtime-container tests keep deterministic dependency checks without requiring repository-only orchestration files inside the production image;
-- PR #363 head `3ec4a49699dc6961b7f0c9e822e9c1eb61448cbf` — Nexus Rebuild CI #367 green; merged. Dependency installs are locked with `package-lock.json`, `npm ci`, and keyed caches in CI/Windows/Railway paths;
-- PR #362 head `2f9b7559c7595d1ed2461a38b466afc96cdb70b4` — merged. Manual release promotion consumes the exact validated Windows artifact from a successful rebuild CI run rather than rebuilding during publication and generates release provenance;
-- PR #361 head `289d4a03b747718da6fef3b7de02650fc80cfe48` — merged after live Name Color display-safety evidence;
-- PR #358 head `e2c7e89e355b1ec103292afa975f4715237fd20c` — Nexus Rebuild CI #344 green; merged.
+- PR #371 head `70c9bb71ac0b9a58437a1e5e1ed2472068d7cc8f` — Nexus Rebuild CI #385 green before merge; queues the public-safe Nexus Service Status 100% milestone;
+- PR #370 head `eae3b1768aa18487d771f99d2f04f82393717280` — full Nexus Rebuild CI green; preserves release-hardening assertions without requiring repository-only docs inside the production Sentinal image;
+- PR #369 head `fe38b5680088c45eb152a7be5e42c7a6fd5cbf8d` — welcome automation tests/checks green before merge;
+- PR #368 head `9f063d12a208ece6a9f62ca5749e71d48d4ae0e2` — Nexus Rebuild CI green with signing policy, package-content audit, staged update, clean install/upgrade smoke, evidence validation, and artifact upload;
+- PR #366 head `af046f29a1f8e9db57c6da0894e00d378eed75e6` — Linux/Windows tests, installer build, staged update, clean-install/upgrade smoke, manifest verification, and artifact upload green before merge;
+- PR #364 head `ce62a70715cc1aae59cb6c477aba242ba21c8e65` — Windows CI isolated clean NSIS install, packaged startup/backend-health validation, production staged-upgrade apply, post-update startup confirmation, payload SHA-256 match, and redacted smoke evidence;
+- PR #363 head `3ec4a49699dc6961b7f0c9e822e9c1eb61448cbf` — deterministic dependency installs with `package-lock.json`, `npm ci`, and keyed caches;
+- PR #362 head `2f9b7559c7595d1ed2461a38b466afc96cdb70b4` — exact validated-artifact promotion with release provenance.
 
-The active rebuild branch reached merge commit `1db9144fdb68baf8ad249b55185907a1d0367f90` after PR #364. Automated CI, packaging, smoke validation, and hosted startup evidence do not replace owner/live interaction acceptance.
+Release hardening now also includes an Authenticode policy and packaged-content audit. Owner-test artifacts may remain intentionally unsigned; stable validation must fail closed unless protected Windows signing credentials are configured and the packaged app/installer signatures independently validate.
+
+Automated CI, packaging, smoke validation, and hosted startup evidence do not replace owner/live interaction acceptance.
 
 ## Live acceptance state
 
-The Sentinal role-authority subsection is live-accepted at 100%. Expanded game-module provisioning, alphabetical placement, access-policy reconciliation, managed-hub idempotency, persistent-feed recovery, and staff-compatible Name Color display safety also have live evidence.
+The Sentinal role-authority subsection is live-accepted at 100%. Expanded game-module provisioning, alphabetical placement, access-policy reconciliation, managed-hub idempotency, persistent-feed recovery, staff-compatible Name Color display safety, and Nexus Sentinal/Veyra service-status visibility also have live evidence.
 
 Remaining live/owner gates include:
 
@@ -127,6 +144,7 @@ Remaining live/owner gates include:
 - complete remaining Discord + Nexus Setup Acceptance gates, including fresh hosted pairing, desktop confirmation scan, live Repair Nexus only where needed, provider sync/validation, and desktop/hosted restart persistence;
 - validate moderation actions, temporary lobby lifecycle, discoverability, and Veyra/D&D boundaries;
 - validate at least one real provider-backed game path with actual credentials/data where required;
+- validate the new backend-backed `#game-servers` registry against a real tracked-server addition/removal after its implementation is deployed;
 - validate updater apply/startup/rollback on an installed owner-test machine despite the now-green isolated Windows CI smoke path;
 - validate the private assistant discovery/readiness and allowlisted launch behavior on the intended machine.
 
@@ -144,19 +162,19 @@ Owner-test the packaged Admin Control Center, Setup Center, Accounts & Access, O
 
 Status: **IN PROGRESS — PROVIDERS + HOSTED SYNC + READ-ONLY VALIDATION + EVENT FEEDS + COMPANION FLOWS MERGED; LIVE/OWNER VALIDATION REQUIRED**
 
-Validate Palworld and other provider-backed paths in real use. Include Pokémon GO, ARK taming, Warframe Archon Hunt, Dead by Daylight public/community reads, Call of Duty safe/local companion surfaces, Diablo IV safe/local companion surfaces, and persistent event/news feeds without treating CI as live interaction acceptance.
+Validate Palworld and other provider-backed paths in real use. Include Pokémon GO, ARK taming, Warframe Archon Hunt, Dead by Daylight public/community reads, Call of Duty safe/local companion surfaces, Diablo IV safe/local companion surfaces, persistent event/news feeds, and the backend-backed tracked-server registry without treating CI as live interaction acceptance.
 
 ### Then — Sentinal operational acceptance
 
-Status: **IN PROGRESS — ROLE AUTHORITY + MODULE LAYOUT/IDEMPOTENCY + NAME-COLOR DISPLAY SAFETY LIVE-EVIDENCED; INTERACTION ACCEPTANCE PENDING**
+Status: **IN PROGRESS — ROLE AUTHORITY + MODULE LAYOUT/IDEMPOTENCY + NAME-COLOR DISPLAY + SERVICE STATUS LIVE-EVIDENCED; INTERACTION ACCEPTANCE PENDING**
 
-The self-role/role-authority subsection is live-accepted at 100%. Expanded module layout, access reconciliation, category order, hub idempotency, feed recovery, and staff-compatible Name Color display safety now have live evidence. Broader Sentinal operational acceptance still requires real-member interaction testing, reporting lifecycle, moderation, pairing, provider flows, Setup Acceptance, and restart behavior.
+The self-role/role-authority subsection is live-accepted at 100%. Expanded module layout, access reconciliation, category order, hub idempotency, feed recovery, staff-compatible Name Color display safety, Nexus service status, and new-member welcome automation now have implementation/live evidence at their respective levels. Broader Sentinal operational acceptance still requires real-member interaction testing, reporting lifecycle, moderation, pairing, provider flows, Setup Acceptance, and restart behavior.
 
 ### Release hardening
 
-Status: **IN PROGRESS — DETERMINISTIC INSTALLS + EXACT-ARTIFACT PROMOTION + WINDOWS INSTALL/UPGRADE SMOKE MERGED; OWNER UPDATE/ROLLBACK ACCEPTANCE PENDING**
+Status: **IN PROGRESS — DETERMINISTIC INSTALLS + EXACT-ARTIFACT PROMOTION + WINDOWS INSTALL/UPGRADE SMOKE + PACKAGE AUDIT/SIGNING GATES MERGED; OWNER UPDATE/ROLLBACK ACCEPTANCE PENDING**
 
-The rebuild now has deterministic `npm ci` dependency installs, exact validated-artifact promotion with provenance, and Windows CI that exercises a real isolated NSIS install plus staged update/apply/startup verification before an artifact is eligible for promotion. This is strong automated release evidence, not public/stable release authorization. The remaining primary release-hardening gate is an actual installed owner-machine update/startup/rollback cycle correlated to the tested artifact and feedback.
+The rebuild now has deterministic `npm ci` dependency installs, exact validated-artifact promotion with provenance, Windows CI that exercises a real isolated NSIS install plus staged update/apply/startup verification, packaged-content auditing, and a fail-closed stable Authenticode policy. This is strong automated release evidence, not public/stable release authorization. The remaining primary release-hardening gate is an actual installed owner-machine update/startup/rollback cycle correlated to the tested artifact and feedback; stable signing credentials remain an explicit protected prerequisite for a signed stable artifact.
 
 ### Later — Selective migration and expansion
 
@@ -165,6 +183,25 @@ Status: **DEFERRED UNTIL REBUILD FOUNDATION IS ACCEPTED**
 Selectively port only legacy behavior that fits the backend/admin/Sentinal architecture, expand provider-backed services and capability-driven Discord consoles, keep routine game dashboards out of the desktop, keep private assistant functionality bridged from its canonical project, and consider future web/public surfaces only when they support rather than duplicate protected authority.
 
 The previous self-hosted web + Windows Agent roadmap is not the immediate successor phase for Nexus 0.1.
+
+### Final planned continuation — Nexus D&D production and community beta
+
+Status: **QUEUED SUCCESSOR PHASE — MUST TRANSITION INTO ACTIVE PRODUCTION AFTER THE NEXUS 0.1 CORE/DISCORD ROADMAP IS STABLE ENOUGH**
+
+Nexus D&D is the planned continuation at the end of the current roadmap, not an unscheduled future idea. The detailed production handoff is [`NEXUS_DND_PRODUCTION_CONTINUATION.md`](NEXUS_DND_PRODUCTION_CONTINUATION.md).
+
+The D&D continuation will:
+
+1. establish canonical/versioned rules, character-creation, map/world, and Khaos Nexus homebrew content assets;
+2. complete backend-first campaign, character, session, encounter, content/homebrew, map, and permission contracts;
+3. reconnect Veyra to those canonical contracts and migrate the strongest validated Co-DM, homebrew-proposal, procedural-map, and explicit AI Game Master behaviors without restoring the old monolithic architecture;
+4. build a normal-player character/campaign client and a DM world/campaign builder;
+5. implement the intended exploration-to-tactical-combat transition and complete encounter lifecycle;
+6. keep Discord as the lightweight campaign coordination/access bridge rather than a second campaign database;
+7. move to a closed community beta as soon as the core campaign loop is safe and usable;
+8. complete multi-user, permission, migration, recovery, installer/updater, privacy, security, and source-provenance hardening before broader release.
+
+The first active D&D checkpoint after handoff is **DND-01 + DND-02 repository inventory/gap analysis**, followed immediately by a beta-critical-path implementation sequence. The roadmap must not silently return D&D to an indefinite backlog after Nexus acceptance.
 
 ## Historical stabilization record
 
@@ -185,5 +222,6 @@ Keep the public README concise with this structure:
 - **Then — Sentinal operational acceptance**
 - **Release hardening**
 - **Later — Selective migration and expansion**
+- **Final planned continuation — Nexus D&D production and community beta**
 
-Update this document and README whenever the active rebuild branch, version, architecture boundary, validation state, owner-acceptance result, release readiness, rollback target, or major migration direction materially changes.
+Update this document and README whenever the active rebuild branch, version, architecture boundary, validation state, owner-acceptance result, release readiness, rollback target, major migration direction, or D&D production handoff materially changes.
