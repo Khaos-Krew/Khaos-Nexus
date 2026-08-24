@@ -38,6 +38,31 @@ function hexColor(value, fallback = '#e3264f') {
   return /^#[0-9a-fA-F]{6}$/.test(normalized) ? normalized.toLowerCase() : fallback;
 }
 
+function normalizeSelfRoleEmoji(option = {}) {
+  const source = option?.emoji && typeof option.emoji === 'object' ? option.emoji : null;
+  const name = cleanText(source?.name ?? option.emojiName ?? option.emoji, 32);
+  const id = snowflake(source?.id ?? option.emojiId ?? option.emoji_id);
+  const animated = Boolean(source?.animated ?? option.emojiAnimated ?? option.emoji_animated);
+  return {
+    emoji: name,
+    emojiId: id,
+    emojiAnimated: Boolean(id && animated)
+  };
+}
+
+function renderSelfRoleEmoji(option = {}) {
+  const name = cleanText(option.emoji, 32);
+  const id = snowflake(option.emojiId || option.emoji_id);
+  if (id) {
+    return {
+      id,
+      ...(name ? { name } : {}),
+      ...(option.emojiAnimated ? { animated: true } : {})
+    };
+  }
+  return name ? { name } : null;
+}
+
 function normalizeSelfRoleOption(option = {}, kind = 'roles') {
   const label = cleanText(option.label || option.name, 80);
   const roleId = snowflake(option.roleId || option.role_id);
@@ -47,7 +72,7 @@ function normalizeSelfRoleOption(option = {}, kind = 'roles') {
     label,
     roleId,
     description: cleanText(option.description, 100),
-    emoji: cleanText(option.emoji, 32),
+    ...normalizeSelfRoleEmoji(option),
     style: Object.prototype.hasOwnProperty.call(BUTTON_STYLES, option.style) ? option.style : 'secondary',
     ...(kind === 'colors' ? { color: hexColor(option.color || '#808080', '#808080') } : {})
   };
@@ -143,13 +168,16 @@ function renderSelfRoleMenu(menuInput) {
   for (let offset = 0; offset < menu.options.length; offset += 5) {
     rows.push({
       type: 1,
-      components: menu.options.slice(offset, offset + 5).map((option) => ({
-        type: 2,
-        style: BUTTON_STYLES[option.style],
-        label: option.label,
-        custom_id: selfRoleButtonId(menu.id, option.id),
-        ...(option.emoji ? { emoji: { name: option.emoji } } : {})
-      }))
+      components: menu.options.slice(offset, offset + 5).map((option) => {
+        const emoji = renderSelfRoleEmoji(option);
+        return {
+          type: 2,
+          style: BUTTON_STYLES[option.style],
+          label: option.label,
+          custom_id: selfRoleButtonId(menu.id, option.id),
+          ...(emoji ? { emoji } : {})
+        };
+      })
     });
   }
   return {
@@ -223,10 +251,18 @@ function discoverLegacySelfRoleMenu(message, roles = []) {
     const label = cleanText(button.label, 80);
     const role = exactRoleForLabel(roles, label);
     if (!label || !role?.id) continue;
+    const emoji = button?.emoji
+      ? {
+          name: String(button.emoji.name || '').slice(0, 32),
+          id: String(button.emoji.id || ''),
+          animated: Boolean(button.emoji.animated)
+        }
+      : '';
     options.push({
       id: parsed.optionId,
       label,
       roleId: String(role.id),
+      emoji,
       style: 'secondary',
       ...(kind === 'colors' ? { color: role.hexColor || '#808080' } : {})
     });
@@ -281,6 +317,8 @@ module.exports = {
   cleanText,
   normalizedName,
   safeId,
+  normalizeSelfRoleEmoji,
+  renderSelfRoleEmoji,
   normalizeSelfRoleOption,
   normalizeSelfRoleMenu,
   configuredSelfRoleMenus,
