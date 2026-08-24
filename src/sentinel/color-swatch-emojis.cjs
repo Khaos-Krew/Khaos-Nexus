@@ -106,52 +106,97 @@ function solidColorPng(hex, size = 32) {
   ]);
 }
 
+function applicationEmojiManager(guild, options = {}) {
+  return options.applicationEmojiManager
+    || options.client?.application?.emojis
+    || guild?.client?.application?.emojis
+    || null;
+}
+
+function isGeneratedGuildSwatch(option = {}) {
+  return Boolean(option.emojiId) && /^nexus[_-]color[_-]/i.test(String(option.emoji || ''));
+}
+
+async function removeGeneratedGuildSwatch(option, guild, logger = console) {
+  if (!isGeneratedGuildSwatch(option) || !guild?.emojis) return false;
+  const id = String(option.emojiId || '');
+  try {
+    let emoji = guild.emojis.cache?.get?.(id) || null;
+    if (!emoji && typeof guild.emojis.fetch === 'function') {
+      try { emoji = await guild.emojis.fetch(id); } catch {}
+    }
+    if (!emoji) return false;
+    if (emoji?.delete) await emoji.delete('Replaced by Nexus Sentinal application-owned color swatch');
+    else if (typeof guild.emojis.delete === 'function') await guild.emojis.delete(id, 'Replaced by Nexus Sentinal application-owned color swatch');
+    else return false;
+    return true;
+  } catch (error) {
+    logger.warn?.(`[Nexus Sentinal] temporary guild swatch ${option.label} could not be removed: ${String(error?.message || error)}`);
+    return false;
+  }
+}
+
 async function ensureColorSwatches(menuInput, guild, options = {}) {
   let menu = normalizeSelfRoleMenu(menuInput);
-  if (menu.kind !== 'colors') return { menu, matched: 0, created: 0, missing: [] };
+  if (menu.kind !== 'colors') return { menu, matched: 0, created: 0, cleaned: 0, missing: [] };
 
   const logger = options.logger || console;
-  let emojiCollection = null;
-  try { emojiCollection = await guild?.emojis?.fetch?.(); } catch (error) {
-    logger.warn?.(`[Nexus Sentinal] color swatch inventory fetch failed: ${String(error?.message || error)}`);
+  const manager = applicationEmojiManager(guild, options);
+  if (!manager) {
+    return { menu, matched: 0, created: 0, cleaned: 0, missing: menu.options.filter((option) => !option.emojiId && !option.emoji).map((option) => option.label) };
   }
-  const known = valuesOf(emojiCollection || guild?.emojis?.cache || []);
+
+  let applicationCollection = null;
+  try { applicationCollection = await manager.fetch(); } catch (error) {
+    logger.warn?.(`[Nexus Sentinal] application color swatch inventory fetch failed: ${String(error?.message || error)}`);
+  }
+  const known = valuesOf(applicationCollection || manager.cache || []);
   let matched = 0;
   let created = 0;
+  let cleaned = 0;
   const missing = [];
   const enriched = [];
 
   for (const option of menu.options) {
-    if (option.emojiId || option.emoji) {
+    const generatedGuildEmoji = isGeneratedGuildSwatch(option);
+    if (option.emojiId && option.emoji && !generatedGuildEmoji) {
       enriched.push(option);
       continue;
     }
 
     let emoji = findExistingSwatch(option, known);
     if (emoji) matched += 1;
-    if (!emoji && typeof guild?.emojis?.create === 'function') {
+    if (!emoji && typeof manager.create === 'function') {
       try {
-        emoji = await guild.emojis.create({
+        emoji = await manager.create({
           attachment: solidColorPng(option.color, 32),
-          name: swatchEmojiName(option.label),
-          reason: `Nexus Sentinal name-color swatch for ${option.label}`
+          name: swatchEmojiName(option.label)
         });
         if (emoji) {
           known.push(emoji);
           created += 1;
         }
       } catch (error) {
-        logger.warn?.(`[Nexus Sentinal] color swatch ${option.label} could not be created: ${String(error?.message || error)}`);
+        logger.warn?.(`[Nexus Sentinal] application color swatch ${option.label} could not be created: ${String(error?.message || error)}`);
       }
     }
 
     const payload = emojiPayload(emoji);
-    if (!payload) missing.push(option.label);
-    enriched.push(payload ? { ...option, emoji: payload } : option);
+    if (!payload) {
+      if (option.emojiId || option.emoji) enriched.push(option);
+      else {
+        missing.push(option.label);
+        enriched.push(option);
+      }
+      continue;
+    }
+
+    enriched.push({ ...option, emoji: payload });
+    if (generatedGuildEmoji && await removeGeneratedGuildSwatch(option, guild, logger)) cleaned += 1;
   }
 
   menu = normalizeSelfRoleMenu({ ...menu, options: enriched });
-  return { menu, matched, created, missing };
+  return { menu, matched, created, cleaned, missing };
 }
 
 module.exports = {
@@ -163,5 +208,8 @@ module.exports = {
   crc32,
   pngChunk,
   solidColorPng,
+  applicationEmojiManager,
+  isGeneratedGuildSwatch,
+  removeGeneratedGuildSwatch,
   ensureColorSwatches
 };
