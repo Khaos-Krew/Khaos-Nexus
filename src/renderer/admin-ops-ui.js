@@ -13,6 +13,15 @@
     ['shadow-recruit', 'Shadow Recruit'], ['cipher-runner', 'Cipher Runner'], ['nexus-raider', 'Nexus Raider'],
     ['khaos-warden', 'Khaos Warden'], ['blackout-legend', 'Blackout Legend'], ['origin-founder', 'Origin Founder']
   ];
+  const FINDING_LABELS = Object.freeze({
+    status: 'Sentinal health',
+    permissions: 'Discord permissions',
+    commands: 'Command registration',
+    channels: 'Discord layout',
+    roles: 'Rank synchronization',
+    rankDiscovery: 'Rank / SKU discovery',
+    providerConfig: 'Hosted provider configuration'
+  });
   const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
   const badge = (text, kind = '') => `<span class="badge ${kind}">${esc(text)}</span>`;
   const statusBadge = (ok, good = 'Ready', bad = 'Needs attention') => badge(ok ? good : bad, ok ? 'good' : 'warn');
@@ -43,12 +52,13 @@
     content.querySelectorAll('button').forEach((button) => { button.disabled = value || button.dataset.forceDisabled === 'true'; });
   }
 
-  async function action(fn, successMessage) {
+  async function action(fn, successMessage, options = {}) {
     if (busy) return null;
     setBusy(true);
     try {
       const result = await fn();
-      if (result?.ok === false) throw new Error(result.message || result.error || result.code || 'Operation failed.');
+      const completedAudit = options.allowFindings === true && result?.ok === false && result?.sections && typeof result.sections === 'object';
+      if (result?.ok === false && !completedAudit) throw new Error(result.message || result.error || result.code || 'Operation failed.');
       if (successMessage) window.alert(successMessage);
       return result;
     } catch (error) {
@@ -62,6 +72,37 @@
   function sectionResult(label, value) {
     if (!value) return `<div class="admin-op-row"><strong>${esc(label)}</strong>${badge('Not checked')}</div>`;
     return `<div class="admin-op-row"><strong>${esc(label)}</strong>${statusBadge(value.ok !== false, 'Ready', 'Needs attention')}</div>`;
+  }
+
+  function rankDiscoveryDetail(section = {}) {
+    const ranks = Array.isArray(section.ranks) ? section.ranks : [];
+    const attentionRanks = ranks.filter((rank) => rank?.role?.status === 'missing' || rank?.role?.status === 'ambiguous' || (Number(rank?.level || 0) > 0 && rank?.skus?.status === 'missing'));
+    const names = attentionRanks.map((rank) => rank.name).filter(Boolean);
+    const count = Number(section.counts?.attention ?? attentionRanks.length ?? 0);
+    if (!count) return 'Rank and Premium SKU discovery is ready.';
+    return `${count} rank mapping${count === 1 ? '' : 's'} need attention${names.length ? `: ${names.join(', ')}` : ''}.`;
+  }
+
+  function findingDetail(id, section = {}) {
+    if (section.message) return String(section.message);
+    if (section.error) return String(section.error);
+    if (id === 'rankDiscovery') return rankDiscoveryDetail(section);
+    if (id === 'channels') {
+      const count = (section.modules || []).filter((module) => module?.ok === false || module?.complete === false).length;
+      return `${count || 'One or more'} enabled module layout${count === 1 ? '' : 's'} need reconciliation.`;
+    }
+    if (id === 'roles') {
+      const count = (section.items || []).filter((item) => item?.ok === false).length;
+      return `${count || 'One or more'} rank synchronization blocker${count === 1 ? '' : 's'} detected.`;
+    }
+    if (id === 'providerConfig') return section.backendMessage || 'Hosted provider configuration needs attention.';
+    return section.code || `${FINDING_LABELS[id] || id} needs attention.`;
+  }
+
+  function acceptanceFindings(sections = {}) {
+    return Object.entries(sections)
+      .filter(([, section]) => section && section.ok === false)
+      .map(([id, section]) => ({ id, label: FINDING_LABELS[id] || id, detail: findingDetail(id, section) }));
   }
 
   async function renderOwnerTest() {
@@ -126,6 +167,18 @@
     }).join('');
   }
 
+  function rankDiscoveryRows(discovery = {}) {
+    const ranks = Array.isArray(discovery.ranks) ? discovery.ranks : [];
+    if (!ranks.length) return '<p>Rank and Premium SKU discovery has not returned data yet.</p>';
+    return ranks.map((rank) => {
+      const roleStatus = rank.role?.status || 'not-checked';
+      const skuStatus = rank.skus?.status || 'not-checked';
+      const roleGood = roleStatus === 'configured' || roleStatus === 'discovered';
+      const skuGood = skuStatus === 'configured' || skuStatus === 'discovered' || skuStatus === 'free-default';
+      return `<div class="admin-op-row"><span><strong>${esc(rank.name || rank.id)}</strong><small>Role: ${esc(roleStatus)} • SKU: ${esc(skuStatus)}</small></span>${badge(roleGood && skuGood ? 'Ready' : 'Attention', roleGood && skuGood ? 'good' : 'warn')}</div>`;
+    }).join('');
+  }
+
   async function renderDiscordAdmin(scanOverride = null) {
     if (active !== 'discord') return;
     activate(discordButton, 'Discord Admin', 'Nexus Sentinal health, permissions, ranks, channels, panels and repair');
@@ -138,14 +191,25 @@
     const commands = sections.commands || {};
     const channels = sections.channels || {};
     const roles = sections.roles || {};
+    const rankDiscovery = sections.rankDiscovery || {};
+    const providerConfig = sections.providerConfig || {};
+    const findings = acceptanceFindings(sections);
     const remoteSettings = scan?.settings || {};
     const adminUrl = appState.settings?.discord?.sentinalAdminUrl || '';
     const permissionRows = (permissions.permissions || []).map((item) => `<div class="admin-op-row"><span>${esc(item.label)}</span>${badge(item.granted ? 'Granted' : 'Missing', item.granted ? 'good' : 'bad')}</div>`).join('') || '<p>Permission audit unavailable.</p>';
     const channelIssues = (channels.modules || []).filter((module) => !module.complete || module.ok === false);
     const roleChanges = (roles.items || []).filter((item) => item.action === 'reconcile').length;
     const roleBlocks = (roles.items || []).filter((item) => item.ok === false).length;
+    const scanSummary = scan?.sections
+      ? findings.length
+        ? `<article class="card"><div class="section-head"><div><h3>Scan completed — attention needed</h3><p>The read-only scan completed successfully. No repair was applied. Resolve the findings below, then scan again.</p></div>${badge(`${findings.length} finding${findings.length === 1 ? '' : 's'}`, 'warn')}</div>${findings.map((finding) => `<div class="admin-op-row"><span><strong>${esc(finding.label)}</strong><small>${esc(finding.detail)}</small></span>${badge('Attention', 'warn')}</div>`).join('')}</article>`
+        : '<article class="card"><div class="section-head"><div><h3>Scan completed</h3><p>All Discord + Nexus acceptance sections reported ready. No changes were made.</p></div><span class="badge good">Ready</span></div></article>'
+      : scan?.ok === false
+        ? `<article class="card"><h3>Scan unavailable</h3><p class="bad">${esc(scan.message || scan.error || scan.code || 'Sentinal scan could not be completed.')}</p></article>`
+        : '';
 
     content.innerHTML = `
+      ${scanSummary}
       <div class="grid admin-summary">
         <article class="card"><h3>Nexus Sentinal</h3><div class="metric ${status.discordReady ? 'good' : 'bad'}">${status.discordReady ? 'ONLINE' : 'OFFLINE'}</div><p>${esc(status.guild?.name || status.message || adminUrl || 'Not configured')}</p><p>${status.websocketPingMs != null ? `${esc(status.websocketPingMs)} ms gateway` : ''}</p></article>
         <article class="card"><h3>Permissions</h3><div class="metric ${permissions.ok ? 'good' : 'warn'}">${permissions.ok ? 'READY' : 'CHECK'}</div><p>${(permissions.permissions || []).filter((item) => item.granted).length}/${(permissions.permissions || []).length} required permissions</p></article>
@@ -156,6 +220,11 @@
       <div class="grid">
         <article class="card"><h3>Permission checker</h3>${permissionRows}${permissions.botHighestRole ? `<p class="field-note">Sentinal highest role: ${esc(permissions.botHighestRole.name)}</p>` : ''}</article>
         <article class="card"><h3>Command synchronization</h3>${(commands.commands || []).map((item) => `<div class="admin-op-row"><code>/${esc(item.name)}</code>${badge(item.registered ? 'Registered' : 'Missing', item.registered ? 'good' : 'warn')}</div>`).join('') || '<p>Command state unavailable.</p>'}<p class="field-note">Synchronization upserts Nexus commands and preserves unrelated application commands.</p></article>
+      </div>
+      <div class="section-head"><div><h3>Acceptance discovery</h3><p>Read-only checks for Discord rank roles, Premium App SKUs, and the hosted provider runtime.</p></div></div>
+      <div class="grid">
+        <article class="card"><h3>Rank / SKU discovery</h3>${rankDiscoveryRows(rankDiscovery)}<p class="field-note">Discovered roles: ${esc(rankDiscovery.counts?.discoveredRoles || 0)} • discovered SKUs: ${esc(rankDiscovery.counts?.discoveredSkus || 0)} • attention: ${esc(rankDiscovery.counts?.attention || 0)}</p></article>
+        <article class="card"><h3>Hosted provider configuration</h3>${sectionResult('Hosted runtime', providerConfig)}<p>${providerConfig.configured ? 'Hosted provider configuration is stored and available to Sentinal.' : 'No hosted game-provider configuration has been synchronized yet.'}</p><p class="field-note">Encrypted credential storage: ${providerConfig.secretEncryptionReady === false ? 'Unavailable' : 'Ready or not required'} • configured credentials: ${esc((providerConfig.configuredSecrets || []).length)}</p></article>
       </div>
       <div class="section-head"><div><h3>Hosted/local Sentinal connection</h3><p>Remote admin endpoints must use HTTPS. Loopback HTTP is allowed for local testing.</p></div></div>
       <article class="card"><label class="field"><span>Sentinal admin URL</span><input id="sentinalAdminUrl" value="${esc(adminUrl)}" placeholder="https://your-sentinal-service.example"></label><p class="field-note">The matching NEXUS_SENTINAL_ADMIN_TOKEN stays in protected Credentials storage.</p><div class="actions"><button id="saveAdminUrl" class="primary">Save connection</button></div></article>
@@ -169,7 +238,7 @@
         <article class="card"><h3>Repair Nexus</h3><p>Runs the safe reconciliation sequence: permissions → command sync → enabled channel layouts → persistent module panels → mapped rank roles → final health.</p><p><strong>No game-server restart, shutdown, kick, ban, or raw console action is part of this repair.</strong></p></article>
       </div>`;
 
-    document.getElementById('adminScan').onclick = async () => { const result = await action(() => api.sentinalScan()); if (result) renderDiscordAdmin(result); };
+    document.getElementById('adminScan').onclick = async () => { const result = await action(() => api.sentinalScan(), '', { allowFindings: true }); if (result) renderDiscordAdmin(result); };
     document.getElementById('syncCommands').onclick = async () => { const result = await action(() => api.sentinalSyncCommands(), 'Sentinal commands synchronized.'); if (result) renderDiscordAdmin(); };
     document.getElementById('repairChannels').onclick = async () => { const result = await action(() => api.sentinalReconcileChannels(''), 'Enabled module layouts reconciled.'); if (result) renderDiscordAdmin(); };
     document.getElementById('refreshPanels').onclick = async () => { const result = await action(() => api.sentinalRefreshConsoles(''), 'Persistent Sentinal module panels refreshed.'); if (result) renderDiscordAdmin(); };
