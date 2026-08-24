@@ -82,13 +82,13 @@ test('existing module category and children are locked without touching unrelate
     id: 'ark-category',
     name: 'ARK Survival Ascended',
     type: ChannelType.GuildCategory,
-    views: { guild: true, shadow: true, warframe: true, staff: true }
+    views: { guild: true, shadow: true, 'warframe-access': true, staff: true }
   });
   const child = fakeChannel({
     id: 'ark-console',
     name: 'ark-console',
     parentId: 'ark-category',
-    views: { guild: true, shadow: true, warframe: true, staff: true }
+    views: { guild: true, shadow: true, 'warframe-access': true, staff: true }
   });
   const unrelated = fakeChannel({ id: 'general', name: 'general', views: { guild: true, shadow: true } });
   const channels = new Map([[category.id, category], [child.id, child], [unrelated.id, unrelated]]);
