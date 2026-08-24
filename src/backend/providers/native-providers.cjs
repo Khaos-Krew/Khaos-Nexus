@@ -5,6 +5,10 @@ const { Division2Provider, DIVISION2_ACTIONS } = require('./division2-provider.c
 const { IdleOnProvider, IDLEON_ACTIONS } = require('./idleon-provider.cjs');
 const { PokemonGoProvider, POGO_ACTIONS } = require('./pokemon-go-provider.cjs');
 const { attachOfficialPokemonGoEvents } = require('./pokemon-go-official-events.cjs');
+const {
+  DeadByDaylightProvider, Diablo4Provider, CallOfDutyProvider,
+  DBD_ACTIONS, DIABLO4_ACTIONS, COD_ACTIONS
+} = require('./game-companion-providers.cjs');
 
 function nativeProvidersFromConfig(config = {}, options = {}) {
   const providers = {};
@@ -39,7 +43,34 @@ function nativeProvidersFromConfig(config = {}, options = {}) {
     );
   }
 
+  if (config.modules?.deadbydaylight?.enabled !== false) {
+    providers.deadbydaylight = new DeadByDaylightProvider({
+      stateFile: config.modules?.deadbydaylight?.stateFile,
+      catalogBase: config.modules?.deadbydaylight?.catalogBase,
+      statsBase: config.modules?.deadbydaylight?.statsBase,
+      fetchImpl: options.fetchImpl
+    });
+  }
+
+  if (config.modules?.diablo4?.enabled !== false) {
+    providers.diablo4 = new Diablo4Provider({
+      stateFile: config.modules?.diablo4?.stateFile,
+      newsUrl: config.modules?.diablo4?.newsUrl
+    });
+  }
+
+  if (config.modules?.callofduty?.enabled !== false) {
+    providers.callofduty = new CallOfDutyProvider({
+      stateFile: config.modules?.callofduty?.stateFile,
+      newsUrl: config.modules?.callofduty?.newsUrl
+    });
+  }
+
   return providers;
 }
 
-module.exports = { nativeProvidersFromConfig, WARFRAME_ACTIONS, DIVISION2_ACTIONS, IDLEON_ACTIONS, POGO_ACTIONS };
+module.exports = {
+  nativeProvidersFromConfig,
+  WARFRAME_ACTIONS, DIVISION2_ACTIONS, IDLEON_ACTIONS, POGO_ACTIONS,
+  DBD_ACTIONS, DIABLO4_ACTIONS, COD_ACTIONS
+};

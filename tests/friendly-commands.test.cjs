@@ -24,9 +24,9 @@ function fakeInteraction(commandName, subcommand, group = null, values = {}) {
 }
 
 test('friendly top-level module commands are registered', () => {
-  assert.deepEqual(commandNames(), ['ark', 'palworld', 'minecraft', 'warframe', 'division2', 'rust', 'satisfactory', 'idleon', 'pogo']);
+  assert.deepEqual(commandNames(), ['ark', 'cod', 'dbd', 'diablo4', 'palworld', 'minecraft', 'warframe', 'division2', 'rust', 'satisfactory', 'idleon', 'pogo']);
   const json = commandDefinitions().map((command) => command.toJSON());
-  assert.equal(json.length, 9);
+  assert.equal(json.length, 12);
   for (const command of json) {
     assert.ok(command.name.length <= 32);
     assert.ok((command.options || []).length <= 25);
@@ -38,6 +38,11 @@ test('common commands are short and obvious', () => {
   assert.ok(optionNames(commands.ark).includes('status'));
   assert.ok(optionNames(commands.ark).includes('players'));
   assert.ok(optionNames(commands.ark).includes('tame'));
+  assert.ok(optionNames(commands.cod).includes('loadouts'));
+  assert.ok(optionNames(commands.dbd).includes('random'));
+  assert.ok(optionNames(commands.dbd).includes('stats'));
+  assert.ok(optionNames(commands.diablo4).includes('planner'));
+  assert.ok(optionNames(commands.diablo4).includes('wishlist'));
   assert.ok(optionNames(commands.warframe).includes('archon'));
   assert.ok(optionNames(commands.warframe).includes('market'));
   assert.ok(optionNames(commands.division2).includes('gear'));
@@ -65,6 +70,18 @@ test('friendly commands translate typed options to backend payloads', () => {
   assert.deepEqual(resolveFriendlyCommand(fakeInteraction('pogo', 'create', 'raid', { boss: 'Rayquaza', location: 'Park', remote: true })).payload, {
     boss: 'Rayquaza', location: 'Park', startsAt: undefined, endsAt: undefined, remoteAllowed: true
   });
+  assert.deepEqual(resolveFriendlyCommand(fakeInteraction('dbd', 'random', null, { role: 'killer' })).payload, {
+    input: 'killer', role: 'killer'
+  });
+  assert.deepEqual(resolveFriendlyCommand(fakeInteraction('dbd', 'stats', null, { steamid: '76561198169190952' })).payload, {
+    input: '76561198169190952|playtime_all'
+  });
+  assert.deepEqual(resolveFriendlyCommand(fakeInteraction('diablo4', 'wishlist', null, { action: 'add', item: 'Harlequin Crest' })).payload, {
+    input: 'add Harlequin Crest'
+  });
+  assert.deepEqual(resolveFriendlyCommand(fakeInteraction('cod', 'lfg', null, { action: 'join', activity: 'Warzone' })).payload, {
+    input: 'join Warzone'
+  });
 });
 
 test('module help teaches the ARK tame wizard instead of typed backend inputs', () => {
@@ -82,6 +99,9 @@ test('module help teaches the ARK tame wizard instead of typed backend inputs', 
   const pogoHelp = JSON.stringify(renderHelp('pokemongo'));
   assert.ok(pogoHelp.includes('/pogo raid create'));
   assert.doesNotMatch(pogoHelp, /nexus run module:/i);
+  assert.ok(JSON.stringify(renderHelp('deadbydaylight')).includes('/dbd random'));
+  assert.ok(JSON.stringify(renderHelp('diablo4')).includes('/diablo4 planner'));
+  assert.ok(JSON.stringify(renderHelp('callofduty')).includes('/cod loadouts'));
 });
 
 test('module console points users at short commands', () => {
@@ -98,7 +118,7 @@ test('module console points users at short commands', () => {
 });
 
 test('friendly usage never exposes backend action ids', () => {
-  for (const moduleId of ['ark', 'palworld', 'minecraft', 'warframe', 'division2', 'rust', 'satisfactory', 'idleon', 'pokemongo']) {
+  for (const moduleId of ['ark', 'callofduty', 'deadbydaylight', 'diablo4', 'palworld', 'minecraft', 'warframe', 'division2', 'rust', 'satisfactory', 'idleon', 'pokemongo']) {
     const usage = usageForModule(moduleId);
     assert.ok(usage.length > 0);
     assert.equal(usage.some((line) => line.includes('/nexus run')), false);

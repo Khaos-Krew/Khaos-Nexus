@@ -28,6 +28,37 @@ const MODULES = [
     ]
   },
   {
+    id: 'callofduty', name: 'Call of Duty', console: true,
+    capabilities: [
+      viewer('loadouts', 'Loadouts', { button: false, input: 'list | add <loadout> | remove <loadout>' }),
+      viewer('lfg', 'LFG', { button: false, input: 'list | join <activity> | leave' }),
+      viewer('news', 'Patch Notes'), viewer('api-status', 'API Status')
+    ]
+  },
+  {
+    id: 'deadbydaylight', name: 'Dead by Daylight', console: true,
+    capabilities: [
+      viewer('killers', 'Killers', { button: false, input: '[search]' }),
+      viewer('survivors', 'Survivors', { button: false, input: '[search]' }),
+      viewer('perks', 'Perks', { button: false, input: '[perk or keyword]' }),
+      viewer('builds', 'Build Research', { button: false, input: '<perk, character, or playstyle>' }),
+      viewer('random-build', 'Random Build', { button: false, input: 'killer | survivor' }),
+      viewer('stats', 'Steam Stats', { button: false, input: '<SteamID64>|<NightLight stat name>' }),
+      viewer('lfg', 'LFG', { button: false, input: 'list | join <activity> | leave' })
+    ]
+  },
+  {
+    id: 'diablo4', name: 'Diablo IV', console: true,
+    capabilities: [
+      viewer('classes', 'Classes'),
+      viewer('builds', 'Build Library', { button: false, input: 'list | add <build notes> | remove <build notes>' }),
+      viewer('planner', 'Build Planner', { button: false, input: '[class]' }),
+      viewer('wishlist', 'Wishlist', { button: false, input: 'list | add <item> | remove <item>' }),
+      viewer('lfg', 'LFG', { button: false, input: 'list | join <activity> | leave' }),
+      viewer('news', 'News'), viewer('api-status', 'API Status')
+    ]
+  },
+  {
     id: 'palworld', name: 'Palworld', console: true,
     capabilities: [
       viewer('status', 'Status'), viewer('players', 'Players'), viewer('settings', 'Settings'), viewer('metrics', 'Metrics'),
