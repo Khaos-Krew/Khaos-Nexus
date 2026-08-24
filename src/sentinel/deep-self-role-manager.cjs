@@ -14,6 +14,7 @@ const {
   normalizedName
 } = require('./self-role-model.cjs');
 const { parseReactionRoleMenu } = require('./reaction-self-role-model.cjs');
+const { unmatchedCandidateSummary } = require('./legacy-role-diagnostics.cjs');
 
 const DEEP_HISTORY_LIMIT = 500;
 const FALLBACK_HISTORY_LIMIT = 100;
@@ -103,7 +104,8 @@ class SelfRoleManager extends BaseSelfRoleManager {
         reactionAmbiguous += 1;
         if (reactionDiagnostics.length < 12) {
           const title = String(message?.embeds?.[0]?.title || message?.content || 'untitled').replace(/\s+/g, ' ').slice(0, 80);
-          reactionDiagnostics.push(`#${channel.name || channel.id} message=${messageId} title=${JSON.stringify(title)} mapped=${reaction.mapped} unmatched=${reaction.unmatched.join(',') || 'none'}`);
+          const near = unmatchedCandidateSummary(reaction.unmatched, roles, 20);
+          reactionDiagnostics.push(`#${channel.name || channel.id} message=${messageId} title=${JSON.stringify(title)} mapped=${reaction.mapped} unmatched=${reaction.unmatched.join(',') || 'none'} near=${JSON.stringify(near || 'none')}`);
         }
       }
     }
