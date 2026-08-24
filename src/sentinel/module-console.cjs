@@ -79,7 +79,7 @@ function renderModuleConsole(moduleId, backendState = {}) {
 
   const friendly = friendlyUsage(moduleId);
   const commandHint = friendly.length
-    ? `Try **${friendly[0]}** or press **Commands / Help** for the full easy command list.`
+    ? `Try **${friendly[0]}** or press **Commands / Help** for the full feature catalog.`
     : module.surface === 'veyra'
       ? 'Use Veyra for normal D&D interaction.'
       : 'Use the buttons below for normal interaction.';
@@ -96,28 +96,82 @@ function renderModuleConsole(moduleId, backendState = {}) {
   };
 }
 
+function chunkLines(lines, maxLength = 1000) {
+  const chunks = [];
+  let current = '';
+  for (const rawLine of lines) {
+    const line = String(rawLine || '').slice(0, maxLength);
+    const next = current ? `${current}\n${line}` : line;
+    if (next.length > maxLength && current) {
+      chunks.push(current);
+      current = line;
+    } else current = next;
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+function fieldsFromLines(name, lines, maxChunks = 6) {
+  return chunkLines(lines).slice(0, maxChunks).map((value, index) => ({
+    name: index === 0 ? name : `${name} • continued`,
+    value,
+    inline: false
+  }));
+}
+
+function capabilityLine(capability) {
+  const prefix = capability.destructive ? '⚠️ ' : '• ';
+  const suffix = capability.input ? ` — ${String(capability.input).slice(0, 120)}` : '';
+  return `${prefix}**${capability.label}**${suffix}`;
+}
+
+function capabilityFields(module) {
+  const groups = [
+    ['Player features', module.capabilities.filter((cap) => cap.requiredRole === 'viewer')],
+    ['Operator / admin features', module.capabilities.filter((cap) => cap.requiredRole === 'operator')],
+    ['Owner controls', module.capabilities.filter((cap) => cap.requiredRole === 'owner')]
+  ];
+  return groups.flatMap(([name, capabilities]) => capabilities.length
+    ? fieldsFromLines(name, capabilities.map(capabilityLine), 3)
+    : []);
+}
+
 function renderHelp(moduleId) {
   const module = getModule(moduleId);
   if (!module) throw new Error(`Unknown module: ${moduleId}`);
   const commands = friendlyUsage(moduleId);
-  if (!commands.length) {
-    return {
-      embeds: [{
-        title: `${module.name} • Commands`,
-        description: module.surface === 'veyra'
-          ? 'This module is designed to be used through **Veyra** rather than raw Nexus Sentinal capability commands.'
-          : 'Use the module panel buttons for normal actions.'
-      }]
-    };
-  }
-  const lines = commands.map((command) => `• \`${command}\``);
+  const fields = capabilityFields(module);
+  if (commands.length) fields.push(...fieldsFromLines('Easy commands', commands.map((command) => `• \`${command}\``), 6));
+
+  const surfaceNote = module.surface === 'veyra'
+    ? 'Use **Veyra** for normal D&D interaction. The feature list below comes from the shared Nexus backend contract.'
+    : 'Features are sourced from the Nexus backend capability contract, so the Discord catalog stays aligned as module capabilities grow.';
+  const safetyNote = module.capabilities.some((cap) => cap.destructive)
+    ? '\n\n⚠️ Destructive controls remain permission-gated and require confirmation where the backend contract requires it.'
+    : '';
+
   return {
     embeds: [{
-      title: `${module.name} • Easy Commands`,
-      description: `${lines.join('\n')}\n\nYou do **not** need backend action IDs for normal use.`.slice(0, 4000),
-      footer: { text: 'Advanced /nexus run remains available only for compatibility and troubleshooting.' }
-    }]
+      title: `${module.name} • Features & Commands`,
+      description: `${surfaceNote}${safetyNote}`.slice(0, 4000),
+      fields: fields.slice(0, 25),
+      footer: {
+        text: commands.length
+          ? 'Use the short commands or module-panel controls; advanced /nexus run is compatibility/troubleshooting only.'
+          : 'Nexus backend capabilities remain the source of truth for this module.'
+      }
+    }],
+    allowed_mentions: { parse: [] }
   };
 }
 
-module.exports = { actionId, parseActionId, renderModuleConsole, renderHelp, buttonCapabilities, friendlyUsage };
+module.exports = {
+  actionId,
+  parseActionId,
+  renderModuleConsole,
+  renderHelp,
+  buttonCapabilities,
+  friendlyUsage,
+  chunkLines,
+  capabilityFields
+};
