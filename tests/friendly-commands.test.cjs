@@ -43,10 +43,14 @@ test('common commands are short and obvious', () => {
   assert.ok(optionNames(commands.division2).includes('gear'));
   assert.ok(optionNames(commands.idleon).includes('build'));
   const arkTame = commands.ark.options.find((item) => item.name === 'tame');
-  assert.deepEqual(optionNames(arkTame), ['creature', 'rate', 'base-minutes']);
-  const rate = arkTame.options.find((item) => item.name === 'rate');
-  assert.equal(rate.min_value, 0.1);
-  assert.equal(rate.max_value, 100);
+  assert.deepEqual(optionNames(arkTame), ['creature', 'level', 'food', 'taming-rate', 'food-drain']);
+  assert.equal(arkTame.options.every((item) => item.required === true), true);
+  const tamingRate = arkTame.options.find((item) => item.name === 'taming-rate');
+  assert.equal(tamingRate.min_value, 0.1);
+  assert.equal(tamingRate.max_value, 100);
+  const foodDrain = arkTame.options.find((item) => item.name === 'food-drain');
+  assert.equal(foodDrain.min_value, 0.01);
+  assert.equal(foodDrain.max_value, 100);
   const pogoRaid = commands.pogo.options.find((item) => item.name === 'raid');
   assert.ok(pogoRaid);
   assert.ok(optionNames(pogoRaid).includes('create'));
@@ -63,8 +67,10 @@ test('friendly commands translate typed options to backend payloads', () => {
   assert.deepEqual(resolveFriendlyCommand(fakeInteraction('ark', 'broadcast', null, { message: 'Restart soon', server: 'Ragnarok' })).payload, {
     server: 'Ragnarok', message: 'Restart soon'
   });
-  assert.deepEqual(resolveFriendlyCommand(fakeInteraction('ark', 'tame', null, { creature: 'Rex', rate: 3.5, 'base-minutes': 98 })).payload, {
-    creature: 'Rex', tamingRate: 3.5, baseMinutes: 98
+  assert.deepEqual(resolveFriendlyCommand(fakeInteraction('ark', 'tame', null, {
+    creature: 'Rex', level: 150, food: 'Raw Mutton', 'taming-rate': 3.5, 'food-drain': 1.25
+  })).payload, {
+    creature: 'Rex', wildLevel: 150, food: 'Raw Mutton', tamingRate: 3.5, foodDrainRate: 1.25
   });
   assert.deepEqual(resolveFriendlyCommand(fakeInteraction('pogo', 'create', 'raid', { boss: 'Rayquaza', location: 'Park', remote: true })).payload, {
     boss: 'Rayquaza', location: 'Park', startsAt: undefined, endsAt: undefined, remoteAllowed: true
@@ -76,6 +82,8 @@ test('module help teaches friendly commands instead of backend action syntax', (
   assert.ok(arkHelp.includes('/ark status'));
   assert.ok(arkHelp.includes('/ark tame'));
   assert.ok(arkHelp.includes('Taming Helper'));
+  assert.ok(arkHelp.includes('food drain'));
+  assert.doesNotMatch(arkHelp, /base minutes/i);
   assert.doesNotMatch(arkHelp, /module:ark action:/);
   const warframeHelp = JSON.stringify(renderHelp('warframe'));
   assert.ok(warframeHelp.includes('/warframe archon'));
