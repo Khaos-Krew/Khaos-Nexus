@@ -74,11 +74,27 @@ test('rebuild workflow can validate stable separately and emits signing/package 
   assert.match(workflow, /nexus-package-audit\.json/);
 });
 
-test('release promotion requires signing and package-audit evidence', { skip: !exists('.github/workflows/publish-staged-update.yml') }, () => {
+test('release promotion consumes exact signing/package evidence and stable fails closed', { skip: !exists('.github/workflows/publish-staged-update.yml') }, () => {
   const workflow = read('.github/workflows/publish-staged-update.yml');
+  const security = read('scripts/augment-release-security-evidence.ps1');
+  assert.match(workflow, /actions\/checkout@v4/);
+  assert.match(workflow, /augment-release-security-evidence\.ps1/);
   assert.match(workflow, /nexus-windows-signing\.json/);
   assert.match(workflow, /nexus-package-audit\.json/);
-  assert.match(workflow, /Stable release requires a signed validated Windows artifact/);
-  assert.match(workflow, /packageAuditHash/);
-  assert.match(workflow, /signingHash/);
+  assert.match(workflow, /SIGNING_PATH/);
+  assert.match(workflow, /PACKAGE_AUDIT_PATH/);
+  assert.match(security, /Stable release requires a signed validated Windows artifact/);
+  assert.match(security, /packageAuditHash/);
+  assert.match(security, /signingHash/);
+  assert.match(security, /provenance\.files/);
+});
+
+test('Windows 10 and Windows 11 release validation matrix is documented', () => {
+  const doc = read('docs/WINDOWS_RELEASE_VALIDATION.md');
+  assert.match(doc, /Windows 10/);
+  assert.match(doc, /Windows 11/);
+  assert.match(doc, /Real desktop install\/upgrade observation/);
+  assert.match(doc, /Stable publication/);
+  assert.match(doc, /WIN_CSC_LINK/);
+  assert.match(doc, /WIN_CSC_KEY_PASSWORD/);
 });
