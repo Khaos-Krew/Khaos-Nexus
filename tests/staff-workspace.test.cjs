@@ -1,0 +1,150 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { ChannelType, OverwriteType, PermissionFlagsBits } = require('discord.js');
+const {
+  STAFF_CATEGORY_NAME,
+  STAFF_PANEL_MARKER,
+  ADMIN_PANEL_MARKER,
+  MANAGED_TEXT_CHANNELS,
+  MANAGED_VOICE_CHANNEL,
+  normalizeName,
+  isPrivateSafeText,
+  findStaffCategory,
+  staffCategoryOverwrites,
+  adminCommandInventory,
+  adminCommandsPayload,
+  staffHubPayload,
+  panelMatches,
+  officeThreadName,
+  officeThreadMatches
+} = require('../src/sentinel/staff-workspace.cjs');
+const { memberIsStaff, channelNamed } = require('../src/sentinel/staff-workspace-extension.cjs');
+
+const IDS = Object.freeze({
+  guild: '1016059608789434408',
+  bot: '111111111111111111',
+  staff: '222222222222222222',
+  owner: '333333333333333333',
+  user: '444444444444444444'
+});
+
+test('staff category detection adopts decorated STAFF categories', () => {
+  const channels = new Map([
+    ['a', { id: 'a', type: ChannelType.GuildCategory, name: 'INFORMATION' }],
+    ['b', { id: 'b', type: ChannelType.GuildCategory, name: STAFF_CATEGORY_NAME }]
+  ]);
+  assert.equal(normalizeName(STAFF_CATEGORY_NAME), 'staff');
+  assert.equal(findStaffCategory(channels)?.id, 'b');
+});
+
+test('managed staff workspace has a compact fixed top-level channel set', () => {
+  assert.deepEqual(MANAGED_TEXT_CHANNELS.map((item) => item.name), [
+    'staff-hub', 'staff-ops', 'admin-commands', 'staff-offices'
+  ]);
+  assert.equal(MANAGED_VOICE_CHANNEL.name, 'Staff Meeting Room');
+});
+
+test('staff category permissions hide everyone while allowing staff thread participation', () => {
+  const guild = { id: IDS.guild };
+  const overwrites = staffCategoryOverwrites(guild, IDS.bot, [IDS.staff], [IDS.owner]);
+  const everyone = overwrites.find((item) => item.id === IDS.guild);
+  const staff = overwrites.find((item) => item.id === IDS.staff);
+  const owner = overwrites.find((item) => item.id === IDS.owner);
+  const bot = overwrites.find((item) => item.id === IDS.bot);
+
+  assert.equal(everyone.type, OverwriteType.Role);
+  assert.ok(everyone.deny.includes(PermissionFlagsBits.ViewChannel));
+  assert.ok(staff.allow.includes(PermissionFlagsBits.ViewChannel));
+  assert.ok(staff.allow.includes(PermissionFlagsBits.SendMessagesInThreads));
+  assert.equal(staff.allow.includes(PermissionFlagsBits.ManageThreads), false);
+  assert.ok(owner.allow.includes(PermissionFlagsBits.ManageThreads));
+  assert.ok(bot.allow.includes(PermissionFlagsBits.CreatePrivateThreads));
+  assert.ok(bot.allow.includes(PermissionFlagsBits.ManageThreads));
+});
+
+test('staff membership accepts configured staff role or owner only', () => {
+  const withRole = {
+    id: IDS.user,
+    user: { bot: false },
+    roles: { cache: new Map([[IDS.staff, { id: IDS.staff }]]) }
+  };
+  const owner = { id: IDS.owner, user: { bot: false }, roles: { cache: new Map() } };
+  const normal = { id: IDS.user, user: { bot: false }, roles: { cache: new Map() } };
+  const bot = { id: IDS.user, user: { bot: true }, roles: { cache: new Map([[IDS.staff, {}]]) } };
+  assert.equal(memberIsStaff(withRole, [IDS.staff], [IDS.owner]), true);
+  assert.equal(memberIsStaff(owner, [IDS.staff], [IDS.owner]), true);
+  assert.equal(memberIsStaff(normal, [IDS.staff], [IDS.owner]), false);
+  assert.equal(memberIsStaff(bot, [IDS.staff], [IDS.owner]), false);
+});
+
+test('managed channel lookup requires the intended type and staff parent', () => {
+  const channels = new Map([
+    ['1', { id: '1', type: ChannelType.GuildText, name: 'staff-hub', parentId: 'staff-cat' }],
+    ['2', { id: '2', type: ChannelType.GuildText, name: 'staff-hub', parentId: 'wrong-cat' }],
+    ['3', { id: '3', type: ChannelType.GuildVoice, name: 'Staff Meeting Room', parentId: 'staff-cat' }]
+  ]);
+  assert.equal(channelNamed(channels, 'staff-hub', ChannelType.GuildText, 'staff-cat')?.id, '1');
+  assert.equal(channelNamed(channels, 'Staff Meeting Room', ChannelType.GuildVoice, 'staff-cat')?.id, '3');
+  assert.equal(channelNamed(channels, 'staff-hub', ChannelType.GuildText, 'missing'), null);
+});
+
+test('admin reference contains core staff controls and only privileged backend capabilities', () => {
+  const inventory = adminCommandInventory();
+  const commands = inventory.map((item) => item.command);
+  assert.ok(commands.includes('/clear amount:<1-100>'));
+  assert.ok(commands.includes('/nexus-pair'));
+  assert.ok(commands.includes('/nexus setup'));
+  assert.ok(commands.includes('/nexus repair-all'));
+  assert.ok(commands.includes('/xp'));
+
+  assert.ok(commands.includes('/nexus run module:ark action:save'));
+  assert.ok(commands.includes('/nexus run module:ark action:restart'));
+  assert.ok(commands.includes('/nexus run module:minecraft action:rcon'));
+  assert.equal(commands.includes('/nexus run module:ark action:status'), false);
+  assert.equal(commands.includes('/nexus run module:warframe action:market'), false);
+  assert.equal(commands.includes('/nexus run module:division2 action:gear'), false);
+});
+
+test('staff command payload is completely free of restricted private-only terms', () => {
+  const payload = adminCommandsPayload();
+  const serialized = JSON.stringify(payload);
+  assert.equal(isPrivateSafeText(serialized), true);
+  for (const term of ['thora', 'asta', 'private assistant', 'household assistant']) {
+    assert.equal(serialized.toLowerCase().includes(term), false);
+  }
+  assert.equal(payload.embeds[0].footer.text, ADMIN_PANEL_MARKER);
+  assert.match(payload.embeds[0].description, /access checks, confirmations, and audit boundaries/i);
+});
+
+test('staff hub keeps safety reports separate and points to the compact workspace', () => {
+  const payload = staffHubPayload({
+    'staff-ops': { id: '555555555555555555' },
+    'admin-commands': { id: '666666666666666666' },
+    'staff-offices': { id: '777777777777777777' }
+  });
+  assert.equal(payload.embeds[0].footer.text, STAFF_PANEL_MARKER);
+  const text = JSON.stringify(payload);
+  assert.match(text, /private managed office thread/i);
+  assert.match(text, /sensitive safety reports remain in the separate restricted report system/i);
+});
+
+test('office thread names remain stable for a staff member across display-name changes', () => {
+  const first = officeThreadName({ id: IDS.user, displayName: 'Khaos Loki', user: { username: 'loki' } });
+  const renamed = officeThreadName({ id: IDS.user, displayName: 'Loki Updated', user: { username: 'loki' } });
+  assert.match(first, /^Office • Khaos Loki • 444444$/);
+  assert.equal(officeThreadMatches({ name: first }, IDS.user), true);
+  assert.equal(officeThreadMatches({ name: renamed }, IDS.user), true);
+  assert.equal(officeThreadMatches({ name: first }, IDS.owner), false);
+});
+
+test('managed panel matching requires both marker and bot ownership when supplied', () => {
+  const message = {
+    author: { id: IDS.bot },
+    embeds: [{ footer: { text: ADMIN_PANEL_MARKER } }]
+  };
+  assert.equal(panelMatches(message, ADMIN_PANEL_MARKER, IDS.bot), true);
+  assert.equal(panelMatches(message, ADMIN_PANEL_MARKER, IDS.owner), false);
+  assert.equal(panelMatches(message, STAFF_PANEL_MARKER, IDS.bot), false);
+});
