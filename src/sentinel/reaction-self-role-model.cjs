@@ -1,6 +1,11 @@
 'use strict';
 
-const { normalizeSelfRoleMenu, normalizedName, exactRoleForLabel } = require('./self-role-model.cjs');
+const {
+  normalizeSelfRoleMenu,
+  normalizedName,
+  exactRoleForLabel,
+  messageButtons
+} = require('./self-role-model.cjs');
 
 function valuesOf(collection) {
   if (!collection) return [];
@@ -100,15 +105,20 @@ function lineForReaction(lines, reaction) {
   return lines.find((line) => tokens.some((token) => String(line).includes(token))) || '';
 }
 
-function reactionMenuLooksRelevant(message) {
-  const reactions = messageReactions(message);
-  if (reactions.length < 1) return false;
-  const text = fullMessageText(message);
-  if (!text.trim()) return false;
-  const lower = text.toLowerCase();
-  const hasRoleMention = /<@&\d{5,25}>/.test(text);
-  const hasRoleLanguage = /\b(role|roles|reaction|react|self.?role|color|colour|platform|pronoun|game)\b/i.test(lower);
-  return Boolean(message?.author?.bot) && (hasRoleMention || hasRoleLanguage);
+function nexusFooter(message) {
+  return (message?.embeds || [])
+    .map((embed) => String(embed?.footer?.text || '').trim())
+    .find((text) => /^Khaos Nexus\s*•/i.test(text)) || '';
+}
+
+function legacyButtonMenuLooksRelevant(message) {
+  return Boolean(message?.author?.bot) && Boolean(nexusFooter(message)) && messageButtons(message).length > 0;
+}
+
+function buttonEmoji(button) {
+  const name = String(button?.emoji?.name || '').trim();
+  const id = String(button?.emoji?.id || '').trim();
+  return id ? '' : name.slice(0, 32);
 }
 
 function colorMenuHint(message, mappedRoles = []) {
@@ -124,8 +134,74 @@ function menuTitle(message, fallback) {
   return String(title || fallback || 'Choose Your Roles').trim().slice(0, 256);
 }
 
+function uniqueMenuId(message, title, prefix) {
+  const suffix = String(message?.id || '').slice(-8) || 'legacy';
+  const base = normalizedName(title).slice(0, 26) || prefix;
+  return `${base}-${suffix}`.slice(0, 40);
+}
+
+function parseLegacyButtonRoleMenu(message, roles = []) {
+  if (!legacyButtonMenuLooksRelevant(message)) return { menu: null, candidate: false, mapped: 0, unmatched: [], source: 'button' };
+
+  const buttons = messageButtons(message);
+  const mapped = [];
+  const unmatched = [];
+  const seenRoles = new Set();
+
+  for (const button of buttons) {
+    const label = String(button?.label || '').trim();
+    const role = exactRoleForLabel(valuesOf(roles), label);
+    if (!label || !role?.id || seenRoles.has(String(role.id))) {
+      unmatched.push(label || String(button?.custom_id || 'unlabeled-button'));
+      continue;
+    }
+    seenRoles.add(String(role.id));
+    mapped.push({ button, role, label });
+  }
+
+  if (!mapped.length) return { menu: null, candidate: true, mapped: 0, unmatched, source: 'button' };
+  if (mapped.length !== buttons.length) return { menu: null, candidate: true, mapped: mapped.length, unmatched, source: 'button' };
+
+  const kind = colorMenuHint(message, mapped.map((item) => item.role)) ? 'colors' : 'roles';
+  const title = menuTitle(message, kind === 'colors' ? 'Choose Your Name Color' : 'Choose Your Roles');
+  const description = String(message?.embeds?.[0]?.description || message?.content || 'Use the buttons below to update your roles.').slice(0, 4000);
+
+  const menu = normalizeSelfRoleMenu({
+    id: uniqueMenuId(message, title, 'button-role'),
+    name: title,
+    title,
+    description,
+    kind,
+    mode: kind === 'colors' ? 'exclusive' : 'toggle',
+    channelId: String(message?.channelId || message?.channel?.id || ''),
+    messageId: String(message?.id || ''),
+    options: mapped.map(({ button, role, label }) => ({
+      id: normalizedName(role.name).slice(0, 32) || String(role.id),
+      label: label.slice(0, 80),
+      roleId: String(role.id),
+      emoji: buttonEmoji(button),
+      ...(kind === 'colors' ? { color: role.hexColor || '#808080' } : {})
+    }))
+  });
+
+  return { menu, candidate: true, mapped: mapped.length, unmatched: [], source: 'button' };
+}
+
+function reactionMenuLooksRelevant(message) {
+  const reactions = messageReactions(message);
+  if (reactions.length < 1) return false;
+  const text = fullMessageText(message);
+  if (!text.trim()) return false;
+  const lower = text.toLowerCase();
+  const hasRoleMention = /<@&\d{5,25}>/.test(text);
+  const hasRoleLanguage = /\b(role|roles|reaction|react|self.?role|color|colour|platform|pronoun|game)\b/i.test(lower);
+  return Boolean(message?.author?.bot) && (hasRoleMention || hasRoleLanguage);
+}
+
 function parseReactionRoleMenu(message, roles = []) {
-  if (!reactionMenuLooksRelevant(message)) return { menu: null, candidate: false, mapped: 0, unmatched: [] };
+  const legacyButtons = parseLegacyButtonRoleMenu(message, roles);
+  if (legacyButtons.candidate) return legacyButtons;
+  if (!reactionMenuLooksRelevant(message)) return { menu: null, candidate: false, mapped: 0, unmatched: [], source: 'reaction' };
 
   const reactions = messageReactions(message);
   const lines = messageLines(message);
@@ -148,16 +224,15 @@ function parseReactionRoleMenu(message, roles = []) {
     mapped.push({ reaction, role });
   }
 
-  if (!mapped.length) return { menu: null, candidate: true, mapped: 0, unmatched };
-  if (mapped.length !== reactions.length) return { menu: null, candidate: true, mapped: mapped.length, unmatched };
+  if (!mapped.length) return { menu: null, candidate: true, mapped: 0, unmatched, source: 'reaction' };
+  if (mapped.length !== reactions.length) return { menu: null, candidate: true, mapped: mapped.length, unmatched, source: 'reaction' };
 
   const kind = colorMenuHint(message, mapped.map((item) => item.role)) ? 'colors' : 'roles';
   const title = menuTitle(message, kind === 'colors' ? 'Choose Your Name Color' : 'Choose Your Roles');
-  const idBase = normalizedName(title).slice(0, 30) || `reaction-${String(message?.id || '').slice(-10)}`;
   const description = String(message?.embeds?.[0]?.description || message?.content || 'Use the buttons below to update your roles.').slice(0, 4000);
 
   const menu = normalizeSelfRoleMenu({
-    id: idBase,
+    id: uniqueMenuId(message, title, 'reaction'),
     name: title,
     title,
     description,
@@ -174,7 +249,7 @@ function parseReactionRoleMenu(message, roles = []) {
     }))
   });
 
-  return { menu, candidate: true, mapped: mapped.length, unmatched: [] };
+  return { menu, candidate: true, mapped: mapped.length, unmatched: [], source: 'reaction' };
 }
 
 module.exports = {
@@ -189,7 +264,13 @@ module.exports = {
   cleanReactionLabel,
   roleForReactionLine,
   lineForReaction,
-  reactionMenuLooksRelevant,
+  nexusFooter,
+  legacyButtonMenuLooksRelevant,
+  buttonEmoji,
   colorMenuHint,
+  menuTitle,
+  uniqueMenuId,
+  parseLegacyButtonRoleMenu,
+  reactionMenuLooksRelevant,
   parseReactionRoleMenu
 };
