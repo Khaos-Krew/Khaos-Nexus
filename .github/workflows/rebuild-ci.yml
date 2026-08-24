@@ -7,6 +7,16 @@ on:
   pull_request:
     branches:
       - 'rebuild/**'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Windows artifact validation channel'
+        required: true
+        default: owner-test
+        type: choice
+        options:
+          - owner-test
+          - stable
 
 permissions:
   contents: read
@@ -27,6 +37,10 @@ jobs:
 
   windows-build:
     runs-on: windows-latest
+    env:
+      UPDATE_CHANNEL: ${{ github.event_name == 'workflow_dispatch' && inputs.channel || 'owner-test' }}
+      WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+      WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -47,7 +61,7 @@ jobs:
       - run: npm test
       - shell: pwsh
         run: |
-          foreach ($script in @('src/updater/apply-update.ps1', 'scripts/build-update-bundle.ps1', 'scripts/windows-install-upgrade-smoke.ps1')) {
+          foreach ($script in @('src/updater/apply-update.ps1', 'scripts/build-update-bundle.ps1', 'scripts/windows-install-upgrade-smoke.ps1', 'scripts/windows-signing-policy.ps1', 'scripts/augment-release-security-evidence.ps1')) {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $script), [ref]$tokens, [ref]$errors) | Out-Null
@@ -56,8 +70,18 @@ jobs:
               throw "PowerShell syntax validation failed for $script"
             }
           }
+      - name: Validate Windows signing policy
+        shell: pwsh
+        run: ./scripts/windows-signing-policy.ps1 -Phase validate -Channel $env:UPDATE_CHANNEL
       - run: npm run dist:win
-      - run: npm run dist:update
+      - name: Verify Windows signing state
+        shell: pwsh
+        run: ./scripts/windows-signing-policy.ps1 -Phase report -Channel $env:UPDATE_CHANNEL -DistDir dist
+      - name: Audit packaged Windows contents
+        run: node scripts/audit-windows-package.cjs dist
+      - name: Build staged update for validation channel
+        shell: pwsh
+        run: ./scripts/build-update-bundle.ps1 -DistDir dist -Channel $env:UPDATE_CHANNEL
       - name: Smoke-test clean install and staged upgrade
         shell: pwsh
         run: ./scripts/windows-install-upgrade-smoke.ps1 -DistDir dist
@@ -65,6 +89,7 @@ jobs:
         run: |
           $manifest = Get-Content -LiteralPath dist/nexus-update-manifest.json -Raw | ConvertFrom-Json
           if ($manifest.installerRequired -ne $false) { throw 'Staged update manifest unexpectedly requires an installer.' }
+          if ([string]$manifest.channel -ne [string]$env:UPDATE_CHANNEL) { throw 'Staged update manifest channel does not match the validation channel.' }
           $zip = Join-Path dist $manifest.package.name
           if (-not (Test-Path -LiteralPath $zip)) { throw "Update package missing: $zip" }
           $stream = [System.IO.File]::OpenRead((Resolve-Path -LiteralPath $zip))
@@ -80,10 +105,19 @@ jobs:
           Expand-Archive -LiteralPath $zip -DestinationPath $probe -Force
           if (-not (Test-Path -LiteralPath (Join-Path $probe 'Khaos Nexus.exe'))) { throw 'Update payload is missing Khaos Nexus.exe.' }
           if (-not (Test-Path -LiteralPath (Join-Path $probe 'resources/app.asar'))) { throw 'Update payload is missing resources/app.asar.' }
+
           $smoke = Get-Content -LiteralPath dist/nexus-windows-smoke-report.json -Raw | ConvertFrom-Json
           if ($smoke.product -ne 'khaos-nexus' -or $smoke.version -ne $manifest.version) { throw 'Windows smoke report identity does not match the update manifest.' }
           if ($smoke.cleanInstall.ok -ne $true -or $smoke.cleanInstall.packaged -ne $true -or $smoke.cleanInstall.backendHealthy -ne $true) { throw 'Windows clean-install smoke evidence is incomplete.' }
           if ($smoke.stagedUpgrade.ok -ne $true -or $smoke.stagedUpgrade.postUpdateConfirmed -ne $true -or $smoke.stagedUpgrade.resultStatus -ne 'success') { throw 'Windows staged-upgrade smoke evidence is incomplete.' }
+
+          $signing = Get-Content -LiteralPath dist/nexus-windows-signing.json -Raw | ConvertFrom-Json
+          if ($signing.product -ne 'khaos-nexus' -or $signing.version -ne $manifest.version -or $signing.channel -ne $manifest.channel) { throw 'Windows signing report identity does not match the update manifest.' }
+          if ($env:UPDATE_CHANNEL -eq 'stable' -and $signing.mode -ne 'signed') { throw 'Stable Windows artifact is not Authenticode signed.' }
+
+          $audit = Get-Content -LiteralPath dist/nexus-package-audit.json -Raw | ConvertFrom-Json
+          if ($audit.product -ne 'khaos-nexus' -or $audit.version -ne $manifest.version -or $audit.ok -ne $true) { throw 'Windows package audit evidence is invalid.' }
+          if ($audit.asar.missingRequired.Count -ne 0 -or $audit.asar.forbidden.Count -ne 0 -or $audit.asar.secretBearing.Count -ne 0) { throw 'Windows package audit contains unresolved findings.' }
       - uses: actions/upload-artifact@v4
         with:
           name: khaos-nexus-0.1-windows
@@ -92,4 +126,6 @@ jobs:
             dist/*-update.zip
             dist/nexus-update-manifest.json
             dist/nexus-windows-smoke-report.json
+            dist/nexus-windows-signing.json
+            dist/nexus-package-audit.json
           if-no-files-found: error
