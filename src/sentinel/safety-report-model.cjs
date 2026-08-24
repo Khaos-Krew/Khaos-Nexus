@@ -96,7 +96,7 @@ function rulesPanel() {
       type: 1,
       components: [{ type: 2, style: 4, label: 'Open Private Report', custom_id: REPORT_BUTTON_ID, emoji: { name: '🛡️' } }]
     }],
-    allowed_mentions: { parse: [] }
+    allowedMentions: { parse: [] }
   };
 }
 
@@ -159,7 +159,7 @@ function ticketPayload(caseId, reporterId, input = {}) {
     content: `<@${String(reporterId)}> your private report is open.`,
     embeds: [{ title: `PRIVATE REPORT • ${caseId}`, fields: embedFields, footer: { text: 'Need-to-know access • Report details are not posted to public logs' } }],
     components: ticketControls(caseId),
-    allowed_mentions: { users: [String(reporterId)], roles: [], parse: [] }
+    allowedMentions: { users: [String(reporterId)], roles: [], parse: [] }
   };
 }
 
