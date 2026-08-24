@@ -8,6 +8,27 @@ const LAYOUTS = {
     text: ['ark-console', 'ark-tame-info', 'ark-server-status', 'ark-schedules', 'ark-mods', 'ark-lfg'],
     lobbyBuilder: '➕ Join to Create ARK Lobby'
   },
+  callofduty: {
+    category: 'Call of Duty',
+    aliases: ['Call of Duty', 'COD', 'CoD', 'Warzone'],
+    consoleChannel: 'cod-hub',
+    text: ['cod-hub', 'cod-warzone', 'cod-multiplayer', 'cod-zombies', 'cod-loadouts', 'cod-lfg'],
+    lobbyBuilder: '➕ Join to Create Call of Duty Squad'
+  },
+  deadbydaylight: {
+    category: 'Dead by Daylight',
+    aliases: ['Dead by Daylight', 'DBD', 'DbD'],
+    consoleChannel: 'dbd-hub',
+    text: ['dbd-hub', 'dbd-killers', 'dbd-survivors', 'dbd-builds', 'dbd-stats', 'dbd-lfg'],
+    lobbyBuilder: '➕ Join to Create DBD Lobby'
+  },
+  diablo4: {
+    category: 'Diablo IV',
+    aliases: ['Diablo IV', 'Diablo 4', 'D4'],
+    consoleChannel: 'diablo-hub',
+    text: ['diablo-hub', 'diablo-builds', 'diablo-items', 'diablo-paragon', 'diablo-farming', 'diablo-lfg'],
+    lobbyBuilder: '➕ Join to Create Diablo IV Party'
+  },
   palworld: {
     category: 'Palworld',
     aliases: ['Palworld'],
