@@ -3,6 +3,7 @@
 const { ChannelType } = require('discord.js');
 const { getModule, MODULES } = require('../backend/modules/catalog.cjs');
 const { layoutFor } = require('./module-layouts.cjs');
+const { reconcileModuleAccessPolicy } = require('./module-access-policy.cjs');
 
 const CATEGORY_MATCH_THRESHOLD = 0.72;
 
@@ -57,8 +58,9 @@ function bestCategoryMatch(channels, moduleId) {
 }
 
 class ModuleProvisioner {
-  constructor({ state, maxLobbiesPerModule = 20 } = {}) {
+  constructor({ state, config = {}, maxLobbiesPerModule = 20 } = {}) {
     this.state = state;
+    this.config = config || {};
     this.maxLobbiesPerModule = Math.max(1, Number(maxLobbiesPerModule) || 20);
   }
 
@@ -115,6 +117,7 @@ class ModuleProvisioner {
     const builderResult = await this.lobbyBuilder(guild, category, layout.lobbyBuilder);
     const builder = builderResult.channel;
     if (builderResult.created) createdChannels.push(layout.lobbyBuilder);
+    const accessPolicy = await reconcileModuleAccessPolicy(guild, moduleId, category, { state: this.state, config: this.config });
     const consoleChannel = textChannels.find((channel) => channel.name === layout.consoleChannel) || textChannels[0] || null;
     const setup = {
       moduleId,
@@ -129,6 +132,14 @@ class ModuleProvisioner {
       lobbyBuilderChannelId: String(builder.id),
       lobbyBuilderName: String(builder.name),
       createdChannels,
+      accessPolicy: {
+        ok: Boolean(accessPolicy.ok),
+        skipped: Boolean(accessPolicy.skipped),
+        accessRoleId: String(accessPolicy.accessRoleId || ''),
+        accessRoleName: String(accessPolicy.accessRoleName || ''),
+        permissionChanges: Number(accessPolicy.changed || 0),
+        reason: String(accessPolicy.reason || '')
+      },
       updatedAt: new Date().toISOString()
     };
     this.state.setModuleSetup(moduleId, setup);
