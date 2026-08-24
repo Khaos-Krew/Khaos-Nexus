@@ -38,13 +38,24 @@ function categoryOrderPlan(channels, boundaryNames = DEFAULT_BOUNDARY_NAMES) {
   return { boundary: boundaries[0], modules: moduleCategoryEntries(channels), reason: '' };
 }
 
+function categoryOrderIsCorrect(plan) {
+  if (!plan?.boundary || !plan.modules?.length) return false;
+  const boundaryPosition = categoryPosition(plan.boundary);
+  if (!plan.modules.every((entry) => categoryPosition(entry.category) < boundaryPosition)) return false;
+  const actual = [...plan.modules].sort((left, right) => categoryPosition(left.category) - categoryPosition(right.category)).map((entry) => entry.moduleId);
+  const desired = plan.modules.map((entry) => entry.moduleId);
+  return actual.length === desired.length && actual.every((moduleId, index) => moduleId === desired[index]);
+}
+
 async function reconcileGameCategoryOrder(guild, options = {}) {
   const channels = await guild.channels.fetch();
   const plan = categoryOrderPlan(channels, options.boundaryNames || DEFAULT_BOUNDARY_NAMES);
   if (!plan.boundary || !plan.modules.length) return { ok: false, skipped: true, moved: 0, reason: plan.reason || 'No game module categories found.' };
 
+  const ordered = plan.modules.map((entry) => entry.label);
+  if (categoryOrderIsCorrect(plan)) return { ok: true, skipped: false, moved: 0, ordered, boundary: String(plan.boundary.name || '') };
+
   let moved = 0;
-  const ordered = [];
   for (const entry of plan.modules) {
     const boundary = await guild.channels.fetch(String(plan.boundary.id)).catch(() => plan.boundary);
     const category = await guild.channels.fetch(String(entry.category.id)).catch(() => entry.category);
@@ -52,7 +63,6 @@ async function reconcileGameCategoryOrder(guild, options = {}) {
     const targetPosition = Math.max(0, categoryPosition(boundary) - 1);
     await category.setPosition(targetPosition, { relative: false, reason: 'Nexus Sentinal: alphabetize game categories above Staff/Hidden Server' });
     moved += 1;
-    ordered.push(entry.label);
   }
 
   return { ok: true, skipped: false, moved, ordered, boundary: String(plan.boundary.name || '') };
@@ -64,5 +74,6 @@ module.exports = {
   categoryPosition,
   moduleCategoryEntries,
   categoryOrderPlan,
+  categoryOrderIsCorrect,
   reconcileGameCategoryOrder
 };
