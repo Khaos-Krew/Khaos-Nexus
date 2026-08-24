@@ -6,12 +6,14 @@ const { StateStore } = require('./state-store.cjs');
 const { RoleMenuManager, ACCESS_BUTTON_PREFIX } = require('./role-menu.cjs');
 const { SelfRoleManager } = require('./unified-self-role-manager.cjs');
 const { SELF_ROLE_BUTTON_PREFIX, LEGACY_SELF_ROLE_BUTTON_PREFIX } = require('./self-role-model.cjs');
+const { ModuleProvisioner } = require('./module-provisioner.cjs');
 const { reconcileExistingModuleAccessPolicies } = require('./module-access-policy.cjs');
 const { reconcileOwnerApprovedRoles } = require('./owner-role-decisions.cjs');
 const { reconcileGameCategoryOrder } = require('./category-order.cjs');
 const { createCoalescingRunner } = require('./coalescing-runner.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.moduleAccessRoles.extension');
+const AUTO_PROVISION_MODULES = Object.freeze(['callofduty', 'deadbydaylight', 'diablo4']);
 
 function installManageableRoleFallback(manager, state) {
   const original = manager.ensureAccessRole.bind(manager);
@@ -53,6 +55,7 @@ function installRoleMenuExtension() {
     const state = new StateStore();
     const accessManager = installManageableRoleFallback(new RoleMenuManager({ client: this, state, config }), state);
     const selfRoleManager = new SelfRoleManager({ client: this, state, config });
+    const moduleProvisioner = new ModuleProvisioner({ state, config, maxLobbiesPerModule: config.discord?.maxTemporaryLobbiesPerModule || 20 });
 
     const reconcileOnce = async (reason) => {
       if (!guildId) return;
@@ -71,6 +74,16 @@ function installRoleMenuExtension() {
         } else {
           console.log(`[Nexus Sentinal] module access menu reconciled (${reason}): roles=${access.roles} messages=${access.messages} warnings=${access.warnings.length}`);
           for (const warning of access.warnings || []) console.warn(`[Nexus Sentinal] module access warning (${reason}): ${warning}`);
+        }
+
+        for (const moduleId of AUTO_PROVISION_MODULES) {
+          if (config.modules?.[moduleId]?.enabled === false) continue;
+          try {
+            const setup = await moduleProvisioner.provision(guild, moduleId);
+            console.log(`[Nexus Sentinal] ${moduleId} hub reconciled (${reason}): category=${setup.categoryName} created=${setup.categoryCreated} channelsAdded=${setup.createdChannels.length}`);
+          } catch (error) {
+            console.warn(`[Nexus Sentinal] ${moduleId} hub reconcile warning (${reason}): ${String(error?.message || error)}`);
+          }
         }
 
         const channelAccess = await reconcileExistingModuleAccessPolicies(guild, {
@@ -144,4 +157,4 @@ function installRoleMenuExtension() {
   };
 }
 
-module.exports = { installManageableRoleFallback, installRoleMenuExtension };
+module.exports = { AUTO_PROVISION_MODULES, installManageableRoleFallback, installRoleMenuExtension };
