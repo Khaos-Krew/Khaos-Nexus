@@ -61,7 +61,7 @@ jobs:
       - run: npm test
       - shell: pwsh
         run: |
-          foreach ($script in @('src/updater/apply-update.ps1', 'scripts/build-update-bundle.ps1', 'scripts/windows-install-upgrade-smoke.ps1', 'scripts/windows-signing-policy.ps1')) {
+          foreach ($script in @('src/updater/apply-update.ps1', 'scripts/build-update-bundle.ps1', 'scripts/windows-install-upgrade-smoke.ps1', 'scripts/windows-signing-policy.ps1', 'scripts/augment-release-security-evidence.ps1')) {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $script), [ref]$tokens, [ref]$errors) | Out-Null
