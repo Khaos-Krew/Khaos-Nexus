@@ -17,6 +17,7 @@ function fakeInteraction(commandName, subcommand, group = null, values = {}) {
       getSubcommand: () => subcommand,
       getString: (name) => typeof values[name] === 'string' ? values[name] : null,
       getInteger: (name) => Number.isInteger(values[name]) ? values[name] : null,
+      getNumber: (name) => typeof values[name] === 'number' && Number.isFinite(values[name]) ? values[name] : null,
       getBoolean: (name) => typeof values[name] === 'boolean' ? values[name] : null
     }
   };
@@ -36,9 +37,15 @@ test('common commands are short and obvious', () => {
   const commands = Object.fromEntries(commandDefinitions().map((command) => [command.name, command.toJSON()]));
   assert.ok(optionNames(commands.ark).includes('status'));
   assert.ok(optionNames(commands.ark).includes('players'));
+  assert.ok(optionNames(commands.ark).includes('tame'));
   assert.ok(optionNames(commands.warframe).includes('market'));
   assert.ok(optionNames(commands.division2).includes('gear'));
   assert.ok(optionNames(commands.idleon).includes('build'));
+  const arkTame = commands.ark.options.find((item) => item.name === 'tame');
+  assert.deepEqual(optionNames(arkTame), ['creature', 'rate', 'base-minutes']);
+  const rate = arkTame.options.find((item) => item.name === 'rate');
+  assert.equal(rate.min_value, 0.1);
+  assert.equal(rate.max_value, 100);
   const pogoRaid = commands.pogo.options.find((item) => item.name === 'raid');
   assert.ok(pogoRaid);
   assert.ok(optionNames(pogoRaid).includes('create'));
@@ -52,6 +59,9 @@ test('friendly commands translate typed options to backend payloads', () => {
   assert.deepEqual(resolveFriendlyCommand(fakeInteraction('ark', 'broadcast', null, { message: 'Restart soon', server: 'Ragnarok' })).payload, {
     server: 'Ragnarok', message: 'Restart soon'
   });
+  assert.deepEqual(resolveFriendlyCommand(fakeInteraction('ark', 'tame', null, { creature: 'Rex', rate: 3.5, 'base-minutes': 98 })).payload, {
+    creature: 'Rex', tamingRate: 3.5, baseMinutes: 98
+  });
   assert.deepEqual(resolveFriendlyCommand(fakeInteraction('pogo', 'create', 'raid', { boss: 'Rayquaza', location: 'Park', remote: true })).payload, {
     boss: 'Rayquaza', location: 'Park', startsAt: undefined, endsAt: undefined, remoteAllowed: true
   });
@@ -60,6 +70,8 @@ test('friendly commands translate typed options to backend payloads', () => {
 test('module help teaches friendly commands instead of backend action syntax', () => {
   const arkHelp = JSON.stringify(renderHelp('ark'));
   assert.ok(arkHelp.includes('/ark status'));
+  assert.ok(arkHelp.includes('/ark tame'));
+  assert.ok(arkHelp.includes('Taming Helper'));
   assert.doesNotMatch(arkHelp, /module:ark action:/);
   const pogoHelp = JSON.stringify(renderHelp('pokemongo'));
   assert.ok(pogoHelp.includes('/pogo raid create'));
