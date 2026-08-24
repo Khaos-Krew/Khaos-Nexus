@@ -117,6 +117,65 @@ Goals:
 
 Exit condition: startup/loading and sidebar/navigation gates are proven by automated packaged-app checks and owner acceptance does not reveal a shell regression.
 
+### Phase S1A — Nexus Sentinel Staff/Admin Console & Staff Workspace Rebuild
+
+Status: **PLANNED — IMMEDIATELY AFTER CURRENT ACTIVE STABILIZATION WORK**
+
+Scheduling rule:
+
+- Do not interrupt the stabilization work already in progress.
+- Begin this phase immediately after the current active stabilization task reaches its acceptance point, before moving on to the remaining lower-priority planned Discord usability work.
+- Implement behind existing Sentinel/Discord boundaries so the feature does not destabilize the accepted desktop shell.
+
+Staff workspace goals:
+
+- Replace the crowded single STAFF category with a cleaner **Staff Hub**, **Staff Operations**, and private case/ticket structure.
+- Keep normal staff conversation separate from bot telemetry, moderation records, administrative audit data, and developer/build feeds.
+- Consolidate redundant operational channels where practical, including sync/module activity into a Sentinel operations feed.
+- Keep moderation logs, administrative audit logs, and error alerts separated by purpose and permissions.
+- Move GitHub/build/deployment activity into a dedicated development/operations feed rather than normal staff chat.
+- Support private report/case channels with reporter + authorized staff visibility only and restricted archival handling.
+
+Temporary staff office goals:
+
+- Replace permanent per-staff-member office voice channels with a single **Create Office** join-to-create voice channel.
+- Create `🔒 <Display Name>'s Office` automatically when an authorized staff member joins the creator channel and move them into the new room.
+- Allow the office owner to lock/unlock the room, invite/remove users, set a user limit, and optionally rename the temporary office within safe naming rules.
+- Limit each staff member to one temporary office at a time.
+- Automatically delete temporary offices after they remain empty for the configured cleanup period.
+- Preserve one permanent Staff Lounge and one permanent Staff Meeting room.
+
+Administrator console goals:
+
+- Publish one persistent **Nexus Sentinel — Administration Console** embed in the designated admin-console channel.
+- Keep the embed synchronized with the currently enabled administrator actions rather than relying on a manually maintained command list.
+- Attach user-friendly buttons for **Save World**, **Broadcast**, **Kick Player**, **Ban Player**, **Unban**, **Shutdown**, **Force Stop**, **RCON Console**, and **Restart Sentinel**.
+- Use select menus for configured server selection wherever Discord component limits allow, avoiding exact server-name typing.
+- Filter or disable actions according to the selected server adapter's supported capabilities.
+- Open ephemeral forms/modals for the parameters needed by the selected action, such as player/account ID, reason, broadcast text, shutdown delay/message, or console command.
+- Use explicit confirmation steps for destructive actions such as bans, shutdowns, force stops, and other actions where accidental execution could affect players or server availability.
+- Require stronger typed confirmation for emergency force-stop behavior.
+- Return private/ephemeral execution receipts containing the target server, action summary, actor, outcome, and audit/case identifier where applicable.
+- Write protected administrative actions to the Nexus audit pipeline without leaking passwords, tokens, raw secrets, or other protected connection data.
+- Keep existing slash commands as the advanced/fallback interface so button UI failure does not remove administrative authority.
+- Preserve the existing security rule that raw RCON execution is restricted to the configured **Khaos Nexus Owner**, even when other users have Discord Administrator permission.
+
+Privacy and edition boundary:
+
+- Public, community, staff, moderator, and administrator command/reference surfaces must **never mention, reference, hint at, enumerate, or expose Thora or private-edition-only functionality**.
+- Command/reference generation must filter private-edition actions at the data/model layer rather than relying only on manually removing text from an embed.
+- Audit output visible to normal staff must not leak private-edition command names, private configuration, secrets, or private account data.
+
+Validation requirements:
+
+- Automated tests for button routing, modal validation, select-menu server targeting, permission enforcement, capability filtering, destructive-action confirmations, ephemeral response behavior, and audit emission.
+- Regression tests proving slash-command fallback remains functional.
+- Regression tests proving non-owner administrators cannot execute raw RCON through either slash commands or buttons/modals.
+- Regression tests proving private-edition/Thora-related actions cannot appear in generated staff/admin command references or interaction components.
+- Owner acceptance of the final Discord layout and mobile usability before this phase is marked complete.
+
+Exit condition: staff/admin Discord organization is visibly cleaner, temporary offices work without orphan channels, the button-driven administration console can safely perform every currently supported admin action, slash commands remain a functioning fallback, security/audit behavior passes tests, and no private-edition functionality is exposed.
+
 ### Phase S2 — Core persistence and module stability
 
 Status: **PLANNED / NEXT**
@@ -298,6 +357,7 @@ When updating the README:
 The README should keep the roadmap compact:
 
 - **Now — Stabilization Reset / Owner Test:** golden shell + active 0.41.2.1 owner-test baseline.
+- **Immediate next — Sentinel Staff/Admin Console:** clean staff workspace, temporary staff offices, button/modal-driven admin controls, protected audit flow, and slash-command fallback.
 - **Next — Core reliability:** persistence, modules, scheduler, backup/recovery.
 - **Then — Discord + Palworld acceptance:** real operational flows.
 - **Release hardening:** immutable tested artifact, version/updater consistency, owner-test/public-release separation.
