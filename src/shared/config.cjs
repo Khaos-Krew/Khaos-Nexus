@@ -24,6 +24,7 @@ function loadConfig(options = {}) {
 
   config.backend ||= {};
   config.discord ||= {};
+  config.discord.nexusStatus ||= {};
 
   if (process.env.NEXUS_BACKEND_HOST) config.backend.host = process.env.NEXUS_BACKEND_HOST;
   if (process.env.NEXUS_BACKEND_PORT) config.backend.port = Number(process.env.NEXUS_BACKEND_PORT);
@@ -34,6 +35,10 @@ function loadConfig(options = {}) {
   if (process.env.NEXUS_MAX_TEMP_LOBBIES) config.discord.maxTemporaryLobbiesPerModule = Number(process.env.NEXUS_MAX_TEMP_LOBBIES);
   if (process.env.NEXUS_SENTINAL_ADMIN_URL) config.discord.sentinalAdminUrl = process.env.NEXUS_SENTINAL_ADMIN_URL;
   if (process.env.NEXUS_SENTINAL_ADMIN_TOKEN_ENV) config.discord.sentinalAdminTokenEnv = process.env.NEXUS_SENTINAL_ADMIN_TOKEN_ENV;
+  if (process.env.NEXUS_STATUS_CHANNEL_ID) config.discord.nexusStatus.channelId = process.env.NEXUS_STATUS_CHANNEL_ID;
+  if (process.env.NEXUS_STATUS_REFRESH_SECONDS) config.discord.nexusStatus.refreshSeconds = Number(process.env.NEXUS_STATUS_REFRESH_SECONDS);
+  if (process.env.NEXUS_VEYRA_HEALTH_URL) config.discord.nexusStatus.veyraHealthUrl = process.env.NEXUS_VEYRA_HEALTH_URL;
+  if (process.env.NEXUS_VEYRA_GATEWAY_HEALTH_URL) config.discord.nexusStatus.veyraGatewayHealthUrl = process.env.NEXUS_VEYRA_GATEWAY_HEALTH_URL;
 
   config.__source = source;
   return config;
