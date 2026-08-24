@@ -5,7 +5,7 @@ const LAYOUTS = {
     category: 'ARK Survival Ascended',
     aliases: ['ARK', 'ARK ASA', 'ASA', 'ARK Ascended', 'ARK Survival Ascended'],
     consoleChannel: 'ark-console',
-    text: ['ark-console', 'ark-server-status', 'ark-schedules', 'ark-mods', 'ark-lfg'],
+    text: ['ark-console', 'ark-tame-info', 'ark-server-status', 'ark-schedules', 'ark-mods', 'ark-lfg'],
     lobbyBuilder: '➕ Join to Create ARK Lobby'
   },
   palworld: {
