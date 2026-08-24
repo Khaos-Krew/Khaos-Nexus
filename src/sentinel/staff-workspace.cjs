@@ -15,10 +15,6 @@ const MANAGED_TEXT_CHANNELS = Object.freeze([
 ]);
 const MANAGED_VOICE_CHANNEL = Object.freeze({ name: 'Staff Meeting Room' });
 
-const FRIENDLY_COMMANDS = Object.freeze({
-  ark: '/ark', palworld: '/palworld', minecraft: '/minecraft', rust: '/rust', satisfactory: '/satisfactory', pokemongo: '/pogo'
-});
-
 function normalizeName(value) {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -85,25 +81,18 @@ function adminCommandInventory() {
     { scope: 'Server', command: '/clear amount:<1-100>', access: 'Administrator', description: 'Bulk-delete recent messages in the current channel.' },
     { scope: 'Nexus', command: '/nexus-pair', access: 'Owner / Co-Owner / Manage Server', description: 'Create a one-time pairing code for the hosted Admin Control Center.' },
     { scope: 'Nexus', command: '/nexus setup', access: 'Owner / Manage Server', description: 'Open guided module setup.' },
-    { scope: 'Nexus', command: '/nexus repair', access: 'Owner / Manage Server', description: 'Repair one module Discord layout.' },
+    { scope: 'Nexus', command: '/nexus repair module:<game>', access: 'Owner / Manage Server', description: 'Repair one module Discord layout.' },
     { scope: 'Nexus', command: '/nexus repair-all', access: 'Owner / Manage Server', description: 'Repair all registered module layouts.' },
-    { scope: 'Nexus', command: '/nexus refresh', access: 'Owner / capability policy', description: 'Refresh a module console.' },
-    { scope: 'Nexus', command: '/nexus run', access: 'Capability policy', description: 'Advanced backend action runner; destructive actions still require role checks and confirmation.' },
     { scope: 'Community XP', command: '/xp', access: 'Owner / Manage Server', description: 'Add/remove/set/reset XP, change multiplier/source state, exclusions, or inspect leveling status.' }
   ];
 
   const moduleActions = [];
   for (const module of MODULES) {
-    const command = FRIENDLY_COMMANDS[module.id];
-    if (!command) continue;
     for (const capability of module.capabilities || []) {
       if (!['operator', 'owner'].includes(String(capability.requiredRole || 'viewer'))) continue;
-      const suffix = capability.id === 'schedule-add' ? ' schedule add'
-        : capability.id === 'schedule-remove' ? ' schedule remove'
-          : ` ${capability.id}`;
       moduleActions.push({
         scope: module.name,
-        command: `${command}${suffix}`,
+        command: `/nexus run module:${module.id} action:${capability.id}`,
         access: capability.requiredRole === 'owner' ? 'Nexus Owner' : 'Nexus Operator+',
         description: `${capability.label}${capability.destructive ? ' • destructive/guarded' : ''}`
       });
@@ -131,13 +120,13 @@ function adminCommandsPayload(items = adminCommandInventory()) {
   const payload = {
     embeds: [{
       title: 'KHAOS NEXUS • STAFF ADMIN COMMANDS',
-      description: 'Managed staff reference for privileged Nexus/Discord actions. The backend remains authoritative for access checks, confirmations, and audit boundaries. Private-only assistant functions are intentionally excluded.',
+      description: 'Managed staff reference for privileged Nexus/Discord actions. Access checks, confirmations, and audit boundaries are still enforced by Nexus at execution time.',
       fields: fields.slice(0, 25),
       footer: { text: ADMIN_PANEL_MARKER }
     }],
     allowedMentions: { parse: [] }
   };
-  if (!isPrivateSafeText(JSON.stringify(payload))) throw new Error('Staff command panel contains restricted private-only content.');
+  if (!isPrivateSafeText(JSON.stringify(payload))) throw new Error('Staff command panel contains restricted content.');
   return payload;
 }
 
@@ -212,7 +201,6 @@ module.exports = {
   PRIVATE_DENYLIST,
   MANAGED_TEXT_CHANNELS,
   MANAGED_VOICE_CHANNEL,
-  FRIENDLY_COMMANDS,
   normalizeName,
   normalizeIds,
   isPrivateSafeText,
