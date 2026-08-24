@@ -20,18 +20,19 @@ test('constructor options preserve existing intents and add GuildMembers', () =>
   assert.equal(options.intents.has(GatewayIntentBits.GuildMembers), true);
 });
 
-test('a real discord.js Client constructed with Nexus options sends GuildMembers to websocket identify', () => {
+test('a real discord.js 14 Client keeps GuildMembers in the authoritative pre-login intent bitfield', () => {
   const client = new ORIGINAL_CLIENT(withGuildMembersIntent({
     intents:[GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates]
   }));
+  assert.equal(client.ws._ws, null);
   assert.equal(clientHasGuildMembersIntent(client), true);
   assert.equal(client.options.intents.has(GatewayIntentBits.GuildMembers), true);
-  assert.equal(Boolean(Number(client.ws.options.intents) & GatewayIntentBits.GuildMembers), true);
 });
 
-test('installed Nexus Client subclass injects GuildMembers before the discord.js constructor freezes intents', () => {
+test('installed Nexus Client subclass injects GuildMembers before discord.js validates and freezes intents', () => {
   const NexusClient = installGuildMembersIntentExtension({ logger:{ log(){} } });
   const client = new NexusClient({ intents:[GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
   assert.equal(clientHasGuildMembersIntent(client), true);
+  assert.equal(client.options.intents.has(GatewayIntentBits.GuildMembers), true);
   assert.equal(discord.Client, NexusClient);
 });
