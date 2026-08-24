@@ -112,7 +112,9 @@ function nexusFooter(message) {
 }
 
 function legacyButtonMenuLooksRelevant(message) {
-  return Boolean(message?.author?.bot) && Boolean(nexusFooter(message)) && messageButtons(message).length > 0;
+  if (!message?.author?.bot || !nexusFooter(message) || messageButtons(message).length < 1) return false;
+  const text = fullMessageText(message);
+  return /\b(game\s*types?|playstyle|games?|notification\s*pings?|name\s*(?:color|colour)|pronouns?|region|timezone|looking\s+for\s+group|content\s+preferences?|platforms?|self[\s-]?roles?|role\s*selection)\b/i.test(text);
 }
 
 function buttonEmoji(button) {
@@ -140,6 +142,28 @@ function uniqueMenuId(message, title, prefix) {
   return `${base}-${suffix}`.slice(0, 40);
 }
 
+function exactRoleCandidates(roles, label) {
+  const target = normalizedName(label);
+  if (!target) return [];
+  return valuesOf(roles).filter((role) => normalizedName(role?.name) === target);
+}
+
+function logLegacyButtonAmbiguity(message, buttons, roles, unmatched) {
+  const unmatchedSet = new Set((unmatched || []).map(String));
+  for (const button of buttons) {
+    const label = String(button?.label || '').trim();
+    if (!unmatchedSet.has(label)) continue;
+    const exact = exactRoleCandidates(roles, label).map((role) => ({
+      id: String(role.id),
+      name: String(role.name),
+      position: Number(role.position || 0),
+      editable: role.editable !== false,
+      managed: Boolean(role.managed)
+    }));
+    console.warn(`[Nexus Sentinal] legacy-button detail: message=${String(message?.id || '')} label=${JSON.stringify(label)} customId=${JSON.stringify(String(button?.custom_id || ''))} exact=${JSON.stringify(exact)}`);
+  }
+}
+
 function parseLegacyButtonRoleMenu(message, roles = []) {
   if (!legacyButtonMenuLooksRelevant(message)) return { menu: null, candidate: false, mapped: 0, unmatched: [], source: 'button' };
 
@@ -159,8 +183,14 @@ function parseLegacyButtonRoleMenu(message, roles = []) {
     mapped.push({ button, role, label });
   }
 
-  if (!mapped.length) return { menu: null, candidate: true, mapped: 0, unmatched, source: 'button' };
-  if (mapped.length !== buttons.length) return { menu: null, candidate: true, mapped: mapped.length, unmatched, source: 'button' };
+  if (!mapped.length) {
+    logLegacyButtonAmbiguity(message, buttons, roles, unmatched);
+    return { menu: null, candidate: true, mapped: 0, unmatched, source: 'button' };
+  }
+  if (mapped.length !== buttons.length) {
+    logLegacyButtonAmbiguity(message, buttons, roles, unmatched);
+    return { menu: null, candidate: true, mapped: mapped.length, unmatched, source: 'button' };
+  }
 
   const kind = colorMenuHint(message, mapped.map((item) => item.role)) ? 'colors' : 'roles';
   const title = menuTitle(message, kind === 'colors' ? 'Choose Your Name Color' : 'Choose Your Roles');
@@ -192,10 +222,11 @@ function reactionMenuLooksRelevant(message) {
   if (reactions.length < 1) return false;
   const text = fullMessageText(message);
   if (!text.trim()) return false;
-  const lower = text.toLowerCase();
+
   const hasRoleMention = /<@&\d{5,25}>/.test(text);
-  const hasRoleLanguage = /\b(role|roles|reaction|react|self.?role|color|colour|platform|pronoun|game)\b/i.test(lower);
-  return Boolean(message?.author?.bot) && (hasRoleMention || hasRoleLanguage);
+  const hasRoleLanguage = /\b(role|roles|self[\s-]?roles?|name\s*(?:color|colour)|colors?|colours?|platforms?|pronouns?|notifications?|game\s*(?:role|roles|access))\b/i.test(text);
+  const likelyRoleAuthor = Boolean(message?.author?.bot) || hasRoleMention;
+  return likelyRoleAuthor && (hasRoleMention || hasRoleLanguage);
 }
 
 function parseReactionRoleMenu(message, roles = []) {
@@ -270,6 +301,7 @@ module.exports = {
   colorMenuHint,
   menuTitle,
   uniqueMenuId,
+  exactRoleCandidates,
   parseLegacyButtonRoleMenu,
   reactionMenuLooksRelevant,
   parseReactionRoleMenu
