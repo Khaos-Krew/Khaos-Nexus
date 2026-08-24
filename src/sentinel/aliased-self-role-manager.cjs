@@ -6,6 +6,7 @@ const {
   LEGACY_SELF_ROLE_BUTTON_PREFIX,
   messageButtons,
   isCurrentSelfRoleMessage,
+  isLegacySelfRoleMessage,
   discoverLegacySelfRoleMenu,
   normalizedName
 } = require('./self-role-model.cjs');
@@ -49,6 +50,23 @@ function blockedButtonSummary(message, unmatched = [], roles = [], maxLabels = 2
 }
 
 class SelfRoleManager extends DeepSelfRoleManager {
+  async retireOneLegacyMessage(message, activeMessageIds, legacyMessageIds, warnings) {
+    if (!message || activeMessageIds.has(String(message.id))) return { reactionsCleared: 0, buttonsRetired: 0 };
+    if (!isLegacySelfRoleMessage(message, legacyMessageIds)) return { reactionsCleared: 0, buttonsRetired: 0 };
+
+    const knownMigrated = new Set((legacyMessageIds || []).map(String)).has(String(message.id));
+    const ownedBySentinal = String(message?.author?.id || '') === String(this.client?.user?.id || '');
+    if (!knownMigrated && !ownedBySentinal) return super.retireOneLegacyMessage(message, activeMessageIds, legacyMessageIds, warnings);
+
+    try {
+      await message.delete('Nexus Sentinal owner-approved legacy self-role panel cleanup');
+      return { reactionsCleared: 0, buttonsRetired: 1 };
+    } catch (error) {
+      warnings.push(`Legacy role menu ${message.id} could not be deleted; Sentinal will fall back to retiring its controls: ${String(error?.message || error)}`);
+      return super.retireOneLegacyMessage(message, activeMessageIds, legacyMessageIds, warnings);
+    }
+  }
+
   async scanChannels(channels, roles, limit, seenMessages, menusById, warnings) {
     let scannedMessages = 0;
     let legacyCandidates = 0;

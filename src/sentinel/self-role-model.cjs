@@ -5,6 +5,7 @@ const MAX_SELF_ROLE_OPTIONS = 25;
 const SELF_ROLE_BUTTON_PREFIX = 'nexus:self-role:';
 const LEGACY_SELF_ROLE_BUTTON_PREFIX = 'kn-role:';
 const SELF_ROLE_MARKER_PREFIX = 'nexus-sentinal:self-role:';
+const OWNER_RETIRED_LEGACY_BUTTON_IDS = new Set(['rmb:game_type:lfg']);
 const LEGACY_ROLE_FOOTERS = new Set([
   'Khaos Nexus • One color at a time',
   'Khaos Nexus • Click again to remove a role'
@@ -202,7 +203,9 @@ function messageButtons(message) {
     const row = rawComponent(rowSource);
     for (const itemSource of row?.components || []) {
       const item = rawComponent(itemSource);
-      if (Number(item?.type) === 2) buttons.push(item);
+      if (Number(item?.type) !== 2) continue;
+      if (OWNER_RETIRED_LEGACY_BUTTON_IDS.has(String(item?.custom_id || ''))) continue;
+      buttons.push(item);
     }
   }
   return buttons;
@@ -312,6 +315,7 @@ module.exports = {
   SELF_ROLE_BUTTON_PREFIX,
   LEGACY_SELF_ROLE_BUTTON_PREFIX,
   SELF_ROLE_MARKER_PREFIX,
+  OWNER_RETIRED_LEGACY_BUTTON_IDS,
   LEGACY_ROLE_FOOTERS,
   BUTTON_STYLES,
   cleanText,

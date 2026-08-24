@@ -7,6 +7,7 @@ const { RoleMenuManager, ACCESS_BUTTON_PREFIX } = require('./role-menu.cjs');
 const { SelfRoleManager } = require('./unified-self-role-manager.cjs');
 const { SELF_ROLE_BUTTON_PREFIX, LEGACY_SELF_ROLE_BUTTON_PREFIX } = require('./self-role-model.cjs');
 const { reconcileExistingModuleAccessPolicies } = require('./module-access-policy.cjs');
+const { reconcileOwnerApprovedRoles } = require('./owner-role-decisions.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.moduleAccessRoles.extension');
 
@@ -55,6 +56,12 @@ function installRoleMenuExtension() {
       if (!guildId) return;
       try {
         const guild = await this.guilds.fetch(guildId);
+
+        const approved = await reconcileOwnerApprovedRoles(guild);
+        if (approved.membersMigrated || approved.duplicatesDeleted) {
+          console.log(`[Nexus Sentinal] owner-approved platform roles reconciled (${reason}): membersMigrated=${approved.membersMigrated} duplicatesDeleted=${approved.duplicatesDeleted}`);
+        }
+        for (const warning of approved.warnings) console.warn(`[Nexus Sentinal] owner-approved platform role warning (${reason}): ${warning}`);
 
         const access = await accessManager.reconcile(guild);
         if (access.skipped) {

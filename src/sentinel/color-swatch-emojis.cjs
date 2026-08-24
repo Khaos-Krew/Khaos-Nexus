@@ -128,6 +128,26 @@ function isGeneratedApplicationSwatch(option = {}) {
   return Boolean(option.emojiId) && /^nexus[_-]swatch[_-]/i.test(String(option.emoji || ''));
 }
 
+function isObsoleteGrayApplicationSwatch(emoji = {}) {
+  return Boolean(emoji?.id) && /^nexus[_-]color[_-]/i.test(String(emoji?.name || ''));
+}
+
+async function cleanupObsoleteApplicationSwatches(manager, emojis = [], logger = console) {
+  if (!manager) return 0;
+  let cleaned = 0;
+  for (const emoji of valuesOf(emojis).filter(isObsoleteGrayApplicationSwatch)) {
+    try {
+      if (typeof emoji?.delete === 'function') await emoji.delete('Nexus Sentinal owner-approved obsolete gray swatch cleanup');
+      else if (typeof manager.delete === 'function') await manager.delete(String(emoji.id));
+      else continue;
+      cleaned += 1;
+    } catch (error) {
+      logger.warn?.(`[Nexus Sentinal] obsolete application swatch ${emoji?.name || emoji?.id} could not be removed: ${String(error?.message || error)}`);
+    }
+  }
+  return cleaned;
+}
+
 async function removeGeneratedGuildSwatch(option, guild, logger = console) {
   if (!isGeneratedGuildSwatch(option) || !guild?.emojis) return false;
   const id = String(option.emojiId || '');
@@ -164,7 +184,7 @@ async function ensureColorSwatches(menuInput, guild, options = {}) {
   const known = valuesOf(applicationCollection || manager.cache || []);
   let matched = 0;
   let created = 0;
-  let cleaned = 0;
+  let cleaned = await cleanupObsoleteApplicationSwatches(manager, known, logger);
   const missing = [];
   const enriched = [];
 
@@ -232,6 +252,8 @@ module.exports = {
   applicationEmojiManager,
   isGeneratedGuildSwatch,
   isGeneratedApplicationSwatch,
+  isObsoleteGrayApplicationSwatch,
+  cleanupObsoleteApplicationSwatches,
   removeGeneratedGuildSwatch,
   ensureColorSwatches
 };

@@ -86,15 +86,27 @@ function newestMessage(messages = []) {
   })[0] || null;
 }
 
+async function ensurePinnedPanel(message, moduleId, logger = console) {
+  if (!message || message.pinned === true || typeof message.pin !== 'function') return false;
+  try {
+    await message.pin(`Nexus Sentinal canonical ${moduleId} module hub`);
+    return true;
+  } catch (error) {
+    logger.warn?.(`[Nexus Sentinal] ${moduleId} hub panel ${message?.id || 'unknown'} could not be pinned: ${String(error?.message || error)}`);
+    return false;
+  }
+}
+
 async function reconcilePanelMessages(channel, moduleId, payload, options = {}) {
   const botId = String(options.botId || channel?.client?.user?.id || '');
   const logger = options.logger || console;
   const candidates = (await recentMessages(channel, options.limit)).filter((message) => messageMatchesPanel(message, moduleId, botId));
   const canonical = newestMessage(candidates);
-  if (!canonical) return { message: null, candidates: 0, duplicatesRemoved: 0 };
+  if (!canonical) return { message: null, candidates: 0, duplicatesRemoved: 0, pinned: false };
 
   const marked = markedPanelPayload(payload, moduleId);
   await canonical.edit(marked);
+  const pinned = await ensurePinnedPanel(canonical, moduleId, logger);
   let duplicatesRemoved = 0;
   for (const duplicate of candidates) {
     if (String(duplicate.id) === String(canonical.id)) continue;
@@ -105,7 +117,7 @@ async function reconcilePanelMessages(channel, moduleId, payload, options = {}) 
       logger.warn?.(`[Nexus Sentinal] duplicate ${moduleId} hub panel ${duplicate.id} could not be removed: ${String(error?.message || error)}`);
     }
   }
-  return { message: canonical, candidates: candidates.length, duplicatesRemoved };
+  return { message: canonical, candidates: candidates.length, duplicatesRemoved, pinned };
 }
 
 async function backendStates(backend) {
@@ -119,12 +131,13 @@ async function backendStates(backend) {
 
 async function sweepManagedPanels(client, { config, state, backend, logger = console } = {}) {
   const guildId = String(config?.discord?.guildId || '');
-  if (!guildId) return { panels: 0, duplicatesRemoved: 0 };
+  if (!guildId) return { panels: 0, duplicatesRemoved: 0, pinsAdded: 0 };
   const guild = await client.guilds.fetch(guildId);
   const states = await backendStates(backend);
   const moduleIds = new Set([...Object.keys(config?.modules || {}), ...Object.keys(state.listModuleSetups())]);
   let panels = 0;
   let duplicatesRemoved = 0;
+  let pinsAdded = 0;
 
   for (const moduleId of moduleIds) {
     const module = getModule(moduleId);
@@ -145,6 +158,7 @@ async function sweepManagedPanels(client, { config, state, backend, logger = con
     if (!result.message) continue;
     panels += 1;
     duplicatesRemoved += result.duplicatesRemoved;
+    if (result.pinned) pinsAdded += 1;
     state.setConsole(moduleId, {
       guildId,
       channelId: String(channel.id),
@@ -153,7 +167,7 @@ async function sweepManagedPanels(client, { config, state, backend, logger = con
     });
   }
 
-  return { panels, duplicatesRemoved };
+  return { panels, duplicatesRemoved, pinsAdded };
 }
 
 function installPersistentPanelExtension() {
@@ -179,7 +193,9 @@ function installPersistentPanelExtension() {
       } catch (error) {
         console.warn(`[Nexus Sentinal] ${moduleId} hub recovery failed before send: ${String(error?.message || error)}`);
       }
-      return originalSend.call(this, marked, ...rest);
+      const created = await originalSend.call(this, marked, ...rest);
+      await ensurePinnedPanel(created, moduleId, console);
+      return created;
     };
     TextChannel.prototype[SEND_PATCHED] = true;
   }
@@ -190,7 +206,7 @@ function installPersistentPanelExtension() {
       const timer = setTimeout(async () => {
         try {
           const result = await sweepManagedPanels(this, { config, state, backend });
-          console.log(`[Nexus Sentinal] managed hub sweep: panels=${result.panels} duplicatesRemoved=${result.duplicatesRemoved}`);
+          console.log(`[Nexus Sentinal] managed hub sweep: panels=${result.panels} duplicatesRemoved=${result.duplicatesRemoved} pinsAdded=${result.pinsAdded}`);
         } catch (error) {
           console.error('[Nexus Sentinal] managed hub sweep:', error);
         }
@@ -209,6 +225,7 @@ module.exports = {
   markedPanelPayload,
   messageMatchesPanel,
   newestMessage,
+  ensurePinnedPanel,
   reconcilePanelMessages,
   sweepManagedPanels,
   installPersistentPanelExtension
