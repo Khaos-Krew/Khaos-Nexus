@@ -12,12 +12,18 @@ function messageContentRequested(env = process.env) {
 function withCommunityIntents(options = {}, env = process.env) {
   const intents = new IntentsBitField(options.intents || []);
   intents.add(GatewayIntentBits.GuildMessages);
+  if (GatewayIntentBits.AutoModerationExecution !== undefined) intents.add(GatewayIntentBits.AutoModerationExecution);
   if (messageContentRequested(env)) intents.add(GatewayIntentBits.MessageContent);
   return { ...options, intents };
 }
 
 function clientHasGuildMessagesIntent(client) {
   return Boolean(client?.options?.intents?.has?.(GatewayIntentBits.GuildMessages));
+}
+
+function clientHasAutoModerationExecutionIntent(client) {
+  if (GatewayIntentBits.AutoModerationExecution === undefined) return false;
+  return Boolean(client?.options?.intents?.has?.(GatewayIntentBits.AutoModerationExecution));
 }
 
 function clientHasMessageContentIntent(client) {
@@ -40,7 +46,7 @@ function installCommunityIntentsExtension(options = {}) {
   }
 
   discord.Client = NexusSentinalCommunityClient;
-  logger.log?.(`[Nexus Sentinal] Guild Messages intent is declared for community leveling${messageContentRequested() ? '; Message Content requested for enhanced anti-spam checks' : '; privacy-safe metadata mode active'}.`);
+  logger.log?.(`[Nexus Sentinal] Guild Messages intent is declared for community leveling; native AutoMod execution telemetry ${GatewayIntentBits.AutoModerationExecution === undefined ? 'unavailable in this discord.js build' : 'enabled'}${messageContentRequested() ? '; Message Content requested for enhanced anti-spam checks' : '; privacy-safe metadata mode active'}.`);
   return NexusSentinalCommunityClient;
 }
 
@@ -48,6 +54,7 @@ module.exports = {
   messageContentRequested,
   withCommunityIntents,
   clientHasGuildMessagesIntent,
+  clientHasAutoModerationExecutionIntent,
   clientHasMessageContentIntent,
   installCommunityIntentsExtension
 };
