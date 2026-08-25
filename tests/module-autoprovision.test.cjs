@@ -2,11 +2,12 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { ChannelType } = require('discord.js');
+const { ChannelType, PermissionFlagsBits } = require('discord.js');
 const {
   enabledSentinelModules,
   setupHealthy,
-  modulesNeedingProvision
+  modulesNeedingProvision,
+  bootstrapCategoryAccess
 } = require('../src/sentinel/module-autoprovision-extension.cjs');
 
 function stateFor({ setups = {}, roles = {} } = {}) {
@@ -87,4 +88,23 @@ test('Once Human becomes provisionable as soon as its access role exists', () =>
   const result = modulesNeedingProvision(config, state, new Map(), new Map([['role-oncehuman', { id: 'role-oncehuman' }]]));
   assert.deepEqual(result.pending, ['oncehuman']);
   assert.deepEqual(result.blocked, []);
+});
+
+test('category bootstrap denies everyone before granting the module access role', async () => {
+  const edits = [];
+  const category = {
+    id: 'category-oncehuman',
+    permissionOverwrites: {
+      edit: async (targetId, permissions) => edits.push({ targetId, permissions })
+    }
+  };
+  const provisioner = { category: async () => ({ category, created: true, source: 'created', matchScore: 0 }) };
+  const guild = { id: 'guild-1' };
+  const result = await bootstrapCategoryAccess(guild, provisioner, 'oncehuman', 'role-oncehuman');
+  assert.equal(result.category, category);
+  assert.deepEqual(edits, [
+    { targetId: 'guild-1', permissions: { ViewChannel: false } },
+    { targetId: 'role-oncehuman', permissions: { ViewChannel: true } }
+  ]);
+  assert.equal(PermissionFlagsBits.ViewChannel > 0n, true);
 });
