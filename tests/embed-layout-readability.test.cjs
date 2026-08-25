@@ -7,11 +7,13 @@ const { progressCardPayload, achievementCollectionPayload } = require('../src/se
 const { overviewPayload, leaderboardPayload, levelUpPayload } = require('../src/sentinel/community-leveling.cjs');
 const { commandPanelPayload, publicHelpPayload } = require('../src/sentinel/nexus-command-center.cjs');
 const { targetedPayload, setBonusesPayload, timerPayload } = require('../src/sentinel/division2-targeted-loot.cjs');
+const { cleanBlock, genericEmbed, warframeEmbed } = require('../src/sentinel/action-formatters.cjs');
 
 test('shared embed layout helpers create deliberate paragraph spacing', () => {
   assert.equal(paragraphs('one', 'two', '', null), 'one\n\ntwo');
   assert.equal(spacedItems(['a', 'b', 'c']), 'a\n\nb\n\nc');
   assert.equal(statRows([['Label', 'Value'], ['Second', 'Other']]), '**Label**\nValue\n\n**Second**\nOther');
+  assert.equal(cleanBlock('one\n\ntwo\nthree'), 'one\n\ntwo\nthree');
 });
 
 test('progress and achievement cards use readable multi-line sections', () => {
@@ -80,6 +82,25 @@ test('command center and public help use spaced blocks instead of compressed com
   const help = publicHelpPayload({ channels: { cache: new Map() } }, '');
   assert.match(help.embeds[0].description, /\n\n/);
   assert.match(help.embeds[0].fields[0].value, /\n\n/);
+});
+
+test('generic module result formatting preserves multi-line stats and collection spacing', () => {
+  const generic = genericEmbed('division2', 'farming', {
+    status: 'online',
+    source: 'Nexus cache',
+    categories: ['Gear Sets', 'Weapons'],
+    details: { reset: 'daily', entries: 12 }
+  });
+  assert.match(generic.description, /\n\n/);
+  assert.match(generic.fields.find((field) => field.name === 'Categories').value, /\n\n/);
+  assert.match(generic.fields.find((field) => field.name === 'Details').value, /\n\n/);
+
+  const warframe = warframeEmbed('alerts', {
+    platform: 'pc',
+    alerts: [{ type: 'Gift', node: 'Earth', faction: 'Grineer', reward: 'Catalyst', eta: '30m' }]
+  });
+  assert.match(warframe.description, /\n\n/);
+  assert.match(warframe.fields[0].value, /\n\n/);
 });
 
 test('Division 2 targeted-loot cards separate rotation, allocation, bonuses, and reset details', () => {
