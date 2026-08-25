@@ -78,6 +78,50 @@ function normalizeIds(values = []) {
   return [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || '').trim()).filter((value) => /^\d{15,24}$/.test(value)))];
 }
 
+function permissionMask(values = []) {
+  return (Array.isArray(values) ? values : []).reduce((mask, value) => mask | BigInt(value), 0n);
+}
+
+function overwriteMask(value) {
+  if (typeof value === 'bigint') return value;
+  if (value?.bitfield !== undefined) return BigInt(value.bitfield);
+  if (value === undefined || value === null) return 0n;
+  return BigInt(value);
+}
+
+function normalizedOverwritePlan(entries = []) {
+  const byTarget = new Map();
+  for (const entry of entries) {
+    const id = String(entry?.id || '');
+    if (!id) continue;
+    const type = Number(entry?.type ?? OverwriteType.Role);
+    const key = `${type}:${id}`;
+    const current = byTarget.get(key) || { id, type, allow: 0n, deny: 0n };
+    current.allow |= permissionMask(entry.allow || []);
+    current.deny |= permissionMask(entry.deny || []);
+    current.allow &= ~current.deny;
+    byTarget.set(key, current);
+  }
+  return [...byTarget.values()].sort((a, b) => `${a.type}:${a.id}`.localeCompare(`${b.type}:${b.id}`));
+}
+
+function overwriteSetMatches(channel, desiredEntries = []) {
+  const cache = channel?.permissionOverwrites?.cache;
+  if (!cache || typeof cache.values !== 'function') return false;
+  const actual = valuesOf(cache).map((entry) => ({
+    id: String(entry?.id || ''),
+    type: Number(entry?.type ?? OverwriteType.Role),
+    allow: overwriteMask(entry?.allow),
+    deny: overwriteMask(entry?.deny)
+  })).sort((a, b) => `${a.type}:${a.id}`.localeCompare(`${b.type}:${b.id}`));
+  const desired = normalizedOverwritePlan(desiredEntries);
+  if (actual.length !== desired.length) return false;
+  return actual.every((entry, index) => {
+    const wanted = desired[index];
+    return entry.id === wanted.id && entry.type === wanted.type && entry.allow === wanted.allow && entry.deny === wanted.deny;
+  });
+}
+
 function findHqCategory(channels) {
   const wanted = new Set(HQ_CATEGORY_ALIASES.map(normalizedName));
   return valuesOf(channels).find((channel) => channel?.type === ChannelType.GuildCategory && wanted.has(normalizedName(channel.name))) || null;
@@ -144,6 +188,27 @@ function hqCategoryOverwrites(guild, rankRoleIds = [], operatorRoleIds = [], bot
   ];
 }
 
+function announcementOverwrites(guild, rankRoleIds = [], operatorRoleIds = [], botId = '') {
+  const blockedPosting = [
+    PermissionFlagsBits.SendMessages,
+    PermissionFlagsBits.SendMessagesInThreads,
+    PermissionFlagsBits.CreatePublicThreads,
+    PermissionFlagsBits.CreatePrivateThreads
+  ];
+  const blockedMask = permissionMask(blockedPosting);
+  const memberAllow = memberAllowPermissions().filter((permission) => (BigInt(permission) & blockedMask) === 0n);
+  const staffAllow = [...memberAllowPermissions(), PermissionFlagsBits.ManageMessages, PermissionFlagsBits.CreatePublicThreads];
+  const botAllow = [...staffAllow, PermissionFlagsBits.ManageChannels];
+  const ownerId = String(guild?.ownerId || '');
+  return [
+    { id: String(guild.id), type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] },
+    ...normalizeIds(rankRoleIds).map((id) => ({ id, type: OverwriteType.Role, allow: memberAllow, deny: blockedPosting })),
+    ...normalizeIds(operatorRoleIds).map((id) => ({ id, type: OverwriteType.Role, allow: staffAllow })),
+    ...(ownerId ? [{ id: ownerId, type: OverwriteType.Member, allow: staffAllow }] : []),
+    ...(botId ? [{ id: String(botId), type: OverwriteType.Member, allow: botAllow }] : [])
+  ];
+}
+
 function aliasesFor(spec) {
   return new Set([spec.name, ...(spec.aliases || [])].map(normalizedName).filter(Boolean));
 }
@@ -153,8 +218,7 @@ function matchingChannels(channels, spec) {
   return valuesOf(channels).filter((channel) => channel?.type === spec.type && wanted.has(normalizedName(channel.name)));
 }
 
-async function ensureCategory(guild) {
-  let channels = await guild.channels.fetch();
+async function ensureCategory(guild, channels) {
   let category = findHqCategory(channels);
   let created = false;
   let renamed = false;
@@ -164,25 +228,31 @@ async function ensureCategory(guild) {
       type: ChannelType.GuildCategory,
       reason: 'Nexus Sentinal: create canonical Nexus HQ category'
     });
+    channels?.set?.(String(category.id), category);
     created = true;
   } else if (String(category.name || '') !== HQ_CATEGORY_NAME && typeof category.setName === 'function') {
     await category.setName(HQ_CATEGORY_NAME, 'Nexus Sentinal: apply canonical Nexus HQ category name');
     renamed = true;
   }
-  channels = await guild.channels.fetch();
-  return { category: channels.get(String(category.id)) || category, created, renamed };
+  return { category, created, renamed };
+}
+
+async function applyOverwriteSet(channel, desiredEntries, reason) {
+  if (!channel?.permissionOverwrites?.set) throw new Error('Discord permission overwrites are unavailable.');
+  if (overwriteSetMatches(channel, desiredEntries)) return false;
+  await channel.permissionOverwrites.set(desiredEntries, reason);
+  return true;
 }
 
 async function applyCategoryAccess(category, guild, rankRoleIds, operatorRoleIds, botId) {
-  if (!category?.permissionOverwrites?.set) throw new Error('Nexus HQ category permission overwrites are unavailable.');
-  await category.permissionOverwrites.set(
+  return applyOverwriteSet(
+    category,
     hqCategoryOverwrites(guild, rankRoleIds, operatorRoleIds, botId),
     'Nexus Sentinal: Nexus HQ is Shadow Recruit+ community space'
   );
 }
 
-async function ensureChannel(guild, category, spec) {
-  let channels = await guild.channels.fetch();
+async function ensureChannel(guild, category, spec, channels) {
   const matches = matchingChannels(channels, spec);
   let channel = matches.find((candidate) => String(candidate.parentId || '') === String(category.id)) || null;
   let created = false;
@@ -207,6 +277,7 @@ async function ensureChannel(guild, category, spec) {
     };
     if (spec.topic) options.topic = spec.topic;
     channel = await guild.channels.create(options);
+    channels?.set?.(String(channel.id), channel);
     created = true;
   }
 
@@ -220,15 +291,16 @@ async function ensureChannel(guild, category, spec) {
     topicUpdated = true;
   }
 
-  channels = await guild.channels.fetch();
-  return { channel: channels.get(String(channel.id)) || channel, created, moved, renamed, topicUpdated };
+  return { channel, created, moved, renamed, topicUpdated };
 }
 
-async function lockHqChildren(guild, category) {
-  const channels = await guild.channels.fetch();
+async function lockHqChildren(category, channels, excludedIds = []) {
+  const excluded = new Set(excludedIds.map(String));
   let locked = 0;
-  for (const channel of channels.values()) {
+  for (const channel of valuesOf(channels)) {
     if (String(channel?.parentId || '') !== String(category.id)) continue;
+    if (excluded.has(String(channel.id))) continue;
+    if (channel.permissionsLocked === true) continue;
     if (typeof channel.lockPermissions !== 'function') continue;
     await channel.lockPermissions('Nexus Sentinal: inherit Shadow Recruit+ Nexus HQ access');
     locked += 1;
@@ -237,33 +309,25 @@ async function lockHqChildren(guild, category) {
 }
 
 async function makeAnnouncementsReadOnly(channel, guild, rankRoleIds, operatorRoleIds, botId) {
-  if (!channel?.permissionOverwrites?.edit) return false;
-  const denyMemberPosting = {
-    SendMessages: false,
-    SendMessagesInThreads: false,
-    CreatePublicThreads: false,
-    CreatePrivateThreads: false
-  };
-  for (const roleId of normalizeIds(rankRoleIds)) {
-    await channel.permissionOverwrites.edit(roleId, denyMemberPosting, { reason: 'Nexus Sentinal: announcements are staff-publish-only' });
-  }
-  for (const roleId of normalizeIds(operatorRoleIds)) {
-    await channel.permissionOverwrites.edit(roleId, {
-      SendMessages: true,
-      SendMessagesInThreads: true,
-      CreatePublicThreads: true
-    }, { reason: 'Nexus Sentinal: authorize Nexus HQ announcement publishers' });
-  }
-  if (guild?.ownerId) {
-    await channel.permissionOverwrites.edit(String(guild.ownerId), { SendMessages: true, SendMessagesInThreads: true }, { reason: 'Nexus Sentinal: owner announcement access' });
-  }
-  if (botId) {
-    await channel.permissionOverwrites.edit(String(botId), { SendMessages: true, SendMessagesInThreads: true, ManageMessages: true }, { reason: 'Nexus Sentinal: announcement maintenance access' });
-  }
-  return true;
+  if (!channel) return false;
+  return applyOverwriteSet(
+    channel,
+    announcementOverwrites(guild, rankRoleIds, operatorRoleIds, botId),
+    'Nexus Sentinal: announcements are Shadow Recruit+ and staff-publish-only'
+  );
+}
+
+function hqChannelsInDesiredRelativeOrder(results = []) {
+  const channels = results.map((item) => item?.channel).filter(Boolean);
+  const desired = channels.map((channel) => String(channel.id));
+  const actual = [...channels]
+    .sort((a, b) => Number(a.rawPosition ?? a.position ?? 0) - Number(b.rawPosition ?? b.position ?? 0))
+    .map((channel) => String(channel.id));
+  return desired.length === actual.length && desired.every((id, index) => id === actual[index]);
 }
 
 async function orderHqChannels(results = []) {
+  if (hqChannelsInDesiredRelativeOrder(results)) return 0;
   let changed = 0;
   for (let index = 0; index < results.length; index += 1) {
     const channel = results[index]?.channel;
@@ -281,19 +345,20 @@ async function orderHqChannels(results = []) {
 async function reconcileNexusHq(guild, options = {}) {
   const config = options.config || {};
   const botId = String(options.botId || guild?.client?.user?.id || '');
-  const roles = await guild.roles.fetch();
+  const [roles] = await Promise.all([guild.roles.fetch(), guild.channels.fetch()]);
+  const channels = guild.channels.cache;
   const shadowRecruitRoleId = shadowRecruitRoleIdFrom(roles, config);
   if (!shadowRecruitRoleId) return { ok: false, skipped: 'shadow-recruit-role-missing' };
 
   const rankRoleIds = rankRoleIdsFrom(roles, config);
   const operatorRoleIds = operatorRoleIdsFrom(roles, config);
-  const categoryResult = await ensureCategory(guild);
-  await applyCategoryAccess(categoryResult.category, guild, rankRoleIds, operatorRoleIds, botId);
+  const categoryResult = await ensureCategory(guild, channels);
+  const categoryPermissionsUpdated = await applyCategoryAccess(categoryResult.category, guild, rankRoleIds, operatorRoleIds, botId);
 
   const channelResults = [];
-  for (const spec of HQ_CHANNELS) channelResults.push(await ensureChannel(guild, categoryResult.category, spec));
-  const locked = await lockHqChildren(guild, categoryResult.category);
+  for (const spec of HQ_CHANNELS) channelResults.push(await ensureChannel(guild, categoryResult.category, spec, channels));
   const announcements = channelResults[0]?.channel || null;
+  const locked = await lockHqChildren(categoryResult.category, channels, announcements?.id ? [announcements.id] : []);
   const announcementReadOnly = await makeAnnouncementsReadOnly(announcements, guild, rankRoleIds, operatorRoleIds, botId);
   const positionsUpdated = await orderHqChannels(channelResults);
 
@@ -303,6 +368,7 @@ async function reconcileNexusHq(guild, options = {}) {
     categoryId: String(categoryResult.category.id || ''),
     categoryCreated: categoryResult.created,
     categoryRenamed: categoryResult.renamed,
+    categoryPermissionsUpdated,
     shadowRecruitRoleId,
     rankRoleCount: rankRoleIds.length,
     operatorRoleCount: operatorRoleIds.length,
@@ -322,12 +388,17 @@ module.exports = {
   HQ_CHANNELS,
   normalizedName,
   normalizeIds,
+  permissionMask,
+  normalizedOverwritePlan,
+  overwriteSetMatches,
   findHqCategory,
   rankRoleIdsFrom,
   shadowRecruitRoleIdFrom,
   operatorRoleIdsFrom,
   memberAllowPermissions,
   hqCategoryOverwrites,
+  announcementOverwrites,
   matchingChannels,
+  hqChannelsInDesiredRelativeOrder,
   reconcileNexusHq
 };
