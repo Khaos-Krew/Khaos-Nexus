@@ -105,21 +105,40 @@ function normalizedOverwritePlan(entries = []) {
   return [...byTarget.values()].sort((a, b) => `${a.type}:${a.id}`.localeCompare(`${b.type}:${b.id}`));
 }
 
-function overwriteSetMatches(channel, desiredEntries = []) {
+function actualOverwritePlan(channel) {
   const cache = channel?.permissionOverwrites?.cache;
-  if (!cache || typeof cache.values !== 'function') return false;
-  const actual = valuesOf(cache).map((entry) => ({
+  if (!cache || typeof cache.values !== 'function') return [];
+  return valuesOf(cache).map((entry) => ({
     id: String(entry?.id || ''),
     type: Number(entry?.type ?? OverwriteType.Role),
     allow: overwriteMask(entry?.allow),
     deny: overwriteMask(entry?.deny)
   })).sort((a, b) => `${a.type}:${a.id}`.localeCompare(`${b.type}:${b.id}`));
+}
+
+function overwriteSetMatches(channel, desiredEntries = []) {
+  const actual = actualOverwritePlan(channel);
   const desired = normalizedOverwritePlan(desiredEntries);
   if (actual.length !== desired.length) return false;
   return actual.every((entry, index) => {
     const wanted = desired[index];
     return entry.id === wanted.id && entry.type === wanted.type && entry.allow === wanted.allow && entry.deny === wanted.deny;
   });
+}
+
+function overwritePlanSatisfies(channel, desiredEntries = []) {
+  const actual = new Map(actualOverwritePlan(channel).map((entry) => [`${entry.type}:${entry.id}`, entry]));
+  const desired = normalizedOverwritePlan(desiredEntries);
+  if (!desired.length) return true;
+  for (const wanted of desired) {
+    const current = actual.get(`${wanted.type}:${wanted.id}`);
+    if (!current) return false;
+    if ((current.allow & wanted.allow) !== wanted.allow) return false;
+    if ((current.deny & wanted.deny) !== wanted.deny) return false;
+    if ((current.deny & wanted.allow) !== 0n) return false;
+    if ((current.allow & wanted.deny) !== 0n) return false;
+  }
+  return true;
 }
 
 function findHqCategory(channels) {
@@ -239,7 +258,7 @@ async function ensureCategory(guild, channels) {
 
 async function applyOverwriteSet(channel, desiredEntries, reason) {
   if (!channel?.permissionOverwrites?.set) throw new Error('Discord permission overwrites are unavailable.');
-  if (overwriteSetMatches(channel, desiredEntries)) return false;
+  if (overwritePlanSatisfies(channel, desiredEntries)) return false;
   await channel.permissionOverwrites.set(desiredEntries, reason);
   return true;
 }
@@ -294,18 +313,31 @@ async function ensureChannel(guild, category, spec, channels) {
   return { channel, created, moved, renamed, topicUpdated };
 }
 
-async function lockHqChildren(category, channels, excludedIds = []) {
+function hqChildAccessSatisfies(channel, category, desiredEntries = []) {
+  if (channel?.permissionsLocked === true) return overwritePlanSatisfies(category, desiredEntries);
+  return overwritePlanSatisfies(channel, desiredEntries);
+}
+
+async function lockHqChildren(category, channels, desiredEntries = [], excludedIds = []) {
   const excluded = new Set(excludedIds.map(String));
   let locked = 0;
+  const blocked = [];
   for (const channel of valuesOf(channels)) {
     if (String(channel?.parentId || '') !== String(category.id)) continue;
     if (excluded.has(String(channel.id))) continue;
-    if (channel.permissionsLocked === true) continue;
-    if (typeof channel.lockPermissions !== 'function') continue;
-    await channel.lockPermissions('Nexus Sentinal: inherit Shadow Recruit+ Nexus HQ access');
-    locked += 1;
+    if (hqChildAccessSatisfies(channel, category, desiredEntries)) continue;
+    if (typeof channel.lockPermissions !== 'function') {
+      blocked.push(String(channel?.name || channel?.id || 'unknown'));
+      continue;
+    }
+    try {
+      await channel.lockPermissions('Nexus Sentinal: inherit Shadow Recruit+ Nexus HQ access');
+      locked += 1;
+    } catch (error) {
+      blocked.push(`${String(channel?.name || channel?.id || 'unknown')}:${String(error?.message || error).slice(0, 120)}`);
+    }
   }
-  return locked;
+  return { locked, blocked };
 }
 
 async function makeAnnouncementsReadOnly(channel, guild, rankRoleIds, operatorRoleIds, botId) {
@@ -353,18 +385,24 @@ async function reconcileNexusHq(guild, options = {}) {
   const rankRoleIds = rankRoleIdsFrom(roles, config);
   const operatorRoleIds = operatorRoleIdsFrom(roles, config);
   const categoryResult = await ensureCategory(guild, channels);
+  const categoryPlan = hqCategoryOverwrites(guild, rankRoleIds, operatorRoleIds, botId);
   const categoryPermissionsUpdated = await applyCategoryAccess(categoryResult.category, guild, rankRoleIds, operatorRoleIds, botId);
 
   const channelResults = [];
   for (const spec of HQ_CHANNELS) channelResults.push(await ensureChannel(guild, categoryResult.category, spec, channels));
   const announcements = channelResults[0]?.channel || null;
-  const locked = await lockHqChildren(categoryResult.category, channels, announcements?.id ? [announcements.id] : []);
+  const childAccess = await lockHqChildren(
+    categoryResult.category,
+    channels,
+    categoryPlan,
+    announcements?.id ? [announcements.id] : []
+  );
   const announcementReadOnly = await makeAnnouncementsReadOnly(announcements, guild, rankRoleIds, operatorRoleIds, botId);
   const positionsUpdated = await orderHqChannels(channelResults);
 
   return {
-    ok: true,
-    skipped: '',
+    ok: childAccess.blocked.length === 0,
+    skipped: childAccess.blocked.length ? `child-access-blocked:${childAccess.blocked.join('|').slice(0, 240)}` : '',
     categoryId: String(categoryResult.category.id || ''),
     categoryCreated: categoryResult.created,
     categoryRenamed: categoryResult.renamed,
@@ -376,7 +414,8 @@ async function reconcileNexusHq(guild, options = {}) {
     channelsMoved: channelResults.filter((item) => item.moved).map((item) => String(item.channel?.name || '')),
     channelsRenamed: channelResults.filter((item) => item.renamed).map((item) => String(item.channel?.name || '')),
     topicsUpdated: channelResults.filter((item) => item.topicUpdated).map((item) => String(item.channel?.name || '')),
-    childrenLocked: locked,
+    childrenLocked: childAccess.locked,
+    childrenBlocked: childAccess.blocked,
     announcementReadOnly,
     positionsUpdated
   };
@@ -391,6 +430,7 @@ module.exports = {
   permissionMask,
   normalizedOverwritePlan,
   overwriteSetMatches,
+  overwritePlanSatisfies,
   findHqCategory,
   rankRoleIdsFrom,
   shadowRecruitRoleIdFrom,
@@ -399,6 +439,8 @@ module.exports = {
   hqCategoryOverwrites,
   announcementOverwrites,
   matchingChannels,
+  hqChildAccessSatisfies,
+  lockHqChildren,
   hqChannelsInDesiredRelativeOrder,
   reconcileNexusHq
 };
