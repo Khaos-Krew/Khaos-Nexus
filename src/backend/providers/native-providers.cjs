@@ -1,16 +1,20 @@
 'use strict';
 
 const { WarframeProvider, WARFRAME_ACTIONS } = require('./warframe-provider.cjs');
-const { Division2Provider, DIVISION2_ACTIONS } = require('./division2-provider.cjs');
+const { LiveDivision2Provider: Division2Provider, DIVISION2_ACTIONS } = require('./division2-live-provider.cjs');
 const { IdleOnProvider, IDLEON_ACTIONS } = require('./idleon-provider.cjs');
 const { PokemonGoProvider, POGO_ACTIONS } = require('./pokemon-go-provider.cjs');
 const { attachOfficialPokemonGoEvents } = require('./pokemon-go-official-events.cjs');
 const { createRuneScapeProviders, RS_ACTIONS } = require('./runescape-provider.cjs');
 const { OnceHumanProvider, ONCE_HUMAN_ACTIONS } = require('./once-human-provider.cjs');
 const {
-  DeadByDaylightProvider, Diablo4Provider, CallOfDutyProvider,
+  DeadByDaylightProvider,
   DBD_ACTIONS, DIABLO4_ACTIONS, COD_ACTIONS
 } = require('./game-companion-providers.cjs');
+const {
+  EnhancedDiablo4Provider: Diablo4Provider,
+  EnhancedCallOfDutyProvider: CallOfDutyProvider
+} = require('./news-enhanced-providers.cjs');
 
 function nativeProvidersFromConfig(config = {}, options = {}) {
   const providers = {};
@@ -29,6 +33,8 @@ function nativeProvidersFromConfig(config = {}, options = {}) {
     providers.division2 = new Division2Provider({
       baseUrl: config.modules?.division2?.dataBaseUrl,
       newsUrl: config.modules?.division2?.newsUrl,
+      targetedLootUrl: config.modules?.division2?.targetedLootUrl,
+      targetedPageUrl: config.modules?.division2?.targetedPageUrl,
       stateFile: config.modules?.division2?.stateFile,
       fetchImpl: options.fetchImpl
     });
@@ -80,14 +86,16 @@ function nativeProvidersFromConfig(config = {}, options = {}) {
   if (config.modules?.diablo4?.enabled !== false) {
     providers.diablo4 = new Diablo4Provider({
       stateFile: config.modules?.diablo4?.stateFile,
-      newsUrl: config.modules?.diablo4?.newsUrl
+      newsUrl: config.modules?.diablo4?.newsUrl,
+      fetchImpl: options.fetchImpl
     });
   }
 
   if (config.modules?.callofduty?.enabled !== false) {
     providers.callofduty = new CallOfDutyProvider({
       stateFile: config.modules?.callofduty?.stateFile,
-      newsUrl: config.modules?.callofduty?.newsUrl
+      newsUrl: config.modules?.callofduty?.newsUrl,
+      fetchImpl: options.fetchImpl
     });
   }
 
