@@ -3,6 +3,7 @@
 const { Client, Events } = require('discord.js');
 const { installModuleRuntime } = require('./module-runtime.cjs');
 const { installDiscordAutomationRuntime } = require('./discord-automation-runtime.cjs');
+const { installCommunityAboutRuntime } = require('./community-about-runtime.cjs');
 const { installStatusPanelRuntime } = require('./status-panel-runtime.cjs');
 const {
   isDndInteraction,
@@ -14,12 +15,14 @@ const parent = process.parentPort;
 let bootstrap = null;
 let dndRuntime = null;
 let encounterPanelController = null;
+let communityAboutController = null;
 
 parent?.on('message', (event) => {
   const message = event?.data ?? event;
   if (message?.type === 'bootstrap' || message?.type === 'config-update') {
     bootstrap = message.payload;
     encounterPanelController?.onConfigUpdate();
+    communityAboutController?.onConfigUpdate();
   }
 });
 
@@ -50,6 +53,7 @@ Client.prototype.login = function patchedLogin(...args) {
   dndRuntime = runtime;
   encounterPanelController = installEncounterPanelRuntime(runtime);
   installDiscordAutomationRuntime(runtime);
+  communityAboutController = installCommunityAboutRuntime(runtime);
   installStatusPanelRuntime(runtime);
   return originalLogin.apply(this, args);
 };
