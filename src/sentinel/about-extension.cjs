@@ -3,6 +3,7 @@
 const { ChannelType, Client, Events, PermissionFlagsBits } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { findInformationCategory, valuesOf } = require('./nexus-status.cjs');
+const { managedPayloadMatches } = require('./managed-payload-compare.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.about.extension');
 const ABOUT_PANEL_MARKER = 'Nexus Sentinal • Managed About • v1';
@@ -240,18 +241,8 @@ function newestMessage(messages = []) {
   return [...messages].sort((left, right) => Number(right?.createdTimestamp || 0) - Number(left?.createdTimestamp || 0))[0] || null;
 }
 
-function comparable(value) {
-  return value?.toJSON ? value.toJSON() : value;
-}
-
 function panelPayloadMatches(message, payload) {
-  const actualEmbeds = (message?.embeds || []).map(comparable);
-  const desiredEmbeds = (payload?.embeds || []).map(comparable);
-  const actualComponents = (message?.components || []).map(comparable);
-  const desiredComponents = (payload?.components || []).map(comparable);
-  return String(message?.content || '') === String(payload?.content || '')
-    && JSON.stringify(actualEmbeds) === JSON.stringify(desiredEmbeds)
-    && JSON.stringify(actualComponents) === JSON.stringify(desiredComponents);
+  return managedPayloadMatches(message, payload);
 }
 
 async function reconcileAboutPanel(channel, payload, options = {}) {

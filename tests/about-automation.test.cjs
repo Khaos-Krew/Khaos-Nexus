@@ -114,6 +114,16 @@ test('About panel comparison skips edits when embed and button payload are alrea
   assert.equal(panelPayloadMatches(message, payload), true);
 });
 
+test('About panel comparison ignores Discord response-only payload decoration', () => {
+  const payload = renderAboutPanel('https://discord.gg/khaos');
+  const message = {
+    content: '',
+    embeds: payload.embeds.map((embed) => ({ toJSON: () => ({ type: 'rich', ...embed }) })),
+    components: payload.components.map((row) => ({ toJSON: () => ({ ...row, id: 'response-row', components: row.components.map((component) => ({ ...component, id: 'response-button', emoji: { id: null, animated: false, ...component.emoji } })) }) }))
+  };
+  assert.equal(panelPayloadMatches(message, payload), true);
+});
+
 test('About permission updates are targeted to everyone and Sentinal instead of replacing existing overwrites', async () => {
   const edits = [];
   const everyone = { id: '11111' };
