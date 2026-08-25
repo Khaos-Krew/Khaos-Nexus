@@ -14,6 +14,7 @@ const { nativeProvidersFromConfig } = require('./providers/native-providers.cjs'
 const { serverProvidersFromConfig } = require('./providers/server-providers.cjs');
 const { ArkCompanionService } = require('./services/ark-companion-service.cjs');
 const { CommunityLevelService } = require('./services/community-level-service.cjs');
+const { CommunityAchievementService } = require('./services/community-achievement-service.cjs');
 const { trackedServersResponse } = require('./tracked-servers.cjs');
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
@@ -51,6 +52,12 @@ function communityLevelStateFile(config = {}) {
   return path.join(process.env.NEXUS_DATA_DIR || 'data', 'community-leveling.json');
 }
 
+function communityAchievementStateFile(config = {}) {
+  const configured = String(config.communityLeveling?.achievementStateFile || '').trim();
+  if (configured) return configured;
+  return path.join(process.env.NEXUS_DATA_DIR || 'data', 'community-achievements.json');
+}
+
 function createBackendApplication(config, options = {}) {
   const token = envSecret(config.backend?.serviceTokenEnv);
   const host = String(config.backend?.host || '127.0.0.1');
@@ -68,6 +75,10 @@ function createBackendApplication(config, options = {}) {
   const communityLevels = options.communityLevels || new CommunityLevelService({
     stateFile: communityLevelStateFile(config),
     settings: config.communityLeveling || {}
+  });
+  const communityAchievements = options.communityAchievements || new CommunityAchievementService({
+    stateFile: communityAchievementStateFile(config),
+    levelService: communityLevels
   });
   runtime.registerService('scheduler', scheduler);
   runtime.registerService('ark-companion', arkCompanion);
@@ -114,6 +125,11 @@ function createBackendApplication(config, options = {}) {
 
       if (req.method === 'GET' && url.pathname === '/v1/tracked-servers') return json(res, 200, trackedServersResponse(runtime));
 
+      if (req.method === 'GET' && url.pathname === '/v1/community-xp/achievements') {
+        return json(res, 200, { ok: true, achievements: communityAchievements.catalog() });
+      }
+      const achievementProfileMatch = /^\/v1\/community-xp\/users\/(\d{15,24})\/achievements$/.exec(url.pathname);
+      if (req.method === 'GET' && achievementProfileMatch) return json(res, 200, communityAchievements.profile(achievementProfileMatch[1]));
       const levelProfileMatch = /^\/v1\/community-xp\/users\/(\d{15,24})$/.exec(url.pathname);
       if (req.method === 'GET' && levelProfileMatch) return json(res, 200, { ok: true, profile: communityLevels.profile(levelProfileMatch[1]) });
       if (req.method === 'GET' && url.pathname === '/v1/community-xp/leaderboard') {
@@ -184,7 +200,7 @@ function createBackendApplication(config, options = {}) {
     started = false;
   }
 
-  return { host, port, runtime, scheduler, arkCompanion, communityLevels, accounts, providerValidator, configureProviders, server, start, stop, isStarted: () => started && server.listening };
+  return { host, port, runtime, scheduler, arkCompanion, communityLevels, communityAchievements, accounts, providerValidator, configureProviders, server, start, stop, isStarted: () => started && server.listening };
 }
 
-module.exports = { LOOPBACK_HOSTS, communityLevelStateFile, createBackendApplication, providersForConfig };
+module.exports = { LOOPBACK_HOSTS, communityLevelStateFile, communityAchievementStateFile, createBackendApplication, providersForConfig };
