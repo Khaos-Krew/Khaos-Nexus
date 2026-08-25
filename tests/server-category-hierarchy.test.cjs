@@ -2,12 +2,15 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { ChannelType, PermissionFlagsBits } = require('discord.js');
+const { ChannelType, OverwriteType, PermissionFlagsBits } = require('discord.js');
 const {
   moduleCategoryEntries,
   serverCategoryOrderPlan,
   staffAdminOverwrites,
-  ownerOnlyOverwrites
+  ownerOnlyOverwrites,
+  permissionMask,
+  overwriteSetMatches,
+  lockCategoryChildren
 } = require('../src/sentinel/category-order.cjs');
 
 function category(id, name, position) {
@@ -76,4 +79,45 @@ test('Hidden Server category explicitly grants only guild owner and Sentinel', (
   ]);
   assert.ok(overwrites[0].deny.includes(PermissionFlagsBits.ViewChannel));
   assert.ok(overwrites[1].allow.includes(PermissionFlagsBits.ViewChannel));
+});
+
+test('already-correct structural privacy overwrite sets are recognized without a Discord write', () => {
+  const guild = { id: '900000000000000040', ownerId: '900000000000000041' };
+  const desired = ownerOnlyOverwrites(guild, '900000000000000042');
+  const cache = new Map(desired.map((entry) => [String(entry.id), {
+    id: String(entry.id),
+    type: Number(entry.type ?? OverwriteType.Role),
+    allow: { bitfield: permissionMask(entry.allow || []) },
+    deny: { bitfield: permissionMask(entry.deny || []) }
+  }]));
+  const channel = { permissionOverwrites: { cache } };
+  assert.equal(overwriteSetMatches(channel, desired), true);
+});
+
+test('structural child locking only repairs channels whose permissions are not already inherited', async () => {
+  const parent = { id: '900000000000000050' };
+  let repaired = 0;
+  const channels = new Map([
+    ['900000000000000051', {
+      id: '900000000000000051',
+      parentId: parent.id,
+      permissionsLocked: true,
+      lockPermissions: async () => { throw new Error('already-locked child should not be touched'); }
+    }],
+    ['900000000000000052', {
+      id: '900000000000000052',
+      parentId: parent.id,
+      permissionsLocked: false,
+      lockPermissions: async () => { repaired += 1; }
+    }],
+    ['900000000000000053', {
+      id: '900000000000000053',
+      parentId: 'other-parent',
+      permissionsLocked: false,
+      lockPermissions: async () => { throw new Error('unrelated child should not be touched'); }
+    }]
+  ]);
+  const locked = await lockCategoryChildren(parent, channels, 'test');
+  assert.equal(locked, 1);
+  assert.equal(repaired, 1);
 });
