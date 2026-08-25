@@ -6,6 +6,7 @@ const { MODULES } = require('../backend/modules/catalog.cjs');
 const { BackendClient } = require('./backend-client.cjs');
 const { StateStore } = require('./state-store.cjs');
 const { ModuleProvisioner } = require('./module-provisioner.cjs');
+const { layoutFor } = require('./module-layouts.cjs');
 const { reconcileGameCategoryOrder } = require('./category-order.cjs');
 const { renderModuleConsole } = require('./module-console.cjs');
 const { ensurePanelMessage } = require('./persistent-panel-extension.cjs');
@@ -18,12 +19,25 @@ function enabledSentinelModules(config = {}) {
   return MODULES.filter((module) => module.console !== false && config.modules?.[module.id]?.enabled !== false);
 }
 
-function setupHealthy(setup, channels) {
+function normalizedCategoryName(value) {
+  return String(value || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function categoryMatchesModule(moduleId, category) {
+  if (!moduleId || !category) return false;
+  let layout;
+  try { layout = layoutFor(moduleId); } catch { return false; }
+  const wanted = new Set([layout.category, ...(layout.aliases || [])].map(normalizedCategoryName).filter(Boolean));
+  return wanted.has(normalizedCategoryName(category.name));
+}
+
+function setupHealthy(setup, channels, moduleId = '') {
   if (!setup?.categoryId || !setup?.consoleChannelId) return false;
   const category = channels?.get?.(String(setup.categoryId));
   const consoleChannel = channels?.get?.(String(setup.consoleChannelId));
   return Boolean(
     category?.type === ChannelType.GuildCategory
+    && (!moduleId || categoryMatchesModule(moduleId, category))
     && consoleChannel?.type === ChannelType.GuildText
     && String(consoleChannel.parentId || '') === String(category.id)
   );
@@ -34,7 +48,7 @@ function modulesNeedingProvision(config = {}, state, channels, roles) {
   const blocked = [];
   for (const module of enabledSentinelModules(config)) {
     const setup = state?.getModuleSetup?.(module.id) || null;
-    if (setupHealthy(setup, channels)) continue;
+    if (setupHealthy(setup, channels, module.id)) continue;
     const access = state?.getAccessRole?.(module.id) || null;
     const roleId = String(access?.roleId || '');
     if (!roleId || !roles?.has?.(roleId)) {
@@ -173,6 +187,8 @@ module.exports = {
   INITIAL_PROVISION_DELAY_MS,
   PERIODIC_PROVISION_MS,
   enabledSentinelModules,
+  normalizedCategoryName,
+  categoryMatchesModule,
   setupHealthy,
   modulesNeedingProvision,
   bootstrapCategoryAccess,
