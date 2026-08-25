@@ -59,6 +59,7 @@ class BackendRuntime {
         configured: Boolean(provider),
         connected: provider?.connected === true,
         providerKind: provider?.providerKind || (provider ? 'provider' : 'none'),
+        authoritativeOwner: provider?.authoritativeOwner || module.authority || 'nexus-backend',
         availableActions,
         providerAvailableActions,
         serviceAvailableActions
@@ -72,8 +73,8 @@ class BackendRuntime {
       version: '0.1.0',
       uptimeSeconds: Math.floor((Date.now() - this.startedAt) / 1000),
       services: Object.keys(this.services).filter((name) => typeof this.services[name]?.invoke === 'function'),
-      modules: this.manifests().map(({ id, enabled, configured, connected, providerKind, availableActions, providerAvailableActions, serviceAvailableActions }) => ({
-        id, enabled, configured, connected, providerKind, availableActions, providerAvailableActions, serviceAvailableActions
+      modules: this.manifests().map(({ id, enabled, configured, connected, providerKind, authoritativeOwner, availableActions, providerAvailableActions, serviceAvailableActions }) => ({
+        id, enabled, configured, connected, providerKind, authoritativeOwner, availableActions, providerAvailableActions, serviceAvailableActions
       }))
     };
   }

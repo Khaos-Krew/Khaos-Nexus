@@ -39,6 +39,14 @@ function loadConfig(options = {}) {
   if (process.env.NEXUS_STATUS_REFRESH_SECONDS) config.discord.nexusStatus.refreshSeconds = Number(process.env.NEXUS_STATUS_REFRESH_SECONDS);
   if (process.env.NEXUS_VEYRA_HEALTH_URL) config.discord.nexusStatus.veyraHealthUrl = process.env.NEXUS_VEYRA_HEALTH_URL;
   if (process.env.NEXUS_VEYRA_GATEWAY_HEALTH_URL) config.discord.nexusStatus.veyraGatewayHealthUrl = process.env.NEXUS_VEYRA_GATEWAY_HEALTH_URL;
+  config.modules ||= {};
+  config.modules.dnd ||= { enabled: true, surface: 'veyra', provider: {} };
+  config.modules.dnd.provider ||= {};
+  if (process.env.NEXUS_DND_PROVIDER_URL) {
+    config.modules.dnd.provider.type = 'veyra';
+    config.modules.dnd.provider.baseUrl = process.env.NEXUS_DND_PROVIDER_URL;
+  }
+  if (process.env.NEXUS_DND_PROVIDER_ACTIONS) config.modules.dnd.provider.actions = csv(process.env.NEXUS_DND_PROVIDER_ACTIONS);
 
   config.__source = source;
   return config;

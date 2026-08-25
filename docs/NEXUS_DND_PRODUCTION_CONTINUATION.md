@@ -6,12 +6,12 @@ This phase is the planned continuation of the Nexus D&D application. It is not a
 
 ## Product direction
 
-Nexus D&D remains backend-first:
+Nexus D&D remains service-first, with **Veyra as its authoritative owner**:
 
-- **Nexus Backend** owns durable D&D domain state, permissions, validation, rules/content adapters, sessions, encounters, campaign data, and service contracts.
-- **Veyra — Lore Master** owns the dedicated D&D AI/presentation intelligence boundary and may remain the primary D&D-facing assistant surface.
+- **Veyra — Lore Master** owns durable D&D domain state, campaign truth, permissions, validation, content/rules adapters, sessions, encounters, and the dedicated D&D intelligence boundary.
+- **Nexus Backend** may expose a bounded authenticated gateway, health/diagnostic evidence, and account/Discord identity context, but must not persist a competing copy of Veyra campaign state.
 - **Discord** provides campaign access, notifications, lightweight commands/panels, account linking, and session/community coordination rather than becoming the full tabletop UI.
-- **The D&D application/client** provides the rich player/DM experience: character building, campaign/world management, maps, encounters, live session play, and tactical combat.
+- **The D&D application/client** consumes Veyra-owned contracts to provide the rich player/DM experience: character building, campaign/world management, maps, encounters, live session play, and tactical combat.
 - **Khaos Nexus Desktop** stays focused on privileged administration/diagnostics rather than absorbing normal D&D gameplay.
 
 Existing validated D&D work from historical candidate lines is reference/migration material, not an instruction to restore the old application architecture wholesale.
@@ -43,7 +43,7 @@ Build the repository-backed content layer before expanding UI behavior.
 
 ## Phase DND-02 — Backend D&D domain completion
 
-Complete the backend contracts required by both Veyra and the player/DM client.
+Complete the Veyra-owned service contracts required by the player/DM client and the bounded Nexus gateway.
 
 Core domains:
 
@@ -61,7 +61,7 @@ Core domains:
 
 Migrate useful behavior incrementally from validated historical D&D candidates while preserving the current backend-first rule.
 
-**Exit:** all core gameplay state can be exercised through tested backend APIs without requiring Electron-specific state.
+**Exit:** all core gameplay state can be exercised through tested Veyra APIs without requiring Electron-specific or Nexus Backend-owned campaign state.
 
 ## Phase DND-03 — Veyra production integration
 

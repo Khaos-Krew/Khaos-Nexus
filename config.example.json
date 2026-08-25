@@ -202,10 +202,12 @@
       "channelId": "",
       "surface": "veyra",
       "provider": {
-        "type": "",
+        "type": "veyra",
         "baseUrl": "",
         "tokenEnv": "NEXUS_DND_PROVIDER_TOKEN",
-        "actions": []
+        "actions": [],
+        "timeoutMs": 10000,
+        "maxResponseBytes": 1048576
       }
     }
   }

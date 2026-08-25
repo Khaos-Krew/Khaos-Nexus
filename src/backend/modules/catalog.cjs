@@ -192,7 +192,7 @@ const MODULES = [
     ]
   },
   {
-    id: 'dnd', name: 'Nexus D&D', console: false, surface: 'veyra',
+    id: 'dnd', name: 'Nexus D&D', console: false, surface: 'veyra', authority: 'veyra',
     capabilities: [
       viewer('campaigns', 'Campaigns'), viewer('characters', 'Characters'), viewer('dice', 'Dice'), viewer('initiative', 'Initiative'),
       operator('encounters', 'Encounters'), operator('codex', 'Codex'), operator('sessions', 'Sessions'), operator('quests', 'Quests'),
@@ -209,6 +209,7 @@ function publicManifest(module) {
     name: module.name,
     console: module.console !== false,
     surface: module.surface || 'sentinel',
+    authority: module.authority || 'nexus-backend',
     capabilities: module.capabilities.map((cap) => ({ ...cap }))
   };
 }

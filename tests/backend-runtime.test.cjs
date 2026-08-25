@@ -49,6 +49,14 @@ test('provider availability and connected-server state are separate', () => {
   assert.deepEqual(external.availableActions, ['status', 'players']);
 });
 
+test('D&D manifest preserves Veyra as authoritative owner even before gateway configuration', () => {
+  const instance = new BackendRuntime({ config: { modules: { dnd: { enabled: true } } } });
+  const dnd = instance.manifests().find((item) => item.id === 'dnd');
+  assert.equal(dnd.surface, 'veyra');
+  assert.equal(dnd.authority, 'veyra');
+  assert.equal(dnd.authoritativeOwner, 'veyra');
+});
+
 test('backend rejects capability calls the active provider does not advertise', async () => {
   const instance = runtime({
     providerKind: 'ark-rcon',
