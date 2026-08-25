@@ -57,6 +57,11 @@ function bestCategoryMatch(channels, moduleId) {
   return best && best.score >= CATEGORY_MATCH_THRESHOLD ? best : null;
 }
 
+function uniqueNamedChannel(channels, type, name) {
+  const matches = [...channels.values()].filter((channel) => channel?.type === type && channel?.name === name);
+  return matches.length === 1 ? matches[0] : null;
+}
+
 class ModuleProvisioner {
   constructor({ state, config = {}, maxLobbiesPerModule = 20 } = {}) {
     this.state = state;
@@ -86,17 +91,34 @@ class ModuleProvisioner {
   async textChannel(guild, category, name) {
     const all = await guild.channels.fetch();
     const existing = all.find((channel) => channel?.type === ChannelType.GuildText && channel.parentId === category.id && channel.name === name);
-    if (existing) return { channel: existing, created: false };
+    if (existing) return { channel: existing, created: false, moved: false };
+
+    // A previous fuzzy-category mistake can leave a uniquely named managed channel
+    // under the wrong module. Move that channel instead of creating a duplicate and
+    // abandoning its messages/history.
+    const movable = uniqueNamedChannel(all, ChannelType.GuildText, name);
+    if (movable && typeof movable.setParent === 'function') {
+      await movable.setParent(category.id, { lockPermissions: true, reason: 'Nexus Sentinal module category repair' });
+      return { channel: movable, created: false, moved: true };
+    }
+
     const created = await guild.channels.create({ name, type: ChannelType.GuildText, parent: category.id, reason: 'Nexus Sentinal module setup/repair' });
-    return { channel: created, created: true };
+    return { channel: created, created: true, moved: false };
   }
 
   async lobbyBuilder(guild, category, name) {
     const all = await guild.channels.fetch();
     const existing = all.find((channel) => channel?.type === ChannelType.GuildVoice && channel.parentId === category.id && channel.name === name);
-    if (existing) return { channel: existing, created: false };
+    if (existing) return { channel: existing, created: false, moved: false };
+
+    const movable = uniqueNamedChannel(all, ChannelType.GuildVoice, name);
+    if (movable && typeof movable.setParent === 'function') {
+      await movable.setParent(category.id, { lockPermissions: true, reason: 'Nexus Sentinal join-to-build category repair' });
+      return { channel: movable, created: false, moved: true };
+    }
+
     const created = await guild.channels.create({ name, type: ChannelType.GuildVoice, parent: category.id, reason: 'Nexus Sentinal join-to-build lobby setup/repair' });
-    return { channel: created, created: true };
+    return { channel: created, created: true, moved: false };
   }
 
   async provision(guild, moduleId, categoryId = '') {
@@ -107,16 +129,19 @@ class ModuleProvisioner {
     const category = categoryResult.category;
     const textChannels = [];
     const createdChannels = [];
+    const movedChannels = [];
 
     for (const name of layout.text) {
       const result = await this.textChannel(guild, category, name);
       textChannels.push({ name, id: String(result.channel.id) });
       if (result.created) createdChannels.push(name);
+      if (result.moved) movedChannels.push(name);
     }
 
     const builderResult = await this.lobbyBuilder(guild, category, layout.lobbyBuilder);
     const builder = builderResult.channel;
     if (builderResult.created) createdChannels.push(layout.lobbyBuilder);
+    if (builderResult.moved) movedChannels.push(layout.lobbyBuilder);
     const accessPolicy = await reconcileModuleAccessPolicy(guild, moduleId, category, { state: this.state, config: this.config });
     const consoleChannel = textChannels.find((channel) => channel.name === layout.consoleChannel) || textChannels[0] || null;
     const setup = {
@@ -132,6 +157,7 @@ class ModuleProvisioner {
       lobbyBuilderChannelId: String(builder.id),
       lobbyBuilderName: String(builder.name),
       createdChannels,
+      movedChannels,
       accessPolicy: {
         ok: Boolean(accessPolicy.ok),
         skipped: Boolean(accessPolicy.skipped),
@@ -230,5 +256,6 @@ module.exports = {
   bestCategoryMatch,
   cleanLobbyOwner,
   normalizeDiscordName,
-  similarityScore
+  similarityScore,
+  uniqueNamedChannel
 };
