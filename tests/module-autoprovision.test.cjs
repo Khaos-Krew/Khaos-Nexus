@@ -8,7 +8,8 @@ const {
   categoryMatchesModule,
   setupHealthy,
   modulesNeedingProvision,
-  bootstrapCategoryAccess
+  bootstrapCategoryAccess,
+  createAutoprovisionRunQueue
 } = require('../src/sentinel/module-autoprovision-extension.cjs');
 
 function stateFor({ setups = {}, roles = {} } = {}) {
@@ -119,4 +120,39 @@ test('category bootstrap denies everyone before granting the module access role'
     { targetId: 'role-oncehuman', permissions: { ViewChannel: true } }
   ]);
   assert.equal(PermissionFlagsBits.ViewChannel > 0n, true);
+});
+
+test('slow topology reconciliation coalesces follow-up requests instead of overlapping them', async () => {
+  const calls = [];
+  let releaseFirst;
+  const firstGate = new Promise((resolve) => { releaseFirst = resolve; });
+  let first = true;
+  const queue = createAutoprovisionRunQueue(async (reason) => {
+    calls.push(`start:${reason}`);
+    if (first) {
+      first = false;
+      await firstGate;
+    }
+    calls.push(`end:${reason}`);
+  }, { logger: { log() {}, warn() {} }, now: () => 1 });
+
+  const startup = queue.request('startup');
+  await Promise.resolve();
+  const periodic = queue.request('periodic');
+  const roleChange = queue.request('role-change');
+  assert.equal(queue.isRunning(), true);
+  assert.deepEqual(queue.pending(), ['periodic', 'role-change']);
+  assert.equal(periodic, startup);
+  assert.equal(roleChange, startup);
+
+  releaseFirst();
+  await startup;
+  assert.deepEqual(calls, [
+    'start:startup',
+    'end:startup',
+    'start:queued:periodic+role-change',
+    'end:queued:periodic+role-change'
+  ]);
+  assert.equal(queue.isRunning(), false);
+  assert.deepEqual(queue.pending(), []);
 });
