@@ -140,7 +140,15 @@ test('Owner denial requires a reason and publishes that reason to the public car
   const client = {
     channels: {
       async fetch() {
-        return { messages: { async fetch() { return { async edit(payload) { publicEdited = payload; } }; } };
+        return {
+          messages: {
+            async fetch() {
+              return {
+                async edit(payload) { publicEdited = payload; }
+              };
+            }
+          }
+        };
       }
     }
   };
