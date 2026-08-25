@@ -116,9 +116,6 @@ async function reconcileNewModuleLayouts(client, { config, state, backend, provi
       const accessRoleId = String(access?.roleId || '');
       if (!accessRoleId || !roles.has(accessRoleId)) throw new Error('Access role became unavailable before provisioning.');
 
-      // Lock/adopt the category before any child channels are created. New child
-      // channels therefore inherit a deny-by-default category immediately instead
-      // of existing publicly while per-channel reconciliation is still running.
       const bootstrap = await bootstrapCategoryAccess(guild, provisioner, moduleId, accessRoleId);
       const setup = await provisioner.provision(guild, moduleId, String(bootstrap.category.id));
       setup.categoryCreated = Boolean(bootstrap.created);
@@ -143,9 +140,7 @@ async function reconcileNewModuleLayouts(client, { config, state, backend, provi
     }
   }
 
-  // Always reconcile names/order. This lets existing categories adopt current
-  // presentation styling even when no module needs provisioning on this pass.
-  const order = await reconcileGameCategoryOrder(guild)
+  const order = await reconcileGameCategoryOrder(guild, { config, botId: client.user?.id })
     .catch((error) => ({ ok: false, skipped: false, moved: 0, renamed: 0, reason: String(error?.message || error) }));
   return { provisioned, blocked: candidates.blocked, failed, order };
 }
@@ -170,7 +165,9 @@ function installModuleAutoprovisionExtension() {
         try {
           const result = await reconcileNewModuleLayouts(client, { config, state, backend, provisioner });
           const details = result.provisioned.map((item) => `${item.moduleId}:${item.categoryCreated ? 'created' : 'adopted'}${item.movedChannels.length ? `+moved${item.movedChannels.length}` : ''}`).join(', ') || 'none';
-          console.log(`[Nexus Sentinal] module auto-provision (${reason}): provisioned=${result.provisioned.length} [${details}] blocked=${result.blocked.length} failed=${result.failed.length} categoryRenames=${Number(result.order?.renamed || 0)} categoryMoves=${Number(result.order?.moved || 0)}`);
+          const hierarchy = (result.order?.hierarchy || []).join(' > ') || 'unavailable';
+          const missing = (result.order?.missing || []).join(',') || 'none';
+          console.log(`[Nexus Sentinal] module auto-provision (${reason}): provisioned=${result.provisioned.length} [${details}] blocked=${result.blocked.length} failed=${result.failed.length} categoryRenames=${Number(result.order?.renamed || 0)} categoryMoves=${Number(result.order?.moved || 0)} missingStructural=${missing} hierarchy=${hierarchy}`);
           for (const item of result.failed) console.warn(`[Nexus Sentinal] module auto-provision failed: ${item.moduleId}: ${item.reason}`);
         } catch (error) {
           console.warn(`[Nexus Sentinal] module auto-provision (${reason}) unavailable: ${String(error?.message || error).slice(0, 240)}`);
