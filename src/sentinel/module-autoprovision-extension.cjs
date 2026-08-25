@@ -11,6 +11,7 @@ const { reconcileGameCategoryOrder } = require('./category-order.cjs');
 const { reconcileNexusHq } = require('./nexus-hq.cjs');
 const { renderModuleConsole } = require('./module-console.cjs');
 const { ensurePanelMessage } = require('./persistent-panel-extension.cjs');
+const { createCoalescingRunner } = require('./coalescing-runner.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.moduleAutoprovision.extension');
 const INITIAL_PROVISION_DELAY_MS = 20_000;
@@ -148,6 +149,22 @@ async function reconcileNewModuleLayouts(client, { config, state, backend, provi
   return { provisioned, blocked: candidates.blocked, failed, hq, order };
 }
 
+function createAutoprovisionRunQueue(worker, options = {}) {
+  if (typeof worker !== 'function') throw new TypeError('worker must be a function');
+  const logger = options.logger || console;
+  const now = typeof options.now === 'function' ? options.now : Date.now;
+  return createCoalescingRunner(async (reason) => {
+    const startedAt = now();
+    logger.log?.(`[Nexus Sentinal] module auto-provision started: reason=${reason}`);
+    await worker(reason);
+    logger.log?.(`[Nexus Sentinal] module auto-provision finished: reason=${reason} durationMs=${Math.max(0, now() - startedAt)}`);
+  }, {
+    onError(error, reason) {
+      logger.warn?.(`[Nexus Sentinal] module auto-provision (${reason}) unavailable: ${String(error?.message || error).slice(0, 240)}`);
+    }
+  });
+}
+
 function installModuleAutoprovisionExtension() {
   if (Client.prototype[INSTALLED]) return;
   Client.prototype[INSTALLED] = true;
@@ -165,27 +182,26 @@ function installModuleAutoprovisionExtension() {
     const client = this;
     client.once(Events.ClientReady, () => {
       const run = async (reason) => {
-        try {
-          const result = await reconcileNewModuleLayouts(client, { config, state, backend, provisioner });
-          const details = result.provisioned.map((item) => `${item.moduleId}:${item.categoryCreated ? 'created' : 'adopted'}${item.movedChannels.length ? `+moved${item.movedChannels.length}` : ''}`).join(', ') || 'none';
-          const hierarchy = (result.order?.hierarchy || []).join(' > ') || 'unavailable';
-          const missing = (result.order?.missing || []).join(',') || 'none';
-          const hqState = result.hq?.ok
-            ? `ok+created${result.hq.channelsCreated?.length || 0}+moved${result.hq.channelsMoved?.length || 0}+renamed${result.hq.channelsRenamed?.length || 0}`
-            : `skipped:${String(result.hq?.skipped || result.hq?.reason || 'unavailable')}`;
-          console.log(`[Nexus Sentinal] module auto-provision (${reason}): provisioned=${result.provisioned.length} [${details}] blocked=${result.blocked.length} failed=${result.failed.length} hq=${hqState} categoryRenames=${Number(result.order?.renamed || 0)} categoryMoves=${Number(result.order?.moved || 0)} missingStructural=${missing} hierarchy=${hierarchy}`);
-          for (const item of result.failed) console.warn(`[Nexus Sentinal] module auto-provision failed: ${item.moduleId}: ${item.reason}`);
-        } catch (error) {
-          console.warn(`[Nexus Sentinal] module auto-provision (${reason}) unavailable: ${String(error?.message || error).slice(0, 240)}`);
-        }
+        const result = await reconcileNewModuleLayouts(client, { config, state, backend, provisioner });
+        const details = result.provisioned.map((item) => `${item.moduleId}:${item.categoryCreated ? 'created' : 'adopted'}${item.movedChannels.length ? `+moved${item.movedChannels.length}` : ''}`).join(', ') || 'none';
+        const hierarchy = (result.order?.hierarchy || []).join(' > ') || 'unavailable';
+        const missing = (result.order?.missing || []).join(',') || 'none';
+        const hqState = result.hq?.ok
+          ? `ok+created${result.hq.channelsCreated?.length || 0}+moved${result.hq.channelsMoved?.length || 0}+renamed${result.hq.channelsRenamed?.length || 0}`
+          : `skipped:${String(result.hq?.skipped || result.hq?.reason || 'unavailable')}`;
+        console.log(`[Nexus Sentinal] module auto-provision (${reason}): provisioned=${result.provisioned.length} [${details}] blocked=${result.blocked.length} failed=${result.failed.length} hq=${hqState} categoryRenames=${Number(result.order?.renamed || 0)} categoryMoves=${Number(result.order?.moved || 0)} missingStructural=${missing} hierarchy=${hierarchy}`);
+        for (const item of result.failed) console.warn(`[Nexus Sentinal] module auto-provision failed: ${item.moduleId}: ${item.reason}`);
       };
-      const initial = setTimeout(() => void run('startup'), INITIAL_PROVISION_DELAY_MS);
+      const queue = createAutoprovisionRunQueue(run);
+      const initial = setTimeout(() => void queue.request('startup'), INITIAL_PROVISION_DELAY_MS);
       initial.unref?.();
-      const periodic = setInterval(() => void run('periodic'), PERIODIC_PROVISION_MS);
+      const periodic = setInterval(() => void queue.request('periodic'), PERIODIC_PROVISION_MS);
       periodic.unref?.();
     });
     return originalLogin.apply(client, args);
   };
+
+  return originalLogin.apply(this, args);
 }
 
 module.exports = {
@@ -199,5 +215,6 @@ module.exports = {
   bootstrapCategoryAccess,
   publishModuleHub,
   reconcileNewModuleLayouts,
+  createAutoprovisionRunQueue,
   installModuleAutoprovisionExtension
 };
