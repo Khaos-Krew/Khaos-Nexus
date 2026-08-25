@@ -252,7 +252,16 @@ class WarframeProvider {
     return `${this.worldstateBase}/${encodeURIComponent(this.platform)}/${pathname}?language=en`;
   }
 
-  async worldstate(pathname) { return this.requestJson(this.worldstateUrl(pathname)); }
+  async worldstate(pathname) {
+    try {
+      return await this.requestJson(this.worldstateUrl(pathname));
+    } catch (error) {
+      if (!/\bHTTP 404\b/.test(String(error?.message || error))) throw error;
+      const snapshot = await this.requestJson(`${this.worldstateBase}/${encodeURIComponent(this.platform)}?language=en`);
+      if (snapshot && Object.prototype.hasOwnProperty.call(snapshot, pathname)) return snapshot[pathname];
+      throw error;
+    }
+  }
 
   async market(payload = {}) {
     const input = cleanText(payload.item || payload.query || payload.input || '', 120);
