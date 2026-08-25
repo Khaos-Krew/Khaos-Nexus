@@ -10,7 +10,11 @@ const {
   rankRoleIdsFrom,
   shadowRecruitRoleIdFrom,
   hqCategoryOverwrites,
-  matchingChannels
+  announcementOverwrites,
+  normalizedOverwritePlan,
+  overwriteSetMatches,
+  matchingChannels,
+  hqChannelsInDesiredRelativeOrder
 } = require('../src/sentinel/nexus-hq.cjs');
 
 function role(id, name) {
@@ -72,4 +76,63 @@ test('HQ category denies everyone and grants rank members normal community permi
   assert.ok(rank.allow.includes(PermissionFlagsBits.SendMessages));
   assert.ok(rank.allow.includes(PermissionFlagsBits.Connect));
   assert.ok(staff.allow.includes(PermissionFlagsBits.ManageMessages));
+});
+
+test('announcement permissions keep ranks read-only while staff can publish', () => {
+  const guild = { id: '900000000000000030', ownerId: '900000000000000031' };
+  const overwrites = announcementOverwrites(
+    guild,
+    ['900000000000000032'],
+    ['900000000000000033'],
+    '900000000000000034'
+  );
+  const rank = overwrites.find((item) => item.id === '900000000000000032');
+  const staff = overwrites.find((item) => item.id === '900000000000000033');
+  assert.ok(rank.allow.includes(PermissionFlagsBits.ViewChannel));
+  assert.equal(rank.allow.includes(PermissionFlagsBits.SendMessages), false);
+  assert.ok(rank.deny.includes(PermissionFlagsBits.SendMessages));
+  assert.ok(rank.deny.includes(PermissionFlagsBits.SendMessagesInThreads));
+  assert.ok(staff.allow.includes(PermissionFlagsBits.SendMessages));
+  assert.ok(staff.allow.includes(PermissionFlagsBits.ManageMessages));
+});
+
+test('permission overwrite comparison skips writes when the exact HQ plan is already applied', () => {
+  const guild = { id: '900000000000000040', ownerId: '900000000000000041' };
+  const desired = hqCategoryOverwrites(
+    guild,
+    ['900000000000000042'],
+    ['900000000000000043'],
+    '900000000000000044'
+  );
+  const planned = normalizedOverwritePlan(desired);
+  const cache = new Map(planned.map((entry) => [entry.id, {
+    id: entry.id,
+    type: entry.type,
+    allow: { bitfield: entry.allow },
+    deny: { bitfield: entry.deny }
+  }]));
+  const channel = { permissionOverwrites: { cache } };
+  assert.equal(overwriteSetMatches(channel, desired), true);
+  cache.set('900000000000000045', {
+    id: '900000000000000045',
+    type: 0,
+    allow: { bitfield: PermissionFlagsBits.ViewChannel },
+    deny: { bitfield: 0n }
+  });
+  assert.equal(overwriteSetMatches(channel, desired), false);
+});
+
+test('HQ channel ordering is drift-aware and only requests moves when relative order is wrong', () => {
+  const correct = [
+    { channel: { id: 'a', rawPosition: 10 } },
+    { channel: { id: 'b', rawPosition: 11 } },
+    { channel: { id: 'c', rawPosition: 14 } }
+  ];
+  const drifted = [
+    { channel: { id: 'a', rawPosition: 10 } },
+    { channel: { id: 'b', rawPosition: 15 } },
+    { channel: { id: 'c', rawPosition: 14 } }
+  ];
+  assert.equal(hqChannelsInDesiredRelativeOrder(correct), true);
+  assert.equal(hqChannelsInDesiredRelativeOrder(drifted), false);
 });
