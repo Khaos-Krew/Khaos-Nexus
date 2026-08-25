@@ -12,7 +12,24 @@ const TARGETED_CACHE_MS = 5 * 60 * 1000;
 const SET_FILES = Object.freeze(['gear/brand_sets.csv', 'gear/gear_sets.csv']);
 
 function cleanText(value, max = 300) {
-  return String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+  return String(value ?? '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#x27;|&#39;|&#039;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
+function stripHtml(value, max = 600) {
+  return cleanText(String(value || '')
+    .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' '), max);
 }
 
 function nextDailyReset(now = new Date()) {
@@ -24,7 +41,7 @@ function nextDailyReset(now = new Date()) {
 
 function parseTargetedLootText(text) {
   const lines = String(text || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const result = { date:'', rotation:'', missions:[], vendorCaches:[], updatedAt:'' };
+  const result = { date:'', rotation:'', missions:[], vendorCaches:[], updatedAt:'', sourceMode:'static-text' };
   let section = '';
   for (const line of lines) {
     if (/^Date:/i.test(line)) { result.date = cleanText(line.replace(/^Date:\s*/i, ''), 40); continue; }
@@ -46,6 +63,46 @@ function parseTargetedLootText(text) {
   return result;
 }
 
+function tableCells(rowHtml) {
+  const cells = [];
+  const cellRegex = /<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi;
+  let match;
+  while ((match = cellRegex.exec(String(rowHtml || '')))) cells.push(stripHtml(match[1], 220));
+  return cells.filter(Boolean);
+}
+
+function parseTargetedLootHtml(html) {
+  const raw = String(html || '');
+  const plain = stripHtml(raw, 20_000);
+  const result = { date:'', rotation:'', missions:[], vendorCaches:[], updatedAt:'', sourceMode:'live-page' };
+  const dateMatch = /\bDate:\s*(\d{4}-\d{2}-\d{2})\b/i.exec(plain);
+  const updatedMatch = /\bUpdated:\s*(\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2})\b/i.exec(plain);
+  result.date = dateMatch?.[1] || '';
+  result.updatedAt = updatedMatch?.[1] || '';
+  if (/Weekly Escalation Rotation/i.test(plain)) result.rotation = 'Weekly Escalation Rotation';
+  else if (/Global Target Loot/i.test(plain)) result.rotation = 'Global Target Loot';
+
+  const rowRegex = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
+  let rowMatch;
+  while ((rowMatch = rowRegex.exec(raw))) {
+    const cells = tableCells(rowMatch[1]);
+    if (!/^\d+$/.test(cells[0] || '')) continue;
+    if (cells.length >= 4) {
+      const area = cleanText(cells[1], 160);
+      const target = cleanText(cells[2], 160);
+      const category = cleanText(cells[3], 100);
+      if (area && target && !/^not selected$/i.test(target)) result.missions.push({ area, target, category:category || null });
+      continue;
+    }
+    if (cells.length === 3) {
+      const type = cleanText(cells[1], 160);
+      const target = cleanText(cells[2], 160);
+      if (type && target && !/^not selected$/i.test(target)) result.vendorCaches.push({ type, target });
+    }
+  }
+  return result;
+}
+
 function compactSetRow(row = {}, source = '') {
   const bonuses = [];
   for (const key of ['1pc_bonus','2pc_bonus','3pc_bonus','4pc_bonus']) {
@@ -58,6 +115,22 @@ function compactSetRow(row = {}, source = '') {
     coreStat: cleanText(row.default_core_stat_id, 120) || null,
     bonuses
   };
+}
+
+async function fetchText(fetchImpl, url, accept = 'text/plain,*/*;q=0.5') {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  timer.unref?.();
+  try {
+    const response = await fetchImpl(url, {
+      headers: { accept, 'user-agent':'Khaos-Nexus/0.1 Division2 targeted-loot' },
+      signal: controller.signal
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.text();
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 class LiveDivision2Provider extends Division2Provider {
@@ -73,42 +146,53 @@ class LiveDivision2Provider extends Division2Provider {
 
   async targetedLoot() {
     if (this.targetedCache && this.targetedCache.expiresAt > Date.now()) return this.targetedCache.data;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10_000);
-    timer.unref?.();
+    let parsed = null;
+    let pageError = null;
+    let textError = null;
+
     try {
-      const response = await this.fetchImpl(this.targetedLootUrl, {
-        headers: { accept:'text/plain,*/*;q=0.5', 'user-agent':'Khaos-Nexus/0.1 Division2 targeted-loot' },
-        signal: controller.signal
-      });
-      if (!response.ok) throw new Error(`Targeted-loot source returned HTTP ${response.status}.`);
-      const parsed = parseTargetedLootText(await response.text());
-      if (!parsed.missions.length) throw new Error('Targeted-loot source returned no mission allocations.');
-      const reset = nextDailyReset(new Date());
-      const data = {
-        ...parsed,
-        source: 'ProtoTrack.gg community target-loot tracker',
-        sourceUrl: this.targetedPageUrl,
-        nextResetAt: reset.toISOString(),
-        nextResetUnix: Math.floor(reset.getTime() / 1000),
-        resetCadence: 'Daily at 08:00 UTC (community-tracked)',
-        warning: 'Targeted-loot allocation is community-tracked data, not an official Ubisoft API. Sentinel will show unavailable rather than inventing locations if the source cannot be parsed.'
-      };
-      this.targetedCache = { data, expiresAt:Date.now() + this.targetedCacheMs };
-      return data;
+      const html = await fetchText(this.fetchImpl, this.targetedPageUrl, 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.5');
+      const candidate = parseTargetedLootHtml(html);
+      if (!candidate.missions.length) throw new Error('live page returned no target-loot allocations');
+      parsed = candidate;
     } catch (error) {
-      const reset = nextDailyReset(new Date());
+      pageError = error;
+    }
+
+    if (!parsed) {
+      try {
+        const text = await fetchText(this.fetchImpl, this.targetedLootUrl);
+        const candidate = parseTargetedLootText(text);
+        if (!candidate.missions.length) throw new Error('static text returned no target-loot allocations');
+        parsed = candidate;
+      } catch (error) {
+        textError = error;
+      }
+    }
+
+    const reset = nextDailyReset(new Date());
+    if (!parsed) {
       return {
-        date: '', rotation:'', missions:[], vendorCaches:[], updatedAt:'',
+        date:'', rotation:'', missions:[], vendorCaches:[], updatedAt:'', sourceMode:'unavailable',
         source:'ProtoTrack.gg community target-loot tracker', sourceUrl:this.targetedPageUrl,
         nextResetAt:reset.toISOString(), nextResetUnix:Math.floor(reset.getTime()/1000),
         resetCadence:'Daily at 08:00 UTC (community-tracked)',
         unavailable:true,
-        warning:cleanText(error?.message || error, 360)
+        warning:cleanText(`Live page unavailable (${pageError?.message || 'unknown'}); static fallback unavailable (${textError?.message || 'unknown'}).`, 360)
       };
-    } finally {
-      clearTimeout(timer);
     }
+
+    const data = {
+      ...parsed,
+      source:'ProtoTrack.gg community target-loot tracker',
+      sourceUrl:this.targetedPageUrl,
+      nextResetAt:reset.toISOString(),
+      nextResetUnix:Math.floor(reset.getTime()/1000),
+      resetCadence:'Daily at 08:00 UTC (community-tracked)',
+      warning:'Targeted-loot allocation is community-tracked data, not an official Ubisoft API. Sentinel prefers ProtoTrack’s live public page and falls back to its static text snapshot; it will show unavailable rather than inventing locations.'
+    };
+    this.targetedCache = { data, expiresAt:Date.now() + this.targetedCacheMs };
+    return data;
   }
 
   async setBonuses(payload = {}) {
@@ -148,6 +232,7 @@ module.exports = {
   TARGETED_LOOT_PAGE_URL,
   SET_FILES,
   parseTargetedLootText,
+  parseTargetedLootHtml,
   nextDailyReset,
   compactSetRow,
   parseCsv
