@@ -2,16 +2,12 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 const {
   DEFAULT_MINIMUM_LEVEL,
   minimumCreatorLevel,
   evaluateCreatorEligibility,
   eligibilityMessage
 } = require('../src/sentinel/creator-level-gate.cjs');
-
-const gateDoc = fs.readFileSync(path.join(__dirname, '..', 'docs', 'CREATOR_LEVEL_GATE.md'), 'utf8');
 
 test('creator application level gate defaults to level 10 and is configurable', () => {
   assert.equal(DEFAULT_MINIMUM_LEVEL, 10);
@@ -30,17 +26,20 @@ test('creator eligibility denies below threshold and accepts exact threshold', (
   const accepted = evaluateCreatorEligibility({ ok: true, profile: { level: 10 } }, 10);
   assert.equal(accepted.eligible, true);
   assert.equal(accepted.verifiable, true);
+  assert.equal(accepted.reason, 'eligible');
 });
 
 test('creator eligibility fails closed when Community XP cannot be verified', () => {
   const result = evaluateCreatorEligibility({ ok: false }, 10);
   assert.equal(result.eligible, false);
   assert.equal(result.verifiable, false);
+  assert.equal(result.reason, 'level-unavailable');
   assert.match(eligibilityMessage(result), /could not verify/i);
 });
 
-test('creator application level gate preserves existing approved creators', () => {
-  assert.match(gateDoc, /does not revoke or downgrade already-approved creators/i);
-  assert.match(gateDoc, /revocation remains a staff moderation action/i);
-  assert.match(gateDoc, /immutable Discord user IDs/i);
+test('creator level configuration is bounded and cannot disable the eligibility requirement', () => {
+  assert.equal(minimumCreatorLevel({ discord: { creatorProgram: { minimumLevel: 0 } } }, {}), 1);
+  assert.equal(minimumCreatorLevel({ discord: { creatorProgram: { minimumLevel: -20 } } }, {}), 1);
+  assert.equal(minimumCreatorLevel({ discord: { creatorProgram: { minimumLevel: 5000 } } }, {}), 1000);
+  assert.equal(minimumCreatorLevel({ discord: { creatorProgram: { minimumLevel: 'not-a-level' } } }, {}), DEFAULT_MINIMUM_LEVEL);
 });
