@@ -5,6 +5,7 @@ const { NEXUS_RANKS } = require('../shared/ranks.cjs');
 
 const HQ_CATEGORY_NAME = '🌐 NEXUS HQ';
 const HQ_CATEGORY_ALIASES = Object.freeze(['nexus hq', 'nexus headquarters', 'community hq']);
+const INFORMATION_CATEGORY_ALIASES = Object.freeze(['information', 'info']);
 
 const HQ_CHANNELS = Object.freeze([
   Object.freeze({
@@ -146,6 +147,11 @@ function findHqCategory(channels) {
   return valuesOf(channels).find((channel) => channel?.type === ChannelType.GuildCategory && wanted.has(normalizedName(channel.name))) || null;
 }
 
+function findInformationCategory(channels) {
+  const wanted = new Set(INFORMATION_CATEGORY_ALIASES.map(normalizedName));
+  return valuesOf(channels).find((channel) => channel?.type === ChannelType.GuildCategory && wanted.has(normalizedName(channel.name))) || null;
+}
+
 function rankRoleIdsFrom(roles, config = {}) {
   const allRoles = valuesOf(roles);
   const wantedNames = new Set(NEXUS_RANKS.map((rank) => normalizedName(rank.name)));
@@ -242,6 +248,71 @@ function aliasesFor(spec) {
 function matchingChannels(channels, spec) {
   const wanted = aliasesFor(spec);
   return valuesOf(channels).filter((channel) => channel?.type === spec.type && wanted.has(normalizedName(channel.name)));
+}
+
+function isOnboardingReadabilityError(error) {
+  return Number(error?.code || error?.rawError?.code || 0) === 350003
+    || /onboarding channels must be readable by everyone/i.test(String(error?.message || error || ''));
+}
+
+function legacyOnboardingArchiveName(spec, channel) {
+  const suffix = String(channel?.id || '').slice(-4);
+  return `${String(spec?.name || 'channel').toLowerCase().replace(/[^a-z0-9-]+/g, '-')}-legacy-onboarding${suffix ? `-${suffix}` : ''}`.slice(0, 100);
+}
+
+async function archiveBlockedOnboardingChannel(guild, hqCategory, spec, channel, channels, replacementOverwrites) {
+  const information = findInformationCategory(channels);
+  if (!information) return { ok: false, reason: 'information-category-missing' };
+  if (!channel || typeof channel.setParent !== 'function') return { ok: false, reason: 'legacy-channel-move-unavailable' };
+
+  await channel.setParent(String(information.id), {
+    lockPermissions: false,
+    reason: 'Nexus Sentinal: preserve Discord-orphaned onboarding channel outside private Nexus HQ'
+  });
+
+  const legacyName = legacyOnboardingArchiveName(spec, channel);
+  if (String(channel.name || '') !== legacyName && typeof channel.setName === 'function') {
+    await channel.setName(legacyName, 'Nexus Sentinal: preserve orphaned onboarding history under a legacy name');
+  }
+  if (typeof channel.setTopic === 'function') {
+    await channel.setTopic(
+      'Legacy Discord onboarding archive preserved because Discord still requires this historical channel to remain readable. New member introductions now use the private Nexus HQ #introductions channel.',
+      'Nexus Sentinal: mark orphaned onboarding history as legacy'
+    ).catch(() => {});
+  }
+
+  let archiveReadOnly = false;
+  if (channel.permissionOverwrites?.edit) {
+    try {
+      await channel.permissionOverwrites.edit(String(guild.id), {
+        SendMessages: false,
+        SendMessagesInThreads: false,
+        AddReactions: false,
+        CreatePublicThreads: false,
+        CreatePrivateThreads: false
+      }, { reason: 'Nexus Sentinal: keep orphaned onboarding history read-only' });
+      archiveReadOnly = true;
+    } catch {}
+  }
+
+  const createOptions = {
+    name: spec.name,
+    type: spec.type,
+    parent: String(hqCategory.id),
+    permissionOverwrites: replacementOverwrites,
+    reason: 'Nexus Sentinal: replace Discord-orphaned onboarding channel with a private Nexus HQ channel'
+  };
+  if (spec.topic) createOptions.topic = spec.topic;
+  const replacement = await guild.channels.create(createOptions);
+  channels?.set?.(String(replacement.id), replacement);
+
+  return {
+    ok: true,
+    legacyChannelId: String(channel.id || ''),
+    legacyChannelName: legacyName,
+    replacement,
+    archiveReadOnly
+  };
 }
 
 async function ensureCategory(guild, channels) {
@@ -384,32 +455,76 @@ async function orderHqChannels(results = []) {
 async function reconcileNexusHq(guild, options = {}) {
   const config = options.config || {};
   const botId = String(options.botId || guild?.client?.user?.id || '');
-  const [roles] = await Promise.all([guild.roles.fetch(), guild.channels.fetch()]);
-  const channels = guild.channels.cache;
+  let roles = options.rolesSnapshot || null;
+  let channels = options.channelsSnapshot || null;
+  if (!roles) roles = await guild.roles.fetch();
+  if (!channels) channels = await guild.channels.fetch();
+
   const shadowRecruitRoleId = shadowRecruitRoleIdFrom(roles, config);
   if (!shadowRecruitRoleId) return { ok: false, skipped: 'shadow-recruit-role-missing' };
 
   const rankRoleIds = rankRoleIdsFrom(roles, config);
   const operatorRoleIds = operatorRoleIdsFrom(roles, config);
   const categoryResult = await ensureCategory(guild, channels);
+  const categoryPlan = hqCategoryOverwrites(guild, rankRoleIds, operatorRoleIds, botId);
+  const childPlan = hqChildRequiredOverwrites(guild, rankRoleIds);
   const categoryPermissionsUpdated = await applyCategoryAccess(categoryResult.category, guild, rankRoleIds, operatorRoleIds, botId);
 
   const channelResults = [];
   for (const spec of HQ_CHANNELS) channelResults.push(await ensureChannel(guild, categoryResult.category, spec, channels));
+
+  const legacyOnboardingArchives = [];
+  let preLocked = 0;
+  const preBlocked = [];
+  const introductionsIndex = HQ_CHANNELS.findIndex((spec) => spec.key === 'introductions');
+  if (introductionsIndex >= 0) {
+    const introductions = channelResults[introductionsIndex]?.channel || null;
+    if (introductions && !hqChildAccessSatisfies(introductions, categoryResult.category, childPlan)) {
+      try {
+        await introductions.lockPermissions('Nexus Sentinal: inherit Shadow Recruit+ Nexus HQ access');
+        preLocked += 1;
+      } catch (error) {
+        if (isOnboardingReadabilityError(error)) {
+          const migration = await archiveBlockedOnboardingChannel(
+            guild,
+            categoryResult.category,
+            HQ_CHANNELS[introductionsIndex],
+            introductions,
+            channels,
+            categoryPlan
+          ).catch((migrationError) => ({ ok: false, reason: String(migrationError?.message || migrationError).slice(0, 180) }));
+          if (migration.ok) {
+            channelResults[introductionsIndex].channel = migration.replacement;
+            channelResults[introductionsIndex].created = true;
+            channelResults[introductionsIndex].moved = false;
+            legacyOnboardingArchives.push({
+              legacyChannelId: migration.legacyChannelId,
+              legacyChannelName: migration.legacyChannelName,
+              replacementChannelId: String(migration.replacement?.id || ''),
+              archiveReadOnly: migration.archiveReadOnly
+            });
+          } else {
+            preBlocked.push(`introductions:${migration.reason || 'legacy-onboarding-migration-failed'}`);
+          }
+        } else {
+          preBlocked.push(`introductions:${String(error?.message || error).slice(0, 120)}`);
+        }
+      }
+    }
+  }
+
   const announcements = channelResults[0]?.channel || null;
+  const introductionsId = String(channelResults[introductionsIndex]?.channel?.id || '');
   const canonicalChannels = new Map(channelResults.map((item) => [String(item.channel?.id || ''), item.channel]).filter(([id]) => id));
-  const childAccess = await lockHqChildren(
-    categoryResult.category,
-    canonicalChannels,
-    hqChildRequiredOverwrites(guild, rankRoleIds),
-    announcements?.id ? [announcements.id] : []
-  );
+  const excludedIds = [announcements?.id, introductionsId, ...preBlocked.map(() => '')].filter(Boolean);
+  const childAccess = await lockHqChildren(categoryResult.category, canonicalChannels, childPlan, excludedIds);
+  const blocked = [...preBlocked, ...childAccess.blocked];
   const announcementReadOnly = await makeAnnouncementsReadOnly(announcements, guild, rankRoleIds, operatorRoleIds, botId);
   const positionsUpdated = await orderHqChannels(channelResults);
 
   return {
-    ok: childAccess.blocked.length === 0,
-    skipped: childAccess.blocked.length ? `child-access-blocked:${childAccess.blocked.join('|').slice(0, 240)}` : '',
+    ok: blocked.length === 0,
+    skipped: blocked.length ? `child-access-blocked:${blocked.join('|').slice(0, 240)}` : '',
     categoryId: String(categoryResult.category.id || ''),
     categoryCreated: categoryResult.created,
     categoryRenamed: categoryResult.renamed,
@@ -421,8 +536,9 @@ async function reconcileNexusHq(guild, options = {}) {
     channelsMoved: channelResults.filter((item) => item.moved).map((item) => String(item.channel?.name || '')),
     channelsRenamed: channelResults.filter((item) => item.renamed).map((item) => String(item.channel?.name || '')),
     topicsUpdated: channelResults.filter((item) => item.topicUpdated).map((item) => String(item.channel?.name || '')),
-    childrenLocked: childAccess.locked,
-    childrenBlocked: childAccess.blocked,
+    childrenLocked: preLocked + childAccess.locked,
+    childrenBlocked: blocked,
+    legacyOnboardingArchives,
     announcementReadOnly,
     positionsUpdated
   };
@@ -431,6 +547,7 @@ async function reconcileNexusHq(guild, options = {}) {
 module.exports = {
   HQ_CATEGORY_NAME,
   HQ_CATEGORY_ALIASES,
+  INFORMATION_CATEGORY_ALIASES,
   HQ_CHANNELS,
   normalizedName,
   normalizeIds,
@@ -439,6 +556,7 @@ module.exports = {
   overwriteSetMatches,
   overwritePlanSatisfies,
   findHqCategory,
+  findInformationCategory,
   rankRoleIdsFrom,
   shadowRecruitRoleIdFrom,
   operatorRoleIdsFrom,
@@ -447,6 +565,9 @@ module.exports = {
   hqChildRequiredOverwrites,
   announcementOverwrites,
   matchingChannels,
+  isOnboardingReadabilityError,
+  legacyOnboardingArchiveName,
+  archiveBlockedOnboardingChannel,
   hqChildAccessSatisfies,
   lockHqChildren,
   hqChannelsInDesiredRelativeOrder,
