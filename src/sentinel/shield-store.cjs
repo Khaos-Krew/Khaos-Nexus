@@ -42,6 +42,19 @@ function severityRank(state) {
   return ({ normal: 0, watch: 1, suspicious: 2, quarantined: 3 })[String(state || '')] ?? 0;
 }
 
+function clone(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
+function normalizedControls(value = {}) {
+  return {
+    quarantineRoleApplied: Boolean(value.quarantineRoleApplied),
+    shieldTimeoutUntil: boundedText(value.shieldTimeoutUntil, 40),
+    reportRecommended: Boolean(value.reportRecommended),
+    escalated: Boolean(value.escalated)
+  };
+}
+
 class ShieldStore {
   constructor(root = process.env.NEXUS_DATA_DIR || path.resolve(__dirname, '../..')) {
     this.dir = process.env.NEXUS_DATA_DIR ? path.resolve(root) : path.join(root, 'data');
@@ -58,6 +71,7 @@ class ShieldStore {
     state.joins = Array.isArray(state.joins) ? state.joins : [];
     state.members ||= {};
     state.cases ||= {};
+    for (const record of Object.values(state.cases)) record.controls = normalizedControls(record.controls);
     state.nextCaseNumber = Math.max(1, Number(state.nextCaseNumber) || 1);
     state.audit = Array.isArray(state.audit) ? state.audit : [];
     return state;
@@ -72,7 +86,7 @@ class ShieldStore {
 
   getInfrastructure() {
     const value = this.read().infrastructure;
-    return value ? JSON.parse(JSON.stringify(value)) : null;
+    return clone(value);
   }
 
   setInfrastructure(value = {}) {
@@ -122,8 +136,7 @@ class ShieldStore {
   }
 
   getMember(userId) {
-    const member = this.read().members?.[String(userId || '')];
-    return member ? JSON.parse(JSON.stringify(member)) : null;
+    return clone(this.read().members?.[String(userId || '')] || null);
   }
 
   recordSignal(userId, type, detail = {}, now = Date.now()) {
@@ -178,9 +191,13 @@ class ShieldStore {
     return `SEC-${String(number).padStart(4, '0')}`;
   }
 
+  getCase(caseId) {
+    return clone(this.read().cases?.[String(caseId || '').toUpperCase()] || null);
+  }
+
   openCaseForUser(userId) {
     const id = String(userId || '');
-    return Object.values(this.read().cases).find((item) => String(item.userId || '') === id && item.status === 'open') || null;
+    return clone(Object.values(this.read().cases).find((item) => String(item.userId || '') === id && item.status === 'open') || null);
   }
 
   upsertCase(userId, risk = {}, evidence = {}, now = Date.now()) {
@@ -203,10 +220,12 @@ class ShieldStore {
         score: Number(risk.score) || 0,
         reasons: [],
         evidence: [],
-        actions: []
+        actions: [],
+        controls: normalizedControls()
       };
       state.cases[caseId] = record;
     }
+    record.controls = normalizedControls(record.controls);
     record.updatedAt = iso(current);
     if (severityRank(risk.state) >= severityRank(record.riskState)) record.riskState = String(risk.state || record.riskState);
     record.score = Math.max(Number(record.score) || 0, Number(risk.score) || 0);
@@ -217,11 +236,28 @@ class ShieldStore {
     }
     this.write(state);
     return {
-      record: JSON.parse(JSON.stringify(record)),
+      record: clone(record),
       created,
       escalated: severityRank(record.riskState) > severityRank(previousRisk),
       previousRisk
     };
+  }
+
+  setCaseControls(caseId, patch = {}, now = Date.now()) {
+    const state = this.read();
+    const id = String(caseId || '').toUpperCase();
+    const record = state.cases?.[id];
+    if (!record) return null;
+    const current = normalizedControls(record.controls);
+    const next = { ...current };
+    if (Object.prototype.hasOwnProperty.call(patch, 'quarantineRoleApplied')) next.quarantineRoleApplied = Boolean(patch.quarantineRoleApplied);
+    if (Object.prototype.hasOwnProperty.call(patch, 'shieldTimeoutUntil')) next.shieldTimeoutUntil = boundedText(patch.shieldTimeoutUntil, 40);
+    if (Object.prototype.hasOwnProperty.call(patch, 'reportRecommended')) next.reportRecommended = Boolean(patch.reportRecommended);
+    if (Object.prototype.hasOwnProperty.call(patch, 'escalated')) next.escalated = Boolean(patch.escalated);
+    record.controls = next;
+    record.updatedAt = iso(now);
+    this.write(state);
+    return clone(record);
   }
 
   addCaseAction(caseId, action, actorId = 'sentinal', detail = '', now = Date.now()) {
@@ -236,7 +272,7 @@ class ShieldStore {
     }].slice(-100);
     record.updatedAt = iso(now);
     this.write(state);
-    return JSON.parse(JSON.stringify(record));
+    return clone(record);
   }
 
   closeCase(caseId, actorId, resolution = '', now = Date.now()) {
@@ -250,11 +286,11 @@ class ShieldStore {
     record.resolution = boundedText(resolution, 500);
     record.updatedAt = iso(now);
     this.write(state);
-    return JSON.parse(JSON.stringify(record));
+    return clone(record);
   }
 
   listCases() {
-    return JSON.parse(JSON.stringify(this.read().cases || {}));
+    return clone(this.read().cases || {});
   }
 
   addAudit(event, detail = {}, now = Date.now()) {
@@ -275,6 +311,7 @@ module.exports = {
   emptyState,
   boundedText,
   severityRank,
+  normalizedControls,
   MAX_JOINS,
   MAX_MEMBER_SIGNALS,
   MAX_MEMBER_MESSAGES,
