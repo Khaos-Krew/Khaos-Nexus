@@ -179,6 +179,27 @@ class EventManager {
       return event;
     });
   }
+
+  syncSchedulingPoll(id) {
+    const event = this.store.get(id);
+    if (!event) throw new Error(`${eventId(id)} does not exist.`);
+    if (!event.pollId || event.status !== 'draft' || !this.pollEngine) return { event, changed: false, reason: 'not-awaiting-poll' };
+    const poll = this.pollEngine.get(event.pollId, { includeVotes: false });
+    if (!poll?.finalResult || poll.status !== 'closed') return { event, changed: false, reason: 'poll-not-final' };
+    const winners = poll.finalResult.winnerOptionIds || [];
+    if (winners.length !== 1) return { event, changed: false, reason: 'no-single-winner' };
+    const winner = (poll.options || []).find((option) => String(option.id) === String(winners[0]));
+    if (!winner || Number.isNaN(Date.parse(winner.label))) return { event, changed: false, reason: 'winner-not-a-date' };
+    return { event: this.schedule(event.id, winner.label, 'poll-engine'), changed: true, reason: 'scheduled-from-poll' };
+  }
+
+  syncSchedulingPolls() {
+    const results = [];
+    for (const event of this.store.list({ statuses: ['draft'] })) {
+      if (event.pollId) results.push({ id: event.id, ...this.syncSchedulingPoll(event.id) });
+    }
+    return results;
+  }
 }
 
 module.exports = { EVENT_ID_RE, EVENT_STATUSES, EventManager, EventStore, clean, defaultEventFile, eventId, iso };

@@ -65,3 +65,27 @@ test('invalid event time ranges fail before persistence', () => {
     assert.equal(fx.events.store.list().length, 0);
   } finally { fs.rmSync(fx.root, { recursive: true, force: true }); }
 });
+
+test('a single valid scheduling-poll winner promotes the linked draft with an audit record', async () => {
+  const kit = fixture();
+  const event = kit.events.create({ title: 'Community Night', startAt: '2026-09-01T20:00:00Z', scheduleOptions: ['2026-09-02T20:00:00Z', '2026-09-03T20:00:00Z'], hostId: 'staff' });
+  kit.polls.castVote(event.pollId, { id: 'member', roleIds: [] }, 'OPT-2');
+  await kit.polls.close(event.pollId, 'staff');
+  const result = kit.events.syncSchedulingPoll(event.id);
+  assert.equal(result.changed, true);
+  assert.equal(result.event.status, 'scheduled');
+  assert.equal(result.event.startAt, '2026-09-03T20:00:00.000Z');
+  assert.equal(result.event.audit.at(-1).actorId, 'poll-engine');
+  assert.equal(kit.events.syncSchedulingPoll(event.id).changed, false);
+});
+
+test('non-date poll winners remain drafts for explicit staff scheduling', async () => {
+  const kit = fixture();
+  const event = kit.events.create({ title: 'Activity Vote', startAt: '2026-09-01T20:00:00Z', scheduleOptions: ['Raid', 'Tournament'] });
+  kit.polls.castVote(event.pollId, { id: 'member', roleIds: [] }, 'OPT-1');
+  await kit.polls.close(event.pollId);
+  const result = kit.events.syncSchedulingPoll(event.id);
+  assert.equal(result.changed, false);
+  assert.equal(result.reason, 'winner-not-a-date');
+  assert.equal(result.event.status, 'draft');
+});

@@ -15,6 +15,7 @@ const CHANNEL_NAME = 'events';
 const CHANNEL_TOPIC = 'Official Khaos Nexus events, schedules, locations, and status updates.';
 const CARD_PREFIX = 'Nexus Sentinal • Managed Event • ';
 const INITIAL_DELAY_MS = 120_000;
+const TICK_MS = 60_000;
 
 function eventCommand() {
   const command = new SlashCommandBuilder().setName('event').setDescription('Create and manage official Nexus events.');
@@ -168,9 +169,18 @@ function installEventManagementExtension() {
         console.log(`[Nexus Sentinal] events: channel=${context.channel.id} channelCreated=${eventResult.created} command=/${command} active=${manager.store.list({ statuses: ['draft', 'scheduled'] }).length} cardsCreated=${created}`);
       })().catch((error) => console.warn(`[Nexus Sentinal] events unavailable: ${String(error?.message || error).slice(0, 240)}`)), INITIAL_DELAY_MS);
       timer.unref?.();
+      const periodic = setInterval(() => {
+        if (!context) return;
+        void (async () => {
+          const changed = manager.syncSchedulingPolls().filter((result) => result.changed);
+          for (const result of changed) await reconcileEventCard(client, context.channel, manager, result.id);
+          if (changed.length) console.log(`[Nexus Sentinal] events scheduling: promoted=${changed.map((result) => result.id).join(',')}`);
+        })().catch((error) => console.warn(`[Nexus Sentinal] event scheduler unavailable: ${String(error?.message || error).slice(0, 240)}`));
+      }, TICK_MS);
+      periodic.unref?.();
     });
     return originalLogin.apply(client, args);
   };
 }
 
-module.exports = { CARD_PREFIX, CHANNEL_NAME, ensureEventsChannel, eventCommand, eventStatus, handleEventCommand, installEventManagementExtension, reconcileEventCard, registerEventCommand, renderEventCard, requireEventManager };
+module.exports = { CARD_PREFIX, CHANNEL_NAME, TICK_MS, ensureEventsChannel, eventCommand, eventStatus, handleEventCommand, installEventManagementExtension, reconcileEventCard, registerEventCommand, renderEventCard, requireEventManager };
