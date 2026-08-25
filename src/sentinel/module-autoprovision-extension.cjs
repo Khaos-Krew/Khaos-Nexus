@@ -14,7 +14,7 @@ const { ensurePanelMessage } = require('./persistent-panel-extension.cjs');
 const { createCoalescingRunner } = require('./coalescing-runner.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.moduleAutoprovision.extension');
-const INITIAL_PROVISION_DELAY_MS = 20_000;
+const INITIAL_PROVISION_DELAY_MS = 160_000;
 const PERIODIC_PROVISION_MS = 5 * 60_000;
 
 function enabledSentinelModules(config = {}) {
@@ -106,9 +106,11 @@ async function publishModuleHub(client, backend, state, setup, moduleId, logger 
 async function reconcileNewModuleLayouts(client, { config, state, backend, provisioner, logger = console } = {}) {
   const guildId = String(config?.discord?.guildId || '');
   if (!guildId) return { skipped: 'guild-not-configured', provisioned: [], blocked: [], hq: null, order: null };
+  const inventoryStartedAt = Date.now();
   const guild = await client.guilds.fetch(guildId);
   const [channels, roles] = await Promise.all([guild.channels.fetch(), guild.roles.fetch()]);
   const candidates = modulesNeedingProvision(config, state, channels, roles);
+  logger.log?.(`[Nexus Sentinal] module auto-provision inventory: channels=${Number(channels?.size || 0)} roles=${Number(roles?.size || 0)} pending=${candidates.pending.length} blocked=${candidates.blocked.length} durationMs=${Date.now() - inventoryStartedAt}`);
   const provisioned = [];
   const failed = [];
 
@@ -142,10 +144,17 @@ async function reconcileNewModuleLayouts(client, { config, state, backend, provi
     }
   }
 
+  const hqStartedAt = Date.now();
+  logger.log?.('[Nexus Sentinal] module auto-provision phase: nexus-hq started');
   const hq = await reconcileNexusHq(guild, { config, botId: client.user?.id, logger })
     .catch((error) => ({ ok: false, skipped: '', reason: String(error?.message || error).slice(0, 240) }));
+  logger.log?.(`[Nexus Sentinal] module auto-provision phase: nexus-hq finished ok=${Boolean(hq?.ok)} durationMs=${Date.now() - hqStartedAt}`);
+
+  const orderStartedAt = Date.now();
+  logger.log?.('[Nexus Sentinal] module auto-provision phase: category-order started');
   const order = await reconcileGameCategoryOrder(guild, { config, botId: client.user?.id })
     .catch((error) => ({ ok: false, skipped: false, moved: 0, renamed: 0, reason: String(error?.message || error) }));
+  logger.log?.(`[Nexus Sentinal] module auto-provision phase: category-order finished ok=${Boolean(order?.ok)} durationMs=${Date.now() - orderStartedAt}`);
   return { provisioned, blocked: candidates.blocked, failed, hq, order };
 }
 
