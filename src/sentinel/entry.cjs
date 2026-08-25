@@ -29,6 +29,7 @@ const { installModuleAccessAuditExtension } = require('./module-access-audit-ext
 const { installPollExtension } = require('./poll-extension.cjs');
 const { installCreatorLevelGateExtension } = require('./creator-level-gate-extension.cjs');
 const { installCreatorProgramExtension } = require('./creator-program-extension.cjs');
+const { installCreatorRolesEntryLockdownExtension } = require('./creator-roles-entry-lockdown-extension.cjs');
 const { installEventManagementExtension } = require('./event-management-extension.cjs');
 
 installGuildMembersIntentExtension();
@@ -60,5 +61,6 @@ installModuleAccessAuditExtension();
 installPollExtension();
 installCreatorLevelGateExtension();
 installCreatorProgramExtension();
+installCreatorRolesEntryLockdownExtension();
 installEventManagementExtension();
 require('./bot.cjs');
