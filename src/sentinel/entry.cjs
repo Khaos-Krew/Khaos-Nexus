@@ -15,6 +15,7 @@ const { installShieldIsolationExtension } = require('./shield-isolation-extensio
 const { installPersistentPanelExtension } = require('./persistent-panel-extension.cjs');
 const { installStaffNameColorPreviewExtension } = require('./staff-name-color-preview-extension.cjs');
 const { installNexusStatusExtension } = require('./nexus-status-extension.cjs');
+const { installOnboardingAuthorityExtension } = require('./onboarding-authority-extension.cjs');
 const { installWelcomeExtension } = require('./welcome-extension.cjs');
 const { installAboutExtension } = require('./about-extension.cjs');
 const { installRanksExtension } = require('./ranks-extension.cjs');
@@ -41,6 +42,7 @@ installShieldIsolationExtension();
 installPersistentPanelExtension();
 installStaffNameColorPreviewExtension();
 installNexusStatusExtension();
+installOnboardingAuthorityExtension();
 installWelcomeExtension();
 installAboutExtension();
 installRanksExtension();
