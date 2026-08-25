@@ -1,6 +1,6 @@
 'use strict';
 
-const { ChannelType, Client, Events } = require('discord.js');
+const { ChannelType, Client, Events, PermissionFlagsBits } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { MODULES } = require('../backend/modules/catalog.cjs');
 const { BackendClient } = require('./backend-client.cjs');
@@ -11,7 +11,7 @@ const { renderModuleConsole } = require('./module-console.cjs');
 const { ensurePanelMessage } = require('./persistent-panel-extension.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.moduleAutoprovision.extension');
-const INITIAL_PROVISION_DELAY_MS = 45_000;
+const INITIAL_PROVISION_DELAY_MS = 20_000;
 const PERIODIC_PROVISION_MS = 5 * 60_000;
 
 function enabledSentinelModules(config = {}) {
@@ -44,6 +44,15 @@ function modulesNeedingProvision(config = {}, state, channels, roles) {
     pending.push(module.id);
   }
   return { pending, blocked };
+}
+
+async function bootstrapCategoryAccess(guild, provisioner, moduleId, accessRoleId) {
+  const categoryResult = await provisioner.category(guild, moduleId);
+  const category = categoryResult.category;
+  if (!category?.permissionOverwrites?.edit) throw new Error('Module category permission overwrites are unavailable.');
+  await category.permissionOverwrites.edit(String(guild.id), { ViewChannel: false }, { reason: `Nexus Sentinal ${moduleId} private bootstrap` });
+  await category.permissionOverwrites.edit(String(accessRoleId), { ViewChannel: true }, { reason: `Nexus Sentinal ${moduleId} access bootstrap` });
+  return categoryResult;
 }
 
 async function moduleState(backend, moduleId) {
@@ -89,7 +98,20 @@ async function reconcileNewModuleLayouts(client, { config, state, backend, provi
 
   for (const moduleId of candidates.pending) {
     try {
-      const setup = await provisioner.provision(guild, moduleId);
+      const access = state.getAccessRole(moduleId);
+      const accessRoleId = String(access?.roleId || '');
+      if (!accessRoleId || !roles.has(accessRoleId)) throw new Error('Access role became unavailable before provisioning.');
+
+      // Lock/adopt the category before any child channels are created. New child
+      // channels therefore inherit a deny-by-default category immediately instead
+      // of existing publicly while per-channel reconciliation is still running.
+      const bootstrap = await bootstrapCategoryAccess(guild, provisioner, moduleId, accessRoleId);
+      const setup = await provisioner.provision(guild, moduleId, String(bootstrap.category.id));
+      setup.categoryCreated = Boolean(bootstrap.created);
+      setup.categorySource = String(bootstrap.source || setup.categorySource || 'selected');
+      setup.categoryMatchScore = Number(bootstrap.matchScore || setup.categoryMatchScore || 0);
+      state.setModuleSetup(moduleId, setup);
+
       const hub = await publishModuleHub(client, backend, state, setup, moduleId, logger);
       provisioned.push({
         moduleId,
@@ -153,6 +175,7 @@ module.exports = {
   enabledSentinelModules,
   setupHealthy,
   modulesNeedingProvision,
+  bootstrapCategoryAccess,
   publishModuleHub,
   reconcileNewModuleLayouts,
   installModuleAutoprovisionExtension
