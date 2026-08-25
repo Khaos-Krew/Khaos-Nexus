@@ -32,6 +32,7 @@ const { installNexusCommandCenterExtension } = require('./nexus-command-center-e
 const { installStaffWorkspaceExtension } = require('./staff-workspace-extension.cjs');
 const { installModuleAutoprovisionExtension } = require('./module-autoprovision-extension.cjs');
 const { installModuleAccessAuditExtension } = require('./module-access-audit-extension.cjs');
+require('./poll-ui-readability-patch.cjs');
 const { installPollExtension } = require('./poll-extension.cjs');
 const { installCreatorLevelGateExtension } = require('./creator-level-gate-extension.cjs');
 const { installCreatorProgramExtension } = require('./creator-program-extension.cjs');
