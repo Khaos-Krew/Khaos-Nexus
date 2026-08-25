@@ -3,6 +3,7 @@
 const { Client, Events } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { NEXUS_RANKS, isPurchasableRank } = require('../shared/ranks.cjs');
+const { paragraphs, spacedItems } = require('./embed-layout.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ranks.extension');
 const RANKS_MARKER = 'Nexus Sentinal • Managed Ranks • v1';
@@ -10,11 +11,20 @@ const RECENT_MESSAGE_LIMIT = 100;
 const INITIAL_DELAY_MS = 12_000;
 const REFRESH_MS = 15 * 60_000;
 const FUNDING_FIELD_NAME = '💠 Supporting Khaos Nexus';
-const FUNDING_FIELD_VALUE = 'All profits from purchases are used to maintain the Nexus bots and game servers as they are added. Purchases directly support keeping the Nexus online, maintained, and growing.';
+const FUNDING_FIELD_VALUE = paragraphs(
+  'All profits from purchases are used to maintain the Nexus bots and game servers as they are added.',
+  'Purchases directly support keeping the Nexus online, maintained, and growing.'
+);
 const AUTHORITY_FIELD_NAME = '🛒 Rank Purchases';
-const AUTHORITY_FIELD_VALUE = 'Purchasable Nexus ranks are managed by the Discord Server Shop. Discord remains the authority for paid Premium Role ownership; Nexus Sentinal maintains this information panel and the free Shadow Recruit baseline.';
+const AUTHORITY_FIELD_VALUE = paragraphs(
+  'Purchasable Nexus ranks are managed by the **Discord Server Shop**.',
+  'Discord remains the authority for paid Premium Role ownership. Nexus Sentinal maintains this information panel and the free Shadow Recruit baseline.'
+);
 const FOUNDER_FIELD_NAME = '🜲 Origin Founder — Legacy';
-const FOUNDER_FIELD_VALUE = 'Origin Founder is permanent legacy recognition reserved for members who were part of Khaos Nexus at the beginning. It is never sold and is not part of the purchasable rank ladder.';
+const FOUNDER_FIELD_VALUE = paragraphs(
+  'Origin Founder is permanent legacy recognition reserved for members who were part of Khaos Nexus at the beginning.',
+  '**It is never sold and is not part of the purchasable rank ladder.**'
+);
 
 function valuesOf(collection) {
   if (!collection) return [];
@@ -79,20 +89,29 @@ function addManagedFields(embedInput = {}) {
 }
 
 function fallbackRankPayload() {
-  const paid = NEXUS_RANKS.filter(isPurchasableRank).map((rank) => `• **${rank.name}**`).join('\n');
+  const paid = spacedItems(NEXUS_RANKS.filter(isPurchasableRank).map((rank) => `⚡ **${rank.name}**`));
   const embed = addManagedFields({
     title: '🏆 KHAOS NEXUS RANKS',
-    description: 'Nexus ranks provide a clear progression from the free community baseline into optional supporter ranks available through the Discord Server Shop, with Origin Founder preserved separately as legacy recognition.',
+    description: paragraphs(
+      'Nexus ranks begin with a **free community baseline** and continue into optional supporter ranks available through the Discord Server Shop.',
+      'Origin Founder is preserved separately as permanent legacy recognition.'
+    ),
     color: 0xe3264f,
     fields: [
       {
         name: '🌑 Shadow Recruit — Free',
-        value: 'The free/default Nexus baseline. Members can participate in the community and use the free Nexus features available to them without purchasing a supporter rank.',
+        value: paragraphs(
+          'The free/default Nexus baseline.',
+          'Members can participate in the community and use the free Nexus features available to them without purchasing a supporter rank.'
+        ),
         inline: false
       },
       {
         name: '⚡ Discord Server Shop Ranks',
-        value: `${paid}\n\nCurrent pricing and purchase details are shown in Discord's Server Shop so this panel never publishes stale pricing.`,
+        value: paragraphs(
+          paid,
+          "Current pricing and purchase details are shown in Discord's Server Shop so this panel never publishes stale pricing."
+        ),
         inline: false
       }
     ]
