@@ -7,6 +7,7 @@ const { layoutFor } = require('./module-layouts.cjs');
 const DEFAULT_BOUNDARY_NAMES = Object.freeze(['hidden server', 'staff']);
 const STRUCTURAL_CATEGORY_ALIASES = Object.freeze({
   information: Object.freeze(['information', 'info']),
+  nexusHq: Object.freeze(['nexus hq', 'nexus headquarters', 'community hq']),
   staff: Object.freeze(['staff', 'staff operations']),
   nexusPrivate: Object.freeze(['khaos nexus', 'nexus private', 'khaos nexus private', 'nexus operations']),
   privateReports: Object.freeze(['private reports', 'safety reports', 'reports']),
@@ -37,6 +38,7 @@ function findCategoryByAliases(channels, aliases = []) {
 function structuralCategories(channels) {
   return {
     information: findCategoryByAliases(channels, STRUCTURAL_CATEGORY_ALIASES.information),
+    nexusHq: findCategoryByAliases(channels, STRUCTURAL_CATEGORY_ALIASES.nexusHq),
     staff: findCategoryByAliases(channels, STRUCTURAL_CATEGORY_ALIASES.staff),
     nexusPrivate: findCategoryByAliases(channels, STRUCTURAL_CATEGORY_ALIASES.nexusPrivate),
     privateReports: findCategoryByAliases(channels, STRUCTURAL_CATEGORY_ALIASES.privateReports),
@@ -92,6 +94,7 @@ function serverCategoryOrderPlan(channels) {
   const entries = [];
   if (structural.information) entries.push({ kind: 'information', label: 'INFORMATION', category: structural.information });
   for (const module of modules) entries.push({ kind: 'game', label: module.label, moduleId: module.moduleId, category: module.category });
+  if (structural.nexusHq) entries.push({ kind: 'nexus-hq', label: 'NEXUS HQ', category: structural.nexusHq });
   if (structural.staff) entries.push({ kind: 'staff', label: 'STAFF', category: structural.staff });
   if (structural.nexusPrivate) entries.push({ kind: 'nexus-private', label: 'KHAOS NEXUS', category: structural.nexusPrivate });
   if (structural.privateReports) entries.push({ kind: 'private-reports', label: 'PRIVATE REPORTS', category: structural.privateReports });
