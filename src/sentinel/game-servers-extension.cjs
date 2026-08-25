@@ -27,10 +27,7 @@ async function refreshGameServersPanel(client, config = {}, options = {}) {
     throw new Error(registry?.message || `Tracked-server registry returned HTTP ${registry?.status || 'error'}.`);
   }
 
-  const payload = renderGameServersPanel({
-    generatedAt: registry.generatedAt || new Date().toISOString(),
-    servers: registry.servers || []
-  });
+  const payload = renderGameServersPanel({ servers: registry.servers || [] });
   const panel = await reconcileGameServersPanel(channelResult.channel, payload, { botId: client.user?.id });
   return {
     ...panel,
@@ -60,7 +57,7 @@ function installGameServersExtension() {
             console.warn(`[Nexus Sentinal] game servers registry (${reason}) skipped: ${result.skipped}`);
             return;
           }
-          console.log(`[Nexus Sentinal] game servers registry (${reason}): channel=${result.channelId} channelCreated=${result.channelCreated} channelMoved=${result.channelMoved} panelCreated=${result.created} tracked=${result.tracked} groups=${result.groups} duplicatesRemoved=${result.duplicatesRemoved} pinned=${result.pinned}`);
+          console.log(`[Nexus Sentinal] game servers registry (${reason}): channel=${result.channelId} channelCreated=${result.channelCreated} channelMoved=${result.channelMoved} panelCreated=${result.created} panelUpdated=${result.updated} tracked=${result.tracked} groups=${result.groups} duplicatesRemoved=${result.duplicatesRemoved} pinned=${result.pinned}`);
         } catch (error) {
           console.warn(`[Nexus Sentinal] game servers registry (${reason}) unavailable: ${String(error?.message || error).slice(0, 240)}`);
         } finally {
