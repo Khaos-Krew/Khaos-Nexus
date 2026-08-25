@@ -207,6 +207,13 @@ function hqCategoryOverwrites(guild, rankRoleIds = [], operatorRoleIds = [], bot
   ];
 }
 
+function hqChildRequiredOverwrites(guild, rankRoleIds = []) {
+  return [
+    { id: String(guild.id), type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] },
+    ...normalizeIds(rankRoleIds).map((id) => ({ id, type: OverwriteType.Role, allow: [PermissionFlagsBits.ViewChannel] }))
+  ];
+}
+
 function announcementOverwrites(guild, rankRoleIds = [], operatorRoleIds = [], botId = '') {
   const blockedPosting = [
     PermissionFlagsBits.SendMessages,
@@ -385,16 +392,16 @@ async function reconcileNexusHq(guild, options = {}) {
   const rankRoleIds = rankRoleIdsFrom(roles, config);
   const operatorRoleIds = operatorRoleIdsFrom(roles, config);
   const categoryResult = await ensureCategory(guild, channels);
-  const categoryPlan = hqCategoryOverwrites(guild, rankRoleIds, operatorRoleIds, botId);
   const categoryPermissionsUpdated = await applyCategoryAccess(categoryResult.category, guild, rankRoleIds, operatorRoleIds, botId);
 
   const channelResults = [];
   for (const spec of HQ_CHANNELS) channelResults.push(await ensureChannel(guild, categoryResult.category, spec, channels));
   const announcements = channelResults[0]?.channel || null;
+  const canonicalChannels = new Map(channelResults.map((item) => [String(item.channel?.id || ''), item.channel]).filter(([id]) => id));
   const childAccess = await lockHqChildren(
     categoryResult.category,
-    channels,
-    categoryPlan,
+    canonicalChannels,
+    hqChildRequiredOverwrites(guild, rankRoleIds),
     announcements?.id ? [announcements.id] : []
   );
   const announcementReadOnly = await makeAnnouncementsReadOnly(announcements, guild, rankRoleIds, operatorRoleIds, botId);
@@ -437,6 +444,7 @@ module.exports = {
   operatorRoleIdsFrom,
   memberAllowPermissions,
   hqCategoryOverwrites,
+  hqChildRequiredOverwrites,
   announcementOverwrites,
   matchingChannels,
   hqChildAccessSatisfies,
