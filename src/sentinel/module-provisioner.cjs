@@ -67,6 +67,15 @@ function uniqueNamedChannel(channels, type, name) {
   return matches.length === 1 ? matches[0] : null;
 }
 
+async function renameManagedCategory(category, moduleId) {
+  const desired = desiredCategoryName(moduleId);
+  if (!category || !desired || String(category.name || '') === desired || typeof category.setName !== 'function') {
+    return { category, renamed: false };
+  }
+  await category.setName(desired, `Nexus Sentinal canonical module category: ${moduleId}`);
+  return { category, renamed: true };
+}
+
 class ModuleProvisioner {
   constructor({ state, config = {}, maxLobbiesPerModule = 20 } = {}) {
     this.state = state;
@@ -80,19 +89,27 @@ class ModuleProvisioner {
     if (categoryId) {
       const selected = await guild.channels.fetch(String(categoryId));
       if (!selected || selected.type !== ChannelType.GuildCategory) throw new Error('The selected Discord channel is not a category.');
-      return { category: selected, created: false, matchScore: 1, source: 'selected' };
+      return { category: selected, created: false, renamed: false, matchScore: 1, source: 'selected' };
     }
 
     const all = await guild.channels.fetch();
-    const exact = all.find((channel) => channel?.type === ChannelType.GuildCategory
-      && [displayName, layout.category].includes(String(channel.name || '')));
-    if (exact) return { category: exact, created: false, matchScore: 1, source: 'exact' };
+    const displayExact = all.find((channel) => channel?.type === ChannelType.GuildCategory && String(channel.name || '') === displayName);
+    if (displayExact) return { category: displayExact, created: false, renamed: false, matchScore: 1, source: 'exact' };
+
+    const legacyExact = all.find((channel) => channel?.type === ChannelType.GuildCategory && String(channel.name || '') === layout.category);
+    if (legacyExact) {
+      const renamed = await renameManagedCategory(legacyExact, moduleId);
+      return { category: renamed.category, created: false, renamed: renamed.renamed, matchScore: 1, source: renamed.renamed ? 'renamed' : 'legacy-exact' };
+    }
 
     const similar = bestCategoryMatch(all, moduleId);
-    if (similar) return { category: similar.category, created: false, matchScore: similar.score, source: 'similar' };
+    if (similar) {
+      const renamed = await renameManagedCategory(similar.category, moduleId);
+      return { category: renamed.category, created: false, renamed: renamed.renamed, matchScore: similar.score, source: renamed.renamed ? 'adopted-renamed' : 'similar' };
+    }
 
     const created = await guild.channels.create({ name: displayName, type: ChannelType.GuildCategory, reason: `Nexus Sentinal module setup: ${moduleId}` });
-    return { category: created, created: true, matchScore: 0, source: 'created' };
+    return { category: created, created: true, renamed: false, matchScore: 0, source: 'created' };
   }
 
   async textChannel(guild, category, name) {
@@ -124,7 +141,7 @@ class ModuleProvisioner {
       return { channel: movable, created: false, moved: true };
     }
 
-    const created = await guild.channels.create({ name, type: ChannelType.GuildVoice, parent: category.id, reason: 'Nexus Sentinal join-to-build lobby setup/repair' });
+    const created = await guild.channels.create({ name, type: ChannelType.GuildVoice, parent: category.id, reason: 'Nexus Sentinal module setup/repair' });
     return { channel: created, created: true, moved: false };
   }
 
@@ -157,6 +174,7 @@ class ModuleProvisioner {
       categoryId: String(category.id),
       categoryName: String(category.name),
       categoryCreated: categoryResult.created,
+      categoryRenamed: Boolean(categoryResult.renamed),
       categorySource: categoryResult.source,
       categoryMatchScore: Number(categoryResult.matchScore.toFixed(3)),
       consoleChannelId: consoleChannel?.id || '',
@@ -265,6 +283,7 @@ module.exports = {
   cleanLobbyOwner,
   desiredCategoryName,
   normalizeDiscordName,
+  renameManagedCategory,
   similarityScore,
   uniqueNamedChannel
 };
