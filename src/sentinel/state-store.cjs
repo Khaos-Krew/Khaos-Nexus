@@ -14,6 +14,21 @@ function emptyState() {
     roadmapPatchNotes: {},
     suggestions: {},
     suggestionMeta: { nextNumber: 1, channelId: '', panelMessageId: '' },
+    creatorApplications: {},
+    creatorProfiles: {},
+    creatorMeta: {
+      nextNumber: 1,
+      categoryId: '',
+      programChannelId: '',
+      reviewChannelId: '',
+      assetsChannelId: '',
+      creatorChatChannelId: '',
+      twitchLiveChannelId: '',
+      youtubeLiveChannelId: '',
+      creatorRoleId: '',
+      nowLiveRoleId: '',
+      panelMessageId: ''
+    },
     adminSettings: { rankRoles: {}, rankSkus: {}, moduleEnabled: {} }
   };
 }
@@ -43,6 +58,22 @@ class StateStore {
     state.suggestionMeta.nextNumber = Math.max(1, Number(state.suggestionMeta.nextNumber) || 1);
     state.suggestionMeta.channelId ||= '';
     state.suggestionMeta.panelMessageId ||= '';
+    state.creatorApplications ||= {};
+    state.creatorProfiles ||= {};
+    state.creatorMeta ||= {};
+    state.creatorMeta = {
+      nextNumber: Math.max(1, Number(state.creatorMeta.nextNumber) || 1),
+      categoryId: String(state.creatorMeta.categoryId || ''),
+      programChannelId: String(state.creatorMeta.programChannelId || ''),
+      reviewChannelId: String(state.creatorMeta.reviewChannelId || ''),
+      assetsChannelId: String(state.creatorMeta.assetsChannelId || ''),
+      creatorChatChannelId: String(state.creatorMeta.creatorChatChannelId || ''),
+      twitchLiveChannelId: String(state.creatorMeta.twitchLiveChannelId || ''),
+      youtubeLiveChannelId: String(state.creatorMeta.youtubeLiveChannelId || ''),
+      creatorRoleId: String(state.creatorMeta.creatorRoleId || ''),
+      nowLiveRoleId: String(state.creatorMeta.nowLiveRoleId || ''),
+      panelMessageId: String(state.creatorMeta.panelMessageId || '')
+    };
     state.adminSettings ||= {};
     state.adminSettings.rankRoles ||= {};
     state.adminSettings.rankSkus ||= {};
@@ -135,6 +166,52 @@ class StateStore {
     state.suggestionMeta.nextNumber = number + 1;
     this.write(state);
     return { id, number };
+  }
+
+  getCreatorApplication(id) { return this.read().creatorApplications?.[id] || null; }
+  listCreatorApplications() { return JSON.parse(JSON.stringify(this.read().creatorApplications || {})); }
+  setCreatorApplication(id, value) {
+    const state = this.read();
+    state.creatorApplications[id] = value;
+    this.write(state);
+    return value;
+  }
+  findCreatorApplicationByUser(userId, statuses = []) {
+    const wanted = new Set((Array.isArray(statuses) ? statuses : []).map(String));
+    return Object.values(this.read().creatorApplications || {}).find((item) => String(item?.userId || '') === String(userId || '') && (!wanted.size || wanted.has(String(item?.status || '')))) || null;
+  }
+  allocateCreatorApplicationId() {
+    const state = this.read();
+    const number = Math.max(1, Number(state.creatorMeta?.nextNumber) || 1);
+    const id = `CCR-${String(number).padStart(4, '0')}`;
+    state.creatorMeta.nextNumber = number + 1;
+    this.write(state);
+    return { id, number };
+  }
+  getCreatorProfile(userId) { return this.read().creatorProfiles?.[String(userId || '')] || null; }
+  listCreatorProfiles() { return JSON.parse(JSON.stringify(this.read().creatorProfiles || {})); }
+  setCreatorProfile(userId, value) {
+    const state = this.read();
+    state.creatorProfiles[String(userId)] = value;
+    this.write(state);
+    return value;
+  }
+  removeCreatorProfile(userId) {
+    const state = this.read();
+    const existing = state.creatorProfiles[String(userId)] || null;
+    delete state.creatorProfiles[String(userId)];
+    this.write(state);
+    return existing;
+  }
+  getCreatorMeta() { return JSON.parse(JSON.stringify(this.read().creatorMeta)); }
+  setCreatorMeta(value = {}) {
+    const state = this.read();
+    state.creatorMeta = {
+      ...state.creatorMeta,
+      ...Object.fromEntries(Object.entries(value).map(([key, item]) => [key, key === 'nextNumber' ? Math.max(1, Number(item) || Number(state.creatorMeta?.nextNumber) || 1) : String(item ?? '')]))
+    };
+    this.write(state);
+    return this.getCreatorMeta();
   }
 
   getAdminSettings() {
