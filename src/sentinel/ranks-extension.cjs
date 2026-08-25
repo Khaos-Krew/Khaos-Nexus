@@ -77,27 +77,24 @@ function addManagedFields(embedInput = {}) {
 
 function fallbackRankPayload() {
   const paid = NEXUS_RANKS.filter((rank) => rank.level > 0).map((rank) => `• **${rank.name}**`).join('\n');
-  return {
-    embeds: [{
-      title: '🏆 KHAOS NEXUS RANKS',
-      description: 'Nexus ranks provide a clear progression from the free community baseline into optional supporter ranks available through the Discord Server Shop.',
-      color: 0xe3264f,
-      fields: [
-        {
-          name: '🌑 Shadow Recruit — Free',
-          value: 'The free/default Nexus baseline. Members can participate in the community and use the free Nexus features available to them without purchasing a supporter rank.',
-          inline: false
-        },
-        {
-          name: '⚡ Discord Server Shop Ranks',
-          value: `${paid}\n\nCurrent pricing and purchase details are shown in Discord's Server Shop so this panel never publishes stale pricing.`,
-          inline: false
-        }
-      ],
-      footer: { text: RANKS_MARKER }
-    }],
-    allowedMentions: { parse: [] }
-  };
+  const embed = addManagedFields({
+    title: '🏆 KHAOS NEXUS RANKS',
+    description: 'Nexus ranks provide a clear progression from the free community baseline into optional supporter ranks available through the Discord Server Shop.',
+    color: 0xe3264f,
+    fields: [
+      {
+        name: '🌑 Shadow Recruit — Free',
+        value: 'The free/default Nexus baseline. Members can participate in the community and use the free Nexus features available to them without purchasing a supporter rank.',
+        inline: false
+      },
+      {
+        name: '⚡ Discord Server Shop Ranks',
+        value: `${paid}\n\nCurrent pricing and purchase details are shown in Discord's Server Shop so this panel never publishes stale pricing.`,
+        inline: false
+      }
+    ]
+  });
+  return { embeds: [embed], allowedMentions: { parse: [] } };
 }
 
 function buildManagedPayload(sourceMessage = null) {
