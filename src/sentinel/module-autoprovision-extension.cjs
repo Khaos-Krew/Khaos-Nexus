@@ -8,6 +8,7 @@ const { StateStore } = require('./state-store.cjs');
 const { ModuleProvisioner } = require('./module-provisioner.cjs');
 const { layoutFor } = require('./module-layouts.cjs');
 const { reconcileGameCategoryOrder } = require('./category-order.cjs');
+const { reconcileNexusHq } = require('./nexus-hq.cjs');
 const { renderModuleConsole } = require('./module-console.cjs');
 const { ensurePanelMessage } = require('./persistent-panel-extension.cjs');
 
@@ -103,7 +104,7 @@ async function publishModuleHub(client, backend, state, setup, moduleId, logger 
 
 async function reconcileNewModuleLayouts(client, { config, state, backend, provisioner, logger = console } = {}) {
   const guildId = String(config?.discord?.guildId || '');
-  if (!guildId) return { skipped: 'guild-not-configured', provisioned: [], blocked: [], order: null };
+  if (!guildId) return { skipped: 'guild-not-configured', provisioned: [], blocked: [], hq: null, order: null };
   const guild = await client.guilds.fetch(guildId);
   const [channels, roles] = await Promise.all([guild.channels.fetch(), guild.roles.fetch()]);
   const candidates = modulesNeedingProvision(config, state, channels, roles);
@@ -140,9 +141,11 @@ async function reconcileNewModuleLayouts(client, { config, state, backend, provi
     }
   }
 
+  const hq = await reconcileNexusHq(guild, { config, botId: client.user?.id, logger })
+    .catch((error) => ({ ok: false, skipped: '', reason: String(error?.message || error).slice(0, 240) }));
   const order = await reconcileGameCategoryOrder(guild, { config, botId: client.user?.id })
     .catch((error) => ({ ok: false, skipped: false, moved: 0, renamed: 0, reason: String(error?.message || error) }));
-  return { provisioned, blocked: candidates.blocked, failed, order };
+  return { provisioned, blocked: candidates.blocked, failed, hq, order };
 }
 
 function installModuleAutoprovisionExtension() {
@@ -167,7 +170,10 @@ function installModuleAutoprovisionExtension() {
           const details = result.provisioned.map((item) => `${item.moduleId}:${item.categoryCreated ? 'created' : 'adopted'}${item.movedChannels.length ? `+moved${item.movedChannels.length}` : ''}`).join(', ') || 'none';
           const hierarchy = (result.order?.hierarchy || []).join(' > ') || 'unavailable';
           const missing = (result.order?.missing || []).join(',') || 'none';
-          console.log(`[Nexus Sentinal] module auto-provision (${reason}): provisioned=${result.provisioned.length} [${details}] blocked=${result.blocked.length} failed=${result.failed.length} categoryRenames=${Number(result.order?.renamed || 0)} categoryMoves=${Number(result.order?.moved || 0)} missingStructural=${missing} hierarchy=${hierarchy}`);
+          const hqState = result.hq?.ok
+            ? `ok+created${result.hq.channelsCreated?.length || 0}+moved${result.hq.channelsMoved?.length || 0}+renamed${result.hq.channelsRenamed?.length || 0}`
+            : `skipped:${String(result.hq?.skipped || result.hq?.reason || 'unavailable')}`;
+          console.log(`[Nexus Sentinal] module auto-provision (${reason}): provisioned=${result.provisioned.length} [${details}] blocked=${result.blocked.length} failed=${result.failed.length} hq=${hqState} categoryRenames=${Number(result.order?.renamed || 0)} categoryMoves=${Number(result.order?.moved || 0)} missingStructural=${missing} hierarchy=${hierarchy}`);
           for (const item of result.failed) console.warn(`[Nexus Sentinal] module auto-provision failed: ${item.moduleId}: ${item.reason}`);
         } catch (error) {
           console.warn(`[Nexus Sentinal] module auto-provision (${reason}) unavailable: ${String(error?.message || error).slice(0, 240)}`);
