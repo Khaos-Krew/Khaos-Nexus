@@ -1,42 +1,54 @@
-type ServiceState = 'online' | 'degraded' | 'stub';
-
-type ServiceCard = {
-  name: string;
-  detail: string;
-  state: ServiceState;
-};
-
-const services: ServiceCard[] = [
-  {
-    name: 'Nexus API',
-    detail: 'Development contract only — no production credentials attached.',
-    state: 'stub'
-  },
-  {
-    name: 'Nexus Sentinel',
-    detail: 'Reserved for read-only bot health once the API contract is connected.',
-    state: 'stub'
-  },
-  {
-    name: 'Game Services',
-    detail: 'Reserved for backend-first module and game-server health summaries.',
-    state: 'stub'
-  },
-  {
-    name: 'Private Owner Access',
-    detail: 'Capability-gated owner surface. Private implementation remains outside public docs.',
-    state: 'stub'
-  }
-];
+import { useEffect, useState } from 'react';
+import { getHealthSnapshot, getSessionSnapshot, nexusClientConfig } from './api/client';
+import type { HealthSnapshot, ServiceState, SessionSnapshot } from './api/contracts';
 
 const stateLabels: Record<ServiceState, string> = {
   online: 'Online',
   degraded: 'Degraded',
-  stub: 'Not connected'
+  offline: 'Offline',
+  unknown: 'Not connected'
 };
 
+function formatTimestamp(value?: string) {
+  if (!value) return 'Not yet loaded';
+  return new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit'
+  }).format(new Date(value));
+}
+
 export default function App() {
-  const apiBase = import.meta.env.VITE_NEXUS_API_BASE_URL ?? 'stub://nexus-api/v1';
+  const [health, setHealth] = useState<HealthSnapshot | null>(null);
+  const [session, setSession] = useState<SessionSnapshot | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    Promise.all([
+      getHealthSnapshot(controller.signal),
+      getSessionSnapshot(controller.signal)
+    ])
+      .then(([nextHealth, nextSession]) => {
+        setHealth(nextHealth);
+        setSession(nextSession);
+        setLoadError(null);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setLoadError(error instanceof Error ? error.message : 'Unable to load Nexus status.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+
+    return () => controller.abort();
+  }, []);
+
+  const services = health?.services ?? [];
+  const signedIn = session?.authenticated === true && session.user !== null;
 
   return (
     <div className="app-shell">
@@ -58,7 +70,7 @@ export default function App() {
 
         <div className="sidebar-footer">
           <span className="environment-dot" />
-          Incubation environment
+          {nexusClientConfig.environment} / {nexusClientConfig.dataMode}
         </div>
       </aside>
 
@@ -68,25 +80,38 @@ export default function App() {
             <p className="eyebrow">Khaos Nexus / Side Project</p>
             <h1>Control Center</h1>
           </div>
-          <button type="button" className="account-button" disabled>
-            Sign-in pending
+          <button type="button" className="account-button" disabled={!signedIn}>
+            {signedIn ? session.user?.displayName : 'Sign-in pending'}
           </button>
         </header>
 
         <section className="hero" id="dashboard">
           <div>
-            <span className="status-pill">Read-only foundation</span>
+            <span className="status-pill">API contract v1</span>
             <h2>One lightweight interface for Nexus services.</h2>
             <p>
-              This shell is intentionally disconnected from production. The next step is a safe,
-              versioned API contract followed by Discord/Nexus authentication.
+              The dashboard now consumes a typed Nexus API boundary. Stub mode is safe by default;
+              live mode can be enabled later without changing the UI contract or exposing service secrets.
             </p>
           </div>
-          <div className="hero-stat">
-            <span>API target</span>
-            <code>{apiBase}</code>
+          <div className="hero-stat-stack">
+            <div className="hero-stat">
+              <span>API target</span>
+              <code>{nexusClientConfig.apiBase}</code>
+            </div>
+            <div className="hero-stat">
+              <span>Data mode</span>
+              <strong>{nexusClientConfig.dataMode}</strong>
+            </div>
           </div>
         </section>
+
+        {loadError && (
+          <div className="error-notice" role="alert">
+            <strong>Nexus status unavailable.</strong>
+            <span>{loadError}</span>
+          </div>
+        )}
 
         <section className="section" id="services">
           <div className="section-heading">
@@ -94,21 +119,34 @@ export default function App() {
               <p className="eyebrow">Foundation milestone</p>
               <h2>Service health</h2>
             </div>
-            <span className="muted">Stub data only</span>
+            <span className="muted">
+              {loading ? 'Loading…' : `Updated ${formatTimestamp(health?.generatedAt)}`}
+            </span>
           </div>
 
-          <div className="service-grid">
-            {services.map((service) => (
-              <article className="service-card" key={service.name}>
-                <div className="service-card-header">
-                  <h3>{service.name}</h3>
-                  <span className={`service-state ${service.state}`}>
-                    {stateLabels[service.state]}
-                  </span>
-                </div>
-                <p>{service.detail}</p>
+          <div className="service-grid" aria-busy={loading}>
+            {loading && services.length === 0 ? (
+              <article className="service-card placeholder-card">
+                <h3>Loading Nexus services…</h3>
+                <p>The sidecar is resolving the configured data source.</p>
               </article>
-            ))}
+            ) : (
+              services.map((service) => (
+                <article className="service-card" key={service.id}>
+                  <div className="service-card-header">
+                    <h3>{service.name}</h3>
+                    <span className={`service-state ${service.state}`}>
+                      {stateLabels[service.state]}
+                    </span>
+                  </div>
+                  <p>{service.summary}</p>
+                  <div className="service-meta">
+                    <span>Checked {formatTimestamp(service.checkedAt)}</span>
+                    {service.version && <code>{service.version}</code>}
+                  </div>
+                </article>
+              ))
+            )}
           </div>
         </section>
 
@@ -118,10 +156,16 @@ export default function App() {
               <p className="eyebrow">Access model</p>
               <h2>Authentication boundary</h2>
             </div>
+            <span className={`session-state ${signedIn ? 'authenticated' : 'guest'}`}>
+              {signedIn ? 'Authenticated' : 'Guest session'}
+            </span>
           </div>
           <div className="notice">
-            No privileged control will be enabled until backend-enforced Nexus capability checks,
-            session handling, and audit logging are in place.
+            <strong>Server authority only.</strong>
+            <span>
+              The browser may render capability-aware UI, but every privileged Nexus action will still
+              require backend authorization and audit logging. The current stub session grants no capabilities.
+            </span>
           </div>
         </section>
       </main>
