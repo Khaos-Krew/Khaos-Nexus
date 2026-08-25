@@ -205,3 +205,19 @@ test('scheduler tick opens scheduled polls and closes expired polls deterministi
   assert.deepEqual(tick.closed, [scheduled.id]);
   assert.equal(kit.engine.get(scheduled.id).status, 'closed');
 });
+
+test('scheduler emits each configured reminder once and persists its audit ledger', async () => {
+  const time = clock('2026-08-25T12:00:00.000Z');
+  const kit = engine({ clock: time });
+  const poll = kit.engine.create({
+    question: 'Reminder?', options: ['A', 'B'], closesAt: '2026-08-25T14:00:00.000Z', reminderMinutes: [60]
+  });
+  time.set('2026-08-25T13:00:01.000Z');
+  let tick = await kit.engine.tick();
+  assert.deepEqual(tick.reminders, [{ id: poll.id, minutes: 60 }]);
+  tick = await kit.engine.tick();
+  assert.deepEqual(tick.reminders, []);
+  const current = kit.engine.get(poll.id, { includeVotes: false });
+  assert.deepEqual(current.remindersSent, [60]);
+  assert.equal(current.audit.at(-1).action, 'reminder-sent');
+});

@@ -39,6 +39,7 @@ function pollCommand() {
       return option;
     })
     .addIntegerOption((option) => option.setName('duration_hours').setDescription('Hours until the poll closes.').setMinValue(1).setMaxValue(168))
+    .addIntegerOption((option) => option.setName('reminder_hours_before').setDescription('Post one reminder this many hours before close.').setMinValue(1).setMaxValue(168))
     .addStringOption((option) => option.setName('visibility').setDescription('When results are visible.').addChoices(
       { name: 'Public totals', value: 'public' },
       { name: 'Results after close', value: 'results-after-close' },
@@ -69,6 +70,10 @@ function pollCommand() {
     .setDescription('Cancel a managed poll without producing a winner.')
     .addStringOption((option) => option.setName('id').setDescription('Poll ID.').setRequired(true).setMaxLength(20))
     .addStringOption((option) => option.setName('reason').setDescription('Why the poll is being cancelled.').setMaxLength(500)));
+  command.addSubcommand((sub) => sub
+    .setName('audit')
+    .setDescription('Show the protected lifecycle audit for a managed poll.')
+    .addStringOption((option) => option.setName('id').setDescription('Poll ID.').setRequired(true).setMaxLength(20)));
   command.addSubcommand((sub) => sub
     .setName('list')
     .setDescription('List active or recent managed polls.')
@@ -107,6 +112,7 @@ function pollInputFromInteraction(interaction, now = new Date()) {
     source: 'manual',
     ...(options.length ? { options } : {}),
     ...(durationHours ? { closesAt: new Date(new Date(now).getTime() + durationHours * 60 * 60_000).toISOString() } : {}),
+    ...(interaction.options.getInteger('reminder_hours_before') ? { reminderMinutes: [interaction.options.getInteger('reminder_hours_before') * 60] } : {}),
     ...(interaction.options.getString('visibility') ? { visibility: interaction.options.getString('visibility') } : {}),
     ...(interaction.options.getBoolean('multi_select') !== null ? { multiSelect: interaction.options.getBoolean('multi_select') } : {}),
     ...(interaction.options.getInteger('max_selections') !== null ? { maxSelections: interaction.options.getInteger('max_selections') } : {}),

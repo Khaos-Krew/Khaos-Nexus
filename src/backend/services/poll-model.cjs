@@ -14,6 +14,13 @@ function normalizeIds(values = []) {
   return [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || '').trim()).filter(Boolean))];
 }
 
+function normalizeReminderMinutes(values = []) {
+  return [...new Set((Array.isArray(values) ? values : [values])
+    .map((value) => Math.trunc(Number(value)))
+    .filter((value) => Number.isFinite(value) && value >= 1 && value <= 7 * 24 * 60))]
+    .sort((a, b) => b - a);
+}
+
 function finiteNumber(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
@@ -120,6 +127,8 @@ function createPollRecord(input = {}, context = {}) {
     thresholdOptionId,
     tieRule: normalizeTieRule(input.tieRule),
     extensionMinutes: integerInRange(input.extensionMinutes, 60, 1, 7 * 24 * 60),
+    reminderMinutes: normalizeReminderMinutes(input.reminderMinutes),
+    remindersSent: [],
     votes: {},
     finalResult: null,
     createdAt: now,
@@ -158,6 +167,7 @@ module.exports = {
   isoTime,
   normalizeIds,
   normalizeOptions,
+  normalizeReminderMinutes,
   normalizeRule,
   normalizeTieRule,
   normalizeVisibility,

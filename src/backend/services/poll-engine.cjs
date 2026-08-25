@@ -309,18 +309,33 @@ class PollEngine {
     const at = nowIso(this.now);
     const opened = [];
     const closed = [];
+    const reminders = [];
     for (const poll of this.store.list({ statuses: ['scheduled', 'open'] })) {
       if (poll.status === 'scheduled' && Date.parse(poll.opensAt) <= Date.parse(at)) {
         this.open(poll.id, 'scheduler');
         opened.push(poll.id);
       }
       const current = this.store.get(poll.id);
+      if (current?.status === 'open' && Date.parse(at) < Date.parse(current.closesAt)) {
+        for (const minutes of current.reminderMinutes || []) {
+          if ((current.remindersSent || []).includes(minutes)) continue;
+          if (Date.parse(at) < Date.parse(current.closesAt) - Number(minutes) * 60_000) continue;
+          this.store.update(current.id, (mutable) => {
+            mutable.remindersSent ||= [];
+            if (!mutable.remindersSent.includes(minutes)) mutable.remindersSent.push(minutes);
+            mutable.updatedAt = at;
+            mutable.audit.push({ action: 'reminder-sent', actorId: 'scheduler', at, minutes });
+            return mutable;
+          });
+          reminders.push({ id: current.id, minutes });
+        }
+      }
       if (current?.status === 'open' && Date.parse(current.closesAt) <= Date.parse(at)) {
         const result = await this.close(current.id, 'scheduler');
         if (result.status === 'closed' || result.status === 'runoff') closed.push(current.id);
       }
     }
-    return { at, opened, closed };
+    return { at, opened, closed, reminders };
   }
 }
 

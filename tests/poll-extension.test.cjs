@@ -130,6 +130,15 @@ test('poll command registration edits an existing guild command instead of dupli
   assert.deepEqual(calls, [['edit', 'command-1', 'poll']]);
 });
 
+test('poll command includes protected audit and reminder controls', () => {
+  const { pollCommand } = require('../src/sentinel/poll-ui.cjs');
+  const definition = pollCommand().toJSON();
+  const audit = definition.options.find((option) => option.name === 'audit');
+  const create = definition.options.find((option) => option.name === 'create');
+  assert.ok(audit);
+  assert.ok(create.options.some((option) => option.name === 'reminder_hours_before'));
+});
+
 test('voter projection never includes unrelated member data', () => {
   const voter = voterFromInteraction({
     user: { id: '42', bot: false, email: 'private@example.invalid' },

@@ -92,7 +92,7 @@ async function handlePollCommand(interaction, context) {
   if (!interaction.isChatInputCommand?.() || interaction.commandName !== 'poll') return false;
   const { engine, channel, config } = context;
   const subcommand = interaction.options.getSubcommand();
-  if (['create', 'close', 'cancel'].includes(subcommand)) requireManager(interaction, config);
+  if (['create', 'close', 'cancel', 'audit'].includes(subcommand)) requireManager(interaction, config);
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   if (subcommand === 'create') {
@@ -122,6 +122,11 @@ async function handlePollCommand(interaction, context) {
     const poll = engine.cancel(id, String(interaction.user.id), interaction.options.getString('reason') || '');
     await reconcilePollCard(interaction.client, channel, engine, id);
     await interaction.editReply({ content: `✅ ${pollStatusText(poll)}`, allowedMentions: { parse: [] } });
+  } else if (subcommand === 'audit') {
+    const poll = engine.get(id, { includeVotes: false });
+    if (!poll) throw new Error(`Poll ${id} does not exist.`);
+    const lines = (poll.audit || []).slice(-20).map((entry) => `• <t:${Math.floor(Date.parse(entry.at) / 1000)}:f> — ${entry.action}${entry.actorId ? ` by ${entry.actorId === 'scheduler' ? 'scheduler' : `<@${entry.actorId}>`}` : ''}${entry.minutes ? ` (${entry.minutes}m)` : ''}`);
+    await interaction.editReply({ content: `**${poll.id} administrative audit**\nSource: ${poll.source || 'manual'}${poll.sourceLink ? ` • ${poll.sourceLink}` : ''}\nStatus: ${poll.status} • ${(poll.audit || []).length} lifecycle entries\n\n${lines.join('\n') || 'No audit entries.'}`.slice(0, 1900), allowedMentions: { parse: [] } });
   } else if (subcommand === 'list') {
     const status = interaction.options.getString('status');
     const polls = engine.list({ ...(status ? { statuses: [status] } : {}), limit: 20 });
@@ -160,6 +165,10 @@ async function handlePollInteraction(interaction, context) {
 async function pollTick(client, channel, engine) {
   const result = await engine.tick();
   for (const id of [...result.opened, ...result.closed]) await reconcilePollCard(client, channel, engine, id);
+  for (const reminder of result.reminders || []) {
+    const poll = engine.get(reminder.id, { includeVotes: false });
+    if (poll) await channel.send({ content: `⏰ **${poll.id}** closes <t:${Math.floor(Date.parse(poll.closesAt) / 1000)}:R>. Cast or update your vote on the managed card above.`, allowedMentions: { parse: [] } });
+  }
   return result;
 }
 
