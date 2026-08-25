@@ -5,12 +5,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { MODULES } = require('../src/backend/modules/catalog.cjs');
 const { LAYOUTS, layoutFor } = require('../src/sentinel/module-layouts.cjs');
 const { StateStore } = require('../src/sentinel/state-store.cjs');
 
-const EXPECTED = ['ark', 'callofduty', 'deadbydaylight', 'diablo4', 'palworld', 'minecraft', 'warframe', 'division2', 'rust', 'satisfactory', 'idleon', 'pokemongo', 'dnd'];
+const EXPECTED = ['ark', 'callofduty', 'deadbydaylight', 'diablo4', 'palworld', 'minecraft', 'oncehuman', 'osrs', 'runescape3', 'warframe', 'division2', 'rust', 'satisfactory', 'idleon', 'pokemongo', 'dnd'];
 
 test('every registered game module has a Discord layout and join-to-build channel', () => {
+  assert.deepEqual(MODULES.map((module) => module.id).sort(), [...EXPECTED].sort());
   for (const id of EXPECTED) {
     const layout = layoutFor(id);
     assert.ok(layout.category);
@@ -19,6 +21,15 @@ test('every registered game module has a Discord layout and join-to-build channe
     assert.match(layout.lobbyBuilder, /Join to Create/);
   }
   assert.deepEqual(Object.keys(LAYOUTS).sort(), [...EXPECTED].sort());
+});
+
+test('OSRS, RuneScape 3, and Once Human keep independent user-facing Discord categories', () => {
+  assert.equal(layoutFor('osrs').category, 'Old School RuneScape');
+  assert.equal(layoutFor('runescape3').category, 'RuneScape 3');
+  assert.equal(layoutFor('oncehuman').category, 'Once Human');
+  assert.notEqual(layoutFor('osrs').consoleChannel, layoutFor('runescape3').consoleChannel);
+  assert.ok(layoutFor('oncehuman').text.includes('once-human-lfg'));
+  assert.ok(layoutFor('oncehuman').text.includes('once-human-reference'));
 });
 
 test('Sentinal state persists module setup and temporary lobby ownership', () => {
