@@ -12,6 +12,8 @@ function emptyState() {
     roleMenu: null,
     selfRoleMenus: {},
     roadmapPatchNotes: {},
+    suggestions: {},
+    suggestionMeta: { nextNumber: 1, channelId: '', panelMessageId: '' },
     adminSettings: { rankRoles: {}, rankSkus: {}, moduleEnabled: {} }
   };
 }
@@ -36,6 +38,11 @@ class StateStore {
     state.roleMenu ??= null;
     state.selfRoleMenus ||= {};
     state.roadmapPatchNotes ||= {};
+    state.suggestions ||= {};
+    state.suggestionMeta ||= { nextNumber: 1, channelId: '', panelMessageId: '' };
+    state.suggestionMeta.nextNumber = Math.max(1, Number(state.suggestionMeta.nextNumber) || 1);
+    state.suggestionMeta.channelId ||= '';
+    state.suggestionMeta.panelMessageId ||= '';
     state.adminSettings ||= {};
     state.adminSettings.rankRoles ||= {};
     state.adminSettings.rankSkus ||= {};
@@ -100,6 +107,34 @@ class StateStore {
     state.roadmapPatchNotes[key] = value;
     this.write(state);
     return value;
+  }
+
+  getSuggestion(id) { return this.read().suggestions?.[id] || null; }
+  listSuggestions() { return JSON.parse(JSON.stringify(this.read().suggestions || {})); }
+  setSuggestion(id, value) {
+    const state = this.read();
+    state.suggestions[id] = value;
+    this.write(state);
+    return value;
+  }
+  getSuggestionMeta() { return JSON.parse(JSON.stringify(this.read().suggestionMeta)); }
+  setSuggestionMeta(value = {}) {
+    const state = this.read();
+    state.suggestionMeta = {
+      nextNumber: Math.max(1, Number(value.nextNumber) || Number(state.suggestionMeta?.nextNumber) || 1),
+      channelId: String(value.channelId ?? state.suggestionMeta?.channelId ?? ''),
+      panelMessageId: String(value.panelMessageId ?? state.suggestionMeta?.panelMessageId ?? '')
+    };
+    this.write(state);
+    return this.getSuggestionMeta();
+  }
+  allocateSuggestionId() {
+    const state = this.read();
+    const number = Math.max(1, Number(state.suggestionMeta?.nextNumber) || 1);
+    const id = `SUG-${String(number).padStart(4, '0')}`;
+    state.suggestionMeta.nextNumber = number + 1;
+    this.write(state);
+    return { id, number };
   }
 
   getAdminSettings() {
