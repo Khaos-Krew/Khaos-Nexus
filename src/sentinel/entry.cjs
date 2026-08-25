@@ -9,6 +9,7 @@ const { installAdminPairingExtension } = require('./admin-pairing-extension.cjs'
 const { installModerationExtension } = require('./moderation-extension.cjs');
 const { installRoadmapPatchNoteExtension } = require('./roadmap-patch-note-extension.cjs');
 const { installSafetyReportExtension } = require('./safety-report-extension.cjs');
+const { installShieldExtension } = require('./shield-extension.cjs');
 const { installPersistentPanelExtension } = require('./persistent-panel-extension.cjs');
 const { installStaffNameColorPreviewExtension } = require('./staff-name-color-preview-extension.cjs');
 const { installNexusStatusExtension } = require('./nexus-status-extension.cjs');
@@ -32,6 +33,7 @@ installAdminPairingExtension();
 installModerationExtension();
 installRoadmapPatchNoteExtension();
 installSafetyReportExtension();
+installShieldExtension();
 installPersistentPanelExtension();
 installStaffNameColorPreviewExtension();
 installNexusStatusExtension();
