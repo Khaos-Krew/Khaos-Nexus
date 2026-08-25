@@ -75,8 +75,6 @@ function renderServerLine(server = {}) {
 function renderGameServersPanel(snapshot = {}) {
   const servers = Array.isArray(snapshot.servers) ? snapshot.servers : [];
   const groups = groupTrackedServers(servers);
-  const generatedAt = snapshot.generatedAt ? new Date(snapshot.generatedAt) : new Date();
-  const unix = Math.floor(generatedAt.getTime() / 1000);
   const fields = [];
 
   if (!groups.length) {
@@ -97,7 +95,7 @@ function renderGameServersPanel(snapshot = {}) {
 
   fields.push({
     name: 'Registry sync',
-    value: `${servers.length} tracked server${servers.length === 1 ? '' : 's'} • updated <t:${unix}:R>`,
+    value: `${servers.length} tracked server${servers.length === 1 ? '' : 's'} • automatically checked for Nexus tracking changes`,
     inline: false
   });
 
@@ -107,8 +105,7 @@ function renderGameServersPanel(snapshot = {}) {
       description: 'Automatically mirrors the game servers currently tracked by Nexus Backend. Network addresses, passwords, tokens, and other protected connection details are intentionally not displayed.',
       color: groups.length ? 0x2ecc71 : 0x5865f2,
       fields,
-      footer: { text: GAME_SERVERS_PANEL_MARKER },
-      timestamp: generatedAt.toISOString()
+      footer: { text: GAME_SERVERS_PANEL_MARKER }
     }],
     allowedMentions: { parse: [] }
   };
@@ -125,6 +122,15 @@ function newestMessage(messages = []) {
   return [...messages].sort((left, right) => Number(right?.createdTimestamp || 0) - Number(left?.createdTimestamp || 0))[0] || null;
 }
 
+function comparable(value) {
+  return value?.toJSON ? value.toJSON() : value;
+}
+
+function panelPayloadMatches(message, payload) {
+  return String(message?.content || '') === String(payload?.content || '')
+    && JSON.stringify((message?.embeds || []).map(comparable)) === JSON.stringify((payload?.embeds || []).map(comparable));
+}
+
 async function reconcileGameServersPanel(channel, payload, options = {}) {
   const botId = String(options.botId || channel?.client?.user?.id || '');
   let recent = [];
@@ -132,15 +138,20 @@ async function reconcileGameServersPanel(channel, payload, options = {}) {
   const candidates = recent.filter((message) => messageMatchesGameServersPanel(message, botId));
   let message = newestMessage(candidates);
   let created = false;
+  let updated = false;
   let duplicatesRemoved = 0;
   let pinned = false;
 
-  if (message) await message.edit(payload);
-  else if (typeof channel?.send === 'function') {
+  if (message) {
+    if (!panelPayloadMatches(message, payload)) {
+      await message.edit(payload);
+      updated = true;
+    }
+  } else if (typeof channel?.send === 'function') {
     message = await channel.send(payload);
     created = true;
   }
-  if (!message) return { message: null, created: false, duplicatesRemoved: 0, pinned: false };
+  if (!message) return { message: null, created: false, updated: false, duplicatesRemoved: 0, pinned: false };
 
   if (message.pinned !== true && typeof message.pin === 'function') {
     try {
@@ -157,7 +168,7 @@ async function reconcileGameServersPanel(channel, payload, options = {}) {
     } catch {}
   }
 
-  return { message, created, duplicatesRemoved, pinned };
+  return { message, created, updated, duplicatesRemoved, pinned };
 }
 
 module.exports = {
@@ -175,5 +186,6 @@ module.exports = {
   renderGameServersPanel,
   messageMatchesGameServersPanel,
   newestMessage,
+  panelPayloadMatches,
   reconcileGameServersPanel
 };
