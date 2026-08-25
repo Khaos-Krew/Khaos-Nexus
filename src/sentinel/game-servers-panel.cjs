@@ -2,6 +2,7 @@
 
 const { ChannelType } = require('discord.js');
 const { findInformationCategory, valuesOf } = require('./nexus-status.cjs');
+const { managedPayloadMatches } = require('./managed-payload-compare.cjs');
 
 const GAME_SERVERS_PANEL_MARKER = 'Nexus Sentinal • Managed Game Servers • v1';
 const GAME_SERVERS_PANEL_TITLE = 'KHAOS NEXUS • GAME SERVERS';
@@ -122,13 +123,8 @@ function newestMessage(messages = []) {
   return [...messages].sort((left, right) => Number(right?.createdTimestamp || 0) - Number(left?.createdTimestamp || 0))[0] || null;
 }
 
-function comparable(value) {
-  return value?.toJSON ? value.toJSON() : value;
-}
-
 function panelPayloadMatches(message, payload) {
-  return String(message?.content || '') === String(payload?.content || '')
-    && JSON.stringify((message?.embeds || []).map(comparable)) === JSON.stringify((payload?.embeds || []).map(comparable));
+  return managedPayloadMatches(message, payload);
 }
 
 async function reconcileGameServersPanel(channel, payload, options = {}) {
