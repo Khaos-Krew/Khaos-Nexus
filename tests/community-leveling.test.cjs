@@ -126,7 +126,9 @@ test('community level panel explicitly separates progression from shop and acces
   assert.match(embed.description, /never grant, replace, or modify Nexus Shop\/supporter ranks/i);
   assert.match(embed.description, /game access roles/i);
   assert.match(embed.description, /Name Color roles/i);
-  assert.match(embed.fields.find((field) => field.name === 'Milestone roles').value, new RegExp(MILESTONE_ROLE_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  const milestoneField = embed.fields.find((field) => /milestone roles/i.test(String(field.name || '')));
+  assert.ok(milestoneField, 'community level panel should retain a milestone roles section');
+  assert.match(milestoneField.value, new RegExp(MILESTONE_ROLE_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.equal(milestoneRoleName(10), 'Community Level • 10');
   assert.equal(progressBar(50, 10), '█████░░░░░');
 });
