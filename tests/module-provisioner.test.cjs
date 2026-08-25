@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { ChannelType } = require('discord.js');
-const { bestCategoryMatch, similarityScore } = require('../src/sentinel/module-provisioner.cjs');
+const { bestCategoryMatch, similarityScore, uniqueNamedChannel } = require('../src/sentinel/module-provisioner.cjs');
 const { layoutFor } = require('../src/sentinel/module-layouts.cjs');
 
 function channels(...names) {
@@ -20,6 +20,22 @@ test('smart setup recognizes common aliases and similar module category names', 
 test('smart setup avoids unrelated categories', () => {
   assert.equal(bestCategoryMatch(channels('GENERAL', 'SUPPORTER HUB', 'Destiny 2'), 'division2'), null);
   assert.ok(similarityScore('Warframe Community', 'Warframe') > similarityScore('General', 'Warframe'));
+});
+
+test('RuneScape 3 never adopts the Old School RuneScape category', () => {
+  assert.equal(bestCategoryMatch(channels('Old School RuneScape'), 'runescape3'), null);
+  assert.equal(layoutFor('runescape3').aliases.includes('RuneScape'), false);
+  assert.equal(bestCategoryMatch(channels('RuneScape 3'), 'runescape3').category.name, 'RuneScape 3');
+});
+
+test('unique managed channel recovery only moves an unambiguous exact-name channel', () => {
+  const one = new Map([
+    ['1', { id: '1', name: 'rs3-hub', type: ChannelType.GuildText }],
+    ['2', { id: '2', name: 'osrs-hub', type: ChannelType.GuildText }]
+  ]);
+  assert.equal(uniqueNamedChannel(one, ChannelType.GuildText, 'rs3-hub').id, '1');
+  one.set('3', { id: '3', name: 'rs3-hub', type: ChannelType.GuildText });
+  assert.equal(uniqueNamedChannel(one, ChannelType.GuildText, 'rs3-hub'), null);
 });
 
 test('ARK layout provisions a dedicated tame info chat under the ARK category', () => {
