@@ -13,6 +13,8 @@ const {
   TextInputStyle
 } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
+const { PollEngine } = require('../backend/services/poll-engine.cjs');
+const { PollStore } = require('../backend/services/poll-store.cjs');
 const { StateStore } = require('./state-store.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.suggestions.extension');
@@ -273,6 +275,65 @@ function newSuggestion(store, interaction, settings) {
   };
 }
 
+function pollVoteMap(poll = {}) {
+  const votes = {};
+  for (const [userId, ballot] of Object.entries(poll.votes || {})) {
+    const optionId = String(ballot?.optionIds?.[0] || '');
+    if (optionId === 'OPT-1') votes[userId] = 'up';
+    if (optionId === 'OPT-2') votes[userId] = 'down';
+  }
+  return votes;
+}
+
+function suggestionWithPoll(suggestion, poll) {
+  if (!poll) return suggestion;
+  return {
+    ...suggestion,
+    pollId: String(poll.id),
+    closesAt: String(poll.closesAt),
+    votes: pollVoteMap(poll)
+  };
+}
+
+function ensureSuggestionPoll(store, suggestion, settings, pollEngine, context = {}) {
+  if (!pollEngine || !suggestion) return suggestion;
+  if (suggestion.pollId) {
+    const existing = pollEngine.get(suggestion.pollId, { includeVotes: true });
+    return existing ? suggestionWithPoll(suggestion, existing) : suggestion;
+  }
+  const poll = pollEngine.create({
+    profile: 'suggestion-gate',
+    question: suggestion.title,
+    description: suggestion.details,
+    options: ['Approve', 'Reject'],
+    creatorId: String(suggestion.submitterId),
+    source: 'suggestion',
+    sourceLink: String(suggestion.id),
+    guildId: String(context.guildId || ''),
+    channelId: String(suggestion.channelId || context.channelId || ''),
+    messageId: String(suggestion.messageId || ''),
+    closesAt: suggestion.closesAt,
+    minVotes: settings.minVotes,
+    thresholdPercent: settings.passPercent,
+    excludeCreator: true
+  });
+  pollEngine.store.update(poll.id, (record) => {
+    for (const [userId, vote] of Object.entries(suggestion.votes || {})) {
+      if (String(userId) === String(suggestion.submitterId)) continue;
+      if (!['up', 'down'].includes(vote)) continue;
+      record.votes[String(userId)] = {
+        userId: String(userId),
+        optionIds: [vote === 'up' ? 'OPT-1' : 'OPT-2'],
+        updatedAt: String(suggestion.createdAt || record.createdAt)
+      };
+    }
+    return record;
+  });
+  const migrated = suggestionWithPoll({ ...suggestion, pollId: poll.id }, pollEngine.get(poll.id, { includeVotes: true }));
+  store.setSuggestion(migrated.id, migrated);
+  return migrated;
+}
+
 function castVote(suggestion, userId, vote) {
   if (!suggestion || suggestion.status !== 'voting') return { blocked: 'closed', suggestion };
   if (String(userId) === String(suggestion.submitterId)) return { blocked: 'self-vote', suggestion };
@@ -351,7 +412,11 @@ async function closeSuggestion(client, store, suggestion, settings, options = {}
   let next = { ...suggestion };
   if (suggestion.status === 'voting') {
     if (Date.parse(suggestion.closesAt) > Date.now() && options.force !== true) return suggestion;
-    next.status = passesCommunityGate(suggestion, settings) ? 'community-passed' : 'community-declined';
+    if (options.pollEngine && suggestion.pollId) {
+      const poll = await options.pollEngine.close(suggestion.pollId, options.actorId || 'suggestion-scheduler');
+      next = suggestionWithPoll(next, poll);
+      next.status = poll.finalResult?.passed ? 'community-passed' : 'community-declined';
+    } else next.status = passesCommunityGate(suggestion, settings) ? 'community-passed' : 'community-declined';
     store.setSuggestion(next.id, next);
   }
   if (['community-passed', 'github-pending'].includes(next.status)) {
@@ -370,7 +435,7 @@ async function closeSuggestion(client, store, suggestion, settings, options = {}
   return next;
 }
 
-async function closeDueSuggestions(client, store, settings) {
+async function closeDueSuggestions(client, store, settings, options = {}) {
   const suggestions = Object.values(store.listSuggestions());
   let closed = 0;
   let githubSynced = 0;
@@ -380,7 +445,7 @@ async function closeDueSuggestions(client, store, settings) {
     const retry = suggestion.status === 'github-pending';
     if (!due && !retry) continue;
     const before = suggestion.status;
-    const next = await closeSuggestion(client, store, suggestion, settings);
+    const next = await closeSuggestion(client, store, suggestion, settings, options);
     if (before === 'voting' && next.status !== 'voting') closed += 1;
     if (next.status === 'github-review') githubSynced += 1;
     if (next.status === 'github-pending') githubPending += 1;
@@ -388,22 +453,31 @@ async function closeDueSuggestions(client, store, settings) {
   return { closed, githubSynced, githubPending };
 }
 
-async function createSuggestionPost(interaction, store, settings, channel) {
-  const suggestion = newSuggestion(store, interaction, settings);
+async function createSuggestionPost(interaction, store, settings, channel, pollEngine = null) {
+  let suggestion = newSuggestion(store, interaction, settings);
+  if (pollEngine) suggestion = ensureSuggestionPoll(store, suggestion, settings, pollEngine, { guildId: interaction.guildId, channelId: channel.id });
   const message = await channel.send(suggestionPayload(suggestion, settings));
   const stored = { ...suggestion, channelId: String(channel.id), messageId: String(message.id) };
+  if (pollEngine && stored.pollId) {
+    pollEngine.store.update(stored.pollId, (poll) => {
+      poll.guildId = String(interaction.guildId || '');
+      poll.channelId = String(channel.id);
+      poll.messageId = String(message.id);
+      return poll;
+    });
+  }
   store.setSuggestion(stored.id, stored);
   return stored;
 }
 
 async function handleSuggestionInteraction(interaction, context) {
-  const { store, settings, channel } = context;
+  const { store, settings, channel, pollEngine } = context;
   if (interaction.isButton?.() && interaction.customId === SUBMIT_BUTTON_ID) {
     await interaction.showModal(createSuggestionModal());
     return true;
   }
   if (interaction.isModalSubmit?.() && interaction.customId === MODAL_ID) {
-    const suggestion = await createSuggestionPost(interaction, store, settings, channel);
+    const suggestion = await createSuggestionPost(interaction, store, settings, channel, pollEngine);
     await interaction.reply({ content: `✅ ${suggestion.id} is live for community voting.`, ephemeral: true, allowedMentions: { parse: [] } });
     return true;
   }
@@ -414,7 +488,22 @@ async function handleSuggestionInteraction(interaction, context) {
       await interaction.reply({ content: 'That suggestion is no longer available.', ephemeral: true });
       return true;
     }
-    if (Date.parse(suggestion.closesAt) <= Date.now() && suggestion.status === 'voting') suggestion = await closeSuggestion(interaction.client, store, suggestion, settings, { force: true });
+    suggestion = ensureSuggestionPoll(store, suggestion, settings, pollEngine, { guildId: interaction.guildId, channelId: channel.id });
+    if (Date.parse(suggestion.closesAt) <= Date.now() && suggestion.status === 'voting') suggestion = await closeSuggestion(interaction.client, store, suggestion, settings, { force: true, pollEngine, actorId: interaction.user.id });
+    if (pollEngine && suggestion.pollId && suggestion.status === 'voting') {
+      const poll = pollEngine.get(suggestion.pollId, { includeVotes: true });
+      const current = poll?.votes?.[String(interaction.user.id)]?.optionIds?.[0] || '';
+      const choice = vote === 'up' ? 'OPT-1' : 'OPT-2';
+      const updated = current === choice
+        ? pollEngine.removeVote(suggestion.pollId, { id: interaction.user.id, roleIds: [] })
+        : pollEngine.castVote(suggestion.pollId, { id: interaction.user.id, roleIds: [] }, choice);
+      const action = current === choice ? 'removed' : current ? 'changed' : 'cast';
+      const projected = suggestionWithPoll(suggestion, updated);
+      store.setSuggestion(id, projected);
+      await interaction.update(suggestionPayload(projected, settings));
+      await interaction.followUp({ content: `Your vote was ${action === 'cast' ? 'counted' : action}.`, ephemeral: true, allowedMentions: { parse: [] } }).catch(() => {});
+      return true;
+    }
     const result = castVote(suggestion, String(interaction.user.id), vote);
     if (result.blocked === 'self-vote') {
       await interaction.reply({ content: 'You cannot vote on your own suggestion.', ephemeral: true });
@@ -438,6 +527,7 @@ function installSuggestionsExtension() {
   Client.prototype[INSTALLED] = true;
   const config = loadConfig();
   const store = new StateStore();
+  const pollEngine = new PollEngine({ store: new PollStore() });
   const settings = suggestionSettings();
   const originalLogin = Client.prototype.login;
 
@@ -445,7 +535,7 @@ function installSuggestionsExtension() {
     let channel = null;
     const interactionHandler = (interaction) => {
       if (!channel) return;
-      void handleSuggestionInteraction(interaction, { store, settings, channel }).catch(async (error) => {
+      void handleSuggestionInteraction(interaction, { store, settings, channel, pollEngine }).catch(async (error) => {
         console.warn(`[Nexus Sentinal] suggestion interaction failed: ${String(error?.message || error).slice(0, 240)}`);
         if (!interaction.replied && !interaction.deferred) await interaction.reply({ content: 'The suggestion action could not be completed.', ephemeral: true }).catch(() => {});
       });
@@ -465,8 +555,14 @@ function installSuggestionsExtension() {
           channel = channelResult.channel;
           const panel = await ensureSuggestionPanel(channel, settings, { botId: this.user?.id });
           store.setSuggestionMeta({ ...store.getSuggestionMeta(), channelId: String(channel.id), panelMessageId: String(panel.message.id) });
-          const closed = await closeDueSuggestions(this, store, settings);
-          console.log(`[Nexus Sentinal] suggestions (${reason}): channel=${channel.id} channelCreated=${channelResult.created} channelMoved=${channelResult.moved} panelCreated=${panel.created} duplicatesRemoved=${panel.duplicatesRemoved} closed=${closed.closed} githubSynced=${closed.githubSynced} githubPending=${closed.githubPending}`);
+          let pollsMigrated = 0;
+          for (const suggestion of Object.values(store.listSuggestions())) {
+            if (suggestion.status !== 'voting' || suggestion.pollId) continue;
+            ensureSuggestionPoll(store, suggestion, settings, pollEngine, { guildId, channelId: channel.id });
+            pollsMigrated += 1;
+          }
+          const closed = await closeDueSuggestions(this, store, settings, { pollEngine });
+          console.log(`[Nexus Sentinal] suggestions (${reason}): channel=${channel.id} channelCreated=${channelResult.created} channelMoved=${channelResult.moved} panelCreated=${panel.created} duplicatesRemoved=${panel.duplicatesRemoved} pollsMigrated=${pollsMigrated} closed=${closed.closed} githubSynced=${closed.githubSynced} githubPending=${closed.githubPending}`);
         } catch (error) {
           console.warn(`[Nexus Sentinal] suggestions (${reason}) unavailable: ${String(error?.message || error).slice(0, 300)}`);
         } finally {
@@ -498,6 +594,9 @@ module.exports = {
   suggestionPayload,
   createSuggestionModal,
   newSuggestion,
+  pollVoteMap,
+  suggestionWithPoll,
+  ensureSuggestionPoll,
   castVote,
   passesCommunityGate,
   githubIssueBody,

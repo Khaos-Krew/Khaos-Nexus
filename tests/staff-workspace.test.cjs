@@ -229,3 +229,15 @@ test('managed staff panels avoid edits when the rendered payload is unchanged', 
   };
   assert.equal(panelPayloadMatches(message, payload), true);
 });
+
+test('staff member discovery never falls back to an opcode-8 full guild fetch when cache is empty', async () => {
+  let fetches = 0;
+  const guild = {
+    members: {
+      cache: new Map(),
+      async fetch() { fetches += 1; return new Map(); }
+    }
+  };
+  assert.deepEqual(await staffMembers(guild, ['staff'], ['owner']), []);
+  assert.equal(fetches, 0);
+});

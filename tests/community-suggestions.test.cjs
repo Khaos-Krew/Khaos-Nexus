@@ -6,6 +6,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { StateStore } = require('../src/sentinel/state-store.cjs');
+const { PollEngine } = require('../src/backend/services/poll-engine.cjs');
+const { PollStore } = require('../src/backend/services/poll-store.cjs');
 const {
   PANEL_MARKER,
   suggestionSettings,
@@ -15,7 +17,9 @@ const {
   castVote,
   passesCommunityGate,
   githubIssueBody,
-  createGithubIssue
+  createGithubIssue,
+  ensureSuggestionPoll,
+  suggestionWithPoll
 } = require('../src/sentinel/suggestions-extension.cjs');
 
 function sampleSuggestion(overrides = {}) {
@@ -161,4 +165,41 @@ test('suggestion state allocates stable IDs and persists records across store in
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('open legacy suggestions migrate once onto the shared Poll Engine without losing votes', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-suggestion-poll-'));
+  try {
+    const store = new StateStore(root);
+    const engine = new PollEngine({ store: new PollStore({ filePath: path.join(root, 'polls.json') }), now: () => new Date('2026-08-25T00:00:00.000Z') });
+    const legacy = sampleSuggestion({ votes: { voter1: 'up', voter2: 'down' } });
+    store.setSuggestion(legacy.id, legacy);
+    const migrated = ensureSuggestionPoll(store, legacy, suggestionSettings({}), engine, { guildId: 'guild' });
+    assert.match(migrated.pollId, /^POLL-\d{4}$/);
+    assert.deepEqual(migrated.votes, legacy.votes);
+    const poll = engine.get(migrated.pollId, { includeVotes: true });
+    assert.equal(poll.source, 'suggestion');
+    assert.equal(poll.sourceLink, legacy.id);
+    assert.equal(poll.profile, 'suggestion-gate');
+    assert.deepEqual(poll.votes.voter1.optionIds, ['OPT-1']);
+    assert.deepEqual(poll.votes.voter2.optionIds, ['OPT-2']);
+    assert.equal(ensureSuggestionPoll(store, migrated, suggestionSettings({}), engine).pollId, migrated.pollId);
+    assert.equal(engine.list({ includeVotes: true }).length, 1);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('suggestion projection renders shared Poll Engine ballots in the legacy card contract', () => {
+  const projected = suggestionWithPoll(sampleSuggestion(), {
+    id: 'POLL-0042',
+    closesAt: '2026-08-27T00:00:00.000Z',
+    votes: {
+      one: { optionIds: ['OPT-1'] },
+      two: { optionIds: ['OPT-2'] }
+    }
+  });
+  assert.equal(projected.pollId, 'POLL-0042');
+  assert.deepEqual(projected.votes, { one: 'up', two: 'down' });
+  assert.equal(projected.closesAt, '2026-08-27T00:00:00.000Z');
 });

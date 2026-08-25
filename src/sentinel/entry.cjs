@@ -26,6 +26,8 @@ const { installCommunityLevelingExtension } = require('./community-leveling-exte
 const { installStaffWorkspaceExtension } = require('./staff-workspace-extension.cjs');
 const { installModuleAutoprovisionExtension } = require('./module-autoprovision-extension.cjs');
 const { installModuleAccessAuditExtension } = require('./module-access-audit-extension.cjs');
+const { installPollExtension } = require('./poll-extension.cjs');
+const { installCreatorProgramExtension } = require('./creator-program-extension.cjs');
 
 installGuildMembersIntentExtension();
 installCommunityIntentsExtension();
@@ -53,4 +55,6 @@ installCommunityLevelingExtension();
 installStaffWorkspaceExtension();
 installModuleAutoprovisionExtension();
 installModuleAccessAuditExtension();
+installPollExtension();
+installCreatorProgramExtension();
 require('./bot.cjs');

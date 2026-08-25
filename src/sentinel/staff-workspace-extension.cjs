@@ -164,11 +164,8 @@ function memberIsStaff(member, staffRoleIds, ownerIds) {
 
 async function staffMembers(guild, staffRoleIds, ownerIds) {
   const cached = guild?.members?.cache;
-  if (cached?.values && cached.size > 0) {
-    return [...cached.values()].filter((member) => memberIsStaff(member, staffRoleIds, ownerIds));
-  }
-  const members = await guild.members.fetch();
-  return [...members.values()].filter((member) => memberIsStaff(member, staffRoleIds, ownerIds));
+  if (!cached?.values) return [];
+  return [...cached.values()].filter((member) => memberIsStaff(member, staffRoleIds, ownerIds));
 }
 
 async function ensureOfficeThread(channel, member) {
