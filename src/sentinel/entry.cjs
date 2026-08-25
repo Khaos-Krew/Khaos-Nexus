@@ -11,6 +11,7 @@ const { installRoadmapPatchNoteExtension } = require('./roadmap-patch-note-exten
 const { installSafetyReportExtension } = require('./safety-report-extension.cjs');
 const { installShieldExtension } = require('./shield-extension.cjs');
 const { installShieldReviewExtension } = require('./shield-review-extension.cjs');
+const { installShieldIsolationExtension } = require('./shield-isolation-extension.cjs');
 const { installPersistentPanelExtension } = require('./persistent-panel-extension.cjs');
 const { installStaffNameColorPreviewExtension } = require('./staff-name-color-preview-extension.cjs');
 const { installNexusStatusExtension } = require('./nexus-status-extension.cjs');
@@ -36,6 +37,7 @@ installRoadmapPatchNoteExtension();
 installSafetyReportExtension();
 installShieldExtension();
 installShieldReviewExtension();
+installShieldIsolationExtension();
 installPersistentPanelExtension();
 installStaffNameColorPreviewExtension();
 installNexusStatusExtension();
