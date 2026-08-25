@@ -10,15 +10,38 @@ const {
   rankRoleIdsFrom,
   shadowRecruitRoleIdFrom,
   hqCategoryOverwrites,
+  hqChildRequiredOverwrites,
   announcementOverwrites,
   normalizedOverwritePlan,
   overwriteSetMatches,
+  overwritePlanSatisfies,
   matchingChannels,
+  hqChildAccessSatisfies,
+  lockHqChildren,
   hqChannelsInDesiredRelativeOrder
 } = require('../src/sentinel/nexus-hq.cjs');
 
 function role(id, name) {
   return { id, name, permissions: { has: () => false } };
+}
+
+function channelWithPlan(plan, extras = {}) {
+  const normalized = normalizedOverwritePlan(plan);
+  const cache = new Map(normalized.map((entry) => [`${entry.type}:${entry.id}`, {
+    id: entry.id,
+    type: entry.type,
+    allow: { bitfield: entry.allow },
+    deny: { bitfield: entry.deny }
+  }]));
+  for (const entry of extras.entries || []) {
+    cache.set(`${Number(entry.type || 0)}:${entry.id}`, {
+      id: String(entry.id),
+      type: Number(entry.type || 0),
+      allow: { bitfield: BigInt(entry.allow || 0n) },
+      deny: { bitfield: BigInt(entry.deny || 0n) }
+    });
+  }
+  return { permissionOverwrites: { cache }, ...extras.channel };
 }
 
 test('Nexus HQ stays compact and community focused', () => {
@@ -104,22 +127,89 @@ test('permission overwrite comparison skips writes when the exact HQ plan is alr
     ['900000000000000043'],
     '900000000000000044'
   );
-  const planned = normalizedOverwritePlan(desired);
-  const cache = new Map(planned.map((entry) => [entry.id, {
-    id: entry.id,
-    type: entry.type,
-    allow: { bitfield: entry.allow },
-    deny: { bitfield: entry.deny }
-  }]));
-  const channel = { permissionOverwrites: { cache } };
+  const channel = channelWithPlan(desired);
   assert.equal(overwriteSetMatches(channel, desired), true);
-  cache.set('900000000000000045', {
+  channel.permissionOverwrites.cache.set('0:900000000000000045', {
     id: '900000000000000045',
     type: 0,
-    allow: { bitfield: PermissionFlagsBits.ViewChannel },
+    allow: { bitfield: PermissionFlagsBits.SendMessages },
     deny: { bitfield: 0n }
   });
   assert.equal(overwriteSetMatches(channel, desired), false);
+});
+
+test('required HQ overwrite plan tolerates unrelated safe overrides without forcing a rewrite', () => {
+  const guild = { id: '900000000000000050', ownerId: '900000000000000051' };
+  const desired = hqCategoryOverwrites(
+    guild,
+    ['900000000000000052'],
+    ['900000000000000053'],
+    '900000000000000054'
+  );
+  const channel = channelWithPlan(desired, {
+    entries: [{ id: '900000000000000055', allow: PermissionFlagsBits.ReadMessageHistory }]
+  });
+  assert.equal(overwriteSetMatches(channel, desired), false);
+  assert.equal(overwritePlanSatisfies(channel, desired), true);
+});
+
+test('required HQ overwrite plan rejects an everyone ViewChannel contradiction', () => {
+  const guild = { id: '900000000000000060', ownerId: '900000000000000061' };
+  const desired = hqCategoryOverwrites(
+    guild,
+    ['900000000000000062'],
+    ['900000000000000063'],
+    '900000000000000064'
+  );
+  const channel = channelWithPlan(desired);
+  const everyone = channel.permissionOverwrites.cache.get(`0:${guild.id}`);
+  everyone.allow.bitfield |= PermissionFlagsBits.ViewChannel;
+  assert.equal(overwritePlanSatisfies(channel, desired), false);
+});
+
+test('unsynced canonical HQ child is accepted when its own minimum Shadow Recruit gate is safe', () => {
+  const guild = { id: '900000000000000070' };
+  const rankId = '900000000000000071';
+  const desired = hqChildRequiredOverwrites(guild, [rankId]);
+  const category = channelWithPlan(desired, { channel: { id: 'cat' } });
+  const child = channelWithPlan(desired, {
+    entries: [{ id: '900000000000000072', deny: PermissionFlagsBits.SendMessages }],
+    channel: { id: 'general', parentId: 'cat', permissionsLocked: false }
+  });
+  assert.equal(hqChildAccessSatisfies(child, category, desired), true);
+});
+
+test('unsynced public child is not treated as safe merely because the parent category is gated', () => {
+  const guild = { id: '900000000000000080' };
+  const rankId = '900000000000000081';
+  const desired = hqChildRequiredOverwrites(guild, [rankId]);
+  const category = channelWithPlan(desired, { channel: { id: 'cat' } });
+  const child = channelWithPlan([
+    { id: guild.id, type: 0, allow: [PermissionFlagsBits.ViewChannel] },
+    { id: rankId, type: 0, allow: [PermissionFlagsBits.ViewChannel] }
+  ], { channel: { id: 'general', parentId: 'cat', permissionsLocked: false } });
+  assert.equal(hqChildAccessSatisfies(child, category, desired), false);
+});
+
+test('safe unsynced canonical HQ child does not call lockPermissions', async () => {
+  const guild = { id: '900000000000000090' };
+  const rankId = '900000000000000091';
+  const desired = hqChildRequiredOverwrites(guild, [rankId]);
+  const category = channelWithPlan(desired, { channel: { id: 'cat' } });
+  let lockCalls = 0;
+  const child = channelWithPlan(desired, {
+    channel: {
+      id: 'general',
+      name: 'general',
+      parentId: 'cat',
+      permissionsLocked: false,
+      async lockPermissions() { lockCalls += 1; }
+    }
+  });
+  const result = await lockHqChildren(category, new Map([[child.id, child]]), desired);
+  assert.equal(result.locked, 0);
+  assert.deepEqual(result.blocked, []);
+  assert.equal(lockCalls, 0);
 });
 
 test('HQ channel ordering is drift-aware and only requests moves when relative order is wrong', () => {
