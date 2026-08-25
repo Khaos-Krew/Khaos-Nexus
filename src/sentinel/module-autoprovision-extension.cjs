@@ -27,7 +27,7 @@ function categoryMatchesModule(moduleId, category) {
   if (!moduleId || !category) return false;
   let layout;
   try { layout = layoutFor(moduleId); } catch { return false; }
-  const wanted = new Set([layout.category, ...(layout.aliases || [])].map(normalizedCategoryName).filter(Boolean));
+  const wanted = new Set([layout.categoryDisplay, layout.category, ...(layout.aliases || [])].map(normalizedCategoryName).filter(Boolean));
   return wanted.has(normalizedCategoryName(category.name));
 }
 
@@ -133,6 +133,7 @@ async function reconcileNewModuleLayouts(client, { config, state, backend, provi
         categoryName: String(setup.categoryName || ''),
         categoryCreated: Boolean(setup.categoryCreated),
         createdChannels: [...(setup.createdChannels || [])],
+        movedChannels: [...(setup.movedChannels || [])],
         accessPolicyOk: Boolean(setup.accessPolicy?.ok),
         accessRoleName: String(setup.accessPolicy?.accessRoleName || ''),
         hub
@@ -142,9 +143,10 @@ async function reconcileNewModuleLayouts(client, { config, state, backend, provi
     }
   }
 
-  const order = provisioned.length
-    ? await reconcileGameCategoryOrder(guild).catch((error) => ({ ok: false, skipped: false, moved: 0, reason: String(error?.message || error) }))
-    : null;
+  // Always reconcile names/order. This lets existing categories adopt current
+  // presentation styling even when no module needs provisioning on this pass.
+  const order = await reconcileGameCategoryOrder(guild)
+    .catch((error) => ({ ok: false, skipped: false, moved: 0, renamed: 0, reason: String(error?.message || error) }));
   return { provisioned, blocked: candidates.blocked, failed, order };
 }
 
@@ -167,8 +169,8 @@ function installModuleAutoprovisionExtension() {
       const run = async (reason) => {
         try {
           const result = await reconcileNewModuleLayouts(client, { config, state, backend, provisioner });
-          const details = result.provisioned.map((item) => `${item.moduleId}:${item.categoryCreated ? 'created' : 'adopted'}`).join(', ') || 'none';
-          console.log(`[Nexus Sentinal] module auto-provision (${reason}): provisioned=${result.provisioned.length} [${details}] blocked=${result.blocked.length} failed=${result.failed.length} categoryMoves=${Number(result.order?.moved || 0)}`);
+          const details = result.provisioned.map((item) => `${item.moduleId}:${item.categoryCreated ? 'created' : 'adopted'}${item.movedChannels.length ? `+moved${item.movedChannels.length}` : ''}`).join(', ') || 'none';
+          console.log(`[Nexus Sentinal] module auto-provision (${reason}): provisioned=${result.provisioned.length} [${details}] blocked=${result.blocked.length} failed=${result.failed.length} categoryRenames=${Number(result.order?.renamed || 0)} categoryMoves=${Number(result.order?.moved || 0)}`);
           for (const item of result.failed) console.warn(`[Nexus Sentinal] module auto-provision failed: ${item.moduleId}: ${item.reason}`);
         } catch (error) {
           console.warn(`[Nexus Sentinal] module auto-provision (${reason}) unavailable: ${String(error?.message || error).slice(0, 240)}`);
