@@ -162,14 +162,24 @@ function serverCategoryOrderIsCorrect(plan) {
   return actual.length === plan.entries.length && actual.every((entry, index) => String(entry.category.id) === String(plan.entries[index].category.id));
 }
 
+function categoryPositionUpdates(plan) {
+  return (plan?.entries || []).map((entry, index) => ({ channel: String(entry.category.id), position: index }));
+}
+
+function snapshotOrCache(snapshot, manager) {
+  if (snapshot) return snapshot;
+  const cache = manager?.cache;
+  return cache && Number(cache.size || 0) > 0 ? cache : null;
+}
+
 async function reconcileGameCategoryNames(guild, entries = null, channelsSnapshot = null) {
-  const channels = channelsSnapshot || await guild.channels.fetch();
+  const channels = channelsSnapshot || snapshotOrCache(null, guild.channels) || await guild.channels.fetch();
   const managed = entries || moduleCategoryEntries(channels);
   let renamed = 0;
   for (const entry of managed) {
     const desired = String(entry.displayName || entry.label || '').trim();
     if (!desired || String(entry.category?.name || '') === desired) continue;
-    const category = await guild.channels.fetch(String(entry.category.id)).catch(() => entry.category);
+    const category = entry.category;
     if (!category || category.type !== ChannelType.GuildCategory || typeof category.setName !== 'function') continue;
     await category.setName(desired, 'Nexus Sentinal: apply game category display style');
     renamed += 1;
@@ -178,7 +188,7 @@ async function reconcileGameCategoryNames(guild, entries = null, channelsSnapsho
 }
 
 async function resolveAdminRoleIds(guild, config = {}, rolesSnapshot = null) {
-  const roles = rolesSnapshot || await guild.roles.fetch();
+  const roles = rolesSnapshot || snapshotOrCache(null, guild.roles) || await guild.roles.fetch();
   const explicit = normalizeIds(config.discord?.operatorRoleIds || []).filter((id) => {
     const role = roles.get(id);
     return Boolean(role && role.id !== guild.id && role.managed !== true);
@@ -252,7 +262,7 @@ async function lockCategoryChildren(category, channels, reason) {
 }
 
 async function reconcileStructuralPrivacy(guild, options = {}, structural = null, channelsSnapshot = null, rolesSnapshot = null) {
-  const channels = channelsSnapshot || await guild.channels.fetch();
+  const channels = channelsSnapshot || snapshotOrCache(null, guild.channels) || await guild.channels.fetch();
   const categories = structural || structuralCategories(channels);
   const config = options.config || {};
   const botId = String(options.botId || '');
@@ -262,7 +272,7 @@ async function reconcileStructuralPrivacy(guild, options = {}, structural = null
   let childrenLocked = 0;
 
   if (categories.nexusPrivate?.permissionOverwrites?.set) {
-    const roles = rolesSnapshot || await guild.roles.fetch();
+    const roles = rolesSnapshot || snapshotOrCache(null, guild.roles) || await guild.roles.fetch();
     const adminRoleIds = await resolveAdminRoleIds(guild, config, roles);
     nexusUpdated = await applyOverwriteSet(
       categories.nexusPrivate,
@@ -293,27 +303,30 @@ async function reconcileStructuralPrivacy(guild, options = {}, structural = null
 }
 
 async function reconcileServerCategoryOrder(guild, options = {}) {
-  let channels = await guild.channels.fetch();
+  let channels = options.channelsSnapshot || snapshotOrCache(null, guild.channels) || await guild.channels.fetch();
+  const roles = options.rolesSnapshot || snapshotOrCache(null, guild.roles) || null;
   let plan = serverCategoryOrderPlan(channels);
   if (!plan.modules.length) return { ok: false, skipped: true, moved: 0, renamed: 0, reason: 'No game module categories found.' };
 
   const names = await reconcileGameCategoryNames(guild, plan.modules, channels);
-  if (names.renamed) {
-    channels = await guild.channels.fetch();
-    plan = serverCategoryOrderPlan(channels);
-  }
+  if (names.renamed) plan = serverCategoryOrderPlan(channels);
 
-  const privacy = await reconcileStructuralPrivacy(guild, options, plan.structural, channels);
+  const privacy = await reconcileStructuralPrivacy(guild, options, plan.structural, channels, roles);
   const desired = plan.entries.map((entry) => entry.label);
   let moved = 0;
 
   if (!serverCategoryOrderIsCorrect(plan)) {
-    for (let index = 0; index < plan.entries.length; index += 1) {
-      const entry = plan.entries[index];
-      const category = await guild.channels.fetch(String(entry.category.id)).catch(() => entry.category);
-      if (!category || typeof category.setPosition !== 'function') continue;
-      await category.setPosition(index, { relative: false, reason: 'Nexus Sentinal: enforce canonical server category hierarchy' });
-      moved += 1;
+    const updates = categoryPositionUpdates(plan);
+    if (updates.length && typeof guild.channels?.setPositions === 'function') {
+      await guild.channels.setPositions(updates, 'Nexus Sentinal: enforce canonical server category hierarchy');
+      moved = updates.length;
+    } else {
+      for (let index = 0; index < plan.entries.length; index += 1) {
+        const category = plan.entries[index]?.category;
+        if (!category || typeof category.setPosition !== 'function') continue;
+        await category.setPosition(index, { relative: false, reason: 'Nexus Sentinal: enforce canonical server category hierarchy' });
+        moved += 1;
+      }
     }
   }
 
@@ -355,6 +368,8 @@ module.exports = {
   categoryMoveSequence,
   serverCategoryOrderPlan,
   serverCategoryOrderIsCorrect,
+  categoryPositionUpdates,
+  snapshotOrCache,
   reconcileGameCategoryNames,
   resolveAdminRoleIds,
   staffAdminOverwrites,
