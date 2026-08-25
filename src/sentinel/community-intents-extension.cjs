@@ -4,7 +4,7 @@ const discord = require('discord.js');
 const { GatewayIntentBits, IntentsBitField } = discord;
 
 const INSTALLED = Symbol.for('khaos.nexus.communityIntents.constructor');
-const MIN_CLIENT_LISTENER_BUDGET = 32;
+const MIN_CLIENT_LISTENER_BUDGET = 40;
 
 function messageContentRequested(env = process.env) {
   return ['1', 'true', 'yes', 'on'].includes(String(env.NEXUS_LEVEL_MESSAGE_CONTENT || '').trim().toLowerCase());
