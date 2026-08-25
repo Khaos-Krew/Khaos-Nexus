@@ -87,6 +87,37 @@ const MODULES = [
     ]
   },
   {
+    id: 'oncehuman', name: 'Once Human', console: true,
+    capabilities: [
+      viewer('news', 'Official Updates'),
+      viewer('builds', 'Build Library', { button: false, input: 'list | add <build notes> | remove <build notes>' }),
+      viewer('wishlist', 'Wishlist', { button: false, input: 'list | add <item> | remove <item>' }),
+      viewer('lfg', 'LFG', { button: false, input: 'list | join <activity> | leave' }),
+      viewer('reference', 'Reference Search', { button: false, input: '[weapon, armor, mod, deviation, item, activity]' }),
+      viewer('api-status', 'API Status')
+    ]
+  },
+  {
+    id: 'osrs', name: 'Old School RuneScape', console: true,
+    capabilities: [
+      viewer('link', 'Link RuneScape Name', { button: false, input: '<name>[|account mode]' }),
+      viewer('unlink', 'Unlink RuneScape Name', { button: false }),
+      viewer('profile', 'Profile'), viewer('skills', 'Skills'), viewer('activities', 'Bosses & Activities'),
+      viewer('wiki', 'Wiki Search', { button: false, input: '<item, monster, boss, quest, skill, drop, location, spell, prayer, or guide>' }),
+      viewer('price', 'Grand Exchange Price', { button: false, input: '<item name or ID>' })
+    ]
+  },
+  {
+    id: 'runescape3', name: 'RuneScape 3', console: true,
+    capabilities: [
+      viewer('link', 'Link RuneScape Name', { button: false, input: '<name>[|account mode]' }),
+      viewer('unlink', 'Unlink RuneScape Name', { button: false }),
+      viewer('profile', 'Profile'), viewer('skills', 'Skills'), viewer('activities', 'Bosses & Activities'),
+      viewer('wiki', 'Wiki Search', { button: false, input: '<item, monster, boss, quest, skill, drop, location, spell, prayer, or guide>' }),
+      viewer('price', 'Grand Exchange Price', { button: false, input: '<Jagex item ID>' })
+    ]
+  },
+  {
     id: 'warframe', name: 'Warframe', console: true,
     capabilities: [
       viewer('news', 'News'), viewer('events', 'Events'), viewer('alerts', 'Alerts'), viewer('fissures', 'Fissures'),
