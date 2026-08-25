@@ -22,6 +22,28 @@ test('Pokémon GO automatically becomes a Games access role when enabled', () =>
   assert.ok(pogo.roleAliases.includes('Pokémon GO'));
 });
 
+test('OSRS, RuneScape 3, and Once Human automatically become independent Games access roles', () => {
+  const definitions = enabledAccessDefinitions({
+    modules: {
+      osrs: { enabled: true },
+      runescape3: { enabled: true },
+      oncehuman: { enabled: true }
+    }
+  });
+  const expected = {
+    osrs: 'Old School RuneScape Access',
+    runescape3: 'RuneScape 3 Access',
+    oncehuman: 'Once Human Access'
+  };
+  for (const [moduleId, roleName] of Object.entries(expected)) {
+    const definition = definitions.find((item) => item.moduleId === moduleId);
+    assert.ok(definition, `${moduleId} access definition is missing`);
+    assert.equal(definition.section, 'Games');
+    assert.equal(definition.roleName, roleName);
+    assert.equal(parseAccessButton(`${ACCESS_BUTTON_PREFIX}${moduleId}`), moduleId);
+  }
+});
+
 test('admin moduleEnabled overrides config so role menu follows live module controls', () => {
   const config = { modules: { pokemongo: { enabled: true }, warframe: { enabled: false } } };
   const definitions = enabledAccessDefinitions(config, { pokemongo: false, warframe: true });
