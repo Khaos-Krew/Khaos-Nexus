@@ -1,63 +1,65 @@
 # Discord + Nexus Setup Acceptance
 
-This document records the current acceptance checkpoint for the Nexus 0.1 rebuild. It separates evidence that has been verified automatically or from the hosted runtime from evidence that still requires an Owner interaction.
+This document records the current acceptance checkpoint for the Nexus 0.1 rebuild. It separates evidence that has been verified automatically or from the hosted runtime from evidence that still requires an Owner or normal-member interaction.
 
 ## Checkpoint status
 
-**Checkpoint:** Discord + Nexus Setup Acceptance  
+**Checkpoint:** Discord + Nexus Setup Acceptance — Sentinel/backend phase  
 **Active branch:** `rebuild/nexus-0.1`  
 **Hosted service:** `nexus-sentinal-0-1-test`  
-**Latest verified hosted deployment source:** merge commit `1832bcc34dfb454f42d6a89b11a3d858d890da2a`  
-**Latest validated desktop acceptance implementation:** PR #321 head `1aa71b57cb4b40ab29502990737315ee84524ad8` (Nexus Rebuild CI #242 passed)  
+**Latest verified hosted deployment source:** commit `23b6ec2631cac5f5d83927dad966f0831e3972e2`  
 **Verification date:** 2026-08-24
 
 This checkpoint does **not** authorize or imply a public/stable Nexus release.
 
+Desktop feature development and desktop-only acceptance ceremonies are intentionally deferred while the Discord/Sentinel/backend ecosystem is brought to a mature, stable acceptance point. Deferred desktop gates are recorded separately below and do not block the active Sentinel/backend checkpoint.
+
 ## Verified without Owner interaction
 
-The hosted Sentinal continues to pass its deployment health check with the persistent `/app/data` volume mounted. The latest verified Railway deployment reached `SUCCESS` and produced the following runtime evidence:
+The hosted Sentinal continues to pass its deployment health check with the persistent `/app/data` volume mounted. The latest verified Railway deployment reached `SUCCESS` and the current runtime/test evidence establishes the following:
 
-- Nexus Backend started on the internal loopback service.
-- Nexus Sentinal Admin started on the hosted admin port.
-- Nexus Sentinal logged in to Discord successfully.
-- Persistent module feeds were enabled for the configured guild.
-- The administrator `/clear` moderation command registered successfully.
-- `/nexus-pair` registered successfully.
-- `/pogo` registered successfully.
-- The expanded module access menu reconciled on startup with **13 roles, 1 menu message, and 0 warnings**.
-- The friendly command set registered successfully: `/nexus`, `/market`, `/ark`, `/cod`, `/dbd`, `/diablo4`, `/palworld`, `/minecraft`, `/warframe`, `/division2`, `/rust`, `/satisfactory`, and `/idleon`.
-- Command registration preserved unrelated guild commands instead of replacing the guild command set.
-- Managed game hubs reconciled with **12 panels, 0 created, 0 duplicates removed, and 0 pins added**.
-- Call of Duty, Dead by Daylight, and Diablo IV each reused their intended category/hub with `created=false` and `channelsAdded=0`.
-- Module channel access reconciliation covered **12 modules with 0 permission changes and 0 blocked modules**.
-- Managed game categories were placed above the protected Staff boundary in alphabetical order: ARK Survival Ascended, Call of Duty, Dead by Daylight, Diablo IV, Legends of IdleOn, Minecraft, Palworld, Pokémon GO, Rust, Satisfactory, The Division 2, Warframe.
-- A later periodic managed-hub sweep again reported **12 panels, 0 created, and 0 duplicates removed**, providing restart/periodic idempotency evidence for the current topology.
-- Persistent feed actions recovered or updated existing Discord messages with no duplicate cleanup required across the configured Palworld, Satisfactory, Rust, Minecraft, ARK, Pokémon GO, Division 2, and Warframe feeds.
-- The current self-role set reconstructed **11 menus / 120 roles** from live Discord messages with zero legacy reaction candidates remaining.
-- The private safety-report runtime reported `staffRoles=3`, Rules panel ready, and restricted archive ready.
-- The required public `sentinal-role-authority:100` milestone note posted exactly once to `#patch-notes`, with the publisher reporting `posted=1 adopted=0 skipped=1 warnings=0`.
+- Nexus Backend starts on the internal loopback service.
+- Nexus Sentinal Admin starts on the hosted admin port.
+- Nexus Sentinal logs in to Discord successfully.
+- Persistent module feeds are enabled for the configured guild.
+- The administrator `/clear` moderation command registers successfully.
+- `/nexus-pair` and `/pogo` register successfully.
+- The expanded module access menu reconciles with **13 access roles, 1 menu message, and 0 warnings**.
+- The friendly command set registers successfully: `/nexus`, `/market`, `/ark`, `/cod`, `/dbd`, `/diablo4`, `/palworld`, `/minecraft`, `/warframe`, `/division2`, `/rust`, `/satisfactory`, and `/idleon`.
+- Command registration preserves unrelated guild commands instead of replacing the guild command set.
+- Managed game hubs reconcile with **12 Sentinel-owned panels** without duplicate creation.
+- Call of Duty, Dead by Daylight, and Diablo IV reuse their intended category/hub instead of creating duplicate topology.
+- Sentinel-owned module channel access reconciliation covers the managed game surfaces without blocked modules or permission drift.
+- Nexus D&D is explicitly modeled as `surface: veyra` / `console: false`. Its access role and self-service role button remain Sentinel-owned, while its presentation/category visibility is delegated to Veyra instead of being falsely reported as a missing Sentinel game category.
+- Managed game categories remain above the protected Staff boundary in alphabetical order.
+- Periodic managed-hub sweeps provide restart/idempotency evidence for the current topology.
+- Persistent feed actions recover or update existing Discord messages instead of creating deployment duplicates.
+- Warframe news, Nightwave, and Steel Path now recover from public leaf-endpoint HTTP 404 responses through the full platform world-state snapshot, while non-404 provider failures still surface normally. The repaired feeds reconciled successfully in the hosted runtime.
+- The current self-role set reconstructs the live Discord role menus without leaving legacy reaction-role candidates behind.
+- The private safety-report runtime reports configured staff roles, Rules panel readiness, and restricted archive readiness.
+- Staff Workspace reconciliation has a canonical protected category, managed hub/admin/roadmap channels, a staff-offices forum, staff voice space, per-staff office threads, legacy-office preservation, and duplicate-safe managed panels.
+- The About and ranks publishers adopt and update their canonical existing messages instead of creating deployment duplicates; the ranks publisher resolves all six rank definitions.
+- Community leveling registers `/level`, `/rank`, `/leaderboard`, and `/xp` and maintains its canonical level-up surface.
+- Community Suggestions now has intake, anti-self-voting, timed vote evaluation, GitHub issue handoff/retry, protected Owner review, public approve/deny feedback, and a trusted GitHub development-plan gate. Owner approval remains locked until a repository Owner/Member/Collaborator plan is imported; the planning handoff is idempotent and cannot write to GitHub without the configured token.
+- The required public milestone publisher remains constrained to 66% and 100% public-safe patch notes and maintains its publication ledger.
 
 The live Railway configuration uses a persistent volume at `/app/data`. Sentinal state and hosted-provider storage follow the shared `NEXUS_DATA_DIR` contract so Discord state and provider state do not split between persistent and ephemeral locations.
 
 ### Name Color hierarchy note
 
-The role reconciler still emits a bounded warning that selectable color-role priority cannot be fully applied to staff members without placing shared color roles above a protected moderation role. This is expected under the approved hierarchy policy: Sentinal must not weaken moderation/admin authority merely to force a staff display color. Issue #350 tracks the separate staff-compatible presentation design and requires a preview before any live staff-role appearance migration.
+The role reconciler may emit a bounded warning when selectable color-role priority cannot be fully applied to staff members without placing shared color roles above a protected moderation role. This is expected under the approved hierarchy policy: Sentinal must not weaken moderation/admin authority merely to force a staff display color. Any separate staff-compatible presentation migration requires its own preview and live acceptance.
 
-## Owner interaction evidence observed
+## Hosted/runtime acceptance progress
 
-Owner acceptance testing on 2026-08-24 established useful partial evidence for the desktop-to-hosted Discord admin path:
+The current backend-first checkpoint has removed several false or obsolete acceptance failures:
 
-- the Discord Admin page reached the intended hosted Sentinal and reported Sentinal online, **5/5 permissions**, layout, rank, and registered-command readiness;
-- the original aggregate Scan request exposed a client-side false-timeout defect, repaired by PR #318;
-- after that repair, the hosted `/v1/scan` request completed with HTTP 200 in roughly 3 seconds, confirming the request/transport path itself was working;
-- the desktop then exposed a second presentation defect: completed read-only scans with acceptance findings used `ok: false`, and the generic action helper rendered them as `Operation failed.` instead of showing the findings;
-- PR #319 repaired that presentation path, after which the Owner acceptance scan was green in every surfaced section except Rank / SKU discovery;
-- repository inspection of that remaining red section established that the five paid Nexus ranks are **Discord Server Shop Premium Roles**, not Premium App SKUs owned by the Nexus Sentinal application;
-- PR #320 restores the correct authority split: when no paid `rankSkus` mappings are explicitly configured, Discord Server Shop roles are authoritative, paid Server Shop roles are protected from Nexus reconciliation ownership, and only the free Shadow Recruit baseline is Nexus-managed. Explicit Premium App SKU mappings still enable the Premium App entitlement path;
-- PR #321 aligns the desktop discovery/admin presentation with that runtime authority so Server Shop-managed paid ranks are not shown as missing Premium App SKUs;
-- PR #320 head `a4b880a64bed3ba4d1d911126939ef425bd56617` passed Nexus Rebuild CI #240, and PR #321 head `1aa71b57cb4b40ab29502990737315ee84524ad8` passed Nexus Rebuild CI #242 before merge.
+- Server Shop Premium Roles remain the authority for paid Nexus ranks unless Premium App SKU mappings are explicitly configured.
+- Module-access preflight no longer performs an unnecessary second Discord channel fetch from a snapshot and no longer throws the former `managedCategoryChannels is not a function` error.
+- Nexus D&D is no longer treated as a missing Sentinel-managed game category; it is a delegated Veyra surface while its access-role/button contract remains auditable.
+- Warframe leaf-endpoint 404s no longer break the news, Nightwave, or Steel Path feed reconciliations.
+- Community Suggestions no longer allows a passed raw GitHub issue to jump directly to implementation approval without an implementation plan.
 
-This is meaningful Owner-test progress, but it is **not** final Discord + Nexus Setup Acceptance. The corrected PR #321 presentation still needs one Owner confirmation scan so the Server Shop authority view and any remaining genuine red sections can be observed on the desktop build itself.
+These are meaningful hosted acceptance improvements, but they do **not** replace the human interaction tests below.
 
 ## Acceptance surface already implemented
 
@@ -70,7 +72,7 @@ The protected hosted Sentinal admin API provides read-only acceptance endpoints 
 - dry-run role reconciliation,
 - rank authority / SKU mapping discovery,
 - hosted provider configuration status,
-- consolidated `/v1/scan` acceptance evidence.
+- consolidated acceptance evidence.
 
 Repair actions remain authenticated and separate from read-only inspection. Hosted provider credentials are not returned by the acceptance surface.
 
@@ -83,20 +85,41 @@ The current rebuild supports two distinct paid-rank authority modes:
 
 Do not treat missing Premium App SKUs as an acceptance failure when the intended guild uses Discord Server Shop Premium Roles.
 
-## Still requires Owner interaction
+## Still requires live Owner/member interaction
 
-The following items remain intentionally **pending or partially complete** because they require a real Owner action, normal-member interaction, or real provider credentials and cannot be inferred from CI or startup logs:
+The following items remain intentionally pending or partially complete because they require a real Owner action, a normal-member interaction, or real provider credentials and cannot be inferred from CI/startup logs:
 
-1. Confirm the intended one-time `/nexus-pair` → HTTPS exchange → protected credential-storage flow on the current desktop build. The successful authenticated hosted-admin scan is supporting evidence that desktop-to-hosted administration is reachable, but it does not by itself prove the complete fresh-code pairing ceremony.
-2. Re-run the Setup Center/Discord Admin hosted scan on the PR #321 implementation and confirm the Server Shop rank authority section no longer reports missing Premium App SKUs for the five paid Server Shop ranks; record any remaining genuine red sections.
-3. Exercise `/nexus setup` or the Setup Center Repair Nexus flow against the live guild only where a repair is actually required, then confirm the resulting Discord layout visually. Startup reconciliation has already proven the current managed layout can remain stable without duplicate creation.
-4. Sync at least one real game-provider configuration from the desktop to hosted Sentinal and run its read-only provider validation, beginning with Palworld when credentials are available.
-5. Confirm a desktop restart retains the paired/admin configuration. Hosted Sentinal restart persistence has partial evidence through repeated Railway deployments and persistent Discord message recovery, but the full desktop + hosted pairing persistence ceremony still needs Owner confirmation.
-6. Exercise normal-member module access buttons/commands to prove the matching access role grants the expected module visibility while nonmatching game roles remain isolated and staff/admin visibility remains intact.
-7. Exercise one complete private report lifecycle from report creation through claim/evidence/resolve/close/archive and verify the restricted archive permissions from the intended staff accounts.
+1. Exercise a normal-member module access button end to end: assign a managed game role, confirm the matching managed module becomes visible, confirm unrelated managed game categories remain isolated, remove the role, and confirm access is removed. Confirm staff/admin visibility remains intact. D&D should be tested according to the Veyra presentation contract rather than a Sentinel game-console category.
+2. Exercise one complete private report lifecycle from Rules → report modal/ticket → staff claim → evidence handling → resolve/close → restricted archive, and verify the reporter/staff/archive permission boundaries from the intended accounts.
+3. Verify the protected Staff Workspace from an Owner/staff account and a normal-member account: managed staff channels remain private, the canonical staff-offices forum is usable, office threads are present for intended staff, and no preserved legacy office history became public during migration.
+4. Exercise Community XP with real Discord activity: text award/cooldown behavior, voice award behavior where configured, level-up announcement, `/level`, `/rank`, `/leaderboard`, administrative `/xp` authorization, and persistence across a hosted restart.
+5. Visually confirm the canonical `#about` and `#ranks` surfaces contain the intended current copy and links after Sentinel adoption. Runtime evidence already proves canonical reuse/deduplication; this gate is content/presentation acceptance only.
+6. Submit one real Community Suggestion and carry it through the complete live workflow: self-vote prevention, community vote gate, GitHub issue creation, planning-request comment, trusted development-plan import, Owner approve or deny, and public Discord status/reason update. Until one real suggestion completes this path, Community Suggestions remains below 100% acceptance.
+7. Sync/configure at least one real hosted game provider when credentials or server details are available and run the read-only provider validation. This does not require resuming desktop development; the hosted/backend path is the active authority.
+8. Use `/nexus setup` or a protected repair action against the live guild only when a genuine repair is required, then confirm the result visually and verify a subsequent restart/reconciliation does not duplicate topology.
 
-These Owner/live-interaction gates must remain pending until they are actually exercised.
+## Deferred desktop acceptance — does not block this checkpoint
 
-## Exit criteria
+The following previously listed items remain valid future acceptance work but are intentionally deferred until desktop development resumes from its hardened checkpoint:
 
-Discord + Nexus Setup Acceptance is complete when the Owner interaction items above are exercised successfully, no unresolved red acceptance section remains in Setup Center/Discord Admin, desktop + hosted pairing persistence is confirmed, real member access isolation is demonstrated, and no repair operation creates duplicate Discord topology.
+- fresh `/nexus-pair` → HTTPS exchange → protected desktop credential-storage ceremony;
+- current desktop Setup Center/Discord Admin presentation scan;
+- desktop-driven provider configuration sync;
+- desktop restart retaining paired/admin configuration;
+- any desktop-only updater or administrative UX acceptance that is not required for hosted Sentinel operation.
+
+Do not resume desktop feature development merely to close these items while the Discord/Sentinel/backend ecosystem is still the active production priority.
+
+## Exit criteria for the active checkpoint
+
+The **Sentinel/backend phase** of Discord + Nexus Setup Acceptance is complete when:
+
+- the live Owner/member interaction items above are exercised successfully or explicitly scoped to a later module-specific beta;
+- no unresolved red hosted acceptance section remains;
+- normal-member game access isolation and staff/admin visibility are demonstrated;
+- the private safety-report lifecycle and Staff Workspace privacy boundaries are demonstrated;
+- Community XP persistence/authorization is demonstrated;
+- no protected repair or restart creates duplicate Discord topology; and
+- provider/runtime failures that affect enabled production surfaces are either repaired or explicitly degraded with accurate user-facing status.
+
+Desktop pairing and desktop persistence are **not** exit criteria for this backend-first phase. They become acceptance gates again only when the desktop workstream is intentionally resumed.
