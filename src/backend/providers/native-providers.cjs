@@ -5,6 +5,8 @@ const { Division2Provider, DIVISION2_ACTIONS } = require('./division2-provider.c
 const { IdleOnProvider, IDLEON_ACTIONS } = require('./idleon-provider.cjs');
 const { PokemonGoProvider, POGO_ACTIONS } = require('./pokemon-go-provider.cjs');
 const { attachOfficialPokemonGoEvents } = require('./pokemon-go-official-events.cjs');
+const { createRuneScapeProviders, RS_ACTIONS } = require('./runescape-provider.cjs');
+const { OnceHumanProvider, ONCE_HUMAN_ACTIONS } = require('./once-human-provider.cjs');
 const {
   DeadByDaylightProvider, Diablo4Provider, CallOfDutyProvider,
   DBD_ACTIONS, DIABLO4_ACTIONS, COD_ACTIONS
@@ -43,6 +45,29 @@ function nativeProvidersFromConfig(config = {}, options = {}) {
     );
   }
 
+  if (config.modules?.osrs?.enabled !== false || config.modules?.runescape3?.enabled !== false) {
+    const runescape = createRuneScapeProviders({
+      stateFile: config.modules?.runescape?.stateFile || config.modules?.osrs?.stateFile || config.modules?.runescape3?.stateFile,
+      userAgent: config.modules?.runescape?.userAgent,
+      osrsWikiApi: config.modules?.osrs?.wikiApi,
+      rs3WikiApi: config.modules?.runescape3?.wikiApi,
+      osrsPriceBase: config.modules?.osrs?.priceBase,
+      rs3GeBase: config.modules?.runescape3?.geBase,
+      fetchImpl: options.fetchImpl
+    });
+    if (config.modules?.osrs?.enabled !== false) providers.osrs = runescape.osrs;
+    if (config.modules?.runescape3?.enabled !== false) providers.runescape3 = runescape.runescape3;
+  }
+
+  if (config.modules?.oncehuman?.enabled !== false) {
+    providers.oncehuman = new OnceHumanProvider({
+      stateFile: config.modules?.oncehuman?.stateFile,
+      newsUrl: config.modules?.oncehuman?.newsUrl,
+      userAgent: config.modules?.oncehuman?.userAgent,
+      fetchImpl: options.fetchImpl
+    });
+  }
+
   if (config.modules?.deadbydaylight?.enabled !== false) {
     providers.deadbydaylight = new DeadByDaylightProvider({
       stateFile: config.modules?.deadbydaylight?.stateFile,
@@ -72,5 +97,6 @@ function nativeProvidersFromConfig(config = {}, options = {}) {
 module.exports = {
   nativeProvidersFromConfig,
   WARFRAME_ACTIONS, DIVISION2_ACTIONS, IDLEON_ACTIONS, POGO_ACTIONS,
-  DBD_ACTIONS, DIABLO4_ACTIONS, COD_ACTIONS
+  DBD_ACTIONS, DIABLO4_ACTIONS, COD_ACTIONS,
+  RS_ACTIONS, ONCE_HUMAN_ACTIONS
 };
