@@ -1,6 +1,7 @@
 'use strict';
 
 const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { paragraphs, lines, spacedItems, statRows } = require('./embed-layout.cjs');
 
 const COLOR = 0xFF6A00;
 const BUTTONS = Object.freeze([
@@ -32,8 +33,8 @@ function rows() {
 
 function resetLine(data = {}) {
   const unix = Number(data.nextResetUnix || 0);
-  if (!unix) return '**Next reset:** unavailable';
-  return `**Next targeted-loot reset:** <t:${unix}:F> • <t:${unix}:R>`;
+  if (!unix) return '**Next reset**\nunavailable';
+  return `**Next targeted-loot reset**\n<t:${unix}:F>\n<t:${unix}:R>`;
 }
 
 function sourceFooter(data = {}) {
@@ -41,31 +42,33 @@ function sourceFooter(data = {}) {
 }
 
 function unavailableDescription(data = {}) {
-  return [
+  return paragraphs(
     '⚠️ Live targeted-loot data is temporarily unavailable.',
-    data.warning ? `**Reason:** ${String(data.warning).slice(0, 700)}` : '',
+    data.warning ? `**Reason**\n${String(data.warning).slice(0, 700)}` : '',
     resetLine(data)
-  ].filter(Boolean).join('\n\n');
+  );
 }
 
 function targetedPayload(data = {}) {
   if (data.unavailable || !Array.isArray(data.missions) || !data.missions.length) {
     return { embeds:[{ color:COLOR, title:'🎯 THE DIVISION 2 • TARGETED LOOT', description:unavailableDescription(data), footer:sourceFooter(data) }], components:rows() };
   }
-  const missionLines = data.missions.map((item, index) => `**${index + 1}. ${item.area}** → ${item.target}`);
-  const caches = (data.vendorCaches || []).map((item) => `• **${item.type}:** ${item.target}`);
+  const missionLines = data.missions.map((item, index) => `**${index + 1}. ${item.area}**\n🎯 ${item.target}`);
+  const caches = (data.vendorCaches || []).map((item) => `**${item.type}**\n${item.target}`);
+  const rotation = statRows([
+    ...(data.date ? [['Rotation Date', data.date]] : []),
+    ...(data.rotation ? [['Pool', data.rotation]] : [])
+  ]);
   return {
     embeds:[{
       color:COLOR,
       title:'🎯 THE DIVISION 2 • CURRENT TARGETED LOOT',
-      description:[
-        data.date ? `**Rotation date:** ${data.date}` : '',
-        data.rotation ? `**Pool:** ${data.rotation}` : '',
+      description:paragraphs(
+        rotation,
         resetLine(data),
-        '',
-        ...missionLines
-      ].filter((value) => value !== '').join('\n'),
-      fields:caches.length ? [{ name:'📦 Escalation Requisition Vendor', value:caches.join('\n') }] : [],
+        `### Current Allocation\n${spacedItems(missionLines)}`
+      ),
+      fields:caches.length ? [{ name:'📦 Escalation Requisition Vendor', value:spacedItems(caches).slice(0, 1024), inline:false }] : [],
       footer:sourceFooter(data)
     }],
     components:rows()
@@ -74,12 +77,19 @@ function targetedPayload(data = {}) {
 
 function areasPayload(data = {}) {
   if (data.unavailable || !data.missions?.length) return targetedPayload(data);
-  const fields = data.missions.slice(0, 20).map((item) => ({ name:`🗺️ ${item.area}`, value:`Targeted drop: **${item.target}**`, inline:false }));
+  const fields = data.missions.slice(0, 20).map((item) => ({
+    name:`🗺️ ${item.area}`,
+    value:lines('**Targeted drop**', item.target),
+    inline:false
+  }));
   return {
     embeds:[{
       color:COLOR,
       title:'🗺️ THE DIVISION 2 • TARGETED DROP AREAS',
-      description:`These are the currently tracked mission allocations.\n${resetLine(data)}`,
+      description:paragraphs(
+        'These are the currently tracked mission allocations.',
+        resetLine(data)
+      ),
       fields,
       footer:sourceFooter(data)
     }],
@@ -94,12 +104,11 @@ function setBonusesPayload(targeted = {}, sets = {}) {
       embeds:[{
         color:COLOR,
         title:'🧩 THE DIVISION 2 • CURRENT SET / PERK BONUSES',
-        description:[
+        description:paragraphs(
           'No Brand Set or Gear Set in the current tracked allocation matched the Nexus set database.',
           'Weapon categories, gear slots, and mods do not have set-piece bonuses.',
-          '',
           resetLine(targeted)
-        ].join('\n'),
+        ),
         footer:{ text:'Set data: div2hub/game-data • Target allocation: ProtoTrack.gg' }
       }],
       components:rows()
@@ -107,14 +116,17 @@ function setBonusesPayload(targeted = {}, sets = {}) {
   }
   const fields = results.slice(0, 10).map((set) => ({
     name:`${set.type === 'Gear Set' ? '🟢' : '🟠'} ${set.name} • ${set.type}`,
-    value:(set.bonuses || []).map((bonus) => `**${bonus.pieces}:** ${bonus.bonus}`).join('\n').slice(0, 1024) || 'No bonuses listed.',
+    value:spacedItems((set.bonuses || []).map((bonus) => `**${bonus.pieces}**\n${bonus.bonus}`)).slice(0, 1024) || 'No bonuses listed.',
     inline:false
   }));
   return {
     embeds:[{
       color:COLOR,
       title:'🧩 THE DIVISION 2 • CURRENT SET / PERK BONUSES',
-      description:`Bonuses for Brand/Gear Sets appearing in the current targeted-loot pool.\n${resetLine(targeted)}`,
+      description:paragraphs(
+        'Bonuses for Brand/Gear Sets appearing in the current targeted-loot pool.',
+        resetLine(targeted)
+      ),
       fields,
       footer:{ text:'Set data: div2hub/game-data • Target allocation: ProtoTrack.gg' }
     }],
@@ -128,14 +140,15 @@ function timerPayload(data = {}) {
     embeds:[{
       color:COLOR,
       title:'⏱️ THE DIVISION 2 • TARGETED LOOT RESET',
-      description:[
+      description:paragraphs(
         unix ? `## <t:${unix}:R>` : '## Reset time unavailable',
-        unix ? `**Next change:** <t:${unix}:F>` : '',
-        `**Cadence:** ${data.resetCadence || 'Daily rotation'}`,
-        data.updatedAt ? `**Source last updated:** ${data.updatedAt}` : '',
-        '',
+        statRows([
+          ...(unix ? [['Next Change', `<t:${unix}:F>`]] : []),
+          ['Cadence', data.resetCadence || 'Daily rotation'],
+          ...(data.updatedAt ? [['Source Last Updated', data.updatedAt]] : [])
+        ]),
         'The Discord relative timestamp updates automatically as the rotation approaches.'
-      ].filter(Boolean).join('\n'),
+      ),
       footer:sourceFooter(data)
     }],
     components:rows()
