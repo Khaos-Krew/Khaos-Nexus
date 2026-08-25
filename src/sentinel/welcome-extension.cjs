@@ -3,6 +3,7 @@
 const { ChannelType, Client, Events } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { findInformationCategory } = require('./nexus-status.cjs');
+const { paragraphs, spacedItems } = require('./embed-layout.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.welcome.extension');
 const BOUND = Symbol.for('khaos.nexus.welcome.bound');
@@ -94,10 +95,28 @@ function welcomePayload(member, channels = {}) {
     content: mention,
     embeds: [{
       title: 'WELCOME TO KHAOS NEXUS',
-      description: `Welcome ${mention}! You are now part of the Nexus. This is a safe-space community: treat people with respect, use the private reporting tools when something needs staff attention, and have fun.`,
+      description: paragraphs(
+        `Welcome ${mention}! You are now part of the Nexus.`,
+        '🛡️ **Khaos Nexus is a safe-space community.** Treat people with respect, use the private reporting tools when something needs staff attention, and have fun.'
+      ),
       fields: [
-        { name: 'Start here', value: `1. Read ${rules}\n2. Pick your access, platform, and name-color roles in ${roles}\n3. Check ${gameServers} for tracked community servers`, inline: false },
-        { name: 'Need help?', value: 'Ask the community or staff. Nexus Sentinal will keep your game access and community tools synchronized.', inline: false }
+        {
+          name: '🧭 Start Here',
+          value: spacedItems([
+            `**1. Read the community rules**\n${rules}`,
+            `**2. Pick your roles**\nChoose game access, platform, pronoun, and name-color roles in ${roles}.`,
+            `**3. Find community servers**\nCheck ${gameServers} for currently tracked game servers.`
+          ]),
+          inline: false
+        },
+        {
+          name: '❓ Need Help?',
+          value: paragraphs(
+            'Ask the community or a staff member whenever you need a hand.',
+            'Nexus Sentinal keeps your game access and community tools synchronized automatically.'
+          ),
+          inline: false
+        }
       ],
       footer: { text: 'Nexus Sentinal • Automated Welcome' },
       timestamp: new Date().toISOString()
