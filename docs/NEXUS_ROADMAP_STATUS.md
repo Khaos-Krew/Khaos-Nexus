@@ -33,7 +33,7 @@ Issue #286 records the owner-approved backend-first rebuild direction.
 
 ## Current implementation evidence
 
-Repository evidence on `rebuild/nexus-0.1` establishes the thin Electron Admin Control Center, Windows NSIS packaging/shortcuts, backend and Sentinal runtimes, shared scheduler, persistent module consoles, household Accounts & Access, read-only provider validation, staged updating, Owner Test Center/Admin Operations, hosted pairing/provider sync, Setup Center, administrator moderation, Discord Server Shop rank authority, capability-driven help, private safe-space reporting, milestone patch-note publishing, managed Community About & Sharing, and backend-first game services.
+Repository evidence on `rebuild/nexus-0.1` establishes the thin Electron Admin Control Center, Windows NSIS packaging/shortcuts, backend and Sentinal runtimes, shared scheduler, persistent module consoles, household Accounts & Access, read-only provider validation, staged updating, Owner Test Center/Admin Operations, hosted pairing/provider sync, Setup Center, administrator moderation, Discord Server Shop rank authority, managed ranks presentation, capability-driven help, private safe-space reporting, milestone patch-note publishing, managed Community About & Sharing, and backend-first game services.
 
 Current game-module registrations include ARK, Palworld, Minecraft, Warframe, Division 2, Rust, Satisfactory, IdleOn, Nexus D&D, Pokémon GO, **Call of Duty, Dead by Daylight, and Diablo IV**.
 
@@ -114,6 +114,10 @@ The INFORMATION category now has additional managed-service work:
 
 The `#game-servers` registry intentionally excludes network addresses, ports, RCON passwords, tokens, TLS fingerprints, and other protected connection data from the Discord-facing contract.
 
+### Managed ranks presentation
+
+PR #386 merged a Sentinal-managed canonical ranks panel. It can adopt the existing rank embed, preserve Discord Server Shop as paid-rank authority, add the approved Nexus maintenance/funding disclosure, pin one canonical panel, and retire only high-confidence legacy rank panels. The implementation deliberately makes no paid-role mutation. Exact-head CI is green; real-guild adoption/reconciliation remains separate acceptance evidence.
+
 Superseded #334/#336/#337/#340 role-migration proposals are historical only; their relevant intent was overtaken by later merged work.
 
 ## Validation state
@@ -122,6 +126,7 @@ Status: **AUTOMATED REBUILD BASELINE GREEN — OWNER/LIVE VALIDATION IN PROGRESS
 
 Recent exact-head automated evidence includes:
 
+- PR #386 head `70a058972610d1cb3112d695790395eed52db7f4` — Nexus Rebuild CI #410 green; adds the managed canonical ranks panel while preserving Server Shop authority and avoiding paid-role mutations;
 - PR #385 head `f3c1dd542930f729881ef5a607c0d9b490568149` — Nexus Rebuild CI #407 green; adds the public-safe Community About & Sharing 100% milestone publisher without establishing live publication;
 - PR #384 head `d56bf1ed32d66dabfb9e953658aad0239d1bbe3d` — Nexus Rebuild CI #405 green; adds the managed canonical About/share panel and safe reconciliation behavior;
 - PR #381 head `5aaf15f914a598a4aa16e700ece348fbffe5966e` — Nexus Rebuild CI #401 green; removes bulk Discord member fetches from the module-access preflight after live Railway startup exposed a rate-limit collision;
@@ -153,7 +158,8 @@ Late-August operational acceptance work now additionally establishes:
 - PR #379 merged a read-only module-access acceptance preflight that checks menu bindings, category/channel permission isolation, and staff visibility without assigning roles or changing permissions;
 - the first live #379 deployment revealed a **Discord gateway member-request rate-limit collision** because the preflight performed a bulk member fetch while Staff Workspace was also reconciling members;
 - PR #381 merged the corrective snapshot-only audit, reports `bulkMemberFetches=0`, and leaves authoritative current-staff discovery to Staff Workspace. This fixes the audit collision; it does **not** by itself complete the normal-member button/visibility acceptance gate;
-- PRs #384/#385 establish the Community About & Sharing implementation and public-safe milestone-publisher path at exact-head CI level. Live confirmation that the canonical About panel/share link is correct and that the milestone is posted/adopted exactly once remains separate acceptance evidence.
+- PRs #384/#385 establish the Community About & Sharing implementation and public-safe milestone-publisher path at exact-head CI level. Live confirmation that the canonical About panel/share link is correct and that the milestone is posted/adopted exactly once remains separate acceptance evidence;
+- PR #386 establishes the managed ranks panel at exact-head CI level after its initial feature head exposed a missing required funding-disclosure assertion. The corrected head passed CI #410 and merged; real-guild canonical-panel adoption and safe legacy-panel retirement still require live confirmation.
 
 Remaining live/owner gates include:
 
@@ -161,6 +167,7 @@ Remaining live/owner gates include:
 - validate Staff workspace live acceptance, including non-staff invisibility, Forum office access/privacy, roadmap/admin panels, restart idempotency, and safe treatment of preserved legacy office content;
 - validate Community XP/Leveling live message, voice, admin, milestone-role, restart-persistence, and authority-isolation behavior before any 100% claim;
 - validate the canonical Community About & Sharing panel/share link in the real guild and confirm the #385 100% milestone publisher posts or adopts exactly once before calling that surface live-accepted;
+- validate the canonical managed ranks panel in the real guild, including Server Shop authority wording, funding disclosure, pinning/adoption, and safe retirement of only high-confidence legacy panels;
 - validate the complete Rules/report ticket lifecycle, evidence flow, close/archive behavior, and restricted archive permissions;
 - complete remaining Discord + Nexus Setup Acceptance gates, including fresh hosted pairing, desktop confirmation scan, live Repair Nexus only where needed, provider sync/validation, and desktop/hosted restart persistence;
 - validate moderation actions, temporary lobby lifecycle, discoverability, and Veyra/D&D boundaries;
@@ -189,7 +196,7 @@ Validate Palworld and other provider-backed paths in real use. Include Pokémon 
 
 Status: **IN PROGRESS — ROLE AUTHORITY + MODULE LAYOUT/IDEMPOTENCY + NAME-COLOR DISPLAY + SERVICE STATUS LIVE-EVIDENCED; STAFF/MODULE/COMMUNITY INTERACTION ACCEPTANCE PENDING**
 
-The self-role/role-authority subsection is live-accepted at 100%. Expanded module layout, access reconciliation, category order, hub idempotency, feed recovery, staff-compatible Name Color display safety, Nexus service status, and new-member welcome automation now have implementation/live evidence at their respective levels. The protected Staff workspace, Forum/roadmap migration, Community XP/Leveling, Community About & Sharing, and read-only module-access preflight are merged and exact-head green. Broader Sentinal operational acceptance still requires real-member module interaction, Staff workspace privacy/idempotency checks, Community XP live acceptance, About live acceptance/publication, reporting lifecycle, moderation, pairing, provider flows, Setup Acceptance, and restart behavior.
+The self-role/role-authority subsection is live-accepted at 100%. Expanded module layout, access reconciliation, category order, hub idempotency, feed recovery, staff-compatible Name Color display safety, Nexus service status, and new-member welcome automation now have implementation/live evidence at their respective levels. The protected Staff workspace, Forum/roadmap migration, Community XP/Leveling, Community About & Sharing, managed ranks presentation, and read-only module-access preflight are merged and exact-head green. Broader Sentinal operational acceptance still requires real-member module interaction, Staff workspace privacy/idempotency checks, Community XP live acceptance, About/ranks live acceptance, reporting lifecycle, moderation, pairing, provider flows, Setup Acceptance, and restart behavior.
 
 ### Release hardening
 
