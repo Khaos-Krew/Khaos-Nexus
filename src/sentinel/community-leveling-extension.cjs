@@ -7,13 +7,19 @@ const {
   ensureLevelUpChannel,
   overviewPayload,
   reconcileLevelPanel,
-  profilePayload,
   leaderboardPayload,
   levelUpPayload,
   meaningfulMessage,
   levelCommandDefinitions,
   syncMilestoneRoles
 } = require('./community-leveling.cjs');
+const {
+  achievementCommandDefinition,
+  progressCardPayload,
+  parseAchievementButtonId,
+  achievementCollectionPayload,
+  achievementUnlockPayload
+} = require('./community-achievements.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.communityLeveling.extension');
 const BOUND = Symbol.for('khaos.nexus.communityLeveling.bound');
@@ -91,7 +97,7 @@ function createMessageAwardGuard() {
 }
 
 async function registerLevelCommands(guild) {
-  const definitions = levelCommandDefinitions();
+  const definitions = [...levelCommandDefinitions(), achievementCommandDefinition()];
   const commands = await guild.commands.fetch();
   for (const definition of definitions) {
     const existing = commands.find((item) => item.name === definition.name);
@@ -121,16 +127,32 @@ async function refreshLevelPanel(client, config, backend, settingsCache) {
   };
 }
 
-async function applyProgressResult({ client, guild, channel, userId, result, settings, announce = true }) {
-  if (!result?.profile) return { roles: null, announced: false };
-  const member = await guild.members.fetch(String(userId)).catch(() => null);
-  const roles = member ? await syncMilestoneRoles(member, result.profile.level, settings?.milestoneLevels || []) : null;
+async function applyProgressResult({ client, guild, channel, userId, result, settings, backend = null, announce = true, forceRoleSync = false }) {
+  if (!result?.profile) return { roles: null, announced: false, achievementsAnnounced: false, achievements: null };
+  const levelChanged = Number(result.beforeLevel || result.profile.level) !== Number(result.profile.level);
+  let roles = null;
+  if (result.leveledUp || levelChanged || forceRoleSync) {
+    const member = await guild.members.fetch(String(userId)).catch(() => null);
+    roles = member ? await syncMilestoneRoles(member, result.profile.level, settings?.milestoneLevels || []) : null;
+  }
+
   let announced = false;
   if (announce && result.leveledUp && channel?.send) {
     await channel.send(levelUpPayload(userId, result));
     announced = true;
   }
-  return { roles, announced };
+
+  let achievements = null;
+  let achievementsAnnounced = false;
+  if (backend?.communityAchievements) {
+    try { achievements = await backend.communityAchievements(String(userId)); } catch {}
+    const unlockPayload = achievementUnlockPayload(userId, achievements || {});
+    if (announce && unlockPayload && channel?.send) {
+      await channel.send(unlockPayload);
+      achievementsAnnounced = true;
+    }
+  }
+  return { roles, announced, achievementsAnnounced, achievements };
 }
 
 function formatSettings(settings = {}, client = null) {
@@ -145,6 +167,7 @@ function formatSettings(settings = {}, client = null) {
     `Ignored channels: **${(settings.ignoredChannelIds || []).length}** • ignored roles: **${(settings.ignoredRoleIds || []).length}**`,
     `Message analysis: **${client && messageContentEnabled(client) ? 'enhanced content checks' : 'metadata + cooldown/cap mode'}**`,
     `Milestones: **${(settings.milestoneLevels || []).join(', ') || 'none'}**`,
+    'Achievements: **enabled** • persistent badges + achievement points + progress cards',
     '',
     '_Community levels remain separate from Shop/supporter ranks, module access, staff authority, and Name Color roles._'
   ].join('\n');
@@ -202,10 +225,10 @@ function installCommunityLevelingExtension() {
             amount: Number(settings.message?.xp || 15),
             source: 'message'
           });
-          if (!result?.ok || !result.leveledUp) return;
+          if (!result?.ok || Number(result.awarded || 0) <= 0) return;
           const guild = message.guild || await client.guilds.fetch(String(config.discord.guildId));
           const levelChannel = (await ensureLevelUpChannel(guild)).channel;
-          await applyProgressResult({ client, guild, channel: levelChannel, userId: message.author.id, result, settings, announce: true });
+          await applyProgressResult({ client, guild, channel: levelChannel, userId: message.author.id, result, settings, backend, announce: true });
         } catch (error) {
           console.warn(`[Nexus Sentinal] message XP unavailable: ${String(error?.message || error).slice(0, 180)}`);
         }
@@ -213,9 +236,25 @@ function installCommunityLevelingExtension() {
 
       client.on(Events.InteractionCreate, async (interaction) => {
         try {
-          if (!interaction.isChatInputCommand?.()) return;
-          if (!['level', 'rank', 'leaderboard', 'xp'].includes(interaction.commandName)) return;
           if (String(interaction.guildId || '') !== String(config.discord?.guildId || '')) return;
+
+          if (interaction.isButton?.()) {
+            const parsed = parseAchievementButtonId(interaction.customId);
+            if (!parsed) return;
+            if (String(interaction.user?.id || '') !== parsed.viewerId) {
+              return interaction.reply({ content: 'That achievement card belongs to another viewer. Use `/achievements` to open your own card.', flags: MessageFlags.Ephemeral });
+            }
+            await interaction.deferUpdate();
+            const [response, target] = await Promise.all([
+              backend.communityAchievements(parsed.targetId),
+              client.users.fetch(parsed.targetId).catch(() => null)
+            ]);
+            if (!response?.ok) return interaction.editReply({ content: response?.message || 'Achievement data is unavailable.', embeds: [], components: [] });
+            return interaction.editReply(achievementCollectionPayload(response, target, parsed.mode, { viewerId: parsed.viewerId }));
+          }
+
+          if (!interaction.isChatInputCommand?.()) return;
+          if (!['level', 'rank', 'leaderboard', 'achievements', 'xp'].includes(interaction.commandName)) return;
 
           if (interaction.commandName === 'leaderboard') {
             await interaction.deferReply();
@@ -228,12 +267,23 @@ function installCommunityLevelingExtension() {
             return interaction.editReply(leaderboardPayload(response.leaderboard || [], users));
           }
 
+          if (interaction.commandName === 'achievements') {
+            await interaction.deferReply();
+            const target = interaction.options.getUser('user') || interaction.user;
+            const response = await backend.communityAchievements(String(target.id));
+            if (!response?.ok) return interaction.editReply({ content: response?.message || 'Achievement data is unavailable.' });
+            return interaction.editReply(achievementCollectionPayload(response, target, 'summary', { viewerId: String(interaction.user.id) }));
+          }
+
           if (interaction.commandName === 'level' || interaction.commandName === 'rank') {
             await interaction.deferReply();
             const target = interaction.options.getUser('user') || interaction.user;
-            const response = await backend.communityLevel(String(target.id));
+            const [response, achievements] = await Promise.all([
+              backend.communityLevel(String(target.id)),
+              backend.communityAchievements(String(target.id)).catch(() => null)
+            ]);
             if (!response?.ok) return interaction.editReply({ content: response?.message || 'Community level data is unavailable.' });
-            return interaction.editReply(profilePayload(response.profile, target));
+            return interaction.editReply(progressCardPayload(response.profile, target, achievements?.ok ? achievements : null));
           }
 
           if (!ownerOrManager(interaction, config)) {
@@ -256,7 +306,7 @@ function installCommunityLevelingExtension() {
             if (sub === 'reset') result = await backend.communityResetXp({ userId: target.id, actorId, reason });
             if (!result?.ok) return interaction.editReply({ content: `⚠️ ${result?.message || 'XP update failed.'}` });
             settings = await settingsCache.get(true);
-            const roleSync = await applyProgressResult({ client, guild, channel: levelChannel, userId: target.id, result, settings, announce: sub === 'add' || sub === 'set' });
+            const roleSync = await applyProgressResult({ client, guild, channel: levelChannel, userId: target.id, result, settings, backend, announce: sub === 'add' || sub === 'set', forceRoleSync: true });
             return interaction.editReply({ content: `✅ ${target.username}: **${result.profile?.xp || 0} XP • Level ${result.profile?.level || 1}**${roleSync.roles?.warnings?.length ? `\n⚠️ Role sync: ${roleSync.roles.warnings.join(' | ')}` : ''}` });
           }
 
@@ -347,9 +397,9 @@ function installCommunityLevelingExtension() {
             if (now - started < intervalMs) continue;
             voiceStartedAt.set(id, now);
             const result = await backend.communityAward({ userId: id, amount: Number(settings.voice?.xp || 10), source: 'voice' });
-            if (!result?.ok || !result.leveledUp) continue;
+            if (!result?.ok || Number(result.awarded || 0) <= 0) continue;
             const levelChannel = (await ensureLevelUpChannel(guild)).channel;
-            await applyProgressResult({ client, guild, channel: levelChannel, userId: id, result, settings, announce: true });
+            await applyProgressResult({ client, guild, channel: levelChannel, userId: id, result, settings, backend, announce: true });
           }
         } catch (error) {
           console.warn(`[Nexus Sentinal] voice XP unavailable: ${String(error?.message || error).slice(0, 180)}`);
