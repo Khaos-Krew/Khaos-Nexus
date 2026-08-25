@@ -14,7 +14,7 @@ function category(id, name, position) {
   return { id, name, type: ChannelType.GuildCategory, rawPosition: position, position };
 }
 
-test('server hierarchy is Information, games A-Z, Staff, Khaos Nexus, Private Reports, Hidden Server', () => {
+test('server hierarchy is Information, games A-Z, Nexus HQ, Staff, Khaos Nexus, Private Reports, Hidden Server', () => {
   const channels = new Map([
     ['900000000000000001', category('900000000000000001', '🔒 STAFF', 1)],
     ['900000000000000002', category('900000000000000002', 'RuneScape 3 ✨', 2)],
@@ -23,7 +23,8 @@ test('server hierarchy is Information, games A-Z, Staff, Khaos Nexus, Private Re
     ['900000000000000005', category('900000000000000005', 'KHAOS NEXUS', 5)],
     ['900000000000000006', category('900000000000000006', 'PRIVATE REPORTS', 6)],
     ['900000000000000007', category('900000000000000007', 'HIDDEN SERVER', 7)],
-    ['900000000000000008', category('900000000000000008', 'Nexus D&D 🎲', 8)]
+    ['900000000000000008', category('900000000000000008', 'Nexus D&D 🎲', 8)],
+    ['900000000000000009', category('900000000000000009', '🌐 NEXUS HQ', 9)]
   ]);
   const plan = serverCategoryOrderPlan(channels);
   assert.deepEqual(plan.entries.map((entry) => entry.label), [
@@ -31,6 +32,7 @@ test('server hierarchy is Information, games A-Z, Staff, Khaos Nexus, Private Re
     'Nexus D&D',
     'OSRS',
     'RuneScape 3',
+    'NEXUS HQ',
     'STAFF',
     'KHAOS NEXUS',
     'PRIVATE REPORTS',
