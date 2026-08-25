@@ -2,6 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { PermissionFlagsBits } = require('discord.js');
 const {
   ABOUT_PANEL_MARKER,
   ABOUT_PANEL_TITLE,
@@ -10,7 +11,10 @@ const {
   inviteUrl,
   renderAboutPanel,
   messageMatchesAboutPanel,
+  panelPayloadMatches,
   reconcileAboutPanel,
+  permissionMask,
+  overwriteSatisfies,
   applyAboutPermissions
 } = require('../src/sentinel/about-extension.cjs');
 
@@ -65,6 +69,7 @@ test('About reconciliation edits newest managed panel, pins it, and removes only
     pinned: false,
     author: { id: '99999' },
     embeds: [{ footer: { text: ABOUT_PANEL_MARKER } }],
+    components: [],
     async edit() { edited += 1; return this; },
     async pin() { pinned += 1; this.pinned = true; },
     async delete() { deleted.push(this.id); }
@@ -92,10 +97,21 @@ test('About reconciliation edits newest managed panel, pins it, and removes only
   };
   const result = await reconcileAboutPanel(channel, renderAboutPanel('https://discord.gg/khaos'), { botId: '99999' });
   assert.equal(result.created, false);
+  assert.equal(result.updated, true);
   assert.equal(edited, 1);
   assert.equal(pinned, 1);
   assert.equal(result.duplicatesRemoved, 1);
   assert.deepEqual(deleted, ['2']);
+});
+
+test('About panel comparison skips edits when embed and button payload are already current', () => {
+  const payload = renderAboutPanel('https://discord.gg/khaos');
+  const message = {
+    content: '',
+    embeds: payload.embeds.map((embed) => ({ toJSON: () => embed })),
+    components: payload.components.map((component) => ({ toJSON: () => component }))
+  };
+  assert.equal(panelPayloadMatches(message, payload), true);
 });
 
 test('About permission updates are targeted to everyone and Sentinal instead of replacing existing overwrites', async () => {
@@ -104,6 +120,7 @@ test('About permission updates are targeted to everyone and Sentinal instead of 
   const botMember = { id: '99999' };
   const channel = {
     permissionOverwrites: {
+      cache: new Map(),
       async edit(target, permissions, options) {
         edits.push({ target: String(target.id || target), permissions, options });
         return channel;
@@ -117,6 +134,7 @@ test('About permission updates are targeted to everyone and Sentinal instead of 
   const result = await applyAboutPermissions(channel, guild, '99999');
   assert.equal(result.membersReadOnly, true);
   assert.equal(result.sentinalWritable, true);
+  assert.equal(result.permissionsUpdated, true);
   assert.equal(edits.length, 2);
   assert.equal(edits[0].target, '11111');
   assert.equal(edits[0].permissions.SendMessages, false);
@@ -125,4 +143,24 @@ test('About permission updates are targeted to everyone and Sentinal instead of 
   assert.equal(edits[1].permissions.SendMessages, true);
   assert.equal(edits[1].permissions.CreateInstantInvite, true);
   assert.match(edits[0].options.reason, /read-only/i);
+});
+
+test('About permissions recognize an already-correct partial overwrite plan', () => {
+  const memberDeny = [
+    PermissionFlagsBits.SendMessages,
+    PermissionFlagsBits.AddReactions,
+    PermissionFlagsBits.CreatePublicThreads,
+    PermissionFlagsBits.CreatePrivateThreads,
+    PermissionFlagsBits.SendMessagesInThreads
+  ];
+  const channel = {
+    permissionOverwrites: {
+      cache: new Map([['11111', {
+        id: '11111',
+        allow: { bitfield: 0n },
+        deny: { bitfield: permissionMask(memberDeny) }
+      }]])
+    }
+  };
+  assert.equal(overwriteSatisfies(channel, '11111', { deny: memberDeny }), true);
 });
