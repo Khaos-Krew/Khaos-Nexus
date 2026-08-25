@@ -62,6 +62,17 @@ function modulesNeedingProvision(config = {}, state, channels, roles) {
   return { pending, blocked };
 }
 
+function cachedOrNull(manager) {
+  const cache = manager?.cache;
+  return cache && Number(cache.size || 0) > 0 ? cache : null;
+}
+
+async function topologyInventory(guild) {
+  const channels = cachedOrNull(guild?.channels) || await guild.channels.fetch();
+  const roles = cachedOrNull(guild?.roles) || await guild.roles.fetch();
+  return { channels, roles };
+}
+
 async function bootstrapCategoryAccess(guild, provisioner, moduleId, accessRoleId) {
   const categoryResult = await provisioner.category(guild, moduleId);
   const category = categoryResult.category;
@@ -108,7 +119,7 @@ async function reconcileNewModuleLayouts(client, { config, state, backend, provi
   if (!guildId) return { skipped: 'guild-not-configured', provisioned: [], blocked: [], hq: null, order: null };
   const inventoryStartedAt = Date.now();
   const guild = await client.guilds.fetch(guildId);
-  const [channels, roles] = await Promise.all([guild.channels.fetch(), guild.roles.fetch()]);
+  const { channels, roles } = await topologyInventory(guild);
   const candidates = modulesNeedingProvision(config, state, channels, roles);
   logger.log?.(`[Nexus Sentinal] module auto-provision inventory: channels=${Number(channels?.size || 0)} roles=${Number(roles?.size || 0)} pending=${candidates.pending.length} blocked=${candidates.blocked.length} durationMs=${Date.now() - inventoryStartedAt}`);
   const provisioned = [];
@@ -144,16 +155,29 @@ async function reconcileNewModuleLayouts(client, { config, state, backend, provi
     }
   }
 
+  const topologyChannels = provisioned.length ? (cachedOrNull(guild.channels) || await guild.channels.fetch()) : channels;
+  const topologyRoles = cachedOrNull(guild.roles) || roles;
+
   const hqStartedAt = Date.now();
   logger.log?.('[Nexus Sentinal] module auto-provision phase: nexus-hq started');
-  const hq = await reconcileNexusHq(guild, { config, botId: client.user?.id, logger })
-    .catch((error) => ({ ok: false, skipped: '', reason: String(error?.message || error).slice(0, 240) }));
-  logger.log?.(`[Nexus Sentinal] module auto-provision phase: nexus-hq finished ok=${Boolean(hq?.ok)} durationMs=${Date.now() - hqStartedAt}`);
+  const hq = await reconcileNexusHq(guild, {
+    config,
+    botId: client.user?.id,
+    logger,
+    channelsSnapshot: topologyChannels,
+    rolesSnapshot: topologyRoles
+  }).catch((error) => ({ ok: false, skipped: '', reason: String(error?.message || error).slice(0, 240) }));
+  const hqDetail = String(hq?.skipped || hq?.reason || 'none').replace(/[\r\n]+/g, ' ').slice(0, 180);
+  logger.log?.(`[Nexus Sentinal] module auto-provision phase: nexus-hq finished ok=${Boolean(hq?.ok)} detail=${hqDetail} legacyOnboardingArchives=${Number(hq?.legacyOnboardingArchives?.length || 0)} durationMs=${Date.now() - hqStartedAt}`);
 
   const orderStartedAt = Date.now();
   logger.log?.('[Nexus Sentinal] module auto-provision phase: category-order started');
-  const order = await reconcileGameCategoryOrder(guild, { config, botId: client.user?.id })
-    .catch((error) => ({ ok: false, skipped: false, moved: 0, renamed: 0, reason: String(error?.message || error) }));
+  const order = await reconcileGameCategoryOrder(guild, {
+    config,
+    botId: client.user?.id,
+    channelsSnapshot: topologyChannels,
+    rolesSnapshot: topologyRoles
+  }).catch((error) => ({ ok: false, skipped: false, moved: 0, renamed: 0, reason: String(error?.message || error) }));
   logger.log?.(`[Nexus Sentinal] module auto-provision phase: category-order finished ok=${Boolean(order?.ok)} durationMs=${Date.now() - orderStartedAt}`);
   return { provisioned, blocked: candidates.blocked, failed, hq, order };
 }
@@ -196,7 +220,7 @@ function installModuleAutoprovisionExtension() {
         const hierarchy = (result.order?.hierarchy || []).join(' > ') || 'unavailable';
         const missing = (result.order?.missing || []).join(',') || 'none';
         const hqState = result.hq?.ok
-          ? `ok+created${result.hq.channelsCreated?.length || 0}+moved${result.hq.channelsMoved?.length || 0}+renamed${result.hq.channelsRenamed?.length || 0}`
+          ? `ok+created${result.hq.channelsCreated?.length || 0}+moved${result.hq.channelsMoved?.length || 0}+renamed${result.hq.channelsRenamed?.length || 0}+legacy${result.hq.legacyOnboardingArchives?.length || 0}`
           : `skipped:${String(result.hq?.skipped || result.hq?.reason || 'unavailable')}`;
         console.log(`[Nexus Sentinal] module auto-provision (${reason}): provisioned=${result.provisioned.length} [${details}] blocked=${result.blocked.length} failed=${result.failed.length} hq=${hqState} categoryRenames=${Number(result.order?.renamed || 0)} categoryMoves=${Number(result.order?.moved || 0)} missingStructural=${missing} hierarchy=${hierarchy}`);
         for (const item of result.failed) console.warn(`[Nexus Sentinal] module auto-provision failed: ${item.moduleId}: ${item.reason}`);
@@ -219,6 +243,8 @@ module.exports = {
   categoryMatchesModule,
   setupHealthy,
   modulesNeedingProvision,
+  cachedOrNull,
+  topologyInventory,
   bootstrapCategoryAccess,
   publishModuleHub,
   reconcileNewModuleLayouts,
