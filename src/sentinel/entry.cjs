@@ -14,6 +14,7 @@ const { installStaffNameColorPreviewExtension } = require('./staff-name-color-pr
 const { installNexusStatusExtension } = require('./nexus-status-extension.cjs');
 const { installWelcomeExtension } = require('./welcome-extension.cjs');
 const { installAboutExtension } = require('./about-extension.cjs');
+const { installRanksExtension } = require('./ranks-extension.cjs');
 const { installGameServersExtension } = require('./game-servers-extension.cjs');
 const { installCommunityLevelingExtension } = require('./community-leveling-extension.cjs');
 const { installStaffWorkspaceExtension } = require('./staff-workspace-extension.cjs');
@@ -33,6 +34,7 @@ installStaffNameColorPreviewExtension();
 installNexusStatusExtension();
 installWelcomeExtension();
 installAboutExtension();
+installRanksExtension();
 installGameServersExtension();
 installCommunityLevelingExtension();
 installStaffWorkspaceExtension();
