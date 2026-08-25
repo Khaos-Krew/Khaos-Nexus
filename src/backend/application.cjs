@@ -14,6 +14,7 @@ const { nativeProvidersFromConfig } = require('./providers/native-providers.cjs'
 const { serverProvidersFromConfig } = require('./providers/server-providers.cjs');
 const { ArkCompanionService } = require('./services/ark-companion-service.cjs');
 const { CommunityLevelService } = require('./services/community-level-service.cjs');
+const { DndDomainService } = require('./services/dnd-domain-service.cjs');
 const { trackedServersResponse } = require('./tracked-servers.cjs');
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
@@ -69,8 +70,10 @@ function createBackendApplication(config, options = {}) {
     stateFile: communityLevelStateFile(config),
     settings: config.communityLeveling || {}
   });
+  const dndDomain = options.dndDomain || new DndDomainService({ filePath: config.modules?.dnd?.stateFile || path.join(process.env.NEXUS_DATA_DIR || 'data', 'dnd-domain.json') });
   runtime.registerService('scheduler', scheduler);
   runtime.registerService('ark-companion', arkCompanion);
+  runtime.registerService('dnd-core', dndDomain);
   scheduler.registerExecutor((moduleId, actionId, payload, context) => runtime.invoke(moduleId, actionId, payload, context));
 
   function authorized(req) {
@@ -184,7 +187,7 @@ function createBackendApplication(config, options = {}) {
     started = false;
   }
 
-  return { host, port, runtime, scheduler, arkCompanion, communityLevels, accounts, providerValidator, configureProviders, server, start, stop, isStarted: () => started && server.listening };
+  return { host, port, runtime, scheduler, arkCompanion, dndDomain, communityLevels, accounts, providerValidator, configureProviders, server, start, stop, isStarted: () => started && server.listening };
 }
 
 module.exports = { LOOPBACK_HOSTS, communityLevelStateFile, createBackendApplication, providersForConfig };
