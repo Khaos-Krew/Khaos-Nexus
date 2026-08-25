@@ -62,6 +62,7 @@ if (diagnosticsMode) {
     installTracked('./palworld-main-extension.cjs');
     installTracked('./discord-studio-extension.cjs');
     installTracked('./discord-automation-extension.cjs');
+    installTracked('./discord-hub-extension.cjs');
     installTracked('./status-panels-extension.cjs');
     installTracked('./player-console-extension.cjs');
     installTracked('./discord-observability-extension.cjs');
