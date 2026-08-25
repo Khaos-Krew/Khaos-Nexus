@@ -1,6 +1,6 @@
 'use strict';
 
-const { ChannelType, Client, Events } = require('discord.js');
+const { ChannelType, Client, Events, PermissionFlagsBits } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { findInformationCategory, valuesOf } = require('./nexus-status.cjs');
 
@@ -28,32 +28,94 @@ function findAboutChannel(channels, informationCategoryId = '') {
   return matches.find((channel) => String(channel.parentId || '') === String(informationCategoryId)) || matches[0];
 }
 
-async function applyAboutPermissions(channel, guild, botId = '') {
-  if (!channel?.permissionOverwrites?.edit || !guild?.roles?.everyone) return { membersReadOnly: false, sentinalWritable: false };
+function bitfieldOf(value) {
+  if (typeof value === 'bigint') return value;
+  if (value?.bitfield !== undefined) return BigInt(value.bitfield);
+  if (value === undefined || value === null) return 0n;
+  return BigInt(value);
+}
 
-  await channel.permissionOverwrites.edit(guild.roles.everyone, {
-    SendMessages: false,
-    AddReactions: false,
-    CreatePublicThreads: false,
-    CreatePrivateThreads: false,
-    SendMessagesInThreads: false
-  }, { reason: 'Keep Khaos Nexus #about read-only for members' });
+function permissionMask(values = []) {
+  return (Array.isArray(values) ? values : []).reduce((mask, value) => mask | BigInt(value), 0n);
+}
+
+function overwriteSatisfies(channel, targetId, plan = {}) {
+  const id = String(targetId || '');
+  if (!id) return false;
+  const overwrite = channel?.permissionOverwrites?.cache?.get?.(id);
+  if (!overwrite) return false;
+  const allowMask = permissionMask(plan.allow || []);
+  const denyMask = permissionMask(plan.deny || []);
+  const actualAllow = bitfieldOf(overwrite.allow);
+  const actualDeny = bitfieldOf(overwrite.deny);
+  return (actualAllow & allowMask) === allowMask && (actualDeny & denyMask) === denyMask;
+}
+
+async function applyAboutPermissions(channel, guild, botId = '') {
+  if (!channel?.permissionOverwrites?.edit || !guild?.roles?.everyone) {
+    return { membersReadOnly: false, sentinalWritable: false, permissionsUpdated: false, membersPermissionUpdated: false, sentinalPermissionUpdated: false };
+  }
+
+  const everyoneId = String(guild.roles.everyone.id || guild.roles.everyone);
+  const memberDeny = [
+    PermissionFlagsBits.SendMessages,
+    PermissionFlagsBits.AddReactions,
+    PermissionFlagsBits.CreatePublicThreads,
+    PermissionFlagsBits.CreatePrivateThreads,
+    PermissionFlagsBits.SendMessagesInThreads
+  ];
+  let membersPermissionUpdated = false;
+  if (!overwriteSatisfies(channel, everyoneId, { deny: memberDeny })) {
+    await channel.permissionOverwrites.edit(guild.roles.everyone, {
+      SendMessages: false,
+      AddReactions: false,
+      CreatePublicThreads: false,
+      CreatePrivateThreads: false,
+      SendMessagesInThreads: false
+    }, { reason: 'Keep Khaos Nexus #about read-only for members' });
+    membersPermissionUpdated = true;
+  }
 
   const resolvedBotId = String(botId || guild?.members?.me?.id || '').trim();
-  if (!resolvedBotId) return { membersReadOnly: true, sentinalWritable: false };
+  if (!resolvedBotId) {
+    return {
+      membersReadOnly: true,
+      sentinalWritable: false,
+      permissionsUpdated: membersPermissionUpdated,
+      membersPermissionUpdated,
+      sentinalPermissionUpdated: false
+    };
+  }
   let botMember = guild?.members?.me || null;
   if (!botMember || String(botMember.id || '') !== resolvedBotId) {
     botMember = await guild.members?.fetch?.(resolvedBotId).catch?.(() => null) || null;
   }
-  const target = botMember || resolvedBotId;
-  await channel.permissionOverwrites.edit(target, {
-    ViewChannel: true,
-    SendMessages: true,
-    EmbedLinks: true,
-    ReadMessageHistory: true,
-    CreateInstantInvite: true
-  }, { reason: 'Allow Nexus Sentinal to maintain Khaos Nexus #about' });
-  return { membersReadOnly: true, sentinalWritable: true };
+  const botAllow = [
+    PermissionFlagsBits.ViewChannel,
+    PermissionFlagsBits.SendMessages,
+    PermissionFlagsBits.EmbedLinks,
+    PermissionFlagsBits.ReadMessageHistory,
+    PermissionFlagsBits.CreateInstantInvite
+  ];
+  let sentinalPermissionUpdated = false;
+  if (!overwriteSatisfies(channel, resolvedBotId, { allow: botAllow })) {
+    const target = botMember || resolvedBotId;
+    await channel.permissionOverwrites.edit(target, {
+      ViewChannel: true,
+      SendMessages: true,
+      EmbedLinks: true,
+      ReadMessageHistory: true,
+      CreateInstantInvite: true
+    }, { reason: 'Allow Nexus Sentinal to maintain Khaos Nexus #about' });
+    sentinalPermissionUpdated = true;
+  }
+  return {
+    membersReadOnly: true,
+    sentinalWritable: true,
+    permissionsUpdated: membersPermissionUpdated || sentinalPermissionUpdated,
+    membersPermissionUpdated,
+    sentinalPermissionUpdated
+  };
 }
 
 async function ensureAboutChannel(guild, options = {}) {
@@ -94,7 +156,6 @@ async function ensureAboutChannel(guild, options = {}) {
     created,
     moved,
     topicUpdated,
-    permissionsUpdated: Boolean(permissions.membersReadOnly || permissions.sentinalWritable),
     ...permissions
   };
 }
@@ -179,6 +240,20 @@ function newestMessage(messages = []) {
   return [...messages].sort((left, right) => Number(right?.createdTimestamp || 0) - Number(left?.createdTimestamp || 0))[0] || null;
 }
 
+function comparable(value) {
+  return value?.toJSON ? value.toJSON() : value;
+}
+
+function panelPayloadMatches(message, payload) {
+  const actualEmbeds = (message?.embeds || []).map(comparable);
+  const desiredEmbeds = (payload?.embeds || []).map(comparable);
+  const actualComponents = (message?.components || []).map(comparable);
+  const desiredComponents = (payload?.components || []).map(comparable);
+  return String(message?.content || '') === String(payload?.content || '')
+    && JSON.stringify(actualEmbeds) === JSON.stringify(desiredEmbeds)
+    && JSON.stringify(actualComponents) === JSON.stringify(desiredComponents);
+}
+
 async function reconcileAboutPanel(channel, payload, options = {}) {
   const botId = String(options.botId || channel?.client?.user?.id || '');
   let recent = [];
@@ -186,15 +261,20 @@ async function reconcileAboutPanel(channel, payload, options = {}) {
   const candidates = recent.filter((message) => messageMatchesAboutPanel(message, botId));
   let message = newestMessage(candidates);
   let created = false;
+  let updated = false;
   let duplicatesRemoved = 0;
   let pinned = false;
 
-  if (message) await message.edit(payload);
-  else if (typeof channel?.send === 'function') {
+  if (message) {
+    if (!panelPayloadMatches(message, payload)) {
+      await message.edit(payload);
+      updated = true;
+    }
+  } else if (typeof channel?.send === 'function') {
     message = await channel.send(payload);
     created = true;
   }
-  if (!message) return { message: null, created: false, duplicatesRemoved: 0, pinned: false };
+  if (!message) return { message: null, created: false, updated: false, duplicatesRemoved: 0, pinned: false };
 
   if (message.pinned !== true && typeof message.pin === 'function') {
     try {
@@ -211,7 +291,7 @@ async function reconcileAboutPanel(channel, payload, options = {}) {
     } catch {}
   }
 
-  return { message, created, duplicatesRemoved, pinned };
+  return { message, created, updated, duplicatesRemoved, pinned };
 }
 
 async function refreshAboutPanel(client, config = {}, options = {}) {
@@ -232,6 +312,7 @@ async function refreshAboutPanel(client, config = {}, options = {}) {
     permissionsUpdated: channelResult.permissionsUpdated,
     inviteCreated: inviteResult.created,
     panelCreated: panel.created,
+    panelUpdated: panel.updated,
     duplicatesRemoved: panel.duplicatesRemoved,
     pinned: panel.pinned
   };
@@ -255,7 +336,7 @@ function installAboutExtension() {
             console.warn(`[Nexus Sentinal] about (${reason}) skipped: ${result.skipped}`);
             return;
           }
-          console.log(`[Nexus Sentinal] about (${reason}): channel=${result.channelId} channelCreated=${result.channelCreated} channelMoved=${result.channelMoved} topicUpdated=${result.topicUpdated} permissionsUpdated=${result.permissionsUpdated} inviteCreated=${result.inviteCreated} panelCreated=${result.panelCreated} duplicatesRemoved=${result.duplicatesRemoved} pinned=${result.pinned}`);
+          console.log(`[Nexus Sentinal] about (${reason}): channel=${result.channelId} channelCreated=${result.channelCreated} channelMoved=${result.channelMoved} topicUpdated=${result.topicUpdated} permissionsUpdated=${result.permissionsUpdated} inviteCreated=${result.inviteCreated} panelCreated=${result.panelCreated} panelUpdated=${result.panelUpdated} duplicatesRemoved=${result.duplicatesRemoved} pinned=${result.pinned}`);
         } catch (error) {
           console.warn(`[Nexus Sentinal] about (${reason}) unavailable: ${String(error?.message || error).slice(0, 240)}`);
         } finally {
@@ -282,6 +363,9 @@ module.exports = {
   normalizeChannelName,
   isAboutChannel,
   findAboutChannel,
+  bitfieldOf,
+  permissionMask,
+  overwriteSatisfies,
   applyAboutPermissions,
   ensureAboutChannel,
   isPermanentInvite,
@@ -291,6 +375,7 @@ module.exports = {
   renderAboutPanel,
   messageMatchesAboutPanel,
   newestMessage,
+  panelPayloadMatches,
   reconcileAboutPanel,
   refreshAboutPanel,
   installAboutExtension
