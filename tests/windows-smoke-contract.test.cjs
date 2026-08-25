@@ -60,9 +60,12 @@ test('packaged application uses the CI-gated entry wrapper without replacing pro
 });
 
 test('Windows CI runs real installer, updater, and rollback recovery smoke and uploads its evidence', { skip: !exists('.github/workflows/rebuild-ci.yml') }, () => {
+  const pkg = JSON.parse(read('package.json'));
   const workflow = read('.github/workflows/rebuild-ci.yml');
   const script = read('scripts/windows-install-upgrade-smoke.ps1');
   const updater = read('src/updater/apply-update.ps1');
+
+  assert.match(pkg.scripts['dist:win'], /--publish never/);
 
   assert.match(workflow, /windows-install-upgrade-smoke\.ps1/);
   assert.match(workflow, /Smoke-test clean install, staged upgrade, and rollback recovery/);

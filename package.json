@@ -12,7 +12,7 @@
     "sentinel": "node src/sentinel/entry.cjs",
     "check": "node scripts/check.cjs",
     "test": "node --test tests/*.test.cjs",
-    "dist:win": "electron-builder --win --x64",
+    "dist:win": "electron-builder --win --x64 --publish never",
     "dist:update": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-update-bundle.ps1 -Channel owner-test"
   },
   "dependencies": {
