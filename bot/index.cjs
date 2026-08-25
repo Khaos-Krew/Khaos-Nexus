@@ -204,15 +204,41 @@ function adapterRoleForInteraction(interaction, command) {
   return 'viewer';
 }
 
+function ownsLegacyCommand(commandName) {
+  return Object.prototype.hasOwnProperty.call(COMMAND_MODULES, String(commandName || ''));
+}
+
+function commandRoute(applicationId, guildId, commandId) {
+  return guildId
+    ? Routes.applicationGuildCommand(applicationId, guildId, commandId)
+    : Routes.applicationCommand(applicationId, commandId);
+}
+
 async function registerCommands() {
   if (!client?.isReady?.() || !bootstrap?.discordToken) return 0;
   const commands = createCommands({ isModuleEnabled });
   const rest = new REST({ version: '10' }).setToken(bootstrap.discordToken);
-  const route = bootstrap.config.discord.guildId
-    ? Routes.applicationGuildCommands(client.user.id, bootstrap.config.discord.guildId)
-    : Routes.applicationCommands(client.user.id);
-  await rest.put(route, { body: commands });
-  log('info', `Registered ${commands.length} module-aware Discord commands.`);
+  const applicationId = client.user.id;
+  const guildId = bootstrap.config.discord.guildId || '';
+  const collectionRoute = guildId
+    ? Routes.applicationGuildCommands(applicationId, guildId)
+    : Routes.applicationCommands(applicationId);
+  const existing = await rest.get(collectionRoute);
+  const desiredNames = new Set(commands.map((command) => command.name));
+
+  for (const command of commands) {
+    const current = existing.find((item) => item.name === command.name);
+    if (current) await rest.patch(commandRoute(applicationId, guildId, current.id), { body: command });
+    else await rest.post(collectionRoute, { body: command });
+  }
+
+  for (const current of existing) {
+    if (ownsLegacyCommand(current.name) && !desiredNames.has(current.name)) {
+      await rest.delete(commandRoute(applicationId, guildId, current.id));
+    }
+  }
+
+  log('info', `Registered ${commands.length} legacy-owned Discord commands without replacing external commands.`);
   return commands.length;
 }
 
@@ -278,12 +304,13 @@ function commandSupportsServer(commandName, server) {
 
 async function handleInteraction(interaction) {
   if (interaction.isAutocomplete()) {
+    const commandName = interaction.commandName;
+    if (!ownsLegacyCommand(commandName)) return;
     if (!isModuleEnabled('game-server-control')) {
       await interaction.respond([]);
       return;
     }
     const focused = interaction.options.getFocused().toLowerCase();
-    const commandName = interaction.commandName;
     const choices = (bootstrap?.config?.servers || [])
       .filter((server) => server.enabled !== false && serverAvailable(server) && commandSupportsServer(commandName, server) && server.name.toLowerCase().includes(focused))
       .slice(0, 25)
@@ -294,7 +321,15 @@ async function handleInteraction(interaction) {
 
   if (!interaction.isChatInputCommand()) return;
   const command = interaction.commandName;
-  const commandModule = COMMAND_MODULES[command] || 'discord-runtime';
+
+  // This legacy runtime must only handle commands it owns. Backend-first Nexus commands,
+  // hosted-service commands, and future external command surfaces are handled elsewhere.
+  if (!ownsLegacyCommand(command)) {
+    log('debug', `Ignoring externally owned Discord command: /${command}`);
+    return;
+  }
+
+  const commandModule = COMMAND_MODULES[command];
   if (!isModuleEnabled(commandModule)) {
     await interaction.reply({ content: moduleDisabledError(commandModule).message, ephemeral: true });
     return;
