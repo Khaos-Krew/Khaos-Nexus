@@ -19,7 +19,7 @@ Routine game logic remains outside Electron and Discord handlers.
 
 ## Current implementation state
 
-The rebuild includes the thin Electron Admin Control Center, backend module/runtime foundations, shared scheduler, Discord provisioning/reconciliation, temporary voice lobbies, permission preflight, persistent Sentinal module consoles, household Accounts & Access, guarded read-only provider validation, staged updating, Admin Operations / Owner Test Center, backend-first Pokémon GO, friendly per-module commands, universal event/schedule feeds, supporter-rank handling, self-reconciling module access roles, hosted Sentinal pairing, guided Setup Center, hosted provider synchronization, Discord Admin acceptance tooling, Discord Server Shop rank authority, private safe-space reporting, community XP/leveling, protected Staff workspace tooling, milestone patch-note publishing, new-member welcome automation, and persistent Nexus service status.
+The rebuild includes the thin Electron Admin Control Center, backend module/runtime foundations, shared scheduler, Discord provisioning/reconciliation, temporary voice lobbies, permission preflight, persistent Sentinal module consoles, household Accounts & Access, guarded read-only provider validation, staged updating, Admin Operations / Owner Test Center, backend-first Pokémon GO, friendly per-module commands, universal event/schedule feeds, supporter-rank handling, self-reconciling module access roles, hosted Sentinal pairing, guided Setup Center, hosted provider synchronization, Discord Admin acceptance tooling, Discord Server Shop rank authority, private safe-space reporting, community XP/leveling, protected Staff workspace tooling, milestone patch-note publishing, new-member welcome automation, persistent Nexus service status, and managed Community About & Sharing.
 
 Current game modules include **ARK, Palworld, Minecraft, Warframe, Division 2, Rust, Satisfactory, IdleOn, Nexus D&D, Pokémon GO, Call of Duty, Dead by Daylight, and Diablo IV**.
 
@@ -45,6 +45,8 @@ Current Railway evidence confirms:
 - **INFO → Nexus Status** maintains one pinned status panel and live probes reported both Nexus Sentinal and Veyra online without duplicate messages;
 - `#welcome` has an event-driven Sentinal welcome path for new human members.
 
+Community About & Sharing is merged through PRs #384/#385. Sentinal now manages a canonical pinned `#about` panel with a permanent share link and safe-space copy, and includes a public-safe 100% milestone publisher. PR #384 head `d56bf1ed…` passed Nexus Rebuild CI #405 and PR #385 head `f3c1dd54…` passed CI #407. Those exact-head CI results establish implementation validation only; live guild acceptance and actual milestone publication remain separate evidence.
+
 The backend-backed `#game-servers` registry is merged and intentionally exposes only safe tracked-server metadata to Discord; network addresses, ports, passwords/tokens, TLS data, and other protected connection details remain excluded.
 
 Late-August acceptance work also added:
@@ -55,7 +57,7 @@ Late-August acceptance work also added:
 
 Release hardening has also advanced materially. The rebuild uses deterministic lockfile installs and exact validated-artifact promotion, runs real isolated Windows clean-install/staged-upgrade smoke validation, audits packaged application contents, and has a fail-closed Authenticode policy for stable Windows validation. Owner-test artifacts may remain intentionally unsigned; stable artifacts require protected signing credentials and independently valid signatures. No public/stable release is authorized merely by these controls.
 
-Recent exact-head evidence includes **PR #373 CI #391**, **PR #377 CI #395**, **PR #379 CI #399**, and the corrective **PR #381 CI #401**, all green on their feature heads. Automated CI and hosted telemetry remain supporting evidence, not substitutes for owner/live interaction acceptance.
+Recent exact-head evidence includes **PR #384 CI #405**, **PR #385 CI #407**, **PR #373 CI #391**, **PR #377 CI #395**, **PR #379 CI #399**, and the corrective **PR #381 CI #401**, all green on their feature heads. Automated CI and hosted telemetry remain supporting evidence, not substitutes for owner/live interaction acceptance.
 
 The current [`Discord + Nexus Setup Acceptance`](docs/DISCORD_NEXUS_SETUP_ACCEPTANCE.md) checkpoint remains active. Role authority plus the expanded game-module layout, access-policy reconciliation, category ordering, hub idempotency, feed recovery, staff Name Color display safety, and service-status visibility have live evidence. Fresh pairing, corrected desktop confirmation, real provider sync/validation, module-access interaction, Staff workspace acceptance, Community XP live acceptance, report lifecycle, and desktop/hosted restart persistence still require owner interaction or final live evidence.
 
@@ -65,7 +67,7 @@ The canonical roadmap/status handoff is [`docs/NEXUS_ROADMAP_STATUS.md`](docs/NE
 
 - **Now — Rebuild foundation:** automated baseline is green; owner-test the packaged Admin Control Center, guided Setup Center, Accounts & Access, Owner Test Center, startup-health surface, Sentinal administration, hosted pairing/provider sync, safe Repair Nexus flow, and current private assistant bridge.
 - **Next — Provider-backed game services:** providers, authenticated hosted sync, read-only validation, event feeds, ARK taming, Pokémon GO, Warframe Archon Hunt, Dead by Daylight public/community reads, safe/local Call of Duty/Diablo IV companion surfaces, and the backend-backed tracked-server registry are the active service path; validate them in real provider/Discord use without treating CI as live acceptance.
-- **Then — Sentinal operational acceptance:** role authority is live-accepted at 100%, and module layout/idempotency, staff-compatible Name Color display safety, Nexus Status, Staff workspace, Community XP/Leveling, and the module-access preflight are implemented at their respective evidence levels; broader acceptance still requires normal-member module interaction, Staff privacy/idempotency, Community XP live checks, report lifecycle, moderation, pairing, provider flows, Setup Acceptance, and restart behavior.
+- **Then — Sentinal operational acceptance:** role authority is live-accepted at 100%, and module layout/idempotency, staff-compatible Name Color display safety, Nexus Status, Staff workspace, Community XP/Leveling, Community About & Sharing, and the module-access preflight are implemented at their respective evidence levels; broader acceptance still requires normal-member module interaction, Staff privacy/idempotency, Community XP live checks, About live acceptance/publication, report lifecycle, moderation, pairing, provider flows, Setup Acceptance, and restart behavior.
 - **Release hardening:** deterministic installs, exact validated-artifact promotion/provenance, staged updating, Windows clean-install/staged-upgrade smoke validation, package-content auditing, and stable signing gates are merged/implemented; next validate the same update/rollback flow on an actual owner installation while keeping public/stable publication a separate explicit decision.
 - **Later — Selective migration and expansion:** port only legacy behavior that fits the backend/admin/Sentinal architecture, expand provider-backed services and safe companion reads, keep routine game dashboards out of the desktop, keep private assistant functionality bridged from its canonical project, and consider future web/public surfaces only when they support rather than duplicate protected authority.
 - **Final planned continuation — Nexus D&D production and community beta:** after the Nexus 0.1 core/Discord roadmap is stable enough to protect D&D work, transition directly into the dedicated [`Nexus D&D production continuation`](docs/NEXUS_DND_PRODUCTION_CONTINUATION.md). The first checkpoint is canonical content/assets plus backend D&D inventory/gap analysis, followed by Veyra production integration, a player-ready character/campaign client, DM world tools, tactical combat, Discord campaign bridging, closed beta, and broader release hardening.
@@ -84,7 +86,7 @@ The newest relevant legacy startup diagnostic remains issue #285 for installed `
 2. Fill the required Discord configuration.
 3. Set `NEXUS_SENTINEL_TOKEN` in the environment.
 4. Set `NEXUS_BACKEND_TOKEN` to a strong shared secret when Sentinal and backend are separate processes.
-5. Run `npm install`.
+5. Run `npm ci`.
 6. Run `npm run backend`.
 7. Run `npm run sentinel`.
 8. Run `npm start` for the Admin Control Center.
