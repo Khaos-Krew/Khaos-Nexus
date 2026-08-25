@@ -27,7 +27,7 @@ const {
   officeThreadMatches,
   legacyOfficeChannelName
 } = require('../src/sentinel/staff-workspace.cjs');
-const { memberIsStaff, channelNamed } = require('../src/sentinel/staff-workspace-extension.cjs');
+const { memberIsStaff, staffMembers, channelNamed } = require('../src/sentinel/staff-workspace-extension.cjs');
 
 const IDS = Object.freeze({
   guild: '1016059608789434408',
@@ -98,6 +98,29 @@ test('staff membership accepts configured staff role or owner only', () => {
   assert.equal(memberIsStaff(owner, [IDS.staff], [IDS.owner]), true);
   assert.equal(memberIsStaff(normal, [IDS.staff], [IDS.owner]), false);
   assert.equal(memberIsStaff(bot, [IDS.staff], [IDS.owner]), false);
+});
+
+test('staff member discovery uses the maintained member cache without issuing a full guild fetch', async () => {
+  let fetches = 0;
+  const staff = {
+    id: IDS.user,
+    user: { bot: false },
+    roles: { cache: new Map([[IDS.staff, { id: IDS.staff }]]) }
+  };
+  const normal = {
+    id: '555555555555555555',
+    user: { bot: false },
+    roles: { cache: new Map() }
+  };
+  const guild = {
+    members: {
+      cache: new Map([[staff.id, staff], [normal.id, normal]]),
+      fetch: async () => { fetches += 1; throw new Error('full member fetch must not run when cache is populated'); }
+    }
+  };
+  const result = await staffMembers(guild, [IDS.staff], [IDS.owner]);
+  assert.deepEqual(result.map((member) => member.id), [IDS.user]);
+  assert.equal(fetches, 0);
 });
 
 test('managed channel lookup requires the intended type and staff parent', () => {
