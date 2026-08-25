@@ -2,6 +2,7 @@
 
 const { ChannelType, OverwriteType, PermissionFlagsBits } = require('discord.js');
 const { MODULES } = require('../backend/modules/catalog.cjs');
+const { managedPayloadMatches } = require('./managed-payload-compare.cjs');
 
 const STAFF_CATEGORY_NAME = '🔒 STAFF';
 const STAFF_PANEL_MARKER = 'Nexus Sentinal • Managed Staff Workspace • v2';
@@ -262,16 +263,8 @@ function panelMatches(message, marker, botId = '') {
   return (message.embeds || []).some((embed) => acceptedMarkers.has(String(embed?.footer?.text || '')));
 }
 
-function comparableEmbed(embed) {
-  if (embed?.toJSON) return embed.toJSON();
-  return embed || {};
-}
-
 function panelPayloadMatches(message, payload) {
-  const actualEmbeds = (message?.embeds || []).map(comparableEmbed);
-  const desiredEmbeds = (payload?.embeds || []).map(comparableEmbed);
-  return JSON.stringify(actualEmbeds) === JSON.stringify(desiredEmbeds)
-    && String(message?.content || '') === String(payload?.content || '');
+  return managedPayloadMatches(message, payload);
 }
 
 async function reconcilePanel(channel, payload, marker, botId = '') {

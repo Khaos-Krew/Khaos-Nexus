@@ -230,6 +230,17 @@ test('managed staff panels avoid edits when the rendered payload is unchanged', 
   assert.equal(panelPayloadMatches(message, payload), true);
 });
 
+test('managed staff panels ignore Discord response-only embed decoration', () => {
+  const payload = staffHubPayload({
+    'staff-ops': { id: '555555555555555555' },
+    'admin-commands': { id: '666666666666666666' },
+    roadmap: { id: '777777777777777777' },
+    'staff-offices': { id: '888888888888888888' }
+  });
+  const message = { content: '', embeds: payload.embeds.map((embed) => ({ toJSON: () => ({ type: 'rich', ...embed }) })) };
+  assert.equal(panelPayloadMatches(message, payload), true);
+});
+
 test('staff member discovery never falls back to an opcode-8 full guild fetch when cache is empty', async () => {
   let fetches = 0;
   const guild = {

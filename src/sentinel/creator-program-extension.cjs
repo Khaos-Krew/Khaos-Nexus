@@ -16,6 +16,7 @@ const {
 const { loadConfig } = require('../shared/config.cjs');
 const { StateStore } = require('./state-store.cjs');
 const { findStaffCategory, resolveStaffRoleIds } = require('./staff-workspace.cjs');
+const { managedPayloadMatches } = require('./managed-payload-compare.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.creator-program.extension');
 const CATEGORY_NAME = 'CONTENT CREATOR PROGRAM';
@@ -265,8 +266,10 @@ async function reconcilePanel(channel, payload, marker, botId) {
   matches.sort((a, b) => Number(b.createdTimestamp || 0) - Number(a.createdTimestamp || 0));
   let message = matches[0] || null;
   let created = false;
-  if (message) await message.edit(payload);
-  else { message = await channel.send(payload); created = true; }
+  let updated = false;
+  if (message) {
+    if (!managedPayloadMatches(message, payload)) { await message.edit(payload); updated = true; }
+  } else { message = await channel.send(payload); created = true; }
   let pinned = false;
   if (!message.pinned && typeof message.pin === 'function') {
     try { await message.pin('Nexus Sentinal canonical creator program panel'); pinned = true; } catch {}
@@ -275,7 +278,7 @@ async function reconcilePanel(channel, payload, marker, botId) {
   for (const duplicate of matches.slice(1)) {
     try { await duplicate.delete('Nexus Sentinal duplicate creator program panel cleanup'); duplicatesRemoved += 1; } catch {}
   }
-  return { message, created, pinned, duplicatesRemoved };
+  return { message, created, updated, pinned, duplicatesRemoved };
 }
 
 function applicationModal() {
@@ -411,7 +414,7 @@ async function reconcileReviews(reviewChannel, store, botId) {
   for (const application of applications) {
     let message = await findReviewMessage(reviewChannel, application.id, botId);
     if (!message) { message = await reviewChannel.send(reviewPayload(application)); created += 1; }
-    else { await message.edit(reviewPayload(application)); updated += 1; }
+    else if (!managedPayloadMatches(message, reviewPayload(application))) { await message.edit(reviewPayload(application)); updated += 1; }
     if (String(application.reviewMessageId || '') !== String(message.id)) store.setCreatorApplication(application.id, { ...application, reviewMessageId: String(message.id) });
   }
   return { tracked: applications.length, created, updated };
