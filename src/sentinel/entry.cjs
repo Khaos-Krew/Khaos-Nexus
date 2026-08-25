@@ -1,5 +1,9 @@
 'use strict';
 
+const { registerRoadmapGameModules } = require('./roadmap-game-module-registry.cjs');
+const { installRetiredGamesSelfRoleCleanupExtension } = require('./retired-games-self-role-cleanup.cjs');
+registerRoadmapGameModules();
+
 const { installGuildMembersIntentExtension } = require('./guild-members-intent-extension.cjs');
 const { installCommunityIntentsExtension } = require('./community-intents-extension.cjs');
 const { installRoleMenuExtension } = require('./role-menu-extension.cjs');
@@ -30,6 +34,7 @@ const { installPollExtension } = require('./poll-extension.cjs');
 const { installCreatorProgramExtension } = require('./creator-program-extension.cjs');
 const { installEventManagementExtension } = require('./event-management-extension.cjs');
 
+installRetiredGamesSelfRoleCleanupExtension();
 installGuildMembersIntentExtension();
 installCommunityIntentsExtension();
 installRoleMenuExtension();
