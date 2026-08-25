@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { ChannelType } = require('discord.js');
-const { bestCategoryMatch, similarityScore, uniqueNamedChannel } = require('../src/sentinel/module-provisioner.cjs');
+const { bestCategoryMatch, desiredCategoryName, similarityScore, uniqueNamedChannel } = require('../src/sentinel/module-provisioner.cjs');
 const { layoutFor } = require('../src/sentinel/module-layouts.cjs');
 
 function channels(...names) {
@@ -22,10 +22,20 @@ test('smart setup avoids unrelated categories', () => {
   assert.ok(similarityScore('Warframe Community', 'Warframe') > similarityScore('General', 'Warframe'));
 });
 
-test('RuneScape 3 never adopts the Old School RuneScape category', () => {
+test('RuneScape categories keep OSRS and RuneScape 3 distinct', () => {
+  assert.equal(layoutFor('osrs').category, 'OSRS');
+  assert.equal(desiredCategoryName('osrs'), 'OSRS ⚔️');
+  assert.equal(layoutFor('runescape3').category, 'RuneScape 3');
+  assert.equal(desiredCategoryName('runescape3'), 'RuneScape 3 ✨');
   assert.equal(bestCategoryMatch(channels('Old School RuneScape'), 'runescape3'), null);
   assert.equal(layoutFor('runescape3').aliases.includes('RuneScape'), false);
-  assert.equal(bestCategoryMatch(channels('RuneScape 3'), 'runescape3').category.name, 'RuneScape 3');
+  assert.equal(bestCategoryMatch(channels('RuneScape 3 ✨'), 'runescape3').category.name, 'RuneScape 3 ✨');
+  assert.equal(bestCategoryMatch(channels('Old School RuneScape'), 'osrs').category.name, 'Old School RuneScape');
+});
+
+test('category flair does not interfere with fuzzy category adoption', () => {
+  assert.equal(bestCategoryMatch(channels('Warframe ⚡'), 'warframe').category.name, 'Warframe ⚡');
+  assert.equal(bestCategoryMatch(channels('Minecraft ⛏️'), 'minecraft').category.name, 'Minecraft ⛏️');
 });
 
 test('unique managed channel recovery only moves an unambiguous exact-name channel', () => {
@@ -41,6 +51,7 @@ test('unique managed channel recovery only moves an unambiguous exact-name chann
 test('ARK layout provisions a dedicated tame info chat under the ARK category', () => {
   const layout = layoutFor('ark');
   assert.equal(layout.category, 'ARK Survival Ascended');
+  assert.equal(layout.categoryDisplay, 'ARK Survival Ascended 🦖');
   assert.ok(layout.text.includes('ark-tame-info'));
   assert.ok(layout.text.indexOf('ark-tame-info') > layout.text.indexOf('ark-console'));
 });
