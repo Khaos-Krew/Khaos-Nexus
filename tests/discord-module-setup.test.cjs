@@ -16,6 +16,7 @@ test('every registered game module has a Discord layout and join-to-build channe
   for (const id of EXPECTED) {
     const layout = layoutFor(id);
     assert.ok(layout.category);
+    assert.ok(layout.categoryDisplay);
     assert.ok(layout.consoleChannel);
     assert.ok(layout.text.includes(layout.consoleChannel));
     assert.match(layout.lobbyBuilder, /Join to Create/);
@@ -24,8 +25,10 @@ test('every registered game module has a Discord layout and join-to-build channe
 });
 
 test('OSRS, RuneScape 3, and Once Human keep independent user-facing Discord categories', () => {
-  assert.equal(layoutFor('osrs').category, 'Old School RuneScape');
+  assert.equal(layoutFor('osrs').category, 'OSRS');
+  assert.equal(layoutFor('osrs').categoryDisplay, 'OSRS ⚔️');
   assert.equal(layoutFor('runescape3').category, 'RuneScape 3');
+  assert.equal(layoutFor('runescape3').categoryDisplay, 'RuneScape 3 ✨');
   assert.equal(layoutFor('oncehuman').category, 'Once Human');
   assert.notEqual(layoutFor('osrs').consoleChannel, layoutFor('runescape3').consoleChannel);
   assert.ok(layoutFor('oncehuman').text.includes('once-human-lfg'));
