@@ -10,6 +10,7 @@ const {
   GAME_SERVERS_PANEL_TITLE,
   ensureGameServersChannel,
   renderGameServersPanel,
+  panelPayloadMatches,
   reconcileGameServersPanel
 } = require('../src/sentinel/game-servers-panel.cjs');
 
@@ -129,8 +130,16 @@ test('game server panel groups tracked servers without exposing endpoints', () =
   assert.match(embed.fields[0].value, /Ragnarok/);
   assert.match(embed.fields[0].value, /Astraeos/);
   assert.match(embed.fields[1].value, /provider setup needed/);
+  assert.match(embed.fields.at(-1).value, /automatically checked/i);
+  assert.equal(embed.timestamp, undefined);
   assert.equal(JSON.stringify(payload).includes('host'), false);
   assert.equal(JSON.stringify(payload).includes('password'), true); // privacy explanation uses the word; no secret value exists.
+});
+
+test('game server panel is stable when only backend generatedAt changes', () => {
+  const first = renderGameServersPanel({ generatedAt: '2026-08-24T22:24:00.000Z', servers: [] });
+  const later = renderGameServersPanel({ generatedAt: '2026-08-25T01:24:00.000Z', servers: [] });
+  assert.deepEqual(first, later);
 });
 
 test('game server reconciliation reuses newest canonical panel and removes duplicates', async () => {
@@ -144,9 +153,32 @@ test('game server reconciliation reuses newest canonical panel and removes dupli
   const payload = renderGameServersPanel({ servers: [] });
   const result = await reconcileGameServersPanel(channel, payload, { botId: 'sentinal' });
   assert.equal(result.message.id, 'current');
+  assert.equal(result.updated, true);
   assert.equal(current.state.edits, 1);
   assert.equal(current.state.pins, 1);
   assert.equal(old.state.deletes, 1);
   assert.equal(other.state.deletes, 0);
   assert.equal(result.duplicatesRemoved, 1);
+});
+
+test('game server registry skips Discord edits when tracked-server state is unchanged', async () => {
+  const payload = renderGameServersPanel({ servers: [] });
+  let edits = 0;
+  const message = {
+    id: 'current',
+    createdTimestamp: 200,
+    author: { id: 'sentinal', bot: true },
+    pinned: true,
+    content: '',
+    embeds: payload.embeds.map((embed) => ({ toJSON: () => embed })),
+    edit: async () => { edits += 1; }
+  };
+  const channel = {
+    client: { user: { id: 'sentinal' } },
+    messages: { fetch: async () => new Map([[message.id, message]]) }
+  };
+  assert.equal(panelPayloadMatches(message, payload), true);
+  const result = await reconcileGameServersPanel(channel, payload, { botId: 'sentinal' });
+  assert.equal(result.updated, false);
+  assert.equal(edits, 0);
 });
