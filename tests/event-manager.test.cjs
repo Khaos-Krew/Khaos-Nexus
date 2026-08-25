@@ -89,3 +89,16 @@ test('non-date poll winners remain drafts for explicit staff scheduling', async 
   assert.equal(result.reason, 'winner-not-a-date');
   assert.equal(result.event.status, 'draft');
 });
+
+test('member RSVPs are durable, changeable, removable, and frozen after completion', () => {
+  const kit = fixture();
+  const event = kit.events.create({ title: 'Game Night', startAt: '2026-09-01T20:00:00Z' });
+  let current = kit.events.rsvp(event.id, 'member-1', 'going');
+  assert.equal(current.responses['member-1'].response, 'going');
+  current = kit.events.rsvp(event.id, 'member-1', 'maybe');
+  assert.equal(current.responses['member-1'].response, 'maybe');
+  current = kit.events.rsvp(event.id, 'member-1', 'maybe');
+  assert.equal(current.responses['member-1'], undefined);
+  kit.events.complete(event.id, 'staff');
+  assert.throws(() => kit.events.rsvp(event.id, 'member-1', 'going'), /no longer accepting/i);
+});

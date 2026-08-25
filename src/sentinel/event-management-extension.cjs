@@ -16,6 +16,7 @@ const CHANNEL_TOPIC = 'Official Khaos Nexus events, schedules, locations, and st
 const CARD_PREFIX = 'Nexus Sentinal • Managed Event • ';
 const INITIAL_DELAY_MS = 120_000;
 const TICK_MS = 60_000;
+const COMPONENT_PREFIX = 'nxevent:r:';
 
 function eventCommand() {
   const command = new SlashCommandBuilder().setName('event').setDescription('Create and manage official Nexus events.');
@@ -85,7 +86,19 @@ function renderEventCard(event) {
   if (event.endAt) fields.push({ name: 'Ends', value: `<t:${Math.floor(Date.parse(event.endAt) / 1000)}:F>`, inline: true });
   if (event.pollId) fields.push({ name: 'Scheduling Poll', value: `**${event.pollId}** — vote in #polls`, inline: true });
   if (event.cancelReason) fields.push({ name: 'Cancellation', value: event.cancelReason, inline: false });
-  return { embeds: [{ title: event.title, description: event.description || 'Official Khaos Nexus event.', color: event.status === 'cancelled' ? 0x992d22 : event.status === 'completed' ? 0x2ecc71 : 0x5865f2, fields, footer: { text: `${CARD_PREFIX}${event.id}` }, timestamp: event.updatedAt }], allowedMentions: { parse: [] } };
+  const responses = Object.values(event.responses || {});
+  const count = (choice) => responses.filter((item) => item.response === choice).length;
+  fields.push({ name: 'RSVPs', value: `✅ Going: **${count('going')}** • ❔ Maybe: **${count('maybe')}** • ❌ Can't: **${count('cant')}**`, inline: false });
+  const disabled = ['cancelled', 'completed'].includes(event.status);
+  return {
+    embeds: [{ title: event.title, description: event.description || 'Official Khaos Nexus event.', color: event.status === 'cancelled' ? 0x992d22 : event.status === 'completed' ? 0x2ecc71 : 0x5865f2, fields, footer: { text: `${CARD_PREFIX}${event.id}` }, timestamp: event.updatedAt }],
+    components: [{ type: 1, components: [
+      { type: 2, style: 3, label: 'Going', emoji: { name: '✅' }, custom_id: `${COMPONENT_PREFIX}${event.id}:going`, disabled },
+      { type: 2, style: 2, label: 'Maybe', emoji: { name: '❔' }, custom_id: `${COMPONENT_PREFIX}${event.id}:maybe`, disabled },
+      { type: 2, style: 2, label: "Can't Go", emoji: { name: '❌' }, custom_id: `${COMPONENT_PREFIX}${event.id}:cant`, disabled }
+    ] }],
+    allowedMentions: { parse: [] }
+  };
 }
 
 async function reconcileEventCard(client, channel, manager, id) {
@@ -137,6 +150,22 @@ async function handleEventCommand(interaction, context) {
   return { handled: true, event };
 }
 
+async function handleEventComponent(interaction, context) {
+  if (!interaction.isButton?.() || !String(interaction.customId || '').startsWith(COMPONENT_PREFIX)) return false;
+  const match = String(interaction.customId).match(/^nxevent:r:(EVENT-\d{4,}):(going|maybe|cant)$/);
+  if (!match) return false;
+  const event = context.manager.rsvp(match[1], interaction.user?.id, match[2]);
+  await reconcileEventCard(interaction.client, context.channel, context.manager, event.id);
+  const active = event.responses?.[String(interaction.user?.id || '')]?.response;
+  await interaction.reply({ content: active ? `✅ Your **${active === 'cant' ? "can't go" : active}** RSVP for **${event.id}** is recorded. Click it again to remove it.` : `✅ Your RSVP for **${event.id}** was removed.`, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+  return true;
+}
+
+async function handleEventInteraction(interaction, context) {
+  if (await handleEventCommand(interaction, context)) return true;
+  return handleEventComponent(interaction, context);
+}
+
 function installEventManagementExtension() {
   if (Client.prototype[INSTALLED]) return;
   Client.prototype[INSTALLED] = true;
@@ -151,7 +180,7 @@ function installEventManagementExtension() {
       client[BOUND] = true;
       client.on(Events.InteractionCreate, (interaction) => {
         if (!context || String(interaction.guildId || '') !== String(config.discord?.guildId || '')) return;
-        void handleEventCommand(interaction, context).catch(async (error) => {
+        void handleEventInteraction(interaction, context).catch(async (error) => {
           const payload = { content: `⚠️ ${String(error?.message || error).slice(0, 1700)}`, allowedMentions: { parse: [] } };
           if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {}); else await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => {});
         });
@@ -183,4 +212,4 @@ function installEventManagementExtension() {
   };
 }
 
-module.exports = { CARD_PREFIX, CHANNEL_NAME, TICK_MS, ensureEventsChannel, eventCommand, eventStatus, handleEventCommand, installEventManagementExtension, reconcileEventCard, registerEventCommand, renderEventCard, requireEventManager };
+module.exports = { CARD_PREFIX, CHANNEL_NAME, COMPONENT_PREFIX, TICK_MS, ensureEventsChannel, eventCommand, eventStatus, handleEventCommand, handleEventComponent, handleEventInteraction, installEventManagementExtension, reconcileEventCard, registerEventCommand, renderEventCard, requireEventManager };

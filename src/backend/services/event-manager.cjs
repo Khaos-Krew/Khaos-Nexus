@@ -107,6 +107,7 @@ class EventManager {
       endAt,
       status: input.status === 'draft' ? 'draft' : 'scheduled',
       pollId: '',
+      responses: {},
       createdAt: now,
       updatedAt: now,
       cancelledAt: '',
@@ -176,6 +177,22 @@ class EventManager {
       event.completedAt = at;
       event.updatedAt = at;
       event.audit.push({ action: 'completed', actorId: String(actorId), at });
+      return event;
+    });
+  }
+
+  rsvp(id, userId, response) {
+    const actor = String(userId || '').trim();
+    if (!actor) throw new Error('RSVP requires a member identity.');
+    const choice = String(response || '').toLowerCase();
+    if (!['going', 'maybe', 'cant'].includes(choice)) throw new Error('RSVP must be going, maybe, or cant.');
+    const at = new Date(this.now()).toISOString();
+    return this.store.update(id, (event) => {
+      if (['cancelled', 'completed'].includes(event.status)) throw new Error('This event is no longer accepting RSVPs.');
+      event.responses ||= {};
+      if (event.responses[actor]?.response === choice) delete event.responses[actor];
+      else event.responses[actor] = { userId: actor, response: choice, updatedAt: at };
+      event.updatedAt = at;
       return event;
     });
   }

@@ -8,7 +8,7 @@ const test = require('node:test');
 const { EventManager, EventStore } = require('../src/backend/services/event-manager.cjs');
 const { PollEngine } = require('../src/backend/services/poll-engine.cjs');
 const { PollStore } = require('../src/backend/services/poll-store.cjs');
-const { eventCommand, reconcileEventCard, renderEventCard } = require('../src/sentinel/event-management-extension.cjs');
+const { eventCommand, handleEventComponent, reconcileEventCard, renderEventCard } = require('../src/sentinel/event-management-extension.cjs');
 
 function fixture() {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'nexus-events-ui-'));
@@ -59,4 +59,23 @@ test('event card reconciliation creates once, persists identity, and edits on li
   assert.equal(channel.sent, 1);
   assert.equal(first.message.edits, 1);
   assert.equal(second.event.status, 'cancelled');
+});
+
+test('RSVP buttons acknowledge privately and refresh only aggregate public counts', async () => {
+  const manager = fixture();
+  const event = manager.create({ title: 'Community Night', startAt: '2026-09-02T00:00:00Z' });
+  const channel = fakeChannel();
+  const client = { user: { id: 'sentinel' } };
+  await reconcileEventCard(client, channel, manager, event.id);
+  const replies = [];
+  const interaction = {
+    client, customId: `nxevent:r:${event.id}:going`, user: { id: 'member-1' },
+    isButton: () => true, async reply(payload) { replies.push(payload); }
+  };
+  await handleEventComponent(interaction, { manager, channel });
+  assert.equal(manager.store.get(event.id).responses['member-1'].response, 'going');
+  assert.ok(replies[0].flags, 'RSVP acknowledgement must be ephemeral');
+  const card = renderEventCard(manager.store.get(event.id));
+  assert.match(card.embeds[0].fields.at(-1).value, /Going: \*\*1\*\*/);
+  assert.doesNotMatch(JSON.stringify(card), /member-1/);
 });
