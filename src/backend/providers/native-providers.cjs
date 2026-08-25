@@ -6,7 +6,8 @@ const { IdleOnProvider, IDLEON_ACTIONS } = require('./idleon-provider.cjs');
 const { PokemonGoProvider, POGO_ACTIONS } = require('./pokemon-go-provider.cjs');
 const { attachOfficialPokemonGoEvents } = require('./pokemon-go-official-events.cjs');
 const { createRuneScapeProviders, RS_ACTIONS } = require('./runescape-provider.cjs');
-const { OnceHumanProvider, ONCE_HUMAN_ACTIONS } = require('./once-human-provider.cjs');
+const { ONCE_HUMAN_ACTIONS } = require('./once-human-provider.cjs');
+const { LiveOnceHumanProvider: OnceHumanProvider } = require('./once-human-live-provider.cjs');
 const {
   DeadByDaylightProvider,
   DBD_ACTIONS, DIABLO4_ACTIONS, COD_ACTIONS
@@ -69,6 +70,7 @@ function nativeProvidersFromConfig(config = {}, options = {}) {
     providers.oncehuman = new OnceHumanProvider({
       stateFile: config.modules?.oncehuman?.stateFile,
       newsUrl: config.modules?.oncehuman?.newsUrl,
+      steamNewsUrl: config.modules?.oncehuman?.steamNewsUrl,
       userAgent: config.modules?.oncehuman?.userAgent,
       fetchImpl: options.fetchImpl
     });
