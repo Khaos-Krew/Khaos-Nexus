@@ -27,10 +27,20 @@ async function refreshCommandCenter(client, config) {
   if (!channelResult.channel) return channelResult;
   const panel = await reconcileCommandPanel(channelResult.channel, { botId: client.user?.id });
   return {
-    ...channelResult,
-    ...panel,
+    channel: channelResult.channel,
+    hq: channelResult.hq,
     channelId: String(channelResult.channel.id || ''),
-    hqId: String(channelResult.hq?.id || '')
+    hqId: String(channelResult.hq?.id || ''),
+    channelCreated: Boolean(channelResult.created),
+    channelMoved: Boolean(channelResult.moved),
+    channelRenamed: Boolean(channelResult.renamed),
+    topicUpdated: Boolean(channelResult.topicUpdated),
+    permissionsLocked: Boolean(channelResult.permissionsLocked),
+    message: panel.message,
+    panelCreated: Boolean(panel.created),
+    panelUpdated: Boolean(panel.updated),
+    panelPinned: Boolean(panel.pinned),
+    duplicatesRemoved: Number(panel.duplicatesRemoved || 0)
   };
 }
 
@@ -141,7 +151,7 @@ function installNexusCommandCenterExtension() {
         try {
           const result = await refreshCommandCenter(client, config);
           if (result.skipped) console.warn(`[Nexus Sentinal] command center skipped: ${result.skipped}`);
-          else console.log(`[Nexus Sentinal] command center ready: channel=${result.channelId} created=${result.created} moved=${result.moved} renamed=${result.renamed} locked=${result.permissionsLocked} panelCreated=${result.created === true && result.message ? true : result.created} panelUpdated=${result.updated} duplicatesRemoved=${result.duplicatesRemoved}`);
+          else console.log(`[Nexus Sentinal] command center ready: channel=${result.channelId} channelCreated=${result.channelCreated} moved=${result.channelMoved} renamed=${result.channelRenamed} locked=${result.permissionsLocked} panelCreated=${result.panelCreated} panelUpdated=${result.panelUpdated} duplicatesRemoved=${result.duplicatesRemoved}`);
         } catch (error) {
           console.warn(`[Nexus Sentinal] command center unavailable: ${String(error?.message || error).slice(0, 220)}`);
         }
