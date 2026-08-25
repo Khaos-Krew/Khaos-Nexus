@@ -33,9 +33,9 @@ Issue #286 records the owner-approved backend-first rebuild direction.
 
 ## Current implementation evidence
 
-Repository evidence on `rebuild/nexus-0.1` establishes the thin Electron Admin Control Center, Windows NSIS packaging/shortcuts, backend and Sentinal runtimes, shared scheduler, persistent module consoles, household Accounts & Access, read-only provider validation, staged updating, Owner Test Center/Admin Operations, hosted pairing/provider sync, Setup Center, administrator moderation, Discord Server Shop rank authority, managed ranks presentation, capability-driven help, private safe-space reporting, Community Suggestions voting and protected Owner review, milestone patch-note publishing, managed Community About & Sharing, and backend-first game services.
+Repository evidence on `rebuild/nexus-0.1` establishes the thin Electron Admin Control Center, Windows NSIS packaging/shortcuts, backend and Sentinal runtimes, shared scheduler, persistent module consoles, household Accounts & Access, read-only provider validation, staged updating, Owner Test Center/Admin Operations, hosted pairing/provider sync, Setup Center, administrator moderation, Discord Server Shop rank authority, managed ranks presentation, capability-driven help, private safe-space reporting, Community Suggestions voting and protected Owner review, milestone patch-note publishing, managed Community About & Sharing, backend-first game services, and the repository-present Sentinal Shield security layer.
 
-Current game-module registrations include ARK, Palworld, Minecraft, Warframe, Division 2, Rust, Satisfactory, IdleOn, Nexus D&D, Pokémon GO, **Call of Duty, Dead by Daylight, and Diablo IV**.
+Current game-module registrations documented by the accepted baseline include ARK, Palworld, Minecraft, Warframe, Division 2, Rust, Satisfactory, IdleOn, Nexus D&D, Pokémon GO, **Call of Duty, Dead by Daylight, and Diablo IV**. Newer branch-tip module work must be separately verified and validated before this accepted-baseline list is expanded.
 
 Provider/companion evidence includes:
 
@@ -126,6 +126,12 @@ PR #389 merged the protected Owner review stage in Staff `#suggestion-review`. C
 
 Exact-head CI is green for #387/#389/#390. The 66% milestone establishes the merged core and Owner-review path only; it does **not** establish live end-to-end Discord voting, GitHub handoff, Owner decision, implementation-plan approval, or a 100% completion state.
 
+### Sentinal Shield security
+
+The active rebuild branch now contains a repository-present **Sentinal Shield** security layer. Current code establishes private Shield cases/alerts, conservative scam/phishing/suspicious-link/spam/raid risk handling, staff/owner fail-safe protection against automatic containment, reversible timeout/quarantine controls, evidence-preserving staff review, and a verification-help path. The isolation runtime is wired into Sentinal startup and regression coverage verifies that Shield restores only permission bits it owns, preserves the original baseline across restart/reconciliation, excludes INFORMATION and Staff from quarantine isolation, and targets Nexus/community/game surfaces rather than globally stripping a member's normal roles.
+
+Current branch head `ba5ff1449dff69159084dcd071314af9352ae26e` adds a `sentinel-shield:100` public milestone note to the patch-note publisher. This establishes the **publisher implementation only**. A successful hosted deployment status exists for the current head, but no exact-head Nexus Rebuild CI result or live evidence that the Shield milestone posted/adopted exactly once was located in this check. Therefore **Sentinal Shield is not recorded here as owner/live accepted at 100% yet**, despite the milestone label in code.
+
 Superseded #334/#336/#337/#340 role-migration proposals are historical only; their relevant intent was overtaken by later merged work.
 
 ## Validation state
@@ -153,7 +159,7 @@ Recent exact-head automated evidence includes:
 - PR #363 head `3ec4a49699dc6961b7f0c9e822e9c1eb61448cbf` — deterministic dependency installs with `package-lock.json`, `npm ci`, and keyed caches;
 - PR #362 head `2f9b7559c7595d1ed2461a38b466afc96cdb70b4` — exact validated-artifact promotion with release provenance.
 
-The active rebuild branch has advanced beyond the latest exact-head green PR evidence with direct Warframe worldstate-fallback and Sentinal module-access snapshot-helper repairs/tests. No exact-head Nexus Rebuild CI run was located for the current branch tip, so those direct follow-up commits must not yet be described as validated solely from repository presence.
+The active rebuild branch has advanced materially beyond the latest exact-head green PR evidence. Current branch-tip work includes Sentinal Shield security/review/isolation plus its 100% patch-note publisher, in addition to other direct follow-up module/runtime repairs. A hosted deployment status is successful on current head `ba5ff144…`, but no exact-head Nexus Rebuild CI run was located for that head. These branch-tip changes must therefore be described as repository-present implementation unless and until exact-head workflow and owner/live evidence establish a stronger state.
 
 Release hardening now also includes an Authenticode policy and packaged-content audit. Owner-test artifacts may remain intentionally unsigned; stable validation must fail closed unless protected Windows signing credentials are configured and the packaged app/installer signatures independently validate.
 
@@ -173,7 +179,8 @@ Late-August operational acceptance work now additionally establishes:
 - PR #381 merged the corrective snapshot-only audit, reports `bulkMemberFetches=0`, and leaves authoritative current-staff discovery to Staff Workspace. This fixes the audit collision; it does **not** by itself complete the normal-member button/visibility acceptance gate;
 - PRs #384/#385 establish the Community About & Sharing implementation and public-safe milestone-publisher path at exact-head CI level. Live confirmation that the canonical About panel/share link is correct and that the milestone is posted/adopted exactly once remains separate acceptance evidence;
 - PR #386 establishes the managed ranks panel at exact-head CI level after its initial feature head exposed a missing required funding-disclosure assertion. The corrected head passed CI #410 and merged; real-guild canonical-panel adoption and safe legacy-panel retirement still require live confirmation;
-- PRs #387/#389/#390 establish the Community Suggestions core, protected Owner review, and public-safe 66% milestone publisher at exact-head CI level. Live Discord vote behavior, GitHub handoff/retry behavior, Owner decision reflection, and the final implementation-plan approval path remain separate acceptance evidence.
+- PRs #387/#389/#390 establish the Community Suggestions core, protected Owner review, and public-safe 66% milestone publisher at exact-head CI level. Live Discord vote behavior, GitHub handoff/retry behavior, Owner decision reflection, and the final implementation-plan approval path remain separate acceptance evidence;
+- Sentinal Shield security/review/isolation is repository-present on the current branch and deployed at infrastructure-status level, but its `sentinel-shield:100` publisher, containment behavior, verification-help path, and staff review controls still require exact-head rebuild validation and live acceptance before a 100% accepted status is recorded here.
 
 Remaining live/owner gates include:
 
@@ -183,6 +190,7 @@ Remaining live/owner gates include:
 - validate the canonical Community About & Sharing panel/share link in the real guild and confirm the #385 100% milestone publisher posts or adopts exactly once before calling that surface live-accepted;
 - validate the canonical managed ranks panel in the real guild, including Server Shop authority wording, funding disclosure, pinning/adoption, and safe retirement of only high-confidence legacy panels;
 - validate Community Suggestions end to end with real submitter self-vote rejection, vote changes/tally, timed closure, GitHub handoff/retry, protected Owner approve/deny flow, public status synchronization, and final development-plan approval before any 100% claim;
+- validate Sentinal Shield end to end with benign/malicious test cases, staff/owner protection, reversible quarantine, verification-help recovery, restart persistence, staff case controls, and exactly-once milestone publication before accepting its 100% label;
 - validate the complete Rules/report ticket lifecycle, evidence flow, close/archive behavior, and restricted archive permissions;
 - complete remaining Discord + Nexus Setup Acceptance gates, including fresh hosted pairing, desktop confirmation scan, live Repair Nexus only where needed, provider sync/validation, and desktop/hosted restart persistence;
 - validate moderation actions, temporary lobby lifecycle, discoverability, and Veyra/D&D boundaries;
@@ -209,9 +217,9 @@ Validate Palworld and other provider-backed paths in real use. Include Pokémon 
 
 ### Then — Sentinal operational acceptance
 
-Status: **IN PROGRESS — ROLE AUTHORITY + MODULE LAYOUT/IDEMPOTENCY + NAME-COLOR DISPLAY + SERVICE STATUS LIVE-EVIDENCED; STAFF/MODULE/COMMUNITY INTERACTION ACCEPTANCE PENDING**
+Status: **IN PROGRESS — ROLE AUTHORITY + MODULE LAYOUT/IDEMPOTENCY + NAME-COLOR DISPLAY + SERVICE STATUS LIVE-EVIDENCED; STAFF/MODULE/COMMUNITY/SHIELD INTERACTION ACCEPTANCE PENDING**
 
-The self-role/role-authority subsection is live-accepted at 100%. Expanded module layout, access reconciliation, category order, hub idempotency, feed recovery, staff-compatible Name Color display safety, Nexus service status, and new-member welcome automation now have implementation/live evidence at their respective levels. The protected Staff workspace, Forum/roadmap migration, Community XP/Leveling, Community About & Sharing, managed ranks presentation, Community Suggestions core/Owner review, and read-only module-access preflight are merged and exact-head green. Broader Sentinal operational acceptance still requires real-member module interaction, Staff workspace privacy/idempotency checks, Community XP live acceptance, About/ranks live acceptance, Community Suggestions end-to-end acceptance, reporting lifecycle, moderation, pairing, provider flows, Setup Acceptance, and restart behavior.
+The self-role/role-authority subsection is live-accepted at 100%. Expanded module layout, access reconciliation, category order, hub idempotency, feed recovery, staff-compatible Name Color display safety, Nexus service status, and new-member welcome automation now have implementation/live evidence at their respective levels. The protected Staff workspace, Forum/roadmap migration, Community XP/Leveling, Community About & Sharing, managed ranks presentation, Community Suggestions core/Owner review, read-only module-access preflight, and Sentinal Shield security/review/isolation layer are implemented at their respective evidence levels. Broader Sentinal operational acceptance still requires real-member module interaction, Staff workspace privacy/idempotency checks, Community XP live acceptance, About/ranks live acceptance, Community Suggestions end-to-end acceptance, Shield exact-head/live acceptance, reporting lifecycle, moderation, pairing, provider flows, Setup Acceptance, and restart behavior.
 
 ### Release hardening
 
