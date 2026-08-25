@@ -159,7 +159,7 @@ Recent exact-head automated evidence includes:
 - PR #363 head `3ec4a49699dc6961b7f0c9e822e9c1eb61448cbf` — deterministic dependency installs with `package-lock.json`, `npm ci`, and keyed caches;
 - PR #362 head `2f9b7559c7595d1ed2461a38b466afc96cdb70b4` — exact validated-artifact promotion with release provenance.
 
-The active rebuild branch has advanced materially beyond the latest exact-head green PR evidence. Current branch-tip work includes Sentinal Shield security/review/isolation plus its 100% patch-note publisher, in addition to other direct follow-up module/runtime repairs. A hosted deployment status is successful on current head `ba5ff144…`, but no exact-head Nexus Rebuild CI run was located for that head. These branch-tip changes must therefore be described as repository-present implementation unless and until exact-head workflow and owner/live evidence establish a stronger state.
+The active rebuild branch has advanced materially beyond the latest exact-head green PR evidence. Current branch-tip work includes Sentinal Shield security/review/isolation, the shared Poll Engine and Discord UI, Suggestions migration onto that engine, managed events with RSVP/scheduling/completion, Content Creator application/review/status/roster infrastructure, normalized managed-panel comparisons, cache-only Staff Workspace discovery, and a bounded Veyra D&D gateway. Local exact-head verification passes **537 tests with 0 failures** plus the repository structure check. Railway deployment `be362e66-7564-4de4-802f-13f7bc106c8a` successfully ran commit `40e54b8`; public health reports Sentinal and backend ready. This is strong automated and hosted-runtime evidence, but the remaining real-member, owner-device, credential-backed, and representational-action gates still require direct acceptance.
 
 Release hardening now also includes an Authenticode policy and packaged-content audit. Owner-test artifacts may remain intentionally unsigned; stable validation must fail closed unless protected Windows signing credentials are configured and the packaged app/installer signatures independently validate.
 
@@ -170,6 +170,13 @@ Automated CI, packaging, smoke validation, and hosted startup evidence do not re
 The Sentinal role-authority subsection is live-accepted at 100%. Expanded game-module provisioning, alphabetical placement, access-policy reconciliation, managed-hub idempotency, persistent-feed recovery, staff-compatible Name Color display safety, and Nexus Sentinal/Veyra service-status visibility also have live evidence.
 
 Late-August operational acceptance work now additionally establishes:
+
+- Poll Engine Phase 2 is wired into Sentinal with persistent Discord controls, reminders, protected audit, and shared Suggestions voting semantics; Suggestions no longer maintains a second vote engine;
+- Event Management provides managed Discord event surfaces, durable RSVPs, adoption of scheduling-poll winners, and automatic completion for bounded events;
+- Content Creator infrastructure provides durable applications, protected review, managed role provisioning, drift-aware panels, creator status, and an approved roster command;
+- `#about`, `#game-servers`, Staff Workspace, and creator panel comparisons normalize Discord response-only decoration so correct messages no longer receive timestamp-only or payload-shape edits;
+- Staff Workspace member discovery is cache-only. On deployment `be362e66-7564-4de4-802f-13f7bc106c8a`, startup found four staff members, performed zero structural or panel writes, and the latest 500 runtime entries contain no member-fetch/opcode rate-limit error;
+- D&D remains explicitly delegated to Veyra. Nexus advertises `authority: veyra`, validates only Veyra health during provider checks, requires linked actor identity for delegated actions, bounds request time and response size, and persists no campaign truth;
 
 - PR #372 merged the backend-backed `#game-servers` registry and makes **Nexus D&D production/community beta** the explicit final planned continuation rather than an indefinite backlog item;
 - PR #373 merged the backend-first Community XP/Leveling system, but its 100% milestone remains gated on live member, voice, admin, badge, restart-persistence, and authority-isolation acceptance;
