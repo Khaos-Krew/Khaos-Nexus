@@ -2,7 +2,7 @@
 
 const { Client, Events } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
-const { NEXUS_RANKS } = require('../shared/ranks.cjs');
+const { NEXUS_RANKS, isPurchasableRank } = require('../shared/ranks.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ranks.extension');
 const RANKS_MARKER = 'Nexus Sentinal • Managed Ranks • v1';
@@ -12,7 +12,9 @@ const REFRESH_MS = 15 * 60_000;
 const FUNDING_FIELD_NAME = '💠 Supporting Khaos Nexus';
 const FUNDING_FIELD_VALUE = 'All profits from purchases are used to maintain the Nexus bots and game servers as they are added. Purchases directly support keeping the Nexus online, maintained, and growing.';
 const AUTHORITY_FIELD_NAME = '🛒 Rank Purchases';
-const AUTHORITY_FIELD_VALUE = 'Paid Nexus ranks are managed by the Discord Server Shop. Discord remains the authority for paid Premium Role ownership; Nexus Sentinal maintains this information panel and the free Shadow Recruit baseline.';
+const AUTHORITY_FIELD_VALUE = 'Purchasable Nexus ranks are managed by the Discord Server Shop. Discord remains the authority for paid Premium Role ownership; Nexus Sentinal maintains this information panel and the free Shadow Recruit baseline.';
+const FOUNDER_FIELD_NAME = '🜲 Origin Founder — Legacy';
+const FOUNDER_FIELD_VALUE = 'Origin Founder is permanent legacy recognition reserved for members who were part of Khaos Nexus at the beginning. It is never sold and is not part of the purchasable rank ladder.';
 
 function valuesOf(collection) {
   if (!collection) return [];
@@ -62,13 +64,14 @@ function isLegacyRankPanel(message, botId = '') {
 }
 
 function withoutManagedFields(fields = []) {
-  return fields.filter((field) => ![FUNDING_FIELD_NAME, AUTHORITY_FIELD_NAME].includes(String(field?.name || '')));
+  return fields.filter((field) => ![FUNDING_FIELD_NAME, AUTHORITY_FIELD_NAME, FOUNDER_FIELD_NAME].includes(String(field?.name || '')));
 }
 
 function addManagedFields(embedInput = {}) {
   const embed = { ...embedInput };
-  const fields = withoutManagedFields(Array.isArray(embed.fields) ? embed.fields : []).slice(0, 23);
+  const fields = withoutManagedFields(Array.isArray(embed.fields) ? embed.fields : []).slice(0, 22);
   fields.push({ name: AUTHORITY_FIELD_NAME, value: AUTHORITY_FIELD_VALUE, inline: false });
+  fields.push({ name: FOUNDER_FIELD_NAME, value: FOUNDER_FIELD_VALUE, inline: false });
   fields.push({ name: FUNDING_FIELD_NAME, value: FUNDING_FIELD_VALUE, inline: false });
   embed.fields = fields;
   embed.footer = { text: RANKS_MARKER };
@@ -76,10 +79,10 @@ function addManagedFields(embedInput = {}) {
 }
 
 function fallbackRankPayload() {
-  const paid = NEXUS_RANKS.filter((rank) => rank.level > 0).map((rank) => `• **${rank.name}**`).join('\n');
+  const paid = NEXUS_RANKS.filter(isPurchasableRank).map((rank) => `• **${rank.name}**`).join('\n');
   const embed = addManagedFields({
     title: '🏆 KHAOS NEXUS RANKS',
-    description: 'Nexus ranks provide a clear progression from the free community baseline into optional supporter ranks available through the Discord Server Shop.',
+    description: 'Nexus ranks provide a clear progression from the free community baseline into optional supporter ranks available through the Discord Server Shop, with Origin Founder preserved separately as legacy recognition.',
     color: 0xe3264f,
     fields: [
       {
@@ -103,6 +106,15 @@ function buildManagedPayload(sourceMessage = null) {
   const embeds = sourceEmbeds.map((embed, index) => index === 0 ? addManagedFields(embed) : embed);
   if (!embeds[0]?.title) embeds[0].title = '🏆 KHAOS NEXUS RANKS';
   return { embeds, allowedMentions: { parse: [] } };
+}
+
+function comparable(value) {
+  return value?.toJSON ? value.toJSON() : value;
+}
+
+function payloadMatches(message, payload) {
+  return String(message?.content || '') === String(payload?.content || '')
+    && JSON.stringify((message?.embeds || []).map(comparable)) === JSON.stringify((payload?.embeds || []).map(comparable));
 }
 
 function newest(messages = []) {
@@ -132,8 +144,13 @@ async function reconcileRanksPanel(guild, options = {}) {
 
   let message = managed;
   let created = false;
-  if (message) await message.edit(payload);
-  else {
+  let updated = false;
+  if (message) {
+    if (!payloadMatches(message, payload)) {
+      await message.edit(payload);
+      updated = true;
+    }
+  } else {
     message = await channel.send(payload);
     created = true;
   }
@@ -173,6 +190,7 @@ async function reconcileRanksPanel(guild, options = {}) {
     channelId: String(channel.id || ''),
     messageId: String(message?.id || ''),
     created,
+    updated,
     adoptedLegacy: Boolean(!managed && legacy),
     legacyRemoved,
     duplicatesRemoved,
@@ -202,7 +220,7 @@ function installRanksExtension() {
             console.warn(`[Nexus Sentinal] ranks (${reason}) skipped: ${result.skipped}`);
             return;
           }
-          console.log(`[Nexus Sentinal] ranks (${reason}): channel=${result.channelId} message=${result.messageId} created=${result.created} adoptedLegacy=${result.adoptedLegacy} legacyRemoved=${result.legacyRemoved} duplicatesRemoved=${result.duplicatesRemoved} pinned=${result.pinned} rankMatches=${result.rankMatches}`);
+          console.log(`[Nexus Sentinal] ranks (${reason}): channel=${result.channelId} message=${result.messageId} created=${result.created} updated=${result.updated} adoptedLegacy=${result.adoptedLegacy} legacyRemoved=${result.legacyRemoved} duplicatesRemoved=${result.duplicatesRemoved} pinned=${result.pinned} rankMatches=${result.rankMatches}`);
         } catch (error) {
           console.warn(`[Nexus Sentinal] ranks (${reason}) unavailable: ${String(error?.message || error).slice(0, 300)}`);
         } finally {
@@ -224,6 +242,8 @@ module.exports = {
   FUNDING_FIELD_VALUE,
   AUTHORITY_FIELD_NAME,
   AUTHORITY_FIELD_VALUE,
+  FOUNDER_FIELD_NAME,
+  FOUNDER_FIELD_VALUE,
   normalizeChannelName,
   findRanksChannel,
   rankMatchCount,
@@ -232,6 +252,7 @@ module.exports = {
   addManagedFields,
   fallbackRankPayload,
   buildManagedPayload,
+  payloadMatches,
   reconcileRanksPanel,
   installRanksExtension
 };
