@@ -59,7 +59,7 @@ const LAYOUTS = {
   },
   runescape3: {
     category: 'RuneScape 3',
-    aliases: ['RuneScape 3', 'RuneScape', 'RS3'],
+    aliases: ['RuneScape 3', 'RS3'],
     consoleChannel: 'rs3-hub',
     text: ['rs3-hub', 'rs3-hiscores', 'rs3-grand-exchange', 'rs3-guides', 'rs3-lfg'],
     lobbyBuilder: '➕ Join to Create RuneScape 3 Group'
