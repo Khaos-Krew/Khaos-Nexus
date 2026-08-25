@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getHealthSnapshot, getSessionSnapshot, nexusClientConfig } from './api/client';
 import type { HealthSnapshot, ServiceState, SessionSnapshot } from './api/contracts';
+import { capabilities, hasCapability } from './auth/capabilities';
 
 const stateLabels: Record<ServiceState, string> = {
   online: 'Online',
@@ -49,6 +50,7 @@ export default function App() {
 
   const services = health?.services ?? [];
   const signedIn = session?.authenticated === true && session.user !== null;
+  const privateAllowed = hasCapability(session, capabilities.privateAccess);
 
   return (
     <div className="app-shell">
@@ -65,7 +67,13 @@ export default function App() {
           <a className="nav-item active" href="#dashboard">Dashboard</a>
           <a className="nav-item" href="#services">Services</a>
           <a className="nav-item" href="#account">Account</a>
-          <a className="nav-item locked" href="#private" aria-disabled="true">Private</a>
+          <a
+            className={`nav-item ${privateAllowed ? '' : 'locked'}`.trim()}
+            href={privateAllowed ? '#private' : '#account'}
+            aria-disabled={!privateAllowed}
+          >
+            Private
+          </a>
         </nav>
 
         <div className="sidebar-footer">
@@ -165,6 +173,25 @@ export default function App() {
             <span>
               The browser may render capability-aware UI, but every privileged Nexus action will still
               require backend authorization and audit logging. The current stub session grants no capabilities.
+            </span>
+          </div>
+        </section>
+
+        <section className="section compact" id="private">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Capability gate</p>
+              <h2>Private surface</h2>
+            </div>
+            <span className={`session-state ${privateAllowed ? 'authenticated' : 'guest'}`}>
+              {privateAllowed ? 'Allowed' : 'Locked'}
+            </span>
+          </div>
+          <div className="notice">
+            <strong>{privateAllowed ? 'Capability verified in session projection.' : 'No private capability.'}</strong>
+            <span>
+              The public client contains only this generic gate. The backend remains responsible for
+              independently enforcing private access on every related endpoint.
             </span>
           </div>
         </section>
