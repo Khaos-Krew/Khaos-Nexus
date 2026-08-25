@@ -24,9 +24,9 @@ function fakeInteraction(commandName, subcommand, group = null, values = {}) {
 }
 
 test('friendly top-level module commands are registered', () => {
-  assert.deepEqual(commandNames(), ['ark', 'cod', 'dbd', 'diablo4', 'palworld', 'minecraft', 'warframe', 'division2', 'rust', 'satisfactory', 'idleon', 'pogo']);
+  assert.deepEqual(commandNames(), ['ark', 'cod', 'dbd', 'diablo4', 'palworld', 'minecraft', 'warframe', 'division2', 'rust', 'satisfactory', 'idleon', 'pogo', 'osrs', 'rs3', 'oncehuman']);
   const json = commandDefinitions().map((command) => command.toJSON());
-  assert.equal(json.length, 12);
+  assert.equal(json.length, 15);
   for (const command of json) {
     assert.ok(command.name.length <= 32);
     assert.ok((command.options || []).length <= 25);
@@ -47,6 +47,11 @@ test('common commands are short and obvious', () => {
   assert.ok(optionNames(commands.warframe).includes('market'));
   assert.ok(optionNames(commands.division2).includes('gear'));
   assert.ok(optionNames(commands.idleon).includes('build'));
+  assert.ok(optionNames(commands.osrs).includes('profile'));
+  assert.ok(optionNames(commands.osrs).includes('price'));
+  assert.ok(optionNames(commands.rs3).includes('wiki'));
+  assert.ok(optionNames(commands.oncehuman).includes('news'));
+  assert.ok(optionNames(commands.oncehuman).includes('lfg'));
   const arkTame = commands.ark.options.find((item) => item.name === 'tame');
   assert.deepEqual(optionNames(arkTame), []);
   assert.match(arkTame.description, /interactive tame calculator/i);
@@ -82,6 +87,15 @@ test('friendly commands translate typed options to backend payloads', () => {
   assert.deepEqual(resolveFriendlyCommand(fakeInteraction('cod', 'lfg', null, { action: 'join', activity: 'Warzone' })).payload, {
     input: 'join Warzone'
   });
+  assert.deepEqual(resolveFriendlyCommand(fakeInteraction('osrs', 'link', null, { player: 'Khaos OSRS', mode: 'ironman' })).payload, {
+    player: 'Khaos OSRS', mode: 'ironman', input: 'Khaos OSRS|ironman'
+  });
+  assert.deepEqual(resolveFriendlyCommand(fakeInteraction('rs3', 'wiki', null, { query: 'Necromancy' })).payload, {
+    query: 'Necromancy', input: 'Necromancy'
+  });
+  assert.deepEqual(resolveFriendlyCommand(fakeInteraction('oncehuman', 'lfg', null, { action: 'join', activity: 'Prime War' })).payload, {
+    input: 'join Prime War'
+  });
 });
 
 test('module help teaches the ARK tame wizard instead of typed backend inputs', () => {
@@ -102,6 +116,9 @@ test('module help teaches the ARK tame wizard instead of typed backend inputs', 
   assert.ok(JSON.stringify(renderHelp('deadbydaylight')).includes('/dbd random'));
   assert.ok(JSON.stringify(renderHelp('diablo4')).includes('/diablo4 planner'));
   assert.ok(JSON.stringify(renderHelp('callofduty')).includes('/cod loadouts'));
+  assert.ok(JSON.stringify(renderHelp('osrs')).includes('/osrs profile'));
+  assert.ok(JSON.stringify(renderHelp('runescape3')).includes('/rs3 price'));
+  assert.ok(JSON.stringify(renderHelp('oncehuman')).includes('/oncehuman news'));
 });
 
 test('module console points users at short commands', () => {
@@ -118,7 +135,7 @@ test('module console points users at short commands', () => {
 });
 
 test('friendly usage never exposes backend action ids', () => {
-  for (const moduleId of ['ark', 'callofduty', 'deadbydaylight', 'diablo4', 'palworld', 'minecraft', 'warframe', 'division2', 'rust', 'satisfactory', 'idleon', 'pokemongo']) {
+  for (const moduleId of ['ark', 'callofduty', 'deadbydaylight', 'diablo4', 'palworld', 'minecraft', 'warframe', 'division2', 'rust', 'satisfactory', 'idleon', 'pokemongo', 'osrs', 'runescape3', 'oncehuman']) {
     const usage = usageForModule(moduleId);
     assert.ok(usage.length > 0);
     assert.equal(usage.some((line) => line.includes('/nexus run')), false);
