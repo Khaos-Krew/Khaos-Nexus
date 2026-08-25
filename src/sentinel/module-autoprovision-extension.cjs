@@ -200,8 +200,6 @@ function installModuleAutoprovisionExtension() {
     });
     return originalLogin.apply(client, args);
   };
-
-  return originalLogin.apply(this, args);
 }
 
 module.exports = {
