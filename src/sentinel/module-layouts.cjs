@@ -14,7 +14,7 @@ const LAYOUTS = {
     categoryDisplay: 'Call of Duty 🎯',
     aliases: ['Call of Duty', 'COD', 'CoD', 'Warzone'],
     consoleChannel: 'cod-hub',
-    text: ['cod-hub', 'cod-warzone', 'cod-multiplayer', 'cod-zombies', 'cod-loadouts', 'cod-lfg'],
+    text: ['cod-hub', 'cod-news', 'cod-warzone', 'cod-multiplayer', 'cod-zombies', 'cod-loadouts', 'cod-lfg'],
     lobbyBuilder: '➕ Join to Create Call of Duty Squad'
   },
   deadbydaylight: {
@@ -30,7 +30,7 @@ const LAYOUTS = {
     categoryDisplay: 'Diablo IV 🔥',
     aliases: ['Diablo IV', 'Diablo 4', 'D4'],
     consoleChannel: 'diablo-hub',
-    text: ['diablo-hub', 'diablo-builds', 'diablo-items', 'diablo-paragon', 'diablo-farming', 'diablo-lfg'],
+    text: ['diablo-hub', 'diablo-news', 'diablo-builds', 'diablo-items', 'diablo-paragon', 'diablo-farming', 'diablo-lfg'],
     lobbyBuilder: '➕ Join to Create Diablo IV Party'
   },
   palworld: {
