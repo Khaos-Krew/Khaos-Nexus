@@ -27,6 +27,7 @@ const { installStaffWorkspaceExtension } = require('./staff-workspace-extension.
 const { installModuleAutoprovisionExtension } = require('./module-autoprovision-extension.cjs');
 const { installModuleAccessAuditExtension } = require('./module-access-audit-extension.cjs');
 const { installPollExtension } = require('./poll-extension.cjs');
+const { installCreatorLevelGateExtension } = require('./creator-level-gate-extension.cjs');
 const { installCreatorProgramExtension } = require('./creator-program-extension.cjs');
 const { installEventManagementExtension } = require('./event-management-extension.cjs');
 
@@ -57,6 +58,7 @@ installStaffWorkspaceExtension();
 installModuleAutoprovisionExtension();
 installModuleAccessAuditExtension();
 installPollExtension();
+installCreatorLevelGateExtension();
 installCreatorProgramExtension();
 installEventManagementExtension();
 require('./bot.cjs');
