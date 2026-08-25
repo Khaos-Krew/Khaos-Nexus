@@ -28,3 +28,8 @@ test('Veyra D&D gateway rejects oversized responses before parsing campaign data
   const provider = new VeyraDndProvider({ baseUrl: 'https://veyra.example', maxResponseBytes: 1024, fetchImpl: async () => ({ ok: true, status: 200, async text() { return 'x'.repeat(1025); } }) });
   await assert.rejects(() => provider.invoke('campaigns', {}, { actorId: 'discord-1' }), /safety limit/i);
 });
+
+test('D&D live validation uses only Veyra health and never reads campaigns', () => {
+  const { DEFAULT_PROBES } = require('../src/backend/core/provider-validator.cjs');
+  assert.equal(DEFAULT_PROBES.dnd, 'health');
+});

@@ -12,7 +12,7 @@ const DEFAULT_PROBES = Object.freeze({
   satisfactory: 'status',
   idleon: 'profile',
   pokemongo: 'events',
-  dnd: 'campaigns'
+  dnd: 'health'
 });
 
 function cleanMessage(value, max = 240) {

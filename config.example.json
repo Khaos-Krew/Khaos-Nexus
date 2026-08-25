@@ -205,7 +205,7 @@
         "type": "veyra",
         "baseUrl": "",
         "tokenEnv": "NEXUS_DND_PROVIDER_TOKEN",
-        "actions": [],
+        "actions": ["health"],
         "timeoutMs": 10000,
         "maxResponseBytes": 1048576
       }

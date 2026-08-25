@@ -194,6 +194,7 @@ const MODULES = [
   {
     id: 'dnd', name: 'Nexus D&D', console: false, surface: 'veyra', authority: 'veyra',
     capabilities: [
+      viewer('health', 'Veyra D&D Health', { button: false }),
       viewer('campaigns', 'Campaigns'), viewer('characters', 'Characters'), viewer('dice', 'Dice'), viewer('initiative', 'Initiative'),
       operator('encounters', 'Encounters'), operator('codex', 'Codex'), operator('sessions', 'Sessions'), operator('quests', 'Quests'),
       operator('npcs', 'NPCs'), operator('locations', 'Locations'), operator('factions', 'Factions'), operator('loot', 'Loot'),
