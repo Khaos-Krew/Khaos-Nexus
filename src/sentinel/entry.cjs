@@ -28,6 +28,7 @@ const { installModuleAutoprovisionExtension } = require('./module-autoprovision-
 const { installModuleAccessAuditExtension } = require('./module-access-audit-extension.cjs');
 const { installPollExtension } = require('./poll-extension.cjs');
 const { installCreatorProgramExtension } = require('./creator-program-extension.cjs');
+const { installEventManagementExtension } = require('./event-management-extension.cjs');
 
 installGuildMembersIntentExtension();
 installCommunityIntentsExtension();
@@ -57,4 +58,5 @@ installModuleAutoprovisionExtension();
 installModuleAccessAuditExtension();
 installPollExtension();
 installCreatorProgramExtension();
+installEventManagementExtension();
 require('./bot.cjs');
