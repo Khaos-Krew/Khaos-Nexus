@@ -120,9 +120,25 @@ async function modulePolicyContext(guild, moduleId, category, options = {}) {
   return { ok: true, skipped: false, roles, policy };
 }
 
-async function managedCategoryChannels(guild, category) {
-  const channels = await guild.channels.fetch();
-  return [category, ...[...channels.values()].filter((channel) => String(channel?.parentId || '') === String(category.id))];
+function managedCategoryChannels(source, category) {
+  const categoryId = String(category?.id || category || '').trim();
+  if (!categoryId) return [];
+
+  if (source?.channels?.fetch && typeof source.channels.fetch === 'function') {
+    return source.channels.fetch().then((channels) => managedCategoryChannels(channels, categoryId));
+  }
+
+  const channels = source && typeof source.values === 'function'
+    ? [...source.values()]
+    : Array.isArray(source)
+      ? source
+      : Object.values(source || {});
+  const categoryChannel = channels.find((channel) => String(channel?.id || '') === categoryId)
+    || (category && typeof category === 'object' ? category : null);
+  return [
+    categoryChannel,
+    ...channels.filter((channel) => String(channel?.parentId || '') === categoryId)
+  ].filter(Boolean);
 }
 
 async function reconcileModuleAccessPolicy(guild, moduleId, category, options = {}) {
@@ -197,6 +213,7 @@ module.exports = {
   explicitViewState,
   inspectChannelViewPolicy,
   inspectModuleAccessPolicy,
+  managedCategoryChannels,
   normalizeName,
   reconcileChannelViewPolicy,
   reconcileExistingModuleAccessPolicies,
