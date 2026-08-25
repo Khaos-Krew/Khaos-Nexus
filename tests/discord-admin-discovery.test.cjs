@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { desiredCommandNames, discoverMappingsFromData, rankOfferingMatch } = require('../src/sentinel/discord-admin-discovery.cjs');
-const { rankAuthority, rankRoleIds } = require('../src/shared/ranks.cjs');
+const { isLegacyRank, isPurchasableRank, rankAuthority, rankRoleIds, skuToRankMap } = require('../src/shared/ranks.cjs');
 
 const blackoutLegend = { id: 'blackout-legend', name: 'Blackout Legend', level: 4 };
 
@@ -38,7 +38,7 @@ test('rank discovery exact-matches normalized Discord roles without guessing amb
   assert.equal(result.suggestedSettings.rankRoles['khaos-warden'], '');
 });
 
-test('Server Shop authority treats paid rank SKUs as not required when the roles are configured', () => {
+test('Server Shop authority treats only purchasable ranks as shop-managed while Origin Founder stays legacy-only', () => {
   const current = {
     rankRoles: {
       'shadow-recruit': '100000000000000001',
@@ -59,17 +59,26 @@ test('Server Shop authority treats paid rank SKUs as not required when the roles
   assert.equal(result.ok, true);
   assert.equal(result.authority, 'server-shop-roles');
   assert.equal(result.counts.attention, 0);
-  for (const rank of result.ranks.filter((item) => item.level > 0)) assert.equal(rank.skus.status, 'server-shop-managed');
+  for (const rank of result.ranks.filter((item) => item.purchasable)) assert.equal(rank.skus.status, 'server-shop-managed');
+  const founder = result.ranks.find((rank) => rank.id === 'origin-founder');
+  assert.equal(founder.legacy, true);
+  assert.equal(founder.purchasable, false);
+  assert.equal(founder.skus.status, 'legacy-role-only');
+  assert.deepEqual(founder.skus.ids, []);
 });
 
-test('rank authority defaults to Server Shop roles until paid Premium App SKU mappings are explicitly configured', () => {
-  const serverShop = { discord: { rankSkus: { 'cipher-runner': [], 'origin-founder': [] } } };
-  const premiumApp = { discord: { rankSkus: { 'cipher-runner': ['200000000000000001'] } } };
+test('rank authority ignores legacy founder SKU mappings and activates only for a purchasable paid rank', () => {
+  const serverShop = { discord: { rankSkus: { 'cipher-runner': [], 'origin-founder': ['200000000000000099'] } } };
+  const premiumApp = { discord: { rankSkus: { 'cipher-runner': ['200000000000000001'], 'origin-founder': ['200000000000000099'] } } };
   assert.equal(rankAuthority(serverShop), 'server-shop-roles');
   assert.equal(rankAuthority(premiumApp), 'premium-app');
+  assert.equal(isLegacyRank('origin-founder'), true);
+  assert.equal(isPurchasableRank({ id: 'origin-founder', level: 5 }), false);
+  assert.equal(isPurchasableRank({ id: 'blackout-legend', level: 4 }), true);
+  assert.equal(skuToRankMap(serverShop).has('200000000000000099'), false);
 });
 
-test('Server Shop authority protects paid roles from Nexus rank reconciliation ownership', () => {
+test('Server Shop authority protects paid roles and legacy founder from Nexus entitlement reconciliation ownership', () => {
   const config = { discord: { rankRoles: {
     'shadow-recruit': '100000000000000001',
     'cipher-runner': '100000000000000002',
@@ -82,11 +91,11 @@ test('Server Shop authority protects paid roles from Nexus rank reconciliation o
   config.discord.rankSkus['cipher-runner'] = ['200000000000000001'];
   assert.deepEqual(rankRoleIds(config), [
     '100000000000000001', '100000000000000002', '100000000000000003',
-    '100000000000000004', '100000000000000005', '100000000000000006'
+    '100000000000000004', '100000000000000005'
   ]);
 });
 
-test('SKU discovery includes recurring subscriptions and durable one-time purchases while ignoring generated groups and consumables', () => {
+test('SKU discovery includes recurring subscriptions and durable one-time purchases while ignoring generated groups, consumables, and founder SKUs', () => {
   const result = discoverMappingsFromData({
     roles: [],
     skus: [
@@ -96,7 +105,8 @@ test('SKU discovery includes recurring subscriptions and durable one-time purcha
       { id: '200000000000000004', name: 'Unrelated Product', slug: 'other', type: 5 },
       { id: '200000000000000005', name: 'Blackout Legend Monthly', slug: 'blackout-legend-monthly', type: 5 },
       { id: '200000000000000006', name: 'Blackout Legend Lifetime', slug: 'blackout-legend-one-time-purchase', type: 2 },
-      { id: '200000000000000007', name: 'Blackout Legend Boost', slug: 'blackout-legend-boost', type: 3 }
+      { id: '200000000000000007', name: 'Blackout Legend Boost', slug: 'blackout-legend-boost', type: 3 },
+      { id: '200000000000000008', name: 'Origin Founder Monthly', slug: 'origin-founder-monthly', type: 5 }
     ],
     current: { rankRoles: {}, rankSkus: {} },
     authority: 'premium-app'
@@ -106,7 +116,9 @@ test('SKU discovery includes recurring subscriptions and durable one-time purcha
   assert.deepEqual(result.suggestedSettings.rankSkus['cipher-runner'], ['200000000000000002']);
   assert.deepEqual(result.suggestedSettings.rankSkus['nexus-raider'], ['200000000000000003']);
   assert.deepEqual(result.suggestedSettings.rankSkus['blackout-legend'], ['200000000000000005', '200000000000000006']);
+  assert.deepEqual(result.suggestedSettings.rankSkus['origin-founder'], []);
   assert.deepEqual(result.ranks.find((rank) => rank.id === 'blackout-legend').skus.candidates.map((sku) => sku.type), [5, 2]);
+  assert.deepEqual(result.ranks.find((rank) => rank.id === 'origin-founder').skus.candidates, []);
 });
 
 test('rank offering matching accepts only safe monetization suffixes', () => {
@@ -118,7 +130,7 @@ test('rank offering matching accepts only safe monetization suffixes', () => {
   assert.equal(rankOfferingMatch('Blackout Legendary', blackoutLegend), false);
 });
 
-test('discovery preserves every existing mapping instead of overwriting it', () => {
+test('discovery preserves existing purchasable mappings instead of overwriting them', () => {
   const result = discoverMappingsFromData({
     roles: [{ id: '100000000000000010', name: 'Cipher Runner', managed: false }],
     skus: [{ id: '200000000000000010', name: 'Cipher Runner', slug: 'cipher-runner', type: 5 }],
