@@ -10,7 +10,10 @@ const {
   ownerOnlyOverwrites,
   permissionMask,
   overwriteSetMatches,
-  lockCategoryChildren
+  lockCategoryChildren,
+  categoryPositionUpdates,
+  snapshotOrCache,
+  reconcileServerCategoryOrder
 } = require('../src/sentinel/category-order.cjs');
 
 function category(id, name, position) {
@@ -120,4 +123,82 @@ test('structural child locking only repairs channels whose permissions are not a
   const locked = await lockCategoryChildren(parent, channels, 'test');
   assert.equal(locked, 1);
   assert.equal(repaired, 1);
+});
+
+test('category position updates are prepared as one batch in canonical order', () => {
+  const channels = new Map([
+    ['900000000000000060', category('900000000000000060', 'INFORMATION', 2)],
+    ['900000000000000061', category('900000000000000061', 'NEXUS HQ', 0)],
+    ['900000000000000062', category('900000000000000062', 'OSRS ⚔️', 1)],
+    ['900000000000000063', category('900000000000000063', 'STAFF', 3)]
+  ]);
+  const plan = serverCategoryOrderPlan(channels);
+  assert.deepEqual(categoryPositionUpdates(plan), [
+    { channel: '900000000000000060', position: 0 },
+    { channel: '900000000000000061', position: 1 },
+    { channel: '900000000000000062', position: 2 },
+    { channel: '900000000000000063', position: 3 }
+  ]);
+});
+
+test('snapshot helper prefers supplied topology then a populated gateway cache', () => {
+  const supplied = new Map([['a', 1]]);
+  const cached = new Map([['b', 2]]);
+  assert.equal(snapshotOrCache(supplied, { cache: cached }), supplied);
+  assert.equal(snapshotOrCache(null, { cache: cached }), cached);
+  assert.equal(snapshotOrCache(null, { cache: new Map() }), null);
+});
+
+test('server category reconciliation reuses snapshots and does not refetch an already-correct topology', async () => {
+  const channels = new Map([
+    ['900000000000000070', category('900000000000000070', 'INFORMATION', 0)],
+    ['900000000000000071', category('900000000000000071', 'NEXUS HQ', 1)],
+    ['900000000000000072', category('900000000000000072', 'SUPPORTER HUB', 2)],
+    ['900000000000000073', category('900000000000000073', 'OSRS ⚔️', 3)],
+    ['900000000000000074', category('900000000000000074', 'STAFF', 4)]
+  ]);
+  const roles = new Map();
+  let fetchCalls = 0;
+  let positionCalls = 0;
+  const guild = {
+    id: '900000000000000075',
+    ownerId: '900000000000000076',
+    channels: {
+      cache: channels,
+      async fetch() { fetchCalls += 1; throw new Error('snapshot reconciliation should not fetch'); },
+      async setPositions() { positionCalls += 1; }
+    },
+    roles: { cache: roles, async fetch() { fetchCalls += 1; throw new Error('roles should not be fetched'); } }
+  };
+  const result = await reconcileServerCategoryOrder(guild, { channelsSnapshot: channels, rolesSnapshot: roles });
+  assert.equal(result.ok, true);
+  assert.equal(result.moved, 0);
+  assert.equal(fetchCalls, 0);
+  assert.equal(positionCalls, 0);
+});
+
+test('drifted server category hierarchy uses one batch position request instead of sequential channel fetches', async () => {
+  const channels = new Map([
+    ['900000000000000080', category('900000000000000080', 'INFORMATION', 2)],
+    ['900000000000000081', category('900000000000000081', 'NEXUS HQ', 0)],
+    ['900000000000000082', category('900000000000000082', 'SUPPORTER HUB', 1)],
+    ['900000000000000083', category('900000000000000083', 'OSRS ⚔️', 3)],
+    ['900000000000000084', category('900000000000000084', 'STAFF', 4)]
+  ]);
+  const batches = [];
+  const guild = {
+    id: '900000000000000085',
+    ownerId: '900000000000000086',
+    channels: {
+      cache: channels,
+      async fetch() { throw new Error('batch reconciliation should not fetch'); },
+      async setPositions(updates) { batches.push(updates); }
+    },
+    roles: { cache: new Map() }
+  };
+  const result = await reconcileServerCategoryOrder(guild, { channelsSnapshot: channels, rolesSnapshot: new Map() });
+  assert.equal(result.ok, true);
+  assert.equal(batches.length, 1);
+  assert.equal(result.moved, result.hierarchy.length);
+  assert.deepEqual(batches[0], categoryPositionUpdates(serverCategoryOrderPlan(channels)));
 });
