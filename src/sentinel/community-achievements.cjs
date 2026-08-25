@@ -2,6 +2,7 @@
 
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder } = require('discord.js');
 const { progressBar, userMention } = require('./community-leveling.cjs');
+const { paragraphs, lines, spacedItems, statRows } = require('./embed-layout.cjs');
 
 const NEXUS_CARD_COLOR = 0xb00020;
 const ACHIEVEMENT_BUTTON_PREFIX = 'nexus-ach';
@@ -33,31 +34,45 @@ function progressCardPayload(profile = {}, user = null, achievementData = null) 
   const source = profile.sourceTotals || {};
   const recent = achievementData?.recentAchievements || [];
   const achievementText = achievementData
-    ? `**${achievementData.achievementCount || 0}/${achievementData.achievementTotal || 0}** unlocked • **${formatNumber(achievementData.achievementPoints)}** pts`
+    ? lines(`**${achievementData.achievementCount || 0}/${achievementData.achievementTotal || 0}** unlocked`, `**${formatNumber(achievementData.achievementPoints)}** achievement points`)
     : 'Achievement data unavailable';
   const recentText = recent.length
-    ? recent.slice(0, 3).map((item) => `${item.icon || '🏆'} **${item.name}** · ${item.rarity}`).join('\n')
+    ? spacedItems(recent.slice(0, 3).map((item) => `${item.icon || '🏆'} **${item.name}**\n${item.rarity}`))
     : 'No achievements unlocked yet.';
 
   const embed = {
     title: 'KHAOS NEXUS • PROGRESS CARD',
     color: NEXUS_CARD_COLOR,
-    description: `${userMention(profile.userId || user?.id)}\nCommunity progression is separate from Nexus Shop/supporter ranks and staff/access authority.`,
+    description: paragraphs(
+      userMention(profile.userId || user?.id),
+      'Community progression is separate from Nexus Shop/supporter ranks and staff/access authority.'
+    ),
     fields: [
       { name: '⚡ Level', value: `**${profile.level || 1}**`, inline: true },
       { name: '🏁 Leaderboard', value: `**${rank}**`, inline: true },
       { name: '🏆 Achievements', value: achievementText, inline: true },
       {
-        name: `Progress to Level ${(profile.level || 1) + 1}`,
-        value: `${progressBar(profile.progressPercent, 12)} **${profile.progressPercent || 0}%**\n${formatNumber(profile.progressXp)} / ${formatNumber(profile.progressNeeded)} XP • **${formatNumber(profile.xp)} total XP**`,
+        name: `📈 Progress to Level ${(profile.level || 1) + 1}`,
+        value: paragraphs(
+          `${progressBar(profile.progressPercent, 12)}  **${profile.progressPercent || 0}%**`,
+          lines(
+            `**Current:** ${formatNumber(profile.progressXp)} / ${formatNumber(profile.progressNeeded)} XP`,
+            `**Total:** ${formatNumber(profile.xp)} XP`
+          )
+        ),
         inline: false
       },
       {
-        name: 'Nexus Activity',
-        value: `💬 ${formatNumber(source.message)} XP · 🎙️ ${formatNumber(source.voice)} XP · 🎉 ${formatNumber(source.event)} XP · 🎮 ${formatNumber(source.module)} XP`,
+        name: '🌐 Nexus Activity',
+        value: lines(
+          `💬 **Messages** — ${formatNumber(source.message)} XP`,
+          `🎙️ **Voice** — ${formatNumber(source.voice)} XP`,
+          `🎉 **Events** — ${formatNumber(source.event)} XP`,
+          `🎮 **Game Modules** — ${formatNumber(source.module)} XP`
+        ),
         inline: false
       },
-      { name: 'Recent Achievements', value: recentText, inline: false }
+      { name: '🏅 Recent Achievements', value: recentText, inline: false }
     ],
     footer: { text: 'Nexus Sentinal • Community Progression' },
     timestamp: new Date().toISOString()
@@ -100,7 +115,11 @@ function achievementLine(item, options = {}) {
   const progressText = item.unlocked
     ? `${item.rarity} • ${formatNumber(item.points)} pts`
     : `${formatNumber(progress.current)} / ${formatNumber(progress.target)} • ${progress.percent || 0}%`;
-  return `${prefix} ${item.icon || '🏆'} **${item.name}** — ${progressText}${options.description ? `\n↳ ${item.description}` : ''}`;
+  const title = `${prefix} ${item.icon || '🏆'} **${item.name}**`;
+  const detail = options.description
+    ? lines(progressText, `↳ ${item.description}`)
+    : progressText;
+  return `${title}\n${detail}`;
 }
 
 function groupedAchievementFields(items = []) {
@@ -112,7 +131,7 @@ function groupedAchievementFields(items = []) {
   }
   return [...categories.entries()].slice(0, 25).map(([category, entries]) => ({
     name: category,
-    value: entries.map((item) => achievementLine(item)).join('\n').slice(0, 1024) || 'None',
+    value: spacedItems(entries.map((item) => achievementLine(item))).slice(0, 1024) || 'None',
     inline: false
   }));
 }
@@ -127,9 +146,15 @@ function achievementCollectionPayload(data = {}, user = null, mode = 'summary', 
   const name = displayName(user);
   const icon = avatarUrl(user);
   const embed = {
-    title: `KHAOS NEXUS • ACHIEVEMENTS`,
+    title: 'KHAOS NEXUS • ACHIEVEMENTS',
     color: NEXUS_CARD_COLOR,
-    description: `${userMention(data.userId || user?.id)} • **${data.achievementCount || 0}/${data.achievementTotal || achievements.length}** unlocked • **${formatNumber(data.achievementPoints)} achievement points**`,
+    description: paragraphs(
+      userMention(data.userId || user?.id),
+      statRows([
+        ['Unlocked', `${data.achievementCount || 0} / ${data.achievementTotal || achievements.length}`],
+        ['Achievement Points', formatNumber(data.achievementPoints)]
+      ])
+    ),
     fields: [],
     footer: { text: `Nexus Sentinal • Achievement Card • ${selectedMode}` },
     timestamp: new Date().toISOString()
@@ -142,24 +167,24 @@ function achievementCollectionPayload(data = {}, user = null, mode = 'summary', 
   if (selectedMode === 'summary') {
     embed.fields.push({
       name: '🏆 Recent Unlocks',
-      value: unlocked.length ? unlocked.slice(0, 5).map((item) => achievementLine(item)).join('\n').slice(0, 1024) : 'No achievements unlocked yet.',
+      value: unlocked.length ? spacedItems(unlocked.slice(0, 5).map((item) => achievementLine(item))).slice(0, 1024) : 'No achievements unlocked yet.',
       inline: false
     });
     embed.fields.push({
       name: '📈 Closest Achievements',
-      value: incomplete.length ? incomplete.slice(0, 5).map((item) => achievementLine(item)).join('\n').slice(0, 1024) : 'Every current achievement is unlocked. Incredible. 👑',
+      value: incomplete.length ? spacedItems(incomplete.slice(0, 5).map((item) => achievementLine(item))).slice(0, 1024) : 'Every current achievement is unlocked. Incredible. 👑',
       inline: false
     });
   } else if (selectedMode === 'unlocked') {
     embed.fields.push({
       name: `✅ Unlocked (${unlocked.length})`,
-      value: unlocked.length ? unlocked.slice(0, 12).map((item) => achievementLine(item, { description: true })).join('\n').slice(0, 1024) : 'No achievements unlocked yet.',
+      value: unlocked.length ? spacedItems(unlocked.slice(0, 12).map((item) => achievementLine(item, { description: true }))).slice(0, 1024) : 'No achievements unlocked yet.',
       inline: false
     });
   } else if (selectedMode === 'progress') {
     embed.fields.push({
       name: `📈 In Progress (${incomplete.length})`,
-      value: incomplete.length ? incomplete.slice(0, 12).map((item) => achievementLine(item, { description: true })).join('\n').slice(0, 1024) : 'All current achievements are complete.',
+      value: incomplete.length ? spacedItems(incomplete.slice(0, 12).map((item) => achievementLine(item, { description: true }))).slice(0, 1024) : 'All current achievements are complete.',
       inline: false
     });
   } else {
@@ -183,10 +208,13 @@ function achievementUnlockPayload(userId, data = {}) {
     embeds: [{
       title: unlocked.length === 1 ? '🏆 ACHIEVEMENT UNLOCKED' : `🏆 ACHIEVEMENT CHAIN • ${unlocked.length} UNLOCKED`,
       color: NEXUS_CARD_COLOR,
-      description: `${userMention(userId)} added ${unlocked.length === 1 ? 'a new badge' : 'new badges'} to their Nexus progression card.`,
+      description: paragraphs(
+        `${userMention(userId)} added ${unlocked.length === 1 ? 'a new badge' : 'new badges'} to their Nexus progression card.`,
+        `**Collection:** ${data.achievementCount || 0}/${data.achievementTotal || 0} • **${formatNumber(data.achievementPoints)} pts**`
+      ),
       fields: shown.map((item) => ({
         name: `${item.icon || '🏆'} ${item.name} • ${item.rarity}`,
-        value: `${item.description}\n**+${formatNumber(item.points)} achievement points**`,
+        value: paragraphs(item.description, `**+${formatNumber(item.points)} achievement points**`),
         inline: false
       })).concat(unlocked.length > shown.length ? [{ name: 'More unlocked', value: `+${unlocked.length - shown.length} additional achievements were added to the collection.`, inline: false }] : []),
       footer: { text: `${data.achievementCount || 0}/${data.achievementTotal || 0} achievements • ${formatNumber(data.achievementPoints)} points • Nexus Sentinal` },
