@@ -34,7 +34,7 @@ async function reconcileOnboardingAuthority(guild, config = {}, logger = console
   }
 
   await guild.editOnboarding({ enabled: false, reason: 'Nexus Sentinal: preserve Shadow Recruit+ gated community access' });
-  logger.warn?.('[Nexus Sentinal] disabled native Discord Community Onboarding; Sentinal #welcome/#roles flow is authoritative.');
+  logger.log?.('[Nexus Sentinal] disabled native Discord Community Onboarding; Sentinal #welcome/#roles flow is authoritative.');
   return { ok: true, authority: 'sentinal', nativeEnabled: false, changed: true, defaultChannels, prompts };
 }
 
