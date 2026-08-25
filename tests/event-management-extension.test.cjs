@@ -40,7 +40,10 @@ test('event cards use Discord timestamps and retain their managed identity', () 
   const manager = fixture();
   const event = manager.create({ title: 'Raid Night', startAt: '2026-09-01T19:00:00-05:00', location: '#raid-lobby' });
   const payload = renderEventCard(event);
-  assert.match(payload.embeds[0].fields[1].value, /<t:\d+:F>/);
+  const details = payload.embeds[0].fields.find((field) => /event details/i.test(String(field.name || '')));
+  assert.ok(details, 'event card should retain a dedicated details section');
+  assert.match(details.value, /<t:\d+:F>/);
+  assert.match(details.value, /#raid-lobby/);
   assert.equal(payload.embeds[0].footer.text, `Nexus Sentinal • Managed Event • ${event.id}`);
   assert.deepEqual(payload.allowedMentions, { parse: [] });
 });
@@ -76,6 +79,9 @@ test('RSVP buttons acknowledge privately and refresh only aggregate public count
   assert.equal(manager.store.get(event.id).responses['member-1'].response, 'going');
   assert.ok(replies[0].flags, 'RSVP acknowledgement must be ephemeral');
   const card = renderEventCard(manager.store.get(event.id));
-  assert.match(card.embeds[0].fields.at(-1).value, /Going: \*\*1\*\*/);
+  const rsvps = card.embeds[0].fields.find((field) => /rsvps/i.test(String(field.name || '')));
+  assert.ok(rsvps, 'event card should retain aggregate RSVP counts');
+  assert.match(rsvps.value, /Going\*\*\s+—\s+1/);
+  assert.match(rsvps.value, /Maybe\*\*\s+—\s+0/);
   assert.doesNotMatch(JSON.stringify(card), /member-1/);
 });
