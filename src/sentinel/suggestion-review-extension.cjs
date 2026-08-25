@@ -17,6 +17,11 @@ const { loadConfig } = require('../shared/config.cjs');
 const { StateStore } = require('./state-store.cjs');
 const { findStaffCategory } = require('./staff-workspace.cjs');
 const { suggestionPayload, suggestionSettings, voteCounts } = require('./suggestions-extension.cjs');
+const {
+  developmentPlanMarker,
+  hasDevelopmentPlan,
+  hydrateDevelopmentPlan
+} = require('./suggestion-development-plan.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.suggestion-review.extension');
 const CHANNEL_NAME = 'suggestion-review';
@@ -104,7 +109,8 @@ async function ensureReviewChannel(guild, config = {}, botId = '') {
 function statusText(suggestion) {
   if (suggestion.status === 'approved') return '🚀 Approved for implementation';
   if (suggestion.status === 'denied') return '⛔ Denied';
-  if (suggestion.status === 'github-review') return '🧭 GitHub development review';
+  if (suggestion.status === 'github-review' && hasDevelopmentPlan(suggestion)) return '🧭 Development plan ready for Owner review';
+  if (suggestion.status === 'github-review') return '📝 Development planning pending';
   if (suggestion.status === 'github-pending') return '📥 GitHub sync pending';
   return '✅ Community passed';
 }
@@ -112,19 +118,48 @@ function statusText(suggestion) {
 function reviewPayload(suggestion) {
   const counts = voteCounts(suggestion);
   const reviewable = REVIEWABLE_STATUSES.has(suggestion.status);
+  const planReady = hasDevelopmentPlan(suggestion);
   const fields = [
     { name: 'Status', value: statusText(suggestion), inline: true },
     { name: 'Category', value: String(suggestion.category || 'Other').slice(0, 100), inline: true },
     { name: 'Community Vote', value: `👍 ${counts.up} • 👎 ${counts.down} • ${counts.approval}% approval`, inline: false },
-    { name: 'Decision rule', value: reviewable ? 'Community passage is only a gate. Review the development issue/plan before approving implementation.' : 'This decision is recorded in Sentinal state and reflected on the public suggestion card.', inline: false }
+    {
+      name: 'Decision rule',
+      value: reviewable
+        ? (planReady ? 'A trusted GitHub development plan is attached. Review it before approving implementation.' : 'Owner approval is locked until a trusted GitHub development plan is attached. Denial remains available at any time.')
+        : 'This decision is recorded in Sentinal state and reflected on the public suggestion card.',
+      inline: false
+    }
   ];
   if (suggestion.githubIssueUrl) fields.push({ name: 'Development Issue', value: `[Open GitHub issue](${suggestion.githubIssueUrl})`, inline: false });
+  if (reviewable && !planReady && suggestion.githubIssueNumber) {
+    fields.push({
+      name: 'Planning Handoff',
+      value: `Waiting for a trusted repository collaborator to post a plan comment containing \`${developmentPlanMarker(suggestion.id)}\`.`,
+      inline: false
+    });
+  }
+  if (planReady) {
+    fields.push({
+      name: 'Development Plan',
+      value: String(suggestion.developmentPlan).slice(0, 1000),
+      inline: false
+    });
+    if (suggestion.developmentPlanUrl) {
+      fields.push({ name: 'Plan Source', value: `[Open development plan comment](${suggestion.developmentPlanUrl})`, inline: false });
+    }
+  }
   if (suggestion.reviewReason) fields.push({ name: suggestion.status === 'denied' ? 'Denial Reason' : 'Owner Note', value: String(suggestion.reviewReason).slice(0, 1000), inline: false });
 
   const components = [];
   if (reviewable) {
     components.push(new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`kn:suggest:review:${suggestion.id}:approve`).setLabel('Approve Implementation').setStyle(ButtonStyle.Success).setEmoji('✅'),
+      new ButtonBuilder()
+        .setCustomId(`kn:suggest:review:${suggestion.id}:approve`)
+        .setLabel(planReady ? 'Approve Implementation' : 'Approval Locked — Plan Needed')
+        .setStyle(ButtonStyle.Success)
+        .setEmoji('✅')
+        .setDisabled(!planReady),
       new ButtonBuilder().setCustomId(`kn:suggest:review:${suggestion.id}:deny`).setLabel('Deny').setStyle(ButtonStyle.Danger).setEmoji('⛔')
     ));
   }
@@ -138,7 +173,7 @@ function reviewPayload(suggestion) {
     embeds: [{
       title: `🧭 ${suggestion.id} • ${String(suggestion.title || 'Community Suggestion').slice(0, 180)}`,
       description: String(suggestion.details || 'No details provided.').slice(0, 4000),
-      color: suggestion.status === 'denied' ? 0x992d22 : suggestion.status === 'approved' ? 0x2ecc71 : 0xe3264f,
+      color: suggestion.status === 'denied' ? 0x992d22 : suggestion.status === 'approved' ? 0x2ecc71 : planReady ? 0x2ecc71 : 0xe3264f,
       fields,
       footer: { text: reviewMarker(suggestion.id) },
       timestamp: suggestion.createdAt
@@ -204,6 +239,7 @@ async function applyOwnerDecision(interaction, store, settings, decision, reason
   const suggestion = store.getSuggestion(id);
   if (!suggestion) return { ok: false, reason: 'missing' };
   if (!REVIEWABLE_STATUSES.has(suggestion.status)) return { ok: false, reason: 'closed', suggestion };
+  if (decision === 'approved' && !hasDevelopmentPlan(suggestion)) return { ok: false, reason: 'plan-required', suggestion };
   const next = {
     ...suggestion,
     status: decision === 'approved' ? 'approved' : 'denied',
@@ -215,6 +251,12 @@ async function applyOwnerDecision(interaction, store, settings, decision, reason
   store.setSuggestion(id, next);
   await updatePublicSuggestion(interaction.client, next, settings).catch(() => false);
   return { ok: true, suggestion: next };
+}
+
+function decisionErrorMessage(reason) {
+  if (reason === 'closed') return 'That suggestion has already been decided.';
+  if (reason === 'plan-required') return 'Approval is locked until Sentinal imports a trusted development plan from the GitHub issue.';
+  return 'That suggestion could not be found.';
 }
 
 async function handleReviewInteraction(interaction, context) {
@@ -237,7 +279,7 @@ async function handleReviewInteraction(interaction, context) {
   if (interaction.isButton?.() && customId.endsWith(':approve')) {
     const result = await applyOwnerDecision(interaction, store, settings, 'approved');
     if (!result.ok) {
-      await interaction.reply({ content: result.reason === 'closed' ? 'That suggestion has already been decided.' : 'That suggestion could not be found.', ephemeral: true });
+      await interaction.reply({ content: decisionErrorMessage(result.reason), ephemeral: true, allowedMentions: { parse: [] } });
       return true;
     }
     await interaction.update(reviewPayload(result.suggestion));
@@ -247,7 +289,7 @@ async function handleReviewInteraction(interaction, context) {
     const reason = String(interaction.fields.getTextInputValue('reason') || '').trim();
     const result = await applyOwnerDecision(interaction, store, settings, 'denied', reason);
     if (!result.ok) {
-      await interaction.reply({ content: result.reason === 'closed' ? 'That suggestion has already been decided.' : 'That suggestion could not be found.', ephemeral: true });
+      await interaction.reply({ content: decisionErrorMessage(result.reason), ephemeral: true, allowedMentions: { parse: [] } });
       return true;
     }
     const review = await findReviewMessage(channel, id, interaction.client.user?.id);
@@ -266,7 +308,20 @@ async function reconcileReviewQueue(client, store, config, settings, options = {
   const suggestions = Object.values(store.listSuggestions()).filter((suggestion) => REVIEWABLE_STATUSES.has(suggestion.status) || ['approved', 'denied'].includes(suggestion.status));
   let created = 0;
   let duplicatesRemoved = 0;
-  for (const suggestion of suggestions) {
+  let plansLoaded = 0;
+  let planningPending = 0;
+  for (const original of suggestions) {
+    let suggestion = original;
+    if (REVIEWABLE_STATUSES.has(suggestion.status) && suggestion.githubIssueNumber && !hasDevelopmentPlan(suggestion)) {
+      const hydration = await hydrateDevelopmentPlan(store, suggestion, settings, options.fetchImpl || globalThis.fetch).catch((error) => ({
+        changed: false,
+        suggestion,
+        pending: String(error?.message || error).slice(0, 160)
+      }));
+      suggestion = hydration.suggestion || suggestion;
+      if (hydration.changed) plansLoaded += 1;
+      else planningPending += 1;
+    }
     const result = await reconcileReviewMessage(channelResult.channel, suggestion, client.user?.id);
     if (result.created) created += 1;
     duplicatesRemoved += result.duplicatesRemoved;
@@ -278,7 +333,9 @@ async function reconcileReviewQueue(client, store, config, settings, options = {
     authorizedOwners: channelResult.authorizedOwnerIds.length,
     tracked: suggestions.length,
     created,
-    duplicatesRemoved
+    duplicatesRemoved,
+    plansLoaded,
+    planningPending
   };
 }
 
@@ -312,7 +369,7 @@ function installSuggestionReviewExtension() {
             return;
           }
           reviewChannel = result.channel;
-          console.log(`[Nexus Sentinal] suggestion review (${reason}): channel=${reviewChannel.id} channelCreated=${result.channelCreated} channelMoved=${result.channelMoved} owners=${result.authorizedOwners} tracked=${result.tracked} cardsCreated=${result.created} duplicatesRemoved=${result.duplicatesRemoved}`);
+          console.log(`[Nexus Sentinal] suggestion review (${reason}): channel=${reviewChannel.id} channelCreated=${result.channelCreated} channelMoved=${result.channelMoved} owners=${result.authorizedOwners} tracked=${result.tracked} cardsCreated=${result.created} duplicatesRemoved=${result.duplicatesRemoved} plansLoaded=${result.plansLoaded} planningPending=${result.planningPending}`);
         } catch (error) {
           console.warn(`[Nexus Sentinal] suggestion review (${reason}) unavailable: ${String(error?.message || error).slice(0, 300)}`);
         } finally {
@@ -340,6 +397,7 @@ module.exports = {
   findReviewChannel,
   reviewChannelOverwrites,
   ensureReviewChannel,
+  statusText,
   reviewPayload,
   reviewMessageMatches,
   findReviewMessage,
@@ -347,6 +405,7 @@ module.exports = {
   updatePublicSuggestion,
   denialModal,
   applyOwnerDecision,
+  decisionErrorMessage,
   handleReviewInteraction,
   reconcileReviewQueue,
   installSuggestionReviewExtension
