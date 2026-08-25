@@ -217,6 +217,18 @@ class EventManager {
     }
     return results;
   }
+
+  tick() {
+    const scheduling = this.syncSchedulingPolls();
+    const completed = [];
+    const now = Date.parse(new Date(this.now()).toISOString());
+    for (const event of this.store.list({ statuses: ['scheduled'] })) {
+      if (!event.endAt || Date.parse(event.endAt) > now) continue;
+      this.complete(event.id, 'scheduler');
+      completed.push(event.id);
+    }
+    return { scheduling, completed };
+  }
 }
 
 module.exports = { EVENT_ID_RE, EVENT_STATUSES, EventManager, EventStore, clean, defaultEventFile, eventId, iso };

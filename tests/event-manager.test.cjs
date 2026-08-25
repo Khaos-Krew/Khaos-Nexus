@@ -102,3 +102,14 @@ test('member RSVPs are durable, changeable, removable, and frozen after completi
   kit.events.complete(event.id, 'staff');
   assert.throws(() => kit.events.rsvp(event.id, 'member-1', 'going'), /no longer accepting/i);
 });
+
+test('scheduler completes bounded events after their end and leaves unbounded events active', () => {
+  const kit = fixture();
+  const bounded = kit.events.create({ title: 'Tournament', startAt: '2026-08-25T13:00:00Z', endAt: '2026-08-25T14:00:00Z' });
+  const unbounded = kit.events.create({ title: 'Open Lobby', startAt: '2026-08-25T13:00:00Z' });
+  kit.setNow('2026-08-25T14:00:01Z');
+  const tick = kit.events.tick();
+  assert.deepEqual(tick.completed, [bounded.id]);
+  assert.equal(kit.events.store.get(bounded.id).status, 'completed');
+  assert.equal(kit.events.store.get(unbounded.id).status, 'scheduled');
+});

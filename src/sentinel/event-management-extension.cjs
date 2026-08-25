@@ -201,9 +201,12 @@ function installEventManagementExtension() {
       const periodic = setInterval(() => {
         if (!context) return;
         void (async () => {
-          const changed = manager.syncSchedulingPolls().filter((result) => result.changed);
+          const tick = manager.tick();
+          const changed = tick.scheduling.filter((result) => result.changed);
           for (const result of changed) await reconcileEventCard(client, context.channel, manager, result.id);
+          for (const id of tick.completed) await reconcileEventCard(client, context.channel, manager, id);
           if (changed.length) console.log(`[Nexus Sentinal] events scheduling: promoted=${changed.map((result) => result.id).join(',')}`);
+          if (tick.completed.length) console.log(`[Nexus Sentinal] events lifecycle: completed=${tick.completed.join(',')}`);
         })().catch((error) => console.warn(`[Nexus Sentinal] event scheduler unavailable: ${String(error?.message || error).slice(0, 240)}`));
       }, TICK_MS);
       periodic.unref?.();
