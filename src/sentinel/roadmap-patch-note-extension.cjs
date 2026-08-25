@@ -19,6 +19,19 @@ const ABOUT_PATCH_NOTE = Object.freeze({
     'Sentinal now reconciles the About channel, permissions, share invite, and pinned panel automatically without creating duplicate managed posts.'
   ])
 });
+const COMMUNITY_SUGGESTIONS_PATCH_NOTE = Object.freeze({
+  key: 'community-suggestions:66',
+  section: 'Community Suggestions',
+  percent: 66,
+  title: 'Community Suggestions Core Ready',
+  summary: 'The community suggestion intake, voting, and durable development-queue core has reached its 66% roadmap milestone and is live for acceptance.',
+  highlights: Object.freeze([
+    'Added a managed #suggestions intake with durable SUG identifiers so member ideas remain tracked instead of disappearing into chat or roadmap notes.',
+    'Added persistent community voting with self-vote prevention, one changeable vote per member, and configurable voting-window, turnout, and approval gates.',
+    'Passed suggestions move into a durable development-review queue and remain retryable if the GitHub handoff is temporarily unavailable.',
+    'Community passage does not automatically authorize implementation; the protected Owner review and development-plan decision loop remains the final acceptance stage.'
+  ])
+});
 
 function installRoadmapPatchNoteExtension() {
   if (Client.prototype[INSTALLED]) return;
@@ -27,7 +40,7 @@ function installRoadmapPatchNoteExtension() {
   const config = loadConfig();
   const guildId = String(config.discord?.guildId || '');
   const state = new StateStore();
-  const publisher = new RoadmapPatchNotePublisher({ state, config, notes: [...ROADMAP_PATCH_NOTES, ABOUT_PATCH_NOTE] });
+  const publisher = new RoadmapPatchNotePublisher({ state, config, notes: [...ROADMAP_PATCH_NOTES, ABOUT_PATCH_NOTE, COMMUNITY_SUGGESTIONS_PATCH_NOTE] });
   const originalLogin = Client.prototype.login;
 
   Client.prototype.login = function nexusRoadmapPatchNoteLogin(...args) {
@@ -47,4 +60,4 @@ function installRoadmapPatchNoteExtension() {
   };
 }
 
-module.exports = { ABOUT_PATCH_NOTE, installRoadmapPatchNoteExtension };
+module.exports = { ABOUT_PATCH_NOTE, COMMUNITY_SUGGESTIONS_PATCH_NOTE, installRoadmapPatchNoteExtension };
