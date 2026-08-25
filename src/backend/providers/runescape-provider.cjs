@@ -41,9 +41,9 @@ function clean(value, max = 500) {
 }
 
 function normalizePlayerName(value) {
-  const name = clean(value, 12);
-  if (!name || !/^[A-Za-z0-9 _-]{1,12}$/.test(name)) throw new Error('RuneScape names must be 1-12 characters using letters, numbers, spaces, underscores, or hyphens.');
-  return name;
+  const raw = String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!raw || !/^[A-Za-z0-9 _-]{1,12}$/.test(raw)) throw new Error('RuneScape names must be 1-12 characters using letters, numbers, spaces, underscores, or hyphens.');
+  return raw;
 }
 
 function actorId(context = {}) {
@@ -126,7 +126,7 @@ class RuneScapeService {
     this.fetchImpl = options.fetchImpl || globalThis.fetch;
     if (typeof this.fetchImpl !== 'function') throw new Error('RuneScape service requires fetch support.');
     this.userAgent = clean(options.userAgent || DEFAULT_USER_AGENT, 240) || DEFAULT_USER_AGENT;
-    this.store = options.store || new JsonStore(options.stateFile || path.join(process.env.NEXUS_DATA_DIR || process.cwd(), 'runescape-state.json'), { users: {} });
+    this.store = options.store || new JsonStore(options.stateFile || path.join(process.env.NEXUS_DATA_DIR || path.join(process.cwd(), 'data'), 'runescape-state.json'), { users: {} });
     this.osrsWikiApi = String(options.osrsWikiApi || OSRS_WIKI_API);
     this.rs3WikiApi = String(options.rs3WikiApi || RS3_WIKI_API);
     this.osrsPriceBase = String(options.osrsPriceBase || OSRS_PRICE_BASE).replace(/\/$/, '');
