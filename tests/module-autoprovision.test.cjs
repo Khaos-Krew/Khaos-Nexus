@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const { ChannelType, PermissionFlagsBits } = require('discord.js');
 const {
   enabledSentinelModules,
+  categoryMatchesModule,
   setupHealthy,
   modulesNeedingProvision,
   bootstrapCategoryAccess
@@ -36,11 +37,22 @@ test('auto-provision target list includes Sentinel modules but never delegated D
 
 test('healthy stored module layout is not provisioned again', () => {
   const channels = new Map([
-    ['cat', { id: 'cat', type: ChannelType.GuildCategory }],
+    ['cat', { id: 'cat', name: 'Once Human', type: ChannelType.GuildCategory }],
     ['hub', { id: 'hub', type: ChannelType.GuildText, parentId: 'cat' }]
   ]);
-  assert.equal(setupHealthy({ categoryId: 'cat', consoleChannelId: 'hub' }, channels), true);
-  assert.equal(setupHealthy({ categoryId: 'cat', consoleChannelId: 'missing' }, channels), false);
+  assert.equal(setupHealthy({ categoryId: 'cat', consoleChannelId: 'hub' }, channels, 'oncehuman'), true);
+  assert.equal(setupHealthy({ categoryId: 'cat', consoleChannelId: 'missing' }, channels, 'oncehuman'), false);
+});
+
+test('a stored RS3 setup under OSRS is unhealthy and must be repaired', () => {
+  const channels = new Map([
+    ['cat', { id: 'cat', name: 'Old School RuneScape', type: ChannelType.GuildCategory }],
+    ['hub', { id: 'hub', name: 'rs3-hub', type: ChannelType.GuildText, parentId: 'cat' }]
+  ]);
+  const setup = { categoryId: 'cat', consoleChannelId: 'hub' };
+  assert.equal(categoryMatchesModule('osrs', channels.get('cat')), true);
+  assert.equal(categoryMatchesModule('runescape3', channels.get('cat')), false);
+  assert.equal(setupHealthy(setup, channels, 'runescape3'), false);
 });
 
 test('new OSRS RS3 and Once Human layouts wait for access roles before category creation', () => {
