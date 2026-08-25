@@ -20,6 +20,7 @@ const { installSuggestionReviewExtension } = require('./suggestion-review-extens
 const { installGameServersExtension } = require('./game-servers-extension.cjs');
 const { installCommunityLevelingExtension } = require('./community-leveling-extension.cjs');
 const { installStaffWorkspaceExtension } = require('./staff-workspace-extension.cjs');
+const { installModuleAutoprovisionExtension } = require('./module-autoprovision-extension.cjs');
 const { installModuleAccessAuditExtension } = require('./module-access-audit-extension.cjs');
 
 installGuildMembersIntentExtension();
@@ -42,5 +43,6 @@ installSuggestionReviewExtension();
 installGameServersExtension();
 installCommunityLevelingExtension();
 installStaffWorkspaceExtension();
+installModuleAutoprovisionExtension();
 installModuleAccessAuditExtension();
 require('./bot.cjs');
