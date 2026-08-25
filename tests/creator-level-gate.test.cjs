@@ -4,17 +4,43 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const {
+  DEFAULT_MINIMUM_LEVEL,
+  minimumCreatorLevel,
+  evaluateCreatorEligibility,
+  eligibilityMessage
+} = require('../src/sentinel/creator-level-gate.cjs');
 
 const gateDoc = fs.readFileSync(path.join(__dirname, '..', 'docs', 'CREATOR_LEVEL_GATE.md'), 'utf8');
 
-test('creator application level gate is explicitly tied to Community XP', () => {
-  assert.match(gateDoc, /Community XP\/Level system/i);
-  assert.match(gateDoc, /Default minimum application level:\s*\*\*10\*\*/i);
-  assert.match(gateDoc, /fail closed/i);
-  assert.match(gateDoc, /immutable Discord user IDs/i);
+test('creator application level gate defaults to level 10 and is configurable', () => {
+  assert.equal(DEFAULT_MINIMUM_LEVEL, 10);
+  assert.equal(minimumCreatorLevel({}, {}), 10);
+  assert.equal(minimumCreatorLevel({}, { NEXUS_CREATOR_MIN_LEVEL: '15' }), 15);
+  assert.equal(minimumCreatorLevel({ discord: { creatorProgram: { minimumLevel: 7 } } }, {}), 7);
+});
+
+test('creator eligibility denies below threshold and accepts exact threshold', () => {
+  const denied = evaluateCreatorEligibility({ ok: true, profile: { level: 9 } }, 10);
+  assert.equal(denied.eligible, false);
+  assert.equal(denied.verifiable, true);
+  assert.equal(denied.currentLevel, 9);
+  assert.match(eligibilityMessage(denied), /Level 10/);
+
+  const accepted = evaluateCreatorEligibility({ ok: true, profile: { level: 10 } }, 10);
+  assert.equal(accepted.eligible, true);
+  assert.equal(accepted.verifiable, true);
+});
+
+test('creator eligibility fails closed when Community XP cannot be verified', () => {
+  const result = evaluateCreatorEligibility({ ok: false }, 10);
+  assert.equal(result.eligible, false);
+  assert.equal(result.verifiable, false);
+  assert.match(eligibilityMessage(result), /could not verify/i);
 });
 
 test('creator application level gate preserves existing approved creators', () => {
   assert.match(gateDoc, /does not revoke or downgrade already-approved creators/i);
   assert.match(gateDoc, /revocation remains a staff moderation action/i);
+  assert.match(gateDoc, /immutable Discord user IDs/i);
 });
