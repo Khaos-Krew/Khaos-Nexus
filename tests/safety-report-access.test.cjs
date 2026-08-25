@@ -9,6 +9,22 @@ const {
   reconcileReportAccess
 } = require('../src/sentinel/safety-report-access.cjs');
 
+const IDS = Object.freeze({
+  guild: '1016059608789434408',
+  owner: '1016059608789434409',
+  configuredOwner: '1016059608789434410',
+  safetyRole: '1016059608789434411',
+  moderatorRole: '1016059608789434412',
+  oldRole: '1016059608789434413',
+  staffUser: '1016059608789434414',
+  modUser: '1016059608789434415',
+  formerStaff: '1016059608789434416',
+  reporter: '1016059608789434417',
+  participant: '1016059608789434418',
+  bot: '1016059608789434419',
+  channel: '1016059608789434420'
+});
+
 function role(id, permissions = []) {
   return {
     id,
@@ -25,17 +41,17 @@ function member(roleIds = [], permissions = []) {
 }
 
 function guildFixture() {
-  const safety = role('role-safety');
-  const moderator = role('role-mod', [PermissionFlagsBits.ModerateMembers]);
+  const safety = role(IDS.safetyRole);
+  const moderator = role(IDS.moderatorRole, [PermissionFlagsBits.ModerateMembers]);
   const roles = new Map([[safety.id, safety], [moderator.id, moderator]]);
   const members = new Map([
-    ['staff-user', member([safety.id])],
-    ['mod-user', member([moderator.id], [PermissionFlagsBits.ModerateMembers])],
-    ['former-staff', member([])]
+    [IDS.staffUser, member([safety.id])],
+    [IDS.modUser, member([moderator.id], [PermissionFlagsBits.ModerateMembers])],
+    [IDS.formerStaff, member([])]
   ]);
   return {
-    id: 'guild-1',
-    ownerId: 'guild-owner',
+    id: IDS.guild,
+    ownerId: IDS.owner,
     roles: { fetch: async () => roles },
     members: { fetch: async (id) => members.get(String(id)) || null }
   };
@@ -43,33 +59,33 @@ function guildFixture() {
 
 test('explicit safety/operator roles are authoritative over generic moderation permissions', async () => {
   const guild = guildFixture();
-  const config = { discord: { safetyStaffRoleIds: ['role-safety'], operatorRoleIds: [], ownerUserIds: [] } };
-  assert.equal(await isStaff(guild, 'staff-user', config), true);
-  assert.equal(await isStaff(guild, 'mod-user', config), false);
-  assert.equal(await isStaff(guild, 'guild-owner', config), true);
+  const config = { discord: { safetyStaffRoleIds: [IDS.safetyRole], operatorRoleIds: [], ownerUserIds: [] } };
+  assert.equal(await isStaff(guild, IDS.staffUser, config), true);
+  assert.equal(await isStaff(guild, IDS.modUser, config), false);
+  assert.equal(await isStaff(guild, IDS.owner, config), true);
 });
 
 test('moderation roles remain the fallback only when no explicit safety/operator role is configured', async () => {
   const guild = guildFixture();
   const config = { discord: { safetyStaffRoleIds: [], operatorRoleIds: [], ownerUserIds: [] } };
-  assert.equal(await isStaff(guild, 'mod-user', config), true);
-  assert.equal(await isStaff(guild, 'former-staff', config), false);
+  assert.equal(await isStaff(guild, IDS.modUser, config), true);
+  assert.equal(await isStaff(guild, IDS.formerStaff, config), false);
 });
 
 test('closed report access drops stale explicit staff and leaves reporter/participants read-only', () => {
-  const guild = { id: 'guild-1' };
-  const overwrites = reportAccessOverwrites(guild, 'bot-1', {
+  const guild = { id: IDS.guild };
+  const overwrites = reportAccessOverwrites(guild, IDS.bot, {
     caseId: 'NX-20260824-A1B2',
     status: 'closed',
-    reporterId: 'reporter',
-    participants: ['participant'],
-    staffParticipants: ['former-staff']
-  }, ['role-safety'], ['owner-1']);
+    reporterId: IDS.reporter,
+    participants: [IDS.participant],
+    staffParticipants: [IDS.formerStaff]
+  }, [IDS.safetyRole], [IDS.configuredOwner]);
 
-  assert.equal(overwrites.some((item) => item.id === 'former-staff'), false);
-  const reporter = overwrites.find((item) => item.id === 'reporter');
-  const participant = overwrites.find((item) => item.id === 'participant');
-  const staff = overwrites.find((item) => item.id === 'role-safety');
+  assert.equal(overwrites.some((item) => item.id === IDS.formerStaff), false);
+  const reporter = overwrites.find((item) => item.id === IDS.reporter);
+  const participant = overwrites.find((item) => item.id === IDS.participant);
+  const staff = overwrites.find((item) => item.id === IDS.safetyRole);
   assert.ok(reporter.allow.includes(PermissionFlagsBits.ViewChannel));
   assert.equal(reporter.allow.includes(PermissionFlagsBits.SendMessages), false);
   assert.ok(participant.allow.includes(PermissionFlagsBits.ReadMessageHistory));
@@ -81,30 +97,30 @@ test('report reconciliation replaces stale overwrites and refreshes stored autho
   const guild = guildFixture();
   let applied = null;
   const channel = {
-    id: 'channel-1',
+    id: IDS.channel,
     type: ChannelType.GuildText,
     permissionOverwrites: { set: async (overwrites) => { applied = overwrites; } }
   };
   const writes = [];
   const store = { set: (caseId, value) => writes.push({ caseId, value }) };
-  const client = { user: { id: 'bot-1' } };
-  const config = { discord: { safetyStaffRoleIds: ['role-safety'], operatorRoleIds: [], ownerUserIds: ['owner-1'] } };
+  const client = { user: { id: IDS.bot } };
+  const config = { discord: { safetyStaffRoleIds: [IDS.safetyRole], operatorRoleIds: [], ownerUserIds: [IDS.configuredOwner] } };
   const report = {
     caseId: 'NX-20260824-A1B2',
-    channelId: 'channel-1',
-    reporterId: 'reporter',
+    channelId: IDS.channel,
+    reporterId: IDS.reporter,
     status: 'open',
     participants: [],
-    staffParticipants: ['former-staff'],
-    staffRoleIds: ['old-role']
+    staffParticipants: [IDS.formerStaff],
+    staffRoleIds: [IDS.oldRole]
   };
   const result = await reconcileReportAccess(guild, client, config, store, report, channel);
   assert.equal(result.ok, true);
-  assert.equal(applied.some((item) => item.id === 'former-staff'), false);
-  assert.equal(applied.some((item) => item.id === 'old-role'), false);
-  assert.equal(applied.some((item) => item.id === 'role-safety'), true);
+  assert.equal(applied.some((item) => item.id === IDS.formerStaff), false);
+  assert.equal(applied.some((item) => item.id === IDS.oldRole), false);
+  assert.equal(applied.some((item) => item.id === IDS.safetyRole), true);
   assert.deepEqual(writes[0], {
     caseId: report.caseId,
-    value: { staffRoleIds: ['role-safety'], ownerIds: ['owner-1'] }
+    value: { staffRoleIds: [IDS.safetyRole], ownerIds: [IDS.configuredOwner] }
   });
 });
