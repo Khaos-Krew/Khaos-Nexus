@@ -3,6 +3,7 @@
 const crypto = require('node:crypto');
 const { ChannelType, PermissionFlagsBits, SlashCommandBuilder } = require('discord.js');
 const { findInformationCategory, valuesOf } = require('./nexus-status.cjs');
+const { paragraphs, lines, spacedItems, statRows } = require('./embed-layout.cjs');
 
 const LEVEL_PANEL_MARKER = 'Nexus Sentinal • Managed Community Levels • v1';
 const LEVEL_PANEL_TITLE = 'KHAOS NEXUS • COMMUNITY LEVELS';
@@ -55,40 +56,56 @@ function progressBar(percent, width = 10) {
 }
 
 function overviewPayload(settings = {}, options = {}) {
-  const contentMode = options.messageContentEnabled === true ? 'enhanced text checks' : 'privacy-safe metadata mode';
+  const contentMode = options.messageContentEnabled === true ? 'Enhanced text checks' : 'Privacy-safe metadata mode';
   const source = settings.sources || {};
   const on = (value) => value === false ? 'Off' : 'On';
   const milestones = (settings.milestoneLevels || []).join(', ') || 'None';
   return {
     embeds: [{
       title: LEVEL_PANEL_TITLE,
-      description: 'Community Levels reward participation across Khaos Nexus. **These levels never grant, replace, or modify Nexus Shop/supporter ranks, game access roles, staff roles, or Name Color roles.**',
+      description: paragraphs(
+        'Community Levels reward meaningful participation across Khaos Nexus.',
+        '**Community levels never grant, replace, or modify Nexus Shop/supporter ranks, game access roles, staff roles, or Name Color roles.**'
+      ),
       color: 0x5865f2,
       fields: [
         {
-          name: 'Earn XP',
-          value: [
-            `💬 Messages: **${on(source.message)}** • ${settings.message?.xp || 15} XP • ${settings.message?.cooldownSeconds || 90}s cooldown • ${settings.message?.dailyCap || 300}/day cap`,
-            `🎙️ Voice: **${on(source.voice)}** • ${settings.voice?.xp || 10} XP every ${Math.round((settings.voice?.intervalSeconds || 600) / 60)} min • ${settings.voice?.dailyCap || 300}/day cap`,
-            `🎉 Events: **${on(source.event)}**`,
-            `🎮 Module participation: **${on(source.module)}**`,
-            `Global multiplier: **${Number(settings.globalMultiplier ?? 1).toFixed(2)}×**`
-          ].join('\n'),
+          name: '⚡ Earn XP',
+          value: spacedItems([
+            lines(`💬 **Messages — ${on(source.message)}**`, `${settings.message?.xp || 15} XP • ${settings.message?.cooldownSeconds || 90}s cooldown • ${settings.message?.dailyCap || 300}/day cap`),
+            lines(`🎙️ **Voice — ${on(source.voice)}**`, `${settings.voice?.xp || 10} XP every ${Math.round((settings.voice?.intervalSeconds || 600) / 60)} min • ${settings.voice?.dailyCap || 300}/day cap`),
+            lines(`🎉 **Events — ${on(source.event)}**`, 'XP is awarded only through eligible Nexus event participation.'),
+            lines(`🎮 **Game Modules — ${on(source.module)}**`, 'XP is awarded only through eligible Nexus module participation.'),
+            lines('🌐 **Global Multiplier**', `${Number(settings.globalMultiplier ?? 1).toFixed(2)}×`)
+          ]),
           inline: false
         },
         {
-          name: 'Anti-farming',
-          value: `Message cooldowns, per-source daily caps, bot exclusion, ignored-channel/role controls, AFK/deaf voice exclusion, and duplicate/tiny-message checks when Message Content is enabled. Current message mode: **${contentMode}**.`,
+          name: '🛡️ Anti-farming',
+          value: spacedItems([
+            '**Automatic safeguards**\nMessage cooldowns • per-source daily caps • bot exclusion • ignored channel/role controls',
+            '**Voice safeguards**\nAFK/deaf exclusion and minimum eligible-human checks',
+            `**Message analysis**\n${contentMode}${options.messageContentEnabled === true ? ' • duplicate/tiny-message checks enabled' : ''}`
+          ]),
           inline: false
         },
         {
-          name: 'Commands',
-          value: '`/level` • `/rank` • `/leaderboard`\nStaff/admin controls: `/xp`',
+          name: '🧭 Member Commands',
+          value: spacedItems([
+            '`/level` — XP and level progress card',
+            '`/rank` — community leaderboard position',
+            '`/achievements` — badges and achievement progress',
+            '`/leaderboard` — top community XP standings'
+          ]),
           inline: false
         },
         {
-          name: 'Milestone roles',
-          value: `Community-only badges at levels: **${milestones}**. These roles are named \`${MILESTONE_ROLE_PREFIX}<level>\` and are never mapped to Shop entitlements.`,
+          name: '🏅 Milestone Roles',
+          value: paragraphs(
+            `**Levels:** ${milestones}`,
+            `Roles use the name \`${MILESTONE_ROLE_PREFIX}<level>\` and remain community-only badges. They are never mapped to Shop entitlements.`,
+            '**Staff/admin control:** `/xp`'
+          ),
           inline: false
         }
       ],
@@ -141,10 +158,19 @@ function profilePayload(profile = {}, user = null) {
   return {
     embeds: [{
       title: `${user?.globalName || user?.username || 'Community Member'} • Level ${profile.level || 1}`,
-      description: `${mention}\n**${Number(profile.xp || 0).toLocaleString()} XP** • Rank **${rank}**`,
+      description: paragraphs(
+        mention,
+        statRows([
+          ['Total XP', Number(profile.xp || 0).toLocaleString()],
+          ['Leaderboard Rank', rank]
+        ])
+      ),
       fields: [{
-        name: `Progress to Level ${(profile.level || 1) + 1}`,
-        value: `${progressBar(profile.progressPercent)} **${profile.progressPercent || 0}%**\n${Number(profile.progressXp || 0).toLocaleString()} / ${Number(profile.progressNeeded || 0).toLocaleString()} XP`,
+        name: `📈 Progress to Level ${(profile.level || 1) + 1}`,
+        value: paragraphs(
+          `${progressBar(profile.progressPercent)}  **${profile.progressPercent || 0}%**`,
+          `${Number(profile.progressXp || 0).toLocaleString()} / ${Number(profile.progressNeeded || 0).toLocaleString()} XP`
+        ),
         inline: false
       }],
       footer: { text: 'Nexus Sentinal • Community Level' }
@@ -154,15 +180,15 @@ function profilePayload(profile = {}, user = null) {
 }
 
 function leaderboardPayload(entries = [], users = new Map()) {
-  const lines = entries.slice(0, 10).map((profile, index) => {
+  const ranked = entries.slice(0, 10).map((profile, index) => {
     const user = users.get(String(profile.userId));
     const name = user?.globalName || user?.username || `Member ${String(profile.userId || '').slice(-4)}`;
-    return `**${index + 1}. ${name}** — Level ${profile.level || 1} • ${Number(profile.xp || 0).toLocaleString()} XP`;
+    return `**${index + 1}. ${name}**\nLevel ${profile.level || 1} • ${Number(profile.xp || 0).toLocaleString()} XP`;
   });
   return {
     embeds: [{
       title: 'KHAOS NEXUS • COMMUNITY LEADERBOARD',
-      description: lines.join('\n') || 'No community XP has been earned yet.',
+      description: ranked.length ? spacedItems(ranked) : 'No community XP has been earned yet.',
       footer: { text: 'Nexus Sentinal • Community XP' }
     }],
     allowedMentions: { parse: [] }
@@ -176,7 +202,10 @@ function levelUpPayload(userId, result = {}) {
     content: userMention(userId),
     embeds: [{
       title: `⚡ LEVEL UP • LEVEL ${level}`,
-      description: `${userMention(userId)} reached **Community Level ${level}**!${milestones.length ? `\nMilestone unlocked: **${milestones.map((item) => `Level ${item}`).join(', ')}**` : ''}`,
+      description: paragraphs(
+        `${userMention(userId)} reached **Community Level ${level}**!`,
+        milestones.length ? `🏅 **Milestone unlocked**\n${milestones.map((item) => `Level ${item}`).join(' • ')}` : ''
+      ),
       footer: { text: 'Nexus Sentinal • Community Progression' },
       timestamp: new Date().toISOString()
     }],
