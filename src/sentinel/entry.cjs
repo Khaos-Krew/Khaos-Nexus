@@ -8,6 +8,7 @@ const { installGuildMembersIntentExtension } = require('./guild-members-intent-e
 const { installCommunityIntentsExtension } = require('./community-intents-extension.cjs');
 const { installRoleMenuExtension } = require('./role-menu-extension.cjs');
 const { installPokemonGoExtension } = require('./pokemon-go-extension.cjs');
+const { installDivision2TargetedLootExtension } = require('./division2-targeted-loot-extension.cjs');
 const { installEventFeedExtension } = require('./event-feed-extension.cjs');
 const { installAdminPairingExtension } = require('./admin-pairing-extension.cjs');
 const { installModerationExtension } = require('./moderation-extension.cjs');
@@ -43,6 +44,7 @@ installGuildMembersIntentExtension();
 installCommunityIntentsExtension();
 installRoleMenuExtension();
 installPokemonGoExtension();
+installDivision2TargetedLootExtension();
 installEventFeedExtension();
 installAdminPairingExtension();
 installModerationExtension();
