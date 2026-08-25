@@ -13,6 +13,7 @@ const { installPersistentPanelExtension } = require('./persistent-panel-extensio
 const { installStaffNameColorPreviewExtension } = require('./staff-name-color-preview-extension.cjs');
 const { installNexusStatusExtension } = require('./nexus-status-extension.cjs');
 const { installWelcomeExtension } = require('./welcome-extension.cjs');
+const { installAboutExtension } = require('./about-extension.cjs');
 const { installGameServersExtension } = require('./game-servers-extension.cjs');
 const { installCommunityLevelingExtension } = require('./community-leveling-extension.cjs');
 const { installStaffWorkspaceExtension } = require('./staff-workspace-extension.cjs');
@@ -31,6 +32,7 @@ installPersistentPanelExtension();
 installStaffNameColorPreviewExtension();
 installNexusStatusExtension();
 installWelcomeExtension();
+installAboutExtension();
 installGameServersExtension();
 installCommunityLevelingExtension();
 installStaffWorkspaceExtension();
