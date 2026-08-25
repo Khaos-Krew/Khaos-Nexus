@@ -20,6 +20,8 @@ class BackendClient {
   health() { return this.request('/health'); }
   trackedServers() { return this.request('/v1/tracked-servers'); }
   communityLevel(userId) { return this.request(`/v1/community-xp/users/${encodeURIComponent(userId)}`); }
+  communityAchievements(userId) { return this.request(`/v1/community-xp/users/${encodeURIComponent(userId)}/achievements`); }
+  communityAchievementCatalog() { return this.request('/v1/community-xp/achievements'); }
   communityLeaderboard(limit = 10) { return this.request(`/v1/community-xp/leaderboard?limit=${encodeURIComponent(limit)}`); }
   communityLevelSettings() { return this.request('/v1/community-xp/settings'); }
   communityLevelAudit(limit = 50) { return this.request(`/v1/community-xp/audit?limit=${encodeURIComponent(limit)}`); }
