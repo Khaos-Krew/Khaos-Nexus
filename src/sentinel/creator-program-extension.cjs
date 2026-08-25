@@ -248,7 +248,7 @@ function assetsPayload() {
       description: 'This is the managed home for official creator-facing Khaos Nexus promotional resources.',
       color: 0xe3264f,
       fields: [
-        { name: 'Reusable by design', value: 'Creator emblems and promotional graphics should preserve the approved Khaos Nexus base identity while leaving a safe area for the individual creator name.', inline: false },
+        { name: 'Reusable by design', value: 'Creator emblems and promotional graphics preserve the approved Khaos Nexus base identity so the creator name can be added without rebuilding the core Nexus identity.', inline: false },
         { name: 'Asset rule', value: 'Use official Nexus assets from this channel rather than rebuilding the core logo/identity from scratch. Sentinal will keep this resource surface current as new creator formats are approved.', inline: false },
         { name: 'Asset pack status', value: 'The Discord asset library is ready. The reusable image pack itself remains a separate visual-asset delivery item so the approved Nexus base artwork can be used as the source.', inline: false }
       ],
