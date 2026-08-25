@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const {
   collectionSize,
   sentinalOwnsOnboarding,
+  onboardingNeedsDetachment,
   reconcileOnboardingAuthority
 } = require('../src/sentinel/onboarding-authority-extension.cjs');
 
@@ -21,13 +22,20 @@ test('collectionSize handles collections and arrays without mutating them', () =
   assert.equal(collectionSize(null), 0);
 });
 
-test('disabled native onboarding is preserved without an edit', async () => {
+test('saved native onboarding references require detachment even when onboarding is disabled', () => {
+  assert.equal(onboardingNeedsDetachment({ enabled: false, defaultChannels: new Map(), prompts: new Map() }), false);
+  assert.equal(onboardingNeedsDetachment({ enabled: true, defaultChannels: new Map(), prompts: new Map() }), true);
+  assert.equal(onboardingNeedsDetachment({ enabled: false, defaultChannels: new Map([['1', {}]]), prompts: new Map() }), true);
+  assert.equal(onboardingNeedsDetachment({ enabled: false, defaultChannels: new Map(), prompts: new Map([['2', {}]]) }), true);
+});
+
+test('fully detached disabled native onboarding is preserved without an edit', async () => {
   let edits = 0;
   const guild = {
     fetchOnboarding: async () => ({
       enabled: false,
-      defaultChannels: new Map([['1', {}], ['2', {}]]),
-      prompts: new Map([['3', {}]])
+      defaultChannels: new Map(),
+      prompts: new Map()
     }),
     editOnboarding: async () => { edits += 1; }
   };
@@ -36,12 +44,40 @@ test('disabled native onboarding is preserved without an edit', async () => {
   assert.equal(result.authority, 'sentinal');
   assert.equal(result.nativeEnabled, false);
   assert.equal(result.changed, false);
-  assert.equal(result.defaultChannels, 2);
-  assert.equal(result.prompts, 1);
+  assert.equal(result.defaultChannels, 0);
+  assert.equal(result.prompts, 0);
+  assert.equal(result.clearedDefaultChannels, 0);
+  assert.equal(result.clearedPrompts, 0);
   assert.equal(edits, 0);
 });
 
-test('enabled native onboarding is disabled without rewriting its saved prompts or default channels', async () => {
+test('disabled native onboarding with stale channel references is detached so gated HQ permissions can apply', async () => {
+  const edits = [];
+  const guild = {
+    fetchOnboarding: async () => ({
+      enabled: false,
+      defaultChannels: new Map([['1', {}], ['2', {}]]),
+      prompts: new Map([['3', {}]])
+    }),
+    editOnboarding: async (options) => { edits.push(options); }
+  };
+  const result = await reconcileOnboardingAuthority(guild, {}, { log() {} });
+  assert.equal(result.ok, true);
+  assert.equal(result.nativeEnabled, false);
+  assert.equal(result.changed, true);
+  assert.equal(result.defaultChannels, 0);
+  assert.equal(result.prompts, 0);
+  assert.equal(result.clearedDefaultChannels, 2);
+  assert.equal(result.clearedPrompts, 1);
+  assert.deepEqual(edits, [{
+    enabled: false,
+    defaultChannels: [],
+    prompts: [],
+    reason: 'Nexus Sentinal: detach native onboarding from Shadow Recruit+ gated community channels'
+  }]);
+});
+
+test('enabled native onboarding is disabled and detached from its saved prompts/default channels', async () => {
   const edits = [];
   const onboarding = {
     enabled: true,
@@ -52,19 +88,21 @@ test('enabled native onboarding is disabled without rewriting its saved prompts 
     fetchOnboarding: async () => onboarding,
     editOnboarding: async (options) => { edits.push(options); }
   };
-  const result = await reconcileOnboardingAuthority(guild, {}, { warn() {} });
+  const result = await reconcileOnboardingAuthority(guild, {}, { log() {} });
   assert.equal(result.ok, true);
   assert.equal(result.authority, 'sentinal');
   assert.equal(result.nativeEnabled, false);
   assert.equal(result.changed, true);
-  assert.equal(result.defaultChannels, 3);
-  assert.equal(result.prompts, 2);
+  assert.equal(result.defaultChannels, 0);
+  assert.equal(result.prompts, 0);
+  assert.equal(result.clearedDefaultChannels, 3);
+  assert.equal(result.clearedPrompts, 2);
   assert.deepEqual(edits, [{
     enabled: false,
-    reason: 'Nexus Sentinal: preserve Shadow Recruit+ gated community access'
+    defaultChannels: [],
+    prompts: [],
+    reason: 'Nexus Sentinal: detach native onboarding from Shadow Recruit+ gated community channels'
   }]);
-  assert.equal(onboarding.defaultChannels.size, 3);
-  assert.equal(onboarding.prompts.size, 2);
 });
 
 test('Discord onboarding remains untouched when authority is explicitly delegated to Discord', async () => {
@@ -78,6 +116,8 @@ test('Discord onboarding remains untouched when authority is explicitly delegate
   assert.equal(result.ok, true);
   assert.equal(result.authority, 'discord');
   assert.equal(result.changed, false);
+  assert.equal(result.clearedDefaultChannels, 0);
+  assert.equal(result.clearedPrompts, 0);
   assert.equal(fetched, false);
   assert.equal(edited, false);
 });
