@@ -43,7 +43,12 @@ function similarityScore(left, right) {
 function categoryCandidates(moduleId) {
   const module = getModule(moduleId);
   const layout = layoutFor(moduleId);
-  return [...new Set([layout.category, module?.name, ...(layout.aliases || [])].filter(Boolean))];
+  return [...new Set([layout.categoryDisplay, layout.category, module?.name, ...(layout.aliases || [])].filter(Boolean))];
+}
+
+function desiredCategoryName(moduleId) {
+  const layout = layoutFor(moduleId);
+  return String(layout.categoryDisplay || layout.category);
 }
 
 function bestCategoryMatch(channels, moduleId) {
@@ -71,6 +76,7 @@ class ModuleProvisioner {
 
   async category(guild, moduleId, categoryId = '') {
     const layout = layoutFor(moduleId);
+    const displayName = desiredCategoryName(moduleId);
     if (categoryId) {
       const selected = await guild.channels.fetch(String(categoryId));
       if (!selected || selected.type !== ChannelType.GuildCategory) throw new Error('The selected Discord channel is not a category.');
@@ -78,13 +84,14 @@ class ModuleProvisioner {
     }
 
     const all = await guild.channels.fetch();
-    const exact = all.find((channel) => channel?.type === ChannelType.GuildCategory && channel.name === layout.category);
+    const exact = all.find((channel) => channel?.type === ChannelType.GuildCategory
+      && [displayName, layout.category].includes(String(channel.name || '')));
     if (exact) return { category: exact, created: false, matchScore: 1, source: 'exact' };
 
     const similar = bestCategoryMatch(all, moduleId);
     if (similar) return { category: similar.category, created: false, matchScore: similar.score, source: 'similar' };
 
-    const created = await guild.channels.create({ name: layout.category, type: ChannelType.GuildCategory, reason: `Nexus Sentinal module setup: ${moduleId}` });
+    const created = await guild.channels.create({ name: displayName, type: ChannelType.GuildCategory, reason: `Nexus Sentinal module setup: ${moduleId}` });
     return { category: created, created: true, matchScore: 0, source: 'created' };
   }
 
@@ -254,7 +261,9 @@ module.exports = {
   CATEGORY_MATCH_THRESHOLD,
   ModuleProvisioner,
   bestCategoryMatch,
+  categoryCandidates,
   cleanLobbyOwner,
+  desiredCategoryName,
   normalizeDiscordName,
   similarityScore,
   uniqueNamedChannel
