@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { paragraphs, spacedItems, statRows } = require('../src/sentinel/embed-layout.cjs');
 const { progressCardPayload, achievementCollectionPayload } = require('../src/sentinel/community-achievements.cjs');
+const { overviewPayload, leaderboardPayload, levelUpPayload } = require('../src/sentinel/community-leveling.cjs');
 const { commandPanelPayload, publicHelpPayload } = require('../src/sentinel/nexus-command-center.cjs');
 const { targetedPayload, setBonusesPayload, timerPayload } = require('../src/sentinel/division2-targeted-loot.cjs');
 
@@ -47,6 +48,28 @@ test('progress and achievement cards use readable multi-line sections', () => {
   const achievements = achievementCollectionPayload(achievementData, { id: userId, username: 'Tester' });
   assert.match(achievements.embeds[0].description, /\n\n/);
   assert.match(achievements.embeds[0].fields[0].value, /\n/);
+});
+
+test('community leveling overview, leaderboard, and level-up notices avoid compressed text walls', () => {
+  const overview = overviewPayload({
+    globalMultiplier: 1,
+    sources: { message: true, voice: true, event: true, module: true },
+    message: { xp: 15, cooldownSeconds: 90, dailyCap: 300 },
+    voice: { xp: 10, intervalSeconds: 600, dailyCap: 300 },
+    milestoneLevels: [5, 10, 25]
+  });
+  assert.match(overview.embeds[0].description, /\n\n/);
+  assert.ok(overview.embeds[0].fields.every((field) => String(field.value).includes('\n\n')));
+  assert.match(overview.embeds[0].fields.find((field) => field.name.includes('Member Commands')).value, /\/achievements/);
+
+  const leaderboard = leaderboardPayload([
+    { userId: '123456789012345678', level: 8, xp: 4000 },
+    { userId: '223456789012345678', level: 7, xp: 3500 }
+  ]);
+  assert.match(leaderboard.embeds[0].description, /\n\n/);
+
+  const levelUp = levelUpPayload('123456789012345678', { afterLevel: 10, milestonesCrossed: [10] });
+  assert.match(levelUp.embeds[0].description, /\n\n/);
 });
 
 test('command center and public help use spaced blocks instead of compressed command walls', () => {
