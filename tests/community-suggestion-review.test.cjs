@@ -51,16 +51,32 @@ test('review channel is owner-only and keeps Sentinal management access', () => 
   assert.ok(overwrites.some((item) => item.id === '100000000000000099'));
 });
 
-test('review cards show community evidence, development issue, and explicit Owner decision controls', () => {
+test('review cards show community evidence and keep implementation approval locked until a plan exists', () => {
   const payload = reviewPayload(suggestion());
   const text = JSON.stringify(payload);
   assert.match(text, /SUG-0042/);
   assert.match(text, /3 • 👎 2 • 60% approval/);
-  assert.match(text, /Review the development issue\/plan before approving implementation/);
+  assert.match(text, /Owner approval is locked until a trusted GitHub development plan/);
+  assert.match(text, /nexus-development-plan:SUG-0042/);
   assert.match(text, /issues\/999/);
-  assert.match(text, /Approve Implementation/);
-  assert.match(text, /Deny/);
+  assert.match(text, /Approval Locked/);
+  const approve = payload.components[0].components.find((button) => button.data?.custom_id?.endsWith(':approve'));
+  assert.equal(approve.data.disabled, true);
   assert.deepEqual(payload.allowedMentions, { parse: [] });
+});
+
+test('review cards expose the trusted plan and enable approval once planning is complete', () => {
+  const payload = reviewPayload(suggestion({
+    developmentPlan: '1. Add the backend contract.\n2. Add tests and rollout checks.',
+    developmentPlanUrl: 'https://github.com/Khaos-Krew/Khaos-Nexus/issues/999#issuecomment-12'
+  }));
+  const text = JSON.stringify(payload);
+  assert.match(text, /Development plan ready for Owner review/);
+  assert.match(text, /Add the backend contract/);
+  assert.match(text, /Open development plan comment/);
+  const approve = payload.components[0].components.find((button) => button.data?.custom_id?.endsWith(':approve'));
+  assert.equal(approve.data.disabled, false);
+  assert.match(approve.data.label, /Approve Implementation/);
 });
 
 test('only passed/review-pending states are actionable', () => {
@@ -69,8 +85,25 @@ test('only passed/review-pending states are actionable', () => {
   assert.equal(reviewPayload(suggestion({ status: 'denied', reviewReason: 'Not a fit.' })).components.some((row) => row.components?.some((button) => button.data?.custom_id?.includes(':deny'))), false);
 });
 
-test('Owner approval persists and updates the public suggestion card', async () => {
+test('Owner approval is rejected until a development plan has been imported', async () => {
   const state = { current: suggestion() };
+  const store = {
+    getSuggestion() { return state.current; },
+    setSuggestion() { throw new Error('should not persist'); }
+  };
+  const interaction = {
+    customId: 'kn:suggest:review:SUG-0042:approve',
+    user: { id: '100000000000000001' },
+    client: {}
+  };
+  const result = await applyOwnerDecision(interaction, store, { minVotes: 5, passPercent: 60 }, 'approved');
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'plan-required');
+  assert.equal(state.current.status, 'github-review');
+});
+
+test('Owner approval persists and updates the public suggestion card after plan review', async () => {
+  const state = { current: suggestion({ developmentPlan: 'Approved implementation plan.' }) };
   const store = {
     getSuggestion(id) { return id === state.current.id ? state.current : null; },
     setSuggestion(id, value) { assert.equal(id, state.current.id); state.current = value; return value; }
@@ -107,7 +140,7 @@ test('Owner denial requires a reason and publishes that reason to the public car
   const client = {
     channels: {
       async fetch() {
-        return { messages: { async fetch() { return { async edit(payload) { publicEdited = payload; } }; } } };
+        return { messages: { async fetch() { return { async edit(payload) { publicEdited = payload; } }; } };
       }
     }
   };
