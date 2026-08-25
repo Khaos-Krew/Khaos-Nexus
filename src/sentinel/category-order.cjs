@@ -15,6 +15,13 @@ const STRUCTURAL_CATEGORY_ALIASES = Object.freeze({
   ownerOnly: Object.freeze(['hidden server', 'hidden server chat', 'owner only', 'owner-only', 'private server chat'])
 });
 
+function valuesOf(collection) {
+  if (!collection) return [];
+  if (Array.isArray(collection)) return collection;
+  if (typeof collection.values === 'function') return [...collection.values()];
+  return Object.values(collection);
+}
+
 function normalizedCategoryName(value) {
   return String(value || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -23,12 +30,56 @@ function normalizeIds(values = []) {
   return [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || '').trim()).filter((value) => /^\d{15,24}$/.test(value)))];
 }
 
+function permissionMask(values = []) {
+  return (Array.isArray(values) ? values : []).reduce((mask, value) => mask | BigInt(value), 0n);
+}
+
+function overwriteMask(value) {
+  if (typeof value === 'bigint') return value;
+  if (value?.bitfield !== undefined) return BigInt(value.bitfield);
+  if (value === undefined || value === null) return 0n;
+  return BigInt(value);
+}
+
+function normalizedOverwritePlan(entries = []) {
+  const byTarget = new Map();
+  for (const entry of entries) {
+    const id = String(entry?.id || '');
+    if (!id) continue;
+    const type = Number(entry?.type ?? OverwriteType.Role);
+    const key = `${type}:${id}`;
+    const current = byTarget.get(key) || { id, type, allow: 0n, deny: 0n };
+    current.allow |= permissionMask(entry.allow || []);
+    current.deny |= permissionMask(entry.deny || []);
+    current.allow &= ~current.deny;
+    byTarget.set(key, current);
+  }
+  return [...byTarget.values()].sort((a, b) => `${a.type}:${a.id}`.localeCompare(`${b.type}:${b.id}`));
+}
+
+function overwriteSetMatches(channel, desiredEntries = []) {
+  const cache = channel?.permissionOverwrites?.cache;
+  if (!cache || typeof cache.values !== 'function') return false;
+  const actual = valuesOf(cache).map((entry) => ({
+    id: String(entry?.id || ''),
+    type: Number(entry?.type ?? OverwriteType.Role),
+    allow: overwriteMask(entry?.allow),
+    deny: overwriteMask(entry?.deny)
+  })).sort((a, b) => `${a.type}:${a.id}`.localeCompare(`${b.type}:${b.id}`));
+  const desired = normalizedOverwritePlan(desiredEntries);
+  if (actual.length !== desired.length) return false;
+  return actual.every((entry, index) => {
+    const wanted = desired[index];
+    return entry.id === wanted.id && entry.type === wanted.type && entry.allow === wanted.allow && entry.deny === wanted.deny;
+  });
+}
+
 function categoryPosition(channel) {
   return Number.isFinite(Number(channel?.rawPosition)) ? Number(channel.rawPosition) : Number(channel?.position || 0);
 }
 
 function categoriesFrom(channels) {
-  return [...channels.values()].filter((channel) => channel?.type === ChannelType.GuildCategory);
+  return valuesOf(channels).filter((channel) => channel?.type === ChannelType.GuildCategory);
 }
 
 function findCategoryByAliases(channels, aliases = []) {
@@ -111,8 +162,8 @@ function serverCategoryOrderIsCorrect(plan) {
   return actual.length === plan.entries.length && actual.every((entry, index) => String(entry.category.id) === String(plan.entries[index].category.id));
 }
 
-async function reconcileGameCategoryNames(guild, entries = null) {
-  const channels = await guild.channels.fetch();
+async function reconcileGameCategoryNames(guild, entries = null, channelsSnapshot = null) {
+  const channels = channelsSnapshot || await guild.channels.fetch();
   const managed = entries || moduleCategoryEntries(channels);
   let renamed = 0;
   for (const entry of managed) {
@@ -126,14 +177,14 @@ async function reconcileGameCategoryNames(guild, entries = null) {
   return { renamed };
 }
 
-async function resolveAdminRoleIds(guild, config = {}) {
-  const roles = await guild.roles.fetch();
+async function resolveAdminRoleIds(guild, config = {}, rolesSnapshot = null) {
+  const roles = rolesSnapshot || await guild.roles.fetch();
   const explicit = normalizeIds(config.discord?.operatorRoleIds || []).filter((id) => {
     const role = roles.get(id);
     return Boolean(role && role.id !== guild.id && role.managed !== true);
   });
   if (explicit.length) return explicit;
-  return [...roles.values()]
+  return valuesOf(roles)
     .filter((role) => role && role.id !== guild.id && role.managed !== true)
     .filter((role) => role.permissions?.has?.(PermissionFlagsBits.Administrator)
       || role.permissions?.has?.(PermissionFlagsBits.ManageGuild))
@@ -180,12 +231,19 @@ function ownerOnlyOverwrites(guild, botId) {
   ];
 }
 
-async function lockCategoryChildren(guild, category, reason) {
+async function applyOverwriteSet(channel, desiredEntries, reason) {
+  if (!channel?.permissionOverwrites?.set) return false;
+  if (overwriteSetMatches(channel, desiredEntries)) return false;
+  await channel.permissionOverwrites.set(desiredEntries, reason);
+  return true;
+}
+
+async function lockCategoryChildren(category, channels, reason) {
   if (!category) return 0;
-  const channels = await guild.channels.fetch();
   let locked = 0;
-  for (const channel of channels.values()) {
+  for (const channel of valuesOf(channels)) {
     if (String(channel?.parentId || '') !== String(category.id)) continue;
+    if (channel.permissionsLocked === true) continue;
     if (typeof channel.lockPermissions !== 'function') continue;
     await channel.lockPermissions(reason).catch(() => {});
     locked += 1;
@@ -193,8 +251,8 @@ async function lockCategoryChildren(guild, category, reason) {
   return locked;
 }
 
-async function reconcileStructuralPrivacy(guild, options = {}, structural = null) {
-  const channels = await guild.channels.fetch();
+async function reconcileStructuralPrivacy(guild, options = {}, structural = null, channelsSnapshot = null, rolesSnapshot = null) {
+  const channels = channelsSnapshot || await guild.channels.fetch();
   const categories = structural || structuralCategories(channels);
   const config = options.config || {};
   const botId = String(options.botId || '');
@@ -204,22 +262,31 @@ async function reconcileStructuralPrivacy(guild, options = {}, structural = null
   let childrenLocked = 0;
 
   if (categories.nexusPrivate?.permissionOverwrites?.set) {
-    const adminRoleIds = await resolveAdminRoleIds(guild, config);
-    await categories.nexusPrivate.permissionOverwrites.set(
+    const roles = rolesSnapshot || await guild.roles.fetch();
+    const adminRoleIds = await resolveAdminRoleIds(guild, config, roles);
+    nexusUpdated = await applyOverwriteSet(
+      categories.nexusPrivate,
       staffAdminOverwrites(guild, botId, adminRoleIds, ownerIds),
       'Nexus Sentinal: Khaos Nexus category is Staff Admin+ only'
     );
-    childrenLocked += await lockCategoryChildren(guild, categories.nexusPrivate, 'Nexus Sentinal: inherit Staff Admin+ Khaos Nexus privacy');
-    nexusUpdated = true;
+    childrenLocked += await lockCategoryChildren(
+      categories.nexusPrivate,
+      channels,
+      'Nexus Sentinal: inherit Staff Admin+ Khaos Nexus privacy'
+    );
   }
 
   if (categories.ownerOnly?.permissionOverwrites?.set) {
-    await categories.ownerOnly.permissionOverwrites.set(
+    ownerUpdated = await applyOverwriteSet(
+      categories.ownerOnly,
       ownerOnlyOverwrites(guild, botId),
       'Nexus Sentinal: Hidden Server category is owner-only'
     );
-    childrenLocked += await lockCategoryChildren(guild, categories.ownerOnly, 'Nexus Sentinal: inherit owner-only Hidden Server privacy');
-    ownerUpdated = true;
+    childrenLocked += await lockCategoryChildren(
+      categories.ownerOnly,
+      channels,
+      'Nexus Sentinal: inherit owner-only Hidden Server privacy'
+    );
   }
 
   return { nexusUpdated, ownerUpdated, childrenLocked };
@@ -230,13 +297,13 @@ async function reconcileServerCategoryOrder(guild, options = {}) {
   let plan = serverCategoryOrderPlan(channels);
   if (!plan.modules.length) return { ok: false, skipped: true, moved: 0, renamed: 0, reason: 'No game module categories found.' };
 
-  const names = await reconcileGameCategoryNames(guild, plan.modules);
+  const names = await reconcileGameCategoryNames(guild, plan.modules, channels);
   if (names.renamed) {
     channels = await guild.channels.fetch();
     plan = serverCategoryOrderPlan(channels);
   }
 
-  const privacy = await reconcileStructuralPrivacy(guild, options, plan.structural);
+  const privacy = await reconcileStructuralPrivacy(guild, options, plan.structural, channels);
   const desired = plan.entries.map((entry) => entry.label);
   let moved = 0;
 
@@ -271,8 +338,13 @@ async function reconcileGameCategoryOrder(guild, options = {}) {
 module.exports = {
   DEFAULT_BOUNDARY_NAMES,
   STRUCTURAL_CATEGORY_ALIASES,
+  valuesOf,
   normalizedCategoryName,
   normalizeIds,
+  permissionMask,
+  overwriteMask,
+  normalizedOverwritePlan,
+  overwriteSetMatches,
   categoryPosition,
   categoriesFrom,
   findCategoryByAliases,
@@ -287,6 +359,7 @@ module.exports = {
   resolveAdminRoleIds,
   staffAdminOverwrites,
   ownerOnlyOverwrites,
+  applyOverwriteSet,
   lockCategoryChildren,
   reconcileStructuralPrivacy,
   reconcileServerCategoryOrder,
