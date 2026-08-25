@@ -7,6 +7,7 @@ const {
   HQ_CATEGORY_NAME,
   HQ_CHANNELS,
   findHqCategory,
+  findInformationCategory,
   rankRoleIdsFrom,
   shadowRecruitRoleIdFrom,
   hqCategoryOverwrites,
@@ -16,6 +17,9 @@ const {
   overwriteSetMatches,
   overwritePlanSatisfies,
   matchingChannels,
+  isOnboardingReadabilityError,
+  legacyOnboardingArchiveName,
+  archiveBlockedOnboardingChannel,
   hqChildAccessSatisfies,
   lockHqChildren,
   hqChannelsInDesiredRelativeOrder
@@ -65,6 +69,12 @@ test('existing Nexus HQ and forums channel are adopted instead of duplicated', (
   assert.equal(findHqCategory(channels)?.id, category.id);
   const forumSpec = HQ_CHANNELS.find((item) => item.key === 'forum');
   assert.deepEqual(matchingChannels(channels, forumSpec).map((item) => item.id), [forum.id]);
+});
+
+test('INFORMATION lookup supports the canonical category used for preserved onboarding history', () => {
+  const info = { id: '900000000000000003', name: 'INFORMATION', type: ChannelType.GuildCategory };
+  const channels = new Map([[info.id, info]]);
+  assert.equal(findInformationCategory(channels)?.id, info.id);
 });
 
 test('Shadow Recruit and all discovered Nexus rank roles receive HQ access', () => {
@@ -210,6 +220,58 @@ test('safe unsynced canonical HQ child does not call lockPermissions', async () 
   assert.equal(result.locked, 0);
   assert.deepEqual(result.blocked, []);
   assert.equal(lockCalls, 0);
+});
+
+test('Discord orphaned onboarding readability failures are identified without treating unrelated errors as onboarding', () => {
+  assert.equal(isOnboardingReadabilityError({ code: 350003, message: 'Bad Request' }), true);
+  assert.equal(isOnboardingReadabilityError(new Error('Onboarding channels must be readable by everyone')), true);
+  assert.equal(isOnboardingReadabilityError(new Error('Missing permissions')), false);
+});
+
+test('orphaned onboarding introductions are preserved outside HQ and replaced instead of deleted', async () => {
+  const guildId = '900000000000000100';
+  const hq = { id: '900000000000000101', name: HQ_CATEGORY_NAME, type: ChannelType.GuildCategory };
+  const info = { id: '900000000000000102', name: 'INFORMATION', type: ChannelType.GuildCategory };
+  const calls = { parent: [], name: [], topic: [], edits: [], creates: [], deletes: 0 };
+  const legacy = {
+    id: '900000000000000103',
+    name: 'introductions',
+    type: ChannelType.GuildText,
+    parentId: hq.id,
+    async setParent(parentId) { calls.parent.push(parentId); this.parentId = parentId; return this; },
+    async setName(name) { calls.name.push(name); this.name = name; return this; },
+    async setTopic(topic) { calls.topic.push(topic); return this; },
+    permissionOverwrites: {
+      async edit(target, permissions) { calls.edits.push({ target: String(target), permissions }); }
+    }
+  };
+  const replacement = {
+    id: '900000000000000104',
+    name: 'introductions',
+    type: ChannelType.GuildText,
+    parentId: hq.id
+  };
+  const channels = new Map([[hq.id, hq], [info.id, info], [legacy.id, legacy]]);
+  const guild = {
+    id: guildId,
+    channels: {
+      async create(options) { calls.creates.push(options); return replacement; }
+    }
+  };
+  const spec = HQ_CHANNELS.find((item) => item.key === 'introductions');
+  const desired = [{ id: guildId, type: 0, deny: [PermissionFlagsBits.ViewChannel] }];
+  const result = await archiveBlockedOnboardingChannel(guild, hq, spec, legacy, channels, desired);
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls.parent, [info.id]);
+  assert.equal(calls.name[0], legacyOnboardingArchiveName(spec, legacy));
+  assert.match(calls.name[0], /^introductions-legacy-onboarding-/);
+  assert.equal(calls.creates.length, 1);
+  assert.equal(calls.creates[0].parent, hq.id);
+  assert.equal(calls.creates[0].name, 'introductions');
+  assert.deepEqual(calls.creates[0].permissionOverwrites, desired);
+  assert.equal(calls.deletes, 0);
+  assert.equal(result.archiveReadOnly, true);
 });
 
 test('HQ channel ordering is drift-aware and only requests moves when relative order is wrong', () => {
