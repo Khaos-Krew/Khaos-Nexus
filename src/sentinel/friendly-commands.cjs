@@ -46,6 +46,39 @@ function scheduleGroup() {
   ]);
 }
 
+const OSRS_MODES = Object.freeze([
+  ['Normal', 'normal'], ['Ironman', 'ironman'], ['Hardcore Ironman', 'hardcore'], ['Ultimate Ironman', 'ultimate'],
+  ['Deadman', 'deadman'], ['Seasonal', 'seasonal'], ['Tournament', 'tournament'], ['Fresh Start', 'fresh-start'],
+  ['Pure', 'pure'], ['Skiller', 'skiller']
+]);
+const RS3_MODES = Object.freeze([['Normal', 'normal'], ['Ironman', 'ironman'], ['Hardcore Ironman', 'hardcore']]);
+
+function runescapeSpec(moduleId, command, description, modes) {
+  return {
+    moduleId, command, description, entries: [
+      action('link', 'link', 'Link your public RuneScape name', [
+        textOption('player', 'RuneScape character name', true),
+        textOption('mode', 'Hiscores account mode', false, modes)
+      ], (v) => ({ player: v.player, mode: v.mode || 'normal', input: `${v.player}|${v.mode || 'normal'}` })),
+      action('unlink', 'unlink', 'Remove your linked RuneScape name'),
+      action('profile', 'profile', 'Show a Hiscores profile', [
+        textOption('player', 'Optional RuneScape name; defaults to your linked name'),
+        textOption('mode', 'Hiscores account mode', false, modes)
+      ], (v) => ({ player: v.player || '', mode: v.mode || '' })),
+      action('skills', 'skills', 'Show skill levels, XP, and ranks', [
+        textOption('player', 'Optional RuneScape name; defaults to your linked name'),
+        textOption('mode', 'Hiscores account mode', false, modes)
+      ], (v) => ({ player: v.player || '', mode: v.mode || '' })),
+      action('activities', 'activities', 'Show public boss and activity Hiscores', [
+        textOption('player', 'Optional RuneScape name; defaults to your linked name'),
+        textOption('mode', 'Hiscores account mode', false, modes)
+      ], (v) => ({ player: v.player || '', mode: v.mode || '' })),
+      action('wiki', 'wiki', 'Search the RuneScape Wiki', [textOption('query', 'Item, boss, quest, skill, drop, location, spell, prayer, or guide', true)], (v) => ({ query: v.query, input: v.query })),
+      action('price', 'price', moduleId === 'osrs' ? 'Look up a real-time Grand Exchange price' : 'Look up a Grand Exchange item by Jagex item ID', [textOption('item', moduleId === 'osrs' ? 'Item name or numeric item ID' : 'Numeric Jagex item ID', true)], (v) => ({ item: v.item, input: v.item }))
+    ]
+  };
+}
+
 const SPECS = Object.freeze([
   {
     moduleId: 'ark', command: 'ark', description: 'ARK server tools', entries: [
@@ -266,6 +299,27 @@ const SPECS = Object.freeze([
         action('add', 'event-add', 'Add an event reminder', [textOption('name', 'Event name', true), textOption('start', 'Start time'), textOption('end', 'End time'), textOption('notes', 'Notes')], (v) => ({ name: v.name, startsAt: v.start, endsAt: v.end, notes: v.notes })),
         action('remove', 'event-remove', 'Remove an event reminder', [textOption('id', 'Event ID', true)], (v) => ({ id: v.id }))
       ])
+    ]
+  },
+  runescapeSpec('osrs', 'osrs', 'Old School RuneScape profile, Hiscores, Wiki, and GE tools', OSRS_MODES),
+  runescapeSpec('runescape3', 'rs3', 'RuneScape 3 profile, Hiscores, Wiki, and GE tools', RS3_MODES),
+  {
+    moduleId: 'oncehuman', command: 'oncehuman', description: 'Once Human community companion tools', entries: [
+      action('news', 'news', 'Show official Once Human updates'),
+      action('builds', 'builds', 'Manage your saved builds', [
+        textOption('action', 'What to do', true, [['List', 'list'], ['Add', 'add'], ['Remove', 'remove']]),
+        textOption('value', 'Build notes when adding or removing')
+      ], (v) => ({ input: v.value ? `${v.action} ${v.value}` : v.action })),
+      action('wishlist', 'wishlist', 'Manage your wishlist', [
+        textOption('action', 'What to do', true, [['List', 'list'], ['Add', 'add'], ['Remove', 'remove']]),
+        textOption('item', 'Weapon, blueprint, mod, deviation, or other target')
+      ], (v) => ({ input: v.item ? `${v.action} ${v.item}` : v.action })),
+      action('lfg', 'lfg', 'Manage Once Human LFG', [
+        textOption('action', 'What to do', true, [['List', 'list'], ['Join', 'join'], ['Leave', 'leave']]),
+        textOption('activity', 'Prime War, LEA, silo, monolith, farm, or other activity')
+      ], (v) => ({ input: v.activity ? `${v.action} ${v.activity}` : v.action })),
+      action('reference', 'reference', 'Find safe official/community reference sources', [textOption('query', 'Weapon, armor, mod, deviation, item, or activity')], (v) => ({ query: v.query || '', input: v.query || '' })),
+      action('api', 'api-status', 'Show Once Human integration/API status')
     ]
   }
 ]);
