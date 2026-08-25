@@ -15,11 +15,14 @@ const {
   isPrivateSafeText,
   findStaffCategory,
   staffCategoryOverwrites,
+  permissionMask,
+  overwriteSetMatches,
   adminCommandInventory,
   adminCommandsPayload,
   roadmapPayload,
   staffHubPayload,
   panelMatches,
+  panelPayloadMatches,
   officeThreadName,
   officeThreadMatches,
   legacyOfficeChannelName
@@ -68,6 +71,18 @@ test('staff category permissions hide everyone while allowing forum participatio
   assert.equal(staff.allow.includes(PermissionFlagsBits.ManageThreads), false);
   assert.ok(owner.allow.includes(PermissionFlagsBits.ManageThreads));
   assert.ok(bot.allow.includes(PermissionFlagsBits.ManageThreads));
+});
+
+test('already-correct staff category overwrites are recognized without a Discord write', () => {
+  const guild = { id: IDS.guild };
+  const desired = staffCategoryOverwrites(guild, IDS.bot, [IDS.staff], [IDS.owner]);
+  const cache = new Map(desired.map((entry) => [String(entry.id), {
+    id: String(entry.id),
+    type: Number(entry.type ?? OverwriteType.Role),
+    allow: { bitfield: permissionMask(entry.allow || []) },
+    deny: { bitfield: permissionMask(entry.deny || []) }
+  }]));
+  assert.equal(overwriteSetMatches({ permissionOverwrites: { cache } }, desired), true);
 });
 
 test('staff membership accepts configured staff role or owner only', () => {
@@ -131,16 +146,18 @@ test('staff command payload is completely free of restricted private-only terms'
   assert.match(payload.embeds[0].description, /access checks, confirmations, and audit boundaries/i);
 });
 
-test('staff roadmap panel states active acceptance separately from completed milestones', () => {
+test('staff roadmap panel separates automated green from human acceptance and does not overclaim role authority', () => {
   const payload = roadmapPayload();
   const text = JSON.stringify(payload);
   assert.equal(payload.embeds[0].footer.text, ROADMAP_PANEL_MARKER);
   assert.match(text, /Community XP & Leveling/);
   assert.match(text, /Staff Workspace/);
-  assert.match(text, /Discord \+ Nexus Setup Acceptance/);
+  assert.match(text, /Discord Roles & Permissions/);
   assert.match(text, /Nexus D&D/);
   assert.match(text, /66%/);
   assert.match(text, /100%/);
+  assert.match(text, /automated implementation green; live member interaction remains/i);
+  assert.doesNotMatch(text, /Sentinal Discord Role Authority[^]*100% accepted/i);
 });
 
 test('staff hub links roadmap and forum-based offices while keeping reports separate', () => {
@@ -174,4 +191,18 @@ test('managed panel matching requires both marker and bot ownership when supplie
   assert.equal(panelMatches(message, ADMIN_PANEL_MARKER, IDS.bot), true);
   assert.equal(panelMatches(message, ADMIN_PANEL_MARKER, IDS.owner), false);
   assert.equal(panelMatches(message, STAFF_PANEL_MARKER, IDS.bot), false);
+});
+
+test('managed staff panels avoid edits when the rendered payload is unchanged', () => {
+  const payload = staffHubPayload({
+    'staff-ops': { id: '555555555555555555' },
+    'admin-commands': { id: '666666666666666666' },
+    roadmap: { id: '777777777777777777' },
+    'staff-offices': { id: '888888888888888888' }
+  });
+  const message = {
+    content: '',
+    embeds: payload.embeds.map((embed) => ({ toJSON: () => embed }))
+  };
+  assert.equal(panelPayloadMatches(message, payload), true);
 });
