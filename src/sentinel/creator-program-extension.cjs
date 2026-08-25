@@ -7,9 +7,11 @@ const {
   ChannelType,
   Client,
   Events,
+  MessageFlags,
   ModalBuilder,
   OverwriteType,
   PermissionFlagsBits,
+  SlashCommandBuilder,
   TextInputBuilder,
   TextInputStyle
 } = require('discord.js');
@@ -216,6 +218,38 @@ function providerStatus(env = process.env) {
     twitch: Boolean(String(env.TWITCH_CLIENT_ID || '').trim() && String(env.TWITCH_CLIENT_SECRET || '').trim()),
     youtube: Boolean(String(env.YOUTUBE_API_KEY || '').trim())
   };
+}
+
+function creatorCommand() {
+  return new SlashCommandBuilder().setName('creator').setDescription('View the Khaos Nexus Content Creator Program.')
+    .addSubcommand((sub) => sub.setName('status').setDescription('View your private application and approval status.'))
+    .addSubcommand((sub) => sub.setName('roster').setDescription('List approved Khaos Nexus creators.'));
+}
+
+async function registerCreatorCommand(guild) {
+  const definition = creatorCommand().toJSON();
+  const commands = await guild.commands.fetch();
+  const existing = commands.find((command) => command.name === definition.name);
+  if (existing) await guild.commands.edit(existing, definition); else await guild.commands.create(definition);
+  return definition.name;
+}
+
+async function handleCreatorCommand(interaction, store) {
+  if (!interaction.isChatInputCommand?.() || interaction.commandName !== 'creator') return false;
+  const subcommand = interaction.options.getSubcommand();
+  if (subcommand === 'status') {
+    const profile = store.getCreatorProfile(interaction.user.id);
+    const application = store.findCreatorApplicationByUser(interaction.user.id);
+    let content = 'You have not submitted a Content Creator Program application.';
+    if (profile) content = `✅ You are an approved Khaos Nexus creator.\nPlatforms: **${(profile.platforms || []).join(', ') || profile.platformText || 'Not recorded'}**\nChannel: ${profile.channelRef || 'Not recorded'}`;
+    else if (application) content = `**${application.id}** — ${String(application.status || 'pending').toUpperCase()}\nPlatforms: **${application.platformText || 'Not recorded'}**${application.status === 'denied' && application.reviewReason ? `\nDecision note: ${application.reviewReason}` : ''}`;
+    await interaction.reply({ content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+    return true;
+  }
+  const profiles = Object.values(store.listCreatorProfiles()).sort((a, b) => String(a.approvedAt || '').localeCompare(String(b.approvedAt || '')));
+  const lines = profiles.slice(0, 40).map((profile) => `• <@${profile.userId}> — ${(profile.platforms || []).join(' / ') || 'Creator'}${profile.channelRef ? ` — ${profile.channelRef}` : ''}`);
+  await interaction.reply({ content: lines.length ? `**Approved Khaos Nexus Creators**\n${lines.join('\n')}`.slice(0, 1900) : 'No approved creator profiles are published yet.', allowedMentions: { parse: [] } });
+  return true;
 }
 
 function programPayload(env = process.env) {
@@ -464,6 +498,7 @@ async function ensureCreatorProgram(guild, config, store, botId) {
 
 async function handleInteraction(interaction, context) {
   const { store, config } = context;
+  if (await handleCreatorCommand(interaction, store)) return true;
   const customId = String(interaction.customId || '');
   if (interaction.isButton?.() && customId === APPLY_BUTTON_ID) {
     await interaction.showModal(applicationModal());
@@ -546,13 +581,14 @@ function installCreatorProgramExtension() {
           if (!guildId) return;
           const guild = await this.guilds.fetch(guildId);
           const result = await ensureCreatorProgram(guild, config, store, this.user?.id);
+          const command = await registerCreatorCommand(guild);
           context = {
             reviewChannel: result.reviewChannel,
             staffRoleIds: result.staffRoleIds,
             creatorRole: await guild.roles.fetch(result.creatorRoleId)
           };
           const providers = providerStatus();
-          console.log(`[Nexus Sentinal] creator program (${reason}): category=${result.categoryId} categoryCreated=${result.categoryCreated} channelsCreated=${result.channelsCreated} creatorRoleCreated=${result.creatorRoleCreated} nowLiveRoleCreated=${result.nowLiveRoleCreated} applications=${result.reviewStats.tracked} reviewCardsCreated=${result.reviewStats.created} twitch=${providers.twitch ? 'ready' : 'pending'} youtube=${providers.youtube ? 'ready' : 'pending'}`);
+          console.log(`[Nexus Sentinal] creator program (${reason}): category=${result.categoryId} categoryCreated=${result.categoryCreated} channelsCreated=${result.channelsCreated} creatorRoleCreated=${result.creatorRoleCreated} nowLiveRoleCreated=${result.nowLiveRoleCreated} command=/${command} applications=${result.reviewStats.tracked} reviewCardsCreated=${result.reviewStats.created} twitch=${providers.twitch ? 'ready' : 'pending'} youtube=${providers.youtube ? 'ready' : 'pending'}`);
         } catch (error) {
           console.warn(`[Nexus Sentinal] creator program (${reason}) unavailable: ${String(error?.message || error).slice(0, 300)}`);
         } finally {
@@ -582,6 +618,9 @@ module.exports = {
   ASSETS_MARKER,
   APPLY_BUTTON_ID,
   APPLY_MODAL_ID,
+  creatorCommand,
+  handleCreatorCommand,
+  registerCreatorCommand,
   normalizeName,
   normalizeIds,
   cleanText,

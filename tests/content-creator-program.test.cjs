@@ -19,7 +19,9 @@ const {
   reviewPayload,
   isReviewer,
   ensureProgramRoles,
-  applyDecision
+  applyDecision,
+  creatorCommand,
+  handleCreatorCommand
 } = require('../src/sentinel/creator-program-extension.cjs');
 
 function application(overrides = {}) {
@@ -42,6 +44,32 @@ function application(overrides = {}) {
     ...overrides
   };
 }
+
+test('creator command exposes private status and approved roster views', () => {
+  const command = creatorCommand().toJSON();
+  assert.equal(command.name, 'creator');
+  assert.deepEqual(command.options.map((option) => option.name), ['status', 'roster']);
+});
+
+test('creator status is private while roster publishes approved profiles only', async () => {
+  const replies = [];
+  const store = {
+    getCreatorProfile: () => null,
+    findCreatorApplicationByUser: () => application({ status: 'pending' }),
+    listCreatorProfiles: () => ({ approved: { userId: '100000000000000222', platforms: ['twitch'], channelRef: 'https://example.com/approved', approvedAt: '2026-08-25T00:00:00Z' } })
+  };
+  const interaction = (subcommand) => ({
+    commandName: 'creator', user: { id: '100000000000000111' },
+    isChatInputCommand: () => true, options: { getSubcommand: () => subcommand },
+    async reply(payload) { replies.push(payload); }
+  });
+  await handleCreatorCommand(interaction('status'), store);
+  assert.ok(replies[0].flags, 'application status must be ephemeral');
+  assert.match(replies[0].content, /CCR-0001/);
+  await handleCreatorCommand(interaction('roster'), store);
+  assert.match(replies[1].content, /approved/);
+  assert.equal(replies[1].flags, undefined);
+});
 
 test('creator program uses the approved category, creator role, and temporary live role names', () => {
   assert.equal(CATEGORY_NAME, 'CONTENT CREATOR PROGRAM');
