@@ -32,6 +32,19 @@ const COMMUNITY_SUGGESTIONS_PATCH_NOTE = Object.freeze({
     'Community passage does not automatically authorize implementation; the protected Owner review and development-plan decision loop remains the final acceptance stage.'
   ])
 });
+const SENTINEL_SHIELD_PATCH_NOTE = Object.freeze({
+  key: 'sentinel-shield:100',
+  section: 'Sentinel Shield',
+  percent: 100,
+  title: 'Sentinel Shield Complete',
+  summary: 'Sentinel Shield has reached its 100% roadmap milestone and is now protecting the Khaos Nexus community with layered security and staff review controls.',
+  highlights: Object.freeze([
+    'Added automated scam, phishing, suspicious-link, spam, and raid-awareness protections with conservative safeguards against false positives.',
+    'Added private security cases, staff alerts, evidence-preserving review controls, and clear escalation paths for suspicious activity.',
+    'Added reversible quarantine isolation that protects community and game spaces without stripping a member’s normal Nexus roles or unrelated permissions.',
+    'Added a controlled verification-help path and automatic reconciliation so security restrictions can be safely reviewed and restored by staff.'
+  ])
+});
 
 function installRoadmapPatchNoteExtension() {
   if (Client.prototype[INSTALLED]) return;
@@ -40,7 +53,7 @@ function installRoadmapPatchNoteExtension() {
   const config = loadConfig();
   const guildId = String(config.discord?.guildId || '');
   const state = new StateStore();
-  const publisher = new RoadmapPatchNotePublisher({ state, config, notes: [...ROADMAP_PATCH_NOTES, ABOUT_PATCH_NOTE, COMMUNITY_SUGGESTIONS_PATCH_NOTE] });
+  const publisher = new RoadmapPatchNotePublisher({ state, config, notes: [...ROADMAP_PATCH_NOTES, ABOUT_PATCH_NOTE, COMMUNITY_SUGGESTIONS_PATCH_NOTE, SENTINEL_SHIELD_PATCH_NOTE] });
   const originalLogin = Client.prototype.login;
 
   Client.prototype.login = function nexusRoadmapPatchNoteLogin(...args) {
@@ -60,4 +73,4 @@ function installRoadmapPatchNoteExtension() {
   };
 }
 
-module.exports = { ABOUT_PATCH_NOTE, COMMUNITY_SUGGESTIONS_PATCH_NOTE, installRoadmapPatchNoteExtension };
+module.exports = { ABOUT_PATCH_NOTE, COMMUNITY_SUGGESTIONS_PATCH_NOTE, SENTINEL_SHIELD_PATCH_NOTE, installRoadmapPatchNoteExtension };
