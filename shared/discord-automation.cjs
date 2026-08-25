@@ -176,6 +176,7 @@ const DEFAULT_LAYOUT = Object.freeze(normalizeLayout({
   categories: [
     { id: 'information', name: 'NEXUS INFORMATION', channels: [
       { id: 'welcome', name: 'welcome', type: 'text', topic: 'Welcome and getting-started information.' },
+      { id: 'about', name: 'about', type: 'text', topic: 'Learn what Khaos Nexus is, explore what the community offers, and invite others to join the Nexus.' },
       { id: 'announcements', name: 'announcements', type: 'announcement', topic: 'Official Khaos Nexus announcements.' },
       { id: 'roles', name: 'roles-and-notifications', type: 'text', topic: 'Role menus, colors, platforms, games, and notifications.' }
     ] },
