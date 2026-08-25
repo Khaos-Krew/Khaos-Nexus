@@ -41,7 +41,7 @@ Build the repository-backed content layer before expanding UI behavior.
 
 **Exit:** a fresh character/campaign can be constructed from canonical versioned data without hard-coded UI lists.
 
-## Phase DND-02 — Backend D&D domain completion
+## Phase DND-02 — Veyra D&D domain completion
 
 Complete the Veyra-owned service contracts required by the player/DM client and the bounded Nexus gateway.
 
@@ -59,13 +59,13 @@ Core domains:
 - DM/player permissions and campaign-scoped authorization;
 - import/export and backup-safe serialization.
 
-Migrate useful behavior incrementally from validated historical D&D candidates while preserving the current backend-first rule.
+Migrate useful behavior incrementally from validated historical D&D candidates while preserving Veyra as the authoritative service boundary.
 
 **Exit:** all core gameplay state can be exercised through tested Veyra APIs without requiring Electron-specific or Nexus Backend-owned campaign state.
 
 ## Phase DND-03 — Veyra production integration
 
-Teach Veyra to consume the canonical D&D contracts and content rather than duplicating campaign truth.
+Complete Veyra's use of its canonical D&D contracts and content so clients and the bounded Nexus gateway do not duplicate campaign truth.
 
 Preserve and migrate the strongest previously validated behaviors:
 
@@ -80,7 +80,7 @@ Preserve and migrate the strongest previously validated behaviors:
 - scoped campaign memory and bounded context;
 - no automatic publication or irreversible campaign mutation without the appropriate user action/authority.
 
-**Exit:** Veyra can support a real campaign through stable service contracts without becoming the source of truth for campaign state.
+**Exit:** Veyra can support a real campaign through stable service contracts as the sole source of truth for campaign state.
 
 ## Phase DND-04 — Player-ready character and campaign client
 

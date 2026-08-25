@@ -28,7 +28,7 @@ Issue #286 records the owner-approved backend-first rebuild direction.
 - **Nexus Backend** owns game logic, provider integrations, shared module contracts, permissions, health, scheduling hooks, and backend service routing.
 - **Nexus Sentinal** is the primary day-to-day Discord interface for game modules through persistent consoles, setup/reconciliation, friendly commands, interactive controls, self-role/rank surfaces, safety/reporting workflows, and deeper commands.
 - **Khaos Nexus Desktop** is the privileged Admin Control Center for Discord/Sentinal administration, accounts/access, backend/module/service configuration, diagnostics, recovery, updates, scheduler administration, integrations, owner testing, and the private-edition assistant bridge.
-- **Veyra** may remain the dedicated D&D presentation surface while D&D follows the same backend-first service rule.
+- **Veyra** is the authoritative owner of D&D domain state, campaign truth, permissions, and gameplay contracts. Nexus may expose only a bounded authenticated gateway, health/diagnostic evidence, and account/Discord identity context; it must not persist competing D&D state.
 - Private/local assistant functionality remains bridged from its canonical private project rather than duplicated into public Sentinal surfaces.
 
 ## Current implementation evidence
@@ -244,15 +244,15 @@ Nexus D&D is the planned continuation at the end of the current roadmap, not an 
 The D&D continuation will:
 
 1. establish canonical/versioned rules, character-creation, map/world, and Khaos Nexus homebrew content assets;
-2. complete backend-first campaign, character, session, encounter, content/homebrew, map, and permission contracts;
-3. reconnect Veyra to those canonical contracts and migrate the strongest validated Co-DM, homebrew-proposal, procedural-map, and explicit AI Game Master behaviors without restoring the old monolithic architecture;
+2. complete Veyra-owned campaign, character, session, encounter, content/homebrew, map, and permission contracts;
+3. migrate the strongest validated Co-DM, homebrew-proposal, procedural-map, and explicit AI Game Master behaviors into Veyra without restoring the old monolithic architecture or creating a Nexus-owned campaign database;
 4. build a normal-player character/campaign client and a DM world/campaign builder;
 5. implement the intended exploration-to-tactical-combat transition and complete encounter lifecycle;
 6. keep Discord as the lightweight campaign coordination/access bridge rather than a second campaign database;
 7. move to a closed community beta as soon as the core campaign loop is safe and usable;
 8. complete multi-user, permission, migration, recovery, installer/updater, privacy, security, and source-provenance hardening before broader release.
 
-The first active D&D checkpoint after handoff is **DND-01 + DND-02 repository inventory/gap analysis**, followed immediately by a beta-critical-path implementation sequence. The roadmap must not silently return D&D to an indefinite backlog after Nexus acceptance.
+The first active D&D checkpoint after handoff is **DND-01 content inventory plus DND-02 Veyra contract/repository inventory and gap analysis**, followed immediately by a beta-critical-path implementation sequence in the Veyra-owned codebase. The roadmap must not silently return D&D to an indefinite backlog after Nexus acceptance.
 
 ## Historical stabilization record
 
