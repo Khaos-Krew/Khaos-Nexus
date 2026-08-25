@@ -4,6 +4,8 @@ const { Client, Events } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { rankAuthority } = require('../shared/ranks.cjs');
 const { createCoalescingRunner } = require('./coalescing-runner.cjs');
+const { effectiveRankConfig } = require('./effective-rank-config.cjs');
+const { StateStore } = require('./state-store.cjs');
 const { reconcileSupporterEntitlements } = require('./supporter-entitlement-adapter.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.supporterEntitlement.extension');
@@ -31,7 +33,8 @@ function supporterSyncSummary(result = {}) {
 }
 
 async function runSupporterEntitlementSync(client, config = {}, options = {}) {
-  if (!premiumEntitlementAuthority(config)) {
+  const effective = effectiveRankConfig(config, options.state || options.adminSettings || null);
+  if (!premiumEntitlementAuthority(effective)) {
     return {
       ok: true,
       reason: 'server-shop-roles-authoritative',
@@ -43,10 +46,10 @@ async function runSupporterEntitlementSync(client, config = {}, options = {}) {
       truncated: false
     };
   }
-  const guildId = String(config.discord?.guildId || '').trim();
+  const guildId = String(effective.discord?.guildId || '').trim();
   if (!guildId) return { ok: false, reason: 'guild-not-configured', users: [], changed: 0, failures: 0 };
   const guild = await client.guilds.fetch(guildId);
-  return reconcileSupporterEntitlements(client, guild, config, {
+  return reconcileSupporterEntitlements(client, guild, effective, {
     includeStaleMembers: options.includeStaleMembers !== false
   });
 }
@@ -55,6 +58,7 @@ function installSupporterEntitlementExtension() {
   if (Client.prototype[INSTALLED]) return;
   Client.prototype[INSTALLED] = true;
   const config = loadConfig();
+  const state = new StateStore();
   const originalLogin = Client.prototype.login;
 
   Client.prototype.login = function nexusSupporterEntitlementLogin(...args) {
@@ -66,7 +70,7 @@ function installSupporterEntitlementExtension() {
 
       client.once(Events.ClientReady, () => {
         runner = createCoalescingRunner(async (reason) => {
-          const result = await runSupporterEntitlementSync(client, config, { includeStaleMembers: true });
+          const result = await runSupporterEntitlementSync(client, config, { state, includeStaleMembers: true });
           console.log(`[Nexus Sentinal] supporter entitlement reconciliation (${reason}): ${supporterSyncSummary(result)}`);
           for (const item of result.users || []) {
             if (item.ok === false) {
@@ -79,11 +83,6 @@ function installSupporterEntitlementExtension() {
           }
         });
 
-        if (!premiumEntitlementAuthority(config)) {
-          console.log('[Nexus Sentinal] supporter entitlement reconciliation: authority=server-shop-roles skipped=true');
-          return;
-        }
-
         const initial = setTimeout(() => void request('startup'), INITIAL_DELAY_MS);
         initial.unref?.();
         const periodic = setInterval(() => void request('periodic'), PERIODIC_SYNC_MS);
@@ -91,10 +90,7 @@ function installSupporterEntitlementExtension() {
       });
 
       for (const eventName of ENTITLEMENT_EVENTS) {
-        client.on(eventName, () => {
-          if (!premiumEntitlementAuthority(config)) return;
-          void request(eventName);
-        });
+        client.on(eventName, () => void request(eventName));
       }
     }
     return originalLogin.apply(client, args);
