@@ -8,6 +8,7 @@ const {
 } = require('discord.js');
 const { findHqCategory, normalizedName } = require('./nexus-hq.cjs');
 const { managedPayloadMatches } = require('./managed-payload-compare.cjs');
+const { paragraphs, spacedItems } = require('./embed-layout.cjs');
 
 const COMMAND_CHANNEL_NAME = 'nexus-commands';
 const COMMAND_CHANNEL_TOPIC = 'Run non-game Khaos Nexus commands here. Use the buttons for common community tools; game-specific commands stay in their game hubs.';
@@ -51,25 +52,39 @@ function commandPanelPayload() {
     embeds: [{
       title: '🌐 KHAOS NEXUS • COMMAND CENTER',
       color: 0xb00020,
-      description: [
+      description: paragraphs(
         'Use this channel for **non-game Nexus commands**. The buttons below run the most common community tools without needing to remember slash commands.',
-        '',
-        '🎮 **Game-specific commands stay in their game hubs** so game tools, feeds, builds, farming data, server controls, and module actions do not clutter the community command surface.'
-      ].join('\n'),
+        '🎮 **Game-specific commands stay in their game hubs.** Game tools, feeds, builds, farming data, server controls, and module actions stay with the relevant game.'
+      ),
       fields: [
         {
           name: '⚡ Community Progression',
-          value: '`/level` • `/rank` • `/achievements` • `/leaderboard`\nButtons return private results so the command channel stays clean.',
+          value: spacedItems([
+            '`/level` — your XP and level card',
+            '`/rank` — your community leaderboard position',
+            '`/achievements` — badges and achievement progress',
+            '`/leaderboard` — top community XP standings',
+            '**Tip:** buttons return private results so this channel stays clean.'
+          ]),
           inline: false
         },
         {
           name: '💡 Community Tools',
-          value: 'Submit suggestions, jump to events or polls, open role controls, or use **Nexus Help** for the public command reference.',
+          value: spacedItems([
+            '💡 **Suggestions** — submit a tracked community idea',
+            '📅 **Events** — jump to official Nexus events',
+            '🗳️ **Polls** — open managed community voting',
+            '🎭 **Roles** — open the managed self-role controls',
+            '❓ **Nexus Help** — show the public command reference'
+          ]),
           inline: false
         },
         {
           name: '🛡️ Public Surface Only',
-          value: 'Staff administration, moderation, security, infrastructure, and privileged server controls are intentionally excluded from this panel.',
+          value: paragraphs(
+            'Staff administration, moderation, security, infrastructure, and privileged server controls are intentionally excluded from this panel.',
+            'Those functions remain restricted to their dedicated staff or module surfaces.'
+          ),
           inline: false
         }
       ],
@@ -217,13 +232,25 @@ function publicHelpPayload(guild, hqId = '') {
     embeds: [{
       title: '❓ NEXUS HELP • PUBLIC COMMANDS',
       color: 0xb00020,
-      description: 'Quick reference for normal member-facing Nexus tools. Game-specific commands remain inside their respective game hubs.',
+      description: paragraphs(
+        'Quick reference for normal member-facing Nexus tools.',
+        '🎮 Game-specific commands remain inside their respective game hubs.'
+      ),
       fields: [
-        { name: 'Progression', value: '`/level` — progress card\n`/rank` — community rank card\n`/achievements` — badges and achievement progress\n`/leaderboard` — community XP leaderboard', inline: false },
-        { name: 'Roles', value: `${ref(roles, 'Use the managed Roles channel')} for game access, platform, pronoun, and selectable name-color controls.`, inline: false },
-        { name: 'Suggestions', value: `${ref(suggestions, '#suggestions')} or use **Submit Suggestion** on the command-center panel.`, inline: false },
-        { name: 'Events & Polls', value: `${ref(events, '#events')} for official events • ${ref(polls, '#polls')} for managed community polls.`, inline: false },
-        { name: 'Game Commands', value: 'Open the relevant game hub for game data, builds, targeted loot, farming, market, server, and module-specific tools.', inline: false }
+        {
+          name: '⚡ Progression',
+          value: spacedItems([
+            '`/level` — progress card',
+            '`/rank` — community rank card',
+            '`/achievements` — badges and achievement progress',
+            '`/leaderboard` — community XP leaderboard'
+          ]),
+          inline: false
+        },
+        { name: '🎭 Roles', value: paragraphs(`${ref(roles, 'Use the managed Roles channel')}`, 'Game access, platform, pronoun, and selectable name-color controls live there.'), inline: false },
+        { name: '💡 Suggestions', value: paragraphs(`${ref(suggestions, '#suggestions')}`, 'Or use **Submit Suggestion** on the command-center panel.'), inline: false },
+        { name: '📅 Events & Polls', value: spacedItems([`${ref(events, '#events')} — official Nexus events`, `${ref(polls, '#polls')} — managed community polls`]), inline: false },
+        { name: '🎮 Game Commands', value: paragraphs('Open the relevant game hub for game data, builds, targeted loot, farming, market, server, and module-specific tools.'), inline: false }
       ],
       footer: { text: 'Nexus Sentinal • Public Command Reference' }
     }],
