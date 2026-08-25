@@ -65,37 +65,3 @@ test('DM-only campaign records never appear in player collection lists', async (
   assert.equal((await fx.service.invoke('dnd', 'npcs', { op: 'list', campaignId: campaign.id }, { actorId: 'player-1' })).length, 0);
   assert.equal((await fx.service.invoke('dnd', 'npcs', { op: 'list', campaignId: campaign.id }, owner)).length, 1);
 });
-
-test('campaign safety state is explicit and DM-controlled', async () => {
-  const fx = fixture(); const owner = { actorId: 'owner-1' };
-  const campaign = await fx.service.invoke('dnd', 'campaigns', { op: 'create', name: 'Campaign' }, owner);
-  const safety = await fx.service.invoke('dnd', 'campaigns', { op: 'safety', campaignId: campaign.id, lines: ['Graphic torture'], veils: ['Romance'], pauseWord: 'Pause' }, owner);
-  assert.deepEqual(safety, { lines: ['Graphic torture'], veils: ['Romance'], pauseWord: 'Pause' });
-});
-
-test('encounters run a complete ordered turn lifecycle', async () => {
-  const fx = fixture(); const owner = { actorId: 'owner-1' };
-  const campaign = await fx.service.invoke('dnd', 'campaigns', { op: 'create', name: 'Campaign' }, owner);
-  let encounter = await fx.service.invoke('dnd', 'encounters', { op: 'create', campaignId: campaign.id, name: 'Ambush' }, owner);
-  encounter = await fx.service.invoke('dnd', 'encounters', { op: 'add-combatant', campaignId: campaign.id, encounterId: encounter.id, name: 'Hero', kind: 'player', initiative: 12, hp: 20 }, owner);
-  encounter = await fx.service.invoke('dnd', 'encounters', { op: 'add-combatant', campaignId: campaign.id, encounterId: encounter.id, name: 'Bandit', initiative: 18, hp: 8 }, owner);
-  encounter = await fx.service.invoke('dnd', 'encounters', { op: 'start', campaignId: campaign.id, encounterId: encounter.id }, owner);
-  assert.equal(encounter.combatants[0].name, 'Bandit');
-  assert.equal(encounter.round, 1);
-  await fx.service.invoke('dnd', 'encounters', { op: 'advance', campaignId: campaign.id, encounterId: encounter.id }, owner);
-  encounter = await fx.service.invoke('dnd', 'encounters', { op: 'advance', campaignId: campaign.id, encounterId: encounter.id }, owner);
-  assert.equal(encounter.round, 2);
-  assert.equal((await fx.service.invoke('dnd', 'encounters', { op: 'complete', campaignId: campaign.id, encounterId: encounter.id }, owner)).status, 'completed');
-});
-
-test('campaign export contains only campaign-scoped backup-safe state', async () => {
-  const fx = fixture(); const owner = { actorId: 'owner-1' };
-  const first = await fx.service.invoke('dnd', 'campaigns', { op: 'create', name: 'First' }, owner);
-  await fx.service.invoke('dnd', 'campaigns', { op: 'create', name: 'Second' }, owner);
-  await fx.service.invoke('dnd', 'maps', { op: 'create', campaignId: first.id, name: 'World Map', notes: 'Version one' }, owner);
-  const bundle = await fx.service.invoke('dnd', 'export', { campaignId: first.id }, owner);
-  assert.equal(bundle.schemaVersion, 1);
-  assert.equal(bundle.campaign.id, first.id);
-  assert.equal(bundle.collections.maps.length, 1);
-  assert.equal(bundle.collections.maps[0].campaignId, first.id);
-});

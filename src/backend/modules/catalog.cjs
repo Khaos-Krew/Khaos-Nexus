@@ -197,8 +197,7 @@ const MODULES = [
       viewer('campaigns', 'Campaigns', { service: 'dnd-core' }), viewer('characters', 'Characters', { service: 'dnd-core' }), viewer('dice', 'Dice', { service: 'dnd-core' }), viewer('initiative', 'Initiative', { service: 'dnd-core' }),
       operator('encounters', 'Encounters', { service: 'dnd-core' }), operator('codex', 'Codex', { service: 'dnd-core' }), operator('sessions', 'Sessions', { service: 'dnd-core' }), operator('quests', 'Quests', { service: 'dnd-core' }),
       operator('npcs', 'NPCs', { service: 'dnd-core' }), operator('locations', 'Locations', { service: 'dnd-core' }), operator('factions', 'Factions', { service: 'dnd-core' }), operator('loot', 'Loot', { service: 'dnd-core' }),
-      operator('maps', 'Maps', { service: 'dnd-core' }), operator('homebrew', 'Homebrew', { service: 'dnd-core' }), operator('sources', 'Sources', { service: 'dnd-core' }),
-      operator('export', 'Export Campaign', { service: 'dnd-core', button: false, input: '<campaign id>' })
+      operator('homebrew', 'Homebrew', { service: 'dnd-core' }), operator('sources', 'Sources', { service: 'dnd-core' })
     ]
   }
 ];

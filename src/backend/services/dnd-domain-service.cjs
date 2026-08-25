@@ -5,7 +5,7 @@ const path = require('node:path');
 const { JsonStore, clone } = require('../core/json-store.cjs');
 const { CORE_SOURCE_ID, DndContentRegistry } = require('./dnd-content-registry.cjs');
 
-const COLLECTION_ACTIONS = new Set(['quests', 'npcs', 'locations', 'factions', 'loot', 'maps']);
+const COLLECTION_ACTIONS = new Set(['quests', 'npcs', 'locations', 'factions', 'loot']);
 
 function clean(value, max = 1000) { return String(value || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max); }
 function id(prefix) { return `${prefix}-${crypto.randomUUID()}`; }
@@ -17,10 +17,8 @@ class DndDomainService {
     this.randomInt = options.randomInt || crypto.randomInt;
     this.content = options.content || new DndContentRegistry();
     this.store = options.store || new JsonStore(options.filePath || path.join(process.env.NEXUS_DATA_DIR || 'data', 'dnd-domain.json'), {
-      schemaVersion: 1, campaigns: {}, characters: {}, sessions: {}, encounters: {}, rolls: {}, collections: { quests: {}, npcs: {}, locations: {}, factions: {}, loot: {}, maps: {} }, audit: []
+      schemaVersion: 1, campaigns: {}, characters: {}, sessions: {}, encounters: {}, rolls: {}, collections: { quests: {}, npcs: {}, locations: {}, factions: {}, loot: {} }, audit: []
     });
-    const missingCollections = [...COLLECTION_ACTIONS].filter((name) => !this.store.read().collections?.[name]);
-    if (missingCollections.length) this.store.update((state) => { state.collections ||= {}; for (const name of missingCollections) state.collections[name] = {}; return state; });
   }
 
   state() { return this.store.read(); }
@@ -54,11 +52,6 @@ class DndDomainService {
       const userId = String(payload.userId || '').trim(); if (!userId) throw new Error('Member identity is required.');
       const role = ['dm', 'player', 'spectator'].includes(payload.role) ? payload.role : 'player';
       return this.store.update((state) => { const item = state.campaigns[campaign.id]; item.members[userId] = { userId, role, joinedAt: nowIso(this.now) }; item.updatedAt = nowIso(this.now); this.audit(state, 'member-added', actorId, userId, item.id); return clone(item); });
-    }
-    if (op === 'safety') {
-      const campaign = this.campaign(payload.campaignId); this.requireDm(campaign, actorId);
-      const list = (values) => [...new Set((Array.isArray(values) ? values : []).map((value) => clean(value, 160)).filter(Boolean))].slice(0, 100);
-      return this.store.update((state) => { const item = state.campaigns[campaign.id]; item.safety = { lines: list(payload.lines), veils: list(payload.veils), pauseWord: clean(payload.pauseWord, 60) }; item.updatedAt = nowIso(this.now); this.audit(state, 'safety-updated', actorId, item.id, item.id); return clone(item.safety); });
     }
     throw new Error(`Unsupported campaign operation: ${op}`);
   }
@@ -94,10 +87,6 @@ class DndDomainService {
     const actorId = this.actor(context); const campaign = this.campaign(payload.campaignId); this.requireDm(campaign, actorId); const op = clean(payload.op || 'list', 30);
     if (op === 'list') return Object.values(this.state().encounters || {}).filter((item) => item.campaignId === campaign.id).map(clone);
     if (op === 'create') return this.store.update((state) => { const encounterId = id('ENCOUNTER'); const at = nowIso(this.now); state.encounters[encounterId] = { id: encounterId, campaignId: campaign.id, name: clean(payload.name, 160) || 'Encounter', status: 'prepared', combatants: [], initiativeIndex: -1, round: 0, createdAt: at, updatedAt: at }; this.audit(state, 'encounter-created', actorId, encounterId, campaign.id); return clone(state.encounters[encounterId]); });
-    if (op === 'add-combatant') return this.store.update((state) => { const item = state.encounters[String(payload.encounterId || '')]; if (!item || item.campaignId !== campaign.id) throw new Error('Encounter does not exist.'); if (item.status !== 'prepared') throw new Error('Combatants can only be added while an encounter is prepared.'); const combatantId = id('ACTOR'); item.combatants.push({ id: combatantId, name: clean(payload.name, 120) || 'Combatant', kind: ['player', 'hostile', 'neutral'].includes(payload.kind) ? payload.kind : 'hostile', initiative: Math.trunc(Number(payload.initiative || 0)), hp: Math.max(0, Math.trunc(Number(payload.hp || 1))), temporaryHp: 0, conditions: [] }); item.updatedAt = nowIso(this.now); return clone(item); });
-    if (op === 'start') return this.store.update((state) => { const item = state.encounters[String(payload.encounterId || '')]; if (!item || item.campaignId !== campaign.id) throw new Error('Encounter does not exist.'); if (!item.combatants.length) throw new Error('Encounter requires at least one combatant.'); item.combatants.sort((a, b) => b.initiative - a.initiative || a.name.localeCompare(b.name)); item.status = 'active'; item.round = 1; item.initiativeIndex = 0; item.updatedAt = nowIso(this.now); this.audit(state, 'encounter-started', actorId, item.id, campaign.id); return clone(item); });
-    if (op === 'advance') return this.store.update((state) => { const item = state.encounters[String(payload.encounterId || '')]; if (!item || item.campaignId !== campaign.id || item.status !== 'active') throw new Error('Active encounter does not exist.'); item.initiativeIndex += 1; if (item.initiativeIndex >= item.combatants.length) { item.initiativeIndex = 0; item.round += 1; } item.updatedAt = nowIso(this.now); return clone(item); });
-    if (op === 'complete') return this.store.update((state) => { const item = state.encounters[String(payload.encounterId || '')]; if (!item || item.campaignId !== campaign.id) throw new Error('Encounter does not exist.'); item.status = 'completed'; item.updatedAt = nowIso(this.now); this.audit(state, 'encounter-completed', actorId, item.id, campaign.id); return clone(item); });
     throw new Error(`Unsupported encounter operation: ${op}`);
   }
 
@@ -114,12 +103,6 @@ class DndDomainService {
     throw new Error(`Unsupported ${actionId} operation: ${op}`);
   }
 
-  exportCampaign(payload, context) {
-    const actorId = this.actor(context); const campaign = this.campaign(payload.campaignId); this.requireDm(campaign, actorId); const state = this.state();
-    const scoped = (values) => Object.values(values || {}).filter((item) => item.campaignId === campaign.id).map(clone);
-    return { schemaVersion: 1, exportedAt: nowIso(this.now), campaign: clone(campaign), characters: scoped(state.characters), sessions: scoped(state.sessions), encounters: scoped(state.encounters), rolls: scoped(state.rolls), collections: Object.fromEntries([...COLLECTION_ACTIONS].map((name) => [name, scoped(state.collections?.[name])])) };
-  }
-
   async invoke(moduleId, actionId, payload = {}, context = {}) {
     if (moduleId !== 'dnd') throw new Error('D&D service only accepts the dnd module.');
     if (actionId === 'campaigns') return this.campaigns(payload, context);
@@ -132,7 +115,6 @@ class DndDomainService {
     if (actionId === 'codex') return this.content.list(payload);
     if (COLLECTION_ACTIONS.has(actionId)) return this.collection(actionId, payload, context);
     if (actionId === 'homebrew') return this.content.list({ sourceIds: ['khaos-shattered-realms@1'], type: payload.type });
-    if (actionId === 'export') return this.exportCampaign(payload, context);
     throw new Error(`Unsupported D&D action: ${actionId}`);
   }
 }
