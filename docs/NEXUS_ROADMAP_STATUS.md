@@ -33,7 +33,7 @@ Issue #286 records the owner-approved backend-first rebuild direction.
 
 ## Current implementation evidence
 
-Repository evidence on `rebuild/nexus-0.1` establishes the thin Electron Admin Control Center, Windows NSIS packaging/shortcuts, backend and Sentinal runtimes, shared scheduler, persistent module consoles, household Accounts & Access, read-only provider validation, staged updating, Owner Test Center/Admin Operations, hosted pairing/provider sync, Setup Center, administrator moderation, Discord Server Shop rank authority, managed ranks presentation, capability-driven help, private safe-space reporting, milestone patch-note publishing, managed Community About & Sharing, and backend-first game services.
+Repository evidence on `rebuild/nexus-0.1` establishes the thin Electron Admin Control Center, Windows NSIS packaging/shortcuts, backend and Sentinal runtimes, shared scheduler, persistent module consoles, household Accounts & Access, read-only provider validation, staged updating, Owner Test Center/Admin Operations, hosted pairing/provider sync, Setup Center, administrator moderation, Discord Server Shop rank authority, managed ranks presentation, capability-driven help, private safe-space reporting, Community Suggestions voting and protected Owner review, milestone patch-note publishing, managed Community About & Sharing, and backend-first game services.
 
 Current game-module registrations include ARK, Palworld, Minecraft, Warframe, Division 2, Rust, Satisfactory, IdleOn, Nexus D&D, Pokémon GO, **Call of Duty, Dead by Daylight, and Diablo IV**.
 
@@ -118,6 +118,14 @@ The `#game-servers` registry intentionally excludes network addresses, ports, RC
 
 PR #386 merged a Sentinal-managed canonical ranks panel. It can adopt the existing rank embed, preserve Discord Server Shop as paid-rank authority, add the approved Nexus maintenance/funding disclosure, pin one canonical panel, and retire only high-confidence legacy rank panels. The implementation deliberately makes no paid-role mutation. Exact-head CI is green; real-guild adoption/reconciliation remains separate acceptance evidence.
 
+### Community Suggestions
+
+PR #387 merged the persistent Community Suggestions core with durable `SUG-####` identifiers, managed Discord intake, self-vote prevention, one changeable vote per member, configurable voting thresholds, persistent vote state, and a fail-safe GitHub development queue. Passed suggestions remain recoverable as GitHub Pending when GitHub delivery is unavailable; community passage does not authorize implementation.
+
+PR #389 merged the protected Owner review stage in Staff `#suggestion-review`. Community-passed/GitHub-pending suggestions receive persistent review cards, and configured Nexus Owners/guild Owner can approve implementation or deny with a required reason; public suggestion status is updated from that decision. PR #390 merged the public-safe **Community Suggestions 66%** milestone publisher.
+
+Exact-head CI is green for #387/#389/#390. The 66% milestone establishes the merged core and Owner-review path only; it does **not** establish live end-to-end Discord voting, GitHub handoff, Owner decision, implementation-plan approval, or a 100% completion state.
+
 Superseded #334/#336/#337/#340 role-migration proposals are historical only; their relevant intent was overtaken by later merged work.
 
 ## Validation state
@@ -126,6 +134,9 @@ Status: **AUTOMATED REBUILD BASELINE GREEN — OWNER/LIVE VALIDATION IN PROGRESS
 
 Recent exact-head automated evidence includes:
 
+- PR #390 head `d90b6c78a87a93bfafa06dfa2d93a7936bef55da` — Nexus Rebuild CI #419 green; adds the public-safe Community Suggestions 66% milestone publisher without establishing live publication or 100% completion;
+- PR #389 head `bff497d4774befe39fc3d61ccf22f088af2ab97f` — Nexus Rebuild CI #418 green; adds the protected Owner review queue and approval/required-reason denial path for community-passed suggestions;
+- PR #387 head `f01b704ab124ede2cd138e2e0a7753dfad78081b` — Nexus Rebuild CI #415 green; adds persistent Community Suggestions intake/voting, self-vote prevention, configurable gates, and fail-safe GitHub queueing;
 - PR #386 head `70a058972610d1cb3112d695790395eed52db7f4` — Nexus Rebuild CI #410 green; adds the managed canonical ranks panel while preserving Server Shop authority and avoiding paid-role mutations;
 - PR #385 head `f3c1dd542930f729881ef5a607c0d9b490568149` — Nexus Rebuild CI #407 green; adds the public-safe Community About & Sharing 100% milestone publisher without establishing live publication;
 - PR #384 head `d56bf1ed32d66dabfb9e953658aad0239d1bbe3d` — Nexus Rebuild CI #405 green; adds the managed canonical About/share panel and safe reconciliation behavior;
@@ -141,6 +152,8 @@ Recent exact-head automated evidence includes:
 - PR #364 head `ce62a70715cc1aae59cb6c477aba242ba21c8e65` — Windows CI isolated clean NSIS install, packaged startup/backend-health validation, production staged-upgrade apply, post-update startup confirmation, payload SHA-256 match, and redacted smoke evidence;
 - PR #363 head `3ec4a49699dc6961b7f0c9e822e9c1eb61448cbf` — deterministic dependency installs with `package-lock.json`, `npm ci`, and keyed caches;
 - PR #362 head `2f9b7559c7595d1ed2461a38b466afc96cdb70b4` — exact validated-artifact promotion with release provenance.
+
+The active rebuild branch has advanced beyond the latest exact-head green PR evidence with direct Warframe worldstate-fallback and Sentinal module-access snapshot-helper repairs/tests. No exact-head Nexus Rebuild CI run was located for the current branch tip, so those direct follow-up commits must not yet be described as validated solely from repository presence.
 
 Release hardening now also includes an Authenticode policy and packaged-content audit. Owner-test artifacts may remain intentionally unsigned; stable validation must fail closed unless protected Windows signing credentials are configured and the packaged app/installer signatures independently validate.
 
@@ -159,7 +172,8 @@ Late-August operational acceptance work now additionally establishes:
 - the first live #379 deployment revealed a **Discord gateway member-request rate-limit collision** because the preflight performed a bulk member fetch while Staff Workspace was also reconciling members;
 - PR #381 merged the corrective snapshot-only audit, reports `bulkMemberFetches=0`, and leaves authoritative current-staff discovery to Staff Workspace. This fixes the audit collision; it does **not** by itself complete the normal-member button/visibility acceptance gate;
 - PRs #384/#385 establish the Community About & Sharing implementation and public-safe milestone-publisher path at exact-head CI level. Live confirmation that the canonical About panel/share link is correct and that the milestone is posted/adopted exactly once remains separate acceptance evidence;
-- PR #386 establishes the managed ranks panel at exact-head CI level after its initial feature head exposed a missing required funding-disclosure assertion. The corrected head passed CI #410 and merged; real-guild canonical-panel adoption and safe legacy-panel retirement still require live confirmation.
+- PR #386 establishes the managed ranks panel at exact-head CI level after its initial feature head exposed a missing required funding-disclosure assertion. The corrected head passed CI #410 and merged; real-guild canonical-panel adoption and safe legacy-panel retirement still require live confirmation;
+- PRs #387/#389/#390 establish the Community Suggestions core, protected Owner review, and public-safe 66% milestone publisher at exact-head CI level. Live Discord vote behavior, GitHub handoff/retry behavior, Owner decision reflection, and the final implementation-plan approval path remain separate acceptance evidence.
 
 Remaining live/owner gates include:
 
@@ -168,6 +182,7 @@ Remaining live/owner gates include:
 - validate Community XP/Leveling live message, voice, admin, milestone-role, restart-persistence, and authority-isolation behavior before any 100% claim;
 - validate the canonical Community About & Sharing panel/share link in the real guild and confirm the #385 100% milestone publisher posts or adopts exactly once before calling that surface live-accepted;
 - validate the canonical managed ranks panel in the real guild, including Server Shop authority wording, funding disclosure, pinning/adoption, and safe retirement of only high-confidence legacy panels;
+- validate Community Suggestions end to end with real submitter self-vote rejection, vote changes/tally, timed closure, GitHub handoff/retry, protected Owner approve/deny flow, public status synchronization, and final development-plan approval before any 100% claim;
 - validate the complete Rules/report ticket lifecycle, evidence flow, close/archive behavior, and restricted archive permissions;
 - complete remaining Discord + Nexus Setup Acceptance gates, including fresh hosted pairing, desktop confirmation scan, live Repair Nexus only where needed, provider sync/validation, and desktop/hosted restart persistence;
 - validate moderation actions, temporary lobby lifecycle, discoverability, and Veyra/D&D boundaries;
@@ -196,7 +211,7 @@ Validate Palworld and other provider-backed paths in real use. Include Pokémon 
 
 Status: **IN PROGRESS — ROLE AUTHORITY + MODULE LAYOUT/IDEMPOTENCY + NAME-COLOR DISPLAY + SERVICE STATUS LIVE-EVIDENCED; STAFF/MODULE/COMMUNITY INTERACTION ACCEPTANCE PENDING**
 
-The self-role/role-authority subsection is live-accepted at 100%. Expanded module layout, access reconciliation, category order, hub idempotency, feed recovery, staff-compatible Name Color display safety, Nexus service status, and new-member welcome automation now have implementation/live evidence at their respective levels. The protected Staff workspace, Forum/roadmap migration, Community XP/Leveling, Community About & Sharing, managed ranks presentation, and read-only module-access preflight are merged and exact-head green. Broader Sentinal operational acceptance still requires real-member module interaction, Staff workspace privacy/idempotency checks, Community XP live acceptance, About/ranks live acceptance, reporting lifecycle, moderation, pairing, provider flows, Setup Acceptance, and restart behavior.
+The self-role/role-authority subsection is live-accepted at 100%. Expanded module layout, access reconciliation, category order, hub idempotency, feed recovery, staff-compatible Name Color display safety, Nexus service status, and new-member welcome automation now have implementation/live evidence at their respective levels. The protected Staff workspace, Forum/roadmap migration, Community XP/Leveling, Community About & Sharing, managed ranks presentation, Community Suggestions core/Owner review, and read-only module-access preflight are merged and exact-head green. Broader Sentinal operational acceptance still requires real-member module interaction, Staff workspace privacy/idempotency checks, Community XP live acceptance, About/ranks live acceptance, Community Suggestions end-to-end acceptance, reporting lifecycle, moderation, pairing, provider flows, Setup Acceptance, and restart behavior.
 
 ### Release hardening
 
