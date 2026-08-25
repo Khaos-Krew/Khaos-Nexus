@@ -30,6 +30,7 @@ const { installPollExtension } = require('./poll-extension.cjs');
 const { installCreatorLevelGateExtension } = require('./creator-level-gate-extension.cjs');
 const { installCreatorProgramExtension } = require('./creator-program-extension.cjs');
 const { installCreatorRolesEntryLockdownExtension } = require('./creator-roles-entry-lockdown-extension.cjs');
+const { installCreatorLifecycleExtension } = require('./creator-lifecycle-extension.cjs');
 const { installEventManagementExtension } = require('./event-management-extension.cjs');
 
 installGuildMembersIntentExtension();
@@ -62,5 +63,6 @@ installPollExtension();
 installCreatorLevelGateExtension();
 installCreatorProgramExtension();
 installCreatorRolesEntryLockdownExtension();
+installCreatorLifecycleExtension();
 installEventManagementExtension();
 require('./bot.cjs');
