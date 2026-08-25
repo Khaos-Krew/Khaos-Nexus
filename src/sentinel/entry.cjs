@@ -35,6 +35,7 @@ const { installCreatorLevelGateExtension } = require('./creator-level-gate-exten
 const { installCreatorProgramExtension } = require('./creator-program-extension.cjs');
 const { installCreatorRolesEntryLockdownExtension } = require('./creator-roles-entry-lockdown-extension.cjs');
 const { installCreatorLifecycleExtension } = require('./creator-lifecycle-extension.cjs');
+const { installSupporterEntitlementExtension } = require('./supporter-entitlement-extension.cjs');
 const { installEventManagementExtension } = require('./event-management-extension.cjs');
 
 installRetiredGamesSelfRoleCleanupExtension();
@@ -69,5 +70,6 @@ installCreatorLevelGateExtension();
 installCreatorProgramExtension();
 installCreatorRolesEntryLockdownExtension();
 installCreatorLifecycleExtension();
+installSupporterEntitlementExtension();
 installEventManagementExtension();
 require('./bot.cjs');
