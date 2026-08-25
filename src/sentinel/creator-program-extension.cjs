@@ -84,7 +84,7 @@ async function ensureProgramRoles(guild) {
   if (!creatorRole) {
     creatorRole = await guild.roles.create({
       name: CREATOR_ROLE_NAME,
-      color: null,
+      color: 0,
       hoist: false,
       mentionable: false,
       reason: 'Khaos Nexus approved Content Creator program role'
@@ -94,7 +94,7 @@ async function ensureProgramRoles(guild) {
   if (!nowLiveRole) {
     nowLiveRole = await guild.roles.create({
       name: NOW_LIVE_ROLE_NAME,
-      color: null,
+      color: 0,
       hoist: true,
       mentionable: false,
       reason: 'Khaos Nexus temporary live creator role'

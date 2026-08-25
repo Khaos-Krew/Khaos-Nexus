@@ -101,9 +101,9 @@ test('creator and live roles are created without colors so self-selected name co
   assert.equal(result.nowLiveRoleCreated, true);
   assert.equal(created.length, 2);
   assert.equal(created[0].name, CREATOR_ROLE_NAME);
-  assert.equal(created[0].color, null);
+  assert.equal(created[0].color, 0);
   assert.equal(created[1].name, NOW_LIVE_ROLE_NAME);
-  assert.equal(created[1].color, null);
+  assert.equal(created[1].color, 0);
   assert.equal(created[1].hoist, true);
 });
 
