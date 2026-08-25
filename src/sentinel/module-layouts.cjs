@@ -3,6 +3,7 @@
 const LAYOUTS = {
   ark: {
     category: 'ARK Survival Ascended',
+    categoryDisplay: 'ARK Survival Ascended 🦖',
     aliases: ['ARK', 'ARK ASA', 'ASA', 'ARK Ascended', 'ARK Survival Ascended'],
     consoleChannel: 'ark-console',
     text: ['ark-console', 'ark-tame-info', 'ark-server-status', 'ark-schedules', 'ark-mods', 'ark-lfg'],
@@ -10,6 +11,7 @@ const LAYOUTS = {
   },
   callofduty: {
     category: 'Call of Duty',
+    categoryDisplay: 'Call of Duty 🎯',
     aliases: ['Call of Duty', 'COD', 'CoD', 'Warzone'],
     consoleChannel: 'cod-hub',
     text: ['cod-hub', 'cod-warzone', 'cod-multiplayer', 'cod-zombies', 'cod-loadouts', 'cod-lfg'],
@@ -17,6 +19,7 @@ const LAYOUTS = {
   },
   deadbydaylight: {
     category: 'Dead by Daylight',
+    categoryDisplay: 'Dead by Daylight 🔪',
     aliases: ['Dead by Daylight', 'DBD', 'DbD'],
     consoleChannel: 'dbd-hub',
     text: ['dbd-hub', 'dbd-killers', 'dbd-survivors', 'dbd-builds', 'dbd-stats', 'dbd-lfg'],
@@ -24,6 +27,7 @@ const LAYOUTS = {
   },
   diablo4: {
     category: 'Diablo IV',
+    categoryDisplay: 'Diablo IV 🔥',
     aliases: ['Diablo IV', 'Diablo 4', 'D4'],
     consoleChannel: 'diablo-hub',
     text: ['diablo-hub', 'diablo-builds', 'diablo-items', 'diablo-paragon', 'diablo-farming', 'diablo-lfg'],
@@ -31,6 +35,7 @@ const LAYOUTS = {
   },
   palworld: {
     category: 'Palworld',
+    categoryDisplay: 'Palworld 🐾',
     aliases: ['Palworld'],
     consoleChannel: 'palworld-console',
     text: ['palworld-console', 'palworld-server-status', 'palworld-tracker', 'palworld-backups', 'palworld-lfg'],
@@ -38,6 +43,7 @@ const LAYOUTS = {
   },
   minecraft: {
     category: 'Minecraft',
+    categoryDisplay: 'Minecraft ⛏️',
     aliases: ['Minecraft', 'Minecraft Java'],
     consoleChannel: 'minecraft-console',
     text: ['minecraft-console', 'minecraft-server-status', 'minecraft-modpack', 'minecraft-backups', 'minecraft-lfg'],
@@ -45,20 +51,23 @@ const LAYOUTS = {
   },
   oncehuman: {
     category: 'Once Human',
+    categoryDisplay: 'Once Human ☣️',
     aliases: ['Once Human', 'OnceHuman'],
     consoleChannel: 'once-human-hub',
     text: ['once-human-hub', 'once-human-news', 'once-human-builds', 'once-human-reference', 'once-human-wishlist', 'once-human-lfg'],
     lobbyBuilder: '➕ Join to Create Once Human Team'
   },
   osrs: {
-    category: 'Old School RuneScape',
-    aliases: ['Old School RuneScape', 'OSRS', 'Oldschool RuneScape'],
+    category: 'OSRS',
+    categoryDisplay: 'OSRS ⚔️',
+    aliases: ['OSRS', 'Old School RuneScape', 'Oldschool RuneScape'],
     consoleChannel: 'osrs-hub',
     text: ['osrs-hub', 'osrs-hiscores', 'osrs-grand-exchange', 'osrs-guides', 'osrs-lfg'],
     lobbyBuilder: '➕ Join to Create OSRS Group'
   },
   runescape3: {
     category: 'RuneScape 3',
+    categoryDisplay: 'RuneScape 3 ✨',
     aliases: ['RuneScape 3', 'RS3'],
     consoleChannel: 'rs3-hub',
     text: ['rs3-hub', 'rs3-hiscores', 'rs3-grand-exchange', 'rs3-guides', 'rs3-lfg'],
@@ -66,6 +75,7 @@ const LAYOUTS = {
   },
   warframe: {
     category: 'Warframe',
+    categoryDisplay: 'Warframe ⚡',
     aliases: ['Warframe'],
     consoleChannel: 'warframe-hub',
     text: ['warframe-hub', 'warframe-world-state', 'warframe-builds', 'warframe-market', 'warframe-lfg'],
@@ -73,6 +83,7 @@ const LAYOUTS = {
   },
   division2: {
     category: 'The Division 2',
+    categoryDisplay: 'The Division 2 🟠',
     aliases: ['The Division 2', 'Division 2'],
     consoleChannel: 'division-hub',
     text: ['division-hub', 'division-builds', 'division-gear', 'division-farming', 'division-weekly', 'division-lfg'],
@@ -80,6 +91,7 @@ const LAYOUTS = {
   },
   rust: {
     category: 'Rust',
+    categoryDisplay: 'Rust 🛠️',
     aliases: ['Rust'],
     consoleChannel: 'rust-console',
     text: ['rust-console', 'rust-server-status', 'rust-backups', 'rust-lfg'],
@@ -87,6 +99,7 @@ const LAYOUTS = {
   },
   satisfactory: {
     category: 'Satisfactory',
+    categoryDisplay: 'Satisfactory 🏭',
     aliases: ['Satisfactory'],
     consoleChannel: 'satisfactory-console',
     text: ['satisfactory-console', 'satisfactory-server-status', 'satisfactory-saves', 'factory-planning', 'satisfactory-lfg'],
@@ -94,6 +107,7 @@ const LAYOUTS = {
   },
   idleon: {
     category: 'Legends of IdleOn',
+    categoryDisplay: 'Legends of IdleOn 🧙',
     aliases: ['Legends of IdleOn', 'IdleOn'],
     consoleChannel: 'idleon-hub',
     text: ['idleon-hub', 'idleon-progression', 'idleon-builds', 'idleon-goals', 'idleon-farming'],
@@ -101,6 +115,7 @@ const LAYOUTS = {
   },
   pokemongo: {
     category: 'Pokémon GO',
+    categoryDisplay: 'Pokémon GO 🧭',
     aliases: ['Pokémon GO', 'Pokemon GO', 'PoGo', 'Pokemon Go'],
     consoleChannel: 'pokemon-go-hub',
     text: ['pokemon-go-hub', 'pokemon-go-raids', 'pokemon-go-trades', 'pokemon-go-events', 'pokemon-go-showcase', 'pokemon-go-lfg'],
@@ -108,6 +123,7 @@ const LAYOUTS = {
   },
   dnd: {
     category: 'Nexus D&D',
+    categoryDisplay: 'Nexus D&D 🎲',
     aliases: ['Nexus D&D', 'Nexus DnD', 'D&D', 'DnD'],
     consoleChannel: 'veyra-hub',
     text: ['veyra-hub', 'character-builds', 'campaigns', 'nexus-codex', 'campaign-lfg'],
