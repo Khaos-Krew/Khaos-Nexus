@@ -194,10 +194,10 @@ const MODULES = [
   {
     id: 'dnd', name: 'Nexus D&D', console: false, surface: 'veyra',
     capabilities: [
-      viewer('campaigns', 'Campaigns', { service: 'dnd-core' }), viewer('characters', 'Characters', { service: 'dnd-core' }), viewer('dice', 'Dice', { service: 'dnd-core' }), viewer('initiative', 'Initiative', { service: 'dnd-core' }),
-      operator('encounters', 'Encounters', { service: 'dnd-core' }), operator('codex', 'Codex', { service: 'dnd-core' }), operator('sessions', 'Sessions', { service: 'dnd-core' }), operator('quests', 'Quests', { service: 'dnd-core' }),
-      operator('npcs', 'NPCs', { service: 'dnd-core' }), operator('locations', 'Locations', { service: 'dnd-core' }), operator('factions', 'Factions', { service: 'dnd-core' }), operator('loot', 'Loot', { service: 'dnd-core' }),
-      operator('homebrew', 'Homebrew', { service: 'dnd-core' }), operator('sources', 'Sources', { service: 'dnd-core' })
+      viewer('campaigns', 'Campaigns'), viewer('characters', 'Characters'), viewer('dice', 'Dice'), viewer('initiative', 'Initiative'),
+      operator('encounters', 'Encounters'), operator('codex', 'Codex'), operator('sessions', 'Sessions'), operator('quests', 'Quests'),
+      operator('npcs', 'NPCs'), operator('locations', 'Locations'), operator('factions', 'Factions'), operator('loot', 'Loot'),
+      operator('homebrew', 'Homebrew'), operator('sources', 'Sources')
     ]
   }
 ];
