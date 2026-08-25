@@ -43,6 +43,27 @@ const LAYOUTS = {
     text: ['minecraft-console', 'minecraft-server-status', 'minecraft-modpack', 'minecraft-backups', 'minecraft-lfg'],
     lobbyBuilder: '➕ Join to Create Minecraft Lobby'
   },
+  oncehuman: {
+    category: 'Once Human',
+    aliases: ['Once Human', 'OnceHuman'],
+    consoleChannel: 'once-human-hub',
+    text: ['once-human-hub', 'once-human-news', 'once-human-builds', 'once-human-reference', 'once-human-wishlist', 'once-human-lfg'],
+    lobbyBuilder: '➕ Join to Create Once Human Team'
+  },
+  osrs: {
+    category: 'Old School RuneScape',
+    aliases: ['Old School RuneScape', 'OSRS', 'Oldschool RuneScape'],
+    consoleChannel: 'osrs-hub',
+    text: ['osrs-hub', 'osrs-hiscores', 'osrs-grand-exchange', 'osrs-guides', 'osrs-lfg'],
+    lobbyBuilder: '➕ Join to Create OSRS Group'
+  },
+  runescape3: {
+    category: 'RuneScape 3',
+    aliases: ['RuneScape 3', 'RuneScape', 'RS3'],
+    consoleChannel: 'rs3-hub',
+    text: ['rs3-hub', 'rs3-hiscores', 'rs3-grand-exchange', 'rs3-guides', 'rs3-lfg'],
+    lobbyBuilder: '➕ Join to Create RuneScape 3 Group'
+  },
   warframe: {
     category: 'Warframe',
     aliases: ['Warframe'],
