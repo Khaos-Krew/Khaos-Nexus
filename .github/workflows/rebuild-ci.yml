@@ -82,7 +82,7 @@ jobs:
       - name: Build staged update for validation channel
         shell: pwsh
         run: ./scripts/build-update-bundle.ps1 -DistDir dist -Channel $env:UPDATE_CHANNEL
-      - name: Smoke-test clean install and staged upgrade
+      - name: Smoke-test clean install, staged upgrade, and rollback recovery
         shell: pwsh
         run: ./scripts/windows-install-upgrade-smoke.ps1 -DistDir dist
       - shell: pwsh
@@ -110,6 +110,7 @@ jobs:
           if ($smoke.product -ne 'khaos-nexus' -or $smoke.version -ne $manifest.version) { throw 'Windows smoke report identity does not match the update manifest.' }
           if ($smoke.cleanInstall.ok -ne $true -or $smoke.cleanInstall.packaged -ne $true -or $smoke.cleanInstall.backendHealthy -ne $true) { throw 'Windows clean-install smoke evidence is incomplete.' }
           if ($smoke.stagedUpgrade.ok -ne $true -or $smoke.stagedUpgrade.postUpdateConfirmed -ne $true -or $smoke.stagedUpgrade.resultStatus -ne 'success') { throw 'Windows staged-upgrade smoke evidence is incomplete.' }
+          if ($smoke.rollbackRecovery.ok -ne $true -or $smoke.rollbackRecovery.resultStatus -ne 'rolled-back' -or $smoke.rollbackRecovery.restoredPayload -ne $true -or $smoke.rollbackRecovery.packaged -ne $true -or $smoke.rollbackRecovery.backendHealthy -ne $true) { throw 'Windows rollback-recovery smoke evidence is incomplete.' }
 
           $signing = Get-Content -LiteralPath dist/nexus-windows-signing.json -Raw | ConvertFrom-Json
           if ($signing.product -ne 'khaos-nexus' -or $signing.version -ne $manifest.version -or $signing.channel -ne $manifest.channel) { throw 'Windows signing report identity does not match the update manifest.' }

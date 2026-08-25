@@ -451,11 +451,20 @@ class StagedUpdater {
     if (index < 0 || !args[index + 1]) return false;
     const transactionPath = path.resolve(args[index + 1]);
     const transactionRoot = path.join(this.updateRoot, 'transactions');
-    if (!(transactionPath === transactionRoot || transactionPath.startsWith(`${transactionRoot}${path.sep}`))) return false;
+    if (!(transactionPath === transactionRoot || transactionPath.startsWith(`${transactionRoot}${path.sep}`))) {
+      console.warn('[Khaos Nexus Updater] post-update transaction is outside the managed update directory.');
+      return false;
+    }
     const transaction = readJson(transactionPath, null);
-    if (!transaction || transaction.targetVersion !== this.currentVersion) return false;
+    if (!transaction || transaction.targetVersion !== this.currentVersion) {
+      console.warn('[Khaos Nexus Updater] post-update transaction is missing or does not match the running version.');
+      return false;
+    }
     const markerPath = path.resolve(transaction.markerPath || '');
-    if (!(markerPath.startsWith(`${transactionRoot}${path.sep}`))) return false;
+    if (!(markerPath.startsWith(`${transactionRoot}${path.sep}`))) {
+      console.warn('[Khaos Nexus Updater] post-update marker is outside the managed update directory.');
+      return false;
+    }
     atomicWriteJson(markerPath, { ok: true, version: this.currentVersion, at: new Date().toISOString() });
     this.state = {
       ...this.state,

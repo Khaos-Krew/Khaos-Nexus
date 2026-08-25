@@ -21,6 +21,7 @@ GitHub-hosted Windows runners are not a substitute for every consumer Windows bu
 | Packaged app startup + embedded backend `/health` | Required | Required | `windows-latest` | Yes | Yes |
 | Staged updater apply + restart | Required | Required | `windows-latest` | Yes | Yes |
 | Post-update confirmation + rollback deadline | Required | Required | `windows-latest` | Yes | Yes |
+| Deliberate failed update + automatic payload restoration + healthy restart | Required | Required | `windows-latest` | Yes | Yes |
 | Installed `app.asar` matches staged payload | Required | Required | `windows-latest` | Yes | Yes |
 | Packaged-content audit | Required | Required | `windows-latest` | Yes | Yes |
 | Authenticode verification | Recommended | Recommended | `windows-latest` when credentials exist | No | **Yes** |
@@ -36,6 +37,8 @@ Every accepted Windows artifact set must be produced from `Nexus Rebuild CI` and
 - `nexus-windows-smoke-report.json`
 - `nexus-package-audit.json`
 - `nexus-windows-signing.json`
+
+The smoke report must prove both paths: a successful staged update and an intentionally invalid staged payload that is rejected, rolled back byte-for-byte to the validated `app.asar`, and restarted with a healthy embedded backend.
 
 Release publication promotes this exact validated artifact set. It does not rebuild the application during publication.
 

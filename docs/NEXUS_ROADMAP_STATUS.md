@@ -230,9 +230,9 @@ The self-role/role-authority subsection is live-accepted at 100%. Expanded modul
 
 ### Release hardening
 
-Status: **IN PROGRESS — DETERMINISTIC INSTALLS + EXACT-ARTIFACT PROMOTION + WINDOWS INSTALL/UPGRADE SMOKE + PACKAGE AUDIT/SIGNING GATES MERGED; OWNER UPDATE/ROLLBACK ACCEPTANCE PENDING**
+Status: **IN PROGRESS — DETERMINISTIC INSTALLS + EXACT-ARTIFACT PROMOTION + WINDOWS INSTALL/UPGRADE/ROLLBACK SMOKE + PACKAGE AUDIT/SIGNING GATES GREEN; OWNER INTERACTIVE ACCEPTANCE PENDING**
 
-The rebuild now has deterministic `npm ci` dependency installs, exact validated-artifact promotion with provenance, Windows CI that exercises a real isolated NSIS install plus staged update/apply/startup verification, packaged-content auditing, and a fail-closed stable Authenticode policy. This is strong automated release evidence, not public/stable release authorization. The remaining primary release-hardening gate is an actual installed owner-machine update/startup/rollback cycle correlated to the tested artifact and feedback; stable signing credentials remain an explicit protected prerequisite for a signed stable artifact.
+The rebuild now has deterministic `npm ci` dependency installs, exact validated-artifact promotion with provenance, Windows CI that exercises a real isolated NSIS install plus staged update/apply/startup verification, a deliberate invalid-payload failure with byte-for-byte automatic rollback and healthy restart, packaged-content auditing, and a fail-closed stable Authenticode policy. The expanded smoke path also passed locally on Windows 10 build 19045 with matching staged/installed `app.asar` hashes and `rolled-back` recovery evidence. This is strong automated release evidence, not public/stable release authorization. The remaining primary release-hardening gate is an interactive owner-machine observation of the installed update experience and configuration persistence; stable signing credentials remain an explicit protected prerequisite for a signed stable artifact.
 
 ### Later — Selective migration and expansion
 

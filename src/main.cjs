@@ -388,7 +388,9 @@ async function confirmHealthyPostUpdate() {
     return false;
   }
   try {
-    return updater.confirmPostUpdateFromArgs(process.argv);
+    const confirmed = updater.confirmPostUpdateFromArgs(process.argv);
+    if (!confirmed) console.warn('[Khaos Nexus] post-update startup was healthy but the transaction could not be confirmed.');
+    return confirmed;
   } catch (error) {
     console.warn('[Khaos Nexus] update startup confirmation:', error.message);
     return false;

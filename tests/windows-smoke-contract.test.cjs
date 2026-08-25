@@ -59,14 +59,16 @@ test('packaged application uses the CI-gated entry wrapper without replacing pro
   assert.match(entry, /waitForPostUpdateConfirmation/);
 });
 
-test('Windows CI runs the real installer/updater smoke and uploads its evidence', { skip: !exists('.github/workflows/rebuild-ci.yml') }, () => {
+test('Windows CI runs real installer, updater, and rollback recovery smoke and uploads its evidence', { skip: !exists('.github/workflows/rebuild-ci.yml') }, () => {
   const workflow = read('.github/workflows/rebuild-ci.yml');
   const script = read('scripts/windows-install-upgrade-smoke.ps1');
+  const updater = read('src/updater/apply-update.ps1');
 
   assert.match(workflow, /windows-install-upgrade-smoke\.ps1/);
-  assert.match(workflow, /Smoke-test clean install and staged upgrade/);
+  assert.match(workflow, /Smoke-test clean install, staged upgrade, and rollback recovery/);
   assert.match(workflow, /dist\/nexus-windows-smoke-report\.json/);
   assert.match(workflow, /postUpdateConfirmed/);
+  assert.match(workflow, /rollbackRecovery/);
 
   assert.match(script, /Khaos-Nexus-\$version-Setup\.exe/);
   assert.match(script, /ArgumentList @\('\/S', "\/D=\$installDir"\)/);
@@ -75,6 +77,15 @@ test('Windows CI runs the real installer/updater smoke and uploads its evidence'
   assert.match(script, /updates\\transactions/);
   assert.match(script, /resultStatus/);
   assert.match(script, /Get-Sha256Hex/);
+  assert.match(script, /\[IO\.Path\]::GetTempPath\(\)/);
+  assert.match(script, /intentionally-invalid-rollback-smoke-payload/);
+  assert.match(script, /resultStatus = \[string\]\$rollbackUpdateResult\.status/);
+  assert.match(script, /restoredPayload/);
+  assert.match(script, /backendHealthy = \[bool\]\$rollbackStartup\.backend\.ok/);
+  assert.match(script, /Write-JsonUtf8NoBom/);
+  assert.match(updater, /\$entries = Get-Content -LiteralPath \$manifestPath -Raw \| ConvertFrom-Json/);
+  assert.doesNotMatch(updater, /\$entries = @\(Get-Content -LiteralPath \$manifestPath/);
+  assert.match(updater, /RedirectStandardError \$startupStderr/);
 });
 
 test('release promotion rejects artifacts without clean-install and staged-upgrade evidence', { skip: !exists('.github/workflows/publish-staged-update.yml') }, () => {
@@ -84,6 +95,8 @@ test('release promotion rejects artifacts without clean-install and staged-upgra
   assert.match(workflow, /stagedUpgrade\.postUpdateConfirmed/);
   assert.match(workflow, /resultStatus/);
   assert.match(workflow, /payload\.matches/);
+  assert.match(workflow, /rollbackRecovery\.resultStatus/);
+  assert.match(workflow, /rollbackRecovery = 'passed'/);
   assert.match(workflow, /smokeHash/);
   assert.match(workflow, /SMOKE_PATH/);
   assert.match(workflow, /postUpdateConfirmation = 'passed'/);

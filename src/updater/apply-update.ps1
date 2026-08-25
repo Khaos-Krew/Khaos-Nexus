@@ -65,8 +65,8 @@ function Restore-Backup {
   param([string]$TargetDir, [string]$BackupDir)
   $manifestPath = Join-Path $BackupDir 'rollback-files.json'
   if (-not (Test-Path -LiteralPath $manifestPath)) { return }
-  $entries = @(Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json)
-  foreach ($entry in $entries) {
+  $entries = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+  foreach ($entry in @($entries)) {
     $destination = Join-Path $TargetDir $entry.relative
     $backup = Join-Path $BackupDir $entry.relative
     if ($entry.existed -eq $true) {
@@ -118,7 +118,12 @@ try {
 
   Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue
   $quotedTransaction = '"' + $transactionPath + '"'
-  $newProcess = Start-Process -FilePath $executablePath -ArgumentList @('--nexus-post-update', $quotedTransaction) -WorkingDirectory $targetDir -PassThru
+  $resultDirectory = Split-Path -Parent ([string]$tx.resultPath)
+  New-Item -ItemType Directory -Path $resultDirectory -Force | Out-Null
+  $startupStdout = Join-Path $resultDirectory 'update-startup.stdout.log'
+  $startupStderr = Join-Path $resultDirectory 'update-startup.stderr.log'
+  Remove-Item -LiteralPath $startupStdout, $startupStderr -Force -ErrorAction SilentlyContinue
+  $newProcess = Start-Process -FilePath $executablePath -ArgumentList @('--nexus-post-update', $quotedTransaction) -WorkingDirectory $targetDir -WindowStyle Hidden -RedirectStandardOutput $startupStdout -RedirectStandardError $startupStderr -PassThru
 
   $deadline = [DateTime]::UtcNow.AddSeconds($startupTimeout)
   while ([DateTime]::UtcNow -lt $deadline) {
@@ -129,7 +134,9 @@ try {
         exit 0
       }
     }
-    if ($newProcess.HasExited) { break }
+    if ($newProcess.HasExited) {
+      throw "Updated Nexus exited with code $($newProcess.ExitCode) before confirming a healthy startup."
+    }
     Start-Sleep -Milliseconds 300
   }
 
@@ -147,7 +154,7 @@ catch {
 
   Write-Result -Status 'rolled-back' -Reason $reason
   try {
-    Start-Process -FilePath $executablePath -ArgumentList @('--nexus-update-rollback', [string]$tx.targetVersion) -WorkingDirectory $targetDir | Out-Null
+    Start-Process -FilePath $executablePath -ArgumentList @('--nexus-update-rollback', [string]$tx.targetVersion) -WorkingDirectory $targetDir -WindowStyle Hidden | Out-Null
   } catch {}
   exit 1
 }

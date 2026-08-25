@@ -123,6 +123,7 @@ jobs:
           if ($smoke.cleanInstall.ok -ne $true -or $smoke.cleanInstall.packaged -ne $true -or $smoke.cleanInstall.backendHealthy -ne $true) { throw 'Validated Windows artifact did not pass clean-install packaged startup.' }
           if ($smoke.stagedUpgrade.ok -ne $true -or $smoke.stagedUpgrade.packaged -ne $true -or $smoke.stagedUpgrade.backendHealthy -ne $true) { throw 'Validated Windows artifact did not pass staged-upgrade packaged startup.' }
           if ($smoke.stagedUpgrade.postUpdateConfirmed -ne $true -or [string]$smoke.stagedUpgrade.resultStatus -ne 'success') { throw 'Validated Windows artifact did not pass post-update health confirmation.' }
+          if ($smoke.rollbackRecovery.ok -ne $true -or [string]$smoke.rollbackRecovery.resultStatus -ne 'rolled-back' -or $smoke.rollbackRecovery.restoredPayload -ne $true -or $smoke.rollbackRecovery.packaged -ne $true -or $smoke.rollbackRecovery.backendHealthy -ne $true) { throw 'Validated Windows artifact did not pass automatic rollback recovery.' }
           if ($smoke.payload.matches -ne $true -or [string]$smoke.payload.installedAsarSha256 -ne [string]$smoke.payload.stagedAsarSha256) { throw 'Windows smoke evidence does not prove the installed payload matches the staged app.asar.' }
 
           $updatePath = Join-Path 'dist' ([string]$manifest.package.name)
@@ -162,6 +163,7 @@ jobs:
               packagedStartup = 'passed'
               stagedUpgrade = 'passed'
               postUpdateConfirmation = 'passed'
+              rollbackRecovery = 'passed'
               payloadMatch = 'passed'
             }
             files = @(
@@ -218,7 +220,7 @@ jobs:
           } else {
             "Khaos Nexus $env:VERSION"
           }
-          $notes = "Khaos Nexus $env:VERSION $env:RELEASE_CHANNEL artifact promoted without rebuilding from validated Nexus Rebuild CI commit $env:SOURCE_HEAD_SHA ($env:SOURCE_RUN_URL). Clean install, packaged startup, staged upgrade, post-update health confirmation, package-content audit, and signing-policy validation passed in the source Windows artifact."
+          $notes = "Khaos Nexus $env:VERSION $env:RELEASE_CHANNEL artifact promoted without rebuilding from validated Nexus Rebuild CI commit $env:SOURCE_HEAD_SHA ($env:SOURCE_RUN_URL). Clean install, packaged startup, staged upgrade, post-update health confirmation, automatic rollback recovery, package-content audit, and signing-policy validation passed in the source Windows artifact."
           $releaseArgs = @(
             'release', 'create', $env:RELEASE_TAG,
             $env:INSTALLER_PATH,
