@@ -1,7 +1,7 @@
 'use strict';
 
 const { envSecret } = require('../shared/config.cjs');
-const { NEXUS_RANKS, normalizeId, rankAuthority } = require('../shared/ranks.cjs');
+const { NEXUS_RANKS, isLegacyRank, isPurchasableRank, normalizeId, rankAuthority } = require('../shared/ranks.cjs');
 const { commandNames } = require('./friendly-commands.cjs');
 
 const ENTITLEMENT_SKU_TYPES = new Set([2, 5]); // Discord DURABLE and SUBSCRIPTION
@@ -75,8 +75,10 @@ function discoverMappingsFromData({ roles = [], skus = [], current = {}, guildId
     suggestedRankRoles[rank.id] = suggestedRoleId;
     if (!configuredRoleId && roleCandidates.length === 1) discoveredRoles += 1;
 
-    const configuredSkuIds = Array.isArray(currentSkus[rank.id]) ? currentSkus[rank.id].map(String).filter(Boolean) : [];
-    const entitlementSkus = source === 'premium-app' && rank.level > 0 ? normalizedSkus.filter((sku) =>
+    const configuredSkuIds = isPurchasableRank(rank) && Array.isArray(currentSkus[rank.id])
+      ? currentSkus[rank.id].map(String).filter(Boolean)
+      : [];
+    const entitlementSkus = source === 'premium-app' && isPurchasableRank(rank) ? normalizedSkus.filter((sku) =>
       ENTITLEMENT_SKU_TYPES.has(sku.type) && (rankOfferingMatch(sku.name, rank) || rankOfferingMatch(sku.slug, rank))
     ) : [];
     const suggestedSkuIds = configuredSkuIds.length ? configuredSkuIds : [...new Set(entitlementSkus.map((sku) => sku.id))];
@@ -86,19 +88,23 @@ function discoverMappingsFromData({ roles = [], skus = [], current = {}, guildId
     const roleStatus = configuredRoleId ? 'configured' : roleCandidates.length === 1 ? 'discovered' : roleCandidates.length > 1 ? 'ambiguous' : 'missing';
     const skuStatus = rank.level === 0
       ? 'free-default'
-      : source === 'server-shop-roles'
-        ? 'server-shop-managed'
-        : configuredSkuIds.length
-          ? 'configured'
-          : entitlementSkus.length
-            ? 'discovered'
-            : 'missing';
-    if (roleStatus === 'ambiguous' || roleStatus === 'missing' || (source === 'premium-app' && rank.level > 0 && skuStatus === 'missing')) attention += 1;
+      : isLegacyRank(rank)
+        ? 'legacy-role-only'
+        : source === 'server-shop-roles'
+          ? 'server-shop-managed'
+          : configuredSkuIds.length
+            ? 'configured'
+            : entitlementSkus.length
+              ? 'discovered'
+              : 'missing';
+    if (roleStatus === 'ambiguous' || roleStatus === 'missing' || (source === 'premium-app' && isPurchasableRank(rank) && skuStatus === 'missing')) attention += 1;
 
     ranks.push({
       id: rank.id,
       name: rank.name,
       level: rank.level,
+      legacy: isLegacyRank(rank),
+      purchasable: isPurchasableRank(rank),
       role: { status: roleStatus, id: suggestedRoleId, candidates: roleCandidates },
       skus: { status: skuStatus, ids: suggestedSkuIds, candidates: entitlementSkus }
     });
@@ -137,7 +143,7 @@ async function discoverRankMappings(controller) {
       applicationId: String(controller.client?.application?.id || ''),
       skuCount: 0,
       skuDiscoverySkipped: true,
-      note: 'Discord Server Shop roles are authoritative; Premium App SKU mappings are not required.'
+      note: 'Discord Server Shop roles are authoritative for purchasable ranks; Origin Founder remains legacy-only and Premium App SKU mappings are not required.'
     };
   }
   const skuResult = await fetchApplicationSkus(controller);
