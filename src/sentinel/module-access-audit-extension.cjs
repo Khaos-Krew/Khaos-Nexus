@@ -49,9 +49,12 @@ function installModuleAccessAuditExtension() {
         try {
           const result = await runModuleAccessAudit(client, config, state, { reason });
           if (result.skipped) return console.warn(`[Nexus Sentinal] module access preflight skipped: ${result.skipped}`);
-          console.log(`[Nexus Sentinal] module access preflight (${reason}): ready=${result.counts.ready}/${result.counts.modules} attention=${result.counts.attention} pending=${result.counts.pending} accessRoles=${result.counts.accessRoles} buttonBindings=${result.counts.buttonBindings} staffRoles=${result.counts.staffRoles} cachedStaff=${result.counts.cachedStaffMembers} bulkMemberFetches=${result.bulkMemberFetches} panelCreated=${result.panelCreated} duplicatesRemoved=${result.duplicatesRemoved} pinned=${result.pinned} humanTestRequired=${result.humanInteractionStillRequired}`);
-          for (const item of result.modules.filter((entry) => entry.status !== 'ready')) {
+          console.log(`[Nexus Sentinal] module access preflight (${reason}): sentinelReady=${result.counts.ready} delegated=${result.counts.delegated || 0} modules=${result.counts.modules} attention=${result.counts.attention} pending=${result.counts.pending} accessRoles=${result.counts.accessRoles} buttonBindings=${result.counts.buttonBindings} staffRoles=${result.counts.staffRoles} cachedStaff=${result.counts.cachedStaffMembers} bulkMemberFetches=${result.bulkMemberFetches} panelCreated=${result.panelCreated} duplicatesRemoved=${result.duplicatesRemoved} pinned=${result.pinned} humanTestRequired=${result.humanInteractionStillRequired}`);
+          for (const item of result.modules.filter((entry) => entry.status === 'attention' || entry.status === 'pending')) {
             console.warn(`[Nexus Sentinal] module access preflight ${item.status}: ${item.moduleId}: ${item.reason || 'needs review'}`);
+          }
+          for (const item of result.modules.filter((entry) => entry.status === 'delegated')) {
+            console.log(`[Nexus Sentinal] module access preflight delegated: ${item.moduleId}: ${item.reason}`);
           }
         } catch (error) {
           console.warn(`[Nexus Sentinal] module access preflight unavailable: ${String(error?.message || error).slice(0, 240)}`);
