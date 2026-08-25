@@ -45,6 +45,19 @@ const SENTINEL_SHIELD_PATCH_NOTE = Object.freeze({
     'Added a controlled verification-help path and automatic reconciliation so security restrictions can be safely reviewed and restored by staff.'
   ])
 });
+const NEXUS_COMMAND_CENTER_PATCH_NOTE = Object.freeze({
+  key: 'nexus-command-center:100',
+  section: 'Nexus Command Center',
+  percent: 100,
+  title: 'Nexus Command Center Complete',
+  summary: 'The member-facing Nexus Command Center has reached its 100% roadmap milestone and is live under NEXUS HQ.',
+  highlights: Object.freeze([
+    'Added a managed #nexus-commands channel under NEXUS HQ for non-game community commands and quick-access controls.',
+    'Added buttons for My Level, Achievements, Leaderboard, Roles, Suggestions, Events, Polls, and Nexus Help.',
+    'Progression buttons reuse the existing Nexus progression backend and return private results so the shared command channel stays clean.',
+    'Sentinal automatically adopts, repairs, pins, and de-duplicates the command panel while keeping game-specific and privileged controls out of the public surface.'
+  ])
+});
 
 function installRoadmapPatchNoteExtension() {
   if (Client.prototype[INSTALLED]) return;
@@ -53,7 +66,7 @@ function installRoadmapPatchNoteExtension() {
   const config = loadConfig();
   const guildId = String(config.discord?.guildId || '');
   const state = new StateStore();
-  const publisher = new RoadmapPatchNotePublisher({ state, config, notes: [...ROADMAP_PATCH_NOTES, ABOUT_PATCH_NOTE, COMMUNITY_SUGGESTIONS_PATCH_NOTE, SENTINEL_SHIELD_PATCH_NOTE] });
+  const publisher = new RoadmapPatchNotePublisher({ state, config, notes: [...ROADMAP_PATCH_NOTES, ABOUT_PATCH_NOTE, COMMUNITY_SUGGESTIONS_PATCH_NOTE, SENTINEL_SHIELD_PATCH_NOTE, NEXUS_COMMAND_CENTER_PATCH_NOTE] });
   const originalLogin = Client.prototype.login;
 
   Client.prototype.login = function nexusRoadmapPatchNoteLogin(...args) {
@@ -73,4 +86,10 @@ function installRoadmapPatchNoteExtension() {
   };
 }
 
-module.exports = { ABOUT_PATCH_NOTE, COMMUNITY_SUGGESTIONS_PATCH_NOTE, SENTINEL_SHIELD_PATCH_NOTE, installRoadmapPatchNoteExtension };
+module.exports = {
+  ABOUT_PATCH_NOTE,
+  COMMUNITY_SUGGESTIONS_PATCH_NOTE,
+  SENTINEL_SHIELD_PATCH_NOTE,
+  NEXUS_COMMAND_CENTER_PATCH_NOTE,
+  installRoadmapPatchNoteExtension
+};
