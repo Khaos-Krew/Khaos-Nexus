@@ -12,9 +12,9 @@ test('Sentinal Shield reserves listener headroom above the current modular ready
   const client = new EventEmitter();
   client.setMaxListeners(20);
   const resolved = ensureListenerBudget(client);
-  assert.ok(resolved >= 32);
+  assert.ok(resolved >= 40);
   assert.equal(client.getMaxListeners(), resolved);
-  assert.equal(MIN_CLIENT_LISTENER_BUDGET, 32);
+  assert.equal(MIN_CLIENT_LISTENER_BUDGET, 40);
 });
 
 test('listener budget never lowers an explicitly larger operator value', () => {
