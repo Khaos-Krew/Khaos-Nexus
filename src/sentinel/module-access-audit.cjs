@@ -116,6 +116,35 @@ function inspectPolicyFromSnapshot(channels, category, context = {}) {
   };
 }
 
+function delegatedSurface(module) {
+  if (!module) return '';
+  const surface = String(module.surface || 'sentinel').trim().toLowerCase() || 'sentinel';
+  return module.console === false || surface !== 'sentinel' ? surface : '';
+}
+
+function delegatedAccessResult(definition, module, accessRole, buttonBound) {
+  const surface = delegatedSurface(module);
+  if (!surface) return null;
+  const reasons = [];
+  if (!accessRole) reasons.push('access-role-missing');
+  if (!buttonBound) reasons.push('button-binding-missing');
+  const ok = reasons.length === 0;
+  return {
+    moduleId: definition.moduleId,
+    name: module?.name || definition.label,
+    ok,
+    status: ok ? 'delegated' : 'attention',
+    reason: ok ? `visibility-delegated:${surface}` : reasons.join(','),
+    surface,
+    delegated: true,
+    accessRoleId: String(accessRole?.id || ''),
+    accessRoleName: String(accessRole?.name || ''),
+    accessRoleReady: Boolean(accessRole),
+    buttonBound,
+    categoryManagedBySentinal: false
+  };
+}
+
 async function auditModuleAccess(guild, options = {}) {
   const state = options.state;
   const config = options.config || {};
@@ -140,9 +169,14 @@ async function auditModuleAccess(guild, options = {}) {
     const saved = state?.getAccessRole?.(definition.moduleId) || null;
     const accessRoleId = String(saved?.roleId || '');
     const accessRole = accessRoleId ? roles.get(accessRoleId) || null : null;
-    const category = strictCategoryMatch(channels, definition.moduleId);
     const buttonBound = bindings.has(definition.moduleId);
+    const delegated = delegatedAccessResult(definition, module, accessRole, buttonBound);
+    if (delegated) {
+      modules.push(delegated);
+      continue;
+    }
 
+    const category = strictCategoryMatch(channels, definition.moduleId);
     if (!category) {
       modules.push({
         moduleId: definition.moduleId,
@@ -212,12 +246,13 @@ async function auditModuleAccess(guild, options = {}) {
   }
 
   const ready = modules.filter((item) => item.status === 'ready').length;
+  const delegated = modules.filter((item) => item.status === 'delegated').length;
   const pending = modules.filter((item) => item.status === 'pending').length;
   const attention = modules.filter((item) => item.status === 'attention').length;
   const buttonBindings = modules.filter((item) => item.buttonBound).length;
   const accessRoles = modules.filter((item) => item.accessRoleReady).length;
   return {
-    ok: attention === 0,
+    ok: attention === 0 && pending === 0,
     readOnly: true,
     snapshotBased: true,
     bulkMemberFetches: 0,
@@ -227,6 +262,7 @@ async function auditModuleAccess(guild, options = {}) {
     counts: {
       modules: modules.length,
       ready,
+      delegated,
       pending,
       attention,
       accessRoles,
@@ -240,6 +276,7 @@ async function auditModuleAccess(guild, options = {}) {
 
 function auditStatusIcon(item) {
   if (item.status === 'ready') return '✅';
+  if (item.status === 'delegated') return '🧭';
   if (item.status === 'pending') return '⏳';
   return '⚠️';
 }
@@ -249,7 +286,9 @@ function accessAuditPayload(result = {}) {
   const lines = (result.modules || []).map((item) => {
     const detail = item.status === 'ready'
       ? `${item.accessRoleName || 'access role'} • button + visibility matrix ready`
-      : item.reason || 'needs review';
+      : item.status === 'delegated'
+        ? `${item.accessRoleName || 'access role'} • access button ready • visibility delegated to ${String(item.surface || 'external surface')}`
+        : item.reason || 'needs review';
     return `${auditStatusIcon(item)} **${item.name || item.moduleId}** — ${detail}`.slice(0, 220);
   });
   const chunks = [];
@@ -258,8 +297,8 @@ function accessAuditPayload(result = {}) {
     embeds: [{
       title: 'KHAOS NEXUS • MODULE ACCESS PREFLIGHT',
       description: [
-        'Read-only snapshot audit of live module access roles, button bindings, category/channel permission drift, cross-game isolation, and staff-role visibility.',
-        `**${counts.ready || 0}/${counts.modules || 0} ready** • ${counts.attention || 0} attention • ${counts.pending || 0} pending • ${counts.buttonBindings || 0} button bindings • ${counts.staffRoles || 0} staff roles checked`,
+        'Read-only snapshot audit of live module access roles, button bindings, Sentinel-owned category/channel permission drift, cross-game isolation, staff-role visibility, and delegated presentation surfaces.',
+        `**${counts.ready || 0} Sentinel-ready** • ${counts.delegated || 0} delegated • ${counts.attention || 0} attention • ${counts.pending || 0} pending • ${counts.buttonBindings || 0} button bindings • ${counts.staffRoles || 0} staff roles checked`,
         '',
         'This reduces the remaining acceptance work, but it **does not replace a real normal-member button test**.'
       ].join('\n'),
@@ -310,6 +349,8 @@ module.exports = {
   staffRoleIdsFromSnapshot,
   staffSubjectsFromSnapshot,
   inspectPolicyFromSnapshot,
+  delegatedSurface,
+  delegatedAccessResult,
   auditModuleAccess,
   auditStatusIcon,
   accessAuditPayload,
