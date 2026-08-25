@@ -27,6 +27,14 @@ const {
   userSelectPayload
 } = require('./safety-report-model.cjs');
 const { SafetyReportStore } = require('./safety-report-store.cjs');
+const {
+  hasModerationPermission: currentHasModerationPermission,
+  configuredOwnerIds: currentConfiguredOwnerIds,
+  resolveStaffRoleIds: currentResolveStaffRoleIds,
+  isStaff: currentIsStaff,
+  reconcileReportAccess,
+  reconcileStoredReportAccess
+} = require('./safety-report-access.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.safetyReports.extension');
 const REPORT_CATEGORY = 'PRIVATE REPORTS';
@@ -34,6 +42,7 @@ const ARCHIVE_CHANNEL = 'report-archive';
 const MAX_OPEN_REPORTS_PER_USER = 3;
 const MAX_TRANSCRIPT_MESSAGES = 2000;
 const MAX_TRANSCRIPT_BYTES = 6 * 1024 * 1024;
+const REPORT_ACCESS_RECONCILE_MS = 15 * 60_000;
 
 function reportCommand() {
   return new SlashCommandBuilder()
@@ -42,32 +51,15 @@ function reportCommand() {
 }
 
 function hasModerationPermission(member) {
-  const permissions = member?.permissions;
-  return Boolean(permissions?.has?.(PermissionFlagsBits.Administrator)
-    || permissions?.has?.(PermissionFlagsBits.ModerateMembers)
-    || permissions?.has?.(PermissionFlagsBits.ManageGuild));
+  return currentHasModerationPermission(member);
 }
 
 function configuredOwnerIds(config = {}) {
-  return normalizeIds(config.discord?.ownerUserIds || []);
+  return currentConfiguredOwnerIds(config);
 }
 
 async function resolveStaffRoleIds(guild, config = {}) {
-  const roles = await guild.roles.fetch();
-  const explicit = normalizeIds([
-    ...(config.discord?.safetyStaffRoleIds || []),
-    ...(config.discord?.operatorRoleIds || [])
-  ]).filter((id) => {
-    const role = roles.get(id);
-    return Boolean(role && role.id !== guild.id && role.managed !== true);
-  });
-  if (explicit.length) return explicit;
-  return [...roles.values()]
-    .filter((role) => role && role.id !== guild.id && role.managed !== true)
-    .filter((role) => role.permissions?.has?.(PermissionFlagsBits.Administrator)
-      || role.permissions?.has?.(PermissionFlagsBits.ModerateMembers)
-      || role.permissions?.has?.(PermissionFlagsBits.ManageGuild))
-    .map((role) => String(role.id));
+  return currentResolveStaffRoleIds(guild, config);
 }
 
 function staffRoleOverwrites(staffRoleIds = []) {
@@ -234,13 +226,8 @@ async function memberFor(guild, userId) {
 }
 
 async function isStaff(guild, userId, config, report = null) {
-  const id = String(userId || '');
-  if (configuredOwnerIds(config).includes(id)) return true;
-  const member = await memberFor(guild, id);
-  if (!member) return false;
-  if (hasModerationPermission(member)) return true;
-  const staffRoleIds = normalizeIds(report?.staffRoleIds || await resolveStaffRoleIds(guild, config));
-  return staffRoleIds.some((roleId) => member.roles?.cache?.has?.(roleId));
+  void report;
+  return currentIsStaff(guild, userId, config);
 }
 
 function modalValues(interaction) {
@@ -365,9 +352,7 @@ async function closeReport(interaction, report, channel, config, store, infrastr
     archiveMessageId: String(archiveMessage.id)
   });
   await disableTicketControls(channel, updated);
-  for (const userId of [report.reporterId, ...(report.participants || [])]) {
-    try { await channel.permissionOverwrites.edit(String(userId), { SendMessages: false }, `Nexus Sentinal closed report ${report.caseId}`); } catch {}
-  }
+  await reconcileReportAccess(interaction.guild, interaction.client, config, store, updated, channel);
   try { await channel.setName(reportChannelName(report.caseId, true), `Nexus Sentinal closed report ${report.caseId}`); } catch {}
   try { await channel.setTopic(`${report.caseId} • private safety report • closed ${closedAt}`); } catch {}
   await channel.send({ content: `🔒 **${report.caseId} closed and archived.** The channel is preserved read-only for the reporter. Authorized staff can access the restricted transcript archive.`, allowedMentions: { parse: [] } });
@@ -375,9 +360,11 @@ async function closeReport(interaction, report, channel, config, store, infrastr
 }
 
 async function handleControl(interaction, client, config, store, parsed) {
-  const report = store.get(parsed.caseId);
+  let report = store.get(parsed.caseId);
   const channel = await reportChannelFor(interaction, report);
   if (!report || !channel) return interaction.reply({ content: 'This private report no longer has an active Discord case channel.', flags: MessageFlags.Ephemeral });
+  await reconcileReportAccess(interaction.guild, client, config, store, report, channel).catch(() => null);
+  report = store.get(parsed.caseId) || report;
   if (String(report.status || '') === 'closed') return interaction.reply({ content: `Report ${report.caseId} is already closed.`, flags: MessageFlags.Ephemeral });
   const staff = await isStaff(interaction.guild, interaction.user.id, config, report);
   const reporter = String(report.reporterId || '') === String(interaction.user.id);
@@ -397,7 +384,7 @@ async function handleControl(interaction, client, config, store, parsed) {
   if (parsed.action === 'escalate') {
     if (!staff) return interaction.reply({ content: 'Only authorized staff can escalate a report.', flags: MessageFlags.Ephemeral });
     store.set(report.caseId, { status: 'escalated', escalatedBy: String(interaction.user.id), escalatedAt: new Date().toISOString() });
-    const owners = normalizeIds(report.ownerIds || configuredOwnerIds(config));
+    const owners = configuredOwnerIds(config);
     const mentions = owners.map((id) => `<@${id}>`).join(' ');
     await channel.send({
       content: `⚠️ **${report.caseId} escalated for senior staff review.**${mentions ? ` ${mentions}` : ''}`,
@@ -424,10 +411,12 @@ async function handleControl(interaction, client, config, store, parsed) {
   return interaction.reply({ content: 'Unknown private report control.', flags: MessageFlags.Ephemeral });
 }
 
-async function handleUserSelect(interaction, config, store, parsed) {
-  const report = store.get(parsed.caseId);
+async function handleUserSelect(interaction, client, config, store, parsed) {
+  let report = store.get(parsed.caseId);
   const channel = await reportChannelFor(interaction, report);
   if (!report || !channel) return interaction.update({ content: 'This private report no longer has an active Discord case channel.', components: [] });
+  await reconcileReportAccess(interaction.guild, client, config, store, report, channel).catch(() => null);
+  report = store.get(parsed.caseId) || report;
   if (!(await isStaff(interaction.guild, interaction.user.id, config, report))) return interaction.update({ content: 'Only authorized staff can add participants to a private report.', components: [] });
   const userId = String(interaction.values?.[0] || '');
   const member = await memberFor(interaction.guild, userId);
@@ -437,23 +426,34 @@ async function handleUserSelect(interaction, config, store, parsed) {
     return interaction.update({ content: 'That member is not currently recognized as authorized staff. Use **Add User** if they only need case-specific participation.', components: [] });
   }
 
-  await channel.permissionOverwrites.edit(userId, {
-    ViewChannel: true,
-    SendMessages: true,
-    ReadMessageHistory: true,
-    AttachFiles: true,
-    EmbedLinks: true,
-    ...(addingStaff ? { ManageMessages: true } : {})
-  }, `Nexus Sentinal ${addingStaff ? 'staff' : 'participant'} added to ${report.caseId}`);
+  if (!addingStaff) {
+    await channel.permissionOverwrites.edit(userId, {
+      ViewChannel: true,
+      SendMessages: true,
+      ReadMessageHistory: true,
+      AttachFiles: true,
+      EmbedLinks: true
+    }, `Nexus Sentinal participant added to ${report.caseId}`);
+  }
 
   const key = addingStaff ? 'staffParticipants' : 'participants';
   const values = [...new Set([...(report[key] || []), userId])];
   store.set(report.caseId, { [key]: values });
+  if (addingStaff) {
+    await reconcileReportAccess(interaction.guild, client, config, store, store.get(report.caseId), channel);
+  }
   await channel.send({
     content: `${addingStaff ? '🛡️ Staff member' : '➕ Participant'} <@${userId}> was added to **${report.caseId}** by <@${interaction.user.id}>.`,
     allowedMentions: { users: [userId, String(interaction.user.id)], roles: [], parse: [] }
   });
   return interaction.update({ content: `Added ${member.displayName || member.user?.username || userId} to ${report.caseId}.`, components: [] });
+}
+
+async function reconcileAllSafetyAccess(guild, client, config, store, reason = 'manual') {
+  const infrastructure = await ensureInfrastructure(guild, client, config, store);
+  const reports = await reconcileStoredReportAccess(guild, client, config, store);
+  console.log(`[Nexus Sentinal] private safety access (${reason}): staffRoles=${infrastructure.staffRoleIds.length} reports=${reports.reports} reconciled=${reports.reconciled} missing=${reports.missing} failed=${reports.failed}`);
+  return { infrastructure, reports };
 }
 
 function installSafetyReportExtension() {
@@ -470,10 +470,17 @@ function installSafetyReportExtension() {
       if (!guildId) return;
       try {
         const guild = await this.guilds.fetch(guildId);
-        const infrastructure = await ensureInfrastructure(guild, this, config, store);
+        const access = await reconcileAllSafetyAccess(guild, this, config, store, 'startup');
         await ensureReportCommand(guild);
         const rules = await ensureRulesPanel(guild, this, config, store);
-        console.log(`[Nexus Sentinal] private safety reports ready: staffRoles=${infrastructure.staffRoleIds.length} rulesPanel=${rules.skipped ? 'not-found' : 'ready'} archive=ready`);
+        console.log(`[Nexus Sentinal] private safety reports ready: staffRoles=${access.infrastructure.staffRoleIds.length} rulesPanel=${rules.skipped ? 'not-found' : 'ready'} archive=ready reportsReconciled=${access.reports.reconciled}`);
+
+        const timer = setInterval(() => {
+          void reconcileAllSafetyAccess(guild, this, config, store, 'periodic').catch((error) => {
+            console.warn(`[Nexus Sentinal] private safety access (periodic) unavailable: ${clean(error?.message || error, 240)}`);
+          });
+        }, REPORT_ACCESS_RECONCILE_MS);
+        timer.unref?.();
       } catch (error) {
         console.error('[Nexus Sentinal] private safety report startup:', error);
       }
@@ -491,7 +498,7 @@ function installSafetyReportExtension() {
         }
         if (interaction.isUserSelectMenu?.()) {
           const parsed = parseControlId(interaction.customId);
-          if (parsed && ['staffselect', 'userselect'].includes(parsed.action)) return handleUserSelect(interaction, config, store, parsed);
+          if (parsed && ['staffselect', 'userselect'].includes(parsed.action)) return handleUserSelect(interaction, this, config, store, parsed);
         }
       } catch (error) {
         const content = `⚠️ ${clean(error?.message || error || 'Private report operation failed.', 500)}`;
@@ -511,6 +518,7 @@ function installSafetyReportExtension() {
 module.exports = {
   ARCHIVE_CHANNEL,
   MAX_OPEN_REPORTS_PER_USER,
+  REPORT_ACCESS_RECONCILE_MS,
   REPORT_CATEGORY,
   ensureInfrastructure,
   ensureReportCommand,
@@ -519,6 +527,7 @@ module.exports = {
   hasModerationPermission,
   installSafetyReportExtension,
   isStaff,
+  reconcileAllSafetyAccess,
   reportCommand,
   reportOverwrites,
   resolveStaffRoleIds,
