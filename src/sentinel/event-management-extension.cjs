@@ -8,6 +8,7 @@ const { PollStore } = require('../backend/services/poll-store.cjs');
 const { ensurePollsChannel, isAuthorizedPollManager, overwriteSatisfies, parseOptionList } = require('./poll-ui.cjs');
 const { reconcilePollCard } = require('./poll-extension.cjs');
 const { findHqCategory, normalizedName } = require('./nexus-hq.cjs');
+const { paragraphs, lines, spacedItems, statRows } = require('./embed-layout.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.event.management.extension');
 const BOUND = Symbol.for('khaos.nexus.event.management.bound');
@@ -73,25 +74,50 @@ async function ensureEventsChannel(guild) {
 
 function eventStatus(event) {
   const when = Math.floor(Date.parse(event.startAt) / 1000);
-  return `**${event.id}** — ${event.title}\n${String(event.status).toUpperCase()} • <t:${when}:F> (<t:${when}:R>)`;
+  return paragraphs(
+    `**${event.id} — ${event.title}**`,
+    statRows([
+      ['Status', String(event.status).toUpperCase()],
+      ['Starts', `<t:${when}:F>\n<t:${when}:R>`]
+    ])
+  );
 }
 
 function renderEventCard(event) {
   const when = Math.floor(Date.parse(event.startAt) / 1000);
-  const fields = [
-    { name: 'Status', value: String(event.status).toUpperCase(), inline: true },
-    { name: 'Starts', value: `<t:${when}:F>\n<t:${when}:R>`, inline: true },
-    { name: 'Location', value: event.location || 'Discord', inline: true }
+  const detailRows = [
+    ['Status', String(event.status).toUpperCase()],
+    ['Starts', `<t:${when}:F>\n<t:${when}:R>`],
+    ['Location', event.location || 'Discord']
   ];
-  if (event.endAt) fields.push({ name: 'Ends', value: `<t:${Math.floor(Date.parse(event.endAt) / 1000)}:F>`, inline: true });
-  if (event.pollId) fields.push({ name: 'Scheduling Poll', value: `**${event.pollId}** — vote in #polls`, inline: true });
-  if (event.cancelReason) fields.push({ name: 'Cancellation', value: event.cancelReason, inline: false });
+  if (event.endAt) detailRows.push(['Ends', `<t:${Math.floor(Date.parse(event.endAt) / 1000)}:F>`]);
+  if (event.pollId) detailRows.push(['Scheduling Poll', `**${event.pollId}**\nVote in #polls`]);
+
+  const fields = [{ name: '🧭 Event Details', value: statRows(detailRows).slice(0, 1024), inline: false }];
+  if (event.cancelReason) fields.push({ name: '⛔ Cancellation', value: paragraphs(event.cancelReason), inline: false });
+
   const responses = Object.values(event.responses || {});
   const count = (choice) => responses.filter((item) => item.response === choice).length;
-  fields.push({ name: 'RSVPs', value: `✅ Going: **${count('going')}** • ❔ Maybe: **${count('maybe')}** • ❌ Can't: **${count('cant')}**`, inline: false });
+  fields.push({
+    name: '👥 RSVPs',
+    value: lines(
+      `✅ **Going** — ${count('going')}`,
+      `❔ **Maybe** — ${count('maybe')}`,
+      `❌ **Can’t Go** — ${count('cant')}`
+    ),
+    inline: false
+  });
+
   const disabled = ['cancelled', 'completed'].includes(event.status);
   return {
-    embeds: [{ title: event.title, description: event.description || 'Official Khaos Nexus event.', color: event.status === 'cancelled' ? 0x992d22 : event.status === 'completed' ? 0x2ecc71 : 0x5865f2, fields, footer: { text: `${CARD_PREFIX}${event.id}` }, timestamp: event.updatedAt }],
+    embeds: [{
+      title: event.title,
+      description: paragraphs(event.description || 'Official Khaos Nexus event.', `**Event ID**\n${event.id}`),
+      color: event.status === 'cancelled' ? 0x992d22 : event.status === 'completed' ? 0x2ecc71 : 0x5865f2,
+      fields,
+      footer: { text: `${CARD_PREFIX}${event.id}` },
+      timestamp: event.updatedAt
+    }],
     components: [{ type: 1, components: [
       { type: 2, style: 3, label: 'Going', emoji: { name: '✅' }, custom_id: `${COMPONENT_PREFIX}${event.id}:going`, disabled },
       { type: 2, style: 2, label: 'Maybe', emoji: { name: '❔' }, custom_id: `${COMPONENT_PREFIX}${event.id}:maybe`, disabled },
@@ -141,7 +167,7 @@ async function handleEventCommand(interaction, context) {
   else if (subcommand === 'list') {
     const status = interaction.options.getString('status');
     const events = context.manager.store.list({ ...(status ? { statuses: [status] } : {}), limit: 20 });
-    await interaction.editReply({ content: events.length ? events.map(eventStatus).join('\n\n').slice(0, 1900) : 'No matching managed events.', allowedMentions: { parse: [] } });
+    await interaction.editReply({ content: events.length ? spacedItems(events.map(eventStatus)).slice(0, 1900) : 'No matching managed events.', allowedMentions: { parse: [] } });
     return { handled: true };
   }
   if (!event) throw new Error(`${id} does not exist.`);
