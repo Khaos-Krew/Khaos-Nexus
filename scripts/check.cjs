@@ -31,3 +31,4 @@ for (const file of files) {
 
 if (failures) process.exit(1);
 console.log(`Syntax check passed for ${files.length} JavaScript files.`);
+require('./check-version-identity.cjs');

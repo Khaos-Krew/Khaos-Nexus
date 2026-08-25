@@ -47,8 +47,9 @@ test('safe UI layer loads one primary navigation owner while preserving independ
   assert.doesNotMatch(extension, /addScript\('navigation-shell\.js'\)/);
 });
 
-test('current Windows release preserves Android production hold and release metadata integrity', () => {
+test('current Windows release preserves Android production boundaries and release metadata integrity', () => {
   const packageJson = JSON.parse(read('package.json'));
+  const releaseIdentity = JSON.parse(read('config/release-identity.json'));
   const notes = read(packageJson.build.releaseInfo.releaseNotesFile);
   const mobileDocs = read('docs/ANDROID_COMPANION_v0.22.0.md');
   const mobileShared = read('shared/mobile-gateway.cjs');
@@ -56,6 +57,17 @@ test('current Windows release preserves Android production hold and release meta
   const mobileSecurity = read('main/mobile-gateway-security-extension.cjs');
   const mobileHold = read('main/mobile-production-hold-extension.cjs');
   const androidWorkflow = read('.github/workflows/android-build.yml');
+  const ownerTestAuthorizationPath = path.join(root, 'config', 'mobile-owner-test-authorization.json');
+  const ownerTestAuthorization = fs.existsSync(ownerTestAuthorizationPath)
+    ? JSON.parse(fs.readFileSync(ownerTestAuthorizationPath, 'utf8'))
+    : null;
+  const authorizedAndroidOwnerTest = Boolean(
+    ownerTestAuthorization?.enabled === true
+    && ownerTestAuthorization?.scope === 'owner-test'
+    && ownerTestAuthorization?.architectureDecision === 'ADR-009'
+    && ownerTestAuthorization?.trackingIssue === 276
+    && ownerTestAuthorization?.desktopBaseline === 'v0.41.2-B'
+  );
   const rust = read('bot/rust-webrcon.cjs');
   const rustMain = read('main/rust-main-extension.cjs');
   const rustUi = read('renderer/rust-webrcon-ui.js');
@@ -72,8 +84,13 @@ test('current Windows release preserves Android production hold and release meta
   const workflow = read('.github/workflows/stable-release.yml');
   const ciWorkflow = read('.github/workflows/ci.yml');
   const prerelease = packageJson.version.includes('-');
+  const expectedReleaseType = releaseIdentity.channel === 'owner-test'
+    ? 'release'
+    : prerelease
+      ? 'prerelease'
+      : 'release';
 
-  assert.match(packageJson.version, /^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?$/);
+  assert.match(packageJson.version, /^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc|test)\.\d+)?$/);
   assert.match(packageJson.description, /unconditional local-desktop module recovery controls/i);
   assert.match(packageJson.description, /preserved but paused Android Companion and Mobile Gateway/i);
   assert.match(packageJson.description, /complete D&D campaign management/i);
@@ -87,7 +104,8 @@ test('current Windows release preserves Android production hold and release meta
   assert.match(localAuthority, /get: \(\) => null/);
   assert.match(localAuthority, /set: \(\) => \{\}/);
 
-  // Android and Mobile Gateway implementation evidence remains preserved while production is disabled.
+  // Android and Mobile Gateway implementation evidence remains preserved. Stable/public release stays held,
+  // while a narrowly-scoped ADR-009 package marker may authorize this private owner-test workflow only.
   assert.match(mobileShared, /verifyMobileRequestSignature/);
   assert.match(mobileShared, /issueDeviceCredential/);
   assert.match(mobileService, /class MobileGatewayService/);
@@ -98,12 +116,28 @@ test('current Windows release preserves Android production hold and release meta
   assert.match(mobileHold, /KHAOS_NEXUS_MOBILE_GATEWAY_ENABLED/);
   assert.match(mobileHold, /paused-by-owner-directive/);
   assert.match(mobileHold, /launchView: null/);
-  assert.match(androidWorkflow, /name: Android Production Hold/);
-  assert.match(androidWorkflow, /workflow_dispatch/);
-  assert.match(androidWorkflow, /ADR-008/);
-  assert.doesNotMatch(androidWorkflow, /lintDebug/);
-  assert.doesNotMatch(androidWorkflow, /apksigner/);
-  assert.doesNotMatch(androidWorkflow, /upload-artifact/);
+
+  if (authorizedAndroidOwnerTest) {
+    assert.equal(ownerTestAuthorization.scope, 'owner-test');
+    assert.equal(ownerTestAuthorization.architectureDecision, 'ADR-009');
+    assert.equal(ownerTestAuthorization.trackingIssue, 276);
+    assert.equal(ownerTestAuthorization.desktopBaseline, 'v0.41.2-B');
+    assert.match(androidWorkflow, /name: Android Owner Test/);
+    assert.match(androidWorkflow, /owner-test\/\*\*/);
+    assert.match(androidWorkflow, /testDebugUnitTest lintDebug/);
+    assert.match(androidWorkflow, /assembleRelease/);
+    assert.match(androidWorkflow, /apksigner"?\s+verify/);
+    assert.match(androidWorkflow, /Khaos-Nexus-Mobile-Android-\$\{\{ steps\.identity\.outputs\.display \}\}-owner-test/);
+    assert.match(androidWorkflow, /actions\/upload-artifact@v4/);
+    assert.doesNotMatch(androidWorkflow, /gh release create|gh release edit|softprops\/action-gh-release/);
+  } else {
+    assert.match(androidWorkflow, /name: Android Production Hold/);
+    assert.match(androidWorkflow, /workflow_dispatch/);
+    assert.match(androidWorkflow, /ADR-008/);
+    assert.doesNotMatch(androidWorkflow, /lintDebug/);
+    assert.doesNotMatch(androidWorkflow, /apksigner/);
+    assert.doesNotMatch(androidWorkflow, /upload-artifact/);
+  }
 
   assert.match(rust, /class RustWebRconClient/);
   assert.match(rust, /serverinfo/);
@@ -138,9 +172,13 @@ test('current Windows release preserves Android production hold and release meta
   assert.match(botRuntime, /blockedModuleForInteraction/);
 
   assert.equal(packageJson.build.publish[0].provider, 'github');
-  assert.equal(packageJson.build.publish[0].releaseType, prerelease ? 'prerelease' : 'release');
+  assert.equal(packageJson.build.publish[0].releaseType, expectedReleaseType);
   assert.equal(packageJson.build.publish[0].tagNamePrefix, 'v');
-  assert.equal(packageJson.build.releaseInfo.releaseNotesFile, `release-notes/v${packageJson.version}.md`);
+  if (releaseIdentity.channel === 'owner-test') {
+    assert.equal(packageJson.build.releaseInfo.releaseNotesFile, releaseIdentity.releaseNotesFile);
+  } else {
+    assert.equal(packageJson.build.releaseInfo.releaseNotesFile, `release-notes/v${packageJson.version}.md`);
+  }
   assert.match(notes, /Android Companion and Mobile Gateway (?:are|remain) paused and excluded/i);
   assert.match(notes, /D&D/i);
   assert.match(notes, /No APK or Android setup link|Android Companion and Mobile Gateway remain paused and excluded/i);

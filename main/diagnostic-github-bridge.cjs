@@ -73,6 +73,49 @@ function severity(report = {}) {
   return 'healthy';
 }
 
+function runtimeSeverity(report = {}) {
+  const checkStatus = severity(report);
+  const triggerSeverity = String(report.trigger?.severity || 'info').toLowerCase();
+  if (checkStatus === 'failed') return 'failed';
+  if (triggerSeverity === 'fatal') return 'fatal';
+  if (triggerSeverity === 'error') return 'error';
+  if (checkStatus === 'warning' || triggerSeverity === 'warning') return 'warning';
+  return 'healthy';
+}
+
+function inferStabilizationGate(report = {}) {
+  const trigger = report.trigger || {};
+  const detail = trigger.detail && typeof trigger.detail === 'object' ? trigger.detail : {};
+  const text = [
+    trigger.type,
+    trigger.reason,
+    trigger.error?.message,
+    trigger.error?.code,
+    detail.source,
+    detail.channel,
+    detail.view,
+    detail.operation
+  ].filter(Boolean).join(' ').toLowerCase();
+
+  const gate = (number, label) => ({ number, label });
+  if (/sidebar|navigation|\bnav\b|nexus-v8|desktop shell/.test(text)) return gate(2, 'Sidebar/navigation');
+  if (/startup|loading|renderer-load-failed|render-process-gone|renderer-process-gone|window-unresponsive|renderer-unresponsive/.test(text)) return gate(1, 'Startup/loading');
+
+  // Prefer domain-specific gates before generic settings/configuration matching.
+  if (/discord/.test(text) && /(login|auth|oauth|bot|supervis|runtime|connect)/.test(text)) return gate(4, 'Discord login/bot supervision');
+  if (/discord/.test(text) && /(status|control|panel)/.test(text)) return gate(5, 'Discord status/control panel');
+  if (/palworld/.test(text) && /(config|setting|persist)/.test(text)) return gate(6, 'Palworld server configuration');
+  if (/palworld/.test(text) && /(status|player|read|rest)/.test(text)) return gate(7, 'Palworld status/player reads');
+  if (/palworld/.test(text) && /(command|action|save|broadcast|kick|ban|shutdown|restart|execute)/.test(text)) return gate(8, 'Palworld command/action execution');
+
+  if (/(settings?|config(?:uration)?)\b/.test(text) && /persist|save|restore|reload|restart/.test(text)) return gate(3, 'Settings persistence');
+  if (/scheduler|scheduled|schedule/.test(text)) return gate(9, 'Shared scheduler');
+  if (/module/.test(text) && /(enable|disable|toggle|runtime)/.test(text)) return gate(10, 'Module enable/disable');
+  if (/updater|update|release detection|download path|latest\.yml/.test(text)) return gate(11, 'Updater/manual release detection');
+  if (/backup|restore/.test(text)) return gate(12, 'Backup/restore');
+  return null;
+}
+
 function deliveryPolicy(report, state = {}, now = Date.now()) {
   const status = severity(report);
   const identity = reportIdentity(report);
@@ -140,6 +183,45 @@ function diagnosticMarkdown(report = {}) {
   return lines.join('\n').slice(0, 54000);
 }
 
+function runtimeDiagnosticMarkdown(report = {}) {
+  const gate = inferStabilizationGate(report);
+  const trigger = report.trigger || {};
+  const error = trigger.error || {};
+  const logs = strictRedactText(report.evidence?.recentLogs || '').slice(0, MAX_LOG_TEXT);
+  const lines = [
+    '# Khaos Nexus owner-test live diagnostic',
+    '',
+    `- **Report ID:** ${strictRedactText(report.reportId || 'unknown')}`,
+    `- **Session:** ${strictRedactText(report.session?.id || 'unknown')}`,
+    `- **Created:** ${strictRedactText(report.createdAt || 'unknown')}`,
+    `- **Application:** ${strictRedactText(report.application?.version || 'unknown')}`,
+    `- **Type:** ${strictRedactText(trigger.type || 'runtime-diagnostic')}`,
+    `- **Severity:** ${runtimeSeverity(report)}`,
+    `- **Stabilization gate:** ${gate ? `Gate ${gate.number} — ${gate.label}` : 'Unclassified / cross-cutting'}`,
+    `- **Reason:** ${strictRedactText(trigger.reason || 'No reason supplied.')}`,
+    ''
+  ];
+  if (error.message || error.stack) {
+    lines.push(
+      '## Captured error',
+      '',
+      `**${strictRedactText(error.name || 'Error')}**: ${strictRedactText(error.message || trigger.reason || 'Unknown error')}`,
+      '',
+      '```text',
+      strictRedactText(error.stack || '').slice(0, 16000),
+      '```',
+      ''
+    );
+  }
+  lines.push('## System checks', '', ...checkLines(report));
+  if (logs) lines.push('', '## Recent redacted application logs', '', '```text', logs, '```');
+  lines.push(
+    '',
+    '> Captured during owner testing by the local Diagnostics runtime and delivered through the opt-in Application Monitor. Known credential formats are redacted locally and `secrets.bin` is never copied.'
+  );
+  return lines.join('\n').slice(0, 54000);
+}
+
 function preparedItem(report = {}) {
   const status = severity(report);
   const id = `startup-diagnostics-${sha256(reportIdentity(report)).slice(0, 16)}`;
@@ -149,6 +231,21 @@ function preparedItem(report = {}) {
     source: 'startup-diagnostics',
     title: `[Startup Diagnostics ${String(report.application?.version || 'unknown')}] ${status} — ${summary}`.slice(0, 180),
     body: diagnosticMarkdown(report),
+    createdAt: String(report.createdAt || new Date().toISOString()),
+    occurrences: 1
+  };
+}
+
+function runtimePreparedItem(report = {}) {
+  const gate = inferStabilizationGate(report);
+  const trigger = report.trigger || {};
+  const fingerprint = String(trigger.fingerprint || sha256(`${trigger.type || ''}:${trigger.reason || ''}`)).slice(0, 80);
+  const gatePrefix = gate ? `Gate ${gate.number} ` : '';
+  return {
+    id: `owner-test-${fingerprint}`.slice(0, 120),
+    source: 'owner-test-diagnostics',
+    title: `[Owner Test ${gatePrefix}${String(report.application?.version || 'unknown')}] ${runtimeSeverity(report)} — ${strictRedactText(trigger.reason || trigger.type || 'runtime diagnostic')}`.slice(0, 180),
+    body: runtimeDiagnosticMarkdown(report),
     createdAt: String(report.createdAt || new Date().toISOString()),
     occurrences: 1
   };
@@ -185,13 +282,19 @@ class DiagnosticGithubBridge {
     atomicJsonWrite(this.statePath, next);
   }
 
-  async submit(report) {
-    if (!report || report.skipped) return { skipped: true, reason: 'no-report' };
+  monitorReady() {
     if (!this.applicationMonitor || typeof this.applicationMonitor.capturePrepared !== 'function') {
-      return { skipped: true, reason: 'application-monitor-unavailable' };
+      return { ready: false, reason: 'application-monitor-unavailable' };
     }
     const monitorState = this.applicationMonitor.getState?.() || {};
-    if (!monitorState.enabled) return { skipped: true, reason: 'application-monitor-disabled' };
+    if (!monitorState.enabled) return { ready: false, reason: 'application-monitor-disabled' };
+    return { ready: true, monitorState };
+  }
+
+  async submit(report) {
+    if (!report || report.skipped) return { skipped: true, reason: 'no-report' };
+    const availability = this.monitorReady();
+    if (!availability.ready) return { skipped: true, reason: availability.reason };
 
     const policy = deliveryPolicy(report, this.state(), this.now());
     if (!policy.send) return { skipped: true, reason: policy.reason, policy };
@@ -207,6 +310,26 @@ class DiagnosticGithubBridge {
     });
     return { ...result, policy };
   }
+
+  async submitRuntime(report, { trigger = 'owner-test-live-diagnostic' } = {}) {
+    if (!report || report.skipped) return { skipped: true, reason: 'no-report' };
+    if (runtimeSeverity(report) === 'healthy') return { skipped: true, reason: 'healthy-runtime-check' };
+    const availability = this.monitorReady();
+    if (!availability.ready) return { skipped: true, reason: availability.reason };
+
+    const result = await this.applicationMonitor.capturePrepared(runtimePreparedItem(report), {
+      immediate: true,
+      trigger
+    });
+    if (!result?.delivered) {
+      this.logger?.warn?.('Owner-test diagnostics were retained for later GitHub delivery.', {
+        reason: result?.reason || result?.error || 'queued',
+        reportId: report.reportId,
+        stabilizationGate: inferStabilizationGate(report)?.number || null
+      });
+    }
+    return result;
+  }
 }
 
 module.exports = {
@@ -218,9 +341,13 @@ module.exports = {
   healthSignature,
   reportIdentity,
   severity,
+  runtimeSeverity,
+  inferStabilizationGate,
   deliveryPolicy,
   diagnosticMarkdown,
+  runtimeDiagnosticMarkdown,
   preparedItem,
+  runtimePreparedItem,
   safeJsonRead,
   atomicJsonWrite
 };

@@ -1,5 +1,8 @@
 'use strict';
 
+const LEGACY_REPORT_REPOSITORY = 'Khaos-Krew/Khaos-Nexus-Bot-Manager';
+const CURRENT_REPORT_REPOSITORY = 'Khaos-Krew/Khaos-Nexus';
+
 let installed = false;
 
 function normalizePreparedItem(item = {}) {
@@ -17,6 +20,18 @@ function normalizePreparedItem(item = {}) {
     createdAt: String(item.createdAt || new Date().toISOString()).slice(0, 80),
     occurrences: Math.max(1, Math.min(9999, Number(item.occurrences) || 1))
   };
+}
+
+function migrateLegacyReportRepository(options = {}) {
+  const configStore = options.configStore;
+  if (!configStore?.getConfig || !configStore?.setMonitor) return false;
+  const monitor = configStore.getConfig().monitor || {};
+  if (monitor.reportRepository !== LEGACY_REPORT_REPOSITORY) return false;
+  configStore.setMonitor({ ...monitor, reportRepository: CURRENT_REPORT_REPOSITORY });
+  options.logger?.info?.('Application Monitor report destination migrated to the active Khaos Nexus repository.', {
+    repository: CURRENT_REPORT_REPOSITORY
+  });
+  return true;
 }
 
 function install() {
@@ -53,6 +68,7 @@ function install() {
 
   class DiagnosticMonitorBridge extends Original {
     constructor(...args) {
+      migrateLegacyReportRepository(args[0] || {});
       super(...args);
       try {
         require('./diagnostic-suite-extension.cjs').connectApplicationMonitor(this, args[0]?.logger);
@@ -65,4 +81,10 @@ function install() {
   target.ApplicationMonitor = DiagnosticMonitorBridge;
 }
 
-module.exports = { install, normalizePreparedItem };
+module.exports = {
+  install,
+  normalizePreparedItem,
+  migrateLegacyReportRepository,
+  LEGACY_REPORT_REPOSITORY,
+  CURRENT_REPORT_REPOSITORY
+};

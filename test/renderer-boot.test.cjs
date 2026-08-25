@@ -54,7 +54,7 @@ test('current release retains stable startup, adapters, preserved Android eviden
   const mobileSecurity = read('main/mobile-gateway-security-extension.cjs');
   const mobileHold = read('main/mobile-production-hold-extension.cjs');
 
-  assert.match(packageJson.version, /^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?$/);
+  assert.match(packageJson.version, /^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc|test)\.\d+)?$/);
   assert.match(packageJson.description, /installer-first automatic diagnostics/i);
   assert.match(packageJson.description, /standalone Khaos Nexus Diagnostics launcher/i);
   assert.match(packageJson.description, /preserved but paused Android Companion and Mobile Gateway/i);
@@ -74,7 +74,7 @@ test('current release retains stable startup, adapters, preserved Android eviden
   assert.match(entry, /renderer-unresponsive-extension\.cjs/);
   assert.match(entry, /mobile-production-hold-extension\.cjs/);
   assert.match(entry, /mobileGatewayPolicyEnabled/);
-  assert.match(entry, /if \(mobileGatewayEnabled\) require\('\.\/mobile-module-registry-extension\.cjs'\)\.install\(\)/);
+  assert.match(entry, /if \(mobileGatewayEnabled\) \{\s*require\('\.\/mobile-module-registry-extension\.cjs'\)\.install\(\);\s*require\('\.\/owner-test-center-extension\.cjs'\)\.install\(\);\s*\} else mobileHold\.install\(\);/s);
   assert.match(entry, /if \(mobileGatewayEnabled\) \{\s*require\('\.\/mobile-gateway-extension\.cjs'\)\.install\(\);\s*require\('\.\/mobile-gateway-security-extension\.cjs'\)\.install\(\);/s);
   assert.match(entry, /module-foundation-extension\.cjs/);
   assert.match(entry, /local-module-authority-extension\.cjs/);
@@ -94,7 +94,7 @@ test('current release retains stable startup, adapters, preserved Android eviden
   assert.match(rustGate, /assertModule\('rust-server-operations'/);
   assert.match(satisfactory, /server:satisfactory-action/);
 
-  // Dormant Android and Mobile Gateway implementation remains intact for future authorized resumption.
+  // Stable/public hold behavior remains present even though ADR-009 owner-test packages may bypass it.
   assert.match(mobile, /class MobileGatewayService/);
   assert.match(mobile, /TLSv1\.2/);
   assert.match(mobileSecurity, /LAST_SEEN_WRITE_INTERVAL_MS/);

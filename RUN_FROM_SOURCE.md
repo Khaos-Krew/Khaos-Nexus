@@ -1,26 +1,63 @@
-# Run from the source package on Windows
+# Run Khaos Nexus from source on Windows
 
-This fallback is provided in case a GitHub Actions executable has not been published yet.
+Khaos Nexus is currently being stabilized on the `stabilize/nexus-66-baseline` branch. For active desktop development and owner-test preparation, use that branch rather than assuming the repository default branch represents the current application source tree.
 
-## One-click setup
+## Requirements
 
-1. Extract the source ZIP to a normal folder such as `Documents\Khaos Nexus Bot Manager`.
+- Windows x64
+- internet access for dependency/runtime download on first setup
+- Node.js 22 or newer **or** permission for the included bootstrap script to install a private project-local Node.js runtime
+
+End-user release builds do not require a separate system Node.js installation.
+
+## Assisted Windows setup
+
+1. Check out `stabilize/nexus-66-baseline`, or extract a source archive of that branch to a normal folder such as `Documents\Khaos Nexus`.
 2. Double-click `Install-and-Run.bat`.
 3. The setup checks for a compatible Node.js installation.
-4. When Node.js is missing or too old, it downloads the current official Node.js LTS ZIP into the app's private `.runtime` folder, verifies the official SHA-256 checksum, and continues automatically.
-5. The script installs the app dependencies and opens the desktop manager.
+4. If Node.js is missing or too old, the bootstrap script downloads an official Node.js runtime into the project's private `.runtime` folder and verifies the expected checksum before continuing.
+5. Dependencies are installed locally and Khaos Nexus starts through `npm start`.
 
-The private runtime does not require administrator access, does not alter the system-wide Node.js installation, and is reused on future launches.
+The private runtime does not require administrator access, does not replace the system-wide Node.js installation, and is reused on later launches.
 
-## Create normal Windows executables
+## Manual developer setup
 
-After the source version starts successfully, double-click `Build-Windows.bat`. The same integrated Node.js setup is available there. The build script runs the tests and creates both files in `dist`:
+From PowerShell or Command Prompt in the repository root:
 
-- assisted Windows installer;
-- portable Windows executable.
+```text
+npm install
+npm test
+npm run check
+npm start
+```
 
-The finished installer and portable executable include everything required to run the manager. End users do not need Node.js installed separately.
+`npm test` and `npm run check` should pass before a documentation change makes claims about newly implemented behavior or before a product change is proposed for owner testing.
 
-## Safety
+## Windows packaging
 
-The setup scripts do not ask for or transmit Discord tokens. Enter the token only inside the manager's Bot Setup screen, where Windows protected storage is used.
+`Build-Windows.bat` performs the assisted Node.js setup when necessary, installs dependencies, runs the repository tests/checks, and then runs the Windows distribution build.
+
+The equivalent packaging command is:
+
+```text
+npm run dist:win
+```
+
+The package configuration currently targets Windows x64 and can produce:
+
+- `Khaos-Nexus-Setup-<version>-x64.exe`
+- `Khaos-Nexus-Portable-<version>-x64.exe`
+
+A successful local package is a build artifact only. It is **not** automatically a published or authorized release.
+
+## Stabilization validation
+
+The active reset adds release requirements beyond a successful `npm test`/`npm run check` run. Before an owner-facing candidate is promoted, the stabilization policy also requires Windows/package validation, the golden desktop-shell invariants, synchronized version/release identity, redaction checks, and the required functional stability score.
+
+See [`docs/NEXUS_STABILIZATION_RESET.md`](docs/NEXUS_STABILIZATION_RESET.md).
+
+## Credential safety
+
+The setup scripts do not ask for or transmit Discord tokens, RCON passwords, provider API keys, or similar operational credentials. Add protected credentials only through the application surfaces intended for them. Do not place real secrets in source files, issues, test fixtures, screenshots, or documentation.
+
+See [`SECURITY.md`](SECURITY.md).
