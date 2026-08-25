@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-08-25T18:25:00Z",
+  "storage": {
+    "canonical": "google-drive",
+    "artworkRepository": {
+      "folderId": "1ovYmLRpgL634O26OXnHy5eCgRYebngRp",
+      "url": "https://drive.google.com/drive/folders/1ovYmLRpgL634O26OXnHy5eCgRYebngRp"
+    },
+    "banners": {
+      "folderId": "13aQutS3eibes67ziUcydsVCpHix756n4",
+      "url": "https://drive.google.com/drive/folders/13aQutS3eibes67ziUcydsVCpHix756n4"
+    },
+    "hubBanners": {
+      "folderId": "1qrEs2D94KzTPO3AvjOSSUvzsY2N8RRuA",
+      "url": "https://drive.google.com/drive/folders/1qrEs2D94KzTPO3AvjOSSUvzsY2N8RRuA"
+    },
+    "gameBanners": {
+      "folderId": "14q3WPKYF8W6Ay5rhMTjJ1lPs6GHMXARn",
+      "url": "https://drive.google.com/drive/folders/14q3WPKYF8W6Ay5rhMTjJ1lPs6GHMXARn"
+    },
+    "runtimeMirror": "assets/discord/hub-banners"
+  },
+  "hubAssignments": {
+    "information": "information",
+    "staff": "staff",
+    "supporter": "supporter",
+    "content-creator": "content-creator",
+    "artwork-repository": "artwork-repository",
+    "ranks": "ranks",
+    "ark": "ark",
+    "palworld": "palworld",
+    "minecraft": "minecraft",
+    "warframe": "warframe",
+    "idleon": "idleon",
+    "pokemon-go": "pokemon-go",
+    "once-human": "once-human",
+    "osrs": "osrs",
+    "rs3": "rs3",
+    "division-2": "division-2",
+    "call-of-duty": "call-of-duty"
+  },
+  "banners": {
+    "information": { "kind": "hub", "enabled": true, "localPath": "information.png", "runtimeUrl": "", "fallbackUrl": "", "driveFolderId": "1qrEs2D94KzTPO3AvjOSSUvzsY2N8RRuA", "driveFileId": "", "version": 1, "altText": "Khaos Nexus Information hub banner" },
+    "staff": { "kind": "hub", "enabled": true, "localPath": "staff.png", "runtimeUrl": "", "fallbackUrl": "", "driveFolderId": "1qrEs2D94KzTPO3AvjOSSUvzsY2N8RRuA", "driveFileId": "", "version": 1, "altText": "Khaos Nexus Staff hub banner" },
+    "supporter": { "kind": "hub", "enabled": true, "localPath": "supporter.png", "runtimeUrl": "", "fallbackUrl": "", "driveFolderId": "1qrEs2D94KzTPO3AvjOSSUvzsY2N8RRuA", "driveFileId": "", "version": 1, "altText": "Khaos Nexus Supporter hub banner" },
+    "content-creator": { "kind": "hub", "enabled": true, "localPath": "content-creator.png", "runtimeUrl": "", "fallbackUrl": "", "driveFolderId": "1qrEs2D94KzTPO3AvjOSSUvzsY2N8RRuA", "driveFileId": "", "version": 1, "altText": "Khaos Nexus Content Creator hub banner" },
+    "artwork-repository": { "kind": "hub", "enabled": true, "localPath": "artwork-repository.png", "runtimeUrl": "", "fallbackUrl": "", "driveFolderId": "1qrEs2D94KzTPO3AvjOSSUvzsY2N8RRuA", "driveFileId": "", "version": 1, "altText": "Khaos Nexus Artwork Repository banner" },
+    "ranks": { "kind": "hub", "enabled": true, "localPath": "ranks.png", "runtimeUrl": "", "fallbackUrl": "", "driveFolderId": "1qrEs2D94KzTPO3AvjOSSUvzsY2N8RRuA", "driveFileId": "", "version": 1, "altText": "Khaos Nexus Ranks banner" },
+    "ark": { "kind": "game", "enabled": true, "localPath": "ark.png", "runtimeUrl": "", "fallbackUrl": "", "driveFolderId": "14q3WPKYF8W6Ay5rhMTjJ1lPs6GHMXARn", "driveFileId": "", "version": 1, "altText": "Khaos Nexus ARK game banner" },
+    "palworld": { "kind": "game", "enabled": true, "localPath": "palworld.png", "runtimeUrl": "", "fallbackUrl": "", "driveFolderId": "14q3WPKYF8W6Ay5rhMTjJ1lPs6GHMXARn", "driveFileId": "", "version": 1, "altText": "Khaos Nexus Palworld game banner" },
+    "minecraft": { "kind": "game", "enabled": true, "localPath": "minecraft.png", "runtimeUrl": "", "fallbackUrl": "", "driveFolderId": "14q3WPKYF8W6Ay5rhMTjJ1lPs6GHMXARn", "driveFileId": "", "version": 1, "altText": "Khaos Nexus Minecraft game banner" },
+    "warframe": { "kind": "game", "enabled": true, "localPath": "warframe.png", "runtimeUrl": "", "fallbackUrl": "", "driveFolderId": "14q3WPKYF8W6Ay5rhMTjJ1lPs6GHMXARn", "driveFileId": "", "version": 1, "altText": "Khaos Nexus Warframe game banner" },
+    "idleon": { "kind": "game", "enabled": true, "localPath": "idleon.png", "runtimeUrl": "", "fallbackUrl": "", "driveFolderId": "14q3WPKYF8W6Ay5rhMTjJ1lPs6GHMXARn", "driveFileId": "", "version": 1, "altText": "Khaos Nexus IdleOn game banner" },
+    "pokemon-go": { "kind": "game", "enabled": true, "localPath": "pokemon-go.png", "runtimeUrl": "", "fallbackUrl": "", "driveFolderId": "14q3WPKYF8W6Ay5rhMTjJ1lPs6GHMXARn", "driveFileId": "", "version": 1, "altText": "Khaos Nexus Pokemon GO game banner" },
+    "once-human": { "kind": "game", "enabled": true, "localPath": "once-human.png", "runtimeUrl": "", "fallbackUrl": "", "driveFolderId": "14q3WPKYF8W6Ay5rhMTjJ1lPs6GHMXARn", "driveFileId": "", "version": 1, "altText": "Khaos Nexus Once Human game banner" },
+    "osrs": { "kind": "game", "enabled": true, "localPath": "osrs.png", "runtimeUrl": "", "fallbackUrl": "", "driveFolderId": "14q3WPKYF8W6Ay5rhMTjJ1lPs6GHMXARn", "driveFileId": "", "version": 1, "altText": "Khaos Nexus Old School RuneScape game banner" },
+    "rs3": { "kind": "game", "enabled": true, "localPath": "rs3.png", "runtimeUrl": "", "fallbackUrl": "", "driveFolderId": "14q3WPKYF8W6Ay5rhMTjJ1lPs6GHMXARn", "driveFileId": "", "version": 1, "altText": "Khaos Nexus RuneScape 3 game banner" },
+    "division-2": { "kind": "game", "enabled": true, "localPath": "division-2.png", "runtimeUrl": "", "fallbackUrl": "", "driveFolderId": "14q3WPKYF8W6Ay5rhMTjJ1lPs6GHMXARn", "driveFileId": "", "version": 1, "altText": "Khaos Nexus The Division 2 game banner" },
+    "call-of-duty": { "kind": "game", "enabled": true, "localPath": "call-of-duty.png", "runtimeUrl": "", "fallbackUrl": "", "driveFolderId": "14q3WPKYF8W6Ay5rhMTjJ1lPs6GHMXARn", "driveFileId": "", "version": 1, "altText": "Khaos Nexus Call of Duty game banner" }
+  }
+}
