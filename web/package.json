@@ -1,7 +1,7 @@
 {
   "name": "@khaos-nexus/web",
   "private": true,
-  "version": "0.1.0-sidecar.0",
+  "version": "0.3.0-sidecar.0",
   "type": "module",
   "engines": {
     "node": ">=20.19.0"
@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "test:functions": "node scripts/smoke-functions.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
