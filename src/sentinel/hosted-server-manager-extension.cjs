@@ -8,6 +8,8 @@ const { hostedServerSetupGuide } = require('../backend/services/once-human-custo
 const { BackendClient } = require('./backend-client.cjs');
 const { normalizeRequiredOptions } = require('./discord-command-schema.cjs');
 const { refreshGameServersPanel } = require('./game-servers-extension.cjs');
+const { COMMUNITY_SERVER_MIN_LEVEL } = require('./game-servers-panel.cjs');
+const { syncServerHostTitle } = require('./server-host-titles.cjs');
 const { hostedServerCommand, handleHostedServerCommand } = require('./hosted-server-manager.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.hostedServerManager.extension');
@@ -77,11 +79,39 @@ function installHostedServerManagerExtension() {
     return results;
   }
 
+  async function reconcileServerHostTitles(client) {
+    if (!guildId) return { checked: 0, active: 0 };
+    const [applicationsResponse, serversResponse] = await Promise.all([
+      backend.serverApplications({ status: 'approved' }).catch(() => null),
+      backend.hostedServers().catch(() => null)
+    ]);
+    if (!applicationsResponse?.ok || !serversResponse?.ok) return { checked: 0, active: 0, skipped: 'registry-unavailable' };
+    const guild = await client.guilds.fetch(guildId);
+    const activeServerIds = new Set((serversResponse.servers || []).map((server) => String(server.id || '').toUpperCase()));
+    let checked = 0;
+    let active = 0;
+    for (const application of applicationsResponse.applications || []) {
+      const userId = String(application.applicantDiscordId || application.applicantId || '');
+      if (!/^\d{15,24}$/.test(userId)) continue;
+      const approvedServerId = String(application.approvedServerId || '').toUpperCase();
+      const activeHost = Boolean(approvedServerId && activeServerIds.has(approvedServerId));
+      const member = await guild.members.fetch(userId).catch(() => null);
+      if (!member) continue;
+      const levelResponse = await backend.communityLevel(userId).catch(() => null);
+      const level = Number(levelResponse?.profile?.level || 1);
+      await syncServerHostTitle(member, level, activeHost).catch(() => null);
+      checked += 1;
+      if (activeHost) active += 1;
+    }
+    return { checked, active };
+  }
+
   async function healthSweep(client) {
     if (client[HEALTH_SWEEP_RUNNING]) return;
     client[HEALTH_SWEEP_RUNNING] = true;
     try {
       await refreshProviders();
+      await reconcileServerHostTitles(client);
       await refreshGameServersPanel(client, config, { backend });
     } catch (error) {
       console.error('[Nexus Sentinal] game-server health sweep:', error);
@@ -120,16 +150,37 @@ function installHostedServerManagerExtension() {
     this.on(Events.InteractionCreate, async (interaction) => {
       if (!interaction.isChatInputCommand?.() || interaction.commandName !== 'server') return;
       try {
+        const subcommand = interaction.options.getSubcommand();
+        if (subcommand === 'apply') {
+          const levelResponse = await backend.communityLevel(String(interaction.user?.id || '')).catch(() => null);
+          const currentLevel = Number(levelResponse?.profile?.level || 1);
+          if (!levelResponse?.ok || currentLevel < COMMUNITY_SERVER_MIN_LEVEL) {
+            const content = levelResponse?.ok
+              ? `🔒 Community server applications require **Community Level ${COMMUNITY_SERVER_MIN_LEVEL}**. Your current level is **${currentLevel}**. Use **/level** to view your progress.`
+              : `⚠️ Sentinel could not verify your Community Level, so the server application was not submitted. Applications require **Community Level ${COMMUNITY_SERVER_MIN_LEVEL}**.`;
+            await interaction.reply({ content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+            return;
+          }
+        }
+
         await handleHostedServerCommand(interaction, {
           backend,
           isManager,
           memberRank,
+          communityLevel: (userId) => backend.communityLevel(userId),
           probe: (server) => statusService.probe(server),
           setup: (server) => hostedServerSetupGuide(server),
           persistStatus,
           refreshProviders,
           refresh: () => refreshGameServersPanel(this, config, { backend })
         });
+
+        if (subcommand === 'review' && interaction.options.getString('decision') === 'approved') {
+          await reconcileServerHostTitles(this).catch(() => null);
+        }
+        if (subcommand === 'remove') {
+          await reconcileServerHostTitles(this).catch(() => null);
+        }
       } catch (error) {
         const content = `⚠️ Server action failed: ${String(error?.message || error)}`.slice(0, 1900);
         try {
