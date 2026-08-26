@@ -52,20 +52,17 @@ function simpleApplicationInput(interaction) {
   const funding = modalValue(interaction, 'funding');
   return {
     applicantDiscordId: String(interaction.user?.id || ''),
-    game: modalValue(interaction, 'game'),
-    moduleId: modalValue(interaction, 'game'),
-    serverType: 'manual',
-    name: modalValue(interaction, 'server_name'),
-    joinVisibility: 'public',
-    joinInfo: modalValue(interaction, 'join_info'),
-    description: modalValue(interaction, 'description'),
-    monetizationModel: funding ? 'donations-cost-recovery' : 'none',
-    monetizationDetails: funding,
-    paidAdvantages: false,
-    mandatoryFees: false,
-    affiliateReferral: false,
-    policyAccepted: true
+    game: modalValue(interaction, 'game'), moduleId: modalValue(interaction, 'game'), serverType: 'manual',
+    name: modalValue(interaction, 'server_name'), joinVisibility: 'public', joinInfo: modalValue(interaction, 'join_info'),
+    description: modalValue(interaction, 'description'), monetizationModel: funding ? 'donations-cost-recovery' : 'none', monetizationDetails: funding,
+    paidAdvantages: false, mandatoryFees: false, affiliateReferral: false, policyAccepted: true
   };
+}
+
+function simplifyApplySubcommand(commandJson = {}) {
+  const apply = Array.isArray(commandJson.options) ? commandJson.options.find((option) => option?.name === 'apply') : null;
+  if (apply) apply.options = [];
+  return commandJson;
 }
 
 function installHostedServerManagerExtension() {
@@ -180,7 +177,7 @@ function installHostedServerManagerExtension() {
         if (!guildId) return;
         const guild = await this.guilds.fetch(guildId);
         const definition = hostedServerCommand();
-        const commandJson = normalizeRequiredOptions(definition.toJSON());
+        const commandJson = simplifyApplySubcommand(normalizeRequiredOptions(definition.toJSON()));
         const commands = await guild.commands.fetch();
         const existing = commands.find((item) => item.name === definition.name);
         if (existing) await guild.commands.edit(existing, commandJson); else await guild.commands.create(commandJson);
@@ -193,27 +190,20 @@ function installHostedServerManagerExtension() {
       try {
         if (interaction.isButton?.() && interaction.customId === COMMUNITY_SERVER_APPLY_BUTTON_ID) {
           const gate = await levelGate(interaction); if (!gate.ok) return;
-          await interaction.showModal(applicationModal());
-          return;
+          await interaction.showModal(applicationModal()); return;
         }
-
         if (interaction.isModalSubmit?.() && interaction.customId === COMMUNITY_SERVER_MODAL_ID) {
           const gate = await levelGate(interaction); if (!gate.ok) return;
           const response = await backend.submitServerApplication(simpleApplicationInput(interaction));
           if (!response?.ok) throw new Error(response?.message || 'Unable to submit server application.');
-          await interaction.reply({
-            content:`✅ **Server submitted for review.**\n\n**${response.application.server.name}** — ${response.application.server.gameName}\nApplication: **${response.application.id}**\n\nThat’s it. Staff will review it before it appears in #game-servers.`,
-            flags:MessageFlags.Ephemeral, allowedMentions:{parse:[]}
-          });
+          await interaction.reply({ content:`✅ **Server submitted for review.**\n\n**${response.application.server.name}** — ${response.application.server.gameName}\nApplication: **${response.application.id}**\n\nThat’s it. Staff will review it before it appears in #game-servers.`, flags:MessageFlags.Ephemeral, allowedMentions:{parse:[]} });
           return;
         }
-
         if (!interaction.isChatInputCommand?.() || interaction.commandName !== 'server') return;
         const subcommand = interaction.options.getSubcommand();
         if (subcommand === 'apply') {
           const gate = await levelGate(interaction); if (!gate.ok) return;
-          await interaction.reply({ content:'Use the **List My Server** button in #game-servers. It opens the simple popup form.', flags:MessageFlags.Ephemeral, allowedMentions:{parse:[]} });
-          return;
+          await interaction.showModal(applicationModal()); return;
         }
 
         await handleHostedServerCommand(interaction, {
@@ -221,7 +211,6 @@ function installHostedServerManagerExtension() {
           probe:(server)=>statusService.probe(server), setup:(server)=>hostedServerSetupGuide(server),
           persistStatus, refreshProviders, refresh:()=>refreshGameServersPanel(this, config, { backend })
         });
-
         if (subcommand === 'review' && interaction.options.getString('decision') === 'approved') await reconcileServerHostTitles(this).catch(() => null);
         if (subcommand === 'remove') await reconcileServerHostTitles(this).catch(() => null);
       } catch (error) {
@@ -237,4 +226,4 @@ function installHostedServerManagerExtension() {
   };
 }
 
-module.exports = { COMMUNITY_SERVER_MODAL_ID, aggregateApprovedHosts, applicationModal, simpleApplicationInput, installHostedServerManagerExtension };
+module.exports = { COMMUNITY_SERVER_MODAL_ID, aggregateApprovedHosts, applicationModal, simpleApplicationInput, simplifyApplySubcommand, installHostedServerManagerExtension };
