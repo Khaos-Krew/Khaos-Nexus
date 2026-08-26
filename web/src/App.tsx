@@ -1,7 +1,22 @@
 import { useEffect, useState } from 'react';
-import { getHealthSnapshot, getSessionSnapshot, nexusClientConfig } from './api/client';
-import type { HealthSnapshot, ServiceState, SessionSnapshot } from './api/contracts';
+import {
+  getHealthSnapshot,
+  getReadinessSnapshot,
+  getSessionSnapshot,
+  nexusClientConfig
+} from './api/client';
+import type {
+  HealthSnapshot,
+  ReadinessSnapshot,
+  ServiceState,
+  SessionSnapshot
+} from './api/contracts';
 import { capabilities, hasCapability } from './auth/capabilities';
+
+type InstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+};
 
 const stateLabels: Record<ServiceState, string> = {
   online: 'Online',
@@ -19,21 +34,30 @@ function formatTimestamp(value?: string) {
   }).format(new Date(value));
 }
 
+function isStandalone() {
+  return window.matchMedia('(display-mode: standalone)').matches;
+}
+
 export default function App() {
   const [health, setHealth] = useState<HealthSnapshot | null>(null);
   const [session, setSession] = useState<SessionSnapshot | null>(null);
+  const [readiness, setReadiness] = useState<ReadinessSnapshot | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
+  const [installed, setInstalled] = useState(false);
 
   const loadSnapshots = async () => {
     setLoading(true);
     try {
-      const [nextHealth, nextSession] = await Promise.all([
+      const [nextHealth, nextSession, nextReadiness] = await Promise.all([
         getHealthSnapshot(),
-        getSessionSnapshot()
+        getSessionSnapshot(),
+        getReadinessSnapshot()
       ]);
       setHealth(nextHealth);
       setSession(nextSession);
+      setReadiness(nextReadiness);
       setLoadError(null);
     } catch (error: unknown) {
       setLoadError(error instanceof Error ? error.message : 'Unable to load Nexus status.');
@@ -44,6 +68,23 @@ export default function App() {
 
   useEffect(() => {
     void loadSnapshots();
+    setInstalled(isStandalone());
+
+    const onInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as InstallPromptEvent);
+    };
+    const onInstalled = () => {
+      setInstalled(true);
+      setInstallPrompt(null);
+    };
+
+    window.addEventListener('beforeinstallprompt', onInstallPrompt);
+    window.addEventListener('appinstalled', onInstalled);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onInstallPrompt);
+      window.removeEventListener('appinstalled', onInstalled);
+    };
   }, []);
 
   const services = health?.services ?? [];
@@ -51,13 +92,18 @@ export default function App() {
   const staffAllowed = hasCapability(session, capabilities.staffAccess);
   const privateAllowed = hasCapability(session, capabilities.privateAccess);
 
-  const signIn = () => {
-    window.location.assign('/api/v1/auth/discord/start');
-  };
+  const signIn = () => window.location.assign('/api/v1/auth/discord/start');
 
   const signOut = async () => {
     await fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'include' });
     await loadSnapshots();
+  };
+
+  const installApp = async () => {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    const choice = await installPrompt.userChoice;
+    if (choice.outcome === 'accepted') setInstallPrompt(null);
   };
 
   return (
@@ -76,6 +122,7 @@ export default function App() {
         <nav aria-label="Primary navigation">
           <a className="nav-item active" href="#dashboard">Dashboard</a>
           <a className="nav-item" href="#services">Services</a>
+          <a className="nav-item" href="#readiness">Setup</a>
           <a className={`nav-item ${staffAllowed ? '' : 'locked'}`.trim()} href={staffAllowed ? '#staff' : '#account'}>Staff</a>
           <a className="nav-item" href="#account">Account</a>
           <a className={`nav-item ${privateAllowed ? '' : 'locked'}`.trim()} href={privateAllowed ? '#private' : '#account'}>Private</a>
@@ -94,9 +141,13 @@ export default function App() {
             <h1>Control Center</h1>
           </div>
           <div className="account-actions">
-            {signedIn && session.user?.avatarUrl && (
-              <img className="account-avatar" src={session.user.avatarUrl} alt="" />
+            {!installed && installPrompt && (
+              <button type="button" className="account-button install-button" onClick={() => void installApp()}>
+                Install App
+              </button>
             )}
+            {installed && <span className="installed-badge">Installed</span>}
+            {signedIn && session.user?.avatarUrl && <img className="account-avatar" src={session.user.avatarUrl} alt="" />}
             <button type="button" className="account-button primary" onClick={signedIn ? signOut : signIn}>
               {signedIn ? `Sign out ${session.user?.displayName ?? ''}` : 'Sign in with Discord'}
             </button>
@@ -120,6 +171,10 @@ export default function App() {
             <div className="hero-stat">
               <span>Session</span>
               <strong>{signedIn ? 'Authenticated' : 'Guest'}</strong>
+            </div>
+            <div className="hero-stat">
+              <span>Deployment setup</span>
+              <strong>{readiness?.ready ? 'Ready' : `${readiness?.readyCount ?? 0}/${readiness?.totalCount ?? 5}`}</strong>
             </div>
           </div>
         </section>
@@ -149,21 +204,43 @@ export default function App() {
                 <h3>Loading Nexus services…</h3>
                 <p>The panel is resolving the same-origin Nexus API.</p>
               </article>
-            ) : (
-              services.map((service) => (
-                <article className="service-card" key={service.id}>
-                  <div className="service-card-header">
-                    <h3>{service.name}</h3>
-                    <span className={`service-state ${service.state}`}>{stateLabels[service.state]}</span>
-                  </div>
-                  <p>{service.summary}</p>
-                  <div className="service-meta">
-                    <span>Checked {formatTimestamp(service.checkedAt)}</span>
-                    {service.version && <code>{service.version}</code>}
-                  </div>
-                </article>
-              ))
-            )}
+            ) : services.map((service) => (
+              <article className="service-card" key={service.id}>
+                <div className="service-card-header">
+                  <h3>{service.name}</h3>
+                  <span className={`service-state ${service.state}`}>{stateLabels[service.state]}</span>
+                </div>
+                <p>{service.summary}</p>
+                <div className="service-meta">
+                  <span>Checked {formatTimestamp(service.checkedAt)}</span>
+                  {service.version && <code>{service.version}</code>}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="section" id="readiness">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Deployment diagnostics</p>
+              <h2>Setup readiness</h2>
+            </div>
+            <span className={`session-state ${readiness?.ready ? 'authenticated' : 'guest'}`}>
+              {readiness?.ready ? 'Ready for staff sign-in' : `${readiness?.readyCount ?? 0} of ${readiness?.totalCount ?? 5} configured`}
+            </span>
+          </div>
+          <div className="readiness-list">
+            {(readiness?.checks ?? []).map((check) => (
+              <div className="readiness-row" key={check.id}>
+                <span className={`readiness-dot ${check.ready ? 'ready' : 'missing'}`} />
+                <div>
+                  <strong>{check.label}</strong>
+                  <span>{check.detail ?? (check.ready ? 'Configured' : 'Configuration required')}</span>
+                </div>
+                <span className={check.ready ? 'check-ready' : 'check-missing'}>{check.ready ? 'Ready' : 'Missing'}</span>
+              </div>
+            ))}
           </div>
         </section>
 
@@ -248,7 +325,7 @@ export default function App() {
       <nav className="mobile-nav" aria-label="Mobile navigation">
         <a className="active" href="#dashboard">Home</a>
         <a href="#services">Services</a>
-        <a href="#staff">Staff</a>
+        <a href="#readiness">Setup</a>
         <a href="#account">Account</a>
       </nav>
     </div>
