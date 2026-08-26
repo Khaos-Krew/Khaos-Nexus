@@ -109,6 +109,12 @@ class HostedServerStore {
         if (providerType === 'nitrado-palworld' && next.moduleId !== 'palworld') throw new Error('Nitrado Palworld provider can only be used with Palworld.');
         next.providerType = providerType;
       }
+      if (input.providerConnected !== undefined) next.providerConnected = Boolean(input.providerConnected);
+      if (input.trackingState !== undefined) next.trackingState = safeText(input.trackingState, 40).toLowerCase();
+      if (input.playerCount !== undefined) next.playerCount = Number.isFinite(Number(input.playerCount)) ? Number(input.playerCount) : null;
+      if (input.playerMax !== undefined) next.playerMax = Number.isFinite(Number(input.playerMax)) ? Number(input.playerMax) : null;
+      if (input.lastCheckedAt !== undefined) next.lastCheckedAt = safeText(input.lastCheckedAt, 64);
+      if (input.statusMessage !== undefined) next.statusMessage = safeText(input.statusMessage, 160);
       next.updatedAt = this.now();
       const duplicate = servers.some((item, otherIndex) => otherIndex !== index && item.moduleId === next.moduleId && normalizeHost(item.host) === next.host && Number(item.port) === Number(next.port));
       if (duplicate) throw new Error('That hosted server is already registered.');
@@ -117,19 +123,14 @@ class HostedServerStore {
     return updated;
   }
   updateRuntime(id, status = {}) {
-    let updated = null;
-    this.store.update((draft) => {
-      const server = (draft.servers || []).find((item) => String(item.id) === String(id));
-      if (!server) return null;
-      server.providerConnected = Boolean(status.providerConnected);
-      server.trackingState = safeText(status.trackingState || (server.providerConnected ? 'online' : 'offline'), 40).toLowerCase();
-      server.playerCount = Number.isFinite(Number(status.playerCount)) ? Number(status.playerCount) : null;
-      server.playerMax = Number.isFinite(Number(status.playerMax)) ? Number(status.playerMax) : null;
-      server.lastCheckedAt = safeText(status.lastCheckedAt || this.now(), 64);
-      server.statusMessage = safeText(status.statusMessage, 160);
-      updated = privateServer(server); return server;
+    return this.update(id, {
+      providerConnected: status.providerConnected,
+      trackingState: status.trackingState,
+      playerCount: status.playerCount,
+      playerMax: status.playerMax,
+      lastCheckedAt: status.lastCheckedAt || this.now(),
+      statusMessage: status.statusMessage
     });
-    return updated;
   }
   remove(id) {
     let removed = false;
