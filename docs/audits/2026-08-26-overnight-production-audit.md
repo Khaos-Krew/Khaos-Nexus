@@ -3,12 +3,12 @@
 Status: active audit; audit-only, no production fixes implemented in this document.
 
 ## Current production evidence
-- Fresh Railway evidence: project `discerning-purpose`, production service `nexus-sentinal-0-1-test`, deployment `d4e17e90-76b8-4b95-b41e-9e2e9fe5791e`: SUCCESS, built from `rebuild/nexus-0.1` commit `76c58f4323f5318b2c5e41813a452e5f8620c857`; `/health` succeeded on first attempt.
-- GitHub `rebuild/nexus-0.1` head is `76c58f4323f5318b2c5e41813a452e5f8620c857` (`docs: refine overnight audit evidence`), matching the live Railway deployment.
-- Discord reconciliation is currently stable: 18 Sentinel-ready modules + 1 Veyra-delegated D&D module; no module access attention/pending; 18 managed hub panels; private safety access reports no failures; category/channel reconciliation shows no outstanding moves or missing structural items.
+- Fresh Railway evidence: project `discerning-purpose`, production service `nexus-sentinal-0-1-test`, deployment `654f88c5-2009-4d5d-996c-8e83c54aa901`: SUCCESS, built from `rebuild/nexus-0.1` commit `125891958c9c1f118b37571278bc850417bbfaa2`; `/health` succeeded on first attempt.
+- GitHub `rebuild/nexus-0.1` head is `125891958c9c1f118b37571278bc850417bbfaa2` (`docs: refresh overnight audit live evidence`), matching the live Railway deployment at the start of this audit pass.
+- Discord reconciliation remains structurally stable: 18 Sentinel-ready modules + 1 Veyra-delegated D&D module; no module access attention/pending; 18 managed hub panels; private safety access reports no failures; category/channel reconciliation shows no outstanding moves or missing structural items.
 - Hosted-server reconciliation still reports `tracked=0 groups=0` repeatedly through the latest logs, so Palworld/Once Human registration and provider acceptance remain unproven in production.
 - Creator Program still reports `twitch=pending youtube=pending`.
-- Periodic auto-provision remains relatively expensive: no-change cycles are commonly ~10–15 seconds, with occasional category-order work adding several seconds.
+- Periodic auto-provision remains relatively expensive: no-change cycles are commonly ~10–18 seconds, with category-order work sometimes adding ~7 seconds.
 
 ## Findings
 
@@ -50,7 +50,7 @@ Status: active audit; audit-only, no production fixes implemented in this docume
 
 ### OA-005 — Periodic reconciliation is heavier/noisier than necessary
 - Severity: Medium (reliability/performance/operability)
-- Evidence: current live logs show module auto-provision about every five minutes, typically ~10–15 seconds with zero changes; many panels reconcile every minute; creator-role channel-update runs repeat frequently; inventory is 260 channels/165 roles.
+- Evidence: current live logs show module auto-provision about every five minutes, typically ~10–18 seconds with zero changes; many panels reconcile every minute; creator-role channel-update runs repeat frequently; inventory is 260 channels/165 roles.
 - Affected: Sentinel reconciliation scheduler, Discord rate-limit budget, logs.
 - Root-cause hypothesis: independent periodic loops and broad inventory scans rather than shared snapshots/event-driven invalidation.
 - Recommended fix: central reconciliation scheduler, shared guild inventory snapshot, jitter/backoff, dirty flags, coalescing of channel update/delete events, slower cadence for stable panels, structured metrics instead of repetitive info logs.
@@ -129,6 +129,14 @@ Official/current categories identified for the configuration schema: basic serve
 - Discord reconciliation remains structurally stable, but hosted-server registry is still empty (`tracked=0 groups=0`), keeping OA-001/OA-002 high priority.
 - Once Human official configuration research was refreshed through July 2026 changes; schema must be versioned/scenario-aware because the configuration surface is actively expanding.
 - Dependency review found no stale `discord.js`; desktop-only Electron/electron-builder patch drift is low priority while desktop work remains paused.
+
+### 04:11 CT pass
+- No critical active production/security issue established; no early user notification warranted.
+- Railway deployment `654f88c5-2009-4d5d-996c-8e83c54aa901` is SUCCESS on GitHub head `125891958c9c1f118b37571278bc850417bbfaa2`; `/health` passed first attempt.
+- Live Discord reconciliation remains stable with zero module attention/pending and no private-safety failures.
+- Hosted-server registry remains empty through the newest log window (`tracked=0 groups=0`), so real Palworld/Nitrado and Once Human acceptance is still the highest functional gap.
+- Auto-provision no-change passes still consume roughly 10–18 seconds, reinforcing OA-005; no rate-limit or active failure evidence was observed in this pass.
+- Railway's unit/check layer was cache-reused again, reinforcing OA-008; fresh runtime health is green but a non-cacheable deployment smoke gate is still recommended.
 
 ## Next audit runs
 - Recheck live deployment/log deltas and whether hosted-server `tracked` changes from zero.
