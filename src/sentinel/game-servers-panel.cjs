@@ -5,8 +5,10 @@ const { purchasableRanks } = require('../shared/ranks.cjs');
 const { findInformationCategory, valuesOf } = require('./nexus-status.cjs');
 const { managedPayloadMatches } = require('./managed-payload-compare.cjs');
 
-const GAME_SERVERS_PANEL_MARKER = 'Nexus Sentinal • Managed Game Servers • v3';
+const GAME_SERVERS_PANEL_MARKER = 'Nexus Sentinal • Managed Game Servers • v4';
 const GAME_SERVERS_PANEL_TITLE = 'KHAOS NEXUS • GAME SERVERS';
+const COMMUNITY_SERVER_RULES_TITLE = 'KHAOS NEXUS • COMMUNITY SERVER RULES';
+const COMMUNITY_SERVER_MIN_LEVEL = 10;
 const RECENT_MESSAGE_LIMIT = 100;
 
 function normalizeChannelName(value){return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g,'');}
@@ -34,13 +36,28 @@ function renderServerLine(server={}){
 }
 function renderPrivateServerLine(server={}){const name=cleanPublicText(server.name || 'Private Server',80)||'Private Server';const game=cleanPublicText(server.game || server.moduleId || 'Game',80);const glyph=trackingGlyph(server),label=trackingLabel(server);const lines=[`${glyph?`${glyph} `:''}**${name}**`,[game,label].filter(Boolean).join(' • ')];const description=cleanPublicText(server.description,180);if(description)lines.push(description);return lines.join('\n');}
 function pushOwnershipGroups(fields,titlePrefix,groups,maxFields=24){for(const group of groups){if(fields.length>=maxFields)break;fields.push({name:`${titlePrefix} • ${group.game}`,value:group.servers.map(renderServerLine).join('\n\n').slice(0,1024),inline:false});}}
+function communityServerRulesEmbed(){
+  return {
+    title: COMMUNITY_SERVER_RULES_TITLE,
+    description: `Community-run servers can be listed in the Nexus directory after staff review. Applicants must be **Community Level ${COMMUNITY_SERVER_MIN_LEVEL}+** and use **/server apply**. Approval is permission to appear in the directory, not a blanket endorsement of a third-party server.`,
+    color: 0xb00020,
+    fields: [
+      {name:'✅ Eligibility & Conduct',value:'• Host must be Community Level **10+** when applying.\n• Host and server community must follow Khaos Nexus safe-space/community rules.\n• Application details, join requirements, region, mode, and monetization must be accurate and kept current.\n• The host remains responsible for moderation, player safety, and administration on their server.',inline:false},
+      {name:'💳 Monetization Rules',value:'• No mandatory payment to join or retain normal access.\n• No pay-to-win, sold progression, gameplay power, or competitive advantages.\n• Voluntary cost-recovery donations and cosmetic supporter perks must be fully disclosed and are subject to staff review.\n• No gambling, scam activity, abusive affiliate/referral schemes, or deceptive fundraising.',inline:false},
+      {name:'🛡️ Privacy & Safety',value:'• Never submit player passwords, admin credentials, API tokens, RCON secrets, or other private keys as public join information.\n• No malicious downloads, credential harvesting, invasive tracking, or unsafe external requirements.\n• Nexus staff may require changes, suspend, or remove a listing when safety or policy issues are identified.',inline:false},
+      {name:'📡 Availability & Listing Status',value:'• Servers with a reliable supported health check may be automatically hidden after an extended outage and suspended after prolonged downtime.\n• Invite-only/manual services such as Minecraft Realms or Once Human Custom Servers are not falsely delisted just because a live query is unavailable.\n• Hosts should update staff when a server is retired, moved, renamed, or materially changes access rules.',inline:false},
+      {name:'🏅 Server Host Titles',value:'Approved active community hosts receive a managed **Server Host** title based on their Community Level. Host titles are uncolored, do not replace Nexus ranks, and do not override Name Color roles. The title automatically advances as the host levels up.',inline:false}
+    ],
+    footer:{text:`Nexus Sentinal • Community Server Rules • Level ${COMMUNITY_SERVER_MIN_LEVEL}+ required`}
+  };
+}
 function renderGameServersPanel(snapshot={}){
   const servers=Array.isArray(snapshot.servers)?snapshot.servers:[];const privateServers=Array.isArray(snapshot.privateServers)?snapshot.privateServers:[];const ownership=groupPublicServersByOwnership(servers);const privateGroups=groupPrivateServersByRank(privateServers);const fields=[];
   if(!servers.length)fields.push({name:'Public Servers',value:'No public Nexus game servers are registered yet.',inline:false});
   else{pushOwnershipGroups(fields,'🛡️ Official',ownership.official,Math.max(1,23-privateGroups.length));pushOwnershipGroups(fields,'🌐 Approved Community',ownership.community,Math.max(1,23-privateGroups.length));}
   for(const group of privateGroups){if(fields.length>=24)break;fields.push({name:`🔒 ${group.rank.name} Private Servers`,value:`${group.servers.map(renderPrivateServerLine).join('\n\n').slice(0,900)}\n\nEligible members can use **/server access** for private join details.`,inline:false});}
-  fields.push({name:'Community Server Program',value:'Want your server listed? Use **/server apply**. Community servers are reviewed for safety, transparency, and monetization policy before they can appear here. Approved servers can be automatically hidden if a reliable health check shows an extended outage.',inline:false});
-  return{embeds:[{title:GAME_SERVERS_PANEL_TITLE,description:'Official Khaos Nexus servers and staff-approved community servers. Community approval is a listing review, not a guarantee or endorsement of every action by a third-party server. Network management ports, passwords, tokens, credentials, and staff-only notes are never displayed here. Health is shown only when Sentinel can support one of the Nexus states: 🟢 Online, 🔴 Offline, or 🟡 Maintenance.',color:servers.length||privateGroups.length?0x2ecc71:0x5865f2,fields:fields.slice(0,25),footer:{text:GAME_SERVERS_PANEL_MARKER}}],allowedMentions:{parse:[]}};
+  fields.push({name:'Community Server Program',value:`Want your server listed? Reach **Community Level ${COMMUNITY_SERVER_MIN_LEVEL}**, review the Community Server Rules below, then use **/server apply**. Applications are reviewed for safety, transparency, and monetization policy before they can appear here.`,inline:false});
+  return{embeds:[{title:GAME_SERVERS_PANEL_TITLE,description:'Official Khaos Nexus servers and staff-approved community servers. Community approval is a listing review, not a guarantee or endorsement of every action by a third-party server. Network management ports, passwords, tokens, credentials, and staff-only notes are never displayed here. Health is shown only when Sentinel can support one of the Nexus states: 🟢 Online, 🔴 Offline, or 🟡 Maintenance.',color:servers.length||privateGroups.length?0x2ecc71:0x5865f2,fields:fields.slice(0,25),footer:{text:GAME_SERVERS_PANEL_MARKER}},communityServerRulesEmbed()],allowedMentions:{parse:[]}};
 }
 function messageMatchesGameServersPanel(message,botId=''){if(!message)return false;if(botId&&String(message?.author?.id || '')!==String(botId))return false;const embed=message?.embeds?.[0];return String(embed?.footer?.text || '').startsWith('Nexus Sentinal • Managed Game Servers')||String(embed?.title || '')===GAME_SERVERS_PANEL_TITLE;}
 function newestMessage(messages=[]){return[...messages].sort((left,right)=>Number(right?.createdTimestamp || 0)-Number(left?.createdTimestamp || 0))[0]||null;}
@@ -54,4 +71,4 @@ async function reconcileGameServersPanel(channel,payload,options={}){
   return{message,created,updated,duplicatesRemoved,pinned};
 }
 
-module.exports={GAME_SERVERS_PANEL_MARKER,GAME_SERVERS_PANEL_TITLE,RECENT_MESSAGE_LIMIT,normalizeChannelName,isGameServersChannel,findGameServersChannel,ensureGameServersChannel,groupTrackedServers,groupPublicServersByOwnership,groupPrivateServersByRank,normalizedTrackingState,visibleTrackingState,trackingGlyph,trackingLabel,renderServerLine,renderPrivateServerLine,renderGameServersPanel,messageMatchesGameServersPanel,newestMessage,panelPayloadMatches,reconcileGameServersPanel};
+module.exports={GAME_SERVERS_PANEL_MARKER,GAME_SERVERS_PANEL_TITLE,COMMUNITY_SERVER_RULES_TITLE,COMMUNITY_SERVER_MIN_LEVEL,RECENT_MESSAGE_LIMIT,normalizeChannelName,isGameServersChannel,findGameServersChannel,ensureGameServersChannel,groupTrackedServers,groupPublicServersByOwnership,groupPrivateServersByRank,normalizedTrackingState,visibleTrackingState,trackingGlyph,trackingLabel,renderServerLine,renderPrivateServerLine,communityServerRulesEmbed,renderGameServersPanel,messageMatchesGameServersPanel,newestMessage,panelPayloadMatches,reconcileGameServersPanel};
