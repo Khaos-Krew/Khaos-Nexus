@@ -19,6 +19,10 @@ class BackendClient {
   modules() { return this.request('/v1/modules'); }
   health() { return this.request('/health'); }
   trackedServers() { return this.request('/v1/tracked-servers'); }
+  hostedServers() { return this.request('/v1/admin/hosted-servers'); }
+  addHostedServer(input) { return this.request('/v1/admin/hosted-servers', { method: 'POST', body: JSON.stringify(input || {}) }); }
+  updateHostedServer(id, input) { return this.request(`/v1/admin/hosted-servers/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(input || {}) }); }
+  removeHostedServer(id) { return this.request(`/v1/admin/hosted-servers/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
   communityLevel(userId) { return this.request(`/v1/community-xp/users/${encodeURIComponent(userId)}`); }
   communityAchievements(userId) { return this.request(`/v1/community-xp/users/${encodeURIComponent(userId)}/achievements`); }
   communityAchievementCatalog() { return this.request('/v1/community-xp/achievements'); }
