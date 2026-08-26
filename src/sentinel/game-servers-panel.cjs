@@ -49,7 +49,7 @@ function normalizedTrackingState(server = {}) {
   const state = String(server.trackingState || '').toLowerCase();
   if (state) return state;
   if (server.providerConnected === true) return 'online';
-  return server.providerConfigured === true ? 'configured' : 'not-configured';
+  return server.providerConfigured === true ? 'configured' : 'registered';
 }
 function trackingGlyph(server = {}) {
   const state = normalizedTrackingState(server);
@@ -64,9 +64,10 @@ function trackingLabel(server = {}) {
   if (state === 'online') return 'Online';
   if (['maintenance','starting','restarting','stopping','updating'].includes(state)) return 'Maintenance / transitioning';
   if (state === 'offline') return 'Offline';
-  if (state === 'manual') return 'Manual management • NetEase dashboard';
-  if (state === 'not-configured') return 'Tracked • provider setup needed';
-  return server.providerConfigured === true ? 'Tracked • telemetry pending' : 'Tracked • provider setup needed';
+  if (state === 'manual') return 'Registered • manual management';
+  if (state === 'not-configured') return 'Registered • adapter needs configuration';
+  if (state === 'registered') return 'Registered • live telemetry optional';
+  return server.providerConfigured === true ? 'Registered • telemetry configured/pending' : 'Registered • live telemetry optional';
 }
 function cleanPublicText(value, max = 240) { return String(value || '').replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max); }
 function renderServerLine(server = {}) {
@@ -87,15 +88,15 @@ function renderGameServersPanel(snapshot = {}) {
   const groups = groupTrackedServers(servers);
   const fields = [];
   if (!groups.length) {
-    fields.push({ name: 'No tracked servers yet', value: 'Add a supported game server with the private `/server add` admin workflow. Sentinal will update this panel automatically.', inline: false });
+    fields.push({ name: 'No tracked servers yet', value: 'Add a supported game server with the private `/server add` admin workflow. Hosting provider, endpoint, REST, and RCON details can all be configured later.', inline: false });
   } else {
     for (const group of groups.slice(0, 24)) fields.push({ name: group.game, value: group.servers.map(renderServerLine).join('\n\n').slice(0, 1024), inline: false });
   }
-  fields.push({ name: 'Registry Sync', value: `${servers.length} tracked server${servers.length === 1 ? '' : 's'}\nAutomatically checked for Nexus tracking changes.`, inline: false });
+  fields.push({ name: 'Registry Sync', value: `${servers.length} tracked server${servers.length === 1 ? '' : 's'}\nServer registration is independent of hosting provider and telemetry adapter.`, inline: false });
   return {
     embeds: [{
       title: GAME_SERVERS_PANEL_TITLE,
-      description: 'Nexus game servers and tracked community servers. Private network addresses, management ports, provider references, passwords, tokens, and credentials are never displayed here.',
+      description: 'Khaos Nexus game servers and tracked community servers. Private network addresses, management ports, adapter references, passwords, tokens, and credentials are never displayed here.',
       color: groups.length ? 0x2ecc71 : 0x5865f2,
       fields,
       footer: { text: GAME_SERVERS_PANEL_MARKER }
