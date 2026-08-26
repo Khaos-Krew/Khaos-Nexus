@@ -105,8 +105,12 @@ test('rendered Nexus Status panel shows both Sentinal and Veyra service health',
   assert.equal(embed.footer.text, STATUS_PANEL_MARKER);
   assert.match(embed.fields[0].name, /Nexus Sentinal/);
   assert.match(embed.fields[1].name, /Veyra — Lore Master/);
-  assert.match(embed.fields[0].value, /Discord Gateway: \*\*Connected\*\*/);
-  assert.match(embed.fields[1].value, /Lore Master API: \*\*Healthy\*\*/);
+  assert.match(embed.fields[0].value, /Discord Gateway/);
+  assert.match(embed.fields[0].value, /Connected/);
+  assert.match(embed.fields[1].value, /Lore Master API/);
+  assert.match(embed.fields[1].value, /Healthy/);
+  assert.match(embed.fields[0].value, /\n\n/);
+  assert.match(embed.fields[2].value, /\*\*Updated\*\*\n<t:\d+:R>/);
 });
 
 test('Nexus Status reconciliation reuses newest panel, removes duplicates, and pins canonical message', async () => {
