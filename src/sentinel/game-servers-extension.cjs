@@ -7,7 +7,8 @@ const {
   ensureGameServersChannel,
   renderGameServersPanel,
   reconcileGameServersPanel,
-  groupTrackedServers
+  groupTrackedServers,
+  groupPrivateServersByRank
 } = require('./game-servers-panel.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.gameServers.extension');
@@ -27,15 +28,19 @@ async function refreshGameServersPanel(client, config = {}, options = {}) {
     throw new Error(registry?.message || `Tracked-server registry returned HTTP ${registry?.status || 'error'}.`);
   }
 
-  const payload = renderGameServersPanel({ servers: registry.servers || [] });
+  const publicServers = registry.servers || [];
+  const privateServers = registry.privateServers || [];
+  const payload = renderGameServersPanel({ servers: publicServers, privateServers });
   const panel = await reconcileGameServersPanel(channelResult.channel, payload, { botId: client.user?.id });
   return {
     ...panel,
     channelId: String(channelResult.channel.id || ''),
     channelCreated: Boolean(channelResult.created),
     channelMoved: Boolean(channelResult.moved),
-    tracked: Array.isArray(registry.servers) ? registry.servers.length : 0,
-    groups: groupTrackedServers(registry.servers || []).length
+    tracked: Array.isArray(publicServers) ? publicServers.length : 0,
+    privateTracked: Array.isArray(privateServers) ? privateServers.length : 0,
+    groups: groupTrackedServers(publicServers).length,
+    privateRankGroups: groupPrivateServersByRank(privateServers).length
   };
 }
 
@@ -57,7 +62,7 @@ function installGameServersExtension() {
             console.warn(`[Nexus Sentinal] game servers registry (${reason}) skipped: ${result.skipped}`);
             return;
           }
-          console.log(`[Nexus Sentinal] game servers registry (${reason}): channel=${result.channelId} channelCreated=${result.channelCreated} channelMoved=${result.channelMoved} panelCreated=${result.created} panelUpdated=${result.updated} tracked=${result.tracked} groups=${result.groups} duplicatesRemoved=${result.duplicatesRemoved} pinned=${result.pinned}`);
+          console.log(`[Nexus Sentinal] game servers registry (${reason}): channel=${result.channelId} channelCreated=${result.channelCreated} channelMoved=${result.channelMoved} panelCreated=${result.created} panelUpdated=${result.updated} public=${result.tracked} private=${result.privateTracked} gameGroups=${result.groups} rankGroups=${result.privateRankGroups} duplicatesRemoved=${result.duplicatesRemoved} pinned=${result.pinned}`);
         } catch (error) {
           console.warn(`[Nexus Sentinal] game servers registry (${reason}) unavailable: ${String(error?.message || error).slice(0, 240)}`);
         } finally {
