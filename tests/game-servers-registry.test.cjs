@@ -8,6 +8,8 @@ const { trackedServers, trackedServersResponse } = require('../src/backend/track
 const {
   GAME_SERVERS_PANEL_MARKER,
   GAME_SERVERS_PANEL_TITLE,
+  COMMUNITY_SERVER_RULES_TITLE,
+  COMMUNITY_SERVER_MIN_LEVEL,
   ensureGameServersChannel,
   renderGameServersPanel,
   panelPayloadMatches,
@@ -50,15 +52,17 @@ test('game-servers channel is created under INFORMATION when missing', async () 
   const result=await ensureGameServersChannel(guild); assert.equal(result.created,true); assert.equal(result.channel.id,'servers'); assert.equal(createOptions.parent,info.id); assert.equal(createOptions.name,'game-servers');
 });
 
-test('game server panel groups registered public servers by game without requiring telemetry or a hosting-company identity', () => {
+test('game server panel groups official servers by game and publishes community server rules', () => {
   const payload=renderGameServersPanel({generatedAt:'2026-08-24T22:24:00.000Z',servers:[
     {moduleId:'ark',game:'ARK: Survival Ascended',name:'Ragnarok',providerConfigured:true},
     {moduleId:'ark',game:'ARK: Survival Ascended',name:'Astraeos',providerConfigured:true},
     {moduleId:'palworld',game:'Palworld',name:'Palworld',providerConfigured:false,trackingState:'registered'}
   ], privateServers:[]});
   const embed=payload.embeds[0]; assert.equal(embed.title,GAME_SERVERS_PANEL_TITLE); assert.equal(embed.footer.text,GAME_SERVERS_PANEL_MARKER);
-  assert.equal(embed.fields[0].name,'🎮 ARK: Survival Ascended'); assert.match(embed.fields[0].value,/Ragnarok/); assert.match(embed.fields[0].value,/Astraeos/);
-  assert.match(embed.fields[1].value,/live telemetry optional/); assert.match(embed.fields.at(-1).value,/organized by game/i); assert.equal(embed.timestamp,undefined);
+  assert.equal(embed.fields[0].name,'🛡️ Official • ARK: Survival Ascended'); assert.match(embed.fields[0].value,/Ragnarok/); assert.match(embed.fields[0].value,/Astraeos/);
+  assert.match(embed.fields.at(-1).value,/Community Level 10/i); assert.equal(embed.timestamp,undefined);
+  assert.equal(payload.embeds.length,2); assert.equal(payload.embeds[1].title,COMMUNITY_SERVER_RULES_TITLE); assert.equal(COMMUNITY_SERVER_MIN_LEVEL,10);
+  const rules=JSON.stringify(payload.embeds[1]); assert.match(rules,/pay-to-win/i); assert.match(rules,/mandatory payment/i); assert.match(rules,/Server Host/i); assert.match(rules,/Name Color/i);
   const serialized=JSON.stringify(payload); assert.equal(serialized.includes('10.0.0.10'),false); assert.equal(serialized.includes('SECRET_ENV'),false);
   assert.equal(/Nitrado|Akliz|CreeperHost|NetEase/.test(serialized),false);
 });
