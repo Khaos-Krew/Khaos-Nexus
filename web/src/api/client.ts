@@ -1,4 +1,9 @@
-import type { HealthSnapshot, NexusApiErrorPayload, SessionSnapshot } from './contracts';
+import type {
+  HealthSnapshot,
+  NexusApiErrorPayload,
+  ReadinessSnapshot,
+  SessionSnapshot
+} from './contracts';
 
 const dataMode = import.meta.env.VITE_NEXUS_DATA_MODE ?? 'live';
 const apiBase = (import.meta.env.VITE_NEXUS_API_BASE_URL ?? '/api/v1').replace(/\/$/, '');
@@ -70,6 +75,23 @@ function stubSession(): SessionSnapshot {
   };
 }
 
+function stubReadiness(): ReadinessSnapshot {
+  return {
+    environment: nexusClientConfig.environment,
+    releaseLabel: 'Under Development',
+    ready: false,
+    readyCount: 0,
+    totalCount: 5,
+    checks: [
+      { id: 'discord-client', label: 'Discord OAuth client', ready: false },
+      { id: 'discord-secret', label: 'Discord OAuth secret', ready: false },
+      { id: 'session-secret', label: 'Session signing secret', ready: false },
+      { id: 'owner-allowlist', label: 'Owner allowlist', ready: false },
+      { id: 'staff-allowlist', label: 'Staff allowlist', ready: false }
+    ]
+  };
+}
+
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`${apiBase}${path}`, {
     method: 'GET',
@@ -99,17 +121,16 @@ async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
 }
 
 export async function getHealthSnapshot(signal?: AbortSignal): Promise<HealthSnapshot> {
-  if (dataMode === 'stub') {
-    return stubHealth();
-  }
-
+  if (dataMode === 'stub') return stubHealth();
   return getJson<HealthSnapshot>('/health', signal);
 }
 
 export async function getSessionSnapshot(signal?: AbortSignal): Promise<SessionSnapshot> {
-  if (dataMode === 'stub') {
-    return stubSession();
-  }
-
+  if (dataMode === 'stub') return stubSession();
   return getJson<SessionSnapshot>('/session', signal);
+}
+
+export async function getReadinessSnapshot(signal?: AbortSignal): Promise<ReadinessSnapshot> {
+  if (dataMode === 'stub') return stubReadiness();
+  return getJson<ReadinessSnapshot>('/config', signal);
 }
