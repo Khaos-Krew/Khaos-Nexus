@@ -2,6 +2,7 @@
 
 const crypto = require('node:crypto');
 const { ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+const { paragraphs, spacedItems, statRows } = require('./embed-layout.cjs');
 
 const REPORT_BUTTON_ID = 'nexussafety:open';
 const REPORT_MODAL_ID = 'nexussafety:submit';
@@ -81,14 +82,54 @@ function rulesPanel() {
   return {
     embeds: [{
       title: 'KHAOS NEXUS • COMMUNITY RULES',
-      description: '**Khaos Nexus is a safe-space community.** Everyone is expected to treat other members with dignity, respect boundaries, and help keep the community welcoming. Harassment is not tolerated.',
+      description: paragraphs(
+        '**Khaos Nexus is a safe-space community.** Everyone is expected to treat other members with dignity, respect boundaries, and help keep the community welcoming. Harassment is not tolerated.',
+        'These expectations apply across community chat, voice, events, game spaces, DMs connected to Nexus activity, and other Nexus-managed areas.'
+      ),
       fields: [
-        { name: '1 • Respect people and boundaries', value: 'No harassment, bullying, hate, threats, stalking, doxxing, sexual harassment, targeted humiliation, or repeated unwanted contact.' },
-        { name: '2 • Keep conflict from becoming abuse', value: 'Disagreements happen. Personal attacks, dog-piling, intimidation, retaliation, and attempts to drive someone out of the community do not belong here.' },
-        { name: '3 • Protect privacy and consent', value: 'Do not expose private information, repost private conversations to shame someone, or share personal media without permission.' },
-        { name: '4 • Use channels responsibly', value: 'Follow channel topics, avoid spam or disruptive behavior, and respect staff direction when moderation is needed.' },
-        { name: '5 • Report concerns privately', value: 'Use **Open Private Report** below or `/report`. Reports are handled on a need-to-know basis by authorized staff. Good-faith reports and requests for help must not be retaliated against.' },
-        { name: 'Evidence', value: 'If relevant, preserve message links, screenshots, timestamps, usernames, or other context. You can attach files after the private ticket opens.' }
+        {
+          name: '1 • Respect people and boundaries',
+          value: spacedItems([
+            '**Not allowed**\nHarassment, bullying, hate, threats, stalking, doxxing, sexual harassment, targeted humiliation, or repeated unwanted contact.',
+            '**Boundary standard**\nIf someone asks you to stop contacting them or disengage, respect that boundary.'
+          ])
+        },
+        {
+          name: '2 • Keep conflict from becoming abuse',
+          value: spacedItems([
+            'Disagreements can happen without becoming personal.',
+            '**Not allowed**\nPersonal attacks, dog-piling, intimidation, retaliation, or attempts to drive someone out of the community.'
+          ])
+        },
+        {
+          name: '3 • Protect privacy and consent',
+          value: spacedItems([
+            'Do not expose another person’s private information.',
+            'Do not repost private conversations to shame someone or share personal media without permission.'
+          ])
+        },
+        {
+          name: '4 • Use channels responsibly',
+          value: spacedItems([
+            'Follow channel topics and avoid spam or deliberately disruptive behavior.',
+            'Respect staff direction when moderation is needed.'
+          ])
+        },
+        {
+          name: '5 • Report concerns privately',
+          value: spacedItems([
+            'Use **Open Private Report** below or `/report`.',
+            '**Privacy**\nReports are handled on a need-to-know basis by authorized staff.',
+            '**Protection**\nGood-faith reports and requests for help must not be retaliated against.'
+          ])
+        },
+        {
+          name: '📎 Evidence',
+          value: spacedItems([
+            'If relevant, preserve message links, screenshots, timestamps, usernames, or other useful context.',
+            'You can attach files after the private ticket opens.'
+          ])
+        }
       ],
       footer: { text: 'Khaos Nexus • Safety, respect, privacy, and accountability' }
     }],
@@ -147,17 +188,31 @@ function ticketPayload(caseId, reporterId, input = {}) {
   if (!fields.summary || !fields.details) throw new Error('A summary and report details are required.');
   const embedFields = [
     { name: 'Summary', value: fields.summary },
-    { name: 'Reporter', value: `<@${String(reporterId)}>`, inline: true },
-    { name: 'Status', value: 'OPEN', inline: true }
+    { name: 'Case Overview', value: statRows([
+      ['Reporter', `<@${String(reporterId)}>`],
+      ['Status', 'OPEN']
+    ]), inline: false }
   ];
   if (fields.involved) embedFields.push({ name: 'Person(s) / area involved', value: fields.involved });
   embedFields.push({ name: 'What happened', value: fields.details });
   if (fields.evidence) embedFields.push({ name: 'Evidence / references', value: fields.evidence });
   if (fields.support) embedFields.push({ name: 'Requested support', value: fields.support });
-  embedFields.push({ name: 'Next steps', value: 'Authorized staff can claim this case, add only necessary participants, escalate it, resolve it, or close it. You may attach screenshots/files here. Please keep report details inside this private channel.' });
+  embedFields.push({
+    name: 'Next steps',
+    value: spacedItems([
+      'Authorized staff can claim this case, add only necessary participants, escalate it, resolve it, or close it.',
+      'You may attach screenshots/files here.',
+      '**Keep report details inside this private channel.**'
+    ])
+  });
   return {
     content: `<@${String(reporterId)}> your private report is open.`,
-    embeds: [{ title: `PRIVATE REPORT • ${caseId}`, fields: embedFields, footer: { text: 'Need-to-know access • Report details are not posted to public logs' } }],
+    embeds: [{
+      title: `PRIVATE REPORT • ${caseId}`,
+      description: 'This channel is restricted to the reporter and authorized participants. Report details are handled on a need-to-know basis.',
+      fields: embedFields,
+      footer: { text: 'Need-to-know access • Report details are not posted to public logs' }
+    }],
     components: ticketControls(caseId),
     allowedMentions: { users: [String(reporterId)], roles: [], parse: [] }
   };
