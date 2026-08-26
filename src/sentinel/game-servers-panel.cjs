@@ -1,10 +1,11 @@
 'use strict';
 
 const { ChannelType } = require('discord.js');
+const { purchasableRanks } = require('../shared/ranks.cjs');
 const { findInformationCategory, valuesOf } = require('./nexus-status.cjs');
 const { managedPayloadMatches } = require('./managed-payload-compare.cjs');
 
-const GAME_SERVERS_PANEL_MARKER = 'Nexus Sentinal • Managed Game Servers • v1';
+const GAME_SERVERS_PANEL_MARKER = 'Nexus Sentinal • Managed Game Servers • v2';
 const GAME_SERVERS_PANEL_TITLE = 'KHAOS NEXUS • GAME SERVERS';
 const RECENT_MESSAGE_LIMIT = 100;
 
@@ -45,6 +46,15 @@ function groupTrackedServers(servers = []) {
   }
   return [...groups.values()].sort((a, b) => a.game.localeCompare(b.game));
 }
+function groupPrivateServersByRank(servers = []) {
+  const groups = new Map(purchasableRanks().map((rank) => [rank.id, { rank, servers: [] }]));
+  for (const server of Array.isArray(servers) ? servers : []) {
+    const rankId = String(server?.accessRank || 'cipher-runner');
+    if (!groups.has(rankId)) continue;
+    groups.get(rankId).servers.push(server);
+  }
+  return [...groups.values()].filter((group) => group.servers.length).sort((a, b) => a.rank.level - b.rank.level);
+}
 function normalizedTrackingState(server = {}) {
   const state = String(server.trackingState || '').toLowerCase();
   if (state) return state;
@@ -54,7 +64,7 @@ function normalizedTrackingState(server = {}) {
 function trackingGlyph(server = {}) {
   const state = normalizedTrackingState(server);
   if (state === 'online') return '🟢';
-  if (['maintenance','starting','restarting','stopping','updating'].includes(state)) return '🟠';
+  if (['maintenance','starting','restarting','stopping','updating'].includes(state)) return '🟡';
   if (state === 'offline') return '🔴';
   if (state === 'manual') return '🔵';
   return '🟡';
@@ -62,10 +72,10 @@ function trackingGlyph(server = {}) {
 function trackingLabel(server = {}) {
   const state = normalizedTrackingState(server);
   if (state === 'online') return 'Online';
-  if (['maintenance','starting','restarting','stopping','updating'].includes(state)) return 'Maintenance / transitioning';
+  if (['maintenance','starting','restarting','stopping','updating'].includes(state)) return 'Maintenance';
   if (state === 'offline') return 'Offline';
   if (state === 'manual') return 'Registered • manual management';
-  if (state === 'not-configured') return 'Registered • adapter needs configuration';
+  if (state === 'not-configured') return 'Registered • connection needs configuration';
   if (state === 'registered') return 'Registered • live telemetry optional';
   return server.providerConfigured === true ? 'Registered • telemetry configured/pending' : 'Registered • live telemetry optional';
 }
@@ -83,22 +93,47 @@ function renderServerLine(server = {}) {
   if (joinInfo) lines.push(`**Join:** ${joinInfo}`);
   return lines.join('\n');
 }
+function renderPrivateServerLine(server = {}) {
+  const name = cleanPublicText(server.name || 'Private Server', 80) || 'Private Server';
+  const game = cleanPublicText(server.game || server.moduleId || 'Game', 80);
+  const lines = [`${trackingGlyph(server)} **${name}**`, `${game} • ${trackingLabel(server)}`];
+  const description = cleanPublicText(server.description, 180);
+  if (description) lines.push(description);
+  return lines.join('\n');
+}
 function renderGameServersPanel(snapshot = {}) {
   const servers = Array.isArray(snapshot.servers) ? snapshot.servers : [];
+  const privateServers = Array.isArray(snapshot.privateServers) ? snapshot.privateServers : [];
   const groups = groupTrackedServers(servers);
+  const privateGroups = groupPrivateServersByRank(privateServers);
   const fields = [];
+
   if (!groups.length) {
-    fields.push({ name: 'No tracked servers yet', value: 'Add a supported game server with the private `/server add` admin workflow. Hosting provider, endpoint, REST, and RCON details can all be configured later.', inline: false });
+    fields.push({ name: 'Public Servers', value: 'No public Nexus game servers are registered yet.', inline: false });
   } else {
-    for (const group of groups.slice(0, 24)) fields.push({ name: group.game, value: group.servers.map(renderServerLine).join('\n\n').slice(0, 1024), inline: false });
+    const maxPublicGroups = Math.max(1, 24 - privateGroups.length);
+    for (const group of groups.slice(0, maxPublicGroups)) fields.push({ name: `🎮 ${group.game}`, value: group.servers.map(renderServerLine).join('\n\n').slice(0, 1024), inline: false });
   }
-  fields.push({ name: 'Registry Sync', value: `${servers.length} tracked server${servers.length === 1 ? '' : 's'}\nServer registration is independent of hosting provider and telemetry adapter.`, inline: false });
+
+  for (const group of privateGroups) {
+    fields.push({
+      name: `🔒 ${group.rank.name} Private Servers`,
+      value: `${group.servers.map(renderPrivateServerLine).join('\n\n').slice(0, 900)}\n\nEligible members can use **/server access** for private join details.`,
+      inline: false
+    });
+  }
+
+  fields.push({
+    name: 'Registry Sync',
+    value: `${servers.length} public server${servers.length === 1 ? '' : 's'} • ${privateServers.length} private rank server${privateServers.length === 1 ? '' : 's'}\nServers are organized by game; private join details are protected by paid-rank access.`,
+    inline: false
+  });
   return {
     embeds: [{
       title: GAME_SERVERS_PANEL_TITLE,
-      description: 'Khaos Nexus game servers and tracked community servers. Private network addresses, management ports, adapter references, passwords, tokens, and credentials are never displayed here.',
-      color: groups.length ? 0x2ecc71 : 0x5865f2,
-      fields,
+      description: 'Khaos Nexus game-server registry. Public servers are grouped by game. Private servers are listed under their minimum paid rank without exposing private join details. Network addresses, management ports, passwords, tokens, and credentials are never displayed here.',
+      color: groups.length || privateGroups.length ? 0x2ecc71 : 0x5865f2,
+      fields: fields.slice(0, 25),
       footer: { text: GAME_SERVERS_PANEL_MARKER }
     }], allowedMentions: { parse: [] }
   };
@@ -107,7 +142,7 @@ function messageMatchesGameServersPanel(message, botId = '') {
   if (!message) return false;
   if (botId && String(message?.author?.id || '') !== String(botId)) return false;
   const embed = message?.embeds?.[0];
-  return String(embed?.footer?.text || '') === GAME_SERVERS_PANEL_MARKER || String(embed?.title || '') === GAME_SERVERS_PANEL_TITLE;
+  return String(embed?.footer?.text || '').startsWith('Nexus Sentinal • Managed Game Servers') || String(embed?.title || '') === GAME_SERVERS_PANEL_TITLE;
 }
 function newestMessage(messages = []) { return [...messages].sort((left, right) => Number(right?.createdTimestamp || 0) - Number(left?.createdTimestamp || 0))[0] || null; }
 function panelPayloadMatches(message, payload) { return managedPayloadMatches(message, payload); }
@@ -125,4 +160,10 @@ async function reconcileGameServersPanel(channel, payload, options = {}) {
   return { message, created, updated, duplicatesRemoved, pinned };
 }
 
-module.exports = { GAME_SERVERS_PANEL_MARKER, GAME_SERVERS_PANEL_TITLE, RECENT_MESSAGE_LIMIT, normalizeChannelName, isGameServersChannel, findGameServersChannel, ensureGameServersChannel, groupTrackedServers, normalizedTrackingState, trackingGlyph, trackingLabel, renderServerLine, renderGameServersPanel, messageMatchesGameServersPanel, newestMessage, panelPayloadMatches, reconcileGameServersPanel };
+module.exports = {
+  GAME_SERVERS_PANEL_MARKER, GAME_SERVERS_PANEL_TITLE, RECENT_MESSAGE_LIMIT,
+  normalizeChannelName, isGameServersChannel, findGameServersChannel, ensureGameServersChannel,
+  groupTrackedServers, groupPrivateServersByRank, normalizedTrackingState, trackingGlyph, trackingLabel,
+  renderServerLine, renderPrivateServerLine, renderGameServersPanel,
+  messageMatchesGameServersPanel, newestMessage, panelPayloadMatches, reconcileGameServersPanel
+};
