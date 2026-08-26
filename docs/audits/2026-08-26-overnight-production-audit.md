@@ -3,26 +3,27 @@
 Status: active audit; audit-only, no production fixes implemented in this document.
 
 ## Current production evidence
-- Last verified Railway evidence: project `discerning-purpose`, production service `nexus-sentinal-0-1-test`, deployment `aa89e121-42fa-421a-967c-3f5c3ae1a460`: SUCCESS; build healthcheck `/health` succeeded. The Railway connector could not re-read the project on the 02:10 CT audit pass because the connected identity lacked viewer access, so this run does not claim fresher live Railway state.
-- GitHub `rebuild/nexus-0.1` head is `e509f45485681293fa2b2f51ab88befaa8794437` (`docs: start consolidated overnight production audit`). Nexus Rebuild CI run #674 completed successfully against that exact head at 2026-08-26 06:12:47Z.
-- The immediately preceding validated implementation/documentation head `cb340a91…` records Nitrado-backed Palworld status checks plus `/server setup` guidance and a privacy-safe Once Human official-dashboard configuration catalog; live owner/provider acceptance remains explicitly outstanding.
-- Last verified Discord reconciliation evidence was broadly stable: 18 Sentinel-ready modules + 1 Veyra-delegated D&D module; no module access attention/pending; 18 managed hub panels; private safety access reported no failures.
-- Last verified hosted-server reconciliation still reported `tracked=0 groups=0`, so the new Palworld/Once Human server manager has not yet demonstrated live registered server data in production.
+- Fresh Railway evidence: project `discerning-purpose`, production service `nexus-sentinal-0-1-test`, deployment `d4e17e90-76b8-4b95-b41e-9e2e9fe5791e`: SUCCESS, built from `rebuild/nexus-0.1` commit `76c58f4323f5318b2c5e41813a452e5f8620c857`; `/health` succeeded on first attempt.
+- GitHub `rebuild/nexus-0.1` head is `76c58f4323f5318b2c5e41813a452e5f8620c857` (`docs: refine overnight audit evidence`), matching the live Railway deployment.
+- Discord reconciliation is currently stable: 18 Sentinel-ready modules + 1 Veyra-delegated D&D module; no module access attention/pending; 18 managed hub panels; private safety access reports no failures; category/channel reconciliation shows no outstanding moves or missing structural items.
+- Hosted-server reconciliation still reports `tracked=0 groups=0` repeatedly through the latest logs, so Palworld/Once Human registration and provider acceptance remain unproven in production.
+- Creator Program still reports `twitch=pending youtube=pending`.
+- Periodic auto-provision remains relatively expensive: no-change cycles are commonly ~10–15 seconds, with occasional category-order work adding several seconds.
 
 ## Findings
 
 ### OA-001 — Hosted-server feature deployed but registry remains empty
 - Severity: High (functional/integration)
-- Evidence: repeated live `game servers registry ... tracked=0 groups=0` after hosted-server work; owner currently has Palworld and Once Human servers to register.
+- Evidence: repeated live `game servers registry ... tracked=0 groups=0` on the current successful deployment; owner has Palworld and Once Human servers to register.
 - Affected: Hosted Server Manager, backend persistence, #game-servers.
 - Root-cause hypothesis: feature code exists but no production server records have been registered yet and/or persistence/config wiring has not been acceptance-tested against Railway storage.
 - Recommended fix: acceptance-test `/server add`, persistence across restart/redeploy, private/public projections, and panel reconciliation with one Palworld + one Once Human record before calling the feature complete.
 - Acceptance: two records survive restart/redeploy; public panel groups both games; private host/ports/credential-env never appear publicly; duplicate add rejected; edit/remove refresh correctly.
 - Owner approval: No for tests/fixes; owner input required only for actual server connection values/credentials.
 
-### OA-002 — Palworld provider model needs Nitrado-specific RCON/REST architecture and live acceptance
+### OA-002 — Palworld provider model needs Nitrado-specific RCON/REST live acceptance
 - Severity: High (incomplete integration)
-- Evidence: current branch documentation now records Nitrado-backed Palworld status checks and a Nitrado service-ID/token-environment setup flow, but live provider acceptance is still explicitly outstanding. Owner confirmed Palworld host is Nitrado and requires RCON or REST setup.
+- Evidence: branch history records Nitrado-backed Palworld status checks and a Nitrado service-ID/token-environment setup flow, but current live registry remains empty and no real provider cycle is demonstrated. Owner confirmed Palworld host is Nitrado and requires RCON or REST setup.
 - Affected: Palworld provider adapter, server manager, credentials, admin actions.
 - Root-cause hypothesis: provider abstraction was created before the hosting provider was known; implementation has advanced to read/status setup but destructive/game-level management has not been proven against the real service.
 - Recommended fix: retain explicit `nitrado` provider mode. Prefer supported Nitrado REST for service lifecycle/status/backups/settings where API authorization permits; use Palworld dedicated-server REST/RCON only for game-level functions that Nitrado exposes/reaches safely. Keep credentials as environment references; separate read-only telemetry from destructive controls; require explicit confirmation for restart/stop/restore.
@@ -31,25 +32,25 @@ Status: active audit; audit-only, no production fixes implemented in this docume
 
 ### OA-003 — Once Human requires a configuration-management model, not an assumed public API
 - Severity: High (architecture/incomplete integration)
-- Evidence: official Once Human material documents official rentals, dedicated management panel/GM privileges, invitation codes/public unlock, parameter editing, player/admin management, scenario switching/reset semantics, but no verified public management API was found. Current branch documentation correctly treats setup as official-dashboard/manual and records a structured configuration catalog.
+- Evidence: current official Once Human Custom Server material documents extensive dashboard configuration and host privileges but no verified public server-management API. July 9, 2026 added split scenario selection/gameplay-mode selection, in-match templates, weather, camera-perspective/free-camera controls and Crimson Revelry settings; June 10 added weapon/armor durability-loss controls; May 13 added custom weapon/armor/item definitions with a settings-capacity limit; April 23 added announcements, up-to-three scenario templates, host facilities, Hive capacity controls, vehicle/facility restrictions and RaidZone Hyper Brawl tooling. Current branch correctly treats setup as official-dashboard/manual.
 - Affected: Once Human hosted-server integration.
-- Root-cause hypothesis: early server-manager design treated provider integrations too uniformly; NetEase exposes rich owner configuration without a verified public automation contract.
-- Recommended fix: keep Once Human as `netease-managed` with manual/snapshot configuration tracking first. Do not scrape/reverse-engineer private endpoints. Model server identity, rental expiry/frozen/deletion risk, invitation/public mode, scenario, player cap, admins, and versioned configuration profiles/templates. Add guided setup/checklist and config diff/export inside Sentinel; automation can be added only if NetEase publishes a supported interface.
-- Acceptance: no private endpoint dependency; settings schema is scenario-aware/versioned; dangerous scenario switch/reset warns that player progression is reset; expiry alerts cover frozen state and >30-day deletion risk; invite code visibility is owner-controlled; owner can complete setup from the guide without exposing secrets publicly.
+- Root-cause hypothesis: early server-manager design treated provider integrations too uniformly; NetEase exposes rich owner configuration without a verified public automation contract, and its schema is evolving monthly.
+- Recommended fix: keep Once Human as `netease-managed` with manual/snapshot configuration tracking first. Do not scrape/reverse-engineer private endpoints. Version the schema by game update and scenario; model server identity, rental expiry/frozen/deletion risk, invitation/public mode, scenario, gameplay mode, player cap, admins, templates, custom-content capacity and configuration snapshots/diffs. Add guided setup/checklist and exportable config profile inside Sentinel; automation only if NetEase publishes a supported interface.
+- Acceptance: no private endpoint dependency; schema is scenario-aware/versioned; unavailable settings disappear for incompatible scenarios (for example farming/maps in RaidZone where documented); dangerous scenario switch/reset has explicit progression warning; expiry alerts cover frozen/deletion risk; invite visibility is owner-controlled; owner can complete setup without exposing secrets publicly.
 - Owner approval: Yes for desired gameplay configuration/profile; No for safe schema/tooling.
 
 ### OA-004 — Warframe world-state provider intermittently returns HTTP 404 across all feed slices
 - Severity: Medium (reliability)
-- Evidence: prior live logs at ~04:59 and ~05:09 UTC showed 404 PROVIDER_ERROR for news/events/alerts/sortie/arbitration/nightwave/void-trader/steel-path; by ~05:29 UTC feeds recovered and reused/updated Discord messages.
+- Evidence: prior live logs showed 404 PROVIDER_ERROR for news/events/alerts/sortie/arbitration/nightwave/void-trader/steel-path before later recovery.
 - Affected: Warframe feed provider/reconciler.
 - Root-cause hypothesis: transient upstream/base-path/platform routing issue or endpoint/version mismatch with fallback/cache masking outage later.
-- Recommended fix: instrument provider URL/platform/version (without secrets), classify 404 separately from transport errors, validate current upstream contract, add exponential backoff + stale-cache serving and avoid eight error-level log lines per cycle for one common upstream failure.
+- Recommended fix: instrument provider URL/platform/version without secrets, classify 404 separately from transport errors, validate current upstream contract, add exponential backoff + stale-cache serving and aggregate common upstream failures.
 - Acceptance: provider contract test; simulated 404 uses last-good cache and marks freshness; one aggregated error per provider incident; automatic recovery verified.
 - Owner approval: No.
 
 ### OA-005 — Periodic reconciliation is heavier/noisier than necessary
 - Severity: Medium (reliability/performance/operability)
-- Evidence: prior live evidence showed module auto-provision roughly every five minutes taking ~10–20 seconds even with zero changes; many panels reconcile every minute; repeated creator-role channel-update runs; 260 channels/165 roles scanned.
+- Evidence: current live logs show module auto-provision about every five minutes, typically ~10–15 seconds with zero changes; many panels reconcile every minute; creator-role channel-update runs repeat frequently; inventory is 260 channels/165 roles.
 - Affected: Sentinel reconciliation scheduler, Discord rate-limit budget, logs.
 - Root-cause hypothesis: independent periodic loops and broad inventory scans rather than shared snapshots/event-driven invalidation.
 - Recommended fix: central reconciliation scheduler, shared guild inventory snapshot, jitter/backoff, dirty flags, coalescing of channel update/delete events, slower cadence for stable panels, structured metrics instead of repetitive info logs.
@@ -58,7 +59,7 @@ Status: active audit; audit-only, no production fixes implemented in this docume
 
 ### OA-006 — Creator Program integrations remain pending
 - Severity: Medium (incomplete feature)
-- Evidence: prior live logs repeatedly reported `twitch=pending youtube=pending` while creator category/roles/command were present.
+- Evidence: current live logs repeatedly report `twitch=pending youtube=pending` while creator category/roles/command are present.
 - Affected: Content Creator Program / Now Live role.
 - Root-cause hypothesis: Discord-side workflow landed before external account/webhook/API integration.
 - Recommended fix: complete OAuth/account-link and live-state adapters with provider rate-limit handling; make pending state explicit in staff status rather than implying full program completion.
@@ -67,56 +68,72 @@ Status: active audit; audit-only, no production fixes implemented in this docume
 
 ### OA-007 — Module access still has an explicit human acceptance gap
 - Severity: Medium (acceptance)
-- Evidence: prior live `module access preflight` reported `humanTestRequired=true` despite attention=0/pending=0.
+- Evidence: current live `module access preflight` reports `humanTestRequired=true` despite attention=0/pending=0.
 - Affected: module access roles/buttons/channel visibility.
 - Root-cause hypothesis: automated permission graph checks cannot prove end-user Discord visibility/interactions.
 - Recommended fix: execute acceptance matrix with normal member, staff, and D&D/Veyra delegation; record results and only then clear acceptance flag.
 - Acceptance: add/remove role buttons, color-role precedence, game category visibility, staff bypass, Veyra D&D visibility.
 - Owner approval: No unless owner wants to personally perform UX acceptance.
 
-### OA-008 — Build test step was Docker-cache reused
+### OA-008 — Build test step is Docker-cache reused
 - Severity: Medium (CI confidence)
-- Evidence: prior Railway build showed `[9/9] RUN npm run check && npm test` as cached. GitHub exact-head CI #674 is independently green, which improves source validation but does not replace a fresh live deployment smoke.
+- Evidence: current Railway build again shows `[9/9] RUN npm run check && npm test` as cached even though deployment healthcheck is fresh.
 - Affected: deployment assurance.
-- Root-cause hypothesis: Docker layer cache allows an unchanged test layer to be reused; valid for identical inputs, but it weakens visible per-deploy evidence and can hide environment-sensitive test behavior.
+- Root-cause hypothesis: Docker layer cache correctly reuses identical test inputs, but visible per-deploy evidence cannot detect environment-sensitive regressions.
 - Recommended fix: keep deterministic cached unit tests if desired, but add a non-cacheable lightweight deployment acceptance/smoke stage against the built artifact and live health/command-registration surfaces.
 - Acceptance: each deployment records fresh smoke result; failure blocks promotion or flags deployment.
 - Owner approval: No.
 
-### OA-009 — Live Railway observability is not consistently available to the audit identity
-- Severity: Medium (operability/audit confidence)
-- Evidence: this audit pass could access GitHub and exact-head CI but Railway `get-status` returned that the connected identity lacks the required viewer role for the known project ID.
-- Affected: production auditing, incident verification, deployment/log acceptance.
-- Root-cause hypothesis: connector account/project permission drift or a different Railway connection than the one used for the earlier successful live audit.
-- Recommended fix: restore read-only/viewer access for the connected Railway identity used by audits; do not grant deployment/write authority merely to solve observability.
-- Acceptance: audit can read project status, latest deployment, build/deploy/http logs, service configuration metadata, and health evidence without gaining destructive permissions.
-- Owner approval: Yes, because Railway account/project access is an owner-controlled external permission.
+### OA-009 — Railway audit visibility recovered; remove permission repair from active fix queue
+- Severity: Resolved / informational
+- Evidence: current audit can list projects/services/deployments and read build/deploy logs for the production service. Earlier viewer-access failure was transient/connection-specific.
+- Affected: production auditing.
+- Root-cause hypothesis: transient connector identity/session mismatch rather than durable project permission loss.
+- Recommended fix: no production change. Continue verifying Railway readability each audit pass and reopen only if access failure recurs.
+- Acceptance: current pass can read latest deployment and logs without write access.
+- Owner approval: No.
+
+### OA-010 — Desktop dependency patch drift exists but is not an immediate Sentinel production blocker
+- Severity: Low (maintenance/security hygiene)
+- Evidence: `discord.js` is pinned to current 14.27.0. `electron-builder` is pinned 26.15.3 while a newer v26 patch (26.15.7) exists; Electron is pinned 43.2.0 while 43.4.1 is current. Desktop development is paused and Sentinel's Railway image uses Node 22, so this drift is primarily deferred desktop maintenance.
+- Affected: paused Windows desktop build/toolchain.
+- Root-cause hypothesis: intentional stabilization/pause plus exact-version pinning.
+- Recommended fix: do not churn desktop dependencies during the pause. Before desktop work resumes, review Electron/electron-builder release notes/security advisories, update one dependency family at a time, rebuild installer, and rerun desktop smoke/update tests.
+- Acceptance: clean install/update path, launch smoke, updater rollback, no Electron security warnings/regressions.
+- Owner approval: No for patch maintenance once desktop work resumes.
 
 ## Once Human configuration inventory to model
-Official/current categories identified for the configuration schema: basic server profile (name/public access/player capacity/slogan/intro); scenario selection + scenario gameplay mode + scenario templates; world parameters; Deviations; maps/teleport behavior; combat/PvP/damage/HP/ammo; character survival/progression/death penalties; survival/building; tech/crafting/social/management; territory auto-packing; overlap/floating/restricted-area building; free/cost-free/instant crafting/building; vehicles; facility restrictions; host facilities; Hive capacity; announcements; server-host privileges/item distribution; admins/player management; leaderboards; in-server shop; custom weapon/armor/item definitions with Settings Value capacity; weather; camera perspective/free camera; scenario-specific RaidZone/Crimson Revelry/Special Drops/card-room parameters; durability loss; up-to-three scenario templates plus in-match templates.
+Official/current categories identified for the configuration schema: basic server profile (name/public access/player capacity/slogan/intro); scenario selection + scenario gameplay mode + up-to-three scenario templates; world resources; farming/husbandry with scenario-dependent visibility; Deviants and Deviations; maps/teleport behavior with scenario-dependent visibility; combat/PvP/damage/HP/ammo; Deviant combat stats; character survival/progression/death penalties; survival/building; tech/crafting/social/management; territory auto-packing; overlap/floating/restricted-area building; free/cost-free/instant crafting/building; vehicles; facility restrictions; host facilities; Hive capacity; announcements; server-host privileges/item distribution; admins/player management; leaderboards; in-server shop; custom weapon/armor/item definitions with Settings Value capacity; weather; player camera perspective; host free camera; RaidZone Hyper Brawl/restricted-zone/shop controls; Crimson Revelry timing and Lord-of-Moonlight stats; Special Drops event timing/Honor Point parameters; durability loss; in-match templates for leaderboards/shop/host-privilege modes.
 
 ## Priority order for fixes after audit approval
 1. Hosted-server production acceptance/persistence (OA-001).
 2. Nitrado Palworld provider live acceptance, read-only first (OA-002).
 3. Once Human NetEase-managed configuration schema + guided setup/live owner acceptance (OA-003).
-4. Restore read-only Railway audit visibility (OA-009).
-5. Warframe provider resilience (OA-004).
-6. Reconciliation scheduler/API-budget optimization (OA-005).
-7. Fresh deployment smoke gate (OA-008).
-8. Human module-access acceptance (OA-007).
-9. Creator external integrations (OA-006).
+4. Warframe provider resilience (OA-004).
+5. Reconciliation scheduler/API-budget optimization (OA-005).
+6. Fresh deployment smoke gate (OA-008).
+7. Human module-access acceptance (OA-007).
+8. Creator external integrations (OA-006).
+9. Deferred desktop dependency patch review when desktop work resumes (OA-010).
 
 ## Audit pass notes
 ### 02:10 CT pass
 - No critical active production/security issue was established; no early user notification warranted.
-- Exact GitHub head and CI are green.
-- Nitrado and Once Human setup work is present in branch documentation/validated head, but both still require real owner/provider acceptance before being called complete.
-- Railway live recheck is blocked by read-only permission, recorded as OA-009 rather than silently assuming stale evidence is current.
+- Exact GitHub head and CI were green.
+- Nitrado and Once Human setup work was present but both still required real owner/provider acceptance.
+- Railway live recheck was temporarily blocked and recorded as OA-009.
+
+### 03:08 CT pass
+- No critical active production/security issue established; no early user notification warranted.
+- Railway visibility recovered. Current deployment is SUCCESS, exact GitHub/Railway commit alignment is confirmed, and `/health` passed first attempt.
+- Discord reconciliation remains structurally stable, but hosted-server registry is still empty (`tracked=0 groups=0`), keeping OA-001/OA-002 high priority.
+- Once Human official configuration research was refreshed through July 2026 changes; schema must be versioned/scenario-aware because the configuration surface is actively expanding.
+- Dependency review found no stale `discord.js`; desktop-only Electron/electron-builder patch drift is low priority while desktop work remains paused.
 
 ## Next audit runs
-- Recheck Railway deployment/log deltas if viewer access becomes available; specifically verify whether `tracked` changes from zero.
-- Inspect exact hosted-server/Nitrado implementation paths and focused tests from commit history/tree rather than default-branch code search; verify no partial provider code is live without command/schema support.
-- Deepen Once Human schema against current official configuration pages and flag scenario-dependent fields.
-- Inspect dependency/package versions and security posture without changing them.
-- Inspect command/UX readability and privacy projections for hosted-server records.
+- Recheck live deployment/log deltas and whether hosted-server `tracked` changes from zero.
+- Inspect exact Nitrado adapter/provider implementation and focused tests for timeout/backoff, status mapping, action confirmation and secret redaction.
+- Inspect hosted-server command UX/privacy projections and persistence storage/volume configuration.
+- Inspect Warframe provider contract/fallback implementation against the observed 404 incident.
+- Inspect reconciliation timers/event listeners for duplicated work and Discord API-budget risk.
 - Append/refine findings here; do not duplicate existing IDs.
