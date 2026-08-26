@@ -46,7 +46,7 @@ class ServerApplicationStore {
     if (input.policyAccepted !== true) throw new Error('You must accept the Khaos Nexus community-server policy before submitting.');
     const monetizationModel = clean(input.monetizationModel || input.monetization,40).toLowerCase() || 'none';
     if (!MONETIZATION_MODELS.has(monetizationModel)) throw new Error('Unsupported monetization model.');
-    const server = normalizeServerDefinition(input.server || input,{ allowEndpointless:true });
+    const server = normalizeServerDefinition(input.server || input);
     const risk = monetizationRisk({
       monetizationModel,
       paidAdvantages:bool(input.paidAdvantages),
