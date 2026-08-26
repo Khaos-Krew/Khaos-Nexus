@@ -65,7 +65,7 @@ function trackingLabel(server = {}) {
   if (['maintenance','starting','restarting','stopping','updating'].includes(state)) return 'Maintenance / transitioning';
   if (state === 'offline') return 'Offline';
   if (state === 'manual') return 'Manual management • NetEase dashboard';
-  if (state === 'not-configured') return 'Provider setup needed';
+  if (state === 'not-configured') return 'Tracked • provider setup needed';
   return server.providerConfigured === true ? 'Tracked • telemetry pending' : 'Tracked • provider setup needed';
 }
 function cleanPublicText(value, max = 240) { return String(value || '').replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max); }
