@@ -16,7 +16,8 @@ const ONCE_HUMAN_SETUP_SECTIONS = Object.freeze([
 ]);
 
 const ONCE_HUMAN_LIFECYCLE_WARNINGS = Object.freeze([
-  'Nexus registration is independent of the hosting company. Current Once Human configuration is performed through the official server-management interface exposed to the server owner.',
+  'Nexus registration only distinguishes Self-Hosted from Hosted Site; the hosting company is not part of the server identity.',
+  'Current Once Human configuration is performed through the official server-management interface exposed to the server owner.',
   'Nexus does not use undocumented private NetEase endpoints for management automation.',
   'Some setting changes apply immediately while others require a server restart.',
   'Switching scenarios can reset server progression and player-character state. Review the official warning shown by the management interface before confirming a scenario change.',
@@ -27,7 +28,7 @@ function onceHumanSetupGuide(server = {}) {
   return {
     ok: true,
     game: 'Once Human',
-    provider: String(server.hostingProvider || 'Hosting provider not required'),
+    hostingType: String(server.hostingType || 'hosted-site'),
     managementMode: 'manual-official-dashboard',
     publicManagementApi: false,
     setupVersion: ONCE_HUMAN_SETUP_VERSION,
@@ -41,35 +42,29 @@ function palworldSetupGuide(server = {}) {
   return {
     ok: true,
     game: 'Palworld',
-    provider: String(server.hostingProvider || 'Hosting provider not required'),
+    hostingType: String(server.hostingType || 'hosted-site'),
     managementMode: 'palworld-adapters',
     serverId: String(server.id || ''),
     options: [
       {
-        id: 'palworld-rest',
-        name: 'Palworld REST API',
-        description: 'Preferred when the server exposes Palworld REST. Configure host/admin port plus an environment variable containing the AdminPassword. This path is independent of Nitrado, self-hosting, or another provider.'
+        id: 'rest',
+        name: 'REST API',
+        description: 'Use when the Palworld server exposes its REST API. Configure the private host/admin port and an environment variable containing the AdminPassword. This works whether the server is Self-Hosted or on a Hosted Site.'
       },
       {
-        id: 'palworld-rcon',
-        name: 'Palworld RCON',
-        description: 'Use when the server exposes Source RCON. Configure host/admin port plus an environment variable containing the RCON/AdminPassword.'
-      },
-      {
-        id: 'nitrado-api',
-        name: 'Nitrado API',
-        description: 'Optional hosting-platform telemetry/control for Nitrado servers. Configure the private Nitrado service ID and an environment variable containing the Nitrado API token. This is an adapter, not a requirement for registering the server.'
+        id: 'rcon',
+        name: 'RCON',
+        description: 'Use when the Palworld server exposes Source RCON. Configure the private host/admin port and an environment variable containing the RCON/AdminPassword.'
       },
       {
         id: 'none',
-        name: 'Registration only',
-        description: 'Keep the server listed in Nexus without live telemetry until a supported connection method is available.'
+        name: 'No live connection',
+        description: 'Keep the server registered without live telemetry until REST or RCON is available.'
       }
     ]
   };
 }
 
-// Legacy function name retained for compatibility.
 function nitradoPalworldSetupGuide(server = {}) { return palworldSetupGuide(server); }
 
 function hostedServerSetupGuide(server = {}) {
