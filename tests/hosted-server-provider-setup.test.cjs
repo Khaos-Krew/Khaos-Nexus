@@ -23,7 +23,6 @@ test('Palworld setup exposes REST RCON and registration-only choices independent
   assert.equal(ids.includes('nitrado-api'),false);
   const text=JSON.stringify(guide);
   assert.match(text,/Self-Hosted or on a Hosted Site/i); assert.match(text,/environment variable/i);
-  // Legacy helper remains an internal compatibility alias; it must not reintroduce provider-specific setup choices.
   assert.deepEqual(nitradoPalworldSetupGuide({id:'SRV-PAL'}).options.map((option)=>option.id),ids);
 });
 
@@ -34,16 +33,17 @@ test('setup router selects game guides rather than binding registration to NetEa
   assert.equal(/Nitrado|Akliz|CreeperHost|NetEase/.test(normalPalworld),false);
 });
 
-test('public game server state maps Online Maintenance Offline manual registered and connection-needs-config distinctly', () => {
+test('public game server state exposes only Online Maintenance and Offline health states', () => {
   assert.equal(trackingGlyph({trackingState:'online'}),'🟢');
   assert.equal(trackingGlyph({trackingState:'maintenance'}),'🟡');
   assert.equal(trackingGlyph({trackingState:'offline'}),'🔴');
-  assert.equal(trackingGlyph({trackingState:'manual'}),'🔵');
-  assert.equal(trackingGlyph({trackingState:'registered'}),'🟡');
-  assert.equal(trackingGlyph({trackingState:'not-configured'}),'🟡');
-  assert.match(trackingLabel({trackingState:'maintenance'}),/maintenance/i);
-  assert.match(trackingLabel({trackingState:'manual'}),/manual management/i);
-  assert.match(trackingLabel({trackingState:'registered'}),/telemetry optional/i);
+  for (const state of ['manual','registered','configured','not-configured']) {
+    assert.equal(trackingGlyph({trackingState:state}),'');
+    assert.equal(trackingLabel({trackingState:state}),'');
+  }
+  assert.equal(trackingLabel({trackingState:'online'}),'Online');
+  assert.equal(trackingLabel({trackingState:'maintenance'}),'Maintenance');
+  assert.equal(trackingLabel({trackingState:'offline'}),'Offline');
 });
 
 test('public panel can show player count while never exposing adapter secrets', () => {
