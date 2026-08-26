@@ -38,6 +38,12 @@ jobs:
       - name: Typecheck and build frontend
         run: npm run build
 
+      - name: Validate generated PWA artifacts
+        run: |
+          test -f dist/manifest.webmanifest
+          test -f dist/sw.js
+          node -e "const fs=require('fs'); const m=JSON.parse(fs.readFileSync('dist/manifest.webmanifest','utf8')); if(m.display!=='standalone'||m.start_url!=='/') process.exit(1);"
+
       - name: Validate Cloudflare Functions syntax
         run: find functions -type f -name '*.js' -print0 | xargs -0 -n1 node --check
 
