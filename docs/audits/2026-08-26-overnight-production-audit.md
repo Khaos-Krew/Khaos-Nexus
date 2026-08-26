@@ -3,12 +3,12 @@
 Status: active audit; audit-only, no production fixes implemented in this document.
 
 ## Current production evidence
-- Fresh Railway evidence: project `discerning-purpose`, production service `nexus-sentinal-0-1-test`, deployment `654f88c5-2009-4d5d-996c-8e83c54aa901`: SUCCESS, built from `rebuild/nexus-0.1` commit `125891958c9c1f118b37571278bc850417bbfaa2`; `/health` succeeded on first attempt.
-- GitHub `rebuild/nexus-0.1` head is `125891958c9c1f118b37571278bc850417bbfaa2` (`docs: refresh overnight audit live evidence`), matching the live Railway deployment at the start of this audit pass.
+- Fresh Railway evidence: project `discerning-purpose`, production service `nexus-sentinal-0-1-test`, deployment `82a690cf-0482-4008-93f3-3c50549817b0`: SUCCESS, built from `rebuild/nexus-0.1` commit `d3fd9265a36fd07a074fdd5f184eae35b6d6fb49`; `/health` succeeded on first attempt.
+- GitHub/Railway were aligned at the start of this pass on audit commit `d3fd9265a36fd07a074fdd5f184eae35b6d6fb49`.
 - Discord reconciliation remains structurally stable: 18 Sentinel-ready modules + 1 Veyra-delegated D&D module; no module access attention/pending; 18 managed hub panels; private safety access reports no failures; category/channel reconciliation shows no outstanding moves or missing structural items.
-- Hosted-server reconciliation still reports `tracked=0 groups=0` repeatedly through the latest logs, so Palworld/Once Human registration and provider acceptance remain unproven in production.
+- Hosted-server reconciliation still reports `tracked=0 groups=0` repeatedly through 05:08 CT, so Palworld/Once Human registration and provider acceptance remain unproven in production.
 - Creator Program still reports `twitch=pending youtube=pending`.
-- Periodic auto-provision remains relatively expensive: no-change cycles are commonly ~10–18 seconds, with category-order work sometimes adding ~7 seconds.
+- Periodic auto-provision remains relatively expensive: no-change cycles are commonly ~10–20 seconds, with category-order work occasionally adding ~10 seconds.
 
 ## Findings
 
@@ -36,7 +36,7 @@ Status: active audit; audit-only, no production fixes implemented in this docume
 - Affected: Once Human hosted-server integration.
 - Root-cause hypothesis: early server-manager design treated provider integrations too uniformly; NetEase exposes rich owner configuration without a verified public automation contract, and its schema is evolving monthly.
 - Recommended fix: keep Once Human as `netease-managed` with manual/snapshot configuration tracking first. Do not scrape/reverse-engineer private endpoints. Version the schema by game update and scenario; model server identity, rental expiry/frozen/deletion risk, invitation/public mode, scenario, gameplay mode, player cap, admins, templates, custom-content capacity and configuration snapshots/diffs. Add guided setup/checklist and exportable config profile inside Sentinel; automation only if NetEase publishes a supported interface.
-- Acceptance: no private endpoint dependency; schema is scenario-aware/versioned; unavailable settings disappear for incompatible scenarios (for example farming/maps in RaidZone where documented); dangerous scenario switch/reset has explicit progression warning; expiry alerts cover frozen/deletion risk; invite visibility is owner-controlled; owner can complete setup without exposing secrets publicly.
+- Acceptance: no private endpoint dependency; schema is scenario-aware/versioned; unavailable settings disappear for incompatible scenarios; dangerous scenario switch/reset has explicit progression warning; expiry alerts cover frozen/deletion risk; invite visibility is owner-controlled; owner can complete setup without exposing secrets publicly.
 - Owner approval: Yes for desired gameplay configuration/profile; No for safe schema/tooling.
 
 ### OA-004 — Warframe world-state provider intermittently returns HTTP 404 across all feed slices
@@ -50,7 +50,7 @@ Status: active audit; audit-only, no production fixes implemented in this docume
 
 ### OA-005 — Periodic reconciliation is heavier/noisier than necessary
 - Severity: Medium (reliability/performance/operability)
-- Evidence: current live logs show module auto-provision about every five minutes, typically ~10–18 seconds with zero changes; many panels reconcile every minute; creator-role channel-update runs repeat frequently; inventory is 260 channels/165 roles.
+- Evidence: current live logs show module auto-provision about every five minutes, typically ~10–20 seconds with zero changes; many panels reconcile every minute; creator-role channel-update runs repeat frequently; inventory is 260 channels/165 roles. At 05:03 CT a no-change auto-provision pass took ~20.5 seconds, with category-order alone ~9.7 seconds.
 - Affected: Sentinel reconciliation scheduler, Discord rate-limit budget, logs.
 - Root-cause hypothesis: independent periodic loops and broad inventory scans rather than shared snapshots/event-driven invalidation.
 - Recommended fix: central reconciliation scheduler, shared guild inventory snapshot, jitter/backoff, dirty flags, coalescing of channel update/delete events, slower cadence for stable panels, structured metrics instead of repetitive info logs.
@@ -86,7 +86,7 @@ Status: active audit; audit-only, no production fixes implemented in this docume
 
 ### OA-009 — Railway audit visibility recovered; remove permission repair from active fix queue
 - Severity: Resolved / informational
-- Evidence: current audit can list projects/services/deployments and read build/deploy logs for the production service. Earlier viewer-access failure was transient/connection-specific.
+- Evidence: current audit can list projects/services/deployments and read build/deploy logs for the production service.
 - Affected: production auditing.
 - Root-cause hypothesis: transient connector identity/session mismatch rather than durable project permission loss.
 - Recommended fix: no production change. Continue verifying Railway readability each audit pass and reopen only if access failure recurs.
@@ -95,10 +95,10 @@ Status: active audit; audit-only, no production fixes implemented in this docume
 
 ### OA-010 — Desktop dependency patch drift exists but is not an immediate Sentinel production blocker
 - Severity: Low (maintenance/security hygiene)
-- Evidence: `discord.js` is pinned to current 14.27.0. `electron-builder` is pinned 26.15.3 while a newer v26 patch (26.15.7) exists; Electron is pinned 43.2.0 while 43.4.1 is current. Desktop development is paused and Sentinel's Railway image uses Node 22, so this drift is primarily deferred desktop maintenance.
+- Evidence: `discord.js` is pinned to current 14.27.0. `electron-builder` is pinned 26.15.3 while a newer v26 patch exists; Electron is pinned 43.2.0 while a newer patch exists. Desktop development is paused and Sentinel's Railway image uses Node 22, so this drift is primarily deferred desktop maintenance.
 - Affected: paused Windows desktop build/toolchain.
 - Root-cause hypothesis: intentional stabilization/pause plus exact-version pinning.
-- Recommended fix: do not churn desktop dependencies during the pause. Before desktop work resumes, review Electron/electron-builder release notes/security advisories, update one dependency family at a time, rebuild installer, and rerun desktop smoke/update tests.
+- Recommended fix: do not churn desktop dependencies during the pause. Before desktop work resumes, review release notes/security advisories, update one dependency family at a time, rebuild installer, and rerun desktop smoke/update tests.
 - Acceptance: clean install/update path, launch smoke, updater rollback, no Electron security warnings/regressions.
 - Owner approval: No for patch maintenance once desktop work resumes.
 
@@ -121,22 +121,26 @@ Official/current categories identified for the configuration schema: basic serve
 - No critical active production/security issue was established; no early user notification warranted.
 - Exact GitHub head and CI were green.
 - Nitrado and Once Human setup work was present but both still required real owner/provider acceptance.
-- Railway live recheck was temporarily blocked and recorded as OA-009.
 
 ### 03:08 CT pass
 - No critical active production/security issue established; no early user notification warranted.
 - Railway visibility recovered. Current deployment is SUCCESS, exact GitHub/Railway commit alignment is confirmed, and `/health` passed first attempt.
 - Discord reconciliation remains structurally stable, but hosted-server registry is still empty (`tracked=0 groups=0`), keeping OA-001/OA-002 high priority.
 - Once Human official configuration research was refreshed through July 2026 changes; schema must be versioned/scenario-aware because the configuration surface is actively expanding.
-- Dependency review found no stale `discord.js`; desktop-only Electron/electron-builder patch drift is low priority while desktop work remains paused.
 
 ### 04:11 CT pass
 - No critical active production/security issue established; no early user notification warranted.
-- Railway deployment `654f88c5-2009-4d5d-996c-8e83c54aa901` is SUCCESS on GitHub head `125891958c9c1f118b37571278bc850417bbfaa2`; `/health` passed first attempt.
-- Live Discord reconciliation remains stable with zero module attention/pending and no private-safety failures.
-- Hosted-server registry remains empty through the newest log window (`tracked=0 groups=0`), so real Palworld/Nitrado and Once Human acceptance is still the highest functional gap.
-- Auto-provision no-change passes still consume roughly 10–18 seconds, reinforcing OA-005; no rate-limit or active failure evidence was observed in this pass.
-- Railway's unit/check layer was cache-reused again, reinforcing OA-008; fresh runtime health is green but a non-cacheable deployment smoke gate is still recommended.
+- Railway deployment was SUCCESS and `/health` passed first attempt.
+- Live Discord reconciliation remained stable with zero module attention/pending and no private-safety failures.
+- Hosted-server registry remained empty; auto-provision no-change passes still consumed roughly 10–18 seconds; Railway unit/check layer was cache-reused again.
+
+### 05:08 CT pass
+- No critical active production/security issue established; no early user notification warranted.
+- Railway deployment `82a690cf-0482-4008-93f3-3c50549817b0` is SUCCESS on audit commit `d3fd9265a36fd07a074fdd5f184eae35b6d6fb49`; `/health` passed first attempt.
+- Reconciliation remains stable: module access attention/pending are zero, private-safety failures are zero, managed hub sweep reports 18 panels with no duplicate/pin repair, and category hierarchy remains converged.
+- Hosted-server registry is still empty through 05:08 CT (`tracked=0 groups=0`), so the two requested server items remain the highest-value unfinished work: real Nitrado Palworld RCON/REST acceptance and Once Human NetEase configuration/setup tooling.
+- OA-005 strengthened: a no-change auto-provision cycle at 05:03 CT took ~20.5s, with category-order ~9.7s. This is not an outage, but it is unnecessary API/latency exposure as the guild grows.
+- OA-008 remains: test/check Docker layer was cache-reused; live healthcheck is fresh and green.
 
 ## Next audit runs
 - Recheck live deployment/log deltas and whether hosted-server `tracked` changes from zero.
