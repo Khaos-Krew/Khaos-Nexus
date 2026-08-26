@@ -1,6 +1,7 @@
 'use strict';
 
 const { ChannelType } = require('discord.js');
+const { paragraphs, spacedItems, statRows } = require('./embed-layout.cjs');
 
 const STATUS_PANEL_MARKER = 'Nexus Sentinal • Managed Nexus Status • v1';
 const STATUS_PANEL_TITLE = 'KHAOS NEXUS • SERVICE STATUS';
@@ -126,7 +127,7 @@ function componentLine(label, component) {
   const suffix = state === 'online' && Number(component?.uptimeSec || 0) > 0
     ? ` • uptime ${formatDuration(component.uptimeSec)}`
     : '';
-  return `${statusGlyph(state)} ${label}: **${component?.label || stateLabel(state)}**${suffix}`;
+  return `${statusGlyph(state)} **${label}**\n${component?.label || stateLabel(state)}${suffix}`;
 }
 
 function formatDuration(seconds) {
@@ -154,28 +155,34 @@ function renderNexusStatusPanel(snapshot = {}) {
   return {
     embeds: [{
       title: STATUS_PANEL_TITLE,
-      description: 'Live health for the Khaos Nexus Discord services. This panel is maintained automatically by Nexus Sentinal.',
+      description: paragraphs(
+        'Live health for the Khaos Nexus Discord services.',
+        'This panel is maintained automatically by Nexus Sentinal.'
+      ),
       color: panelColor(snapshot),
       fields: [
         {
           name: `${statusGlyph(sentinal.state)} Nexus Sentinal — ${stateLabel(sentinal.state)}`,
-          value: [
+          value: spacedItems([
             componentLine('Discord Gateway', sentinal.discord),
             componentLine('Nexus Backend', sentinal.backend)
-          ].join('\n'),
+          ]),
           inline: false
         },
         {
           name: `${statusGlyph(veyra.state)} Veyra — Lore Master — ${stateLabel(veyra.state)}`,
-          value: [
+          value: spacedItems([
             componentLine('Lore Master API', veyra.lore),
             componentLine('Discord Gateway', veyra.gateway)
-          ].join('\n'),
+          ]),
           inline: false
         },
         {
-          name: 'Last checked',
-          value: `<t:${unix}:R> • <t:${unix}:T>`,
+          name: '🕒 Last Checked',
+          value: statRows([
+            ['Updated', `<t:${unix}:R>`],
+            ['Time', `<t:${unix}:T>`]
+          ]),
           inline: false
         }
       ],
