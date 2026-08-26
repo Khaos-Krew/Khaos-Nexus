@@ -9,7 +9,6 @@ const SUPPORTED_GAMES = new Set(['palworld', 'oncehuman']);
 const HOSTING_TYPES = new Set(['self-hosted', 'hosted-site']);
 const CONNECTION_TYPES = new Set(['none', 'rest', 'rcon', 'manual']);
 const ADAPTER_TYPES = new Set(['none', 'palworld-rest', 'palworld-rcon', 'nitrado-api', 'manual', 'custom']);
-// Legacy export retained so older imports do not break while provider terminology is migrated.
 const PROVIDER_TYPES = ADAPTER_TYPES;
 
 function safeText(value, max = 160) {
@@ -46,8 +45,6 @@ function connectionTypeFromAdapter(value) {
   if (adapter === 'palworld-rest') return 'rest';
   if (adapter === 'palworld-rcon') return 'rcon';
   if (adapter === 'manual') return 'manual';
-  if (adapter === 'custom') return 'none';
-  if (adapter === 'nitrado-api') return 'none';
   return 'none';
 }
 function normalizeConnectionType(value, fallback = 'none') {
@@ -62,7 +59,6 @@ function adapterTypeForConnection(moduleId, connectionType) {
   if (connection === 'manual') return 'manual';
   if (moduleId === 'palworld' && connection === 'rest') return 'palworld-rest';
   if (moduleId === 'palworld' && connection === 'rcon') return 'palworld-rcon';
-  // Store unsupported future endpoints without pretending a live adapter exists.
   return 'custom';
 }
 function adapterTypeFor(server = {}) { return legacyAdapterType(server.adapterType || server.providerType || 'none'); }
@@ -90,7 +86,6 @@ function publicServer(server = {}) {
     connectionType,
     accessRank: isPublic ? '' : normalizeAccessRank(server.accessRank || 'cipher-runner', false),
     adapterType,
-    // Compatibility aliases retained for existing renderers/runtime code. Hosting-company names are intentionally not exposed.
     providerType: adapterType,
     hostingProvider: '',
     providerConfigured: connectionType !== 'none' || adapterType !== 'none', providerConnected,
@@ -103,10 +98,11 @@ function publicServer(server = {}) {
 }
 function privateServer(server = {}) {
   return {
-    ...publicServer(server), host: String(server.host || ''), port: server.port ?? null,
+    ...publicServer(server),
+    joinInfo: String(server.joinInfo || ''),
+    host: String(server.host || ''), port: server.port ?? null,
     queryPort: server.queryPort ?? null, adminPort: server.adminPort ?? null,
     credentialEnv: String(server.credentialEnv || ''), adapterRef: String(server.adapterRef || server.providerRef || ''),
-    // Compatibility alias for older command/runtime code.
     providerRef: String(server.adapterRef || server.providerRef || '')
   };
 }
