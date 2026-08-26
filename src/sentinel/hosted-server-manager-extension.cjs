@@ -11,6 +11,8 @@ const { refreshGameServersPanel } = require('./game-servers-extension.cjs');
 const { hostedServerCommand, handleHostedServerCommand } = require('./hosted-server-manager.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.hostedServerManager.extension');
+const HEALTH_WATCHER = Symbol.for('khaos.nexus.hostedServerManager.healthWatcher');
+const HEALTH_SWEEP_RUNNING = Symbol.for('khaos.nexus.hostedServerManager.healthSweepRunning');
 
 function installHostedServerManagerExtension() {
   if (Client.prototype[INSTALLED]) return;
@@ -20,6 +22,8 @@ function installHostedServerManagerExtension() {
   const statusService = new HostedServerStatusService();
   const guildId = String(config.discord?.guildId || '');
   const originalLogin = Client.prototype.login;
+  const configuredSeconds = Number(config.hostedServers?.statusRefreshSeconds || config.hostedServers?.refreshSeconds || 300);
+  const healthRefreshSeconds = Math.max(60, Number.isFinite(configuredSeconds) ? configuredSeconds : 300);
 
   async function isManager(interaction) {
     const userId = String(interaction.user?.id || '');
@@ -73,6 +77,27 @@ function installHostedServerManagerExtension() {
     return results;
   }
 
+  async function healthSweep(client) {
+    if (client[HEALTH_SWEEP_RUNNING]) return;
+    client[HEALTH_SWEEP_RUNNING] = true;
+    try {
+      await refreshProviders();
+      await refreshGameServersPanel(client, config, { backend });
+    } catch (error) {
+      console.error('[Nexus Sentinal] game-server health sweep:', error);
+    } finally {
+      client[HEALTH_SWEEP_RUNNING] = false;
+    }
+  }
+
+  function startHealthWatcher(client) {
+    if (client[HEALTH_WATCHER]) return;
+    const timer = setInterval(() => healthSweep(client), healthRefreshSeconds * 1000);
+    timer.unref?.();
+    client[HEALTH_WATCHER] = timer;
+    console.log(`[Nexus Sentinal] game-server health watcher active every ${healthRefreshSeconds}s`);
+  }
+
   Client.prototype.login = function nexusHostedServerManagerLogin(...args) {
     this.once(Events.ClientReady, async () => {
       try {
@@ -85,6 +110,8 @@ function installHostedServerManagerExtension() {
         if (existing) await guild.commands.edit(existing, commandJson);
         else await guild.commands.create(commandJson);
         console.log(`[Nexus Sentinal] registered /server hosted-server manager in guild ${guild.id}`);
+        await healthSweep(this);
+        startHealthWatcher(this);
       } catch (error) {
         console.error('[Nexus Sentinal] hosted-server command registration:', error);
       }
