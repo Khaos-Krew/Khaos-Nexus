@@ -1,6 +1,6 @@
 'use strict';
 
-const { Client, Events, PermissionFlagsBits, MessageFlags } = require('discord.js');
+const { ActionRowBuilder, Client, Events, MessageFlags, ModalBuilder, PermissionFlagsBits, TextInputBuilder, TextInputStyle } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { NEXUS_RANKS } = require('../shared/ranks.cjs');
 const { HostedServerStatusService } = require('../backend/services/hosted-server-status-service.cjs');
@@ -8,13 +8,14 @@ const { hostedServerSetupGuide } = require('../backend/services/once-human-custo
 const { BackendClient } = require('./backend-client.cjs');
 const { normalizeRequiredOptions } = require('./discord-command-schema.cjs');
 const { refreshGameServersPanel } = require('./game-servers-extension.cjs');
-const { COMMUNITY_SERVER_MIN_LEVEL } = require('./game-servers-panel.cjs');
+const { COMMUNITY_SERVER_APPLY_BUTTON_ID, COMMUNITY_SERVER_MIN_LEVEL } = require('./game-servers-panel.cjs');
 const { syncServerHostTitle } = require('./server-host-titles.cjs');
 const { hostedServerCommand, handleHostedServerCommand } = require('./hosted-server-manager.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.hostedServerManager.extension');
 const HEALTH_WATCHER = Symbol.for('khaos.nexus.hostedServerManager.healthWatcher');
 const HEALTH_SWEEP_RUNNING = Symbol.for('khaos.nexus.hostedServerManager.healthSweepRunning');
+const COMMUNITY_SERVER_MODAL_ID = 'nexus-community-server-application';
 
 function aggregateApprovedHosts(applications = [], activeServerIds = new Set()) {
   const hosts = new Map();
@@ -30,6 +31,43 @@ function aggregateApprovedHosts(applications = [], activeServerIds = new Set()) 
   return hosts;
 }
 
+function applicationModal() {
+  return new ModalBuilder()
+    .setCustomId(COMMUNITY_SERVER_MODAL_ID)
+    .setTitle('List My Server')
+    .addComponents(
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('server_name').setLabel('Server name').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(80)),
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('game').setLabel('Game').setPlaceholder('Minecraft, Once Human, Palworld, etc.').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(80)),
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('join_info').setLabel('How do players join?').setPlaceholder('Server ID, invite code, search name, address, or instructions').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(400)),
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('description').setLabel('Short description').setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(300)),
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('funding').setLabel('Donations / paid perks? Leave blank if none').setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(600))
+    );
+}
+
+function modalValue(interaction, id) {
+  try { return String(interaction.fields.getTextInputValue(id) || '').trim(); } catch { return ''; }
+}
+
+function simpleApplicationInput(interaction) {
+  const funding = modalValue(interaction, 'funding');
+  return {
+    applicantDiscordId: String(interaction.user?.id || ''),
+    game: modalValue(interaction, 'game'),
+    moduleId: modalValue(interaction, 'game'),
+    serverType: 'manual',
+    name: modalValue(interaction, 'server_name'),
+    joinVisibility: 'public',
+    joinInfo: modalValue(interaction, 'join_info'),
+    description: modalValue(interaction, 'description'),
+    monetizationModel: funding ? 'donations-cost-recovery' : 'none',
+    monetizationDetails: funding,
+    paidAdvantages: false,
+    mandatoryFees: false,
+    affiliateReferral: false,
+    policyAccepted: true
+  };
+}
+
 function installHostedServerManagerExtension() {
   if (Client.prototype[INSTALLED]) return;
   Client.prototype[INSTALLED] = true;
@@ -40,6 +78,17 @@ function installHostedServerManagerExtension() {
   const originalLogin = Client.prototype.login;
   const configuredSeconds = Number(config.hostedServers?.statusRefreshSeconds || config.hostedServers?.refreshSeconds || 300);
   const healthRefreshSeconds = Math.max(60, Number.isFinite(configuredSeconds) ? configuredSeconds : 300);
+
+  async function levelGate(interaction) {
+    const levelResponse = await backend.communityLevel(String(interaction.user?.id || '')).catch(() => null);
+    const currentLevel = Number(levelResponse?.profile?.level || 1);
+    if (levelResponse?.ok && currentLevel >= COMMUNITY_SERVER_MIN_LEVEL) return { ok: true, currentLevel };
+    const content = levelResponse?.ok
+      ? `🔒 Community Level **${COMMUNITY_SERVER_MIN_LEVEL}** is required to list a server. Your current level is **${currentLevel}**.`
+      : '⚠️ Sentinel could not verify your Community Level right now.';
+    await interaction.reply({ content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } }).catch(() => null);
+    return { ok: false, currentLevel };
+  }
 
   async function isManager(interaction) {
     const userId = String(interaction.user?.id || '');
@@ -69,15 +118,11 @@ function installHostedServerManagerExtension() {
 
   async function persistStatus(id, status) {
     if (!status) return null;
-    const safe = {
-      providerConnected: Boolean(status.providerConnected),
-      trackingState: String(status.trackingState || 'unknown'),
-      playerCount: status.playerCount ?? null,
-      playerMax: status.playerMax ?? null,
-      lastCheckedAt: String(status.lastCheckedAt || new Date().toISOString()),
-      statusMessage: String(status.statusMessage || '')
-    };
-    return backend.updateHostedServer(id, safe);
+    return backend.updateHostedServer(id, {
+      providerConnected: Boolean(status.providerConnected), trackingState: String(status.trackingState || 'unknown'),
+      playerCount: status.playerCount ?? null, playerMax: status.playerMax ?? null,
+      lastCheckedAt: String(status.lastCheckedAt || new Date().toISOString()), statusMessage: String(status.statusMessage || '')
+    });
   }
 
   async function refreshProviders() {
@@ -96,15 +141,13 @@ function installHostedServerManagerExtension() {
   async function reconcileServerHostTitles(client) {
     if (!guildId) return { checked: 0, active: 0 };
     const [applicationsResponse, serversResponse] = await Promise.all([
-      backend.serverApplications({ status: 'approved' }).catch(() => null),
-      backend.hostedServers().catch(() => null)
+      backend.serverApplications({ status: 'approved' }).catch(() => null), backend.hostedServers().catch(() => null)
     ]);
     if (!applicationsResponse?.ok || !serversResponse?.ok) return { checked: 0, active: 0, skipped: 'registry-unavailable' };
     const guild = await client.guilds.fetch(guildId);
     const activeServerIds = new Set((serversResponse.servers || []).map((server) => String(server.id || '').toUpperCase()));
     const approvedHosts = aggregateApprovedHosts(applicationsResponse.applications || [], activeServerIds);
-    let checked = 0;
-    let active = 0;
+    let checked = 0, active = 0;
     for (const host of approvedHosts.values()) {
       const member = await guild.members.fetch(host.userId).catch(() => null);
       if (!member) continue;
@@ -112,8 +155,7 @@ function installHostedServerManagerExtension() {
       const level = Number(levelResponse?.profile?.level || 1);
       const activeHost = host.activeServerCount > 0;
       await syncServerHostTitle(member, level, activeHost).catch(() => null);
-      checked += 1;
-      if (activeHost) active += 1;
+      checked += 1; if (activeHost) active += 1;
     }
     return { checked, active };
   }
@@ -121,22 +163,14 @@ function installHostedServerManagerExtension() {
   async function healthSweep(client) {
     if (client[HEALTH_SWEEP_RUNNING]) return;
     client[HEALTH_SWEEP_RUNNING] = true;
-    try {
-      await refreshProviders();
-      await reconcileServerHostTitles(client);
-      await refreshGameServersPanel(client, config, { backend });
-    } catch (error) {
-      console.error('[Nexus Sentinal] game-server health sweep:', error);
-    } finally {
-      client[HEALTH_SWEEP_RUNNING] = false;
-    }
+    try { await refreshProviders(); await reconcileServerHostTitles(client); await refreshGameServersPanel(client, config, { backend }); }
+    catch (error) { console.error('[Nexus Sentinal] game-server health sweep:', error); }
+    finally { client[HEALTH_SWEEP_RUNNING] = false; }
   }
 
   function startHealthWatcher(client) {
     if (client[HEALTH_WATCHER]) return;
-    const timer = setInterval(() => healthSweep(client), healthRefreshSeconds * 1000);
-    timer.unref?.();
-    client[HEALTH_WATCHER] = timer;
+    const timer = setInterval(() => healthSweep(client), healthRefreshSeconds * 1000); timer.unref?.(); client[HEALTH_WATCHER] = timer;
     console.log(`[Nexus Sentinal] game-server health watcher active every ${healthRefreshSeconds}s`);
   }
 
@@ -149,50 +183,47 @@ function installHostedServerManagerExtension() {
         const commandJson = normalizeRequiredOptions(definition.toJSON());
         const commands = await guild.commands.fetch();
         const existing = commands.find((item) => item.name === definition.name);
-        if (existing) await guild.commands.edit(existing, commandJson);
-        else await guild.commands.create(commandJson);
+        if (existing) await guild.commands.edit(existing, commandJson); else await guild.commands.create(commandJson);
         console.log(`[Nexus Sentinal] registered /server hosted-server manager in guild ${guild.id}`);
-        await healthSweep(this);
-        startHealthWatcher(this);
-      } catch (error) {
-        console.error('[Nexus Sentinal] hosted-server command registration:', error);
-      }
+        await healthSweep(this); startHealthWatcher(this);
+      } catch (error) { console.error('[Nexus Sentinal] hosted-server command registration:', error); }
     });
 
     this.on(Events.InteractionCreate, async (interaction) => {
-      if (!interaction.isChatInputCommand?.() || interaction.commandName !== 'server') return;
       try {
+        if (interaction.isButton?.() && interaction.customId === COMMUNITY_SERVER_APPLY_BUTTON_ID) {
+          const gate = await levelGate(interaction); if (!gate.ok) return;
+          await interaction.showModal(applicationModal());
+          return;
+        }
+
+        if (interaction.isModalSubmit?.() && interaction.customId === COMMUNITY_SERVER_MODAL_ID) {
+          const gate = await levelGate(interaction); if (!gate.ok) return;
+          const response = await backend.submitServerApplication(simpleApplicationInput(interaction));
+          if (!response?.ok) throw new Error(response?.message || 'Unable to submit server application.');
+          await interaction.reply({
+            content:`✅ **Server submitted for review.**\n\n**${response.application.server.name}** — ${response.application.server.gameName}\nApplication: **${response.application.id}**\n\nThat’s it. Staff will review it before it appears in #game-servers.`,
+            flags:MessageFlags.Ephemeral, allowedMentions:{parse:[]}
+          });
+          return;
+        }
+
+        if (!interaction.isChatInputCommand?.() || interaction.commandName !== 'server') return;
         const subcommand = interaction.options.getSubcommand();
         if (subcommand === 'apply') {
-          const levelResponse = await backend.communityLevel(String(interaction.user?.id || '')).catch(() => null);
-          const currentLevel = Number(levelResponse?.profile?.level || 1);
-          if (!levelResponse?.ok || currentLevel < COMMUNITY_SERVER_MIN_LEVEL) {
-            const content = levelResponse?.ok
-              ? `🔒 Community server applications require **Community Level ${COMMUNITY_SERVER_MIN_LEVEL}**. Your current level is **${currentLevel}**. Use **/level** to view your progress.`
-              : `⚠️ Sentinel could not verify your Community Level, so the server application was not submitted. Applications require **Community Level ${COMMUNITY_SERVER_MIN_LEVEL}**.`;
-            await interaction.reply({ content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
-            return;
-          }
+          const gate = await levelGate(interaction); if (!gate.ok) return;
+          await interaction.reply({ content:'Use the **List My Server** button in #game-servers. It opens the simple popup form.', flags:MessageFlags.Ephemeral, allowedMentions:{parse:[]} });
+          return;
         }
 
         await handleHostedServerCommand(interaction, {
-          backend,
-          isManager,
-          memberRank,
-          communityLevel: (userId) => backend.communityLevel(userId),
-          probe: (server) => statusService.probe(server),
-          setup: (server) => hostedServerSetupGuide(server),
-          persistStatus,
-          refreshProviders,
-          refresh: () => refreshGameServersPanel(this, config, { backend })
+          backend, isManager, memberRank, communityLevel:(userId)=>backend.communityLevel(userId),
+          probe:(server)=>statusService.probe(server), setup:(server)=>hostedServerSetupGuide(server),
+          persistStatus, refreshProviders, refresh:()=>refreshGameServersPanel(this, config, { backend })
         });
 
-        if (subcommand === 'review' && interaction.options.getString('decision') === 'approved') {
-          await reconcileServerHostTitles(this).catch(() => null);
-        }
-        if (subcommand === 'remove') {
-          await reconcileServerHostTitles(this).catch(() => null);
-        }
+        if (subcommand === 'review' && interaction.options.getString('decision') === 'approved') await reconcileServerHostTitles(this).catch(() => null);
+        if (subcommand === 'remove') await reconcileServerHostTitles(this).catch(() => null);
       } catch (error) {
         const content = `⚠️ Server action failed: ${String(error?.message || error)}`.slice(0, 1900);
         try {
@@ -206,4 +237,4 @@ function installHostedServerManagerExtension() {
   };
 }
 
-module.exports = { aggregateApprovedHosts, installHostedServerManagerExtension };
+module.exports = { COMMUNITY_SERVER_MODAL_ID, aggregateApprovedHosts, applicationModal, simpleApplicationInput, installHostedServerManagerExtension };
