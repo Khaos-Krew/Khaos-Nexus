@@ -2,6 +2,7 @@
 
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder } = require('discord.js');
 const { progressBar, userMention } = require('./community-leveling.cjs');
+const { communityTitleForLevel } = require('./server-host-titles.cjs');
 const { paragraphs, lines, spacedItems, statRows } = require('./embed-layout.cjs');
 
 const NEXUS_CARD_COLOR = 0xb00020;
@@ -27,12 +28,14 @@ function achievementCommandDefinition() {
     .addUserOption((option) => option.setName('user').setDescription('Member to view'));
 }
 
-function progressCardPayload(profile = {}, user = null, achievementData = null) {
+function progressCardPayload(profile = {}, user = null, achievementData = null, options = {}) {
   const name = displayName(user);
   const icon = avatarUrl(user);
   const rank = profile.rank ? `#${profile.rank}` : 'Unranked';
   const source = profile.sourceTotals || {};
   const recent = achievementData?.recentAchievements || [];
+  const communityTitle = communityTitleForLevel(profile.level || 1);
+  const serverHostTitle = String(options.serverHostTitle || '').trim();
   const achievementText = achievementData
     ? lines(`**${achievementData.achievementCount || 0}/${achievementData.achievementTotal || 0}** unlocked`, `**${formatNumber(achievementData.achievementPoints)}** achievement points`)
     : 'Achievement data unavailable';
@@ -45,7 +48,8 @@ function progressCardPayload(profile = {}, user = null, achievementData = null) 
     color: NEXUS_CARD_COLOR,
     description: paragraphs(
       userMention(profile.userId || user?.id),
-      'Community progression is separate from Nexus Shop/supporter ranks and staff/access authority.'
+      `**Community Title:** ${communityTitle}${serverHostTitle ? `\n**Server Host Title:** ${serverHostTitle}` : ''}`,
+      'Community progression and Server Host titles are separate from Nexus Shop/supporter ranks and staff/access authority.'
     ),
     fields: [
       { name: '⚡ Level', value: `**${profile.level || 1}**`, inline: true },
