@@ -25,6 +25,8 @@ function publicTrackedServer(moduleId, definition = {}, index = 0, manifest = {}
     moduleId,
     game,
     name,
+    public: true,
+    accessRank: '',
     providerConfigured: manifest?.configured === true,
     providerConnected: manifest?.connected === true,
     providerKind: safeName(manifest?.providerKind || 'none', 'none'),
@@ -63,13 +65,24 @@ function trackedServers(runtime, hostedStore = null) {
   return [...byIdentity.values()].sort((a, b) => String(a.game || '').localeCompare(String(b.game || '')) || String(a.name || '').localeCompare(String(b.name || '')));
 }
 
+function privateTrackedServers(hostedStore = null) {
+  if (!hostedStore?.list) return [];
+  return hostedStore.list()
+    .filter((server) => server.public === false)
+    .map((server) => ({ ...server, joinInfo: '' }))
+    .sort((a, b) => String(a.accessRank || '').localeCompare(String(b.accessRank || '')) || String(a.game || '').localeCompare(String(b.game || '')) || String(a.name || '').localeCompare(String(b.name || '')));
+}
+
 function trackedServersResponse(runtime, hostedStore = null) {
   const servers = trackedServers(runtime, hostedStore);
+  const privateServers = privateTrackedServers(hostedStore);
   return {
     ok: true,
     generatedAt: new Date().toISOString(),
     count: servers.length,
-    servers
+    privateCount: privateServers.length,
+    servers,
+    privateServers
   };
 }
 
@@ -81,5 +94,6 @@ module.exports = {
   moduleServerDefinitions,
   configuredTrackedServers,
   trackedServers,
+  privateTrackedServers,
   trackedServersResponse
 };
