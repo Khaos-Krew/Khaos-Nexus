@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { HostedServerStore } = require('../src/backend/core/hosted-server-store.cjs');
 const { trackedServersResponse } = require('../src/backend/tracked-servers.cjs');
-const { hostedServerCommand, privateServerList, statusText } = require('../src/sentinel/hosted-server-manager.cjs');
+const { hostedServerCommand, privateServerList, statusText, setupText } = require('../src/sentinel/hosted-server-manager.cjs');
 const { renderGameServersPanel } = require('../src/sentinel/game-servers-panel.cjs');
 
 function temporaryStore() {
@@ -44,6 +44,15 @@ test('Nitrado Palworld provider reference persists privately', () => {
   assert.equal(JSON.stringify(restarted.get(server.id)).includes('12345678'),false);
 });
 
+test('provider runtime status persists but public data remains secret-free', () => {
+  const { file, store } = temporaryStore();
+  const server = store.add({moduleId:'palworld',name:'Main',host:'secret.internal',port:8211,providerType:'nitrado-palworld',providerRef:'9988',credentialEnv:'NITRADO_SECRET'});
+  store.updateRuntime(server.id,{providerConnected:true,trackingState:'online',playerCount:4,playerMax:32,lastCheckedAt:'2026-08-26T03:00:00Z',statusMessage:'Nitrado reports started.'});
+  const restarted=new HostedServerStore({filePath:file}); const publicCopy=restarted.get(server.id);
+  assert.equal(publicCopy.trackingState,'online'); assert.equal(publicCopy.playerCount,4); assert.equal(publicCopy.playerMax,32);
+  const serialized=JSON.stringify(publicCopy); assert.equal(serialized.includes('secret.internal'),false); assert.equal(serialized.includes('9988'),false); assert.equal(serialized.includes('NITRADO_SECRET'),false);
+});
+
 test('public tracked-server payload never exposes host ports provider references or credential env names', () => {
   const { store } = temporaryStore();
   store.add({ moduleId:'palworld', name:'Private Endpoint Test', host:'10.0.0.55', port:8211, queryPort:27015, adminPort:8212, providerType:'nitrado-palworld', providerRef:'12345678', credentialEnv:'NEXUS_PALWORLD_ADMIN_SECRET', joinInfo:'Use the Nexus join code.' });
@@ -61,13 +70,13 @@ test('game-server panel shows public join text without exposing private endpoint
   const serialized=JSON.stringify(payload); assert.match(serialized,/Palworld Main/); assert.match(serialized,/Search Khaos Nexus/); assert.match(serialized,/telemetry pending/); assert.equal(serialized.includes('10.0.0.'),false);
 });
 
-test('/server exposes Nitrado setup and status without raw secret fields', () => {
+test('/server exposes provider setup and status without raw secret fields', () => {
   const command=hostedServerCommand().toJSON(); assert.equal(command.name,'server');
-  assert.deepEqual(command.options.map((option)=>option.name),['add','edit','status','remove','list','refresh']);
+  assert.deepEqual(command.options.map((option)=>option.name),['add','edit','setup','status','remove','list','refresh']);
   const add=command.options.find((option)=>option.name==='add'); const names=add.options.map((option)=>option.name);
   assert.ok(names.includes('provider')); assert.ok(names.includes('provider_ref')); assert.ok(names.includes('credential_env'));
   assert.equal(names.includes('password'),false); assert.equal(names.includes('token'),false); assert.equal(names.includes('secret'),false);
-  const provider=add.options.find((option)=>option.name==='provider'); assert.ok(provider.choices.some((choice)=>choice.value==='nitrado-palworld'));
+  const provider=add.options.find((option)=>option.name==='provider'); assert.ok(provider.choices.some((choice)=>choice.value==='nitrado-palworld')); assert.ok(provider.choices.some((choice)=>choice.value==='oncehuman-basic'));
 });
 
 test('private server list is suitable for ephemeral admin output and includes provider metadata', () => {
@@ -78,4 +87,9 @@ test('private server list is suitable for ephemeral admin output and includes pr
 test('provider status text is private-safe', () => {
   const text=statusText({name:'Main',providerType:'nitrado-palworld',host:'secret.internal',providerRef:'12345678',credentialEnv:'PAL_SECRET'},{trackingState:'online',playerCount:4,playerMax:32,statusMessage:'Nitrado reports started.'});
   assert.match(text,/ONLINE/); assert.match(text,/4 \/ 32/); assert.equal(text.includes('secret.internal'),false); assert.equal(text.includes('12345678'),false); assert.equal(text.includes('PAL_SECRET'),false);
+});
+
+test('Once Human setup text clearly remains official-dashboard manual management', () => {
+  const text=setupText({name:'Once Main'},{managementMode:'manual-official-dashboard',sections:[{title:'Scenario',settings:['Scenario selection']}],warnings:['Some changes require restart.']});
+  assert.match(text,/Official NetEase dashboard/i); assert.match(text,/Scenario selection/); assert.match(text,/require restart/i);
 });
