@@ -1,7 +1,7 @@
 import type { HealthSnapshot, NexusApiErrorPayload, SessionSnapshot } from './contracts';
 
-const dataMode = import.meta.env.VITE_NEXUS_DATA_MODE ?? 'stub';
-const apiBase = (import.meta.env.VITE_NEXUS_API_BASE_URL ?? 'http://localhost:8787/api/v1').replace(/\/$/, '');
+const dataMode = import.meta.env.VITE_NEXUS_DATA_MODE ?? 'live';
+const apiBase = (import.meta.env.VITE_NEXUS_API_BASE_URL ?? '/api/v1').replace(/\/$/, '');
 
 export const nexusClientConfig = {
   dataMode,
@@ -99,7 +99,7 @@ async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
 }
 
 export async function getHealthSnapshot(signal?: AbortSignal): Promise<HealthSnapshot> {
-  if (dataMode !== 'live') {
+  if (dataMode === 'stub') {
     return stubHealth();
   }
 
@@ -107,7 +107,7 @@ export async function getHealthSnapshot(signal?: AbortSignal): Promise<HealthSna
 }
 
 export async function getSessionSnapshot(signal?: AbortSignal): Promise<SessionSnapshot> {
-  if (dataMode !== 'live') {
+  if (dataMode === 'stub') {
     return stubSession();
   }
 
