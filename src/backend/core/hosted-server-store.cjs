@@ -3,8 +3,11 @@
 const crypto = require('node:crypto');
 const path = require('node:path');
 const { JsonStore, clone } = require('./json-store.cjs');
+const { isPurchasableRank, rankById } = require('../../shared/ranks.cjs');
 
 const SUPPORTED_GAMES = new Set(['palworld', 'oncehuman']);
+const HOSTING_TYPES = new Set(['self-hosted', 'hosted-site']);
+const CONNECTION_TYPES = new Set(['none', 'rest', 'rcon', 'manual']);
 const ADAPTER_TYPES = new Set(['none', 'palworld-rest', 'palworld-rcon', 'nitrado-api', 'manual', 'custom']);
 // Legacy export retained so older imports do not break while provider terminology is migrated.
 const PROVIDER_TYPES = ADAPTER_TYPES;
@@ -26,6 +29,11 @@ function normalizeGame(value) {
 }
 function gameLabel(moduleId) { return moduleId === 'palworld' ? 'Palworld' : moduleId === 'oncehuman' ? 'Once Human' : moduleId; }
 
+function normalizeHostingType(value, fallback = 'hosted-site') {
+  const normalized = safeText(value || fallback, 40).toLowerCase().replace(/[^a-z]+/g, '-').replace(/^-|-$/g, '');
+  if (!HOSTING_TYPES.has(normalized)) throw new Error('Hosting type must be self-hosted or hosted-site.');
+  return normalized;
+}
 function legacyAdapterType(value) {
   const type = safeText(value, 40).toLowerCase();
   if (type === 'nitrado-palworld') return 'nitrado-api';
@@ -33,29 +41,60 @@ function legacyAdapterType(value) {
   if (ADAPTER_TYPES.has(type)) return type;
   return 'none';
 }
+function connectionTypeFromAdapter(value) {
+  const adapter = legacyAdapterType(value);
+  if (adapter === 'palworld-rest') return 'rest';
+  if (adapter === 'palworld-rcon') return 'rcon';
+  if (adapter === 'manual') return 'manual';
+  if (adapter === 'custom') return 'none';
+  if (adapter === 'nitrado-api') return 'none';
+  return 'none';
+}
+function normalizeConnectionType(value, fallback = 'none') {
+  const raw = safeText(value || fallback, 40).toLowerCase();
+  if (CONNECTION_TYPES.has(raw)) return raw;
+  if (ADAPTER_TYPES.has(raw) || raw === 'nitrado-palworld' || raw === 'oncehuman-basic') return connectionTypeFromAdapter(raw);
+  throw new Error('Connection type must be REST, RCON, manual, or none.');
+}
+function adapterTypeForConnection(moduleId, connectionType) {
+  const connection = normalizeConnectionType(connectionType, 'none');
+  if (connection === 'none') return 'none';
+  if (connection === 'manual') return 'manual';
+  if (moduleId === 'palworld' && connection === 'rest') return 'palworld-rest';
+  if (moduleId === 'palworld' && connection === 'rcon') return 'palworld-rcon';
+  // Store unsupported future endpoints without pretending a live adapter exists.
+  return 'custom';
+}
 function adapterTypeFor(server = {}) { return legacyAdapterType(server.adapterType || server.providerType || 'none'); }
-function hostingProviderFor(server = {}) {
-  const explicit = safeText(server.hostingProvider, 80);
-  if (explicit) return explicit;
-  const legacy = safeText(server.providerType, 40).toLowerCase();
-  if (legacy === 'nitrado-palworld') return 'Nitrado';
-  if (legacy === 'oncehuman-basic') return 'NetEase';
-  return '';
+function connectionTypeFor(server = {}) {
+  if (server.connectionType) return normalizeConnectionType(server.connectionType, 'none');
+  return connectionTypeFromAdapter(server.adapterType || server.providerType || 'none');
+}
+function normalizeAccessRank(value, isPublic = true) {
+  if (isPublic) return '';
+  const rank = rankById(value || 'cipher-runner');
+  if (!isPurchasableRank(rank)) throw new Error('Private servers must use a purchasable Nexus rank.');
+  return rank.id;
 }
 
 function publicServer(server = {}) {
   const adapterType = adapterTypeFor(server);
+  const connectionType = connectionTypeFor(server);
   const providerConnected = Boolean(server.providerConnected);
+  const isPublic = server.public !== false;
   return {
     id: String(server.id || ''), moduleId: String(server.moduleId || ''), game: gameLabel(server.moduleId),
     name: String(server.name || gameLabel(server.moduleId) || 'Server'), description: String(server.description || ''),
-    joinInfo: server.public === false ? '' : String(server.joinInfo || ''), public: server.public !== false,
+    joinInfo: isPublic ? String(server.joinInfo || '') : '', public: isPublic,
+    hostingType: normalizeHostingType(server.hostingType || 'hosted-site'),
+    connectionType,
+    accessRank: isPublic ? '' : normalizeAccessRank(server.accessRank || 'cipher-runner', false),
     adapterType,
-    // Compatibility alias for existing renderers while the provider naming is phased out.
+    // Compatibility aliases retained for existing renderers/runtime code. Hosting-company names are intentionally not exposed.
     providerType: adapterType,
-    hostingProvider: hostingProviderFor(server),
-    providerConfigured: adapterType !== 'none', providerConnected,
-    trackingState: String(server.trackingState || (providerConnected ? 'online' : adapterType === 'none' ? 'registered' : 'configured')),
+    hostingProvider: '',
+    providerConfigured: connectionType !== 'none' || adapterType !== 'none', providerConnected,
+    trackingState: String(server.trackingState || (providerConnected ? 'online' : connectionType === 'manual' ? 'manual' : connectionType === 'none' ? 'registered' : 'configured')),
     playerCount: Number.isFinite(Number(server.playerCount)) ? Number(server.playerCount) : null,
     playerMax: Number.isFinite(Number(server.playerMax)) ? Number(server.playerMax) : null,
     lastCheckedAt: String(server.lastCheckedAt || ''), statusMessage: String(server.statusMessage || ''),
@@ -88,7 +127,7 @@ function sameIdentity(left = {}, right = {}) {
 class HostedServerStore {
   constructor(options = {}) {
     const filePath = options.filePath || path.join(process.env.NEXUS_DATA_DIR || 'data', 'hosted-servers.json');
-    this.store = new JsonStore(filePath, { version: 3, servers: [] });
+    this.store = new JsonStore(filePath, { version: 4, servers: [] });
     this.now = options.now || (() => new Date().toISOString());
   }
   list({ includePrivate = false } = {}) {
@@ -110,25 +149,31 @@ class HostedServerStore {
     if (servers.some((item) => sameEndpoint(item, candidate) || (!host && sameIdentity(item, candidate)))) {
       throw new Error('That hosted server is already registered.');
     }
-    const adapterType = legacyAdapterType(input.adapterType || input.providerType || 'none');
+    const isPublic = input.public !== false;
+    const hostingType = normalizeHostingType(input.hostingType || 'hosted-site');
+    const connectionType = normalizeConnectionType(input.connectionType || input.adapterType || input.providerType || 'none');
+    const adapterType = input.adapterType || input.providerType
+      ? legacyAdapterType(input.adapterType || input.providerType)
+      : adapterTypeForConnection(moduleId, connectionType);
     const timestamp = this.now();
     const server = {
       id: `SRV-${crypto.randomUUID().slice(0, 8).toUpperCase()}`, moduleId, name, host, port,
       queryPort: normalizePort(input.queryPort, null), adminPort: normalizePort(input.adminPort, null),
-      description: safeText(input.description, 300), joinInfo: safeText(input.joinInfo, 200), public: input.public !== false,
-      hostingProvider: safeText(input.hostingProvider, 80), adapterType,
+      description: safeText(input.description, 300), joinInfo: safeText(input.joinInfo, 200), public: isPublic,
+      hostingType, connectionType, accessRank: normalizeAccessRank(input.accessRank, isPublic),
+      adapterType,
       credentialEnv: safeText(input.credentialEnv, 80).replace(/[^A-Z0-9_]/gi, ''),
       adapterRef: safeText(input.adapterRef || input.providerRef, 80).replace(/[^A-Z0-9_-]/gi, ''),
-      providerConnected: false, trackingState: adapterType === 'none' ? 'registered' : 'configured', playerCount: null, playerMax: null,
-      lastCheckedAt: '', statusMessage: '', createdAt: timestamp, updatedAt: timestamp
+      providerConnected: false, trackingState: connectionType === 'manual' ? 'manual' : connectionType === 'none' ? 'registered' : 'configured',
+      playerCount: null, playerMax: null, lastCheckedAt: '', statusMessage: '', createdAt: timestamp, updatedAt: timestamp
     };
-    this.store.update((draft) => { draft.version = 3; draft.servers = Array.isArray(draft.servers) ? draft.servers : []; draft.servers.push(server); return server; });
+    this.store.update((draft) => { draft.version = 4; draft.servers = Array.isArray(draft.servers) ? draft.servers : []; draft.servers.push(server); return server; });
     return privateServer(server);
   }
   update(id, input = {}) {
     let updated = null;
     this.store.update((draft) => {
-      draft.version = 3;
+      draft.version = 4;
       const servers = Array.isArray(draft.servers) ? draft.servers : [];
       const index = servers.findIndex((item) => String(item.id) === String(id));
       if (index < 0) return null;
@@ -140,20 +185,29 @@ class HostedServerStore {
       if (input.adminPort !== undefined) next.adminPort = normalizePort(input.adminPort, null);
       if (input.description !== undefined) next.description = safeText(input.description, 300);
       if (input.joinInfo !== undefined) next.joinInfo = safeText(input.joinInfo, 200);
-      if (input.public !== undefined) next.public = Boolean(input.public);
-      if (input.hostingProvider !== undefined) next.hostingProvider = safeText(input.hostingProvider, 80);
+      if (input.hostingType !== undefined) next.hostingType = normalizeHostingType(input.hostingType);
       if (input.credentialEnv !== undefined) next.credentialEnv = safeText(input.credentialEnv, 80).replace(/[^A-Z0-9_]/gi, '');
       if (input.adapterRef !== undefined || input.providerRef !== undefined) next.adapterRef = safeText(input.adapterRef ?? input.providerRef, 80).replace(/[^A-Z0-9_-]/gi, '');
+      if (input.connectionType !== undefined) {
+        next.connectionType = normalizeConnectionType(input.connectionType);
+        next.adapterType = adapterTypeForConnection(next.moduleId, next.connectionType);
+        next.trackingState = next.connectionType === 'manual' ? 'manual' : next.connectionType === 'none' ? 'registered' : 'configured';
+      }
       if (input.adapterType !== undefined || input.providerType !== undefined) {
         next.adapterType = legacyAdapterType(input.adapterType ?? input.providerType);
+        next.connectionType = connectionTypeFromAdapter(next.adapterType);
         delete next.providerType;
       }
+      if (input.public !== undefined) next.public = Boolean(input.public);
+      const nextPublic = next.public !== false;
+      if (input.accessRank !== undefined || input.public !== undefined) next.accessRank = normalizeAccessRank(input.accessRank ?? next.accessRank, nextPublic);
       if (input.providerConnected !== undefined) next.providerConnected = Boolean(input.providerConnected);
       if (input.trackingState !== undefined) next.trackingState = safeText(input.trackingState, 40).toLowerCase();
       if (input.playerCount !== undefined) next.playerCount = Number.isFinite(Number(input.playerCount)) ? Number(input.playerCount) : null;
       if (input.playerMax !== undefined) next.playerMax = Number.isFinite(Number(input.playerMax)) ? Number(input.playerMax) : null;
       if (input.lastCheckedAt !== undefined) next.lastCheckedAt = safeText(input.lastCheckedAt, 64);
       if (input.statusMessage !== undefined) next.statusMessage = safeText(input.statusMessage, 160);
+      delete next.hostingProvider;
       next.updatedAt = this.now();
       const duplicate = servers.some((item, otherIndex) => otherIndex !== index && (sameEndpoint(item, next) || (!normalizeHost(next.host) && sameIdentity(item, next))));
       if (duplicate) throw new Error('That hosted server is already registered.');
@@ -170,12 +224,15 @@ class HostedServerStore {
   }
   remove(id) {
     let removed = false;
-    this.store.update((draft) => { const before = Array.isArray(draft.servers) ? draft.servers : []; const after = before.filter((item) => String(item.id) !== String(id)); removed = after.length !== before.length; draft.version = 3; draft.servers = after; return removed; });
+    this.store.update((draft) => { const before = Array.isArray(draft.servers) ? draft.servers : []; const after = before.filter((item) => String(item.id) !== String(id)); removed = after.length !== before.length; draft.version = 4; draft.servers = after; return removed; });
     return removed;
   }
 }
 
 module.exports = {
-  SUPPORTED_GAMES, ADAPTER_TYPES, PROVIDER_TYPES, safeText, normalizeHost, normalizePort, normalizeGame, gameLabel,
-  legacyAdapterType, adapterTypeFor, hostingProviderFor, publicServer, privateServer, sameEndpoint, sameIdentity, HostedServerStore
+  SUPPORTED_GAMES, HOSTING_TYPES, CONNECTION_TYPES, ADAPTER_TYPES, PROVIDER_TYPES,
+  safeText, normalizeHost, normalizePort, normalizeGame, gameLabel,
+  normalizeHostingType, normalizeConnectionType, normalizeAccessRank,
+  legacyAdapterType, adapterTypeFor, connectionTypeFor, adapterTypeForConnection,
+  publicServer, privateServer, sameEndpoint, sameIdentity, HostedServerStore
 };
