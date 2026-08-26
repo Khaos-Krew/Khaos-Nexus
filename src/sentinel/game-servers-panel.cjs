@@ -94,7 +94,7 @@ function renderGameServersPanel(snapshot = {}) {
   if (!groups.length) {
     fields.push({
       name: 'No tracked servers yet',
-      value: 'Add a supported hosted server with the private `/server add` admin workflow. Sentinal will update this panel automatically.',
+      value: 'Add a supported game server with the private `/server add` admin workflow. Sentinal will update this panel automatically.',
       inline: false
     });
   } else {
@@ -116,7 +116,7 @@ function renderGameServersPanel(snapshot = {}) {
   return {
     embeds: [{
       title: GAME_SERVERS_PANEL_TITLE,
-      description: 'Nexus-hosted and tracked game servers. Private hosts, management ports, passwords, tokens, and credentials are never displayed here.',
+      description: 'Nexus game servers and tracked community servers. Private network addresses, management ports, passwords, tokens, and credentials are never displayed here.',
       color: groups.length ? 0x2ecc71 : 0x5865f2,
       fields,
       footer: { text: GAME_SERVERS_PANEL_MARKER }
