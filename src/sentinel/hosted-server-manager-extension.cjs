@@ -3,6 +3,7 @@
 const { Client, Events, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { HostedServerStatusService } = require('../backend/services/hosted-server-status-service.cjs');
+const { hostedServerSetupGuide } = require('../backend/services/once-human-custom-server-config.cjs');
 const { BackendClient } = require('./backend-client.cjs');
 const { normalizeRequiredOptions } = require('./discord-command-schema.cjs');
 const { refreshGameServersPanel } = require('./game-servers-extension.cjs');
@@ -32,13 +33,28 @@ function installHostedServerManagerExtension() {
     return Boolean(linked?.ok && ['owner', 'co-owner'].includes(linked.account?.role));
   }
 
+  async function persistStatus(id, status) {
+    if (!status) return null;
+    const safe = {
+      providerConnected: Boolean(status.providerConnected),
+      trackingState: String(status.trackingState || 'unknown'),
+      playerCount: status.playerCount ?? null,
+      playerMax: status.playerMax ?? null,
+      lastCheckedAt: String(status.lastCheckedAt || new Date().toISOString()),
+      statusMessage: String(status.statusMessage || '')
+    };
+    return backend.updateHostedServer(id, safe);
+  }
+
   async function refreshProviders() {
     const response = await backend.hostedServers();
     if (!response?.ok) return [];
     const results = [];
     for (const server of response.servers || []) {
       const status = await statusService.probe(server);
-      if (status) results.push({ id: server.id, status });
+      if (!status) { results.push({ id: server.id, skipped: true }); continue; }
+      const persisted = await persistStatus(server.id, status).catch(() => null);
+      results.push({ id: server.id, ok: Boolean(persisted?.ok), trackingState: status.trackingState });
     }
     return results;
   }
@@ -67,6 +83,8 @@ function installHostedServerManagerExtension() {
           backend,
           isManager,
           probe: (server) => statusService.probe(server),
+          setup: (server) => hostedServerSetupGuide(server),
+          persistStatus,
           refreshProviders,
           refresh: () => refreshGameServersPanel(this, config, { backend })
         });
