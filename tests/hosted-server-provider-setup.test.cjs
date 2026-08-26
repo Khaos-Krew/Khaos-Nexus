@@ -5,37 +5,43 @@ const assert = require('node:assert/strict');
 const { onceHumanSetupGuide, palworldSetupGuide, nitradoPalworldSetupGuide, hostedServerSetupGuide } = require('../src/backend/services/once-human-custom-server-config.cjs');
 const { trackingGlyph, trackingLabel, renderGameServersPanel } = require('../src/sentinel/game-servers-panel.cjs');
 
-test('Once Human setup catalog covers custom-server configuration domains without making host identity authoritative', () => {
-  const guide = onceHumanSetupGuide({id:'SRV-OH', hostingProvider:'Any Host'});
+test('Once Human setup catalog covers custom-server configuration domains without making a hosting company authoritative', () => {
+  const guide = onceHumanSetupGuide({id:'SRV-OH', hostingType:'hosted-site'});
   assert.equal(guide.publicManagementApi,false);
   assert.equal(guide.managementMode,'manual-official-dashboard');
   const text=JSON.stringify(guide).toLowerCase();
   for (const term of ['identity','scenario','world','combat','building','tech','administrator','invitation','announcement','template','weapon','armor','deviation']) assert.match(text,new RegExp(term));
-  assert.match(text,/restart/); assert.match(text,/scenario change|switching scenarios/); assert.match(text,/independent of the hosting company/);
+  assert.match(text,/restart/); assert.match(text,/scenario change|switching scenarios/);
+  assert.match(text,/self-hosted/); assert.match(text,/hosted site/); assert.match(text,/hosting company is not part of the server identity/);
 });
 
-test('Palworld setup exposes REST RCON Nitrado API and registration-only choices independently of hosting company', () => {
-  const guide=palworldSetupGuide({id:'SRV-PAL'});
+test('Palworld setup exposes REST RCON and registration-only choices independently of hosting company', () => {
+  const guide=palworldSetupGuide({id:'SRV-PAL',hostingType:'hosted-site'});
   assert.equal(guide.managementMode,'palworld-adapters');
   const ids=guide.options.map((option)=>option.id);
-  for (const id of ['palworld-rest','palworld-rcon','nitrado-api','none']) assert.ok(ids.includes(id));
+  for (const id of ['rest','rcon','none']) assert.ok(ids.includes(id));
+  assert.equal(ids.includes('nitrado-api'),false);
   const text=JSON.stringify(guide);
-  assert.match(text,/hosting provider not required/i); assert.match(text,/independent of Nitrado/i); assert.match(text,/service ID/i); assert.match(text,/environment variable/i);
-  assert.equal(nitradoPalworldSetupGuide({id:'SRV-PAL'}).managementMode,'palworld-adapters');
+  assert.match(text,/Self-Hosted or on a Hosted Site/i); assert.match(text,/environment variable/i);
+  // Legacy helper remains an internal compatibility alias; it must not reintroduce provider-specific setup choices.
+  assert.deepEqual(nitradoPalworldSetupGuide({id:'SRV-PAL'}).options.map((option)=>option.id),ids);
 });
 
-test('setup router selects game guides rather than binding registration to NetEase or Nitrado', () => {
+test('setup router selects game guides rather than binding registration to NetEase Nitrado Akliz or CreeperHost', () => {
   assert.equal(hostedServerSetupGuide({moduleId:'oncehuman'}).managementMode,'manual-official-dashboard');
   assert.equal(hostedServerSetupGuide({moduleId:'palworld'}).managementMode,'palworld-adapters');
+  const normalPalworld=JSON.stringify(hostedServerSetupGuide({moduleId:'palworld'}));
+  assert.equal(/Nitrado|Akliz|CreeperHost|NetEase/.test(normalPalworld),false);
 });
 
-test('public game server state maps online maintenance offline manual registered and adapter-needs-config distinctly', () => {
+test('public game server state maps Online Maintenance Offline manual registered and connection-needs-config distinctly', () => {
   assert.equal(trackingGlyph({trackingState:'online'}),'🟢');
-  assert.equal(trackingGlyph({trackingState:'maintenance'}),'🟠');
+  assert.equal(trackingGlyph({trackingState:'maintenance'}),'🟡');
   assert.equal(trackingGlyph({trackingState:'offline'}),'🔴');
   assert.equal(trackingGlyph({trackingState:'manual'}),'🔵');
   assert.equal(trackingGlyph({trackingState:'registered'}),'🟡');
   assert.equal(trackingGlyph({trackingState:'not-configured'}),'🟡');
+  assert.match(trackingLabel({trackingState:'maintenance'}),/maintenance/i);
   assert.match(trackingLabel({trackingState:'manual'}),/manual management/i);
   assert.match(trackingLabel({trackingState:'registered'}),/telemetry optional/i);
 });
