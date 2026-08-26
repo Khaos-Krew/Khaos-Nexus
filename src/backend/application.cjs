@@ -6,6 +6,7 @@ const { URL } = require('node:url');
 const { envSecret } = require('../shared/config.cjs');
 const { mergeProviderModules, sanitizeProviderModules } = require('../shared/provider-sync.cjs');
 const { AccountStore } = require('./core/account-store.cjs');
+const { HostedServerStore } = require('./core/hosted-server-store.cjs');
 const { ProviderValidator } = require('./core/provider-validator.cjs');
 const { BackendRuntime } = require('./core/runtime.cjs');
 const { SharedScheduler } = require('./core/scheduler.cjs');
@@ -58,6 +59,12 @@ function communityAchievementStateFile(config = {}) {
   return path.join(process.env.NEXUS_DATA_DIR || 'data', 'community-achievements.json');
 }
 
+function hostedServerStateFile(config = {}) {
+  const configured = String(config.hostedServers?.stateFile || '').trim();
+  if (configured) return configured;
+  return path.join(process.env.NEXUS_DATA_DIR || 'data', 'hosted-servers.json');
+}
+
 function createBackendApplication(config, options = {}) {
   const token = envSecret(config.backend?.serviceTokenEnv);
   const host = String(config.backend?.host || '127.0.0.1');
@@ -70,6 +77,7 @@ function createBackendApplication(config, options = {}) {
   const runtime = new BackendRuntime({ config, providers });
   const scheduler = new SharedScheduler({ filePath: config.scheduler?.stateFile || path.join(process.cwd(), 'data', 'schedules.json'), timeZone: config.scheduler?.timeZone || 'America/Chicago' });
   const accounts = new AccountStore({ filePath: config.accounts?.stateFile || path.join(process.cwd(), 'data', 'accounts.json') });
+  const hostedServers = options.hostedServers || new HostedServerStore({ filePath: hostedServerStateFile(config) });
   const providerValidator = new ProviderValidator({ runtime });
   const arkCompanion = options.arkCompanion || new ArkCompanionService();
   const communityLevels = options.communityLevels || new CommunityLevelService({
@@ -123,7 +131,21 @@ function createBackendApplication(config, options = {}) {
         return json(res, removed ? 200 : 404, removed ? { ok: true } : { ok: false, code: 'ACCOUNT_NOT_FOUND' });
       }
 
-      if (req.method === 'GET' && url.pathname === '/v1/tracked-servers') return json(res, 200, trackedServersResponse(runtime));
+      if (req.method === 'GET' && url.pathname === '/v1/tracked-servers') return json(res, 200, trackedServersResponse(runtime, hostedServers));
+      if (req.method === 'GET' && url.pathname === '/v1/admin/hosted-servers') return json(res, 200, { ok: true, servers: hostedServers.list({ includePrivate: true }) });
+      if (req.method === 'POST' && url.pathname === '/v1/admin/hosted-servers') {
+        const body = await readBody(req);
+        return json(res, 201, { ok: true, server: hostedServers.add(body) });
+      }
+      const hostedServerMatch = /^\/v1\/admin\/hosted-servers\/(SRV-[A-Z0-9-]+)$/.exec(url.pathname);
+      if (hostedServerMatch && req.method === 'PATCH') {
+        const updated = hostedServers.update(hostedServerMatch[1], await readBody(req));
+        return json(res, updated ? 200 : 404, updated ? { ok: true, server: updated } : { ok: false, code: 'SERVER_NOT_FOUND' });
+      }
+      if (hostedServerMatch && req.method === 'DELETE') {
+        const removed = hostedServers.remove(hostedServerMatch[1]);
+        return json(res, removed ? 200 : 404, removed ? { ok: true } : { ok: false, code: 'SERVER_NOT_FOUND' });
+      }
 
       if (req.method === 'GET' && url.pathname === '/v1/community-xp/achievements') {
         return json(res, 200, { ok: true, achievements: communityAchievements.catalog() });
@@ -200,7 +222,7 @@ function createBackendApplication(config, options = {}) {
     started = false;
   }
 
-  return { host, port, runtime, scheduler, arkCompanion, communityLevels, communityAchievements, accounts, providerValidator, configureProviders, server, start, stop, isStarted: () => started && server.listening };
+  return { host, port, runtime, scheduler, arkCompanion, communityLevels, communityAchievements, accounts, hostedServers, providerValidator, configureProviders, server, start, stop, isStarted: () => started && server.listening };
 }
 
-module.exports = { LOOPBACK_HOSTS, communityLevelStateFile, communityAchievementStateFile, createBackendApplication, providersForConfig };
+module.exports = { LOOPBACK_HOSTS, communityLevelStateFile, communityAchievementStateFile, hostedServerStateFile, createBackendApplication, providersForConfig };
