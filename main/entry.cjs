@@ -96,6 +96,7 @@ if (diagnosticsMode) {
     require('./status-panels-extension.cjs').install();
     require('./server-scheduler-extension.cjs').install();
     require('./player-console-extension.cjs').install();
+    require('./server-directory-extension.cjs').install();
     require('./hosted-server-extension.cjs').install();
     require('./discord-observability-extension.cjs').install();
     require('./rcon-validation-extension.cjs').install();
