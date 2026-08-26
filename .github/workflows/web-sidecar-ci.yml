@@ -40,3 +40,6 @@ jobs:
 
       - name: Validate Cloudflare Functions syntax
         run: find functions -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+
+      - name: Smoke test Cloudflare Functions
+        run: npm run test:functions
