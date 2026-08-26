@@ -2,6 +2,7 @@
 
 const { Client, Events, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
+const { NEXUS_RANKS } = require('../shared/ranks.cjs');
 const { HostedServerStatusService } = require('../backend/services/hosted-server-status-service.cjs');
 const { hostedServerSetupGuide } = require('../backend/services/once-human-custom-server-config.cjs');
 const { BackendClient } = require('./backend-client.cjs');
@@ -31,6 +32,19 @@ function installHostedServerManagerExtension() {
     if (roles && (config.discord?.operatorRoleIds || []).some((id) => roles.has(String(id)))) return true;
     const linked = await backend.accountByDiscord(userId).catch(() => null);
     return Boolean(linked?.ok && ['owner', 'co-owner'].includes(linked.account?.role));
+  }
+
+  async function memberRank(interaction) {
+    const roles = interaction.member?.roles?.cache;
+    if (!roles) return null;
+    let selected = null;
+    for (const rank of NEXUS_RANKS) {
+      if (rank.level < 1) continue;
+      const roleId = String(config.discord?.rankRoles?.[rank.id] || '').trim();
+      if (!roleId || !roles.has(roleId)) continue;
+      if (!selected || rank.level > selected.level) selected = rank;
+    }
+    return selected;
   }
 
   async function persistStatus(id, status) {
@@ -82,6 +96,7 @@ function installHostedServerManagerExtension() {
         await handleHostedServerCommand(interaction, {
           backend,
           isManager,
+          memberRank,
           probe: (server) => statusService.probe(server),
           setup: (server) => hostedServerSetupGuide(server),
           persistStatus,
@@ -89,7 +104,7 @@ function installHostedServerManagerExtension() {
           refresh: () => refreshGameServersPanel(this, config, { backend })
         });
       } catch (error) {
-        const content = `⚠️ Hosted server action failed: ${String(error?.message || error)}`.slice(0, 1900);
+        const content = `⚠️ Server action failed: ${String(error?.message || error)}`.slice(0, 1900);
         try {
           if (interaction.deferred || interaction.replied) await interaction.editReply({ content, embeds: [], components: [] });
           else await interaction.reply({ content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
