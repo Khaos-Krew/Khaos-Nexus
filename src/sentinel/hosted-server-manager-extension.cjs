@@ -2,6 +2,7 @@
 
 const { Client, Events, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
+const { HostedServerStatusService } = require('../backend/services/hosted-server-status-service.cjs');
 const { BackendClient } = require('./backend-client.cjs');
 const { normalizeRequiredOptions } = require('./discord-command-schema.cjs');
 const { refreshGameServersPanel } = require('./game-servers-extension.cjs');
@@ -12,9 +13,9 @@ const INSTALLED = Symbol.for('khaos.nexus.hostedServerManager.extension');
 function installHostedServerManagerExtension() {
   if (Client.prototype[INSTALLED]) return;
   Client.prototype[INSTALLED] = true;
-
   const config = loadConfig();
   const backend = new BackendClient(config);
+  const statusService = new HostedServerStatusService();
   const guildId = String(config.discord?.guildId || '');
   const originalLogin = Client.prototype.login;
 
@@ -29,6 +30,17 @@ function installHostedServerManagerExtension() {
     if (roles && (config.discord?.operatorRoleIds || []).some((id) => roles.has(String(id)))) return true;
     const linked = await backend.accountByDiscord(userId).catch(() => null);
     return Boolean(linked?.ok && ['owner', 'co-owner'].includes(linked.account?.role));
+  }
+
+  async function refreshProviders() {
+    const response = await backend.hostedServers();
+    if (!response?.ok) return [];
+    const results = [];
+    for (const server of response.servers || []) {
+      const status = await statusService.probe(server);
+      if (status) results.push({ id: server.id, status });
+    }
+    return results;
   }
 
   Client.prototype.login = function nexusHostedServerManagerLogin(...args) {
@@ -54,6 +66,8 @@ function installHostedServerManagerExtension() {
         await handleHostedServerCommand(interaction, {
           backend,
           isManager,
+          probe: (server) => statusService.probe(server),
+          refreshProviders,
           refresh: () => refreshGameServersPanel(this, config, { backend })
         });
       } catch (error) {
