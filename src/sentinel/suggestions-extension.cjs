@@ -16,6 +16,8 @@ const { loadConfig } = require('../shared/config.cjs');
 const { PollEngine } = require('../backend/services/poll-engine.cjs');
 const { PollStore } = require('../backend/services/poll-store.cjs');
 const { StateStore } = require('./state-store.cjs');
+const { paragraphs, spacedItems, statRows } = require('./embed-layout.cjs');
+const { managedPayloadMatches } = require('./managed-payload-compare.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.suggestions.extension');
 const PANEL_MARKER = 'Nexus Sentinal • Community Suggestions • v1';
@@ -123,13 +125,45 @@ function panelPayload(settings) {
   return {
     embeds: [{
       title: '💡 KHAOS NEXUS COMMUNITY SUGGESTIONS',
-      description: 'Have an idea for a game, Discord feature, Nexus integration, community tool, item, event, or other useful improvement? Submit it here so it becomes a tracked proposal instead of getting buried in chat or the roadmap.',
+      description: paragraphs(
+        'Have an idea for a game, Discord feature, Nexus integration, community tool, item, event, or other useful improvement?',
+        'Submit it here so it becomes a tracked proposal instead of getting buried in chat or the roadmap.'
+      ),
       color: 0xe3264f,
       fields: [
-        { name: '1️⃣ Submit', value: 'Use **Submit Suggestion** below. Give the idea a clear title, category, and enough detail for the community to understand it.', inline: false },
-        { name: '2️⃣ Community Vote', value: `Voting stays open for **${settings.votingHours} hours**. The submitter cannot vote on their own suggestion, and every other member has one vote that can be changed or removed.`, inline: false },
-        { name: '3️⃣ Development Review', value: `A suggestion needs at least **${settings.minVotes} total votes** and **${settings.passPercent}% approval** to pass the community gate. Passed ideas are queued for GitHub/development review; they are not automatically implemented without Owner approval.`, inline: false },
-        { name: '🛡️ Keep It Useful', value: 'Suggestions must follow the community rules. Duplicate, abusive, unsafe, or deliberately disruptive submissions may be removed by staff.', inline: false }
+        {
+          name: '1️⃣ Submit',
+          value: spacedItems([
+            'Use **Submit Suggestion** below.',
+            'Give the idea a clear title, category, and enough detail for the community to understand it.'
+          ]),
+          inline: false
+        },
+        {
+          name: '2️⃣ Community Vote',
+          value: spacedItems([
+            `Voting stays open for **${settings.votingHours} hours**.`,
+            'The submitter cannot vote on their own suggestion.',
+            'Every other member has one vote that can be changed or removed.'
+          ]),
+          inline: false
+        },
+        {
+          name: '3️⃣ Development Review',
+          value: spacedItems([
+            `A suggestion needs at least **${settings.minVotes} total votes** and **${settings.passPercent}% approval** to pass the community gate.`,
+            'Passed ideas are queued for GitHub/development review; they are not automatically implemented without Owner approval.'
+          ]),
+          inline: false
+        },
+        {
+          name: '🛡️ Keep It Useful',
+          value: spacedItems([
+            'Suggestions must follow the community rules.',
+            'Duplicate, abusive, unsafe, or deliberately disruptive submissions may be removed by staff.'
+          ]),
+          inline: false
+        }
       ],
       footer: { text: PANEL_MARKER }
     }],
@@ -153,9 +187,14 @@ async function ensureSuggestionPanel(channel, settings, options = {}) {
   const candidates = messages.filter((message) => messageIsPanel(message, botId)).sort((a, b) => Number(b.createdTimestamp || 0) - Number(a.createdTimestamp || 0));
   let message = candidates[0] || null;
   let created = false;
+  let updated = false;
   const payload = panelPayload(settings);
-  if (message) await message.edit(payload);
-  else {
+  if (message) {
+    if (!managedPayloadMatches(message, payload)) {
+      await message.edit(payload);
+      updated = true;
+    }
+  } else {
     message = await channel.send(payload);
     created = true;
   }
@@ -167,7 +206,7 @@ async function ensureSuggestionPanel(channel, settings, options = {}) {
   for (const duplicate of candidates.slice(1)) {
     try { await duplicate.delete('Nexus Sentinal duplicate suggestion intake panel cleanup'); duplicatesRemoved += 1; } catch {}
   }
-  return { message, created, pinned, duplicatesRemoved };
+  return { message, created, updated, pinned, duplicatesRemoved };
 }
 
 function suggestionMarker(id) {
@@ -200,11 +239,27 @@ function suggestionPayload(suggestion, settings) {
   const closesUnix = Math.floor(Date.parse(suggestion.closesAt) / 1000);
   const open = suggestion.status === 'voting';
   const fields = [
-    { name: 'Category', value: suggestion.category || 'Other', inline: true },
-    { name: 'Status', value: suggestionStatusLabel(suggestion.status), inline: true },
-    { name: 'Community Vote', value: `👍 ${counts.up}  •  👎 ${counts.down}  •  ${counts.approval}% approval`, inline: false }
+    { name: 'Category', value: suggestion.category || 'Other', inline: false },
+    { name: 'Status', value: suggestionStatusLabel(suggestion.status), inline: false },
+    {
+      name: 'Community Vote',
+      value: statRows([
+        ['Upvotes', `👍 ${counts.up}`],
+        ['Downvotes', `👎 ${counts.down}`],
+        ['Approval', `${counts.approval}%`]
+      ]),
+      inline: false
+    }
   ];
-  if (open) fields.push({ name: 'Voting Closes', value: `<t:${closesUnix}:F> • <t:${closesUnix}:R>\nPass gate: ${settings.minVotes}+ votes and ${settings.passPercent}%+ approval.`, inline: false });
+  if (open) fields.push({
+    name: 'Voting Closes',
+    value: statRows([
+      ['Closes', `<t:${closesUnix}:F>`],
+      ['Remaining', `<t:${closesUnix}:R>`],
+      ['Pass gate', `${settings.minVotes}+ votes and ${settings.passPercent}%+ approval`]
+    ]),
+    inline: false
+  });
   if (suggestion.githubIssueUrl) fields.push({ name: 'Development Tracking', value: `[Open GitHub issue](${suggestion.githubIssueUrl})`, inline: false });
   if (suggestion.reviewReason) fields.push({ name: suggestion.status === 'denied' ? 'Denial Reason' : 'Owner Note', value: cleanText(suggestion.reviewReason, 1000), inline: false });
 
@@ -403,7 +458,9 @@ async function editSuggestionMessage(client, suggestion, settings) {
   if (!channel?.messages?.fetch) return false;
   const message = await channel.messages.fetch(String(suggestion.messageId)).catch(() => null);
   if (!message) return false;
-  await message.edit(suggestionPayload(suggestion, settings));
+  const payload = suggestionPayload(suggestion, settings);
+  if (managedPayloadMatches(message, payload)) return false;
+  await message.edit(payload);
   return true;
 }
 
@@ -562,7 +619,7 @@ function installSuggestionsExtension() {
             pollsMigrated += 1;
           }
           const closed = await closeDueSuggestions(this, store, settings, { pollEngine });
-          console.log(`[Nexus Sentinal] suggestions (${reason}): channel=${channel.id} channelCreated=${channelResult.created} channelMoved=${channelResult.moved} panelCreated=${panel.created} duplicatesRemoved=${panel.duplicatesRemoved} pollsMigrated=${pollsMigrated} closed=${closed.closed} githubSynced=${closed.githubSynced} githubPending=${closed.githubPending}`);
+          console.log(`[Nexus Sentinal] suggestions (${reason}): channel=${channel.id} channelCreated=${channelResult.created} channelMoved=${channelResult.moved} panelCreated=${panel.created} panelUpdated=${panel.updated} duplicatesRemoved=${panel.duplicatesRemoved} pollsMigrated=${pollsMigrated} closed=${closed.closed} githubSynced=${closed.githubSynced} githubPending=${closed.githubPending}`);
         } catch (error) {
           console.warn(`[Nexus Sentinal] suggestions (${reason}) unavailable: ${String(error?.message || error).slice(0, 300)}`);
         } finally {
