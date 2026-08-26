@@ -30,6 +30,22 @@ export type SessionSnapshot = {
   expiresAt?: string;
 };
 
+export type ReadinessCheck = {
+  id: string;
+  label: string;
+  ready: boolean;
+  detail?: string;
+};
+
+export type ReadinessSnapshot = {
+  environment: string;
+  releaseLabel: string;
+  ready: boolean;
+  readyCount: number;
+  totalCount: number;
+  checks: ReadinessCheck[];
+};
+
 export type NexusApiErrorPayload = {
   code: string;
   message: string;
