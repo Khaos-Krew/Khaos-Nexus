@@ -1,4 +1,4 @@
-import { readCookie, verifySignedSession } from '../../../_lib/session.js';
+import { readCookie, verifySignedSession } from '../../_lib/session.js';
 
 export async function onRequestGet(context) {
   const token = readCookie(context.request, 'nexus_session');
