@@ -16,9 +16,10 @@ const ONCE_HUMAN_SETUP_SECTIONS = Object.freeze([
 ]);
 
 const ONCE_HUMAN_LIFECYCLE_WARNINGS = Object.freeze([
-  'NetEase Custom Server configuration is applied through the official in-game/web management dashboard; Nexus does not use undocumented private endpoints.',
+  'Nexus registration is independent of the hosting company. Current Once Human configuration is performed through the official server-management interface exposed to the server owner.',
+  'Nexus does not use undocumented private NetEase endpoints for management automation.',
   'Some setting changes apply immediately while others require a server restart.',
-  'Switching scenarios can reset server progression and player-character state. Review the NetEase warning shown by the dashboard before confirming a scenario change.',
+  'Switching scenarios can reset server progression and player-character state. Review the official warning shown by the management interface before confirming a scenario change.',
   'Keep invitation codes, admin assignments, and other access-sensitive values out of public Discord fields.'
 ]);
 
@@ -26,7 +27,7 @@ function onceHumanSetupGuide(server = {}) {
   return {
     ok: true,
     game: 'Once Human',
-    provider: 'NetEase Custom Server',
+    provider: String(server.hostingProvider || 'Hosting provider not required'),
     managementMode: 'manual-official-dashboard',
     publicManagementApi: false,
     setupVersion: ONCE_HUMAN_SETUP_VERSION,
@@ -36,27 +37,44 @@ function onceHumanSetupGuide(server = {}) {
   };
 }
 
-function nitradoPalworldSetupGuide(server = {}) {
+function palworldSetupGuide(server = {}) {
   return {
     ok: true,
     game: 'Palworld',
-    provider: 'Nitrado',
-    managementMode: 'nitrado-rest',
-    publicManagementApi: true,
+    provider: String(server.hostingProvider || 'Hosting provider not required'),
+    managementMode: 'palworld-adapters',
     serverId: String(server.id || ''),
-    requirements: [
-      'Set provider to nitrado-palworld.',
-      'Set provider_ref to the Nitrado service ID.',
-      'Store the Nitrado API token in Railway and set credential_env to that environment-variable name. Never paste the token into Discord.',
-      'Use /server status to validate the Nitrado connection and /server refresh to update #game-servers.',
-      'Direct Palworld REST remains available as the palworld-rest provider when you intentionally expose/configure the game REST endpoint.'
+    options: [
+      {
+        id: 'palworld-rest',
+        name: 'Palworld REST API',
+        description: 'Preferred when the server exposes Palworld REST. Configure host/admin port plus an environment variable containing the AdminPassword. This path is independent of Nitrado, self-hosting, or another provider.'
+      },
+      {
+        id: 'palworld-rcon',
+        name: 'Palworld RCON',
+        description: 'Use when the server exposes Source RCON. Configure host/admin port plus an environment variable containing the RCON/AdminPassword.'
+      },
+      {
+        id: 'nitrado-api',
+        name: 'Nitrado API',
+        description: 'Optional hosting-platform telemetry/control for Nitrado servers. Configure the private Nitrado service ID and an environment variable containing the Nitrado API token. This is an adapter, not a requirement for registering the server.'
+      },
+      {
+        id: 'none',
+        name: 'Registration only',
+        description: 'Keep the server listed in Nexus without live telemetry until a supported connection method is available.'
+      }
     ]
   };
 }
 
+// Legacy function name retained for compatibility.
+function nitradoPalworldSetupGuide(server = {}) { return palworldSetupGuide(server); }
+
 function hostedServerSetupGuide(server = {}) {
   if (server.moduleId === 'oncehuman') return onceHumanSetupGuide(server);
-  if (server.moduleId === 'palworld') return nitradoPalworldSetupGuide(server);
+  if (server.moduleId === 'palworld') return palworldSetupGuide(server);
   return { ok: false, code: 'SETUP_NOT_SUPPORTED' };
 }
 
@@ -65,6 +83,7 @@ module.exports = {
   ONCE_HUMAN_SETUP_SECTIONS,
   ONCE_HUMAN_LIFECYCLE_WARNINGS,
   onceHumanSetupGuide,
+  palworldSetupGuide,
   nitradoPalworldSetupGuide,
   hostedServerSetupGuide
 };
