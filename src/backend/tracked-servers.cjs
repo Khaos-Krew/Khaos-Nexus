@@ -54,7 +54,7 @@ function configuredTrackedServers(runtime) {
 
 function trackedServers(runtime, hostedStore = null) {
   const configured = configuredTrackedServers(runtime);
-  const hosted = hostedStore?.list ? hostedStore.list() : [];
+  const hosted = hostedStore?.list ? hostedStore.list().filter((server) => server.public !== false) : [];
   const byIdentity = new Map();
   for (const server of [...configured, ...hosted]) {
     const key = String(server.id || `${server.moduleId}:${server.name}`);
