@@ -5,7 +5,7 @@ const { MessageFlags, SlashCommandBuilder } = require('discord.js');
 const SERVER_COMMAND = 'server';
 const PROVIDER_CHOICES = [
   { name: 'Automatic / existing server API', value: 'palworld-rest' },
-  { name: 'Nitrado (Palworld)', value: 'nitrado-palworld' },
+  { name: 'Nitrado REST (Palworld)', value: 'nitrado-palworld' },
   { name: 'NetEase / manual (Once Human)', value: 'oncehuman-basic' },
   { name: 'No telemetry', value: 'none' }
 ];
@@ -19,7 +19,7 @@ function hostedServerCommand() {
       .addIntegerOption((opt) => opt.setName('port').setDescription('Game/server port').setRequired(true).setMinValue(1).setMaxValue(65535))
       .addStringOption((opt) => opt.setName('provider').setDescription('Hosting/status provider').setRequired(false).addChoices(...PROVIDER_CHOICES))
       .addStringOption((opt) => opt.setName('provider_ref').setDescription('Provider reference, e.g. Nitrado service ID (kept private)').setRequired(false).setMaxLength(80))
-      .addStringOption((opt) => opt.setName('credential_env').setDescription('Environment variable name containing provider token; never the token itself').setRequired(false).setMaxLength(80))
+      .addStringOption((opt) => opt.setName('credential_env').setDescription('Environment variable containing provider token; never the token itself').setRequired(false).setMaxLength(80))
       .addStringOption((opt) => opt.setName('join_info').setDescription('Optional public join text').setRequired(false).setMaxLength(200))
       .addStringOption((opt) => opt.setName('description').setDescription('Optional public description').setRequired(false).setMaxLength(300))
       .addIntegerOption((opt) => opt.setName('query_port').setDescription('Optional query/status port').setRequired(false).setMinValue(1).setMaxValue(65535))
@@ -32,12 +32,14 @@ function hostedServerCommand() {
       .addIntegerOption((opt) => opt.setName('port').setDescription('New game/server port').setRequired(false).setMinValue(1).setMaxValue(65535))
       .addStringOption((opt) => opt.setName('provider').setDescription('Hosting/status provider').setRequired(false).addChoices(...PROVIDER_CHOICES))
       .addStringOption((opt) => opt.setName('provider_ref').setDescription('Provider reference, e.g. Nitrado service ID').setRequired(false).setMaxLength(80))
-      .addStringOption((opt) => opt.setName('credential_env').setDescription('Environment variable name containing provider token').setRequired(false).setMaxLength(80))
+      .addStringOption((opt) => opt.setName('credential_env').setDescription('Environment variable containing provider token').setRequired(false).setMaxLength(80))
       .addStringOption((opt) => opt.setName('join_info').setDescription('New public join text').setRequired(false).setMaxLength(200))
       .addStringOption((opt) => opt.setName('description').setDescription('New public description').setRequired(false).setMaxLength(300))
       .addIntegerOption((opt) => opt.setName('query_port').setDescription('New query/status port').setRequired(false).setMinValue(1).setMaxValue(65535))
       .addIntegerOption((opt) => opt.setName('admin_port').setDescription('New REST/RCON/admin port').setRequired(false).setMinValue(1).setMaxValue(65535))
       .addBooleanOption((opt) => opt.setName('public').setDescription('Show this server in #game-servers').setRequired(false)))
+    .addSubcommand((sub) => sub.setName('setup').setDescription('Show the provider-specific setup checklist for a server')
+      .addStringOption((opt) => opt.setName('id').setDescription('Server ID from /server list').setRequired(true)))
     .addSubcommand((sub) => sub.setName('status').setDescription('Check live provider status for one hosted server')
       .addStringOption((opt) => opt.setName('id').setDescription('Server ID from /server list').setRequired(true)))
     .addSubcommand((sub) => sub.setName('remove').setDescription('Remove a registered hosted server')
@@ -78,6 +80,14 @@ function statusText(server = {}, status = {}) {
   const players = Number.isFinite(Number(status.playerCount)) ? `${status.playerCount}${Number.isFinite(Number(status.playerMax)) ? ` / ${status.playerMax}` : ''}` : 'Not exposed';
   return `📡 **${server.name} — Provider Status**\n\n**Provider**\n${server.providerType || 'none'}\n\n**State**\n${state}\n\n**Players**\n${players}\n\n**Provider note**\n${status.statusMessage || 'No additional status detail.'}\n\nProvider credentials and private endpoints are not displayed.`;
 }
+function setupText(server = {}, guide = {}) {
+  if (guide.managementMode === 'nitrado-rest') {
+    return `🔧 **${server.name} — Nitrado Palworld Setup**\n\n${(guide.requirements || []).map((item, index) => `**${index + 1}.** ${item}`).join('\n\n')}\n\nNitrado REST is the supported provider-control path. Direct Palworld REST can still be selected separately when intentionally configured.`;
+  }
+  const sections = (guide.sections || []).map((section) => `**${section.title}**\n${(section.settings || []).map((item) => `• ${item}`).join('\n')}`).join('\n\n');
+  const warnings = (guide.warnings || []).map((item) => `⚠️ ${item}`).join('\n\n');
+  return `🛠️ **${server.name} — Once Human Custom Server Setup**\n\nManagement: **Official NetEase dashboard (manual)**\nPublic management API: **Not available/configured**\n\n${sections}\n\n**Lifecycle / Safety**\n${warnings}`.slice(0, 3900);
+}
 async function replyEphemeral(interaction, content) {
   const payload = { content: String(content).slice(0,3900), flags: MessageFlags.Ephemeral, allowedMentions:{parse:[]} };
   if (interaction.deferred || interaction.replied) return interaction.editReply({ content:payload.content, allowedMentions:payload.allowedMentions });
@@ -94,18 +104,23 @@ async function handleHostedServerCommand(interaction, context = {}) {
   }
   if (subcommand === 'add') {
     const response = await context.backend.addHostedServer(addInput(interaction)); if (!response.ok) throw new Error(response.message || 'Unable to register hosted server.');
-    await context.refresh?.(); await replyEphemeral(interaction, `✅ **${response.server.name}** registered as **${response.server.id}**.\n\nPrivate endpoint/provider details stay private. ${response.server.public === false ? 'This server is hidden from #game-servers.' : 'The public registry has been refreshed.'}`); return true;
+    await context.refreshProviders?.(); await context.refresh?.(); await replyEphemeral(interaction, `✅ **${response.server.name}** registered as **${response.server.id}**.\n\nPrivate endpoint/provider details stay private. ${response.server.public === false ? 'This server is hidden from #game-servers.' : 'The public registry has been refreshed.'}\n\nRun **/server setup id:${response.server.id}** for the provider checklist.`); return true;
   }
   if (subcommand === 'edit') {
     const id = String(optionValue(interaction,'id') || '').trim().toUpperCase(); const response = await context.backend.updateHostedServer(id, editInput(interaction));
-    if (!response.ok) throw new Error(response.message || response.code || 'Unable to edit hosted server.'); await context.refresh?.();
+    if (!response.ok) throw new Error(response.message || response.code || 'Unable to edit hosted server.'); await context.refreshProviders?.(); await context.refresh?.();
     await replyEphemeral(interaction, `✅ **${response.server.name}** (${response.server.id}) updated and the registry refreshed.`); return true;
   }
-  if (subcommand === 'status') {
+  if (subcommand === 'setup' || subcommand === 'status') {
     const id = String(optionValue(interaction,'id') || '').trim().toUpperCase();
     const response = await context.backend.hostedServers(); if (!response.ok) throw new Error(response.message || 'Hosted-server registry is unavailable.');
     const server = (response.servers || []).find((item) => String(item.id).toUpperCase() === id); if (!server) throw new Error('Server ID was not found.');
+    if (subcommand === 'setup') {
+      const guide = context.setup?.(server); if (!guide?.ok) throw new Error('No setup guide is available for that server.');
+      await replyEphemeral(interaction, setupText(server, guide)); return true;
+    }
     const status = await context.probe?.(server); if (!status) throw new Error('That server provider does not expose supported live telemetry yet.');
+    await context.persistStatus?.(server.id, status); await context.refresh?.();
     await replyEphemeral(interaction, statusText(server, status)); return true;
   }
   if (subcommand === 'remove') {
@@ -120,4 +135,4 @@ async function handleHostedServerCommand(interaction, context = {}) {
   return false;
 }
 
-module.exports = { SERVER_COMMAND, PROVIDER_CHOICES, hostedServerCommand, addInput, editInput, privateServerList, statusText, handleHostedServerCommand };
+module.exports = { SERVER_COMMAND, PROVIDER_CHOICES, hostedServerCommand, addInput, editInput, privateServerList, statusText, setupText, handleHostedServerCommand };
