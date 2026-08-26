@@ -39,7 +39,7 @@ function moduleServerDefinitions(moduleConfig = {}) {
   return configuredServerDefinition(connection) ? [connection] : [];
 }
 
-function trackedServers(runtime) {
+function configuredTrackedServers(runtime) {
   const config = runtime?.config || {};
   const manifests = new Map((runtime?.manifests?.() || []).map((item) => [item.id, item]));
   const servers = [];
@@ -49,11 +49,22 @@ function trackedServers(runtime) {
     const manifest = manifests.get(moduleId) || {};
     definitions.forEach((definition, index) => servers.push(publicTrackedServer(moduleId, definition, index, manifest)));
   }
-  return servers.sort((a, b) => a.game.localeCompare(b.game) || a.name.localeCompare(b.name));
+  return servers;
 }
 
-function trackedServersResponse(runtime) {
-  const servers = trackedServers(runtime);
+function trackedServers(runtime, hostedStore = null) {
+  const configured = configuredTrackedServers(runtime);
+  const hosted = hostedStore?.list ? hostedStore.list() : [];
+  const byIdentity = new Map();
+  for (const server of [...configured, ...hosted]) {
+    const key = String(server.id || `${server.moduleId}:${server.name}`);
+    byIdentity.set(key, server);
+  }
+  return [...byIdentity.values()].sort((a, b) => String(a.game || '').localeCompare(String(b.game || '')) || String(a.name || '').localeCompare(String(b.name || '')));
+}
+
+function trackedServersResponse(runtime, hostedStore = null) {
+  const servers = trackedServers(runtime, hostedStore);
   return {
     ok: true,
     generatedAt: new Date().toISOString(),
@@ -68,6 +79,7 @@ module.exports = {
   configuredServerDefinition,
   publicTrackedServer,
   moduleServerDefinitions,
+  configuredTrackedServers,
   trackedServers,
   trackedServersResponse
 };
