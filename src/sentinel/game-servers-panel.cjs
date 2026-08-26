@@ -61,16 +61,29 @@ function groupTrackedServers(servers = []) {
 }
 
 function trackingGlyph(server = {}) {
-  return server.providerConfigured === true ? '🟢' : '🟡';
+  if (server.providerConnected === true) return '🟢';
+  if (server.providerConfigured === true) return '🟡';
+  return '🟡';
 }
 
 function trackingLabel(server = {}) {
-  return server.providerConfigured === true ? 'Tracking active' : 'Tracked • provider setup needed';
+  if (server.providerConnected === true) return 'Online / tracking active';
+  if (server.providerConfigured === true) return 'Tracked • telemetry pending';
+  return 'Tracked • provider setup needed';
+}
+
+function cleanPublicText(value, max = 240) {
+  return String(value || '').replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
 function renderServerLine(server = {}) {
-  const name = String(server.name || 'Server').replace(/[\r\n]+/g, ' ').trim().slice(0, 80) || 'Server';
-  return `${trackingGlyph(server)} **${name}** — ${trackingLabel(server)}`;
+  const name = cleanPublicText(server.name || 'Server', 80) || 'Server';
+  const lines = [`${trackingGlyph(server)} **${name}**`, trackingLabel(server)];
+  const description = cleanPublicText(server.description, 240);
+  const joinInfo = cleanPublicText(server.joinInfo, 200);
+  if (description) lines.push(description);
+  if (joinInfo) lines.push(`**Join:** ${joinInfo}`);
+  return lines.join('\n');
 }
 
 function renderGameServersPanel(snapshot = {}) {
@@ -81,29 +94,29 @@ function renderGameServersPanel(snapshot = {}) {
   if (!groups.length) {
     fields.push({
       name: 'No tracked servers yet',
-      value: 'Add a supported game server through Nexus provider/server tracking. Sentinal will update this panel automatically.',
+      value: 'Add a supported hosted server with the private `/server add` admin workflow. Sentinal will update this panel automatically.',
       inline: false
     });
   } else {
     for (const group of groups.slice(0, 24)) {
       fields.push({
         name: group.game,
-        value: group.servers.map(renderServerLine).join('\n').slice(0, 1024),
+        value: group.servers.map(renderServerLine).join('\n\n').slice(0, 1024),
         inline: false
       });
     }
   }
 
   fields.push({
-    name: 'Registry sync',
-    value: `${servers.length} tracked server${servers.length === 1 ? '' : 's'} • automatically checked for Nexus tracking changes`,
+    name: 'Registry Sync',
+    value: `${servers.length} tracked server${servers.length === 1 ? '' : 's'}\nAutomatically checked for Nexus tracking changes.`,
     inline: false
   });
 
   return {
     embeds: [{
       title: GAME_SERVERS_PANEL_TITLE,
-      description: 'Automatically mirrors the game servers currently tracked by Nexus Backend. Network addresses, passwords, tokens, and other protected connection details are intentionally not displayed.',
+      description: 'Nexus-hosted and tracked game servers. Private hosts, management ports, passwords, tokens, and credentials are never displayed here.',
       color: groups.length ? 0x2ecc71 : 0x5865f2,
       fields,
       footer: { text: GAME_SERVERS_PANEL_MARKER }
