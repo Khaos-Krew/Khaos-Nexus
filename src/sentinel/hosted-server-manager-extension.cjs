@@ -16,6 +16,20 @@ const INSTALLED = Symbol.for('khaos.nexus.hostedServerManager.extension');
 const HEALTH_WATCHER = Symbol.for('khaos.nexus.hostedServerManager.healthWatcher');
 const HEALTH_SWEEP_RUNNING = Symbol.for('khaos.nexus.hostedServerManager.healthSweepRunning');
 
+function aggregateApprovedHosts(applications = [], activeServerIds = new Set()) {
+  const hosts = new Map();
+  for (const application of Array.isArray(applications) ? applications : []) {
+    const userId = String(application?.applicantDiscordId || application?.applicantId || '');
+    if (!/^\d{15,24}$/.test(userId)) continue;
+    const approvedServerId = String(application?.approvedServerId || '').toUpperCase();
+    const row = hosts.get(userId) || { userId, approvedApplications: 0, activeServerCount: 0 };
+    row.approvedApplications += 1;
+    if (approvedServerId && activeServerIds.has(approvedServerId)) row.activeServerCount += 1;
+    hosts.set(userId, row);
+  }
+  return hosts;
+}
+
 function installHostedServerManagerExtension() {
   if (Client.prototype[INSTALLED]) return;
   Client.prototype[INSTALLED] = true;
@@ -88,17 +102,15 @@ function installHostedServerManagerExtension() {
     if (!applicationsResponse?.ok || !serversResponse?.ok) return { checked: 0, active: 0, skipped: 'registry-unavailable' };
     const guild = await client.guilds.fetch(guildId);
     const activeServerIds = new Set((serversResponse.servers || []).map((server) => String(server.id || '').toUpperCase()));
+    const approvedHosts = aggregateApprovedHosts(applicationsResponse.applications || [], activeServerIds);
     let checked = 0;
     let active = 0;
-    for (const application of applicationsResponse.applications || []) {
-      const userId = String(application.applicantDiscordId || application.applicantId || '');
-      if (!/^\d{15,24}$/.test(userId)) continue;
-      const approvedServerId = String(application.approvedServerId || '').toUpperCase();
-      const activeHost = Boolean(approvedServerId && activeServerIds.has(approvedServerId));
-      const member = await guild.members.fetch(userId).catch(() => null);
+    for (const host of approvedHosts.values()) {
+      const member = await guild.members.fetch(host.userId).catch(() => null);
       if (!member) continue;
-      const levelResponse = await backend.communityLevel(userId).catch(() => null);
+      const levelResponse = await backend.communityLevel(host.userId).catch(() => null);
       const level = Number(levelResponse?.profile?.level || 1);
+      const activeHost = host.activeServerCount > 0;
       await syncServerHostTitle(member, level, activeHost).catch(() => null);
       checked += 1;
       if (activeHost) active += 1;
@@ -194,4 +206,4 @@ function installHostedServerManagerExtension() {
   };
 }
 
-module.exports = { installHostedServerManagerExtension };
+module.exports = { aggregateApprovedHosts, installHostedServerManagerExtension };
