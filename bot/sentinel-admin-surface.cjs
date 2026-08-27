@@ -61,7 +61,7 @@ function renderAdminCommandPanel(options = {}) {
   return Object.freeze({
     embeds: [Object.freeze({
       title: 'Nexus Sentinel • Admin Commands',
-      description: 'Administrative commands currently exposed by Sentinel. Access is enforced by the same functional-role policy used at command execution time. Thora controls are intentionally excluded from this surface.',
+      description: 'Administrative commands currently exposed by Sentinel. Access is enforced by the same functional-role policy used at command execution time.',
       color: 0xe3264f,
       fields,
       footer: { text: 'Khaos Nexus • Permissions are enforced server-side' },
