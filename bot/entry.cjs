@@ -9,6 +9,7 @@ const {
   permissionDecision,
   permissionDeniedMessage
 } = require('./sentinel-permissions.cjs');
+const { permissionAuditEvent } = require('../shared/sentinel-audit.cjs');
 const {
   isDndInteraction,
   handleDndInteraction,
@@ -32,6 +33,17 @@ parent?.on('message', (event) => {
 
 installModuleRuntime({ ClientClass: Client, getBootstrap: () => bootstrap });
 
+function emitPermissionAudit(interaction, decision) {
+  try {
+    parent?.postMessage({
+      type: 'audit',
+      payload: permissionAuditEvent({ decision, interaction })
+    });
+  } catch (error) {
+    dndRuntime?.log?.('warn', `Sentinel audit emission failed: ${error.message}`);
+  }
+}
+
 function denyUnauthorizedInteraction(interaction) {
   if (!interaction?.isChatInputCommand?.()) return false;
   const decision = permissionDecision({
@@ -39,6 +51,7 @@ function denyUnauthorizedInteraction(interaction) {
     commandName: interaction.commandName,
     ownerUserId: bootstrap?.config?.discord?.ownerUserId
   });
+  emitPermissionAudit(interaction, decision);
   if (decision.allowed) return false;
 
   Promise.resolve(interaction.reply({
@@ -83,4 +96,4 @@ Client.prototype.login = function patchedLogin(...args) {
 
 require('./index.cjs');
 
-module.exports = { denyUnauthorizedInteraction };
+module.exports = { denyUnauthorizedInteraction, emitPermissionAudit };
