@@ -51,7 +51,7 @@ test('ambiguous review entries never mutate even when dryRun is false', async ()
   assert.deepEqual(results[0].candidates, ['1', '2']);
 });
 
-test('adoption persists the existing role ID and writes an audit event', async () => {
+test('adoption persists the existing role ID and writes a native Nexus audit entry', async () => {
   const persisted = [];
   const events = [];
 
@@ -64,7 +64,10 @@ test('adoption persists the existing role ID and writes an audit event', async (
   });
 
   assert.deepEqual(persisted, [['staff.admin', '710000000000000003']]);
-  assert.equal(events[0].type, 'sentinel.role.adopted');
+  assert.equal(events[0].category, 'sentinel-roles');
+  assert.equal(events[0].action, 'role-adopted');
+  assert.equal(events[0].targetId, '710000000000000003');
+  assert.equal(events[0].details.roleKey, 'staff.admin');
   assert.equal(results[0].status, 'adopted');
 });
 
@@ -99,7 +102,9 @@ test('managed role creation persists the returned Discord ID and is audited', as
     priority: 15,
   });
   assert.deepEqual(persisted, [['creator.live', '810000000000000001']]);
-  assert.equal(events[0].type, 'sentinel.role.created');
+  assert.equal(events[0].category, 'sentinel-roles');
+  assert.equal(events[0].action, 'role-created');
+  assert.equal(events[0].targetId, '810000000000000001');
   assert.equal(results[0].discordRoleId, '810000000000000001');
 });
 
@@ -125,11 +130,12 @@ test('exclusive role executor removes conflicts before adding the target and aud
   });
 
   assert.deepEqual(operations.map((operation) => operation[0]), ['remove', 'remove', 'add']);
-  assert.deepEqual(events.map((event) => event.type), [
-    'sentinel.member_role.removed',
-    'sentinel.member_role.removed',
-    'sentinel.member_role.added',
+  assert.deepEqual(events.map((event) => event.action), [
+    'member-role-removed',
+    'member-role-removed',
+    'member-role-added',
   ]);
+  assert.equal(events.every((event) => event.category === 'sentinel-roles'), true);
   assert.equal(result.status, 'applied');
 });
 
