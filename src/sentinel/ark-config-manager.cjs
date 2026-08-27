@@ -9,12 +9,13 @@ const {
   GAME_USER_SETTINGS_PATH,
   GAME_INI_PATH
 } = require('./ark-sftp-config.cjs');
+const { findRemoteFile } = require('./ark-sftp-discovery.cjs');
 
 const ARKSHOP_CONFIG_PATH = 'ShooterGame/Binaries/Win64/ArkApi/Plugins/ArkShop/Configs/config.json';
 const FILES = Object.freeze({
-  gus: { env: 'GUS_PATH', fallback: GAME_USER_SETTINGS_PATH, type: 'ini', restartRequired: true },
-  game: { env: 'GAMEINI_PATH', fallback: GAME_INI_PATH, type: 'ini', restartRequired: true },
-  arkshop: { env: 'ARKSHOP_CONFIG_PATH', fallback: ARKSHOP_CONFIG_PATH, type: 'json', restartRequired: false }
+  gus: { env: 'GUS_PATH', fallback: GAME_USER_SETTINGS_PATH, type: 'ini', restartRequired: true, fileName: 'GameUserSettings.ini' },
+  game: { env: 'GAMEINI_PATH', fallback: GAME_INI_PATH, type: 'ini', restartRequired: true, fileName: 'Game.ini' },
+  arkshop: { env: 'ARKSHOP_CONFIG_PATH', fallback: ARKSHOP_CONFIG_PATH, type: 'json', restartRequired: false, fileName: 'config.json' }
 });
 
 function timestampFolder(now = new Date()) {
@@ -26,8 +27,20 @@ function resolveFile(prefix, fileKey) {
   const spec = FILES[key];
   if (!spec) throw new Error(`Unsupported ARK config file: ${fileKey}.`);
   const settings = sftpSettingsFromEnv(prefix);
-  const relative = process.env[`${prefix}_${spec.env}`] || spec.fallback;
-  return { key, spec, settings, remoteFile: remotePath(settings.root, relative) };
+  const relative = String(process.env[`${prefix}_${spec.env}`] || spec.fallback).trim();
+  return { key, spec, settings, relative, remoteFile: remotePath(settings.root, relative) };
+}
+
+async function resolveExistingFile(client, prefix, fileKey) {
+  const resolved = resolveFile(prefix, fileKey);
+  const found = await findRemoteFile(client, {
+    configuredRoot: resolved.settings.root,
+    configuredPath: resolved.relative,
+    preferredSuffix: resolved.spec.fallback,
+    fileName: resolved.spec.fileName,
+    maxDepth: resolved.key === 'arkshop' ? 9 : 7
+  });
+  return { ...resolved, remoteFile: found.path, discovered: found.discovered === true };
 }
 
 async function connect(prefix = 'ARK_GEN1') {
@@ -90,12 +103,28 @@ function setJsonPath(root, dottedPath, value) {
   return root;
 }
 
-async function readConfig(prefix = 'ARK_GEN1', fileKey) {
-  const resolved = resolveFile(prefix, fileKey);
+async function discoverPaths(prefix = 'ARK_GEN1') {
   const client = await connect(prefix);
   try {
-    const exists = await client.exists(resolved.remoteFile);
-    if (!exists) throw new Error(`${resolved.key} config was not found at ${resolved.remoteFile}.`);
+    const results = {};
+    for (const key of ['gus', 'game', 'arkshop']) {
+      try {
+        const resolved = await resolveExistingFile(client, prefix, key);
+        results[key] = { found: true, path: resolved.remoteFile, discovered: resolved.discovered };
+      } catch (error) {
+        results[key] = { found: false, error: String(error?.message || error) };
+      }
+    }
+    return results;
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
+async function readConfig(prefix = 'ARK_GEN1', fileKey) {
+  const client = await connect(prefix);
+  try {
+    const resolved = await resolveExistingFile(client, prefix, fileKey);
     return { ...resolved, text: await readText(client, resolved.remoteFile) };
   } finally {
     await client.end().catch(() => {});
@@ -103,34 +132,35 @@ async function readConfig(prefix = 'ARK_GEN1', fileKey) {
 }
 
 async function setIniValue({ prefix = 'ARK_GEN1', fileKey, section, key, value, dryRun = false } = {}) {
-  const resolved = resolveFile(prefix, fileKey);
-  if (resolved.spec.type !== 'ini') throw new Error(`${resolved.key} is not an INI config.`);
+  const initial = resolveFile(prefix, fileKey);
+  if (initial.spec.type !== 'ini') throw new Error(`${initial.key} is not an INI config.`);
   if (!String(section || '').trim() || !String(key || '').trim()) throw new Error('INI section and key are required.');
   if (/\r|\n|\[|\]/.test(String(key))) throw new Error('INI key contains invalid characters.');
   const client = await connect(prefix);
   try {
+    const resolved = await resolveExistingFile(client, prefix, fileKey);
     const current = await readText(client, resolved.remoteFile);
     const next = patchIniSection(current, String(section).trim(), { [String(key).trim()]: String(value ?? '') });
-    if (dryRun) return { changed: current !== next, restartRequired: true, remoteFile: resolved.remoteFile, backup: null, dryRun: true };
+    if (dryRun) return { changed: current !== next, restartRequired: true, remoteFile: resolved.remoteFile, backup: null, dryRun: true, discovered: resolved.discovered };
     const result = await backupAndWrite(client, resolved.remoteFile, next);
-    return { ...result, restartRequired: result.changed, remoteFile: resolved.remoteFile, dryRun: false };
+    return { ...result, restartRequired: result.changed, remoteFile: resolved.remoteFile, dryRun: false, discovered: resolved.discovered };
   } finally {
     await client.end().catch(() => {});
   }
 }
 
 async function setArkShopValue({ prefix = 'ARK_GEN1', jsonPath, value, dryRun = false } = {}) {
-  const resolved = resolveFile(prefix, 'arkshop');
   const client = await connect(prefix);
   try {
+    const resolved = await resolveExistingFile(client, prefix, 'arkshop');
     const current = await readText(client, resolved.remoteFile);
     let parsed;
     try { parsed = JSON.parse(current); } catch (error) { throw new Error(`ArkShop config.json is not valid JSON: ${error.message}`); }
     const nextObject = setJsonPath(parsed, jsonPath, parseJsonValue(value));
     const next = `${JSON.stringify(nextObject, null, 2)}\n`;
-    if (dryRun) return { changed: current !== next, restartRequired: false, remoteFile: resolved.remoteFile, backup: null, dryRun: true };
+    if (dryRun) return { changed: current !== next, restartRequired: false, remoteFile: resolved.remoteFile, backup: null, dryRun: true, discovered: resolved.discovered };
     const result = await backupAndWrite(client, resolved.remoteFile, next);
-    return { ...result, restartRequired: false, remoteFile: resolved.remoteFile, dryRun: false };
+    return { ...result, restartRequired: false, remoteFile: resolved.remoteFile, dryRun: false, discovered: resolved.discovered };
   } finally {
     await client.end().catch(() => {});
   }
@@ -154,9 +184,9 @@ async function syncArkShopMysqlFromEnv({ prefix = 'ARK_GEN1', dryRun = false } =
   if (!Number.isInteger(db.port) || db.port < 1 || db.port > 65535) throw new Error('ARKSHOP_DB_PORT is invalid.');
   if (!/^[A-Za-z0-9_]{1,64}$/.test(db.table)) throw new Error('ARKSHOP_DB_TABLE contains unsafe characters.');
 
-  const resolved = resolveFile(prefix, 'arkshop');
   const client = await connect(prefix);
   try {
+    const resolved = await resolveExistingFile(client, prefix, 'arkshop');
     const current = await readText(client, resolved.remoteFile);
     let parsed;
     try { parsed = JSON.parse(current); } catch (error) { throw new Error(`ArkShop config.json is not valid JSON: ${error.message}`); }
@@ -171,24 +201,24 @@ async function syncArkShopMysqlFromEnv({ prefix = 'ARK_GEN1', dryRun = false } =
       MysqlPlayersTable: db.table
     };
     const next = `${JSON.stringify(parsed, null, 2)}\n`;
-    if (dryRun) return { changed: current !== next, restartRequired: false, remoteFile: resolved.remoteFile, backup: null, dryRun: true };
+    if (dryRun) return { changed: current !== next, restartRequired: false, remoteFile: resolved.remoteFile, backup: null, dryRun: true, discovered: resolved.discovered };
     const result = await backupAndWrite(client, resolved.remoteFile, next);
-    return { ...result, restartRequired: false, remoteFile: resolved.remoteFile, dryRun: false };
+    return { ...result, restartRequired: false, remoteFile: resolved.remoteFile, dryRun: false, discovered: resolved.discovered };
   } finally {
     await client.end().catch(() => {});
   }
 }
 
 async function restoreBackup({ prefix = 'ARK_GEN1', fileKey, backup } = {}) {
-  const resolved = resolveFile(prefix, fileKey);
-  const backupPath = String(backup || '').replace(/\\/g, '/');
-  const expectedParent = path.posix.dirname(resolved.remoteFile);
-  const backupRoot = path.posix.join(expectedParent, 'NexusBackups') + '/';
-  if (!backupPath.startsWith(backupRoot) || path.posix.basename(backupPath) !== path.posix.basename(resolved.remoteFile)) {
-    throw new Error('Backup path is outside the approved NexusBackups location.');
-  }
   const client = await connect(prefix);
   try {
+    const resolved = await resolveExistingFile(client, prefix, fileKey);
+    const backupPath = String(backup || '').replace(/\\/g, '/');
+    const expectedParent = path.posix.dirname(resolved.remoteFile);
+    const backupRoot = path.posix.join(expectedParent, 'NexusBackups') + '/';
+    if (!backupPath.startsWith(backupRoot) || path.posix.basename(backupPath) !== path.posix.basename(resolved.remoteFile)) {
+      throw new Error('Backup path is outside the approved NexusBackups location.');
+    }
     const backupExists = await client.exists(backupPath);
     if (!backupExists) throw new Error('Requested backup does not exist.');
     const backupText = await readText(client, backupPath);
@@ -203,6 +233,8 @@ module.exports = {
   ARKSHOP_CONFIG_PATH,
   FILES,
   resolveFile,
+  resolveExistingFile,
+  discoverPaths,
   parseJsonValue,
   setJsonPath,
   readConfig,
