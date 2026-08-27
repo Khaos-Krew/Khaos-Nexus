@@ -64,8 +64,12 @@ async function registerArkCommand(guild) {
 
 async function arkConfigStatus(prefix = 'ARK_GEN1') {
   const settings = sftpSettingsFromEnv(prefix);
-  if (!settings.host || !settings.username || !settings.password) {
-    throw new Error('ARK SFTP variables are incomplete. Host, username, and password are required.');
+  const missing = [];
+  if (!settings.host) missing.push(`${prefix}_SFTP_HOST`);
+  if (!settings.username) missing.push(`${prefix}_SFTP_USERNAME`);
+  if (!settings.password) missing.push(`${prefix}_SFTP_PASSWORD`);
+  if (missing.length) {
+    throw new Error(`ARK SFTP variables are incomplete. Missing at runtime: ${missing.join(', ')}.`);
   }
 
   const gusPath = remotePath(settings.root, process.env[`${prefix}_GUS_PATH`] || GAME_USER_SETTINGS_PATH);
