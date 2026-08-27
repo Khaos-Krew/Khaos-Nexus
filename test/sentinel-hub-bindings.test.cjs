@@ -73,6 +73,28 @@ test('persistent hub message is reused when the persisted message still exists',
   });
 });
 
+test('existing persistent message can explicitly plan an in-place refresh', () => {
+  const binding = withMessageBinding({ hubId: 'server-status' }, '620000000000000010');
+  const plan = planPersistentHubMessage({
+    hubId: 'server-status',
+    binding,
+    messages: [{ id: '620000000000000010' }],
+    refresh: true,
+  });
+  assert.deepEqual(plan, {
+    action: 'refresh',
+    discordMessageId: '620000000000000010',
+    reason: 'refresh-requested',
+  });
+});
+
+test('refresh request still recreates a persisted message that is genuinely missing', () => {
+  const binding = withMessageBinding({ hubId: 'server-status' }, '620000000000000010');
+  const plan = planPersistentHubMessage({ hubId: 'server-status', binding, messages: [], refresh: true });
+  assert.equal(plan.action, 'create');
+  assert.equal(plan.reason, 'persisted-message-missing');
+});
+
 test('missing persisted message plans exactly one replacement', () => {
   const binding = withMessageBinding({ hubId: 'about' }, '620000000000000001');
   const plan = planPersistentHubMessage({ hubId: 'about', binding, messages: [] });
