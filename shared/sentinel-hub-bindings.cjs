@@ -92,14 +92,18 @@ function planHubBindingSync({ registry, bindings = {}, discordChannels = [] } = 
   });
 }
 
-function planPersistentHubMessage({ hubId, binding: bindingInput = {}, messages = [] } = {}) {
+function planPersistentHubMessage({ hubId, binding: bindingInput = {}, messages = [], refresh = false } = {}) {
   const binding = normalizeHubBinding({ hubId, ...bindingInput });
   const available = Array.isArray(messages) ? messages : [];
 
   if (binding.discordMessageId) {
     const exact = available.find((message) => clean(message?.id) === binding.discordMessageId);
     if (exact) {
-      return Object.freeze({ action: 'keep', discordMessageId: binding.discordMessageId, reason: 'id' });
+      return Object.freeze({
+        action: refresh ? 'refresh' : 'keep',
+        discordMessageId: binding.discordMessageId,
+        reason: refresh ? 'refresh-requested' : 'id',
+      });
     }
   }
 
