@@ -84,6 +84,16 @@ function serializeGuildRoleBindings(bindings) {
   };
 }
 
+function toPermissionRoleIds(bindings) {
+  const normalized = normalizeGuildRoleBindings(bindings?.guildId, bindings?.roles || bindings);
+  const roleIds = {};
+  for (const roleKey of Object.values(STAFF_ROLE_KEYS)) {
+    const discordRoleId = normalized.roles[roleKey].discordRoleId;
+    if (discordRoleId) roleIds[roleKey] = discordRoleId;
+  }
+  return Object.freeze(roleIds);
+}
+
 function resolveFunctionalRoleFromMember(memberRoleIds, bindings) {
   const roleIds = new Set((memberRoleIds || []).map((value) => String(value)));
   const normalized = normalizeGuildRoleBindings(bindings?.guildId, bindings?.roles || bindings);
@@ -170,6 +180,7 @@ module.exports = {
   normalizeBinding,
   normalizeGuildRoleBindings,
   serializeGuildRoleBindings,
+  toPermissionRoleIds,
   resolveFunctionalRoleFromMember,
   findAdoptionCandidate,
   planStaffRoleAdoption,
