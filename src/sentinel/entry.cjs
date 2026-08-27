@@ -42,6 +42,7 @@ const { installCreatorLifecycleExtension } = require('./creator-lifecycle-extens
 const { installSupporterEntitlementExtension } = require('./supporter-entitlement-extension.cjs');
 const { installEventManagementExtension } = require('./event-management-extension.cjs');
 const { installArkOpsExtension } = require('./ark-ops-extension.cjs');
+const { installArkConfigDbExtension } = require('./ark-config-db-extension.cjs');
 
 installRetiredGamesSelfRoleCleanupExtension();
 installGuildMembersIntentExtension();
@@ -81,5 +82,6 @@ installCreatorLifecycleExtension();
 installSupporterEntitlementExtension();
 installEventManagementExtension();
 installArkOpsExtension();
+installArkConfigDbExtension();
 require('./ark-command-routing-patch.cjs');
 require('./bot.cjs');
