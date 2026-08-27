@@ -108,6 +108,61 @@ test('existing persistent message is kept without render or Discord writes', asy
   assert.equal(creates, 0);
 });
 
+test('persistent message refresh edits the bound message in place and audits the update', async () => {
+  const updates = [];
+  const audit = [];
+  let renders = 0;
+  let creates = 0;
+  let persists = 0;
+
+  const result = await executePersistentHubMessagePlan({
+    hub: DEFAULT_HUB_REGISTRY.get('server-status'),
+    plan: { action: 'refresh', discordMessageId: '620000000000000010' },
+    gateway: {
+      updatePersistentMessage: async (input) => updates.push(input),
+      createPersistentMessage: async () => { creates += 1; },
+    },
+    persistMessageBinding: async () => { persists += 1; },
+    render: async () => {
+      renders += 1;
+      return { embeds: [{ title: 'Server Status' }] };
+    },
+    audit: async (entry) => audit.push(entry),
+    dryRun: false,
+  });
+
+  assert.equal(renders, 1);
+  assert.equal(creates, 0);
+  assert.equal(persists, 0);
+  assert.deepEqual(updates, [{
+    hubId: 'server-status',
+    discordMessageId: '620000000000000010',
+    payload: { embeds: [{ title: 'Server Status' }] },
+  }]);
+  assert.equal(audit[0].category, 'sentinel-hubs');
+  assert.equal(audit[0].action, 'persistent-message-updated');
+  assert.equal(audit[0].targetId, '620000000000000010');
+  assert.equal(result.status, 'updated');
+  assert.equal(result.discordMessageId, '620000000000000010');
+});
+
+test('persistent message refresh dry-run performs no render or Discord mutation', async () => {
+  let renders = 0;
+  let updates = 0;
+  const result = await executePersistentHubMessagePlan({
+    hub: DEFAULT_HUB_REGISTRY.get('server-status'),
+    plan: { action: 'refresh', discordMessageId: '620000000000000011' },
+    gateway: { updatePersistentMessage: async () => { updates += 1; } },
+    render: async () => { renders += 1; return {}; },
+    dryRun: true,
+  });
+
+  assert.equal(result.status, 'would-update');
+  assert.equal(result.discordMessageId, '620000000000000011');
+  assert.equal(renders, 0);
+  assert.equal(updates, 0);
+});
+
 test('missing persistent message is rendered once, recreated, persisted, and audited', async () => {
   const persists = [];
   const audit = [];
