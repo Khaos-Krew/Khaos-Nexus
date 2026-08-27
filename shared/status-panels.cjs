@@ -2,6 +2,7 @@
 
 const crypto = require('node:crypto');
 const { validateDiscordMessagePayload } = require('./discord-message-payload.cjs');
+const { normalizeHealthState } = require('./sentinel-health.cjs');
 
 const MAX_STATUS_PANELS = 40;
 const STATUS_BUTTON_ACTIONS = new Set(['refresh', 'players']);
@@ -112,7 +113,7 @@ function formatDuration(seconds) {
 }
 
 function normalizeStatusSnapshot(snapshot = {}) {
-  const status = ['online', 'offline', 'degraded'].includes(snapshot.status) ? snapshot.status : 'offline';
+  const status = normalizeHealthState(snapshot.status);
   return {
     status,
     serverName: cleanText(snapshot.serverName, 100, 'Unknown server'),
@@ -143,9 +144,9 @@ function renderStatusPanel(panelInput, snapshotInput, options = {}) {
   const panel = normalizeStatusPanel(panelInput);
   const snapshot = normalizeStatusSnapshot(snapshotInput);
   const online = snapshot.status === 'online';
-  const degraded = snapshot.status === 'degraded';
-  const statusLabel = online ? 'ONLINE' : degraded ? 'DEGRADED' : 'OFFLINE';
-  const color = online ? Number.parseInt(panel.color.slice(1), 16) : degraded ? 0xf1c40f : 0xe3264f;
+  const maintenance = snapshot.status === 'maintenance';
+  const statusLabel = online ? 'ONLINE' : maintenance ? 'MAINTENANCE' : 'OFFLINE';
+  const color = online ? Number.parseInt(panel.color.slice(1), 16) : maintenance ? 0xf1c40f : 0xe3264f;
   const playerValue = snapshot.maxPlayers > 0 ? `${snapshot.players} / ${snapshot.maxPlayers}` : String(snapshot.players);
   const fields = [
     { name: 'Status', value: statusLabel, inline: true },
