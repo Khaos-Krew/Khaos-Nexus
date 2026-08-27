@@ -46,6 +46,7 @@ const { installArkConfigDbExtension } = require('./ark-config-db-extension.cjs')
 const { installArkClusterExtension } = require('./ark-cluster-extension.cjs');
 const { installArkClusterMetadataExtension } = require('./ark-cluster-metadata-extension.cjs');
 const { installArkConfigProfileExtension } = require('./ark-config-profile-extension.cjs');
+const { installArkShopProfileExtension } = require('./arkshop-profile-extension.cjs');
 
 installRetiredGamesSelfRoleCleanupExtension();
 installGuildMembersIntentExtension();
@@ -89,5 +90,6 @@ installArkConfigDbExtension();
 installArkClusterExtension();
 installArkClusterMetadataExtension();
 installArkConfigProfileExtension();
+installArkShopProfileExtension();
 require('./ark-command-routing-patch.cjs');
 require('./bot.cjs');
