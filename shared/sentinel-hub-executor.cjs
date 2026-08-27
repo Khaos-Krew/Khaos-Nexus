@@ -127,6 +127,28 @@ async function executePersistentHubMessagePlan({
   if (plan.action === 'keep') {
     return { hubId: hub.id, status: 'kept', discordMessageId: plan.discordMessageId };
   }
+
+  if (plan.action === 'refresh' || plan.action === 'update') {
+    const discordMessageId = String(plan.discordMessageId || '').trim();
+    if (!discordMessageId) throw new TypeError('A discordMessageId is required to refresh a persistent hub message.');
+    if (dryRun) return { hubId: hub.id, status: 'would-update', discordMessageId };
+
+    const updatePersistentMessage = requireFunction(gateway, 'updatePersistentMessage');
+    if (typeof render !== 'function') throw new TypeError('render() is required for persistent hub message refresh.');
+    const payload = await render(hub);
+    await updatePersistentMessage({ hubId: hub.id, discordMessageId, payload });
+    await emit(audit, auditEntry({
+      action: 'persistent-message-updated',
+      hubId: hub.id,
+      targetType: 'discord-message',
+      targetId: discordMessageId,
+      summary: `Updated persistent Sentinel message for hub ${hub.id}.`,
+      details: { persistentMessageKey: hub.persistentMessageKey, bannerKey: hub.bannerKey || null },
+      actor,
+    }));
+    return { hubId: hub.id, status: 'updated', discordMessageId };
+  }
+
   if (plan.action !== 'create') throw new TypeError(`Unsupported hub message action: ${plan.action}`);
   if (dryRun) return { hubId: hub.id, status: 'would-create', discordMessageId: null };
 
