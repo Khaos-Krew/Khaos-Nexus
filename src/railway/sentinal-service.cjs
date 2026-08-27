@@ -3,6 +3,7 @@
 const { bootstrapHostedProviderStore } = require('./hosted-provider-store.cjs');
 const { applyBaselineIfRequested } = require('../sentinel/ark-sftp-config.cjs');
 const { discoverPaths } = require('../sentinel/ark-config-manager.cjs');
+const { inspectSftpLayout } = require('../sentinel/ark-sftp-diagnostic.cjs');
 const { mysqlStatus } = require('../sentinel/arkshop-mysql.cjs');
 
 process.env.NEXUS_BACKEND_HOST ||= '127.0.0.1';
@@ -30,6 +31,10 @@ void applyBaselineIfRequested({ prefix: 'ARK_GEN1', stampDirectory: '/app/data' 
 require('../sentinel/entry.cjs');
 
 if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
+  void inspectSftpLayout('ARK_GEN1')
+    .then((layout) => console.log(`[Nexus Sentinal] ARK SFTP layout: cwd=${layout.cwd} configuredRoot=${layout.configuredRoot} dirs=${layout.directories.join(',') || '(none)'} shooterGame=${layout.shooterGameCandidates.join(',') || '(none)'}`))
+    .catch((error) => console.warn(`[Nexus Sentinal] ARK SFTP layout unavailable: ${String(error?.message || error).slice(0, 300)}`));
+
   void discoverPaths('ARK_GEN1')
     .then((paths) => {
       const summarize = (item) => item?.found ? item.path : `missing:${String(item?.error || 'unknown').slice(0, 100)}`;
