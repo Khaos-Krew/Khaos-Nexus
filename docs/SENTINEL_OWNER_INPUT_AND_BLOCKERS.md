@@ -12,7 +12,7 @@ This file is the authoritative queue for items that cannot be resolved safely in
 
 ## Active Blockers
 
-- **Health/status-panel test blocker:** an older health/status-panel failure remains under investigation. It is isolated from current managed-role/hub work and must either be repaired or documented here with the exact failing assertion and safe workaround.
+- **None currently blocking pure-code roadmap implementation.**
 
 ## Deferred Operational Prerequisites
 
@@ -22,6 +22,7 @@ This file is the authoritative queue for items that cannot be resolved safely in
 ## Resolved
 
 - Stale README/mobile-workspace CI assertion corrected.
+- Health/status-panel blocker cleared: full branch CI is green, and the Sentinel health suite enforces exactly Online, Offline, and Maintenance plus the approved deterministic recovery flow.
 - Duplicate hub-registry overlap avoided; the existing shared Sentinel hub registry remains authoritative.
 - Managed staff-role persistence/adoption implemented with ambiguity review instead of duplicate creation.
 - Permission projection from persisted staff bindings implemented while preserving owner-identity separation.
