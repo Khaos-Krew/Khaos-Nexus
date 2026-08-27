@@ -81,4 +81,5 @@ installCreatorLifecycleExtension();
 installSupporterEntitlementExtension();
 installEventManagementExtension();
 installArkOpsExtension();
+require('./ark-command-routing-patch.cjs');
 require('./bot.cjs');
