@@ -8,7 +8,20 @@ function isDirectory(item) {
 }
 
 function safeName(value) {
-  return String(value || '').replace(/[\r\n|]/g, '_').slice(0, 100);
+  return String(value || '').replace(/[\r\n|]/g, '_').slice(0, 140);
+}
+
+async function exists(client, remotePath) {
+  try { return Boolean(await client.exists(remotePath)); } catch { return false; }
+}
+
+async function listDirectoryNames(client, remotePath, limit = 80) {
+  try {
+    const entries = await client.list(remotePath);
+    return entries.map((item) => safeName(item.name)).filter(Boolean).slice(0, limit);
+  } catch {
+    return [];
+  }
 }
 
 async function inspectSftpLayout(prefix = 'ARK_GEN1') {
@@ -33,27 +46,33 @@ async function inspectSftpLayout(prefix = 'ARK_GEN1') {
     const files = entries.filter((item) => !isDirectory(item)).map((item) => safeName(item.name)).filter(Boolean).slice(0, 40);
     const children = [];
 
-    // One shallow level is enough to spot common Citadel wrappers such as a
-    // server-id/home directory containing ShooterGame without crawling data.
     for (const directory of directories.slice(0, 30)) {
       let nested;
-      try {
-        nested = await client.list(directory);
-      } catch {
-        continue;
-      }
+      try { nested = await client.list(directory); } catch { continue; }
       const nestedDirs = nested.filter(isDirectory).map((item) => safeName(item.name)).filter(Boolean).slice(0, 40);
-      if (nestedDirs.some((name) => name.toLowerCase() === 'shootergame')) {
-        children.push(`${directory}/ShooterGame`);
-      }
+      if (nestedDirs.some((name) => name.toLowerCase() === 'shootergame')) children.push(`${directory}/ShooterGame`);
     }
+
+    const shooterGameRoot = children[0] || (directories.some((name) => name.toLowerCase() === 'shootergame') ? 'ShooterGame' : '');
+    const gusPath = String(process.env[`${prefix}_GUS_PATH`] || '').trim();
+    const gamePath = String(process.env[`${prefix}_GAMEINI_PATH`] || '').trim();
+    const shopPath = String(process.env[`${prefix}_ARKSHOP_CONFIG_PATH`] || '').trim();
+    const pluginsPath = shooterGameRoot ? `${shooterGameRoot}/Binaries/Win64/ArkApi/Plugins` : '';
 
     return {
       cwd: safeName(cwd),
       configuredRoot: safeName(settings.root || '.'),
       directories,
       files,
-      shooterGameCandidates: children
+      shooterGameCandidates: children,
+      exact: {
+        gus: gusPath ? await exists(client, gusPath) : false,
+        game: gamePath ? await exists(client, gamePath) : false,
+        arkshop: shopPath ? await exists(client, shopPath) : false
+      },
+      pluginsPath,
+      plugins: pluginsPath ? await listDirectoryNames(client, pluginsPath, 80) : [],
+      arkShopEntries: shooterGameRoot ? await listDirectoryNames(client, `${shooterGameRoot}/Binaries/Win64/ArkApi/Plugins/ArkShop`, 80) : []
     };
   } finally {
     await client.end().catch(() => {});
