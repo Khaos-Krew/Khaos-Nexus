@@ -136,6 +136,49 @@ async function setArkShopValue({ prefix = 'ARK_GEN1', jsonPath, value, dryRun = 
   }
 }
 
+async function syncArkShopMysqlFromEnv({ prefix = 'ARK_GEN1', dryRun = false } = {}) {
+  const db = {
+    host: String(process.env.ARKSHOP_DB_HOST || '').trim(),
+    user: String(process.env.ARKSHOP_DB_USER || '').trim(),
+    password: String(process.env.ARKSHOP_DB_PASSWORD || ''),
+    database: String(process.env.ARKSHOP_DB_NAME || '').trim(),
+    port: Number(process.env.ARKSHOP_DB_PORT || 3306),
+    table: String(process.env.ARKSHOP_DB_TABLE || 'ArkShopPlayers').trim()
+  };
+  const missing = [];
+  if (!db.host) missing.push('ARKSHOP_DB_HOST');
+  if (!db.user) missing.push('ARKSHOP_DB_USER');
+  if (!db.password) missing.push('ARKSHOP_DB_PASSWORD');
+  if (!db.database) missing.push('ARKSHOP_DB_NAME');
+  if (missing.length) throw new Error(`Cannot sync ArkShop MySQL yet. Missing protected Railway variables: ${missing.join(', ')}`);
+  if (!Number.isInteger(db.port) || db.port < 1 || db.port > 65535) throw new Error('ARKSHOP_DB_PORT is invalid.');
+  if (!/^[A-Za-z0-9_]{1,64}$/.test(db.table)) throw new Error('ARKSHOP_DB_TABLE contains unsafe characters.');
+
+  const resolved = resolveFile(prefix, 'arkshop');
+  const client = await connect(prefix);
+  try {
+    const current = await readText(client, resolved.remoteFile);
+    let parsed;
+    try { parsed = JSON.parse(current); } catch (error) { throw new Error(`ArkShop config.json is not valid JSON: ${error.message}`); }
+    parsed.Mysql = {
+      ...(parsed.Mysql && typeof parsed.Mysql === 'object' && !Array.isArray(parsed.Mysql) ? parsed.Mysql : {}),
+      UseMysql: true,
+      MysqlHost: db.host,
+      MysqlUser: db.user,
+      MysqlPass: db.password,
+      MysqlDB: db.database,
+      MysqlPort: db.port,
+      MysqlPlayersTable: db.table
+    };
+    const next = `${JSON.stringify(parsed, null, 2)}\n`;
+    if (dryRun) return { changed: current !== next, restartRequired: false, remoteFile: resolved.remoteFile, backup: null, dryRun: true };
+    const result = await backupAndWrite(client, resolved.remoteFile, next);
+    return { ...result, restartRequired: false, remoteFile: resolved.remoteFile, dryRun: false };
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
 async function restoreBackup({ prefix = 'ARK_GEN1', fileKey, backup } = {}) {
   const resolved = resolveFile(prefix, fileKey);
   const backupPath = String(backup || '').replace(/\\/g, '/');
@@ -165,5 +208,6 @@ module.exports = {
   readConfig,
   setIniValue,
   setArkShopValue,
+  syncArkShopMysqlFromEnv,
   restoreBackup
 };
