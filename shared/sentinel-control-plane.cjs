@@ -1,6 +1,7 @@
 'use strict';
 
 const {
+  STAFF_ROLE_KEYS,
   normalizeGuildRoleBindings,
   serializeGuildRoleBindings,
   toPermissionRoleIds,
@@ -8,6 +9,16 @@ const {
 const { normalizeHubBinding } = require('./sentinel-hub-bindings.cjs');
 
 const CONTROL_PLANE_SCHEMA_VERSION = 1;
+
+const LEGACY_STAFF_ROLE_KEYS = Object.freeze({
+  owner: STAFF_ROLE_KEYS.OWNER,
+  community_manager: STAFF_ROLE_KEYS.COMMUNITY_MANAGER,
+  communitymanager: STAFF_ROLE_KEYS.COMMUNITY_MANAGER,
+  admin: STAFF_ROLE_KEYS.ADMIN,
+  administrator: STAFF_ROLE_KEYS.ADMIN,
+  moderator: STAFF_ROLE_KEYS.MODERATOR,
+  mod: STAFF_ROLE_KEYS.MODERATOR,
+});
 
 function clean(value) {
   return String(value || '').trim();
@@ -17,6 +28,30 @@ function normalizeSnowflake(value) {
   const normalized = clean(value);
   if (!normalized) return null;
   return /^\d{5,25}$/.test(normalized) ? normalized : null;
+}
+
+function canonicalStaffRoleKey(value) {
+  const raw = clean(value);
+  if (!raw) return null;
+  if (Object.values(STAFF_ROLE_KEYS).includes(raw)) return raw;
+  return LEGACY_STAFF_ROLE_KEYS[raw.toLowerCase()] || null;
+}
+
+function normalizeStaffRoleInput(input = {}) {
+  const source = input && typeof input === 'object' ? input : {};
+  const roles = source.roles && typeof source.roles === 'object' ? source.roles : source;
+  const result = {};
+
+  for (const [rawKey, value] of Object.entries(roles)) {
+    const roleKey = canonicalStaffRoleKey(rawKey);
+    if (!roleKey) continue;
+    if (Object.prototype.hasOwnProperty.call(result, roleKey)) {
+      throw new TypeError(`Duplicate Sentinel staff role binding after normalization: ${roleKey}`);
+    }
+    result[roleKey] = value;
+  }
+
+  return result;
 }
 
 function normalizeRoleMenuBinding(menuId, input = {}) {
@@ -57,7 +92,7 @@ function normalizeControlPlane(input = {}) {
   if (!guildId) throw new TypeError('Sentinel control plane requires a valid Discord guild ID.');
 
   const roleSource = source.staffRoles || source.roles || {};
-  const staffRoles = normalizeGuildRoleBindings(guildId, roleSource.roles || roleSource);
+  const staffRoles = normalizeGuildRoleBindings(guildId, normalizeStaffRoleInput(roleSource));
   const hubs = normalizeHubBindings(source.hubs);
   const roleMenus = normalizeRoleMenuBindings(source.roleMenus || source.menus);
 
@@ -132,6 +167,9 @@ function controlPlaneReadiness(input = {}) {
 
 module.exports = {
   CONTROL_PLANE_SCHEMA_VERSION,
+  LEGACY_STAFF_ROLE_KEYS,
+  canonicalStaffRoleKey,
+  normalizeStaffRoleInput,
   normalizeRoleMenuBinding,
   normalizeHubBindings,
   normalizeRoleMenuBindings,
