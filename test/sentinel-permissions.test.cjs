@@ -40,7 +40,7 @@ function interaction({ userId = '222222222222222222', administrator = false, rol
   };
 }
 
-test('configured owner outranks Discord administrator and maps to functional owner', () => {
+test('configured owner outranks Discord administrator and maps to functional and adapter owner', () => {
   const actor = interaction({ userId: OWNER_ID, administrator: true, roleIds: [STAFF_ROLE_IDS.MODERATOR] });
   assert.equal(functionalRoleForInteraction(actor, OWNER_ID, STAFF_ROLE_IDS), FUNCTIONAL_ROLE.OWNER);
   assert.equal(principalForInteraction(actor, OWNER_ID, STAFF_ROLE_IDS), 'owner');
@@ -49,7 +49,7 @@ test('configured owner outranks Discord administrator and maps to functional own
 
 test('Nexus staff role IDs map to functional roles without relying on display names', () => {
   const cases = [
-    [STAFF_ROLE_IDS.OWNER, FUNCTIONAL_ROLE.OWNER, 'owner', 'owner'],
+    [STAFF_ROLE_IDS.OWNER, FUNCTIONAL_ROLE.OWNER, 'administrator', 'operator'],
     [STAFF_ROLE_IDS.COMMUNITY_MANAGER, FUNCTIONAL_ROLE.COMMUNITY_MANAGER, 'administrator', 'operator'],
     [STAFF_ROLE_IDS.ADMIN, FUNCTIONAL_ROLE.ADMIN, 'administrator', 'operator'],
     [STAFF_ROLE_IDS.MODERATOR, FUNCTIONAL_ROLE.MODERATOR, 'member', 'viewer']
@@ -111,8 +111,9 @@ test('read-only server commands remain available to members', () => {
   }
 });
 
-test('operator-safe commands allow Nexus Command, Nexus Architect, and Discord administrator but deny Warden/member', () => {
+test('operator-safe commands allow Nexus Prime/Architect/Command and Discord administrator but deny Warden/member', () => {
   const allowedActors = [
+    interaction({ roleIds: [STAFF_ROLE_IDS.OWNER] }),
     interaction({ roleIds: [STAFF_ROLE_IDS.ADMIN] }),
     interaction({ roleIds: [STAFF_ROLE_IDS.COMMUNITY_MANAGER] }),
     interaction({ administrator: true })
@@ -142,7 +143,7 @@ test('operator-safe commands allow Nexus Command, Nexus Architect, and Discord a
   }
 });
 
-test('destructive capabilities stay OWNER-only across functional staff tiers', () => {
+test('destructive capabilities require configured owner identity even when Nexus Prime role is present', () => {
   const ownerAccount = interaction({ userId: OWNER_ID });
   const nexusPrime = interaction({ roleIds: [STAFF_ROLE_IDS.OWNER] });
   const architect = interaction({ roleIds: [STAFF_ROLE_IDS.COMMUNITY_MANAGER] });
@@ -157,14 +158,8 @@ test('destructive capabilities stay OWNER-only across functional staff tiers', (
       ownerUserId: OWNER_ID,
       staffRoleIds: STAFF_ROLE_IDS
     }).allowed, true, commandName);
-    assert.equal(permissionDecision({
-      interaction: nexusPrime,
-      commandName,
-      ownerUserId: OWNER_ID,
-      staffRoleIds: STAFF_ROLE_IDS
-    }).allowed, true, commandName);
 
-    for (const actor of [architect, discordAdmin]) {
+    for (const actor of [nexusPrime, architect, discordAdmin]) {
       const denied = permissionDecision({
         interaction: actor,
         commandName,
