@@ -24,7 +24,10 @@ require('../sentinel/entry.cjs');
 
 if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
   void inspectSftpLayout('ARK_GEN1')
-    .then((layout) => console.log(`[Nexus Sentinal] ARK SFTP layout: cwd=${layout.cwd} configuredRoot=${layout.configuredRoot} dirs=${layout.directories.join(',') || '(none)'} shooterGame=${layout.shooterGameCandidates.join(',') || '(none)'}`))
+    .then((layout) => {
+      console.log(`[Nexus Sentinal] ARK SFTP layout: cwd=${layout.cwd} configuredRoot=${layout.configuredRoot} dirs=${layout.directories.join(',') || '(none)'} shooterGame=${layout.shooterGameCandidates.join(',') || '(none)'}`);
+      console.log(`[Nexus Sentinal] ARK SFTP exact: gus=${layout.exact.gus} game=${layout.exact.game} arkshop=${layout.exact.arkshop} plugins=${layout.plugins.join(',') || '(none)'} arkShopEntries=${layout.arkShopEntries.join(',') || '(none)'}`);
+    })
     .catch((error) => console.warn(`[Nexus Sentinal] ARK SFTP layout unavailable: ${String(error?.message || error).slice(0, 300)}`));
 
   void discoverPaths('ARK_GEN1')
