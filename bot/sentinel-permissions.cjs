@@ -154,16 +154,22 @@ function functionalRoleForInteraction(interaction, ownerUserId, staffRoleIds) {
   return FUNCTIONAL_ROLE.MEMBER;
 }
 
-function principalForFunctionalRole(functionalRole) {
-  if (functionalRole === FUNCTIONAL_ROLE.OWNER) return 'owner';
-  if (functionalRole === FUNCTIONAL_ROLE.ADMIN || functionalRole === FUNCTIONAL_ROLE.COMMUNITY_MANAGER) {
+function principalForFunctionalRole(functionalRole, ownerIdentity = false) {
+  if (functionalRole === FUNCTIONAL_ROLE.OWNER && ownerIdentity) return 'owner';
+  if (
+    functionalRole === FUNCTIONAL_ROLE.OWNER ||
+    functionalRole === FUNCTIONAL_ROLE.ADMIN ||
+    functionalRole === FUNCTIONAL_ROLE.COMMUNITY_MANAGER
+  ) {
     return 'administrator';
   }
   return 'member';
 }
 
 function principalForInteraction(interaction, ownerUserId, staffRoleIds) {
-  return principalForFunctionalRole(functionalRoleForInteraction(interaction, ownerUserId, staffRoleIds));
+  const ownerIdentity = isConfiguredOwner(interaction, ownerUserId);
+  const functionalRole = functionalRoleForInteraction(interaction, ownerUserId, staffRoleIds);
+  return principalForFunctionalRole(functionalRole, ownerIdentity);
 }
 
 function requiredRoleForCommand(commandName) {
@@ -180,8 +186,9 @@ function requiredFunctionalRoleForCommand(commandName) {
 
 function permissionDecision({ interaction, commandName, ownerUserId, staffRoleIds } = {}) {
   const command = String(commandName || '').trim().toLowerCase();
+  const ownerIdentity = isConfiguredOwner(interaction, ownerUserId);
   const functionalRole = functionalRoleForInteraction(interaction, ownerUserId, staffRoleIds);
-  const principal = principalForFunctionalRole(functionalRole);
+  const principal = principalForFunctionalRole(functionalRole, ownerIdentity);
   const requiredRole = requiredRoleForCommand(command);
   const requiredFunctionalRole = requiredFunctionalRoleForCommand(command);
 
@@ -198,7 +205,10 @@ function permissionDecision({ interaction, commandName, ownerUserId, staffRoleId
     });
   }
 
-  const allowed = FUNCTIONAL_ACCESS_RANK[functionalRole] >= FUNCTIONAL_ACCESS_RANK[requiredFunctionalRole];
+  const roleAllowed = FUNCTIONAL_ACCESS_RANK[functionalRole] >= FUNCTIONAL_ACCESS_RANK[requiredFunctionalRole];
+  const ownerIdentityRequired = requiredFunctionalRole === FUNCTIONAL_ROLE.OWNER;
+  const allowed = roleAllowed && (!ownerIdentityRequired || ownerIdentity);
+
   return Object.freeze({
     allowed,
     command,
@@ -209,7 +219,9 @@ function permissionDecision({ interaction, commandName, ownerUserId, staffRoleId
     code: allowed ? 'ALLOWED' : 'ACCESS_DENIED',
     reason: allowed
       ? 'Functional Nexus role satisfies the command permission policy.'
-      : `Command requires ${FUNCTIONAL_ROLE_DISPLAY[requiredFunctionalRole] || requiredFunctionalRole} access.`
+      : ownerIdentityRequired && !ownerIdentity
+        ? 'Command requires the configured Khaos Nexus Owner identity.'
+        : `Command requires ${FUNCTIONAL_ROLE_DISPLAY[requiredFunctionalRole] || requiredFunctionalRole} access.`
   });
 }
 
@@ -218,13 +230,13 @@ function permissionDeniedMessage(decision) {
     return 'This command is not recognized by the Sentinel permission policy.';
   }
   if (decision?.requiredFunctionalRole === FUNCTIONAL_ROLE.OWNER || decision?.requiredRole === 'owner') {
-    return 'This command is restricted to the configured Khaos Nexus Owner account or Nexus Prime role.';
+    return 'This command is restricted to the configured Khaos Nexus Owner account.';
   }
   if (decision?.requiredFunctionalRole === FUNCTIONAL_ROLE.COMMUNITY_MANAGER) {
     return 'This command requires Nexus Architect or Nexus Prime access.';
   }
   if (decision?.requiredFunctionalRole === FUNCTIONAL_ROLE.ADMIN || decision?.requiredRole === 'administrator') {
-    return 'This command requires Nexus Command or higher, or a Discord administrator during migration.';
+    return 'This command requires the configured bot owner or a Discord administrator.';
   }
   if (decision?.requiredFunctionalRole === FUNCTIONAL_ROLE.MODERATOR) {
     return 'This command requires Nexus Warden or higher access.';
@@ -238,9 +250,15 @@ function isPrivilegedCommand(commandName) {
 }
 
 function adapterRoleForInteraction(interaction, ownerUserId, staffRoleIds) {
+  if (isConfiguredOwner(interaction, ownerUserId)) return 'owner';
   const functionalRole = functionalRoleForInteraction(interaction, ownerUserId, staffRoleIds);
-  if (functionalRole === FUNCTIONAL_ROLE.OWNER) return 'owner';
-  if (functionalRole === FUNCTIONAL_ROLE.ADMIN || functionalRole === FUNCTIONAL_ROLE.COMMUNITY_MANAGER) return 'operator';
+  if (
+    functionalRole === FUNCTIONAL_ROLE.OWNER ||
+    functionalRole === FUNCTIONAL_ROLE.ADMIN ||
+    functionalRole === FUNCTIONAL_ROLE.COMMUNITY_MANAGER
+  ) {
+    return 'operator';
+  }
   return 'viewer';
 }
 
