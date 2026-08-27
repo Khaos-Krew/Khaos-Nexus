@@ -39,13 +39,24 @@ function installArkClusterMetadataExtension() {
     if (!client[BOUND]) {
       client[BOUND] = true;
       client.on(Events.InteractionCreate, (interaction) => {
-        if (!interaction.isChatInputCommand?.() || interaction.commandName !== 'arkconfig') return;
+        if (!interaction.isChatInputCommand?.()) return;
         let sub = '';
         try { sub = interaction.options.getSubcommand(); } catch { return; }
-        if (!['set-ini', 'set-shop', 'sync-mysql'].includes(sub)) return;
-        if (interaction.options.getBoolean('dry_run') === true) return;
-        const timer = setTimeout(() => void run(`config-${sub}`, true), 3_000);
-        timer.unref?.();
+
+        if (interaction.commandName === 'arkconfig') {
+          if (!['set-ini', 'set-shop', 'sync-mysql'].includes(sub)) return;
+          if (interaction.options.getBoolean('dry_run') === true) return;
+          const timer = setTimeout(() => void run(`config-${sub}`, true), 3_000);
+          timer.unref?.();
+          return;
+        }
+
+        if (interaction.commandName === 'arkprofile') {
+          if (!['apply', 'rollback'].includes(sub)) return;
+          if (interaction.options.getBoolean('confirm') !== true) return;
+          const timer = setTimeout(() => void run(`profile-${sub}`, true), 7_000);
+          timer.unref?.();
+        }
       });
     }
 
