@@ -7,6 +7,7 @@ const PANEL_MARKER = 'Nexus Sentinal • ARK Cluster Management • v1';
 const PANEL_TITLE = 'KHAOS NEXUS • ARK CLUSTER';
 const STATUS_CHANNEL = 'ark-server-status';
 const BUTTON_REFRESH = 'nexus-ark-cluster-refresh';
+const BUTTON_MODS = 'nexus-ark-cluster-mods';
 const BUTTON_SHOP = 'nexus-ark-cluster-shop';
 const BUTTON_KITS = 'nexus-ark-cluster-kits';
 const BUTTON_EVENTS = 'nexus-ark-cluster-events';
@@ -53,9 +54,9 @@ function renderRates(rates = {}) {
 
 function renderMods(mods = []) {
   const list = Array.isArray(mods) ? mods.filter(Boolean) : [];
-  if (!list.length) return '0 tracked';
+  if (!list.length) return 'No active mods detected';
   const names = list.slice(0, 5).map((item) => clean(item, 36)).join(', ');
-  return `${list.length} tracked${names ? ` • ${names}${list.length > 5 ? ', …' : ''}` : ''}`;
+  return `${list.length} active${names ? ` • ${names}${list.length > 5 ? ', …' : ''}` : ''}`;
 }
 
 function effectiveRates(server = {}) {
@@ -86,20 +87,11 @@ function renderRestartState(server = {}) {
 function renderMapField(server = {}) {
   const runtime = server.runtime || {};
   const state = runtime.state || (server.maintenance ? 'maintenance' : 'offline');
-  const lines = [
-    `${stateGlyph(state)} **${stateLabel(state)}** • **Players:** ${Math.max(0, Number(runtime.playerCount) || 0)}`,
-    `**Map:** ${clean(server.mapName || server.name || server.id, 80)}${server.mapIdentifier ? ` • \`${clean(server.mapIdentifier, 80)}\`` : ''}`,
-    `**Control:** ${renderConnectivity(server)}`,
-    `**Profiles:** Config \`${clean(server.configProfile || 'default', 40)}\` • Mods \`${clean(server.modProfile || 'default', 40)}\` • Shop \`${clean(server.shopProfile || 'default', 40)}\` • Restart \`${clean(server.restartProfile || 'default', 40)}\``,
-    `**Config state:** ${renderRestartState(server)}`,
-    `**Rates:** ${renderRates(effectiveRates(server))}`,
-    `**Mods:** ${renderMods(effectiveMods(server))}`,
-    `**Event:** ${server.currentEvent ? clean(server.currentEvent, 80) : 'None'}${server.eventEndsAt ? ` • ends ${discordTime(server.eventEndsAt)}` : ''}`,
-    `**Next restart:** ${discordTime(server.nextRestartAt)}`,
-    `**Access:** Shop ${server.shopEnabled === false ? '🔴' : '🟢'} • Kits ${server.kitsEnabled === false ? '🔴' : '🟢'} • Events ${server.eventsEnabled === false ? '🔴' : '🟢'}`
-  ];
-  if (runtime.lastCheckedAt) lines.push(`**Checked:** ${discordTime(runtime.lastCheckedAt)}`);
-  return lines.join('\n').slice(0, 1024);
+  return [
+    `**Map:** ${clean(server.mapName || server.name || server.id, 80)}`,
+    `**Status:** ${stateGlyph(state)} ${stateLabel(state)}`,
+    `**Players:** ${Math.max(0, Number(runtime.playerCount) || 0)}`
+  ].join('\n');
 }
 
 function clusterEvent(servers = []) {
@@ -115,6 +107,7 @@ function nextRestart(servers = []) {
 function buildButtons() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(BUTTON_REFRESH).setLabel('Refresh').setEmoji('🔄').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(BUTTON_MODS).setLabel('Mod List').setEmoji('🧩').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(BUTTON_SHOP).setLabel('Shop').setEmoji('🛒').setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId(BUTTON_KITS).setLabel('Kits').setEmoji('🎁').setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId(BUTTON_EVENTS).setLabel('Events').setEmoji('🎉').setStyle(ButtonStyle.Primary)
@@ -123,18 +116,12 @@ function buildButtons() {
 
 function renderArkClusterPanel({ servers = [], summary = {}, checkedAt = '' } = {}) {
   const enabled = servers.filter((server) => server.enabled !== false);
-  const event = clusterEvent(enabled);
-  const restart = nextRestart(enabled);
-  const pendingRestarts = enabled.filter((server) => server.restartRequired).length;
   const fields = [{
-    name: `${stateGlyph(summary.state)} Cluster Health • ${stateLabel(summary.state)}`,
+    name: `${stateGlyph(summary.state)} Cluster • ${stateLabel(summary.state)}`,
     value: [
-      `**Maps:** ${summary.online || 0} online • ${summary.maintenance || 0} maintenance • ${summary.offline || 0} offline`,
-      `**Players:** ${summary.totalPlayers || 0} across ${summary.enabled || 0} enabled map${Number(summary.enabled) === 1 ? '' : 's'}`,
-      `**Pending config restarts:** ${pendingRestarts ? `⚠️ ${pendingRestarts}` : '✅ 0'}`,
-      `**Current event:** ${event ? clean(event.name, 100) : 'None'}${event?.endsAt ? ` • ends ${discordTime(event.endsAt)}` : ''}`,
-      `**Next restart:** ${discordTime(restart)}`,
-      `**Last refresh:** ${discordTime(checkedAt)}`
+      `**Maps:** ${summary.enabled || 0}`,
+      `**Players:** ${summary.totalPlayers || 0}`,
+      `**Updated:** ${discordTime(checkedAt)}`
     ].join('\n'),
     inline: false
   }];
@@ -147,14 +134,12 @@ function renderArkClusterPanel({ servers = [], summary = {}, checkedAt = '' } = 
     });
   }
 
-  if (!enabled.length) {
-    fields.push({ name: 'No enabled maps', value: 'The ARK cluster registry currently has no enabled server records.', inline: false });
-  }
+  if (!enabled.length) fields.push({ name: 'No maps available', value: 'No ARK maps are currently enabled.', inline: false });
 
   return {
     embeds: [{
       title: PANEL_TITLE,
-      description: 'Sentinal-managed ARK: Survival Ascended cluster status. Adding or removing a registry record updates this panel automatically; no Discord panel rebuild is required. Public health states are limited to 🟢 Online, 🔴 Offline, and 🟡 Maintenance.',
+      description: 'Live Khaos Nexus ARK: Survival Ascended cluster status.',
       color: summary.state === 'online' ? 0x2ecc71 : summary.state === 'maintenance' ? 0xf1c40f : 0xe74c3c,
       fields: fields.slice(0, 25),
       footer: { text: PANEL_MARKER }
@@ -221,6 +206,7 @@ module.exports = {
   PANEL_TITLE,
   STATUS_CHANNEL,
   BUTTON_REFRESH,
+  BUTTON_MODS,
   BUTTON_SHOP,
   BUTTON_KITS,
   BUTTON_EVENTS,
