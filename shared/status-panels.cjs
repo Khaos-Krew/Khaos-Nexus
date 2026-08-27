@@ -2,7 +2,7 @@
 
 const crypto = require('node:crypto');
 const { validateDiscordMessagePayload } = require('./discord-message-payload.cjs');
-const { normalizeHealthState } = require('./sentinel-health.cjs');
+const { normalizeHealthState, healthLabel } = require('./sentinel-health.cjs');
 
 const MAX_STATUS_PANELS = 40;
 const STATUS_BUTTON_ACTIONS = new Set(['refresh', 'players']);
@@ -145,7 +145,7 @@ function renderStatusPanel(panelInput, snapshotInput, options = {}) {
   const snapshot = normalizeStatusSnapshot(snapshotInput);
   const online = snapshot.status === 'online';
   const maintenance = snapshot.status === 'maintenance';
-  const statusLabel = online ? 'ONLINE' : maintenance ? 'MAINTENANCE' : 'OFFLINE';
+  const statusLabel = healthLabel(snapshot.status);
   const color = online ? Number.parseInt(panel.color.slice(1), 16) : maintenance ? 0xf1c40f : 0xe3264f;
   const playerValue = snapshot.maxPlayers > 0 ? `${snapshot.players} / ${snapshot.maxPlayers}` : String(snapshot.players);
   const fields = [
