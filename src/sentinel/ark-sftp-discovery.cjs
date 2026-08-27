@@ -29,10 +29,63 @@ function shouldSkipDirectory(name) {
 async function existsFile(client, remoteFile) {
   try {
     const result = await client.exists(remoteFile);
-    return result && result !== 'd';
+    return Boolean(result) && result !== 'd';
   } catch {
     return false;
   }
+}
+
+async function findDirectoryNamed(client, {
+  starts = ['.'],
+  directoryName,
+  maxDepth = 4,
+  maxDirectories = 100,
+  maxEntries = 1500
+} = {}) {
+  const wanted = String(directoryName || '').trim().toLowerCase();
+  if (!wanted) throw new Error('Directory discovery requires a directory name.');
+
+  const queue = [];
+  const queued = new Set();
+  for (const start of starts) {
+    const normalized = normalizeRemote(start);
+    if (queued.has(normalized)) continue;
+    queued.add(normalized);
+    queue.push({ base: normalized, depth: 0 });
+  }
+
+  const visited = new Set();
+  let directories = 0;
+  let entriesSeen = 0;
+
+  while (queue.length && directories < maxDirectories && entriesSeen < maxEntries) {
+    const { base, depth } = queue.shift();
+    const normalized = normalizeRemote(base);
+    if (visited.has(normalized)) continue;
+    visited.add(normalized);
+    directories += 1;
+
+    let entries;
+    try {
+      entries = await client.list(base);
+    } catch {
+      continue;
+    }
+    entriesSeen += entries.length;
+
+    for (const item of entries) {
+      const name = String(item?.name || '');
+      if (!name || name === '.' || name === '..' || !isDirectory(item)) continue;
+      const remote = joinRemote(base, name);
+      if (name.toLowerCase() === wanted) {
+        return { path: remote, directoriesScanned: directories, entriesSeen };
+      }
+      if (depth >= maxDepth || shouldSkipDirectory(name)) continue;
+      queue.push({ base: remote, depth: depth + 1 });
+    }
+  }
+
+  return null;
 }
 
 async function findRemoteFile(client, {
@@ -40,14 +93,15 @@ async function findRemoteFile(client, {
   configuredPath = '',
   fileName,
   preferredSuffix = '',
-  maxDepth = 8,
-  maxDirectories = 450,
-  maxEntries = 5000
+  maxDepth = 6,
+  maxDirectories = 160,
+  maxEntries = 2500
 } = {}) {
   const wantedName = String(fileName || path.posix.basename(String(configuredPath || preferredSuffix || ''))).trim();
   if (!wantedName) throw new Error('SFTP discovery requires a target file name.');
 
-  const suffix = normalizeRemote(preferredSuffix || configuredPath).replace(/^\.\//, '').toLowerCase();
+  const suffixRaw = String(preferredSuffix || configuredPath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  const suffix = suffixRaw.toLowerCase();
   const directCandidates = [];
   const addCandidate = (value) => {
     const normalized = normalizeRemote(value);
@@ -65,6 +119,34 @@ async function findRemoteFile(client, {
 
   for (const candidate of directCandidates) {
     if (await existsFile(client, candidate)) return { path: candidate, discovered: false };
+  }
+
+  // Citadel's ARK layout is rooted at <Home>/ShooterGame. Locate that directory
+  // shallowly first, then test the exact known suffix instead of crawling the tree.
+  if (/^shootergame\//i.test(suffixRaw)) {
+    const starts = [];
+    if (configuredRoot) starts.push(configuredRoot);
+    starts.push('.');
+    const shooterGame = await findDirectoryNamed(client, {
+      starts,
+      directoryName: 'ShooterGame',
+      maxDepth: 4,
+      maxDirectories: 100,
+      maxEntries: 1500
+    });
+    if (shooterGame) {
+      const remainder = suffixRaw.replace(/^shootergame\//i, '');
+      const candidate = joinRemote(shooterGame.path, remainder);
+      if (await existsFile(client, candidate)) {
+        return {
+          path: candidate,
+          discovered: true,
+          directoriesScanned: shooterGame.directoriesScanned,
+          entriesSeen: shooterGame.entriesSeen,
+          shooterGameRoot: shooterGame.path
+        };
+      }
+    }
   }
 
   const starts = [];
@@ -124,4 +206,4 @@ async function findRemoteFile(client, {
   throw new Error(`SFTP discovery could not find ${wantedName} within the permitted server tree.`);
 }
 
-module.exports = { normalizeRemote, joinRemote, findRemoteFile };
+module.exports = { normalizeRemote, joinRemote, findDirectoryNamed, findRemoteFile };
