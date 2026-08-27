@@ -103,6 +103,28 @@ function setJsonPath(root, dottedPath, value) {
   return root;
 }
 
+function stableJson(value) {
+  return JSON.stringify(value ?? null);
+}
+
+function protectedArkShopState(config = {}) {
+  return {
+    mysql: stableJson(config?.Mysql),
+    discordUrl: String(config?.General?.Discord?.URL || '')
+  };
+}
+
+function assertProtectedArkShopState(before, after, { allowMysqlChange = false, allowDiscordUrlChange = false } = {}) {
+  const oldState = protectedArkShopState(before);
+  const newState = protectedArkShopState(after);
+  if (!allowMysqlChange && oldState.mysql !== newState.mysql) {
+    throw new Error('Normal ArkShop updates cannot alter the protected Mysql block. Use the dedicated protected MySQL sync workflow.');
+  }
+  if (!allowDiscordUrlChange && oldState.discordUrl !== newState.discordUrl) {
+    throw new Error('Normal ArkShop updates cannot alter the protected Discord webhook URL.');
+  }
+}
+
 async function discoverPaths(prefix = 'ARK_GEN1') {
   const client = await connect(prefix);
   try {
@@ -149,21 +171,34 @@ async function setIniValue({ prefix = 'ARK_GEN1', fileKey, section, key, value, 
   }
 }
 
-async function setArkShopValue({ prefix = 'ARK_GEN1', jsonPath, value, dryRun = false } = {}) {
+async function updateArkShopConfig({ prefix = 'ARK_GEN1', transform, dryRun = false, allowMysqlChange = false, allowDiscordUrlChange = false } = {}) {
+  if (typeof transform !== 'function') throw new Error('ArkShop config update requires a transform function.');
   const client = await connect(prefix);
   try {
     const resolved = await resolveExistingFile(client, prefix, 'arkshop');
     const current = await readText(client, resolved.remoteFile);
     let parsed;
     try { parsed = JSON.parse(current); } catch (error) { throw new Error(`ArkShop config.json is not valid JSON: ${error.message}`); }
-    const nextObject = setJsonPath(parsed, jsonPath, parseJsonValue(value));
+    const draft = JSON.parse(JSON.stringify(parsed));
+    const transformed = await transform(draft);
+    const nextObject = transformed === undefined ? draft : transformed;
+    if (!nextObject || typeof nextObject !== 'object' || Array.isArray(nextObject)) throw new Error('ArkShop config transform must return a JSON object.');
+    assertProtectedArkShopState(parsed, nextObject, { allowMysqlChange, allowDiscordUrlChange });
     const next = `${JSON.stringify(nextObject, null, 2)}\n`;
-    if (dryRun) return { changed: current !== next, restartRequired: false, remoteFile: resolved.remoteFile, backup: null, dryRun: true, discovered: resolved.discovered };
+    if (dryRun) return { changed: current !== next, restartRequired: false, remoteFile: resolved.remoteFile, backup: null, dryRun: true, discovered: resolved.discovered, config: nextObject };
     const result = await backupAndWrite(client, resolved.remoteFile, next);
-    return { ...result, restartRequired: false, remoteFile: resolved.remoteFile, dryRun: false, discovered: resolved.discovered };
+    return { ...result, restartRequired: false, remoteFile: resolved.remoteFile, dryRun: false, discovered: resolved.discovered, config: nextObject };
   } finally {
     await client.end().catch(() => {});
   }
+}
+
+async function setArkShopValue({ prefix = 'ARK_GEN1', jsonPath, value, dryRun = false } = {}) {
+  return updateArkShopConfig({
+    prefix,
+    dryRun,
+    transform: (parsed) => setJsonPath(parsed, jsonPath, parseJsonValue(value))
+  });
 }
 
 async function syncArkShopMysqlFromEnv({ prefix = 'ARK_GEN1', dryRun = false } = {}) {
@@ -184,29 +219,24 @@ async function syncArkShopMysqlFromEnv({ prefix = 'ARK_GEN1', dryRun = false } =
   if (!Number.isInteger(db.port) || db.port < 1 || db.port > 65535) throw new Error('ARKSHOP_DB_PORT is invalid.');
   if (!/^[A-Za-z0-9_]{1,64}$/.test(db.table)) throw new Error('ARKSHOP_DB_TABLE contains unsafe characters.');
 
-  const client = await connect(prefix);
-  try {
-    const resolved = await resolveExistingFile(client, prefix, 'arkshop');
-    const current = await readText(client, resolved.remoteFile);
-    let parsed;
-    try { parsed = JSON.parse(current); } catch (error) { throw new Error(`ArkShop config.json is not valid JSON: ${error.message}`); }
-    parsed.Mysql = {
-      ...(parsed.Mysql && typeof parsed.Mysql === 'object' && !Array.isArray(parsed.Mysql) ? parsed.Mysql : {}),
-      UseMysql: true,
-      MysqlHost: db.host,
-      MysqlUser: db.user,
-      MysqlPass: db.password,
-      MysqlDB: db.database,
-      MysqlPort: db.port,
-      MysqlPlayersTable: db.table
-    };
-    const next = `${JSON.stringify(parsed, null, 2)}\n`;
-    if (dryRun) return { changed: current !== next, restartRequired: false, remoteFile: resolved.remoteFile, backup: null, dryRun: true, discovered: resolved.discovered };
-    const result = await backupAndWrite(client, resolved.remoteFile, next);
-    return { ...result, restartRequired: false, remoteFile: resolved.remoteFile, dryRun: false, discovered: resolved.discovered };
-  } finally {
-    await client.end().catch(() => {});
-  }
+  return updateArkShopConfig({
+    prefix,
+    dryRun,
+    allowMysqlChange: true,
+    transform: (parsed) => {
+      parsed.Mysql = {
+        ...(parsed.Mysql && typeof parsed.Mysql === 'object' && !Array.isArray(parsed.Mysql) ? parsed.Mysql : {}),
+        UseMysql: true,
+        MysqlHost: db.host,
+        MysqlUser: db.user,
+        MysqlPass: db.password,
+        MysqlDB: db.database,
+        MysqlPort: db.port,
+        MysqlPlayersTable: db.table
+      };
+      return parsed;
+    }
+  });
 }
 
 async function restoreBackup({ prefix = 'ARK_GEN1', fileKey, backup } = {}) {
@@ -237,8 +267,12 @@ module.exports = {
   discoverPaths,
   parseJsonValue,
   setJsonPath,
+  stableJson,
+  protectedArkShopState,
+  assertProtectedArkShopState,
   readConfig,
   setIniValue,
+  updateArkShopConfig,
   setArkShopValue,
   syncArkShopMysqlFromEnv,
   restoreBackup
