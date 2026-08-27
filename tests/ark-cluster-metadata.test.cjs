@@ -14,6 +14,7 @@ const {
   discoverServerMetadata,
   syncClusterMetadata
 } = require('../src/sentinel/ark-cluster-metadata.cjs');
+const { effectiveRates, effectiveMods } = require('../src/sentinel/ark-cluster-panel.cjs');
 
 const SAMPLE_GUS = `[ServerSettings]\nXPMultiplier=2.0\nTamingSpeedMultiplier=10.0\nHarvestAmountMultiplier=5.0\nEggHatchSpeedMultiplier=8\nBabyMatureSpeedMultiplier=12\nActiveMods=111111,222222,333333\n`;
 
@@ -45,7 +46,7 @@ test('server metadata uses existing safe SFTP config reader abstraction', async 
   assert.equal(result.discoveredPath, true);
 });
 
-test('metadata sync fills empty live metadata but preserves staff-curated values', async () => {
+test('metadata sync continuously updates detected values without overwriting staff-curated overrides', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-ark-meta-'));
   const registry = new ArkClusterRegistry(root);
   registry.upsert({
@@ -62,13 +63,21 @@ test('metadata sync fills empty live metadata but preserves staff-curated values
   await syncClusterMetadata(registry, {
     reader: async () => ({ text: SAMPLE_GUS, remoteFile: 'GameUserSettings.ini', discovered: false })
   });
-  assert.equal(registry.get('gen1').rates.Harvest, '5x');
-  assert.deepEqual(registry.get('gen1').mods, ['111111', '222222', '333333']);
+  let record = registry.get('gen1');
+  assert.equal(record.detectedRates.Harvest, '5x');
+  assert.deepEqual(record.detectedMods, ['111111', '222222', '333333']);
+  assert.equal(effectiveRates(record).Harvest, '5x');
+  assert.deepEqual(effectiveMods(record), ['111111', '222222', '333333']);
 
-  registry.upsert({ ...registry.get('gen1'), rates: { Harvest: 'Custom 7x' }, mods: ['Named Mod'] });
+  registry.upsert({ ...record, rates: { Harvest: 'Custom 7x' }, mods: ['Named Mod'] });
   await syncClusterMetadata(registry, {
     reader: async () => ({ text: '[ServerSettings]\nHarvestAmountMultiplier=100\nActiveMods=999\n', remoteFile: 'GameUserSettings.ini', discovered: false })
   });
-  assert.deepEqual(registry.get('gen1').rates, { Harvest: 'Custom 7x' });
-  assert.deepEqual(registry.get('gen1').mods, ['Named Mod']);
+  record = registry.get('gen1');
+  assert.equal(record.detectedRates.Harvest, '100x');
+  assert.deepEqual(record.detectedMods, ['999']);
+  assert.deepEqual(record.rates, { Harvest: 'Custom 7x' });
+  assert.deepEqual(record.mods, ['Named Mod']);
+  assert.deepEqual(effectiveRates(record), { Harvest: 'Custom 7x' });
+  assert.deepEqual(effectiveMods(record), ['Named Mod']);
 });
