@@ -18,9 +18,11 @@ const {
 } = require('../src/sentinel/ark-cluster-monitor.cjs');
 const {
   PANEL_MARKER,
+  BUTTON_MODS,
   renderArkClusterPanel,
   renderMapField
 } = require('../src/sentinel/ark-cluster-panel.cjs');
+const { buildModListReply } = require('../src/sentinel/ark-cluster-public-actions.cjs');
 const { parseMods, parseRates } = require('../src/sentinel/ark-cluster-extension.cjs');
 
 function tempRegistry() {
@@ -112,7 +114,7 @@ test('maintenance registry state remains public Maintenance even when RCON respo
   delete process.env.ARK_TEST_RCON_PASSWORD;
 });
 
-test('ARK cluster panel renders map health profiles rates mods and access without secrets', () => {
+test('public ARK cluster panel shows map status and players without operator detail', () => {
   const server = normalizeRecord({
     id: 'gen1',
     name: 'Khaos Nexus Gen 1',
@@ -120,16 +122,16 @@ test('ARK cluster panel renders map health profiles rates mods and access withou
     mapIdentifier: 'Genesis_WP',
     envPrefix: 'ARK_GEN1',
     currentEvent: 'Launch Weekend',
-    eventEndsAt: '2026-08-30T00:00:00Z',
-    nextRestartAt: '2026-08-28T11:00:00Z',
     rates: { Harvest: '5x', Taming: '10x' },
     mods: ['Awesome SpyGlass', 'ArkShop UI'],
     runtime: { state: 'online', playerCount: 3, players: [], lastCheckedAt: '2026-08-27T23:10:00Z', lastError: '' }
   });
   const field = renderMapField(server);
-  assert.match(field, /Harvest 5x/);
-  assert.match(field, /2 tracked/);
-  assert.match(field, /Shop 🟢/);
+  assert.match(field, /Map:\*\* Genesis Part 1/);
+  assert.match(field, /Status:\*\* 🟢 Online/);
+  assert.match(field, /Players:\*\* 3/);
+  assert.doesNotMatch(field, /Control|Profiles|Config state|Rates|Mods|Access|Genesis_WP/);
+
   const payload = renderArkClusterPanel({
     servers: [server],
     summary: summarizeCluster([server]),
@@ -137,7 +139,21 @@ test('ARK cluster panel renders map health profiles rates mods and access withou
   });
   assert.equal(payload.embeds[0].footer.text, PANEL_MARKER);
   const serialized = JSON.stringify(payload);
-  assert.doesNotMatch(serialized, /RCON_PASSWORD|SFTP_PASSWORD|secret-for-test/);
+  assert.match(serialized, new RegExp(BUTTON_MODS));
+  assert.doesNotMatch(serialized, /RCON|SFTP|Profiles|Config state|Harvest 5x|Awesome SpyGlass|Genesis_WP|secret-for-test/);
+});
+
+test('public mod list button uses manual mods first and detected mods as fallback', () => {
+  const reply = buildModListReply([
+    normalizeRecord({ id: 'gen1', name: 'Gen 1', mapName: 'Genesis Part 1', envPrefix: 'ARK_GEN1', detectedMods: ['111111', '222222'] }),
+    normalizeRecord({ id: 'gen2', name: 'Gen 2', mapName: 'Genesis Part 2', envPrefix: 'ARK_GEN2', mods: ['Named Mod'], detectedMods: ['ignored'] })
+  ]);
+  assert.match(reply, /Genesis Part 1/);
+  assert.match(reply, /111111/);
+  assert.match(reply, /222222/);
+  assert.match(reply, /Genesis Part 2/);
+  assert.match(reply, /Named Mod/);
+  assert.doesNotMatch(reply, /ignored/);
 });
 
 test('staff metadata parsers accept compact mod and rate updates', () => {
