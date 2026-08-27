@@ -36,6 +36,11 @@ parent?.on('message', (event) => {
 
 installModuleRuntime({ ClientClass: Client, getBootstrap: () => bootstrap });
 
+function staffRoleIdsFromConfig() {
+  const discord = bootstrap?.config?.discord || {};
+  return discord.staffRoleIds || discord.roleBindings || {};
+}
+
 function emitPermissionAudit(interaction, decision) {
   try {
     const event = permissionAuditEvent({ decision, interaction });
@@ -53,7 +58,8 @@ function denyUnauthorizedInteraction(interaction) {
   const decision = permissionDecision({
     interaction,
     commandName: interaction.commandName,
-    ownerUserId: bootstrap?.config?.discord?.ownerUserId
+    ownerUserId: bootstrap?.config?.discord?.ownerUserId,
+    staffRoleIds: staffRoleIdsFromConfig()
   });
   emitPermissionAudit(interaction, decision);
   if (decision.allowed) return false;
