@@ -1,7 +1,6 @@
 'use strict';
 
 const { bootstrapHostedProviderStore } = require('./hosted-provider-store.cjs');
-const { applyBaselineIfRequested } = require('../sentinel/ark-sftp-config.cjs');
 const { discoverPaths } = require('../sentinel/ark-config-manager.cjs');
 const { inspectSftpLayout } = require('../sentinel/ark-sftp-diagnostic.cjs');
 const { mysqlStatus } = require('../sentinel/arkshop-mysql.cjs');
@@ -18,16 +17,9 @@ if (hosted.secretState.failed.length) {
 console.log('[Nexus Sentinal] starting Railway composite runtime');
 require('../backend/server.cjs');
 
-void applyBaselineIfRequested({ prefix: 'ARK_GEN1', stampDirectory: '/app/data' })
-  .then((result) => {
-    if (result.skipped) {
-      console.log(`[Nexus Sentinal] ARK config sync skipped: ${result.skipped}`);
-      return;
-    }
-    console.log(`[Nexus Sentinal] ARK config sync complete: profile=${result.profile} changed=${result.changed} gus=${result.gameUserSettingsChanged} gameIni=${result.gameIniChanged} backups=${result.backups.length}`);
-  })
-  .catch((error) => console.warn(`[Nexus Sentinal] ARK config sync failed: ${String(error?.message || error).slice(0, 300)}`));
-
+// ARK config writes are intentionally command-driven. Startup only performs
+// read-only connectivity/path probes so deployments cannot silently alter
+// Game.ini or GameUserSettings.ini.
 require('../sentinel/entry.cjs');
 
 if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
