@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const { PterodactylClient } = require('./pterodactyl-client.cjs');
+const { PterodactylFileClient } = require('./pterodactyl-file-client.cjs');
 const { ServerConnection } = require('../../bot/server-client.cjs');
 const {
   resolveAllowedPath,
@@ -22,7 +22,7 @@ class ArkConfigService {
   constructor({ configStore, logger, clientFactory, rconFactory, now = () => Date.now() } = {}) {
     this.configStore = configStore;
     this.logger = logger;
-    this.clientFactory = clientFactory || ((provider, token) => new PterodactylClient(provider, token));
+    this.clientFactory = clientFactory || ((provider, token) => new PterodactylFileClient(provider, token));
     this.rconFactory = rconFactory || ((server) => new ServerConnection(server));
     this.now = now;
   }
