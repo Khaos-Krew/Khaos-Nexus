@@ -68,13 +68,14 @@ function normalizeRuntime(value = {}) {
         eosId: cleanText(player?.eosId, 100)
       })).filter((player) => player.name || player.eosId)
     : [];
+  const rawLatency = value?.latencyMs;
   return {
     state,
     playerCount: Math.max(0, Number(value?.playerCount) || players.length || 0),
     players,
     lastCheckedAt: cleanText(value?.lastCheckedAt, 80),
     lastOnlineAt: cleanText(value?.lastOnlineAt, 80),
-    latencyMs: Number.isFinite(Number(value?.latencyMs)) ? Math.max(0, Math.round(Number(value.latencyMs))) : null,
+    latencyMs: rawLatency == null || rawLatency === '' ? null : (Number.isFinite(Number(rawLatency)) ? Math.max(0, Math.round(Number(rawLatency))) : null),
     lastError: cleanText(value?.lastError, 240)
   };
 }
