@@ -68,9 +68,7 @@ async function arkConfigStatus(prefix = 'ARK_GEN1') {
   if (!settings.host) missing.push(`${prefix}_SFTP_HOST`);
   if (!settings.username) missing.push(`${prefix}_SFTP_USERNAME`);
   if (!settings.password) missing.push(`${prefix}_SFTP_PASSWORD`);
-  if (missing.length) {
-    throw new Error(`ARK SFTP variables are incomplete. Missing at runtime: ${missing.join(', ')}.`);
-  }
+  if (missing.length) throw new Error(`ARK SFTP variables are incomplete. Missing at runtime: ${missing.join(', ')}`);
 
   const gusPath = remotePath(settings.root, process.env[`${prefix}_GUS_PATH`] || GAME_USER_SETTINGS_PATH);
   const gamePath = remotePath(settings.root, process.env[`${prefix}_GAMEINI_PATH`] || GAME_INI_PATH);
@@ -85,12 +83,24 @@ async function arkConfigStatus(prefix = 'ARK_GEN1') {
       password: settings.password,
       readyTimeout: settings.readyTimeout
     });
+    const cwd = await client.cwd().catch(() => 'unknown');
+    const rootEntries = await client.list('.').then((items) => items.map((item) => item.name).slice(0, 20)).catch(() => []);
     const [gus, game, shop] = await Promise.all([
       client.exists(gusPath),
       client.exists(gamePath),
       client.exists(shopPath)
     ]);
-    return { connected: true, gus: Boolean(gus), game: Boolean(game), shop: Boolean(shop), gusPath, gamePath, shopPath };
+    return {
+      connected: true,
+      gus: Boolean(gus),
+      game: Boolean(game),
+      shop: Boolean(shop),
+      gusPath,
+      gamePath,
+      shopPath,
+      cwd,
+      rootEntries
+    };
   } finally {
     await client.end().catch(() => {});
   }
@@ -106,6 +116,7 @@ async function handleArkInteraction(interaction, context) {
   if (sub === 'config-status') {
     const status = await arkConfigStatus('ARK_GEN1');
     const request = String(process.env.ARK_GEN1_CONFIG_APPLY_ONCE || '').trim();
+    const entries = status.rootEntries.length ? status.rootEntries.join(', ') : '(none visible)';
     const content = [
       `🗂️ **${context.server.name} Config Status**`,
       '',
@@ -115,7 +126,9 @@ async function handleArkInteraction(interaction, context) {
       `ArkShop config.json: ${status.shop ? '✅ Found' : '⚠️ Not found'}`,
       `Baseline request: ${request ? `\`${request}\`` : 'Not requested'}`,
       '',
-      `Config root: \`${String(process.env.ARK_GEN1_SFTP_ROOT || '/').slice(0, 300)}\``
+      `Configured root: \`${String(process.env.ARK_GEN1_SFTP_ROOT || '/').slice(0, 300)}\``,
+      `SFTP cwd: \`${String(status.cwd).slice(0, 300)}\``,
+      `Visible root entries: \`${entries.slice(0, 700)}\``
     ].join('\n');
     await interaction.editReply({ content: content.slice(0, 1900), allowedMentions: { parse: [] } });
     return true;
