@@ -76,6 +76,13 @@ function renderConnectivity(server = {}) {
   ].join(' • ');
 }
 
+function renderRestartState(server = {}) {
+  if (!server.restartRequired) return '✅ No pending config restart';
+  const reason = clean(server.restartReason || 'Configuration changed', 100);
+  const since = server.restartSince ? ` • since ${discordTime(server.restartSince)}` : '';
+  return `⚠️ **Restart required** • ${reason}${since}`;
+}
+
 function renderMapField(server = {}) {
   const runtime = server.runtime || {};
   const state = runtime.state || (server.maintenance ? 'maintenance' : 'offline');
@@ -84,6 +91,7 @@ function renderMapField(server = {}) {
     `**Map:** ${clean(server.mapName || server.name || server.id, 80)}${server.mapIdentifier ? ` • \`${clean(server.mapIdentifier, 80)}\`` : ''}`,
     `**Control:** ${renderConnectivity(server)}`,
     `**Profiles:** Config \`${clean(server.configProfile || 'default', 40)}\` • Mods \`${clean(server.modProfile || 'default', 40)}\` • Shop \`${clean(server.shopProfile || 'default', 40)}\` • Restart \`${clean(server.restartProfile || 'default', 40)}\``,
+    `**Config state:** ${renderRestartState(server)}`,
     `**Rates:** ${renderRates(effectiveRates(server))}`,
     `**Mods:** ${renderMods(effectiveMods(server))}`,
     `**Event:** ${server.currentEvent ? clean(server.currentEvent, 80) : 'None'}${server.eventEndsAt ? ` • ends ${discordTime(server.eventEndsAt)}` : ''}`,
@@ -117,11 +125,13 @@ function renderArkClusterPanel({ servers = [], summary = {}, checkedAt = '' } = 
   const enabled = servers.filter((server) => server.enabled !== false);
   const event = clusterEvent(enabled);
   const restart = nextRestart(enabled);
+  const pendingRestarts = enabled.filter((server) => server.restartRequired).length;
   const fields = [{
     name: `${stateGlyph(summary.state)} Cluster Health • ${stateLabel(summary.state)}`,
     value: [
       `**Maps:** ${summary.online || 0} online • ${summary.maintenance || 0} maintenance • ${summary.offline || 0} offline`,
       `**Players:** ${summary.totalPlayers || 0} across ${summary.enabled || 0} enabled map${Number(summary.enabled) === 1 ? '' : 's'}`,
+      `**Pending config restarts:** ${pendingRestarts ? `⚠️ ${pendingRestarts}` : '✅ 0'}`,
       `**Current event:** ${event ? clean(event.name, 100) : 'None'}${event?.endsAt ? ` • ends ${discordTime(event.endsAt)}` : ''}`,
       `**Next restart:** ${discordTime(restart)}`,
       `**Last refresh:** ${discordTime(checkedAt)}`
@@ -223,6 +233,7 @@ module.exports = {
   effectiveRates,
   effectiveMods,
   renderConnectivity,
+  renderRestartState,
   renderMapField,
   clusterEvent,
   nextRestart,
