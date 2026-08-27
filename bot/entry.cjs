@@ -6,6 +6,10 @@ const { installDiscordAutomationRuntime } = require('./discord-automation-runtim
 const { installCommunityAboutRuntime } = require('./community-about-runtime.cjs');
 const { installStatusPanelRuntime } = require('./status-panel-runtime.cjs');
 const {
+  permissionDecision,
+  permissionDeniedMessage
+} = require('./sentinel-permissions.cjs');
+const {
   isDndInteraction,
   handleDndInteraction,
   installEncounterPanelRuntime
@@ -28,9 +32,28 @@ parent?.on('message', (event) => {
 
 installModuleRuntime({ ClientClass: Client, getBootstrap: () => bootstrap });
 
+function denyUnauthorizedInteraction(interaction) {
+  if (!interaction?.isChatInputCommand?.()) return false;
+  const decision = permissionDecision({
+    interaction,
+    commandName: interaction.commandName,
+    ownerUserId: bootstrap?.config?.discord?.ownerUserId
+  });
+  if (decision.allowed) return false;
+
+  Promise.resolve(interaction.reply({
+    content: permissionDeniedMessage(decision),
+    ephemeral: true
+  })).catch((error) => {
+    dndRuntime?.log?.('error', `Sentinel permission denial reply failed: ${error.stack || error.message}`);
+  });
+  return true;
+}
+
 const originalEmit = Client.prototype.emit;
 Client.prototype.emit = function dndAwareEmit(eventName, ...args) {
   const interaction = eventName === Events.InteractionCreate ? args[0] : null;
+  if (interaction && denyUnauthorizedInteraction(interaction)) return true;
   if (interaction && dndRuntime && isDndInteraction(interaction)) {
     Promise.resolve(handleDndInteraction(interaction, dndRuntime)).catch((error) => {
       dndRuntime.log('error', `Unhandled D&D interaction failure: ${error.stack || error.message}`);
@@ -59,3 +82,5 @@ Client.prototype.login = function patchedLogin(...args) {
 };
 
 require('./index.cjs');
+
+module.exports = { denyUnauthorizedInteraction };
