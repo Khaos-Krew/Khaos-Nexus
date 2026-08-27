@@ -4,7 +4,7 @@ const { Client, Events, MessageFlags, SlashCommandBuilder } = require('discord.j
 const { loadConfig } = require('../shared/config.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { isStaff, arkConfigStatus } = require('./ark-ops-extension.cjs');
-const { setIniValue, setArkShopValue } = require('./ark-config-manager.cjs');
+const { setIniValue, setArkShopValue, syncArkShopMysqlFromEnv } = require('./ark-config-manager.cjs');
 const { mysqlStatus, mysqlSchema, lookupPlayer } = require('./arkshop-mysql.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.config.db.extension');
@@ -27,7 +27,9 @@ function configCommand() {
     .addSubcommand((sub) => sub.setName('set-shop').setDescription('Set one ArkShop config.json value with automatic backup and reload.')
       .addStringOption((o) => o.setName('path').setDescription('JSON path, e.g. General.ItemsPerPage').setRequired(true).setMaxLength(300))
       .addStringOption((o) => o.setName('value').setDescription('JSON value or plain text').setRequired(true).setMaxLength(1200))
-      .addBooleanOption((o) => o.setName('dry_run').setDescription('Preview whether a change is needed without writing.')));
+      .addBooleanOption((o) => o.setName('dry_run').setDescription('Preview whether a change is needed without writing.')))
+    .addSubcommand((sub) => sub.setName('sync-mysql').setDescription('Sync protected Railway MySQL variables into ArkShop and reload it.')
+      .addBooleanOption((o) => o.setName('dry_run').setDescription('Verify readiness without writing the ArkShop config.')));
 }
 
 function dbCommand() {
@@ -105,9 +107,7 @@ async function handleConfig(interaction, context) {
       dryRun
     });
     let reload = 'Not requested';
-    if (!dryRun && result.changed) {
-      reload = await context.rcon.execute('ArkShop.Reload').then((text) => text || 'Command accepted');
-    }
+    if (!dryRun && result.changed) reload = await context.rcon.execute('ArkShop.Reload').then((text) => text || 'Command accepted');
     await interaction.editReply({ content: [
       `✅ **ArkShop ${dryRun ? 'preview complete' : (result.changed ? 'config updated and verified' : 'already matched')}.**`,
       `Path: \`${clean(jsonPath, 300)}\``,
@@ -115,6 +115,20 @@ async function handleConfig(interaction, context) {
       result.backup ? `Backup: \`${clean(result.backup)}\`` : null,
       !dryRun && result.changed ? `ArkShop.Reload: \`${clean(reload, 500)}\`` : null,
       'ARK server restart required: No'
+    ].filter(Boolean).join('\n'), allowedMentions: { parse: [] } });
+    return true;
+  }
+
+  if (sub === 'sync-mysql') {
+    const result = await syncArkShopMysqlFromEnv({ prefix: 'ARK_GEN1', dryRun });
+    let reload = 'Not requested';
+    if (!dryRun && result.changed) reload = await context.rcon.execute('ArkShop.Reload').then((text) => text || 'Command accepted');
+    await interaction.editReply({ content: [
+      `✅ **ArkShop MySQL ${dryRun ? 'sync readiness verified' : (result.changed ? 'configuration synchronized' : 'configuration already matched')}.**`,
+      `Changed: ${result.changed ? 'Yes' : 'No'}`,
+      result.backup ? `Backup: \`${clean(result.backup)}\`` : null,
+      !dryRun && result.changed ? `ArkShop.Reload: \`${clean(reload, 500)}\`` : null,
+      'The database password was read only from protected Railway variables and was not displayed in Discord.'
     ].filter(Boolean).join('\n'), allowedMentions: { parse: [] } });
     return true;
   }
