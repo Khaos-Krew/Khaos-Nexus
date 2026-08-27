@@ -5,6 +5,7 @@ const { installModuleRuntime } = require('./module-runtime.cjs');
 const { installDiscordAutomationRuntime } = require('./discord-automation-runtime.cjs');
 const { installCommunityAboutRuntime } = require('./community-about-runtime.cjs');
 const { installStatusPanelRuntime } = require('./status-panel-runtime.cjs');
+const { installArkControlCommandExtension, installArkControlRuntime } = require('./ark-control-runtime.cjs');
 const {
   isDndInteraction,
   handleDndInteraction,
@@ -16,9 +17,11 @@ let bootstrap = null;
 let dndRuntime = null;
 let encounterPanelController = null;
 let communityAboutController = null;
+let arkControlController = null;
 
 parent?.on('message', (event) => {
   const message = event?.data ?? event;
+  if (arkControlController?.onParentMessage(message)) return;
   if (message?.type === 'bootstrap' || message?.type === 'config-update') {
     bootstrap = message.payload;
     encounterPanelController?.onConfigUpdate();
@@ -27,10 +30,17 @@ parent?.on('message', (event) => {
 });
 
 installModuleRuntime({ ClientClass: Client, getBootstrap: () => bootstrap });
+installArkControlCommandExtension();
 
 const originalEmit = Client.prototype.emit;
 Client.prototype.emit = function dndAwareEmit(eventName, ...args) {
   const interaction = eventName === Events.InteractionCreate ? args[0] : null;
+  if (interaction && arkControlController?.isInteraction(interaction)) {
+    Promise.resolve(arkControlController.handle(interaction)).catch((error) => {
+      dndRuntime?.log?.('error', `Unhandled ARK control interaction failure: ${error.stack || error.message}`);
+    });
+    return true;
+  }
   if (interaction && dndRuntime && isDndInteraction(interaction)) {
     Promise.resolve(handleDndInteraction(interaction, dndRuntime)).catch((error) => {
       dndRuntime.log('error', `Unhandled D&D interaction failure: ${error.stack || error.message}`);
@@ -51,6 +61,7 @@ Client.prototype.login = function patchedLogin(...args) {
     })
   };
   dndRuntime = runtime;
+  arkControlController = installArkControlRuntime(runtime);
   encounterPanelController = installEncounterPanelRuntime(runtime);
   installDiscordAutomationRuntime(runtime);
   communityAboutController = installCommunityAboutRuntime(runtime);
