@@ -9,7 +9,10 @@ const {
   permissionDecision,
   permissionDeniedMessage
 } = require('./sentinel-permissions.cjs');
-const { permissionAuditEvent } = require('../shared/sentinel-audit.cjs');
+const {
+  permissionAuditEvent,
+  toDiscordAutomationAuditEntry
+} = require('../shared/sentinel-audit.cjs');
 const {
   isDndInteraction,
   handleDndInteraction,
@@ -35,9 +38,10 @@ installModuleRuntime({ ClientClass: Client, getBootstrap: () => bootstrap });
 
 function emitPermissionAudit(interaction, decision) {
   try {
+    const event = permissionAuditEvent({ decision, interaction });
     parent?.postMessage({
-      type: 'audit',
-      payload: permissionAuditEvent({ decision, interaction })
+      type: 'discord-audit',
+      payload: toDiscordAutomationAuditEntry(event)
     });
   } catch (error) {
     dndRuntime?.log?.('warn', `Sentinel audit emission failed: ${error.message}`);
