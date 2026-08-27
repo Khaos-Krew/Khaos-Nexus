@@ -7,7 +7,13 @@ const {
   REST,
   Routes
 } = require('discord.js');
-const { createCommands, isAdministrator, requiresAdministrator, COMMAND_MODULES } = require('./commands.cjs');
+const { createCommands, COMMAND_MODULES } = require('./commands.cjs');
+const {
+  isConfiguredOwner: sentinelIsConfiguredOwner,
+  permissionDecision,
+  permissionDeniedMessage,
+  adapterRoleForInteraction: sentinelAdapterRoleForInteraction
+} = require('./sentinel-permissions.cjs');
 const { createCurrentServerAdapter, capabilityMapForServer } = require('./game-adapters/current-server-adapter.cjs');
 const { executeAdapterOperation } = require('../shared/game-adapter-sdk.cjs');
 const {
@@ -193,15 +199,25 @@ function actionForCommand(command) {
   return ({ saveworld: 'save', broadcast: 'announce', snapshot: 'game-data-summary', forcestop: 'stop', rcon: 'raw' })[command] || command;
 }
 
-function isConfiguredOwner(interaction) {
-  const ownerUserId = String(bootstrap?.config?.discord?.ownerUserId || '');
-  return Boolean(ownerUserId && interaction?.user?.id === ownerUserId);
+function configuredOwnerUserId() {
+  return String(bootstrap?.config?.discord?.ownerUserId || '').trim();
 }
 
-function adapterRoleForInteraction(interaction, command) {
-  if (isConfiguredOwner(interaction)) return 'owner';
-  if (requiresAdministrator(command) && isAdministrator(interaction, bootstrap?.config?.discord?.ownerUserId)) return 'owner';
-  return 'viewer';
+function configuredStaffRoleIds() {
+  const discord = bootstrap?.config?.discord || {};
+  return discord.staffRoleIds || discord.roleBindings || {};
+}
+
+function isConfiguredOwner(interaction) {
+  return sentinelIsConfiguredOwner(interaction, configuredOwnerUserId());
+}
+
+function adapterRoleForInteraction(interaction) {
+  return sentinelAdapterRoleForInteraction(
+    interaction,
+    configuredOwnerUserId(),
+    configuredStaffRoleIds()
+  );
 }
 
 async function registerCommands() {
@@ -265,7 +281,7 @@ async function executeServerAction(interaction, command) {
 
   const adapter = createCurrentServerAdapter(server);
   const envelope = await executeAdapterOperation(adapter, action, payload, {
-    role: adapterRoleForInteraction(interaction, command),
+    role: adapterRoleForInteraction(interaction),
     explicitSecrets: [server.password]
   });
   await interaction.editReply({ content: `**${server.name}** — ${connectionLabel(server)}\n${formatCodeBlock(formatResult(action, envelope.data))}` });
@@ -300,8 +316,14 @@ async function handleInteraction(interaction) {
     return;
   }
 
-  if (requiresAdministrator(command) && !isAdministrator(interaction, bootstrap.config.discord.ownerUserId)) {
-    await interaction.reply({ content: 'This command requires the configured bot owner or a Discord administrator.', ephemeral: true });
+  const decision = permissionDecision({
+    interaction,
+    commandName: command,
+    ownerUserId: configuredOwnerUserId(),
+    staffRoleIds: configuredStaffRoleIds()
+  });
+  if (!decision.allowed) {
+    await interaction.reply({ content: permissionDeniedMessage(decision), ephemeral: true });
     return;
   }
 
