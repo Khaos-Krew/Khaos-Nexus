@@ -40,6 +40,35 @@ function createSentinelDiscordGateway({
     return client.guilds.fetch(resolvedGuildId);
   }
 
+  async function channelById(channelId) {
+    const id = clean(channelId);
+    if (!id) throw new TypeError('A Discord channelId is required.');
+    if (!client.channels || typeof client.channels.fetch !== 'function') {
+      throw new TypeError('Discord client does not expose channels.fetch().');
+    }
+    const channel = await client.channels.fetch(id);
+    if (!channel) throw new Error(`Discord channel ${id} is unavailable.`);
+    return channel;
+  }
+
+  async function sendMessageToChannel({ channelId, payload } = {}) {
+    const channel = await channelById(channelId);
+    if (typeof channel.send !== 'function') throw new Error(`Discord channel ${channelId} cannot send messages.`);
+    return channel.send(payload);
+  }
+
+  async function updateMessageInChannel({ channelId, discordMessageId, payload } = {}) {
+    const messageId = clean(discordMessageId);
+    if (!messageId) throw new TypeError('A discordMessageId is required.');
+    const channel = await channelById(channelId);
+    if (!channel?.messages || typeof channel.messages.fetch !== 'function') {
+      throw new Error(`Discord channel ${channelId} cannot fetch messages.`);
+    }
+    const message = await channel.messages.fetch(messageId);
+    if (!message || typeof message.edit !== 'function') throw new Error(`Discord message ${messageId} cannot be edited.`);
+    return message.edit(payload);
+  }
+
   return Object.freeze({
     async createRole({ name } = {}) {
       const roleName = clean(name);
@@ -80,17 +109,15 @@ function createSentinelDiscordGateway({
       });
     },
 
+    sendMessageToChannel,
+    updateMessageInChannel,
+
     async createPersistentMessage({ hubId, payload } = {}) {
       const hub = clean(hubId);
       if (!hub) throw new TypeError('hubId is required.');
       const channelResolver = requireResolver(resolveChannelId, 'resolveChannelId');
       const channelId = await resolveRequired(channelResolver, hub, 'channel');
-      if (!client.channels || typeof client.channels.fetch !== 'function') {
-        throw new TypeError('Discord client does not expose channels.fetch().');
-      }
-      const channel = await client.channels.fetch(channelId);
-      if (!channel || typeof channel.send !== 'function') throw new Error(`Discord channel ${channelId} cannot send messages.`);
-      return channel.send(payload);
+      return sendMessageToChannel({ channelId, payload });
     },
 
     async updatePersistentMessage({ hubId, discordMessageId, payload } = {}) {
@@ -99,16 +126,7 @@ function createSentinelDiscordGateway({
       if (!hub || !messageId) throw new TypeError('hubId and discordMessageId are required.');
       const channelResolver = requireResolver(resolveChannelId, 'resolveChannelId');
       const channelId = await resolveRequired(channelResolver, hub, 'channel');
-      if (!client.channels || typeof client.channels.fetch !== 'function') {
-        throw new TypeError('Discord client does not expose channels.fetch().');
-      }
-      const channel = await client.channels.fetch(channelId);
-      if (!channel?.messages || typeof channel.messages.fetch !== 'function') {
-        throw new Error(`Discord channel ${channelId} cannot fetch messages.`);
-      }
-      const message = await channel.messages.fetch(messageId);
-      if (!message || typeof message.edit !== 'function') throw new Error(`Discord message ${messageId} cannot be edited.`);
-      return message.edit(payload);
+      return updateMessageInChannel({ channelId, discordMessageId: messageId, payload });
     },
   });
 }
