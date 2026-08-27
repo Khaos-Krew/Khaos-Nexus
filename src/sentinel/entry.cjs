@@ -43,6 +43,7 @@ const { installSupporterEntitlementExtension } = require('./supporter-entitlemen
 const { installEventManagementExtension } = require('./event-management-extension.cjs');
 const { installArkOpsExtension } = require('./ark-ops-extension.cjs');
 const { installArkConfigDbExtension } = require('./ark-config-db-extension.cjs');
+const { installArkClusterExtension } = require('./ark-cluster-extension.cjs');
 
 installRetiredGamesSelfRoleCleanupExtension();
 installGuildMembersIntentExtension();
@@ -83,5 +84,6 @@ installSupporterEntitlementExtension();
 installEventManagementExtension();
 installArkOpsExtension();
 installArkConfigDbExtension();
+installArkClusterExtension();
 require('./ark-command-routing-patch.cjs');
 require('./bot.cjs');
