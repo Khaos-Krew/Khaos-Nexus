@@ -88,7 +88,7 @@ class ArkConfigApplyStore {
   }
 }
 
-async function previewProfile({ server, profile } = {}) {
+async function previewProfile({ server, profile, reader = readConfig } = {}) {
   if (!server?.envPrefix) throw new Error('ARK cluster server has no environment prefix.');
   if (!profile?.id) throw new Error('ARK config profile is required.');
   const files = normalizeFiles(profile.files);
@@ -103,7 +103,7 @@ async function previewProfile({ server, profile } = {}) {
       results[fileKey] = { configured: 0, changed: false, remoteFile: '' };
       continue;
     }
-    const current = await readConfig(server.envPrefix, fileKey);
+    const current = await reader(server.envPrefix, fileKey);
     const next = applySectionsToText(current.text, sections);
     const changed = next !== current.text;
     if (changed) changedFiles += 1;
@@ -122,14 +122,14 @@ async function previewProfile({ server, profile } = {}) {
   };
 }
 
-async function rollbackBackups({ prefix, applied = [] } = {}) {
+async function rollbackBackups({ prefix, applied = [], restorer = restoreBackup } = {}) {
   let restored = 0;
   let failures = 0;
   const errors = [];
   for (const item of [...applied].reverse()) {
     if (!item?.backup || !item?.fileKey) continue;
     try {
-      await restoreBackup({ prefix, fileKey: item.fileKey, backup: item.backup });
+      await restorer({ prefix, fileKey: item.fileKey, backup: item.backup });
       restored += 1;
     } catch (error) {
       failures += 1;
@@ -139,8 +139,17 @@ async function rollbackBackups({ prefix, applied = [] } = {}) {
   return { restored, failures, errors };
 }
 
-async function applyProfile({ server, profile, actorId = '', applyStore = new ArkConfigApplyStore(), dryRun = false } = {}) {
-  const preview = await previewProfile({ server, profile });
+async function applyProfile({
+  server,
+  profile,
+  actorId = '',
+  applyStore = new ArkConfigApplyStore(),
+  dryRun = false,
+  reader = readConfig,
+  setter = setIniValue,
+  restorer = restoreBackup
+} = {}) {
+  const preview = await previewProfile({ server, profile, reader });
   if (dryRun || preview.changedFiles === 0) return { ...preview, dryRun: true, transaction: null, appliedSettings: 0 };
 
   const files = normalizeFiles(profile.files);
@@ -150,7 +159,7 @@ async function applyProfile({ server, profile, actorId = '', applyStore = new Ar
     for (const fileKey of ['gus', 'game']) {
       for (const [section, settings] of Object.entries(files[fileKey].sections)) {
         for (const [key, value] of Object.entries(settings)) {
-          const result = await setIniValue({ prefix: server.envPrefix, fileKey, section, key, value, dryRun: false });
+          const result = await setter({ prefix: server.envPrefix, fileKey, section, key, value, dryRun: false });
           if (result.changed) {
             applied.push({ fileKey, section, key, backup: result.backup, remoteFile: result.remoteFile });
             appliedSettings += 1;
@@ -159,7 +168,7 @@ async function applyProfile({ server, profile, actorId = '', applyStore = new Ar
       }
     }
   } catch (error) {
-    const rollback = await rollbackBackups({ prefix: server.envPrefix, applied });
+    const rollback = await rollbackBackups({ prefix: server.envPrefix, applied, restorer });
     const suffix = rollback.failures ? ` Automatic rollback had ${rollback.failures} failure(s).` : ` ${rollback.restored} applied setting(s) were rolled back.`;
     throw new Error(`ARK config profile apply failed: ${cleanText(error?.message || error, 300)}.${suffix}`);
   }
@@ -186,13 +195,13 @@ async function applyProfile({ server, profile, actorId = '', applyStore = new Ar
   return { ...preview, dryRun: false, transaction, appliedSettings, restartRequired: appliedSettings > 0 };
 }
 
-async function rollbackTransaction({ server, transactionId, applyStore = new ArkConfigApplyStore() } = {}) {
+async function rollbackTransaction({ server, transactionId, applyStore = new ArkConfigApplyStore(), restorer = restoreBackup } = {}) {
   if (!server?.id || !server?.envPrefix) throw new Error('ARK cluster server is required.');
   const transaction = applyStore.get(transactionId);
   if (!transaction) throw new Error('Unknown ARK config apply transaction.');
   if (transaction.serverId !== server.id || transaction.envPrefix !== server.envPrefix) throw new Error('That transaction belongs to a different ARK server.');
   if (transaction.rolledBackAt) throw new Error('That ARK config transaction has already been rolled back.');
-  const result = await rollbackBackups({ prefix: server.envPrefix, applied: transaction.applied });
+  const result = await rollbackBackups({ prefix: server.envPrefix, applied: transaction.applied, restorer });
   if (result.failures) throw new Error(`Rollback restored ${result.restored} setting(s) but ${result.failures} restore operation(s) failed: ${result.errors.join('; ')}`);
   applyStore.markRolledBack(transaction.id, result);
   return { transactionId: transaction.id, restored: result.restored, restartRequired: result.restored > 0 };
