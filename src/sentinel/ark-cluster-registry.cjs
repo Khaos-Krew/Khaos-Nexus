@@ -88,6 +88,7 @@ function normalizeRecord(input = {}, existing = null) {
   const name = cleanText(source.name || mapName, 100) || mapName;
   const connections = source.connections && typeof source.connections === 'object' ? source.connections : {};
   const now = new Date().toISOString();
+  const restartRequired = source.restartRequired === true;
   return {
     id,
     name,
@@ -107,6 +108,10 @@ function normalizeRecord(input = {}, existing = null) {
     modProfile: cleanText(source.modProfile || 'default', 80) || 'default',
     shopProfile: cleanText(source.shopProfile || 'default', 80) || 'default',
     restartProfile: cleanText(source.restartProfile || 'default', 80) || 'default',
+    restartRequired,
+    restartReason: restartRequired ? cleanText(source.restartReason || 'Configuration changed', 160) : '',
+    restartSince: restartRequired ? cleanText(source.restartSince || now, 80) : '',
+    lastConfigTransactionId: cleanText(source.lastConfigTransactionId, 80),
     currentEvent: cleanText(source.currentEvent, 120),
     eventEndsAt: source.eventEndsAt ? cleanIso(source.eventEndsAt) : '',
     nextRestartAt: source.nextRestartAt ? cleanIso(source.nextRestartAt) : '',
@@ -214,6 +219,18 @@ class ArkClusterRegistry {
     return JSON.parse(JSON.stringify(existing));
   }
 
+  setRestartRequired(id, { required = true, reason = '', transactionId = '' } = {}) {
+    const existing = this.get(id);
+    if (!existing) throw new Error(`Unknown ARK cluster server: ${cleanId(id)}`);
+    return this.upsert({
+      ...existing,
+      restartRequired: required === true,
+      restartReason: required ? (reason || existing.restartReason || 'Configuration changed') : '',
+      restartSince: required ? (existing.restartRequired && existing.restartSince ? existing.restartSince : new Date().toISOString()) : '',
+      lastConfigTransactionId: transactionId || existing.lastConfigTransactionId || ''
+    });
+  }
+
   getMeta() { return JSON.parse(JSON.stringify(this.read().meta)); }
 
   setMeta(value = {}) {
@@ -254,6 +271,7 @@ class ArkClusterRegistry {
       modProfile: defaults.modProfile || 'gen1-default',
       shopProfile: defaults.shopProfile || 'arkshop-default',
       restartProfile: defaults.restartProfile || 'daily-default',
+      restartRequired: false,
       shopEnabled: true,
       kitsEnabled: true,
       eventsEnabled: true
