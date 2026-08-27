@@ -44,6 +44,7 @@ const { installEventManagementExtension } = require('./event-management-extensio
 const { installArkOpsExtension } = require('./ark-ops-extension.cjs');
 const { installArkConfigDbExtension } = require('./ark-config-db-extension.cjs');
 const { installArkClusterExtension } = require('./ark-cluster-extension.cjs');
+const { installArkClusterMetadataExtension } = require('./ark-cluster-metadata-extension.cjs');
 
 installRetiredGamesSelfRoleCleanupExtension();
 installGuildMembersIntentExtension();
@@ -85,5 +86,6 @@ installEventManagementExtension();
 installArkOpsExtension();
 installArkConfigDbExtension();
 installArkClusterExtension();
+installArkClusterMetadataExtension();
 require('./ark-command-routing-patch.cjs');
 require('./bot.cjs');
