@@ -6,7 +6,8 @@ const {
   AUDIT_SCHEMA_VERSION,
   sanitizeAuditValue,
   createAuditEvent,
-  permissionAuditEvent
+  permissionAuditEvent,
+  toDiscordAutomationAuditEntry
 } = require('../shared/sentinel-audit.cjs');
 
 test('audit values redact sensitive keys and explicit secrets recursively', () => {
@@ -63,7 +64,7 @@ test('permission audit events contain access context without permission-policy s
     id: 'audit-3',
     time: '2026-08-27T00:00:00.000Z',
     interaction: {
-      user: { id: '555' },
+      user: { id: '555', username: 'Operator' },
       guildId: '777',
       channelId: '999'
     },
@@ -79,7 +80,38 @@ test('permission audit events contain access context without permission-policy s
   assert.equal(event.category, 'access');
   assert.equal(event.action, 'discord.command.rcon');
   assert.equal(event.outcome, 'denied');
-  assert.deepEqual(event.actor, { type: 'discord-user', id: '555', role: 'administrator' });
+  assert.deepEqual(event.actor, { type: 'discord-user', id: '555', name: 'Operator', role: 'administrator' });
   assert.deepEqual(event.target, { guildId: '777', channelId: '999' });
   assert.deepEqual(event.metadata, { permissionCode: 'ACCESS_DENIED', requiredRole: 'owner' });
+});
+
+test('structured audit events bridge into the existing Discord automation audit contract', () => {
+  const event = permissionAuditEvent({
+    id: 'audit-4',
+    time: '2026-08-27T00:00:00.000Z',
+    interaction: {
+      user: { id: '555', username: 'Operator' },
+      guildId: '777',
+      channelId: '999'
+    },
+    decision: {
+      command: 'forcestop',
+      allowed: false,
+      principal: 'administrator',
+      requiredRole: 'owner',
+      code: 'ACCESS_DENIED'
+    }
+  });
+  const bridged = toDiscordAutomationAuditEntry(event);
+
+  assert.equal(bridged.id, 'audit-4');
+  assert.equal(bridged.category, 'access');
+  assert.equal(bridged.action, 'discord.command.forcestop');
+  assert.equal(bridged.outcome, 'blocked');
+  assert.equal(bridged.actorId, '555');
+  assert.equal(bridged.actorName, 'Operator');
+  assert.equal(bridged.actorRole, 'operator');
+  assert.equal(bridged.targetType, 'discord-command');
+  assert.equal(bridged.targetId, '777');
+  assert.equal(bridged.details.metadata.requiredRole, 'owner');
 });
