@@ -86,6 +86,7 @@ function normalizeRecord(input = {}, existing = null) {
   const mapName = cleanText(source.mapName || source.name || id, 100) || id;
   const name = cleanText(source.name || mapName, 100) || mapName;
   const connections = source.connections && typeof source.connections === 'object' ? source.connections : {};
+  const now = new Date().toISOString();
   return {
     id,
     name,
@@ -110,13 +111,15 @@ function normalizeRecord(input = {}, existing = null) {
     nextRestartAt: source.nextRestartAt ? cleanIso(source.nextRestartAt) : '',
     rates: normalizeRates(source.rates),
     mods: normalizeMods(source.mods),
+    detectedRates: normalizeRates(source.detectedRates),
+    detectedMods: normalizeMods(source.detectedMods),
     shopEnabled: source.shopEnabled !== false,
     kitsEnabled: source.kitsEnabled !== false,
     eventsEnabled: source.eventsEnabled !== false,
     notes: cleanText(source.notes, 240),
     runtime: normalizeRuntime(source.runtime || existing?.runtime || emptyRuntime()),
-    createdAt: cleanText(existing?.createdAt || source.createdAt || new Date().toISOString(), 80),
-    updatedAt: new Date().toISOString()
+    createdAt: cleanText(existing?.createdAt || source.createdAt || now, 80),
+    updatedAt: cleanText(source.updatedAt || existing?.updatedAt || now, 80)
   };
 }
 
@@ -183,6 +186,7 @@ class ArkClusterRegistry {
     const id = cleanId(input.id);
     const existing = state.servers[id] || null;
     const record = normalizeRecord({ ...input, id }, existing);
+    record.updatedAt = new Date().toISOString();
     state.servers[id] = record;
     this.write(state);
     return JSON.parse(JSON.stringify(record));
