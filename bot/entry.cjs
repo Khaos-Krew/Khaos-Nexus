@@ -5,6 +5,7 @@ const { installModuleRuntime } = require('./module-runtime.cjs');
 const { installDiscordAutomationRuntime } = require('./discord-automation-runtime.cjs');
 const { installCommunityAboutRuntime } = require('./community-about-runtime.cjs');
 const { installStatusPanelRuntime } = require('./status-panel-runtime.cjs');
+const { staffRoleIdsFromDiscordConfig } = require('./sentinel-runtime-config.cjs');
 const {
   permissionDecision,
   permissionDeniedMessage
@@ -38,7 +39,11 @@ installModuleRuntime({ ClientClass: Client, getBootstrap: () => bootstrap });
 
 function staffRoleIdsFromConfig() {
   const discord = bootstrap?.config?.discord || {};
-  return discord.staffRoleIds || discord.roleBindings || {};
+  return staffRoleIdsFromDiscordConfig(discord, {
+    onInvalidControlPlane: (error) => {
+      dndRuntime?.log?.('warn', `Sentinel control-plane role bindings rejected: ${error.message}`);
+    }
+  });
 }
 
 function emitPermissionAudit(interaction, decision) {
@@ -106,4 +111,4 @@ Client.prototype.login = function patchedLogin(...args) {
 
 require('./index.cjs');
 
-module.exports = { denyUnauthorizedInteraction, emitPermissionAudit };
+module.exports = { denyUnauthorizedInteraction, emitPermissionAudit, staffRoleIdsFromConfig };
