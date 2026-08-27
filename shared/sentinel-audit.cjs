@@ -45,6 +45,7 @@ function normalizeActor(actor = {}) {
   return Object.freeze({
     type: cleanText(actor.type, 60, 'system'),
     id: cleanText(actor.id, 120) || null,
+    name: cleanText(actor.name, 120) || null,
     role: cleanText(actor.role, 60) || null
   });
 }
@@ -77,6 +78,7 @@ function permissionAuditEvent({ decision, interaction, guildId, explicitSecrets 
     actor: {
       type: 'discord-user',
       id: interaction?.user?.id,
+      name: interaction?.user?.globalName || interaction?.user?.username,
       role: decision?.principal
     },
     target: {
@@ -91,10 +93,50 @@ function permissionAuditEvent({ decision, interaction, guildId, explicitSecrets 
   });
 }
 
+function automationActorRole(role) {
+  if (role === 'owner') return 'owner';
+  if (role === 'administrator') return 'operator';
+  if (role === 'operator') return 'operator';
+  return 'viewer';
+}
+
+function automationOutcome(outcome) {
+  if (outcome === 'denied' || outcome === 'cancelled') return 'blocked';
+  if (outcome === 'failed') return 'failed';
+  return 'success';
+}
+
+function toDiscordAutomationAuditEntry(eventInput = {}) {
+  const event = eventInput?.schemaVersion === AUDIT_SCHEMA_VERSION ? eventInput : createAuditEvent(eventInput);
+  const targetId = cleanText(event.target?.serverId || event.target?.guildId || event.target?.channelId, 100);
+  const targetName = cleanText(event.target?.name || event.target?.serverName, 120, event.action);
+  return {
+    id: event.id,
+    time: event.time,
+    category: event.category,
+    action: event.action,
+    outcome: automationOutcome(event.outcome),
+    actorId: cleanText(event.actor?.id, 120),
+    actorName: cleanText(event.actor?.name || event.actor?.id, 100, 'Sentinel'),
+    actorRole: automationActorRole(event.actor?.role),
+    targetType: event.category === 'access' ? 'discord-command' : cleanText(event.category, 50, 'sentinel'),
+    targetId,
+    targetName,
+    summary: cleanText(`${event.action} ${event.outcome}.`, 500),
+    details: sanitizeAuditValue({
+      auditSchemaVersion: event.schemaVersion,
+      auditSource: event.source,
+      target: event.target,
+      metadata: event.metadata
+    })
+  };
+}
+
 module.exports = {
   AUDIT_SCHEMA_VERSION,
   SENSITIVE_KEY_PATTERN,
   sanitizeAuditValue,
   createAuditEvent,
-  permissionAuditEvent
+  permissionAuditEvent,
+  toDiscordAutomationAuditEntry
 };
