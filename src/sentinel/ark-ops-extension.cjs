@@ -1,8 +1,15 @@
 'use strict';
 
 const { Client, Events, MessageFlags, SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const SftpClient = require('ssh2-sftp-client');
 const { loadConfig } = require('../shared/config.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
+const {
+  sftpSettingsFromEnv,
+  remotePath,
+  GAME_USER_SETTINGS_PATH,
+  GAME_INI_PATH
+} = require('./ark-sftp-config.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.ops.extension');
 const BOUND = Symbol.for('khaos.nexus.ark.ops.bound');
@@ -13,6 +20,7 @@ function arkCommand() {
     .setDescription('Manage the Khaos Nexus ARK server and ArkShop.');
 
   command.addSubcommand((sub) => sub.setName('status').setDescription('Test ARK RCON and show the current player response.'));
+  command.addSubcommand((sub) => sub.setName('config-status').setDescription('Test ARK SFTP and verify the server config files are reachable.'));
   command.addSubcommand((sub) => sub.setName('players').setDescription('List connected ARK players.'));
   command.addSubcommand((sub) => sub.setName('save').setDescription('Save the ARK world.'));
   command.addSubcommand((sub) => sub.setName('broadcast').setDescription('Broadcast a message in ARK.')
@@ -54,12 +62,61 @@ async function registerArkCommand(guild) {
   if (existing) await guild.commands.edit(existing, definition); else await guild.commands.create(definition);
 }
 
+async function arkConfigStatus(prefix = 'ARK_GEN1') {
+  const settings = sftpSettingsFromEnv(prefix);
+  if (!settings.host || !settings.username || !settings.password) {
+    throw new Error('ARK SFTP variables are incomplete. Host, username, and password are required.');
+  }
+
+  const gusPath = remotePath(settings.root, process.env[`${prefix}_GUS_PATH`] || GAME_USER_SETTINGS_PATH);
+  const gamePath = remotePath(settings.root, process.env[`${prefix}_GAMEINI_PATH`] || GAME_INI_PATH);
+  const shopPath = remotePath(settings.root, process.env[`${prefix}_ARKSHOP_CONFIG_PATH`] || 'ShooterGame/Binaries/Win64/ArkApi/Plugins/ArkShop/Configs/config.json');
+  const client = new SftpClient('khaos-nexus-ark-status');
+
+  try {
+    await client.connect({
+      host: settings.host,
+      port: settings.port,
+      username: settings.username,
+      password: settings.password,
+      readyTimeout: settings.readyTimeout
+    });
+    const [gus, game, shop] = await Promise.all([
+      client.exists(gusPath),
+      client.exists(gamePath),
+      client.exists(shopPath)
+    ]);
+    return { connected: true, gus: Boolean(gus), game: Boolean(game), shop: Boolean(shop), gusPath, gamePath, shopPath };
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
 async function handleArkInteraction(interaction, context) {
   if (!interaction.isChatInputCommand?.() || interaction.commandName !== 'ark') return false;
   if (!isStaff(interaction, context.config)) throw new Error('ARK server controls require Nexus staff authorization.');
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const sub = interaction.options.getSubcommand();
+
+  if (sub === 'config-status') {
+    const status = await arkConfigStatus('ARK_GEN1');
+    const request = String(process.env.ARK_GEN1_CONFIG_APPLY_ONCE || '').trim();
+    const content = [
+      `🗂️ **${context.server.name} Config Status**`,
+      '',
+      `SFTP: ${status.connected ? '🟢 Connected' : '🔴 Offline'}`,
+      `GameUserSettings.ini: ${status.gus ? '✅ Found' : '❌ Missing'}`,
+      `Game.ini: ${status.game ? '✅ Found' : '❌ Missing'}`,
+      `ArkShop config.json: ${status.shop ? '✅ Found' : '⚠️ Not found'}`,
+      `Baseline request: ${request ? `\`${request}\`` : 'Not requested'}`,
+      '',
+      `Config root: \`${String(process.env.ARK_GEN1_SFTP_ROOT || '/').slice(0, 300)}\``
+    ].join('\n');
+    await interaction.editReply({ content: content.slice(0, 1900), allowedMentions: { parse: [] } });
+    return true;
+  }
+
   let command;
   if (sub === 'status' || sub === 'players') command = 'ListPlayers';
   else if (sub === 'save') command = 'SaveWorld';
@@ -125,4 +182,4 @@ function installArkOpsExtension() {
   };
 }
 
-module.exports = { arkCommand, isStaff, safeEos, handleArkInteraction, installArkOpsExtension };
+module.exports = { arkCommand, isStaff, safeEos, arkConfigStatus, handleArkInteraction, installArkOpsExtension };
