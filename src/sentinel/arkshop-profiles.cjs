@@ -11,7 +11,7 @@ const GENERAL_KEYS = new Set([
   'GiveDinosInCryopods', 'CryoLimitedTime', 'UseOriginalTradeCommandWithUI',
   'PreventUseNoglin', 'PreventUseUnconscious', 'PreventUseHandcuffed', 'PreventUseCarried'
 ]);
-const FORBIDDEN_KEY = /(^|[_-])(mysql|password|passwd|token|secret|credential|webhook|api[_-]?key)($|[_-])/i;
+const FORBIDDEN_KEY = /(mysql|password|passwd|token|secret|credential|webhook|api[_-]?key)/i;
 const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 
 function cleanText(value, max = 240) {
