@@ -2,6 +2,8 @@
 
 const { bootstrapHostedProviderStore } = require('./hosted-provider-store.cjs');
 const { applyBaselineIfRequested } = require('../sentinel/ark-sftp-config.cjs');
+const { discoverPaths } = require('../sentinel/ark-config-manager.cjs');
+const { mysqlStatus } = require('../sentinel/arkshop-mysql.cjs');
 
 process.env.NEXUS_BACKEND_HOST ||= '127.0.0.1';
 process.env.NEXUS_BACKEND_PORT ||= '3210';
@@ -26,3 +28,22 @@ void applyBaselineIfRequested({ prefix: 'ARK_GEN1', stampDirectory: '/app/data' 
   .catch((error) => console.warn(`[Nexus Sentinal] ARK config sync failed: ${String(error?.message || error).slice(0, 300)}`));
 
 require('../sentinel/entry.cjs');
+
+void (async () => {
+  if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() !== 'true') return;
+
+  try {
+    const paths = await discoverPaths('ARK_GEN1');
+    const summarize = (item) => item?.found ? item.path : `missing:${String(item?.error || 'unknown').slice(0, 100)}`;
+    console.log(`[Nexus Sentinal] ARK SFTP discovery: gus=${summarize(paths.gus)} game=${summarize(paths.game)} arkshop=${summarize(paths.arkshop)}`);
+  } catch (error) {
+    console.warn(`[Nexus Sentinal] ARK SFTP discovery failed: ${String(error?.message || error).slice(0, 300)}`);
+  }
+
+  try {
+    const status = await mysqlStatus();
+    console.log(`[Nexus Sentinal] ArkShop MySQL ready: connected=${status.connected} database=${status.database} table=${status.table} tableExists=${status.tableExists}`);
+  } catch (error) {
+    console.warn(`[Nexus Sentinal] ArkShop MySQL unavailable: ${String(error?.message || error).slice(0, 300)}`);
+  }
+})();
