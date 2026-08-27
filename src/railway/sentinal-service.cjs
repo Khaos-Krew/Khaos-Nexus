@@ -47,7 +47,26 @@ if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
     })
     .catch((error) => console.warn(`[Nexus Sentinal] ARK SFTP discovery failed: ${String(error?.message || error).slice(0, 300)}`));
 
-  void mysqlStatus()
-    .then((status) => console.log(`[Nexus Sentinal] ArkShop MySQL ready: connected=${status.connected} database=${status.database} table=${status.table} tableExists=${status.tableExists}`))
-    .catch((error) => console.warn(`[Nexus Sentinal] ArkShop MySQL unavailable: ${String(error?.message || error).slice(0, 300)}`));
+  let mysqlSignature = '';
+  const checkMysql = async (reason = 'periodic') => {
+    try {
+      const status = await mysqlStatus();
+      const signature = `${status.connected}:${status.database}:${status.table}:${status.tableExists}`;
+      if (reason === 'startup' || signature !== mysqlSignature) {
+        console.log(`[Nexus Sentinal] ArkShop MySQL ${reason}: connected=${status.connected} database=${status.database} table=${status.table} tableExists=${status.tableExists}`);
+      }
+      mysqlSignature = signature;
+    } catch (error) {
+      const signature = `error:${String(error?.message || error).slice(0, 120)}`;
+      if (reason === 'startup' || signature !== mysqlSignature) {
+        console.warn(`[Nexus Sentinal] ArkShop MySQL ${reason} unavailable: ${String(error?.message || error).slice(0, 300)}`);
+      }
+      mysqlSignature = signature;
+    }
+  };
+
+  void checkMysql('startup');
+  const mysqlWatchMs = Math.max(60_000, Number(process.env.NEXUS_ARKSHOP_MYSQL_STATUS_SECONDS || 120) * 1000 || 120_000);
+  const mysqlWatch = setInterval(() => void checkMysql('state-change'), mysqlWatchMs);
+  mysqlWatch.unref?.();
 }
