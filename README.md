@@ -48,7 +48,7 @@ The current desktop shell includes dedicated presentation/workspace areas for **
 
 The visual layer prioritizes readability and accessibility. Dense operational surfaces retain usable backgrounds, decorative assets do not own input, and motion is reduced when the operating system requests reduced motion.
 
-Development, UI-refresh, stabilization, and owner-test branches **must not publish or modify a public release channel merely because their code packages successfully**. Release publication remains a separate authorized action.
+Development, UI-refresh, stabilization, and owner-test branches **must not publish or modify a release channel merely because their code packages successfully**. Release publication remains a separate authorized action.
 
 ## Current stabilization gates
 
