@@ -41,6 +41,7 @@ const { installCreatorRolesEntryLockdownExtension } = require('./creator-roles-e
 const { installCreatorLifecycleExtension } = require('./creator-lifecycle-extension.cjs');
 const { installSupporterEntitlementExtension } = require('./supporter-entitlement-extension.cjs');
 const { installEventManagementExtension } = require('./event-management-extension.cjs');
+const { installArkOpsExtension } = require('./ark-ops-extension.cjs');
 
 installRetiredGamesSelfRoleCleanupExtension();
 installGuildMembersIntentExtension();
@@ -79,4 +80,5 @@ installCreatorRolesEntryLockdownExtension();
 installCreatorLifecycleExtension();
 installSupporterEntitlementExtension();
 installEventManagementExtension();
+installArkOpsExtension();
 require('./bot.cjs');
