@@ -62,7 +62,7 @@ test('game server panel groups official servers by game and publishes community 
   assert.equal(embed.fields[0].name,'🛡️ Official • ARK: Survival Ascended'); assert.match(embed.fields[0].value,/Ragnarok/); assert.match(embed.fields[0].value,/Astraeos/);
   assert.match(embed.fields.at(-1).value,/Community Level 10/i); assert.equal(embed.timestamp,undefined);
   assert.equal(payload.embeds.length,2); assert.equal(payload.embeds[1].title,COMMUNITY_SERVER_RULES_TITLE); assert.equal(COMMUNITY_SERVER_MIN_LEVEL,10);
-  const rules=JSON.stringify(payload.embeds[1]); assert.match(rules,/pay-to-win/i); assert.match(rules,/mandatory payment/i); assert.match(rules,/Server Host/i); assert.match(rules,/Name Color/i);
+  const rules=JSON.stringify(payload.embeds[1]); assert.match(rules,/pay-to-win/i); assert.match(rules,/mandatory pay-to-play/i); assert.match(rules,/Server Host/i); assert.match(rules,/Name Color/i);
   const serialized=JSON.stringify(payload); assert.equal(serialized.includes('10.0.0.10'),false); assert.equal(serialized.includes('SECRET_ENV'),false);
   assert.equal(/Nitrado|Akliz|CreeperHost|NetEase/.test(serialized),false);
 });
@@ -81,7 +81,7 @@ test('game server reconciliation reuses newest canonical panel and removes dupli
 
 test('game server registry skips Discord edits when tracked-server state is unchanged', async () => {
   const payload=renderGameServersPanel({servers:[]}); let edits=0;
-  const message={id:'current',createdTimestamp:200,author:{id:'sentinal',bot:true},pinned:true,content:'',embeds:payload.embeds.map((embed)=>({toJSON:()=>embed})),edit:async()=>{edits+=1;}};
+  const message={id:'current',createdTimestamp:200,author:{id:'sentinal',bot:true},pinned:true,content:'',embeds:payload.embeds.map((embed)=>({toJSON:()=>embed})),components:payload.components.map((component)=>({toJSON:()=>component.toJSON()})),edit:async()=>{edits+=1;}};
   const channel={client:{user:{id:'sentinal'}},messages:{fetch:async()=>new Map([[message.id,message]])}};
   assert.equal(panelPayloadMatches(message,payload),true); const result=await reconcileGameServersPanel(channel,payload,{botId:'sentinal'}); assert.equal(result.updated,false); assert.equal(edits,0);
 });
