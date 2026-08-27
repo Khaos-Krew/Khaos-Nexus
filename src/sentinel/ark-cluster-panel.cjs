@@ -58,15 +58,34 @@ function renderMods(mods = []) {
   return `${list.length} tracked${names ? ` • ${names}${list.length > 5 ? ', …' : ''}` : ''}`;
 }
 
+function effectiveRates(server = {}) {
+  return Object.keys(server.rates || {}).length ? server.rates : (server.detectedRates || {});
+}
+
+function effectiveMods(server = {}) {
+  return Array.isArray(server.mods) && server.mods.length ? server.mods : (server.detectedMods || []);
+}
+
+function renderConnectivity(server = {}) {
+  const connection = server.connections || {};
+  return [
+    `RCON ${connection.rcon ? '✅' : '—'}`,
+    `Query ${connection.query ? '✅' : '—'}`,
+    `API ${connection.api ? '✅' : '—'}`,
+    `SFTP ${connection.sftp ? '✅' : '—'}`
+  ].join(' • ');
+}
+
 function renderMapField(server = {}) {
   const runtime = server.runtime || {};
   const state = runtime.state || (server.maintenance ? 'maintenance' : 'offline');
   const lines = [
     `${stateGlyph(state)} **${stateLabel(state)}** • **Players:** ${Math.max(0, Number(runtime.playerCount) || 0)}`,
     `**Map:** ${clean(server.mapName || server.name || server.id, 80)}${server.mapIdentifier ? ` • \`${clean(server.mapIdentifier, 80)}\`` : ''}`,
+    `**Control:** ${renderConnectivity(server)}`,
     `**Profiles:** Config \`${clean(server.configProfile || 'default', 40)}\` • Mods \`${clean(server.modProfile || 'default', 40)}\` • Shop \`${clean(server.shopProfile || 'default', 40)}\` • Restart \`${clean(server.restartProfile || 'default', 40)}\``,
-    `**Rates:** ${renderRates(server.rates)}`,
-    `**Mods:** ${renderMods(server.mods)}`,
+    `**Rates:** ${renderRates(effectiveRates(server))}`,
+    `**Mods:** ${renderMods(effectiveMods(server))}`,
     `**Event:** ${server.currentEvent ? clean(server.currentEvent, 80) : 'None'}${server.eventEndsAt ? ` • ends ${discordTime(server.eventEndsAt)}` : ''}`,
     `**Next restart:** ${discordTime(server.nextRestartAt)}`,
     `**Access:** Shop ${server.shopEnabled === false ? '🔴' : '🟢'} • Kits ${server.kitsEnabled === false ? '🔴' : '🟢'} • Events ${server.eventsEnabled === false ? '🔴' : '🟢'}`
@@ -201,6 +220,9 @@ module.exports = {
   discordTime,
   renderRates,
   renderMods,
+  effectiveRates,
+  effectiveMods,
+  renderConnectivity,
   renderMapField,
   clusterEvent,
   nextRestart,
