@@ -1,5 +1,7 @@
 'use strict';
 
+const { normalizeAuditEntry } = require('../shared/discord-automation.cjs');
+
 function requireFunction(target, name) {
   if (!target || typeof target[name] !== 'function') {
     throw new TypeError(`Sentinel role executor requires ${name}().`);
@@ -7,8 +9,24 @@ function requireFunction(target, name) {
   return target[name].bind(target);
 }
 
+function auditEntry({ action, targetType, targetId, targetName, summary, details, actor = {} }) {
+  return normalizeAuditEntry({
+    category: 'sentinel-roles',
+    action,
+    outcome: 'success',
+    actorId: actor.id,
+    actorName: actor.name || 'Nexus Sentinel',
+    actorRole: actor.role || 'local-admin',
+    targetType,
+    targetId,
+    targetName,
+    summary,
+    details,
+  });
+}
+
 async function emitAudit(audit, event) {
-  if (typeof audit === 'function') await audit(Object.freeze({ ...event }));
+  if (typeof audit === 'function') await audit(event);
 }
 
 async function executeManagedRoleSyncPlan({
@@ -17,6 +35,7 @@ async function executeManagedRoleSyncPlan({
   gateway,
   persistBinding,
   audit,
+  actor,
   dryRun = true,
 } = {}) {
   const byKey = new Map((definitions || []).map((definition) => [definition.roleKey, definition]));
@@ -56,11 +75,15 @@ async function executeManagedRoleSyncPlan({
         throw new TypeError('Sentinel role executor requires persistBinding() for adoption.');
       }
       await persistBinding(item.roleKey, item.discordRoleId);
-      await emitAudit(audit, {
-        type: 'sentinel.role.adopted',
-        roleKey: item.roleKey,
-        discordRoleId: item.discordRoleId,
-      });
+      await emitAudit(audit, auditEntry({
+        action: 'role-adopted',
+        targetType: 'discord-role',
+        targetId: item.discordRoleId,
+        targetName: definition.displayName,
+        summary: `Adopted existing Discord role for ${item.roleKey}.`,
+        details: { roleKey: item.roleKey },
+        actor,
+      }));
       results.push({ roleKey: item.roleKey, status: 'adopted', discordRoleId: item.discordRoleId });
       continue;
     }
@@ -83,11 +106,15 @@ async function executeManagedRoleSyncPlan({
       const discordRoleId = String(created?.id || '').trim();
       if (!discordRoleId) throw new Error(`Discord role creation returned no ID for ${item.roleKey}.`);
       await persistBinding(item.roleKey, discordRoleId);
-      await emitAudit(audit, {
-        type: 'sentinel.role.created',
-        roleKey: item.roleKey,
-        discordRoleId,
-      });
+      await emitAudit(audit, auditEntry({
+        action: 'role-created',
+        targetType: 'discord-role',
+        targetId: discordRoleId,
+        targetName: definition.displayName,
+        summary: `Created managed Discord role for ${item.roleKey}.`,
+        details: { roleKey: item.roleKey, group: definition.group || null },
+        actor,
+      }));
       results.push({ roleKey: item.roleKey, status: 'created', discordRoleId });
       continue;
     }
@@ -103,6 +130,7 @@ async function executeExclusiveRoleAssignment({
   plan,
   gateway,
   audit,
+  actor,
   dryRun = true,
 } = {}) {
   const normalizedMemberId = String(memberId || '').trim();
@@ -129,28 +157,30 @@ async function executeExclusiveRoleAssignment({
   const removeRole = remove.length ? requireFunction(gateway, 'removeRoleFromMember') : null;
   const addRole = add.length ? requireFunction(gateway, 'addRoleToMember') : null;
 
-  // Remove conflicting managed roles before adding the new exclusive role.
-  // This preserves deterministic name-color precedence and avoids transient multi-color state.
   for (const discordRoleId of remove) {
     await removeRole(normalizedMemberId, discordRoleId);
-    await emitAudit(audit, {
-      type: 'sentinel.member_role.removed',
-      memberId: normalizedMemberId,
-      roleKey: plan.roleKey,
-      group: plan.group,
-      discordRoleId,
-    });
+    await emitAudit(audit, auditEntry({
+      action: 'member-role-removed',
+      targetType: 'discord-member',
+      targetId: normalizedMemberId,
+      targetName: normalizedMemberId,
+      summary: `Removed conflicting ${plan.group} role before applying ${plan.roleKey}.`,
+      details: { roleKey: plan.roleKey, group: plan.group, discordRoleId },
+      actor,
+    }));
   }
 
   for (const discordRoleId of add) {
     await addRole(normalizedMemberId, discordRoleId);
-    await emitAudit(audit, {
-      type: 'sentinel.member_role.added',
-      memberId: normalizedMemberId,
-      roleKey: plan.roleKey,
-      group: plan.group,
-      discordRoleId,
-    });
+    await emitAudit(audit, auditEntry({
+      action: 'member-role-added',
+      targetType: 'discord-member',
+      targetId: normalizedMemberId,
+      targetName: normalizedMemberId,
+      summary: `Applied ${plan.roleKey} in the ${plan.group} role group.`,
+      details: { roleKey: plan.roleKey, group: plan.group, discordRoleId },
+      actor,
+    }));
   }
 
   return {
