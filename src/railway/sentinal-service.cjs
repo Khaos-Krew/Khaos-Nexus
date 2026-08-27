@@ -3,6 +3,7 @@
 const { bootstrapHostedProviderStore } = require('./hosted-provider-store.cjs');
 const { discoverPaths } = require('../sentinel/ark-config-manager.cjs');
 const { inspectSftpLayout } = require('../sentinel/ark-sftp-diagnostic.cjs');
+const { syncArkShopMysqlIfRequested } = require('../sentinel/arkshop-startup-sync.cjs');
 const { mysqlStatus } = require('../sentinel/arkshop-mysql.cjs');
 
 process.env.NEXUS_BACKEND_HOST ||= '127.0.0.1';
@@ -17,12 +18,21 @@ if (hosted.secretState.failed.length) {
 console.log('[Nexus Sentinal] starting Railway composite runtime');
 require('../backend/server.cjs');
 
-// ARK config writes are intentionally command-driven. Startup only performs
-// read-only connectivity/path probes so deployments cannot silently alter
-// Game.ini or GameUserSettings.ini.
+// Routine ARK configuration is command-driven. The only startup write allowed
+// here is an explicitly requested, stamped, one-time ArkShop MySQL migration.
 require('../sentinel/entry.cjs');
 
 if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
+  void syncArkShopMysqlIfRequested({ prefix: 'ARK_GEN1', stampDirectory: '/app/data' })
+    .then((result) => {
+      if (result.skipped) {
+        console.log(`[Nexus Sentinal] ArkShop MySQL config sync skipped: ${result.skipped}`);
+        return;
+      }
+      console.log(`[Nexus Sentinal] ArkShop MySQL config synchronized: changed=${result.changed} file=${result.remoteFile} backup=${result.backup || 'none'} restartRequired=true`);
+    })
+    .catch((error) => console.warn(`[Nexus Sentinal] ArkShop MySQL config sync failed: ${String(error?.message || error).slice(0, 300)}`));
+
   void inspectSftpLayout('ARK_GEN1')
     .then((layout) => {
       console.log(`[Nexus Sentinal] ARK SFTP layout: cwd=${layout.cwd} configuredRoot=${layout.configuredRoot} dirs=${layout.directories.join(',') || '(none)'} shooterGame=${layout.shooterGameCandidates.join(',') || '(none)'}`);
