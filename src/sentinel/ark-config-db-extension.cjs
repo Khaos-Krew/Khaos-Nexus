@@ -3,8 +3,8 @@
 const { Client, Events, MessageFlags, SlashCommandBuilder } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
-const { isStaff, arkConfigStatus } = require('./ark-ops-extension.cjs');
-const { setIniValue, setArkShopValue, syncArkShopMysqlFromEnv } = require('./ark-config-manager.cjs');
+const { isStaff } = require('./ark-ops-extension.cjs');
+const { setIniValue, setArkShopValue, syncArkShopMysqlFromEnv, discoverPaths } = require('./ark-config-manager.cjs');
 const { mysqlStatus, mysqlSchema, lookupPlayer } = require('./arkshop-mysql.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.config.db.extension');
@@ -61,15 +61,17 @@ async function handleConfig(interaction, context) {
   const sub = interaction.options.getSubcommand();
 
   if (sub === 'status') {
-    const status = await arkConfigStatus('ARK_GEN1');
+    const paths = await discoverPaths('ARK_GEN1');
     await interaction.editReply({ content: [
       `🗂️ **${context.server.name} configuration**`,
-      `SFTP: ${status.connected ? '🟢 Connected' : '🔴 Offline'}`,
-      `GameUserSettings.ini: ${status.gus ? '✅ Found' : '❌ Missing'}`,
-      `Game.ini: ${status.game ? '✅ Found' : '❌ Missing'}`,
-      `ArkShop config.json: ${status.shop ? '✅ Found' : '⚠️ Not found'}`,
-      `ArkShop path: \`${clean(status.shopPath, 700)}\``
-    ].join('\n'), allowedMentions: { parse: [] } });
+      'SFTP: 🟢 Connected',
+      `GameUserSettings.ini: ${paths.gus.found ? '✅ Found' : '❌ Missing'}`,
+      paths.gus.found ? `↳ \`${clean(paths.gus.path, 650)}\`` : `↳ ${clean(paths.gus.error, 650)}`,
+      `Game.ini: ${paths.game.found ? '✅ Found' : '❌ Missing'}`,
+      paths.game.found ? `↳ \`${clean(paths.game.path, 650)}\`` : `↳ ${clean(paths.game.error, 650)}`,
+      `ArkShop config.json: ${paths.arkshop.found ? '✅ Found' : '⚠️ Not found'}`,
+      paths.arkshop.found ? `↳ \`${clean(paths.arkshop.path, 650)}\`` : `↳ ${clean(paths.arkshop.error, 650)}`
+    ].join('\n').slice(0, 1900), allowedMentions: { parse: [] } });
     return true;
   }
 
@@ -111,6 +113,7 @@ async function handleConfig(interaction, context) {
     await interaction.editReply({ content: [
       `✅ **ArkShop ${dryRun ? 'preview complete' : (result.changed ? 'config updated and verified' : 'already matched')}.**`,
       `Path: \`${clean(jsonPath, 300)}\``,
+      `File: \`${clean(result.remoteFile, 650)}\``,
       `Changed: ${result.changed ? 'Yes' : 'No'}`,
       result.backup ? `Backup: \`${clean(result.backup)}\`` : null,
       !dryRun && result.changed ? `ArkShop.Reload: \`${clean(reload, 500)}\`` : null,
@@ -125,6 +128,7 @@ async function handleConfig(interaction, context) {
     if (!dryRun && result.changed) reload = await context.rcon.execute('ArkShop.Reload').then((text) => text || 'Command accepted');
     await interaction.editReply({ content: [
       `✅ **ArkShop MySQL ${dryRun ? 'sync readiness verified' : (result.changed ? 'configuration synchronized' : 'configuration already matched')}.**`,
+      `File: \`${clean(result.remoteFile, 650)}\``,
       `Changed: ${result.changed ? 'Yes' : 'No'}`,
       result.backup ? `Backup: \`${clean(result.backup)}\`` : null,
       !dryRun && result.changed ? `ArkShop.Reload: \`${clean(reload, 500)}\`` : null,
@@ -144,7 +148,7 @@ async function handleDb(interaction, context) {
   if (sub === 'status') {
     const status = await mysqlStatus();
     await interaction.editReply({ content: [
-      `🗄️ **ArkShop MySQL**`,
+      '🗄️ **ArkShop MySQL**',
       `Connection: ${status.connected ? '🟢 Connected' : '🔴 Offline'}`,
       `Database: \`${clean(status.database, 120)}\``,
       `Player table: \`${clean(status.table, 120)}\` ${status.tableExists ? '✅' : '❌'}`
@@ -166,7 +170,7 @@ async function handleDb(interaction, context) {
       return true;
     }
     const rows = Object.entries(result.player).map(([key, value]) => `• ${key}: \`${clean(typeof value === 'string' ? value : JSON.stringify(value), 500)}\``);
-    await interaction.editReply({ content: [`👤 **ArkShop player record**`, ...rows].join('\n').slice(0, 1900), allowedMentions: { parse: [] } });
+    await interaction.editReply({ content: ['👤 **ArkShop player record**', ...rows].join('\n').slice(0, 1900), allowedMentions: { parse: [] } });
     return true;
   }
   return false;
