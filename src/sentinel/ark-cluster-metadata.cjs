@@ -78,6 +78,10 @@ async function discoverServerMetadata(server, { reader = readConfig } = {}) {
   return { rates, mods, remoteFile: result.remoteFile, discoveredPath: result.discovered === true };
 }
 
+function sameJson(left, right) {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
 async function syncClusterMetadata(registry, options = {}) {
   const results = [];
   for (const server of registry.list({ includeDisabled: false })) {
@@ -87,18 +91,11 @@ async function syncClusterMetadata(registry, options = {}) {
         results.push({ id: server.id, skipped: metadata.skipped });
         continue;
       }
-      const patch = { ...server };
-      let changed = false;
-      if (!Object.keys(server.rates || {}).length && Object.keys(metadata.rates || {}).length) {
-        patch.rates = metadata.rates;
-        changed = true;
-      }
-      if (!(server.mods || []).length && (metadata.mods || []).length) {
-        patch.mods = metadata.mods;
-        changed = true;
-      }
-      if (changed) registry.upsert(patch);
-      results.push({ id: server.id, changed, rates: Object.keys(metadata.rates || {}).length, mods: (metadata.mods || []).length, remoteFile: metadata.remoteFile });
+      const detectedRates = metadata.rates || {};
+      const detectedMods = metadata.mods || [];
+      const changed = !sameJson(server.detectedRates || {}, detectedRates) || !sameJson(server.detectedMods || [], detectedMods);
+      if (changed) registry.upsert({ ...server, detectedRates, detectedMods });
+      results.push({ id: server.id, changed, rates: Object.keys(detectedRates).length, mods: detectedMods.length, remoteFile: metadata.remoteFile });
     } catch (error) {
       results.push({ id: server.id, error: String(error?.message || error).slice(0, 240) });
     }
@@ -113,5 +110,6 @@ module.exports = {
   extractRates,
   extractMods,
   discoverServerMetadata,
+  sameJson,
   syncClusterMetadata
 };
