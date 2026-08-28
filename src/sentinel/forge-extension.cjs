@@ -79,6 +79,7 @@ function bridgeStatusText(forge, health = null) {
       `Version: \`${health.version}\``,
       `OpenAI: **${health.openaiConfigured ? 'Configured' : 'Missing'}**`,
       `GitHub execution: **${health.githubConfigured ? 'Configured' : 'Missing'}**`,
+      `Fallback routing: **${String(health.fallbackRouting || 'unknown')}**`,
       `Write policy: \`${health.writePolicy}\``
     );
   }
@@ -92,7 +93,13 @@ function formatForgeResult(result) {
     `Base: \`${result.baseRef}\``
   ];
   if (result.branch) lines.push(`Branch: \`${result.branch}\``);
-  if (result.output) lines.push('', String(result.output).slice(0, 1500));
+  if (result.modelRoute) lines.push(`Model route: \`${String(result.modelRoute).slice(0, 100)}\``);
+  if (result.usage) {
+    lines.push(
+      `Usage: **${result.usage.totalTokens.toLocaleString()} tokens** • ${result.usage.inputTokens.toLocaleString()} in / ${result.usage.outputTokens.toLocaleString()} out • ${result.usage.requests.toLocaleString()} requests`
+    );
+  }
+  if (result.output) lines.push('', String(result.output).slice(0, 1350));
   return lines.join('\n').slice(0, 1900);
 }
 
@@ -201,7 +208,7 @@ function installForgeExtension(options = {}) {
       }
       try {
         const health = await forge.health();
-        logger.log?.(`[Nexus Sentinal] Forge bridge health: ok=${health.ok} version=${health.version} openai=${health.openaiConfigured} github=${health.githubConfigured} policy=${health.writePolicy}`);
+        logger.log?.(`[Nexus Sentinal] Forge bridge health: ok=${health.ok} version=${health.version} openai=${health.openaiConfigured} github=${health.githubConfigured} fallback=${health.fallbackRouting} policy=${health.writePolicy}`);
       } catch (error) {
         logger.warn?.(`[Nexus Sentinal] Forge bridge health unavailable: ${String(error?.message || error).slice(0, 300)}`);
       }
@@ -244,7 +251,7 @@ function installForgeExtension(options = {}) {
             constraints: buildConstraints(interaction.user.id)
           });
           await interaction.editReply({ content: formatForgeResult(result), components: [] });
-          logger.log?.(`[Nexus Sentinal] Forge execute actor=${interaction.user.id} status=${result.status} branch=${result.branch || 'none'} repair=${Boolean(task.branch)}`);
+          logger.log?.(`[Nexus Sentinal] Forge execute actor=${interaction.user.id} status=${result.status} branch=${result.branch || 'none'} repair=${Boolean(task.branch)} route=${result.modelRoute || 'unknown'} tokens=${result.usage?.totalTokens || 0}`);
           return;
         }
 
@@ -278,7 +285,7 @@ function installForgeExtension(options = {}) {
             constraints: buildConstraints(interaction.user.id)
           });
           await interaction.editReply({ content: formatForgeResult(result) });
-          logger.log?.(`[Nexus Sentinal] Forge plan actor=${interaction.user.id} status=${result.status}`);
+          logger.log?.(`[Nexus Sentinal] Forge plan actor=${interaction.user.id} status=${result.status} route=${result.modelRoute || 'unknown'} tokens=${result.usage?.totalTokens || 0}`);
           return;
         }
 
