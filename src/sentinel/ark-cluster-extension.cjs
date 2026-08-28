@@ -99,6 +99,19 @@ function registryLine(server) {
   return `${glyph} \`${server.id}\` • ${server.mapName} • ${server.runtime?.playerCount || 0} players • env \`${server.envPrefix}\`${server.enabled === false ? ' • disabled' : ''}`;
 }
 
+function clusterRuntimeSignature(servers = []) {
+  return servers.map((server) => `${server.id}:${server.runtime?.state || 'offline'}:${String(server.runtime?.lastError || '').slice(0, 120)}`).join('|');
+}
+
+function logClusterRuntime(servers = [], reason = 'refresh') {
+  for (const server of servers.filter((item) => item.enabled !== false)) {
+    const state = server.runtime?.state || 'offline';
+    const players = Math.max(0, Number(server.runtime?.playerCount) || 0);
+    const error = String(server.runtime?.lastError || '').replace(/[\r\n]+/g, ' ').slice(0, 180);
+    console.log(`[Nexus Sentinal] ARK map ${reason}: id=${server.id} state=${state} players=${players}${error ? ` error=${error}` : ''}`);
+  }
+}
+
 async function refreshClusterPanel(client, registry, config, { reason = 'manual', poll = true } = {}) {
   const guildId = String(config.discord?.guildId || '');
   if (!guildId) return { skipped: 'guild-unconfigured' };
@@ -279,12 +292,20 @@ function installArkClusterExtension() {
         config,
         registry,
         lastManualRefreshAt: 0,
+        lastRuntimeSignature: '',
         running: false,
         async runRefresh(reason, poll = true) {
           if (this.running) return { skipped: 'refresh-already-running' };
           this.running = true;
-          try { return await refreshClusterPanel(client, registry, config, { reason, poll }); }
-          finally { this.running = false; }
+          try {
+            const result = await refreshClusterPanel(client, registry, config, { reason, poll });
+            if (result?.servers) {
+              const signature = clusterRuntimeSignature(result.servers);
+              if (reason === 'startup' || signature !== this.lastRuntimeSignature) logClusterRuntime(result.servers, reason);
+              this.lastRuntimeSignature = signature;
+            }
+            return result;
+          } finally { this.running = false; }
         }
       };
       client.__nexusArkClusterContext = context;
@@ -340,6 +361,8 @@ module.exports = {
   parseMods,
   parseRates,
   registryLine,
+  clusterRuntimeSignature,
+  logClusterRuntime,
   refreshClusterPanel,
   handleClusterButton,
   handleClusterCommand,
