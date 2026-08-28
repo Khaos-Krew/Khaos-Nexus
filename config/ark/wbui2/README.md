@@ -2,26 +2,50 @@
 
 This directory is the Nexus-owned source location for externally hosted WBUI2 JSON used by Khaos Nexus ARK: Survival Ascended servers.
 
-## Current Gen 1 configuration
+## Cluster-wide configuration
 
-- Repository file: `config/ark/wbui2/gen1.json`
+All normal Khaos Nexus ARK maps should point to the same shared WBUI2 JSON:
+
+- Repository file: `config/ark/wbui2/cluster.json`
 - Raw JSON URL:
-  `https://raw.githubusercontent.com/Khaos-Krew/Khaos-Nexus/rebuild/nexus-0.1/config/ark/wbui2/gen1.json`
+  `https://raw.githubusercontent.com/Khaos-Krew/Khaos-Nexus/rebuild/nexus-0.1/config/ark/wbui2/cluster.json`
 - WBUI2 compatibility target:
   `https://raw.githubusercontent.com/DC-Modding/WBUI2-Wiki/main/default.json`
 
-The server-side WBUI2 INI should point `JsonURL` at the raw JSON URL, for example:
+Use this on every map:
 
 ```ini
 [WBUI2]
-JsonURL="https://raw.githubusercontent.com/Khaos-Krew/Khaos-Nexus/rebuild/nexus-0.1/config/ark/wbui2/gen1.json"
+JsonURL="https://raw.githubusercontent.com/Khaos-Krew/Khaos-Nexus/rebuild/nexus-0.1/config/ark/wbui2/cluster.json"
 ```
 
-After changing/publishing WBUI2 JSON, force an immediate in-game refresh over RCON with:
+That lets one Nexus UI update propagate to the entire ARK cluster without copying or editing JSON separately for each map.
+
+After changing/publishing WBUI2 JSON, force an immediate in-game refresh over RCON on each applicable online map with:
 
 ```text
 cheat scriptcommand WBUI2 update
 ```
+
+## Per-map overrides
+
+Per-map JSON files are optional and should only exist when a map genuinely needs different content. Naming convention:
+
+- `gen1.json`
+- `gen2.json`
+- `ragnarok.json`
+- `theisland.json`
+- etc.
+
+`gen1.json` currently mirrors the shared cluster UI so the existing Gen 1 URL continues to work. Once Gen 1 points directly at `cluster.json`, `gen1.json` should only be used if Genesis-specific content is required.
+
+Sentinel should resolve WBUI2 configuration in this order:
+
+1. cluster-wide source of truth;
+2. optional per-map override;
+3. validate merged WBUI2 document;
+4. publish raw JSON;
+5. issue `cheat scriptcommand WBUI2 update` to online maps after successful publication.
 
 ## Ownership model
 
