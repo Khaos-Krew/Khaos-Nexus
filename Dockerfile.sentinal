@@ -14,4 +14,4 @@ COPY config.example.json ./config.example.json
 
 RUN npm run check && npm test
 
-CMD ["node", "src/railway/sentinal-service.cjs"]
+CMD ["node", "-r", "./src/sentinel/ark-ssh-probe-startup.cjs", "src/railway/sentinal-service.cjs"]
