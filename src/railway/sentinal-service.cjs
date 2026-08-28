@@ -56,10 +56,11 @@ if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
           return;
         }
         if (result.skipped) {
-          console.log(`[Nexus Sentinal] ArkShop API log diagnostic: path=${result.path} bytes=${result.bytes || 0} skipped=${result.skipped}`);
+          console.log(`[Nexus Sentinal] ArkShop API log diagnostic: source=${result.source || 'unknown'} path=${result.path} bytes=${result.bytes || 0} skipped=${result.skipped}`);
           return;
         }
-        console.log(`[Nexus Sentinal] ArkShop API log diagnostic: path=${result.path} matchingLines=${result.lines.length}`);
+        const files = Array.isArray(result.filesSeen) && result.filesSeen.length ? ` files=${result.filesSeen.join(',').slice(0, 600)}` : '';
+        console.log(`[Nexus Sentinal] ArkShop API log diagnostic: source=${result.source || 'unknown'} path=${result.path} matchingLines=${result.lines.length}${files}`);
         for (const line of result.lines) console.log(`[Nexus Sentinal] ArkShop API log: ${line}`);
       })
       .catch((error) => console.warn(`[Nexus Sentinal] ArkShop API log diagnostic failed: ${String(error?.message || error).slice(0, 300)}`));
