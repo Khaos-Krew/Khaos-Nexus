@@ -16,7 +16,9 @@
     "dist:update": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-update-bundle.ps1 -Channel owner-test"
   },
   "dependencies": {
-    "discord.js": "14.27.0"
+    "discord.js": "14.27.0",
+    "mysql2": "3.24.2",
+    "ssh2-sftp-client": "12.1.1"
   },
   "devDependencies": {
     "electron": "43.2.0",

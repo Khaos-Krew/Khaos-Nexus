@@ -5,7 +5,8 @@ const { loadConfig } = require('../shared/config.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { isStaff } = require('./ark-ops-extension.cjs');
 const { setIniValue, setArkShopValue, syncArkShopMysqlFromEnv, discoverPaths } = require('./ark-config-manager.cjs');
-const { mysqlStatus, mysqlSchema, lookupPlayer } = require('./arkshop-mysql.cjs');
+const { databaseStatus, databaseSchema, lookupPlayer } = require('./arkshop-database.cjs');
+const { getPlayerPoints, addPlayerPoints, setPlayerPoints } = require('./arkshop-rcon-points.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.config.db.extension');
 const BOUND = Symbol.for('khaos.nexus.ark.config.db.bound');
@@ -35,11 +36,21 @@ function configCommand() {
 function dbCommand() {
   return new SlashCommandBuilder()
     .setName('arkdb')
-    .setDescription('Inspect the ArkShop MySQL connection and player records.')
-    .addSubcommand((sub) => sub.setName('status').setDescription('Test the ArkShop MySQL connection and player table.'))
+    .setDescription('Inspect the active ArkShop database and player records.')
+    .addSubcommand((sub) => sub.setName('status').setDescription('Test the ArkShop database connection and player table.'))
     .addSubcommand((sub) => sub.setName('schema').setDescription('Show the detected ArkShop player table schema.'))
-    .addSubcommand((sub) => sub.setName('player').setDescription('Look up an ArkShop player record by numeric player/Steam ID.')
-      .addStringOption((o) => o.setName('id').setDescription('Numeric player/Steam ID').setRequired(true).setMaxLength(30)));
+    .addSubcommand((sub) => sub.setName('player').setDescription('Look up an ArkShop player record by Steam or EOS ID.')
+      .addStringOption((o) => o.setName('id').setDescription('Player Steam/EOS ID').setRequired(true).setMaxLength(128)))
+    .addSubcommand((sub) => sub.setName('points').setDescription('Read a player point balance through ArkShop RCON.')
+      .addStringOption((o) => o.setName('id').setDescription('Player Steam/EOS ID').setRequired(true).setMaxLength(128)))
+    .addSubcommand((sub) => sub.setName('add-points').setDescription('Add points through ArkShop RCON and verify the new balance.')
+      .addStringOption((o) => o.setName('id').setDescription('Player Steam/EOS ID').setRequired(true).setMaxLength(128))
+      .addIntegerOption((o) => o.setName('amount').setDescription('Points to add').setRequired(true).setMinValue(1).setMaxValue(2_000_000_000))
+      .addBooleanOption((o) => o.setName('confirm').setDescription('Confirm this live point change').setRequired(true)))
+    .addSubcommand((sub) => sub.setName('set-points').setDescription('Set points through ArkShop RCON and verify the new balance.')
+      .addStringOption((o) => o.setName('id').setDescription('Player Steam/EOS ID').setRequired(true).setMaxLength(128))
+      .addIntegerOption((o) => o.setName('amount').setDescription('New point balance').setRequired(true).setMinValue(0).setMaxValue(2_000_000_000))
+      .addBooleanOption((o) => o.setName('confirm').setDescription('Confirm this live point change').setRequired(true)));
 }
 
 async function upsertGuildCommand(guild, builder) {
@@ -146,9 +157,9 @@ async function handleDb(interaction, context) {
   const sub = interaction.options.getSubcommand();
 
   if (sub === 'status') {
-    const status = await mysqlStatus();
+    const status = await databaseStatus();
     await interaction.editReply({ content: [
-      '🗄️ **ArkShop MySQL**',
+      `🗄️ **ArkShop ${status.backend === 'sqlite' ? 'SQLite (read-only snapshot)' : 'MySQL'}**`,
       `Connection: ${status.connected ? '🟢 Connected' : '🔴 Offline'}`,
       `Database: \`${clean(status.database, 120)}\``,
       `Player table: \`${clean(status.table, 120)}\` ${status.tableExists ? '✅' : '❌'}`
@@ -157,7 +168,7 @@ async function handleDb(interaction, context) {
   }
 
   if (sub === 'schema') {
-    const schema = await mysqlSchema();
+    const schema = await databaseSchema();
     const lines = schema.columns.slice(0, 35).map((column) => `• ${column.COLUMN_NAME} — ${column.DATA_TYPE}${column.COLUMN_KEY ? ` (${column.COLUMN_KEY})` : ''}`);
     await interaction.editReply({ content: [`🧬 **${schema.table} schema**`, ...lines].join('\n').slice(0, 1900), allowedMentions: { parse: [] } });
     return true;
@@ -171,6 +182,29 @@ async function handleDb(interaction, context) {
     }
     const rows = Object.entries(result.player).map(([key, value]) => `• ${key}: \`${clean(typeof value === 'string' ? value : JSON.stringify(value), 500)}\``);
     await interaction.editReply({ content: ['👤 **ArkShop player record**', ...rows].join('\n').slice(0, 1900), allowedMentions: { parse: [] } });
+    return true;
+  }
+
+  if (sub === 'points') {
+    const result = await getPlayerPoints(context.rcon, interaction.options.getString('id', true));
+    await interaction.editReply({ content: `💰 Player \`${clean(result.playerId, 140)}\` has **${result.points} points**.`, allowedMentions: { parse: [] } });
+    return true;
+  }
+
+  if (sub === 'add-points' || sub === 'set-points') {
+    if (interaction.options.getBoolean('confirm', true) !== true) throw new Error('ArkShop point change cancelled because confirm was false.');
+    const id = interaction.options.getString('id', true);
+    const amount = interaction.options.getInteger('amount', true);
+    const result = sub === 'add-points'
+      ? await addPlayerPoints(context.rcon, id, amount)
+      : await setPlayerPoints(context.rcon, id, amount);
+    await interaction.editReply({ content: [
+      `✅ ArkShop points ${sub === 'add-points' ? 'added' : 'set'} through RCON.`,
+      `Player: \`${clean(result.playerId, 140)}\``,
+      `Requested amount: **${result.amount}**`,
+      `Verified balance: **${result.points}**`,
+      'The SQLite database was not written by Sentinal and the ARK server was not restarted.'
+    ].join('\n'), allowedMentions: { parse: [] } });
     return true;
   }
   return false;
