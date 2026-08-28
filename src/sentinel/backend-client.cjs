@@ -27,6 +27,30 @@ class BackendClient {
   }
   submitServerApplication(input) { return this.request('/v1/admin/server-applications', { method:'POST', body:JSON.stringify(input || {}) }); }
   reviewServerApplication(id, input) { return this.request(`/v1/admin/server-applications/${encodeURIComponent(id)}/review`, { method:'POST', body:JSON.stringify(input || {}) }); }
+  financeSummary() { return this.request('/v1/admin/finance/summary'); }
+  financeAccounts() { return this.request('/v1/admin/finance/accounts'); }
+  financeAddAccount(input, actorId = '') { return this.request('/v1/admin/finance/accounts', { method:'POST', headers:{ 'x-nexus-actor':actorId }, body:JSON.stringify(input || {}) }); }
+  financeTransactions(filters = {}) {
+    const query = new URLSearchParams();
+    if (filters.limit) query.set('limit', filters.limit);
+    if (filters.account) query.set('account', filters.account);
+    if (filters.type) query.set('type', filters.type);
+    if (filters.status) query.set('status', filters.status);
+    return this.request(`/v1/admin/finance/transactions${query.size ? `?${query}` : ''}`);
+  }
+  financeAddTransaction(input, actorId = '') { return this.request('/v1/admin/finance/transactions', { method:'POST', headers:{ 'x-nexus-actor':actorId }, body:JSON.stringify(input || {}) }); }
+  financeBills({ enabledOnly = false } = {}) { return this.request(`/v1/admin/finance/bills${enabledOnly ? '?enabled=true' : ''}`); }
+  financeAddBill(input, actorId = '') { return this.request('/v1/admin/finance/bills', { method:'POST', headers:{ 'x-nexus-actor':actorId }, body:JSON.stringify(input || {}) }); }
+  financeMarkBillPaid(id, input = {}, actorId = '') { return this.request(`/v1/admin/finance/bills/${encodeURIComponent(id)}/paid`, { method:'POST', headers:{ 'x-nexus-actor':actorId }, body:JSON.stringify(input || {}) }); }
+  financeDisableBill(id, actorId = '') { return this.request(`/v1/admin/finance/bills/${encodeURIComponent(id)}/disable`, { method:'POST', headers:{ 'x-nexus-actor':actorId }, body:'{}' }); }
+  financeDueAlerts() { return this.request('/v1/admin/finance/alerts/due'); }
+  financeAlerts({ activeOnly = false, limit = 100 } = {}) {
+    const query = new URLSearchParams({ limit:String(limit) }); if (activeOnly) query.set('active', 'true');
+    return this.request(`/v1/admin/finance/alerts?${query}`);
+  }
+  financeRecordAlert(input, actorId = '') { return this.request('/v1/admin/finance/alerts/dispatch', { method:'POST', headers:{ 'x-nexus-actor':actorId }, body:JSON.stringify(input || {}) }); }
+  financeAcknowledgeAlert(input, actorId = '') { return this.request('/v1/admin/finance/alerts/ack', { method:'POST', headers:{ 'x-nexus-actor':actorId }, body:JSON.stringify(input || {}) }); }
+  financeAudit(limit = 100) { return this.request(`/v1/admin/finance/audit?limit=${encodeURIComponent(limit)}`); }
   communityLevel(userId) { return this.request(`/v1/community-xp/users/${encodeURIComponent(userId)}`); }
   communityAchievements(userId) { return this.request(`/v1/community-xp/users/${encodeURIComponent(userId)}/achievements`); }
   communityAchievementCatalog() { return this.request('/v1/community-xp/achievements'); }
