@@ -85,7 +85,7 @@ function logLike(entry) {
 }
 function crashTextLike(entry) {
   const name = String(entry?.name || '').toLowerCase();
-  return isFile(entry) && ['.log', '.txt', '.xml', '.ini', '.json'].some((suffix) => name.endsWith(suffix));
+  return isFile(entry) && (name.endsWith('.runtime-xml') || ['.log', '.txt', '.xml', '.ini', '.json'].some((suffix) => name.endsWith(suffix)));
 }
 
 function normalizeModifyTime(value) {
