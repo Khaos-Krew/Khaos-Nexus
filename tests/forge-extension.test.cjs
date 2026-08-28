@@ -7,15 +7,20 @@ const {
   forgeCommand,
   bridgeStatusText,
   formatForgeResult,
+  formatCiStatus,
   buildConstraints,
   validForgeBranch
 } = require('../src/sentinel/forge-extension.cjs');
 const { ForgeClient } = require('../src/sentinel/forge-client.cjs');
 
-test('/forge exposes status, plan, guarded build, and CI-aware repair subcommands', () => {
+test('/forge exposes status, cost-free CI, plan, guarded build, and repair subcommands', () => {
   const json = forgeCommand().toJSON();
   assert.equal(json.name, 'forge');
-  assert.deepEqual(json.options.map((item) => item.name), ['status', 'plan', 'build', 'repair']);
+  assert.deepEqual(json.options.map((item) => item.name), ['status', 'ci', 'plan', 'build', 'repair']);
+
+  const ci = json.options.find((item) => item.name === 'ci');
+  assert.equal(ci.options[0].name, 'branch');
+  assert.equal(ci.options[0].required, true);
 
   const build = json.options.find((item) => item.name === 'build');
   assert.equal(build.options[0].name, 'goal');
@@ -59,6 +64,22 @@ test('Forge status text reports bridge configuration without exposing secrets', 
   assert.match(text, /draft-pr-only/);
   assert.doesNotMatch(text, /super-secret-value/);
   assert.doesNotMatch(text, /forge\.internal/);
+});
+
+test('Forge CI text surfaces failures and explicitly identifies no-model checking', () => {
+  const text = formatCiStatus({
+    ref: 'forge/repair-1',
+    sha: 'abcdef1234567890',
+    state: 'failure',
+    checkRuns: [
+      { name: 'tests', status: 'completed', conclusion: 'failure' },
+      { name: 'lint', status: 'completed', conclusion: 'success' }
+    ]
+  });
+  assert.match(text, /FAILURE/);
+  assert.match(text, /tests/);
+  assert.match(text, /does not invoke an AI model/i);
+  assert.doesNotMatch(text, /lint\n/);
 });
 
 test('Forge build result is bounded for Discord and names the guarded branch', () => {
