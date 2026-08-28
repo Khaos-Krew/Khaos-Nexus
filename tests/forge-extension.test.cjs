@@ -7,17 +7,33 @@ const {
   forgeCommand,
   bridgeStatusText,
   formatForgeResult,
-  buildConstraints
+  buildConstraints,
+  validForgeBranch
 } = require('../src/sentinel/forge-extension.cjs');
 const { ForgeClient } = require('../src/sentinel/forge-client.cjs');
 
-test('/forge exposes status, plan, and guarded build subcommands', () => {
+test('/forge exposes status, plan, guarded build, and CI-aware repair subcommands', () => {
   const json = forgeCommand().toJSON();
   assert.equal(json.name, 'forge');
-  assert.deepEqual(json.options.map((item) => item.name), ['status', 'plan', 'build']);
+  assert.deepEqual(json.options.map((item) => item.name), ['status', 'plan', 'build', 'repair']);
+
   const build = json.options.find((item) => item.name === 'build');
   assert.equal(build.options[0].name, 'goal');
   assert.equal(build.options[0].required, true);
+
+  const repair = json.options.find((item) => item.name === 'repair');
+  assert.equal(repair.options[0].name, 'branch');
+  assert.equal(repair.options[0].required, true);
+  assert.equal(repair.options[1].name, 'goal');
+  assert.equal(repair.options[1].required, false);
+});
+
+test('Forge repair accepts only guarded forge namespace branches', () => {
+  assert.equal(validForgeBranch('forge/fix-ci-123'), true);
+  assert.equal(validForgeBranch('forge/nested/fix_ci.2'), true);
+  assert.equal(validForgeBranch('main'), false);
+  assert.equal(validForgeBranch('release/v1'), false);
+  assert.equal(validForgeBranch('forge/../main'), true);
 });
 
 test('Forge status text reports bridge configuration without exposing secrets', () => {
