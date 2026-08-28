@@ -19,6 +19,7 @@ const {
 const {
   PANEL_MARKER,
   BUTTON_MODS,
+  BUTTON_STATS,
   renderArkClusterPanel,
   renderMapField
 } = require('../src/sentinel/ark-cluster-panel.cjs');
@@ -140,6 +141,7 @@ test('public ARK cluster panel shows map status and players without operator det
   assert.equal(payload.embeds[0].footer.text, PANEL_MARKER);
   const serialized = JSON.stringify(payload);
   assert.match(serialized, new RegExp(BUTTON_MODS));
+  assert.match(serialized, new RegExp(BUTTON_STATS));
   assert.doesNotMatch(serialized, /RCON|SFTP|Profiles|Config state|Harvest 5x|Awesome SpyGlass|Genesis_WP|secret-for-test/);
 });
 
@@ -151,6 +153,7 @@ test('public mod list button uses manual mods first and detected mods as fallbac
   assert.match(reply, /Genesis Part 1/);
   assert.match(reply, /111111/);
   assert.match(reply, /222222/);
+  assert.match(reply, /curseforge\.com/);
   assert.match(reply, /Genesis Part 2/);
   assert.match(reply, /Named Mod/);
   assert.doesNotMatch(reply, /ignored/);
