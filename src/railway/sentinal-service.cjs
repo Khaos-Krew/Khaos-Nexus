@@ -66,7 +66,10 @@ if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
         const lifecycleCount = Array.isArray(result.lifecycle) ? result.lifecycle.length : 0;
         console.log(`[Nexus Sentinal] ArkShop API log diagnostic: source=${result.source || 'unknown'} path=${result.path} matchingLines=${result.lines.length} issueLines=${Array.isArray(result.issues) ? result.issues.length : 0} lifecycleLines=${lifecycleCount}${files}`);
         if (result.newest) {
+          const readiness = result.newest.readiness || {};
+          const modIds = Array.isArray(result.newest.modIds) ? result.newest.modIds : [];
           console.log(`[Nexus Sentinal] ARK newest log: file=${result.newest.name} modifiedAt=${result.newest.modifiedAt || 'unknown'} bytes=${result.newest.bytes || 0} skipped=${result.newest.skipped || 'none'} tailLines=${Array.isArray(result.newest.tail) ? result.newest.tail.length : 0}`);
+          console.log(`[Nexus Sentinal] ARK startup readiness: battleye=${Boolean(readiness.battleyeStarted)} serverStarted=${Boolean(readiness.serverStarted)} steam=${Boolean(readiness.steamInitialized)} fullStartup=${Boolean(readiness.fullStartup)} advertising=${Boolean(readiness.advertising)} loadedMods=${modIds.length} asaApiUtils955333=${modIds.includes('955333')} arkShopUi942249=${modIds.includes('942249')}`);
           for (const line of (result.newest.tail || [])) console.log(`[Nexus Sentinal] ARK newest tail: ${line}`);
         }
         for (const line of (result.lifecycle || [])) console.log(`[Nexus Sentinal] ASA API lifecycle: ${line}`);
