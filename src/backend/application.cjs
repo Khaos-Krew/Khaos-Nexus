@@ -8,6 +8,7 @@ const { mergeProviderModules, sanitizeProviderModules } = require('../shared/pro
 const { AccountStore } = require('./core/account-store.cjs');
 const { HostedServerStore } = require('./core/hosted-server-store.cjs');
 const { ServerApplicationStore } = require('./core/server-application-store.cjs');
+const { FinanceStore } = require('./core/finance-store.cjs');
 const { ProviderValidator } = require('./core/provider-validator.cjs');
 const { BackendRuntime } = require('./core/runtime.cjs');
 const { SharedScheduler } = require('./core/scheduler.cjs');
@@ -53,6 +54,13 @@ function serverApplicationStateFile(config = {}) {
   const configured = String(config.hostedServers?.applicationStateFile || '').trim();
   return configured || path.join(process.env.NEXUS_DATA_DIR || 'data', 'server-applications.json');
 }
+function financeStateFile(config = {}) {
+  const configured = String(config.finance?.stateFile || '').trim();
+  return configured || path.join(process.env.NEXUS_DATA_DIR || 'data', 'finance.json');
+}
+function financeContext(req, body = {}) {
+  return { actorId: String(req.headers['x-nexus-actor'] || body.actorId || 'system') };
+}
 
 function createBackendApplication(config, options = {}) {
   const token = envSecret(config.backend?.serviceTokenEnv);
@@ -67,6 +75,7 @@ function createBackendApplication(config, options = {}) {
   const accounts = new AccountStore({ filePath: config.accounts?.stateFile || path.join(process.cwd(), 'data', 'accounts.json') });
   const hostedServers = options.hostedServers || new HostedServerStore({ filePath: hostedServerStateFile(config), offlinePolicy:config.hostedServers?.communityOfflinePolicy });
   const serverApplications = options.serverApplications || new ServerApplicationStore({ filePath: serverApplicationStateFile(config) });
+  const finance = options.finance || new FinanceStore({ filePath: financeStateFile(config), settings: config.finance || {} });
   const providerValidator = new ProviderValidator({ runtime });
   const arkCompanion = options.arkCompanion || new ArkCompanionService();
   const communityLevels = options.communityLevels || new CommunityLevelService({ stateFile: communityLevelStateFile(config), settings: config.communityLeveling || {} });
@@ -117,6 +126,25 @@ function createBackendApplication(config, options = {}) {
         return json(res, application ? 200 : 404, application ? { ok:true, application } : { ok:false, code:'APPLICATION_NOT_FOUND' });
       }
 
+      if (req.method === 'GET' && url.pathname === '/v1/admin/finance/summary') return json(res, 200, { ok: true, summary: finance.summary() });
+      if (req.method === 'GET' && url.pathname === '/v1/admin/finance/accounts') return json(res, 200, { ok: true, accounts: finance.listAccounts() });
+      if (req.method === 'POST' && url.pathname === '/v1/admin/finance/accounts') { const body = await readBody(req); return json(res, 201, { ok: true, account: finance.addAccount(body, financeContext(req, body)) }); }
+      if (req.method === 'GET' && url.pathname === '/v1/admin/finance/transactions') {
+        return json(res, 200, { ok: true, transactions: finance.listTransactions({ limit:url.searchParams.get('limit') || 100, account:url.searchParams.get('account') || '', type:url.searchParams.get('type') || '', status:url.searchParams.get('status') || '' }) });
+      }
+      if (req.method === 'POST' && url.pathname === '/v1/admin/finance/transactions') { const body = await readBody(req); return json(res, 201, { ok: true, transaction: finance.addTransaction(body, financeContext(req, body)) }); }
+      if (req.method === 'GET' && url.pathname === '/v1/admin/finance/bills') return json(res, 200, { ok: true, bills: finance.listBills({ enabledOnly:url.searchParams.get('enabled') === 'true' }) });
+      if (req.method === 'POST' && url.pathname === '/v1/admin/finance/bills') { const body = await readBody(req); return json(res, 201, { ok: true, bill: finance.addRecurringBill(body, financeContext(req, body)) }); }
+      const financeBillPaidMatch = /^\/v1\/admin\/finance\/bills\/(FIN-BILL-[A-F0-9]+)\/paid$/.exec(url.pathname);
+      if (req.method === 'POST' && financeBillPaidMatch) { const body = await readBody(req); return json(res, 200, { ok: true, ...finance.markBillPaid(financeBillPaidMatch[1], body, financeContext(req, body)) }); }
+      const financeBillDisableMatch = /^\/v1\/admin\/finance\/bills\/(FIN-BILL-[A-F0-9]+)\/disable$/.exec(url.pathname);
+      if (req.method === 'POST' && financeBillDisableMatch) { const body = await readBody(req); return json(res, 200, { ok: true, bill: finance.disableBill(financeBillDisableMatch[1], financeContext(req, body)) }); }
+      if (req.method === 'GET' && url.pathname === '/v1/admin/finance/alerts/due') return json(res, 200, { ok: true, alerts: finance.dueAlerts() });
+      if (req.method === 'GET' && url.pathname === '/v1/admin/finance/alerts') return json(res, 200, { ok: true, alerts: finance.listAlerts({ limit:url.searchParams.get('limit') || 100, activeOnly:url.searchParams.get('active') === 'true' }) });
+      if (req.method === 'POST' && url.pathname === '/v1/admin/finance/alerts/dispatch') { const body = await readBody(req); return json(res, 201, { ok: true, alert: finance.recordAlertDispatch(body, financeContext(req, body)) }); }
+      if (req.method === 'POST' && url.pathname === '/v1/admin/finance/alerts/ack') { const body = await readBody(req); return json(res, 200, { ok: true, alert: finance.acknowledgeAlert(body, financeContext(req, body)) }); }
+      if (req.method === 'GET' && url.pathname === '/v1/admin/finance/audit') return json(res, 200, { ok: true, audit: finance.listAudit(url.searchParams.get('limit') || 100) });
+
       if (req.method === 'GET' && url.pathname === '/v1/community-xp/achievements') return json(res, 200, { ok: true, achievements: communityAchievements.catalog() });
       const achievementProfileMatch = /^\/v1\/community-xp\/users\/(\d{15,24})\/achievements$/.exec(url.pathname);
       if (req.method === 'GET' && achievementProfileMatch) return json(res, 200, communityAchievements.profile(achievementProfileMatch[1]));
@@ -156,7 +184,7 @@ function createBackendApplication(config, options = {}) {
   }
   async function stop() { scheduler.stop(); if (!started || !server.listening) { started=false; return; } await new Promise((resolve)=>server.close(()=>resolve())); started=false; }
 
-  return { host, port, runtime, scheduler, arkCompanion, communityLevels, communityAchievements, accounts, hostedServers, serverApplications, providerValidator, configureProviders, server, start, stop, isStarted:()=>started && server.listening };
+  return { host, port, runtime, scheduler, arkCompanion, communityLevels, communityAchievements, accounts, hostedServers, serverApplications, finance, providerValidator, configureProviders, server, start, stop, isStarted:()=>started && server.listening };
 }
 
-module.exports = { LOOPBACK_HOSTS, communityLevelStateFile, communityAchievementStateFile, hostedServerStateFile, serverApplicationStateFile, createBackendApplication, providersForConfig };
+module.exports = { LOOPBACK_HOSTS, communityLevelStateFile, communityAchievementStateFile, hostedServerStateFile, serverApplicationStateFile, financeStateFile, createBackendApplication, providersForConfig };
