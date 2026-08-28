@@ -31,6 +31,7 @@ const { installHostedServerManagerExtension } = require('./hosted-server-manager
 const { installCommunityLevelingExtension } = require('./community-leveling-extension.cjs');
 const { installNexusCommandCenterExtension } = require('./nexus-command-center-extension.cjs');
 const { installStaffWorkspaceExtension } = require('./staff-workspace-extension.cjs');
+const { installFinanceExtension } = require('./finance-extension.cjs');
 const { installModuleAutoprovisionExtension } = require('./module-autoprovision-extension.cjs');
 const { installModuleAccessAuditExtension } = require('./module-access-audit-extension.cjs');
 require('./poll-ui-readability-patch.cjs');
@@ -79,6 +80,7 @@ installHostedServerManagerExtension();
 installCommunityLevelingExtension();
 installNexusCommandCenterExtension();
 installStaffWorkspaceExtension();
+installFinanceExtension();
 installModuleAutoprovisionExtension();
 installModuleAccessAuditExtension();
 installPollExtension();
