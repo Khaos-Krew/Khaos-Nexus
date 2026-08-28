@@ -29,10 +29,18 @@ function relevantLogLines(text, limit = 20) {
   return lines.slice(-Math.max(1, Math.min(40, Number(limit) || 20))).map(redactLogLine).filter(Boolean);
 }
 
+function apiLifecycleLines(text, limit = 30) {
+  const lifecycle = /(ark:sa api|api was successfully loaded|loaded all plugins|load(?:ing|ed) plugin|failed to get the offset|requested by:\s*plugin)/i;
+  const lines = String(text || '').split(/\r?\n/).filter((line) => lifecycle.test(line));
+  return lines.slice(-Math.max(1, Math.min(60, Number(limit) || 30))).map(redactLogLine).filter(Boolean);
+}
+
 function startupIssueLines(text, limit = 30) {
-  const genericIssue = /(fatal|critical|exception|crash|assert|ensure condition failed|failed to|failure|shutdown|terminat(?:e|ing)|arkapi|asaapi|rcon)/i;
+  const genericIssue = /(fatal(?: error)?|critical|exception|\bassert(?:ion)?\b|ensure condition failed|failed to|\bfailure\b|\bshutdown\b|terminat(?:e|ed|ing)|\bcrash(?:ed|ing)?\b)/i;
   const pluginOrDatabaseIssue = /(?:arkshop|mysql|mariadb|database|sqlstate).*(?:fail(?:ed|ure)?|error|unable|denied|refused|timeout)/i;
-  const lines = String(text || '').split(/\r?\n/).filter((line) => genericIssue.test(line) || pluginOrDatabaseIssue.test(line));
+  const rconIssue = /(?:\brcon\b.*(?:fail(?:ed|ure)?|error|unable|denied|refused|timeout|timed out|bind|closed|wedge)|(?:fail(?:ed|ure)?|error|unable|denied|refused|timeout|timed out|bind|closed|wedge).*\brcon\b)/i;
+  const apiOffsetIssue = /(failed to get the offset|requested by:\s*plugin)/i;
+  const lines = String(text || '').split(/\r?\n/).filter((line) => genericIssue.test(line) || pluginOrDatabaseIssue.test(line) || rconIssue.test(line) || apiOffsetIssue.test(line));
   return lines.slice(-Math.max(1, Math.min(60, Number(limit) || 30))).map(redactLogLine).filter(Boolean);
 }
 
@@ -52,14 +60,15 @@ function logLike(entry) {
 async function readBoundedLog(client, remotePath, sizeHint = 0) {
   const stat = sizeHint ? { size: sizeHint } : await client.stat(remotePath).catch(() => null);
   const bytes = Number(stat?.size) || 0;
-  if (bytes > MAX_LOG_BYTES) return { path: remotePath, bytes, skipped: 'log-too-large', lines: [], issues: [] };
+  if (bytes > MAX_LOG_BYTES) return { path: remotePath, bytes, skipped: 'log-too-large', lines: [], issues: [], lifecycle: [] };
   const data = await client.get(remotePath);
   const text = Buffer.isBuffer(data) ? data.toString('utf8') : String(data || '');
   return {
     path: remotePath,
     bytes: Buffer.byteLength(text),
     lines: relevantLogLines(text, 30),
-    issues: startupIssueLines(text, 40)
+    issues: startupIssueLines(text, 40),
+    lifecycle: apiLifecycleLines(text, 40)
   };
 }
 
@@ -67,13 +76,14 @@ async function inspectSavedLogs(client, shooterGameRoot) {
   const directory = joinRemote(shooterGameRoot, SAVED_LOGS_SUFFIX);
   let entries;
   try { entries = await client.list(directory); }
-  catch { return { directory, accessible: false, filesSeen: [], filesScanned: [], lines: [], issues: [] }; }
+  catch { return { directory, accessible: false, filesSeen: [], filesScanned: [], lines: [], issues: [], lifecycle: [] }; }
 
   const candidates = entries.filter(logLike).sort((a, b) => Number(b.modifyTime || 0) - Number(a.modifyTime || 0));
   const filesSeen = candidates.slice(0, 20).map((entry) => safeFileName(entry.name));
   const filesScanned = [];
   const lines = [];
   const issues = [];
+  const lifecycle = [];
   for (const entry of candidates.slice(0, MAX_SAVED_LOG_FILES)) {
     const remotePath = joinRemote(directory, entry.name);
     const result = await readBoundedLog(client, remotePath, Number(entry.size) || 0).catch(() => null);
@@ -81,6 +91,7 @@ async function inspectSavedLogs(client, shooterGameRoot) {
     filesScanned.push({ name: safeFileName(entry.name), bytes: result.bytes, skipped: result.skipped || '' });
     for (const line of result.lines || []) lines.push(`[${safeFileName(entry.name)}] ${line}`);
     for (const line of result.issues || []) issues.push(`[${safeFileName(entry.name)}] ${line}`);
+    for (const line of result.lifecycle || []) lifecycle.push(`[${safeFileName(entry.name)}] ${line}`);
   }
   return {
     directory,
@@ -88,7 +99,8 @@ async function inspectSavedLogs(client, shooterGameRoot) {
     filesSeen,
     filesScanned,
     lines: lines.slice(-30),
-    issues: issues.slice(-50)
+    issues: issues.slice(-50),
+    lifecycle: lifecycle.slice(-50)
   };
 }
 
@@ -123,6 +135,7 @@ async function inspectArkApiLog(prefix = 'ARK_GEN1') {
         filesScanned: saved.filesScanned,
         lines: saved.lines,
         issues: saved.issues,
+        lifecycle: saved.lifecycle,
         note: 'ArkApi.log was not exposed; inspected bounded recent ShooterGame/Saved/Logs files instead.'
       };
     }
@@ -144,6 +157,7 @@ module.exports = {
   MAX_SAVED_LOG_FILES,
   redactLogLine,
   relevantLogLines,
+  apiLifecycleLines,
   startupIssueLines,
   safeFileName,
   inspectSavedLogs,
