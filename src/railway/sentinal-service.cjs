@@ -38,6 +38,8 @@ if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
     .then((layout) => {
       console.log(`[Nexus Sentinal] ARK SFTP layout: cwd=${layout.cwd} configuredRoot=${layout.configuredRoot} dirs=${layout.directories.join(',') || '(none)'} shooterGame=${layout.shooterGameCandidates.join(',') || '(none)'}`);
       console.log(`[Nexus Sentinal] ARK SFTP exact: gus=${layout.exact.gus} game=${layout.exact.game} arkshop=${layout.exact.arkshop} plugins=${layout.plugins.join(',') || '(none)'} arkShopEntries=${layout.arkShopEntries.join(',') || '(none)'}`);
+      const framework = layout.framework || {};
+      console.log(`[Nexus Sentinal] ASA API framework: loader=${Boolean(framework.asaApiLoader)} apiDll=${Boolean(framework.asaApiDll)} config=${Boolean(framework.apiConfig)} versionDll=${Boolean(framework.versionDll)} arkApiDir=${Boolean(framework.arkApiDirectory)}`);
     })
     .catch((error) => console.warn(`[Nexus Sentinal] ARK SFTP layout unavailable: ${String(error?.message || error).slice(0, 300)}`));
 
