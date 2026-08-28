@@ -91,7 +91,7 @@ test('marking a bill paid creates an expense and rolls the next due date', (t) =
 
   setNow('2026-10-27T12:00:00Z');
   assert.equal(finance.summary().expensesMtdCents, 0, 'September payment must not be counted in October MTD');
-  assert.throws(() => finance.markBillPaid(bill.id, {}, { actorId:'owner' }), /already marked paid|Bill/);
+  assert.equal(finance.listBills({ enabledOnly:true })[0].nextDueDate, '2026-10-27');
 });
 
 test('one-time bills close after payment and calendar rollovers clamp safely', (t) => {
@@ -103,6 +103,7 @@ test('one-time bills close after payment and calendar rollovers clamp safely', (
   const paid = finance.markBillPaid(bill.id, {}, { actorId:'owner' });
   assert.equal(paid.bill.enabled, false);
   assert.equal(finance.listBills({ enabledOnly:true }).some((item) => item.id === bill.id), false);
+  assert.throws(() => finance.markBillPaid(bill.id, {}, { actorId:'owner' }), /already marked paid/);
 
   assert.equal(addPeriod('2027-01-31', 'monthly'), '2027-02-28');
   assert.equal(addPeriod('2028-02-29', 'yearly'), '2029-02-28');
