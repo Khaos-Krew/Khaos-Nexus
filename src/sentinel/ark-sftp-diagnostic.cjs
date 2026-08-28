@@ -1,5 +1,7 @@
 'use strict';
 
+const crypto = require('node:crypto');
+const { Writable } = require('node:stream');
 const SftpClient = require('ssh2-sftp-client');
 const { sftpSettingsFromEnv } = require('./ark-sftp-config.cjs');
 
@@ -33,6 +35,60 @@ async function readSmallText(client, remotePath, maxBytes = 256 * 1024) {
   } catch {
     return '';
   }
+}
+
+async function sha256RemoteFile(client, remotePath, maxBytes = 2 * 1024 * 1024 * 1024) {
+  const stat = await client.stat(remotePath);
+  const size = Number(stat?.size || 0);
+  if (!size || size > maxBytes) return { hash: '', bytes: size, error: size ? 'file-too-large' : 'file-empty' };
+
+  const hasher = crypto.createHash('sha256');
+  let bytes = 0;
+  const sink = new Writable({
+    write(chunk, _encoding, callback) {
+      hasher.update(chunk);
+      bytes += chunk.length;
+      callback();
+    }
+  });
+
+  try {
+    await client.get(remotePath, sink);
+    return { hash: hasher.digest('hex'), bytes, error: '' };
+  } catch (error) {
+    return { hash: '', bytes, error: String(error?.message || error).slice(0, 160) };
+  }
+}
+
+async function checkCacheMirrors(hash) {
+  if (!/^[a-f0-9]{64}$/.test(String(hash || ''))) return [];
+  const bases = [
+    'https://cdn.pelayori.com/cache/',
+    'https://cdn.shadowhunter.co.za/cache/',
+    'https://cdn.shadowhunter-systems.co.za/cache/'
+  ];
+  const results = [];
+  for (const base of bases) {
+    const url = `${base}${hash}.zip`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12_000);
+    timer.unref?.();
+    try {
+      const response = await fetch(url, { method: 'HEAD', redirect: 'follow', signal: controller.signal });
+      results.push({
+        base,
+        status: response.status,
+        available: response.ok,
+        length: Number(response.headers.get('content-length') || 0),
+        modified: safeName(response.headers.get('last-modified') || '')
+      });
+    } catch (error) {
+      results.push({ base, status: 0, available: false, length: 0, modified: '', error: safeName(error?.name || error?.message || error) });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return results;
 }
 
 function parseCacheKey(value) {
@@ -141,6 +197,19 @@ async function inspectSftpLayout(prefix = 'ARK_GEN1') {
       console.log(`[Nexus Sentinal] ASA API cache: cacheDir=${Boolean(framework.cacheDirectory)} keyHash=${framework.cacheKey.hash || 'missing'} generation=${framework.cacheKey.cacheDirectory || 'none'} autoDownload=${String(framework.automaticCacheDownload.enabled)} cacheEntries=${framework.cacheEntries.join(',') || '(none)'} activeEntries=${framework.activeCacheEntries.join(',') || '(none)'} mirrors=${framework.automaticCacheDownload.urls.join(',') || '(none)'}`);
     }
 
+    if (win64Path) {
+      const exeProbe = await sha256RemoteFile(client, `${win64Path}/ArkAscendedServer.exe`);
+      console.log(`[Nexus Sentinal] ARK executable hash: sha256=${exeProbe.hash || 'unavailable'} bytes=${exeProbe.bytes || 0} error=${exeProbe.error || 'none'} cacheMatch=${Boolean(exeProbe.hash && exeProbe.hash === cacheKey.hash)}`);
+      if (exeProbe.hash) {
+        const mirrors = await checkCacheMirrors(exeProbe.hash);
+        console.log(`[Nexus Sentinal] ASA API cache mirrors: ${mirrors.map((item) => `${new URL(item.base).host}=${item.available ? 'available' : `http-${item.status || 'error'}`}${item.length ? `:${item.length}` : ''}`).join(' ') || '(none)'}`);
+        framework.executableHash = exeProbe.hash;
+        framework.executableBytes = exeProbe.bytes;
+        framework.cacheMatchesExecutable = exeProbe.hash === cacheKey.hash;
+        framework.cacheMirrors = mirrors;
+      }
+    }
+
     return {
       cwd: safeName(cwd),
       configuredRoot: safeName(settings.root || '.'),
@@ -165,4 +234,4 @@ async function inspectSftpLayout(prefix = 'ARK_GEN1') {
   }
 }
 
-module.exports = { parseCacheKey, safeCacheConfig, inspectSftpLayout };
+module.exports = { parseCacheKey, safeCacheConfig, sha256RemoteFile, checkCacheMirrors, inspectSftpLayout };
