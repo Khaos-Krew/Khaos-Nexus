@@ -3,6 +3,7 @@
 const { bootstrapHostedProviderStore } = require('./hosted-provider-store.cjs');
 const { discoverPaths } = require('../sentinel/ark-config-manager.cjs');
 const { inspectSftpLayout } = require('../sentinel/ark-sftp-diagnostic.cjs');
+const { inspectArkApiLog } = require('../sentinel/ark-api-log-diagnostic.cjs');
 const { syncArkShopMysqlIfRequested } = require('../sentinel/arkshop-startup-sync.cjs');
 const { mysqlStatus } = require('../sentinel/arkshop-mysql.cjs');
 
@@ -46,6 +47,24 @@ if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
       console.log(`[Nexus Sentinal] ARK SFTP discovery: gus=${summarize(paths.gus)} game=${summarize(paths.game)} arkshop=${summarize(paths.arkshop)}`);
     })
     .catch((error) => console.warn(`[Nexus Sentinal] ARK SFTP discovery failed: ${String(error?.message || error).slice(0, 300)}`));
+
+  const logTimer = setTimeout(() => {
+    void inspectArkApiLog('ARK_GEN1')
+      .then((result) => {
+        if (!result.found) {
+          console.log(`[Nexus Sentinal] ArkShop API log diagnostic: unavailable=${result.reason || 'not-found'}`);
+          return;
+        }
+        if (result.skipped) {
+          console.log(`[Nexus Sentinal] ArkShop API log diagnostic: path=${result.path} bytes=${result.bytes || 0} skipped=${result.skipped}`);
+          return;
+        }
+        console.log(`[Nexus Sentinal] ArkShop API log diagnostic: path=${result.path} matchingLines=${result.lines.length}`);
+        for (const line of result.lines) console.log(`[Nexus Sentinal] ArkShop API log: ${line}`);
+      })
+      .catch((error) => console.warn(`[Nexus Sentinal] ArkShop API log diagnostic failed: ${String(error?.message || error).slice(0, 300)}`));
+  }, 10_000);
+  logTimer.unref?.();
 
   let mysqlSignature = '';
   const checkMysql = async (reason = 'periodic') => {
