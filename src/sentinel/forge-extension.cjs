@@ -17,6 +17,14 @@ function forgeCommand() {
       .setName('status')
       .setDescription('Check the Sentinel to Forge bridge and Forge runtime'))
     .addSubcommand((sub) => sub
+      .setName('ci')
+      .setDescription('Check Forge branch CI without using an AI model')
+      .addStringOption((opt) => opt
+        .setName('branch')
+        .setDescription('Forge branch or repository ref to inspect')
+        .setRequired(true)
+        .setMaxLength(240)))
+    .addSubcommand((sub) => sub
       .setName('plan')
       .setDescription('Ask Forge for a read-only engineering plan')
       .addStringOption((opt) => opt
@@ -85,6 +93,34 @@ function formatForgeResult(result) {
   ];
   if (result.branch) lines.push(`Branch: \`${result.branch}\``);
   if (result.output) lines.push('', String(result.output).slice(0, 1500));
+  return lines.join('\n').slice(0, 1900);
+}
+
+function formatCiStatus(result) {
+  const state = String(result?.state || 'unknown').toLowerCase();
+  const icon = state === 'success' ? '✅' : state === 'failure' ? '❌' : state === 'pending' ? '⏳' : '❔';
+  const failed = (result?.checkRuns || []).filter((item) => {
+    const conclusion = String(item?.conclusion || '').toLowerCase();
+    return ['failure', 'cancelled', 'timed_out', 'action_required', 'stale', 'startup_failure'].includes(conclusion);
+  });
+  const pending = (result?.checkRuns || []).filter((item) => {
+    const status = String(item?.status || '').toLowerCase();
+    return ['queued', 'in_progress', 'pending', 'requested', 'waiting'].includes(status);
+  });
+  const lines = [
+    `**${icon} Forge CI • ${state.toUpperCase()}**`,
+    `Ref: \`${result?.ref || 'unknown'}\``,
+    `Commit: \`${String(result?.sha || 'unknown').slice(0, 12)}\``,
+    `Checks: **${(result?.checkRuns || []).length}** • Failed: **${failed.length}** • Pending: **${pending.length}**`,
+    '_This check does not invoke an AI model._'
+  ];
+  if (failed.length) {
+    lines.push('', '**Failed checks**');
+    for (const item of failed.slice(0, 8)) lines.push(`• ${String(item?.name || 'unnamed check').slice(0, 120)}`);
+  } else if (pending.length) {
+    lines.push('', '**Pending checks**');
+    for (const item of pending.slice(0, 8)) lines.push(`• ${String(item?.name || 'unnamed check').slice(0, 120)}`);
+  }
   return lines.join('\n').slice(0, 1900);
 }
 
@@ -226,6 +262,15 @@ function installForgeExtension(options = {}) {
           return;
         }
 
+        if (sub === 'ci') {
+          const ref = String(interaction.options.getString('branch', true)).trim();
+          await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+          const result = await forge.ciStatus(ref);
+          await interaction.editReply({ content: formatCiStatus(result) });
+          logger.log?.(`[Nexus Sentinal] Forge CI actor=${interaction.user.id} ref=${ref} state=${result.state}`);
+          return;
+        }
+
         if (sub === 'plan') {
           const goal = String(interaction.options.getString('goal', true)).trim();
           await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -292,6 +337,7 @@ module.exports = {
   memberIsForgeOperator,
   bridgeStatusText,
   formatForgeResult,
+  formatCiStatus,
   buildConstraints,
   validForgeBranch,
   installForgeExtension
