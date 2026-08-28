@@ -18,6 +18,14 @@ if (hosted.secretState.failed.length) {
 }
 
 console.log('[Nexus Sentinal] starting Railway composite runtime');
+
+const controlledApiTestRequest = String(process.env.ARK_GEN1_CONTROLLED_API_TEST_REQUEST || '').trim();
+if (controlledApiTestRequest) {
+  const { runControlledApiRestartTest } = require('../sentinel/ark-controlled-api-restart-test.cjs');
+  setTimeout(() => void runControlledApiRestartTest(controlledApiTestRequest).catch((error) => {
+    console.error(`[Nexus Sentinal] Controlled API test runner error: ${String(error?.message || error).slice(0, 700)}`);
+  }), 20000).unref?.();
+}
 require('../backend/server.cjs');
 
 // Routine ARK configuration is command-driven. The only startup write allowed
