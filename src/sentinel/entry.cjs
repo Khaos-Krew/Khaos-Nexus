@@ -98,5 +98,6 @@ installArkShopProfileExtension();
 installArkClusterPublicActions();
 installArkShopProfileBootstrapExtension();
 require('./ark-shop-plan-extension.cjs').installArkShopPlanExtension();
+require('./ark-shop-plan-additions-extension.cjs').installArkShopPlanAdditionsExtension();
 require('./ark-command-routing-patch.cjs');
 require('./bot.cjs');
