@@ -6,6 +6,7 @@ registerRoadmapGameModules();
 
 const { installGuildMembersIntentExtension } = require('./guild-members-intent-extension.cjs');
 const { installCommunityIntentsExtension } = require('./community-intents-extension.cjs');
+const { installMentionResponseExtension } = require('./mention-response-extension.cjs');
 const { installRoleMenuExtension } = require('./role-menu-extension.cjs');
 const { installPokemonGoExtension } = require('./pokemon-go-extension.cjs');
 const { installDivision2TargetedLootExtension } = require('./division2-targeted-loot-extension.cjs');
@@ -54,6 +55,7 @@ const { installArkShopProfileBootstrapExtension } = require('./arkshop-profile-b
 installRetiredGamesSelfRoleCleanupExtension();
 installGuildMembersIntentExtension();
 installCommunityIntentsExtension();
+installMentionResponseExtension();
 installRoleMenuExtension();
 installPokemonGoExtension();
 installDivision2TargetedLootExtension();
