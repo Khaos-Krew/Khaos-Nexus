@@ -65,6 +65,10 @@ if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
         const files = Array.isArray(result.filesSeen) && result.filesSeen.length ? ` files=${result.filesSeen.join(',').slice(0, 600)}` : '';
         const lifecycleCount = Array.isArray(result.lifecycle) ? result.lifecycle.length : 0;
         console.log(`[Nexus Sentinal] ArkShop API log diagnostic: source=${result.source || 'unknown'} path=${result.path} matchingLines=${result.lines.length} issueLines=${Array.isArray(result.issues) ? result.issues.length : 0} lifecycleLines=${lifecycleCount}${files}`);
+        if (result.newest) {
+          console.log(`[Nexus Sentinal] ARK newest log: file=${result.newest.name} modifiedAt=${result.newest.modifiedAt || 'unknown'} bytes=${result.newest.bytes || 0} skipped=${result.newest.skipped || 'none'} tailLines=${Array.isArray(result.newest.tail) ? result.newest.tail.length : 0}`);
+          for (const line of (result.newest.tail || [])) console.log(`[Nexus Sentinal] ARK newest tail: ${line}`);
+        }
         for (const line of (result.lifecycle || [])) console.log(`[Nexus Sentinal] ASA API lifecycle: ${line}`);
         for (const line of result.lines) console.log(`[Nexus Sentinal] ArkShop API log: ${line}`);
         for (const line of (result.issues || [])) console.log(`[Nexus Sentinal] ARK startup issue: ${line}`);
