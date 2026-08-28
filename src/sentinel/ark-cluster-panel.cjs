@@ -10,6 +10,8 @@ const BUTTON_REFRESH = 'nexus-ark-cluster-refresh';
 const BUTTON_MODS = 'nexus-ark-cluster-mods';
 const BUTTON_SHOP = 'nexus-ark-cluster-shop';
 const BUTTON_KITS = 'nexus-ark-cluster-kits';
+const BUTTON_PUBLIC_SHOP = 'nexus-ark-cluster-public-shop';
+const BUTTON_PUBLIC_KITS = 'nexus-ark-cluster-public-kits';
 const BUTTON_EVENTS = 'nexus-ark-cluster-events';
 
 function valuesOf(collection) {
@@ -108,8 +110,8 @@ function buildButtons() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(BUTTON_REFRESH).setLabel('Refresh').setEmoji('🔄').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(BUTTON_MODS).setLabel('Mod List').setEmoji('🧩').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(BUTTON_SHOP).setLabel('Shop').setEmoji('🛒').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(BUTTON_KITS).setLabel('Kits').setEmoji('🎁').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(BUTTON_PUBLIC_SHOP).setLabel('Shop').setEmoji('🛒').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(BUTTON_PUBLIC_KITS).setLabel('Kits').setEmoji('🎁').setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId(BUTTON_EVENTS).setLabel('Events').setEmoji('🎉').setStyle(ButtonStyle.Primary)
   );
 }
@@ -209,6 +211,8 @@ module.exports = {
   BUTTON_MODS,
   BUTTON_SHOP,
   BUTTON_KITS,
+  BUTTON_PUBLIC_SHOP,
+  BUTTON_PUBLIC_KITS,
   BUTTON_EVENTS,
   normalizeChannelName,
   stateGlyph,
