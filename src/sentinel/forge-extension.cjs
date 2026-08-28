@@ -1,0 +1,248 @@
+'use strict';
+
+const crypto = require('node:crypto');
+const { Client, Events, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } = require('discord.js');
+const { loadConfig } = require('../shared/config.cjs');
+const { normalizeRequiredOptions } = require('./discord-command-schema.cjs');
+const { ForgeClient } = require('./forge-client.cjs');
+
+const INSTALLED = Symbol.for('khaos.nexus.forge.extension');
+const PENDING_TTL_MS = 5 * 60 * 1000;
+
+function forgeCommand() {
+  return new SlashCommandBuilder()
+    .setName('forge')
+    .setDescription('Khaos Nexus Forge engineering controls')
+    .addSubcommand((sub) => sub
+      .setName('status')
+      .setDescription('Check the Sentinel to Forge bridge and Forge runtime'))
+    .addSubcommand((sub) => sub
+      .setName('plan')
+      .setDescription('Ask Forge for a read-only engineering plan')
+      .addStringOption((opt) => opt
+        .setName('goal')
+        .setDescription('What should Forge investigate or design?')
+        .setRequired(true)
+        .setMaxLength(2000)))
+    .addSubcommand((sub) => sub
+      .setName('build')
+      .setDescription('Ask Forge to implement work on a guarded forge/* branch')
+      .addStringOption((opt) => opt
+        .setName('goal')
+        .setDescription('What should Forge build or repair?')
+        .setRequired(true)
+        .setMaxLength(2000)));
+}
+
+function memberIsForgeOperator(interaction, config) {
+  if ((config.discord?.ownerUserIds || []).includes(String(interaction.user?.id || ''))) return true;
+  if (interaction.memberPermissions?.has?.(PermissionFlagsBits.Administrator)) return true;
+  const roles = interaction.member?.roles?.cache;
+  return Boolean(roles && (config.discord?.operatorRoleIds || []).some((id) => roles.has(String(id))));
+}
+
+function bridgeStatusText(forge, health = null) {
+  const configured = forge.configuration();
+  const lines = [
+    '**🔥 Khaos Nexus Forge Bridge**',
+    `Bridge: **${configured.enabled ? 'Enabled' : 'Disabled'}**`,
+    `Endpoint: **${configured.baseUrlConfigured ? 'Configured' : 'Missing'}**`,
+    `Service token: **${configured.tokenConfigured ? 'Configured' : 'Missing'}**`,
+    `Repository: \`${configured.defaultRepo}\``,
+    `Base ref: \`${configured.defaultBaseRef}\``
+  ];
+  if (health) {
+    lines.push(
+      '',
+      `Forge runtime: **${health.ok ? 'Online' : 'Unavailable'}**`,
+      `Version: \`${health.version}\``,
+      `OpenAI: **${health.openaiConfigured ? 'Configured' : 'Missing'}**`,
+      `GitHub execution: **${health.githubConfigured ? 'Configured' : 'Missing'}**`,
+      `Write policy: \`${health.writePolicy}\``
+    );
+  }
+  return lines.join('\n');
+}
+
+function formatForgeResult(result) {
+  const lines = [
+    `**🔥 Forge ${result.mode === 'execute' ? 'Build' : 'Plan'} • ${result.status}**`,
+    `Repository: \`${result.repo}\``,
+    `Base: \`${result.baseRef}\``
+  ];
+  if (result.branch) lines.push(`Branch: \`${result.branch}\``);
+  if (result.output) lines.push('', String(result.output).slice(0, 1500));
+  return lines.join('\n').slice(0, 1900);
+}
+
+function buildConstraints(actorId) {
+  return [
+    'Do not merge pull requests or deploy production from this task.',
+    'Keep all repository writes inside the Forge guarded forge/* branch and finish with a draft PR.',
+    'Preserve existing Nexus security, permission, provider-neutral, and secret-redaction boundaries.',
+    'Run or update relevant tests when practical and report anything that could not be validated.',
+    `Sentinel request actor: Discord user ${String(actorId)}`
+  ];
+}
+
+function confirmationPayload(nonce, goal) {
+  return {
+    content: [
+      '⚠️ **Send build task to Khaos Nexus Forge?**',
+      String(goal).slice(0, 1200),
+      '',
+      'Forge may create/update a guarded `forge/*` branch and a **draft PR**. It still cannot merge or deploy production.'
+    ].join('\n'),
+    components: [{
+      type: 1,
+      components: [
+        { type: 2, style: 3, label: 'Send to Forge', custom_id: `nexusforge:confirm:${nonce}` },
+        { type: 2, style: 2, label: 'Cancel', custom_id: `nexusforge:cancel:${nonce}` }
+      ]
+    }],
+    flags: MessageFlags.Ephemeral
+  };
+}
+
+function installForgeExtension(options = {}) {
+  if (Client.prototype[INSTALLED]) return;
+  Client.prototype[INSTALLED] = true;
+
+  const logger = options.logger || console;
+  const config = loadConfig();
+  const guildId = String(config.discord?.guildId || '');
+  const forge = options.forge || new ForgeClient();
+  const pending = new Map();
+  const originalLogin = Client.prototype.login;
+
+  Client.prototype.login = function nexusForgeLogin(...args) {
+    this.once(Events.ClientReady, async () => {
+      try {
+        if (!guildId) return;
+        const guild = await this.guilds.fetch(guildId);
+        const definition = forgeCommand();
+        const commandJson = normalizeRequiredOptions(definition.toJSON());
+        const commands = await guild.commands.fetch();
+        const existing = commands.find((item) => item.name === definition.name);
+        if (existing) await guild.commands.edit(existing, commandJson);
+        else await guild.commands.create(commandJson);
+        logger.log?.(`[Nexus Sentinal] registered /forge in guild ${guild.id}`);
+      } catch (error) {
+        logger.error?.(`[Nexus Sentinal] Forge command registration failed: ${String(error?.message || error).slice(0, 400)}`);
+      }
+
+      const state = forge.configuration();
+      if (!state.enabled) {
+        logger.log?.('[Nexus Sentinal] Forge bridge installed but disabled.');
+        return;
+      }
+      try {
+        const health = await forge.health();
+        logger.log?.(`[Nexus Sentinal] Forge bridge health: ok=${health.ok} version=${health.version} openai=${health.openaiConfigured} github=${health.githubConfigured} policy=${health.writePolicy}`);
+      } catch (error) {
+        logger.warn?.(`[Nexus Sentinal] Forge bridge health unavailable: ${String(error?.message || error).slice(0, 300)}`);
+      }
+    });
+
+    this.on(Events.InteractionCreate, async (interaction) => {
+      const isCommand = interaction.isChatInputCommand?.() && interaction.commandName === 'forge';
+      const isButton = interaction.isButton?.() && String(interaction.customId || '').startsWith('nexusforge:');
+      if (!isCommand && !isButton) return;
+
+      try {
+        if (!memberIsForgeOperator(interaction, config)) {
+          await interaction.reply({ content: 'Forge engineering controls are restricted to Nexus staff.', flags: MessageFlags.Ephemeral });
+          return;
+        }
+
+        if (isButton) {
+          const [, action, nonce] = String(interaction.customId).split(':');
+          const task = pending.get(nonce);
+          if (!task || task.expiresAt < Date.now()) {
+            pending.delete(nonce);
+            await interaction.update({ content: 'That Forge build confirmation expired.', components: [] });
+            return;
+          }
+          if (String(task.userId) !== String(interaction.user.id)) {
+            await interaction.reply({ content: 'Only the staff member who requested this Forge task can confirm it.', flags: MessageFlags.Ephemeral });
+            return;
+          }
+          if (action === 'cancel') {
+            pending.delete(nonce);
+            await interaction.update({ content: 'Forge build cancelled.', components: [] });
+            return;
+          }
+          if (action !== 'confirm') return;
+
+          pending.delete(nonce);
+          await interaction.update({ content: '🔥 Sending the guarded build task to Khaos Nexus Forge…', components: [] });
+          const result = await forge.execute(task.goal, {
+            constraints: buildConstraints(interaction.user.id)
+          });
+          await interaction.editReply({ content: formatForgeResult(result), components: [] });
+          logger.log?.(`[Nexus Sentinal] Forge execute actor=${interaction.user.id} status=${result.status} branch=${result.branch || 'none'}`);
+          return;
+        }
+
+        const sub = interaction.options.getSubcommand();
+        if (sub === 'status') {
+          const configured = forge.configuration();
+          if (!configured.enabled || !configured.baseUrlConfigured) {
+            await interaction.reply({ content: bridgeStatusText(forge), flags: MessageFlags.Ephemeral });
+            return;
+          }
+          await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+          let health = null;
+          try { health = await forge.health(); } catch {}
+          await interaction.editReply({ content: bridgeStatusText(forge, health) });
+          return;
+        }
+
+        const goal = String(interaction.options.getString('goal', true)).trim();
+        if (sub === 'plan') {
+          await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+          const result = await forge.plan(goal, {
+            constraints: buildConstraints(interaction.user.id)
+          });
+          await interaction.editReply({ content: formatForgeResult(result) });
+          logger.log?.(`[Nexus Sentinal] Forge plan actor=${interaction.user.id} status=${result.status}`);
+          return;
+        }
+
+        if (sub === 'build') {
+          const nonce = crypto.randomBytes(12).toString('hex');
+          pending.set(nonce, {
+            userId: String(interaction.user.id),
+            goal,
+            expiresAt: Date.now() + PENDING_TTL_MS
+          });
+          await interaction.reply(confirmationPayload(nonce, goal));
+        }
+      } catch (error) {
+        const content = `⚠️ Forge request did not complete: ${String(error?.message || error).slice(0, 1500)}`;
+        logger.error?.(`[Nexus Sentinal] Forge bridge request failed: ${String(error?.message || error).slice(0, 500)}`);
+        try {
+          if (interaction.deferred || interaction.replied) await interaction.editReply({ content, components: [] });
+          else await interaction.reply({ content, flags: MessageFlags.Ephemeral });
+        } catch {}
+      }
+    });
+
+    const cleanup = setInterval(() => {
+      const now = Date.now();
+      for (const [nonce, task] of pending) if (task.expiresAt < now) pending.delete(nonce);
+    }, 60_000);
+    cleanup.unref?.();
+
+    return originalLogin.apply(this, args);
+  };
+}
+
+module.exports = {
+  forgeCommand,
+  memberIsForgeOperator,
+  bridgeStatusText,
+  formatForgeResult,
+  buildConstraints,
+  installForgeExtension
+};
