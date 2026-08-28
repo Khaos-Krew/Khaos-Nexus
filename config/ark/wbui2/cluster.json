@@ -1,0 +1,97 @@
+{
+  "WBUI2": {
+    "settings": {
+      "openbutton": 1,
+      "hideicon": true,
+      "hideiconafter": 10,
+      "iconurl": "https://i.imgur.com/OZ6xOjY.png",
+      "disableicontext": false,
+      "iconposition": 0,
+      "icontextcolor": 1,
+      "openonstart": true,
+      "openonstartonlynewplayers": true,
+      "updateinterval": 24
+    },
+    "tabs": [
+      {
+        "layout": 1,
+        "buttontext": "<RichColor Color=\"0.75,0.02,0.02,1\">Khaos Nexus</>",
+        "imageurl": "https://i.imgur.com/mGt3cAF.png",
+        "content": [
+          {
+            "title": "<RichColor Color=\"0.75,0.02,0.02,1\">Welcome to Khaos Nexus</>",
+            "text": "<TextStyle.White>Welcome to the Khaos Nexus ARK cluster. This UI is shared across every Nexus map so server information, events, links, and community notices stay consistent everywhere.\n\nSurvive. Build. Conquer. Create chaos responsibly.\n\nUse the tabs above for server information, cluster features, events, and support.</>"
+          }
+        ]
+      },
+      {
+        "layout": 2,
+        "buttontext": "<RichColor Color=\"0.75,0.02,0.02,1\">Cluster Info</>",
+        "imageurl": "https://i.imgur.com/mGt3cAF.png",
+        "content": [
+          {
+            "title": "<RichColor Color=\"0.75,0.02,0.02,1\">Khaos Nexus ARK</>",
+            "text": "<TextStyle.White>Khaos Nexus is a connected ARK: Survival Ascended cluster built around community progression, quality-of-life features, events, and long-term expansion.\n\nThis information panel is cluster-wide and follows you regardless of which Nexus map you are playing.</>"
+          },
+          {
+            "title": "<RichColor Color=\"0.75,0.02,0.02,1\">Server Status & Updates</>",
+            "text": "<TextStyle.White>Live server status, maintenance notices, map additions, mod changes, and major announcements are managed through Nexus Sentinel and the Khaos Nexus Discord.\n\nIf a map is restarting or under maintenance, check Discord for the latest information.</>"
+          }
+        ]
+      },
+      {
+        "layout": 3,
+        "buttontext": "<RichColor Color=\"0.75,0.02,0.02,1\">Features</>",
+        "imageurl": "https://i.imgur.com/mGt3cAF.png",
+        "content": [
+          {
+            "title": "<RichColor Color=\"0.75,0.02,0.02,1\">Quality of Life</>",
+            "text": "<TextStyle.White>The Nexus mod stack is built to reduce unnecessary grind while keeping meaningful ARK progression. Features and balance may evolve as the cluster grows.</>"
+          },
+          {
+            "title": "<RichColor Color=\"0.75,0.02,0.02,1\">Shop & Kits</>",
+            "text": "<TextStyle.White>Shop, points, kits, and reward systems may be available depending on current server services. Nexus Sentinel manages the cluster economy and will keep player-facing information synchronized as features come online.</>"
+          },
+          {
+            "title": "<RichColor Color=\"0.75,0.02,0.02,1\">Cross-Map Cluster</>",
+            "text": "<TextStyle.White>Additional maps can be added to Khaos Nexus over time. This shared UI is designed so the same information can be used on every map without maintaining separate copies.</>"
+          }
+        ]
+      },
+      {
+        "layout": 4,
+        "buttontext": "<RichColor Color=\"0.75,0.02,0.02,1\">Community</>",
+        "imageurl": "https://i.imgur.com/mGt3cAF.png",
+        "content": [
+          {
+            "title": "<RichColor Color=\"0.75,0.02,0.02,1\">Events</>",
+            "text": "<TextStyle.White>Community events, boss runs, challenges, boosted periods, and special rewards will be announced through the Nexus. Check Discord regularly so you do not miss limited events.</>"
+          },
+          {
+            "title": "<RichColor Color=\"0.75,0.02,0.02,1\">Rules</>",
+            "text": "<TextStyle.White>Respect other players, staff, and the community. Do not exploit bugs, intentionally disrupt server stability, or use prohibited cheats or automation. Full and current rules are maintained in Discord.</>"
+          },
+          {
+            "title": "<RichColor Color=\"0.75,0.02,0.02,1\">Support</>",
+            "text": "<TextStyle.White>If you encounter a server problem, missing item, mod issue, or need staff assistance, use the appropriate Khaos Nexus Discord support channel. Include the map you were playing on and as much detail as possible.</>"
+          },
+          {
+            "title": "<RichColor Color=\"0.75,0.02,0.02,1\">Powered by Nexus Sentinel</>",
+            "text": "<TextStyle.White>Nexus Sentinel manages cluster status, configuration, events, and integrations behind the scenes. As the Nexus expands, this UI will update from the same shared source across all ARK maps.</>"
+          }
+        ]
+      }
+    ],
+    "links": [
+      {
+        "text": "Khaos Nexus Discord",
+        "url": "https://discord.com"
+      },
+      {
+        "text": "Khaos Nexus",
+        "url": "https://github.com/Khaos-Krew/Khaos-Nexus"
+      }
+    ],
+    "version": 2
+  }
+}
