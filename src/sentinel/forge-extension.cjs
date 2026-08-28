@@ -123,7 +123,12 @@ function confirmationPayload(nonce, goal, branch = null) {
 }
 
 function validForgeBranch(value) {
-  return /^forge\/[A-Za-z0-9._/-]+$/.test(String(value || '').trim());
+  const branch = String(value || '').trim();
+  if (!/^forge\/[A-Za-z0-9._/-]+$/.test(branch)) return false;
+  const segments = branch.split('/');
+  if (segments.some((segment) => !segment || segment === '.' || segment === '..')) return false;
+  if (branch.endsWith('.') || branch.includes('..') || branch.includes('@{') || branch.endsWith('.lock')) return false;
+  return true;
 }
 
 function installForgeExtension(options = {}) {
@@ -248,7 +253,7 @@ function installForgeExtension(options = {}) {
         if (sub === 'repair') {
           const branch = String(interaction.options.getString('branch', true)).trim();
           if (!validForgeBranch(branch)) {
-            await interaction.reply({ content: 'Forge repair can resume only an existing `forge/*` branch.', flags: MessageFlags.Ephemeral });
+            await interaction.reply({ content: 'Forge repair can resume only a valid existing `forge/*` branch.', flags: MessageFlags.Ephemeral });
             return;
           }
           const guidance = String(interaction.options.getString('goal', false) || '').trim();
