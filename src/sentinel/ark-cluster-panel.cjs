@@ -8,6 +8,7 @@ const PANEL_TITLE = 'KHAOS NEXUS • ARK CLUSTER';
 const STATUS_CHANNEL = 'ark-server-status';
 const BUTTON_REFRESH = 'nexus-ark-cluster-refresh';
 const BUTTON_MODS = 'nexus-ark-cluster-mods';
+const BUTTON_STATS = 'nexus-ark-cluster-stats';
 const BUTTON_SHOP = 'nexus-ark-cluster-shop';
 const BUTTON_KITS = 'nexus-ark-cluster-kits';
 const BUTTON_PUBLIC_SHOP = 'nexus-ark-cluster-public-shop';
@@ -116,6 +117,12 @@ function buildButtons() {
   );
 }
 
+function buildInfoButtons() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(BUTTON_STATS).setLabel('Server Stats & Rates').setEmoji('📊').setStyle(ButtonStyle.Secondary)
+  );
+}
+
 function renderArkClusterPanel({ servers = [], summary = {}, checkedAt = '' } = {}) {
   const enabled = servers.filter((server) => server.enabled !== false);
   const fields = [{
@@ -146,7 +153,7 @@ function renderArkClusterPanel({ servers = [], summary = {}, checkedAt = '' } = 
       fields: fields.slice(0, 25),
       footer: { text: PANEL_MARKER }
     }],
-    components: [buildButtons()],
+    components: [buildButtons(), buildInfoButtons()],
     allowedMentions: { parse: [] }
   };
 }
@@ -209,6 +216,7 @@ module.exports = {
   STATUS_CHANNEL,
   BUTTON_REFRESH,
   BUTTON_MODS,
+  BUTTON_STATS,
   BUTTON_SHOP,
   BUTTON_KITS,
   BUTTON_PUBLIC_SHOP,
@@ -227,6 +235,8 @@ module.exports = {
   renderMapField,
   clusterEvent,
   nextRestart,
+  buildButtons,
+  buildInfoButtons,
   renderArkClusterPanel,
   isArkStatusChannel,
   findArkStatusChannel,
