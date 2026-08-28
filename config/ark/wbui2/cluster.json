@@ -110,7 +110,12 @@
         ]
       }
     ],
-    "links": [],
+    "links": [
+      {
+        "text": "Join Khaos Nexus Discord",
+        "url": "https://discord.gg/ZYAdnbqRHs"
+      }
+    ],
     "version": 2
   }
 }
