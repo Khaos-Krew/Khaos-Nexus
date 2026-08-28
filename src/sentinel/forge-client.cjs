@@ -141,13 +141,23 @@ class ForgeClient {
     if (options.branch) body.branch = String(options.branch).trim();
 
     const payload = await this.request('/api/v1/tasks', { method: 'POST', body });
+    const usage = payload?.usage && typeof payload.usage === 'object'
+      ? {
+          requests: Math.max(0, Number(payload.usage.requests) || 0),
+          inputTokens: Math.max(0, Number(payload.usage.input_tokens) || 0),
+          outputTokens: Math.max(0, Number(payload.usage.output_tokens) || 0),
+          totalTokens: Math.max(0, Number(payload.usage.total_tokens) || 0)
+        }
+      : null;
     return {
       status: String(payload?.status || 'unknown'),
       mode: String(payload?.mode || mode),
       repo: String(payload?.repo || body.repo),
       baseRef: String(payload?.base_ref || body.base_ref),
       branch: payload?.branch ? String(payload.branch) : null,
-      output: String(payload?.output || '')
+      output: String(payload?.output || ''),
+      modelRoute: payload?.model_route ? String(payload.model_route) : null,
+      usage
     };
   }
 
