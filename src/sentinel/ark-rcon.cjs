@@ -46,7 +46,9 @@ class ArkRconClient {
     return new Promise((resolve, reject) => {
       const socket = net.createConnection({ host: this.host, port: this.port });
       let buffer = Buffer.alloc(0);
+      let connected = false;
       let authenticated = false;
+      let commandSent = false;
       let response = '';
       let finished = false;
       let idleTimer = null;
@@ -69,10 +71,19 @@ class ArkRconClient {
         clearTimeout(idleTimer);
         idleTimer = setTimeout(() => finish(null, response), 700);
       };
-      const timer = setTimeout(() => finish(new Error('ARK RCON request timed out. Confirm the host, RCON port, and password.')), this.timeoutMs);
+      const timeoutMessage = () => {
+        if (!connected) return 'ARK RCON TCP connection timed out. Confirm the host and RCON port are reachable.';
+        if (!authenticated) return 'ARK RCON authentication response timed out. The TCP port accepted the connection but the server did not answer RCON authentication.';
+        if (commandSent) return 'ARK RCON command response timed out after authentication.';
+        return 'ARK RCON request timed out.';
+      };
+      const timer = setTimeout(() => finish(new Error(timeoutMessage())), this.timeoutMs);
 
       socket.setNoDelay(true);
-      socket.on('connect', () => socket.write(packet(authId, 3, this.password)));
+      socket.on('connect', () => {
+        connected = true;
+        socket.write(packet(authId, 3, this.password));
+      });
       socket.on('data', (chunk) => {
         try {
           buffer = Buffer.concat([buffer, chunk]);
@@ -83,6 +94,7 @@ class ArkRconClient {
               if (item.id === -1) return finish(new Error('ARK RCON authentication failed.'));
               if (item.id === authId && item.type === 2) {
                 authenticated = true;
+                commandSent = true;
                 socket.write(packet(commandId, 2, command));
               }
               continue;
