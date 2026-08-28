@@ -62,7 +62,9 @@ if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
           return;
         }
         const files = Array.isArray(result.filesSeen) && result.filesSeen.length ? ` files=${result.filesSeen.join(',').slice(0, 600)}` : '';
-        console.log(`[Nexus Sentinal] ArkShop API log diagnostic: source=${result.source || 'unknown'} path=${result.path} matchingLines=${result.lines.length} issueLines=${Array.isArray(result.issues) ? result.issues.length : 0}${files}`);
+        const lifecycleCount = Array.isArray(result.lifecycle) ? result.lifecycle.length : 0;
+        console.log(`[Nexus Sentinal] ArkShop API log diagnostic: source=${result.source || 'unknown'} path=${result.path} matchingLines=${result.lines.length} issueLines=${Array.isArray(result.issues) ? result.issues.length : 0} lifecycleLines=${lifecycleCount}${files}`);
+        for (const line of (result.lifecycle || [])) console.log(`[Nexus Sentinal] ASA API lifecycle: ${line}`);
         for (const line of result.lines) console.log(`[Nexus Sentinal] ArkShop API log: ${line}`);
         for (const line of (result.issues || [])) console.log(`[Nexus Sentinal] ARK startup issue: ${line}`);
       })
