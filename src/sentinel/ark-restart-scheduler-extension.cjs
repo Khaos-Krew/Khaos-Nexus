@@ -65,6 +65,10 @@ function audit(event, detail = {}) {
   }
 }
 
+function restartScheduleEnabled(prefix = 'ARK_GEN1') {
+  return String(process.env[`${prefix}_RESTART_SCHEDULE_ENABLED`] || 'false').toLowerCase() === 'true';
+}
+
 async function waitForRecovery(server, { timeoutMs = 10 * 60_000, intervalMs = 15_000 } = {}) {
   const started = Date.now();
   let sawOffline = false;
@@ -114,7 +118,7 @@ function installArkRestartSchedulerExtension({ prefix = 'ARK_GEN1' } = {}) {
       client[BOUND] = true;
       client.once(Events.ClientReady, () => {
         const server = arkServerFromEnv(prefix);
-        const enabled = String(process.env[`${prefix}_RESTART_SCHEDULE_ENABLED`] || 'true').toLowerCase() !== 'false';
+        const enabled = restartScheduleEnabled(prefix);
         if (!server.enabled || !enabled) {
           audit('scheduler-disabled', { prefix, serverEnabled: server.enabled, scheduleEnabled: enabled });
           return;
@@ -196,6 +200,7 @@ module.exports = {
   localParts,
   secondsUntilRestart,
   warningMessage,
+  restartScheduleEnabled,
   performRestart,
   waitForRecovery,
   installArkRestartSchedulerExtension
