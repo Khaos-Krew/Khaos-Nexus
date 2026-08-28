@@ -11,6 +11,7 @@ const LOG_CANDIDATES = [
 const SAVED_LOGS_SUFFIX = 'Saved/Logs';
 const MAX_LOG_BYTES = 8 * 1024 * 1024;
 const MAX_SAVED_LOG_FILES = 6;
+const MAX_TAIL_LINES = 30;
 
 function redactLogLine(value) {
   return String(value || '')
@@ -25,7 +26,8 @@ function redactLogLine(value) {
 }
 
 function relevantLogLines(text, limit = 20) {
-  const lines = String(text || '').split(/\r?\n/).filter((line) => /(arkshop|mysql|mariadb|sqlstate|database|db error|failed to (?:open|create|connect)|plugin.*arkshop)/i.test(line));
+  const relevant = /(arkshop|mysql|mariadb|sqlstate|db error|failed to (?:open|create|connect)|plugin.*arkshop|database.*(?:error|fail|connect|denied|refused|timeout))/i;
+  const lines = String(text || '').split(/\r?\n/).filter((line) => relevant.test(line));
   return lines.slice(-Math.max(1, Math.min(40, Number(limit) || 20))).map(redactLogLine).filter(Boolean);
 }
 
@@ -44,6 +46,15 @@ function startupIssueLines(text, limit = 30) {
   return lines.slice(-Math.max(1, Math.min(60, Number(limit) || 30))).map(redactLogLine).filter(Boolean);
 }
 
+function tailLogLines(text, limit = MAX_TAIL_LINES) {
+  const bounded = Math.max(1, Math.min(MAX_TAIL_LINES, Number(limit) || MAX_TAIL_LINES));
+  return String(text || '')
+    .split(/\r?\n/)
+    .map(redactLogLine)
+    .filter(Boolean)
+    .slice(-bounded);
+}
+
 function safeFileName(value) {
   return String(value || '').replace(/[\r\n\u0000-\u001f\u007f]/g, '_').slice(0, 180);
 }
@@ -57,10 +68,18 @@ function logLike(entry) {
   return isFile(entry) && (name.endsWith('.log') || name.endsWith('.txt') || name.includes('crash'));
 }
 
+function normalizeModifyTime(value) {
+  const numeric = Number(value) || 0;
+  if (!numeric) return null;
+  const milliseconds = numeric < 1e12 ? numeric * 1000 : numeric;
+  const date = new Date(milliseconds);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 async function readBoundedLog(client, remotePath, sizeHint = 0) {
   const stat = sizeHint ? { size: sizeHint } : await client.stat(remotePath).catch(() => null);
   const bytes = Number(stat?.size) || 0;
-  if (bytes > MAX_LOG_BYTES) return { path: remotePath, bytes, skipped: 'log-too-large', lines: [], issues: [], lifecycle: [] };
+  if (bytes > MAX_LOG_BYTES) return { path: remotePath, bytes, skipped: 'log-too-large', lines: [], issues: [], lifecycle: [], tail: [] };
   const data = await client.get(remotePath);
   const text = Buffer.isBuffer(data) ? data.toString('utf8') : String(data || '');
   return {
@@ -68,7 +87,8 @@ async function readBoundedLog(client, remotePath, sizeHint = 0) {
     bytes: Buffer.byteLength(text),
     lines: relevantLogLines(text, 30),
     issues: startupIssueLines(text, 40),
-    lifecycle: apiLifecycleLines(text, 40)
+    lifecycle: apiLifecycleLines(text, 40),
+    tail: tailLogLines(text, MAX_TAIL_LINES)
   };
 }
 
@@ -76,7 +96,7 @@ async function inspectSavedLogs(client, shooterGameRoot) {
   const directory = joinRemote(shooterGameRoot, SAVED_LOGS_SUFFIX);
   let entries;
   try { entries = await client.list(directory); }
-  catch { return { directory, accessible: false, filesSeen: [], filesScanned: [], lines: [], issues: [], lifecycle: [] }; }
+  catch { return { directory, accessible: false, filesSeen: [], filesScanned: [], lines: [], issues: [], lifecycle: [], newest: null }; }
 
   const candidates = entries.filter(logLike).sort((a, b) => Number(b.modifyTime || 0) - Number(a.modifyTime || 0));
   const filesSeen = candidates.slice(0, 20).map((entry) => safeFileName(entry.name));
@@ -84,11 +104,24 @@ async function inspectSavedLogs(client, shooterGameRoot) {
   const lines = [];
   const issues = [];
   const lifecycle = [];
-  for (const entry of candidates.slice(0, MAX_SAVED_LOG_FILES)) {
+  let newest = null;
+  for (const [index, entry] of candidates.slice(0, MAX_SAVED_LOG_FILES).entries()) {
     const remotePath = joinRemote(directory, entry.name);
     const result = await readBoundedLog(client, remotePath, Number(entry.size) || 0).catch(() => null);
     if (!result) continue;
-    filesScanned.push({ name: safeFileName(entry.name), bytes: result.bytes, skipped: result.skipped || '' });
+    const scanned = {
+      name: safeFileName(entry.name),
+      bytes: result.bytes,
+      modifiedAt: normalizeModifyTime(entry.modifyTime),
+      skipped: result.skipped || ''
+    };
+    filesScanned.push(scanned);
+    if (index === 0) {
+      newest = {
+        ...scanned,
+        tail: result.tail || []
+      };
+    }
     for (const line of result.lines || []) lines.push(`[${safeFileName(entry.name)}] ${line}`);
     for (const line of result.issues || []) issues.push(`[${safeFileName(entry.name)}] ${line}`);
     for (const line of result.lifecycle || []) lifecycle.push(`[${safeFileName(entry.name)}] ${line}`);
@@ -100,7 +133,8 @@ async function inspectSavedLogs(client, shooterGameRoot) {
     filesScanned,
     lines: lines.slice(-30),
     issues: issues.slice(-50),
-    lifecycle: lifecycle.slice(-50)
+    lifecycle: lifecycle.slice(-50),
+    newest
   };
 }
 
@@ -136,6 +170,7 @@ async function inspectArkApiLog(prefix = 'ARK_GEN1') {
         lines: saved.lines,
         issues: saved.issues,
         lifecycle: saved.lifecycle,
+        newest: saved.newest,
         note: 'ArkApi.log was not exposed; inspected bounded recent ShooterGame/Saved/Logs files instead.'
       };
     }
@@ -155,10 +190,13 @@ module.exports = {
   SAVED_LOGS_SUFFIX,
   MAX_LOG_BYTES,
   MAX_SAVED_LOG_FILES,
+  MAX_TAIL_LINES,
   redactLogLine,
   relevantLogLines,
   apiLifecycleLines,
   startupIssueLines,
+  tailLogLines,
+  normalizeModifyTime,
   safeFileName,
   inspectSavedLogs,
   inspectArkApiLog
