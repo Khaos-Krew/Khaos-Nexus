@@ -3,6 +3,7 @@
 const crypto = require('node:crypto');
 const { Writable } = require('node:stream');
 const SftpClient = require('ssh2-sftp-client');
+const { Client: SshClient } = require('ssh2');
 const { sftpSettingsFromEnv } = require('./ark-sftp-config.cjs');
 
 function isDirectory(item) {
@@ -58,6 +59,55 @@ async function sha256RemoteFile(client, remotePath, maxBytes = 2 * 1024 * 1024 *
   } catch (error) {
     return { hash: '', bytes, error: String(error?.message || error).slice(0, 160) };
   }
+}
+
+async function probeSshExecHash(prefix = 'ARK_GEN1') {
+  const settings = sftpSettingsFromEnv(prefix);
+  if (!settings.host || !settings.username || !settings.password) return { available: false, hash: '', error: 'credentials-incomplete' };
+  const relative = '72.46.128.202_8080/ShooterGame/Binaries/Win64/ArkAscendedServer.exe';
+  return new Promise((resolve) => {
+    const client = new SshClient();
+    let settled = false;
+    const done = (value) => {
+      if (settled) return;
+      settled = true;
+      try { client.end(); } catch {}
+      resolve(value);
+    };
+    const timer = setTimeout(() => done({ available: false, hash: '', error: 'ssh-exec-timeout' }), 12_000);
+    timer.unref?.();
+    client.on('ready', () => {
+      const escaped = relative.replace(/'/g, "''");
+      const command = `powershell.exe -NoProfile -NonInteractive -Command \"$p='${escaped}'; if(Test-Path -LiteralPath $p){(Get-FileHash -Algorithm SHA256 -LiteralPath $p).Hash.ToLowerInvariant()}\"`;
+      client.exec(command, (error, stream) => {
+        if (error) {
+          clearTimeout(timer);
+          done({ available: false, hash: '', error: safeName(error.message || error) });
+          return;
+        }
+        let stdout = '';
+        let stderr = '';
+        stream.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
+        stream.stderr?.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
+        stream.on('close', () => {
+          clearTimeout(timer);
+          const match = stdout.toLowerCase().match(/[a-f0-9]{64}/);
+          done({ available: Boolean(match), hash: match?.[0] || '', error: match ? '' : safeName(stderr || stdout || 'no-hash-output') });
+        });
+      });
+    });
+    client.on('error', (error) => {
+      clearTimeout(timer);
+      done({ available: false, hash: '', error: safeName(error.message || error) });
+    });
+    client.connect({
+      host: settings.host,
+      port: settings.port,
+      username: settings.username,
+      password: settings.password,
+      readyTimeout: Math.min(10_000, Number(settings.readyTimeout) || 10_000)
+    });
+  });
 }
 
 async function checkCacheMirrors(hash) {
@@ -234,4 +284,4 @@ async function inspectSftpLayout(prefix = 'ARK_GEN1') {
   }
 }
 
-module.exports = { parseCacheKey, safeCacheConfig, sha256RemoteFile, checkCacheMirrors, inspectSftpLayout };
+module.exports = { parseCacheKey, safeCacheConfig, sha256RemoteFile, probeSshExecHash, checkCacheMirrors, inspectSftpLayout };
