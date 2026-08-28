@@ -33,7 +33,7 @@ const BASELINE_GUS = Object.freeze({
   GlobalCorpseDecompositionTimeMultiplier: '2.0',
   ServerCrosshair: 'True',
   AllowHitMarkers: 'True',
-  allowThirdPersonPlayer: 'True',
+  AllowThirdPersonPlayer: 'True',
   ShowMapPlayerLocation: 'True',
   PreventSpawnAnimations: 'True',
   AllowFlyerCarryPvE: 'True',
@@ -54,15 +54,27 @@ const BASELINE_GAME = Object.freeze({
   BabyImprintAmountMultiplier: '2.0',
   BabyImprintingStatScaleMultiplier: '1.0',
   LayEggIntervalMultiplier: '0.5',
-  'PerLevelStatsMultiplier_Player[0]': '1.0',
-  'PerLevelStatsMultiplier_Player[1]': '1.5',
-  'PerLevelStatsMultiplier_Player[7]': '5.0',
-  'PerLevelStatsMultiplier_Player[8]': '1.0',
-  'PerLevelStatsMultiplier_Player[10]': '2.0',
-  'PerLevelStatsMultiplier_DinoTamed[0]': '0.25',
-  'PerLevelStatsMultiplier_DinoTamed[1]': '1.5',
-  'PerLevelStatsMultiplier_DinoTamed[7]': '3.0',
-  'PerLevelStatsMultiplier_DinoTamed[8]': '0.17'
+
+  // Player level-up gains: generous QoL, restrained combat scaling.
+  'PerLevelStatsMultiplier_Player[0]': '2.0',
+  'PerLevelStatsMultiplier_Player[1]': '3.0',
+  'PerLevelStatsMultiplier_Player[3]': '3.0',
+  'PerLevelStatsMultiplier_Player[4]': '2.0',
+  'PerLevelStatsMultiplier_Player[5]': '2.0',
+  'PerLevelStatsMultiplier_Player[7]': '30.0',
+  'PerLevelStatsMultiplier_Player[8]': '1.5',
+  'PerLevelStatsMultiplier_Player[9]': '1.5',
+  'PerLevelStatsMultiplier_Player[10]': '5.0',
+  'PerLevelStatsMultiplier_Player[11]': '5.0',
+
+  // Tamed dino level-up gains. Health/melee account for ASA's lower vanilla bases.
+  'PerLevelStatsMultiplier_DinoTamed[0]': '0.40',
+  'PerLevelStatsMultiplier_DinoTamed[1]': '3.0',
+  'PerLevelStatsMultiplier_DinoTamed[3]': '3.0',
+  'PerLevelStatsMultiplier_DinoTamed[4]': '2.0',
+  'PerLevelStatsMultiplier_DinoTamed[7]': '15.0',
+  'PerLevelStatsMultiplier_DinoTamed[8]': '0.34',
+  'PerLevelStatsMultiplier_DinoTamed[9]': '1.5'
 });
 
 function escapeRegex(value) {
@@ -183,7 +195,7 @@ async function applyBaseline(prefix = 'ARK_GEN1') {
     const gus = await backupAndWrite(client, gusPath, nextGus, stamp);
     const game = await backupAndWrite(client, gamePath, nextGame, stamp);
     return {
-      profile: 'khaos-pve-baseline-v1',
+      profile: 'khaos-pve-baseline-v2',
       gusPath,
       gamePath,
       changed: gus.changed || game.changed,
