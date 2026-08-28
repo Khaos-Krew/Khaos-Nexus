@@ -57,7 +57,23 @@ async function inspectSftpLayout(prefix = 'ARK_GEN1') {
     const gusPath = String(process.env[`${prefix}_GUS_PATH`] || '').trim();
     const gamePath = String(process.env[`${prefix}_GAMEINI_PATH`] || '').trim();
     const shopPath = String(process.env[`${prefix}_ARKSHOP_CONFIG_PATH`] || '').trim();
-    const pluginsPath = shooterGameRoot ? `${shooterGameRoot}/Binaries/Win64/ArkApi/Plugins` : '';
+    const win64Path = shooterGameRoot ? `${shooterGameRoot}/Binaries/Win64` : '';
+    const arkApiPath = win64Path ? `${win64Path}/ArkApi` : '';
+    const pluginsPath = arkApiPath ? `${arkApiPath}/Plugins` : '';
+
+    const framework = win64Path ? {
+      asaApiLoader: await exists(client, `${win64Path}/AsaApiLoader.exe`),
+      asaApiDll: await exists(client, `${arkApiPath}/AsaApi.dll`),
+      apiConfig: await exists(client, `${win64Path}/config.json`),
+      versionDll: await exists(client, `${win64Path}/Version.dll`),
+      arkApiDirectory: await exists(client, arkApiPath)
+    } : {
+      asaApiLoader: false,
+      asaApiDll: false,
+      apiConfig: false,
+      versionDll: false,
+      arkApiDirectory: false
+    };
 
     return {
       cwd: safeName(cwd),
@@ -70,6 +86,10 @@ async function inspectSftpLayout(prefix = 'ARK_GEN1') {
         game: gamePath ? await exists(client, gamePath) : false,
         arkshop: shopPath ? await exists(client, shopPath) : false
       },
+      win64Path,
+      win64Entries: win64Path ? await listDirectoryNames(client, win64Path, 100) : [],
+      arkApiPath,
+      framework,
       pluginsPath,
       plugins: pluginsPath ? await listDirectoryNames(client, pluginsPath, 80) : [],
       arkShopEntries: shooterGameRoot ? await listDirectoryNames(client, `${shooterGameRoot}/Binaries/Win64/ArkApi/Plugins/ArkShop`, 80) : []
