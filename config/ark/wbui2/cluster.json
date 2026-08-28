@@ -91,12 +91,7 @@
         ]
       }
     ],
-    "links": [
-      {
-        "text": "Khaos Nexus Project",
-        "url": "https://github.com/Khaos-Krew/Khaos-Nexus"
-      }
-    ],
+    "links": [],
     "version": 2
   }
 }
