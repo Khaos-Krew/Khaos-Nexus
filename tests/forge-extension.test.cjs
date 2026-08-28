@@ -28,12 +28,15 @@ test('/forge exposes status, plan, guarded build, and CI-aware repair subcommand
   assert.equal(repair.options[1].required, false);
 });
 
-test('Forge repair accepts only guarded forge namespace branches', () => {
+test('Forge repair accepts only safe guarded forge namespace branches', () => {
   assert.equal(validForgeBranch('forge/fix-ci-123'), true);
   assert.equal(validForgeBranch('forge/nested/fix_ci.2'), true);
   assert.equal(validForgeBranch('main'), false);
   assert.equal(validForgeBranch('release/v1'), false);
-  assert.equal(validForgeBranch('forge/../main'), true);
+  assert.equal(validForgeBranch('forge/../main'), false);
+  assert.equal(validForgeBranch('forge/./task'), false);
+  assert.equal(validForgeBranch('forge/task..two'), false);
+  assert.equal(validForgeBranch('forge/task.lock'), false);
 });
 
 test('Forge status text reports bridge configuration without exposing secrets', () => {
