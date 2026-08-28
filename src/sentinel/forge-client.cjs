@@ -98,6 +98,7 @@ class ForgeClient {
       version: String(payload?.version || 'unknown'),
       openaiConfigured: Boolean(payload?.openaiConfigured),
       githubConfigured: Boolean(payload?.githubConfigured),
+      fallbackRouting: String(payload?.fallbackRouting || 'unknown'),
       writePolicy: String(payload?.writePolicy || 'unknown')
     };
   }
