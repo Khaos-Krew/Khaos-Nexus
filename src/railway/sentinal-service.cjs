@@ -2,6 +2,7 @@
 
 const { bootstrapHostedProviderStore } = require('./hosted-provider-store.cjs');
 const { discoverPaths } = require('../sentinel/ark-config-manager.cjs');
+const { applyBaselineIfRequested } = require('../sentinel/ark-sftp-config.cjs');
 const { inspectSftpLayout } = require('../sentinel/ark-sftp-diagnostic.cjs');
 const { inspectArkApiLog } = require('../sentinel/ark-api-log-diagnostic.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('../sentinel/ark-rcon.cjs');
@@ -28,11 +29,21 @@ if (controlledApiTestRequest) {
 }
 require('../backend/server.cjs');
 
-// Routine ARK configuration is command-driven. The only startup write allowed
-// here is an explicitly requested, stamped, one-time ArkShop MySQL migration.
+// Routine ARK configuration remains command-driven. A stamped one-time config
+// request may update INI files over SFTP with backups; it never restarts ARK.
 require('../sentinel/entry.cjs');
 
 if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
+  void applyBaselineIfRequested({ prefix: 'ARK_GEN1', stampDirectory: '/app/data' })
+    .then((result) => {
+      if (result.skipped) {
+        console.log(`[Nexus Sentinal] ARK baseline config sync skipped: ${result.skipped}`);
+        return;
+      }
+      console.log(`[Nexus Sentinal] ARK baseline config synchronized: profile=${result.profile} changed=${result.changed} gusChanged=${result.gameUserSettingsChanged} gameChanged=${result.gameIniChanged} restartRequired=true backups=${(result.backups || []).length}`);
+    })
+    .catch((error) => console.warn(`[Nexus Sentinal] ARK baseline config sync failed: ${String(error?.message || error).slice(0, 500)}`));
+
   void syncArkShopMysqlIfRequested({ prefix: 'ARK_GEN1', stampDirectory: '/app/data' })
     .then((result) => {
       if (result.skipped) {
