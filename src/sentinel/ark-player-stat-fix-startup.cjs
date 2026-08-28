@@ -1,5 +1,6 @@
 'use strict';
 
+// One-time Gen 1 survivor stat correction. Safe to rerun; writes are idempotent and backed up.
 const { setIniValue } = require('./ark-config-manager.cjs');
 
 const CHANGES = [
