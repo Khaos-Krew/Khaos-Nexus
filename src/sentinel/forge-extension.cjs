@@ -31,7 +31,20 @@ function forgeCommand() {
         .setName('goal')
         .setDescription('What should Forge build or repair?')
         .setRequired(true)
-        .setMaxLength(2000)));
+        .setMaxLength(2000)))
+    .addSubcommand((sub) => sub
+      .setName('repair')
+      .setDescription('Resume a Forge branch, inspect its CI, and repair failures')
+      .addStringOption((opt) => opt
+        .setName('branch')
+        .setDescription('Existing guarded forge/* branch')
+        .setRequired(true)
+        .setMaxLength(240))
+      .addStringOption((opt) => opt
+        .setName('goal')
+        .setDescription('Optional repair guidance; defaults to repairing failed CI')
+        .setRequired(false)
+        .setMaxLength(1600)));
 }
 
 function memberIsForgeOperator(interaction, config) {
@@ -85,23 +98,32 @@ function buildConstraints(actorId) {
   ];
 }
 
-function confirmationPayload(nonce, goal) {
+function confirmationPayload(nonce, goal, branch = null) {
+  const title = branch ? 'Repair existing Forge branch?' : 'Send build task to Khaos Nexus Forge?';
+  const scope = branch
+    ? `Existing branch: \`${branch}\`\nForge will inspect current CI evidence before changing code.`
+    : 'Forge may create/update a guarded `forge/*` branch and a **draft PR**.';
   return {
     content: [
-      '⚠️ **Send build task to Khaos Nexus Forge?**',
-      String(goal).slice(0, 1200),
+      `⚠️ **${title}**`,
+      String(goal).slice(0, 1100),
       '',
-      'Forge may create/update a guarded `forge/*` branch and a **draft PR**. It still cannot merge or deploy production.'
+      scope,
+      'It still cannot merge or deploy production.'
     ].join('\n'),
     components: [{
       type: 1,
       components: [
-        { type: 2, style: 3, label: 'Send to Forge', custom_id: `nexusforge:confirm:${nonce}` },
+        { type: 2, style: 3, label: branch ? 'Repair Branch' : 'Send to Forge', custom_id: `nexusforge:confirm:${nonce}` },
         { type: 2, style: 2, label: 'Cancel', custom_id: `nexusforge:cancel:${nonce}` }
       ]
     }],
     flags: MessageFlags.Ephemeral
   };
+}
+
+function validForgeBranch(value) {
+  return /^forge\/[A-Za-z0-9._/-]+$/.test(String(value || '').trim());
 }
 
 function installForgeExtension(options = {}) {
@@ -175,12 +197,13 @@ function installForgeExtension(options = {}) {
           if (action !== 'confirm') return;
 
           pending.delete(nonce);
-          await interaction.update({ content: '🔥 Sending the guarded build task to Khaos Nexus Forge…', components: [] });
+          await interaction.update({ content: task.branch ? '🛠️ Sending CI-aware branch repair to Khaos Nexus Forge…' : '🔥 Sending the guarded build task to Khaos Nexus Forge…', components: [] });
           const result = await forge.execute(task.goal, {
+            branch: task.branch || undefined,
             constraints: buildConstraints(interaction.user.id)
           });
           await interaction.editReply({ content: formatForgeResult(result), components: [] });
-          logger.log?.(`[Nexus Sentinal] Forge execute actor=${interaction.user.id} status=${result.status} branch=${result.branch || 'none'}`);
+          logger.log?.(`[Nexus Sentinal] Forge execute actor=${interaction.user.id} status=${result.status} branch=${result.branch || 'none'} repair=${Boolean(task.branch)}`);
           return;
         }
 
@@ -198,8 +221,8 @@ function installForgeExtension(options = {}) {
           return;
         }
 
-        const goal = String(interaction.options.getString('goal', true)).trim();
         if (sub === 'plan') {
+          const goal = String(interaction.options.getString('goal', true)).trim();
           await interaction.deferReply({ flags: MessageFlags.Ephemeral });
           const result = await forge.plan(goal, {
             constraints: buildConstraints(interaction.user.id)
@@ -210,13 +233,34 @@ function installForgeExtension(options = {}) {
         }
 
         if (sub === 'build') {
+          const goal = String(interaction.options.getString('goal', true)).trim();
           const nonce = crypto.randomBytes(12).toString('hex');
           pending.set(nonce, {
             userId: String(interaction.user.id),
             goal,
+            branch: null,
             expiresAt: Date.now() + PENDING_TTL_MS
           });
           await interaction.reply(confirmationPayload(nonce, goal));
+          return;
+        }
+
+        if (sub === 'repair') {
+          const branch = String(interaction.options.getString('branch', true)).trim();
+          if (!validForgeBranch(branch)) {
+            await interaction.reply({ content: 'Forge repair can resume only an existing `forge/*` branch.', flags: MessageFlags.Ephemeral });
+            return;
+          }
+          const guidance = String(interaction.options.getString('goal', false) || '').trim();
+          const goal = guidance || `Inspect the current CI/check results for ${branch}. Diagnose failed checks, make the smallest safe repair on this exact branch, review the changes, and update the existing draft PR. If checks are pending or there is no actionable failure evidence, do not invent a repair.`;
+          const nonce = crypto.randomBytes(12).toString('hex');
+          pending.set(nonce, {
+            userId: String(interaction.user.id),
+            goal,
+            branch,
+            expiresAt: Date.now() + PENDING_TTL_MS
+          });
+          await interaction.reply(confirmationPayload(nonce, goal, branch));
         }
       } catch (error) {
         const content = `⚠️ Forge request did not complete: ${String(error?.message || error).slice(0, 1500)}`;
@@ -244,5 +288,6 @@ module.exports = {
   bridgeStatusText,
   formatForgeResult,
   buildConstraints,
+  validForgeBranch,
   installForgeExtension
 };
