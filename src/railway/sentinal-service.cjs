@@ -4,6 +4,7 @@ const { bootstrapHostedProviderStore } = require('./hosted-provider-store.cjs');
 const { discoverPaths } = require('../sentinel/ark-config-manager.cjs');
 const { inspectSftpLayout } = require('../sentinel/ark-sftp-diagnostic.cjs');
 const { inspectArkApiLog } = require('../sentinel/ark-api-log-diagnostic.cjs');
+const { ArkRconClient, arkServerFromEnv } = require('../sentinel/ark-rcon.cjs');
 const { syncArkShopMysqlIfRequested } = require('../sentinel/arkshop-startup-sync.cjs');
 const { mysqlStatus } = require('../sentinel/arkshop-mysql.cjs');
 
@@ -71,6 +72,19 @@ if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
       .catch((error) => console.warn(`[Nexus Sentinal] ArkShop API log diagnostic failed: ${String(error?.message || error).slice(0, 300)}`));
   }, 10_000);
   logTimer.unref?.();
+
+  const rconTimer = setTimeout(() => {
+    try {
+      const server = arkServerFromEnv('ARK_GEN1');
+      const client = new ArkRconClient({ host: server.host, port: server.port, password: server.password, timeoutMs: 8_000 });
+      void client.execute('ListPlayers')
+        .then((response) => console.log(`[Nexus Sentinal] ARK RCON startup probe: ok=true responseBytes=${Buffer.byteLength(String(response || ''))}`))
+        .catch((error) => console.warn(`[Nexus Sentinal] ARK RCON startup probe: ok=false error=${String(error?.message || error).slice(0, 300)}`));
+    } catch (error) {
+      console.warn(`[Nexus Sentinal] ARK RCON startup probe: ok=false error=${String(error?.message || error).slice(0, 300)}`);
+    }
+  }, 12_000);
+  rconTimer.unref?.();
 
   let mysqlSignature = '';
   const checkMysql = async (reason = 'periodic') => {
