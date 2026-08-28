@@ -69,8 +69,18 @@ if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
           const readiness = result.newest.readiness || {};
           const modIds = Array.isArray(result.newest.modIds) ? result.newest.modIds : [];
           console.log(`[Nexus Sentinal] ARK newest log: file=${result.newest.name} modifiedAt=${result.newest.modifiedAt || 'unknown'} bytes=${result.newest.bytes || 0} skipped=${result.newest.skipped || 'none'} tailLines=${Array.isArray(result.newest.tail) ? result.newest.tail.length : 0}`);
-          console.log(`[Nexus Sentinal] ARK startup readiness: battleye=${Boolean(readiness.battleyeStarted)} serverStarted=${Boolean(readiness.serverStarted)} steam=${Boolean(readiness.steamInitialized)} fullStartup=${Boolean(readiness.fullStartup)} advertising=${Boolean(readiness.advertising)} loadedMods=${modIds.length} asaApiUtils955333=${modIds.includes('955333')} arkShopUi942249=${modIds.includes('942249')}`);
+          console.log(`[Nexus Sentinal] ARK startup readiness: version=${result.newest.version || 'unknown'} battleye=${Boolean(readiness.battleyeStarted)} serverStarted=${Boolean(readiness.serverStarted)} steam=${Boolean(readiness.steamInitialized)} fullStartup=${Boolean(readiness.fullStartup)} advertising=${Boolean(readiness.advertising)} loadedMods=${modIds.length} asaApiUtils955333=${modIds.includes('955333')} arkShopUi942249=${modIds.includes('942249')}`);
           for (const line of (result.newest.tail || [])) console.log(`[Nexus Sentinal] ARK newest tail: ${line}`);
+        }
+        if (result.crash?.accessible) {
+          if (result.crash.newest) {
+            console.log(`[Nexus Sentinal] ARK crash artifact: newest=${result.crash.newest.name} modifiedAt=${result.crash.newest.modifiedAt || 'unknown'} files=${Array.isArray(result.crash.newest.files) ? result.crash.newest.files.length : 0} evidenceLines=${Array.isArray(result.crash.newest.evidence) ? result.crash.newest.evidence.length : 0}`);
+            for (const line of (result.crash.newest.evidence || [])) console.log(`[Nexus Sentinal] ARK crash evidence: ${line}`);
+          } else {
+            console.log('[Nexus Sentinal] ARK crash artifact: Saved/Crashes accessible, no crash artifacts found');
+          }
+        } else {
+          console.log('[Nexus Sentinal] ARK crash artifact: Saved/Crashes unavailable');
         }
         for (const line of (result.lifecycle || [])) console.log(`[Nexus Sentinal] ASA API lifecycle: ${line}`);
         for (const line of result.lines) console.log(`[Nexus Sentinal] ArkShop API log: ${line}`);
