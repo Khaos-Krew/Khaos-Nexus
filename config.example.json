@@ -12,6 +12,19 @@
     "timeZone": "America/Chicago",
     "stateFile": "data/schedules.json"
   },
+  "finance": {
+    "enabled": true,
+    "stateFile": "data/finance.json",
+    "currency": "USD",
+    "timeZone": "America/Chicago",
+    "channelId": "",
+    "channelName": "nexus-finance",
+    "refreshSeconds": 900,
+    "pinDashboard": true,
+    "mentionOwnerOnWarning": true,
+    "defaultAlertDays": [14, 7, 3, 1, 0],
+    "majorAlertDays": [30, 14, 7, 3, 1, 0]
+  },
   "communityLeveling": {
     "enabled": true,
     "stateFile": "data/community-leveling.json",
