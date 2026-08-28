@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { redactLogLine, relevantLogLines, apiLifecycleLines, startupIssueLines, tailLogLines, normalizeModifyTime, inspectSavedLogs } = require('../src/sentinel/ark-api-log-diagnostic.cjs');
+const { redactLogLine, relevantLogLines, apiLifecycleLines, startupIssueLines, tailLogLines, parseLoadedModIds, startupReadiness, normalizeModifyTime, inspectSavedLogs } = require('../src/sentinel/ark-api-log-diagnostic.cjs');
 
 test('ArkShop API log redaction removes password URI credentials and IP addresses', () => {
   const line = 'ArkShop mysql failed MysqlPass=super-secret mysql://dbuser:dbpass@database.internal:3306/shop host=72.46.128.202';
@@ -81,6 +81,37 @@ test('bounded ARK log tail keeps only recent redacted non-empty lines', () => {
   assert.match(tail[2], /final line/);
 });
 
+test('ARK log parser detects unique CurseForge project ids loaded by the server', () => {
+  const source = [
+    'Loading Mod ShooterGame/Mods/83374/942249_6567374/FC_ArkShopUI/Content/PrimalGameData.uasset : 942249',
+    'Loading Mod ShooterGame/Mods/83374/955333_1234567/AsaApiUtils/Content/PrimalGameData.uasset : 955333',
+    'Loading Mod ShooterGame/Mods/83374/942249_6567374/FC_ArkShopUI/Content/Other.uasset : 942249'
+  ].join('\n');
+  assert.deepEqual(parseLoadedModIds(source), ['942249', '955333']);
+});
+
+test('ARK startup readiness distinguishes BattlEye start from a fully advertising server', () => {
+  const partial = startupReadiness('BattlEye successfully started.');
+  assert.equal(partial.battleyeStarted, true);
+  assert.equal(partial.serverStarted, false);
+  assert.equal(partial.advertising, false);
+
+  const ready = startupReadiness([
+    'BattlEye successfully started.',
+    'Server: "Khaos Nexus (Gen 1)" has successfully started!',
+    'Steam Subsystem initialized: Success',
+    'Full Startup: 23.19 seconds',
+    'Server has completed startup and is now advertising for join. (6.76GB Mem)'
+  ].join('\n'));
+  assert.deepEqual(ready, {
+    battleyeStarted: true,
+    serverStarted: true,
+    steamInitialized: true,
+    fullStartup: true,
+    advertising: true
+  });
+});
+
 test('SFTP modify times normalize from seconds or milliseconds', () => {
   assert.equal(normalizeModifyTime(1_700_000_000), '2023-11-14T22:13:20.000Z');
   assert.equal(normalizeModifyTime(1_700_000_000_000), '2023-11-14T22:13:20.000Z');
@@ -98,7 +129,7 @@ test('Saved Logs fallback inspects recent bounded logs and reports the newest re
       ];
     },
     async get(remote) {
-      if (remote.endsWith('ShooterGame.log')) return Buffer.from('ArkShop MySQL connection failed MysqlPass=do-not-leak\nRCON failed to bind 72.46.128.202\n[API][info] API was successfully loaded\nnormal final line');
+      if (remote.endsWith('ShooterGame.log')) return Buffer.from('Loading Mod ShooterGame/Mods/83374/955333_1/AsaApiUtils/Content/PrimalGameData.uasset : 955333\nArkShop MySQL connection failed MysqlPass=do-not-leak\nRCON failed to bind 72.46.128.202\n[API][info] API was successfully loaded\nBattlEye successfully started.\nnormal final line');
       return Buffer.from('old unrelated line');
     }
   };
@@ -114,7 +145,10 @@ test('Saved Logs fallback inspects recent bounded logs and reports the newest re
   assert.match(result.lifecycle[0], /API was successfully loaded/);
   assert.equal(result.newest.name, 'ShooterGame.log');
   assert.equal(result.newest.modifiedAt, '2023-11-14T22:13:40.000Z');
-  assert.equal(result.newest.tail.length, 4);
+  assert.equal(result.newest.tail.length, 6);
   assert.match(result.newest.tail.at(-1), /normal final line/);
   assert.doesNotMatch(result.newest.tail.join('\n'), /do-not-leak|72\.46\.128\.202/);
+  assert.deepEqual(result.newest.modIds, ['955333']);
+  assert.equal(result.newest.readiness.battleyeStarted, true);
+  assert.equal(result.newest.readiness.serverStarted, false);
 });
