@@ -97,5 +97,6 @@ installArkConfigProfileExtension();
 installArkShopProfileExtension();
 installArkClusterPublicActions();
 installArkShopProfileBootstrapExtension();
+require('./ark-shop-plan-extension.cjs').installArkShopPlanExtension();
 require('./ark-command-routing-patch.cjs');
 require('./bot.cjs');
