@@ -102,6 +102,26 @@ class ForgeClient {
     };
   }
 
+  async ciStatus(ref, options = {}) {
+    const targetRef = String(ref || '').trim();
+    if (!targetRef) throw Object.assign(new Error('Forge CI ref is required'), { code: 'FORGE_INVALID_REF' });
+    if (targetRef.length > 240) throw Object.assign(new Error('Forge CI ref is too large'), { code: 'FORGE_INVALID_REF' });
+    const repo = String(options.repo || this.defaultRepo).trim();
+    const params = new URLSearchParams({ repo, ref: targetRef });
+    const payload = await this.request(`/api/v1/ci?${params.toString()}`, {
+      timeoutMs: Math.min(this.timeoutMs, 30_000)
+    });
+    return {
+      repo: String(payload?.repo || repo),
+      ref: String(payload?.ref || targetRef),
+      sha: String(payload?.sha || ''),
+      state: String(payload?.state || 'unknown'),
+      combinedStatus: String(payload?.combined_status || 'unknown'),
+      checkRuns: Array.isArray(payload?.check_runs) ? payload.check_runs.slice(0, 50) : [],
+      statuses: Array.isArray(payload?.statuses) ? payload.statuses.slice(0, 50) : []
+    };
+  }
+
   async runTask(options = {}) {
     const goal = String(options.goal || '').trim();
     if (!goal) throw Object.assign(new Error('Forge task goal is required'), { code: 'FORGE_INVALID_TASK' });
