@@ -3,7 +3,14 @@
 const { Client, Events, MessageFlags } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
-const { BUTTON_MODS, effectiveMods } = require('./ark-cluster-panel.cjs');
+const { ArkShopProfileStore } = require('./arkshop-profiles.cjs');
+const {
+  BUTTON_MODS,
+  BUTTON_PUBLIC_SHOP,
+  BUTTON_PUBLIC_KITS,
+  effectiveMods
+} = require('./ark-cluster-panel.cjs');
+const { renderPublicShopReply, renderPublicKitsReply } = require('./arkshop-public-view.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.cluster.public.actions');
 const BOUND = Symbol.for('khaos.nexus.ark.cluster.public.actions.bound');
@@ -31,6 +38,7 @@ function installArkClusterPublicActions() {
   Client.prototype[INSTALLED] = true;
   const config = loadConfig();
   const registry = new ArkClusterRegistry();
+  const profiles = new ArkShopProfileStore();
   const originalLogin = Client.prototype.login;
 
   Client.prototype.login = function nexusArkClusterPublicActionsLogin(...args) {
@@ -38,10 +46,18 @@ function installArkClusterPublicActions() {
     if (!client[BOUND]) {
       client[BOUND] = true;
       client.on(Events.InteractionCreate, (interaction) => {
-        if (!interaction.isButton?.() || interaction.customId !== BUTTON_MODS) return;
+        if (!interaction.isButton?.()) return;
+        const id = String(interaction.customId || '');
+        if (![BUTTON_MODS, BUTTON_PUBLIC_SHOP, BUTTON_PUBLIC_KITS].includes(id)) return;
         if (String(interaction.guildId || '') !== String(config.discord?.guildId || '')) return;
+        const servers = registry.list({ includeDisabled: false });
+        const content = id === BUTTON_MODS
+          ? buildModListReply(servers)
+          : id === BUTTON_PUBLIC_SHOP
+            ? renderPublicShopReply(servers, profiles)
+            : renderPublicKitsReply(servers, profiles);
         const payload = {
-          content: buildModListReply(registry.list({ includeDisabled: false })),
+          content,
           flags: MessageFlags.Ephemeral,
           allowedMentions: { parse: [] }
         };
