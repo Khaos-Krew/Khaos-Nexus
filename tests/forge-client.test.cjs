@@ -45,6 +45,43 @@ test('Forge health probe does not require the service token', async () => {
   assert.equal(calls[0].options.headers['x-forge-token'], undefined);
 });
 
+test('Forge CI status uses authenticated deterministic endpoint without task payload', async () => {
+  let request;
+  const client = new ForgeClient({
+    enabled: true,
+    baseUrl: 'https://forge.example.test',
+    token: 'secret-token',
+    defaultRepo: 'Khaos-Krew/Khaos-Nexus',
+    fetchImpl: async (url, options) => {
+      request = { url, options };
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            repo: 'Khaos-Krew/Khaos-Nexus',
+            ref: 'forge/repair-1',
+            sha: 'abc123',
+            state: 'failure',
+            combined_status: 'failure',
+            check_runs: [{ name: 'test', status: 'completed', conclusion: 'failure' }],
+            statuses: []
+          };
+        }
+      };
+    }
+  });
+
+  const result = await client.ciStatus('forge/repair-1');
+  assert.equal(result.state, 'failure');
+  assert.equal(result.checkRuns[0].name, 'test');
+  assert.match(request.url, /\/api\/v1\/ci\?/);
+  assert.match(request.url, /ref=forge%2Frepair-1/);
+  assert.equal(request.options.method, 'GET');
+  assert.equal(request.options.body, undefined);
+  assert.equal(request.options.headers['x-forge-token'], 'secret-token');
+});
+
 test('Forge plan sends authenticated read-only task to configured Nexus branch', async () => {
   let request;
   const client = new ForgeClient({
