@@ -42,6 +42,7 @@ const { installCreatorLifecycleExtension } = require('./creator-lifecycle-extens
 const { installSupporterEntitlementExtension } = require('./supporter-entitlement-extension.cjs');
 const { installEventManagementExtension } = require('./event-management-extension.cjs');
 const { installArkOpsExtension } = require('./ark-ops-extension.cjs');
+const { installArkRestartSchedulerExtension } = require('./ark-restart-scheduler-extension.cjs');
 const { installArkConfigDbExtension } = require('./ark-config-db-extension.cjs');
 const { installArkClusterExtension } = require('./ark-cluster-extension.cjs');
 const { installArkClusterMetadataExtension } = require('./ark-cluster-metadata-extension.cjs');
@@ -88,6 +89,7 @@ installCreatorLifecycleExtension();
 installSupporterEntitlementExtension();
 installEventManagementExtension();
 installArkOpsExtension();
+installArkRestartSchedulerExtension({ prefix: 'ARK_GEN1' });
 installArkConfigDbExtension();
 installArkClusterExtension();
 installArkClusterMetadataExtension();
