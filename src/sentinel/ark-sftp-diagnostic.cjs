@@ -137,6 +137,10 @@ async function inspectSftpLayout(prefix = 'ARK_GEN1') {
       automaticCacheDownload: { enabled: null, urls: [] }
     };
 
+    if (arkApiPath) {
+      console.log(`[Nexus Sentinal] ASA API cache: cacheDir=${Boolean(framework.cacheDirectory)} keyHash=${framework.cacheKey.hash || 'missing'} generation=${framework.cacheKey.cacheDirectory || 'none'} autoDownload=${String(framework.automaticCacheDownload.enabled)} cacheEntries=${framework.cacheEntries.join(',') || '(none)'} activeEntries=${framework.activeCacheEntries.join(',') || '(none)'} mirrors=${framework.automaticCacheDownload.urls.join(',') || '(none)'}`);
+    }
+
     return {
       cwd: safeName(cwd),
       configuredRoot: safeName(settings.root || '.'),
