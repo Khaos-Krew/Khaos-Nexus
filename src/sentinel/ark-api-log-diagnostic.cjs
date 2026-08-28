@@ -55,6 +55,24 @@ function tailLogLines(text, limit = MAX_TAIL_LINES) {
     .slice(-bounded);
 }
 
+function parseLoadedModIds(text) {
+  const ids = new Set();
+  const pattern = /ShooterGame\/Mods\/83374\/(\d+)_/g;
+  for (const match of String(text || '').matchAll(pattern)) ids.add(match[1]);
+  return [...ids];
+}
+
+function startupReadiness(text) {
+  const value = String(text || '');
+  return {
+    battleyeStarted: /BattlEye successfully started\./i.test(value),
+    serverStarted: /Server:\s*"[^"]+"\s*has successfully started!/i.test(value),
+    steamInitialized: /Steam Subsystem initialized:\s*Success/i.test(value),
+    fullStartup: /Full Startup:\s*[\d.]+\s*seconds/i.test(value),
+    advertising: /Server has completed startup and is now advertising for join/i.test(value)
+  };
+}
+
 function safeFileName(value) {
   return String(value || '').replace(/[\r\n\u0000-\u001f\u007f]/g, '_').slice(0, 180);
 }
@@ -79,7 +97,7 @@ function normalizeModifyTime(value) {
 async function readBoundedLog(client, remotePath, sizeHint = 0) {
   const stat = sizeHint ? { size: sizeHint } : await client.stat(remotePath).catch(() => null);
   const bytes = Number(stat?.size) || 0;
-  if (bytes > MAX_LOG_BYTES) return { path: remotePath, bytes, skipped: 'log-too-large', lines: [], issues: [], lifecycle: [], tail: [] };
+  if (bytes > MAX_LOG_BYTES) return { path: remotePath, bytes, skipped: 'log-too-large', lines: [], issues: [], lifecycle: [], tail: [], modIds: [], readiness: startupReadiness('') };
   const data = await client.get(remotePath);
   const text = Buffer.isBuffer(data) ? data.toString('utf8') : String(data || '');
   return {
@@ -88,7 +106,9 @@ async function readBoundedLog(client, remotePath, sizeHint = 0) {
     lines: relevantLogLines(text, 30),
     issues: startupIssueLines(text, 40),
     lifecycle: apiLifecycleLines(text, 40),
-    tail: tailLogLines(text, MAX_TAIL_LINES)
+    tail: tailLogLines(text, MAX_TAIL_LINES),
+    modIds: parseLoadedModIds(text),
+    readiness: startupReadiness(text)
   };
 }
 
@@ -119,7 +139,9 @@ async function inspectSavedLogs(client, shooterGameRoot) {
     if (index === 0) {
       newest = {
         ...scanned,
-        tail: result.tail || []
+        tail: result.tail || [],
+        modIds: result.modIds || [],
+        readiness: result.readiness || startupReadiness('')
       };
     }
     for (const line of result.lines || []) lines.push(`[${safeFileName(entry.name)}] ${line}`);
@@ -196,6 +218,8 @@ module.exports = {
   apiLifecycleLines,
   startupIssueLines,
   tailLogLines,
+  parseLoadedModIds,
+  startupReadiness,
   normalizeModifyTime,
   safeFileName,
   inspectSavedLogs,
