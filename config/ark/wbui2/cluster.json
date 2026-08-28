@@ -4,7 +4,7 @@
       "openbutton": 1,
       "hideicon": false,
       "hideiconafter": 60,
-      "iconurl": "https://i.imgur.com/OZ6xOjY.png",
+      "iconurl": "https://raw.githubusercontent.com/Khaos-Krew/Khaos-Nexus/main/config/ark/wbui2/Nexus_icon.png",
       "disableicontext": false,
       "iconposition": 3,
       "icontextcolor": 1,
@@ -15,78 +15,97 @@
     "tabs": [
       {
         "layout": 1,
-        "buttontext": "<RichColor Color=\"0.75,0.02,0.02,1\">Home</>",
-        "imageurl": "https://i.imgur.com/mGt3cAF.png",
+        "buttontext": "<RichColor Color=\"0.85,0.05,0.05,1\">Home</>",
+        "imageurl": "https://raw.githubusercontent.com/Khaos-Krew/Khaos-Nexus/main/config/ark/wbui2/WBUI_Background.png",
         "content": [
           {
-            "title": "<RichColor Color=\"0.75,0.02,0.02,1\">Welcome to Khaos Nexus</>",
-            "text": "<TextStyle.White>Welcome to the Khaos Nexus ARK: Survival Ascended cluster.\n\nCurrent server: Khaos Nexus (Gen1) - Genesis Part 1.\n\nKhaos Nexus is built around long-term progression, quality-of-life improvements, community events, custom rewards, and a growing connected cluster.\n\nSurvive. Build. Conquer. Create chaos responsibly.</>"
+            "title": "<RichColor Color=\"0.85,0.05,0.05,1\">Welcome to Khaos Nexus</>",
+            "text": "Khaos Nexus is a community-focused ARK: Survival Ascended cluster built around long-term progression, quality-of-life improvements, events, rewards, and a growing connected server network.\n\nCurrent server: Khaos Nexus (Gen1) — Genesis Part 1\n\nSurvive. Build. Conquer. Create chaos responsibly."
           }
         ]
       },
       {
         "layout": 1,
-        "buttontext": "<RichColor Color=\"0.75,0.02,0.02,1\">Server Info</>",
-        "imageurl": "https://i.imgur.com/mGt3cAF.png",
+        "buttontext": "<RichColor Color=\"0.85,0.05,0.05,1\">Server</>",
+        "imageurl": "https://raw.githubusercontent.com/Khaos-Krew/Khaos-Nexus/main/config/ark/wbui2/WBUI_Background.png",
         "content": [
           {
-            "title": "<RichColor Color=\"0.75,0.02,0.02,1\">Server Information</>",
-            "text": "<TextStyle.White>The Nexus ARK environment is designed to reduce unnecessary grind while preserving meaningful progression.\n\nThe server uses a curated quality-of-life mod stack for storage, breeding, transport, crafting, building, dino utility, and shop features.\n\nMajor balance changes, maintenance, and map additions are announced through Khaos Nexus.</>"
+            "title": "<RichColor Color=\"0.85,0.05,0.05,1\">Server Information</>",
+            "text": "Khaos Nexus uses a curated quality-of-life setup designed to reduce unnecessary grind while keeping meaningful ARK progression.\n\nExpect improved breeding, storage, travel, crafting, building, dino utility, custom rewards, and an in-game shop as cluster services come online.\n\nMajor balance changes, maintenance, events, and new maps are announced through Khaos Nexus."
+          }
+        ]
+      },
+      {
+        "layout": 2,
+        "buttontext": "<RichColor Color=\"0.85,0.05,0.05,1\">Rates</>",
+        "imageurl": "https://raw.githubusercontent.com/Khaos-Krew/Khaos-Nexus/main/config/ark/wbui2/WBUI_Background.png",
+        "content": [
+          {
+            "title": "<RichColor Color=\"0.85,0.05,0.05,1\">Progression & Breeding</>",
+            "text": "XP category multipliers: 1x\nEgg Hatch Speed: 20x\nBaby Mature Speed: 15x\nCrop Growth Speed: 8x\n\nRates may be adjusted for events or balance updates."
+          },
+          {
+            "title": "<RichColor Color=\"0.85,0.05,0.05,1\">Player Stat Gains</>",
+            "text": "Health: 2.5x\nStamina: 2x\nWeight: 5x\nMovement Speed: 2x\nFortitude: 5x\n\nThese are per-level player stat multipliers. Unlisted player stats remain at their current server values."
           }
         ]
       },
       {
         "layout": 1,
-        "buttontext": "<RichColor Color=\"0.75,0.02,0.02,1\">Rules</>",
-        "imageurl": "https://i.imgur.com/mGt3cAF.png",
+        "buttontext": "<RichColor Color=\"0.85,0.05,0.05,1\">Rules</>",
+        "imageurl": "https://raw.githubusercontent.com/Khaos-Krew/Khaos-Nexus/main/config/ark/wbui2/WBUI_Background.png",
         "content": [
           {
-            "title": "<RichColor Color=\"0.75,0.02,0.02,1\">Community Rules</>",
-            "text": "<TextStyle.White>1. Respect players and staff.\n\n2. No cheating, meshing, duping, exploit abuse, or knowingly using bugs for an unfair advantage.\n\n3. Do not intentionally cause server instability or excessive performance problems.\n\n4. Do not impersonate staff.\n\n5. Follow staff instructions during incidents, events, maintenance, and investigations.\n\n6. Report serious bugs and exploits instead of spreading or abusing them.\n\n7. Use Nexus support for disputes and server issues when possible.</>"
+            "title": "<RichColor Color=\"0.85,0.05,0.05,1\">Community Rules</>",
+            "text": "1. Respect players and staff.\n\n2. No cheating, meshing, duping, exploit abuse, or knowingly using bugs for an unfair advantage.\n\n3. Do not intentionally cause server instability or excessive performance problems.\n\n4. Do not impersonate staff.\n\n5. Follow staff instructions during incidents, events, maintenance, and investigations.\n\n6. Report serious bugs and exploits instead of spreading or abusing them.\n\n7. Use Nexus support for disputes and server issues whenever possible."
+          }
+        ]
+      },
+      {
+        "layout": 2,
+        "buttontext": "<RichColor Color=\"0.85,0.05,0.05,1\">Mods</>",
+        "imageurl": "https://raw.githubusercontent.com/Khaos-Krew/Khaos-Nexus/main/config/ark/wbui2/WBUI_Background.png",
+        "content": [
+          {
+            "title": "<RichColor Color=\"0.85,0.05,0.05,1\">Core & Quality of Life</>",
+            "text": "Cybers Structures QoL+\nDer Dino Finder\nDino Depot\nTG Stacking Mod 10000-90\nCustom Dino Levels\nBreeding Stopper\nNet Pro\nDino Color Tokens\nNanoh's Spyglass\nWBUI2\nMouse Saver\nPotions | Gaia Studios\nMX-E Ark Shop UI\nLoot Grabber\nAutomated Ark\nARKomatic\nBetter Breeding\nUpgrade Station\nAwesome Teleporters!\nUtilities Plus\nASA Api Utils"
+          },
+          {
+            "title": "<RichColor Color=\"0.85,0.05,0.05,1\">Creatures, Building & Extras</>",
+            "text": "S-Dino Variants\nMoro's Indomitable Duo\nRunic Wyverns\nCrazy's Crazy Ascended Potions\nS-Dino Variants - Fantastic Tames\nFeras Fauna: Orcas\nNanoh's Ascended Equipment\nNanoh's Ascended Saddles\nShiny! Dinos Ascended\nDragon's Kingdom\nAlfa Oceanic Platforms\nDynamic Bridges\nAuto Engrams!\nHuskyWolf\nMarniiMods Hairstyles"
           }
         ]
       },
       {
         "layout": 1,
-        "buttontext": "<RichColor Color=\"0.75,0.02,0.02,1\">Shop</>",
-        "imageurl": "https://i.imgur.com/mGt3cAF.png",
+        "buttontext": "<RichColor Color=\"0.85,0.05,0.05,1\">Shop</>",
+        "imageurl": "https://raw.githubusercontent.com/Khaos-Krew/Khaos-Nexus/main/config/ark/wbui2/WBUI_Background.png",
         "content": [
           {
-            "title": "<RichColor Color=\"0.75,0.02,0.02,1\">Nexus Shop</>",
-            "text": "<TextStyle.White>Khaos Nexus uses the MX-E Ark Shop UI in-game. The ASA ArkShop backend and Nexus Sentinel integration are being brought online.\n\nOnce active, points, kits, rewards, and listings will be managed centrally across Nexus maps.</>"
+            "title": "<RichColor Color=\"0.85,0.05,0.05,1\">Nexus Shop</>",
+            "text": "Khaos Nexus uses the MX-E Ark Shop UI in-game. ASA ArkShop and Nexus Sentinel integration are being brought online for points, kits, rewards, and centrally managed listings across Nexus maps."
           }
         ]
       },
       {
         "layout": 1,
-        "buttontext": "<RichColor Color=\"0.75,0.02,0.02,1\">Cluster</>",
-        "imageurl": "https://i.imgur.com/mGt3cAF.png",
+        "buttontext": "<RichColor Color=\"0.85,0.05,0.05,1\">Cluster</>",
+        "imageurl": "https://raw.githubusercontent.com/Khaos-Krew/Khaos-Nexus/main/config/ark/wbui2/WBUI_Background.png",
         "content": [
           {
-            "title": "<RichColor Color=\"0.75,0.02,0.02,1\">Connected Nexus</>",
-            "text": "<TextStyle.White>Genesis Part 1 is the first active Khaos Nexus map. Additional maps will be added as the community and infrastructure grow.\n\nPermissions, shop data, status, events, administration, and player-facing information are being designed as cluster-wide services.</>"
+            "title": "<RichColor Color=\"0.85,0.05,0.05,1\">Connected Nexus</>",
+            "text": "Genesis Part 1 is the first active Khaos Nexus map. Additional maps will be added as the community and infrastructure grow.\n\nPermissions, shop data, server status, events, administration, and player-facing information are being designed as shared cluster services managed through Nexus Sentinel."
           }
         ]
       },
       {
         "layout": 1,
-        "buttontext": "<RichColor Color=\"0.75,0.02,0.02,1\">Community</>",
-        "imageurl": "https://i.imgur.com/mGt3cAF.png",
+        "buttontext": "<RichColor Color=\"0.85,0.05,0.05,1\">Support</>",
+        "imageurl": "https://raw.githubusercontent.com/Khaos-Krew/Khaos-Nexus/main/config/ark/wbui2/WBUI_Background.png",
         "content": [
           {
-            "title": "<RichColor Color=\"0.75,0.02,0.02,1\">Khaos Nexus Community</>",
-            "text": "<TextStyle.White>Expect community events, boss runs, challenges, boosted periods, special rewards, and other Nexus activities.\n\nNexus Sentinel is being developed to coordinate status, administration, shop systems, configuration, events, Discord integration, and cross-map services.</>"
-          }
-        ]
-      },
-      {
-        "layout": 1,
-        "buttontext": "<RichColor Color=\"0.75,0.02,0.02,1\">Support</>",
-        "imageurl": "https://i.imgur.com/mGt3cAF.png",
-        "content": [
-          {
-            "title": "<RichColor Color=\"0.75,0.02,0.02,1\">Need Help?</>",
-            "text": "<TextStyle.White>If you encounter a server problem, missing item, mod issue, transfer problem, suspected exploit, or need staff assistance, contact Khaos Nexus staff through the Discord support system.\n\nInclude the map, character or tribe name, approximate time, what happened, and screenshots or video when available.</>"
+            "title": "<RichColor Color=\"0.85,0.05,0.05,1\">Need Help?</>",
+            "text": "For server problems, missing items, mod issues, transfer problems, suspected exploits, or staff assistance, contact Khaos Nexus staff through Discord.\n\nInclude the map, character or tribe name, approximate time, what happened, and screenshots or video when available."
           }
         ]
       }
