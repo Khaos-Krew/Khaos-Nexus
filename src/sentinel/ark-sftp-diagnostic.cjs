@@ -24,6 +24,51 @@ async function listDirectoryNames(client, remotePath, limit = 80) {
   }
 }
 
+async function readSmallText(client, remotePath, maxBytes = 256 * 1024) {
+  try {
+    const stat = await client.stat(remotePath);
+    if (!stat || Number(stat.size || 0) > maxBytes) return '';
+    const data = await client.get(remotePath);
+    return Buffer.isBuffer(data) ? data.toString('utf8') : String(data || '');
+  } catch {
+    return '';
+  }
+}
+
+function parseCacheKey(value) {
+  const text = String(value || '').trim();
+  if (!text) return { hash: '', cacheDirectory: '', lastModified: '' };
+  try {
+    const parsed = JSON.parse(text);
+    const hash = String(parsed?.executable_hash || '').trim().toLowerCase();
+    return {
+      hash: /^[a-f0-9]{64}$/.test(hash) ? hash : '',
+      cacheDirectory: safeName(parsed?.cache_directory || ''),
+      lastModified: safeName(parsed?.last_modified || '')
+    };
+  } catch {
+    const hash = text.toLowerCase();
+    return { hash: /^[a-f0-9]{64}$/.test(hash) ? hash : '', cacheDirectory: '', lastModified: '' };
+  }
+}
+
+function safeCacheConfig(value) {
+  try {
+    const parsed = JSON.parse(String(value || ''));
+    const cfg = parsed?.settings?.AutomaticCacheDownload || {};
+    const urls = [cfg.DownloadCacheURL, ...(Array.isArray(cfg.DownloadCacheURLs) ? cfg.DownloadCacheURLs : [])]
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+      .map((item) => {
+        try { return new URL(item).origin; } catch { return ''; }
+      })
+      .filter(Boolean);
+    return { enabled: cfg.Enable !== false, urls: [...new Set(urls)].slice(0, 6) };
+  } catch {
+    return { enabled: null, urls: [] };
+  }
+}
+
 async function inspectSftpLayout(prefix = 'ARK_GEN1') {
   const settings = sftpSettingsFromEnv(prefix);
   if (!settings.host || !settings.username || !settings.password) {
@@ -59,20 +104,37 @@ async function inspectSftpLayout(prefix = 'ARK_GEN1') {
     const shopPath = String(process.env[`${prefix}_ARKSHOP_CONFIG_PATH`] || '').trim();
     const win64Path = shooterGameRoot ? `${shooterGameRoot}/Binaries/Win64` : '';
     const arkApiPath = win64Path ? `${win64Path}/ArkApi` : '';
+    const cachePath = arkApiPath ? `${arkApiPath}/Cache` : '';
     const pluginsPath = arkApiPath ? `${arkApiPath}/Plugins` : '';
+
+    const cacheKey = cachePath ? parseCacheKey(await readSmallText(client, `${cachePath}/cached_key.cache`, 64 * 1024)) : { hash: '', cacheDirectory: '', lastModified: '' };
+    const cacheEntries = cachePath ? await listDirectoryNames(client, cachePath, 100) : [];
+    const activeCachePath = cacheKey.cacheDirectory ? `${cachePath}/${cacheKey.cacheDirectory}` : cachePath;
+    const activeCacheEntries = activeCachePath ? await listDirectoryNames(client, activeCachePath, 50) : [];
+    const apiCacheConfig = win64Path ? safeCacheConfig(await readSmallText(client, `${win64Path}/config.json`, 256 * 1024)) : { enabled: null, urls: [] };
 
     const framework = win64Path ? {
       asaApiLoader: await exists(client, `${win64Path}/AsaApiLoader.exe`),
       asaApiDll: await exists(client, `${arkApiPath}/AsaApi.dll`),
       apiConfig: await exists(client, `${win64Path}/config.json`),
       versionDll: await exists(client, `${win64Path}/Version.dll`),
-      arkApiDirectory: await exists(client, arkApiPath)
+      arkApiDirectory: await exists(client, arkApiPath),
+      cacheDirectory: await exists(client, cachePath),
+      cacheKey,
+      cacheEntries,
+      activeCacheEntries,
+      automaticCacheDownload: apiCacheConfig
     } : {
       asaApiLoader: false,
       asaApiDll: false,
       apiConfig: false,
       versionDll: false,
-      arkApiDirectory: false
+      arkApiDirectory: false,
+      cacheDirectory: false,
+      cacheKey: { hash: '', cacheDirectory: '', lastModified: '' },
+      cacheEntries: [],
+      activeCacheEntries: [],
+      automaticCacheDownload: { enabled: null, urls: [] }
     };
 
     return {
@@ -99,4 +161,4 @@ async function inspectSftpLayout(prefix = 'ARK_GEN1') {
   }
 }
 
-module.exports = { inspectSftpLayout };
+module.exports = { parseCacheKey, safeCacheConfig, inspectSftpLayout };
