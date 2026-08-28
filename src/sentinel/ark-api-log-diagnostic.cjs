@@ -17,6 +17,7 @@ function redactLogLine(value) {
     .replace(/(mysqlpass|password|passwd|token|secret|credential)\s*[:=]\s*[^\s,;]+/ig, '$1=[redacted]')
     .replace(/([a-z][a-z0-9+.-]*:\/\/)([^\s:@/]+):([^\s@/]+)@/ig, '$1[redacted]@')
     .replace(/\b[A-Fa-f0-9]{32,}\b/g, '[redacted-token]')
+    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[redacted-ip]')
     .replace(/[\u0000-\u001f\u007f]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
@@ -26,6 +27,11 @@ function redactLogLine(value) {
 function relevantLogLines(text, limit = 20) {
   const lines = String(text || '').split(/\r?\n/).filter((line) => /(arkshop|mysql|mariadb|sqlstate|database|db error|failed to (?:open|create|connect)|plugin.*arkshop)/i.test(line));
   return lines.slice(-Math.max(1, Math.min(40, Number(limit) || 20))).map(redactLogLine).filter(Boolean);
+}
+
+function startupIssueLines(text, limit = 30) {
+  const lines = String(text || '').split(/\r?\n/).filter((line) => /(fatal|critical|exception|crash|assert|ensure condition failed|failed to|failure|shutdown|terminat(?:e|ing)|arkapi|asaapi|rcon)/i.test(line));
+  return lines.slice(-Math.max(1, Math.min(60, Number(limit) || 30))).map(redactLogLine).filter(Boolean);
 }
 
 function safeFileName(value) {
@@ -44,30 +50,44 @@ function logLike(entry) {
 async function readBoundedLog(client, remotePath, sizeHint = 0) {
   const stat = sizeHint ? { size: sizeHint } : await client.stat(remotePath).catch(() => null);
   const bytes = Number(stat?.size) || 0;
-  if (bytes > MAX_LOG_BYTES) return { path: remotePath, bytes, skipped: 'log-too-large', lines: [] };
+  if (bytes > MAX_LOG_BYTES) return { path: remotePath, bytes, skipped: 'log-too-large', lines: [], issues: [] };
   const data = await client.get(remotePath);
   const text = Buffer.isBuffer(data) ? data.toString('utf8') : String(data || '');
-  return { path: remotePath, bytes: Buffer.byteLength(text), lines: relevantLogLines(text, 30) };
+  return {
+    path: remotePath,
+    bytes: Buffer.byteLength(text),
+    lines: relevantLogLines(text, 30),
+    issues: startupIssueLines(text, 40)
+  };
 }
 
 async function inspectSavedLogs(client, shooterGameRoot) {
   const directory = joinRemote(shooterGameRoot, SAVED_LOGS_SUFFIX);
   let entries;
   try { entries = await client.list(directory); }
-  catch { return { directory, accessible: false, filesSeen: [], filesScanned: [], lines: [] }; }
+  catch { return { directory, accessible: false, filesSeen: [], filesScanned: [], lines: [], issues: [] }; }
 
   const candidates = entries.filter(logLike).sort((a, b) => Number(b.modifyTime || 0) - Number(a.modifyTime || 0));
   const filesSeen = candidates.slice(0, 20).map((entry) => safeFileName(entry.name));
   const filesScanned = [];
   const lines = [];
+  const issues = [];
   for (const entry of candidates.slice(0, MAX_SAVED_LOG_FILES)) {
     const remotePath = joinRemote(directory, entry.name);
     const result = await readBoundedLog(client, remotePath, Number(entry.size) || 0).catch(() => null);
     if (!result) continue;
     filesScanned.push({ name: safeFileName(entry.name), bytes: result.bytes, skipped: result.skipped || '' });
     for (const line of result.lines || []) lines.push(`[${safeFileName(entry.name)}] ${line}`);
+    for (const line of result.issues || []) issues.push(`[${safeFileName(entry.name)}] ${line}`);
   }
-  return { directory, accessible: true, filesSeen, filesScanned, lines: lines.slice(-30) };
+  return {
+    directory,
+    accessible: true,
+    filesSeen,
+    filesScanned,
+    lines: lines.slice(-30),
+    issues: issues.slice(-50)
+  };
 }
 
 async function inspectArkApiLog(prefix = 'ARK_GEN1') {
@@ -100,6 +120,7 @@ async function inspectArkApiLog(prefix = 'ARK_GEN1') {
         filesSeen: saved.filesSeen,
         filesScanned: saved.filesScanned,
         lines: saved.lines,
+        issues: saved.issues,
         note: 'ArkApi.log was not exposed; inspected bounded recent ShooterGame/Saved/Logs files instead.'
       };
     }
@@ -121,6 +142,7 @@ module.exports = {
   MAX_SAVED_LOG_FILES,
   redactLogLine,
   relevantLogLines,
+  startupIssueLines,
   safeFileName,
   inspectSavedLogs,
   inspectArkApiLog
