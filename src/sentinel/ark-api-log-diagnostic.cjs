@@ -30,7 +30,9 @@ function relevantLogLines(text, limit = 20) {
 }
 
 function startupIssueLines(text, limit = 30) {
-  const lines = String(text || '').split(/\r?\n/).filter((line) => /(fatal|critical|exception|crash|assert|ensure condition failed|failed to|failure|shutdown|terminat(?:e|ing)|arkapi|asaapi|rcon)/i.test(line));
+  const genericIssue = /(fatal|critical|exception|crash|assert|ensure condition failed|failed to|failure|shutdown|terminat(?:e|ing)|arkapi|asaapi|rcon)/i;
+  const pluginOrDatabaseIssue = /(?:arkshop|mysql|mariadb|database|sqlstate).*(?:fail(?:ed|ure)?|error|unable|denied|refused|timeout)/i;
+  const lines = String(text || '').split(/\r?\n/).filter((line) => genericIssue.test(line) || pluginOrDatabaseIssue.test(line));
   return lines.slice(-Math.max(1, Math.min(60, Number(limit) || 30))).map(redactLogLine).filter(Boolean);
 }
 
