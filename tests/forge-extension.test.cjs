@@ -44,7 +44,7 @@ test('Forge repair accepts only safe guarded forge namespace branches', () => {
   assert.equal(validForgeBranch('forge/task.lock'), false);
 });
 
-test('Forge status text reports bridge configuration without exposing secrets', () => {
+test('Forge status text reports bridge and fallback state without exposing secrets', () => {
   const client = new ForgeClient({
     enabled: true,
     baseUrl: 'forge.internal:8080',
@@ -58,9 +58,11 @@ test('Forge status text reports bridge configuration without exposing secrets', 
     version: '0.1.0',
     openaiConfigured: true,
     githubConfigured: true,
+    fallbackRouting: 'disabled',
     writePolicy: 'draft-pr-only'
   });
   assert.match(text, /Bridge: \*\*Enabled\*\*/);
+  assert.match(text, /Fallback routing: \*\*disabled\*\*/);
   assert.match(text, /draft-pr-only/);
   assert.doesNotMatch(text, /super-secret-value/);
   assert.doesNotMatch(text, /forge\.internal/);
@@ -82,17 +84,27 @@ test('Forge CI text surfaces failures and explicitly identifies no-model checkin
   assert.doesNotMatch(text, /lint\n/);
 });
 
-test('Forge build result is bounded for Discord and names the guarded branch', () => {
+test('Forge build result is bounded and displays model route plus token usage', () => {
   const text = formatForgeResult({
     mode: 'execute',
     status: 'completed',
     repo: 'Khaos-Krew/Khaos-Nexus',
     baseRef: 'rebuild/nexus-0.1',
     branch: 'forge/safe-task-1234567',
+    modelRoute: 'openai-primary',
+    usage: {
+      requests: 4,
+      inputTokens: 1200,
+      outputTokens: 300,
+      totalTokens: 1500
+    },
     output: 'x'.repeat(5000)
   });
   assert.ok(text.length <= 1900);
   assert.match(text, /forge\/safe-task-1234567/);
+  assert.match(text, /openai-primary/);
+  assert.match(text, /1,500 tokens/);
+  assert.match(text, /1,200 in \/ 300 out/);
 });
 
 test('Forge requests retain explicit no-merge/no-deploy guardrails', () => {
