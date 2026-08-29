@@ -124,12 +124,13 @@ class ArkNexusBankService {
     const prior = this.locks.get(player) || Promise.resolve();
     let release;
     const gate = new Promise((resolve) => { release = resolve; });
-    this.locks.set(player, prior.then(() => gate));
+    const tail = prior.then(() => gate);
+    this.locks.set(player, tail);
     await prior;
     try { return await fn(player); }
     finally {
       release();
-      if (this.locks.get(player) === gate) this.locks.delete(player);
+      if (this.locks.get(player) === tail) this.locks.delete(player);
     }
   }
 
