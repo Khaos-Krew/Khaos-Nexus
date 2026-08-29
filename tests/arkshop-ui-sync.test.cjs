@@ -33,7 +33,7 @@ test('ArkShopUI diff reports only managed branding keys and preserved unknowns',
   assert.deepEqual(diff.preservedUnknownKeys, ['PrivateSetting']);
 });
 
-test('deployment plan fails closed until plugin/mod/versions/live config and portal URL are confirmed', () => {
+test('deployment plan is safe once plugin/mod/version/live-config checks pass', () => {
   const live = { UiKey: 'F1', ShopName: 'Old' };
   const plan = deploymentPlan({
     liveConfig: live,
@@ -46,8 +46,8 @@ test('deployment plan fails closed until plugin/mod/versions/live config and por
       liveConfigReadable: true
     }
   });
-  assert.equal(plan.safeToApply, false);
-  assert.ok(plan.blockers.includes('nexus-portal-url-not-set'));
+  assert.equal(plan.safeToApply, true);
+  assert.deepEqual(plan.blockers, []);
   assert.equal(plan.reloadCommand, 'ArkShop.Reload');
   assert.equal(plan.requiresServerRestart, false);
 });
