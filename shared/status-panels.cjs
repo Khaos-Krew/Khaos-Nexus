@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const { validateDiscordMessagePayload } = require('./discord-message-payload.cjs');
 
 const MAX_STATUS_PANELS = 40;
-const STATUS_BUTTON_ACTIONS = new Set(['refresh', 'players']);
+const STATUS_BUTTON_ACTIONS = new Set(['refresh', 'players', 'rules']);
 const STATUS_PANEL_PAYLOAD_OPTIONS = Object.freeze({
   code: 'STATUS_PANEL_PAYLOAD_INVALID',
   label: 'Status panel payload'
@@ -85,7 +85,7 @@ function statusButtonId(action, panelId) {
 }
 
 function parseStatusButtonId(value) {
-  const match = /^kn-status:(refresh|players):([A-Za-z0-9_-]{1,80})$/.exec(String(value || ''));
+  const match = /^kn-status:(refresh|players|rules):([A-Za-z0-9_-]{1,80})$/.exec(String(value || ''));
   return match ? { action: match[1], panelId: match[2] } : null;
 }
 
@@ -183,13 +183,14 @@ function renderStatusPanel(panelInput, snapshotInput, options = {}) {
   };
 
   if (options.includeButtons !== false) {
-    payload.components = [{
-      type: 1,
-      components: [
-        { type: 2, style: 1, label: 'Refresh Status', custom_id: statusButtonId('refresh', panel.id), emoji: { name: '🔄' } },
-        { type: 2, style: 2, label: 'Show Players', custom_id: statusButtonId('players', panel.id), emoji: { name: '👥' } }
-      ]
-    }];
+    const components = [
+      { type: 2, style: 1, label: 'Refresh Status', custom_id: statusButtonId('refresh', panel.id), emoji: { name: '🔄' } },
+      { type: 2, style: 2, label: 'Show Players', custom_id: statusButtonId('players', panel.id), emoji: { name: '👥' } }
+    ];
+    if (String(snapshot.game || '').toLowerCase() === 'ark') {
+      components.push({ type: 2, style: 2, label: 'Server Rules', custom_id: statusButtonId('rules', panel.id), emoji: { name: '📜' } });
+    }
+    payload.components = [{ type: 1, components }];
   }
   return validateStatusPanelPayload(payload);
 }
