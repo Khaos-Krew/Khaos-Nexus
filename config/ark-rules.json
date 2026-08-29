@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "title": "Khaos Nexus — ARK Cluster Rules",
+  "updatedAt": "2026-08-29",
+  "intro": "These rules apply across the Khaos Nexus ARK cluster unless a specific server or event announcement states otherwise.",
+  "rules": [
+    {
+      "id": "respect-community",
+      "order": 10,
+      "enabled": true,
+      "title": "1. Respect Players & Staff",
+      "body": "Treat players and staff with respect. Harassment, hate speech, threats, targeted abuse, impersonation, or intentionally disruptive behavior is not permitted."
+    },
+    {
+      "id": "exploits",
+      "order": 20,
+      "enabled": true,
+      "title": "2. No Cheating or Exploits",
+      "body": "No cheating, exploiting, duping, meshing, or intentional abuse of game or server bugs. Report serious exploits privately to staff instead of spreading them."
+    },
+    {
+      "id": "griefing",
+      "order": 30,
+      "enabled": true,
+      "title": "3. Griefing",
+      "body": "Do not grief outside the rules of the current server or event. Event-specific restrictions remain enforceable when posted."
+    },
+    {
+      "id": "names-signage",
+      "order": 40,
+      "enabled": true,
+      "title": "4. Names & Signage",
+      "body": "Keep player, tribe, creature, structure, and signage names appropriate for the community."
+    },
+    {
+      "id": "advertising",
+      "order": 50,
+      "enabled": true,
+      "title": "5. Advertising & Scams",
+      "body": "Do not advertise competing communities or services, and do not use the cluster to distribute scams or malicious links."
+    },
+    {
+      "id": "posted-limits",
+      "order": 60,
+      "enabled": true,
+      "title": "6. Posted Tribe, Base & Event Limits",
+      "body": "Follow tribe, base, and event-specific restrictions when they are posted by Khaos Nexus staff."
+    },
+    {
+      "id": "base-performance",
+      "order": 70,
+      "enabled": true,
+      "title": "7. Base Size & Server Performance",
+      "body": "Bases must remain within a reasonable size and complexity. Excessive structure counts or builds that materially impact server or client performance may be required to be reduced or optimized. Staff will judge performance impact rather than applying an arbitrary hard structure-count limit."
+    },
+    {
+      "id": "base-enforcement",
+      "order": 80,
+      "enabled": true,
+      "title": "8. Base Reduction Enforcement",
+      "body": "If a requested base reduction or optimization is not completed within a reasonable time, admins may reduce or remove portions at their discretion using administrative tools, including Redgun. Where practical, staff will attempt to preserve essential structures, storage, creatures, and player belongings. Enforcement is for cluster stability and fair use, not arbitrary punishment."
+    },
+    {
+      "id": "staff-stability",
+      "order": 90,
+      "enabled": true,
+      "title": "9. Cluster Stability & Fair Play",
+      "body": "Staff may act to protect cluster stability, security, and fair play. Rules may be clarified or updated as the cluster evolves."
+    }
+  ]
+}
