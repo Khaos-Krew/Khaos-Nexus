@@ -1,0 +1,22 @@
+{
+  "UiKey": "F3",
+  "ShopName": "KHAOS NEXUS // EXCHANGE",
+  "WebsiteUrl": "",
+  "DiscordUrl": "https://discord.gg/ZYAdnbqRHs",
+  "VoteRewards": false,
+  "DisableSellButton": true,
+  "DisableTradeButton": false,
+  "HideBuffIcon": false,
+  "OverrideCurrencyIcon": "",
+  "UseSteamOverlay": false,
+  "OverrideLabels": [
+    { "ItemsTabLabel": "Nexus Market" },
+    { "KitsTabLabel": "Nexus Kits" },
+    { "StashTabLabel": "My Stash" },
+    { "SellTabLabel": "Exchange" },
+    { "TradeTabLabel": "Transfer Points" },
+    { "WebsiteLabel": "Nexus Portal" },
+    { "DiscordLabel": "Khaos Nexus" },
+    { "ClaimVotesLabel": "Claim Rewards" }
+  ]
+}
