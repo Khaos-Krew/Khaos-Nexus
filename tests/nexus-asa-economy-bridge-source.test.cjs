@@ -22,12 +22,15 @@ test('native bridge uses ArkShop and official inventory primitives rather than b
   assert.equal(/ClearPlayerInventory|DestroyAll|ServerChat|ConsoleCommand\(/.test(source), false);
 });
 
-test('native bridge registers only narrow Nexus economy commands and removes them on unload', () => {
-  assert.match(source, /AddConsoleCommand\(L"NexusEconomy\.Ping"/);
-  assert.match(source, /AddConsoleCommand\(L"NexusEconomy\.Sell"/);
-  assert.match(source, /RemoveConsoleCommand\(L"NexusEconomy\.Ping"/);
-  assert.match(source, /RemoveConsoleCommand\(L"NexusEconomy\.Sell"/);
+test('native bridge registers only narrow Nexus economy console and RCON commands and removes all on unload', () => {
+  for (const name of ['Ping', 'Sell']) {
+    assert.match(source, new RegExp(`AddConsoleCommand\\("NexusEconomy\\.${name}"`));
+    assert.match(source, new RegExp(`AddRconCommand\\("NexusEconomy\\.${name}"`));
+    assert.match(source, new RegExp(`RemoveConsoleCommand\\("NexusEconomy\\.${name}"`));
+    assert.match(source, new RegExp(`RemoveRconCommand\\("NexusEconomy\\.${name}"`));
+  }
   assert.equal((source.match(/AddConsoleCommand/g) || []).length, 2);
+  assert.equal((source.match(/AddRconCommand/g) || []).length, 2);
 });
 
 test('point-credit failure attempts exact item restoration before returning failure', () => {
@@ -35,5 +38,11 @@ test('point-credit failure attempts exact item restoration before returning fail
   const restoreIndex = source.indexOf('RestoreItems(inventory, blueprint, amount)', creditIndex);
   assert.ok(creditIndex > 0);
   assert.ok(restoreIndex > creditIndex);
-  assert.match(source, /code=credit-failed restored=%s/);
+  assert.match(source, /code=credit-failed restored=\{\}/);
+});
+
+test('bridge uses fmt-style placeholders rather than printf formatting', () => {
+  assert.equal(source.includes('%s'), false);
+  assert.equal(source.includes('%d'), false);
+  assert.match(source, /FString::Format\("NEXUS_OK tx=\{\}/);
 });
