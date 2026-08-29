@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "enabled": false,
+  "rebalanceEveryHours": 6,
+  "lookbackDays": 7,
+  "buybackRatio": {
+    "minimum": 0.20,
+    "baseline": 0.35,
+    "maximum": 0.50
+  },
+  "demandBoost": 0.12,
+  "volumeBoostMaximum": 0.12,
+  "volumePenaltyMaximum": 0.18,
+  "goal": "Discourage single-resource farming by reducing payouts for heavily sold resources and rotating a Nexus Demand boost among under-sold resources.",
+  "activationRequirements": [
+    "shared ArkShop MySQL backend verified",
+    "exact-item removal bridge verified",
+    "atomic remove-and-credit transaction verified",
+    "live player test completed"
+  ]
+}
