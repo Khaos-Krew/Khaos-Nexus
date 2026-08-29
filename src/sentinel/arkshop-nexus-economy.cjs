@@ -1,220 +1,185 @@
 'use strict';
 
 const ECONOMY_VERSION = 'nexus-economy-v1';
-
-const BLUEPRINTS = Object.freeze({
-  metalHatchet: "Blueprint'/Game/PrimalEarth/CoreBlueprints/Weapons/PrimalItem_WeaponMetalHatchet.PrimalItem_WeaponMetalHatchet'",
-  metalPick: "Blueprint'/Game/PrimalEarth/CoreBlueprints/Weapons/PrimalItem_WeaponMetalPick.PrimalItem_WeaponMetalPick'",
-  pike: "Blueprint'/Game/PrimalEarth/CoreBlueprints/Weapons/PrimalItem_WeaponPike.PrimalItem_WeaponPike'",
-  ptero: "Blueprint'/Game/PrimalEarth/Dinos/Ptero/Ptero_Character_BP.Ptero_Character_BP'",
-  para: "Blueprint'/Game/PrimalEarth/Dinos/Para/Para_Character_BP.Para_Character_BP'",
-  carno: "Blueprint'/Game/PrimalEarth/Dinos/Carno/Carno_Character_BP.Carno_Character_BP'",
-  carnoSaddle: "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Armor/Saddles/PrimalItemArmor_CarnoSaddle.PrimalItemArmor_CarnoSaddle'",
-  stryder: "Blueprint'/Game/Genesis2/Dinos/TekStrider/TekStrider_Character_BP.TekStrider_Character_BP'",
-  gacha: "Blueprint'/Game/Extinction/Dinos/Gacha/Gacha_Character_BP.Gacha_Character_BP'",
-  metalIngot: "Blueprint'/Game/PrimalEarth/CoreBlueprints/Resources/PrimalItemResource_MetalIngot.PrimalItemResource_MetalIngot'",
-  stackStone: "Blueprint'/Game/Mods/Stack50/Resources/PrimalItemResource_Stone_Child.PrimalItemResource_Stone_Child'"
-});
+const VERIFIED_STACK50_STONE = "Blueprint'/Game/Mods/Stack50/Resources/PrimalItemResource_Stone_Child.PrimalItemResource_Stone_Child'";
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function isLegacySampleEconomy(config = {}) {
-  const starterDinos = Array.isArray(config?.Kits?.starter?.Dinos) ? config.Kits.starter.Dinos : [];
-  return Boolean(
-    config?.General?.TimedPointsReward?.Groups?.Default?.Amount === 5
-    && config?.General?.TimedPointsReward?.Groups?.Premiums?.Amount === 15
-    && config?.ShopItems?.stryder?.Price === 1
-    && config?.ShopItems?.gacha?.Price === 1
-    && config?.ShopItems?.tools?.Price === 5
-    && config?.ShopItems?.tekengram?.Price === 20
-    && config?.ShopItems?.allengrams?.Price === 1000
-    && config?.ShopItems?.fly?.Price === 5000
-    && config?.SellItems?.metal?.Blueprint === BLUEPRINTS.stackStone
-    && starterDinos.some((dino) => dino?.Blueprint === BLUEPRINTS.stryder)
-  );
+function entries(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
-function item(Blueprint, Amount = 1, extra = {}) {
-  return { Quality: 0, ForceBlueprint: false, Amount, Blueprint, ...extra };
+function valueAt(root, path) {
+  return path.split('.').reduce((value, key) => value?.[key], root);
+}
+
+function legacyBaselineDiff(config = {}) {
+  const checks = [
+    ['Kits.count', 4, Object.keys(entries(config.Kits)).length],
+    ['ShopItems.count', 15, Object.keys(entries(config.ShopItems)).length],
+    ['SellItems.count', 1, Object.keys(entries(config.SellItems)).length],
+    ['General.TimedPointsReward.Interval', 5, valueAt(config, 'General.TimedPointsReward.Interval')],
+    ['General.TimedPointsReward.Groups.Default.Amount', 5, valueAt(config, 'General.TimedPointsReward.Groups.Default.Amount')],
+    ['General.TimedPointsReward.Groups.Premiums.Amount', 15, valueAt(config, 'General.TimedPointsReward.Groups.Premiums.Amount')],
+    ['General.ItemsPerPage', 15, valueAt(config, 'General.ItemsPerPage')],
+    ['General.ShopDisplayTime', 15, valueAt(config, 'General.ShopDisplayTime')],
+    ['General.ShopTextSize', 1.3, valueAt(config, 'General.ShopTextSize')],
+    ['General.GiveDinosInCryopods', true, valueAt(config, 'General.GiveDinosInCryopods')],
+    ['Kits.starter.DefaultAmount', 2, valueAt(config, 'Kits.starter.DefaultAmount')],
+    ['Kits.starter.Price', 90, valueAt(config, 'Kits.starter.Price')],
+    ['Kits.starter.OnlyFromSpawn', true, valueAt(config, 'Kits.starter.OnlyFromSpawn')],
+    ['ShopItems.stryder.Price', 1, valueAt(config, 'ShopItems.stryder.Price')],
+    ['ShopItems.gacha.Price', 1, valueAt(config, 'ShopItems.gacha.Price')],
+    ['ShopItems.ingots100.Price', 15, valueAt(config, 'ShopItems.ingots100.Price')],
+    ['ShopItems.tools.Price', 5, valueAt(config, 'ShopItems.tools.Price')],
+    ['ShopItems.para.Price', 20, valueAt(config, 'ShopItems.para.Price')],
+    ['ShopItems.carno.Price', 50, valueAt(config, 'ShopItems.carno.Price')],
+    ['ShopItems.carno2.Price', 50, valueAt(config, 'ShopItems.carno2.Price')],
+    ['ShopItems.carno3.Price', 50, valueAt(config, 'ShopItems.carno3.Price')],
+    ['ShopItems.crate25.Price', 100, valueAt(config, 'ShopItems.crate25.Price')],
+    ['ShopItems.crate2.Price', 100, valueAt(config, 'ShopItems.crate2.Price')],
+    ['ShopItems.crate3.Price', 100, valueAt(config, 'ShopItems.crate3.Price')],
+    ['ShopItems.exp1000.Price', 55, valueAt(config, 'ShopItems.exp1000.Price')],
+    ['ShopItems.tekengram.Price', 20, valueAt(config, 'ShopItems.tekengram.Price')],
+    ['ShopItems.allengrams.Price', 1000, valueAt(config, 'ShopItems.allengrams.Price')],
+    ['ShopItems.fly.Price', 5000, valueAt(config, 'ShopItems.fly.Price')],
+    ['SellItems.metal.Price', 10, valueAt(config, 'SellItems.metal.Price')],
+    ['SellItems.metal.Amount', 100, valueAt(config, 'SellItems.metal.Amount')],
+    ['SellItems.metal.Blueprint', VERIFIED_STACK50_STONE, valueAt(config, 'SellItems.metal.Blueprint')]
+  ];
+
+  const starterDinos = Array.isArray(config?.Kits?.starter?.Dinos) ? config.Kits.starter.Dinos : [];
+  checks.push(['Kits.starter.TekStryder', true, starterDinos.some((dino) => /TekStrider_Character_BP/i.test(String(dino?.Blueprint || '')))]);
+  return checks
+    .filter(([, expected, actual]) => expected !== actual)
+    .map(([path, expected, actual]) => ({ path, expected, actual: actual === undefined ? '(missing)' : actual }));
+}
+
+function isLegacySampleEconomy(config = {}) {
+  return legacyBaselineDiff(config).length === 0;
+}
+
+function findLiveItem(config, pattern) {
+  const pools = [
+    ...(Array.isArray(config?.ShopItems?.tools?.Items) ? config.ShopItems.tools.Items : []),
+    ...(Array.isArray(config?.Kits?.tools?.Items) ? config.Kits.tools.Items : []),
+    ...(Array.isArray(config?.Kits?.starter?.Items) ? config.Kits.starter.Items : [])
+  ];
+  const found = pools.find((definition) => pattern.test(String(definition?.Blueprint || '')));
+  return found ? clone(found) : null;
+}
+
+function verifiedResourceCommand(config, resource, amount) {
+  const commands = Array.isArray(config?.Kits?.resources?.Commands) ? config.Kits.resources.Commands : [];
+  const match = commands.find((definition) => new RegExp(`^gfi\\s+${resource}\\s+\\d+\\s+0\\s+0$`, 'i').test(String(definition?.Command || '').trim()));
+  if (!match) return null;
+  return { ...clone(match), Command: `gfi ${resource} ${amount} 0 0` };
+}
+
+function requiredLiveEntry(config, section, id) {
+  const definition = config?.[section]?.[id];
+  if (!definition || typeof definition !== 'object' || Array.isArray(definition)) {
+    throw new Error(`Captured ArkShop baseline is missing ${section}.${id}.`);
+  }
+  return clone(definition);
+}
+
+function repriced(config, id, price) {
+  return { ...requiredLiveEntry(config, 'ShopItems', id), Price: price };
 }
 
 function buildNexusEconomyV1(currentConfig = {}) {
   const current = clone(currentConfig || {});
-  const gachaResources = clone(current?.ShopItems?.gacha?.GachaResources || {});
+  const metalPick = findLiveItem(current, /PrimalItem_WeaponMetalPick(?:\.|')/i);
+  const metalHatchet = findLiveItem(current, /PrimalItem_WeaponMetalHatchet(?:\.|')/i);
+  const pike = findLiveItem(current, /PrimalItem_WeaponPike(?:\.|')/i);
+  const starterItems = [metalPick, metalHatchet, pike].filter(Boolean);
+  const starterCommands = [
+    verifiedResourceCommand(current, 'stone', 200),
+    verifiedResourceCommand(current, 'wood', 200),
+    verifiedResourceCommand(current, 'fiber', 100)
+  ].filter(Boolean);
+
+  if (!metalPick || !metalHatchet || !pike) {
+    throw new Error('Captured live definitions do not verify all three starter tools; refusing to guess item blueprints.');
+  }
+  if (!starterCommands.some((entry) => /gfi\s+stone\s+200/i.test(entry.Command))
+      || !starterCommands.some((entry) => /gfi\s+wood\s+200/i.test(entry.Command))) {
+    throw new Error('Captured live definitions do not verify the starter stone and wood commands.');
+  }
+
+  const resourceKit = requiredLiveEntry(current, 'Kits', 'resources');
+  const utilityKit = requiredLiveEntry(current, 'Kits', 'tools');
+  const premiumKit = requiredLiveEntry(current, 'Kits', 'vip');
+  const { Dinos: _removedPremiumDinos, ...premiumUtilityBase } = premiumKit;
+  const stoneSellback = requiredLiveEntry(current, 'SellItems', 'metal');
+  if (stoneSellback.Blueprint !== VERIFIED_STACK50_STONE) throw new Error('Verified Stack50 stone sellback blueprint does not match the captured baseline.');
 
   return {
     managedSections: ['Kits', 'ShopItems', 'SellItems'],
     General: {
       TimedPointsReward: {
+        ...clone(current?.General?.TimedPointsReward || {}),
         Enabled: true,
         Interval: 5,
-        StackRewards: false,
-        AlwaysSendNotifications: false,
         Groups: {
-          Default: { Amount: 2 },
-          Premiums: { Amount: 4 }
+          ...clone(current?.General?.TimedPointsReward?.Groups || {}),
+          Default: { ...clone(current?.General?.TimedPointsReward?.Groups?.Default || {}), Amount: 2 },
+          Premiums: { ...clone(current?.General?.TimedPointsReward?.Groups?.Premiums || {}), Amount: 4 }
         }
       },
       ItemsPerPage: 15,
       ShopDisplayTime: 15,
       ShopTextSize: 1.3,
-      DefaultKit: '',
-      // Nexus uses Dino Balls rather than Cryopods for its planned packaged-dino flow.
-      // Until the exact Dino Ball blueprint/integration is verified, shop dinos spawn directly.
-      GiveDinosInCryopods: false,
-      CryoLimitedTime: false,
-      UseOriginalTradeCommandWithUI: false,
-      PreventUseNoglin: true,
-      PreventUseUnconscious: true,
-      PreventUseHandcuffed: true,
-      PreventUseCarried: true
+      GiveDinosInCryopods: false
     },
     Kits: {
       starter: {
         DefaultAmount: 1,
-        Price: 250,
-        Description: 'Nexus Starter Kit - one free spawn claim; basic metal tools and starter resources',
+        Price: 0,
+        Description: 'Nexus Starter Kit - one free spawn-only claim',
         OnlyFromSpawn: true,
-        Items: [
-          item(BLUEPRINTS.metalPick),
-          item(BLUEPRINTS.metalHatchet),
-          item(BLUEPRINTS.pike)
-        ],
-        Commands: [
-          { Command: 'gfi stone 300 0 0', ExecuteAsAdmin: true },
-          { Command: 'gfi wood 300 0 0', ExecuteAsAdmin: true },
-          { Command: 'gfi thatch 200 0 0', ExecuteAsAdmin: true },
-          { Command: 'gfi fiber 200 0 0', ExecuteAsAdmin: true },
-          { Command: 'gfi hide 100 0 0', ExecuteAsAdmin: true }
-        ]
-      },
-      vip: {
-        DefaultAmount: 1,
-        Description: 'Premium convenience kit - neutered Pteranodon',
-        Permissions: 'Admins,Premiums',
-        Dinos: [
-          { Level: 100, Neutered: true, Blueprint: BLUEPRINTS.ptero }
-        ]
-      },
-      tools: {
-        DefaultAmount: 0,
-        Price: 150,
-        MinLevel: 1,
-        Description: 'Nexus Metal Tools - pick, hatchet, and pike',
-        Items: [
-          item(BLUEPRINTS.metalPick),
-          item(BLUEPRINTS.metalHatchet),
-          item(BLUEPRINTS.pike)
-        ]
+        Items: starterItems,
+        Commands: starterCommands
       },
       resources: {
+        ...resourceKit,
         DefaultAmount: 0,
-        Price: 100,
-        MinLevel: 1,
-        Description: 'Nexus Starter Resources - 200 stone and 200 wood',
-        Commands: [
-          { Command: 'gfi stone 200 0 0', ExecuteAsAdmin: true },
-          { Command: 'gfi wood 200 0 0', ExecuteAsAdmin: true }
-        ]
-      }
-    },
-    ShopItems: {
-      ingots100: {
-        Type: 'item',
-        Description: 'Metal Ingots (100x)',
-        Price: 80,
-        Items: [item(BLUEPRINTS.metalIngot, 100)]
+        Price: 75,
+        Description: 'Nexus Resource Pack'
       },
       tools: {
-        Type: 'item',
-        Description: 'Metal Pick + Metal Hatchet',
+        ...utilityKit,
+        DefaultAmount: 0,
         Price: 125,
-        Items: [
-          item(BLUEPRINTS.metalPick),
-          item(BLUEPRINTS.metalHatchet)
-        ]
+        Description: 'Nexus Utility Pack',
+        Items: starterItems
       },
-      exp1000: {
-        Type: 'experience',
-        Description: '1,000 character experience',
-        GiveToDino: false,
-        Price: 250,
-        Amount: 1000
-      },
-      para: {
-        Type: 'dino',
-        Description: 'Parasaurolophus - Level 50',
-        Level: 50,
-        Price: 300,
-        MinLevel: 10,
-        Blueprint: BLUEPRINTS.para
-      },
-      carno: {
-        Type: 'dino',
-        Description: 'Male Carnotaurus - Level 100',
-        Level: 100,
-        Price: 900,
-        Neutered: true,
-        Gender: 'male',
-        SaddleBlueprint: BLUEPRINTS.carnoSaddle,
-        Blueprint: BLUEPRINTS.carno
-      },
-      carno2: {
-        Type: 'dino',
-        Description: 'Female Carnotaurus - Level 100',
-        Level: 100,
-        Price: 900,
-        Neutered: true,
-        Gender: 'female',
-        SaddleBlueprint: BLUEPRINTS.carnoSaddle,
-        Blueprint: BLUEPRINTS.carno
-      },
-      carno3: {
-        Type: 'dino',
-        Description: 'Random Gender Carnotaurus - Level 100',
-        Level: 100,
-        Price: 900,
-        Neutered: true,
-        Gender: 'random',
-        SaddleBlueprint: BLUEPRINTS.carnoSaddle,
-        Blueprint: BLUEPRINTS.carno
-      },
-      crate25: {
-        Type: 'beacon',
-        Description: 'Supply Crate - Level 25',
-        Price: 500,
-        ClassName: 'SupplyCrate_Level25_Double_C'
-      },
-      gacha: {
-        Type: 'dino',
-        Description: 'Gacha - Level 150',
-        Level: 150,
-        Price: 6000,
-        Blueprint: BLUEPRINTS.gacha,
-        ...(Object.keys(gachaResources).length ? { GachaResources: gachaResources } : {})
-      },
-      stryder: {
-        Type: 'dino',
-        Description: 'Tek Stryder - Mining Drill / Saddlebags',
-        Level: 150,
-        Price: 8000,
-        Blueprint: BLUEPRINTS.stryder,
-        StryderHead: 0,
-        StryderChest: 3,
-        PreventCryo: true
+      vip: {
+        ...premiumUtilityBase,
+        DefaultAmount: 0,
+        Price: 200,
+        Description: 'Nexus Premium Utility',
+        Permissions: premiumKit.Permissions || 'Admins,Premiums',
+        Items: starterItems
       }
+      // Taming and breeding packs remain Phase 2 until their live item definitions are verified.
+    },
+    ShopItems: {
+      stryder: repriced(current, 'stryder', 2000),
+      gacha: repriced(current, 'gacha', 1500),
+      ingots100: repriced(current, 'ingots100', 75),
+      para: repriced(current, 'para', 125),
+      carno: repriced(current, 'carno', 350),
+      carno2: repriced(current, 'carno2', 350),
+      carno3: repriced(current, 'carno3', 325),
+      crate25: repriced(current, 'crate25', 250),
+      exp1000: repriced(current, 'exp1000', 200)
     },
     SellItems: {
-      // Keep the legacy id for compatibility with any existing player command/UI references.
-      metal: {
-        Type: 'item',
-        Description: 'Stone (100x)',
-        Price: 3,
-        Amount: 100,
-        Blueprint: BLUEPRINTS.stackStone
-      }
+      metal: { ...stoneSellback, Price: 10, Amount: 100, Blueprint: VERIFIED_STACK50_STONE }
     }
   };
 }
@@ -232,7 +197,8 @@ function summarizeEconomy(data = {}) {
 
 module.exports = {
   ECONOMY_VERSION,
-  BLUEPRINTS,
+  VERIFIED_STACK50_STONE,
+  legacyBaselineDiff,
   isLegacySampleEconomy,
   buildNexusEconomyV1,
   summarizeEconomy

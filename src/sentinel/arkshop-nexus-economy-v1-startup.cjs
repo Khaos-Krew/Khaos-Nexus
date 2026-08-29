@@ -5,17 +5,39 @@ const path = require('node:path');
 const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { readConfig } = require('./ark-config-manager.cjs');
 const { ArkShopProfileStore, fromLiveConfig, normalizeData } = require('./arkshop-profiles.cjs');
-const { ArkShopApplyStore, applyArkShopProfile, reloadArkShop } = require('./arkshop-profile-service.cjs');
+const { ArkShopApplyStore, applyArkShopProfile, buildArkShopConfig, configsEqual, reloadArkShop } = require('./arkshop-profile-service.cjs');
 const { ArkRconClient } = require('./ark-rcon.cjs');
 const { serverConnectionFromRecord } = require('./ark-cluster-monitor.cjs');
-const { ECONOMY_VERSION, isLegacySampleEconomy, buildNexusEconomyV1, summarizeEconomy } = require('./arkshop-nexus-economy.cjs');
+const { ECONOMY_VERSION, legacyBaselineDiff, isLegacySampleEconomy, buildNexusEconomyV1, summarizeEconomy } = require('./arkshop-nexus-economy.cjs');
 
 function cleanError(error) {
-  return String(error?.message || error || 'unknown error').replace(/[\r\n]+/g, ' ').slice(0, 600);
+  return String(error?.message || error || 'unknown error')
+    .replace(/([a-z][a-z0-9+.-]*:\/\/[^:\s/]+:)[^@\s/]+@/gi, '$1[redacted]@')
+    .replace(/(password|passwd|mysqlpass|token|secret|webhook)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
+    .replace(/[\r\n]+/g, ' ')
+    .slice(0, 600);
 }
 
-function jsonEqual(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
+function isNexusEconomyV1(config = {}) {
+  const forbidden = ['tools', 'tekengram', 'allengrams', 'fly', 'crate2', 'crate3'];
+  return config?.General?.TimedPointsReward?.Interval === 5
+    && config?.General?.TimedPointsReward?.Groups?.Default?.Amount === 2
+    && config?.General?.TimedPointsReward?.Groups?.Premiums?.Amount === 4
+    && config?.General?.GiveDinosInCryopods === false
+    && config?.Kits?.starter?.DefaultAmount === 1
+    && config?.Kits?.starter?.Price === 0
+    && config?.Kits?.starter?.OnlyFromSpawn === true
+    && !Array.isArray(config?.Kits?.starter?.Dinos)
+    && config?.ShopItems?.stryder?.Price === 2000
+    && config?.ShopItems?.gacha?.Price === 1500
+    && config?.ShopItems?.ingots100?.Price === 75
+    && config?.ShopItems?.para?.Price === 125
+    && config?.ShopItems?.carno?.Price === 350
+    && config?.ShopItems?.carno2?.Price === 350
+    && config?.ShopItems?.carno3?.Price === 325
+    && config?.ShopItems?.crate25?.Price === 250
+    && config?.ShopItems?.exp1000?.Price === 200
+    && forbidden.every((id) => !(id in (config.ShopItems || {})));
 }
 
 function writeStamp(file, value) {
@@ -57,22 +79,28 @@ async function run() {
 
   const liveResult = await readConfig(server.envPrefix, 'arkshop');
   const liveConfig = JSON.parse(liveResult.text);
-  const desiredData = normalizeData(buildNexusEconomyV1(liveConfig));
-  const currentSafe = fromLiveConfig(liveConfig);
 
   if (!isLegacySampleEconomy(liveConfig)) {
-    if (jsonEqual(currentSafe, desiredData)) {
+    if (isNexusEconomyV1(liveConfig)) {
+      const currentSafe = fromLiveConfig(liveConfig);
       writeStamp(stampFile, {
         version: ECONOMY_VERSION,
         detectedAt: new Date().toISOString(),
         status: 'already-live',
-        summary: summarizeEconomy(desiredData)
+        summary: summarizeEconomy(currentSafe)
       });
       console.log(`[Nexus Sentinal] ${ECONOMY_VERSION} detected already live; wrote recovery stamp.`);
       return;
     }
-    throw new Error('Live ArkShop config no longer matches the captured legacy baseline; refusing automatic economy overwrite.');
+    throw new Error(`Live ArkShop config no longer matches the captured legacy baseline; refusing automatic economy overwrite. Diff=${JSON.stringify(legacyBaselineDiff(liveConfig))}`);
   }
+
+  const desiredData = normalizeData(buildNexusEconomyV1(liveConfig));
+  const expectedConfig = buildArkShopConfig(liveConfig, desiredData);
+  const guardCurrent = (current, { phase } = {}) => {
+    const diff = legacyBaselineDiff(current);
+    if (diff.length) throw new Error(`ArkShop baseline changed during ${phase || 'apply'}; refusing overwrite. Diff=${JSON.stringify(diff)}`);
+  };
 
   // Confirm the plugin command exists BEFORE changing the remote config.
   const reloadPreflight = await strictReload(server);
@@ -97,14 +125,17 @@ async function run() {
     profile,
     actorId: ECONOMY_VERSION,
     applyStore,
-    reloader: strictReload
+    reloader: strictReload,
+    guardCurrent
   });
 
   if (!result?.transaction?.id) throw new Error('Economy apply did not create a transaction.');
 
   const verifyResult = await readConfig(server.envPrefix, 'arkshop');
-  const verifySafe = fromLiveConfig(JSON.parse(verifyResult.text));
-  if (!jsonEqual(verifySafe, desiredData)) throw new Error('Post-apply ArkShop config verification did not match the Nexus economy profile.');
+  const verifyConfig = JSON.parse(verifyResult.text);
+  if (!configsEqual(verifyConfig, expectedConfig) || !isNexusEconomyV1(verifyConfig)) {
+    throw new Error('Post-apply ArkShop config verification did not exactly match the Nexus economy profile.');
+  }
 
   const rconBytes = await verifyRcon(server);
   const summary = summarizeEconomy(desiredData);
@@ -122,9 +153,11 @@ async function run() {
   console.log(`[Nexus Sentinal] ${ECONOMY_VERSION} COMPLETE: transaction=${result.transaction.id} profileRevision=${profile.revision} kits=${summary.kits} shopItems=${summary.shopItems} sellItems=${summary.sellItems} defaultPointsPerHour=${summary.defaultPointsPerHour} premiumPointsPerHour=${summary.premiumPointsPerHour} rconBytes=${rconBytes} restartRequired=false`);
 }
 
-const timer = setTimeout(() => {
-  void run().catch((error) => {
+if (require.main === module) {
+  run().catch((error) => {
     console.error(`[Nexus Sentinal] ${ECONOMY_VERSION} FAILED CLOSED: ${cleanError(error)}`);
+    process.exitCode = 1;
   });
-}, 9000);
-timer.unref?.();
+}
+
+module.exports = { cleanError, isNexusEconomyV1, reloadLooksUnsupported, strictReload, verifyRcon, run };

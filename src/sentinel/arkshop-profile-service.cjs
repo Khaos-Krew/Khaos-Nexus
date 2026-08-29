@@ -94,11 +94,12 @@ class ArkShopApplyStore {
   }
 }
 
-async function previewArkShopProfile({ server, profile, reader = readConfig } = {}) {
+async function previewArkShopProfile({ server, profile, reader = readConfig, guardCurrent = null } = {}) {
   if (!server?.envPrefix) throw new Error('ARK server has no environment prefix.');
   if (!profile?.id) throw new Error('ArkShop profile is required.');
   const currentResult = await reader(server.envPrefix, 'arkshop');
   const current = parseArkShopText(currentResult.text);
+  if (guardCurrent) await guardCurrent(current, { phase: 'preview' });
   const next = buildArkShopConfig(current, profile.data);
   return {
     serverId: server.id,
@@ -129,9 +130,10 @@ async function applyArkShopProfile({
   writer = updateArkShopConfig,
   restorer = restoreBackup,
   reloader = reloadArkShop,
+  guardCurrent = null,
   dryRun = false
 } = {}) {
-  const preview = await previewArkShopProfile({ server, profile, reader });
+  const preview = await previewArkShopProfile({ server, profile, reader, guardCurrent });
   if (dryRun || !preview.changed) return { ...preview, dryRun: true, transaction: null, reload: null };
 
   let writeResult;
@@ -139,7 +141,10 @@ async function applyArkShopProfile({
     writeResult = await writer({
       prefix: server.envPrefix,
       dryRun: false,
-      transform: (current) => buildArkShopConfig(current, profile.data)
+      transform: async (current) => {
+        if (guardCurrent) await guardCurrent(current, { phase: 'write' });
+        return buildArkShopConfig(current, profile.data);
+      }
     });
     const reload = await reloader(server);
     const transaction = {
@@ -153,25 +158,46 @@ async function applyArkShopProfile({
       backup: writeResult.backup || '',
       remoteFile: writeResult.remoteFile || preview.remoteFile,
       reloadCommand: 'ArkShop.Reload',
+      status: 'applied',
       rolledBackAt: ''
     };
     applyStore.add(transaction);
     return { ...preview, dryRun: false, transaction, reload, restartRequired: false };
   } catch (error) {
+    let restored = false;
+    let rollbackError = null;
     if (writeResult?.changed && writeResult?.backup) {
-      let rollbackError = null;
       try {
         await restorer({ prefix: server.envPrefix, fileKey: 'arkshop', backup: writeResult.backup });
-        try { await reloader(server); } catch (reloadOldError) { rollbackError = reloadOldError; }
+        try {
+          await reloader(server);
+          restored = true;
+        } catch (reloadOldError) { rollbackError = reloadOldError; }
       } catch (restoreError) {
         rollbackError = restoreError;
       }
-      const suffix = rollbackError
-        ? ` The new config write could not be fully rolled back/reloaded: ${String(rollbackError?.message || rollbackError).slice(0, 240)}`
-        : ' The pre-write ArkShop config was restored and reloaded.';
-      throw new Error(`ArkShop profile apply failed: ${String(error?.message || error).slice(0, 300)}.${suffix}`);
     }
-    throw error;
+    applyStore.add({
+      id: crypto.randomUUID(),
+      serverId: String(server?.id || ''),
+      envPrefix: String(server?.envPrefix || ''),
+      profileId: String(profile?.id || ''),
+      profileRevision: Number(profile?.revision) || 1,
+      actorId: String(actorId || '').slice(0, 40),
+      failedAt: new Date().toISOString(),
+      backup: writeResult?.backup || '',
+      remoteFile: writeResult?.remoteFile || preview.remoteFile || '',
+      reloadCommand: 'ArkShop.Reload',
+      status: 'failed',
+      restored,
+      failure: 'ArkShop profile apply failed; inspect protected service logs for details.',
+      rolledBackAt: ''
+    });
+    if (!writeResult?.changed || !writeResult?.backup) throw error;
+    const suffix = rollbackError
+      ? ` The new config write could not be fully rolled back/reloaded: ${String(rollbackError?.message || rollbackError).slice(0, 240)}`
+      : ' The pre-write ArkShop config was restored and reloaded.';
+    throw new Error(`ArkShop profile apply failed: ${String(error?.message || error).slice(0, 300)}.${suffix}`);
   }
 }
 
