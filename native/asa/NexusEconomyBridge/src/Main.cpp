@@ -14,11 +14,6 @@ namespace NexusEconomyBridge
         std::mutex TxMutex;
         std::unordered_set<std::string> CompletedTransactions;
 
-        std::string ToUtf8(const FString& value)
-        {
-            return value.ToString();
-        }
-
         bool IsSafeToken(const std::string& value, size_t max_len = 128)
         {
             if (value.empty() || value.size() > max_len)
@@ -28,17 +23,19 @@ namespace NexusEconomyBridge
             });
         }
 
-        void Reply(APlayerController* controller, const FString& message, bool ok)
+        void ConsoleReply(APlayerController* controller, const FString& message, bool ok)
         {
             auto* shooter = static_cast<AShooterPlayerController*>(controller);
             if (shooter)
-            {
-                AsaApi::GetApiUtils().SendServerMessage(
-                    shooter,
-                    ok ? FColorList::Green : FColorList::Red,
-                    "%s",
-                    *message);
-            }
+                AsaApi::GetApiUtils().SendServerMessage(shooter, ok ? FColorList::Green : FColorList::Red, "{}", message.ToString());
+            Log::GetLog()->info("[NexusEconomyBridge] {}", message.ToString());
+        }
+
+        void RconReply(RCONClientConnection* connection, RCONPacket* packet, const FString& message)
+        {
+            FString reply = message;
+            reply += "\n";
+            connection->SendMessageW(packet->Id, 0, &reply);
             Log::GetLog()->info("[NexusEconomyBridge] {}", message.ToString());
         }
 
@@ -84,22 +81,8 @@ namespace NexusEconomyBridge
             if (!ResolveItemClass(blueprint, item_class))
                 return false;
             inventory->IncrementItemTemplateQuantity(
-                item_class,
-                amount,
-                true,
-                false,
-                nullptr,
-                nullptr,
-                false,
-                false,
-                false,
-                false,
-                true,
-                false,
-                false,
-                false,
-                false,
-                nullptr);
+                item_class, amount, true, false, nullptr, nullptr,
+                false, false, false, false, true, false, false, false, false, nullptr);
             return true;
         }
 
@@ -143,19 +126,16 @@ namespace NexusEconomyBridge
             CompletedTransactions.insert(tx_id);
         }
 
-        void SellCommand(APlayerController* caller, FString* cmd, bool)
+        FString ExecuteSell(const FString& body)
         {
             TArray<FString> parsed;
-            cmd->ParseIntoArray(parsed, L" ", true);
+            body.ParseIntoArray(parsed, L" ", true);
             if (!parsed.IsValidIndex(5))
-            {
-                Reply(caller, L"NEXUS_ERR code=usage", false);
-                return;
-            }
+                return "NEXUS_ERR code=usage";
 
             const FString eos_id = parsed[1];
             const FString blueprint = parsed[2];
-            const std::string tx_id = ToUtf8(parsed[5]);
+            const std::string tx_id = parsed[5].ToString();
             int amount = 0;
             int payout = 0;
             try
@@ -165,75 +145,79 @@ namespace NexusEconomyBridge
             }
             catch (...)
             {
-                Reply(caller, L"NEXUS_ERR code=parse", false);
-                return;
+                return "NEXUS_ERR code=parse";
             }
 
             if (amount <= 0 || amount > 100000000 || payout <= 0 || payout > 1000000 || !IsSafeToken(tx_id))
-            {
-                Reply(caller, L"NEXUS_ERR code=invalid-arguments", false);
-                return;
-            }
+                return "NEXUS_ERR code=invalid-arguments";
 
             if (TransactionAlreadyCompleted(tx_id))
-            {
-                Reply(caller, FString::Format(L"NEXUS_OK tx=%s duplicate=true", *parsed[5]), true);
-                return;
-            }
+                return FString::Format("NEXUS_OK tx={} duplicate=true", parsed[5]);
 
             AShooterPlayerController* player = nullptr;
             UPrimalInventoryComponent* inventory = nullptr;
             if (!ResolvePlayer(eos_id, player, inventory))
-            {
-                Reply(caller, FString::Format(L"NEXUS_ERR tx=%s code=player-offline", *parsed[5]), false);
-                return;
-            }
+                return FString::Format("NEXUS_ERR tx={} code=player-offline", parsed[5]);
 
             TArray<UPrimalItem*> matches;
             const int available = CountBlueprint(inventory, blueprint, matches);
             if (available < amount)
-            {
-                Reply(caller, FString::Format(L"NEXUS_ERR tx=%s code=not-enough-items available=%d", *parsed[5], available), false);
-                return;
-            }
+                return FString::Format("NEXUS_ERR tx={} code=not-enough-items available={}", parsed[5], available);
 
             if (!RemoveExact(inventory, blueprint, amount))
-            {
-                Reply(caller, FString::Format(L"NEXUS_ERR tx=%s code=remove-failed", *parsed[5]), false);
-                return;
-            }
+                return FString::Format("NEXUS_ERR tx={} code=remove-failed", parsed[5]);
 
             if (!ArkShop::Points::AddPoints(payout, eos_id))
             {
                 const bool restored = RestoreItems(inventory, blueprint, amount);
-                Reply(caller, FString::Format(
-                    L"NEXUS_ERR tx=%s code=credit-failed restored=%s",
-                    *parsed[5],
-                    restored ? L"true" : L"false"), false);
-                return;
+                return FString::Format(
+                    "NEXUS_ERR tx={} code=credit-failed restored={}",
+                    parsed[5], restored ? "true" : "false");
             }
 
             MarkCompleted(tx_id);
-            Reply(caller, FString::Format(L"NEXUS_OK tx=%s removed=%d credited=%d", *parsed[5], amount, payout), true);
+            return FString::Format("NEXUS_OK tx={} removed={} credited={}", parsed[5], amount, payout);
         }
 
-        void PingCommand(APlayerController* caller, FString*, bool)
+        void SellConsole(APlayerController* caller, FString* cmd, bool)
         {
-            Reply(caller, L"NEXUS_OK bridge=0.1.0 api=2.03", true);
+            const FString result = ExecuteSell(*cmd);
+            ConsoleReply(caller, result, result.StartsWith("NEXUS_OK"));
+        }
+
+        void SellRcon(RCONClientConnection* connection, RCONPacket* packet, UWorld*)
+        {
+            RconReply(connection, packet, ExecuteSell(packet->Body));
+        }
+
+        void PingConsole(APlayerController* caller, FString*, bool)
+        {
+            ConsoleReply(caller, "NEXUS_OK bridge=0.1.0 api=2.03", true);
+        }
+
+        void PingRcon(RCONClientConnection* connection, RCONPacket* packet, UWorld*)
+        {
+            RconReply(connection, packet, "NEXUS_OK bridge=0.1.0 api=2.03");
         }
     }
 
     void Load()
     {
-        AsaApi::GetCommands().AddConsoleCommand(L"NexusEconomy.Ping", &PingCommand);
-        AsaApi::GetCommands().AddConsoleCommand(L"NexusEconomy.Sell", &SellCommand);
+        auto& commands = AsaApi::GetCommands();
+        commands.AddConsoleCommand("NexusEconomy.Ping", &PingConsole);
+        commands.AddConsoleCommand("NexusEconomy.Sell", &SellConsole);
+        commands.AddRconCommand("NexusEconomy.Ping", &PingRcon);
+        commands.AddRconCommand("NexusEconomy.Sell", &SellRcon);
         Log::GetLog()->info("[NexusEconomyBridge] loaded version=0.1.0");
     }
 
     void Unload()
     {
-        AsaApi::GetCommands().RemoveConsoleCommand(L"NexusEconomy.Ping");
-        AsaApi::GetCommands().RemoveConsoleCommand(L"NexusEconomy.Sell");
+        auto& commands = AsaApi::GetCommands();
+        commands.RemoveConsoleCommand("NexusEconomy.Ping");
+        commands.RemoveConsoleCommand("NexusEconomy.Sell");
+        commands.RemoveRconCommand("NexusEconomy.Ping");
+        commands.RemoveRconCommand("NexusEconomy.Sell");
         std::scoped_lock lock(TxMutex);
         CompletedTransactions.clear();
         Log::GetLog()->info("[NexusEconomyBridge] unloaded");
