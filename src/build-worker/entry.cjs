@@ -15,7 +15,14 @@ async function main() {
   await store.initialize();
   await new Promise((resolve) => server.listen(config.port, '0.0.0.0', resolve));
   runtime.ready = true; runtime.state = 'idle';
-  console.log(JSON.stringify({ event: 'worker.ready', nodeId: config.nodeId, lane: config.lane, capabilities: config.capabilities, port: config.port }));
+  console.log(JSON.stringify({
+    event: 'worker.ready',
+    nodeId: config.nodeId,
+    lane: config.lane,
+    capabilities: config.capabilities,
+    commitSha: process.env.RAILWAY_GIT_COMMIT_SHA || 'local',
+    port: config.port
+  }));
 
   const nodeHeartbeat = setInterval(() => store.heartbeat(runtime.activeJobId, runtime.state).catch((error) => console.error(JSON.stringify({ event: 'worker.heartbeat.error', message: error.message }))), config.heartbeatMs);
 
