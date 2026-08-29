@@ -4,6 +4,8 @@ const { Client, Events, MessageFlags, SlashCommandBuilder, PermissionFlagsBits }
 const SftpClient = require('ssh2-sftp-client');
 const { loadConfig } = require('../shared/config.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
+const { ArkDinoCachePurchaseService } = require('./ark-dino-cache-purchase.cjs');
+const { CACHE_POOLS } = require('./ark-dino-cache-engine.cjs');
 const {
   sftpSettingsFromEnv,
   remotePath,
@@ -13,6 +15,16 @@ const {
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.ops.extension');
 const BOUND = Symbol.for('khaos.nexus.ark.ops.bound');
+
+const CACHE_CHOICES = Object.freeze([
+  { name: 'Coastal Cache — 800 NP', value: 'coastal' },
+  { name: 'Forest Cache — 1,250 NP', value: 'forest' },
+  { name: 'Swamp Cache — 1,400 NP', value: 'swamp' },
+  { name: 'Mountain Cache — 1,800 NP', value: 'mountain' },
+  { name: 'Ocean Cache — 2,200 NP', value: 'ocean' },
+  { name: 'Deep Cave Cache — 2,200 NP', value: 'deepcave' },
+  { name: 'Apex Cache — 8,000 NP • 7-day cooldown', value: 'apex' }
+]);
 
 function arkCommand() {
   const command = new SlashCommandBuilder()
@@ -25,6 +37,9 @@ function arkCommand() {
   command.addSubcommand((sub) => sub.setName('save').setDescription('Save the ARK world.'));
   command.addSubcommand((sub) => sub.setName('broadcast').setDescription('Broadcast a message in ARK.')
     .addStringOption((option) => option.setName('message').setDescription('Message to broadcast.').setRequired(true).setMaxLength(450)));
+  command.addSubcommand((sub) => sub.setName('shop-cache').setDescription('Buy a Nexus Dino Cache and receive the rolled tame in a Dino Ball.')
+    .addStringOption((option) => option.setName('cache').setDescription('Cache pool and price.').setRequired(true).addChoices(...CACHE_CHOICES))
+    .addStringOption((option) => option.setName('eos_id').setDescription('Your ARK EOS player ID.').setRequired(true).setMaxLength(96)));
   command.addSubcommand((sub) => sub.setName('shop-reload').setDescription('Reload the ArkShop configuration.'));
   command.addSubcommand((sub) => sub.setName('shop-balance').setDescription('Get ArkShop points for an EOS ID.')
     .addStringOption((option) => option.setName('eos_id').setDescription('Player EOS ID.').setRequired(true).setMaxLength(80)));
@@ -51,8 +66,37 @@ function isStaff(interaction, config) {
 
 function safeEos(value) {
   const eos = String(value || '').trim();
-  if (!/^[A-Za-z0-9_-]{8,80}$/.test(eos)) throw new Error('EOS ID format is invalid.');
+  if (!/^[A-Za-z0-9_-]{8,96}$/.test(eos)) throw new Error('EOS ID format is invalid.');
   return eos;
+}
+
+function formatDuration(seconds) {
+  const total = Math.max(0, Number(seconds) || 0);
+  const days = Math.floor(total / 86400);
+  const hours = Math.ceil((total % 86400) / 3600);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h`;
+  return `${Math.ceil(total / 60)}m`;
+}
+
+function formatCacheResult(result) {
+  if (!result?.ok) {
+    if (result?.reason === 'insufficient-points') {
+      return `❌ **Not enough Nexus Points**\nThis cache costs **${result.price} NP**. Current balance: **${result.balance} NP**.`;
+    }
+    if (result?.reason === 'cooldown') {
+      return `⏳ **Apex Cache cooldown active**\nTry again in approximately **${formatDuration(result.remainingSeconds)}**.`;
+    }
+    return `❌ Dino Cache purchase was not completed${result?.reason ? `: ${result.reason}` : '.'}`;
+  }
+  const roll = result.roll || {};
+  return [
+    '✅ **Nexus Dino Cache delivered**',
+    `Cache: **${String(roll.cacheId || '').toUpperCase()}** • **${roll.price} NP**`,
+    `Roll: **${roll.species || 'Unknown'}** • Level **${roll.level || '?'}** • ${String(roll.rarity || 'unknown').toUpperCase()}`,
+    'Delivery: **Dino Ball**',
+    `Transaction: \`${String(result.transactionId || '').slice(0, 80)}\``
+  ].join('\n');
 }
 
 async function registerArkCommand(guild) {
@@ -108,10 +152,20 @@ async function arkConfigStatus(prefix = 'ARK_GEN1') {
 
 async function handleArkInteraction(interaction, context) {
   if (!interaction.isChatInputCommand?.() || interaction.commandName !== 'ark') return false;
-  if (!isStaff(interaction, context.config)) throw new Error('ARK server controls require Nexus staff authorization.');
+  const sub = interaction.options.getSubcommand();
+  const publicShopAction = sub === 'shop-cache';
+  if (!publicShopAction && !isStaff(interaction, context.config)) throw new Error('ARK server controls require Nexus staff authorization.');
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const sub = interaction.options.getSubcommand();
+  if (sub === 'shop-cache') {
+    const cacheId = String(interaction.options.getString('cache', true)).toLowerCase();
+    if (!CACHE_POOLS[cacheId]) throw new Error('Unknown Nexus Dino Cache.');
+    const eosId = safeEos(interaction.options.getString('eos_id', true));
+    const service = new ArkDinoCachePurchaseService({ prefix: 'ARK_GEN1', rcon: context.rcon });
+    const result = await service.purchase({ eosId, cacheId });
+    await interaction.editReply({ content: formatCacheResult(result).slice(0, 1900), allowedMentions: { parse: [] } });
+    return true;
+  }
 
   if (sub === 'config-status') {
     const status = await arkConfigStatus('ARK_GEN1');
@@ -199,4 +253,14 @@ function installArkOpsExtension() {
   };
 }
 
-module.exports = { arkCommand, isStaff, safeEos, arkConfigStatus, handleArkInteraction, installArkOpsExtension };
+module.exports = {
+  CACHE_CHOICES,
+  arkCommand,
+  isStaff,
+  safeEos,
+  formatDuration,
+  formatCacheResult,
+  arkConfigStatus,
+  handleArkInteraction,
+  installArkOpsExtension
+};
