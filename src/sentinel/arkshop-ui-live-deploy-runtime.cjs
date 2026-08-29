@@ -1,6 +1,7 @@
 'use strict';
 
 const { run, cleanError } = require('./arkshop-ui-live-deploy.cjs');
+const { installArkShopCompatibilityProbeRuntime } = require('./arkshop-live-compatibility-runtime.cjs');
 const ENV_KEY = 'ARK_GEN1_ARKSHOPUI_TEST_ONCE';
 
 function requested() {
@@ -8,6 +9,7 @@ function requested() {
 }
 
 function installArkShopUiLiveDeployRuntime() {
+  installArkShopCompatibilityProbeRuntime();
   if (!requested()) return { enabled: false };
   const timer = setTimeout(() => {
     void run()
