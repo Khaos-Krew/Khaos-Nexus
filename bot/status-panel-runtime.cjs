@@ -3,6 +3,7 @@
 const { Events } = require('discord.js');
 const { StatusPanelService } = require('../main/services/status-panel-service.cjs');
 const { normalizeStatusPanelsConfig, parseStatusButtonId, renderStatusPanel } = require('../shared/status-panels.cjs');
+const { buildArkRulesReply } = require('../shared/ark-rules.cjs');
 
 const installedClients = new WeakSet();
 
@@ -32,6 +33,10 @@ function installStatusPanelRuntime({ client, getBootstrap, send, log, now } = {}
     });
   }
 
+  function panelServer(panel) {
+    return (bootstrap().config?.servers || []).find((item) => String(item.id) === String(panel.serverId)) || null;
+  }
+
   function rateLimited(interaction, panelId, action) {
     const key = `${interaction.user?.id || 'unknown'}:${panelId}:${action}`;
     const previous = recent.get(key) || 0;
@@ -55,11 +60,25 @@ function installStatusPanelRuntime({ client, getBootstrap, send, log, now } = {}
       return;
     }
     if (rateLimited(interaction, panel.id, parsed.action)) {
-      await interaction.reply({ content: 'That panel was refreshed recently. Try again in a few seconds.', ephemeral: true }).catch(() => {});
+      await interaction.reply({ content: 'That panel action was used recently. Try again in a few seconds.', ephemeral: true }).catch(() => {});
       return;
     }
 
     try {
+      if (parsed.action === 'rules') {
+        const server = panelServer(panel);
+        if (String(server?.game || '').trim().toLowerCase() !== 'ark') {
+          await interaction.reply({ content: 'Server Rules are currently available from ARK status panels only.', ephemeral: true });
+          return;
+        }
+        await interaction.reply(buildArkRulesReply());
+        send?.('discord-audit', {
+          action: 'status-panel.button-rules', outcome: 'success', targetType: 'status-panel', targetId: panel.id,
+          targetName: panel.name, summary: 'A Discord member opened the current ARK cluster rules.', actorId: interaction.user?.id || '', actorName: interaction.user?.username || 'Discord member'
+        });
+        return;
+      }
+
       const statusService = service();
       if (parsed.action === 'refresh') {
         await interaction.deferUpdate();
@@ -85,7 +104,7 @@ function installStatusPanelRuntime({ client, getBootstrap, send, log, now } = {}
       });
     } catch (error) {
       log?.('error', `Status panel interaction failed: ${error.stack || error.message}`, { panelId: panel.id, action: parsed.action });
-      const content = `Status panel refresh failed: ${String(error.message || 'Unknown error').slice(0, 500)}`;
+      const content = `Status panel action failed: ${String(error.message || 'Unknown error').slice(0, 500)}`;
       if (interaction.deferred || interaction.replied) await interaction.editReply({ content }).catch(() => {});
       else await interaction.reply({ content, ephemeral: true }).catch(() => {});
       send?.('discord-audit', {
