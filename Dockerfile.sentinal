@@ -9,6 +9,7 @@ RUN npm ci --omit=dev --no-audit --no-fund
 COPY src ./src
 COPY scripts ./scripts
 COPY tests ./tests
+COPY config ./config
 COPY config.example.json ./config.example.json
 
 RUN npm run check && npm test
