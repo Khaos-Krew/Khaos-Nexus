@@ -10,7 +10,10 @@ const INCIDENT_SEVERITY = Object.freeze({
   'forge-ci-probe-failure': 'high',
   'ci-failure': 'high',
   'sentinel-runtime-memory-pressure': 'medium',
-  'self-repair-state-store-degraded': 'high'
+  'self-repair-state-store-degraded': 'high',
+  'ark-rcon-unavailable': 'critical',
+  'arkshop-database-unavailable': 'high',
+  'ark-sftp-degraded': 'medium'
 });
 
 const ACTION_RISK = Object.freeze({
