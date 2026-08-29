@@ -36,6 +36,16 @@ test('bridge response parser distinguishes completion, explicit failure, and amb
   assert.equal(parseBridgeResponse('Server received command', 'tx-test-123456').state, 'ambiguous');
 });
 
+test('success or failure without the exact transaction echo is ambiguous', () => {
+  const missing = parseBridgeResponse('NEXUS_OK removed=10000 credited=50', 'tx-test-123456');
+  assert.equal(missing.state, 'ambiguous');
+  assert.equal(missing.reason, 'transaction-id-missing');
+
+  const mismatch = parseBridgeResponse('NEXUS_ERR tx=tx-other code=not-enough-items', 'tx-test-123456');
+  assert.equal(mismatch.state, 'ambiguous');
+  assert.equal(mismatch.reason, 'transaction-id-mismatch');
+});
+
 test('ambiguous transport result is never retried automatically', async () => {
   let calls = 0;
   const rcon = { execute: async () => { calls += 1; throw new Error('socket closed after write'); } };
