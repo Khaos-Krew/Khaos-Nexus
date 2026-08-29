@@ -44,11 +44,23 @@ test('verified launch pools preserve approved prices and use bounded class paths
 });
 
 test('unsupported X/S rolls fall back to normal instead of rerolling species', () => {
-  const entry = CACHE_POOLS.coastal.entries[0];
+  const entry = CACHE_POOLS.coastal.entries[1];
   const result = rollVariant(entry, { normal: 0, x: 100, s: 0 }, () => 0.5);
   assert.equal(result.requested, 'x');
   assert.equal(result.applied, 'normal');
   assert.equal(result.fallback, true);
+});
+
+test('supported X/S rolls apply the exact mapped variant blueprint', () => {
+  const xEntry = CACHE_POOLS.coastal.entries[0];
+  const xResult = rollVariant(xEntry, { normal: 0, x: 100, s: 0 }, () => 0.5);
+  assert.equal(xResult.applied, 'x');
+  assert.match(xResult.blueprint, /^\/Game\/Genesis\/Dinos\/BiomeVariants\//);
+
+  const sEntry = CACHE_POOLS.mountain.entries[0];
+  const sResult = rollVariant(sEntry, { normal: 0, x: 0, s: 100 }, () => 0.5);
+  assert.equal(sResult.applied, 's');
+  assert.match(sResult.blueprint, /^\/SDinoVariants\//);
 });
 
 test('cache rolls keep Shiny disabled for launch and stay in approved bounds', () => {
