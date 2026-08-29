@@ -4,7 +4,7 @@
   "WebsiteUrl": "https://discord.gg/ZYAdnbqRHs",
   "DiscordUrl": "https://discord.gg/ZYAdnbqRHs",
   "VoteRewards": false,
-  "DisableSellButton": true,
+  "DisableSellButton": false,
   "DisableTradeButton": false,
   "HideBuffIcon": false,
   "UseSteamOverlay": false,

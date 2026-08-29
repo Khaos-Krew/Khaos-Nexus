@@ -5,13 +5,13 @@ const assert = require('node:assert/strict');
 const { readDesiredConfig, VERSION } = require('../src/sentinel/arkshop-ui-live-deploy.cjs');
 const runtime = require('../src/sentinel/arkshop-ui-live-deploy-runtime.cjs');
 
-test('Nexus ArkShopUI live deploy keeps Sell locked and trade available', () => {
+test('Nexus ArkShopUI live deploy exposes static Sell and keeps trade available', () => {
   const config = readDesiredConfig();
   assert.equal(config.ShopName, 'KHAOS NEXUS // EXCHANGE');
   assert.equal(config.UiKey, 'F3');
-  assert.equal(config.DisableSellButton, true);
+  assert.equal(config.DisableSellButton, false);
   assert.equal(config.DisableTradeButton, false);
-  assert.equal(VERSION, 'nexus-arkshopui-test-v2-iconfix');
+  assert.equal(VERSION, 'nexus-arkshopui-launch-v3-sell');
   assert.equal(Object.prototype.hasOwnProperty.call(config, 'OverrideCurrencyIcon'), false);
 });
 

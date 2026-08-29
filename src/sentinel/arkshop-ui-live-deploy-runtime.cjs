@@ -15,11 +15,11 @@ function installArkShopUiLiveDeployRuntime() {
   if (!requested()) return { enabled: false };
   const timer = setTimeout(() => {
     void run()
-      .then((result) => console.log(`[Nexus Sentinal] Nexus ArkShopUI test deployment COMPLETE: changed=${result.changed === true} uiKey=${result.uiKey || 'unknown'} sellDisabled=${result.sellDisabled === true}`))
-      .catch((error) => console.error(`[Nexus Sentinal] Nexus ArkShopUI test deployment FAILED CLOSED: ${cleanError(error)}`));
+      .then((result) => console.log(`[Nexus Sentinal] Nexus ArkShopUI deployment COMPLETE: changed=${result.changed === true} uiKey=${result.uiKey || 'unknown'} sellEnabled=${result.sellDisabled !== true}`))
+      .catch((error) => console.error(`[Nexus Sentinal] Nexus ArkShopUI deployment FAILED CLOSED: ${cleanError(error)}`));
   }, 20_000);
   timer.unref?.();
-  console.log(`[Nexus Sentinal] Nexus ArkShopUI test deployment armed via ${ENV_KEY}; Sell remains disabled.`);
+  console.log(`[Nexus Sentinal] Nexus ArkShopUI deployment armed via ${ENV_KEY}; applying functional launch configuration.`);
   return { enabled: true };
 }
 

@@ -9,7 +9,7 @@ const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { CONFIG_CANDIDATES, mergeArkShopUiConfig, configsEqual } = require('./arkshop-ui-sync.cjs');
 const { productionSafe } = require('./arkshop-ui-config.cjs');
 
-const VERSION = 'nexus-arkshopui-test-v2-iconfix';
+const VERSION = 'nexus-arkshopui-launch-v3-sell';
 const DESIRED_PATH = path.resolve(__dirname, '../../config/ark/arkshopui/nexus-exchange.json');
 
 function cleanError(error) {
@@ -32,7 +32,6 @@ function readDesiredConfig() {
   const desired = JSON.parse(fs.readFileSync(DESIRED_PATH, 'utf8'));
   const safety = productionSafe(desired);
   if (!safety.productionSafe) throw new Error(`Nexus ArkShopUI config is not production-safe: ${safety.blockers.join(', ')}`);
-  if (desired.DisableSellButton !== true) throw new Error('Nexus ArkShopUI test deployment must keep Sell disabled.');
   return desired;
 }
 
@@ -92,11 +91,7 @@ async function run({ prefix = 'ARK_GEN1', Client = SftpClient, RconClient = ArkR
     if (!live || typeof live !== 'object' || Array.isArray(live)) throw new Error('Live ArkShopUI config root is not an object.');
 
     const merged = mergeArkShopUiConfig(live, desired);
-    // V1 incorrectly wrote an HTTP URL here. ArkShopUI expects a cooked Unreal/ARK asset path.
-    // If Nexus does not explicitly provide a verified asset path, remove the stale override and
-    // allow ArkShopUI to use its built-in currency icon.
     if (!Object.prototype.hasOwnProperty.call(desired, 'OverrideCurrencyIcon')) delete merged.OverrideCurrencyIcon;
-    if (merged.DisableSellButton !== true) throw new Error('Merged ArkShopUI config unexpectedly enables Sell.');
     const nextText = `${JSON.stringify(merged, null, 2)}\n`;
     changed = originalText !== nextText;
 

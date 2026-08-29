@@ -77,7 +77,6 @@ function validateArkShopUiConfig(config = {}) {
 
   if (!clean(config.WebsiteUrl, 500)) warnings.push('Nexus Portal URL is not configured; do not deploy the Website button live until a URL is selected.');
   if (!clean(config.OverrideCurrencyIcon, 500)) warnings.push('Custom Nexus Points icon is unset; ArkShopUI will use its default currency icon until a cooked ASA asset path is verified.');
-  if (config.DisableSellButton !== true) warnings.push('Sell button should stay disabled until the capped Nexus sell market is live and arbitrage-checked.');
 
   return { ok: errors.length === 0, errors, warnings };
 }
@@ -86,7 +85,6 @@ function productionSafe(config = {}) {
   const result = validateArkShopUiConfig(config);
   const blockers = [...result.errors];
   if (!clean(config.WebsiteUrl, 500)) blockers.push('missing-website-url');
-  if (config.DisableSellButton !== true) blockers.push('sell-market-not-locked');
   return { ...result, productionSafe: result.ok && blockers.length === 0, blockers };
 }
 
