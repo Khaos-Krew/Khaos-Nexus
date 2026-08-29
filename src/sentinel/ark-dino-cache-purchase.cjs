@@ -22,7 +22,7 @@ function buildDinoDepotCommand({ eosId, blueprint, level } = {}) {
   const player = cleanEosId(eosId);
   const dino = String(blueprint || '').trim();
   const lvl = Number(level);
-  if (!/^\/Game\/[A-Za-z0-9_./-]{8,220}$/.test(dino)) throw new Error('Dino Depot blueprint path is invalid.');
+  if (!/^\/(?:Game|SDinoVariants)\/[A-Za-z0-9_./-]{8,220}$/.test(dino)) throw new Error('Dino Depot blueprint path is invalid.');
   if (!Number.isInteger(lvl) || lvl < 1 || lvl > 300) throw new Error('Dino Depot level must be an integer from 1 to 300.');
   const command = `ScriptCommand SpawnDinoInBall -p=${player} -t=${dino} -l=${lvl} -i=1 -a=1`;
   if (command.length > 290) throw new Error('Dino Depot command exceeds its documented command-builder size limit.');
@@ -31,7 +31,9 @@ function buildDinoDepotCommand({ eosId, blueprint, level } = {}) {
 
 function assertDeliverableRoll(roll) {
   if (!roll || typeof roll !== 'object') throw new Error('Dino cache roll is missing.');
-  if (roll.variant !== 'normal') throw new Error(`Dino cache variant '${roll.variant}' has no verified delivery adapter yet.`);
+  if (!['normal', 'x', 's'].includes(roll.variant)) throw new Error(`Dino cache variant '${roll.variant}' is not supported.`);
+  if (roll.variant === 'x' && !String(roll.blueprint || '').startsWith('/Game/Genesis/Dinos/BiomeVariants/')) throw new Error('X dino-cache outcome does not have a verified X blueprint path.');
+  if (roll.variant === 's' && !String(roll.blueprint || '').startsWith('/SDinoVariants/')) throw new Error('S dino-cache outcome does not have a verified S blueprint path.');
   if (roll.shiny === true) throw new Error('Shiny dino-cache outcome has no verified targeted delivery adapter yet.');
   return true;
 }

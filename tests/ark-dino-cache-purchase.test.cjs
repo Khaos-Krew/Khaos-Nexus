@@ -47,10 +47,14 @@ test('Dino Depot command uses documented targeted exact-level arguments and stay
   const command = buildDinoDepotCommand({ eosId: '0002abc12345', blueprint: '/Game/PrimalEarth/Dinos/Para/Para_Character_BP.Para_Character_BP', level: 275 });
   assert.equal(command, 'ScriptCommand SpawnDinoInBall -p=0002abc12345 -t=/Game/PrimalEarth/Dinos/Para/Para_Character_BP.Para_Character_BP -l=275 -i=1 -a=1');
   assert.ok(command.length <= 290);
+  assert.match(buildDinoDepotCommand({ eosId: '0002abc12345', blueprint: '/SDinoVariants/S-Rex/S-Rex_Character_BP.S-Rex_Character_BP', level: 275 }), /-t=\/SDinoVariants\/S-Rex\//);
 });
 
-test('unsupported variant and shiny outcomes fail before charging', () => {
-  assert.throws(() => assertDeliverableRoll({ variant: 'x', shiny: false }), /no verified delivery adapter/);
+test('only mapped X/S and normal outcomes pass the pre-charge delivery gate', () => {
+  assert.throws(() => assertDeliverableRoll({ variant: 'x', blueprint: '/Game/PrimalEarth/Dinos/Rex/Rex_Character_BP.Rex_Character_BP', shiny: false }), /verified X blueprint/);
+  assert.throws(() => assertDeliverableRoll({ variant: 's', blueprint: '/Game/PrimalEarth/Dinos/Rex/Rex_Character_BP.Rex_Character_BP', shiny: false }), /verified S blueprint/);
+  assert.equal(assertDeliverableRoll({ variant: 'x', blueprint: '/Game/Genesis/Dinos/BiomeVariants/Volcano_Rex/Volcano_Rex_Character_BP.Volcano_Rex_Character_BP', shiny: false }), true);
+  assert.equal(assertDeliverableRoll({ variant: 's', blueprint: '/SDinoVariants/S-Rex/S-Rex_Character_BP.S-Rex_Character_BP', shiny: false }), true);
   assert.throws(() => assertDeliverableRoll({ variant: 'normal', shiny: true }), /Shiny/);
   assert.equal(assertDeliverableRoll({ variant: 'normal', shiny: false }), true);
 });

@@ -19,30 +19,30 @@ const VARIANT_WEIGHTS = Object.freeze({ normal: 93, x: 5, s: 2 });
 // can be targeted by a verified Shiny delivery adapter.
 const SHINY_CHANCE = 0;
 
-function dino(name, blueprint, rarity = 'common', variants = []) {
-  return Object.freeze({ name, blueprint, rarity, variants: Object.freeze([...variants]) });
+function dino(name, blueprint, rarity = 'common', variants = {}) {
+  return Object.freeze({ name, blueprint, rarity, variants: Object.freeze({ ...variants }) });
 }
 
 const CACHE_POOLS = Object.freeze({
   coastal: Object.freeze({
     price: 800,
     entries: Object.freeze([
-      dino('Parasaur', '/Game/PrimalEarth/Dinos/Para/Para_Character_BP.Para_Character_BP', 'common'),
+      dino('Parasaur', '/Game/PrimalEarth/Dinos/Para/Para_Character_BP.Para_Character_BP', 'common', { x: '/Game/Genesis/Dinos/BiomeVariants/BogPara/Bog_Para_Character_BP.Bog_Para_Character_BP' }),
       dino('Moschops', '/Game/PrimalEarth/Dinos/Moschops/Moschops_Character_BP.Moschops_Character_BP', 'common'),
       dino('Carbonemys', '/Game/PrimalEarth/Dinos/Turtle/Turtle_Character_BP.Turtle_Character_BP', 'common'),
-      dino('Trike', '/Game/PrimalEarth/Dinos/Trike/Trike_Character_BP.Trike_Character_BP', 'uncommon'),
+      dino('Trike', '/Game/PrimalEarth/Dinos/Trike/Trike_Character_BP.Trike_Character_BP', 'uncommon', { x: '/Game/Genesis/Dinos/BiomeVariants/Volcano_Trike/Volcano_Trike_Character_BP.Volcano_Trike_Character_BP', s: '/SDinoVariants/S-Trike/S-Trike_Character_BP.S-Trike_Character_BP' }),
       dino('Pteranodon', '/Game/PrimalEarth/Dinos/Ptero/Ptero_Character_BP.Ptero_Character_BP', 'rare'),
-      dino('Ichthyosaurus', '/Game/PrimalEarth/Dinos/Dolphin/Dolphin_Character_BP.Dolphin_Character_BP', 'rare')
+      dino('Ichthyosaurus', '/Game/PrimalEarth/Dinos/Dolphin/Dolphin_Character_BP.Dolphin_Character_BP', 'rare', { x: '/Game/Genesis/Dinos/BiomeVariants/Ocean_Dolphin/Ocean_Dolphin_Character_BP.Ocean_Dolphin_Character_BP' })
     ])
   }),
   forest: Object.freeze({
     price: 1250,
     entries: Object.freeze([
-      dino('Raptor', '/Game/PrimalEarth/Dinos/Raptor/Raptor_Character_BP.Raptor_Character_BP', 'common'),
+      dino('Raptor', '/Game/PrimalEarth/Dinos/Raptor/Raptor_Character_BP.Raptor_Character_BP', 'common', { x: '/Game/Genesis/Dinos/BiomeVariants/Bog_Raptor/Bog_Raptor_Character_BP.Bog_Raptor_Character_BP' }),
       dino('Carnotaurus', '/Game/PrimalEarth/Dinos/Carno/Carno_Character_BP.Carno_Character_BP', 'common'),
-      dino('Dire Bear', '/Game/PrimalEarth/Dinos/Direbear/Direbear_Character_BP.Direbear_Character_BP', 'uncommon'),
-      dino('Therizinosaur', '/Game/PrimalEarth/Dinos/Therizinosaurus/Therizino_Character_BP.Therizino_Character_BP', 'rare'),
-      dino('Thylacoleo', '/Game/PrimalEarth/Dinos/Thylacoleo/Thylacoleo_Character_BP.Thylacoleo_Character_BP', 'rare'),
+      dino('Dire Bear', '/Game/PrimalEarth/Dinos/Direbear/Direbear_Character_BP.Direbear_Character_BP', 'uncommon', { s: '/SDinoVariants/S-Direbear/S-Direbear_Character_BP.S-Direbear_Character_BP' }),
+      dino('Therizinosaur', '/Game/PrimalEarth/Dinos/Therizinosaurus/Therizino_Character_BP.Therizino_Character_BP', 'rare', { s: '/SDinoVariants/S-Therizinosaur/S-Therizino_Character_BP.S-Therizino_Character_BP' }),
+      dino('Thylacoleo', '/Game/PrimalEarth/Dinos/Thylacoleo/Thylacoleo_Character_BP.Thylacoleo_Character_BP', 'rare', { s: '/SDinoVariants/S-Thylacoleo/S-Thylacoleo_Character_BP.S-Thylacoleo_Character_BP' }),
       dino('Gigantopithecus', '/Game/PrimalEarth/Dinos/Bigfoot/Bigfoot_Character_BP.Bigfoot_Character_BP', 'ultra')
     ])
   }),
@@ -58,33 +58,33 @@ const CACHE_POOLS = Object.freeze({
   mountain: Object.freeze({
     price: 1800,
     entries: Object.freeze([
-      dino('Ankylosaurus', '/Game/PrimalEarth/Dinos/Ankylo/Ankylo_Character_BP.Ankylo_Character_BP', 'common'),
-      dino('Doedicurus', '/Game/PrimalEarth/Dinos/Doedicurus/Doed_Character_BP.Doed_Character_BP', 'common'),
-      dino('Sabertooth', '/Game/PrimalEarth/Dinos/Saber/Saber_Character_BP.Saber_Character_BP', 'uncommon'),
-      dino('Argentavis', '/Game/PrimalEarth/Dinos/Argentavis/Argent_Character_BP.Argent_Character_BP', 'uncommon'),
-      dino('Allosaurus', '/Game/PrimalEarth/Dinos/Allosaurus/Allo_Character_BP.Allo_Character_BP', 'rare'),
-      dino('Rex', '/Game/PrimalEarth/Dinos/Rex/Rex_Character_BP.Rex_Character_BP', 'rare'),
-      dino('Yutyrannus', '/Game/PrimalEarth/Dinos/Yutyrannus/Yutyrannus_Character_BP.Yutyrannus_Character_BP', 'ultra')
+      dino('Ankylosaurus', '/Game/PrimalEarth/Dinos/Ankylo/Ankylo_Character_BP.Ankylo_Character_BP', 'common', { x: '/Game/Genesis/Dinos/BiomeVariants/Volcano_Ankylosaurus/Volcano_Ankylo_Character_BP.Volcano_Ankylo_Character_BP', s: '/SDinoVariants/S-Ankylosaurus/S-Ankylo_Character_BP.S-Ankylo_Character_BP' }),
+      dino('Doedicurus', '/Game/PrimalEarth/Dinos/Doedicurus/Doed_Character_BP.Doed_Character_BP', 'common', { s: '/SDinoVariants/S-Doedicurus/S-Doed_Character_BP.S-Doed_Character_BP' }),
+      dino('Sabertooth', '/Game/PrimalEarth/Dinos/Saber/Saber_Character_BP.Saber_Character_BP', 'uncommon', { x: '/Game/Genesis/Dinos/BiomeVariants/Snow_Saber/Snow_Saber_Character_BP.Snow_Saber_Character_BP' }),
+      dino('Argentavis', '/Game/PrimalEarth/Dinos/Argentavis/Argent_Character_BP.Argent_Character_BP', 'uncommon', { x: '/Game/Genesis/Dinos/BiomeVariants/Snow_Argentavis/Snow_Argent_Character_BP.Snow_Argent_Character_BP', s: '/SDinoVariants/S-Argentavis/S-Argent_Character_BP.S-Argent_Character_BP' }),
+      dino('Allosaurus', '/Game/PrimalEarth/Dinos/Allosaurus/Allo_Character_BP.Allo_Character_BP', 'rare', { x: '/Game/Genesis/Dinos/BiomeVariants/Volcano_Allosaurus/Volcano_Allo_Character_BP.Volcano_Allo_Character_BP', s: '/SDinoVariants/S-Allosaurus/S-Allo_Character_BP.S-Allo_Character_BP' }),
+      dino('Rex', '/Game/PrimalEarth/Dinos/Rex/Rex_Character_BP.Rex_Character_BP', 'rare', { x: '/Game/Genesis/Dinos/BiomeVariants/Volcano_Rex/Volcano_Rex_Character_BP.Volcano_Rex_Character_BP', s: '/SDinoVariants/S-Rex/S-Rex_Character_BP.S-Rex_Character_BP' }),
+      dino('Yutyrannus', '/Game/PrimalEarth/Dinos/Yutyrannus/Yutyrannus_Character_BP.Yutyrannus_Character_BP', 'ultra', { x: '/Game/Genesis/Dinos/BiomeVariants/Snow_Yutyrannus/Snow_Yutyrannus_Character_BP.Snow_Yutyrannus_Character_BP', s: '/SDinoVariants/S-Yutyrannus/S-Yutyrannus_Character_BP.S-Yutyrannus_Character_BP' })
     ])
   }),
   ocean: Object.freeze({
     price: 2200,
     entries: Object.freeze([
-      dino('Megalodon', '/Game/PrimalEarth/Dinos/Megalodon/Megalodon_Character_BP.Megalodon_Character_BP', 'common'),
+      dino('Megalodon', '/Game/PrimalEarth/Dinos/Megalodon/Megalodon_Character_BP.Megalodon_Character_BP', 'common', { x: '/Game/Genesis/Dinos/BiomeVariants/Ocean_Megalodon/Ocean_Megalodon_Character_BP.Ocean_Megalodon_Character_BP', s: '/SDinoVariants/S-Megalodon/S-Megalodon_Character_BP.S-Megalodon_Character_BP' }),
       dino('Angler', '/Game/PrimalEarth/Dinos/Anglerfish/Angler_Character_BP.Angler_Character_BP', 'common'),
-      dino('Dunkleosteus', '/Game/PrimalEarth/Dinos/Dunkleosteus/Dunkle_Character_BP.Dunkle_Character_BP', 'uncommon'),
-      dino('Basilosaurus', '/Game/PrimalEarth/Dinos/Basilosaurus/Basilosaurus_Character_BP.Basilosaurus_Character_BP', 'rare'),
-      dino('Plesiosaur', '/Game/PrimalEarth/Dinos/Plesiosaur/Plesiosaur_Character_BP.Plesiosaur_Character_BP', 'rare'),
-      dino('Mosasaurus', '/Game/PrimalEarth/Dinos/Mosasaurus/Mosa_Character_BP.Mosa_Character_BP', 'ultra')
+      dino('Dunkleosteus', '/Game/PrimalEarth/Dinos/Dunkleosteus/Dunkle_Character_BP.Dunkle_Character_BP', 'uncommon', { x: '/Game/Genesis/Dinos/BiomeVariants/Ocean_Dunkleosteus/Ocean_Dunkle_Character_BP.Ocean_Dunkle_Character_BP', s: '/SDinoVariants/S-Dunkleosteus/S-Dunkle_Character_BP.S-Dunkle_Character_BP' }),
+      dino('Basilosaurus', '/Game/PrimalEarth/Dinos/Basilosaurus/Basilosaurus_Character_BP.Basilosaurus_Character_BP', 'rare', { x: '/Game/Genesis/Dinos/BiomeVariants/Ocean_Basilosaurus/Ocean_Basilosaurus_Character_BP.Ocean_Basilosaurus_Character_BP', s: '/SDinoVariants/S-Basilosaurus/S-Basilosaurus_Character_BP.S-Basilosaurus_Character_BP' }),
+      dino('Plesiosaur', '/Game/PrimalEarth/Dinos/Plesiosaur/Plesiosaur_Character_BP.Plesiosaur_Character_BP', 'rare', { s: '/SDinoVariants/S-Plesiosaur/S-Plesiosaur_Character_BP.S-Plesiosaur_Character_BP' }),
+      dino('Mosasaurus', '/Game/PrimalEarth/Dinos/Mosasaurus/Mosa_Character_BP.Mosa_Character_BP', 'ultra', { x: '/Game/Genesis/Dinos/BiomeVariants/Ocean_Mosasaurus/Ocean_Mosa_Character_BP.Ocean_Mosa_Character_BP', s: '/SDinoVariants/S-Mosa/S-Mosa_Character_BP.S-Mosa_Character_BP' })
     ])
   }),
   deepcave: Object.freeze({
     price: 2200,
     entries: Object.freeze([
-      dino('Araneo', '/Game/PrimalEarth/Dinos/Spider-Small/SpiderS_Character_BP.SpiderS_Character_BP', 'common'),
+      dino('Araneo', '/Game/PrimalEarth/Dinos/Spider-Small/SpiderS_Character_BP.SpiderS_Character_BP', 'common', { s: '/SDinoVariants/S-Araneo/S-SpiderS_Character_BP.S-SpiderS_Character_BP' }),
       dino('Arthropluera', '/Game/PrimalEarth/Dinos/Arthropluera/Arthro_Character_BP.Arthro_Character_BP', 'uncommon'),
       dino('Onyc', '/Game/PrimalEarth/Dinos/Bat/Bat_Character_BP.Bat_Character_BP', 'uncommon'),
-      dino('Megalosaurus', '/Game/PrimalEarth/Dinos/Megalosaurus/Megalosaurus_Character_BP.Megalosaurus_Character_BP', 'rare')
+      dino('Megalosaurus', '/Game/PrimalEarth/Dinos/Megalosaurus/Megalosaurus_Character_BP.Megalosaurus_Character_BP', 'rare', { s: '/SDinoVariants/S-Megalosaurus/S-Megalosaurus_Character_BP.S-Megalosaurus_Character_BP' })
     ])
   }),
   apex: Object.freeze({
@@ -93,8 +93,8 @@ const CACHE_POOLS = Object.freeze({
     variantWeights: Object.freeze({ normal: 95, x: 3.5, s: 1.5 }),
     entries: Object.freeze([
       dino('Giganotosaurus', '/Game/PrimalEarth/Dinos/Giganotosaurus/Gigant_Character_BP.Gigant_Character_BP', 'rare'),
-      dino('Carcharodontosaurus', '/Game/PrimalEarth/Dinos/Carcharodontosaurus/Carcha_Character_BP.Carcha_Character_BP', 'rare'),
-      dino('Rhyniognatha', '/Game/PrimalEarth/Dinos/Rhyniognatha/Rhynio_Character_BP.Rhynio_Character_BP', 'ultra')
+      dino('Carcharodontosaurus', '/Game/PrimalEarth/Dinos/Carcharodontosaurus/Carcha_Character_BP.Carcha_Character_BP', 'rare', { s: '/SDinoVariants/S-Carcha/S-Carcha_Character_BP.S-Carcha_Character_BP' }),
+      dino('Rhyniognatha', '/Game/PrimalEarth/Dinos/Rhyniognatha/Rhynio_Character_BP.Rhynio_Character_BP', 'ultra', { s: '/SDinoVariants/S-Rhynio/S-Rhynio_Character_BP.S-Rhynio_Character_BP' })
     ])
   })
 });
@@ -146,9 +146,10 @@ function rollVariant(entry, weights, rngInput) {
   const rng = normalizeRng(rngInput);
   const table = weights || VARIANT_WEIGHTS;
   const requested = weightedPick(Object.keys(table), (key) => table[key], rng);
-  if (requested === 'normal') return { requested, applied: 'normal', fallback: false };
-  const supported = Array.isArray(entry?.variants) && entry.variants.includes(requested);
-  return { requested, applied: supported ? requested : 'normal', fallback: !supported };
+  if (requested === 'normal') return { requested, applied: 'normal', fallback: false, blueprint: entry?.blueprint };
+  const variantBlueprint = entry?.variants?.[requested];
+  const supported = typeof variantBlueprint === 'string' && variantBlueprint.startsWith('/');
+  return { requested, applied: supported ? requested : 'normal', fallback: !supported, blueprint: supported ? variantBlueprint : entry?.blueprint };
 }
 
 function rollShiny() {
@@ -166,7 +167,7 @@ function rollCache(cacheId, rngInput) {
     cacheId: String(cacheId).toLowerCase(),
     price: pool.price,
     species: species.name,
-    blueprint: species.blueprint,
+    blueprint: variant.blueprint,
     rarity: species.rarity,
     level,
     variantRequested: variant.requested,
