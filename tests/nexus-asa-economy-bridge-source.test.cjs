@@ -19,15 +19,15 @@ test('native bridge uses ArkShop and official inventory primitives rather than b
   assert.match(source, /SetQuantity\(/);
   assert.match(source, /RemoveItem\(/);
   assert.match(source, /IncrementItemTemplateQuantity\(/);
-  assert.equal(/ClearPlayerInventory|DestroyAll|ServerChat|ConsoleCommand\(/.test(source), false);
+  assert.equal(/ClearPlayerInventory|DestroyAll|ServerChat|ExecuteConsoleCommand|GetCheatManager|ServerAdminCommand/.test(source), false);
 });
 
 test('native bridge registers only narrow Nexus economy console and RCON commands and removes all on unload', () => {
   for (const name of ['Ping', 'Sell']) {
-    assert.match(source, new RegExp(`AddConsoleCommand\\("NexusEconomy\\.${name}"`));
-    assert.match(source, new RegExp(`AddRconCommand\\("NexusEconomy\\.${name}"`));
-    assert.match(source, new RegExp(`RemoveConsoleCommand\\("NexusEconomy\\.${name}"`));
-    assert.match(source, new RegExp(`RemoveRconCommand\\("NexusEconomy\\.${name}"`));
+    assert.match(source, new RegExp(`AddConsoleCommand\\(\"NexusEconomy\\.${name}\"`));
+    assert.match(source, new RegExp(`AddRconCommand\\(\"NexusEconomy\\.${name}\"`));
+    assert.match(source, new RegExp(`RemoveConsoleCommand\\(\"NexusEconomy\\.${name}\"`));
+    assert.match(source, new RegExp(`RemoveRconCommand\\(\"NexusEconomy\\.${name}\"`));
   }
   assert.equal((source.match(/AddConsoleCommand/g) || []).length, 2);
   assert.equal((source.match(/AddRconCommand/g) || []).length, 2);
@@ -44,5 +44,5 @@ test('point-credit failure attempts exact item restoration before returning fail
 test('bridge uses fmt-style placeholders rather than printf formatting', () => {
   assert.equal(source.includes('%s'), false);
   assert.equal(source.includes('%d'), false);
-  assert.match(source, /FString::Format\("NEXUS_OK tx=\{\}/);
+  assert.match(source, /FString::Format\(\"NEXUS_OK tx=\{\}/);
 });
