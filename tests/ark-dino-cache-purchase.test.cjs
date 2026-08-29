@@ -57,12 +57,7 @@ test('unsupported variant and shiny outcomes fail before charging', () => {
 
 test('successful purchase checks balance, charges once, then delivers exact rolled dino', async () => {
   const rcon = new FakeRcon({ balance: 2000 });
-  const service = new ArkDinoCachePurchaseService({
-    rcon,
-    journal: tempJournal(),
-    // common rarity -> first common, 200-219 bucket -> 200, normal variant, not shiny
-    rng: sequence([0, 0, 0, 0, 0, 0.5])
-  });
+  const service = new ArkDinoCachePurchaseService({ rcon, journal: tempJournal(), rng: sequence([0, 0, 0, 0, 0, 0.5]) });
   const result = await service.purchase({ eosId: '0002abc12345', cacheId: 'coastal' });
   assert.equal(result.ok, true);
   assert.equal(rcon.balance, 1200);
@@ -85,8 +80,7 @@ test('delivery failure refunds exactly the charged cache price and journals refu
   const service = new ArkDinoCachePurchaseService({ rcon, journal, rng: sequence([0, 0, 0, 0, 0, 0.5]) });
   await assert.rejects(() => service.purchase({ eosId: '0002abc12345', cacheId: 'coastal' }), /800 points were refunded/);
   assert.equal(rcon.balance, 2000);
-  const tx = journal.read().transactions.at(-1);
-  assert.equal(tx.state, 'refunded');
+  assert.equal(journal.read().transactions.at(-1).state, 'refunded');
 });
 
 test('refund transport failure remains refund_pending for operator recovery', async () => {
@@ -94,6 +88,5 @@ test('refund transport failure remains refund_pending for operator recovery', as
   const journal = tempJournal();
   const service = new ArkDinoCachePurchaseService({ rcon, journal, rng: sequence([0, 0, 0, 0, 0, 0.5]) });
   await assert.rejects(() => service.purchase({ eosId: '0002abc12345', cacheId: 'coastal' }), /refund is still pending/);
-  const tx = journal.read().transactions.at(-1);
-  assert.equal(tx.state, 'refund_pending');
+  assert.equal(journal.read().transactions.at(-1).state, 'refund_pending');
 });
