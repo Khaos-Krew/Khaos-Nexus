@@ -1,7 +1,7 @@
 'use strict';
 
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
-const { rollCache, DinoCacheJournal } = require('./ark-dino-cache-engine.cjs');
+const { CACHE_POOLS, rollCache, DinoCacheJournal } = require('./ark-dino-cache-engine.cjs');
 
 function cleanEosId(value) {
   const id = String(value || '').trim();
@@ -36,6 +36,23 @@ function assertDeliverableRoll(roll) {
   return true;
 }
 
+function cacheCooldown(journal, eosId, cacheId, now = Date.now()) {
+  const id = String(cacheId || '').toLowerCase();
+  const pool = CACHE_POOLS[id];
+  const cooldownHours = Number(pool?.cooldownHours || 0);
+  if (!(cooldownHours > 0)) return { active: false, cooldownHours: 0, remainingSeconds: 0 };
+  const state = journal.read();
+  const last = [...(state.transactions || [])]
+    .reverse()
+    .find((tx) => tx.eosId === eosId && tx.cacheId === id && tx.state === 'delivered');
+  if (!last) return { active: false, cooldownHours, remainingSeconds: 0 };
+  const deliveredAt = Date.parse(last.updatedAt || last.createdAt || '');
+  if (!Number.isFinite(deliveredAt)) return { active: false, cooldownHours, remainingSeconds: 0 };
+  const expiresAt = deliveredAt + cooldownHours * 60 * 60 * 1000;
+  const remainingSeconds = Math.max(0, Math.ceil((expiresAt - now) / 1000));
+  return { active: remainingSeconds > 0, cooldownHours, remainingSeconds, expiresAt: new Date(expiresAt).toISOString() };
+}
+
 class ArkDinoCachePurchaseService {
   constructor({ prefix = 'ARK_GEN1', rcon, journal, rng } = {}) {
     this.prefix = prefix;
@@ -62,7 +79,15 @@ class ArkDinoCachePurchaseService {
 
   async purchase({ eosId, cacheId } = {}) {
     const player = cleanEosId(eosId);
-    const roll = rollCache(cacheId, this.rng);
+    const id = String(cacheId || '').toLowerCase();
+    if (!CACHE_POOLS[id]) throw new Error(`Unknown dino cache: ${cacheId}.`);
+
+    const cooldown = cacheCooldown(this.journal, player, id);
+    if (cooldown.active) {
+      return { ok: false, reason: 'cooldown', cacheId: id, cooldownHours: cooldown.cooldownHours, remainingSeconds: cooldown.remainingSeconds, expiresAt: cooldown.expiresAt };
+    }
+
+    const roll = rollCache(id, this.rng);
     assertDeliverableRoll(roll); // Must happen before any charge.
 
     const balance = await this.points(player);
@@ -97,5 +122,5 @@ class ArkDinoCachePurchaseService {
 }
 
 module.exports = {
-  cleanEosId, parsePointsResponse, buildDinoDepotCommand, assertDeliverableRoll, ArkDinoCachePurchaseService
+  cleanEosId, parsePointsResponse, buildDinoDepotCommand, assertDeliverableRoll, cacheCooldown, ArkDinoCachePurchaseService
 };
