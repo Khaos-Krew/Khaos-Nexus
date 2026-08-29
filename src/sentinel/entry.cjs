@@ -110,5 +110,6 @@ require('./arkshop-nexus-economy-v1-runtime.cjs').installArkShopEconomyV1Runtime
 require('./arkshop-nexus-launch-v2-runtime.cjs').installArkShopLaunchV2Runtime();
 require('./arkshop-nexus-launch-v3-kits-runtime.cjs').installArkShopLaunchV3KitsRuntime();
 require('./arkshop-nexus-launch-v4-resources-runtime.cjs').installArkShopLaunchV4ResourcesRuntime();
+require('./arkshop-nexus-launch-v5-disable-legacy-sell-runtime.cjs').installArkShopLaunchV5DisableLegacySellRuntime();
 require('./ark-command-routing-patch.cjs');
 require('./bot.cjs');
