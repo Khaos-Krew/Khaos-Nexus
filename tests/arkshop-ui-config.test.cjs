@@ -17,12 +17,15 @@ test('Nexus Exchange ArkShopUI config validates without structural errors', () =
   assert.equal(config.ShopName, 'KHAOS NEXUS // EXCHANGE');
   assert.equal(config.DisableSellButton, true);
   assert.equal(config.DisableTradeButton, false);
+  assert.equal(config.WebsiteUrl, 'https://discord.gg/ZYAdnbqRHs');
+  assert.equal(config.DiscordUrl, 'https://discord.gg/ZYAdnbqRHs');
+  assert.match(config.OverrideCurrencyIcon, /nexus-points-coin\.png$/);
 });
 
-test('Nexus Exchange config remains intentionally blocked from production until portal URL is set', () => {
+test('Nexus Exchange config is presentation-safe while Sell remains locked', () => {
   const result = productionSafe(config);
-  assert.equal(result.productionSafe, false);
-  assert.ok(result.blockers.includes('missing-website-url'));
+  assert.equal(result.productionSafe, true);
+  assert.deepEqual(result.blockers, []);
 });
 
 test('validator rejects unsafe hotkeys, malformed URLs, and duplicate labels', () => {
