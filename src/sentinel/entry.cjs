@@ -106,5 +106,6 @@ installArkShopProfileBootstrapExtension();
 require('./ark-shop-plan-extension.cjs').installArkShopPlanExtension();
 require('./ark-shop-plan-additions-extension.cjs').installArkShopPlanAdditionsExtension();
 require('./ark-shop-plan-additions-fast-start.cjs').installArkShopPlanAdditionsFastStart();
+require('./arkshop-nexus-economy-v1-runtime.cjs').installArkShopEconomyV1Runtime();
 require('./ark-command-routing-patch.cjs');
 require('./bot.cjs');
