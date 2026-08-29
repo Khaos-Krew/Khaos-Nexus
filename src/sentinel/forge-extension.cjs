@@ -54,7 +54,8 @@ function bridgeStatusText(forge, health = null, infrastructure = null) {
   if (health) lines.push('', `Forge runtime: **${health.ok ? 'Online' : 'Unavailable'}**`, `Version: \`${health.version}\``, `OpenAI: **${health.openaiConfigured ? 'Configured' : 'Missing'}**`, `GitHub execution: **${health.githubConfigured ? 'Configured' : 'Missing'}**`, `Fallback routing: **${String(health.fallbackRouting || 'unknown')}**`, `Write policy: \`${health.writePolicy}\``);
   if (infrastructure) {
     const queue = infrastructure.queue || {};
-    lines.push('', '**V0.2 Control Plane**', `Worker: **${String(infrastructure.runtime?.workerEnabled ?? infrastructure.workerEnabled ?? false) === 'true' || infrastructure.runtime?.workerEnabled === true ? 'Enabled' : 'Disabled'}**`, `Approval gate: **${String(infrastructure.approvalGate || 'required')}**`, `Queue: **${Number(queue.queued || 0)} queued** • ${Number(queue.waiting || 0)} waiting • ${Number(queue.running || 0)} running`);
+    const workerEnabled = infrastructure.workerRuntime?.workerEnabled ?? infrastructure.runtime?.workerEnabled ?? infrastructure.workerEnabled ?? false;
+    lines.push('', '**V0.2 Control Plane**', `Worker: **${workerEnabled === true || String(workerEnabled).toLowerCase() === 'true' ? 'Enabled' : 'Disabled'}**`, `Approval gate: **${String(infrastructure.approvalGate || 'required')}**`, `Queue: **${Number(queue.queued || 0)} queued** • ${Number(queue.waiting || 0)} waiting • ${Number(queue.running || 0)} running`);
     const authority = infrastructure.authority || {};
     if (Object.keys(authority).length) lines.push(`Merge authority: **${authority.forgeCanMerge ? 'Enabled' : 'Disabled'}** • Deploy authority: **${authority.forgeCanDeploy ? 'Enabled' : 'Disabled'}**`);
   } else if (health) {
