@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { validateArkShopUiConfig, productionSafe } = require('../src/sentinel/arkshop-ui-config.cjs');
+const { validateArkShopUiConfig, productionSafe, validAssetPath } = require('../src/sentinel/arkshop-ui-config.cjs');
 
 const configPath = path.resolve(__dirname, '../config/ark/arkshopui/nexus-exchange.json');
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -19,13 +19,23 @@ test('Nexus Exchange ArkShopUI config validates without structural errors', () =
   assert.equal(config.DisableTradeButton, false);
   assert.equal(config.WebsiteUrl, 'https://discord.gg/ZYAdnbqRHs');
   assert.equal(config.DiscordUrl, 'https://discord.gg/ZYAdnbqRHs');
-  assert.match(config.OverrideCurrencyIcon, /nexus-points-coin\.png$/);
+  assert.equal(Object.prototype.hasOwnProperty.call(config, 'OverrideCurrencyIcon'), false);
 });
 
 test('Nexus Exchange config is presentation-safe while Sell remains locked', () => {
   const result = productionSafe(config);
   assert.equal(result.productionSafe, true);
   assert.deepEqual(result.blockers, []);
+});
+
+test('currency icon override accepts Unreal asset paths and rejects remote URLs', () => {
+  assert.equal(validAssetPath('/Game/PrimalEarth/CoreBlueprints/Items/Consumables/Icons/Narcotic_Icon'), true);
+  assert.equal(validAssetPath('https://example.com/coin.png'), false);
+  const broken = JSON.parse(JSON.stringify(config));
+  broken.OverrideCurrencyIcon = 'https://example.com/coin.png';
+  const result = validateArkShopUiConfig(broken);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((entry) => entry.includes('OverrideCurrencyIcon')));
 });
 
 test('validator rejects unsafe hotkeys, malformed URLs, and duplicate labels', () => {
