@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "shinyEnabled": false,
+  "shinyReason": "Disabled for launch until a verified targeted Shiny delivery adapter can modify the specific Dino Depot-generated ball.",
+  "levelRange": { "min": 200, "max": 300 },
+  "variants": ["normal", "x", "s"],
+  "delivery": "Dino Depot SpawnDinoInBall",
+  "failClosed": true
+}

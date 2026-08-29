@@ -15,14 +15,14 @@ const LEVEL_BUCKETS = Object.freeze([
 
 const RARITY_WEIGHTS = Object.freeze({ common: 55, uncommon: 28, rare: 13, ultra: 4 });
 const VARIANT_WEIGHTS = Object.freeze({ normal: 93, x: 5, s: 2 });
-const SHINY_CHANCE = 0.02;
+// Shiny outcomes are intentionally disabled for launch until one specific Dino Depot ball
+// can be targeted by a verified Shiny delivery adapter.
+const SHINY_CHANCE = 0;
 
 function dino(name, blueprint, rarity = 'common', variants = []) {
   return Object.freeze({ name, blueprint, rarity, variants: Object.freeze([...variants]) });
 }
 
-// Launch-safe pools use paths published by Dino Depot's official remote SpawnDinoInBall config.
-// Creatures whose ASA/mod class has not been verified are intentionally omitted until verified.
 const CACHE_POOLS = Object.freeze({
   coastal: Object.freeze({
     price: 800,
@@ -151,8 +151,8 @@ function rollVariant(entry, weights, rngInput) {
   return { requested, applied: supported ? requested : 'normal', fallback: !supported };
 }
 
-function rollShiny(rngInput) {
-  return normalizeRng(rngInput)() < SHINY_CHANCE;
+function rollShiny() {
+  return false;
 }
 
 function rollCache(cacheId, rngInput) {
@@ -162,7 +162,6 @@ function rollCache(cacheId, rngInput) {
   const species = rollSpecies(pool, rng);
   const level = rollLevel(rng);
   const variant = rollVariant(species, pool.variantWeights || VARIANT_WEIGHTS, rng);
-  const shiny = rollShiny(rng);
   return Object.freeze({
     cacheId: String(cacheId).toLowerCase(),
     price: pool.price,
@@ -173,8 +172,8 @@ function rollCache(cacheId, rngInput) {
     variantRequested: variant.requested,
     variant: variant.applied,
     variantFallback: variant.fallback,
-    shiny,
-    jackpot: shiny && variant.applied === 's' && level >= 295 ? 'mythic' : shiny && variant.applied === 's' ? 'jackpot' : shiny && variant.applied === 'x' ? 'epic' : shiny ? 'rare' : (variant.applied === 'x' || variant.applied === 's') ? 'variant' : 'normal'
+    shiny: false,
+    jackpot: (variant.applied === 'x' || variant.applied === 's') ? 'variant' : 'normal'
   });
 }
 
