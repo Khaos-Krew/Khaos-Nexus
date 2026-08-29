@@ -10,69 +10,23 @@ const INSTALLED = Symbol.for('khaos.nexus.forge.self.repair.extension');
 let activeObserver = null;
 
 function incidentStringOption(option, description = 'Self-Repair incident ID') {
-  return option
-    .setName('incident')
-    .setDescription(description)
-    .setRequired(true)
-    .setMaxLength(24);
+  return option.setName('incident').setDescription(description).setRequired(true).setMaxLength(24);
 }
 
 function selfRepairCommand() {
   return new SlashCommandBuilder()
     .setName('selfrepair')
     .setDescription('Observation-only Nexus self-repair controls')
-    .addSubcommand((sub) => sub
-      .setName('status')
-      .setDescription('Show the observer state and current incidents'))
-    .addSubcommand((sub) => sub
-      .setName('check')
-      .setDescription('Run a zero-AI health and CI observation pass now'))
-    .addSubcommand((sub) => sub
-      .setName('incidents')
-      .setDescription('Show recent incidents and prepared repair candidates'))
-    .addSubcommand((sub) => sub
-      .setName('detail')
-      .setDescription('Show one incident and its current policy decision')
-      .addStringOption((opt) => incidentStringOption(opt)))
-    .addSubcommand((sub) => sub
-      .setName('ack')
-      .setDescription('Acknowledge an open incident without resolving it')
-      .addStringOption((opt) => incidentStringOption(opt))
-      .addStringOption((opt) => opt
-        .setName('note')
-        .setDescription('Optional staff note')
-        .setRequired(false)
-        .setMaxLength(300)))
-    .addSubcommand((sub) => sub
-      .setName('snooze')
-      .setDescription('Temporarily suppress an open incident handoff')
-      .addStringOption((opt) => incidentStringOption(opt))
-      .addIntegerOption((opt) => opt
-        .setName('minutes')
-        .setDescription('Snooze duration in minutes')
-        .setRequired(true)
-        .setMinValue(5)
-        .setMaxValue(10080)))
-    .addSubcommand((sub) => sub
-      .setName('unsnooze')
-      .setDescription('Remove an incident snooze')
-      .addStringOption((opt) => incidentStringOption(opt)))
-    .addSubcommand((sub) => sub
-      .setName('prepare')
-      .setDescription('Prepare the manual Forge handoff for an incident')
-      .addStringOption((opt) => incidentStringOption(opt)))
-    .addSubcommand((sub) => sub
-      .setName('verify')
-      .setDescription('Run zero-AI health and CI verification for an incident')
-      .addStringOption((opt) => incidentStringOption(opt))
-      .addStringOption((opt) => opt
-        .setName('branch')
-        .setDescription('Optional forge/* branch to include in CI verification')
-        .setRequired(false)
-        .setMaxLength(240)))
-    .addSubcommand((sub) => sub
-      .setName('policy')
-      .setDescription('Show the hard Self-Repair safety policy'));
+    .addSubcommand((sub) => sub.setName('status').setDescription('Show the observer state and current incidents'))
+    .addSubcommand((sub) => sub.setName('check').setDescription('Run a zero-AI health and CI observation pass now'))
+    .addSubcommand((sub) => sub.setName('incidents').setDescription('Show recent incidents and prepared repair candidates'))
+    .addSubcommand((sub) => sub.setName('detail').setDescription('Show one incident and its current policy decision').addStringOption((opt) => incidentStringOption(opt)))
+    .addSubcommand((sub) => sub.setName('ack').setDescription('Acknowledge an open incident without resolving it').addStringOption((opt) => incidentStringOption(opt)).addStringOption((opt) => opt.setName('note').setDescription('Optional staff note').setRequired(false).setMaxLength(300)))
+    .addSubcommand((sub) => sub.setName('snooze').setDescription('Temporarily suppress an open incident handoff').addStringOption((opt) => incidentStringOption(opt)).addIntegerOption((opt) => opt.setName('minutes').setDescription('Snooze duration in minutes').setRequired(true).setMinValue(5).setMaxValue(10080)))
+    .addSubcommand((sub) => sub.setName('unsnooze').setDescription('Remove an incident snooze').addStringOption((opt) => incidentStringOption(opt)))
+    .addSubcommand((sub) => sub.setName('prepare').setDescription('Queue a zero-token Forge repair candidate for an incident').addStringOption((opt) => incidentStringOption(opt)))
+    .addSubcommand((sub) => sub.setName('verify').setDescription('Run zero-AI health and CI verification for an incident').addStringOption((opt) => incidentStringOption(opt)).addStringOption((opt) => opt.setName('branch').setDescription('Optional forge/* branch to include in CI verification').setRequired(false).setMaxLength(240)))
+    .addSubcommand((sub) => sub.setName('policy').setDescription('Show the hard Self-Repair safety policy'));
 }
 
 function memberIsSelfRepairOperator(interaction, config) {
@@ -82,9 +36,7 @@ function memberIsSelfRepairOperator(interaction, config) {
   return Boolean(roles && (config.discord?.operatorRoleIds || []).some((id) => roles.has(String(id))));
 }
 
-function iconFor(ok) {
-  return ok ? '✅' : '⚠️';
-}
+function iconFor(ok) { return ok ? '✅' : '⚠️'; }
 
 function snapshotLines(snapshot = {}) {
   const lines = [];
@@ -110,17 +62,15 @@ function formatObserverStatus(status = {}) {
   const snapshot = status.lastSnapshot || {};
   return [
     '**🛡️ Nexus Self-Repair**',
-    'Mode: **OBSERVE / MANUAL HANDOFF ONLY**',
+    'Mode: **OBSERVE / DURABLE HANDOFF ONLY**',
     `Observer: **${status.enabled ? 'Enabled' : 'Disabled'}**`,
     'Automatic planning: **Disabled**',
     'Automatic repair execution: **Disabled**',
     'Automatic merge/deploy/restart: **Disabled**',
     `Open incidents: **${open.length}**`,
     `Last pass: ${status.lastRunAt ? `\`${status.lastRunAt}\`` : '**Not run yet**'}`,
-    '',
-    ...snapshotLines(snapshot),
-    '',
-    '_The observer may prepare a manual Forge handoff, but it cannot call a model task, merge, deploy, or restart anything._'
+    '', ...snapshotLines(snapshot), '',
+    '_The observer may queue a zero-token Forge repair candidate. Model work still requires a separate approval and enabled worker/budget._'
   ].join('\n').slice(0, 1900);
 }
 
@@ -144,42 +94,76 @@ function formatIncident(incident = {}) {
 
 function formatIncidentList(status = {}) {
   const recent = Array.isArray(status.recentIncidents) ? status.recentIncidents : [];
-  if (!recent.length) {
-    return '**🛡️ Nexus Self-Repair Incidents**\nNo incidents have been recorded. Observation mode has not invoked any AI repair task.';
-  }
+  if (!recent.length) return '**🛡️ Nexus Self-Repair Incidents**\nNo incidents have been recorded. Observation mode has not invoked any AI repair task.';
   const sections = recent.slice(0, 6).map(formatIncident);
-  return ['**🛡️ Nexus Self-Repair Incidents**', ...sections.map((item) => `\n${item}`), '', '_Prepared candidates remain inert until a staff member explicitly sends work through Forge._'].join('\n').slice(0, 1900);
+  return ['**🛡️ Nexus Self-Repair Incidents**', ...sections.map((item) => `\n${item}`), '', '_Prepared candidates remain inert until staff explicitly approves the durable Forge task._'].join('\n').slice(0, 1900);
 }
 
 function formatIncidentDetail(incident = {}) {
   const decision = incident.policyDecision || {};
   const evidence = incident.evidence || {};
   const lines = [
-    '**🛡️ Self-Repair Incident Detail**',
-    formatIncident(incident),
-    '',
-    `Manual handoff allowed: **${decision.mayPrepareManualHandoff ? 'Yes' : 'No'}**`,
+    '**🛡️ Self-Repair Incident Detail**', formatIncident(incident), '',
+    `Durable handoff allowed: **${decision.mayPrepareManualHandoff ? 'Yes' : 'No'}**`,
     `Zero-AI verification allowed: **${decision.mayRunZeroAiVerification === false ? 'No' : 'Yes'}**`,
-    `Staff confirmation required: **Yes**`
+    'Model-work approval required: **Yes**'
   ];
   if (decision.blockers?.length) lines.push(`Policy blockers: ${decision.blockers.map((item) => `\`${String(item)}\``).join(', ')}`);
   if (evidence.error) lines.push(`Evidence: ${String(evidence.error).slice(0, 500)}`);
   if (incident.acknowledgementNote) lines.push(`Staff note: ${String(incident.acknowledgementNote).slice(0, 300)}`);
-  if (incident.verification) {
-    lines.push(`Last verification: **${incident.verification.complete ? 'Complete' : incident.verification.passed ? 'Pass pending threshold' : 'Not clear'}** at \`${String(incident.verification.checkedAt || '').slice(0, 40)}\``);
-  }
+  if (incident.verification) lines.push(`Last verification: **${incident.verification.complete ? 'Complete' : incident.verification.passed ? 'Pass pending threshold' : 'Not clear'}** at \`${String(incident.verification.checkedAt || '').slice(0, 40)}\``);
   return lines.join('\n').slice(0, 1900);
+}
+
+function incidentEvidenceLines(incident = {}) {
+  const evidence = incident.evidence || {};
+  const lines = [];
+  if (evidence.ref) lines.push(`ref=${String(evidence.ref).slice(0, 240)}`);
+  if (evidence.sha) lines.push(`sha=${String(evidence.sha).slice(0, 80)}`);
+  if (evidence.state) lines.push(`state=${String(evidence.state).slice(0, 100)}`);
+  if (evidence.error) lines.push(`error=${String(evidence.error).replace(/\s+/g, ' ').slice(0, 500)}`);
+  for (const item of Array.isArray(evidence.failedChecks) ? evidence.failedChecks.slice(0, 12) : []) {
+    lines.push(`check=${String(item?.name || 'unknown').slice(0, 120)} status=${String(item?.status || 'unknown').slice(0, 40)} conclusion=${String(item?.conclusion || 'unknown').slice(0, 40)}`);
+  }
+  return lines.slice(0, 30);
+}
+
+async function queuePreparedHandoff(observer, prepared, actorId) {
+  if (!prepared?.handoff) return { ...prepared, queued: null };
+  const incident = prepared.incident || {};
+  const candidate = prepared.candidate || {};
+  const evidence = incident.evidence || {};
+  const baseRef = candidate.baseRef || (!String(evidence.ref || '').startsWith('forge/') ? evidence.ref : null) || observer.forge.defaultBaseRef;
+  const queued = await observer.forge.queueRepairCandidate({
+    incidentId: incident.id,
+    repo: observer.forge.defaultRepo,
+    baseRef,
+    severity: incident.severity || 'medium',
+    summary: `${incident.type || 'self-repair incident'}: ${candidate.goal || 'Investigate the recorded Sentinel incident safely.'}`.slice(0, 2000),
+    evidence: incidentEvidenceLines(incident),
+    actor: `discord:${String(actorId || 'unknown').slice(0, 80)}`
+  });
+  observer.audit({
+    at: observer.now().toISOString(),
+    event: 'repair-candidate-queued',
+    incidentId: incident.id,
+    incidentType: incident.type,
+    actorId,
+    detail: `forgeTask=${queued.task?.id || 'unknown'} approvalRequired=${queued.approvalRequired !== false} modelTokens=${queued.modelTokensConsumed || 0}`
+  });
+  return { ...prepared, queued };
 }
 
 function formatPreparedHandoff(prepared = {}) {
   const incident = prepared.incident || {};
   const candidate = prepared.candidate || {};
   const decision = prepared.decision || {};
+  const queued = prepared.queued || null;
   const lines = [
-    '**🧰 Self-Repair Manual Handoff**',
+    '**🧰 Self-Repair Durable Handoff**',
     `Incident: \`${String(incident.id || '').slice(0, 40)}\``,
     `Candidate: **${String(candidate.action || 'hold')}**`,
-    'AI/model task invoked by preparation: **No**',
+    'AI/model tokens used by preparation: **0**',
     'Automatic execution: **Disabled**'
   ];
   if (!prepared.handoff) {
@@ -187,10 +171,15 @@ function formatPreparedHandoff(prepared = {}) {
     if (candidate.goal) lines.push('', '**Recommended investigation**', String(candidate.goal).slice(0, 1050));
     return lines.join('\n').slice(0, 1900);
   }
-  lines.push(`Next staff action: **/${prepared.handoff.command}**`);
-  if (prepared.handoff.branch) lines.push(`Branch: \`${String(prepared.handoff.branch).slice(0, 200)}\``);
-  lines.push('', '**Prepared goal**', String(prepared.handoff.goal || '').slice(0, 1150));
-  lines.push('', '_This only prepares the handoff. The existing /forge confirmation gate still controls any model-backed execution._');
+  if (queued?.task) {
+    lines.push(`Forge task: \`${String(queued.task.id || '').slice(0, 128)}\` • **${String(queued.task.state || 'queued').toUpperCase()}**`);
+    lines.push(`Approval required: **${queued.approvalRequired !== false ? 'Yes' : 'No'}**`);
+    lines.push(`Worker/model execution started: **${queued.execution && queued.execution !== 'not-started' ? 'Unknown' : 'No'}**`);
+    if (queued.duplicate) lines.push('Idempotency: **Existing incident task reused**');
+    lines.push('', '_Use /forge task to inspect it and /forge approve only when you intentionally want to release it for future worker execution._');
+    return lines.join('\n').slice(0, 1900);
+  }
+  lines.push('Forge task: **Not queued**');
   return lines.join('\n').slice(0, 1900);
 }
 
@@ -206,7 +195,7 @@ function formatVerification(result = {}) {
     'AI/model tokens used: **0**'
   ];
   if (result.branchCi) {
-    lines.push(`Branch CI: **${result.branchCi.ok ? 'Healthy' : 'Not healthy'}** • \`${String(result.branchCi.ref || '').slice(0, 180)}\`` • ${String(result.branchCi.state || 'unknown').toUpperCase()}`);
+    lines.push(`Branch CI: **${result.branchCi.ok ? 'Healthy' : 'Not healthy'}** • \`${String(result.branchCi.ref || '').slice(0, 180)}\` • ${String(result.branchCi.state || 'unknown').toUpperCase()}`);
     if (result.branchCi.failedChecks?.length) lines.push(`Failed checks: ${result.branchCi.failedChecks.slice(0, 5).map((item) => `\`${String(item.name || 'check').slice(0, 80)}\``).join(', ')}`);
   }
   return lines.join('\n').slice(0, 1900);
@@ -221,13 +210,12 @@ function formatPolicy(policy = {}, notifier = {}) {
     'Automatic PR merge: **Disabled**',
     'Automatic deployment: **Disabled**',
     'Automatic Sentinel/game-server restart: **Disabled**',
-    'Staff confirmation: **Required**',
+    'Durable Forge task approval: **Required**',
     `Verification passes required: **${Number(policy.verificationPassesRequired || 1)}**`,
     `Max snooze: **${Number(policy.maxSnoozeMinutes || 0).toLocaleString()} minutes**`,
     `RSS warning threshold: **${Number(policy.rssWarnMb || 0) > 0 ? `${Number(policy.rssWarnMb).toLocaleString()} MB` : 'Disabled'}**`,
     `Discord incident alerts: **${notifier.enabled && notifier.channelConfigured ? 'Enabled' : 'Disabled'}**`,
-    '',
-    '_These boundaries are enforced in code; they are not prompt-only instructions._'
+    '', '_These boundaries are enforced in code; they are not prompt-only instructions._'
   ].join('\n').slice(0, 1900);
 }
 
@@ -280,68 +268,45 @@ function installForgeSelfRepairExtension(options = {}) {
           await interaction.reply({ content: 'Self-repair engineering controls are restricted to Nexus staff.', flags: MessageFlags.Ephemeral });
           return;
         }
-
         const sub = interaction.options.getSubcommand();
-        if (sub === 'status') {
-          await interaction.reply({ content: formatObserverStatus(observer.status()), flags: MessageFlags.Ephemeral });
-          return;
-        }
-        if (sub === 'incidents') {
-          await interaction.reply({ content: formatIncidentList(observer.status()), flags: MessageFlags.Ephemeral });
-          return;
-        }
-        if (sub === 'policy') {
-          await interaction.reply({ content: formatPolicy(observer.policyStatus(), notifier.configuration()), flags: MessageFlags.Ephemeral });
-          return;
-        }
+        if (sub === 'status') return interaction.reply({ content: formatObserverStatus(observer.status()), flags: MessageFlags.Ephemeral });
+        if (sub === 'incidents') return interaction.reply({ content: formatIncidentList(observer.status()), flags: MessageFlags.Ephemeral });
+        if (sub === 'policy') return interaction.reply({ content: formatPolicy(observer.policyStatus(), notifier.configuration()), flags: MessageFlags.Ephemeral });
         if (sub === 'detail') {
           const id = interaction.options.getString('incident', true);
           const incident = observer.status().recentIncidents.find((item) => item.id === String(id).trim().toUpperCase());
-          await interaction.reply({ content: incident ? formatIncidentDetail(incident) : 'That Self-Repair incident was not found.', flags: MessageFlags.Ephemeral });
-          return;
+          return interaction.reply({ content: incident ? formatIncidentDetail(incident) : 'That Self-Repair incident was not found.', flags: MessageFlags.Ephemeral });
         }
         if (sub === 'ack') {
-          const id = interaction.options.getString('incident', true);
-          const note = interaction.options.getString('note', false) || '';
-          const incident = observer.acknowledgeIncident(id, interaction.user.id, note);
+          const incident = observer.acknowledgeIncident(interaction.options.getString('incident', true), interaction.user.id, interaction.options.getString('note', false) || '');
           await interaction.reply({ content: `✅ Acknowledged \`${incident.id}\`. The incident remains open until the observed condition actually clears.`, flags: MessageFlags.Ephemeral });
           logger.log?.(`[Nexus Sentinal] Self-Repair acknowledge actor=${interaction.user.id} incident=${incident.id}`);
           return;
         }
         if (sub === 'snooze') {
-          const id = interaction.options.getString('incident', true);
-          const minutes = interaction.options.getInteger('minutes', true);
-          const result = observer.snoozeIncident(id, minutes, interaction.user.id);
-          await interaction.reply({ content: `💤 Snoozed \`${result.incident.id}\` for **${result.minutes} minutes** (until \`${result.until}\`). Observation continues; only the manual handoff is suppressed.`, flags: MessageFlags.Ephemeral });
+          const result = observer.snoozeIncident(interaction.options.getString('incident', true), interaction.options.getInteger('minutes', true), interaction.user.id);
+          await interaction.reply({ content: `💤 Snoozed \`${result.incident.id}\` for **${result.minutes} minutes** (until \`${result.until}\`). Observation continues; only the handoff is suppressed.`, flags: MessageFlags.Ephemeral });
           logger.log?.(`[Nexus Sentinal] Self-Repair snooze actor=${interaction.user.id} incident=${result.incident.id} minutes=${result.minutes}`);
           return;
         }
         if (sub === 'unsnooze') {
-          const id = interaction.options.getString('incident', true);
-          const incident = observer.unsnoozeIncident(id, interaction.user.id);
+          const incident = observer.unsnoozeIncident(interaction.options.getString('incident', true), interaction.user.id);
           await interaction.reply({ content: `✅ Snooze removed from \`${incident.id}\`.`, flags: MessageFlags.Ephemeral });
           logger.log?.(`[Nexus Sentinal] Self-Repair unsnooze actor=${interaction.user.id} incident=${incident.id}`);
           return;
         }
         if (sub === 'prepare') {
-          const id = interaction.options.getString('incident', true);
-          const prepared = observer.prepareIncident(id);
-          await interaction.reply({ content: formatPreparedHandoff(prepared), flags: MessageFlags.Ephemeral });
-          logger.log?.(`[Nexus Sentinal] Self-Repair handoff prepared actor=${interaction.user.id} incident=${prepared.incident.id} candidate=${prepared.candidate.action || 'hold'} aiInvoked=false`);
+          await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+          const prepared = observer.prepareIncident(interaction.options.getString('incident', true));
+          const queued = await queuePreparedHandoff(observer, prepared, interaction.user.id);
+          await interaction.editReply({ content: formatPreparedHandoff(queued) });
+          logger.log?.(`[Nexus Sentinal] Self-Repair durable handoff actor=${interaction.user.id} incident=${prepared.incident.id} candidate=${prepared.candidate.action || 'hold'} forgeTask=${queued.queued?.task?.id || 'none'} aiInvoked=false`);
           return;
         }
         if (sub === 'check') {
           await interaction.deferReply({ flags: MessageFlags.Ephemeral });
           const result = await observer.runOnce('staff-check');
-          const status = observer.status();
-          await interaction.editReply({
-            content: [
-              formatObserverStatus(status),
-              '',
-              `Manual observation pass: **${result.skipped ? `Skipped (${result.reason})` : result.ok ? 'Healthy' : 'Incident detected'}**`,
-              '**AI/model tokens used by this pass: 0**'
-            ].join('\n').slice(0, 1900)
-          });
+          await interaction.editReply({ content: [formatObserverStatus(observer.status()), '', `Manual observation pass: **${result.skipped ? `Skipped (${result.reason})` : result.ok ? 'Healthy' : 'Incident detected'}**`, '**AI/model tokens used by this pass: 0**'].join('\n').slice(0, 1900) });
           logger.log?.(`[Nexus Sentinal] Self-Repair staff check actor=${interaction.user.id} ok=${result.ok} skipped=${Boolean(result.skipped)} aiInvoked=false`);
           return;
         }
@@ -365,9 +330,7 @@ function installForgeSelfRepairExtension(options = {}) {
   };
 }
 
-function currentForgeSelfRepairObserver() {
-  return activeObserver;
-}
+function currentForgeSelfRepairObserver() { return activeObserver; }
 
 module.exports = {
   selfRepairCommand,
@@ -376,6 +339,8 @@ module.exports = {
   formatIncident,
   formatIncidentList,
   formatIncidentDetail,
+  incidentEvidenceLines,
+  queuePreparedHandoff,
   formatPreparedHandoff,
   formatVerification,
   formatPolicy,
