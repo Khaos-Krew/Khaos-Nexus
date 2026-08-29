@@ -68,7 +68,6 @@ function deploymentPlan({ liveConfig, desiredConfig, readiness } = {}) {
   const ready = evaluateArkShopUiReadiness(readiness);
   const desiredValidation = validateArkShopUiConfig(desiredConfig);
   const blockers = [...ready.blockers, ...desiredValidation.errors.map((error) => `desired-config:${error}`)];
-  if (!String(desiredConfig?.WebsiteUrl || '').trim()) blockers.push('nexus-portal-url-not-set');
   const diff = liveConfig && desiredValidation.ok ? diffArkShopUiConfig(liveConfig, desiredConfig) : null;
   return {
     safeToApply: blockers.length === 0,
