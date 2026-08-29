@@ -7,7 +7,6 @@
   "DisableSellButton": true,
   "DisableTradeButton": false,
   "HideBuffIcon": false,
-  "OverrideCurrencyIcon": "https://raw.githubusercontent.com/Khaos-Krew/Khaos-Nexus/rebuild/nexus-0.1/config/ark/arkshopui/assets/nexus-points-coin.png",
   "UseSteamOverlay": false,
   "OverrideLabels": [
     { "ItemsTabLabel": "Nexus Market" },
