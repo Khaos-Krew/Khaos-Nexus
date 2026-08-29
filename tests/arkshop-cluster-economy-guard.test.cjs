@@ -14,19 +14,23 @@ function mysqlConfig(overrides = {}) {
       MysqlPort: 3306,
       MysqlDB: 'arkshop',
       MysqlUser: 'shop',
+      MysqlPlayersTable: 'ArkShopPlayers',
       ...overrides
     }
   };
 }
 
-test('database fingerprint compares connection identity without exposing values', () => {
+test('database fingerprint compares deployed connection identity without exposing values', () => {
   const config = mysqlConfig();
   assert.equal(mysqlEnabled(config), true);
+  assert.equal(mysqlEnabled(mysqlConfig({ UseMysql: 'true' })), true);
+  assert.equal(mysqlEnabled(mysqlConfig({ UseMysql: false })), false);
   const fingerprint = databaseFingerprint(config);
   assert.match(fingerprint, /^[a-f0-9]{64}$/);
   assert.equal(fingerprint.includes('db.internal'), false);
   assert.equal(fingerprint, databaseFingerprint(mysqlConfig()));
   assert.notEqual(fingerprint, databaseFingerprint(mysqlConfig({ MysqlDB: 'other' })));
+  assert.notEqual(fingerprint, databaseFingerprint(mysqlConfig({ MysqlPlayersTable: 'OtherPlayers' })));
 });
 
 test('cluster database guard approves one shared MySQL backend', () => {
@@ -40,9 +44,12 @@ test('cluster database guard approves one shared MySQL backend', () => {
   assert.equal(result.servers, 2);
 });
 
-test('cluster database guard fails closed for local SQLite or mismatched MySQL', () => {
+test('cluster database guard distinguishes read failures, local SQLite, and mismatched MySQL', () => {
   const fp = databaseFingerprint(mysqlConfig());
   const other = databaseFingerprint(mysqlConfig({ MysqlDB: 'other' }));
+  assert.equal(evaluateClusterDatabase([
+    { id: 'gen1', enabled: true, shopEnabled: true, mysqlEnabled: false, fingerprint: '', readFailed: true }
+  ]).mode, 'config-read-failed');
   assert.equal(evaluateClusterDatabase([
     { id: 'gen1', enabled: true, shopEnabled: true, mysqlEnabled: true, fingerprint: fp },
     { id: 'ragnarok', enabled: true, shopEnabled: true, mysqlEnabled: false, fingerprint: '' }
@@ -64,6 +71,16 @@ test('audit reads every enabled shop server and returns only safe connection fin
   assert.equal(result.ok, true);
   assert.equal(result.servers, 2);
   assert.equal(result.records.length, 2);
+  assert.equal(result.records[0].useMysqlType, 'boolean');
   assert.equal(JSON.stringify(result).includes('db.internal'), false);
   assert.equal(JSON.stringify(result).includes('arkshop'), false);
+  assert.equal(JSON.stringify(result).includes('ArkShopPlayers'), false);
+});
+
+test('audit reports a live-config transport failure separately from MySQL disabled', async () => {
+  const registry = { list: () => [{ id: 'gen1', envPrefix: 'ARK_GEN1', enabled: true, shopEnabled: true }] };
+  const result = await auditArkShopClusterDatabase({ registry, reader: async () => { throw new Error('SFTP timeout'); } });
+  assert.equal(result.ok, false);
+  assert.equal(result.mode, 'config-read-failed');
+  assert.equal(result.records[0].readFailed, true);
 });
