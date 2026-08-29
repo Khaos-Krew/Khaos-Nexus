@@ -8,6 +8,7 @@ const { installGuildMembersIntentExtension } = require('./guild-members-intent-e
 const { installCommunityIntentsExtension } = require('./community-intents-extension.cjs');
 const { installForgeExtension } = require('./forge-extension.cjs');
 const { installForgeAuthProbeExtension } = require('./forge-auth-probe-extension.cjs');
+const { installForgeSelfRepairExtension } = require('./forge-self-repair-extension.cjs');
 const { installMentionResponseExtension } = require('./mention-response-extension.cjs');
 const { installRoleMenuExtension } = require('./role-menu-extension.cjs');
 const { installPokemonGoExtension } = require('./pokemon-go-extension.cjs');
@@ -59,6 +60,7 @@ installGuildMembersIntentExtension();
 installCommunityIntentsExtension();
 installForgeExtension();
 installForgeAuthProbeExtension();
+installForgeSelfRepairExtension();
 installMentionResponseExtension();
 installRoleMenuExtension();
 installPokemonGoExtension();
