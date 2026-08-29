@@ -33,7 +33,7 @@ function createHealthServer(config, store, runtime) {
     if (request.method === 'GET' && pathname === '/health') {
       try {
         await store.ping();
-        return send(response, 200, { ok: true, nodeId: config.nodeId, lane: config.lane, capabilities: config.capabilities, state: runtime.state, activeJobId: runtime.activeJobId, uptimeSeconds: Math.floor(process.uptime()) });
+        return send(response, 200, { ok: true, nodeId: config.nodeId, lane: config.lane, capabilities: config.capabilities, state: runtime.state, activeJobId: runtime.activeJobId, commitSha: process.env.RAILWAY_GIT_COMMIT_SHA || 'local', uptimeSeconds: Math.floor(process.uptime()) });
       } catch (error) { return send(response, 503, { ok: false, nodeId: config.nodeId, error: error.message }); }
     }
     if (request.method === 'GET' && pathname === '/ready') {
