@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {
-  LEVEL_BUCKETS, CACHE_POOLS, rollLevel, rollVariant, rollCache, DinoCacheJournal
+  LEVEL_BUCKETS, SHINY_CHANCE, CACHE_POOLS, rollLevel, rollVariant, rollCache, DinoCacheJournal
 } = require('../src/sentinel/ark-dino-cache-engine.cjs');
 
 function sequence(values) {
@@ -51,13 +51,14 @@ test('unsupported X/S rolls fall back to normal instead of rerolling species', (
   assert.equal(result.fallback, true);
 });
 
-test('cache rolls are deterministic with injected RNG and stay in approved bounds', () => {
+test('cache rolls keep Shiny disabled for launch and stay in approved bounds', () => {
   const result = rollCache('coastal', sequence([0.01, 0.01, 0.01, 0.01, 0.01, 0.99]));
   assert.equal(result.cacheId, 'coastal');
   assert.equal(result.price, 800);
   assert.ok(result.level >= 200 && result.level <= 300);
   assert.match(result.blueprint, /^\/Game\//);
-  assert.equal(typeof result.shiny, 'boolean');
+  assert.equal(SHINY_CHANCE, 0);
+  assert.equal(result.shiny, false);
 });
 
 test('unverified caches fail closed rather than inventing creature paths', () => {
