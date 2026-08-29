@@ -51,18 +51,18 @@ test('Forge repair accepts only safe guarded forge namespace branches', () => {
   assert.equal(validForgeBranch('forge/task.lock'), false);
 });
 
-test('Forge status reports V0.2 safety posture without exposing token or base URL', () => {
+test('Forge status reports V0.2 safety posture using the server workerRuntime contract', () => {
   const client = new ForgeClient({ enabled: true, baseUrl: 'forge.internal:8080', token: 'super-secret-value', defaultRepo: 'Khaos-Krew/Khaos-Nexus', defaultBaseRef: 'rebuild/nexus-0.1', fetchImpl: async () => { throw new Error('unused'); } });
   const text = bridgeStatusText(client, {
     ok: true, version: '0.2.0-infra', openaiConfigured: true, githubConfigured: true, fallbackRouting: 'disabled', writePolicy: 'draft-pr-only'
   }, {
     queue: { queued: 2, waiting: 1, running: 0 },
     approvalGate: 'required-for-durable-model-work',
-    runtime: { workerEnabled: false },
+    workerRuntime: { workerEnabled: true, autonomousDailyTokenBudget: 240000 },
     authority: { forgeCanMerge: false, forgeCanDeploy: false }
   });
   assert.match(text, /V0\.2 Control Plane/);
-  assert.match(text, /Worker: \*\*Disabled\*\*/);
+  assert.match(text, /Worker: \*\*Enabled\*\*/);
   assert.match(text, /Merge authority: \*\*Disabled\*\*/);
   assert.match(text, /Deploy authority: \*\*Disabled\*\*/);
   assert.match(text, /Fallback routing: \*\*disabled\*\*/);
