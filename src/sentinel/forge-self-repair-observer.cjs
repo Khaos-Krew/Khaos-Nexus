@@ -14,6 +14,7 @@ const {
   severityForIncident
 } = require('./forge-self-repair-policy.cjs');
 const { collectLocalRuntimeDiagnostics } = require('./forge-self-repair-runtime.cjs');
+const { collectArkSelfRepairDiagnostics } = require('./forge-self-repair-ark-diagnostics.cjs');
 
 const STATE_VERSION = 2;
 const AUDIT_VERSION = 1;
@@ -159,6 +160,30 @@ function repairCandidateForIncident(incident) {
     };
   }
 
+  if (type === 'ark-rcon-unavailable') {
+    return {
+      ...common,
+      action: 'hold',
+      goal: `ARK RCON is unavailable to Sentinel. Evidence: ${safeText(evidence.error || evidence.state || 'RCON probe failed', 300)}. Check game-server availability, RCON port/authentication, and host networking. Do not restart ARK automatically.`
+    };
+  }
+
+  if (type === 'arkshop-database-unavailable') {
+    return {
+      ...common,
+      action: 'hold',
+      goal: `ArkShop database health is degraded. Evidence: ${safeText(evidence.error || evidence.state || 'database probe failed', 300)}. Check the configured ArkShop database backend and connectivity before deciding whether code repair is needed. Do not restart ARK automatically.`
+    };
+  }
+
+  if (type === 'ark-sftp-degraded') {
+    return {
+      ...common,
+      action: 'hold',
+      goal: `ARK SFTP/config reachability is degraded. Evidence: ${safeText(evidence.error || evidence.state || 'SFTP/config probe failed', 300)}. Check provider-neutral SFTP credentials, paths, and host reachability. Do not write configuration or restart ARK automatically.`
+    };
+  }
+
   return {
     ...common,
     action: 'hold',
@@ -263,6 +288,7 @@ async function fetchJson(fetchImpl, url, timeoutMs = 8_000) {
 
 function summarizeSnapshot(snapshot) {
   const runtime = snapshot.runtime || {};
+  const ark = snapshot.ark || {};
   return {
     checkedAt: snapshot.checkedAt,
     backend: { ok: Boolean(snapshot.backend?.ok), state: safeText(snapshot.backend?.state || snapshot.backend?.error || '', 160) },
@@ -289,25 +315,36 @@ function summarizeSnapshot(snapshot) {
         state: safeText(runtime.persistence.state || '', 80),
         directory: safeText(runtime.persistence.directory || '', 260)
       } : null
+    },
+    ark: {
+      enabled: Boolean(ark.enabled),
+      ok: ark.enabled ? Boolean(ark.ok) : true,
+      state: safeText(ark.state || 'disabled', 80),
+      rcon: ark.rcon ? { enabled: Boolean(ark.rcon.enabled), ok: Boolean(ark.rcon.ok), state: safeText(ark.rcon.state || '', 80) } : null,
+      database: ark.database ? { enabled: Boolean(ark.database.enabled), ok: Boolean(ark.database.ok), state: safeText(ark.database.state || '', 80), backend: safeText(ark.database.backend || '', 40) } : null,
+      sftp: ark.sftp ? { enabled: Boolean(ark.sftp.enabled), ok: Boolean(ark.sftp.ok), state: safeText(ark.sftp.state || '', 80) } : null
     }
   };
 }
 
 class ForgeSelfRepairObserver {
   constructor(options = {}) {
+    this.env = options.env || process.env;
     this.forge = options.forge || new ForgeClient();
     this.fetchImpl = options.fetchImpl || globalThis.fetch;
     this.logger = options.logger || console;
     this.now = options.now || (() => new Date());
-    this.stateFile = options.stateFile || process.env.NEXUS_FORGE_SELF_REPAIR_STATE_FILE || defaultStateFile();
-    this.auditFile = options.auditFile || process.env.NEXUS_FORGE_SELF_REPAIR_AUDIT_FILE || defaultAuditFile();
-    this.intervalMs = clampIntervalMs(options.intervalMs ?? (Number(process.env.NEXUS_FORGE_SELF_REPAIR_INTERVAL_SECONDS || 0) * 1000));
+    this.stateFile = options.stateFile || this.env.NEXUS_FORGE_SELF_REPAIR_STATE_FILE || defaultStateFile();
+    this.auditFile = options.auditFile || this.env.NEXUS_FORGE_SELF_REPAIR_AUDIT_FILE || path.join(path.dirname(this.stateFile), 'forge-self-repair-audit.ndjson');
+    this.intervalMs = clampIntervalMs(options.intervalMs ?? (Number(this.env.NEXUS_FORGE_SELF_REPAIR_INTERVAL_SECONDS || 0) * 1000));
     this.initialDelayMs = Math.max(0, Number(options.initialDelayMs ?? DEFAULT_INITIAL_DELAY_MS) || DEFAULT_INITIAL_DELAY_MS);
     this.maxIncidents = Math.max(10, Math.min(Number(options.maxIncidents || DEFAULT_MAX_INCIDENTS), 500));
-    this.backendUrl = String(options.backendUrl || process.env.NEXUS_BACKEND_URL || 'http://127.0.0.1:3210').replace(/\/+$/, '');
-    this.adminHealthUrl = String(options.adminHealthUrl || process.env.NEXUS_SENTINAL_ADMIN_HEALTH_URL || `http://127.0.0.1:${process.env.PORT || 8080}/health`).trim();
-    this.enabled = options.enabled ?? envBoolean(process.env.NEXUS_FORGE_SELF_REPAIR_OBSERVER_ENABLED, true);
-    this.policy = options.policy || normalizeSelfRepairPolicy(options.env || process.env);
+    this.backendUrl = String(options.backendUrl || this.env.NEXUS_BACKEND_URL || 'http://127.0.0.1:3210').replace(/\/+$/, '');
+    this.adminHealthUrl = String(options.adminHealthUrl || this.env.NEXUS_SENTINAL_ADMIN_HEALTH_URL || `http://127.0.0.1:${this.env.PORT || 8080}/health`).trim();
+    this.enabled = options.enabled ?? envBoolean(this.env.NEXUS_FORGE_SELF_REPAIR_OBSERVER_ENABLED, true);
+    this.policy = options.policy || normalizeSelfRepairPolicy(this.env);
+    this.arkPrefix = String(options.arkPrefix || this.env.NEXUS_FORGE_SELF_REPAIR_ARK_PREFIX || 'ARK_GEN1').trim() || 'ARK_GEN1';
+    this.arkDiagnostics = options.arkDiagnostics || collectArkSelfRepairDiagnostics;
     this.state = loadState(this.stateFile);
     this.timer = null;
     this.initialTimer = null;
@@ -322,6 +359,7 @@ class ForgeSelfRepairObserver {
       intervalMs: this.intervalMs,
       stateFile: this.stateFile,
       auditFile: this.auditFile,
+      arkPrefix: this.arkPrefix,
       automaticExecutionAllowed: false,
       aiInvocationPathPresent: false,
       policy: publicPolicyView(this.policy)
@@ -354,6 +392,7 @@ class ForgeSelfRepairObserver {
   async collectSnapshot() {
     const checkedAt = this.now().toISOString();
     const runtime = collectLocalRuntimeDiagnostics({ stateFile: this.stateFile, policy: this.policy });
+    const ark = await this.arkDiagnostics({ env: this.env, prefix: this.arkPrefix });
     const backend = typeof this.fetchImpl === 'function'
       ? await fetchJson(this.fetchImpl, `${this.backendUrl}/health`)
       : { ok: false, error: 'fetch unavailable' };
@@ -418,7 +457,7 @@ class ForgeSelfRepairObserver {
       }
     }
 
-    return { checkedAt, backend: backendView, sentinelAdmin, forge, ci, runtime };
+    return { checkedAt, backend: backendView, sentinelAdmin, forge, ci, runtime, ark };
   }
 
   incidentsFromSnapshot(snapshot) {
@@ -478,6 +517,28 @@ class ForgeSelfRepairObserver {
         directory: snapshot.runtime.persistence.directory || '',
         error: snapshot.runtime.persistence.error || ''
       });
+    }
+
+    if (snapshot.ark?.enabled) {
+      if (snapshot.ark.rcon?.enabled && !snapshot.ark.rcon.ok) {
+        add('ark-rcon-unavailable', { prefix: this.arkPrefix }, {
+          state: snapshot.ark.rcon.state,
+          error: snapshot.ark.rcon.error || ''
+        });
+      }
+      if (snapshot.ark.database?.enabled && !snapshot.ark.database.ok) {
+        add('arkshop-database-unavailable', { prefix: this.arkPrefix, backend: snapshot.ark.database.backend || 'unknown' }, {
+          state: snapshot.ark.database.state,
+          backend: snapshot.ark.database.backend || '',
+          error: snapshot.ark.database.error || ''
+        });
+      }
+      if (snapshot.ark.sftp?.enabled && !snapshot.ark.sftp.ok) {
+        add('ark-sftp-degraded', { prefix: this.arkPrefix }, {
+          state: snapshot.ark.sftp.state,
+          error: snapshot.ark.sftp.error || ''
+        });
+      }
     }
 
     return incidents;
