@@ -9,7 +9,7 @@ const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { CONFIG_CANDIDATES, mergeArkShopUiConfig, configsEqual } = require('./arkshop-ui-sync.cjs');
 const { productionSafe } = require('./arkshop-ui-config.cjs');
 
-const VERSION = 'nexus-arkshopui-test-v1';
+const VERSION = 'nexus-arkshopui-test-v2';
 const DESIRED_PATH = path.resolve(__dirname, '../../config/ark/arkshopui/nexus-exchange.json');
 
 function cleanError(error) {
