@@ -21,6 +21,10 @@ function dataDir() {
   return process.env.NEXUS_DATA_DIR || '/app/data';
 }
 
+function profileStoreRoot() {
+  return process.env.NEXUS_DATA_DIR ? dataDir() : path.dirname(dataDir());
+}
+
 function stampFile() {
   return path.join(dataDir(), `${VERSION}.done.json`);
 }
@@ -87,7 +91,7 @@ async function run() {
     throw new Error(`Dino Depot ${DINO_DEPOT_MOD_ID} is not present in the current detected mod list; refusing to add Dino Ball shop entries.`);
   }
 
-  const store = new ArkShopProfileStore(dataDir());
+  const store = new ArkShopProfileStore(profileStoreRoot());
   const baselineProfile = store.get(PROFILE_ID);
   if (!baselineProfile) throw new Error(`ArkShop profile ${PROFILE_ID} does not exist.`);
 
@@ -159,4 +163,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { VERSION, PROFILE_ID, DINO_DEPOT_MOD_ID, DINO_BALL_BLUEPRINT, PACKS, packDefinition, hasStarterBalls, hasPacks, run, cleanError };
+module.exports = { VERSION, PROFILE_ID, DINO_DEPOT_MOD_ID, DINO_BALL_BLUEPRINT, PACKS, dataDir, profileStoreRoot, packDefinition, hasStarterBalls, hasPacks, run, cleanError };
