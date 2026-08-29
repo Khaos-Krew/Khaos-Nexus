@@ -9,7 +9,8 @@ function clean(value, max = 120) {
 }
 
 function mysqlEnabled(config = {}) {
-  return config?.Mysql?.UseMysql === true;
+  const value = config?.Mysql?.UseMysql;
+  return value === true || String(value ?? '').trim().toLowerCase() === 'true';
 }
 
 function databaseFingerprint(config = {}) {
@@ -21,7 +22,7 @@ function databaseFingerprint(config = {}) {
     port: Number(mysql.MysqlPort || 3306),
     database: clean(mysql.MysqlDB, 160),
     user: clean(mysql.MysqlUser, 160),
-    table: clean(mysql.MysqlTable || mysql.TableName || 'ArkShopPlayers', 160)
+    table: clean(mysql.MysqlPlayersTable || mysql.MysqlTable || mysql.TableName || 'ArkShopPlayers', 160)
   });
   return crypto.createHash('sha256').update(canonical).digest('hex');
 }
@@ -29,6 +30,17 @@ function databaseFingerprint(config = {}) {
 function evaluateClusterDatabase(records = []) {
   const active = records.filter((entry) => entry?.enabled !== false && entry?.shopEnabled !== false);
   if (!active.length) return { ok: true, mode: 'no-active-shop-servers', servers: 0, fingerprint: '' };
+
+  const unreadable = active.filter((entry) => entry.readFailed === true);
+  if (unreadable.length) {
+    return {
+      ok: false,
+      mode: 'config-read-failed',
+      servers: active.length,
+      problemServerIds: unreadable.map((entry) => clean(entry.id, 64)).filter(Boolean),
+      fingerprint: ''
+    };
+  }
 
   const local = active.filter((entry) => entry.mysqlEnabled !== true);
   if (local.length) {
@@ -72,7 +84,8 @@ async function auditArkShopClusterDatabase({ registry = new ArkClusterRegistry()
         enabled: server.enabled,
         shopEnabled: server.shopEnabled,
         mysqlEnabled: mysqlEnabled(config),
-        fingerprint: databaseFingerprint(config)
+        fingerprint: databaseFingerprint(config),
+        useMysqlType: typeof config?.Mysql?.UseMysql
       });
     } catch (error) {
       records.push({
@@ -95,9 +108,11 @@ function installArkShopClusterEconomyGuard({ delayMs = 45_000 } = {}) {
     void auditArkShopClusterDatabase()
       .then((result) => {
         if (result.ok) {
-          console.log(`[Nexus Sentinal] ArkShop cluster economy guard: ok=true mode=${result.mode} servers=${result.servers} dbFingerprint=${result.fingerprint ? result.fingerprint.slice(0, 12) : 'none'}`);
+          const types = [...new Set(result.records.map((record) => record.useMysqlType).filter(Boolean))].join(',') || 'unknown';
+          console.log(`[Nexus Sentinal] ArkShop cluster economy guard: ok=true mode=${result.mode} servers=${result.servers} useMysqlType=${types} dbFingerprint=${result.fingerprint ? result.fingerprint.slice(0, 12) : 'none'}`);
         } else {
-          console.error(`[Nexus Sentinal] ArkShop cluster economy guard: ok=false mode=${result.mode} servers=${result.servers} affected=${(result.problemServerIds || []).join(',') || 'unknown'}; cluster-wide starter/bank/cache operations must remain disabled until all maps share one MySQL backend.`);
+          const readErrors = result.records.filter((record) => record.readFailed).map((record) => `${record.id}:${record.error}`).join(' | ');
+          console.error(`[Nexus Sentinal] ArkShop cluster economy guard: ok=false mode=${result.mode} servers=${result.servers} affected=${(result.problemServerIds || []).join(',') || 'unknown'}${readErrors ? ` readErrors=${readErrors}` : ''}; cluster-wide starter/bank/cache operations must remain disabled until all maps share one verified MySQL backend.`);
         }
       })
       .catch((error) => console.error(`[Nexus Sentinal] ArkShop cluster economy guard audit failed closed: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 240)}`));
