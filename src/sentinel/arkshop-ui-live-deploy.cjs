@@ -9,7 +9,7 @@ const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { CONFIG_CANDIDATES, mergeArkShopUiConfig, configsEqual } = require('./arkshop-ui-sync.cjs');
 const { productionSafe } = require('./arkshop-ui-config.cjs');
 
-const VERSION = 'nexus-arkshopui-test-v1';
+const VERSION = 'nexus-arkshopui-test-v2-iconfix';
 const DESIRED_PATH = path.resolve(__dirname, '../../config/ark/arkshopui/nexus-exchange.json');
 
 function cleanError(error) {
@@ -40,13 +40,7 @@ async function connectSftp(prefix, Client = SftpClient) {
   const settings = sftpSettingsFromEnv(prefix);
   if (!settings.host || !settings.username || !settings.password) throw new Error('ARK SFTP variables are incomplete for ArkShopUI deployment.');
   const client = new Client('khaos-nexus-arkshopui-deploy');
-  await client.connect({
-    host: settings.host,
-    port: settings.port,
-    username: settings.username,
-    password: settings.password,
-    readyTimeout: settings.readyTimeout
-  });
+  await client.connect({ host: settings.host, port: settings.port, username: settings.username, password: settings.password, readyTimeout: settings.readyTimeout });
   return { client, settings };
 }
 
@@ -98,6 +92,10 @@ async function run({ prefix = 'ARK_GEN1', Client = SftpClient, RconClient = ArkR
     if (!live || typeof live !== 'object' || Array.isArray(live)) throw new Error('Live ArkShopUI config root is not an object.');
 
     const merged = mergeArkShopUiConfig(live, desired);
+    // V1 incorrectly wrote an HTTP URL here. ArkShopUI expects a cooked Unreal/ARK asset path.
+    // If Nexus does not explicitly provide a verified asset path, remove the stale override and
+    // allow ArkShopUI to use its built-in currency icon.
+    if (!Object.prototype.hasOwnProperty.call(desired, 'OverrideCurrencyIcon')) delete merged.OverrideCurrencyIcon;
     if (merged.DisableSellButton !== true) throw new Error('Merged ArkShopUI config unexpectedly enables Sell.');
     const nextText = `${JSON.stringify(merged, null, 2)}\n`;
     changed = originalText !== nextText;
@@ -145,6 +143,7 @@ async function run({ prefix = 'ARK_GEN1', Client = SftpClient, RconClient = ArkR
     shopName: desired.ShopName,
     sellDisabled: desired.DisableSellButton === true,
     tradeDisabled: desired.DisableTradeButton === true,
+    currencyIconOverride: desired.OverrideCurrencyIcon || '',
     reloadCommand: 'ArkShop.Reload',
     reloadResponded: typeof reloadResponse === 'string'
   };

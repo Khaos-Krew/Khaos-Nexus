@@ -26,6 +26,12 @@ function validUrl(value, { allowEmpty = true } = {}) {
   }
 }
 
+function validAssetPath(value) {
+  const text = clean(value, 500);
+  if (!text) return true;
+  return /^\/[A-Za-z0-9_.\/-]+$/.test(text) && !text.includes('..');
+}
+
 function validateArkShopUiConfig(config = {}) {
   const errors = [];
   const warnings = [];
@@ -42,6 +48,7 @@ function validateArkShopUiConfig(config = {}) {
   if (!clean(config.ShopName, 80)) errors.push('ShopName is required.');
   if (!validUrl(config.DiscordUrl, { allowEmpty: false })) errors.push('DiscordUrl must be a valid http/https URL.');
   if (!validUrl(config.WebsiteUrl)) errors.push('WebsiteUrl must be empty or a valid http/https URL.');
+  if (!validAssetPath(config.OverrideCurrencyIcon)) errors.push('OverrideCurrencyIcon must be an Unreal/ARK asset path beginning with /, not an http/https URL.');
 
   for (const name of ['VoteRewards', 'DisableSellButton', 'DisableTradeButton', 'HideBuffIcon', 'UseSteamOverlay']) {
     if (typeof config[name] !== 'boolean') errors.push(`${name} must be boolean.`);
@@ -69,7 +76,7 @@ function validateArkShopUiConfig(config = {}) {
   }
 
   if (!clean(config.WebsiteUrl, 500)) warnings.push('Nexus Portal URL is not configured; do not deploy the Website button live until a URL is selected.');
-  if (!clean(config.OverrideCurrencyIcon, 500)) warnings.push('Custom Nexus Points icon is intentionally unset until an ASA-safe asset path is verified.');
+  if (!clean(config.OverrideCurrencyIcon, 500)) warnings.push('Custom Nexus Points icon is unset; ArkShopUI will use its default currency icon until a cooked ASA asset path is verified.');
   if (config.DisableSellButton !== true) warnings.push('Sell button should stay disabled until the capped Nexus sell market is live and arbitrage-checked.');
 
   return { ok: errors.length === 0, errors, warnings };
@@ -86,6 +93,7 @@ function productionSafe(config = {}) {
 module.exports = {
   ALLOWED_KEYS,
   LABEL_KEYS,
+  validAssetPath,
   validateArkShopUiConfig,
   productionSafe
 };
