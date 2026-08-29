@@ -107,7 +107,8 @@ test('ArkShop profile is partial-authority and preserves unmanaged sections and 
 });
 
 test('ArkShop profile store versions imported live state and edits', () => {
-  const store = new ArkShopProfileStore(tempRoot());
+  const root = tempRoot();
+  const store = new ArkShopProfileStore(root);
   const imported = store.importLive({ id: 'live', name: 'Live Shop', config: liveConfig() });
   assert.equal(imported.revision, 1);
   assert.equal(imported.data.ShopItems.ingots.Price, 15);
@@ -115,6 +116,8 @@ test('ArkShop profile store versions imported live state and edits', () => {
   assert.equal(edited.revision, 2);
   assert.equal(edited.history[0].revision, 1);
   assert.equal(edited.data.ShopItems.element.Price, 50);
+  const serialized = fs.readFileSync(path.join(root, 'data', 'arkshop-profiles.json'), 'utf8');
+  assert.doesNotMatch(serialized, /SUPER-SECRET|secret-webhook\.example/);
 });
 
 test('ArkShop preview detects live changes without writing', async () => {
@@ -155,10 +158,11 @@ test('successful ArkShop apply writes once reloads once and records transaction 
 test('ArkShop reload failure restores pre-write backup and reloads old config', async () => {
   const restored = [];
   let reloadCalls = 0;
+  const applyStore = new ArkShopApplyStore(tempRoot());
   await assert.rejects(() => applyArkShopProfile({
     server: { id: 'gen1', envPrefix: 'ARK_GEN1' },
     profile: profile(),
-    applyStore: new ArkShopApplyStore(tempRoot()),
+    applyStore,
     reader: async () => ({ text: JSON.stringify(liveConfig()), remoteFile: 'ArkShop/config.json' }),
     writer: async () => ({ changed: true, backup: 'ArkShop/NexusBackups/2/config.json', remoteFile: 'ArkShop/config.json' }),
     reloader: async () => {
@@ -170,6 +174,33 @@ test('ArkShop reload failure restores pre-write backup and reloads old config', 
   }), /pre-write ArkShop config was restored and reloaded/);
   assert.deepEqual(restored, ['ArkShop/NexusBackups/2/config.json']);
   assert.equal(reloadCalls, 2);
+  const [failure] = applyStore.listForServer('gen1');
+  assert.equal(failure.status, 'failed');
+  assert.equal(failure.restored, true);
+  assert.doesNotMatch(JSON.stringify(failure), /SUPER-SECRET|secret-webhook\.example/);
+});
+
+test('guarded apply detects a baseline race inside the protected writer and never reloads', async () => {
+  const applyStore = new ArkShopApplyStore(tempRoot());
+  let reloads = 0;
+  await assert.rejects(() => applyArkShopProfile({
+    server: { id: 'gen1', envPrefix: 'ARK_GEN1' },
+    profile: profile(),
+    applyStore,
+    reader: async () => ({ text: JSON.stringify(liveConfig()), remoteFile: 'ArkShop/config.json' }),
+    guardCurrent: (current, { phase }) => {
+      if (phase === 'write' && current.ShopItems.ingots.Price !== 15) throw new Error('baseline changed; refusing overwrite');
+    },
+    writer: async ({ transform }) => {
+      const raced = liveConfig();
+      raced.ShopItems.ingots.Price = 16;
+      await transform(raced);
+      throw new Error('writer should not continue');
+    },
+    reloader: async () => { reloads += 1; }
+  }), /baseline changed; refusing overwrite/);
+  assert.equal(reloads, 0);
+  assert.equal(applyStore.listForServer('gen1')[0].status, 'failed');
 });
 
 test('recorded ArkShop transaction rollback restores backup reloads and can run only once', async () => {
