@@ -113,5 +113,6 @@ require('./arkshop-nexus-launch-v4-resources-runtime.cjs').installArkShopLaunchV
 require('./arkshop-nexus-launch-v5-disable-legacy-sell-runtime.cjs').installArkShopLaunchV5DisableLegacySellRuntime();
 require('./arkshop-nexus-launch-v6-remove-demo-items-runtime.cjs').installArkShopLaunchV6RemoveDemoItemsRuntime();
 require('./arkshop-cluster-economy-guard.cjs').installArkShopClusterEconomyGuard();
+require('./arkshop-backend-preflight-runtime.cjs').installArkShopBackendPreflightRuntime();
 require('./ark-command-routing-patch.cjs');
 require('./bot.cjs');
