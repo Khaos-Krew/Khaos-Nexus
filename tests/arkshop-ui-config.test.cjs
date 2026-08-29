@@ -1,0 +1,41 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { validateArkShopUiConfig, productionSafe } = require('../src/sentinel/arkshop-ui-config.cjs');
+
+const configPath = path.resolve(__dirname, '../config/ark/arkshopui/nexus-exchange.json');
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+test('Nexus Exchange ArkShopUI config validates without structural errors', () => {
+  const result = validateArkShopUiConfig(config);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.errors, []);
+  assert.equal(config.UiKey, 'F3');
+  assert.equal(config.ShopName, 'KHAOS NEXUS // EXCHANGE');
+  assert.equal(config.DisableSellButton, true);
+  assert.equal(config.DisableTradeButton, false);
+  assert.equal(config.WebsiteUrl, 'https://discord.gg/ZYAdnbqRHs');
+  assert.equal(config.DiscordUrl, 'https://discord.gg/ZYAdnbqRHs');
+  assert.match(config.OverrideCurrencyIcon, /nexus-points-coin\.png$/);
+});
+
+test('Nexus Exchange config is presentation-safe while Sell remains locked', () => {
+  const result = productionSafe(config);
+  assert.equal(result.productionSafe, true);
+  assert.deepEqual(result.blockers, []);
+});
+
+test('validator rejects unsafe hotkeys, malformed URLs, and duplicate labels', () => {
+  const broken = JSON.parse(JSON.stringify(config));
+  broken.UiKey = 'G9';
+  broken.DiscordUrl = 'not-a-url';
+  broken.OverrideLabels.push({ ItemsTabLabel: 'Duplicate' });
+  const result = validateArkShopUiConfig(broken);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((entry) => entry.includes('UiKey')));
+  assert.ok(result.errors.some((entry) => entry.includes('DiscordUrl')));
+  assert.ok(result.errors.some((entry) => entry.includes('duplicate ItemsTabLabel')));
+});
