@@ -1,0 +1,7 @@
+{
+  "FullName": "Khaos Nexus Economy Bridge",
+  "Description": "Narrow ASA Server API bridge for Sentinel-controlled exact resource sales and economy transactions.",
+  "Version": "0.1.0",
+  "MinApiVersion": "2.03",
+  "Dependencies": ["ArkShop"]
+}
