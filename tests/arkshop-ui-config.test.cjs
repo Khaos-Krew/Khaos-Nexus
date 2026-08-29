@@ -17,8 +17,9 @@ test('Nexus Exchange ArkShopUI config validates without structural errors', () =
   assert.equal(config.ShopName, 'KHAOS NEXUS // EXCHANGE');
   assert.equal(config.DisableSellButton, true);
   assert.equal(config.DisableTradeButton, false);
-  assert.equal(config.WebsiteUrl, 'https://discord.gg/ZYAdnbqRHs');
+  assert.equal(config.WebsiteUrl, '');
   assert.equal(config.DiscordUrl, 'https://discord.gg/ZYAdnbqRHs');
+  assert.equal(config.OverrideLabels.some((entry) => Object.hasOwn(entry, 'WebsiteLabel')), false);
   assert.match(config.OverrideCurrencyIcon, /nexus-points-coin\.png$/);
 });
 
