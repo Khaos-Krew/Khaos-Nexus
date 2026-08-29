@@ -48,7 +48,14 @@ function parseBridgeResponse(response, expectedTxId = '') {
   const restored = text.match(/(?:^|\s)restored=(true|false)/)?.[1];
 
   if (!ok && !failed) return { state: 'ambiguous', raw: text.slice(0, 500) };
-  if (expectedTxId && tx && tx !== expectedTxId) return { state: 'ambiguous', reason: 'transaction-id-mismatch', tx, raw: text.slice(0, 500) };
+  if (expectedTxId && tx !== expectedTxId) {
+    return {
+      state: 'ambiguous',
+      reason: tx ? 'transaction-id-mismatch' : 'transaction-id-missing',
+      tx,
+      raw: text.slice(0, 500)
+    };
+  }
   if (ok) return { state: 'completed', tx, duplicate, removed, credited, raw: text.slice(0, 500) };
   return { state: 'failed', tx, code: code || 'bridge-error', restored: restored === 'true' ? true : restored === 'false' ? false : null, raw: text.slice(0, 500) };
 }
