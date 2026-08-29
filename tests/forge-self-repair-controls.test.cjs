@@ -30,6 +30,14 @@ function healthyFetch(url) {
   return Promise.resolve(response({ ok: true, state: 'ready', discordReady: true, backendReady: true }));
 }
 
+async function disabledArkDiagnostics() {
+  return {
+    enabled: false,
+    ok: true,
+    state: 'disabled'
+  };
+}
+
 function controlledForge() {
   const calls = { health: 0, ci: 0, plan: 0, execute: 0 };
   let failing = true;
@@ -83,6 +91,23 @@ function clock() {
   return () => new Date(Date.UTC(2026, 7, 29, 0, 0, tick++));
 }
 
+function observerOptions(files, forge, extras = {}) {
+  return {
+    forge,
+    fetchImpl: healthyFetch,
+    stateFile: files.stateFile,
+    auditFile: files.auditFile,
+    now: clock(),
+    enabled: true,
+    env: {},
+    arkDiagnostics: disabledArkDiagnostics,
+    backendUrl: 'http://127.0.0.1:3210',
+    adminHealthUrl: 'http://127.0.0.1:8080/health',
+    logger: { log() {}, warn() {} },
+    ...extras
+  };
+}
+
 test('Self-Repair migrates V1 state without losing incident history', () => {
   const files = tempFiles();
   fs.writeFileSync(files.stateFile, JSON.stringify({
@@ -114,19 +139,12 @@ test('Self-Repair migrates V1 state without losing incident history', () => {
 test('Self-Repair acknowledge, snooze, unsnooze, and manual handoff persist safely', async () => {
   const files = tempFiles();
   const forge = controlledForge();
-  const observer = new ForgeSelfRepairObserver({
-    forge,
-    fetchImpl: healthyFetch,
-    stateFile: files.stateFile,
-    auditFile: files.auditFile,
-    now: clock(),
-    enabled: true,
-    policy: normalizeSelfRepairPolicy({ NEXUS_FORGE_SELF_REPAIR_MAX_SNOOZE_MINUTES: '120' }),
-    logger: { log() {}, warn() {} }
-  });
+  const observer = new ForgeSelfRepairObserver(observerOptions(files, forge, {
+    policy: normalizeSelfRepairPolicy({ NEXUS_FORGE_SELF_REPAIR_MAX_SNOOZE_MINUTES: '120' })
+  }));
 
   await observer.runOnce('failure');
-  const incident = observer.status().openIncidents[0];
+  const incident = observer.status().openIncidents.find((item) => item.type === 'ci-failure');
   assert.ok(incident);
 
   const acknowledged = observer.acknowledgeIncident(incident.id, 'staff-1', 'Investigating CI failure');
@@ -150,8 +168,10 @@ test('Self-Repair acknowledge, snooze, unsnooze, and manual handoff persist safe
   assert.equal(forge.calls.execute, 0);
 
   const reloaded = loadState(files.stateFile);
-  assert.equal(reloaded.incidents[0].acknowledgedBy, 'staff-1');
-  assert.equal(reloaded.incidents[0].snoozedUntil, null);
+  const persisted = reloaded.incidents.find((item) => item.id === incident.id);
+  assert.ok(persisted);
+  assert.equal(persisted.acknowledgedBy, 'staff-1');
+  assert.equal(persisted.snoozedUntil, null);
 
   const audit = fs.readFileSync(files.auditFile, 'utf8');
   assert.match(audit, /incident-acknowledged/);
@@ -162,19 +182,14 @@ test('Self-Repair acknowledge, snooze, unsnooze, and manual handoff persist safe
 test('Self-Repair verification resolves recovered condition without AI execution', async () => {
   const files = tempFiles();
   const forge = controlledForge();
-  const observer = new ForgeSelfRepairObserver({
-    forge,
-    fetchImpl: healthyFetch,
-    stateFile: files.stateFile,
-    auditFile: files.auditFile,
-    now: clock(),
-    enabled: true,
-    policy: normalizeSelfRepairPolicy({ NEXUS_FORGE_SELF_REPAIR_VERIFY_PASSES: '1' }),
-    logger: { log() {}, warn() {} }
-  });
+  const observer = new ForgeSelfRepairObserver(observerOptions(files, forge, {
+    policy: normalizeSelfRepairPolicy({ NEXUS_FORGE_SELF_REPAIR_VERIFY_PASSES: '1' })
+  }));
 
   await observer.runOnce('failure');
-  const incidentId = observer.status().openIncidents[0].id;
+  const incident = observer.status().openIncidents.find((item) => item.type === 'ci-failure');
+  assert.ok(incident);
+  const incidentId = incident.id;
   forge.setFailing(false);
 
   const verification = await observer.verifyIncident(incidentId, { actorId: 'staff-2' });
@@ -191,15 +206,7 @@ test('Self-Repair verification resolves recovered condition without AI execution
 test('Self-Repair reopens a recurring incident and increments occurrence count', async () => {
   const files = tempFiles();
   const forge = controlledForge();
-  const observer = new ForgeSelfRepairObserver({
-    forge,
-    fetchImpl: healthyFetch,
-    stateFile: files.stateFile,
-    auditFile: files.auditFile,
-    now: clock(),
-    enabled: true,
-    logger: { log() {}, warn() {} }
-  });
+  const observer = new ForgeSelfRepairObserver(observerOptions(files, forge));
 
   await observer.runOnce('first-failure');
   forge.setFailing(false);
@@ -207,7 +214,8 @@ test('Self-Repair reopens a recurring incident and increments occurrence count',
   forge.setFailing(true);
   await observer.runOnce('second-failure');
 
-  const incident = observer.status().openIncidents[0];
+  const incident = observer.status().openIncidents.find((item) => item.type === 'ci-failure');
+  assert.ok(incident);
   assert.equal(incident.occurrenceCount, 2);
   assert.equal(incident.status, 'open');
   assert.ok(incident.reopenedAt);
