@@ -3,6 +3,7 @@
 const { KIT_PRICES } = require('./arkshop-nexus-launch-v3-kits-startup.cjs');
 const { REBUNDLED_BUYS, BASIC_SELLS } = require('./arkshop-nexus-launch-v7-basic-sell-startup.cjs');
 const { BOSS_TROPHY_SELLS } = require('./arkshop-nexus-launch-v8-boss-sell-startup.cjs');
+const { APEX_TRIBUTE_SELLS } = require('./arkshop-nexus-launch-v9-apex-tribute-sell-startup.cjs');
 
 const REQUIRED_DINO_BALL_ITEMS = Object.freeze(['dinoballs5', 'dinoballs25', 'dinoballs100']);
 
@@ -19,6 +20,7 @@ function launchReadiness(profile) {
   for (const id of Object.keys(REBUNDLED_BUYS)) if (!shop[id]) missing.push(`resource-buy:${id}`);
   for (const id of Object.keys(BASIC_SELLS)) if (!sells[id]) missing.push(`resource-sell:${id}`);
   for (const id of Object.keys(BOSS_TROPHY_SELLS)) if (!sells[id]) missing.push(`boss-sell:${id}`);
+  for (const id of Object.keys(APEX_TRIBUTE_SELLS)) if (!sells[id]) missing.push(`apex-tribute-sell:${id}`);
 
   if (data?.General?.TimedPointsReward?.Enabled !== true) missing.push('timed-points:enabled');
   if (Number(data?.General?.TimedPointsReward?.Interval) !== 5) missing.push('timed-points:interval');
@@ -36,7 +38,8 @@ function launchReadiness(profile) {
       requiredKits: 1 + Object.keys(KIT_PRICES).length,
       requiredResourceBuys: Object.keys(REBUNDLED_BUYS).length,
       requiredResourceSells: Object.keys(BASIC_SELLS).length,
-      requiredBossSells: Object.keys(BOSS_TROPHY_SELLS).length
+      requiredBossSells: Object.keys(BOSS_TROPHY_SELLS).length,
+      requiredApexTributeSells: Object.keys(APEX_TRIBUTE_SELLS).length
     }
   };
 }

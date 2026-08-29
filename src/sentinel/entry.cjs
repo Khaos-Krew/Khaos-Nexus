@@ -112,6 +112,7 @@ require('./arkshop-nexus-launch-v5-disable-legacy-sell-runtime.cjs').installArkS
 require('./arkshop-nexus-launch-v6-remove-demo-items-runtime.cjs').installArkShopLaunchV6RemoveDemoItemsRuntime();
 require('./arkshop-nexus-launch-v7-basic-sell-runtime.cjs').installArkShopLaunchV7BasicSellRuntime();
 require('./arkshop-nexus-launch-v8-boss-sell-runtime.cjs').installArkShopLaunchV8BossSellRuntime();
+require('./arkshop-nexus-launch-v9-apex-tribute-sell-runtime.cjs').installArkShopLaunchV9ApexTributeSellRuntime();
 require('./arkshop-ui-live-deploy-runtime.cjs').installArkShopUiLiveDeployRuntime();
 require('./arkshop-cluster-economy-guard.cjs').installArkShopClusterEconomyGuard();
 require('./arkshop-backend-preflight-runtime.cjs').installArkShopBackendPreflightRuntime();
