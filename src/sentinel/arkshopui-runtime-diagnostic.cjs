@@ -3,10 +3,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const SftpClient = require('ssh2-sftp-client');
-const { sftpSettingsFromEnv, remotePath } = require('./ark-sftp-config.cjs');
+const { sftpSettingsFromEnv } = require('./ark-sftp-config.cjs');
+const { findRemoteFile } = require('./ark-sftp-discovery.cjs');
+const { resolveLiveConfig } = require('./arkshop-ui-live-deploy.cjs');
 
 const ENV_KEY = 'ARK_GEN1_ARKSHOPUI_RUNTIME_DIAGNOSTIC_ONCE';
-const PLUGIN_DIR = 'ShooterGame/Binaries/Win64/ArkApi/Plugins/ArkShopUI';
 const LOG_FILE = 'ShooterGame/Saved/Logs/ShooterGame.log';
 
 function token() { return String(process.env[ENV_KEY] || '').trim(); }
@@ -38,44 +39,63 @@ async function runOnce(value = token(), { Client = SftpClient } = {}) {
   const client = new Client('khaos-nexus-arkshopui-runtime-diagnostic');
   await client.connect({ host: settings.host, port: settings.port, username: settings.username, password: settings.password, readyTimeout: settings.readyTimeout });
   try {
-    const pluginDir = remotePath(settings.root, PLUGIN_DIR);
-    const pluginDirExists = await client.exists(pluginDir);
+    let resolvedConfigPath = '';
+    let resolutionError = '';
+    try { resolvedConfigPath = await resolveLiveConfig(client, settings); }
+    catch (error) { resolutionError = clean(error?.message || error, 500); }
+
+    const pluginDir = resolvedConfigPath ? path.posix.dirname(resolvedConfigPath) : '';
     let files = [];
-    if (pluginDirExists === 'd') {
-      files = (await client.list(pluginDir)).map((entry) => ({ name: clean(entry.name, 160), type: clean(entry.type, 4), size: Number(entry.size || 0) })).filter((entry) => entry.name && !/password|secret|token/i.test(entry.name)).slice(0, 100);
+    if (pluginDir) {
+      files = (await client.list(pluginDir).catch(() => [])).map((entry) => ({ name: clean(entry.name, 160), type: clean(entry.type, 4), size: Number(entry.size || 0) })).filter((entry) => entry.name && !/password|secret|token/i.test(entry.name)).slice(0, 100);
     }
-    const configNames = ['config.json', 'Config.json'];
-    let configFile = '';
+
     let config = null;
-    for (const name of configNames) {
-      const file = path.posix.join(pluginDir, name);
-      const text = await readText(client, file, 256 * 1024);
-      if (typeof text !== 'string') continue;
-      try { config = JSON.parse(text); configFile = name; break; } catch { config = { invalidJson: true }; configFile = name; break; }
+    if (resolvedConfigPath) {
+      const text = await readText(client, resolvedConfigPath, 256 * 1024);
+      if (typeof text === 'string') {
+        try { config = JSON.parse(text); } catch { config = { invalidJson: true }; }
+      }
     }
-    const logPath = remotePath(settings.root, LOG_FILE);
-    const logText = await readText(client, logPath);
+
+    let resolvedLogPath = '';
+    try {
+      const foundLog = await findRemoteFile(client, {
+        configuredRoot: settings.root,
+        configuredPath: LOG_FILE,
+        preferredSuffix: LOG_FILE,
+        fileName: 'ShooterGame.log',
+        maxDepth: 7
+      });
+      resolvedLogPath = foundLog?.path || '';
+    } catch {}
+
+    const logText = resolvedLogPath ? await readText(client, resolvedLogPath) : null;
     let logMatches = [];
     let logState = 'missing';
     if (typeof logText === 'string') {
       logState = 'read';
-      logMatches = logText.split(/\r?\n/).filter((line) => /arkshopui|arkshop|fc_arkshopui/i.test(line)).slice(-120).map((line) => clean(line, 700));
+      logMatches = logText.split(/\r?\n/).filter((line) => /arkshopui|arkshop|fc_arkshopui|loading plugin|plugin loaded/i.test(line)).slice(-160).map((line) => clean(line, 700));
     } else if (logText?.tooLarge) logState = `too-large:${logText.size}`;
 
     const names = files.map((entry) => entry.name);
     const result = {
       completedAt: new Date().toISOString(),
-      pluginDirPresent: pluginDirExists === 'd',
+      resolvedConfigPath: clean(resolvedConfigPath, 500),
+      resolutionError,
+      pluginDir: clean(pluginDir, 500),
       files,
-      hasDllLikeBinary: names.some((name) => /arkshopui.*\.(dll|so)$/i.test(name) || /\.dll$/i.test(name)),
-      configFile,
+      hasDllLikeBinary: names.some((name) => /\.dll$/i.test(name)),
+      configFile: resolvedConfigPath ? path.posix.basename(resolvedConfigPath) : '',
       config: config?.invalidJson ? { invalidJson: true } : safeConfig(config || {}),
+      resolvedLogPath: clean(resolvedLogPath, 500),
       logState,
       logMatches
     };
     fs.mkdirSync(dataDir(), { recursive: true });
     fs.writeFileSync(stamp, JSON.stringify(result, null, 2), { mode: 0o600 });
-    console.log(`[Nexus Sentinal] ArkShopUI runtime diagnostic COMPLETE: dir=${result.pluginDirPresent} files=${files.length} binary=${result.hasDllLikeBinary} config=${configFile || 'missing'} logMatches=${logMatches.length}`);
+    console.log(`[Nexus Sentinal] ArkShopUI runtime diagnostic COMPLETE: config=${result.resolvedConfigPath || 'missing'} files=${files.length} binary=${result.hasDllLikeBinary} log=${result.logState} logMatches=${logMatches.length}`);
+    if (result.resolutionError) console.log(`[Nexus Sentinal] ArkShopUI runtime diagnostic resolution: ${result.resolutionError}`);
     return { ...result, stamp };
   } finally {
     await client.end().catch(() => {});
@@ -87,8 +107,8 @@ function installArkShopUiRuntimeDiagnostic({ delayMs = 30000 } = {}) {
   if (!value) return { enabled: false };
   const timer = setTimeout(() => { void runOnce(value).catch((error) => console.error(`[Nexus Sentinal] ArkShopUI runtime diagnostic FAILED CLOSED: ${clean(error?.message || error, 400)}`)); }, Math.max(5000, Number(delayMs) || 30000));
   timer.unref?.();
-  console.log(`[Nexus Sentinal] ArkShopUI runtime diagnostic armed via ${ENV_KEY}; read-only remote inspection only.`);
+  console.log(`[Nexus Sentinal] ArkShopUI runtime diagnostic armed via ${ENV_KEY}; read-only resolved-path inspection only.`);
   return { enabled: true };
 }
 
-module.exports = { ENV_KEY, PLUGIN_DIR, LOG_FILE, safeConfig, runOnce, installArkShopUiRuntimeDiagnostic };
+module.exports = { ENV_KEY, LOG_FILE, safeConfig, runOnce, installArkShopUiRuntimeDiagnostic };
