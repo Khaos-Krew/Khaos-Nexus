@@ -11,7 +11,8 @@ test('Nexus ArkShopUI live deploy keeps Sell locked and trade available', () => 
   assert.equal(config.UiKey, 'F3');
   assert.equal(config.DisableSellButton, true);
   assert.equal(config.DisableTradeButton, false);
-  assert.equal(VERSION, 'nexus-arkshopui-test-v1');
+  assert.equal(VERSION, 'nexus-arkshopui-test-v2-iconfix');
+  assert.equal(Object.prototype.hasOwnProperty.call(config, 'OverrideCurrencyIcon'), false);
 });
 
 test('ArkShopUI live deploy runtime is opt-in only', () => {
