@@ -8,11 +8,11 @@ function installArkShopLaunchV7BasicSellRuntime() {
   if (!requested()) return { enabled: false };
   const timer = setTimeout(() => {
     void run()
-      .then(() => console.log('[Nexus Sentinal] Nexus ArkShop launch v7 basic sell completed.'))
-      .catch((error) => console.error(`[Nexus Sentinal] Nexus ArkShop launch v7 basic sell FAILED CLOSED: ${cleanError(error)}`));
+      .then(() => console.log('[Nexus Sentinal] Nexus ArkShop launch v7 practical resource bundles + basic sell market completed.'))
+      .catch((error) => console.error(`[Nexus Sentinal] Nexus ArkShop launch v7 practical bundles/basic sell FAILED CLOSED: ${cleanError(error)}`));
   }, 20_000);
   timer.unref?.();
-  console.log(`[Nexus Sentinal] Nexus ArkShop launch v7 basic sell armed via ${ENV_KEY}.`);
+  console.log(`[Nexus Sentinal] Nexus ArkShop launch v7 practical bundles/basic sell armed via ${ENV_KEY}.`);
   return { enabled: true };
 }
 
