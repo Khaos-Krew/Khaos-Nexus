@@ -10,6 +10,7 @@ COPY src ./src
 COPY scripts ./scripts
 COPY tests ./tests
 COPY config ./config
+COPY native ./native
 COPY config.example.json ./config.example.json
 
 RUN npm run check && npm test
