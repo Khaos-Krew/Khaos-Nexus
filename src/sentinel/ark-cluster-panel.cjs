@@ -9,6 +9,7 @@ const STATUS_CHANNEL = 'ark-server-status';
 const BUTTON_REFRESH = 'nexus-ark-cluster-refresh';
 const BUTTON_MODS = 'nexus-ark-cluster-mods';
 const BUTTON_STATS = 'nexus-ark-cluster-stats';
+const BUTTON_UPDATE_SAFETY = 'nexus-ark-update-safety';
 const BUTTON_SHOP = 'nexus-ark-cluster-shop';
 const BUTTON_KITS = 'nexus-ark-cluster-kits';
 const BUTTON_PUBLIC_SHOP = 'nexus-ark-cluster-public-shop';
@@ -119,7 +120,8 @@ function buildButtons() {
 
 function buildInfoButtons() {
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(BUTTON_STATS).setLabel('Server Stats & Rates').setEmoji('📊').setStyle(ButtonStyle.Secondary)
+    new ButtonBuilder().setCustomId(BUTTON_STATS).setLabel('Server Stats & Rates').setEmoji('📊').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(BUTTON_UPDATE_SAFETY).setLabel('Update Safety').setEmoji('🛡️').setStyle(ButtonStyle.Danger)
   );
 }
 
@@ -217,6 +219,7 @@ module.exports = {
   BUTTON_REFRESH,
   BUTTON_MODS,
   BUTTON_STATS,
+  BUTTON_UPDATE_SAFETY,
   BUTTON_SHOP,
   BUTTON_KITS,
   BUTTON_PUBLIC_SHOP,
