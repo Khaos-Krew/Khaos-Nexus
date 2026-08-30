@@ -146,7 +146,7 @@ if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
   mysqlWatch.unref?.();
 }
 
-// Read-only discovery for the configured second ARK service. This deliberately
+// Read-only identity discovery for the configured second ARK service. This deliberately
 // runs even while ARK_MAP2_ENABLED is false so a stopped server can be identified
 // from its SFTP layout and logs before any management or migration is enabled.
 if (String(process.env.ARK_MAP2_SFTP_HOST || '').trim()) {
