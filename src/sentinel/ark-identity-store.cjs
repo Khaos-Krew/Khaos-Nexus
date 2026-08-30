@@ -39,11 +39,24 @@ class ArkIdentityStore {
     const root = options.root || process.env.NEXUS_DATA_DIR || path.resolve(__dirname, '../..', 'data');
     this.dir = path.resolve(root);
     this.file = path.join(this.dir, 'ark-identities.json');
-    this.secret = String(options.secret || process.env.NEXUS_IDENTITY_SECRET || '');
+    this.secretFile = path.join(this.dir, 'ark-identity-secret');
+    this.secretWasExplicit = Object.prototype.hasOwnProperty.call(options, 'secret') || Boolean(process.env.NEXUS_IDENTITY_SECRET);
+    this.secret = String(Object.prototype.hasOwnProperty.call(options, 'secret') ? options.secret : process.env.NEXUS_IDENTITY_SECRET || '');
     this.now = typeof options.now === 'function' ? options.now : Date.now;
   }
 
   requireSecret() {
+    if (!this.secret && !this.secretWasExplicit) {
+      try { this.secret = String(fs.readFileSync(this.secretFile, 'utf8')).trim(); } catch {}
+      if (!this.secret) {
+        fs.mkdirSync(this.dir, { recursive: true });
+        const generated = crypto.randomBytes(32).toString('hex');
+        try { fs.writeFileSync(this.secretFile, generated, { mode: 0o600, flag: 'wx' }); } catch (error) {
+          if (error?.code !== 'EEXIST') throw error;
+        }
+        this.secret = String(fs.readFileSync(this.secretFile, 'utf8')).trim();
+      }
+    }
     if (Buffer.byteLength(this.secret) < 32) throw new Error('NEXUS_IDENTITY_SECRET must contain at least 32 characters.');
   }
 

@@ -18,6 +18,11 @@ test('ARK chat parser extracts verification codes without trusting an unverified
   assert.equal(resolveChatIdentity(messages[0], [{ name: 'Survivor', eosId: 'one_12345' }, { name: 'survivor', eosId: 'two_12345' }]).reason, 'ambiguous-player-name');
 });
 
+test('ARK chat parser honors the configured player-facing link command', () => {
+  assert.equal(parseArkChatLines('Survivor: !verify ABCD2345', '!verify')[0].code, 'ABCD2345');
+  assert.deepEqual(parseArkChatLines('Survivor: !link ABCD2345', '!verify'), []);
+});
+
 test('chat consumption verifies only an online player and suppresses replayed chat history', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-link-service-'));
   const store = new ArkIdentityStore({ root, secret: 'test-secret-with-at-least-thirty-two-characters' });

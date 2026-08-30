@@ -7,12 +7,18 @@ function clean(value, max = 256) {
   return String(value || '').replace(/[\r\n\t\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
-function parseArkChatLines(response = '') {
+function escaped(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function parseArkChatLines(response = '', chatCommand = '!link') {
   const messages = [];
+  const commandText = clean(chatCommand, 32) || '!link';
+  const matcher = new RegExp(`${escaped(commandText)}\\s+([A-Z2-9]{6,12})\\b`, 'i');
   for (const raw of String(response || '').split(/\r?\n/)) {
     const line = clean(raw, 600);
-    if (!line || !/!link\s+[A-Z2-9]{6,12}\b/i.test(line)) continue;
-    const command = line.match(/!link\s+([A-Z2-9]{6,12})\b/i);
+    if (!line || !matcher.test(line)) continue;
+    const command = line.match(matcher);
     const before = line.slice(0, command.index).replace(/^\[[^\]]+\]\s*/, '').replace(/[\s:>\-]+$/, '');
     let playerName = before;
     let eosId = '';
@@ -56,9 +62,9 @@ class ArkAccountLinkService {
     this.seen = new Set();
   }
 
-  consumeChat(response, { players = [], mapId = '' } = {}) {
+  consumeChat(response, { players = [], mapId = '', chatCommand = '!link' } = {}) {
     const results = [];
-    for (const message of parseArkChatLines(response)) {
+    for (const message of parseArkChatLines(response, chatCommand)) {
       const fingerprint = crypto.createHash('sha256').update(`${mapId}\n${message.line}`).digest('hex');
       if (this.seen.has(fingerprint)) continue;
       this.seen.add(fingerprint);

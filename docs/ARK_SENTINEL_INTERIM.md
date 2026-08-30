@@ -11,7 +11,7 @@ All new journals follow `NEXUS_DATA_DIR` and therefore use the existing Railway 
 - `ark-spawn-monitor.json` — per-map species samples, learned normal baselines, and future approved-action records.
 - `ark-reward-journal.json` and `ark-event-journal.json` — reward and event records from the existing foundations.
 
-`NEXUS_IDENTITY_SECRET` must be a stable random value of at least 32 characters stored only in Railway environment storage. Rotating it invalidates pending link codes but does not remove verified links.
+`NEXUS_IDENTITY_SECRET` may supply a stable random value of at least 32 characters from Railway environment storage. When it is omitted, Sentinel creates an equally strong private secret once on the existing Railway `/app/data` volume and reuses it. Rotating or deleting that secret invalidates pending link codes but does not remove verified links.
 
 ## Account linking
 
@@ -19,7 +19,7 @@ The `/ark link` command creates a hashed, single-use code with a ten-minute defa
 
 Required activation variables:
 
-- `NEXUS_IDENTITY_SECRET` — stable 32+ character secret.
+- `NEXUS_IDENTITY_SECRET` — optional stable 32+ character secret; otherwise the private volume-backed secret is used.
 - `ARK_GEN1_ACCOUNT_LINKING_ENABLED=true`
 - `ARK_GEN1_CHAT_POLL_COMMAND=GetChat` — change this if the installed Extended RCON provider exposes a different read-only command.
 - `ARK_GEN1_CHAT_POLL_SECONDS=10` — minimum five seconds.
@@ -29,7 +29,15 @@ Verify the exact chat response format on the test server before enabling product
 
 ## Rank projection
 
-Discord remains authoritative. Existing Server Shop role mapping or Premium App entitlement reconciliation assigns one of the configured Discord roles. Sentinel projects the highest configured role into every linked Nexus profile every 30 minutes and on Discord member-role updates. All six ranks are supported: Shadow Recruit, Cipher Runner, Nexus Raider, Khaos Warden, Blackout Legend, and legacy Origin Founder. Origin Founder remains legacy-only and is never converted into a purchasable SKU entitlement.
+Discord remains authoritative. Existing Server Shop role mapping or Premium App entitlement reconciliation assigns one of the configured Discord roles. Sentinel projects the highest configured role into every linked Nexus profile and the ASA Permissions plugin every 30 minutes, immediately after account linking, and on Discord member-role updates. All six ranks are supported: Shadow Recruit, Cipher Runner, Nexus Raider, Khaos Warden, Blackout Legend, and legacy Origin Founder. Origin Founder remains legacy-only and is never converted into a purchasable SKU entitlement.
+
+Live ARK delivery uses the official Permissions RCON commands and read-back verification. Sentinel first adds the desired group, then removes only stale groups from its six-name managed allowlist. It never removes `Default`, `Admins`, or any unrelated group. `/ark rank-sync` provides an audited staff reconciliation. Self-service unlink fails closed until the managed ARK rank is verifiably revoked.
+
+Rank activation variables:
+
+- `ARK_GEN1_RANK_SYNC_ENABLED=true`
+- `ARK_GEN1_RANK_GROUP_PROVISION_ENABLED=true` — allows creation of missing Nexus groups, but never grants wildcard/admin permissions.
+- optional `ARK_GEN1_RANK_GROUPS_JSON` — JSON mapping of the six rank IDs to unique, space-free Permissions group names. Defaults are `NexusShadowRecruit`, `NexusCipherRunner`, `NexusRaider`, `NexusKhaosWarden`, `NexusBlackoutLegend`, and `NexusOriginFounder`.
 
 ## Cross-chat
 
@@ -60,10 +68,10 @@ Sentinel learns a per-map median baseline from normal samples. Alerts include a 
 ## Activation order
 
 1. Deploy code with every new runtime switch false.
-2. Set and retain `NEXUS_IDENTITY_SECRET`.
+2. Set and retain `NEXUS_IDENTITY_SECRET`, or verify the private volume-backed fallback was created.
 3. Verify `GetChat` and the species-count command against the test server.
 4. Enable account linking and complete a real Discord-to-EOS acceptance link.
-5. Confirm linked rank projection for a free rank, paid rank, and Origin Founder.
+5. Enable ARK rank synchronization/group provisioning and confirm linked rank delivery for a free rank, paid rank, and Origin Founder.
 6. Enable cross-chat in a private test channel and verify both directions, replay suppression, rate limiting, and moderation.
 7. Enable read-only Megalodon sampling; collect at least 24 normal samples before changing Game.ini.
 8. Require a separate explicit approval for any targeted spawn correction or production Game.ini change.

@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "service": "sentinal",
+  "date": "2026-08-30",
+  "deploymentSafety": "managed-groups-only-readback-verified",
+  "features": {
+    "accountLinking": "one-time-hashed-code-cluster-identity",
+    "rankProjection": "discord-authoritative",
+    "arkDelivery": "official-permissions-rcon-with-readback",
+    "unlinkRevocation": "fail-closed"
+  },
+  "managedGroups": [
+    "NexusShadowRecruit",
+    "NexusCipherRunner",
+    "NexusRaider",
+    "NexusKhaosWarden",
+    "NexusBlackoutLegend",
+    "NexusOriginFounder"
+  ],
+  "protectedGroups": "all groups outside the managed Nexus allowlist",
+  "destructiveActions": false
+}

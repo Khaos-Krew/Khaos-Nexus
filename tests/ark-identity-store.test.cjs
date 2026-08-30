@@ -54,3 +54,14 @@ test('identity secret must be long enough before codes can be issued', () => {
   const store = new ArkIdentityStore({ root, secret: 'short' });
   assert.throws(() => store.issueChallenge('123456789012345678'), /at least 32/);
 });
+
+test('Railway volume fallback creates and reuses a private identity secret when no environment secret is configured', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-identity-secret-'));
+  const first = new ArkIdentityStore({ root });
+  const challenge = first.issueChallenge('123456789012345678');
+  const secretFile = path.join(root, 'ark-identity-secret');
+  const secret = fs.readFileSync(secretFile, 'utf8');
+  assert.match(secret, /^[a-f0-9]{64}$/);
+  const second = new ArkIdentityStore({ root });
+  assert.equal(second.verifyChallenge({ code: challenge.code, eosId: '0002abc123456789' }).ok, true);
+});

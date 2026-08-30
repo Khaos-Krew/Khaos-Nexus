@@ -8,6 +8,8 @@ const { ArkDinoCachePurchaseService } = require('./ark-dino-cache-purchase.cjs')
 const { CACHE_POOLS } = require('./ark-dino-cache-engine.cjs');
 const { ArkIdentityStore } = require('./ark-identity-store.cjs');
 const { ArkAccountLinkService } = require('./ark-account-linking.cjs');
+const { StateStore } = require('./state-store.cjs');
+const { ArkPermissionRankSync, effectiveRankConfig } = require('./ark-permission-rank-sync.cjs');
 const { parseListPlayers } = require('./ark-cluster-monitor.cjs');
 const { parseArkChat, ArkCrossChatRouter } = require('./ark-cross-chat.cjs');
 const { DEFAULT_SPECIES_POLICIES, parseSpeciesCount, evaluateSpeciesCount, correctionPlan, SpawnMonitorJournal } = require('./ark-spawn-monitor.cjs');
@@ -46,6 +48,7 @@ function arkCommand() {
   command.addSubcommand((sub) => sub.setName('players').setDescription('List connected ARK players.'));
   command.addSubcommand((sub) => sub.setName('link').setDescription('Create a one-time code to securely link your Discord and ARK accounts.'));
   command.addSubcommand((sub) => sub.setName('link-status').setDescription('Show your verified ARK account links and synced Nexus rank.'));
+  command.addSubcommand((sub) => sub.setName('rank-sync').setDescription('Reconcile every linked Nexus rank into ARK Permissions now.'));
   command.addSubcommand((sub) => sub.setName('unlink').setDescription('Remove one of your verified ARK account links.')
     .addStringOption((option) => option.setName('eos_id').setDescription('Your linked ARK EOS player ID.').setRequired(true).setMaxLength(96)));
   for (const [name, description] of [
@@ -284,9 +287,22 @@ async function handleArkInteraction(interaction, context) {
 
   if (sub === 'unlink') {
     const eosId = safeEos(interaction.options.getString('eos_id', true));
+    if (context.rankSyncEnabled) {
+      if (!context.rankSyncReady) throw new Error('ARK rank delivery is not ready, so Sentinel will not unlink an account while its server rank may remain assigned.');
+      const revoked = await context.rankSync.revoke({ eosId, discordUserId: String(interaction.user.id), source: 'self-service-unlink' });
+      if (!revoked.ok) throw new Error('Sentinel could not verify removal of the linked ARK rank. The account remains linked for safe recovery.');
+    }
     const result = context.identityStore.unlinkArk({ discordUserId: String(interaction.user.id), eosId, actorId: String(interaction.user.id), reason: 'self-service Discord unlink' });
     if (!result.ok) throw new Error('That ARK account is not linked to your Discord account.');
     await interaction.editReply({ content: `✅ ARK identity \`${eosId}\` was unlinked. This action was recorded in the Nexus audit journal.`, allowedMentions: { parse: [] } });
+    return true;
+  }
+
+  if (sub === 'rank-sync') {
+    if (!context.rankSyncEnabled) throw new Error('ARK permission-rank synchronization is not enabled.');
+    if (!context.rankSyncReady) throw new Error('ARK permission-rank synchronization did not pass its Permissions plugin preflight.');
+    const result = await context.syncAllLinkedRanks('staff-command');
+    await interaction.editReply({ content: `✅ **Nexus ARK rank reconciliation**\nProfiles: **${result.profiles}** • accounts: **${result.accounts}** • changed: **${result.changed}** • failed: **${result.failed}**`, allowedMentions: { parse: [] } });
     return true;
   }
 
@@ -408,6 +424,12 @@ function installArkOpsExtension() {
         const rcon = new ArkRconClient(server);
         const identityStore = new ArkIdentityStore();
         const accountLinking = new ArkAccountLinkService({ store: identityStore });
+        const stateStore = new StateStore();
+        const rankSyncEnabled = String(process.env.ARK_GEN1_RANK_SYNC_ENABLED || 'false').toLowerCase() === 'true';
+        const rankSync = new ArkPermissionRankSync({
+          rcon,
+          provisionGroups: String(process.env.ARK_GEN1_RANK_GROUP_PROVISION_ENABLED || 'false').toLowerCase() === 'true'
+        });
         const blockedTerms = String(process.env.NEXUS_ARK_CROSSCHAT_BLOCKED_TERMS || '').split(',').map((item) => item.trim().toLowerCase()).filter(Boolean);
         const crossChat = new ArkCrossChatRouter({ moderate: ({ message }) => ({
           allowed: !blockedTerms.some((term) => String(message || '').toLowerCase().includes(term)),
@@ -415,7 +437,35 @@ function installArkOpsExtension() {
         }) });
         const supporterCaches = new ArkSupporterCacheService({ rcon, identityStore });
         const arkEvents = new ArkEventService({ rcon, mapId: server.id || 'gen1', mapName: server.name || 'ARK' });
-        client.__nexusArkContext = { config, server, rcon, identityStore, accountLinking, crossChat, supporterCaches, arkEvents };
+        const syncMember = async (member, source = 'discord-role-sync') => {
+          const effectiveConfig = effectiveRankConfig(config, stateStore.getAdminSettings());
+          const synced = accountLinking.syncMemberRank(member, effectiveConfig);
+          if (!synced.ok) return { ok: false, reason: synced.reason, accounts: 0, changed: 0, failed: 0 };
+          if (synced.changed) console.log(`[Nexus Sentinal] linked profile rank synchronized: discord=${member.id} rank=${synced.profile.rankId}`);
+          if (!rankSyncEnabled || !client.__nexusArkContext?.rankSyncReady) return { ok: true, rankId: synced.profile.rankId, accounts: 0, changed: 0, failed: 0 };
+          const results = [];
+          for (const account of synced.profile.arkAccounts || []) {
+            results.push(await rankSync.reconcile({ eosId: account.eosId, rankId: synced.profile.rankId, discordUserId: member.id, source }).catch((error) => ({ ok: false, reason: String(error?.message || error) })));
+          }
+          return {
+            ok: results.every((item) => item.ok), rankId: synced.profile.rankId, accounts: results.length,
+            changed: results.filter((item) => item.changed).length, failed: results.filter((item) => !item.ok).length,
+            results
+          };
+        };
+        const syncAllLinkedRanks = async (source = 'periodic') => {
+          const discordIds = Object.keys(identityStore.read().profiles);
+          const summary = { profiles: discordIds.length, accounts: 0, changed: 0, failed: 0 };
+          for (const discordId of discordIds) {
+            const result = await guild.members.fetch(discordId).then((member) => syncMember(member, source)).catch(() => ({ ok: false, accounts: 0, changed: 0, failed: 1 }));
+            summary.accounts += Number(result.accounts || 0);
+            summary.changed += Number(result.changed || 0);
+            summary.failed += Number(result.failed || 0) + (result.ok === false && !result.failed ? 1 : 0);
+          }
+          console.log(`[Nexus Sentinal] linked ARK rank reconciliation (${source}): profiles=${summary.profiles} accounts=${summary.accounts} changed=${summary.changed} failed=${summary.failed}`);
+          return summary;
+        };
+        client.__nexusArkContext = { config, server, rcon, identityStore, accountLinking, crossChat, supporterCaches, arkEvents, rankSync, rankSyncEnabled, rankSyncReady: false, syncMember, syncAllLinkedRanks };
         await registerArkCommand(guild);
         const result = await rcon.execute('ListPlayers');
         console.log(`[Nexus Sentinal] ARK RCON ready: server=${server.name} host=${server.host}:${server.port} playersResponse=${String(result || 'none').slice(0, 120)}`);
@@ -423,8 +473,16 @@ function installArkOpsExtension() {
         const linkingEnabled = String(process.env.ARK_GEN1_ACCOUNT_LINKING_ENABLED || 'false').toLowerCase() === 'true';
         const crossChatEnabled = String(process.env.NEXUS_ARK_CROSSCHAT_ENABLED || 'false').toLowerCase() === 'true';
         const crossChatChannelId = String(process.env.NEXUS_ARK_CROSSCHAT_CHANNEL_ID || '').trim();
+        if (linkingEnabled) identityStore.requireSecret();
+        if (rankSyncEnabled) {
+          const preflight = await rankSync.ensureGroups();
+          client.__nexusArkContext.rankSyncReady = preflight.ok;
+          if (!preflight.ok) console.warn(`[Nexus Sentinal] ARK permission-rank sync blocked: reason=${preflight.reason} missing=${(preflight.missing || []).join(',') || 'unknown'}`);
+          else console.log(`[Nexus Sentinal] ARK permission-rank sync ready: managedGroups=6 created=${preflight.created.length}`);
+        }
         if (linkingEnabled || crossChatEnabled) {
           const chatCommand = String(process.env.ARK_GEN1_CHAT_POLL_COMMAND || 'GetChat').trim();
+          const playerLinkCommand = String(process.env.ARK_ACCOUNT_LINK_CHAT_COMMAND || '!link').trim() || '!link';
           const pollMs = Math.max(5000, Number(process.env.ARK_GEN1_CHAT_POLL_SECONDS || 10) * 1000 || 10_000);
           let running = false;
           const poll = async () => {
@@ -434,8 +492,15 @@ function installArkOpsExtension() {
               const [chat, playerResponse] = await Promise.all([rcon.execute(chatCommand), rcon.execute('ListPlayers')]);
               const players = parseListPlayers(playerResponse);
               if (linkingEnabled) {
-                const linked = accountLinking.consumeChat(chat, { players, mapId: server.id || 'gen1' });
-                for (const item of linked) console.log(`[Nexus Sentinal] ARK account link: ok=${item.ok} reason=${item.reason || 'verified'}`);
+                const linked = accountLinking.consumeChat(chat, { players, mapId: server.id || 'gen1', chatCommand: playerLinkCommand });
+                for (const item of linked) {
+                  console.log(`[Nexus Sentinal] ARK account link: ok=${item.ok} reason=${item.reason || 'verified'}`);
+                  if (item.ok && item.profile?.discordUserId) {
+                    void guild.members.fetch(item.profile.discordUserId)
+                      .then((member) => syncMember(member, 'account-link'))
+                      .catch((error) => console.warn(`[Nexus Sentinal] newly linked ARK rank sync failed: ${String(error?.message || error).slice(0, 240)}`));
+                  }
+                }
               }
               if (crossChatEnabled && crossChatChannelId) {
                 const channel = await client.channels.fetch(crossChatChannelId).catch(() => null);
@@ -520,20 +585,11 @@ function installArkOpsExtension() {
           eventTimer.unref?.();
         }
 
-        const syncMember = (member) => {
-          const synced = accountLinking.syncMemberRank(member, config);
-          if (synced.changed) console.log(`[Nexus Sentinal] linked rank synchronized: discord=${member.id} rank=${synced.profile.rankId}`);
-        };
         client.on(Events.GuildMemberUpdate, (_before, after) => {
-          if (String(after.guild?.id || '') === String(config.discord?.guildId || '')) syncMember(after);
+          if (String(after.guild?.id || '') === String(config.discord?.guildId || '')) void syncMember(after, 'guild-member-update');
         });
-        const syncLinkedRanks = () => {
-          for (const discordId of Object.keys(identityStore.read().profiles)) {
-            void guild.members.fetch(discordId).then(syncMember).catch(() => {});
-          }
-        };
-        syncLinkedRanks();
-        const rankTimer = setInterval(syncLinkedRanks, 30 * 60_000);
+        void syncAllLinkedRanks('startup');
+        const rankTimer = setInterval(() => void syncAllLinkedRanks('periodic'), 30 * 60_000);
         rankTimer.unref?.();
       })().catch((error) => console.warn(`[Nexus Sentinal] ARK ops unavailable: ${String(error?.message || error).slice(0, 240)}`));
     });
