@@ -24,6 +24,49 @@ function monitorIntervalMinutes(env = process.env) {
   return Math.min(MAX_INTERVAL_MINUTES, Math.max(MIN_INTERVAL_MINUTES, Math.round(parsed)));
 }
 
+function compatibleBuildIds(env = process.env) {
+  return new Set(String(env.ARK_UPDATE_API_COMPAT_BUILD_IDS || '').split(',').map((value) => value.trim()).filter(Boolean));
+}
+
+function apiCompatibilityEvidence(report = {}, env = process.env) {
+  const game = report.game || {};
+  const api = report.api || {};
+  if (game.updateAvailable !== true) return { verified: true, source: 'no-pending-game-update' };
+
+  const publicBuildId = String(game.publicBuildId || '').trim();
+  if (publicBuildId && compatibleBuildIds(env).has(publicBuildId)) {
+    return { verified: true, source: 'explicit-build-allowlist', publicBuildId };
+  }
+
+  const gamePublished = Date.parse(game.publicBuildUpdatedAt || '');
+  const apiPublished = Date.parse(api.releasePublishedAt || '');
+  if (Number.isFinite(gamePublished) && Number.isFinite(apiPublished) && apiPublished >= gamePublished) {
+    return { verified: true, source: 'post-build-api-release', publicBuildId };
+  }
+
+  return { verified: false, source: 'unverified', publicBuildId };
+}
+
+function enforceCompatibilityVerdict(report = {}, env = process.env) {
+  const evidence = apiCompatibilityEvidence(report, env);
+  const api = { ...(report.api || {}), compatibleBuild: evidence.verified, compatibilitySource: evidence.source };
+  if (evidence.verified || report.game?.updateAvailable !== true) return { ...report, api };
+
+  const reason = `ASA build ${report.game?.publicBuildId || 'unknown'} is newer than available ArkApi compatibility evidence.`;
+  const prior = report.verdict || {};
+  const blockers = [...new Set([...(prior.blockers || []), reason])];
+  return {
+    ...report,
+    api,
+    verdict: {
+      ...prior,
+      level: 'hold',
+      label: '🔴 HOLD',
+      blockers
+    }
+  };
+}
+
 function normalizePendingMods(mods = []) {
   return (Array.isArray(mods) ? mods : [])
     .map((item) => ({
@@ -57,7 +100,9 @@ function snapshotReport(report = {}) {
       installedVersion: String(api.installedVersion || ''),
       latestKnown: String(api.latestKnown || ''),
       updateAvailable: Boolean(api.updateAvailable),
-      offsetFailure: Boolean(api.offsetFailure)
+      offsetFailure: Boolean(api.offsetFailure),
+      compatibleBuild: api.compatibleBuild === true,
+      compatibilitySource: String(api.compatibilitySource || '')
     },
     plugins: {
       status: String(plugins.status || 'unknown'),
@@ -104,6 +149,11 @@ function classifyChanges(previous = null, current = {}) {
   }
   if (before.api?.health !== after.api?.health || before.api?.offsetFailure !== after.api?.offsetFailure) {
     push('api-health', after.api?.health === 'pass' ? 'recovery' : after.api?.health === 'fail' ? 'critical' : 'warning', `ASA Server API health changed: ${before.api?.health || 'unknown'} → ${after.api?.health || 'unknown'}${after.api?.offsetFailure ? ' (missing offset detected)' : ''}.`);
+  }
+  if (before.api?.compatibleBuild !== after.api?.compatibleBuild || before.api?.compatibilitySource !== after.api?.compatibilitySource) {
+    push('api-build-compatibility', after.api?.compatibleBuild ? 'recovery' : 'critical', after.api?.compatibleBuild
+      ? `ArkApi compatibility evidence is now available for ASA build ${after.game?.publicBuildId || '?'}.`
+      : `ArkApi compatibility is not yet verified for ASA build ${after.game?.publicBuildId || '?'}.`);
   }
   if (before.api?.updateAvailable !== after.api?.updateAvailable || before.api?.latestKnown !== after.api?.latestKnown) {
     if (after.api?.updateAvailable) push('api-update', 'warning', `ASA Server API update available: ${after.api.installedVersion || '?'} → ${after.api.latestKnown || '?'}.`);
@@ -178,7 +228,7 @@ function formatMonitorAlert(report = {}, changes = [], serverName = 'ARK') {
   const glyph = report.verdict?.level === 'hold' ? '🔴' : report.verdict?.level === 'safe' ? '✅' : '🟡';
   const lines = [`## ${glyph} ARK UPDATE HEALTH — ${serverName}`, `**Current verdict:** ${verdict}`, ''];
   for (const change of changes.slice(0, 10)) lines.push(`${severityGlyph(change.severity)} ${change.message}`);
-  lines.push('', 'Use `/ark-health` or the **Update Safety** button for the full pre-update report.');
+  lines.push('', 'Use `/ark-health` for the full pre-update report.');
   lines.push('_Sentinel is advisory only and will never press the host update button automatically._');
   return lines.join('\n').slice(0, 1900);
 }
@@ -196,9 +246,11 @@ function formatModAlert(report = {}, changes = [], serverName = 'ARK') {
 }
 
 function formatPreUpdateGate(report = {}) {
+  const apiCompatRequired = report.game?.updateAvailable === true;
   const checks = [
     ['RCON responding', report.server?.rcon === 'pass'],
     ['ASA Server API healthy', report.api?.health === 'pass'],
+    ['ArkApi evidence covers pending ASA build', !apiCompatRequired || report.api?.compatibleBuild === true],
     ['Critical API plugins present', report.plugins?.status === 'pass'],
     ['Mod freshness verified', report.mods?.status === 'pass'],
     ['No pending active mod updates', Number(report.mods?.pendingCount || 0) === 0]
@@ -242,6 +294,9 @@ module.exports = {
   MAX_INTERVAL_MINUTES,
   monitorEnabled,
   monitorIntervalMinutes,
+  compatibleBuildIds,
+  apiCompatibilityEvidence,
+  enforceCompatibilityVerdict,
   snapshotReport,
   reportFingerprint,
   classifyChanges,
