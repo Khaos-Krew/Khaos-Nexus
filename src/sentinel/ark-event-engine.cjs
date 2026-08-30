@@ -1,4 +1,4 @@
-' strict';
+'use strict';
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -143,8 +143,6 @@ function buildAnomalyPlan(anomaly, mapName = 'ARK') {
       `Broadcast [${mapName}] ${anomaly.announcement}`,
       `Broadcast The anomaly is level ${anomaly.targetLevel}. Rewards are boosted x${anomaly.rewardMultiplier}.`
     ]),
-    // This is intentionally a plan, not automatically executed. Production spawn
-    // commands vary by server/plugin capability and must be verified per adapter.
     proposedSpawn: Object.freeze({
       blueprint: anomaly.blueprint,
       level: anomaly.targetLevel
