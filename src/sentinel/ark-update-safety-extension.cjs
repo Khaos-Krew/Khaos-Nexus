@@ -8,6 +8,7 @@ const { collectArkUpdateSafety, formatArkUpdateSafety } = require('./ark-update-
 const {
   monitorEnabled,
   monitorIntervalMinutes,
+  enforceCompatibilityVerdict,
   snapshotReport,
   reportFingerprint,
   classifyChanges,
@@ -45,14 +46,19 @@ function makeRcon(server) {
   return server.host && server.port && server.password ? new ArkRconClient(server) : null;
 }
 
-async function buildHealthReply(prefix, server) {
+async function collectVerifiedHealth(prefix, server) {
   const report = await collectArkUpdateSafety({ prefix, rcon: makeRcon(server) });
+  return enforceCompatibilityVerdict(report);
+}
+
+async function buildHealthReply(prefix, server) {
+  const report = await collectVerifiedHealth(prefix, server);
   const base = formatArkUpdateSafety(report, server.name).slice(0, 3150);
   return { report, content: `${base}\n\n${formatPreUpdateGate(report)}`.slice(0, 3900) };
 }
 
 async function runMonitorCycle({ client, guild, prefix, server, statePath }) {
-  const report = await collectArkUpdateSafety({ prefix, rcon: makeRcon(server) });
+  const report = await collectVerifiedHealth(prefix, server);
   const previous = loadMonitorState(statePath);
   const currentSnapshot = snapshotReport(report);
   const changes = classifyChanges(previous?.snapshot || null, currentSnapshot);
@@ -82,7 +88,7 @@ async function runMonitorCycle({ client, guild, prefix, server, statePath }) {
 
   saveMonitorState(statePath, buildState(report));
   const verdict = String(report.verdict?.level || 'unknown');
-  console.log(`[Nexus Sentinal] ARK update monitor: server=${server.name} verdict=${verdict} changed=${changed} fingerprint=${reportFingerprint(report).slice(0, 12)} gameUpdate=${String(report.game?.updateAvailable)} api=${report.api?.health || 'unknown'} mods=${report.mods?.status || 'unknown'} pendingMods=${Number(report.mods?.pendingCount || 0)}`);
+  console.log(`[Nexus Sentinal] ARK update monitor: server=${server.name} verdict=${verdict} changed=${changed} fingerprint=${reportFingerprint(report).slice(0, 12)} gameUpdate=${String(report.game?.updateAvailable)} api=${report.api?.health || 'unknown'} apiCompat=${String(report.api?.compatibleBuild)} mods=${report.mods?.status || 'unknown'} pendingMods=${Number(report.mods?.pendingCount || 0)}`);
   return { report, changed, changes };
 }
 
@@ -161,6 +167,7 @@ function installArkUpdateSafetyExtension({ prefix = 'ARK_GEN1' } = {}) {
 module.exports = {
   arkHealthCommand,
   registerArkHealthCommand,
+  collectVerifiedHealth,
   buildHealthReply,
   runMonitorCycle,
   startArkUpdateMonitor,
