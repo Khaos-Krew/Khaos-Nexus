@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-30T20:23:02.928Z",
+  "generatedAt": "2026-08-30T20:32:54.516Z",
   "target": {
     "plugin": "WShop",
     "uiMod": "W Shop UI",
@@ -11,7 +11,7 @@
     "provider": "ArkShop",
     "profile": "arkshop-live",
     "strategy": "planned-catalog-rebuild",
-    "catalogChecksum": "d2bb61ce938b9c8c03f04344c0cb12b5f070e5caffd0ac6dd3181ca1a12b6414"
+    "catalogChecksum": "4e6b8959b2d5f3c9d2cf4cde1cc115b420eac780767e9f2e01c37aaaafd68484"
   },
   "currency": {
     "name": "Nexus Points",
@@ -1244,6 +1244,38 @@
           "Price": 30,
           "Amount": 1,
           "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Resources/PrimalItemResource_ApexDrop_Basilo.PrimalItemResource_ApexDrop_Basilo'"
+        }
+      },
+      "General": {
+        "TimedPointsReward": {
+          "Enabled": true,
+          "Interval": 5,
+          "Groups": {
+            "Default": {
+              "Amount": 2
+            },
+            "Premiums": {
+              "Amount": 4
+            },
+            "NexusShadowRecruit": {
+              "Amount": 2
+            },
+            "NexusCipherRunner": {
+              "Amount": 4
+            },
+            "NexusRaider": {
+              "Amount": 4
+            },
+            "NexusKhaosWarden": {
+              "Amount": 4
+            },
+            "NexusBlackoutLegend": {
+              "Amount": 4
+            },
+            "NexusOriginFounder": {
+              "Amount": 4
+            }
+          }
         }
       }
     },

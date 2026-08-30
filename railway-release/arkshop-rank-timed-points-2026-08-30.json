@@ -1,0 +1,21 @@
+{
+  "release": "arkshop-rank-timed-points-v15",
+  "service": "nexus-sentinal-0-1-test",
+  "deploymentSafety": "disabled-by-default",
+  "featureSwitch": "ARK_GEN1_ARKSHOP_LAUNCH_V15_RANK_POINTS_ONCE",
+  "intervalMinutes": 5,
+  "shadowRecruitPoints": 2,
+  "paidAndFounderPoints": 4,
+  "rankGroups": [
+    "NexusShadowRecruit",
+    "NexusCipherRunner",
+    "NexusRaider",
+    "NexusKhaosWarden",
+    "NexusBlackoutLegend",
+    "NexusOriginFounder"
+  ],
+  "legacyPremiumsPreserved": true,
+  "arkShopReload": true,
+  "automaticRestart": false,
+  "destructiveCommands": false
+}

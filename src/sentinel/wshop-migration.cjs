@@ -10,6 +10,7 @@ const { buyEntry, builderItems } = require('./arkshop-nexus-launch-v10-native-it
 const { shopEntry } = require('./arkshop-nexus-launch-v11-apothecary-startup.cjs');
 const { SHOP_ITEMS: POTION_ITEMS, REMOVED_SHOP_IDS } = require('./arkshop-nexus-launch-v13-potion-balance-startup.cjs');
 const { CACHE_POOLS: DINO_CACHE_POOLS, LEVEL_BUCKETS, RARITY_WEIGHTS, VARIANT_WEIGHTS } = require('./ark-dino-cache-engine.cjs');
+const { withRankTimedRewards } = require('./ark-rank-economy.cjs');
 const {
   RANK_CACHE_ENTITLEMENTS,
   DEFAULT_VALUE_BUDGETS,
@@ -64,11 +65,11 @@ function buildSellItems() {
 }
 
 function buildNativeCatalog() {
-  return {
+  return withRankTimedRewards({
     Kits: buildKits(),
     ShopItems: buildShopItems(),
     SellItems: buildSellItems()
-  };
+  });
 }
 
 function buildDinoCacheEntries() {
