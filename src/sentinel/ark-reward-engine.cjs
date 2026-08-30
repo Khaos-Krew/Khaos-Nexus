@@ -20,9 +20,6 @@ const DEFAULT_VALUE_BUDGETS = Object.freeze({
   event: 1200
 });
 
-// Reward classes that can never appear in supporter-paid rank caches. This guard
-// is intentionally conservative: supporters receive convenience/fun, never an
-// exclusive combat ceiling that normal players cannot reach.
 const SUPPORTER_FORBIDDEN_TAGS = Object.freeze(new Set([
   'exclusive-power', 'best-in-slot', 'boss-ready', 'unobtainable-normal-play',
   'admin-item', 'broken-stat', 'instant-progression'
@@ -48,6 +45,14 @@ const DEFAULT_POOLS = Object.freeze({
     Object.freeze({ id: 'founder-cosmetic', type: 'kit', kit: 'nexus_founder_cosmetic', weight: 45, value: 300, tags: ['cosmetic', 'legacy'] }),
     Object.freeze({ id: 'founder-points', type: 'currency', amount: 300, weight: 30, value: 300, tags: ['currency', 'legacy'] }),
     Object.freeze({ id: 'founder-event-tokens', type: 'currency', currency: 'event-token', amount: 3, weight: 25, value: 450, tags: ['event', 'currency', 'legacy'] })
+  ]),
+  event: Object.freeze([
+    Object.freeze({ id: 'event-points', type: 'currency', amount: 300, weight: 30, value: 300, tags: ['currency', 'event'] }),
+    Object.freeze({ id: 'event-resources', type: 'kit', kit: 'nexus_event_resources', weight: 24, value: 500, tags: ['resource', 'event'] }),
+    Object.freeze({ id: 'event-consumables', type: 'kit', kit: 'nexus_event_consumables', weight: 20, value: 400, tags: ['consumable', 'event'] }),
+    Object.freeze({ id: 'event-cosmetic', type: 'kit', kit: 'nexus_event_cosmetic', weight: 14, value: 250, tags: ['cosmetic', 'event'] }),
+    Object.freeze({ id: 'event-tokens-bonus', type: 'currency', currency: 'event-token', amount: 4, weight: 8, value: 600, tags: ['currency', 'event'] }),
+    Object.freeze({ id: 'event-utility-blueprint', type: 'kit', kit: 'nexus_event_utility_bp', weight: 4, value: 900, tags: ['blueprint', 'utility', 'event', 'normal-play-obtainable'] })
   ])
 });
 
