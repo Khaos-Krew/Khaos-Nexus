@@ -4,6 +4,7 @@ const { Client, Events, MessageFlags, SlashCommandBuilder } = require('discord.j
 const { loadConfig } = require('../shared/config.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { isStaff } = require('./ark-ops-extension.cjs');
+const { BUTTON_UPDATE_SAFETY } = require('./ark-cluster-panel.cjs');
 const { collectArkUpdateSafety, formatArkUpdateSafety } = require('./ark-update-safety.cjs');
 const {
   monitorEnabled,
@@ -55,6 +56,19 @@ async function buildHealthReply(prefix, server) {
   const report = await collectVerifiedHealth(prefix, server);
   const base = formatArkUpdateSafety(report, server.name).slice(0, 3150);
   return { report, content: `${base}\n\n${formatPreUpdateGate(report)}`.slice(0, 3900) };
+}
+
+function isHealthInteraction(interaction) {
+  if (interaction.isChatInputCommand?.() && interaction.commandName === 'ark-health') return true;
+  return Boolean(interaction.isButton?.() && interaction.customId === BUTTON_UPDATE_SAFETY);
+}
+
+async function respondHealthInteraction(interaction, { config, prefix, server }) {
+  if (!isStaff(interaction, config)) throw new Error('ARK update safety is restricted to Nexus staff.');
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  if (!server.enabled) throw new Error(`${prefix} is disabled.`);
+  const result = await buildHealthReply(prefix, server);
+  await interaction.editReply({ content: result.content, allowedMentions: { parse: [] } });
 }
 
 async function runMonitorCycle({ client, guild, prefix, server, statePath }) {
@@ -131,18 +145,9 @@ function installArkUpdateSafetyExtension({ prefix = 'ARK_GEN1' } = {}) {
     if (!client[BOUND]) {
       client[BOUND] = true;
       client.on(Events.InteractionCreate, (interaction) => {
-        if (!interaction.isChatInputCommand?.() || interaction.commandName !== 'ark-health') return;
+        if (!isHealthInteraction(interaction)) return;
         if (String(interaction.guildId || '') !== String(config.discord?.guildId || '')) return;
-        void (async () => {
-          if (!isStaff(interaction, config)) throw new Error('ARK update safety is restricted to Nexus staff.');
-          await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-          if (!server.enabled) throw new Error(`${prefix} is disabled.`);
-          const result = await buildHealthReply(prefix, server);
-          await interaction.editReply({
-            content: result.content,
-            allowedMentions: { parse: [] }
-          });
-        })().catch(async (error) => {
+        void respondHealthInteraction(interaction, { config, prefix, server }).catch(async (error) => {
           const payload = { content: `⚠️ ARK health check failed: ${String(error?.message || error).slice(0, 1700)}`, allowedMentions: { parse: [] } };
           if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
           else await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => {});
@@ -167,8 +172,11 @@ function installArkUpdateSafetyExtension({ prefix = 'ARK_GEN1' } = {}) {
 module.exports = {
   arkHealthCommand,
   registerArkHealthCommand,
+  makeRcon,
   collectVerifiedHealth,
   buildHealthReply,
+  isHealthInteraction,
+  respondHealthInteraction,
   runMonitorCycle,
   startArkUpdateMonitor,
   installArkUpdateSafetyExtension
