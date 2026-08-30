@@ -11,6 +11,7 @@ const { ArkAccountLinkService } = require('./ark-account-linking.cjs');
 const { parseListPlayers } = require('./ark-cluster-monitor.cjs');
 const { parseArkChat, ArkCrossChatRouter } = require('./ark-cross-chat.cjs');
 const { DEFAULT_SPECIES_POLICIES, parseSpeciesCount, evaluateSpeciesCount, correctionPlan, SpawnMonitorJournal } = require('./ark-spawn-monitor.cjs');
+const { ArkSupporterCacheService } = require('./ark-supporter-cache-service.cjs');
 const {
   sftpSettingsFromEnv,
   remotePath,
@@ -43,6 +44,14 @@ function arkCommand() {
   command.addSubcommand((sub) => sub.setName('link-status').setDescription('Show your verified ARK account links and synced Nexus rank.'));
   command.addSubcommand((sub) => sub.setName('unlink').setDescription('Remove one of your verified ARK account links.')
     .addStringOption((option) => option.setName('eos_id').setDescription('Your linked ARK EOS player ID.').setRequired(true).setMaxLength(96)));
+  for (const [name, description] of [
+    ['supporter-cache', 'Claim an available non-P2W supporter reward cache.'],
+    ['supporter-cache-status', 'Check your supporter cache allowance and event-token balance.']
+  ]) {
+    command.addSubcommand((sub) => sub.setName(name).setDescription(description)
+      .addStringOption((option) => option.setName('type').setDescription('Daily or weekly supporter allowance.').setRequired(true)
+        .addChoices({ name: 'Daily cache', value: 'daily' }, { name: 'Weekly cache', value: 'weekly' })));
+  }
   command.addSubcommand((sub) => sub.setName('save').setDescription('Save the ARK world.'));
   command.addSubcommand((sub) => sub.setName('broadcast').setDescription('Broadcast a message in ARK.')
     .addStringOption((option) => option.setName('message').setDescription('Message to broadcast.').setRequired(true).setMaxLength(450)));
@@ -108,6 +117,38 @@ function formatCacheResult(result) {
   ].join('\n');
 }
 
+function supporterRewardLabel(roll = {}) {
+  const reward = roll.reward || {};
+  if (reward.type === 'currency' && reward.currency === 'event-token') return `${Number(reward.amount) || 0} Nexus event token(s)`;
+  if (reward.type === 'currency') return `${Number(reward.amount) || 0} Nexus Points`;
+  if (reward.type === 'kit') return `Utility kit: ${String(reward.kit || reward.id || 'approved kit')}`;
+  return String(reward.id || 'approved reward');
+}
+
+function formatSupporterClaim(result = {}) {
+  if (!result.ok) {
+    if (result.reason === 'allowance-used') return '⏳ **Supporter cache already claimed**\nYour current allowance has been used. Check again after the rolling period resets.';
+    if (result.reason === 'no-entitlement') return 'ℹ️ **No cache allowance for this rank**\nSupporter caches are convenience and cosmetic incentives attached to eligible ranks.';
+    if (result.reason === 'account-not-linked' || result.reason === 'ark-account-not-linked') return '🔗 **ARK account link required**\nUse `/ark link` and complete the one-time in-game verification first.';
+    if (result.reason === 'multiple-ark-accounts') return '🔗 **Primary ARK account required**\nMore than one ARK identity is linked. Sentinel will not guess where to deliver a reward; unlink the unused identity until primary-account selection is available.';
+    if (result.reason === 'manual-review') return `⚠️ **Claim needs staff review**\nA partial delivery may have occurred, so Sentinel blocked automatic retry. Claim: \`${String(result.claimId || '').slice(0, 80)}\``;
+    return `⚠️ Supporter cache was not delivered: ${String(result.reason || 'delivery unavailable').slice(0, 160)}`;
+  }
+  const rewards = (result.rolls || []).map((roll) => `• **${supporterRewardLabel(roll)}**${roll.pity?.active ? ' • pity protection' : ''}`);
+  return ['✅ **Nexus supporter cache delivered**', ...rewards, `Claim: \`${String(result.claim?.id || '').slice(0, 80)}\``, 'All rewards remain obtainable through normal play and within the configured value budget.'].join('\n');
+}
+
+function formatSupporterStatus(status = {}) {
+  if (!status.ok) return formatSupporterClaim(status);
+  return [
+    '🎁 **Nexus supporter cache status**',
+    `Rank: **${status.policy.rankId}**`,
+    `Allowance: **${status.eligibility.remaining}/${status.policy.allowance} remaining** for the current ${status.policy.entitlementType} period`,
+    `Nexus event tokens: **${status.eventTokens}**`,
+    status.eligibility.ok ? 'A cache is ready to claim.' : 'This allowance has already been used.'
+  ].join('\n');
+}
+
 async function registerArkCommand(guild) {
   const definition = arkCommand().toJSON();
   const commands = await guild.commands.fetch();
@@ -162,7 +203,7 @@ async function arkConfigStatus(prefix = 'ARK_GEN1') {
 async function handleArkInteraction(interaction, context) {
   if (!interaction.isChatInputCommand?.() || interaction.commandName !== 'ark') return false;
   const sub = interaction.options.getSubcommand();
-  const publicShopAction = ['shop-cache', 'link', 'link-status', 'unlink'].includes(sub);
+  const publicShopAction = ['shop-cache', 'link', 'link-status', 'unlink', 'supporter-cache', 'supporter-cache-status'].includes(sub);
   if (!publicShopAction && !isStaff(interaction, context.config)) throw new Error('ARK server controls require Nexus staff authorization.');
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -196,6 +237,19 @@ async function handleArkInteraction(interaction, context) {
     const result = context.identityStore.unlinkArk({ discordUserId: String(interaction.user.id), eosId, actorId: String(interaction.user.id), reason: 'self-service Discord unlink' });
     if (!result.ok) throw new Error('That ARK account is not linked to your Discord account.');
     await interaction.editReply({ content: `✅ ARK identity \`${eosId}\` was unlinked. This action was recorded in the Nexus audit journal.`, allowedMentions: { parse: [] } });
+    return true;
+  }
+
+  if (sub === 'supporter-cache' || sub === 'supporter-cache-status') {
+    if (String(process.env.ARK_GEN1_SUPPORTER_CACHE_ENABLED || 'false').toLowerCase() !== 'true') {
+      throw new Error('Nexus supporter caches are staged but not yet enabled for live delivery.');
+    }
+    const type = String(interaction.options.getString('type', true)).toLowerCase();
+    const result = sub === 'supporter-cache'
+      ? await context.supporterCaches.claim(String(interaction.user.id), type)
+      : context.supporterCaches.status(String(interaction.user.id), type);
+    const content = sub === 'supporter-cache' ? formatSupporterClaim(result) : formatSupporterStatus(result);
+    await interaction.editReply({ content: content.slice(0, 1900), allowedMentions: { parse: [] } });
     return true;
   }
 
@@ -291,7 +345,8 @@ function installArkOpsExtension() {
           allowed: !blockedTerms.some((term) => String(message || '').toLowerCase().includes(term)),
           reason: 'configured-moderation-term'
         }) });
-        client.__nexusArkContext = { config, server, rcon, identityStore, accountLinking, crossChat };
+        const supporterCaches = new ArkSupporterCacheService({ rcon, identityStore });
+        client.__nexusArkContext = { config, server, rcon, identityStore, accountLinking, crossChat, supporterCaches };
         await registerArkCommand(guild);
         const result = await rcon.execute('ListPlayers');
         console.log(`[Nexus Sentinal] ARK RCON ready: server=${server.name} host=${server.host}:${server.port} playersResponse=${String(result || 'none').slice(0, 120)}`);
@@ -418,6 +473,9 @@ module.exports = {
   safeEos,
   formatDuration,
   formatCacheResult,
+  supporterRewardLabel,
+  formatSupporterClaim,
+  formatSupporterStatus,
   arkConfigStatus,
   handleArkInteraction,
   installArkOpsExtension

@@ -67,3 +67,11 @@ Sentinel learns a per-map median baseline from normal samples. Alerts include a 
 6. Enable cross-chat in a private test channel and verify both directions, replay suppression, rate limiting, and moderation.
 7. Enable read-only Megalodon sampling; collect at least 24 normal samples before changing Game.ini.
 8. Require a separate explicit approval for any targeted spawn correction or production Game.ini change.
+
+## Supporter reward caches
+
+Linked supporters can use `/ark supporter-cache` and `/ark supporter-cache-status` after `ARK_GEN1_SUPPORTER_CACHE_ENABLED=true`. Claims use rolling daily or weekly allowances, reserve before delivery, and are serialized per Nexus profile. Definite pre-delivery failures release the allowance; partial or ambiguous deliveries enter manual review and cannot be retried automatically.
+
+The built-in verified adapters support Nexus Points through ArkShop `AddPoints` plus a balance read-back, and Nexus event tokens through Sentinel's persistent ledger. Kit rewards remain excluded from live rolls unless both `ARK_GEN1_REWARD_KIT_DELIVERY_ENABLED=true` and an operator-verified `ARK_GEN1_REWARD_KIT_COMMAND` containing `{eos}` and `{kit}` are configured. Profiles with multiple linked ARK identities fail closed until primary-account selection is implemented.
+
+Every live pool is revalidated against the supporter non-P2W tags and its cache value budget before rolling. Pity protection activates after a configurable run of low-value claims but cannot exceed the same value ceiling or bypass the delivery-adapter allowlist.

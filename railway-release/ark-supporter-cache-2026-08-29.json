@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "service": "sentinal",
+  "date": "2026-08-29",
+  "deploymentSafety": "safe-disabled-by-default",
+  "featureSwitch": "ARK_GEN1_SUPPORTER_CACHE_ENABLED",
+  "identityRequired": true,
+  "rankAuthority": "existing Discord role or Premium App reconciliation",
+  "verifiedDefaultDeliveryAdapters": ["ArkShop Nexus Points with balance read-back", "Sentinel event-token ledger"],
+  "kitDelivery": "disabled-until-command-verified",
+  "controls": ["rolling allowance", "per-profile claim lock", "reservation journal", "pity threshold", "value budget", "non-P2W tag policy", "manual review after partial delivery"],
+  "exclusivePowerAllowed": false,
+  "bestInSlotAllowed": false,
+  "unobtainableNormalPlayAllowed": false,
+  "activationGuide": "docs/ARK_SENTINEL_INTERIM.md"
+}

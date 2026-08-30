@@ -20,6 +20,13 @@ const DEFAULT_VALUE_BUDGETS = Object.freeze({
   event: 1200
 });
 
+const DEFAULT_PITY_POLICIES = Object.freeze({
+  daily: Object.freeze({ afterLowClaims: 5, minimumValue: 150 }),
+  weekly: Object.freeze({ afterLowClaims: 4, minimumValue: 450 }),
+  founder: Object.freeze({ afterLowClaims: 3, minimumValue: 450 }),
+  event: Object.freeze({ afterLowClaims: 4, minimumValue: 600 })
+});
+
 const SUPPORTER_FORBIDDEN_TAGS = Object.freeze(new Set([
   'exclusive-power', 'best-in-slot', 'boss-ready', 'unobtainable-normal-play',
   'admin-item', 'broken-stat', 'instant-progression'
@@ -122,6 +129,17 @@ function rollRewardCache(cacheType, options = {}) {
   });
 }
 
+function rollRewardCacheWithPity(cacheType, options = {}) {
+  const type = String(cacheType || '').toLowerCase();
+  const pool = options.pool || DEFAULT_POOLS[type];
+  const policy = options.pityPolicy || DEFAULT_PITY_POLICIES[type] || { afterLowClaims: Infinity, minimumValue: Infinity };
+  const dryStreak = Math.max(0, Number(options.dryStreak) || 0);
+  const pityActive = dryStreak >= Math.max(1, Number(policy.afterLowClaims) || Infinity);
+  const eligible = pityActive ? pool.filter((reward) => Number(reward.value) >= Number(policy.minimumValue)) : pool;
+  const roll = rollRewardCache(type, { ...options, pool: eligible.length ? eligible : pool });
+  return Object.freeze({ ...roll, pity: Object.freeze({ active: pityActive && eligible.length > 0, priorLowClaims: dryStreak, minimumValue: pityActive ? Number(policy.minimumValue) : 0 }) });
+}
+
 function entitlementForRank(rankId) {
   return RANK_CACHE_ENTITLEMENTS[String(rankId || '').toLowerCase()] || Object.freeze({ daily: 0, weekly: 0 });
 }
@@ -139,15 +157,15 @@ class RewardJournal {
   read() {
     try {
       const parsed = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-      return { version: 1, claims: Array.isArray(parsed?.claims) ? parsed.claims.slice(-10000) : [] };
+      return { version: 2, claims: Array.isArray(parsed?.claims) ? parsed.claims.slice(-10000) : [], tokenBalances: parsed?.tokenBalances && typeof parsed.tokenBalances === 'object' ? parsed.tokenBalances : {} };
     } catch {
-      return { version: 1, claims: [] };
+      return { version: 2, claims: [], tokenBalances: {} };
     }
   }
 
   write(state) {
     fs.mkdirSync(this.dir, { recursive: true });
-    const safe = { version: 1, updatedAt: new Date().toISOString(), claims: (state.claims || []).slice(-10000) };
+    const safe = { version: 2, updatedAt: new Date().toISOString(), claims: (state.claims || []).slice(-10000), tokenBalances: state.tokenBalances || {} };
     const tmp = `${this.file}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(safe, null, 2));
     fs.renameSync(tmp, this.file);
@@ -158,7 +176,7 @@ class RewardJournal {
     const id = cleanId(identityId);
     const type = cleanId(cacheType, 32);
     const cutoff = Number(sinceMs) || 0;
-    return this.read().claims.filter((claim) => claim.identityId === id && claim.cacheType === type && Date.parse(claim.createdAt) >= cutoff);
+    return this.read().claims.filter((claim) => claim.identityId === id && (claim.entitlementType || claim.cacheType) === type && !['failed', 'cancelled'].includes(claim.state) && Date.parse(claim.createdAt) >= cutoff);
   }
 
   canClaim(identityId, cacheType, allowance, periodMs, now = Date.now()) {
@@ -177,8 +195,10 @@ class RewardJournal {
       rankId: cleanId(rankId, 48),
       cacheType: cleanId(cacheType, 32),
       source: cleanId(source, 32),
+      state: 'delivered',
       roll,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
     if (!claim.identityId || !claim.cacheType || !roll) throw new Error('Reward claim requires identity id, cache type, and roll.');
     const state = this.read();
@@ -186,17 +206,72 @@ class RewardJournal {
     this.write(state);
     return JSON.parse(JSON.stringify(claim));
   }
+
+  reserve({ identityId, discordUserId = '', eosId = '', rankId = '', entitlementType, cacheType, rolls, source = 'supporter' } = {}) {
+    const now = new Date().toISOString();
+    const claim = {
+      id: crypto.randomUUID(), identityId: cleanId(identityId), discordUserId: cleanId(discordUserId), eosId: cleanId(eosId),
+      rankId: cleanId(rankId, 48), entitlementType: cleanId(entitlementType || cacheType, 32), cacheType: cleanId(cacheType, 32),
+      source: cleanId(source, 32), state: 'reserved', rolls: Array.isArray(rolls) ? rolls : [], deliveries: [], createdAt: now, updatedAt: now
+    };
+    if (!claim.identityId || !claim.eosId || !claim.cacheType || !claim.rolls.length) throw new Error('Reward reservation requires identity, EOS id, cache type, and rolls.');
+    const state = this.read();
+    state.claims.push(claim);
+    this.write(state);
+    return JSON.parse(JSON.stringify(claim));
+  }
+
+  transition(id, nextState, details = {}) {
+    const allowed = { reserved: new Set(['delivered', 'failed', 'manual-review']) };
+    const state = this.read();
+    const claim = state.claims.find((item) => item.id === id);
+    if (!claim) throw new Error('Unknown reward claim.');
+    if (!allowed[claim.state]?.has(nextState)) throw new Error(`Cannot transition reward claim from ${claim.state} to ${nextState}.`);
+    claim.state = nextState;
+    claim.updatedAt = new Date().toISOString();
+    claim.deliveries = Array.isArray(details.deliveries) ? details.deliveries : (claim.deliveries || []);
+    claim.error = String(details.error || '').slice(0, 240);
+    this.write(state);
+    return JSON.parse(JSON.stringify(claim));
+  }
+
+  lowValueStreak(identityId, cacheType, minimumValue) {
+    const id = cleanId(identityId);
+    const type = cleanId(cacheType, 32);
+    const claims = this.read().claims.filter((claim) => claim.identityId === id && (claim.entitlementType || claim.cacheType) === type && (claim.state || 'delivered') === 'delivered').reverse();
+    let streak = 0;
+    for (const claim of claims) {
+      const rolls = claim.rolls || (claim.roll ? [claim.roll] : []);
+      if (rolls.some((roll) => Number(roll?.reward?.value ?? roll?.value ?? 0) >= Number(minimumValue))) break;
+      streak += 1;
+    }
+    return streak;
+  }
+
+  addTokens(identityId, amount) {
+    const id = cleanId(identityId);
+    const value = Number(amount);
+    if (!id || !Number.isSafeInteger(value) || value <= 0 || value > 10_000) throw new Error('Invalid event-token credit.');
+    const state = this.read();
+    state.tokenBalances[id] = Math.max(0, Number(state.tokenBalances[id]) || 0) + value;
+    this.write(state);
+    return state.tokenBalances[id];
+  }
+
+  tokenBalance(identityId) { return Math.max(0, Number(this.read().tokenBalances[cleanId(identityId)]) || 0); }
 }
 
 module.exports = {
   RANK_CACHE_ENTITLEMENTS,
   DEFAULT_VALUE_BUDGETS,
+  DEFAULT_PITY_POLICIES,
   SUPPORTER_FORBIDDEN_TAGS,
   DEFAULT_POOLS,
   rewardIsSupporterSafe,
   validatePool,
   weightedPick,
   rollRewardCache,
+  rollRewardCacheWithPity,
   entitlementForRank,
   RewardJournal
 };
