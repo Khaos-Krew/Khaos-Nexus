@@ -1,0 +1,15 @@
+{
+  "release": "arkshop-potion-balance-v13",
+  "service": "nexus-sentinal-0-1-test",
+  "deploymentSafety": "disabled-by-default",
+  "featureSwitch": "ARK_GEN1_ARKSHOP_LAUNCH_V13_POTION_BALANCE_ONCE",
+  "crazyPotionEntries": 7,
+  "gaiaUtilityEntries": 12,
+  "gaiaProjectId": 928650,
+  "gaiaVerifiedServerFileId": 8159112,
+  "lovePotionSold": false,
+  "lovePotionCraftingHidden": false,
+  "gaiaIndividualCraftingControl": "in-game Gaia admin UI",
+  "automaticRestart": false,
+  "destructiveCommands": false
+}
