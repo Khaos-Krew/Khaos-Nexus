@@ -171,6 +171,42 @@ async function setIniValue({ prefix = 'ARK_GEN1', fileKey, section, key, value, 
   }
 }
 
+async function updateIniConfig({ prefix = 'ARK_GEN1', fileKey, transform, dryRun = false, guardCurrent = null } = {}) {
+  const initial = resolveFile(prefix, fileKey);
+  if (initial.spec.type !== 'ini') throw new Error(`${initial.key} is not an INI config.`);
+  if (typeof transform !== 'function') throw new Error('INI config update requires a transform function.');
+  const client = await connect(prefix);
+  try {
+    const resolved = await resolveExistingFile(client, prefix, fileKey);
+    const current = await readText(client, resolved.remoteFile);
+    if (guardCurrent) await guardCurrent(current, { phase: 'write' });
+    const transformed = await transform(current);
+    const next = String(transformed ?? '');
+    if (dryRun) {
+      return {
+        changed: current !== next,
+        restartRequired: current !== next && initial.spec.restartRequired,
+        remoteFile: resolved.remoteFile,
+        backup: null,
+        dryRun: true,
+        discovered: resolved.discovered,
+        text: next
+      };
+    }
+    const result = await backupAndWrite(client, resolved.remoteFile, next);
+    return {
+      ...result,
+      restartRequired: result.changed && initial.spec.restartRequired,
+      remoteFile: resolved.remoteFile,
+      dryRun: false,
+      discovered: resolved.discovered,
+      text: next
+    };
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
 async function updateArkShopConfig({ prefix = 'ARK_GEN1', transform, dryRun = false, allowMysqlChange = false, allowDiscordUrlChange = false } = {}) {
   if (typeof transform !== 'function') throw new Error('ArkShop config update requires a transform function.');
   const client = await connect(prefix);
@@ -272,6 +308,7 @@ module.exports = {
   assertProtectedArkShopState,
   readConfig,
   setIniValue,
+  updateIniConfig,
   updateArkShopConfig,
   setArkShopValue,
   syncArkShopMysqlFromEnv,
