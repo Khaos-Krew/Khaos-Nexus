@@ -6,6 +6,7 @@ const { currentHostedProviderStore } = require('../railway/hosted-provider-store
 const { adminPairingStore } = require('./admin-pairing.cjs');
 const { commandStatus, discoverRankMappings } = require('./discord-admin-discovery.cjs');
 const { buildStaffNameColorPreview } = require('./staff-name-color-preview.cjs');
+const { buildDinoDepotCacheConfig } = require('./dinodepot-cache-config.cjs');
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1']);
 
@@ -129,6 +130,9 @@ function createSentinalAdminServer(options = {}) {
         if (!controller) return json(res, 200, publicHealth());
         const status = await controller.status().catch(() => null);
         return json(res, 200, publicHealth(status));
+      }
+      if (req.method === 'GET' && url.pathname === '/ark/dinodepot/spawn-config.json') {
+        return json(res, 200, buildDinoDepotCacheConfig());
       }
       if (req.method === 'POST' && url.pathname === '/v1/pair') {
         if (!token) return json(res, 503, { ok: false, code: 'PAIRING_DISABLED', message: 'Hosted Sentinal pairing requires a protected admin token.' });
