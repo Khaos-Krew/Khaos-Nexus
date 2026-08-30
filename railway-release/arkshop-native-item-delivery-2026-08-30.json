@@ -1,0 +1,7 @@
+{
+  "release": "arkshop-native-item-delivery-v10",
+  "service": "nexus-sentinal-0-1-test",
+  "scope": "ARK Gen1 ArkShop resource purchases and builder kit only",
+  "delivery": "ArkShop native Type=item blueprint grants",
+  "rollback": "Sentinel ArkShop profile transaction backup plus fail-closed live/profile guard"
+}

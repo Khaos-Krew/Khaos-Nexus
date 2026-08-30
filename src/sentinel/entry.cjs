@@ -115,6 +115,7 @@ require('./arkshop-nexus-launch-v6-remove-demo-items-runtime.cjs').installArkSho
 require('./arkshop-nexus-launch-v7-basic-sell-runtime.cjs').installArkShopLaunchV7BasicSellRuntime();
 require('./arkshop-nexus-launch-v8-boss-sell-runtime.cjs').installArkShopLaunchV8BossSellRuntime();
 require('./arkshop-nexus-launch-v9-apex-tribute-sell-runtime.cjs').installArkShopLaunchV9ApexTributeSellRuntime();
+require('./arkshop-nexus-launch-v10-native-item-delivery-runtime.cjs').installArkShopLaunchV10NativeItemDeliveryRuntime();
 require('./dinodepot-category-probe-runtime.cjs').installDinoDepotCategoryProbeRuntime();
 require('./arkshop-ui-live-deploy-runtime.cjs').installArkShopUiLiveDeployRuntime();
 require('./arkshop-cluster-economy-guard.cjs').installArkShopClusterEconomyGuard();
