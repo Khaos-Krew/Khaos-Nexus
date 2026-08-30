@@ -30,15 +30,23 @@ class ForgeWorkerClient {
       ark: normalizeBaseUrl(options.arkUrl ?? process.env.NEXUS_WORKER_ARK_URL),
       general: normalizeBaseUrl(options.generalUrl ?? process.env.NEXUS_WORKER_GENERAL_URL)
     };
-    this.token = String(options.token ?? process.env.NEXUS_WORKER_API_TOKEN ?? process.env.WORKER_API_TOKEN ?? '').trim();
+    const sharedToken = String(options.token ?? process.env.NEXUS_WORKER_API_TOKEN ?? process.env.WORKER_API_TOKEN ?? '').trim();
+    this.tokens = {
+      forge: String(options.forgeToken ?? process.env.NEXUS_WORKER_FORGE_API_TOKEN ?? sharedToken).trim(),
+      ark: String(options.arkToken ?? process.env.NEXUS_WORKER_ARK_API_TOKEN ?? sharedToken).trim(),
+      general: String(options.generalToken ?? process.env.NEXUS_WORKER_GENERAL_API_TOKEN ?? sharedToken).trim()
+    };
     this.timeoutMs = safeTimeoutMs(options.timeoutMs ?? process.env.NEXUS_WORKER_REQUEST_TIMEOUT_MS);
     this.fetchImpl = options.fetchImpl || globalThis.fetch;
   }
 
   configuration() {
     return {
-      tokenConfigured: Boolean(this.token),
-      lanes: Object.fromEntries(Object.entries(this.urls).map(([lane, url]) => [lane, Boolean(url)]))
+      tokenConfigured: Object.values(this.tokens).every(Boolean),
+      lanes: Object.fromEntries(Object.entries(this.urls).map(([lane, url]) => [lane, {
+        urlConfigured: Boolean(url),
+        tokenConfigured: Boolean(this.tokens[lane])
+      }]))
     };
   }
 
@@ -52,7 +60,8 @@ class ForgeWorkerClient {
 
   async request(lane, path, options = {}) {
     const targetLane = this.assertLane(lane);
-    if (options.auth !== false && !this.token) throw Object.assign(new Error('NEXUS_WORKER_API_TOKEN is not configured'), { code: 'WORKER_NOT_CONFIGURED' });
+    const token = this.tokens[targetLane];
+    if (options.auth !== false && !token) throw Object.assign(new Error(`Worker API token for ${targetLane} is not configured`), { code: 'WORKER_NOT_CONFIGURED' });
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), options.timeoutMs || this.timeoutMs);
     timer.unref?.();
@@ -62,7 +71,7 @@ class ForgeWorkerClient {
         headers: {
           accept: 'application/json',
           ...(options.body ? { 'content-type': 'application/json' } : {}),
-          ...(options.auth === false ? {} : { authorization: `Bearer ${this.token}` })
+          ...(options.auth === false ? {} : { authorization: `Bearer ${token}` })
         },
         body: options.body ? JSON.stringify(options.body) : undefined,
         signal: controller.signal
