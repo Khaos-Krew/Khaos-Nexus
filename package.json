@@ -11,6 +11,7 @@
     "backend": "node src/backend/server.cjs",
     "sentinel": "node src/sentinel/entry.cjs",
     "build-worker": "node src/build-worker/entry.cjs",
+    "wshop:export": "node scripts/export-wshop-migration.cjs",
     "check": "node scripts/check.cjs",
     "test": "node --test tests/*.test.cjs",
     "dist:win": "electron-builder --win --x64 --publish never",

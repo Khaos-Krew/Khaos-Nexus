@@ -1,0 +1,1976 @@
+{
+  "version": 1,
+  "generatedAt": "2026-08-30T19:15:59.036Z",
+  "target": {
+    "plugin": "WShop",
+    "uiMod": "W Shop UI",
+    "curseForgeProjectId": "941588",
+    "activation": "staged-disabled"
+  },
+  "source": {
+    "provider": "ArkShop",
+    "profile": "arkshop-live",
+    "strategy": "planned-catalog-rebuild",
+    "catalogChecksum": "9c783c04e084244ade91f738b94a6c98171717f1c4fda1759bb5fecfff3659c1"
+  },
+  "currency": {
+    "name": "Nexus Points",
+    "migrationMode": "preserve-balances",
+    "dualWriteAllowed": false,
+    "requiredVerifiedOperations": [
+      "balance",
+      "debit-atomic",
+      "credit-idempotent",
+      "refund-idempotent"
+    ]
+  },
+  "wshop": {
+    "schemaStatus": "awaiting-installed-plugin-sample",
+    "nativeCatalog": {
+      "Kits": {
+        "starter": {
+          "DefaultAmount": 1,
+          "Price": 0,
+          "Description": "Nexus Starter Kit - one free spawn-only claim",
+          "OnlyFromSpawn": true,
+          "Items": [
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Weapons/PrimalItem_WeaponMetalPick.PrimalItem_WeaponMetalPick'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Weapons/PrimalItem_WeaponMetalHatchet.PrimalItem_WeaponMetalHatchet'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Weapons/PrimalItem_WeaponCrossbow.PrimalItem_WeaponCrossbow'"
+            },
+            {
+              "Amount": 50,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Weapons/PrimalItemAmmo_ArrowTranq.PrimalItemAmmo_ArrowTranq'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/Test/PrimalItem_WeaponSpyglass.PrimalItem_WeaponSpyglass'"
+            },
+            {
+              "Amount": 10,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/BaseBPs/PrimalItemConsumableBuff_Parachute.PrimalItemConsumableBuff_Parachute'"
+            },
+            {
+              "Amount": 10,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Weapons/PrimalItem_WeaponBola.PrimalItem_WeaponBola'"
+            },
+            {
+              "Amount": 25,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/PrimalItemConsumable_HealSoup.PrimalItemConsumable_HealSoup'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/PrimalItemConsumable_CanteenCraftable.PrimalItemConsumable_CanteenCraftable'"
+            },
+            {
+              "Amount": 50,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/PrimalItemConsumable_CookedMeat.PrimalItemConsumable_CookedMeat'"
+            },
+            {
+              "Amount": 3,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Structures/Misc/PrimalItemStructure_SleepingBag_Hide.PrimalItemStructure_SleepingBag_Hide'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Armor/Metal/PrimalItemArmor_MetalHelmet.PrimalItemArmor_MetalHelmet'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Armor/Metal/PrimalItemArmor_MetalShirt.PrimalItemArmor_MetalShirt'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Armor/Metal/PrimalItemArmor_MetalPants.PrimalItemArmor_MetalPants'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Armor/Metal/PrimalItemArmor_MetalGloves.PrimalItemArmor_MetalGloves'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Armor/Metal/PrimalItemArmor_MetalBoots.PrimalItemArmor_MetalBoots'"
+            },
+            {
+              "Amount": 2,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/DinoDepot/Assets/Items/Dinoball/ItemDinoball.ItemDinoball'"
+            }
+          ]
+        },
+        "recovery": {
+          "DefaultAmount": 0,
+          "Price": 200,
+          "Description": "Survivor Recovery - field recovery gear",
+          "Items": [
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Armor/Metal/PrimalItemArmor_MetalHelmet.PrimalItemArmor_MetalHelmet'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Armor/Metal/PrimalItemArmor_MetalShirt.PrimalItemArmor_MetalShirt'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Armor/Metal/PrimalItemArmor_MetalPants.PrimalItemArmor_MetalPants'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Armor/Metal/PrimalItemArmor_MetalGloves.PrimalItemArmor_MetalGloves'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Armor/Metal/PrimalItemArmor_MetalBoots.PrimalItemArmor_MetalBoots'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Weapons/PrimalItem_WeaponMetalPick.PrimalItem_WeaponMetalPick'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Weapons/PrimalItem_WeaponMetalHatchet.PrimalItem_WeaponMetalHatchet'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Weapons/PrimalItem_WeaponCrossbow.PrimalItem_WeaponCrossbow'"
+            },
+            {
+              "Amount": 100,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Weapons/PrimalItemAmmo_ArrowTranq.PrimalItemAmmo_ArrowTranq'"
+            },
+            {
+              "Amount": 25,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/PrimalItemConsumable_HealSoup.PrimalItemConsumable_HealSoup'"
+            },
+            {
+              "Amount": 10,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/BaseBPs/PrimalItemConsumableBuff_Parachute.PrimalItemConsumableBuff_Parachute'"
+            },
+            {
+              "Amount": 5,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/DinoDepot/Assets/Items/Dinoball/ItemDinoball.ItemDinoball'"
+            }
+          ]
+        },
+        "builder": {
+          "DefaultAmount": 0,
+          "Price": 450,
+          "Description": "Builder - bulk construction supplies",
+          "Items": [
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Weapons/PrimalItem_WeaponMetalPick.PrimalItem_WeaponMetalPick'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Weapons/PrimalItem_WeaponMetalHatchet.PrimalItem_WeaponMetalHatchet'"
+            },
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 5000,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_Wood_Child.PrimalItemResource_Wood_Child'"
+            },
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 5000,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_Stone_Child.PrimalItemResource_Stone_Child'"
+            },
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 2500,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_Thatch_Child.PrimalItemResource_Thatch_Child'"
+            },
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 2500,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_Fibers_Child.PrimalItemResource_Fibers_Child'"
+            },
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1000,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_MetalIngot_Child.PrimalItemResource_MetalIngot_Child'"
+            },
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 500,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_ChitinPaste_Child.PrimalItemResource_ChitinPaste_Child'"
+            }
+          ]
+        },
+        "taming": {
+          "DefaultAmount": 0,
+          "Price": 500,
+          "Description": "Taming - field taming supplies",
+          "Items": [
+            {
+              "Amount": 250,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Weapons/PrimalItemAmmo_ArrowTranq.PrimalItemAmmo_ArrowTranq'"
+            },
+            {
+              "Amount": 100,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/PrimalItemConsumable_Narcotic.PrimalItemConsumable_Narcotic'"
+            },
+            {
+              "Amount": 25,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/PrimalItemConsumable_HealSoup.PrimalItemConsumable_HealSoup'"
+            },
+            {
+              "Amount": 25,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/PrimalItemConsumable_Kibble_Base_XLarge.PrimalItemConsumable_Kibble_Base_XLarge'"
+            },
+            {
+              "Amount": 25,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/PrimalItemConsumable_Kibble_Base_Large.PrimalItemConsumable_Kibble_Base_Large'"
+            },
+            {
+              "Amount": 10,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/DinoDepot/Assets/Items/Dinoball/ItemDinoball.ItemDinoball'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/Test/PrimalItem_WeaponSpyglass.PrimalItem_WeaponSpyglass'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Weapons/PrimalItem_WeaponOneShotRifle.PrimalItem_WeaponOneShotRifle'"
+            }
+          ]
+        },
+        "breeder": {
+          "DefaultAmount": 0,
+          "Price": 600,
+          "Description": "Breeder - breeding support supplies",
+          "Items": [
+            {
+              "Amount": 20,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/DinoDepot/Assets/Items/Dinoball/ItemDinoball.ItemDinoball'"
+            },
+            {
+              "Amount": 25,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/PrimalItemConsumable_Kibble_Base_Large.PrimalItemConsumable_Kibble_Base_Large'"
+            },
+            {
+              "Amount": 25,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/PrimalItemConsumable_Kibble_Base_XLarge.PrimalItemConsumable_Kibble_Base_XLarge'"
+            },
+            {
+              "Amount": 25,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/PrimalItemConsumable_HealSoup.PrimalItemConsumable_HealSoup'"
+            },
+            {
+              "Amount": 10,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/PrimalItemConsumable_SweetVeggieCake.PrimalItemConsumable_SweetVeggieCake'"
+            },
+            {
+              "Amount": 50,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/PrimalItemConsumable_CookedMeat.PrimalItemConsumable_CookedMeat'"
+            }
+          ]
+        },
+        "ocean": {
+          "DefaultAmount": 0,
+          "Price": 650,
+          "Description": "Ocean - underwater expedition supplies",
+          "Items": [
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Armor/SCUBA/PrimalItemArmor_ScubaHelmet_Goggles.PrimalItemArmor_ScubaHelmet_Goggles'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Armor/SCUBA/PrimalItemArmor_ScubaShirt_SuitWithTank.PrimalItemArmor_ScubaShirt_SuitWithTank'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Armor/SCUBA/PrimalItemArmor_ScubaPants.PrimalItemArmor_ScubaPants'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Armor/SCUBA/PrimalItemArmor_ScubaBoots_Flippers.PrimalItemArmor_ScubaBoots_Flippers'"
+            },
+            {
+              "Amount": 10,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/PrimalItemConsumable_Soup_LazarusChowder.PrimalItemConsumable_Soup_LazarusChowder'"
+            },
+            {
+              "Amount": 25,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/PrimalItemConsumable_HealSoup.PrimalItemConsumable_HealSoup'"
+            },
+            {
+              "Amount": 1,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Weapons/PrimalItem_WeaponHarpoon.PrimalItem_WeaponHarpoon'"
+            },
+            {
+              "Amount": 100,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Weapons/PrimalItemAmmo_BallistaArrow.PrimalItemAmmo_BallistaArrow'"
+            },
+            {
+              "Amount": 10,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/DinoDepot/Assets/Items/Dinoball/ItemDinoball.ItemDinoball'"
+            }
+          ]
+        },
+        "bossprep": {
+          "DefaultAmount": 0,
+          "Price": 1000,
+          "Description": "Boss Prep - consumables and ammunition; no tributes or artifacts",
+          "Items": [
+            {
+              "Amount": 100,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/PrimalItemConsumable_HealSoup.PrimalItemConsumable_HealSoup'"
+            },
+            {
+              "Amount": 10,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/PrimalItemConsumable_Soup_EnduroStew.PrimalItemConsumable_Soup_EnduroStew'"
+            },
+            {
+              "Amount": 10,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/PrimalItemConsumable_Soup_FocalChili.PrimalItemConsumable_Soup_FocalChili'"
+            },
+            {
+              "Amount": 10,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/PrimalItemConsumable_Soup_LazarusChowder.PrimalItemConsumable_Soup_LazarusChowder'"
+            },
+            {
+              "Amount": 10,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/PrimalItemConsumable_Soup_CalienSoup.PrimalItemConsumable_Soup_CalienSoup'"
+            },
+            {
+              "Amount": 10,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Consumables/PrimalItemConsumable_Soup_FriaCurry.PrimalItemConsumable_Soup_FriaCurry'"
+            },
+            {
+              "Amount": 200,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Weapons/PrimalItemAmmo_SimpleShotgunBullet.PrimalItemAmmo_SimpleShotgunBullet'"
+            },
+            {
+              "Amount": 200,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Weapons/PrimalItemAmmo_SimpleRifleBullet.PrimalItemAmmo_SimpleRifleBullet'"
+            },
+            {
+              "Amount": 10,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/DinoDepot/Assets/Items/Dinoball/ItemDinoball.ItemDinoball'"
+            }
+          ]
+        }
+      },
+      "ShopItems": {
+        "dinoballs5": {
+          "Type": "item",
+          "Description": "Dino Balls x5",
+          "Price": 20,
+          "Items": [
+            {
+              "Amount": 5,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/DinoDepot/Assets/Items/Dinoball/ItemDinoball.ItemDinoball'"
+            }
+          ]
+        },
+        "dinoballs25": {
+          "Type": "item",
+          "Description": "Dino Balls x25",
+          "Price": 75,
+          "Items": [
+            {
+              "Amount": 25,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/DinoDepot/Assets/Items/Dinoball/ItemDinoball.ItemDinoball'"
+            }
+          ]
+        },
+        "dinoballs100": {
+          "Type": "item",
+          "Description": "Dino Balls x100",
+          "Price": 250,
+          "Items": [
+            {
+              "Amount": 100,
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Blueprint": "Blueprint'/DinoDepot/Assets/Items/Dinoball/ItemDinoball.ItemDinoball'"
+            }
+          ]
+        },
+        "fiber10k": {
+          "Type": "item",
+          "Description": "Fiber x1,000",
+          "Price": 10,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1000,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_Fibers_Child.PrimalItemResource_Fibers_Child'"
+            }
+          ]
+        },
+        "thatch10k": {
+          "Type": "item",
+          "Description": "Thatch x1,000",
+          "Price": 10,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1000,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_Thatch_Child.PrimalItemResource_Thatch_Child'"
+            }
+          ]
+        },
+        "wood10k": {
+          "Type": "item",
+          "Description": "Wood x1,000",
+          "Price": 15,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1000,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_Wood_Child.PrimalItemResource_Wood_Child'"
+            }
+          ]
+        },
+        "stone10k": {
+          "Type": "item",
+          "Description": "Stone x1,000",
+          "Price": 15,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1000,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_Stone_Child.PrimalItemResource_Stone_Child'"
+            }
+          ]
+        },
+        "flint10k": {
+          "Type": "item",
+          "Description": "Flint x1,000",
+          "Price": 18,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1000,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_Flint_Child.PrimalItemResource_Flint_Child'"
+            }
+          ]
+        },
+        "hide10k": {
+          "Type": "item",
+          "Description": "Hide x1,000",
+          "Price": 20,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1000,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_Hide_Child.PrimalItemResource_Hide_Child'"
+            }
+          ]
+        },
+        "ingots5k": {
+          "Type": "item",
+          "Description": "Metal Ingots x500",
+          "Price": 45,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 500,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_MetalIngot_Child.PrimalItemResource_MetalIngot_Child'"
+            }
+          ]
+        },
+        "paste5k": {
+          "Type": "item",
+          "Description": "Cementing Paste x500",
+          "Price": 50,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 500,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_ChitinPaste_Child.PrimalItemResource_ChitinPaste_Child'"
+            }
+          ]
+        },
+        "crystal5k": {
+          "Type": "item",
+          "Description": "Crystal x500",
+          "Price": 40,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 500,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_Crystal_Child.PrimalItemResource_Crystal_Child'"
+            }
+          ]
+        },
+        "obsidian5k": {
+          "Type": "item",
+          "Description": "Obsidian x500",
+          "Price": 45,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 500,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_Obsidian_Child.PrimalItemResource_Obsidian_Child'"
+            }
+          ]
+        },
+        "pearls5k": {
+          "Type": "item",
+          "Description": "Silica Pearls x500",
+          "Price": 45,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 500,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_Silicon_Child.PrimalItemResource_Silicon_Child'"
+            }
+          ]
+        },
+        "oil5k": {
+          "Type": "item",
+          "Description": "Oil x500",
+          "Price": 35,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 500,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_Oil_Child.PrimalItemResource_Oil_Child'"
+            }
+          ]
+        },
+        "polymer2500": {
+          "Type": "item",
+          "Description": "Polymer x250",
+          "Price": 60,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 250,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_Polymer_Child.PrimalItemResource_Polymer_Child'"
+            }
+          ]
+        },
+        "electronics2500": {
+          "Type": "item",
+          "Description": "Electronics x250",
+          "Price": 70,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 250,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_Electronics_Child.PrimalItemResource_Electronics_Child'"
+            }
+          ]
+        },
+        "blackpearls1k": {
+          "Type": "item",
+          "Description": "Black Pearls x100",
+          "Price": 65,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 100,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_BlackPearl_Child.PrimalItemResource_BlackPearl_Child'"
+            }
+          ]
+        },
+        "organicpolymer2500": {
+          "Type": "item",
+          "Description": "Organic Polymer x250",
+          "Price": 50,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 250,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_Polymer_Organic_Child.PrimalItemResource_Polymer_Organic_Child'"
+            }
+          ]
+        },
+        "anglergel2500": {
+          "Type": "item",
+          "Description": "Angler Gel x250",
+          "Price": 30,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 250,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_AnglerGel_Child.PrimalItemResource_AnglerGel_Child'"
+            }
+          ]
+        },
+        "sap2500": {
+          "Type": "item",
+          "Description": "Sap x250",
+          "Price": 30,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 250,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_Sap_Child.PrimalItemResource_Sap_Child'"
+            }
+          ]
+        },
+        "rareflowers2500": {
+          "Type": "item",
+          "Description": "Rare Flowers x250",
+          "Price": 30,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 250,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_RareFlower_Child.PrimalItemResource_RareFlower_Child'"
+            }
+          ]
+        },
+        "raremushrooms2500": {
+          "Type": "item",
+          "Description": "Rare Mushrooms x250",
+          "Price": 30,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 250,
+              "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_RareMushroom_Child.PrimalItemResource_RareMushroom_Child'"
+            }
+          ]
+        },
+        "apoth_gestation": {
+          "Type": "item",
+          "Description": "Nexus Apothecary - Gestation Skip Potion",
+          "Price": 400,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1,
+              "Blueprint": "Blueprint'/CrazysPotions/Potions/InstantBaby/PrimalItemConsumable_CPInstantbaby.PrimalItemConsumable_CPInstantbaby'"
+            }
+          ]
+        },
+        "apoth_growup": {
+          "Type": "item",
+          "Description": "Nexus Apothecary - Grow Up Potion",
+          "Price": 400,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1,
+              "Blueprint": "Blueprint'/CrazysPotions/Potions/GrowUpPotion/PrimalItemConsumable_CPGrowUpPotion.PrimalItemConsumable_CPGrowUpPotion'"
+            }
+          ]
+        },
+        "apoth_imprint": {
+          "Type": "item",
+          "Description": "Nexus Apothecary - Instant Imprint Potion",
+          "Price": 500,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1,
+              "Blueprint": "Blueprint'/CrazysPotions/Potions/InstantImprintPotion/PrimalItemConsumable_CPInstaImprintPotion.PrimalItemConsumable_CPInstaImprintPotion'"
+            }
+          ]
+        },
+        "apoth_gender_swap": {
+          "Type": "item",
+          "Description": "Nexus Apothecary - Gender Change Potion",
+          "Price": 300,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1,
+              "Blueprint": "Blueprint'/CrazysPotions/Potions/GenderPotion/PrimalItemConsumable_CPGenderPotion.PrimalItemConsumable_CPGenderPotion'"
+            }
+          ]
+        },
+        "apoth_gender_assign": {
+          "Type": "item",
+          "Description": "Nexus Apothecary - Gender Assignment Potion",
+          "Price": 500,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1,
+              "Blueprint": "Blueprint'/CrazysPotions/Potions/GenderAssignPotion/PrimalItemConsumable_CPGenderAssignmentPotion.PrimalItemConsumable_CPGenderAssignmentPotion'"
+            }
+          ]
+        },
+        "apoth_mutation": {
+          "Type": "item",
+          "Description": "Nexus Apothecary - Mutation Potion",
+          "Price": 900,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1,
+              "Blueprint": "Blueprint'/CrazysPotions/Potions/MutatorPotion/PrimalItemConsumable_CPMutationPotion.PrimalItemConsumable_CPMutationPotion'"
+            }
+          ]
+        },
+        "apoth_super_crafting": {
+          "Type": "item",
+          "Description": "Nexus Apothecary - Super Crafting Potion",
+          "Price": 1000,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1,
+              "Blueprint": "Blueprint'/CrazysPotions/Potions/CraftingBoostPotion/PrimalItemConsumable_CPSuperCraftingPotion.PrimalItemConsumable_CPSuperCraftingPotion'"
+            }
+          ]
+        },
+        "gaia_taming": {
+          "Type": "item",
+          "Description": "Nexus Apothecary - Gaia Instant Taming Potion",
+          "Price": 1000,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1,
+              "Blueprint": "Blueprint'/PotionsHelpers/Items/Taming/PrimalItemConsumable_Gaia_TamingElixir.PrimalItemConsumable_Gaia_TamingElixir'"
+            }
+          ]
+        },
+        "gaia_famish": {
+          "Type": "item",
+          "Description": "Nexus Apothecary - Gaia Famish Potion",
+          "Price": 350,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1,
+              "Blueprint": "Blueprint'/PotionsHelpers/Items/Famish/PrimalItemConsumable_Gaia_FamishElixir.PrimalItemConsumable_Gaia_FamishElixir'"
+            }
+          ]
+        },
+        "gaia_sedative": {
+          "Type": "item",
+          "Description": "Nexus Apothecary - Gaia Sedative Potion",
+          "Price": 250,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1,
+              "Blueprint": "Blueprint'/PotionsHelpers/Items/Sedative/PrimalItemConsumable_Gaia_SedativeElixir.PrimalItemConsumable_Gaia_SedativeElixir'"
+            }
+          ]
+        },
+        "gaia_player_health_small": {
+          "Type": "item",
+          "Description": "Nexus Apothecary - Gaia Player Health (Small)",
+          "Price": 100,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1,
+              "Blueprint": "Blueprint'/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_WeakHealthElixir.PrimalItemConsumable_Gaia_WeakHealthElixir'"
+            }
+          ]
+        },
+        "gaia_player_health_medium": {
+          "Type": "item",
+          "Description": "Nexus Apothecary - Gaia Player Health (Medium)",
+          "Price": 200,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1,
+              "Blueprint": "Blueprint'/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_MildHealthElixir.PrimalItemConsumable_Gaia_MildHealthElixir'"
+            }
+          ]
+        },
+        "gaia_player_health_large": {
+          "Type": "item",
+          "Description": "Nexus Apothecary - Gaia Player Health (Large)",
+          "Price": 350,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1,
+              "Blueprint": "Blueprint'/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_StrongHealthElixir.PrimalItemConsumable_Gaia_StrongHealthElixir'"
+            }
+          ]
+        },
+        "gaia_dino_health_small": {
+          "Type": "item",
+          "Description": "Nexus Apothecary - Gaia Dino Health (Small)",
+          "Price": 150,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1,
+              "Blueprint": "Blueprint'/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_Elixir_DinoHealthWeak.PrimalItemConsumable_Gaia_Elixir_DinoHealthWeak'"
+            }
+          ]
+        },
+        "gaia_dino_health_medium": {
+          "Type": "item",
+          "Description": "Nexus Apothecary - Gaia Dino Health (Medium)",
+          "Price": 300,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1,
+              "Blueprint": "Blueprint'/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_Elixir_DinoHealthMild.PrimalItemConsumable_Gaia_Elixir_DinoHealthMild'"
+            }
+          ]
+        },
+        "gaia_dino_health_large": {
+          "Type": "item",
+          "Description": "Nexus Apothecary - Gaia Dino Health (Large)",
+          "Price": 500,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1,
+              "Blueprint": "Blueprint'/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_Elixir_DinoHealthStrong.PrimalItemConsumable_Gaia_Elixir_DinoHealthStrong'"
+            }
+          ]
+        },
+        "gaia_stamina": {
+          "Type": "item",
+          "Description": "Nexus Apothecary - Gaia Stamina Potion",
+          "Price": 150,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1,
+              "Blueprint": "Blueprint'/PotionsHelpers/Items/Stamina/PrimalItemConsumable_Gaia_StaminaElixir.PrimalItemConsumable_Gaia_StaminaElixir'"
+            }
+          ]
+        },
+        "gaia_weight": {
+          "Type": "item",
+          "Description": "Nexus Apothecary - Gaia Weight Potion",
+          "Price": 250,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1,
+              "Blueprint": "Blueprint'/PotionsHelpers/Items/Weight/PrimalItemConsumable_Gaia_WeightElixir.PrimalItemConsumable_Gaia_WeightElixir'"
+            }
+          ]
+        },
+        "gaia_xp": {
+          "Type": "item",
+          "Description": "Nexus Apothecary - Gaia XP Potion",
+          "Price": 500,
+          "Items": [
+            {
+              "Quality": 0,
+              "ForceBlueprint": false,
+              "Amount": 1,
+              "Blueprint": "Blueprint'/PotionsHelpers/Items/XP/PrimalItemConsumable_Gaia_XPElixir.PrimalItemConsumable_Gaia_XPElixir'"
+            }
+          ]
+        }
+      },
+      "SellItems": {
+        "wood": {
+          "Type": "item",
+          "Description": "Wood x1,000",
+          "Price": 3,
+          "Amount": 1000,
+          "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_Wood_Child.PrimalItemResource_Wood_Child'"
+        },
+        "stone": {
+          "Type": "item",
+          "Description": "Stone x1,000",
+          "Price": 3,
+          "Amount": 1000,
+          "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_Stone_Child.PrimalItemResource_Stone_Child'"
+        },
+        "ingots": {
+          "Type": "item",
+          "Description": "Metal Ingots x500",
+          "Price": 9,
+          "Amount": 500,
+          "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_MetalIngot_Child.PrimalItemResource_MetalIngot_Child'"
+        },
+        "paste": {
+          "Type": "item",
+          "Description": "Cementing Paste x500",
+          "Price": 10,
+          "Amount": 500,
+          "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_ChitinPaste_Child.PrimalItemResource_ChitinPaste_Child'"
+        },
+        "crystal": {
+          "Type": "item",
+          "Description": "Crystal x500",
+          "Price": 8,
+          "Amount": 500,
+          "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_Crystal_Child.PrimalItemResource_Crystal_Child'"
+        },
+        "polymer": {
+          "Type": "item",
+          "Description": "Polymer x250",
+          "Price": 9,
+          "Amount": 250,
+          "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_Polymer_Child.PrimalItemResource_Polymer_Child'"
+        },
+        "blackpearls": {
+          "Type": "item",
+          "Description": "Black Pearls x100",
+          "Price": 10,
+          "Amount": 100,
+          "Blueprint": "Blueprint'/TG_Stack_10000_90/Resources/PrimalItemResource_BlackPearl_Child.PrimalItemResource_BlackPearl_Child'"
+        },
+        "brood_gamma": {
+          "Type": "item",
+          "Description": "Gamma Broodmother Trophy",
+          "Price": 300,
+          "Amount": 1,
+          "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Trophies/PrimalItemTrophy_Broodmother_Gamma.PrimalItemTrophy_Broodmother_Gamma'"
+        },
+        "brood_beta": {
+          "Type": "item",
+          "Description": "Beta Broodmother Trophy",
+          "Price": 600,
+          "Amount": 1,
+          "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Trophies/PrimalItemTrophy_Broodmother_Beta.PrimalItemTrophy_Broodmother_Beta'"
+        },
+        "brood_alpha": {
+          "Type": "item",
+          "Description": "Alpha Broodmother Trophy",
+          "Price": 1000,
+          "Amount": 1,
+          "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Trophies/PrimalItemTrophy_Broodmother_Alpha.PrimalItemTrophy_Broodmother_Alpha'"
+        },
+        "mega_gamma": {
+          "Type": "item",
+          "Description": "Gamma Megapithecus Trophy",
+          "Price": 300,
+          "Amount": 1,
+          "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Trophies/PrimalItemTrophy_Gorilla_Gamma.PrimalItemTrophy_Gorilla_Gamma'"
+        },
+        "mega_beta": {
+          "Type": "item",
+          "Description": "Beta Megapithecus Trophy",
+          "Price": 600,
+          "Amount": 1,
+          "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Trophies/PrimalItemTrophy_Gorilla_Beta.PrimalItemTrophy_Gorilla_Beta'"
+        },
+        "mega_alpha": {
+          "Type": "item",
+          "Description": "Alpha Megapithecus Trophy",
+          "Price": 1000,
+          "Amount": 1,
+          "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Trophies/PrimalItemTrophy_Gorilla_Alpha.PrimalItemTrophy_Gorilla_Alpha'"
+        },
+        "dragon_gamma": {
+          "Type": "item",
+          "Description": "Gamma Dragon Trophy",
+          "Price": 350,
+          "Amount": 1,
+          "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Trophies/PrimalItemTrophy_Dragon_Gamma.PrimalItemTrophy_Dragon_Gamma'"
+        },
+        "dragon_beta": {
+          "Type": "item",
+          "Description": "Beta Dragon Trophy",
+          "Price": 650,
+          "Amount": 1,
+          "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Trophies/PrimalItemTrophy_Dragon_Beta.PrimalItemTrophy_Dragon_Beta'"
+        },
+        "dragon_alpha": {
+          "Type": "item",
+          "Description": "Alpha Dragon Trophy",
+          "Price": 1200,
+          "Amount": 1,
+          "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Items/Trophies/PrimalItemTrophy_Dragon_Alpha.PrimalItemTrophy_Dragon_Alpha'"
+        },
+        "alpha_raptor_claw": {
+          "Type": "item",
+          "Description": "Alpha Raptor Claw",
+          "Price": 25,
+          "Amount": 1,
+          "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Resources/PrimalItemResource_ApexDrop_AlphaRaptor.PrimalItemResource_ApexDrop_AlphaRaptor'"
+        },
+        "alpha_carno_arm": {
+          "Type": "item",
+          "Description": "Alpha Carnotaurus Arm",
+          "Price": 40,
+          "Amount": 1,
+          "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Resources/PrimalItemResource_ApexDrop_AlphaCarno.PrimalItemResource_ApexDrop_AlphaCarno'"
+        },
+        "alpha_rex_tooth": {
+          "Type": "item",
+          "Description": "Alpha Tyrannosaur Tooth",
+          "Price": 75,
+          "Amount": 1,
+          "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Resources/PrimalItemResource_ApexDrop_AlphaRex.PrimalItemResource_ApexDrop_AlphaRex'"
+        },
+        "alpha_megalodon_fin": {
+          "Type": "item",
+          "Description": "Alpha Megalodon Fin",
+          "Price": 50,
+          "Amount": 1,
+          "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Resources/PrimalItemResource_ApexDrop_AlphaMegalodon.PrimalItemResource_ApexDrop_AlphaMegalodon'"
+        },
+        "alpha_mosasaur_tooth": {
+          "Type": "item",
+          "Description": "Alpha Mosasaur Tooth",
+          "Price": 100,
+          "Amount": 1,
+          "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Resources/PrimalItemResource_ApexDrop_AlphaMosasaur.PrimalItemResource_ApexDrop_AlphaMosasaur'"
+        },
+        "alpha_tuso_eye": {
+          "Type": "item",
+          "Description": "Alpha Tusoteuthis Eye",
+          "Price": 100,
+          "Amount": 1,
+          "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Resources/PrimalItemResource_ApexDrop_AlphaTuso.PrimalItemResource_ApexDrop_AlphaTuso'"
+        },
+        "alpha_leeds_blubber": {
+          "Type": "item",
+          "Description": "Alpha Leedsichthys Blubber",
+          "Price": 75,
+          "Amount": 1,
+          "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Resources/PrimalItemResource_ApexDrop_AlphaLeeds.PrimalItemResource_ApexDrop_AlphaLeeds'"
+        },
+        "megalodon_tooth": {
+          "Type": "item",
+          "Description": "Megalodon Tooth",
+          "Price": 10,
+          "Amount": 1,
+          "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Resources/PrimalItemResource_ApexDrop_Megalodon.PrimalItemResource_ApexDrop_Megalodon'"
+        },
+        "sarco_skin": {
+          "Type": "item",
+          "Description": "Sarcosuchus Skin",
+          "Price": 10,
+          "Amount": 1,
+          "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Resources/PrimalItemResource_ApexDrop_Sarco.PrimalItemResource_ApexDrop_Sarco'"
+        },
+        "argentavis_talon": {
+          "Type": "item",
+          "Description": "Argentavis Talon",
+          "Price": 15,
+          "Amount": 1,
+          "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Resources/PrimalItemResource_ApexDrop_Argentavis.PrimalItemResource_ApexDrop_Argentavis'"
+        },
+        "sauropod_vertebra": {
+          "Type": "item",
+          "Description": "Sauropod Vertebra",
+          "Price": 20,
+          "Amount": 1,
+          "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Resources/PrimalItemResource_ApexDrop_Sauro.PrimalItemResource_ApexDrop_Sauro'"
+        },
+        "tuso_tentacle": {
+          "Type": "item",
+          "Description": "Tusoteuthis Tentacle",
+          "Price": 30,
+          "Amount": 1,
+          "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Resources/PrimalItemResource_ApexDrop_Tuso.PrimalItemResource_ApexDrop_Tuso'"
+        },
+        "basilo_blubber": {
+          "Type": "item",
+          "Description": "Basilosaurus Blubber",
+          "Price": 30,
+          "Amount": 1,
+          "Blueprint": "Blueprint'/Game/PrimalEarth/CoreBlueprints/Resources/PrimalItemResource_ApexDrop_Basilo.PrimalItemResource_ApexDrop_Basilo'"
+        }
+      }
+    },
+    "note": "Catalog payload is complete. Do not rename this object to a vendor config or activate WShop until its installed version validates the schema."
+  },
+  "sentinel": {
+    "dinoCaches": {
+      "coastal": {
+        "id": "cache_coastal",
+        "name": "Coastal Dino Cache",
+        "price": 800,
+        "cooldownHours": 0,
+        "currencyOwner": "WShop",
+        "transactionOwner": "Sentinel",
+        "deliveryOwner": "Sentinel",
+        "delivery": "Dino Depot SpawnDinoInBall",
+        "failClosed": true,
+        "species": [
+          {
+            "name": "Parasaur",
+            "rarity": "common",
+            "blueprint": "/Game/PrimalEarth/Dinos/Para/Para_Character_BP.Para_Character_BP",
+            "variants": {
+              "x": "/Game/Genesis/Dinos/BiomeVariants/BogPara/Bog_Para_Character_BP.Bog_Para_Character_BP"
+            }
+          },
+          {
+            "name": "Moschops",
+            "rarity": "common",
+            "blueprint": "/Game/PrimalEarth/Dinos/Moschops/Moschops_Character_BP.Moschops_Character_BP",
+            "variants": {}
+          },
+          {
+            "name": "Carbonemys",
+            "rarity": "common",
+            "blueprint": "/Game/PrimalEarth/Dinos/Turtle/Turtle_Character_BP.Turtle_Character_BP",
+            "variants": {}
+          },
+          {
+            "name": "Trike",
+            "rarity": "uncommon",
+            "blueprint": "/Game/PrimalEarth/Dinos/Trike/Trike_Character_BP.Trike_Character_BP",
+            "variants": {
+              "x": "/Game/Genesis/Dinos/BiomeVariants/Volcano_Trike/Volcano_Trike_Character_BP.Volcano_Trike_Character_BP",
+              "s": "/SDinoVariants/S-Trike/S-Trike_Character_BP.S-Trike_Character_BP"
+            }
+          },
+          {
+            "name": "Pteranodon",
+            "rarity": "rare",
+            "blueprint": "/Game/PrimalEarth/Dinos/Ptero/Ptero_Character_BP.Ptero_Character_BP",
+            "variants": {}
+          },
+          {
+            "name": "Ichthyosaurus",
+            "rarity": "rare",
+            "blueprint": "/Game/PrimalEarth/Dinos/Dolphin/Dolphin_Character_BP.Dolphin_Character_BP",
+            "variants": {
+              "x": "/Game/Genesis/Dinos/BiomeVariants/Ocean_Dolphin/Ocean_Dolphin_Character_BP.Ocean_Dolphin_Character_BP"
+            }
+          }
+        ]
+      },
+      "forest": {
+        "id": "cache_forest",
+        "name": "Forest Dino Cache",
+        "price": 1250,
+        "cooldownHours": 0,
+        "currencyOwner": "WShop",
+        "transactionOwner": "Sentinel",
+        "deliveryOwner": "Sentinel",
+        "delivery": "Dino Depot SpawnDinoInBall",
+        "failClosed": true,
+        "species": [
+          {
+            "name": "Raptor",
+            "rarity": "common",
+            "blueprint": "/Game/PrimalEarth/Dinos/Raptor/Raptor_Character_BP.Raptor_Character_BP",
+            "variants": {
+              "x": "/Game/Genesis/Dinos/BiomeVariants/Bog_Raptor/Bog_Raptor_Character_BP.Bog_Raptor_Character_BP"
+            }
+          },
+          {
+            "name": "Carnotaurus",
+            "rarity": "common",
+            "blueprint": "/Game/PrimalEarth/Dinos/Carno/Carno_Character_BP.Carno_Character_BP",
+            "variants": {}
+          },
+          {
+            "name": "Dire Bear",
+            "rarity": "uncommon",
+            "blueprint": "/Game/PrimalEarth/Dinos/Direbear/Direbear_Character_BP.Direbear_Character_BP",
+            "variants": {
+              "s": "/SDinoVariants/S-Direbear/S-Direbear_Character_BP.S-Direbear_Character_BP"
+            }
+          },
+          {
+            "name": "Therizinosaur",
+            "rarity": "rare",
+            "blueprint": "/Game/PrimalEarth/Dinos/Therizinosaurus/Therizino_Character_BP.Therizino_Character_BP",
+            "variants": {
+              "s": "/SDinoVariants/S-Therizinosaur/S-Therizino_Character_BP.S-Therizino_Character_BP"
+            }
+          },
+          {
+            "name": "Thylacoleo",
+            "rarity": "rare",
+            "blueprint": "/Game/PrimalEarth/Dinos/Thylacoleo/Thylacoleo_Character_BP.Thylacoleo_Character_BP",
+            "variants": {
+              "s": "/SDinoVariants/S-Thylacoleo/S-Thylacoleo_Character_BP.S-Thylacoleo_Character_BP"
+            }
+          },
+          {
+            "name": "Gigantopithecus",
+            "rarity": "ultra",
+            "blueprint": "/Game/PrimalEarth/Dinos/Bigfoot/Bigfoot_Character_BP.Bigfoot_Character_BP",
+            "variants": {}
+          }
+        ]
+      },
+      "swamp": {
+        "id": "cache_swamp",
+        "name": "Swamp Dino Cache",
+        "price": 1400,
+        "cooldownHours": 0,
+        "currencyOwner": "WShop",
+        "transactionOwner": "Sentinel",
+        "deliveryOwner": "Sentinel",
+        "delivery": "Dino Depot SpawnDinoInBall",
+        "failClosed": true,
+        "species": [
+          {
+            "name": "Sarco",
+            "rarity": "common",
+            "blueprint": "/Game/PrimalEarth/Dinos/Sarco/Sarco_Character_BP.Sarco_Character_BP",
+            "variants": {}
+          },
+          {
+            "name": "Beelzebufo",
+            "rarity": "common",
+            "blueprint": "/Game/PrimalEarth/Dinos/Toad/Toad_Character_BP.Toad_Character_BP",
+            "variants": {}
+          },
+          {
+            "name": "Kaprosuchus",
+            "rarity": "uncommon",
+            "blueprint": "/Game/PrimalEarth/Dinos/Kaprosuchus/Kaprosuchus_Character_BP.Kaprosuchus_Character_BP",
+            "variants": {}
+          },
+          {
+            "name": "Baryonyx",
+            "rarity": "rare",
+            "blueprint": "/Game/PrimalEarth/Dinos/Baryonyx/Baryonyx_Character_BP.Baryonyx_Character_BP",
+            "variants": {}
+          }
+        ]
+      },
+      "mountain": {
+        "id": "cache_mountain",
+        "name": "Mountain Dino Cache",
+        "price": 1800,
+        "cooldownHours": 0,
+        "currencyOwner": "WShop",
+        "transactionOwner": "Sentinel",
+        "deliveryOwner": "Sentinel",
+        "delivery": "Dino Depot SpawnDinoInBall",
+        "failClosed": true,
+        "species": [
+          {
+            "name": "Ankylosaurus",
+            "rarity": "common",
+            "blueprint": "/Game/PrimalEarth/Dinos/Ankylo/Ankylo_Character_BP.Ankylo_Character_BP",
+            "variants": {
+              "x": "/Game/Genesis/Dinos/BiomeVariants/Volcano_Ankylosaurus/Volcano_Ankylo_Character_BP.Volcano_Ankylo_Character_BP",
+              "s": "/SDinoVariants/S-Ankylosaurus/S-Ankylo_Character_BP.S-Ankylo_Character_BP"
+            }
+          },
+          {
+            "name": "Doedicurus",
+            "rarity": "common",
+            "blueprint": "/Game/PrimalEarth/Dinos/Doedicurus/Doed_Character_BP.Doed_Character_BP",
+            "variants": {
+              "s": "/SDinoVariants/S-Doedicurus/S-Doed_Character_BP.S-Doed_Character_BP"
+            }
+          },
+          {
+            "name": "Sabertooth",
+            "rarity": "uncommon",
+            "blueprint": "/Game/PrimalEarth/Dinos/Saber/Saber_Character_BP.Saber_Character_BP",
+            "variants": {
+              "x": "/Game/Genesis/Dinos/BiomeVariants/Snow_Saber/Snow_Saber_Character_BP.Snow_Saber_Character_BP"
+            }
+          },
+          {
+            "name": "Argentavis",
+            "rarity": "uncommon",
+            "blueprint": "/Game/PrimalEarth/Dinos/Argentavis/Argent_Character_BP.Argent_Character_BP",
+            "variants": {
+              "x": "/Game/Genesis/Dinos/BiomeVariants/Snow_Argentavis/Snow_Argent_Character_BP.Snow_Argent_Character_BP",
+              "s": "/SDinoVariants/S-Argentavis/S-Argent_Character_BP.S-Argent_Character_BP"
+            }
+          },
+          {
+            "name": "Allosaurus",
+            "rarity": "rare",
+            "blueprint": "/Game/PrimalEarth/Dinos/Allosaurus/Allo_Character_BP.Allo_Character_BP",
+            "variants": {
+              "x": "/Game/Genesis/Dinos/BiomeVariants/Volcano_Allosaurus/Volcano_Allo_Character_BP.Volcano_Allo_Character_BP",
+              "s": "/SDinoVariants/S-Allosaurus/S-Allo_Character_BP.S-Allo_Character_BP"
+            }
+          },
+          {
+            "name": "Rex",
+            "rarity": "rare",
+            "blueprint": "/Game/PrimalEarth/Dinos/Rex/Rex_Character_BP.Rex_Character_BP",
+            "variants": {
+              "x": "/Game/Genesis/Dinos/BiomeVariants/Volcano_Rex/Volcano_Rex_Character_BP.Volcano_Rex_Character_BP",
+              "s": "/SDinoVariants/S-Rex/S-Rex_Character_BP.S-Rex_Character_BP"
+            }
+          },
+          {
+            "name": "Yutyrannus",
+            "rarity": "ultra",
+            "blueprint": "/Game/PrimalEarth/Dinos/Yutyrannus/Yutyrannus_Character_BP.Yutyrannus_Character_BP",
+            "variants": {
+              "x": "/Game/Genesis/Dinos/BiomeVariants/Snow_Yutyrannus/Snow_Yutyrannus_Character_BP.Snow_Yutyrannus_Character_BP",
+              "s": "/SDinoVariants/S-Yutyrannus/S-Yutyrannus_Character_BP.S-Yutyrannus_Character_BP"
+            }
+          }
+        ]
+      },
+      "ocean": {
+        "id": "cache_ocean",
+        "name": "Ocean Dino Cache",
+        "price": 2200,
+        "cooldownHours": 0,
+        "currencyOwner": "WShop",
+        "transactionOwner": "Sentinel",
+        "deliveryOwner": "Sentinel",
+        "delivery": "Dino Depot SpawnDinoInBall",
+        "failClosed": true,
+        "species": [
+          {
+            "name": "Megalodon",
+            "rarity": "common",
+            "blueprint": "/Game/PrimalEarth/Dinos/Megalodon/Megalodon_Character_BP.Megalodon_Character_BP",
+            "variants": {
+              "x": "/Game/Genesis/Dinos/BiomeVariants/Ocean_Megalodon/Ocean_Megalodon_Character_BP.Ocean_Megalodon_Character_BP",
+              "s": "/SDinoVariants/S-Megalodon/S-Megalodon_Character_BP.S-Megalodon_Character_BP"
+            }
+          },
+          {
+            "name": "Angler",
+            "rarity": "common",
+            "blueprint": "/Game/PrimalEarth/Dinos/Anglerfish/Angler_Character_BP.Angler_Character_BP",
+            "variants": {}
+          },
+          {
+            "name": "Dunkleosteus",
+            "rarity": "uncommon",
+            "blueprint": "/Game/PrimalEarth/Dinos/Dunkleosteus/Dunkle_Character_BP.Dunkle_Character_BP",
+            "variants": {
+              "x": "/Game/Genesis/Dinos/BiomeVariants/Ocean_Dunkleosteus/Ocean_Dunkle_Character_BP.Ocean_Dunkle_Character_BP",
+              "s": "/SDinoVariants/S-Dunkleosteus/S-Dunkle_Character_BP.S-Dunkle_Character_BP"
+            }
+          },
+          {
+            "name": "Basilosaurus",
+            "rarity": "rare",
+            "blueprint": "/Game/PrimalEarth/Dinos/Basilosaurus/Basilosaurus_Character_BP.Basilosaurus_Character_BP",
+            "variants": {
+              "x": "/Game/Genesis/Dinos/BiomeVariants/Ocean_Basilosaurus/Ocean_Basilosaurus_Character_BP.Ocean_Basilosaurus_Character_BP",
+              "s": "/SDinoVariants/S-Basilosaurus/S-Basilosaurus_Character_BP.S-Basilosaurus_Character_BP"
+            }
+          },
+          {
+            "name": "Plesiosaur",
+            "rarity": "rare",
+            "blueprint": "/Game/PrimalEarth/Dinos/Plesiosaur/Plesiosaur_Character_BP.Plesiosaur_Character_BP",
+            "variants": {
+              "s": "/SDinoVariants/S-Plesiosaur/S-Plesiosaur_Character_BP.S-Plesiosaur_Character_BP"
+            }
+          },
+          {
+            "name": "Mosasaurus",
+            "rarity": "ultra",
+            "blueprint": "/Game/PrimalEarth/Dinos/Mosasaurus/Mosa_Character_BP.Mosa_Character_BP",
+            "variants": {
+              "x": "/Game/Genesis/Dinos/BiomeVariants/Ocean_Mosasaurus/Ocean_Mosa_Character_BP.Ocean_Mosa_Character_BP",
+              "s": "/SDinoVariants/S-Mosa/S-Mosa_Character_BP.S-Mosa_Character_BP"
+            }
+          }
+        ]
+      },
+      "deepcave": {
+        "id": "cache_deepcave",
+        "name": "Deepcave Dino Cache",
+        "price": 2200,
+        "cooldownHours": 0,
+        "currencyOwner": "WShop",
+        "transactionOwner": "Sentinel",
+        "deliveryOwner": "Sentinel",
+        "delivery": "Dino Depot SpawnDinoInBall",
+        "failClosed": true,
+        "species": [
+          {
+            "name": "Araneo",
+            "rarity": "common",
+            "blueprint": "/Game/PrimalEarth/Dinos/Spider-Small/SpiderS_Character_BP.SpiderS_Character_BP",
+            "variants": {
+              "s": "/SDinoVariants/S-Araneo/S-SpiderS_Character_BP.S-SpiderS_Character_BP"
+            }
+          },
+          {
+            "name": "Arthropluera",
+            "rarity": "uncommon",
+            "blueprint": "/Game/PrimalEarth/Dinos/Arthropluera/Arthro_Character_BP.Arthro_Character_BP",
+            "variants": {}
+          },
+          {
+            "name": "Onyc",
+            "rarity": "uncommon",
+            "blueprint": "/Game/PrimalEarth/Dinos/Bat/Bat_Character_BP.Bat_Character_BP",
+            "variants": {}
+          },
+          {
+            "name": "Megalosaurus",
+            "rarity": "rare",
+            "blueprint": "/Game/PrimalEarth/Dinos/Megalosaurus/Megalosaurus_Character_BP.Megalosaurus_Character_BP",
+            "variants": {
+              "s": "/SDinoVariants/S-Megalosaurus/S-Megalosaurus_Character_BP.S-Megalosaurus_Character_BP"
+            }
+          }
+        ]
+      },
+      "apex": {
+        "id": "cache_apex",
+        "name": "Apex Dino Cache",
+        "price": 8000,
+        "cooldownHours": 168,
+        "currencyOwner": "WShop",
+        "transactionOwner": "Sentinel",
+        "deliveryOwner": "Sentinel",
+        "delivery": "Dino Depot SpawnDinoInBall",
+        "failClosed": true,
+        "species": [
+          {
+            "name": "Giganotosaurus",
+            "rarity": "rare",
+            "blueprint": "/Game/PrimalEarth/Dinos/Giganotosaurus/Gigant_Character_BP.Gigant_Character_BP",
+            "variants": {}
+          },
+          {
+            "name": "Carcharodontosaurus",
+            "rarity": "rare",
+            "blueprint": "/Game/PrimalEarth/Dinos/Carcharodontosaurus/Carcha_Character_BP.Carcha_Character_BP",
+            "variants": {
+              "s": "/SDinoVariants/S-Carcha/S-Carcha_Character_BP.S-Carcha_Character_BP"
+            }
+          },
+          {
+            "name": "Rhyniognatha",
+            "rarity": "ultra",
+            "blueprint": "/Game/PrimalEarth/Dinos/Rhyniognatha/Rhynio_Character_BP.Rhynio_Character_BP",
+            "variants": {
+              "s": "/SDinoVariants/S-Rhynio/S-Rhynio_Character_BP.S-Rhynio_Character_BP"
+            }
+          }
+        ]
+      }
+    },
+    "dinoCacheRollPolicy": {
+      "levelBuckets": [
+        {
+          "min": 200,
+          "max": 219,
+          "weight": 30
+        },
+        {
+          "min": 220,
+          "max": 239,
+          "weight": 25
+        },
+        {
+          "min": 240,
+          "max": 259,
+          "weight": 20
+        },
+        {
+          "min": 260,
+          "max": 279,
+          "weight": 15
+        },
+        {
+          "min": 280,
+          "max": 294,
+          "weight": 8
+        },
+        {
+          "min": 295,
+          "max": 300,
+          "weight": 2
+        }
+      ],
+      "rarityWeights": {
+        "common": 55,
+        "uncommon": 28,
+        "rare": 13,
+        "ultra": 4
+      },
+      "variantWeights": {
+        "normal": 93,
+        "x": 5,
+        "s": 2
+      },
+      "shinyEnabled": false
+    },
+    "rewardCaches": {
+      "storefrontVisibility": "entitlement-only",
+      "transactionOwner": "Sentinel",
+      "currencyOwner": "WShop",
+      "entitlements": {
+        "shadow-recruit": {
+          "daily": 0,
+          "weekly": 0
+        },
+        "cipher-runner": {
+          "daily": 0,
+          "weekly": 1
+        },
+        "nexus-raider": {
+          "daily": 0,
+          "weekly": 1,
+          "bonusRolls": 1
+        },
+        "khaos-warden": {
+          "daily": 0,
+          "weekly": 2
+        },
+        "blackout-legend": {
+          "daily": 1,
+          "weekly": 1
+        },
+        "origin-founder": {
+          "daily": 0,
+          "weekly": 1,
+          "legacy": true
+        }
+      },
+      "valueBudgets": {
+        "daily": 250,
+        "weekly": 900,
+        "founder": 900,
+        "event": 1200
+      },
+      "pityPolicies": {
+        "daily": {
+          "afterLowClaims": 5,
+          "minimumValue": 150
+        },
+        "weekly": {
+          "afterLowClaims": 4,
+          "minimumValue": 450
+        },
+        "founder": {
+          "afterLowClaims": 3,
+          "minimumValue": 450
+        },
+        "event": {
+          "afterLowClaims": 4,
+          "minimumValue": 600
+        }
+      },
+      "pools": {
+        "daily": [
+          {
+            "id": "nexus-points-small",
+            "type": "currency",
+            "amount": 75,
+            "weight": 32,
+            "value": 75,
+            "tags": [
+              "currency"
+            ]
+          },
+          {
+            "id": "building-resources-small",
+            "type": "kit",
+            "kit": "nexus_daily_build",
+            "weight": 24,
+            "value": 120,
+            "tags": [
+              "resource",
+              "convenience"
+            ]
+          },
+          {
+            "id": "consumables-small",
+            "type": "kit",
+            "kit": "nexus_daily_consumables",
+            "weight": 20,
+            "value": 100,
+            "tags": [
+              "consumable",
+              "convenience"
+            ]
+          },
+          {
+            "id": "dyes-cosmetic",
+            "type": "kit",
+            "kit": "nexus_dyes",
+            "weight": 14,
+            "value": 60,
+            "tags": [
+              "cosmetic"
+            ]
+          },
+          {
+            "id": "event-token",
+            "type": "currency",
+            "currency": "event-token",
+            "amount": 1,
+            "weight": 10,
+            "value": 150,
+            "tags": [
+              "event",
+              "currency"
+            ]
+          }
+        ],
+        "weekly": [
+          {
+            "id": "nexus-points-medium",
+            "type": "currency",
+            "amount": 250,
+            "weight": 28,
+            "value": 250,
+            "tags": [
+              "currency"
+            ]
+          },
+          {
+            "id": "building-resources-medium",
+            "type": "kit",
+            "kit": "nexus_weekly_build",
+            "weight": 22,
+            "value": 375,
+            "tags": [
+              "resource",
+              "convenience"
+            ]
+          },
+          {
+            "id": "consumables-medium",
+            "type": "kit",
+            "kit": "nexus_weekly_consumables",
+            "weight": 18,
+            "value": 300,
+            "tags": [
+              "consumable",
+              "convenience"
+            ]
+          },
+          {
+            "id": "cosmetic-bundle",
+            "type": "kit",
+            "kit": "nexus_weekly_cosmetic",
+            "weight": 14,
+            "value": 200,
+            "tags": [
+              "cosmetic"
+            ]
+          },
+          {
+            "id": "event-tokens",
+            "type": "currency",
+            "currency": "event-token",
+            "amount": 3,
+            "weight": 10,
+            "value": 450,
+            "tags": [
+              "event",
+              "currency"
+            ]
+          },
+          {
+            "id": "utility-blueprint-roll",
+            "type": "kit",
+            "kit": "nexus_weekly_utility_bp",
+            "weight": 8,
+            "value": 700,
+            "tags": [
+              "blueprint",
+              "utility",
+              "normal-play-obtainable"
+            ]
+          }
+        ],
+        "founder": [
+          {
+            "id": "founder-cosmetic",
+            "type": "kit",
+            "kit": "nexus_founder_cosmetic",
+            "weight": 45,
+            "value": 300,
+            "tags": [
+              "cosmetic",
+              "legacy"
+            ]
+          },
+          {
+            "id": "founder-points",
+            "type": "currency",
+            "amount": 300,
+            "weight": 30,
+            "value": 300,
+            "tags": [
+              "currency",
+              "legacy"
+            ]
+          },
+          {
+            "id": "founder-event-tokens",
+            "type": "currency",
+            "currency": "event-token",
+            "amount": 3,
+            "weight": 25,
+            "value": 450,
+            "tags": [
+              "event",
+              "currency",
+              "legacy"
+            ]
+          }
+        ],
+        "event": [
+          {
+            "id": "event-points",
+            "type": "currency",
+            "amount": 300,
+            "weight": 30,
+            "value": 300,
+            "tags": [
+              "currency",
+              "event"
+            ]
+          },
+          {
+            "id": "event-resources",
+            "type": "kit",
+            "kit": "nexus_event_resources",
+            "weight": 24,
+            "value": 500,
+            "tags": [
+              "resource",
+              "event"
+            ]
+          },
+          {
+            "id": "event-consumables",
+            "type": "kit",
+            "kit": "nexus_event_consumables",
+            "weight": 20,
+            "value": 400,
+            "tags": [
+              "consumable",
+              "event"
+            ]
+          },
+          {
+            "id": "event-cosmetic",
+            "type": "kit",
+            "kit": "nexus_event_cosmetic",
+            "weight": 14,
+            "value": 250,
+            "tags": [
+              "cosmetic",
+              "event"
+            ]
+          },
+          {
+            "id": "event-tokens-bonus",
+            "type": "currency",
+            "currency": "event-token",
+            "amount": 4,
+            "weight": 8,
+            "value": 600,
+            "tags": [
+              "currency",
+              "event"
+            ]
+          },
+          {
+            "id": "event-utility-blueprint",
+            "type": "kit",
+            "kit": "nexus_event_utility_bp",
+            "weight": 4,
+            "value": 900,
+            "tags": [
+              "blueprint",
+              "utility",
+              "event",
+              "normal-play-obtainable"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "exclusions": {
+    "shopIds": [
+      "apoth_love",
+      "apoth_engram_unlocker"
+    ],
+    "reasons": {
+      "apoth_love": "Love Potion remains craftable and is not sold.",
+      "apoth_engram_unlocker": "Engram unlocker is intentionally excluded from the economy."
+    }
+  },
+  "cutoverGates": [
+    "WShop plugin version and generated config schema captured from staging",
+    "W Shop UI mod version matches the installed WShop plugin",
+    "All native items, kits, sales, and prices pass parity validation",
+    "Existing player point balances are backed up and reconciled",
+    "Sentinel WShop balance/debit/credit/refund operations pass staging probes",
+    "One dino cache completes charge, delivery, and audit flow in staging",
+    "ArkShop and WShop are never writable at the same time",
+    "Rollback restores ArkShop config and point balances"
+  ]
+}
