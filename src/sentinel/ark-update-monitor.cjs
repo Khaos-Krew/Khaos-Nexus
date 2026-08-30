@@ -8,14 +8,10 @@ const DEFAULT_INTERVAL_MINUTES = 15;
 const MIN_INTERVAL_MINUTES = 5;
 const MAX_INTERVAL_MINUTES = 1440;
 
-function truthy(value, fallback = true) {
-  const text = String(value ?? '').trim().toLowerCase();
-  if (!text) return fallback;
-  return !['0', 'false', 'no', 'off', 'disabled'].includes(text);
-}
-
-function monitorEnabled(env = process.env) {
-  return truthy(env.ARK_UPDATE_MONITOR_ENABLED, true);
+function monitorEnabled() {
+  // Background update monitoring is retired. Update safety is deliberately
+  // collected only from the staff button or /ark-health interaction.
+  return false;
 }
 
 function monitorIntervalMinutes(env = process.env) {

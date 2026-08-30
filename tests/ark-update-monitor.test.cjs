@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {
+  monitorEnabled,
   monitorIntervalMinutes,
   apiCompatibilityEvidence,
   enforceCompatibilityVerdict,
@@ -19,6 +20,11 @@ const {
   shouldAlert,
   formatPreUpdateGate
 } = require('../src/sentinel/ark-update-monitor.cjs');
+
+test('background update monitoring stays disabled even when a legacy environment switch is present', () => {
+  assert.equal(monitorEnabled({}), false);
+  assert.equal(monitorEnabled({ ARK_UPDATE_MONITOR_ENABLED: 'true' }), false);
+});
 
 function report(overrides = {}) {
   return {
