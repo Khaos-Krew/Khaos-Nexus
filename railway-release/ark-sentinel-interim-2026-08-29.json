@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "service": "sentinal",
+  "date": "2026-08-29",
+  "deploymentSafety": "safe-disabled-by-default",
+  "productionPath": ["Railway Sentinel", "Discord", "ARK RCON or Extended RCON", "SFTP", "ArkShop"],
+  "devKitBridgeRequired": false,
+  "features": {
+    "accountLinking": "staged-opt-in",
+    "linkedRankProjection": "active-for-linked-profiles",
+    "crossChat": "staged-opt-in",
+    "megalodonMonitoring": "staged-opt-in-read-only",
+    "rewardCaches": "foundation-present",
+    "eventsAndAnomalies": "foundation-present-safe-no-autospawn"
+  },
+  "forbiddenAutomaticActions": ["DestroyWildDinos", "targeted species correction", "Game.ini mutation", "anomaly spawn"],
+  "activationGuide": "docs/ARK_SENTINEL_INTERIM.md"
+}

@@ -1,0 +1,39 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { ArkIdentityStore } = require('../src/sentinel/ark-identity-store.cjs');
+const { parseArkChatLines, resolveChatIdentity, highestConfiguredRankForMember, ArkAccountLinkService } = require('../src/sentinel/ark-account-linking.cjs');
+
+test('ARK chat parser extracts verification codes without trusting an unverified player name as an EOS id', () => {
+  const messages = parseArkChatLines('[12:00] Survivor: !link ABCD2345\nnoise\nOther (0002abc123): !link WXYZ6789');
+  assert.deepEqual(messages.map((item) => [item.playerName, item.eosId, item.code]), [
+    ['Survivor', '', 'ABCD2345'],
+    ['Other', '0002abc123', 'WXYZ6789']
+  ]);
+  assert.equal(resolveChatIdentity(messages[0], [{ name: 'Survivor', eosId: '0002survivor' }]).player.eosId, '0002survivor');
+  assert.equal(resolveChatIdentity(messages[0], [{ name: 'Survivor', eosId: 'one_12345' }, { name: 'survivor', eosId: 'two_12345' }]).reason, 'ambiguous-player-name');
+});
+
+test('chat consumption verifies only an online player and suppresses replayed chat history', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-link-service-'));
+  const store = new ArkIdentityStore({ root, secret: 'test-secret-with-at-least-thirty-two-characters' });
+  const service = new ArkAccountLinkService({ store });
+  const challenge = store.issueChallenge('123456789012345678');
+  const chat = `Survivor: !link ${challenge.code}`;
+  const first = service.consumeChat(chat, { players: [{ name: 'Survivor', eosId: '0002survivor' }], mapId: 'gen1' });
+  assert.equal(first[0].ok, true);
+  assert.deepEqual(service.consumeChat(chat, { players: [{ name: 'Survivor', eosId: '0002survivor' }], mapId: 'gen1' }), []);
+});
+
+test('rank resolution includes all six Nexus ranks and preserves legacy Origin Founder as highest', () => {
+  const config = { discord: { rankRoles: {
+    'shadow-recruit': '10001', 'cipher-runner': '10002', 'nexus-raider': '10003',
+    'khaos-warden': '10004', 'blackout-legend': '10005', 'origin-founder': '10006'
+  } } };
+  const member = { roles: { cache: new Map([['10002', {}], ['10006', {}]]) } };
+  assert.equal(highestConfiguredRankForMember(member, config).id, 'origin-founder');
+});

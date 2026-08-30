@@ -6,6 +6,11 @@ const { loadConfig } = require('../shared/config.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { ArkDinoCachePurchaseService } = require('./ark-dino-cache-purchase.cjs');
 const { CACHE_POOLS } = require('./ark-dino-cache-engine.cjs');
+const { ArkIdentityStore } = require('./ark-identity-store.cjs');
+const { ArkAccountLinkService } = require('./ark-account-linking.cjs');
+const { parseListPlayers } = require('./ark-cluster-monitor.cjs');
+const { parseArkChat, ArkCrossChatRouter } = require('./ark-cross-chat.cjs');
+const { DEFAULT_SPECIES_POLICIES, parseSpeciesCount, evaluateSpeciesCount, correctionPlan, SpawnMonitorJournal } = require('./ark-spawn-monitor.cjs');
 const {
   sftpSettingsFromEnv,
   remotePath,
@@ -34,6 +39,10 @@ function arkCommand() {
   command.addSubcommand((sub) => sub.setName('status').setDescription('Test ARK RCON and show the current player response.'));
   command.addSubcommand((sub) => sub.setName('config-status').setDescription('Test ARK SFTP and verify the server config files are reachable.'));
   command.addSubcommand((sub) => sub.setName('players').setDescription('List connected ARK players.'));
+  command.addSubcommand((sub) => sub.setName('link').setDescription('Create a one-time code to securely link your Discord and ARK accounts.'));
+  command.addSubcommand((sub) => sub.setName('link-status').setDescription('Show your verified ARK account links and synced Nexus rank.'));
+  command.addSubcommand((sub) => sub.setName('unlink').setDescription('Remove one of your verified ARK account links.')
+    .addStringOption((option) => option.setName('eos_id').setDescription('Your linked ARK EOS player ID.').setRequired(true).setMaxLength(96)));
   command.addSubcommand((sub) => sub.setName('save').setDescription('Save the ARK world.'));
   command.addSubcommand((sub) => sub.setName('broadcast').setDescription('Broadcast a message in ARK.')
     .addStringOption((option) => option.setName('message').setDescription('Message to broadcast.').setRequired(true).setMaxLength(450)));
@@ -153,9 +162,42 @@ async function arkConfigStatus(prefix = 'ARK_GEN1') {
 async function handleArkInteraction(interaction, context) {
   if (!interaction.isChatInputCommand?.() || interaction.commandName !== 'ark') return false;
   const sub = interaction.options.getSubcommand();
-  const publicShopAction = sub === 'shop-cache';
+  const publicShopAction = ['shop-cache', 'link', 'link-status', 'unlink'].includes(sub);
   if (!publicShopAction && !isStaff(interaction, context.config)) throw new Error('ARK server controls require Nexus staff authorization.');
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  if (sub === 'link') {
+    if (String(process.env.ARK_GEN1_ACCOUNT_LINKING_ENABLED || 'false').toLowerCase() !== 'true') {
+      throw new Error('Nexus ARK account linking is staged but not yet enabled for live verification.');
+    }
+    const challenge = context.identityStore.issueChallenge(String(interaction.user.id));
+    const command = String(process.env.ARK_ACCOUNT_LINK_CHAT_COMMAND || '!link').trim() || '!link';
+    await interaction.editReply({ content: [
+      '🔐 **Nexus ARK account verification**',
+      `In ARK chat, enter: \`${command} ${challenge.code}\``,
+      `This one-time code expires <t:${Math.floor(Date.parse(challenge.expiresAt) / 1000)}:R>.`,
+      'The code only succeeds from the currently connected ARK player, and Sentinel never stores the plain code.'
+    ].join('\n'), allowedMentions: { parse: [] } });
+    return true;
+  }
+
+  if (sub === 'link-status') {
+    const profile = context.identityStore.profileByDiscord(String(interaction.user.id));
+    const accounts = profile?.arkAccounts || [];
+    const body = accounts.length
+      ? accounts.map((item) => `• **${item.playerName || 'ARK Survivor'}** — \`${item.eosId}\` • ${item.lastVerifiedMap || 'cluster'}`).join('\n')
+      : 'No verified ARK accounts are linked yet. Use `/ark link` to begin.';
+    await interaction.editReply({ content: `🔗 **Nexus identity**\nRank: **${profile?.rankId || 'shadow-recruit'}**\n${body}`.slice(0, 1900), allowedMentions: { parse: [] } });
+    return true;
+  }
+
+  if (sub === 'unlink') {
+    const eosId = safeEos(interaction.options.getString('eos_id', true));
+    const result = context.identityStore.unlinkArk({ discordUserId: String(interaction.user.id), eosId, actorId: String(interaction.user.id), reason: 'self-service Discord unlink' });
+    if (!result.ok) throw new Error('That ARK account is not linked to your Discord account.');
+    await interaction.editReply({ content: `✅ ARK identity \`${eosId}\` was unlinked. This action was recorded in the Nexus audit journal.`, allowedMentions: { parse: [] } });
+    return true;
+  }
 
   if (sub === 'shop-cache') {
     const cacheId = String(interaction.options.getString('cache', true)).toLowerCase();
@@ -242,10 +284,126 @@ function installArkOpsExtension() {
         if (!server.host || !server.port || !server.password) throw new Error('ARK_GEN1 RCON variables are incomplete.');
         const guild = await client.guilds.fetch(String(config.discord?.guildId || ''));
         const rcon = new ArkRconClient(server);
-        client.__nexusArkContext = { config, server, rcon };
+        const identityStore = new ArkIdentityStore();
+        const accountLinking = new ArkAccountLinkService({ store: identityStore });
+        const blockedTerms = String(process.env.NEXUS_ARK_CROSSCHAT_BLOCKED_TERMS || '').split(',').map((item) => item.trim().toLowerCase()).filter(Boolean);
+        const crossChat = new ArkCrossChatRouter({ moderate: ({ message }) => ({
+          allowed: !blockedTerms.some((term) => String(message || '').toLowerCase().includes(term)),
+          reason: 'configured-moderation-term'
+        }) });
+        client.__nexusArkContext = { config, server, rcon, identityStore, accountLinking, crossChat };
         await registerArkCommand(guild);
         const result = await rcon.execute('ListPlayers');
         console.log(`[Nexus Sentinal] ARK RCON ready: server=${server.name} host=${server.host}:${server.port} playersResponse=${String(result || 'none').slice(0, 120)}`);
+
+        const linkingEnabled = String(process.env.ARK_GEN1_ACCOUNT_LINKING_ENABLED || 'false').toLowerCase() === 'true';
+        const crossChatEnabled = String(process.env.NEXUS_ARK_CROSSCHAT_ENABLED || 'false').toLowerCase() === 'true';
+        const crossChatChannelId = String(process.env.NEXUS_ARK_CROSSCHAT_CHANNEL_ID || '').trim();
+        if (linkingEnabled || crossChatEnabled) {
+          const chatCommand = String(process.env.ARK_GEN1_CHAT_POLL_COMMAND || 'GetChat').trim();
+          const pollMs = Math.max(5000, Number(process.env.ARK_GEN1_CHAT_POLL_SECONDS || 10) * 1000 || 10_000);
+          let running = false;
+          const poll = async () => {
+            if (running) return;
+            running = true;
+            try {
+              const [chat, playerResponse] = await Promise.all([rcon.execute(chatCommand), rcon.execute('ListPlayers')]);
+              const players = parseListPlayers(playerResponse);
+              if (linkingEnabled) {
+                const linked = accountLinking.consumeChat(chat, { players, mapId: server.id || 'gen1' });
+                for (const item of linked) console.log(`[Nexus Sentinal] ARK account link: ok=${item.ok} reason=${item.reason || 'verified'}`);
+              }
+              if (crossChatEnabled && crossChatChannelId) {
+                const channel = await client.channels.fetch(crossChatChannelId).catch(() => null);
+                for (const message of parseArkChat(chat)) {
+                  const profile = message.eosId ? identityStore.profileByArk(message.eosId) : null;
+                  let discordDisplayName = '';
+                  if (profile?.discordUserId) discordDisplayName = await guild.members.fetch(profile.discordUserId).then((member) => member.displayName).catch(() => '');
+                  const relay = crossChat.acceptArk(message, { mapId: server.name || server.id || 'ARK', identity: { discordDisplayName } });
+                  if (relay.ok && channel?.send) await channel.send({ content: relay.content, allowedMentions: relay.allowedMentions });
+                }
+              }
+            } catch (error) {
+              console.warn(`[Nexus Sentinal] ARK account-link poll failed: ${String(error?.message || error).slice(0, 240)}`);
+            } finally { running = false; }
+          };
+          const timer = setInterval(() => void poll(), pollMs);
+          timer.unref?.();
+          void poll();
+          console.log(`[Nexus Sentinal] ARK chat poll enabled: map=${server.id || 'gen1'} linking=${linkingEnabled} crossChat=${crossChatEnabled} pollSeconds=${pollMs / 1000}`);
+        } else {
+          console.log('[Nexus Sentinal] ARK linking/cross-chat runtime is staged but disabled pending Extended RCON GetChat verification.');
+        }
+
+        if (crossChatEnabled && crossChatChannelId) {
+          const sendCommand = String(process.env.ARK_GEN1_CHAT_SEND_COMMAND || 'ServerChat').trim();
+          client.on(Events.MessageCreate, (message) => {
+            if (String(message.channelId || '') !== crossChatChannelId || message.author?.bot || message.webhookId) return;
+            const relay = crossChat.acceptDiscord({ authorId: message.author?.id, displayName: message.member?.displayName || message.author?.username, message: message.content }, { mapId: server.name || server.id || 'ARK' });
+            if (relay.ok) void rcon.execute(`${sendCommand} ${relay.relay}`).catch((error) => console.warn(`[Nexus Sentinal] Discord-to-ARK relay failed: ${String(error?.message || error).slice(0, 240)}`));
+          });
+        }
+
+        if (String(process.env.ARK_GEN1_SPAWN_MONITOR_ENABLED || 'false').toLowerCase() === 'true') {
+          const commandTemplate = String(process.env.ARK_GEN1_SPECIES_COUNT_COMMAND || '').trim();
+          if (!commandTemplate.includes('{class}')) {
+            console.warn('[Nexus Sentinal] ARK spawn monitor disabled: ARK_GEN1_SPECIES_COUNT_COMMAND must include {class}.');
+          } else {
+            const base = DEFAULT_SPECIES_POLICIES.megalodon;
+            const policy = {
+              ...base,
+              baselineTarget: Number(process.env.ARK_GEN1_MEGALODON_BASELINE || base.baselineTarget),
+              alertCount: Number(process.env.ARK_GEN1_MEGALODON_ALERT_COUNT || base.alertCount),
+              criticalCount: Number(process.env.ARK_GEN1_MEGALODON_CRITICAL_COUNT || base.criticalCount)
+            };
+            const journal = new SpawnMonitorJournal();
+            const intervalMs = Math.max(60_000, Number(process.env.ARK_GEN1_SPAWN_MONITOR_SECONDS || 300) * 1000 || 300_000);
+            let spawnRunning = false;
+            const sample = async () => {
+              if (spawnRunning) return;
+              spawnRunning = true;
+              try {
+                const response = await rcon.execute(commandTemplate.replaceAll('{class}', policy.className));
+                const count = parseSpeciesCount(response, policy);
+                if (count == null) throw new Error('Species count response could not be parsed.');
+                const baseline = journal.baseline(server.id || 'gen1', policy.id) || policy.baselineTarget;
+                const result = evaluateSpeciesCount({ mapId: server.id || 'gen1', policy, count, baseline });
+                journal.recordSample(result);
+                if (result.state !== 'normal') {
+                  const plan = correctionPlan(result, policy);
+                  console.warn(`[Nexus Sentinal] ARK spawn alert: map=${result.mapId} species=${policy.id} count=${result.count} baseline=${result.baseline} ratio=${result.ratio} state=${result.state} autoCorrection=false recommendation=${plan.recommendation}`);
+                  const alertChannelId = String(process.env.NEXUS_ARK_SPAWN_ALERT_CHANNEL_ID || '').trim();
+                  if (alertChannelId) {
+                    const channel = await client.channels.fetch(alertChannelId).catch(() => null);
+                    await channel?.send?.({ content: `⚠️ **Nexus Spawn Alert • ${server.name || result.mapId}**\nMegalodon count: **${result.count}** • baseline: **${result.baseline}** • state: **${result.state.toUpperCase()}**\nNo correction was executed. Staff approval is required.\nGame.ini recommendation: \`${plan.recommendation}\``, allowedMentions: { parse: [] } });
+                  }
+                }
+              } catch (error) {
+                console.warn(`[Nexus Sentinal] ARK spawn monitor failed: ${String(error?.message || error).slice(0, 240)}`);
+              } finally { spawnRunning = false; }
+            };
+            const spawnTimer = setInterval(() => void sample(), intervalMs);
+            spawnTimer.unref?.();
+            void sample();
+            console.log(`[Nexus Sentinal] ARK Megalodon monitor enabled: intervalSeconds=${intervalMs / 1000} autoCorrection=false globalWipe=false`);
+          }
+        }
+
+        const syncMember = (member) => {
+          const synced = accountLinking.syncMemberRank(member, config);
+          if (synced.changed) console.log(`[Nexus Sentinal] linked rank synchronized: discord=${member.id} rank=${synced.profile.rankId}`);
+        };
+        client.on(Events.GuildMemberUpdate, (_before, after) => {
+          if (String(after.guild?.id || '') === String(config.discord?.guildId || '')) syncMember(after);
+        });
+        const syncLinkedRanks = () => {
+          for (const discordId of Object.keys(identityStore.read().profiles)) {
+            void guild.members.fetch(discordId).then(syncMember).catch(() => {});
+          }
+        };
+        syncLinkedRanks();
+        const rankTimer = setInterval(syncLinkedRanks, 30 * 60_000);
+        rankTimer.unref?.();
       })().catch((error) => console.warn(`[Nexus Sentinal] ARK ops unavailable: ${String(error?.message || error).slice(0, 240)}`));
     });
 

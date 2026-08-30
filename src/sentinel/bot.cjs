@@ -26,7 +26,11 @@ const backend = new BackendClient(config);
 const state = new StateStore();
 const pending = new Map();
 const provisioner = new ModuleProvisioner({ state, maxLobbiesPerModule: config.discord?.maxTemporaryLobbiesPerModule || 20 });
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
+const clientIntents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates];
+if (String(process.env.NEXUS_ARK_CROSSCHAT_ENABLED || 'false').toLowerCase() === 'true') {
+  clientIntents.push(GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
+}
+const client = new Client({ intents: clientIntents });
 const arkTameUi = createArkTameUi({ backend, state });
 let adminOps = null;
 
