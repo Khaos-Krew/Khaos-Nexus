@@ -1,11 +1,11 @@
 {
-  "version": 1,
+  "version": 2,
   "service": "sentinal",
   "date": "2026-08-30",
   "deploymentSafety": "managed-groups-only-readback-verified",
   "features": {
     "accountLinking": "one-time-hashed-code-cluster-identity",
-    "rankProjection": "discord-authoritative",
+    "rankProjection": "discord-authoritative-with-safe-name-fallback",
     "arkDelivery": "official-permissions-rcon-with-readback",
     "unlinkRevocation": "fail-closed"
   },

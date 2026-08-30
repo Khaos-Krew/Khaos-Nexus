@@ -43,12 +43,19 @@ function resolveChatIdentity(message = {}, onlinePlayers = []) {
   return { ok: true, player: matches[0] };
 }
 
+function normalizedRankName(value) {
+  return clean(value, 100).toLocaleLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
 function highestConfiguredRankForMember(member, config = {}) {
   const roles = member?.roles?.cache;
+  const roleValues = typeof roles?.values === 'function' ? [...roles.values()] : Array.isArray(roles) ? roles : [];
   let selected = NEXUS_RANKS[0];
   for (const rank of NEXUS_RANKS) {
     const roleId = clean(config?.discord?.rankRoles?.[rank.id], 32);
-    const hasRole = roleId && (typeof roles?.has === 'function' ? roles.has(roleId) : Array.isArray(roles) && roles.some((role) => clean(role?.id || role, 32) === roleId));
+    const hasConfiguredRole = roleId && (typeof roles?.has === 'function' ? roles.has(roleId) : roleValues.some((role) => clean(role?.id || role, 32) === roleId));
+    const hasNamedFallback = !roleId && roleValues.some((role) => normalizedRankName(role?.name) === normalizedRankName(rank.name));
+    const hasRole = hasConfiguredRole || hasNamedFallback;
     if (hasRole && rank.level > selected.level) selected = rank;
   }
   return selected;
@@ -86,4 +93,4 @@ class ArkAccountLinkService {
   }
 }
 
-module.exports = { parseArkChatLines, resolveChatIdentity, highestConfiguredRankForMember, ArkAccountLinkService };
+module.exports = { parseArkChatLines, resolveChatIdentity, normalizedRankName, highestConfiguredRankForMember, ArkAccountLinkService };

@@ -31,6 +31,8 @@ Verify the exact chat response format on the test server before enabling product
 
 Discord remains authoritative. Existing Server Shop role mapping or Premium App entitlement reconciliation assigns one of the configured Discord roles. Sentinel projects the highest configured role into every linked Nexus profile and the ASA Permissions plugin every 30 minutes, immediately after account linking, and on Discord member-role updates. All six ranks are supported: Shadow Recruit, Cipher Runner, Nexus Raider, Khaos Warden, Blackout Legend, and legacy Origin Founder. Origin Founder remains legacy-only and is never converted into a purchasable SKU entitlement.
 
+Saved Sentinel role IDs are authoritative. If a rank has no saved ID, Sentinel may fall back only to an exact normalized match of that official rank name; an explicitly configured but absent role never falls through to a same-name duplicate.
+
 Live ARK delivery uses the official Permissions RCON commands and read-back verification. Sentinel first adds the desired group, then removes only stale groups from its six-name managed allowlist. It never removes `Default`, `Admins`, or any unrelated group. `/ark rank-sync` provides an audited staff reconciliation. Self-service unlink fails closed until the managed ARK rank is verifiably revoked.
 
 Rank activation variables:

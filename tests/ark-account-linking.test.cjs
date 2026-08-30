@@ -42,3 +42,9 @@ test('rank resolution includes all six Nexus ranks and preserves legacy Origin F
   const member = { roles: { cache: new Map([['10002', {}], ['10006', {}]]) } };
   assert.equal(highestConfiguredRankForMember(member, config).id, 'origin-founder');
 });
+
+test('rank resolution safely falls back to official role names only when no role id is configured', () => {
+  const named = { roles: { cache: new Map([['role-a', { id: 'role-a', name: '🔻 Cipher Runner' }], ['role-b', { id: 'role-b', name: 'Nexus Raider' }]]) } };
+  assert.equal(highestConfiguredRankForMember(named, { discord: { rankRoles: {} } }).id, 'nexus-raider');
+  assert.equal(highestConfiguredRankForMember(named, { discord: { rankRoles: { 'nexus-raider': 'different-id' } } }).id, 'cipher-runner');
+});
