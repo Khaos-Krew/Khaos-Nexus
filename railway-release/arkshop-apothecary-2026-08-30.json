@@ -1,0 +1,14 @@
+{
+  "release": "arkshop-nexus-apothecary-v11",
+  "service": "nexus-sentinal-0-1-test",
+  "scope": "ARK Gen1 ArkShop and Game.ini",
+  "deploymentSafety": "disabled-by-default",
+  "featureSwitch": "ARK_GEN1_ARKSHOP_LAUNCH_V11_APOTHECARY_ONCE",
+  "shopItems": 8,
+  "disabledEngrams": 9,
+  "engramUnlockerSold": false,
+  "delivery": "ArkShop native Type=item verified cooked blueprint grants",
+  "rollback": "ArkShop transaction backup plus Game.ini NexusBackups copy",
+  "automaticRestart": false,
+  "destructiveCommands": false
+}
