@@ -12,6 +12,8 @@ const { parseListPlayers } = require('./ark-cluster-monitor.cjs');
 const { parseArkChat, ArkCrossChatRouter } = require('./ark-cross-chat.cjs');
 const { DEFAULT_SPECIES_POLICIES, parseSpeciesCount, evaluateSpeciesCount, correctionPlan, SpawnMonitorJournal } = require('./ark-spawn-monitor.cjs');
 const { ArkSupporterCacheService } = require('./ark-supporter-cache-service.cjs');
+const { EVENT_TYPES } = require('./ark-event-engine.cjs');
+const { ArkEventService } = require('./ark-event-service.cjs');
 const {
   sftpSettingsFromEnv,
   remotePath,
@@ -31,6 +33,8 @@ const CACHE_CHOICES = Object.freeze([
   { name: 'Deep Cave Cache — 2,200 NP', value: 'deepcave' },
   { name: 'Apex Cache — 8,000 NP • 7-day cooldown', value: 'apex' }
 ]);
+
+const EVENT_CHOICES = Object.freeze(Object.values(EVENT_TYPES).map((event) => ({ name: `${event.label} — ${event.durationMinutes}m`, value: event.id })));
 
 function arkCommand() {
   const command = new SlashCommandBuilder()
@@ -52,6 +56,18 @@ function arkCommand() {
       .addStringOption((option) => option.setName('type').setDescription('Daily or weekly supporter allowance.').setRequired(true)
         .addChoices({ name: 'Daily cache', value: 'daily' }, { name: 'Weekly cache', value: 'weekly' })));
   }
+  command.addSubcommand((sub) => sub.setName('event-start').setDescription('Start a staff-controlled ARK event on this map.')
+    .addStringOption((option) => option.setName('type').setDescription('Approved Nexus event type.').setRequired(true).addChoices(...EVENT_CHOICES))
+    .addStringOption((option) => option.setName('objective').setDescription('Optional map-specific objective.').setMaxLength(300))
+    .addIntegerOption((option) => option.setName('target').setDescription('Optional measurable target.').setMinValue(0).setMaxValue(1000000)));
+  command.addSubcommand((sub) => sub.setName('event-status').setDescription('Show the active ARK event on this map.'));
+  command.addSubcommand((sub) => sub.setName('event-progress').setDescription('Add verified progress to the active ARK event.')
+    .addIntegerOption((option) => option.setName('amount').setDescription('Progress to add.').setRequired(true).setMinValue(0).setMaxValue(1000000))
+    .addStringOption((option) => option.setName('note').setDescription('Optional staff audit note.').setMaxLength(240)));
+  command.addSubcommand((sub) => sub.setName('event-finish').setDescription('Finish the active ARK event and prepare its reward hook.')
+    .addStringOption((option) => option.setName('outcome').setDescription('Public-safe completion outcome.').setMaxLength(300)));
+  command.addSubcommand((sub) => sub.setName('anomaly-propose').setDescription('Generate a safe, non-executable anomaly proposal for staff review.')
+    .addIntegerOption((option) => option.setName('base_max_level').setDescription('Server normal wild max level.').setMinValue(1).setMaxValue(300)));
   command.addSubcommand((sub) => sub.setName('save').setDescription('Save the ARK world.'));
   command.addSubcommand((sub) => sub.setName('broadcast').setDescription('Broadcast a message in ARK.')
     .addStringOption((option) => option.setName('message').setDescription('Message to broadcast.').setRequired(true).setMaxLength(450)));
@@ -146,6 +162,40 @@ function formatSupporterStatus(status = {}) {
     `Allowance: **${status.eligibility.remaining}/${status.policy.allowance} remaining** for the current ${status.policy.entitlementType} period`,
     `Nexus event tokens: **${status.eventTokens}**`,
     status.eligibility.ok ? 'A cache is ready to claim.' : 'This allowance has already been used.'
+  ].join('\n');
+}
+
+function formatArkEventStatus(result = {}) {
+  if (!result.ok) {
+    if (result.reason === 'no-active-event') return 'ℹ️ No Sentinel-managed ARK event is active on this map.';
+    if (result.reason === 'event-already-active') return `⚠️ **An ARK event is already active**\n${result.event?.label || result.event?.eventId || 'Current event'} must finish first.`;
+    if (result.reason === 'cooldown') return `⏳ **Event cooldown active**\nTry this event again in approximately ${formatDuration(result.cooldown?.remainingSeconds || 0)}.`;
+    if (result.reason === 'announcement-review') return `⚠️ **Event retained for announcement review**\nSentinel could not prove every broadcast completed, so it will not automatically repeat them. Runtime: \`${String(result.event?.id || '').slice(0, 80)}\``;
+    return `⚠️ ARK event operation was not completed: ${String(result.reason || 'unavailable').slice(0, 160)}`;
+  }
+  if (result.active === false) return 'ℹ️ No Sentinel-managed ARK event is active on this map.';
+  const event = result.event || {};
+  const target = Number(event.target) > 0 ? `${Number(event.progress) || 0}/${event.target}` : `${Number(event.progress) || 0}`;
+  return [
+    `🎯 **${event.label || event.eventId || 'Nexus ARK Event'}**`,
+    `State: **${String(event.state || 'active').toUpperCase()}**`,
+    `Objective: ${event.objective || 'Staff-managed event objective'}`,
+    `Progress: **${target}**`,
+    event.endsAt ? `Ends: <t:${Math.floor(Date.parse(event.endsAt) / 1000)}:R>` : '',
+    event.rewardHook?.state === 'ready-for-staff-award' ? 'Reward hook: **ready for staff award**' : ''
+  ].filter(Boolean).join('\n');
+}
+
+function formatAnomalyProposal(result = {}) {
+  const proposal = result.proposal || {};
+  const anomaly = proposal.anomaly || {};
+  return [
+    '🧬 **Nexus anomaly proposal created**',
+    `Tier: **${anomaly.tier || 'Unknown'}**`,
+    `Species: **${anomaly.species || 'Unknown'}** • proposed level **${anomaly.targetLevel || '?'}**`,
+    `Reward multiplier hook: **x${anomaly.rewardMultiplier || 1}**`,
+    `Proposal: \`${String(proposal.id || '').slice(0, 80)}\``,
+    '**No creature was spawned.** The proposal is audit-only and requires a separately verified spawn capability plus explicit approval.'
   ].join('\n');
 }
 
@@ -253,6 +303,24 @@ async function handleArkInteraction(interaction, context) {
     return true;
   }
 
+  if (['event-start', 'event-status', 'event-progress', 'event-finish', 'anomaly-propose'].includes(sub)) {
+    if (String(process.env.ARK_GEN1_EVENT_ENGINE_ENABLED || 'false').toLowerCase() !== 'true') {
+      throw new Error('The Sentinel ARK event engine is staged but not yet enabled for live broadcasts.');
+    }
+    let result;
+    if (sub === 'event-start') result = await context.arkEvents.start({
+      eventId: interaction.options.getString('type', true), objective: interaction.options.getString('objective') || '',
+      target: interaction.options.getInteger('target') || 0, actorId: String(interaction.user.id)
+    });
+    else if (sub === 'event-status') result = context.arkEvents.status();
+    else if (sub === 'event-progress') result = context.arkEvents.progress({ amount: interaction.options.getInteger('amount', true), note: interaction.options.getString('note') || '', actorId: String(interaction.user.id) });
+    else if (sub === 'event-finish') result = await context.arkEvents.finish({ outcome: interaction.options.getString('outcome') || '', actorId: String(interaction.user.id) });
+    else result = context.arkEvents.proposeAnomaly({ actorId: String(interaction.user.id), baseMaxLevel: interaction.options.getInteger('base_max_level') || 150 });
+    const content = sub === 'anomaly-propose' ? formatAnomalyProposal(result) : formatArkEventStatus(result);
+    await interaction.editReply({ content: content.slice(0, 1900), allowedMentions: { parse: [] } });
+    return true;
+  }
+
   if (sub === 'shop-cache') {
     const cacheId = String(interaction.options.getString('cache', true)).toLowerCase();
     if (!CACHE_POOLS[cacheId]) throw new Error('Unknown Nexus Dino Cache.');
@@ -346,7 +414,8 @@ function installArkOpsExtension() {
           reason: 'configured-moderation-term'
         }) });
         const supporterCaches = new ArkSupporterCacheService({ rcon, identityStore });
-        client.__nexusArkContext = { config, server, rcon, identityStore, accountLinking, crossChat, supporterCaches };
+        const arkEvents = new ArkEventService({ rcon, mapId: server.id || 'gen1', mapName: server.name || 'ARK' });
+        client.__nexusArkContext = { config, server, rcon, identityStore, accountLinking, crossChat, supporterCaches, arkEvents };
         await registerArkCommand(guild);
         const result = await rcon.execute('ListPlayers');
         console.log(`[Nexus Sentinal] ARK RCON ready: server=${server.name} host=${server.host}:${server.port} playersResponse=${String(result || 'none').slice(0, 120)}`);
@@ -444,6 +513,13 @@ function installArkOpsExtension() {
           }
         }
 
+        if (String(process.env.ARK_GEN1_EVENT_ENGINE_ENABLED || 'false').toLowerCase() === 'true') {
+          const eventTimer = setInterval(() => void arkEvents.tick().then((tick) => {
+            if (tick.changed) console.log(`[Nexus Sentinal] ARK event window completed: map=${server.id || 'gen1'} event=${tick.event?.eventId || 'unknown'} announcementOk=${tick.ok !== false}`);
+          }).catch((error) => console.warn(`[Nexus Sentinal] ARK event timer failed: ${String(error?.message || error).slice(0, 240)}`)), 60_000);
+          eventTimer.unref?.();
+        }
+
         const syncMember = (member) => {
           const synced = accountLinking.syncMemberRank(member, config);
           if (synced.changed) console.log(`[Nexus Sentinal] linked rank synchronized: discord=${member.id} rank=${synced.profile.rankId}`);
@@ -468,6 +544,7 @@ function installArkOpsExtension() {
 
 module.exports = {
   CACHE_CHOICES,
+  EVENT_CHOICES,
   arkCommand,
   isStaff,
   safeEos,
@@ -476,6 +553,8 @@ module.exports = {
   supporterRewardLabel,
   formatSupporterClaim,
   formatSupporterStatus,
+  formatArkEventStatus,
+  formatAnomalyProposal,
   arkConfigStatus,
   handleArkInteraction,
   installArkOpsExtension

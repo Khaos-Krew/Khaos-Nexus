@@ -75,3 +75,11 @@ Linked supporters can use `/ark supporter-cache` and `/ark supporter-cache-statu
 The built-in verified adapters support Nexus Points through ArkShop `AddPoints` plus a balance read-back, and Nexus event tokens through Sentinel's persistent ledger. Kit rewards remain excluded from live rolls unless both `ARK_GEN1_REWARD_KIT_DELIVERY_ENABLED=true` and an operator-verified `ARK_GEN1_REWARD_KIT_COMMAND` containing `{eos}` and `{kit}` are configured. Profiles with multiple linked ARK identities fail closed until primary-account selection is implemented.
 
 Every live pool is revalidated against the supporter non-P2W tags and its cache value budget before rolling. Pity protection activates after a configurable run of low-value claims but cannot exceed the same value ceiling or bypass the delivery-adapter allowlist.
+
+## ARK event runtime
+
+Set `ARK_GEN1_EVENT_ENGINE_ENABLED=true` only after test-server RCON broadcasts are accepted. Staff then receive `/ark event-start`, `/ark event-status`, `/ark event-progress`, `/ark event-finish`, and `/ark anomaly-propose`.
+
+The runtime supports Nexus Supply Rush, Alpha Hunt, Nexus Anomaly Surge, Blood Moon, and Nexus Community Goal. It permits one active event per map, stores measurable objectives and bounded staff notes, closes expired windows on a one-minute timer, enforces per-event cooldowns, and prepares a non-P2W event-cache reward hook at completion. Reward hooks are not awarded automatically.
+
+If Sentinel cannot prove an announcement completed, the event enters announcement review and the broadcast is not automatically repeated. Automatic event selection is disabled. Anomaly proposals contain a tier, species, level, and reward multiplier for staff review, but `autoSpawn` is always false and no executable spawn command is created.

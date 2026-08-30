@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "service": "sentinal",
+  "date": "2026-08-29",
+  "deploymentSafety": "safe-disabled-by-default",
+  "featureSwitch": "ARK_GEN1_EVENT_ENGINE_ENABLED",
+  "eventTypes": ["supply-rush", "alpha-hunt", "anomaly-surge", "blood-moon", "community-goal"],
+  "controls": ["one active event per map", "staff-only lifecycle", "objective progress", "cooldowns", "automatic window finish", "reward hook", "audit journal"],
+  "automaticEventSelection": false,
+  "automaticRewardDelivery": false,
+  "automaticAnomalySpawn": false,
+  "executableAnomalySpawnCommand": false,
+  "destructiveCommands": false,
+  "activationGuide": "docs/ARK_SENTINEL_INTERIM.md"
+}
