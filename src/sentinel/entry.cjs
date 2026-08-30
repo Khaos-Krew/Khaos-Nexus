@@ -119,6 +119,7 @@ require('./arkshop-nexus-launch-v10-native-item-delivery-runtime.cjs').installAr
 require('./arkshop-nexus-launch-v11-apothecary-runtime.cjs').installArkShopLaunchV11ApothecaryRuntime();
 require('./arkshop-nexus-launch-v12-love-craft-fix-runtime.cjs').installArkShopLaunchV12LoveCraftFixRuntime();
 require('./arkshop-map2-clone-from-gen1-runtime.cjs').installArkShopMap2CloneRuntime();
+require('./natureshop-gen1-export-runtime.cjs').installNatureShopGen1ExportRuntime();
 require('./dinodepot-category-probe-runtime.cjs').installDinoDepotCategoryProbeRuntime();
 require('./arkshop-ui-live-deploy-runtime.cjs').installArkShopUiLiveDeployRuntime();
 require('./arkshop-cluster-economy-guard.cjs').installArkShopClusterEconomyGuard();
