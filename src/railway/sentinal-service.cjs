@@ -145,3 +145,36 @@ if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
   const mysqlWatch = setInterval(() => void checkDatabase('state-change'), mysqlWatchMs);
   mysqlWatch.unref?.();
 }
+
+// Read-only discovery for the configured second ARK service. This deliberately
+// runs even while ARK_MAP2_ENABLED is false so a stopped server can be identified
+// from its SFTP layout and logs before any management or migration is enabled.
+if (String(process.env.ARK_MAP2_SFTP_HOST || '').trim()) {
+  void inspectSftpLayout('ARK_MAP2')
+    .then((layout) => {
+      console.log(`[Nexus Sentinal] ARK MAP2 SFTP layout: cwd=${layout.cwd} configuredRoot=${layout.configuredRoot} dirs=${layout.directories.join(',') || '(none)'} shooterGame=${layout.shooterGameCandidates.join(',') || '(none)'}`);
+      console.log(`[Nexus Sentinal] ARK MAP2 SFTP exact: gus=${layout.exact.gus} game=${layout.exact.game} arkshop=${layout.exact.arkshop} plugins=${layout.plugins.join(',') || '(none)'} arkShopEntries=${layout.arkShopEntries.join(',') || '(none)'}`);
+    })
+    .catch((error) => console.warn(`[Nexus Sentinal] ARK MAP2 SFTP layout unavailable: ${String(error?.message || error).slice(0, 300)}`));
+
+  void discoverPaths('ARK_MAP2')
+    .then((paths) => {
+      const summarize = (item) => item?.found ? item.path : `missing:${String(item?.error || 'unknown').slice(0, 100)}`;
+      console.log(`[Nexus Sentinal] ARK MAP2 SFTP discovery: gus=${summarize(paths.gus)} game=${summarize(paths.game)} arkshop=${summarize(paths.arkshop)}`);
+    })
+    .catch((error) => console.warn(`[Nexus Sentinal] ARK MAP2 SFTP discovery failed: ${String(error?.message || error).slice(0, 300)}`));
+
+  const map2LogTimer = setTimeout(() => {
+    void inspectArkApiLog('ARK_MAP2')
+      .then((result) => {
+        const files = Array.isArray(result.filesSeen) ? result.filesSeen.join(',').slice(0, 900) : '';
+        console.log(`[Nexus Sentinal] ARK MAP2 identity probe: found=${Boolean(result.found)} source=${result.source || 'unknown'} path=${result.path || 'unknown'} files=${files || '(none)'}`);
+        if (result.newest) {
+          console.log(`[Nexus Sentinal] ARK MAP2 newest log: file=${result.newest.name} modifiedAt=${result.newest.modifiedAt || 'unknown'} bytes=${result.newest.bytes || 0}`);
+          for (const line of (result.newest.tail || []).slice(-30)) console.log(`[Nexus Sentinal] ARK MAP2 newest tail: ${line}`);
+        }
+      })
+      .catch((error) => console.warn(`[Nexus Sentinal] ARK MAP2 identity probe failed: ${String(error?.message || error).slice(0, 300)}`));
+  }, 10_000);
+  map2LogTimer.unref?.();
+}
