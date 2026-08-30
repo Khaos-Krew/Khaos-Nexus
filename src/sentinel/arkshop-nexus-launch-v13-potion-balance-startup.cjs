@@ -14,32 +14,33 @@ const { shopEntry, engramRule, GAME_MODE_SECTION } = require('./arkshop-nexus-la
 
 const VERSION = 'nexus-launch-v13-potion-balance';
 const PROFILE_ID = 'arkshop-live';
+const SHADOW_RECRUIT_POINTS_PER_HOUR = 24;
 
 const CRAZYS_ITEMS = Object.freeze({
-  apoth_gestation: { description: 'Nexus Apothecary - Gestation Skip Potion', price: 400, asset: '/CrazysPotions/Potions/InstantBaby/PrimalItemConsumable_CPInstantbaby' },
-  apoth_growup: { description: 'Nexus Apothecary - Grow Up Potion', price: 400, asset: '/CrazysPotions/Potions/GrowUpPotion/PrimalItemConsumable_CPGrowUpPotion' },
-  apoth_imprint: { description: 'Nexus Apothecary - Instant Imprint Potion', price: 500, asset: '/CrazysPotions/Potions/InstantImprintPotion/PrimalItemConsumable_CPInstaImprintPotion' },
-  apoth_gender_swap: { description: 'Nexus Apothecary - Gender Change Potion', price: 300, asset: '/CrazysPotions/Potions/GenderPotion/PrimalItemConsumable_CPGenderPotion' },
-  apoth_gender_assign: { description: 'Nexus Apothecary - Gender Assignment Potion', price: 500, asset: '/CrazysPotions/Potions/GenderAssignPotion/PrimalItemConsumable_CPGenderAssignmentPotion' },
-  apoth_mutation: { description: 'Nexus Apothecary - Mutation Potion', price: 900, asset: '/CrazysPotions/Potions/MutatorPotion/PrimalItemConsumable_CPMutationPotion' },
-  apoth_super_crafting: { description: 'Nexus Apothecary - Super Crafting Potion', price: 1000, asset: '/CrazysPotions/Potions/CraftingBoostPotion/PrimalItemConsumable_CPSuperCraftingPotion' }
+  apoth_gestation: { description: 'Nexus Apothecary - Gestation Skip Potion', price: 100, asset: '/CrazysPotions/Potions/InstantBaby/PrimalItemConsumable_CPInstantbaby' },
+  apoth_growup: { description: 'Nexus Apothecary - Grow Up Potion', price: 100, asset: '/CrazysPotions/Potions/GrowUpPotion/PrimalItemConsumable_CPGrowUpPotion' },
+  apoth_imprint: { description: 'Nexus Apothecary - Instant Imprint Potion', price: 125, asset: '/CrazysPotions/Potions/InstantImprintPotion/PrimalItemConsumable_CPInstaImprintPotion' },
+  apoth_gender_swap: { description: 'Nexus Apothecary - Gender Change Potion', price: 75, asset: '/CrazysPotions/Potions/GenderPotion/PrimalItemConsumable_CPGenderPotion' },
+  apoth_gender_assign: { description: 'Nexus Apothecary - Gender Assignment Potion', price: 125, asset: '/CrazysPotions/Potions/GenderAssignPotion/PrimalItemConsumable_CPGenderAssignmentPotion' },
+  apoth_mutation: { description: 'Nexus Apothecary - Mutation Potion', price: 250, asset: '/CrazysPotions/Potions/MutatorPotion/PrimalItemConsumable_CPMutationPotion' },
+  apoth_super_crafting: { description: 'Nexus Apothecary - Super Crafting Potion', price: 300, asset: '/CrazysPotions/Potions/CraftingBoostPotion/PrimalItemConsumable_CPSuperCraftingPotion' }
 });
 
 // Verified against Potions | Gaia Studios project 928650, WindowsServer file 8159112 (release 68).
 // Deliberately excludes attack, strength, flight, summon, stealth, death, and mating-interval potions.
 const GAIA_ITEMS = Object.freeze({
-  gaia_taming: { description: 'Nexus Apothecary - Gaia Instant Taming Potion', price: 1000, asset: '/PotionsHelpers/Items/Taming/PrimalItemConsumable_Gaia_TamingElixir' },
-  gaia_famish: { description: 'Nexus Apothecary - Gaia Famish Potion', price: 350, asset: '/PotionsHelpers/Items/Famish/PrimalItemConsumable_Gaia_FamishElixir' },
-  gaia_sedative: { description: 'Nexus Apothecary - Gaia Sedative Potion', price: 250, asset: '/PotionsHelpers/Items/Sedative/PrimalItemConsumable_Gaia_SedativeElixir' },
-  gaia_player_health_small: { description: 'Nexus Apothecary - Gaia Player Health (Small)', price: 100, asset: '/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_WeakHealthElixir' },
-  gaia_player_health_medium: { description: 'Nexus Apothecary - Gaia Player Health (Medium)', price: 200, asset: '/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_MildHealthElixir' },
-  gaia_player_health_large: { description: 'Nexus Apothecary - Gaia Player Health (Large)', price: 350, asset: '/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_StrongHealthElixir' },
-  gaia_dino_health_small: { description: 'Nexus Apothecary - Gaia Dino Health (Small)', price: 150, asset: '/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_Elixir_DinoHealthWeak' },
-  gaia_dino_health_medium: { description: 'Nexus Apothecary - Gaia Dino Health (Medium)', price: 300, asset: '/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_Elixir_DinoHealthMild' },
-  gaia_dino_health_large: { description: 'Nexus Apothecary - Gaia Dino Health (Large)', price: 500, asset: '/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_Elixir_DinoHealthStrong' },
-  gaia_stamina: { description: 'Nexus Apothecary - Gaia Stamina Potion', price: 150, asset: '/PotionsHelpers/Items/Stamina/PrimalItemConsumable_Gaia_StaminaElixir' },
-  gaia_weight: { description: 'Nexus Apothecary - Gaia Weight Potion', price: 250, asset: '/PotionsHelpers/Items/Weight/PrimalItemConsumable_Gaia_WeightElixir' },
-  gaia_xp: { description: 'Nexus Apothecary - Gaia XP Potion', price: 500, asset: '/PotionsHelpers/Items/XP/PrimalItemConsumable_Gaia_XPElixir' }
+  gaia_taming: { description: 'Nexus Apothecary - Gaia Instant Taming Potion', price: 300, asset: '/PotionsHelpers/Items/Taming/PrimalItemConsumable_Gaia_TamingElixir' },
+  gaia_famish: { description: 'Nexus Apothecary - Gaia Famish Potion', price: 100, asset: '/PotionsHelpers/Items/Famish/PrimalItemConsumable_Gaia_FamishElixir' },
+  gaia_sedative: { description: 'Nexus Apothecary - Gaia Sedative Potion', price: 75, asset: '/PotionsHelpers/Items/Sedative/PrimalItemConsumable_Gaia_SedativeElixir' },
+  gaia_player_health_small: { description: 'Nexus Apothecary - Gaia Player Health (Small)', price: 25, asset: '/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_WeakHealthElixir' },
+  gaia_player_health_medium: { description: 'Nexus Apothecary - Gaia Player Health (Medium)', price: 50, asset: '/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_MildHealthElixir' },
+  gaia_player_health_large: { description: 'Nexus Apothecary - Gaia Player Health (Large)', price: 75, asset: '/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_StrongHealthElixir' },
+  gaia_dino_health_small: { description: 'Nexus Apothecary - Gaia Dino Health (Small)', price: 40, asset: '/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_Elixir_DinoHealthWeak' },
+  gaia_dino_health_medium: { description: 'Nexus Apothecary - Gaia Dino Health (Medium)', price: 75, asset: '/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_Elixir_DinoHealthMild' },
+  gaia_dino_health_large: { description: 'Nexus Apothecary - Gaia Dino Health (Large)', price: 100, asset: '/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_Elixir_DinoHealthStrong' },
+  gaia_stamina: { description: 'Nexus Apothecary - Gaia Stamina Potion', price: 40, asset: '/PotionsHelpers/Items/Stamina/PrimalItemConsumable_Gaia_StaminaElixir' },
+  gaia_weight: { description: 'Nexus Apothecary - Gaia Weight Potion', price: 75, asset: '/PotionsHelpers/Items/Weight/PrimalItemConsumable_Gaia_WeightElixir' },
+  gaia_xp: { description: 'Nexus Apothecary - Gaia XP Potion', price: 125, asset: '/PotionsHelpers/Items/XP/PrimalItemConsumable_Gaia_XPElixir' }
 });
 
 const SHOP_ITEMS = Object.freeze({ ...CRAZYS_ITEMS, ...GAIA_ITEMS });
@@ -187,6 +188,7 @@ if (require.main === module) run().catch((error) => {
 module.exports = {
   VERSION,
   PROFILE_ID,
+  SHADOW_RECRUIT_POINTS_PER_HOUR,
   CRAZYS_ITEMS,
   GAIA_ITEMS,
   SHOP_ITEMS,

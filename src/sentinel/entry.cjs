@@ -121,6 +121,7 @@ require('./arkshop-nexus-launch-v12-love-craft-fix-runtime.cjs').installArkShopL
 require('./arkshop-map2-clone-from-gen1-runtime.cjs').installArkShopMap2CloneRuntime();
 require('./natureshop-gen1-export-runtime.cjs').installNatureShopGen1ExportRuntime();
 require('./arkshop-nexus-launch-v13-potion-balance-runtime.cjs').installArkShopLaunchV13PotionBalanceRuntime();
+require('./arkshop-nexus-launch-v14-shadow-recruit-potion-prices-runtime.cjs').installArkShopLaunchV14PotionPricesRuntime();
 require('./dinodepot-category-probe-runtime.cjs').installDinoDepotCategoryProbeRuntime();
 require('./arkshop-ui-live-deploy-runtime.cjs').installArkShopUiLiveDeployRuntime();
 require('./arkshop-cluster-economy-guard.cjs').installArkShopClusterEconomyGuard();

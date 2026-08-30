@@ -1,0 +1,15 @@
+{
+  "release": "arkshop-shadow-recruit-potion-prices-v14",
+  "service": "nexus-sentinal-0-1-test",
+  "deploymentSafety": "disabled-by-default",
+  "featureSwitch": "ARK_GEN1_ARKSHOP_LAUNCH_V14_POTION_PRICES_ONCE",
+  "shadowRecruitPointsPerFiveMinutes": 2,
+  "shadowRecruitPointsPerHour": 24,
+  "minimumPotionPrice": 25,
+  "maximumPotionPrice": 300,
+  "minimumPassiveEarnHours": 1.04,
+  "maximumPassiveEarnHours": 12.5,
+  "lovePotionSold": false,
+  "automaticRestart": false,
+  "destructiveCommands": false
+}

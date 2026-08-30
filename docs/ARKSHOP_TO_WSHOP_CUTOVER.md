@@ -10,6 +10,23 @@ This migration is prepared but intentionally inactive. ArkShop remains the produ
 - Seven Sentinel-owned Dino caches: Coastal, Forest, Swamp, Mountain, Ocean, Deep Cave, and Apex.
 - Daily, weekly, Founder, and event reward-cache pools with rank entitlements, pity rules, value budgets, and non-pay-to-win validation.
 
+## Shadow Recruit potion prices
+
+The free Shadow Recruit baseline earns 2 Nexus Points every 5 minutes, or 24 NP per hour. Potion prices are therefore expressed against passive earning time before any resource sales, trophies, events, or other gameplay rewards:
+
+| Potion | NP | Passive hours |
+|---|---:|---:|
+| Gaia Player Health — Small / Medium / Large | 25 / 50 / 75 | 1.0 / 2.1 / 3.1 |
+| Gaia Dino Health — Small / Medium / Large | 40 / 75 / 100 | 1.7 / 3.1 / 4.2 |
+| Gaia Stamina / Weight | 40 / 75 | 1.7 / 3.1 |
+| Gaia Sedative / Famish / XP | 75 / 100 / 125 | 3.1 / 4.2 / 5.2 |
+| Gestation Skip / Grow Up / Instant Imprint | 100 / 100 / 125 | 4.2 / 4.2 / 5.2 |
+| Gender Change / Assignment | 75 / 125 | 3.1 / 5.2 |
+| Mutation | 250 | 10.4 |
+| Super Crafting / Gaia Instant Taming | 300 / 300 | 12.5 / 12.5 |
+
+This is the free-rank affordability ceiling. Gameplay earnings shorten these times; paid ranks are not required to obtain any potion.
+
 The generated bundle is `config/ark/wshop/nexus-wshop-migration.json`. Rebuild it with `npm run wshop:export` after changing any source catalog.
 
 ## Why the bundle is staged

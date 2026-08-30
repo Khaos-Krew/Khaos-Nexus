@@ -20,8 +20,8 @@ test('Love Potion and engram unlock potion are never sold', () => {
   const shop = buildShopItems();
   assert.equal(shop.apoth_love, undefined);
   assert.equal(shop.apoth_engram_unlocker, undefined);
-  assert.equal(shop.gaia_taming.Price, 1000);
-  assert.equal(shop.apoth_mutation.Price, 900);
+  assert.equal(shop.gaia_taming.Price, 300);
+  assert.equal(shop.apoth_mutation.Price, 250);
 });
 
 test('builder kit uses direct item delivery and no purchaser-context admin commands', () => {

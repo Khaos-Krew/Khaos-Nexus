@@ -7,6 +7,7 @@ const {
   CRAZYS_ITEMS,
   GAIA_ITEMS,
   SHOP_ITEMS,
+  SHADOW_RECRUIT_POINTS_PER_HOUR,
   DISABLED_CRAZYS_ENGRAMS,
   LOVE_ENGRAM,
   withBalancedCatalog,
@@ -16,18 +17,19 @@ const {
 } = require('../src/sentinel/arkshop-nexus-launch-v13-potion-balance-startup.cjs');
 const runtime = require('../src/sentinel/arkshop-nexus-launch-v13-potion-balance-runtime.cjs');
 
-test('Love Potion is removed and remaining Crazy potion prices are reduced to 300-1000 NP', () => {
+test('Love Potion is removed and remaining Crazy potion prices fit the Shadow Recruit earning floor', () => {
   const data = withBalancedCatalog({ managedSections: ['ShopItems'], ShopItems: { apoth_love: { Price: 750 }, keep: { Price: 1 } } });
   assert.equal('apoth_love' in data.ShopItems, false);
   assert.equal(data.ShopItems.keep.Price, 1);
   assert.equal(Object.keys(CRAZYS_ITEMS).length, 7);
-  for (const spec of Object.values(CRAZYS_ITEMS)) assert.ok(spec.price >= 300 && spec.price <= 1000);
+  assert.equal(SHADOW_RECRUIT_POINTS_PER_HOUR, 24);
+  for (const spec of Object.values(CRAZYS_ITEMS)) assert.ok(spec.price >= 75 && spec.price <= 300);
   assert.equal(hasBalancedCatalog(data), true);
 });
 
 test('verified Gaia utility catalog includes instant taming and excludes combat and summon potions', () => {
   assert.equal(Object.keys(GAIA_ITEMS).length, 12);
-  assert.equal(GAIA_ITEMS.gaia_taming.price, 1000);
+  assert.equal(GAIA_ITEMS.gaia_taming.price, 300);
   assert.equal(GAIA_ITEMS.gaia_taming.asset, '/PotionsHelpers/Items/Taming/PrimalItemConsumable_Gaia_TamingElixir');
   for (const [id, spec] of Object.entries(GAIA_ITEMS)) {
     assert.match(id, /^gaia_/);

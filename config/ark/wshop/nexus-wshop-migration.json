@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-30T19:15:59.036Z",
+  "generatedAt": "2026-08-30T20:23:02.928Z",
   "target": {
     "plugin": "WShop",
     "uiMod": "W Shop UI",
@@ -11,7 +11,7 @@
     "provider": "ArkShop",
     "profile": "arkshop-live",
     "strategy": "planned-catalog-rebuild",
-    "catalogChecksum": "9c783c04e084244ade91f738b94a6c98171717f1c4fda1759bb5fecfff3659c1"
+    "catalogChecksum": "d2bb61ce938b9c8c03f04344c0cb12b5f070e5caffd0ac6dd3181ca1a12b6414"
   },
   "currency": {
     "name": "Nexus Points",
@@ -796,7 +796,7 @@
         "apoth_gestation": {
           "Type": "item",
           "Description": "Nexus Apothecary - Gestation Skip Potion",
-          "Price": 400,
+          "Price": 100,
           "Items": [
             {
               "Quality": 0,
@@ -809,7 +809,7 @@
         "apoth_growup": {
           "Type": "item",
           "Description": "Nexus Apothecary - Grow Up Potion",
-          "Price": 400,
+          "Price": 100,
           "Items": [
             {
               "Quality": 0,
@@ -822,7 +822,7 @@
         "apoth_imprint": {
           "Type": "item",
           "Description": "Nexus Apothecary - Instant Imprint Potion",
-          "Price": 500,
+          "Price": 125,
           "Items": [
             {
               "Quality": 0,
@@ -835,7 +835,7 @@
         "apoth_gender_swap": {
           "Type": "item",
           "Description": "Nexus Apothecary - Gender Change Potion",
-          "Price": 300,
+          "Price": 75,
           "Items": [
             {
               "Quality": 0,
@@ -848,7 +848,7 @@
         "apoth_gender_assign": {
           "Type": "item",
           "Description": "Nexus Apothecary - Gender Assignment Potion",
-          "Price": 500,
+          "Price": 125,
           "Items": [
             {
               "Quality": 0,
@@ -861,7 +861,7 @@
         "apoth_mutation": {
           "Type": "item",
           "Description": "Nexus Apothecary - Mutation Potion",
-          "Price": 900,
+          "Price": 250,
           "Items": [
             {
               "Quality": 0,
@@ -874,7 +874,7 @@
         "apoth_super_crafting": {
           "Type": "item",
           "Description": "Nexus Apothecary - Super Crafting Potion",
-          "Price": 1000,
+          "Price": 300,
           "Items": [
             {
               "Quality": 0,
@@ -887,7 +887,7 @@
         "gaia_taming": {
           "Type": "item",
           "Description": "Nexus Apothecary - Gaia Instant Taming Potion",
-          "Price": 1000,
+          "Price": 300,
           "Items": [
             {
               "Quality": 0,
@@ -900,7 +900,7 @@
         "gaia_famish": {
           "Type": "item",
           "Description": "Nexus Apothecary - Gaia Famish Potion",
-          "Price": 350,
+          "Price": 100,
           "Items": [
             {
               "Quality": 0,
@@ -913,7 +913,7 @@
         "gaia_sedative": {
           "Type": "item",
           "Description": "Nexus Apothecary - Gaia Sedative Potion",
-          "Price": 250,
+          "Price": 75,
           "Items": [
             {
               "Quality": 0,
@@ -926,7 +926,7 @@
         "gaia_player_health_small": {
           "Type": "item",
           "Description": "Nexus Apothecary - Gaia Player Health (Small)",
-          "Price": 100,
+          "Price": 25,
           "Items": [
             {
               "Quality": 0,
@@ -939,7 +939,7 @@
         "gaia_player_health_medium": {
           "Type": "item",
           "Description": "Nexus Apothecary - Gaia Player Health (Medium)",
-          "Price": 200,
+          "Price": 50,
           "Items": [
             {
               "Quality": 0,
@@ -952,7 +952,7 @@
         "gaia_player_health_large": {
           "Type": "item",
           "Description": "Nexus Apothecary - Gaia Player Health (Large)",
-          "Price": 350,
+          "Price": 75,
           "Items": [
             {
               "Quality": 0,
@@ -965,7 +965,7 @@
         "gaia_dino_health_small": {
           "Type": "item",
           "Description": "Nexus Apothecary - Gaia Dino Health (Small)",
-          "Price": 150,
+          "Price": 40,
           "Items": [
             {
               "Quality": 0,
@@ -978,7 +978,7 @@
         "gaia_dino_health_medium": {
           "Type": "item",
           "Description": "Nexus Apothecary - Gaia Dino Health (Medium)",
-          "Price": 300,
+          "Price": 75,
           "Items": [
             {
               "Quality": 0,
@@ -991,7 +991,7 @@
         "gaia_dino_health_large": {
           "Type": "item",
           "Description": "Nexus Apothecary - Gaia Dino Health (Large)",
-          "Price": 500,
+          "Price": 100,
           "Items": [
             {
               "Quality": 0,
@@ -1004,7 +1004,7 @@
         "gaia_stamina": {
           "Type": "item",
           "Description": "Nexus Apothecary - Gaia Stamina Potion",
-          "Price": 150,
+          "Price": 40,
           "Items": [
             {
               "Quality": 0,
@@ -1017,7 +1017,7 @@
         "gaia_weight": {
           "Type": "item",
           "Description": "Nexus Apothecary - Gaia Weight Potion",
-          "Price": 250,
+          "Price": 75,
           "Items": [
             {
               "Quality": 0,
@@ -1030,7 +1030,7 @@
         "gaia_xp": {
           "Type": "item",
           "Description": "Nexus Apothecary - Gaia XP Potion",
-          "Price": 500,
+          "Price": 125,
           "Items": [
             {
               "Quality": 0,
