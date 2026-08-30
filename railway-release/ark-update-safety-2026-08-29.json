@@ -1,0 +1,7 @@
+{
+  "service": "nexus-sentinal-0-1-test",
+  "feature": "ark-update-safety",
+  "sourceCommit": "0679b79e110563bdd2bb8264b0f57681d166b458",
+  "requestedAt": "2026-08-29T23:47:17Z",
+  "purpose": "Trigger the existing Railway source watch after merging /ark-health."
+}
