@@ -33,6 +33,16 @@ require('../backend/server.cjs');
 // request may update INI files over SFTP with backups; it never restarts ARK.
 require('../sentinel/entry.cjs');
 
+void require('../sentinel/arkshop-map2-sqlite-migration.cjs').runIfRequested({ stampDirectory: '/app/data' })
+  .then((result) => {
+    if (result.skipped) {
+      console.log(`[Nexus Sentinal] Astraeos ArkShop SQLite-to-MySQL migration skipped: ${result.skipped}`);
+      return;
+    }
+    console.log(`[Nexus Sentinal] Astraeos ArkShop SQLite-to-MySQL migration complete: rows=${result.imported.rowCount} totalPoints=${result.imported.totalPoints} kitStates=${result.imported.playersWithKitState} authChanged=${result.authentication.changed} backup=${result.backupDir} config=${result.configFile}`);
+  })
+  .catch((error) => console.warn(`[Nexus Sentinal] Astraeos ArkShop SQLite-to-MySQL migration blocked: ${String(error?.code || error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 500)}`));
+
 if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
   void applyBaselineIfRequested({ prefix: 'ARK_GEN1', stampDirectory: '/app/data' })
     .then((result) => {
