@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "automaticSpawning": false,
+  "coordinatesInAnnouncements": false,
+  "presets": {
+    "stable": {
+      "enabled": false,
+      "rarity": "uncommon",
+      "statMultiplier": 1.0,
+      "rewardMultiplier": 1.0,
+      "announcementTier": "signal",
+      "requiresExplicitApproval": true
+    },
+    "volatile": {
+      "enabled": false,
+      "rarity": "rare",
+      "statMultiplier": 1.15,
+      "rewardMultiplier": 1.25,
+      "announcementTier": "warning",
+      "requiresExplicitApproval": true
+    },
+    "apex": {
+      "enabled": false,
+      "rarity": "ultra",
+      "statMultiplier": 1.25,
+      "rewardMultiplier": 1.5,
+      "announcementTier": "critical",
+      "requiresExplicitApproval": true
+    }
+  }
+}

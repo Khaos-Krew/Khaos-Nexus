@@ -7,6 +7,7 @@ const { adminPairingStore } = require('./admin-pairing.cjs');
 const { commandStatus, discoverRankMappings } = require('./discord-admin-discovery.cjs');
 const { buildStaffNameColorPreview } = require('./staff-name-color-preview.cjs');
 const { ArkBackendControl } = require('./ark-backend-control.cjs');
+const { handleShinyWebhook } = require('./ark-shiny-anomaly.cjs');
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1']);
 function json(res, status, body) { const payload = Buffer.from(JSON.stringify(body)); res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': payload.length, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' }); res.end(payload); }
@@ -22,7 +23,8 @@ function createPairingLimiter() { const attempts = new Map(); return (req) => { 
 function createSentinalAdminServer(options = {}) {
   const host = String(options.host || '127.0.0.1'); const port = Number(options.port || 3220); const token = String(options.token || '');
   const forgeToken = String(options.forgeToken || process.env.FORGE_SENTINEL_CONTROL_TOKEN || '');
-  const getController = typeof options.getController === 'function' ? options.getController : () => options.controller || null; const logger = options.logger || console; const pairingAllowed = createPairingLimiter(); const arkBackend = options.arkBackend || new ArkBackendControl({ logger });
+  const getController = typeof options.getController === 'function' ? options.getController : () => options.controller || null; const logger = options.logger || console; const pairingAllowed = createPairingLimiter(); const shinyAllowed = createPairingLimiter(); const arkBackend = options.arkBackend || new ArkBackendControl({ logger });
+  const shinyWebhookHandler = options.shinyWebhookHandler || handleShinyWebhook;
   if (!LOOPBACK.has(host) && !validAdminToken(token)) throw new Error('Sentinal admin API requires a token of at least 32 non-whitespace characters before it can listen outside loopback.');
   if (forgeToken && !validAdminToken(forgeToken)) throw new Error('Forge Sentinel control token must be at least 32 non-whitespace characters.');
   function authScope(req) { const authorization = String(req.headers.authorization || ''); if (token && authorization === `Bearer ${token}`) return 'admin'; if (forgeToken && authorization === `Bearer ${forgeToken}`) return 'forge'; if (!token && LOOPBACK.has(host)) return 'admin'; return ''; }
@@ -32,6 +34,8 @@ function createSentinalAdminServer(options = {}) {
       const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`); const controller = getController();
       if (req.method === 'GET' && url.pathname === '/health') { if (!controller) return json(res, 200, publicHealth()); const status = await controller.status().catch(() => null); return json(res, 200, publicHealth(status)); }
       if (req.method === 'POST' && url.pathname === '/v1/pair') { if (!token) return json(res, 503, { ok: false, code: 'PAIRING_DISABLED', message: 'Hosted Sentinal pairing requires a protected admin token.' }); if (!pairingAllowed(req)) return json(res, 429, { ok: false, code: 'PAIRING_RATE_LIMIT', message: 'Too many pairing attempts. Generate a new code and try again shortly.' }); const input = await body(req); const paired = adminPairingStore.consume(input.code); if (!paired) return json(res, 401, { ok: false, code: 'PAIRING_INVALID', message: 'That pairing code is invalid, expired, or already used.' }); return json(res, 200, { ok: true, token, pairedAt: new Date().toISOString() }); }
+      const shinyMatch = req.method === 'POST' ? /^\/v1\/ark\/shiny-events\/([A-Za-z0-9_-]{32,256})$/.exec(url.pathname) : null;
+      if (shinyMatch) { if (!shinyAllowed(req)) return json(res, 429, { ok: false, code: 'SHINY_INGEST_RATE_LIMIT' }); const result = await shinyWebhookHandler({ token: shinyMatch[1], payload: await body(req), controller }); return json(res, result.status, result.body); }
       const scope = authScope(req); if (!scope) return json(res, 401, { ok: false, code: 'UNAUTHORIZED' });
       if (req.method === 'GET' && url.pathname === '/v1/ark/servers') return json(res, 200, { ok: true, servers: arkBackend.listServers(), llmCalls: 0 });
       if (req.method === 'GET' && url.pathname === '/v1/ark/capabilities') { const data = await arkBackend.capabilityInventory({ probe: url.searchParams.get('probe') !== 'false' }); return json(res, 200, { ok: true, data, llmCalls: 0 }); }
