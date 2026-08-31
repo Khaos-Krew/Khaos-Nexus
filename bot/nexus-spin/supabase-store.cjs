@@ -45,41 +45,33 @@ class SupabaseNexusSpinStore {
     return row ? { discordId: row.discord_id, eosId: row.eos_id, playerName: row.player_name || null, verified: true } : null;
   }
 
-  async claimCooldown(eosId, cooldownSeconds) {
-    const rows = await this.request('/rest/v1/rpc/claim_nexus_spin_cooldown', {
+  async createSpinIfCooldownReady(spin, cooldownSeconds) {
+    const reward = spin.reward;
+    const rows = await this.request('/rest/v1/rpc/create_nexus_spin_attempt', {
       method: 'POST',
-      body: JSON.stringify({ p_eos_id: String(eosId || '').trim(), p_cooldown_seconds: Math.max(1, Math.ceil(Number(cooldownSeconds) || 86400)) }),
+      body: JSON.stringify({
+        p_spin_id: spin.spinId,
+        p_discord_id: spin.discordId,
+        p_eos_id: spin.eosId,
+        p_reward_type: reward.type,
+        p_reward_key: reward.id,
+        p_reward_label: reward.label,
+        p_resource_key: reward.resourceKey || null,
+        p_amount: reward.amount || null,
+        p_tier: reward.tier || 'COMMON',
+        p_weight: reward.weight,
+        p_created_at: spin.createdAt,
+        p_cooldown_seconds: Math.max(1, Math.ceil(Number(cooldownSeconds) || 86400)),
+      }),
     });
     const row = Array.isArray(rows) ? rows[0] : rows;
-    if (!row) throw new Error('Nexus Spin cooldown RPC returned no result.');
+    if (!row) throw new Error('Nexus Spin create RPC returned no result.');
     return {
       allowed: Boolean(row.allowed),
       retryAfterSeconds: Math.max(0, Number(row.retry_after_seconds) || 0),
       nextAllowedAt: row.next_allowed_at || null,
+      spinId: row.spin_id || null,
     };
-  }
-
-  async createSpin(spin, status = 'ROLLED') {
-    const reward = spin.reward;
-    const rows = await this.request('/rest/v1/nexus_spin_attempts', {
-      method: 'POST',
-      headers: { Prefer: 'return=representation' },
-      body: JSON.stringify({
-        spin_id: spin.spinId,
-        discord_id: spin.discordId,
-        eos_id: spin.eosId,
-        reward_type: reward.type,
-        reward_key: reward.id,
-        reward_label: reward.label,
-        resource_key: reward.resourceKey || null,
-        amount: reward.amount || null,
-        tier: reward.tier || 'COMMON',
-        weight: reward.weight,
-        status,
-        created_at: spin.createdAt,
-      }),
-    });
-    return Array.isArray(rows) ? rows[0] : rows;
   }
 
   async setStatus(spinId, expected, next, metadata = {}) {
@@ -87,7 +79,11 @@ class SupabaseNexusSpinStore {
     const rows = await this.request(`/rest/v1/nexus_spin_attempts?spin_id=eq.${id}&status=eq.${encodeURIComponent(expected)}`, {
       method: 'PATCH',
       headers: { Prefer: 'return=representation' },
-      body: JSON.stringify({ status: next, reward_metadata: metadata, rewarded_at: next === 'REWARDED' ? new Date().toISOString() : null }),
+      body: JSON.stringify({
+        status: next,
+        reward_metadata: metadata,
+        rewarded_at: next === 'REWARDED' ? new Date().toISOString() : null,
+      }),
     });
     return Array.isArray(rows) && rows.length ? rows[0] : null;
   }
@@ -96,14 +92,20 @@ class SupabaseNexusSpinStore {
     const rows = await this.request('/rest/v1/ark_cache_tokens', {
       method: 'POST',
       headers: { Prefer: 'return=representation' },
-      body: JSON.stringify({ discord_id: spin.discordId, eos_id: spin.eosId, source_spin_id: spin.spinId, token_type: 'DINO_CACHE', status: 'ACTIVE' }),
+      body: JSON.stringify({
+        discord_id: spin.discordId,
+        eos_id: spin.eosId,
+        source_spin_id: spin.spinId,
+        token_type: 'DINO_CACHE',
+        status: 'ACTIVE',
+      }),
     });
     return Array.isArray(rows) ? rows[0] : rows;
   }
 
   async listPending(discordId, limit = 20) {
     const id = encodeURIComponent(String(discordId || '').trim());
-    const statuses = encodeURIComponent('(PENDING_RESOURCE,PENDING_POINTS)');
+    const statuses = encodeURIComponent('(PENDING_RESOURCE,PENDING_POINTS,PENDING_TOKEN)');
     const rows = await this.request(`/rest/v1/nexus_spin_attempts?discord_id=eq.${id}&status=in.${statuses}&order=created_at.asc&limit=${Math.max(1, Math.min(50, Number(limit) || 20))}&select=*`);
     return Array.isArray(rows) ? rows : [];
   }
