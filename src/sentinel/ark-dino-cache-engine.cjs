@@ -36,6 +36,13 @@ function mergeDlcConfig(raw, extension) {
   return raw;
 }
 
+function normalizedCooldownMinutes(cache, cacheId = 'cache') {
+  const hasMinutes = cache?.cooldownMinutes !== undefined && cache?.cooldownMinutes !== null;
+  const raw = hasMinutes ? Number(cache.cooldownMinutes) : Number(cache?.cooldownHours || 0) * 60;
+  if (!Number.isFinite(raw) || raw < 0 || raw > 10080 || !Number.isInteger(raw)) throw new Error(`Dino cache '${cacheId}' has an invalid cooldown.`);
+  return raw;
+}
+
 function loadDinoCacheConfig(file = process.env.NEXUS_DINO_CACHE_CONFIG || DEFAULT_CONFIG_PATH) {
   const resolvedFile = path.resolve(file);
   const raw = JSON.parse(fs.readFileSync(resolvedFile, 'utf8'));
@@ -80,9 +87,11 @@ function loadDinoCacheConfig(file = process.env.NEXUS_DINO_CACHE_CONFIG || DEFAU
     if (Object.keys(variantTable).some((variant) => !VALID_VARIANTS.includes(variant))) throw new Error(`Dino cache '${cacheId}' contains an unsupported variant.`);
     const price = Number(cache.price);
     if (!Number.isSafeInteger(price) || price <= 0) throw new Error(`Dino cache '${cacheId}' requires a positive integer price.`);
+    const cooldownMinutes = normalizedCooldownMinutes(cache, cacheId);
     caches[cacheId] = Object.freeze({
       price,
-      cooldownHours: Number(cache.cooldownHours || 0),
+      cooldownMinutes,
+      cooldownHours: cooldownMinutes / 60,
       groups: Object.freeze(groupIds),
       itemAliases: Object.freeze(aliases),
       maps: Object.freeze((cache.maps || ['*']).map((value) => String(value).toLowerCase())),
@@ -174,4 +183,4 @@ function cacheForPurchase(itemName, mapName, config = CONFIG) {
   return cache.maps.includes('*') || cache.maps.includes(map) ? { id, ...cache } : null;
 }
 
-module.exports = { DEFAULT_CONFIG_PATH, DEFAULT_DLC_CONFIG_PATH, VALID_VARIANTS, CONFIG, LEVEL_BUCKETS, RARITY_WEIGHTS, VARIANT_WEIGHTS, SHINY_CHANCE, CACHE_POOLS, mergeDlcConfig, loadDinoCacheConfig, deterministicRng, weightedPick, rollLevel, rollSpecies, rollVariant, rollCache, cacheForPurchase };
+module.exports = { DEFAULT_CONFIG_PATH, DEFAULT_DLC_CONFIG_PATH, VALID_VARIANTS, CONFIG, LEVEL_BUCKETS, RARITY_WEIGHTS, VARIANT_WEIGHTS, SHINY_CHANCE, CACHE_POOLS, mergeDlcConfig, normalizedCooldownMinutes, loadDinoCacheConfig, deterministicRng, weightedPick, rollLevel, rollSpecies, rollVariant, rollCache, cacheForPurchase };
