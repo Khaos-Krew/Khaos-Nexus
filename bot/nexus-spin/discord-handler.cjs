@@ -29,13 +29,18 @@ function payoutNote(payout) {
   return 'Reward recorded.';
 }
 
+function spinModeLabel(result) {
+  return result?.spinMode === 'POINTS' ? `POINT SPIN • ${result.spinCost} Nexus Points` : 'FREE DAILY SPIN';
+}
+
 async function publicReveal(interaction, result) {
   const reward = result.spin.reward;
   const mention = `<@${interaction.user.id}>`;
+  const modeLabel = spinModeLabel(result);
   const frames = [
-    `🎰 **NEXUS SPIN** 🎰\n${mention} triggered the Nexus reels...\n\n▰ ▱ ▱`,
-    `🎰 **NEXUS SPIN** 🎰\n${mention} triggered the Nexus reels...\n\n▰ ▰ ▱`,
-    `🎰 **NEXUS SPIN** 🎰\n${mention} triggered the Nexus reels...\n\n▰ ▰ ▰`,
+    `🎰 **NEXUS SPIN** 🎰\n${mention} triggered the Nexus reels...\n**${modeLabel}**\n\n▰ ▱ ▱`,
+    `🎰 **NEXUS SPIN** 🎰\n${mention} triggered the Nexus reels...\n**${modeLabel}**\n\n▰ ▰ ▱`,
+    `🎰 **NEXUS SPIN** 🎰\n${mention} triggered the Nexus reels...\n**${modeLabel}**\n\n▰ ▰ ▰`,
   ];
 
   let message = null;
@@ -49,7 +54,7 @@ async function publicReveal(interaction, result) {
       await wait(550);
       const jackpot = reward.type === 'cache_token';
       const title = jackpot ? '🔥💠 **NEXUS JACKPOT!** 💠🔥' : `${rewardIcon(reward)} **${reward.tier || 'REWARD'} DROP**`;
-      await message.edit(`${title}\n${mention} won **${reward.label}**!\n${payoutNote(result.payout)}`);
+      await message.edit(`${title}\n${mention} won **${reward.label}**!\n**${modeLabel}**\n${payoutNote(result.payout)}`);
     }
   } catch {
     // The private interaction receipt below still confirms the immutable reward.
@@ -95,13 +100,30 @@ async function handleNexusSpin(interaction, { bootstrap, logger = console } = {}
       return true;
     }
 
-    const result = await service.play({ discordId: interaction.user.id, channelId: interaction.channelId });
+    const mode = interaction.options.getString('mode') || 'free';
+    const result = await service.play({ discordId: interaction.user.id, channelId: interaction.channelId, mode });
     await publicReveal(interaction, result);
-    await interaction.editReply(`Your spin is locked as **${result.spin.reward.label}**. ${payoutNote(result.payout)}\nSpin ID: \`${result.spin.spinId}\``);
+    const paymentLine = result.spinMode === 'POINTS'
+      ? `\nCost: **${result.spinCost} Nexus Points** • Balance after purchase: **${result.payment.afterBalance}**`
+      : '\nYour next free spin becomes available 24 hours after this one.';
+    await interaction.editReply(`Your spin is locked as **${result.spin.reward.label}**. ${payoutNote(result.payout)}${paymentLine}\nSpin ID: \`${result.spin.spinId}\``);
     return true;
   } catch (error) {
     if (error?.code === 'NEXUS_SPIN_COOLDOWN') {
-      await interaction.editReply(`Your Nexus Spin is on cooldown. Try again in about **${formatCooldown(error.retryAfterSeconds)}**.`);
+      await interaction.editReply(`Your **free daily spin** is on cooldown for about **${formatCooldown(error.retryAfterSeconds)}**. You can still explicitly use \`/nexusspin play mode:points\` for an extra spin costing **${error.pointSpinCost || 100} Nexus Points**.`);
+      return true;
+    }
+    if (error?.code === 'NEXUS_SPIN_INSUFFICIENT_POINTS') {
+      await interaction.editReply(`You do not have enough Nexus Points for an extra spin. Cost: **${error.pointSpinCost || error.cost || 100}** • Available: **${error.balance ?? 0}**.`);
+      return true;
+    }
+    if (error?.code === 'NEXUS_SPIN_PAYMENT_REFUNDED') {
+      await interaction.editReply(`${error.message}\nSpin ID: \`${error.spinId}\``);
+      return true;
+    }
+    if (error?.code === 'NEXUS_SPIN_PAYMENT_RECONCILIATION_REQUIRED') {
+      logger.error?.('[nexus-spin] Paid spin requires manual reconciliation.', { spinId: error.spinId });
+      await interaction.editReply(`⚠️ Sentinel could not safely finish this point spin. **Do not retry this Spin ID yet.** Staff reconciliation is required for \`${error.spinId}\`.`);
       return true;
     }
     if (error?.code === 'NEXUS_SPIN_NOT_LINKED') {
@@ -118,4 +140,4 @@ async function handleNexusSpin(interaction, { bootstrap, logger = console } = {}
   }
 }
 
-module.exports = { handleNexusSpin, formatCooldown, payoutNote, publicReveal, makeService };
+module.exports = { handleNexusSpin, formatCooldown, payoutNote, publicReveal, makeService, spinModeLabel };
