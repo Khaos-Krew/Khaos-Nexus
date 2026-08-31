@@ -4,12 +4,18 @@ const { freezePurchase } = require('./cache-engine.cjs');
 const { animateCacheReveal } = require('./discord-roller.cjs');
 
 function requirePurchaseDependencies(store, pointsGateway) {
-  if (!store || typeof store.createPurchase !== 'function' || typeof store.markAwaiting !== 'function') {
-    throw new Error('A Dino Cache store implementing createPurchase() and markAwaiting() is required.');
+  if (!store || typeof store.createPurchase !== 'function' || typeof store.markAwaiting !== 'function' || typeof store.claimPurchaseCooldown !== 'function') {
+    throw new Error('A Dino Cache store implementing claimPurchaseCooldown(), createPurchase(), and markAwaiting() is required.');
   }
   if (!pointsGateway || typeof pointsGateway.debitForCache !== 'function' || typeof pointsGateway.refundCacheDebit !== 'function') {
     throw new Error('An ArkShop points gateway implementing debitForCache() and refundCacheDebit() is required. Cache RNG is blocked without it.');
   }
+}
+
+function resolveCooldownSeconds(options, cache) {
+  const configured = Number(options.cooldownSeconds ?? cache?.purchaseCooldownSeconds ?? 5);
+  if (!Number.isFinite(configured)) return 5;
+  return Math.max(1, Math.min(3600, Math.ceil(configured)));
 }
 
 async function refundBeforePersistence(pointsGateway, debit, cause, logger) {
@@ -39,14 +45,14 @@ async function refundBeforePersistence(pointsGateway, debit, cause, logger) {
  * The only supported paid Dino Cache purchase entry point.
  *
  * Security invariant:
- *   1. Read ArkShop balance for the linked EOS account.
- *   2. Deduct the full configured cache cost through ArkShop RCON.
- *   3. Re-read ArkShop and verify the exact post-debit balance.
- *   4. Only after steps 1-3 succeed may RNG execute.
+ *   1. Atomically claim a persistent per-EOS anti-spam cooldown.
+ *   2. Read ArkShop balance for the linked EOS account.
+ *   3. Deduct the full configured cache cost through ArkShop RCON.
+ *   4. Re-read ArkShop and verify the exact post-debit balance.
+ *   5. Only after steps 1-4 succeed may RNG execute.
  *
  * There is deliberately no administrator/owner bypass. Discord permissions never
- * participate in point charging. An admin purchasing a cache is charged exactly
- * like every other player.
+ * participate in cooldown or point charging. Admins use the same paid path.
  */
 async function purchaseDinoCache(options = {}) {
   const {
@@ -71,6 +77,16 @@ async function purchaseDinoCache(options = {}) {
     throw new Error('Paid Dino Cache purchases require a positive integer ArkShop point cost. Free/admin grants must not use the shop-purchase path.');
   }
 
+  const cooldownSeconds = resolveCooldownSeconds(options, cache);
+  const cooldown = await store.claimPurchaseCooldown(eosId, cooldownSeconds);
+  if (!cooldown.allowed) {
+    const error = new Error(`Dino Cache purchase cooldown active. Try again in ${cooldown.retryAfterSeconds || 1} second(s).`);
+    error.code = 'DINO_CACHE_COOLDOWN';
+    error.retryAfterSeconds = cooldown.retryAfterSeconds || 1;
+    error.nextAllowedAt = cooldown.nextAllowedAt || null;
+    throw error;
+  }
+
   // CRITICAL: No RNG call is allowed above this point or inside debitForCache().
   // Every caller, including Owner/Admin accounts, executes this same debit.
   const debit = await pointsGateway.debitForCache({ eosId, cost, preferredServer });
@@ -91,6 +107,7 @@ async function purchaseDinoCache(options = {}) {
         balanceAfter: debit.afterBalance,
         debitServerId: debit.serverId || null,
         debitServerName: debit.serverName || null,
+        purchaseCooldownSeconds: cooldownSeconds,
       }),
     });
   } catch (error) {
@@ -130,7 +147,7 @@ async function purchaseDinoCache(options = {}) {
     }
   }
 
-  return { purchase, queued, debit, revealError };
+  return { purchase, queued, debit, cooldown, revealError };
 }
 
-module.exports = { purchaseDinoCache };
+module.exports = { purchaseDinoCache, resolveCooldownSeconds };
