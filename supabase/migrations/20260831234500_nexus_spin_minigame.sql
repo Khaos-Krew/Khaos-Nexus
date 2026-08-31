@@ -24,6 +24,8 @@ create table if not exists public.nexus_spin_attempts (
   spin_id text primary key,
   discord_id text not null,
   eos_id text not null,
+  spin_source text not null default 'FREE' check (spin_source in ('FREE','POINTS')),
+  spin_cost bigint not null default 0 check (spin_cost >= 0),
   reward_type text not null check (reward_type in ('points','resource','cache_token')),
   reward_key text not null,
   reward_label text not null,
@@ -36,13 +38,22 @@ create table if not exists public.nexus_spin_attempts (
   )),
   reward_metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
-  rewarded_at timestamptz
+  rewarded_at timestamptz,
+  constraint nexus_spin_cost_matches_source check (
+    (spin_source = 'FREE' and spin_cost = 0) or
+    (spin_source = 'POINTS' and spin_cost > 0)
+  )
 );
+
+alter table public.nexus_spin_attempts add column if not exists spin_source text not null default 'FREE';
+alter table public.nexus_spin_attempts add column if not exists spin_cost bigint not null default 0;
 
 create index if not exists nexus_spin_attempts_discord_status_idx
   on public.nexus_spin_attempts (discord_id, status, created_at);
 create index if not exists nexus_spin_attempts_eos_created_idx
   on public.nexus_spin_attempts (eos_id, created_at desc);
+create index if not exists nexus_spin_attempts_source_created_idx
+  on public.nexus_spin_attempts (spin_source, created_at desc);
 
 create table if not exists public.ark_cache_tokens (
   token_id uuid primary key default gen_random_uuid(),
@@ -120,11 +131,13 @@ begin
    where eos_id = p_eos_id;
 
   insert into public.nexus_spin_attempts (
-    spin_id, discord_id, eos_id, reward_type, reward_key, reward_label,
-    resource_key, amount, tier, weight, status, created_at
+    spin_id, discord_id, eos_id, spin_source, spin_cost,
+    reward_type, reward_key, reward_label, resource_key, amount,
+    tier, weight, status, created_at
   ) values (
-    p_spin_id, p_discord_id, p_eos_id, p_reward_type, p_reward_key, p_reward_label,
-    p_resource_key, p_amount, p_tier, p_weight, 'ROLLED', coalesce(p_created_at, v_now)
+    p_spin_id, p_discord_id, p_eos_id, 'FREE', 0,
+    p_reward_type, p_reward_key, p_reward_label, p_resource_key, p_amount,
+    p_tier, p_weight, 'ROLLED', coalesce(p_created_at, v_now)
   );
 
   return query select true, 0::bigint, v_next, p_spin_id;
