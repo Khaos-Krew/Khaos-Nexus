@@ -21,8 +21,6 @@ const {
   CACHE_META,
   meta: legacyMeta,
   titleCase,
-  fmtPoints,
-  fmtCooldown,
   raritySummary,
   speciesByRarity,
   levelTable,
@@ -60,12 +58,22 @@ function arkShopPoints(value) {
   return `${Math.max(0, Number(value) || 0).toLocaleString('en-US')} ArkShop Points`;
 }
 
+function cooldownLabel(cache) {
+  const minutes = Math.max(0, Number(cache?.cooldownMinutes || 0));
+  if (!minutes) return 'None';
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+  if (minutes % 60 === 0) {
+    const hours = minutes / 60;
+    return `${hours} hour${hours === 1 ? '' : 's'}`;
+  }
+  return `${minutes} minutes`;
+}
+
 function cachePanelPayload(cacheId) {
   const cache = CONFIG.caches[cacheId];
   if (!cache) throw new Error('Unknown Dino Box cache.');
   const m = meta(cacheId);
   const speciesFields = speciesByRarity(cache).map((field) => ({ ...field, inline: false }));
-  const cooldown = cache.cooldownHours ? fmtCooldown(cache.cooldownHours) : 'None';
   const disclaimerFields = m.disclaimer ? [{ name: '⚠️ DLC Ownership Required', value: m.disclaimer.slice(0, 1024), inline: false }] : [];
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -88,13 +96,13 @@ function cachePanelPayload(cacheId) {
       fields: [
         ...disclaimerFields,
         { name: '💰 Price', value: `**${arkShopPoints(cache.price)}**`, inline: true },
-        { name: '⏱️ Purchase Cooldown', value: `**${cooldown}**`, inline: true },
+        { name: '⏱️ Per-Box Cooldown', value: `**${cooldownLabel(cache)}**`, inline: true },
         { name: '🎲 Rarity Odds', value: raritySummary(cache), inline: false },
         ...speciesFields,
         { name: '🧬 Variant Odds', value: `${variantTable(cache)}\nVariants are re-normalized when a species does not support X or S.`, inline: false },
         { name: '📈 Level Odds', value: levelTable(), inline: false },
         { name: '⚥ Sex', value: 'Male **50%** • Female **50%**', inline: true },
-        { name: '📦 Delivery', value: 'Your result is locked before the reveal and queued for delivery to your linked ARK account. Token redemption charges **0 ArkShop Points**.', inline: false }
+        { name: '📦 Delivery', value: 'Your result is locked before the reveal and queued for delivery to your linked ARK account. The **5-minute cooldown applies to both ArkShop purchases and token redemptions** for this box. Token redemption charges **0 ArkShop Points**.', inline: false }
       ].slice(0, 25),
       footer: { text: `${PANEL_MARKER}${cacheId}` }
     }],
@@ -292,6 +300,7 @@ module.exports = {
   cacheIds,
   meta,
   arkShopPoints,
+  cooldownLabel,
   cachePanelPayload,
   managedCacheId,
   findArkParent,
