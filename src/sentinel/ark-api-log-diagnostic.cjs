@@ -52,10 +52,31 @@ function tailLogLines(text, limit = MAX_TAIL_LINES) {
   return String(text || '').split(/\r?\n/).map(redactLogLine).filter(Boolean).slice(-bounded);
 }
 
+function modNameHint(value) {
+  const hint = String(value || '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[^A-Za-z0-9 !&'().]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+  return /^(?:content|config|saved|windowsserver)$/i.test(hint) ? '' : hint;
+}
+
+function parseLoadedMods(text) {
+  const mods = new Map();
+  const pattern = /ShooterGame\/Mods\/83374\/(\d{5,10})_[^/\s]+\/([^/\r\n]{1,100})\//g;
+  for (const match of String(text || '').matchAll(pattern)) {
+    const id = match[1];
+    const nameHint = modNameHint(match[2]);
+    const current = mods.get(id);
+    if (!current || (!current.nameHint && nameHint)) mods.set(id, { id, nameHint });
+  }
+  return [...mods.values()];
+}
+
 function parseLoadedModIds(text) {
-  const ids = new Set();
-  for (const match of String(text || '').matchAll(/ShooterGame\/Mods\/83374\/(\d+)_/g)) ids.add(match[1]);
-  return [...ids];
+  return parseLoadedMods(text).map((mod) => mod.id);
 }
 
 function parseArkVersion(text) {
@@ -107,7 +128,7 @@ function normalizeModifyTime(value) {
 async function readBoundedLog(client, remotePath, sizeHint = 0) {
   const stat = sizeHint ? { size: sizeHint } : await client.stat(remotePath).catch(() => null);
   const bytes = Number(stat?.size) || 0;
-  if (bytes > MAX_LOG_BYTES) return { path: remotePath, bytes, skipped: 'log-too-large', lines: [], issues: [], lifecycle: [], tail: [], modIds: [], mapIdentifiers: [], serverNames: [], version: '', readiness: startupReadiness('') };
+  if (bytes > MAX_LOG_BYTES) return { path: remotePath, bytes, skipped: 'log-too-large', lines: [], issues: [], lifecycle: [], tail: [], mods: [], modIds: [], mapIdentifiers: [], serverNames: [], version: '', readiness: startupReadiness('') };
   const data = await client.get(remotePath);
   const text = Buffer.isBuffer(data) ? data.toString('utf8') : String(data || '');
   return {
@@ -117,6 +138,7 @@ async function readBoundedLog(client, remotePath, sizeHint = 0) {
     issues: startupIssueLines(text, 40),
     lifecycle: apiLifecycleLines(text, 40),
     tail: tailLogLines(text, MAX_TAIL_LINES),
+    mods: parseLoadedMods(text),
     modIds: parseLoadedModIds(text),
     mapIdentifiers: parseMapIdentifiers(text),
     serverNames: parseStartedServerNames(text),
@@ -190,7 +212,7 @@ async function inspectSavedLogs(client, shooterGameRoot) {
     if (!result) continue;
     const scanned = { name: safeFileName(entry.name), bytes: result.bytes, modifiedAt: normalizeModifyTime(entry.modifyTime), skipped: result.skipped || '' };
     filesScanned.push(scanned);
-    if (index === 0) newest = { ...scanned, tail: result.tail || [], modIds: result.modIds || [], mapIdentifiers: result.mapIdentifiers || [], serverNames: result.serverNames || [], version: result.version || '', readiness: result.readiness || startupReadiness('') };
+    if (index === 0) newest = { ...scanned, tail: result.tail || [], mods: result.mods || [], modIds: result.modIds || [], mapIdentifiers: result.mapIdentifiers || [], serverNames: result.serverNames || [], version: result.version || '', readiness: result.readiness || startupReadiness('') };
     for (const line of result.lines || []) lines.push(`[${safeFileName(entry.name)}] ${line}`);
     for (const line of result.issues || []) issues.push(`[${safeFileName(entry.name)}] ${line}`);
     for (const line of result.lifecycle || []) lifecycle.push(`[${safeFileName(entry.name)}] ${line}`);
@@ -245,6 +267,6 @@ async function inspectArkApiLog(prefix = 'ARK_GEN1') {
 module.exports = {
   LOG_CANDIDATES, SAVED_LOGS_SUFFIX, CRASHES_SUFFIX, MAX_LOG_BYTES, MAX_CRASH_FILE_BYTES, MAX_SAVED_LOG_FILES, MAX_TAIL_LINES,
   redactLogLine, relevantLogLines, apiLifecycleLines, startupIssueLines, crashRelevantLines, tailLogLines,
-  parseLoadedModIds, parseArkVersion, parseMapIdentifiers, parseStartedServerNames, startupReadiness, normalizeModifyTime, safeFileName,
+  modNameHint, parseLoadedMods, parseLoadedModIds, parseArkVersion, parseMapIdentifiers, parseStartedServerNames, startupReadiness, normalizeModifyTime, safeFileName,
   inspectCrashArtifacts, inspectSavedLogs, inspectArkApiLog
 };

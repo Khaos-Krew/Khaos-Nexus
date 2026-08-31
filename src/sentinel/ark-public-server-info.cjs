@@ -186,9 +186,10 @@ function normalizeWebsiteUrl(value, fallback) {
   return fallback;
 }
 
-async function resolveCurseForgeMods(modIds = [], { apiKey = process.env.CURSEFORGE_API_KEY || '', fetchImpl = global.fetch } = {}) {
+async function resolveCurseForgeMods(modIds = [], { apiKey = process.env.CURSEFORGE_API_KEY || '', fetchImpl = global.fetch, nameHints = {} } = {}) {
   const ids = [...new Set((Array.isArray(modIds) ? modIds : []).map((value) => String(value || '').replace(/\D/g, '')).filter(Boolean))].slice(0, 60);
-  const fallback = () => ids.map((id) => ({ id, name: `Mod ${id}`, url: curseForgeLookupUrl(id), metadata: false }));
+  const hintFor = (id) => clean(nameHints instanceof Map ? nameHints.get(id) : nameHints?.[id], 100);
+  const fallback = () => ids.map((id) => ({ id, name: hintFor(id) || `Mod ${id}`, url: curseForgeLookupUrl(id), metadata: false, nameSource: hintFor(id) ? 'server-log' : 'project-id' }));
   if (!ids.length) return [];
   if (!String(apiKey || '').trim() || typeof fetchImpl !== 'function') return fallback();
   try {
@@ -210,9 +211,10 @@ async function resolveCurseForgeMods(modIds = [], { apiKey = process.env.CURSEFO
       const fallbackUrl = curseForgeLookupUrl(id);
       return {
         id,
-        name: clean(item?.name || `Mod ${id}`, 100),
+        name: clean(item?.name || hintFor(id) || `Mod ${id}`, 100),
         url: normalizeWebsiteUrl(item?.links?.websiteUrl, fallbackUrl),
-        metadata: Boolean(item)
+        metadata: Boolean(item),
+        nameSource: item ? 'curseforge-api' : hintFor(id) ? 'server-log' : 'project-id'
       };
     });
   } catch {
@@ -224,6 +226,18 @@ function loadedModIdsFromDiagnostic(diagnostic = {}) {
   const newest = Array.isArray(diagnostic?.newest?.modIds) ? diagnostic.newest.modIds : [];
   const direct = Array.isArray(diagnostic?.modIds) ? diagnostic.modIds : [];
   return [...new Set((newest.length ? newest : direct).map(String).filter(Boolean))];
+}
+
+function loadedModNameHintsFromDiagnostic(diagnostic = {}) {
+  const newest = Array.isArray(diagnostic?.newest?.mods) ? diagnostic.newest.mods : [];
+  const direct = Array.isArray(diagnostic?.mods) ? diagnostic.mods : [];
+  const hints = {};
+  for (const mod of (newest.length ? newest : direct)) {
+    const id = String(mod?.id || '').match(/^\d{5,10}$/)?.[0];
+    const name = clean(mod?.nameHint, 100);
+    if (id && name) hints[id] = name;
+  }
+  return hints;
 }
 
 function mergeModIds(...lists) {
@@ -246,6 +260,7 @@ async function loadLiveArkPublicInfo(server = {}, dependencies = {}) {
   const gameText = gameResult.status === 'fulfilled' ? String(gameResult.value?.text || '') : '';
   const diagnostic = logResult.status === 'fulfilled' ? (logResult.value || {}) : {};
   const logIds = loadedModIdsFromDiagnostic(diagnostic);
+  const logNameHints = loadedModNameHintsFromDiagnostic(diagnostic);
   const fallbackIds = parseActiveModIds(gusText);
   const existingIds = (Array.isArray(server.detectedMods) ? server.detectedMods : []).map((value) => String(value || '').match(/\b\d{5,10}\b/)?.[0]).filter(Boolean);
   const diskInventory = inventoryResult.status === 'fulfilled' ? (inventoryResult.value || {}) : {};
@@ -253,7 +268,7 @@ async function loadLiveArkPublicInfo(server = {}, dependencies = {}) {
   const activeIds = logIds.length ? logIds : fallbackIds.length ? fallbackIds : existingIds;
   const modIds = mergeModIds(activeIds, diskIds);
   const config = extractPublicServerConfig(gusText, gameText);
-  const mods = await resolveMods(modIds);
+  const mods = await resolveMods(modIds, { nameHints: logNameHints });
   const errors = [];
   if (gusResult.status === 'rejected') errors.push('GameUserSettings.ini unavailable');
   if (gameResult.status === 'rejected') errors.push('Game.ini unavailable');
@@ -312,6 +327,7 @@ module.exports = {
   curseForgeLookupUrl,
   resolveCurseForgeMods,
   loadedModIdsFromDiagnostic,
+  loadedModNameHintsFromDiagnostic,
   mergeModIds,
   loadLiveArkPublicInfo,
   refreshArkPublicMetadata

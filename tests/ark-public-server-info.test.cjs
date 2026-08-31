@@ -10,6 +10,7 @@ const {
   curseForgeLookupUrl,
   resolveCurseForgeMods,
   loadedModIdsFromDiagnostic,
+  loadedModNameHintsFromDiagnostic,
   loadLiveArkPublicInfo
 } = require('../src/sentinel/ark-public-server-info.cjs');
 const {
@@ -99,6 +100,13 @@ test('CurseForge fallback gives every numeric mod id a CurseForge link', () => {
   assert.match(url, /955333/);
 });
 
+test('CurseForge-free resolver uses safe names derived from the running server log', async () => {
+  const mods = await resolveCurseForgeMods(['928548'], { apiKey: '', nameHints: { 928548: 'Shiny' } });
+  assert.equal(mods[0].name, 'Shiny');
+  assert.equal(mods[0].nameSource, 'server-log');
+  assert.equal(mods[0].metadata, false);
+});
+
 test('CurseForge metadata resolver uses batch API response when a key is configured', async () => {
   const mods = await resolveCurseForgeMods(['955333'], {
     apiKey: 'test-key',
@@ -116,20 +124,22 @@ test('CurseForge metadata resolver uses batch API response when a key is configu
 
 test('runtime log mod ids take authority over config fallback', () => {
   assert.deepEqual(loadedModIdsFromDiagnostic({ newest: { modIds: ['955333', '942249'] }, modIds: ['111111'] }), ['955333', '942249']);
+  assert.deepEqual(loadedModNameHintsFromDiagnostic({ newest: { mods: [{ id: '928548', nameHint: 'Shiny' }] } }), { 928548: 'Shiny' });
 });
 
 test('live ARK public snapshot combines runtime mods with live INI stats', async () => {
   const snapshot = await loadLiveArkPublicInfo({ id: 'gen1', mapName: 'Genesis Part 1', envPrefix: 'ARK_GEN1' }, {
     readConfigFn: async (_prefix, key) => ({ text: key === 'gus' ? GUS : GAME }),
-    inspectArkApiLogFn: async () => ({ found: true, newest: { modIds: ['955333', '942249'], version: '93.7' } }),
+    inspectArkApiLogFn: async () => ({ found: true, newest: { modIds: ['955333', '942249'], mods: [{ id: '955333', nameHint: 'ASA Api Utils' }], version: '93.7' } }),
     inspectInstalledArkModsFn: async () => ({ accessible: true, modIds: ['928548'], mods: [{ projectId: '928548', fileId: '5507937' }] }),
-    resolveCurseForgeModsFn: async (ids) => ids.map((id) => ({ id, name: `Resolved ${id}`, url: curseForgeLookupUrl(id), metadata: true }))
+    resolveCurseForgeModsFn: async (ids, options) => ids.map((id) => ({ id, name: options.nameHints[id] || `Resolved ${id}`, url: curseForgeLookupUrl(id), metadata: true }))
   });
   assert.equal(snapshot.modSource, 'running server log + server disk');
   assert.deepEqual(snapshot.activeModIds, ['955333', '942249']);
   assert.deepEqual(snapshot.installedModIds, ['928548']);
   assert.deepEqual(snapshot.modIds, ['955333', '942249', '928548']);
   assert.equal(snapshot.mods.length, 3);
+  assert.equal(snapshot.mods[0].name, 'ASA Api Utils');
   assert.equal(snapshot.playerStats.Weight, '30×');
   assert.equal(snapshot.qualityOfLife['Third Person'], 'Enabled');
   assert.equal(snapshot.version, '93.7');
