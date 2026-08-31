@@ -46,6 +46,7 @@
     "tokenEnv": "NEXUS_SENTINEL_TOKEN",
     "guildId": "",
     "ownerUserIds": [],
+    "cacheTokenIssuerUserId": "",
     "operatorRoleIds": [],
     "safetyStaffRoleIds": [],
     "rolesChannelId": "",
