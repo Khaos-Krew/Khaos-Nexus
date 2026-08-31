@@ -48,8 +48,10 @@ class WorkerStore {
       );
       const result = await client.query(
         `SELECT * FROM nexus_build_jobs
-         WHERE status = 'queued' AND stage = ANY($1::text[])
-         ORDER BY CASE WHEN lane = $2 THEN 0 WHEN lane = 'general' THEN 1 ELSE 2 END, priority ASC, created_at ASC
+         WHERE status = 'queued'
+           AND stage = ANY($1::text[])
+           AND (lane = $2 OR (lane = 'general' AND $2 <> 'general'))
+         ORDER BY CASE WHEN lane = $2 THEN 0 ELSE 1 END, priority ASC, created_at ASC
          FOR UPDATE SKIP LOCKED LIMIT 1`,
         [this.config.capabilities, this.config.lane]
       );
