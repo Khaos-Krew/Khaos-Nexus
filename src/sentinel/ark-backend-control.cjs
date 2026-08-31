@@ -10,7 +10,7 @@ const { pollCluster } = require('./ark-cluster-monitor.cjs');
 const { performRestart, waitForRecovery } = require('./ark-restart-scheduler-extension.cjs');
 const { CitadelControlClient, credentialsFromEnv, serviceIdFromEnv } = require('./ark-citadel-control.cjs');
 const { databaseStatus } = require('./arkshop-database.cjs');
-const { ArkShopProfileStore } = require('./arkshop-profiles.cjs');
+const { ArkShopProfileStore, sanitizeJson, validateEntryId } = require('./arkshop-profiles.cjs');
 const {
   ArkShopApplyStore,
   parseArkShopText,
@@ -34,7 +34,9 @@ const ALLOWED_ACTIONS = new Set([
   'shop.plan',
   'shop.apply',
   'shop.rollback',
-  'shop.reload'
+  'shop.reload',
+  'shop.catalog.plan',
+  'shop.catalog.apply'
 ]);
 
 function clean(value, max = 240) {
@@ -59,6 +61,37 @@ function shopPlanHash({ serverId, profileId, revision, currentHash }) {
   }));
 }
 function shopConfigHash(config) { return sha256(JSON.stringify(config || {})); }
+function normalizeCatalogChange(input = {}, profile = {}) {
+  const operation = clean(input.operation, 30).toLowerCase();
+  if (!['upsert', 'remove', 'set-price'].includes(operation)) throw new Error('Catalog operation must be upsert, remove, or set-price.');
+  const sectionInput = clean(input.section || 'ShopItems', 30).toLowerCase();
+  const section = sectionInput === 'shopitems' ? 'ShopItems' : sectionInput === 'sellitems' ? 'SellItems' : '';
+  if (!section) throw new Error('Catalog section must be ShopItems or SellItems.');
+  const entryId = validateEntryId(input.entryId || input.itemId || input.id);
+  const existing = profile?.data?.[section]?.[entryId];
+  let definition = null;
+  if (operation === 'remove') {
+    if (!existing) throw new Error(`${section}.${entryId} is not present in the assigned profile.`);
+  } else if (operation === 'set-price') {
+    if (!existing || typeof existing !== 'object' || Array.isArray(existing)) throw new Error(`${section}.${entryId} is not present in the assigned profile.`);
+    const price = Number(input.price);
+    if (!Number.isSafeInteger(price) || price < 0 || price > 1_000_000_000) throw new Error('ArkShop price must be a whole number between 0 and 1,000,000,000.');
+    definition = sanitizeJson({ ...existing, Price: price });
+  } else {
+    if (!input.definition || typeof input.definition !== 'object' || Array.isArray(input.definition)) throw new Error('Catalog upsert requires an item definition object.');
+    definition = sanitizeJson(input.definition);
+    if (!Object.keys(definition).length) throw new Error('Catalog item definition cannot be empty.');
+  }
+  return { operation, section, entryId, definition };
+}
+function catalogPlanHash({ serverId, profileId, revision, currentHash, change }) {
+  return sha256(JSON.stringify({
+    version: 1, serverId: clean(serverId, 64).toLowerCase(), profileId: clean(profileId, 64).toLowerCase(),
+    revision: Math.max(1, Number(revision) || 1), currentHash: clean(currentHash, 64).toLowerCase(),
+    operation: change.operation, section: change.section, entryId: change.entryId,
+    definitionHash: change.definition ? shopConfigHash(change.definition) : ''
+  }));
+}
 function publicShopCounts(config = {}) {
   const count = (key) => config?.[key] && typeof config[key] === 'object' && !Array.isArray(config[key]) ? Object.keys(config[key]).length : 0;
   return { kits: count('Kits'), shopItems: count('ShopItems'), sellItems: count('SellItems') };
@@ -331,6 +364,8 @@ class ArkBackendControl {
       allow(['shop.status'], configured.arkShop.sentinelCompatible && config.files.arkshop === true, arkShop.state);
       allow(['shop.plan'], configured.arkShop.sentinelCompatible && config.files.arkshop === true && arkShop.maintenanceProfileReady, !arkShop.maintenanceProfileReady ? 'maintenance-profile-unavailable' : arkShop.state);
       allow(['shop.apply', 'shop.rollback', 'shop.reload'], configured.arkShop.sentinelCompatible && config.files.arkshop === true && rcon.ready, !rcon.ready ? rcon.state : arkShop.state);
+      allow(['shop.catalog.plan'], configured.arkShop.sentinelCompatible && config.files.arkshop === true && arkShop.maintenanceProfileReady, !arkShop.maintenanceProfileReady ? 'maintenance-profile-unavailable' : arkShop.state);
+      allow(['shop.catalog.apply'], configured.arkShop.sentinelCompatible && config.files.arkshop === true && arkShop.maintenanceProfileReady && rcon.ready, !arkShop.maintenanceProfileReady ? 'maintenance-profile-unavailable' : !rcon.ready ? rcon.state : arkShop.state);
       return {
         id: record.id, name: record.name, mapName: record.mapName, envPrefix: record.envPrefix,
         enabled: record.enabled !== false, maintenance: record.maintenance === true,
@@ -488,6 +523,62 @@ class ArkBackendControl {
     return { reloaded: true, command: 'ArkShop.Reload', acknowledged: Boolean(String(result?.response || '').trim()), restartRequired: false };
   }
 
+  async planShopCatalog(server, input = {}) {
+    const snapshot = await this.shopSnapshot(server, input.profileId || input.profile);
+    if (!snapshot.profile) throw new Error('ArkShop maintenance profile is required.');
+    const change = normalizeCatalogChange(input, snapshot.profile);
+    const planHash = catalogPlanHash({ serverId: server.id, profileId: snapshot.profile.id, revision: snapshot.profile.revision, currentHash: snapshot.currentHash, change });
+    return {
+      operation: change.operation, section: change.section, entryId: change.entryId,
+      profileId: snapshot.profile.id, currentRevision: snapshot.profile.revision,
+      price: change.operation === 'set-price' ? change.definition.Price : null,
+      replacesExisting: Boolean(snapshot.profile.data?.[change.section]?.[change.entryId]),
+      planHash, approvalRequired: true, applyAction: 'shop.catalog.apply',
+      profileAndLiveConfig: true, backupBeforeWrite: true, reloadAfterWrite: true,
+      rollbackOnFailure: true, restartRequired: false
+    };
+  }
+
+  async applyShopCatalog(server, input = {}, actorId = '') {
+    this.confirmShopMutation(server, input, 'shop.catalog.apply');
+    const snapshot = await this.shopSnapshot(server, input.profileId || input.profile);
+    if (!snapshot.profile) throw new Error('ArkShop maintenance profile is required.');
+    const change = normalizeCatalogChange(input, snapshot.profile);
+    const supplied = clean(input.planHash, 64).toLowerCase();
+    if (!/^[a-f0-9]{64}$/.test(supplied)) throw new Error('shop.catalog.apply requires a valid planHash from shop.catalog.plan.');
+    const expected = catalogPlanHash({ serverId: server.id, profileId: snapshot.profile.id, revision: snapshot.profile.revision, currentHash: snapshot.currentHash, change });
+    if (!crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))) throw new Error('ArkShop catalog plan is stale or does not match this change. Run shop.catalog.plan again.');
+
+    const previousRevision = snapshot.profile.revision;
+    let nextProfile;
+    try {
+      nextProfile = change.operation === 'remove'
+        ? this.shopProfiles.removeEntry({ profileId: snapshot.profile.id, section: change.section, entryId: change.entryId })
+        : this.shopProfiles.setEntry({ profileId: snapshot.profile.id, section: change.section, entryId: change.entryId, definition: change.definition });
+      const result = await this.applyArkShopProfile({
+        server, profile: nextProfile, actorId: clean(actorId, 40), applyStore: this.shopApplies, reader: this.readConfig,
+        guardCurrent: (current) => { if (shopConfigHash(current) !== snapshot.currentHash) throw new Error('ArkShop config changed after catalog planning; refusing write.'); }
+      });
+      if (typeof this.registry.upsert === 'function') this.registry.upsert({ ...server, shopProfile: nextProfile.id });
+      return {
+        operation: change.operation, section: change.section, entryId: change.entryId,
+        price: change.operation === 'set-price' ? change.definition.Price : null,
+        profileId: nextProfile.id, revision: nextProfile.revision,
+        changed: Boolean(result.transaction), transactionId: result.transaction?.id || '',
+        backupCreated: Boolean(result.transaction?.backup), reloadCommand: result.transaction ? 'ArkShop.Reload' : '',
+        verified: true, rollbackOnFailure: true, restartRequired: false
+      };
+    } catch (error) {
+      if (nextProfile) {
+        try { this.shopProfiles.restoreRevision(snapshot.profile.id, previousRevision); }
+        catch (profileRollbackError) {
+          throw new Error(`${clean(error?.message || error, 240)} Profile rollback also failed: ${clean(profileRollbackError?.message || profileRollbackError, 180)}`);
+        }
+      }
+      throw error;
+    }
+  }
+
   async restartServer(server, input) {
     if (input.approved !== true) throw new Error('server.restart requires approved=true.');
     const confirmation = clean(input.confirmation, 100).toLowerCase();
@@ -543,6 +634,8 @@ class ArkBackendControl {
         else if (action === 'shop.apply') data = await this.applyShop(server, input, context.source || 'admin-api');
         else if (action === 'shop.rollback') data = await this.rollbackShop(server, input);
         else if (action === 'shop.reload') data = await this.reloadShop(server, input);
+        else if (action === 'shop.catalog.plan') data = await this.planShopCatalog(server, input);
+        else if (action === 'shop.catalog.apply') data = await this.applyShopCatalog(server, input, context.source || 'admin-api');
       }
       const result = { ok: true, action, correlationId: id, server: server ? { id: server.id, name: server.name, mapName: server.mapName, envPrefix: server.envPrefix } : null, data, llmCalls: 0, durationMs: Date.now() - started, completedAt: new Date().toISOString() };
       this.remember(id, result);
@@ -557,4 +650,4 @@ class ArkBackendControl {
   }
 }
 
-module.exports = { ALLOWED_ACTIONS, ArkBackendControl, clean, configPlanHash, shopPlanHash, shopConfigHash, publicShopCounts, configuredDatabaseMode, configuredShopProvider, configuredValue, correlationId, parsePlayers, sha256, staticCapabilities, validateIniInput };
+module.exports = { ALLOWED_ACTIONS, ArkBackendControl, clean, configPlanHash, shopPlanHash, shopConfigHash, normalizeCatalogChange, catalogPlanHash, publicShopCounts, configuredDatabaseMode, configuredShopProvider, configuredValue, correlationId, parsePlayers, sha256, staticCapabilities, validateIniInput };

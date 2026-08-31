@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const { ArkBackendControl, ALLOWED_ACTIONS, configuredShopProvider } = require('../src/sentinel/ark-backend-control.cjs');
+const { ArkShopProfileStore } = require('../src/sentinel/arkshop-profiles.cjs');
 
 function serverFixture() {
   return {
@@ -49,6 +50,8 @@ test('ARK backend allowlist permits guarded restart but still blocks raw RCON', 
   assert.equal(ALLOWED_ACTIONS.has('shop.apply'), true);
   assert.equal(ALLOWED_ACTIONS.has('shop.rollback'), true);
   assert.equal(ALLOWED_ACTIONS.has('shop.reload'), true);
+  assert.equal(ALLOWED_ACTIONS.has('shop.catalog.plan'), true);
+  assert.equal(ALLOWED_ACTIONS.has('shop.catalog.apply'), true);
   assert.equal(ALLOWED_ACTIONS.has('rcon.raw'), false);
 });
 
@@ -139,6 +142,71 @@ test('ArkShop rollback and reload require approval and exact map confirmation', 
   const rollback = await control.execute({ action: 'shop.rollback', server: 'MAP1', approved: true, confirmation: 'gen1', transactionId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', correlationId: 'shop-rollback-ok1' });
   assert.equal(rollback.ok, true);
   assert.deepEqual(calls, ['reload', 'rollback:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee']);
+});
+
+test('admin catalog workflow adjusts price in profile and live shop with fresh approval', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-shop-catalog-'));
+  const profiles = new ArkShopProfileStore(root);
+  profiles.create({
+    id: 'arkshop-live', name: 'Live',
+    data: { managedSections: ['ShopItems'], ShopItems: { metal: { Type: 'item', Price: 25, Amount: 100 } } }
+  });
+  const server = { ...serverFixture(), shopProfile: 'arkshop-live' };
+  let live = { General: {}, Kits: {}, ShopItems: { metal: { Type: 'item', Price: 25, Amount: 100 } }, SellItems: {} };
+  const control = controlFixture({
+    registry: { list: () => [server], upsert() {} }, shopProfiles: profiles,
+    shopApplies: { listForServer: () => [] },
+    readConfig: async () => ({ text: JSON.stringify(live), remoteFile: 'config.json' }),
+    previewArkShopProfile: async ({ profile }) => ({ changed: profile.data.ShopItems.metal.Price !== live.ShopItems.metal.Price, counts: { kits: 0, shopItems: 1, sellItems: 0 }, managedSections: ['ShopItems'] }),
+    applyArkShopProfile: async ({ profile, guardCurrent }) => {
+      guardCurrent(live);
+      live = JSON.parse(JSON.stringify({ ...live, ShopItems: profile.data.ShopItems }));
+      return { transaction: { id: 'catalog-price-transaction-0001', backup: 'hidden-path' } };
+    }
+  });
+  const plan = await control.execute({ action: 'shop.catalog.plan', server: 'MAP1', operation: 'set-price', section: 'ShopItems', entryId: 'metal', price: 40, correlationId: 'catalog-price-plan1' });
+  assert.equal(plan.ok, true);
+  assert.equal(plan.data.price, 40);
+  assert.equal(plan.data.profileAndLiveConfig, true);
+  assert.match(plan.data.planHash, /^[a-f0-9]{64}$/);
+
+  const applied = await control.execute({
+    action: 'shop.catalog.apply', server: 'MAP1', operation: 'set-price', section: 'ShopItems', entryId: 'metal', price: 40,
+    planHash: plan.data.planHash, approved: true, confirmation: 'gen1', correlationId: 'catalog-price-apply1'
+  });
+  assert.equal(applied.ok, true);
+  assert.equal(applied.data.price, 40);
+  assert.equal(applied.data.backupCreated, true);
+  assert.equal(applied.data.restartRequired, false);
+  assert.equal(live.ShopItems.metal.Price, 40);
+  assert.equal(profiles.get('arkshop-live').data.ShopItems.metal.Price, 40);
+  assert.doesNotMatch(JSON.stringify(applied), /hidden-path/);
+});
+
+test('admin catalog workflow supports bounded item add/remove and restores profile on live failure', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-shop-catalog-fail-'));
+  const profiles = new ArkShopProfileStore(root);
+  profiles.create({ id: 'arkshop-live', name: 'Live', data: { managedSections: ['ShopItems'], ShopItems: { olditem: { Type: 'item', Price: 5 } } } });
+  const server = { ...serverFixture(), shopProfile: 'arkshop-live' };
+  const live = { General: {}, Kits: {}, ShopItems: { olditem: { Type: 'item', Price: 5 } }, SellItems: {} };
+  const control = controlFixture({
+    registry: { list: () => [server], upsert() {} }, shopProfiles: profiles,
+    shopApplies: { listForServer: () => [] },
+    readConfig: async () => ({ text: JSON.stringify(live), remoteFile: 'config.json' }),
+    previewArkShopProfile: async () => ({ changed: true, counts: { kits: 0, shopItems: 1, sellItems: 0 }, managedSections: ['ShopItems'] }),
+    applyArkShopProfile: async () => { throw new Error('simulated live failure'); }
+  });
+  const definition = { Type: 'item', Price: 100, Amount: 1, Blueprint: '/Game/Test/Item.Item' };
+  const plan = await control.execute({ action: 'shop.catalog.plan', server: 'MAP1', operation: 'upsert', section: 'ShopItems', entryId: 'newitem', definition, correlationId: 'catalog-upsert-plan' });
+  const failed = await control.execute({ action: 'shop.catalog.apply', server: 'MAP1', operation: 'upsert', section: 'ShopItems', entryId: 'newitem', definition, planHash: plan.data.planHash, approved: true, confirmation: 'gen1', correlationId: 'catalog-upsert-fail' });
+  assert.equal(failed.ok, false);
+  assert.match(failed.message, /simulated live failure/);
+  assert.equal(profiles.get('arkshop-live').data.ShopItems.newitem, undefined);
+  assert.deepEqual(profiles.get('arkshop-live').data.ShopItems.olditem, { Type: 'item', Price: 5 });
+
+  const removePlan = await control.execute({ action: 'shop.catalog.plan', server: 'MAP1', operation: 'remove', section: 'ShopItems', entryId: 'olditem', correlationId: 'catalog-remove-plan1' });
+  assert.equal(removePlan.ok, true);
+  assert.equal(removePlan.data.replacesExisting, true);
 });
 
 test('shop provider awareness distinguishes ArkShop from Ark Web Shop without exposing paths', () => {
