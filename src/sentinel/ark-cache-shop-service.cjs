@@ -8,6 +8,7 @@ const { auditArkShopClusterDatabase } = require('./arkshop-cluster-economy-guard
 
 const ORDER_TABLE = 'nexus_discord_cache_orders';
 const EVENT_TABLE = 'nexus_discord_cache_events';
+const COOLDOWN_TABLE = 'nexus_dino_box_cooldowns';
 const VALID_CACHE_ID = /^[a-z0-9_-]{1,48}$/;
 
 function safeName(value) {
@@ -69,6 +70,29 @@ async function ensureSchema(connection) {
     KEY ix_nexus_discord_cache_event_order (order_id, sequence_id), CONSTRAINT fk_nexus_discord_cache_event_order FOREIGN KEY (order_id)
       REFERENCES ${ORDER_TABLE}(id) ON DELETE RESTRICT ON UPDATE RESTRICT
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  await connection.query(`CREATE TABLE IF NOT EXISTS ${COOLDOWN_TABLE} (
+    discord_user_id VARCHAR(25) NOT NULL,
+    cache_type VARCHAR(64) NOT NULL,
+    next_allowed_at DATETIME(3) NOT NULL DEFAULT '1970-01-01 00:00:00.000',
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (discord_user_id, cache_type)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+}
+
+async function claimCacheCooldown(connection, discordUserId, cacheType, cache) {
+  const minutes = Number(cache?.cooldownMinutes || 0);
+  if (!(minutes > 0)) return { minutes: 0, nextAllowedAt: null };
+  await connection.execute(`INSERT IGNORE INTO ${COOLDOWN_TABLE} (discord_user_id, cache_type, next_allowed_at) VALUES (?, ?, '1970-01-01 00:00:00.000')`, [discordUserId, cacheType]);
+  const [rows] = await connection.execute(`SELECT next_allowed_at FROM ${COOLDOWN_TABLE} WHERE discord_user_id=? AND cache_type=? LIMIT 1 FOR UPDATE`, [discordUserId, cacheType]);
+  const next = rows[0]?.next_allowed_at ? new Date(rows[0].next_allowed_at) : new Date(0);
+  const now = Date.now();
+  if (Number.isFinite(next.getTime()) && next.getTime() > now) {
+    const seconds = Math.max(1, Math.ceil((next.getTime() - now) / 1000));
+    throw shopError('CACHE_COOLDOWN', `This Dino Box has a ${minutes}-minute cooldown. Try again in about ${Math.ceil(seconds / 60)} minute${Math.ceil(seconds / 60) === 1 ? '' : 's'}.`);
+  }
+  const nextAllowedAt = new Date(now + minutes * 60 * 1000);
+  await connection.execute(`UPDATE ${COOLDOWN_TABLE} SET next_allowed_at=? WHERE discord_user_id=? AND cache_type=?`, [nextAllowedAt, discordUserId, cacheType]);
+  return { minutes, nextAllowedAt };
 }
 
 async function arkShopColumns(connection, database, table) {
@@ -135,18 +159,14 @@ class ArkCacheShopService {
       try {
         const existing = await existingByNonce(connection, nonce);
         if (existing) { await connection.commit(); return { order: orderView(existing), duplicate: true, balance: null }; }
-        if (cache.cooldownHours > 0) {
-          const cutoff = new Date(Date.now() - cache.cooldownHours * 60 * 60 * 1000);
-          const [recent] = await connection.execute(`SELECT public_cache_id, created_at FROM ${ORDER_TABLE} WHERE discord_user_id=? AND cache_type=? AND created_at>=? ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, [userId, type, cutoff]);
-          if (recent[0]) throw shopError('CACHE_COOLDOWN', `${type === 'apex' ? 'Apex' : 'This'} Cache is still on cooldown.`);
-        }
+        await claimCacheCooldown(connection, userId, type, cache);
         const wallet = await findPointsAccount(connection, config, account.eosId, { lock: true });
         const balance = Number(wallet.row.points || 0);
-        if (!Number.isSafeInteger(balance) || balance < cache.price) throw shopError('INSUFFICIENT_POINTS', `You need ${cache.price.toLocaleString('en-US')} Nexus Points for this cache. Current balance: ${Math.max(0, balance || 0).toLocaleString('en-US')}.`);
+        if (!Number.isSafeInteger(balance) || balance < cache.price) throw shopError('INSUFFICIENT_POINTS', `You need ${cache.price.toLocaleString('en-US')} ArkShop Points for this cache. Current balance: ${Math.max(0, balance || 0).toLocaleString('en-US')}.`);
         const identity = `discord-cache:${nonce}:${userId}:${account.eosId}:${type}`, roll = committedRoll(type, this.rngSecret, identity), id = crypto.randomUUID();
         const publicCacheId = `NC-${id.replace(/-/g, '').slice(0, 12).toUpperCase()}`, table = safeName(config.table);
         const debit = await connection.execute(`UPDATE ${table} SET ${safeName(wallet.pointsColumn)}=${safeName(wallet.pointsColumn)}-? WHERE ${safeName(wallet.idColumn)}=? AND ${safeName(wallet.pointsColumn)}>=?`, [cache.price, account.eosId, cache.price]);
-        if (Number(debit?.[0]?.affectedRows || 0) !== 1) throw shopError('POINT_DEBIT_FAILED', 'Nexus Points changed during checkout; the cache was not purchased.');
+        if (Number(debit?.[0]?.affectedRows || 0) !== 1) throw shopError('POINT_DEBIT_FAILED', 'ArkShop Points changed during checkout; the cache was not purchased.');
         await connection.execute(`INSERT INTO ${ORDER_TABLE} (id, public_cache_id, purchase_nonce, discord_user_id, player_eos_id, cache_type, nexus_point_cost, species, rarity, variant, blueprint, rolled_level, sex, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'AWAITING_DELIVERY')`, [id, publicCacheId, nonce, userId, account.eosId, type, cache.price, roll.species, roll.rarity, roll.variant, roll.blueprint, roll.level, roll.sex]);
         await connection.execute(`INSERT INTO ${EVENT_TABLE} (order_id, event_type, actor_discord_user_id, details) VALUES (?, 'PURCHASE_ROLLED', ?, ?)`, [id, userId, `Discord-first immutable ${type} cache roll committed before reveal animation.`]);
         await connection.commit();
@@ -164,4 +184,4 @@ class ArkCacheShopService {
   }
 }
 
-module.exports = { ORDER_TABLE, EVENT_TABLE, safeName, cleanId, shopError, orderView, pickLinkedArkAccount, assertEconomyReady, ensureSchema, arkShopColumns, findPointsAccount, committedRoll, ArkCacheShopService };
+module.exports = { ORDER_TABLE, EVENT_TABLE, COOLDOWN_TABLE, safeName, cleanId, shopError, orderView, pickLinkedArkAccount, assertEconomyReady, ensureSchema, claimCacheCooldown, arkShopColumns, findPointsAccount, committedRoll, ArkCacheShopService };
