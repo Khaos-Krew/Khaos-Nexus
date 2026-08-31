@@ -28,9 +28,7 @@ function weightedChoice(entries, weightOf, rng = Math.random) {
 function randomIntInclusive(min, max, rng = Math.random) {
   const low = Math.ceil(Number(min));
   const high = Math.floor(Number(max));
-  if (!Number.isFinite(low) || !Number.isFinite(high) || high < low) {
-    throw new Error('Invalid cache level range.');
-  }
+  if (!Number.isFinite(low) || !Number.isFinite(high) || high < low) throw new Error('Invalid cache level range.');
   return low + Math.floor(Math.min(Math.max(Number(rng()) || 0, 0), 0.9999999999999999) * (high - low + 1));
 }
 
@@ -62,18 +60,13 @@ function validateCacheDefinition(cache) {
 
   const min = Number(cache?.level?.min);
   const max = Number(cache?.level?.max);
-  if (!Number.isInteger(min) || !Number.isInteger(max) || min < 1 || max < min) {
-    throw new Error(`Cache ${cache.id} has an invalid level range.`);
-  }
-
-  if (!Object.values(normalizeSexWeights(cache)).some((weight) => weight > 0)) {
-    throw new Error(`Cache ${cache.id} has no valid sex outcomes.`);
-  }
+  if (!Number.isInteger(min) || !Number.isInteger(max) || min < 1 || max < min) throw new Error(`Cache ${cache.id} has an invalid level range.`);
+  if (!Object.values(normalizeSexWeights(cache)).some((weight) => weight > 0)) throw new Error(`Cache ${cache.id} has no valid sex outcomes.`);
   return true;
 }
 
-function createCacheId(now = Date.now) {
-  const stamp = Number(now()).toString(36).toUpperCase();
+function createCacheId(timestamp = Date.now()) {
+  const stamp = Number(timestamp).toString(36).toUpperCase();
   const suffix = crypto.randomBytes(4).toString('hex').toUpperCase();
   return `NC-${stamp}-${suffix}`;
 }
@@ -108,19 +101,26 @@ function shouldAnnounce(reward, cache) {
 }
 
 function freezePurchase({ cache, discordId, eosId, source = 'SHOP', rng, now = Date.now }) {
+  const safeDiscordId = String(discordId || '').trim();
+  const safeEosId = String(eosId || '').trim();
+  if (!safeDiscordId) throw new Error('Discord ID is required before opening a Dino Cache.');
+  if (!safeEosId) throw new Error('A linked ARK/EOS ID is required before opening a Dino Cache.');
+
+  const timestamp = Number(now());
   const reward = rollCache(cache, { rng });
   return Object.freeze({
-    cacheId: createCacheId(now),
+    cacheId: createCacheId(timestamp),
     cacheType: String(cache.id),
     cacheName: String(cache.name || cache.id),
-    discordId: String(discordId || '').trim(),
-    eosId: String(eosId || '').trim(),
+    discordId: safeDiscordId,
+    eosId: safeEosId,
     source: String(source || 'SHOP').toUpperCase(),
     cost: Math.max(0, Number(cache.cost) || 0),
+    eligibleMaps: Array.isArray(cache.eligibleMaps) ? [...cache.eligibleMaps] : [],
     reward,
     announce: shouldAnnounce(reward, cache),
-    status: 'AWAITING_LOGIN',
-    purchasedAt: new Date(now()).toISOString(),
+    status: 'ROLLING',
+    purchasedAt: new Date(timestamp).toISOString(),
   });
 }
 
