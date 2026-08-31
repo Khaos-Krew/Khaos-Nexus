@@ -94,7 +94,16 @@ function createCommands({ isModuleEnabled = () => true } = {}) {
     new SlashCommandBuilder()
       .setName('nexusspin')
       .setDescription('Play the linked-account Khaos Nexus ARK reward minigame.')
-      .addSubcommand((sub) => sub.setName('play').setDescription('Spin for Nexus Points, ARK resources, or the Cache Token jackpot.'))
+      .addSubcommand((sub) => sub
+        .setName('play')
+        .setDescription('Use your free daily spin or spend Nexus Points for an extra spin.')
+        .addStringOption((option) => option
+          .setName('mode')
+          .setDescription('Free uses your 24-hour spin; Points spends Nexus Points for an extra spin.')
+          .addChoices(
+            { name: 'Free daily spin', value: 'free' },
+            { name: 'Extra spin with Nexus Points', value: 'points' }
+          )))
       .addSubcommand((sub) => sub.setName('claim').setDescription('Retry queued Nexus Spin rewards while you are online in ARK.')),
     serverOption(new SlashCommandBuilder().setName('status').setDescription('Show game-server status and health.')),
     serverOption(new SlashCommandBuilder().setName('players').setDescription('List connected players without exposing their IP addresses.')),
