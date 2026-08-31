@@ -63,6 +63,22 @@ function configuredDatabaseMode(env = process.env) {
   const mode = String(env?.ARKSHOP_DB_MODE || 'mysql').trim().toLowerCase();
   return ['mysql', 'sqlite'].includes(mode) ? mode : 'unknown';
 }
+function configuredShopProvider(record, env = process.env) {
+  const configuredPath = String(env?.[`${record.envPrefix}_ARKSHOP_CONFIG_PATH`] || '').trim().replace(/\\/g, '/').toLowerCase();
+  const pathHint = configuredPath || 'shootergame/binaries/win64/arkapi/plugins/arkshop/configs/config.json';
+  if (/(^|\/)ark_web_shop(?:v[^/]*)?\/arkwebshopasa\/config\.json$/.test(pathHint)) {
+    return {
+      provider: 'ark-web-shop',
+      variant: 'ark-web-shop-v2',
+      sentinelCompatible: false,
+      compatibility: 'different-plugin-schema'
+    };
+  }
+  if (/(^|\/)arkshop\/(configs\/)?config\.json$/.test(pathHint)) {
+    return { provider: 'arkshop', variant: 'arkshop-1.8-family', sentinelCompatible: true, compatibility: 'supported' };
+  }
+  return { provider: 'unknown', variant: 'unknown', sentinelCompatible: false, compatibility: 'unrecognized-config-layout' };
+}
 function staticCapabilities(record, env = process.env) {
   const prefix = record.envPrefix;
   const rcon = configuredValue(env, `${prefix}_HOST`) && configuredValue(env, `${prefix}_RCON_PORT`) && configuredValue(env, `${prefix}_RCON_PASSWORD`);
@@ -73,11 +89,12 @@ function staticCapabilities(record, env = process.env) {
   const arkShopCredentials = backend === 'sqlite'
     ? sftp
     : ['ARKSHOP_DB_HOST', 'ARKSHOP_DB_NAME', 'ARKSHOP_DB_USER', 'ARKSHOP_DB_PASSWORD'].every((name) => configuredValue(env, name));
+  const shopProvider = configuredShopProvider(record, env);
   return {
     rcon: { configured: rcon },
     config: { configured: sftp },
     lifecycle: { configured: lifecycle },
-    arkShop: { configured: sftp && arkShopCredentials, backend, sharedBackend: backend === 'mysql' }
+    arkShop: { configured: sftp && arkShopCredentials && shopProvider.sentinelCompatible, backend, sharedBackend: backend === 'mysql', ...shopProvider }
   };
 }
 
@@ -214,13 +231,14 @@ class ArkBackendControl {
       }
       const arkShop = {
         ...configured.arkShop,
-        ready: config.files.arkshop === true && database.ready && (database.shared || records.length === 1),
+        ready: configured.arkShop.sentinelCompatible && config.files.arkshop === true && database.ready && (database.shared || records.length === 1),
         configReady: config.files.arkshop === true,
         databaseReady: database.ready,
         state: 'not-ready',
         error: ''
       };
       if (arkShop.ready) arkShop.state = 'ready';
+      else if (!arkShop.sentinelCompatible) { arkShop.state = 'provider-incompatible'; arkShop.error = `Sentinel does not apply ArkShop operations to ${arkShop.variant}; a provider-specific adapter is required.`; }
       else if (!config.files.arkshop) { arkShop.state = config.state === 'not-probed' ? 'not-probed' : 'config-unavailable'; arkShop.error = config.error; }
       else if (!database.shared && records.length > 1) { arkShop.state = 'backend-not-shared'; arkShop.error = 'Cluster-wide ArkShop operations require one verified shared MySQL backend.'; }
       else if (!database.ready) { arkShop.state = 'database-unavailable'; arkShop.error = database.error; }
@@ -347,4 +365,4 @@ class ArkBackendControl {
   }
 }
 
-module.exports = { ALLOWED_ACTIONS, ArkBackendControl, clean, configPlanHash, configuredDatabaseMode, configuredValue, correlationId, parsePlayers, sha256, staticCapabilities, validateIniInput };
+module.exports = { ALLOWED_ACTIONS, ArkBackendControl, clean, configPlanHash, configuredDatabaseMode, configuredShopProvider, configuredValue, correlationId, parsePlayers, sha256, staticCapabilities, validateIniInput };
