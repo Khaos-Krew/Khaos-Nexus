@@ -93,6 +93,7 @@ async function findRemoteFile(client, {
   configuredPath = '',
   fileName,
   preferredSuffix = '',
+  strictRoot = false,
   maxDepth = 6,
   maxDirectories = 160,
   maxEntries = 2500
@@ -109,11 +110,13 @@ async function findRemoteFile(client, {
   };
 
   if (configuredPath) {
-    addCandidate(configuredPath);
+    if (!strictRoot || !configuredRoot || normalizeRemote(configuredPath).startsWith(`${normalizeRemote(configuredRoot)}/`)) {
+      addCandidate(configuredPath);
+    }
     if (configuredRoot) addCandidate(joinRemote(configuredRoot, configuredPath));
   }
   if (preferredSuffix) {
-    addCandidate(preferredSuffix);
+    if (!strictRoot || !configuredRoot) addCandidate(preferredSuffix);
     if (configuredRoot) addCandidate(joinRemote(configuredRoot, preferredSuffix));
   }
 
@@ -126,7 +129,7 @@ async function findRemoteFile(client, {
   if (/^shootergame\//i.test(suffixRaw)) {
     const starts = [];
     if (configuredRoot) starts.push(configuredRoot);
-    starts.push('.');
+    if (!strictRoot || !configuredRoot) starts.push('.');
     const shooterGame = await findDirectoryNamed(client, {
       starts,
       directoryName: 'ShooterGame',
@@ -155,7 +158,7 @@ async function findRemoteFile(client, {
     if (!starts.includes(normalized)) starts.push(normalized);
   };
   if (configuredRoot) addStart(configuredRoot);
-  addStart('.');
+  if (!strictRoot || !configuredRoot) addStart('.');
 
   const queue = starts.map((base) => ({ base, depth: 0 }));
   const visited = new Set();

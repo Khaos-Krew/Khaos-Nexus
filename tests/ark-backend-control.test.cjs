@@ -40,6 +40,7 @@ function withEnv(values, fn) {
 test('ARK backend allowlist permits guarded restart but still blocks raw RCON', () => {
   assert.equal(ALLOWED_ACTIONS.has('server.status'), true);
   assert.equal(ALLOWED_ACTIONS.has('cluster.health'), true);
+  assert.equal(ALLOWED_ACTIONS.has('cluster.capabilities'), true);
   assert.equal(ALLOWED_ACTIONS.has('config.plan'), true);
   assert.equal(ALLOWED_ACTIONS.has('config.apply'), true);
   assert.equal(ALLOWED_ACTIONS.has('server.restart'), true);
@@ -176,4 +177,32 @@ test('cluster health aggregates runtime and SFTP config availability with zero L
   assert.equal(result.data.summary.totalPlayers, 2);
   assert.equal(result.data.servers[0].configAccess.ok, true);
   assert.equal(result.llmCalls, 0);
+});
+
+test('capability inventory includes disabled maps without authorizing mutations or exposing secrets', async () => {
+  const gen1 = serverFixture();
+  const map2 = { ...serverFixture(), id: 'map2', name: 'MAP2', mapName: 'Astraeos', envPrefix: 'ARK_MAP2', enabled: false };
+  const env = {
+    ARKSHOP_DB_MODE: 'mysql', ARKSHOP_DB_HOST: 'db', ARKSHOP_DB_NAME: 'shop', ARKSHOP_DB_USER: 'user', ARKSHOP_DB_PASSWORD: 'secret',
+    ARK_GEN1_HOST: 'gen1', ARK_GEN1_RCON_PORT: '27020', ARK_GEN1_RCON_PASSWORD: 'secret', ARK_GEN1_SFTP_HOST: 'sftp', ARK_GEN1_SFTP_USERNAME: 'user', ARK_GEN1_SFTP_PASSWORD: 'secret',
+    ARK_MAP2_HOST: 'map2', ARK_MAP2_RCON_PORT: '27021', ARK_MAP2_RCON_PASSWORD: 'secret', ARK_MAP2_SFTP_HOST: 'sftp', ARK_MAP2_SFTP_USERNAME: 'user', ARK_MAP2_SFTP_PASSWORD: 'secret', ARK_MAP2_CITADEL_SERVICE_ID: '99881'
+  };
+  const control = controlFixture({
+    registry: { list: () => [gen1, map2] }, env,
+    databaseStatus: async () => ({ connected: true, tableExists: true }),
+    discoverPaths: async () => ({ gus: { found: true }, game: { found: true }, arkshop: { found: true } }),
+    citadel: () => ({ status: async () => ({ state: 'running' }) })
+  });
+  control.rcon = () => ({ execute: async () => 'No Players Connected' });
+  const result = await control.execute({ action: 'cluster.capabilities', correlationId: 'capabilities-test-01' });
+  assert.equal(result.ok, true);
+  assert.equal(result.llmCalls, 0);
+  assert.equal(result.data.authority, 'sentinel');
+  assert.equal(result.data.secretsExposed, false);
+  assert.equal(result.data.servers.length, 2);
+  assert.equal(result.data.servers[0].manageable, true);
+  assert.equal(result.data.servers[1].capabilities.rcon.ready, true);
+  assert.equal(result.data.servers[1].blockedActions['server.restart'], 'server-disabled');
+  assert.equal(JSON.stringify(result).includes('ARK_GEN1_RCON_PASSWORD'), false);
+  assert.equal(JSON.stringify(result).includes('"password"'), false);
 });
