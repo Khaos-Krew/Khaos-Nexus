@@ -41,13 +41,13 @@ async function withPlayerLock(eosId, fn) {
   const key = cleanEosId(eosId).toLowerCase();
   const previous = playerLocks.get(key) || Promise.resolve();
   let release;
-  const current = new Promise((resolve) => { release = resolve; });
+  const current = new Promise((resolve) => { release = resolve(); });
   playerLocks.set(key, previous.then(() => current));
   await previous;
   try {
     return await fn();
   } finally {
-    release();
+    if (typeof release === 'function') release();
     if (playerLocks.get(key) === current) playerLocks.delete(key);
   }
 }
@@ -153,6 +153,14 @@ class ArkShopPointsGateway {
       }
       return { eosId: id, amount, beforeBalance: before.balance, afterBalance: after.balance, response };
     });
+  }
+
+  async debitPoints(options) {
+    return this.debitForCache(options);
+  }
+
+  async refundPoints(options) {
+    return this.refundCacheDebit(options);
   }
 }
 
