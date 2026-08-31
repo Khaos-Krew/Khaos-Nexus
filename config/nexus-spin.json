@@ -1,6 +1,7 @@
 {
   "enabled": false,
   "cooldownSeconds": 86400,
+  "pointSpinCost": 100,
   "channelId": "",
   "resourceDelivery": {
     "enabled": false,
