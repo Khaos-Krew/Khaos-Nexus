@@ -9,50 +9,29 @@ const { ForgeClient } = require('./forge-client.cjs');
 const INSTALLED = Symbol.for('khaos.nexus.forge.extension');
 const PENDING_TTL_MS = 5 * 60 * 1000;
 
+function taskIdOption(opt) {
+  return opt.setName('id').setDescription('Durable Forge task ID').setRequired(true).setMaxLength(128);
+}
+
 function forgeCommand() {
   return new SlashCommandBuilder()
     .setName('forge')
     .setDescription('Khaos Nexus Forge engineering controls')
-    .addSubcommand((sub) => sub
-      .setName('status')
-      .setDescription('Check the Sentinel to Forge bridge and Forge runtime'))
-    .addSubcommand((sub) => sub
-      .setName('ci')
-      .setDescription('Check Forge branch CI without using an AI model')
-      .addStringOption((opt) => opt
-        .setName('branch')
-        .setDescription('Forge branch or repository ref to inspect')
-        .setRequired(true)
-        .setMaxLength(240)))
-    .addSubcommand((sub) => sub
-      .setName('plan')
-      .setDescription('Ask Forge for a read-only engineering plan')
-      .addStringOption((opt) => opt
-        .setName('goal')
-        .setDescription('What should Forge investigate or design?')
-        .setRequired(true)
-        .setMaxLength(2000)))
-    .addSubcommand((sub) => sub
-      .setName('build')
-      .setDescription('Ask Forge to implement work on a guarded forge/* branch')
-      .addStringOption((opt) => opt
-        .setName('goal')
-        .setDescription('What should Forge build or repair?')
-        .setRequired(true)
-        .setMaxLength(2000)))
-    .addSubcommand((sub) => sub
-      .setName('repair')
-      .setDescription('Resume a Forge branch, inspect its CI, and repair failures')
-      .addStringOption((opt) => opt
-        .setName('branch')
-        .setDescription('Existing guarded forge/* branch')
-        .setRequired(true)
-        .setMaxLength(240))
-      .addStringOption((opt) => opt
-        .setName('goal')
-        .setDescription('Optional repair guidance; defaults to repairing failed CI')
-        .setRequired(false)
-        .setMaxLength(1600)));
+    .addSubcommand((sub) => sub.setName('status').setDescription('Check the Sentinel to Forge bridge and control plane'))
+    .addSubcommand((sub) => sub.setName('usage').setDescription('Show persisted Forge model usage without invoking a model'))
+    .addSubcommand((sub) => sub.setName('queue').setDescription('List durable Forge tasks without invoking a model').addStringOption((opt) => opt.setName('state').setDescription('Optional queue state filter').setRequired(false).addChoices(
+      { name: 'Queued', value: 'queued' }, { name: 'Waiting', value: 'waiting' }, { name: 'Running', value: 'running' }, { name: 'Completed', value: 'completed' }, { name: 'Blocked', value: 'blocked' }, { name: 'Failed', value: 'failed' }, { name: 'Cancelled', value: 'cancelled' }
+    )))
+    .addSubcommand((sub) => sub.setName('task').setDescription('Inspect one durable Forge task and approval state').addStringOption(taskIdOption))
+    .addSubcommand((sub) => sub.setName('approve').setDescription('Explicitly approve one durable Forge task for future worker execution').addStringOption(taskIdOption))
+    .addSubcommand((sub) => sub.setName('revoke').setDescription('Revoke a durable Forge task approval').addStringOption(taskIdOption))
+    .addSubcommand((sub) => sub.setName('cancel').setDescription('Cancel a durable Forge task').addStringOption(taskIdOption))
+    .addSubcommand((sub) => sub.setName('retry').setDescription('Request a bounded retry for a durable Forge task').addStringOption(taskIdOption))
+    .addSubcommand((sub) => sub.setName('audit').setDescription('Verify the Forge audit chain without invoking a model'))
+    .addSubcommand((sub) => sub.setName('ci').setDescription('Check Forge branch CI without using an AI model').addStringOption((opt) => opt.setName('branch').setDescription('Forge branch or repository ref to inspect').setRequired(true).setMaxLength(240)))
+    .addSubcommand((sub) => sub.setName('plan').setDescription('Ask Forge for a read-only engineering plan').addStringOption((opt) => opt.setName('goal').setDescription('What should Forge investigate or design?').setRequired(true).setMaxLength(2000)))
+    .addSubcommand((sub) => sub.setName('build').setDescription('Ask Forge to implement work on a guarded forge/* branch').addStringOption((opt) => opt.setName('goal').setDescription('What should Forge build or repair?').setRequired(true).setMaxLength(2000)))
+    .addSubcommand((sub) => sub.setName('repair').setDescription('Resume a Forge branch, inspect its CI, and repair failures').addStringOption((opt) => opt.setName('branch').setDescription('Existing guarded forge/* branch').setRequired(true).setMaxLength(240)).addStringOption((opt) => opt.setName('goal').setDescription('Optional repair guidance; defaults to repairing failed CI').setRequired(false).setMaxLength(1600)));
 }
 
 function memberIsForgeOperator(interaction, config) {
@@ -62,7 +41,7 @@ function memberIsForgeOperator(interaction, config) {
   return Boolean(roles && (config.discord?.operatorRoleIds || []).some((id) => roles.has(String(id))));
 }
 
-function bridgeStatusText(forge, health = null) {
+function bridgeStatusText(forge, health = null, infrastructure = null) {
   const configured = forge.configuration();
   const lines = [
     '**🔥 Khaos Nexus Forge Bridge**',
@@ -72,33 +51,24 @@ function bridgeStatusText(forge, health = null) {
     `Repository: \`${configured.defaultRepo}\``,
     `Base ref: \`${configured.defaultBaseRef}\``
   ];
-  if (health) {
-    lines.push(
-      '',
-      `Forge runtime: **${health.ok ? 'Online' : 'Unavailable'}**`,
-      `Version: \`${health.version}\``,
-      `OpenAI: **${health.openaiConfigured ? 'Configured' : 'Missing'}**`,
-      `GitHub execution: **${health.githubConfigured ? 'Configured' : 'Missing'}**`,
-      `Fallback routing: **${String(health.fallbackRouting || 'unknown')}**`,
-      `Write policy: \`${health.writePolicy}\``
-    );
+  if (health) lines.push('', `Forge runtime: **${health.ok ? 'Online' : 'Unavailable'}**`, `Version: \`${health.version}\``, `OpenAI: **${health.openaiConfigured ? 'Configured' : 'Missing'}**`, `GitHub execution: **${health.githubConfigured ? 'Configured' : 'Missing'}**`, `Fallback routing: **${String(health.fallbackRouting || 'unknown')}**`, `Write policy: \`${health.writePolicy}\``);
+  if (infrastructure) {
+    const queue = infrastructure.queue || {};
+    const workerEnabled = infrastructure.workerRuntime?.workerEnabled ?? infrastructure.runtime?.workerEnabled ?? infrastructure.workerEnabled ?? false;
+    lines.push('', '**V0.2 Control Plane**', `Worker: **${workerEnabled === true || String(workerEnabled).toLowerCase() === 'true' ? 'Enabled' : 'Disabled'}**`, `Approval gate: **${String(infrastructure.approvalGate || 'required')}**`, `Queue: **${Number(queue.queued || 0)} queued** • ${Number(queue.waiting || 0)} waiting • ${Number(queue.running || 0)} running`);
+    const authority = infrastructure.authority || {};
+    if (Object.keys(authority).length) lines.push(`Merge authority: **${authority.forgeCanMerge ? 'Enabled' : 'Disabled'}** • Deploy authority: **${authority.forgeCanDeploy ? 'Enabled' : 'Disabled'}**`);
+  } else if (health) {
+    lines.push('', '_V0.2 control-plane status is unavailable; bridge is using the backward-compatible runtime surface._');
   }
-  return lines.join('\n');
+  return lines.join('\n').slice(0, 1900);
 }
 
 function formatForgeResult(result) {
-  const lines = [
-    `**🔥 Forge ${result.mode === 'execute' ? 'Build' : 'Plan'} • ${result.status}**`,
-    `Repository: \`${result.repo}\``,
-    `Base: \`${result.baseRef}\``
-  ];
+  const lines = [`**🔥 Forge ${result.mode === 'execute' ? 'Build' : 'Plan'} • ${result.status}**`, `Repository: \`${result.repo}\``, `Base: \`${result.baseRef}\``];
   if (result.branch) lines.push(`Branch: \`${result.branch}\``);
   if (result.modelRoute) lines.push(`Model route: \`${String(result.modelRoute).slice(0, 100)}\``);
-  if (result.usage) {
-    lines.push(
-      `Usage: **${result.usage.totalTokens.toLocaleString()} tokens** • ${result.usage.inputTokens.toLocaleString()} in / ${result.usage.outputTokens.toLocaleString()} out • ${result.usage.requests.toLocaleString()} requests`
-    );
-  }
+  if (result.usage) lines.push(`Usage: **${result.usage.totalTokens.toLocaleString()} tokens** • ${result.usage.inputTokens.toLocaleString()} in / ${result.usage.outputTokens.toLocaleString()} out • ${result.usage.requests.toLocaleString()} requests`);
   if (result.output) lines.push('', String(result.output).slice(0, 1350));
   return lines.join('\n').slice(0, 1900);
 }
@@ -106,63 +76,48 @@ function formatForgeResult(result) {
 function formatCiStatus(result) {
   const state = String(result?.state || 'unknown').toLowerCase();
   const icon = state === 'success' ? '✅' : state === 'failure' ? '❌' : state === 'pending' ? '⏳' : '❔';
-  const failed = (result?.checkRuns || []).filter((item) => {
-    const conclusion = String(item?.conclusion || '').toLowerCase();
-    return ['failure', 'cancelled', 'timed_out', 'action_required', 'stale', 'startup_failure'].includes(conclusion);
-  });
-  const pending = (result?.checkRuns || []).filter((item) => {
-    const status = String(item?.status || '').toLowerCase();
-    return ['queued', 'in_progress', 'pending', 'requested', 'waiting'].includes(status);
-  });
-  const lines = [
-    `**${icon} Forge CI • ${state.toUpperCase()}**`,
-    `Ref: \`${result?.ref || 'unknown'}\``,
-    `Commit: \`${String(result?.sha || 'unknown').slice(0, 12)}\``,
-    `Checks: **${(result?.checkRuns || []).length}** • Failed: **${failed.length}** • Pending: **${pending.length}**`,
-    '_This check does not invoke an AI model._'
-  ];
-  if (failed.length) {
-    lines.push('', '**Failed checks**');
-    for (const item of failed.slice(0, 8)) lines.push(`• ${String(item?.name || 'unnamed check').slice(0, 120)}`);
-  } else if (pending.length) {
-    lines.push('', '**Pending checks**');
-    for (const item of pending.slice(0, 8)) lines.push(`• ${String(item?.name || 'unnamed check').slice(0, 120)}`);
-  }
+  const failed = (result?.checkRuns || []).filter((item) => ['failure', 'cancelled', 'timed_out', 'action_required', 'stale', 'startup_failure'].includes(String(item?.conclusion || '').toLowerCase()));
+  const pending = (result?.checkRuns || []).filter((item) => ['queued', 'in_progress', 'pending', 'requested', 'waiting'].includes(String(item?.status || '').toLowerCase()));
+  const lines = [`**${icon} Forge CI • ${state.toUpperCase()}**`, `Ref: \`${result?.ref || 'unknown'}\``, `Commit: \`${String(result?.sha || 'unknown').slice(0, 12)}\``, `Checks: **${(result?.checkRuns || []).length}** • Failed: **${failed.length}** • Pending: **${pending.length}**`, '_This check does not invoke an AI model._'];
+  if (failed.length) { lines.push('', '**Failed checks**'); for (const item of failed.slice(0, 8)) lines.push(`• ${String(item?.name || 'unnamed check').slice(0, 120)}`); }
+  else if (pending.length) { lines.push('', '**Pending checks**'); for (const item of pending.slice(0, 8)) lines.push(`• ${String(item?.name || 'unnamed check').slice(0, 120)}`); }
+  return lines.join('\n').slice(0, 1900);
+}
+
+function formatUsage(result = {}) {
+  const totals = result.totals || {};
+  return ['**📊 Forge Usage Ledger**', `Tasks with recorded usage: **${Number(totals.tasks || 0).toLocaleString()}**`, `Model requests: **${Number(totals.requests || 0).toLocaleString()}**`, `Input tokens: **${Number(totals.inputTokens || 0).toLocaleString()}**`, `Output tokens: **${Number(totals.outputTokens || 0).toLocaleString()}**`, `Total tokens: **${Number(totals.totalTokens || 0).toLocaleString()}**`, '', '_Reading this ledger uses 0 model tokens._'].join('\n');
+}
+
+function formatQueue(result = {}) {
+  const tasks = Array.isArray(result.tasks) ? result.tasks : [];
+  const lines = ['**📥 Forge Durable Queue**', `Shown: **${tasks.length}**`, '_Queue inspection uses 0 model tokens._'];
+  for (const task of tasks.slice(0, 10)) lines.push('', `• \`${task.id}\` • **${String(task.state || 'unknown').toUpperCase()}** • ${String(task.mode || 'plan').toUpperCase()}`, `  ${String(task.goal || '').replace(/\s+/g, ' ').slice(0, 150)}`);
+  if (!tasks.length) lines.push('', 'No matching durable Forge tasks.');
+  return lines.join('\n').slice(0, 1900);
+}
+
+function formatTask(result = {}) {
+  const task = result.task || {};
+  const approval = result.approval || null;
+  const lines = ['**🧾 Forge Durable Task**', `ID: \`${task.id || 'unknown'}\``, `State: **${String(task.state || 'unknown').toUpperCase()}** • Mode: **${String(task.mode || 'unknown').toUpperCase()}**`, `Repo: \`${task.repo || 'unknown'}\``, `Base: \`${task.baseRef || 'unknown'}\``, `Approval: **${approval && !approval.revoked_at ? 'ACTIVE' : approval ? 'REVOKED' : 'NOT GRANTED'}**`, `Attempt: **${Number(task.attempt || 0)}/${Number(task.maxAttempts || 0)}**`];
+  if (task.branch) lines.push(`Branch: \`${task.branch}\``);
+  if (task.modelRoute) lines.push(`Model route: \`${task.modelRoute}\``);
+  if (task.usage) lines.push(`Recorded usage: **${Number(task.usage.totalTokens || 0).toLocaleString()} tokens**`);
+  if (task.errorType) lines.push(`Error type: \`${task.errorType}\``);
+  if (task.goal) lines.push('', String(task.goal).replace(/\s+/g, ' ').slice(0, 800));
+  lines.push('', '_Task inspection uses 0 model tokens._');
   return lines.join('\n').slice(0, 1900);
 }
 
 function buildConstraints(actorId) {
-  return [
-    'Do not merge pull requests or deploy production from this task.',
-    'Keep all repository writes inside the Forge guarded forge/* branch and finish with a draft PR.',
-    'Preserve existing Nexus security, permission, provider-neutral, and secret-redaction boundaries.',
-    'Run or update relevant tests when practical and report anything that could not be validated.',
-    `Sentinel request actor: Discord user ${String(actorId)}`
-  ];
+  return ['Do not merge pull requests or deploy production from this task.', 'Keep all repository writes inside the Forge guarded forge/* branch and finish with a draft PR.', 'Preserve existing Nexus security, permission, provider-neutral, and secret-redaction boundaries.', 'Run or update relevant tests when practical and report anything that could not be validated.', `Sentinel request actor: Discord user ${String(actorId)}`];
 }
 
 function confirmationPayload(nonce, goal, branch = null) {
   const title = branch ? 'Repair existing Forge branch?' : 'Send build task to Khaos Nexus Forge?';
-  const scope = branch
-    ? `Existing branch: \`${branch}\`\nForge will inspect current CI evidence before changing code.`
-    : 'Forge may create/update a guarded `forge/*` branch and a **draft PR**.';
-  return {
-    content: [
-      `⚠️ **${title}**`,
-      String(goal).slice(0, 1100),
-      '',
-      scope,
-      'It still cannot merge or deploy production.'
-    ].join('\n'),
-    components: [{
-      type: 1,
-      components: [
-        { type: 2, style: 3, label: branch ? 'Repair Branch' : 'Send to Forge', custom_id: `nexusforge:confirm:${nonce}` },
-        { type: 2, style: 2, label: 'Cancel', custom_id: `nexusforge:cancel:${nonce}` }
-      ]
-    }],
-    flags: MessageFlags.Ephemeral
-  };
+  const scope = branch ? `Existing branch: \`${branch}\`\nForge will inspect current CI evidence before changing code.` : 'Forge may create/update a guarded `forge/*` branch and a **draft PR**.';
+  return { content: [`⚠️ **${title}**`, String(goal).slice(0, 1100), '', scope, 'It still cannot merge or deploy production.'].join('\n'), components: [{ type: 1, components: [{ type: 2, style: 3, label: branch ? 'Repair Branch' : 'Send to Forge', custom_id: `nexusforge:confirm:${nonce}` }, { type: 2, style: 2, label: 'Cancel', custom_id: `nexusforge:cancel:${nonce}` }] }], flags: MessageFlags.Ephemeral };
 }
 
 function validForgeBranch(value) {
@@ -177,7 +132,6 @@ function validForgeBranch(value) {
 function installForgeExtension(options = {}) {
   if (Client.prototype[INSTALLED]) return;
   Client.prototype[INSTALLED] = true;
-
   const logger = options.logger || console;
   const config = loadConfig();
   const guildId = String(config.discord?.guildId || '');
@@ -188,68 +142,42 @@ function installForgeExtension(options = {}) {
   Client.prototype.login = function nexusForgeLogin(...args) {
     this.once(Events.ClientReady, async () => {
       try {
-        if (!guildId) return;
-        const guild = await this.guilds.fetch(guildId);
-        const definition = forgeCommand();
-        const commandJson = normalizeRequiredOptions(definition.toJSON());
-        const commands = await guild.commands.fetch();
-        const existing = commands.find((item) => item.name === definition.name);
-        if (existing) await guild.commands.edit(existing, commandJson);
-        else await guild.commands.create(commandJson);
-        logger.log?.(`[Nexus Sentinal] registered /forge in guild ${guild.id}`);
-      } catch (error) {
-        logger.error?.(`[Nexus Sentinal] Forge command registration failed: ${String(error?.message || error).slice(0, 400)}`);
-      }
-
+        if (guildId) {
+          const guild = await this.guilds.fetch(guildId);
+          const definition = forgeCommand();
+          const commandJson = normalizeRequiredOptions(definition.toJSON());
+          const commands = await guild.commands.fetch();
+          const existing = commands.find((item) => item.name === definition.name);
+          if (existing) await guild.commands.edit(existing, commandJson); else await guild.commands.create(commandJson);
+          logger.log?.(`[Nexus Sentinal] registered /forge in guild ${guild.id}`);
+        }
+      } catch (error) { logger.error?.(`[Nexus Sentinal] Forge command registration failed: ${String(error?.message || error).slice(0, 400)}`); }
       const state = forge.configuration();
-      if (!state.enabled) {
-        logger.log?.('[Nexus Sentinal] Forge bridge installed but disabled.');
-        return;
-      }
+      if (!state.enabled) { logger.log?.('[Nexus Sentinal] Forge bridge installed but disabled.'); return; }
       try {
         const health = await forge.health();
-        logger.log?.(`[Nexus Sentinal] Forge bridge health: ok=${health.ok} version=${health.version} openai=${health.openaiConfigured} github=${health.githubConfigured} fallback=${health.fallbackRouting} policy=${health.writePolicy}`);
-      } catch (error) {
-        logger.warn?.(`[Nexus Sentinal] Forge bridge health unavailable: ${String(error?.message || error).slice(0, 300)}`);
-      }
+        let infrastructure = null;
+        try { infrastructure = await forge.infrastructureStatus(); } catch {}
+        logger.log?.(`[Nexus Sentinal] Forge bridge health: ok=${health.ok} version=${health.version} controlPlane=${Boolean(infrastructure)} openai=${health.openaiConfigured} github=${health.githubConfigured} fallback=${health.fallbackRouting} policy=${health.writePolicy}`);
+      } catch (error) { logger.warn?.(`[Nexus Sentinal] Forge bridge health unavailable: ${String(error?.message || error).slice(0, 300)}`); }
     });
 
     this.on(Events.InteractionCreate, async (interaction) => {
       const isCommand = interaction.isChatInputCommand?.() && interaction.commandName === 'forge';
       const isButton = interaction.isButton?.() && String(interaction.customId || '').startsWith('nexusforge:');
       if (!isCommand && !isButton) return;
-
       try {
-        if (!memberIsForgeOperator(interaction, config)) {
-          await interaction.reply({ content: 'Forge engineering controls are restricted to Nexus staff.', flags: MessageFlags.Ephemeral });
-          return;
-        }
-
+        if (!memberIsForgeOperator(interaction, config)) { await interaction.reply({ content: 'Forge engineering controls are restricted to Nexus staff.', flags: MessageFlags.Ephemeral }); return; }
         if (isButton) {
           const [, action, nonce] = String(interaction.customId).split(':');
           const task = pending.get(nonce);
-          if (!task || task.expiresAt < Date.now()) {
-            pending.delete(nonce);
-            await interaction.update({ content: 'That Forge build confirmation expired.', components: [] });
-            return;
-          }
-          if (String(task.userId) !== String(interaction.user.id)) {
-            await interaction.reply({ content: 'Only the staff member who requested this Forge task can confirm it.', flags: MessageFlags.Ephemeral });
-            return;
-          }
-          if (action === 'cancel') {
-            pending.delete(nonce);
-            await interaction.update({ content: 'Forge build cancelled.', components: [] });
-            return;
-          }
+          if (!task || task.expiresAt < Date.now()) { pending.delete(nonce); await interaction.update({ content: 'That Forge build confirmation expired.', components: [] }); return; }
+          if (String(task.userId) !== String(interaction.user.id)) { await interaction.reply({ content: 'Only the staff member who requested this Forge task can confirm it.', flags: MessageFlags.Ephemeral }); return; }
+          if (action === 'cancel') { pending.delete(nonce); await interaction.update({ content: 'Forge build cancelled.', components: [] }); return; }
           if (action !== 'confirm') return;
-
           pending.delete(nonce);
           await interaction.update({ content: task.branch ? '🛠️ Sending CI-aware branch repair to Khaos Nexus Forge…' : '🔥 Sending the guarded build task to Khaos Nexus Forge…', components: [] });
-          const result = await forge.execute(task.goal, {
-            branch: task.branch || undefined,
-            constraints: buildConstraints(interaction.user.id)
-          });
+          const result = await forge.execute(task.goal, { branch: task.branch || undefined, constraints: buildConstraints(interaction.user.id) });
           await interaction.editReply({ content: formatForgeResult(result), components: [] });
           logger.log?.(`[Nexus Sentinal] Forge execute actor=${interaction.user.id} status=${result.status} branch=${result.branch || 'none'} repair=${Boolean(task.branch)} route=${result.modelRoute || 'unknown'} tokens=${result.usage?.totalTokens || 0}`);
           return;
@@ -258,17 +186,33 @@ function installForgeExtension(options = {}) {
         const sub = interaction.options.getSubcommand();
         if (sub === 'status') {
           const configured = forge.configuration();
-          if (!configured.enabled || !configured.baseUrlConfigured) {
-            await interaction.reply({ content: bridgeStatusText(forge), flags: MessageFlags.Ephemeral });
-            return;
-          }
+          if (!configured.enabled || !configured.baseUrlConfigured) return interaction.reply({ content: bridgeStatusText(forge), flags: MessageFlags.Ephemeral });
           await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-          let health = null;
+          let health = null; let infrastructure = null;
           try { health = await forge.health(); } catch {}
-          await interaction.editReply({ content: bridgeStatusText(forge, health) });
+          try { infrastructure = await forge.infrastructureStatus(); } catch {}
+          await interaction.editReply({ content: bridgeStatusText(forge, health, infrastructure) });
           return;
         }
-
+        if (sub === 'usage') { await interaction.deferReply({ flags: MessageFlags.Ephemeral }); return interaction.editReply({ content: formatUsage(await forge.usage()) }); }
+        if (sub === 'queue') { await interaction.deferReply({ flags: MessageFlags.Ephemeral }); return interaction.editReply({ content: formatQueue(await forge.listQueue({ state: interaction.options.getString('state', false) || undefined, limit: 20 })) }); }
+        if (sub === 'task') { await interaction.deferReply({ flags: MessageFlags.Ephemeral }); return interaction.editReply({ content: formatTask(await forge.queuedTask(interaction.options.getString('id', true))) }); }
+        if (['approve', 'revoke', 'cancel', 'retry'].includes(sub)) {
+          const id = interaction.options.getString('id', true);
+          await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+          const actor = `discord:${interaction.user.id}`;
+          const result = sub === 'approve' ? await forge.approveTask(id, { actor }) : sub === 'revoke' ? await forge.revokeTask(id, { actor }) : sub === 'cancel' ? await forge.cancelQueuedTask(id, { actor }) : await forge.retryQueuedTask(id, { actor });
+          const note = sub === 'approve' ? '\n\n⚠️ Approval itself uses 0 model tokens. If the Forge worker is later enabled and has autonomous budget, an approved queued task may become executable.' : '';
+          await interaction.editReply({ content: `${formatTask({ task: result.task, approval: result.approval })}${note}`.slice(0, 1900) });
+          logger.log?.(`[Nexus Sentinal] Forge durable action actor=${interaction.user.id} action=${sub} task=${id} modelTokens=0`);
+          return;
+        }
+        if (sub === 'audit') {
+          await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+          const result = await forge.verifyAudit();
+          await interaction.editReply({ content: `**🔐 Forge Audit Chain**\nStatus: **${result?.ok ? 'VALID' : 'INVALID'}**\nEntries checked: **${Number(result?.checked || 0).toLocaleString()}**${result?.reason ? `\nReason: ${String(result.reason).slice(0, 500)}` : ''}\n\n_This verification uses 0 model tokens._` });
+          return;
+        }
         if (sub === 'ci') {
           const ref = String(interaction.options.getString('branch', true)).trim();
           await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -277,75 +221,41 @@ function installForgeExtension(options = {}) {
           logger.log?.(`[Nexus Sentinal] Forge CI actor=${interaction.user.id} ref=${ref} state=${result.state}`);
           return;
         }
-
         if (sub === 'plan') {
           const goal = String(interaction.options.getString('goal', true)).trim();
           await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-          const result = await forge.plan(goal, {
-            constraints: buildConstraints(interaction.user.id)
-          });
+          const result = await forge.plan(goal, { constraints: buildConstraints(interaction.user.id) });
           await interaction.editReply({ content: formatForgeResult(result) });
           logger.log?.(`[Nexus Sentinal] Forge plan actor=${interaction.user.id} status=${result.status} route=${result.modelRoute || 'unknown'} tokens=${result.usage?.totalTokens || 0}`);
           return;
         }
-
         if (sub === 'build') {
           const goal = String(interaction.options.getString('goal', true)).trim();
           const nonce = crypto.randomBytes(12).toString('hex');
-          pending.set(nonce, {
-            userId: String(interaction.user.id),
-            goal,
-            branch: null,
-            expiresAt: Date.now() + PENDING_TTL_MS
-          });
+          pending.set(nonce, { userId: String(interaction.user.id), goal, branch: null, expiresAt: Date.now() + PENDING_TTL_MS });
           await interaction.reply(confirmationPayload(nonce, goal));
           return;
         }
-
         if (sub === 'repair') {
           const branch = String(interaction.options.getString('branch', true)).trim();
-          if (!validForgeBranch(branch)) {
-            await interaction.reply({ content: 'Forge repair can resume only a valid existing `forge/*` branch.', flags: MessageFlags.Ephemeral });
-            return;
-          }
+          if (!validForgeBranch(branch)) { await interaction.reply({ content: 'Forge repair can resume only a valid existing `forge/*` branch.', flags: MessageFlags.Ephemeral }); return; }
           const guidance = String(interaction.options.getString('goal', false) || '').trim();
           const goal = guidance || `Inspect the current CI/check results for ${branch}. Diagnose failed checks, make the smallest safe repair on this exact branch, review the changes, and update the existing draft PR. If checks are pending or there is no actionable failure evidence, do not invent a repair.`;
           const nonce = crypto.randomBytes(12).toString('hex');
-          pending.set(nonce, {
-            userId: String(interaction.user.id),
-            goal,
-            branch,
-            expiresAt: Date.now() + PENDING_TTL_MS
-          });
+          pending.set(nonce, { userId: String(interaction.user.id), goal, branch, expiresAt: Date.now() + PENDING_TTL_MS });
           await interaction.reply(confirmationPayload(nonce, goal, branch));
         }
       } catch (error) {
         const content = `⚠️ Forge request did not complete: ${String(error?.message || error).slice(0, 1500)}`;
         logger.error?.(`[Nexus Sentinal] Forge bridge request failed: ${String(error?.message || error).slice(0, 500)}`);
-        try {
-          if (interaction.deferred || interaction.replied) await interaction.editReply({ content, components: [] });
-          else await interaction.reply({ content, flags: MessageFlags.Ephemeral });
-        } catch {}
+        try { if (interaction.deferred || interaction.replied) await interaction.editReply({ content, components: [] }); else await interaction.reply({ content, flags: MessageFlags.Ephemeral }); } catch {}
       }
     });
 
-    const cleanup = setInterval(() => {
-      const now = Date.now();
-      for (const [nonce, task] of pending) if (task.expiresAt < now) pending.delete(nonce);
-    }, 60_000);
+    const cleanup = setInterval(() => { const now = Date.now(); for (const [nonce, task] of pending) if (task.expiresAt < now) pending.delete(nonce); }, 60_000);
     cleanup.unref?.();
-
     return originalLogin.apply(this, args);
   };
 }
 
-module.exports = {
-  forgeCommand,
-  memberIsForgeOperator,
-  bridgeStatusText,
-  formatForgeResult,
-  formatCiStatus,
-  buildConstraints,
-  validForgeBranch,
-  installForgeExtension
-};
+module.exports = { forgeCommand, memberIsForgeOperator, bridgeStatusText, formatForgeResult, formatCiStatus, formatUsage, formatQueue, formatTask, buildConstraints, validForgeBranch, installForgeExtension };
