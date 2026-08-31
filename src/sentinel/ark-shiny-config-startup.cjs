@@ -39,7 +39,12 @@ function applyShinySection(current, template = fs.readFileSync(TEMPLATE, 'utf8')
 }
 
 function shinySectionMatches(text, expected = parseSection(fs.readFileSync(TEMPLATE, 'utf8'), 'Shiny')) {
-  const actual = parseSection(text, 'Shiny');
+  let actual;
+  try { actual = parseSection(text, 'Shiny'); }
+  catch (error) {
+    if (/template section is empty/.test(String(error?.message || error))) return false;
+    throw error;
+  }
   return Object.entries(expected).every(([key, value]) => actual[key] === value);
 }
 

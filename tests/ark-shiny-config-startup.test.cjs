@@ -16,3 +16,7 @@ test('balanced Shiny updater changes only the Shiny section and never installs t
   assert.doesNotMatch(after, /ShinyDiscord|__SENTINEL_SHINY_WEBHOOK_URL__/);
   assert.equal(shinySectionMatches(after, parseSection(template, 'Shiny')), true);
 });
+
+test('missing live Shiny section is treated as needing insertion', () => {
+  assert.equal(shinySectionMatches('[ServerSettings]\nSessionName=Khaos Nexus\n'), false);
+});
