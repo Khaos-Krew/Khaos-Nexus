@@ -102,6 +102,29 @@ class SupabaseNexusSpinStore {
     return Array.isArray(rows) ? rows[0] : rows;
   }
 
+  async createPaymentReview({ spin, cost, error }) {
+    const rows = await this.request('/rest/v1/nexus_spin_payment_reviews', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({
+        spin_id: spin.spinId,
+        discord_id: spin.discordId,
+        eos_id: spin.eosId,
+        point_cost: Number(cost),
+        status: 'OPEN',
+        error_code: String(error?.code || 'UNKNOWN'),
+        error_message: String(error?.message || 'Unknown point debit state').slice(0, 2000),
+        diagnostic: {
+          before: error?.before ?? null,
+          after: error?.after ?? null,
+          expected: error?.expected ?? null,
+        },
+        created_at: spin.createdAt,
+      }),
+    });
+    return Array.isArray(rows) ? rows[0] : rows;
+  }
+
   async setStatus(spinId, expected, next, metadata = {}) {
     const id = encodeURIComponent(String(spinId));
     const rows = await this.request(`/rest/v1/nexus_spin_attempts?spin_id=eq.${id}&status=eq.${encodeURIComponent(expected)}`, {
