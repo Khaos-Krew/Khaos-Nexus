@@ -1,0 +1,41 @@
+CREATE TABLE IF NOT EXISTS nexus_dino_cache_transactions (
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  source_system VARCHAR(32) NOT NULL,
+  source_server_id VARCHAR(100) NOT NULL,
+  source_transaction_id VARCHAR(128) NOT NULL,
+  source_item_name VARCHAR(255) NOT NULL,
+  player_eos_id VARCHAR(96) NOT NULL,
+  player_account_id VARCHAR(128) NOT NULL DEFAULT '',
+  server_id VARCHAR(64) NOT NULL,
+  map_name VARCHAR(100) NOT NULL,
+  cache_type VARCHAR(64) NOT NULL,
+  nexus_point_cost INT UNSIGNED NOT NULL,
+  species VARCHAR(100) NULL,
+  variant VARCHAR(16) NULL,
+  blueprint VARCHAR(255) NULL,
+  rolled_level SMALLINT UNSIGNED NULL,
+  state ENUM('PENDING','ROLLED','DELIVERING','DELIVERED','FAILED','RETRY') NOT NULL DEFAULT 'PENDING',
+  delivery_attempts INT UNSIGNED NOT NULL DEFAULT 0,
+  delivery_started_at DATETIME(3) NULL,
+  delivered_at DATETIME(3) NULL,
+  failure_class VARCHAR(32) NOT NULL DEFAULT '',
+  error_message VARCHAR(500) NOT NULL DEFAULT '',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  rolled_at DATETIME(3) NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  UNIQUE KEY uq_nexus_dino_cache_source (source_system, source_server_id, source_transaction_id),
+  KEY ix_nexus_dino_cache_state (state, updated_at),
+  KEY ix_nexus_dino_cache_player (player_eos_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS nexus_dino_cache_events (
+  sequence_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  transaction_id CHAR(36) NOT NULL,
+  from_state VARCHAR(16) NULL,
+  to_state VARCHAR(16) NOT NULL,
+  reason VARCHAR(500) NOT NULL DEFAULT '',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  KEY ix_nexus_dino_cache_event_transaction (transaction_id, sequence_id),
+  CONSTRAINT fk_nexus_dino_cache_event_transaction FOREIGN KEY (transaction_id)
+    REFERENCES nexus_dino_cache_transactions(id) ON DELETE RESTRICT ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

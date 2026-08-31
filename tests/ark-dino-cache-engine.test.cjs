@@ -1,91 +1,50 @@
 'use strict';
-
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const {
-  LEVEL_BUCKETS, SHINY_CHANCE, CACHE_POOLS, rollLevel, rollVariant, rollCache, DinoCacheJournal
-} = require('../src/sentinel/ark-dino-cache-engine.cjs');
+const { LEVEL_BUCKETS, SHINY_CHANCE, CACHE_POOLS, deterministicRng, rollLevel, rollVariant, rollCache, cacheForPurchase } = require('../src/sentinel/ark-dino-cache-engine.cjs');
+const sequence = (values) => { let index = 0; return () => values[index++ % values.length]; };
 
-function sequence(values) {
-  let index = 0;
-  return () => values[index++ % values.length];
-}
-
-test('cache level buckets exactly preserve approved 200-300 weighting', () => {
+test('level buckets exactly match the approved 200-300 distribution', () => {
   assert.deepEqual(LEVEL_BUCKETS, [
-    { min: 200, max: 219, weight: 30 },
-    { min: 220, max: 239, weight: 25 },
-    { min: 240, max: 259, weight: 20 },
-    { min: 260, max: 279, weight: 15 },
-    { min: 280, max: 294, weight: 8 },
-    { min: 295, max: 300, weight: 2 }
+    { min: 200, max: 224, weight: 30 }, { min: 225, max: 249, weight: 30 }, { min: 250, max: 274, weight: 22 },
+    { min: 275, max: 289, weight: 12 }, { min: 290, max: 299, weight: 5 }, { min: 300, max: 300, weight: 1 }
   ]);
+  assert.equal(LEVEL_BUCKETS.reduce((sum, bucket) => sum + bucket.weight, 0), 100);
   assert.equal(rollLevel(sequence([0, 0])), 200);
-  assert.equal(rollLevel(sequence([0.999999, 0.999999])), 300);
+  assert.equal(rollLevel(sequence([0.299999, 0.999999])), 224);
+  assert.equal(rollLevel(sequence([0.30, 0])), 225);
+  assert.equal(rollLevel(sequence([0.999999, 0])), 300);
 });
 
-test('verified launch pools preserve approved prices and use bounded class paths', () => {
-  assert.equal(CACHE_POOLS.coastal.price, 800);
-  assert.equal(CACHE_POOLS.forest.price, 1250);
-  assert.equal(CACHE_POOLS.swamp.price, 1400);
-  assert.equal(CACHE_POOLS.mountain.price, 1800);
-  assert.equal(CACHE_POOLS.ocean.price, 2200);
-  assert.equal(CACHE_POOLS.deepcave.price, 2200);
-  assert.equal(CACHE_POOLS.apex.price, 8000);
-  for (const pool of Object.values(CACHE_POOLS)) {
-    for (const entry of pool.entries) {
-      assert.match(entry.blueprint, /^\/Game\//);
-      assert.ok(entry.blueprint.length < 240);
-    }
-  }
-});
-
-test('unsupported X/S rolls fall back to normal instead of rerolling species', () => {
-  const entry = CACHE_POOLS.coastal.entries[1];
-  const result = rollVariant(entry, { normal: 0, x: 100, s: 0 }, () => 0.5);
-  assert.equal(result.requested, 'x');
-  assert.equal(result.applied, 'normal');
-  assert.equal(result.fallback, true);
-});
-
-test('supported X/S rolls apply the exact mapped variant blueprint', () => {
-  const xEntry = CACHE_POOLS.coastal.entries[0];
-  const xResult = rollVariant(xEntry, { normal: 0, x: 100, s: 0 }, () => 0.5);
-  assert.equal(xResult.applied, 'x');
-  assert.match(xResult.blueprint, /^\/Game\/Genesis\/Dinos\/BiomeVariants\//);
-
-  const sEntry = CACHE_POOLS.mountain.entries[0];
-  const sResult = rollVariant(sEntry, { normal: 0, x: 0, s: 100 }, () => 0.5);
-  assert.equal(sResult.applied, 's');
-  assert.match(sResult.blueprint, /^\/SDinoVariants\//);
-});
-
-test('cache rolls keep Shiny disabled for launch and stay in approved bounds', () => {
-  const result = rollCache('coastal', sequence([0.01, 0.01, 0.01, 0.01, 0.01, 0.99]));
-  assert.equal(result.cacheId, 'coastal');
-  assert.equal(result.price, 800);
-  assert.ok(result.level >= 200 && result.level <= 300);
-  assert.match(result.blueprint, /^\/Game\//);
+test('all configured caches are central, bounded, and explicitly non-Shiny', () => {
+  assert.deepEqual(Object.fromEntries(Object.entries(CACHE_POOLS).map(([id, pool]) => [id, pool.price])), { coastal: 800, forest: 1250, swamp: 1400, mountain: 1800, ocean: 2200, deepcave: 2200, apex: 8000 });
+  for (const pool of Object.values(CACHE_POOLS)) for (const entry of pool.entries) assert.match(entry.blueprint, /^\/Game\//);
   assert.equal(SHINY_CHANCE, 0);
-  assert.equal(result.shiny, false);
 });
 
-test('unverified caches fail closed rather than inventing creature paths', () => {
-  assert.throws(() => rollCache('lostcolony', () => 0.5), /not-yet-verified/);
-  assert.throws(() => rollCache('volcanic', () => 0.5), /not-yet-verified/);
+test('variant selection only considers variants the selected creature supports', () => {
+  const normalOnly = CACHE_POOLS.coastal.entries.find((entry) => entry.name === 'Moschops');
+  const result = rollVariant(normalOnly, { normal: 1, x: 100, s: 100 }, () => 0.999);
+  assert.deepEqual(result, { requested: 'normal', applied: 'normal', fallback: false, blueprint: normalOnly.blueprint });
+  const trike = CACHE_POOLS.coastal.entries.find((entry) => entry.name === 'Trike');
+  assert.equal(rollVariant(trike, { normal: 0, x: 1, s: 0 }, () => 0).applied, 'x');
+  assert.equal(rollVariant(trike, { normal: 0, x: 0, s: 1 }, () => 0).applied, 's');
 });
 
-test('transaction journal only allows charge-deliver or charge-refund terminal paths', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-cache-journal-'));
-  const journal = new DinoCacheJournal(root);
-  const tx = journal.create({ eosId: '0002abc123', cacheId: 'coastal', price: 800, roll: { species: 'Parasaur', level: 250 } });
-  assert.equal(tx.state, 'prepared');
-  const charged = journal.transition(tx.id, 'charged');
-  assert.equal(charged.state, 'charged');
-  assert.throws(() => journal.transition(tx.id, 'refunded'), /Invalid/);
-  assert.equal(journal.transition(tx.id, 'refund_pending', 'delivery failed').state, 'refund_pending');
-  assert.equal(journal.transition(tx.id, 'refunded').state, 'refunded');
+test('a stable purchase identity produces a deterministic, deliverable roll', () => {
+  const secret = 'a'.repeat(32);
+  const first = rollCache('coastal', deterministicRng(secret, 'arkshop:1:42'));
+  const second = rollCache('coastal', deterministicRng(secret, 'arkshop:1:42'));
+  assert.deepEqual(first, second);
+  assert.ok(first.level >= 200 && first.level <= 300);
+  assert.ok(['normal', 'x', 's'].includes(first.variant));
+  assert.equal(first.variantFallback, false);
+  assert.equal(first.shiny, false);
+  assert.notDeepEqual(first, rollCache('coastal', deterministicRng(secret, 'arkshop:1:43')));
+});
+
+test('ArkShop receipt aliases resolve per map and unknown products fail closed', () => {
+  assert.equal(cacheForPurchase('NEXUS_CACHE_COASTAL', 'Genesis Part 1').id, 'coastal');
+  assert.equal(cacheForPurchase('ordinary_shop_item', 'Genesis Part 1'), null);
+  assert.throws(() => rollCache('lostcolony', () => 0.5), /Unknown dino cache/);
 });
