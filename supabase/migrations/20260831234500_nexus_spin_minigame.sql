@@ -55,6 +55,25 @@ create index if not exists nexus_spin_attempts_eos_created_idx
 create index if not exists nexus_spin_attempts_source_created_idx
   on public.nexus_spin_attempts (spin_source, created_at desc);
 
+create table if not exists public.nexus_spin_payment_reviews (
+  spin_id text primary key,
+  discord_id text not null,
+  eos_id text not null,
+  point_cost bigint not null check (point_cost > 0),
+  status text not null default 'OPEN' check (status in ('OPEN','RESOLVED_CHARGED','RESOLVED_NOT_CHARGED','REFUNDED')),
+  error_code text not null,
+  error_message text not null,
+  diagnostic jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  resolved_at timestamptz,
+  resolution_note text
+);
+
+create index if not exists nexus_spin_payment_reviews_status_idx
+  on public.nexus_spin_payment_reviews (status, created_at);
+create index if not exists nexus_spin_payment_reviews_eos_idx
+  on public.nexus_spin_payment_reviews (eos_id, created_at desc);
+
 create table if not exists public.ark_cache_tokens (
   token_id uuid primary key default gen_random_uuid(),
   discord_id text not null,
@@ -163,6 +182,7 @@ $$;
 alter table public.ark_account_links enable row level security;
 alter table public.nexus_spin_cooldowns enable row level security;
 alter table public.nexus_spin_attempts enable row level security;
+alter table public.nexus_spin_payment_reviews enable row level security;
 alter table public.ark_cache_tokens enable row level security;
 
 revoke all on function public.create_nexus_spin_attempt(text,text,text,text,text,text,text,bigint,text,integer,timestamptz,integer) from public, anon, authenticated;
