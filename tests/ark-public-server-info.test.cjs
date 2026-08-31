@@ -122,11 +122,14 @@ test('live ARK public snapshot combines runtime mods with live INI stats', async
   const snapshot = await loadLiveArkPublicInfo({ id: 'gen1', mapName: 'Genesis Part 1', envPrefix: 'ARK_GEN1' }, {
     readConfigFn: async (_prefix, key) => ({ text: key === 'gus' ? GUS : GAME }),
     inspectArkApiLogFn: async () => ({ found: true, newest: { modIds: ['955333', '942249'], version: '93.7' } }),
+    inspectInstalledArkModsFn: async () => ({ accessible: true, modIds: ['928548'], mods: [{ projectId: '928548', fileId: '5507937' }] }),
     resolveCurseForgeModsFn: async (ids) => ids.map((id) => ({ id, name: `Resolved ${id}`, url: curseForgeLookupUrl(id), metadata: true }))
   });
-  assert.equal(snapshot.modSource, 'running server log');
-  assert.deepEqual(snapshot.modIds, ['955333', '942249']);
-  assert.equal(snapshot.mods.length, 2);
+  assert.equal(snapshot.modSource, 'running server log + server disk');
+  assert.deepEqual(snapshot.activeModIds, ['955333', '942249']);
+  assert.deepEqual(snapshot.installedModIds, ['928548']);
+  assert.deepEqual(snapshot.modIds, ['955333', '942249', '928548']);
+  assert.equal(snapshot.mods.length, 3);
   assert.equal(snapshot.playerStats.Weight, '30×');
   assert.equal(snapshot.qualityOfLife['Third Person'], 'Enabled');
   assert.equal(snapshot.version, '93.7');

@@ -51,7 +51,7 @@ function shinySectionMatches(text, expected = parseSection(fs.readFileSync(TEMPL
 async function run({ registry = new ArkClusterRegistry() } = {}) {
   fs.mkdirSync(dataDir(), { recursive: true });
   const server = registry.get('gen1');
-  const mods = new Set((server?.detectedMods || []).map(String));
+  const mods = new Set([...(server?.detectedMods || []), ...(server?.installedMods || [])].map(String));
   const modDetected = mods.has(MOD_ID);
   const allowBeforeMod = String(process.env.ARK_GEN1_SHINY_STAGE_BEFORE_MOD || 'false').toLowerCase() === 'true';
   if (!modDetected && !allowBeforeMod) throw new Error(`Shiny! Dinos ${MOD_ID} is not detected on MAP1; set ARK_GEN1_SHINY_STAGE_BEFORE_MOD=true only to stage inert configuration before installation.`);

@@ -119,6 +119,7 @@ function normalizeRecord(input = {}, existing = null) {
     mods: normalizeMods(source.mods),
     detectedRates: normalizeRates(source.detectedRates),
     detectedMods: normalizeMods(source.detectedMods),
+    installedMods: normalizeMods(source.installedMods),
     shopEnabled: source.shopEnabled !== false,
     kitsEnabled: source.kitsEnabled !== false,
     eventsEnabled: source.eventsEnabled !== false,

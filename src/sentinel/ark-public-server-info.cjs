@@ -2,6 +2,7 @@
 
 const { readConfig } = require('./ark-config-manager.cjs');
 const { inspectArkApiLog } = require('./ark-api-log-diagnostic.cjs');
+const { inspectInstalledArkMods } = require('./ark-sftp-mod-inventory.cjs');
 
 const PLAYER_STATS = Object.freeze({
   0: 'Health',
@@ -225,15 +226,21 @@ function loadedModIdsFromDiagnostic(diagnostic = {}) {
   return [...new Set((newest.length ? newest : direct).map(String).filter(Boolean))];
 }
 
+function mergeModIds(...lists) {
+  return [...new Set(lists.flatMap((list) => Array.isArray(list) ? list : []).map(String).filter(Boolean))].slice(0, 60);
+}
+
 async function loadLiveArkPublicInfo(server = {}, dependencies = {}) {
   const read = dependencies.readConfigFn || readConfig;
   const inspect = dependencies.inspectArkApiLogFn || inspectArkApiLog;
+  const inspectInstalled = dependencies.inspectInstalledArkModsFn || inspectInstalledArkMods;
   const resolveMods = dependencies.resolveCurseForgeModsFn || resolveCurseForgeMods;
   const prefix = clean(server.envPrefix || 'ARK_GEN1', 64) || 'ARK_GEN1';
-  const [gusResult, gameResult, logResult] = await Promise.allSettled([
+  const [gusResult, gameResult, logResult, inventoryResult] = await Promise.allSettled([
     read(prefix, 'gus'),
     read(prefix, 'game'),
-    inspect(prefix)
+    inspect(prefix),
+    inspectInstalled(prefix)
   ]);
   const gusText = gusResult.status === 'fulfilled' ? String(gusResult.value?.text || '') : '';
   const gameText = gameResult.status === 'fulfilled' ? String(gameResult.value?.text || '') : '';
@@ -241,7 +248,10 @@ async function loadLiveArkPublicInfo(server = {}, dependencies = {}) {
   const logIds = loadedModIdsFromDiagnostic(diagnostic);
   const fallbackIds = parseActiveModIds(gusText);
   const existingIds = (Array.isArray(server.detectedMods) ? server.detectedMods : []).map((value) => String(value || '').match(/\b\d{5,10}\b/)?.[0]).filter(Boolean);
-  const modIds = logIds.length ? logIds : fallbackIds.length ? fallbackIds : existingIds;
+  const diskInventory = inventoryResult.status === 'fulfilled' ? (inventoryResult.value || {}) : {};
+  const diskIds = diskInventory.accessible === true ? (diskInventory.modIds || []) : (server.installedMods || []);
+  const activeIds = logIds.length ? logIds : fallbackIds.length ? fallbackIds : existingIds;
+  const modIds = mergeModIds(activeIds, diskIds);
   const config = extractPublicServerConfig(gusText, gameText);
   const mods = await resolveMods(modIds);
   const errors = [];
@@ -253,7 +263,11 @@ async function loadLiveArkPublicInfo(server = {}, dependencies = {}) {
     serverName: clean(server.mapName || server.name || server.id || prefix, 100),
     envPrefix: prefix,
     version: clean(diagnostic?.newest?.version || diagnostic?.version || '', 40),
-    modSource: logIds.length ? 'running server log' : fallbackIds.length ? 'server config' : existingIds.length ? 'cached detection' : 'unavailable',
+    modSource: `${logIds.length ? 'running server log' : fallbackIds.length ? 'server config' : existingIds.length ? 'cached detection' : 'no active source'}${diskIds.length ? ' + server disk' : ''}`,
+    activeModIds: activeIds,
+    installedModIds: diskIds,
+    installedModFiles: Array.isArray(diskInventory.mods) ? diskInventory.mods : [],
+    inventoryAvailable: diskInventory.accessible === true,
     modIds,
     mods,
     ...config,
@@ -268,7 +282,7 @@ async function refreshArkPublicMetadata(registry, servers = [], dependencies = {
     try {
       const snapshot = await loadLiveArkPublicInfo(server, dependencies);
       snapshots.push(snapshot);
-      registry?.upsert?.({ ...server, detectedMods: snapshot.modIds, detectedRates: snapshot.detectedRates });
+      registry?.upsert?.({ ...server, detectedMods: snapshot.modIds, installedMods: snapshot.installedModIds, detectedRates: snapshot.detectedRates });
     } catch (error) {
       snapshots.push({
         serverId: clean(server?.id, 64),
@@ -298,6 +312,7 @@ module.exports = {
   curseForgeLookupUrl,
   resolveCurseForgeMods,
   loadedModIdsFromDiagnostic,
+  mergeModIds,
   loadLiveArkPublicInfo,
   refreshArkPublicMetadata
 };
