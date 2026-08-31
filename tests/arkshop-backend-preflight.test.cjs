@@ -23,10 +23,20 @@ test('summary hashes identity/state without exposing player identifiers', () => 
   assert.equal(JSON.stringify(result).includes('EOS-AAA'), false);
 });
 
-test('exact state match is the only populated case safe to switch automatically', () => {
+test('exact state match is safe to switch automatically', () => {
   const a = stats([{ EosId: 'EOS-AAA', Points: 100, Kits: '{}' }]);
   const b = stats([{ EosId: 'EOS-AAA', Points: 100, Kits: '{}' }]);
   assert.deepEqual(compareBackendStats(a, b), { safeToSwitch: true, mode: 'exact-state-match' });
+});
+
+test('a MySQL superset is safe when every SQLite player has exact state', () => {
+  const sqlite = stats([{ EosId: 'EOS-AAA', Points: 100, Kits: '{"starter":0}' }]);
+  const mysql = stats([
+    { EosId: 'EOS-AAA', Points: 100, Kits: '{"starter":0}' },
+    { EosId: 'EOS-MAP2', Points: 50, Kits: '{}' }
+  ]);
+  assert.deepEqual(compareBackendStats(sqlite, mysql), { safeToSwitch: true, mode: 'mysql-superset-exact-source' });
+  assert.equal(JSON.stringify(mysql).includes('EOS-MAP2'), false);
 });
 
 test('preflight distinguishes empty target, state drift, and player-set mismatch', () => {

@@ -44,7 +44,7 @@ function summarizeRows(rows = [], columns = {}) {
   if (normalized.some((entry) => !entry.id)) throw new Error('ArkShop contains a row with an empty player ID.');
   const duplicateIds = normalized.some((entry, index) => index > 0 && entry.id === normalized[index - 1].id);
 
-  return {
+  const summary = {
     rows: normalized.length,
     rowsWithPoints: normalized.filter((entry) => Number(entry.points) > 0).length,
     rowsWithKits: normalized.filter((entry) => entry.kits && entry.kits !== '{}' && entry.kits !== '[]').length,
@@ -53,6 +53,10 @@ function summarizeRows(rows = [], columns = {}) {
     identityDigest: hashLines(normalized.map((entry) => entry.id)),
     stateDigest: hashLines(normalized.map((entry) => `${entry.id}\u0000${entry.points}\u0000${entry.kits}`))
   };
+  // Keep row-level comparison data in memory without allowing identifiers to
+  // leak through JSON stamps or logs.
+  Object.defineProperty(summary, '_records', { value: normalized, enumerable: false });
+  return summary;
 }
 
 function compareBackendStats(sqlite, mysql) {
@@ -60,6 +64,11 @@ function compareBackendStats(sqlite, mysql) {
   if (sqlite.duplicateIds || mysql.duplicateIds) return { safeToSwitch: false, mode: 'duplicate-player-ids' };
   if (sqlite.rows === mysql.rows && sqlite.identityDigest === mysql.identityDigest && sqlite.stateDigest === mysql.stateDigest) {
     return { safeToSwitch: true, mode: 'exact-state-match' };
+  }
+  if (sqlite.rows > 0 && mysql.rows > sqlite.rows && Array.isArray(sqlite._records) && Array.isArray(mysql._records)) {
+    const target = new Map(mysql._records.map((entry) => [entry.id, `${entry.points}\u0000${entry.kits}`]));
+    const covered = sqlite._records.every((entry) => target.get(entry.id) === `${entry.points}\u0000${entry.kits}`);
+    if (covered) return { safeToSwitch: true, mode: 'mysql-superset-exact-source' };
   }
   if (sqlite.rows > 0 && mysql.rows === 0) return { safeToSwitch: false, mode: 'sqlite-authoritative-mysql-empty' };
   if (sqlite.rows === 0 && mysql.rows > 0) return { safeToSwitch: false, mode: 'mysql-authoritative-sqlite-empty' };
