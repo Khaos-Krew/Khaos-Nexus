@@ -243,6 +243,44 @@ class ArkBackendControl {
       else if (!database.shared && records.length > 1) { arkShop.state = 'backend-not-shared'; arkShop.error = 'Cluster-wide ArkShop operations require one verified shared MySQL backend.'; }
       else if (!database.ready) { arkShop.state = 'database-unavailable'; arkShop.error = database.error; }
 
+      let receiptMapped = false;
+      try {
+        const mapping = JSON.parse(String(this.env.NEXUS_DINO_CACHE_SERVER_MAP_JSON || '{}'));
+        receiptMapped = Object.values(mapping || {}).map((value) => String(value).toLowerCase()).includes(record.id);
+      } catch {}
+      const dinoCacheEnabled = String(this.env.NEXUS_ARK_DINO_CACHE_ENABLED || 'false').toLowerCase() === 'true';
+      const dinoCacheSchemaReady = String(this.env.NEXUS_DINO_CACHE_SCHEMA_READY || 'false').toLowerCase() === 'true';
+      const dinoCache = {
+        purchaseAuthority: 'arkshop', configured: dinoCacheEnabled, receiptMapped,
+        databaseReady: database.backend === 'mysql' && database.ready && dinoCacheSchemaReady, deliveryReady: rcon.ready,
+        ready: record.enabled !== false && dinoCacheEnabled && receiptMapped && arkShop.ready && rcon.ready && database.backend === 'mysql' && database.ready && dinoCacheSchemaReady,
+        state: 'not-ready'
+      };
+      if (dinoCache.ready) dinoCache.state = 'ready';
+      else if (record.enabled === false) dinoCache.state = 'server-disabled';
+      else if (!dinoCacheEnabled) dinoCache.state = 'runtime-disabled';
+      else if (!receiptMapped) dinoCache.state = 'receipt-server-unmapped';
+      else if (!arkShop.ready) dinoCache.state = `shop-${arkShop.state}`;
+      else if (!dinoCache.databaseReady) dinoCache.state = 'schema-unavailable';
+      else if (!rcon.ready) dinoCache.state = `delivery-${rcon.state}`;
+
+      const installedMods = new Set([...(record.mods || []), ...(record.detectedMods || [])].map((value) => String(value)));
+      const shinyIngestEnabled = String(this.env.NEXUS_SHINY_INGEST_ENABLED || 'false').toLowerCase() === 'true';
+      const anomalySchemaReady = String(this.env.NEXUS_ANOMALY_SCHEMA_READY || 'false').toLowerCase() === 'true';
+      const shiny = {
+        projectId: '928548', installed: installedMods.has('928548'), configured: shinyIngestEnabled,
+        configReady: config.files.gus === true, databaseReady: database.backend === 'mysql' && database.ready && anomalySchemaReady,
+        coordinateDisclosure: false, automaticSpawning: false,
+        ready: record.enabled !== false && installedMods.has('928548') && shinyIngestEnabled && config.files.gus === true && database.backend === 'mysql' && database.ready && anomalySchemaReady,
+        state: 'not-ready'
+      };
+      if (shiny.ready) shiny.state = 'ready';
+      else if (record.enabled === false) shiny.state = 'server-disabled';
+      else if (!shiny.installed) shiny.state = 'mod-not-detected';
+      else if (!shinyIngestEnabled) shiny.state = 'ingest-disabled';
+      else if (!shiny.configReady) shiny.state = 'config-unavailable';
+      else if (!shiny.databaseReady) shiny.state = 'database-unavailable';
+
       const availableActions = ['cluster.health', 'cluster.capabilities'];
       const blockedActions = {};
       const allow = (actions, ready, reason) => {
@@ -258,7 +296,7 @@ class ArkBackendControl {
         id: record.id, name: record.name, mapName: record.mapName, envPrefix: record.envPrefix,
         enabled: record.enabled !== false, maintenance: record.maintenance === true,
         manageable: record.enabled !== false && rcon.ready && config.ready && lifecycle.ready,
-        capabilities: { rcon, config, lifecycle, arkShop },
+        capabilities: { rcon, config, lifecycle, arkShop, dinoCache, shiny },
         availableActions: [...new Set(availableActions)].sort(), blockedActions
       };
     }));

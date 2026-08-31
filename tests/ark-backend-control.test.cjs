@@ -220,6 +220,11 @@ test('capability inventory includes disabled maps without authorizing mutations 
   assert.equal(result.data.servers[1].capabilities.arkShop.provider, 'ark-web-shop');
   assert.equal(result.data.servers[1].capabilities.arkShop.state, 'provider-incompatible');
   assert.equal(result.data.servers[1].capabilities.arkShop.configured, false);
+  assert.equal(result.data.servers[0].capabilities.dinoCache.purchaseAuthority, 'arkshop');
+  assert.equal(result.data.servers[0].capabilities.dinoCache.state, 'runtime-disabled');
+  assert.equal(result.data.servers[0].capabilities.shiny.coordinateDisclosure, false);
+  assert.equal(result.data.servers[0].capabilities.shiny.automaticSpawning, false);
+  assert.equal(result.data.servers[1].capabilities.shiny.state, 'server-disabled');
   assert.equal(result.data.servers[1].blockedActions['server.restart'], 'server-disabled');
   assert.equal(JSON.stringify(result).includes('ARK_GEN1_RCON_PASSWORD'), false);
   assert.equal(JSON.stringify(result).includes('"password"'), false);

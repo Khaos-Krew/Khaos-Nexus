@@ -15,6 +15,7 @@ const { commandDefinitions: friendlyCommandDefinitions, isFriendlyCommand, resol
 const { createArkTameUi } = require('./ark-tame-ui.cjs');
 const { SentinalAdminOps } = require('./admin-ops.cjs');
 const { createSentinalAdminServer } = require('./admin-server.cjs');
+const { ensureAnomalyChannel } = require('./ark-shiny-anomaly.cjs');
 
 const config = loadConfig();
 const token = envSecret(config.discord?.tokenEnv);
@@ -324,6 +325,9 @@ client.once(Events.ClientReady, async () => {
   console.log(`[Nexus Sentinal] logged in as ${client.user.tag}`);
   const guild = await client.guilds.fetch(guildId);
   adminOps = new SentinalAdminOps({ client, guild, config, state, provisioner, backend, ensureConsole, registerCommands });
+  if (String(process.env.NEXUS_SHINY_CHANNEL_ENABLED || 'false').toLowerCase() === 'true') {
+    await ensureAnomalyChannel(guild).catch((error) => console.error('[Nexus Anomaly] channel setup failed:', error.message));
+  }
   if (!hasAdministrator(guild)) {
     console.error('[Nexus Sentinal] Administrator permission is required. Re-authorize the bot with Discord Administrator before running module setup or temporary lobby management.');
   }
