@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { ArkBackendControl, ALLOWED_ACTIONS } = require('../src/sentinel/ark-backend-control.cjs');
+const { ArkBackendControl, ALLOWED_ACTIONS, configuredShopProvider } = require('../src/sentinel/ark-backend-control.cjs');
 
 function serverFixture() {
   return {
@@ -45,6 +45,20 @@ test('ARK backend allowlist permits guarded restart but still blocks raw RCON', 
   assert.equal(ALLOWED_ACTIONS.has('config.apply'), true);
   assert.equal(ALLOWED_ACTIONS.has('server.restart'), true);
   assert.equal(ALLOWED_ACTIONS.has('rcon.raw'), false);
+});
+
+test('shop provider awareness distinguishes ArkShop from Ark Web Shop without exposing paths', () => {
+  const record = serverFixture();
+  assert.deepEqual(configuredShopProvider(record, {}), {
+    provider: 'arkshop', variant: 'arkshop-1.8-family', sentinelCompatible: true, compatibility: 'supported'
+  });
+  const detected = configuredShopProvider({ ...record, envPrefix: 'ARK_MAP2' }, {
+    ARK_MAP2_ARKSHOP_CONFIG_PATH: 'ShooterGame/Binaries/Win64/ArkApi/Plugins/ark_web_shopV2.1.1/ArkWebShopAsa/config.json'
+  });
+  assert.deepEqual(detected, {
+    provider: 'ark-web-shop', variant: 'ark-web-shop-v2', sentinelCompatible: false, compatibility: 'different-plugin-schema'
+  });
+  assert.equal(JSON.stringify(detected).includes('ShooterGame'), false);
 });
 
 test('MAP1 resolves to ARK_GEN1 and status uses zero LLM calls', async () => {
@@ -185,7 +199,8 @@ test('capability inventory includes disabled maps without authorizing mutations 
   const env = {
     ARKSHOP_DB_MODE: 'mysql', ARKSHOP_DB_HOST: 'db', ARKSHOP_DB_NAME: 'shop', ARKSHOP_DB_USER: 'user', ARKSHOP_DB_PASSWORD: 'secret',
     ARK_GEN1_HOST: 'gen1', ARK_GEN1_RCON_PORT: '27020', ARK_GEN1_RCON_PASSWORD: 'secret', ARK_GEN1_SFTP_HOST: 'sftp', ARK_GEN1_SFTP_USERNAME: 'user', ARK_GEN1_SFTP_PASSWORD: 'secret',
-    ARK_MAP2_HOST: 'map2', ARK_MAP2_RCON_PORT: '27021', ARK_MAP2_RCON_PASSWORD: 'secret', ARK_MAP2_SFTP_HOST: 'sftp', ARK_MAP2_SFTP_USERNAME: 'user', ARK_MAP2_SFTP_PASSWORD: 'secret', ARK_MAP2_CITADEL_SERVICE_ID: '99881'
+    ARK_MAP2_HOST: 'map2', ARK_MAP2_RCON_PORT: '27021', ARK_MAP2_RCON_PASSWORD: 'secret', ARK_MAP2_SFTP_HOST: 'sftp', ARK_MAP2_SFTP_USERNAME: 'user', ARK_MAP2_SFTP_PASSWORD: 'secret', ARK_MAP2_CITADEL_SERVICE_ID: '99881',
+    ARK_MAP2_ARKSHOP_CONFIG_PATH: 'ShooterGame/Binaries/Win64/ArkApi/Plugins/ark_web_shopV2.1.1/ArkWebShopAsa/config.json'
   };
   const control = controlFixture({
     registry: { list: () => [gen1, map2] }, env,
@@ -202,6 +217,9 @@ test('capability inventory includes disabled maps without authorizing mutations 
   assert.equal(result.data.servers.length, 2);
   assert.equal(result.data.servers[0].manageable, true);
   assert.equal(result.data.servers[1].capabilities.rcon.ready, true);
+  assert.equal(result.data.servers[1].capabilities.arkShop.provider, 'ark-web-shop');
+  assert.equal(result.data.servers[1].capabilities.arkShop.state, 'provider-incompatible');
+  assert.equal(result.data.servers[1].capabilities.arkShop.configured, false);
   assert.equal(result.data.servers[1].blockedActions['server.restart'], 'server-disabled');
   assert.equal(JSON.stringify(result).includes('ARK_GEN1_RCON_PASSWORD'), false);
   assert.equal(JSON.stringify(result).includes('"password"'), false);
