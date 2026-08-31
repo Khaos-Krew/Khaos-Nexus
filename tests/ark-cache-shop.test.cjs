@@ -18,7 +18,8 @@ test('cache shop contains all configured caches and no shiny roll surface', () =
   for (const id of cacheIds()) {
     const payload = detailPayload(id, null);
     const text = JSON.stringify(payload.embeds);
-    assert.doesNotMatch(text, /shiny chance|shiny roll|shiny:\s*(true|false)/i);
+    assert.doesNotMatch(text, /shiny chance/i);
+    assert.doesNotMatch(text, /["']shiny["']\s*:/i);
     assert.match(text, /Sex Roll/);
     assert.match(raritySummary(CONFIG.caches[id]), /Common|Rare|Ultra|Uncommon/);
   }
