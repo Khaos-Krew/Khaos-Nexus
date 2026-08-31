@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { getModule } = require('../src/backend/modules/catalog.cjs');
-const { renderModuleConsole, renderHelp, parseActionId } = require('../src/sentinel/module-console.cjs');
+const { renderModuleConsole, renderHelp, parseActionId, parseArkPlayerActionId } = require('../src/sentinel/module-console.cjs');
 
 function renderedText(payload) {
   return JSON.stringify(payload).toLowerCase();
@@ -22,11 +22,22 @@ test('console renders persistent controls for ARK', () => {
   });
   assert.equal(payload.embeds.length, 1);
   assert.ok(buttons(payload).some((button) => button.label === 'Players'));
+  const playerButtons = buttons(payload).filter((button) => button.custom_id?.startsWith('nexusark:'));
+  assert.deepEqual(playerButtons.map((button) => button.label), [
+    'Link ARK Account', 'My Link & Rank', 'Dino Cache Shop', 'Daily Reward Status', 'Weekly Reward Status'
+  ]);
+  assert.equal(playerButtons.every((button) => button.disabled !== true), true);
+  assert.match(payload.embeds[0].fields.find((field) => field.name === 'Player Shortcuts').value, /without typing a slash command/i);
 });
 
 test('custom ids parse safely', () => {
   assert.deepEqual(parseActionId('nexusmod:division2:optimize'), { moduleId: 'division2', actionId: 'optimize' });
   assert.equal(parseActionId('bad'), null);
+  assert.deepEqual(parseArkPlayerActionId('nexusark:link'), { actionId: 'link', subcommand: 'link' });
+  assert.deepEqual(parseArkPlayerActionId('nexusark:daily-status'), { actionId: 'daily-status', subcommand: 'supporter-cache-status', type: 'daily' });
+  assert.deepEqual(parseArkPlayerActionId('nexusark:weekly-status'), { actionId: 'weekly-status', subcommand: 'supporter-cache-status', type: 'weekly' });
+  assert.deepEqual(parseArkPlayerActionId('nexusark:cache-guide'), { actionId: 'cache-guide', subcommand: 'shop-cache-guide' });
+  assert.equal(parseArkPlayerActionId('nexusark:rank-sync'), null);
 });
 
 test('provider-less module controls are disabled and clearly request provider setup', () => {

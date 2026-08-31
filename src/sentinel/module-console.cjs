@@ -4,6 +4,14 @@ const { getModule } = require('../backend/modules/catalog.cjs');
 const { usageForModule } = require('./friendly-commands.cjs');
 
 const CUSTOM_ID_PREFIX = 'nexusmod';
+const ARK_PLAYER_ACTION_PREFIX = 'nexusark';
+const ARK_PLAYER_ACTIONS = Object.freeze([
+  { id: 'link', label: 'Link ARK Account', emoji: '🔗', style: 3 },
+  { id: 'link-status', label: 'My Link & Rank', emoji: '🪪', style: 1 },
+  { id: 'cache-guide', label: 'Dino Cache Shop', emoji: '🦖', style: 2 },
+  { id: 'daily-status', label: 'Daily Reward Status', emoji: '🎁', style: 2 },
+  { id: 'weekly-status', label: 'Weekly Reward Status', emoji: '🎁', style: 2 }
+]);
 const POGO_COMMANDS = Object.freeze([
   '/pogo panel', '/pogo profile show', '/pogo profile set', '/pogo friends',
   '/pogo raid list', '/pogo raid create', '/pogo raid rsvp', '/pogo raid cancel',
@@ -14,10 +22,30 @@ const POGO_COMMANDS = Object.freeze([
 ]);
 
 function actionId(moduleId, actionId) { return `${CUSTOM_ID_PREFIX}:${moduleId}:${actionId}`; }
+function arkPlayerActionId(actionId) { return `${ARK_PLAYER_ACTION_PREFIX}:${actionId}`; }
 
 function parseActionId(value) {
   const match = /^nexusmod:([a-z0-9-]+):([a-z0-9-]+)$/.exec(String(value || ''));
   return match ? { moduleId: match[1], actionId: match[2] } : null;
+}
+
+function parseArkPlayerActionId(value) {
+  const match = /^nexusark:([a-z0-9-]+)$/.exec(String(value || ''));
+  if (!match || !ARK_PLAYER_ACTIONS.some((action) => action.id === match[1])) return null;
+  if (match[1] === 'daily-status') return { actionId: match[1], subcommand: 'supporter-cache-status', type: 'daily' };
+  if (match[1] === 'weekly-status') return { actionId: match[1], subcommand: 'supporter-cache-status', type: 'weekly' };
+  if (match[1] === 'cache-guide') return { actionId: match[1], subcommand: 'shop-cache-guide' };
+  return { actionId: match[1], subcommand: match[1] };
+}
+
+function arkPlayerActionRow() {
+  return { type: 1, components: ARK_PLAYER_ACTIONS.map((action) => ({
+    type: 2,
+    style: action.style,
+    label: action.label,
+    emoji: { name: action.emoji },
+    custom_id: arkPlayerActionId(action.id)
+  })) };
 }
 
 function style(cap) {
@@ -61,6 +89,7 @@ function renderModuleConsole(moduleId, backendState = {}) {
   }));
   const rows = [];
   for (let i = 0; i < buttons.length; i += 5) rows.push({ type: 1, components: buttons.slice(i, i + 5) });
+  if (module.id === 'ark') rows.push(arkPlayerActionRow());
   rows.push({ type: 1, components: [
     { type: 2, style: 2, label: 'Commands / Help', custom_id: actionId(module.id, 'help') },
     { type: 2, style: 2, label: 'Refresh', custom_id: actionId(module.id, 'refresh') }
@@ -74,6 +103,11 @@ function renderModuleConsole(moduleId, backendState = {}) {
   if (serviceActions.length) fields.push({
     name: 'Shared Services',
     value: serviceActions.map((id) => `\`${id}\``).join(', ').slice(0, 1000),
+    inline: false
+  });
+  if (module.id === 'ark') fields.push({
+    name: 'Player Shortcuts',
+    value: 'Link your ARK identity, check your synced Nexus rank, review Dino Cache prices, or check supporter reward availability without typing a slash command.',
     inline: false
   });
 
@@ -167,8 +201,12 @@ function renderHelp(moduleId) {
 }
 
 module.exports = {
+  ARK_PLAYER_ACTIONS,
   actionId,
+  arkPlayerActionId,
   parseActionId,
+  parseArkPlayerActionId,
+  arkPlayerActionRow,
   renderModuleConsole,
   renderHelp,
   buttonCapabilities,
