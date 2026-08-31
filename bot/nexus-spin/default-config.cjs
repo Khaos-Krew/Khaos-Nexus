@@ -1,0 +1,54 @@
+'use strict';
+
+function envBool(name, fallback = false) {
+  const value = process.env[name];
+  if (value === undefined || value === null || value === '') return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(String(value).trim().toLowerCase());
+}
+
+function envInt(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isSafeInteger(value) && value > 0 ? value : fallback;
+}
+
+function envList(name) {
+  return String(process.env[name] || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+const rewards = Object.freeze([
+  { id: 'points_25', type: 'points', tier: 'COMMON', label: '25 Nexus Points', amount: 25, weight: 2025 },
+  { id: 'points_50', type: 'points', tier: 'COMMON', label: '50 Nexus Points', amount: 50, weight: 1400 },
+  { id: 'points_100', type: 'points', tier: 'UNCOMMON', label: '100 Nexus Points', amount: 100, weight: 700 },
+  { id: 'points_250', type: 'points', tier: 'RARE', label: '250 Nexus Points', amount: 250, weight: 200 },
+  { id: 'stone_1000', type: 'resource', tier: 'COMMON', label: '1,000 Stone', resourceKey: 'stone', amount: 1000, weight: 1200 },
+  { id: 'wood_1000', type: 'resource', tier: 'COMMON', label: '1,000 Wood', resourceKey: 'wood', amount: 1000, weight: 1000 },
+  { id: 'fiber_1500', type: 'resource', tier: 'COMMON', label: '1,500 Fiber', resourceKey: 'fiber', amount: 1500, weight: 700 },
+  { id: 'metal_ingot_500', type: 'resource', tier: 'UNCOMMON', label: '500 Metal Ingots', resourceKey: 'metal_ingot', amount: 500, weight: 800 },
+  { id: 'cementing_paste_500', type: 'resource', tier: 'UNCOMMON', label: '500 Cementing Paste', resourceKey: 'cementing_paste', amount: 500, weight: 600 },
+  { id: 'crystal_500', type: 'resource', tier: 'UNCOMMON', label: '500 Crystal', resourceKey: 'crystal', amount: 500, weight: 400 },
+  { id: 'polymer_250', type: 'resource', tier: 'RARE', label: '250 Polymer', resourceKey: 'polymer', amount: 250, weight: 350 },
+  { id: 'electronics_250', type: 'resource', tier: 'RARE', label: '250 Electronics', resourceKey: 'electronics', amount: 250, weight: 300 },
+  { id: 'black_pearls_200', type: 'resource', tier: 'RARE', label: '200 Black Pearls', resourceKey: 'black_pearls', amount: 200, weight: 200 },
+  { id: 'element_25', type: 'resource', tier: 'ULTRA', label: '25 Element', resourceKey: 'element', amount: 25, weight: 100 },
+  { id: 'cache_token', type: 'cache_token', tier: 'JACKPOT', label: 'Dino Cache Token', weight: 25 },
+]);
+
+function runtimeDefaults() {
+  return {
+    enabled: envBool('NEXUS_SPIN_ENABLED', false),
+    cooldownSeconds: envInt('NEXUS_SPIN_COOLDOWN_SECONDS', 86400),
+    channelId: String(process.env.NEXUS_SPIN_CHANNEL_ID || '').trim(),
+    resourceDelivery: {
+      enabled: envBool('NEXUS_SPIN_RESOURCE_DELIVERY_ENABLED', false),
+      commandTemplate: String(process.env.NEXUS_SPIN_RESOURCE_COMMAND_TEMPLATE || '').trim(),
+      successPattern: String(process.env.NEXUS_SPIN_RESOURCE_SUCCESS_PATTERN || '').trim(),
+      eligibleMaps: envList('NEXUS_SPIN_RESOURCE_ELIGIBLE_MAPS'),
+    },
+    rewards,
+  };
+}
+
+module.exports = { runtimeDefaults, rewards, envBool, envInt, envList };
