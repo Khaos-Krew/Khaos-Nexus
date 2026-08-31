@@ -6,7 +6,7 @@ const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { CONFIG, cacheForPurchase } = require('./ark-dino-cache-engine.cjs');
 const { DinoCacheStore } = require('./ark-dino-cache-store.cjs');
 const { DinoCacheRedemptionProcessor } = require('./ark-dino-cache-purchase.cjs');
-const { installArkCacheShopExtension } = require('./ark-cache-shop-extension.cjs');
+const { installArkDinoBoxShopExtension } = require('./ark-dino-box-shop-extension.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.dino-cache.runtime');
 let timer = null;
@@ -102,10 +102,10 @@ async function runDinoCacheCycle({ connector = connectMysql, registry = new ArkC
 }
 
 function installDinoCacheRuntime() {
-  installArkCacheShopExtension();
+  installArkDinoBoxShopExtension();
   if (globalThis[INSTALLED]) return false;
   globalThis[INSTALLED] = true;
-  if (!enabled()) { console.log('[dino-cache] legacy ArkShop receipt poller disabled; Discord Cache Shop remains available'); return false; }
+  if (!enabled()) { console.log('[dino-cache] legacy ArkShop receipt poller disabled; Discord #dino-box-shop remains available'); return false; }
   const interval = Math.max(15_000, Math.min(300_000, Number(process.env.NEXUS_DINO_CACHE_POLL_MS || 30_000)));
   const run = () => runDinoCacheCycle().then((result) => console.log('[dino-cache] cycle', JSON.stringify(result))).catch((error) => console.error('[dino-cache] blocked', String(error?.message || error).slice(0, 500)));
   setTimeout(run, 5_000).unref?.();
