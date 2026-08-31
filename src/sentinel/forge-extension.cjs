@@ -5,6 +5,8 @@ const { Client, Events, MessageFlags, PermissionFlagsBits, SlashCommandBuilder }
 const { loadConfig } = require('../shared/config.cjs');
 const { normalizeRequiredOptions } = require('./discord-command-schema.cjs');
 const { ForgeClient } = require('./forge-client.cjs');
+const { currentForgeSelfRepairObserver } = require('./forge-self-repair-extension.cjs');
+const { evaluateManualForgeSubmission } = require('./forge-self-repair-execution-gate.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.forge.extension');
 const PENDING_TTL_MS = 5 * 60 * 1000;
@@ -52,7 +54,15 @@ function forgeCommand() {
         .setName('goal')
         .setDescription('Optional repair guidance; defaults to repairing failed CI')
         .setRequired(false)
-        .setMaxLength(1600)));
+        .setMaxLength(1600)))
+    .addSubcommand((sub) => sub
+      .setName('incident')
+      .setDescription('Load a prepared Self-Repair incident into the Forge confirmation gate')
+      .addStringOption((opt) => opt
+        .setName('incident')
+        .setDescription('Self-Repair incident ID')
+        .setRequired(true)
+        .setMaxLength(24)));
 }
 
 function memberIsForgeOperator(interaction, config) {
@@ -141,19 +151,21 @@ function buildConstraints(actorId) {
   ];
 }
 
-function confirmationPayload(nonce, goal, branch = null) {
+function confirmationPayload(nonce, goal, branch = null, incidentId = null) {
   const title = branch ? 'Repair existing Forge branch?' : 'Send build task to Khaos Nexus Forge?';
   const scope = branch
     ? `Existing branch: \`${branch}\`\nForge will inspect current CI evidence before changing code.`
     : 'Forge may create/update a guarded `forge/*` branch and a **draft PR**.';
+  const lines = [
+    `⚠️ **${title}**`,
+    String(goal).slice(0, 1050),
+    '',
+    scope
+  ];
+  if (incidentId) lines.push(`Self-Repair incident: \`${String(incidentId).slice(0, 40)}\``);
+  lines.push('It still cannot merge or deploy production.');
   return {
-    content: [
-      `⚠️ **${title}**`,
-      String(goal).slice(0, 1100),
-      '',
-      scope,
-      'It still cannot merge or deploy production.'
-    ].join('\n'),
+    content: lines.join('\n').slice(0, 1800),
     components: [{
       type: 1,
       components: [
@@ -172,6 +184,21 @@ function validForgeBranch(value) {
   if (segments.some((segment) => !segment || segment === '.' || segment === '..')) return false;
   if (branch.endsWith('.') || branch.includes('..') || branch.includes('@{') || branch.endsWith('.lock')) return false;
   return true;
+}
+
+function selfRepairTaskFromPrepared(prepared, forgeConfig, actorId) {
+  const gate = evaluateManualForgeSubmission(prepared, { forgeConfig, actorId });
+  if (!gate.allowed) return { gate, task: null };
+  return {
+    gate,
+    task: {
+      userId: String(actorId),
+      goal: gate.goal,
+      branch: gate.branch,
+      incidentId: gate.incidentId,
+      expiresAt: Date.now() + PENDING_TTL_MS
+    }
+  };
 }
 
 function installForgeExtension(options = {}) {
@@ -245,13 +272,30 @@ function installForgeExtension(options = {}) {
           if (action !== 'confirm') return;
 
           pending.delete(nonce);
+          const selfRepairObserver = task.incidentId ? currentForgeSelfRepairObserver() : null;
+          if (selfRepairObserver && task.incidentId) {
+            selfRepairObserver.audit({
+              event: 'forge-task-confirmed',
+              incidentId: task.incidentId,
+              actorId: interaction.user.id,
+              detail: `branch=${task.branch || 'new'} manualConfirmation=true`
+            });
+          }
           await interaction.update({ content: task.branch ? '🛠️ Sending CI-aware branch repair to Khaos Nexus Forge…' : '🔥 Sending the guarded build task to Khaos Nexus Forge…', components: [] });
           const result = await forge.execute(task.goal, {
             branch: task.branch || undefined,
             constraints: buildConstraints(interaction.user.id)
           });
+          if (selfRepairObserver && task.incidentId) {
+            selfRepairObserver.audit({
+              event: 'forge-task-completed',
+              incidentId: task.incidentId,
+              actorId: interaction.user.id,
+              detail: `status=${result.status} branch=${result.branch || task.branch || 'none'} tokens=${result.usage?.totalTokens || 0}`
+            });
+          }
           await interaction.editReply({ content: formatForgeResult(result), components: [] });
-          logger.log?.(`[Nexus Sentinal] Forge execute actor=${interaction.user.id} status=${result.status} branch=${result.branch || 'none'} repair=${Boolean(task.branch)} route=${result.modelRoute || 'unknown'} tokens=${result.usage?.totalTokens || 0}`);
+          logger.log?.(`[Nexus Sentinal] Forge execute actor=${interaction.user.id} status=${result.status} branch=${result.branch || 'none'} repair=${Boolean(task.branch)} incident=${task.incidentId || 'none'} route=${result.modelRoute || 'unknown'} tokens=${result.usage?.totalTokens || 0}`);
           return;
         }
 
@@ -289,6 +333,34 @@ function installForgeExtension(options = {}) {
           return;
         }
 
+        if (sub === 'incident') {
+          const incidentId = String(interaction.options.getString('incident', true)).trim().toUpperCase();
+          const observer = currentForgeSelfRepairObserver();
+          if (!observer) {
+            await interaction.reply({ content: 'Self-Repair is not available in this Sentinel runtime.', flags: MessageFlags.Ephemeral });
+            return;
+          }
+          const prepared = observer.prepareIncident(incidentId);
+          const { gate, task } = selfRepairTaskFromPrepared(prepared, forge.configuration(), interaction.user.id);
+          if (!gate.allowed || !task) {
+            await interaction.reply({
+              content: `Self-Repair incident \`${incidentId}\` is not eligible for Forge submission. Blockers: ${(gate.blockers || ['unknown']).map((item) => `\`${item}\``).join(', ')}`.slice(0, 1800),
+              flags: MessageFlags.Ephemeral
+            });
+            return;
+          }
+          const nonce = crypto.randomBytes(12).toString('hex');
+          pending.set(nonce, task);
+          observer.audit({
+            event: 'forge-handoff-requested',
+            incidentId: task.incidentId,
+            actorId: interaction.user.id,
+            detail: `action=${gate.action} branch=${task.branch || 'new'} aiInvoked=false`
+          });
+          await interaction.reply(confirmationPayload(nonce, task.goal, task.branch, task.incidentId));
+          return;
+        }
+
         if (sub === 'build') {
           const goal = String(interaction.options.getString('goal', true)).trim();
           const nonce = crypto.randomBytes(12).toString('hex');
@@ -296,6 +368,7 @@ function installForgeExtension(options = {}) {
             userId: String(interaction.user.id),
             goal,
             branch: null,
+            incidentId: null,
             expiresAt: Date.now() + PENDING_TTL_MS
           });
           await interaction.reply(confirmationPayload(nonce, goal));
@@ -315,6 +388,7 @@ function installForgeExtension(options = {}) {
             userId: String(interaction.user.id),
             goal,
             branch,
+            incidentId: null,
             expiresAt: Date.now() + PENDING_TTL_MS
           });
           await interaction.reply(confirmationPayload(nonce, goal, branch));
@@ -346,6 +420,8 @@ module.exports = {
   formatForgeResult,
   formatCiStatus,
   buildConstraints,
+  confirmationPayload,
   validForgeBranch,
+  selfRepairTaskFromPrepared,
   installForgeExtension
 };
