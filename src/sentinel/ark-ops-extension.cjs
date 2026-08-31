@@ -5,6 +5,7 @@ const SftpClient = require('ssh2-sftp-client');
 const { loadConfig } = require('../shared/config.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { CACHE_POOLS } = require('./ark-dino-cache-engine.cjs');
+const { runOwnerCacheTest } = require('./ark-dino-cache-test-harness.cjs');
 const { ArkIdentityStore } = require('./ark-identity-store.cjs');
 const { ArkAccountLinkService } = require('./ark-account-linking.cjs');
 const { StateStore } = require('./state-store.cjs');
@@ -75,6 +76,10 @@ function arkCommand() {
     .addStringOption((option) => option.setName('message').setDescription('Message to broadcast.').setRequired(true).setMaxLength(450)));
   command.addSubcommand((sub) => sub.setName('shop-cache').setDescription('Show how to buy a Nexus Dino Cache safely through ArkShop.')
     .addStringOption((option) => option.setName('cache').setDescription('Cache pool and price.').setRequired(true).addChoices(...CACHE_CHOICES)));
+  command.addSubcommand((sub) => sub.setName('shop-cache-test').setDescription('Owner-only no-charge MAP1 Dino Cache delivery test.')
+    .addStringOption((option) => option.setName('cache').setDescription('Cache pool to test.').setRequired(true).addChoices(...CACHE_CHOICES))
+    .addStringOption((option) => option.setName('eos_id').setDescription('Configured MAP1 owner EOS ID.').setRequired(true).setMaxLength(96))
+    .addBooleanOption((option) => option.setName('approved').setDescription('Confirm this no-charge test delivery.').setRequired(true)));
   command.addSubcommand((sub) => sub.setName('shop-reload').setDescription('Reload the ArkShop configuration.'));
   command.addSubcommand((sub) => sub.setName('shop-balance').setDescription('Get ArkShop points for an EOS ID.')
     .addStringOption((option) => option.setName('eos_id').setDescription('Player EOS ID.').setRequired(true).setMaxLength(80)));
@@ -97,6 +102,11 @@ function isStaff(interaction, config) {
   if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
   const operatorRoles = new Set((config.discord?.operatorRoleIds || []).map(String));
   return interaction.member?.roles?.cache?.some?.((role) => operatorRoles.has(String(role.id))) || false;
+}
+
+function isOwner(interaction, config) {
+  const userId = String(interaction.user?.id || '');
+  return (config.discord?.ownerUserIds || []).map(String).includes(userId) || userId === String(interaction.guild?.ownerId || '');
 }
 
 function safeEos(value) {
@@ -344,6 +354,24 @@ async function handleArkInteraction(interaction, context) {
       'Purchase this cache inside the ARK shop. ArkShop performs the charge; Sentinel only processes its verified receipt and delivers the persisted roll.',
       'Discord purchases are disabled so there is one authoritative purchase ledger and no duplicate charge path.'
     ].join('\n').slice(0, 1900), allowedMentions: { parse: [] } });
+    return true;
+  }
+
+  if (sub === 'shop-cache-test') {
+    if (!isOwner(interaction, context.config)) throw new Error('Dino Cache test delivery is restricted to the Nexus owner.');
+    const result = await runOwnerCacheTest({
+      cacheId: interaction.options.getString('cache', true), eosId: interaction.options.getString('eos_id', true),
+      approved: interaction.options.getBoolean('approved', true), rcon: context.rcon
+    });
+    const roll = result.roll || {};
+    await interaction.editReply({ content: [
+      result.state === 'DELIVERED' ? '✅ **No-charge Dino Cache test delivered**' : '⚠️ **Dino Cache test needs manual review**',
+      `State: **${result.state}** • Cache: **${String(result.cacheType || '').toUpperCase()}**`,
+      `Roll: **${roll.species || 'Unknown'}** • level **${roll.level || '?'}** • ${String(roll.variant || 'normal').toUpperCase()}`,
+      `Test transaction: \`${result.id}\``,
+      '**Points charged: 0.** This owner-only harness does not represent a paid ArkShop purchase.',
+      result.state === 'FAILED' ? 'Automatic retry is disabled; verify the owner inventory before any further test.' : ''
+    ].filter(Boolean).join('\n').slice(0, 1900), allowedMentions: { parse: [] } });
     return true;
   }
 
