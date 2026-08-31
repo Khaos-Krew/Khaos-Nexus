@@ -74,6 +74,34 @@ class SupabaseNexusSpinStore {
     };
   }
 
+  async createPaidSpin(spin, cost, payment = {}) {
+    const reward = spin.reward;
+    const amount = Number(cost);
+    if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('Paid Nexus Spin cost must be a positive integer.');
+    const rows = await this.request('/rest/v1/nexus_spin_attempts', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({
+        spin_id: spin.spinId,
+        discord_id: spin.discordId,
+        eos_id: spin.eosId,
+        spin_source: 'POINTS',
+        spin_cost: amount,
+        reward_type: reward.type,
+        reward_key: reward.id,
+        reward_label: reward.label,
+        resource_key: reward.resourceKey || null,
+        amount: reward.amount || null,
+        tier: reward.tier || 'COMMON',
+        weight: reward.weight,
+        status: 'ROLLED',
+        reward_metadata: { payment },
+        created_at: spin.createdAt,
+      }),
+    });
+    return Array.isArray(rows) ? rows[0] : rows;
+  }
+
   async setStatus(spinId, expected, next, metadata = {}) {
     const id = encodeURIComponent(String(spinId));
     const rows = await this.request(`/rest/v1/nexus_spin_attempts?spin_id=eq.${id}&status=eq.${encodeURIComponent(expected)}`, {
