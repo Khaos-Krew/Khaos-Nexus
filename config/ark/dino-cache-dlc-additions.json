@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "groups": {
+    "fantastical-tames": [
+      {
+        "name": "Pyromane",
+        "blueprint": "/Game/ASA/Dinos/FireLion/FireLion_Character_BP.FireLion_Character_BP",
+        "rarity": "ultra"
+      },
+      {
+        "name": "Dreadmare",
+        "blueprint": "/Game/ASA/Dinos/DarkPegasus/DarkPegasus_Character_BP.DarkPegasus_Character_BP",
+        "rarity": "ultra"
+      },
+      {
+        "name": "Burrowbuck",
+        "blueprint": "/Game/ASA/Dinos/Jackalope/Jackalope_Character_BP.Jackalope_Character_BP",
+        "rarity": "ultra"
+      }
+    ],
+    "bobs-tall-tales": [
+      {
+        "name": "Oasisaur",
+        "blueprint": "/Game/Packs/Frontier/Dinos/Oasisaur/Oasisaur_Character_BP.Oasisaur_Character_BP",
+        "rarity": "ultra"
+      },
+      {
+        "name": "Cosmo",
+        "blueprint": "/Game/Packs/Steampunk/Dinos/JumpingSpider/JumpingSpider_Character_BP.JumpingSpider_Character_BP",
+        "rarity": "ultra"
+      },
+      {
+        "name": "Armadoggo",
+        "blueprint": "/Game/Packs/Wasteland/Dinos/Doggo/Doggo_Character_BP.Doggo_Character_BP",
+        "rarity": "ultra"
+      }
+    ]
+  },
+  "caches": {
+    "fantastical-tames": {
+      "displayName": "Fantastical Tames Cache",
+      "emoji": "🐉",
+      "tagline": "A DLC-exclusive roll between Pyromane, Dreadmare, and Burrowbuck.",
+      "disclaimer": "⚠️ DLC REQUIRED: This cache can roll Pyromane, Dreadmare, or Burrowbuck. Only purchase or redeem if you own the required ARK Fantastic Tames entitlement for any result you may roll. Pyromane and Dreadmare use their respective Fantastic Tames entitlements; Burrowbuck requires Fantastic Tames Season 1. Purchase or token redemption does not grant DLC ownership, and missing DLC is not a reroll condition.",
+      "price": 4000,
+      "cooldownHours": 1,
+      "variantWeights": { "normal": 100 },
+      "groups": ["fantastical-tames"],
+      "itemAliases": ["nexus_cache_fantastical_tames"],
+      "maps": ["*"]
+    },
+    "bobs-tall-tales": {
+      "displayName": "Bob's Tall Tales Cache",
+      "emoji": "🤠",
+      "tagline": "A Bob's Tall Tales roll between Oasisaur, Cosmo, and Armadoggo.",
+      "disclaimer": "⚠️ DLC REQUIRED: This cache can roll Oasisaur, Cosmo, or Armadoggo. Bob's Tall Tales ownership is the intended entitlement; Wildcard may also permit some of these creatures through another valid entitlement such as Astraeos. Purchase or token redemption does not grant DLC ownership, missing DLC is not a reroll condition, and Oasisaur remains subject to its normal in-game tribe restrictions.",
+      "price": 4000,
+      "cooldownHours": 1,
+      "variantWeights": { "normal": 100 },
+      "groups": ["bobs-tall-tales"],
+      "itemAliases": ["nexus_cache_bobs_tall_tales"],
+      "maps": ["*"]
+    }
+  }
+}
