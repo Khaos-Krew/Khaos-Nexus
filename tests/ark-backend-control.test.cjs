@@ -44,7 +44,101 @@ test('ARK backend allowlist permits guarded restart but still blocks raw RCON', 
   assert.equal(ALLOWED_ACTIONS.has('config.plan'), true);
   assert.equal(ALLOWED_ACTIONS.has('config.apply'), true);
   assert.equal(ALLOWED_ACTIONS.has('server.restart'), true);
+  assert.equal(ALLOWED_ACTIONS.has('shop.status'), true);
+  assert.equal(ALLOWED_ACTIONS.has('shop.plan'), true);
+  assert.equal(ALLOWED_ACTIONS.has('shop.apply'), true);
+  assert.equal(ALLOWED_ACTIONS.has('shop.rollback'), true);
+  assert.equal(ALLOWED_ACTIONS.has('shop.reload'), true);
   assert.equal(ALLOWED_ACTIONS.has('rcon.raw'), false);
+});
+
+test('ArkShop status and plan report profile drift without exposing protected config', async () => {
+  const server = serverFixture();
+  server.shopProfile = 'arkshop-live';
+  const profile = { id: 'arkshop-live', revision: 4, data: { managedSections: ['Kits'], General: {}, Kits: { starter: { Price: 0 } }, ShopItems: {}, SellItems: {} } };
+  const live = { Mysql: { MysqlPass: 'do-not-expose' }, General: {}, Kits: {}, ShopItems: {}, SellItems: {} };
+  const control = controlFixture({
+    registry: { list: () => [server] },
+    shopProfiles: { get: (id) => id === profile.id ? profile : null },
+    shopApplies: { listForServer: () => [] },
+    readConfig: async () => ({ text: JSON.stringify(live), remoteFile: 'config.json' }),
+    previewArkShopProfile: async () => ({ changed: true, counts: { kits: 1, shopItems: 0, sellItems: 0 }, managedSections: ['Kits'] }),
+    databaseStatus: async () => ({ connected: true, tableExists: true }),
+    env: { ARKSHOP_DB_MODE: 'sqlite' }
+  });
+  const status = await control.execute({ action: 'shop.status', server: 'MAP1', correlationId: 'shop-status-0001' });
+  assert.equal(status.ok, true);
+  assert.equal(status.data.state, 'drift-detected');
+  assert.equal(status.data.maintenanceRequired, true);
+  assert.equal(status.data.liveCounts.kits, 0);
+  assert.equal(status.llmCalls, 0);
+  assert.doesNotMatch(JSON.stringify(status), /do-not-expose|MysqlPass/);
+
+  const plan = await control.execute({ action: 'shop.plan', server: 'MAP1', correlationId: 'shop-plan-000001' });
+  assert.equal(plan.ok, true);
+  assert.match(plan.data.planHash, /^[a-f0-9]{64}$/);
+  assert.equal(plan.data.backupBeforeWrite, true);
+  assert.equal(plan.data.rollbackOnFailure, true);
+  assert.equal(plan.data.restartRequired, false);
+});
+
+test('ArkShop apply requires exact approval and rejects stale live config', async () => {
+  const server = serverFixture();
+  server.shopProfile = 'arkshop-live';
+  const profile = { id: 'arkshop-live', revision: 2, data: { managedSections: [], General: {}, Kits: {}, ShopItems: {}, SellItems: {} } };
+  let live = { General: { ItemsPerPage: 20 }, Kits: {}, ShopItems: {}, SellItems: {} };
+  let applies = 0;
+  const control = controlFixture({
+    registry: { list: () => [server], upsert() {} },
+    shopProfiles: { get: () => profile },
+    shopApplies: { listForServer: () => [] },
+    readConfig: async () => ({ text: JSON.stringify(live), remoteFile: 'config.json' }),
+    previewArkShopProfile: async () => ({ changed: true, counts: { kits: 0, shopItems: 0, sellItems: 0 }, managedSections: [] }),
+    applyArkShopProfile: async (request) => {
+      request.guardCurrent(live);
+      applies += 1;
+      return { transaction: { id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', backup: 'private-backup-path' } };
+    }
+  });
+  const plan = await control.execute({ action: 'shop.plan', server: 'MAP1', correlationId: 'shop-plan-apply01' });
+  const denied = await control.execute({ action: 'shop.apply', server: 'MAP1', planHash: plan.data.planHash, confirmation: 'gen1', correlationId: 'shop-apply-deny01' });
+  assert.equal(denied.ok, false);
+  assert.match(denied.message, /approved=true/);
+  assert.equal(applies, 0);
+
+  live = { ...live, General: { ItemsPerPage: 25 } };
+  const stale = await control.execute({ action: 'shop.apply', server: 'MAP1', planHash: plan.data.planHash, confirmation: 'gen1', approved: true, correlationId: 'shop-apply-stale1' });
+  assert.equal(stale.ok, false);
+  assert.match(stale.message, /stale/i);
+  assert.equal(applies, 0);
+
+  const freshPlan = await control.execute({ action: 'shop.plan', server: 'MAP1', correlationId: 'shop-plan-apply02' });
+  const applied = await control.execute({ action: 'shop.apply', server: 'MAP1', planHash: freshPlan.data.planHash, confirmation: 'gen1', approved: true, correlationId: 'shop-apply-good01' });
+  assert.equal(applied.ok, true);
+  assert.equal(applied.data.backupCreated, true);
+  assert.equal(applied.data.reloadCommand, 'ArkShop.Reload');
+  assert.equal(applied.data.restartRequired, false);
+  assert.equal(applies, 1);
+  assert.doesNotMatch(JSON.stringify(applied), /private-backup-path/);
+});
+
+test('ArkShop rollback and reload require approval and exact map confirmation', async () => {
+  const server = serverFixture();
+  const calls = [];
+  const control = controlFixture({
+    registry: { list: () => [server] },
+    rollbackArkShopTransaction: async ({ transactionId }) => { calls.push(`rollback:${transactionId}`); return { transactionId }; },
+    reloadArkShop: async () => { calls.push('reload'); return { response: 'Reloaded' }; }
+  });
+  const denied = await control.execute({ action: 'shop.reload', server: 'MAP1', approved: true, confirmation: 'map2', correlationId: 'shop-reload-deny1' });
+  assert.equal(denied.ok, false);
+  assert.match(denied.message, /confirmation=gen1/);
+  const reload = await control.execute({ action: 'shop.reload', server: 'MAP1', approved: true, confirmation: 'gen1', correlationId: 'shop-reload-good1' });
+  assert.equal(reload.ok, true);
+  assert.equal(reload.data.acknowledged, true);
+  const rollback = await control.execute({ action: 'shop.rollback', server: 'MAP1', approved: true, confirmation: 'gen1', transactionId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', correlationId: 'shop-rollback-ok1' });
+  assert.equal(rollback.ok, true);
+  assert.deepEqual(calls, ['reload', 'rollback:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee']);
 });
 
 test('shop provider awareness distinguishes ArkShop from Ark Web Shop without exposing paths', () => {
