@@ -21,7 +21,7 @@ function isDirectory(item) {
 function shouldSkipDirectory(name) {
   const value = String(name || '').toLowerCase();
   return new Set([
-    'nexusbackups', 'logs', 'log', 'savedarks', 'savedarkscloud', 'savedarkslocal',
+    'nexusbackups', 'configbackups', 'backups', 'backup', 'logs', 'log', 'savedarks', 'savedarkscloud', 'savedarkslocal',
     'content', 'mods', 'steamapps', 'crashreportclient', 'crashes', 'screenshots'
   ]).has(value);
 }
