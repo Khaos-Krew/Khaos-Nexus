@@ -4,7 +4,6 @@ const { Client, Events, MessageFlags, SlashCommandBuilder, PermissionFlagsBits }
 const SftpClient = require('ssh2-sftp-client');
 const { loadConfig } = require('../shared/config.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
-const { ArkDinoCachePurchaseService } = require('./ark-dino-cache-purchase.cjs');
 const { CACHE_POOLS } = require('./ark-dino-cache-engine.cjs');
 const { ArkIdentityStore } = require('./ark-identity-store.cjs');
 const { ArkAccountLinkService } = require('./ark-account-linking.cjs');
@@ -74,9 +73,8 @@ function arkCommand() {
   command.addSubcommand((sub) => sub.setName('save').setDescription('Save the ARK world.'));
   command.addSubcommand((sub) => sub.setName('broadcast').setDescription('Broadcast a message in ARK.')
     .addStringOption((option) => option.setName('message').setDescription('Message to broadcast.').setRequired(true).setMaxLength(450)));
-  command.addSubcommand((sub) => sub.setName('shop-cache').setDescription('Buy a Nexus Dino Cache and receive the rolled tame in a Dino Ball.')
-    .addStringOption((option) => option.setName('cache').setDescription('Cache pool and price.').setRequired(true).addChoices(...CACHE_CHOICES))
-    .addStringOption((option) => option.setName('eos_id').setDescription('Your ARK EOS player ID.').setRequired(true).setMaxLength(96)));
+  command.addSubcommand((sub) => sub.setName('shop-cache').setDescription('Show how to buy a Nexus Dino Cache safely through ArkShop.')
+    .addStringOption((option) => option.setName('cache').setDescription('Cache pool and price.').setRequired(true).addChoices(...CACHE_CHOICES)));
   command.addSubcommand((sub) => sub.setName('shop-reload').setDescription('Reload the ArkShop configuration.'));
   command.addSubcommand((sub) => sub.setName('shop-balance').setDescription('Get ArkShop points for an EOS ID.')
     .addStringOption((option) => option.setName('eos_id').setDescription('Player EOS ID.').setRequired(true).setMaxLength(80)));
@@ -340,10 +338,12 @@ async function handleArkInteraction(interaction, context) {
   if (sub === 'shop-cache') {
     const cacheId = String(interaction.options.getString('cache', true)).toLowerCase();
     if (!CACHE_POOLS[cacheId]) throw new Error('Unknown Nexus Dino Cache.');
-    const eosId = safeEos(interaction.options.getString('eos_id', true));
-    const service = new ArkDinoCachePurchaseService({ prefix: 'ARK_GEN1', rcon: context.rcon });
-    const result = await service.purchase({ eosId, cacheId });
-    await interaction.editReply({ content: formatCacheResult(result).slice(0, 1900), allowedMentions: { parse: [] } });
+    await interaction.editReply({ content: [
+      `🛒 **${cacheId.toUpperCase()} Dino Cache**`,
+      `Price: **${CACHE_POOLS[cacheId].price} Nexus Points**`,
+      'Purchase this cache inside the ARK shop. ArkShop performs the charge; Sentinel only processes its verified receipt and delivers the persisted roll.',
+      'Discord purchases are disabled so there is one authoritative purchase ledger and no duplicate charge path.'
+    ].join('\n').slice(0, 1900), allowedMentions: { parse: [] } });
     return true;
   }
 

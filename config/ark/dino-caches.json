@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "shinyChance": 0,
+  "levelBuckets": [
+    { "min": 200, "max": 224, "weight": 30 },
+    { "min": 225, "max": 249, "weight": 30 },
+    { "min": 250, "max": 274, "weight": 22 },
+    { "min": 275, "max": 289, "weight": 12 },
+    { "min": 290, "max": 299, "weight": 5 },
+    { "min": 300, "max": 300, "weight": 1 }
+  ],
+  "rarityWeights": { "common": 55, "uncommon": 28, "rare": 13, "ultra": 4 },
+  "variantWeights": { "normal": 93, "x": 5, "s": 2 },
+  "groups": {
+    "coastal": [
+      { "name": "Parasaur", "blueprint": "/Game/PrimalEarth/Dinos/Para/Para_Character_BP.Para_Character_BP", "rarity": "common", "variants": { "x": "/Game/Genesis/Dinos/BiomeVariants/BogPara/Bog_Para_Character_BP.Bog_Para_Character_BP" } },
+      { "name": "Moschops", "blueprint": "/Game/PrimalEarth/Dinos/Moschops/Moschops_Character_BP.Moschops_Character_BP", "rarity": "common" },
+      { "name": "Carbonemys", "blueprint": "/Game/PrimalEarth/Dinos/Turtle/Turtle_Character_BP.Turtle_Character_BP", "rarity": "common" },
+      { "name": "Trike", "blueprint": "/Game/PrimalEarth/Dinos/Trike/Trike_Character_BP.Trike_Character_BP", "rarity": "uncommon", "variants": { "x": "/Game/Genesis/Dinos/BiomeVariants/Volcano_Trike/Volcano_Trike_Character_BP.Volcano_Trike_Character_BP", "s": "/SDinoVariants/S-Trike/S-Trike_Character_BP.S-Trike_Character_BP" } },
+      { "name": "Pteranodon", "blueprint": "/Game/PrimalEarth/Dinos/Ptero/Ptero_Character_BP.Ptero_Character_BP", "rarity": "rare" },
+      { "name": "Ichthyosaurus", "blueprint": "/Game/PrimalEarth/Dinos/Dolphin/Dolphin_Character_BP.Dolphin_Character_BP", "rarity": "rare", "variants": { "x": "/Game/Genesis/Dinos/BiomeVariants/Ocean_Dolphin/Ocean_Dolphin_Character_BP.Ocean_Dolphin_Character_BP" } }
+    ],
+    "forest": [
+      { "name": "Raptor", "blueprint": "/Game/PrimalEarth/Dinos/Raptor/Raptor_Character_BP.Raptor_Character_BP", "rarity": "common", "variants": { "x": "/Game/Genesis/Dinos/BiomeVariants/Bog_Raptor/Bog_Raptor_Character_BP.Bog_Raptor_Character_BP" } },
+      { "name": "Carnotaurus", "blueprint": "/Game/PrimalEarth/Dinos/Carno/Carno_Character_BP.Carno_Character_BP", "rarity": "common" },
+      { "name": "Dire Bear", "blueprint": "/Game/PrimalEarth/Dinos/Direbear/Direbear_Character_BP.Direbear_Character_BP", "rarity": "uncommon", "variants": { "s": "/SDinoVariants/S-Direbear/S-Direbear_Character_BP.S-Direbear_Character_BP" } },
+      { "name": "Therizinosaur", "blueprint": "/Game/PrimalEarth/Dinos/Therizinosaurus/Therizino_Character_BP.Therizino_Character_BP", "rarity": "rare", "variants": { "s": "/SDinoVariants/S-Therizinosaur/S-Therizino_Character_BP.S-Therizino_Character_BP" } },
+      { "name": "Thylacoleo", "blueprint": "/Game/PrimalEarth/Dinos/Thylacoleo/Thylacoleo_Character_BP.Thylacoleo_Character_BP", "rarity": "rare", "variants": { "s": "/SDinoVariants/S-Thylacoleo/S-Thylacoleo_Character_BP.S-Thylacoleo_Character_BP" } },
+      { "name": "Gigantopithecus", "blueprint": "/Game/PrimalEarth/Dinos/Bigfoot/Bigfoot_Character_BP.Bigfoot_Character_BP", "rarity": "ultra" }
+    ],
+    "swamp": [
+      { "name": "Sarco", "blueprint": "/Game/PrimalEarth/Dinos/Sarco/Sarco_Character_BP.Sarco_Character_BP", "rarity": "common" },
+      { "name": "Beelzebufo", "blueprint": "/Game/PrimalEarth/Dinos/Toad/Toad_Character_BP.Toad_Character_BP", "rarity": "common" },
+      { "name": "Kaprosuchus", "blueprint": "/Game/PrimalEarth/Dinos/Kaprosuchus/Kaprosuchus_Character_BP.Kaprosuchus_Character_BP", "rarity": "uncommon" },
+      { "name": "Baryonyx", "blueprint": "/Game/PrimalEarth/Dinos/Baryonyx/Baryonyx_Character_BP.Baryonyx_Character_BP", "rarity": "rare" }
+    ],
+    "mountain": [
+      { "name": "Ankylosaurus", "blueprint": "/Game/PrimalEarth/Dinos/Ankylo/Ankylo_Character_BP.Ankylo_Character_BP", "rarity": "common", "variants": { "x": "/Game/Genesis/Dinos/BiomeVariants/Volcano_Ankylosaurus/Volcano_Ankylo_Character_BP.Volcano_Ankylo_Character_BP", "s": "/SDinoVariants/S-Ankylosaurus/S-Ankylo_Character_BP.S-Ankylo_Character_BP" } },
+      { "name": "Doedicurus", "blueprint": "/Game/PrimalEarth/Dinos/Doedicurus/Doed_Character_BP.Doed_Character_BP", "rarity": "common", "variants": { "s": "/SDinoVariants/S-Doedicurus/S-Doed_Character_BP.S-Doed_Character_BP" } },
+      { "name": "Sabertooth", "blueprint": "/Game/PrimalEarth/Dinos/Saber/Saber_Character_BP.Saber_Character_BP", "rarity": "uncommon", "variants": { "x": "/Game/Genesis/Dinos/BiomeVariants/Snow_Saber/Snow_Saber_Character_BP.Snow_Saber_Character_BP" } },
+      { "name": "Argentavis", "blueprint": "/Game/PrimalEarth/Dinos/Argentavis/Argent_Character_BP.Argent_Character_BP", "rarity": "uncommon", "variants": { "x": "/Game/Genesis/Dinos/BiomeVariants/Snow_Argentavis/Snow_Argent_Character_BP.Snow_Argent_Character_BP", "s": "/SDinoVariants/S-Argentavis/S-Argent_Character_BP.S-Argent_Character_BP" } },
+      { "name": "Allosaurus", "blueprint": "/Game/PrimalEarth/Dinos/Allosaurus/Allo_Character_BP.Allo_Character_BP", "rarity": "rare", "variants": { "x": "/Game/Genesis/Dinos/BiomeVariants/Volcano_Allosaurus/Volcano_Allo_Character_BP.Volcano_Allo_Character_BP", "s": "/SDinoVariants/S-Allosaurus/S-Allo_Character_BP.S-Allo_Character_BP" } },
+      { "name": "Rex", "blueprint": "/Game/PrimalEarth/Dinos/Rex/Rex_Character_BP.Rex_Character_BP", "rarity": "rare", "variants": { "x": "/Game/Genesis/Dinos/BiomeVariants/Volcano_Rex/Volcano_Rex_Character_BP.Volcano_Rex_Character_BP", "s": "/SDinoVariants/S-Rex/S-Rex_Character_BP.S-Rex_Character_BP" } },
+      { "name": "Yutyrannus", "blueprint": "/Game/PrimalEarth/Dinos/Yutyrannus/Yutyrannus_Character_BP.Yutyrannus_Character_BP", "rarity": "ultra", "variants": { "x": "/Game/Genesis/Dinos/BiomeVariants/Snow_Yutyrannus/Snow_Yutyrannus_Character_BP.Snow_Yutyrannus_Character_BP", "s": "/SDinoVariants/S-Yutyrannus/S-Yutyrannus_Character_BP.S-Yutyrannus_Character_BP" } }
+    ],
+    "ocean": [
+      { "name": "Megalodon", "blueprint": "/Game/PrimalEarth/Dinos/Megalodon/Megalodon_Character_BP.Megalodon_Character_BP", "rarity": "common", "variants": { "x": "/Game/Genesis/Dinos/BiomeVariants/Ocean_Megalodon/Ocean_Megalodon_Character_BP.Ocean_Megalodon_Character_BP", "s": "/SDinoVariants/S-Megalodon/S-Megalodon_Character_BP.S-Megalodon_Character_BP" } },
+      { "name": "Angler", "blueprint": "/Game/PrimalEarth/Dinos/Anglerfish/Angler_Character_BP.Angler_Character_BP", "rarity": "common" },
+      { "name": "Dunkleosteus", "blueprint": "/Game/PrimalEarth/Dinos/Dunkleosteus/Dunkle_Character_BP.Dunkle_Character_BP", "rarity": "uncommon", "variants": { "x": "/Game/Genesis/Dinos/BiomeVariants/Ocean_Dunkleosteus/Ocean_Dunkle_Character_BP.Ocean_Dunkle_Character_BP", "s": "/SDinoVariants/S-Dunkleosteus/S-Dunkleosteus_Character_BP.S-Dunkleosteus_Character_BP" } },
+      { "name": "Basilosaurus", "blueprint": "/Game/PrimalEarth/Dinos/Basilosaurus/Basilosaurus_Character_BP.Basilosaurus_Character_BP", "rarity": "rare", "variants": { "x": "/Game/Genesis/Dinos/BiomeVariants/Ocean_Basilosaurus/Ocean_Basilosaurus_Character_BP.Ocean_Basilosaurus_Character_BP", "s": "/SDinoVariants/S-Basilosaurus/S-Basilosaurus_Character_BP.S-Basilosaurus_Character_BP" } },
+      { "name": "Plesiosaur", "blueprint": "/Game/PrimalEarth/Dinos/Plesiosaur/Plesiosaur_Character_BP.Plesiosaur_Character_BP", "rarity": "rare", "variants": { "s": "/SDinoVariants/S-Plesiosaur/S-Plesiosaur_Character_BP.S-Plesiosaur_Character_BP" } },
+      { "name": "Mosasaurus", "blueprint": "/Game/PrimalEarth/Dinos/Mosasaurus/Mosa_Character_BP.Mosa_Character_BP", "rarity": "ultra", "variants": { "x": "/Game/Genesis/Dinos/BiomeVariants/Ocean_Mosasaurus/Ocean_Mosa_Character_BP.Ocean_Mosa_Character_BP", "s": "/SDinoVariants/S-Mosa/S-Mosa_Character_BP.S-Mosa_Character_BP" } }
+    ],
+    "deepcave": [
+      { "name": "Araneo", "blueprint": "/Game/PrimalEarth/Dinos/Spider-Small/SpiderS_Character_BP.SpiderS_Character_BP", "rarity": "common", "variants": { "s": "/SDinoVariants/S-Araneo/S-SpiderS_Character_BP.S-SpiderS_Character_BP" } },
+      { "name": "Arthropluera", "blueprint": "/Game/PrimalEarth/Dinos/Arthropluera/Arthro_Character_BP.Arthro_Character_BP", "rarity": "uncommon" },
+      { "name": "Onyc", "blueprint": "/Game/PrimalEarth/Dinos/Bat/Bat_Character_BP.Bat_Character_BP", "rarity": "uncommon" },
+      { "name": "Megalosaurus", "blueprint": "/Game/PrimalEarth/Dinos/Megalosaurus/Megalosaurus_Character_BP.Megalosaurus_Character_BP", "rarity": "rare", "variants": { "s": "/SDinoVariants/S-Megalosaurus/S-Megalosaurus_Character_BP.S-Megalosaurus_Character_BP" } }
+    ],
+    "apex": [
+      { "name": "Giganotosaurus", "blueprint": "/Game/PrimalEarth/Dinos/Giganotosaurus/Gigant_Character_BP.Gigant_Character_BP", "rarity": "rare" },
+      { "name": "Carcharodontosaurus", "blueprint": "/Game/PrimalEarth/Dinos/Carcharodontosaurus/Carcha_Character_BP.Carcha_Character_BP", "rarity": "rare", "variants": { "s": "/SDinoVariants/S-Carcha/S-Carcha_Character_BP.S-Carcha_Character_BP" } },
+      { "name": "Rhyniognatha", "blueprint": "/Game/PrimalEarth/Dinos/Rhyniognatha/Rhynio_Character_BP.Rhynio_Character_BP", "rarity": "ultra", "variants": { "s": "/SDinoVariants/S-Rhynio/S-Rhynio_Character_BP.S-Rhynio_Character_BP" } }
+    ]
+  },
+  "caches": {
+    "coastal": { "price": 800, "groups": ["coastal"], "itemAliases": ["nexus_cache_coastal"], "maps": ["*"] },
+    "forest": { "price": 1250, "groups": ["forest"], "itemAliases": ["nexus_cache_forest"], "maps": ["*"] },
+    "swamp": { "price": 1400, "groups": ["swamp"], "itemAliases": ["nexus_cache_swamp"], "maps": ["*"] },
+    "mountain": { "price": 1800, "groups": ["mountain"], "itemAliases": ["nexus_cache_mountain"], "maps": ["*"] },
+    "ocean": { "price": 2200, "groups": ["ocean"], "itemAliases": ["nexus_cache_ocean"], "maps": ["*"] },
+    "deepcave": { "price": 2200, "groups": ["deepcave"], "itemAliases": ["nexus_cache_deepcave"], "maps": ["*"] },
+    "apex": { "price": 8000, "cooldownHours": 168, "variantWeights": { "normal": 95, "x": 3.5, "s": 1.5 }, "groups": ["apex"], "itemAliases": ["nexus_cache_apex"], "maps": ["*"] }
+  }
+}

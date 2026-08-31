@@ -100,6 +100,7 @@ async function lookupPlayer(playerId) {
 module.exports = {
   mysqlConfigFromEnv,
   validateMysqlConfig,
+  connectMysql,
   mysqlStatus,
   mysqlSchema,
   lookupPlayer

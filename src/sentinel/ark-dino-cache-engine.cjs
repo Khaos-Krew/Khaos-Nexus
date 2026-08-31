@@ -4,247 +4,140 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const LEVEL_BUCKETS = Object.freeze([
-  { min: 200, max: 219, weight: 30 },
-  { min: 220, max: 239, weight: 25 },
-  { min: 240, max: 259, weight: 20 },
-  { min: 260, max: 279, weight: 15 },
-  { min: 280, max: 294, weight: 8 },
-  { min: 295, max: 300, weight: 2 }
-]);
+const DEFAULT_CONFIG_PATH = path.resolve(__dirname, '../../config/ark/dino-caches.json');
+const VALID_VARIANTS = Object.freeze(['normal', 'x', 's']);
+const object = (value) => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 
-const RARITY_WEIGHTS = Object.freeze({ common: 55, uncommon: 28, rare: 13, ultra: 4 });
-const VARIANT_WEIGHTS = Object.freeze({ normal: 93, x: 5, s: 2 });
-// Shiny outcomes are intentionally disabled for launch until one specific Dino Depot ball
-// can be targeted by a verified Shiny delivery adapter.
+function weights(value, label) {
+  const entries = Object.entries(object(value)).map(([key, weight]) => [String(key).toLowerCase(), Number(weight)]);
+  if (!entries.length || entries.some(([, weight]) => !Number.isFinite(weight) || weight < 0) || !entries.some(([, weight]) => weight > 0)) throw new Error(`${label} must contain a positive finite weight.`);
+  return Object.freeze(Object.fromEntries(entries));
+}
+
+function blueprint(value, label) {
+  const result = String(value || '').trim();
+  if (!/^\/(?:Game|SDinoVariants)\/[A-Za-z0-9_./-]{8,220}$/.test(result)) throw new Error(`${label} has an invalid blueprint path.`);
+  return result;
+}
+
+function loadDinoCacheConfig(file = process.env.NEXUS_DINO_CACHE_CONFIG || DEFAULT_CONFIG_PATH) {
+  const raw = JSON.parse(fs.readFileSync(path.resolve(file), 'utf8'));
+  if (Number(raw.version) !== 1) throw new Error('Unsupported dino-cache configuration version.');
+  if (Number(raw.shinyChance) !== 0) throw new Error('Dino Cache Shiny outcomes must remain disabled.');
+  const levelBuckets = (raw.levelBuckets || []).map((bucket) => Object.freeze({ min: Number(bucket.min), max: Number(bucket.max), weight: Number(bucket.weight) }));
+  const expected = [[200, 224, 30], [225, 249, 30], [250, 274, 22], [275, 289, 12], [290, 299, 5], [300, 300, 1]];
+  if (levelBuckets.length !== expected.length || levelBuckets.some((bucket, index) => bucket.min !== expected[index][0] || bucket.max !== expected[index][1] || bucket.weight !== expected[index][2])) throw new Error('Dino Cache level buckets must match the approved 200-300 distribution exactly.');
+  const rarityWeights = weights(raw.rarityWeights, 'Dino Cache rarity weights');
+  const variantWeights = weights(raw.variantWeights, 'Dino Cache variant weights');
+  if (Object.keys(variantWeights).some((variant) => !VALID_VARIANTS.includes(variant))) throw new Error('Only Normal, X, and S dino variants are supported.');
+
+  const groups = {};
+  for (const [groupId, entries] of Object.entries(object(raw.groups))) {
+    if (!/^[a-z0-9_-]{1,48}$/.test(groupId) || !Array.isArray(entries) || !entries.length) throw new Error(`Invalid dino group: ${groupId}.`);
+    groups[groupId] = Object.freeze(entries.map((entry) => {
+      const variants = {};
+      for (const [variant, value] of Object.entries(object(entry.variants))) {
+        const key = String(variant).toLowerCase();
+        if (!VALID_VARIANTS.includes(key) || key === 'normal') throw new Error(`Unsupported configured variant '${variant}'.`);
+        variants[key] = blueprint(value, `${entry.name} ${key}`);
+      }
+      const rarity = String(entry.rarity || '').toLowerCase();
+      if (!Object.hasOwn(rarityWeights, rarity)) throw new Error(`${entry.name} has an unweighted rarity.`);
+      return Object.freeze({ name: String(entry.name || '').trim().slice(0, 100), blueprint: blueprint(entry.blueprint, entry.name || groupId), rarity, variants: Object.freeze(variants) });
+    }));
+  }
+
+  const caches = {};
+  const aliasIndex = new Map();
+  for (const [cacheId, cache] of Object.entries(object(raw.caches))) {
+    const groupIds = (cache.groups || []).map(String);
+    if (!/^[a-z0-9_-]{1,48}$/.test(cacheId) || !groupIds.length || groupIds.some((id) => !groups[id])) throw new Error(`Invalid groups for dino cache '${cacheId}'.`);
+    const aliases = [...new Set((cache.itemAliases || []).map((value) => String(value).trim().toLowerCase()).filter(Boolean))];
+    if (!aliases.length) throw new Error(`Dino cache '${cacheId}' requires an ArkShop item alias.`);
+    const variantTable = cache.variantWeights ? weights(cache.variantWeights, `${cacheId} variant weights`) : variantWeights;
+    if (Object.keys(variantTable).some((variant) => !VALID_VARIANTS.includes(variant))) throw new Error(`Dino cache '${cacheId}' contains an unsupported variant.`);
+    const price = Number(cache.price);
+    if (!Number.isSafeInteger(price) || price <= 0) throw new Error(`Dino cache '${cacheId}' requires a positive integer price.`);
+    caches[cacheId] = Object.freeze({ price, cooldownHours: Number(cache.cooldownHours || 0), groups: Object.freeze(groupIds), itemAliases: Object.freeze(aliases), maps: Object.freeze((cache.maps || ['*']).map((value) => String(value).toLowerCase())), variantWeights: variantTable, entries: Object.freeze(groupIds.flatMap((id) => groups[id])) });
+    for (const alias of aliases) {
+      if (aliasIndex.has(alias)) throw new Error(`Duplicate Dino Cache ArkShop alias '${alias}'.`);
+      aliasIndex.set(alias, cacheId);
+    }
+  }
+  return Object.freeze({ version: 1, shinyChance: 0, levelBuckets: Object.freeze(levelBuckets), rarityWeights, variantWeights, groups: Object.freeze(groups), caches: Object.freeze(caches), aliasIndex });
+}
+
+const CONFIG = loadDinoCacheConfig();
+const { levelBuckets: LEVEL_BUCKETS, rarityWeights: RARITY_WEIGHTS, variantWeights: VARIANT_WEIGHTS, caches: CACHE_POOLS } = CONFIG;
 const SHINY_CHANCE = 0;
 
-function dino(name, blueprint, rarity = 'common', variants = {}) {
-  return Object.freeze({ name, blueprint, rarity, variants: Object.freeze({ ...variants }) });
-}
-
-const CACHE_POOLS = Object.freeze({
-  coastal: Object.freeze({
-    price: 800,
-    entries: Object.freeze([
-      dino('Parasaur', '/Game/PrimalEarth/Dinos/Para/Para_Character_BP.Para_Character_BP', 'common', { x: '/Game/Genesis/Dinos/BiomeVariants/BogPara/Bog_Para_Character_BP.Bog_Para_Character_BP' }),
-      dino('Moschops', '/Game/PrimalEarth/Dinos/Moschops/Moschops_Character_BP.Moschops_Character_BP', 'common'),
-      dino('Carbonemys', '/Game/PrimalEarth/Dinos/Turtle/Turtle_Character_BP.Turtle_Character_BP', 'common'),
-      dino('Trike', '/Game/PrimalEarth/Dinos/Trike/Trike_Character_BP.Trike_Character_BP', 'uncommon', { x: '/Game/Genesis/Dinos/BiomeVariants/Volcano_Trike/Volcano_Trike_Character_BP.Volcano_Trike_Character_BP', s: '/SDinoVariants/S-Trike/S-Trike_Character_BP.S-Trike_Character_BP' }),
-      dino('Pteranodon', '/Game/PrimalEarth/Dinos/Ptero/Ptero_Character_BP.Ptero_Character_BP', 'rare'),
-      dino('Ichthyosaurus', '/Game/PrimalEarth/Dinos/Dolphin/Dolphin_Character_BP.Dolphin_Character_BP', 'rare', { x: '/Game/Genesis/Dinos/BiomeVariants/Ocean_Dolphin/Ocean_Dolphin_Character_BP.Ocean_Dolphin_Character_BP' })
-    ])
-  }),
-  forest: Object.freeze({
-    price: 1250,
-    entries: Object.freeze([
-      dino('Raptor', '/Game/PrimalEarth/Dinos/Raptor/Raptor_Character_BP.Raptor_Character_BP', 'common', { x: '/Game/Genesis/Dinos/BiomeVariants/Bog_Raptor/Bog_Raptor_Character_BP.Bog_Raptor_Character_BP' }),
-      dino('Carnotaurus', '/Game/PrimalEarth/Dinos/Carno/Carno_Character_BP.Carno_Character_BP', 'common'),
-      dino('Dire Bear', '/Game/PrimalEarth/Dinos/Direbear/Direbear_Character_BP.Direbear_Character_BP', 'uncommon', { s: '/SDinoVariants/S-Direbear/S-Direbear_Character_BP.S-Direbear_Character_BP' }),
-      dino('Therizinosaur', '/Game/PrimalEarth/Dinos/Therizinosaurus/Therizino_Character_BP.Therizino_Character_BP', 'rare', { s: '/SDinoVariants/S-Therizinosaur/S-Therizino_Character_BP.S-Therizino_Character_BP' }),
-      dino('Thylacoleo', '/Game/PrimalEarth/Dinos/Thylacoleo/Thylacoleo_Character_BP.Thylacoleo_Character_BP', 'rare', { s: '/SDinoVariants/S-Thylacoleo/S-Thylacoleo_Character_BP.S-Thylacoleo_Character_BP' }),
-      dino('Gigantopithecus', '/Game/PrimalEarth/Dinos/Bigfoot/Bigfoot_Character_BP.Bigfoot_Character_BP', 'ultra')
-    ])
-  }),
-  swamp: Object.freeze({
-    price: 1400,
-    entries: Object.freeze([
-      dino('Sarco', '/Game/PrimalEarth/Dinos/Sarco/Sarco_Character_BP.Sarco_Character_BP', 'common'),
-      dino('Beelzebufo', '/Game/PrimalEarth/Dinos/Toad/Toad_Character_BP.Toad_Character_BP', 'common'),
-      dino('Kaprosuchus', '/Game/PrimalEarth/Dinos/Kaprosuchus/Kaprosuchus_Character_BP.Kaprosuchus_Character_BP', 'uncommon'),
-      dino('Baryonyx', '/Game/PrimalEarth/Dinos/Baryonyx/Baryonyx_Character_BP.Baryonyx_Character_BP', 'rare')
-    ])
-  }),
-  mountain: Object.freeze({
-    price: 1800,
-    entries: Object.freeze([
-      dino('Ankylosaurus', '/Game/PrimalEarth/Dinos/Ankylo/Ankylo_Character_BP.Ankylo_Character_BP', 'common', { x: '/Game/Genesis/Dinos/BiomeVariants/Volcano_Ankylosaurus/Volcano_Ankylo_Character_BP.Volcano_Ankylo_Character_BP', s: '/SDinoVariants/S-Ankylosaurus/S-Ankylo_Character_BP.S-Ankylo_Character_BP' }),
-      dino('Doedicurus', '/Game/PrimalEarth/Dinos/Doedicurus/Doed_Character_BP.Doed_Character_BP', 'common', { s: '/SDinoVariants/S-Doedicurus/S-Doed_Character_BP.S-Doed_Character_BP' }),
-      dino('Sabertooth', '/Game/PrimalEarth/Dinos/Saber/Saber_Character_BP.Saber_Character_BP', 'uncommon', { x: '/Game/Genesis/Dinos/BiomeVariants/Snow_Saber/Snow_Saber_Character_BP.Snow_Saber_Character_BP' }),
-      dino('Argentavis', '/Game/PrimalEarth/Dinos/Argentavis/Argent_Character_BP.Argent_Character_BP', 'uncommon', { x: '/Game/Genesis/Dinos/BiomeVariants/Snow_Argentavis/Snow_Argent_Character_BP.Snow_Argent_Character_BP', s: '/SDinoVariants/S-Argentavis/S-Argent_Character_BP.S-Argent_Character_BP' }),
-      dino('Allosaurus', '/Game/PrimalEarth/Dinos/Allosaurus/Allo_Character_BP.Allo_Character_BP', 'rare', { x: '/Game/Genesis/Dinos/BiomeVariants/Volcano_Allosaurus/Volcano_Allo_Character_BP.Volcano_Allo_Character_BP', s: '/SDinoVariants/S-Allosaurus/S-Allo_Character_BP.S-Allo_Character_BP' }),
-      dino('Rex', '/Game/PrimalEarth/Dinos/Rex/Rex_Character_BP.Rex_Character_BP', 'rare', { x: '/Game/Genesis/Dinos/BiomeVariants/Volcano_Rex/Volcano_Rex_Character_BP.Volcano_Rex_Character_BP', s: '/SDinoVariants/S-Rex/S-Rex_Character_BP.S-Rex_Character_BP' }),
-      dino('Yutyrannus', '/Game/PrimalEarth/Dinos/Yutyrannus/Yutyrannus_Character_BP.Yutyrannus_Character_BP', 'ultra', { x: '/Game/Genesis/Dinos/BiomeVariants/Snow_Yutyrannus/Snow_Yutyrannus_Character_BP.Snow_Yutyrannus_Character_BP', s: '/SDinoVariants/S-Yutyrannus/S-Yutyrannus_Character_BP.S-Yutyrannus_Character_BP' })
-    ])
-  }),
-  ocean: Object.freeze({
-    price: 2200,
-    entries: Object.freeze([
-      dino('Megalodon', '/Game/PrimalEarth/Dinos/Megalodon/Megalodon_Character_BP.Megalodon_Character_BP', 'common', { x: '/Game/Genesis/Dinos/BiomeVariants/Ocean_Megalodon/Ocean_Megalodon_Character_BP.Ocean_Megalodon_Character_BP', s: '/SDinoVariants/S-Megalodon/S-Megalodon_Character_BP.S-Megalodon_Character_BP' }),
-      dino('Angler', '/Game/PrimalEarth/Dinos/Anglerfish/Angler_Character_BP.Angler_Character_BP', 'common'),
-      dino('Dunkleosteus', '/Game/PrimalEarth/Dinos/Dunkleosteus/Dunkle_Character_BP.Dunkle_Character_BP', 'uncommon', { x: '/Game/Genesis/Dinos/BiomeVariants/Ocean_Dunkleosteus/Ocean_Dunkle_Character_BP.Ocean_Dunkle_Character_BP', s: '/SDinoVariants/S-Dunkleosteus/S-Dunkle_Character_BP.S-Dunkle_Character_BP' }),
-      dino('Basilosaurus', '/Game/PrimalEarth/Dinos/Basilosaurus/Basilosaurus_Character_BP.Basilosaurus_Character_BP', 'rare', { x: '/Game/Genesis/Dinos/BiomeVariants/Ocean_Basilosaurus/Ocean_Basilosaurus_Character_BP.Ocean_Basilosaurus_Character_BP', s: '/SDinoVariants/S-Basilosaurus/S-Basilosaurus_Character_BP.S-Basilosaurus_Character_BP' }),
-      dino('Plesiosaur', '/Game/PrimalEarth/Dinos/Plesiosaur/Plesiosaur_Character_BP.Plesiosaur_Character_BP', 'rare', { s: '/SDinoVariants/S-Plesiosaur/S-Plesiosaur_Character_BP.S-Plesiosaur_Character_BP' }),
-      dino('Mosasaurus', '/Game/PrimalEarth/Dinos/Mosasaurus/Mosa_Character_BP.Mosa_Character_BP', 'ultra', { x: '/Game/Genesis/Dinos/BiomeVariants/Ocean_Mosasaurus/Ocean_Mosa_Character_BP.Ocean_Mosa_Character_BP', s: '/SDinoVariants/S-Mosa/S-Mosa_Character_BP.S-Mosa_Character_BP' })
-    ])
-  }),
-  deepcave: Object.freeze({
-    price: 2200,
-    entries: Object.freeze([
-      dino('Araneo', '/Game/PrimalEarth/Dinos/Spider-Small/SpiderS_Character_BP.SpiderS_Character_BP', 'common', { s: '/SDinoVariants/S-Araneo/S-SpiderS_Character_BP.S-SpiderS_Character_BP' }),
-      dino('Arthropluera', '/Game/PrimalEarth/Dinos/Arthropluera/Arthro_Character_BP.Arthro_Character_BP', 'uncommon'),
-      dino('Onyc', '/Game/PrimalEarth/Dinos/Bat/Bat_Character_BP.Bat_Character_BP', 'uncommon'),
-      dino('Megalosaurus', '/Game/PrimalEarth/Dinos/Megalosaurus/Megalosaurus_Character_BP.Megalosaurus_Character_BP', 'rare', { s: '/SDinoVariants/S-Megalosaurus/S-Megalosaurus_Character_BP.S-Megalosaurus_Character_BP' })
-    ])
-  }),
-  apex: Object.freeze({
-    price: 8000,
-    cooldownHours: 168,
-    variantWeights: Object.freeze({ normal: 95, x: 3.5, s: 1.5 }),
-    entries: Object.freeze([
-      dino('Giganotosaurus', '/Game/PrimalEarth/Dinos/Giganotosaurus/Gigant_Character_BP.Gigant_Character_BP', 'rare'),
-      dino('Carcharodontosaurus', '/Game/PrimalEarth/Dinos/Carcharodontosaurus/Carcha_Character_BP.Carcha_Character_BP', 'rare', { s: '/SDinoVariants/S-Carcha/S-Carcha_Character_BP.S-Carcha_Character_BP' }),
-      dino('Rhyniognatha', '/Game/PrimalEarth/Dinos/Rhyniognatha/Rhynio_Character_BP.Rhynio_Character_BP', 'ultra', { s: '/SDinoVariants/S-Rhynio/S-Rhynio_Character_BP.S-Rhynio_Character_BP' })
-    ])
-  })
-});
-
-function randomFloat() {
-  return crypto.randomInt(0, 1_000_000_000) / 1_000_000_000;
-}
-
 function normalizeRng(rng) {
-  const fn = typeof rng === 'function' ? rng : randomFloat;
+  const fn = typeof rng === 'function' ? rng : () => crypto.randomInt(0, 1_000_000_000) / 1_000_000_000;
   return () => {
-    const n = Number(fn());
-    if (!Number.isFinite(n) || n < 0 || n >= 1) throw new Error('Dino cache RNG must produce a number in [0, 1).');
-    return n;
+    const value = Number(fn());
+    if (!Number.isFinite(value) || value < 0 || value >= 1) throw new Error('Dino cache RNG must produce a number in [0, 1).');
+    return value;
   };
 }
 
-function weightedPick(items, weightOf, rng) {
+function deterministicRng(secret, identity) {
+  const key = String(secret || '');
+  if (key.length < 32) throw new Error('NEXUS_DINO_CACHE_RNG_SECRET must contain at least 32 characters.');
+  const seed = crypto.createHmac('sha256', key).update(String(identity || '')).digest();
+  let counter = 0;
+  return () => crypto.createHmac('sha256', seed).update(String(counter++)).digest().readUInt32BE(0) / 0x1_0000_0000;
+}
+
+function weightedPick(items, weightOf, rngInput) {
+  const rng = normalizeRng(rngInput);
   if (!Array.isArray(items) || !items.length) throw new Error('Cannot select from an empty weighted list.');
-  const weights = items.map((item) => Number(weightOf(item)) || 0);
-  const total = weights.reduce((sum, weight) => sum + Math.max(0, weight), 0);
+  const itemWeights = items.map((item) => Math.max(0, Number(weightOf(item)) || 0));
+  const total = itemWeights.reduce((sum, weight) => sum + weight, 0);
   if (!(total > 0)) throw new Error('Weighted list has no positive weight.');
   let cursor = rng() * total;
-  for (let i = 0; i < items.length; i += 1) {
-    cursor -= Math.max(0, weights[i]);
-    if (cursor < 0) return items[i];
-  }
+  for (let index = 0; index < items.length; index += 1) { cursor -= itemWeights[index]; if (cursor < 0) return items[index]; }
   return items.at(-1);
 }
 
-function rollLevel(rngInput) {
+function rollLevel(rngInput, config = CONFIG) {
   const rng = normalizeRng(rngInput);
-  const bucket = weightedPick(LEVEL_BUCKETS, (entry) => entry.weight, rng);
-  const width = bucket.max - bucket.min + 1;
-  return bucket.min + Math.floor(rng() * width);
+  const bucket = weightedPick(config.levelBuckets, (entry) => entry.weight, rng);
+  return bucket.min + Math.floor(rng() * (bucket.max - bucket.min + 1));
 }
 
-function rollSpecies(pool, rngInput) {
+function rollSpecies(pool, rngInput, config = CONFIG) {
   const rng = normalizeRng(rngInput);
   const entries = Array.isArray(pool?.entries) ? pool.entries : [];
   if (!entries.length) throw new Error('Dino cache pool has no species.');
-  const availableRarities = Object.keys(RARITY_WEIGHTS).filter((rarity) => entries.some((entry) => entry.rarity === rarity));
-  const rarity = weightedPick(availableRarities, (key) => RARITY_WEIGHTS[key], rng);
-  const candidates = entries.filter((entry) => entry.rarity === rarity);
-  return weightedPick(candidates, () => 1, rng);
+  const rarities = Object.keys(config.rarityWeights).filter((rarity) => entries.some((entry) => entry.rarity === rarity));
+  const rarity = weightedPick(rarities, (key) => config.rarityWeights[key], rng);
+  return weightedPick(entries.filter((entry) => entry.rarity === rarity), () => 1, rng);
 }
 
-function rollVariant(entry, weights, rngInput) {
+function rollVariant(entry, weightTable, rngInput) {
   const rng = normalizeRng(rngInput);
-  const table = weights || VARIANT_WEIGHTS;
-  const requested = weightedPick(Object.keys(table), (key) => table[key], rng);
-  if (requested === 'normal') return { requested, applied: 'normal', fallback: false, blueprint: entry?.blueprint };
-  const variantBlueprint = entry?.variants?.[requested];
-  const supported = typeof variantBlueprint === 'string' && variantBlueprint.startsWith('/');
-  return { requested, applied: supported ? requested : 'normal', fallback: !supported, blueprint: supported ? variantBlueprint : entry?.blueprint };
+  const eligible = ['normal', ...Object.keys(entry?.variants || {}).filter((variant) => VALID_VARIANTS.includes(variant))].filter((variant) => Number(weightTable?.[variant] || 0) > 0);
+  const applied = weightedPick(eligible, (variant) => weightTable[variant], rng);
+  return { requested: applied, applied, fallback: false, blueprint: applied === 'normal' ? entry.blueprint : entry.variants[applied] };
 }
 
-function rollShiny() {
-  return false;
-}
-
-function rollCache(cacheId, rngInput) {
-  const pool = CACHE_POOLS[String(cacheId || '').toLowerCase()];
-  if (!pool) throw new Error(`Unknown or not-yet-verified dino cache: ${cacheId}.`);
+function rollCache(cacheId, rngInput, config = CONFIG) {
+  const id = String(cacheId || '').toLowerCase();
+  const pool = config.caches[id];
+  if (!pool) throw new Error(`Unknown dino cache: ${cacheId}.`);
   const rng = normalizeRng(rngInput);
-  const species = rollSpecies(pool, rng);
-  const level = rollLevel(rng);
-  const variant = rollVariant(species, pool.variantWeights || VARIANT_WEIGHTS, rng);
-  return Object.freeze({
-    cacheId: String(cacheId).toLowerCase(),
-    price: pool.price,
-    species: species.name,
-    blueprint: variant.blueprint,
-    rarity: species.rarity,
-    level,
-    variantRequested: variant.requested,
-    variant: variant.applied,
-    variantFallback: variant.fallback,
-    shiny: false,
-    jackpot: (variant.applied === 'x' || variant.applied === 's') ? 'variant' : 'normal'
-  });
+  const species = rollSpecies(pool, rng, config);
+  const level = rollLevel(rng, config);
+  const variant = rollVariant(species, pool.variantWeights || config.variantWeights, rng);
+  return Object.freeze({ cacheId: id, price: pool.price, species: species.name, blueprint: variant.blueprint, rarity: species.rarity, level, variantRequested: variant.requested, variant: variant.applied, variantFallback: false, shiny: false, jackpot: variant.applied === 'normal' ? 'normal' : 'variant' });
 }
 
-function cleanId(value, max = 96) {
-  return String(value || '').replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, max);
+function cacheForPurchase(itemName, mapName, config = CONFIG) {
+  const id = config.aliasIndex.get(String(itemName || '').trim().toLowerCase());
+  if (!id) return null;
+  const cache = config.caches[id];
+  const map = String(mapName || '').trim().toLowerCase();
+  return cache.maps.includes('*') || cache.maps.includes(map) ? { id, ...cache } : null;
 }
 
-class DinoCacheJournal {
-  constructor(root = process.env.NEXUS_DATA_DIR || path.resolve(__dirname, '../..', 'data')) {
-    this.dir = path.resolve(root);
-    this.file = path.join(this.dir, 'ark-dino-cache-transactions.json');
-  }
-
-  read() {
-    try {
-      const parsed = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-      return { version: 1, transactions: Array.isArray(parsed?.transactions) ? parsed.transactions.slice(-5000) : [] };
-    } catch {
-      return { version: 1, transactions: [] };
-    }
-  }
-
-  write(state) {
-    fs.mkdirSync(this.dir, { recursive: true });
-    const safe = { version: 1, updatedAt: new Date().toISOString(), transactions: (state.transactions || []).slice(-5000) };
-    const tmp = `${this.file}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(safe, null, 2));
-    fs.renameSync(tmp, this.file);
-    return safe;
-  }
-
-  create({ eosId, cacheId, roll, price } = {}) {
-    const tx = {
-      id: crypto.randomUUID(),
-      eosId: cleanId(eosId, 96),
-      cacheId: cleanId(cacheId, 32),
-      price: Number(price) || 0,
-      state: 'prepared',
-      roll,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      error: ''
-    };
-    if (!tx.eosId || !tx.cacheId || tx.price <= 0) throw new Error('Dino cache transaction requires EOS id, cache id, and positive price.');
-    const state = this.read();
-    state.transactions.push(tx);
-    this.write(state);
-    return JSON.parse(JSON.stringify(tx));
-  }
-
-  transition(id, nextState, error = '') {
-    const allowed = {
-      prepared: new Set(['charged', 'cancelled']),
-      charged: new Set(['delivered', 'refund_pending']),
-      refund_pending: new Set(['refunded']),
-      delivered: new Set(), refunded: new Set(), cancelled: new Set()
-    };
-    const state = this.read();
-    const tx = state.transactions.find((item) => item.id === id);
-    if (!tx) throw new Error('Unknown dino cache transaction.');
-    if (!allowed[tx.state]?.has(nextState)) throw new Error(`Invalid dino cache transaction transition: ${tx.state} -> ${nextState}.`);
-    tx.state = nextState;
-    tx.updatedAt = new Date().toISOString();
-    tx.error = String(error || '').replace(/[\r\n]+/g, ' ').slice(0, 300);
-    this.write(state);
-    return JSON.parse(JSON.stringify(tx));
-  }
-}
-
-module.exports = {
-  LEVEL_BUCKETS, RARITY_WEIGHTS, VARIANT_WEIGHTS, SHINY_CHANCE, CACHE_POOLS,
-  weightedPick, rollLevel, rollSpecies, rollVariant, rollShiny, rollCache, DinoCacheJournal
-};
+module.exports = { DEFAULT_CONFIG_PATH, VALID_VARIANTS, CONFIG, LEVEL_BUCKETS, RARITY_WEIGHTS, VARIANT_WEIGHTS, SHINY_CHANCE, CACHE_POOLS, loadDinoCacheConfig, deterministicRng, weightedPick, rollLevel, rollSpecies, rollVariant, rollCache, cacheForPurchase };
