@@ -10,6 +10,7 @@ const {
   startupIssueLines,
   crashRelevantLines,
   tailLogLines,
+  parseLoadedMods,
   parseLoadedModIds,
   parseArkVersion,
   startupReadiness,
@@ -93,6 +94,10 @@ test('ARK log parser detects unique CurseForge project ids and ARK version', () 
     'Loading Mod ShooterGame/Mods/83374/942249_6567374/FC_ArkShopUI/Content/Other.uasset : 942249'
   ].join('\n');
   assert.deepEqual(parseLoadedModIds(source), ['942249', '955333']);
+  assert.deepEqual(parseLoadedMods(source), [
+    { id: '942249', nameHint: 'FC Ark Shop UI' },
+    { id: '955333', nameHint: 'Asa Api Utils' }
+  ]);
   assert.equal(parseArkVersion(source), '93.7');
   assert.equal(parseArkVersion('no version'), '');
 });
