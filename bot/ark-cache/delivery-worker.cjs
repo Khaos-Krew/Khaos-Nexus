@@ -14,9 +14,7 @@ function cleanToken(value, label) {
 function renderCommandTemplate(template, purchase) {
   const source = String(template || '').trim();
   if (!source) throw new Error('Dino Depot commandTemplate is not configured. Delivery remains disabled until the verified command syntax is supplied.');
-  if (!source.includes('{eosId}') || !source.includes('{blueprintPath}')) {
-    throw new Error('Dino Depot commandTemplate must include {eosId} and {blueprintPath}.');
-  }
+  if (!source.includes('{eosId}') || !source.includes('{blueprintPath}')) throw new Error('Dino Depot commandTemplate must include {eosId} and {blueprintPath}.');
 
   const values = {
     eosId: cleanToken(purchase.eosId, 'EOS ID'),
@@ -25,7 +23,6 @@ function renderCommandTemplate(template, purchase) {
     sex: cleanToken(purchase.reward?.sex, 'Sex'),
     cacheId: cleanToken(purchase.cacheId, 'Cache ID'),
   };
-
   return source.replace(/\{(eosId|blueprintPath|level|sex|cacheId)\}/g, (_, key) => values[key]);
 }
 
@@ -48,9 +45,8 @@ function eligibleArkServers(servers, purchase) {
 async function findOnlineServer(purchase, servers, options = {}) {
   const connectionFactory = options.connectionFactory || ((server) => new ServerConnection(server));
   for (const server of eligibleArkServers(servers, purchase)) {
-    let connection;
     try {
-      connection = connectionFactory(server);
+      const connection = connectionFactory(server);
       const players = await connection.action('raw', { command: 'ListPlayers' });
       if (playerListContainsEos(players, purchase.eosId)) return { server, connection, players };
     } catch (error) {
@@ -73,10 +69,15 @@ function classifyDeliveryError(error) {
   return 'DELIVERY_UNKNOWN';
 }
 
-async function deliverPurchase(purchase, serverMatch, deliveryConfig = {}, options = {}) {
-  const command = renderCommandTemplate(deliveryConfig.commandTemplate, purchase);
-  const connection = serverMatch?.connection || new ServerConnection(serverMatch.server);
+async function deliverPurchase(purchase, serverMatch, deliveryConfig = {}) {
+  let command;
+  try {
+    command = renderCommandTemplate(deliveryConfig.commandTemplate, purchase);
+  } catch (error) {
+    return { status: 'DELIVERY_FAILED', command: null, error, reason: error.message, preSend: true };
+  }
 
+  const connection = serverMatch?.connection || new ServerConnection(serverMatch.server);
   try {
     const response = await connection.action('raw', { command });
     if (!responseConfirmsDelivery(response, deliveryConfig.successPattern)) {
@@ -89,18 +90,18 @@ async function deliverPurchase(purchase, serverMatch, deliveryConfig = {}, optio
     }
     return { status: 'DELIVERED', command, response };
   } catch (error) {
-    return {
-      status: classifyDeliveryError(error),
-      command,
-      error,
-      reason: error?.message || 'RCON delivery failed.',
-    };
+    return { status: classifyDeliveryError(error), command, error, reason: error?.message || 'RCON delivery failed.' };
   }
 }
 
 async function processPendingDeliveries({ store, servers, deliveryConfig, logger = console, limit = 20, connectionFactory }) {
-  if (!store || typeof store.listAwaiting !== 'function' || typeof store.lockDelivery !== 'function') {
-    throw new Error('A cache delivery store implementing listAwaiting() and lockDelivery() is required.');
+  if (!store || typeof store.listAwaiting !== 'function' || typeof store.lockDelivery !== 'function' || typeof store.markDelivering !== 'function') {
+    throw new Error('A cache delivery store implementing listAwaiting(), lockDelivery(), and markDelivering() is required.');
+  }
+  if (!deliveryConfig?.enabled) return [];
+  if (!String(deliveryConfig.commandTemplate || '').trim()) {
+    logger.warn?.('[ark-cache] Dino Depot delivery is enabled but commandTemplate is empty; leaving rewards queued.');
+    return [];
   }
 
   const pending = await store.listAwaiting(Math.max(1, Math.min(100, Number(limit) || 20)));
@@ -110,10 +111,12 @@ async function processPendingDeliveries({ store, servers, deliveryConfig, logger
     const online = await findOnlineServer(candidate, servers, { logger, connectionFactory });
     if (!online) continue;
 
-    const purchase = await store.lockDelivery(candidate.cacheId);
+    const locked = await store.lockDelivery(candidate.cacheId);
+    if (!locked) continue;
+    const purchase = await store.markDelivering(locked.cacheId);
     if (!purchase) continue;
 
-    const result = await deliverPurchase(purchase, online, deliveryConfig, { logger });
+    const result = await deliverPurchase(purchase, online, deliveryConfig);
     const mapName = online.server.name || online.server.id;
 
     if (result.status === 'DELIVERED') {
@@ -123,7 +126,6 @@ async function processPendingDeliveries({ store, servers, deliveryConfig, logger
     } else {
       await store.markUnknown(purchase.cacheId, { mapName, reason: result.reason, response: result.response });
     }
-
     results.push({ cacheId: purchase.cacheId, mapName, status: result.status });
   }
 
