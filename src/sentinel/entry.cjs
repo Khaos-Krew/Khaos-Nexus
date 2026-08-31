@@ -49,6 +49,7 @@ const { installArkUpdateSafetyExtension } = require('./ark-update-safety-extensi
 const { installArkRestartSchedulerExtension } = require('./ark-restart-scheduler-extension.cjs');
 const { installArkConfigDbExtension } = require('./ark-config-db-extension.cjs');
 const { installArkClusterExtension } = require('./ark-cluster-extension.cjs');
+const { installArkAdditionalRegistryBootstrapExtension } = require('./ark-additional-registry-bootstrap-extension.cjs');
 const { installArkClusterMetadataExtension } = require('./ark-cluster-metadata-extension.cjs');
 const { installArkConfigProfileExtension } = require('./ark-config-profile-extension.cjs');
 const { installArkShopProfileExtension } = require('./arkshop-profile-extension.cjs');
@@ -100,6 +101,7 @@ installArkUpdateSafetyExtension({ prefix: 'ARK_GEN1' });
 installArkRestartSchedulerExtension({ prefix: 'ARK_GEN1' });
 installArkConfigDbExtension();
 installArkClusterExtension();
+installArkAdditionalRegistryBootstrapExtension();
 installArkClusterMetadataExtension();
 installArkConfigProfileExtension();
 installArkShopProfileExtension();
