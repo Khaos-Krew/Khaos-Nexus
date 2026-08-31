@@ -130,6 +130,27 @@ class NexusSpinService {
       if (error?.code === 'INSUFFICIENT_ARKSHOP_POINTS') {
         error.code = 'NEXUS_SPIN_INSUFFICIENT_POINTS';
         error.pointSpinCost = cost;
+        throw error;
+      }
+      if (error?.code === 'ARKSHOP_DEBIT_UNKNOWN' || error?.code === 'ARKSHOP_DEBIT_VERIFICATION_FAILED') {
+        let reviewRecorded = false;
+        try {
+          await this.store.createPaymentReview({ spin, cost, error });
+          reviewRecorded = true;
+        } catch (reviewError) {
+          this.logger.error?.('[nexus-spin] Failed to persist uncertain point debit review.', {
+            spinId: spin.spinId,
+            debitError: error.message,
+            reviewError: reviewError.message,
+          });
+        }
+        const wrapped = new Error('Sentinel could not confirm whether the Nexus Point debit completed. The spin was not issued and must be reconciled before retrying.');
+        wrapped.code = 'NEXUS_SPIN_POINT_DEBIT_REVIEW';
+        wrapped.spinId = spin.spinId;
+        wrapped.pointSpinCost = cost;
+        wrapped.reviewRecorded = reviewRecorded;
+        wrapped.cause = error;
+        throw wrapped;
       }
       throw error;
     }
