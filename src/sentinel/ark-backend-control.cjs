@@ -10,6 +10,15 @@ const { pollCluster } = require('./ark-cluster-monitor.cjs');
 const { performRestart, waitForRecovery } = require('./ark-restart-scheduler-extension.cjs');
 const { CitadelControlClient, credentialsFromEnv, serviceIdFromEnv } = require('./ark-citadel-control.cjs');
 const { databaseStatus } = require('./arkshop-database.cjs');
+const { ArkShopProfileStore } = require('./arkshop-profiles.cjs');
+const {
+  ArkShopApplyStore,
+  parseArkShopText,
+  previewArkShopProfile,
+  applyArkShopProfile,
+  rollbackArkShopTransaction,
+  reloadArkShop
+} = require('./arkshop-profile-service.cjs');
 
 const ALLOWED_ACTIONS = new Set([
   'server.status',
@@ -20,7 +29,12 @@ const ALLOWED_ACTIONS = new Set([
   'cluster.health',
   'cluster.capabilities',
   'config.plan',
-  'config.apply'
+  'config.apply',
+  'shop.status',
+  'shop.plan',
+  'shop.apply',
+  'shop.rollback',
+  'shop.reload'
 ]);
 
 function clean(value, max = 240) {
@@ -34,6 +48,20 @@ function correlationId(value = '') {
 function sha256(value) { return crypto.createHash('sha256').update(String(value ?? ''), 'utf8').digest('hex'); }
 function configPlanHash({ serverId, fileKey, section, key, value, currentHash }) {
   return sha256(JSON.stringify({ version: 1, serverId: clean(serverId, 64).toLowerCase(), fileKey: clean(fileKey, 20).toLowerCase(), section: clean(section, 160), key: clean(key, 160), value: String(value ?? ''), currentHash: clean(currentHash, 64).toLowerCase() }));
+}
+function shopPlanHash({ serverId, profileId, revision, currentHash }) {
+  return sha256(JSON.stringify({
+    version: 1,
+    serverId: clean(serverId, 64).toLowerCase(),
+    profileId: clean(profileId, 64).toLowerCase(),
+    revision: Math.max(1, Number(revision) || 1),
+    currentHash: clean(currentHash, 64).toLowerCase()
+  }));
+}
+function shopConfigHash(config) { return sha256(JSON.stringify(config || {})); }
+function publicShopCounts(config = {}) {
+  const count = (key) => config?.[key] && typeof config[key] === 'object' && !Array.isArray(config[key]) ? Object.keys(config[key]).length : 0;
+  return { kits: count('Kits'), shopItems: count('ShopItems'), sellItems: count('SellItems') };
 }
 function parsePlayers(raw = '') {
   const text = String(raw || '').trim();
@@ -112,6 +140,12 @@ class ArkBackendControl {
     this.performRestart = options.performRestart || performRestart;
     this.waitForRecovery = options.waitForRecovery || waitForRecovery;
     this.databaseStatus = options.databaseStatus || databaseStatus;
+    this.shopProfiles = options.shopProfiles || new ArkShopProfileStore();
+    this.shopApplies = options.shopApplies || new ArkShopApplyStore();
+    this.previewArkShopProfile = options.previewArkShopProfile || previewArkShopProfile;
+    this.applyArkShopProfile = options.applyArkShopProfile || applyArkShopProfile;
+    this.rollbackArkShopTransaction = options.rollbackArkShopTransaction || rollbackArkShopTransaction;
+    this.reloadArkShop = options.reloadArkShop || reloadArkShop;
     this.citadel = options.citadel || ((prefix) => new CitadelControlClient({ prefix, timeoutMs: 12_000 }));
     this.env = options.env || process.env;
   }
@@ -235,7 +269,9 @@ class ArkBackendControl {
         configReady: config.files.arkshop === true,
         databaseReady: database.ready,
         state: 'not-ready',
-        error: ''
+        error: '',
+        maintenanceProfile: record.shopProfile || '',
+        maintenanceProfileReady: Boolean(record.shopProfile && this.shopProfiles.get(record.shopProfile))
       };
       if (arkShop.ready) arkShop.state = 'ready';
       else if (!arkShop.sentinelCompatible) { arkShop.state = 'provider-incompatible'; arkShop.error = `Sentinel does not apply ArkShop operations to ${arkShop.variant}; a provider-specific adapter is required.`; }
@@ -292,6 +328,9 @@ class ArkBackendControl {
       allow(['server.status', 'server.players', 'server.save', 'server.broadcast'], rcon.ready, rcon.state);
       allow(['config.plan', 'config.apply'], config.ready, config.state);
       allow(['server.restart'], rcon.ready && lifecycle.ready, !rcon.ready ? rcon.state : lifecycle.state);
+      allow(['shop.status'], configured.arkShop.sentinelCompatible && config.files.arkshop === true, arkShop.state);
+      allow(['shop.plan'], configured.arkShop.sentinelCompatible && config.files.arkshop === true && arkShop.maintenanceProfileReady, !arkShop.maintenanceProfileReady ? 'maintenance-profile-unavailable' : arkShop.state);
+      allow(['shop.apply', 'shop.rollback', 'shop.reload'], configured.arkShop.sentinelCompatible && config.files.arkshop === true && rcon.ready, !rcon.ready ? rcon.state : arkShop.state);
       return {
         id: record.id, name: record.name, mapName: record.mapName, envPrefix: record.envPrefix,
         enabled: record.enabled !== false, maintenance: record.maintenance === true,
@@ -337,6 +376,116 @@ class ArkBackendControl {
     const result = await this.setIniValue({ prefix: server.envPrefix, ...change, dryRun: false });
     if (result.restartRequired && typeof this.registry.setRestartRequired === 'function') this.registry.setRestartRequired(server.id, { required: true, reason: `${change.fileKey}:${change.section}.${change.key} changed`, transactionId: clean(input.correlationId, 80) });
     return { ...result, fileKey: change.fileKey, section: change.section, key: change.key, planHash: suppliedPlanHash, verified: true, rollbackOnVerificationFailure: true };
+  }
+
+  requiredShopProfile(server, requested = '') {
+    const profileId = clean(requested || server.shopProfile, 64).toLowerCase();
+    if (!profileId) throw new Error(`No ArkShop maintenance profile is assigned to ${server.name}.`);
+    const profile = this.shopProfiles.get(profileId);
+    if (!profile) throw new Error(`ArkShop maintenance profile is unavailable: ${profileId}.`);
+    return profile;
+  }
+
+  async shopSnapshot(server, requestedProfile = '') {
+    const provider = configuredShopProvider(server, this.env);
+    if (!provider.sentinelCompatible) throw new Error(`Sentinel cannot maintain ${provider.variant} with the ArkShop adapter.`);
+    const currentResult = await this.readConfig(server.envPrefix, 'arkshop');
+    const current = parseArkShopText(currentResult.text);
+    const currentHash = shopConfigHash(current);
+    let profile = null;
+    let preview = null;
+    try {
+      profile = this.requiredShopProfile(server, requestedProfile);
+      preview = await this.previewArkShopProfile({ server, profile, reader: async () => currentResult });
+    } catch (error) {
+      if (requestedProfile) throw error;
+    }
+    return { provider, current, currentHash, profile, preview };
+  }
+
+  async shopStatus(server, input = {}) {
+    const snapshot = await this.shopSnapshot(server, input.profileId || input.profile);
+    let database = { backend: configuredDatabaseMode(this.env), ready: false, error: '' };
+    try {
+      const status = await this.databaseStatus();
+      database.ready = status.connected === true && status.tableExists === true;
+    } catch (error) { database.error = clean(error?.code || error?.message || error, 200); }
+    const recent = typeof this.shopApplies.listForServer === 'function'
+      ? this.shopApplies.listForServer(server.id, 5).map((item) => ({
+          id: clean(item.id, 80), profileId: clean(item.profileId, 64), revision: Number(item.profileRevision) || 1,
+          status: clean(item.status, 30), appliedAt: clean(item.appliedAt || item.failedAt, 80), rolledBack: Boolean(item.rolledBackAt)
+        }))
+      : [];
+    const profileReady = Boolean(snapshot.profile);
+    const drift = snapshot.preview?.changed === true;
+    return {
+      provider: snapshot.provider.provider,
+      variant: snapshot.provider.variant,
+      state: !profileReady ? 'profile-unavailable' : drift ? 'drift-detected' : database.ready ? 'ready' : 'database-attention',
+      configReadable: true,
+      configChecksum: snapshot.currentHash,
+      liveCounts: publicShopCounts(snapshot.current),
+      profile: profileReady ? { id: snapshot.profile.id, revision: snapshot.profile.revision, counts: snapshot.preview.counts, managedSections: snapshot.preview.managedSections } : null,
+      drift,
+      maintenanceRequired: drift,
+      database,
+      recentTransactions: recent,
+      restartRequired: false,
+      llmCalls: 0
+    };
+  }
+
+  async planShop(server, input = {}) {
+    const snapshot = await this.shopSnapshot(server, input.profileId || input.profile);
+    if (!snapshot.profile || !snapshot.preview) throw new Error('ArkShop maintenance profile is required.');
+    const planHash = shopPlanHash({ serverId: server.id, profileId: snapshot.profile.id, revision: snapshot.profile.revision, currentHash: snapshot.currentHash });
+    return {
+      profileId: snapshot.profile.id, revision: snapshot.profile.revision, changed: snapshot.preview.changed,
+      counts: snapshot.preview.counts, managedSections: snapshot.preview.managedSections,
+      currentHash: snapshot.currentHash, planHash, approvalRequired: snapshot.preview.changed === true,
+      applyAction: 'shop.apply', backupBeforeWrite: true, reloadAfterWrite: true,
+      rollbackOnFailure: true, restartRequired: false
+    };
+  }
+
+  confirmShopMutation(server, input, action) {
+    if (input.approved !== true) throw new Error(`${action} requires approved=true.`);
+    if (clean(input.confirmation, 100).toLowerCase() !== String(server.id).toLowerCase()) throw new Error(`${action} requires confirmation=${server.id}.`);
+  }
+
+  async applyShop(server, input = {}, actorId = '') {
+    this.confirmShopMutation(server, input, 'shop.apply');
+    const snapshot = await this.shopSnapshot(server, input.profileId || input.profile);
+    if (!snapshot.profile) throw new Error('ArkShop maintenance profile is required.');
+    const supplied = clean(input.planHash, 64).toLowerCase();
+    if (!/^[a-f0-9]{64}$/.test(supplied)) throw new Error('shop.apply requires a valid planHash from shop.plan.');
+    const expected = shopPlanHash({ serverId: server.id, profileId: snapshot.profile.id, revision: snapshot.profile.revision, currentHash: snapshot.currentHash });
+    if (!crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))) throw new Error('ArkShop plan is stale. Run shop.plan again before applying.');
+    const result = await this.applyArkShopProfile({
+      server, profile: snapshot.profile, actorId: clean(actorId, 40), applyStore: this.shopApplies, reader: this.readConfig,
+      guardCurrent: (current) => { if (shopConfigHash(current) !== snapshot.currentHash) throw new Error('ArkShop config changed after planning; refusing write.'); }
+    });
+    if (result.transaction && typeof this.registry.upsert === 'function') this.registry.upsert({ ...server, shopProfile: snapshot.profile.id });
+    return {
+      changed: Boolean(result.transaction), profileId: snapshot.profile.id, revision: snapshot.profile.revision,
+      transactionId: result.transaction?.id || '', backupCreated: Boolean(result.transaction?.backup),
+      reloadCommand: result.transaction ? 'ArkShop.Reload' : '', verified: true,
+      rollbackOnFailure: true, restartRequired: false
+    };
+  }
+
+  async rollbackShop(server, input = {}) {
+    this.confirmShopMutation(server, input, 'shop.rollback');
+    const transactionId = clean(input.transactionId || input.transaction, 80);
+    if (!/^[A-Za-z0-9-]{8,80}$/.test(transactionId)) throw new Error('shop.rollback requires a valid transactionId.');
+    const result = await this.rollbackArkShopTransaction({ server, transactionId, applyStore: this.shopApplies });
+    return { transactionId: result.transactionId, restored: true, reloadCommand: 'ArkShop.Reload', verified: true, restartRequired: false };
+  }
+
+  async reloadShop(server, input = {}) {
+    this.confirmShopMutation(server, input, 'shop.reload');
+    const result = await this.reloadArkShop(server);
+    return { reloaded: true, command: 'ArkShop.Reload', acknowledged: Boolean(String(result?.response || '').trim()), restartRequired: false };
   }
 
   async restartServer(server, input) {
@@ -389,6 +538,11 @@ class ArkBackendControl {
         } else if (action === 'server.restart') data = await this.restartServer(server, { ...input, correlationId: id });
         else if (action === 'config.plan') data = await this.planConfig(server, input);
         else if (action === 'config.apply') data = await this.applyConfig(server, { ...input, correlationId: id });
+        else if (action === 'shop.status') data = await this.shopStatus(server, input);
+        else if (action === 'shop.plan') data = await this.planShop(server, input);
+        else if (action === 'shop.apply') data = await this.applyShop(server, input, context.source || 'admin-api');
+        else if (action === 'shop.rollback') data = await this.rollbackShop(server, input);
+        else if (action === 'shop.reload') data = await this.reloadShop(server, input);
       }
       const result = { ok: true, action, correlationId: id, server: server ? { id: server.id, name: server.name, mapName: server.mapName, envPrefix: server.envPrefix } : null, data, llmCalls: 0, durationMs: Date.now() - started, completedAt: new Date().toISOString() };
       this.remember(id, result);
@@ -403,4 +557,4 @@ class ArkBackendControl {
   }
 }
 
-module.exports = { ALLOWED_ACTIONS, ArkBackendControl, clean, configPlanHash, configuredDatabaseMode, configuredShopProvider, configuredValue, correlationId, parsePlayers, sha256, staticCapabilities, validateIniInput };
+module.exports = { ALLOWED_ACTIONS, ArkBackendControl, clean, configPlanHash, shopPlanHash, shopConfigHash, publicShopCounts, configuredDatabaseMode, configuredShopProvider, configuredValue, correlationId, parsePlayers, sha256, staticCapabilities, validateIniInput };
