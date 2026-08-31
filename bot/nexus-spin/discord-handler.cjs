@@ -117,6 +117,14 @@ async function handleNexusSpin(interaction, { bootstrap, logger = console } = {}
       await interaction.editReply(`You do not have enough Nexus Points for an extra spin. Cost: **${error.pointSpinCost || error.cost || 100}** • Available: **${error.balance ?? 0}**.`);
       return true;
     }
+    if (error?.code === 'NEXUS_SPIN_POINT_DEBIT_REVIEW') {
+      logger.error?.('[nexus-spin] Point debit requires reconciliation before retry.', {
+        spinId: error.spinId,
+        reviewRecorded: error.reviewRecorded,
+      });
+      await interaction.editReply(`⚠️ Sentinel could not confirm whether the **${error.pointSpinCost || 100} Nexus Point** charge completed. **Do not retry this Spin ID yet.** No reward was issued; staff reconciliation is required for \`${error.spinId}\`.`);
+      return true;
+    }
     if (error?.code === 'NEXUS_SPIN_PAYMENT_REFUNDED') {
       await interaction.editReply(`${error.message}\nSpin ID: \`${error.spinId}\``);
       return true;
@@ -135,7 +143,7 @@ async function handleNexusSpin(interaction, { bootstrap, logger = console } = {}
       return true;
     }
     logger.error?.('[nexus-spin] Command failed.', { error: error?.message, code: error?.code });
-    await interaction.editReply('Nexus Spin could not complete safely. No unrecorded reward was issued; try again after the service is healthy.');
+    await interaction.editReply('Nexus Spin could not complete safely. No reward was issued; try again after the service is healthy.');
     return true;
   }
 }
