@@ -50,7 +50,6 @@ function shinySectionMatches(text, expected = parseSection(fs.readFileSync(TEMPL
 
 async function run({ registry = new ArkClusterRegistry() } = {}) {
   fs.mkdirSync(dataDir(), { recursive: true });
-  if (fs.existsSync(stampFile())) return { skipped: 'already-applied' };
   const server = registry.get('gen1');
   const mods = new Set((server?.detectedMods || []).map(String));
   const modDetected = mods.has(MOD_ID);
