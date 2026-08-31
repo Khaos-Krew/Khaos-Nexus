@@ -129,6 +129,7 @@ require('./dinodepot-category-probe-runtime.cjs').installDinoDepotCategoryProbeR
 require('./arkshop-ui-live-deploy-runtime.cjs').installArkShopUiLiveDeployRuntime();
 require('./arkshop-cluster-economy-guard.cjs').installArkShopClusterEconomyGuard();
 require('./arkshop-backend-preflight-runtime.cjs').installArkShopBackendPreflightRuntime();
+require('./arkshop-gen1-mysql-import-runtime.cjs').installGen1MysqlImportRuntime();
 require('./ark-dino-cache-runtime.cjs').installDinoCacheRuntime();
 require('./ark-command-routing-patch.cjs');
 require('./bot.cjs');
