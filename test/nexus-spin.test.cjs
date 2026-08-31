@@ -139,6 +139,43 @@ test('point-funded spin charges verified Nexus Points without touching the free-
   assert.equal(paidSpinRecorded.cost, 100);
 });
 
+test('uncertain point debit is quarantined for reconciliation and no reward is issued', async () => {
+  let review = null;
+  let paidSpinRecorded = false;
+  const service = new NexusSpinService({
+    config: { ...config, enabled: true, pointSpinCost: 100 },
+    store: {
+      async resolveVerifiedLink() { return { discordId: '123', eosId: 'EOS-ABC', verified: true }; },
+      async createPaymentReview(input) { review = input; return { spin_id: input.spin.spinId }; },
+      async createPaidSpin() { paidSpinRecorded = true; },
+    },
+    pointsGateway: {
+      async debitPoints() {
+        const error = new Error('balance verification mismatch');
+        error.code = 'ARKSHOP_DEBIT_VERIFICATION_FAILED';
+        error.before = 500;
+        error.after = 450;
+        error.expected = 400;
+        throw error;
+      },
+    },
+    servers: [],
+    rng: () => 0,
+  });
+  let payoutAttempted = false;
+  service.applyFreshReward = async () => { payoutAttempted = true; };
+
+  await assert.rejects(() => service.play({ discordId: '123', channelId: 'chan', mode: 'points' }), (error) => {
+    assert.equal(error.code, 'NEXUS_SPIN_POINT_DEBIT_REVIEW');
+    assert.equal(error.reviewRecorded, true);
+    assert.match(error.spinId, /^NS-/);
+    return true;
+  });
+  assert.equal(review.cost, 100);
+  assert.equal(paidSpinRecorded, false);
+  assert.equal(payoutAttempted, false);
+});
+
 test('point-funded spin is refunded if its ledger record cannot be created', async () => {
   let refunded = false;
   const service = new NexusSpinService({
