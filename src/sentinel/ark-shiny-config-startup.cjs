@@ -48,12 +48,14 @@ async function run({ registry = new ArkClusterRegistry() } = {}) {
   if (fs.existsSync(stampFile())) return { skipped: 'already-applied' };
   const server = registry.get('gen1');
   const mods = new Set((server?.detectedMods || []).map(String));
-  if (!mods.has(MOD_ID)) throw new Error(`Shiny! Dinos ${MOD_ID} is not detected on MAP1; refusing to write its configuration.`);
+  const modDetected = mods.has(MOD_ID);
+  const allowBeforeMod = String(process.env.ARK_GEN1_SHINY_STAGE_BEFORE_MOD || 'false').toLowerCase() === 'true';
+  if (!modDetected && !allowBeforeMod) throw new Error(`Shiny! Dinos ${MOD_ID} is not detected on MAP1; set ARK_GEN1_SHINY_STAGE_BEFORE_MOD=true only to stage inert configuration before installation.`);
   const template = fs.readFileSync(TEMPLATE, 'utf8');
   const expected = parseSection(template, 'Shiny');
   const before = (await readConfig('ARK_GEN1', 'gus')).text;
   if (shinySectionMatches(before, expected)) {
-    const stamp = { version: VERSION, recoveredAt: new Date().toISOString(), changed: false, configSha256: sha256(JSON.stringify(expected)), restartRequired: true, restartExecuted: false, verified: true };
+    const stamp = { version: VERSION, recoveredAt: new Date().toISOString(), changed: false, modDetected, stagedBeforeMod: !modDetected, configSha256: sha256(JSON.stringify(expected)), restartRequired: true, restartExecuted: false, verified: true };
     fs.writeFileSync(stampFile(), JSON.stringify(stamp, null, 2), { mode: 0o600 });
     return { skipped: 'already-live', ...stamp };
   }
@@ -65,7 +67,7 @@ async function run({ registry = new ArkClusterRegistry() } = {}) {
   const after = (await readConfig('ARK_GEN1', 'gus')).text;
   if (!shinySectionMatches(after, expected)) throw new Error('Post-apply verification failed for the balanced Shiny section.');
   if (after.includes('__SENTINEL_SHINY_WEBHOOK_URL__')) throw new Error('Placeholder Shiny webhook URL must never be written to the live INI.');
-  const stamp = { version: VERSION, appliedAt: new Date().toISOString(), changed: result.changed, backup: result.backup || '', configSha256: sha256(JSON.stringify(expected)), restartRequired: true, restartExecuted: false, verified: true };
+  const stamp = { version: VERSION, appliedAt: new Date().toISOString(), changed: result.changed, modDetected, stagedBeforeMod: !modDetected, backup: result.backup || '', configSha256: sha256(JSON.stringify(expected)), restartRequired: true, restartExecuted: false, verified: true };
   fs.writeFileSync(stampFile(), JSON.stringify(stamp, null, 2), { mode: 0o600 });
   return stamp;
 }
