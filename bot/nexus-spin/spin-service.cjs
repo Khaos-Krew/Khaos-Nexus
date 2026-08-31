@@ -84,33 +84,96 @@ class NexusSpinService {
     return link;
   }
 
-  async play({ discordId, channelId }) {
+  makeSpin(discordId, eosId) {
+    const reward = rollReward(this.config.rewards, this.rng);
+    return freezeSpin({ discordId, eosId, reward });
+  }
+
+  async play({ discordId, channelId, mode = 'free' }) {
     this.assertEnabled(channelId);
     const link = await this.linkedAccount(discordId);
-    const reward = rollReward(this.config.rewards, this.rng);
-    const spin = freezeSpin({ discordId, eosId: link.eosId, reward });
+    const normalizedMode = String(mode || 'free').toLowerCase();
+
+    if (normalizedMode === 'points') {
+      return this.playWithPoints({ discordId, link });
+    }
+    if (normalizedMode !== 'free') {
+      const error = new Error('Nexus Spin mode must be free or points.');
+      error.code = 'NEXUS_SPIN_BAD_MODE';
+      throw error;
+    }
+
+    const spin = this.makeSpin(discordId, link.eosId);
     const claim = await this.store.createSpinIfCooldownReady(spin, this.config.cooldownSeconds || 86400);
     if (!claim.allowed) {
-      const error = new Error('Your Nexus Spin is still on cooldown.');
+      const error = new Error('Your free Nexus Spin is still on cooldown.');
       error.code = 'NEXUS_SPIN_COOLDOWN';
       error.retryAfterSeconds = claim.retryAfterSeconds;
       error.nextAllowedAt = claim.nextAllowedAt;
+      error.pointSpinCost = Number(this.config.pointSpinCost) || 100;
       throw error;
     }
 
     const payout = await this.applyFreshReward(spin);
-    return { spin, link, payout };
+    return { spin, link, payout, spinMode: 'FREE', spinCost: 0 };
   }
 
-  async applyFreshReward(spin) {
+  async playWithPoints({ discordId, link }) {
+    const cost = Number(this.config.pointSpinCost) || 100;
+    if (!Number.isSafeInteger(cost) || cost <= 0) throw new Error('Nexus Spin point cost must be a positive integer.');
+
+    const spin = this.makeSpin(discordId, link.eosId);
+    let debit;
+    try {
+      debit = await this.points.debitPoints({ eosId: link.eosId, cost });
+    } catch (error) {
+      if (error?.code === 'INSUFFICIENT_ARKSHOP_POINTS') {
+        error.code = 'NEXUS_SPIN_INSUFFICIENT_POINTS';
+        error.pointSpinCost = cost;
+      }
+      throw error;
+    }
+
+    const payment = {
+      cost,
+      beforeBalance: debit.beforeBalance,
+      afterBalance: debit.afterBalance,
+      serverId: debit.serverId,
+      serverName: debit.serverName,
+    };
+
+    try {
+      await this.store.createPaidSpin(spin, cost, payment);
+    } catch (recordError) {
+      try {
+        await this.points.refundPoints({ eosId: link.eosId, cost, preferredServer: debit.serverId || debit.serverName });
+      } catch (refundError) {
+        const error = new Error(`Point spin debit was confirmed but the spin ledger failed and the automatic refund also failed. Manual reconciliation is required. Spin ID: ${spin.spinId}`);
+        error.code = 'NEXUS_SPIN_PAYMENT_RECONCILIATION_REQUIRED';
+        error.spinId = spin.spinId;
+        error.recordError = recordError;
+        error.refundError = refundError;
+        throw error;
+      }
+      const error = new Error('Point spin could not be recorded, so Sentinel refunded the Nexus Points and did not issue the reward.');
+      error.code = 'NEXUS_SPIN_PAYMENT_REFUNDED';
+      error.spinId = spin.spinId;
+      throw error;
+    }
+
+    const payout = await this.applyFreshReward(spin, { payment });
+    return { spin, link, payout, spinMode: 'POINTS', spinCost: cost, payment };
+  }
+
+  async applyFreshReward(spin, baseMetadata = {}) {
     const reward = spin.reward;
     if (reward.type === 'points') {
       try {
         const result = await creditPointsVerified(this.points, spin.eosId, reward.amount);
-        await this.store.setStatus(spin.spinId, 'ROLLED', 'REWARDED', { payout: 'ARKSHOP_POINTS', afterBalance: result.afterBalance });
+        await this.store.setStatus(spin.spinId, 'ROLLED', 'REWARDED', { ...baseMetadata, payout: 'ARKSHOP_POINTS', afterBalance: result.afterBalance });
         return { status: 'REWARDED', mode: 'points', details: result };
       } catch (error) {
-        await this.store.setStatus(spin.spinId, 'ROLLED', 'PENDING_POINTS', { error: error.code || error.message });
+        await this.store.setStatus(spin.spinId, 'ROLLED', 'PENDING_POINTS', { ...baseMetadata, error: error.code || error.message });
         this.logger.warn?.('[nexus-spin] Point reward queued for retry.', { spinId: spin.spinId, error: error.message });
         return { status: 'PENDING_POINTS', mode: 'points' };
       }
@@ -119,16 +182,16 @@ class NexusSpinService {
     if (reward.type === 'cache_token') {
       try {
         const token = await this.store.createCacheToken(spin);
-        await this.store.setStatus(spin.spinId, 'ROLLED', 'REWARDED', { payout: 'CACHE_TOKEN', tokenId: token?.token_id || null });
+        await this.store.setStatus(spin.spinId, 'ROLLED', 'REWARDED', { ...baseMetadata, payout: 'CACHE_TOKEN', tokenId: token?.token_id || null });
         return { status: 'REWARDED', mode: 'cache_token', token };
       } catch (error) {
-        await this.store.setStatus(spin.spinId, 'ROLLED', 'PENDING_TOKEN', { error: error.message });
+        await this.store.setStatus(spin.spinId, 'ROLLED', 'PENDING_TOKEN', { ...baseMetadata, error: error.message });
         this.logger.warn?.('[nexus-spin] Cache Token queued for retry.', { spinId: spin.spinId, error: error.message });
         return { status: 'PENDING_TOKEN', mode: 'cache_token' };
       }
     }
 
-    await this.store.setStatus(spin.spinId, 'ROLLED', 'PENDING_RESOURCE', { payout: 'ARK_RESOURCE' });
+    await this.store.setStatus(spin.spinId, 'ROLLED', 'PENDING_RESOURCE', { ...baseMetadata, payout: 'ARK_RESOURCE' });
     const immediate = await this.tryClaimOne({
       spin_id: spin.spinId,
       discord_id: spin.discordId,
