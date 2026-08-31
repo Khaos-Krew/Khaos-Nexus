@@ -6,6 +6,7 @@ const { currentHostedProviderStore } = require('../railway/hosted-provider-store
 const { adminPairingStore } = require('./admin-pairing.cjs');
 const { commandStatus, discoverRankMappings } = require('./discord-admin-discovery.cjs');
 const { buildStaffNameColorPreview } = require('./staff-name-color-preview.cjs');
+const { ArkBackendControl } = require('./ark-backend-control.cjs');
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1']);
 
@@ -111,14 +112,20 @@ function createSentinalAdminServer(options = {}) {
   const host = String(options.host || '127.0.0.1');
   const port = Number(options.port || 3220);
   const token = String(options.token || '');
+  const forgeToken = String(options.forgeToken || process.env.FORGE_SENTINEL_CONTROL_TOKEN || '');
   const getController = typeof options.getController === 'function' ? options.getController : () => options.controller || null;
   const logger = options.logger || console;
   const pairingAllowed = createPairingLimiter();
+  const arkBackend = options.arkBackend || new ArkBackendControl({ logger });
   if (!LOOPBACK.has(host) && !validAdminToken(token)) throw new Error('Sentinal admin API requires a token of at least 32 non-whitespace characters before it can listen outside loopback.');
+  if (forgeToken && !validAdminToken(forgeToken)) throw new Error('Forge Sentinel control token must be at least 32 non-whitespace characters.');
 
-  function authorized(req) {
-    if (!token) return LOOPBACK.has(host);
-    return req.headers.authorization === `Bearer ${token}`;
+  function authScope(req) {
+    const authorization = String(req.headers.authorization || '');
+    if (token && authorization === `Bearer ${token}`) return 'admin';
+    if (forgeToken && authorization === `Bearer ${forgeToken}`) return 'forge';
+    if (!token && LOOPBACK.has(host)) return 'admin';
+    return '';
   }
 
   const server = http.createServer(async (req, res) => {
@@ -138,7 +145,22 @@ function createSentinalAdminServer(options = {}) {
         if (!paired) return json(res, 401, { ok: false, code: 'PAIRING_INVALID', message: 'That pairing code is invalid, expired, or already used.' });
         return json(res, 200, { ok: true, token, pairedAt: new Date().toISOString() });
       }
-      if (!authorized(req)) return json(res, 401, { ok: false, code: 'UNAUTHORIZED' });
+
+      const scope = authScope(req);
+      if (!scope) return json(res, 401, { ok: false, code: 'UNAUTHORIZED' });
+
+      if (req.method === 'GET' && url.pathname === '/v1/ark/servers') {
+        return json(res, 200, { ok: true, servers: arkBackend.listServers(), llmCalls: 0 });
+      }
+      if (req.method === 'POST' && url.pathname === '/v1/ark/execute') {
+        const input = await body(req);
+        const result = await arkBackend.execute(input, {
+          source: scope === 'forge' ? 'forge-control-plane' : 'sentinal-admin',
+          correlationId: req.headers['x-correlation-id']
+        });
+        return json(res, result.ok ? 200 : 502, result);
+      }
+      if (scope === 'forge') return json(res, 403, { ok: false, code: 'FORGE_SCOPE_RESTRICTED' });
       if (!controller) return json(res, 503, { ok: false, code: 'SENTINAL_STARTING', message: 'Nexus Sentinal is not ready yet.' });
 
       if (req.method === 'GET' && url.pathname === '/v1/status') return json(res, 200, await controller.status());
