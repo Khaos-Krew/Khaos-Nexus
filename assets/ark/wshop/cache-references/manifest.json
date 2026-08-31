@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "purpose": "Khaos Nexus ARK WShop cache visual reference set",
+  "asset_path": "assets/ark/wshop/cache-references",
+  "usage": "Stable visual reference names for WShop, Nexus Sentinel, Nexus Forge, documentation, and future icon generation. These references do not define cache RNG or reward tables.",
+  "source": "Approved stronger-ARK-vibe cache concepts from the Khaos Nexus ARK cache design session.",
+  "caches": [
+    {"id":"coastal","display_name":"Coastal Cache","file":"nexus-cache-coastal-reference.jpg","visual":"ocean water, coral, driftwood, weathered ARK-tech cache"},
+    {"id":"forest","display_name":"Forest Cache","file":"nexus-cache-forest-reference.jpg","visual":"overgrown jungle, roots, green energy, ARK-tech cache"},
+    {"id":"swamp","display_name":"Swamp Cache","file":"nexus-cache-swamp-reference.jpg","visual":"murky wetland, lilies, cattails, roots, green ARK-tech accents"},
+    {"id":"mountain","display_name":"Mountain Cache","file":"nexus-cache-mountain-reference.jpg","visual":"rocky highlands, blue crystal formations, cold mountain atmosphere"},
+    {"id":"desert","display_name":"Desert Cache","file":"nexus-cache-desert-reference.jpg","visual":"bones, hide straps, cracked earth, orange energy, ARK-tech cache"},
+    {"id":"frozen","display_name":"Frozen Cache","file":"nexus-cache-frozen-reference.jpg","visual":"ice, snow, blue energy, frozen ARK-tech vault"},
+    {"id":"ocean-cave","display_name":"Ocean / Cave Cache","file":"nexus-cache-ocean-cave-reference.jpg","visual":"dark wet cave, blue crystals, ancient artifact ambience"},
+    {"id":"aberrant-volcanic","display_name":"Aberrant / Volcanic Cache","file":"nexus-cache-aberrant-volcanic-reference.jpg","visual":"molten rock, purple aberrant crystals, red energy, cave biome"}
+  ]
+}
