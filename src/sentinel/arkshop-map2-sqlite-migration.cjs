@@ -7,7 +7,6 @@ const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const mysql = require('mysql2/promise');
 const SftpClient = require('ssh2-sftp-client');
-const { resolveExistingFile } = require('./ark-config-manager.cjs');
 const { sftpSettingsFromEnv } = require('./ark-sftp-config.cjs');
 const { inspectArkApiLog } = require('./ark-api-log-diagnostic.cjs');
 
@@ -134,14 +133,14 @@ async function migrateAstraeosArkShop() {
   let connection;
   let configUploaded = false;
   let originalConfigBytes;
+  const pluginRoot = path.posix.join(EXPECTED_ROOT, 'ShooterGame/Binaries/Win64/ArkApi/Plugins/ArkShop');
+  const configFile = path.posix.join(pluginRoot, 'config.json');
+  const sqliteFile = path.posix.join(pluginRoot, 'ArkShop.db');
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-astraeos-'));
   try {
     await sftp.connect({ host: sftpSettings.host, port: sftpSettings.port, username: sftpSettings.username, password: sftpSettings.password, readyTimeout: sftpSettings.readyTimeout });
-    const resolved = await resolveExistingFile(sftp, PREFIX, 'arkshop');
-    if (!normalizeRoot(resolved.remoteFile).startsWith(`${EXPECTED_ROOT}/`)) throw new Error('Resolved ArkShop config escaped the approved Astraeos root.');
-    const pluginRoot = path.posix.dirname(path.posix.dirname(resolved.remoteFile));
-    const sqliteFile = path.posix.join(pluginRoot, 'ArkShop.db');
-    originalConfigBytes = Buffer.from(await sftp.get(resolved.remoteFile));
+    if (!await sftp.exists(configFile)) throw new Error('Source-defined ArkShop config path does not exist on Astraeos.');
+    originalConfigBytes = Buffer.from(await sftp.get(configFile));
     const config = JSON.parse(originalConfigBytes.toString('utf8'));
     if (!config.Mysql || typeof config.Mysql !== 'object') throw new Error('ArkShop config has no Mysql object.');
     if (config.Mysql.UseMysql !== false) throw new Error('Astraeos ArkShop is not in the expected SQLite mode.');
@@ -179,14 +178,14 @@ async function migrateAstraeosArkShop() {
     const updated = JSON.parse(JSON.stringify(config));
     updated.Mysql = { ...updated.Mysql, UseMysql: true, MysqlHost: dbSettings.host, MysqlUser: dbSettings.user, MysqlPass: dbSettings.password, MysqlDB: dbSettings.database, MysqlPort: dbSettings.port, MysqlPlayersTable: PLAYERS_TABLE, MysqlLogTable: LOG_TABLE };
     const updatedBytes = Buffer.from(`${JSON.stringify(updated, null, 2)}\n`, 'utf8');
-    await sftp.put(updatedBytes, resolved.remoteFile);
+    await sftp.put(updatedBytes, configFile);
     configUploaded = true;
-    const verified = JSON.parse(Buffer.from(await sftp.get(resolved.remoteFile)).toString('utf8'));
+    const verified = JSON.parse(Buffer.from(await sftp.get(configFile)).toString('utf8'));
     if (verified.Mysql?.UseMysql !== true || verified.Mysql?.MysqlDB !== EXPECTED_DB.database || verified.Mysql?.MysqlPlayersTable !== PLAYERS_TABLE || verified.Mysql?.MysqlLogTable !== LOG_TABLE) throw new Error('Uploaded MySQL config did not verify.');
 
-    return { applied: true, identity, configFile: resolved.remoteFile, sqliteFile, backupDir, sqliteSha256: sha256(sqliteBytes), configSha256: sha256(updatedBytes), authentication, imported: imported.stats, tables: { players: PLAYERS_TABLE, transactions: LOG_TABLE } };
+    return { applied: true, identity, configFile, sqliteFile, backupDir, sqliteSha256: sha256(sqliteBytes), configSha256: sha256(updatedBytes), authentication, imported: imported.stats, tables: { players: PLAYERS_TABLE, transactions: LOG_TABLE } };
   } catch (error) {
-    if (configUploaded && originalConfigBytes) await sftp.put(originalConfigBytes, (await resolveExistingFile(sftp, PREFIX, 'arkshop')).remoteFile).catch(() => {});
+    if (configUploaded && originalConfigBytes) await sftp.put(originalConfigBytes, configFile).catch(() => {});
     throw error;
   } finally {
     await sftp.end().catch(() => {});
