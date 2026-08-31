@@ -42,6 +42,15 @@ function configuredServerRoot(prefix = 'ARK_GEN1') {
   return '';
 }
 
+function approvedConfigPath(fileKey, remoteFile) {
+  const key = String(fileKey || '').trim().toLowerCase();
+  const value = String(remoteFile || '').trim().replace(/\\/g, '/').toLowerCase();
+  if (key === 'gus') return /(^|\/)shootergame\/saved\/config\/windowsserver\/gameusersettings\.ini$/.test(value);
+  if (key === 'game') return /(^|\/)shootergame\/saved\/config\/windowsserver\/game\.ini$/.test(value);
+  if (key === 'arkshop') return /(^|\/)shootergame\/binaries\/win64\/arkapi\/plugins\/arkshop\/(configs\/)?config\.json$/.test(value);
+  return false;
+}
+
 async function resolveExistingFile(client, prefix, fileKey) {
   const resolved = resolveFile(prefix, fileKey);
   const serverRoot = configuredServerRoot(prefix) || resolved.settings.root;
@@ -53,6 +62,9 @@ async function resolveExistingFile(client, prefix, fileKey) {
     strictRoot: Boolean(serverRoot),
     maxDepth: resolved.key === 'arkshop' ? 9 : 7
   });
+  if (!approvedConfigPath(resolved.key, found.path)) {
+    throw new Error(`SFTP discovery rejected a non-canonical ${resolved.spec.fileName} path for ${prefix}. Configure the exact live ARK service path.`);
+  }
   return { ...resolved, remoteFile: found.path, discovered: found.discovered === true };
 }
 
@@ -311,6 +323,7 @@ async function restoreBackup({ prefix = 'ARK_GEN1', fileKey, backup } = {}) {
 module.exports = {
   ARKSHOP_CONFIG_PATH,
   FILES,
+  approvedConfigPath,
   configuredServerRoot,
   resolveFile,
   resolveExistingFile,

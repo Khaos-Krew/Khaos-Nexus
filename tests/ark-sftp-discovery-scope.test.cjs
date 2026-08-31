@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { configuredServerRoot } = require('../src/sentinel/ark-config-manager.cjs');
+const { approvedConfigPath, configuredServerRoot } = require('../src/sentinel/ark-config-manager.cjs');
 const { findRemoteFile } = require('../src/sentinel/ark-sftp-discovery.cjs');
 
 function withEnv(values, fn) {
@@ -51,4 +51,13 @@ test('strict discovery never crosses into another visible game-service root', as
     strictRoot: true
   });
   assert.equal(result.path, 'instance-map2/ShooterGame/Saved/Config/WindowsServer/Game.ini');
+});
+
+test('only canonical live ARK config locations are accepted', () => {
+  assert.equal(approvedConfigPath('gus', '/map2/ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini'), true);
+  assert.equal(approvedConfigPath('game', '/map2/ShooterGame/Saved/Config/WindowsServer/Game.ini'), true);
+  assert.equal(approvedConfigPath('arkshop', '/map2/ShooterGame/Binaries/Win64/ArkApi/Plugins/ArkShop/config.json'), true);
+  assert.equal(approvedConfigPath('arkshop', '/map2/ShooterGame/Binaries/Win64/ArkApi/Plugins/ArkShop/Configs/config.json'), true);
+  assert.equal(approvedConfigPath('game', '/map2/ConfigBackups/Game.ini'), false);
+  assert.equal(approvedConfigPath('arkshop', '/map2/ShooterGame/Binaries/Win64/config.json'), false);
 });
