@@ -1,6 +1,6 @@
 'use strict';
 
-const defaultConfig = require('../../config/nexus-spin.json');
+const { runtimeDefaults } = require('./default-config.cjs');
 const { NexusSpinService } = require('./spin-service.cjs');
 
 function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
@@ -52,15 +52,26 @@ async function publicReveal(interaction, result) {
       await message.edit(`${title}\n${mention} won **${reward.label}**!\n${payoutNote(result.payout)}`);
     }
   } catch {
-    // The interaction receipt below still confirms the immutable reward.
+    // The private interaction receipt below still confirms the immutable reward.
   }
   return message;
 }
 
 function makeService(bootstrap, logger) {
+  const defaults = runtimeDefaults();
   const runtimeConfig = bootstrap?.config?.nexusSpin;
+  const override = runtimeConfig && typeof runtimeConfig === 'object' ? runtimeConfig : {};
+  const config = {
+    ...defaults,
+    ...override,
+    resourceDelivery: {
+      ...defaults.resourceDelivery,
+      ...(override.resourceDelivery && typeof override.resourceDelivery === 'object' ? override.resourceDelivery : {}),
+    },
+    rewards: Array.isArray(override.rewards) && override.rewards.length ? override.rewards : defaults.rewards,
+  };
   return new NexusSpinService({
-    config: runtimeConfig && typeof runtimeConfig === 'object' ? { ...defaultConfig, ...runtimeConfig } : defaultConfig,
+    config,
     servers: bootstrap?.config?.servers || [],
     logger,
   });
@@ -107,4 +118,4 @@ async function handleNexusSpin(interaction, { bootstrap, logger = console } = {}
   }
 }
 
-module.exports = { handleNexusSpin, formatCooldown, payoutNote, publicReveal };
+module.exports = { handleNexusSpin, formatCooldown, payoutNote, publicReveal, makeService };
