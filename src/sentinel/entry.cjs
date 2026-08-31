@@ -105,6 +105,7 @@ installArkAdditionalRegistryBootstrapExtension();
 installArkClusterMetadataExtension();
 installArkConfigProfileExtension();
 installArkShopProfileExtension();
+require('./arkshop-maintenance-monitor.cjs').installArkShopMaintenanceMonitor();
 installArkClusterPublicActions();
 installArkShopProfileBootstrapExtension();
 require('./ark-cluster-plan-extension.cjs').installArkClusterPlanExtension();
