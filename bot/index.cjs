@@ -17,6 +17,7 @@ const {
   connectionLabel: gameConnectionLabel
 } = require('../shared/game-module-policy.cjs');
 const { redactText, errorFingerprint } = require('../shared/redaction.cjs');
+const { handleNexusSpin } = require('./nexus-spin/discord-handler.cjs');
 
 const parent = process.parentPort;
 let client = null;
@@ -315,6 +316,17 @@ async function handleInteraction(interaction) {
     await interaction.reply({
       content: `Runtime: **online**\nUptime: **${Math.floor(process.uptime())}s**\nDiscord latency: **${Math.max(0, client.ws.ping)} ms**\nMemory: **${memoryMb} MB**`,
       ephemeral: true
+    });
+    return;
+  }
+
+  if (command === 'nexusspin') {
+    await handleNexusSpin(interaction, {
+      bootstrap,
+      logger: {
+        warn: (message, meta) => log('warn', message, meta),
+        error: (message, meta) => log('error', message, meta)
+      }
     });
     return;
   }
