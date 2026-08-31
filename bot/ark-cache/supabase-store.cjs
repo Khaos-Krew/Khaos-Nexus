@@ -88,6 +88,24 @@ class SupabaseDinoCacheStore {
     return body;
   }
 
+  async claimPurchaseCooldown(eosId, cooldownSeconds) {
+    const seconds = Math.max(1, Math.min(3600, Number(cooldownSeconds) || 5));
+    const rows = await this.request('/rest/v1/rpc/claim_ark_dino_cache_cooldown', {
+      method: 'POST',
+      body: JSON.stringify({
+        p_eos_id: String(eosId || '').trim(),
+        p_cooldown_seconds: Math.ceil(seconds),
+      }),
+    });
+    const row = Array.isArray(rows) ? rows[0] : rows;
+    if (!row) throw new Error('Dino Cache cooldown RPC returned no result.');
+    return {
+      allowed: Boolean(row.allowed),
+      retryAfterSeconds: Math.max(0, Number(row.retry_after_seconds) || 0),
+      nextAllowedAt: row.next_allowed_at || null,
+    };
+  }
+
   async createPurchase(purchase) {
     const rows = await this.request('/rest/v1/ark_dino_cache_purchases', {
       method: 'POST',
