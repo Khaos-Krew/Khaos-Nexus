@@ -13,7 +13,7 @@ test('WShop migration includes the complete planned catalog and all caches', () 
   const bundle = buildMigrationBundle({ generatedAt: '2026-08-30T00:00:00.000Z' });
   const result = validateMigrationBundle(bundle);
   assert.equal(result.ok, true, result.errors.join(', '));
-  assert.deepEqual(result.counts, { kits: 7, shopItems: 42, sellItems: 29, dinoCaches: 7, rewardCacheTypes: 4 });
+  assert.deepEqual(result.counts, { kits: 7, shopItems: 42, sellItems: 29, dinoCaches: 9, rewardCacheTypes: 4 });
 });
 
 test('Love Potion and engram unlock potion are never sold', () => {
