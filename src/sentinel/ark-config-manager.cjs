@@ -31,13 +31,26 @@ function resolveFile(prefix, fileKey) {
   return { key, spec, settings, relative, remoteFile: remotePath(settings.root, relative) };
 }
 
+function configuredServerRoot(prefix = 'ARK_GEN1') {
+  const explicitRoot = String(process.env[`${prefix}_SFTP_ROOT`] || '').trim().replace(/\\/g, '/').replace(/\/$/, '');
+  if (explicitRoot && explicitRoot !== '.') return explicitRoot;
+  for (const suffix of ['GUS_PATH', 'GAMEINI_PATH', 'ARKSHOP_CONFIG_PATH']) {
+    const candidate = String(process.env[`${prefix}_${suffix}`] || '').trim().replace(/\\/g, '/');
+    const marker = candidate.toLowerCase().indexOf('/shootergame/');
+    if (marker > 0) return candidate.slice(0, marker);
+  }
+  return '';
+}
+
 async function resolveExistingFile(client, prefix, fileKey) {
   const resolved = resolveFile(prefix, fileKey);
+  const serverRoot = configuredServerRoot(prefix) || resolved.settings.root;
   const found = await findRemoteFile(client, {
-    configuredRoot: resolved.settings.root,
+    configuredRoot: serverRoot,
     configuredPath: resolved.relative,
     preferredSuffix: resolved.spec.fallback,
     fileName: resolved.spec.fileName,
+    strictRoot: Boolean(serverRoot),
     maxDepth: resolved.key === 'arkshop' ? 9 : 7
   });
   return { ...resolved, remoteFile: found.path, discovered: found.discovered === true };
@@ -298,6 +311,7 @@ async function restoreBackup({ prefix = 'ARK_GEN1', fileKey, backup } = {}) {
 module.exports = {
   ARKSHOP_CONFIG_PATH,
   FILES,
+  configuredServerRoot,
   resolveFile,
   resolveExistingFile,
   discoverPaths,

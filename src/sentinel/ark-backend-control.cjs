@@ -8,6 +8,8 @@ const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { readConfig, setIniValue, discoverPaths } = require('./ark-config-manager.cjs');
 const { pollCluster } = require('./ark-cluster-monitor.cjs');
 const { performRestart, waitForRecovery } = require('./ark-restart-scheduler-extension.cjs');
+const { CitadelControlClient, credentialsFromEnv, serviceIdFromEnv } = require('./ark-citadel-control.cjs');
+const { databaseStatus } = require('./arkshop-database.cjs');
 
 const ALLOWED_ACTIONS = new Set([
   'server.status',
@@ -16,6 +18,7 @@ const ALLOWED_ACTIONS = new Set([
   'server.broadcast',
   'server.restart',
   'cluster.health',
+  'cluster.capabilities',
   'config.plan',
   'config.apply'
 ]);
@@ -55,6 +58,29 @@ function validateIniInput(input = {}) {
   return { fileKey, section, key, value: String(input.value ?? '').slice(0, 1000) };
 }
 
+function configuredValue(env, name) { return Boolean(String(env?.[name] || '').trim()); }
+function configuredDatabaseMode(env = process.env) {
+  const mode = String(env?.ARKSHOP_DB_MODE || 'mysql').trim().toLowerCase();
+  return ['mysql', 'sqlite'].includes(mode) ? mode : 'unknown';
+}
+function staticCapabilities(record, env = process.env) {
+  const prefix = record.envPrefix;
+  const rcon = configuredValue(env, `${prefix}_HOST`) && configuredValue(env, `${prefix}_RCON_PORT`) && configuredValue(env, `${prefix}_RCON_PASSWORD`);
+  const sftp = configuredValue(env, `${prefix}_SFTP_HOST`) && configuredValue(env, `${prefix}_SFTP_USERNAME`) && configuredValue(env, `${prefix}_SFTP_PASSWORD`);
+  let lifecycle = false;
+  try { serviceIdFromEnv(prefix, env); credentialsFromEnv(prefix, env); lifecycle = true; } catch {}
+  const backend = configuredDatabaseMode(env);
+  const arkShopCredentials = backend === 'sqlite'
+    ? sftp
+    : ['ARKSHOP_DB_HOST', 'ARKSHOP_DB_NAME', 'ARKSHOP_DB_USER', 'ARKSHOP_DB_PASSWORD'].every((name) => configuredValue(env, name));
+  return {
+    rcon: { configured: rcon },
+    config: { configured: sftp },
+    lifecycle: { configured: lifecycle },
+    arkShop: { configured: sftp && arkShopCredentials, backend, sharedBackend: backend === 'mysql' }
+  };
+}
+
 class ArkBackendControl {
   constructor(options = {}) {
     this.registry = options.registry || new ArkClusterRegistry();
@@ -68,6 +94,9 @@ class ArkBackendControl {
     this.pollCluster = options.pollCluster || pollCluster;
     this.performRestart = options.performRestart || performRestart;
     this.waitForRecovery = options.waitForRecovery || waitForRecovery;
+    this.databaseStatus = options.databaseStatus || databaseStatus;
+    this.citadel = options.citadel || ((prefix) => new CitadelControlClient({ prefix, timeoutMs: 12_000 }));
+    this.env = options.env || process.env;
   }
 
   listServers() {
@@ -79,7 +108,8 @@ class ArkBackendControl {
       enabled: server.enabled !== false,
       maintenance: server.maintenance === true,
       restartRequired: server.restartRequired === true,
-      runtime: server.runtime
+      runtime: server.runtime,
+      capabilities: staticCapabilities(server, this.env)
     }));
   }
 
@@ -144,6 +174,92 @@ class ArkBackendControl {
     return { summary: polled.summary, servers, checkedAt: polled.checkedAt };
   }
 
+  async capabilityInventory({ probe = true } = {}) {
+    const records = this.registry.list({ includeDisabled: true });
+    let database = { backend: 'unknown', configured: false, ready: false, shared: false, error: '' };
+    try {
+      const backend = configuredDatabaseMode(this.env);
+      const configured = backend === 'sqlite'
+        ? true
+        : ['ARKSHOP_DB_HOST', 'ARKSHOP_DB_NAME', 'ARKSHOP_DB_USER', 'ARKSHOP_DB_PASSWORD'].every((name) => configuredValue(this.env, name));
+      database = { backend, configured, ready: false, shared: backend === 'mysql', error: '' };
+      if (probe && configured) {
+        const status = await this.databaseStatus();
+        database.ready = status.connected === true && status.tableExists === true;
+      }
+    } catch (error) { database.error = clean(error?.code || error?.message || error, 240); }
+
+    const servers = await Promise.all(records.map(async (record) => {
+      const configured = staticCapabilities(record, this.env);
+      const rcon = { ...configured.rcon, ready: false, state: configured.rcon.configured ? 'not-probed' : 'not-configured', error: '' };
+      const config = { ...configured.config, ready: false, files: {}, state: configured.config.configured ? 'not-probed' : 'not-configured', error: '' };
+      const lifecycle = { ...configured.lifecycle, ready: false, state: configured.lifecycle.configured ? 'not-probed' : 'not-configured', error: '' };
+      if (probe && rcon.configured) {
+        try { await this.rcon(record).execute('ListPlayers'); rcon.ready = true; rcon.state = 'ready'; }
+        catch (error) { rcon.state = 'unavailable'; rcon.error = clean(error?.message || error, 240); }
+      }
+      if (probe && config.configured) {
+        try {
+          const paths = await this.discoverPaths(record.envPrefix);
+          config.files = Object.fromEntries(Object.entries(paths).map(([key, value]) => [key, value?.found === true]));
+          config.ready = config.files.gus === true && config.files.game === true;
+          config.state = config.ready ? 'ready' : 'incomplete';
+          const errors = Object.values(paths).filter((value) => value?.found !== true && value?.error).map((value) => clean(value.error, 160));
+          config.error = errors.join('; ').slice(0, 240);
+        } catch (error) { config.state = 'unavailable'; config.error = clean(error?.message || error, 240); }
+      }
+      if (probe && lifecycle.configured) {
+        try { const status = await this.citadel(record.envPrefix).status(); lifecycle.ready = true; lifecycle.state = clean(status.state || 'unknown', 40); }
+        catch (error) { lifecycle.state = 'unavailable'; lifecycle.error = clean(error?.message || error, 240); }
+      }
+      const arkShop = {
+        ...configured.arkShop,
+        ready: config.files.arkshop === true && database.ready && (database.shared || records.length === 1),
+        configReady: config.files.arkshop === true,
+        databaseReady: database.ready,
+        state: 'not-ready',
+        error: ''
+      };
+      if (arkShop.ready) arkShop.state = 'ready';
+      else if (!config.files.arkshop) { arkShop.state = config.state === 'not-probed' ? 'not-probed' : 'config-unavailable'; arkShop.error = config.error; }
+      else if (!database.shared && records.length > 1) { arkShop.state = 'backend-not-shared'; arkShop.error = 'Cluster-wide ArkShop operations require one verified shared MySQL backend.'; }
+      else if (!database.ready) { arkShop.state = 'database-unavailable'; arkShop.error = database.error; }
+
+      const availableActions = ['cluster.health', 'cluster.capabilities'];
+      const blockedActions = {};
+      const allow = (actions, ready, reason) => {
+        for (const action of actions) {
+          if (record.enabled !== false && ready) availableActions.push(action);
+          else blockedActions[action] = record.enabled === false ? 'server-disabled' : reason;
+        }
+      };
+      allow(['server.status', 'server.players', 'server.save', 'server.broadcast'], rcon.ready, rcon.state);
+      allow(['config.plan', 'config.apply'], config.ready, config.state);
+      allow(['server.restart'], rcon.ready && lifecycle.ready, !rcon.ready ? rcon.state : lifecycle.state);
+      return {
+        id: record.id, name: record.name, mapName: record.mapName, envPrefix: record.envPrefix,
+        enabled: record.enabled !== false, maintenance: record.maintenance === true,
+        manageable: record.enabled !== false && rcon.ready && config.ready && lifecycle.ready,
+        capabilities: { rcon, config, lifecycle, arkShop },
+        availableActions: [...new Set(availableActions)].sort(), blockedActions
+      };
+    }));
+    return {
+      probe: probe === true,
+      authority: 'sentinel',
+      secretsExposed: false,
+      database,
+      summary: {
+        total: servers.length,
+        enabled: servers.filter((server) => server.enabled).length,
+        manageable: servers.filter((server) => server.manageable).length,
+        attention: servers.filter((server) => !server.manageable).length
+      },
+      servers,
+      checkedAt: new Date().toISOString()
+    };
+  }
+
   async planConfig(server, input) {
     const change = validateIniInput(input);
     const current = await this.readConfig(server.envPrefix, change.fileKey);
@@ -197,6 +313,7 @@ class ArkBackendControl {
     try {
       let data;
       if (action === 'cluster.health') data = await this.clusterHealth();
+      else if (action === 'cluster.capabilities') data = await this.capabilityInventory({ probe: input.probe !== false });
       else {
         server = this.resolveServer(input.serverId || input.server || input.map);
         if (action === 'server.status' || action === 'server.players') {
@@ -230,4 +347,4 @@ class ArkBackendControl {
   }
 }
 
-module.exports = { ALLOWED_ACTIONS, ArkBackendControl, clean, configPlanHash, correlationId, parsePlayers, sha256, validateIniInput };
+module.exports = { ALLOWED_ACTIONS, ArkBackendControl, clean, configPlanHash, configuredDatabaseMode, configuredValue, correlationId, parsePlayers, sha256, staticCapabilities, validateIniInput };
