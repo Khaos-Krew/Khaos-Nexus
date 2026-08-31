@@ -5,6 +5,7 @@ const { CHANNEL_NAME, managedCacheId } = require('./ark-dino-box-shop-extension.
 
 const INSTALLED = Symbol.for('khaos.nexus.dino.box.shop.images');
 const BOUND = Symbol.for('khaos.nexus.dino.box.shop.images.bound');
+const ARTWORK_VERSION = 2;
 const APPROVED_ART_COMMIT = 'd975933a8188844bbfc6c64968fd3303357df989';
 const APPROVED_ART_BASE = `https://raw.githubusercontent.com/Khaos-Krew/Khaos-Nexus/${APPROVED_ART_COMMIT}/assets/ark/wshop/cache-references`;
 
@@ -38,8 +39,8 @@ async function reconcileDinoBoxImages(guild) {
     if (!cacheId || !imageUrl || !message.embeds?.[0]) continue;
     const embed = message.embeds[0].toJSON();
     embed.image = { url: imageUrl };
-    // Explicitly remove any old upload. Remote embed images render inside the embed and do not
-    // produce the loose attachment block Discord displays above a message embed.
+    // Remove any previous upload. A remote embed image stays in the embed and does not create
+    // Discord's separate attachment block above the message.
     await message.edit({ embeds: [embed], attachments: [] });
     updated += 1;
   }
@@ -58,7 +59,7 @@ function installArkDinoBoxShopImageExtension() {
         setTimeout(() => {
           for (const guild of client.guilds.cache.values()) {
             void reconcileDinoBoxImages(guild)
-              .then((result) => console.log(`[Nexus Sentinal] Dino Box approved embed artwork reconciled: updated=${result.updated || 0}`))
+              .then((result) => console.log(`[Nexus Sentinal] Dino Box approved embed artwork v${ARTWORK_VERSION} reconciled: updated=${result.updated || 0}`))
               .catch((error) => console.error('[Nexus Sentinal] Dino Box approved embed artwork reconcile failed:', String(error?.message || error).slice(0, 300)));
           }
         }, 2500).unref?.();
@@ -70,6 +71,7 @@ function installArkDinoBoxShopImageExtension() {
 }
 
 module.exports = {
+  ARTWORK_VERSION,
   APPROVED_ART_COMMIT,
   APPROVED_ART_BASE,
   APPROVED_CACHE_IMAGE_FILES,
