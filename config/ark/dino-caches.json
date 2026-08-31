@@ -64,12 +64,12 @@
     ]
   },
   "caches": {
-    "coastal": { "price": 800, "groups": ["coastal"], "itemAliases": ["nexus_cache_coastal"], "maps": ["*"] },
-    "forest": { "price": 1250, "groups": ["forest"], "itemAliases": ["nexus_cache_forest"], "maps": ["*"] },
-    "swamp": { "price": 1400, "groups": ["swamp"], "itemAliases": ["nexus_cache_swamp"], "maps": ["*"] },
-    "mountain": { "price": 1800, "groups": ["mountain"], "itemAliases": ["nexus_cache_mountain"], "maps": ["*"] },
-    "ocean": { "price": 2200, "groups": ["ocean"], "itemAliases": ["nexus_cache_ocean"], "maps": ["*"] },
-    "deepcave": { "price": 2200, "groups": ["deepcave"], "itemAliases": ["nexus_cache_deepcave"], "maps": ["*"] },
-    "apex": { "price": 8000, "cooldownHours": 1, "variantWeights": { "normal": 95, "x": 3.5, "s": 1.5 }, "groups": ["apex"], "itemAliases": ["nexus_cache_apex"], "maps": ["*"] }
+    "coastal": { "price": 100, "cooldownMinutes": 5, "groups": ["coastal"], "itemAliases": ["nexus_cache_coastal"], "maps": ["*"] },
+    "forest": { "price": 150, "cooldownMinutes": 5, "groups": ["forest"], "itemAliases": ["nexus_cache_forest"], "maps": ["*"] },
+    "swamp": { "price": 175, "cooldownMinutes": 5, "groups": ["swamp"], "itemAliases": ["nexus_cache_swamp"], "maps": ["*"] },
+    "mountain": { "price": 225, "cooldownMinutes": 5, "groups": ["mountain"], "itemAliases": ["nexus_cache_mountain"], "maps": ["*"] },
+    "ocean": { "price": 275, "cooldownMinutes": 5, "groups": ["ocean"], "itemAliases": ["nexus_cache_ocean"], "maps": ["*"] },
+    "deepcave": { "price": 275, "cooldownMinutes": 5, "groups": ["deepcave"], "itemAliases": ["nexus_cache_deepcave"], "maps": ["*"] },
+    "apex": { "price": 500, "cooldownMinutes": 5, "variantWeights": { "normal": 95, "x": 3.5, "s": 1.5 }, "groups": ["apex"], "itemAliases": ["nexus_cache_apex"], "maps": ["*"] }
   }
 }
