@@ -17,8 +17,22 @@ test('level buckets exactly match the approved 200-300 distribution', () => {
 });
 
 test('all configured caches are central, bounded, and explicitly non-Shiny', () => {
-  assert.deepEqual(Object.fromEntries(Object.entries(CACHE_POOLS).map(([id, pool]) => [id, pool.price])), { coastal: 800, forest: 1250, swamp: 1400, mountain: 1800, ocean: 2200, deepcave: 2200, apex: 8000 });
-  for (const pool of Object.values(CACHE_POOLS)) for (const entry of pool.entries) assert.match(entry.blueprint, /^\/Game\//);
+  assert.deepEqual(Object.fromEntries(Object.entries(CACHE_POOLS).map(([id, pool]) => [id, pool.price])), {
+    coastal: 800,
+    forest: 1250,
+    swamp: 1400,
+    mountain: 1800,
+    ocean: 2200,
+    deepcave: 2200,
+    apex: 8000,
+    'fantastical-tames': 4000,
+    'bobs-tall-tales': 4000
+  });
+  assert.equal(Object.keys(CACHE_POOLS).length, 9);
+  for (const pool of Object.values(CACHE_POOLS)) {
+    assert.ok(pool.entries.length > 0 && pool.entries.length <= 64, 'cache pools must stay explicitly bounded');
+    for (const entry of pool.entries) assert.match(entry.blueprint, /^\/Game\//);
+  }
   assert.equal(SHINY_CHANCE, 0);
 });
 
