@@ -93,7 +93,8 @@ async function ensureArkShopAuthentication(connection, settings) {
   if (plugin === 'mysql_native_password') return { before: plugin, after: plugin, changed: false };
   if (plugin !== 'caching_sha2_password') throw new Error(`Unsupported MySQL authentication plugin: ${plugin}`);
   const query = `ALTER USER CURRENT_USER() IDENTIFIED WITH mysql_native_password BY ${connection.escape(settings.password)}`;
-  await connection.query(query);
+  try { await connection.query(query); }
+  catch { throw new Error('Citadel denied changing khaosk_48289 to mysql_native_password; change the user authentication method in the Citadel database panel before starting Astraeos.'); }
   plugin = await authPlugin(connection);
   if (plugin !== 'mysql_native_password') throw new Error('MySQL authentication plugin change did not verify.');
   return { before: 'caching_sha2_password', after: plugin, changed: true };
@@ -150,7 +151,6 @@ async function migrateAstraeosArkShop() {
     const sqlite = readSqlite(localSqlite);
 
     connection = await mysql.createConnection({ ...dbSettings, connectTimeout: 15000, charset: 'utf8mb4', supportBigNumbers: true, ssl: { rejectUnauthorized: false } });
-    const authentication = await ensureArkShopAuthentication(connection, dbSettings);
     const existing = await mysqlRows(connection);
     if (existing.stats.rowCount > 0 && existing.stats.digest !== sqlite.stats.digest) throw new Error(`Existing ${PLAYERS_TABLE} is nonempty and differs from Astraeos SQLite; refusing to merge or overwrite.`);
 
@@ -174,6 +174,10 @@ async function migrateAstraeosArkShop() {
     }
     const imported = await mysqlRows(connection);
     if (imported.stats.digest !== sqlite.stats.digest) throw new Error('MySQL digest does not match SQLite after import; config was not changed.');
+
+    // Import and backup are safe with mysql2's modern client. Do not switch the
+    // live ArkShop config until its older bundled client can authenticate.
+    const authentication = await ensureArkShopAuthentication(connection, dbSettings);
 
     const updated = JSON.parse(JSON.stringify(config));
     updated.Mysql = { ...updated.Mysql, UseMysql: true, MysqlHost: dbSettings.host, MysqlUser: dbSettings.user, MysqlPass: dbSettings.password, MysqlDB: dbSettings.database, MysqlPort: dbSettings.port, MysqlPlayersTable: PLAYERS_TABLE, MysqlLogTable: LOG_TABLE };
