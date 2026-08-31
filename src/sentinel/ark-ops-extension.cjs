@@ -16,6 +16,7 @@ const { DEFAULT_SPECIES_POLICIES, parseSpeciesCount, evaluateSpeciesCount, corre
 const { ArkSupporterCacheService } = require('./ark-supporter-cache-service.cjs');
 const { EVENT_TYPES } = require('./ark-event-engine.cjs');
 const { ArkEventService } = require('./ark-event-service.cjs');
+const { parseArkPlayerActionId } = require('./module-console.cjs');
 const {
   sftpSettingsFromEnv,
   remotePath,
@@ -262,9 +263,11 @@ async function arkConfigStatus(prefix = 'ARK_GEN1') {
 }
 
 async function handleArkInteraction(interaction, context) {
-  if (!interaction.isChatInputCommand?.() || interaction.commandName !== 'ark') return false;
-  const sub = interaction.options.getSubcommand();
-  const publicShopAction = ['shop-cache', 'link', 'link-status', 'unlink', 'supporter-cache', 'supporter-cache-status'].includes(sub);
+  const playerButton = interaction.isButton?.() ? parseArkPlayerActionId(interaction.customId) : null;
+  const slashCommand = interaction.isChatInputCommand?.() && interaction.commandName === 'ark';
+  if (!playerButton && !slashCommand) return false;
+  const sub = playerButton?.subcommand || interaction.options.getSubcommand();
+  const publicShopAction = ['shop-cache', 'shop-cache-guide', 'link', 'link-status', 'unlink', 'supporter-cache', 'supporter-cache-status'].includes(sub);
   if (!publicShopAction && !isStaff(interaction, context.config)) throw new Error('ARK server controls require Nexus staff authorization.');
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -318,7 +321,7 @@ async function handleArkInteraction(interaction, context) {
     if (String(process.env.ARK_GEN1_SUPPORTER_CACHE_ENABLED || 'false').toLowerCase() !== 'true') {
       throw new Error('Nexus supporter caches are staged but not yet enabled for live delivery.');
     }
-    const type = String(interaction.options.getString('type', true)).toLowerCase();
+    const type = String(playerButton?.type || interaction.options.getString('type', true)).toLowerCase();
     const result = sub === 'supporter-cache'
       ? await context.supporterCaches.claim(String(interaction.user.id), type)
       : context.supporterCaches.status(String(interaction.user.id), type);
@@ -353,6 +356,17 @@ async function handleArkInteraction(interaction, context) {
       `Price: **${CACHE_POOLS[cacheId].price} Nexus Points**`,
       'Purchase this cache inside the ARK shop. ArkShop performs the charge; Sentinel only processes its verified receipt and delivers the persisted roll.',
       'Discord purchases are disabled so there is one authoritative purchase ledger and no duplicate charge path.'
+    ].join('\n').slice(0, 1900), allowedMentions: { parse: [] } });
+    return true;
+  }
+
+  if (sub === 'shop-cache-guide') {
+    const caches = CACHE_CHOICES.map((cache) => `• **${cache.name.split(' — ')[0]}** — ${CACHE_POOLS[cache.value]?.price || 0} NP`);
+    await interaction.editReply({ content: [
+      '🦖 **Nexus Dino Cache Shop**',
+      ...caches,
+      '',
+      'Purchase inside the ARK shop so ArkShop remains the authoritative charge ledger. Use `/ark shop-cache` for details about one cache.'
     ].join('\n').slice(0, 1900), allowedMentions: { parse: [] } });
     return true;
   }
