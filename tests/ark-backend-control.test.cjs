@@ -24,13 +24,25 @@ function controlFixture(options = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-ark-control-'));
   return new ArkBackendControl({ registry: registryFixture(), auditPath: path.join(dir, 'audit.jsonl'), logger: { error() {} }, ...options });
 }
+function withEnv(values, fn) {
+  const previous = {};
+  for (const [key, value] of Object.entries(values)) {
+    previous[key] = process.env[key];
+    if (value == null) delete process.env[key]; else process.env[key] = String(value);
+  }
+  return Promise.resolve().then(fn).finally(() => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value == null) delete process.env[key]; else process.env[key] = value;
+    }
+  });
+}
 
-test('ARK backend allowlist keeps raw RCON and restart blocked while allowing approved config apply', () => {
+test('ARK backend allowlist permits guarded restart but still blocks raw RCON', () => {
   assert.equal(ALLOWED_ACTIONS.has('server.status'), true);
   assert.equal(ALLOWED_ACTIONS.has('cluster.health'), true);
   assert.equal(ALLOWED_ACTIONS.has('config.plan'), true);
   assert.equal(ALLOWED_ACTIONS.has('config.apply'), true);
-  assert.equal(ALLOWED_ACTIONS.has('server.restart'), false);
+  assert.equal(ALLOWED_ACTIONS.has('server.restart'), true);
   assert.equal(ALLOWED_ACTIONS.has('rcon.raw'), false);
 });
 
@@ -57,6 +69,52 @@ test('save and broadcast remain typed and idempotent', async () => {
   const replay = await control.execute({ action: 'server.broadcast', server: 'MAP1', message: 'Different', correlationId: 'test-broadcast-001' });
   assert.equal(replay.replayed, true);
   assert.deepEqual(commands, ['SaveWorld', 'Broadcast Restart warning']);
+});
+
+test('server restart requires approval, exact map confirmation, and empty server by default', async () => {
+  await withEnv({ ARK_GEN1_ENABLED: 'true', ARK_GEN1_HOST: '127.0.0.1', ARK_GEN1_RCON_PORT: '27020', ARK_GEN1_RCON_PASSWORD: 'test-password' }, async () => {
+    const restartCalls = [];
+    const control = controlFixture({
+      performRestart: async (_runtime, options) => {
+        restartCalls.push(options.prefix);
+        return { action: 'restart', previousState: 'running', acceptedStatus: 302 };
+      },
+      waitForRecovery: async () => true
+    });
+    control.rcon = () => ({ execute: async () => 'No Players Connected' });
+
+    const noApproval = await control.execute({ action: 'server.restart', server: 'MAP1', confirmation: 'gen1', correlationId: 'restart-denied-01' });
+    assert.equal(noApproval.ok, false);
+    assert.match(noApproval.message, /approved=true/);
+
+    const wrongConfirmation = await control.execute({ action: 'server.restart', server: 'MAP1', approved: true, confirmation: 'map2', correlationId: 'restart-denied-02' });
+    assert.equal(wrongConfirmation.ok, false);
+    assert.match(wrongConfirmation.message, /confirmation=gen1/);
+
+    const accepted = await control.execute({ action: 'server.restart', server: 'MAP1', approved: true, confirmation: 'gen1', correlationId: 'restart-accepted01' });
+    assert.equal(accepted.ok, true);
+    assert.equal(accepted.data.method, 'citadel-gamecp');
+    assert.equal(accepted.data.recoveryMonitoring, true);
+    assert.equal(accepted.llmCalls, 0);
+    assert.deepEqual(restartCalls, ['ARK_GEN1']);
+  });
+});
+
+test('server restart blocks connected players unless allowPlayers is explicit', async () => {
+  await withEnv({ ARK_GEN1_ENABLED: 'true', ARK_GEN1_HOST: '127.0.0.1', ARK_GEN1_RCON_PORT: '27020', ARK_GEN1_RCON_PASSWORD: 'test-password' }, async () => {
+    let restarts = 0;
+    const control = controlFixture({ performRestart: async () => { restarts += 1; return { action: 'restart', previousState: 'running', acceptedStatus: 302 }; } });
+    control.rcon = () => ({ execute: async () => '0. Alice, 12345678901234567890' });
+    const blocked = await control.execute({ action: 'server.restart', server: 'MAP1', approved: true, confirmation: 'gen1', correlationId: 'restart-player001' });
+    assert.equal(blocked.ok, false);
+    assert.match(blocked.message, /player\(s\) are connected/);
+    assert.equal(restarts, 0);
+
+    const allowed = await control.execute({ action: 'server.restart', server: 'MAP1', approved: true, confirmation: 'gen1', allowPlayers: true, correlationId: 'restart-player002' });
+    assert.equal(allowed.ok, true);
+    assert.equal(allowed.data.playerCountAtApproval, 1);
+    assert.equal(restarts, 1);
+  });
 });
 
 test('config apply requires approval and exact fresh plan hash', async () => {

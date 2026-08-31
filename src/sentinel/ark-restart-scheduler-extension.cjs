@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { Client, Events } = require('discord.js');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
+const { CitadelControlClient } = require('./ark-citadel-control.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.restart.scheduler.extension');
 const BOUND = Symbol.for('khaos.nexus.ark.restart.scheduler.bound');
@@ -69,7 +70,7 @@ function restartScheduleEnabled(prefix = 'ARK_GEN1') {
   return String(process.env[`${prefix}_RESTART_SCHEDULE_ENABLED`] || 'false').toLowerCase() === 'true';
 }
 
-async function waitForRecovery(server, { timeoutMs = 10 * 60_000, intervalMs = 15_000 } = {}) {
+async function waitForRecovery(server, { timeoutMs = 10 * 60_000, intervalMs = 15_000, auditFn = audit } = {}) {
   const started = Date.now();
   let sawOffline = false;
   while (Date.now() - started < timeoutMs) {
@@ -78,33 +79,31 @@ async function waitForRecovery(server, { timeoutMs = 10 * 60_000, intervalMs = 1
     try {
       await client.execute('ListPlayers');
       if (sawOffline) {
-        audit('recovery-complete', { server: server.name, elapsedMs: Date.now() - started });
+        auditFn('recovery-complete', { server: server.name, elapsedMs: Date.now() - started });
         return true;
       }
     } catch (error) {
-      if (!sawOffline) audit('offline-detected', { server: server.name, error: String(error?.message || error).slice(0, 240) });
+      if (!sawOffline) auditFn('offline-detected', { server: server.name, error: String(error?.message || error).slice(0, 240) });
       sawOffline = true;
     }
   }
-  audit('recovery-timeout', { server: server.name, timeoutMs });
+  auditFn('recovery-timeout', { server: server.name, timeoutMs });
   return false;
 }
 
-async function performRestart(server) {
+async function performRestart(server, { prefix = 'ARK_GEN1', citadelClient = null, auditFn = audit, recovery = waitForRecovery } = {}) {
   const rcon = new ArkRconClient({ host: server.host, port: server.port, password: server.password, timeoutMs: 8000 });
-  audit('save-requested', { server: server.name });
+  auditFn('save-requested', { server: server.name, prefix });
   await rcon.execute('SaveWorld');
-  audit('save-complete', { server: server.name });
+  auditFn('save-complete', { server: server.name, prefix });
   await sleep(5000);
 
-  audit('restart-requested', { server: server.name, method: 'rcon-doexit' });
-  try {
-    await rcon.execute('DoExit');
-  } catch (error) {
-    // A connection reset/close is expected when the game process exits.
-    audit('restart-rcon-closed', { server: server.name, message: String(error?.message || error).slice(0, 240) });
-  }
-  void waitForRecovery(server).catch((error) => audit('recovery-error', { server: server.name, error: String(error?.message || error).slice(0, 240) }));
+  const host = citadelClient || new CitadelControlClient({ prefix });
+  auditFn('restart-requested', { server: server.name, prefix, method: 'citadel-gamecp' });
+  const accepted = await host.restart();
+  auditFn('restart-accepted', { server: server.name, prefix, method: 'citadel-gamecp', previousState: accepted.previousState, acceptedStatus: accepted.acceptedStatus });
+  void recovery(server, { auditFn }).catch((error) => auditFn('recovery-error', { server: server.name, prefix, error: String(error?.message || error).slice(0, 240) }));
+  return accepted;
 }
 
 function installArkRestartSchedulerExtension({ prefix = 'ARK_GEN1' } = {}) {
@@ -127,6 +126,13 @@ function installArkRestartSchedulerExtension({ prefix = 'ARK_GEN1' } = {}) {
           audit('scheduler-unavailable', { prefix, reason: 'RCON variables incomplete' });
           return;
         }
+        try {
+          // Fail closed during startup if host-level restart credentials/service ID are unavailable.
+          new CitadelControlClient({ prefix });
+        } catch (error) {
+          audit('scheduler-unavailable', { prefix, reason: String(error?.message || error).slice(0, 240) });
+          return;
+        }
 
         const timeZone = String(process.env[`${prefix}_RESTART_TIMEZONE`] || process.env.NEXUS_SCHEDULER_TIMEZONE || DEFAULT_TIME_ZONE);
         const restartHour = Math.min(23, Math.max(0, Number(process.env[`${prefix}_RESTART_HOUR`] ?? DEFAULT_RESTART_HOUR) || 0));
@@ -140,7 +146,8 @@ function installArkRestartSchedulerExtension({ prefix = 'ARK_GEN1' } = {}) {
           server: server.name,
           timeZone,
           restart: `${String(restartHour).padStart(2, '0')}:${String(restartMinute).padStart(2, '0')}`,
-          warnings: WARNING_SECONDS
+          warnings: WARNING_SECONDS,
+          restartMethod: 'citadel-gamecp'
         });
 
         const tick = async () => {
@@ -172,15 +179,14 @@ function installArkRestartSchedulerExtension({ prefix = 'ARK_GEN1' } = {}) {
             fired.add(key);
             restartRunning = true;
             try {
-              await performRestart(server);
+              await performRestart(server, { prefix });
             } catch (error) {
-              audit('restart-failed', { server: server.name, error: String(error?.message || error).slice(0, 300) });
+              audit('restart-failed', { server: server.name, prefix, error: String(error?.message || error).slice(0, 300) });
             } finally {
               restartRunning = false;
             }
           }
 
-          // Keep memory bounded after local midnight.
           if (parts.hour === 0 && parts.minute === 10 && parts.second === 0) {
             for (const key of Array.from(fired)) if (!key.startsWith(`${today}:`)) fired.delete(key);
           }
