@@ -13,7 +13,7 @@ const { meta: legacyMeta, titleCase } = require('./ark-cache-shop-extension.cjs'
 const { ArkDinoBoxTokenService } = require('./ark-dino-box-token-service.cjs');
 
 const COMMAND_NAME = 'cachetoken';
-const TOKEN_ISSUER_VERSION = 2;
+const TOKEN_ISSUER_VERSION = 3;
 const INSTALLED = Symbol.for('khaos.nexus.dino.box.token.issuer.extension');
 const BOUND = Symbol.for('khaos.nexus.dino.box.token.issuer.extension.bound');
 const COIN_NAME = 'nexus-points-coin.png';
