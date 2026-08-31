@@ -1,0 +1,77 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const test = require('node:test');
+const { ArkBackendControl, ALLOWED_ACTIONS, parsePlayers } = require('../src/sentinel/ark-backend-control.cjs');
+
+function registryFixture() {
+  const server = {
+    id: 'gen1',
+    name: 'MAP1',
+    mapName: 'Genesis 1',
+    envPrefix: 'ARK_GEN1',
+    enabled: true,
+    maintenance: false,
+    restartRequired: false,
+    runtime: {}
+  };
+  return {
+    list: () => [server],
+    updateRuntime: (_id, runtime) => ({ ...server, runtime })
+  };
+}
+
+test('ARK backend allowlist excludes destructive/raw actions', () => {
+  assert.equal(ALLOWED_ACTIONS.has('server.status'), true);
+  assert.equal(ALLOWED_ACTIONS.has('server.save'), true);
+  assert.equal(ALLOWED_ACTIONS.has('server.broadcast'), true);
+  assert.equal(ALLOWED_ACTIONS.has('config.plan'), true);
+  assert.equal(ALLOWED_ACTIONS.has('server.restart'), false);
+  assert.equal(ALLOWED_ACTIONS.has('config.apply'), false);
+  assert.equal(ALLOWED_ACTIONS.has('rcon.raw'), false);
+});
+
+test('parsePlayers normalizes ListPlayers output', () => {
+  const players = parsePlayers('0. Alice, 12345678901234567890\n1. Bob, 98765432109876543210');
+  assert.deepEqual(players, [
+    { name: 'Alice', eosId: '12345678901234567890' },
+    { name: 'Bob', eosId: '98765432109876543210' }
+  ]);
+});
+
+test('MAP1 resolves to ARK_GEN1 and status uses zero LLM calls', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-ark-control-'));
+  const control = new ArkBackendControl({ registry: registryFixture(), auditPath: path.join(dir, 'audit.jsonl'), logger: { error() {} } });
+  const commands = [];
+  control.rcon = () => ({ execute: async (command) => { commands.push(command); return '0. Alice, 12345678901234567890'; } });
+
+  const result = await control.execute({ action: 'server.status', server: 'map1', correlationId: 'test-status-0001' });
+  assert.equal(result.ok, true);
+  assert.equal(result.server.envPrefix, 'ARK_GEN1');
+  assert.equal(result.data.playerCount, 1);
+  assert.equal(result.llmCalls, 0);
+  assert.deepEqual(commands, ['ListPlayers']);
+});
+
+test('save and broadcast are typed commands and correlation ids are idempotent', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-ark-control-'));
+  const control = new ArkBackendControl({ registry: registryFixture(), auditPath: path.join(dir, 'audit.jsonl'), logger: { error() {} } });
+  const commands = [];
+  control.rcon = () => ({ execute: async (command) => { commands.push(command); return 'OK'; } });
+
+  const saved = await control.execute({ action: 'server.save', server: 'MAP1', correlationId: 'test-save-000001' });
+  assert.equal(saved.ok, true);
+  assert.equal(saved.llmCalls, 0);
+  assert.deepEqual(commands, ['SaveWorld']);
+
+  const broadcast = await control.execute({ action: 'server.broadcast', server: 'MAP1', message: 'Restart warning', correlationId: 'test-broadcast-001' });
+  assert.equal(broadcast.ok, true);
+  assert.deepEqual(commands, ['SaveWorld', 'Broadcast Restart warning']);
+
+  const replay = await control.execute({ action: 'server.broadcast', server: 'MAP1', message: 'Different message', correlationId: 'test-broadcast-001' });
+  assert.equal(replay.replayed, true);
+  assert.equal(commands.length, 2);
+});
