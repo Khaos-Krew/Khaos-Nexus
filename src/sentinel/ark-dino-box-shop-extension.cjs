@@ -43,6 +43,10 @@ function cacheIds() {
   return Object.keys(CONFIG.caches);
 }
 
+function arkShopPoints(value) {
+  return `${Math.max(0, Number(value) || 0).toLocaleString('en-US')} ArkShop Points`;
+}
+
 function cachePanelPayload(cacheId) {
   const cache = CONFIG.caches[cacheId];
   if (!cache) throw new Error('Unknown Dino Box cache.');
@@ -52,7 +56,7 @@ function cachePanelPayload(cacheId) {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`${BUY_PREFIX}${cacheId}`)
-      .setLabel(`Buy • ${fmtPoints(cache.price)}`)
+      .setLabel(`Buy • ${arkShopPoints(cache.price)}`)
       .setEmoji('🎰')
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
@@ -68,7 +72,7 @@ function cachePanelPayload(cacheId) {
       description: `${m.tagline}\n\nChoose **Buy** to spend ArkShop Points or **Redeem Token** to open this box with a single-use Nexus token.`,
       color: 0xb00020,
       fields: [
-        { name: '💰 Price', value: `**${fmtPoints(cache.price)}**`, inline: true },
+        { name: '💰 Price', value: `**${arkShopPoints(cache.price)}**`, inline: true },
         { name: '⏱️ Purchase Cooldown', value: `**${cooldown}**`, inline: true },
         { name: '🎲 Rarity Odds', value: raritySummary(cache), inline: false },
         ...speciesFields,
@@ -160,7 +164,7 @@ function finalResultPayload(order, balance = null, source = 'ArkShop Points') {
     { name: 'Opened With', value: source, inline: true },
     { name: 'Status', value: '⏳ **Awaiting ARK Delivery**', inline: false }
   ];
-  if (Number.isFinite(balance)) fields.push({ name: 'Remaining ArkShop Points', value: fmtPoints(balance), inline: false });
+  if (Number.isFinite(balance)) fields.push({ name: 'Remaining ArkShop Points', value: arkShopPoints(balance), inline: false });
   return {
     embeds: [{
       title: `✨ ${m.name} • Opened`,
@@ -271,6 +275,7 @@ module.exports = {
   PANEL_MARKER,
   CACHE_META,
   cacheIds,
+  arkShopPoints,
   cachePanelPayload,
   managedCacheId,
   findArkParent,
