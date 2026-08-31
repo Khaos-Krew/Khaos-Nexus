@@ -74,7 +74,7 @@ class ArkDinoBoxTokenService {
     this.identityStore = identityStore;
     this.connector = connector;
     this.rngSecret = rngSecret;
-    this.secret = secret || tokenSecret();
+    this.secret = secret;
   }
 
   linkedAccount(discordUserId) {
@@ -99,7 +99,7 @@ class ArkDinoBoxTokenService {
 
     const code = generateTokenCode();
     const id = crypto.randomUUID();
-    const digest = tokenDigest(code, this.secret);
+    const digest = tokenDigest(code, this.secret || tokenSecret());
     const { connection } = await this.connector();
     try {
       await ensureTokenSchema(connection);
@@ -118,7 +118,7 @@ class ArkDinoBoxTokenService {
     const type = cleanId(cacheId, 48).toLowerCase();
     if (!/^\d{5,25}$/.test(userId)) throw shopError('INVALID_DISCORD_USER', 'A valid Discord user is required.');
     if (!VALID_CACHE_ID.test(type) || !CONFIG.caches[type]) throw shopError('INVALID_CACHE', 'That Dino Cache is not available.');
-    const digest = tokenDigest(tokenCode, this.secret);
+    const digest = tokenDigest(tokenCode, this.secret || tokenSecret());
     const account = this.linkedAccount(userId);
     const { connection } = await this.connector();
 
