@@ -11,6 +11,7 @@ const {
   parseIni,
   extractRates,
   extractMods,
+  mergeModIds,
   discoverServerMetadata,
   syncClusterMetadata
 } = require('../src/sentinel/ark-cluster-metadata.cjs');
@@ -37,6 +38,10 @@ test('ARK metadata discovery extracts active mod ids without duplicates', () => 
   assert.deepEqual(extractMods('[ServerSettings]\nActiveMods=111,222,111\n'), ['111', '222']);
 });
 
+test('ARK metadata combines configured active mods with installed disk inventory', () => {
+  assert.deepEqual(mergeModIds(['111111', '222222'], ['222222', '928548']), ['111111', '222222', '928548']);
+});
+
 test('server metadata uses existing safe SFTP config reader abstraction', async () => {
   const result = await discoverServerMetadata({ envPrefix: 'ARK_TEST', connections: { sftp: true } }, {
     reader: async (prefix, key) => ({ text: SAMPLE_GUS, remoteFile: `${prefix}/${key}`, discovered: true })
@@ -61,21 +66,25 @@ test('metadata sync continuously updates detected values without overwriting sta
   });
 
   await syncClusterMetadata(registry, {
-    reader: async () => ({ text: SAMPLE_GUS, remoteFile: 'GameUserSettings.ini', discovered: false })
+    reader: async () => ({ text: SAMPLE_GUS, remoteFile: 'GameUserSettings.ini', discovered: false }),
+    inventoryReader: async () => ({ accessible: true, directory: 'ShooterGame/Mods/83374', modIds: ['928548'] })
   });
   let record = registry.get('gen1');
   assert.equal(record.detectedRates.Harvest, '5x');
-  assert.deepEqual(record.detectedMods, ['111111', '222222', '333333']);
+  assert.deepEqual(record.detectedMods, ['111111', '222222', '333333', '928548']);
+  assert.deepEqual(record.installedMods, ['928548']);
   assert.equal(effectiveRates(record).Harvest, '5x');
-  assert.deepEqual(effectiveMods(record), ['111111', '222222', '333333']);
+  assert.deepEqual(effectiveMods(record), ['111111', '222222', '333333', '928548']);
 
   registry.upsert({ ...record, rates: { Harvest: 'Custom 7x' }, mods: ['Named Mod'] });
   await syncClusterMetadata(registry, {
-    reader: async () => ({ text: '[ServerSettings]\nHarvestAmountMultiplier=100\nActiveMods=999\n', remoteFile: 'GameUserSettings.ini', discovered: false })
+    reader: async () => ({ text: '[ServerSettings]\nHarvestAmountMultiplier=100\nActiveMods=999\n', remoteFile: 'GameUserSettings.ini', discovered: false }),
+    inventoryReader: async () => ({ accessible: false, reason: 'not exposed', modIds: [] })
   });
   record = registry.get('gen1');
   assert.equal(record.detectedRates.Harvest, '100x');
-  assert.deepEqual(record.detectedMods, ['999']);
+  assert.deepEqual(record.detectedMods, ['999', '928548']);
+  assert.deepEqual(record.installedMods, ['928548']);
   assert.deepEqual(record.rates, { Harvest: 'Custom 7x' });
   assert.deepEqual(record.mods, ['Named Mod']);
   assert.deepEqual(effectiveRates(record), { Harvest: 'Custom 7x' });

@@ -25,7 +25,9 @@ function installArkClusterMetadataExtension() {
         const results = await syncClusterMetadata(registry);
         const changed = results.filter((item) => item.changed).length;
         const errors = results.filter((item) => item.error).length;
-        console.log(`[Nexus Sentinal] ARK cluster metadata (${reason}): maps=${results.length} changed=${changed} errors=${errors}`);
+        const installedMods = results.reduce((sum, item) => sum + (Number(item.installedMods) || 0), 0);
+        const inventories = results.filter((item) => item.inventoryAccessible).length;
+        console.log(`[Nexus Sentinal] ARK cluster metadata (${reason}): maps=${results.length} changed=${changed} errors=${errors} diskInventories=${inventories} installedMods=${installedMods}`);
         if ((changed || forcePanelRefresh) && client.__nexusArkClusterContext?.runRefresh) {
           await client.__nexusArkClusterContext.runRefresh(`metadata-${reason}`, false);
         }

@@ -1,6 +1,7 @@
 'use strict';
 
 const { readConfig } = require('./ark-config-manager.cjs');
+const { inspectInstalledArkMods } = require('./ark-sftp-mod-inventory.cjs');
 
 function parseIni(text = '') {
   const sections = { '': {} };
@@ -78,24 +79,40 @@ async function discoverServerMetadata(server, { reader = readConfig } = {}) {
   return { rates, mods, remoteFile: result.remoteFile, discoveredPath: result.discovered === true };
 }
 
+function mergeModIds(...lists) {
+  return [...new Set(lists.flatMap((list) => Array.isArray(list) ? list : []).map(String).filter(Boolean))].slice(0, 60);
+}
+
 function sameJson(left, right) {
   return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
 }
 
 async function syncClusterMetadata(registry, options = {}) {
+  const inventoryReader = options.inventoryReader || inspectInstalledArkMods;
   const results = [];
   for (const server of registry.list({ includeDisabled: false })) {
     try {
-      const metadata = await discoverServerMetadata(server, options);
+      const [metadata, inventoryResult] = await Promise.all([
+        discoverServerMetadata(server, options),
+        inventoryReader(server.envPrefix).catch((error) => ({ accessible: false, error: String(error?.message || error).slice(0, 180), mods: [], modIds: [] }))
+      ]);
       if (metadata.skipped) {
         results.push({ id: server.id, skipped: metadata.skipped });
         continue;
       }
       const detectedRates = metadata.rates || {};
-      const detectedMods = metadata.mods || [];
-      const changed = !sameJson(server.detectedRates || {}, detectedRates) || !sameJson(server.detectedMods || [], detectedMods);
-      if (changed) registry.upsert({ ...server, detectedRates, detectedMods });
-      results.push({ id: server.id, changed, rates: Object.keys(detectedRates).length, mods: detectedMods.length, remoteFile: metadata.remoteFile });
+      const installedMods = inventoryResult.accessible ? (inventoryResult.modIds || []) : (server.installedMods || []);
+      const detectedMods = mergeModIds(metadata.mods || [], installedMods);
+      const changed = !sameJson(server.detectedRates || {}, detectedRates)
+        || !sameJson(server.detectedMods || [], detectedMods)
+        || !sameJson(server.installedMods || [], installedMods);
+      if (changed) registry.upsert({ ...server, detectedRates, detectedMods, installedMods });
+      results.push({
+        id: server.id, changed, rates: Object.keys(detectedRates).length, mods: detectedMods.length,
+        installedMods: installedMods.length, inventoryAccessible: inventoryResult.accessible === true,
+        inventoryDirectory: inventoryResult.directory || '', inventoryError: inventoryResult.error || inventoryResult.reason || '',
+        remoteFile: metadata.remoteFile
+      });
     } catch (error) {
       results.push({ id: server.id, error: String(error?.message || error).slice(0, 240) });
     }
@@ -109,6 +126,7 @@ module.exports = {
   formatMultiplier,
   extractRates,
   extractMods,
+  mergeModIds,
   discoverServerMetadata,
   sameJson,
   syncClusterMetadata

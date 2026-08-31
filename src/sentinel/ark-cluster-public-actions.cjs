@@ -48,7 +48,7 @@ function buildModListReply(servers = []) {
   const sections = enabled.map((server) => {
     const mods = effectiveMods(server).filter(Boolean);
     const title = `**${clean(server.mapName || server.name || server.id, 80)}**`;
-    if (!mods.length) return `${title}\nNo active mods detected.`;
+    if (!mods.length) return `${title}\nNo configured, running, or installed mods detected.`;
     const lines = mods.slice(0, 40).map((mod, index) => {
       const value = clean(mod, 100);
       const id = value.match(/\b\d{5,10}\b/)?.[0];
@@ -72,7 +72,7 @@ function buildLiveModListPayload(snapshots = []) {
       const url = String(mod?.url || curseForgeLookupUrl(id));
       return `${index + 1}. [${name}](${url}) · \`${id}\``;
     });
-    const chunks = chunkLines(lines.length ? lines : ['No active mods detected from the running server.']);
+    const chunks = chunkLines(lines.length ? lines : ['No configured, running, or installed mods detected.']);
     chunks.forEach((value, index) => fields.push({
       name: `${clean(snapshot?.serverName || 'ARK Server', 80)}${chunks.length > 1 ? ` • ${index + 1}/${chunks.length}` : ''}`,
       value,
@@ -82,10 +82,10 @@ function buildLiveModListPayload(snapshots = []) {
   return {
     embeds: [{
       title: '🧩 Khaos Nexus • ARK Mod List',
-      description: `${total} active mod${total === 1 ? '' : 's'} detected. Mod IDs come from the running ASA server log; each entry links to CurseForge.`,
+      description: `${total} mod${total === 1 ? '' : 's'} detected from the running log, server config, or map-local installed-mod directory. Each entry links to CurseForge.`,
       color: 0x5865f2,
       fields: fields.slice(0, 25),
-      footer: { text: 'Sentinal live detection • CurseForge project metadata when API access is configured' }
+      footer: { text: 'Sentinal server-side detection • API optional for friendly names only' }
     }],
     allowedMentions: { parse: [] }
   };
@@ -127,7 +127,7 @@ async function loadSnapshotsAndCache(registry, servers) {
     try {
       const snapshot = await loadLiveArkPublicInfo(server);
       snapshots.push(snapshot);
-      registry.upsert({ ...server, detectedMods: snapshot.modIds, detectedRates: snapshot.detectedRates });
+      registry.upsert({ ...server, detectedMods: snapshot.modIds, installedMods: snapshot.installedModIds, detectedRates: snapshot.detectedRates });
     } catch (error) {
       snapshots.push({
         serverId: server.id,

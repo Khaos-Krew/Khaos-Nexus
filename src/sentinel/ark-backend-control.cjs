@@ -264,7 +264,7 @@ class ArkBackendControl {
       else if (!dinoCache.databaseReady) dinoCache.state = 'schema-unavailable';
       else if (!rcon.ready) dinoCache.state = `delivery-${rcon.state}`;
 
-      const installedMods = new Set([...(record.mods || []), ...(record.detectedMods || [])].map((value) => String(value)));
+      const installedMods = new Set([...(record.mods || []), ...(record.detectedMods || []), ...(record.installedMods || [])].map((value) => String(value)));
       const shinyIngestEnabled = String(this.env.NEXUS_SHINY_INGEST_ENABLED || 'false').toLowerCase() === 'true';
       const anomalySchemaReady = String(this.env.NEXUS_ANOMALY_SCHEMA_READY || 'false').toLowerCase() === 'true';
       const shiny = {
