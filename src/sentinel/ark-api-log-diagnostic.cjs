@@ -63,6 +63,14 @@ function parseArkVersion(text) {
   return match ? match[1] : '';
 }
 
+function parseMapIdentifiers(text) {
+  return [...new Set([...String(text || '').matchAll(/\b([A-Za-z][A-Za-z0-9]*_WP)\b/g)].map((match) => match[1]))].slice(0, 12);
+}
+
+function parseStartedServerNames(text) {
+  return [...new Set([...String(text || '').matchAll(/Server:\s*"([^"]{1,160})"\s*has successfully started!/ig)].map((match) => redactLogLine(match[1])).filter(Boolean))].slice(0, 6);
+}
+
 function startupReadiness(text) {
   const value = String(text || '');
   return {
@@ -99,7 +107,7 @@ function normalizeModifyTime(value) {
 async function readBoundedLog(client, remotePath, sizeHint = 0) {
   const stat = sizeHint ? { size: sizeHint } : await client.stat(remotePath).catch(() => null);
   const bytes = Number(stat?.size) || 0;
-  if (bytes > MAX_LOG_BYTES) return { path: remotePath, bytes, skipped: 'log-too-large', lines: [], issues: [], lifecycle: [], tail: [], modIds: [], version: '', readiness: startupReadiness('') };
+  if (bytes > MAX_LOG_BYTES) return { path: remotePath, bytes, skipped: 'log-too-large', lines: [], issues: [], lifecycle: [], tail: [], modIds: [], mapIdentifiers: [], serverNames: [], version: '', readiness: startupReadiness('') };
   const data = await client.get(remotePath);
   const text = Buffer.isBuffer(data) ? data.toString('utf8') : String(data || '');
   return {
@@ -110,6 +118,8 @@ async function readBoundedLog(client, remotePath, sizeHint = 0) {
     lifecycle: apiLifecycleLines(text, 40),
     tail: tailLogLines(text, MAX_TAIL_LINES),
     modIds: parseLoadedModIds(text),
+    mapIdentifiers: parseMapIdentifiers(text),
+    serverNames: parseStartedServerNames(text),
     version: parseArkVersion(text),
     readiness: startupReadiness(text)
   };
@@ -167,7 +177,8 @@ async function inspectSavedLogs(client, shooterGameRoot) {
   try { entries = await client.list(directory); }
   catch { return { directory, accessible: false, filesSeen: [], filesScanned: [], lines: [], issues: [], lifecycle: [], newest: null }; }
 
-  const candidates = entries.filter(logLike).sort((a, b) => Number(b.modifyTime || 0) - Number(a.modifyTime || 0));
+  const priority = (entry) => /^shootergame(?:-backup[^.]*)?\.log$/i.test(String(entry?.name || '')) ? 2 : /^servergame\..*\.log$/i.test(String(entry?.name || '')) ? 1 : 0;
+  const candidates = entries.filter(logLike).sort((a, b) => priority(b) - priority(a) || Number(b.modifyTime || 0) - Number(a.modifyTime || 0));
   const filesSeen = candidates.slice(0, 20).map((entry) => safeFileName(entry.name));
   const filesScanned = [];
   const lines = [];
@@ -179,7 +190,7 @@ async function inspectSavedLogs(client, shooterGameRoot) {
     if (!result) continue;
     const scanned = { name: safeFileName(entry.name), bytes: result.bytes, modifiedAt: normalizeModifyTime(entry.modifyTime), skipped: result.skipped || '' };
     filesScanned.push(scanned);
-    if (index === 0) newest = { ...scanned, tail: result.tail || [], modIds: result.modIds || [], version: result.version || '', readiness: result.readiness || startupReadiness('') };
+    if (index === 0) newest = { ...scanned, tail: result.tail || [], modIds: result.modIds || [], mapIdentifiers: result.mapIdentifiers || [], serverNames: result.serverNames || [], version: result.version || '', readiness: result.readiness || startupReadiness('') };
     for (const line of result.lines || []) lines.push(`[${safeFileName(entry.name)}] ${line}`);
     for (const line of result.issues || []) issues.push(`[${safeFileName(entry.name)}] ${line}`);
     for (const line of result.lifecycle || []) lifecycle.push(`[${safeFileName(entry.name)}] ${line}`);
@@ -234,6 +245,6 @@ async function inspectArkApiLog(prefix = 'ARK_GEN1') {
 module.exports = {
   LOG_CANDIDATES, SAVED_LOGS_SUFFIX, CRASHES_SUFFIX, MAX_LOG_BYTES, MAX_CRASH_FILE_BYTES, MAX_SAVED_LOG_FILES, MAX_TAIL_LINES,
   redactLogLine, relevantLogLines, apiLifecycleLines, startupIssueLines, crashRelevantLines, tailLogLines,
-  parseLoadedModIds, parseArkVersion, startupReadiness, normalizeModifyTime, safeFileName,
+  parseLoadedModIds, parseArkVersion, parseMapIdentifiers, parseStartedServerNames, startupReadiness, normalizeModifyTime, safeFileName,
   inspectCrashArtifacts, inspectSavedLogs, inspectArkApiLog
 };

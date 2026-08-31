@@ -170,7 +170,7 @@ if (String(process.env.ARK_MAP2_SFTP_HOST || '').trim()) {
         const files = Array.isArray(result.filesSeen) ? result.filesSeen.join(',').slice(0, 900) : '';
         console.log(`[Nexus Sentinal] ARK MAP2 identity probe: found=${Boolean(result.found)} source=${result.source || 'unknown'} path=${result.path || 'unknown'} files=${files || '(none)'}`);
         if (result.newest) {
-          console.log(`[Nexus Sentinal] ARK MAP2 newest log: file=${result.newest.name} modifiedAt=${result.newest.modifiedAt || 'unknown'} bytes=${result.newest.bytes || 0}`);
+          console.log(`[Nexus Sentinal] ARK MAP2 newest log: file=${result.newest.name} modifiedAt=${result.newest.modifiedAt || 'unknown'} bytes=${result.newest.bytes || 0} mapIdentifiers=${(result.newest.mapIdentifiers || []).join(',') || '(none)'} serverNames=${(result.newest.serverNames || []).join(',') || '(none)'}`);
           for (const line of (result.newest.tail || []).slice(-30)) console.log(`[Nexus Sentinal] ARK MAP2 newest tail: ${line}`);
         }
       })
