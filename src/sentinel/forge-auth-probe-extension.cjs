@@ -2,6 +2,7 @@
 
 const { Client, Events } = require('discord.js');
 const { ForgeClient } = require('./forge-client.cjs');
+const { installForgeControlPlaneExtension } = require('./forge-control-plane-extension.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.forge.auth.probe.extension');
 
@@ -33,6 +34,8 @@ async function probeForgeAuthentication(forge, logger = console) {
 }
 
 function installForgeAuthProbeExtension(options = {}) {
+  installForgeControlPlaneExtension({ logger: options.logger, forge: options.forge, workers: options.workers });
+
   if (Client.prototype[INSTALLED]) return;
   Client.prototype[INSTALLED] = true;
 
