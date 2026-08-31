@@ -1,0 +1,12 @@
+{
+  "enabled": false,
+  "pollIntervalMs": 15000,
+  "purchaseCooldownSeconds": 5,
+  "delivery": {
+    "enabled": false,
+    "commandTemplate": "",
+    "successPattern": ""
+  },
+  "announcementChannelId": "",
+  "caches": []
+}
