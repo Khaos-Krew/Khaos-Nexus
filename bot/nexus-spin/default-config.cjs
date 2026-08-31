@@ -40,6 +40,7 @@ function runtimeDefaults() {
   return {
     enabled: envBool('NEXUS_SPIN_ENABLED', false),
     cooldownSeconds: envInt('NEXUS_SPIN_COOLDOWN_SECONDS', 86400),
+    pointSpinCost: envInt('NEXUS_SPIN_POINT_COST', 100),
     channelId: String(process.env.NEXUS_SPIN_CHANNEL_ID || '').trim(),
     resourceDelivery: {
       enabled: envBool('NEXUS_SPIN_RESOURCE_DELIVERY_ENABLED', false),
