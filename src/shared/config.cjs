@@ -25,6 +25,7 @@ function loadConfig(options = {}) {
   config.backend ||= {};
   config.discord ||= {};
   config.discord.nexusStatus ||= {};
+  config.finance ||= {};
 
   if (process.env.NEXUS_BACKEND_HOST) config.backend.host = process.env.NEXUS_BACKEND_HOST;
   if (process.env.NEXUS_BACKEND_PORT) config.backend.port = Number(process.env.NEXUS_BACKEND_PORT);
@@ -39,6 +40,9 @@ function loadConfig(options = {}) {
   if (process.env.NEXUS_STATUS_REFRESH_SECONDS) config.discord.nexusStatus.refreshSeconds = Number(process.env.NEXUS_STATUS_REFRESH_SECONDS);
   if (process.env.NEXUS_VEYRA_HEALTH_URL) config.discord.nexusStatus.veyraHealthUrl = process.env.NEXUS_VEYRA_HEALTH_URL;
   if (process.env.NEXUS_VEYRA_GATEWAY_HEALTH_URL) config.discord.nexusStatus.veyraGatewayHealthUrl = process.env.NEXUS_VEYRA_GATEWAY_HEALTH_URL;
+  if (process.env.NEXUS_FINANCE_CHANNEL_ID) config.finance.channelId = process.env.NEXUS_FINANCE_CHANNEL_ID;
+  if (process.env.NEXUS_FINANCE_REFRESH_SECONDS) config.finance.refreshSeconds = Number(process.env.NEXUS_FINANCE_REFRESH_SECONDS);
+  if (process.env.NEXUS_FINANCE_TIME_ZONE) config.finance.timeZone = process.env.NEXUS_FINANCE_TIME_ZONE;
   config.modules ||= {};
   config.modules.dnd ||= { enabled: true, surface: 'veyra', provider: {} };
   config.modules.dnd.provider ||= {};
