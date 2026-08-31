@@ -31,6 +31,7 @@ function loadConfig(options = {}) {
   if (process.env.NEXUS_BACKEND_URL) config.backend.publicBaseUrl = process.env.NEXUS_BACKEND_URL;
   if (process.env.NEXUS_DISCORD_GUILD_ID) config.discord.guildId = process.env.NEXUS_DISCORD_GUILD_ID;
   if (process.env.NEXUS_OWNER_USER_IDS) config.discord.ownerUserIds = csv(process.env.NEXUS_OWNER_USER_IDS);
+  if (process.env.NEXUS_CACHE_TOKEN_ISSUER_USER_ID) config.discord.cacheTokenIssuerUserId = String(process.env.NEXUS_CACHE_TOKEN_ISSUER_USER_ID).trim();
   if (process.env.NEXUS_OPERATOR_ROLE_IDS) config.discord.operatorRoleIds = csv(process.env.NEXUS_OPERATOR_ROLE_IDS);
   if (process.env.NEXUS_MAX_TEMP_LOBBIES) config.discord.maxTemporaryLobbiesPerModule = Number(process.env.NEXUS_MAX_TEMP_LOBBIES);
   if (process.env.NEXUS_SENTINAL_ADMIN_URL) config.discord.sentinalAdminUrl = process.env.NEXUS_SENTINAL_ADMIN_URL;
