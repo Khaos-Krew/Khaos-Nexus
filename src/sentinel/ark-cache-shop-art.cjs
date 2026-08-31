@@ -4,6 +4,7 @@ const zlib = require('node:zlib');
 
 const WIDTH = 800;
 const HEIGHT = 360;
+const CACHE_ART_VERSION = 2;
 const THEMES = Object.freeze({
   coastal:{seed:11,accent:[210,34,58],accent2:[45,95,135]},
   forest:{seed:23,accent:[185,24,46],accent2:[42,88,55]},
@@ -91,4 +92,4 @@ function cachedImageBuffer(cacheId){const id=String(cacheId||'cache').toLowerCas
 function cacheImageAttachment(cacheId){const id=String(cacheId||'cache').toLowerCase();return{attachment:cachedImageBuffer(id),name:`nexus-${id}-cache.png`};}
 function cacheImageName(cacheId){return `nexus-${String(cacheId||'cache').toLowerCase()}-cache.png`;}
 
-module.exports={WIDTH,HEIGHT,THEMES,imageBuffer,cachedImageBuffer,cacheImageAttachment,cacheImageName};
+module.exports={WIDTH,HEIGHT,CACHE_ART_VERSION,THEMES,imageBuffer,cachedImageBuffer,cacheImageAttachment,cacheImageName};
