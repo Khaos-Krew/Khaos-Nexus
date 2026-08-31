@@ -7,12 +7,14 @@ const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { readConfig, setIniValue, discoverPaths } = require('./ark-config-manager.cjs');
 const { pollCluster } = require('./ark-cluster-monitor.cjs');
+const { performRestart, waitForRecovery } = require('./ark-restart-scheduler-extension.cjs');
 
 const ALLOWED_ACTIONS = new Set([
   'server.status',
   'server.players',
   'server.save',
   'server.broadcast',
+  'server.restart',
   'cluster.health',
   'config.plan',
   'config.apply'
@@ -80,6 +82,8 @@ class ArkBackendControl {
     this.setIniValue = options.setIniValue || setIniValue;
     this.discoverPaths = options.discoverPaths || discoverPaths;
     this.pollCluster = options.pollCluster || pollCluster;
+    this.performRestart = options.performRestart || performRestart;
+    this.waitForRecovery = options.waitForRecovery || waitForRecovery;
   }
 
   listServers() {
@@ -207,6 +211,40 @@ class ArkBackendControl {
     };
   }
 
+  async restartServer(server, input) {
+    if (input.approved !== true) throw new Error('server.restart requires approved=true.');
+    const confirmation = clean(input.confirmation, 100).toLowerCase();
+    if (confirmation !== String(server.id).toLowerCase()) throw new Error(`server.restart requires confirmation=${server.id}.`);
+
+    const rawPlayers = await this.rcon(server).execute('ListPlayers');
+    const players = parsePlayers(rawPlayers);
+    if (players.length && input.allowPlayers !== true) {
+      throw new Error(`Restart blocked: ${players.length} player(s) are connected. Set allowPlayers=true only after warnings/approval.`);
+    }
+
+    const runtime = arkServerFromEnv(server.envPrefix);
+    const recovery = async (target, options = {}) => {
+      const recovered = await this.waitForRecovery(target, options);
+      if (recovered && typeof this.registry.setRestartRequired === 'function') {
+        try { this.registry.setRestartRequired(server.id, { required: false, transactionId: clean(input.correlationId, 80) }); } catch {}
+      }
+      return recovered;
+    };
+    const accepted = await this.performRestart(runtime, { prefix: server.envPrefix, recovery });
+    return {
+      accepted: true,
+      method: 'citadel-gamecp',
+      playerCountAtApproval: players.length,
+      recoveryMonitoring: true,
+      restartRequiredWillClearOnRecovery: true,
+      host: {
+        action: accepted.action,
+        previousState: accepted.previousState,
+        acceptedStatus: accepted.acceptedStatus
+      }
+    };
+  }
+
   async execute(input = {}, context = {}) {
     const action = clean(input.action, 60).toLowerCase();
     if (!ALLOWED_ACTIONS.has(action)) throw new Error(`Unsupported ARK backend action: ${action || '(missing)'}.`);
@@ -241,6 +279,8 @@ class ArkBackendControl {
           if (!message) throw new Error('Broadcast message is required.');
           const response = await this.rcon(server).execute(`Broadcast ${message}`);
           data = { broadcast: true, message, response: clean(response, 300) };
+        } else if (action === 'server.restart') {
+          data = await this.restartServer(server, { ...input, correlationId: id });
         } else if (action === 'config.plan') {
           data = await this.planConfig(server, input);
         } else if (action === 'config.apply') {
