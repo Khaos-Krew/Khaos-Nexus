@@ -7,6 +7,8 @@ const { CONFIG, cacheForPurchase } = require('./ark-dino-cache-engine.cjs');
 const { DinoCacheStore } = require('./ark-dino-cache-store.cjs');
 const { DinoCacheRedemptionProcessor } = require('./ark-dino-cache-purchase.cjs');
 const { installArkDinoBoxShopExtension } = require('./ark-dino-box-shop-extension.cjs');
+const { installArkDinoBoxTokenIssuerExtension } = require('./ark-dino-box-token-issuer-extension.cjs');
+const { installArkDinoBoxShopImageExtension } = require('./ark-dino-box-shop-image-extension.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.dino-cache.runtime');
 let timer = null;
@@ -103,6 +105,8 @@ async function runDinoCacheCycle({ connector = connectMysql, registry = new ArkC
 
 function installDinoCacheRuntime() {
   installArkDinoBoxShopExtension();
+  installArkDinoBoxTokenIssuerExtension();
+  installArkDinoBoxShopImageExtension();
   if (globalThis[INSTALLED]) return false;
   globalThis[INSTALLED] = true;
   if (!enabled()) { console.log('[dino-cache] legacy ArkShop receipt poller disabled; Discord #dino-box-shop remains available'); return false; }
