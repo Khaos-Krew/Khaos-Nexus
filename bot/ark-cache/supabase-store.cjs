@@ -3,7 +3,11 @@
 function required(value, label) {
   const text = String(value || '').trim();
   if (!text) throw new Error(`${label} is required.`);
-  return text.replace(/\/+$/, '');
+  return text;
+}
+
+function baseUrl(value) {
+  return required(value, 'SUPABASE_URL').replace(/\/+$/, '');
 }
 
 function rowToPurchase(row = {}) {
@@ -55,7 +59,7 @@ function purchaseToRow(purchase, status = 'ROLLING') {
 
 class SupabaseDinoCacheStore {
   constructor(options = {}) {
-    this.url = required(options.url || process.env.SUPABASE_URL, 'SUPABASE_URL');
+    this.url = baseUrl(options.url || process.env.SUPABASE_URL);
     this.key = required(options.key || process.env.SUPABASE_SERVICE_ROLE_KEY, 'SUPABASE_SERVICE_ROLE_KEY');
     this.fetch = options.fetchImpl || globalThis.fetch;
     if (typeof this.fetch !== 'function') throw new Error('A fetch implementation is required.');
@@ -111,8 +115,12 @@ class SupabaseDinoCacheStore {
     return Array.isArray(rows) && rows.length ? rowToPurchase(rows[0]) : null;
   }
 
+  async markDelivering(cacheId) {
+    return this.transition(cacheId, 'DELIVERY_LOCKED', 'DELIVERING');
+  }
+
   async markDelivered(cacheId, details = {}) {
-    return this.patchLocked(cacheId, {
+    return this.patchExpected(cacheId, 'DELIVERING', {
       status: 'DELIVERED',
       delivery_map: details.mapName || null,
       delivery_response: details.response == null ? null : String(details.response).slice(0, 8000),
@@ -121,7 +129,7 @@ class SupabaseDinoCacheStore {
   }
 
   async markFailed(cacheId, details = {}) {
-    return this.patchLocked(cacheId, {
+    return this.patchExpected(cacheId, 'DELIVERING', {
       status: 'DELIVERY_FAILED',
       delivery_map: details.mapName || null,
       delivery_error: String(details.reason || 'Definite pre-send failure').slice(0, 4000),
@@ -129,7 +137,7 @@ class SupabaseDinoCacheStore {
   }
 
   async markUnknown(cacheId, details = {}) {
-    return this.patchLocked(cacheId, {
+    return this.patchExpected(cacheId, 'DELIVERING', {
       status: 'DELIVERY_UNKNOWN',
       delivery_map: details.mapName || null,
       delivery_error: String(details.reason || 'Delivery result is ambiguous').slice(0, 4000),
@@ -138,18 +146,12 @@ class SupabaseDinoCacheStore {
   }
 
   async transition(cacheId, expected, next) {
-    const id = encodeURIComponent(String(cacheId));
-    const rows = await this.request(`/rest/v1/ark_dino_cache_purchases?cache_id=eq.${id}&status=eq.${encodeURIComponent(expected)}`, {
-      method: 'PATCH',
-      headers: { Prefer: 'return=representation' },
-      body: JSON.stringify({ status: next }),
-    });
-    return Array.isArray(rows) && rows.length ? rowToPurchase(rows[0]) : null;
+    return this.patchExpected(cacheId, expected, { status: next });
   }
 
-  async patchLocked(cacheId, patch) {
+  async patchExpected(cacheId, expected, patch) {
     const id = encodeURIComponent(String(cacheId));
-    const rows = await this.request(`/rest/v1/ark_dino_cache_purchases?cache_id=eq.${id}&status=eq.DELIVERY_LOCKED`, {
+    const rows = await this.request(`/rest/v1/ark_dino_cache_purchases?cache_id=eq.${id}&status=eq.${encodeURIComponent(expected)}`, {
       method: 'PATCH',
       headers: { Prefer: 'return=representation' },
       body: JSON.stringify(patch),
