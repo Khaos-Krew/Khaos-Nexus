@@ -9,20 +9,25 @@ const {
   SlashCommandBuilder
 } = require('discord.js');
 const { CONFIG } = require('./ark-dino-cache-engine.cjs');
-const { meta, titleCase } = require('./ark-cache-shop-extension.cjs');
+const { meta: legacyMeta, titleCase } = require('./ark-cache-shop-extension.cjs');
 const { ArkDinoBoxTokenService } = require('./ark-dino-box-token-service.cjs');
 
 const COMMAND_NAME = 'cachetoken';
-const TOKEN_ISSUER_VERSION = 1;
+const TOKEN_ISSUER_VERSION = 2;
 const INSTALLED = Symbol.for('khaos.nexus.dino.box.token.issuer.extension');
 const BOUND = Symbol.for('khaos.nexus.dino.box.token.issuer.extension.bound');
 const COIN_NAME = 'nexus-points-coin.png';
 const COIN_PATH = path.join(process.cwd(), 'config', 'ark', 'arkshopui', 'assets', COIN_NAME);
 
+function cacheDisplayName(cacheId) {
+  const id = String(cacheId || '').toLowerCase();
+  return CONFIG.caches[id]?.displayName || legacyMeta(id).name || `${titleCase(id)} Cache`;
+}
+
 function cacheChoices() {
   return [
     { name: 'Any Dino Cache', value: 'any' },
-    ...Object.keys(CONFIG.caches).map((id) => ({ name: meta(id).name.slice(0, 100), value: id }))
+    ...Object.keys(CONFIG.caches).map((id) => ({ name: cacheDisplayName(id).slice(0, 100), value: id }))
   ];
 }
 
@@ -47,7 +52,7 @@ function isGuildOwner(interaction) {
 
 function tokenScopeLabel(scope) {
   if (scope === '*' || scope === 'any') return 'Any Dino Cache';
-  return meta(scope).name || `${titleCase(scope)} Cache`;
+  return cacheDisplayName(scope);
 }
 
 function tokenCardPayload({ token, recipientId }) {
@@ -159,6 +164,7 @@ module.exports = {
   TOKEN_ISSUER_VERSION,
   COIN_NAME,
   COIN_PATH,
+  cacheDisplayName,
   cacheChoices,
   tokenCommand,
   isGuildOwner,
