@@ -19,7 +19,7 @@ const { ArkDinoBoxTokenService } = require('./ark-dino-box-token-service.cjs');
 const { BUTTON_CACHE_SHOP } = require('./ark-cluster-panel.cjs');
 const {
   CACHE_META,
-  meta,
+  meta: legacyMeta,
   titleCase,
   fmtPoints,
   fmtCooldown,
@@ -36,11 +36,24 @@ const TOKEN_PREFIX = 'nexus-dino-box-token:';
 const TOKEN_MODAL_PREFIX = 'nexus-dino-box-token-modal:';
 const TOKEN_INPUT = 'nexus-dino-box-token-code';
 const PANEL_MARKER = 'Nexus Dino Box Shop • cache:';
-const INSTALLED = Symbol.for('khaos.nexus.dino-box.shop.extension');
-const BOUND = Symbol.for('khaos.nexus.dino-box.shop.extension.bound');
+const INSTALLED = Symbol.for('khaos.nexus.dino.box.shop.extension');
+const BOUND = Symbol.for('khaos.nexus.dino.box.shop.extension.bound');
 
 function cacheIds() {
   return Object.keys(CONFIG.caches);
+}
+
+function meta(cacheId) {
+  const cache = CONFIG.caches[String(cacheId || '').toLowerCase()];
+  if (cache?.displayName) {
+    return {
+      name: cache.displayName,
+      emoji: cache.emoji || '🦖',
+      tagline: cache.tagline || 'Nexus Dino Cache.',
+      disclaimer: cache.disclaimer || ''
+    };
+  }
+  return { ...legacyMeta(cacheId), disclaimer: cache?.disclaimer || '' };
 }
 
 function arkShopPoints(value) {
@@ -53,6 +66,7 @@ function cachePanelPayload(cacheId) {
   const m = meta(cacheId);
   const speciesFields = speciesByRarity(cache).map((field) => ({ ...field, inline: false }));
   const cooldown = cache.cooldownHours ? fmtCooldown(cache.cooldownHours) : 'None';
+  const disclaimerFields = m.disclaimer ? [{ name: '⚠️ DLC Ownership Required', value: m.disclaimer.slice(0, 1024), inline: false }] : [];
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`${BUY_PREFIX}${cacheId}`)
@@ -72,6 +86,7 @@ function cachePanelPayload(cacheId) {
       description: `${m.tagline}\n\nChoose **Buy** to spend ArkShop Points or **Redeem Token** to open this box with a single-use Nexus token.`,
       color: 0xb00020,
       fields: [
+        ...disclaimerFields,
         { name: '💰 Price', value: `**${arkShopPoints(cache.price)}**`, inline: true },
         { name: '⏱️ Purchase Cooldown', value: `**${cooldown}**`, inline: true },
         { name: '🎲 Rarity Odds', value: raritySummary(cache), inline: false },
@@ -275,6 +290,7 @@ module.exports = {
   PANEL_MARKER,
   CACHE_META,
   cacheIds,
+  meta,
   arkShopPoints,
   cachePanelPayload,
   managedCacheId,
