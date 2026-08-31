@@ -41,13 +41,13 @@ async function withPlayerLock(eosId, fn) {
   const key = cleanEosId(eosId).toLowerCase();
   const previous = playerLocks.get(key) || Promise.resolve();
   let release;
-  const current = new Promise((resolve) => { release = resolve(); });
+  const current = new Promise((resolve) => { release = resolve; });
   playerLocks.set(key, previous.then(() => current));
   await previous;
   try {
     return await fn();
   } finally {
-    if (typeof release === 'function') release();
+    release();
     if (playerLocks.get(key) === current) playerLocks.delete(key);
   }
 }
