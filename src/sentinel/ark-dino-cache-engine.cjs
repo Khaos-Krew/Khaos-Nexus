@@ -5,6 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const DEFAULT_CONFIG_PATH = path.resolve(__dirname, '../../config/ark/dino-caches.json');
+const DEFAULT_DLC_CONFIG_PATH = path.resolve(__dirname, '../../config/ark/dino-cache-dlc-additions.json');
 const VALID_VARIANTS = Object.freeze(['normal', 'x', 's']);
 const object = (value) => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 
@@ -20,8 +21,29 @@ function blueprint(value, label) {
   return result;
 }
 
+function mergeDlcConfig(raw, extension) {
+  if (Number(extension?.version) !== 1) throw new Error('Unsupported Dino Cache DLC extension version.');
+  raw.groups = { ...object(raw.groups) };
+  raw.caches = { ...object(raw.caches) };
+  for (const [groupId, entries] of Object.entries(object(extension.groups))) {
+    if (Object.hasOwn(raw.groups, groupId)) throw new Error(`Dino Cache DLC extension duplicates group '${groupId}'.`);
+    raw.groups[groupId] = entries;
+  }
+  for (const [cacheId, cache] of Object.entries(object(extension.caches))) {
+    if (Object.hasOwn(raw.caches, cacheId)) throw new Error(`Dino Cache DLC extension duplicates cache '${cacheId}'.`);
+    raw.caches[cacheId] = cache;
+  }
+  return raw;
+}
+
 function loadDinoCacheConfig(file = process.env.NEXUS_DINO_CACHE_CONFIG || DEFAULT_CONFIG_PATH) {
-  const raw = JSON.parse(fs.readFileSync(path.resolve(file), 'utf8'));
+  const resolvedFile = path.resolve(file);
+  const raw = JSON.parse(fs.readFileSync(resolvedFile, 'utf8'));
+  const explicitExtension = String(process.env.NEXUS_DINO_CACHE_DLC_CONFIG || '').trim();
+  const extensionFile = explicitExtension || (resolvedFile === DEFAULT_CONFIG_PATH ? DEFAULT_DLC_CONFIG_PATH : '');
+  if (extensionFile && fs.existsSync(path.resolve(extensionFile))) {
+    mergeDlcConfig(raw, JSON.parse(fs.readFileSync(path.resolve(extensionFile), 'utf8')));
+  }
   if (Number(raw.version) !== 1) throw new Error('Unsupported dino-cache configuration version.');
   if (Number(raw.shinyChance) !== 0) throw new Error('Dino Cache Shiny outcomes must remain disabled.');
   const levelBuckets = (raw.levelBuckets || []).map((bucket) => Object.freeze({ min: Number(bucket.min), max: Number(bucket.max), weight: Number(bucket.weight) }));
@@ -58,7 +80,19 @@ function loadDinoCacheConfig(file = process.env.NEXUS_DINO_CACHE_CONFIG || DEFAU
     if (Object.keys(variantTable).some((variant) => !VALID_VARIANTS.includes(variant))) throw new Error(`Dino cache '${cacheId}' contains an unsupported variant.`);
     const price = Number(cache.price);
     if (!Number.isSafeInteger(price) || price <= 0) throw new Error(`Dino cache '${cacheId}' requires a positive integer price.`);
-    caches[cacheId] = Object.freeze({ price, cooldownHours: Number(cache.cooldownHours || 0), groups: Object.freeze(groupIds), itemAliases: Object.freeze(aliases), maps: Object.freeze((cache.maps || ['*']).map((value) => String(value).toLowerCase())), variantWeights: variantTable, entries: Object.freeze(groupIds.flatMap((id) => groups[id])) });
+    caches[cacheId] = Object.freeze({
+      price,
+      cooldownHours: Number(cache.cooldownHours || 0),
+      groups: Object.freeze(groupIds),
+      itemAliases: Object.freeze(aliases),
+      maps: Object.freeze((cache.maps || ['*']).map((value) => String(value).toLowerCase())),
+      variantWeights: variantTable,
+      entries: Object.freeze(groupIds.flatMap((id) => groups[id])),
+      displayName: String(cache.displayName || '').trim().slice(0, 100),
+      emoji: String(cache.emoji || '').trim().slice(0, 16),
+      tagline: String(cache.tagline || '').trim().slice(0, 300),
+      disclaimer: String(cache.disclaimer || '').trim().slice(0, 1000)
+    });
     for (const alias of aliases) {
       if (aliasIndex.has(alias)) throw new Error(`Duplicate Dino Cache ArkShop alias '${alias}'.`);
       aliasIndex.set(alias, cacheId);
@@ -140,4 +174,4 @@ function cacheForPurchase(itemName, mapName, config = CONFIG) {
   return cache.maps.includes('*') || cache.maps.includes(map) ? { id, ...cache } : null;
 }
 
-module.exports = { DEFAULT_CONFIG_PATH, VALID_VARIANTS, CONFIG, LEVEL_BUCKETS, RARITY_WEIGHTS, VARIANT_WEIGHTS, SHINY_CHANCE, CACHE_POOLS, loadDinoCacheConfig, deterministicRng, weightedPick, rollLevel, rollSpecies, rollVariant, rollCache, cacheForPurchase };
+module.exports = { DEFAULT_CONFIG_PATH, DEFAULT_DLC_CONFIG_PATH, VALID_VARIANTS, CONFIG, LEVEL_BUCKETS, RARITY_WEIGHTS, VARIANT_WEIGHTS, SHINY_CHANCE, CACHE_POOLS, mergeDlcConfig, loadDinoCacheConfig, deterministicRng, weightedPick, rollLevel, rollSpecies, rollVariant, rollCache, cacheForPurchase };
