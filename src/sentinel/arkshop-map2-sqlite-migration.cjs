@@ -13,7 +13,8 @@ const { inspectArkApiLog } = require('./ark-api-log-diagnostic.cjs');
 const PREFIX = 'ARK_MAP2';
 const EXPECTED_ROOT = '/72.46.128.202_8120';
 const EXPECTED_MAP = 'Astraeos_WP';
-const EXPECTED_DB = Object.freeze({ host: '167.235.134.46', port: 3306, database: 'khaosk_nexus', user: 'khaosk_48289' });
+const EXPECTED_DB = Object.freeze({ host: '167.235.134.46', port: 3306, database: 'khaosk_nexus' });
+const APPROVED_DB_USERS = new Set(['khaosk_48289', 'khaosk_48306']);
 const PLAYERS_TABLE = 'ArkShopPlayers';
 const LOG_TABLE = 'ArkShopLogTransactions';
 const PLAYER_COLUMNS = ['Id', 'EosId', 'Kits', 'Points', 'TotalSpent'];
@@ -74,11 +75,11 @@ function databaseSettings() {
     host: String(process.env.ARKSHOP_DB_HOST || '').trim(),
     port: Number(process.env.ARKSHOP_DB_PORT || 3306),
     database: String(process.env.ARKSHOP_DB_NAME || '').trim(),
-    user: String(process.env.ARKSHOP_DB_USER || '').trim(),
-    password: String(process.env.ARKSHOP_DB_PASSWORD || '')
+    user: String(process.env.ARK_MAP2_ARKSHOP_DB_USER || process.env.ARKSHOP_DB_USER || '').trim(),
+    password: String(process.env.ARK_MAP2_ARKSHOP_DB_PASSWORD || process.env.ARKSHOP_DB_PASSWORD || '')
   };
   for (const key of ['host', 'database', 'user', 'password']) if (!settings[key]) throw new Error(`ARKSHOP_DB_${key === 'database' ? 'NAME' : key.toUpperCase()} is missing.`);
-  if (settings.host !== EXPECTED_DB.host || settings.port !== EXPECTED_DB.port || settings.database !== EXPECTED_DB.database || settings.user !== EXPECTED_DB.user) throw new Error('Railway MySQL target does not match the approved Citadel database.');
+  if (settings.host !== EXPECTED_DB.host || settings.port !== EXPECTED_DB.port || settings.database !== EXPECTED_DB.database || !APPROVED_DB_USERS.has(settings.user)) throw new Error('Railway MySQL target does not match the approved Citadel database or users.');
   return settings;
 }
 
@@ -210,4 +211,4 @@ async function runIfRequested({ stampDirectory = '/app/data' } = {}) {
   return { ...result, stampFile };
 }
 
-module.exports = { EXPECTED_ROOT, EXPECTED_MAP, EXPECTED_DB, PLAYERS_TABLE, LOG_TABLE, playerStats, readSqlite, migrateAstraeosArkShop, runIfRequested, cleanError };
+module.exports = { EXPECTED_ROOT, EXPECTED_MAP, EXPECTED_DB, APPROVED_DB_USERS, PLAYERS_TABLE, LOG_TABLE, playerStats, readSqlite, migrateAstraeosArkShop, runIfRequested, cleanError };
