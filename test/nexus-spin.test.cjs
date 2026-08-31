@@ -15,6 +15,11 @@ test('Nexus Spin reward table is exactly 10,000 tickets with a 0.25% Cache Token
   assert.equal(jackpot.weight / totalWeight(config.rewards), 0.0025);
 });
 
+test('daily free spin is configured for a 24-hour cooldown and point spins cost 100 by default', () => {
+  assert.equal(config.cooldownSeconds, 86400);
+  assert.equal(config.pointSpinCost, 100);
+});
+
 test('weighted roll is deterministic at table boundaries', () => {
   assert.equal(rollReward(config.rewards, () => 0).id, 'points_25');
   assert.equal(rollReward(config.rewards, () => 0.999999).id, 'cache_token');
@@ -61,24 +66,28 @@ test('point credit verifies the ArkShop balance after ChangePoints', async () =>
   assert.equal(result.afterBalance, 150);
 });
 
-test('unlinked Discord accounts fail closed before a spin can be recorded', async () => {
+test('unlinked Discord accounts fail closed before a spin can be recorded or charged', async () => {
   let recorded = false;
+  let charged = false;
   const service = new NexusSpinService({
     config: { ...config, enabled: true },
     store: {
       async resolveVerifiedLink() { return null; },
       async createSpinIfCooldownReady() { recorded = true; return { allowed: true }; },
     },
-    pointsGateway: {},
+    pointsGateway: {
+      async debitPoints() { charged = true; },
+    },
     servers: [],
     rng: () => 0,
   });
-  await assert.rejects(() => service.play({ discordId: '123', channelId: 'chan' }), (error) => error.code === 'NEXUS_SPIN_NOT_LINKED');
+  await assert.rejects(() => service.play({ discordId: '123', channelId: 'chan', mode: 'points' }), (error) => error.code === 'NEXUS_SPIN_NOT_LINKED');
   assert.equal(recorded, false);
+  assert.equal(charged, false);
 });
 
-test('cooldown denial occurs before any payout side effect', async () => {
-  let changedPoints = false;
+test('free-spin cooldown denial occurs before any payout side effect and does not spend points', async () => {
+  let charged = false;
   const service = new NexusSpinService({
     config: { ...config, enabled: true },
     store: {
@@ -86,11 +95,71 @@ test('cooldown denial occurs before any payout side effect', async () => {
       async createSpinIfCooldownReady() { return { allowed: false, retryAfterSeconds: 3600, nextAllowedAt: '2026-09-01T00:00:00Z' }; },
     },
     pointsGateway: {
-      async getBalance() { changedPoints = true; throw new Error('must not run'); },
+      async debitPoints() { charged = true; },
     },
     servers: [],
     rng: () => 0,
   });
-  await assert.rejects(() => service.play({ discordId: '123', channelId: 'chan' }), (error) => error.code === 'NEXUS_SPIN_COOLDOWN');
-  assert.equal(changedPoints, false);
+  await assert.rejects(() => service.play({ discordId: '123', channelId: 'chan' }), (error) => {
+    assert.equal(error.code, 'NEXUS_SPIN_COOLDOWN');
+    assert.equal(error.pointSpinCost, 100);
+    return true;
+  });
+  assert.equal(charged, false);
+});
+
+test('point-funded spin charges verified Nexus Points without touching the free-spin cooldown', async () => {
+  let cooldownTouched = false;
+  let paidSpinRecorded = null;
+  const service = new NexusSpinService({
+    config: { ...config, enabled: true, pointSpinCost: 100 },
+    store: {
+      async resolveVerifiedLink() { return { discordId: '123', eosId: 'EOS-ABC', verified: true }; },
+      async createSpinIfCooldownReady() { cooldownTouched = true; throw new Error('must not run'); },
+      async createPaidSpin(spin, cost, payment) { paidSpinRecorded = { spin, cost, payment }; return { spin_id: spin.spinId }; },
+    },
+    pointsGateway: {
+      async debitPoints({ eosId, cost }) {
+        assert.equal(eosId, 'EOS-ABC');
+        assert.equal(cost, 100);
+        return { beforeBalance: 500, afterBalance: 400, serverId: 'ark1', serverName: 'ARK 1' };
+      },
+      async refundPoints() { throw new Error('refund must not run'); },
+    },
+    servers: [],
+    rng: () => 0,
+  });
+  service.applyFreshReward = async () => ({ status: 'REWARDED', mode: 'points' });
+
+  const result = await service.play({ discordId: '123', channelId: 'chan', mode: 'points' });
+  assert.equal(cooldownTouched, false);
+  assert.equal(result.spinMode, 'POINTS');
+  assert.equal(result.spinCost, 100);
+  assert.equal(result.payment.afterBalance, 400);
+  assert.equal(paidSpinRecorded.cost, 100);
+});
+
+test('point-funded spin is refunded if its ledger record cannot be created', async () => {
+  let refunded = false;
+  const service = new NexusSpinService({
+    config: { ...config, enabled: true, pointSpinCost: 100 },
+    store: {
+      async resolveVerifiedLink() { return { discordId: '123', eosId: 'EOS-ABC', verified: true }; },
+      async createPaidSpin() { throw new Error('database unavailable'); },
+    },
+    pointsGateway: {
+      async debitPoints() { return { beforeBalance: 500, afterBalance: 400, serverId: 'ark1', serverName: 'ARK 1' }; },
+      async refundPoints({ eosId, cost }) {
+        assert.equal(eosId, 'EOS-ABC');
+        assert.equal(cost, 100);
+        refunded = true;
+        return { beforeBalance: 400, afterBalance: 500 };
+      },
+    },
+    servers: [],
+    rng: () => 0,
+  });
+
+  await assert.rejects(() => service.play({ discordId: '123', channelId: 'chan', mode: 'points' }), (error) => error.code === 'NEXUS_SPIN_PAYMENT_REFUNDED');
+  assert.equal(refunded, true);
 });
