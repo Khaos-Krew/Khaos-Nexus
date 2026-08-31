@@ -43,6 +43,7 @@ const { installCreatorProgramExtension } = require('./creator-program-extension.
 const { installCreatorRolesEntryLockdownExtension } = require('./creator-roles-entry-lockdown-extension.cjs');
 const { installCreatorLifecycleExtension } = require('./creator-lifecycle-extension.cjs');
 const { installSupporterEntitlementExtension } = require('./supporter-entitlement-extension.cjs');
+const { installSupporterHubExtension } = require('./supporter-hub-extension.cjs');
 const { installEventManagementExtension } = require('./event-management-extension.cjs');
 const { installArkOpsExtension } = require('./ark-ops-extension.cjs');
 const { installArkUpdateSafetyExtension } = require('./ark-update-safety-extension.cjs');
@@ -95,6 +96,7 @@ installCreatorProgramExtension();
 installCreatorRolesEntryLockdownExtension();
 installCreatorLifecycleExtension();
 installSupporterEntitlementExtension();
+installSupporterHubExtension();
 installEventManagementExtension();
 installArkOpsExtension();
 installArkUpdateSafetyExtension({ prefix: 'ARK_GEN1' });
