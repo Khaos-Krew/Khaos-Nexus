@@ -11,6 +11,7 @@ const {
   shopError,
   orderView,
   ensureSchema,
+  claimCacheCooldown,
   committedRoll
 } = require('./ark-cache-shop-service.cjs');
 
@@ -147,6 +148,8 @@ class ArkDinoBoxTokenService {
         const issuedTo = String(token.issued_to_discord_user_id || '');
         if (issuedTo && issuedTo !== userId) throw shopError('DINO_BOX_TOKEN_NOT_YOURS', 'That Dino Box token was issued to a different Discord account.');
 
+        const cache = CONFIG.caches[type];
+        await claimCacheCooldown(connection, userId, type, cache);
         const identity = `dino-box-token:${token.id}:${userId}:${account.eosId}:${type}`;
         const roll = committedRoll(type, this.rngSecret, identity);
         const orderId = crypto.randomUUID();
