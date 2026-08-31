@@ -29,11 +29,18 @@ const CACHE_META = Object.freeze({
   mountain:{name:'Mountain Cache',emoji:'⛰️',tagline:'Harvesters, flyers, predators, Rex, and Yutyrannus.'},
   ocean:{name:'Ocean Cache',emoji:'🌊',tagline:'Aquatic progression from Megalodon through Mosasaurus.'},
   deepcave:{name:'Deep Cave Cache',emoji:'💎',tagline:'Cave creatures with rare Megalosaurus potential.'},
-  apex:{name:'Apex Cache',emoji:'👑',tagline:'Endgame apex pool with a seven-day purchase cooldown.'}
+  apex:{name:'Apex Cache',emoji:'👑',tagline:'Endgame apex pool with a one-hour purchase cooldown.'}
 });
 
 function titleCase(value){return String(value||'').replace(/(^|[-_\s])([a-z])/g,(_,p,c)=>`${p}${c.toUpperCase()}`);}
 function fmtPoints(value){return `${Math.max(0,Number(value)||0).toLocaleString('en-US')} NP`;}
+function fmtCooldown(hours){
+  const value=Math.max(0,Number(hours)||0);
+  if(!value)return'';
+  if(value<24)return`${value} hour${value===1?'':'s'}`;
+  const days=value/24;
+  return`${Number.isInteger(days)?days:days.toFixed(1)} day${days===1?'':'s'}`;
+}
 function meta(cacheId){return CACHE_META[cacheId]||{name:`${titleCase(cacheId)} Cache`,emoji:'🦖',tagline:'Nexus Dino Cache.'};}
 function cacheIds(){return Object.keys(CONFIG.caches);}
 
@@ -41,7 +48,7 @@ function catalogSelect(selected=''){
   const menu=new StringSelectMenuBuilder().setCustomId(SELECT_CACHE).setPlaceholder('Choose a Dino Cache to inspect').setMinValues(1).setMaxValues(1);
   menu.addOptions(cacheIds().map((id)=>({
     label:meta(id).name.slice(0,100),value:id,emoji:meta(id).emoji,
-    description:`${fmtPoints(CONFIG.caches[id].price)}${CONFIG.caches[id].cooldownHours?` • ${CONFIG.caches[id].cooldownHours}h cooldown`:''}`.slice(0,100),
+    description:`${fmtPoints(CONFIG.caches[id].price)}${CONFIG.caches[id].cooldownHours?` • ${fmtCooldown(CONFIG.caches[id].cooldownHours)} cooldown`:''}`.slice(0,100),
     default:id===selected
   })));
   return new ActionRowBuilder().addComponents(menu);
@@ -65,7 +72,10 @@ function economyLine(shopper){
 }
 
 function catalogEmbed(shopper=null,warning=''){
-  const lines=cacheIds().map((id)=>{const cache=CONFIG.caches[id],m=meta(id);return `${m.emoji} **${m.name}** — **${fmtPoints(cache.price)}**${cache.cooldownHours?` • ${cache.cooldownHours/24}-day cooldown`:''}\n${m.tagline}`;});
+  const lines=cacheIds().map((id)=>{
+    const cache=CONFIG.caches[id],m=meta(id);
+    return `${m.emoji} **${m.name}** — **${fmtPoints(cache.price)}**${cache.cooldownHours?` • ${fmtCooldown(cache.cooldownHours)} cooldown`:''}\n${m.tagline}`;
+  });
   const account=shopper?.account?.playerName?`Linked ARK: **${shopper.account.playerName}**`:'ARK link: **required to purchase**';
   const wallet=Number.isFinite(shopper?.points)?`Nexus Points: **${fmtPoints(shopper.points)}**`:'Nexus Points: **checked at checkout**';
   return {
@@ -85,8 +95,12 @@ function raritySummary(cache){
 function speciesByRarity(cache){
   const fields=[];
   for(const rarity of Object.keys(CONFIG.rarityWeights)){
-    const entries=cache.entries.filter((entry)=>entry.rarity===rarity);if(!entries.length)continue;
-    const text=entries.map((entry)=>{const variants=Object.keys(entry.variants||{}).map((v)=>v.toUpperCase());return `• ${entry.name}${variants.length?` [${variants.join('/')}]`:''}`;}).join('\n');
+    const entries=cache.entries.filter((entry)=>entry.rarity===rarity);
+    if(!entries.length)continue;
+    const text=entries.map((entry)=>{
+      const variants=Object.keys(entry.variants||{}).map((v)=>v.toUpperCase());
+      return `• ${entry.name}${variants.length?` [${variants.join('/')}]`:''}`;
+    }).join('\n');
     fields.push({name:`${titleCase(rarity)} Species`,value:text.slice(0,1024),inline:true});
   }
   return fields;
@@ -96,11 +110,12 @@ function levelTable(){return CONFIG.levelBuckets.map((b)=>`${b.min===b.max?b.min
 function variantTable(cache){return Object.entries(cache.variantWeights).map(([key,value])=>`${key==='normal'?'Normal':key.toUpperCase()} ${value}%`).join(' • ');}
 
 function detailPayload(cacheId,shopper=null){
-  const cache=CONFIG.caches[cacheId];if(!cache)throw new Error('Unknown Dino Cache.');
+  const cache=CONFIG.caches[cacheId];
+  if(!cache)throw new Error('Unknown Dino Cache.');
   const m=meta(cacheId),imageName=cacheImageName(cacheId),canBuy=Boolean(shopper?.economy?.ok===true);
   const fields=[
     ...(shopper?[{name:'Wallet',value:`${fmtPoints(shopper.points)} available`,inline:true},{name:'Economy',value:canBuy?'✅ Shared MySQL verified':`🔒 Locked: ${String(shopper.economy?.mode||'unverified').slice(0,64)}`,inline:true}]:[]),
-    {name:'💰 Price',value:`**${fmtPoints(cache.price)}**${cache.cooldownHours?`\nCooldown: **${cache.cooldownHours/24} days**`:''}`,inline:true},
+    {name:'💰 Price',value:`**${fmtPoints(cache.price)}**${cache.cooldownHours?`\nCooldown: **${fmtCooldown(cache.cooldownHours)}**`:''}`,inline:true},
     {name:'🎲 Rarity Roll',value:raritySummary(cache),inline:false},
     ...speciesByRarity(cache),
     {name:'🧬 Variant Roll',value:`${variantTable(cache)}\n*Only variants supported by the rolled species remain eligible; weights are re-normalized among eligible outcomes.*`,inline:false},
@@ -114,7 +129,10 @@ function detailPayload(cacheId,shopper=null){
 function catalogPayload(shopper=null,warning=''){return{embeds:[catalogEmbed(shopper,warning)],components:[catalogSelect(),navigationRow()],attachments:[],allowedMentions:{parse:[]}};}
 function rewardState(state){if(state==='DELIVERED')return'✅ Delivered';if(state==='DELIVERY_FAILED')return'⚠️ Delivery Failed';if(state==='DELIVERING')return'📦 Delivering';return'⏳ Awaiting ARK Delivery';}
 function rewardsPayload(rows=[]){
-  const description=rows.length?rows.map((row)=>{const m=meta(row.cacheType);return `${m.emoji} **${row.publicCacheId}** • ${m.name}\n${row.species} • Lv. ${row.level} • ${row.variant==='normal'?'Normal':row.variant.toUpperCase()} • ${titleCase(row.sex)}\n${rewardState(row.state)}`;}).join('\n\n'):'You do not have any Discord Dino Cache rewards yet.';
+  const description=rows.length?rows.map((row)=>{
+    const m=meta(row.cacheType);
+    return `${m.emoji} **${row.publicCacheId}** • ${m.name}\n${row.species} • Lv. ${row.level} • ${row.variant==='normal'?'Normal':row.variant.toUpperCase()} • ${titleCase(row.sex)}\n${rewardState(row.state)}`;
+  }).join('\n\n'):'You do not have any Discord Dino Cache rewards yet.';
   return{embeds:[{title:'🎁 My Dino Cache Rewards',description:description.slice(0,4000),color:0xb00020,footer:{text:'Nexus Sentinal • Immutable cache reward history'}}],components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(BUTTON_BACK).setLabel('Back to Cache Shop').setEmoji('↩️').setStyle(ButtonStyle.Secondary))],attachments:[],allowedMentions:{parse:[]}};
 }
 
@@ -138,14 +156,16 @@ function sleep(ms){return new Promise((resolve)=>setTimeout(resolve,ms));}
 async function safeShopper(service,userId){try{return{shopper:await service.shopper(userId),warning:''};}catch(error){return{shopper:null,warning:error?.code==='ARK_ACCOUNT_NOT_LINKED'?'Link your Discord account to ARK to enable purchases.':String(error?.message||error).slice(0,220)};}}
 
 function installArkCacheShopExtension(options={}){
-  if(Client.prototype[INSTALLED])return;Client.prototype[INSTALLED]=true;
+  if(Client.prototype[INSTALLED])return;
+  Client.prototype[INSTALLED]=true;
   const config=options.config||loadConfig(),service=options.service||new ArkCacheShopService(),originalLogin=Client.prototype.login;
   Client.prototype.login=function nexusArkCacheShopLogin(...args){
     const client=this;
     if(!client[BOUND]){
       client[BOUND]=true;
       client.on(Events.InteractionCreate,(interaction)=>{
-        const guildOk=String(interaction.guildId||'')===String(config.discord?.guildId||'');if(!guildOk)return;
+        const guildOk=String(interaction.guildId||'')===String(config.discord?.guildId||'');
+        if(!guildOk)return;
         const id=String(interaction.customId||''),isOpen=interaction.isButton?.()&&id===BUTTON_CACHE_SHOP,isBack=interaction.isButton?.()&&id===BUTTON_BACK,isRewards=interaction.isButton?.()&&id===BUTTON_REWARDS,isBuy=interaction.isButton?.()&&id.startsWith(BUY_PREFIX),isSelect=interaction.isStringSelectMenu?.()&&id===SELECT_CACHE;
         if(!isOpen&&!isBack&&!isRewards&&!isBuy&&!isSelect)return;
         void(async()=>{
@@ -165,4 +185,9 @@ function installArkCacheShopExtension(options={}){
   };
 }
 
-module.exports={BUTTON_CACHE_SHOP,SELECT_CACHE,BUTTON_BACK,BUTTON_REWARDS,BUY_PREFIX,CACHE_META,titleCase,fmtPoints,meta,cacheIds,catalogSelect,navigationRow,economyLine,catalogEmbed,raritySummary,speciesByRarity,levelTable,variantTable,detailPayload,catalogPayload,rewardsPayload,reelPreview,revealPayload,finalRewardPayload,installArkCacheShopExtension};
+module.exports={
+  BUTTON_CACHE_SHOP,SELECT_CACHE,BUTTON_BACK,BUTTON_REWARDS,BUY_PREFIX,CACHE_META,
+  titleCase,fmtPoints,fmtCooldown,meta,cacheIds,catalogSelect,navigationRow,catalogEmbed,raritySummary,speciesByRarity,
+  levelTable,variantTable,detailPayload,catalogPayload,rewardsPayload,reelPreview,revealPayload,finalRewardPayload,
+  installArkCacheShopExtension
+};
