@@ -47,6 +47,7 @@ const { installEventManagementExtension } = require('./event-management-extensio
 const { installArkOpsExtension } = require('./ark-ops-extension.cjs');
 const { installArkUpdateSafetyExtension } = require('./ark-update-safety-extension.cjs');
 const { installArkRestartSchedulerExtension } = require('./ark-restart-scheduler-extension.cjs');
+const { installArkDynamicEventsExtension } = require('./ark-dynamic-events-extension.cjs');
 const { installArkConfigDbExtension } = require('./ark-config-db-extension.cjs');
 const { installArkClusterExtension } = require('./ark-cluster-extension.cjs');
 const { installArkAdditionalRegistryBootstrapExtension } = require('./ark-additional-registry-bootstrap-extension.cjs');
@@ -99,6 +100,7 @@ installEventManagementExtension();
 installArkOpsExtension();
 installArkUpdateSafetyExtension({ prefix: 'ARK_GEN1' });
 installArkRestartSchedulerExtension({ prefix: 'ARK_GEN1' });
+installArkDynamicEventsExtension();
 installArkConfigDbExtension();
 installArkClusterExtension();
 installArkAdditionalRegistryBootstrapExtension();
