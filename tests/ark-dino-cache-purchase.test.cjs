@@ -15,7 +15,7 @@ class MemoryStore {
   async markFailed(id, failure_class, error_message) { Object.assign(this.row, { state: 'FAILED', failure_class, error_message }); return { ...this.row }; }
 }
 
-const receipt = { sourceSystem: 'arkshop-mysql', sourceServerId: '1', sourceTransactionId: '42', sourceItemName: 'nexus_cache_coastal', playerEosId: '0002abc12345', serverId: 'gen1', mapName: 'Genesis Part 1', cacheType: 'coastal', pointCost: 100 };
+const receipt = { sourceSystem: 'arkshop-mysql', sourceServerId: '1', sourceTransactionId: '42', sourceItemName: 'nexus_cache_coastal', playerEosId: '0002abc12345', serverId: 'gen1', mapName: 'Genesis Part 1', cacheType: 'coastal', pointCost: 150 };
 
 test('Dino Depot command is targeted and restricted to cache levels', () => {
   const command = buildDinoDepotCommand({ eosId: receipt.playerEosId, blueprint: '/Game/PrimalEarth/Dinos/Para/Para_Character_BP.Para_Character_BP', level: 275 });
@@ -49,7 +49,7 @@ test('lost or empty RCON acknowledgements fail closed without automatic retry', 
 test('price mismatch blocks a receipt before delivery', async () => {
   const store = new MemoryStore();
   const processor = new DinoCacheRedemptionProcessor({ store, rngSecret: 'z'.repeat(32), rconForServer: () => ({ execute: async () => 'ok' }) });
-  const result = await processor.acceptVerifiedPurchase({ ...receipt, pointCost: 99 });
+  const result = await processor.acceptVerifiedPurchase({ ...receipt, pointCost: 149 });
   assert.equal(result.state, 'FAILED'); assert.equal(result.failure_class, 'PRICE_MISMATCH'); assert.equal(store.claims, 0);
 });
 
