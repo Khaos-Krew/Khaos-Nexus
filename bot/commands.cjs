@@ -3,7 +3,7 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 
 const ADMIN_COMMANDS = new Set([
-  'saveworld', 'broadcast', 'kick', 'ban', 'unban', 'shutdown', 'forcestop', 'rcon', 'managerrestart'
+  'saveworld', 'broadcast', 'kick', 'ban', 'unban', 'shutdown', 'forcestop', 'rcon', 'managerrestart', 'nexusspin'
 ]);
 
 const COMMAND_MODULES = Object.freeze({
@@ -93,18 +93,7 @@ function createCommands({ isModuleEnabled = () => true } = {}) {
     new SlashCommandBuilder().setName('health').setDescription('Show bot runtime health.'),
     new SlashCommandBuilder()
       .setName('nexusspin')
-      .setDescription('Play the linked-account Khaos Nexus ARK reward minigame.')
-      .addSubcommand((sub) => sub
-        .setName('play')
-        .setDescription('Use your free daily spin or spend Nexus Points for an extra spin.')
-        .addStringOption((option) => option
-          .setName('mode')
-          .setDescription('Free uses your 24-hour spin; Points spends Nexus Points for an extra spin.')
-          .addChoices(
-            { name: 'Free daily spin', value: 'free' },
-            { name: 'Extra spin with Nexus Points', value: 'points' }
-          )))
-      .addSubcommand((sub) => sub.setName('claim').setDescription('Retry queued Nexus Spin rewards while you are online in ARK.')),
+      .setDescription('Post the persistent Nexus Spin button panel for linked ARK players.'),
     serverOption(new SlashCommandBuilder().setName('status').setDescription('Show game-server status and health.')),
     serverOption(new SlashCommandBuilder().setName('players').setDescription('List connected players without exposing their IP addresses.')),
     serverOption(new SlashCommandBuilder().setName('settings').setDescription('Show Palworld REST server settings.')),
