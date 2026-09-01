@@ -23,12 +23,14 @@ CREATE TABLE IF NOT EXISTS nexus_dino_cache_transactions (
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   rolled_at DATETIME(3) NULL,
   revealed_at DATETIME(3) NULL,
+  discord_notified_at DATETIME(3) NULL,
   announced_at DATETIME(3) NULL,
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   UNIQUE KEY uq_nexus_dino_cache_source (source_system, source_server_id, source_transaction_id),
   KEY ix_nexus_dino_cache_state (state, updated_at),
   KEY ix_nexus_dino_cache_player (player_eos_id, created_at),
-  KEY ix_nexus_dino_cache_reveal (player_eos_id, state, created_at)
+  KEY ix_nexus_dino_cache_reveal (player_eos_id, state, created_at),
+  KEY ix_nexus_dino_cache_notify (state, discord_notified_at, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS nexus_dino_cache_events (
