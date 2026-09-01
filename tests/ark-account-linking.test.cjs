@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { ArkIdentityStore } = require('../src/sentinel/ark-identity-store.cjs');
-const { parseArkChatLines, resolveChatIdentity, highestConfiguredRankForMember, ArkAccountLinkService } = require('../src/sentinel/ark-account-linking.cjs');
+const { chatIdentity, parseArkChatLines, resolveChatIdentity, highestConfiguredRankForMember, ArkAccountLinkService } = require('../src/sentinel/ark-account-linking.cjs');
 
 test('ARK chat parser extracts verification codes without trusting an unverified player name as an EOS id', () => {
   const messages = parseArkChatLines('[12:00] Survivor: !link ABCD2345\nnoise\nOther (0002abc123): !link WXYZ6789');
@@ -21,6 +21,31 @@ test('ARK chat parser extracts verification codes without trusting an unverified
 test('ARK chat parser honors the configured player-facing link command', () => {
   assert.equal(parseArkChatLines('Survivor: !verify ABCD2345', '!verify')[0].code, 'ABCD2345');
   assert.deepEqual(parseArkChatLines('Survivor: !link ABCD2345', '!verify'), []);
+});
+
+test('ASA GetChat account and quoted character names resolve safely against ListPlayers', () => {
+  const message = parseArkChatLines('PlatformAccount ("Khaos_Kirito"): !link ABCD2345')[0];
+  assert.deepEqual([message.playerName, message.characterName, message.eosId], ['PlatformAccount', 'Khaos_Kirito', '']);
+  const resolved = resolveChatIdentity(message, [{ name: 'Khaos_Kirito', eosId: '0002kirito123' }]);
+  assert.equal(resolved.ok, true);
+  assert.equal(resolved.player.eosId, '0002kirito123');
+});
+
+test('ASA ShooterGame log prefixes do not become part of the player identity', () => {
+  assert.deepEqual(chatIdentity('2026.08.31_12.34.56: LogServer: PlatformAccount ("Survivor")'), {
+    playerName: 'PlatformAccount', characterName: 'Survivor', eosId: ''
+  });
+  assert.deepEqual(chatIdentity('Global Chat: Survivor'), { playerName: 'Survivor', characterName: '', eosId: '' });
+});
+
+test('multiple online identities matching account or character names fail closed', () => {
+  const message = parseArkChatLines('SharedName ("Survivor"): !link ABCD2345')[0];
+  const resolved = resolveChatIdentity(message, [
+    { name: 'SharedName', eosId: '0002account123' },
+    { name: 'Survivor', eosId: '0002character123' }
+  ]);
+  assert.equal(resolved.ok, false);
+  assert.equal(resolved.reason, 'ambiguous-player-name');
 });
 
 test('chat consumption verifies only an online player and suppresses replayed chat history', () => {
