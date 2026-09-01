@@ -132,4 +132,5 @@ require('./arkshop-ui-live-deploy-runtime.cjs').installArkShopUiLiveDeployRuntim
 require('./arkshop-cluster-economy-guard.cjs').installArkShopClusterEconomyGuard();
 require('./arkshop-backend-preflight-runtime.cjs').installArkShopBackendPreflightRuntime();
 require('./ark-command-routing-patch.cjs');
+require('./ark-dynamic-config-http.cjs');
 require('./bot.cjs');
