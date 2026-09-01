@@ -6,6 +6,13 @@ const assert = require('node:assert/strict');
 const config = require('../config/nexus-spin.json');
 const { totalWeight, rollReward, freezeSpin } = require('../bot/nexus-spin/spin-engine.cjs');
 const { renderResourceCommand, creditPointsVerified, NexusSpinService } = require('../bot/nexus-spin/spin-service.cjs');
+const {
+  NEXUS_SPIN_BUTTONS,
+  buildSpinPanel,
+  buildPointConfirmation,
+  isNexusSpinButton,
+} = require('../bot/nexus-spin/discord-handler.cjs');
+const { createCommands, requiresAdministrator } = require('../bot/commands.cjs');
 
 test('Nexus Spin reward table is exactly 10,000 tickets with a 0.25% Cache Token jackpot', () => {
   assert.equal(totalWeight(config.rewards), 10000);
@@ -18,6 +25,35 @@ test('Nexus Spin reward table is exactly 10,000 tickets with a 0.25% Cache Token
 test('daily free spin is configured for a 24-hour cooldown and point spins cost 100 by default', () => {
   assert.equal(config.cooldownSeconds, 86400);
   assert.equal(config.pointSpinCost, 100);
+});
+
+test('Nexus Spin uses a persistent public button panel instead of slash-mode gameplay', () => {
+  const panel = buildSpinPanel({ config: { nexusSpin: { pointSpinCost: 100 } } });
+  const row = panel.components[0].toJSON();
+  assert.equal(row.components.length, 3);
+  assert.deepEqual(row.components.map((button) => button.custom_id), [
+    NEXUS_SPIN_BUTTONS.FREE,
+    NEXUS_SPIN_BUTTONS.POINTS_PROMPT,
+    NEXUS_SPIN_BUTTONS.CLAIM,
+  ]);
+  assert.equal(isNexusSpinButton(NEXUS_SPIN_BUTTONS.FREE), true);
+  assert.equal(isNexusSpinButton('other:button'), false);
+
+  const nexusSpinCommand = createCommands().find((command) => command.name === 'nexusspin');
+  assert.ok(nexusSpinCommand);
+  assert.equal(nexusSpinCommand.options?.length || 0, 0);
+  assert.equal(requiresAdministrator('nexusspin'), true);
+});
+
+test('point-funded button spin requires a second explicit single-use confirmation', () => {
+  const confirmation = buildPointConfirmation({ config: { nexusSpin: { pointSpinCost: 100 } } });
+  const row = confirmation.components[0].toJSON();
+  assert.equal(confirmation.ephemeral, true);
+  assert.deepEqual(row.components.map((button) => button.custom_id), [
+    NEXUS_SPIN_BUTTONS.POINTS_CONFIRM,
+    NEXUS_SPIN_BUTTONS.POINTS_CANCEL,
+  ]);
+  assert.match(confirmation.content, /100 Nexus Points/);
 });
 
 test('weighted roll is deterministic at table boundaries', () => {
