@@ -25,7 +25,7 @@ function serverMapping(env = process.env) {
     if (!/^[A-Za-z0-9_.:-]{1,100}$/.test(source) || !/^[a-z0-9_-]{1,64}$/.test(target)) throw new Error('Dino Cache server mapping contains an unsafe identifier.');
     result[source] = target;
   }
-  if (!Object.keys(result).length) throw new Error('NEXUS_DINO_CACHE_SERVER_MAP_JSON must map ArkShop ServersId values to Sentinel server ids.');
+  if (!Object.keys(result).length) throw new Error('NEXUS_DINO_CACHE_SERVER_MAP_JSON must map shop ServersId values to Sentinel server ids.');
   return Object.freeze(result);
 }
 
@@ -36,11 +36,23 @@ async function preflight(connection) {
   const present = new Set(tables.map((row) => String(row.TABLE_NAME)));
   const missing = requiredTables.filter((name) => !present.has(name));
   if (missing.length) throw new Error(`Dino Cache MySQL migration/preflight incomplete: missing ${missing.join(', ')}.`);
+
   const [columns] = await connection.query("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ArkShopLogTransactions'");
   const names = new Set(columns.map((row) => String(row.COLUMN_NAME)));
   const required = ['Id', 'EosId', 'ItemName', 'ItemAmount', 'TotalPrice', 'ServersId'];
   const missingColumns = required.filter((name) => !names.has(name));
-  if (missingColumns.length) throw new Error(`ArkShop purchase log is missing required columns: ${missingColumns.join(', ')}.`);
+  if (missingColumns.length) throw new Error(`Shop purchase log is missing required columns: ${missingColumns.join(', ')}.`);
+
+  const [cacheColumns] = await connection.query("SELECT COLUMN_NAME, COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='nexus_dino_cache_transactions'");
+  const cacheNames = new Set(cacheColumns.map((row) => String(row.COLUMN_NAME)));
+  const cacheRequired = ['revealed_at', 'announced_at'];
+  const missingCacheColumns = cacheRequired.filter((name) => !cacheNames.has(name));
+  if (missingCacheColumns.length) throw new Error(`Dino Cache sealed-reveal migration incomplete: missing ${missingCacheColumns.join(', ')}. Apply config/ark/mysql/002-nexus-dino-cache-sealed-reveal.sql before enabling the runtime.`);
+  const stateColumn = cacheColumns.find((row) => String(row.COLUMN_NAME) === 'state');
+  const stateType = String(stateColumn?.COLUMN_TYPE || '').toUpperCase();
+  for (const state of ['PURCHASED', 'SEALED', 'REVEALED', 'DELIVERING', 'DELIVERED', 'FAILED', 'RETRY']) {
+    if (!stateType.includes(`'${state}'`)) throw new Error('Dino Cache sealed-reveal state migration is not active.');
+  }
   return true;
 }
 
@@ -85,25 +97,30 @@ async function runDinoCacheCycle({ connector = connectMysql, registry = new ArkC
     const processor = new DinoCacheRedemptionProcessor({ store, rconForServer: rconResolver(registry) });
     const stale = await store.failStaleDeliveries(Number(process.env.NEXUS_DINO_CACHE_DELIVERY_STALE_MINUTES || 10));
     let accepted = 0;
+    let sealed = 0;
     for (const row of await readRecentPurchases(connection)) {
       const receipt = verifiedReceipt(row, mapping, registry);
       if (!receipt) continue;
-      await processor.acceptVerifiedPurchase(receipt);
+      const result = await processor.acceptVerifiedPurchase(receipt);
       accepted += 1;
+      if (result?.newlySealed) sealed += 1;
     }
+
+    // SEALED rewards are intentionally absent from actionable(). Only an explicit Discord reveal
+    // moves a reward to REVEALED, at which point the existing delivery worker may claim it.
     let delivered = 0;
     for (const row of await store.actionable(25)) {
       const result = await processor.deliver(row);
       if (result?.state === 'DELIVERED') delivered += 1;
     }
-    return { accepted, delivered, stale };
+    return { accepted, sealed, delivered, stale };
   } finally { await connection.end().catch(() => {}); }
 }
 
 function installDinoCacheRuntime() {
   if (globalThis[INSTALLED]) return false;
   globalThis[INSTALLED] = true;
-  if (!enabled()) { console.log('[dino-cache] disabled; ArkShop remains the only purchase surface'); return false; }
+  if (!enabled()) { console.log('[dino-cache] disabled; shop remains the purchase surface'); return false; }
   const interval = Math.max(15_000, Math.min(300_000, Number(process.env.NEXUS_DINO_CACHE_POLL_MS || 30_000)));
   const run = () => runDinoCacheCycle().then((result) => console.log('[dino-cache] cycle', JSON.stringify(result))).catch((error) => console.error('[dino-cache] blocked', String(error?.message || error).slice(0, 500)));
   setTimeout(run, 5_000).unref?.();
