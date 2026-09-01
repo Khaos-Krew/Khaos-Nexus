@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { ArkIdentityStore } = require('../src/sentinel/ark-identity-store.cjs');
-const { chatIdentity, parseArkChatLines, resolveChatIdentity, resolveGuildRankConfig, highestConfiguredRankForMember, ArkAccountLinkService } = require('../src/sentinel/ark-account-linking.cjs');
+const { chatIdentity, parseArkChatLines, resolveChatIdentity, resolveGuildRankConfig, highestConfiguredRankForMember, rankEvidenceForMember, ArkAccountLinkService } = require('../src/sentinel/ark-account-linking.cjs');
 
 test('ARK chat parser extracts verification codes without trusting an unverified player name as an EOS id', () => {
   const messages = parseArkChatLines('[12:00] Survivor: !link ABCD2345\nnoise\nOther (0002abc123): !link WXYZ6789');
@@ -121,4 +121,16 @@ test('guild rank resolution fails closed when canonical role names are ambiguous
   const config = resolveGuildRankConfig({ discord: { rankRoles: {} } }, roles);
   const member = { roles: { cache: new Map([['10005', roles.get('10005')]]) } };
   assert.equal(highestConfiguredRankForMember(member, config).id, 'shadow-recruit');
+});
+
+test('rank evidence reports only recognized Nexus ranks and aggregate role count', () => {
+  const roles = new Map([
+    ['founder-role', { id: 'founder-role', name: 'Origin Founder' }],
+    ['unrelated-role', { id: 'unrelated-role', name: 'Server Owner' }]
+  ]);
+  assert.deepEqual(rankEvidenceForMember({ roles: { cache: roles } }, { discord: { rankRoles: { 'origin-founder': 'founder-role' } } }), {
+    canonical: ['origin-founder'],
+    mapped: ['origin-founder'],
+    roleCount: 2
+  });
 });

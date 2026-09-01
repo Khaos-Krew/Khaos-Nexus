@@ -7,7 +7,7 @@ const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { CACHE_POOLS } = require('./ark-dino-cache-engine.cjs');
 const { runOwnerCacheTest } = require('./ark-dino-cache-test-harness.cjs');
 const { ArkIdentityStore } = require('./ark-identity-store.cjs');
-const { ArkAccountLinkService, resolveGuildRankConfig } = require('./ark-account-linking.cjs');
+const { ArkAccountLinkService, resolveGuildRankConfig, rankEvidenceForMember } = require('./ark-account-linking.cjs');
 const { StateStore } = require('./state-store.cjs');
 const { ArkPermissionRankSync, effectiveRankConfig } = require('./ark-permission-rank-sync.cjs');
 const { parseListPlayers } = require('./ark-cluster-monitor.cjs');
@@ -463,6 +463,7 @@ function installArkOpsExtension() {
         }
         if (!server.host || !server.port || !server.password) throw new Error('ARK_GEN1 RCON variables are incomplete.');
         const guild = await client.guilds.fetch(String(config.discord?.guildId || ''));
+        await guild.roles.fetch();
         const rcon = new ArkRconClient(server);
         const identityStore = new ArkIdentityStore();
         const accountLinking = new ArkAccountLinkService({ store: identityStore });
@@ -486,6 +487,8 @@ function installArkOpsExtension() {
           );
           const synced = accountLinking.syncMemberRank(member, effectiveConfig);
           if (!synced.ok) return { ok: false, reason: synced.reason, accounts: 0, changed: 0, failed: 0 };
+          const evidence = rankEvidenceForMember(member, effectiveConfig);
+          console.log(`[Nexus Sentinal] linked profile rank resolved: rank=${synced.profile.rankId} canonical=${evidence.canonical.join(',') || 'none'} mapped=${evidence.mapped.join(',') || 'none'} memberRoles=${evidence.roleCount}`);
           if (synced.changed) console.log(`[Nexus Sentinal] linked profile rank synchronized: discord=${member.id} rank=${synced.profile.rankId}`);
           if (!rankSyncEnabled || !client.__nexusArkContext?.rankSyncReady) return { ok: true, rankId: synced.profile.rankId, accounts: 0, changed: 0, failed: 0 };
           const results = [];
