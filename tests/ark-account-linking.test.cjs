@@ -102,6 +102,17 @@ test('guild rank resolution recovers stale saved ids from unique canonical Disco
   assert.equal(highestConfiguredRankForMember(member, config).id, 'blackout-legend');
 });
 
+test('unique canonical rank role overrides an existing but incorrect saved role id', () => {
+  const roles = new Map([
+    ['wrong-role', { id: 'wrong-role', name: 'Legacy Recognition' }],
+    ['founder-role', { id: 'founder-role', name: 'Origin Founder' }]
+  ]);
+  const config = resolveGuildRankConfig({ discord: { rankRoles: { 'origin-founder': 'wrong-role' } } }, roles);
+  const member = { roles: { cache: new Map([['founder-role', roles.get('founder-role')]]) } };
+  assert.equal(config.discord.rankRoles['origin-founder'], 'founder-role');
+  assert.equal(highestConfiguredRankForMember(member, config).id, 'origin-founder');
+});
+
 test('guild rank resolution fails closed when canonical role names are ambiguous', () => {
   const roles = new Map([
     ['10005', { id: '10005', name: 'Blackout Legend' }],
