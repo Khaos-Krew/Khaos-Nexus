@@ -10,6 +10,7 @@ const ORDER_TABLE = 'nexus_discord_cache_orders';
 const EVENT_TABLE = 'nexus_discord_cache_events';
 const COOLDOWN_TABLE = 'nexus_dino_box_cooldowns';
 const VALID_CACHE_ID = /^[a-z0-9_-]{1,48}$/;
+const ORDER_STATES = Object.freeze(['SEALED', 'AWAITING_DELIVERY', 'DELIVERING', 'DELIVERED', 'DELIVERY_FAILED']);
 
 function safeName(value) {
   const name = String(value || '').trim();
@@ -34,7 +35,10 @@ function orderView(row = {}) {
     discordUserId: String(row.discord_user_id || ''), playerEosId: String(row.player_eos_id || ''), cacheType: String(row.cache_type || ''),
     pointCost: Number(row.nexus_point_cost || 0), species: String(row.species || ''), rarity: String(row.rarity || ''), variant: String(row.variant || ''),
     blueprint: String(row.blueprint || ''), level: Number(row.rolled_level || 0), sex: String(row.sex || ''), state: String(row.state || ''),
-    createdAt: row.created_at ? new Date(row.created_at).toISOString() : '', deliveredAt: row.delivered_at ? new Date(row.delivered_at).toISOString() : ''
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : '',
+    revealedAt: row.revealed_at ? new Date(row.revealed_at).toISOString() : '',
+    announcedAt: row.announced_at ? new Date(row.announced_at).toISOString() : '',
+    deliveredAt: row.delivered_at ? new Date(row.delivered_at).toISOString() : ''
   };
 }
 
@@ -51,19 +55,32 @@ function assertEconomyReady(result = {}) {
   throw shopError('CLUSTER_ECONOMY_NOT_READY', `Cache purchases are temporarily locked because the ARK shared-MySQL economy is not verified (${mode}). No Nexus Points were charged.`);
 }
 
+async function ensureRevealColumns(connection) {
+  const [columns] = await connection.query(`SELECT COLUMN_NAME, COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?`, [ORDER_TABLE]);
+  const byName = new Map(columns.map((row) => [String(row.COLUMN_NAME).toLowerCase(), row]));
+  const stateType = String(byName.get('state')?.COLUMN_TYPE || '');
+  if (stateType && !stateType.includes("'SEALED'")) {
+    await connection.query(`ALTER TABLE ${ORDER_TABLE} MODIFY COLUMN state ENUM('SEALED','AWAITING_DELIVERY','DELIVERING','DELIVERED','DELIVERY_FAILED') NOT NULL DEFAULT 'SEALED'`);
+  }
+  if (!byName.has('revealed_at')) await connection.query(`ALTER TABLE ${ORDER_TABLE} ADD COLUMN revealed_at DATETIME(3) NULL AFTER created_at`);
+  if (!byName.has('announced_at')) await connection.query(`ALTER TABLE ${ORDER_TABLE} ADD COLUMN announced_at DATETIME(3) NULL AFTER revealed_at`);
+}
+
 async function ensureSchema(connection) {
   await connection.query(`CREATE TABLE IF NOT EXISTS ${ORDER_TABLE} (
     id CHAR(36) NOT NULL PRIMARY KEY, public_cache_id VARCHAR(24) NOT NULL, purchase_nonce VARCHAR(80) NOT NULL,
     discord_user_id VARCHAR(25) NOT NULL, player_eos_id VARCHAR(128) NOT NULL, cache_type VARCHAR(64) NOT NULL,
     nexus_point_cost INT UNSIGNED NOT NULL, species VARCHAR(100) NOT NULL, rarity VARCHAR(16) NOT NULL, variant VARCHAR(16) NOT NULL,
     blueprint VARCHAR(255) NOT NULL, rolled_level SMALLINT UNSIGNED NOT NULL, sex ENUM('male','female') NOT NULL,
-    state ENUM('AWAITING_DELIVERY','DELIVERING','DELIVERED','DELIVERY_FAILED') NOT NULL DEFAULT 'AWAITING_DELIVERY',
+    state ENUM('SEALED','AWAITING_DELIVERY','DELIVERING','DELIVERED','DELIVERY_FAILED') NOT NULL DEFAULT 'SEALED',
     delivery_server_id VARCHAR(64) NOT NULL DEFAULT '', delivery_map_name VARCHAR(100) NOT NULL DEFAULT '', delivery_attempts INT UNSIGNED NOT NULL DEFAULT 0,
     failure_class VARCHAR(32) NOT NULL DEFAULT '', error_message VARCHAR(500) NOT NULL DEFAULT '', created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    delivered_at DATETIME(3) NULL, updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    revealed_at DATETIME(3) NULL, announced_at DATETIME(3) NULL, delivered_at DATETIME(3) NULL,
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     UNIQUE KEY uq_nexus_discord_cache_public (public_cache_id), UNIQUE KEY uq_nexus_discord_cache_nonce (purchase_nonce),
     KEY ix_nexus_discord_cache_user (discord_user_id, created_at), KEY ix_nexus_discord_cache_delivery (state, created_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  await ensureRevealColumns(connection);
   await connection.query(`CREATE TABLE IF NOT EXISTS ${EVENT_TABLE} (
     sequence_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, order_id CHAR(36) NOT NULL, event_type VARCHAR(40) NOT NULL,
     actor_discord_user_id VARCHAR(25) NOT NULL DEFAULT '', details VARCHAR(500) NOT NULL DEFAULT '', created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -167,12 +184,55 @@ class ArkCacheShopService {
         const publicCacheId = `NC-${id.replace(/-/g, '').slice(0, 12).toUpperCase()}`, table = safeName(config.table);
         const debit = await connection.execute(`UPDATE ${table} SET ${safeName(wallet.pointsColumn)}=${safeName(wallet.pointsColumn)}-? WHERE ${safeName(wallet.idColumn)}=? AND ${safeName(wallet.pointsColumn)}>=?`, [cache.price, account.eosId, cache.price]);
         if (Number(debit?.[0]?.affectedRows || 0) !== 1) throw shopError('POINT_DEBIT_FAILED', 'ArkShop Points changed during checkout; the cache was not purchased.');
-        await connection.execute(`INSERT INTO ${ORDER_TABLE} (id, public_cache_id, purchase_nonce, discord_user_id, player_eos_id, cache_type, nexus_point_cost, species, rarity, variant, blueprint, rolled_level, sex, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'AWAITING_DELIVERY')`, [id, publicCacheId, nonce, userId, account.eosId, type, cache.price, roll.species, roll.rarity, roll.variant, roll.blueprint, roll.level, roll.sex]);
-        await connection.execute(`INSERT INTO ${EVENT_TABLE} (order_id, event_type, actor_discord_user_id, details) VALUES (?, 'PURCHASE_ROLLED', ?, ?)`, [id, userId, `Discord-first immutable ${type} cache roll committed before reveal animation.`]);
+        await connection.execute(`INSERT INTO ${ORDER_TABLE} (id, public_cache_id, purchase_nonce, discord_user_id, player_eos_id, cache_type, nexus_point_cost, species, rarity, variant, blueprint, rolled_level, sex, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SEALED')`, [id, publicCacheId, nonce, userId, account.eosId, type, cache.price, roll.species, roll.rarity, roll.variant, roll.blueprint, roll.level, roll.sex]);
+        await connection.execute(`INSERT INTO ${EVENT_TABLE} (order_id, event_type, actor_discord_user_id, details) VALUES (?, 'PURCHASE_SEALED', ?, ?)`, [id, userId, `Immutable ${type} cache reward committed and sealed before player reveal.`]);
         await connection.commit();
         const [rows] = await connection.execute(`SELECT * FROM ${ORDER_TABLE} WHERE id=? LIMIT 1`, [id]);
         return { order: orderView(rows[0]), duplicate: false, balance: balance - cache.price };
       } catch (error) { await connection.rollback().catch(() => {}); throw error; }
+    } finally { await connection.end().catch(() => {}); }
+  }
+
+  async reveal({ discordUserId, orderId } = {}) {
+    const userId = cleanId(discordUserId, 25), id = cleanId(orderId, 36);
+    if (!/^\d{5,25}$/.test(userId) || !/^[0-9a-f-]{36}$/i.test(id)) throw shopError('INVALID_REVEAL', 'That sealed Dino Cache cannot be revealed.');
+    const { connection } = await this.connector();
+    try {
+      await ensureSchema(connection);
+      await connection.beginTransaction();
+      try {
+        const [rows] = await connection.execute(`SELECT * FROM ${ORDER_TABLE} WHERE id=? LIMIT 1 FOR UPDATE`, [id]);
+        const row = rows[0];
+        if (!row || String(row.discord_user_id) !== userId) throw shopError('CACHE_NOT_OWNED', 'That Dino Cache does not belong to your Discord account.');
+        if (String(row.state) === 'SEALED') {
+          await connection.execute(`UPDATE ${ORDER_TABLE} SET state='AWAITING_DELIVERY', revealed_at=CURRENT_TIMESTAMP(3) WHERE id=? AND state='SEALED'`, [id]);
+          await connection.execute(`INSERT INTO ${EVENT_TABLE} (order_id, event_type, actor_discord_user_id, details) VALUES (?, 'REVEALED', ?, 'Player explicitly revealed the previously committed reward; delivery is now eligible.')`, [id, userId]);
+        }
+        await connection.commit();
+        const [updated] = await connection.execute(`SELECT * FROM ${ORDER_TABLE} WHERE id=? LIMIT 1`, [id]);
+        return orderView(updated[0]);
+      } catch (error) { await connection.rollback().catch(() => {}); throw error; }
+    } finally { await connection.end().catch(() => {}); }
+  }
+
+  async sealed(discordUserId, limit = 12) {
+    const userId = cleanId(discordUserId, 25), safeLimit = Math.max(1, Math.min(20, Number(limit) || 12));
+    const { connection } = await this.connector();
+    try {
+      await ensureSchema(connection);
+      const [rows] = await connection.query(`SELECT * FROM ${ORDER_TABLE} WHERE discord_user_id=? AND state='SEALED' ORDER BY created_at ASC LIMIT ${safeLimit}`, [userId]);
+      return rows.map(orderView);
+    } finally { await connection.end().catch(() => {}); }
+  }
+
+  async markAnnounced(orderId) {
+    const id = cleanId(orderId, 36);
+    const { connection } = await this.connector();
+    try {
+      await ensureSchema(connection);
+      await connection.execute(`UPDATE ${ORDER_TABLE} SET announced_at=COALESCE(announced_at,CURRENT_TIMESTAMP(3)) WHERE id=?`, [id]);
+      const [rows] = await connection.execute(`SELECT * FROM ${ORDER_TABLE} WHERE id=? LIMIT 1`, [id]);
+      return orderView(rows[0]);
     } finally { await connection.end().catch(() => {}); }
   }
 
@@ -184,4 +244,4 @@ class ArkCacheShopService {
   }
 }
 
-module.exports = { ORDER_TABLE, EVENT_TABLE, COOLDOWN_TABLE, safeName, cleanId, shopError, orderView, pickLinkedArkAccount, assertEconomyReady, ensureSchema, claimCacheCooldown, arkShopColumns, findPointsAccount, committedRoll, ArkCacheShopService };
+module.exports = { ORDER_TABLE, EVENT_TABLE, COOLDOWN_TABLE, ORDER_STATES, safeName, cleanId, shopError, orderView, pickLinkedArkAccount, assertEconomyReady, ensureRevealColumns, ensureSchema, claimCacheCooldown, arkShopColumns, findPointsAccount, committedRoll, ArkCacheShopService };
