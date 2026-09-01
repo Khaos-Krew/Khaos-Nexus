@@ -21,13 +21,17 @@ function allowedPath(pathname) {
   return pathname === '/health' || /^\/ark\/dynamic\/ark_(?:gen1|gen2|map2)\.ini$/i.test(pathname);
 }
 
+function upstreamPath(pathname) {
+  return pathname === '/health' ? '/ark/dynamic/ark_gen1.ini' : pathname;
+}
+
 const server = http.createServer((req, res) => {
   try {
     const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     if (req.method !== 'GET') return reply(res, 405, 'Method Not Allowed\n');
     if (!allowedPath(requestUrl.pathname)) return reply(res, 404, 'Not Found\n');
 
-    const target = new URL(requestUrl.pathname, upstream);
+    const target = new URL(upstreamPath(requestUrl.pathname), upstream);
     const proxy = http.request({
       hostname: target.hostname,
       port: Number(target.port || 80),
