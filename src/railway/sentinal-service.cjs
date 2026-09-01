@@ -33,6 +33,16 @@ require('../backend/server.cjs');
 // request may update INI files over SFTP with backups; it never restarts ARK.
 require('../sentinel/entry.cjs');
 
+void require('../sentinel/arkshop-map1-mysql-migration.cjs').runIfRequested({ stampDirectory: '/app/data' })
+  .then((result) => {
+    if (result.skipped) {
+      console.log(`[Nexus Sentinal] MAP1 ArkShop SQLite-to-MySQL migration skipped: ${result.skipped}`);
+      return;
+    }
+    console.log(`[Nexus Sentinal] MAP1 ArkShop SQLite-to-MySQL migration complete: inserted=${result.inserted} updated=${result.updatedFromActiveMap1} preservedMysqlOnly=${result.preservedMysqlOnly} finalRows=${result.finalRows} backupTable=${result.backupTable} restartRequired=false`);
+  })
+  .catch((error) => console.warn(`[Nexus Sentinal] MAP1 ArkShop SQLite-to-MySQL migration blocked: ${String(error?.code || error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 500)}`));
+
 void require('../sentinel/arkshop-map2-sqlite-migration.cjs').runIfRequested({ stampDirectory: '/app/data' })
   .then((result) => {
     if (result.skipped) {
