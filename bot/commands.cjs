@@ -3,13 +3,14 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 
 const ADMIN_COMMANDS = new Set([
-  'saveworld', 'broadcast', 'kick', 'ban', 'unban', 'shutdown', 'forcestop', 'rcon', 'managerrestart'
+  'saveworld', 'broadcast', 'kick', 'ban', 'unban', 'shutdown', 'forcestop', 'rcon', 'managerrestart', 'nexusspin'
 ]);
 
 const COMMAND_MODULES = Object.freeze({
   ping: 'discord-runtime',
   health: 'discord-runtime',
   managerrestart: 'discord-runtime',
+  nexusspin: 'discord-runtime',
   status: 'game-server-control',
   players: 'game-server-control',
   saveworld: 'game-server-control',
@@ -90,6 +91,9 @@ function createCommands({ isModuleEnabled = () => true } = {}) {
   const commands = [
     new SlashCommandBuilder().setName('ping').setDescription('Check whether the bot is responding.'),
     new SlashCommandBuilder().setName('health').setDescription('Show bot runtime health.'),
+    new SlashCommandBuilder()
+      .setName('nexusspin')
+      .setDescription('Post the persistent Nexus Spin button panel for linked ARK players.'),
     serverOption(new SlashCommandBuilder().setName('status').setDescription('Show game-server status and health.')),
     serverOption(new SlashCommandBuilder().setName('players').setDescription('List connected players without exposing their IP addresses.')),
     serverOption(new SlashCommandBuilder().setName('settings').setDescription('Show Palworld REST server settings.')),

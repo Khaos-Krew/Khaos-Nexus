@@ -154,6 +154,14 @@ class ArkShopPointsGateway {
       return { eosId: id, amount, beforeBalance: before.balance, afterBalance: after.balance, response };
     });
   }
+
+  async debitPoints(options) {
+    return this.debitForCache(options);
+  }
+
+  async refundPoints(options) {
+    return this.refundCacheDebit(options);
+  }
 }
 
 module.exports = {

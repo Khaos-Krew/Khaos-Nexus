@@ -17,6 +17,11 @@ const {
   connectionLabel: gameConnectionLabel
 } = require('../shared/game-module-policy.cjs');
 const { redactText, errorFingerprint } = require('../shared/redaction.cjs');
+const {
+  handleNexusSpinCommand,
+  handleNexusSpinButton,
+  isNexusSpinButton
+} = require('./nexus-spin/discord-handler.cjs');
 
 const parent = process.parentPort;
 let client = null;
@@ -276,6 +281,16 @@ function commandSupportsServer(commandName, server) {
   return Boolean(capabilityMapForServer(server)[action]);
 }
 
+function nexusSpinContext() {
+  return {
+    bootstrap,
+    logger: {
+      warn: (message, meta) => log('warn', message, meta),
+      error: (message, meta) => log('error', message, meta)
+    }
+  };
+}
+
 async function handleInteraction(interaction) {
   if (interaction.isAutocomplete()) {
     if (!isModuleEnabled('game-server-control')) {
@@ -289,6 +304,15 @@ async function handleInteraction(interaction) {
       .slice(0, 25)
       .map((server) => ({ name: `${server.name} (${server.game} ${connectionLabel(server)})`, value: server.name }));
     await interaction.respond(choices);
+    return;
+  }
+
+  if (interaction.isButton() && isNexusSpinButton(interaction.customId)) {
+    if (!isModuleEnabled('discord-runtime')) {
+      await interaction.reply({ content: moduleDisabledError('discord-runtime').message, ephemeral: true });
+      return;
+    }
+    await handleNexusSpinButton(interaction, nexusSpinContext());
     return;
   }
 
@@ -316,6 +340,11 @@ async function handleInteraction(interaction) {
       content: `Runtime: **online**\nUptime: **${Math.floor(process.uptime())}s**\nDiscord latency: **${Math.max(0, client.ws.ping)} ms**\nMemory: **${memoryMb} MB**`,
       ephemeral: true
     });
+    return;
+  }
+
+  if (command === 'nexusspin') {
+    await handleNexusSpinCommand(interaction, nexusSpinContext());
     return;
   }
 
