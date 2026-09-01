@@ -64,12 +64,12 @@
     ]
   },
   "caches": {
-    "coastal": { "price": 100, "cooldownMinutes": 5, "groups": ["coastal"], "itemAliases": ["nexus_cache_coastal"], "maps": ["*"] },
-    "forest": { "price": 150, "cooldownMinutes": 5, "groups": ["forest"], "itemAliases": ["nexus_cache_forest"], "maps": ["*"] },
-    "swamp": { "price": 175, "cooldownMinutes": 5, "groups": ["swamp"], "itemAliases": ["nexus_cache_swamp"], "maps": ["*"] },
-    "mountain": { "price": 225, "cooldownMinutes": 5, "groups": ["mountain"], "itemAliases": ["nexus_cache_mountain"], "maps": ["*"] },
-    "ocean": { "price": 275, "cooldownMinutes": 5, "groups": ["ocean"], "itemAliases": ["nexus_cache_ocean"], "maps": ["*"] },
-    "deepcave": { "price": 275, "cooldownMinutes": 5, "groups": ["deepcave"], "itemAliases": ["nexus_cache_deepcave"], "maps": ["*"] },
-    "apex": { "price": 500, "cooldownMinutes": 5, "variantWeights": { "normal": 95, "x": 3.5, "s": 1.5 }, "groups": ["apex"], "itemAliases": ["nexus_cache_apex"], "maps": ["*"] }
+    "coastal": { "displayName": "Coastal Cache", "emoji": "🏝️", "tagline": "Coastal, beach, and shoreline creatures.", "price": 100, "cooldownMinutes": 5, "groups": ["coastal"], "itemAliases": ["nexus_cache_coastal"], "maps": ["*"] },
+    "forest": { "displayName": "Forest Cache", "emoji": "🌲", "tagline": "Forest hunters, utility tames, and rare predators.", "price": 150, "cooldownMinutes": 5, "groups": ["forest"], "itemAliases": ["nexus_cache_forest"], "maps": ["*"] },
+    "swamp": { "displayName": "Swamp Cache", "emoji": "🌿", "tagline": "Wetland creatures with a strong Baryonyx chase roll.", "price": 175, "cooldownMinutes": 5, "groups": ["swamp"], "itemAliases": ["nexus_cache_swamp"], "maps": ["*"] },
+    "mountain": { "displayName": "Mountain Cache", "emoji": "⛰️", "tagline": "Harvesters, flyers, predators, Rex, and Yutyrannus.", "price": 225, "cooldownMinutes": 5, "groups": ["mountain"], "itemAliases": ["nexus_cache_mountain"], "maps": ["*"] },
+    "ocean": { "displayName": "Ocean Cache", "emoji": "🌊", "tagline": "Aquatic progression from Megalodon through Mosasaurus.", "price": 275, "cooldownMinutes": 5, "groups": ["ocean"], "itemAliases": ["nexus_cache_ocean"], "maps": ["*"] },
+    "deepcave": { "displayName": "Deep Cave Cache", "emoji": "💎", "tagline": "Cave creatures with rare Megalosaurus potential.", "price": 275, "cooldownMinutes": 5, "groups": ["deepcave"], "itemAliases": ["nexus_cache_deepcave"], "maps": ["*"] },
+    "apex": { "displayName": "Apex Cache", "emoji": "👑", "tagline": "Endgame apex pool with a five-minute per-box cooldown.", "price": 500, "cooldownMinutes": 5, "variantWeights": { "normal": 95, "x": 3.5, "s": 1.5 }, "groups": ["apex"], "itemAliases": ["nexus_cache_apex"], "maps": ["*"] }
   }
 }
