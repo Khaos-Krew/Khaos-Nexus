@@ -86,9 +86,9 @@ function resolveGuildRankConfig(config = {}, guildRoles = []) {
   const configured = { ...(config?.discord?.rankRoles || {}) };
   for (const rank of NEXUS_RANKS) {
     const configuredId = clean(configured[rank.id], 32);
-    if (configuredId && roles.some((role) => clean(role.id, 32) === configuredId)) continue;
     const candidates = roles.filter((role) => normalizedRankName(role.name) === normalizedRankName(rank.name));
     if (candidates.length === 1) configured[rank.id] = clean(candidates[0].id, 32);
+    else if (candidates.length > 1 && candidates.some((role) => clean(role.id, 32) === configuredId)) configured[rank.id] = configuredId;
     else if (candidates.length > 1) configured[rank.id] = `ambiguous:${rank.id}`;
     else if (configuredId) configured[rank.id] = configuredId;
     else delete configured[rank.id];
