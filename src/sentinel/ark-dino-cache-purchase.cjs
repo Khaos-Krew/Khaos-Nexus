@@ -45,26 +45,35 @@ class DinoCacheRedemptionProcessor {
   constructor({ store, rconForServer, rngSecret = process.env.NEXUS_DINO_CACHE_RNG_SECRET } = {}) {
     if (!store || typeof store.ingestPurchase !== 'function') throw new Error('Dino Cache processor requires a transaction store.');
     if (typeof rconForServer !== 'function') throw new Error('Dino Cache processor requires a Sentinel-owned RCON resolver.');
-    this.store = store; this.rconForServer = rconForServer; this.rngSecret = rngSecret;
+    this.store = store;
+    this.rconForServer = rconForServer;
+    this.rngSecret = rngSecret;
   }
 
   async acceptVerifiedPurchase(purchase) {
     const ingested = await this.store.ingestPurchase(purchase);
     let row = ingested.row;
-    if (row.state === 'PENDING') {
+    let newlySealed = false;
+    if (row.state === 'PURCHASED') {
       const identity = `${row.source_system}:${row.source_server_id}:${row.source_transaction_id}`;
       const roll = rollCache(row.cache_type, deterministicRng(this.rngSecret, identity));
       if (roll.price !== Number(row.nexus_point_cost)) {
-        return this.store.markFailed(row.id, 'PRICE_MISMATCH', 'Verified ArkShop purchase price does not match the centrally configured cache price.');
+        const failed = await this.store.markFailed(row.id, 'PRICE_MISMATCH', 'Verified shop purchase price does not match the centrally configured cache price.');
+        return { ...failed, newlySealed: false };
       }
       assertDeliverableRoll(roll);
       row = await this.store.persistRoll(row.id, roll);
+      newlySealed = row.state === 'SEALED';
     }
-    return row;
+    return { ...row, newlySealed };
+  }
+
+  async reveal(id, playerEosIds) {
+    return this.store.revealOwned(id, playerEosIds);
   }
 
   async deliver(row) {
-    if (!row || !['ROLLED', 'RETRY'].includes(row.state)) return row;
+    if (!row || !['REVEALED', 'RETRY'].includes(row.state)) return row;
     const claimed = await this.store.claimDelivery(row.id);
     if (claimed.state !== 'DELIVERING') return claimed;
     const command = buildDinoDepotCommand({ eosId: claimed.player_eos_id, blueprint: claimed.blueprint, level: Number(claimed.rolled_level) });
