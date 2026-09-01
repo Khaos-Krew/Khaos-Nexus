@@ -110,6 +110,16 @@ function highestConfiguredRankForMember(member, config = {}) {
   return selected;
 }
 
+function rankEvidenceForMember(member, config = {}) {
+  const roles = valuesOf(member?.roles?.cache);
+  const canonical = NEXUS_RANKS.filter((rank) => roles.some((role) => normalizedRankName(role?.name) === normalizedRankName(rank.name))).map((rank) => rank.id);
+  const mapped = NEXUS_RANKS.filter((rank) => {
+    const roleId = clean(config?.discord?.rankRoles?.[rank.id], 32);
+    return roleId && roles.some((role) => clean(role?.id, 32) === roleId);
+  }).map((rank) => rank.id);
+  return { canonical, mapped, roleCount: roles.length };
+}
+
 class ArkAccountLinkService {
   constructor({ store, maxSeen = 1000 } = {}) {
     if (!store) throw new Error('ArkAccountLinkService requires an identity store.');
@@ -142,4 +152,4 @@ class ArkAccountLinkService {
   }
 }
 
-module.exports = { chatIdentity, parseArkChatLines, resolveChatIdentity, normalizedRankName, resolveGuildRankConfig, highestConfiguredRankForMember, ArkAccountLinkService };
+module.exports = { chatIdentity, parseArkChatLines, resolveChatIdentity, normalizedRankName, resolveGuildRankConfig, highestConfiguredRankForMember, rankEvidenceForMember, ArkAccountLinkService };
