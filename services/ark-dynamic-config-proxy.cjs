@@ -62,4 +62,9 @@ const server = http.createServer((req, res) => {
 
 server.listen(port, host, () => {
   console.log(`[Nexus DynamicConfig Proxy] listening on ${host}:${port} -> ${upstream.origin}`);
+  const tcpDomain = String(process.env.RAILWAY_TCP_PROXY_DOMAIN || '').trim();
+  const tcpPort = String(process.env.RAILWAY_TCP_PROXY_PORT || '').trim();
+  if (tcpDomain && tcpPort) {
+    console.log(`[Nexus DynamicConfig Proxy] public plain-HTTP endpoint: http://${tcpDomain}:${tcpPort}/ark/dynamic/ark_gen1.ini`);
+  }
 });
