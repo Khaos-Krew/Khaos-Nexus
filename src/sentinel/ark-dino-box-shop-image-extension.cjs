@@ -11,7 +11,8 @@ const APPROVED_ART_COMMIT = 'google-drive-wshop-cache-references';
 const APPROVED_ART_BASE = 'attachment://';
 
 // Canonical cache artwork is sourced from the owner-managed Google Drive
-// WShop Cache References folder and loaded into Railway as bounded WebP assets.
+// WShop Cache References folder. Railway stores bounded WebP copies for the live
+// Discord shop so the Drive references remain authoritative without relying on fallbacks.
 const APPROVED_CACHE_IMAGE_FILES = Object.freeze({
   coastal: 'nexus-dino-box-coastal.webp',
   forest: 'nexus-dino-box-forest.webp',
