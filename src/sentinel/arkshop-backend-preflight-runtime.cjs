@@ -37,6 +37,16 @@ function sanitizedResult(result) {
       mode: String(result?.comparison?.mode || 'unknown'),
       safeToSwitch: Boolean(result?.comparison?.safeToSwitch)
     },
+    reconciliation: result?.reconciliation ? {
+      sqliteOnly: Number(result.reconciliation.sqliteOnly || 0),
+      mysqlOnly: Number(result.reconciliation.mysqlOnly || 0),
+      shared: Number(result.reconciliation.shared || 0),
+      sharedExact: Number(result.reconciliation.sharedExact || 0),
+      sharedStateDrift: Number(result.reconciliation.sharedStateDrift || 0),
+      sharedPointsDrift: Number(result.reconciliation.sharedPointsDrift || 0),
+      sharedKitsDrift: Number(result.reconciliation.sharedKitsDrift || 0),
+      insertOnlyMergeSafe: Boolean(result.reconciliation.insertOnlyMergeSafe)
+    } : null,
     sqlite: take(result?.sqlite),
     mysql: take(result?.mysql)
   };

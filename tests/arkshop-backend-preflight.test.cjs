@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { summarizeRows, compareBackendStats, runArkShopBackendPreflight, safeLogSummary } = require('../src/sentinel/arkshop-backend-preflight.cjs');
+const { summarizeRows, compareBackendStats, reconciliationStats, runArkShopBackendPreflight, safeLogSummary } = require('../src/sentinel/arkshop-backend-preflight.cjs');
 
 const columns = { id: 'EosId', points: 'Points', kits: 'Kits' };
 
@@ -39,6 +39,24 @@ test('preflight distinguishes empty target, state drift, and player-set mismatch
   assert.equal(compareBackendStats(sqlite, drift).mode, 'same-players-state-drift');
   assert.equal(compareBackendStats(sqlite, other).mode, 'backend-player-set-mismatch');
   assert.equal(compareBackendStats(sqlite, drift).safeToSwitch, false);
+});
+
+test('reconciliation reports insert-only safety without exposing player IDs', () => {
+  const result = reconciliationStats(
+    [{ id: 'EOS-A', points: '10', kits: '{}' }, { id: 'EOS-B', points: '20', kits: '{"starter":1}' }],
+    [{ id: 'EOS-B', points: '20', kits: '{"starter":1}' }, { id: 'EOS-C', points: '30', kits: '{}' }]
+  );
+  assert.deepEqual(result, {
+    sqliteOnly: 1,
+    mysqlOnly: 1,
+    shared: 1,
+    sharedExact: 1,
+    sharedStateDrift: 0,
+    sharedPointsDrift: 0,
+    sharedKitsDrift: 0,
+    insertOnlyMergeSafe: true
+  });
+  assert.equal(JSON.stringify(result).includes('EOS-'), false);
 });
 
 test('injected live preflight returns only aggregate backend summaries', async () => {
