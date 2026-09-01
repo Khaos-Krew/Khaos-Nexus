@@ -68,6 +68,6 @@ test('README documents the dedicated workspaces and non-release boundary', () =>
   assert.match(readme, /\*\*D&D\*\*/);
   assert.match(readme, /\*\*Nexus AI\*\*/);
   assert.match(readme, /requests reduced motion/i);
-  assert.match(readme, /must not publish or modify a release channel/i);
+  assert.match(readme, /must not publish or modify a (?:public )?release channel/i);
   assert.match(readme, /nexus-mobile-companion/);
 });
