@@ -55,6 +55,7 @@ const { installArkConfigProfileExtension } = require('./ark-config-profile-exten
 const { installArkShopProfileExtension } = require('./arkshop-profile-extension.cjs');
 const { installArkClusterPublicActions } = require('./ark-cluster-public-actions.cjs');
 const { installArkShopProfileBootstrapExtension } = require('./arkshop-profile-bootstrap-extension.cjs');
+const { installDinoCacheDiscordExtension } = require('./ark-dino-cache-discord-extension.cjs');
 
 installRetiredGamesSelfRoleCleanupExtension();
 installGuildMembersIntentExtension();
@@ -107,6 +108,7 @@ installArkConfigProfileExtension();
 installArkShopProfileExtension();
 installArkClusterPublicActions();
 installArkShopProfileBootstrapExtension();
+installDinoCacheDiscordExtension();
 require('./ark-cluster-plan-extension.cjs').installArkClusterPlanExtension();
 require('./arkshop-nexus-economy-v1-runtime.cjs').installArkShopEconomyV1Runtime();
 require('./arkshop-nexus-launch-v2-runtime.cjs').installArkShopLaunchV2Runtime();
