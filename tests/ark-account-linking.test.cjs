@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { ArkIdentityStore } = require('../src/sentinel/ark-identity-store.cjs');
-const { chatIdentity, parseArkChatLines, resolveChatIdentity, highestConfiguredRankForMember, ArkAccountLinkService } = require('../src/sentinel/ark-account-linking.cjs');
+const { chatIdentity, parseArkChatLines, resolveChatIdentity, resolveGuildRankConfig, highestConfiguredRankForMember, ArkAccountLinkService } = require('../src/sentinel/ark-account-linking.cjs');
 
 test('ARK chat parser extracts verification codes without trusting an unverified player name as an EOS id', () => {
   const messages = parseArkChatLines('[12:00] Survivor: !link ABCD2345\nnoise\nOther (0002abc123): !link WXYZ6789');
@@ -89,4 +89,25 @@ test('rank resolution safely falls back to official role names only when no role
   const named = { roles: { cache: new Map([['role-a', { id: 'role-a', name: '🔻 Cipher Runner' }], ['role-b', { id: 'role-b', name: 'Nexus Raider' }]]) } };
   assert.equal(highestConfiguredRankForMember(named, { discord: { rankRoles: {} } }).id, 'nexus-raider');
   assert.equal(highestConfiguredRankForMember(named, { discord: { rankRoles: { 'nexus-raider': 'different-id' } } }).id, 'cipher-runner');
+});
+
+test('guild rank resolution recovers stale saved ids from unique canonical Discord roles', () => {
+  const roles = new Map([
+    ['10001', { id: '10001', name: '🌑 Shadow Recruit' }],
+    ['10005', { id: '10005', name: 'Blackout Legend' }]
+  ]);
+  const config = resolveGuildRankConfig({ discord: { rankRoles: { 'blackout-legend': 'stale-role-id' } } }, roles);
+  const member = { roles: { cache: new Map([['10001', roles.get('10001')], ['10005', roles.get('10005')]]) } };
+  assert.equal(config.discord.rankRoles['blackout-legend'], '10005');
+  assert.equal(highestConfiguredRankForMember(member, config).id, 'blackout-legend');
+});
+
+test('guild rank resolution fails closed when canonical role names are ambiguous', () => {
+  const roles = new Map([
+    ['10005', { id: '10005', name: 'Blackout Legend' }],
+    ['20005', { id: '20005', name: '⚡ Blackout Legend' }]
+  ]);
+  const config = resolveGuildRankConfig({ discord: { rankRoles: {} } }, roles);
+  const member = { roles: { cache: new Map([['10005', roles.get('10005')]]) } };
+  assert.equal(highestConfiguredRankForMember(member, config).id, 'shadow-recruit');
 });

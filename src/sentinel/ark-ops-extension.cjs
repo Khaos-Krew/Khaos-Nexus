@@ -7,7 +7,7 @@ const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { CACHE_POOLS } = require('./ark-dino-cache-engine.cjs');
 const { runOwnerCacheTest } = require('./ark-dino-cache-test-harness.cjs');
 const { ArkIdentityStore } = require('./ark-identity-store.cjs');
-const { ArkAccountLinkService } = require('./ark-account-linking.cjs');
+const { ArkAccountLinkService, resolveGuildRankConfig } = require('./ark-account-linking.cjs');
 const { StateStore } = require('./state-store.cjs');
 const { ArkPermissionRankSync, effectiveRankConfig } = require('./ark-permission-rank-sync.cjs');
 const { parseListPlayers } = require('./ark-cluster-monitor.cjs');
@@ -480,7 +480,10 @@ function installArkOpsExtension() {
         const supporterCaches = new ArkSupporterCacheService({ rcon, identityStore });
         const arkEvents = new ArkEventService({ rcon, mapId: server.id || 'gen1', mapName: server.name || 'ARK' });
         const syncMember = async (member, source = 'discord-role-sync') => {
-          const effectiveConfig = effectiveRankConfig(config, stateStore.getAdminSettings());
+          const effectiveConfig = resolveGuildRankConfig(
+            effectiveRankConfig(config, stateStore.getAdminSettings()),
+            guild.roles?.cache
+          );
           const synced = accountLinking.syncMemberRank(member, effectiveConfig);
           if (!synced.ok) return { ok: false, reason: synced.reason, accounts: 0, changed: 0, failed: 0 };
           if (synced.changed) console.log(`[Nexus Sentinal] linked profile rank synchronized: discord=${member.id} rank=${synced.profile.rankId}`);
