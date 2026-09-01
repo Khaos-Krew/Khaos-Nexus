@@ -6,6 +6,7 @@ const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { CONFIG, cacheForPurchase } = require('./ark-dino-cache-engine.cjs');
 const { DinoCacheStore } = require('./ark-dino-cache-store.cjs');
 const { DinoCacheRedemptionProcessor } = require('./ark-dino-cache-purchase.cjs');
+const { dinoCacheEvents } = require('./ark-dino-cache-events.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.dino-cache.runtime');
 let timer = null;
@@ -45,7 +46,7 @@ async function preflight(connection) {
 
   const [cacheColumns] = await connection.query("SELECT COLUMN_NAME, COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='nexus_dino_cache_transactions'");
   const cacheNames = new Set(cacheColumns.map((row) => String(row.COLUMN_NAME)));
-  const cacheRequired = ['revealed_at', 'announced_at'];
+  const cacheRequired = ['revealed_at', 'discord_notified_at', 'announced_at'];
   const missingCacheColumns = cacheRequired.filter((name) => !cacheNames.has(name));
   if (missingCacheColumns.length) throw new Error(`Dino Cache sealed-reveal migration incomplete: missing ${missingCacheColumns.join(', ')}. Apply config/ark/mysql/002-nexus-dino-cache-sealed-reveal.sql before enabling the runtime.`);
   const stateColumn = cacheColumns.find((row) => String(row.COLUMN_NAME) === 'state');
@@ -106,6 +107,12 @@ async function runDinoCacheCycle({ connector = connectMysql, registry = new ArkC
       if (result?.newlySealed) sealed += 1;
     }
 
+    let notificationQueued = 0;
+    for (const row of await store.unnotifiedSealed(25)) {
+      dinoCacheEvents.emit('sealed', { ...row });
+      notificationQueued += 1;
+    }
+
     // SEALED rewards are intentionally absent from actionable(). Only an explicit Discord reveal
     // moves a reward to REVEALED, at which point the existing delivery worker may claim it.
     let delivered = 0;
@@ -113,7 +120,7 @@ async function runDinoCacheCycle({ connector = connectMysql, registry = new ArkC
       const result = await processor.deliver(row);
       if (result?.state === 'DELIVERED') delivered += 1;
     }
-    return { accepted, sealed, delivered, stale };
+    return { accepted, sealed, notificationQueued, delivered, stale };
   } finally { await connection.end().catch(() => {}); }
 }
 
