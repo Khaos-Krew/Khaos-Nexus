@@ -18,21 +18,22 @@ test('level buckets exactly match the approved 200-300 distribution', () => {
 
 test('all configured caches are central, bounded, five-minute, and explicitly non-Shiny', () => {
   assert.deepEqual(Object.fromEntries(Object.entries(CACHE_POOLS).map(([id, pool]) => [id, pool.price])), {
-    coastal: 100,
-    forest: 150,
-    swamp: 175,
-    mountain: 225,
-    ocean: 275,
-    deepcave: 275,
-    apex: 500,
-    'fantastical-tames': 350,
-    'bobs-tall-tales': 350
+    coastal: 150,
+    forest: 200,
+    swamp: 200,
+    mountain: 250,
+    ocean: 350,
+    deepcave: 350,
+    apex: 550,
+    'fantastical-tames': 400,
+    'bobs-tall-tales': 400
   });
   assert.equal(Object.keys(CACHE_POOLS).length, 9);
   for (const pool of Object.values(CACHE_POOLS)) {
     assert.ok(pool.entries.length > 0 && pool.entries.length <= 64, 'cache pools must stay explicitly bounded');
     assert.equal(pool.cooldownMinutes, 5);
-    assert.ok(pool.price >= 100 && pool.price <= 500, 'cache prices must remain viable for the Shadow Recruit baseline');
+    assert.equal(pool.price % 50, 0, 'cache prices must be rounded up to whole 50-point values');
+    assert.ok(pool.price >= 150 && pool.price <= 550, 'cache prices must remain viable for the Shadow Recruit baseline plus sell economy');
     for (const entry of pool.entries) assert.match(entry.blueprint, /^\/Game\//);
   }
   assert.equal(SHINY_CHANCE, 0);
