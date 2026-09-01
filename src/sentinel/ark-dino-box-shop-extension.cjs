@@ -63,6 +63,59 @@ function cooldownLabel(cache) {
   return `${minutes} minutes`;
 }
 
+// Compatibility payload retained for legacy callers and tests. The live shop
+// reconciliation below renders only the single Cache Hub message.
+function cachePanelPayload(cacheId) {
+  const cache = CONFIG.caches[cacheId];
+  if (!cache) throw new Error('Unknown Dino Box cache.');
+  const m = meta(cacheId);
+  const speciesFields = speciesByRarity(cache).map((field) => ({ ...field, inline: false }));
+  const disclaimerFields = m.disclaimer
+    ? [{ name: '⚠️ DLC Ownership Required', value: m.disclaimer.slice(0, 1024), inline: false }]
+    : [];
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`${BUY_PREFIX}${cacheId}`)
+      .setLabel(`Buy • ${arkShopPoints(cache.price)}`)
+      .setEmoji('🎰')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(`${TOKEN_PREFIX}${cacheId}`)
+      .setLabel('Redeem Token')
+      .setEmoji('🎟️')
+      .setStyle(ButtonStyle.Primary)
+  );
+
+  return {
+    embeds: [{
+      title: `${m.emoji} ${m.name}`,
+      description: `${m.tagline}\n\nChoose **Buy** to spend ArkShop Points or **Redeem Token** to open this box with a single-use Nexus token.`,
+      color: 0xb00020,
+      fields: [
+        ...disclaimerFields,
+        { name: '💰 Price', value: `**${arkShopPoints(cache.price)}**`, inline: true },
+        { name: '⏱️ Per-Box Cooldown', value: `**${cooldownLabel(cache)}**`, inline: true },
+        { name: '🎲 Rarity Odds', value: raritySummary(cache), inline: false },
+        ...speciesFields,
+        { name: '🧬 Variant Odds', value: `${variantTable(cache)}\nVariants are re-normalized when a species does not support X or S.`, inline: false },
+        { name: '📈 Level Odds', value: levelTable(), inline: false },
+        { name: '⚥ Sex', value: 'Male **50%** • Female **50%**', inline: true },
+        { name: '📦 Delivery', value: 'Your result is locked before the reveal and queued for delivery to your linked ARK account. The **5-minute cooldown applies to both ArkShop purchases and token redemptions** for this box. Token redemption charges **0 ArkShop Points**.', inline: false }
+      ].slice(0, 25),
+      footer: { text: `${LEGACY_PANEL_MARKER}${cacheId}` }
+    }],
+    components: [row],
+    allowedMentions: { parse: [] }
+  };
+}
+
+function managedCacheId(message) {
+  const footer = String(message?.embeds?.[0]?.footer?.text || '');
+  if (!footer.startsWith(LEGACY_PANEL_MARKER)) return '';
+  const id = footer.slice(LEGACY_PANEL_MARKER.length).trim().toLowerCase();
+  return CONFIG.caches[id] ? id : '';
+}
+
 function cacheSelect(selected = HUB_HOME_ID) {
   const menu = new StringSelectMenuBuilder()
     .setCustomId(HUB_SELECT_ID)
@@ -361,6 +414,8 @@ module.exports = {
   meta,
   arkShopPoints,
   cooldownLabel,
+  cachePanelPayload,
+  managedCacheId,
   cacheSelect,
   hubHomePayload,
   cacheDetailPayload,
