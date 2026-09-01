@@ -70,6 +70,17 @@ class DinoCacheStore {
     return rows;
   }
 
+  async unnotifiedSealed(limit = 25) {
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 25));
+    const [rows] = await this.db.query(`SELECT id, player_eos_id, source_item_name, server_id, map_name, cache_type, nexus_point_cost, state, created_at FROM nexus_dino_cache_transactions WHERE state='SEALED' AND discord_notified_at IS NULL ORDER BY created_at ASC LIMIT ${safeLimit}`);
+    return rows;
+  }
+
+  async markDiscordNotified(id) {
+    await this.db.execute(`UPDATE nexus_dino_cache_transactions SET discord_notified_at=CURRENT_TIMESTAMP(3) WHERE id=? AND state='SEALED' AND discord_notified_at IS NULL`, [id]);
+    return this.byId(id);
+  }
+
   async revealOwned(id, playerEosIds) {
     const owners = eosSet(playerEosIds);
     if (!owners.size) throw new Error('A linked ARK account is required to reveal this cache.');
