@@ -18,10 +18,10 @@ test('DLC Dino Caches load the released Fantastic Tames and Bob\'s Tall Tales po
   assert.ok(bobs);
   assert.deepEqual(fantastic.entries.map((entry) => entry.name), ['Pyromane', 'Dreadmare', 'Burrowbuck']);
   assert.deepEqual(bobs.entries.map((entry) => entry.name), ['Oasisaur', 'Cosmo', 'Armadoggo']);
-  assert.equal(fantastic.cooldownHours, 1);
-  assert.equal(bobs.cooldownHours, 1);
-  assert.equal(fantastic.price, 4000);
-  assert.equal(bobs.price, 4000);
+  assert.equal(fantastic.cooldownMinutes, 5);
+  assert.equal(bobs.cooldownMinutes, 5);
+  assert.equal(fantastic.price, 350);
+  assert.equal(bobs.price, 350);
   assert.deepEqual(fantastic.variantWeights, { normal: 100 });
   assert.deepEqual(bobs.variantWeights, { normal: 100 });
   assert.doesNotMatch(JSON.stringify(fantastic.entries), /Cerberax|Enigmasaur|Drakeling|Elderclaw/i);
@@ -52,6 +52,7 @@ test('persistent Dino Box embeds disclose DLC ownership before both purchase pat
     assert.match(text, /DLC Ownership Required/);
     assert.match(text, /DLC REQUIRED/);
     assert.match(text, /missing DLC is not a reroll condition/i);
+    assert.match(text, /5 minutes/);
     assert.match(text, /Normal 100%/);
   }
   assert.match(JSON.stringify(cachePanelPayload('fantastical-tames').embeds[0]), /Pyromane.*Dreadmare.*Burrowbuck/s);
