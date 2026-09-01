@@ -53,11 +53,12 @@ test('revealed embed shows the exact persisted outcome', () => {
   assert.match(text, /exact reward stored at purchase time/i);
 });
 
-test('announcement criteria are configurable and public text is compact', () => {
-  assert.equal(announcementWorthy({ variant: 'x', rolled_level: 225 }, {}), true);
-  assert.equal(announcementWorthy({ variant: 'normal', rolled_level: 299 }, {}), false);
-  assert.equal(announcementWorthy({ variant: 'normal', rolled_level: 300 }, {}), true);
-  assert.equal(announcementWorthy({ variant: 'normal', rolled_level: 250 }, { NEXUS_DINO_CACHE_ANNOUNCE_VARIANTS: 's', NEXUS_DINO_CACHE_ANNOUNCE_MIN_LEVEL: '250' }), true);
+test('all reveals publish by default and threshold mode remains configurable', () => {
+  assert.equal(announcementWorthy({ variant: 'normal', rolled_level: 225 }, {}), true);
+  assert.equal(announcementWorthy({ variant: 'normal', rolled_level: 299 }, { NEXUS_DINO_CACHE_ANNOUNCE_ALL: 'false' }), false);
+  assert.equal(announcementWorthy({ variant: 'x', rolled_level: 225 }, { NEXUS_DINO_CACHE_ANNOUNCE_ALL: 'false' }), true);
+  assert.equal(announcementWorthy({ variant: 'normal', rolled_level: 300 }, { NEXUS_DINO_CACHE_ANNOUNCE_ALL: 'false' }), true);
+  assert.equal(announcementWorthy({ variant: 'normal', rolled_level: 250 }, { NEXUS_DINO_CACHE_ANNOUNCE_ALL: 'false', NEXUS_DINO_CACHE_ANNOUNCE_VARIANTS: 's', NEXUS_DINO_CACHE_ANNOUNCE_MIN_LEVEL: '250' }), true);
   const text = publicRevealText({ ...sealed, state: 'REVEALED' }, '123456789012345678');
   assert.match(text, /<@123456789012345678>/);
   assert.match(text, /Rex/);
