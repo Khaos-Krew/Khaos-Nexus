@@ -20,8 +20,8 @@ test('DLC Dino Caches load the released Fantastic Tames and Bob\'s Tall Tales po
   assert.deepEqual(bobs.entries.map((entry) => entry.name), ['Oasisaur', 'Cosmo', 'Armadoggo']);
   assert.equal(fantastic.cooldownMinutes, 5);
   assert.equal(bobs.cooldownMinutes, 5);
-  assert.equal(fantastic.price, 350);
-  assert.equal(bobs.price, 350);
+  assert.equal(fantastic.price, 400);
+  assert.equal(bobs.price, 400);
   assert.deepEqual(fantastic.variantWeights, { normal: 100 });
   assert.deepEqual(bobs.variantWeights, { normal: 100 });
   assert.doesNotMatch(JSON.stringify(fantastic.entries), /Cerberax|Enigmasaur|Drakeling|Elderclaw/i);
