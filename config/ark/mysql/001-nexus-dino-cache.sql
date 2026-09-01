@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS nexus_dino_cache_transactions (
   variant VARCHAR(16) NULL,
   blueprint VARCHAR(255) NULL,
   rolled_level SMALLINT UNSIGNED NULL,
-  state ENUM('PENDING','ROLLED','DELIVERING','DELIVERED','FAILED','RETRY') NOT NULL DEFAULT 'PENDING',
+  state ENUM('PURCHASED','SEALED','REVEALED','DELIVERING','DELIVERED','FAILED','RETRY') NOT NULL DEFAULT 'PURCHASED',
   delivery_attempts INT UNSIGNED NOT NULL DEFAULT 0,
   delivery_started_at DATETIME(3) NULL,
   delivered_at DATETIME(3) NULL,
@@ -22,10 +22,13 @@ CREATE TABLE IF NOT EXISTS nexus_dino_cache_transactions (
   error_message VARCHAR(500) NOT NULL DEFAULT '',
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   rolled_at DATETIME(3) NULL,
+  revealed_at DATETIME(3) NULL,
+  announced_at DATETIME(3) NULL,
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   UNIQUE KEY uq_nexus_dino_cache_source (source_system, source_server_id, source_transaction_id),
   KEY ix_nexus_dino_cache_state (state, updated_at),
-  KEY ix_nexus_dino_cache_player (player_eos_id, created_at)
+  KEY ix_nexus_dino_cache_player (player_eos_id, created_at),
+  KEY ix_nexus_dino_cache_reveal (player_eos_id, state, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS nexus_dino_cache_events (
