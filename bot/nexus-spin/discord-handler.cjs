@@ -155,13 +155,13 @@ function isNexusSpinButton(customId) {
   return Object.values(NEXUS_SPIN_BUTTONS).includes(String(customId || ''));
 }
 
-async function editSpinError(interaction, error, logger = console) {
+async function editSpinError(interaction, error, logger = console, respond = (content) => interaction.editReply(content)) {
   if (error?.code === 'NEXUS_SPIN_COOLDOWN') {
-    await interaction.editReply(`Your **free daily spin** is on cooldown for about **${formatCooldown(error.retryAfterSeconds)}**. You can still use the red **Extra Spin** button for **${error.pointSpinCost || 100} Nexus Points**.`);
+    await respond(`Your **free daily spin** is on cooldown for about **${formatCooldown(error.retryAfterSeconds)}**. You can still use the red **Extra Spin** button for **${error.pointSpinCost || 100} Nexus Points**.`);
     return true;
   }
   if (error?.code === 'NEXUS_SPIN_INSUFFICIENT_POINTS') {
-    await interaction.editReply(`You do not have enough Nexus Points for an extra spin. Cost: **${error.pointSpinCost || error.cost || 100}** • Available: **${error.balance ?? 0}**.`);
+    await respond(`You do not have enough Nexus Points for an extra spin. Cost: **${error.pointSpinCost || error.cost || 100}** • Available: **${error.balance ?? 0}**.`);
     return true;
   }
   if (error?.code === 'NEXUS_SPIN_POINT_DEBIT_REVIEW') {
@@ -169,44 +169,48 @@ async function editSpinError(interaction, error, logger = console) {
       spinId: error.spinId,
       reviewRecorded: error.reviewRecorded,
     });
-    await interaction.editReply(`⚠️ Sentinel could not confirm whether the **${error.pointSpinCost || 100} Nexus Point** charge completed. **Do not retry this Spin ID yet.** No reward was issued; staff reconciliation is required for \`${error.spinId}\`.`);
+    await respond(`⚠️ Sentinel could not confirm whether the **${error.pointSpinCost || 100} Nexus Point** charge completed. **Do not retry this Spin ID yet.** No reward was issued; staff reconciliation is required for \`${error.spinId}\`.`);
     return true;
   }
   if (error?.code === 'NEXUS_SPIN_PAYMENT_REFUNDED') {
-    await interaction.editReply(`${error.message}\nSpin ID: \`${error.spinId}\``);
+    await respond(`${error.message}\nSpin ID: \`${error.spinId}\``);
     return true;
   }
   if (error?.code === 'NEXUS_SPIN_PAYMENT_RECONCILIATION_REQUIRED') {
     logger.error?.('[nexus-spin] Paid spin requires manual reconciliation.', { spinId: error.spinId });
-    await interaction.editReply(`⚠️ Sentinel could not safely finish this point spin. **Do not retry this Spin ID yet.** Staff reconciliation is required for \`${error.spinId}\`.`);
+    await respond(`⚠️ Sentinel could not safely finish this point spin. **Do not retry this Spin ID yet.** Staff reconciliation is required for \`${error.spinId}\`.`);
     return true;
   }
   if (error?.code === 'NEXUS_SPIN_NOT_LINKED') {
-    await interaction.editReply('🔗 You need a **verified Discord ↔ ARK account link** before you can play Nexus Spin.');
+    await respond('🔗 You need a **verified Discord ↔ ARK account link** before you can play Nexus Spin.');
     return true;
   }
   if (error?.code === 'NEXUS_SPIN_WRONG_CHANNEL' || error?.code === 'NEXUS_SPIN_DISABLED') {
-    await interaction.editReply(error.message);
+    await respond(error.message);
     return true;
   }
   return false;
 }
 
-async function playFromButton(interaction, mode, { bootstrap, logger = console } = {}) {
+async function playFromButton(interaction, mode, { bootstrap, logger = console, acknowledged = false } = {}) {
   const service = makeService(bootstrap, logger);
-  await interaction.deferReply({ ephemeral: true });
+  if (!acknowledged) await interaction.deferReply({ ephemeral: true });
+  const respond = acknowledged
+    ? (content) => interaction.followUp({ content, ephemeral: true })
+    : (content) => interaction.editReply(content);
+
   try {
     const result = await service.play({ discordId: interaction.user.id, channelId: interaction.channelId, mode });
     await publicReveal(interaction, result);
     const paymentLine = result.spinMode === 'POINTS'
       ? `\nCost: **${result.spinCost} Nexus Points** • Balance after purchase: **${result.payment.afterBalance}**`
       : '\nYour next free spin becomes available 24 hours after this one.';
-    await interaction.editReply(`Your spin is locked as **${result.spin.reward.label}**. ${payoutNote(result.payout)}${paymentLine}\nSpin ID: \`${result.spin.spinId}\``);
+    await respond(`Your spin is locked as **${result.spin.reward.label}**. ${payoutNote(result.payout)}${paymentLine}\nSpin ID: \`${result.spin.spinId}\``);
     return true;
   } catch (error) {
-    if (await editSpinError(interaction, error, logger)) return true;
+    if (await editSpinError(interaction, error, logger, respond)) return true;
     logger.error?.('[nexus-spin] Button spin failed.', { error: error?.message, code: error?.code });
-    await interaction.editReply('Nexus Spin could not complete safely. No reward was issued; try again after the service is healthy.');
+    await respond('Nexus Spin could not complete safely. No reward was issued; try again after the service is healthy.');
     return true;
   }
 }
@@ -245,7 +249,8 @@ async function handleNexusSpinButton(interaction, context = {}) {
       await interaction.reply(buildPointConfirmation(context.bootstrap));
       return true;
     case NEXUS_SPIN_BUTTONS.POINTS_CONFIRM:
-      return playFromButton(interaction, 'points', context);
+      await interaction.update({ content: '🎰 Paid spin confirmed. Processing securely...', components: [] });
+      return playFromButton(interaction, 'points', { ...context, acknowledged: true });
     case NEXUS_SPIN_BUTTONS.POINTS_CANCEL:
       await interaction.update({ content: 'Point spin cancelled. No Nexus Points were charged.', components: [] });
       return true;
