@@ -17,6 +17,7 @@ const { DinoCacheStore } = require('./ark-dino-cache-store.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.dino-cache.discord');
 const BUTTON_PREFIX = 'nexus:dino-cache:reveal:';
+const LATER_BUTTON_ID = 'nexus:dino-cache:later';
 
 function cachesCommand() {
   return new SlashCommandBuilder()
@@ -34,30 +35,35 @@ function sealedCacheEmbed(rows = []) {
     .setTitle('🔒 Khaos Nexus • Sealed Dino Caches')
     .setColor(0x8b0000)
     .setDescription(rows.length
-      ? 'Your reward was fixed when the purchase was recorded. Nothing below can reroll it. Choose **Reveal Now** when you are ready.'
+      ? 'Your reward was fixed when the purchase was recorded. Nothing below can reroll it. Choose **Reveal Now** when you are ready, or **Reveal Later** to leave every cache sealed.'
       : 'You do not have any sealed Dino Caches waiting to be revealed.');
 
-  for (const [index, row] of rows.slice(0, 5).entries()) {
+  for (const [index, row] of rows.slice(0, 4).entries()) {
     embed.addFields({
       name: `${index + 1}. ${String(row.source_item_name || row.cache_type || 'Dino Cache').slice(0, 90)}`,
       value: `Map: **${String(row.map_name || row.server_id || 'ARK')}**\nPurchased: <t:${Math.floor(new Date(row.created_at).getTime() / 1000)}:R>\nStatus: 🔒 **SEALED**`,
       inline: false
     });
   }
-  if (rows.length > 5) embed.setFooter({ text: `${rows.length - 5} more sealed caches are waiting. Reveal one and run /caches again.` });
+  if (rows.length > 4) embed.setFooter({ text: `${rows.length - 4} more sealed caches are waiting. Reveal one and run /caches again.` });
   return embed;
 }
 
 function sealedButtons(rows = []) {
   if (!rows.length) return [];
   const row = new ActionRowBuilder();
-  for (const [index, cache] of rows.slice(0, 5).entries()) {
+  for (const [index, cache] of rows.slice(0, 4).entries()) {
     row.addComponents(new ButtonBuilder()
       .setCustomId(`${BUTTON_PREFIX}${cache.id}`)
       .setLabel(rows.length === 1 ? 'Reveal Now' : `Reveal #${index + 1}`)
       .setEmoji('🎁')
       .setStyle(ButtonStyle.Danger));
   }
+  row.addComponents(new ButtonBuilder()
+    .setCustomId(LATER_BUTTON_ID)
+    .setLabel('Reveal Later')
+    .setEmoji('🔒')
+    .setStyle(ButtonStyle.Secondary));
   return [row];
 }
 
@@ -133,10 +139,20 @@ function installDinoCacheDiscordExtension() {
 
     this.on(Events.InteractionCreate, async (interaction) => {
       const isCachesCommand = interaction.isChatInputCommand?.() && interaction.commandName === 'caches';
-      const isRevealButton = interaction.isButton?.() && String(interaction.customId || '').startsWith(BUTTON_PREFIX);
-      if (!isCachesCommand && !isRevealButton) return;
+      const customId = String(interaction.customId || '');
+      const isRevealButton = interaction.isButton?.() && customId.startsWith(BUTTON_PREFIX);
+      const isLaterButton = interaction.isButton?.() && customId === LATER_BUTTON_ID;
+      if (!isCachesCommand && !isRevealButton && !isLaterButton) return;
 
       try {
+        if (isLaterButton) {
+          return interaction.update({
+            content: '🔒 Your Dino Cache reward remains sealed. Use `/caches` whenever you want to reveal it.',
+            embeds: [],
+            components: []
+          });
+        }
+
         const eosIds = linkedEosIds(identityStore, interaction.user.id);
         if (!eosIds.length) {
           const payload = { content: 'Link your Discord account to ARK first, then use `/caches` again.', flags: MessageFlags.Ephemeral };
@@ -148,7 +164,7 @@ function installDinoCacheDiscordExtension() {
           return interaction.reply({ embeds: [sealedCacheEmbed(rows)], components: sealedButtons(rows), flags: MessageFlags.Ephemeral });
         }
 
-        const id = String(interaction.customId).slice(BUTTON_PREFIX.length);
+        const id = customId.slice(BUTTON_PREFIX.length);
         if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error('Invalid Dino Cache reveal token.');
         await interaction.deferUpdate();
         const result = await withStore(async (store) => {
@@ -173,6 +189,7 @@ function installDinoCacheDiscordExtension() {
 
 module.exports = {
   BUTTON_PREFIX,
+  LATER_BUTTON_ID,
   cachesCommand,
   linkedEosIds,
   sealedCacheEmbed,
