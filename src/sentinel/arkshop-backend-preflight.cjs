@@ -55,6 +55,45 @@ function summarizeRows(rows = [], columns = {}) {
   };
 }
 
+function normalizedPlayerState(rows = [], columns = {}) {
+  const id = columns.id;
+  if (!id) throw new Error('ArkShop player ID column could not be identified.');
+  return rows.map((row) => ({
+    id: normalizeScalar(row[id]),
+    points: columns.points ? normalizeScalar(row[columns.points]) : '',
+    kits: columns.kits ? normalizeScalar(row[columns.kits]) : ''
+  }));
+}
+
+function reconciliationStats(sqliteRows = [], mysqlRows = []) {
+  const sqlite = new Map(sqliteRows.map((row) => [row.id, row]));
+  const mysql = new Map(mysqlRows.map((row) => [row.id, row]));
+  let shared = 0;
+  let sharedExact = 0;
+  let sharedPointsDrift = 0;
+  let sharedKitsDrift = 0;
+  for (const [id, source] of sqlite) {
+    const target = mysql.get(id);
+    if (!target) continue;
+    shared += 1;
+    const pointsMatch = source.points === target.points;
+    const kitsMatch = source.kits === target.kits;
+    if (pointsMatch && kitsMatch) sharedExact += 1;
+    if (!pointsMatch) sharedPointsDrift += 1;
+    if (!kitsMatch) sharedKitsDrift += 1;
+  }
+  return {
+    sqliteOnly: sqlite.size - shared,
+    mysqlOnly: mysql.size - shared,
+    shared,
+    sharedExact,
+    sharedStateDrift: shared - sharedExact,
+    sharedPointsDrift,
+    sharedKitsDrift,
+    insertOnlyMergeSafe: shared === sharedExact
+  };
+}
+
 function compareBackendStats(sqlite, mysql) {
   if (!sqlite || !mysql) return { safeToSwitch: false, mode: 'preflight-incomplete' };
   if (sqlite.duplicateIds || mysql.duplicateIds) return { safeToSwitch: false, mode: 'duplicate-player-ids' };
@@ -97,7 +136,9 @@ async function readMysqlStats({ mysqlModule } = {}) {
     if (!columns.id) throw new Error('MySQL ArkShop player ID column could not be identified.');
     const select = [columns.id, columns.points, columns.kits].filter(Boolean).map((name) => `\`${safeIdentifier(name)}\``).join(', ');
     const [rows] = await connection.query(`SELECT ${select} FROM \`${table}\``);
-    return { backend: 'mysql', ...summarizeRows(rows, columns) };
+    const result = { backend: 'mysql', ...summarizeRows(rows, columns) };
+    Object.defineProperty(result, '_normalizedRows', { value: normalizedPlayerState(rows, columns), enumerable: false });
+    return result;
   } finally {
     await connection.end().catch(() => {});
   }
@@ -119,7 +160,9 @@ function readSqliteStatsFromFile(snapshotFile, config) {
     if (!columns.id) throw new Error('SQLite ArkShop player ID column could not be identified.');
     const select = [columns.id, columns.points, columns.kits].filter(Boolean).map((name) => `\"${safeIdentifier(name)}\"`).join(', ');
     const rows = database.prepare(`SELECT ${select} FROM \"${table}\"`).all();
-    return { backend: 'sqlite', ...summarizeRows(rows, columns) };
+    const result = { backend: 'sqlite', ...summarizeRows(rows, columns) };
+    Object.defineProperty(result, '_normalizedRows', { value: normalizedPlayerState(rows, columns), enumerable: false });
+    return result;
   } finally {
     database.close();
   }
@@ -138,9 +181,13 @@ async function readSqliteStats(prefix = 'ARK_GEN1') {
 async function runArkShopBackendPreflight({ prefix = 'ARK_GEN1', mysqlReader = readMysqlStats, sqliteReader = readSqliteStats } = {}) {
   const [mysql, sqlite] = await Promise.all([mysqlReader(), sqliteReader(prefix)]);
   const comparison = compareBackendStats(sqlite, mysql);
+  const reconciliation = Array.isArray(sqlite?._normalizedRows) && Array.isArray(mysql?._normalizedRows)
+    ? reconciliationStats(sqlite._normalizedRows, mysql._normalizedRows)
+    : null;
   return {
     ok: true,
     comparison,
+    reconciliation,
     mysql,
     sqlite
   };
@@ -157,6 +204,15 @@ function safeLogSummary(result) {
     `mysqlPointsRows=${Number(result?.mysql?.rowsWithPoints || 0)}`,
     `sqliteKitsRows=${Number(result?.sqlite?.rowsWithKits || 0)}`,
     `mysqlKitsRows=${Number(result?.mysql?.rowsWithKits || 0)}`,
+    ...(result?.reconciliation ? [
+      `sqliteOnly=${result.reconciliation.sqliteOnly}`,
+      `mysqlOnly=${result.reconciliation.mysqlOnly}`,
+      `shared=${result.reconciliation.shared}`,
+      `sharedExact=${result.reconciliation.sharedExact}`,
+      `sharedPointsDrift=${result.reconciliation.sharedPointsDrift}`,
+      `sharedKitsDrift=${result.reconciliation.sharedKitsDrift}`,
+      `insertOnlyMergeSafe=${result.reconciliation.insertOnlyMergeSafe}`
+    ] : []),
     `sqliteIdentity=${trimDigest(result?.sqlite?.identityDigest)}`,
     `mysqlIdentity=${trimDigest(result?.mysql?.identityDigest)}`,
     `sqliteState=${trimDigest(result?.sqlite?.stateDigest)}`,
@@ -168,6 +224,8 @@ module.exports = {
   ID_COLUMNS,
   pickColumn,
   summarizeRows,
+  normalizedPlayerState,
+  reconciliationStats,
   compareBackendStats,
   readMysqlStats,
   readSqliteStatsFromFile,
