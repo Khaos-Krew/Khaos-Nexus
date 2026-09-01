@@ -14,6 +14,7 @@ const { loadConfig } = require('../shared/config.cjs');
 const { ArkIdentityStore } = require('./ark-identity-store.cjs');
 const { connectMysql } = require('./arkshop-mysql.cjs');
 const { DinoCacheStore } = require('./ark-dino-cache-store.cjs');
+const { dinoCacheEvents } = require('./ark-dino-cache-events.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.dino-cache.discord');
 const BUTTON_PREFIX = 'nexus:dino-cache:reveal:';
@@ -85,6 +86,8 @@ function revealedEmbed(row) {
 }
 
 function announcementWorthy(row, env = process.env) {
+  const announceAll = String(env.NEXUS_DINO_CACHE_ANNOUNCE_ALL ?? 'true').toLowerCase() !== 'false';
+  if (announceAll) return true;
   const variants = new Set(String(env.NEXUS_DINO_CACHE_ANNOUNCE_VARIANTS || 'x,s').toLowerCase().split(',').map((value) => value.trim()).filter(Boolean));
   const minLevel = Math.max(200, Math.min(300, Number(env.NEXUS_DINO_CACHE_ANNOUNCE_MIN_LEVEL || 300)));
   return variants.has(String(row.variant || '').toLowerCase()) || Number(row.rolled_level) >= minLevel;
@@ -112,6 +115,22 @@ async function postClusterAnnouncement(client, config, store, row, userId) {
   return true;
 }
 
+async function notifySealedPurchase(client, identityStore, row) {
+  if (!client?.isReady?.() || !row?.id || !row?.player_eos_id) return false;
+  const profile = identityStore.profileByArk(String(row.player_eos_id));
+  const discordUserId = String(profile?.discordUserId || '').trim();
+  if (!/^\d{5,25}$/.test(discordUserId)) return false;
+  const user = await client.users.fetch(discordUserId).catch(() => null);
+  if (!user) return false;
+  await user.send({
+    content: 'A Dino Cache purchase has been sealed for your linked ARK account.',
+    embeds: [sealedCacheEmbed([row])],
+    components: sealedButtons([row])
+  });
+  await withStore((store) => store.markDiscordNotified(row.id));
+  return true;
+}
+
 function installDinoCacheDiscordExtension() {
   if (Client.prototype[INSTALLED]) return false;
   Client.prototype[INSTALLED] = true;
@@ -122,6 +141,17 @@ function installDinoCacheDiscordExtension() {
   const originalLogin = Client.prototype.login;
 
   Client.prototype.login = function nexusDinoCacheDiscordLogin(...args) {
+    const notifying = new Set();
+    const sealedListener = (row) => {
+      if (!row?.id || notifying.has(row.id)) return;
+      notifying.add(row.id);
+      notifySealedPurchase(this, identityStore, row)
+        .catch((error) => console.error('[dino-cache] private sealed notification:', String(error?.message || error).slice(0, 300)))
+        .finally(() => notifying.delete(row.id));
+    };
+    dinoCacheEvents.on('sealed', sealedListener);
+    this.once(Events.ShardDisconnect, () => dinoCacheEvents.off('sealed', sealedListener));
+
     this.once(Events.ClientReady, async () => {
       try {
         if (!guildId) return;
@@ -197,5 +227,6 @@ module.exports = {
   revealedEmbed,
   announcementWorthy,
   publicRevealText,
+  notifySealedPurchase,
   installDinoCacheDiscordExtension
 };
