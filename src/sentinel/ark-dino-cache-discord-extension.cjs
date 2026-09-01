@@ -150,7 +150,6 @@ function installDinoCacheDiscordExtension() {
         .finally(() => notifying.delete(row.id));
     };
     dinoCacheEvents.on('sealed', sealedListener);
-    this.once(Events.ShardDisconnect, () => dinoCacheEvents.off('sealed', sealedListener));
 
     this.once(Events.ClientReady, async () => {
       try {
