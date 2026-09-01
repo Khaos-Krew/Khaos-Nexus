@@ -4,17 +4,29 @@ Nexus Spin is a Sentinel-owned Discord minigame for linked ARK players. Every ve
 
 ## Player flow
 
-1. Player runs `/nexusspin play` for the free daily spin, or `/nexusspin play mode:points` for an extra point-funded spin.
-2. Sentinel requires a verified `Discord ID -> EOS ID` row in `ark_account_links` before either mode can continue.
-3. Free mode atomically records the immutable reward and advances only the free-spin cooldown.
-4. Point mode verifies and deducts the configured Nexus Point cost, records the immutable reward as a `POINTS` spin, and does **not** modify the free-spin cooldown.
-5. Sentinel performs the payout or records a durable pending payout.
-6. Discord receives a public slot-style reveal. The private interaction response contains the immutable Spin ID.
-7. A player with queued rewards can run `/nexusspin claim` while online in ARK.
+1. An Owner/admin runs `/nexusspin` once in the intended game channel to post the persistent Nexus Spin panel.
+2. Players use the panel buttons: **Daily Free Spin**, **Extra Spin • Nexus Points**, or **Claim Rewards**.
+3. Sentinel requires a verified `Discord ID -> EOS ID` row in `ark_account_links` before any spin or reward claim can continue.
+4. Free mode atomically records the immutable reward and advances only the free-spin cooldown.
+5. Point mode first opens a private confirmation. Only the red **Spend <cost> NP & Spin** confirmation performs the charge. The confirmation becomes single-use immediately when accepted.
+6. Point mode verifies and deducts the configured Nexus Point cost, records the immutable reward as a `POINTS` spin, and does **not** modify the free-spin cooldown.
+7. Sentinel performs the payout or records a durable pending payout.
+8. Discord receives a public slot-style reveal. The private interaction response contains the immutable Spin ID.
+9. A player with queued rewards can press **Claim Rewards** while online in ARK.
 
-Unlinked players cannot play or spend points. Free-spin cooldown enforcement is keyed by EOS ID so changing Discord accounts does not create extra free spins for the same linked ARK identity.
+Unlinked players cannot play, claim, or spend points. Free-spin cooldown enforcement is keyed by EOS ID so changing Discord accounts does not create extra free spins for the same linked ARK identity.
 
-## Spin modes
+## Discord controls
+
+### Persistent panel
+
+`/nexusspin` is an Owner/admin deployment command. It posts a persistent public panel with three player buttons:
+
+- **🎁 Daily Free Spin** — attempts the player's free 24-hour spin.
+- **🔻 Extra Spin • <cost> NP** — opens a private purchase confirmation; it does not charge immediately.
+- **📦 Claim Rewards** — safely retries queued rewards while the linked ARK player is online.
+
+The persistent button custom IDs are routed globally by Sentinel, so the panel remains usable across bot restarts as long as the feature remains enabled.
 
 ### Free daily spin
 
@@ -22,12 +34,14 @@ Unlinked players cannot play or spend points. Free-spin cooldown enforcement is 
 - Cooldown: **24 hours (86,400 seconds)**
 - One free spin becomes available exactly 24 hours after the prior free spin.
 - Point-funded spins never consume, reset, or extend this cooldown.
+- Pressing the free button while cooling down shows the remaining cooldown privately and never auto-charges points.
 
 ### Extra spin with Nexus Points
 
 - Default cost: **100 Nexus Points**
-- Command: `/nexusspin play mode:points`
-- No automatic fallback from a cooling-down free spin. The player must explicitly choose the point-funded mode.
+- The public point-spin button opens a **private second-step confirmation**.
+- The confirmation button clearly states the current point cost and becomes single-use when accepted.
+- No automatic fallback from a cooling-down free spin. The player must explicitly choose and confirm the point-funded mode.
 - Sentinel verifies the balance before and after the ArkShop debit.
 - If the paid spin cannot be persisted after a confirmed debit, Sentinel attempts a verified automatic refund and does not issue the reward.
 - The price is configurable with `NEXUS_SPIN_POINT_COST` or `config.nexusSpin.pointSpinCost`.
@@ -64,9 +78,11 @@ Sentinel uses the existing ArkShop RCON gateway and verifies balances around eve
 
 For point-funded spins, the purchase debit is completed before the reward is issued. A failed ledger insert triggers a verified refund attempt. If both persistence and refund fail, Sentinel reports the Spin ID for manual reconciliation instead of rerolling.
 
+An ambiguous debit is quarantined in `nexus_spin_payment_reviews`; no reward is issued and Sentinel tells the player not to retry that Spin ID until reconciliation is complete.
+
 ### Resources
 
-Resource payout is disabled by default until the production ARK command syntax and success acknowledgement are verified. A resource roll is stored as `PENDING_RESOURCE`; `/nexusspin claim` can retry when the linked EOS player is online.
+Resource payout is disabled by default until the production ARK command syntax and success acknowledgement are verified. A resource roll is stored as `PENDING_RESOURCE`; the **Claim Rewards** button can retry when the linked EOS player is online.
 
 The configured command template must contain all four placeholders:
 
@@ -94,7 +110,7 @@ The minigame remains disabled by default until its production dependencies are v
 - `NEXUS_SPIN_RESOURCE_SUCCESS_PATTERN=<verified acknowledgement text/regex>`
 - `NEXUS_SPIN_RESOURCE_ELIGIBLE_MAPS=map1,map2`
 
-The Sentinel bootstrap may also supply `config.nexusSpin`; runtime values override packaged defaults.
+The Sentinel bootstrap may also supply `config.nexusSpin`; runtime values override packaged defaults. If the point cost changes, repost/refresh the persistent panel so its visible button label matches the live configured cost.
 
 ## Database migration
 
@@ -103,6 +119,7 @@ Apply `supabase/migrations/20260831234500_nexus_spin_minigame.sql` before enabli
 - `ark_account_links`
 - `nexus_spin_cooldowns`
 - `nexus_spin_attempts`
+- `nexus_spin_payment_reviews`
 - `ark_cache_tokens`
 - `spin_source` (`FREE` or `POINTS`) and `spin_cost` audit fields
 - atomic `create_nexus_spin_attempt(...)` for the 24-hour free-spin claim
@@ -115,8 +132,9 @@ The tables use RLS and the RPCs are executable only by the Supabase service role
 1. Apply the migration.
 2. Populate and verify the canonical Discord/EOS link records.
 3. Confirm ArkShop point reads, credits, debits, and refunds on the test server.
-4. Verify one free spin, a free-spin cooldown denial, and a successful 100-point extra spin without changing the free cooldown.
+4. Verify one free-button spin, a free-spin cooldown denial, a paid-spin confirmation cancellation, and a successful 100-point confirmed spin without changing the free cooldown.
 5. Verify the exact ARK resource-delivery command and success response before enabling resource delivery.
 6. Set the Discord channel if the game should live in one dedicated channel.
 7. Enable `NEXUS_SPIN_ENABLED`.
-8. Test queued resource claiming and Cache Token test injection before production odds are used.
+8. Run `/nexusspin` as Owner/admin in the intended Discord channel to post the persistent button panel.
+9. Test queued resource claiming and Cache Token test injection before production odds are used.
