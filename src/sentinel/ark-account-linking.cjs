@@ -74,6 +74,28 @@ function normalizedRankName(value) {
   return clean(value, 100).toLocaleLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+function valuesOf(collection) {
+  if (!collection) return [];
+  if (Array.isArray(collection)) return collection;
+  if (typeof collection.values === 'function') return [...collection.values()];
+  return Object.values(collection);
+}
+
+function resolveGuildRankConfig(config = {}, guildRoles = []) {
+  const roles = valuesOf(guildRoles).filter((role) => role?.id && role?.name);
+  const configured = { ...(config?.discord?.rankRoles || {}) };
+  for (const rank of NEXUS_RANKS) {
+    const configuredId = clean(configured[rank.id], 32);
+    if (configuredId && roles.some((role) => clean(role.id, 32) === configuredId)) continue;
+    const candidates = roles.filter((role) => normalizedRankName(role.name) === normalizedRankName(rank.name));
+    if (candidates.length === 1) configured[rank.id] = clean(candidates[0].id, 32);
+    else if (candidates.length > 1) configured[rank.id] = `ambiguous:${rank.id}`;
+    else if (configuredId) configured[rank.id] = configuredId;
+    else delete configured[rank.id];
+  }
+  return { ...config, discord: { ...(config.discord || {}), rankRoles: configured } };
+}
+
 function highestConfiguredRankForMember(member, config = {}) {
   const roles = member?.roles?.cache;
   const roleValues = typeof roles?.values === 'function' ? [...roles.values()] : Array.isArray(roles) ? roles : [];
@@ -120,4 +142,4 @@ class ArkAccountLinkService {
   }
 }
 
-module.exports = { chatIdentity, parseArkChatLines, resolveChatIdentity, normalizedRankName, highestConfiguredRankForMember, ArkAccountLinkService };
+module.exports = { chatIdentity, parseArkChatLines, resolveChatIdentity, normalizedRankName, resolveGuildRankConfig, highestConfiguredRankForMember, ArkAccountLinkService };
