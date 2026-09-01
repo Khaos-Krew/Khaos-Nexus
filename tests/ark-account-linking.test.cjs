@@ -31,6 +31,23 @@ test('ASA GetChat account and quoted character names resolve safely against List
   assert.equal(resolved.player.eosId, '0002kirito123');
 });
 
+test('ASA chat identity with platform name and tribe tag resolves against ListPlayers', () => {
+  const message = parseArkChatLines('Khaos_Kirito (Khaos Kirito) [Khaos Nexus]: !link ABCD2345')[0];
+  assert.deepEqual(message, {
+    line: 'Khaos_Kirito (Khaos Kirito) [Khaos Nexus]: !link ABCD2345',
+    playerName: 'Khaos_Kirito',
+    characterName: 'Khaos Kirito',
+    eosId: '',
+    code: 'ABCD2345'
+  });
+  assert.deepEqual(resolveChatIdentity(message, [
+    { name: 'Khaos_Kirito', eosId: '0002a40e51924102ac4ca03aaa9a237e' }
+  ]), {
+    ok: true,
+    player: { name: 'Khaos_Kirito', eosId: '0002a40e51924102ac4ca03aaa9a237e' }
+  });
+});
+
 test('ASA ShooterGame log prefixes do not become part of the player identity', () => {
   assert.deepEqual(chatIdentity('2026.08.31_12.34.56: LogServer: PlatformAccount ("Survivor")'), {
     playerName: 'PlatformAccount', characterName: 'Survivor', eosId: ''
