@@ -17,7 +17,7 @@ function chatIdentity(value) {
     .replace(/^\d{4}\.\d{2}\.\d{2}[_ -]\d{2}\.\d{2}\.\d{2}(?::\d+)?\s*:\s*(?:Log[A-Za-z0-9_]+\s*:\s*)?/i, '')
     .replace(/^(?:global|local|tribe|alliance|server)(?:\s+chat)?\s*:\s*/i, '')
     .trim();
-  const quotedCharacter = before.match(/^(.*?)\s*\("([^"]{1,80})"\)$/);
+  const quotedCharacter = before.match(/^(.*?)\s*\("([^"]{1,80})"\)(?:\s*\[[^\]]{1,80}\])?$/);
   if (quotedCharacter) {
     return {
       playerName: clean(quotedCharacter[1], 80),
@@ -25,7 +25,19 @@ function chatIdentity(value) {
       eosId: ''
     };
   }
-  const bracketed = before.match(/^(.*?)\s*[\[(]([A-Za-z0-9_-]{8,128})[\])]$/);
+  const namedCharacter = before.match(/^(.*?)\s*\(([^)]{1,80})\)(?:\s*\[[^\]]{1,80}\])?$/);
+  if (namedCharacter) {
+    const parenthesized = clean(namedCharacter[2], 128);
+    if (/^[A-Za-z0-9_-]{8,128}$/.test(parenthesized)) {
+      return { playerName: clean(namedCharacter[1], 80), characterName: '', eosId: parenthesized };
+    }
+    return {
+      playerName: clean(namedCharacter[1], 80),
+      characterName: clean(namedCharacter[2], 80),
+      eosId: ''
+    };
+  }
+  const bracketed = before.match(/^(.*?)\s*\[([A-Za-z0-9_-]{8,128})\]$/);
   if (bracketed) return { playerName: clean(bracketed[1], 80), characterName: '', eosId: clean(bracketed[2], 128) };
   return { playerName: clean(before, 80), characterName: '', eosId: '' };
 }
