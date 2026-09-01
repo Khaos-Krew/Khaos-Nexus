@@ -11,6 +11,25 @@ function escaped(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function chatIdentity(value) {
+  let before = clean(value, 240)
+    .replace(/^\[[^\]]+\]\s*/, '')
+    .replace(/^\d{4}\.\d{2}\.\d{2}[_ -]\d{2}\.\d{2}\.\d{2}(?::\d+)?\s*:\s*(?:Log[A-Za-z0-9_]+\s*:\s*)?/i, '')
+    .replace(/^(?:global|local|tribe|alliance|server)(?:\s+chat)?\s*:\s*/i, '')
+    .trim();
+  const quotedCharacter = before.match(/^(.*?)\s*\("([^"]{1,80})"\)$/);
+  if (quotedCharacter) {
+    return {
+      playerName: clean(quotedCharacter[1], 80),
+      characterName: clean(quotedCharacter[2], 80),
+      eosId: ''
+    };
+  }
+  const bracketed = before.match(/^(.*?)\s*[\[(]([A-Za-z0-9_-]{8,128})[\])]$/);
+  if (bracketed) return { playerName: clean(bracketed[1], 80), characterName: '', eosId: clean(bracketed[2], 128) };
+  return { playerName: clean(before, 80), characterName: '', eosId: '' };
+}
+
 function parseArkChatLines(response = '', chatCommand = '!link') {
   const messages = [];
   const commandText = clean(chatCommand, 32) || '!link';
@@ -19,15 +38,9 @@ function parseArkChatLines(response = '', chatCommand = '!link') {
     const line = clean(raw, 600);
     if (!line || !matcher.test(line)) continue;
     const command = line.match(matcher);
-    const before = line.slice(0, command.index).replace(/^\[[^\]]+\]\s*/, '').replace(/[\s:>\-]+$/, '');
-    let playerName = before;
-    let eosId = '';
-    const bracketed = before.match(/^(.*?)\s*[\[(]([A-Za-z0-9_-]{8,128})[\])]$/);
-    if (bracketed) {
-      playerName = clean(bracketed[1], 80);
-      eosId = clean(bracketed[2], 128);
-    }
-    messages.push({ line, playerName: clean(playerName, 80), eosId, code: command[1].toUpperCase() });
+    const before = line.slice(0, command.index).replace(/[\s:>\-]+$/, '');
+    const identity = chatIdentity(before);
+    messages.push({ line, ...identity, code: command[1].toUpperCase() });
   }
   return messages;
 }
@@ -37,8 +50,10 @@ function resolveChatIdentity(message = {}, onlinePlayers = []) {
     const direct = onlinePlayers.find((player) => clean(player.eosId, 128) === message.eosId);
     return direct ? { ok: true, player: direct } : { ok: false, reason: 'claimed-eos-not-online' };
   }
-  const wanted = clean(message.playerName, 80).toLocaleLowerCase();
-  const matches = onlinePlayers.filter((player) => clean(player.name, 80).toLocaleLowerCase() === wanted && clean(player.eosId, 128));
+  const wanted = new Set([message.playerName, message.characterName]
+    .map((item) => clean(item, 80).toLocaleLowerCase())
+    .filter(Boolean));
+  const matches = onlinePlayers.filter((player) => wanted.has(clean(player.name, 80).toLocaleLowerCase()) && clean(player.eosId, 128));
   if (matches.length !== 1) return { ok: false, reason: matches.length ? 'ambiguous-player-name' : 'online-player-not-found' };
   return { ok: true, player: matches[0] };
 }
@@ -93,4 +108,4 @@ class ArkAccountLinkService {
   }
 }
 
-module.exports = { parseArkChatLines, resolveChatIdentity, normalizedRankName, highestConfiguredRankForMember, ArkAccountLinkService };
+module.exports = { chatIdentity, parseArkChatLines, resolveChatIdentity, normalizedRankName, highestConfiguredRankForMember, ArkAccountLinkService };
