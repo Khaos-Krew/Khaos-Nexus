@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  ARTWORK_VERSION,
   APPROVED_ART_COMMIT,
   APPROVED_CACHE_IMAGE_FILES,
   approvedCacheImageUrl,
@@ -10,37 +11,54 @@ const {
 } = require('../src/sentinel/ark-dino-box-shop-image-extension.cjs');
 
 const EXPECTED_EXACT = Object.freeze({
-  coastal: 'nexus-cache-coastal-reference.jpg',
-  forest: 'nexus-cache-forest-reference.jpg',
-  swamp: 'nexus-cache-swamp-reference.jpg',
-  mountain: 'nexus-cache-mountain-reference.jpg'
+  coastal: 'nexus-dino-box-coastal.webp',
+  forest: 'nexus-dino-box-forest.webp',
+  swamp: 'nexus-dino-box-swamp.webp',
+  mountain: 'nexus-dino-box-mountain.webp',
+  ocean: 'nexus-dino-box-ocean.webp',
+  deepcave: 'nexus-dino-box-deepcave.webp',
+  apex: 'nexus-dino-box-apex.webp',
+  'fantastical-tames': 'nexus-dino-box-fantastical-tames.webp',
+  'bobs-tall-tales': 'nexus-dino-box-bobs-tall-tales.webp'
 });
 
-test('Dino Box shop uses the owner-approved ARK cache reference commit, not generated placeholder art', () => {
-  assert.equal(APPROVED_ART_COMMIT, 'd975933a8188844bbfc6c64968fd3303357df989');
+const TEST_WEBP = 'UklGRngAAABXRUJQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+
+function envFor(cacheId) {
+  const suffix = String(cacheId).replace(/-/g, '_').toUpperCase();
+  const key = cacheId === 'deepcave'
+    ? 'NEXUS_DINO_BOX_ART_DEEPCAVE_B64'
+    : `NEXUS_DINO_BOX_ART_${suffix}_B64`;
+  return { [key]: TEST_WEBP };
+}
+
+test('Dino Box shop uses the owner-managed Google Drive reference set for all nine caches', () => {
+  assert.equal(ARTWORK_VERSION, 3);
+  assert.equal(APPROVED_ART_COMMIT, 'google-drive-wshop-cache-references');
+  assert.deepEqual(APPROVED_CACHE_IMAGE_FILES, EXPECTED_EXACT);
   for (const [cacheId, file] of Object.entries(EXPECTED_EXACT)) {
-    assert.equal(APPROVED_CACHE_IMAGE_FILES[cacheId], file);
-    const url = approvedCacheImageUrl(cacheId);
-    assert.match(url, /^https:\/\/raw\.githubusercontent\.com\/Khaos-Krew\/Khaos-Nexus\//);
-    assert.ok(url.endsWith(`/assets/ark/wshop/cache-references/${file}`));
-    assert.doesNotMatch(url, /nexus-[a-z]+-cache\.png$/);
-  }
-});
-
-test('all current Dino Box caches resolve to approved repository reference artwork', () => {
-  for (const cacheId of ['coastal', 'forest', 'swamp', 'mountain', 'ocean', 'deepcave', 'apex']) {
-    const url = approvedCacheImageUrl(cacheId);
-    assert.match(url, /cache-references\/nexus-cache-.+-reference\.jpg$/);
+    assert.equal(approvedCacheImageUrl(cacheId), `attachment://${file}`);
   }
   assert.equal(approvedCacheImageUrl('not-a-cache'), '');
 });
 
-test('Discord image reconciliation renders artwork inside the embed without a loose file attachment', async () => {
+test('all current Dino Box caches resolve to embed-referenced WebP artwork', () => {
+  assert.equal(Object.keys(APPROVED_CACHE_IMAGE_FILES).length, 9);
+  for (const cacheId of Object.keys(EXPECTED_EXACT)) {
+    const url = approvedCacheImageUrl(cacheId);
+    assert.match(url, /^attachment:\/\/nexus-dino-box-.+\.webp$/);
+    assert.doesNotMatch(url, /raw\.githubusercontent\.com|cache-references\//);
+  }
+});
+
+test('Discord image reconciliation renders artwork inside the embed using the referenced attachment', async () => {
   let edited = null;
   const message = {
     author: { id: 'bot-1' },
+    attachments: new Map(),
     embeds: [{
       footer: { text: 'Nexus Dino Box Shop • cache:coastal' },
+      image: null,
       toJSON: () => ({ title: 'Coastal Cache', footer: { text: 'Nexus Dino Box Shop • cache:coastal' } })
     }],
     edit: async (payload) => { edited = payload; }
@@ -56,11 +74,14 @@ test('Discord image reconciliation renders artwork inside the embed without a lo
     channels: { cache: { find: (predicate) => predicate(channel) ? channel : null } }
   };
 
-  const result = await reconcileDinoBoxImages(guild);
+  const result = await reconcileDinoBoxImages(guild, envFor('coastal'));
   assert.equal(result.updated, 1);
+  assert.equal(result.seen, 1);
+  assert.deepEqual(result.missing, []);
   assert.ok(edited);
-  assert.equal(edited.attachments.length, 0);
-  assert.equal(Object.hasOwn(edited, 'files'), false);
-  assert.match(edited.embeds[0].image.url, /^https:\/\/raw\.githubusercontent\.com\//);
-  assert.doesNotMatch(edited.embeds[0].image.url, /^attachment:\/\//);
+  assert.deepEqual(edited.attachments, []);
+  assert.equal(edited.files.length, 1);
+  assert.equal(edited.files[0].name, 'nexus-dino-box-coastal.webp');
+  assert.ok(Buffer.isBuffer(edited.files[0].attachment));
+  assert.equal(edited.embeds[0].image.url, 'attachment://nexus-dino-box-coastal.webp');
 });
