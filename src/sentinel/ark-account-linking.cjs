@@ -103,7 +103,7 @@ function highestConfiguredRankForMember(member, config = {}) {
   for (const rank of NEXUS_RANKS) {
     const roleId = clean(config?.discord?.rankRoles?.[rank.id], 32);
     const hasConfiguredRole = roleId && (typeof roles?.has === 'function' ? roles.has(roleId) : roleValues.some((role) => clean(role?.id || role, 32) === roleId));
-    const hasNamedFallback = !roleId && roleValues.some((role) => normalizedRankName(role?.name) === normalizedRankName(rank.name));
+    const hasNamedFallback = roleValues.some((role) => normalizedRankName(role?.name) === normalizedRankName(rank.name));
     const hasRole = hasConfiguredRole || hasNamedFallback;
     if (hasRole && rank.level > selected.level) selected = rank;
   }

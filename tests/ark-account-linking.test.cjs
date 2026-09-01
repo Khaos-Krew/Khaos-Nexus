@@ -85,10 +85,10 @@ test('rank resolution includes all six Nexus ranks and preserves legacy Origin F
   assert.equal(highestConfiguredRankForMember(member, config).id, 'origin-founder');
 });
 
-test('rank resolution safely falls back to official role names only when no role id is configured', () => {
+test('rank resolution uses canonical member role names even when a saved mapping is stale or ambiguous', () => {
   const named = { roles: { cache: new Map([['role-a', { id: 'role-a', name: '🔻 Cipher Runner' }], ['role-b', { id: 'role-b', name: 'Nexus Raider' }]]) } };
   assert.equal(highestConfiguredRankForMember(named, { discord: { rankRoles: {} } }).id, 'nexus-raider');
-  assert.equal(highestConfiguredRankForMember(named, { discord: { rankRoles: { 'nexus-raider': 'different-id' } } }).id, 'cipher-runner');
+  assert.equal(highestConfiguredRankForMember(named, { discord: { rankRoles: { 'nexus-raider': 'ambiguous:nexus-raider' } } }).id, 'nexus-raider');
 });
 
 test('guild rank resolution recovers stale saved ids from unique canonical Discord roles', () => {
@@ -113,14 +113,14 @@ test('unique canonical rank role overrides an existing but incorrect saved role 
   assert.equal(highestConfiguredRankForMember(member, config).id, 'origin-founder');
 });
 
-test('guild rank resolution fails closed when canonical role names are ambiguous', () => {
+test('member canonical rank remains authoritative when duplicate guild roles make the global mapping ambiguous', () => {
   const roles = new Map([
     ['10005', { id: '10005', name: 'Blackout Legend' }],
     ['20005', { id: '20005', name: '⚡ Blackout Legend' }]
   ]);
   const config = resolveGuildRankConfig({ discord: { rankRoles: {} } }, roles);
   const member = { roles: { cache: new Map([['10005', roles.get('10005')]]) } };
-  assert.equal(highestConfiguredRankForMember(member, config).id, 'shadow-recruit');
+  assert.equal(highestConfiguredRankForMember(member, config).id, 'blackout-legend');
 });
 
 test('rank evidence reports only recognized Nexus ranks and aggregate role count', () => {
