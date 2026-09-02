@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "source_of_truth": "git",
+  "default_apply_mode": "manual",
+  "require_explicit_apply_command": true,
+  "require_explicit_capture_command": true,
+  "require_pre_apply_backup": true,
+  "require_post_apply_readback": true,
+  "require_diff_before_apply": true,
+  "reject_apply_when_bootstrap_incomplete": true,
+  "preserve_unknown_live_values": false,
+  "live_servers_are_never_authoritative": true,
+  "secret_keys_never_committed": [
+    "ServerAdminPassword",
+    "ServerPassword",
+    "RCONPassword",
+    "RCON_PASSWORD",
+    "API_KEY",
+    "TOKEN",
+    "WEBHOOK"
+  ],
+  "secret_storage": "Sentinel protected runtime secret store",
+  "drift_behavior": {
+    "detect": true,
+    "report": true,
+    "auto_correct": false,
+    "correction_requires_explicit_command": true
+  },
+  "capture_behavior": {
+    "allowed": true,
+    "requires_explicit_command": true,
+    "sanitize_secrets": true,
+    "target_branch_required": true,
+    "never_commit_directly_to_main": true
+  }
+}
