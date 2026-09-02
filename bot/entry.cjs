@@ -1,6 +1,7 @@
 'use strict';
 
 const { Client, Events } = require('discord.js');
+require('./dnd-runtime-completion-patch.cjs').install();
 const { installModuleRuntime } = require('./module-runtime.cjs');
 const { installDiscordAutomationRuntime } = require('./discord-automation-runtime.cjs');
 const { installCommunityAboutRuntime } = require('./community-about-runtime.cjs');
