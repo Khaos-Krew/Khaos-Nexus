@@ -62,9 +62,13 @@ function targetRelativePath() {
 
 function buildTargetConfig(source, target, database) {
   const next = clone(target);
-  for (const section of MANAGED_SECTIONS) next[section] = clone(source?.[section] || {});
-  next.ShopItems ||= {};
-  delete next.ShopItems[LOVE_SHOP_ID];
+  if (source && typeof source === 'object' && !Array.isArray(source)) {
+    for (const section of MANAGED_SECTIONS) {
+      if (Object.prototype.hasOwnProperty.call(source, section)) next[section] = clone(source[section] || {});
+    }
+    next.ShopItems ||= {};
+    delete next.ShopItems[LOVE_SHOP_ID];
+  }
 
   const existingMysql = next.Mysql && typeof next.Mysql === 'object' && !Array.isArray(next.Mysql)
     ? next.Mysql
@@ -138,10 +142,22 @@ function assertVerified(config, expected, database) {
   if (failed) throw new Error(`Astraeos ArkShop shared-MySQL verification failed for ${failed[1]}.`);
 }
 
+async function readGen1CatalogIfAvailable() {
+  try {
+    const sourceRead = await readConfig(SOURCE_PREFIX, 'arkshop');
+    return { source: JSON.parse(sourceRead.text), catalogSource: 'gen1', sourceWarning: '' };
+  } catch (error) {
+    return {
+      source: null,
+      catalogSource: 'astraeos-existing',
+      sourceWarning: cleanError(error)
+    };
+  }
+}
+
 async function run() {
   const database = sharedDatabaseFromEnv();
-  const sourceRead = await readConfig(SOURCE_PREFIX, 'arkshop');
-  const source = JSON.parse(sourceRead.text);
+  const catalog = await readGen1CatalogIfAvailable();
 
   const settings = sftpSettingsFromEnv(TARGET_PREFIX);
   if (!settings.host || !settings.username || !settings.password) {
@@ -166,7 +182,7 @@ async function run() {
       throw new Error(`Astraeos ArkShop config.json is invalid JSON: ${error.message}`);
     }
 
-    const expected = buildTargetConfig(source, target, database);
+    const expected = buildTargetConfig(catalog.source, target, database);
     const next = `${JSON.stringify(expected, null, 2)}\n`;
     const write = await writeWithBackup(client, remoteFile, current, next);
     const verified = JSON.parse(await readRemoteText(client, remoteFile));
@@ -179,6 +195,8 @@ async function run() {
       kitCount: Object.keys(verified.Kits || {}).length,
       shopItemCount: Object.keys(verified.ShopItems || {}).length,
       sellItemCount: Object.keys(verified.SellItems || {}).length,
+      catalogSource: catalog.catalogSource,
+      sourceWarning: catalog.sourceWarning,
       databaseFingerprint: databaseFingerprint(database),
       playersTable: database.playersTable,
       localSqliteImported: false,
@@ -201,5 +219,6 @@ module.exports = {
   targetRelativePath,
   buildTargetConfig,
   databaseFingerprint,
+  readGen1CatalogIfAvailable,
   run
 };
