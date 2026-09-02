@@ -17,9 +17,7 @@ const ASA_MARKER = 'Nexus Sentinal • ARK ASA Update Status • v1';
 const API_MARKER = 'Nexus Sentinal • ARK API Update Status • v1';
 const OBSOLETE = new Set([
   'Nexus Sentinal • ARK ASA Update Status • v2',
-  'Nexus Sentinal • ARK API Update Status • v2',
-  'Nexus Sentinal • ARK Staff Status • v1',
-  'Nexus Sentinal • ARK Staff Status • v2'
+  'Nexus Sentinal • ARK API Update Status • v2'
 ]);
 const PREFIXES = Object.freeze(['ARK_GEN1', 'ARK_MAP2']);
 const INITIAL_DELAY_MS = 5_000;
