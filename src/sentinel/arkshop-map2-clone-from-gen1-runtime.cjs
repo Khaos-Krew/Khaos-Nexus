@@ -16,7 +16,10 @@ function installArkShopMap2CloneRuntime() {
   if (!requested()) return { enabled: false };
   const timer = setTimeout(() => {
     void run()
-      .then((result) => console.log(`[Nexus Sentinal] MAP2 ArkShop shared prebind complete: changed=${result.changed} kits=${result.kitCount || 0} shopItems=${result.shopItemCount || 0} sellItems=${result.sellItemCount || 0} playersTable=${result.playersTable} dbFingerprint=${String(result.databaseFingerprint || '').slice(0, 12)} localSqliteImported=false gameplayIniTouched=false backup=${result.backup || 'none'}.`))
+      .then((result) => {
+        const sourceWarning = result.sourceWarning ? ` sourceWarning=${cleanError(result.sourceWarning)}` : '';
+        console.log(`[Nexus Sentinal] MAP2 ArkShop shared prebind complete: changed=${result.changed} catalogSource=${result.catalogSource || 'unknown'} kits=${result.kitCount || 0} shopItems=${result.shopItemCount || 0} sellItems=${result.sellItemCount || 0} playersTable=${result.playersTable} dbFingerprint=${String(result.databaseFingerprint || '').slice(0, 12)} localSqliteImported=false gameplayIniTouched=false backup=${result.backup || 'none'}.${sourceWarning}`);
+      })
       .catch((error) => console.error(`[Nexus Sentinal] MAP2 ArkShop shared prebind FAILED CLOSED: ${cleanError(error)}`));
   }, 35_000);
   timer.unref?.();
