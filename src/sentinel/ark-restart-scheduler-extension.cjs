@@ -126,18 +126,16 @@ async function performRestart(server, {
     auditFn('save-requested', { server: server.name, prefix, phase: 'zero-player-pre-restart' });
     await rcon.execute('SaveWorld');
     auditFn('save-complete', { server: server.name, prefix, phase: 'zero-player-pre-restart' });
-  } else {
-    if (!initialSaveComplete || !finalSaveComplete) {
-      auditFn('restart-blocked', {
-        server: server.name,
-        prefix,
-        playerCount,
-        reason: 'required-controlled-restart-saves-incomplete',
-        initialSaveComplete,
-        finalSaveComplete
-      });
-      throw new Error('Restart blocked: controlled restart did not complete both required world saves.');
-    }
+  } else if (!initialSaveComplete || !finalSaveComplete) {
+    auditFn('restart-blocked', {
+      server: server.name,
+      prefix,
+      playerCount,
+      reason: 'required-controlled-restart-saves-incomplete',
+      initialSaveComplete,
+      finalSaveComplete
+    });
+    throw new Error('Restart blocked: controlled restart did not complete both required world saves.');
   }
 
   const host = citadelClient || new CitadelControlClient({ prefix });
@@ -181,7 +179,13 @@ function installArkRestartSchedulerExtension({ prefix = 'ARK_GEN1' } = {}) {
         let lastSecondKey = '';
         let restartRunning = false;
         const fired = new Set();
-        const controlled = { day: '', warningStarted: false, initialSaveComplete: false, finalSaveComplete: false };
+        const controlled = {
+          day: '',
+          warningStarted: false,
+          initialSaveComplete: false,
+          finalSaveComplete: false,
+          finalSavePromise: null
+        };
 
         audit('scheduler-started', {
           prefix,
@@ -206,6 +210,7 @@ function installArkRestartSchedulerExtension({ prefix = 'ARK_GEN1' } = {}) {
             controlled.warningStarted = false;
             controlled.initialSaveComplete = false;
             controlled.finalSaveComplete = false;
+            controlled.finalSavePromise = null;
           }
 
           for (const seconds of WARNING_SECONDS) {
@@ -231,10 +236,13 @@ function installArkRestartSchedulerExtension({ prefix = 'ARK_GEN1' } = {}) {
                 if (!controlled.warningStarted || !controlled.initialSaveComplete) {
                   throw new Error('Controlled restart state missing 30-minute warning or initial save.');
                 }
-                audit('save-requested', { server: server.name, prefix, phase: 'final-five-seconds' });
-                await rcon.execute('SaveWorld');
-                controlled.finalSaveComplete = true;
-                audit('save-complete', { server: server.name, prefix, phase: 'final-five-seconds' });
+                controlled.finalSavePromise = (async () => {
+                  audit('save-requested', { server: server.name, prefix, phase: 'final-five-seconds' });
+                  await rcon.execute('SaveWorld');
+                  controlled.finalSaveComplete = true;
+                  audit('save-complete', { server: server.name, prefix, phase: 'final-five-seconds' });
+                })();
+                await controlled.finalSavePromise;
               }
             } catch (error) {
               audit('warning-failed', { server: server.name, seconds, error: String(error?.message || error).slice(0, 240) });
@@ -247,6 +255,13 @@ function installArkRestartSchedulerExtension({ prefix = 'ARK_GEN1' } = {}) {
             fired.add(key);
             restartRunning = true;
             try {
+              if (controlled.finalSavePromise) {
+                try {
+                  await controlled.finalSavePromise;
+                } catch (error) {
+                  audit('restart-blocked', { server: server.name, prefix, reason: 'final-save-failed', error: String(error?.message || error).slice(0, 240) });
+                }
+              }
               await performRestart(server, {
                 prefix,
                 warningWindowComplete: controlled.warningStarted,
