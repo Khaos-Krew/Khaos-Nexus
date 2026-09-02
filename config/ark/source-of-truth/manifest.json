@@ -14,8 +14,12 @@
     "servers/<server-id>/GameUserSettings.override.ini",
     "servers/<server-id>/Game.override.ini",
     "servers/<server-id>/server.json",
+    "protected admin whitelist",
     "Sentinel secret overlay"
   ],
+  "protected_sources": {
+    "admin_whitelist": "Khaos-Krew/Khaos-Nexus-ARK-Bridge:config/ark/protected/admin-whitelist.json"
+  },
   "servers": [
     "astraeos",
     "gen1"
