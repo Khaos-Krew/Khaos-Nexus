@@ -49,7 +49,8 @@
     "never_auto_enable_unverified_plugin": true
   },
   "recovery": {
-    "canary_server_id": "asa-astraeos",
+    "canary_server_id_env": "ARK_UPDATE_CANARY_SERVER_ID",
+    "canary_server_id": "ark-astraeos",
     "production_restore_requires_canary": true,
     "required_healthy_canary_restarts": 2,
     "require_server_online": true,
