@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "title": "📘 Khaos Nexus Guide",
+  "description": "Everything you need to understand the community and currently supported systems. Choose a topic below.\n\nIf a feature is still being tested, it will not appear here until it is ready for players.",
+  "topics": [
+    {
+      "id": "getting-started",
+      "label": "Getting Started",
+      "emoji": "🚀",
+      "summary": "The quickest path from joining Khaos Nexus to being ready to play.",
+      "details": [
+        "Read the server rules first, then choose the game and notification roles you want.",
+        "Introduce yourself if you would like, then use the game hubs and status panels to find the community features for each supported game.",
+        "Use /guide at any time to reopen this guide without finding the original panel."
+      ]
+    },
+    {
+      "id": "community-roles",
+      "label": "Community & Roles",
+      "emoji": "👥",
+      "summary": "How self-roles, community roles, and notifications are organized.",
+      "details": [
+        "Self-role menus let you choose relevant games, platforms, notifications, and other community options without waiting for staff.",
+        "Community and supporter roles do not grant staff or moderation authority.",
+        "Use only the roles that are useful to you so announcements and game pings stay relevant."
+      ]
+    },
+    {
+      "id": "ark-cluster",
+      "label": "ARK Cluster",
+      "emoji": "🦖",
+      "summary": "The Khaos Nexus ARK: Survival Ascended cluster and its player-facing tools.",
+      "details": [
+        "The cluster currently includes Genesis 1 and Astraeos, with Sentinel providing shared Discord-side status and management features.",
+        "Character and item transfers are governed by the cluster's current transfer settings and server rules.",
+        "Use /ark status for health, /ark players for player counts, /ark servers for the server list, /ark mods for active mods, and /ark tame for creature lookup tools."
+      ]
+    },
+    {
+      "id": "account-linking",
+      "label": "Account Linking",
+      "emoji": "🔗",
+      "summary": "Why linking your Discord account to your ARK EOS identity matters.",
+      "details": [
+        "A linked identity lets Nexus services recognize the same ARK player across cluster maps instead of treating each map as a separate account.",
+        "Linking uses your EOS player identity; Sentinel verifies the link before saving it.",
+        "Only use the official Sentinel linking flow shown in Discord. Staff should never ask you to post passwords, account tokens, or private credentials."
+      ]
+    },
+    {
+      "id": "nexus-points-shop",
+      "label": "Nexus Points & Shop",
+      "emoji": "💰",
+      "summary": "The shared ARK economy and how Nexus Points follow your linked player identity.",
+      "details": [
+        "Nexus Points are the cluster's shared shop currency and are associated with your ARK identity rather than a single map.",
+        "When ArkShop services are online, supported maps use the shared economy backend so an existing balance can follow the same EOS identity across the cluster.",
+        "If the shop is temporarily in maintenance, purchases may be unavailable until the backend and ARK integration are healthy again. Sentinel will not intentionally charge a purchase that cannot enter the supported delivery flow."
+      ]
+    },
+    {
+      "id": "ranks-supporters",
+      "label": "Ranks & Supporter Perks",
+      "emoji": "⭐",
+      "summary": "Community progression and supporter benefits without staff authority.",
+      "details": [
+        "Community progression includes Survivor, Veteran, Elite, and Legend tiers where enabled.",
+        "Supporter benefits are designed as community perks and incentives rather than moderation power or an automatic competitive advantage.",
+        "Staff and moderation permissions are separate from player ranks and supporter status."
+      ]
+    },
+    {
+      "id": "crosschat",
+      "label": "ARK Crosschat",
+      "emoji": "💬",
+      "summary": "How ARK chat can be shared between cluster maps and Discord.",
+      "details": [
+        "Crosschat helps players on different ARK maps stay in the same conversation and can mirror supported chat into Discord.",
+        "The current ARK crosschat transport uses the AAT ASA mod. AAT is a game mod, not an ArkServerAPI plugin.",
+        "Crosschat availability can be affected by an ARK mod update or server maintenance even when the rest of the cluster is online."
+      ]
+    },
+    {
+      "id": "game-hubs-commands",
+      "label": "Game Hubs & Commands",
+      "emoji": "🎮",
+      "summary": "Where to find supported games and the most useful player commands.",
+      "details": [
+        "Game hubs collect status, announcements, LFG, and game-specific tools so you do not need to search the whole Discord.",
+        "Useful ARK commands include /ark status, /ark players, /ark servers, /ark mods, and /ark tame.",
+        "Use /guide to reopen this guide. Commands that control servers, configuration, moderation, or staff operations are intentionally not part of the public guide."
+      ]
+    },
+    {
+      "id": "creators-dnd",
+      "label": "Creators & D&D",
+      "emoji": "🎨",
+      "summary": "Community spaces for creators and tabletop campaigns.",
+      "details": [
+        "The creator program provides dedicated community support for approved creators and live-content activity.",
+        "Khaos Nexus also has D&D and campaign spaces with tools designed for campaign organization and play.",
+        "Check the relevant hub or application channel for the currently available creator and campaign options."
+      ]
+    },
+    {
+      "id": "rules-help",
+      "label": "Rules & Help",
+      "emoji": "📜",
+      "summary": "Where to check current rules, ask for help, and report a problem.",
+      "details": [
+        "The Rules channel is the authority for current community and server rules.",
+        "Use the appropriate help, suggestion, or private reporting flow when you need staff assistance rather than posting sensitive information publicly.",
+        "If a guide entry and an official staff announcement conflict, follow the newer official announcement and let staff know the guide needs an update."
+      ]
+    }
+  ]
+}
