@@ -3,15 +3,20 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { fetchChangelog } = require('./ark-curseforge-mod-intelligence.cjs');
 
 const DEFAULT_INTERVAL_MINUTES = 15;
 const MIN_INTERVAL_MINUTES = 5;
 const MAX_INTERVAL_MINUTES = 1440;
+const MAX_ANNOUNCED_KEYS = 500;
 
-function monitorEnabled() {
-  // Background update monitoring is retired. Update safety is deliberately
-  // collected only from the staff button or /ark-health interaction.
-  return false;
+function truthy(value) {
+  return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+}
+
+function monitorEnabled(env = process.env) {
+  const raw = String(env.ARK_UPDATE_MONITOR_ENABLED || '').trim();
+  return raw ? truthy(raw) : true;
 }
 
 function monitorIntervalMinutes(env = process.env) {
@@ -179,6 +184,13 @@ function stateFilePath(prefix = 'ARK_GEN1', env = process.env) {
   return path.join(root, `${slug}-update-safety-state.json`);
 }
 
+function clusterStateFilePath(env = process.env) {
+  const explicit = String(env.ARK_MOD_UPDATE_STATE_PATH || '').trim();
+  if (explicit) return explicit;
+  const root = String(env.NEXUS_DATA_DIR || process.cwd()).trim() || process.cwd();
+  return path.join(root, 'ark-mod-update-announcements.json');
+}
+
 function loadMonitorState(file) {
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -212,6 +224,40 @@ function shouldAlert(previousState, report, changes = classifyChanges(previousSt
   return changes.length > 0;
 }
 
+function modAnnouncementKey(mod = {}) {
+  const modId = String(mod.modId || '').trim();
+  const fileId = String(mod.latestFileId || '').trim();
+  return modId && fileId ? `${modId}:${fileId}` : '';
+}
+
+function loadAnnouncementState(file = clusterStateFilePath()) {
+  const state = loadMonitorState(file);
+  const announced = Array.isArray(state?.announced) ? state.announced.map(String).filter(Boolean) : [];
+  return { schema: 1, announced: announced.slice(-MAX_ANNOUNCED_KEYS), updatedAt: String(state?.updatedAt || '') };
+}
+
+function saveAnnouncementState(file, state = {}) {
+  const announced = [...new Set((state.announced || []).map(String).filter(Boolean))].slice(-MAX_ANNOUNCED_KEYS);
+  return saveMonitorState(file, { schema: 1, announced, updatedAt: new Date().toISOString() });
+}
+
+function unannouncedPendingMods(reports = [], state = { announced: [] }) {
+  const announced = new Set((state.announced || []).map(String));
+  const byKey = new Map();
+  for (const entry of reports) {
+    const serverName = String(entry?.serverName || entry?.name || entry?.prefix || 'ARK').trim();
+    const pending = Array.isArray(entry?.report?.mods?.pending) ? entry.report.mods.pending : [];
+    for (const mod of pending) {
+      const key = modAnnouncementKey(mod);
+      if (!key || announced.has(key)) continue;
+      const prior = byKey.get(key) || { ...mod, key, servers: [] };
+      prior.servers = [...new Set([...prior.servers, serverName])];
+      byKey.set(key, prior);
+    }
+  }
+  return [...byKey.values()].sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
+}
+
 function severityGlyph(severity) {
   if (severity === 'critical') return '🔴';
   if (severity === 'warning') return '🟡';
@@ -239,6 +285,38 @@ function formatModAlert(report = {}, changes = [], serverName = 'ARK') {
   }
   lines.push('', 'Use `/ark-health` for the full update-safety verdict.');
   return lines.join('\n').slice(0, 1900);
+}
+
+function cleanChangelog(value, max = 900) {
+  return String(value || '')
+    .replace(/\r/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, max);
+}
+
+async function buildClusterModUpdatePayload(mod = {}, env = process.env) {
+  const changelog = await fetchChangelog(mod.modId, mod.latestFileId, env).catch(() => '');
+  const servers = Array.isArray(mod.servers) ? mod.servers.filter(Boolean) : [];
+  const title = `🧩 ARK MOD UPDATE • ${String(mod.name || `Mod ${mod.modId}`).slice(0, 180)}`;
+  const details = [
+    `**Installed file:** \`${mod.fileId || '?'}\``,
+    `**Available file:** \`${mod.latestFileId || '?'}\``,
+    mod.latestFileDate ? `**Released:** <t:${Math.floor(Date.parse(mod.latestFileDate) / 1000)}:R>` : '',
+    servers.length ? `**Used on:** ${servers.join(', ')}` : '',
+    `**CurseForge Project:** \`${mod.modId || '?'}\``
+  ].filter(Boolean).join('\n');
+  const notes = cleanChangelog(changelog) || 'No changelog was supplied for this release.';
+  return {
+    embeds: [{
+      title,
+      description: details,
+      fields: [{ name: '📋 Changelog', value: notes.slice(0, 1024), inline: false }],
+      footer: { text: `Nexus Sentinal • ARK Mod Update • ${mod.key || modAnnouncementKey(mod)}` },
+      timestamp: new Date().toISOString()
+    }],
+    allowedMentions: { parse: [] }
+  };
 }
 
 function formatPreUpdateGate(report = {}) {
@@ -288,6 +366,7 @@ module.exports = {
   DEFAULT_INTERVAL_MINUTES,
   MIN_INTERVAL_MINUTES,
   MAX_INTERVAL_MINUTES,
+  MAX_ANNOUNCED_KEYS,
   monitorEnabled,
   monitorIntervalMinutes,
   compatibleBuildIds,
@@ -297,12 +376,18 @@ module.exports = {
   reportFingerprint,
   classifyChanges,
   stateFilePath,
+  clusterStateFilePath,
   loadMonitorState,
   saveMonitorState,
   buildState,
   shouldAlert,
+  modAnnouncementKey,
+  loadAnnouncementState,
+  saveAnnouncementState,
+  unannouncedPendingMods,
   formatMonitorAlert,
   formatModAlert,
+  buildClusterModUpdatePayload,
   formatPreUpdateGate,
   resolveAlertChannel
 };
