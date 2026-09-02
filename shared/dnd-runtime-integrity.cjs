@@ -1,5 +1,11 @@
 'use strict';
 
+function fail(message, code) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
 function normalizeDiscordResource(resource = {}) {
   const kind = resource.resourceType === 'voice' || resource.discordResourceKind === 'voice'
     ? 'voice'
@@ -8,6 +14,72 @@ function normalizeDiscordResource(resource = {}) {
     ...resource,
     resourceType: kind === 'voice' ? 'channel' : resource.resourceType,
     discordResourceKind: kind
+  };
+}
+
+function initiativeOrder(combatants = []) {
+  return [...(Array.isArray(combatants) ? combatants : [])]
+    .filter((item) => item && item.active !== false)
+    .sort((a, b) => Number(b.initiative || 0) - Number(a.initiative || 0)
+      || Number(b.dexterity || 0) - Number(a.dexterity || 0)
+      || String(a.id || '').localeCompare(String(b.id || '')));
+}
+
+function clampInitiativeIndex(value, length) {
+  if (!length) return 0;
+  const numeric = Number(value);
+  const index = Number.isFinite(numeric) ? Math.trunc(numeric) : 0;
+  return Math.max(0, Math.min(length - 1, index));
+}
+
+function currentInitiativeState(encounter = {}, combatants = []) {
+  const order = initiativeOrder(combatants);
+  if (!order.length) return { order, currentIndex: 0, currentCombatant: null };
+
+  const currentCombatantId = String(encounter.currentCombatantId || '').trim();
+  const identityIndex = currentCombatantId
+    ? order.findIndex((item) => String(item.id || '') === currentCombatantId)
+    : -1;
+  const currentIndex = identityIndex >= 0
+    ? identityIndex
+    : clampInitiativeIndex(encounter.currentTurnIndex, order.length);
+
+  return {
+    order,
+    currentIndex,
+    currentCombatant: order[currentIndex] || null
+  };
+}
+
+function advanceInitiativeByIdentity(encounter = {}, combatants = []) {
+  const snapshot = currentInitiativeState(encounter, combatants);
+  if (!snapshot.order.length) throw fail('No active combatants are in initiative.', 'EMPTY_INITIATIVE');
+
+  const nextIndex = snapshot.currentIndex + 1 >= snapshot.order.length ? 0 : snapshot.currentIndex + 1;
+  const round = Math.max(1, Number(encounter.round || 1));
+  const nextRound = nextIndex === 0 ? round + 1 : round;
+  const currentCombatant = snapshot.order[nextIndex];
+
+  return {
+    order: snapshot.order,
+    currentTurnIndex: nextIndex,
+    currentCombatantId: String(currentCombatant?.id || ''),
+    round: nextRound,
+    currentCombatant
+  };
+}
+
+function primeEncounterTurn(encounter = {}, combatants = []) {
+  const order = initiativeOrder(combatants);
+  encounter.currentTurnIndex = 0;
+  encounter.currentCombatantId = String(order[0]?.id || '');
+  encounter.round = 1;
+  return {
+    order,
+    currentTurnIndex: encounter.currentTurnIndex,
+    currentCombatantId: encounter.currentCombatantId,
+    round: encounter.round,
+    currentCombatant: order[0] || null
   };
 }
 
@@ -24,23 +96,36 @@ function replaceInitiativeCombatant(state, input = {}) {
   return candidate;
 }
 
-function assertSessionStartable(state, sessionId) {
+function findSession(state, sessionId) {
   const session = (state.sessions || []).find((item) => item.id === sessionId);
-  if (!session) {
-    const error = new Error('Session not found.');
-    error.code = 'SESSION_NOT_FOUND';
-    throw error;
-  }
+  if (!session) throw fail('Session not found.', 'SESSION_NOT_FOUND');
+  return session;
+}
+
+function assertSessionStartable(state, sessionId) {
+  const session = findSession(state, sessionId);
   if (session.status !== 'planned') {
-    const error = new Error(`Only a planned session can be started. This session is ${session.status || 'unknown'}.`);
-    error.code = 'SESSION_NOT_STARTABLE';
-    throw error;
+    throw fail(`Only a planned session can be started. This session is ${session.status || 'unknown'}.`, 'SESSION_NOT_STARTABLE');
+  }
+  return session;
+}
+
+function assertSessionEndable(state, sessionId) {
+  const session = findSession(state, sessionId);
+  if (session.status !== 'active') {
+    throw fail(`Only an active session can be ended. This session is ${session.status || 'unknown'}.`, 'SESSION_NOT_ACTIVE');
   }
   return session;
 }
 
 module.exports = {
   normalizeDiscordResource,
+  initiativeOrder,
+  clampInitiativeIndex,
+  currentInitiativeState,
+  advanceInitiativeByIdentity,
+  primeEncounterTurn,
   replaceInitiativeCombatant,
-  assertSessionStartable
+  assertSessionStartable,
+  assertSessionEndable
 };
