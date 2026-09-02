@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "scope": "cluster",
+  "authoritative": true,
+  "bootstrap_status": "pending_known_good_import",
+  "description": "Canonical non-secret ARK rates and stat multipliers. This registry mirrors rate/stat values represented in the canonical INIs and exists so Sentinel can validate, display, diff, and manage them without using a live server as authority.",
+  "values": {},
+  "validation": {
+    "require_ini_parity": true,
+    "reject_unknown_duplicate_keys": true,
+    "reject_conflicting_duplicate_keys": true
+  },
+  "notes": [
+    "Do not populate missing values by guessing.",
+    "Initial population must come from a reviewed known-good export, then Git becomes authoritative.",
+    "After bootstrap, edits are made here/canonical INIs in Git and deployed outward to servers only by explicit command."
+  ]
+}
