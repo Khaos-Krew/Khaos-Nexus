@@ -14,6 +14,9 @@ const {
   fetchApiReleaseNotes,
   inspectApiCache
 } = require('./ark-staff-update-panels-extension.cjs');
+const { inspectArkApiLog } = require('./ark-api-log-diagnostic.cjs');
+const { probeSftpState } = require('./ark-update-safety.cjs');
+const { evaluateInstalled } = require('./ark-curseforge-mod-intelligence.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.staff.unified.ops.panel.extension');
 const MARKER = 'Nexus Sentinal • ARK Unified Staff Ops • v1';
@@ -109,16 +112,85 @@ async function addCacheState(results) {
   return results;
 }
 
-function unifiedPayload(results, patch, release) {
-  const health = panelPayload(results).embeds?.[0]?.fields || [];
+async function collectModIntelligence(results = []) {
+  const all = [];
+  for (const item of results) {
+    try {
+      const diagnostic = await inspectArkApiLog(item.prefix);
+      const activeIds = [...new Set([...(diagnostic.modIds || []), ...(diagnostic.newest?.modIds || [])].map(String))];
+      const sftp = await probeSftpState(item.prefix, activeIds);
+      const evaluated = await evaluateInstalled(sftp.mods || []);
+      for (const mod of evaluated.checked || []) all.push({ ...mod, prefix: item.prefix });
+    } catch (error) {
+      console.warn(`[Nexus Sentinal] CurseForge mod intelligence failed for ${item.prefix}: ${clean(error?.message || error, 180)}`);
+    }
+  }
+
+  const byMod = new Map();
+  for (const mod of all) {
+    const key = String(mod.modId || '');
+    if (!key) continue;
+    const existing = byMod.get(key);
+    if (!existing) {
+      byMod.set(key, { ...mod, maps: new Set([mod.prefix]) });
+      continue;
+    }
+    existing.maps.add(mod.prefix);
+    if (mod.state === 'pending') existing.state = 'pending';
+    else if (existing.state !== 'pending' && mod.state === 'unverified') existing.state = 'unverified';
+    if (!existing.name && mod.name) existing.name = mod.name;
+    if (!existing.latestFileId && mod.latestFileId) existing.latestFileId = mod.latestFileId;
+    if (!existing.latestFileDate && mod.latestFileDate) existing.latestFileDate = mod.latestFileDate;
+  }
+
+  const checked = [...byMod.values()];
+  const pending = checked.filter((item) => item.state === 'pending');
+  const unverified = checked.filter((item) => item.state === 'unverified');
+  const current = checked.filter((item) => item.state === 'current');
+  return { checked, pending, unverified, current };
+}
+
+function modField(mods = {}) {
+  const total = mods.checked?.length || 0;
+  const current = mods.current?.length || 0;
+  const pending = mods.pending?.length || 0;
+  const unverified = mods.unverified?.length || 0;
+  let state = '🟢 CURRENT';
+  if (!total) state = '🟡 VERIFYING';
+  else if (pending) state = '🟡 UPDATES AVAILABLE';
+  else if (unverified) state = '🟡 PARTIALLY VERIFIED';
+
+  const lines = [
+    `**State:** ${state}`,
+    `**Active:** ${total} • **Current:** ${current} • **Updates:** ${pending} • **Unverified:** ${unverified}`,
+    '**Source:** CurseForge API • server/cross-platform file selection'
+  ];
+  if (pending) {
+    lines.push('', '**Updates available:**');
+    for (const mod of mods.pending.slice(0, 6)) {
+      lines.push(`• **${clean(mod.name || `Mod ${mod.modId}`, 90)}** • \`${mod.fileId || '?'}\` → \`${mod.latestFileId || '?'}\``);
+    }
+    if (pending > 6) lines.push(`• …and ${pending - 6} more`);
+  }
+  if (unverified) lines.push('', `⚪ ${unverified} mod${unverified === 1 ? '' : 's'} could not be positively matched to a current CurseForge server file.`);
+  return { name: '🧩 ASA Mods • CurseForge', value: lines.join('\n').slice(0, 1024), inline: false };
+}
+
+function unifiedPayload(results, patch, release, mods) {
+  const rawHealth = panelPayload(results).embeds?.[0]?.fields || [];
+  const health = rawHealth.map((field) => ({
+    ...field,
+    value: String(field.value || '').replace(/^• Mods:.*$/gmi, '').replace(/\n{3,}/g, '\n\n').trim()
+  }));
   const asa = aggregateAsa(results);
   const api = aggregateApi(results, release);
   return {
     embeds: [{
       title: '🔒 KHAOS NEXUS • ARK STAFF OPERATIONS',
-      description: 'One staff-only operational view: per-server health plus cluster-wide ASA and ARK Server API status. Read-only monitoring only.',
+      description: 'One staff-only operational view: per-server health plus cluster-wide ASA, mod and ARK Server API status. Read-only monitoring only.',
       fields: [
         ...health,
+        modField(mods),
         {
           name: '🦖 ARK: Survival Ascended • Cluster Update',
           value: `**State:** ${asa.state}\n**Installed server build:** \`${asa.installed}\`\n**Latest public build:** \`${asa.publicBuild}\`\n**ARK version:** \`${asa.runtime}\``,
@@ -171,14 +243,15 @@ async function runCycle(client, config, reason = 'periodic') {
   const channel = await resolveChannel(guild);
   if (!channel) return { skipped: 'staff-channel-not-found' };
   const results = await addCacheState(await collectResults());
+  const mods = await collectModIntelligence(results);
   const publicBuild = unique(results.map((item) => item.report?.game?.publicBuildId))[0] || '';
   let patch = { title: 'Patch notes unavailable', notes: '', url: '', publishedAt: '' };
   let release = { version: '', title: 'ASA Server API', notes: '', url: '', publishedAt: '' };
   try { patch = await fetchAsaPatchNotes(publicBuild); } catch (error) { patch.notes = `Patch-note lookup failed: ${clean(error?.message || error, 220)}`; }
   try { release = await fetchApiReleaseNotes(); } catch (error) { release.notes = `API release lookup failed: ${clean(error?.message || error, 220)}`; }
-  await reconcile(channel, unifiedPayload(results, patch, release), client.user?.id || '');
-  console.log(`[Nexus Sentinal] unified ARK staff operations (${reason}): channel=${channel.name} servers=${results.length}`);
-  return { channelId: String(channel.id), serverCount: results.length };
+  await reconcile(channel, unifiedPayload(results, patch, release, mods), client.user?.id || '');
+  console.log(`[Nexus Sentinal] unified ARK staff operations (${reason}): channel=${channel.name} servers=${results.length} mods=${mods.checked.length} modUpdates=${mods.pending.length}`);
+  return { channelId: String(channel.id), serverCount: results.length, modCount: mods.checked.length, modUpdates: mods.pending.length };
 }
 
 function installArkStaffUnifiedOpsPanelExtension() {
@@ -201,4 +274,4 @@ function installArkStaffUnifiedOpsPanelExtension() {
   };
 }
 
-module.exports = { MARKER, unifiedPayload, runCycle, installArkStaffUnifiedOpsPanelExtension };
+module.exports = { MARKER, unifiedPayload, collectModIntelligence, runCycle, installArkStaffUnifiedOpsPanelExtension };
