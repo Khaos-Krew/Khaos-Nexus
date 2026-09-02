@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "controller": "sentinel",
+  "source_of_truth": "git_policy_plus_verified_runtime_health",
+  "automatic_runtime_safety_actions_allowed": true,
+  "may_write_game_ini": false,
+  "may_write_game_user_settings_ini": false,
+  "trigger": {
+    "on_ark_build_change": true,
+    "on_api_health_regression": true,
+    "on_plugin_health_regression": true
+  },
+  "runtime_modes": {
+    "normal": {
+      "ark_api_enabled": true,
+      "plugin_policy": "known_good_manifest"
+    },
+    "plugin_quarantine": {
+      "ark_api_enabled": true,
+      "plugin_policy": "verified_allowlist_only"
+    },
+    "api_bypass": {
+      "ark_api_enabled": false,
+      "plugin_policy": "none"
+    }
+  },
+  "decision_policy": {
+    "new_ark_build_and_api_unknown": "api_bypass",
+    "api_incompatible": "api_bypass",
+    "api_compatible_and_plugin_unknown": "plugin_quarantine",
+    "api_compatible_and_plugin_incompatible": "plugin_quarantine",
+    "api_and_required_plugins_compatible": "normal",
+    "prefer_smallest_safe_intervention": true
+  },
+  "managed_plugins": [
+    "arkshop",
+    "asa_permissions",
+    "arkshop_ui",
+    "extended_rcon",
+    "aat_crosschat",
+    "nexusark"
+  ],
+  "manifest_policy": {
+    "snapshot_before_change": true,
+    "known_good_manifest_required": true,
+    "quarantine_unknown_plugins": true,
+    "quarantine_incompatible_plugins": true,
+    "restore_one_plugin_at_a_time": true,
+    "never_auto_enable_unverified_plugin": true
+  },
+  "recovery": {
+    "canary_server_id": "asa-astraeos",
+    "production_restore_requires_canary": true,
+    "required_healthy_canary_restarts": 2,
+    "require_server_online": true,
+    "require_rcon_healthy": true,
+    "require_api_health_when_enabled": true,
+    "require_plugin_health_when_enabled": true,
+    "failed_restore_returns_to_previous_safe_mode": true
+  },
+  "notifications": {
+    "player_facing": true,
+    "staff_detail": true,
+    "transport_order": [
+      "sentinel_discord_cluster_chat",
+      "rcon_broadcast",
+      "aat_if_available"
+    ],
+    "messages": {
+      "api_bypass": "ARK update detected. Server API features are temporarily disabled while compatibility is verified. Core gameplay remains available where possible.",
+      "plugin_quarantine": "ArkAPI is available, but one or more API plugins are temporarily disabled while compatibility is verified.",
+      "recovery": "API compatibility validation passed. Disabled API features are being restored safely."
+    }
+  },
+  "audit": {
+    "record_ark_build": true,
+    "record_api_version": true,
+    "record_runtime_mode": true,
+    "record_quarantined_plugins": true,
+    "record_reason": true,
+    "record_health_evidence": true,
+    "record_restore_attempts": true
+  }
+}
