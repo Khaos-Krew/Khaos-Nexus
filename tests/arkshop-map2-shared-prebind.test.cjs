@@ -51,6 +51,22 @@ test('Astraeos prebind copies catalog while preserving unrelated target config a
   assert.equal(next.Mysql.MysqlLogTable, database.logTable);
 });
 
+test('Astraeos prebind preserves its existing catalog if Gen1 SFTP is unavailable while still binding shared MySQL', () => {
+  const target = {
+    Kits: { existingKit: { Amount: 2 } },
+    ShopItems: { existingItem: { Type: 'item' } },
+    SellItems: { existingSell: { Price: 4 } },
+    Mysql: { UseMysql: false, MysqlDB: 'local' }
+  };
+  const next = buildTargetConfig(null, target, database);
+  assert.deepEqual(next.Kits, target.Kits);
+  assert.deepEqual(next.ShopItems, target.ShopItems);
+  assert.deepEqual(next.SellItems, target.SellItems);
+  assert.equal(next.Mysql.UseMysql, true);
+  assert.equal(next.Mysql.MysqlDB, database.name);
+  assert.equal(next.Mysql.MysqlPlayersTable, database.playersTable);
+});
+
 test('Astraeos prebind accepts the live root-level ArkApi config path and rejects traversal', () => {
   const previous = process.env.ARK_MAP2_ARKSHOP_CONFIG_PATH;
   try {
