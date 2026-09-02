@@ -46,7 +46,7 @@ const { installSupporterEntitlementExtension } = require('./supporter-entitlemen
 const { installEventManagementExtension } = require('./event-management-extension.cjs');
 const { installArkOpsExtension } = require('./ark-ops-extension.cjs');
 const { installArkUpdateSafetyExtension } = require('./ark-update-safety-extension.cjs');
-const { installArkStaffStatusMonitorExtension } = require('./ark-staff-status-monitor-extension.cjs');
+const { installArkStaffUpdatePanelsExtension } = require('./ark-staff-update-panels-extension.cjs');
 const { installArkRestartSchedulerExtension } = require('./ark-restart-scheduler-extension.cjs');
 const { installArkServerControlsExtension } = require('./ark-server-controls-extension.cjs');
 const { installArkDynamicEventsExtension } = require('./ark-dynamic-events-extension.cjs');
@@ -101,7 +101,7 @@ installSupporterEntitlementExtension();
 installEventManagementExtension();
 installArkOpsExtension();
 installArkUpdateSafetyExtension({ prefix: 'ARK_GEN1' });
-installArkStaffStatusMonitorExtension();
+installArkStaffUpdatePanelsExtension();
 installArkRestartSchedulerExtension({ prefix: 'ARK_GEN1' });
 installArkServerControlsExtension({ prefix: 'ARK_GEN1' });
 installArkDynamicEventsExtension();
