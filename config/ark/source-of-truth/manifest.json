@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "system": "Khaos Nexus ARK configuration",
+  "authority": "git",
+  "repository": "Khaos-Krew/Khaos-Nexus",
+  "root": "config/ark/source-of-truth",
+  "bootstrap_complete": false,
+  "deployment_enabled": false,
+  "bootstrap_note": "Populate the canonical INIs and rates from the current known-good Astraeos configuration, review the diff, then set bootstrap_complete and deployment_enabled true. Never infer missing values from another live server after bootstrap.",
+  "resolution_order": [
+    "cluster/GameUserSettings.ini",
+    "cluster/Game.ini",
+    "cluster/rates.json",
+    "servers/<server-id>/GameUserSettings.override.ini",
+    "servers/<server-id>/Game.override.ini",
+    "servers/<server-id>/server.json",
+    "Sentinel secret overlay"
+  ],
+  "servers": [
+    "astraeos",
+    "gen1"
+  ],
+  "write_policy": {
+    "repo_to_server": "explicit_command_only",
+    "server_to_repo": "explicit_capture_command_only",
+    "automatic_live_server_capture": false,
+    "automatic_repo_reconcile": false,
+    "automatic_server_overwrite": false
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "server_id": "gen1",
+  "display_name": "Gen1",
+  "inherits_cluster_defaults": true,
+  "authoritative_source": "git",
+  "apply_mode": "explicit_command_only",
+  "capture_mode": "explicit_command_only",
+  "secret_overlay_required": true,
+  "notes": "Gen1 inherits the same canonical cluster rates/stats/settings. Only genuine Gen1-specific differences belong in this directory."
+}
