@@ -2,6 +2,7 @@
 
 const pollUi = require('./poll-ui.cjs');
 const { paragraphs, spacedItems, statRows } = require('./embed-layout.cjs');
+const { installNexusGuideExtension } = require('./nexus-guide-extension.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.pollUi.readability');
 
@@ -78,6 +79,9 @@ function installPollUiReadabilityPatch() {
   return pollUi;
 }
 
+// entry.cjs loads this patch before bot.cjs. Install the public guide here so
+// its Discord command/panel hooks are registered before the client logs in.
+installNexusGuideExtension();
 installPollUiReadabilityPatch();
 
 module.exports = {
