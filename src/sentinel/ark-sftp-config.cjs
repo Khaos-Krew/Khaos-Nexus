@@ -6,76 +6,47 @@ const SftpClient = require('ssh2-sftp-client');
 
 const GAME_USER_SETTINGS_PATH = 'ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini';
 const GAME_INI_PATH = 'ShooterGame/Saved/Config/WindowsServer/Game.ini';
+const SOURCE_OF_TRUTH_ROOT = path.resolve(__dirname, '../../config/ark/source-of-truth');
 
-const BASELINE_GUS = Object.freeze({
-  ServerPVE: 'True',
-  DifficultyOffset: '1.0',
-  OverrideOfficialDifficulty: '5.0',
-  XPMultiplier: '5.0',
-  TamingSpeedMultiplier: '10.0',
-  HarvestAmountMultiplier: '5.0',
-  HarvestHealthMultiplier: '2.0',
-  DinoCountMultiplier: '1.0',
-  PlayerCharacterFoodDrainMultiplier: '0.75',
-  PlayerCharacterWaterDrainMultiplier: '0.75',
-  PlayerCharacterStaminaDrainMultiplier: '0.85',
-  DinoCharacterStaminaDrainMultiplier: '0.85',
-  PlayerCharacterHealthRecoveryMultiplier: '1.5',
-  DinoCharacterHealthRecoveryMultiplier: '2.0',
-  ResourcesRespawnPeriodMultiplier: '0.5',
-  ResourceNoReplenishRadiusPlayers: '0.5',
-  ResourceNoReplenishRadiusStructures: '0.5',
-  CropGrowthSpeedMultiplier: '8.0',
-  SupplyCrateLootQualityMultiplier: '2.5',
-  FishingLootQualityMultiplier: '2.0',
-  GlobalSpoilingTimeMultiplier: '2.0',
-  GlobalItemDecompositionTimeMultiplier: '2.0',
-  GlobalCorpseDecompositionTimeMultiplier: '2.0',
-  ServerCrosshair: 'True',
-  AllowHitMarkers: 'True',
-  AllowThirdPersonPlayer: 'True',
-  ShowMapPlayerLocation: 'True',
-  PreventSpawnAnimations: 'True',
-  AllowFlyerCarryPvE: 'True',
-  bForceCanRideFliers: 'True',
-  ForceAllowCaveFlyers: 'True',
-  AllowCaveBuildingPvE: 'True',
-  RCONEnabled: 'True'
-});
+function parseIniSection(input, sectionName) {
+  const lines = String(input ?? '').replace(/\r\n/g, '\n').split('\n');
+  const wanted = `[${sectionName}]`.toLowerCase();
+  const start = lines.findIndex((line) => line.trim().toLowerCase() === wanted);
+  if (start < 0) throw new Error(`Canonical ARK INI is missing required section [${sectionName}].`);
+  const values = {};
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const line = lines[index].trim();
+    if (/^\[.*\]$/.test(line)) break;
+    if (!line || line.startsWith(';') || line.startsWith('#')) continue;
+    const equals = line.indexOf('=');
+    if (equals <= 0) continue;
+    const key = line.slice(0, equals).trim();
+    const value = line.slice(equals + 1).trim();
+    if (Object.prototype.hasOwnProperty.call(values, key) && values[key] !== value) {
+      throw new Error(`Canonical ARK INI has conflicting duplicate key ${key} in [${sectionName}].`);
+    }
+    values[key] = value;
+  }
+  return Object.freeze(values);
+}
 
-const BASELINE_GAME = Object.freeze({
-  bUseSingleplayerSettings: 'False',
-  bAllowFlyerSpeedLeveling: 'True',
-  bAllowSpeedLeveling: 'True',
-  MatingIntervalMultiplier: '0.10',
-  EggHatchSpeedMultiplier: '20.0',
-  BabyMatureSpeedMultiplier: '15.0',
-  BabyCuddleIntervalMultiplier: '0.10',
-  BabyImprintAmountMultiplier: '2.0',
-  BabyImprintingStatScaleMultiplier: '1.0',
-  LayEggIntervalMultiplier: '0.5',
+function loadCanonicalBaseline(root = SOURCE_OF_TRUTH_ROOT) {
+  const gusFile = path.join(root, 'cluster', 'GameUserSettings.ini');
+  const gameFile = path.join(root, 'cluster', 'Game.ini');
+  if (!fs.existsSync(gusFile) || !fs.existsSync(gameFile)) {
+    throw new Error(`Canonical ARK source-of-truth is incomplete at ${root}.`);
+  }
+  return Object.freeze({
+    gus: parseIniSection(fs.readFileSync(gusFile, 'utf8'), 'ServerSettings'),
+    game: parseIniSection(fs.readFileSync(gameFile, 'utf8'), '/Script/ShooterGame.ShooterGameMode'),
+    gusFile,
+    gameFile
+  });
+}
 
-  // Player level-up gains: generous QoL, restrained combat scaling.
-  'PerLevelStatsMultiplier_Player[0]': '2.0',
-  'PerLevelStatsMultiplier_Player[1]': '3.0',
-  'PerLevelStatsMultiplier_Player[3]': '3.0',
-  'PerLevelStatsMultiplier_Player[4]': '2.0',
-  'PerLevelStatsMultiplier_Player[5]': '2.0',
-  'PerLevelStatsMultiplier_Player[7]': '30.0',
-  'PerLevelStatsMultiplier_Player[8]': '1.5',
-  'PerLevelStatsMultiplier_Player[9]': '1.5',
-  'PerLevelStatsMultiplier_Player[10]': '5.0',
-  'PerLevelStatsMultiplier_Player[11]': '5.0',
-
-  // Tamed dino level-up gains. Health/melee account for ASA's lower vanilla bases.
-  'PerLevelStatsMultiplier_DinoTamed[0]': '0.40',
-  'PerLevelStatsMultiplier_DinoTamed[1]': '3.0',
-  'PerLevelStatsMultiplier_DinoTamed[3]': '3.0',
-  'PerLevelStatsMultiplier_DinoTamed[4]': '2.0',
-  'PerLevelStatsMultiplier_DinoTamed[7]': '15.0',
-  'PerLevelStatsMultiplier_DinoTamed[8]': '0.34',
-  'PerLevelStatsMultiplier_DinoTamed[9]': '1.5'
-});
+const CANONICAL_BASELINE = loadCanonicalBaseline();
+const BASELINE_GUS = CANONICAL_BASELINE.gus;
+const BASELINE_GAME = CANONICAL_BASELINE.game;
 
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -96,30 +67,21 @@ function patchIniSection(input, sectionName, updates) {
 
   let end = lines.length;
   for (let index = start + 1; index < lines.length; index += 1) {
-    if (/^\s*\[.*\]\s*$/.test(lines[index])) {
-      end = index;
-      break;
-    }
+    if (/^\s*\[.*\]\s*$/.test(lines[index])) { end = index; break; }
   }
 
   for (const [key, value] of Object.entries(updates)) {
     const matcher = new RegExp(`^\\s*${escapeRegex(key)}\\s*=`, 'i');
     const matches = [];
-    for (let index = start + 1; index < end; index += 1) {
-      if (matcher.test(lines[index])) matches.push(index);
-    }
+    for (let index = start + 1; index < end; index += 1) if (matcher.test(lines[index])) matches.push(index);
     if (matches.length) {
       lines[matches[0]] = `${key}=${value}`;
-      for (let offset = matches.length - 1; offset >= 1; offset -= 1) {
-        lines.splice(matches[offset], 1);
-        end -= 1;
-      }
+      for (let offset = matches.length - 1; offset >= 1; offset -= 1) { lines.splice(matches[offset], 1); end -= 1; }
     } else {
       lines.splice(end, 0, `${key}=${value}`);
       end += 1;
     }
   }
-
   return lines.join(newline);
 }
 
@@ -142,17 +104,9 @@ function remotePath(root, relativePath) {
 }
 
 async function connectSftp(settings) {
-  if (!settings.host || !settings.username || !settings.password) {
-    throw new Error('ARK SFTP variables are incomplete. Host, username, and password are required.');
-  }
+  if (!settings.host || !settings.username || !settings.password) throw new Error('ARK SFTP variables are incomplete. Host, username, and password are required.');
   const client = new SftpClient('khaos-nexus-ark');
-  await client.connect({
-    host: settings.host,
-    port: settings.port,
-    username: settings.username,
-    password: settings.password,
-    readyTimeout: settings.readyTimeout
-  });
+  await client.connect({ host: settings.host, port: settings.port, username: settings.username, password: settings.password, readyTimeout: settings.readyTimeout });
   return client;
 }
 
@@ -161,9 +115,7 @@ async function readRemoteText(client, remoteFile) {
   return Buffer.isBuffer(data) ? data.toString('utf8') : String(data || '');
 }
 
-function timestampFolder(now = new Date()) {
-  return now.toISOString().replace(/[:.]/g, '-');
-}
+function timestampFolder(now = new Date()) { return now.toISOString().replace(/[:.]/g, '-'); }
 
 async function backupAndWrite(client, remoteFile, nextText, stamp) {
   const current = await readRemoteText(client, remoteFile);
@@ -186,26 +138,13 @@ async function applyBaseline(prefix = 'ARK_GEN1') {
   const client = await connectSftp(settings);
   const stamp = timestampFolder();
   try {
-    const [currentGus, currentGame] = await Promise.all([
-      readRemoteText(client, gusPath),
-      readRemoteText(client, gamePath)
-    ]);
+    const [currentGus, currentGame] = await Promise.all([readRemoteText(client, gusPath), readRemoteText(client, gamePath)]);
     const nextGus = patchIniSection(currentGus, 'ServerSettings', BASELINE_GUS);
     const nextGame = patchIniSection(currentGame, '/Script/ShooterGame.ShooterGameMode', BASELINE_GAME);
     const gus = await backupAndWrite(client, gusPath, nextGus, stamp);
     const game = await backupAndWrite(client, gamePath, nextGame, stamp);
-    return {
-      profile: 'khaos-pve-baseline-v2',
-      gusPath,
-      gamePath,
-      changed: gus.changed || game.changed,
-      gameUserSettingsChanged: gus.changed,
-      gameIniChanged: game.changed,
-      backups: [gus.backup, game.backup].filter(Boolean)
-    };
-  } finally {
-    await client.end().catch(() => {});
-  }
+    return { profile: 'git-canonical-gen1-bootstrap-v1', sourceOfTruthRoot: SOURCE_OF_TRUTH_ROOT, gusPath, gamePath, changed: gus.changed || game.changed, gameUserSettingsChanged: gus.changed, gameIniChanged: game.changed, backups: [gus.backup, game.backup].filter(Boolean) };
+  } finally { await client.end().catch(() => {}); }
 }
 
 async function applyBaselineIfRequested({ prefix = 'ARK_GEN1', stampDirectory = '/app/data' } = {}) {
@@ -220,14 +159,4 @@ async function applyBaselineIfRequested({ prefix = 'ARK_GEN1', stampDirectory = 
   return { ...result, stampFile };
 }
 
-module.exports = {
-  BASELINE_GUS,
-  BASELINE_GAME,
-  GAME_USER_SETTINGS_PATH,
-  GAME_INI_PATH,
-  patchIniSection,
-  sftpSettingsFromEnv,
-  remotePath,
-  applyBaseline,
-  applyBaselineIfRequested
-};
+module.exports = { BASELINE_GUS, BASELINE_GAME, CANONICAL_BASELINE, SOURCE_OF_TRUTH_ROOT, GAME_USER_SETTINGS_PATH, GAME_INI_PATH, parseIniSection, loadCanonicalBaseline, patchIniSection, sftpSettingsFromEnv, remotePath, applyBaseline, applyBaselineIfRequested };
