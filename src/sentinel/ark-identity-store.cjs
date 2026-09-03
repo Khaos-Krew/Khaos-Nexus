@@ -7,6 +7,8 @@ const path = require('node:path');
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const DEFAULT_TTL_MS = 10 * 60_000;
 const MAX_AUDIT_ENTRIES = 10_000;
+const MAX_CHALLENGES = 5000;
+const CHALLENGE_RETENTION_MS = 7 * 24 * 60 * 60_000;
 
 function cleanId(value, max = 128) {
   return String(value || '').replace(/[\r\n\t]/g, '').trim().slice(0, max);
@@ -32,6 +34,35 @@ function generateCode(length = 8) {
   let code = '';
   for (let i = 0; i < length; i += 1) code += CODE_ALPHABET[crypto.randomInt(0, CODE_ALPHABET.length)];
   return code;
+}
+
+function challengeTimestamp(challenge = {}) {
+  const candidates = [challenge.verifiedAt, challenge.expiresAt, challenge.createdAt]
+    .map((value) => Date.parse(value))
+    .filter(Number.isFinite);
+  return candidates.length ? Math.max(...candidates) : 0;
+}
+
+function pruneChallenges(state, now = Date.now()) {
+  const entries = Object.entries(state?.challenges || {});
+  const kept = [];
+  for (const [id, challenge] of entries) {
+    const pending = challenge?.state === 'pending';
+    const timestamp = challengeTimestamp(challenge);
+    if (!pending && timestamp && timestamp < now - CHALLENGE_RETENTION_MS) continue;
+    kept.push([id, challenge]);
+  }
+  if (kept.length > MAX_CHALLENGES) {
+    const pending = kept.filter(([, challenge]) => challenge?.state === 'pending');
+    const terminal = kept
+      .filter(([, challenge]) => challenge?.state !== 'pending')
+      .sort((a, b) => challengeTimestamp(b[1]) - challengeTimestamp(a[1]));
+    const terminalSlots = Math.max(0, MAX_CHALLENGES - pending.length);
+    state.challenges = Object.fromEntries([...pending, ...terminal.slice(0, terminalSlots)]);
+  } else {
+    state.challenges = Object.fromEntries(kept);
+  }
+  return state.challenges;
 }
 
 class ArkIdentityStore {
@@ -82,6 +113,7 @@ class ArkIdentityStore {
 
   write(state) {
     fs.mkdirSync(this.dir, { recursive: true });
+    pruneChallenges(state, this.now());
     const safe = {
       version: 1,
       updatedAt: new Date(this.now()).toISOString(),
@@ -107,6 +139,7 @@ class ArkIdentityStore {
     const now = this.now();
     const ttlMs = Math.min(30 * 60_000, Math.max(60_000, Number(options.ttlMs) || DEFAULT_TTL_MS));
     const state = this.read();
+    pruneChallenges(state, now);
     for (const challenge of Object.values(state.challenges)) {
       if (challenge.discordUserId === discordId && challenge.state === 'pending') challenge.state = 'superseded';
     }
@@ -132,6 +165,7 @@ class ArkIdentityStore {
     if (!/^[A-Z2-9]{6,12}$/.test(normalizedCode)) return { ok: false, reason: 'invalid-code' };
     if (!validEosId(arkId)) return { ok: false, reason: 'invalid-eos-id' };
     const state = this.read();
+    pruneChallenges(state, this.now());
     const wantedHash = this.codeHash(normalizedCode);
     const challenge = Object.values(state.challenges).find((item) => {
       if (item.state !== 'pending' || typeof item.codeHash !== 'string' || item.codeHash.length !== wantedHash.length) return false;
@@ -214,4 +248,4 @@ class ArkIdentityStore {
   }
 }
 
-module.exports = { CODE_ALPHABET, DEFAULT_TTL_MS, emptyIdentityState, validDiscordId, validEosId, ArkIdentityStore };
+module.exports = { CODE_ALPHABET, DEFAULT_TTL_MS, MAX_CHALLENGES, CHALLENGE_RETENTION_MS, emptyIdentityState, validDiscordId, validEosId, pruneChallenges, ArkIdentityStore };
