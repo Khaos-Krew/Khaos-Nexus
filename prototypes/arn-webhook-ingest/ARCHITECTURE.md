@@ -2,9 +2,13 @@
 
 ## Event path
 
-`Shiny! Dinos -> dedicated per-map Discord webhook -> hidden #arn-ingest -> Sentinel -> parser -> classifier -> board state -> one persistent public bounty-board embed`
+`Shiny! Dinos -> dedicated ARN - [mapname] Discord webhook -> hidden #arn-ingest -> Sentinel -> parser -> classifier -> board state -> one persistent public bounty-board embed`
 
-Genesis 1 and Astraeos each use a different Discord webhook, but both webhooks target the same hidden ingest channel. The webhook ID is the authoritative map identity.
+Genesis 1 and Astraeos each use a different incoming Discord webhook, but both webhooks target the same hidden ingest channel. Webhooks are named `ARN - [mapname]`, for example `ARN - Genesis 1` and `ARN - Astraeos`.
+
+Sentinel may enumerate webhook metadata from the hidden intake channel and derive the map name from that naming convention. Once learned, the Discord webhook ID becomes the authoritative runtime map identity. Explicit ID mappings remain supported and take precedence if a webhook name disagrees with a pinned mapping. Webhook URLs/tokens are never required for routing and are not logged.
+
+The prototype includes an idempotent `npm run setup:intake` provisioner that creates or reuses `#arn-ingest` under the configured existing hidden category. It starts from the category permission model, explicitly denies `@everyone` visibility, and grants Sentinel the channel access needed to read history and enumerate webhook metadata.
 
 The hidden channel is both the ingestion point and a lightweight restart journal. Sentinel replays recent webhook messages on startup to reconstruct the current board without requiring ArkAPI or ARK entity scans.
 
@@ -35,9 +39,9 @@ Current ARN ability-threat scale:
 - **Class IV / CRITICAL**: direct combat/area hazard traits: Radioactive, Burning, Taser, Crystalline and Colossal.
 - **Class V / KAIJU**: Enraged only.
 
-Enraged/KAIJU entries display the configured Khaos Nexus reward of one Tekgram on termination.
+Enraged/KAIJU entries display the configured Khaos Nexus reward of one Tekgram on termination. Public entries use the explicit wording `Threat Level - [level]`.
 
-The official reference states that Shiny includes more than 40 color sets and that a name not listed as an ability is likely just coloring. ARN therefore no longer interprets names such as Princess, Noir, Xanthic or Azure as danger/rarity by themselves. They remain visible in the full creature name but default to WATCH unless a documented ability is also present.
+The official reference states that Shiny includes more than 40 color sets and that a name not listed as an ability is likely just coloring. ARN therefore does not interpret names such as Princess, Noir, Xanthic or Azure as danger/rarity by themselves. They remain visible in the full creature name but default to WATCH unless a documented ability is also present.
 
 ## Board behavior
 
@@ -55,6 +59,8 @@ If multiple identical names are simultaneously active on the same map, Sentinel 
 
 ## Failure behavior
 
-The Shiny source events remain in the hidden ingest channel if Sentinel is unavailable. On restart, Sentinel replays up to `ARN_REPLAY_LIMIT` recent messages (maximum 100 in the prototype), reconstructs board state, removes already-expired resolved entries, and then refreshes the persistent board.
+The Shiny source events remain in the hidden ingest channel if Sentinel is unavailable. On restart, Sentinel first refreshes the `ARN - [mapname]` webhook-ID map, then replays up to `ARN_REPLAY_LIMIT` recent messages (maximum 100 in the prototype), reconstructs board state, removes already-expired resolved entries, and refreshes the persistent board.
+
+If a correctly named webhook is added while Sentinel is online, the first otherwise-unknown event causes one webhook-metadata refresh and retry. The newly learned webhook ID then remains authoritative for the process lifetime.
 
 For a production version, the next durability step is database-backed incident state so very old active anomalies cannot fall outside Discord replay history.
