@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "system": "Khaos Nexus ARK configuration",
+  "authority": "git_after_bootstrap_capture",
+  "repository": "Khaos-Krew/Khaos-Nexus",
+  "root": "config/ark/source-of-truth",
+  "bootstrap_complete": false,
+  "deployment_enabled": false,
+  "bootstrap_reference_server": "gen1",
+  "bootstrap_note": "Gen1 is the owner-designated known-good live reference for the shared cluster baseline. Capture/sanitize the current Gen1 INIs into the canonical files, review parity, then mark bootstrap_complete. Keep deployment disabled until explicit owner review.",
+  "resolution_order": [
+    "cluster/GameUserSettings.ini",
+    "cluster/Game.ini",
+    "cluster/rates.json",
+    "servers/<server-id>/GameUserSettings.override.ini",
+    "servers/<server-id>/Game.override.ini",
+    "servers/<server-id>/server.json",
+    "protected admin whitelist",
+    "Sentinel secret overlay"
+  ],
+  "servers": ["astraeos", "gen1"],
+  "write_policy": {
+    "repo_to_server": "explicit_command_only",
+    "server_to_repo": "explicit_capture_command_only",
+    "automatic_live_server_capture": false,
+    "automatic_repo_reconcile": false,
+    "automatic_server_overwrite": false
+  }
+}
