@@ -1,14 +1,14 @@
 # Khaos Nexus ARK — Repository Source of Truth
 
-This directory is the authoritative configuration store for every Khaos Nexus ARK: Survival Ascended server.
+This directory is the authoritative configuration store for every Khaos Nexus ARK: Survival Ascended server after the bootstrap capture is completed and reviewed.
 
 ## Authority model
 
-Git is authoritative. A live ARK server is a deployment target, never the source of truth.
+Gen1 is the owner-designated known-good live bootstrap reference for the shared cluster INI baseline. During bootstrap, its current non-secret Game.ini and GameUserSettings.ini values are captured and normalized into this directory. After that capture is reviewed, Git becomes authoritative.
 
-Sentinel must resolve a server configuration from this directory, overlay protected secrets at runtime, show the diff, back up the live files, and only write when an authorized explicit apply command is issued.
+Sentinal must resolve a server configuration from this directory, overlay protected secrets at runtime, show the diff, back up the live files, and only write when an authorized explicit apply command is issued.
 
-Sentinel must **not** continuously reconcile or silently overwrite Game.ini, GameUserSettings.ini, rates, stats, or map overrides.
+Sentinal must **not** continuously reconcile or silently overwrite Game.ini, GameUserSettings.ini, rates, stats, or map overrides.
 
 A live server may only be captured back into Git when an owner explicitly issues a capture/import command. Captures must be sanitized, placed on a branch, and reviewed before merge.
 
@@ -40,9 +40,9 @@ source-of-truth/
 3. `cluster/rates.json`
 4. server-specific INI overrides
 5. server profile metadata
-6. Sentinel protected secret overlay
+6. Sentinal protected secret overlay
 
-The resolved configuration is what Sentinel deploys to a server.
+The resolved configuration is what Sentinal deploys to a server.
 
 ## Cluster defaults vs overrides
 
@@ -54,7 +54,7 @@ Do not duplicate cluster values into every server folder. That creates drift.
 
 ## Secrets
 
-This repository is public. Do **not** commit server passwords, admin passwords, RCON passwords, API keys, Discord webhooks, tokens, or other credentials. Sentinel applies those from its protected runtime secret store after it builds the non-secret configuration from Git.
+This repository is public. Do **not** commit server passwords, admin passwords, RCON passwords, API keys, Discord webhooks, tokens, or other credentials. Sentinal applies those from its protected runtime secret store after it builds the non-secret configuration from Git.
 
 ## New-server flow
 
@@ -69,8 +69,8 @@ When a server is added:
 7. Apply only after an explicit owner/admin command.
 8. Read the files back and verify they match the resolved Git revision.
 
-This means a newly added server starts from the same canonical Khaos Nexus rates/stats/configuration instead of copying another live server.
+This means a newly added server starts from the same canonical Khaos Nexus rates/stats/configuration instead of manually copying another live server.
 
 ## Bootstrap state
 
-`manifest.json` intentionally keeps deployment disabled until the current known-good Astraeos configuration is exported and committed here. Do not guess missing rates or INI values. Once the canonical files are complete and reviewed, set `bootstrap_complete` and `deployment_enabled` to `true`.
+`manifest.json` intentionally keeps deployment disabled while Gen1 parity is being established. The canonical cluster files now reflect the Gen1 baseline currently encoded in Sentinal's Gen1 configuration workflow, including the high carry-weight player/tamed-dino stat multipliers. The remaining bootstrap gate is verification against the actual live Gen1 files and owner review; deployment must stay disabled until that verification is complete.
