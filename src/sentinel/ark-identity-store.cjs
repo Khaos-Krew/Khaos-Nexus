@@ -98,6 +98,11 @@ function normalizeIdentityState(parsed) {
     if (!validDiscordId(discordId) || !plainObject(profile)) throw new IdentityStateError('ARK identity state contains an invalid profile record.');
     if (cleanId(profile.discordUserId) && cleanId(profile.discordUserId) !== discordId) throw new IdentityStateError('ARK identity profile key does not match its Discord user id.');
     if (profile.arkAccounts != null && !Array.isArray(profile.arkAccounts)) throw new IdentityStateError('ARK identity profile arkAccounts must be an array.');
+    for (const account of profile.arkAccounts || []) {
+      if (!plainObject(account) || !validEosId(account.eosId)) throw new IdentityStateError('ARK identity profile contains an invalid ARK account record.');
+      const eosId = cleanId(account.eosId);
+      if (cleanId(state.arkIndex[eosId]) !== discordId) throw new IdentityStateError('ARK identity profile account list and index are inconsistent.');
+    }
   }
 
   for (const [eosId, discordIdRaw] of Object.entries(state.arkIndex)) {
