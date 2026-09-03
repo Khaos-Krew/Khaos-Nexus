@@ -1,16 +1,27 @@
 # ARN Webhook Ingest Prototype
 
-Test-only Nexus Sentinel prototype for turning Shiny! Dinos Discord webhook events into classified ARN alerts.
+Test-only Nexus Sentinel prototype for turning Shiny! Dinos Discord webhook events into a persistent live ARN bounty board.
 
 ## Flow
 
-`Gen1 Shiny webhook -> private #arn-ingest -> Sentinel -> parser/classifier -> one public ARN result`
+`Gen1 Shiny webhook -> hidden #arn-ingest -> Sentinel -> parser/classifier -> live bounty board`
 
-`Astraeos Shiny webhook -> private #arn-ingest -> Sentinel -> parser/classifier -> one public ARN result`
+`Astraeos Shiny webhook -> hidden #arn-ingest -> Sentinel -> parser/classifier -> live bounty board`
 
-Each ARK map gets its own Discord webhook, but every webhook posts into the same private ingest channel. Sentinel uses the webhook ID as the authoritative map identity, then emits one normalized ARN embed to the shared public output channel.
+Each ARK map gets its own Discord webhook, but every webhook posts into the same private ingest channel. Sentinel uses the webhook ID as the authoritative map identity and updates one persistent public board instead of posting a new alert for every event.
+
+The hidden ingest channel doubles as a short-term event journal. On restart, the prototype replays recent webhook messages to reconstruct current board state.
 
 The prototype does not modify Shiny, scan ARK entities, or require ArkAPI.
+
+## Live bounty board behavior
+
+- DETECTED -> adds an ACTIVE anomaly to the board.
+- CONTAINED -> changes the matching anomaly to CAPTURED, keeps it visible briefly, then removes it.
+- TERMINATED -> changes the matching anomaly to DEFEATED, keeps it visible briefly, then removes it.
+- SIGNAL LOST -> changes the matching anomaly to SIGNAL LOST, then removes it on a shorter timer.
+- Enraged -> KAIJU-level threat and displays the configured 1 Tekgram termination reward.
+- One accepted Shiny source event edits the existing board; it does not create public channel spam.
 
 ## Features
 
@@ -20,13 +31,19 @@ The prototype does not modify Shiny, scan ARK entities, or require ArkAPI.
 - uses each map's webhook ID as the authoritative server/map source;
 - warns if Shiny payload/footer map text disagrees with the webhook mapping;
 - parses detected, signal-lost, contained, and terminated lifecycle events;
-- produces at most one ARN output message per accepted Shiny source message;
-- classifies anomalies into ARN Class I-IV;
-- treats Enraged as Class IV / HIGH THREAT and advertises the Khaos Nexus 1 Tekgram termination reward;
-- produces compact ARN Discord embeds;
-- supports `ARN_DRY_RUN=true` so parsing can be verified without posting publicly;
+- maintains in-memory active/resolved anomaly state;
+- reconstructs state by replaying recent hidden-ingest messages after restart;
+- classifies anomaly danger levels with Enraged promoted to KAIJU;
+- retains CAPTURED/DEFEATED status for a configurable period before clearing;
+- uses a shorter configurable retention period for SIGNAL LOST;
+- discovers an existing ARN board message or creates one if none exists;
+- supports `ARN_DRY_RUN=true` so parsing/state changes can be verified without posting publicly;
 - supports a JSON webhook map for adding future cluster maps without changing code;
-- includes parser and classifier tests.
+- includes parser, classifier, and board-state tests.
+
+## Current prototype limitation
+
+Shiny Discord events do not provide a guaranteed unique ARK creature identifier. Lifecycle events are correlated using map + full Shiny creature name. If two identical active Shiny names exist on the same map, Sentinel updates the newest matching signal and logs the ambiguity. Persistent database-backed identity can be added later if a stronger data source becomes available.
 
 ## Run
 
