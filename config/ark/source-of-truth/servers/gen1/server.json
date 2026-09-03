@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "server_id": "gen1",
+  "display_name": "Genesis 1",
+  "inherits_cluster_defaults": true,
+  "authoritative_source": "git_after_bootstrap_capture",
+  "bootstrap_reference": true,
+  "apply_mode": "explicit_command_only",
+  "capture_mode": "explicit_command_only",
+  "secret_overlay_required": true,
+  "notes": "Gen1 is the owner-designated live bootstrap reference. Shared values belong under cluster/; only intentional Gen1-specific differences belong here."
+}
