@@ -10,6 +10,15 @@ const MAX_AUDIT_ENTRIES = 10_000;
 const MAX_CHALLENGES = 5000;
 const CHALLENGE_RETENTION_MS = 7 * 24 * 60 * 60_000;
 
+class IdentityStateError extends Error {
+  constructor(message, cause = null) {
+    super(message);
+    this.name = 'IdentityStateError';
+    this.code = 'ARK_IDENTITY_STATE_CORRUPT';
+    if (cause) this.cause = cause;
+  }
+}
+
 function cleanId(value, max = 128) {
   return String(value || '').replace(/[\r\n\t]/g, '').trim().slice(0, max);
 }
@@ -20,6 +29,10 @@ function validDiscordId(value) {
 
 function validEosId(value) {
   return /^[A-Za-z0-9_-]{8,128}$/.test(cleanId(value));
+}
+
+function plainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function emptyIdentityState() {
@@ -65,6 +78,40 @@ function pruneChallenges(state, now = Date.now()) {
   return state.challenges;
 }
 
+function normalizeIdentityState(parsed) {
+  if (!plainObject(parsed)) throw new IdentityStateError('ARK identity state root must be a JSON object.');
+  if (parsed.version != null && parsed.version !== 1) throw new IdentityStateError(`Unsupported ARK identity state version: ${String(parsed.version).slice(0, 24)}.`);
+  for (const key of ['profiles', 'arkIndex', 'challenges']) {
+    if (parsed[key] != null && !plainObject(parsed[key])) throw new IdentityStateError(`ARK identity state field ${key} must be an object.`);
+  }
+  if (parsed.audit != null && !Array.isArray(parsed.audit)) throw new IdentityStateError('ARK identity state field audit must be an array.');
+
+  const state = {
+    version: 1,
+    profiles: parsed.profiles || {},
+    arkIndex: parsed.arkIndex || {},
+    challenges: parsed.challenges || {},
+    audit: (parsed.audit || []).slice(-MAX_AUDIT_ENTRIES)
+  };
+
+  for (const [discordId, profile] of Object.entries(state.profiles)) {
+    if (!validDiscordId(discordId) || !plainObject(profile)) throw new IdentityStateError('ARK identity state contains an invalid profile record.');
+    if (cleanId(profile.discordUserId) && cleanId(profile.discordUserId) !== discordId) throw new IdentityStateError('ARK identity profile key does not match its Discord user id.');
+    if (profile.arkAccounts != null && !Array.isArray(profile.arkAccounts)) throw new IdentityStateError('ARK identity profile arkAccounts must be an array.');
+  }
+
+  for (const [eosId, discordIdRaw] of Object.entries(state.arkIndex)) {
+    const discordId = cleanId(discordIdRaw);
+    if (!validEosId(eosId) || !validDiscordId(discordId)) throw new IdentityStateError('ARK identity index contains an invalid account mapping.');
+    const profile = state.profiles[discordId];
+    if (!profile) throw new IdentityStateError('ARK identity index references a missing profile.');
+    const accounts = Array.isArray(profile.arkAccounts) ? profile.arkAccounts : [];
+    if (!accounts.some((item) => cleanId(item?.eosId) === eosId)) throw new IdentityStateError('ARK identity index and profile account list are inconsistent.');
+  }
+
+  return state;
+}
+
 class ArkIdentityStore {
   constructor(options = {}) {
     const root = options.root || process.env.NEXUS_DATA_DIR || path.resolve(__dirname, '../..', 'data');
@@ -97,17 +144,32 @@ class ArkIdentityStore {
   }
 
   read() {
+    let raw;
     try {
-      const parsed = JSON.parse(fs.readFileSync(this.file, 'utf8'));
+      raw = fs.readFileSync(this.file, 'utf8');
+    } catch (error) {
+      if (error?.code === 'ENOENT') return emptyIdentityState();
+      throw new IdentityStateError('ARK identity state could not be read safely.', error);
+    }
+    try {
+      return normalizeIdentityState(JSON.parse(raw));
+    } catch (error) {
+      if (error instanceof IdentityStateError) throw error;
+      throw new IdentityStateError('ARK identity state contains invalid JSON.', error);
+    }
+  }
+
+  health() {
+    try {
+      const state = this.read();
       return {
-        version: 1,
-        profiles: parsed?.profiles && typeof parsed.profiles === 'object' ? parsed.profiles : {},
-        arkIndex: parsed?.arkIndex && typeof parsed.arkIndex === 'object' ? parsed.arkIndex : {},
-        challenges: parsed?.challenges && typeof parsed.challenges === 'object' ? parsed.challenges : {},
-        audit: Array.isArray(parsed?.audit) ? parsed.audit.slice(-MAX_AUDIT_ENTRIES) : []
+        ok: true,
+        profiles: Object.keys(state.profiles).length,
+        linkedArkAccounts: Object.keys(state.arkIndex).length,
+        pendingChallenges: Object.values(state.challenges).filter((item) => item?.state === 'pending').length
       };
-    } catch {
-      return emptyIdentityState();
+    } catch (error) {
+      return { ok: false, code: error?.code === 'ARK_IDENTITY_STATE_CORRUPT' ? error.code : 'ARK_IDENTITY_STATE_UNAVAILABLE' };
     }
   }
 
@@ -122,6 +184,7 @@ class ArkIdentityStore {
       challenges: state.challenges || {},
       audit: (state.audit || []).slice(-MAX_AUDIT_ENTRIES)
     };
+    normalizeIdentityState(safe);
     const tmp = `${this.file}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(safe, null, 2), { mode: 0o600 });
     fs.renameSync(tmp, this.file);
@@ -248,4 +311,4 @@ class ArkIdentityStore {
   }
 }
 
-module.exports = { CODE_ALPHABET, DEFAULT_TTL_MS, MAX_CHALLENGES, CHALLENGE_RETENTION_MS, emptyIdentityState, validDiscordId, validEosId, pruneChallenges, ArkIdentityStore };
+module.exports = { CODE_ALPHABET, DEFAULT_TTL_MS, MAX_CHALLENGES, CHALLENGE_RETENTION_MS, IdentityStateError, emptyIdentityState, validDiscordId, validEosId, pruneChallenges, normalizeIdentityState, ArkIdentityStore };
