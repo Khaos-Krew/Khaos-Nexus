@@ -1,25 +1,45 @@
 'use strict';
 
 const { checkServerConfigDrift } = require('./ark-config-drift-monitor.cjs');
+const { PROTECTED_KEYS } = require('./ark-source-of-truth.cjs');
 
 const DEFAULT_SERVERS = Object.freeze(['gen1', 'astraeos']);
 
+function safeKey(value) {
+  const key = String(value || '').replace(/[\r\n\t]/g, ' ').trim().slice(0, 120);
+  if (!key || PROTECTED_KEYS.test(key)) return null;
+  if (/(?:password|passwd|secret|token|credential|api[_-]?key)/i.test(key)) return null;
+  return key;
+}
+
+function safeMessage({ serverId, state, driftCount, keys, truncated }) {
+  const target = serverId === 'gen1' ? 'Genesis 1' : serverId === 'astraeos' ? 'Astraeos' : 'ARK server';
+  if (state === 'in-sync') return `🟢 ${target} ARK config returned to Git parity.`;
+  if (state === 'unavailable') return `🟡 ${target} ARK config parity check is unavailable. No configuration was changed.`;
+  const keyText = keys.length ? ` Drifted keys: ${keys.join(', ')}${truncated ? ', …' : ''}.` : '';
+  return `🟡 ${target} ARK config drift detected (${driftCount} setting${driftCount === 1 ? '' : 's'}).${keyText}`;
+}
+
 function safeAlertPayload(result) {
-  if (!result?.alert || !result?.message) return null;
+  if (!result?.alert) return null;
   const current = result.current || {};
   const keys = Array.isArray(current.keys)
-    ? current.keys.map((key) => String(key || '').replace(/[\r\n\t]/g, ' ').trim().slice(0, 120)).filter(Boolean).slice(0, 50)
+    ? [...new Set(current.keys.map(safeKey).filter(Boolean))].slice(0, 50)
     : [];
+  const serverId = String(result.serverId || '').slice(0, 32);
+  const state = String(current.state || '').slice(0, 32);
+  const driftCount = Math.max(0, Number(current.driftCount) || 0);
+  const truncated = Boolean(current.truncated) || (Array.isArray(current.keys) && keys.length < current.keys.length);
   return Object.freeze({
     kind: 'ark-config-drift',
-    serverId: String(result.serverId || '').slice(0, 32),
+    serverId,
     transition: String(result.transition || '').slice(0, 64),
-    state: String(current.state || '').slice(0, 32),
-    driftCount: Math.max(0, Number(current.driftCount) || 0),
-    keys: Object.freeze([...new Set(keys)]),
-    truncated: Boolean(current.truncated),
+    state,
+    driftCount,
+    keys: Object.freeze(keys),
+    truncated,
     checkedAt: String(current.checkedAt || '').slice(0, 64),
-    message: String(result.message).replace(/[\r\n\t]/g, ' ').trim().slice(0, 1900)
+    message: safeMessage({ serverId, state, driftCount, keys, truncated })
   });
 }
 
@@ -59,6 +79,8 @@ async function runArkConfigDriftAlerts({
 
 module.exports = {
   DEFAULT_SERVERS,
+  safeKey,
+  safeMessage,
   safeAlertPayload,
   deliverDriftAlert,
   runArkConfigDriftAlerts
