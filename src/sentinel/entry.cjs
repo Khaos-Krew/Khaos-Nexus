@@ -51,6 +51,7 @@ const { installArkUpdateSafetyExtension } = require('./ark-update-safety-extensi
 const { installArkRconDiagnosticExtension } = require('./ark-rcon-diagnostic-extension.cjs');
 const { installArkStaffUnifiedOpsPanelExtension } = require('./ark-staff-unified-ops-panel-extension.cjs');
 const { installArkConfigDriftAlertExtension } = require('./ark-config-drift-alert-extension.cjs');
+const { installArkIdentityHealthExtension } = require('./ark-identity-health-extension.cjs');
 const { installArkRestartSchedulerExtension } = require('./ark-restart-scheduler-extension.cjs');
 const { installArkServerControlsExtension } = require('./ark-server-controls-extension.cjs');
 const { installArkDynamicEventsExtension } = require('./ark-dynamic-events-extension.cjs');
@@ -110,6 +111,7 @@ installArkUpdateSafetyExtension({ prefix: 'ARK_GEN1' });
 installArkRconDiagnosticExtension();
 installArkStaffUnifiedOpsPanelExtension();
 installArkConfigDriftAlertExtension();
+installArkIdentityHealthExtension();
 installArkRestartSchedulerExtension({ prefix: 'ARK_GEN1' });
 installArkServerControlsExtension({ prefix: 'ARK_GEN1' });
 installArkDynamicEventsExtension();
