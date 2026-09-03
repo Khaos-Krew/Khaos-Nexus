@@ -2,11 +2,95 @@
 
 const runtime = require('./dnd-campaign-runtime.cjs');
 
+function sameOrder(left = [], right = []) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function reconcileActiveCombat(combat = {}) {
+  if (!combat || combat.status !== 'active') return false;
+  let changed = false;
+  if (!Array.isArray(combat.combatants)) {
+    combat.combatants = [];
+    changed = true;
+  }
+  if (!Array.isArray(combat.turnOrder)) {
+    combat.turnOrder = [];
+    changed = true;
+  }
+
+  const combatantIds = new Set(combat.combatants.map((item) => String(item?.id || '').trim()).filter(Boolean));
+  const originalOrder = combat.turnOrder.map((item) => String(item || '').trim()).filter(Boolean);
+  const rawIndex = Number.isInteger(combat.currentIndex) ? combat.currentIndex : Number.parseInt(combat.currentIndex, 10);
+  const originalIndex = Number.isFinite(rawIndex) ? rawIndex : 0;
+  const originalCurrentId = originalIndex >= 0 && originalIndex < originalOrder.length ? originalOrder[originalIndex] : '';
+
+  const seen = new Set();
+  const recoveredOrder = [];
+  for (const id of originalOrder) {
+    if (!combatantIds.has(id) || seen.has(id)) continue;
+    seen.add(id);
+    recoveredOrder.push(id);
+  }
+  const missing = combat.combatants
+    .filter((item) => item?.id && !seen.has(String(item.id)))
+    .sort((a, b) => Number(b.initiative || 0) - Number(a.initiative || 0)
+      || Number(b.initiativeModifier || 0) - Number(a.initiativeModifier || 0)
+      || String(a.id).localeCompare(String(b.id)))
+    .map((item) => String(item.id));
+  recoveredOrder.push(...missing);
+
+  if (!sameOrder(combat.turnOrder, recoveredOrder)) {
+    combat.turnOrder = recoveredOrder;
+    changed = true;
+  }
+
+  let nextIndex = 0;
+  let wrappedFromMissingActor = false;
+  if (recoveredOrder.length) {
+    if (originalCurrentId && recoveredOrder.includes(originalCurrentId)) {
+      nextIndex = recoveredOrder.indexOf(originalCurrentId);
+    } else if (originalOrder.length) {
+      let successorId = '';
+      const start = Math.max(-1, Math.min(originalIndex, originalOrder.length - 1));
+      for (let offset = 1; offset <= originalOrder.length; offset += 1) {
+        const candidateIndex = (start + offset) % originalOrder.length;
+        const candidateId = originalOrder[candidateIndex];
+        if (!recoveredOrder.includes(candidateId)) continue;
+        successorId = candidateId;
+        wrappedFromMissingActor = candidateIndex <= start;
+        break;
+      }
+      nextIndex = successorId ? recoveredOrder.indexOf(successorId) : 0;
+    }
+  }
+
+  if (combat.currentIndex !== nextIndex) {
+    combat.currentIndex = nextIndex;
+    changed = true;
+  }
+  const round = Number.parseInt(combat.round, 10);
+  if (!Number.isFinite(round) || round < 1) {
+    combat.round = 1;
+    changed = true;
+  } else if (wrappedFromMissingActor) {
+    combat.round = round + 1;
+    changed = true;
+  }
+  const turnNumber = Number.parseInt(combat.turnNumber, 10);
+  if (!Number.isFinite(turnNumber) || turnNumber < 1) {
+    combat.turnNumber = 1;
+    changed = true;
+  }
+  if (changed) combat.updatedAt = runtime.nowIso();
+  return changed;
+}
+
 function ensureSoloCombatState(state = {}) {
   runtime.ensureCampaignRuntimeState(state);
   if (!Array.isArray(state.soloAdventures)) state.soloAdventures = [];
   if (!Array.isArray(state.runtimeCombats)) state.runtimeCombats = [];
   if (!Array.isArray(state.runtimeMemories)) state.runtimeMemories = [];
+  for (const combat of state.runtimeCombats) reconcileActiveCombat(combat);
   return state;
 }
 
@@ -102,6 +186,6 @@ function syncCharacterHp(state, combat, target, key) {
 }
 
 module.exports = {
-  runtime, ensureSoloCombatState, cleanNumber, rollDie, combatById, combatantById,
+  runtime, ensureSoloCombatState, reconcileActiveCombat, cleanNumber, rollDie, combatById, combatantById,
   activeCombatant, startCombat, assertActiveActor, appendCombatLog, syncCharacterHp
 };
