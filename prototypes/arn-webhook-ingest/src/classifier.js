@@ -1,0 +1,287 @@
+// ARN danger classification is based on the official Shiny! Dinos Ascended
+// "Special Abilities & Attributes of Shiny Dinos" reference. Names not present
+// in that ability list are treated as color-set/chromatic names, not rarity.
+
+const RULES = [
+  // Class V: reserved for Enraged. Officially alpha-like but bigger, stronger,
+  // tougher and faster; untameable and intended as a high-end kill target.
+  {
+    match: /\benraged\b/i,
+    trait: "Enraged",
+    tier: 5,
+    label: "KAIJU-LEVEL THREAT",
+    threat: "KAIJU",
+    danger: "KAIJU",
+    emoji: "☢️",
+    color: 0xe53935,
+    abilitySummary: "Alpha-like anomaly: bigger, stronger, tougher and faster; cannot be tamed.",
+    reward: "1 Tekgram on termination",
+  },
+
+  // Class IV: abilities that materially escalate direct combat or area danger.
+  {
+    match: /\bradioactive\b/i,
+    trait: "Radioactive",
+    tier: 4,
+    label: "CRITICAL ANOMALY",
+    threat: "CRITICAL",
+    danger: "CRITICAL",
+    emoji: "☣️",
+    color: 0xd32f2f,
+    abilitySummary: "Radiation-emitting anomaly with a mutation-boosting pulse.",
+  },
+  {
+    match: /\bburning\b/i,
+    trait: "Burning",
+    tier: 4,
+    label: "CRITICAL ANOMALY",
+    threat: "CRITICAL",
+    danger: "CRITICAL",
+    emoji: "🔥",
+    color: 0xd32f2f,
+    abilitySummary: "Fire/lava immune and capable of an area-of-effect fire explosion.",
+  },
+  {
+    match: /\btaser\b/i,
+    trait: "Taser",
+    tier: 4,
+    label: "CRITICAL ANOMALY",
+    threat: "CRITICAL",
+    danger: "CRITICAL",
+    emoji: "⚡",
+    color: 0xd32f2f,
+    abilitySummary: "Electrified defense can shock and stun attackers.",
+  },
+  {
+    match: /\bcrystalline\b/i,
+    trait: "Crystalline",
+    tier: 4,
+    label: "CRITICAL ANOMALY",
+    threat: "CRITICAL",
+    danger: "CRITICAL",
+    emoji: "💎",
+    color: 0xd32f2f,
+    abilitySummary: "Glass-cannon anomaly: increased damage and melee damage reflection.",
+  },
+  {
+    match: /\bcolossal\b/i,
+    trait: "Colossal",
+    tier: 4,
+    label: "CRITICAL ANOMALY",
+    threat: "CRITICAL",
+    danger: "CRITICAL",
+    emoji: "🦖",
+    color: 0xd32f2f,
+    abilitySummary: "Larger, stronger anomaly with increased health and melee damage.",
+  },
+
+  // Class III: defensive/status effects that materially change an engagement.
+  {
+    match: /\bfrozen\b/i,
+    trait: "Frozen",
+    tier: 3,
+    label: "SEVERE ANOMALY",
+    threat: "SEVERE",
+    danger: "SEVERE",
+    emoji: "❄️",
+    color: 0x9c27b0,
+    abilitySummary: "Reduced incoming damage from most attacks; especially vulnerable to fire.",
+  },
+  {
+    match: /\bskeletal\b/i,
+    trait: "Skeletal",
+    tier: 3,
+    label: "SEVERE ANOMALY",
+    threat: "SEVERE",
+    danger: "SEVERE",
+    emoji: "💀",
+    color: 0x9c27b0,
+    abilitySummary: "Ranged attacks are less effective due to skeletal physiology.",
+  },
+  {
+    match: /\brubber\b/i,
+    trait: "Rubber",
+    tier: 3,
+    label: "SEVERE ANOMALY",
+    threat: "SEVERE",
+    danger: "SEVERE",
+    emoji: "🛡️",
+    color: 0x9c27b0,
+    abilitySummary: "Bouncy anomaly that can reflect some melee attacks.",
+  },
+  {
+    match: /\bdazzling\b/i,
+    trait: "Dazzling",
+    tier: 3,
+    label: "SEVERE ANOMALY",
+    threat: "SEVERE",
+    danger: "SEVERE",
+    emoji: "✨",
+    color: 0x9c27b0,
+    abilitySummary: "Can blind attackers and is naturally immune to radiation.",
+  },
+  {
+    match: /\bpsychotropic\b/i,
+    trait: "Psychotropic",
+    tier: 3,
+    label: "SEVERE ANOMALY",
+    threat: "SEVERE",
+    danger: "SEVERE",
+    emoji: "🌀",
+    color: 0x9c27b0,
+    abilitySummary: "Primarily visual, but bites can produce unusual effects.",
+  },
+  {
+    match: /\bnightmare\b/i,
+    trait: "Nightmare",
+    tier: 3,
+    label: "SEVERE ANOMALY",
+    threat: "SEVERE",
+    danger: "SEVERE",
+    emoji: "🌑",
+    color: 0x9c27b0,
+    abilitySummary: "Cold-emitting anomaly that chills its surroundings.",
+  },
+
+  // Class II: meaningful movement, stealth, durability or wild-stat changes.
+  {
+    match: /\bshinobi\b/i,
+    trait: "Shinobi",
+    tier: 2,
+    label: "ELEVATED ANOMALY",
+    threat: "ELEVATED",
+    danger: "ELEVATED",
+    emoji: "🥷",
+    color: 0xff9800,
+    abilitySummary: "Significantly reduced wild-dino aggro range.",
+  },
+  {
+    match: /\bendurant\b/i,
+    trait: "Endurant",
+    tier: 2,
+    label: "ELEVATED ANOMALY",
+    threat: "ELEVATED",
+    danger: "ELEVATED",
+    emoji: "🏃",
+    color: 0xff9800,
+    abilitySummary: "Can sprint indefinitely without normal sprint stamina drain.",
+  },
+  {
+    match: /\bspectral\b/i,
+    trait: "Spectral",
+    tier: 2,
+    label: "ELEVATED ANOMALY",
+    threat: "ELEVATED",
+    danger: "ELEVATED",
+    emoji: "👻",
+    color: 0xff9800,
+    abilitySummary: "Ghostly, silent and immune to fall damage.",
+  },
+  {
+    match: /\blunar\b/i,
+    trait: "Lunar",
+    tier: 2,
+    label: "ELEVATED ANOMALY",
+    threat: "ELEVATED",
+    danger: "ELEVATED",
+    emoji: "🌙",
+    color: 0xff9800,
+    abilitySummary: "Moves and jumps under low-gravity behavior.",
+  },
+  {
+    match: /\bfilthy\b/i,
+    trait: "Filthy",
+    tier: 2,
+    label: "ELEVATED ANOMALY",
+    threat: "ELEVATED",
+    danger: "ELEVATED",
+    emoji: "🦠",
+    color: 0xff9800,
+    abilitySummary: "Spawns with an extra level boost and must be cleaned after taming.",
+  },
+  {
+    match: /\bpygmy\b/i,
+    trait: "Pygmy",
+    tier: 2,
+    label: "ELEVATED ANOMALY",
+    threat: "ELEVATED",
+    danger: "ELEVATED",
+    emoji: "🔬",
+    color: 0xff9800,
+    abilitySummary: "Smaller than normal but somewhat faster.",
+  },
+  {
+    match: /\b(hardy|stalwart|inspired|satiate|hefty|fierce)\b/i,
+    traitFromMatch: true,
+    tier: 2,
+    label: "ELEVATED ANOMALY",
+    threat: "ELEVATED",
+    danger: "ELEVATED",
+    emoji: "📈",
+    color: 0xff9800,
+    abilitySummary: "Has an increased chance to roll strongly in one favored wild stat.",
+  },
+
+  // Class I: useful/non-combat abilities and color-only Shiny names.
+  {
+    match: /\bfathomless\b/i,
+    trait: "Fathomless",
+    tier: 1,
+    label: "WATCH ANOMALY",
+    threat: "WATCH",
+    danger: "WATCH",
+    emoji: "🧬",
+    color: 0xc1121f,
+    abilitySummary: "Inventory weight is reduced by 80%.",
+  },
+  {
+    match: /\bholographic\b/i,
+    trait: "Holographic",
+    tier: 1,
+    label: "WATCH ANOMALY",
+    threat: "WATCH",
+    danger: "WATCH",
+    emoji: "🧬",
+    color: 0xc1121f,
+    abilitySummary: "Rider utility for threat, companion and high-level dino detection.",
+  },
+  {
+    match: /\b(bolstering|hydrating|invigorating|obscured|pyrethrous|revitalizing|serene)\b/i,
+    traitFromMatch: true,
+    tier: 1,
+    label: "WATCH ANOMALY",
+    threat: "WATCH",
+    danger: "WATCH",
+    emoji: "🧬",
+    color: 0xc1121f,
+    abilitySummary: "Shiny Tiny shoulder-pet utility trait.",
+  },
+];
+
+export function classifyAnomaly(name = "") {
+  for (const rule of RULES) {
+    const match = String(name).match(rule.match);
+    if (!match) continue;
+
+    const result = { ...rule };
+    delete result.match;
+    delete result.traitFromMatch;
+    if (!result.trait) result.trait = match[1] || "Shiny Ability";
+    result.referenceMatched = true;
+    return result;
+  }
+
+  // The official reference notes that Shiny has 40+ color sets whose names can
+  // appear on dinos, and names not listed as abilities are likely just coloring.
+  return {
+    trait: "Chromatic",
+    tier: 1,
+    label: "WATCH ANOMALY",
+    threat: "WATCH",
+    danger: "WATCH",
+    emoji: "🧬",
+    color: 0xc1121f,
+    abilitySummary: "No documented special ability matched; treat as a color-set Shiny.",
+    referenceMatched: false,
+  };
+}

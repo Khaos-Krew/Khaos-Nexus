@@ -1,0 +1,1 @@
+No package lock committed in the prototype. Run npm install in an isolated test environment before execution.
