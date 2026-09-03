@@ -32,22 +32,48 @@ function clampInitiativeIndex(value, length) {
   return Math.max(0, Math.min(length - 1, index));
 }
 
+function storedInitiativeIndex(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(0, Math.trunc(numeric)) : 0;
+}
+
 function currentInitiativeState(encounter = {}, combatants = []) {
   const order = initiativeOrder(combatants);
-  if (!order.length) return { order, currentIndex: 0, currentCombatant: null };
+  const round = Math.max(1, Number(encounter.round || 1));
+  if (!order.length) {
+    return {
+      order,
+      currentIndex: 0,
+      currentCombatant: null,
+      currentCombatantId: '',
+      round,
+      identityMissing: false,
+      wrappedFromMissingIdentity: false
+    };
+  }
 
   const currentCombatantId = String(encounter.currentCombatantId || '').trim();
   const identityIndex = currentCombatantId
     ? order.findIndex((item) => String(item.id || '') === currentCombatantId)
     : -1;
+  const identityMissing = Boolean(currentCombatantId) && identityIndex < 0;
+  const storedIndex = storedInitiativeIndex(encounter.currentTurnIndex);
+  const wrappedFromMissingIdentity = identityMissing && storedIndex >= order.length;
   const currentIndex = identityIndex >= 0
     ? identityIndex
-    : clampInitiativeIndex(encounter.currentTurnIndex, order.length);
+    : identityMissing
+      ? (wrappedFromMissingIdentity ? 0 : storedIndex)
+      : clampInitiativeIndex(storedIndex, order.length);
+  const currentCombatant = order[currentIndex] || null;
 
   return {
     order,
     currentIndex,
-    currentCombatant: order[currentIndex] || null
+    currentCombatant,
+    currentCombatantId: String(currentCombatant?.id || ''),
+    round: wrappedFromMissingIdentity ? round + 1 : round,
+    identityMissing,
+    wrappedFromMissingIdentity
   };
 }
 
@@ -55,9 +81,18 @@ function advanceInitiativeByIdentity(encounter = {}, combatants = []) {
   const snapshot = currentInitiativeState(encounter, combatants);
   if (!snapshot.order.length) throw fail('No active combatants are in initiative.', 'EMPTY_INITIATIVE');
 
+  if (snapshot.identityMissing) {
+    return {
+      order: snapshot.order,
+      currentTurnIndex: snapshot.currentIndex,
+      currentCombatantId: snapshot.currentCombatantId,
+      round: snapshot.round,
+      currentCombatant: snapshot.currentCombatant
+    };
+  }
+
   const nextIndex = snapshot.currentIndex + 1 >= snapshot.order.length ? 0 : snapshot.currentIndex + 1;
-  const round = Math.max(1, Number(encounter.round || 1));
-  const nextRound = nextIndex === 0 ? round + 1 : round;
+  const nextRound = nextIndex === 0 ? snapshot.round + 1 : snapshot.round;
   const currentCombatant = snapshot.order[nextIndex];
 
   return {
