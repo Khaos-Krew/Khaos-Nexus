@@ -16,7 +16,7 @@ function incidentLine(incident) {
   const threat = incident.classification?.danger || incident.classification?.threat || "WATCH";
   const threatEmoji = incident.classification?.emoji || "🧬";
 
-  const first = `${threatEmoji} **${incident.dino}** • \`${threat}\` • ${status.emoji} **${status.label}**`;
+  const first = `${threatEmoji} **${incident.dino}** • **Threat Level - ${threat}** • ${status.emoji} **${status.label}**`;
   const detail = [];
 
   if (incident.classification?.trait) detail.push(`Trait: ${incident.classification.trait}`);
