@@ -46,6 +46,7 @@ if (diagnosticsMode) {
     } else mobileHold.install();
     require('./dnd-action-rejection-boundary-extension.cjs').install();
     require('./dnd-campaign-extension.cjs').install();
+    require('./dnd-runtime-integrity-extension.cjs').install();
     require('./dnd-usability-repair-extension.cjs').install();
     require('./dnd-owner-workflows-extension.cjs').install();
     require('./dnd-discord-provisioning-runtime-extension.cjs').install();
