@@ -13,7 +13,7 @@ function driftResult(overrides = {}) {
     serverId: 'gen1',
     transition: 'in-sync-to-drifted',
     alert: true,
-    message: '🟡 Genesis 1 ARK config drift detected (1 setting). Drifted keys: XPMultiplier.',
+    message: 'caller-controlled message should not be forwarded',
     current: {
       serverId: 'gen1',
       state: 'drifted',
@@ -26,11 +26,11 @@ function driftResult(overrides = {}) {
   };
 }
 
-test('safe alert payload exposes transition metadata and key names but no config values or infrastructure', () => {
+test('safe alert payload exposes transition metadata and safe key names but no values or infrastructure', () => {
   const result = driftResult({
     current: {
       ...driftResult().current,
-      keys: ['XPMultiplier', 'ServerAdminPassword\nsecret-value']
+      keys: ['XPMultiplier', 'ServerAdminPassword\nsecret-value', 'api_token=malicious']
     },
     expected: 'do-not-expose',
     actual: 'do-not-expose-either',
@@ -42,6 +42,11 @@ test('safe alert payload exposes transition metadata and key names but no config
   assert.equal(payload.kind, 'ark-config-drift');
   assert.equal(payload.serverId, 'gen1');
   assert.equal(payload.state, 'drifted');
+  assert.deepEqual(payload.keys, ['XPMultiplier']);
+  assert.equal(payload.truncated, true);
+  assert.equal(serialized.includes('secret-value'), false);
+  assert.equal(serialized.includes('malicious'), false);
+  assert.equal(serialized.includes('caller-controlled'), false);
   assert.equal(serialized.includes('do-not-expose'), false);
   assert.equal(serialized.includes('/secret/path'), false);
   assert.equal(serialized.includes('connection secret'), false);
