@@ -57,6 +57,7 @@ if (diagnosticsMode) {
     require('./dnd-npc-tool-extension.cjs').install();
     require('./dnd-encounter-panels-extension.cjs').install();
     require('../shared/dnd-ai-context-privacy.cjs').install();
+    require('../shared/dnd-content-source-authority.cjs').install();
     require('./dnd-co-dm-extension.cjs').install();
     require('./dnd-co-dm-persistence-extension.cjs').install();
     require('./dnd-ai-map-persistence-extension.cjs').install();
