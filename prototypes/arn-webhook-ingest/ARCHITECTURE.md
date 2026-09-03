@@ -21,19 +21,29 @@ ACTIVE entries remain until a lifecycle event resolves them. CAPTURED and DEFEAT
 
 ## Danger classification
 
-Initial prototype danger scale:
+Classification is based on the official Shiny! Dinos Ascended **Special Abilities & Attributes of Shiny Dinos** reference:
 
-- Class I / WATCH: default anomaly
-- Class II / ELEVATED: unusual visual/prefix variants
-- Class III / SEVERE: rare prefixes such as Princess, Noir, Pygmy, Spectral, Lunar, Solar, Mythic
-- Class IV: reserved for future critical classifications
-- Class V / KAIJU: Enraged
+https://legacy.curseforge.com/ark-survival-ascended/mods/shiny-ascended/pages/shiny-ascended/shiny-abilities
+
+The ARN class describes danger added by the Shiny trait. It is not intended to replace the normal danger of the underlying species. A WATCH-class chromatic Giganotosaurus is still a Giganotosaurus.
+
+Current ARN ability-threat scale:
+
+- **Class I / WATCH**: color-set-only names and utility traits such as Fathomless, Holographic and Shiny Tiny support traits.
+- **Class II / ELEVATED**: movement, stealth, level/stat or unusual-physics traits such as Shinobi, Endurant, Spectral, Lunar, Filthy, Pygmy, Hardy, Stalwart, Inspired, Satiate, Hefty and Fierce.
+- **Class III / SEVERE**: defensive/status traits that materially change an engagement: Frozen, Skeletal, Rubber, Psychotropic, Dazzling and Nightmare.
+- **Class IV / CRITICAL**: direct combat/area hazard traits: Radioactive, Burning, Taser, Crystalline and Colossal.
+- **Class V / KAIJU**: Enraged only.
 
 Enraged/KAIJU entries display the configured Khaos Nexus reward of one Tekgram on termination.
+
+The official reference states that Shiny includes more than 40 color sets and that a name not listed as an ability is likely just coloring. ARN therefore no longer interprets names such as Princess, Noir, Xanthic or Azure as danger/rarity by themselves. They remain visible in the full creature name but default to WATCH unless a documented ability is also present.
 
 ## Board behavior
 
 The public output is one persistent Discord message. Each accepted lifecycle event edits that message instead of posting a new public alert. The board groups anomalies by map, sorts ACTIVE entries ahead of recent resolutions, and places higher danger classes first.
+
+Each entry shows the matched Shiny trait. If no documented ability matches, Sentinel labels the trait `Chromatic`.
 
 If any active KAIJU threat exists, the board title switches to a KAIJU ALERT state.
 
