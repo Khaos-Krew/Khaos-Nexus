@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "test": "node --test",
+    "setup:intake": "node src/provision-intake.js"
   },
   "dependencies": {
     "discord.js": "^14.16.3",
