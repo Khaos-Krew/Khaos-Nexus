@@ -14,6 +14,22 @@ The hidden ingest channel doubles as a short-term event journal. On restart, the
 
 The prototype does not modify Shiny, scan ARK entities, or require ArkAPI.
 
+## Classification source of truth
+
+ARN trait detection is based on the official Shiny! Dinos Ascended Special Abilities & Attributes reference:
+
+https://legacy.curseforge.com/ark-survival-ascended/mods/shiny-ascended/pages/shiny-ascended/shiny-abilities
+
+Names not present in the documented ability list are treated as color-set/chromatic names rather than assumed rarity. The ARN danger class reflects the extra hazard introduced by the Shiny trait; it does not replace the normal threat of the underlying ARK species.
+
+Threat scale:
+
+- Class I / WATCH: chromatic and utility traits
+- Class II / ELEVATED: movement, stealth, stat and unusual-physics traits
+- Class III / SEVERE: defensive/status abilities
+- Class IV / CRITICAL: direct combat and area-hazard abilities
+- Class V / KAIJU: Enraged only
+
 ## Live bounty board behavior
 
 - DETECTED -> adds an ACTIVE anomaly to the board.
@@ -33,7 +49,10 @@ The prototype does not modify Shiny, scan ARK entities, or require ArkAPI.
 - parses detected, signal-lost, contained, and terminated lifecycle events;
 - maintains in-memory active/resolved anomaly state;
 - reconstructs state by replaying recent hidden-ingest messages after restart;
-- classifies anomaly danger levels with Enraged promoted to KAIJU;
+- classifies documented Shiny abilities using the official ability reference;
+- labels unmatched names as Chromatic/WATCH rather than inventing rarity;
+- treats Enraged as Class V / KAIJU and displays the 1 Tekgram termination reward;
+- shows the recognized Shiny trait on bounty-board entries;
 - retains CAPTURED/DEFEATED status for a configurable period before clearing;
 - uses a shorter configurable retention period for SIGNAL LOST;
 - discovers an existing ARN board message or creates one if none exists;
