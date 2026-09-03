@@ -20,6 +20,12 @@ function retryDelayMs(response, payload) {
   return Math.max(0, seconds) * 1000;
 }
 
+function provisioningFailures(results) {
+  return (Array.isArray(results) ? results : []).filter((item) =>
+    item?.status === 'failed' || item?.status === 'binding-failed'
+  );
+}
+
 class DndDiscordProvisioningService extends BaseProvisioningService {
   constructor(options) {
     super(options);
@@ -78,9 +84,62 @@ class DndDiscordProvisioningService extends BaseProvisioningService {
     }
     throw requestError(500, null, 'Discord request exhausted its retry attempts.');
   }
+
+  async apply(input = {}, onProgress = () => {}) {
+    // The base service historically counted failures before refreshing the
+    // persistent campaign panel. Buffer the terminal event so callers only
+    // receive the final, reconciled provisioning outcome.
+    let terminalProgress = null;
+    const result = await super.apply(input, (event) => {
+      if (event?.phase === 'complete') {
+        terminalProgress = event;
+        return;
+      }
+      onProgress(event);
+    });
+
+    const failures = provisioningFailures(result?.results);
+    const failedCount = failures.length;
+    const previousFailedCount = Number(result?.failedCount || 0);
+    let record = result?.record || null;
+
+    if (failedCount !== previousFailedCount) {
+      if (record && record.status !== 'partial') {
+        record = this.saveRecord({ ...record, status: 'partial' });
+      }
+
+      this.audit('provisioning.outcome_reconciled', {
+        ...input,
+        campaignId: result?.preview?.campaign?.id || input.campaignId,
+        appId: result?.preview?.appId || input.appId,
+        guildId: result?.preview?.guildId || input.guildId,
+        targetId: record?.id || ''
+      }, failedCount ? 'partial' : 'success', {
+        previousFailedCount,
+        failedCount,
+        failureKeys: failures.map((item) => item.key || 'unknown')
+      });
+    }
+
+    const finalStatus = failedCount ? 'partial' : 'success';
+    onProgress({
+      ...(terminalProgress || {}),
+      phase: 'complete',
+      status: finalStatus,
+      createdCount: Number(result?.createdCount || terminalProgress?.createdCount || 0),
+      failedCount
+    });
+
+    return {
+      ...result,
+      record,
+      failedCount
+    };
+  }
 }
 
 module.exports = {
   DndDiscordProvisioningService,
-  retryDelayMs
+  retryDelayMs,
+  provisioningFailures
 };
