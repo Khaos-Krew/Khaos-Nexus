@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { parseIniSection, assertRegistryParity, loadCanonicalBaseline } = require('../src/sentinel/ark-sftp-config.cjs');
+const { comparableValue, parseIniSection, assertRegistryParity, loadCanonicalBaseline, serverIdFromPrefix } = require('../src/sentinel/ark-sftp-config.cjs');
 const { loadResolvedServer, diffLiveIni, assertApplyEnabled } = require('../src/sentinel/ark-source-of-truth.cjs');
 
 test('canonical Gen1 ARK INIs and rates registry are in parity', () => {
@@ -13,6 +13,18 @@ test('canonical Gen1 ARK INIs and rates registry are in parity', () => {
   assert.equal(baseline.gus.XPMultiplier, '5.0');
   assert.equal(baseline.game['PerLevelStatsMultiplier_Player[7]'], '30.0');
   assert.equal(baseline.rates.values.tamed_dino_stats['7'], 15);
+});
+
+test('parity normalizes equivalent numeric and boolean INI values', () => {
+  assert.equal(comparableValue('1.0'), comparableValue(1));
+  assert.equal(comparableValue('30.00'), comparableValue(30));
+  assert.equal(comparableValue('True'), comparableValue(true));
+  assert.equal(comparableValue('FALSE'), comparableValue(false));
+  assert.equal(assertRegistryParity(
+    { XPMultiplier: '5.0', ServerPVE: 'True' },
+    { bAllowSpeedLeveling: 'True' },
+    { values: { server_settings: { XPMultiplier: 5, ServerPVE: true }, game_mode: { bAllowSpeedLeveling: true } } }
+  ), true);
 });
 
 test('INI parser rejects conflicting duplicate keys', () => {
@@ -41,6 +53,12 @@ test('server resolver inherits cluster baseline and applies only server override
   assert.equal(astraeos.game['PerLevelStatsMultiplier_Player[7]'], '30.0');
   assert.deepEqual(astraeos.overrides.gus, {});
   assert.deepEqual(astraeos.overrides.game, {});
+});
+
+test('runtime prefixes resolve to the declared Git server profiles', () => {
+  assert.equal(serverIdFromPrefix('ARK_GEN1'), 'gen1');
+  assert.equal(serverIdFromPrefix('ARK_MAP2'), 'astraeos');
+  assert.throws(() => serverIdFromPrefix('ARK_UNKNOWN'), /no ARK source-of-truth server mapping/i);
 });
 
 test('deployment gate remains locked until bootstrap and deployment are both enabled', () => {
