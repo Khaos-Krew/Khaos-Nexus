@@ -2,7 +2,8 @@ import "dotenv/config";
 import { Client, GatewayIntentBits } from "discord.js";
 import { parseShinyMessage } from "./parser.js";
 import { classifyAnomaly } from "./classifier.js";
-import { buildArnEmbed } from "./render.js";
+import { ArnBoardState } from "./board-state.js";
+import { buildBountyBoardEmbed } from "./render.js";
 
 const required = ["DISCORD_BOT_TOKEN", "ARN_INGEST_CHANNEL_ID", "ARN_OUTPUT_CHANNEL_ID"];
 for (const key of required) {
@@ -12,8 +13,6 @@ for (const key of required) {
 function loadServerByWebhook() {
   const map = {};
 
-  // Scalable form for future cluster maps.
-  // Example: {"123456789":"Genesis 1","987654321":"Astraeos"}
   if (process.env.ARN_SHINY_WEBHOOK_MAP_JSON) {
     let parsed;
     try {
@@ -33,11 +32,15 @@ function loadServerByWebhook() {
     }
   }
 
-  // Convenience variables for the two current Khaos Nexus maps.
   if (process.env.GEN1_SHINY_WEBHOOK_ID) map[process.env.GEN1_SHINY_WEBHOOK_ID.trim()] = "Genesis 1";
   if (process.env.ASTRAEOS_SHINY_WEBHOOK_ID) map[process.env.ASTRAEOS_SHINY_WEBHOOK_ID.trim()] = "Astraeos";
 
   return map;
+}
+
+function secondsEnv(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
 const serverByWebhook = loadServerByWebhook();
@@ -46,60 +49,185 @@ if (!allowedWebhookIds.size) {
   throw new Error("ARN requires at least one dedicated Shiny webhook-to-map mapping");
 }
 
-const processed = new Set();
+const boardState = new ArnBoardState({
+  resolvedTtlMs: secondsEnv("ARN_RESOLVED_TTL_SECONDS", 180) * 1000,
+  lostTtlMs: secondsEnv("ARN_LOST_TTL_SECONDS", 60) * 1000,
+});
+
+const replayLimit = Math.min(100, Math.max(1, secondsEnv("ARN_REPLAY_LIMIT", 100)));
+const cleanupIntervalMs = Math.max(5000, secondsEnv("ARN_CLEANUP_INTERVAL_SECONDS", 15) * 1000);
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
 });
 
-client.once("ready", () => {
-  console.log(`[ARN] Prototype online as ${client.user.tag}`);
-  console.log(`[ARN] Ingest channel: ${process.env.ARN_INGEST_CHANNEL_ID}`);
-  console.log(`[ARN] Output channel: ${process.env.ARN_OUTPUT_CHANNEL_ID}`);
-  console.log(`[ARN] Dedicated map webhooks: ${allowedWebhookIds.size}`);
-  for (const [webhookId, serverName] of Object.entries(serverByWebhook)) {
-    console.log(`[ARN] Source ${webhookId} -> ${serverName}`);
+let ingestChannel;
+let outputChannel;
+let boardMessage;
+let renderQueue = Promise.resolve();
+
+function isAcceptedSource(message) {
+  return message.channelId === process.env.ARN_INGEST_CHANNEL_ID &&
+    Boolean(message.webhookId) &&
+    allowedWebhookIds.has(message.webhookId);
+}
+
+function applySourceMessage(message, { replay = false } = {}) {
+  if (!isAcceptedSource(message)) return { changed: false, ignored: true };
+
+  const parsed = parseShinyMessage(message, serverByWebhook);
+  if (parsed.event === "unknown") {
+    if (!replay) {
+      console.warn("[ARN] Ignoring unrecognized Shiny message", {
+        messageId: message.id,
+        title: parsed.sourceTitle,
+      });
+    }
+    return { changed: false, ignored: true };
+  }
+
+  if (parsed.sourceMapMismatch) {
+    console.warn("[ARN] Payload map disagrees with dedicated webhook mapping; webhook mapping wins", {
+      messageId: message.id,
+      webhookId: message.webhookId,
+      mappedServer: parsed.server,
+      payloadServer: parsed.payloadServer,
+    });
+  }
+
+  const classification = classifyAnomaly(parsed.dino);
+  const result = boardState.process(parsed, classification, {
+    messageId: message.id,
+    timestamp: message.createdTimestamp || Date.now(),
+  });
+
+  if (result.ambiguousMatch) {
+    console.warn("[ARN] Multiple active anomalies matched a lifecycle event; newest matching signal was updated", {
+      messageId: message.id,
+      server: parsed.server,
+      dino: parsed.dino,
+      candidates: result.candidateCount,
+    });
+  }
+
+  return { ...result, parsed, classification };
+}
+
+async function locateBoardMessage() {
+  if (boardMessage) return boardMessage;
+
+  if (process.env.ARN_BOARD_MESSAGE_ID) {
+    try {
+      boardMessage = await outputChannel.messages.fetch(process.env.ARN_BOARD_MESSAGE_ID);
+      return boardMessage;
+    } catch (error) {
+      console.warn("[ARN] Configured ARN_BOARD_MESSAGE_ID could not be fetched; falling back to discovery", error.message);
+    }
+  }
+
+  const recent = await outputChannel.messages.fetch({ limit: 50 });
+  boardMessage = recent.find((candidate) =>
+    candidate.author?.id === client.user.id &&
+    candidate.embeds?.[0]?.title?.includes("ARN // LIVE ANOMALY BOUNTY BOARD")
+  );
+
+  return boardMessage;
+}
+
+async function renderBoard() {
+  const snapshot = boardState.snapshot();
+
+  if (process.env.ARN_DRY_RUN === "true") {
+    console.log("[ARN] DRY RUN BOARD", snapshot);
+    return;
+  }
+
+  if (!outputChannel) {
+    outputChannel = await client.channels.fetch(process.env.ARN_OUTPUT_CHANNEL_ID);
+  }
+  if (!outputChannel?.isTextBased() || !outputChannel.messages) {
+    throw new Error("ARN output channel is not a message-capable text channel");
+  }
+
+  const embed = buildBountyBoardEmbed(snapshot);
+  const existing = await locateBoardMessage();
+
+  if (existing) {
+    boardMessage = await existing.edit({ embeds: [embed], content: "" });
+  } else {
+    boardMessage = await outputChannel.send({ embeds: [embed] });
+    console.log(`[ARN] Created bounty board message ${boardMessage.id}. Set ARN_BOARD_MESSAGE_ID=${boardMessage.id} to pin identity explicitly.`);
+  }
+}
+
+function queueBoardRender() {
+  renderQueue = renderQueue
+    .then(() => renderBoard())
+    .catch((error) => console.error("[ARN] Failed to render bounty board", error));
+  return renderQueue;
+}
+
+async function rebuildFromIngestHistory() {
+  if (!ingestChannel?.isTextBased() || !ingestChannel.messages) {
+    throw new Error("ARN ingest channel is not a message-capable text channel");
+  }
+
+  const history = await ingestChannel.messages.fetch({ limit: replayLimit });
+  const ordered = [...history.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+
+  let accepted = 0;
+  for (const message of ordered) {
+    const result = applySourceMessage(message, { replay: true });
+    if (result.changed) accepted += 1;
+  }
+
+  boardState.cleanup(Date.now());
+  console.log(`[ARN] Replayed ${accepted} recognized Shiny lifecycle events from the hidden ingest channel.`);
+}
+
+client.once("ready", async () => {
+  try {
+    console.log(`[ARN] Prototype online as ${client.user.tag}`);
+    console.log(`[ARN] Ingest channel: ${process.env.ARN_INGEST_CHANNEL_ID}`);
+    console.log(`[ARN] Output channel: ${process.env.ARN_OUTPUT_CHANNEL_ID}`);
+    console.log(`[ARN] Dedicated map webhooks: ${allowedWebhookIds.size}`);
+    for (const [webhookId, serverName] of Object.entries(serverByWebhook)) {
+      console.log(`[ARN] Source ${webhookId} -> ${serverName}`);
+    }
+
+    ingestChannel = await client.channels.fetch(process.env.ARN_INGEST_CHANNEL_ID);
+    outputChannel = await client.channels.fetch(process.env.ARN_OUTPUT_CHANNEL_ID);
+
+    await rebuildFromIngestHistory();
+    await queueBoardRender();
+  } catch (error) {
+    console.error("[ARN] Failed during bounty board startup", error);
   }
 });
 
 client.on("messageCreate", async (message) => {
   try {
-    if (message.channelId !== process.env.ARN_INGEST_CHANNEL_ID) return;
-    if (!message.webhookId) return;
-    if (!allowedWebhookIds.has(message.webhookId)) return;
-    if (processed.has(message.id)) return;
+    const result = applySourceMessage(message);
+    if (!result.changed) return;
 
-    const parsed = parseShinyMessage(message, serverByWebhook);
-    if (parsed.event === "unknown") {
-      console.warn("[ARN] Ignoring unrecognized Shiny message", { messageId: message.id, title: parsed.sourceTitle });
-      return;
-    }
+    console.log("[ARN] Bounty board event", {
+      sourceMessageId: message.id,
+      server: result.parsed.server,
+      event: result.parsed.event,
+      dino: result.parsed.dino,
+      danger: result.classification.danger,
+    });
 
-    if (parsed.sourceMapMismatch) {
-      console.warn("[ARN] Payload map disagrees with dedicated webhook mapping; webhook mapping wins", {
-        messageId: message.id,
-        webhookId: message.webhookId,
-        mappedServer: parsed.server,
-        payloadServer: parsed.payloadServer,
-      });
-    }
-
-    const classification = classifyAnomaly(parsed.dino);
-    const output = await client.channels.fetch(process.env.ARN_OUTPUT_CHANNEL_ID);
-    if (!output?.isTextBased()) throw new Error("ARN output channel is not text based");
-
-    // One accepted Shiny source event produces at most one ARN output message.
-    if (process.env.ARN_DRY_RUN === "true") {
-      console.log("[ARN] DRY RUN", { sourceMessageId: message.id, parsed, classification });
-    } else {
-      await output.send({ embeds: [buildArnEmbed(parsed, classification)] });
-    }
-
-    processed.add(message.id);
-    if (processed.size > 1000) processed.delete(processed.values().next().value);
+    await queueBoardRender();
   } catch (error) {
     console.error("[ARN] Failed to process Shiny webhook message", error);
   }
 });
+
+const cleanupTimer = setInterval(() => {
+  const removed = boardState.cleanup(Date.now());
+  if (removed > 0) queueBoardRender();
+}, cleanupIntervalMs);
+cleanupTimer.unref?.();
 
 client.login(process.env.DISCORD_BOT_TOKEN);
