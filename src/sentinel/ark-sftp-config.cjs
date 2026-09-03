@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const SftpClient = require('ssh2-sftp-client');
+const { loadResolvedServer, assertApplyEnabled } = require('./ark-source-of-truth.cjs');
 
 const GAME_USER_SETTINGS_PATH = 'ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini';
 const GAME_INI_PATH = 'ShooterGame/Saved/Config/WindowsServer/Game.ini';
@@ -29,9 +30,15 @@ function parseIniSection(input, sectionName) {
 }
 
 function comparableValue(value) {
-  if (typeof value === 'boolean') return value ? 'true' : 'false';
-  if (typeof value === 'number') return String(value);
-  return String(value ?? '').trim().toLowerCase();
+  if (typeof value === 'boolean') return `boolean:${value ? 'true' : 'false'}`;
+  if (typeof value === 'number' && Number.isFinite(value)) return `number:${value}`;
+  const text = String(value ?? '').trim();
+  if (/^(true|false)$/i.test(text)) return `boolean:${text.toLowerCase()}`;
+  if (/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(text)) {
+    const numeric = Number(text);
+    if (Number.isFinite(numeric)) return `number:${numeric}`;
+  }
+  return `string:${text.toLowerCase()}`;
 }
 
 function assertRegistryParity(gus, game, registry) {
@@ -67,6 +74,13 @@ const CANONICAL_BASELINE = loadCanonicalBaseline();
 const BASELINE_GUS = CANONICAL_BASELINE.gus;
 const BASELINE_GAME = CANONICAL_BASELINE.game;
 
+function serverIdFromPrefix(prefix = 'ARK_GEN1') {
+  const normalized = String(prefix || '').trim().toUpperCase();
+  if (normalized === 'ARK_GEN1') return 'gen1';
+  if (normalized === 'ARK_MAP2') return 'astraeos';
+  throw new Error(`No ARK source-of-truth server mapping exists for prefix ${prefix}.`);
+}
+
 function escapeRegex(value) { return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 function patchIniSection(input, sectionName, updates) {
   const original = String(input ?? ''); const newline = original.includes('\r\n') ? '\r\n' : '\n'; const lines = original.replace(/\r\n/g, '\n').split('\n'); const wanted = `[${sectionName}]`.toLowerCase(); let start = lines.findIndex((line) => line.trim().toLowerCase() === wanted);
@@ -81,6 +95,23 @@ async function connectSftp(settings) { if (!settings.host || !settings.username 
 async function readRemoteText(client, remoteFile) { const data = await client.get(remoteFile); return Buffer.isBuffer(data) ? data.toString('utf8') : String(data || ''); }
 function timestampFolder(now = new Date()) { return now.toISOString().replace(/[:.]/g, '-'); }
 async function backupAndWrite(client, remoteFile, nextText, stamp) { const current = await readRemoteText(client, remoteFile); if (current === nextText) return { changed: false, backup: null }; const parent = path.posix.dirname(remoteFile); const backupDir = path.posix.join(parent, 'NexusBackups', stamp); await client.mkdir(backupDir, true); const backup = path.posix.join(backupDir, path.posix.basename(remoteFile)); await client.put(Buffer.from(current, 'utf8'), backup); await client.put(Buffer.from(nextText, 'utf8'), remoteFile); const verify = await readRemoteText(client, remoteFile); if (verify !== nextText) throw new Error(`ARK config verification failed after writing ${remoteFile}.`); return { changed: true, backup }; }
-async function applyBaseline(prefix = 'ARK_GEN1') { const settings = sftpSettingsFromEnv(prefix); const gusPath = remotePath(settings.root, process.env[`${prefix}_GUS_PATH`] || GAME_USER_SETTINGS_PATH); const gamePath = remotePath(settings.root, process.env[`${prefix}_GAMEINI_PATH`] || GAME_INI_PATH); const client = await connectSftp(settings); const stamp = timestampFolder(); try { const [currentGus, currentGame] = await Promise.all([readRemoteText(client, gusPath), readRemoteText(client, gamePath)]); const nextGus = patchIniSection(currentGus, 'ServerSettings', BASELINE_GUS); const nextGame = patchIniSection(currentGame, '/Script/ShooterGame.ShooterGameMode', BASELINE_GAME); const gus = await backupAndWrite(client, gusPath, nextGus, stamp); const game = await backupAndWrite(client, gamePath, nextGame, stamp); return { profile: 'git-canonical-gen1-bootstrap-v1', sourceOfTruthRoot: SOURCE_OF_TRUTH_ROOT, gusPath, gamePath, changed: gus.changed || game.changed, gameUserSettingsChanged: gus.changed, gameIniChanged: game.changed, backups: [gus.backup, game.backup].filter(Boolean) }; } finally { await client.end().catch(() => {}); } }
+async function applyBaseline(prefix = 'ARK_GEN1') {
+  const serverId = serverIdFromPrefix(prefix);
+  const resolved = loadResolvedServer(serverId, SOURCE_OF_TRUTH_ROOT);
+  assertApplyEnabled(resolved.manifest);
+  const settings = sftpSettingsFromEnv(prefix);
+  const gusPath = remotePath(settings.root, process.env[`${prefix}_GUS_PATH`] || GAME_USER_SETTINGS_PATH);
+  const gamePath = remotePath(settings.root, process.env[`${prefix}_GAMEINI_PATH`] || GAME_INI_PATH);
+  const client = await connectSftp(settings);
+  const stamp = timestampFolder();
+  try {
+    const [currentGus, currentGame] = await Promise.all([readRemoteText(client, gusPath), readRemoteText(client, gamePath)]);
+    const nextGus = patchIniSection(currentGus, 'ServerSettings', resolved.gus);
+    const nextGame = patchIniSection(currentGame, '/Script/ShooterGame.ShooterGameMode', resolved.game);
+    const gus = await backupAndWrite(client, gusPath, nextGus, stamp);
+    const game = await backupAndWrite(client, gamePath, nextGame, stamp);
+    return { profile: `git-resolved-${serverId}-v1`, serverId, sourceOfTruthRoot: SOURCE_OF_TRUTH_ROOT, gusPath, gamePath, changed: gus.changed || game.changed, gameUserSettingsChanged: gus.changed, gameIniChanged: game.changed, backups: [gus.backup, game.backup].filter(Boolean) };
+  } finally { await client.end().catch(() => {}); }
+}
 async function applyBaselineIfRequested({ prefix = 'ARK_GEN1', stampDirectory = '/app/data' } = {}) { const request = String(process.env[`${prefix}_CONFIG_APPLY_ONCE`] || '').trim(); if (!request) return { skipped: 'not-requested' }; const safeRequest = request.replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 80) || 'baseline'; const stampFile = path.join(stampDirectory, `ark-config-${prefix.toLowerCase()}-${safeRequest}.done.json`); if (fs.existsSync(stampFile)) return { skipped: 'already-applied', stampFile }; const result = await applyBaseline(prefix); fs.mkdirSync(stampDirectory, { recursive: true }); fs.writeFileSync(stampFile, JSON.stringify({ request, appliedAt: new Date().toISOString(), result }, null, 2)); return { ...result, stampFile }; }
-module.exports = { BASELINE_GUS, BASELINE_GAME, CANONICAL_BASELINE, SOURCE_OF_TRUTH_ROOT, GAME_USER_SETTINGS_PATH, GAME_INI_PATH, parseIniSection, assertRegistryParity, loadCanonicalBaseline, patchIniSection, sftpSettingsFromEnv, remotePath, applyBaseline, applyBaselineIfRequested };
+module.exports = { BASELINE_GUS, BASELINE_GAME, CANONICAL_BASELINE, SOURCE_OF_TRUTH_ROOT, GAME_USER_SETTINGS_PATH, GAME_INI_PATH, comparableValue, parseIniSection, assertRegistryParity, loadCanonicalBaseline, serverIdFromPrefix, patchIniSection, sftpSettingsFromEnv, remotePath, applyBaseline, applyBaselineIfRequested };
