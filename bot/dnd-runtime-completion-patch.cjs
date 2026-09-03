@@ -21,7 +21,8 @@ function alignEncounterPointers(state) {
     if (encounter?.status !== 'active') continue;
     const snapshot = currentInitiativeState(encounter, activeCombatants(state, encounter.id));
     encounter.currentTurnIndex = snapshot.currentIndex;
-    encounter.currentCombatantId = String(snapshot.currentCombatant?.id || '');
+    encounter.currentCombatantId = snapshot.currentCombatantId;
+    encounter.round = snapshot.round;
   }
   return state;
 }
@@ -35,7 +36,9 @@ function patchDiscordCore() {
 
   core.advanceInitiative = function identityAwareAdvanceInitiative(encounter, combatants) {
     const result = advanceInitiativeByIdentity(encounter, combatants);
+    encounter.currentTurnIndex = result.currentTurnIndex;
     encounter.currentCombatantId = result.currentCombatantId;
+    encounter.round = result.round;
     return result;
   };
 
@@ -64,15 +67,18 @@ function withAlignedEncounter(state, encounterId, callback) {
 
   const previousIndex = encounter.currentTurnIndex;
   const previousId = encounter.currentCombatantId;
+  const previousRound = encounter.round;
   const snapshot = currentInitiativeState(encounter, activeCombatants(state, encounterId));
   encounter.currentTurnIndex = snapshot.currentIndex;
-  encounter.currentCombatantId = String(snapshot.currentCombatant?.id || '');
+  encounter.currentCombatantId = snapshot.currentCombatantId;
+  encounter.round = snapshot.round;
 
   try {
     return callback();
   } finally {
     encounter.currentTurnIndex = previousIndex;
     encounter.currentCombatantId = previousId;
+    encounter.round = previousRound;
   }
 }
 
