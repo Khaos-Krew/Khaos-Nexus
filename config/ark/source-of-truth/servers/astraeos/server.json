@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "server_id": "astraeos",
+  "display_name": "Astraeos",
+  "inherits_cluster_defaults": true,
+  "authoritative_source": "git",
+  "apply_mode": "explicit_command_only",
+  "capture_mode": "explicit_command_only",
+  "secret_overlay_required": true,
+  "notes": "Only Astraeos-specific differences belong in this directory. Shared rates/stats/settings belong under cluster/."
+}
