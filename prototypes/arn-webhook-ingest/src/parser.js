@@ -6,6 +6,10 @@ function firstNonEmpty(...values) {
   return values.find((value) => value && String(value).trim()) || "";
 }
 
+function normalizeServerName(value = "") {
+  return clean(value).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
 export function parseShinyMessage(message, serverByWebhook = {}) {
   const embed = message.embeds?.[0];
   const title = clean(firstNonEmpty(embed?.title, message.content));
@@ -41,17 +45,22 @@ export function parseShinyMessage(message, serverByWebhook = {}) {
   const mapMatch = description.match(/\bon\s+(.+?)(?:\s+at\b|\s*$)/i);
   const footerBulletMatch = footer.match(/Khaos Nexus\s*[•|\-]\s*(.+)$/i);
   const footerParenMatch = footer.match(/Khaos Nexus\s*\((.+?)\)\s*$/i);
-  const mappedServer = serverByWebhook[message.webhookId] || "";
-
-  // Prefer event payload/footer data because Genesis 1 and Astraeos may share
-  // the same Discord webhook URL/ID. Webhook mapping is only a fallback.
-  const server = clean(firstNonEmpty(
+  const mappedServer = clean(serverByWebhook[message.webhookId] || "");
+  const payloadServer = clean(firstNonEmpty(
     mapMatch?.[1],
     footerBulletMatch?.[1],
-    footerParenMatch?.[1],
-    mappedServer,
-    "Unknown Server"
+    footerParenMatch?.[1]
   ));
+
+  // ARN uses one Shiny webhook per map. The webhook ID is therefore the
+  // authoritative network source. Payload map/footer text remains useful for
+  // diagnostics and for detecting accidental cross-wiring.
+  const server = clean(firstNonEmpty(mappedServer, payloadServer, "Unknown Server"));
+  const sourceMapMismatch = Boolean(
+    mappedServer &&
+    payloadServer &&
+    normalizeServerName(mappedServer) !== normalizeServerName(payloadServer)
+  );
 
   const playerMatch = description.match(/\bby\s+(.+?)(?:\.|,|$)/i);
   const locationMatch = description.match(/\bat\s+(.+?)(?:\.|$)/i);
@@ -60,6 +69,9 @@ export function parseShinyMessage(message, serverByWebhook = {}) {
     event,
     dino,
     server,
+    payloadServer,
+    sourceMapMismatch,
+    sourceWebhookId: message.webhookId || "",
     player: clean(playerMatch?.[1] || ""),
     location: clean(locationMatch?.[1] || ""),
     sourceTitle: title,
