@@ -4,6 +4,7 @@ import { parseShinyMessage } from "./parser.js";
 import { classifyAnomaly } from "./classifier.js";
 import { ArnBoardState } from "./board-state.js";
 import { buildBountyBoardEmbed } from "./render.js";
+import { mapFromArnWebhookName, sameMapName } from "./webhook-routing.js";
 
 const required = ["DISCORD_BOT_TOKEN", "ARN_INGEST_CHANNEL_ID", "ARN_OUTPUT_CHANNEL_ID"];
 for (const key of required) {
@@ -43,10 +44,11 @@ function secondsEnv(name, fallback) {
   return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
+const autoDiscoverWebhooks = process.env.ARN_AUTO_DISCOVER_WEBHOOKS === "true";
 const serverByWebhook = loadServerByWebhook();
 const allowedWebhookIds = new Set(Object.keys(serverByWebhook));
-if (!allowedWebhookIds.size) {
-  throw new Error("ARN requires at least one dedicated Shiny webhook-to-map mapping");
+if (!allowedWebhookIds.size && !autoDiscoverWebhooks) {
+  throw new Error("ARN requires at least one Shiny webhook-to-map mapping or ARN_AUTO_DISCOVER_WEBHOOKS=true");
 }
 
 const boardState = new ArnBoardState({
@@ -65,15 +67,64 @@ let ingestChannel;
 let outputChannel;
 let boardMessage;
 let renderQueue = Promise.resolve();
+let webhookRefreshQueue = Promise.resolve();
 
-function isAcceptedSource(message) {
-  return message.channelId === process.env.ARN_INGEST_CHANNEL_ID &&
-    Boolean(message.webhookId) &&
-    allowedWebhookIds.has(message.webhookId);
+async function refreshNamedWebhookMappings() {
+  if (!autoDiscoverWebhooks) return 0;
+  if (!ingestChannel?.fetchWebhooks) {
+    throw new Error("ARN ingest channel cannot enumerate webhooks; verify it is a guild text channel");
+  }
+
+  let added = 0;
+  const webhooks = await ingestChannel.fetchWebhooks();
+
+  for (const webhook of webhooks.values()) {
+    const namedMap = mapFromArnWebhookName(webhook.name || "");
+    if (!namedMap) continue;
+
+    const configuredMap = serverByWebhook[webhook.id];
+    if (configuredMap) {
+      allowedWebhookIds.add(webhook.id);
+      if (!sameMapName(configuredMap, namedMap)) {
+        console.warn("[ARN] Webhook name disagrees with pinned ID mapping; pinned mapping wins", {
+          webhookId: webhook.id,
+          webhookName: webhook.name,
+          configuredMap,
+          namedMap,
+        });
+      }
+      continue;
+    }
+
+    serverByWebhook[webhook.id] = namedMap;
+    allowedWebhookIds.add(webhook.id);
+    added += 1;
+    console.log(`[ARN] Discovered ${webhook.name} (${webhook.id}) -> ${namedMap}`);
+  }
+
+  return added;
+}
+
+function queueWebhookRefresh() {
+  webhookRefreshQueue = webhookRefreshQueue
+    .then(() => refreshNamedWebhookMappings())
+    .catch((error) => {
+      console.error("[ARN] Failed to discover named intake webhooks", error);
+      return 0;
+    });
+  return webhookRefreshQueue;
 }
 
 function applySourceMessage(message, { replay = false } = {}) {
-  if (!isAcceptedSource(message)) return { changed: false, ignored: true };
+  if (message.channelId !== process.env.ARN_INGEST_CHANNEL_ID) {
+    return { changed: false, ignored: true, reason: "wrong-channel" };
+  }
+  if (!message.webhookId) {
+    return { changed: false, ignored: true, reason: "not-webhook" };
+  }
+  if (!allowedWebhookIds.has(message.webhookId)) {
+    return { changed: false, ignored: true, reason: "unknown-webhook" };
+  }
 
   const parsed = parseShinyMessage(message, serverByWebhook);
   if (parsed.event === "unknown") {
@@ -83,7 +134,7 @@ function applySourceMessage(message, { replay = false } = {}) {
         title: parsed.sourceTitle,
       });
     }
-    return { changed: false, ignored: true };
+    return { changed: false, ignored: true, reason: "unknown-event" };
   }
 
   if (parsed.sourceMapMismatch) {
@@ -190,13 +241,21 @@ client.once("ready", async () => {
     console.log(`[ARN] Prototype online as ${client.user.tag}`);
     console.log(`[ARN] Ingest channel: ${process.env.ARN_INGEST_CHANNEL_ID}`);
     console.log(`[ARN] Output channel: ${process.env.ARN_OUTPUT_CHANNEL_ID}`);
+
+    ingestChannel = await client.channels.fetch(process.env.ARN_INGEST_CHANNEL_ID);
+    outputChannel = await client.channels.fetch(process.env.ARN_OUTPUT_CHANNEL_ID);
+
+    if (autoDiscoverWebhooks) {
+      await queueWebhookRefresh();
+    }
+    if (!allowedWebhookIds.size) {
+      throw new Error("No valid ARN map webhooks were found. Create webhooks named ARN - [mapname] or configure explicit webhook IDs.");
+    }
+
     console.log(`[ARN] Dedicated map webhooks: ${allowedWebhookIds.size}`);
     for (const [webhookId, serverName] of Object.entries(serverByWebhook)) {
       console.log(`[ARN] Source ${webhookId} -> ${serverName}`);
     }
-
-    ingestChannel = await client.channels.fetch(process.env.ARN_INGEST_CHANNEL_ID);
-    outputChannel = await client.channels.fetch(process.env.ARN_OUTPUT_CHANNEL_ID);
 
     await rebuildFromIngestHistory();
     await queueBoardRender();
@@ -207,7 +266,16 @@ client.once("ready", async () => {
 
 client.on("messageCreate", async (message) => {
   try {
-    const result = applySourceMessage(message);
+    let result = applySourceMessage(message);
+
+    // If a new per-map webhook was added after Sentinel started, refresh the
+    // channel's webhook metadata once and retry. The learned webhook ID then
+    // becomes the authoritative map key for the rest of this process lifetime.
+    if (result.reason === "unknown-webhook" && autoDiscoverWebhooks) {
+      await queueWebhookRefresh();
+      result = applySourceMessage(message);
+    }
+
     if (!result.changed) return;
 
     console.log("[ARN] Bounty board event", {
