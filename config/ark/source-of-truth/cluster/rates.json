@@ -2,17 +2,62 @@
   "schema_version": 1,
   "scope": "cluster",
   "authoritative": true,
-  "bootstrap_status": "pending_known_good_import",
+  "bootstrap_status": "staged_from_canonical_ini",
   "description": "Canonical non-secret ARK rates and stat multipliers. This registry mirrors rate/stat values represented in the canonical INIs and exists so Sentinel can validate, display, diff, and manage them without using a live server as authority.",
-  "values": {},
+  "values": {
+    "server_settings": {
+      "DifficultyOffset": 1.0,
+      "OverrideOfficialDifficulty": 5.0,
+      "XPMultiplier": 5.0,
+      "TamingSpeedMultiplier": 10.0,
+      "HarvestAmountMultiplier": 5.0,
+      "HarvestHealthMultiplier": 2.0,
+      "DinoCountMultiplier": 1.0,
+      "PlayerCharacterFoodDrainMultiplier": 0.75,
+      "PlayerCharacterWaterDrainMultiplier": 0.75,
+      "PlayerCharacterStaminaDrainMultiplier": 0.85,
+      "DinoCharacterStaminaDrainMultiplier": 0.85,
+      "PlayerCharacterHealthRecoveryMultiplier": 1.5,
+      "DinoCharacterHealthRecoveryMultiplier": 1.5,
+      "ResourceNoReplenishRadiusPlayers": 0.5,
+      "ResourceNoReplenishRadiusStructures": 0.5,
+      "CropGrowthSpeedMultiplier": 5.0,
+      "SupplyCrateLootQualityMultiplier": 2.0,
+      "FishingLootQualityMultiplier": 2.0
+    },
+    "game_mode": {
+      "bAllowFlyerSpeedLeveling": true,
+      "bAllowSpeedLeveling": true,
+      "MatingIntervalMultiplier": 0.1,
+      "EggHatchSpeedMultiplier": 20.0,
+      "BabyMatureSpeedMultiplier": 15.0,
+      "BabyCuddleIntervalMultiplier": 0.1,
+      "BabyImprintAmountMultiplier": 2.0,
+      "BabyImprintingStatScaleMultiplier": 1.0,
+      "LayEggIntervalMultiplier": 0.5
+    },
+    "player_stats": {
+      "0": 1.0,
+      "1": 1.5,
+      "7": 5.0,
+      "8": 1.0,
+      "10": 2.0
+    },
+    "tamed_dino_stats": {
+      "0": 0.25,
+      "1": 1.5,
+      "7": 3.0,
+      "8": 0.17
+    }
+  },
   "validation": {
     "require_ini_parity": true,
     "reject_unknown_duplicate_keys": true,
     "reject_conflicting_duplicate_keys": true
   },
   "notes": [
-    "Do not populate missing values by guessing.",
-    "Initial population must come from a reviewed known-good export, then Git becomes authoritative.",
+    "Values are synchronized from the staged canonical Game.ini and GameUserSettings.ini already committed in this directory.",
+    "This registry synchronization does not enable deployment; manifest bootstrap and deployment gates remain authoritative.",
     "After bootstrap, edits are made here/canonical INIs in Git and deployed outward to servers only by explicit command."
   ]
 }
