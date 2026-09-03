@@ -17,6 +17,7 @@ const {
 const { inspectArkApiLog } = require('./ark-api-log-diagnostic.cjs');
 const { probeSftpState } = require('./ark-update-safety.cjs');
 const { evaluateInstalled } = require('./ark-curseforge-mod-intelligence.cjs');
+const { captureConfigDriftStatus } = require('./ark-config-drift-status.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.staff.unified.ops.panel.extension');
 const MARKER = 'Nexus Sentinal • ARK Unified Staff Ops • v1';
@@ -150,6 +151,47 @@ async function collectModIntelligence(results = []) {
   return { checked, pending, unverified, current };
 }
 
+async function collectConfigParity(capture = captureConfigDriftStatus) {
+  return Promise.all(['gen1', 'astraeos'].map(async (serverId) => {
+    try {
+      return await capture({ serverId, maxEntries: 6 });
+    } catch {
+      return Object.freeze({
+        ok: false,
+        readOnly: true,
+        serverId,
+        inSync: false,
+        driftCount: null,
+        counts: Object.freeze({ gameUserSettings: 0, game: 0 }),
+        entries: Object.freeze([]),
+        truncated: false
+      });
+    }
+  }));
+}
+
+function configParityField(statuses = []) {
+  const labels = { gen1: 'Genesis 1', astraeos: 'Astraeos' };
+  const lines = ['**Mode:** 🔒 Read-only • Git source-of-truth comparison'];
+  for (const status of statuses) {
+    const serverId = String(status?.serverId || '').toLowerCase();
+    const label = labels[serverId] || clean(serverId || 'Unknown', 60);
+    if (status?.ok !== true) {
+      lines.push(`• **${label}:** 🟡 Unavailable`);
+      continue;
+    }
+    if (status.inSync === true) {
+      lines.push(`• **${label}:** 🟢 In sync`);
+      continue;
+    }
+    const count = Number.isInteger(status.driftCount) ? status.driftCount : 0;
+    const keys = unique((status.entries || []).map((entry) => entry?.key)).slice(0, 6);
+    lines.push(`• **${label}:** 🟡 ${count} drifted setting${count === 1 ? '' : 's'}${keys.length ? ` • ${keys.map((key) => `\`${clean(key, 80)}\``).join(', ')}` : ''}${status.truncated ? ' • …' : ''}`);
+  }
+  if (!statuses.length) lines.push('• 🟡 Parity has not been checked yet.');
+  return { name: '🧭 ARK Config • Git Parity', value: lines.join('\n').slice(0, 1024), inline: false };
+}
+
 function modField(mods = {}) {
   const total = mods.checked?.length || 0;
   const current = mods.current?.length || 0;
@@ -176,7 +218,7 @@ function modField(mods = {}) {
   return { name: '🧩 ASA Mods • CurseForge', value: lines.join('\n').slice(0, 1024), inline: false };
 }
 
-function unifiedPayload(results, patch, release, mods) {
+function unifiedPayload(results, patch, release, mods, configParity = []) {
   const rawHealth = panelPayload(results).embeds?.[0]?.fields || [];
   const health = rawHealth.map((field) => ({
     ...field,
@@ -187,9 +229,10 @@ function unifiedPayload(results, patch, release, mods) {
   return {
     embeds: [{
       title: '🔒 KHAOS NEXUS • ARK STAFF OPERATIONS',
-      description: 'One staff-only operational view: per-server health plus cluster-wide ASA, mod and ARK Server API status. Read-only monitoring only.',
+      description: 'One staff-only operational view: per-server health plus cluster-wide ASA, config parity, mod and ARK Server API status. Read-only monitoring only.',
       fields: [
         ...health,
+        configParityField(configParity),
         modField(mods),
         {
           name: '🦖 ARK: Survival Ascended • Cluster Update',
@@ -243,15 +286,20 @@ async function runCycle(client, config, reason = 'periodic') {
   const channel = await resolveChannel(guild);
   if (!channel) return { skipped: 'staff-channel-not-found' };
   const results = await addCacheState(await collectResults());
-  const mods = await collectModIntelligence(results);
+  const [mods, configParity] = await Promise.all([
+    collectModIntelligence(results),
+    collectConfigParity()
+  ]);
   const publicBuild = unique(results.map((item) => item.report?.game?.publicBuildId))[0] || '';
   let patch = { title: 'Patch notes unavailable', notes: '', url: '', publishedAt: '' };
   let release = { version: '', title: 'ASA Server API', notes: '', url: '', publishedAt: '' };
   try { patch = await fetchAsaPatchNotes(publicBuild); } catch (error) { patch.notes = `Patch-note lookup failed: ${clean(error?.message || error, 220)}`; }
   try { release = await fetchApiReleaseNotes(); } catch (error) { release.notes = `API release lookup failed: ${clean(error?.message || error, 220)}`; }
-  await reconcile(channel, unifiedPayload(results, patch, release, mods), client.user?.id || '');
-  console.log(`[Nexus Sentinal] unified ARK staff operations (${reason}): channel=${channel.name} servers=${results.length} mods=${mods.checked.length} modUpdates=${mods.pending.length}`);
-  return { channelId: String(channel.id), serverCount: results.length, modCount: mods.checked.length, modUpdates: mods.pending.length };
+  await reconcile(channel, unifiedPayload(results, patch, release, mods, configParity), client.user?.id || '');
+  const drifted = configParity.filter((item) => item.ok === true && item.inSync === false).length;
+  const unavailable = configParity.filter((item) => item.ok !== true).length;
+  console.log(`[Nexus Sentinal] unified ARK staff operations (${reason}): channel=${channel.name} servers=${results.length} mods=${mods.checked.length} modUpdates=${mods.pending.length} configDrift=${drifted} configUnavailable=${unavailable}`);
+  return { channelId: String(channel.id), serverCount: results.length, modCount: mods.checked.length, modUpdates: mods.pending.length, configDrift: drifted, configUnavailable: unavailable };
 }
 
 function installArkStaffUnifiedOpsPanelExtension() {
@@ -274,4 +322,4 @@ function installArkStaffUnifiedOpsPanelExtension() {
   };
 }
 
-module.exports = { MARKER, unifiedPayload, collectModIntelligence, runCycle, installArkStaffUnifiedOpsPanelExtension };
+module.exports = { MARKER, unifiedPayload, collectModIntelligence, collectConfigParity, configParityField, runCycle, installArkStaffUnifiedOpsPanelExtension };
