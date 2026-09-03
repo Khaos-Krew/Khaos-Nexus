@@ -19,6 +19,7 @@ function incidentLine(incident) {
   const first = `${threatEmoji} **${incident.dino}** • \`${threat}\` • ${status.emoji} **${status.label}**`;
   const detail = [];
 
+  if (incident.classification?.trait) detail.push(`Trait: ${incident.classification.trait}`);
   if (incident.location) detail.push(incident.location);
   if (incident.player && incident.status === "CAPTURED") detail.push(`Captured by ${incident.player}`);
   if (incident.player && incident.status === "DEFEATED") detail.push(`Defeated by ${incident.player}`);
