@@ -55,6 +55,11 @@ function resolveDeathSave(state, input = {}, rng = Math.random) {
     actor.deathSaves = { successes: 0, failures: 0, stable: false, dead: false };
     actor.conditions = actor.conditions.filter((item) => item !== 'unconscious');
     core.syncCharacterHp(state, combat, actor, `${key}:revive`);
+    runtime.appendStateEvent(state, {
+      campaignId: combat.campaignId, runId: combat.runId, sceneId: combat.sceneId,
+      type: 'character.condition.removed', actorType: 'rules_engine', actorId: 'combat',
+      idempotencyKey: `${key}:conscious`, payload: { characterId: actor.characterId, condition: 'unconscious' }
+    });
   } else if (natural === 1) actor.deathSaves.failures += 2;
   else if (natural >= 10) actor.deathSaves.successes += 1;
   else actor.deathSaves.failures += 1;
