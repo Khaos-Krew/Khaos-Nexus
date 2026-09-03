@@ -39,9 +39,19 @@ export function parseShinyMessage(message, serverByWebhook = {}) {
   }
 
   const mapMatch = description.match(/\bon\s+(.+?)(?:\s+at\b|\s*$)/i);
-  const footerMapMatch = footer.match(/Khaos Nexus\s*[•|\-]\s*(.+)$/i);
+  const footerBulletMatch = footer.match(/Khaos Nexus\s*[•|\-]\s*(.+)$/i);
+  const footerParenMatch = footer.match(/Khaos Nexus\s*\((.+?)\)\s*$/i);
   const mappedServer = serverByWebhook[message.webhookId] || "";
-  const server = clean(firstNonEmpty(mappedServer, mapMatch?.[1], footerMapMatch?.[1], "Unknown Server"));
+
+  // Prefer event payload/footer data because Genesis 1 and Astraeos may share
+  // the same Discord webhook URL/ID. Webhook mapping is only a fallback.
+  const server = clean(firstNonEmpty(
+    mapMatch?.[1],
+    footerBulletMatch?.[1],
+    footerParenMatch?.[1],
+    mappedServer,
+    "Unknown Server"
+  ));
 
   const playerMatch = description.match(/\bby\s+(.+?)(?:\.|,|$)/i);
   const locationMatch = description.match(/\bat\s+(.+?)(?:\.|$)/i);
