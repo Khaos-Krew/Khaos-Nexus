@@ -54,6 +54,49 @@ test('initiative advancement follows combatant identity when initiative order ch
   assert.equal(result.round, 2);
 });
 
+test('removed current combatant hands its turn to the successor without skipping', () => {
+  const result = advanceInitiativeByIdentity(
+    { currentTurnIndex: 1, currentCombatantId: 'b', round: 3 },
+    [
+      { id: 'a', initiative: 18, active: true },
+      { id: 'c', initiative: 8, active: true }
+    ]
+  );
+
+  assert.equal(result.currentTurnIndex, 1);
+  assert.equal(result.currentCombatantId, 'c');
+  assert.equal(result.currentCombatant.id, 'c');
+  assert.equal(result.round, 3);
+});
+
+test('removed last combatant wraps to the first combatant and advances the round once', () => {
+  const snapshot = currentInitiativeState(
+    { currentTurnIndex: 2, currentCombatantId: 'c', round: 4 },
+    [
+      { id: 'a', initiative: 18, active: true },
+      { id: 'b', initiative: 12, active: true }
+    ]
+  );
+
+  assert.equal(snapshot.currentIndex, 0);
+  assert.equal(snapshot.currentCombatantId, 'a');
+  assert.equal(snapshot.currentCombatant.id, 'a');
+  assert.equal(snapshot.round, 5);
+  assert.equal(snapshot.identityMissing, true);
+  assert.equal(snapshot.wrappedFromMissingIdentity, true);
+
+  const result = advanceInitiativeByIdentity(
+    { currentTurnIndex: 2, currentCombatantId: 'c', round: 4 },
+    [
+      { id: 'a', initiative: 18, active: true },
+      { id: 'b', initiative: 12, active: true }
+    ]
+  );
+  assert.equal(result.currentTurnIndex, 0);
+  assert.equal(result.currentCombatantId, 'a');
+  assert.equal(result.round, 5);
+});
+
 test('legacy initiative saves without a combatant identity still resolve by stored index', () => {
   const snapshot = currentInitiativeState(
     { currentTurnIndex: 1, round: 1 },
