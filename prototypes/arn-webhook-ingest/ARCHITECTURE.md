@@ -1,41 +1,50 @@
-# ARN Ingest Architecture
+# ARN Live Bounty Board Architecture
 
-Each ARK map owns one Shiny Discord webhook. All map webhooks post into the same private Discord channel, Sentinel consumes those webhook-authored messages, and the ARN renderer emits a single normalized result to the shared public cluster channel.
+## Event path
 
-```text
-Genesis 1 Shiny -> Genesis 1 webhook --\
-                                     +-> private #arn-ingest -> Sentinel -> one ARN output
-Astraeos Shiny -> Astraeos webhook --/
-```
+`Shiny! Dinos -> dedicated per-map Discord webhook -> hidden #arn-ingest -> Sentinel -> parser -> classifier -> board state -> one persistent public bounty-board embed`
 
-Future maps follow the same pattern and are added through the webhook-to-map configuration rather than new parser code.
+Genesis 1 and Astraeos each use a different Discord webhook, but both webhooks target the same hidden ingest channel. The webhook ID is the authoritative map identity.
 
-## Source identity
+The hidden channel is both the ingestion point and a lightweight restart journal. Sentinel replays recent webhook messages on startup to reconstruct the current board without requiring ArkAPI or ARK entity scans.
 
-The Discord webhook ID is authoritative for map identity. Shiny title/footer/map text is still parsed as diagnostic metadata. If payload map text disagrees with the registered webhook map, Sentinel logs a cross-wiring warning and keeps the webhook mapping as the source of truth.
+## Lifecycle normalization
 
-Only registered webhook IDs are accepted. Normal user messages and unknown webhooks are ignored.
+Incoming Shiny messages are normalized into:
 
-## Event normalization
+- `detected` -> `ACTIVE`
+- `contained` -> `CAPTURED`
+- `terminated` -> `DEFEATED`
+- `lost` -> `SIGNAL LOST`
 
-Incoming titles/descriptions are normalized into four lifecycle events:
+ACTIVE entries remain until a lifecycle event resolves them. CAPTURED and DEFEATED entries remain visible for a configurable grace period (default 3 minutes) before disappearing. SIGNAL LOST uses a shorter default grace period (1 minute).
 
-- detected
-- lost
-- contained
-- terminated
+## Danger classification
 
-One accepted source message can produce at most one ARN output message.
+Initial prototype danger scale:
 
-## Initial classification
+- Class I / WATCH: default anomaly
+- Class II / ELEVATED: unusual visual/prefix variants
+- Class III / SEVERE: rare prefixes such as Princess, Noir, Pygmy, Spectral, Lunar, Solar, Mythic
+- Class IV: reserved for future critical classifications
+- Class V / KAIJU: Enraged
 
-- Class I: default anomaly
-- Class II: uncommon visual/prefix variants
-- Class III: rare prefixes such as Princess, Noir, Pygmy
-- Class IV: Enraged / high threat
+Enraged/KAIJU entries display the configured Khaos Nexus reward of one Tekgram on termination.
 
-Enraged detections advertise the configured Khaos Nexus reward of one Tekgram on termination.
+## Board behavior
 
-## Prototype limitations
+The public output is one persistent Discord message. Each accepted lifecycle event edits that message instead of posting a new public alert. The board groups anomalies by map, sorts ACTIVE entries ahead of recent resolutions, and places higher danger classes first.
 
-This version uses the Discord source message ID for live-process deduplication and does not persist anomaly entity identity across Sentinel restarts. Shiny does not currently provide this prototype with a guaranteed unique ARK creature identifier, so lifecycle correlation is intentionally conservative.
+If any active KAIJU threat exists, the board title switches to a KAIJU ALERT state.
+
+## Correlation and deduplication
+
+Discord source message IDs are used to reject duplicate processing. Shiny does not currently expose a guaranteed unique ARK creature identifier in its Discord event, so lifecycle correlation uses map + full Shiny creature name.
+
+If multiple identical names are simultaneously active on the same map, Sentinel updates the newest matching signal and logs an ambiguity warning. This is intentionally conservative until a stronger unique-ID source is available.
+
+## Failure behavior
+
+The Shiny source events remain in the hidden ingest channel if Sentinel is unavailable. On restart, Sentinel replays up to `ARN_REPLAY_LIMIT` recent messages (maximum 100 in the prototype), reconstructs board state, removes already-expired resolved entries, and then refreshes the persistent board.
+
+For a production version, the next durability step is database-backed incident state so very old active anomalies cannot fall outside Discord replay history.
