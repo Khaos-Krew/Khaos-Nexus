@@ -1,11 +1,11 @@
 'use strict';
 
-const { Client, Events } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { resolveChannel } = require('./ark-staff-status-monitor-extension.cjs');
 const { inspectIdentityHealth } = require('./ark-identity-health-monitor.cjs');
+const { registerStartupTask, startupDiagnostics } = require('./startup-coordinator.cjs');
 
-const INSTALLED = Symbol.for('khaos.nexus.ark.identity.health.extension');
+const STARTUP_TASK_ID = 'ark-identity-health';
 const INITIAL_DELAY_MS = 12_000;
 const INTERVAL_MS = 5 * 60_000;
 
@@ -47,22 +47,35 @@ async function runIdentityHealthCycle(client, config, options = {}) {
   return { changed: true, delivered: true, channelId: String(channel.id), state: result.current.ok ? 'healthy' : result.current.code };
 }
 
-function installArkIdentityHealthExtension() {
-  if (Client.prototype[INSTALLED]) return;
-  Client.prototype[INSTALLED] = true;
-  const config = loadConfig();
-  const originalLogin = Client.prototype.login;
-  Client.prototype.login = function nexusArkIdentityHealthLogin(...args) {
-    const client = this;
-    client.once(Events.ClientReady, () => {
-      const run = () => void runIdentityHealthCycle(client, config).catch(() => {});
-      const initial = setTimeout(run, INITIAL_DELAY_MS);
-      initial.unref?.();
-      const timer = setInterval(run, INTERVAL_MS);
-      timer.unref?.();
-    });
-    return originalLogin.apply(this, args);
-  };
+function startIdentityHealthMonitor(client, config, { setTimeoutFn = setTimeout, setIntervalFn = setInterval } = {}) {
+  const run = () => void runIdentityHealthCycle(client, config).catch(() => {});
+  const initial = setTimeoutFn(run, INITIAL_DELAY_MS);
+  initial?.unref?.();
+  const periodic = setIntervalFn(run, INTERVAL_MS);
+  periodic?.unref?.();
+  return { initial, periodic, run };
 }
 
-module.exports = { discordPayload, runIdentityHealthCycle, installArkIdentityHealthExtension };
+function installArkIdentityHealthExtension() {
+  if (startupDiagnostics().tasks.some((task) => task.id === STARTUP_TASK_ID)) return { installed: false, coordinated: true };
+  const config = loadConfig();
+  registerStartupTask({
+    id: STARTUP_TASK_ID,
+    owner: 'ark-identity',
+    priority: 145,
+    run(client) {
+      startIdentityHealthMonitor(client, config);
+    }
+  });
+  return { installed: true, coordinated: true };
+}
+
+module.exports = {
+  STARTUP_TASK_ID,
+  INITIAL_DELAY_MS,
+  INTERVAL_MS,
+  discordPayload,
+  runIdentityHealthCycle,
+  startIdentityHealthMonitor,
+  installArkIdentityHealthExtension
+};
