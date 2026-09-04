@@ -1,10 +1,10 @@
 'use strict';
 
-const { Client, Events } = require('discord.js');
+const { Client } = require('discord.js');
 const { ArkClusterRegistry, cleanEnvPrefix } = require('./ark-cluster-registry.cjs');
+const { registerStartupTask } = require('./startup-coordinator.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.additional.registry.bootstrap.installed');
-const BOUND = Symbol.for('khaos.nexus.ark.additional.registry.bootstrap.bound');
 
 function boolEnv(name, fallback = false) {
   const value = String(process.env[name] ?? '').trim().toLowerCase();
@@ -78,30 +78,27 @@ function formatBootstrapResult(item) {
 function installArkAdditionalRegistryBootstrapExtension() {
   if (Client.prototype[INSTALLED]) return;
   Client.prototype[INSTALLED] = true;
-  const originalLogin = Client.prototype.login;
 
-  Client.prototype.login = function nexusArkAdditionalRegistryBootstrapLogin(...args) {
-    const client = this;
-    if (!client[BOUND]) {
-      client[BOUND] = true;
-      client.once(Events.ClientReady, () => {
-        try {
-          const registry = new ArkClusterRegistry();
-          const results = bootstrapAdditionalArkServers(registry);
-          if (results.length) {
-            console.log(`[Nexus Sentinal] ARK additional registry bootstrap: ${results.map(formatBootstrapResult).join(',')}`);
-            const timer = setTimeout(() => void client.__nexusArkClusterContext?.runRefresh?.('additional-registry-bootstrap'), 1500);
-            timer.unref?.();
-          } else {
-            console.log('[Nexus Sentinal] ARK additional registry bootstrap: no configured secondary maps');
-          }
-        } catch (error) {
-          console.warn(`[Nexus Sentinal] ARK additional registry bootstrap failed: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 300)}`);
+  registerStartupTask({
+    id: 'ark.additional-registry-bootstrap',
+    owner: 'ark-additional-registry-bootstrap-extension',
+    priority: 40,
+    run(client) {
+      try {
+        const registry = new ArkClusterRegistry();
+        const results = bootstrapAdditionalArkServers(registry);
+        if (results.length) {
+          console.log(`[Nexus Sentinal] ARK additional registry bootstrap: ${results.map(formatBootstrapResult).join(',')}`);
+          const timer = setTimeout(() => void client.__nexusArkClusterContext?.runRefresh?.('additional-registry-bootstrap'), 1500);
+          timer.unref?.();
+        } else {
+          console.log('[Nexus Sentinal] ARK additional registry bootstrap: no configured secondary maps');
         }
-      });
+      } catch (error) {
+        console.warn(`[Nexus Sentinal] ARK additional registry bootstrap failed: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 300)}`);
+      }
     }
-    return originalLogin.apply(this, args);
-  };
+  });
 }
 
 module.exports = {

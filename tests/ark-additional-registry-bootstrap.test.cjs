@@ -7,10 +7,15 @@ const path = require('node:path');
 const test = require('node:test');
 const { ArkClusterRegistry } = require('../src/sentinel/ark-cluster-registry.cjs');
 const {
+  resetStartupCoordinatorForTests,
+  startupDiagnostics
+} = require('../src/sentinel/startup-coordinator.cjs');
+const {
   configuredAdditionalPrefixes,
   defaultsForPrefix,
   bootstrapAdditionalArkServers,
-  formatBootstrapResult
+  formatBootstrapResult,
+  installArkAdditionalRegistryBootstrapExtension
 } = require('../src/sentinel/ark-additional-registry-bootstrap-extension.cjs');
 
 function withEnv(values, fn) {
@@ -100,4 +105,15 @@ test('MAP2 with an endpoint is registered but remains disabled when explicitly d
     assert.equal(registry.list({ includeDisabled: false }).length, 0);
     assert.equal(registry.list({ includeDisabled: true })[0].id, 'map2');
   });
+});
+
+test('additional registry bootstrap is coordinated instead of adding a direct ClientReady listener', () => {
+  resetStartupCoordinatorForTests();
+  installArkAdditionalRegistryBootstrapExtension();
+  const snapshot = startupDiagnostics();
+  const task = snapshot.tasks.find((item) => item.id === 'ark.additional-registry-bootstrap');
+  assert.ok(task);
+  assert.equal(task.owner, 'ark-additional-registry-bootstrap-extension');
+  assert.equal(task.priority, 40);
+  assert.equal(task.executionCount, 0);
 });
