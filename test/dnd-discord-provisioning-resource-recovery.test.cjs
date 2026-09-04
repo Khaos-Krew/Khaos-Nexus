@@ -56,6 +56,7 @@ function createStore() {
 function createDiscordMock() {
   const channels = [];
   const calls = [];
+  const failPatchIds = new Set();
   let nextChannelId = 20000;
   let nextMessageId = 30000;
   const botPermissions = (PERMISSIONS.MANAGE_CHANNELS | PERMISSIONS.MANAGE_ROLES).toString();
@@ -83,6 +84,10 @@ function createDiscordMock() {
     }
     if (method === 'PATCH' && /^\/api\/v10\/channels\/\d+$/.test(parsed.pathname)) {
       const channelId = parsed.pathname.split('/').at(-1);
+      if (failPatchIds.has(channelId)) {
+        failPatchIds.delete(channelId);
+        return http(503, { code: 0, message: 'Temporary Discord failure' });
+      }
       const channel = channels.find((item) => String(item.id) === channelId);
       if (!channel) return http(404, { code: 10003, message: 'Unknown Channel' });
       if (Object.prototype.hasOwnProperty.call(body || {}, 'parent_id')) channel.parent_id = body.parent_id;
@@ -97,7 +102,7 @@ function createDiscordMock() {
     return http(404, { code: 10003, message: 'Unknown Channel' });
   }
 
-  return { fetchImpl, channels, calls };
+  return { fetchImpl, channels, calls, failPatchIds };
 }
 
 function requiredOnlyTemplate() {
@@ -118,20 +123,8 @@ function channelMutationCalls(discord) {
 test('deleted managed channel is repaired once and subsequent provisioning converges without duplicates', async () => {
   const store = createStore();
   const discord = createDiscordMock();
-  const service = new DndDiscordProvisioningService({
-    configStore: store,
-    logger: {},
-    fetchImpl: discord.fetchImpl,
-    sleep: async () => {}
-  });
-  const input = {
-    campaignId: 'campaign-1',
-    appId: 'nexus-bot',
-    guildId: '12345',
-    categoryName: 'The Red Keep',
-    template: requiredOnlyTemplate(),
-    createdBy: 'local-owner'
-  };
+  const service = new DndDiscordProvisioningService({ configStore: store, logger: {}, fetchImpl: discord.fetchImpl, sleep: async () => {} });
+  const input = { campaignId: 'campaign-1', appId: 'nexus-bot', guildId: '12345', categoryName: 'The Red Keep', template: requiredOnlyTemplate(), createdBy: 'local-owner' };
 
   const initialPreview = await service.preview(input);
   const initial = await service.apply({ ...input, confirmed: true, confirmationHash: initialPreview.confirmationHash });
@@ -185,20 +178,8 @@ test('deleted managed channel is repaired once and subsequent provisioning conve
 test('deleted category is recreated and surviving managed channels are reparented exactly once', async () => {
   const store = createStore();
   const discord = createDiscordMock();
-  const service = new DndDiscordProvisioningService({
-    configStore: store,
-    logger: {},
-    fetchImpl: discord.fetchImpl,
-    sleep: async () => {}
-  });
-  const input = {
-    campaignId: 'campaign-1',
-    appId: 'nexus-bot',
-    guildId: '12345',
-    categoryName: 'The Red Keep',
-    template: requiredOnlyTemplate(),
-    createdBy: 'local-owner'
-  };
+  const service = new DndDiscordProvisioningService({ configStore: store, logger: {}, fetchImpl: discord.fetchImpl, sleep: async () => {} });
+  const input = { campaignId: 'campaign-1', appId: 'nexus-bot', guildId: '12345', categoryName: 'The Red Keep', template: requiredOnlyTemplate(), createdBy: 'local-owner' };
 
   const initialPreview = await service.preview(input);
   const initial = await service.apply({ ...input, confirmed: true, confirmationHash: initialPreview.confirmationHash });
@@ -210,9 +191,7 @@ test('deleted category is recreated and surviving managed channels are reparente
   const categoryIndex = discord.channels.findIndex((item) => String(item.id) === deletedCategoryId);
   assert.notEqual(categoryIndex, -1);
   discord.channels.splice(categoryIndex, 1);
-  for (const id of survivingIds) {
-    assert.equal(String(discord.channels.find((item) => String(item.id) === id).parent_id), deletedCategoryId);
-  }
+  for (const id of survivingIds) assert.equal(String(discord.channels.find((item) => String(item.id) === id).parent_id), deletedCategoryId);
 
   const recoveryPreview = await service.preview(input);
   assert.ok(recoveryPreview.warnings.some((warning) => warning.includes('category is missing')));
@@ -249,4 +228,58 @@ test('deleted category is recreated and surviving managed channels are reparente
   assert.equal(String(converged.record.categoryId), replacementCategoryId);
   assert.deepEqual(Object.values(converged.record.resources).map((resource) => String(resource.id)), survivingIds);
   assert.equal(store.state.provisioningRecords.length, 1);
+});
+
+test('partial category recovery preserves failed child binding until the next run converges', async () => {
+  const store = createStore();
+  const discord = createDiscordMock();
+  const service = new DndDiscordProvisioningService({ configStore: store, logger: {}, fetchImpl: discord.fetchImpl, sleep: async () => {} });
+  const input = { campaignId: 'campaign-1', appId: 'nexus-bot', guildId: '12345', categoryName: 'The Red Keep', template: requiredOnlyTemplate(), createdBy: 'local-owner' };
+
+  const initialPreview = await service.preview(input);
+  const initial = await service.apply({ ...input, confirmed: true, confirmationHash: initialPreview.confirmationHash });
+  assert.equal(initial.failedCount, 0);
+
+  const initialRecord = store.state.provisioningRecords[0];
+  const oldCategoryId = String(initialRecord.categoryId);
+  const tableId = String(initialRecord.resources['table-chat'].id);
+  const infoId = String(initialRecord.resources['campaign-info'].id);
+  const oldTableBinding = store.state.bindings.find((item) => item.active !== false && item.purpose === 'main');
+  const oldInfoBinding = store.state.bindings.find((item) => item.active !== false && item.purpose === 'announcements');
+  assert.equal(String(oldTableBinding.parentChannelId), oldCategoryId);
+  assert.equal(String(oldInfoBinding.parentChannelId), oldCategoryId);
+
+  const categoryIndex = discord.channels.findIndex((item) => String(item.id) === oldCategoryId);
+  discord.channels.splice(categoryIndex, 1);
+  discord.failPatchIds.add(tableId);
+
+  const recoveryPreview = await service.preview(input);
+  const partial = await service.apply({ ...input, confirmed: true, confirmationHash: recoveryPreview.confirmationHash });
+  const replacementCategoryId = String(partial.record.categoryId);
+
+  assert.equal(partial.failedCount, 1);
+  assert.notEqual(replacementCategoryId, oldCategoryId);
+  assert.equal(String(discord.channels.find((item) => String(item.id) === tableId).parent_id), oldCategoryId);
+  assert.equal(String(discord.channels.find((item) => String(item.id) === infoId).parent_id), replacementCategoryId);
+
+  const tableBindingAfterPartial = store.state.bindings.find((item) => item.active !== false && item.purpose === 'main');
+  const infoBindingAfterPartial = store.state.bindings.find((item) => item.active !== false && item.purpose === 'announcements');
+  assert.equal(String(tableBindingAfterPartial.parentChannelId), oldCategoryId);
+  assert.equal(String(infoBindingAfterPartial.parentChannelId), replacementCategoryId);
+
+  const retryPreview = await service.preview(input);
+  assert.deepEqual(retryPreview.plan.map((item) => item.action), ['reparent', 'reuse']);
+  const mutationsBeforeRetry = channelMutationCalls(discord).length;
+  const recovered = await service.apply({ ...input, confirmed: true, confirmationHash: retryPreview.confirmationHash });
+  const retryMutations = channelMutationCalls(discord).slice(mutationsBeforeRetry);
+
+  assert.equal(recovered.failedCount, 0);
+  assert.equal(recovered.createdCount, 0);
+  assert.equal(retryMutations.filter((item) => item.method === 'PATCH').length, 1);
+  assert.equal(String(discord.channels.find((item) => String(item.id) === tableId).parent_id), replacementCategoryId);
+  assert.equal(String(store.state.bindings.find((item) => item.active !== false && item.purpose === 'main').parentChannelId), replacementCategoryId);
+  assert.equal(String(store.state.bindings.find((item) => item.active !== false && item.purpose === 'announcements').parentChannelId), replacementCategoryId);
+
+  const convergedPreview = await service.preview(input);
+  assert.deepEqual(convergedPreview.plan.map((item) => item.action), ['reuse', 'reuse']);
 });
