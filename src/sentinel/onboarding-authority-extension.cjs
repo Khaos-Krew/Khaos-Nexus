@@ -1,10 +1,9 @@
 'use strict';
 
-const { Client, Events } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
+const { registerStartupTask, startupDiagnostics } = require('./startup-coordinator.cjs');
 
-const INSTALLED = Symbol.for('khaos.nexus.onboardingAuthority.extension');
-const BOUND = Symbol.for('khaos.nexus.onboardingAuthority.bound');
+const STARTUP_TASK_ID = 'onboarding-authority';
 
 function sentinalOwnsOnboarding(config = {}) {
   return config?.discord?.sentinalOwnsOnboarding !== false;
@@ -67,10 +66,6 @@ async function reconcileOnboardingAuthority(guild, config = {}, logger = console
     };
   }
 
-  // Discord validates channels referenced by saved Community Onboarding even when
-  // onboarding itself is disabled. Sentinel-owned onboarding therefore clears the
-  // dormant native channel/prompt references so Shadow Recruit+ categories can be
-  // private without Discord rejecting their permission overwrites.
   await guild.editOnboarding({
     enabled: false,
     defaultChannels: [],
@@ -90,37 +85,39 @@ async function reconcileOnboardingAuthority(guild, config = {}, logger = console
   };
 }
 
-function installOnboardingAuthorityExtension() {
-  if (Client.prototype[INSTALLED]) return;
-  Client.prototype[INSTALLED] = true;
-  const config = loadConfig();
-  const originalLogin = Client.prototype.login;
+async function runOnboardingAuthority(client, config) {
+  const guildId = String(config?.discord?.guildId || '').trim();
+  if (!guildId) return { skipped: 'guild-not-configured' };
+  const guild = await client.guilds.fetch(guildId);
+  const result = await reconcileOnboardingAuthority(guild, config);
+  console.log(`[Nexus Sentinal] onboarding authority: authority=${result.authority} nativeEnabled=${String(result.nativeEnabled)} changed=${result.changed} defaults=${result.defaultChannels} prompts=${result.prompts} clearedDefaults=${result.clearedDefaultChannels || 0} clearedPrompts=${result.clearedPrompts || 0} ok=${result.ok}${result.reason ? ` reason=${result.reason}` : ''}`);
+  return result;
+}
 
-  Client.prototype.login = function nexusOnboardingAuthorityLogin(...args) {
-    const client = this;
-    if (!client[BOUND]) {
-      client[BOUND] = true;
-      client.once(Events.ClientReady, () => {
-        const run = async () => {
-          const guildId = String(config?.discord?.guildId || '').trim();
-          if (!guildId) return;
-          const guild = await client.guilds.fetch(guildId);
-          const result = await reconcileOnboardingAuthority(guild, config);
-          console.log(`[Nexus Sentinal] onboarding authority: authority=${result.authority} nativeEnabled=${String(result.nativeEnabled)} changed=${result.changed} defaults=${result.defaultChannels} prompts=${result.prompts} clearedDefaults=${result.clearedDefaultChannels || 0} clearedPrompts=${result.clearedPrompts || 0} ok=${result.ok}${result.reason ? ` reason=${result.reason}` : ''}`);
-        };
-        void run().catch((error) => {
-          console.warn(`[Nexus Sentinal] onboarding authority unavailable: ${String(error?.message || error).slice(0, 240)}`);
-        });
-      });
+function installOnboardingAuthorityExtension() {
+  if (startupDiagnostics().tasks.some((task) => task.id === STARTUP_TASK_ID)) return { installed: false, coordinated: true };
+  const config = loadConfig();
+  registerStartupTask({
+    id: STARTUP_TASK_ID,
+    owner: 'discord-onboarding',
+    priority: 110,
+    async run(client) {
+      try {
+        await runOnboardingAuthority(client, config);
+      } catch (error) {
+        console.warn(`[Nexus Sentinal] onboarding authority unavailable: ${String(error?.message || error).slice(0, 240)}`);
+      }
     }
-    return originalLogin.apply(client, args);
-  };
+  });
+  return { installed: true, coordinated: true };
 }
 
 module.exports = {
+  STARTUP_TASK_ID,
   collectionSize,
   sentinalOwnsOnboarding,
   onboardingNeedsDetachment,
   reconcileOnboardingAuthority,
+  runOnboardingAuthority,
   installOnboardingAuthorityExtension
 };
