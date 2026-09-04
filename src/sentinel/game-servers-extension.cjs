@@ -1,6 +1,5 @@
 'use strict';
 
-const { Client, Events } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { BackendClient } = require('./backend-client.cjs');
 const {
@@ -10,8 +9,9 @@ const {
   groupTrackedServers,
   groupPrivateServersByRank
 } = require('./game-servers-panel.cjs');
+const { registerStartupTask, startupDiagnostics } = require('./startup-coordinator.cjs');
 
-const INSTALLED = Symbol.for('khaos.nexus.gameServers.extension');
+const STARTUP_TASK_ID = 'game-servers-panel';
 const INITIAL_DELAY_MS = 15_000;
 const REFRESH_MS = 60_000;
 
@@ -44,44 +44,50 @@ async function refreshGameServersPanel(client, config = {}, options = {}) {
   };
 }
 
-function installGameServersExtension() {
-  if (Client.prototype[INSTALLED]) return;
-  Client.prototype[INSTALLED] = true;
-  const config = loadConfig();
-  const originalLogin = Client.prototype.login;
-
-  Client.prototype.login = function nexusGameServersLogin(...args) {
-    this.once(Events.ClientReady, () => {
-      let running = false;
-      const run = async (reason) => {
-        if (running) return;
-        running = true;
-        try {
-          const result = await refreshGameServersPanel(this, config);
-          if (result.skipped) {
-            console.warn(`[Nexus Sentinal] game servers registry (${reason}) skipped: ${result.skipped}`);
-            return;
-          }
-          console.log(`[Nexus Sentinal] game servers registry (${reason}): channel=${result.channelId} channelCreated=${result.channelCreated} channelMoved=${result.channelMoved} panelCreated=${result.created} panelUpdated=${result.updated} public=${result.tracked} private=${result.privateTracked} gameGroups=${result.groups} rankGroups=${result.privateRankGroups} duplicatesRemoved=${result.duplicatesRemoved} pinned=${result.pinned}`);
-        } catch (error) {
-          console.warn(`[Nexus Sentinal] game servers registry (${reason}) unavailable: ${String(error?.message || error).slice(0, 240)}`);
-        } finally {
-          running = false;
-        }
-      };
-
-      const initialTimer = setTimeout(() => void run('startup'), INITIAL_DELAY_MS);
-      initialTimer.unref?.();
-      const periodicTimer = setInterval(() => void run('periodic'), REFRESH_MS);
-      periodicTimer.unref?.();
-    });
-    return originalLogin.apply(this, args);
+function startGameServersMonitor(client, config, { setTimeoutFn = setTimeout, setIntervalFn = setInterval } = {}) {
+  let running = false;
+  const run = async (reason) => {
+    if (running) return;
+    running = true;
+    try {
+      const result = await refreshGameServersPanel(client, config);
+      if (result.skipped) {
+        console.warn(`[Nexus Sentinal] game servers registry (${reason}) skipped: ${result.skipped}`);
+        return;
+      }
+      console.log(`[Nexus Sentinal] game servers registry (${reason}): channel=${result.channelId} channelCreated=${result.channelCreated} channelMoved=${result.channelMoved} panelCreated=${result.created} panelUpdated=${result.updated} public=${result.tracked} private=${result.privateTracked} gameGroups=${result.groups} rankGroups=${result.privateRankGroups} duplicatesRemoved=${result.duplicatesRemoved} pinned=${result.pinned}`);
+    } catch (error) {
+      console.warn(`[Nexus Sentinal] game servers registry (${reason}) unavailable: ${String(error?.message || error).slice(0, 240)}`);
+    } finally {
+      running = false;
+    }
   };
+  const initialTimer = setTimeoutFn(() => void run('startup'), INITIAL_DELAY_MS);
+  initialTimer?.unref?.();
+  const periodicTimer = setIntervalFn(() => void run('periodic'), REFRESH_MS);
+  periodicTimer?.unref?.();
+  return { initialTimer, periodicTimer, run };
+}
+
+function installGameServersExtension() {
+  if (startupDiagnostics().tasks.some((task) => task.id === STARTUP_TASK_ID)) return { installed: false, coordinated: true };
+  const config = loadConfig();
+  registerStartupTask({
+    id: STARTUP_TASK_ID,
+    owner: 'game-servers',
+    priority: 140,
+    run(client) {
+      startGameServersMonitor(client, config);
+    }
+  });
+  return { installed: true, coordinated: true };
 }
 
 module.exports = {
+  STARTUP_TASK_ID,
   INITIAL_DELAY_MS,
   REFRESH_MS,
   refreshGameServersPanel,
+  startGameServersMonitor,
   installGameServersExtension
 };
