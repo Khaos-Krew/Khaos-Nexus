@@ -11,7 +11,12 @@ const {
   alertPayload,
   inspectArkShopApplyHealth
 } = require('../src/sentinel/arkshop-apply-health-monitor.cjs');
-const { discordPayload } = require('../src/sentinel/arkshop-apply-health-extension.cjs');
+const {
+  INITIAL_DELAY_MS,
+  INTERVAL_MS,
+  discordPayload,
+  startArkShopApplyHealthMonitor
+} = require('../src/sentinel/arkshop-apply-health-extension.cjs');
 
 function tempRoot() { return fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-arkshop-apply-health-')); }
 
@@ -59,4 +64,23 @@ test('ArkShop apply Discord payload is bounded, mention-safe, and has no repair 
   assert.equal(text.includes('token=bad'), false);
   assert.equal(/button|customId|repair now|restore now|overwrite now/i.test(text), false);
   assert.deepEqual(payload.allowedMentions, { parse: [] });
+});
+
+test('ArkShop apply health coordinated startup preserves timer cadence', () => {
+  const scheduled = [];
+  const handle = () => ({ unref() {} });
+  startArkShopApplyHealthMonitor({}, {}, {
+    setTimeoutFn(fn, delay) {
+      scheduled.push({ type: 'timeout', fn, delay });
+      return handle();
+    },
+    setIntervalFn(fn, delay) {
+      scheduled.push({ type: 'interval', fn, delay });
+      return handle();
+    }
+  });
+  assert.deepEqual(scheduled.map(({ type, delay }) => ({ type, delay })), [
+    { type: 'timeout', delay: INITIAL_DELAY_MS },
+    { type: 'interval', delay: INTERVAL_MS }
+  ]);
 });
