@@ -1,16 +1,32 @@
 'use strict';
 
-const { Client, Events, MessageFlags } = require('discord.js');
+const { Client, MessageFlags } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { BackendClient } = require('./backend-client.cjs');
 const { pogoCommand, handlePokemonGoCommand, handlePokemonGoButton } = require('./pokemon-go.cjs');
 const { handlePokemonGoEventList } = require('./pokemon-go-event-ui.cjs');
 const { normalizeRequiredOptions } = require('./discord-command-schema.cjs');
+const { registerStartupTask, startupDiagnostics } = require('./startup-coordinator.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.pogo.extension');
+const BOUND = Symbol.for('khaos.nexus.pogo.bound');
+const STARTUP_TASK_ID = 'pokemon-go-command-registration';
+
+async function registerPokemonGoCommand(client, guildId) {
+  if (!guildId) return { skipped: 'guild-not-configured' };
+  const guild = await client.guilds.fetch(guildId);
+  const definition = pogoCommand();
+  const commandJson = normalizeRequiredOptions(definition.toJSON());
+  const commands = await guild.commands.fetch();
+  const existing = commands.find((item) => item.name === definition.name);
+  if (existing) await guild.commands.edit(existing, commandJson);
+  else await guild.commands.create(commandJson);
+  console.log(`[Nexus Sentinal] registered /pogo in guild ${guild.id}`);
+  return { skipped: '', guildId: String(guild.id) };
+}
 
 function installPokemonGoExtension() {
-  if (Client.prototype[INSTALLED]) return;
+  if (Client.prototype[INSTALLED]) return { installed: false };
   Client.prototype[INSTALLED] = true;
 
   const config = loadConfig();
@@ -28,46 +44,44 @@ function installPokemonGoExtension() {
   }
 
   Client.prototype.login = function nexusPokemonGoLogin(...args) {
-    this.once(Events.ClientReady, async () => {
-      try {
-        if (!guildId) return;
-        const guild = await this.guilds.fetch(guildId);
-        const definition = pogoCommand();
-        const commandJson = normalizeRequiredOptions(definition.toJSON());
-        const commands = await guild.commands.fetch();
-        const existing = commands.find((item) => item.name === definition.name);
-        if (existing) await guild.commands.edit(existing, commandJson);
-        else await guild.commands.create(commandJson);
-        console.log(`[Nexus Sentinal] registered /pogo in guild ${guild.id}`);
-      } catch (error) {
-        console.error('[Nexus Sentinal] Pokémon GO command registration:', error);
-      }
-    });
-
-    this.on('interactionCreate', async (interaction) => {
-      const isPogoCommand = interaction.isChatInputCommand?.() && interaction.commandName === 'pogo';
-      const isPogoButton = interaction.isButton?.() && String(interaction.customId || '').startsWith('pogo:');
-      if (!isPogoCommand && !isPogoButton) return;
-
-      try {
-        if (isPogoButton) return handlePokemonGoButton(interaction, { backend, roleFor });
-        const group = interaction.options.getSubcommandGroup(false);
-        const sub = interaction.options.getSubcommand(false);
-        if (group === 'event' && sub === 'list') return handlePokemonGoEventList(interaction, { backend, roleFor });
-        return handlePokemonGoCommand(interaction, { backend, roleFor });
-      } catch (error) {
-        const content = `⚠️ ${String(error?.message || error)}`.slice(0, 1900);
+    if (!this[BOUND]) {
+      this[BOUND] = true;
+      this.on('interactionCreate', async (interaction) => {
+        const isPogoCommand = interaction.isChatInputCommand?.() && interaction.commandName === 'pogo';
+        const isPogoButton = interaction.isButton?.() && String(interaction.customId || '').startsWith('pogo:');
+        if (!isPogoCommand && !isPogoButton) return;
         try {
-          if (interaction.deferred || interaction.replied) await interaction.editReply({ content, components: [], embeds: [] });
-          else await interaction.reply({ content, flags: MessageFlags.Ephemeral });
-        } catch (replyError) {
-          console.error('[Nexus Sentinal] Pokémon GO interaction error:', replyError);
+          if (isPogoButton) return handlePokemonGoButton(interaction, { backend, roleFor });
+          const group = interaction.options.getSubcommandGroup(false);
+          const sub = interaction.options.getSubcommand(false);
+          if (group === 'event' && sub === 'list') return handlePokemonGoEventList(interaction, { backend, roleFor });
+          return handlePokemonGoCommand(interaction, { backend, roleFor });
+        } catch (error) {
+          const content = `⚠️ ${String(error?.message || error)}`.slice(0, 1900);
+          try {
+            if (interaction.deferred || interaction.replied) await interaction.editReply({ content, components: [], embeds: [] });
+            else await interaction.reply({ content, flags: MessageFlags.Ephemeral });
+          } catch (replyError) {
+            console.error('[Nexus Sentinal] Pokémon GO interaction error:', replyError);
+          }
         }
-      }
-    });
-
+      });
+    }
     return originalLogin.apply(this, args);
   };
+
+  if (!startupDiagnostics().tasks.some((task) => task.id === STARTUP_TASK_ID)) {
+    registerStartupTask({
+      id: STARTUP_TASK_ID,
+      owner: 'pokemon-go',
+      priority: 131,
+      async run(client) {
+        try { await registerPokemonGoCommand(client, guildId); }
+        catch (error) { console.error('[Nexus Sentinal] Pokémon GO command registration:', error); }
+      }
+    });
+  }
+  return { installed: true, coordinated: true };
 }
 
-module.exports = { installPokemonGoExtension };
+module.exports = { STARTUP_TASK_ID, registerPokemonGoCommand, installPokemonGoExtension };
