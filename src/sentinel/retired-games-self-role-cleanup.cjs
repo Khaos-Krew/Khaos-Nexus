@@ -6,6 +6,7 @@ const { MODULES } = require('../backend/modules/catalog.cjs');
 const { RETIRED_MODULE_IDS, retireSentinelModuleRegistry } = require('./retired-module-policy.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.retiredGamesSelfRoleCleanup.extension');
+const FRIENDLY_POLICY_APPLIED = Symbol.for('khaos.nexus.retiredFriendlyCommandPolicy.applied');
 const RETIRED_GAMES_MARKER_PREFIX = 'nexus-sentinal:self-role:games';
 const RETIRED_COMMAND_CLEANUP_DELAY_MS = 5_000;
 
@@ -33,6 +34,43 @@ function findRolesChannel(channels, configuredChannelId = '') {
     if (configured?.isTextBased?.()) return configured;
   }
   return list.find((channel) => channel?.isTextBased?.() && String(channel?.name || '').toLowerCase() === 'roles') || null;
+}
+
+function applyRetiredFriendlyCommandPolicy(friendlyCommands = require('./friendly-commands.cjs')) {
+  if (!friendlyCommands || friendlyCommands[FRIENDLY_POLICY_APPLIED]) return false;
+  const originalDefinitions = friendlyCommands.commandDefinitions;
+  const originalNames = friendlyCommands.commandNames;
+  const originalIsFriendlyCommand = friendlyCommands.isFriendlyCommand;
+  const originalResolveFriendlyCommand = friendlyCommands.resolveFriendlyCommand;
+  const originalUsageForModule = friendlyCommands.usageForModule;
+
+  friendlyCommands.commandDefinitions = (...args) => originalDefinitions(...args)
+    .filter((command) => !RETIRED_MODULE_IDS.has(String(command?.name || '').trim().toLowerCase()));
+  friendlyCommands.commandNames = (...args) => originalNames(...args)
+    .filter((name) => !RETIRED_MODULE_IDS.has(String(name || '').trim().toLowerCase()));
+  friendlyCommands.isFriendlyCommand = (name, ...args) => {
+    const normalized = String(name || '').trim().toLowerCase();
+    return !RETIRED_MODULE_IDS.has(normalized) && originalIsFriendlyCommand(name, ...args);
+  };
+  friendlyCommands.resolveFriendlyCommand = (interaction, ...args) => {
+    const normalized = String(interaction?.commandName || '').trim().toLowerCase();
+    if (RETIRED_MODULE_IDS.has(normalized)) return null;
+    const resolved = originalResolveFriendlyCommand(interaction, ...args);
+    if (resolved && RETIRED_MODULE_IDS.has(String(resolved.moduleId || '').trim().toLowerCase())) return null;
+    return resolved;
+  };
+  friendlyCommands.usageForModule = (moduleId, ...args) => {
+    const normalized = String(moduleId || '').trim().toLowerCase();
+    if (RETIRED_MODULE_IDS.has(normalized)) return [];
+    return originalUsageForModule(moduleId, ...args);
+  };
+
+  Object.defineProperty(friendlyCommands, FRIENDLY_POLICY_APPLIED, {
+    value: true,
+    enumerable: false,
+    configurable: false
+  });
+  return true;
 }
 
 async function retireGamesSelfRolePanel(guild, { botId = '', configuredChannelId = '' } = {}) {
@@ -71,8 +109,12 @@ function installRetiredGamesSelfRoleCleanupExtension() {
   Client.prototype[INSTALLED] = true;
 
   const retiredModules = retireSentinelModuleRegistry(MODULES);
+  const friendlyPolicyApplied = applyRetiredFriendlyCommandPolicy();
   if (retiredModules.length) {
     console.log(`[Nexus Sentinal] retired module registry filtered: ${retiredModules.join(', ')}`);
+  }
+  if (friendlyPolicyApplied) {
+    console.log('[Nexus Sentinal] retired friendly-command policy active.');
   }
 
   const config = loadConfig();
@@ -114,6 +156,7 @@ module.exports = {
   footerTexts,
   isRetiredGamesSelfRoleMessage,
   findRolesChannel,
+  applyRetiredFriendlyCommandPolicy,
   retireGamesSelfRolePanel,
   retireGuildCommands,
   installRetiredGamesSelfRoleCleanupExtension
