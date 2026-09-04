@@ -97,6 +97,25 @@ function memberRole(member = {}) {
   return ['admin', 'dm', 'assistant_dm', 'player', 'viewer'].includes(member.role) ? member.role : 'viewer';
 }
 
+function uniqueProvisioningMembers(members = []) {
+  const unique = new Map();
+  for (const member of members) {
+    if (member?.active === false || !member?.discordUserId) continue;
+    const discordUserId = String(member.discordUserId);
+    const existing = unique.get(discordUserId);
+    if (!existing) {
+      unique.set(discordUserId, member);
+      continue;
+    }
+    if (memberRole(existing) !== memberRole(member)) {
+      const error = new Error(`Discord user ${discordUserId} has conflicting active campaign roles. Resolve the duplicate membership before provisioning.`);
+      error.code = 'DND_PROVISIONING_MEMBER_CONFLICT';
+      throw error;
+    }
+  }
+  return [...unique.values()];
+}
+
 function memberPermission(member, channel) {
   const role = memberRole(member);
   const isManager = ['admin', 'dm', 'assistant_dm'].includes(role);
@@ -135,7 +154,7 @@ function memberPermission(member, channel) {
 }
 
 function buildPermissionOverwrites({ guildId, botUserId, members = [], channel }) {
-  const active = members.filter((member) => member.active !== false && member.discordUserId);
+  const active = uniqueProvisioningMembers(members);
   if (active.length > MAX_MEMBER_OVERWRITES) {
     const error = new Error(`This campaign has ${active.length} mapped members; individual channel provisioning supports at most ${MAX_MEMBER_OVERWRITES}. Configure Discord roles before provisioning.`);
     error.code = 'DND_PROVISIONING_MEMBER_LIMIT';
