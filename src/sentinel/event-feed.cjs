@@ -5,6 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { formatActionResult } = require('./action-formatters.cjs');
 const { pokemonGoEventPayload } = require('./pokemon-go-event-ui.cjs');
+const { isRetiredModuleId } = require('./retired-module-policy.cjs');
 
 const DEFAULT_POLL_MS = 10 * 60 * 1000;
 const FEED_RENDER_VERSION = 3;
@@ -13,7 +14,6 @@ const FEEDS = Object.freeze([
   { moduleId:'pokemongo', channelName:'pokemon-go-events', actions:['events'], pollMs:15 * 60 * 1000 },
   { moduleId:'warframe', channelName:'warframe-world-state', actions:['news','events','alerts','sortie','arbitration','nightwave','void-trader','steel-path'], pollMs:10 * 60 * 1000 },
   { moduleId:'division2', channelName:'division-weekly', actions:['news'], pollMs:30 * 60 * 1000 },
-  { moduleId:'oncehuman', channelName:'once-human-news', actions:['news'], pollMs:20 * 60 * 1000 },
   { moduleId:'diablo4', channelName:'diablo-news', actions:['news'], pollMs:30 * 60 * 1000 },
   { moduleId:'callofduty', channelName:'cod-news', actions:['news'], pollMs:30 * 60 * 1000 },
   { moduleId:'ark', channelName:'ark-schedules', actions:['schedule-list'], pollMs:10 * 60 * 1000 },
@@ -21,7 +21,7 @@ const FEEDS = Object.freeze([
   { moduleId:'minecraft', channelName:'minecraft-server-status', actions:['schedule-list'], pollMs:10 * 60 * 1000 },
   { moduleId:'rust', channelName:'rust-server-status', actions:['schedule-list'], pollMs:10 * 60 * 1000 },
   { moduleId:'satisfactory', channelName:'satisfactory-server-status', actions:['schedule-list'], pollMs:10 * 60 * 1000 }
-]);
+].filter((feed) => !isRetiredModuleId(feed.moduleId)));
 
 function digest(value) {
   return crypto.createHash('sha256').update(JSON.stringify(value ?? null)).digest('hex');
@@ -43,7 +43,6 @@ function feedTitle(moduleId, actionId, original = '') {
   if (moduleId === 'warframe' && actionId === 'news') return '📰 WARFRAME • NEWS';
   if (moduleId === 'warframe' && actionId === 'events') return '📅 WARFRAME • EVENTS';
   if (moduleId === 'division2' && actionId === 'news') return '📰 THE DIVISION 2 • NEWS';
-  if (moduleId === 'oncehuman' && actionId === 'news') return '📰 ONCE HUMAN • OFFICIAL UPDATES';
   if (moduleId === 'diablo4' && actionId === 'news') return '📰 DIABLO IV • NEWS';
   if (moduleId === 'callofduty' && actionId === 'news') return '📰 CALL OF DUTY • PATCH NOTES';
   return String(original || '').slice(0, 256);
