@@ -1,9 +1,10 @@
 'use strict';
 
-const { Client, Events } = require('discord.js');
+const { Client } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { resolveChannel } = require('./ark-staff-status-monitor-extension.cjs');
 const { inspectNexusBankHealth } = require('./ark-nexus-bank-health-monitor.cjs');
+const { registerStartupTask } = require('./startup-coordinator.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.bank.health.extension');
 const INITIAL_DELAY_MS = 15_000;
@@ -51,18 +52,18 @@ function installNexusBankHealthExtension() {
   if (Client.prototype[INSTALLED]) return;
   Client.prototype[INSTALLED] = true;
   const config = loadConfig();
-  const originalLogin = Client.prototype.login;
-  Client.prototype.login = function nexusBankHealthLogin(...args) {
-    const client = this;
-    client.once(Events.ClientReady, () => {
-      const run = () => void runNexusBankHealthCycle(client, config).catch(() => {});
-      const initial = setTimeout(run, INITIAL_DELAY_MS);
+  registerStartupTask({
+    id: 'ark.nexus-bank-health',
+    owner: 'ark-nexus-bank-health-extension',
+    priority: 120,
+    run(client) {
+      const cycle = () => void runNexusBankHealthCycle(client, config).catch(() => {});
+      const initial = setTimeout(cycle, INITIAL_DELAY_MS);
       initial.unref?.();
-      const timer = setInterval(run, INTERVAL_MS);
+      const timer = setInterval(cycle, INTERVAL_MS);
       timer.unref?.();
-    });
-    return originalLogin.apply(this, args);
-  };
+    }
+  });
 }
 
 module.exports = { discordPayload, runNexusBankHealthCycle, installNexusBankHealthExtension };
