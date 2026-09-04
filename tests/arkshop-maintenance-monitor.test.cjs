@@ -2,7 +2,14 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { inspectArkShopMaintenance } = require('../src/sentinel/arkshop-maintenance-monitor.cjs');
+const {
+  resetStartupCoordinatorForTests,
+  startupDiagnostics
+} = require('../src/sentinel/startup-coordinator.cjs');
+const {
+  inspectArkShopMaintenance,
+  installArkShopMaintenanceMonitor
+} = require('../src/sentinel/arkshop-maintenance-monitor.cjs');
 
 test('ArkShop maintenance monitor detects drift and never mutates live state', async () => {
   const servers = [
@@ -44,4 +51,15 @@ test('ArkShop maintenance monitor reports incompatible providers without calling
   assert.equal(calls, 0);
   assert.equal(result.results[0].state, 'provider-incompatible');
   assert.equal(result.mutationPerformed, false);
+});
+
+test('ArkShop maintenance scheduling is coordinated instead of adding a direct ClientReady listener', () => {
+  resetStartupCoordinatorForTests();
+  installArkShopMaintenanceMonitor();
+  const snapshot = startupDiagnostics();
+  const task = snapshot.tasks.find((item) => item.id === 'arkshop.maintenance-monitor');
+  assert.ok(task);
+  assert.equal(task.owner, 'arkshop-maintenance-monitor');
+  assert.equal(task.priority, 60);
+  assert.equal(task.executionCount, 0);
 });
