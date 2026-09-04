@@ -4,6 +4,7 @@ const discord = require('discord.js');
 const { ChannelType, Client, Events, PermissionFlagsBits, Routes } = discord;
 const { loadConfig } = require('../shared/config.cjs');
 const { getArnWebhookRegistry, discoverNamedWebhooks, ARN_INTAKE_CHANNEL_NAME } = require('./arn-intake-extension.cjs');
+const { pruneStaleActive, resolveLifecyclePolicy } = require('./arn-lifecycle-policy.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.arnLiveBoard.extension');
 const ARN_PUBLIC_CHANNEL_NAME = 'arn';
@@ -140,6 +141,10 @@ function applyEvent(event, occurredAt = Date.now()) {
 }
 
 function pruneResolved(now = Date.now()) {
+  const expired = pruneStaleActive(state.anomalies, now, resolveLifecyclePolicy());
+  for (const item of expired) {
+    console.log(`[Nexus Sentinal] ARN stale spawn auto-removed: map=${item.mapName} dino=${item.dinoName} reason=${item.reason}`);
+  }
   for (const [key, item] of state.anomalies) {
     if (item.status !== 'ACTIVE' && item.resolvedAt && now - item.resolvedAt >= RESOLVED_LINGER_MS) state.anomalies.delete(key);
   }
@@ -164,6 +169,8 @@ function formatAge(timestamp, now = Date.now()) {
 }
 
 function infoEmbed() {
+  const policy = resolveLifecyclePolicy();
+  const expiryHours = policy.hardExpiryMs ? (policy.hardExpiryMs / 3600000).toFixed(1).replace(/\.0$/, '') : 'disabled';
   return {
     color: 0xb00020,
     title: '🧬 ANOMALY RESPONSE NETWORK',
@@ -172,7 +179,7 @@ function infoEmbed() {
       { name: '📡 How it works', value: 'A Shiny detection enters the private ARN intake bus → Sentinel validates the source map → the anomaly is added to this live board. Lifecycle signals update the same tracked anomaly instead of creating chat spam.' },
       { name: '🚦 Status', value: '**ACTIVE** — currently detectable\n**CAPTURED** — successfully tamed/captured\n**DEFEATED** — killed/defeated\n**SIGNAL LOST** — no longer detectable' },
       { name: '☢️ Threat Level', value: '**KAIJU** is reserved for **Enraged** anomalies. Other traits remain conservatively classified until their documented Shiny ability behavior is mapped into ARN.' },
-      { name: '🗺️ Tracking', value: 'Coordinates shown here come directly from the native Shiny detection notification. Color/appearance names do **not** create artificial rarity or threat tiers.' }
+      { name: '🗺️ Tracking', value: `Coordinates shown here come directly from the native Shiny detection notification. Color/appearance names do **not** create artificial rarity or threat tiers. Stale ACTIVE entries are automatically removed after the configured Shiny maximum lifetime${policy.hardExpiryMs ? ` plus grace (${expiryHours}h total)` : ''}.` }
     ],
     footer: { text: INFO_MARKER }
   };
