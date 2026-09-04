@@ -184,7 +184,7 @@ async function resolveTurn(input = {}) {
   try {
     const generated = await aiGm.submitTurn({
       aiGmSessionId: aiSession.id, actor: 'Party',
-      message: JSON.stringify({ scene: envelope.scene, actions: envelope.actions }),
+      message: JSON.stringify(envelope),
       dmGuidance: 'Narrate only. Preserve player agency. Propose no mechanical state changes.',
       clientTurnId: input.clientTurnId || `${turn.id}:veyra`, confirmed: true
     });
