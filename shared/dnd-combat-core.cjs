@@ -35,7 +35,7 @@ function normalizeCombatant(state, campaignId, input = {}, rng = Math.random) {
     name: runtime.clean(input.name || character?.name || 'Combatant', 160), currentHp, maxHp,
     armorClass: cleanNumber(input.armorClass ?? character?.armorClass ?? 10, 10, 0, 100),
     initiativeModifier, initiativeRoll, initiative: initiativeRoll + initiativeModifier,
-    savingThrows: runtime.clone(input.savingThrows || {}), spellSlots: runtime.clone(input.spellSlots || {}),
+    savingThrows: runtime.clone(input.savingThrows || character?.savingThrows || {}), spellSlots: runtime.clone(input.spellSlots || character?.spellSlots || {}),
     conditions: [...new Set((input.conditions || character?.conditions || []).map((item) => runtime.clean(item, 80)).filter(Boolean))],
     concentration: input.concentration ? runtime.clean(input.concentration, 200) : '',
     deathSaves: { successes: 0, failures: 0, stable: false, dead: false },
