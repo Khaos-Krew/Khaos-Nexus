@@ -88,6 +88,38 @@ test('permission plan rejects unbounded individual member overwrites', () => {
   }), { code: 'DND_PROVISIONING_MEMBER_LIMIT' });
 });
 
+test('permission plan deduplicates identical active Discord member mappings before enforcing limits', () => {
+  const members = Array.from({ length: MAX_MEMBER_OVERWRITES }, (_, index) => ({
+    discordUserId: String(10000 + index), role: 'player', active: true
+  }));
+  members.push({ ...members[0] });
+
+  const overwrites = buildPermissionOverwrites({
+    guildId: '12345',
+    botUserId: '99999',
+    members,
+    channel: { key: 'table-chat', type: 'text', playerMode: 'write' }
+  });
+  const memberOverwrites = overwrites.filter((item) => item.type === 1 && item.id !== '99999');
+
+  assert.equal(memberOverwrites.length, MAX_MEMBER_OVERWRITES);
+  assert.equal(new Set(memberOverwrites.map((item) => item.id)).size, MAX_MEMBER_OVERWRITES);
+});
+
+test('permission plan rejects conflicting active roles for the same Discord user', () => {
+  const members = [
+    { discordUserId: '11111', role: 'player', active: true },
+    { discordUserId: '11111', role: 'dm', active: true }
+  ];
+
+  assert.throws(() => buildPermissionOverwrites({
+    guildId: '12345',
+    botUserId: '99999',
+    members,
+    channel: { key: 'dm-private', type: 'text', playerMode: 'hidden' }
+  }), { code: 'DND_PROVISIONING_MEMBER_CONFLICT' });
+});
+
 test('bot readiness combines guild and member role permissions with administrator override', () => {
   const roles = [
     { id: '12345', permissions: PERMISSIONS.MANAGE_CHANNELS.toString() },
