@@ -106,3 +106,32 @@ test('managed channel with wrong Discord type fails closed instead of being reus
   assert.equal(discord.calls.some((call) => call.method === 'POST' || call.method === 'PATCH'), false);
   assert.equal(store.state.provisioningRecords[0].resources['table-chat'].id, '20002');
 });
+
+test('managed category with wrong Discord type fails closed instead of being reused', async () => {
+  const store = createStore();
+  const discord = createDiscordMock();
+  const service = new DndDiscordProvisioningService({ configStore: store, logger: {}, fetchImpl: discord.fetchImpl, sleep: async () => {} });
+  const input = {
+    campaignId: 'campaign-1',
+    appId: 'nexus-bot',
+    guildId: '12345',
+    categoryName: 'The Red Keep',
+    template: requiredOnlyTemplate(),
+    createdBy: 'local-owner'
+  };
+
+  const category = discord.channels.find((item) => item.id === '20000');
+  category.type = 0;
+
+  const drifted = await service.preview(input);
+  assert.equal(drifted.ready, false);
+  assert.match(drifted.blockers.join(' '), /managed campaign category is bound to Discord channel 20000 with type 0, but Nexus requires a category/i);
+
+  await assert.rejects(
+    service.apply({ ...input, confirmed: true, confirmationHash: drifted.confirmationHash }),
+    (error) => error?.code === 'DND_PROVISIONING_NOT_READY'
+  );
+
+  assert.equal(discord.calls.some((call) => call.method === 'POST' || call.method === 'PATCH'), false);
+  assert.equal(store.state.provisioningRecords[0].categoryId, '20000');
+});
