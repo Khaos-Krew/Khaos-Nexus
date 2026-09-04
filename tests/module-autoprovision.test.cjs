@@ -19,7 +19,7 @@ function stateFor({ setups = {}, roles = {} } = {}) {
   };
 }
 
-test('auto-provision target list includes Sentinel modules but never delegated D&D', () => {
+test('auto-provision target list includes active Sentinel modules but excludes retired Once Human and delegated D&D', () => {
   const enabled = enabledSentinelModules({
     modules: {
       osrs: { enabled: true },
@@ -31,18 +31,18 @@ test('auto-provision target list includes Sentinel modules but never delegated D
   });
   assert.ok(enabled.some((module) => module.id === 'osrs'));
   assert.ok(enabled.some((module) => module.id === 'runescape3'));
-  assert.ok(enabled.some((module) => module.id === 'oncehuman'));
+  assert.equal(enabled.some((module) => module.id === 'oncehuman'), false);
   assert.equal(enabled.some((module) => module.id === 'dnd'), false);
   assert.equal(enabled.some((module) => module.id === 'warframe'), false);
 });
 
 test('healthy stored module layout is not provisioned again', () => {
   const channels = new Map([
-    ['cat', { id: 'cat', name: 'Once Human', type: ChannelType.GuildCategory }],
+    ['cat', { id: 'cat', name: 'Warframe', type: ChannelType.GuildCategory }],
     ['hub', { id: 'hub', type: ChannelType.GuildText, parentId: 'cat' }]
   ]);
-  assert.equal(setupHealthy({ categoryId: 'cat', consoleChannelId: 'hub' }, channels, 'oncehuman'), true);
-  assert.equal(setupHealthy({ categoryId: 'cat', consoleChannelId: 'missing' }, channels, 'oncehuman'), false);
+  assert.equal(setupHealthy({ categoryId: 'cat', consoleChannelId: 'hub' }, channels, 'warframe'), true);
+  assert.equal(setupHealthy({ categoryId: 'cat', consoleChannelId: 'missing' }, channels, 'warframe'), false);
 });
 
 test('a stored RS3 setup under OSRS is unhealthy and must be repaired', () => {
@@ -56,7 +56,7 @@ test('a stored RS3 setup under OSRS is unhealthy and must be repaired', () => {
   assert.equal(setupHealthy(setup, channels, 'runescape3'), false);
 });
 
-test('new OSRS RS3 and Once Human layouts wait for access roles before category creation', () => {
+test('retired Once Human never becomes pending or blocked even when configuration and access role still exist', () => {
   const config = {
     modules: {
       osrs: { enabled: true },
@@ -78,46 +78,34 @@ test('new OSRS RS3 and Once Human layouts wait for access roles before category 
     }
   };
   const state = stateFor({
-    roles: { osrs: 'role-osrs', runescape3: 'role-rs3' }
+    roles: { osrs: 'role-osrs', runescape3: 'role-rs3', oncehuman: 'role-oncehuman' }
   });
   const roles = new Map([
     ['role-osrs', { id: 'role-osrs' }],
-    ['role-rs3', { id: 'role-rs3' }]
+    ['role-rs3', { id: 'role-rs3' }],
+    ['role-oncehuman', { id: 'role-oncehuman' }]
   ]);
   const result = modulesNeedingProvision(config, state, new Map(), roles);
   assert.deepEqual(result.pending.sort(), ['osrs', 'runescape3']);
-  assert.deepEqual(result.blocked, [{ moduleId: 'oncehuman', reason: 'access-role-not-ready' }]);
-});
-
-test('Once Human becomes provisionable as soon as its access role exists', () => {
-  const config = {
-    modules: Object.fromEntries([
-      'ark', 'callofduty', 'deadbydaylight', 'diablo4', 'palworld', 'minecraft', 'warframe', 'division2',
-      'rust', 'satisfactory', 'idleon', 'pokemongo', 'dnd', 'osrs', 'runescape3'
-    ].map((id) => [id, { enabled: false }]))
-  };
-  config.modules.oncehuman = { enabled: true };
-  const state = stateFor({ roles: { oncehuman: 'role-oncehuman' } });
-  const result = modulesNeedingProvision(config, state, new Map(), new Map([['role-oncehuman', { id: 'role-oncehuman' }]]));
-  assert.deepEqual(result.pending, ['oncehuman']);
-  assert.deepEqual(result.blocked, []);
+  assert.equal(result.pending.includes('oncehuman'), false);
+  assert.equal(result.blocked.some((item) => item.moduleId === 'oncehuman'), false);
 });
 
 test('category bootstrap denies everyone before granting the module access role', async () => {
   const edits = [];
   const category = {
-    id: 'category-oncehuman',
+    id: 'category-warframe',
     permissionOverwrites: {
       edit: async (targetId, permissions) => edits.push({ targetId, permissions })
     }
   };
   const provisioner = { category: async () => ({ category, created: true, source: 'created', matchScore: 0 }) };
   const guild = { id: 'guild-1' };
-  const result = await bootstrapCategoryAccess(guild, provisioner, 'oncehuman', 'role-oncehuman');
+  const result = await bootstrapCategoryAccess(guild, provisioner, 'warframe', 'role-warframe');
   assert.equal(result.category, category);
   assert.deepEqual(edits, [
     { targetId: 'guild-1', permissions: { ViewChannel: false } },
-    { targetId: 'role-oncehuman', permissions: { ViewChannel: true } }
+    { targetId: 'role-warframe', permissions: { ViewChannel: true } }
   ]);
   assert.equal(PermissionFlagsBits.ViewChannel > 0n, true);
 });
