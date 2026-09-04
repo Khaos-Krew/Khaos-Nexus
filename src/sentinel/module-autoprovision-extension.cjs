@@ -1,6 +1,6 @@
 'use strict';
 
-const { ChannelType, Client, Events, PermissionFlagsBits } = require('discord.js');
+const { ChannelType, PermissionFlagsBits } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { MODULES } = require('../backend/modules/catalog.cjs');
 const { BackendClient } = require('./backend-client.cjs');
@@ -13,8 +13,9 @@ const { renderModuleConsole } = require('./module-console.cjs');
 const { ensurePanelMessage } = require('./persistent-panel-extension.cjs');
 const { createCoalescingRunner } = require('./coalescing-runner.cjs');
 const { activeSentinelModules } = require('./retired-module-policy.cjs');
+const { registerStartupTask, startupDiagnostics } = require('./startup-coordinator.cjs');
 
-const INSTALLED = Symbol.for('khaos.nexus.moduleAutoprovision.extension');
+const STARTUP_TASK_ID = 'module-autoprovision';
 const INITIAL_PROVISION_DELAY_MS = 160_000;
 const PERIODIC_PROVISION_MS = 5 * 60_000;
 
@@ -131,14 +132,12 @@ async function reconcileNewModuleLayouts(client, { config, state, backend, provi
       const access = state.getAccessRole(moduleId);
       const accessRoleId = String(access?.roleId || '');
       if (!accessRoleId || !roles.has(accessRoleId)) throw new Error('Access role became unavailable before provisioning.');
-
       const bootstrap = await bootstrapCategoryAccess(guild, provisioner, moduleId, accessRoleId);
       const setup = await provisioner.provision(guild, moduleId, String(bootstrap.category.id));
       setup.categoryCreated = Boolean(bootstrap.created);
       setup.categorySource = String(bootstrap.source || setup.categorySource || 'selected');
       setup.categoryMatchScore = Number(bootstrap.matchScore || setup.categoryMatchScore || 0);
       state.setModuleSetup(moduleId, setup);
-
       const hub = await publishModuleHub(client, backend, state, setup, moduleId, logger);
       provisioned.push({
         moduleId,
@@ -158,7 +157,6 @@ async function reconcileNewModuleLayouts(client, { config, state, backend, provi
 
   const topologyChannels = provisioned.length ? (cachedOrNull(guild.channels) || await guild.channels.fetch()) : channels;
   const topologyRoles = cachedOrNull(guild.roles) || roles;
-
   const hqStartedAt = Date.now();
   logger.log?.('[Nexus Sentinal] module auto-provision phase: nexus-hq started');
   const hq = await reconcileNexusHq(guild, {
@@ -199,9 +197,28 @@ function createAutoprovisionRunQueue(worker, options = {}) {
   });
 }
 
+function startModuleAutoprovision(client, config, state, backend, provisioner, { setTimeoutFn = setTimeout, setIntervalFn = setInterval } = {}) {
+  const run = async (reason) => {
+    const result = await reconcileNewModuleLayouts(client, { config, state, backend, provisioner });
+    const details = result.provisioned.map((item) => `${item.moduleId}:${item.categoryCreated ? 'created' : 'adopted'}${item.movedChannels.length ? `+moved${item.movedChannels.length}` : ''}`).join(', ') || 'none';
+    const hierarchy = (result.order?.hierarchy || []).join(' > ') || 'unavailable';
+    const missing = (result.order?.missing || []).join(',') || 'none';
+    const hqState = result.hq?.ok
+      ? `ok+created${result.hq.channelsCreated?.length || 0}+moved${result.hq.channelsMoved?.length || 0}+renamed${result.hq.channelsRenamed?.length || 0}+legacy${result.hq.legacyOnboardingArchives?.length || 0}`
+      : `skipped:${String(result.hq?.skipped || result.hq?.reason || 'unavailable')}`;
+    console.log(`[Nexus Sentinal] module auto-provision (${reason}): provisioned=${result.provisioned.length} [${details}] blocked=${result.blocked.length} failed=${result.failed.length} hq=${hqState} categoryRenames=${Number(result.order?.renamed || 0)} categoryMoves=${Number(result.order?.moved || 0)} missingStructural=${missing} hierarchy=${hierarchy}`);
+    for (const item of result.failed) console.warn(`[Nexus Sentinal] module auto-provision failed: ${item.moduleId}: ${item.reason}`);
+  };
+  const queue = createAutoprovisionRunQueue(run);
+  const initial = setTimeoutFn(() => void queue.request('startup'), INITIAL_PROVISION_DELAY_MS);
+  initial?.unref?.();
+  const periodic = setIntervalFn(() => void queue.request('periodic'), PERIODIC_PROVISION_MS);
+  periodic?.unref?.();
+  return { initial, periodic, queue };
+}
+
 function installModuleAutoprovisionExtension() {
-  if (Client.prototype[INSTALLED]) return;
-  Client.prototype[INSTALLED] = true;
+  if (startupDiagnostics().tasks.some((task) => task.id === STARTUP_TASK_ID)) return { installed: false, coordinated: true };
   const config = loadConfig();
   const state = new StateStore();
   const backend = new BackendClient(config);
@@ -210,33 +227,19 @@ function installModuleAutoprovisionExtension() {
     config,
     maxLobbiesPerModule: config.discord?.maxTemporaryLobbiesPerModule || 20
   });
-  const originalLogin = Client.prototype.login;
-
-  Client.prototype.login = function nexusModuleAutoprovisionLogin(...args) {
-    const client = this;
-    client.once(Events.ClientReady, () => {
-      const run = async (reason) => {
-        const result = await reconcileNewModuleLayouts(client, { config, state, backend, provisioner });
-        const details = result.provisioned.map((item) => `${item.moduleId}:${item.categoryCreated ? 'created' : 'adopted'}${item.movedChannels.length ? `+moved${item.movedChannels.length}` : ''}`).join(', ') || 'none';
-        const hierarchy = (result.order?.hierarchy || []).join(' > ') || 'unavailable';
-        const missing = (result.order?.missing || []).join(',') || 'none';
-        const hqState = result.hq?.ok
-          ? `ok+created${result.hq.channelsCreated?.length || 0}+moved${result.hq.channelsMoved?.length || 0}+renamed${result.hq.channelsRenamed?.length || 0}+legacy${result.hq.legacyOnboardingArchives?.length || 0}`
-          : `skipped:${String(result.hq?.skipped || result.hq?.reason || 'unavailable')}`;
-        console.log(`[Nexus Sentinal] module auto-provision (${reason}): provisioned=${result.provisioned.length} [${details}] blocked=${result.blocked.length} failed=${result.failed.length} hq=${hqState} categoryRenames=${Number(result.order?.renamed || 0)} categoryMoves=${Number(result.order?.moved || 0)} missingStructural=${missing} hierarchy=${hierarchy}`);
-        for (const item of result.failed) console.warn(`[Nexus Sentinal] module auto-provision failed: ${item.moduleId}: ${item.reason}`);
-      };
-      const queue = createAutoprovisionRunQueue(run);
-      const initial = setTimeout(() => void queue.request('startup'), INITIAL_PROVISION_DELAY_MS);
-      initial.unref?.();
-      const periodic = setInterval(() => void queue.request('periodic'), PERIODIC_PROVISION_MS);
-      periodic.unref?.();
-    });
-    return originalLogin.apply(client, args);
-  };
+  registerStartupTask({
+    id: STARTUP_TASK_ID,
+    owner: 'module-autoprovision',
+    priority: 190,
+    run(client) {
+      startModuleAutoprovision(client, config, state, backend, provisioner);
+    }
+  });
+  return { installed: true, coordinated: true };
 }
 
 module.exports = {
+  STARTUP_TASK_ID,
   INITIAL_PROVISION_DELAY_MS,
   PERIODIC_PROVISION_MS,
   enabledSentinelModules,
@@ -250,5 +253,6 @@ module.exports = {
   publishModuleHub,
   reconcileNewModuleLayouts,
   createAutoprovisionRunQueue,
+  startModuleAutoprovision,
   installModuleAutoprovisionExtension
 };
