@@ -47,6 +47,26 @@ function configsEqual(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function validateApplyState(state) {
+  if (!state || typeof state !== 'object' || Array.isArray(state)) throw new Error('ArkShop apply history root must be an object.');
+  if (state.version != null && state.version !== STORE_VERSION) throw new Error('ArkShop apply history uses an unsupported store version.');
+  if (!Array.isArray(state.transactions)) throw new Error('ArkShop apply history transactions must be an array.');
+
+  const seen = new Set();
+  for (const transaction of state.transactions) {
+    if (!transaction || typeof transaction !== 'object' || Array.isArray(transaction)) throw new Error('ArkShop apply history contains an invalid transaction record.');
+    const id = String(transaction.id || '').trim();
+    if (!id) throw new Error('ArkShop apply history contains a transaction without an id.');
+    if (seen.has(id)) throw new Error('ArkShop apply history contains duplicate transaction ids.');
+    seen.add(id);
+  }
+
+  return {
+    version: STORE_VERSION,
+    transactions: state.transactions.slice(-MAX_TRANSACTIONS).map((item) => deepClone(item))
+  };
+}
+
 class ArkShopApplyStore {
   constructor(root = process.env.NEXUS_DATA_DIR || path.resolve(__dirname, '../..')) {
     this.dir = process.env.NEXUS_DATA_DIR ? path.resolve(root) : path.join(root, 'data');
@@ -54,21 +74,30 @@ class ArkShopApplyStore {
   }
 
   read() {
+    let text;
     try {
-      const state = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-      if (state && Array.isArray(state.transactions)) return { version: STORE_VERSION, transactions: state.transactions.slice(-MAX_TRANSACTIONS) };
-    } catch {}
-    return { version: STORE_VERSION, transactions: [] };
+      text = fs.readFileSync(this.file, 'utf8');
+    } catch (error) {
+      if (error?.code === 'ENOENT') return { version: STORE_VERSION, transactions: [] };
+      throw new Error('ArkShop apply history exists but could not be read.');
+    }
+
+    let state;
+    try {
+      state = JSON.parse(text);
+    } catch {
+      throw new Error('ArkShop apply history contains invalid JSON.');
+    }
+    return validateApplyState(state);
   }
 
   write(state) {
+    const validated = validateApplyState({ ...state, version: state?.version ?? STORE_VERSION });
     fs.mkdirSync(this.dir, { recursive: true });
-    state.version = STORE_VERSION;
-    state.transactions = (state.transactions || []).slice(-MAX_TRANSACTIONS);
     const tmp = `${this.file}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
+    fs.writeFileSync(tmp, JSON.stringify(validated, null, 2));
     fs.renameSync(tmp, this.file);
-    return state;
+    return validated;
   }
 
   add(transaction) {
@@ -91,6 +120,15 @@ class ArkShopApplyStore {
     item.rolledBackAt = new Date().toISOString();
     this.write(state);
     return item;
+  }
+
+  health() {
+    try {
+      const state = this.read();
+      return { ok: true, transactionCount: state.transactions.length, version: STORE_VERSION };
+    } catch {
+      return { ok: false, transactionCount: 0, version: STORE_VERSION };
+    }
   }
 }
 
@@ -232,6 +270,7 @@ module.exports = {
   buildArkShopConfig,
   parseArkShopText,
   configsEqual,
+  validateApplyState,
   ArkShopApplyStore,
   previewArkShopProfile,
   reloadArkShop,
