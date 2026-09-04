@@ -146,9 +146,9 @@ test('deleted managed channel is repaired once and subsequent provisioning conve
 
   const repairPreview = await service.preview(input);
   const tablePlan = repairPreview.plan.find((item) => item.key === 'table-chat');
-  const announcementsPlan = repairPreview.plan.find((item) => item.key === 'announcements');
+  const campaignInfoPlan = repairPreview.plan.find((item) => item.key === 'campaign-info');
   assert.equal(tablePlan.action, 'repair');
-  assert.equal(announcementsPlan.action, 'reuse');
+  assert.equal(campaignInfoPlan.action, 'reuse');
 
   const channelPostsBeforeRepair = discord.calls.filter((item) => item.method === 'POST' && item.path === '/api/v10/guilds/12345/channels').length;
   const repaired = await service.apply({ ...input, confirmed: true, confirmationHash: repairPreview.confirmationHash });
