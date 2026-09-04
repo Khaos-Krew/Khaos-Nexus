@@ -40,9 +40,16 @@ function resolveAttack(state, input = {}, rng = Math.random) {
       const dc = Math.max(10, Math.floor(damage.total / 2));
       const save = runtime.resolveAbilityCheck({ modifier: core.cleanNumber(target.savingThrows?.constitution, 0, -30, 50), dc }, rng);
       concentration = { spell: target.concentration, dc, save, maintained: save.success };
-      if (!save.success) target.concentration = '';
+      if (!save.success) {
+        target.concentration = '';
+        core.syncCharacterConcentration(state, combat, target, `${key}:concentration:broken`);
+      }
     }
     if (target.currentHp === 0) {
+      if (target.concentration) {
+        target.concentration = '';
+        core.syncCharacterConcentration(state, combat, target, `${key}:concentration:unconscious`);
+      }
       if (target.characterId) {
         if (!target.conditions.includes('unconscious')) target.conditions.push('unconscious');
         runtime.appendStateEvent(state, {
@@ -96,9 +103,20 @@ function castSpell(state, input = {}) {
     const remaining = core.cleanNumber(actor.spellSlots[level] ?? actor.spellSlots[String(level)], 0, 0, 99);
     if (remaining < 1) runtime.fail(`No level ${level} spell slots remain.`, 'DND_COMBAT_NO_SPELL_SLOT');
     actor.spellSlots[level] = remaining - 1;
+    if (actor.characterId) {
+      runtime.appendStateEvent(state, {
+        campaignId: combat.campaignId, runId: combat.runId, sceneId: combat.sceneId,
+        type: 'character.spell_slots.changed', actorType: 'rules_engine', actorId: 'combat',
+        idempotencyKey: `${key}:slot:${level}`,
+        payload: { characterId: actor.characterId, level, value: actor.spellSlots[level] }
+      });
+    }
   }
   actor.resources[actionResource] = false;
-  if (input.concentration === true) actor.concentration = runtime.clean(input.spellName, 200);
+  if (input.concentration === true) {
+    actor.concentration = runtime.clean(input.spellName, 200);
+    core.syncCharacterConcentration(state, combat, actor, `${key}:concentration`);
+  }
   const result = {
     actorId: actor.id, spellName: runtime.clean(input.spellName, 200), level,
     concentration: actor.concentration,

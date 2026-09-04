@@ -5,7 +5,7 @@ const PACES = Object.freeze(['live','asynchronous','mixed']);
 const AUTOMATION_LEVELS = Object.freeze(['suggestions_only','narration_and_npcs','automatic_checks','automatic_combat','full_ai_dm']);
 const SEAT_TYPES = Object.freeze(['human_player','human_dm','assistant_dm','ai_companion','viewer']);
 const NARRATIVE_EVENT_TYPES = new Set(['scene.updated','world.time.advanced','quest.stage.advanced','knowledge.learned']);
-const EVENT_TYPES = new Set([...NARRATIVE_EVENT_TYPES,'character.hp.changed','character.condition.applied','character.condition.removed','inventory.item.added','inventory.item.removed']);
+const EVENT_TYPES = new Set([...NARRATIVE_EVENT_TYPES,'character.hp.changed','character.condition.applied','character.condition.removed','character.spell_slots.changed','character.concentration.changed','inventory.item.added','inventory.item.removed']);
 const clone = (value) => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 const nowIso = () => new Date().toISOString();
 const makeId = (prefix) => `${prefix}_${crypto.randomUUID()}`;

@@ -10,7 +10,7 @@ function endTurn(state, input = {}) {
   const key = runtime.clean(input.idempotencyKey, 160) || runtime.makeId('end_turn');
   const duplicate = combat?.log.find((item) => item.idempotencyKey === key);
   if (duplicate) return runtime.clone(duplicate.payload);
-  const actor = core.assertActiveActor(combat, input.actorId);
+  const actor = core.assertCurrentActor(combat, input.actorId);
   actor.conditions = actor.conditions.filter((item) => !['dodging', 'disengaging'].includes(item));
   const eligible = combat.combatants.filter((item) => !item.defeated && !item.deathSaves.dead);
   if (eligible.length === 0) {
@@ -47,7 +47,7 @@ function resolveDeathSave(state, input = {}, rng = Math.random) {
   const key = runtime.clean(input.idempotencyKey, 160) || runtime.makeId('death_save');
   const duplicate = combat?.log.find((item) => item.idempotencyKey === key);
   if (duplicate) return runtime.clone(duplicate.payload);
-  const actor = core.assertActiveActor(combat, input.combatantId);
+  const actor = core.assertCurrentActor(combat, input.combatantId);
   if (!actor.characterId || actor.currentHp > 0 || actor.deathSaves.stable || actor.deathSaves.dead) runtime.fail('This combatant is not eligible for a death save.', 'DND_COMBAT_DEATH_SAVE_INVALID');
   const natural = core.rollDie(20, rng);
   if (natural === 20) {
@@ -55,6 +55,11 @@ function resolveDeathSave(state, input = {}, rng = Math.random) {
     actor.deathSaves = { successes: 0, failures: 0, stable: false, dead: false };
     actor.conditions = actor.conditions.filter((item) => item !== 'unconscious');
     core.syncCharacterHp(state, combat, actor, `${key}:revive`);
+    runtime.appendStateEvent(state, {
+      campaignId: combat.campaignId, runId: combat.runId, sceneId: combat.sceneId,
+      type: 'character.condition.removed', actorType: 'rules_engine', actorId: 'combat',
+      idempotencyKey: `${key}:conscious`, payload: { characterId: actor.characterId, condition: 'unconscious' }
+    });
   } else if (natural === 1) actor.deathSaves.failures += 2;
   else if (natural >= 10) actor.deathSaves.successes += 1;
   else actor.deathSaves.failures += 1;

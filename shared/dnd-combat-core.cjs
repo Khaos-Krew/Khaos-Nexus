@@ -23,11 +23,14 @@ const activeCombatant = (combat) => combatantById(combat, combat.turnOrder[comba
 function normalizeCombatant(state, campaignId, input = {}, rng = Math.random) {
   const characterId = runtime.clean(input.characterId, 100);
   const character = characterId ? (state.characters || []).find((item) => item.id === characterId && item.campaignId === campaignId) : null;
-  const maxHp = cleanNumber(input.maxHp ?? character?.maxHp ?? input.hp ?? character?.hp ?? 1, 1, 1, 100000);
-  const currentHp = cleanNumber(input.currentHp ?? input.hp ?? character?.hp ?? maxHp, maxHp, 0, maxHp);
+  const maxHp = cleanNumber(character ? (character.maxHp ?? character.hp ?? 1) : (input.maxHp ?? input.hp ?? 1), 1, 1, 100000);
+  const currentHp = cleanNumber(character ? (character.hp ?? maxHp) : (input.currentHp ?? input.hp ?? maxHp), maxHp, 0, maxHp);
   const initiativeModifier = cleanNumber(input.initiativeModifier ?? character?.initiativeModifier ?? 0, 0, -30, 30);
   const initiativeRoll = cleanNumber(input.initiativeRoll, 0, 0, 100) || rollDie(20, rng);
   const speed = cleanNumber(input.speed ?? 30, 30, 0, 500);
+  const conditions = character
+    ? [...new Set([...(character.conditions || []), ...(input.conditions || [])].map((item) => runtime.clean(item, 80)).filter(Boolean))]
+    : [...new Set((input.conditions || []).map((item) => runtime.clean(item, 80)).filter(Boolean))];
   return {
     id: runtime.clean(input.id, 100) || runtime.makeId('combatant'), characterId,
     npcId: runtime.clean(input.npcId, 100), seatId: runtime.clean(input.seatId, 100),
@@ -35,9 +38,10 @@ function normalizeCombatant(state, campaignId, input = {}, rng = Math.random) {
     name: runtime.clean(input.name || character?.name || 'Combatant', 160), currentHp, maxHp,
     armorClass: cleanNumber(input.armorClass ?? character?.armorClass ?? 10, 10, 0, 100),
     initiativeModifier, initiativeRoll, initiative: initiativeRoll + initiativeModifier,
-    savingThrows: runtime.clone(input.savingThrows || {}), spellSlots: runtime.clone(input.spellSlots || {}),
-    conditions: [...new Set((input.conditions || character?.conditions || []).map((item) => runtime.clean(item, 80)).filter(Boolean))],
-    concentration: input.concentration ? runtime.clean(input.concentration, 200) : '',
+    savingThrows: runtime.clone(character ? (character.savingThrows || {}) : (input.savingThrows || {})),
+    spellSlots: runtime.clone(character ? (character.spellSlots || {}) : (input.spellSlots || {})),
+    conditions,
+    concentration: runtime.clean(character ? character.concentration : input.concentration, 200),
     deathSaves: { successes: 0, failures: 0, stable: false, dead: false },
     defeated: currentHp <= 0 && !character,
     resources: { action: true, bonusAction: true, reaction: true, movement: speed, baseMovement: speed },
@@ -72,11 +76,19 @@ function startCombat(state, input = {}, rng = Math.random) {
   return { combat: runtime.clone(combat), duplicate: false };
 }
 
-function assertActiveActor(combat, actorId) {
+function assertCurrentActor(combat, actorId) {
   if (!combat || combat.status !== 'active') runtime.fail('Active combat not found.', 'DND_COMBAT_NOT_ACTIVE');
   const actor = combatantById(combat, actorId);
   if (!actor || actor.id !== activeCombatant(combat)?.id) runtime.fail('It is not this combatant’s turn.', 'DND_COMBAT_NOT_ACTOR_TURN');
   if (actor.defeated || actor.deathSaves.dead) runtime.fail('This combatant cannot act.', 'DND_COMBAT_ACTOR_DEFEATED');
+  return actor;
+}
+
+function assertActiveActor(combat, actorId) {
+  const actor = assertCurrentActor(combat, actorId);
+  if (actor.currentHp <= 0 || actor.conditions.includes('unconscious')) {
+    runtime.fail('This combatant is unconscious and cannot take a normal combat action.', 'DND_COMBAT_ACTOR_INCAPACITATED');
+  }
   return actor;
 }
 
@@ -101,7 +113,17 @@ function syncCharacterHp(state, combat, target, key) {
   });
 }
 
+function syncCharacterConcentration(state, combat, target, key) {
+  if (!target.characterId) return null;
+  return runtime.appendStateEvent(state, {
+    campaignId: combat.campaignId, runId: combat.runId, sceneId: combat.sceneId,
+    type: 'character.concentration.changed', actorType: 'rules_engine', actorId: 'combat',
+    idempotencyKey: key, payload: { characterId: target.characterId, value: runtime.clean(target.concentration, 200) }
+  });
+}
+
 module.exports = {
   runtime, ensureSoloCombatState, cleanNumber, rollDie, combatById, combatantById,
-  activeCombatant, startCombat, assertActiveActor, appendCombatLog, syncCharacterHp
+  activeCombatant, startCombat, assertCurrentActor, assertActiveActor, appendCombatLog, syncCharacterHp,
+  syncCharacterConcentration
 };
