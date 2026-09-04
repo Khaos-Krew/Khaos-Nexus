@@ -76,11 +76,19 @@ function startCombat(state, input = {}, rng = Math.random) {
   return { combat: runtime.clone(combat), duplicate: false };
 }
 
-function assertActiveActor(combat, actorId) {
+function assertCurrentActor(combat, actorId) {
   if (!combat || combat.status !== 'active') runtime.fail('Active combat not found.', 'DND_COMBAT_NOT_ACTIVE');
   const actor = combatantById(combat, actorId);
   if (!actor || actor.id !== activeCombatant(combat)?.id) runtime.fail('It is not this combatant’s turn.', 'DND_COMBAT_NOT_ACTOR_TURN');
   if (actor.defeated || actor.deathSaves.dead) runtime.fail('This combatant cannot act.', 'DND_COMBAT_ACTOR_DEFEATED');
+  return actor;
+}
+
+function assertActiveActor(combat, actorId) {
+  const actor = assertCurrentActor(combat, actorId);
+  if (actor.currentHp <= 0 || actor.conditions.includes('unconscious')) {
+    runtime.fail('This combatant is unconscious and cannot take a normal combat action.', 'DND_COMBAT_ACTOR_INCAPACITATED');
+  }
   return actor;
 }
 
@@ -116,6 +124,6 @@ function syncCharacterConcentration(state, combat, target, key) {
 
 module.exports = {
   runtime, ensureSoloCombatState, cleanNumber, rollDie, combatById, combatantById,
-  activeCombatant, startCombat, assertActiveActor, appendCombatLog, syncCharacterHp,
+  activeCombatant, startCombat, assertCurrentActor, assertActiveActor, appendCombatLog, syncCharacterHp,
   syncCharacterConcentration
 };
