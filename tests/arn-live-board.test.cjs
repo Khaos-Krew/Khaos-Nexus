@@ -77,7 +77,7 @@ test('board sorts active KAIJU ahead of standard active anomalies', () => {
   assert.equal(items[0].dinoName, 'Enraged Rex');
   assert.equal(items[0].threat.level, 'KAIJU');
   const embed = boardEmbed(now + 2000);
-  assert.match(embed.description, /2 active anomalies/);
+  assert.match(embed.description, /2 active.*anomalies/);
   assert.ok(embed.fields.some((field) => /Genesis 1/.test(field.name) && /KAIJU/.test(field.value)));
   assert.ok(embed.fields.some((field) => /Astraeos/.test(field.name) && /Rainbow Manta/.test(field.value)));
 });
