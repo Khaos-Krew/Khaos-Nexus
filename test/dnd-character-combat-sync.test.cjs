@@ -88,3 +88,35 @@ test('linked character spell slots hydrate into combat and spent slots survive r
   assert.equal(replay.level,1); assert.equal(restoredCombatant.spellSlots[1],1); assert.equal(restoredHero.spellSlots[1],1);
   assert.equal(reloaded.stateEvents.filter((item)=>item.idempotencyKey==='cast-level-one:slot:1').length,1);
 });
+
+test('canonical linked-character resources override stale caller payloads when combat starts', () => {
+  const state = {
+    campaigns: [{ id: 'campaign-1', name: 'Emberfall', status: 'active', active: true }],
+    characters: [{
+      id: 'hero', campaignId: 'campaign-1', name: 'Vorkesh', active: true,
+      hp: 7, maxHp: 20, armorClass: 16, initiativeModifier: 2,
+      conditions: ['poisoned'], spellSlots: { 1: 1 }, savingThrows: { constitution: 5 }
+    }],
+    quests: [], loot: [], encounters: [], combatants: [], sessions: [], aiGmSessions: []
+  };
+  solo.ensureSoloCombatState(state);
+  runtime.enableOwnerPreview(state, 'owner');
+  runtime.upsertPlayProfile(state, {campaignId:'campaign-1',enabled:true,mode:'solo_ai_dm',pace:'live',automationLevel:'automatic_combat'});
+  const adventure = solo.startSoloAdventure(state, {campaignId:'campaign-1',characterId:'hero',actorId:'owner',locationName:'Forge Gate',publicDescription:'Ash falls.'});
+  const combat = solo.startCombat(state, {
+    campaignId:'campaign-1',runId:adventure.run.id,sceneId:adventure.scene.id,actorId:'owner',clientCombatId:'canonical-authority-combat',
+    combatants:[
+      {
+        id:'hero-c',characterId:'hero',actorType:'player',name:'Vorkesh',initiativeRoll:20,
+        hp:20,maxHp:20,spellSlots:{1:9},savingThrows:{constitution:-10},conditions:['blessed']
+      },
+      { id:'enemy-c',actorType:'enemy',name:'Ash Wraith',hp:12,maxHp:12,initiativeRoll:1 }
+    ]
+  }, () => 0.5).combat;
+  const heroCombatant = state.runtimeCombats.find((item)=>item.id===combat.id).combatants.find((item)=>item.id==='hero-c');
+  assert.equal(heroCombatant.currentHp,7);
+  assert.equal(heroCombatant.maxHp,20);
+  assert.equal(heroCombatant.spellSlots[1],1);
+  assert.equal(heroCombatant.savingThrows.constitution,5);
+  assert.deepEqual(new Set(heroCombatant.conditions),new Set(['poisoned','blessed']));
+});
