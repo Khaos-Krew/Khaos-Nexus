@@ -32,6 +32,15 @@ const clean = (value, max = 180) => String(value || '')
   .trim()
   .slice(0, max);
 
+function cleanDinoName(value) {
+  return clean(value, 180)
+    .replace(/^\*{1,3}\s*/, '')
+    .replace(/\s*\*{1,3}$/, '')
+    .replace(/^_{1,3}\s*/, '')
+    .replace(/\s*_{1,3}$/, '')
+    .trim();
+}
+
 function normalizeMapName(value) {
   const raw = clean(value, 100);
   if (/astraeos/i.test(raw)) return 'Astraeos';
@@ -63,8 +72,15 @@ function lifecycleFromText(title, description) {
   if (/signal\s+lost|no longer detectable|despawn(?:ed)?|dissipat(?:ed|ed)/i.test(joined)) return 'SIGNAL_LOST';
   if (/captur(?:ed|e)|tam(?:ed|e)/i.test(joined)) return 'CAPTURED';
   if (/defeat(?:ed)?|kill(?:ed)?|slain/i.test(joined)) return 'DEFEATED';
-  if (/anomaly\s+detected|detected\s+on/i.test(joined)) return 'ACTIVE';
+  if (/anomaly\s+detected|detected\s+on|\bhas\s+spawned\b|\bspawned\s+at\b/i.test(joined)) return 'ACTIVE';
   return '';
+}
+
+function coordinatesFromText(value) {
+  const text = String(value || '').replace(/\*+/g, ' ');
+  const match = text.match(/Lat(?:itude)?\s*[:=]?\s*(-?\d+(?:\.\d+)?)\s*(?:\/|,|\s)+\s*Lon(?:gitude)?\s*[:=]?\s*(-?\d+(?:\.\d+)?)/i);
+  if (!match) return { lat: null, lon: null };
+  return { lat: Number(match[1]), lon: Number(match[2]) };
 }
 
 function parseShinyDiscordPayload(payload = {}, authoritativeMap = '') {
@@ -80,19 +96,31 @@ function parseShinyDiscordPayload(payload = {}, authoritativeMap = '') {
   let lon = null;
 
   const detected = description.match(/^(.+?)\s+detected\s+on\s+(.+?)\s+at\s+Lat\s+(-?\d+(?:\.\d+)?)\s*\/\s*Lon\s+(-?\d+(?:\.\d+)?)/i);
+  const spawned = description.match(/^(.+?)\s+has\s+spawned(?:\s+at\s+(.+?))?[!.]?$/i);
   const lost = description.match(/^(.+?)\s+is\s+no\s+longer\s+detectable(?:\s+on\s+(?:the\s+network|(.+?)))?\.?$/i);
+  const despawned = description.match(/^(.+?)\s+has\s+despawned\b/i);
   const resolved = description.match(/^(.+?)(?:\s+on\s+(.+?))?\s+(?:was|has been|is)\s+(?:captured|tamed|defeated|killed|slain)/i);
+  const nativeResolved = description.match(/^(.+?)\s+has\s+been\s+(tamed|killed)\b/i);
 
   if (detected) {
-    dinoName = clean(detected[1]);
+    dinoName = cleanDinoName(detected[1]);
     if (!mapName) mapName = normalizeMapName(detected[2]);
     lat = Number(detected[3]);
     lon = Number(detected[4]);
+  } else if (spawned) {
+    dinoName = cleanDinoName(spawned[1]);
+    const coords = coordinatesFromText(spawned[2] || description);
+    lat = coords.lat;
+    lon = coords.lon;
   } else if (lost) {
-    dinoName = clean(lost[1]);
+    dinoName = cleanDinoName(lost[1]);
     if (!mapName && lost[2]) mapName = normalizeMapName(lost[2]);
+  } else if (despawned) {
+    dinoName = cleanDinoName(despawned[1]);
+  } else if (nativeResolved) {
+    dinoName = cleanDinoName(nativeResolved[1]);
   } else if (resolved) {
-    dinoName = clean(resolved[1]);
+    dinoName = cleanDinoName(resolved[1]);
     if (!mapName && resolved[2]) mapName = normalizeMapName(resolved[2]);
   }
 
@@ -114,7 +142,7 @@ function classifyThreat(dinoName) {
 }
 
 function anomalyKey(event) {
-  return `${normalizeMapName(event.mapName).toLowerCase()}|${clean(event.dinoName).toLowerCase()}`;
+  return `${normalizeMapName(event.mapName).toLowerCase()}|${cleanDinoName(event.dinoName).toLowerCase()}`;
 }
 
 function applyEvent(event, occurredAt = Date.now()) {
@@ -327,12 +355,16 @@ async function handleIntakeMessage(client, message) {
     authoritativeMap = getArnWebhookRegistry().get(String(message.webhookId));
   }
   if (!authoritativeMap) {
-    console.warn(`[Nexus Sentinal] ARN ignored unrecognized intake webhook id=${String(message.webhookId)}`);
+    console.warn('[Nexus Sentinal] ARN ignored message from unrecognized intake webhook.');
     return false;
   }
   const payload = await rawMessagePayload(client, message);
   const event = parseShinyDiscordPayload(payload, authoritativeMap);
-  if (!event) return false;
+  if (!event) {
+    const shape = payloadText(payload).replace(/[\r\n]+/g, ' | ').slice(0, 500);
+    console.warn(`[Nexus Sentinal] ARN recognized webhook but could not parse Shiny event: map=${normalizeMapName(authoritativeMap)} payload=${shape}`);
+    return false;
+  }
   applyEvent(event, Number(message.createdTimestamp || Date.now()));
   await refreshBoard(client);
   console.log(`[Nexus Sentinal] ARN event accepted: map=${event.mapName} lifecycle=${event.lifecycle} dino=${event.dinoName} threat=${classifyThreat(event.dinoName).level}`);
@@ -391,10 +423,12 @@ module.exports = {
   INFO_MARKER,
   BOARD_MARKER,
   RESOLVED_LINGER_MS,
+  cleanDinoName,
   normalizeMapName,
   payloadText,
   mapFromFooter,
   lifecycleFromText,
+  coordinatesFromText,
   parseShinyDiscordPayload,
   classifyThreat,
   anomalyKey,
