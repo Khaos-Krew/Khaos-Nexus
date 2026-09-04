@@ -15,4 +15,4 @@ COPY config.example.json ./config.example.json
 
 RUN npm run check && npm test
 
-CMD ["node", "-r", "./src/sentinel/arn-parser-runtime-patch.cjs", "-r", "./src/sentinel/ark-ssh-probe-startup.cjs", "src/railway/sentinal-service.cjs"]
+CMD ["node", "-r", "./src/sentinel/arn-parser-runtime-patch.cjs", "-r", "./src/sentinel/arn-poll-reconcile-worker.cjs", "-r", "./src/sentinel/ark-ssh-probe-startup.cjs", "src/railway/sentinal-service.cjs"]
