@@ -1,6 +1,7 @@
 'use strict';
 
 const net = require('node:net');
+const { resolveRconServer } = require('./ark-rcon-config-store.cjs');
 
 function packet(id, type, body = '') {
   const text = Buffer.from(String(body), 'utf8');
@@ -32,49 +33,77 @@ function decode(buffer) {
 }
 
 class ArkRconClient {
-  constructor({ host, port, password, timeoutMs = 8000 } = {}) {
+  constructor({ host, port, password, timeoutMs = 8000, responseWindowMs = 1500 } = {}) {
     this.host = String(host || '').trim();
     this.port = Number(port);
     this.password = String(password || '');
     this.timeoutMs = Math.max(1000, Number(timeoutMs) || 8000);
+    this.responseWindowMs = Math.max(500, Math.min(5000, Number(responseWindowMs) || 1500));
     if (!this.host) throw new Error('ARK RCON host is missing.');
     if (!Number.isInteger(this.port) || this.port < 1 || this.port > 65535) throw new Error('ARK RCON port is invalid.');
     if (!this.password) throw new Error('ARK RCON password is missing.');
   }
 
-  execute(command) {
+  async execute(command) {
+    const result = await this.executeDetailed(command);
+    return result.response;
+  }
+
+  executeDetailed(command) {
+    const commandText = String(command ?? '');
+    if (!commandText.trim()) return Promise.reject(new Error('ARK RCON command is empty.'));
+
     return new Promise((resolve, reject) => {
+      const startedAt = Date.now();
       const socket = net.createConnection({ host: this.host, port: this.port });
       let buffer = Buffer.alloc(0);
       let connected = false;
       let authenticated = false;
       let commandSent = false;
       let response = '';
+      let responsePackets = 0;
       let finished = false;
       let idleTimer = null;
+      let noReplyTimer = null;
       const authId = 1;
       const commandId = 10;
 
       const cleanup = () => {
         clearTimeout(timer);
         clearTimeout(idleTimer);
+        clearTimeout(noReplyTimer);
         socket.removeAllListeners();
         if (!socket.destroyed) socket.destroy();
       };
-      const finish = (error, value = '') => {
+      const finish = (error, result = null) => {
         if (finished) return;
         finished = true;
         cleanup();
-        if (error) reject(error); else resolve(String(value || '').trim());
+        if (error) {
+          reject(error);
+          return;
+        }
+        const status = result?.status || (responsePackets > 0 ? (response ? 'reply_received' : 'sent_blank_reply') : 'sent_no_reply');
+        resolve({
+          status,
+          response: String(result?.response ?? response ?? '').trim(),
+          packets: Number(result?.packets ?? responsePackets) || 0,
+          elapsedMs: Date.now() - startedAt,
+          authenticated,
+          commandSent
+        });
       };
       const armIdle = () => {
         clearTimeout(idleTimer);
-        idleTimer = setTimeout(() => finish(null, response), 700);
+        idleTimer = setTimeout(() => finish(null), 700);
+      };
+      const armNoReply = () => {
+        clearTimeout(noReplyTimer);
+        noReplyTimer = setTimeout(() => finish(null, { status: 'sent_no_reply', response: '', packets: 0 }), this.responseWindowMs);
       };
       const timeoutMessage = () => {
         if (!connected) return 'ARK RCON TCP connection timed out. Confirm the host and RCON port are reachable.';
         if (!authenticated) return 'ARK RCON authentication response timed out. The TCP port accepted the connection but the server did not answer RCON authentication.';
-        if (commandSent) return 'ARK RCON command response timed out after authentication.';
         return 'ARK RCON request timed out.';
       };
       const timer = setTimeout(() => finish(new Error(timeoutMessage())), this.timeoutMs);
@@ -95,11 +124,14 @@ class ArkRconClient {
               if (item.id === authId && item.type === 2) {
                 authenticated = true;
                 commandSent = true;
-                socket.write(packet(commandId, 2, command));
+                socket.write(packet(commandId, 2, commandText));
+                armNoReply();
               }
               continue;
             }
             if (item.id === commandId) {
+              clearTimeout(noReplyTimer);
+              responsePackets += 1;
               response += item.body;
               armIdle();
             }
@@ -109,20 +141,16 @@ class ArkRconClient {
         }
       });
       socket.on('error', (error) => finish(new Error(`ARK RCON connection failed: ${error.message}`)));
-      socket.on('end', () => finish(authenticated ? null : new Error('ARK RCON closed before authentication.'), response));
+      socket.on('end', () => {
+        if (!authenticated) return finish(new Error('ARK RCON closed before authentication.'));
+        finish(null);
+      });
     });
   }
 }
 
 function arkServerFromEnv(prefix = 'ARK_GEN1') {
-  return {
-    id: prefix.toLowerCase(),
-    name: String(process.env[`${prefix}_NAME`] || prefix),
-    host: String(process.env[`${prefix}_HOST`] || ''),
-    port: Number(process.env[`${prefix}_RCON_PORT`] || 0),
-    password: String(process.env[`${prefix}_RCON_PASSWORD`] || ''),
-    enabled: String(process.env[`${prefix}_ENABLED`] || 'false').toLowerCase() === 'true'
-  };
+  return resolveRconServer(prefix, process.env);
 }
 
 module.exports = { ArkRconClient, arkServerFromEnv, packet, decode };
