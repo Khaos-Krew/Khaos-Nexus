@@ -149,8 +149,8 @@ class ArkRconClient {
   }
 }
 
-function arkServerFromEnv(prefix = 'ARK_GEN1') {
-  return resolveRconServer(prefix, process.env);
+function arkServerFromEnv(prefix = 'ARK_GEN1', env = process.env) {
+  return resolveRconServer(prefix, env);
 }
 
 module.exports = { ArkRconClient, arkServerFromEnv, packet, decode };
