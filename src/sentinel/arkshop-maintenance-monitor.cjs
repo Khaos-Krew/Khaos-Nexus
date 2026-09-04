@@ -1,11 +1,11 @@
 'use strict';
 
-const { Client, Events } = require('discord.js');
+const { Client } = require('discord.js');
 const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { ArkBackendControl, configuredShopProvider } = require('./ark-backend-control.cjs');
+const { registerStartupTask } = require('./startup-coordinator.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.arkshop.maintenance.monitor');
-const BOUND = Symbol.for('khaos.nexus.arkshop.maintenance.monitor.bound');
 const INITIAL_DELAY_MS = 75_000;
 const REFRESH_MS = Math.max(300_000, Number(process.env.NEXUS_ARKSHOP_MAINTENANCE_SECONDS || 600) * 1000 || 600_000);
 
@@ -50,35 +50,32 @@ function installArkShopMaintenanceMonitor() {
   Client.prototype[INSTALLED] = true;
   const registry = new ArkClusterRegistry();
   const control = new ArkBackendControl({ registry });
-  const originalLogin = Client.prototype.login;
 
-  Client.prototype.login = function nexusArkShopMaintenanceLogin(...args) {
-    const client = this;
-    if (!client[BOUND]) {
-      client[BOUND] = true;
-      client.once(Events.ClientReady, () => {
-        let running = false;
-        const run = async (reason) => {
-          if (running) return;
-          running = true;
-          try {
-            const result = await inspectArkShopMaintenance({ registry, control });
-            console.log(`[Nexus Sentinal] ArkShop maintenance (${reason}): maps=${result.maps} ready=${result.ready} drift=${result.drift} attention=${result.attention} mutations=0 llmCalls=0`);
-            for (const item of result.results.filter((entry) => entry.state !== 'ready')) {
-              console.warn(`[Nexus Sentinal] ArkShop maintenance attention: map=${item.id} state=${item.state}${item.error ? ` reason=${item.error}` : ''}`);
-            }
-          } catch (error) {
-            console.warn(`[Nexus Sentinal] ArkShop maintenance (${reason}) unavailable: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 300)}`);
-          } finally { running = false; }
-        };
-        const initial = setTimeout(() => void run('startup'), INITIAL_DELAY_MS);
-        initial.unref?.();
-        const periodic = setInterval(() => void run('periodic'), REFRESH_MS);
-        periodic.unref?.();
-      });
+  registerStartupTask({
+    id: 'arkshop.maintenance-monitor',
+    owner: 'arkshop-maintenance-monitor',
+    priority: 60,
+    run() {
+      let running = false;
+      const run = async (reason) => {
+        if (running) return;
+        running = true;
+        try {
+          const result = await inspectArkShopMaintenance({ registry, control });
+          console.log(`[Nexus Sentinal] ArkShop maintenance (${reason}): maps=${result.maps} ready=${result.ready} drift=${result.drift} attention=${result.attention} mutations=0 llmCalls=0`);
+          for (const item of result.results.filter((entry) => entry.state !== 'ready')) {
+            console.warn(`[Nexus Sentinal] ArkShop maintenance attention: map=${item.id} state=${item.state}${item.error ? ` reason=${item.error}` : ''}`);
+          }
+        } catch (error) {
+          console.warn(`[Nexus Sentinal] ArkShop maintenance (${reason}) unavailable: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 300)}`);
+        } finally { running = false; }
+      };
+      const initial = setTimeout(() => void run('startup'), INITIAL_DELAY_MS);
+      initial.unref?.();
+      const periodic = setInterval(() => void run('periodic'), REFRESH_MS);
+      periodic.unref?.();
     }
-    return originalLogin.apply(this, args);
-  };
+  });
 }
 
 module.exports = { INITIAL_DELAY_MS, REFRESH_MS, inspectArkShopMaintenance, installArkShopMaintenanceMonitor };
