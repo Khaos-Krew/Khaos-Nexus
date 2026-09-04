@@ -51,6 +51,29 @@ test('provisioning records retain managed IDs and deterministic campaign identit
   assert.equal(provisioningIdentity(record), 'provisioning:campaign-1:nexus-bot:12345');
 });
 
+test('provisioning records reject ambiguous Discord resource bindings', () => {
+  assert.throws(() => normalizeProvisioningRecord({
+    campaignId: 'campaign-1',
+    appId: 'nexus-bot',
+    guildId: '12345',
+    categoryId: '20000',
+    resources: {
+      'table-chat': { id: '20001', type: 'text' },
+      'dice-rolls': { id: '20001', type: 'text' }
+    }
+  }), { code: 'DND_PROVISIONING_RESOURCE_CONFLICT' });
+
+  assert.throws(() => normalizeProvisioningRecord({
+    campaignId: 'campaign-1',
+    appId: 'nexus-bot',
+    guildId: '12345',
+    categoryId: '20000',
+    resources: {
+      'table-chat': { id: '20000', type: 'text' }
+    }
+  }), { code: 'DND_PROVISIONING_RESOURCE_CONFLICT' });
+});
+
 test('permission plan hides DM-private from players and allows mapped managers', () => {
   const members = [
     { discordUserId: '11111', role: 'dm', active: true },
