@@ -1,13 +1,16 @@
 'use strict';
 
-const { Client, Events } = require('discord.js');
+const { Client } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { rankAuthority } = require('../shared/ranks.cjs');
 const { createCoalescingRunner } = require('./coalescing-runner.cjs');
 const { reconcileSupporterEntitlements } = require('./supporter-entitlement-adapter.cjs');
+const { registerStartupTask, startupDiagnostics } = require('./startup-coordinator.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.supporterEntitlement.extension');
 const BOUND = Symbol.for('khaos.nexus.supporterEntitlement.bound');
+const RUNTIME = Symbol.for('khaos.nexus.supporterEntitlement.runtime');
+const STARTUP_TASK_ID = 'supporter-entitlement-sync';
 const INITIAL_DELAY_MS = 45_000;
 const PERIODIC_SYNC_MS = 30 * 60_000;
 const ENTITLEMENT_EVENTS = Object.freeze(['entitlementCreate', 'entitlementUpdate', 'entitlementDelete']);
@@ -51,62 +54,85 @@ async function runSupporterEntitlementSync(client, config = {}, options = {}) {
   });
 }
 
+function ensureSupporterRuntime(client, config) {
+  if (client[RUNTIME]) return client[RUNTIME];
+  const runner = createCoalescingRunner(async (reason) => {
+    const result = await runSupporterEntitlementSync(client, config, { includeStaleMembers: true });
+    console.log(`[Nexus Sentinal] supporter entitlement reconciliation (${reason}): ${supporterSyncSummary(result)}`);
+    for (const item of result.users || []) {
+      if (item.ok === false) {
+        console.warn(`[Nexus Sentinal] supporter entitlement member warning: user=${item.userId || 'unknown'} reason=${item.reason || 'unknown'}`);
+      }
+    }
+  }, {
+    onError(error, reason) {
+      console.warn(`[Nexus Sentinal] supporter entitlement reconciliation (${reason}) unavailable: ${String(error?.message || error).slice(0, 240)}`);
+    }
+  });
+  client[RUNTIME] = { runner, initial: null, periodic: null };
+  return client[RUNTIME];
+}
+
+function startSupporterEntitlementMonitor(client, config, { setTimeoutFn = setTimeout, setIntervalFn = setInterval } = {}) {
+  const runtime = ensureSupporterRuntime(client, config);
+  if (!premiumEntitlementAuthority(config)) {
+    console.log('[Nexus Sentinal] supporter entitlement reconciliation: authority=server-shop-roles skipped=true');
+    return runtime;
+  }
+  if (!runtime.initial) {
+    runtime.initial = setTimeoutFn(() => void runtime.runner.request('startup'), INITIAL_DELAY_MS);
+    runtime.initial?.unref?.();
+  }
+  if (!runtime.periodic) {
+    runtime.periodic = setIntervalFn(() => void runtime.runner.request('periodic'), PERIODIC_SYNC_MS);
+    runtime.periodic?.unref?.();
+  }
+  return runtime;
+}
+
 function installSupporterEntitlementExtension() {
-  if (Client.prototype[INSTALLED]) return;
+  if (Client.prototype[INSTALLED]) return { installed: false };
   Client.prototype[INSTALLED] = true;
   const config = loadConfig();
   const originalLogin = Client.prototype.login;
 
   Client.prototype.login = function nexusSupporterEntitlementLogin(...args) {
     const client = this;
+    const runtime = ensureSupporterRuntime(client, config);
     if (!client[BOUND]) {
       client[BOUND] = true;
-      let runner = null;
-      const request = (reason) => runner?.request(reason);
-
-      client.once(Events.ClientReady, () => {
-        runner = createCoalescingRunner(async (reason) => {
-          const result = await runSupporterEntitlementSync(client, config, { includeStaleMembers: true });
-          console.log(`[Nexus Sentinal] supporter entitlement reconciliation (${reason}): ${supporterSyncSummary(result)}`);
-          for (const item of result.users || []) {
-            if (item.ok === false) {
-              console.warn(`[Nexus Sentinal] supporter entitlement member warning: user=${item.userId || 'unknown'} reason=${item.reason || 'unknown'}`);
-            }
-          }
-        }, {
-          onError(error, reason) {
-            console.warn(`[Nexus Sentinal] supporter entitlement reconciliation (${reason}) unavailable: ${String(error?.message || error).slice(0, 240)}`);
-          }
-        });
-
-        if (!premiumEntitlementAuthority(config)) {
-          console.log('[Nexus Sentinal] supporter entitlement reconciliation: authority=server-shop-roles skipped=true');
-          return;
-        }
-
-        const initial = setTimeout(() => void request('startup'), INITIAL_DELAY_MS);
-        initial.unref?.();
-        const periodic = setInterval(() => void request('periodic'), PERIODIC_SYNC_MS);
-        periodic.unref?.();
-      });
-
       for (const eventName of ENTITLEMENT_EVENTS) {
         client.on(eventName, () => {
           if (!premiumEntitlementAuthority(config)) return;
-          void request(eventName);
+          void runtime.runner.request(eventName);
         });
       }
     }
     return originalLogin.apply(client, args);
   };
+
+  if (!startupDiagnostics().tasks.some((task) => task.id === STARTUP_TASK_ID)) {
+    registerStartupTask({
+      id: STARTUP_TASK_ID,
+      owner: 'supporter-entitlements',
+      priority: 160,
+      run(client) {
+        startSupporterEntitlementMonitor(client, config);
+      }
+    });
+  }
+  return { installed: true, coordinated: true };
 }
 
 module.exports = {
+  STARTUP_TASK_ID,
   INITIAL_DELAY_MS,
   PERIODIC_SYNC_MS,
   ENTITLEMENT_EVENTS,
   premiumEntitlementAuthority,
   supporterSyncSummary,
   runSupporterEntitlementSync,
+  ensureSupporterRuntime,
+  startSupporterEntitlementMonitor,
   installSupporterEntitlementExtension
 };
