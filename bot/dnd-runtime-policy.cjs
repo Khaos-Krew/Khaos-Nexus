@@ -66,6 +66,34 @@ function validateCampaignUse(interaction, runtime) {
   }
 }
 
+function campaignIdForAuthority(interaction, runtime) {
+  const bootstrap = runtime.getBootstrap();
+  const state = bootstrap?.config?.dnd;
+  if (!state) return '';
+  if (isCampaignUse(interaction)) return String(interaction.options.getString('campaign', true) || '');
+  try { return String(base.contextFor(interaction, bootstrap)?.campaignId || ''); }
+  catch { return ''; }
+}
+
+function validateMemberAuthority(interaction, runtime) {
+  const state = runtime.getBootstrap()?.config?.dnd;
+  const campaignId = campaignIdForAuthority(interaction, runtime);
+  const discordUserId = String(interaction?.user?.id || '');
+  if (!state || !campaignId || !discordUserId) return;
+  const matches = (state.members || []).filter((member) =>
+    member.active !== false &&
+    member.campaignId === campaignId &&
+    String(member.discordUserId || '') === discordUserId
+  );
+  if (matches.length <= 1) return;
+  const roles = [...new Set(matches.map((member) => String(member.role || '')))];
+  const error = new Error(roles.length > 1
+    ? 'Your campaign membership has conflicting active roles. A campaign administrator must repair the member binding before D&D actions can continue.'
+    : 'Your campaign membership is duplicated. A campaign administrator must repair the member binding before D&D actions can continue.');
+  error.code = 'AMBIGUOUS_CAMPAIGN_MEMBERSHIP';
+  throw error;
+}
+
 function hasSafeDmPermissions(channel, clientUser) {
   if (!channel?.isTextBased?.() || !clientUser || typeof channel.permissionsFor !== 'function') return false;
   const permissions = channel.permissionsFor(clientUser);
@@ -154,6 +182,7 @@ function preflightSessionStart(interaction, runtime) {
 async function handleDndInteraction(interaction, runtime) {
   try {
     validateCampaignUse(interaction, runtime);
+    validateMemberAuthority(interaction, runtime);
     preflightSessionStart(interaction, runtime);
     await preflightBlindRoll(interaction, runtime);
   } catch (error) {
@@ -175,6 +204,8 @@ module.exports = {
   selectableCampaignIds,
   validateCampaignUse,
   isCampaignUse,
+  campaignIdForAuthority,
+  validateMemberAuthority,
   hasSafeDmPermissions,
   preflightBlindRoll,
   isBlindRoll,
