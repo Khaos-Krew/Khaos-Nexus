@@ -85,11 +85,13 @@ function installStartupCoordinator() {
       this.once(Events.ClientReady, () => {
         void runStartupTasks(this).then((snapshot) => {
           const failed = snapshot.tasks.filter((task) => task.status === 'failed').length;
-          console.log(`[Nexus Sentinal] startup coordinator: tasks=${snapshot.taskCount} failed=${failed} directClientReady=${this.listenerCount(Events.ClientReady)}`);
+          console.log(`[Nexus Sentinal] startup coordinator: tasks=${snapshot.taskCount} failed=${failed}`);
         }).catch((error) => console.warn(`[Nexus Sentinal] startup coordinator unavailable: ${String(error?.message || error).slice(0, 300)}`));
       });
     }
-    return originalLogin.apply(this, args);
+    const loginResult = originalLogin.apply(this, args);
+    console.log(`[Nexus Sentinal] startup listener registry: directClientReady=${this.listenerCount(Events.ClientReady)} coordinatedTasks=${store().size}`);
+    return loginResult;
   };
 }
 
