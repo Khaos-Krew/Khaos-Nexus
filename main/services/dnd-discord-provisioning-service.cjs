@@ -438,6 +438,9 @@ class DndDiscordProvisioningService {
     for (const channel of preview.plan) {
       const managed = record.resources?.[channel.key];
       if (!managed?.id) continue;
+      const actual = channelMap.get(String(managed.id));
+      const actualParentId = actual?.parent_id === null || actual?.parent_id === undefined ? '' : String(actual.parent_id);
+      if (!actual || actualParentId !== String(record.categoryId)) continue;
       try {
         bindings.push(this.upsertBinding({ ...input, campaignId: campaign.id, appId: preview.appId, guildId: preview.guildId }, {
           id: managed.id,
