@@ -125,3 +125,53 @@ test('ambiguous recovery fails closed into manual_review rather than guessing', 
   assert.equal(result.state, 'manual_review');
   assert.equal(bank.bankBalance('0002abc12345'), 0);
 });
+
+test('malformed existing bank state fails closed and is preserved', () => {
+  const store = tempStore();
+  fs.writeFileSync(store.file, '{ definitely-not-json', 'utf8');
+  const before = fs.readFileSync(store.file, 'utf8');
+  assert.throws(() => store.read(), /malformed/);
+  assert.throws(() => store.prepare({ eosId: '0002abc12345', type: 'deposit', amount: 100, arkBalanceBefore: 500 }), /malformed/);
+  assert.equal(fs.readFileSync(store.file, 'utf8'), before);
+  assert.deepEqual(store.health(), { ok: false, version: 1, accountCount: 0, transactionCount: 0 });
+});
+
+test('unsupported bank store version fails closed instead of being rewritten', () => {
+  const store = tempStore();
+  const incompatible = JSON.stringify({ version: 99, accounts: {}, transactions: [] }, null, 2);
+  fs.writeFileSync(store.file, incompatible, 'utf8');
+  assert.throws(() => store.read(), /version is unsupported/);
+  assert.equal(fs.readFileSync(store.file, 'utf8'), incompatible);
+});
+
+test('invalid persisted balances and duplicate transaction ids are rejected', () => {
+  const store = tempStore();
+  fs.writeFileSync(store.file, JSON.stringify({ version: 1, accounts: { '0002abc12345': { balance: -1 } }, transactions: [] }), 'utf8');
+  assert.throws(() => store.read(), /account balance is invalid/);
+
+  const tx = {
+    id: 'duplicate', eosId: '0002abc12345', type: 'deposit', amount: 100,
+    state: 'completed', arkBalanceBefore: 500, bankBalanceBefore: 0
+  };
+  fs.writeFileSync(store.file, JSON.stringify({ version: 1, accounts: {}, transactions: [tx, tx] }), 'utf8');
+  assert.throws(() => store.read(), /transaction is invalid/);
+});
+
+test('corrupt bank state blocks deposit before any RCON command is sent', async () => {
+  const rcon = new FakeRcon(5000);
+  const store = tempStore();
+  fs.writeFileSync(store.file, '{ broken', 'utf8');
+  const bank = new ArkNexusBankService({ rcon, store });
+  await assert.rejects(() => bank.deposit({ eosId: '0002abc12345', amount: 1000 }), /malformed/);
+  assert.deepEqual(rcon.commands, []);
+  assert.equal(rcon.balance, 5000);
+});
+
+test('missing bank state still initializes safely on first legitimate write', () => {
+  const store = tempStore();
+  assert.deepEqual(store.read(), { version: 1, accounts: {}, transactions: [] });
+  const tx = store.prepare({ eosId: '0002abc12345', type: 'deposit', amount: 100, arkBalanceBefore: 500 });
+  assert.equal(tx.state, 'prepared');
+  assert.equal(store.read().transactions.length, 1);
+  assert.equal(store.health().ok, true);
+});
