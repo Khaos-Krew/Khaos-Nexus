@@ -145,6 +145,29 @@ function normalizeProfile(value = {}) {
   };
 }
 
+function isPlainObject(value) {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function normalizePersistedState(value) {
+  if (!isPlainObject(value)) throw new Error('ArkShop profile state root is invalid.');
+  if (!isPlainObject(value.profiles)) throw new Error('ArkShop profile state profiles container is invalid.');
+  const profiles = {};
+  for (const [rawId, rawProfile] of Object.entries(value.profiles)) {
+    if (!isPlainObject(rawProfile)) throw new Error('ArkShop profile state contains an invalid profile record.');
+    const id = cleanId(rawId);
+    if (id !== rawId) throw new Error('ArkShop profile state contains a non-canonical profile id.');
+    const normalized = normalizeProfile({ ...rawProfile, id });
+    if (normalized.id !== id) throw new Error('ArkShop profile state contains an inconsistent profile id.');
+    profiles[id] = normalized;
+  }
+  return {
+    ...value,
+    version: STORE_VERSION,
+    profiles
+  };
+}
+
 class ArkShopProfileStore {
   constructor(root = process.env.NEXUS_DATA_DIR || path.resolve(__dirname, '../..')) {
     this.dir = process.env.NEXUS_DATA_DIR ? path.resolve(root) : path.join(root, 'data');
@@ -152,25 +175,37 @@ class ArkShopProfileStore {
   }
 
   read() {
-    let state;
-    try { state = JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch { state = { version: STORE_VERSION, profiles: {} }; }
-    state ||= {};
-    state.version = STORE_VERSION;
-    state.profiles ||= {};
-    for (const [id, raw] of Object.entries(state.profiles)) {
-      try { state.profiles[id] = normalizeProfile({ ...raw, id }); } catch { delete state.profiles[id]; }
+    if (!fs.existsSync(this.file)) return { version: STORE_VERSION, profiles: {} };
+    let parsed;
+    try {
+      parsed = JSON.parse(fs.readFileSync(this.file, 'utf8'));
+    } catch {
+      throw new Error('ArkShop profile state is unreadable or malformed; refusing to treat existing state as empty.');
     }
-    return state;
+    try {
+      return normalizePersistedState(parsed);
+    } catch {
+      throw new Error('ArkShop profile state failed integrity validation; refusing profile or economy mutations.');
+    }
+  }
+
+  health() {
+    try {
+      const state = this.read();
+      return { ok: true, profileCount: Object.keys(state.profiles).length, version: state.version };
+    } catch {
+      return { ok: false, profileCount: 0, version: STORE_VERSION };
+    }
   }
 
   write(state) {
+    const normalized = normalizePersistedState(state);
     fs.mkdirSync(this.dir, { recursive: true });
-    state.version = STORE_VERSION;
-    state.updatedAt = new Date().toISOString();
+    normalized.updatedAt = new Date().toISOString();
     const tmp = `${this.file}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
+    fs.writeFileSync(tmp, JSON.stringify(normalized, null, 2));
     fs.renameSync(tmp, this.file);
-    return state;
+    return normalized;
   }
 
   list() { return Object.values(this.read().profiles).sort((a, b) => a.name.localeCompare(b.name)); }
@@ -282,5 +317,6 @@ module.exports = {
   counts,
   snapshot,
   normalizeProfile,
+  normalizePersistedState,
   ArkShopProfileStore
 };
