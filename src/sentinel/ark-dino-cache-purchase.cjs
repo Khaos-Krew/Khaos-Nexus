@@ -16,17 +16,14 @@ function parsePointsResponse(value) {
   return amount;
 }
 
-function buildDinoDepotCommand({ eosId, blueprint, level, sex = '' } = {}) {
+function buildDinoDepotCommand({ eosId, blueprint, level } = {}) {
   const player = cleanEosId(eosId);
   const dino = String(blueprint || '').trim();
   const lvl = Number(level);
-  const normalizedSex = String(sex || '').trim().toLowerCase();
   if (!/^\/(?:Game|SDinoVariants)\/[A-Za-z0-9_./-]{8,220}$/.test(dino)) throw new Error('Dino Depot blueprint path is invalid.');
   if (!Number.isInteger(lvl) || lvl < 200 || lvl > 300) throw new Error('Dino Depot cache level must be an integer from 200 to 300.');
-  if (normalizedSex && !['male', 'female'].includes(normalizedSex)) throw new Error('Dino Depot cache sex must be male or female.');
-  const femaleFlag = normalizedSex ? ` -f=${normalizedSex === 'female' ? 1 : 0}` : '';
-  const command = `scriptcommand SpawnDinoInBall -t=${dino} -p=${player} -l=${lvl} -i=0 -a=1 -c=1${femaleFlag}`;
-  if (command.length > 320) throw new Error('Dino Depot command exceeds the safe RCON command length.');
+  const command = `ScriptCommand SpawnDinoInBall -p=${player} -t=${dino} -l=${lvl} -i=1 -a=1`;
+  if (command.length > 290) throw new Error('Dino Depot command exceeds its documented command-builder size limit.');
   return command;
 }
 
@@ -41,7 +38,6 @@ function classifyDeliveryResponse(value) {
   const response = String(value ?? '').trim();
   if (!response) return { outcome: 'AMBIGUOUS', reason: 'Dino Depot returned no delivery acknowledgement.' };
   if (/(unknown command|not found|invalid|failed|error|no player)/i.test(response)) return { outcome: 'FAILED', reason: response.slice(0, 500) };
-  if (/server received\.\s*but no response/i.test(response)) return { outcome: 'AMBIGUOUS', reason: response.slice(0, 500) };
   return { outcome: 'DELIVERED' };
 }
 
@@ -71,7 +67,7 @@ class DinoCacheRedemptionProcessor {
     if (!row || !['ROLLED', 'RETRY'].includes(row.state)) return row;
     const claimed = await this.store.claimDelivery(row.id);
     if (claimed.state !== 'DELIVERING') return claimed;
-    const command = buildDinoDepotCommand({ eosId: claimed.player_eos_id, blueprint: claimed.blueprint, level: Number(claimed.rolled_level), sex: claimed.sex });
+    const command = buildDinoDepotCommand({ eosId: claimed.player_eos_id, blueprint: claimed.blueprint, level: Number(claimed.rolled_level) });
     let response;
     try { response = await this.rconForServer(claimed.server_id).execute(command); }
     catch (error) { return this.store.markFailed(claimed.id, 'AMBIGUOUS', `RCON delivery acknowledgement was lost: ${String(error?.message || error).slice(0, 400)}`); }
