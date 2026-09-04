@@ -6,7 +6,12 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { safeSnapshot, healthChanged, alertPayload, inspectIdentityHealth } = require('../src/sentinel/ark-identity-health-monitor.cjs');
-const { discordPayload } = require('../src/sentinel/ark-identity-health-extension.cjs');
+const {
+  INITIAL_DELAY_MS,
+  INTERVAL_MS,
+  discordPayload,
+  startIdentityHealthMonitor
+} = require('../src/sentinel/ark-identity-health-extension.cjs');
 
 function tempRoot() { return fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-identity-health-')); }
 
@@ -52,4 +57,23 @@ test('Discord identity health payload is bounded and contains no repair control 
   assert.equal(text.includes('password=bad'), false);
   assert.equal(/repair|restore|overwrite/i.test(text), false);
   assert.deepEqual(payload.allowedMentions, { parse: [] });
+});
+
+test('identity health coordinated startup preserves timer cadence', () => {
+  const scheduled = [];
+  const handle = () => ({ unref() {} });
+  startIdentityHealthMonitor({}, {}, {
+    setTimeoutFn(fn, delay) {
+      scheduled.push({ type: 'timeout', fn, delay });
+      return handle();
+    },
+    setIntervalFn(fn, delay) {
+      scheduled.push({ type: 'interval', fn, delay });
+      return handle();
+    }
+  });
+  assert.deepEqual(scheduled.map(({ type, delay }) => ({ type, delay })), [
+    { type: 'timeout', delay: INITIAL_DELAY_MS },
+    { type: 'interval', delay: INTERVAL_MS }
+  ]);
 });

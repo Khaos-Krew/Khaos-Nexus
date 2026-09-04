@@ -2,7 +2,21 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { inspectArkShopMaintenance } = require('../src/sentinel/arkshop-maintenance-monitor.cjs');
+const {
+  STARTUP_TASK_ID,
+  INITIAL_DELAY_MS,
+  REFRESH_MS,
+  inspectArkShopMaintenance,
+  startArkShopMaintenanceMonitor,
+  installArkShopMaintenanceMonitor
+} = require('../src/sentinel/arkshop-maintenance-monitor.cjs');
+const {
+  runStartupTasks,
+  startupDiagnostics,
+  resetStartupCoordinatorForTests
+} = require('../src/sentinel/startup-coordinator.cjs');
+
+test.beforeEach(() => resetStartupCoordinatorForTests());
 
 test('ArkShop maintenance monitor detects drift and never mutates live state', async () => {
   const servers = [
@@ -44,4 +58,54 @@ test('ArkShop maintenance monitor reports incompatible providers without calling
   assert.equal(calls, 0);
   assert.equal(result.results[0].state, 'provider-incompatible');
   assert.equal(result.mutationPerformed, false);
+});
+
+test('ArkShop maintenance monitor preserves startup and periodic scheduling without a direct Discord ready listener', () => {
+  const scheduled = [];
+  const handle = () => ({ unref() {} });
+  startArkShopMaintenanceMonitor({
+    registry: { list: () => [] },
+    control: { env: {} },
+    setTimeoutFn(fn, delay) {
+      scheduled.push({ type: 'timeout', fn, delay });
+      return handle();
+    },
+    setIntervalFn(fn, delay) {
+      scheduled.push({ type: 'interval', fn, delay });
+      return handle();
+    }
+  });
+
+  assert.deepEqual(scheduled.map(({ type, delay }) => ({ type, delay })), [
+    { type: 'timeout', delay: INITIAL_DELAY_MS },
+    { type: 'interval', delay: REFRESH_MS }
+  ]);
+});
+
+test('ArkShop maintenance monitor registers one idempotent startup coordinator task', async () => {
+  const first = installArkShopMaintenanceMonitor();
+  const second = installArkShopMaintenanceMonitor();
+  const before = startupDiagnostics();
+
+  assert.deepEqual(first, { installed: true, coordinated: true });
+  assert.deepEqual(second, { installed: false, coordinated: true });
+  assert.equal(before.taskCount, 1);
+  assert.equal(before.tasks[0].id, STARTUP_TASK_ID);
+  assert.equal(before.tasks[0].owner, 'arkshop');
+  assert.equal(before.tasks[0].status, 'registered');
+
+  const originalTimeout = global.setTimeout;
+  const originalInterval = global.setInterval;
+  global.setTimeout = () => ({ unref() {} });
+  global.setInterval = () => ({ unref() {} });
+  try {
+    await runStartupTasks(null);
+  } finally {
+    global.setTimeout = originalTimeout;
+    global.setInterval = originalInterval;
+  }
+
+  const after = startupDiagnostics();
+  assert.equal(after.tasks[0].status, 'complete');
+  assert.equal(after.tasks[0].executionCount, 1);
 });

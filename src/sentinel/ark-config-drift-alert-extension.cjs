@@ -1,12 +1,12 @@
 'use strict';
 
-const { Client, Events } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { monitorIntervalMinutes } = require('./ark-update-monitor.cjs');
 const { resolveChannel } = require('./ark-staff-status-monitor-extension.cjs');
 const { runArkConfigDriftAlerts } = require('./ark-config-drift-alerts.cjs');
+const { registerStartupTask, startupDiagnostics } = require('./startup-coordinator.cjs');
 
-const INSTALLED = Symbol.for('khaos.nexus.ark.config.drift.alert.extension');
+const STARTUP_TASK_ID = 'ark-config-drift-alerts';
 const INITIAL_DELAY_MS = 20_000;
 
 function outboundMessage(payload) {
@@ -37,30 +37,41 @@ async function runCycle(client, config, {
   return Object.freeze({ channelId: String(channel.id || ''), checked: deliveries.length, alerted, sent });
 }
 
+function startArkConfigDriftAlerts(client, config, {
+  setTimeoutFn = setTimeout,
+  setIntervalFn = setInterval,
+  intervalMs = Math.max(5 * 60_000, monitorIntervalMinutes() * 60_000)
+} = {}) {
+  const run = (reason) => void runCycle(client, config)
+    .then((result) => console.log(`[Nexus Sentinal] ARK config drift alerts (${reason}): checked=${result.checked || 0} alerted=${result.alerted || 0} sent=${result.sent || 0} skipped=${result.skipped || 'none'}`))
+    .catch(() => console.warn(`[Nexus Sentinal] ARK config drift alerts (${reason}) unavailable; no configuration was changed.`));
+  const initial = setTimeoutFn(() => run('startup'), INITIAL_DELAY_MS);
+  initial?.unref?.();
+  const periodic = setIntervalFn(() => run('periodic'), intervalMs);
+  periodic?.unref?.();
+  console.log(`[Nexus Sentinal] ARK config drift transition alerts scheduled every ${Math.round(intervalMs / 60000)} minute(s).`);
+  return { initial, periodic, run, intervalMs };
+}
+
 function installArkConfigDriftAlertExtension() {
-  if (Client.prototype[INSTALLED]) return;
-  Client.prototype[INSTALLED] = true;
+  if (startupDiagnostics().tasks.some((task) => task.id === STARTUP_TASK_ID)) return { installed: false, coordinated: true };
   const config = loadConfig();
-  const originalLogin = Client.prototype.login;
-  Client.prototype.login = function nexusArkConfigDriftAlertLogin(...args) {
-    const client = this;
-    client.once(Events.ClientReady, () => {
-      const run = (reason) => void runCycle(client, config)
-        .then((result) => console.log(`[Nexus Sentinal] ARK config drift alerts (${reason}): checked=${result.checked || 0} alerted=${result.alerted || 0} sent=${result.sent || 0} skipped=${result.skipped || 'none'}`))
-        .catch(() => console.warn(`[Nexus Sentinal] ARK config drift alerts (${reason}) unavailable; no configuration was changed.`));
-      const initial = setTimeout(() => run('startup'), INITIAL_DELAY_MS);
-      initial.unref?.();
-      const intervalMs = Math.max(5 * 60_000, monitorIntervalMinutes() * 60_000);
-      const timer = setInterval(() => run('periodic'), intervalMs);
-      timer.unref?.();
-      console.log(`[Nexus Sentinal] ARK config drift transition alerts scheduled every ${Math.round(intervalMs / 60000)} minute(s).`);
-    });
-    return originalLogin.apply(this, args);
-  };
+  registerStartupTask({
+    id: STARTUP_TASK_ID,
+    owner: 'ark-config',
+    priority: 165,
+    run(client) {
+      startArkConfigDriftAlerts(client, config);
+    }
+  });
+  return { installed: true, coordinated: true };
 }
 
 module.exports = {
+  STARTUP_TASK_ID,
+  INITIAL_DELAY_MS,
   outboundMessage,
   runCycle,
+  startArkConfigDriftAlerts,
   installArkConfigDriftAlertExtension
 };

@@ -1,11 +1,11 @@
 'use strict';
 
-const { Client, Events } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { resolveChannel } = require('./ark-staff-status-monitor-extension.cjs');
 const { inspectArkShopApplyHealth } = require('./arkshop-apply-health-monitor.cjs');
+const { registerStartupTask, startupDiagnostics } = require('./startup-coordinator.cjs');
 
-const INSTALLED = Symbol.for('khaos.nexus.arkshop.apply.health.extension');
+const STARTUP_TASK_ID = 'arkshop-apply-health';
 const INITIAL_DELAY_MS = 20_000;
 const INTERVAL_MS = 5 * 60_000;
 
@@ -47,22 +47,35 @@ async function runArkShopApplyHealthCycle(client, config, options = {}) {
   return { changed: true, delivered: true, channelId: String(channel.id), state };
 }
 
-function installArkShopApplyHealthExtension() {
-  if (Client.prototype[INSTALLED]) return;
-  Client.prototype[INSTALLED] = true;
-  const config = loadConfig();
-  const originalLogin = Client.prototype.login;
-  Client.prototype.login = function nexusArkShopApplyHealthLogin(...args) {
-    const client = this;
-    client.once(Events.ClientReady, () => {
-      const run = () => void runArkShopApplyHealthCycle(client, config).catch(() => {});
-      const initial = setTimeout(run, INITIAL_DELAY_MS);
-      initial.unref?.();
-      const timer = setInterval(run, INTERVAL_MS);
-      timer.unref?.();
-    });
-    return originalLogin.apply(this, args);
-  };
+function startArkShopApplyHealthMonitor(client, config, { setTimeoutFn = setTimeout, setIntervalFn = setInterval } = {}) {
+  const run = () => void runArkShopApplyHealthCycle(client, config).catch(() => {});
+  const initial = setTimeoutFn(run, INITIAL_DELAY_MS);
+  initial?.unref?.();
+  const periodic = setIntervalFn(run, INTERVAL_MS);
+  periodic?.unref?.();
+  return { initial, periodic, run };
 }
 
-module.exports = { discordPayload, runArkShopApplyHealthCycle, installArkShopApplyHealthExtension };
+function installArkShopApplyHealthExtension() {
+  if (startupDiagnostics().tasks.some((task) => task.id === STARTUP_TASK_ID)) return { installed: false, coordinated: true };
+  const config = loadConfig();
+  registerStartupTask({
+    id: STARTUP_TASK_ID,
+    owner: 'arkshop',
+    priority: 155,
+    run(client) {
+      startArkShopApplyHealthMonitor(client, config);
+    }
+  });
+  return { installed: true, coordinated: true };
+}
+
+module.exports = {
+  STARTUP_TASK_ID,
+  INITIAL_DELAY_MS,
+  INTERVAL_MS,
+  discordPayload,
+  runArkShopApplyHealthCycle,
+  startArkShopApplyHealthMonitor,
+  installArkShopApplyHealthExtension
+};

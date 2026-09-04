@@ -2,7 +2,12 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { outboundMessage, runCycle } = require('../src/sentinel/ark-config-drift-alert-extension.cjs');
+const {
+  INITIAL_DELAY_MS,
+  outboundMessage,
+  runCycle,
+  startArkConfigDriftAlerts
+} = require('../src/sentinel/ark-config-drift-alert-extension.cjs');
 
 test('outbound drift alert disables mentions and bounds content', () => {
   const message = outboundMessage({ message: '@everyone ARK config drift detected.\n\n\nReview staff ops.' });
@@ -48,4 +53,31 @@ test('missing guild or staff channel fails closed without running drift checks',
   });
   assert.equal(noChannel.skipped, 'staff-channel-not-found');
   assert.equal(calls, 0);
+});
+
+test('config drift coordinated startup preserves initial delay and configured interval', () => {
+  const scheduled = [];
+  const handle = () => ({ unref() {} });
+  const originalLog = console.log;
+  console.log = () => {};
+  try {
+    const monitor = startArkConfigDriftAlerts({}, {}, {
+      intervalMs: 420_000,
+      setTimeoutFn(fn, delay) {
+        scheduled.push({ type: 'timeout', fn, delay });
+        return handle();
+      },
+      setIntervalFn(fn, delay) {
+        scheduled.push({ type: 'interval', fn, delay });
+        return handle();
+      }
+    });
+    assert.equal(monitor.intervalMs, 420_000);
+    assert.deepEqual(scheduled.map(({ type, delay }) => ({ type, delay })), [
+      { type: 'timeout', delay: INITIAL_DELAY_MS },
+      { type: 'interval', delay: 420_000 }
+    ]);
+  } finally {
+    console.log = originalLog;
+  }
 });
