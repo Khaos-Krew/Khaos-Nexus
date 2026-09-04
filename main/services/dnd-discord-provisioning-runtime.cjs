@@ -6,6 +6,7 @@ const {
 } = require('./dnd-discord-provisioning-service.cjs');
 
 const MANAGED_CHANNEL_TYPE = Object.freeze({ text: 0, voice: 2 });
+const MANAGED_CATEGORY_TYPE = 4;
 
 function retryDelayMs(response, payload) {
   const headerValue = response?.headers?.get?.('retry-after');
@@ -94,22 +95,30 @@ class DndDiscordProvisioningService extends BaseProvisioningService {
 
   async preview(input = {}) {
     const preview = await super.preview(input);
-    if (!preview.existingRecord || !preview.plan.length) return preview;
+    if (!preview.existingRecord) return preview;
 
     const channels = await this.discord(preview.appId, `/guilds/${preview.guildId}/channels`);
     const channelMap = new Map((Array.isArray(channels) ? channels : []).map((channel) => [String(channel.id), channel]));
     const conflicts = [];
+    const managedCategoryId = preview.existingRecord?.categoryId;
+    const managedCategory = managedCategoryId ? channelMap.get(String(managedCategoryId)) : null;
 
-    preview.plan = preview.plan.map((item) => {
-      const managed = preview.existingRecord?.resources?.[item.key];
-      const current = managed?.id ? channelMap.get(String(managed.id)) : null;
-      if (!current) return item;
-      const expectedType = MANAGED_CHANNEL_TYPE[item.type];
-      if (expectedType === undefined || Number(current.type) === expectedType) return item;
+    if (managedCategory && Number(managedCategory.type) !== MANAGED_CATEGORY_TYPE) {
+      conflicts.push(`The managed campaign category is bound to Discord channel ${managedCategory.id} with type ${managedCategory.type}, but Nexus requires a category.`);
+    }
 
-      conflicts.push(`${item.name} is bound to Discord channel ${current.id} with type ${current.type}, but Nexus requires ${item.type}.`);
-      return { ...item, action: 'type-conflict' };
-    });
+    if (preview.plan.length) {
+      preview.plan = preview.plan.map((item) => {
+        const managed = preview.existingRecord?.resources?.[item.key];
+        const current = managed?.id ? channelMap.get(String(managed.id)) : null;
+        if (!current) return item;
+        const expectedType = MANAGED_CHANNEL_TYPE[item.type];
+        if (expectedType === undefined || Number(current.type) === expectedType) return item;
+
+        conflicts.push(`${item.name} is bound to Discord channel ${current.id} with type ${current.type}, but Nexus requires ${item.type}.`);
+        return { ...item, action: 'type-conflict' };
+      });
+    }
 
     if (conflicts.length) {
       preview.ready = false;
