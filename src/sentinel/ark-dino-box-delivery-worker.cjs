@@ -2,6 +2,7 @@
 
 const { connectMysql } = require('./arkshop-mysql.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
+const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { ORDER_TABLE, EVENT_TABLE, ensureSchema } = require('./ark-cache-shop-service.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.dino.box.delivery.worker');
@@ -12,6 +13,20 @@ function deliveryPrefixes(env = process.env) {
   const configured = String(env.NEXUS_DINO_CACHE_DELIVERY_PREFIXES || 'ARK_GEN1,ARK_MAP2')
     .split(',').map((value) => value.trim().toUpperCase()).filter(Boolean);
   return [...new Set(configured)].filter((value) => /^ARK_[A-Z0-9_]+$/.test(value));
+}
+
+function eligibleDeliveryPrefixes(env = process.env, registry = new ArkClusterRegistry()) {
+  let records = [];
+  try { records = registry?.list?.({ includeDisabled: true }) || []; }
+  catch (error) {
+    console.warn('[dino-cache-delivery] ARK registry unavailable; preserving environment routing:', String(error?.message || error).slice(0, 180));
+  }
+  const byPrefix = new Map(records.map((record) => [String(record?.envPrefix || '').trim().toUpperCase(), record]));
+  return deliveryPrefixes(env).filter((prefix) => {
+    const record = byPrefix.get(prefix);
+    if (!record) return true;
+    return record.enabled !== false && record.connections?.rcon !== false;
+  });
 }
 
 function buildDiscordCacheDinoCommand({ eosId, blueprint, level, sex = '' } = {}) {
@@ -43,13 +58,13 @@ function classifyRconResult(result) {
   return { state: 'DELIVERED', failureClass: '', details: response || 'RCON command acknowledged.' };
 }
 
-async function findOnlineServer(eosId, env = process.env) {
+async function findOnlineServer(eosId, env = process.env, { registry = new ArkClusterRegistry(), clientFactory = (server) => new ArkRconClient(server) } = {}) {
   const matches = [];
-  for (const prefix of deliveryPrefixes(env)) {
+  for (const prefix of eligibleDeliveryPrefixes(env, registry)) {
     const server = arkServerFromEnv(prefix, env);
     if (!server.enabled || !server.host || !server.port || !server.password) continue;
     try {
-      const result = await new ArkRconClient(server).executeDetailed('ListPlayers');
+      const result = await clientFactory(server, prefix).executeDetailed('ListPlayers');
       const response = String(result?.response || '');
       if (response.includes(String(eosId))) matches.push({ prefix, server, response });
     } catch (error) {
@@ -131,8 +146,8 @@ function installArkDinoBoxDeliveryWorker() {
   setTimeout(() => runCycle().catch((error) => console.error('[dino-cache-delivery] startup cycle failed:', String(error?.message || error).slice(0, 500))), 2000).unref?.();
   timer = setInterval(() => runCycle().catch((error) => console.error('[dino-cache-delivery] cycle failed:', String(error?.message || error).slice(0, 500))), interval);
   timer.unref?.();
-  console.log(`[Nexus Sentinal] Dino Cache delivery worker enabled (online-map routing: ${deliveryPrefixes().join(', ')}, ${interval}ms).`);
+  console.log(`[Nexus Sentinal] Dino Cache delivery worker enabled (online-map routing: ${eligibleDeliveryPrefixes().join(', ') || 'none'}, ${interval}ms).`);
   return true;
 }
 
-module.exports = { deliveryPrefixes, buildDiscordCacheDinoCommand, ensureDeliveryState, classifyRconResult, findOnlineServer, nextAwaiting, claimOne, finishDelivery, deliverOne, runCycle, installArkDinoBoxDeliveryWorker };
+module.exports = { deliveryPrefixes, eligibleDeliveryPrefixes, buildDiscordCacheDinoCommand, ensureDeliveryState, classifyRconResult, findOnlineServer, nextAwaiting, claimOne, finishDelivery, deliverOne, runCycle, installArkDinoBoxDeliveryWorker };
