@@ -10,7 +10,7 @@ function endTurn(state, input = {}) {
   const key = runtime.clean(input.idempotencyKey, 160) || runtime.makeId('end_turn');
   const duplicate = combat?.log.find((item) => item.idempotencyKey === key);
   if (duplicate) return runtime.clone(duplicate.payload);
-  const actor = core.assertActiveActor(combat, input.actorId);
+  const actor = core.assertCurrentActor(combat, input.actorId);
   actor.conditions = actor.conditions.filter((item) => !['dodging', 'disengaging'].includes(item));
   const eligible = combat.combatants.filter((item) => !item.defeated && !item.deathSaves.dead);
   if (eligible.length === 0) {
