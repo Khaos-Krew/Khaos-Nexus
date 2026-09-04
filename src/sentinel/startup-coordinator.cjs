@@ -5,7 +5,6 @@ const { Client, Events } = require('discord.js');
 const INSTALLED = Symbol.for('khaos.nexus.startup.coordinator.installed');
 const BOUND = Symbol.for('khaos.nexus.startup.coordinator.bound');
 const TASKS = Symbol.for('khaos.nexus.startup.coordinator.tasks');
-const STATE = Symbol.for('khaos.nexus.startup.coordinator.state');
 
 function store() {
   if (!globalThis[TASKS]) globalThis[TASKS] = new Map();
@@ -97,6 +96,8 @@ function installStartupCoordinator() {
 function resetStartupCoordinatorForTests() {
   globalThis[TASKS] = new Map();
 }
+
+installStartupCoordinator();
 
 module.exports = {
   installStartupCoordinator,
