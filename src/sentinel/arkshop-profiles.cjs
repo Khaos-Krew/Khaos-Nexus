@@ -151,6 +151,9 @@ function isPlainObject(value) {
 
 function normalizePersistedState(value) {
   if (!isPlainObject(value)) throw new Error('ArkShop profile state root is invalid.');
+  if (Object.prototype.hasOwnProperty.call(value, 'version') && value.version !== STORE_VERSION) {
+    throw new Error('ArkShop profile state version is unsupported.');
+  }
   if (!isPlainObject(value.profiles)) throw new Error('ArkShop profile state profiles container is invalid.');
   const profiles = {};
   for (const [rawId, rawProfile] of Object.entries(value.profiles)) {
