@@ -12,6 +12,7 @@ COPY tests ./tests
 COPY config ./config
 COPY native ./native
 COPY config.example.json ./config.example.json
+COPY Dockerfile.sentinal ./Dockerfile.sentinal
 
 RUN npm run check && npm test
 
