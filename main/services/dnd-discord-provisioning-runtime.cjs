@@ -2,8 +2,7 @@
 
 const {
   DndDiscordProvisioningService: BaseProvisioningService,
-  DISCORD_API,
-  requestError
+  DISCORD_API
 } = require('./dnd-discord-provisioning-service.cjs');
 
 function retryDelayMs(response, payload) {
@@ -18,6 +17,18 @@ function retryDelayMs(response, payload) {
       ? bodyDelay
       : 1;
   return Math.max(0, seconds) * 1000;
+}
+
+function runtimeRequestError(status, body, fallback) {
+  const error = new Error(body?.message || fallback || `Discord request failed with HTTP ${status}.`);
+  error.status = status;
+  error.discordCode = body?.code;
+  if (status === 401) error.code = 'DISCORD_TOKEN_INVALID';
+  else if (status === 403) error.code = 'DISCORD_PERMISSION_MISSING';
+  else if (status === 404 && Number(body?.code) === 10003) error.code = 'DISCORD_RESOURCE_STALE';
+  else if (status === 429) error.code = 'DISCORD_RATE_LIMITED';
+  else error.code = 'DISCORD_REQUEST_FAILED';
+  return error;
 }
 
 class DndDiscordProvisioningService extends BaseProvisioningService {
@@ -74,13 +85,14 @@ class DndDiscordProvisioningService extends BaseProvisioningService {
         await this.sleep(300 * attempt);
         continue;
       }
-      throw requestError(response.status, payload, `Discord request to ${path} failed.`);
+      throw runtimeRequestError(response.status, payload, `Discord request to ${path} failed.`);
     }
-    throw requestError(500, null, 'Discord request exhausted its retry attempts.');
+    throw runtimeRequestError(500, null, 'Discord request exhausted its retry attempts.');
   }
 }
 
 module.exports = {
   DndDiscordProvisioningService,
-  retryDelayMs
+  retryDelayMs,
+  runtimeRequestError
 };
