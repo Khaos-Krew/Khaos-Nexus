@@ -174,6 +174,10 @@ async function applyArkShopProfile({
   const preview = await previewArkShopProfile({ server, profile, reader, guardCurrent });
   if (dryRun || !preview.changed) return { ...preview, dryRun: true, transaction: null, reload: null };
 
+  // The apply/rollback journal must be readable before any remote ArkShop mutation.
+  // A damaged journal is an operational safety failure, not an empty history.
+  applyStore.read();
+
   let writeResult;
   try {
     writeResult = await writer({
