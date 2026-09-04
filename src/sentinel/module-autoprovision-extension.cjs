@@ -12,13 +12,14 @@ const { reconcileNexusHq } = require('./nexus-hq.cjs');
 const { renderModuleConsole } = require('./module-console.cjs');
 const { ensurePanelMessage } = require('./persistent-panel-extension.cjs');
 const { createCoalescingRunner } = require('./coalescing-runner.cjs');
+const { activeSentinelModules } = require('./retired-module-policy.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.moduleAutoprovision.extension');
 const INITIAL_PROVISION_DELAY_MS = 160_000;
 const PERIODIC_PROVISION_MS = 5 * 60_000;
 
 function enabledSentinelModules(config = {}) {
-  return MODULES.filter((module) => module.console !== false && config.modules?.[module.id]?.enabled !== false);
+  return activeSentinelModules(MODULES).filter((module) => module.console !== false && config.modules?.[module.id]?.enabled !== false);
 }
 
 function normalizedCategoryName(value) {
