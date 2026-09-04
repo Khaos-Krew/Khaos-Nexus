@@ -88,6 +88,24 @@ test('persisted profile internal id must match its canonical map key', () => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test('unsupported persisted store versions fail closed instead of being silently rewritten', () => {
+  const root = tempRoot();
+  fs.mkdirSync(path.dirname(fileFor(root)), { recursive: true });
+  const state = {
+    version: 99,
+    profiles: {
+      'arkshop-live': { id: 'arkshop-live', name: 'Future Schema', revision: 1, data: {} }
+    }
+  };
+  fs.writeFileSync(fileFor(root), JSON.stringify(state));
+  const store = new ArkShopProfileStore(root);
+  assert.throws(() => store.read(), /integrity validation/i);
+  assert.throws(() => store.setGeneral({ profileId: 'arkshop-live', key: 'ItemsPerPage', value: 20 }), /integrity validation/i);
+  assert.equal(store.health().ok, false);
+  assert.equal(JSON.parse(fs.readFileSync(fileFor(root), 'utf8')).version, 99);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test('ArkShop profile health is bounded and does not expose corrupt payloads or paths', () => {
   const root = tempRoot();
   fs.mkdirSync(path.dirname(fileFor(root)), { recursive: true });
