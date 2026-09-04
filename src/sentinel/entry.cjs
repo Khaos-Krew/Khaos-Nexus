@@ -54,6 +54,7 @@ const { installArkConfigDriftAlertExtension } = require('./ark-config-drift-aler
 const { installArkIdentityHealthExtension } = require('./ark-identity-health-extension.cjs');
 const { installArkShopProfileHealthExtension } = require('./arkshop-profile-health-extension.cjs');
 const { installArkShopApplyHealthExtension } = require('./arkshop-apply-health-extension.cjs');
+const { installNexusBankHealthExtension } = require('./ark-nexus-bank-health-extension.cjs');
 const { installArkRestartSchedulerExtension } = require('./ark-restart-scheduler-extension.cjs');
 const { installArkServerControlsExtension } = require('./ark-server-controls-extension.cjs');
 const { installArkDynamicEventsExtension } = require('./ark-dynamic-events-extension.cjs');
@@ -116,6 +117,7 @@ installArkConfigDriftAlertExtension();
 installArkIdentityHealthExtension();
 installArkShopProfileHealthExtension();
 installArkShopApplyHealthExtension();
+installNexusBankHealthExtension();
 installArkRestartSchedulerExtension({ prefix: 'ARK_GEN1' });
 installArkServerControlsExtension({ prefix: 'ARK_GEN1' });
 installArkDynamicEventsExtension();
