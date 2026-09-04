@@ -64,10 +64,26 @@ function normalizeTemplate(input = [], campaign = {}) {
 
 function normalizeProvisioningRecord(input = {}) {
   const resources = {};
+  const resourceKeysById = new Map();
+  const categoryId = clean(input.categoryId, 25);
   for (const [key, value] of Object.entries(input.resources || {})) {
     if (!value?.id) continue;
+    const resourceId = clean(value.id, 25);
+    if (!resourceId) continue;
+    if (categoryId && resourceId === categoryId) {
+      const error = new Error(`Discord resource ${resourceId} cannot be bound as both the campaign category and channel ${key}. Re-provision the stale binding.`);
+      error.code = 'DND_PROVISIONING_RESOURCE_CONFLICT';
+      throw error;
+    }
+    const existingKey = resourceKeysById.get(resourceId);
+    if (existingKey && existingKey !== key) {
+      const error = new Error(`Discord resource ${resourceId} is bound to both ${existingKey} and ${key}. Re-provision the stale binding.`);
+      error.code = 'DND_PROVISIONING_RESOURCE_CONFLICT';
+      throw error;
+    }
+    resourceKeysById.set(resourceId, key);
     resources[key] = {
-      id: clean(value.id, 25),
+      id: resourceId,
       name: channelName(value.name || key, key),
       type: value.type === 'voice' ? 'voice' : 'text',
       purpose: clean(value.purpose, 80)
@@ -78,7 +94,7 @@ function normalizeProvisioningRecord(input = {}) {
     campaignId: clean(input.campaignId, 100),
     appId: clean(input.appId, 100),
     guildId: clean(input.guildId, 25),
-    categoryId: clean(input.categoryId, 25),
+    categoryId,
     categoryName: categoryName(input.categoryName),
     resources,
     templateHash: clean(input.templateHash, 128),
@@ -95,6 +111,25 @@ function permissionValue(...values) {
 
 function memberRole(member = {}) {
   return ['admin', 'dm', 'assistant_dm', 'player', 'viewer'].includes(member.role) ? member.role : 'viewer';
+}
+
+function uniqueProvisioningMembers(members = []) {
+  const unique = new Map();
+  for (const member of members) {
+    if (member?.active === false || !member?.discordUserId) continue;
+    const discordUserId = String(member.discordUserId);
+    const existing = unique.get(discordUserId);
+    if (!existing) {
+      unique.set(discordUserId, member);
+      continue;
+    }
+    if (memberRole(existing) !== memberRole(member)) {
+      const error = new Error(`Discord user ${discordUserId} has conflicting active campaign roles. Resolve the duplicate membership before provisioning.`);
+      error.code = 'DND_PROVISIONING_MEMBER_CONFLICT';
+      throw error;
+    }
+  }
+  return [...unique.values()];
 }
 
 function memberPermission(member, channel) {
@@ -135,7 +170,7 @@ function memberPermission(member, channel) {
 }
 
 function buildPermissionOverwrites({ guildId, botUserId, members = [], channel }) {
-  const active = members.filter((member) => member.active !== false && member.discordUserId);
+  const active = uniqueProvisioningMembers(members);
   if (active.length > MAX_MEMBER_OVERWRITES) {
     const error = new Error(`This campaign has ${active.length} mapped members; individual channel provisioning supports at most ${MAX_MEMBER_OVERWRITES}. Configure Discord roles before provisioning.`);
     error.code = 'DND_PROVISIONING_MEMBER_LIMIT';

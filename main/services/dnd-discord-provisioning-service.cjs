@@ -202,15 +202,17 @@ class DndDiscordProvisioningService {
     if (!managers.length) blockers.push('Map at least one campaign DM, Assistant DM, or Admin to a Discord user ID.');
     if (mappedMembers.length > 50) blockers.push('More than 50 campaign members are mapped. Configure Discord roles before provisioning individual overwrites.');
     if (members.length !== mappedMembers.length) warnings.push(`${members.length - mappedMembers.length} active campaign member(s) have no Discord user ID and will not receive channel access.`);
-    if (record?.categoryId && !existing.has(String(record.categoryId))) warnings.push('The previously managed category is missing and will be recreated.');
+    const categoryMissing = Boolean(record?.categoryId && !existing.has(String(record.categoryId)));
+    if (categoryMissing) warnings.push('The previously managed category is missing and will be recreated.');
 
     const category = categoryName(input.categoryName || campaign.name);
     const plan = template.filter((item) => item.enabled).map((item) => {
       const managed = record?.resources?.[item.key] || null;
       const current = managed?.id ? existing.get(String(managed.id)) : null;
+      const wrongParent = Boolean(current && record?.categoryId && String(current.parent_id || '') !== String(record.categoryId));
       return {
         ...item,
-        action: current ? 'reuse' : managed ? 'repair' : 'create',
+        action: current ? (categoryMissing || wrongParent ? 'reparent' : 'reuse') : managed ? 'repair' : 'create',
         currentId: current ? String(current.id) : '',
         currentName: current ? String(current.name || item.name) : ''
       };
@@ -348,7 +350,45 @@ class DndDiscordProvisioningService {
       const managed = record.resources?.[channel.key] || null;
       const existing = managed?.id ? channelMap.get(String(managed.id)) : null;
       if (existing) {
-        results.push({ key: channel.key, status: 'reused', id: String(existing.id), name: String(existing.name || channel.name), type: channel.type });
+        const desiredParentId = String(category.id);
+        const currentParentId = existing.parent_id === null || existing.parent_id === undefined ? '' : String(existing.parent_id);
+        if (currentParentId !== desiredParentId) {
+          onProgress({ phase: 'channel', status: 'reparenting', key: channel.key, name: channel.name });
+          try {
+            const updated = await this.discord(preview.appId, `/channels/${existing.id}`, {
+              method: 'PATCH',
+              body: { parent_id: desiredParentId }
+            });
+            const reconciled = { ...existing, ...(updated || {}), parent_id: desiredParentId };
+            channelMap.set(String(existing.id), reconciled);
+            results.push({
+              key: channel.key,
+              status: 'reparented',
+              id: String(existing.id),
+              categoryId: desiredParentId,
+              name: String(reconciled.name || channel.name),
+              type: channel.type
+            });
+            this.audit('provisioning.channel_reparented', {
+              ...input,
+              campaignId: campaign.id,
+              appId: preview.appId,
+              guildId: preview.guildId,
+              targetId: String(existing.id)
+            }, 'success', { key: channel.key, categoryId: desiredParentId });
+          } catch (error) {
+            results.push({ key: channel.key, status: 'failed', id: String(existing.id), name: channel.name, type: channel.type, error: error.code || error.message });
+            this.audit('provisioning.channel_reparent_failed', {
+              ...input,
+              campaignId: campaign.id,
+              appId: preview.appId,
+              guildId: preview.guildId,
+              targetId: String(existing.id)
+            }, 'failed', { key: channel.key, categoryId: desiredParentId, error: error.code || error.message });
+          }
+        } else {
+          results.push({ key: channel.key, status: 'reused', id: String(existing.id), name: String(existing.name || channel.name), type: channel.type });
+        }
         continue;
       }
       onProgress({ phase: 'channel', status: 'creating', key: channel.key, name: channel.name });
@@ -398,6 +438,9 @@ class DndDiscordProvisioningService {
     for (const channel of preview.plan) {
       const managed = record.resources?.[channel.key];
       if (!managed?.id) continue;
+      const actual = channelMap.get(String(managed.id));
+      const actualParentId = actual?.parent_id === null || actual?.parent_id === undefined ? '' : String(actual.parent_id);
+      if (!actual || actualParentId !== String(record.categoryId)) continue;
       try {
         bindings.push(this.upsertBinding({ ...input, campaignId: campaign.id, appId: preview.appId, guildId: preview.guildId }, {
           id: managed.id,

@@ -2,9 +2,11 @@
 
 const {
   DndDiscordProvisioningService: BaseProvisioningService,
-  DISCORD_API,
-  requestError
+  DISCORD_API
 } = require('./dnd-discord-provisioning-service.cjs');
+
+const MANAGED_CHANNEL_TYPE = Object.freeze({ text: 0, voice: 2 });
+const MANAGED_CATEGORY_TYPE = 4;
 
 function retryDelayMs(response, payload) {
   const headerValue = response?.headers?.get?.('retry-after');
@@ -18,6 +20,18 @@ function retryDelayMs(response, payload) {
       ? bodyDelay
       : 1;
   return Math.max(0, seconds) * 1000;
+}
+
+function runtimeRequestError(status, body, fallback) {
+  const error = new Error(body?.message || fallback || `Discord request failed with HTTP ${status}.`);
+  error.status = status;
+  error.discordCode = body?.code;
+  if (status === 401) error.code = 'DISCORD_TOKEN_INVALID';
+  else if (status === 403) error.code = 'DISCORD_PERMISSION_MISSING';
+  else if (status === 404 && Number(body?.code) === 10003) error.code = 'DISCORD_RESOURCE_STALE';
+  else if (status === 429) error.code = 'DISCORD_RATE_LIMITED';
+  else error.code = 'DISCORD_REQUEST_FAILED';
+  return error;
 }
 
 class DndDiscordProvisioningService extends BaseProvisioningService {
@@ -74,13 +88,51 @@ class DndDiscordProvisioningService extends BaseProvisioningService {
         await this.sleep(300 * attempt);
         continue;
       }
-      throw requestError(response.status, payload, `Discord request to ${path} failed.`);
+      throw runtimeRequestError(response.status, payload, `Discord request to ${path} failed.`);
     }
-    throw requestError(500, null, 'Discord request exhausted its retry attempts.');
+    throw runtimeRequestError(500, null, 'Discord request exhausted its retry attempts.');
+  }
+
+  async preview(input = {}) {
+    const preview = await super.preview(input);
+    if (!preview.existingRecord) return preview;
+
+    const channels = await this.discord(preview.appId, `/guilds/${preview.guildId}/channels`);
+    const channelMap = new Map((Array.isArray(channels) ? channels : []).map((channel) => [String(channel.id), channel]));
+    const conflicts = [];
+    const managedCategoryId = preview.existingRecord?.categoryId;
+    const managedCategory = managedCategoryId ? channelMap.get(String(managedCategoryId)) : null;
+
+    if (managedCategory && Number(managedCategory.type) !== MANAGED_CATEGORY_TYPE) {
+      conflicts.push(`The managed campaign category is bound to Discord channel ${managedCategory.id} with type ${managedCategory.type}, but Nexus requires a category.`);
+    }
+
+    if (preview.plan.length) {
+      preview.plan = preview.plan.map((item) => {
+        const managed = preview.existingRecord?.resources?.[item.key];
+        const current = managed?.id ? channelMap.get(String(managed.id)) : null;
+        if (!current) return item;
+        const expectedType = MANAGED_CHANNEL_TYPE[item.type];
+        if (expectedType === undefined || Number(current.type) === expectedType) return item;
+
+        conflicts.push(`${item.name} is bound to Discord channel ${current.id} with type ${current.type}, but Nexus requires ${item.type}.`);
+        return { ...item, action: 'type-conflict' };
+      });
+    }
+
+    if (conflicts.length) {
+      preview.ready = false;
+      preview.blockers = [
+        ...preview.blockers,
+        ...conflicts.map((message) => `${message} Re-provision that managed resource before continuing.`)
+      ];
+    }
+    return preview;
   }
 }
 
 module.exports = {
   DndDiscordProvisioningService,
-  retryDelayMs
+  retryDelayMs,
+  runtimeRequestError
 };
