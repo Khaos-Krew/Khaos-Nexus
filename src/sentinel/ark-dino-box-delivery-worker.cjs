@@ -8,8 +8,10 @@ const INSTALLED = Symbol.for('khaos.nexus.dino.box.delivery.worker');
 let timer = null;
 let running = false;
 
-function deliveryPrefix(env = process.env) {
-  return String(env.NEXUS_DINO_CACHE_DELIVERY_PREFIX || 'ARK_MAP2').trim().toUpperCase();
+function deliveryPrefixes(env = process.env) {
+  const configured = String(env.NEXUS_DINO_CACHE_DELIVERY_PREFIXES || 'ARK_GEN1,ARK_MAP2')
+    .split(',').map((value) => value.trim().toUpperCase()).filter(Boolean);
+  return [...new Set(configured)].filter((value) => /^ARK_[A-Z0-9_]+$/.test(value));
 }
 
 function buildDiscordCacheDinoCommand({ eosId, blueprint, level, sex = '' } = {}) {
@@ -41,17 +43,38 @@ function classifyRconResult(result) {
   return { state: 'DELIVERED', failureClass: '', details: response || 'RCON command acknowledged.' };
 }
 
-async function claimOne(connection) {
+async function findOnlineServer(eosId, env = process.env) {
+  const matches = [];
+  for (const prefix of deliveryPrefixes(env)) {
+    const server = arkServerFromEnv(prefix, env);
+    if (!server.enabled || !server.host || !server.port || !server.password) continue;
+    try {
+      const result = await new ArkRconClient(server).executeDetailed('ListPlayers');
+      const response = String(result?.response || '');
+      if (response.includes(String(eosId))) matches.push({ prefix, server, response });
+    } catch (error) {
+      console.warn('[dino-cache-delivery] ListPlayers probe failed', prefix, String(error?.message || error).slice(0, 180));
+    }
+  }
+  if (matches.length > 1) throw new Error(`Linked EOS appears online on multiple ARK maps: ${matches.map((item) => item.prefix).join(', ')}`);
+  return matches[0] || null;
+}
+
+async function nextAwaiting(connection) {
+  const [rows] = await connection.query(`SELECT * FROM ${ORDER_TABLE} WHERE state='AWAITING_DELIVERY' ORDER BY revealed_at ASC, created_at ASC LIMIT 1`);
+  return rows[0] || null;
+}
+
+async function claimOne(connection, row, target) {
   await connection.beginTransaction();
   try {
-    const [rows] = await connection.query(`SELECT * FROM ${ORDER_TABLE} WHERE state='AWAITING_DELIVERY' ORDER BY revealed_at ASC, created_at ASC LIMIT 1 FOR UPDATE`);
-    const row = rows[0];
-    if (!row) { await connection.commit(); return null; }
-    const prefix = deliveryPrefix();
-    await connection.execute(`UPDATE ${ORDER_TABLE} SET state='DELIVERING', delivery_server_id=?, delivery_map_name=?, delivery_attempts=delivery_attempts+1, failure_class='', error_message='' WHERE id=? AND state='AWAITING_DELIVERY'`, [prefix.toLowerCase(), prefix === 'ARK_MAP2' ? (process.env.ARK_MAP2_NAME || 'Astraeos') : (process.env[`${prefix}_NAME`] || prefix), row.id]);
-    await connection.execute(`INSERT INTO ${EVENT_TABLE} (order_id, event_type, details) VALUES (?, 'DELIVERY_STARTED', ?)`, [row.id, `Sentinal claimed revealed Dino Cache for ${prefix} RCON delivery.`]);
+    const [locked] = await connection.execute(`SELECT * FROM ${ORDER_TABLE} WHERE id=? AND state='AWAITING_DELIVERY' LIMIT 1 FOR UPDATE`, [row.id]);
+    if (!locked[0]) { await connection.commit(); return null; }
+    const mapName = process.env[`${target.prefix}_NAME`] || (target.prefix === 'ARK_GEN1' ? 'Genesis 1' : target.prefix === 'ARK_MAP2' ? 'Astraeos' : target.prefix);
+    await connection.execute(`UPDATE ${ORDER_TABLE} SET state='DELIVERING', delivery_server_id=?, delivery_map_name=?, delivery_attempts=delivery_attempts+1, failure_class='', error_message='' WHERE id=? AND state='AWAITING_DELIVERY'`, [target.prefix.toLowerCase(), mapName, row.id]);
+    await connection.execute(`INSERT INTO ${EVENT_TABLE} (order_id, event_type, details) VALUES (?, 'DELIVERY_STARTED', ?)`, [row.id, `Sentinal located linked EOS online on ${target.prefix} and claimed Dino Cache for RCON delivery.`]);
     await connection.commit();
-    return { ...row, deliveryPrefix: prefix };
+    return { ...locked[0], deliveryPrefix: target.prefix, server: target.server };
   } catch (error) { await connection.rollback().catch(() => {}); throw error; }
 }
 
@@ -66,17 +89,15 @@ async function deliverOne({ connector = connectMysql } = {}) {
   try {
     await ensureSchema(connection);
     await ensureDeliveryState(connection);
-    const row = await claimOne(connection);
-    if (!row) return { skipped: 'none-awaiting' };
-    const server = arkServerFromEnv(row.deliveryPrefix);
-    if (!server.enabled || !server.host || !server.port || !server.password) {
-      const outcome = { state: 'DELIVERY_FAILED', failureClass: 'RCON_CONFIG', details: `${row.deliveryPrefix} RCON configuration is incomplete or disabled.` };
-      await finishDelivery(connection, row, outcome);
-      return { orderId: row.id, ...outcome };
-    }
+    const pending = await nextAwaiting(connection);
+    if (!pending) return { skipped: 'none-awaiting' };
+    const target = await findOnlineServer(pending.player_eos_id);
+    if (!target) return { skipped: 'player-offline', orderId: pending.id, publicCacheId: pending.public_cache_id };
+    const row = await claimOne(connection, pending, target);
+    if (!row) return { skipped: 'claim-race' };
     const command = buildDiscordCacheDinoCommand({ eosId: row.player_eos_id, blueprint: row.blueprint, level: Number(row.rolled_level), sex: row.sex });
     let result;
-    try { result = await new ArkRconClient(server).executeDetailed(command); }
+    try { result = await new ArkRconClient(row.server).executeDetailed(command); }
     catch (error) {
       const outcome = { state: 'SENT_UNCONFIRMED', failureClass: 'RCON_AMBIGUOUS', details: `RCON result ambiguous after delivery claim: ${String(error?.message || error).slice(0, 400)}` };
       await finishDelivery(connection, row, outcome);
@@ -85,7 +106,7 @@ async function deliverOne({ connector = connectMysql } = {}) {
     const outcome = classifyRconResult(result);
     await finishDelivery(connection, row, outcome);
     console.log('[dino-cache-delivery]', JSON.stringify({ orderId: row.id, publicCacheId: row.public_cache_id, server: row.deliveryPrefix, rconStatus: result.status, state: outcome.state }));
-    return { orderId: row.id, publicCacheId: row.public_cache_id, command, rconStatus: result.status, ...outcome };
+    return { orderId: row.id, publicCacheId: row.public_cache_id, command, rconStatus: result.status, server: row.deliveryPrefix, ...outcome };
   } finally { await connection.end().catch(() => {}); }
 }
 
@@ -97,7 +118,7 @@ async function runCycle() {
     for (let index = 0; index < 10; index += 1) {
       const result = await deliverOne();
       results.push(result);
-      if (result?.skipped === 'none-awaiting') break;
+      if (result?.skipped) break;
     }
     return results;
   } finally { running = false; }
@@ -110,8 +131,8 @@ function installArkDinoBoxDeliveryWorker() {
   setTimeout(() => runCycle().catch((error) => console.error('[dino-cache-delivery] startup cycle failed:', String(error?.message || error).slice(0, 500))), 2000).unref?.();
   timer = setInterval(() => runCycle().catch((error) => console.error('[dino-cache-delivery] cycle failed:', String(error?.message || error).slice(0, 500))), interval);
   timer.unref?.();
-  console.log(`[Nexus Sentinal] Dino Cache delivery worker enabled (${deliveryPrefix()}, ${interval}ms).`);
+  console.log(`[Nexus Sentinal] Dino Cache delivery worker enabled (online-map routing: ${deliveryPrefixes().join(', ')}, ${interval}ms).`);
   return true;
 }
 
-module.exports = { deliveryPrefix, buildDiscordCacheDinoCommand, ensureDeliveryState, classifyRconResult, claimOne, finishDelivery, deliverOne, runCycle, installArkDinoBoxDeliveryWorker };
+module.exports = { deliveryPrefixes, buildDiscordCacheDinoCommand, ensureDeliveryState, classifyRconResult, findOnlineServer, nextAwaiting, claimOne, finishDelivery, deliverOne, runCycle, installArkDinoBoxDeliveryWorker };
