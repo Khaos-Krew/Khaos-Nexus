@@ -81,6 +81,13 @@ function createDiscordMock() {
       channels.push(created);
       return http(201, created);
     }
+    if (method === 'PATCH' && /^\/api\/v10\/channels\/\d+$/.test(parsed.pathname)) {
+      const channelId = parsed.pathname.split('/').at(-1);
+      const channel = channels.find((item) => String(item.id) === channelId);
+      if (!channel) return http(404, { code: 10003, message: 'Unknown Channel' });
+      if (Object.prototype.hasOwnProperty.call(body || {}, 'parent_id')) channel.parent_id = body.parent_id;
+      return http(200, channel);
+    }
     if (method === 'POST' && /^\/api\/v10\/channels\/\d+\/messages$/.test(parsed.pathname)) {
       return http(200, { id: String(nextMessageId++) });
     }
@@ -99,6 +106,13 @@ function requiredOnlyTemplate() {
     name: item.name,
     enabled: item.required
   }));
+}
+
+function channelMutationCalls(discord) {
+  return discord.calls.filter((item) =>
+    (item.method === 'POST' && item.path === '/api/v10/guilds/12345/channels') ||
+    (item.method === 'PATCH' && /^\/api\/v10\/channels\/\d+$/.test(item.path))
+  );
 }
 
 test('deleted managed channel is repaired once and subsequent provisioning converges without duplicates', async () => {
@@ -166,4 +180,73 @@ test('deleted managed channel is repaired once and subsequent provisioning conve
   assert.equal(String(converged.record.resources['table-chat'].id), replacementId);
   assert.equal(store.state.provisioningRecords.length, 1);
   assert.equal(store.state.bindings.filter((item) => item.active !== false && item.purpose === 'main').length, 1);
+});
+
+test('deleted category is recreated and surviving managed channels are reparented exactly once', async () => {
+  const store = createStore();
+  const discord = createDiscordMock();
+  const service = new DndDiscordProvisioningService({
+    configStore: store,
+    logger: {},
+    fetchImpl: discord.fetchImpl,
+    sleep: async () => {}
+  });
+  const input = {
+    campaignId: 'campaign-1',
+    appId: 'nexus-bot',
+    guildId: '12345',
+    categoryName: 'The Red Keep',
+    template: requiredOnlyTemplate(),
+    createdBy: 'local-owner'
+  };
+
+  const initialPreview = await service.preview(input);
+  const initial = await service.apply({ ...input, confirmed: true, confirmationHash: initialPreview.confirmationHash });
+  assert.equal(initial.failedCount, 0);
+
+  const initialRecord = store.state.provisioningRecords[0];
+  const deletedCategoryId = String(initialRecord.categoryId);
+  const survivingIds = Object.values(initialRecord.resources).map((resource) => String(resource.id));
+  const categoryIndex = discord.channels.findIndex((item) => String(item.id) === deletedCategoryId);
+  assert.notEqual(categoryIndex, -1);
+  discord.channels.splice(categoryIndex, 1);
+  for (const id of survivingIds) {
+    assert.equal(String(discord.channels.find((item) => String(item.id) === id).parent_id), deletedCategoryId);
+  }
+
+  const recoveryPreview = await service.preview(input);
+  assert.ok(recoveryPreview.warnings.some((warning) => warning.includes('category is missing')));
+  assert.deepEqual(recoveryPreview.plan.map((item) => item.action), ['reparent', 'reparent']);
+
+  const mutationsBeforeRecovery = channelMutationCalls(discord).length;
+  const recovered = await service.apply({ ...input, confirmed: true, confirmationHash: recoveryPreview.confirmationHash });
+  const recoveryMutations = channelMutationCalls(discord).slice(mutationsBeforeRecovery);
+
+  assert.equal(recovered.failedCount, 0);
+  assert.equal(recovered.createdCount, 1);
+  assert.notEqual(String(recovered.record.categoryId), deletedCategoryId);
+  assert.deepEqual(recovered.results.filter((item) => item.key !== 'category' && item.key !== 'campaign-panel').map((item) => item.status), ['reparented', 'reparented']);
+  assert.equal(recoveryMutations.filter((item) => item.method === 'POST').length, 1);
+  assert.equal(recoveryMutations.filter((item) => item.method === 'PATCH').length, 2);
+
+  const replacementCategoryId = String(recovered.record.categoryId);
+  for (const id of survivingIds) {
+    const channel = discord.channels.find((item) => String(item.id) === id);
+    assert.ok(channel);
+    assert.equal(String(channel.parent_id), replacementCategoryId);
+  }
+  assert.deepEqual(Object.values(recovered.record.resources).map((resource) => String(resource.id)), survivingIds);
+  assert.ok(store.state.bindings.every((binding) => binding.active === false || String(binding.parentChannelId) === replacementCategoryId));
+
+  const convergedPreview = await service.preview(input);
+  assert.deepEqual(convergedPreview.plan.map((item) => item.action), ['reuse', 'reuse']);
+  const mutationsBeforeConvergedApply = channelMutationCalls(discord).length;
+  const converged = await service.apply({ ...input, confirmed: true, confirmationHash: convergedPreview.confirmationHash });
+
+  assert.equal(converged.failedCount, 0);
+  assert.equal(converged.createdCount, 0);
+  assert.equal(channelMutationCalls(discord).length, mutationsBeforeConvergedApply);
+  assert.equal(String(converged.record.categoryId), replacementCategoryId);
+  assert.deepEqual(Object.values(converged.record.resources).map((resource) => String(resource.id)), survivingIds);
+  assert.equal(store.state.provisioningRecords.length, 1);
 });
