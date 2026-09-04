@@ -41,7 +41,7 @@ function normalizeCombatant(state, campaignId, input = {}, rng = Math.random) {
     savingThrows: runtime.clone(character ? (character.savingThrows || {}) : (input.savingThrows || {})),
     spellSlots: runtime.clone(character ? (character.spellSlots || {}) : (input.spellSlots || {})),
     conditions,
-    concentration: input.concentration ? runtime.clean(input.concentration, 200) : '',
+    concentration: runtime.clean(character ? character.concentration : input.concentration, 200),
     deathSaves: { successes: 0, failures: 0, stable: false, dead: false },
     defeated: currentHp <= 0 && !character,
     resources: { action: true, bonusAction: true, reaction: true, movement: speed, baseMovement: speed },
@@ -105,7 +105,17 @@ function syncCharacterHp(state, combat, target, key) {
   });
 }
 
+function syncCharacterConcentration(state, combat, target, key) {
+  if (!target.characterId) return null;
+  return runtime.appendStateEvent(state, {
+    campaignId: combat.campaignId, runId: combat.runId, sceneId: combat.sceneId,
+    type: 'character.concentration.changed', actorType: 'rules_engine', actorId: 'combat',
+    idempotencyKey: key, payload: { characterId: target.characterId, value: runtime.clean(target.concentration, 200) }
+  });
+}
+
 module.exports = {
   runtime, ensureSoloCombatState, cleanNumber, rollDie, combatById, combatantById,
-  activeCombatant, startCombat, assertActiveActor, appendCombatLog, syncCharacterHp
+  activeCombatant, startCombat, assertActiveActor, appendCombatLog, syncCharacterHp,
+  syncCharacterConcentration
 };
