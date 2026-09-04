@@ -47,7 +47,7 @@ function resolveDeathSave(state, input = {}, rng = Math.random) {
   const key = runtime.clean(input.idempotencyKey, 160) || runtime.makeId('death_save');
   const duplicate = combat?.log.find((item) => item.idempotencyKey === key);
   if (duplicate) return runtime.clone(duplicate.payload);
-  const actor = core.assertActiveActor(combat, input.combatantId);
+  const actor = core.assertCurrentActor(combat, input.combatantId);
   if (!actor.characterId || actor.currentHp > 0 || actor.deathSaves.stable || actor.deathSaves.dead) runtime.fail('This combatant is not eligible for a death save.', 'DND_COMBAT_DEATH_SAVE_INVALID');
   const natural = core.rollDie(20, rng);
   if (natural === 20) {
