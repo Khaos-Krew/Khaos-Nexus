@@ -1,14 +1,14 @@
 'use strict';
 
-const { Client, Events } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { MODULES } = require('../backend/modules/catalog.cjs');
 const { RETIRED_MODULE_IDS, retireSentinelModuleRegistry } = require('./retired-module-policy.cjs');
+const { registerStartupTask, startupDiagnostics } = require('./startup-coordinator.cjs');
 
-const INSTALLED = Symbol.for('khaos.nexus.retiredGamesSelfRoleCleanup.extension');
 const FRIENDLY_POLICY_APPLIED = Symbol.for('khaos.nexus.retiredFriendlyCommandPolicy.applied');
 const RETIRED_GAMES_MARKER_PREFIX = 'nexus-sentinal:self-role:games';
 const RETIRED_COMMAND_CLEANUP_DELAY_MS = 5_000;
+const STARTUP_TASK_ID = 'retired-module-cleanup';
 
 function valuesOf(collection) {
   if (!collection) return [];
@@ -77,7 +77,6 @@ async function retireGamesSelfRolePanel(guild, { botId = '', configuredChannelId
   const channels = await guild.channels.fetch();
   const channel = findRolesChannel(channels, configuredChannelId);
   if (!channel?.messages?.fetch) return { skipped: true, reason: 'roles-channel-unavailable', deleted: 0 };
-
   const recent = await channel.messages.fetch({ limit: 100 }).catch(() => null);
   const messages = valuesOf(recent);
   let deleted = 0;
@@ -104,53 +103,50 @@ async function retireGuildCommands(guild) {
   return { skipped: false, reason: '', deleted };
 }
 
-function installRetiredGamesSelfRoleCleanupExtension() {
-  if (Client.prototype[INSTALLED]) return;
-  Client.prototype[INSTALLED] = true;
+async function runRetiredModuleCleanup(client, config) {
+  const guildId = String(config.discord?.guildId || '').trim();
+  if (!guildId) return { skipped: 'guild-not-configured' };
+  const guild = await client.guilds.fetch(guildId);
+  const [panelResult, commandResult] = await Promise.all([
+    retireGamesSelfRolePanel(guild, {
+      botId: client.user?.id,
+      configuredChannelId: config.discord?.rolesChannelId || config.discordAutomation?.rolesChannelId || ''
+    }),
+    retireGuildCommands(guild)
+  ]);
+  if (!panelResult.skipped && panelResult.deleted) {
+    console.log(`[Nexus Sentinal] retired Games self-role cleanup: deleted=${panelResult.deleted} channel=${panelResult.channelId}`);
+  }
+  if (!commandResult.skipped && commandResult.deleted.length) {
+    console.log(`[Nexus Sentinal] retired guild command cleanup: deleted=${commandResult.deleted.join(',')}`);
+  }
+  return { panelResult, commandResult };
+}
 
+function installRetiredGamesSelfRoleCleanupExtension() {
   const retiredModules = retireSentinelModuleRegistry(MODULES);
   const friendlyPolicyApplied = applyRetiredFriendlyCommandPolicy();
-  if (retiredModules.length) {
-    console.log(`[Nexus Sentinal] retired module registry filtered: ${retiredModules.join(', ')}`);
-  }
-  if (friendlyPolicyApplied) {
-    console.log('[Nexus Sentinal] retired friendly-command policy active.');
-  }
+  if (retiredModules.length) console.log(`[Nexus Sentinal] retired module registry filtered: ${retiredModules.join(', ')}`);
+  if (friendlyPolicyApplied) console.log('[Nexus Sentinal] retired friendly-command policy active.');
+  if (startupDiagnostics().tasks.some((task) => task.id === STARTUP_TASK_ID)) return { installed: false, coordinated: true };
 
   const config = loadConfig();
-  const originalLogin = Client.prototype.login;
-
-  Client.prototype.login = function nexusRetiredGamesRoleCleanupLogin(...args) {
-    this.once(Events.ClientReady, () => {
-      const timer = setTimeout(async () => {
-        try {
-          const guildId = String(config.discord?.guildId || '').trim();
-          if (!guildId) return;
-          const guild = await this.guilds.fetch(guildId);
-          const [panelResult, commandResult] = await Promise.all([
-            retireGamesSelfRolePanel(guild, {
-              botId: this.user?.id,
-              configuredChannelId: config.discord?.rolesChannelId || config.discordAutomation?.rolesChannelId || ''
-            }),
-            retireGuildCommands(guild)
-          ]);
-          if (!panelResult.skipped && panelResult.deleted) {
-            console.log(`[Nexus Sentinal] retired Games self-role cleanup: deleted=${panelResult.deleted} channel=${panelResult.channelId}`);
-          }
-          if (!commandResult.skipped && commandResult.deleted.length) {
-            console.log(`[Nexus Sentinal] retired guild command cleanup: deleted=${commandResult.deleted.join(',')}`);
-          }
-        } catch (error) {
-          console.warn(`[Nexus Sentinal] retired Games cleanup unavailable: ${String(error?.message || error).slice(0, 240)}`);
-        }
-      }, RETIRED_COMMAND_CLEANUP_DELAY_MS);
+  registerStartupTask({
+    id: STARTUP_TASK_ID,
+    owner: 'retired-modules',
+    priority: 105,
+    run(client) {
+      const timer = setTimeout(() => void runRetiredModuleCleanup(client, config).catch((error) => {
+        console.warn(`[Nexus Sentinal] retired Games cleanup unavailable: ${String(error?.message || error).slice(0, 240)}`);
+      }), RETIRED_COMMAND_CLEANUP_DELAY_MS);
       timer.unref?.();
-    });
-    return originalLogin.apply(this, args);
-  };
+    }
+  });
+  return { installed: true, coordinated: true };
 }
 
 module.exports = {
+  STARTUP_TASK_ID,
   RETIRED_GAMES_MARKER_PREFIX,
   RETIRED_COMMAND_CLEANUP_DELAY_MS,
   footerTexts,
@@ -159,5 +155,6 @@ module.exports = {
   applyRetiredFriendlyCommandPolicy,
   retireGamesSelfRolePanel,
   retireGuildCommands,
+  runRetiredModuleCleanup,
   installRetiredGamesSelfRoleCleanupExtension
 };
