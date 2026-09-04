@@ -9,6 +9,8 @@ const { cleanEosId, parsePointsResponse } = require('./ark-dino-cache-purchase.c
 const STORE_VERSION = 1;
 const MAX_TRANSACTIONS = 10000;
 const MAX_TRANSFER = 1_000_000;
+const TRANSACTION_TYPES = new Set(['deposit', 'withdrawal']);
+const TRANSACTION_STATES = new Set(['prepared', 'debit_pending', 'debited', 'credit_pending', 'completed', 'cancelled', 'manual_review']);
 
 function safeAmount(value) {
   const amount = Number(value);
@@ -22,6 +24,35 @@ function cleanError(error) {
   return String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 300);
 }
 
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function assertPersistedState(state) {
+  if (!isPlainObject(state)) throw new Error('Nexus Bank persisted state is invalid.');
+  if (state.version !== STORE_VERSION) throw new Error('Nexus Bank persisted state version is unsupported.');
+  if (!isPlainObject(state.accounts)) throw new Error('Nexus Bank persisted accounts are invalid.');
+  if (!Array.isArray(state.transactions)) throw new Error('Nexus Bank persisted transactions are invalid.');
+
+  for (const [eosId, account] of Object.entries(state.accounts)) {
+    if (cleanEosId(eosId) !== eosId || !isPlainObject(account)) throw new Error('Nexus Bank persisted account is invalid.');
+    if (!Number.isSafeInteger(account.balance) || account.balance < 0) throw new Error('Nexus Bank persisted account balance is invalid.');
+  }
+
+  const ids = new Set();
+  for (const tx of state.transactions) {
+    if (!isPlainObject(tx) || typeof tx.id !== 'string' || !tx.id || ids.has(tx.id)) throw new Error('Nexus Bank persisted transaction is invalid.');
+    ids.add(tx.id);
+    if (cleanEosId(tx.eosId) !== tx.eosId) throw new Error('Nexus Bank persisted transaction account is invalid.');
+    if (!TRANSACTION_TYPES.has(tx.type) || !TRANSACTION_STATES.has(tx.state)) throw new Error('Nexus Bank persisted transaction state is invalid.');
+    if (!Number.isSafeInteger(tx.amount) || tx.amount <= 0 || tx.amount > MAX_TRANSFER) throw new Error('Nexus Bank persisted transaction amount is invalid.');
+    if (!Number.isSafeInteger(tx.bankBalanceBefore) || tx.bankBalanceBefore < 0) throw new Error('Nexus Bank persisted transaction balance is invalid.');
+    if (!Number.isSafeInteger(tx.arkBalanceBefore) || tx.arkBalanceBefore < 0) throw new Error('Nexus Bank persisted transaction balance is invalid.');
+  }
+
+  return state;
+}
+
 class NexusBankStore {
   constructor(root = process.env.NEXUS_DATA_DIR || path.resolve(__dirname, '../..', 'data')) {
     this.dir = path.resolve(root);
@@ -29,25 +60,56 @@ class NexusBankStore {
   }
 
   read() {
+    let raw;
     try {
-      const parsed = JSON.parse(fs.readFileSync(this.file, 'utf8'));
+      raw = fs.readFileSync(this.file, 'utf8');
+    } catch (error) {
+      if (error?.code === 'ENOENT') return { version: STORE_VERSION, accounts: {}, transactions: [] };
+      throw new Error('Nexus Bank persisted state is unreadable.');
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error('Nexus Bank persisted state is malformed.');
+    }
+
+    assertPersistedState(parsed);
+    return {
+      version: STORE_VERSION,
+      accounts: parsed.accounts,
+      transactions: parsed.transactions.slice(-MAX_TRANSACTIONS)
+    };
+  }
+
+  health() {
+    try {
+      const state = this.read();
       return {
+        ok: true,
         version: STORE_VERSION,
-        accounts: parsed?.accounts && typeof parsed.accounts === 'object' ? parsed.accounts : {},
-        transactions: Array.isArray(parsed?.transactions) ? parsed.transactions.slice(-MAX_TRANSACTIONS) : []
+        accountCount: Object.keys(state.accounts).length,
+        transactionCount: state.transactions.length
       };
     } catch {
-      return { version: STORE_VERSION, accounts: {}, transactions: [] };
+      return { ok: false, version: STORE_VERSION, accountCount: 0, transactionCount: 0 };
     }
   }
 
   write(state) {
+    const candidate = {
+      version: STORE_VERSION,
+      accounts: state?.accounts,
+      transactions: state?.transactions
+    };
+    assertPersistedState(candidate);
     fs.mkdirSync(this.dir, { recursive: true });
     const safe = {
       version: STORE_VERSION,
       updatedAt: new Date().toISOString(),
-      accounts: state.accounts || {},
-      transactions: (state.transactions || []).slice(-MAX_TRANSACTIONS)
+      accounts: candidate.accounts,
+      transactions: candidate.transactions.slice(-MAX_TRANSACTIONS)
     };
     const tmp = `${this.file}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(safe, null, 2), { mode: 0o600 });
@@ -59,13 +121,13 @@ class NexusBankStore {
   balance(eosId) {
     const player = cleanEosId(eosId);
     const account = this.read().accounts[player];
-    return Math.max(0, Number(account?.balance) || 0);
+    return account?.balance || 0;
   }
 
   prepare({ eosId, type, amount, arkBalanceBefore } = {}) {
     const player = cleanEosId(eosId);
     const value = safeAmount(amount);
-    if (!['deposit', 'withdrawal'].includes(type)) throw new Error('Nexus Bank transaction type is invalid.');
+    if (!TRANSACTION_TYPES.has(type)) throw new Error('Nexus Bank transaction type is invalid.');
     const state = this.read();
     state.accounts[player] ||= { balance: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     const tx = {
@@ -75,7 +137,7 @@ class NexusBankStore {
       amount: value,
       state: 'prepared',
       arkBalanceBefore: Number(arkBalanceBefore),
-      bankBalanceBefore: Math.max(0, Number(state.accounts[player].balance) || 0),
+      bankBalanceBefore: state.accounts[player].balance,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       error: ''
@@ -90,9 +152,10 @@ class NexusBankStore {
     const tx = state.transactions.find((entry) => entry.id === id);
     if (!tx) throw new Error('Unknown Nexus Bank transaction.');
     if (tx.state !== expectedState) throw new Error(`Nexus Bank transaction state changed unexpectedly: expected ${expectedState}, found ${tx.state}.`);
+    if (!TRANSACTION_STATES.has(nextState)) throw new Error('Nexus Bank transaction state is invalid.');
     const account = state.accounts[tx.eosId] || { balance: 0, createdAt: new Date().toISOString() };
     if (typeof mutate === 'function') mutate({ tx, account, state });
-    account.balance = Math.max(0, Number(account.balance) || 0);
+    if (!Number.isSafeInteger(account.balance) || account.balance < 0) throw new Error('Nexus Bank balance mutation is invalid.');
     account.updatedAt = new Date().toISOString();
     state.accounts[tx.eosId] = account;
     tx.state = nextState;
@@ -151,6 +214,7 @@ class ArkNexusBankService {
   async deposit({ eosId, amount } = {}) {
     const value = safeAmount(amount);
     return this.withPlayerLock(eosId, async (player) => {
+      this.store.read();
       const arkBefore = await this.arkBalance(player);
       if (arkBefore < value) return { ok: false, reason: 'insufficient-active-points', activeBalance: arkBefore, bankBalance: this.store.balance(player) };
 
@@ -163,7 +227,7 @@ class ArkNexusBankService {
         throw error;
       }
       this.store.transition(tx.id, 'debit_pending', 'debited');
-      const completed = this.store.transition(tx.id, 'debited', 'completed', ({ account }) => { account.balance = (Number(account.balance) || 0) + value; });
+      const completed = this.store.transition(tx.id, 'debited', 'completed', ({ account }) => { account.balance += value; });
       return { ok: true, transactionId: completed.id, deposited: value, activeBalance: arkBefore - value, bankBalance: this.store.balance(player) };
     });
   }
@@ -177,7 +241,7 @@ class ArkNexusBankService {
       const tx = this.store.prepare({ eosId: player, type: 'withdrawal', amount: value, arkBalanceBefore: arkBefore });
 
       this.store.transition(tx.id, 'prepared', 'credit_pending', ({ account }) => {
-        if ((Number(account.balance) || 0) < value) throw new Error('Nexus Bank balance changed before withdrawal reservation.');
+        if (account.balance < value) throw new Error('Nexus Bank balance changed before withdrawal reservation.');
         account.balance -= value;
       });
 
@@ -243,6 +307,7 @@ module.exports = {
   STORE_VERSION,
   MAX_TRANSFER,
   safeAmount,
+  assertPersistedState,
   NexusBankStore,
   ArkNexusBankService
 };
