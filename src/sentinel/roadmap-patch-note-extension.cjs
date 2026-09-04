@@ -1,11 +1,11 @@
 'use strict';
 
-const { Client, Events } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { StateStore } = require('./state-store.cjs');
 const { ROADMAP_PATCH_NOTES, RoadmapPatchNotePublisher } = require('./roadmap-patch-notes.cjs');
+const { registerStartupTask, startupDiagnostics } = require('./startup-coordinator.cjs');
 
-const INSTALLED = Symbol.for('khaos.nexus.roadmapPatchNotes.extension');
+const STARTUP_TASK_ID = 'roadmap-patch-note-reconcile';
 const ABOUT_PATCH_NOTE = Object.freeze({
   key: 'community-about-sharing:100',
   section: 'Community About & Sharing',
@@ -59,37 +59,40 @@ const NEXUS_COMMAND_CENTER_PATCH_NOTE = Object.freeze({
   ])
 });
 
-function installRoadmapPatchNoteExtension() {
-  if (Client.prototype[INSTALLED]) return;
-  Client.prototype[INSTALLED] = true;
+async function reconcileRoadmapPatchNotes(client, guildId, publisher) {
+  if (!guildId) return { skipped: 'guild-not-configured' };
+  const guild = await client.guilds.fetch(guildId);
+  const result = await publisher.publishPending(guild);
+  if (result.posted.length || result.adopted.length) {
+    console.log(`[Nexus Sentinal] roadmap patch notes reconciled: posted=${result.posted.length} adopted=${result.adopted.length} skipped=${result.skipped.length} warnings=${result.warnings.length}`);
+  }
+  return result;
+}
 
+function installRoadmapPatchNoteExtension() {
+  if (startupDiagnostics().tasks.some((task) => task.id === STARTUP_TASK_ID)) return { installed: false, coordinated: true };
   const config = loadConfig();
   const guildId = String(config.discord?.guildId || '');
   const state = new StateStore();
   const publisher = new RoadmapPatchNotePublisher({ state, config, notes: [...ROADMAP_PATCH_NOTES, ABOUT_PATCH_NOTE, COMMUNITY_SUGGESTIONS_PATCH_NOTE, SENTINEL_SHIELD_PATCH_NOTE, NEXUS_COMMAND_CENTER_PATCH_NOTE] });
-  const originalLogin = Client.prototype.login;
-
-  Client.prototype.login = function nexusRoadmapPatchNoteLogin(...args) {
-    this.once(Events.ClientReady, async () => {
-      if (!guildId) return;
-      try {
-        const guild = await this.guilds.fetch(guildId);
-        const result = await publisher.publishPending(guild);
-        if (result.posted.length || result.adopted.length) {
-          console.log(`[Nexus Sentinal] roadmap patch notes reconciled: posted=${result.posted.length} adopted=${result.adopted.length} skipped=${result.skipped.length} warnings=${result.warnings.length}`);
-        }
-      } catch (error) {
-        console.error('[Nexus Sentinal] roadmap patch-note startup:', error);
-      }
-    });
-    return originalLogin.apply(this, args);
-  };
+  registerStartupTask({
+    id: STARTUP_TASK_ID,
+    owner: 'roadmap',
+    priority: 115,
+    async run(client) {
+      try { await reconcileRoadmapPatchNotes(client, guildId, publisher); }
+      catch (error) { console.error('[Nexus Sentinal] roadmap patch-note startup:', error); }
+    }
+  });
+  return { installed: true, coordinated: true };
 }
 
 module.exports = {
+  STARTUP_TASK_ID,
   ABOUT_PATCH_NOTE,
   COMMUNITY_SUGGESTIONS_PATCH_NOTE,
   SENTINEL_SHIELD_PATCH_NOTE,
   NEXUS_COMMAND_CENTER_PATCH_NOTE,
+  reconcileRoadmapPatchNotes,
   installRoadmapPatchNoteExtension
 };
