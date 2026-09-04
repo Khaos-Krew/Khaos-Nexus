@@ -74,7 +74,7 @@ function rconCommand(registry = new ArkClusterRegistry()) {
     .addIntegerOption((option) => option.setName('timeout_ms').setDescription('Connection/auth timeout in milliseconds.').setMinValue(1000).setMaxValue(30000)));
   command.addSubcommand((sub) => addServerOption(sub.setName('password').setDescription('Owner-only: open a protected modal to set the RCON password.'), choices));
   command.addSubcommand((sub) => addServerOption(sub.setName('send').setDescription('Owner-only: send an exact raw command with no prefix rewriting.'), choices)
-    .addStringOption((option) => option.setName('command').setDescription('Exact RCON command, e.g. admincheat scriptcommand ...').setRequired(true).setMaxLength(1800)));
+    .addStringOption((option) => option.setName('command').setDescription('Exact RCON command, e.g. scriptcommand SpawnDinoInBall ...').setRequired(true).setMaxLength(1800)));
   command.addSubcommand((sub) => addServerOption(sub.setName('clear').setDescription('Owner-only: clear the Discord RCON override and return to Railway env settings.'), choices)
     .addBooleanOption((option) => option.setName('confirm').setDescription('Confirm clearing this server override.').setRequired(true)));
   return command;
