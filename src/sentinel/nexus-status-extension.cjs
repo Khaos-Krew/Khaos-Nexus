@@ -1,6 +1,5 @@
 'use strict';
 
-const { Client, Events } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const {
   DEFAULT_REFRESH_MS,
@@ -11,8 +10,9 @@ const {
   reconcileStatusPanel,
   ensureNexusStatusChannel
 } = require('./nexus-status.cjs');
+const { registerStartupTask, startupDiagnostics } = require('./startup-coordinator.cjs');
 
-const INSTALLED = Symbol.for('khaos.nexus.status.extension');
+const STARTUP_TASK_ID = 'nexus-status-panel';
 const INITIAL_DELAY_MS = 10_000;
 const SENTINAL_CLIENT_LISTENER_BUDGET = 20;
 
@@ -41,21 +41,9 @@ async function buildNexusStatusSnapshot(client, config = {}, options = {}) {
     probe(statusConfig.loreHealthUrl),
     probe(statusConfig.gatewayHealthUrl)
   ]);
-  const sentinal = {
-    discord,
-    backend,
-    state: aggregateState([discord, backend])
-  };
-  const veyra = {
-    lore,
-    gateway,
-    state: aggregateState([lore, gateway])
-  };
-  return {
-    checkedAt: new Date().toISOString(),
-    sentinal,
-    veyra
-  };
+  const sentinal = { discord, backend, state: aggregateState([discord, backend]) };
+  const veyra = { lore, gateway, state: aggregateState([lore, gateway]) };
+  return { checkedAt: new Date().toISOString(), sentinal, veyra };
 }
 
 async function refreshNexusStatusPanel(client, config = {}, options = {}) {
@@ -65,11 +53,7 @@ async function refreshNexusStatusPanel(client, config = {}, options = {}) {
   const channelResult = await ensureNexusStatusChannel(guild, config);
   if (!channelResult.channel) return { skipped: 'information-category-missing' };
   const snapshot = await buildNexusStatusSnapshot(client, config, options);
-  const panel = await reconcileStatusPanel(
-    channelResult.channel,
-    renderNexusStatusPanel(snapshot),
-    { botId: client.user?.id }
-  );
+  const panel = await reconcileStatusPanel(channelResult.channel, renderNexusStatusPanel(snapshot), { botId: client.user?.id });
   return {
     ...panel,
     channelId: String(channelResult.channel.id || ''),
@@ -87,51 +71,54 @@ function ensureSentinalListenerBudget(client) {
   return Number(client.getMaxListeners() || SENTINAL_CLIENT_LISTENER_BUDGET);
 }
 
-function installNexusStatusExtension() {
-  if (Client.prototype[INSTALLED]) return;
-  Client.prototype[INSTALLED] = true;
-  const config = loadConfig();
+function startNexusStatusMonitor(client, config, { setTimeoutFn = setTimeout, setIntervalFn = setInterval } = {}) {
   const statusConfig = configuredStatus(config);
-  const originalLogin = Client.prototype.login;
-
-  Client.prototype.login = function nexusStatusLogin(...args) {
-    // Sentinel intentionally composes multiple isolated startup extensions on one Discord client.
-    // Raise the EventEmitter warning threshold before the wrapped login chain attaches them.
-    ensureSentinalListenerBudget(this);
-    this.once(Events.ClientReady, () => {
-      let running = false;
-      const run = async (reason) => {
-        if (running) return;
-        running = true;
-        try {
-          const result = await refreshNexusStatusPanel(this, config);
-          if (result.skipped) {
-            console.warn(`[Nexus Sentinal] nexus status panel (${reason}) skipped: ${result.skipped}`);
-            return;
-          }
-          console.log(`[Nexus Sentinal] nexus status panel (${reason}): channel=${result.channelId} channelCreated=${result.channelCreated} channelMoved=${result.channelMoved} panelCreated=${result.created} duplicatesRemoved=${result.duplicatesRemoved} pinned=${result.pinned} sentinal=${result.sentinal} veyra=${result.veyra}`);
-        } catch (error) {
-          console.warn(`[Nexus Sentinal] nexus status panel (${reason}) unavailable: ${String(error?.message || error).slice(0, 240)}`);
-        } finally {
-          running = false;
-        }
-      };
-
-      const initialTimer = setTimeout(() => void run('startup'), INITIAL_DELAY_MS);
-      initialTimer.unref?.();
-      const periodicTimer = setInterval(() => void run('periodic'), statusConfig.refreshMs);
-      periodicTimer.unref?.();
-    });
-    return originalLogin.apply(this, args);
+  let running = false;
+  const run = async (reason) => {
+    if (running) return;
+    running = true;
+    try {
+      const result = await refreshNexusStatusPanel(client, config);
+      if (result.skipped) {
+        console.warn(`[Nexus Sentinal] nexus status panel (${reason}) skipped: ${result.skipped}`);
+        return;
+      }
+      console.log(`[Nexus Sentinal] nexus status panel (${reason}): channel=${result.channelId} channelCreated=${result.channelCreated} channelMoved=${result.channelMoved} panelCreated=${result.created} duplicatesRemoved=${result.duplicatesRemoved} pinned=${result.pinned} sentinal=${result.sentinal} veyra=${result.veyra}`);
+    } catch (error) {
+      console.warn(`[Nexus Sentinal] nexus status panel (${reason}) unavailable: ${String(error?.message || error).slice(0, 240)}`);
+    } finally {
+      running = false;
+    }
   };
+  const initialTimer = setTimeoutFn(() => void run('startup'), INITIAL_DELAY_MS);
+  initialTimer?.unref?.();
+  const periodicTimer = setIntervalFn(() => void run('periodic'), statusConfig.refreshMs);
+  periodicTimer?.unref?.();
+  return { initialTimer, periodicTimer, run };
+}
+
+function installNexusStatusExtension() {
+  if (startupDiagnostics().tasks.some((task) => task.id === STARTUP_TASK_ID)) return { installed: false, coordinated: true };
+  const config = loadConfig();
+  registerStartupTask({
+    id: STARTUP_TASK_ID,
+    owner: 'nexus-status',
+    priority: 135,
+    run(client) {
+      startNexusStatusMonitor(client, config);
+    }
+  });
+  return { installed: true, coordinated: true };
 }
 
 module.exports = {
+  STARTUP_TASK_ID,
   INITIAL_DELAY_MS,
   SENTINAL_CLIENT_LISTENER_BUDGET,
   configuredStatus,
   buildNexusStatusSnapshot,
   refreshNexusStatusPanel,
   ensureSentinalListenerBudget,
+  startNexusStatusMonitor,
   installNexusStatusExtension
 };
