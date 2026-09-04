@@ -56,12 +56,12 @@ const TARGET_HTML = `<!doctype html><html><body>
 </tbody></table>
 </body></html>`;
 
-test('persistent feed registry includes every currently supported news module', () => {
+test('persistent feed registry includes active supported news modules and excludes retired Once Human', () => {
   const news = new Map();
   for (const feed of FEEDS) if (feed.actions.includes('news')) news.set(feed.moduleId, feed.channelName);
   assert.equal(news.get('warframe'), 'warframe-world-state');
   assert.equal(news.get('division2'), 'division-weekly');
-  assert.equal(news.get('oncehuman'), 'once-human-news');
+  assert.equal(news.has('oncehuman'), false);
   assert.equal(news.get('diablo4'), 'diablo-news');
   assert.equal(news.get('callofduty'), 'cod-news');
   assert.ok(LAYOUTS.diablo4.text.includes('diablo-news'));
