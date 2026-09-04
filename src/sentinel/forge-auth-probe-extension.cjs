@@ -1,10 +1,10 @@
 'use strict';
 
-const { Client, Events } = require('discord.js');
 const { ForgeClient } = require('./forge-client.cjs');
 const { installForgeControlPlaneExtension } = require('./forge-control-plane-extension.cjs');
+const { registerStartupTask, startupDiagnostics } = require('./startup-coordinator.cjs');
 
-const INSTALLED = Symbol.for('khaos.nexus.forge.auth.probe.extension');
+const STARTUP_TASK_ID = 'forge-auth-probe';
 
 async function probeForgeAuthentication(forge, logger = console) {
   const state = forge.configuration();
@@ -35,23 +35,23 @@ async function probeForgeAuthentication(forge, logger = console) {
 
 function installForgeAuthProbeExtension(options = {}) {
   installForgeControlPlaneExtension({ logger: options.logger, forge: options.forge, workers: options.workers });
-
-  if (Client.prototype[INSTALLED]) return;
-  Client.prototype[INSTALLED] = true;
+  if (startupDiagnostics().tasks.some((task) => task.id === STARTUP_TASK_ID)) return { installed: false, coordinated: true };
 
   const forge = options.forge || new ForgeClient();
   const logger = options.logger || console;
-  const originalLogin = Client.prototype.login;
-
-  Client.prototype.login = function nexusForgeAuthProbeLogin(...args) {
-    this.once(Events.ClientReady, async () => {
+  registerStartupTask({
+    id: STARTUP_TASK_ID,
+    owner: 'forge',
+    priority: 120,
+    async run() {
       await probeForgeAuthentication(forge, logger);
-    });
-    return originalLogin.apply(this, args);
-  };
+    }
+  });
+  return { installed: true, coordinated: true };
 }
 
 module.exports = {
+  STARTUP_TASK_ID,
   installForgeAuthProbeExtension,
   probeForgeAuthentication
 };
