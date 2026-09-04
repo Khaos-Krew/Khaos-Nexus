@@ -157,6 +157,9 @@ function normalizePersistedState(value) {
     if (!isPlainObject(rawProfile)) throw new Error('ArkShop profile state contains an invalid profile record.');
     const id = cleanId(rawId);
     if (id !== rawId) throw new Error('ArkShop profile state contains a non-canonical profile id.');
+    if (Object.prototype.hasOwnProperty.call(rawProfile, 'id') && rawProfile.id !== id) {
+      throw new Error('ArkShop profile state contains an inconsistent profile id.');
+    }
     const normalized = normalizeProfile({ ...rawProfile, id });
     if (normalized.id !== id) throw new Error('ArkShop profile state contains an inconsistent profile id.');
     profiles[id] = normalized;
