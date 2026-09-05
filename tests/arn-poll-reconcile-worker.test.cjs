@@ -8,11 +8,12 @@ const path = require('node:path');
 const workerPath = path.join(__dirname, '..', 'src', 'sentinel', 'arn-poll-reconcile-worker.cjs');
 const source = fs.readFileSync(workerPath, 'utf8');
 
-test('ARN poll worker does not consume Discord ready/message listener slots', () => {
-  assert.doesNotMatch(source, /\.once\s*\(\s*Events\.ClientReady/);
-  assert.doesNotMatch(source, /\.on\s*\(\s*Events\.ClientReady/);
-  assert.doesNotMatch(source, /\.on\s*\(\s*Events\.MessageCreate/);
-  assert.match(source, /client\.isReady/);
+test('ARN poll worker uses startup coordinator without consuming Discord listener slots', () => {
+  assert.doesNotMatch(source, /Client\.prototype\.login/);
+  assert.doesNotMatch(source, /Events\.ClientReady/);
+  assert.match(source, /registerStartupTask/);
+  assert.match(source, /id:\s*['"]ark\.arn-poll-reconcile['"]/);
+  assert.match(source, /client\?\.isReady/);
   assert.match(source, /reconcileArnLiveBoard/);
 });
 
