@@ -1,5 +1,6 @@
 'use strict';
 
+const { submitSaddle } = require('./ark-cache-saddles.cjs');
 const { connectMysql } = require('./arkshop-mysql.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
@@ -125,6 +126,22 @@ async function deliverOne({ connector = connectMysql } = {}) {
   } finally { await connection.end().catch(() => {}); }
 }
 
+async function deliverSaddle({ connector = connectMysql, submit = submitSaddle } = {}) {
+  const { connection } = await connector();
+  try {
+    await ensureSchema(connection);
+    const [rows] = await connection.query(`SELECT * FROM ${ORDER_TABLE} WHERE state='DELIVERED' AND saddle_state='PENDING' ORDER BY delivered_at ASC LIMIT 1`);
+    const row = rows[0];
+    if (!row) return {skipped:'none-awaiting-saddle'};
+    const [claim] = await connection.execute(`UPDATE ${ORDER_TABLE} SET saddle_state='SENDING' WHERE id=? AND saddle_state='PENDING'`, [row.id]);
+    if (claim.affectedRows !== 1) return {skipped:'claim-race'};
+    let saddleState = 'SENT_UNCONFIRMED';
+    try { const result = await submit(row); if (result.state === 'DELIVERED') saddleState = 'DELIVERED'; } catch { /* Never retry an uncertain item grant automatically. */ }
+    await connection.execute(`UPDATE ${ORDER_TABLE} SET saddle_state=? WHERE id=? AND saddle_state='SENDING'`, [saddleState,row.id]);
+    return {orderId:row.id,saddleState};
+  } finally {await connection.end().catch(()=>{});}
+}
+
 async function runCycle() {
   if (running) return { skipped: 'busy' };
   running = true;
@@ -135,6 +152,7 @@ async function runCycle() {
       results.push(result);
       if (result?.skipped) break;
     }
+    if (process.env.NEXUS_CACHE_SADDLE_ENDPOINT && process.env.NEXUS_CACHE_SADDLE_SECRET) results.push(await deliverSaddle());
     return results;
   } finally { running = false; }
 }
@@ -150,4 +168,4 @@ function installArkDinoBoxDeliveryWorker() {
   return true;
 }
 
-module.exports = { deliveryPrefixes, eligibleDeliveryPrefixes, buildDiscordCacheDinoCommand, ensureDeliveryState, classifyRconResult, findOnlineServer, nextAwaiting, claimOne, finishDelivery, deliverOne, runCycle, installArkDinoBoxDeliveryWorker };
+module.exports = { deliverSaddle, deliveryPrefixes, eligibleDeliveryPrefixes, buildDiscordCacheDinoCommand, ensureDeliveryState, classifyRconResult, findOnlineServer, nextAwaiting, claimOne, finishDelivery, deliverOne, runCycle, installArkDinoBoxDeliveryWorker };
