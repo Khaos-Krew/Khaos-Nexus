@@ -11,3 +11,7 @@ The official Dino Depot command builder linked from https://www.curseforge.com/a
 `NEXUS_CACHE_SADDLE_ENDPOINT` and `NEXUS_CACHE_SADDLE_SECRET` configure a trusted HTTPS native item adapter. It receives `{idempotencyKey, playerId, serverId, reward:{species,quality,quantity:1}}`. It must resolve canonical species to the correct installed saddle, apply server-approved armor/stat caps, target the verified EOS player, persist idempotency before granting, and reply `{idempotencyKey,state:"DELIVERED"}` only after actual delivery. All other outcomes are unconfirmed. Credentials and server changes are not part of this PR.
 
 That adapter does not currently exist in the inspected runtime. This PR is not ready for live saddle fulfillment until it is implemented and tested on the server. Missing configuration leaves saddles pending. Existing uncertain dino deliveries also require verification before their saddle step. No completed or legacy orders are backfilled.
+
+## ARN identity integration
+
+The companion ARN runtime can use `/arn/identity?discordUserId=...` on Sentinal's existing admin listener with the dedicated `ARN_SENTINAL_JOB_SECRET` Bearer credential. It returns only one verified EOS link; absent, unverified or multiple links fail closed. This credential does not authorize the generic admin routes. The route is unavailable without its own 32-character secret. Set `ARN_IDENTITY_ENDPOINT` on ARN only after deployment and verification; no variables were changed in this PR.

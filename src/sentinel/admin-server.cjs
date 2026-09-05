@@ -1,6 +1,7 @@
 'use strict';
 
 const http = require('node:http');
+const { handleArnIdentity } = require('./arn-identity-endpoint.cjs');
 const { URL } = require('node:url');
 const { currentHostedProviderStore } = require('../railway/hosted-provider-store.cjs');
 const { adminPairingStore } = require('./admin-pairing.cjs');
@@ -36,6 +37,7 @@ function createSentinalAdminServer(options = {}) {
       if (req.method === 'POST' && url.pathname === '/v1/pair') { if (!token) return json(res, 503, { ok: false, code: 'PAIRING_DISABLED', message: 'Hosted Sentinal pairing requires a protected admin token.' }); if (!pairingAllowed(req)) return json(res, 429, { ok: false, code: 'PAIRING_RATE_LIMIT', message: 'Too many pairing attempts. Generate a new code and try again shortly.' }); const input = await body(req); const paired = adminPairingStore.consume(input.code); if (!paired) return json(res, 401, { ok: false, code: 'PAIRING_INVALID', message: 'That pairing code is invalid, expired, or already used.' }); return json(res, 200, { ok: true, token, pairedAt: new Date().toISOString() }); }
       const shinyMatch = req.method === 'POST' ? /^\/v1\/ark\/shiny-events\/([A-Za-z0-9_-]{32,256})$/.exec(url.pathname) : null;
       if (shinyMatch) { if (!shinyAllowed(req)) return json(res, 429, { ok: false, code: 'SHINY_INGEST_RATE_LIMIT' }); const result = await shinyWebhookHandler({ token: shinyMatch[1], payload: await body(req), controller }); return json(res, result.status, result.body); }
+      if(handleArnIdentity(req,res,url,{secret:options.arnSecret || process.env.ARN_SENTINAL_JOB_SECRET,store:options.arnIdentityStore})) return;
       const scope = authScope(req); if (!scope) return json(res, 401, { ok: false, code: 'UNAUTHORIZED' });
       if (req.method === 'GET' && url.pathname === '/v1/ark/servers') return json(res, 200, { ok: true, servers: arkBackend.listServers(), llmCalls: 0 });
       if (req.method === 'GET' && url.pathname === '/v1/ark/capabilities') { const data = await arkBackend.capabilityInventory({ probe: url.searchParams.get('probe') !== 'false' }); return json(res, 200, { ok: true, data, llmCalls: 0 }); }
