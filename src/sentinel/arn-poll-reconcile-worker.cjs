@@ -15,6 +15,11 @@ function resolvePollMs(value = process.env.ARN_POLL_RECONCILE_MS) {
   return Math.min(MAX_POLL_MS, Math.max(MIN_POLL_MS, Math.floor(parsed)));
 }
 
+function sentinalArnLegacyEnabled(value = process.env.SENTINAL_ARN_LEGACY_ENABLED) {
+  if (value === undefined || value === null || String(value).trim() === '') return true;
+  return !/^(0|false|no|off)$/i.test(String(value).trim());
+}
+
 function sanitizeError(error) {
   return String(error?.message || error || 'unknown error').replace(/[\r\n]+/g, ' ').slice(0, 350);
 }
@@ -22,6 +27,11 @@ function sanitizeError(error) {
 function installArnPollReconcileWorker() {
   if (globalThis[INSTALLED]) return;
   globalThis[INSTALLED] = true;
+
+  if (!sentinalArnLegacyEnabled()) {
+    console.log('[Nexus Sentinal] ARN legacy poll worker disabled by SENTINAL_ARN_LEGACY_ENABLED=false');
+    return;
+  }
 
   const config = loadConfig();
   const pollMs = resolvePollMs();
@@ -65,5 +75,6 @@ module.exports = {
   MIN_POLL_MS,
   MAX_POLL_MS,
   resolvePollMs,
+  sentinalArnLegacyEnabled,
   installArnPollReconcileWorker
 };
