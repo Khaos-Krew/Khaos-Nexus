@@ -67,6 +67,11 @@ const { installArkShopProfileExtension } = require('./arkshop-profile-extension.
 const { installArkClusterPublicActions } = require('./ark-cluster-public-actions.cjs');
 const { installArkShopProfileBootstrapExtension } = require('./arkshop-profile-bootstrap-extension.cjs');
 
+function sentinalArnLegacyEnabled(value = process.env.SENTINAL_ARN_LEGACY_ENABLED) {
+  if (value === undefined || value === null || String(value).trim() === '') return true;
+  return !/^(0|false|no|off)$/i.test(String(value).trim());
+}
+
 installRetiredGamesSelfRoleCleanupExtension();
 installGuildMembersIntentExtension();
 installCommunityIntentsExtension();
@@ -99,7 +104,8 @@ installHostedServerManagerExtension();
 installCommunityLevelingExtension();
 installNexusCommandCenterExtension();
 installStaffWorkspaceExtension();
-installArnIntakeExtension();
+if (sentinalArnLegacyEnabled()) installArnIntakeExtension();
+else console.log('[Nexus Sentinal] ARN legacy intake disabled by SENTINAL_ARN_LEGACY_ENABLED=false');
 installModuleAutoprovisionExtension();
 installModuleAccessAuditExtension();
 installPollExtension();
@@ -158,3 +164,5 @@ require('./ark-dino-cache-runtime.cjs').installDinoCacheRuntime();
 require('./ark-command-routing-patch.cjs');
 require('./ark-dynamic-config-http.cjs');
 require('./bot.cjs');
+
+module.exports = { sentinalArnLegacyEnabled };
