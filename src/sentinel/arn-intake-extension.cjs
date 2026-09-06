@@ -13,6 +13,7 @@ const {
   overwriteSetMatches
 } = require('./staff-workspace.cjs');
 const { ensureStaffCategory } = require('./staff-workspace-extension.cjs');
+const { sentinalArnLegacyEnabled } = require('./arn-legacy-mode.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.arnIntake.extension');
 const ARN_INTAKE_CHANNEL_NAME = 'arn-ingest';
@@ -173,6 +174,12 @@ async function reconcileArnIntake(client, config = loadConfig(), options = {}) {
 function installArnIntakeExtension() {
   if (Client.prototype[INSTALLED]) return;
   Client.prototype[INSTALLED] = true;
+
+  if (!sentinalArnLegacyEnabled()) {
+    console.log('[Nexus Sentinal] ARN legacy intake maintenance disabled by SENTINAL_ARN_LEGACY_ENABLED=false');
+    return;
+  }
+
   const config = loadConfig();
   const originalLogin = Client.prototype.login;
 
