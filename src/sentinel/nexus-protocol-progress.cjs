@@ -47,16 +47,52 @@ function normalizeProgressEvent(input = {}) {
   });
 }
 
+function progressEventFingerprint(input) {
+  const event = normalizeProgressEvent(input);
+  const payload = [
+    event.sourceId,
+    event.runId,
+    event.accountId,
+    event.type,
+    event.at,
+    event.activeMinutes,
+    event.objectiveContribution,
+    event.killContribution,
+    event.deathCount,
+    Number(event.completed),
+    Number(event.presentAtCompletion),
+    Number(event.manualContribution),
+    Number(event.mvp),
+    Number(event.disqualified),
+    Number(event.afk)
+  ].join('|');
+  return crypto.createHash('sha256').update(payload).digest('hex');
+}
+
+function dedupeProgressEvents(events) {
+  const unique = new Map();
+  const fingerprints = new Map();
+  for (const input of events) {
+    const event = normalizeProgressEvent(input);
+    const fingerprint = progressEventFingerprint(event);
+    if (unique.has(event.id)) {
+      if (fingerprints.get(event.id) !== fingerprint) throw new Error('Conflicting Protocol progress event replay');
+      continue;
+    }
+    unique.set(event.id, event);
+    fingerprints.set(event.id, fingerprint);
+  }
+  return [...unique.values()].sort((a, b) => a.at - b.at || a.id.localeCompare(b.id));
+}
+
 function aggregateParticipant(events = [], options = {}) {
   if (!Array.isArray(events) || !events.length) throw new Error('Protocol progress aggregation requires events');
-  const normalized = events.map(normalizeProgressEvent);
-  const runId = normalized[0].runId;
-  const accountId = normalized[0].accountId;
-  if (normalized.some((event) => event.runId !== runId || event.accountId !== accountId)) {
+  const unique = dedupeProgressEvents(events);
+  const runId = unique[0].runId;
+  const accountId = unique[0].accountId;
+  if (unique.some((event) => event.runId !== runId || event.accountId !== accountId)) {
     throw new Error('Protocol progress aggregation cannot mix participants or runs');
   }
-  const unique = [...new Map(normalized.map((event) => [event.id, event])).values()]
-    .sort((a, b) => a.at - b.at || a.id.localeCompare(b.id));
   const totals = unique.reduce((acc, event) => {
     acc.activeMinutes += event.activeMinutes;
     acc.objectiveContribution += event.objectiveContribution;
@@ -116,20 +152,14 @@ class ProtocolProgressLedger {
     this.maxEvents = Math.max(100, Math.min(100000, Number(options.maxEvents || 25000)));
     this.state = { version: PROGRESS_VERSION, revision: 0, updatedAt: 0, events: [] };
     this.ids = new Set();
+    this.fingerprints = new Map();
   }
 
   load() {
     if (!fs.existsSync(this.file)) return this.snapshot();
     const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'));
     if (Number(raw.version) !== PROGRESS_VERSION) throw new Error('Unsupported Protocol progress ledger version');
-    const deduped = [];
-    const ids = new Set();
-    for (const input of Array.isArray(raw.events) ? raw.events : []) {
-      const event = normalizeProgressEvent(input);
-      if (ids.has(event.id)) continue;
-      ids.add(event.id);
-      deduped.push(event);
-    }
+    const deduped = dedupeProgressEvents(Array.isArray(raw.events) ? raw.events : []);
     this.state = {
       version: PROGRESS_VERSION,
       revision: Math.max(0, Math.floor(Number(raw.revision) || 0)),
@@ -137,17 +167,24 @@ class ProtocolProgressLedger {
       events: deduped.slice(-this.maxEvents)
     };
     this.ids = new Set(this.state.events.map((event) => event.id));
+    this.fingerprints = new Map(this.state.events.map((event) => [event.id, progressEventFingerprint(event)]));
     return this.snapshot();
   }
 
   append(input) {
     const event = normalizeProgressEvent(input);
-    if (this.ids.has(event.id)) return { inserted: false, event: { ...event } };
+    const fingerprint = progressEventFingerprint(event);
+    if (this.ids.has(event.id)) {
+      if (this.fingerprints.get(event.id) !== fingerprint) throw new Error('Conflicting Protocol progress event replay');
+      return { inserted: false, event: { ...event } };
+    }
     this.state.events.push(event);
     this.ids.add(event.id);
+    this.fingerprints.set(event.id, fingerprint);
     if (this.state.events.length > this.maxEvents) {
       this.state.events = this.state.events.slice(-this.maxEvents);
       this.ids = new Set(this.state.events.map((item) => item.id));
+      this.fingerprints = new Map(this.state.events.map((item) => [item.id, progressEventFingerprint(item)]));
     }
     return { inserted: true, event: { ...event } };
   }
@@ -181,6 +218,7 @@ class ProtocolProgressLedger {
 module.exports = {
   PROGRESS_VERSION,
   normalizeProgressEvent,
+  progressEventFingerprint,
   aggregateParticipant,
   ProtocolProgressLedger
 };
