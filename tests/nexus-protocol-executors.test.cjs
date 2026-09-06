@@ -9,7 +9,8 @@ const {
   buildCustomRatesReload,
   buildCustomRatesActivate,
   protocolExecutionPlan,
-  assertExecutable
+  assertExecutable,
+  buildExecutionEnvelope
 } = require('../src/sentinel/nexus-protocol-executors.cjs');
 
 test('plugin executor builders emit only the documented RCON command shapes', () => {
@@ -57,4 +58,45 @@ test('reload-only plans are non-destructive but still explicitly activated by ca
   });
   assert.ok(plan.actions.every((action) => action.destructive === false));
   assert.equal(assertExecutable(plan), true);
+});
+
+test('execution envelopes bind actions to one server with deterministic action ids', () => {
+  const plan = protocolExecutionPlan({
+    protocolId: 'alpha_purge',
+    ratePreset: 'event_rates',
+    reward: { eosId: 'EOS_ABC123', rewardId: 'alpha_reward' },
+    createdAt: 1000,
+    dryRun: false
+  });
+  const first = buildExecutionEnvelope(plan, { serverId: 'astraeos-1', idempotencyKey: 'alpha_purge:run_123' });
+  const second = buildExecutionEnvelope(plan, { serverId: 'astraeos-1', idempotencyKey: 'alpha_purge:run_123' });
+  assert.equal(first.serverId, 'astraeos-1');
+  assert.equal(first.actions.length, 2);
+  assert.deepEqual(first.actions.map((action) => action.actionId), second.actions.map((action) => action.actionId));
+  assert.equal(first.actions[0].idempotencyKey, 'alpha_purge:run_123:0');
+  assert.equal(first.actions[1].idempotencyKey, 'alpha_purge:run_123:1');
+});
+
+test('execution envelopes fail closed for dry-run, empty, oversized, or disallowed-plugin plans', () => {
+  const dryRun = protocolExecutionPlan({ protocolId: 'community', reloadCountdown: true });
+  assert.throws(() => buildExecutionEnvelope(dryRun, { serverId: 'map-1' }), /dry-run/);
+
+  const empty = protocolExecutionPlan({ protocolId: 'community', dryRun: false });
+  assert.throws(() => buildExecutionEnvelope(empty, { serverId: 'map-1' }), /no actions/);
+
+  const many = Object.freeze({
+    protocolId: 'community',
+    createdAt: 1,
+    dryRun: false,
+    actions: Object.freeze(Array.from({ length: 3 }, () => buildEventCountdownReload()))
+  });
+  assert.throws(() => buildExecutionEnvelope(many, { serverId: 'map-1', maxActions: 2 }), /action limit/);
+
+  const disallowed = Object.freeze({
+    protocolId: 'community',
+    createdAt: 1,
+    dryRun: false,
+    actions: Object.freeze([{ plugin: 'UnknownPlugin', command: 'noop', destructive: false }])
+  });
+  assert.throws(() => buildExecutionEnvelope(disallowed, { serverId: 'map-1' }), /not allowed/);
 });
