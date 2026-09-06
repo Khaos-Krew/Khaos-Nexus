@@ -101,10 +101,6 @@ async function postOnce(client) {
 if (!installed) {
   installed = true;
   Client.prototype.login = function patchedLogin(...args) {
-    this.once(Events.ClientReady, () => {
-      require('./nexus-protocol-announcement.cjs').updateProtocolAnnouncement(this)
-        .catch((error) => console.error(`[Nexus Protocol] banner update failed: ${error.message}`));
-    });
     this.once(Events.ClientReady, () => void postOnce(this));
     return originalLogin.apply(this, args);
   };

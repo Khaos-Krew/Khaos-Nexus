@@ -130,9 +130,7 @@ function installProtocolExtension() {
           if (prior) await guild.commands.edit(prior.id, definition); else await guild.commands.create(definition);
         }
         console.log('[Nexus Protocol] framework online commands=/protocol,/darkzone telemetry=manual-verified pvp=contained');
-        const announcement = require('../nexus-protocol-announcement.cjs');
-        await announcement.updateProtocolAnnouncement(client);
-        await announcement.updateProtocolMilestone(client);
+        await require('../nexus-protocol-feature-post.cjs').postProtocolMilestone(client, { store: engine.store });
       })().catch((e) => console.error(`[Nexus Protocol] initialization failed: ${e.message}`)), 120000);
       timer.unref?.();
     });

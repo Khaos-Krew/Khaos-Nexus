@@ -66,7 +66,14 @@ not activated by this release.
 
 ## Announcement
 
-The banner reconciler edits message 1546061402979180698 in channel
-1545126905643147264. It does not delete or send announcements. Original content and
-the Ark Access mention are preserved without repinging. After Discord commands
-register, Sentinel appends a truthful Nexus-themed milestone field in the same embed.
+The original banner announcement (1546061402979180698) is preserved. Completed
+features are announced as separate Nexus-themed text posts in #cluster-news
+(1545126905643147264), after Discord commands register successfully. The current
+post announces the Core Registry and clearly marks automatic telemetry and live PvP
+enforcement as unfinished. Future completed features receive their own stable IDs.
+There are no automatic feature edits to the original embed and no role repings.
+
+Each feature post reserves a durable receipt before sending, then records its
+Discord message ID. Restarts do not repost published features. If a send has an
+uncertain outcome, the receipt remains pending: inspect Discord and reconcile the
+receipt before any retry. Do not blindly delete pending receipts.

@@ -32,20 +32,4 @@ async function updateProtocolAnnouncement(client) {
   return { updated: true, messageId: MESSAGE_ID };
 }
 
-async function updateProtocolMilestone(client) {
-  const channel = await client.channels.fetch(CHANNEL_ID);
-  const message = await channel.messages.fetch(MESSAGE_ID);
-  if (message.author.id !== client.user.id || !message.embeds.length) throw new Error('Protocol announcement is not editable');
-  const name = 'NEXUS SYSTEM EVOLUTION // PARTIAL ACTIVATION';
-  const value = '**CORE REGISTRY — ONLINE**\nSix Protocol definitions forged. Participation, verified activity, Protocol Score, seasonal/lifetime records and audit persistence are operational.\n\n**SENTINEL INTERFACE — ONLINE**\nUse /protocol status to access the network. Staff can stage events and validate evidence.\n\n**TELEMETRY — STAGING**\nAutomatic in-game objective detection awaits adapters.\n\n**DARK ZONE — CONTAINED**\nConsent and cooldown policy calibrated. Live PvP enrollment remains offline until game-side damage protection is verified.';
-  const embeds = message.embeds.map((e) => e.toJSON());
-  const fields = embeds[0].fields || [];
-  if (fields.some((f) => f.name === name && f.value === value)) return;
-  embeds[0].fields = [...fields.filter((f) => !f.name.startsWith('NEXUS SYSTEM EVOLUTION //')), { name, value }];
-  if (embeds[0].fields.length > 25) throw new Error('Protocol milestone exceeds embed field limit');
-  await message.edit({ embeds, allowedMentions: { parse: [] } });
-  const verified = await channel.messages.fetch({ message: MESSAGE_ID, force: true });
-  if (!verified.embeds[0]?.fields?.some((f) => f.name === name && f.value === value)) throw new Error('Protocol milestone verification failed');
-  console.log(`[Nexus Protocol] milestone verified channel=${CHANNEL_ID} message=${MESSAGE_ID}`);
-}
-module.exports = { updateProtocolAnnouncement, updateProtocolMilestone };
+module.exports = { updateProtocolAnnouncement };
