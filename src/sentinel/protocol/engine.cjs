@@ -75,16 +75,28 @@ class ProtocolEngine {
     });
   }
   // Only a trusted adapter or staff verification may call this; joining never grants credit.
-  record({ runId, playerId, source, eventId, map, metric, amount, at, intervalStart, evidence }, actor) {
+  record({ runId, playerId, source, eventId, map, metric, amount, at, intervalStart, evidence, factId }, actor) {
     [runId, playerId, source, eventId, map, metric].forEach(id);
     if (typeof evidence !== 'string' || evidence.length < 3 || evidence.length > 500) throw new Error('Verification evidence required');
     integer(amount, 1, metric === 'active-seconds' ? 60 : 1);
     integer(at, 0, this.now());
+    if (factId != null) id(factId);
+    const fingerprint = JSON.stringify({ runId, playerId, map, metric, amount, at, intervalStart, evidence, factId });
+    const previous = this.store.read().receipts.find((x) => x.key === `${source}:${eventId}`);
+    if (previous) {
+      if (previous.fingerprint !== fingerprint) throw new Error('Event ID reused with different evidence');
+      return { duplicate: true };
+    }
     return this.store.transact(actor, `participation.record:${runId}:${source}:${eventId}`, (s) => {
       const receiptKey = `${source}:${eventId}`;
-      const fingerprint = JSON.stringify({ runId, playerId, map, metric, amount, at, intervalStart, evidence });
       const receipt = s.receipts.find((x) => x.key === receiptKey);
       if (receipt) { if (receipt.fingerprint !== fingerprint) throw new Error('Event ID reused with different evidence'); return { duplicate: true }; }
+      const factKey = factId ? crypto.createHash('sha256').update(JSON.stringify([map, metric, factId, playerId])).digest('hex') : null;
+      const priorFact = factKey && s.receipts.find((x) => x.factKey === factKey);
+      if (priorFact) {
+        if (priorFact.runId !== runId) throw new Error('Game evidence already credited to another run');
+        return { duplicate: true };
+      }
       const run = requireRun(s, runId);
       const p = run.participants.find((x) => x.playerId === playerId);
       if (!p || p.disqualified) throw new Error('Participant missing or disqualified');
@@ -97,7 +109,7 @@ class ProtocolEngine {
         if (metric !== run.definition.metric || metric === 'pvp-kill') throw new Error('Metric unavailable for this Protocol');
         p.contribution += amount;
       }
-      s.receipts.push({ key: receiptKey, fingerprint, actor, acceptedAt: this.now() });
+      s.receipts.push({ key: receiptKey, fingerprint, actor, acceptedAt: this.now(), ...(factKey ? { factKey, runId } : {}) });
       return { accepted: true, participant: p };
     });
   }

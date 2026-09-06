@@ -9,7 +9,7 @@ non-disqualified participation grants non-spendable Protocol Score.
 
 `/protocol status`, `list`, `history`, `stats`, `leaderboard`, `join`, `progress`.
 Staff additionally control `season`, `create`, `start`, `pause`, `complete`, `fail`,
-`cancel`, `participants`, `record`, `disqualify`. Seasons require explicit dates;
+`cancel`, `participants`, `record`, `disqualify`, `telemetry`. Seasons require explicit dates;
 there is no automatic reset or invented season schedule. Lifetime records remain.
 The Discord draft defaults are 5 verified active minutes, one objective, 100 score,
 and a 60-minute run. The engine accepts per-run thresholds and map scopes.
@@ -37,9 +37,57 @@ sequence, objective delivery receipt or interval). Re-delivery reuses the same I
 All linked ARK identities aggregate under the Discord identity. The trusted adapter
 must resolve current verified links, validate the actual objective/target, ensure
 map ownership and reject fabricated, AFK or reused creature events. Discord players
-cannot submit evidence; staff submissions are explicitly attributed. There is no
-automatic game telemetry adapter in this release and no public ingestion endpoint.
+cannot submit evidence; staff submissions are explicitly attributed. The authenticated
+evidence intake is implemented, but no live game exporter is configured yet.
 Award ledger entries are prestige records, not currency transfers or reward delivery.
+
+## Authenticated game evidence intake
+
+`POST /v1/protocol/evidence/{sourceId}` accepts one JSON event with the source's
+dedicated `Authorization: Bearer` credential. Admin and Forge credentials do not
+authorize this route. HTTPS is provided by the existing Railway endpoint. No sources
+are enabled by default, and no secrets are returned by `/protocol telemetry`.
+
+Configure `NEXUS_PROTOCOL_SOURCES` as a JSON array. Each source has a unique lowercase
+`id`, one exact `map`, allowed `metrics`, and a `tokenEnv` naming its separate secret:
+
+```json
+[{"id":"gen1","map":"ARK_GEN1","metrics":["alpha-kill","active-seconds"],"tokenEnv":"NEXUS_PROTOCOL_SOURCE_GEN1_TOKEN"}]
+```
+
+Provision a random source token with at least 32 characters through Railway variables
+only after reviewing the exporter. The source's trusted game process must supply:
+
+```json
+{"version":1,"eventId":"death-instance-123","runId":"RUN_UUID","eosId":"VERIFIED_EOS_ID","map":"ARK_GEN1","metric":"alpha-kill","amount":1,"at":1788680000000,"factId":"creature-instance-123"}
+```
+
+`at` is the original game event's Unix timestamp in milliseconds. Fresh events must
+be no older than 120 seconds and never in the future. An exact already-accepted retry
+may arrive later; changing any normalized evidence conflicts. Automatic objectives
+support alpha kills, boss kills, anomaly kills and deliveries. Every objective needs
+an authoritative `factId` identifying the creature incarnation/death or delivery
+transaction. Changing `eventId` or resending through another source cannot grant the
+same fact twice to a player. Facts cannot be reused across runs for that player.
+
+Activity events use `metric: "active-seconds"`, amount 1–60, `intervalStart` in
+milliseconds, and explicit `active: true`, `alive: true`, `spectating: false`.
+They omit `factId`. The interval must exactly match the verified duration. Overlap,
+paused time, wrong maps, missing participants, disqualification and expired runs are
+rejected. Being online alone is not evidence of activity. Only verified EOS-to-Discord
+links are accepted; display names and user-written chat are never identity evidence.
+
+Requests are limited to 16 KiB, a five-second body deadline, and 120 requests per
+source per minute. Credentials are checked before parsing. Responses: 200 ACCEPTED
+or DUPLICATE; 401 invalid source credentials; 409 evidence conflict; 413 oversized;
+415 non-JSON; 422 malformed/stale/future evidence; 429 throttled; 503 disabled or
+unavailable. Invalid source configuration disables intake. Errors do not echo
+credentials, player data or request bodies. Accepted receipts identify the adapter.
+
+Production validation must first show that the exporter provides authentic IDs,
+stable facts, reliable timestamps and real activity detection. Existing Shiny name
+notifications and chat parsing do not meet that standard. Native damage protection
+is a separate requirement; this endpoint never accepts PvP kills or changes PvP state.
 
 ## Dark Zone policy and remaining activation boundary
 

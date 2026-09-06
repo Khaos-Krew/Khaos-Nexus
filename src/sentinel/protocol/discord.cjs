@@ -10,7 +10,7 @@ const INSTALLED = Symbol.for('khaos.nexus.protocol.installed');
 const string = (sub, name, description, required = false) => sub.addStringOption((o) => o.setName(name).setDescription(description).setRequired(required).setMaxLength(128));
 function commands() {
   const command = new SlashCommandBuilder().setName('protocol').setDescription('Nexus Protocol network, participation and records.');
-  for (const name of ['status', 'list', 'history']) command.addSubcommand((s) => s.setName(name).setDescription(`View Protocol ${name}.`));
+  for (const name of ['status', 'list', 'history', 'telemetry']) command.addSubcommand((s) => s.setName(name).setDescription(`View Protocol ${name}.`));
   for (const name of ['stats', 'leaderboard']) command.addSubcommand((s) => string(s.setName(name).setDescription(`View Protocol ${name}.`), 'season', 'Season ID; omit for lifetime.'));
   for (const name of ['join', 'progress', 'participants', 'start', 'pause', 'complete', 'fail', 'cancel']) command.addSubcommand((s) => string(s.setName(name).setDescription(`${name} a Protocol run.`), 'id', 'Protocol run ID.', true));
   command.addSubcommand((s) => {
@@ -67,6 +67,10 @@ async function handle(interaction, context) {
     // This release intentionally has no damage adapter: do not accept live enlistment.
     if (sub === 'status') content = `**DARK ZONE // CONTAINED**\nYour registry state: ${darkzone.status('player', actor).state}\nLive PvP enrollment awaits verified server-side damage protection. Solo enrollment will never expose tribe structures.`;
     else content = '**DARK ZONE // CONTAINED**\nLive enrollment is unavailable while game damage protection is unverified. No PvP state was changed.';
+  } else if (sub === 'telemetry') {
+    const status = require('./evidence.cjs').sourceStatus();
+    const receipts = engine.store.read().receipts.filter((r) => r.key.startsWith('telemetry.'));
+    content = `**NEXUS EVIDENCE GATE // ${status.ok && status.ready ? 'CONFIGURED' : 'STAGING'}**\nConfigured sources: **${status.configured}**\nSources with credentials: **${status.ready}**\nAccepted game events: **${receipts.length}**\n${receipts.length ? 'Latest accepted event: <t:' + Math.floor(receipts.reduce((latest, r) => Math.max(latest, r.acceptedAt || 0), 0) / 1000) + ':R>' : 'No authenticated game evidence received.'}\nLive adapters must supply stable identities and verified activity. PvP remains contained.`;
   } else if (sub === 'status') {
     content = '**NEXUS PROTOCOL // PARTIAL ACTIVATION**\nParticipation registry, verified evidence, Protocol Score and seasonal records are online. Automatic game telemetry is staging.\n\n' + DEFINITIONS.map((d) => `**${d.name}** — ${d.description}`).join('\n');
   } else if (['list', 'history'].includes(sub)) {
@@ -131,6 +135,8 @@ function installProtocolExtension() {
         }
         console.log('[Nexus Protocol] framework online commands=/protocol,/darkzone telemetry=manual-verified pvp=contained');
         await require('../nexus-protocol-feature-post.cjs').postProtocolMilestone(client, { store: engine.store });
+        const features = require('../nexus-protocol-feature-post.cjs');
+        await features.postProtocolMilestone(client, { store: engine.store, feature: features.EVIDENCE_FEATURE });
       })().catch((e) => console.error(`[Nexus Protocol] initialization failed: ${e.message}`)), 120000);
       timer.unref?.();
     });
