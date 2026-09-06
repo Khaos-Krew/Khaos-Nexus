@@ -8,7 +8,8 @@ const path = require('node:path');
 const {
   NexusProtocolStore,
   normalizeState,
-  participantKey
+  participantKey,
+  validateSeasonTopology
 } = require('../src/sentinel/nexus-protocol-store.cjs');
 
 function tempFile(name = 'protocol.json') {
@@ -59,6 +60,50 @@ test('leaderboard aggregates only eligible participants from runs in the request
     { rank: 1, accountId: 'a', score: 180, runs: 2 },
     { rank: 2, accountId: 'b', score: 150, runs: 1 }
   ]);
+});
+
+test('season lifecycle allows forward-only transitions and freezes boundaries after activation', () => {
+  const store = new NexusProtocolStore(tempFile());
+  store.load();
+  store.upsertSeason({ id: 's1', startsAt: 100, endsAt: 200, status: 'planned' });
+  store.upsertSeason({ id: 's1', startsAt: 100, endsAt: 200, status: 'active' });
+  assert.throws(
+    () => store.upsertSeason({ id: 's1', startsAt: 90, endsAt: 200, status: 'active' }),
+    /boundaries are immutable/
+  );
+  assert.throws(
+    () => store.upsertSeason({ id: 's1', startsAt: 100, endsAt: 200, status: 'planned' }),
+    /Invalid season transition/
+  );
+  store.upsertSeason({ id: 's1', startsAt: 100, endsAt: 200, status: 'closed' });
+  assert.throws(
+    () => store.upsertSeason({ id: 's1', startsAt: 100, endsAt: 200, status: 'active' }),
+    /Invalid season transition/
+  );
+});
+
+test('store refuses a second active season without mutating the existing season set', () => {
+  const store = new NexusProtocolStore(tempFile());
+  store.load();
+  store.upsertSeason({ id: 's1', startsAt: 1, endsAt: 100, status: 'active' });
+  store.upsertSeason({ id: 's2', startsAt: 101, endsAt: 200, status: 'planned' });
+  assert.throws(
+    () => store.upsertSeason({ id: 's2', startsAt: 101, endsAt: 200, status: 'active' }),
+    /Multiple active/
+  );
+  assert.equal(store.snapshot().seasons.s1.status, 'active');
+  assert.equal(store.snapshot().seasons.s2.status, 'planned');
+});
+
+test('restart normalization rejects persisted multiple-active-season corruption', () => {
+  assert.throws(() => normalizeState({
+    version: 1,
+    seasons: {
+      s1: { id: 's1', startsAt: 1, endsAt: 100, status: 'active' },
+      s2: { id: 's2', startsAt: 101, endsAt: 200, status: 'active' }
+    }
+  }), /Multiple active/);
+  assert.equal(validateSeasonTopology({ s1: { status: 'active' }, s2: { status: 'planned' } }), true);
 });
 
 test('store fails closed on unsupported versions, invalid identifiers and orphan records', () => {
