@@ -10,6 +10,7 @@
     "start": "electron .",
     "backend": "node src/backend/server.cjs",
     "sentinel": "node src/sentinel/entry.cjs",
+    "arn": "node src/railway/arn-service.cjs",
     "build-worker": "node src/build-worker/entry.cjs",
     "wshop:export": "node scripts/export-wshop-migration.cjs",
     "check": "node scripts/check.cjs",
