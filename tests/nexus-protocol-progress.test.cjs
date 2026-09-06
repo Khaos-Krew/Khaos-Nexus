@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const {
   normalizeProgressEvent,
+  progressEventFingerprint,
   aggregateParticipant,
   ProtocolProgressLedger
 } = require('../src/sentinel/nexus-protocol-progress.cjs');
@@ -21,11 +22,12 @@ test('progress events are deterministic and reject malformed identities/types', 
   const first = normalizeProgressEvent(base);
   const second = normalizeProgressEvent({ ...base, activeMinutes: 5 });
   assert.equal(first.id, second.id);
+  assert.notEqual(progressEventFingerprint(first), progressEventFingerprint(second));
   assert.throws(() => normalizeProgressEvent({ ...base, type: 'hack' }), /event type/);
   assert.throws(() => normalizeProgressEvent({ ...base, sourceId: 'bad space' }), /source id/);
 });
 
-test('aggregation deduplicates replayed events and calculates eligible score once', () => {
+test('aggregation deduplicates exact replayed events and calculates eligible score once', () => {
   const events = [
     { ...base, activeMinutes: 8 },
     { ...base, activeMinutes: 8 },
@@ -42,6 +44,13 @@ test('aggregation deduplicates replayed events and calculates eligible score onc
   assert.equal(result.score, 148);
 });
 
+test('aggregation fails closed when the same source replays with a different payload', () => {
+  assert.throws(() => aggregateParticipant([
+    { ...base, activeMinutes: 8 },
+    { ...base, activeMinutes: 80 }
+  ]), /Conflicting Protocol progress event replay/);
+});
+
 test('ineligible participation retains raw score but awards zero Protocol Score', () => {
   const result = aggregateParticipant([
     { ...base, activeMinutes: 1 },
@@ -53,7 +62,7 @@ test('ineligible participation retains raw score but awards zero Protocol Score'
   assert.ok(result.eligibilityReasons.includes('insufficient_active_time'));
 });
 
-test('progress ledger survives restart and ignores duplicate event delivery', () => {
+test('progress ledger survives restart and ignores exact duplicate event delivery', () => {
   const file = tempFile();
   const ledger = new ProtocolProgressLedger(file);
   ledger.load();
@@ -68,6 +77,29 @@ test('progress ledger survives restart and ignores duplicate event delivery', ()
   const participant = reloaded.participant('run1', 'acct1', { minActiveMinutes: 5 });
   assert.equal(participant.eligible, true);
   assert.equal(participant.processedEvents, 2);
+});
+
+test('progress ledger rejects a conflicting replay before it can alter participant totals', () => {
+  const ledger = new ProtocolProgressLedger(tempFile());
+  ledger.load();
+  ledger.append({ ...base, activeMinutes: 6 });
+  assert.throws(() => ledger.append({ ...base, activeMinutes: 60 }), /Conflicting Protocol progress event replay/);
+  assert.equal(ledger.participant('run1', 'acct1', { minActiveMinutes: 5 }).activeMinutes, 6);
+});
+
+test('progress ledger load rejects persisted conflicting duplicates', () => {
+  const file = tempFile();
+  fs.writeFileSync(file, JSON.stringify({
+    version: 1,
+    revision: 1,
+    updatedAt: 2000,
+    events: [
+      { ...base, activeMinutes: 6 },
+      { ...base, activeMinutes: 60 }
+    ]
+  }));
+  const ledger = new ProtocolProgressLedger(file);
+  assert.throws(() => ledger.load(), /Conflicting Protocol progress event replay/);
 });
 
 test('aggregation cannot mix runs or accounts', () => {
