@@ -4,6 +4,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const STORE_VERSION = 1;
+const SEASON_TRANSITIONS = Object.freeze({
+  planned: new Set(['planned', 'active', 'closed']),
+  active: new Set(['active', 'closed']),
+  closed: new Set(['closed'])
+});
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -50,6 +55,26 @@ function normalizeSeason(input = {}) {
     endsAt,
     status: ['planned', 'active', 'closed'].includes(input.status) ? input.status : 'planned'
   };
+}
+
+function assertSeasonTransition(previous, next) {
+  if (!previous) return;
+  const allowed = SEASON_TRANSITIONS[previous.status];
+  if (!allowed || !allowed.has(next.status)) {
+    throw new Error(`Invalid season transition ${previous.status} -> ${next.status}`);
+  }
+  if (previous.status !== 'planned') {
+    if (previous.startsAt !== next.startsAt || previous.endsAt !== next.endsAt) {
+      throw new Error('Started or closed season boundaries are immutable');
+    }
+  }
+}
+
+function validateSeasonTopology(seasons = {}) {
+  const records = Object.values(seasons);
+  const active = records.filter((season) => season.status === 'active');
+  if (active.length > 1) throw new Error('Multiple active Nexus Protocol seasons are not allowed');
+  return true;
 }
 
 function normalizeRun(input = {}) {
@@ -122,6 +147,7 @@ function normalizeState(input) {
     const record = normalizeSeason(item);
     state.seasons[record.id] = record;
   }
+  validateSeasonTopology(state.seasons);
   for (const item of Object.values(raw.protocolRuns || {})) {
     const record = normalizeRun(item);
     state.protocolRuns[record.id] = record;
@@ -188,6 +214,10 @@ class NexusProtocolStore {
 
   upsertSeason(input) {
     const record = normalizeSeason(input);
+    const previous = this.state.seasons[record.id] || null;
+    assertSeasonTransition(previous, record);
+    const nextSeasons = { ...this.state.seasons, [record.id]: record };
+    validateSeasonTopology(nextSeasons);
     this.state.seasons[record.id] = record;
     return clone(record);
   }
@@ -234,8 +264,11 @@ class NexusProtocolStore {
 
 module.exports = {
   STORE_VERSION,
+  SEASON_TRANSITIONS,
   emptyState,
   normalizeSeason,
+  assertSeasonTransition,
+  validateSeasonTopology,
   normalizeRun,
   normalizeParticipant,
   normalizeDarkZone,
