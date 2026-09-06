@@ -4,6 +4,7 @@ const { connectMysql } = require('./arkshop-mysql.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { ORDER_TABLE, EVENT_TABLE, ensureSchema } = require('./ark-cache-shop-service.cjs');
+const { saddleCommand } = require('./ark-cache-receipts.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.dino.box.delivery.worker');
 let timer = null;
@@ -55,7 +56,8 @@ function classifyRconResult(result) {
   if (result?.status === 'sent_no_reply' || result?.status === 'sent_blank_reply' || /server received\.\s*but no response/i.test(response)) {
     return { state: 'SENT_UNCONFIRMED', failureClass: 'UNCONFIRMED', details: response || result?.status || 'RCON command sent without definitive delivery acknowledgement.' };
   }
-  return { state: 'DELIVERED', failureClass: '', details: response || 'RCON command acknowledged.' };
+  if (!response || !/\b(success|successfully|delivered|spawned|given)\b/i.test(response)) return { state:'SENT_UNCONFIRMED',failureClass:'UNCONFIRMED',details:response||'No definitive delivery acknowledgement.' };
+  return { state: 'DELIVERED', failureClass: '', details: response };
 }
 
 async function findOnlineServer(eosId, env = process.env, { registry = new ArkClusterRegistry(), clientFactory = (server) => new ArkRconClient(server) } = {}) {
@@ -66,7 +68,7 @@ async function findOnlineServer(eosId, env = process.env, { registry = new ArkCl
     try {
       const result = await clientFactory(server, prefix).executeDetailed('ListPlayers');
       const response = String(result?.response || '');
-      if (response.includes(String(eosId))) matches.push({ prefix, server, response });
+      if (response.split(/[^A-Za-z0-9_-]+/).includes(String(eosId))) matches.push({ prefix, server, response });
     } catch (error) {
       console.warn('[dino-cache-delivery] ListPlayers probe failed', prefix, String(error?.message || error).slice(0, 180));
     }
@@ -76,7 +78,7 @@ async function findOnlineServer(eosId, env = process.env, { registry = new ArkCl
 }
 
 async function nextAwaiting(connection) {
-  const [rows] = await connection.query(`SELECT * FROM ${ORDER_TABLE} WHERE state='AWAITING_DELIVERY' ORDER BY revealed_at ASC, created_at ASC LIMIT 1`);
+  const [rows] = await connection.query(`SELECT * FROM ${ORDER_TABLE} WHERE state='AWAITING_DELIVERY' ORDER BY updated_at ASC, created_at ASC LIMIT 1`);
   return rows[0] || null;
 }
 
@@ -99,26 +101,55 @@ async function finishDelivery(connection, row, outcome) {
   await connection.execute(`INSERT INTO ${EVENT_TABLE} (order_id, event_type, details) VALUES (?, ?, ?)`, [row.id, outcome.state, String(outcome.details || '').slice(0, 500)]);
 }
 
-async function deliverOne({ connector = connectMysql } = {}) {
+async function deliverOne({ connector = connectMysql, findServer = findOnlineServer, clientFactory = server => new ArkRconClient(server) } = {}) {
   const { connection } = await connector();
   try {
     await ensureSchema(connection);
     await ensureDeliveryState(connection);
+    await connection.query(`UPDATE ${ORDER_TABLE} SET state='SENT_UNCONFIRMED',failure_class='STALE_CLAIM',error_message='Delivery claim interrupted; verify inventory before retry.' WHERE state='DELIVERING' AND updated_at < CURRENT_TIMESTAMP(3) - INTERVAL 10 MINUTE`);
     const pending = await nextAwaiting(connection);
     if (!pending) return { skipped: 'none-awaiting' };
-    const target = await findOnlineServer(pending.player_eos_id);
-    if (!target) return { skipped: 'player-offline', orderId: pending.id, publicCacheId: pending.public_cache_id };
+    const target = await findServer(pending.player_eos_id);
+    if (!target) {
+      await connection.execute(`UPDATE ${ORDER_TABLE} SET updated_at=CURRENT_TIMESTAMP(3) WHERE id=? AND state='AWAITING_DELIVERY'`,[pending.id]);
+      return { skipped: 'player-offline', orderId: pending.id, publicCacheId: pending.public_cache_id };
+    }
+    const [saddles]=await connection.execute('SELECT * FROM nexus_cache_saddle_delivery WHERE order_id=?',[pending.id]);
+    const saddle=saddles[0];
+    let playerTarget;
+    if(saddle && saddle.state!=='DELIVERED') {
+      const [targets]=await connection.execute('SELECT * FROM nexus_cache_delivery_targets WHERE eos_id=? AND server_prefix=?',[pending.player_eos_id,target.prefix]);
+      playerTarget=targets[0];
+      if(!playerTarget) {
+        await connection.execute(`UPDATE ${ORDER_TABLE} SET updated_at=CURRENT_TIMESTAMP(3),error_message='Saddle delivery requires a verified ARK player ID for this map.' WHERE id=? AND state='AWAITING_DELIVERY'`,[pending.id]);
+        return {skipped:'saddle-player-id-unverified',orderId:pending.id};
+      }
+    }
     const row = await claimOne(connection, pending, target);
     if (!row) return { skipped: 'claim-race' };
     const command = buildDiscordCacheDinoCommand({ eosId: row.player_eos_id, blueprint: row.blueprint, level: Number(row.rolled_level), sex: row.sex });
     let result;
-    try { result = await new ArkRconClient(row.server).executeDetailed(command); }
+    try {
+      const [ack]=await connection.execute(`SELECT sequence_id FROM ${EVENT_TABLE} WHERE order_id=? AND event_type='DINO_ACKNOWLEDGED' LIMIT 1`,[row.id]);
+      result = ack.length ? {status:'success',response:'Dino already delivered successfully'} : await clientFactory(row.server).executeDetailed(command);
+    }
     catch (error) {
       const outcome = { state: 'SENT_UNCONFIRMED', failureClass: 'RCON_AMBIGUOUS', details: `RCON result ambiguous after delivery claim: ${String(error?.message || error).slice(0, 400)}` };
       await finishDelivery(connection, row, outcome);
       return { orderId: row.id, command, ...outcome };
     }
     const outcome = classifyRconResult(result);
+    if(outcome.state==='DELIVERED') {
+      await connection.execute(`INSERT INTO ${EVENT_TABLE} (order_id,event_type,details) VALUES (?,'DINO_ACKNOWLEDGED','Dino component acknowledged; never automatically spawn it again.')`,[row.id]);
+      if(saddle && saddle.state!=='DELIVERED') {
+        await connection.execute("UPDATE nexus_cache_saddle_delivery SET state='DELIVERING' WHERE order_id=? AND state='PENDING'",[row.id]);
+        let saddleOutcome;
+        try { saddleOutcome=classifyRconResult(await clientFactory(row.server).executeDetailed(saddleCommand(playerTarget.ark_player_id,saddle.blueprint))); }
+        catch(error) { saddleOutcome={state:'SENT_UNCONFIRMED',failureClass:'SADDLE_AMBIGUOUS',details:String(error.message)}; }
+        await connection.execute('UPDATE nexus_cache_saddle_delivery SET state=?,error_message=? WHERE order_id=?',[saddleOutcome.state,saddleOutcome.details.slice(0,500),row.id]);
+        if(saddleOutcome.state!=='DELIVERED')Object.assign(outcome,saddleOutcome);
+      }
+    }
     await finishDelivery(connection, row, outcome);
     console.log('[dino-cache-delivery]', JSON.stringify({ orderId: row.id, publicCacheId: row.public_cache_id, server: row.deliveryPrefix, rconStatus: result.status, state: outcome.state }));
     return { orderId: row.id, publicCacheId: row.public_cache_id, command, rconStatus: result.status, server: row.deliveryPrefix, ...outcome };

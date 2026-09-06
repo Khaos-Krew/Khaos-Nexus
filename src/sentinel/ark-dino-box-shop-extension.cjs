@@ -14,7 +14,7 @@ const {
   TextInputStyle
 } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
-const { CONFIG } = require('./ark-dino-cache-engine.cjs');
+const { CONFIG } = require('./ark-weekly-cache.cjs');
 const { ArkCacheShopService } = require('./ark-cache-shop-service.cjs');
 const { ArkDinoBoxTokenService } = require('./ark-dino-box-token-service.cjs');
 const { BUTTON_CACHE_SHOP } = require('./ark-cluster-panel.cjs');
@@ -54,6 +54,8 @@ function meta(cacheId) {
   return { ...legacyMeta(cacheId), disclaimer: cache?.disclaimer || '' };
 }
 
+function cachePrice(cache) { return cache.currency === 'ARN_TOKENS' ? (cache.enabled ? `${cache.price} ARN Tokens` : 'ARN redemption disabled') : arkShopPoints(cache.price); }
+
 function arkShopPoints(value) { return `${Math.max(0, Number(value) || 0).toLocaleString('en-US')} ArkShop Points`; }
 function cooldownLabel(cache) {
   const minutes = Math.max(0, Number(cache?.cooldownMinutes || 0));
@@ -76,7 +78,7 @@ function cachePanelPayload(cacheId) {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`${BUY_PREFIX}${cacheId}`)
-      .setLabel(`Buy • ${arkShopPoints(cache.price)}`)
+      .setLabel(`Buy • ${cachePrice(cache)}`)
       .setEmoji('🎰')
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
@@ -93,7 +95,7 @@ function cachePanelPayload(cacheId) {
       color: 0xb00020,
       fields: [
         ...disclaimerFields,
-        { name: '💰 Price', value: `**${arkShopPoints(cache.price)}**`, inline: true },
+        { name: '💰 Price', value: `**${cachePrice(cache)}**`, inline: true },
         { name: '⏱️ Per-Box Cooldown', value: `**${cooldownLabel(cache)}**`, inline: true },
         { name: '🎲 Rarity Odds', value: raritySummary(cache), inline: false },
         ...speciesFields,
@@ -125,7 +127,7 @@ function cacheSelect(selected = HUB_HOME_ID) {
     .addOptions({ label: 'Cache System Guide', value: HUB_HOME_ID, emoji: '📖', description: 'How purchases, sealed rolls, reveals, and delivery work.', default: selected === HUB_HOME_ID });
   for (const id of cacheIds().slice(0, 24)) {
     const cache = CONFIG.caches[id], m = meta(id);
-    menu.addOptions({ label: m.name.slice(0, 100), value: id, emoji: m.emoji, description: `${arkShopPoints(cache.price)} • ${cooldownLabel(cache)} cooldown`.slice(0, 100), default: selected === id });
+    menu.addOptions({ label: m.name.slice(0, 100), value: id, emoji: m.emoji, description: `${cachePrice(cache)} • ${cooldownLabel(cache)} cooldown`.slice(0, 100), default: selected === id });
   }
   return new ActionRowBuilder().addComponents(menu);
 }
@@ -162,8 +164,9 @@ function cacheDetailPayload(cacheId) {
   const m = meta(cacheId);
   const speciesFields = speciesByRarity(cache).map((field) => ({ ...field, inline: false }));
   const fields = [
+    ...(cache.resetsAt ? [{ name:'Weekly Rotation', value:`Resets <t:${Math.floor(cache.resetsAt/1000)}:R> • Monday 00:00 UTC`, inline:false }] : []),
     ...(m.disclaimer ? [{ name: '⚠️ DLC Ownership Required', value: m.disclaimer.slice(0, 1024), inline: false }] : []),
-    { name: '💰 Price', value: `**${arkShopPoints(cache.price)}**`, inline: true },
+    { name: '💰 Price', value: `**${cachePrice(cache)}**`, inline: true },
     { name: '⏱️ Cooldown', value: `**${cooldownLabel(cache)}**`, inline: true },
     { name: '🎲 Rarity Odds', value: raritySummary(cache), inline: false },
     ...speciesFields,
@@ -173,8 +176,8 @@ function cacheDetailPayload(cacheId) {
     { name: '🔒 Purchase & Reveal', value: 'The complete reward is rolled and stored **at purchase time**, then remains hidden and **SEALED**. Delivery cannot start until you press **Reveal Now**. Reveal only exposes the saved result—there is no second RNG roll.', inline: false }
   ];
   const purchaseRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`${BUY_PREFIX}${cacheId}`).setLabel(`Buy • ${arkShopPoints(cache.price)}`).setEmoji('🎰').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(`${TOKEN_PREFIX}${cacheId}`).setLabel('Redeem Token').setEmoji('🎟️').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`${BUY_PREFIX}${cacheId}${cache.rotationId ? ':'+cache.rotationId : ''}`).setLabel(`Buy • ${cachePrice(cache)}`).setEmoji('🎰').setStyle(ButtonStyle.Success).setDisabled(cache.currency === 'ARN_TOKENS' && !cache.enabled),
+    new ButtonBuilder().setCustomId(`${TOKEN_PREFIX}${cacheId}`).setLabel('Redeem Token').setEmoji('🎟️').setStyle(ButtonStyle.Primary).setDisabled(['weekly','arn'].includes(cacheId)),
     new ButtonBuilder().setCustomId(HUB_MY_SEALED_ID).setLabel('My Sealed Caches').setEmoji('🔒').setStyle(ButtonStyle.Secondary)
   );
   return {
@@ -234,7 +237,7 @@ function sealedResultPayload(order, balance = null, source = 'ArkShop Points') {
     { name: 'Opened With', value: source, inline: true },
     { name: 'Status', value: '🔒 **SEALED**\nYour exact reward has already been rolled and permanently stored. No creature details are shown until you choose **Reveal Now**.', inline: false }
   ];
-  if (Number.isFinite(balance)) fields.push({ name: 'Remaining ArkShop Points', value: arkShopPoints(balance), inline: false });
+  if (Number.isFinite(balance)) fields.push({ name: source === 'ARN Tokens' ? 'Remaining ARN Tokens' : 'Remaining ArkShop Points', value: source === 'ARN Tokens' ? `${balance} ARN Tokens` : arkShopPoints(balance), inline: false });
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`${REVEAL_PREFIX}${order.id}`).setLabel('Reveal Now').setEmoji('🎁').setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId(REVEAL_LATER_ID).setLabel('Reveal Later').setEmoji('🔒').setStyle(ButtonStyle.Secondary)
@@ -264,7 +267,7 @@ function finalResultPayload(order, balance = null, source = '') {
     ...(source ? [{ name: 'Opened With', value: source, inline: true }] : []),
     { name: 'Status', value: '⏳ **Awaiting ARK Delivery**', inline: false }
   ];
-  if (Number.isFinite(balance)) fields.push({ name: 'Remaining ArkShop Points', value: arkShopPoints(balance), inline: false });
+  if (Number.isFinite(balance)) fields.push({ name: source === 'ARN Tokens' ? 'Remaining ARN Tokens' : 'Remaining ArkShop Points', value: source === 'ARN Tokens' ? `${balance} ARN Tokens` : arkShopPoints(balance), inline: false });
   return { embeds: [{ title: `✨ ${m.name} • Revealed`, description: `**${order.species}**\nLevel **${order.level}** • **${variant}** • **${titleCase(order.sex)}**`, color: 0xb00020, fields, footer: { text: 'Stored result revealed • no rerolls • exact reward queued for ARK delivery' } }], components: [], allowedMentions: { parse: [] } };
 }
 
@@ -324,9 +327,27 @@ function installArkDinoBoxShopExtension(options = {}) {
       const announcing = new Set();
       client.once(Events.ClientReady, async () => {
         try {
+          await purchaseService.refreshWeekly().catch(error=>console.error('[weekly-cache] initial load:',error.message));
           const guild = await client.guilds.fetch(String(config.discord?.guildId || ''));
           await guild.channels.fetch();
           const channel = await reconcileDinoBoxShop(guild);
+          const rotate = async () => {
+            const rotation = await purchaseService.refreshWeekly();
+            if (rotation.announcedAt) return;
+            const { connection } = await purchaseService.connector();
+            try {
+              // A MySQL advisory lock prevents two Sentinel instances announcing together.
+              const [locks] = await connection.execute("SELECT GET_LOCK('nexus-weekly-announcement', 0) AS acquired");
+              if (Number(locks[0]?.acquired) !== 1) return;
+              const [rows] = await connection.execute('SELECT announced_at FROM nexus_weekly_cache_rotations WHERE id=?', [rotation.id]);
+              if (rows[0]?.announced_at) return;
+              await channel.send({ content:`🗓️ **Weekly Featured Cache**\n${rotation.cache.entries.map(e=>e.name).join(' • ')}\n${arkShopPoints(rotation.cache.price)} • Resets <t:${Math.floor(rotation.endsAt/1000)}:R>`, allowedMentions:{ parse:[] }, nonce:rotation.id, enforceNonce:true });
+              await connection.execute('UPDATE nexus_weekly_cache_rotations SET announced_at=CURRENT_TIMESTAMP(3) WHERE id=? AND announced_at IS NULL', [rotation.id]);
+              await reconcileDinoBoxShop(guild);
+            } finally { await connection.execute("SELECT RELEASE_LOCK('nexus-weekly-announcement')").catch(()=>{}); await connection.end().catch(()=>{}); }
+          };
+          const timer = setInterval(()=>rotate().catch(error=>console.error('[weekly-cache]', error.message)),60000); timer.unref?.();
+          await rotate();
           console.log(`[Nexus Sentinal] Dino Cache Hub ready in #${channel.name} (${channel.id}) with one persistent panel and ${cacheIds().length} dropdown caches.`);
         } catch (error) { console.error('[Nexus Sentinal] Dino Cache Hub reconcile failed:', String(error?.message || error).slice(0, 500)); }
       });
@@ -347,6 +368,7 @@ function installArkDinoBoxShopExtension(options = {}) {
         void (async () => {
           const userId = String(interaction.user?.id || '');
           if (isHubSelect) {
+            await purchaseService.refreshWeekly();
             const selected = String(interaction.values?.[0] || HUB_HOME_ID).toLowerCase();
             if (selected !== HUB_HOME_ID && !CONFIG.caches[selected]) throw new Error('Unknown Dino Cache selection.');
             return interaction.update(hubPayload(selected));
@@ -375,11 +397,11 @@ function installArkDinoBoxShopExtension(options = {}) {
             return interaction.showModal(tokenModal(cacheId));
           }
           if (isBuy) {
-            const cacheId = id.slice(BUY_PREFIX.length).toLowerCase();
+            const [cacheId, rotationId] = id.slice(BUY_PREFIX.length).toLowerCase().split(':');
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-            const result = await purchaseService.purchase({ discordUserId: userId, cacheId, purchaseNonce: String(interaction.id) });
-            if (result.order.state !== 'SEALED') return interaction.editReply(finalResultPayload(result.order, result.balance, 'ArkShop Points'));
-            return interaction.editReply(sealedResultPayload(result.order, result.balance, 'ArkShop Points'));
+            const result = await purchaseService.purchase({ discordUserId: userId, cacheId, rotationId, purchaseNonce: String(interaction.id) });
+            if (result.order.state !== 'SEALED') return interaction.editReply(finalResultPayload(result.order, result.balance, cacheId === 'arn' ? 'ARN Tokens' : 'ArkShop Points'));
+            return interaction.editReply(sealedResultPayload(result.order, result.balance, cacheId === 'arn' ? 'ARN Tokens' : 'ArkShop Points'));
           }
           if (isTokenSubmit) {
             const cacheId = id.slice(TOKEN_MODAL_PREFIX.length).toLowerCase();

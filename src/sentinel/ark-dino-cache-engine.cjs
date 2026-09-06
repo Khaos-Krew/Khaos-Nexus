@@ -64,6 +64,7 @@ function loadDinoCacheConfig(file = process.env.NEXUS_DINO_CACHE_CONFIG || DEFAU
   for (const [groupId, entries] of Object.entries(object(raw.groups))) {
     if (!/^[a-z0-9_-]{1,48}$/.test(groupId) || !Array.isArray(entries) || !entries.length) throw new Error(`Invalid dino group: ${groupId}.`);
     groups[groupId] = Object.freeze(entries.map((entry) => {
+      if (/moros|indomitable|indominus|indoraptor|shiny/i.test(JSON.stringify(entry))) throw new Error('Dino Cache global denylist rejected a creature.');
       const variants = {};
       for (const [variant, value] of Object.entries(object(entry.variants))) {
         const key = String(variant).toLowerCase();
@@ -169,7 +170,7 @@ function rollCache(cacheId, rngInput, config = CONFIG) {
   const pool = config.caches[id];
   if (!pool) throw new Error(`Unknown dino cache: ${cacheId}.`);
   const rng = normalizeRng(rngInput);
-  const species = rollSpecies(pool, rng, config);
+  const species = rollSpecies(pool, rng, pool.rarityWeights ? { ...config, rarityWeights:pool.rarityWeights } : config);
   const level = rollLevel(rng, config);
   const variant = rollVariant(species, pool.variantWeights || config.variantWeights, rng);
   return Object.freeze({ cacheId: id, price: pool.price, species: species.name, blueprint: variant.blueprint, rarity: species.rarity, level, variantRequested: variant.requested, variant: variant.applied, variantFallback: false, shiny: false, jackpot: variant.applied === 'normal' ? 'normal' : 'variant' });

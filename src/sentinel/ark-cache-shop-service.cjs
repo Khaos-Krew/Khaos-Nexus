@@ -3,7 +3,10 @@
 const crypto = require('node:crypto');
 const { connectMysql } = require('./arkshop-mysql.cjs');
 const { ArkIdentityStore } = require('./ark-identity-store.cjs');
-const { CONFIG, deterministicRng, rollCache } = require('./ark-dino-cache-engine.cjs');
+const { deterministicRng, rollCache } = require('./ark-dino-cache-engine.cjs');
+const { CONFIG, loadWeekly, setArnPolicy } = require('./ark-weekly-cache.cjs');
+const arn = require('./arn-token-ledger.cjs');
+const receipts = require('./ark-cache-receipts.cjs');
 const { auditArkShopClusterDatabase } = require('./arkshop-cluster-economy-guard.cjs');
 
 const ORDER_TABLE = 'nexus_discord_cache_orders';
@@ -43,7 +46,7 @@ function orderView(row = {}) {
 }
 
 function pickLinkedArkAccount(profile) {
-  const accounts = Array.isArray(profile?.arkAccounts) ? profile.arkAccounts.filter((item) => /^[A-Za-z0-9_-]{8,128}$/.test(cleanId(item?.eosId))) : [];
+  const accounts = Array.isArray(profile?.arkAccounts) ? profile.arkAccounts.filter((item) => /^[A-Za-z0-9_-]{8,96}$/.test(cleanId(item?.eosId)) && Number.isFinite(Date.parse(item?.verifiedAt))) : [];
   if (!accounts.length) throw shopError('ARK_ACCOUNT_NOT_LINKED', 'Link your Discord account to ARK before buying a Dino Cache.');
   accounts.sort((a, b) => Date.parse(b?.verifiedAt || 0) - Date.parse(a?.verifiedAt || 0));
   return accounts[0];
@@ -67,6 +70,7 @@ async function ensureRevealColumns(connection) {
 }
 
 async function ensureSchema(connection) {
+  await receipts.ensureReceiptSchema(connection);
   await connection.query(`CREATE TABLE IF NOT EXISTS ${ORDER_TABLE} (
     id CHAR(36) NOT NULL PRIMARY KEY, public_cache_id VARCHAR(24) NOT NULL, purchase_nonce VARCHAR(80) NOT NULL,
     discord_user_id VARCHAR(25) NOT NULL, player_eos_id VARCHAR(128) NOT NULL, cache_type VARCHAR(64) NOT NULL,
@@ -137,9 +141,9 @@ async function existingByNonce(connection, nonce) {
   return rows[0] || null;
 }
 
-function committedRoll(cacheId, secret, identity) {
+function committedRoll(cacheId, secret, identity, config = CONFIG) {
   const rng = deterministicRng(secret, identity);
-  const roll = rollCache(cacheId, rng);
+  const roll = rollCache(cacheId, rng, config);
   const sex = rng() < 0.5 ? 'female' : 'male';
   return Object.freeze({ ...roll, sex });
 }
@@ -150,6 +154,11 @@ class ArkCacheShopService {
   }
 
   linkedAccount(discordUserId) { return pickLinkedArkAccount(this.identityStore.profileByDiscord(cleanId(discordUserId, 25))); }
+  async refreshWeekly() {
+    const { connection } = await this.connector();
+    try { await arn.ensureArnSchema(connection); setArnPolicy(await arn.settings(connection)); return await loadWeekly(connection, this.rngSecret); }
+    finally { await connection.end().catch(()=>{}); }
+  }
   async economyStatus() { try { return await this.economyAuditor(); } catch (error) { return { ok:false, mode:'audit-failed', error:String(error?.message || error).slice(0,180) }; } }
 
   async shopper(discordUserId) {
@@ -162,34 +171,72 @@ class ArkCacheShopService {
     } finally { await connection.end().catch(() => {}); }
   }
 
-  async purchase({ discordUserId, cacheId, purchaseNonce } = {}) {
+  async purchase({ discordUserId, cacheId, purchaseNonce, rotationId } = {}) {
     const userId = cleanId(discordUserId, 25), type = cleanId(cacheId, 48).toLowerCase(), nonce = cleanId(purchaseNonce, 80);
+    if(String(purchaseNonce||'').length>80)throw shopError('INVALID_PURCHASE_NONCE','Purchase identity is too long.');
     if (!/^\d{5,25}$/.test(userId)) throw shopError('INVALID_DISCORD_USER', 'A valid Discord user is required.');
+    if (type === 'weekly') {
+      // A committed purchase remains replayable even after its rotation expires.
+      const {connection:replayDb}=await this.connector();
+      try {
+        await ensureSchema(replayDb);
+        const saved=await existingByNonce(replayDb,nonce);
+        if(saved) {
+          if(String(saved.discord_user_id)!==userId||String(saved.cache_type)!==type)throw shopError('PURCHASE_IDENTITY_CONFLICT','This purchase identity belongs to a different checkout.');
+          return {order:orderView(saved),duplicate:true,balance:null};
+        }
+      }finally{await replayDb.end().catch(()=>{});}
+      const rotation = await this.refreshWeekly();
+      if (rotationId !== rotation.id) throw shopError('WEEKLY_ROTATED', 'The weekly lineup changed. Reopen the cache to review it before buying.');
+    }
     if (!VALID_CACHE_ID.test(type) || !CONFIG.caches[type]) throw shopError('INVALID_CACHE', 'That Dino Cache is not available.');
     if (!nonce) throw shopError('INVALID_PURCHASE_NONCE', 'Discord purchase identity is missing.');
-    assertEconomyReady(await this.economyStatus());
-    const account = this.linkedAccount(userId), cache = CONFIG.caches[type];
+    if (type !== 'arn') assertEconomyReady(await this.economyStatus());
+    const account = this.linkedAccount(userId);
+    let cache = CONFIG.caches[type];
     const { connection, config } = await this.connector();
     try {
       await ensureSchema(connection);
+      if (type === 'arn') await arn.ensureArnSchema(connection);
+      else {
+        const [engines] = await connection.query('SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?', [config.database, config.table]);
+        if (String(engines[0]?.ENGINE).toUpperCase() !== 'INNODB') throw shopError('NON_TRANSACTIONAL_WALLET', 'ArkShop purchases require an InnoDB wallet so failed checkouts can roll back safely.');
+      }
       await connection.beginTransaction();
       try {
         const existing = await existingByNonce(connection, nonce);
-        if (existing) { await connection.commit(); return { order: orderView(existing), duplicate: true, balance: null }; }
+        if (existing) {
+          if (String(existing.discord_user_id) !== userId || String(existing.cache_type) !== type) throw shopError('PURCHASE_IDENTITY_CONFLICT', 'This purchase identity belongs to a different checkout.');
+          await connection.commit(); return { order: orderView(existing), duplicate: true, balance: null };
+        }
+        if (type === 'arn') {
+          const policy=await arn.settings(connection,true);
+          if(!policy.enabled) throw shopError('ARN_DISABLED','ARN earning and redemption are disabled until staff set rates.');
+          cache={...cache,price:arn.positive(Number(policy.cache_cost))};
+        }
         await claimCacheCooldown(connection, userId, type, cache);
-        const wallet = await findPointsAccount(connection, config, account.eosId, { lock: true });
+        const wallet = type === 'arn' ? { row:{ points:await arn.wallet(connection,userId) } } : await findPointsAccount(connection, config, account.eosId, { lock: true });
         const balance = Number(wallet.row.points || 0);
-        if (!Number.isSafeInteger(balance) || balance < cache.price) throw shopError('INSUFFICIENT_POINTS', `You need ${cache.price.toLocaleString('en-US')} ArkShop Points for this cache. Current balance: ${Math.max(0, balance || 0).toLocaleString('en-US')}.`);
-        const identity = `discord-cache:${nonce}:${userId}:${account.eosId}:${type}`, roll = committedRoll(type, this.rngSecret, identity), id = crypto.randomUUID();
+        if (!Number.isSafeInteger(balance) || balance < cache.price) throw shopError('INSUFFICIENT_POINTS', `You need ${cache.price.toLocaleString('en-US')} ${type === 'arn' ? 'ARN Tokens' : 'ArkShop Points'} for this cache. Current balance: ${Math.max(0, balance || 0).toLocaleString('en-US')}.`);
+        const identity = `discord-cache:${nonce}:${userId}:${account.eosId}:${type}`, id = crypto.randomUUID();
         const publicCacheId = `NC-${id.replace(/-/g, '').slice(0, 12).toUpperCase()}`, table = safeName(config.table);
-        const debit = await connection.execute(`UPDATE ${table} SET ${safeName(wallet.pointsColumn)}=${safeName(wallet.pointsColumn)}-? WHERE ${safeName(wallet.idColumn)}=? AND ${safeName(wallet.pointsColumn)}>=?`, [cache.price, account.eosId, cache.price]);
+        const debit = type === 'arn' ? (await arn.change(connection,{user:userId,delta:-cache.price,key:`spend:${nonce}`,actor:userId,reason:'ARN cache redemption',orderId:id}),[{affectedRows:1}]) : await connection.execute(`UPDATE ${table} SET ${safeName(wallet.pointsColumn)}=${safeName(wallet.pointsColumn)}-? WHERE ${safeName(wallet.idColumn)}=? AND ${safeName(wallet.pointsColumn)}>=?`, [cache.price, account.eosId, cache.price]);
         if (Number(debit?.[0]?.affectedRows || 0) !== 1) throw shopError('POINT_DEBIT_FAILED', 'ArkShop Points changed during checkout; the cache was not purchased.');
+        const roll = committedRoll(type, this.rngSecret, identity, {...CONFIG,caches:{[type]:cache}});
         await connection.execute(`INSERT INTO ${ORDER_TABLE} (id, public_cache_id, purchase_nonce, discord_user_id, player_eos_id, cache_type, nexus_point_cost, species, rarity, variant, blueprint, rolled_level, sex, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SEALED')`, [id, publicCacheId, nonce, userId, account.eosId, type, cache.price, roll.species, roll.rarity, roll.variant, roll.blueprint, roll.level, roll.sex]);
-        await connection.execute(`INSERT INTO ${EVENT_TABLE} (order_id, event_type, actor_discord_user_id, details) VALUES (?, 'PURCHASE_SEALED', ?, ?)`, [id, userId, `Immutable ${type} cache reward committed and sealed before player reveal.`]);
+        await receipts.receipt(connection,{id,userId,eosId:account.eosId,cache,roll,currency:type==='arn'?'ARN_TOKENS':'ARKSHOP_POINTS',balance});
+        await connection.execute(`INSERT INTO ${EVENT_TABLE} (order_id, event_type, actor_discord_user_id, details) VALUES (?, 'PURCHASE_SEALED', ?, ?)`, [id, userId, JSON.stringify({ currency: type==='arn'?'ARN_TOKENS':'ARKSHOP_POINTS', before: balance, price: cache.price, after: balance - cache.price, cache: type, rotation:cache.rotationId, species: roll.species, variant: roll.variant, level: roll.level })]);
         await connection.commit();
         const [rows] = await connection.execute(`SELECT * FROM ${ORDER_TABLE} WHERE id=? LIMIT 1`, [id]);
         return { order: orderView(rows[0]), duplicate: false, balance: balance - cache.price };
-      } catch (error) { await connection.rollback().catch(() => {}); throw error; }
+      } catch (error) {
+        await connection.rollback().catch(() => {});
+        if (error.code === 'ER_DUP_ENTRY') {
+          const existing = await existingByNonce(connection, nonce);
+          if (existing && String(existing.discord_user_id) === userId && String(existing.cache_type) === type) return { order: orderView(existing), duplicate: true, balance: null };
+        }
+        throw error;
+      }
     } finally { await connection.end().catch(() => {}); }
   }
 

@@ -105,6 +105,7 @@ async function runDinoCacheCycle({ connector = connectMysql, registry = new ArkC
 }
 
 function installDinoCacheRuntime() {
+  require('./arn-cache-extension.cjs').installArnCacheExtension();
   installArkDinoBoxShopExtension();
   installArkDinoBoxTokenIssuerExtension();
   installArkDinoBoxShopImageExtension();
