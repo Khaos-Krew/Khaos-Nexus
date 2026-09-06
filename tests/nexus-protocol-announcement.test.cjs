@@ -11,10 +11,10 @@ test('banner edit preserves copy, role mention and unrelated attachments without
     embeds: [{ toJSON: () => ({ title: 'NEXUS', description: 'Original copy', fields: [{ name: 'Signal', value: 'Detected' }] }) }],
     edit: async (value) => { payload = value; } };
   const client = { user: { id: 'bot' }, channels: { fetch: async () => ({ messages: { fetch: async (arg) => typeof arg === 'string' ? message : {
-    content: message.content, attachments: { some: (fn) => fn({ name: 'nexus-protocol-banner.png' }) }, embeds: [{ image: { url: 'attachment' } }]
+    content: message.content, attachments: new Map(), embeds: [{ image: { url: 'https://cdn.discordapp.com/attachments/channel/file/nexus-protocol-banner.png' } }]
   } } }) } };
   await updateProtocolAnnouncement(client);
-  assert.equal(payload.content, undefined);
+  assert.equal(payload.content, '<@&123> Nexus');
   assert.equal(payload.embeds[0].description, 'Original copy');
   assert.deepEqual(payload.attachments, [{ id: 'old' }]);
   assert.deepEqual(payload.allowedMentions, { parse: [] });
