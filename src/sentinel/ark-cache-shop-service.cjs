@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const { saddleReward, parseSaddle } = require('./ark-cache-saddles.cjs');
 const { connectMysql } = require('./arkshop-mysql.cjs');
 const { ArkIdentityStore } = require('./ark-identity-store.cjs');
 const { CONFIG, deterministicRng, rollCache } = require('./ark-dino-cache-engine.cjs');
@@ -35,6 +36,7 @@ function orderView(row = {}) {
     discordUserId: String(row.discord_user_id || ''), playerEosId: String(row.player_eos_id || ''), cacheType: String(row.cache_type || ''),
     pointCost: Number(row.nexus_point_cost || 0), species: String(row.species || ''), rarity: String(row.rarity || ''), variant: String(row.variant || ''),
     blueprint: String(row.blueprint || ''), level: Number(row.rolled_level || 0), sex: String(row.sex || ''), state: String(row.state || ''),
+    saddle: parseSaddle(row.saddle_reward), saddleState: row.saddle_state || 'NOT_REQUIRED',
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : '',
     revealedAt: row.revealed_at ? new Date(row.revealed_at).toISOString() : '',
     announcedAt: row.announced_at ? new Date(row.announced_at).toISOString() : '',
@@ -62,6 +64,8 @@ async function ensureRevealColumns(connection) {
   if (stateType && !stateType.includes("'SEALED'")) {
     await connection.query(`ALTER TABLE ${ORDER_TABLE} MODIFY COLUMN state ENUM('SEALED','AWAITING_DELIVERY','DELIVERING','DELIVERED','DELIVERY_FAILED') NOT NULL DEFAULT 'SEALED'`);
   }
+  if (!byName.has('saddle_reward')) await connection.query(`ALTER TABLE ${ORDER_TABLE} ADD COLUMN saddle_reward JSON NULL`);
+  if (!byName.has('saddle_state')) await connection.query(`ALTER TABLE ${ORDER_TABLE} ADD COLUMN saddle_state VARCHAR(24) NOT NULL DEFAULT 'NOT_REQUIRED'`);
   if (!byName.has('revealed_at')) await connection.query(`ALTER TABLE ${ORDER_TABLE} ADD COLUMN revealed_at DATETIME(3) NULL AFTER created_at`);
   if (!byName.has('announced_at')) await connection.query(`ALTER TABLE ${ORDER_TABLE} ADD COLUMN announced_at DATETIME(3) NULL AFTER revealed_at`);
 }
@@ -141,7 +145,7 @@ function committedRoll(cacheId, secret, identity) {
   const rng = deterministicRng(secret, identity);
   const roll = rollCache(cacheId, rng);
   const sex = rng() < 0.5 ? 'female' : 'male';
-  return Object.freeze({ ...roll, sex });
+  return Object.freeze({ ...roll, sex, saddle: saddleReward(roll.species, secret, identity) });
 }
 
 class ArkCacheShopService {
@@ -185,6 +189,7 @@ class ArkCacheShopService {
         const debit = await connection.execute(`UPDATE ${table} SET ${safeName(wallet.pointsColumn)}=${safeName(wallet.pointsColumn)}-? WHERE ${safeName(wallet.idColumn)}=? AND ${safeName(wallet.pointsColumn)}>=?`, [cache.price, account.eosId, cache.price]);
         if (Number(debit?.[0]?.affectedRows || 0) !== 1) throw shopError('POINT_DEBIT_FAILED', 'ArkShop Points changed during checkout; the cache was not purchased.');
         await connection.execute(`INSERT INTO ${ORDER_TABLE} (id, public_cache_id, purchase_nonce, discord_user_id, player_eos_id, cache_type, nexus_point_cost, species, rarity, variant, blueprint, rolled_level, sex, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SEALED')`, [id, publicCacheId, nonce, userId, account.eosId, type, cache.price, roll.species, roll.rarity, roll.variant, roll.blueprint, roll.level, roll.sex]);
+        await connection.execute(`UPDATE ${ORDER_TABLE} SET saddle_reward=?, saddle_state=? WHERE id=?`, [roll.saddle ? JSON.stringify(roll.saddle) : null, roll.saddle ? 'PENDING' : 'NOT_REQUIRED', id]);
         await connection.execute(`INSERT INTO ${EVENT_TABLE} (order_id, event_type, actor_discord_user_id, details) VALUES (?, 'PURCHASE_SEALED', ?, ?)`, [id, userId, `Immutable ${type} cache reward committed and sealed before player reveal.`]);
         await connection.commit();
         const [rows] = await connection.execute(`SELECT * FROM ${ORDER_TABLE} WHERE id=? LIMIT 1`, [id]);

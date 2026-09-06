@@ -160,6 +160,7 @@ class ArkDinoBoxTokenService {
           `INSERT INTO ${ORDER_TABLE} (id, public_cache_id, purchase_nonce, discord_user_id, player_eos_id, cache_type, nexus_point_cost, species, rarity, variant, blueprint, rolled_level, sex, state) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'SEALED')`,
           [orderId, publicCacheId, purchaseNonce, userId, account.eosId, type, roll.species, roll.rarity, roll.variant, roll.blueprint, roll.level, roll.sex]
         );
+        await connection.execute(`UPDATE ${ORDER_TABLE} SET saddle_reward=?, saddle_state=? WHERE id=?`, [roll.saddle ? JSON.stringify(roll.saddle) : null, roll.saddle ? 'PENDING' : 'NOT_REQUIRED', orderId]);
         await connection.execute(
           `INSERT INTO ${EVENT_TABLE} (order_id, event_type, actor_discord_user_id, details) VALUES (?, 'TOKEN_REDEEMED_SEALED', ?, ?)`,
           [orderId, userId, `Single-use ${type} Dino Box token redeemed; immutable reward sealed and zero ArkShop points charged.`]

@@ -234,6 +234,7 @@ function sealedResultPayload(order, balance = null, source = 'ArkShop Points') {
     { name: 'Opened With', value: source, inline: true },
     { name: 'Status', value: '🔒 **SEALED**\nYour exact reward has already been rolled and permanently stored. No creature details are shown until you choose **Reveal Now**.', inline: false }
   ];
+  if (order.saddle) fields.push({name:'Matching Saddle',value:`${titleCase(order.saddle.quality)} • ${order.saddle.species} • ${order.saddleState || 'PENDING'}`,inline:false});
   if (Number.isFinite(balance)) fields.push({ name: 'Remaining ArkShop Points', value: arkShopPoints(balance), inline: false });
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`${REVEAL_PREFIX}${order.id}`).setLabel('Reveal Now').setEmoji('🎁').setStyle(ButtonStyle.Danger),
@@ -264,6 +265,7 @@ function finalResultPayload(order, balance = null, source = '') {
     ...(source ? [{ name: 'Opened With', value: source, inline: true }] : []),
     { name: 'Status', value: '⏳ **Awaiting ARK Delivery**', inline: false }
   ];
+  if (order.saddle) fields.push({name:'Matching Saddle',value:`${titleCase(order.saddle.quality)} • ${order.saddle.species} • ${order.saddleState || 'PENDING'}`,inline:false});
   if (Number.isFinite(balance)) fields.push({ name: 'Remaining ArkShop Points', value: arkShopPoints(balance), inline: false });
   return { embeds: [{ title: `✨ ${m.name} • Revealed`, description: `**${order.species}**\nLevel **${order.level}** • **${variant}** • **${titleCase(order.sex)}**`, color: 0xb00020, fields, footer: { text: 'Stored result revealed • no rerolls • exact reward queued for ARK delivery' } }], components: [], allowedMentions: { parse: [] } };
 }
