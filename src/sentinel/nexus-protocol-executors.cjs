@@ -1,5 +1,7 @@
 'use strict';
 
+const crypto = require('node:crypto');
+
 function token(value, label, pattern = /^[A-Za-z0-9:_-]{1,96}$/) {
   const result = String(value || '').trim();
   if (!pattern.test(result)) throw new Error(`Invalid ${label}`);
@@ -68,6 +70,44 @@ function assertExecutable(plan, options = {}) {
   return true;
 }
 
+function actionFingerprint(protocolId, serverId, action, index) {
+  const body = [protocolId, serverId, index, action.plugin, action.command].join('\u001f');
+  return crypto.createHash('sha256').update(body).digest('hex').slice(0, 24);
+}
+
+function buildExecutionEnvelope(plan, options = {}) {
+  const serverId = token(options.serverId, 'server id', /^[A-Za-z0-9:_-]{2,96}$/);
+  const idempotencyKey = String(options.idempotencyKey || '').trim();
+  assertExecutable(plan, { idempotencyKey });
+
+  const maxActions = Math.max(1, Math.min(20, Number(options.maxActions || 10)));
+  if (plan.actions.length === 0) throw new Error('Protocol execution plan has no actions');
+  if (plan.actions.length > maxActions) throw new Error('Protocol execution plan exceeds action limit');
+
+  const allowedPlugins = new Set(options.allowedPlugins || ['EventCountdown', 'RewardsAscended', 'CousinCustomRates']);
+  for (const action of plan.actions) {
+    if (!allowedPlugins.has(action.plugin)) throw new Error(`Protocol executor plugin is not allowed: ${action.plugin}`);
+  }
+
+  const actions = plan.actions.map((action, index) => Object.freeze({
+    actionId: actionFingerprint(plan.protocolId, serverId, action, index),
+    index,
+    plugin: action.plugin,
+    command: action.command,
+    destructive: action.destructive === true,
+    idempotencyKey: action.requiresIdempotencyKey ? `${idempotencyKey}:${index}` : null
+  }));
+
+  return Object.freeze({
+    version: 1,
+    protocolId: plan.protocolId,
+    serverId,
+    createdAt: plan.createdAt,
+    idempotencyKey: idempotencyKey || null,
+    actions: Object.freeze(actions)
+  });
+}
+
 module.exports = {
   buildEventCountdownReload,
   buildRewardsAscendedReload,
@@ -75,5 +115,6 @@ module.exports = {
   buildCustomRatesReload,
   buildCustomRatesActivate,
   protocolExecutionPlan,
-  assertExecutable
+  assertExecutable,
+  buildExecutionEnvelope
 };
