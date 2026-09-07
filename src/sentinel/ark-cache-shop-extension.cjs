@@ -100,22 +100,23 @@ function catalogEmbed(shopper=null,warning=''){
 }
 
 function activeRarityContext(cache){
-  const rarities=Object.keys(CONFIG.rarityWeights).filter((rarity)=>cache.entries.some((entry)=>entry.rarity===rarity));
-  const total=rarities.reduce((sum,rarity)=>sum+Number(CONFIG.rarityWeights[rarity]||0),0);
-  return{rarities,total};
+  const weights=cache.rarityWeights||CONFIG.rarityWeights;
+  const rarities=Object.keys(weights).filter((rarity)=>cache.entries.some((entry)=>entry.rarity===rarity));
+  const total=rarities.reduce((sum,rarity)=>sum+Number(weights[rarity]||0),0);
+  return{rarities,total,weights};
 }
 
 function raritySummary(cache){
-  const {rarities,total}=activeRarityContext(cache);
-  return rarities.map((rarity)=>`${titleCase(rarity)} ${(Number(CONFIG.rarityWeights[rarity]||0)/total*100).toFixed(1)}%`).join(' • ');
+  const {rarities,total,weights}=activeRarityContext(cache);
+  return rarities.map((rarity)=>`${titleCase(rarity)} ${(Number(weights[rarity]||0)/total*100).toFixed(1)}%`).join(' • ');
 }
 
 function speciesByRarity(cache){
-  const fields=[],{total}=activeRarityContext(cache);
+  const fields=[],{total,weights}=activeRarityContext(cache);
   for(const rarity of Object.keys(CONFIG.rarityWeights)){
     const entries=cache.entries.filter((entry)=>entry.rarity===rarity);
     if(!entries.length)continue;
-    const tierChance=total?Number(CONFIG.rarityWeights[rarity]||0)/total*100:0;
+    const tierChance=total?Number(weights[rarity]||0)/total*100:0;
     const speciesChance=entries.length?tierChance/entries.length:0;
     const text=entries.map((entry)=>{
       const variants=['Normal',...Object.keys(entry.variants||{}).map((v)=>v.toUpperCase())];

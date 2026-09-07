@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { CONFIG } = require('../src/sentinel/ark-dino-cache-engine.cjs');
+const { CONFIG } = require('../src/sentinel/ark-weekly-cache.cjs');
 const {
   CHANNEL_NAME,
   BUY_PREFIX,
