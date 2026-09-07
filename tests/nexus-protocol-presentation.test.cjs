@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { protocolSummary, leaderboardView, darkZoneView, formatDuration } = require('../src/sentinel/nexus-protocol-presentation.cjs');
+const { protocolSummary, leaderboardView, participantProgressView, darkZoneView, formatDuration } = require('../src/sentinel/nexus-protocol-presentation.cjs');
 
 test('protocol summary renders active runs without requiring discord.js', () => {
   const view = protocolSummary({
@@ -16,7 +16,8 @@ test('protocol summary renders active runs without requiring discord.js', () => 
   assert.equal(view.fields.length, 1);
   assert.match(view.fields[0].name, /Anomaly/);
   assert.match(view.fields[0].value, /1m/);
-  assert.equal(view.components.length, 3);
+  assert.equal(view.components.length, 4);
+  assert.equal(view.components[1].customId, 'nexus_protocol_progress');
 });
 
 test('empty Protocol status remains useful', () => {
@@ -31,6 +32,34 @@ test('leaderboard view limits rows and states eligibility rule', () => {
   assert.match(view.title, /Season One/);
   assert.equal(view.description.split('\n').length, 15);
   assert.match(view.footer.text, /eligible/);
+});
+
+test('participant progress view exposes durable aggregate without mutation controls', () => {
+  const view = participantProgressView({
+    runId: 'run1', accountId: 'acct1', activeMinutes: 42, objectiveContribution: 7,
+    killContribution: 3, completed: true, eligible: true, score: 88, rawScore: 88, processedEvents: 6
+  }, { runName: 'Anomaly • Genesis 1' });
+  assert.match(view.title, /Anomaly/);
+  assert.match(view.description, /Protocol Score: \*\*88\*\*/);
+  assert.match(view.description, /Active time: \*\*42m\*\*/);
+  assert.match(view.description, /Processed events: \*\*6\*\*/);
+  assert.equal(view.components, undefined);
+});
+
+test('ineligible participant view preserves raw score and qualification reasons', () => {
+  const view = participantProgressView({
+    runId: 'run2', activeMinutes: 2, eligible: false, score: 0, rawScore: 35,
+    eligibilityReasons: ['minimum_active_minutes', 'completion_presence'], processedEvents: 1
+  });
+  assert.match(view.description, /raw 35/);
+  assert.match(view.description, /Not yet eligible/);
+  assert.match(view.description, /minimum_active_minutes/);
+});
+
+test('empty participant progress remains useful and read-only', () => {
+  const view = participantProgressView({}, { runName: 'Current Protocol' });
+  assert.match(view.description, /No recorded Protocol progress/);
+  assert.match(view.footer.text, /read-only/);
 });
 
 test('Dark Zone view exposes correct controls for safe, enlisted and cooldown states', () => {
