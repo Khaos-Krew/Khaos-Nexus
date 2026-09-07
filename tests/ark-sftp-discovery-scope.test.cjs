@@ -4,6 +4,13 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const { approvedConfigPath, configuredServerRoot } = require('../src/sentinel/ark-config-manager.cjs');
 const { findRemoteFile } = require('../src/sentinel/ark-sftp-discovery.cjs');
+const { configuredShooterGameRoot } = require('../src/sentinel/ark-sftp-diagnostic.cjs');
+
+test('SFTP inventory binds ShooterGame to the configured Citadel service root', () => {
+  assert.equal(configuredShooterGameRoot('/72.46.128.202_8130'), '72.46.128.202_8130/ShooterGame');
+  assert.equal(configuredShooterGameRoot('72.46.128.202_8120/ShooterGame/'), '72.46.128.202_8120/ShooterGame');
+  assert.equal(configuredShooterGameRoot(''), '');
+});
 
 function withEnv(values, fn) {
   const previous = {};

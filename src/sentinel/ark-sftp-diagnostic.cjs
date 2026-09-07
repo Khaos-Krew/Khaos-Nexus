@@ -14,6 +14,12 @@ function safeName(value) {
   return String(value || '').replace(/[\r\n|]/g, '_').slice(0, 140);
 }
 
+function configuredShooterGameRoot(root) {
+  const configured = String(root || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  if (!configured) return '';
+  return configured.toLowerCase().endsWith('/shootergame') ? configured : `${configured}/ShooterGame`;
+}
+
 async function exists(client, remotePath) {
   try { return Boolean(await client.exists(remotePath)); } catch { return false; }
 }
@@ -208,7 +214,8 @@ async function inspectSftpLayout(prefix = 'ARK_GEN1') {
     // Citadel accounts can expose multiple IP_port service folders from one SFTP login.
     console.log(`[Nexus Sentinal] ARK SFTP root candidates: prefix=${prefix} cwd=${safeName(cwd)} roots=${children.join(',') || '(none)'}`);
 
-    const shooterGameRoot = children[0] || (directories.some((name) => name.toLowerCase() === 'shootergame') ? 'ShooterGame' : '');
+    const configuredShooterGame = configuredShooterGameRoot(settings.root);
+    const shooterGameRoot = configuredShooterGame || children[0] || (directories.some((name) => name.toLowerCase() === 'shootergame') ? 'ShooterGame' : '');
     const gusPath = String(process.env[`${prefix}_GUS_PATH`] || '').trim();
     const gamePath = String(process.env[`${prefix}_GAMEINI_PATH`] || '').trim();
     const shopPath = String(process.env[`${prefix}_ARKSHOP_CONFIG_PATH`] || '').trim();
@@ -291,4 +298,4 @@ async function inspectSftpLayout(prefix = 'ARK_GEN1') {
   }
 }
 
-module.exports = { parseCacheKey, safeCacheConfig, sha256RemoteFile, probeSshExecHash, checkCacheMirrors, inspectSftpLayout };
+module.exports = { configuredShooterGameRoot, parseCacheKey, safeCacheConfig, sha256RemoteFile, probeSshExecHash, checkCacheMirrors, inspectSftpLayout };
