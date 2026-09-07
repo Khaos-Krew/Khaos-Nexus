@@ -108,3 +108,27 @@ test('aggregation cannot mix runs or accounts', () => {
     { ...base, runId: 'run2', sourceId: 'evt2' }
   ]), /cannot mix/);
 });
+
+test('progress ledger fails closed at capacity instead of evicting replay history', () => {
+  const ledger = new ProtocolProgressLedger(tempFile(), { maxEvents: 100 });
+  ledger.load();
+  for (let i = 0; i < 100; i += 1) {
+    ledger.append({ runId: 'run-capacity', accountId: 'acct1', sourceId: `evt${i}`, type: 'presence', at: i, activeMinutes: 1 });
+  }
+  assert.equal(ledger.snapshot().events.length, 100);
+  assert.throws(() => ledger.append({ runId: 'run-capacity', accountId: 'acct1', sourceId: 'evt100', type: 'presence', at: 100 }), /capacity exceeded/);
+  assert.equal(ledger.snapshot().events[0].sourceId, 'evt0');
+  assert.equal(ledger.append({ runId: 'run-capacity', accountId: 'acct1', sourceId: 'evt0', type: 'presence', at: 0, activeMinutes: 1 }).inserted, false);
+  assert.throws(() => ledger.append({ runId: 'run-capacity', accountId: 'acct1', sourceId: 'evt0', type: 'presence', at: 0, activeMinutes: 99 }), /Conflicting Protocol progress event replay/);
+});
+
+test('progress ledger refuses to truncate an oversized persisted journal on restart', () => {
+  const file = tempFile();
+  const events = [];
+  for (let i = 0; i < 101; i += 1) {
+    events.push({ runId: 'run-persisted', accountId: 'acct1', sourceId: `evt${i}`, type: 'presence', at: i, activeMinutes: 1 });
+  }
+  fs.writeFileSync(file, JSON.stringify({ version: 1, revision: 1, updatedAt: 2000, events }));
+  const ledger = new ProtocolProgressLedger(file, { maxEvents: 100 });
+  assert.throws(() => ledger.load(), /capacity exceeded/);
+});
