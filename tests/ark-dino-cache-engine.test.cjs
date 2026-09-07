@@ -26,9 +26,10 @@ test('all configured caches are central, bounded, five-minute, and explicitly no
     deepcave: 350,
     apex: 550,
     'fantastical-tames': 400,
-    'bobs-tall-tales': 400
+    'bobs-tall-tales': 400,
+    winged: 300
   });
-  assert.equal(Object.keys(CACHE_POOLS).length, 9);
+  assert.equal(Object.keys(CACHE_POOLS).length, 10);
   for (const pool of Object.values(CACHE_POOLS)) {
     assert.ok(pool.entries.length > 0 && pool.entries.length <= 64, 'cache pools must stay explicitly bounded');
     assert.equal(pool.cooldownMinutes, 5);

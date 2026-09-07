@@ -54,7 +54,11 @@
       {
         "name": "Argentavis",
         "blueprint": "/Game/PrimalEarth/Dinos/Argentavis/Argent_Character_BP.Argent_Character_BP",
-        "rarity": "uncommon"
+        "rarity": "uncommon",
+        "variants": {
+          "x": "/Game/Genesis/Dinos/BiomeVariants/Snow_Argentavis/Snow_Argentavis_Character_BP.Snow_Argentavis_Character_BP",
+          "s": "/SDinoVariants/S-Argentavis/S-Argent_Character_BP.S-Argent_Character_BP"
+        }
       },
       {
         "name": "Quetzal",
@@ -64,6 +68,34 @@
       {
         "name": "Rhyniognatha",
         "blueprint": "/Game/PrimalEarth/Dinos/Rhyniognatha/Rhynio_Character_BP.Rhynio_Character_BP",
+        "rarity": "ultra",
+        "variants": {
+          "s": "/SDinoVariants/S-Rhynio/S-Rhynio_Character_BP.S-Rhynio_Character_BP"
+        }
+      },
+      {
+        "name": "Griffin",
+        "blueprint": "/Game/Mods/Ragnarok/Custom_Assets/Dinos/Griffin/Griffin_Character_BP.Griffin_Character_BP",
+        "rarity": "rare"
+      },
+      {
+        "name": "Fire Wyvern",
+        "blueprint": "/Game/ScorchedEarth/Dinos/Wyvern/Wyvern_Character_BP_Fire.Wyvern_Character_BP_Fire",
+        "rarity": "rare"
+      },
+      {
+        "name": "Lightning Wyvern",
+        "blueprint": "/Game/ScorchedEarth/Dinos/Wyvern/Wyvern_Character_BP_Lightning.Wyvern_Character_BP_Lightning",
+        "rarity": "ultra"
+      },
+      {
+        "name": "Poison Wyvern",
+        "blueprint": "/Game/ScorchedEarth/Dinos/Wyvern/Wyvern_Character_BP_Poison.Wyvern_Character_BP_Poison",
+        "rarity": "rare"
+      },
+      {
+        "name": "Ice Wyvern",
+        "blueprint": "/Game/Mods/Ragnarok/Custom_Assets/Dinos/Wyvern/Wyvern_Character_BP_Ice.Wyvern_Character_BP_Ice",
         "rarity": "ultra"
       }
     ]
@@ -96,10 +128,10 @@
     "winged": {
       "displayName": "Winged Cache",
       "emoji": "🪽",
-      "tagline": "Rideable flyers from quick scouts through the Rhyniognatha chase roll.",
+      "tagline": "Approved ASA flyers from quick scouts through Griffins, Wyverns, and the Rhyniognatha chase roll.",
       "price": 300,
       "cooldownMinutes": 5,
-      "variantWeights": { "normal": 100 },
+      "variantWeights": { "normal": 95, "x": 3.5, "s": 1.5 },
       "groups": ["winged"],
       "itemAliases": ["nexus_cache_winged"],
       "maps": ["*"]

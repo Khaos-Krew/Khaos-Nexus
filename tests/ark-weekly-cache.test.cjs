@@ -31,20 +31,19 @@ test('Winged Cache is ASA-native, sealed-engine compatible, and saddle complete'
   assert.ok(cache);
   assert.equal(cache.price,300);
   assert.equal(cache.cooldownMinutes,5);
-  assert.deepEqual(cache.variantWeights,{normal:100});
-  assert.deepEqual(cache.entries.map(e=>e.name),['Pteranodon','Pelagornis','Tapejara','Argentavis','Quetzal','Rhyniognatha']);
-  assert.ok(cache.entries.every(e=>e.blueprint.startsWith('/Game/PrimalEarth/')));
-  assert.ok(cache.entries.every(e=>Object.keys(e.variants).length===0));
-  assert.equal(/moros|indomitable|indominus|indoraptor|shiny|SDinoVariants|Genesis/i.test(JSON.stringify(cache)),false);
+  assert.deepEqual(cache.variantWeights,{normal:95,x:3.5,s:1.5});
+  assert.deepEqual(cache.entries.map(e=>e.name),['Pteranodon','Pelagornis','Tapejara','Argentavis','Quetzal','Rhyniognatha','Griffin','Fire Wyvern','Lightning Wyvern','Poison Wyvern','Ice Wyvern']);
+  assert.ok(cache.entries.every(e=>e.blueprint.startsWith('/Game/')));
+  assert.equal(/moros|indomitable|indominus|indoraptor|shiny/i.test(JSON.stringify(cache)),false);
   for(const species of ['Pteranodon','Pelagornis','Tapejara','Argentavis','Quetzal']) assert.match(saddleFor(species),/^\/Game\/PrimalEarth\/CoreBlueprints\/Items\/Armor\/Saddles\//);
   assert.equal(saddleFor('Rhyniognatha'),null);
   const rng=deterministicRng(secret,'winged-test');
   for(let i=0;i<1000;i++) {
     const roll=rollCache('winged',rng,CONFIG);
-    assert.equal(roll.variant,'normal');
+    assert.ok(['normal','x','s'].includes(roll.variant));
     assert.equal(roll.shiny,false);
     assert.ok(roll.level>=200&&roll.level<=300);
-    assert.ok(cache.entries.some(e=>e.name===roll.species&&e.blueprint===roll.blueprint));
+    assert.ok(cache.entries.some(e=>e.name===roll.species&&(e.blueprint===roll.blueprint||Object.values(e.variants).includes(roll.blueprint))));
   }
 });
 test('published rotation survives restarts and secret changes; history remains append-only',async()=>{
@@ -57,6 +56,8 @@ test('published rotation survives restarts and secret changes; history remains a
   assert.deepEqual(await loadWeekly(db,'b'.repeat(32),now),first);
   const next=await loadWeekly(db,secret,now+WEEK);
   assert.notEqual(first.id,next.id);assert.equal(records.length,2);
-  records[1].snapshot=records[1].snapshot.replace('2500','2501');
+  const tampered=JSON.parse(records[1].snapshot);
+  tampered.cache.price+=1;
+  records[1].snapshot=JSON.stringify(tampered);
   await assert.rejects(loadWeekly(db,secret,now+WEEK),/integrity/);
 });

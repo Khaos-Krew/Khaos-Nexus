@@ -13,7 +13,7 @@ const ORDER_TABLE = 'nexus_discord_cache_orders';
 const EVENT_TABLE = 'nexus_discord_cache_events';
 const COOLDOWN_TABLE = 'nexus_dino_box_cooldowns';
 const VALID_CACHE_ID = /^[a-z0-9_-]{1,48}$/;
-const ORDER_STATES = Object.freeze(['SEALED', 'AWAITING_DELIVERY', 'DELIVERING', 'DELIVERED', 'DELIVERY_FAILED']);
+const ORDER_STATES = Object.freeze(['SEALED', 'AWAITING_DELIVERY', 'DELIVERING', 'SENT_UNCONFIRMED', 'DELIVERED', 'DELIVERY_FAILED']);
 
 function safeName(value) {
   const name = String(value || '').trim();
@@ -62,8 +62,8 @@ async function ensureRevealColumns(connection) {
   const [columns] = await connection.query(`SELECT COLUMN_NAME, COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?`, [ORDER_TABLE]);
   const byName = new Map(columns.map((row) => [String(row.COLUMN_NAME).toLowerCase(), row]));
   const stateType = String(byName.get('state')?.COLUMN_TYPE || '');
-  if (stateType && !stateType.includes("'SEALED'")) {
-    await connection.query(`ALTER TABLE ${ORDER_TABLE} MODIFY COLUMN state ENUM('SEALED','AWAITING_DELIVERY','DELIVERING','DELIVERED','DELIVERY_FAILED') NOT NULL DEFAULT 'SEALED'`);
+  if (stateType && ORDER_STATES.some((state) => !stateType.includes(`'${state}'`))) {
+    await connection.query(`ALTER TABLE ${ORDER_TABLE} MODIFY COLUMN state ENUM('SEALED','AWAITING_DELIVERY','DELIVERING','SENT_UNCONFIRMED','DELIVERED','DELIVERY_FAILED') NOT NULL DEFAULT 'SEALED'`);
   }
   if (!byName.has('revealed_at')) await connection.query(`ALTER TABLE ${ORDER_TABLE} ADD COLUMN revealed_at DATETIME(3) NULL AFTER created_at`);
   if (!byName.has('announced_at')) await connection.query(`ALTER TABLE ${ORDER_TABLE} ADD COLUMN announced_at DATETIME(3) NULL AFTER revealed_at`);
@@ -76,7 +76,7 @@ async function ensureSchema(connection) {
     discord_user_id VARCHAR(25) NOT NULL, player_eos_id VARCHAR(128) NOT NULL, cache_type VARCHAR(64) NOT NULL,
     nexus_point_cost INT UNSIGNED NOT NULL, species VARCHAR(100) NOT NULL, rarity VARCHAR(16) NOT NULL, variant VARCHAR(16) NOT NULL,
     blueprint VARCHAR(255) NOT NULL, rolled_level SMALLINT UNSIGNED NOT NULL, sex ENUM('male','female') NOT NULL,
-    state ENUM('SEALED','AWAITING_DELIVERY','DELIVERING','DELIVERED','DELIVERY_FAILED') NOT NULL DEFAULT 'SEALED',
+    state ENUM('SEALED','AWAITING_DELIVERY','DELIVERING','SENT_UNCONFIRMED','DELIVERED','DELIVERY_FAILED') NOT NULL DEFAULT 'SEALED',
     delivery_server_id VARCHAR(64) NOT NULL DEFAULT '', delivery_map_name VARCHAR(100) NOT NULL DEFAULT '', delivery_attempts INT UNSIGNED NOT NULL DEFAULT 0,
     failure_class VARCHAR(32) NOT NULL DEFAULT '', error_message VARCHAR(500) NOT NULL DEFAULT '', created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     revealed_at DATETIME(3) NULL, announced_at DATETIME(3) NULL, delivered_at DATETIME(3) NULL,
