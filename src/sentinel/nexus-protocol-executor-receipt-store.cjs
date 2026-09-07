@@ -20,6 +20,11 @@ function finiteNonNegative(value, label) {
   return number;
 }
 
+function normalizedCapacity(value) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 100 && parsed <= 20000 ? parsed : 5000;
+}
+
 function emptyReceiptState() {
   return {
     version: RECEIPT_STORE_VERSION,
@@ -30,6 +35,7 @@ function emptyReceiptState() {
 }
 
 function normalizeReceiptState(input, maxReceipts = 5000) {
+  const capacity = normalizedCapacity(maxReceipts);
   const raw = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
   if (raw.version !== undefined && Number(raw.version) !== RECEIPT_STORE_VERSION) {
     throw new Error('Unsupported Protocol executor receipt store version');
@@ -37,19 +43,20 @@ function normalizeReceiptState(input, maxReceipts = 5000) {
   const receipts = Array.isArray(raw.receipts)
     ? raw.receipts.map((receipt) => normalizeExecutorReceipt(receipt))
     : [];
+  if (receipts.length > capacity) throw new Error('Protocol executor receipt store exceeds safe capacity');
   buildReceiptIndex(receipts);
   return {
     version: RECEIPT_STORE_VERSION,
     revision: Math.floor(finiteNonNegative(raw.revision, 'Protocol receipt store revision')),
     updatedAt: finiteNonNegative(raw.updatedAt, 'Protocol receipt store updated time'),
-    receipts: receipts.slice(-maxReceipts)
+    receipts
   };
 }
 
 class NexusProtocolExecutorReceiptStore {
   constructor(file, options = {}) {
     this.file = path.resolve(file);
-    this.maxReceipts = Math.max(100, Math.min(20000, Number(options.maxReceipts || 5000)));
+    this.maxReceipts = normalizedCapacity(options.maxReceipts ?? 5000);
     this.state = emptyReceiptState();
   }
 
@@ -69,11 +76,13 @@ class NexusProtocolExecutorReceiptStore {
 
   save(now = Date.now()) {
     const updatedAt = finiteNonNegative(now, 'Protocol receipt store save time');
+    if (this.state.receipts.length > this.maxReceipts) {
+      throw new Error('Protocol executor receipt store exceeds safe capacity');
+    }
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
     this.state.version = RECEIPT_STORE_VERSION;
     this.state.revision += 1;
     this.state.updatedAt = updatedAt;
-    this.state.receipts = this.state.receipts.slice(-this.maxReceipts);
     buildReceiptIndex(this.state.receipts);
     const temp = `${this.file}.${process.pid}.${Date.now()}.tmp`;
     fs.writeFileSync(temp, `${JSON.stringify(this.state, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
@@ -95,8 +104,10 @@ class NexusProtocolExecutorReceiptStore {
         throw new Error('Protocol executor idempotency key reused by another action');
       }
     }
+    if (this.state.receipts.length >= this.maxReceipts) {
+      throw new Error('Protocol executor receipt store is full; reconciliation or archival is required');
+    }
     this.state.receipts.push(receipt);
-    this.state.receipts = this.state.receipts.slice(-this.maxReceipts);
     return clone(receipt);
   }
 
