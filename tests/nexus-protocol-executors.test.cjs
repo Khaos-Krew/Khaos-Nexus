@@ -10,7 +10,8 @@ const {
   buildCustomRatesActivate,
   protocolExecutionPlan,
   assertExecutable,
-  buildExecutionEnvelope
+  buildExecutionEnvelope,
+  validateExecutionEnvelope
 } = require('../src/sentinel/nexus-protocol-executors.cjs');
 
 test('plugin executor builders emit only the documented RCON command shapes', () => {
@@ -99,4 +100,61 @@ test('execution envelopes fail closed for dry-run, empty, oversized, or disallow
     actions: Object.freeze([{ plugin: 'UnknownPlugin', command: 'noop', destructive: false }])
   });
   assert.throws(() => buildExecutionEnvelope(disallowed, { serverId: 'map-1' }), /not allowed/);
+});
+
+test('executor-side validation accepts fresh correctly bound envelopes', () => {
+  const plan = protocolExecutionPlan({
+    protocolId: 'alpha_purge',
+    reloadCountdown: true,
+    reward: { eosId: 'EOS_ABC123', rewardId: 'alpha_reward' },
+    createdAt: 1000,
+    dryRun: false
+  });
+  const envelope = buildExecutionEnvelope(plan, {
+    serverId: 'gen1-1',
+    idempotencyKey: 'alpha_purge:run_123'
+  });
+  assert.equal(validateExecutionEnvelope(envelope, { serverId: 'gen1-1', now: 1100 }), true);
+});
+
+test('executor-side validation rejects server mismatch, stale envelopes, and tampering', () => {
+  const plan = protocolExecutionPlan({
+    protocolId: 'community',
+    reloadRates: true,
+    createdAt: 1000,
+    dryRun: false
+  });
+  const envelope = buildExecutionEnvelope(plan, { serverId: 'gen1-1' });
+  assert.throws(() => validateExecutionEnvelope(envelope, { serverId: 'astraeos-1', now: 1100 }), /server mismatch/);
+  assert.throws(() => validateExecutionEnvelope(envelope, { serverId: 'gen1-1', now: 1000000, maxAgeMs: 1000 }), /stale/);
+
+  const tampered = {
+    ...envelope,
+    actions: [{ ...envelope.actions[0], command: 'CousinCustomRates.Reload;quit' }]
+  };
+  assert.throws(() => validateExecutionEnvelope(tampered, { serverId: 'gen1-1', now: 1100 }), /invalid action/);
+});
+
+test('executor-side validation rejects broken action identity and idempotency bindings', () => {
+  const plan = protocolExecutionPlan({
+    protocolId: 'alpha_purge',
+    reward: { eosId: 'EOS_ABC123', rewardId: 'alpha_reward' },
+    createdAt: 1000,
+    dryRun: false
+  });
+  const envelope = buildExecutionEnvelope(plan, {
+    serverId: 'gen1-1',
+    idempotencyKey: 'alpha_purge:run_123'
+  });
+  const badIdentity = {
+    ...envelope,
+    actions: [{ ...envelope.actions[0], actionId: '000000000000000000000000' }]
+  };
+  assert.throws(() => validateExecutionEnvelope(badIdentity, { serverId: 'gen1-1', now: 1100 }), /identity mismatch/);
+
+  const badIdempotency = {
+    ...envelope,
+    actions: [{ ...envelope.actions[0], idempotencyKey: 'wrong:binding' }]
+  };
+  assert.throws(() => validateExecutionEnvelope(badIdempotency, { serverId: 'gen1-1', now: 1100 }), /idempotency binding/);
 });
