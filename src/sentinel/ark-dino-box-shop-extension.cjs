@@ -170,7 +170,7 @@ function cacheDetailPayload(cacheId) {
     { name: '⏱️ Cooldown', value: `**${cooldownLabel(cache)}**`, inline: true },
     { name: '🎲 Rarity Odds', value: raritySummary(cache), inline: false },
     ...speciesFields,
-    { name: '🧬 Variant Odds', value: `${variantTable(cache)}\n*Only approved variants supported by the selected species participate; unavailable X/S weights are re-normalized.*`, inline: false },
+    { name: '🧬 Variant Odds', value: `${variantTable(cache)}\n*Only approved variants supported by the selected species participate. Wyverns use their own 60% Vanilla / 20% S / 20% Runic table.*`, inline: false },
     { name: '📈 Level Odds', value: levelTable(), inline: false },
     { name: '⚥ Sex', value: 'Male **50%** • Female **50%** where applicable', inline: true },
     { name: '🔒 Purchase & Reveal', value: 'The complete reward is rolled and stored **at purchase time**, then remains hidden and **SEALED**. Delivery cannot start until you press **Reveal Now**. Reveal only exposes the saved result—there is no second RNG roll.', inline: false }

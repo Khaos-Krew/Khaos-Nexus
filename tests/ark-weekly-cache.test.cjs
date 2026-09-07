@@ -34,13 +34,17 @@ test('Winged Cache is ASA-native, sealed-engine compatible, and saddle complete'
   assert.deepEqual(cache.variantWeights,{normal:95,x:3.5,s:1.5});
   assert.deepEqual(cache.entries.map(e=>e.name),['Pteranodon','Pelagornis','Tapejara','Argentavis','Quetzal','Rhyniognatha','Griffin','Fire Wyvern','Lightning Wyvern','Poison Wyvern','Ice Wyvern']);
   assert.ok(cache.entries.every(e=>e.blueprint.startsWith('/Game/')));
+  const wyverns=cache.entries.filter(e=>e.name.endsWith('Wyvern'));
+  assert.equal(wyverns.length,4);
+  assert.ok(wyverns.every(e=>JSON.stringify(e.variantWeights)===JSON.stringify({normal:60,s:20,runic:20})));
+  assert.ok(wyverns.every(e=>e.variants.s.startsWith('/SDinoVariants/')&&e.variants.runic.startsWith('/RunicWyverns/DinoEntries/')));
   assert.equal(/moros|indomitable|indominus|indoraptor|shiny/i.test(JSON.stringify(cache)),false);
   for(const species of ['Pteranodon','Pelagornis','Tapejara','Argentavis','Quetzal']) assert.match(saddleFor(species),/^\/Game\/PrimalEarth\/CoreBlueprints\/Items\/Armor\/Saddles\//);
   assert.equal(saddleFor('Rhyniognatha'),null);
   const rng=deterministicRng(secret,'winged-test');
   for(let i=0;i<1000;i++) {
     const roll=rollCache('winged',rng,CONFIG);
-    assert.ok(['normal','x','s'].includes(roll.variant));
+    assert.ok(['normal','x','s','runic'].includes(roll.variant));
     assert.equal(roll.shiny,false);
     assert.ok(roll.level>=200&&roll.level<=300);
     assert.ok(cache.entries.some(e=>e.name===roll.species&&(e.blueprint===roll.blueprint||Object.values(e.variants).includes(roll.blueprint))));

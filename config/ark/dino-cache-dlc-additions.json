@@ -81,22 +81,42 @@
       {
         "name": "Fire Wyvern",
         "blueprint": "/Game/ScorchedEarth/Dinos/Wyvern/Wyvern_Character_BP_Fire.Wyvern_Character_BP_Fire",
-        "rarity": "rare"
+        "rarity": "rare",
+        "variants": {
+          "s": "/SDinoVariants/S-Wyvern/S-Wyvern_Character_BP_Fire.S-Wyvern_Character_BP_Fire",
+          "runic": "/RunicWyverns/DinoEntries/RunicFlameWyvern/Runic_Wyvern_Character_BP_Flame-V2.Runic_Wyvern_Character_BP_Flame-V2"
+        },
+        "variantWeights": { "normal": 60, "s": 20, "runic": 20 }
       },
       {
         "name": "Lightning Wyvern",
         "blueprint": "/Game/ScorchedEarth/Dinos/Wyvern/Wyvern_Character_BP_Lightning.Wyvern_Character_BP_Lightning",
-        "rarity": "ultra"
+        "rarity": "ultra",
+        "variants": {
+          "s": "/SDinoVariants/S-Wyvern/S-Wyvern_Character_BP_Lightning.S-Wyvern_Character_BP_Lightning",
+          "runic": "/RunicWyverns/DinoEntries/RunicSparkWyvern/Runic_Wyvern_Character_BP_Spark-V2.Runic_Wyvern_Character_BP_Spark-V2"
+        },
+        "variantWeights": { "normal": 60, "s": 20, "runic": 20 }
       },
       {
         "name": "Poison Wyvern",
         "blueprint": "/Game/ScorchedEarth/Dinos/Wyvern/Wyvern_Character_BP_Poison.Wyvern_Character_BP_Poison",
-        "rarity": "rare"
+        "rarity": "rare",
+        "variants": {
+          "s": "/SDinoVariants/S-Wyvern/S-Wyvern_Character_BP_Poison.S-Wyvern_Character_BP_Poison",
+          "runic": "/RunicWyverns/DinoEntries/RunicVenomWyvern/Runic_Wyvern_Character_BP_Venom-V2.Runic_Wyvern_Character_BP_Venom-V2"
+        },
+        "variantWeights": { "normal": 60, "s": 20, "runic": 20 }
       },
       {
         "name": "Ice Wyvern",
         "blueprint": "/Game/Mods/Ragnarok/Custom_Assets/Dinos/Wyvern/Wyvern_Character_BP_Ice.Wyvern_Character_BP_Ice",
-        "rarity": "ultra"
+        "rarity": "ultra",
+        "variants": {
+          "s": "/SDinoVariants/S-IceWyvern/S-Wyvern_Character_BP_Ice.S-Wyvern_Character_BP_Ice",
+          "runic": "/RunicWyverns/DinoEntries/RunicGlacialWyvern/Runic_Wyvern_Character_BP_Glacial-V2.Runic_Wyvern_Character_BP_Glacial-V2"
+        },
+        "variantWeights": { "normal": 60, "s": 20, "runic": 20 }
       }
     ]
   },

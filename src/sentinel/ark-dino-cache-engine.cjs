@@ -6,7 +6,7 @@ const crypto = require('node:crypto');
 
 const DEFAULT_CONFIG_PATH = path.resolve(__dirname, '../../config/ark/dino-caches.json');
 const DEFAULT_DLC_CONFIG_PATH = path.resolve(__dirname, '../../config/ark/dino-cache-dlc-additions.json');
-const VALID_VARIANTS = Object.freeze(['normal', 'x', 's']);
+const VALID_VARIANTS = Object.freeze(['normal', 'x', 's', 'runic']);
 const object = (value) => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 
 function weights(value, label) {
@@ -17,7 +17,7 @@ function weights(value, label) {
 
 function blueprint(value, label) {
   const result = String(value || '').trim();
-  if (!/^\/(?:Game|SDinoVariants)\/[A-Za-z0-9_./-]{8,220}$/.test(result)) throw new Error(`${label} has an invalid blueprint path.`);
+  if (!/^\/(?:Game|SDinoVariants|RunicWyverns)\/[A-Za-z0-9_./-]{8,220}$/.test(result)) throw new Error(`${label} has an invalid blueprint path.`);
   return result;
 }
 
@@ -58,7 +58,7 @@ function loadDinoCacheConfig(file = process.env.NEXUS_DINO_CACHE_CONFIG || DEFAU
   if (levelBuckets.length !== expected.length || levelBuckets.some((bucket, index) => bucket.min !== expected[index][0] || bucket.max !== expected[index][1] || bucket.weight !== expected[index][2])) throw new Error('Dino Cache level buckets must match the approved 200-300 distribution exactly.');
   const rarityWeights = weights(raw.rarityWeights, 'Dino Cache rarity weights');
   const variantWeights = weights(raw.variantWeights, 'Dino Cache variant weights');
-  if (Object.keys(variantWeights).some((variant) => !VALID_VARIANTS.includes(variant))) throw new Error('Only Normal, X, and S dino variants are supported.');
+  if (Object.keys(variantWeights).some((variant) => !VALID_VARIANTS.includes(variant))) throw new Error('Only approved Normal, X, S, and Runic dino variants are supported.');
 
   const groups = {};
   for (const [groupId, entries] of Object.entries(object(raw.groups))) {
@@ -73,7 +73,10 @@ function loadDinoCacheConfig(file = process.env.NEXUS_DINO_CACHE_CONFIG || DEFAU
       }
       const rarity = String(entry.rarity || '').toLowerCase();
       if (!Object.hasOwn(rarityWeights, rarity)) throw new Error(`${entry.name} has an unweighted rarity.`);
-      return Object.freeze({ name: String(entry.name || '').trim().slice(0, 100), blueprint: blueprint(entry.blueprint, entry.name || groupId), rarity, variants: Object.freeze(variants) });
+      const entryVariantWeights = entry.variantWeights ? weights(entry.variantWeights, `${entry.name} variant weights`) : null;
+      if (entryVariantWeights && Object.keys(entryVariantWeights).some((variant) => !VALID_VARIANTS.includes(variant))) throw new Error(`${entry.name} contains an unsupported variant weight.`);
+      if (entryVariantWeights && Object.keys(entryVariantWeights).some((variant) => variant !== 'normal' && !Object.hasOwn(variants, variant))) throw new Error(`${entry.name} weights an unavailable variant.`);
+      return Object.freeze({ name: String(entry.name || '').trim().slice(0, 100), blueprint: blueprint(entry.blueprint, entry.name || groupId), rarity, variants: Object.freeze(variants), variantWeights: entryVariantWeights });
     }));
   }
 
@@ -172,7 +175,7 @@ function rollCache(cacheId, rngInput, config = CONFIG) {
   const rng = normalizeRng(rngInput);
   const species = rollSpecies(pool, rng, pool.rarityWeights ? { ...config, rarityWeights:pool.rarityWeights } : config);
   const level = rollLevel(rng, config);
-  const variant = rollVariant(species, pool.variantWeights || config.variantWeights, rng);
+  const variant = rollVariant(species, species.variantWeights || pool.variantWeights || config.variantWeights, rng);
   return Object.freeze({ cacheId: id, price: pool.price, species: species.name, blueprint: variant.blueprint, rarity: species.rarity, level, variantRequested: variant.requested, variant: variant.applied, variantFallback: false, shiny: false, jackpot: variant.applied === 'normal' ? 'normal' : 'variant' });
 }
 

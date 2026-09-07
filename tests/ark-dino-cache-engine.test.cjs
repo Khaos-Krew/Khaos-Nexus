@@ -47,6 +47,9 @@ test('variant selection only considers variants the selected creature supports',
   const trike = CACHE_POOLS.coastal.entries.find((entry) => entry.name === 'Trike');
   assert.equal(rollVariant(trike, { normal: 0, x: 1, s: 0 }, () => 0).applied, 'x');
   assert.equal(rollVariant(trike, { normal: 0, x: 0, s: 1 }, () => 0).applied, 's');
+  const fireWyvern = CACHE_POOLS.winged.entries.find((entry) => entry.name === 'Fire Wyvern');
+  assert.equal(rollVariant(fireWyvern, fireWyvern.variantWeights, () => 0.60).applied, 's');
+  assert.equal(rollVariant(fireWyvern, fireWyvern.variantWeights, () => 0.80).applied, 'runic');
 });
 
 test('a stable purchase identity produces a deterministic, deliverable roll', () => {
