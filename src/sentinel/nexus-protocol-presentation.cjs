@@ -42,6 +42,7 @@ function protocolSummary(snapshot = {}, options = {}) {
     footer: { text: `Protocol store revision ${Number(snapshot.revision || 0)}` },
     components: [
       { type: 'button', customId: 'nexus_protocol_refresh', label: 'Refresh', style: 'secondary' },
+      { type: 'button', customId: 'nexus_protocol_progress', label: 'My Progress', style: 'primary' },
       { type: 'button', customId: 'nexus_protocol_leaderboard', label: 'Protocol Score', style: 'secondary' },
       { type: 'button', customId: 'nexus_protocol_dark_zone', label: 'Dark Zone', style: 'secondary' }
     ]
@@ -55,6 +56,36 @@ function leaderboardView(snapshot = {}, seasonId, rows = []) {
     title: `Nexus Protocol Score • ${clean(season?.name || seasonId || 'Season', 80)}`,
     description: lines.length ? lines.join('\n') : 'No eligible Protocol Score entries yet.',
     footer: { text: 'Only eligible completed participation records count toward seasonal Protocol Score.' }
+  };
+}
+
+function participantProgressView(participant = {}, options = {}) {
+  const runName = clean(options.runName || participant.runId || 'Current Protocol', 80);
+  if (!participant || !participant.runId) {
+    return {
+      title: `Nexus Protocol • ${runName}`,
+      description: 'No recorded Protocol progress for this operation yet.',
+      footer: { text: 'Progress is read-only here and is calculated from the durable Protocol event ledger.' }
+    };
+  }
+  const eligible = participant.eligible === true;
+  const reasons = Array.isArray(participant.eligibilityReasons)
+    ? participant.eligibilityReasons.map((reason) => clean(reason, 80)).filter(Boolean)
+    : [];
+  const lines = [
+    `Protocol Score: **${Number(participant.score || 0)}**${eligible ? '' : ` (raw ${Number(participant.rawScore || 0)})`}`,
+    `Eligibility: **${eligible ? 'Eligible' : 'Not yet eligible'}**`,
+    `Active time: **${Number(participant.activeMinutes || 0)}m**`,
+    `Objective contribution: **${Number(participant.objectiveContribution || 0)}**`,
+    `Kill contribution: **${Number(participant.killContribution || 0)}**`,
+    `Processed events: **${Number(participant.processedEvents || 0)}**`
+  ];
+  if (!eligible && reasons.length) lines.push(`Needs: ${reasons.join(', ')}`);
+  if (participant.completed) lines.push('Completion recorded: **Yes**');
+  return {
+    title: `Nexus Protocol • ${runName}`,
+    description: lines.join('\n'),
+    footer: { text: 'Progress is read-only here and is calculated from the durable Protocol event ledger.' }
   };
 }
 
@@ -83,4 +114,4 @@ function darkZoneView(record = {}, options = {}) {
   };
 }
 
-module.exports = { formatState, formatDuration, protocolSummary, leaderboardView, darkZoneView };
+module.exports = { formatState, formatDuration, protocolSummary, leaderboardView, participantProgressView, darkZoneView };
