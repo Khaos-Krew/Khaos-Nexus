@@ -17,7 +17,7 @@ function generateRotation(now, secret, previous = []) {
   const candidates = Object.values(BASE.groups).flat().filter(e=>allowed(e) && !seen.has(e.name) && seen.add(e.name));
   const sorted = candidates.map(entry=>({ entry, score:rng(), old:old.has(entry.name) })).sort((a,b)=>Number(a.old)-Number(b.old)||a.score-b.score);
   if (sorted.length < 8) throw new Error('Weekly cache needs eight approved ASA creatures.');
-  return { id:String(startsAt), startsAt, endsAt:startsAt+WEEK, cache:{ price:2500, cooldownMinutes:5, cooldownHours:1/12,
+  return { id:String(startsAt), startsAt, endsAt:startsAt+WEEK, cache:{ price:900, cooldownMinutes:5, cooldownHours:1/12,
     displayName:'Weekly Featured Cache', emoji:'🗓️', tagline:'Eight approved ASA creatures. A new lineup every Monday at 00:00 UTC.',
     entries:sorted.slice(0,8).map(x=>x.entry), variantWeights:BASE.variantWeights, rarityWeights:{ common:35, uncommon:35, rare:25, ultra:5 },
     rotationId:String(startsAt), resetsAt:startsAt+WEEK, maps:['*'], groups:[], itemAliases:[] } };
