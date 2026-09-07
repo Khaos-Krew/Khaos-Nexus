@@ -36,6 +36,25 @@ function snapshot() {
   };
 }
 
+function seasonModel() {
+  return {
+    version: 1,
+    seasonId: 'current',
+    seasonName: 'Current',
+    status: 'active',
+    storeRevision: 4,
+    checkpointCount: 2,
+    eventCount: 12,
+    participantCount: 5,
+    scoreFinalized: false,
+    leaderboard: [],
+    rewardPlanningEligible: false,
+    executesRewards: false,
+    mutatesPersistence: false,
+    readOnly: true
+  };
+}
+
 test('controller selects the currently active season and builds read-only views', () => {
   const state = snapshot();
   assert.equal(activeSeason(state, 200).id, 'current');
@@ -47,6 +66,26 @@ test('controller selects the currently active season and builds read-only views'
   });
   assert.equal(leaderboard.ephemeral, true);
   assert.match(leaderboard.payload.title, /Current/);
+});
+
+test('season read action is ephemeral and consumes only the read-only season model', () => {
+  const view = readProtocolAction(ACTIONS.SEASON, {
+    snapshot: snapshot(),
+    seasonModel: seasonModel()
+  });
+  assert.equal(view.kind, 'view');
+  assert.equal(view.ephemeral, true);
+  assert.match(view.payload.title, /Current/);
+  assert.match(view.payload.description, /Checkpointed runs: \*\*2\*\*/);
+  assert.equal(view.payload.components, undefined);
+});
+
+test('season read action rejects missing or mutation-capable models', () => {
+  assert.throws(() => readProtocolAction(ACTIONS.SEASON, { snapshot: snapshot() }), /requires a season read model/);
+  assert.throws(() => readProtocolAction(ACTIONS.SEASON, {
+    snapshot: snapshot(),
+    seasonModel: { ...seasonModel(), mutatesPersistence: true }
+  }), /Invalid Protocol season read model/);
 });
 
 test('player progress read action is ephemeral and accepts durable participant aggregates', () => {
