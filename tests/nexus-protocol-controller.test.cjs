@@ -49,6 +49,28 @@ test('controller selects the currently active season and builds read-only views'
   assert.match(leaderboard.payload.title, /Current/);
 });
 
+test('player progress read action is ephemeral and accepts durable participant aggregates', () => {
+  const view = readProtocolAction(ACTIONS.PROGRESS, {
+    snapshot: snapshot(),
+    runName: 'Dark Zone • Ragnarok',
+    participant: {
+      runId: 'run-dark-1', accountId: 'acct1', activeMinutes: 20,
+      objectiveContribution: 4, killContribution: 2, eligible: true,
+      score: 65, rawScore: 65, processedEvents: 5
+    }
+  });
+  assert.equal(view.kind, 'view');
+  assert.equal(view.ephemeral, true);
+  assert.match(view.payload.title, /Dark Zone/);
+  assert.match(view.payload.description, /Protocol Score: \*\*65\*\*/);
+});
+
+test('missing player progress returns a safe empty read model', () => {
+  const view = readProtocolAction(ACTIONS.PROGRESS, { snapshot: snapshot(), runName: 'Current Protocol' });
+  assert.equal(view.ephemeral, true);
+  assert.match(view.payload.description, /No recorded Protocol progress/);
+});
+
 test('missing Dark Zone state resolves to protected SAFE without mutating persistence', () => {
   const state = snapshot();
   const record = accountDarkZone(state, 'acct1', 1000);
