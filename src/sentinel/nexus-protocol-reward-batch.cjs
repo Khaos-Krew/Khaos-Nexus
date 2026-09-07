@@ -16,18 +16,28 @@ function canonicalRewardEntries(plans = []) {
     }
     if (item.plan.actions.length !== 1) throw new Error('Protocol reward batch plan must contain exactly one action');
     const action = item.plan.actions[0];
-    if (action.plugin !== 'RewardsAscended' || action.destructive !== true
-      || !/^RA\.Reward [A-Za-z0-9_-]{4,96} [A-Za-z0-9:_-]{1,96}$/.test(String(action.command || ''))) {
+    const command = String(action?.command || '');
+    const match = command.match(/^RA\.Reward ([A-Za-z0-9_-]{4,96}) ([A-Za-z0-9:_-]{1,96})$/);
+    if (action?.plugin !== 'RewardsAscended' || action.destructive !== true || !match) {
       throw new Error('Protocol reward batch contains an invalid RewardsAscended action');
     }
+
+    const rewardId = cleanToken(item.rewardId, 'reward id', /^[A-Za-z0-9:_-]{1,96}$/);
+    if (match[2] !== rewardId) throw new Error('Protocol reward batch reward id does not match command');
+    const rank = Number(item.rank);
+    const score = Number(item.score);
+    if (!Number.isFinite(rank) || rank < 1 || Math.floor(rank) !== rank) throw new Error('Invalid Protocol reward rank');
+    if (!Number.isFinite(score) || score < 0 || Math.floor(score) !== score) throw new Error('Invalid Protocol reward score');
+
     return {
       accountId: cleanToken(item.accountId, 'reward account id', /^[A-Za-z0-9:_-]{1,96}$/),
-      rank: Math.max(1, Math.floor(Number(item.rank))),
-      score: Math.max(0, Math.floor(Number(item.score) || 0)),
-      rewardId: cleanToken(item.rewardId, 'reward id', /^[A-Za-z0-9:_-]{1,96}$/),
+      rank,
+      score,
+      rewardId,
+      eosId: match[1],
       protocolId: cleanToken(item.plan.protocolId, 'protocol id'),
       createdAt: Number(item.plan.createdAt),
-      command: action.command
+      command
     };
   }).sort((a, b) => a.rank - b.rank || a.accountId.localeCompare(b.accountId));
 
@@ -74,7 +84,10 @@ function verifyRewardBatchManifest(manifest) {
       sealDigest: String(manifest.sealDigest).toLowerCase(),
       createdAt: Number(manifest.createdAt),
       entries: canonicalRewardEntries((manifest.entries || []).map((entry) => ({
-        ...entry,
+        accountId: entry.accountId,
+        rank: entry.rank,
+        score: entry.score,
+        rewardId: entry.rewardId,
         plan: {
           dryRun: true,
           protocolId: entry.protocolId,
