@@ -159,12 +159,16 @@ class ProtocolProgressLedger {
     if (!fs.existsSync(this.file)) return this.snapshot();
     const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'));
     if (Number(raw.version) !== PROGRESS_VERSION) throw new Error('Unsupported Protocol progress ledger version');
-    const deduped = dedupeProgressEvents(Array.isArray(raw.events) ? raw.events : []);
+    const rawEvents = Array.isArray(raw.events) ? raw.events : [];
+    const deduped = dedupeProgressEvents(rawEvents);
+    if (deduped.length > this.maxEvents) {
+      throw new Error('Protocol progress ledger capacity exceeded; archival or reconciliation is required');
+    }
     this.state = {
       version: PROGRESS_VERSION,
       revision: Math.max(0, Math.floor(Number(raw.revision) || 0)),
       updatedAt: Math.max(0, Number(raw.updatedAt) || 0),
-      events: deduped.slice(-this.maxEvents)
+      events: deduped
     };
     this.ids = new Set(this.state.events.map((event) => event.id));
     this.fingerprints = new Map(this.state.events.map((event) => [event.id, progressEventFingerprint(event)]));
@@ -178,14 +182,12 @@ class ProtocolProgressLedger {
       if (this.fingerprints.get(event.id) !== fingerprint) throw new Error('Conflicting Protocol progress event replay');
       return { inserted: false, event: { ...event } };
     }
+    if (this.state.events.length >= this.maxEvents) {
+      throw new Error('Protocol progress ledger capacity exceeded; archival or reconciliation is required');
+    }
     this.state.events.push(event);
     this.ids.add(event.id);
     this.fingerprints.set(event.id, fingerprint);
-    if (this.state.events.length > this.maxEvents) {
-      this.state.events = this.state.events.slice(-this.maxEvents);
-      this.ids = new Set(this.state.events.map((item) => item.id));
-      this.fingerprints = new Map(this.state.events.map((item) => [item.id, progressEventFingerprint(item)]));
-    }
     return { inserted: true, event: { ...event } };
   }
 
