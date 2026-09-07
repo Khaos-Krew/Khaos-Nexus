@@ -252,7 +252,16 @@ class ArkClusterRegistry {
     if (!enabled && !hasEndpoint) return { skipped: 'unconfigured' };
     const id = cleanId(defaults.id || prefix.replace(/^ARK_/i, '').toLowerCase());
     const existing = this.get(id);
-    if (existing) return { existing: true, record: existing };
+    if (existing) {
+      // Railway is the authority for whether a configured server participates in
+      // the live cluster. Reconcile a persisted disabled record on every boot so
+      // an intentional ARK_<MAP>_ENABLED change is not ignored forever.
+      if (existing.enabled !== enabled) {
+        const record = this.upsert({ ...existing, enabled });
+        return { existing: true, reconciled: true, record };
+      }
+      return { existing: true, record: existing };
+    }
     const record = this.upsert({
       id,
       envPrefix: prefix,

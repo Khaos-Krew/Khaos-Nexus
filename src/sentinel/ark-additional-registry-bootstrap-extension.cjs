@@ -71,7 +71,7 @@ function bootstrapAdditionalArkServers(registry = new ArkClusterRegistry(), env 
 
 function formatBootstrapResult(item) {
   if (item.created) return `${item.prefix}:created=${item.record.id}:enabled=${item.record.enabled}`;
-  if (item.existing) return `${item.prefix}:existing=${item.record.id}:enabled=${item.record.enabled}`;
+  if (item.existing) return `${item.prefix}:${item.reconciled ? 'reconciled' : 'existing'}=${item.record.id}:enabled=${item.record.enabled}`;
   return `${item.prefix}:skipped=${item.skipped || 'unknown'}`;
 }
 

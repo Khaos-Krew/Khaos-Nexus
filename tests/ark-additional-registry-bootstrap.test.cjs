@@ -107,6 +107,29 @@ test('MAP2 with an endpoint is registered but remains disabled when explicitly d
   });
 });
 
+test('existing MAP2 enabled state is reconciled from Railway on startup', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-map2-reconcile-'));
+  const registry = new ArkClusterRegistry(dir);
+  withEnv({
+    ARK_SERVER_PREFIXES: '',
+    ARK_MAP2_ENABLED: 'false',
+    ARK_MAP2_SFTP_HOST: '127.0.0.3'
+  }, () => bootstrapAdditionalArkServers(registry));
+
+  withEnv({
+    ARK_SERVER_PREFIXES: '',
+    ARK_MAP2_ENABLED: 'true',
+    ARK_MAP2_SFTP_HOST: '127.0.0.3'
+  }, () => {
+    const result = bootstrapAdditionalArkServers(registry);
+    assert.equal(result[0].existing, true);
+    assert.equal(result[0].reconciled, true);
+    assert.equal(result[0].record.enabled, true);
+    assert.match(formatBootstrapResult(result[0]), /reconciled=map2:enabled=true/);
+    assert.equal(registry.list({ includeDisabled: false }).length, 1);
+  });
+});
+
 test('additional registry bootstrap is coordinated instead of adding a direct ClientReady listener', () => {
   resetStartupCoordinatorForTests();
   installArkAdditionalRegistryBootstrapExtension();
