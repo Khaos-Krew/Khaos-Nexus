@@ -248,6 +248,9 @@ async function inspectSftpLayout(prefix = 'ARK_GEN1') {
     };
 
     if (arkApiPath) {
+      const pluginEntries = await listDirectoryNames(client, pluginsPath, 80);
+      framework.pluginEntries = pluginEntries;
+      console.log(`[Nexus Sentinal] ASA API plugins: prefix=${prefix} path=${safeName(pluginsPath)} entries=${pluginEntries.join(',') || '(none)'}`);
       console.log(`[Nexus Sentinal] ASA API cache: cacheDir=${Boolean(framework.cacheDirectory)} keyHash=${framework.cacheKey.hash || 'missing'} generation=${framework.cacheKey.cacheDirectory || 'none'} autoDownload=${String(framework.automaticCacheDownload.enabled)} cacheEntries=${framework.cacheEntries.join(',') || '(none)'} activeEntries=${framework.activeCacheEntries.join(',') || '(none)'} mirrors=${framework.automaticCacheDownload.urls.join(',') || '(none)'}`);
     }
 
@@ -280,7 +283,7 @@ async function inspectSftpLayout(prefix = 'ARK_GEN1') {
       arkApiPath,
       framework,
       pluginsPath,
-      plugins: pluginsPath ? await listDirectoryNames(client, pluginsPath, 80) : [],
+      plugins: framework.pluginEntries || [],
       arkShopEntries: shooterGameRoot ? await listDirectoryNames(client, `${shooterGameRoot}/Binaries/Win64/ArkApi/Plugins/ArkShop`, 80) : []
     };
   } finally {
