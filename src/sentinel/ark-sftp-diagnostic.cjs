@@ -204,6 +204,10 @@ async function inspectSftpLayout(prefix = 'ARK_GEN1') {
       if (nestedDirs.some((name) => name.toLowerCase() === 'shootergame')) children.push(`${directory}/ShooterGame`);
     }
 
+    // Emit bounded service-root candidates before any large executable hash probe.
+    // Citadel accounts can expose multiple IP_port service folders from one SFTP login.
+    console.log(`[Nexus Sentinal] ARK SFTP root candidates: prefix=${prefix} cwd=${safeName(cwd)} roots=${children.join(',') || '(none)'}`);
+
     const shooterGameRoot = children[0] || (directories.some((name) => name.toLowerCase() === 'shootergame') ? 'ShooterGame' : '');
     const gusPath = String(process.env[`${prefix}_GUS_PATH`] || '').trim();
     const gamePath = String(process.env[`${prefix}_GAMEINI_PATH`] || '').trim();
