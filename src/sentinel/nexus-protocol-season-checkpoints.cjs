@@ -19,6 +19,19 @@ function digest(value) {
   return crypto.createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
 }
 
+function normalizeExpectedRunIds(values, required = false) {
+  if (values === undefined || values === null) {
+    if (required) throw new Error('Closed Protocol season checkpoint manifest requires expected run ids');
+    return null;
+  }
+  if (!Array.isArray(values) || values.length === 0) {
+    throw new Error('Protocol season expected run ids must be a non-empty array');
+  }
+  const ids = values.map((value) => cleanId(value, 'expected protocol run id'));
+  if (new Set(ids).size !== ids.length) throw new Error('Duplicate expected Protocol run id');
+  return ids.sort((a, b) => a.localeCompare(b));
+}
+
 function createSeasonCheckpointManifest(season, checkpoints = [], options = {}) {
   if (!season || !['active', 'closed'].includes(String(season.status || ''))) {
     throw new Error('Protocol season checkpoint manifest requires active or closed season');
@@ -30,6 +43,7 @@ function createSeasonCheckpointManifest(season, checkpoints = [], options = {}) 
   const seasonId = cleanId(season.id, 'season id');
   const storeRevision = Number(options.storeRevision);
   if (!Number.isSafeInteger(storeRevision) || storeRevision < 0) throw new Error('Invalid Protocol store revision');
+  const expectedRunIds = normalizeExpectedRunIds(options.expectedRunIds, season.status === 'closed');
 
   const runIds = new Set();
   const checkpointDigests = new Set();
@@ -50,11 +64,20 @@ function createSeasonCheckpointManifest(season, checkpoints = [], options = {}) 
     };
   }).sort((a, b) => a.runId.localeCompare(b.runId));
 
+  if (expectedRunIds) {
+    const actualRunIds = entries.map((entry) => entry.runId);
+    if (actualRunIds.length !== expectedRunIds.length
+      || actualRunIds.some((runId, index) => runId !== expectedRunIds[index])) {
+      throw new Error('Protocol season checkpoint manifest does not cover expected run set');
+    }
+  }
+
   const payload = {
     version: 1,
     seasonId,
     seasonStatus: season.status,
     storeRevision,
+    expectedRunIds,
     checkpointCount: entries.length,
     entries
   };
@@ -75,7 +98,7 @@ function assertSeasonCheckpointManifest(manifest, checkpoints = []) {
   const rebuilt = createSeasonCheckpointManifest(
     { id: manifest.seasonId, status: manifest.seasonStatus },
     checkpoints,
-    { storeRevision: manifest.storeRevision }
+    { storeRevision: manifest.storeRevision, expectedRunIds: manifest.expectedRunIds }
   );
   if (rebuilt.manifestDigest !== manifest.manifestDigest) {
     throw new Error('Protocol season checkpoint manifest does not match checkpoint evidence');
