@@ -16,12 +16,22 @@ function finiteNonNegative(value, label) {
 
 function canonicalLeaderboard(entries = []) {
   if (!Array.isArray(entries)) throw new Error('Protocol leaderboard must be an array');
-  return entries.map((entry, index) => ({
+  const normalized = entries.map((entry, index) => ({
     rank: Math.max(1, Math.floor(finiteNonNegative(entry.rank ?? index + 1, 'leaderboard rank'))),
     accountId: cleanId(entry.accountId, 'account id'),
     score: Math.floor(finiteNonNegative(entry.score, 'protocol score')),
     runs: Math.floor(finiteNonNegative(entry.runs, 'protocol run count'))
   })).sort((a, b) => a.rank - b.rank || a.accountId.localeCompare(b.accountId));
+
+  const accounts = new Set();
+  const ranks = new Set();
+  for (const entry of normalized) {
+    if (accounts.has(entry.accountId)) throw new Error('Duplicate Protocol Score account');
+    if (ranks.has(entry.rank)) throw new Error('Duplicate Protocol Score rank');
+    accounts.add(entry.accountId);
+    ranks.add(entry.rank);
+  }
+  return normalized;
 }
 
 function scoreSealDigest(input) {
@@ -48,7 +58,7 @@ function createSeasonScoreSeal(season, leaderboard, options = {}) {
 }
 
 function verifySeasonScoreSeal(seal) {
-  if (!seal || Number(seal.version) !== 1) return false;
+  if (!seal || Number(seal.version) !== 1 || !/^[a-f0-9]{64}$/i.test(String(seal.digest || ''))) return false;
   let normalized;
   try {
     normalized = {
@@ -61,9 +71,10 @@ function verifySeasonScoreSeal(seal) {
   } catch {
     return false;
   }
-  return typeof seal.digest === 'string'
-    && seal.digest.length === 64
-    && crypto.timingSafeEqual(Buffer.from(seal.digest, 'hex'), Buffer.from(scoreSealDigest(normalized), 'hex'));
+  return crypto.timingSafeEqual(
+    Buffer.from(seal.digest, 'hex'),
+    Buffer.from(scoreSealDigest(normalized), 'hex')
+  );
 }
 
 module.exports = {
