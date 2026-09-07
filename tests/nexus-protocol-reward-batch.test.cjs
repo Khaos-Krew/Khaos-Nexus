@@ -31,6 +31,7 @@ test('creates a deterministic non-executable manifest bound to the season seal',
   assert.equal(left.dryRun, true);
   assert.equal(left.executable, false);
   assert.equal(left.entries.length, 2);
+  assert.equal(left.entries[0].eosId, 'EOS_1111');
   assert.equal(verifyRewardBatchManifest(left), true);
 });
 
@@ -43,6 +44,10 @@ test('detects reward command or recipient tampering', () => {
   const changedAccount = JSON.parse(JSON.stringify(manifest));
   changedAccount.entries[0].accountId = 'acct-other';
   assert.equal(verifyRewardBatchManifest(changedAccount), false);
+
+  const changedEos = JSON.parse(JSON.stringify(manifest));
+  changedEos.entries[0].eosId = 'EOS_9999';
+  assert.equal(verifyRewardBatchManifest(changedEos), false);
 });
 
 test('rejects executable or non-dry-run input plans', () => {
@@ -52,7 +57,14 @@ test('rejects executable or non-dry-run input plans', () => {
   assert.throws(() => createRewardBatchManifest(altered), /dry-run plans only/);
 });
 
-test('rejects duplicate accounts and duplicate ranks', () => {
+test('rejects reward metadata that disagrees with the encoded command', () => {
+  const batch = rewardBatch();
+  const altered = JSON.parse(JSON.stringify(batch));
+  altered.plans[0].rewardId = 'different_reward';
+  assert.throws(() => createRewardBatchManifest(altered), /reward id does not match command/);
+});
+
+test('rejects duplicate accounts, duplicate ranks, and invalid numeric standings', () => {
   const batch = rewardBatch();
   const duplicateAccount = JSON.parse(JSON.stringify(batch));
   duplicateAccount.plans[1].accountId = duplicateAccount.plans[0].accountId;
@@ -61,4 +73,12 @@ test('rejects duplicate accounts and duplicate ranks', () => {
   const duplicateRank = JSON.parse(JSON.stringify(batch));
   duplicateRank.plans[1].rank = duplicateRank.plans[0].rank;
   assert.throws(() => createRewardBatchManifest(duplicateRank), /Duplicate Protocol reward rank/);
+
+  const invalidRank = JSON.parse(JSON.stringify(batch));
+  invalidRank.plans[0].rank = 'not-a-rank';
+  assert.throws(() => createRewardBatchManifest(invalidRank), /Invalid Protocol reward rank/);
+
+  const invalidScore = JSON.parse(JSON.stringify(batch));
+  invalidScore.plans[0].score = -1;
+  assert.throws(() => createRewardBatchManifest(invalidScore), /Invalid Protocol reward score/);
 });
