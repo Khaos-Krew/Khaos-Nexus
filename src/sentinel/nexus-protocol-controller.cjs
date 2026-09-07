@@ -9,11 +9,13 @@ const {
 const {
   protocolSummary,
   leaderboardView,
+  participantProgressView,
   darkZoneView
 } = require('./nexus-protocol-presentation.cjs');
 
 const ACTIONS = Object.freeze({
   REFRESH: 'nexus_protocol_refresh',
+  PROGRESS: 'nexus_protocol_progress',
   LEADERBOARD: 'nexus_protocol_leaderboard',
   DARK_ZONE: 'nexus_protocol_dark_zone',
   ENLIST_SOLO: 'nexus_darkzone_enlist_solo',
@@ -64,6 +66,13 @@ function readProtocolAction(action, context = {}) {
   const now = Number(context.now ?? Date.now());
   if (action === ACTIONS.REFRESH) {
     return { kind: 'view', ephemeral: false, payload: protocolSummary(snapshot, { now }) };
+  }
+  if (action === ACTIONS.PROGRESS) {
+    return {
+      kind: 'view',
+      ephemeral: true,
+      payload: participantProgressView(context.participant || {}, { runName: context.runName })
+    };
   }
   if (action === ACTIONS.LEADERBOARD) {
     const season = context.seasonId ? snapshot.seasons?.[context.seasonId] : activeSeason(snapshot, now);
