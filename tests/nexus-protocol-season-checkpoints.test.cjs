@@ -35,9 +35,10 @@ test('binds a Protocol season to exact run checkpoint evidence', () => {
   const manifest = createSeasonCheckpointManifest(
     { id: 'season-01', status: 'active' },
     [extraction, alpha],
-    { storeRevision: 12 }
+    { storeRevision: 12, expectedRunIds: ['extraction-01', 'alpha-01'] }
   );
   assert.equal(manifest.checkpointCount, 2);
+  assert.deepEqual(manifest.expectedRunIds, ['alpha-01', 'extraction-01']);
   assert.deepEqual(manifest.entries.map((entry) => entry.runId), ['alpha-01', 'extraction-01']);
   assert.equal(assertSeasonCheckpointManifest(manifest, [alpha, extraction]), true);
 });
@@ -52,12 +53,45 @@ test('rejects duplicate run evidence in one season manifest', () => {
   ), /duplicate protocol run checkpoint/i);
 });
 
+test('requires an authoritative expected run set before sealing a closed season', () => {
+  const alpha = checkpoint('alpha-01', 'alpha-source', 7);
+  assert.throws(() => createSeasonCheckpointManifest(
+    { id: 'season-01', status: 'closed' },
+    [alpha],
+    { storeRevision: 12 }
+  ), /requires expected run ids/i);
+});
+
+test('rejects missing or extra checkpoint evidence against the expected season run set', () => {
+  const alpha = checkpoint('alpha-01', 'alpha-source', 7);
+  const extraction = checkpoint('extraction-01', 'extraction-source', 8);
+  assert.throws(() => createSeasonCheckpointManifest(
+    { id: 'season-01', status: 'closed' },
+    [alpha],
+    { storeRevision: 12, expectedRunIds: ['alpha-01', 'extraction-01'] }
+  ), /does not cover expected run set/i);
+  assert.throws(() => createSeasonCheckpointManifest(
+    { id: 'season-01', status: 'closed' },
+    [alpha, extraction],
+    { storeRevision: 12, expectedRunIds: ['alpha-01'] }
+  ), /does not cover expected run set/i);
+});
+
+test('rejects duplicate expected season run identities', () => {
+  const alpha = checkpoint('alpha-01', 'alpha-source', 7);
+  assert.throws(() => createSeasonCheckpointManifest(
+    { id: 'season-01', status: 'closed' },
+    [alpha],
+    { storeRevision: 12, expectedRunIds: ['alpha-01', 'alpha-01'] }
+  ), /duplicate expected protocol run id/i);
+});
+
 test('detects manifest tampering and checkpoint substitution', () => {
   const alpha = checkpoint('alpha-01', 'alpha-source', 7);
   const manifest = createSeasonCheckpointManifest(
     { id: 'season-01', status: 'closed' },
     [alpha],
-    { storeRevision: 12 }
+    { storeRevision: 12, expectedRunIds: ['alpha-01'] }
   );
   const tampered = structuredClone(manifest);
   tampered.entries[0].participantCount += 1;
