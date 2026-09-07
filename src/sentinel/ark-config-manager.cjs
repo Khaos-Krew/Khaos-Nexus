@@ -223,6 +223,7 @@ async function updateIniConfig({ prefix = 'ARK_GEN1', fileKey, transform, dryRun
       ...result,
       restartRequired: result.changed && initial.spec.restartRequired,
       remoteFile: resolved.remoteFile,
+      backup: result.backup,
       dryRun: false,
       discovered: resolved.discovered,
       text: next
@@ -262,22 +263,47 @@ async function setArkShopValue({ prefix = 'ARK_GEN1', jsonPath, value, dryRun = 
   });
 }
 
-async function syncArkShopMysqlFromEnv({ prefix = 'ARK_GEN1', dryRun = false } = {}) {
-  const db = {
-    host: String(process.env.ARKSHOP_DB_HOST || '').trim(),
-    user: String(process.env.ARKSHOP_DB_USER || '').trim(),
-    password: String(process.env.ARKSHOP_DB_PASSWORD || ''),
-    database: String(process.env.ARKSHOP_DB_NAME || '').trim(),
-    port: Number(process.env.ARKSHOP_DB_PORT || 3306),
-    table: String(process.env.ARKSHOP_DB_TABLE || 'ArkShopPlayers').trim()
+function resolveArkShopDbEnv(prefix = 'ARK_GEN1') {
+  const normalizedPrefix = String(prefix || 'ARK_GEN1').trim().toUpperCase();
+  const mapBase = `${normalizedPrefix}_ARKSHOP_DB_`;
+  const mapNames = {
+    host: `${mapBase}HOST`,
+    user: `${mapBase}USER`,
+    password: `${mapBase}PASSWORD`,
+    database: `${mapBase}NAME`,
+    port: `${mapBase}PORT`
   };
+  const mapSpecificPresent = Object.values(mapNames).some((name) => String(process.env[name] || '').length > 0);
+  const names = mapSpecificPresent
+    ? mapNames
+    : {
+        host: 'ARKSHOP_DB_HOST',
+        user: 'ARKSHOP_DB_USER',
+        password: 'ARKSHOP_DB_PASSWORD',
+        database: 'ARKSHOP_DB_NAME',
+        port: 'ARKSHOP_DB_PORT'
+      };
+
+  const db = {
+    host: String(process.env[names.host] || '').trim(),
+    user: String(process.env[names.user] || '').trim(),
+    password: String(process.env[names.password] || ''),
+    database: String(process.env[names.database] || '').trim(),
+    port: Number(process.env[names.port] || 3306),
+    table: String(process.env[`${mapBase}TABLE`] || process.env.ARKSHOP_DB_TABLE || 'ArkShopPlayers').trim()
+  };
+  return { db, names, source: mapSpecificPresent ? 'map-specific' : 'global' };
+}
+
+async function syncArkShopMysqlFromEnv({ prefix = 'ARK_GEN1', dryRun = false } = {}) {
+  const { db, names } = resolveArkShopDbEnv(prefix);
   const missing = [];
-  if (!db.host) missing.push('ARKSHOP_DB_HOST');
-  if (!db.user) missing.push('ARKSHOP_DB_USER');
-  if (!db.password) missing.push('ARKSHOP_DB_PASSWORD');
-  if (!db.database) missing.push('ARKSHOP_DB_NAME');
+  if (!db.host) missing.push(names.host);
+  if (!db.user) missing.push(names.user);
+  if (!db.password) missing.push(names.password);
+  if (!db.database) missing.push(names.database);
   if (missing.length) throw new Error(`Cannot sync ArkShop MySQL yet. Missing protected Railway variables: ${missing.join(', ')}`);
-  if (!Number.isInteger(db.port) || db.port < 1 || db.port > 65535) throw new Error('ARKSHOP_DB_PORT is invalid.');
+  if (!Number.isInteger(db.port) || db.port < 1 || db.port > 65535) throw new Error(`${names.port} is invalid.`);
   if (!/^[A-Za-z0-9_]{1,64}$/.test(db.table)) throw new Error('ARKSHOP_DB_TABLE contains unsafe characters.');
 
   return updateArkShopConfig({
@@ -338,6 +364,7 @@ module.exports = {
   updateIniConfig,
   updateArkShopConfig,
   setArkShopValue,
+  resolveArkShopDbEnv,
   syncArkShopMysqlFromEnv,
   restoreBackup
 };
