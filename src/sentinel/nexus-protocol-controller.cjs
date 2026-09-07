@@ -27,6 +27,12 @@ function cleanId(value, label = 'id') {
   return result;
 }
 
+function snapshotRevision(snapshot = {}) {
+  const revision = Number(snapshot.revision ?? 0);
+  if (!Number.isSafeInteger(revision) || revision < 0) throw new Error('Invalid Nexus Protocol snapshot revision');
+  return revision;
+}
+
 function activeSeason(snapshot = {}, now = Date.now()) {
   const at = Number(now);
   return Object.values(snapshot.seasons || {})
@@ -76,6 +82,7 @@ function planDarkZoneAction(action, context = {}) {
   const snapshot = context.snapshot || {};
   const now = Number(context.now ?? Date.now());
   const accountId = cleanId(context.accountId, 'account id');
+  const expectedRevision = snapshotRevision(snapshot);
   const current = accountDarkZone(snapshot, accountId, now);
 
   if (action === ACTIONS.ENLIST_SOLO || action === ACTIONS.ENLIST_TRIBE) {
@@ -89,6 +96,7 @@ function planDarkZoneAction(action, context = {}) {
       kind: 'mutation-plan',
       action,
       accountId,
+      expectedRevision,
       requiresConfirmation: true,
       confirmationText: `Confirm Dark Zone ${enrollmentMode} enlistment. PvP protections change when enlistment becomes active.`,
       current,
@@ -106,6 +114,7 @@ function planDarkZoneAction(action, context = {}) {
       kind: 'mutation-plan',
       action,
       accountId,
+      expectedRevision,
       requiresConfirmation: !next.withdrawalBlocked,
       blocked: Boolean(next.withdrawalBlocked),
       confirmationText: next.withdrawalBlocked
@@ -120,13 +129,21 @@ function planDarkZoneAction(action, context = {}) {
 }
 
 function applyDarkZonePlan(store, plan, context = {}) {
-  if (!store || typeof store.upsertDarkZone !== 'function' || typeof store.audit !== 'function') {
+  if (!store || typeof store.upsertDarkZone !== 'function' || typeof store.audit !== 'function'
+    || typeof store.snapshot !== 'function') {
     throw new Error('Nexus Protocol store is required');
   }
   if (!plan || plan.kind !== 'mutation-plan') throw new Error('Invalid Dark Zone mutation plan');
   if (plan.blocked) return { applied: false, reason: 'combat_locked', record: plan.current };
   if (plan.requiresConfirmation && context.confirmed !== true) {
     return { applied: false, reason: 'confirmation_required', record: plan.current };
+  }
+  const currentRevision = snapshotRevision(store.snapshot());
+  if (!Number.isSafeInteger(plan.expectedRevision) || plan.expectedRevision < 0) {
+    throw new Error('Dark Zone mutation plan is missing a valid store revision');
+  }
+  if (currentRevision !== plan.expectedRevision) {
+    return { applied: false, reason: 'stale_plan', expectedRevision: plan.expectedRevision, currentRevision };
   }
   const record = store.upsertDarkZone(plan.next);
   store.audit(
@@ -141,6 +158,7 @@ function applyDarkZonePlan(store, plan, context = {}) {
 
 module.exports = {
   ACTIONS,
+  snapshotRevision,
   activeSeason,
   accountDarkZone,
   readProtocolAction,
