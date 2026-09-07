@@ -33,7 +33,6 @@ function createSeasonCheckpointManifest(season, checkpoints = [], options = {}) 
 
   const runIds = new Set();
   const checkpointDigests = new Set();
-  let highestLedgerRevision = -1;
   const entries = checkpoints.map((checkpoint) => {
     assertProtocolProgressCheckpoint(checkpoint);
     const runId = cleanId(checkpoint.runId, 'protocol run id');
@@ -41,7 +40,6 @@ function createSeasonCheckpointManifest(season, checkpoints = [], options = {}) 
     if (checkpointDigests.has(checkpoint.checkpointDigest)) throw new Error('Duplicate Protocol checkpoint digest');
     runIds.add(runId);
     checkpointDigests.add(checkpoint.checkpointDigest);
-    highestLedgerRevision = Math.max(highestLedgerRevision, checkpoint.ledgerRevision);
     return {
       runId,
       checkpointDigest: checkpoint.checkpointDigest,
@@ -51,10 +49,6 @@ function createSeasonCheckpointManifest(season, checkpoints = [], options = {}) 
       participantCount: checkpoint.participants.length
     };
   }).sort((a, b) => a.runId.localeCompare(b.runId));
-
-  if (highestLedgerRevision > storeRevision) {
-    throw new Error('Protocol checkpoint ledger revision exceeds store revision');
-  }
 
   const payload = {
     version: 1,
