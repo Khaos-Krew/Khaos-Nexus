@@ -19,7 +19,7 @@ function adminCommand() {
 function command() {
   const c=new SlashCommandBuilder().setName('arn').setDescription('ARN Tokens and caches.');
   for(const name of ['balance','history','cache','buy','pause']) c.addSubcommand(s=>s.setName(name).setDescription(name==='pause'?'Staff: disable ARN earning and redemption.':`View or use ARN ${name}.`));
-  c.addSubcommand(s=>s.setName('configure').setDescription('Staff: set rates and enable ARN.').addIntegerOption(o=>o.setName('earn').setDescription('Tokens per qualified completed activity.').setRequired(true).setMinValue(1).setMaxValue(1000000)).addIntegerOption(o=>o.setName('cost').setDescription('Tokens per ARN cache.').setRequired(true).setMinValue(1).setMaxValue(1000000)));
+  c.addSubcommand(s=>s.setName('configure').setDescription('Staff: enable ARN. 5% chance of 1 token; caches cost 1 token.'));
   c.addSubcommand(s=>s.setName('adjust').setDescription('Staff: audited token grant or removal.').addUserOption(o=>o.setName('player').setDescription('Player.').setRequired(true)).addIntegerOption(o=>o.setName('amount').setDescription('Signed token adjustment.').setRequired(true).setMinValue(-1000000).setMaxValue(1000000)).addStringOption(o=>o.setName('reason').setDescription('Audit reason.').setRequired(true).setMinLength(3).setMaxLength(300)));
   return c.toJSON();
 }
@@ -36,14 +36,14 @@ async function handle(interaction,{ledger,shop,config}) {
     });
   }
   if(!['balance','history','cache','buy'].includes(sub)&&!isStaff(interaction,config)) throw new Error('Nexus staff authorization required.');
-  if(sub==='configure') {await ledger.configure({enabled:true,earnRate:interaction.options.getInteger('earn'),cacheCost:interaction.options.getInteger('cost')},user);return {content:'ARN rates saved. Earning and redemption enabled for new activity.'};}
+  if(sub==='configure') {await ledger.configure({enabled:true},user);return {content:'ARN enabled: 5% chance to earn 1 token per qualified activity; 1 token per cache.'};}
   if(sub==='pause') {await ledger.configure({enabled:false},user);return {content:'ARN earning and redemption disabled. Existing balances and rewards are preserved.'};}
   if(sub==='adjust') {const result=await ledger.adjust({user:interaction.options.getUser('player').id,delta:interaction.options.getInteger('amount'),key:interaction.id,reason:interaction.options.getString('reason')},user);return {content:`Adjustment recorded. Balance: ${result.balance} ARN Tokens.`};}
   if(sub==='history') {const rows=await ledger.history(user);return {content:rows.map(r=>`${Number(r.delta)>0?'+':''}${r.delta} • balance ${r.balance_after} • ${r.reason}`).join('\n').slice(0,1900)||'No ARN token transactions yet.'};}
   if(sub==='buy') {const result=await shop.purchase({discordUserId:user,cacheId:'arn',purchaseNonce:interaction.id});return require('./ark-dino-box-shop-extension.cjs').sealedResultPayload(result.order,result.balance,'ARN Tokens');}
   const view=await ledger.balance(user);
   if(sub==='cache') {await shop.refreshWeekly();return require('./ark-dino-box-shop-extension.cjs').cacheDetailPayload('arn');}
-  return {content:`**${view.balance} ARN Tokens**\n${view.settings.enabled?`Earn ${view.settings.earn_rate} per qualified completed Anomaly activity. Cache cost: ${view.settings.cache_cost}.`:'Earning and redemption are disabled until staff set rates.'}`};
+  return {content:`**${view.balance} ARN Tokens**\n${view.settings.enabled?`5% chance to earn 1 token per qualified completed Anomaly activity. Cache cost: 1 ARN Token.`:'Earning and redemption are disabled. Configured: 5% chance of 1 token; 1 token per cache.'}`};
 }
 function installArnCacheExtension({config=loadConfig(),ledger=new ArnTokenLedger(),shop=new ArkCacheShopService()}={}) {
   if(Client.prototype[INSTALLED])return;

@@ -38,7 +38,7 @@ orders table; delivery never changes either wallet.
 
 ## ARN tokens
 
-**Earning and redemption are disabled by default, with unset rates, as requested.**
+**Earning and redemption remain disabled by default. The approved policy is a 5% chance of exactly 1 token per qualified completed activity, and exactly 1 token per ARN Cache.**
 The schema initializer uses INSERT IGNORE and never overwrites staff settings.
 
 Separate InnoDB wallets and append-only earn/spend ledger records commit
@@ -48,13 +48,13 @@ The initial ARN cache uses the approved forest species subset and shared rules.
 
 The participation poller reads the existing Protocol store, accepting only
 qualified, non-disqualified participants in completed Anomaly runs. Stable award
-IDs prevent duplicate grants, including after rate changes. Display-name-only
+IDs prevent duplicate grants. Both winning and losing rolls are persisted atomically; retries never reroll an activity. Display-name-only
 Shiny feeds are not trusted currency sources. The existing authenticated
 Protocol evidence intake or staff verification supplies participation evidence.
 Activity completed before enablement is not backfilled.
 
 Player commands: `/arn balance`, `/arn history`, `/arn cache`, `/arn buy`.
-Staff commands: `/arn configure earn:<n> cost:<n>` enables both operations;
+Staff commands: `/arn configure` enables both operations with the fixed 5% / 1-token policy;
 `/arn pause` disables them; `/arn adjust` records a signed adjustment with a reason.
 Staff authorization reuses the existing Nexus owner/admin/operator-role check.
 
@@ -94,6 +94,6 @@ checks are run separately. These tests use simulated database/RCON interfaces;
 they do not establish live MySQL concurrency or actual ASA inventory delivery.
 Live rollout requires a controlled linked test account, verified numeric target,
 and one purchase/reveal with inventory confirmation. ARN remains disabled until
-the owner sets rates.
+the owner enables it.
 
 Reference: [Dino Depot official command builder](https://docs.google.com/spreadsheets/d/1WKHzcZqxt8RUJ4oPg7DdEJSYGUs87ntoHeHmW62aBxc/edit).

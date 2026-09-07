@@ -76,7 +76,7 @@ test('ARN redemption debits only ARN, persists a sealed order and does not repea
   const req={...request,cacheId:'arn'};
   const first=await service.purchase(req), replay=await service.purchase(req);
   assert.equal(first.order.state,'SEALED');assert.equal(replay.order.id,first.order.id);
-  assert.equal(state.arn,40);assert.equal(state.points,100000);assert.equal(state.arnEntries.length,1);
+  assert.equal(state.arn,49);assert.equal(state.points,100000);assert.equal(state.arnEntries.length,1);
   assert.equal(state.events[0].currency,'ARN_TOKENS');
 });
 test('failed ARN order rolls back the token spend',async()=>{

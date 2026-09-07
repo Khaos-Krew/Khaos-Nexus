@@ -211,8 +211,8 @@ class ArkCacheShopService {
         }
         if (type === 'arn') {
           const policy=await arn.settings(connection,true);
-          if(!policy.enabled) throw shopError('ARN_DISABLED','ARN earning and redemption are disabled until staff set rates.');
-          cache={...cache,price:arn.positive(Number(policy.cache_cost))};
+          if(!policy.enabled) throw shopError('ARN_DISABLED','ARN earning and redemption are disabled.');
+          cache={...cache,price:1};
         }
         await claimCacheCooldown(connection, userId, type, cache);
         const wallet = type === 'arn' ? { row:{ points:await arn.wallet(connection,userId) } } : await findPointsAccount(connection, config, account.eosId, { lock: true });

@@ -2,13 +2,15 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {change,ArnTokenLedger}=require('../src/sentinel/arn-token-ledger.cjs');
 const {handle}=require('../src/sentinel/arn-cache-extension.cjs');
-function fixture() {
-  const s={balance:0,entries:[],policy:{enabled:false,earn_rate:null,cache_cost:null,enabled_since:null}};
+function fixture(roll=0) {
+  const s={balance:0,entries:[],rolls:[],policy:{enabled:false,earn_rate:null,cache_cost:null,enabled_since:null}};
   let backup;
   const db={
     async query(sql) { return sql.includes('SELECT * FROM nexus_arn_settings')?[[s.policy]]:[[]]; },
     async beginTransaction(){backup=structuredClone(s);},async commit(){backup=null;},async rollback(){if(backup)Object.assign(s,backup);},async end(){},
     async execute(sql,p=[]) {
+      if(sql.startsWith('SELECT event_key FROM nexus_arn_activity_rolls'))return [s.rolls.filter(r=>r.key===p[0])];
+      if(sql.startsWith('INSERT INTO nexus_arn_activity_rolls'))s.rolls.push({key:p[0],roll:p[3],tokens:p[4]});
       if(sql.startsWith('SELECT balance'))return [[{balance:s.balance}]];
       if(sql.startsWith('SELECT')&&sql.includes('nexus_arn_ledger'))return [s.entries.filter(e=>e.event_key===p[0])];
       if(sql.startsWith('UPDATE nexus_arn_wallets'))s.balance=p[0];
@@ -16,7 +18,7 @@ function fixture() {
       return [[]];
     }
   };
-  return {s,db,ledger:new ArnTokenLedger({connector:async()=>({connection:db})})};
+  return {s,db,ledger:new ArnTokenLedger({randomInt:()=>roll,connector:async()=>({connection:db})})};
 }
 const tx={user:'12345678',delta:5,key:'verified-activity-1',actor:'sentinel',reason:'Completed verified activity'};
 test('ARN earn/spend ledger is separate, idempotent, and cannot overdraw',async()=>{
@@ -39,12 +41,26 @@ test('disabled ARN participation grants no tokens; only qualified completed Anom
   assert.equal((await ledger.syncParticipation(store)).awarded,1);
   s.policy.earn_rate=3;
   assert.equal((await ledger.syncParticipation(store)).awarded,0);
-  assert.equal(s.balance,2);
+  assert.equal(s.balance,1);
   s.policy.enabled_since=300;
   assert.equal((await ledger.syncParticipation(store)).awarded,0);
 });
 test('players cannot configure rates or adjust token wallets',async()=>{
   for(const sub of ['configure','adjust','pause']) {
     await assert.rejects(handle({commandName:'arn',user:{id:'12345678'},options:{getSubcommand:()=>sub}},{config:{discord:{}},ledger:{},shop:{}}),/staff authorization/);
+  }
+});
+test('5% boundary awards one token; losing activity is recorded and cannot reroll',async()=>{
+  for(const roll of [499,500,9999]) {
+    const {s,ledger}=fixture(roll);
+    s.policy={enabled:true,enabled_since:100};
+    const store={read:()=>({awards:[{id:'boundary',runId:'run',playerId:'12345678',at:200}],runs:[{id:'run',definition:{id:'anomaly'},status:'completed',participants:[{playerId:'12345678',qualified:true}]}]})};
+    await ledger.syncParticipation(store);
+    assert.equal(s.balance,roll<500?1:0);
+    assert.equal(s.rolls.length,1);
+    ledger.randomInt=()=>0;
+    await ledger.syncParticipation(store);
+    assert.equal(s.balance,roll<500?1:0);
+    assert.equal(s.rolls.length,1);
   }
 });

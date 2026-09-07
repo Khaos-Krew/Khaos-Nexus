@@ -5,12 +5,13 @@ function positive(n) { if (!Number.isSafeInteger(n)||n<1||n>1000000) throw new E
 function identity(value) { if (!/^\d{5,25}$/.test(String(value))) throw new Error('Valid Discord identity required.'); return String(value); }
 async function ensureArnSchema(db) {
   await db.query(`CREATE TABLE IF NOT EXISTS nexus_arn_settings (id INT PRIMARY KEY, enabled BOOLEAN NOT NULL DEFAULT FALSE, earn_rate INT NULL, cache_cost INT NULL, enabled_since BIGINT NULL) ENGINE=InnoDB`);
+  await db.query(`CREATE TABLE IF NOT EXISTS nexus_arn_activity_rolls (event_key VARCHAR(190) PRIMARY KEY, discord_user_id VARCHAR(25) NOT NULL, chance_percent INT NOT NULL, roll_value INT NOT NULL, tokens INT NOT NULL, created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)) ENGINE=InnoDB`);
   await db.query('INSERT IGNORE INTO nexus_arn_settings (id, enabled) VALUES (1, FALSE)');
   await db.query(`CREATE TABLE IF NOT EXISTS nexus_arn_wallets (discord_user_id VARCHAR(25) PRIMARY KEY, balance BIGINT NOT NULL DEFAULT 0) ENGINE=InnoDB`);
   await db.query(`CREATE TABLE IF NOT EXISTS nexus_arn_ledger (id CHAR(36) PRIMARY KEY, event_key VARCHAR(190) NOT NULL UNIQUE, discord_user_id VARCHAR(25) NOT NULL, delta BIGINT NOT NULL, balance_before BIGINT NOT NULL, balance_after BIGINT NOT NULL, actor VARCHAR(128) NOT NULL, reason VARCHAR(500) NOT NULL, order_id CHAR(36) NULL, created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)) ENGINE=InnoDB`);
   await db.query(`CREATE TABLE IF NOT EXISTS nexus_arn_admin_audit (id CHAR(36) PRIMARY KEY, actor VARCHAR(25) NOT NULL, details VARCHAR(500) NOT NULL, created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)) ENGINE=InnoDB`);
 }
-async function settings(db, lock=false) { const [rows]=await db.query(`SELECT * FROM nexus_arn_settings WHERE id=1${lock?' FOR UPDATE':''}`); return rows[0]; }
+async function settings(db, lock=false) { const [rows]=await db.query(`SELECT * FROM nexus_arn_settings WHERE id=1${lock?' FOR UPDATE':''}`); return { ...rows[0], earn_rate:1, cache_cost:1, chance_percent:5 }; }
 async function wallet(db,user) {
   identity(user);
   await db.execute('INSERT IGNORE INTO nexus_arn_wallets (discord_user_id) VALUES (?)',[user]);
@@ -36,17 +37,16 @@ async function change(db,{user,delta,key,actor,reason,orderId=null}) {
   return { duplicate:false,balance:after,before };
 }
 class ArnTokenLedger {
-  constructor({connector=connectMysql}={}) { this.connector=connector; }
+  constructor({connector=connectMysql, randomInt=crypto.randomInt}={}) { this.connector=connector; this.randomInt=randomInt; }
   async using(fn) { const {connection}=await this.connector(); try { await ensureArnSchema(connection); return await fn(connection); } finally { await connection.end().catch(()=>{}); } }
   async balance(user) { return this.using(async db=>{ const [rows]=await db.execute('SELECT balance FROM nexus_arn_wallets WHERE discord_user_id=?',[identity(user)]); return { balance:Number(rows[0]?.balance||0), settings:await settings(db) }; }); }
   async history(user) { return this.using(async db=>{ const [rows]=await db.execute('SELECT * FROM nexus_arn_ledger WHERE discord_user_id=? ORDER BY created_at DESC LIMIT 20',[identity(user)]); return rows; }); }
-  async configure({enabled,earnRate,cacheCost},actor) {
+  async configure({enabled},actor) {
     identity(actor); if(typeof enabled!=='boolean') throw new Error('Explicit enabled state required.');
-    if(enabled) { positive(earnRate); positive(cacheCost); }
     return this.using(async db=>{ await db.beginTransaction(); try {
       const previous=await settings(db,true);
-      await db.execute('UPDATE nexus_arn_settings SET enabled=?, earn_rate=?, cache_cost=?, enabled_since=? WHERE id=1',[enabled,earnRate||previous.earn_rate,cacheCost||previous.cache_cost,enabled?(previous.enabled?previous.enabled_since:Date.now()):previous.enabled_since]);
-      await db.execute('INSERT INTO nexus_arn_admin_audit (id,actor,details) VALUES (?,?,?)',[crypto.randomUUID(),actor,JSON.stringify({enabled,earnRate,cacheCost})]);
+      await db.execute('UPDATE nexus_arn_settings SET enabled=?, earn_rate=?, cache_cost=?, enabled_since=? WHERE id=1',[enabled,1,1,enabled?(previous.enabled?previous.enabled_since:Date.now()):previous.enabled_since]);
+      await db.execute('INSERT INTO nexus_arn_admin_audit (id,actor,details) VALUES (?,?,?)',[crypto.randomUUID(),actor,JSON.stringify({enabled,earnRate:1,cacheCost:1,chancePercent:5})]);
       await db.commit(); return settings(db);
     } catch(e) { await db.rollback(); throw e; } });
   }
@@ -68,7 +68,14 @@ class ArnTokenLedger {
           if(!policy.enabled||award.at<Number(policy.enabled_since)) { await db.rollback(); continue; }
           const [prior]=await db.execute('SELECT id FROM nexus_arn_ledger WHERE event_key=?',[`participation:${award.id}`]);
           if(prior.length) { await db.commit(); continue; }
-          const result=await change(db,{user:award.playerId,delta:positive(Number(policy.earn_rate)),key:`participation:${award.id}`,actor:'sentinel:arn-participation',reason:`Verified completed Anomaly ${run.id}`});
+          const [rolled]=await db.execute('SELECT event_key FROM nexus_arn_activity_rolls WHERE event_key=?',[`participation:${award.id}`]);
+          if(rolled.length) { await db.commit(); continue; }
+          const roll=this.randomInt(10000);
+          if(!Number.isInteger(roll)||roll<0||roll>=10000)throw new Error('Invalid ARN token roll.');
+          const tokens=roll<500?1:0;
+          await db.execute('INSERT INTO nexus_arn_activity_rolls (event_key,discord_user_id,chance_percent,roll_value,tokens) VALUES (?,?,?,?,?)',[`participation:${award.id}`,award.playerId,5,roll,tokens]);
+          if(!tokens) { await db.commit(); continue; }
+          const result=await change(db,{user:award.playerId,delta:1,key:`participation:${award.id}`,actor:'sentinel:arn-participation',reason:`Verified completed Anomaly ${run.id}`});
           await db.commit(); if(!result.duplicate)awarded++;
         } catch(e){await db.rollback();throw e;}
       }

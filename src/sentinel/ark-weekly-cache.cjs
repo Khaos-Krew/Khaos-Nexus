@@ -25,7 +25,7 @@ function generateRotation(now, secret, previous = []) {
 let current = null;
 let arnPolicy = { enabled:false, cache_cost:null };
 function setArnPolicy(policy) { arnPolicy=policy; }
-const CONFIG = { ...BASE, get caches() { return { ...BASE.caches, ...(current ? { weekly:current.cache } : {}), arn:{ ...BASE.caches.forest, entries:BASE.caches.forest.entries.filter(allowed), currency:'ARN_TOKENS', enabled:Boolean(arnPolicy.enabled), price:Number(arnPolicy.cache_cost)||0, displayName:'ARN Cache', emoji:'🎟️', tagline:'Spend ARN Tokens earned through verified Anomaly participation. Earning and redemption remain disabled until staff set rates.' } }; } };
+const CONFIG = { ...BASE, get caches() { return { ...BASE.caches, ...(current ? { weekly:current.cache } : {}), arn:{ ...BASE.caches.forest, entries:BASE.caches.forest.entries.filter(allowed), currency:'ARN_TOKENS', enabled:Boolean(arnPolicy.enabled), price:1, displayName:'ARN Cache', emoji:'🎟️', tagline:'Qualified completed Anomaly activity has a 5% chance to award 1 ARN Token. One token opens one ARN Cache.' } }; } };
 async function ensureWeeklySchema(db) {
   await db.query(`CREATE TABLE IF NOT EXISTS nexus_weekly_cache_rotations (id VARCHAR(32) PRIMARY KEY, starts_at BIGINT NOT NULL, ends_at BIGINT NOT NULL, snapshot LONGTEXT NOT NULL, digest CHAR(64) NOT NULL, announced_at DATETIME(3) NULL, created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)) ENGINE=InnoDB`);
 }
