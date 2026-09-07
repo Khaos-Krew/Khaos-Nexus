@@ -12,11 +12,13 @@ const {
   participantProgressView,
   darkZoneView
 } = require('./nexus-protocol-presentation.cjs');
+const { protocolSeasonView } = require('./nexus-protocol-season-read-model.cjs');
 
 const ACTIONS = Object.freeze({
   REFRESH: 'nexus_protocol_refresh',
   PROGRESS: 'nexus_protocol_progress',
   LEADERBOARD: 'nexus_protocol_leaderboard',
+  SEASON: 'nexus_protocol_season',
   DARK_ZONE: 'nexus_protocol_dark_zone',
   ENLIST_SOLO: 'nexus_darkzone_enlist_solo',
   ENLIST_TRIBE: 'nexus_darkzone_enlist_tribe',
@@ -79,6 +81,10 @@ function readProtocolAction(action, context = {}) {
     const seasonId = season?.id || context.seasonId || 'current';
     const rows = Array.isArray(context.leaderboardRows) ? context.leaderboardRows : [];
     return { kind: 'view', ephemeral: true, payload: leaderboardView(snapshot, seasonId, rows) };
+  }
+  if (action === ACTIONS.SEASON) {
+    if (!context.seasonModel) throw new Error('Protocol season read action requires a season read model');
+    return { kind: 'view', ephemeral: true, payload: protocolSeasonView(context.seasonModel) };
   }
   if (action === ACTIONS.DARK_ZONE) {
     const record = accountDarkZone(snapshot, context.accountId, now);
