@@ -82,7 +82,7 @@ if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
         console.log(`[Nexus Sentinal] ArkShop MySQL config sync skipped: ${result.skipped}`);
         return;
       }
-      console.log(`[Nexus Sentinal] ArkShop MySQL config synchronized: changed=${result.changed} file=${result.remoteFile} backup=${result.backup || 'none'} restartRequired=true`);
+      console.log(`[Nexus Sentinal] ArkShop MySQL config synchronized: changed=${result.changed} file=${result.remoteFile} backup=${result.backup || 'none'} reloadOk=${result.reloaded === true} responseBytes=${result.responseBytes || 0} restartRequired=false`);
     })
     .catch((error) => console.warn(`[Nexus Sentinal] ArkShop MySQL config sync failed: ${String(error?.message || error).slice(0, 300)}`));
 
