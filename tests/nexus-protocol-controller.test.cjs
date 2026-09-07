@@ -84,6 +84,30 @@ test('tribe enlistment carries tribe mode into the stored policy record', () => 
   assert.equal(applied.record.enrollmentMode, 'tribe');
 });
 
+test('stale Dark Zone plans fail closed after intervening persistence changes', () => {
+  const store = tempStore();
+  const plan = planDarkZoneAction(ACTIONS.ENLIST_SOLO, {
+    snapshot: store.snapshot(), accountId: 'acct-stale', now: 3000, enlistDelayMs: 0
+  });
+  store.audit('test_intervening_change', 'acct-stale', 'revision bump', 'test', 3001);
+  const before = store.snapshot();
+  const result = applyDarkZonePlan(store, plan, { confirmed: true, now: 3002 });
+  assert.equal(result.applied, false);
+  assert.equal(result.reason, 'stale_plan');
+  assert.equal(result.expectedRevision, plan.expectedRevision);
+  assert.equal(result.currentRevision, before.revision);
+  assert.equal(store.snapshot().darkZone['acct-stale'], undefined);
+});
+
+test('mutation plans without a revision binding are rejected', () => {
+  const store = tempStore();
+  const plan = planDarkZoneAction(ACTIONS.ENLIST_SOLO, {
+    snapshot: store.snapshot(), accountId: 'acct-unbound', now: 4000, enlistDelayMs: 0
+  });
+  delete plan.expectedRevision;
+  assert.throws(() => applyDarkZonePlan(store, plan, { confirmed: true, now: 4000 }), /missing a valid store revision/);
+});
+
 test('combat-locked withdrawal cannot be applied even if a caller claims confirmation', () => {
   const state = snapshot();
   state.darkZone.acct3 = {
