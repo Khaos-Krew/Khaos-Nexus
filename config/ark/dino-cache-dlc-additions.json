@@ -34,6 +34,45 @@
         "blueprint": "/Game/Packs/Wasteland/Dinos/Doggo/Doggo_Character_BP.Doggo_Character_BP",
         "rarity": "ultra"
       }
+    ],
+    "winged": [
+      {
+        "name": "Pteranodon",
+        "blueprint": "/Game/PrimalEarth/Dinos/Ptero/Ptero_Character_BP.Ptero_Character_BP",
+        "rarity": "common"
+      },
+      {
+        "name": "Pelagornis",
+        "blueprint": "/Game/PrimalEarth/Dinos/Pelagornis/Pela_Character_BP.Pela_Character_BP",
+        "rarity": "common"
+      },
+      {
+        "name": "Tapejara",
+        "blueprint": "/Game/PrimalEarth/Dinos/Tapejara/Tapejara_Character_BP.Tapejara_Character_BP",
+        "rarity": "uncommon"
+      },
+      {
+        "name": "Argentavis",
+        "blueprint": "/Game/PrimalEarth/Dinos/Argentavis/Argent_Character_BP.Argent_Character_BP",
+        "rarity": "uncommon",
+        "variants": {
+          "x": "/Game/Genesis/Dinos/BiomeVariants/Snow_Argentavis/Snow_Argentavis_Character_BP.Snow_Argentavis_Character_BP",
+          "s": "/SDinoVariants/S-Argentavis/S-Argent_Character_BP.S-Argent_Character_BP"
+        }
+      },
+      {
+        "name": "Quetzal",
+        "blueprint": "/Game/PrimalEarth/Dinos/Quetzalcoatlus/Quetz_Character_BP.Quetz_Character_BP",
+        "rarity": "rare"
+      },
+      {
+        "name": "Rhyniognatha",
+        "blueprint": "/Game/PrimalEarth/Dinos/Rhyniognatha/Rhynio_Character_BP.Rhynio_Character_BP",
+        "rarity": "ultra",
+        "variants": {
+          "s": "/SDinoVariants/S-Rhynio/S-Rhynio_Character_BP.S-Rhynio_Character_BP"
+        }
+      }
     ]
   },
   "caches": {
@@ -59,6 +98,16 @@
       "variantWeights": { "normal": 100 },
       "groups": ["bobs-tall-tales"],
       "itemAliases": ["nexus_cache_bobs_tall_tales"],
+      "maps": ["*"]
+    },
+    "winged": {
+      "displayName": "Winged Cache",
+      "emoji": "🪽",
+      "tagline": "Rideable flyers from quick scouts through the Rhyniognatha chase roll.",
+      "price": 300,
+      "cooldownMinutes": 5,
+      "groups": ["winged"],
+      "itemAliases": ["nexus_cache_winged"],
       "maps": ["*"]
     }
   }
