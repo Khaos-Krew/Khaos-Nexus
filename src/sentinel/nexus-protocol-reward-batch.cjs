@@ -24,6 +24,10 @@ function canonicalRewardEntries(plans = []) {
 
     const rewardId = cleanToken(item.rewardId, 'reward id', /^[A-Za-z0-9:_-]{1,96}$/);
     if (match[2] !== rewardId) throw new Error('Protocol reward batch reward id does not match command');
+    if (item.eosId !== undefined
+      && cleanToken(item.eosId, 'EOS id', /^[A-Za-z0-9_-]{4,96}$/) !== match[1]) {
+      throw new Error('Protocol reward batch EOS id does not match command');
+    }
     const rank = Number(item.rank);
     const score = Number(item.score);
     if (!Number.isFinite(rank) || rank < 1 || Math.floor(rank) !== rank) throw new Error('Invalid Protocol reward rank');
@@ -88,6 +92,7 @@ function verifyRewardBatchManifest(manifest) {
         rank: entry.rank,
         score: entry.score,
         rewardId: entry.rewardId,
+        eosId: entry.eosId,
         plan: {
           dryRun: true,
           protocolId: entry.protocolId,
