@@ -108,6 +108,59 @@ function buildExecutionEnvelope(plan, options = {}) {
   });
 }
 
+function isAllowedExecutorCommand(action = {}) {
+  if (action.plugin === 'EventCountdown') return action.command === 'EventCountdown.Reload';
+  if (action.plugin === 'RewardsAscended') {
+    return action.command === 'RA.Reload'
+      || /^RA\.Reward [A-Za-z0-9_-]{4,96} [A-Za-z0-9:_-]{1,96}$/.test(action.command);
+  }
+  if (action.plugin === 'CousinCustomRates') {
+    return action.command === 'CousinCustomRates.Reload'
+      || /^changerates [A-Za-z0-9_-]{1,64}$/.test(action.command);
+  }
+  return false;
+}
+
+function validateExecutionEnvelope(envelope, options = {}) {
+  if (!envelope || envelope.version !== 1 || !Array.isArray(envelope.actions)) {
+    throw new Error('Invalid Protocol execution envelope');
+  }
+  const expectedServerId = options.serverId ? token(options.serverId, 'server id', /^[A-Za-z0-9:_-]{2,96}$/) : null;
+  const serverId = token(envelope.serverId, 'server id', /^[A-Za-z0-9:_-]{2,96}$/);
+  const protocolId = token(envelope.protocolId, 'protocol id');
+  if (expectedServerId && serverId !== expectedServerId) throw new Error('Protocol execution envelope server mismatch');
+
+  const now = Number(options.now ?? Date.now());
+  const maxAgeMs = Math.max(1000, Math.min(3600000, Number(options.maxAgeMs || 300000)));
+  const createdAt = Number(envelope.createdAt);
+  if (!Number.isFinite(createdAt) || createdAt > now + 30000 || now - createdAt > maxAgeMs) {
+    throw new Error('Protocol execution envelope is stale or has an invalid timestamp');
+  }
+  if (envelope.actions.length === 0 || envelope.actions.length > 20) throw new Error('Invalid Protocol execution envelope action count');
+
+  const seenActionIds = new Set();
+  for (let index = 0; index < envelope.actions.length; index += 1) {
+    const action = envelope.actions[index];
+    if (!action || action.index !== index || !isAllowedExecutorCommand(action)) {
+      throw new Error('Protocol execution envelope contains an invalid action');
+    }
+    const expectedActionId = actionFingerprint(protocolId, serverId, action, index);
+    if (action.actionId !== expectedActionId || seenActionIds.has(action.actionId)) {
+      throw new Error('Protocol execution envelope action identity mismatch');
+    }
+    seenActionIds.add(action.actionId);
+    if (action.destructive === true) {
+      const rootKey = String(envelope.idempotencyKey || '').trim();
+      if (!/^[A-Za-z0-9:_-]{8,128}$/.test(rootKey) || action.idempotencyKey !== `${rootKey}:${index}`) {
+        throw new Error('Protocol execution envelope has invalid idempotency binding');
+      }
+    } else if (action.idempotencyKey !== null) {
+      throw new Error('Protocol execution envelope has unexpected idempotency binding');
+    }
+  }
+  return true;
+}
+
 module.exports = {
   buildEventCountdownReload,
   buildRewardsAscendedReload,
@@ -116,5 +169,6 @@ module.exports = {
   buildCustomRatesActivate,
   protocolExecutionPlan,
   assertExecutable,
-  buildExecutionEnvelope
+  buildExecutionEnvelope,
+  validateExecutionEnvelope
 };
