@@ -3,6 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { generateRotation, weekStart, WEEK, allowed, loadWeekly } = require('../src/sentinel/ark-weekly-cache.cjs');
 const { CONFIG, rollCache, deterministicRng } = require('../src/sentinel/ark-dino-cache-engine.cjs');
+const { saddleFor } = require('../src/sentinel/ark-cache-receipts.cjs');
 const secret = 'a'.repeat(32), now = Date.parse('2026-09-06T20:00:00Z');
 test('weekly boundary is Monday UTC and rotation avoids previous lineup',()=>{
   assert.equal(new Date(weekStart(now)).toISOString(),'2026-08-31T00:00:00.000Z');
@@ -23,6 +24,27 @@ test('weekly outcomes reuse engine level and supported variant rules',()=>{
     assert.ok(roll.level>=200&&roll.level<=300);
     assert.equal(roll.shiny,false);
     assert.equal(roll.blueprint,roll.variant==='normal'?entry.blueprint:entry.variants[roll.variant]);
+  }
+});
+test('Winged Cache is ASA-native, sealed-engine compatible, and saddle complete',()=>{
+  const cache=CONFIG.caches.winged;
+  assert.ok(cache);
+  assert.equal(cache.price,300);
+  assert.equal(cache.cooldownMinutes,5);
+  assert.deepEqual(cache.variantWeights,{normal:100});
+  assert.deepEqual(cache.entries.map(e=>e.name),['Pteranodon','Pelagornis','Tapejara','Argentavis','Quetzal','Rhyniognatha']);
+  assert.ok(cache.entries.every(e=>e.blueprint.startsWith('/Game/PrimalEarth/')));
+  assert.ok(cache.entries.every(e=>Object.keys(e.variants).length===0));
+  assert.equal(/moros|indomitable|indominus|indoraptor|shiny|SDinoVariants|Genesis/i.test(JSON.stringify(cache)),false);
+  for(const species of ['Pteranodon','Pelagornis','Tapejara','Argentavis','Quetzal']) assert.match(saddleFor(species),/^\/Game\/PrimalEarth\/CoreBlueprints\/Items\/Armor\/Saddles\//);
+  assert.equal(saddleFor('Rhyniognatha'),null);
+  const rng=deterministicRng(secret,'winged-test');
+  for(let i=0;i<1000;i++) {
+    const roll=rollCache('winged',rng,CONFIG);
+    assert.equal(roll.variant,'normal');
+    assert.equal(roll.shiny,false);
+    assert.ok(roll.level>=200&&roll.level<=300);
+    assert.ok(cache.entries.some(e=>e.name===roll.species&&e.blueprint===roll.blueprint));
   }
 });
 test('published rotation survives restarts and secret changes; history remains append-only',async()=>{
