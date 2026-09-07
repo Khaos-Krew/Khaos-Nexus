@@ -44,6 +44,7 @@ function protocolSummary(snapshot = {}, options = {}) {
       { type: 'button', customId: 'nexus_protocol_refresh', label: 'Refresh', style: 'secondary' },
       { type: 'button', customId: 'nexus_protocol_progress', label: 'My Progress', style: 'primary' },
       { type: 'button', customId: 'nexus_protocol_leaderboard', label: 'Protocol Score', style: 'secondary' },
+      { type: 'button', customId: 'nexus_protocol_season', label: 'Season', style: 'secondary' },
       { type: 'button', customId: 'nexus_protocol_dark_zone', label: 'Dark Zone', style: 'secondary' }
     ]
   };
