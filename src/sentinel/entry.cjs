@@ -1,51 +1,30 @@
 'use strict';
 
-const { registerRoadmapGameModules } = require('./roadmap-game-module-registry.cjs');
-const { installRetiredGamesSelfRoleCleanupExtension } = require('./retired-games-self-role-cleanup.cjs');
-registerRoadmapGameModules();
+// Nexus Sentinal runtime profile: CORE + ARK
+//
+// Keep Sentinal deliberately small and reliable. Game-native ARK systems stay
+// in place for now, while nonessential Nexus/game modules are no longer loaded
+// into the production bot runtime. Retired modules remain in the repository so
+// they can be recovered later without making them production dependencies.
 
 const { installGuildMembersIntentExtension } = require('./guild-members-intent-extension.cjs');
 const { installCommunityIntentsExtension } = require('./community-intents-extension.cjs');
-const { installForgeExtension } = require('./forge-extension.cjs');
-const { installForgeAuthProbeExtension } = require('./forge-auth-probe-extension.cjs');
 const { installMentionResponseExtension } = require('./mention-response-extension.cjs');
 const { installRoleMenuExtension } = require('./role-menu-extension.cjs');
-const { installPokemonGoExtension } = require('./pokemon-go-extension.cjs');
-const { installDivision2TargetedLootExtension } = require('./division2-targeted-loot-extension.cjs');
-const { installEventFeedExtension } = require('./event-feed-extension.cjs');
 const { installAdminPairingExtension } = require('./admin-pairing-extension.cjs');
 const { installModerationExtension } = require('./moderation-extension.cjs');
-const { installRoadmapPatchNoteExtension } = require('./roadmap-patch-note-extension.cjs');
 const { installSafetyReportExtension } = require('./safety-report-extension.cjs');
-const { installShieldExtension } = require('./shield-extension.cjs');
-const { installShieldReviewExtension } = require('./shield-review-extension.cjs');
-const { installShieldIsolationExtension } = require('./shield-isolation-extension.cjs');
 const { installPersistentPanelExtension } = require('./persistent-panel-extension.cjs');
-const { installStaffNameColorPreviewExtension } = require('./staff-name-color-preview-extension.cjs');
 const { installNexusStatusExtension } = require('./nexus-status-extension.cjs');
 const { installOnboardingAuthorityExtension } = require('./onboarding-authority-extension.cjs');
 const { installWelcomeExtension } = require('./welcome-extension.cjs');
 const { installAboutExtension } = require('./about-extension.cjs');
-const { installNexusGuideExtension } = require('./nexus-guide-extension.cjs');
 const { installRanksExtension } = require('./ranks-extension.cjs');
-const { installSuggestionsExtension } = require('./suggestions-extension.cjs');
-const { installSuggestionReviewExtension } = require('./suggestion-review-extension.cjs');
 const { installGameServersExtension } = require('./game-servers-extension.cjs');
-const { installHostedServerManagerExtension } = require('./hosted-server-manager-extension.cjs');
-const { installCommunityLevelingExtension } = require('./community-leveling-extension.cjs');
-const { installNexusCommandCenterExtension } = require('./nexus-command-center-extension.cjs');
 const { installStaffWorkspaceExtension } = require('./staff-workspace-extension.cjs');
 const { installArnIntakeExtension } = require('./arn-intake-extension.cjs');
-const { installModuleAutoprovisionExtension } = require('./module-autoprovision-extension.cjs');
-const { installModuleAccessAuditExtension } = require('./module-access-audit-extension.cjs');
-require('./poll-ui-readability-patch.cjs');
-const { installPollExtension } = require('./poll-extension.cjs');
-const { installCreatorLevelGateExtension } = require('./creator-level-gate-extension.cjs');
-const { installCreatorProgramExtension } = require('./creator-program-extension.cjs');
-const { installCreatorRolesEntryLockdownExtension } = require('./creator-roles-entry-lockdown-extension.cjs');
-const { installCreatorLifecycleExtension } = require('./creator-lifecycle-extension.cjs');
-const { installSupporterEntitlementExtension } = require('./supporter-entitlement-extension.cjs');
-const { installEventManagementExtension } = require('./event-management-extension.cjs');
+
+// ARK control, monitoring, identity, economy and cluster integration.
 const { installArkOpsExtension } = require('./ark-ops-extension.cjs');
 const { installArkUpdateSafetyExtension } = require('./ark-update-safety-extension.cjs');
 const { installArkRconDiagnosticExtension } = require('./ark-rcon-diagnostic-extension.cjs');
@@ -67,48 +46,25 @@ const { installArkShopProfileExtension } = require('./arkshop-profile-extension.
 const { installArkClusterPublicActions } = require('./ark-cluster-public-actions.cjs');
 const { installArkShopProfileBootstrapExtension } = require('./arkshop-profile-bootstrap-extension.cjs');
 
-installRetiredGamesSelfRoleCleanupExtension();
+// Minimal Nexus/Discord core.
 installGuildMembersIntentExtension();
 installCommunityIntentsExtension();
-installForgeExtension();
-installForgeAuthProbeExtension();
 installMentionResponseExtension();
 installRoleMenuExtension();
-installPokemonGoExtension();
-installDivision2TargetedLootExtension();
-installEventFeedExtension();
 installAdminPairingExtension();
 installModerationExtension();
-installRoadmapPatchNoteExtension();
 installSafetyReportExtension();
-installShieldExtension();
-installShieldReviewExtension();
-installShieldIsolationExtension();
 installPersistentPanelExtension();
-installStaffNameColorPreviewExtension();
 installNexusStatusExtension();
 installOnboardingAuthorityExtension();
 installWelcomeExtension();
 installAboutExtension();
-installNexusGuideExtension();
 installRanksExtension();
-installSuggestionsExtension();
-installSuggestionReviewExtension();
 installGameServersExtension();
-installHostedServerManagerExtension();
-installCommunityLevelingExtension();
-installNexusCommandCenterExtension();
 installStaffWorkspaceExtension();
 installArnIntakeExtension();
-installModuleAutoprovisionExtension();
-installModuleAccessAuditExtension();
-installPollExtension();
-installCreatorLevelGateExtension();
-installCreatorProgramExtension();
-installCreatorRolesEntryLockdownExtension();
-installCreatorLifecycleExtension();
-installSupporterEntitlementExtension();
-installEventManagementExtension();
+
+// ARK stack intentionally preserved during the Sentinal teardown.
 installArkOpsExtension();
 installArkUpdateSafetyExtension({ prefix: 'ARK_GEN1' });
 installArkRconDiagnosticExtension();
@@ -158,4 +114,5 @@ require('./ark-dino-cache-runtime.cjs').installDinoCacheRuntime();
 require('./ark-command-routing-patch.cjs');
 require('./ark-dynamic-config-http.cjs');
 require('./protocol/discord.cjs').installProtocolExtension();
+
 require('./bot.cjs');
