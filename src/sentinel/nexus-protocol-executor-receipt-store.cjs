@@ -53,6 +53,26 @@ function normalizeReceiptState(input, maxReceipts = 5000) {
   };
 }
 
+function validateReceiptAppend(receipts, input, maxReceipts) {
+  const receipt = normalizeExecutorReceipt(input);
+  const index = buildReceiptIndex(receipts);
+  const existing = index.byActionId.get(receipt.actionId);
+  if (existing) {
+    if (existing.digest !== receipt.digest) throw new Error('Conflicting Protocol executor receipt replay');
+    return { receipt: clone(existing), duplicate: true };
+  }
+  if (receipt.idempotencyKey) {
+    const existingKey = index.byIdempotencyKey.get(receipt.idempotencyKey);
+    if (existingKey && existingKey.actionId !== receipt.actionId) {
+      throw new Error('Protocol executor idempotency key reused by another action');
+    }
+  }
+  if (receipts.length >= maxReceipts) {
+    throw new Error('Protocol executor receipt store is full; reconciliation or archival is required');
+  }
+  return { receipt, duplicate: false };
+}
+
 class NexusProtocolExecutorReceiptStore {
   constructor(file, options = {}) {
     this.file = path.resolve(file);
@@ -74,41 +94,64 @@ class NexusProtocolExecutorReceiptStore {
     return clone(this.state);
   }
 
+  #persistState(nextState) {
+    fs.mkdirSync(path.dirname(this.file), { recursive: true });
+    const temp = `${this.file}.${process.pid}.${Date.now()}.tmp`;
+    try {
+      fs.writeFileSync(temp, `${JSON.stringify(nextState, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+      fs.renameSync(temp, this.file);
+    } catch (error) {
+      try { fs.rmSync(temp, { force: true }); } catch {}
+      throw error;
+    }
+    this.state = nextState;
+    return this.snapshot();
+  }
+
   save(now = Date.now()) {
     const updatedAt = finiteNonNegative(now, 'Protocol receipt store save time');
     if (this.state.receipts.length > this.maxReceipts) {
       throw new Error('Protocol executor receipt store exceeds safe capacity');
     }
-    fs.mkdirSync(path.dirname(this.file), { recursive: true });
-    this.state.version = RECEIPT_STORE_VERSION;
-    this.state.revision += 1;
-    this.state.updatedAt = updatedAt;
     buildReceiptIndex(this.state.receipts);
-    const temp = `${this.file}.${process.pid}.${Date.now()}.tmp`;
-    fs.writeFileSync(temp, `${JSON.stringify(this.state, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-    fs.renameSync(temp, this.file);
-    return this.snapshot();
+    const nextState = {
+      version: RECEIPT_STORE_VERSION,
+      revision: this.state.revision + 1,
+      updatedAt,
+      receipts: clone(this.state.receipts)
+    };
+    return this.#persistState(nextState);
   }
 
   append(input) {
-    const receipt = normalizeExecutorReceipt(input);
-    const index = buildReceiptIndex(this.state.receipts);
-    const existing = index.byActionId.get(receipt.actionId);
-    if (existing) {
-      if (existing.digest !== receipt.digest) throw new Error('Conflicting Protocol executor receipt replay');
-      return clone(existing);
+    const checked = validateReceiptAppend(this.state.receipts, input, this.maxReceipts);
+    if (checked.duplicate) return checked.receipt;
+    this.state.receipts.push(checked.receipt);
+    return clone(checked.receipt);
+  }
+
+  compareAndAppend(expectedRevision, input, now = Date.now()) {
+    const revision = Number(expectedRevision);
+    if (!Number.isSafeInteger(revision) || revision < 0) {
+      throw new Error('Invalid Protocol receipt store expected revision');
     }
-    if (receipt.idempotencyKey) {
-      const existingKey = index.byIdempotencyKey.get(receipt.idempotencyKey);
-      if (existingKey && existingKey.actionId !== receipt.actionId) {
-        throw new Error('Protocol executor idempotency key reused by another action');
-      }
+    if (revision !== this.state.revision) {
+      throw new Error('Protocol receipt store revision changed before atomic append');
     }
-    if (this.state.receipts.length >= this.maxReceipts) {
-      throw new Error('Protocol executor receipt store is full; reconciliation or archival is required');
+    const updatedAt = finiteNonNegative(now, 'Protocol receipt store compare-and-append time');
+    const checked = validateReceiptAppend(this.state.receipts, input, this.maxReceipts);
+    if (checked.duplicate) {
+      return Object.freeze({ appended: false, duplicate: true, receipt: checked.receipt, state: this.snapshot() });
     }
-    this.state.receipts.push(receipt);
-    return clone(receipt);
+    const nextState = {
+      version: RECEIPT_STORE_VERSION,
+      revision: this.state.revision + 1,
+      updatedAt,
+      receipts: [...clone(this.state.receipts), checked.receipt]
+    };
+    buildReceiptIndex(nextState.receipts);
+    const state = this.#persistState(nextState);
+    return Object.freeze({ appended: true, duplicate: false, receipt: clone(checked.receipt), state });
   }
 
   classify(envelope, actionIndex) {
