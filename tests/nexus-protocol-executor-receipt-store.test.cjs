@@ -134,6 +134,63 @@ test('receipt store writes restrictive atomic state and deduplicates exact repla
   }
 });
 
+test('compare-and-append persists only when the expected receipt-store revision still matches', () => {
+  const target = envelope();
+  const { dir, file } = tempStore();
+  try {
+    const store = new NexusProtocolExecutorReceiptStore(file);
+    const committed = store.compareAndAppend(0, receiptFor(target), 1300);
+    assert.equal(committed.appended, true);
+    assert.equal(committed.duplicate, false);
+    assert.equal(committed.state.revision, 1);
+    assert.equal(committed.state.receipts.length, 1);
+
+    const reloaded = new NexusProtocolExecutorReceiptStore(file);
+    assert.equal(reloaded.load().revision, 1);
+    assert.equal(reloaded.snapshot().receipts.length, 1);
+
+    assert.throws(
+      () => store.compareAndAppend(0, receiptFor(target, { status: 'failed', completedAt: 1400 }), 1500),
+      /revision changed/
+    );
+    assert.equal(store.snapshot().revision, 1);
+    assert.equal(store.snapshot().receipts[0].status, 'succeeded');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('compare-and-append treats exact replay as idempotent without advancing the store revision', () => {
+  const target = envelope();
+  const { dir, file } = tempStore();
+  try {
+    const store = new NexusProtocolExecutorReceiptStore(file);
+    store.compareAndAppend(0, receiptFor(target), 1300);
+    const replay = store.compareAndAppend(1, receiptFor(target), 1400);
+    assert.equal(replay.appended, false);
+    assert.equal(replay.duplicate, true);
+    assert.equal(replay.state.revision, 1);
+    assert.equal(replay.state.updatedAt, 1300);
+    assert.equal(replay.state.receipts.length, 1);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('compare-and-append validates the full receipt before writing durable state', () => {
+  const target = envelope();
+  const { dir, file } = tempStore();
+  try {
+    const store = new NexusProtocolExecutorReceiptStore(file);
+    assert.throws(() => store.compareAndAppend(-1, receiptFor(target), 1300), /expected revision/);
+    assert.equal(fs.existsSync(file), false);
+    assert.equal(store.snapshot().revision, 0);
+    assert.equal(store.snapshot().receipts.length, 0);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('receipt normalization rejects unsupported store versions and cross-action idempotency reuse', () => {
   assert.throws(() => normalizeReceiptState({ version: 2, receipts: [] }), /Unsupported/);
   const target = envelope();
