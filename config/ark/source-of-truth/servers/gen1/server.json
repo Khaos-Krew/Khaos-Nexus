@@ -1,11 +1,17 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "server_id": "gen1",
   "display_name": "Gen1",
-  "inherits_cluster_defaults": true,
-  "authoritative_source": "git",
+  "map_alias": "Map1",
+  "host_provider": "citadel_servers",
+  "active_rebuild_target": true,
+  "inherits_cluster_defaults": false,
+  "runtime_settings_authority": "citadel_live_server_files",
+  "installed_mod_id_authority": "citadel_live_server_configuration",
+  "mod_metadata_authority": "curseforge_api",
+  "git_role": "reference_templates_snapshots_and_history_only",
   "apply_mode": "explicit_command_only",
-  "capture_mode": "explicit_command_only",
+  "capture_mode": "manual_sanitized_snapshot_only",
   "secret_overlay_required": true,
-  "notes": "Gen1 inherits the same canonical cluster rates/stats/settings. Only genuine Gen1-specific differences belong in this directory."
+  "notes": "Gen1/Map1 is the active rebuild target. Read live rates/settings from Citadel. Resolve live mod IDs through CurseForge for canonical names and update metadata. Do not merge Git cluster defaults over the live server automatically."
 }
