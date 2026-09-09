@@ -10,6 +10,9 @@ const { DurableIncidentTracker } = require('./incidents.cjs');
 const { ActionGate, ActionController } = require('./actions.cjs');
 const { AuditStore } = require('./audit-store.cjs');
 const { ActionStore } = require('./action-store.cjs');
+const { ArkServerRegistry } = require('./ark-server-registry.cjs');
+const { ArkHealthAdapter, registerArkHealthJob } = require('./ark-health-adapter.cjs');
+const { ArkHealthObserver } = require('./ark-health-observer.cjs');
 
 async function startWorker() {
   const base = loadSentinelConfig();
@@ -28,6 +31,9 @@ async function startWorker() {
     allow: config.actionAllowlist,
   });
   const actions = new ActionController({ gate: actionGate, store: actionStore, logger });
+  const arkRegistry = new ArkServerRegistry();
+  const arkHealth = new ArkHealthAdapter({ logger });
+  const arkHealthObserver = new ArkHealthObserver({ incidents, auditStore, logger });
 
   const databaseHealth = await database.ping();
   if (database.enabled && !databaseHealth.ok) {
@@ -35,6 +41,15 @@ async function startWorker() {
   }
 
   const restoredIncidents = await incidents.hydrate();
+
+  registerArkHealthJob(scheduler, {
+    adapter: arkHealth,
+    servers: () => arkRegistry.list({ includeDisabled: false }),
+    intervalMs: 300000,
+    jitterMs: 30000,
+    onResult: async (summary) => arkHealthObserver.observe(summary),
+  });
+
   scheduler.start();
 
   logger.info('sentinel.worker.started', {
@@ -47,6 +62,8 @@ async function startWorker() {
     persistentActions: actionStore.enabled,
     persistentAudit: auditStore.enabled,
     actionControllerReady: true,
+    arkRegistryReadOnly: true,
+    arkHealthJobRegistered: true,
     openIncidentsRestored: restoredIncidents.length,
     jobsRegistered: scheduler.list().length,
     schedulerStarted: true,
@@ -58,7 +75,23 @@ async function startWorker() {
     await database.close();
   };
 
-  return Object.freeze({ config, logger, database, jobStore, incidentStore, auditStore, actionStore, scheduler, incidents, actionGate, actions, shutdown });
+  return Object.freeze({
+    config,
+    logger,
+    database,
+    jobStore,
+    incidentStore,
+    auditStore,
+    actionStore,
+    scheduler,
+    incidents,
+    actionGate,
+    actions,
+    arkRegistry,
+    arkHealth,
+    arkHealthObserver,
+    shutdown,
+  });
 }
 
 if (require.main === module) {
