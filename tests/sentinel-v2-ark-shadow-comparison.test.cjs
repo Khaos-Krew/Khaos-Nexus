@@ -25,6 +25,39 @@ test('equivalence window blocks retirement when drift or unpersisted evidence ex
   assert.ok(state.reasons.includes('evidence-not-fully-persisted'));
 });
 
+test('equivalence window hydration restores ordered durable evidence and deduplicates audit ids', () => {
+  const window = new ArkEquivalenceWindow({ minSamples: 2, minDurationMs: 10_000 });
+  const state = window.hydrate([
+    { checkedAt: '2026-09-09T20:00:10Z', equivalent: true, persisted: true, auditId: 2 },
+    { checkedAt: '2026-09-09T20:00:00Z', equivalent: true, persisted: true, auditId: 1 },
+    { checkedAt: '2026-09-09T20:00:00Z', equivalent: true, persisted: true, auditId: 1 },
+  ]);
+  assert.equal(state.samples, 2);
+  assert.equal(state.persistedSamples, 2);
+  assert.equal(state.durationMs, 10_000);
+  assert.equal(state.eligible, true);
+});
+
+test('shadow comparison restores acceptance state from durable history before new comparisons', async () => {
+  const historyCalls = [];
+  const evidence = {
+    async history(options) {
+      historyCalls.push(options);
+      return [
+        { checkedAt: '2026-09-09T20:00:00Z', equivalent: true, persisted: true, auditId: 1 },
+        { checkedAt: '2026-09-09T20:00:10Z', equivalent: true, persisted: true, auditId: 2 },
+      ];
+    },
+    async record(report) { return { ...report, persisted: true, auditId: 3 }; },
+  };
+  const window = new ArkEquivalenceWindow({ minSamples: 2, minDurationMs: 10_000 });
+  const comparison = new ArkShadowComparison({ evidence, window });
+  const restored = await comparison.hydrate({ since: '2026-09-09T19:00:00Z', limit: 50 });
+  assert.deepEqual(historyCalls[0], { since: '2026-09-09T19:00:00Z', limit: 50 });
+  assert.equal(restored.samples, 2);
+  assert.equal(restored.eligible, true);
+});
+
 test('shadow comparison records evidence and evaluates retirement eligibility without mutations', async () => {
   const calls = [];
   const evidence = {
