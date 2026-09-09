@@ -3,9 +3,10 @@
 const { randomUUID } = require('node:crypto');
 
 class Scheduler {
-  constructor({ logger, defaultTimeoutMs = 30000 } = {}) {
+  constructor({ logger, defaultTimeoutMs = 30000, jobStore } = {}) {
     this.logger = logger;
     this.defaultTimeoutMs = defaultTimeoutMs;
+    this.jobStore = jobStore;
     this.jobs = new Map();
     this.running = new Map();
   }
@@ -30,21 +31,38 @@ class Scheduler {
 
     const runId = randomUUID();
     const startedAt = Date.now();
+    const correlationId = String(context.correlationId || runId);
     this.running.set(name, runId);
-    const log = this.logger?.child?.({ job: name, runId }) || this.logger;
+    const log = this.logger?.child?.({ job: name, runId, correlationId }) || this.logger;
     log?.info?.('sentinel.job.started');
 
     try {
-      const result = await withTimeout(
-        Promise.resolve(job.run({ ...context, runId, job })),
+      await this.jobStore?.ensureJob?.(job);
+      const execute = async () => withTimeout(
+        Promise.resolve(job.run({ ...context, runId, correlationId, job })),
         job.timeoutMs,
         `Job ${name} timed out after ${job.timeoutMs}ms`,
       );
+
+      const result = this.jobStore?.runWithLock
+        ? await this.jobStore.runWithLock({ job, runId, correlationId, execute })
+        : await execute();
+
+      if (result?.__sentinelLockSkipped) {
+        const durationMs = Date.now() - startedAt;
+        log?.info?.('sentinel.job.skipped', { durationMs, reason: result.reason });
+        return { skipped: true, reason: result.reason, runId, durationMs };
+      }
+
       const durationMs = Date.now() - startedAt;
+      await this.jobStore?.finishRun?.({ runId, status: 'succeeded', durationMs, result });
       log?.info?.('sentinel.job.succeeded', { durationMs });
       return { skipped: false, ok: true, runId, durationMs, result };
     } catch (error) {
       const durationMs = Date.now() - startedAt;
+      await this.jobStore?.finishRun?.({ runId, status: 'failed', durationMs, error }).catch?.((persistError) => {
+        log?.error?.('sentinel.job.persistence_failed', { error: persistError });
+      });
       log?.error?.('sentinel.job.failed', { durationMs, error });
       return { skipped: false, ok: false, runId, durationMs, error };
     } finally {
@@ -60,12 +78,14 @@ function normalizeJob(definition, defaultTimeoutMs) {
   if (typeof definition.run !== 'function') throw new Error(`Job ${name} requires run()`);
   const timeoutMs = Number(definition.timeoutMs || defaultTimeoutMs);
   if (!Number.isFinite(timeoutMs) || timeoutMs < 100) throw new Error(`Invalid timeout for ${name}`);
+  const concurrency = Number(definition.concurrency || 1);
+  if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error(`Invalid concurrency for ${name}`);
   return Object.freeze({
     name,
     owner: String(definition.owner || 'sentinel').trim(),
     trigger: definition.trigger || { type: 'manual' },
     timeoutMs,
-    concurrency: Number(definition.concurrency || 1),
+    concurrency,
     retry: definition.retry || { attempts: 0 },
     run: definition.run,
   });
