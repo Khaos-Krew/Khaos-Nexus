@@ -4,6 +4,7 @@ const { loadSentinelConfig } = require('./config.cjs');
 const { createLogger } = require('./logger.cjs');
 const { createDatabase } = require('./database.cjs');
 const { Scheduler } = require('./scheduler.cjs');
+const { JobStore } = require('./job-store.cjs');
 const { IncidentTracker } = require('./incidents.cjs');
 const { ActionGate } = require('./actions.cjs');
 
@@ -12,7 +13,8 @@ async function startWorker() {
   const config = Object.freeze({ ...base, mode: 'worker', serviceName: process.env.NEXUS_SENTINEL_WORKER_NAME || 'nexus-sentinel-worker' });
   const logger = createLogger({ service: config.serviceName, level: config.logLevel });
   const database = createDatabase({ connectionString: config.databaseUrl, logger });
-  const scheduler = new Scheduler({ logger });
+  const jobStore = new JobStore({ database, logger });
+  const scheduler = new Scheduler({ logger, jobStore });
   const incidents = new IncidentTracker();
   const actionGate = new ActionGate({ mutationEnabled: config.mutationEnabled, dryRun: config.dryRun });
 
@@ -25,6 +27,7 @@ async function startWorker() {
     mutationsEnabled: config.mutationEnabled,
     dryRun: config.dryRun,
     databaseConfigured: database.enabled,
+    persistentJobs: jobStore.enabled,
     jobsRegistered: scheduler.list().length,
   });
 
@@ -33,7 +36,7 @@ async function startWorker() {
     await database.close();
   };
 
-  return Object.freeze({ config, logger, database, scheduler, incidents, actionGate, shutdown });
+  return Object.freeze({ config, logger, database, jobStore, scheduler, incidents, actionGate, shutdown });
 }
 
 if (require.main === module) {
