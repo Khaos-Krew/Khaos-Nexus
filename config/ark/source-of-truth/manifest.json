@@ -1,35 +1,42 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "system": "Khaos Nexus ARK configuration",
-  "authority": "git_after_bootstrap_capture",
+  "active_server": "gen1",
+  "active_map_alias": "Map1",
+  "host_provider": "citadel_servers",
+  "authority": {
+    "runtime_settings": "citadel_live_server_files",
+    "installed_mod_ids": "citadel_live_server_configuration",
+    "mod_metadata": "curseforge_api",
+    "repository": "reference_templates_snapshots_and_history_only"
+  },
   "repository": "Khaos-Krew/Khaos-Nexus",
   "root": "config/ark/source-of-truth",
-  "bootstrap_complete": false,
-  "deployment_enabled": false,
-  "bootstrap_reference_server": "gen1",
-  "bootstrap_note": "Gen1 is the owner-designated known-good live reference for the shared cluster baseline. Capture/sanitize the current Gen1 INIs into the canonical files, review parity, then mark bootstrap_complete. Keep deployment disabled until explicit owner review; never infer missing values from another live server after bootstrap.",
-  "resolution_order": [
-    "cluster/GameUserSettings.ini",
-    "cluster/Game.ini",
-    "cluster/rates.json",
-    "servers/<server-id>/GameUserSettings.override.ini",
-    "servers/<server-id>/Game.override.ini",
-    "servers/<server-id>/server.json",
-    "protected admin whitelist",
-    "Sentinel secret overlay"
+  "runtime_read_order": [
+    "Citadel live GameUserSettings.ini",
+    "Citadel live Game.ini",
+    "Citadel live launch/config mod IDs",
+    "CurseForge metadata resolved from live mod IDs",
+    "protected runtime secret overlay"
   ],
-  "protected_sources": {
-    "admin_whitelist": "Khaos-Krew/Khaos-Nexus-ARK-Bridge:config/ark/protected/admin-whitelist.json"
-  },
   "servers": [
-    "astraeos",
-    "gen1"
+    "gen1",
+    "astraeos"
+  ],
+  "deferred_servers": [
+    "astraeos"
   ],
   "write_policy": {
-    "repo_to_server": "explicit_command_only",
-    "server_to_repo": "explicit_capture_command_only",
+    "repo_to_server": "disabled_for_runtime_rates_and_settings",
+    "server_to_repo": "manual_sanitized_snapshot_only",
     "automatic_live_server_capture": false,
     "automatic_repo_reconcile": false,
-    "automatic_server_overwrite": false
-  }
+    "automatic_server_overwrite": false,
+    "explicit_live_write_requires_backup_and_readback": true
+  },
+  "notes": [
+    "Gen1/Map1 is the only active ARK rebuild target until it is stable.",
+    "Git must not override live Citadel rates or settings.",
+    "CurseForge supplies mod names and update metadata; the live Citadel configuration determines which mod IDs are actually installed/enabled."
+  ]
 }
