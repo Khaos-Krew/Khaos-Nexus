@@ -52,13 +52,23 @@ class JobStore {
     });
   }
 
-  async startRun({ job, runId, correlationId, client } = {}) {
+  async startRun({ job, runId, correlationId, client, attempt = 1 } = {}) {
     if (!this.enabled) return;
     const db = client || this.database;
     await db.query(
       `INSERT INTO sentinel_job_runs (run_id, job_name, status, started_at, attempt, correlation_id)
-       VALUES ($1::uuid, $2, 'running', now(), 1, $3)`,
-      [runId, job.name, correlationId || null],
+       VALUES ($1::uuid, $2, 'running', now(), $4, $3)`,
+      [runId, job.name, correlationId || null, attempt],
+    );
+  }
+
+  async updateRunAttempt({ runId, attempt } = {}) {
+    if (!this.enabled) return;
+    await this.database.query(
+      `UPDATE sentinel_job_runs
+       SET attempt = $2
+       WHERE run_id = $1::uuid`,
+      [runId, attempt],
     );
   }
 
