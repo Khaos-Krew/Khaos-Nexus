@@ -7,7 +7,7 @@ const { Scheduler } = require('./scheduler.cjs');
 const { JobStore } = require('./job-store.cjs');
 const { IncidentStore } = require('./incident-store.cjs');
 const { DurableIncidentTracker } = require('./incidents.cjs');
-const { ActionGate } = require('./actions.cjs');
+const { ActionGate, ActionController } = require('./actions.cjs');
 const { AuditStore } = require('./audit-store.cjs');
 const { ActionStore } = require('./action-store.cjs');
 
@@ -22,7 +22,12 @@ async function startWorker() {
   const actionStore = new ActionStore({ database, auditStore, logger });
   const scheduler = new Scheduler({ logger, jobStore });
   const incidents = new DurableIncidentTracker({ store: incidentStore, logger });
-  const actionGate = new ActionGate({ mutationEnabled: config.mutationEnabled, dryRun: config.dryRun });
+  const actionGate = new ActionGate({
+    mutationEnabled: config.mutationEnabled,
+    dryRun: config.dryRun,
+    allow: config.actionAllowlist,
+  });
+  const actions = new ActionController({ gate: actionGate, store: actionStore, logger });
 
   const databaseHealth = await database.ping();
   if (database.enabled && !databaseHealth.ok) {
@@ -35,11 +40,13 @@ async function startWorker() {
   logger.info('sentinel.worker.started', {
     mutationsEnabled: config.mutationEnabled,
     dryRun: config.dryRun,
+    actionAllowlistSize: config.actionAllowlist.length,
     databaseConfigured: database.enabled,
     persistentJobs: jobStore.enabled,
     persistentIncidents: incidentStore.enabled,
     persistentActions: actionStore.enabled,
     persistentAudit: auditStore.enabled,
+    actionControllerReady: true,
     openIncidentsRestored: restoredIncidents.length,
     jobsRegistered: scheduler.list().length,
     schedulerStarted: true,
@@ -51,7 +58,7 @@ async function startWorker() {
     await database.close();
   };
 
-  return Object.freeze({ config, logger, database, jobStore, incidentStore, auditStore, actionStore, scheduler, incidents, actionGate, shutdown });
+  return Object.freeze({ config, logger, database, jobStore, incidentStore, auditStore, actionStore, scheduler, incidents, actionGate, actions, shutdown });
 }
 
 if (require.main === module) {
