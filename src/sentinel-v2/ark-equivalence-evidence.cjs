@@ -1,5 +1,9 @@
 'use strict';
 
+const MATCHED_ACTION = 'sentinel.ark.health_equivalence.matched';
+const DRIFTED_ACTION = 'sentinel.ark.health_equivalence.drifted';
+const EVIDENCE_SUBJECT = 'ark-cluster-health';
+
 class ArkEquivalenceEvidence {
   constructor({ auditStore, logger } = {}) {
     this.auditStore = auditStore;
@@ -22,14 +26,12 @@ class ArkEquivalenceEvidence {
       drift,
     };
 
-    const action = evidence.equivalent
-      ? 'sentinel.ark.health_equivalence.matched'
-      : 'sentinel.ark.health_equivalence.drifted';
+    const action = evidence.equivalent ? MATCHED_ACTION : DRIFTED_ACTION;
 
     const persisted = await this.auditStore?.append?.({
       actor: 'nexus-sentinel-worker',
       action,
-      subject: 'ark-cluster-health',
+      subject: EVIDENCE_SUBJECT,
       correlationId,
       details: evidence,
     });
@@ -46,6 +48,38 @@ class ArkEquivalenceEvidence {
 
     return { ...evidence, persisted: persisted?.persisted === true, auditId: persisted?.auditId };
   }
+
+  async history({ since, limit = 500 } = {}) {
+    const entries = await this.auditStore?.list?.({
+      actions: [MATCHED_ACTION, DRIFTED_ACTION],
+      subject: EVIDENCE_SUBJECT,
+      since,
+      limit,
+    });
+    if (!Array.isArray(entries)) return [];
+
+    return entries.map((entry) => {
+      const details = entry?.details && typeof entry.details === 'object' ? entry.details : {};
+      const checkedAt = details.checkedAt || entry.occurredAt;
+      const parsed = new Date(checkedAt);
+      if (Number.isNaN(parsed.getTime())) return null;
+      const equivalent = entry.action === MATCHED_ACTION && details.equivalent !== false;
+      return Object.freeze({
+        checkedAt: parsed.toISOString(),
+        equivalent,
+        servers: Number(details.servers || 0),
+        matched: Number(details.matched || 0),
+        drifted: Number(details.drifted || (equivalent ? 0 : 1)),
+        auditId: entry.auditId || undefined,
+        persisted: entry.persisted === true,
+      });
+    }).filter(Boolean);
+  }
 }
 
-module.exports = { ArkEquivalenceEvidence };
+module.exports = {
+  ArkEquivalenceEvidence,
+  MATCHED_ACTION,
+  DRIFTED_ACTION,
+  EVIDENCE_SUBJECT,
+};
