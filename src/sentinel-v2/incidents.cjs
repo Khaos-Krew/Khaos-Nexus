@@ -22,6 +22,16 @@ class IncidentTracker {
     this.open = new Map();
   }
 
+  hydrate(incidents = []) {
+    this.open.clear();
+    for (const incident of incidents) {
+      if (incident?.status === 'open' && incident.fingerprint) {
+        this.open.set(incident.fingerprint, { ...incident });
+      }
+    }
+    return this.listOpen();
+  }
+
   observe(input) {
     const now = new Date().toISOString();
     const fingerprint = input.fingerprint || fingerprintIncident(input);
@@ -31,6 +41,7 @@ class IncidentTracker {
       current.occurrences += 1;
       current.message = String(input.message || current.message);
       current.severity = input.severity || current.severity;
+      current.metadata = input.metadata || current.metadata || {};
       return { incident: { ...current }, created: false };
     }
 
@@ -45,6 +56,7 @@ class IncidentTracker {
       firstSeenAt: now,
       lastSeenAt: now,
       occurrences: 1,
+      metadata: input.metadata || {},
     };
     this.open.set(fingerprint, incident);
     return { incident: { ...incident }, created: true };
@@ -62,4 +74,50 @@ class IncidentTracker {
   }
 }
 
-module.exports = { IncidentTracker, fingerprintIncident, normalizeMessage };
+class DurableIncidentTracker {
+  constructor({ store, logger } = {}) {
+    this.store = store;
+    this.logger = logger;
+    this.memory = new IncidentTracker();
+  }
+
+  async hydrate() {
+    if (!this.store?.enabled) return this.memory.listOpen();
+    const open = await this.store.listOpen();
+    this.memory.hydrate(open);
+    this.logger?.info?.('sentinel.incidents.hydrated', { open: open.length });
+    return this.memory.listOpen();
+  }
+
+  async observe(input) {
+    const observed = this.memory.observe(input);
+    if (!this.store?.enabled) return observed;
+    try {
+      const persisted = await this.store.observe(observed.incident);
+      this.memory.open.set(persisted.fingerprint, { ...persisted });
+      return { incident: { ...persisted }, created: observed.created };
+    } catch (error) {
+      this.logger?.error?.('sentinel.incidents.persist_failed', { error, fingerprint: observed.incident.fingerprint });
+      throw error;
+    }
+  }
+
+  async recover(fingerprint) {
+    const recovered = this.memory.recover(fingerprint);
+    if (!recovered) return null;
+    if (!this.store?.enabled) return recovered;
+    try {
+      return await this.store.recover(fingerprint, recovered.recoveredAt) || recovered;
+    } catch (error) {
+      this.memory.open.set(fingerprint, { ...recovered, status: 'open', recoveredAt: undefined });
+      this.logger?.error?.('sentinel.incidents.recovery_persist_failed', { error, fingerprint });
+      throw error;
+    }
+  }
+
+  listOpen() {
+    return this.memory.listOpen();
+  }
+}
+
+module.exports = { IncidentTracker, DurableIncidentTracker, fingerprintIncident, normalizeMessage };
