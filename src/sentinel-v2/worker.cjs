@@ -30,6 +30,7 @@ async function startWorker() {
   }
 
   const restoredIncidents = await incidents.hydrate();
+  scheduler.start();
 
   logger.info('sentinel.worker.started', {
     mutationsEnabled: config.mutationEnabled,
@@ -41,10 +42,12 @@ async function startWorker() {
     persistentAudit: auditStore.enabled,
     openIncidentsRestored: restoredIncidents.length,
     jobsRegistered: scheduler.list().length,
+    schedulerStarted: true,
   });
 
   const shutdown = async (signal) => {
     logger.info('sentinel.worker.shutdown', { signal });
+    scheduler.stop();
     await database.close();
   };
 
