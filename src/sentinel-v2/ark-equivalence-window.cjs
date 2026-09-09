@@ -9,19 +9,18 @@ class ArkEquivalenceWindow {
   }
 
   add(evidence = {}) {
-    const checkedAt = new Date(evidence.checkedAt || Date.now());
-    if (Number.isNaN(checkedAt.getTime())) throw new TypeError('equivalence evidence checkedAt must be a valid date');
-    const sample = Object.freeze({
-      checkedAt: checkedAt.toISOString(),
-      equivalent: evidence.equivalent === true,
-      servers: Number(evidence.servers || 0),
-      matched: Number(evidence.matched || 0),
-      drifted: Number(evidence.drifted || 0),
-      auditId: evidence.auditId || undefined,
-      persisted: evidence.persisted === true,
-    });
-    this.samples.push(sample);
+    const sample = normalizeEvidenceSample(evidence);
+    const duplicate = sample.auditId != null
+      ? this.samples.some((item) => item.auditId === sample.auditId)
+      : this.samples.some((item) => item.checkedAt === sample.checkedAt && item.equivalent === sample.equivalent);
+    if (!duplicate) this.samples.push(sample);
     this.samples.sort((a, b) => a.checkedAt.localeCompare(b.checkedAt));
+    return this.evaluate();
+  }
+
+  hydrate(evidence = []) {
+    this.samples = [];
+    for (const item of Array.isArray(evidence) ? evidence : []) this.add(item);
     return this.evaluate();
   }
 
@@ -49,4 +48,18 @@ class ArkEquivalenceWindow {
   }
 }
 
-module.exports = { ArkEquivalenceWindow };
+function normalizeEvidenceSample(evidence = {}) {
+  const checkedAt = new Date(evidence.checkedAt || Date.now());
+  if (Number.isNaN(checkedAt.getTime())) throw new TypeError('equivalence evidence checkedAt must be a valid date');
+  return Object.freeze({
+    checkedAt: checkedAt.toISOString(),
+    equivalent: evidence.equivalent === true,
+    servers: Number(evidence.servers || 0),
+    matched: Number(evidence.matched || 0),
+    drifted: Number(evidence.drifted || 0),
+    auditId: evidence.auditId == null ? undefined : Number(evidence.auditId),
+    persisted: evidence.persisted === true,
+  });
+}
+
+module.exports = { ArkEquivalenceWindow, normalizeEvidenceSample };
