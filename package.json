@@ -10,7 +10,7 @@
     "start": "electron .",
     "backend": "node src/backend/server.cjs",
     "sentinel": "node src/sentinel/entry.cjs",
-    "test:sentinel-v2": "node --test tests/sentinel-v2-foundation.test.cjs",
+    "test:sentinel-v2": "node --test tests/sentinel-v2-*.test.cjs",
     "build-worker": "node src/build-worker/entry.cjs",
     "wshop:export": "node scripts/export-wshop-migration.cjs",
     "check": "node scripts/check.cjs",
