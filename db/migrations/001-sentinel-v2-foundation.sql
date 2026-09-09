@@ -112,6 +112,8 @@ CREATE TABLE IF NOT EXISTS sentinel_audit_log (
 );
 CREATE INDEX IF NOT EXISTS sentinel_audit_log_occurred_idx
   ON sentinel_audit_log (occurred_at DESC);
+CREATE INDEX IF NOT EXISTS sentinel_audit_log_action_subject_occurred_idx
+  ON sentinel_audit_log (action, subject, occurred_at ASC);
 
 CREATE TABLE IF NOT EXISTS sentinel_policy_versions (
   policy_name text NOT NULL,
