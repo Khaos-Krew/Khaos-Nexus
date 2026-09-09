@@ -9,6 +9,7 @@ function createDatabase({ connectionString, logger } = {}) {
       async ping() { return { ok: false, reason: 'database-not-configured' }; },
       async close() {},
       async query() { throw new Error('Sentinel database is not configured'); },
+      async withClient() { throw new Error('Sentinel database is not configured'); },
     });
   }
 
@@ -18,6 +19,15 @@ function createDatabase({ connectionString, logger } = {}) {
   return Object.freeze({
     enabled: true,
     query(text, params) { return pool.query(text, params); },
+    async withClient(callback) {
+      if (typeof callback !== 'function') throw new TypeError('withClient requires a callback');
+      const client = await pool.connect();
+      try {
+        return await callback(client);
+      } finally {
+        client.release();
+      }
+    },
     async ping() {
       const startedAt = Date.now();
       try {
