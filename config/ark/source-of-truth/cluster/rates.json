@@ -1,9 +1,9 @@
 {
-  "schema_version": 1,
-  "scope": "cluster",
-  "authoritative": true,
-  "bootstrap_status": "captured_from_gen1_baseline",
-  "description": "Canonical non-secret ARK rates and stat multipliers captured from the current Gen1 baseline managed by Nexus Sentinal. After capture, Git is authoritative and Sentinal deploys outward only by explicit command.",
+  "schema_version": 2,
+  "scope": "cluster_reference",
+  "authoritative": false,
+  "status": "reference_snapshot_only",
+  "description": "Non-secret ARK rates/stat multipliers retained as a reference snapshot. Live Citadel server files are authoritative. Sentinel must not deploy or reconcile these values automatically.",
   "values": {
     "server_settings": {
       "ServerPVE": true,
@@ -75,14 +75,13 @@
     }
   },
   "validation": {
-    "require_ini_parity": true,
+    "comparison_only": true,
     "reject_unknown_duplicate_keys": true,
     "reject_conflicting_duplicate_keys": true
   },
   "notes": [
-    "Gen1 is the owner-designated bootstrap reference for the shared cluster baseline.",
-    "Player weight uses PerLevelStatsMultiplier_Player[7]=30.0; tamed dino weight uses PerLevelStatsMultiplier_DinoTamed[7]=15.0.",
-    "This registry synchronization does not enable deployment; manifest bootstrap and deployment gates remain authoritative.",
-    "After bootstrap, edits are made in Git and deployed outward to servers only by explicit command."
+    "This file is not a deployment target.",
+    "Read Gen1/Map1 rates and settings from the live Citadel server before displaying or changing them.",
+    "Use explicit owner-approved writes with backup, diff, and readback when Sentinel later gains live config editing."
   ]
 }
