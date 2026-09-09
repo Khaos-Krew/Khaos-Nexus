@@ -35,6 +35,48 @@ class AuditStore {
 
     return fromAuditRow(rows[0]);
   }
+
+  async list({ actions = [], subject, since, limit = 500 } = {}) {
+    if (!this.enabled) return [];
+
+    const normalizedActions = Array.isArray(actions)
+      ? actions.map((action) => String(action || '').trim()).filter(Boolean)
+      : [];
+    const normalizedSubject = subject ? String(subject) : null;
+    const normalizedLimit = Math.min(5000, Math.max(1, Number(limit) || 500));
+    let normalizedSince = null;
+    if (since) {
+      const parsed = new Date(since);
+      if (Number.isNaN(parsed.getTime())) throw new TypeError('audit since must be a valid date');
+      normalizedSince = parsed.toISOString();
+    }
+
+    const conditions = [];
+    const params = [];
+    if (normalizedActions.length) {
+      params.push(normalizedActions);
+      conditions.push(`action = ANY($${params.length}::text[])`);
+    }
+    if (normalizedSubject) {
+      params.push(normalizedSubject);
+      conditions.push(`subject = $${params.length}`);
+    }
+    if (normalizedSince) {
+      params.push(normalizedSince);
+      conditions.push(`occurred_at >= $${params.length}::timestamptz`);
+    }
+    params.push(normalizedLimit);
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const { rows } = await this.database.query(`
+      SELECT audit_id, occurred_at, actor, action, subject, correlation_id, details
+      FROM sentinel_audit_log
+      ${where}
+      ORDER BY occurred_at ASC, audit_id ASC
+      LIMIT $${params.length}
+    `, params);
+    return rows.map(fromAuditRow);
+  }
 }
 
 function fromAuditRow(row) {
