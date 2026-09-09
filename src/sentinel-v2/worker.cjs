@@ -5,7 +5,8 @@ const { createLogger } = require('./logger.cjs');
 const { createDatabase } = require('./database.cjs');
 const { Scheduler } = require('./scheduler.cjs');
 const { JobStore } = require('./job-store.cjs');
-const { IncidentTracker } = require('./incidents.cjs');
+const { IncidentStore } = require('./incident-store.cjs');
+const { DurableIncidentTracker } = require('./incidents.cjs');
 const { ActionGate } = require('./actions.cjs');
 
 async function startWorker() {
@@ -14,8 +15,9 @@ async function startWorker() {
   const logger = createLogger({ service: config.serviceName, level: config.logLevel });
   const database = createDatabase({ connectionString: config.databaseUrl, logger });
   const jobStore = new JobStore({ database, logger });
+  const incidentStore = new IncidentStore({ database, logger });
   const scheduler = new Scheduler({ logger, jobStore });
-  const incidents = new IncidentTracker();
+  const incidents = new DurableIncidentTracker({ store: incidentStore, logger });
   const actionGate = new ActionGate({ mutationEnabled: config.mutationEnabled, dryRun: config.dryRun });
 
   const databaseHealth = await database.ping();
@@ -23,11 +25,15 @@ async function startWorker() {
     throw new Error(`Sentinel worker database unavailable: ${databaseHealth.reason || 'unknown'}`);
   }
 
+  const restoredIncidents = await incidents.hydrate();
+
   logger.info('sentinel.worker.started', {
     mutationsEnabled: config.mutationEnabled,
     dryRun: config.dryRun,
     databaseConfigured: database.enabled,
     persistentJobs: jobStore.enabled,
+    persistentIncidents: incidentStore.enabled,
+    openIncidentsRestored: restoredIncidents.length,
     jobsRegistered: scheduler.list().length,
   });
 
@@ -36,7 +42,7 @@ async function startWorker() {
     await database.close();
   };
 
-  return Object.freeze({ config, logger, database, jobStore, scheduler, incidents, actionGate, shutdown });
+  return Object.freeze({ config, logger, database, jobStore, incidentStore, scheduler, incidents, actionGate, shutdown });
 }
 
 if (require.main === module) {
