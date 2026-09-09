@@ -7,6 +7,7 @@ const { loadSentinelConfig } = require('../src/sentinel-v2/config.cjs');
 const { Scheduler } = require('../src/sentinel-v2/scheduler.cjs');
 const { IncidentTracker } = require('../src/sentinel-v2/incidents.cjs');
 const { ActionGate } = require('../src/sentinel-v2/actions.cjs');
+const { serializeError } = require('../src/sentinel-v2/job-store.cjs');
 
 function withEnv(values, fn) {
   const original = {};
@@ -64,6 +65,46 @@ test('Scheduler blocks duplicate concurrent runs by default', async () => {
   release('done');
   const firstResult = await first;
   assert.equal(firstResult.ok, true);
+});
+
+test('Scheduler persists successful job outcomes through the job store', async () => {
+  const calls = [];
+  const jobStore = {
+    async ensureJob(job) { calls.push(['ensure', job.name]); },
+    async runWithLock({ execute }) { calls.push(['lock']); return execute(); },
+    async finishRun(input) { calls.push(['finish', input.status, input.result]); },
+  };
+  const scheduler = new Scheduler({ jobStore });
+  scheduler.register({ name: 'persistent-job', owner: 'tests', run: async () => ({ changed: 0 }) });
+
+  const result = await scheduler.runNow('persistent-job', { correlationId: 'corr-1' });
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls, [
+    ['ensure', 'persistent-job'],
+    ['lock'],
+    ['finish', 'succeeded', { changed: 0 }],
+  ]);
+});
+
+test('Scheduler skips execution when another worker owns the advisory lock', async () => {
+  let executed = false;
+  const jobStore = {
+    async ensureJob() {},
+    async runWithLock() { return { __sentinelLockSkipped: true, reason: 'distributed-lock-held' }; },
+    async finishRun() { throw new Error('finishRun must not be called for skipped lock'); },
+  };
+  const scheduler = new Scheduler({ jobStore });
+  scheduler.register({ name: 'singleton-job', run: async () => { executed = true; } });
+
+  const result = await scheduler.runNow('singleton-job');
+  assert.equal(result.skipped, true);
+  assert.equal(result.reason, 'distributed-lock-held');
+  assert.equal(executed, false);
+});
+
+test('Job error serialization is bounded to stable fields', () => {
+  const error = Object.assign(new Error('boom'), { code: 'E_TEST', secret: 'do-not-store' });
+  assert.deepEqual(serializeError(error), { name: 'Error', message: 'boom', code: 'E_TEST' });
 });
 
 test('Incident tracker deduplicates repeated failures', () => {
