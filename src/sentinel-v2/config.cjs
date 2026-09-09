@@ -28,6 +28,12 @@ function intEnv(name, fallback, { min = Number.MIN_SAFE_INTEGER, max = Number.MA
   return value;
 }
 
+function listEnv(name, fallback = []) {
+  const raw = String(process.env[name] ?? '').trim();
+  if (!raw) return [...fallback];
+  return [...new Set(raw.split(',').map((item) => item.trim()).filter(Boolean))];
+}
+
 function loadSentinelConfig() {
   const config = {
     serviceName: env('NEXUS_SENTINEL_SERVICE_NAME', null, 'nexus-sentinel'),
@@ -35,6 +41,7 @@ function loadSentinelConfig() {
     port: intEnv('PORT', 3210, { min: 1, max: 65535 }),
     mutationEnabled: boolEnv('NEXUS_SENTINEL_MUTATIONS_ENABLED', false),
     dryRun: boolEnv('NEXUS_SENTINEL_DRY_RUN', true),
+    actionAllowlist: listEnv('NEXUS_SENTINEL_ACTION_ALLOWLIST'),
     discordToken: env('NEXUS_SENTINEL_TOKEN', 'NEXUS_SENTINAL_TOKEN'),
     adminPublicUrl: env('NEXUS_SENTINEL_ADMIN_PUBLIC_URL', 'NEXUS_SENTINAL_ADMIN_PUBLIC_URL'),
     adminToken: env('NEXUS_SENTINEL_ADMIN_TOKEN', 'NEXUS_SENTINAL_ADMIN_TOKEN'),
@@ -54,4 +61,4 @@ function loadSentinelConfig() {
   return Object.freeze(config);
 }
 
-module.exports = { loadSentinelConfig, env, boolEnv, intEnv };
+module.exports = { loadSentinelConfig, env, boolEnv, intEnv, listEnv };
