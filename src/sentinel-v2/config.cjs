@@ -43,6 +43,7 @@ function loadSentinelConfig() {
     dryRun: boolEnv('NEXUS_SENTINEL_DRY_RUN', true),
     actionAllowlist: listEnv('NEXUS_SENTINEL_ACTION_ALLOWLIST'),
     discordToken: env('NEXUS_SENTINEL_TOKEN', 'NEXUS_SENTINAL_TOKEN'),
+    guildId: env('NEXUS_SENTINEL_GUILD_ID', 'NEXUS_DISCORD_GUILD_ID'),
     adminPublicUrl: env('NEXUS_SENTINEL_ADMIN_PUBLIC_URL', 'NEXUS_SENTINAL_ADMIN_PUBLIC_URL'),
     adminToken: env('NEXUS_SENTINEL_ADMIN_TOKEN', 'NEXUS_SENTINAL_ADMIN_TOKEN'),
     databaseUrl: env('DATABASE_URL'),
