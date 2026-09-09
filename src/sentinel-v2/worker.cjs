@@ -8,6 +8,8 @@ const { JobStore } = require('./job-store.cjs');
 const { IncidentStore } = require('./incident-store.cjs');
 const { DurableIncidentTracker } = require('./incidents.cjs');
 const { ActionGate } = require('./actions.cjs');
+const { AuditStore } = require('./audit-store.cjs');
+const { ActionStore } = require('./action-store.cjs');
 
 async function startWorker() {
   const base = loadSentinelConfig();
@@ -16,6 +18,8 @@ async function startWorker() {
   const database = createDatabase({ connectionString: config.databaseUrl, logger });
   const jobStore = new JobStore({ database, logger });
   const incidentStore = new IncidentStore({ database, logger });
+  const auditStore = new AuditStore({ database, logger });
+  const actionStore = new ActionStore({ database, auditStore, logger });
   const scheduler = new Scheduler({ logger, jobStore });
   const incidents = new DurableIncidentTracker({ store: incidentStore, logger });
   const actionGate = new ActionGate({ mutationEnabled: config.mutationEnabled, dryRun: config.dryRun });
@@ -33,6 +37,8 @@ async function startWorker() {
     databaseConfigured: database.enabled,
     persistentJobs: jobStore.enabled,
     persistentIncidents: incidentStore.enabled,
+    persistentActions: actionStore.enabled,
+    persistentAudit: auditStore.enabled,
     openIncidentsRestored: restoredIncidents.length,
     jobsRegistered: scheduler.list().length,
   });
@@ -42,7 +48,7 @@ async function startWorker() {
     await database.close();
   };
 
-  return Object.freeze({ config, logger, database, jobStore, incidentStore, scheduler, incidents, actionGate, shutdown });
+  return Object.freeze({ config, logger, database, jobStore, incidentStore, auditStore, actionStore, scheduler, incidents, actionGate, shutdown });
 }
 
 if (require.main === module) {
