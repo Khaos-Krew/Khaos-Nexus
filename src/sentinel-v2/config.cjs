@@ -1,0 +1,57 @@
+'use strict';
+
+function env(name, legacyName, fallback = '') {
+  const primary = String(process.env[name] ?? '').trim();
+  if (primary) return primary;
+  if (legacyName) {
+    const legacy = String(process.env[legacyName] ?? '').trim();
+    if (legacy) return legacy;
+  }
+  return fallback;
+}
+
+function boolEnv(name, fallback = false) {
+  const raw = String(process.env[name] ?? '').trim().toLowerCase();
+  if (!raw) return fallback;
+  if (['1', 'true', 'yes', 'on'].includes(raw)) return true;
+  if (['0', 'false', 'no', 'off'].includes(raw)) return false;
+  throw new Error(`Invalid boolean for ${name}`);
+}
+
+function intEnv(name, fallback, { min = Number.MIN_SAFE_INTEGER, max = Number.MAX_SAFE_INTEGER } = {}) {
+  const raw = String(process.env[name] ?? '').trim();
+  if (!raw) return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new Error(`Invalid integer for ${name}`);
+  }
+  return value;
+}
+
+function loadSentinelConfig() {
+  const config = {
+    serviceName: env('NEXUS_SENTINEL_SERVICE_NAME', null, 'nexus-sentinel'),
+    mode: env('NEXUS_SENTINEL_MODE', null, 'control-plane'),
+    port: intEnv('PORT', 3210, { min: 1, max: 65535 }),
+    mutationEnabled: boolEnv('NEXUS_SENTINEL_MUTATIONS_ENABLED', false),
+    dryRun: boolEnv('NEXUS_SENTINEL_DRY_RUN', true),
+    discordToken: env('NEXUS_SENTINEL_TOKEN', 'NEXUS_SENTINAL_TOKEN'),
+    adminPublicUrl: env('NEXUS_SENTINEL_ADMIN_PUBLIC_URL', 'NEXUS_SENTINAL_ADMIN_PUBLIC_URL'),
+    adminToken: env('NEXUS_SENTINEL_ADMIN_TOKEN', 'NEXUS_SENTINAL_ADMIN_TOKEN'),
+    databaseUrl: env('DATABASE_URL'),
+    logLevel: env('NEXUS_SENTINEL_LOG_LEVEL', null, 'info'),
+    schedulerPollMs: intEnv('NEXUS_SENTINEL_SCHEDULER_POLL_MS', 5000, { min: 500, max: 60000 }),
+  };
+
+  if (!['control-plane', 'worker', 'shadow'].includes(config.mode)) {
+    throw new Error(`Invalid NEXUS_SENTINEL_MODE: ${config.mode}`);
+  }
+
+  if (config.mutationEnabled && config.dryRun) {
+    config.mutationEnabled = false;
+  }
+
+  return Object.freeze(config);
+}
+
+module.exports = { loadSentinelConfig, env, boolEnv, intEnv };
