@@ -1,8 +1,11 @@
 {
-  "schema_version": 1,
-  "source_of_truth": "git",
+  "schema_version": 2,
+  "source_of_truth": "citadel_live_server_files",
+  "git_is_runtime_authoritative": false,
+  "live_servers_are_authoritative": true,
+  "active_server": "gen1",
   "default_apply_mode": "manual",
-  "server_settings_write_mode": "disabled_by_default",
+  "server_settings_write_mode": "explicit_command_only",
   "allow_automatic_server_setting_writes": false,
   "apply_requires_owner_confirmation": true,
   "require_explicit_apply_command": true,
@@ -10,30 +13,42 @@
   "require_pre_apply_backup": true,
   "require_post_apply_readback": true,
   "require_diff_before_apply": true,
-  "reject_apply_when_bootstrap_incomplete": true,
   "preserve_unknown_live_values": true,
-  "live_servers_are_never_authoritative": true,
+  "mod_authority": {
+    "installed_mod_ids": "citadel_live_server_configuration",
+    "mod_names_and_update_metadata": "curseforge_api",
+    "git_mod_names": "non_authoritative_cache_only"
+  },
+  "git_role": [
+    "reference templates",
+    "sanitized manual snapshots",
+    "documentation",
+    "change history"
+  ],
   "secret_keys_never_committed": [
     "ServerAdminPassword",
     "ServerPassword",
     "RCONPassword",
     "RCON_PASSWORD",
+    "FTP_PASSWORD",
+    "SFTP_PASSWORD",
+    "CURSEFORGE_API_KEY",
     "API_KEY",
     "TOKEN",
     "WEBHOOK"
   ],
   "secret_storage": "Sentinel protected runtime secret store",
   "drift_behavior": {
-    "detect": true,
+    "detect_against_reference_snapshot": true,
     "report": true,
     "auto_correct": false,
+    "reference_snapshot_is_not_a_deployment_target": true,
     "correction_requires_explicit_command": true
   },
   "capture_behavior": {
     "allowed": true,
     "requires_explicit_command": true,
     "sanitize_secrets": true,
-    "target_branch_required": true,
-    "never_commit_directly_to_main": true
+    "snapshot_is_non_authoritative": true
   }
 }
