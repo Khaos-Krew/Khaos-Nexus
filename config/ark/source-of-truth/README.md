@@ -1,76 +1,83 @@
-# Khaos Nexus ARK — Repository Source of Truth
+# Khaos Nexus ARK — Runtime Authority Contract
 
-This directory is the authoritative configuration store for every Khaos Nexus ARK: Survival Ascended server after the bootstrap capture is completed and reviewed.
+This directory is a **reference/config-history area**, not the live source of truth for ARK rates or settings.
 
-## Authority model
+## Current authority model
 
-Gen1 is the owner-designated known-good live bootstrap reference for the shared cluster INI baseline. During bootstrap, its current non-secret Game.ini and GameUserSettings.ini values are captured and normalized into this directory. After that capture is reviewed, Git becomes authoritative.
+For the current rebuild, **Gen1 = Map1** and is the only active ARK target.
 
-Sentinal must resolve a server configuration from this directory, overlay protected secrets at runtime, show the diff, back up the live files, and only write when an authorized explicit apply command is issued.
+- **Runtime rates and server settings:** the live Citadel Servers `Game.ini`, `GameUserSettings.ini`, and related live server configuration are authoritative.
+- **Installed/enabled mod IDs:** the live Citadel server configuration is authoritative.
+- **Mod names and update metadata:** resolve the live mod IDs through the CurseForge API.
+- **Git:** stores templates, sanitized snapshots, documentation, and history only. Git must not silently overwrite live Citadel settings.
 
-Sentinal must **not** continuously reconcile or silently overwrite Game.ini, GameUserSettings.ini, rates, stats, or map overrides.
+Sentinel may read and compare the live server against reference files in this repository, but any future live settings write must be explicit, backed up first, diffed, and verified by readback.
 
-A live server may only be captured back into Git when an owner explicitly issues a capture/import command. Captures must be sanitized, placed on a branch, and reviewed before merge.
+Sentinel must **not** continuously reconcile or silently overwrite `Game.ini`, `GameUserSettings.ini`, rates, stats, mod lists, or map overrides from Git.
+
+## Gen1 / Map1 workflow
+
+1. Read the current live Citadel `GameUserSettings.ini`.
+2. Read the current live Citadel `Game.ini`.
+3. Read the live mod IDs from the server's actual launch/config source.
+4. Resolve each mod ID through CurseForge for its canonical name and current compatible file/update metadata.
+5. Present the resulting live state in Sentinel.
+6. Optionally compare that live state with the non-authoritative Git reference snapshot.
+7. Never auto-correct the live server to match Git.
+8. If an authorized settings change is made later, back up first, show the diff, write explicitly, then read the live files back to verify the result.
+
+## Host connectivity
+
+The host is **Citadel Servers**. Keep the management layer provider-neutral where possible:
+
+- use FTP/SFTP or Citadel's file-management access for live configuration files;
+- use RCON for supported runtime/status/admin operations;
+- keep Citadel credentials and RCON credentials in protected runtime secrets, never in Git.
+
+Citadel's own documentation supports managing server files through FTP/SFTP or its game-panel file manager. The exact connection details for each server remain protected runtime configuration.
 
 ## Layout
 
 ```text
 source-of-truth/
-├─ manifest.json
-├─ policy.json
+├─ manifest.json        # authority contract; despite the historical folder name, Git is not runtime truth
+├─ policy.json          # safety/write policy
 ├─ cluster/
-│  ├─ Game.ini
-│  ├─ GameUserSettings.ini
-│  └─ rates.json
+│  ├─ Game.ini          # reference snapshot only
+│  ├─ GameUserSettings.ini # reference snapshot only
+│  └─ rates.json        # reference snapshot only
 └─ servers/
-   ├─ astraeos/
-   │  ├─ server.json
-   │  ├─ Game.override.ini
-   │  └─ GameUserSettings.override.ini
-   └─ gen1/
-      ├─ server.json
-      ├─ Game.override.ini
-      └─ GameUserSettings.override.ini
+   ├─ astraeos/         # deferred until Map1 is stable
+   └─ gen1/             # active Map1 profile metadata
 ```
 
-## Resolution order
+## Reference files
 
-1. `cluster/GameUserSettings.ini`
-2. `cluster/Game.ini`
-3. `cluster/rates.json`
-4. server-specific INI overrides
-5. server profile metadata
-6. Sentinal protected secret overlay
+The files under `cluster/` can be used for documentation, comparisons, rollback planning, or manually reviewed templates. They are **not deployment targets** and do not inherit automatically into Gen1.
 
-The resolved configuration is what Sentinal deploys to a server.
+A difference between a Git reference and the live Citadel server is not, by itself, an error. Sentinel should report the difference without changing the server.
 
-## Cluster defaults vs overrides
+## Mods
 
-Anything that should be identical across all maps belongs under `cluster/`: XP, harvest, taming, breeding, spoil timers, stat multipliers, structure rules, common gameplay settings, and other shared INI values.
+Do not trust a hand-maintained Git mod name as canonical. Sentinel should start with the mod IDs actually enabled on Gen1 and resolve those IDs through CurseForge.
 
-Only genuine map/server differences belong under `servers/<server-id>/`: map-specific spawn overrides, map-only mod settings, identity/launch metadata, or exceptions approved for that server.
+For each live mod ID, the normalized model should eventually include at least:
 
-Do not duplicate cluster values into every server folder. That creates drift.
+- CurseForge mod/project ID;
+- canonical project name;
+- installed/enabled state from Citadel;
+- currently observed/installed file or version when detectable;
+- latest compatible CurseForge file/version;
+- update available state;
+- release channel and file date;
+- dependency metadata where available.
+
+CurseForge is metadata authority only; it does not decide which mods are enabled on the server.
 
 ## Secrets
 
-This repository is public. Do **not** commit server passwords, admin passwords, RCON passwords, API keys, Discord webhooks, tokens, or other credentials. Sentinal applies those from its protected runtime secret store after it builds the non-secret configuration from Git.
+This repository is public. Do **not** commit server passwords, admin passwords, RCON passwords, FTP/SFTP credentials, CurseForge API keys, Discord webhooks, tokens, or other credentials.
 
-## New-server flow
+## Map2
 
-When a server is added:
-
-1. Create `servers/<server-id>/server.json`.
-2. Add only required map/server-specific override lines.
-3. Resolve the server from the cluster baseline plus overrides.
-4. Validate the resulting INIs.
-5. Back up the server's current files if it already exists.
-6. Show the planned diff.
-7. Apply only after an explicit owner/admin command.
-8. Read the files back and verify they match the resolved Git revision.
-
-This means a newly added server starts from the same canonical Khaos Nexus rates/stats/configuration instead of manually copying another live server.
-
-## Bootstrap state
-
-`manifest.json` intentionally keeps deployment disabled while Gen1 parity is being established. The canonical cluster files now reflect the Gen1 baseline currently encoded in Sentinal's Gen1 configuration workflow, including the high carry-weight player/tamed-dino stat multipliers. The remaining bootstrap gate is verification against the actual live Gen1 files and owner review; deployment must stay disabled until that verification is complete.
+Map2 is intentionally deferred. Do not clone Gen1 settings into Map2 automatically. Once Gen1 is stable, Map2 should be onboarded by reading its own live Citadel files first and then applying only deliberate shared policy.
