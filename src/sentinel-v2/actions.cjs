@@ -29,15 +29,16 @@ class ActionController {
 
   async submit(input = {}, handler) {
     const authorization = this.gate.authorize(input);
-    const initialStatus = authorization.allowed
-      ? 'requested'
-      : authorization.reason === 'approval-required'
-        ? 'approval-required'
-        : 'blocked';
+    let action = await this.store.request(input);
 
-    const action = await this.store.request({ ...input, initialStatus });
+    if (!authorization.allowed && authorization.reason !== 'approval-required') {
+      action = await this.store.complete(action.actionId, {
+        status: 'blocked',
+        result: { authorization: { reason: authorization.reason } },
+      });
+    }
+
     this.#logDecision(action, authorization);
-
     if (!authorization.allowed) {
       return { ok: false, executed: false, action, authorization };
     }
