@@ -4,8 +4,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   STARTUP_TASK_ID,
+  LEGACY_MAINTENANCE_ENV,
   INITIAL_DELAY_MS,
   REFRESH_MS,
+  legacyArkShopMaintenanceEnabled,
   inspectArkShopMaintenance,
   startArkShopMaintenanceMonitor,
   installArkShopMaintenanceMonitor
@@ -60,10 +62,30 @@ test('ArkShop maintenance monitor reports incompatible providers without calling
   assert.equal(result.mutationPerformed, false);
 });
 
-test('ArkShop maintenance monitor preserves startup and periodic scheduling without a direct Discord ready listener', () => {
+test('legacy ArkShop maintenance is disabled by default and schedules no work', () => {
+  assert.equal(legacyArkShopMaintenanceEnabled({}), false);
+  assert.equal(legacyArkShopMaintenanceEnabled({ [LEGACY_MAINTENANCE_ENV]: 'false' }), false);
+
+  let scheduled = 0;
+  const result = startArkShopMaintenanceMonitor({
+    env: {},
+    setTimeoutFn() { scheduled += 1; },
+    setIntervalFn() { scheduled += 1; }
+  });
+
+  assert.equal(result.disabled, true);
+  assert.equal(result.initial, null);
+  assert.equal(result.periodic, null);
+  assert.equal(result.run, null);
+  assert.equal(scheduled, 0);
+});
+
+test('legacy compatibility monitor preserves startup and periodic scheduling only when explicitly enabled', () => {
   const scheduled = [];
   const handle = () => ({ unref() {} });
+  const env = { [LEGACY_MAINTENANCE_ENV]: 'true' };
   startArkShopMaintenanceMonitor({
+    env,
     registry: { list: () => [] },
     control: { env: {} },
     setTimeoutFn(fn, delay) {
@@ -82,16 +104,25 @@ test('ArkShop maintenance monitor preserves startup and periodic scheduling with
   ]);
 });
 
-test('ArkShop maintenance monitor registers one idempotent startup coordinator task', async () => {
-  const first = installArkShopMaintenanceMonitor();
-  const second = installArkShopMaintenanceMonitor();
+test('install is a no-op by default and does not register a startup task', () => {
+  const result = installArkShopMaintenanceMonitor({ env: {} });
+  const diagnostics = startupDiagnostics();
+
+  assert.deepEqual(result, { installed: false, coordinated: true, disabled: true });
+  assert.equal(diagnostics.taskCount, 0);
+});
+
+test('explicit legacy opt-in registers one idempotent startup coordinator task', async () => {
+  const env = { [LEGACY_MAINTENANCE_ENV]: 'true' };
+  const first = installArkShopMaintenanceMonitor({ env });
+  const second = installArkShopMaintenanceMonitor({ env });
   const before = startupDiagnostics();
 
-  assert.deepEqual(first, { installed: true, coordinated: true });
-  assert.deepEqual(second, { installed: false, coordinated: true });
+  assert.deepEqual(first, { installed: true, coordinated: true, disabled: false });
+  assert.deepEqual(second, { installed: false, coordinated: true, disabled: false });
   assert.equal(before.taskCount, 1);
   assert.equal(before.tasks[0].id, STARTUP_TASK_ID);
-  assert.equal(before.tasks[0].owner, 'arkshop');
+  assert.equal(before.tasks[0].owner, 'arkshop-legacy');
   assert.equal(before.tasks[0].status, 'registered');
 
   const originalTimeout = global.setTimeout;
