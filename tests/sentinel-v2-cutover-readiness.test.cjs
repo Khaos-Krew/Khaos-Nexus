@@ -37,7 +37,9 @@ test('cutover readiness is green only when every advisory gate is satisfied', as
     mutationSafety: true,
     deploymentRollbackEvidence: true,
   });
+  assert.equal(result.deadLetters.inspectionAvailable, true);
   assert.equal(result.deadLetters.quarantinedCount, 0);
+  assert.deepEqual(result.dependencyFailures, []);
   assert.equal(result.deploymentEvidence.safe, true);
   assert.equal(result.deploymentEvidence.distinctRollbackTarget, true);
   assert.equal(result.deploymentEvidence.railwayRollbackIdentityRecorded, true);
@@ -71,6 +73,7 @@ test('cutover readiness reports concrete blockers without granting production au
     'rollback-unverified',
   ]);
   assert.equal(result.arkHealthEquivalence.eligible, false);
+  assert.equal(result.deadLetters.inspectionAvailable, true);
   assert.equal(result.deadLetters.quarantinedCount, 1);
   assert.equal(result.mutationSafety.safeForAdvisoryObservation, false);
   assert.equal(result.deploymentEvidence.safe, false);
@@ -93,6 +96,7 @@ test('cutover readiness treats unavailable dependencies as blockers', async () =
     'railway-rollback-commit-unrecorded',
     'rollback-unverified',
   ]);
+  assert.equal(result.deadLetters.inspectionAvailable, false);
 });
 
 test('cutover readiness rejects a rollback target that is the deployment candidate itself', async () => {
@@ -173,4 +177,55 @@ test('cutover readiness rejects Railway rollback evidence whose observed commit 
   assert.equal(result.deploymentEvidence.railwayCommitMatchesRollback, false);
   assert.equal(result.deploymentEvidence.safe, false);
   assert.deepEqual(result.reasons, ['railway-rollback-commit-mismatch']);
+});
+
+test('cutover readiness fails closed when dependency probes throw', async () => {
+  const readiness = new CutoverReadiness({
+    database: { async ping() { const error = new Error('database secret detail'); error.code = 'ETIMEDOUT'; throw error; } },
+    deadLetters: { async list() { throw new Error('dead-letter connection detail'); } },
+    arkHealthReadiness: { async snapshot() { throw new Error('health evidence detail'); } },
+    arkRconReadiness: { async snapshot() { throw new Error('rcon evidence detail'); } },
+    config: {
+      mutationEnabled: false,
+      dryRun: true,
+      deploymentCommit: 'candidate-sha',
+      rollbackCommit: 'known-good-sha',
+      rollbackDeploymentId: 'railway-deployment-id',
+      rollbackServiceId: 'railway-service-id',
+      rollbackEnvironmentId: 'railway-environment-id',
+      rollbackRailwayCommit: 'known-good-sha',
+      rollbackVerified: true,
+    },
+  });
+
+  const result = await readiness.snapshot();
+
+  assert.equal(result.ready, false);
+  assert.equal(result.productionDeploymentAuthorized, false);
+  assert.deepEqual(result.reasons, [
+    'database-unhealthy',
+    'ark-health-equivalence-proof-incomplete',
+    'ark-rcon-proof-incomplete',
+    'dead-letter-store-unavailable',
+  ]);
+  assert.deepEqual(result.gates, {
+    database: false,
+    arkHealthEquivalence: false,
+    arkRcon: false,
+    deadLettersClear: false,
+    mutationSafety: true,
+    deploymentRollbackEvidence: true,
+  });
+  assert.equal(result.deadLetters.inspectionAvailable, false);
+  assert.equal(result.dependencyFailures.length, 4);
+  assert.deepEqual(result.dependencyFailures.map((failure) => failure.reason), [
+    'database-probe-failed',
+    'ark-health-readiness-probe-failed',
+    'ark-rcon-readiness-probe-failed',
+    'dead-letter-store-probe-failed',
+  ]);
+  assert.equal(result.dependencyFailures[0].errorCode, 'ETIMEDOUT');
+  assert.equal(JSON.stringify(result).includes('secret detail'), false);
+  assert.equal(JSON.stringify(result).includes('connection detail'), false);
+  assert.equal(JSON.stringify(result).includes('evidence detail'), false);
 });
