@@ -5,6 +5,8 @@ const ECONOMY_AUTHORITY = Object.freeze({
   COMPATIBILITY: 'compatibility'
 });
 
+const LEGACY_MAINTENANCE_ENV = 'NEXUS_ARKSHOP_LEGACY_MAINTENANCE_ENABLED';
+
 function envBool(value, fallback = false) {
   if (value == null || value === '') return fallback;
   return /^(1|true|yes|on)$/i.test(String(value).trim());
@@ -19,14 +21,14 @@ function normalizeAuthority(value) {
 
 function resolveEconomyAuthorityPolicy(env = process.env) {
   const authority = normalizeAuthority(env.NEXUS_ECONOMY_AUTHORITY);
-  const explicitLegacyMaintenance = envBool(env.NEXUS_ARKSHOP_COMPAT_MAINTENANCE, false);
+  const explicitLegacyMaintenance = envBool(env[LEGACY_MAINTENANCE_ENV], false);
 
   return Object.freeze({
     authority,
     walletAuthority: 'nexus-economy-worker',
     storefronts: Object.freeze({
       clusterShop: 'cluster-shop',
-      dinoCache: 'dino-cache'
+      dinoCache: 'dino-box-shop'
     }),
     legacyArkShop: Object.freeze({
       role: 'compatibility-only',
@@ -40,6 +42,7 @@ function resolveEconomyAuthorityPolicy(env = process.env) {
 
 module.exports = {
   ECONOMY_AUTHORITY,
+  LEGACY_MAINTENANCE_ENV,
   envBool,
   normalizeAuthority,
   resolveEconomyAuthorityPolicy
