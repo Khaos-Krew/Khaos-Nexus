@@ -4,25 +4,54 @@ const { randomUUID } = require('node:crypto');
 const { loadLiveArkPublicInfo } = require('../sentinel/ark-public-server-info.cjs');
 
 class ArkLegacyPublicInfoReader {
-  constructor({ loader = loadLiveArkPublicInfo, logger } = {}) {
+  constructor({ loader = loadLiveArkPublicInfo, resilience, logger } = {}) {
     this.loader = loader;
+    this.resilience = resilience;
     this.logger = logger;
   }
 
   async inspectMany(servers = []) {
     const snapshots = [];
     for (const server of (Array.isArray(servers) ? servers : []).filter((item) => item?.enabled !== false)) {
+      const serverId = String(server?.id || server?.envPrefix || '');
+      const serverName = String(server?.mapName || server?.name || serverId || 'ARK Server');
+      const envPrefix = String(server?.envPrefix || '');
       try {
-        snapshots.push(await this.loader(server));
+        if (!this.resilience?.execute) {
+          snapshots.push(await this.loader(server));
+          continue;
+        }
+        const outcome = await this.resilience.execute({
+          provider: `ark.public-info:${envPrefix || serverId || 'unknown'}`,
+          operation: 'read-health',
+          subject: serverId,
+          payload: { envPrefix },
+          run: async () => this.loader(server),
+        });
+        if (outcome.ok) {
+          snapshots.push(outcome.result);
+          continue;
+        }
+        const message = outcome.blocked
+          ? `provider circuit blocked legacy ARK health read: ${outcome.reason}`
+          : String(outcome.error?.message || outcome.error || 'legacy ARK health read failed');
+        this.logger?.warn?.('sentinel.ark.shadow.legacy_read_failed', { serverId, error: message, circuit: outcome.circuit?.status });
+        snapshots.push({
+          serverId,
+          serverName,
+          envPrefix,
+          errors: [message],
+          modIds: [],
+          inventoryAvailable: false,
+          checkedAt: new Date().toISOString(),
+        });
       } catch (error) {
-        const serverId = String(server?.id || server?.envPrefix || '');
-        const serverName = String(server?.mapName || server?.name || serverId || 'ARK Server');
         const message = String(error?.message || error);
         this.logger?.warn?.('sentinel.ark.shadow.legacy_read_failed', { serverId, error: message });
         snapshots.push({
           serverId,
           serverName,
-          envPrefix: String(server?.envPrefix || ''),
+          envPrefix,
           errors: [message],
           modIds: [],
           inventoryAvailable: false,
