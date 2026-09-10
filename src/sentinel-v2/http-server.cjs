@@ -3,11 +3,11 @@
 const http = require('node:http');
 const { timingSafeEqual } = require('node:crypto');
 
-function createHttpServer({ health, logger, port = 3210, host = '0.0.0.0', adminToken = '', deadLetters } = {}) {
+function createHttpServer({ health, logger, port = 3210, host = '0.0.0.0', adminToken = '', deadLetters, arkRconReadiness } = {}) {
   if (!health) throw new Error('health state is required');
 
   const server = http.createServer((req, res) => {
-    void handleRequest(req, res, { health, logger, adminToken, deadLetters });
+    void handleRequest(req, res, { health, logger, adminToken, deadLetters, arkRconReadiness });
   });
 
   server.on('clientError', (error, socket) => {
@@ -40,7 +40,7 @@ function createHttpServer({ health, logger, port = 3210, host = '0.0.0.0', admin
   });
 }
 
-async function handleRequest(req, res, { health, logger, adminToken, deadLetters } = {}) {
+async function handleRequest(req, res, { health, logger, adminToken, deadLetters, arkRconReadiness } = {}) {
   try {
     const url = new URL(String(req.url || '/'), 'http://sentinel.local');
     const path = url.pathname;
@@ -58,6 +58,16 @@ async function handleRequest(req, res, { health, logger, adminToken, deadLetters
 
     if (path.startsWith('/admin/')) {
       if (!authorized(req, adminToken)) return json(res, 401, { ok: false, error: 'unauthorized' });
+
+      if (req.method === 'GET' && path === '/admin/readiness/ark-rcon') {
+        if (!arkRconReadiness?.snapshot) return json(res, 503, { ok: false, error: 'ark-rcon-readiness-unavailable' });
+        const snapshot = await arkRconReadiness.snapshot({
+          since: url.searchParams.get('since') || undefined,
+          limit: url.searchParams.get('limit') || 500,
+        });
+        return json(res, 200, { ok: true, readiness: snapshot });
+      }
+
       if (!deadLetters) return json(res, 503, { ok: false, error: 'dead-letter-store-unavailable' });
 
       if (req.method === 'GET' && path === '/admin/dead-letters') {
