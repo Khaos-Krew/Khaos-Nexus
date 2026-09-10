@@ -16,7 +16,8 @@ const { ArkHealthObserver } = require('./ark-health-observer.cjs');
 const { ArkEquivalenceEvidence } = require('./ark-equivalence-evidence.cjs');
 const { ArkEquivalenceWindow } = require('./ark-equivalence-window.cjs');
 const { ArkShadowComparison } = require('./ark-shadow-comparison.cjs');
-const { ArkShadowRuntime } = require('./ark-shadow-runtime.cjs');
+const { ArkLegacyPublicInfoReader, ArkShadowRuntime } = require('./ark-shadow-runtime.cjs');
+const { DeadLetterStore, ProviderCircuitBreaker, ProviderResilience } = require('./provider-resilience.cjs');
 
 async function startWorker() {
   const base = loadSentinelConfig();
@@ -27,6 +28,7 @@ async function startWorker() {
   const incidentStore = new IncidentStore({ database, logger });
   const auditStore = new AuditStore({ database, logger });
   const actionStore = new ActionStore({ database, auditStore, logger });
+  const deadLetterStore = new DeadLetterStore({ database, logger });
   const scheduler = new Scheduler({ logger, jobStore });
   const incidents = new DurableIncidentTracker({ store: incidentStore, logger });
   const actionGate = new ActionGate({
@@ -41,10 +43,17 @@ async function startWorker() {
   const arkEquivalenceEvidence = new ArkEquivalenceEvidence({ auditStore, logger });
   const arkEquivalenceWindow = new ArkEquivalenceWindow();
   const arkShadowComparison = new ArkShadowComparison({ evidence: arkEquivalenceEvidence, window: arkEquivalenceWindow, logger });
+  const arkProviderResilience = new ProviderResilience({
+    breaker: new ProviderCircuitBreaker({ failureThreshold: 3, cooldownMs: 60000, logger }),
+    deadLetters: deadLetterStore,
+    logger,
+  });
+  const arkLegacyReader = new ArkLegacyPublicInfoReader({ resilience: arkProviderResilience, logger });
   const arkShadowRuntime = new ArkShadowRuntime({
     scheduler,
     registry: arkRegistry,
     v2Adapter: arkHealth,
+    legacyReader: arkLegacyReader,
     comparison: arkShadowComparison,
     logger,
   });
@@ -85,12 +94,14 @@ async function startWorker() {
     persistentIncidents: incidentStore.enabled,
     persistentActions: actionStore.enabled,
     persistentAudit: auditStore.enabled,
+    persistentDeadLetters: deadLetterStore.enabled,
     actionControllerReady: true,
     arkRegistryReadOnly: true,
     arkHealthJobRegistered: true,
     arkShadowEnabled: config.arkShadowEnabled,
     arkShadowHistoryRestored: arkShadowAcceptance?.samples || 0,
     arkShadowRetirementEligible: arkShadowAcceptance?.eligible === true,
+    arkProviderCircuitBreakerReady: true,
     openIncidentsRestored: restoredIncidents.length,
     jobsRegistered: scheduler.list().length,
     schedulerStarted: true,
@@ -110,6 +121,7 @@ async function startWorker() {
     incidentStore,
     auditStore,
     actionStore,
+    deadLetterStore,
     scheduler,
     incidents,
     actionGate,
@@ -120,6 +132,8 @@ async function startWorker() {
     arkEquivalenceEvidence,
     arkEquivalenceWindow,
     arkShadowComparison,
+    arkProviderResilience,
+    arkLegacyReader,
     arkShadowRuntime,
     arkShadowAcceptance,
     shutdown,
