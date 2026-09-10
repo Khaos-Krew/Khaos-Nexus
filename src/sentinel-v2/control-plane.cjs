@@ -9,6 +9,7 @@ const { ActionGate } = require('./actions.cjs');
 const { AuditStore } = require('./audit-store.cjs');
 const { DeadLetterStore } = require('./provider-resilience.cjs');
 const { ArkRconReadiness } = require('./ark-rcon-readiness.cjs');
+const { CutoverReadiness } = require('./cutover-readiness.cjs');
 
 async function startControlPlane() {
   const config = loadSentinelConfig();
@@ -19,6 +20,7 @@ async function startControlPlane() {
   const auditStore = new AuditStore({ database, logger });
   const deadLetters = new DeadLetterStore({ database, logger });
   const arkRconReadiness = new ArkRconReadiness({ auditStore });
+  const cutoverReadiness = new CutoverReadiness({ database, deadLetters, arkRconReadiness, config });
   const httpServer = createHttpServer({
     health,
     logger,
@@ -26,6 +28,7 @@ async function startControlPlane() {
     adminToken: config.adminToken,
     deadLetters,
     arkRconReadiness,
+    cutoverReadiness,
   });
 
   logger.info('sentinel.control_plane.starting', {
@@ -35,6 +38,7 @@ async function startControlPlane() {
     databaseConfigured: database.enabled,
     deadLetterInspection: deadLetters.enabled && Boolean(config.adminToken),
     arkRconReadinessInspection: auditStore.enabled && Boolean(config.adminToken),
+    cutoverReadinessInspection: Boolean(config.adminToken),
   });
 
   const databaseHealth = await database.ping();
@@ -52,7 +56,7 @@ async function startControlPlane() {
     await Promise.allSettled([httpServer.close(), database.close()]);
   };
 
-  return Object.freeze({ config, logger, health, database, actionGate, auditStore, deadLetters, arkRconReadiness, httpServer, shutdown });
+  return Object.freeze({ config, logger, health, database, actionGate, auditStore, deadLetters, arkRconReadiness, cutoverReadiness, httpServer, shutdown });
 }
 
 if (require.main === module) {
