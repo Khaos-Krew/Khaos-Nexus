@@ -59,6 +59,9 @@ function loadSentinelConfig() {
     arkRconShadowHistoryHours: intEnv('NEXUS_SENTINEL_ARK_RCON_SHADOW_HISTORY_HOURS', 24, { min: 1, max: 168 }),
     deploymentCommit: env('NEXUS_SENTINEL_DEPLOYMENT_COMMIT'),
     rollbackCommit: env('NEXUS_SENTINEL_ROLLBACK_COMMIT'),
+    rollbackDeploymentId: env('NEXUS_SENTINEL_ROLLBACK_RAILWAY_DEPLOYMENT_ID'),
+    rollbackServiceId: env('NEXUS_SENTINEL_ROLLBACK_RAILWAY_SERVICE_ID'),
+    rollbackEnvironmentId: env('NEXUS_SENTINEL_ROLLBACK_RAILWAY_ENVIRONMENT_ID'),
     rollbackVerified: boolEnv('NEXUS_SENTINEL_ROLLBACK_VERIFIED', false),
   };
 
