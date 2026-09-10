@@ -57,6 +57,9 @@ function loadSentinelConfig() {
     arkRconShadowIntervalMs: intEnv('NEXUS_SENTINEL_ARK_RCON_SHADOW_INTERVAL_MS', 300000, { min: 60000, max: 3600000 }),
     arkRconShadowJitterMs: intEnv('NEXUS_SENTINEL_ARK_RCON_SHADOW_JITTER_MS', 30000, { min: 0, max: 300000 }),
     arkRconShadowHistoryHours: intEnv('NEXUS_SENTINEL_ARK_RCON_SHADOW_HISTORY_HOURS', 24, { min: 1, max: 168 }),
+    deploymentCommit: env('NEXUS_SENTINEL_DEPLOYMENT_COMMIT'),
+    rollbackCommit: env('NEXUS_SENTINEL_ROLLBACK_COMMIT'),
+    rollbackVerified: boolEnv('NEXUS_SENTINEL_ROLLBACK_VERIFIED', false),
   };
 
   if (!['control-plane', 'worker', 'shadow'].includes(config.mode)) {
