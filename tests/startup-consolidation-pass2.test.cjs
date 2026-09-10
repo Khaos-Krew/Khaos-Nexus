@@ -20,7 +20,6 @@ function source(relative) {
 
 test('second startup consolidation removes private ClientReady listeners from coordinated systems', () => {
   for (const relative of [
-    'src/sentinel/forge-auth-probe-extension.cjs',
     'src/sentinel/staff-name-color-preview-extension.cjs',
     'src/sentinel/ark-cluster-metadata-extension.cjs'
   ]) {

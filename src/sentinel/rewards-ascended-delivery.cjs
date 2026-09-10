@@ -14,7 +14,7 @@ function backendMode(env = process.env) {
 }
 
 function fallbackEnabled(env = process.env) {
-  return String(env.NEXUS_DINO_CACHE_DINODEPOT_FALLBACK || 'true').trim().toLowerCase() !== 'false';
+  return String(env.NEXUS_DINO_CACHE_DINODEPOT_FALLBACK || '').trim().toLowerCase() === 'true';
 }
 
 function configRelativePath(prefix, env = process.env) {

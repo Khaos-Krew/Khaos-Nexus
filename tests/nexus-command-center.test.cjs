@@ -175,7 +175,7 @@ test('level command-center button reuses the existing progression card backend a
   assert.match(edited.embeds[0].title, /PROGRESS CARD/);
 });
 
-test('public help stays member-safe and command center is installed in the Sentinel entry', () => {
+test('public help stays member-safe and the core + ARK runtime leaves the retired command center unloaded', () => {
   const guild = { channels: { cache: new Map([[HQ_ID, hqChannel()]]) } };
   const help = publicHelpPayload(guild, HQ_ID);
   const text = JSON.stringify(help).toLowerCase();
@@ -183,6 +183,6 @@ test('public help stays member-safe and command center is installed in the Senti
   assert.equal(text.includes('/xp'), false);
   assert.equal(text.includes('/nexus run'), false);
   const entry = fs.readFileSync(path.join(__dirname, '..', 'src', 'sentinel', 'entry.cjs'), 'utf8');
-  assert.match(entry, /installNexusCommandCenterExtension/);
-  assert.match(entry, /require\('\.\/nexus-command-center-extension\.cjs'\)/);
+  assert.doesNotMatch(entry, /installNexusCommandCenterExtension/);
+  assert.doesNotMatch(entry, /require\('\.\/nexus-command-center-extension\.cjs'\)/);
 });
