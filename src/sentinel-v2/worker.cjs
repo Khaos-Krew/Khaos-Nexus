@@ -18,6 +18,8 @@ const { ArkEquivalenceWindow } = require('./ark-equivalence-window.cjs');
 const { ArkShadowComparison } = require('./ark-shadow-comparison.cjs');
 const { ArkLegacyPublicInfoReader, ArkShadowRuntime } = require('./ark-shadow-runtime.cjs');
 const { DeadLetterStore, ProviderCircuitBreaker, ProviderResilience } = require('./provider-resilience.cjs');
+const { ArkRconReadTransport } = require('./ark-rcon-read-transport.cjs');
+const { ArkRconReadAdapter, registerArkRconPlayersJob } = require('./ark-rcon-read-adapter.cjs');
 
 async function startWorker() {
   const base = loadSentinelConfig();
@@ -57,6 +59,8 @@ async function startWorker() {
     comparison: arkShadowComparison,
     logger,
   });
+  const arkRconReadTransport = new ArkRconReadTransport({ logger });
+  const arkRconRead = new ArkRconReadAdapter({ transport: arkRconReadTransport, resilience: arkProviderResilience, logger });
 
   const databaseHealth = await database.ping();
   if (database.enabled && !databaseHealth.ok) {
@@ -83,6 +87,15 @@ async function startWorker() {
     });
   }
 
+  if (config.arkRconShadowEnabled) {
+    registerArkRconPlayersJob(scheduler, {
+      adapter: arkRconRead,
+      servers: () => arkRegistry.list({ includeDisabled: false }),
+      intervalMs: config.arkRconShadowIntervalMs,
+      jitterMs: config.arkRconShadowJitterMs,
+    });
+  }
+
   scheduler.start();
 
   logger.info('sentinel.worker.started', {
@@ -101,6 +114,9 @@ async function startWorker() {
     arkShadowEnabled: config.arkShadowEnabled,
     arkShadowHistoryRestored: arkShadowAcceptance?.samples || 0,
     arkShadowRetirementEligible: arkShadowAcceptance?.eligible === true,
+    arkRconReadOnly: true,
+    arkRconShadowEnabled: config.arkRconShadowEnabled,
+    arkRconPlayersJobRegistered: config.arkRconShadowEnabled,
     arkProviderCircuitBreakerReady: true,
     openIncidentsRestored: restoredIncidents.length,
     jobsRegistered: scheduler.list().length,
@@ -136,6 +152,8 @@ async function startWorker() {
     arkLegacyReader,
     arkShadowRuntime,
     arkShadowAcceptance,
+    arkRconReadTransport,
+    arkRconRead,
     shutdown,
   });
 }
