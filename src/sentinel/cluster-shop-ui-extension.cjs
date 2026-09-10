@@ -52,13 +52,29 @@ function buildClusterShopPanelPayload() {
           '',
           'Choose an action below. Prices update automatically from the item base price and the quantity you select.',
           '',
-          '🦖 **Dinos are never sellable to the shop.** Dino Caches remain in #dino-box-shop.'
+          '🦖 **Dinos are never sellable to the shop.** Dino Caches remain in <#dino-box-shop>.'
         ].join('\n'))
         .addFields(
-          { name: '💳 Nexus Wallet', value: 'Your Nexus Points are shared across the cluster and tied to your verified Discord ↔ ARK account.', inline: false },
-          { name: '📦 Buy Items', value: 'Pick a category → pick an item → choose how many bundles you want → review the total → confirm purchase.', inline: false },
-          { name: '💰 Sell Items', value: 'Only approved inventory items can be sold. Your wallet is credited **after ARK confirms the exact items were removed**.', inline: false },
-          { name: '🌐 Delivery', value: 'Purchases are queued to your linked ARK account. If you are offline, the order waits safely until delivery can be completed.', inline: false }
+          {
+            name: '💳 Nexus Wallet',
+            value: 'Your Nexus Points are shared across the cluster and tied to your verified Discord ↔ ARK account.',
+            inline: false
+          },
+          {
+            name: '📦 Buy Items',
+            value: 'Pick a category → pick an item → choose how many bundles you want → review the total → confirm purchase.',
+            inline: false
+          },
+          {
+            name: '💰 Sell Items',
+            value: 'Only approved inventory items can be sold. Your wallet is credited **after ARK confirms the exact items were removed**.',
+            inline: false
+          },
+          {
+            name: '🌐 Delivery',
+            value: 'Purchases are queued to your linked ARK account. If you are offline, the order waits safely until delivery can be completed.',
+            inline: false
+          }
         )
         .setFooter({ text: PANEL_MARKER })
     ],
@@ -100,7 +116,10 @@ async function reconcileClusterShopPanel(guild, options = {}) {
   let created = false;
 
   if (message) await message.edit(payload);
-  else { message = await channel.send(payload); created = true; }
+  else {
+    message = await channel.send(payload);
+    created = true;
+  }
 
   if (message?.pinned !== true && typeof message?.pin === 'function') {
     try { await message.pin('Nexus Sentinal canonical cluster shop panel'); }
@@ -110,7 +129,10 @@ async function reconcileClusterShopPanel(guild, options = {}) {
   let duplicatesRemoved = 0;
   for (const duplicate of candidates) {
     if (String(duplicate.id) === String(message.id)) continue;
-    try { await duplicate.delete('Nexus Sentinal duplicate cluster shop panel cleanup'); duplicatesRemoved += 1; } catch {}
+    try {
+      await duplicate.delete('Nexus Sentinal duplicate cluster shop panel cleanup');
+      duplicatesRemoved += 1;
+    } catch {}
   }
 
   return { channelId: String(channel.id || ''), messageId: String(message?.id || ''), created, duplicatesRemoved };
@@ -134,7 +156,10 @@ function newSession(data) {
 function getSession(id, userId) {
   const session = sessions.get(String(id || ''));
   if (!session) return null;
-  if (Date.now() - session.createdAt > SESSION_TTL_MS) { sessions.delete(String(id || '')); return null; }
+  if (Date.now() - session.createdAt > SESSION_TTL_MS) {
+    sessions.delete(String(id || ''));
+    return null;
+  }
   if (String(session.userId) !== String(userId)) return null;
   return session;
 }
@@ -151,73 +176,153 @@ function linkedEos(identityStore, discordUserId) {
 }
 
 async function openCategoryPicker(interaction, action, economyClient) {
-  if (!economyClient.configured()) return interaction.reply(ephemeral('⚠️ The new Nexus economy worker is not connected yet. The storefront UI is live for review, but checkout is intentionally disabled until the wallet service is ready.'));
+  if (!economyClient.configured()) {
+    return interaction.reply(ephemeral('⚠️ The new Nexus economy worker is not connected yet. The storefront UI is installed, but checkout is intentionally disabled until the wallet service is live.'));
+  }
   const catalog = await economyClient.shopCatalog();
   const categories = uniqueCategories(catalog.items, action);
   if (!categories.length) return interaction.reply(ephemeral(`No ${action === 'sell' ? 'sellable' : 'buyable'} shop items are configured yet.`));
+
   const sessionId = newSession({ userId: interaction.user.id, action, catalog: catalog.items });
-  const menu = new StringSelectMenuBuilder().setCustomId(`nexus-shop:category:${sessionId}`).setPlaceholder(action === 'sell' ? 'Choose an item category to sell' : 'Choose an item category to buy').addOptions(categories.slice(0, 25).map((category) => ({ label: category.slice(0, 100), value: category.slice(0, 100) })));
-  return interaction.reply(ephemeral(action === 'sell' ? '💰 **Sell to Cluster Shop**\nChoose a category. Only items explicitly approved for sellback will appear.' : '🛒 **Buy from Cluster Shop**\nChoose a category to browse.', { components: [new ActionRowBuilder().addComponents(menu)] }));
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(`nexus-shop:category:${sessionId}`)
+    .setPlaceholder(action === 'sell' ? 'Choose an item category to sell' : 'Choose an item category to buy')
+    .addOptions(categories.slice(0, 25).map((category) => ({ label: category.slice(0, 100), value: category.slice(0, 100) })));
+
+  return interaction.reply(ephemeral(
+    action === 'sell'
+      ? '💰 **Sell to Cluster Shop**\nChoose a category. Only items explicitly approved for sellback will appear.'
+      : '🛒 **Buy from Cluster Shop**\nChoose a category to browse.',
+    { components: [new ActionRowBuilder().addComponents(menu)] }
+  ));
 }
 
 async function handleCategory(interaction) {
-  const sessionId = interaction.customId.split(':')[2];
+  const [, , , sessionId] = interaction.customId.split(':');
   const session = getSession(sessionId, interaction.user.id);
   if (!session) return interaction.update({ content: 'This shop menu expired. Use the main shop panel to start again.', components: [] });
   const category = interaction.values?.[0] || '';
   const allowedKey = session.action === 'sell' ? 'sellable' : 'buyable';
   const items = (session.catalog || []).filter((item) => item?.[allowedKey] && String(item.category || 'General') === category).slice(0, 25);
   if (!items.length) return interaction.update({ content: 'No items are available in that category.', components: [] });
+
   session.category = category;
-  const menu = new StringSelectMenuBuilder().setCustomId(`nexus-shop:item:${sessionId}`).setPlaceholder('Choose an item').addOptions(items.map((item) => ({ label: String(item.name || item.id).slice(0, 100), value: String(item.id).slice(0, 100), description: `${item.baseQuantity} per bundle • ${session.action === 'sell' ? item.sellPrice : item.buyPrice} NP`.slice(0, 100) })));
-  return interaction.update({ content: `${session.action === 'sell' ? '💰' : '🛒'} **${category}**\nChoose the item you want to ${session.action}.`, components: [new ActionRowBuilder().addComponents(menu)], allowedMentions: { parse: [] } });
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(`nexus-shop:item:${sessionId}`)
+    .setPlaceholder('Choose an item')
+    .addOptions(items.map((item) => ({
+      label: String(item.name || item.id).slice(0, 100),
+      value: String(item.id).slice(0, 100),
+      description: `${item.baseQuantity} per bundle • ${session.action === 'sell' ? item.sellPrice : item.buyPrice} NP`.slice(0, 100)
+    })));
+
+  return interaction.update({
+    content: `${session.action === 'sell' ? '💰' : '🛒'} **${category}**\nChoose the item you want to ${session.action}.`,
+    components: [new ActionRowBuilder().addComponents(menu)],
+    allowedMentions: { parse: [] }
+  });
 }
 
 async function handleItem(interaction) {
-  const sessionId = interaction.customId.split(':')[2];
+  const [, , , sessionId] = interaction.customId.split(':');
   const session = getSession(sessionId, interaction.user.id);
   if (!session) return interaction.reply(ephemeral('This shop menu expired. Use the main shop panel to start again.'));
   const itemId = interaction.values?.[0] || '';
   const item = (session.catalog || []).find((entry) => String(entry.id) === String(itemId));
   if (!item) return interaction.reply(ephemeral('That item is no longer available.'));
   session.itemId = item.id;
-  const modal = new ModalBuilder().setCustomId(`nexus-shop:quantity:${sessionId}`).setTitle(`${session.action === 'sell' ? 'Sell' : 'Buy'} ${String(item.name).slice(0, 35)}`);
-  const quantity = new TextInputBuilder().setCustomId('bundles').setLabel(`Bundles (${item.minBundles}-${item.maxBundles})`).setStyle(TextInputStyle.Short).setRequired(true).setValue(String(item.minBundles || 1)).setPlaceholder('Enter number of bundles');
+
+  const modal = new ModalBuilder()
+    .setCustomId(`nexus-shop:quantity:${sessionId}`)
+    .setTitle(`${session.action === 'sell' ? 'Sell' : 'Buy'} ${String(item.name).slice(0, 35)}`);
+  const quantity = new TextInputBuilder()
+    .setCustomId('bundles')
+    .setLabel(`Bundles (${item.minBundles}-${item.maxBundles})`)
+    .setStyle(TextInputStyle.Short)
+    .setRequired(true)
+    .setValue(String(item.minBundles || 1))
+    .setPlaceholder('Enter number of bundles');
   modal.addComponents(new ActionRowBuilder().addComponents(quantity));
   return interaction.showModal(modal);
 }
 
 async function handleQuantity(interaction, economyClient) {
-  const sessionId = interaction.customId.split(':')[2];
+  const [, , , sessionId] = interaction.customId.split(':');
   const session = getSession(sessionId, interaction.user.id);
   if (!session) return interaction.reply(ephemeral('This shop session expired. Use the main shop panel to start again.'));
   const bundles = Number(interaction.fields.getTextInputValue('bundles'));
   if (!Number.isSafeInteger(bundles) || bundles <= 0) return interaction.reply(ephemeral('Bundle quantity must be a positive whole number.'));
+
   const result = await economyClient.shopQuote({ itemId: session.itemId, bundles, action: session.action });
   session.bundles = bundles;
   session.quote = result.quote;
-  const confirm = new ButtonBuilder().setCustomId(`nexus-shop:confirm:${sessionId}`).setLabel(session.action === 'sell' ? 'Confirm Sell Order' : 'Confirm Purchase').setEmoji(session.action === 'sell' ? '💰' : '✅').setStyle(session.action === 'sell' ? ButtonStyle.Success : ButtonStyle.Primary);
+
+  const confirm = new ButtonBuilder()
+    .setCustomId(`nexus-shop:confirm:${sessionId}`)
+    .setLabel(session.action === 'sell' ? 'Confirm Sell Order' : 'Confirm Purchase')
+    .setEmoji(session.action === 'sell' ? '💰' : '✅')
+    .setStyle(session.action === 'sell' ? ButtonStyle.Success : ButtonStyle.Primary);
   const cancel = new ButtonBuilder().setCustomId(`nexus-shop:cancel:${sessionId}`).setLabel('Cancel').setStyle(ButtonStyle.Secondary);
+
   const q = result.quote;
-  const lines = [`${session.action === 'sell' ? '💰 **SELL QUOTE**' : '🛒 **PURCHASE QUOTE**'}`, `**Item:** ${q.name}`, `**Bundles:** ${q.bundles}`, `**Amount:** ${q.totalQuantity}`, `**Price per bundle:** ${q.unitPrice} NP`, `**Total:** ${q.totalPrice} NP`];
+  const lines = [
+    `${session.action === 'sell' ? '💰 **SELL QUOTE**' : '🛒 **PURCHASE QUOTE**'}`,
+    `**Item:** ${q.name}`,
+    `**Bundles:** ${q.bundles}`,
+    `**Amount:** ${q.totalQuantity}`,
+    `**Price per bundle:** ${q.unitPrice} NP`,
+    `**Total:** ${q.totalPrice} NP`
+  ];
   if (session.action === 'sell') lines.push('', 'Your wallet is credited only after ARK confirms the items were removed. Dinos cannot be sold.');
   else lines.push('', 'Delivery will target where you are playing. If you are offline, the order remains queued.');
+
   return interaction.reply(ephemeral(lines.join('\n'), { components: [new ActionRowBuilder().addComponents(confirm, cancel)] }));
 }
 
 async function handleConfirm(interaction, economyClient, identityStore) {
-  const sessionId = interaction.customId.split(':')[2];
+  const [, , , sessionId] = interaction.customId.split(':');
   const session = getSession(sessionId, interaction.user.id);
   if (!session) return interaction.update({ content: 'This shop session expired. No purchase was made.', components: [] });
   const eosId = linkedEos(identityStore, interaction.user.id);
   if (!eosId) return interaction.update({ content: '❌ You need a verified ARK account linked to Nexus before using the Cluster Shop.', components: [] });
+
   await interaction.deferUpdate();
-  const input = { discordUserId: interaction.user.id, eosId, itemId: session.itemId, bundles: session.bundles, server: 'where-playing', idempotencyKey: `discord:${interaction.id}` };
+  const idempotencyKey = `discord:${interaction.id}`;
+  const input = {
+    discordUserId: interaction.user.id,
+    eosId,
+    itemId: session.itemId,
+    bundles: session.bundles,
+    server: 'where-playing',
+    idempotencyKey
+  };
   const result = session.action === 'sell' ? await economyClient.shopSell(input) : await economyClient.shopBuy(input);
   sessions.delete(sessionId);
-  if (!result.ok) return interaction.editReply({ content: `❌ ${result.order?.status === 'PAYMENT_REJECTED' ? 'Insufficient Nexus Points.' : 'The transaction could not be completed.'}`, components: [] });
+
+  if (!result.ok) {
+    const reason = result.order?.status === 'PAYMENT_REJECTED' ? 'Insufficient Nexus Points.' : 'The transaction could not be completed.';
+    return interaction.editReply({ content: `❌ ${reason}`, components: [] });
+  }
+
   const order = result.order;
-  return interaction.editReply({ content: ['✅ **Order created**', `**Order:** ${order.orderId}`, `**Item:** ${order.quote.name}`, `**Amount:** ${order.quote.totalQuantity}`, `**Total:** ${order.quote.totalPrice} NP`, `**Status:** ${order.status}`, session.action === 'buy' && Number.isFinite(Number(result.balance)) ? `**Wallet balance:** ${result.balance} NP` : '', '', session.action === 'sell' ? 'ARK item removal confirmation is required before your wallet will be credited.' : 'Your purchase is paid and queued for ARK delivery.'].filter(Boolean).join('\n'), components: [], allowedMentions: { parse: [] } });
+  const statusText = session.action === 'sell'
+    ? 'ARK item removal confirmation is required before your wallet will be credited.'
+    : 'Your purchase is paid and queued for ARK delivery.';
+  return interaction.editReply({
+    content: [
+      '✅ **Order created**',
+      `**Order:** ${order.orderId}`,
+      `**Item:** ${order.quote.name}`,
+      `**Amount:** ${order.quote.totalQuantity}`,
+      `**Total:** ${order.quote.totalPrice} NP`,
+      `**Status:** ${order.status}`,
+      session.action === 'buy' && Number.isFinite(Number(result.balance)) ? `**Wallet balance:** ${result.balance} NP` : '',
+      '',
+      statusText
+    ].filter(Boolean).join('\n'),
+    components: [],
+    allowedMentions: { parse: [] }
+  });
 }
 
 async function handleWallet(interaction, economyClient) {
@@ -233,9 +338,20 @@ async function handleInteraction(interaction, { economyClient, identityStore } =
       if (interaction.customId === 'nexus-shop:buy') await openCategoryPicker(interaction, 'buy', economyClient);
       else if (interaction.customId === 'nexus-shop:sell') await openCategoryPicker(interaction, 'sell', economyClient);
       else if (interaction.customId === 'nexus-shop:wallet') await handleWallet(interaction, economyClient);
-      else if (interaction.customId === 'nexus-shop:help') await interaction.reply(ephemeral(['❔ **Cluster Shop**','• Buy: choose item + bundle quantity, review total, then confirm.','• Sell: approved inventory items only; ARK must remove them before Nexus credits your wallet.','• Dinos cannot be sold to the shop.','• Dino Caches stay in #dino-box-shop.','• Offline purchases remain queued for delivery.'].join('\n')));
+      else if (interaction.customId === 'nexus-shop:help') await interaction.reply(ephemeral([
+        '❔ **Cluster Shop**',
+        '• Buy: choose item + bundle quantity, review total, then confirm.',
+        '• Sell: approved inventory items only; ARK must remove them before Nexus credits your wallet.',
+        '• Dinos cannot be sold to the shop.',
+        '• Dino Caches stay in #dino-box-shop.',
+        '• Offline purchases remain queued for delivery.'
+      ].join('\n')));
       else if (interaction.customId.startsWith('nexus-shop:confirm:')) await handleConfirm(interaction, economyClient, identityStore);
-      else if (interaction.customId.startsWith('nexus-shop:cancel:')) { sessions.delete(interaction.customId.split(':')[2]); await interaction.update({ content: 'Purchase cancelled. No points were charged.', components: [] }); }
+      else if (interaction.customId.startsWith('nexus-shop:cancel:')) {
+        const sessionId = interaction.customId.split(':')[2];
+        sessions.delete(sessionId);
+        await interaction.update({ content: 'Purchase cancelled. No points were charged.', components: [] });
+      }
       return true;
     }
     if (interaction.isStringSelectMenu?.()) {
@@ -243,7 +359,10 @@ async function handleInteraction(interaction, { economyClient, identityStore } =
       else if (interaction.customId.startsWith('nexus-shop:item:')) await handleItem(interaction);
       return true;
     }
-    if (interaction.isModalSubmit?.() && interaction.customId.startsWith('nexus-shop:quantity:')) { await handleQuantity(interaction, economyClient); return true; }
+    if (interaction.isModalSubmit?.() && interaction.customId.startsWith('nexus-shop:quantity:')) {
+      await handleQuantity(interaction, economyClient);
+      return true;
+    }
   } catch (error) {
     const message = `❌ Cluster Shop error: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 220)}`;
     if (interaction.deferred || interaction.replied) await interaction.editReply({ content: message, components: [] }).catch(() => null);
@@ -258,12 +377,14 @@ function installClusterShopUiExtension() {
   Client.prototype[INSTALLED] = true;
   const config = loadConfig();
   const originalLogin = Client.prototype.login;
+
   Client.prototype.login = function nexusClusterShopLogin(...args) {
     const client = this;
     client.once(Events.ClientReady, () => {
       const economyClient = new NexusEconomyClient();
       const identityStore = new ArkIdentityStore();
       client.on(Events.InteractionCreate, (interaction) => void handleInteraction(interaction, { economyClient, identityStore }));
+
       let running = false;
       const refresh = async (reason) => {
         if (running) return;
@@ -279,6 +400,7 @@ function installClusterShopUiExtension() {
           console.warn(`[Nexus Sentinal] cluster shop UI ${reason} unavailable: ${String(error?.message || error).slice(0, 260)}`);
         } finally { running = false; }
       };
+
       const initial = setTimeout(() => void refresh('startup'), INITIAL_DELAY_MS);
       initial.unref?.();
       const periodic = setInterval(() => { purgeSessions(); void refresh('periodic'); }, REFRESH_MS);
@@ -288,4 +410,15 @@ function installClusterShopUiExtension() {
   };
 }
 
-module.exports = { PANEL_MARKER, normalizeChannelName, findClusterShopChannel, buildClusterShopPanelPayload, isManagedPanel, uniqueCategories, linkedEos, reconcileClusterShopPanel, handleInteraction, installClusterShopUiExtension };
+module.exports = {
+  PANEL_MARKER,
+  normalizeChannelName,
+  findClusterShopChannel,
+  buildClusterShopPanelPayload,
+  isManagedPanel,
+  uniqueCategories,
+  linkedEos,
+  reconcileClusterShopPanel,
+  handleInteraction,
+  installClusterShopUiExtension
+};
