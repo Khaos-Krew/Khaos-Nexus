@@ -201,7 +201,15 @@ function classifyRewardResult(result = {}) {
 
 async function deliverWithRewardsAscended({ prefix, row, saddleBlueprint = '', client }) {
   const configured = await upsertOrderReward(prefix, row, saddleBlueprint);
-  const reloadResult = await client.executeDetailed('RA.Reload');
+  let reloadResult;
+  try { reloadResult = await client.executeDetailed('RA.Reload'); }
+  catch (error) {
+    const wrapped = new Error(`RewardsAscended reload transport failed before reward send: ${String(error?.message || error).slice(0, 400)}`);
+    wrapped.code = 'REWARDS_ASCENDED_RELOAD_FAILED';
+    wrapped.beforeRewardSend = true;
+    wrapped.configured = configured;
+    throw wrapped;
+  }
   const reload = classifyReloadResult(reloadResult);
   if (!reload.ok) {
     const error = new Error(`RewardsAscended reload was not acknowledged: ${reload.response}`);
