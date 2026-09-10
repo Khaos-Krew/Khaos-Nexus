@@ -47,12 +47,35 @@ class CutoverReadiness {
     };
     if (!mutationSafety.safeForAdvisoryObservation) reasons.push('mutation-safety-disabled');
 
+    const deploymentEvidence = {
+      deploymentCommit: String(this.config.deploymentCommit || '').trim() || null,
+      rollbackCommit: String(this.config.rollbackCommit || '').trim() || null,
+      rollbackVerified: this.config.rollbackVerified === true,
+    };
+    deploymentEvidence.deploymentCommitRecorded = Boolean(deploymentEvidence.deploymentCommit);
+    deploymentEvidence.rollbackCommitRecorded = Boolean(deploymentEvidence.rollbackCommit);
+    deploymentEvidence.distinctRollbackTarget = deploymentEvidence.deploymentCommitRecorded
+      && deploymentEvidence.rollbackCommitRecorded
+      && deploymentEvidence.deploymentCommit !== deploymentEvidence.rollbackCommit;
+    deploymentEvidence.safe = deploymentEvidence.deploymentCommitRecorded
+      && deploymentEvidence.rollbackCommitRecorded
+      && deploymentEvidence.distinctRollbackTarget
+      && deploymentEvidence.rollbackVerified;
+
+    if (!deploymentEvidence.deploymentCommitRecorded) reasons.push('deployment-commit-unrecorded');
+    if (!deploymentEvidence.rollbackCommitRecorded) reasons.push('rollback-commit-unrecorded');
+    if (deploymentEvidence.deploymentCommitRecorded && deploymentEvidence.rollbackCommitRecorded && !deploymentEvidence.distinctRollbackTarget) {
+      reasons.push('rollback-target-not-distinct');
+    }
+    if (!deploymentEvidence.rollbackVerified) reasons.push('rollback-unverified');
+
     const gates = {
       database: Boolean(database.ok),
       arkHealthEquivalence: Boolean(arkHealth?.eligible),
       arkRcon: Boolean(rcon?.eligible),
       deadLettersClear: quarantinedDeadLetters.length === 0,
       mutationSafety: mutationSafety.safeForAdvisoryObservation,
+      deploymentRollbackEvidence: deploymentEvidence.safe,
     };
 
     return Object.freeze({
@@ -69,6 +92,7 @@ class CutoverReadiness {
         truncated: quarantinedDeadLetters.length >= Math.min(500, Math.max(1, Number(deadLetterLimit) || 100)),
       },
       mutationSafety,
+      deploymentEvidence,
     });
   }
 }
