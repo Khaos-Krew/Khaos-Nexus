@@ -53,6 +53,7 @@ class CutoverReadiness {
       rollbackDeploymentId: String(this.config.rollbackDeploymentId || '').trim() || null,
       rollbackServiceId: String(this.config.rollbackServiceId || '').trim() || null,
       rollbackEnvironmentId: String(this.config.rollbackEnvironmentId || '').trim() || null,
+      rollbackRailwayCommit: String(this.config.rollbackRailwayCommit || '').trim() || null,
       rollbackVerified: this.config.rollbackVerified === true,
     };
     deploymentEvidence.deploymentCommitRecorded = Boolean(deploymentEvidence.deploymentCommit);
@@ -62,20 +63,32 @@ class CutoverReadiness {
       && deploymentEvidence.rollbackServiceId
       && deploymentEvidence.rollbackEnvironmentId,
     );
+    deploymentEvidence.railwayRollbackCommitRecorded = Boolean(deploymentEvidence.rollbackRailwayCommit);
     deploymentEvidence.distinctRollbackTarget = deploymentEvidence.deploymentCommitRecorded
       && deploymentEvidence.rollbackCommitRecorded
       && deploymentEvidence.deploymentCommit !== deploymentEvidence.rollbackCommit;
+    deploymentEvidence.railwayCommitMatchesRollback = deploymentEvidence.rollbackCommitRecorded
+      && deploymentEvidence.railwayRollbackCommitRecorded
+      && deploymentEvidence.rollbackCommit === deploymentEvidence.rollbackRailwayCommit;
     deploymentEvidence.safe = deploymentEvidence.deploymentCommitRecorded
       && deploymentEvidence.rollbackCommitRecorded
       && deploymentEvidence.railwayRollbackIdentityRecorded
+      && deploymentEvidence.railwayRollbackCommitRecorded
       && deploymentEvidence.distinctRollbackTarget
+      && deploymentEvidence.railwayCommitMatchesRollback
       && deploymentEvidence.rollbackVerified;
 
     if (!deploymentEvidence.deploymentCommitRecorded) reasons.push('deployment-commit-unrecorded');
     if (!deploymentEvidence.rollbackCommitRecorded) reasons.push('rollback-commit-unrecorded');
     if (!deploymentEvidence.railwayRollbackIdentityRecorded) reasons.push('railway-rollback-identity-unrecorded');
+    if (!deploymentEvidence.railwayRollbackCommitRecorded) reasons.push('railway-rollback-commit-unrecorded');
     if (deploymentEvidence.deploymentCommitRecorded && deploymentEvidence.rollbackCommitRecorded && !deploymentEvidence.distinctRollbackTarget) {
       reasons.push('rollback-target-not-distinct');
+    }
+    if (deploymentEvidence.rollbackCommitRecorded
+      && deploymentEvidence.railwayRollbackCommitRecorded
+      && !deploymentEvidence.railwayCommitMatchesRollback) {
+      reasons.push('railway-rollback-commit-mismatch');
     }
     if (!deploymentEvidence.rollbackVerified) reasons.push('rollback-unverified');
 
