@@ -3,11 +3,11 @@
 const http = require('node:http');
 const { timingSafeEqual } = require('node:crypto');
 
-function createHttpServer({ health, logger, port = 3210, host = '0.0.0.0', adminToken = '', deadLetters, arkRconReadiness } = {}) {
+function createHttpServer({ health, logger, port = 3210, host = '0.0.0.0', adminToken = '', deadLetters, arkRconReadiness, cutoverReadiness } = {}) {
   if (!health) throw new Error('health state is required');
 
   const server = http.createServer((req, res) => {
-    void handleRequest(req, res, { health, logger, adminToken, deadLetters, arkRconReadiness });
+    void handleRequest(req, res, { health, logger, adminToken, deadLetters, arkRconReadiness, cutoverReadiness });
   });
 
   server.on('clientError', (error, socket) => {
@@ -40,7 +40,7 @@ function createHttpServer({ health, logger, port = 3210, host = '0.0.0.0', admin
   });
 }
 
-async function handleRequest(req, res, { health, logger, adminToken, deadLetters, arkRconReadiness } = {}) {
+async function handleRequest(req, res, { health, logger, adminToken, deadLetters, arkRconReadiness, cutoverReadiness } = {}) {
   try {
     const url = new URL(String(req.url || '/'), 'http://sentinel.local');
     const path = url.pathname;
@@ -58,6 +58,15 @@ async function handleRequest(req, res, { health, logger, adminToken, deadLetters
 
     if (path.startsWith('/admin/')) {
       if (!authorized(req, adminToken)) return json(res, 401, { ok: false, error: 'unauthorized' });
+
+      if (req.method === 'GET' && path === '/admin/readiness/cutover') {
+        if (!cutoverReadiness?.snapshot) return json(res, 503, { ok: false, error: 'cutover-readiness-unavailable' });
+        const snapshot = await cutoverReadiness.snapshot({
+          since: url.searchParams.get('since') || undefined,
+          deadLetterLimit: url.searchParams.get('deadLetterLimit') || 100,
+        });
+        return json(res, 200, { ok: true, readiness: snapshot });
+      }
 
       if (req.method === 'GET' && path === '/admin/readiness/ark-rcon') {
         if (!arkRconReadiness?.snapshot) return json(res, 503, { ok: false, error: 'ark-rcon-readiness-unavailable' });
