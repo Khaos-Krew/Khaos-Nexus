@@ -62,6 +62,7 @@ function loadSentinelConfig() {
     rollbackDeploymentId: env('NEXUS_SENTINEL_ROLLBACK_RAILWAY_DEPLOYMENT_ID'),
     rollbackServiceId: env('NEXUS_SENTINEL_ROLLBACK_RAILWAY_SERVICE_ID'),
     rollbackEnvironmentId: env('NEXUS_SENTINEL_ROLLBACK_RAILWAY_ENVIRONMENT_ID'),
+    rollbackRailwayCommit: env('NEXUS_SENTINEL_ROLLBACK_RAILWAY_COMMIT'),
     rollbackVerified: boolEnv('NEXUS_SENTINEL_ROLLBACK_VERIFIED', false),
   };
 
