@@ -8,6 +8,7 @@ const { createDatabase } = require('./database.cjs');
 const { ActionGate } = require('./actions.cjs');
 const { AuditStore } = require('./audit-store.cjs');
 const { DeadLetterStore } = require('./provider-resilience.cjs');
+const { ArkHealthReadiness } = require('./ark-health-readiness.cjs');
 const { ArkRconReadiness } = require('./ark-rcon-readiness.cjs');
 const { CutoverReadiness } = require('./cutover-readiness.cjs');
 
@@ -19,8 +20,9 @@ async function startControlPlane() {
   const actionGate = new ActionGate({ mutationEnabled: config.mutationEnabled, dryRun: config.dryRun });
   const auditStore = new AuditStore({ database, logger });
   const deadLetters = new DeadLetterStore({ database, logger });
+  const arkHealthReadiness = new ArkHealthReadiness({ auditStore });
   const arkRconReadiness = new ArkRconReadiness({ auditStore });
-  const cutoverReadiness = new CutoverReadiness({ database, deadLetters, arkRconReadiness, config });
+  const cutoverReadiness = new CutoverReadiness({ database, deadLetters, arkHealthReadiness, arkRconReadiness, config });
   const httpServer = createHttpServer({
     health,
     logger,
@@ -37,6 +39,7 @@ async function startControlPlane() {
     dryRun: config.dryRun,
     databaseConfigured: database.enabled,
     deadLetterInspection: deadLetters.enabled && Boolean(config.adminToken),
+    arkHealthReadinessInspection: auditStore.enabled && Boolean(config.adminToken),
     arkRconReadinessInspection: auditStore.enabled && Boolean(config.adminToken),
     cutoverReadinessInspection: Boolean(config.adminToken),
   });
@@ -56,7 +59,7 @@ async function startControlPlane() {
     await Promise.allSettled([httpServer.close(), database.close()]);
   };
 
-  return Object.freeze({ config, logger, health, database, actionGate, auditStore, deadLetters, arkRconReadiness, cutoverReadiness, httpServer, shutdown });
+  return Object.freeze({ config, logger, health, database, actionGate, auditStore, deadLetters, arkHealthReadiness, arkRconReadiness, cutoverReadiness, httpServer, shutdown });
 }
 
 if (require.main === module) {
