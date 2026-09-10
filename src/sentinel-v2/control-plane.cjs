@@ -6,6 +6,7 @@ const { createHealthState } = require('./health.cjs');
 const { createHttpServer } = require('./http-server.cjs');
 const { createDatabase } = require('./database.cjs');
 const { ActionGate } = require('./actions.cjs');
+const { DeadLetterStore } = require('./provider-resilience.cjs');
 
 async function startControlPlane() {
   const config = loadSentinelConfig();
@@ -13,13 +14,21 @@ async function startControlPlane() {
   const health = createHealthState({ service: config.serviceName, version: 'v2' });
   const database = createDatabase({ connectionString: config.databaseUrl, logger });
   const actionGate = new ActionGate({ mutationEnabled: config.mutationEnabled, dryRun: config.dryRun });
-  const httpServer = createHttpServer({ health, logger, port: config.port });
+  const deadLetters = new DeadLetterStore({ database, logger });
+  const httpServer = createHttpServer({
+    health,
+    logger,
+    port: config.port,
+    adminToken: config.adminToken,
+    deadLetters,
+  });
 
   logger.info('sentinel.control_plane.starting', {
     mode: config.mode,
     mutationsEnabled: config.mutationEnabled,
     dryRun: config.dryRun,
     databaseConfigured: database.enabled,
+    deadLetterInspection: deadLetters.enabled && Boolean(config.adminToken),
   });
 
   const databaseHealth = await database.ping();
@@ -37,7 +46,7 @@ async function startControlPlane() {
     await Promise.allSettled([httpServer.close(), database.close()]);
   };
 
-  return Object.freeze({ config, logger, health, database, actionGate, httpServer, shutdown });
+  return Object.freeze({ config, logger, health, database, actionGate, deadLetters, httpServer, shutdown });
 }
 
 if (require.main === module) {
