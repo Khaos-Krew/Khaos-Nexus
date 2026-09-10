@@ -11,11 +11,15 @@ function dependencyFailure(name, error) {
 }
 
 async function safeProbe(name, probe, fallback) {
-  try {
-    return await probe();
-  } catch (error) {
-    return fallback(dependencyFailure(name, error));
-  }
+  try { return await probe(); } catch (error) { return fallback(dependencyFailure(name, error)); }
+}
+
+function isCommitSha(value) {
+  return /^[0-9a-f]{40}$/i.test(String(value || '').trim());
+}
+
+function isRailwayId(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
 }
 
 class CutoverReadiness {
@@ -32,65 +36,43 @@ class CutoverReadiness {
     const dependencyFailures = [];
 
     const database = this.database?.ping
-      ? await safeProbe(
-        'database',
-        () => this.database.ping(),
-        (failure) => {
-          dependencyFailures.push(failure);
-          return { ok: false, enabled: true, reason: failure.reason };
-        },
-      )
+      ? await safeProbe('database', () => this.database.ping(), (failure) => {
+        dependencyFailures.push(failure);
+        return { ok: false, enabled: true, reason: failure.reason };
+      })
       : { ok: false, enabled: false, reason: 'database-unavailable' };
     if (!database.ok) reasons.push('database-unhealthy');
 
     let arkHealth = null;
     if (this.arkHealthReadiness?.snapshot) {
-      arkHealth = await safeProbe(
-        'ark-health-readiness',
-        () => this.arkHealthReadiness.snapshot({ since, limit: 500 }),
-        (failure) => {
-          dependencyFailures.push(failure);
-          return { advisory: true, writeCapable: false, eligible: false, reasons: [failure.reason] };
-        },
-      );
+      arkHealth = await safeProbe('ark-health-readiness', () => this.arkHealthReadiness.snapshot({ since, limit: 500 }), (failure) => {
+        dependencyFailures.push(failure);
+        return { advisory: true, writeCapable: false, eligible: false, reasons: [failure.reason] };
+      });
       if (!arkHealth?.eligible) reasons.push('ark-health-equivalence-proof-incomplete');
-    } else {
-      reasons.push('ark-health-readiness-unavailable');
-    }
+    } else reasons.push('ark-health-readiness-unavailable');
 
     let rcon = null;
     if (this.arkRconReadiness?.snapshot) {
-      rcon = await safeProbe(
-        'ark-rcon-readiness',
-        () => this.arkRconReadiness.snapshot({ since, limit: 500 }),
-        (failure) => {
-          dependencyFailures.push(failure);
-          return { advisory: true, writeCapable: false, eligible: false, reasons: [failure.reason] };
-        },
-      );
+      rcon = await safeProbe('ark-rcon-readiness', () => this.arkRconReadiness.snapshot({ since, limit: 500 }), (failure) => {
+        dependencyFailures.push(failure);
+        return { advisory: true, writeCapable: false, eligible: false, reasons: [failure.reason] };
+      });
       if (!rcon?.eligible) reasons.push('ark-rcon-proof-incomplete');
-    } else {
-      reasons.push('ark-rcon-readiness-unavailable');
-    }
+    } else reasons.push('ark-rcon-readiness-unavailable');
 
     let quarantinedDeadLetters = [];
     let deadLetterInspectionAvailable = Boolean(this.deadLetters?.list);
     if (this.deadLetters?.list) {
-      const deadLetterResult = await safeProbe(
-        'dead-letter-store',
-        () => this.deadLetters.list({ status: 'quarantined', limit: deadLetterLimit }),
-        (failure) => {
-          dependencyFailures.push(failure);
-          deadLetterInspectionAvailable = false;
-          return [];
-        },
-      );
+      const deadLetterResult = await safeProbe('dead-letter-store', () => this.deadLetters.list({ status: 'quarantined', limit: deadLetterLimit }), (failure) => {
+        dependencyFailures.push(failure);
+        deadLetterInspectionAvailable = false;
+        return [];
+      });
       quarantinedDeadLetters = Array.isArray(deadLetterResult) ? deadLetterResult : [];
       if (!deadLetterInspectionAvailable) reasons.push('dead-letter-store-unavailable');
       else if (quarantinedDeadLetters.length > 0) reasons.push('quarantined-dead-letters-present');
-    } else {
-      reasons.push('dead-letter-store-unavailable');
-    }
+    } else reasons.push('dead-letter-store-unavailable');
 
     const mutationSafety = {
       mutationEnabled: Boolean(this.config.mutationEnabled),
@@ -110,38 +92,38 @@ class CutoverReadiness {
     };
     deploymentEvidence.deploymentCommitRecorded = Boolean(deploymentEvidence.deploymentCommit);
     deploymentEvidence.rollbackCommitRecorded = Boolean(deploymentEvidence.rollbackCommit);
-    deploymentEvidence.railwayRollbackIdentityRecorded = Boolean(
-      deploymentEvidence.rollbackDeploymentId
-      && deploymentEvidence.rollbackServiceId
-      && deploymentEvidence.rollbackEnvironmentId,
-    );
+    deploymentEvidence.deploymentCommitValid = isCommitSha(deploymentEvidence.deploymentCommit);
+    deploymentEvidence.rollbackCommitValid = isCommitSha(deploymentEvidence.rollbackCommit);
+    deploymentEvidence.railwayRollbackIdentityRecorded = Boolean(deploymentEvidence.rollbackDeploymentId && deploymentEvidence.rollbackServiceId && deploymentEvidence.rollbackEnvironmentId);
+    deploymentEvidence.railwayRollbackIdentityValid = isRailwayId(deploymentEvidence.rollbackDeploymentId)
+      && isRailwayId(deploymentEvidence.rollbackServiceId)
+      && isRailwayId(deploymentEvidence.rollbackEnvironmentId);
     deploymentEvidence.railwayRollbackCommitRecorded = Boolean(deploymentEvidence.rollbackRailwayCommit);
-    deploymentEvidence.distinctRollbackTarget = deploymentEvidence.deploymentCommitRecorded
-      && deploymentEvidence.rollbackCommitRecorded
-      && deploymentEvidence.deploymentCommit !== deploymentEvidence.rollbackCommit;
-    deploymentEvidence.railwayCommitMatchesRollback = deploymentEvidence.rollbackCommitRecorded
-      && deploymentEvidence.railwayRollbackCommitRecorded
-      && deploymentEvidence.rollbackCommit === deploymentEvidence.rollbackRailwayCommit;
-    deploymentEvidence.safe = deploymentEvidence.deploymentCommitRecorded
-      && deploymentEvidence.rollbackCommitRecorded
-      && deploymentEvidence.railwayRollbackIdentityRecorded
-      && deploymentEvidence.railwayRollbackCommitRecorded
+    deploymentEvidence.railwayRollbackCommitValid = isCommitSha(deploymentEvidence.rollbackRailwayCommit);
+    deploymentEvidence.distinctRollbackTarget = deploymentEvidence.deploymentCommitValid
+      && deploymentEvidence.rollbackCommitValid
+      && deploymentEvidence.deploymentCommit.toLowerCase() !== deploymentEvidence.rollbackCommit.toLowerCase();
+    deploymentEvidence.railwayCommitMatchesRollback = deploymentEvidence.rollbackCommitValid
+      && deploymentEvidence.railwayRollbackCommitValid
+      && deploymentEvidence.rollbackCommit.toLowerCase() === deploymentEvidence.rollbackRailwayCommit.toLowerCase();
+    deploymentEvidence.safe = deploymentEvidence.deploymentCommitValid
+      && deploymentEvidence.rollbackCommitValid
+      && deploymentEvidence.railwayRollbackIdentityValid
+      && deploymentEvidence.railwayRollbackCommitValid
       && deploymentEvidence.distinctRollbackTarget
       && deploymentEvidence.railwayCommitMatchesRollback
       && deploymentEvidence.rollbackVerified;
 
     if (!deploymentEvidence.deploymentCommitRecorded) reasons.push('deployment-commit-unrecorded');
+    else if (!deploymentEvidence.deploymentCommitValid) reasons.push('deployment-commit-invalid');
     if (!deploymentEvidence.rollbackCommitRecorded) reasons.push('rollback-commit-unrecorded');
+    else if (!deploymentEvidence.rollbackCommitValid) reasons.push('rollback-commit-invalid');
     if (!deploymentEvidence.railwayRollbackIdentityRecorded) reasons.push('railway-rollback-identity-unrecorded');
+    else if (!deploymentEvidence.railwayRollbackIdentityValid) reasons.push('railway-rollback-identity-invalid');
     if (!deploymentEvidence.railwayRollbackCommitRecorded) reasons.push('railway-rollback-commit-unrecorded');
-    if (deploymentEvidence.deploymentCommitRecorded && deploymentEvidence.rollbackCommitRecorded && !deploymentEvidence.distinctRollbackTarget) {
-      reasons.push('rollback-target-not-distinct');
-    }
-    if (deploymentEvidence.rollbackCommitRecorded
-      && deploymentEvidence.railwayRollbackCommitRecorded
-      && !deploymentEvidence.railwayCommitMatchesRollback) {
-      reasons.push('railway-rollback-commit-mismatch');
-    }
+    else if (!deploymentEvidence.railwayRollbackCommitValid) reasons.push('railway-rollback-commit-invalid');
+    if (deploymentEvidence.deploymentCommitValid && deploymentEvidence.rollbackCommitValid && !deploymentEvidence.distinctRollbackTarget) reasons.push('rollback-target-not-distinct');
+    if (deploymentEvidence.rollbackCommitValid && deploymentEvidence.railwayRollbackCommitValid && !deploymentEvidence.railwayCommitMatchesRollback) reasons.push('railway-rollback-commit-mismatch');
     if (!deploymentEvidence.rollbackVerified) reasons.push('rollback-unverified');
 
     const gates = {
@@ -165,8 +147,7 @@ class CutoverReadiness {
       deadLetters: {
         inspectionAvailable: deadLetterInspectionAvailable,
         quarantinedCount: quarantinedDeadLetters.length,
-        truncated: deadLetterInspectionAvailable
-          && quarantinedDeadLetters.length >= Math.min(500, Math.max(1, Number(deadLetterLimit) || 100)),
+        truncated: deadLetterInspectionAvailable && quarantinedDeadLetters.length >= Math.min(500, Math.max(1, Number(deadLetterLimit) || 100)),
       },
       dependencyFailures: Object.freeze(dependencyFailures),
       mutationSafety,
@@ -175,4 +156,4 @@ class CutoverReadiness {
   }
 }
 
-module.exports = { CutoverReadiness };
+module.exports = { CutoverReadiness, isCommitSha, isRailwayId };
