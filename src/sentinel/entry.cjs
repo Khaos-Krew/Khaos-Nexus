@@ -23,6 +23,7 @@ const { installRanksExtension } = require('./ranks-extension.cjs');
 const { installGameServersExtension } = require('./game-servers-extension.cjs');
 const { installStaffWorkspaceExtension } = require('./staff-workspace-extension.cjs');
 const { installArnIntakeExtension } = require('./arn-intake-extension.cjs');
+const { installClusterShopUiExtension } = require('./cluster-shop-ui-extension.cjs');
 
 // ARK control, monitoring, identity, economy and cluster integration.
 const { installArkOpsExtension } = require('./ark-ops-extension.cjs');
@@ -63,6 +64,7 @@ installRanksExtension();
 installGameServersExtension();
 installStaffWorkspaceExtension();
 installArnIntakeExtension();
+installClusterShopUiExtension();
 
 // ARK stack intentionally preserved during the Sentinal teardown.
 installArkOpsExtension();
