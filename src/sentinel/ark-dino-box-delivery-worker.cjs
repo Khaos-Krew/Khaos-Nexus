@@ -5,6 +5,12 @@ const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { ORDER_TABLE, EVENT_TABLE, ensureSchema } = require('./ark-cache-shop-service.cjs');
 const { saddleCommand } = require('./ark-cache-receipts.cjs');
+const {
+  backendMode,
+  fallbackEnabled,
+  inspectRewardsAscended,
+  deliverWithRewardsAscended
+} = require('./rewards-ascended-delivery.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.dino.box.delivery.worker');
 let timer = null;
@@ -101,6 +107,21 @@ async function finishDelivery(connection, row, outcome) {
   await connection.execute(`INSERT INTO ${EVENT_TABLE} (order_id, event_type, details) VALUES (?, ?, ?)`, [row.id, outcome.state, String(outcome.details || '').slice(0, 500)]);
 }
 
+async function acknowledgeDino(connection, row, details = 'Dino component acknowledged; never automatically spawn it again.') {
+  await connection.execute(
+    `INSERT INTO ${EVENT_TABLE} (order_id,event_type,details) SELECT ?,'DINO_ACKNOWLEDGED',? WHERE NOT EXISTS (SELECT 1 FROM ${EVENT_TABLE} WHERE order_id=? AND event_type='DINO_ACKNOWLEDGED')`,
+    [row.id, String(details).slice(0, 500), row.id]
+  );
+}
+
+async function markCombinedSaddleDelivered(connection, row, saddle) {
+  if (!saddle || saddle.state === 'DELIVERED') return false;
+  const details = 'Saddle embedded in the RewardsAscended cryopodded dino reward.';
+  await connection.execute(`UPDATE nexus_cache_saddle_delivery SET state='DELIVERED', error_message=? WHERE order_id=? AND state<>'DELIVERED'`, [details, row.id]);
+  await connection.execute(`INSERT INTO ${EVENT_TABLE} (order_id,event_type,details) VALUES (?,'SADDLE_ACKNOWLEDGED',?)`, [row.id, details]);
+  return true;
+}
+
 async function deferForSaddleTarget(connection, row, target) {
   const details = `Dino delivered; saddle is waiting for a verified ARK player ID on ${target.prefix}.`;
   await connection.execute(
@@ -113,6 +134,30 @@ async function deferForSaddleTarget(connection, row, target) {
   );
   await connection.execute(`INSERT INTO ${EVENT_TABLE} (order_id,event_type,details) VALUES (?,'SADDLE_TARGET_PENDING',?)`, [row.id, details]);
   return { skipped: 'saddle-player-id-unverified', orderId: row.id, publicCacheId: row.public_cache_id, dinoDelivered: true, server: row.deliveryPrefix };
+}
+
+async function finishDinoDepotPath({ connection, row, target, saddle, result, outcome, command, clientFactory }) {
+  if (outcome.state === 'DELIVERED') {
+    await acknowledgeDino(connection, row);
+    if (saddle && saddle.state !== 'DELIVERED') {
+      const [targets] = await connection.execute('SELECT * FROM nexus_cache_delivery_targets WHERE eos_id=? AND server_prefix=?',[row.player_eos_id,target.prefix]);
+      const playerTarget = targets[0];
+      if (!playerTarget) {
+        const deferred = await deferForSaddleTarget(connection, row, target);
+        console.log('[dino-cache-delivery]', JSON.stringify({ orderId: row.id, publicCacheId: row.public_cache_id, backend: 'dinodepot', server: row.deliveryPrefix, rconStatus: result?.status, state: 'AWAITING_DELIVERY', reason: deferred.skipped, dinoDelivered: true }));
+        return { ...deferred, backend: 'dinodepot', command, rconStatus: result?.status };
+      }
+      await connection.execute("UPDATE nexus_cache_saddle_delivery SET state='DELIVERING' WHERE order_id=? AND state='PENDING'",[row.id]);
+      let saddleOutcome;
+      try { saddleOutcome = classifyRconResult(await clientFactory(row.server).executeDetailed(saddleCommand(playerTarget.ark_player_id,saddle.blueprint))); }
+      catch(error) { saddleOutcome={state:'SENT_UNCONFIRMED',failureClass:'SADDLE_AMBIGUOUS',details:String(error.message)}; }
+      await connection.execute('UPDATE nexus_cache_saddle_delivery SET state=?,error_message=? WHERE order_id=?',[saddleOutcome.state,saddleOutcome.details.slice(0,500),row.id]);
+      if (saddleOutcome.state !== 'DELIVERED') Object.assign(outcome,saddleOutcome);
+    }
+  }
+  await finishDelivery(connection, row, outcome);
+  console.log('[dino-cache-delivery]', JSON.stringify({ orderId: row.id, publicCacheId: row.public_cache_id, backend: 'dinodepot', server: row.deliveryPrefix, rconStatus: result?.status, state: outcome.state }));
+  return { orderId: row.id, publicCacheId: row.public_cache_id, backend: 'dinodepot', command, rconStatus: result?.status, server: row.deliveryPrefix, ...outcome };
 }
 
 async function deliverOne({ connector = connectMysql, findServer = findOnlineServer, clientFactory = server => new ArkRconClient(server) } = {}) {
@@ -128,46 +173,60 @@ async function deliverOne({ connector = connectMysql, findServer = findOnlineSer
       await connection.execute(`UPDATE ${ORDER_TABLE} SET updated_at=CURRENT_TIMESTAMP(3) WHERE id=? AND state='AWAITING_DELIVERY'`,[pending.id]);
       return { skipped: 'player-offline', orderId: pending.id, publicCacheId: pending.public_cache_id };
     }
-    const [saddles]=await connection.execute('SELECT * FROM nexus_cache_saddle_delivery WHERE order_id=?',[pending.id]);
-    const saddle=saddles[0];
+    const [saddles] = await connection.execute('SELECT * FROM nexus_cache_saddle_delivery WHERE order_id=?',[pending.id]);
+    const saddle = saddles[0];
     const row = await claimOne(connection, pending, target);
     if (!row) return { skipped: 'claim-race' };
-    const command = buildDiscordCacheDinoCommand({ eosId: row.player_eos_id, blueprint: row.blueprint, level: Number(row.rolled_level), sex: row.sex });
-    let result;
-    try {
-      const [ack]=await connection.execute(`SELECT sequence_id FROM ${EVENT_TABLE} WHERE order_id=? AND event_type='DINO_ACKNOWLEDGED' LIMIT 1`,[row.id]);
-      result = ack.length ? {status:'success',response:'Dino already delivered successfully'} : await clientFactory(row.server).executeDetailed(command);
-    }
-    catch (error) {
-      const outcome = { state: 'SENT_UNCONFIRMED', failureClass: 'RCON_AMBIGUOUS', details: `RCON result ambiguous after delivery claim: ${String(error?.message || error).slice(0, 400)}` };
-      await finishDelivery(connection, row, outcome);
-      return { orderId: row.id, command, ...outcome };
-    }
-    const outcome = classifyRconResult(result);
-    if(outcome.state==='DELIVERED') {
-      await connection.execute(
-        `INSERT INTO ${EVENT_TABLE} (order_id,event_type,details) SELECT ?,'DINO_ACKNOWLEDGED','Dino component acknowledged; never automatically spawn it again.' WHERE NOT EXISTS (SELECT 1 FROM ${EVENT_TABLE} WHERE order_id=? AND event_type='DINO_ACKNOWLEDGED')`,
-        [row.id,row.id]
-      );
-      if(saddle && saddle.state!=='DELIVERED') {
-        const [targets]=await connection.execute('SELECT * FROM nexus_cache_delivery_targets WHERE eos_id=? AND server_prefix=?',[row.player_eos_id,target.prefix]);
-        const playerTarget=targets[0];
-        if(!playerTarget) {
-          const deferred = await deferForSaddleTarget(connection, row, target);
-          console.log('[dino-cache-delivery]', JSON.stringify({ orderId: row.id, publicCacheId: row.public_cache_id, server: row.deliveryPrefix, rconStatus: result.status, state: 'AWAITING_DELIVERY', reason: deferred.skipped, dinoDelivered: true }));
-          return { ...deferred, command, rconStatus: result.status };
+
+    const [acks] = await connection.execute(`SELECT sequence_id FROM ${EVENT_TABLE} WHERE order_id=? AND event_type='DINO_ACKNOWLEDGED' LIMIT 1`,[row.id]);
+    const alreadyAcknowledged = acks.length > 0;
+
+    if (!alreadyAcknowledged && backendMode() === 'rewardsascended') {
+      try {
+        const client = clientFactory(row.server);
+        const delivery = await deliverWithRewardsAscended({ prefix: target.prefix, row, saddleBlueprint: saddle?.blueprint || '', client });
+        const outcome = delivery.outcome;
+        if (outcome.state === 'DELIVERED') {
+          await acknowledgeDino(connection, row, `RewardsAscended acknowledged ${delivery.configured.rewardId}; never automatically give this cache again.`);
+          await markCombinedSaddleDelivered(connection, row, saddle);
         }
-        await connection.execute("UPDATE nexus_cache_saddle_delivery SET state='DELIVERING' WHERE order_id=? AND state='PENDING'",[row.id]);
-        let saddleOutcome;
-        try { saddleOutcome=classifyRconResult(await clientFactory(row.server).executeDetailed(saddleCommand(playerTarget.ark_player_id,saddle.blueprint))); }
-        catch(error) { saddleOutcome={state:'SENT_UNCONFIRMED',failureClass:'SADDLE_AMBIGUOUS',details:String(error.message)}; }
-        await connection.execute('UPDATE nexus_cache_saddle_delivery SET state=?,error_message=? WHERE order_id=?',[saddleOutcome.state,saddleOutcome.details.slice(0,500),row.id]);
-        if(saddleOutcome.state!=='DELIVERED')Object.assign(outcome,saddleOutcome);
+        await finishDelivery(connection, row, outcome);
+        console.log('[dino-cache-delivery]', JSON.stringify({ orderId: row.id, publicCacheId: row.public_cache_id, backend: 'rewardsascended', rewardId: delivery.configured.rewardId, configChanged: delivery.configured.changed, server: row.deliveryPrefix, rconStatus: delivery.result?.status || 'ambiguous', state: outcome.state }));
+        return { orderId: row.id, publicCacheId: row.public_cache_id, backend: 'rewardsascended', rewardId: delivery.configured.rewardId, command: delivery.command, rconStatus: delivery.result?.status, server: row.deliveryPrefix, ...outcome };
+      } catch (error) {
+        const beforeRewardSend = error?.beforeRewardSend === true || ['REWARDS_ASCENDED_NOT_FOUND','REWARDS_ASCENDED_VERSION_UNSUPPORTED','REWARDS_ASCENDED_OVERRIDE_REQUIRES_PATH'].includes(String(error?.code || ''));
+        if (beforeRewardSend && !fallbackEnabled()) {
+          const details = `RewardsAscended not ready; no reward command sent: ${String(error?.message || error).slice(0, 400)}`;
+          await connection.execute(`UPDATE ${ORDER_TABLE} SET state='AWAITING_DELIVERY', failure_class='REWARDS_ASCENDED_NOT_READY', error_message=?, updated_at=CURRENT_TIMESTAMP(3) WHERE id=? AND state='DELIVERING'`, [details, row.id]);
+          await connection.execute(`INSERT INTO ${EVENT_TABLE} (order_id,event_type,details) VALUES (?,'DELIVERY_DEFERRED',?)`, [row.id, details.slice(0, 500)]);
+          return { skipped: 'rewardsascended-not-ready', orderId: row.id, publicCacheId: row.public_cache_id, backend: 'rewardsascended', server: row.deliveryPrefix, details };
+        }
+        if (!beforeRewardSend) {
+          const outcome = { state: 'DELIVERY_FAILED', failureClass: 'REWARDS_ASCENDED_SETUP', details: String(error?.message || error).slice(0, 480) };
+          await finishDelivery(connection, row, outcome);
+          return { orderId: row.id, publicCacheId: row.public_cache_id, backend: 'rewardsascended', server: row.deliveryPrefix, ...outcome };
+        }
+        console.warn('[dino-cache-delivery] RewardsAscended unavailable before reward send; using Dino Depot fallback:', target.prefix, String(error?.message || error).slice(0, 300));
       }
     }
-    await finishDelivery(connection, row, outcome);
-    console.log('[dino-cache-delivery]', JSON.stringify({ orderId: row.id, publicCacheId: row.public_cache_id, server: row.deliveryPrefix, rconStatus: result.status, state: outcome.state }));
-    return { orderId: row.id, publicCacheId: row.public_cache_id, command, rconStatus: result.status, server: row.deliveryPrefix, ...outcome };
+
+    let command = '';
+    let result;
+    let outcome;
+    if (alreadyAcknowledged) {
+      result = { status: 'success', response: 'Dino already delivered successfully' };
+      outcome = { state: 'DELIVERED', failureClass: '', details: result.response };
+    } else {
+      command = buildDiscordCacheDinoCommand({ eosId: row.player_eos_id, blueprint: row.blueprint, level: Number(row.rolled_level), sex: row.sex });
+      try { result = await clientFactory(row.server).executeDetailed(command); }
+      catch (error) {
+        outcome = { state: 'SENT_UNCONFIRMED', failureClass: 'RCON_AMBIGUOUS', details: `RCON result ambiguous after delivery claim: ${String(error?.message || error).slice(0, 400)}` };
+        await finishDelivery(connection, row, outcome);
+        return { orderId: row.id, publicCacheId: row.public_cache_id, backend: 'dinodepot', command, server: row.deliveryPrefix, ...outcome };
+      }
+      outcome = classifyRconResult(result);
+    }
+    return await finishDinoDepotPath({ connection, row, target, saddle, result, outcome, command, clientFactory });
   } finally { await connection.end().catch(() => {}); }
 }
 
@@ -189,11 +248,19 @@ function installArkDinoBoxDeliveryWorker() {
   if (globalThis[INSTALLED]) return false;
   globalThis[INSTALLED] = true;
   const interval = Math.max(5000, Math.min(60000, Number(process.env.NEXUS_DINO_CACHE_DELIVERY_POLL_MS || 10000)));
+  if (backendMode() === 'rewardsascended') {
+    for (const prefix of eligibleDeliveryPrefixes()) {
+      const probe = setTimeout(() => inspectRewardsAscended(prefix)
+        .then((status) => console.log('[dino-cache-delivery] RewardsAscended probe', JSON.stringify({ prefix, found: status.found, version: status.version, configFile: status.configFile, usesOverride: status.usesOverride, reason: status.reason || '' })))
+        .catch((error) => console.warn('[dino-cache-delivery] RewardsAscended probe failed', prefix, String(error?.message || error).slice(0, 300))), 1000);
+      probe.unref?.();
+    }
+  }
   setTimeout(() => runCycle().catch((error) => console.error('[dino-cache-delivery] startup cycle failed:', String(error?.message || error).slice(0, 500))), 2000).unref?.();
   timer = setInterval(() => runCycle().catch((error) => console.error('[dino-cache-delivery] cycle failed:', String(error?.message || error).slice(0, 500))), interval);
   timer.unref?.();
-  console.log(`[Nexus Sentinal] Dino Cache delivery worker enabled (online-map routing: ${eligibleDeliveryPrefixes().join(', ') || 'none'}, ${interval}ms).`);
+  console.log(`[Nexus Sentinal] Dino Cache delivery worker enabled (backend=${backendMode()}, fallback=${fallbackEnabled() ? 'dinodepot' : 'off'}, online-map routing: ${eligibleDeliveryPrefixes().join(', ') || 'none'}, ${interval}ms).`);
   return true;
 }
 
-module.exports = { deliveryPrefixes, eligibleDeliveryPrefixes, buildDiscordCacheDinoCommand, ensureDeliveryState, classifyRconResult, findOnlineServer, nextAwaiting, claimOne, finishDelivery, deferForSaddleTarget, deliverOne, runCycle, installArkDinoBoxDeliveryWorker };
+module.exports = { deliveryPrefixes, eligibleDeliveryPrefixes, buildDiscordCacheDinoCommand, ensureDeliveryState, classifyRconResult, findOnlineServer, nextAwaiting, claimOne, finishDelivery, acknowledgeDino, markCombinedSaddleDelivered, deferForSaddleTarget, finishDinoDepotPath, deliverOne, runCycle, installArkDinoBoxDeliveryWorker };
