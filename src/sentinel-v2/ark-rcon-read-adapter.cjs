@@ -28,7 +28,7 @@ class ArkRconReadAdapter {
     if (!this.resilience?.execute) {
       const result = await execute();
       this.#observed(result);
-      return { ok: true, blocked: false, result };
+      return { ok: true, blocked: false, serverId: target.serverId, result };
     }
 
     const outcome = await this.resilience.execute({
@@ -39,6 +39,7 @@ class ArkRconReadAdapter {
       payload: { serverId: target.serverId, envPrefix: target.envPrefix, command: READ_COMMANDS.listPlayers },
       run: execute,
     });
+    const identifiedOutcome = { ...outcome, serverId: target.serverId };
     if (outcome.ok) this.#observed(outcome.result);
     else this.logger?.warn?.('sentinel.ark.rcon.read_failed', {
       serverId: target.serverId,
@@ -47,7 +48,7 @@ class ArkRconReadAdapter {
       reason: outcome.reason,
       error: outcome.error ? String(outcome.error.message || outcome.error) : undefined,
     });
-    return outcome;
+    return identifiedOutcome;
   }
 
   #observed(result) {
@@ -125,7 +126,7 @@ function registerArkRconPlayersJob(scheduler, { adapter, servers, intervalMs = 3
         failed: outcomes.filter((item) => item?.ok === false && item?.blocked !== true).length,
         players: outcomes.reduce((total, item) => total + (item?.ok ? Number(item.result?.playerCount || 0) : 0), 0),
       };
-      await onResult?.(summary, outcomes);
+      await onResult?.(summary, outcomes, { correlationId });
       return summary;
     },
   });
