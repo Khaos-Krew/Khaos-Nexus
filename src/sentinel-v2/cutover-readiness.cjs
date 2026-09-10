@@ -50,20 +50,30 @@ class CutoverReadiness {
     const deploymentEvidence = {
       deploymentCommit: String(this.config.deploymentCommit || '').trim() || null,
       rollbackCommit: String(this.config.rollbackCommit || '').trim() || null,
+      rollbackDeploymentId: String(this.config.rollbackDeploymentId || '').trim() || null,
+      rollbackServiceId: String(this.config.rollbackServiceId || '').trim() || null,
+      rollbackEnvironmentId: String(this.config.rollbackEnvironmentId || '').trim() || null,
       rollbackVerified: this.config.rollbackVerified === true,
     };
     deploymentEvidence.deploymentCommitRecorded = Boolean(deploymentEvidence.deploymentCommit);
     deploymentEvidence.rollbackCommitRecorded = Boolean(deploymentEvidence.rollbackCommit);
+    deploymentEvidence.railwayRollbackIdentityRecorded = Boolean(
+      deploymentEvidence.rollbackDeploymentId
+      && deploymentEvidence.rollbackServiceId
+      && deploymentEvidence.rollbackEnvironmentId,
+    );
     deploymentEvidence.distinctRollbackTarget = deploymentEvidence.deploymentCommitRecorded
       && deploymentEvidence.rollbackCommitRecorded
       && deploymentEvidence.deploymentCommit !== deploymentEvidence.rollbackCommit;
     deploymentEvidence.safe = deploymentEvidence.deploymentCommitRecorded
       && deploymentEvidence.rollbackCommitRecorded
+      && deploymentEvidence.railwayRollbackIdentityRecorded
       && deploymentEvidence.distinctRollbackTarget
       && deploymentEvidence.rollbackVerified;
 
     if (!deploymentEvidence.deploymentCommitRecorded) reasons.push('deployment-commit-unrecorded');
     if (!deploymentEvidence.rollbackCommitRecorded) reasons.push('rollback-commit-unrecorded');
+    if (!deploymentEvidence.railwayRollbackIdentityRecorded) reasons.push('railway-rollback-identity-unrecorded');
     if (deploymentEvidence.deploymentCommitRecorded && deploymentEvidence.rollbackCommitRecorded && !deploymentEvidence.distinctRollbackTarget) {
       reasons.push('rollback-target-not-distinct');
     }
