@@ -1,5 +1,23 @@
 'use strict';
 
+function dependencyFailure(name, error) {
+  return Object.freeze({
+    ok: false,
+    unavailable: true,
+    dependency: name,
+    reason: `${name}-probe-failed`,
+    errorCode: typeof error?.code === 'string' ? error.code.slice(0, 64) : null,
+  });
+}
+
+async function safeProbe(name, probe, fallback) {
+  try {
+    return await probe();
+  } catch (error) {
+    return fallback(dependencyFailure(name, error));
+  }
+}
+
 class CutoverReadiness {
   constructor({ database, deadLetters, arkHealthReadiness, arkRconReadiness, config } = {}) {
     this.database = database;
@@ -11,14 +29,30 @@ class CutoverReadiness {
 
   async snapshot({ since, deadLetterLimit = 100 } = {}) {
     const reasons = [];
+    const dependencyFailures = [];
+
     const database = this.database?.ping
-      ? await this.database.ping()
+      ? await safeProbe(
+        'database',
+        () => this.database.ping(),
+        (failure) => {
+          dependencyFailures.push(failure);
+          return { ok: false, enabled: true, reason: failure.reason };
+        },
+      )
       : { ok: false, enabled: false, reason: 'database-unavailable' };
     if (!database.ok) reasons.push('database-unhealthy');
 
     let arkHealth = null;
     if (this.arkHealthReadiness?.snapshot) {
-      arkHealth = await this.arkHealthReadiness.snapshot({ since, limit: 500 });
+      arkHealth = await safeProbe(
+        'ark-health-readiness',
+        () => this.arkHealthReadiness.snapshot({ since, limit: 500 }),
+        (failure) => {
+          dependencyFailures.push(failure);
+          return { advisory: true, writeCapable: false, eligible: false, reasons: [failure.reason] };
+        },
+      );
       if (!arkHealth?.eligible) reasons.push('ark-health-equivalence-proof-incomplete');
     } else {
       reasons.push('ark-health-readiness-unavailable');
@@ -26,16 +60,34 @@ class CutoverReadiness {
 
     let rcon = null;
     if (this.arkRconReadiness?.snapshot) {
-      rcon = await this.arkRconReadiness.snapshot({ since, limit: 500 });
+      rcon = await safeProbe(
+        'ark-rcon-readiness',
+        () => this.arkRconReadiness.snapshot({ since, limit: 500 }),
+        (failure) => {
+          dependencyFailures.push(failure);
+          return { advisory: true, writeCapable: false, eligible: false, reasons: [failure.reason] };
+        },
+      );
       if (!rcon?.eligible) reasons.push('ark-rcon-proof-incomplete');
     } else {
       reasons.push('ark-rcon-readiness-unavailable');
     }
 
     let quarantinedDeadLetters = [];
+    let deadLetterInspectionAvailable = Boolean(this.deadLetters?.list);
     if (this.deadLetters?.list) {
-      quarantinedDeadLetters = await this.deadLetters.list({ status: 'quarantined', limit: deadLetterLimit });
-      if (quarantinedDeadLetters.length > 0) reasons.push('quarantined-dead-letters-present');
+      const deadLetterResult = await safeProbe(
+        'dead-letter-store',
+        () => this.deadLetters.list({ status: 'quarantined', limit: deadLetterLimit }),
+        (failure) => {
+          dependencyFailures.push(failure);
+          deadLetterInspectionAvailable = false;
+          return [];
+        },
+      );
+      quarantinedDeadLetters = Array.isArray(deadLetterResult) ? deadLetterResult : [];
+      if (!deadLetterInspectionAvailable) reasons.push('dead-letter-store-unavailable');
+      else if (quarantinedDeadLetters.length > 0) reasons.push('quarantined-dead-letters-present');
     } else {
       reasons.push('dead-letter-store-unavailable');
     }
@@ -96,7 +148,7 @@ class CutoverReadiness {
       database: Boolean(database.ok),
       arkHealthEquivalence: Boolean(arkHealth?.eligible),
       arkRcon: Boolean(rcon?.eligible),
-      deadLettersClear: quarantinedDeadLetters.length === 0,
+      deadLettersClear: deadLetterInspectionAvailable && quarantinedDeadLetters.length === 0,
       mutationSafety: mutationSafety.safeForAdvisoryObservation,
       deploymentRollbackEvidence: deploymentEvidence.safe,
     };
@@ -111,9 +163,12 @@ class CutoverReadiness {
       arkHealthEquivalence: arkHealth,
       arkRcon: rcon,
       deadLetters: {
+        inspectionAvailable: deadLetterInspectionAvailable,
         quarantinedCount: quarantinedDeadLetters.length,
-        truncated: quarantinedDeadLetters.length >= Math.min(500, Math.max(1, Number(deadLetterLimit) || 100)),
+        truncated: deadLetterInspectionAvailable
+          && quarantinedDeadLetters.length >= Math.min(500, Math.max(1, Number(deadLetterLimit) || 100)),
       },
+      dependencyFailures: Object.freeze(dependencyFailures),
       mutationSafety,
       deploymentEvidence,
     });
