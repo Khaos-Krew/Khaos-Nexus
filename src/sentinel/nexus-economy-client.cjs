@@ -48,6 +48,15 @@ class NexusEconomyClient {
   presence(input) { return request('/presence', { method: 'POST', body: input }); }
   credit(input) { return request('/wallet/credit', { method: 'POST', body: input }); }
   spend(input) { return request('/wallet/spend', { method: 'POST', body: input }); }
+
+  shopCatalog() { return request('/shop/catalog'); }
+  shopQuote(input) { return request('/shop/quote', { method: 'POST', body: input }); }
+  shopBuy(input) { return request('/shop/buy', { method: 'POST', body: input }); }
+  shopSell(input) { return request('/shop/sell', { method: 'POST', body: input }); }
+  shopOrder(orderId) { return request(`/shop/order/${encodeURIComponent(String(orderId))}`); }
+  pendingShopOrders() { return request('/shop/orders/pending'); }
+  confirmShopSellRemoval(input) { return request('/shop/sell/confirm-removal', { method: 'POST', body: input }); }
+  markShopBuyDelivery(input) { return request('/shop/buy/delivery-status', { method: 'POST', body: input }); }
 }
 
 module.exports = { configured, NexusEconomyClient };
