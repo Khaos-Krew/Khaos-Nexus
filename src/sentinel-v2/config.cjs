@@ -64,6 +64,8 @@ function loadSentinelConfig() {
     rollbackEnvironmentId: env('NEXUS_SENTINEL_ROLLBACK_RAILWAY_ENVIRONMENT_ID'),
     rollbackRailwayCommit: env('NEXUS_SENTINEL_ROLLBACK_RAILWAY_COMMIT'),
     rollbackVerified: boolEnv('NEXUS_SENTINEL_ROLLBACK_VERIFIED', false),
+    rollbackVerifiedAt: env('NEXUS_SENTINEL_ROLLBACK_VERIFIED_AT'),
+    rollbackVerificationMaxAgeHours: intEnv('NEXUS_SENTINEL_ROLLBACK_VERIFICATION_MAX_AGE_HOURS', 24, { min: 1, max: 168 }),
   };
 
   if (!['control-plane', 'worker', 'shadow'].includes(config.mode)) {
