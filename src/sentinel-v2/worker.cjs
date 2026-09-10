@@ -13,6 +13,10 @@ const { ActionStore } = require('./action-store.cjs');
 const { ArkServerRegistry } = require('./ark-server-registry.cjs');
 const { ArkHealthAdapter, registerArkHealthJob } = require('./ark-health-adapter.cjs');
 const { ArkHealthObserver } = require('./ark-health-observer.cjs');
+const { ArkEquivalenceEvidence } = require('./ark-equivalence-evidence.cjs');
+const { ArkEquivalenceWindow } = require('./ark-equivalence-window.cjs');
+const { ArkShadowComparison } = require('./ark-shadow-comparison.cjs');
+const { ArkShadowRuntime } = require('./ark-shadow-runtime.cjs');
 
 async function startWorker() {
   const base = loadSentinelConfig();
@@ -34,6 +38,16 @@ async function startWorker() {
   const arkRegistry = new ArkServerRegistry();
   const arkHealth = new ArkHealthAdapter({ logger });
   const arkHealthObserver = new ArkHealthObserver({ incidents, auditStore, logger });
+  const arkEquivalenceEvidence = new ArkEquivalenceEvidence({ auditStore, logger });
+  const arkEquivalenceWindow = new ArkEquivalenceWindow();
+  const arkShadowComparison = new ArkShadowComparison({ evidence: arkEquivalenceEvidence, window: arkEquivalenceWindow, logger });
+  const arkShadowRuntime = new ArkShadowRuntime({
+    scheduler,
+    registry: arkRegistry,
+    v2Adapter: arkHealth,
+    comparison: arkShadowComparison,
+    logger,
+  });
 
   const databaseHealth = await database.ping();
   if (database.enabled && !databaseHealth.ok) {
@@ -50,6 +64,16 @@ async function startWorker() {
     onResult: async (summary) => arkHealthObserver.observe(summary),
   });
 
+  let arkShadowAcceptance = null;
+  if (config.arkShadowEnabled) {
+    const since = new Date(Date.now() - (config.arkShadowHistoryHours * 60 * 60 * 1000)).toISOString();
+    arkShadowAcceptance = await arkShadowRuntime.start({
+      since,
+      intervalMs: config.arkShadowIntervalMs,
+      jitterMs: config.arkShadowJitterMs,
+    });
+  }
+
   scheduler.start();
 
   logger.info('sentinel.worker.started', {
@@ -64,6 +88,9 @@ async function startWorker() {
     actionControllerReady: true,
     arkRegistryReadOnly: true,
     arkHealthJobRegistered: true,
+    arkShadowEnabled: config.arkShadowEnabled,
+    arkShadowHistoryRestored: arkShadowAcceptance?.samples || 0,
+    arkShadowRetirementEligible: arkShadowAcceptance?.eligible === true,
     openIncidentsRestored: restoredIncidents.length,
     jobsRegistered: scheduler.list().length,
     schedulerStarted: true,
@@ -90,6 +117,11 @@ async function startWorker() {
     arkRegistry,
     arkHealth,
     arkHealthObserver,
+    arkEquivalenceEvidence,
+    arkEquivalenceWindow,
+    arkShadowComparison,
+    arkShadowRuntime,
+    arkShadowAcceptance,
     shutdown,
   });
 }
