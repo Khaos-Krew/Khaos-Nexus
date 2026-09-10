@@ -10,7 +10,13 @@ test('cutover readiness is green only when every advisory gate is satisfied', as
     deadLetters: { async list() { return []; } },
     arkHealthReadiness: { async snapshot() { return { advisory: true, writeCapable: false, eligible: true, reasons: [] }; } },
     arkRconReadiness: { async snapshot() { return { advisory: true, writeCapable: false, eligible: true, reasons: [] }; } },
-    config: { mutationEnabled: false, dryRun: true },
+    config: {
+      mutationEnabled: false,
+      dryRun: true,
+      deploymentCommit: 'candidate-sha',
+      rollbackCommit: 'known-good-sha',
+      rollbackVerified: true,
+    },
   });
 
   const result = await readiness.snapshot();
@@ -25,8 +31,11 @@ test('cutover readiness is green only when every advisory gate is satisfied', as
     arkRcon: true,
     deadLettersClear: true,
     mutationSafety: true,
+    deploymentRollbackEvidence: true,
   });
   assert.equal(result.deadLetters.quarantinedCount, 0);
+  assert.equal(result.deploymentEvidence.safe, true);
+  assert.equal(result.deploymentEvidence.distinctRollbackTarget, true);
 });
 
 test('cutover readiness reports concrete blockers without granting production authority', async () => {
@@ -48,10 +57,14 @@ test('cutover readiness reports concrete blockers without granting production au
     'ark-rcon-proof-incomplete',
     'quarantined-dead-letters-present',
     'mutation-safety-disabled',
+    'deployment-commit-unrecorded',
+    'rollback-commit-unrecorded',
+    'rollback-unverified',
   ]);
   assert.equal(result.arkHealthEquivalence.eligible, false);
   assert.equal(result.deadLetters.quarantinedCount, 1);
   assert.equal(result.mutationSafety.safeForAdvisoryObservation, false);
+  assert.equal(result.deploymentEvidence.safe, false);
 });
 
 test('cutover readiness treats unavailable dependencies as blockers', async () => {
@@ -65,5 +78,31 @@ test('cutover readiness treats unavailable dependencies as blockers', async () =
     'ark-health-readiness-unavailable',
     'ark-rcon-readiness-unavailable',
     'dead-letter-store-unavailable',
+    'deployment-commit-unrecorded',
+    'rollback-commit-unrecorded',
+    'rollback-unverified',
   ]);
+});
+
+test('cutover readiness rejects a rollback target that is the deployment candidate itself', async () => {
+  const readiness = new CutoverReadiness({
+    database: { async ping() { return { ok: true, enabled: true }; } },
+    deadLetters: { async list() { return []; } },
+    arkHealthReadiness: { async snapshot() { return { eligible: true }; } },
+    arkRconReadiness: { async snapshot() { return { eligible: true }; } },
+    config: {
+      mutationEnabled: false,
+      dryRun: true,
+      deploymentCommit: 'same-sha',
+      rollbackCommit: 'same-sha',
+      rollbackVerified: true,
+    },
+  });
+
+  const result = await readiness.snapshot();
+
+  assert.equal(result.ready, false);
+  assert.equal(result.gates.deploymentRollbackEvidence, false);
+  assert.equal(result.deploymentEvidence.distinctRollbackTarget, false);
+  assert.deepEqual(result.reasons, ['rollback-target-not-distinct']);
 });
