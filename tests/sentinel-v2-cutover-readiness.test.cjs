@@ -15,6 +15,9 @@ test('cutover readiness is green only when every advisory gate is satisfied', as
       dryRun: true,
       deploymentCommit: 'candidate-sha',
       rollbackCommit: 'known-good-sha',
+      rollbackDeploymentId: 'railway-deployment-id',
+      rollbackServiceId: 'railway-service-id',
+      rollbackEnvironmentId: 'railway-environment-id',
       rollbackVerified: true,
     },
   });
@@ -36,6 +39,7 @@ test('cutover readiness is green only when every advisory gate is satisfied', as
   assert.equal(result.deadLetters.quarantinedCount, 0);
   assert.equal(result.deploymentEvidence.safe, true);
   assert.equal(result.deploymentEvidence.distinctRollbackTarget, true);
+  assert.equal(result.deploymentEvidence.railwayRollbackIdentityRecorded, true);
 });
 
 test('cutover readiness reports concrete blockers without granting production authority', async () => {
@@ -59,6 +63,7 @@ test('cutover readiness reports concrete blockers without granting production au
     'mutation-safety-disabled',
     'deployment-commit-unrecorded',
     'rollback-commit-unrecorded',
+    'railway-rollback-identity-unrecorded',
     'rollback-unverified',
   ]);
   assert.equal(result.arkHealthEquivalence.eligible, false);
@@ -80,6 +85,7 @@ test('cutover readiness treats unavailable dependencies as blockers', async () =
     'dead-letter-store-unavailable',
     'deployment-commit-unrecorded',
     'rollback-commit-unrecorded',
+    'railway-rollback-identity-unrecorded',
     'rollback-unverified',
   ]);
 });
@@ -95,6 +101,9 @@ test('cutover readiness rejects a rollback target that is the deployment candida
       dryRun: true,
       deploymentCommit: 'same-sha',
       rollbackCommit: 'same-sha',
+      rollbackDeploymentId: 'railway-deployment-id',
+      rollbackServiceId: 'railway-service-id',
+      rollbackEnvironmentId: 'railway-environment-id',
       rollbackVerified: true,
     },
   });
@@ -105,4 +114,29 @@ test('cutover readiness rejects a rollback target that is the deployment candida
   assert.equal(result.gates.deploymentRollbackEvidence, false);
   assert.equal(result.deploymentEvidence.distinctRollbackTarget, false);
   assert.deepEqual(result.reasons, ['rollback-target-not-distinct']);
+});
+
+test('cutover readiness requires a complete Railway rollback deployment identity', async () => {
+  const readiness = new CutoverReadiness({
+    database: { async ping() { return { ok: true, enabled: true }; } },
+    deadLetters: { async list() { return []; } },
+    arkHealthReadiness: { async snapshot() { return { eligible: true }; } },
+    arkRconReadiness: { async snapshot() { return { eligible: true }; } },
+    config: {
+      mutationEnabled: false,
+      dryRun: true,
+      deploymentCommit: 'candidate-sha',
+      rollbackCommit: 'known-good-sha',
+      rollbackDeploymentId: 'railway-deployment-id',
+      rollbackServiceId: 'railway-service-id',
+      rollbackVerified: true,
+    },
+  });
+
+  const result = await readiness.snapshot();
+
+  assert.equal(result.ready, false);
+  assert.equal(result.deploymentEvidence.railwayRollbackIdentityRecorded, false);
+  assert.equal(result.deploymentEvidence.safe, false);
+  assert.deepEqual(result.reasons, ['railway-rollback-identity-unrecorded']);
 });
