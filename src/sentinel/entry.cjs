@@ -23,6 +23,8 @@ const { installRanksExtension } = require('./ranks-extension.cjs');
 const { installGameServersExtension } = require('./game-servers-extension.cjs');
 const { installStaffWorkspaceExtension } = require('./staff-workspace-extension.cjs');
 const { installArnIntakeExtension } = require('./arn-intake-extension.cjs');
+const { installNexusEconomyIdentitySyncExtension } = require('./nexus-economy-identity-sync-extension.cjs');
+const { installClusterShopUiExtension } = require('./cluster-shop-ui-extension.cjs');
 
 // ARK control, monitoring, identity, economy and cluster integration.
 const { installArkOpsExtension } = require('./ark-ops-extension.cjs');
@@ -45,6 +47,7 @@ const { installArkConfigProfileExtension } = require('./ark-config-profile-exten
 const { installArkShopProfileExtension } = require('./arkshop-profile-extension.cjs');
 const { installArkClusterPublicActions } = require('./ark-cluster-public-actions.cjs');
 const { installArkShopProfileBootstrapExtension } = require('./arkshop-profile-bootstrap-extension.cjs');
+const { installArkEconomyPresenceExtension } = require('./ark-economy-presence-extension.cjs');
 
 // Minimal Nexus/Discord core.
 installGuildMembersIntentExtension();
@@ -63,6 +66,8 @@ installRanksExtension();
 installGameServersExtension();
 installStaffWorkspaceExtension();
 installArnIntakeExtension();
+installNexusEconomyIdentitySyncExtension();
+installClusterShopUiExtension();
 
 // ARK stack intentionally preserved during the Sentinal teardown.
 installArkOpsExtension();
@@ -83,6 +88,7 @@ installArkAdditionalRegistryBootstrapExtension();
 installArkClusterMetadataExtension();
 installArkConfigProfileExtension();
 installArkShopProfileExtension();
+installArkEconomyPresenceExtension();
 require('./arkshop-maintenance-monitor.cjs').installArkShopMaintenanceMonitor();
 installArkClusterPublicActions();
 installArkShopProfileBootstrapExtension();
