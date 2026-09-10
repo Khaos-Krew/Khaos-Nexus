@@ -195,7 +195,13 @@ async function deliverOne({ connector = connectMysql, findServer = findOnlineSer
         return { orderId: row.id, publicCacheId: row.public_cache_id, backend: 'rewardsascended', rewardId: delivery.configured.rewardId, command: delivery.command, rconStatus: delivery.result?.status, server: row.deliveryPrefix, ...outcome };
       } catch (error) {
         const beforeRewardSend = error?.beforeRewardSend === true || ['REWARDS_ASCENDED_NOT_FOUND','REWARDS_ASCENDED_VERSION_UNSUPPORTED','REWARDS_ASCENDED_OVERRIDE_REQUIRES_PATH'].includes(String(error?.code || ''));
-        if (!beforeRewardSend || !fallbackEnabled()) {
+        if (beforeRewardSend && !fallbackEnabled()) {
+          const details = `RewardsAscended not ready; no reward command sent: ${String(error?.message || error).slice(0, 400)}`;
+          await connection.execute(`UPDATE ${ORDER_TABLE} SET state='AWAITING_DELIVERY', failure_class='REWARDS_ASCENDED_NOT_READY', error_message=?, updated_at=CURRENT_TIMESTAMP(3) WHERE id=? AND state='DELIVERING'`, [details, row.id]);
+          await connection.execute(`INSERT INTO ${EVENT_TABLE} (order_id,event_type,details) VALUES (?,'DELIVERY_DEFERRED',?)`, [row.id, details.slice(0, 500)]);
+          return { skipped: 'rewardsascended-not-ready', orderId: row.id, publicCacheId: row.public_cache_id, backend: 'rewardsascended', server: row.deliveryPrefix, details };
+        }
+        if (!beforeRewardSend) {
           const outcome = { state: 'DELIVERY_FAILED', failureClass: 'REWARDS_ASCENDED_SETUP', details: String(error?.message || error).slice(0, 480) };
           await finishDelivery(connection, row, outcome);
           return { orderId: row.id, publicCacheId: row.public_cache_id, backend: 'rewardsascended', server: row.deliveryPrefix, ...outcome };
