@@ -49,6 +49,10 @@ function loadSentinelConfig() {
     databaseUrl: env('DATABASE_URL'),
     logLevel: env('NEXUS_SENTINEL_LOG_LEVEL', null, 'info'),
     schedulerPollMs: intEnv('NEXUS_SENTINEL_SCHEDULER_POLL_MS', 5000, { min: 500, max: 60000 }),
+    arkShadowEnabled: boolEnv('NEXUS_SENTINEL_ARK_SHADOW_ENABLED', false),
+    arkShadowIntervalMs: intEnv('NEXUS_SENTINEL_ARK_SHADOW_INTERVAL_MS', 300000, { min: 60000, max: 3600000 }),
+    arkShadowJitterMs: intEnv('NEXUS_SENTINEL_ARK_SHADOW_JITTER_MS', 30000, { min: 0, max: 300000 }),
+    arkShadowHistoryHours: intEnv('NEXUS_SENTINEL_ARK_SHADOW_HISTORY_HOURS', 24, { min: 1, max: 168 }),
   };
 
   if (!['control-plane', 'worker', 'shadow'].includes(config.mode)) {
