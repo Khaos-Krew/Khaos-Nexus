@@ -62,6 +62,47 @@ test('dead-letter inspection forwards bounded filters to store', async () => {
   assert.equal(JSON.parse(res.body).count, 1);
 });
 
+test('RCON readiness requires admin authentication and does not require dead-letter availability', async () => {
+  const denied = response();
+  await handleRequest(request({ url: '/admin/readiness/ark-rcon' }), denied, {
+    health,
+    adminToken: 'secret',
+    arkRconReadiness: { async snapshot() { throw new Error('must not be called'); } },
+  });
+  assert.equal(denied.statusCode, 401);
+
+  const calls = [];
+  const allowed = response();
+  await handleRequest(request({
+    url: '/admin/readiness/ark-rcon?since=2026-09-10T00%3A00%3A00.000Z&limit=50',
+    token: 'secret',
+  }), allowed, {
+    health,
+    adminToken: 'secret',
+    arkRconReadiness: {
+      async snapshot(filters) {
+        calls.push(filters);
+        return { advisory: true, writeCapable: false, eligible: false, reasons: ['insufficient-samples'] };
+      },
+    },
+  });
+  assert.equal(allowed.statusCode, 200);
+  assert.deepEqual(calls[0], { since: '2026-09-10T00:00:00.000Z', limit: '50' });
+  const body = JSON.parse(allowed.body);
+  assert.equal(body.readiness.advisory, true);
+  assert.equal(body.readiness.writeCapable, false);
+});
+
+test('RCON readiness reports unavailable control surface without a readiness provider', async () => {
+  const res = response();
+  await handleRequest(request({ url: '/admin/readiness/ark-rcon', token: 'secret' }), res, {
+    health,
+    adminToken: 'secret',
+  });
+  assert.equal(res.statusCode, 503);
+  assert.equal(JSON.parse(res.body).error, 'ark-rcon-readiness-unavailable');
+});
+
 test('dead-letter acknowledgement requires actor and reason then delegates to audited store method', async () => {
   const calls = [];
   const res = response();
