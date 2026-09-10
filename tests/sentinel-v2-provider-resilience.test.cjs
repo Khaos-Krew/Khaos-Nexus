@@ -77,6 +77,66 @@ test('dead-letter store degrades safely when Postgres is unavailable', async () 
   assert.deepEqual(result.error, { name: 'Error', message: 'boom', code: 'E_TEST' });
 });
 
+test('dead-letter acknowledgement is transactional and audit-recorded', async () => {
+  const calls = [];
+  const row = {
+    dead_letter_id: 42,
+    provider: 'ark.sftp',
+    operation: 'read-config',
+    subject: 'gen1',
+    status: 'acknowledged',
+    attempts: 3,
+    correlation_id: 'corr-42',
+    payload: {},
+    error: { message: 'down' },
+    first_failed_at: new Date('2026-09-09T20:00:00Z'),
+    last_failed_at: new Date('2026-09-09T20:10:00Z'),
+    resolved_at: new Date('2026-09-09T20:15:00Z'),
+    resolved_by: 'owner',
+    resolution_note: 'provider maintenance acknowledged',
+  };
+  const client = {
+    async query(sql, params = []) {
+      calls.push({ sql: String(sql), params });
+      if (String(sql).includes('UPDATE sentinel_dead_letters')) return { rows: [row] };
+      return { rows: [] };
+    },
+  };
+  const database = {
+    enabled: true,
+    async withClient(callback) { return callback(client); },
+  };
+  const store = new DeadLetterStore({ database });
+  const result = await store.acknowledge(42, { actor: 'owner', reason: 'provider maintenance acknowledged' });
+
+  assert.equal(result.status, 'acknowledged');
+  assert.equal(result.resolvedBy, 'owner');
+  assert.equal(calls[0].sql, 'BEGIN');
+  assert.ok(calls.some(({ sql }) => sql.includes("sentinel.dead_letter.acknowledged")));
+  assert.equal(calls.at(-1).sql, 'COMMIT');
+});
+
+test('dead-letter acknowledgement rejects already-resolved records without audit mutation', async () => {
+  const calls = [];
+  const client = {
+    async query(sql) {
+      calls.push(String(sql));
+      if (String(sql).includes('UPDATE sentinel_dead_letters')) return { rows: [] };
+      if (String(sql).includes('SELECT status FROM sentinel_dead_letters')) return { rows: [{ status: 'acknowledged' }] };
+      return { rows: [] };
+    },
+  };
+  const database = { enabled: true, async withClient(callback) { return callback(client); } };
+  const store = new DeadLetterStore({ database });
+
+  await assert.rejects(
+    () => store.acknowledge(42, { actor: 'owner', reason: 'duplicate' }),
+    (error) => error.code === 'SENTINEL_DEAD_LETTER_NOT_QUARANTINED'
+  );
+  assert.ok(calls.includes('ROLLBACK'));
+  assert.equal(calls.some((sql) => sql.includes("sentinel.dead_letter.acknowledged")), false);
+});
+
 test('provider error serialization excludes arbitrary error fields', () => {
   const error = Object.assign(new Error('boom'), { code: 'E_TEST', secret: 'do-not-store' });
   assert.deepEqual(serializeProviderError(error), { name: 'Error', message: 'boom', code: 'E_TEST' });
