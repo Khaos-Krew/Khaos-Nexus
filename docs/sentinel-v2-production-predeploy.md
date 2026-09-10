@@ -5,16 +5,31 @@ This runbook prepares a production cutover. It does **not** authorize a merge, R
 ## Candidate and rollback identities
 
 - Production source branch before cutover: `rebuild/nexus-0.1`
-- Known-good production commit: `0e6ad1419ef52f76416547c37b98882667ca3f84`
-- Known-good Railway deployment: `f0716d0d-ccda-4c3f-b5c2-778a1d8ffe61`
+- Observed production commit: `76d666b5b1abf8caacc976cfcc20fc192c589455`
+- Observed successful Railway deployment: `c15e855a-88ec-4195-8a0d-905dd5835eec`
 - Railway project: `e34e72bf-6ab7-437c-b55e-ef6aef586e4a`
 - Railway production environment: `668aaf1d-a98c-4873-9e29-8c02aebb1ddb`
 - Legacy Sentinel service: `a89ba9d3-e5e7-4e20-b1c8-1fad1ece331b` (`nexus-sentinal-0-1-test`)
-- Prepared candidate branch: `sync/sentinel-v2-current-prod`
+- Prepared candidate branch: `sync/sentinel-v2-current-prod-r2` (PR #575)
+- Candidate reviewed SHA: `6e302ed73809f24a86e6baac36fb1a29383ae9c7`
 
 The candidate was synchronized with the production branch before this runbook was added. This preserves the five current production hotfix commits that contain the finalized RewardsAscended/Dino Cache delivery adapter, explicit Dino Depot fallback gate, acknowledgement/recovery safeguards, and associated tests.
 
-## Hard gates before owner approval
+## Read-only evidence snapshot — 2026-09-10
+
+- PR #575 was open, draft, unmerged, and mergeable at the candidate SHA above. Nexus Rebuild CI run #1709 (`34511807330`) completed successfully on that exact head.
+- The PR also carries a failed Cloudflare Workers deployment report for `khaos-nexus-dev`. GitHub's combined commit-status wrapper returned no statuses; that does not establish that every integration passed. Determine whether the failure applies to the Sentinel release before proceeding.
+- Railway reported the current Sentinel deployment above as SUCCESS, together with Hub, Postgres, ARK dynamic config, and ARN.
+- All eight inspected duplicate deployments newer than the active deployment were REMOVED. Do not create another redeploy to clear an already-removed queue.
+- Runtime logs through 18:20:26Z report Sentinel online and normal panel reconciliation. They also report MAP2 ArkShop drift, one unavailable config, and zero ArkShop maintenance mutations. Deployment SUCCESS is not proof of complete ARK readiness.
+- The former rollback deployment `f0716d0d-ccda-4c3f-b5c2-778a1d8ffe61` was previously observed REMOVED. It must not be used as a verified rollback target.
+- The current successful deployment is a replacement rollback **candidate** only. Confirm its recoverability, capture service configuration, and complete read-only health checks before setting rollback verification true or recording a verification timestamp.
+- The Railway status response returned null for both staged changes and their count. Treat staged-change state as unknown, not as a verified zero. Resolve this inspection gap before any environment-wide acceptance.
+- The owner has explicitly approved deploying what is ready, scoped to #575 in the deployment handoff. This snapshot does not revoke that approval or extend it to new commits, #574, service restructuring, unrelated staged changes, or Dino Depot conversion.
+
+This snapshot is historical evidence, not a durable health guarantee. Recheck the candidate, production identity, queue, staged changes, and rollback availability immediately before deployment. Coordinate with the existing deployment work to avoid competing merges or redeploys.
+
+## Hard gates before deployment
 
 - [ ] Candidate PR is mergeable and remains based on the current production head.
 - [ ] Nexus Rebuild CI is fully green for the exact candidate head SHA.
@@ -26,12 +41,12 @@ The candidate was synchronized with the production branch before this runbook wa
 - [ ] Mutation safety remains fail-closed/dry-run for the validation phase.
 - [ ] Deployment and rollback evidence identify distinct valid commits and the known-good Railway deployment.
 - [ ] Rollback verification timestamp is fresh at approval time.
-- [ ] The existing Railway staged patch is resolved before deployment. **Do not accept it wholesale.** The environment currently contains a large pre-existing staged patch unrelated to this isolated candidate.
+- [ ] Railway staged changes are explicitly inspected and any unrelated patch is resolved before deployment. **Do not accept changes wholesale.** A null or unavailable count is not evidence of a clean environment.
 - [ ] Owner explicitly approves the production merge/deployment after all previous gates are green.
 
 ## Railway staged-patch rule
 
-Do not use the existing staged patch as the vehicle for the Sentinel v2 cutover. Review or discard that patch separately in Railway before production deployment. Recreate only intentional Sentinel cutover changes from a clean environment state after owner approval.
+Do not use unrelated staged changes as the vehicle for the Sentinel v2 cutover. If a patch is present, review or discard it separately in Railway before production deployment. Recreate only intentional Sentinel cutover changes from a clean environment state after owner approval.
 
 The desired eventual canonical service configuration is:
 
@@ -91,7 +106,7 @@ If health, Discord, database, ARK observation, or worker behavior fails after cu
 
 1. Disable v2 mutations first.
 2. Stop/disable the v2 worker path so it cannot contend with legacy jobs.
-3. Restore the production source/configuration to known-good commit `0e6ad1419ef52f76416547c37b98882667ca3f84` and Railway deployment identity `f0716d0d-ccda-4c3f-b5c2-778a1d8ffe61` (or a newer explicitly verified known-good legacy deployment if recorded before cutover).
+3. Restore the production source/configuration to the rollback commit and deployment explicitly verified and recorded immediately before cutover. The replacement candidate is commit `76d666b5b1abf8caacc976cfcc20fc192c589455`, deployment `c15e855a-88ec-4195-8a0d-905dd5835eec`; do not assume SUCCESS alone proves recoverability. Never select the removed historical deployment.
 4. Restore the legacy Dockerfile/start-command compatibility path if it was changed.
 5. Verify `/health`, Discord gateway, Postgres, ARK connectivity, and Dino Cache queue state before re-enabling legacy mutations.
 6. Do not retry any order in an ambiguous/unconfirmed delivery state without inventory reconciliation.
