@@ -19,8 +19,10 @@ const { ArkShadowComparison } = require('./ark-shadow-comparison.cjs');
 const { ArkLegacyPublicInfoReader, ArkShadowRuntime } = require('./ark-shadow-runtime.cjs');
 const { DeadLetterStore, ProviderCircuitBreaker, ProviderResilience } = require('./provider-resilience.cjs');
 const { ArkRconReadTransport } = require('./ark-rcon-read-transport.cjs');
-const { ArkRconReadAdapter, registerArkRconPlayersJob } = require('./ark-rcon-read-adapter.cjs');
+const { ArkRconReadAdapter } = require('./ark-rcon-read-adapter.cjs');
 const { ArkRconObservationEvidence } = require('./ark-rcon-observation-evidence.cjs');
+const { ArkRconObservationWindow } = require('./ark-rcon-observation-window.cjs');
+const { ArkRconObservationRuntime } = require('./ark-rcon-observation-runtime.cjs');
 
 async function startWorker() {
   const base = loadSentinelConfig();
@@ -63,6 +65,16 @@ async function startWorker() {
   const arkRconReadTransport = new ArkRconReadTransport({ logger });
   const arkRconRead = new ArkRconReadAdapter({ transport: arkRconReadTransport, resilience: arkProviderResilience, logger });
   const arkRconObservationEvidence = new ArkRconObservationEvidence({ auditStore, logger });
+  const arkRconObservationWindow = new ArkRconObservationWindow();
+  const arkRconObservationRuntime = new ArkRconObservationRuntime({
+    scheduler,
+    adapter: arkRconRead,
+    registry: arkRegistry,
+    evidence: arkRconObservationEvidence,
+    window: arkRconObservationWindow,
+    auditStore,
+    logger,
+  });
 
   const databaseHealth = await database.ping();
   if (database.enabled && !databaseHealth.ok) {
@@ -89,13 +101,13 @@ async function startWorker() {
     });
   }
 
+  let arkRconShadowAcceptance = null;
   if (config.arkRconShadowEnabled) {
-    registerArkRconPlayersJob(scheduler, {
-      adapter: arkRconRead,
-      servers: () => arkRegistry.list({ includeDisabled: false }),
+    const since = new Date(Date.now() - (config.arkRconShadowHistoryHours * 60 * 60 * 1000)).toISOString();
+    arkRconShadowAcceptance = await arkRconObservationRuntime.start({
+      since,
       intervalMs: config.arkRconShadowIntervalMs,
       jitterMs: config.arkRconShadowJitterMs,
-      onResult: async (summary, outcomes) => arkRconObservationEvidence.record(summary, outcomes),
     });
   }
 
@@ -121,6 +133,8 @@ async function startWorker() {
     arkRconShadowEnabled: config.arkRconShadowEnabled,
     arkRconPlayersJobRegistered: config.arkRconShadowEnabled,
     arkRconEvidenceDurable: auditStore.enabled,
+    arkRconShadowHistoryRestored: arkRconShadowAcceptance?.samples || 0,
+    arkRconShadowAcceptanceEligible: arkRconShadowAcceptance?.eligible === true,
     arkProviderCircuitBreakerReady: true,
     openIncidentsRestored: restoredIncidents.length,
     jobsRegistered: scheduler.list().length,
@@ -159,6 +173,9 @@ async function startWorker() {
     arkRconReadTransport,
     arkRconRead,
     arkRconObservationEvidence,
+    arkRconObservationWindow,
+    arkRconObservationRuntime,
+    arkRconShadowAcceptance,
     shutdown,
   });
 }
