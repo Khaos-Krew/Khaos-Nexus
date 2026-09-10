@@ -30,6 +30,10 @@ function cleanId(value) {
   return String(value || '').trim().replace(/[^A-Za-z0-9_-]/g, '').slice(0, 128);
 }
 
+function cleanServer(value) {
+  return String(value || 'ark').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/^-|-$/g, '').slice(0, 64) || 'ark';
+}
+
 function whole(value, fallback = 0) {
   const n = Number(value);
   return Number.isSafeInteger(n) ? n : fallback;
@@ -73,8 +77,7 @@ class NexusEconomyStore {
     state.version = STORE_VERSION;
     state.updatedAt = new Date().toISOString();
     state.ledger = state.ledger.slice(-MAX_LEDGER);
-    const processedEntries = Object.entries(state.processed).slice(-MAX_LEDGER * 2);
-    state.processed = Object.fromEntries(processedEntries);
+    state.processed = Object.fromEntries(Object.entries(state.processed).slice(-MAX_LEDGER * 2));
     fs.mkdirSync(this.dir, { recursive: true });
     const tmp = `${this.file}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
@@ -106,6 +109,7 @@ class NexusEconomyWorker {
     const id = cleanId(discordUserId);
     if (!id) throw new Error('Discord user ID is required.');
     const rank = rankById(rankId) || rankById('shadow-recruit');
+    const nowIso = new Date(this.now()).toISOString();
     state.accounts[id] ||= {
       discordUserId: id,
       balance: 0,
@@ -114,14 +118,19 @@ class NexusEconomyWorker {
       online: false,
       onlineSince: null,
       onlineUncreditedMs: 0,
+      lastAccountingAt: null,
       lastPresenceAt: null,
-      offlineSince: new Date(this.now()).toISOString(),
-      lastPassiveAt: new Date(this.now()).toISOString(),
-      createdAt: new Date(this.now()).toISOString(),
-      updatedAt: new Date(this.now()).toISOString()
+      presenceByServer: {},
+      offlineSince: nowIso,
+      lastPassiveAt: nowIso,
+      createdAt: nowIso,
+      updatedAt: nowIso
     };
-    state.accounts[id].rankId = rank.id;
-    return state.accounts[id];
+    const account = state.accounts[id];
+    account.rankId = rank.id;
+    account.presenceByServer ||= {};
+    account.onlineUncreditedMs = Math.max(0, Number(account.onlineUncreditedMs) || 0);
+    return account;
   }
 
   linkArkIdentity({ discordUserId, eosId, rankId = 'shadow-recruit' } = {}) {
@@ -144,13 +153,19 @@ class NexusEconomyWorker {
     return discordUserId ? state.accounts[discordUserId] || null : null;
   }
 
+  wallet(discordUserId) {
+    const account = this.store.read().accounts[cleanId(discordUserId)];
+    if (!account) return null;
+    return JSON.parse(JSON.stringify(account));
+  }
+
   balance(discordUserId) {
     return this.store.read().accounts[cleanId(discordUserId)]?.balance || 0;
   }
 
   appendLedger(state, account, { amount, type, source, idempotencyKey, metadata = {} }) {
     const key = String(idempotencyKey || '').trim();
-    if (key && state.processed[key]) return { duplicate: true, entry: state.processed[key] };
+    if (key && state.processed[key]) return { duplicate: true, entry: null };
     const entry = {
       id: crypto.randomUUID(),
       discordUserId: account.discordUserId,
@@ -171,7 +186,7 @@ class NexusEconomyWorker {
       const value = whole(amount);
       if (value <= 0) throw new Error('Credit amount must be a positive whole number.');
       const state = this.store.read();
-      const account = this.ensureAccount(state, discordUserId);
+      const account = this.ensureAccount(state, discordUserId, state.accounts[cleanId(discordUserId)]?.rankId);
       if (idempotencyKey && state.processed[idempotencyKey]) return { ok: true, duplicate: true, balance: account.balance };
       account.balance += value;
       account.updatedAt = new Date(this.now()).toISOString();
@@ -188,7 +203,7 @@ class NexusEconomyWorker {
       const key = `purchase:${String(orderId || '').trim()}`;
       if (key === 'purchase:') throw new Error('Order ID is required.');
       const state = this.store.read();
-      const account = this.ensureAccount(state, discordUserId);
+      const account = this.ensureAccount(state, discordUserId, state.accounts[cleanId(discordUserId)]?.rankId);
       if (state.processed[key]) return { ok: true, duplicate: true, balance: account.balance };
       if (account.balance < value) return { ok: false, reason: 'insufficient-funds', balance: account.balance };
       account.balance -= value;
@@ -199,44 +214,69 @@ class NexusEconomyWorker {
     });
   }
 
+  accountOnline(account) {
+    return Object.values(account.presenceByServer || {}).some((entry) => entry?.online === true);
+  }
+
+  accrueOnlineInterval(state, account, now, sourceServer) {
+    const previous = account.lastAccountingAt ? Date.parse(account.lastAccountingAt) : now;
+    if (account.online) account.onlineUncreditedMs += Math.max(0, Math.min(now - previous, ONLINE_INTERVAL_MS * 2));
+    account.lastAccountingAt = new Date(now).toISOString();
+
+    while (account.onlineUncreditedMs >= ONLINE_INTERVAL_MS) {
+      const endBucket = Math.floor(now / ONLINE_INTERVAL_MS);
+      const outstandingBuckets = Math.floor(account.onlineUncreditedMs / ONLINE_INTERVAL_MS);
+      const bucket = endBucket - outstandingBuckets + 1;
+      const points = this.onlineRates[account.rankId] || 0;
+      if (points > 0) {
+        const key = `playtime:${account.discordUserId}:${bucket}`;
+        if (!state.processed[key]) {
+          account.balance += points;
+          this.appendLedger(state, account, {
+            amount: points,
+            type: 'playtime',
+            source: sourceServer,
+            idempotencyKey: key,
+            metadata: { rankId: account.rankId, intervalMinutes: ONLINE_INTERVAL_MS / 60_000 }
+          });
+        }
+      }
+      account.onlineUncreditedMs -= ONLINE_INTERVAL_MS;
+    }
+  }
+
   async recordPresence({ eosId, online, rankId, server = 'ark' } = {}) {
     const state = this.store.read();
-    const discordUserId = state.eosToDiscord[cleanId(eosId)];
+    const eos = cleanId(eosId);
+    const discordUserId = state.eosToDiscord[eos];
     if (!discordUserId) return { ok: false, reason: 'unlinked-player' };
     return this.withLock(discordUserId, async () => {
       const fresh = this.store.read();
       const account = this.ensureAccount(fresh, discordUserId, rankId || fresh.accounts[discordUserId]?.rankId);
       const now = this.now();
+      const serverKey = cleanServer(server);
       const wasOnline = Boolean(account.online);
-      const previous = account.lastPresenceAt ? Date.parse(account.lastPresenceAt) : now;
-      if (wasOnline && online) account.onlineUncreditedMs += Math.max(0, Math.min(now - previous, ONLINE_INTERVAL_MS * 2));
-      account.online = Boolean(online);
+
+      this.accrueOnlineInterval(fresh, account, now, serverKey);
+      account.presenceByServer[serverKey] = { online: Boolean(online), eosId: eos, at: new Date(now).toISOString() };
+      account.online = this.accountOnline(account);
       account.lastPresenceAt = new Date(now).toISOString();
-      if (!wasOnline && online) {
+
+      if (!wasOnline && account.online) {
         await this.accrueOfflineInternal(fresh, account, now);
         account.onlineSince = new Date(now).toISOString();
         account.offlineSince = null;
-      }
-      while (account.online && account.onlineUncreditedMs >= ONLINE_INTERVAL_MS) {
-        const bucket = Math.floor(now / ONLINE_INTERVAL_MS) - Math.floor(account.onlineUncreditedMs / ONLINE_INTERVAL_MS);
-        const points = this.onlineRates[account.rankId] || 0;
-        if (points > 0) {
-          const key = `playtime:${account.discordUserId}:${bucket}`;
-          if (!fresh.processed[key]) {
-            account.balance += points;
-            this.appendLedger(fresh, account, { amount: points, type: 'playtime', source: server, idempotencyKey: key, metadata: { eosId: cleanId(eosId), rankId: account.rankId } });
-          }
-        }
-        account.onlineUncreditedMs -= ONLINE_INTERVAL_MS;
-      }
-      if (wasOnline && !online) {
+        account.lastAccountingAt = new Date(now).toISOString();
+      } else if (wasOnline && !account.online) {
         account.offlineSince = new Date(now).toISOString();
         account.lastPassiveAt = new Date(now).toISOString();
         account.onlineSince = null;
+        account.lastAccountingAt = new Date(now).toISOString();
       }
+
       account.updatedAt = new Date(now).toISOString();
       this.store.write(fresh);
-      return { ok: true, online: account.online, balance: account.balance, rankId: account.rankId };
+      return { ok: true, online: account.online, server: serverKey, balance: account.balance, rankId: account.rankId };
     });
   }
 
