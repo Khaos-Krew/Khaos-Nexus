@@ -5,8 +5,13 @@ const { ArkBackendControl, configuredShopProvider } = require('./ark-backend-con
 const { registerStartupTask, startupDiagnostics } = require('./startup-coordinator.cjs');
 
 const STARTUP_TASK_ID = 'arkshop-maintenance-monitor';
+const LEGACY_MAINTENANCE_ENV = 'NEXUS_ARKSHOP_LEGACY_MAINTENANCE_ENABLED';
 const INITIAL_DELAY_MS = 75_000;
 const REFRESH_MS = Math.max(300_000, Number(process.env.NEXUS_ARKSHOP_MAINTENANCE_SECONDS || 600) * 1000 || 600_000);
+
+function legacyArkShopMaintenanceEnabled(env = process.env) {
+  return /^(1|true|yes|on)$/i.test(String(env?.[LEGACY_MAINTENANCE_ENV] || '').trim());
+}
 
 async function inspectArkShopMaintenance({ registry = new ArkClusterRegistry(), control = new ArkBackendControl({ registry }) } = {}) {
   const results = [];
@@ -44,24 +49,28 @@ async function inspectArkShopMaintenance({ registry = new ArkClusterRegistry(), 
   };
 }
 
-function startArkShopMaintenanceMonitor({
-  registry = new ArkClusterRegistry(),
-  control = new ArkBackendControl({ registry }),
-  setTimeoutFn = setTimeout,
-  setIntervalFn = setInterval
-} = {}) {
+function startArkShopMaintenanceMonitor(options = {}) {
+  const env = options.env || process.env;
+  if (!legacyArkShopMaintenanceEnabled(env)) {
+    return { disabled: true, initial: null, periodic: null, run: null };
+  }
+
+  const registry = options.registry || new ArkClusterRegistry();
+  const control = options.control || new ArkBackendControl({ registry });
+  const setTimeoutFn = options.setTimeoutFn || setTimeout;
+  const setIntervalFn = options.setIntervalFn || setInterval;
   let running = false;
   const run = async (reason) => {
     if (running) return;
     running = true;
     try {
       const result = await inspectArkShopMaintenance({ registry, control });
-      console.log(`[Nexus Sentinal] ArkShop maintenance (${reason}): maps=${result.maps} ready=${result.ready} drift=${result.drift} attention=${result.attention} mutations=0 llmCalls=0`);
+      console.log(`[Nexus Sentinel] legacy ArkShop maintenance (${reason}): maps=${result.maps} ready=${result.ready} drift=${result.drift} attention=${result.attention} mutations=0 llmCalls=0`);
       for (const item of result.results.filter((entry) => entry.state !== 'ready')) {
-        console.warn(`[Nexus Sentinal] ArkShop maintenance attention: map=${item.id} state=${item.state}${item.error ? ` reason=${item.error}` : ''}`);
+        console.warn(`[Nexus Sentinel] legacy ArkShop maintenance attention: map=${item.id} state=${item.state}${item.error ? ` reason=${item.error}` : ''}`);
       }
     } catch (error) {
-      console.warn(`[Nexus Sentinal] ArkShop maintenance (${reason}) unavailable: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 300)}`);
+      console.warn(`[Nexus Sentinel] legacy ArkShop maintenance (${reason}) unavailable: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 300)}`);
     } finally {
       running = false;
     }
@@ -71,28 +80,34 @@ function startArkShopMaintenanceMonitor({
   initial?.unref?.();
   const periodic = setIntervalFn(() => void run('periodic'), REFRESH_MS);
   periodic?.unref?.();
-  return { initial, periodic, run };
+  return { disabled: false, initial, periodic, run };
 }
 
-function installArkShopMaintenanceMonitor() {
-  if (startupDiagnostics().tasks.some((task) => task.id === STARTUP_TASK_ID)) return { installed: false, coordinated: true };
+function installArkShopMaintenanceMonitor({ env = process.env } = {}) {
+  if (!legacyArkShopMaintenanceEnabled(env)) {
+    console.log(`[Nexus Sentinel] legacy ArkShop/MySQL maintenance disabled (${LEGACY_MAINTENANCE_ENV}=false); Discord/Nexus economy migration path is authoritative.`);
+    return { installed: false, coordinated: true, disabled: true };
+  }
+  if (startupDiagnostics().tasks.some((task) => task.id === STARTUP_TASK_ID)) return { installed: false, coordinated: true, disabled: false };
   const registry = new ArkClusterRegistry();
   const control = new ArkBackendControl({ registry });
   registerStartupTask({
     id: STARTUP_TASK_ID,
-    owner: 'arkshop',
+    owner: 'arkshop-legacy',
     priority: 170,
     run() {
-      startArkShopMaintenanceMonitor({ registry, control });
+      startArkShopMaintenanceMonitor({ registry, control, env });
     }
   });
-  return { installed: true, coordinated: true };
+  return { installed: true, coordinated: true, disabled: false };
 }
 
 module.exports = {
   STARTUP_TASK_ID,
+  LEGACY_MAINTENANCE_ENV,
   INITIAL_DELAY_MS,
   REFRESH_MS,
+  legacyArkShopMaintenanceEnabled,
   inspectArkShopMaintenance,
   startArkShopMaintenanceMonitor,
   installArkShopMaintenanceMonitor
