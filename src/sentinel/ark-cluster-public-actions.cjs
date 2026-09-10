@@ -4,6 +4,7 @@ const { Client, Events, MessageFlags } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { ArkShopProfileStore } = require('./arkshop-profiles.cjs');
+const { buildEmbedMessagePages } = require('./discord-embed-limits.cjs');
 const {
   BUTTON_MODS,
   BUTTON_STATS,
@@ -60,7 +61,7 @@ function buildModListReply(servers = []) {
   return `🧩 **ARK Mod List**\n\n${sections.join('\n\n')}`.slice(0, 1900);
 }
 
-function buildLiveModListPayload(snapshots = []) {
+function buildLiveModListPayloadPages(snapshots = []) {
   const fields = [];
   let total = 0;
   for (const snapshot of snapshots) {
@@ -79,23 +80,25 @@ function buildLiveModListPayload(snapshots = []) {
       inline: false
     }));
   }
-  return {
-    embeds: [{
-      title: '🧩 Khaos Nexus • ARK Mod List',
-      description: `${total} mod${total === 1 ? '' : 's'} detected from the running log, server config, or map-local installed-mod directory. Each entry links to CurseForge.`,
-      color: 0x5865f2,
-      fields: fields.slice(0, 25),
-      footer: { text: 'Sentinal server-side detection • API optional for friendly names only' }
-    }],
-    allowedMentions: { parse: [] }
+  const embed = {
+    title: '🧩 Khaos Nexus • ARK Mod List',
+    description: `${total} mod${total === 1 ? '' : 's'} detected from the running log, server config, or map-local installed-mod directory. Each entry links to CurseForge.`,
+    color: 0x5865f2,
+    fields,
+    footer: { text: 'Sentinel server-side detection • API optional for friendly names only' }
   };
+  return buildEmbedMessagePages([embed]);
+}
+
+function buildLiveModListPayload(snapshots = []) {
+  return buildLiveModListPayloadPages(snapshots)[0];
 }
 
 function renderObjectLines(object = {}) {
   return Object.entries(object || {}).map(([key, value]) => `**${clean(key, 40)}:** ${clean(value, 120)}`);
 }
 
-function buildServerStatsPayload(snapshots = []) {
+function buildServerStatsPayloadPages(snapshots = []) {
   const embeds = [];
   for (const snapshot of snapshots.slice(0, 10)) {
     const fields = [
@@ -114,11 +117,31 @@ function buildServerStatsPayload(snapshots = []) {
       ].filter(Boolean).join('\n'),
       color: 0x2ecc71,
       fields,
-      footer: { text: `Sentinal live config read • ${clean(snapshot?.checkedAt || new Date().toISOString(), 60)}` }
+      footer: { text: `Sentinel live config read • ${clean(snapshot?.checkedAt || new Date().toISOString(), 60)}` }
     });
   }
   if (!embeds.length) embeds.push({ title: '📊 ARK Server Stats & Rates', description: 'No enabled ARK servers are currently available.', color: 0xe74c3c });
-  return { embeds, allowedMentions: { parse: [] } };
+  return buildEmbedMessagePages(embeds);
+}
+
+function buildServerStatsPayload(snapshots = []) {
+  return buildServerStatsPayloadPages(snapshots)[0];
+}
+
+async function sendPagedEphemeralReply(interaction, pages = []) {
+  const safePages = pages.length ? pages : [{ content: 'ARK server information is unavailable.', embeds: [], allowedMentions: { parse: [] } }];
+  const total = safePages.length;
+  const withPageLabel = (page, index) => total > 1
+    ? { ...page, content: page.content || `Page ${index + 1}/${total}` }
+    : page;
+
+  await interaction.editReply(withPageLabel(safePages[0], 0));
+  for (let index = 1; index < safePages.length; index += 1) {
+    await interaction.followUp({
+      ...withPageLabel(safePages[index], index),
+      flags: MessageFlags.Ephemeral
+    });
+  }
 }
 
 async function loadSnapshotsAndCache(registry, servers) {
@@ -159,9 +182,9 @@ function installArkClusterPublicActions() {
           void refreshArkPublicMetadata(registry, servers)
             .then((snapshots) => {
               const modCount = snapshots.reduce((sum, item) => sum + (Array.isArray(item?.modIds) ? item.modIds.length : 0), 0);
-              console.log(`[Nexus Sentinal] ARK public info refreshed: servers=${snapshots.length} detectedMods=${modCount}`);
+              console.log(`[Nexus Sentinel] ARK public info refreshed: servers=${snapshots.length} detectedMods=${modCount}`);
             })
-            .catch((error) => console.warn(`[Nexus Sentinal] ARK public info refresh failed: ${clean(error?.message || error, 240)}`));
+            .catch((error) => console.warn(`[Nexus Sentinel] ARK public info refresh failed: ${clean(error?.message || error, 240)}`));
         };
         runRefresh();
         const seconds = Math.max(300, Number(process.env.NEXUS_ARK_PUBLIC_INFO_REFRESH_SECONDS || 600) || 600);
@@ -187,10 +210,13 @@ function installArkClusterPublicActions() {
         void (async () => {
           await interaction.deferReply({ flags: MessageFlags.Ephemeral });
           const snapshots = await loadSnapshotsAndCache(registry, servers);
-          const payload = id === BUTTON_MODS ? buildLiveModListPayload(snapshots) : buildServerStatsPayload(snapshots);
-          await interaction.editReply(payload);
+          const pages = id === BUTTON_MODS
+            ? buildLiveModListPayloadPages(snapshots)
+            : buildServerStatsPayloadPages(snapshots);
+          await sendPagedEphemeralReply(interaction, pages);
         })().catch(async (error) => {
-          const content = `ARK server information is temporarily unavailable: ${clean(error?.message || error, 220)}`;
+          console.warn(`[Nexus Sentinel] ARK public interaction failed: ${clean(error?.message || error, 240)}`);
+          const content = 'ARK server information is temporarily unavailable. Please try again in a moment.';
           if (interaction.deferred || interaction.replied) await interaction.editReply({ content, embeds: [], allowedMentions: { parse: [] } }).catch(() => {});
           else await interaction.reply({ content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } }).catch(() => {});
         });
@@ -205,7 +231,10 @@ module.exports = {
   chunkLines,
   buildModListReply,
   buildLiveModListPayload,
+  buildLiveModListPayloadPages,
   buildServerStatsPayload,
+  buildServerStatsPayloadPages,
+  sendPagedEphemeralReply,
   loadSnapshotsAndCache,
   installArkClusterPublicActions
 };
