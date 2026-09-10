@@ -23,12 +23,13 @@ function isRailwayId(value) {
 }
 
 class CutoverReadiness {
-  constructor({ database, deadLetters, arkHealthReadiness, arkRconReadiness, config } = {}) {
+  constructor({ database, deadLetters, arkHealthReadiness, arkRconReadiness, config, now = () => Date.now() } = {}) {
     this.database = database;
     this.deadLetters = deadLetters;
     this.arkHealthReadiness = arkHealthReadiness;
     this.arkRconReadiness = arkRconReadiness;
     this.config = config || {};
+    this.now = now;
   }
 
   async snapshot({ since, deadLetterLimit = 100 } = {}) {
@@ -89,6 +90,8 @@ class CutoverReadiness {
       rollbackEnvironmentId: String(this.config.rollbackEnvironmentId || '').trim() || null,
       rollbackRailwayCommit: String(this.config.rollbackRailwayCommit || '').trim() || null,
       rollbackVerified: this.config.rollbackVerified === true,
+      rollbackVerifiedAt: String(this.config.rollbackVerifiedAt || '').trim() || null,
+      rollbackVerificationMaxAgeHours: Math.min(168, Math.max(1, Number(this.config.rollbackVerificationMaxAgeHours) || 24)),
     };
     deploymentEvidence.deploymentCommitRecorded = Boolean(deploymentEvidence.deploymentCommit);
     deploymentEvidence.rollbackCommitRecorded = Boolean(deploymentEvidence.rollbackCommit);
@@ -106,13 +109,27 @@ class CutoverReadiness {
     deploymentEvidence.railwayCommitMatchesRollback = deploymentEvidence.rollbackCommitValid
       && deploymentEvidence.railwayRollbackCommitValid
       && deploymentEvidence.rollbackCommit.toLowerCase() === deploymentEvidence.rollbackRailwayCommit.toLowerCase();
+
+    const verifiedAtMs = deploymentEvidence.rollbackVerifiedAt ? Date.parse(deploymentEvidence.rollbackVerifiedAt) : Number.NaN;
+    const verificationAgeMs = Number.isFinite(verifiedAtMs) ? this.now() - verifiedAtMs : null;
+    deploymentEvidence.rollbackVerificationTimeRecorded = Boolean(deploymentEvidence.rollbackVerifiedAt);
+    deploymentEvidence.rollbackVerificationTimeValid = Number.isFinite(verifiedAtMs);
+    deploymentEvidence.rollbackVerificationFutureDated = Number.isFinite(verificationAgeMs) && verificationAgeMs < 0;
+    deploymentEvidence.rollbackVerificationAgeSeconds = Number.isFinite(verificationAgeMs) && verificationAgeMs >= 0
+      ? Math.floor(verificationAgeMs / 1000)
+      : null;
+    deploymentEvidence.rollbackVerificationFresh = deploymentEvidence.rollbackVerified
+      && deploymentEvidence.rollbackVerificationTimeValid
+      && !deploymentEvidence.rollbackVerificationFutureDated
+      && verificationAgeMs <= deploymentEvidence.rollbackVerificationMaxAgeHours * 60 * 60 * 1000;
+
     deploymentEvidence.safe = deploymentEvidence.deploymentCommitValid
       && deploymentEvidence.rollbackCommitValid
       && deploymentEvidence.railwayRollbackIdentityValid
       && deploymentEvidence.railwayRollbackCommitValid
       && deploymentEvidence.distinctRollbackTarget
       && deploymentEvidence.railwayCommitMatchesRollback
-      && deploymentEvidence.rollbackVerified;
+      && deploymentEvidence.rollbackVerificationFresh;
 
     if (!deploymentEvidence.deploymentCommitRecorded) reasons.push('deployment-commit-unrecorded');
     else if (!deploymentEvidence.deploymentCommitValid) reasons.push('deployment-commit-invalid');
@@ -125,6 +142,10 @@ class CutoverReadiness {
     if (deploymentEvidence.deploymentCommitValid && deploymentEvidence.rollbackCommitValid && !deploymentEvidence.distinctRollbackTarget) reasons.push('rollback-target-not-distinct');
     if (deploymentEvidence.rollbackCommitValid && deploymentEvidence.railwayRollbackCommitValid && !deploymentEvidence.railwayCommitMatchesRollback) reasons.push('railway-rollback-commit-mismatch');
     if (!deploymentEvidence.rollbackVerified) reasons.push('rollback-unverified');
+    else if (!deploymentEvidence.rollbackVerificationTimeRecorded) reasons.push('rollback-verification-time-unrecorded');
+    else if (!deploymentEvidence.rollbackVerificationTimeValid) reasons.push('rollback-verification-time-invalid');
+    else if (deploymentEvidence.rollbackVerificationFutureDated) reasons.push('rollback-verification-future-dated');
+    else if (!deploymentEvidence.rollbackVerificationFresh) reasons.push('rollback-verification-stale');
 
     const gates = {
       database: Boolean(database.ok),
