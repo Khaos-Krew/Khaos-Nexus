@@ -1,9 +1,10 @@
 'use strict';
 
 class CutoverReadiness {
-  constructor({ database, deadLetters, arkRconReadiness, config } = {}) {
+  constructor({ database, deadLetters, arkHealthReadiness, arkRconReadiness, config } = {}) {
     this.database = database;
     this.deadLetters = deadLetters;
+    this.arkHealthReadiness = arkHealthReadiness;
     this.arkRconReadiness = arkRconReadiness;
     this.config = config || {};
   }
@@ -14,6 +15,14 @@ class CutoverReadiness {
       ? await this.database.ping()
       : { ok: false, enabled: false, reason: 'database-unavailable' };
     if (!database.ok) reasons.push('database-unhealthy');
+
+    let arkHealth = null;
+    if (this.arkHealthReadiness?.snapshot) {
+      arkHealth = await this.arkHealthReadiness.snapshot({ since, limit: 500 });
+      if (!arkHealth?.eligible) reasons.push('ark-health-equivalence-proof-incomplete');
+    } else {
+      reasons.push('ark-health-readiness-unavailable');
+    }
 
     let rcon = null;
     if (this.arkRconReadiness?.snapshot) {
@@ -40,6 +49,7 @@ class CutoverReadiness {
 
     const gates = {
       database: Boolean(database.ok),
+      arkHealthEquivalence: Boolean(arkHealth?.eligible),
       arkRcon: Boolean(rcon?.eligible),
       deadLettersClear: quarantinedDeadLetters.length === 0,
       mutationSafety: mutationSafety.safeForAdvisoryObservation,
@@ -52,6 +62,7 @@ class CutoverReadiness {
       reasons: [...new Set(reasons)],
       gates,
       database,
+      arkHealthEquivalence: arkHealth,
       arkRcon: rcon,
       deadLetters: {
         quarantinedCount: quarantinedDeadLetters.length,
