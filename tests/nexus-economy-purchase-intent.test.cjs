@@ -59,10 +59,13 @@ function fixture(balance = '1000', mode = 'shadow') {
 }
 
 test('request id validation is bounded and wallet-compatible', () => {
+  const maxRequestId = `r${'a'.repeat(122)}`;
   assert.equal(normalizeRequestId('req_12345678'), 'req_12345678');
+  assert.equal(normalizeRequestId(maxRequestId), maxRequestId);
+  assert.equal(`shop_${maxRequestId}`.length, 128);
   assert.equal(normalizeRequestId('short'), null);
   assert.equal(normalizeRequestId('../unsafe-request'), null);
-  assert.equal(normalizeRequestId(`r${'a'.repeat(128)}`), null);
+  assert.equal(normalizeRequestId(`r${'a'.repeat(123)}`), null);
 });
 
 test('invalid request id is rejected before Postgres or catalog access', async () => {
