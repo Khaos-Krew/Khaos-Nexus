@@ -122,3 +122,57 @@ test('sell order does not credit wallet until ARK item removal is confirmed', as
   assert.equal(duplicate.duplicate, true);
   assert.equal(economy.balance('111'), 34);
 });
+
+
+const buyInput = { discordUserId: '111', eosId: 'EOS_abc12345', itemId: 'metal', bundles: 1, idempotencyKey: 'checkout' };
+
+test('restart after debit but before order update recovers payment once', async () => {
+  const { root, economy, shop } = fixture();
+  await economy.credit({ discordUserId: '111', amount: 100, idempotencyKey: 'seed' });
+  const write = shop.store.write.bind(shop.store);
+  let fail = true;
+  shop.store.write = state => {
+    if (fail && Object.values(state.orders).some(order => order.status === 'PAID_QUEUED')) { fail = false; throw new Error('simulated crash'); }
+    return write(state);
+  };
+  await assert.rejects(shop.createBuyOrder(buyInput), /simulated crash/);
+  assert.equal(economy.balance('111'), 50);
+  const restarted = new ClusterShopService({ economy: new NexusEconomyWorker({ store: new NexusEconomyStore(root) }), store: new ShopOrderStore(root), catalog: shop.catalog });
+  await restarted.recoverPendingPayments();
+  assert.equal(restarted.pendingBuyOrders().length, 1);
+  assert.equal(economy.balance('111'), 50);
+});
+
+test('concurrent checkout replays produce one order and debit', async () => {
+  const { economy, shop } = fixture();
+  await economy.credit({ discordUserId: '111', amount: 100, idempotencyKey: 'seed' });
+  const results = await Promise.all([shop.createBuyOrder(buyInput), shop.createBuyOrder(buyInput)]);
+  assert.equal(results[0].order.orderId, results[1].order.orderId);
+  assert.equal(economy.balance('111'), 50);
+  await assert.rejects(shop.createBuyOrder({ ...buyInput, bundles: 2 }), /conflicts/);
+});
+
+test('checkout rejects unlinked recipients and stale quotes before debit', async () => {
+  const { shop } = fixture();
+  await assert.rejects(shop.createBuyOrder({ ...buyInput, eosId: 'other' }), /not linked/);
+  await assert.rejects(shop.createBuyOrder({ ...buyInput, expectedQuote: { totalPrice: 1 } }), /catalog changed/);
+  assert.equal(Object.keys(shop.store.read().orders).length, 0);
+});
+
+test('replaying a rejected payment does not claim success', async () => {
+  const { shop } = fixture();
+  assert.equal((await shop.createBuyOrder(buyInput)).ok, false);
+  assert.equal((await shop.createBuyOrder(buyInput)).ok, false);
+});
+
+test('delivery claim is exclusive and ambiguous outcomes cannot be requeued', async () => {
+  const { economy, shop } = fixture();
+  await economy.credit({ discordUserId: '111', amount: 100, idempotencyKey: 'seed' });
+  const { order } = await shop.createBuyOrder(buyInput);
+  const claimed = shop.markBuyDelivery({ orderId: order.orderId, status: 'DELIVERY_IN_PROGRESS' });
+  assert.equal(shop.markBuyDelivery({ orderId: order.orderId, status: 'DELIVERY_IN_PROGRESS' }).ok, false);
+  assert.throws(() => shop.markBuyDelivery({ orderId: order.orderId, status: 'DELIVERED' }), /claim/);
+  shop.markBuyDelivery({ orderId: order.orderId, status: 'SENT_UNCONFIRMED', claimId: claimed.order.claimId });
+  assert.throws(() => shop.markBuyDelivery({ orderId: order.orderId, status: 'PLAYER_OFFLINE', claimId: claimed.order.claimId }), /transition/);
+  assert.equal(shop.pendingBuyOrders().length, 0);
+});

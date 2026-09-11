@@ -1,14 +1,7 @@
 'use strict';
 
-const { listenEconomyServer } = require('./server.cjs');
-
-const runtime = listenEconomyServer();
-
-function shutdown(signal) {
-  console.log(`[Nexus Economy Worker] ${signal} received; shutting down.`);
-  runtime.server.close(() => process.exit(0));
-  setTimeout(() => process.exit(1), 10_000).unref?.();
-}
-
-process.once('SIGTERM', () => shutdown('SIGTERM'));
-process.once('SIGINT', () => shutdown('SIGINT'));
+// Preserve the reusable readiness server from #583; production uses its write gate
+// with the transactional Postgres implementation. There is no file fallback.
+const runtime = require('./postgres-server.cjs');
+if (require.main === module) runtime.main().catch(error => { console.error('[Nexus Economy Worker] startup failed:', error.code || error.message); process.exitCode = 1; });
+module.exports = runtime;

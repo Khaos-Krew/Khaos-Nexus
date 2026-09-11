@@ -68,6 +68,7 @@ installStaffWorkspaceExtension();
 installArnIntakeExtension();
 installNexusEconomyIdentitySyncExtension();
 installClusterShopUiExtension();
+require('./cluster-shop-delivery-worker.cjs').installClusterShopDeliveryWorker();
 
 // ARK stack intentionally preserved during the Sentinal teardown.
 installArkOpsExtension();

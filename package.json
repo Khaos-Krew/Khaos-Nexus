@@ -29,6 +29,7 @@
     "ssh2-sftp-client": "12.1.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "electron": "43.2.0",
     "electron-builder": "26.15.3"
   },
@@ -36,13 +37,33 @@
     "appId": "com.khaosnexus.admin",
     "productName": "Khaos Nexus",
     "artifactName": "Khaos-Nexus-${version}-Setup.${ext}",
-    "directories": { "output": "dist" },
-    "files": ["src/**/*", "config.example.json", "package.json", "README.md", "REBUILD_SCOPE.md"],
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "config.example.json",
+      "package.json",
+      "README.md",
+      "REBUILD_SCOPE.md"
+    ],
     "extraResources": [
-      { "from": "src/updater/apply-update.ps1", "to": "updater/apply-update.ps1" }
+      {
+        "from": "src/updater/apply-update.ps1",
+        "to": "updater/apply-update.ps1"
+      }
     ],
     "asar": true,
-    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }] },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,

@@ -11,7 +11,7 @@ function economyFixture(order) {
     client: {
       configured: () => true,
       pendingShopOrders: async () => ({ orders: order ? [order] : [] }),
-      markShopBuyDelivery: async (input) => { marks.push(input); return { ok: true }; }
+      markShopBuyDelivery: async (input) => { marks.push(input); return { ok: true, order: { ...order, claimId: 'claim-1' } }; }
     }
   };
 }

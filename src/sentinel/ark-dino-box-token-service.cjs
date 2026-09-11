@@ -89,7 +89,7 @@ class ArkDinoBoxTokenService {
     return accounts[0];
   }
 
-  async issueToken({ cacheId = '*', issuedToDiscordUserId = '', issuedByDiscordUserId = '', sourceLabel = '', expiresAt = null } = {}) {
+  async issueToken({ cacheId = '*', issuedToDiscordUserId = '', issuedByDiscordUserId = '', sourceLabel = '', expiresAt = null, issuanceKey = '' } = {}) {
     const scope = cacheScope(cacheId);
     const issuedTo = cleanId(issuedToDiscordUserId, 25);
     const issuedBy = cleanId(issuedByDiscordUserId, 25);
@@ -98,28 +98,46 @@ class ArkDinoBoxTokenService {
     const expiry = expiresAt ? new Date(expiresAt) : null;
     if (expiry && !Number.isFinite(expiry.getTime())) throw shopError('INVALID_TOKEN_EXPIRY', 'Token expiry is invalid.');
 
-    const code = generateTokenCode();
+    const grantKey = String(issuanceKey || '').trim();
+    if (grantKey.length > 200) throw shopError('INVALID_GRANT_KEY', 'Token grant identity is too long.');
+    const code = grantKey ? `NXC-${crypto.createHmac('sha256', this.secret || tokenSecret()).update(`owner-grant:${grantKey}`).digest('hex').toUpperCase()}` : generateTokenCode();
     const id = crypto.randomUUID();
     const digest = tokenDigest(code, this.secret || tokenSecret());
     const { connection } = await this.connector();
     try {
       await ensureTokenSchema(connection);
       await connection.execute(
-        `INSERT INTO ${TOKEN_TABLE} (id, token_hash, cache_type, issued_to_discord_user_id, issued_by_discord_user_id, source_label, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO ${TOKEN_TABLE} (id, token_hash, cache_type, issued_to_discord_user_id, issued_by_discord_user_id, source_label, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE id=id`,
         [id, digest, scope, issuedTo, issuedBy, cleanId(sourceLabel, 100), expiry]
       );
-      return { id, code, cacheType: scope, issuedToDiscordUserId: issuedTo, expiresAt: expiry ? expiry.toISOString() : '' };
+      const [rows] = await connection.execute(`SELECT * FROM ${TOKEN_TABLE} WHERE token_hash=? LIMIT 1`, [digest]);
+      const saved = rows[0];
+      if (!saved || saved.cache_type !== scope || saved.issued_to_discord_user_id !== issuedTo || saved.issued_by_discord_user_id !== issuedBy || String(saved.source_label || '') !== cleanId(sourceLabel, 100) || (saved.expires_at ? new Date(saved.expires_at).toISOString() : '') !== (expiry ? expiry.toISOString() : '')) throw shopError('TOKEN_GRANT_CONFLICT', 'This grant identity belongs to a different token request.');
+      return { id: saved.id, code, cacheType: scope, issuedToDiscordUserId: issuedTo, expiresAt: expiry ? expiry.toISOString() : '' };
     } finally {
       await connection.end().catch(() => {});
     }
   }
 
-  async redeem({ discordUserId, cacheId, tokenCode } = {}) {
+  async available(discordUserId) {
+    const userId = cleanId(discordUserId, 25);
+    if (!/^\d{5,25}$/.test(userId)) throw shopError('INVALID_DISCORD_USER', 'A valid Discord user is required.');
+    const { connection } = await this.connector();
+    try {
+      const [rows] = await connection.execute(
+        `SELECT id, cache_type, expires_at FROM ${TOKEN_TABLE} WHERE issued_to_discord_user_id=? AND redeemed_at IS NULL AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP(3)) ORDER BY created_at, id`, [userId]
+      );
+      return rows.map(row => ({ id: row.id, cacheType: row.cache_type, expiresAt: row.expires_at }));
+    } finally { await connection.end().catch(() => {}); }
+  }
+
+  async redeem({ discordUserId, cacheId, tokenCode, tokenId } = {}) {
     const userId = cleanId(discordUserId, 25);
     const type = cleanId(cacheId, 48).toLowerCase();
     if (!/^\d{5,25}$/.test(userId)) throw shopError('INVALID_DISCORD_USER', 'A valid Discord user is required.');
     if (!VALID_CACHE_ID.test(type) || !CONFIG.caches[type]) throw shopError('INVALID_CACHE', 'That Dino Cache is not available.');
-    const digest = tokenDigest(tokenCode, this.secret || tokenSecret());
+    if (tokenId && !/^[0-9a-f-]{36}$/i.test(String(tokenId))) throw shopError('INVALID_DINO_BOX_TOKEN', 'Invalid wallet token.');
+    const digest = tokenId ? null : tokenDigest(tokenCode, this.secret || tokenSecret());
     const account = this.linkedAccount(userId);
     const { connection } = await this.connector();
 
@@ -127,7 +145,9 @@ class ArkDinoBoxTokenService {
       await ensureTokenSchema(connection);
       await connection.beginTransaction();
       try {
-        const [tokens] = await connection.execute(`SELECT * FROM ${TOKEN_TABLE} WHERE token_hash=? LIMIT 1 FOR UPDATE`, [digest]);
+        const [tokens] = tokenId
+          ? await connection.execute(`SELECT * FROM ${TOKEN_TABLE} WHERE id=? AND issued_to_discord_user_id=? LIMIT 1 FOR UPDATE`, [tokenId, userId])
+          : await connection.execute(`SELECT * FROM ${TOKEN_TABLE} WHERE token_hash=? LIMIT 1 FOR UPDATE`, [digest]);
         const token = tokens[0];
         if (!token) throw shopError('INVALID_DINO_BOX_TOKEN', 'That Dino Box token is invalid or was never issued by Nexus Sentinal.');
 

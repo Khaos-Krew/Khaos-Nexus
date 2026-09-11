@@ -38,6 +38,7 @@ const HUB_SELECT_ID = 'nexus-dino-box-hub-select';
 const HUB_HOME_ID = '__guide__';
 const HUB_MY_SEALED_ID = 'nexus-dino-box-my-sealed';
 const BUY_PREFIX = 'nexus-dino-box-buy:';
+const WALLET_TOKEN_PREFIX = 'nexus-cache-wallet:';
 const TOKEN_PREFIX = 'nexus-dino-box-token:';
 const TOKEN_MODAL_PREFIX = 'nexus-dino-box-token-modal:';
 const TOKEN_INPUT = 'nexus-dino-box-token-code';
@@ -178,6 +179,7 @@ function cacheDetailPayload(cacheId) {
   const purchaseRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`${BUY_PREFIX}${cacheId}${cache.rotationId ? ':'+cache.rotationId : ''}`).setLabel(`Buy • ${cachePrice(cache)}`).setEmoji('🎰').setStyle(ButtonStyle.Success).setDisabled(cache.currency === 'ARN_TOKENS' && !cache.enabled),
     new ButtonBuilder().setCustomId(`${TOKEN_PREFIX}${cacheId}`).setLabel('Redeem Token').setEmoji('🎟️').setStyle(ButtonStyle.Primary).setDisabled(['weekly','arn'].includes(cacheId)),
+    new ButtonBuilder().setCustomId(`${WALLET_TOKEN_PREFIX}${cacheId}`).setLabel('Use Wallet Token').setStyle(ButtonStyle.Primary).setDisabled(['weekly','arn'].includes(cacheId)),
     new ButtonBuilder().setCustomId(HUB_MY_SEALED_ID).setLabel('My Sealed Caches').setEmoji('🔒').setStyle(ButtonStyle.Secondary)
   );
   return {
@@ -360,10 +362,11 @@ function installArkDinoBoxShopExtension(options = {}) {
         const isReveal = interaction.isButton?.() && id.startsWith(REVEAL_PREFIX);
         const isRevealLater = interaction.isButton?.() && id === REVEAL_LATER_ID;
         const isBuy = interaction.isButton?.() && id.startsWith(BUY_PREFIX);
+        const isWalletToken = interaction.isButton?.() && id.startsWith(WALLET_TOKEN_PREFIX);
         const isToken = interaction.isButton?.() && id.startsWith(TOKEN_PREFIX);
         const isTokenSubmit = interaction.isModalSubmit?.() && id.startsWith(TOKEN_MODAL_PREFIX);
         const isLegacyOpen = interaction.isButton?.() && id === BUTTON_CACHE_SHOP;
-        if (!isHubSelect && !isMySealed && !isReveal && !isRevealLater && !isBuy && !isToken && !isTokenSubmit && !isLegacyOpen) return;
+        if (!isWalletToken && !isHubSelect && !isMySealed && !isReveal && !isRevealLater && !isBuy && !isToken && !isTokenSubmit && !isLegacyOpen) return;
 
         void (async () => {
           const userId = String(interaction.user?.id || '');
@@ -390,6 +393,16 @@ function installArkDinoBoxShopExtension(options = {}) {
             if (!/^[0-9a-f-]{36}$/i.test(orderId)) throw new Error('Invalid Dino Cache reveal token.');
             await interaction.deferUpdate();
             return revealStoredResult(interaction, purchaseService, client, config, orderId, announcing);
+          }
+          if (isWalletToken) {
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            const cacheId = id.slice(WALLET_TOKEN_PREFIX.length).toLowerCase();
+            if (!CONFIG.caches[cacheId] || ['weekly', 'arn'].includes(cacheId)) throw new Error('This cache does not accept owner-issued wallet tokens.');
+            const available = await tokenService.available(userId);
+            const token = available.find(item => item.cacheType === cacheId) || available.find(item => item.cacheType === '*');
+            if (!token) return interaction.editReply({ content: 'No eligible owner-issued token is available. Anomaly tokens can be used for the ARN cache.', allowedMentions: { parse: [] } });
+            const result = await tokenService.redeem({ discordUserId: userId, cacheId, tokenId: token.id });
+            return interaction.editReply(sealedResultPayload(result.order, null, 'Nexus Token'));
           }
           if (isToken) {
             const cacheId = id.slice(TOKEN_PREFIX.length).toLowerCase();

@@ -1,0 +1,716 @@
+[
+  {
+    "id": "dinoballs5",
+    "name": "Dino Balls x5",
+    "category": "Supplies",
+    "kind": "item",
+    "baseQuantity": 5,
+    "buyPrice": 20,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/DinoDepot/Assets/Items/Dinoball/ItemDinoball.ItemDinoball",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "dinoballs25",
+    "name": "Dino Balls x25",
+    "category": "Supplies",
+    "kind": "item",
+    "baseQuantity": 25,
+    "buyPrice": 75,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/DinoDepot/Assets/Items/Dinoball/ItemDinoball.ItemDinoball",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "dinoballs100",
+    "name": "Dino Balls x100",
+    "category": "Supplies",
+    "kind": "item",
+    "baseQuantity": 100,
+    "buyPrice": 250,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/DinoDepot/Assets/Items/Dinoball/ItemDinoball.ItemDinoball",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "fiber10k",
+    "name": "Fiber x1,000",
+    "category": "Resources",
+    "kind": "item",
+    "baseQuantity": 1000,
+    "buyPrice": 10,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/TG_Stack_10000_90/Resources/PrimalItemResource_Fibers_Child.PrimalItemResource_Fibers_Child",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "thatch10k",
+    "name": "Thatch x1,000",
+    "category": "Resources",
+    "kind": "item",
+    "baseQuantity": 1000,
+    "buyPrice": 10,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/TG_Stack_10000_90/Resources/PrimalItemResource_Thatch_Child.PrimalItemResource_Thatch_Child",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "wood10k",
+    "name": "Wood x1,000",
+    "category": "Resources",
+    "kind": "item",
+    "baseQuantity": 1000,
+    "buyPrice": 15,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/TG_Stack_10000_90/Resources/PrimalItemResource_Wood_Child.PrimalItemResource_Wood_Child",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "stone10k",
+    "name": "Stone x1,000",
+    "category": "Resources",
+    "kind": "item",
+    "baseQuantity": 1000,
+    "buyPrice": 15,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/TG_Stack_10000_90/Resources/PrimalItemResource_Stone_Child.PrimalItemResource_Stone_Child",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "flint10k",
+    "name": "Flint x1,000",
+    "category": "Resources",
+    "kind": "item",
+    "baseQuantity": 1000,
+    "buyPrice": 18,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/TG_Stack_10000_90/Resources/PrimalItemResource_Flint_Child.PrimalItemResource_Flint_Child",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "hide10k",
+    "name": "Hide x1,000",
+    "category": "Resources",
+    "kind": "item",
+    "baseQuantity": 1000,
+    "buyPrice": 20,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/TG_Stack_10000_90/Resources/PrimalItemResource_Hide_Child.PrimalItemResource_Hide_Child",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "ingots5k",
+    "name": "Metal Ingots x500",
+    "category": "Resources",
+    "kind": "item",
+    "baseQuantity": 500,
+    "buyPrice": 45,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/TG_Stack_10000_90/Resources/PrimalItemResource_MetalIngot_Child.PrimalItemResource_MetalIngot_Child",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "paste5k",
+    "name": "Cementing Paste x500",
+    "category": "Resources",
+    "kind": "item",
+    "baseQuantity": 500,
+    "buyPrice": 50,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/TG_Stack_10000_90/Resources/PrimalItemResource_ChitinPaste_Child.PrimalItemResource_ChitinPaste_Child",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "crystal5k",
+    "name": "Crystal x500",
+    "category": "Resources",
+    "kind": "item",
+    "baseQuantity": 500,
+    "buyPrice": 40,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/TG_Stack_10000_90/Resources/PrimalItemResource_Crystal_Child.PrimalItemResource_Crystal_Child",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "obsidian5k",
+    "name": "Obsidian x500",
+    "category": "Resources",
+    "kind": "item",
+    "baseQuantity": 500,
+    "buyPrice": 45,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/TG_Stack_10000_90/Resources/PrimalItemResource_Obsidian_Child.PrimalItemResource_Obsidian_Child",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "pearls5k",
+    "name": "Silica Pearls x500",
+    "category": "Resources",
+    "kind": "item",
+    "baseQuantity": 500,
+    "buyPrice": 45,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/TG_Stack_10000_90/Resources/PrimalItemResource_Silicon_Child.PrimalItemResource_Silicon_Child",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "oil5k",
+    "name": "Oil x500",
+    "category": "Resources",
+    "kind": "item",
+    "baseQuantity": 500,
+    "buyPrice": 35,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/TG_Stack_10000_90/Resources/PrimalItemResource_Oil_Child.PrimalItemResource_Oil_Child",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "polymer2500",
+    "name": "Polymer x250",
+    "category": "Resources",
+    "kind": "item",
+    "baseQuantity": 250,
+    "buyPrice": 60,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/TG_Stack_10000_90/Resources/PrimalItemResource_Polymer_Child.PrimalItemResource_Polymer_Child",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "electronics2500",
+    "name": "Electronics x250",
+    "category": "Resources",
+    "kind": "item",
+    "baseQuantity": 250,
+    "buyPrice": 70,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/TG_Stack_10000_90/Resources/PrimalItemResource_Electronics_Child.PrimalItemResource_Electronics_Child",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "blackpearls1k",
+    "name": "Black Pearls x100",
+    "category": "Resources",
+    "kind": "item",
+    "baseQuantity": 100,
+    "buyPrice": 65,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/TG_Stack_10000_90/Resources/PrimalItemResource_BlackPearl_Child.PrimalItemResource_BlackPearl_Child",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "organicpolymer2500",
+    "name": "Organic Polymer x250",
+    "category": "Resources",
+    "kind": "item",
+    "baseQuantity": 250,
+    "buyPrice": 50,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/TG_Stack_10000_90/Resources/PrimalItemResource_Polymer_Organic_Child.PrimalItemResource_Polymer_Organic_Child",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "anglergel2500",
+    "name": "Angler Gel x250",
+    "category": "Resources",
+    "kind": "item",
+    "baseQuantity": 250,
+    "buyPrice": 30,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/TG_Stack_10000_90/Resources/PrimalItemResource_AnglerGel_Child.PrimalItemResource_AnglerGel_Child",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "sap2500",
+    "name": "Sap x250",
+    "category": "Resources",
+    "kind": "item",
+    "baseQuantity": 250,
+    "buyPrice": 30,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/TG_Stack_10000_90/Resources/PrimalItemResource_Sap_Child.PrimalItemResource_Sap_Child",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "rareflowers2500",
+    "name": "Rare Flowers x250",
+    "category": "Resources",
+    "kind": "item",
+    "baseQuantity": 250,
+    "buyPrice": 30,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/TG_Stack_10000_90/Resources/PrimalItemResource_RareFlower_Child.PrimalItemResource_RareFlower_Child",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "raremushrooms2500",
+    "name": "Rare Mushrooms x250",
+    "category": "Resources",
+    "kind": "item",
+    "baseQuantity": 250,
+    "buyPrice": 30,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/TG_Stack_10000_90/Resources/PrimalItemResource_RareMushroom_Child.PrimalItemResource_RareMushroom_Child",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "apoth_gestation",
+    "name": "Nexus Apothecary - Gestation Skip Potion",
+    "category": "Potions",
+    "kind": "item",
+    "baseQuantity": 1,
+    "buyPrice": 100,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/CrazysPotions/Potions/InstantBaby/PrimalItemConsumable_CPInstantbaby.PrimalItemConsumable_CPInstantbaby",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "apoth_growup",
+    "name": "Nexus Apothecary - Grow Up Potion",
+    "category": "Potions",
+    "kind": "item",
+    "baseQuantity": 1,
+    "buyPrice": 100,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/CrazysPotions/Potions/GrowUpPotion/PrimalItemConsumable_CPGrowUpPotion.PrimalItemConsumable_CPGrowUpPotion",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "apoth_imprint",
+    "name": "Nexus Apothecary - Instant Imprint Potion",
+    "category": "Potions",
+    "kind": "item",
+    "baseQuantity": 1,
+    "buyPrice": 125,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/CrazysPotions/Potions/InstantImprintPotion/PrimalItemConsumable_CPInstaImprintPotion.PrimalItemConsumable_CPInstaImprintPotion",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "apoth_gender_swap",
+    "name": "Nexus Apothecary - Gender Change Potion",
+    "category": "Potions",
+    "kind": "item",
+    "baseQuantity": 1,
+    "buyPrice": 75,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/CrazysPotions/Potions/GenderPotion/PrimalItemConsumable_CPGenderPotion.PrimalItemConsumable_CPGenderPotion",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "apoth_gender_assign",
+    "name": "Nexus Apothecary - Gender Assignment Potion",
+    "category": "Potions",
+    "kind": "item",
+    "baseQuantity": 1,
+    "buyPrice": 125,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/CrazysPotions/Potions/GenderAssignPotion/PrimalItemConsumable_CPGenderAssignmentPotion.PrimalItemConsumable_CPGenderAssignmentPotion",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "apoth_mutation",
+    "name": "Nexus Apothecary - Mutation Potion",
+    "category": "Potions",
+    "kind": "item",
+    "baseQuantity": 1,
+    "buyPrice": 250,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/CrazysPotions/Potions/MutatorPotion/PrimalItemConsumable_CPMutationPotion.PrimalItemConsumable_CPMutationPotion",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "apoth_super_crafting",
+    "name": "Nexus Apothecary - Super Crafting Potion",
+    "category": "Potions",
+    "kind": "item",
+    "baseQuantity": 1,
+    "buyPrice": 300,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/CrazysPotions/Potions/CraftingBoostPotion/PrimalItemConsumable_CPSuperCraftingPotion.PrimalItemConsumable_CPSuperCraftingPotion",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "gaia_taming",
+    "name": "Nexus Apothecary - Gaia Instant Taming Potion",
+    "category": "Potions",
+    "kind": "item",
+    "baseQuantity": 1,
+    "buyPrice": 300,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/PotionsHelpers/Items/Taming/PrimalItemConsumable_Gaia_TamingElixir.PrimalItemConsumable_Gaia_TamingElixir",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "gaia_famish",
+    "name": "Nexus Apothecary - Gaia Famish Potion",
+    "category": "Potions",
+    "kind": "item",
+    "baseQuantity": 1,
+    "buyPrice": 100,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/PotionsHelpers/Items/Famish/PrimalItemConsumable_Gaia_FamishElixir.PrimalItemConsumable_Gaia_FamishElixir",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "gaia_sedative",
+    "name": "Nexus Apothecary - Gaia Sedative Potion",
+    "category": "Potions",
+    "kind": "item",
+    "baseQuantity": 1,
+    "buyPrice": 75,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/PotionsHelpers/Items/Sedative/PrimalItemConsumable_Gaia_SedativeElixir.PrimalItemConsumable_Gaia_SedativeElixir",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "gaia_player_health_small",
+    "name": "Nexus Apothecary - Gaia Player Health (Small)",
+    "category": "Potions",
+    "kind": "item",
+    "baseQuantity": 1,
+    "buyPrice": 25,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_WeakHealthElixir.PrimalItemConsumable_Gaia_WeakHealthElixir",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "gaia_player_health_medium",
+    "name": "Nexus Apothecary - Gaia Player Health (Medium)",
+    "category": "Potions",
+    "kind": "item",
+    "baseQuantity": 1,
+    "buyPrice": 50,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_MildHealthElixir.PrimalItemConsumable_Gaia_MildHealthElixir",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "gaia_player_health_large",
+    "name": "Nexus Apothecary - Gaia Player Health (Large)",
+    "category": "Potions",
+    "kind": "item",
+    "baseQuantity": 1,
+    "buyPrice": 75,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_StrongHealthElixir.PrimalItemConsumable_Gaia_StrongHealthElixir",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "gaia_dino_health_small",
+    "name": "Nexus Apothecary - Gaia Dino Health (Small)",
+    "category": "Potions",
+    "kind": "item",
+    "baseQuantity": 1,
+    "buyPrice": 40,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_Elixir_DinoHealthWeak.PrimalItemConsumable_Gaia_Elixir_DinoHealthWeak",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "gaia_dino_health_medium",
+    "name": "Nexus Apothecary - Gaia Dino Health (Medium)",
+    "category": "Potions",
+    "kind": "item",
+    "baseQuantity": 1,
+    "buyPrice": 75,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_Elixir_DinoHealthMild.PrimalItemConsumable_Gaia_Elixir_DinoHealthMild",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "gaia_dino_health_large",
+    "name": "Nexus Apothecary - Gaia Dino Health (Large)",
+    "category": "Potions",
+    "kind": "item",
+    "baseQuantity": 1,
+    "buyPrice": 100,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/PotionsHelpers/Items/Health/PrimalItemConsumable_Gaia_Elixir_DinoHealthStrong.PrimalItemConsumable_Gaia_Elixir_DinoHealthStrong",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "gaia_stamina",
+    "name": "Nexus Apothecary - Gaia Stamina Potion",
+    "category": "Potions",
+    "kind": "item",
+    "baseQuantity": 1,
+    "buyPrice": 40,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/PotionsHelpers/Items/Stamina/PrimalItemConsumable_Gaia_StaminaElixir.PrimalItemConsumable_Gaia_StaminaElixir",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "gaia_weight",
+    "name": "Nexus Apothecary - Gaia Weight Potion",
+    "category": "Potions",
+    "kind": "item",
+    "baseQuantity": 1,
+    "buyPrice": 75,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/PotionsHelpers/Items/Weight/PrimalItemConsumable_Gaia_WeightElixir.PrimalItemConsumable_Gaia_WeightElixir",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  },
+  {
+    "id": "gaia_xp",
+    "name": "Nexus Apothecary - Gaia XP Potion",
+    "category": "Potions",
+    "kind": "item",
+    "baseQuantity": 1,
+    "buyPrice": 125,
+    "sellable": false,
+    "buyable": true,
+    "minBundles": 1,
+    "maxBundles": 100,
+    "blueprint": "/PotionsHelpers/Items/XP/PrimalItemConsumable_Gaia_XPElixir.PrimalItemConsumable_Gaia_XPElixir",
+    "metadata": {
+      "quality": 0,
+      "forceBlueprint": false
+    }
+  }
+]

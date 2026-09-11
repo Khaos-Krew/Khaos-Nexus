@@ -27,7 +27,9 @@ const DEFAULT_OFFLINE_CAP_HOURS = 48;
 const MAX_LEDGER = 50_000;
 
 function cleanId(value) {
-  return String(value || '').trim().replace(/[^A-Za-z0-9_-]/g, '').slice(0, 128);
+  const id = String(value || '').trim();
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(id) || ['__proto__', 'constructor', 'prototype'].includes(id)) throw new Error('Invalid account identity.');
+  return id;
 }
 
 function cleanServer(value) {
@@ -77,7 +79,7 @@ class NexusEconomyStore {
     state.version = STORE_VERSION;
     state.updatedAt = new Date().toISOString();
     state.ledger = state.ledger.slice(-MAX_LEDGER);
-    state.processed = Object.fromEntries(Object.entries(state.processed).slice(-MAX_LEDGER * 2));
+    // Dedupe receipts must outlive the display ledger; pruning permits replayed credits.
     fs.mkdirSync(this.dir, { recursive: true });
     const tmp = `${this.file}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
@@ -147,6 +149,48 @@ class NexusEconomyWorker {
     return { discordUserId: account.discordUserId, eosId: eos, rankId: account.rankId, balance: account.balance };
   }
 
+  syncIdentitySnapshot({ profiles, observedAt } = {}) {
+    const observed = Date.parse(observedAt);
+    if (!Array.isArray(profiles) || profiles.length > 10000 || !Number.isFinite(observed) || Math.abs(this.now() - observed) > 180_000) throw new Error('A fresh verified identity snapshot is required.');
+    const state = this.store.read();
+    if (Date.parse(state.identitySnapshotAt || 0) >= observed) return { ok: true, duplicate: true };
+    const index = {};
+    const seen = new Set();
+    for (const profile of profiles) {
+      const discord = cleanId(profile.discordUserId);
+      if (seen.has(discord) || !Array.isArray(profile.eosIds) || profile.eosIds.length > 20) throw new Error('Invalid identity snapshot.');
+      seen.add(discord);
+      for (const raw of profile.eosIds) {
+        const eos = cleanId(raw);
+        if (Object.hasOwn(index, eos)) throw new Error('Duplicate EOS identity in snapshot.');
+        index[eos] = discord;
+      }
+    }
+    const now = this.now();
+    for (const profile of profiles) {
+      const id = cleanId(profile.discordUserId);
+      const old = state.accounts[id];
+      if (old) { this.expirePresence(old, now); this.accrueOfflineInternal(state, old, now); this.accrueOnlineInterval(state, old, now, 'identity-sync'); }
+      const account = this.ensureAccount(state, id, profile.rankId);
+      account.eosIds = profile.eosIds.map(cleanId);
+    }
+    for (const account of Object.values(state.accounts)) {
+      if (!seen.has(account.discordUserId)) account.eosIds = [];
+      let revoked = false;
+      for (const [server, entry] of Object.entries(account.presenceByServer || {})) {
+        if (index[entry.eosId] !== account.discordUserId) { delete account.presenceByServer[server]; revoked = true; }
+      }
+      if (revoked && account.online && !this.accountOnline(account)) {
+        account.online = false; account.onlineSince = null;
+        account.offlineSince = new Date(now).toISOString(); account.lastPassiveAt = account.offlineSince;
+      }
+    }
+    state.eosToDiscord = index;
+    state.identitySnapshotAt = new Date(observed).toISOString();
+    this.store.write(state);
+    return { ok: true, linked: Object.keys(index).length, failed: 0 };
+  }
+
   accountByEos(eosId) {
     const state = this.store.read();
     const discordUserId = state.eosToDiscord[cleanId(eosId)];
@@ -177,18 +221,37 @@ class NexusEconomyWorker {
       at: new Date(this.now()).toISOString()
     };
     state.ledger.push(entry);
-    if (key) state.processed[key] = entry.id;
+    if (key) state.processed[key] = { id: entry.id, discordUserId: entry.discordUserId, amount, type, source };
     return { duplicate: false, entry };
+  }
+
+  duplicateReceipt(state, key, { discordUserId, amount, type, source }) {
+    const saved = state.processed[key];
+    if (!saved) return null;
+    const receipt = typeof saved === 'string' ? state.ledger.find((entry) => entry.id === saved) : saved;
+    if (!receipt || receipt.discordUserId !== cleanId(discordUserId) || receipt.amount !== amount || receipt.type !== type || receipt.source !== source) {
+      throw new Error('Idempotency key conflicts with an existing or unverifiable transaction.');
+    }
+    return { ok: true, duplicate: true, balance: state.accounts[cleanId(discordUserId)]?.balance || 0, transactionId: receipt.id };
+  }
+
+  addBalance(account, amount) {
+    const next = account.balance + amount;
+    if (!Number.isSafeInteger(next) || next < 0) throw new Error('Wallet balance is outside the safe integer range.');
+    account.balance = next;
   }
 
   credit({ discordUserId, amount, type = 'credit', source = 'nexus', idempotencyKey = '', metadata = {} } = {}) {
     return this.withLock(discordUserId, async () => {
       const value = whole(amount);
       if (value <= 0) throw new Error('Credit amount must be a positive whole number.');
+      idempotencyKey = String(idempotencyKey || '').trim();
+      if (!idempotencyKey || idempotencyKey.length > 200) throw new Error('A stable idempotency key of at most 200 characters is required.');
       const state = this.store.read();
+      const duplicate = this.duplicateReceipt(state, idempotencyKey, { discordUserId, amount: value, type, source });
+      if (duplicate) return duplicate;
       const account = this.ensureAccount(state, discordUserId, state.accounts[cleanId(discordUserId)]?.rankId);
-      if (idempotencyKey && state.processed[idempotencyKey]) return { ok: true, duplicate: true, balance: account.balance };
-      account.balance += value;
+      this.addBalance(account, value);
       account.updatedAt = new Date(this.now()).toISOString();
       const result = this.appendLedger(state, account, { amount: value, type, source, idempotencyKey, metadata });
       this.store.write(state);
@@ -204,14 +267,51 @@ class NexusEconomyWorker {
       if (key === 'purchase:') throw new Error('Order ID is required.');
       const state = this.store.read();
       const account = this.ensureAccount(state, discordUserId, state.accounts[cleanId(discordUserId)]?.rankId);
-      if (state.processed[key]) return { ok: true, duplicate: true, balance: account.balance };
+      const duplicate = this.duplicateReceipt(state, key, { discordUserId, amount: -value, type: 'purchase', source });
+      if (duplicate) return duplicate;
       if (account.balance < value) return { ok: false, reason: 'insufficient-funds', balance: account.balance };
-      account.balance -= value;
+      this.addBalance(account, -value);
       account.updatedAt = new Date(this.now()).toISOString();
       const result = this.appendLedger(state, account, { amount: -value, type: 'purchase', source, idempotencyKey: key, metadata: { orderId, ...metadata } });
       this.store.write(state);
       return { ok: true, duplicate: result.duplicate, balance: account.balance, transactionId: result.entry?.id || null };
     });
+  }
+
+  expirePresence(account, now = this.now()) {
+    const expired = Object.values(account.presenceByServer || {}).some(entry => entry?.online && now - Date.parse(entry.at) > ONLINE_INTERVAL_MS * 2);
+    if (!expired) return;
+    for (const entry of Object.values(account.presenceByServer || {})) {
+      if (entry?.online && now - Date.parse(entry.at) > ONLINE_INTERVAL_MS * 2) entry.online = false;
+    }
+    if (account.online && !this.accountOnline(account)) {
+      account.online = false;
+      account.onlineSince = null;
+      account.offlineSince = new Date(now).toISOString();
+      account.lastPassiveAt = account.offlineSince;
+      account.lastAccountingAt = account.offlineSince;
+    }
+  }
+
+  async recordPresenceSnapshot({ server, eosIds, observedAt } = {}) {
+    const observed = Date.parse(observedAt);
+    if (!server || !Array.isArray(eosIds) || eosIds.length > 200 || !Number.isFinite(observed) || observed > this.now() + 30_000 || observed < this.now() - 180_000) throw new Error('A fresh, complete server presence snapshot is required.');
+    const serverKey = cleanServer(server);
+    const current = new Set(eosIds.map(cleanId));
+    const state = this.store.read();
+    const previousAt = Date.parse(state.presenceSnapshots?.[serverKey] || 0);
+    if (previousAt >= observed) return { ok: true, duplicate: true };
+    const all = new Set(current);
+    for (const account of Object.values(state.accounts)) {
+      const entry = account.presenceByServer?.[serverKey];
+      if (entry?.online && entry.eosId) all.add(entry.eosId);
+    }
+    for (const eosId of all) await this.recordPresence({ eosId, online: current.has(eosId), server: serverKey });
+    const fresh = this.store.read();
+    fresh.presenceSnapshots ||= {};
+    fresh.presenceSnapshots[serverKey] = new Date(observed).toISOString();
+    this.store.write(fresh);
+    return { ok: true, online: current.size, offline: all.size - current.size };
   }
 
   accountOnline(account) {
@@ -231,7 +331,7 @@ class NexusEconomyWorker {
       if (points > 0) {
         const key = `playtime:${account.discordUserId}:${bucket}`;
         if (!state.processed[key]) {
-          account.balance += points;
+          this.addBalance(account, points);
           this.appendLedger(state, account, {
             amount: points,
             type: 'playtime',
@@ -255,15 +355,16 @@ class NexusEconomyWorker {
       const account = this.ensureAccount(fresh, discordUserId, rankId || fresh.accounts[discordUserId]?.rankId);
       const now = this.now();
       const serverKey = cleanServer(server);
+      this.expirePresence(account, now);
       const wasOnline = Boolean(account.online);
 
       this.accrueOnlineInterval(fresh, account, now, serverKey);
+      if (!wasOnline && online) this.accrueOfflineInternal(fresh, account, now);
       account.presenceByServer[serverKey] = { online: Boolean(online), eosId: eos, at: new Date(now).toISOString() };
       account.online = this.accountOnline(account);
       account.lastPresenceAt = new Date(now).toISOString();
 
       if (!wasOnline && account.online) {
-        await this.accrueOfflineInternal(fresh, account, now);
         account.onlineSince = new Date(now).toISOString();
         account.offlineSince = null;
         account.lastAccountingAt = new Date(now).toISOString();
@@ -280,7 +381,7 @@ class NexusEconomyWorker {
     });
   }
 
-  async accrueOfflineInternal(state, account, now = this.now()) {
+  accrueOfflineInternal(state, account, now = this.now()) {
     if (account.online) return 0;
     const rate = this.offlineRates[account.rankId] || 0;
     if (rate <= 0) return 0;
@@ -289,10 +390,11 @@ class NexusEconomyWorker {
     const wholeHours = Math.floor(cappedMs / 3_600_000);
     if (wholeHours <= 0) return 0;
     const points = wholeHours * rate;
-    const end = start + wholeHours * 3_600_000;
+    // Discard time beyond the cap so repeated reads cannot drain an old backlog.
+    const end = now - (cappedMs % 3_600_000);
     const key = `passive:${account.discordUserId}:${start}:${end}:${account.rankId}`;
     if (!state.processed[key]) {
-      account.balance += points;
+      this.addBalance(account, points);
       this.appendLedger(state, account, { amount: points, type: 'passive-income', source: 'paid-rank', idempotencyKey: key, metadata: { rankId: account.rankId, hours: wholeHours, ratePerHour: rate } });
     }
     account.lastPassiveAt = new Date(end).toISOString();
@@ -304,7 +406,8 @@ class NexusEconomyWorker {
       const state = this.store.read();
       const account = state.accounts[cleanId(discordUserId)];
       if (!account) return { ok: false, reason: 'wallet-not-found' };
-      const points = await this.accrueOfflineInternal(state, account, this.now());
+      this.expirePresence(account);
+      const points = this.accrueOfflineInternal(state, account, this.now());
       account.updatedAt = new Date(this.now()).toISOString();
       this.store.write(state);
       return { ok: true, credited: points, balance: account.balance };

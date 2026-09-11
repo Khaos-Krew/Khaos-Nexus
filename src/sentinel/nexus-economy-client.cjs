@@ -44,7 +44,9 @@ class NexusEconomyClient {
   configured() { return configured(); }
   health() { return request('/health'); }
   wallet(discordUserId) { return request(`/wallet/${encodeURIComponent(String(discordUserId))}`); }
+  syncIdentities(input) { return request('/identity/snapshot', { method: 'POST', body: input }); }
   linkIdentity(input) { return request('/identity/link', { method: 'POST', body: input }); }
+  presenceSnapshot(input) { return request('/presence/snapshot', { method: 'POST', body: input }); }
   presence(input) { return request('/presence', { method: 'POST', body: input }); }
   credit(input) { return request('/wallet/credit', { method: 'POST', body: input }); }
   spend(input) { return request('/wallet/spend', { method: 'POST', body: input }); }
@@ -54,7 +56,7 @@ class NexusEconomyClient {
   shopBuy(input) { return request('/shop/buy', { method: 'POST', body: input }); }
   shopSell(input) { return request('/shop/sell', { method: 'POST', body: input }); }
   shopOrder(orderId) { return request(`/shop/order/${encodeURIComponent(String(orderId))}`); }
-  pendingShopOrders() { return request('/shop/orders/pending'); }
+  pendingShopOrders({ excludeOrderIds = [] } = {}) { return request(`/shop/orders/pending?exclude=${encodeURIComponent(excludeOrderIds.join(','))}`); }
   confirmShopSellRemoval(input) { return request('/shop/sell/confirm-removal', { method: 'POST', body: input }); }
   markShopBuyDelivery(input) { return request('/shop/buy/delivery-status', { method: 'POST', body: input }); }
 }

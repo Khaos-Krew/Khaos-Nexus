@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('node:path');
+const { withRewardsLock } = require('./rewards-ascended-lock.cjs');
 const SftpClient = require('ssh2-sftp-client');
 const { sftpSettingsFromEnv, remotePath } = require('./ark-sftp-config.cjs');
 const { classifyReloadResult, classifyRewardResult, configRelativePath } = require('./rewards-ascended-delivery.cjs');
@@ -13,7 +14,7 @@ function rewardIdForShopOrder(order = {}) {
 
 function blueprintRef(value) {
   const raw = String(value || '').trim();
-  if (!/^\/(?:Game|SDinoVariants|RunicWyverns)\/[A-Za-z0-9_./-]{8,230}$/.test(raw)) {
+  if (!/^\/(?:Game|SDinoVariants|RunicWyverns|DinoDepot|TG_Stack_10000_90|CrazysPotions|PotionsHelpers)\/[A-Za-z0-9_./-]{8,230}$/.test(raw)) {
     throw new Error(`RewardsAscended item blueprint path is invalid: ${raw.slice(0, 120)}`);
   }
   return `Blueprint'${raw}'`;
@@ -67,7 +68,7 @@ function parseConfig(text, file) {
   }
 }
 
-async function upsertShopReward(prefix, order, env = process.env, connector = connect) {
+async function upsertShopRewardUnlocked(prefix, order, env = process.env, connector = connect) {
   const rewardId = rewardIdForShopOrder(order);
   const desired = itemRewardEntry(order);
   const { client, settings } = await connector(prefix, env);
@@ -106,7 +107,7 @@ async function upsertShopReward(prefix, order, env = process.env, connector = co
   }
 }
 
-async function deliverShopOrderWithRewardsAscended({ prefix, order, client, env = process.env, connector } = {}) {
+async function deliverShopOrderWithRewardsAscendedUnlocked({ prefix, order, client, env = process.env, connector } = {}) {
   if (!client?.executeDetailed) throw new Error('RCON client is required for Cluster Shop delivery.');
   let configured;
   try {
@@ -142,6 +143,9 @@ async function deliverShopOrderWithRewardsAscended({ prefix, order, client, env 
   }
   return { configured, command, result, outcome: classifyRewardResult(result) };
 }
+
+function deliverShopOrderWithRewardsAscended(input = {}) { return withRewardsLock(input.prefix, () => deliverShopOrderWithRewardsAscendedUnlocked(input)); }
+function upsertShopReward(...args) { return withRewardsLock(args[0], () => upsertShopRewardUnlocked(...args)); }
 
 module.exports = {
   rewardIdForShopOrder,

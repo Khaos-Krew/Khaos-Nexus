@@ -198,7 +198,7 @@ async function openCategoryPicker(interaction, action, economyClient) {
 }
 
 async function handleCategory(interaction) {
-  const [, , , sessionId] = interaction.customId.split(':');
+  const [, , sessionId] = interaction.customId.split(':');
   const session = getSession(sessionId, interaction.user.id);
   if (!session) return interaction.update({ content: 'This shop menu expired. Use the main shop panel to start again.', components: [] });
   const category = interaction.values?.[0] || '';
@@ -224,7 +224,7 @@ async function handleCategory(interaction) {
 }
 
 async function handleItem(interaction) {
-  const [, , , sessionId] = interaction.customId.split(':');
+  const [, , sessionId] = interaction.customId.split(':');
   const session = getSession(sessionId, interaction.user.id);
   if (!session) return interaction.reply(ephemeral('This shop menu expired. Use the main shop panel to start again.'));
   const itemId = interaction.values?.[0] || '';
@@ -247,7 +247,7 @@ async function handleItem(interaction) {
 }
 
 async function handleQuantity(interaction, economyClient) {
-  const [, , , sessionId] = interaction.customId.split(':');
+  const [, , sessionId] = interaction.customId.split(':');
   const session = getSession(sessionId, interaction.user.id);
   if (!session) return interaction.reply(ephemeral('This shop session expired. Use the main shop panel to start again.'));
   const bundles = Number(interaction.fields.getTextInputValue('bundles'));
@@ -280,21 +280,22 @@ async function handleQuantity(interaction, economyClient) {
 }
 
 async function handleConfirm(interaction, economyClient, identityStore) {
-  const [, , , sessionId] = interaction.customId.split(':');
+  const [, , sessionId] = interaction.customId.split(':');
   const session = getSession(sessionId, interaction.user.id);
   if (!session) return interaction.update({ content: 'This shop session expired. No purchase was made.', components: [] });
   const eosId = linkedEos(identityStore, interaction.user.id);
   if (!eosId) return interaction.update({ content: '❌ You need a verified ARK account linked to Nexus before using the Cluster Shop.', components: [] });
 
   await interaction.deferUpdate();
-  const idempotencyKey = `discord:${interaction.id}`;
+  const idempotencyKey = `discord-shop:${interaction.user.id}:${sessionId}`;
   const input = {
     discordUserId: interaction.user.id,
     eosId,
     itemId: session.itemId,
     bundles: session.bundles,
     server: 'where-playing',
-    idempotencyKey
+    idempotencyKey,
+    expectedQuote: session.quote
   };
   const result = session.action === 'sell' ? await economyClient.shopSell(input) : await economyClient.shopBuy(input);
   sessions.delete(sessionId);
@@ -325,10 +326,27 @@ async function handleConfirm(interaction, economyClient, identityStore) {
   });
 }
 
-async function handleWallet(interaction, economyClient) {
-  if (!economyClient.configured()) return interaction.reply(ephemeral('⚠️ Nexus Wallet is not connected yet.'));
-  const result = await economyClient.wallet(interaction.user.id);
-  return interaction.reply(ephemeral(`💳 **Nexus Wallet**\n**Balance:** ${Number(result.balance || 0).toLocaleString()} NP`));
+async function handleWallet(interaction, economyClient, { tokenService, arnLedger } = {}) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  tokenService ||= new (require('./ark-dino-box-token-service.cjs').ArkDinoBoxTokenService)();
+  arnLedger ||= new (require('./arn-token-ledger.cjs').ArnTokenLedger)();
+  const [points, owned, arn] = await Promise.allSettled([
+    economyClient.configured() ? economyClient.wallet(interaction.user.id) : Promise.reject(new Error('not connected')),
+    tokenService.available(interaction.user.id),
+    arnLedger.balance(interaction.user.id)
+  ]);
+  const lines = ['**Nexus Wallet**',
+    points.status === 'fulfilled' ? `Nexus Points: **${Number(points.value.balance || 0).toLocaleString()} NP**` : 'Nexus Points: unavailable',
+    owned.status === 'fulfilled' ? `Owner-issued cache tokens: **${owned.value.length}**` : 'Owner-issued cache tokens: unavailable',
+    arn.status === 'fulfilled' ? `Anomaly tokens: **${arn.value.balance}**` : 'Anomaly tokens: unavailable'
+  ];
+  if (owned.status === 'fulfilled') {
+    const scopes = {};
+    for (const item of owned.value) scopes[item.cacheType] = (scopes[item.cacheType] || 0) + 1;
+    for (const [scope, count] of Object.entries(scopes)) lines.push(`${scope === '*' ? 'Any eligible cache' : scope}: ${count}`);
+  }
+  lines.push('', 'Owner grants appear automatically. Use **Use Wallet Token** in #dino-box-shop; no code entry is needed.', 'Verified Anomaly rewards appear as Anomaly tokens and retain their existing ARN cache rules.');
+  return interaction.editReply({ content: lines.join('\n').slice(0, 1900), allowedMentions: { parse: [] } });
 }
 
 async function handleInteraction(interaction, { economyClient, identityStore } = {}) {
@@ -419,6 +437,7 @@ module.exports = {
   uniqueCategories,
   linkedEos,
   reconcileClusterShopPanel,
+  handleWallet,
   handleInteraction,
   installClusterShopUiExtension
 };

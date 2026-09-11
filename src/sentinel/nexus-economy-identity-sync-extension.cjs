@@ -11,24 +11,10 @@ const SYNC_MS = Math.max(60_000, Number(process.env.NEXUS_ECONOMY_IDENTITY_SYNC_
 async function syncVerifiedIdentities({ identityStore = new ArkIdentityStore(), economyClient = new NexusEconomyClient(), logger = console } = {}) {
   if (!economyClient.configured()) return { skipped: 'economy-worker-unconfigured' };
   const state = identityStore.read();
-  let linked = 0;
-  let failed = 0;
-  for (const [discordUserId, profile] of Object.entries(state.profiles || {})) {
-    for (const account of profile.arkAccounts || []) {
-      try {
-        await economyClient.linkIdentity({
-          discordUserId,
-          eosId: account.eosId,
-          rankId: profile.rankId || 'shadow-recruit'
-        });
-        linked += 1;
-      } catch (error) {
-        failed += 1;
-        logger.warn?.(`[Nexus Economy] identity sync failed discord=${discordUserId}: ${String(error?.message || error).slice(0, 180)}`);
-      }
-    }
-  }
-  return { ok: failed === 0, linked, failed };
+  const profiles = Object.entries(state.profiles || {}).map(([discordUserId, profile]) => ({
+    discordUserId, rankId: profile.rankId || 'shadow-recruit', eosIds: (profile.arkAccounts || []).map(account => account.eosId)
+  }));
+  return economyClient.syncIdentities({ profiles, observedAt: new Date().toISOString() });
 }
 
 function installNexusEconomyIdentitySyncExtension() {

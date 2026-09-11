@@ -101,6 +101,7 @@ async function handleGive(interaction, tokenService) {
     cacheId,
     issuedToDiscordUserId: String(recipient.id),
     issuedByDiscordUserId: String(interaction.user.id),
+    issuanceKey: `discord:${interaction.id}`,
     sourceLabel: 'discord-server-owner-grant'
   });
 

@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('node:path');
+const { withRewardsLock } = require('./rewards-ascended-lock.cjs');
 const SftpClient = require('ssh2-sftp-client');
 const { sftpSettingsFromEnv, remotePath } = require('./ark-sftp-config.cjs');
 
@@ -114,7 +115,7 @@ async function inspectRewardsAscended(prefix, env = process.env) {
   }
 }
 
-async function upsertOrderReward(prefix, row, saddleBlueprint = '', env = process.env) {
+async function upsertOrderRewardUnlocked(prefix, row, saddleBlueprint = '', env = process.env) {
   const rewardId = rewardIdForOrder(row);
   const desired = buildRewardEntry({ blueprint: row.blueprint, level: Number(row.rolled_level), sex: row.sex, saddleBlueprint });
   const { client, settings } = await connect(prefix, env);
@@ -199,7 +200,7 @@ function classifyRewardResult(result = {}) {
   return { state: 'SENT_UNCONFIRMED', failureClass: 'REWARDS_ASCENDED_UNCONFIRMED', details: response };
 }
 
-async function deliverWithRewardsAscended({ prefix, row, saddleBlueprint = '', client }) {
+async function deliverWithRewardsAscendedUnlocked({ prefix, row, saddleBlueprint = '', client }) {
   const configured = await upsertOrderReward(prefix, row, saddleBlueprint);
   let reloadResult;
   try { reloadResult = await client.executeDetailed('RA.Reload'); }
@@ -233,6 +234,9 @@ async function deliverWithRewardsAscended({ prefix, row, saddleBlueprint = '', c
   }
   return { backend: 'rewardsascended', command, configured, result, outcome: classifyRewardResult(result) };
 }
+
+function deliverWithRewardsAscended(input = {}) { return withRewardsLock(input.prefix, () => deliverWithRewardsAscendedUnlocked(input)); }
+function upsertOrderReward(...args) { return withRewardsLock(args[0], () => upsertOrderRewardUnlocked(...args)); }
 
 module.exports = {
   DEFAULT_CONFIG_PATH,
