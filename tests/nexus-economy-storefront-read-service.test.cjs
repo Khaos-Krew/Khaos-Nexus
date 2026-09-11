@@ -6,9 +6,9 @@ const assert = require('node:assert/strict');
 const { createNexusEconomyStorefrontReadService } = require('../src/sentinel/nexus-economy-storefront-read-service.cjs');
 
 const READY_RELATIONS = [
-  { relation_name: 'nexus_economy_accounts' },
-  { relation_name: 'nexus_economy_ledger' },
-  { relation_name: 'nexus_economy_audit' }
+  { relname: 'nexus_economy_accounts', relkind: 'r' },
+  { relname: 'nexus_economy_ledger', relkind: 'r' },
+  { relname: 'nexus_economy_audit', relkind: 'r' }
 ];
 
 const CATALOG = {
