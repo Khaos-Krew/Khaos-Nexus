@@ -2,6 +2,7 @@
 
 const { ArkIdentityStore } = require('./ark-identity-store.cjs');
 const { ArkAccountLinkService } = require('./ark-account-linking.cjs');
+const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
 const { MAX_BODY_BYTES, handleArkIdentityWebhook } = require('./ark-identity-webhook.cjs');
 
 const IDENTITY_WEBHOOK_ROUTE = '/ark/identity/link';
@@ -14,9 +15,30 @@ function webhookSecretFromEnv() {
   return String(process.env.NEXUS_ARK_IDENTITY_WEBHOOK_SECRET || '');
 }
 
+async function syncLinkedIdentityToEconomy({ store, economyClient, event, result } = {}) {
+  if (!result?.ok) return { skipped: 'link-rejected' };
+  if (!economyClient || typeof economyClient.configured !== 'function' || !economyClient.configured()) {
+    return { skipped: 'economy-worker-unconfigured' };
+  }
+
+  const eosId = String(event?.eosId || '').trim();
+  const profile = result.profile || (eosId ? store?.profileByArk?.(eosId) : null);
+  if (!eosId || !profile?.discordUserId) {
+    throw new Error('Verified ARK identity could not be resolved for Nexus economy sync.');
+  }
+
+  await economyClient.linkIdentity({
+    discordUserId: profile.discordUserId,
+    eosId,
+    rankId: profile.rankId || 'shadow-recruit'
+  });
+  return { ok: true, discordUserId: profile.discordUserId, eosId };
+}
+
 function createArkIdentityWebhookRuntime({
   store = new ArkIdentityStore(),
   accountLinking = null,
+  economyClient = new NexusEconomyClient(),
   secret = webhookSecretFromEnv(),
   enabled = enabledFromEnv(),
   now = () => Date.now(),
@@ -37,11 +59,16 @@ function createArkIdentityWebhookRuntime({
       rawBody,
       secret,
       now: now(),
-      consumeEvent: (event) => linker.consumeTrustedIdentityEvent(event)
+      consumeEvent: async (event) => {
+        const result = linker.consumeTrustedIdentityEvent(event);
+        if (!result?.ok) return result;
+        await syncLinkedIdentityToEconomy({ store, economyClient, event, result });
+        return result;
+      }
     });
   }
 
-  return { process, store, accountLinking: linker };
+  return { process, store, accountLinking: linker, economyClient };
 }
 
 function readRawRequestBody(req, { maxBytes = MAX_BODY_BYTES } = {}) {
@@ -84,5 +111,6 @@ module.exports = {
   enabledFromEnv,
   webhookSecretFromEnv,
   readRawRequestBody,
+  syncLinkedIdentityToEconomy,
   singleton
 };
