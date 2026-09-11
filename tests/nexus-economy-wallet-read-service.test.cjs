@@ -6,9 +6,9 @@ const assert = require('node:assert/strict');
 const { createNexusEconomyWalletReadService } = require('../src/sentinel/nexus-economy-wallet-read-service.cjs');
 
 const READY_RELATIONS = [
-  { relation_name: 'nexus_economy_accounts' },
-  { relation_name: 'nexus_economy_ledger' },
-  { relation_name: 'nexus_economy_audit' }
+  { relname: 'nexus_economy_accounts', relkind: 'r' },
+  { relname: 'nexus_economy_ledger', relkind: 'r' },
+  { relname: 'nexus_economy_audit', relkind: 'r' }
 ];
 
 test('off mode returns unavailable wallet without querying Postgres', async () => {
