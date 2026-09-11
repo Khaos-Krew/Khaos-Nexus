@@ -8,14 +8,19 @@ const { NexusEconomyPostgresAudit } = require('../src/sentinel/nexus-economy-pos
 const { NexusEconomyMutationService } = require('../src/sentinel/nexus-economy-mutation-service.cjs');
 
 test('guarded economy runtime construction is inert and wires expected components', () => {
+  let connects = 0;
   let queries = 0;
-  const pool = { async query() { queries += 1; return { rows: [] }; } };
+  const pool = {
+    async connect() { connects += 1; throw new Error('must not connect during construction'); },
+    async query() { queries += 1; return { rows: [] }; }
+  };
   const runtime = createNexusEconomyMutationRuntime({
     pool,
     schema: 'public',
     env: { NEXUS_ECONOMY_AUTHORITY: 'nexus' }
   });
 
+  assert.equal(connects, 0);
   assert.equal(queries, 0);
   assert.ok(runtime.repository instanceof NexusEconomyPostgresRepository);
   assert.ok(runtime.audit instanceof NexusEconomyPostgresAudit);
@@ -31,8 +36,12 @@ test('composition fails before runtime use when Postgres pool is invalid', () =>
 });
 
 test('composition does not weaken fail-closed authority policy', async () => {
+  let connects = 0;
   let queries = 0;
-  const pool = { async query() { queries += 1; return { rows: [] }; } };
+  const pool = {
+    async connect() { connects += 1; throw new Error('must not connect when authority denies mutation'); },
+    async query() { queries += 1; return { rows: [] }; }
+  };
   const runtime = createNexusEconomyMutationRuntime({
     pool,
     env: {
@@ -48,5 +57,6 @@ test('composition does not weaken fail-closed authority policy', async () => {
     ),
     (error) => error?.code === 'NEXUS_ECONOMY_MUTATION_DENIED' && error?.reason === 'nexus-authority-required'
   );
+  assert.equal(connects, 0);
   assert.equal(queries, 0);
 });
