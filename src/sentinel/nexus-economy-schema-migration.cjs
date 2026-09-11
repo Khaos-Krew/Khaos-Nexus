@@ -1,6 +1,7 @@
 'use strict';
 
 const { NexusEconomyPostgresRepository, sqlIdent } = require('./nexus-economy-postgres-repository.cjs');
+const { NexusEconomyPostgresAudit } = require('./nexus-economy-postgres-audit.cjs');
 
 const MIGRATION_LOCK_KEY = 'nexus-economy-schema-migration-v1';
 
@@ -10,7 +11,10 @@ function migrationPlan({ schema = 'public' } = {}) {
     schema,
     migrationId: 'nexus-economy-v1',
     lockKey: MIGRATION_LOCK_KEY,
-    sql: NexusEconomyPostgresRepository.schemaSql({ schema })
+    sql: [
+      NexusEconomyPostgresRepository.schemaSql({ schema }),
+      NexusEconomyPostgresAudit.schemaSql({ schema })
+    ].join('\n')
   };
 }
 

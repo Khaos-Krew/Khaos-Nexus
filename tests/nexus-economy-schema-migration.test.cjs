@@ -23,6 +23,7 @@ test('economy schema migration defaults to dry-run and performs no database work
   assert.equal(connectCalls, 0);
   assert.match(result.plan.sql, /nexus_economy_accounts/);
   assert.match(result.plan.sql, /nexus_economy_ledger/);
+  assert.match(result.plan.sql, /nexus_economy_audit/);
 });
 
 test('economy schema migration requires explicit apply=true and uses transaction lock', async () => {
@@ -44,6 +45,7 @@ test('economy schema migration requires explicit apply=true and uses transaction
   assert.match(calls[1].sql, /pg_advisory_xact_lock/);
   assert.deepEqual(calls[1].params, [MIGRATION_LOCK_KEY]);
   assert.match(calls[2].sql, /CREATE TABLE IF NOT EXISTS/);
+  assert.match(calls[2].sql, /nexus_economy_audit/);
   assert.equal(calls[3].sql, 'COMMIT');
   assert.equal(releases, 1);
 });
