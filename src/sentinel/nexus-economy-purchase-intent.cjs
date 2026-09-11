@@ -2,7 +2,9 @@
 
 const { createNexusEconomyPurchasePreflight } = require('./nexus-economy-purchase-preflight.cjs');
 
-const SAFE_PURCHASE_REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/;
+// Wallet order IDs are capped at 128 characters. The future spend order ID is
+// prefixed with `shop_`, so request IDs are capped at 123 characters here.
+const SAFE_PURCHASE_REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{7,122}$/;
 const SAFE_DISCORD_USER_ID = /^[A-Za-z0-9_-]{1,128}$/;
 
 function normalizeRequestId(value) {
