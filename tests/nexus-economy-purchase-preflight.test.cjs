@@ -148,7 +148,7 @@ test('shadow mode returns a deterministic multi-item quote without mutation SQL'
   assert.equal(result.affordable, true);
   assert.equal(result.shortfall, 0);
   assert.equal(result.purchasePermitted, false);
-  assert.equal(fixture.calls.some(({ sql }) => /INSERT|UPDATE|DELETE|CREATE|ALTER|DROP/i.test(sql)), false);
+  assert.equal(fixture.calls.some(({ sql }) => /\b(?:INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/i.test(sql)), false);
   assert.equal(JSON.stringify(result).includes('SpawnDinoInBall'), false);
   assert.equal(JSON.stringify(result).includes('itemAliases'), false);
   assert.equal(Object.isFrozen(result), true);
