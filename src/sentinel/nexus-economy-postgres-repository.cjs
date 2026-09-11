@@ -8,6 +8,12 @@ function sqlIdent(value) {
   return `"${id}"`;
 }
 
+function ledgerLimit(value, fallback = 10) {
+  const limit = value === undefined ? fallback : Number(value);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) throw new Error('Ledger limit must be a whole number from 1 to 50.');
+  return limit;
+}
+
 class NexusEconomyPostgresRepository {
   constructor({ pool, schema = DEFAULT_SCHEMA } = {}) {
     if (!pool || typeof pool.connect !== 'function' || typeof pool.query !== 'function') {
@@ -23,6 +29,26 @@ class NexusEconomyPostgresRepository {
       [discordUserId]
     );
     return result.rows?.[0] || null;
+  }
+
+  async listLedger(discordUserId, { limit = 10 } = {}) {
+    const safeLimit = ledgerLimit(limit);
+    const result = await this.pool.query(
+      `SELECT id, amount, balance_after, entry_type, source, created_at\n` +
+      `FROM ${this.schema}.nexus_economy_ledger\n` +
+      `WHERE discord_user_id = $1\n` +
+      `ORDER BY created_at DESC, id DESC\n` +
+      `LIMIT $2`,
+      [discordUserId, safeLimit]
+    );
+    return (result.rows || []).map((row) => Object.freeze({
+      id: row.id,
+      amount: Number(row.amount),
+      balanceAfter: Number(row.balance_after),
+      type: row.entry_type,
+      source: row.source,
+      at: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at
+    }));
   }
 
   async transact(discordUserId, work) {
@@ -124,4 +150,4 @@ class NexusEconomyPostgresRepository {
   }
 }
 
-module.exports = { NexusEconomyPostgresRepository, sqlIdent };
+module.exports = { NexusEconomyPostgresRepository, sqlIdent, ledgerLimit };
