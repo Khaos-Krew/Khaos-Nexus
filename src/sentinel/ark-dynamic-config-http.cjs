@@ -3,6 +3,11 @@
 const fs = require('node:fs');
 const http = require('node:http');
 const { outputPath } = require('./ark-dynamic-events.cjs');
+const {
+  IDENTITY_WEBHOOK_ROUTE,
+  readRawRequestBody,
+  singleton: identityWebhookRuntime
+} = require('./ark-identity-webhook-runtime.cjs');
 
 const HOST = String(process.env.NEXUS_ARK_DYNAMIC_CONFIG_HOST || '0.0.0.0');
 const PORT = Number(process.env.NEXUS_ARK_DYNAMIC_CONFIG_PORT || 3230);
@@ -26,18 +31,46 @@ function text(res, status, body, headers = {}) {
   res.end(payload);
 }
 
+function json(res, status, body) {
+  const payload = Buffer.from(JSON.stringify(body || {}), 'utf8');
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': payload.length,
+    'cache-control': 'no-store, no-cache, must-revalidate, max-age=0',
+    'pragma': 'no-cache',
+    'x-content-type-options': 'nosniff'
+  });
+  res.end(payload);
+}
+
 function routePrefixFromPath(pathname) {
   if (!pathname.startsWith(ROUTE_PREFIX)) return '';
   const name = pathname.slice(ROUTE_PREFIX.length).toLowerCase();
   return PREFIX_MAP[name] || '';
 }
 
-function createArkDynamicConfigHttpServer({ host = HOST, port = PORT, logger = console } = {}) {
+function createArkDynamicConfigHttpServer({ host = HOST, port = PORT, logger = console, identityRuntime = identityWebhookRuntime } = {}) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('NEXUS_ARK_DYNAMIC_CONFIG_PORT is invalid.');
 
   const server = http.createServer((req, res) => {
-    try {
+    void (async () => {
       const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      if (url.pathname === IDENTITY_WEBHOOK_ROUTE) {
+        if (req.method !== 'POST') return text(res, 405, 'Method Not Allowed\n', { allow: 'POST' });
+        let rawBody;
+        try {
+          rawBody = await readRawRequestBody(req);
+        } catch (error) {
+          const tooLarge = error?.code === 'ARK_IDENTITY_WEBHOOK_TOO_LARGE';
+          return json(res, tooLarge ? 413 : 400, { ok: false, code: tooLarge ? error.code : 'ARK_IDENTITY_REQUEST_INVALID' });
+        }
+        const result = await identityRuntime.process({ headers: req.headers, rawBody });
+        return json(res, Number(result?.status) || 500, {
+          ok: Boolean(result?.ok),
+          code: result?.ok ? 'ARK_IDENTITY_EVENT_ACCEPTED' : String(result?.code || 'ARK_IDENTITY_EVENT_REJECTED'),
+          duplicate: Boolean(result?.duplicate)
+        });
+      }
       if (req.method === 'GET' && url.pathname === '/health') {
         return text(res, 200, 'ok\n');
       }
@@ -51,10 +84,11 @@ function createArkDynamicConfigHttpServer({ host = HOST, port = PORT, logger = c
       }
       const body = fs.readFileSync(file, 'utf8');
       return text(res, 200, body);
-    } catch (error) {
+    })().catch((error) => {
       logger.warn?.(`[Nexus Sentinal] ARK DynamicConfig HTTP request failed: ${String(error?.message || error).slice(0, 240)}`);
-      return text(res, 500, 'Internal Server Error\n');
-    }
+      if (!res.headersSent) return text(res, 500, 'Internal Server Error\n');
+      res.end();
+    });
   });
 
   let started = false;
@@ -83,4 +117,4 @@ function createArkDynamicConfigHttpServer({ host = HOST, port = PORT, logger = c
 const singleton = createArkDynamicConfigHttpServer();
 singleton.start().catch((error) => console.error(`[Nexus Sentinal] ARK DynamicConfig HTTP startup failed: ${String(error?.message || error).slice(0, 300)}`));
 
-module.exports = { HOST, PORT, ROUTE_PREFIX, PREFIX_MAP, routePrefixFromPath, createArkDynamicConfigHttpServer, singleton };
+module.exports = { HOST, PORT, ROUTE_PREFIX, PREFIX_MAP, IDENTITY_WEBHOOK_ROUTE, routePrefixFromPath, createArkDynamicConfigHttpServer, singleton };
