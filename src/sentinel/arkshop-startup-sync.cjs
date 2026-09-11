@@ -11,7 +11,7 @@ function unsupportedReload(response) {
 
 async function reloadArkShop(prefix = 'ARK_GEN1') {
   const server = arkServerFromEnv(prefix);
-  if (!server.host || !server.port || !server.password) throw new Error(`${prefix} RCON is incomplete; ArkShop config was not activated.`);
+  if (!require('./ark-rcon.cjs').rconConfigured(server)) throw new Error(`${prefix} RCON is incomplete; ArkShop config was not activated.`);
   const response = await new ArkRconClient({ ...server, timeoutMs: 8_000 }).execute('ArkShop.Reload');
   if (unsupportedReload(response)) throw new Error('ArkShop.Reload is not supported by the live plugin.');
   return { reloaded: true, responseBytes: Buffer.byteLength(String(response || ''), 'utf8') };

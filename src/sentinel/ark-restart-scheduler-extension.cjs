@@ -76,7 +76,7 @@ async function waitForRecovery(server, { timeoutMs = 10 * 60_000, intervalMs = 1
   let sawOffline = false;
   while (Date.now() - started < timeoutMs) {
     await sleep(intervalMs);
-    const client = new ArkRconClient({ host: server.host, port: server.port, password: server.password, timeoutMs: 6000 });
+    const client = new ArkRconClient({ prefix: server.prefix, host: server.host, port: server.port, password: server.password, timeoutMs: 6000 });
     try {
       await client.execute('ListPlayers');
       if (sawOffline) {
@@ -113,7 +113,7 @@ async function performRestart(server, {
   initialSaveComplete = false,
   finalSaveComplete = false
 } = {}) {
-  const rcon = new ArkRconClient({ host: server.host, port: server.port, password: server.password, timeoutMs: 8000 });
+  const rcon = new ArkRconClient({ prefix: server.prefix, host: server.host, port: server.port, password: server.password, timeoutMs: 8000 });
   const playerCount = await getPlayerCount(rcon, { server, auditFn });
   const zeroPlayers = playerCount === 0;
 
@@ -162,7 +162,7 @@ function installArkRestartSchedulerExtension({ prefix = 'ARK_GEN1' } = {}) {
           audit('scheduler-disabled', { prefix, serverEnabled: server.enabled, scheduleEnabled: enabled });
           return;
         }
-        if (!server.host || !server.port || !server.password) {
+        if (!require('./ark-rcon.cjs').rconConfigured(server)) {
           audit('scheduler-unavailable', { prefix, reason: 'RCON variables incomplete' });
           return;
         }
@@ -220,7 +220,7 @@ function installArkRestartSchedulerExtension({ prefix = 'ARK_GEN1' } = {}) {
             fired.add(key);
             const message = warningMessage(seconds);
             try {
-              const rcon = new ArkRconClient({ host: server.host, port: server.port, password: server.password, timeoutMs: 8000 });
+              const rcon = new ArkRconClient({ prefix: server.prefix, host: server.host, port: server.port, password: server.password, timeoutMs: 8000 });
               await rcon.execute(`Broadcast ${message}`);
               audit('warning-sent', { server: server.name, seconds, message });
 

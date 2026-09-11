@@ -88,7 +88,7 @@ async function waitState(cookies, wanted, timeoutMs, signal) {
 
 function rcon() {
   const server = arkServerFromEnv('ARK_GEN1');
-  return new ArkRconClient({ host: server.host, port: server.port, password: server.password, timeoutMs: 8000 });
+  return new ArkRconClient({ prefix: server.prefix, host: server.host, port: server.port, password: server.password, timeoutMs: 8000 });
 }
 
 function noPlayers(response) {

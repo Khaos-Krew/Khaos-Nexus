@@ -61,7 +61,7 @@ async function run() {
   if (!requiredPresent(next)) throw new Error('Post-apply verification failed: required Nexus entries were removed.');
 
   const connection = arkServerFromEnv('ARK_GEN1');
-  const rcon = new ArkRconClient({ host: connection.host, port: connection.port, password: connection.password, timeoutMs: 8000 });
+  const rcon = new ArkRconClient({ prefix: connection.prefix, host: connection.host, port: connection.port, password: connection.password, timeoutMs: 8000 });
   await rcon.execute('ListPlayers');
 
   const stamp = { version: VERSION, appliedAt: new Date().toISOString(), profileId: PROFILE_ID, profileRevision: next.revision, removedIds: found, transactionId: result.transaction?.id || '', verified: true };

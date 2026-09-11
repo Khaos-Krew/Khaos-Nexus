@@ -111,7 +111,7 @@ async function relayCrossChat(message, registry) {
     if (server.connections?.rcon !== true) continue;
     const connection = arkServerFromEnv(server.envPrefix);
     if (!connection.enabled) continue;
-    await new ArkRconClient({ host: connection.host, port: connection.port, password: connection.password }).execute(`ServerChat [Nexus Anomaly] ${oneLine}`);
+    await new ArkRconClient({ prefix: connection.prefix, host: connection.host, port: connection.port, password: connection.password }).execute(`ServerChat [Nexus Anomaly] ${oneLine}`);
     sent += 1;
   }
   return { sent };

@@ -33,12 +33,16 @@ function decode(buffer) {
 }
 
 class ArkRconClient {
-  constructor({ host, port, password, timeoutMs = 8000, responseWindowMs = 1500 } = {}) {
+  constructor({ host, port, password, prefix, provider, timeoutMs = 8000, responseWindowMs = 1500 } = {}) {
+    const { databaseMode, getRconConfigProvider } = require('./ark-rcon-database.cjs');
+    this.prefix = prefix;
+    this.provider = provider || (prefix && databaseMode() ? getRconConfigProvider() : null);
     this.host = String(host || '').trim();
     this.port = Number(port);
     this.password = String(password || '');
     this.timeoutMs = Math.max(1000, Number(timeoutMs) || 8000);
     this.responseWindowMs = Math.max(500, Math.min(5000, Number(responseWindowMs) || 1500));
+    if (this.provider) return;
     if (!this.host) throw new Error('ARK RCON host is missing.');
     if (!Number.isInteger(this.port) || this.port < 1 || this.port > 65535) throw new Error('ARK RCON port is invalid.');
     if (!this.password) throw new Error('ARK RCON password is missing.');
@@ -50,6 +54,14 @@ class ArkRconClient {
   }
 
   executeDetailed(command) {
+    if (this.provider) {
+      return Promise.resolve().then(() => this.provider.resolve(this.prefix)).then((server) => {
+        if (!server.enabled) throw new Error('ARK RCON target is disabled.');
+        // A fresh transport prevents concurrent requests sharing mutable credentials.
+        return new ArkRconClient({ prefix: server.prefix, host: server.host, port: server.port, password: server.password,
+          timeoutMs: server.timeoutMs, responseWindowMs: this.responseWindowMs }).executeDetailed(command);
+      });
+    }
     const commandText = String(command ?? '');
     if (!commandText.trim()) return Promise.reject(new Error('ARK RCON command is empty.'));
 
@@ -80,6 +92,8 @@ class ArkRconClient {
         finished = true;
         cleanup();
         if (error) {
+          error.commandSent = commandSent;
+          error.authenticated = authenticated;
           reject(error);
           return;
         }
@@ -150,7 +164,18 @@ class ArkRconClient {
 }
 
 function arkServerFromEnv(prefix = 'ARK_GEN1', env = process.env) {
+  if (require('./ark-rcon-database.cjs').databaseMode(env)) {
+    const key = require('./ark-rcon-config-store.cjs').normalizePrefix(prefix);
+    // Synchronous callers receive a reference, never cached database credentials.
+    // Enabled/configured are checked authoritatively by the provider at execution.
+    return { prefix: key, id: key.toLowerCase(), name: String(env[`${key}_NAME`] || key),
+      host: '', port: 0, password: '', enabled: true, source: 'postgres', timeoutMs: 8000 };
+  }
   return resolveRconServer(prefix, env);
 }
 
-module.exports = { ArkRconClient, arkServerFromEnv, packet, decode };
+function rconConfigured(server) {
+  return Boolean(server?.prefix && require('./ark-rcon-database.cjs').databaseMode()) || Boolean(server?.host && server?.port && server?.password);
+}
+
+module.exports = { ArkRconClient, arkServerFromEnv, rconConfigured, packet, decode };

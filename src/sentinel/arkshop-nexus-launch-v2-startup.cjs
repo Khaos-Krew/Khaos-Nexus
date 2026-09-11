@@ -137,7 +137,7 @@ async function run() {
   if (!hasStarterBalls(nextProfile) || !hasPacks(nextProfile)) throw new Error('Post-apply verification failed: Dino Ball entries are incomplete.');
 
   const connection = arkServerFromEnv('ARK_GEN1');
-  const rcon = new ArkRconClient({ host: connection.host, port: connection.port, password: connection.password, timeoutMs: 8000 });
+  const rcon = new ArkRconClient({ prefix: connection.prefix, host: connection.host, port: connection.port, password: connection.password, timeoutMs: 8000 });
   await rcon.execute('ListPlayers');
 
   const stamp = {

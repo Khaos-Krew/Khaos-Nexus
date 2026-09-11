@@ -211,7 +211,7 @@ class ArkBackendControl {
 
   rcon(record) {
     const config = arkServerFromEnv(record.envPrefix);
-    if (!config.host || !config.port || !config.password) throw new Error(`RCON is not fully configured for ${record.name}.`);
+    if (!require('./ark-rcon.cjs').rconConfigured(config)) throw new Error(`RCON is not fully configured for ${record.name}.`);
     return new ArkRconClient(config);
   }
 

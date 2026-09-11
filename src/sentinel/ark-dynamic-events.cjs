@@ -288,16 +288,16 @@ function advanceRecurringEvent(event) {
 
 async function broadcastToMap(prefix, message) {
   const server = arkServerFromEnv(prefix);
-  if (!server.enabled || !server.host || !server.port || !server.password) return { skipped: 'rcon-unavailable' };
-  const rcon = new ArkRconClient({ host: server.host, port: server.port, password: server.password, timeoutMs: 8000 });
+  if (!server.enabled || !require('./ark-rcon.cjs').rconConfigured(server)) return { skipped: 'rcon-unavailable' };
+  const rcon = new ArkRconClient({ prefix: server.prefix, host: server.host, port: server.port, password: server.password, timeoutMs: 8000 });
   const response = await rcon.execute(`Broadcast ${message}`);
   return { ok: true, response };
 }
 
 async function forceDynamicRefresh(prefix) {
   const server = arkServerFromEnv(prefix);
-  if (!server.enabled || !server.host || !server.port || !server.password) return { skipped: 'rcon-unavailable' };
-  const rcon = new ArkRconClient({ host: server.host, port: server.port, password: server.password, timeoutMs: 8000 });
+  if (!server.enabled || !require('./ark-rcon.cjs').rconConfigured(server)) return { skipped: 'rcon-unavailable' };
+  const rcon = new ArkRconClient({ prefix: server.prefix, host: server.host, port: server.port, password: server.password, timeoutMs: 8000 });
   const response = await rcon.execute('ForceUpdateDynamicConfig');
   return { ok: true, response };
 }

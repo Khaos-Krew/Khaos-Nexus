@@ -29,7 +29,7 @@ async function registerArkHealthCommand(guild) {
 }
 
 function makeRcon(server) {
-  return server.host && server.port && server.password ? new ArkRconClient(server) : null;
+  return require('./ark-rcon.cjs').rconConfigured(server) ? new ArkRconClient(server) : null;
 }
 
 async function collectVerifiedHealth(prefix, server) {

@@ -153,7 +153,7 @@ async function previewArkShopProfile({ server, profile, reader = readConfig, gua
 
 async function reloadArkShop(server, { RconClient = ArkRconClient } = {}) {
   const connection = serverConnectionFromRecord(server);
-  if (!connection.host || !connection.port || !connection.password) throw new Error('ARK RCON is not configured for ArkShop reload.');
+  if (!require('./ark-rcon.cjs').rconConfigured(connection)) throw new Error('ARK RCON is not configured for ArkShop reload.');
   const client = new RconClient(connection);
   const response = await client.execute('ArkShop.Reload');
   return { command: 'ArkShop.Reload', response: String(response || '').slice(0, 500) };

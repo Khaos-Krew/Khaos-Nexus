@@ -178,7 +178,7 @@ class ArkNexusBankService {
     if (rcon) this.rcon = rcon;
     else {
       const connection = arkServerFromEnv(prefix);
-      this.rcon = new ArkRconClient({ host: connection.host, port: connection.port, password: connection.password, timeoutMs: 8000 });
+      this.rcon = new ArkRconClient({ prefix: connection.prefix, host: connection.host, port: connection.port, password: connection.password, timeoutMs: 8000 });
     }
   }
 

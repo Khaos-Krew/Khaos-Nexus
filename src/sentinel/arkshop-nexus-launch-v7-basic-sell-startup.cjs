@@ -134,7 +134,7 @@ async function run() {
   if (!hasCatalog(next)) throw new Error('Post-apply verification failed: V7 resource catalog is incomplete.');
 
   const connection = arkServerFromEnv('ARK_GEN1');
-  const rcon = new ArkRconClient({ host: connection.host, port: connection.port, password: connection.password, timeoutMs: 8000 });
+  const rcon = new ArkRconClient({ prefix: connection.prefix, host: connection.host, port: connection.port, password: connection.password, timeoutMs: 8000 });
   await rcon.execute('ListPlayers');
   const stamp = { version: VERSION, appliedAt: new Date().toISOString(), profileId: PROFILE_ID, profileRevision: next.revision,
     rebundledBuyEntries: Object.keys(REBUNDLED_BUYS).length, sellEntries: Object.keys(BASIC_SELLS).length,

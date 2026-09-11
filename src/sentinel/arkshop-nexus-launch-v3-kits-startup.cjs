@@ -170,7 +170,7 @@ async function run() {
   if (!v3Ready(nextProfile)) throw new Error('Post-apply verification failed: production kit definitions are incomplete.');
 
   const connection = arkServerFromEnv('ARK_GEN1');
-  const rcon = new ArkRconClient({ host: connection.host, port: connection.port, password: connection.password, timeoutMs: 8000 });
+  const rcon = new ArkRconClient({ prefix: connection.prefix, host: connection.host, port: connection.port, password: connection.password, timeoutMs: 8000 });
   await rcon.execute('ListPlayers');
 
   const stamp = { version: VERSION, appliedAt: new Date().toISOString(), profileId: PROFILE_ID, profileRevision: nextProfile.revision, kitPrices: KIT_PRICES, transactionId: result.transaction?.id || '', verified: true };

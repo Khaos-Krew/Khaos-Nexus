@@ -16,6 +16,8 @@ const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { ArkRconConfigStore, normalizePrefix } = require('./ark-rcon-config-store.cjs');
 
+const { getRconConfigProvider, databaseMode } = require('./ark-rcon-database.cjs');
+
 const INSTALLED = Symbol.for('khaos.nexus.ark.rcon.config.extension');
 const BOUND = Symbol.for('khaos.nexus.ark.rcon.config.bound');
 const COMMAND_NAME = 'arkrcon';
@@ -75,7 +77,7 @@ function rconCommand(registry = new ArkClusterRegistry()) {
   command.addSubcommand((sub) => addServerOption(sub.setName('password').setDescription('Owner-only: open a protected modal to set the RCON password.'), choices));
   command.addSubcommand((sub) => addServerOption(sub.setName('send').setDescription('Owner-only: send an exact raw command with no prefix rewriting.'), choices)
     .addStringOption((option) => option.setName('command').setDescription('Exact RCON command, e.g. scriptcommand SpawnDinoInBall ...').setRequired(true).setMaxLength(1800)));
-  command.addSubcommand((sub) => addServerOption(sub.setName('clear').setDescription('Owner-only: clear the Discord RCON override and return to Railway env settings.'), choices)
+  command.addSubcommand((sub) => addServerOption(sub.setName('clear').setDescription('Owner-only: clear RCON configuration; database targets remain disabled.'), choices)
     .addBooleanOption((option) => option.setName('confirm').setDescription('Confirm clearing this server override.').setRequired(true)));
   return command;
 }
@@ -85,9 +87,10 @@ function safeBlock(value, max = 1200) {
 }
 
 function safeError(error, prefix = '') {
+  if (databaseMode()) return 'RCON operation failed. Check database access, configuration gates, and the server status; no automatic fallback was used.';
   let text = String(error?.message || error || 'Unknown RCON error').replace(/[\r\n]+/g, ' ').slice(0, 1200);
   try {
-    const store = new ArkRconConfigStore();
+    const store = getRconConfigProvider();
     const prefixes = prefix ? [normalizePrefix(prefix)] : serverChoices().map((item) => item.value);
     for (const candidate of prefixes) {
       const server = store.resolve(candidate);
@@ -103,13 +106,17 @@ async function registerCommand(guild) {
   const existing = commands.find((item) => item.name === definition.name);
   if (existing) await guild.commands.edit(existing, definition);
   else await guild.commands.create(definition);
+  const arkDefinition = require('./ark-ops-extension.cjs').arkCommand().toJSON();
+  const arkExisting = commands.find((item) => item.name === 'ark');
+  if (arkExisting) await guild.commands.edit(arkExisting, arkDefinition);
+  else await guild.commands.create(arkDefinition);
   return definition;
 }
 
-function statusText(prefix) {
-  const store = new ArkRconConfigStore();
-  const server = store.resolve(prefix);
-  const state = store.status(prefix);
+async function statusText(prefix) {
+  const store = getRconConfigProvider();
+  const server = databaseMode() ? await store.status(prefix) : await store.resolve(prefix);
+  const state = await store.status(prefix);
   return [
     `🔧 **${server.name} RCON configuration**`,
     `Target: \`${server.host || 'missing'}:${server.port || 'missing'}\``,
@@ -153,7 +160,7 @@ function passwordModal(prefix) {
 }
 
 async function handleCommand(interaction, config) {
-  if (!interaction.isChatInputCommand?.() || interaction.commandName !== COMMAND_NAME) return false;
+  if (!interaction.isChatInputCommand?.() || !(interaction.commandName === COMMAND_NAME || (interaction.commandName === 'ark' && interaction.options.getSubcommandGroup?.(false) === 'server'))) return false;
   const sub = interaction.options.getSubcommand();
   const prefix = normalizePrefix(interaction.options.getString('server', true));
 
@@ -166,33 +173,33 @@ async function handleCommand(interaction, config) {
   }
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const store = new ArkRconConfigStore();
+  const store = getRconConfigProvider();
 
   if (sub === 'status') {
-    await interaction.editReply({ content: statusText(prefix), allowedMentions: { parse: [] } });
+    await interaction.editReply({ content: await statusText(prefix), allowedMentions: { parse: [] } });
     return true;
   }
 
   if (sub === 'configure') {
-    store.setEndpoint(prefix, {
+    await store.setEndpoint(prefix, {
       host: interaction.options.getString('host', true),
       port: interaction.options.getInteger('port', true),
       enabled: interaction.options.getBoolean('enabled') ?? true,
       timeoutMs: interaction.options.getInteger('timeout_ms') || 8000,
       actorId: interaction.user.id
     });
-    await interaction.editReply({ content: `✅ RCON endpoint override saved.\n\n${statusText(prefix)}`, allowedMentions: { parse: [] } });
+    await interaction.editReply({ content: `✅ RCON endpoint override saved.\n\n${await statusText(prefix)}`, allowedMentions: { parse: [] } });
     return true;
   }
 
   if (sub === 'clear') {
     if (interaction.options.getBoolean('confirm', true) !== true) throw new Error('RCON override clear was not confirmed.');
-    const existed = store.clear(prefix);
-    await interaction.editReply({ content: `${existed ? '✅' : 'ℹ️'} ${existed ? 'Discord RCON override cleared.' : 'No Discord RCON override existed.'}\n\n${statusText(prefix)}`, allowedMentions: { parse: [] } });
+    const existed = await store.clear(prefix, interaction.user.id);
+    await interaction.editReply({ content: `${existed ? '✅' : 'ℹ️'} ${existed ? 'Discord RCON override cleared.' : 'No Discord RCON override existed.'}\n\n${await statusText(prefix)}`, allowedMentions: { parse: [] } });
     return true;
   }
 
-  const server = arkServerFromEnv(prefix);
+  const server = await store.resolve(prefix);
   if (!server.enabled) throw new Error(`${prefix} RCON is disabled.`);
   if (!server.host || !server.port || !server.password) throw new Error(`${prefix} RCON configuration is incomplete. Use /arkrcon status, configure, and password.`);
   const rcon = new ArkRconClient(server);
@@ -219,9 +226,9 @@ async function handlePasswordModal(interaction, config) {
   if (!isOwner(interaction, config)) throw new Error('RCON password changes are restricted to the Nexus owner.');
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const password = interaction.fields.getTextInputValue('password');
-  const store = new ArkRconConfigStore();
-  store.setPassword(prefix, password, interaction.user.id);
-  await interaction.editReply({ content: `🔐 **${prefix} RCON password saved to protected runtime storage.**\nThe password was not echoed or logged.\n\n${statusText(prefix)}`, allowedMentions: { parse: [] } });
+  const store = getRconConfigProvider();
+  await store.setPassword(prefix, password, interaction.user.id);
+  await interaction.editReply({ content: `🔐 **${prefix} RCON password saved to protected runtime storage.**\nThe password was not echoed or logged.\n\n${await statusText(prefix)}`, allowedMentions: { parse: [] } });
   return true;
 }
 

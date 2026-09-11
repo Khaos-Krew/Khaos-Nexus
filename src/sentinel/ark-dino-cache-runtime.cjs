@@ -75,7 +75,7 @@ function rconResolver(registry) {
     if (!server || server.enabled !== true || server.connections?.rcon !== true) throw new Error('Target map is disabled or RCON is not ready.');
     const connection = arkServerFromEnv(server.envPrefix);
     if (!connection.enabled) throw new Error('Target map is not enabled in Sentinel environment configuration.');
-    return new ArkRconClient({ host: connection.host, port: connection.port, password: connection.password, timeoutMs: 8000 });
+    return new ArkRconClient({ prefix: connection.prefix, host: connection.host, port: connection.port, password: connection.password, timeoutMs: 8000 });
   };
 }
 

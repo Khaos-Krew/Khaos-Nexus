@@ -159,7 +159,7 @@ async function waitForRcon(timeoutMs = 12 * 60 * 1000) {
   while (Date.now() < deadline) {
     attempt += 1;
     try {
-      const client = new ArkRconClient({ host: server.host, port: server.port, password: server.password, timeoutMs: 8000 });
+      const client = new ArkRconClient({ prefix: server.prefix, host: server.host, port: server.port, password: server.password, timeoutMs: 8000 });
       const response = await client.execute('ListPlayers');
       console.log(`[Nexus Sentinal] Gen 1 recovery RCON online: attempt=${attempt} responseBytes=${Buffer.byteLength(String(response || ''))}`);
       return true;

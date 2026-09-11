@@ -77,7 +77,7 @@ async function registerCommand(guild) {
 
 async function reloadArkShop(prefix) {
   const server = arkServerFromEnv(prefix);
-  if (!server.enabled || !server.host || !server.port || !server.password) {
+  if (!server.enabled || !require('./ark-rcon.cjs').rconConfigured(server)) {
     return { prefix, ok: false, reason: 'rcon-unavailable' };
   }
   try {
@@ -157,7 +157,7 @@ async function handleInteraction(interaction, context) {
 
   const server = arkServerFromEnv(context.prefix);
   if (!server.enabled) throw new Error(`${context.prefix} is not enabled.`);
-  if (!server.host || !server.port || !server.password) throw new Error(`${context.prefix} RCON variables are incomplete.`);
+  if (!require('./ark-rcon.cjs').rconConfigured(server)) throw new Error(`${context.prefix} RCON variables are incomplete.`);
 
   if (sub === 'status') {
     const response = await new ArkRconClient(server).execute('ListPlayers');

@@ -6,6 +6,7 @@ function serverConnectionFromRecord(record = {}) {
   const prefix = String(record.envPrefix || '').trim().toUpperCase();
   if (!prefix) throw new Error('ARK cluster record has no environment prefix.');
   return {
+    prefix,
     host: String(process.env[`${prefix}_HOST`] || '').trim(),
     port: Number(process.env[`${prefix}_RCON_PORT`] || 0),
     password: String(process.env[`${prefix}_RCON_PASSWORD`] || ''),
@@ -61,7 +62,7 @@ async function probeArkServer(record = {}, { RconClient = ArkRconClient, now = (
     };
   }
 
-  if (!record.connections?.rcon || !connection.host || !connection.port || !connection.password) {
+  if (!record.connections?.rcon || (!require('./ark-rcon-database.cjs').databaseMode() && (!connection.host || !connection.port || !connection.password))) {
     return {
       state: publicState(record, false),
       playerCount: 0,

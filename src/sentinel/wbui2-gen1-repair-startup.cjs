@@ -133,7 +133,7 @@ async function repairIniAndInspectSaveState() {
 
 async function refreshViaRcon() {
   const server = arkServerFromEnv(PREFIX);
-  const client = new ArkRconClient({ host: server.host, port: server.port, password: server.password, timeoutMs: 10000 });
+  const client = new ArkRconClient({ prefix: server.prefix, host: server.host, port: server.port, password: server.password, timeoutMs: 10000 });
   const response = await client.execute('scriptcommand WBUI2 update');
   console.log(`[Nexus Sentinal] WBUI2 RCON refresh sent: responseBytes=${Buffer.byteLength(String(response || ''))}`);
 }

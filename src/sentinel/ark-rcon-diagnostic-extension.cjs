@@ -35,7 +35,7 @@ async function probePrefix(prefix, env = process.env) {
   if (!configured(prefix, env)) return { prefix, skipped: 'not-configured' };
   const server = arkServerFromEnv(prefix);
   try {
-    const client = new ArkRconClient({ host: server.host, port: server.port, password: server.password, timeoutMs: 8_000 });
+    const client = new ArkRconClient({ prefix: server.prefix, host: server.host, port: server.port, password: server.password, timeoutMs: 8_000 });
     const response = await client.execute('ListPlayers');
     return {
       prefix,

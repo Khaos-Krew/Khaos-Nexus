@@ -70,7 +70,7 @@ async function findOnlineServer(eosId, env = process.env, { registry = new ArkCl
   const matches = [];
   for (const prefix of eligibleDeliveryPrefixes(env, registry)) {
     const server = arkServerFromEnv(prefix, env);
-    if (!server.enabled || !server.host || !server.port || !server.password) continue;
+    if (!server.enabled || !require('./ark-rcon.cjs').rconConfigured(server)) continue;
     try {
       const result = await clientFactory(server, prefix).executeDetailed('ListPlayers');
       const response = String(result?.response || '');

@@ -24,7 +24,7 @@ async function run() {
     throw new Error('Dino Depot category probe command failed its hard-coded safety assertion.');
   }
   const connection = arkServerFromEnv('ARK_GEN1');
-  const rcon = new ArkRconClient({ host: connection.host, port: connection.port, password: connection.password, timeoutMs: 8000 });
+  const rcon = new ArkRconClient({ prefix: connection.prefix, host: connection.host, port: connection.port, password: connection.password, timeoutMs: 8000 });
   const before = await rcon.execute('ListPlayers');
   if (String(before || '').includes(TARGET)) throw new Error('Probe target unexpectedly exists on the server; refusing command.');
   const response = await rcon.execute(COMMAND);

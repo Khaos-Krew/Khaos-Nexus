@@ -44,6 +44,13 @@ function arkCommand() {
     .setName('ark')
     .setDescription('Manage the Khaos Nexus ARK server and ArkShop.');
 
+  command.addSubcommandGroup(group => {
+    group.setName('server').setDescription('Manage encrypted RCON configuration and test ARK servers.');
+    const { rconCommand } = require('./ark-rcon-config-extension.cjs');
+    for (const sub of rconCommand().options) group.addSubcommand(sub);
+    return group;
+  });
+
   command.addSubcommand((sub) => sub.setName('status').setDescription('Test ARK RCON and show the current player response.'));
   command.addSubcommand((sub) => sub.setName('config-status').setDescription('Test ARK SFTP and verify the server config files are reachable.'));
   command.addSubcommand((sub) => sub.setName('players').setDescription('List connected ARK players.'));
@@ -266,6 +273,8 @@ async function handleArkInteraction(interaction, context) {
   const playerButton = interaction.isButton?.() ? parseArkPlayerActionId(interaction.customId) : null;
   const slashCommand = interaction.isChatInputCommand?.() && interaction.commandName === 'ark';
   if (!playerButton && !slashCommand) return false;
+  // The RCON extension handles this group even while the main ARK context is unavailable.
+  if (slashCommand && interaction.options.getSubcommandGroup?.(false) === 'server') return false;
   const sub = playerButton?.subcommand || interaction.options.getSubcommand();
   const publicShopAction = ['shop-cache', 'shop-cache-guide', 'link', 'link-status', 'unlink', 'supporter-cache', 'supporter-cache-status'].includes(sub);
   if (!publicShopAction && !isStaff(interaction, context.config)) throw new Error('ARK server controls require Nexus staff authorization.');
@@ -461,7 +470,7 @@ function installArkOpsExtension() {
           console.log('[Nexus Sentinal] ARK ops disabled by ARK_GEN1_ENABLED.');
           return;
         }
-        if (!server.host || !server.port || !server.password) throw new Error('ARK_GEN1 RCON variables are incomplete.');
+        if (!require('./ark-rcon.cjs').rconConfigured(server)) throw new Error('ARK_GEN1 RCON variables are incomplete.');
         const guild = await client.guilds.fetch(String(config.discord?.guildId || ''));
         await guild.roles.fetch();
         const rcon = new ArkRconClient(server);

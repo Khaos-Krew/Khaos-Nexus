@@ -66,7 +66,7 @@ class NexusEconomyBridgeClient {
     if (rcon) this.rcon = rcon;
     else {
       const server = arkServerFromEnv(prefix);
-      this.rcon = new ArkRconClient({ host: server.host, port: server.port, password: server.password, timeoutMs: 8000 });
+      this.rcon = new ArkRconClient({ prefix: server.prefix, host: server.host, port: server.port, password: server.password, timeoutMs: 8000 });
     }
   }
 
