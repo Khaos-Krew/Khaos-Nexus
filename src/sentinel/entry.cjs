@@ -119,6 +119,7 @@ require('./ark-shiny-config-runtime.cjs').installRuntime();
 require('./ark-dino-cache-runtime.cjs').installDinoCacheRuntime();
 require('./ark-command-routing-patch.cjs');
 require('./ark-dynamic-config-http.cjs');
+require('./ark-identity-webhook-http.cjs');
 require('./protocol/discord.cjs').installProtocolExtension();
 
 require('./bot.cjs');
