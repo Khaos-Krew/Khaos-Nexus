@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { ArkIdentityStore } = require('../src/sentinel/ark-identity-store.cjs');
-const { chatIdentity, parseArkChatLines, resolveChatIdentity, resolveGuildRankConfig, highestConfiguredRankForMember, rankEvidenceForMember, ArkAccountLinkService } = require('../src/sentinel/ark-account-linking.cjs');
+const { chatIdentity, parseArkChatLines, resolveChatIdentity, normalizeTrustedIdentityEvent, resolveGuildRankConfig, highestConfiguredRankForMember, rankEvidenceForMember, ArkAccountLinkService } = require('../src/sentinel/ark-account-linking.cjs');
 
 test('ARK chat parser extracts verification codes without trusting an unverified player name as an EOS id', () => {
   const messages = parseArkChatLines('[12:00] Survivor: !link ABCD2345\nnoise\nOther (0002abc123): !link WXYZ6789');
@@ -74,6 +74,43 @@ test('chat consumption verifies only an online player and suppresses replayed ch
   const first = service.consumeChat(chat, { players: [{ name: 'Survivor', eosId: '0002survivor' }], mapId: 'gen1' });
   assert.equal(first[0].ok, true);
   assert.deepEqual(service.consumeChat(chat, { players: [{ name: 'Survivor', eosId: '0002survivor' }], mapId: 'gen1' }), []);
+});
+
+test('trusted identity events verify EOS pairing without RCON player-name resolution', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-link-trusted-'));
+  const store = new ArkIdentityStore({ root, secret: 'test-secret-with-at-least-thirty-two-characters' });
+  const service = new ArkAccountLinkService({ store });
+  const challenge = store.issueChallenge('123456789012345678');
+  const result = service.consumeTrustedIdentityEvent({
+    source: 'RewardsAscended',
+    eventId: 'ra-pair-0001',
+    code: challenge.code,
+    eosId: '0002trustedplayer',
+    playerName: 'Khaos_Kirito',
+    mapId: 'ragnarok'
+  });
+  assert.equal(result.ok, true);
+  assert.equal(store.profileByArk('0002trustedplayer').discordUserId, '123456789012345678');
+});
+
+test('trusted identity events fail closed for unknown sources and suppress exact event replay', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-link-trusted-replay-'));
+  const store = new ArkIdentityStore({ root, secret: 'test-secret-with-at-least-thirty-two-characters' });
+  const service = new ArkAccountLinkService({ store });
+  const challenge = store.issueChallenge('123456789012345678');
+  assert.deepEqual(normalizeTrustedIdentityEvent({
+    source: 'untrusted-webhook', eventId: '1', code: challenge.code, eosId: '0002trustedplayer'
+  }), { ok: false, reason: 'untrusted-source' });
+  const event = {
+    source: 'server-plugin',
+    eventId: 'plugin-pair-0001',
+    code: challenge.code,
+    eosId: '0002trustedplayer',
+    playerName: 'Survivor',
+    mapId: 'ragnarok'
+  };
+  assert.equal(service.consumeTrustedIdentityEvent(event).ok, true);
+  assert.deepEqual(service.consumeTrustedIdentityEvent(event), { ok: true, duplicate: true, ignored: true });
 });
 
 test('rank resolution includes all six Nexus ranks and preserves legacy Origin Founder as highest', () => {

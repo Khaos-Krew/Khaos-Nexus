@@ -70,6 +70,21 @@ function resolveChatIdentity(message = {}, onlinePlayers = []) {
   return { ok: true, player: matches[0] };
 }
 
+function normalizeTrustedIdentityEvent(event = {}) {
+  if (!event || typeof event !== 'object' || Array.isArray(event)) return { ok: false, reason: 'invalid-event' };
+  const source = clean(event.source, 64).toLocaleLowerCase();
+  const eventId = clean(event.eventId || event.id, 160);
+  const code = clean(event.code, 32).toUpperCase();
+  const eosId = clean(event.eosId, 128);
+  const playerName = clean(event.playerName || event.name, 80);
+  const mapId = clean(event.mapId, 64);
+  if (!['rewardsascended', 'server-plugin', 'ark-plugin'].includes(source)) return { ok: false, reason: 'untrusted-source' };
+  if (!eventId) return { ok: false, reason: 'missing-event-id' };
+  if (!/^[A-Z2-9]{6,12}$/.test(code)) return { ok: false, reason: 'invalid-code' };
+  if (!/^[A-Za-z0-9_-]{8,128}$/.test(eosId)) return { ok: false, reason: 'invalid-eos-id' };
+  return { ok: true, event: { source, eventId, code, eosId, playerName, mapId } };
+}
+
 function normalizedRankName(value) {
   return clean(value, 100).toLocaleLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
@@ -128,13 +143,18 @@ class ArkAccountLinkService {
     this.seen = new Set();
   }
 
+  rememberFingerprint(fingerprint) {
+    if (this.seen.has(fingerprint)) return false;
+    this.seen.add(fingerprint);
+    while (this.seen.size > this.maxSeen) this.seen.delete(this.seen.values().next().value);
+    return true;
+  }
+
   consumeChat(response, { players = [], mapId = '', chatCommand = '!link' } = {}) {
     const results = [];
     for (const message of parseArkChatLines(response, chatCommand)) {
-      const fingerprint = crypto.createHash('sha256').update(`${mapId}\n${message.line}`).digest('hex');
-      if (this.seen.has(fingerprint)) continue;
-      this.seen.add(fingerprint);
-      while (this.seen.size > this.maxSeen) this.seen.delete(this.seen.values().next().value);
+      const fingerprint = crypto.createHash('sha256').update(`chat\n${mapId}\n${message.line}`).digest('hex');
+      if (!this.rememberFingerprint(fingerprint)) continue;
       const identity = resolveChatIdentity(message, players);
       if (!identity.ok) {
         results.push({ ok: false, reason: identity.reason, message });
@@ -145,6 +165,22 @@ class ArkAccountLinkService {
     return results;
   }
 
+  consumeTrustedIdentityEvent(event = {}) {
+    const normalized = normalizeTrustedIdentityEvent(event);
+    if (!normalized.ok) return normalized;
+    const identityEvent = normalized.event;
+    const fingerprint = crypto.createHash('sha256')
+      .update(`trusted\n${identityEvent.source}\n${identityEvent.eventId}`)
+      .digest('hex');
+    if (!this.rememberFingerprint(fingerprint)) return { ok: true, duplicate: true, ignored: true };
+    return this.store.verifyChallenge({
+      code: identityEvent.code,
+      eosId: identityEvent.eosId,
+      playerName: identityEvent.playerName,
+      mapId: identityEvent.mapId
+    });
+  }
+
   syncMemberRank(member, config = {}) {
     const discordUserId = clean(member?.id || member?.user?.id, 32);
     const rank = highestConfiguredRankForMember(member, config);
@@ -152,4 +188,4 @@ class ArkAccountLinkService {
   }
 }
 
-module.exports = { chatIdentity, parseArkChatLines, resolveChatIdentity, normalizedRankName, resolveGuildRankConfig, highestConfiguredRankForMember, rankEvidenceForMember, ArkAccountLinkService };
+module.exports = { chatIdentity, parseArkChatLines, resolveChatIdentity, normalizeTrustedIdentityEvent, normalizedRankName, resolveGuildRankConfig, highestConfiguredRankForMember, rankEvidenceForMember, ArkAccountLinkService };
