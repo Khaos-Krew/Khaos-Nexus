@@ -31,10 +31,11 @@ function catalog(price = 150) {
   };
 }
 
-function readOnlyPool(query) {
+function readOnlyPool(query, onConnect = () => {}) {
   return {
     query,
     connect: async () => {
+      onConnect();
       throw new Error('read-only authorization path must not call connect()');
     }
   };
@@ -49,16 +50,18 @@ function fixture({
 } = {}) {
   const calls = [];
   let reads = 0;
+  let connectCalls = 0;
   const pool = readOnlyPool(async (sql, params) => {
     calls.push({ sql: String(sql), params });
     if (String(sql).includes('pg_catalog')) return { rows: READY_RELATIONS };
     if (String(sql).includes('nexus_economy_accounts')) return { rows: [{ balance }] };
     throw new Error(`unexpected query: ${sql}`);
-  });
+  }, () => { connectCalls += 1; });
 
   return {
     calls,
     get reads() { return reads; },
+    get connectCalls() { return connectCalls; },
     options: {
       pool,
       env: {
@@ -86,8 +89,12 @@ function assertNoMutationSql(calls) {
 test('off mode remains completely inert', async () => {
   let queries = 0;
   let reads = 0;
+  let connectCalls = 0;
   const authorization = createNexusEconomyPurchaseAuthorization({
-    pool: readOnlyPool(async () => { queries += 1; throw new Error('must not query'); }),
+    pool: readOnlyPool(
+      async () => { queries += 1; throw new Error('must not query'); },
+      () => { connectCalls += 1; }
+    ),
     env: {
       NEXUS_ECONOMY_RUNTIME_MODE: 'off',
       NEXUS_ECONOMY_AUTHORITY: 'nexus',
@@ -105,6 +112,7 @@ test('off mode remains completely inert', async () => {
   assert.equal(result.authorizationReady, false);
   assert.equal(result.executionPermitted, false);
   assert.equal(queries, 0);
+  assert.equal(connectCalls, 0);
   assert.equal(reads, 0);
 });
 
@@ -121,6 +129,7 @@ test('shadow mode can inspect readiness but cannot reach wallet or catalog', asy
   assert.equal(result.authorizationReady, false);
   assert.equal(result.executionPermitted, false);
   assert.equal(data.reads, 0);
+  assert.equal(data.connectCalls, 0);
   assert.equal(data.calls.length, 1);
   assert.match(data.calls[0].sql, /pg_catalog/i);
   assertNoMutationSql(data.calls);
@@ -139,6 +148,7 @@ test('active mode still requires the global runtime enable flag', async () => {
   assert.equal(result.authorizationReady, false);
   assert.equal(result.executionPermitted, false);
   assert.equal(data.reads, 0);
+  assert.equal(data.connectCalls, 0);
   assertNoMutationSql(data.calls);
 });
 
@@ -155,6 +165,7 @@ test('active economy requires an additional explicit shop-purchase enable flag',
   assert.equal(result.authorizationReady, false);
   assert.equal(result.executionPermitted, false);
   assert.equal(data.reads, 0);
+  assert.equal(data.connectCalls, 0);
   assertNoMutationSql(data.calls);
 });
 
@@ -178,6 +189,7 @@ test('fully gated fresh quote creates immutable authorization without executing 
   assert.equal(result.projectedBalance, 700);
   assert.equal(Object.isFrozen(result), true);
   assert.equal(data.reads, 1);
+  assert.equal(data.connectCalls, 0);
   assertNoMutationSql(data.calls);
 });
 
@@ -196,5 +208,6 @@ test('changed quote remains fail-closed after all mutation gates are enabled', a
   assert.equal(result.executionPermitted, false);
   assert.equal(result.expectedTotalPrice, 300);
   assert.equal(result.currentTotalPrice, 400);
+  assert.equal(data.connectCalls, 0);
   assertNoMutationSql(data.calls);
 });
