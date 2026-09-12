@@ -10,6 +10,7 @@ const { DurableIncidentTracker } = require('./incidents.cjs');
 const { ActionGate, ActionController } = require('./actions.cjs');
 const { AuditStore } = require('./audit-store.cjs');
 const { ActionStore } = require('./action-store.cjs');
+const { EconomyPurchaseRuntime, registerEconomyPurchaseJobs } = require('./economy-purchase-runtime.cjs');
 const { ArkServerRegistry } = require('./ark-server-registry.cjs');
 const { ArkHealthAdapter, registerArkHealthJob } = require('./ark-health-adapter.cjs');
 const { ArkHealthObserver } = require('./ark-health-observer.cjs');
@@ -42,6 +43,9 @@ async function startWorker() {
     allow: config.actionAllowlist,
   });
   const actions = new ActionController({ gate: actionGate, store: actionStore, logger });
+  const economyPurchases = database.enabled && actionStore.enabled
+    ? new EconomyPurchaseRuntime({ database, actionStore, actionGate, logger, env: process.env })
+    : null;
   const arkRegistry = new ArkServerRegistry();
   const arkHealth = new ArkHealthAdapter({ logger });
   const arkHealthObserver = new ArkHealthObserver({ incidents, auditStore, logger });
@@ -91,6 +95,8 @@ async function startWorker() {
     onResult: async (summary) => arkHealthObserver.observe(summary),
   });
 
+  if (economyPurchases) registerEconomyPurchaseJobs(scheduler, economyPurchases);
+
   let arkShadowAcceptance = null;
   if (config.arkShadowEnabled) {
     const since = new Date(Date.now() - (config.arkShadowHistoryHours * 60 * 60 * 1000)).toISOString();
@@ -124,6 +130,7 @@ async function startWorker() {
     persistentAudit: auditStore.enabled,
     persistentDeadLetters: deadLetterStore.enabled,
     actionControllerReady: true,
+    economyPurchaseRuntime: economyPurchases ? economyPurchases.status() : { projectorEnabled: false, executionEnabled: false, executionAuthorized: false, authorizationReason: 'database-unavailable' },
     arkRegistryReadOnly: true,
     arkHealthJobRegistered: true,
     arkShadowEnabled: config.arkShadowEnabled,
@@ -160,6 +167,7 @@ async function startWorker() {
     incidents,
     actionGate,
     actions,
+    economyPurchases,
     arkRegistry,
     arkHealth,
     arkHealthObserver,
