@@ -38,18 +38,23 @@ const CATALOG = {
   }
 };
 
+function readOnlyPool(query) {
+  return {
+    query,
+    connect: async () => { throw new Error('read-only path must not open a transaction'); }
+  };
+}
+
 function readyPool(balance = '1000') {
   const calls = [];
   return {
     calls,
-    pool: {
-      query: async (sql, params) => {
-        calls.push({ sql: String(sql), params });
-        if (String(sql).includes('pg_catalog')) return { rows: READY_RELATIONS };
-        if (String(sql).includes('nexus_economy_accounts')) return { rows: [{ balance }] };
-        throw new Error(`unexpected query: ${sql}`);
-      }
-    }
+    pool: readOnlyPool(async (sql, params) => {
+      calls.push({ sql: String(sql), params });
+      if (String(sql).includes('pg_catalog')) return { rows: READY_RELATIONS };
+      if (String(sql).includes('nexus_economy_accounts')) return { rows: [{ balance }] };
+      throw new Error(`unexpected query: ${sql}`);
+    })
   };
 }
 
@@ -80,7 +85,7 @@ test('invalid item id is rejected before Postgres or catalog access', async () =
   let queries = 0;
   let reads = 0;
   const preflight = createNexusEconomyPurchasePreflight({
-    pool: { query: async () => { queries += 1; throw new Error('must not query'); } },
+    pool: readOnlyPool(async () => { queries += 1; throw new Error('must not query'); }),
     env: { NEXUS_ECONOMY_RUNTIME_MODE: 'shadow' },
     readFile: async () => { reads += 1; throw new Error('must not read'); }
   });
@@ -97,7 +102,7 @@ test('invalid quantity is rejected before Postgres or catalog access', async () 
   let queries = 0;
   let reads = 0;
   const preflight = createNexusEconomyPurchasePreflight({
-    pool: { query: async () => { queries += 1; throw new Error('must not query'); } },
+    pool: readOnlyPool(async () => { queries += 1; throw new Error('must not query'); }),
     env: { NEXUS_ECONOMY_RUNTIME_MODE: 'shadow' },
     readFile: async () => { reads += 1; throw new Error('must not read'); }
   });
@@ -114,7 +119,7 @@ test('off mode stays inert and cannot produce a purchasable quote', async () => 
   let queries = 0;
   let reads = 0;
   const preflight = createNexusEconomyPurchasePreflight({
-    pool: { query: async () => { queries += 1; throw new Error('must not query'); } },
+    pool: readOnlyPool(async () => { queries += 1; throw new Error('must not query'); }),
     env: { NEXUS_ECONOMY_RUNTIME_MODE: 'off' },
     readFile: async () => { reads += 1; throw new Error('must not read'); }
   });
