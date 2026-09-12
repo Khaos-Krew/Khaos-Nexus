@@ -5,6 +5,8 @@ const crypto = require('node:crypto');
 const { NexusEconomyWorker } = require('../sentinel/nexus-economy-worker.cjs');
 const { ClusterShopService } = require('../sentinel/cluster-shop-service.cjs');
 
+const MAX_REQUEST_BODY_BYTES = 128 * 1024;
+
 const DRAIN_MUTATION_PATHS = new Set([
   '/identity/link'
 ]);
@@ -44,13 +46,22 @@ function authorized(req, token) {
 }
 
 async function body(req) {
-  let raw = '';
-  for await (const chunk of req) {
-    raw += chunk;
-    if (raw.length > 128 * 1024) throw new Error('Request body too large.');
+  const declaredLength = String(req.headers?.['content-length'] || '').trim();
+  if (/^\d+$/.test(declaredLength) && Number(declaredLength) > MAX_REQUEST_BODY_BYTES) {
+    throw new Error('Request body too large.');
   }
-  if (!raw) return {};
-  return JSON.parse(raw);
+
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    bytes += buffer.length;
+    if (bytes > MAX_REQUEST_BODY_BYTES) throw new Error('Request body too large.');
+    chunks.push(buffer);
+  }
+
+  if (bytes === 0) return {};
+  return JSON.parse(Buffer.concat(chunks, bytes).toString('utf8'));
 }
 
 function runtimeReadiness({ worker, shop, token, writesEnabled }) {
@@ -283,9 +294,11 @@ function listenEconomyServer(options = {}) {
 }
 
 module.exports = {
+  MAX_REQUEST_BODY_BYTES,
   DRAIN_MUTATION_PATHS,
   WRITE_PATHS,
   enabled,
+  body,
   runtimeReadiness,
   runtimeLiveness,
   runtimeOperationalReadiness,
