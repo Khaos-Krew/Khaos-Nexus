@@ -85,7 +85,7 @@ test('shadow-ready mode allows a read-only wallet balance lookup', async () => {
     balance: 250
   });
   assert.equal(calls.length, 2);
-  assert.equal(calls.some(({ sql }) => /INSERT|UPDATE|DELETE|CREATE|ALTER|DROP/i.test(String(sql))), false);
+  assert.equal(calls.some(({ sql }) => /\b(?:INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/i.test(String(sql))), false);
 });
 
 test('shadow-ready wallet snapshot returns balance and sanitized recent ledger history only', async () => {
@@ -135,7 +135,7 @@ test('shadow-ready wallet snapshot returns balance and sanitized recent ledger h
   });
   assert.equal(calls.length, 3);
   assert.deepEqual(calls[2].params, ['123456789', 5]);
-  assert.equal(calls.some(({ sql }) => /INSERT|UPDATE|DELETE|CREATE|ALTER|DROP/i.test(String(sql))), false);
+  assert.equal(calls.some(({ sql }) => /\b(?:INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/i.test(String(sql))), false);
   assert.equal(JSON.stringify(result).includes('idempotency'), false);
   assert.equal(JSON.stringify(result).includes('metadata'), false);
 });
