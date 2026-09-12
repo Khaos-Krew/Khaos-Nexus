@@ -88,7 +88,9 @@ function runtimeOperationalReadiness({ worker, shop, token, writesEnabled, lifec
         ...readiness,
         ok: ready,
         status: ready ? 'ready' : (draining ? 'draining' : 'not-ready'),
-        draining
+        draining,
+        checkoutReady: ready && readiness.checkoutReady,
+        sellbackCreditReady: ready && readiness.sellbackCreditReady
       }
     };
   } catch (error) {
@@ -103,6 +105,31 @@ function runtimeOperationalReadiness({ worker, shop, token, writesEnabled, lifec
       }
     };
   }
+}
+
+function writeGate(path, { writesEnabled, lifecycle = {} }) {
+  if (!WRITE_PATHS.has(path)) return null;
+  if (lifecycle.draining === true) {
+    return {
+      statusCode: 503,
+      body: {
+        ok: false,
+        error: 'economy-worker-draining',
+        draining: true
+      }
+    };
+  }
+  if (!writesEnabled) {
+    return {
+      statusCode: 503,
+      body: {
+        ok: false,
+        error: 'economy-write-cutover-not-enabled',
+        writesEnabled: false
+      }
+    };
+  }
+  return null;
 }
 
 function createEconomyServer(options = {}) {
@@ -161,13 +188,8 @@ function createEconomyServer(options = {}) {
       if (url.pathname === '/identity/link') return json(res, 200, { ok: true, result: worker.linkArkIdentity(input) });
       if (url.pathname === '/shop/quote') return json(res, 200, { ok: true, quote: shop.quote(input), writesEnabled });
 
-      if (WRITE_PATHS.has(url.pathname) && !writesEnabled) {
-        return json(res, 503, {
-          ok: false,
-          error: 'economy-write-cutover-not-enabled',
-          writesEnabled: false
-        });
-      }
+      const gate = writeGate(url.pathname, { writesEnabled, lifecycle });
+      if (gate) return json(res, gate.statusCode, gate.body);
 
       if (url.pathname === '/presence') return json(res, 200, await worker.recordPresence(input));
       if (url.pathname === '/wallet/credit') return json(res, 200, await worker.credit(input));
@@ -224,6 +246,7 @@ module.exports = {
   runtimeReadiness,
   runtimeLiveness,
   runtimeOperationalReadiness,
+  writeGate,
   createEconomyServer,
   listenEconomyServer
 };
