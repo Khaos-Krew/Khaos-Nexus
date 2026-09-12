@@ -109,6 +109,50 @@ class ActionStore {
     return fromAttemptRow(rows[0]);
   }
 
+  async claimRequested(actionId, attempt = 1) {
+    const normalizedActionId = String(actionId || '').trim();
+    const normalizedAttempt = Number(attempt);
+    if (!normalizedActionId) throw new TypeError('action id is required');
+    if (!Number.isSafeInteger(normalizedAttempt) || normalizedAttempt < 1) throw new TypeError('action attempt must be a positive integer');
+    if (!this.enabled) return { actionId: normalizedActionId, attempt: normalizedAttempt, status: 'not-claimed', claimed: false, persisted: false };
+
+    return this.database.withClient(async (client) => {
+      await client.query('BEGIN');
+      try {
+        const actionResult = await client.query(`
+          UPDATE sentinel_actions
+          SET status = 'running'
+          WHERE action_id = $1 AND status = 'requested'
+          RETURNING action_id, capability, source, actor, subject, destructive, status,
+                    requested_at, completed_at, idempotency_key, correlation_id, request, result
+        `, [normalizedActionId]);
+
+        if (!actionResult.rows[0]) {
+          await client.query('ROLLBACK');
+          return { actionId: normalizedActionId, attempt: normalizedAttempt, status: 'not-claimed', claimed: false, persisted: true };
+        }
+
+        const attemptResult = await client.query(`
+          INSERT INTO sentinel_action_attempts (action_id, attempt, status)
+          VALUES ($1,$2,'running')
+          ON CONFLICT (action_id, attempt) DO NOTHING
+          RETURNING attempt_id, action_id, attempt, started_at, finished_at, status, error
+        `, [normalizedActionId, normalizedAttempt]);
+        if (!attemptResult.rows[0]) throw new Error(`Sentinel action attempt already exists: ${normalizedActionId}/${normalizedAttempt}`);
+
+        await client.query('COMMIT');
+        return {
+          ...fromAttemptRow(attemptResult.rows[0]),
+          claimed: true,
+          action: fromActionRow(actionResult.rows[0]),
+        };
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      }
+    });
+  }
+
   async complete(actionId, { status = 'succeeded', result = null, attempt = 1, error = null } = {}) {
     const normalizedStatus = String(status || '').trim();
     if (!normalizedStatus) throw new TypeError('action completion status is required');
