@@ -30,6 +30,12 @@ const WRITE_PATHS = new Set([
   '/shop/buy/delivery-status'
 ]);
 
+const POST_PATHS = new Set([
+  ...DRAIN_MUTATION_PATHS,
+  ...WRITE_PATHS,
+  '/shop/quote'
+]);
+
 function enabled(value) {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
 }
@@ -280,6 +286,11 @@ function createEconomyServer(options = {}) {
 
       if (req.method !== 'POST') return json(res, 404, { ok: false, error: 'not-found' });
 
+      // Reject unknown POST routes before reading their bodies. Authenticated callers
+      // cannot use a nonexistent route with a slow/chunked body to consume most of the
+      // request or graceful-shutdown budget before receiving the inevitable 404.
+      if (!POST_PATHS.has(url.pathname)) return json(res, 404, { ok: false, error: 'not-found' });
+
       // Reject blocked mutations before reading their request bodies. During drain or
       // read-only migration this prevents slow/oversized bodies from consuming the
       // shutdown window for requests that cannot be accepted anyway.
@@ -355,6 +366,7 @@ module.exports = {
   EconomyRequestError,
   DRAIN_MUTATION_PATHS,
   WRITE_PATHS,
+  POST_PATHS,
   enabled,
   body,
   publicRequestError,
