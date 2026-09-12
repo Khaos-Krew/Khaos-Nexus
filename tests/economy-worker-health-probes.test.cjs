@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const {
   runtimeLiveness,
   runtimeOperationalReadiness,
+  writeGate,
   createEconomyServer
 } = require('../src/economy-worker/server.cjs');
 
@@ -104,8 +105,24 @@ test('readiness fails closed while a healthy worker is draining', () => {
   assert.equal(result.body.ok, false);
   assert.equal(result.body.status, 'draining');
   assert.equal(result.body.draining, true);
-  assert.equal(result.body.checkoutReady, true);
+  assert.equal(result.body.checkoutReady, false);
+  assert.equal(result.body.sellbackCreditReady, false);
   assert.equal(calls.mutation, 0);
+});
+
+test('drain gate rejects economy writes even when write cutover is enabled', () => {
+  for (const path of ['/wallet/credit', '/wallet/spend', '/shop/buy', '/shop/sell']) {
+    assert.deepEqual(writeGate(path, { writesEnabled: true, lifecycle: { draining: true } }), {
+      statusCode: 503,
+      body: {
+        ok: false,
+        error: 'economy-worker-draining',
+        draining: true
+      }
+    });
+  }
+
+  assert.equal(writeGate('/shop/quote', { writesEnabled: true, lifecycle: { draining: true } }), null);
 });
 
 test('beginDrain is idempotent and flips operational readiness without mutating economy state', () => {
@@ -125,5 +142,7 @@ test('beginDrain is idempotent and flips operational readiness without mutating 
   assert.equal(after.statusCode, 503);
   assert.equal(after.body.status, 'draining');
   assert.equal(after.body.draining, true);
+  assert.equal(after.body.checkoutReady, false);
+  assert.equal(after.body.sellbackCreditReady, false);
   assert.equal(calls.mutation, 0);
 });
