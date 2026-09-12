@@ -328,7 +328,21 @@ async function handleConfirm(interaction, economyClient, identityStore) {
 async function handleWallet(interaction, economyClient) {
   if (!economyClient.configured()) return interaction.reply(ephemeral('⚠️ Nexus Wallet is not connected yet.'));
   const result = await economyClient.wallet(interaction.user.id);
-  return interaction.reply(ephemeral(`💳 **Nexus Wallet**\n**Balance:** ${Number(result.balance || 0).toLocaleString()} NP`));
+  const activePoints = Number(result.activePoints || 0);
+  const activeIntervalMinutes = Number(result.activeIntervalMinutes || 5);
+  const passivePointsPerHour = Number(result.passivePointsPerHour || 0);
+  const passiveCapHours = Number(result.passiveCapHours || 0);
+  const passiveText = passivePointsPerHour > 0
+    ? `+${passivePointsPerHour} NP/hour while offline${passiveCapHours > 0 ? ` • up to ${passiveCapHours}h` : ''}`
+    : 'No passive NP gain at this rank';
+  return interaction.reply(ephemeral([
+    '💳 **Nexus Wallet**',
+    `**Balance:** ${Number(result.balance || 0).toLocaleString()} NP`,
+    `**Rank:** ${String(result.rankName || 'Shadow Recruit')}`,
+    `**Status:** ${result.online === true ? '🟢 Online' : '⚫ Offline'}`,
+    `**Active gain:** +${activePoints} NP every ${activeIntervalMinutes} minutes while online`,
+    `**Passive gain:** ${passiveText}`
+  ].join('\n')));
 }
 
 async function handleInteraction(interaction, { economyClient, identityStore } = {}) {
