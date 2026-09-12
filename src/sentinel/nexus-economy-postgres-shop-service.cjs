@@ -89,7 +89,7 @@ class NexusEconomyPostgresShopService {
       queueWritePermitted: false,
       executionPermitted: false,
       schemaVersion: 2,
-      actionId: `action_${planDigest.slice(0, 32)}`,
+      actionId: `action_${planDigest.slice(0, 24)}`,
       type: 'nexus.economy.purchase',
       capability: 'economy.purchase.execute',
       subject: `discord-user:${discord}`,
