@@ -69,6 +69,39 @@ function runtimeReadiness({ worker, shop, token, writesEnabled }) {
   };
 }
 
+function runtimeLiveness() {
+  return {
+    ok: true,
+    service: 'nexus-economy-worker',
+    status: 'live'
+  };
+}
+
+function runtimeOperationalReadiness({ worker, shop, token, writesEnabled }) {
+  try {
+    const readiness = runtimeReadiness({ worker, shop, token, writesEnabled });
+    const ready = readiness.ok === true;
+    return {
+      statusCode: ready ? 200 : 503,
+      body: {
+        ...readiness,
+        ok: ready,
+        status: ready ? 'ready' : 'not-ready'
+      }
+    };
+  } catch (error) {
+    return {
+      statusCode: 503,
+      body: {
+        ok: false,
+        service: 'nexus-economy-worker',
+        status: 'not-ready',
+        error: String(error?.message || error).slice(0, 300)
+      }
+    };
+  }
+}
+
 function createEconomyServer(options = {}) {
   const worker = options.worker || new NexusEconomyWorker();
   const shop = options.shop || new ClusterShopService({ economy: worker });
@@ -80,6 +113,15 @@ function createEconomyServer(options = {}) {
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url || '/', 'http://nexus.local');
+
+      if (req.method === 'GET' && url.pathname === '/health/live') {
+        return json(res, 200, runtimeLiveness());
+      }
+
+      if (req.method === 'GET' && url.pathname === '/health/ready') {
+        const probe = runtimeOperationalReadiness({ worker, shop, token, writesEnabled });
+        return json(res, probe.statusCode, probe.body);
+      }
 
       if (req.method === 'GET' && url.pathname === '/health') {
         return json(res, 200, runtimeReadiness({ worker, shop, token, writesEnabled }));
@@ -168,6 +210,8 @@ module.exports = {
   WRITE_PATHS,
   enabled,
   runtimeReadiness,
+  runtimeLiveness,
+  runtimeOperationalReadiness,
   createEconomyServer,
   listenEconomyServer
 };
