@@ -132,6 +132,10 @@ function writeGate(path, { writesEnabled, lifecycle = {} }) {
   return null;
 }
 
+function walletReadAccrualPermitted({ writesEnabled, lifecycle = {} }) {
+  return Boolean(writesEnabled && lifecycle.draining !== true);
+}
+
 function createEconomyServer(options = {}) {
   const worker = options.worker || new NexusEconomyWorker();
   const shop = options.shop || new ClusterShopService({ economy: worker });
@@ -162,8 +166,15 @@ function createEconomyServer(options = {}) {
 
       if (req.method === 'GET' && url.pathname.startsWith('/wallet/')) {
         const discordUserId = decodeURIComponent(url.pathname.slice('/wallet/'.length));
-        if (writesEnabled) await worker.accrueOffline(discordUserId).catch(() => null);
-        return json(res, 200, { ok: true, discordUserId, balance: worker.balance(discordUserId), writesEnabled });
+        const accrualPermitted = walletReadAccrualPermitted({ writesEnabled, lifecycle });
+        if (accrualPermitted) await worker.accrueOffline(discordUserId).catch(() => null);
+        return json(res, 200, {
+          ok: true,
+          discordUserId,
+          balance: worker.balance(discordUserId),
+          writesEnabled,
+          accrualPermitted
+        });
       }
 
       if (req.method === 'GET' && url.pathname === '/shop/catalog') {
@@ -247,6 +258,7 @@ module.exports = {
   runtimeLiveness,
   runtimeOperationalReadiness,
   writeGate,
+  walletReadAccrualPermitted,
   createEconomyServer,
   listenEconomyServer
 };
