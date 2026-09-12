@@ -22,21 +22,38 @@ function purchase(orderId = 'order_1', balance = 60) {
 
 class TransactionRepository {
   constructor() {
+    this.identityId = 'econ_player_1';
     this.state = { balance: 100, ledger: {}, orders: {}, outbox: {} };
-    this.tail = Promise.resolve(); this.fail = null; this.verified = true;
+    this.tail = Promise.resolve();
+    this.fail = null;
+    this.verified = true;
   }
-  transact(id, work) {
+  async resolveVerifiedIdentity() {
+    return this.verified ? { economic_identity_id: this.identityId, status: 'verified' } : null;
+  }
+  transact(economicIdentityId, currency, work) {
     const run = this.tail.then(async () => {
+      assert.equal(economicIdentityId, this.identityId);
+      assert.equal(currency, 'NEXUS_POINTS');
       const next = structuredClone(this.state);
       const tx = {
         findOrder: async (key) => next.orders[key] || null,
-        findIdentity: async () => this.verified ? { discord_user_id: id } : null,
-        getOrCreateAccount: async () => ({ balance: next.balance }),
+        findIdentity: async () => this.verified ? { economic_identity_id: this.identityId, status: 'verified' } : null,
+        getOrCreateWallet: async () => ({ economic_identity_id: this.identityId, currency, balance: next.balance }),
         findLedgerByKey: async (key) => next.ledger[key] || null,
-        appendLedger: async (entry) => { next.ledger[entry.idempotencyKey] = { ...entry, id: 'ledger_1' }; return { id: 'ledger_1' }; },
-        setBalance: async (_id, balance) => { next.balance = balance; },
-        appendOrder: async (order) => { if (this.fail === 'order') throw new Error('order write failed'); next.orders[order.orderId] = order; },
-        appendOutbox: async (record) => { if (this.fail === 'outbox') throw new Error('outbox write failed'); next.outbox[record.recordId] = record; }
+        appendLedger: async (entry) => {
+          next.ledger[entry.idempotencyKey] = { ...entry, id: 'ledger_1' };
+          return { id: 'ledger_1' };
+        },
+        setBalance: async (_identityId, _currency, balance) => { next.balance = balance; },
+        appendOrder: async (order) => {
+          if (this.fail === 'order') throw new Error('order write failed');
+          next.orders[order.orderId] = order;
+        },
+        appendOutbox: async (record) => {
+          if (this.fail === 'outbox') throw new Error('outbox write failed');
+          next.outbox[record.recordId] = record;
+        }
       };
       const result = await work(tx);
       this.state = next;
@@ -58,6 +75,8 @@ test('purchase debit, order, ledger and outbox commit together and survive retri
   const restarted = new NexusEconomyWalletCore({ repository });
   const retry = await restarted.commitPurchase({ ...input, validateQuote: async () => { throw new Error('expired'); } });
   assert.equal(first.balance, 60);
+  assert.equal(first.currency, 'NEXUS_POINTS');
+  assert.equal(first.order.economicIdentityId, repository.identityId);
   assert.equal(retry.duplicate, true);
   assert.deepEqual(first.order, retry.order);
   assert.equal(Object.keys(repository.state.ledger).length, 1);
@@ -85,7 +104,7 @@ test('concurrent duplicate purchases produce a single charge and outbox', async 
   assert.equal(Object.keys(repository.state.outbox).length, 1);
 });
 
-test('concurrent purchases cannot overspend', async () => {
+test('concurrent purchases cannot overspend the same identity currency wallet', async () => {
   const { wallet, repository } = fixture();
   repository.state.balance = 50;
   const results = await Promise.all([wallet.commitPurchase(purchase('first', 10)), wallet.commitPurchase(purchase('second', 10))]);
@@ -94,7 +113,7 @@ test('concurrent purchases cannot overspend', async () => {
   assert.equal(repository.state.balance, 10);
 });
 
-test('unverified identity, stale quote, and wrong currency never charge', async () => {
+test('unverified identity, stale quote, and non-shop currency never charge', async () => {
   const { wallet, repository } = fixture();
   const before = structuredClone(repository.state);
   repository.verified = false;
@@ -103,13 +122,13 @@ test('unverified identity, stale quote, and wrong currency never charge', async 
   await assert.rejects(wallet.commitPurchase({ ...purchase(), validateQuote: async () => { throw new Error('quote expired'); } }), /quote expired/);
   const wrong = purchase();
   wrong.record = { ...wrong.record, payload: { ...wrong.record.payload, currency: 'Nexus Coins' } };
-  await assert.rejects(wallet.commitPurchase(wrong), /invalid-currency/);
+  await assert.rejects(wallet.commitPurchase(wrong), /Purchase record rejected/);
   assert.deepEqual(repository.state, before);
 });
 
-test('duplicate order cannot be redirected to another EOS identity', async () => {
+test('duplicate order cannot be redirected to another EOS identity or economic identity', async () => {
   const { wallet, repository } = fixture();
   await wallet.commitPurchase(purchase());
-  await assert.rejects(wallet.commitPurchase({ ...purchase(), eosId: 'different' }), /another purchase/);
+  await assert.rejects(wallet.commitPurchase({ ...purchase(), eosId: 'different' }), /another purchase|Verified economic identity/);
   assert.equal(repository.state.balance, 60);
 });
