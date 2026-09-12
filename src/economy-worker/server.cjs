@@ -148,6 +148,10 @@ function writeGate(path, { writesEnabled, lifecycle = {} }) {
   return null;
 }
 
+function mutationRequestGate(path, { writesEnabled, lifecycle = {} }) {
+  return drainMutationGate(path, { lifecycle }) || writeGate(path, { writesEnabled, lifecycle });
+}
+
 function walletReadAccrualPermitted({ writesEnabled, lifecycle = {} }) {
   return Boolean(writesEnabled && lifecycle.draining !== true);
 }
@@ -208,18 +212,20 @@ function createEconomyServer(options = {}) {
       }
 
       if (req.method !== 'POST') return json(res, 404, { ok: false, error: 'not-found' });
+
+      // Reject blocked mutations before reading their request bodies. During drain or
+      // read-only migration this prevents slow/oversized bodies from consuming the
+      // shutdown window for requests that cannot be accepted anyway.
+      const mutationGate = mutationRequestGate(url.pathname, { writesEnabled, lifecycle });
+      if (mutationGate) return json(res, mutationGate.statusCode, mutationGate.body);
+
       const input = await body(req);
 
       // Identity linking is safe to stage before financial cutover because it does
       // not credit, debit, accrue, deliver, or remove anything from ARK. It is still
-      // a state mutation, so reject it once graceful drain begins.
-      const drainGate = drainMutationGate(url.pathname, { lifecycle });
-      if (drainGate) return json(res, drainGate.statusCode, drainGate.body);
+      // a state mutation, so mutationRequestGate rejects it once graceful drain begins.
       if (url.pathname === '/identity/link') return json(res, 200, { ok: true, result: worker.linkArkIdentity(input) });
       if (url.pathname === '/shop/quote') return json(res, 200, { ok: true, quote: shop.quote(input), writesEnabled });
-
-      const gate = writeGate(url.pathname, { writesEnabled, lifecycle });
-      if (gate) return json(res, gate.statusCode, gate.body);
 
       if (url.pathname === '/presence') return json(res, 200, await worker.recordPresence(input));
       if (url.pathname === '/wallet/credit') return json(res, 200, await worker.credit(input));
@@ -279,6 +285,7 @@ module.exports = {
   runtimeOperationalReadiness,
   drainMutationGate,
   writeGate,
+  mutationRequestGate,
   walletReadAccrualPermitted,
   createEconomyServer,
   listenEconomyServer
