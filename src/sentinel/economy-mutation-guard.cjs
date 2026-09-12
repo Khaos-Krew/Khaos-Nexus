@@ -4,6 +4,7 @@ const { ECONOMY_AUTHORITY, resolveEconomyAuthorityPolicy, envBool } = require('.
 
 const CLUSTER_SHOP_DELIVERY_ENV = 'NEXUS_CLUSTER_SHOP_DELIVERY_ENABLED';
 const DINO_CACHE_DELIVERY_ENV = 'NEXUS_DINO_CACHE_DELIVERY_ENABLED';
+const WALLET_MUTATIONS = new Set(['wallet-credit', 'wallet-spend']);
 
 function deny(reason, policy, operation) {
   return Object.freeze({
@@ -32,6 +33,8 @@ function economyMutationDecision(operation, env = process.env) {
   if (!op) return deny('operation-required', policy, op);
   if (policy.authority !== ECONOMY_AUTHORITY.NEXUS) return deny('nexus-authority-required', policy, op);
   if (policy.legacyArkShop.mutationsAllowed) return deny('legacy-arkshop-mutations-must-remain-disabled', policy, op);
+
+  if (WALLET_MUTATIONS.has(op)) return allow(policy, op);
 
   if (op === 'cluster-shop-delivery') {
     return envBool(env[CLUSTER_SHOP_DELIVERY_ENV], false)
@@ -66,6 +69,7 @@ function assertEconomyMutationAllowed(operation, env = process.env) {
 module.exports = {
   CLUSTER_SHOP_DELIVERY_ENV,
   DINO_CACHE_DELIVERY_ENV,
+  WALLET_MUTATIONS,
   economyMutationDecision,
   assertEconomyMutationAllowed
 };
