@@ -64,11 +64,20 @@ async function body(req) {
   return JSON.parse(Buffer.concat(chunks, bytes).toString('utf8'));
 }
 
+function publicWalletHealth(wallet = {}) {
+  const summary = { ok: wallet?.ok === true };
+  for (const key of ['accounts', 'linkedArkIds', 'ledgerEntries']) {
+    if (Number.isSafeInteger(wallet?.[key]) && wallet[key] >= 0) summary[key] = wallet[key];
+  }
+  if (!summary.ok) summary.error = 'diagnostic-unavailable';
+  return summary;
+}
+
 function runtimeReadiness({ worker, shop, token, writesEnabled }) {
   const catalog = shop.listCatalog();
   const buyableItems = catalog.filter((item) => item.buyable).length;
   const sellableItems = catalog.filter((item) => item.sellable).length;
-  const wallet = worker.health();
+  const wallet = publicWalletHealth(worker.health());
   return {
     service: 'nexus-economy-worker',
     ...wallet,
@@ -108,7 +117,7 @@ function runtimeOperationalReadiness({ worker, shop, token, writesEnabled, lifec
         sellbackCreditReady: ready && readiness.sellbackCreditReady
       }
     };
-  } catch (error) {
+  } catch {
     return {
       statusCode: 503,
       body: {
@@ -116,7 +125,7 @@ function runtimeOperationalReadiness({ worker, shop, token, writesEnabled, lifec
         service: 'nexus-economy-worker',
         status: 'not-ready',
         draining: lifecycle.draining === true,
-        error: String(error?.message || error).slice(0, 300)
+        error: 'diagnostic-unavailable'
       }
     };
   }
@@ -299,6 +308,7 @@ module.exports = {
   WRITE_PATHS,
   enabled,
   body,
+  publicWalletHealth,
   runtimeReadiness,
   runtimeLiveness,
   runtimeOperationalReadiness,
