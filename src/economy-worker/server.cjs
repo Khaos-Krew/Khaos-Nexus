@@ -2,8 +2,9 @@
 
 const http = require('node:http');
 const crypto = require('node:crypto');
-const { NexusEconomyWorker } = require('../sentinel/nexus-economy-worker.cjs');
+const { NexusEconomyWorker, ONLINE_INTERVAL_MS } = require('../sentinel/nexus-economy-worker.cjs');
 const { ClusterShopService } = require('../sentinel/cluster-shop-service.cjs');
+const { rankById } = require('../shared/ranks.cjs');
 
 const WRITE_PATHS = new Set([
   '/presence',
@@ -69,6 +70,22 @@ function runtimeReadiness({ worker, shop, token, writesEnabled }) {
   };
 }
 
+function walletSummary(worker, discordUserId) {
+  const account = worker.wallet(discordUserId);
+  const rankId = String(account?.rankId || 'shadow-recruit');
+  const rank = rankById(rankId) || rankById('shadow-recruit');
+  return {
+    balance: Number(account?.balance || 0),
+    rankId: rank.id,
+    rankName: rank.name,
+    online: account?.online === true,
+    activePoints: Number(worker.onlineRates?.[rank.id] || 0),
+    activeIntervalMinutes: ONLINE_INTERVAL_MS / 60_000,
+    passivePointsPerHour: Number(worker.offlineRates?.[rank.id] || 0),
+    passiveCapHours: Number(worker.offlineCapHours || 0)
+  };
+}
+
 function createEconomyServer(options = {}) {
   const worker = options.worker || new NexusEconomyWorker();
   const shop = options.shop || new ClusterShopService({ economy: worker });
@@ -90,7 +107,7 @@ function createEconomyServer(options = {}) {
       if (req.method === 'GET' && url.pathname.startsWith('/wallet/')) {
         const discordUserId = decodeURIComponent(url.pathname.slice('/wallet/'.length));
         if (writesEnabled) await worker.accrueOffline(discordUserId).catch(() => null);
-        return json(res, 200, { ok: true, discordUserId, balance: worker.balance(discordUserId), writesEnabled });
+        return json(res, 200, { ok: true, discordUserId, ...walletSummary(worker, discordUserId), writesEnabled });
       }
 
       if (req.method === 'GET' && url.pathname === '/shop/catalog') {
@@ -168,6 +185,7 @@ module.exports = {
   WRITE_PATHS,
   enabled,
   runtimeReadiness,
+  walletSummary,
   createEconomyServer,
   listenEconomyServer
 };
