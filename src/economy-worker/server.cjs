@@ -5,6 +5,10 @@ const crypto = require('node:crypto');
 const { NexusEconomyWorker } = require('../sentinel/nexus-economy-worker.cjs');
 const { ClusterShopService } = require('../sentinel/cluster-shop-service.cjs');
 
+const DRAIN_MUTATION_PATHS = new Set([
+  '/identity/link'
+]);
+
 const WRITE_PATHS = new Set([
   '/presence',
   '/wallet/credit',
@@ -107,6 +111,18 @@ function runtimeOperationalReadiness({ worker, shop, token, writesEnabled, lifec
   }
 }
 
+function drainMutationGate(path, { lifecycle = {} }) {
+  if (!DRAIN_MUTATION_PATHS.has(path) || lifecycle.draining !== true) return null;
+  return {
+    statusCode: 503,
+    body: {
+      ok: false,
+      error: 'economy-worker-draining',
+      draining: true
+    }
+  };
+}
+
 function writeGate(path, { writesEnabled, lifecycle = {} }) {
   if (!WRITE_PATHS.has(path)) return null;
   if (lifecycle.draining === true) {
@@ -195,7 +211,10 @@ function createEconomyServer(options = {}) {
       const input = await body(req);
 
       // Identity linking is safe to stage before financial cutover because it does
-      // not credit, debit, accrue, deliver, or remove anything from ARK.
+      // not credit, debit, accrue, deliver, or remove anything from ARK. It is still
+      // a state mutation, so reject it once graceful drain begins.
+      const drainGate = drainMutationGate(url.pathname, { lifecycle });
+      if (drainGate) return json(res, drainGate.statusCode, drainGate.body);
       if (url.pathname === '/identity/link') return json(res, 200, { ok: true, result: worker.linkArkIdentity(input) });
       if (url.pathname === '/shop/quote') return json(res, 200, { ok: true, quote: shop.quote(input), writesEnabled });
 
@@ -252,11 +271,13 @@ function listenEconomyServer(options = {}) {
 }
 
 module.exports = {
+  DRAIN_MUTATION_PATHS,
   WRITE_PATHS,
   enabled,
   runtimeReadiness,
   runtimeLiveness,
   runtimeOperationalReadiness,
+  drainMutationGate,
   writeGate,
   walletReadAccrualPermitted,
   createEconomyServer,
