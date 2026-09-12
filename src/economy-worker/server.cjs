@@ -253,14 +253,23 @@ function createEconomyServer(options = {}) {
 
       if (req.method !== 'POST') return json(res, 404, { ok: false, error: 'not-found' });
 
+      // Reject blocked mutations before reading their request bodies. During drain or
+      // read-only migration this prevents slow/oversized bodies from consuming the
+      // shutdown window for requests that cannot be accepted anyway.
       const mutationGate = mutationRequestGate(url.pathname, { writesEnabled, lifecycle });
       if (mutationGate) return json(res, mutationGate.statusCode, mutationGate.body);
 
       const input = await body(req);
 
+      // Re-evaluate mutation eligibility after body parsing. A request may have passed
+      // the pre-body gate just before graceful drain began and then spent time streaming
+      // its body; it must not be allowed to mutate state after the lifecycle changed.
       const executionGate = mutationRequestGate(url.pathname, { writesEnabled, lifecycle });
       if (executionGate) return json(res, executionGate.statusCode, executionGate.body);
 
+      // Identity linking is safe to stage before financial cutover because it does
+      // not credit, debit, accrue, deliver, or remove anything from ARK. It is still
+      // a state mutation, so mutationRequestGate rejects it once graceful drain begins.
       if (url.pathname === '/identity/link') return json(res, 200, { ok: true, result: worker.linkArkIdentity(input) });
       if (url.pathname === '/shop/quote') return json(res, 200, { ok: true, quote: shop.quote(input), writesEnabled });
 
