@@ -11,13 +11,14 @@ function configured() {
   return Boolean(String(process.env.NEXUS_ECONOMY_URL || '').trim() && String(process.env.NEXUS_ECONOMY_TOKEN || '').trim());
 }
 
-function request(pathname, { method = 'GET', body = null, timeoutMs = 8000 } = {}) {
+function request(pathname, { method = 'GET', body = null, timeoutMs = 8000, acceptedStatusCodes = [] } = {}) {
   const base = String(process.env.NEXUS_ECONOMY_URL || '').trim().replace(/\/$/, '');
   const token = String(process.env.NEXUS_ECONOMY_TOKEN || '').trim();
   if (!base || !token) return Promise.reject(new Error('Nexus economy worker is not configured.'));
   const url = new URL(`${base}${pathname}`);
   const transport = url.protocol === 'https:' ? https : http;
   const payload = body == null ? null : Buffer.from(JSON.stringify(body));
+  const accepted = new Set((acceptedStatusCodes || []).map((value) => Number(value)).filter(Number.isFinite));
   return new Promise((resolve, reject) => {
     const req = transport.request(url, {
       method,
@@ -33,7 +34,8 @@ function request(pathname, { method = 'GET', body = null, timeoutMs = 8000 } = {
       res.on('end', () => {
         let parsed = {};
         try { parsed = raw ? JSON.parse(raw) : {}; } catch { return reject(new Error(`Nexus economy worker returned invalid JSON (${res.statusCode}).`)); }
-        if ((res.statusCode || 500) >= 400) return reject(new Error(parsed.error || `Nexus economy worker HTTP ${res.statusCode}.`));
+        const statusCode = Number(res.statusCode || 500);
+        if (statusCode >= 400 && !accepted.has(statusCode)) return reject(new Error(parsed.error || `Nexus economy worker HTTP ${res.statusCode}.`));
         resolve(parsed);
       });
     });
@@ -89,7 +91,7 @@ class NexusEconomyClient {
   shopQuote(input) { return request('/shop/quote', { method: 'POST', body: input }); }
   async shopBuy(input) {
     await this.ensureIdentityProjected(input?.discordUserId);
-    return request('/shop/buy', { method: 'POST', body: input });
+    return request('/shop/buy', { method: 'POST', body: input, acceptedStatusCodes: [409] });
   }
   shopSell(input) { return request('/shop/sell', { method: 'POST', body: input }); }
   shopOrder(orderId) { return request(`/shop/order/${encodeURIComponent(String(orderId))}`); }
