@@ -146,7 +146,13 @@ test('fails closed on ActionStore errors or mismatched durable records', async (
 
   const failed = await createNexusEconomyPurchaseActionSubmitter({
     env: activeEnv(),
-    actionStore: { request: async () => Object.assign(new Error('database unavailable'), { code: 'ECONNRESET' }) && Promise.reject(Object.assign(new Error('database unavailable'), { code: 'ECONNRESET' })) }
+    actionStore: {
+      request: async () => {
+        const error = new Error('database unavailable');
+        error.code = 'ECONNRESET';
+        throw error;
+      }
+    }
   }).submit(record);
   assert.equal(failed.ok, false);
   assert.equal(failed.reason, 'action-store-request-failed');
