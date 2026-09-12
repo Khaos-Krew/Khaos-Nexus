@@ -169,6 +169,11 @@ function writeGate(path, { writesEnabled, lifecycle = {} }) {
 }
 
 function mutationRequestGate(path, { writesEnabled, lifecycle = {} }) {
+  // POST admission is fail-closed during drain; only the explicitly read-only
+  // quote operation may consume a body, including when new routes are added.
+  if (lifecycle.draining === true && path !== '/shop/quote') {
+    return drainMutationGate('/identity/link', { lifecycle });
+  }
   return drainMutationGate(path, { lifecycle }) || writeGate(path, { writesEnabled, lifecycle });
 }
 

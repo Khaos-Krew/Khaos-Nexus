@@ -63,3 +63,58 @@ test('mutation request gate leaves non-mutating quote requests readable during d
     lifecycle: { draining: true }
   }), null);
 });
+const { createEconomyServer, WRITE_PATHS } = require('../src/economy-worker/server.cjs');
+
+function drainingRequest(path, { authenticated = true, input = '{}' } = {}) {
+  let consumed = false;
+  let quoted = false;
+  const runtime = createEconomyServer({
+    token: 'test-drain-token', writesEnabled: true,
+    worker: {},
+    shop: { quote: () => { quoted = true; return { totalPrice: 50 }; } }
+  });
+  runtime.beginDrain();
+  const req = {
+    method: 'POST', url: path,
+    headers: { authorization: authenticated ? 'Bearer test-drain-token' : '' },
+    async *[Symbol.asyncIterator]() {
+      consumed = true;
+      if (input === null) throw new Error('Inadmissible request body was consumed');
+      yield Buffer.from(input);
+    }
+  };
+  return new Promise((resolve, reject) => {
+    const res = {
+      writeHead(status) { this.status = status; },
+      end(payload) { resolve({ status: this.status, body: JSON.parse(payload), consumed, quoted }); }
+    };
+    Promise.resolve(runtime.server.listeners('request')[0](req, res)).catch(reject);
+  });
+}
+
+test('draining server serves authenticated quote including its body', async () => {
+  const result = await drainingRequest('/shop/quote');
+  assert.equal(result.status, 200);
+  assert.equal(result.consumed, true);
+  assert.equal(result.quoted, true);
+  assert.equal(result.body.quote.totalPrice, 50);
+});
+
+test('draining server rejects unknown and mutation POSTs without consuming bodies', async () => {
+  for (const path of ['/unknown', '/shop/quote/unknown', '/shop/quote/', '/identity/link', ...WRITE_PATHS]) {
+    const result = await drainingRequest(path, { input: null });
+    assert.equal(result.status, 503, path);
+    assert.deepEqual(result.body, { ok: false, error: 'economy-worker-draining', draining: true });
+    assert.equal(result.consumed, false, path);
+    assert.equal(result.quoted, false, path);
+  }
+});
+
+test('authentication precedes drain and route decisions without consuming bodies', async () => {
+  for (const path of ['/unknown', '/shop/quote', '/identity/link', ...WRITE_PATHS]) {
+    const result = await drainingRequest(path, { authenticated: false, input: null });
+    assert.equal(result.status, 401, path);
+    assert.deepEqual(result.body, { ok: false, error: 'unauthorized' });
+    assert.equal(result.consumed, false, path);
+  }
+});
