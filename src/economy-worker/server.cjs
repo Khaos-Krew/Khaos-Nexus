@@ -78,18 +78,21 @@ function runtimeReadiness({ worker, shop, token, writesEnabled }) {
   const buyableItems = catalog.filter((item) => item.buyable).length;
   const sellableItems = catalog.filter((item) => item.sellable).length;
   const wallet = publicWalletHealth(worker.health());
+  const postgresBacked = Boolean(shop?.repository);
+  const pending = postgresBacked ? null : shop.pendingBuyOrders();
   return {
     service: 'nexus-economy-worker',
     ...wallet,
+    backend: worker?.backend || 'legacy-json',
     authenticated: Boolean(token),
     writesEnabled: Boolean(writesEnabled),
     migrationMode: writesEnabled ? 'active' : 'read-only',
     clusterShopItems: catalog.length,
     buyableItems,
     sellableItems,
-    pendingBuyOrders: shop.pendingBuyOrders().length,
+    pendingBuyOrders: Array.isArray(pending) ? pending.length : null,
     checkoutReady: Boolean(token && writesEnabled && buyableItems > 0),
-    sellbackCreditReady: Boolean(token && writesEnabled && sellableItems > 0)
+    sellbackCreditReady: Boolean(token && writesEnabled && sellableItems > 0 && !postgresBacked)
   };
 }
 
@@ -212,11 +215,11 @@ function createEconomyServer(options = {}) {
       if (req.method === 'GET' && url.pathname.startsWith('/wallet/')) {
         const discordUserId = decodeURIComponent(url.pathname.slice('/wallet/'.length));
         const accrualPermitted = walletReadAccrualPermitted({ writesEnabled, lifecycle });
-        if (accrualPermitted) await worker.accrueOffline(discordUserId).catch(() => null);
+        if (accrualPermitted) await Promise.resolve(worker.accrueOffline(discordUserId)).catch(() => null);
         return json(res, 200, {
           ok: true,
           discordUserId,
-          balance: worker.balance(discordUserId),
+          balance: await Promise.resolve(worker.balance(discordUserId)),
           writesEnabled,
           accrualPermitted
         });
@@ -227,12 +230,12 @@ function createEconomyServer(options = {}) {
       }
 
       if (req.method === 'GET' && url.pathname === '/shop/orders/pending') {
-        return json(res, 200, { ok: true, orders: shop.pendingBuyOrders() });
+        return json(res, 200, { ok: true, orders: await Promise.resolve(shop.pendingBuyOrders()) });
       }
 
       if (req.method === 'GET' && url.pathname.startsWith('/shop/order/')) {
         const orderId = decodeURIComponent(url.pathname.slice('/shop/order/'.length));
-        const order = shop.order(orderId);
+        const order = await Promise.resolve(shop.order(orderId));
         return order ? json(res, 200, { ok: true, order }) : json(res, 404, { ok: false, error: 'order-not-found' });
       }
 
@@ -255,7 +258,7 @@ function createEconomyServer(options = {}) {
       // Identity linking is safe to stage before financial cutover because it does
       // not credit, debit, accrue, deliver, or remove anything from ARK. It is still
       // a state mutation, so mutationRequestGate rejects it once graceful drain begins.
-      if (url.pathname === '/identity/link') return json(res, 200, { ok: true, result: worker.linkArkIdentity(input) });
+      if (url.pathname === '/identity/link') return json(res, 200, { ok: true, result: await Promise.resolve(worker.linkArkIdentity(input)) });
       if (url.pathname === '/shop/quote') return json(res, 200, { ok: true, quote: shop.quote(input), writesEnabled });
 
       if (url.pathname === '/presence') return json(res, 200, await worker.recordPresence(input));
@@ -267,9 +270,9 @@ function createEconomyServer(options = {}) {
         const result = await shop.createBuyOrder(input);
         return json(res, result.ok ? 200 : 409, result);
       }
-      if (url.pathname === '/shop/sell') return json(res, 200, shop.createSellOrder(input));
+      if (url.pathname === '/shop/sell') return json(res, 200, await Promise.resolve(shop.createSellOrder(input)));
       if (url.pathname === '/shop/sell/confirm-removal') return json(res, 200, await shop.confirmSellRemoval(input));
-      if (url.pathname === '/shop/buy/delivery-status') return json(res, 200, shop.markBuyDelivery(input));
+      if (url.pathname === '/shop/buy/delivery-status') return json(res, 200, await Promise.resolve(shop.markBuyDelivery(input)));
 
       return json(res, 404, { ok: false, error: 'not-found' });
     } catch (error) {
