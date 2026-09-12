@@ -6,6 +6,7 @@ const {
   runtimeLiveness,
   runtimeOperationalReadiness,
   writeGate,
+  walletReadAccrualPermitted,
   createEconomyServer
 } = require('../src/economy-worker/server.cjs');
 
@@ -123,6 +124,13 @@ test('drain gate rejects economy writes even when write cutover is enabled', () 
   }
 
   assert.equal(writeGate('/shop/quote', { writesEnabled: true, lifecycle: { draining: true } }), null);
+});
+
+test('wallet read-side accrual is disabled during drain even when writes are enabled', () => {
+  assert.equal(walletReadAccrualPermitted({ writesEnabled: true, lifecycle: { draining: false } }), true);
+  assert.equal(walletReadAccrualPermitted({ writesEnabled: true, lifecycle: { draining: true } }), false);
+  assert.equal(walletReadAccrualPermitted({ writesEnabled: false, lifecycle: { draining: false } }), false);
+  assert.equal(walletReadAccrualPermitted({ writesEnabled: false, lifecycle: { draining: true } }), false);
 });
 
 test('beginDrain is idempotent and flips operational readiness without mutating economy state', () => {
