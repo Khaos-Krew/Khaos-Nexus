@@ -2,7 +2,10 @@
 
 const { listenEconomyServer } = require('./server.cjs');
 
-const runtime = listenEconomyServer();
+// Keep the economy worker on its dedicated internal port even when Railway
+// injects PORT for the composite Sentinel service.
+const economyPort = Number(process.env.NEXUS_ECONOMY_PORT || 3240);
+const runtime = listenEconomyServer({ port: economyPort });
 
 function shutdown(signal) {
   console.log(`[Nexus Economy Worker] ${signal} received; shutting down.`);
