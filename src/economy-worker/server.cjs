@@ -77,16 +77,18 @@ function runtimeLiveness() {
   };
 }
 
-function runtimeOperationalReadiness({ worker, shop, token, writesEnabled }) {
+function runtimeOperationalReadiness({ worker, shop, token, writesEnabled, lifecycle = {} }) {
   try {
     const readiness = runtimeReadiness({ worker, shop, token, writesEnabled });
-    const ready = readiness.ok === true;
+    const draining = lifecycle.draining === true;
+    const ready = readiness.ok === true && !draining;
     return {
       statusCode: ready ? 200 : 503,
       body: {
         ...readiness,
         ok: ready,
-        status: ready ? 'ready' : 'not-ready'
+        status: ready ? 'ready' : (draining ? 'draining' : 'not-ready'),
+        draining
       }
     };
   } catch (error) {
@@ -96,6 +98,7 @@ function runtimeOperationalReadiness({ worker, shop, token, writesEnabled }) {
         ok: false,
         service: 'nexus-economy-worker',
         status: 'not-ready',
+        draining: lifecycle.draining === true,
         error: String(error?.message || error).slice(0, 300)
       }
     };
@@ -109,6 +112,7 @@ function createEconomyServer(options = {}) {
   const writesEnabled = options.writesEnabled == null
     ? enabled(process.env.NEXUS_ECONOMY_WRITES_ENABLED)
     : Boolean(options.writesEnabled);
+  const lifecycle = { draining: false, signal: null };
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -119,7 +123,7 @@ function createEconomyServer(options = {}) {
       }
 
       if (req.method === 'GET' && url.pathname === '/health/ready') {
-        const probe = runtimeOperationalReadiness({ worker, shop, token, writesEnabled });
+        const probe = runtimeOperationalReadiness({ worker, shop, token, writesEnabled, lifecycle });
         return json(res, probe.statusCode, probe.body);
       }
 
@@ -191,7 +195,15 @@ function createEconomyServer(options = {}) {
     shop,
     token,
     writesEnabled,
-    readiness: () => runtimeReadiness({ worker, shop, token, writesEnabled })
+    beginDrain(signal = 'shutdown') {
+      if (lifecycle.draining) return false;
+      lifecycle.draining = true;
+      lifecycle.signal = String(signal || 'shutdown');
+      return true;
+    },
+    isDraining: () => lifecycle.draining,
+    readiness: () => runtimeReadiness({ worker, shop, token, writesEnabled }),
+    operationalReadiness: () => runtimeOperationalReadiness({ worker, shop, token, writesEnabled, lifecycle })
   };
 }
 
