@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const {
   runtimeLiveness,
   runtimeOperationalReadiness,
+  drainMutationGate,
   writeGate,
   walletReadAccrualPermitted,
   createEconomyServer
@@ -124,6 +125,19 @@ test('drain gate rejects economy writes even when write cutover is enabled', () 
   }
 
   assert.equal(writeGate('/shop/quote', { writesEnabled: true, lifecycle: { draining: true } }), null);
+});
+
+test('drain gate rejects identity linking without requiring financial write cutover', () => {
+  assert.equal(drainMutationGate('/identity/link', { lifecycle: { draining: false } }), null);
+  assert.deepEqual(drainMutationGate('/identity/link', { lifecycle: { draining: true } }), {
+    statusCode: 503,
+    body: {
+      ok: false,
+      error: 'economy-worker-draining',
+      draining: true
+    }
+  });
+  assert.equal(drainMutationGate('/shop/quote', { lifecycle: { draining: true } }), null);
 });
 
 test('wallet read-side accrual is disabled during drain even when writes are enabled', () => {
