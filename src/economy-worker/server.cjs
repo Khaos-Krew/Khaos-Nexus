@@ -7,6 +7,14 @@ const { ClusterShopService } = require('../sentinel/cluster-shop-service.cjs');
 
 const MAX_REQUEST_BODY_BYTES = 128 * 1024;
 
+class EconomyRequestError extends Error {
+  constructor(code, message) {
+    super(message || code);
+    this.name = 'EconomyRequestError';
+    this.code = code;
+  }
+}
+
 const DRAIN_MUTATION_PATHS = new Set([
   '/identity/link'
 ]);
@@ -48,7 +56,7 @@ function authorized(req, token) {
 async function body(req) {
   const declaredLength = String(req.headers?.['content-length'] || '').trim();
   if (/^\d+$/.test(declaredLength) && Number(declaredLength) > MAX_REQUEST_BODY_BYTES) {
-    throw new Error('Request body too large.');
+    throw new EconomyRequestError('request-body-too-large', 'Request body too large.');
   }
 
   const chunks = [];
@@ -56,19 +64,28 @@ async function body(req) {
   for await (const chunk of req) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     bytes += buffer.length;
-    if (bytes > MAX_REQUEST_BODY_BYTES) throw new Error('Request body too large.');
+    if (bytes > MAX_REQUEST_BODY_BYTES) {
+      throw new EconomyRequestError('request-body-too-large', 'Request body too large.');
+    }
     chunks.push(buffer);
   }
 
   if (bytes === 0) return {};
-  return JSON.parse(Buffer.concat(chunks, bytes).toString('utf8'));
+  try {
+    return JSON.parse(Buffer.concat(chunks, bytes).toString('utf8'));
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new EconomyRequestError('invalid-json', 'Invalid JSON request body.');
+    }
+    throw error;
+  }
 }
 
 function publicRequestError(error) {
-  if (error?.message === 'Request body too large.') {
+  if (error instanceof EconomyRequestError && error.code === 'request-body-too-large') {
     return { statusCode: 413, body: { ok: false, error: 'request-body-too-large' } };
   }
-  if (error instanceof SyntaxError) {
+  if (error instanceof EconomyRequestError && error.code === 'invalid-json') {
     return { statusCode: 400, body: { ok: false, error: 'invalid-json' } };
   }
   return { statusCode: 500, body: { ok: false, error: 'internal-error' } };
@@ -335,6 +352,7 @@ function listenEconomyServer(options = {}) {
 
 module.exports = {
   MAX_REQUEST_BODY_BYTES,
+  EconomyRequestError,
   DRAIN_MUTATION_PATHS,
   WRITE_PATHS,
   enabled,
