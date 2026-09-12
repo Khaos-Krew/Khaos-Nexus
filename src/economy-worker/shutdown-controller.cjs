@@ -37,11 +37,15 @@ function createEconomyShutdownController({
     forceTimer?.unref?.();
 
     beginHttpDrain(server, () => {
-      if (forceTimer) {
-        clearTimer(forceTimer);
-        forceTimer = null;
-      }
-      exit(0);
+      Promise.resolve(typeof runtime.close === 'function' ? runtime.close() : undefined)
+        .catch((error) => log(`[Nexus Economy Worker] shutdown resource close failed: ${String(error?.message || error).slice(0, 300)}`))
+        .finally(() => {
+          if (forceTimer) {
+            clearTimer(forceTimer);
+            forceTimer = null;
+          }
+          exit(0);
+        });
     });
 
     return true;
