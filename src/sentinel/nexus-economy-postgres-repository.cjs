@@ -1,11 +1,42 @@
 'use strict';
 
 const DEFAULT_SCHEMA = 'public';
+const SUPPORTED_CURRENCIES = Object.freeze(['NEXUS_COINS', 'NEXUS_POINTS', 'DINO_CACHE_TOKENS']);
+const CURRENCY_ALIASES = Object.freeze({
+  NEXUS_COINS: 'NEXUS_COINS',
+  'NEXUS COINS': 'NEXUS_COINS',
+  NEXUSCOINS: 'NEXUS_COINS',
+  NEXUS_POINTS: 'NEXUS_POINTS',
+  'NEXUS POINTS': 'NEXUS_POINTS',
+  NEXUSPOINTS: 'NEXUS_POINTS',
+  DINO_CACHE_TOKENS: 'DINO_CACHE_TOKENS',
+  'DINO CACHE TOKENS': 'DINO_CACHE_TOKENS',
+  DINOCACHETOKENS: 'DINO_CACHE_TOKENS'
+});
 
 function sqlIdent(value) {
   const id = String(value || DEFAULT_SCHEMA).trim();
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(id)) throw new Error('Postgres schema name is invalid.');
   return `"${id}"`;
+}
+
+function cleanExternalId(value, label = 'External ID') {
+  const id = String(value || '').trim();
+  if (!id || id.length > 128 || !/^[A-Za-z0-9:_-]+$/.test(id)) throw new Error(`${label} is invalid.`);
+  return id;
+}
+
+function cleanProvider(value) {
+  const provider = String(value || '').trim().toLowerCase();
+  if (!/^[a-z][a-z0-9_-]{1,31}$/.test(provider)) throw new Error('Identity provider is invalid.');
+  return provider;
+}
+
+function normalizeCurrency(value = 'NEXUS_POINTS') {
+  const raw = String(value || '').trim().toUpperCase().replace(/[-]+/g, '_').replace(/\s+/g, ' ');
+  const currency = CURRENCY_ALIASES[raw] || CURRENCY_ALIASES[raw.replace(/_/g, ' ')] || null;
+  if (!currency || !SUPPORTED_CURRENCIES.includes(currency)) throw new Error('Unsupported Nexus economy currency.');
+  return currency;
 }
 
 function ledgerLimit(value, fallback = 10) {
@@ -23,26 +54,72 @@ class NexusEconomyPostgresRepository {
     this.schema = sqlIdent(schema);
   }
 
-  async getAccount(discordUserId) {
+  async getIdentityByLink(provider, externalId) {
+    const p = cleanProvider(provider);
+    const id = cleanExternalId(externalId);
     const result = await this.pool.query(
-      `SELECT discord_user_id, balance FROM ${this.schema}.nexus_economy_accounts WHERE discord_user_id = $1`,
-      [discordUserId]
+      `SELECT i.economic_identity_id, i.status, l.provider, l.external_id, l.verified_at, l.source\n` +
+      `FROM ${this.schema}.nexus_economic_identity_links l\n` +
+      `JOIN ${this.schema}.nexus_economic_identities i ON i.economic_identity_id = l.economic_identity_id\n` +
+      `WHERE l.provider = $1 AND l.external_id = $2`,
+      [p, id]
     );
     return result.rows?.[0] || null;
   }
 
-  async listLedger(discordUserId, { limit = 10 } = {}) {
+  async resolveVerifiedIdentity({ discordUserId, eosId } = {}) {
+    const discord = cleanExternalId(discordUserId, 'Discord user ID');
+    const eos = cleanExternalId(eosId, 'EOS ID');
+    const result = await this.pool.query(
+      `SELECT i.economic_identity_id, i.status\n` +
+      `FROM ${this.schema}.nexus_economic_identities i\n` +
+      `JOIN ${this.schema}.nexus_economic_identity_links d ON d.economic_identity_id = i.economic_identity_id\n` +
+      `JOIN ${this.schema}.nexus_economic_identity_links e ON e.economic_identity_id = i.economic_identity_id\n` +
+      `WHERE i.status = 'verified'\n` +
+      `AND d.provider = 'discord' AND d.external_id = $1 AND d.verified_at IS NOT NULL\n` +
+      `AND e.provider = 'eos' AND e.external_id = $2 AND e.verified_at IS NOT NULL`,
+      [discord, eos]
+    );
+    return result.rows?.[0] || null;
+  }
+
+  async getWalletByDiscord(discordUserId, currency = 'NEXUS_POINTS') {
+    const discord = cleanExternalId(discordUserId, 'Discord user ID');
+    const normalizedCurrency = normalizeCurrency(currency);
+    const result = await this.pool.query(
+      `SELECT w.economic_identity_id, w.currency, w.balance\n` +
+      `FROM ${this.schema}.nexus_economy_wallets w\n` +
+      `JOIN ${this.schema}.nexus_economic_identity_links l ON l.economic_identity_id = w.economic_identity_id\n` +
+      `JOIN ${this.schema}.nexus_economic_identities i ON i.economic_identity_id = w.economic_identity_id\n` +
+      `WHERE l.provider = 'discord' AND l.external_id = $1 AND l.verified_at IS NOT NULL\n` +
+      `AND i.status = 'verified' AND w.currency = $2`,
+      [discord, normalizedCurrency]
+    );
+    return result.rows?.[0] || null;
+  }
+
+  async getAccount(discordUserId) {
+    const wallet = await this.getWalletByDiscord(discordUserId, 'NEXUS_POINTS');
+    return wallet ? { discord_user_id: String(discordUserId), ...wallet } : null;
+  }
+
+  async listLedger(discordUserId, { currency = 'NEXUS_POINTS', limit = 10 } = {}) {
+    const discord = cleanExternalId(discordUserId, 'Discord user ID');
+    const normalizedCurrency = normalizeCurrency(currency);
     const safeLimit = ledgerLimit(limit);
     const result = await this.pool.query(
-      `SELECT id, amount, balance_after, entry_type, source, created_at\n` +
-      `FROM ${this.schema}.nexus_economy_ledger\n` +
-      `WHERE discord_user_id = $1\n` +
-      `ORDER BY created_at DESC, id DESC\n` +
-      `LIMIT $2`,
-      [discordUserId, safeLimit]
+      `SELECT x.id, x.economic_identity_id, x.currency, x.amount, x.balance_after, x.entry_type, x.source, x.created_at\n` +
+      `FROM ${this.schema}.nexus_economy_ledger x\n` +
+      `JOIN ${this.schema}.nexus_economic_identity_links l ON l.economic_identity_id = x.economic_identity_id\n` +
+      `WHERE l.provider = 'discord' AND l.external_id = $1 AND x.currency = $2\n` +
+      `ORDER BY x.created_at DESC, x.id DESC\n` +
+      `LIMIT $3`,
+      [discord, normalizedCurrency, safeLimit]
     );
     return (result.rows || []).map((row) => Object.freeze({
       id: row.id,
+      economicIdentityId: row.economic_identity_id,
+      currency: row.currency,
       amount: Number(row.amount),
       balanceAfter: Number(row.balance_after),
       type: row.entry_type,
@@ -51,13 +128,15 @@ class NexusEconomyPostgresRepository {
     }));
   }
 
-  async transact(discordUserId, work) {
+  async transact(economicIdentityId, currency, work) {
+    const identityId = cleanExternalId(economicIdentityId, 'Economic identity ID');
+    const normalizedCurrency = normalizeCurrency(currency);
     if (typeof work !== 'function') throw new Error('Transaction callback is required.');
     const client = await this.pool.connect();
     let committed = false;
     try {
       await client.query('BEGIN');
-      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${discordUserId}`]);
+      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${identityId}:${normalizedCurrency}`]);
       const tx = this.#transactionView(client);
       const result = await work(tx);
       await client.query('COMMIT');
@@ -80,12 +159,24 @@ class NexusEconomyPostgresRepository {
         return result.rows?.[0]?.order_data || null;
       },
       findIdentity: async (discordUserId, eosId) => {
-        const result = await client.query(`SELECT discord_user_id FROM ${this.schema}.nexus_economy_identity_links WHERE discord_user_id = $1 AND eos_id = $2`, [discordUserId, eosId]);
+        const result = await client.query(
+          `SELECT i.economic_identity_id, i.status\n` +
+          `FROM ${this.schema}.nexus_economic_identities i\n` +
+          `JOIN ${this.schema}.nexus_economic_identity_links d ON d.economic_identity_id = i.economic_identity_id\n` +
+          `JOIN ${this.schema}.nexus_economic_identity_links e ON e.economic_identity_id = i.economic_identity_id\n` +
+          `WHERE i.status = 'verified' AND d.provider = 'discord' AND d.external_id = $1 AND d.verified_at IS NOT NULL\n` +
+          `AND e.provider = 'eos' AND e.external_id = $2 AND e.verified_at IS NOT NULL`,
+          [discordUserId, eosId]
+        );
         return result.rows?.[0] || null;
       },
       appendOrder: async (order) => {
-        await client.query(`INSERT INTO ${this.schema}.nexus_economy_orders (order_id, request_id, discord_user_id, ledger_id, order_data) VALUES ($1,$2,$3,$4,$5::jsonb)`,
-          [order.orderId, order.requestId, order.discordUserId, order.transactionId, JSON.stringify(order)]);
+        await client.query(
+          `INSERT INTO ${this.schema}.nexus_economy_orders\n` +
+          `(order_id, request_id, economic_identity_id, discord_user_id, currency, ledger_id, order_data)\n` +
+          `VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
+          [order.orderId, order.requestId, order.economicIdentityId, order.discordUserId, order.currency, order.transactionId, JSON.stringify(order)]
+        );
       },
       appendOutbox: async (record) => {
         await client.query(`INSERT INTO ${this.schema}.nexus_economy_purchase_outbox (record_id, order_id, record_digest, record_data) VALUES ($1,$2,$3,$4::jsonb)`,
@@ -93,7 +184,7 @@ class NexusEconomyPostgresRepository {
       },
       findLedgerByKey: async (idempotencyKey) => {
         const result = await client.query(
-          `SELECT id, discord_user_id, amount, balance_after, entry_type, source, idempotency_key, metadata, created_at\n` +
+          `SELECT id, economic_identity_id, currency, amount, balance_after, entry_type, source, idempotency_key, metadata, created_at\n` +
           `FROM ${this.schema}.nexus_economy_ledger WHERE idempotency_key = $1`,
           [idempotencyKey]
         );
@@ -101,7 +192,8 @@ class NexusEconomyPostgresRepository {
         if (!row) return null;
         return {
           id: row.id,
-          discordUserId: row.discord_user_id,
+          economicIdentityId: row.economic_identity_id,
+          currency: row.currency,
           amount: Number(row.amount),
           balanceAfter: Number(row.balance_after),
           type: row.entry_type,
@@ -111,31 +203,37 @@ class NexusEconomyPostgresRepository {
           at: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at
         };
       },
-      getOrCreateAccount: async (discordUserId) => {
+      getOrCreateWallet: async (economicIdentityId, currency) => {
+        const normalizedCurrency = normalizeCurrency(currency);
         await client.query(
-          `INSERT INTO ${this.schema}.nexus_economy_accounts (discord_user_id, balance) VALUES ($1, 0) ON CONFLICT (discord_user_id) DO NOTHING`,
-          [discordUserId]
+          `INSERT INTO ${this.schema}.nexus_economy_wallets (economic_identity_id, currency, balance)\n` +
+          `SELECT $1, $2, 0 WHERE EXISTS (SELECT 1 FROM ${this.schema}.nexus_economic_identities WHERE economic_identity_id = $1 AND status = 'verified')\n` +
+          `ON CONFLICT (economic_identity_id, currency) DO NOTHING`,
+          [economicIdentityId, normalizedCurrency]
         );
         const result = await client.query(
-          `SELECT discord_user_id, balance FROM ${this.schema}.nexus_economy_accounts WHERE discord_user_id = $1 FOR UPDATE`,
-          [discordUserId]
+          `SELECT economic_identity_id, currency, balance FROM ${this.schema}.nexus_economy_wallets\n` +
+          `WHERE economic_identity_id = $1 AND currency = $2 FOR UPDATE`,
+          [economicIdentityId, normalizedCurrency]
         );
-        return result.rows?.[0] || { discord_user_id: discordUserId, balance: 0 };
+        if (!result.rows?.[0]) throw new Error('Verified economic identity is required.');
+        return result.rows[0];
       },
       appendLedger: async (entry) => {
         const result = await client.query(
           `INSERT INTO ${this.schema}.nexus_economy_ledger\n` +
-          `(discord_user_id, amount, balance_after, entry_type, source, idempotency_key, metadata, created_at)\n` +
-          `VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8)\n` +
+          `(economic_identity_id, currency, amount, balance_after, entry_type, source, idempotency_key, metadata, created_at)\n` +
+          `VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)\n` +
           `RETURNING id`,
-          [entry.discordUserId, entry.amount, entry.balanceAfter, entry.type, entry.source, entry.idempotencyKey, JSON.stringify(entry.metadata || {}), entry.at]
+          [entry.economicIdentityId, normalizeCurrency(entry.currency), entry.amount, entry.balanceAfter, entry.type, entry.source, entry.idempotencyKey, JSON.stringify(entry.metadata || {}), entry.at]
         );
         return { id: result.rows?.[0]?.id || null };
       },
-      setBalance: async (discordUserId, balance) => {
+      setBalance: async (economicIdentityId, currency, balance) => {
         await client.query(
-          `UPDATE ${this.schema}.nexus_economy_accounts SET balance = $2, updated_at = NOW() WHERE discord_user_id = $1`,
-          [discordUserId, balance]
+          `UPDATE ${this.schema}.nexus_economy_wallets SET balance = $3, updated_at = NOW()\n` +
+          `WHERE economic_identity_id = $1 AND currency = $2`,
+          [economicIdentityId, normalizeCurrency(currency), balance]
         );
       }
     };
@@ -144,34 +242,49 @@ class NexusEconomyPostgresRepository {
   static schemaSql({ schema = DEFAULT_SCHEMA } = {}) {
     const s = sqlIdent(schema);
     return [
-      `CREATE TABLE IF NOT EXISTS ${s}.nexus_economy_accounts (`,
-      '  discord_user_id TEXT PRIMARY KEY,',
-      '  balance BIGINT NOT NULL DEFAULT 0 CHECK (balance >= 0),',
+      `CREATE TABLE IF NOT EXISTS ${s}.nexus_economic_identities (`,
+      '  economic_identity_id TEXT PRIMARY KEY,',
+      "  status TEXT NOT NULL DEFAULT 'verified' CHECK (status IN ('verified','restricted','disabled')),",
       '  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),',
       '  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
       ');',
+      `CREATE TABLE IF NOT EXISTS ${s}.nexus_economic_identity_links (`,
+      '  provider TEXT NOT NULL,',
+      '  external_id TEXT NOT NULL,',
+      `  economic_identity_id TEXT NOT NULL REFERENCES ${s}.nexus_economic_identities(economic_identity_id),`,
+      '  verified_at TIMESTAMPTZ NOT NULL,',
+      '  source TEXT NOT NULL,',
+      '  PRIMARY KEY (provider, external_id)',
+      ');',
+      `CREATE INDEX IF NOT EXISTS nexus_economic_identity_links_identity_idx ON ${s}.nexus_economic_identity_links (economic_identity_id);`,
+      `CREATE TABLE IF NOT EXISTS ${s}.nexus_economy_wallets (`,
+      `  economic_identity_id TEXT NOT NULL REFERENCES ${s}.nexus_economic_identities(economic_identity_id),`,
+      "  currency TEXT NOT NULL CHECK (currency IN ('NEXUS_COINS','NEXUS_POINTS','DINO_CACHE_TOKENS')),",
+      '  balance BIGINT NOT NULL DEFAULT 0 CHECK (balance >= 0),',
+      '  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),',
+      '  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),',
+      '  PRIMARY KEY (economic_identity_id, currency)',
+      ');',
       `CREATE TABLE IF NOT EXISTS ${s}.nexus_economy_ledger (`,
       '  id BIGSERIAL PRIMARY KEY,',
-      '  discord_user_id TEXT NOT NULL REFERENCES ' + `${s}.nexus_economy_accounts(discord_user_id)` + ',',
+      '  economic_identity_id TEXT NOT NULL,',
+      "  currency TEXT NOT NULL CHECK (currency IN ('NEXUS_COINS','NEXUS_POINTS','DINO_CACHE_TOKENS')),",
       '  amount BIGINT NOT NULL CHECK (amount <> 0),',
       '  balance_after BIGINT NOT NULL CHECK (balance_after >= 0),',
       '  entry_type TEXT NOT NULL,',
       '  source TEXT NOT NULL,',
       '  idempotency_key TEXT NOT NULL UNIQUE,',
       "  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,",
-      '  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
+      '  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),',
+      `  FOREIGN KEY (economic_identity_id, currency) REFERENCES ${s}.nexus_economy_wallets(economic_identity_id, currency)`,
       ');',
-      `CREATE INDEX IF NOT EXISTS nexus_economy_ledger_user_created_idx ON ${s}.nexus_economy_ledger (discord_user_id, created_at DESC);`,
-      `CREATE TABLE IF NOT EXISTS ${s}.nexus_economy_identity_links (`,
-      '  eos_id TEXT PRIMARY KEY,',
-      `  discord_user_id TEXT NOT NULL REFERENCES ${s}.nexus_economy_accounts(discord_user_id),`,
-      '  verified_at TIMESTAMPTZ NOT NULL,',
-      '  source TEXT NOT NULL',
-      ');',
+      `CREATE INDEX IF NOT EXISTS nexus_economy_ledger_identity_currency_created_idx ON ${s}.nexus_economy_ledger (economic_identity_id, currency, created_at DESC);`,
       `CREATE TABLE IF NOT EXISTS ${s}.nexus_economy_orders (`,
       '  order_id TEXT PRIMARY KEY,',
       '  request_id TEXT NOT NULL UNIQUE,',
-      `  discord_user_id TEXT NOT NULL REFERENCES ${s}.nexus_economy_accounts(discord_user_id),`,
+      `  economic_identity_id TEXT NOT NULL REFERENCES ${s}.nexus_economic_identities(economic_identity_id),`,
+      '  discord_user_id TEXT NOT NULL,',
+      "  currency TEXT NOT NULL CHECK (currency IN ('NEXUS_COINS','NEXUS_POINTS','DINO_CACHE_TOKENS')),",
       `  ledger_id BIGINT NOT NULL UNIQUE REFERENCES ${s}.nexus_economy_ledger(id),`,
       '  order_data JSONB NOT NULL,',
       '  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
@@ -187,4 +300,13 @@ class NexusEconomyPostgresRepository {
   }
 }
 
-module.exports = { NexusEconomyPostgresRepository, sqlIdent, ledgerLimit };
+module.exports = {
+  DEFAULT_SCHEMA,
+  SUPPORTED_CURRENCIES,
+  NexusEconomyPostgresRepository,
+  sqlIdent,
+  cleanExternalId,
+  cleanProvider,
+  normalizeCurrency,
+  ledgerLimit
+};
