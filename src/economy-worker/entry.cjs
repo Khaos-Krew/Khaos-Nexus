@@ -10,7 +10,8 @@ const economyPort = resolveEconomyPort(process.env);
 const runtime = listenEconomyServer({ port: economyPort });
 
 function shutdown(signal) {
-  console.log(`[Nexus Economy Worker] ${signal} received; shutting down.`);
+  runtime.beginDrain(signal);
+  console.log(`[Nexus Economy Worker] ${signal} received; draining before shutdown.`);
   runtime.server.close(() => process.exit(0));
   setTimeout(() => process.exit(1), 10_000).unref?.();
 }
