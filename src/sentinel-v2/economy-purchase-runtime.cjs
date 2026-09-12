@@ -1,6 +1,6 @@
 'use strict';
 
-const { createNexusEconomyPurchaseActionRequest } = require('../sentinel/nexus-economy-purchase-action-request.cjs');
+const { createNexusEconomyPurchaseActionRequest, ACTION_SOURCE } = require('../sentinel/nexus-economy-purchase-action-request.cjs');
 const { deliverShopOrderWithRewardsAscended } = require('../sentinel/cluster-shop-rewards-delivery.cjs');
 const { findOnlineServer } = require('../sentinel/ark-dino-box-delivery-worker.cjs');
 const { ArkRconClient } = require('../sentinel/ark-rcon.cjs');
@@ -58,6 +58,16 @@ class EconomyPurchaseRuntime {
         if (!prepared.ok || !prepared.requestReady) throw new Error(`Purchase outbox projection rejected: ${prepared.reason}`);
         const action = await this.actionStore.request(prepared.actionRequest);
         if (!action?.persisted) throw new Error('Purchase action was not durably persisted.');
+        const expected = prepared.actionRequest;
+        if (
+          action.actionId !== expected.actionId ||
+          action.capability !== expected.capability ||
+          action.source !== expected.source ||
+          action.idempotencyKey !== expected.idempotencyKey ||
+          action.request?.recordDigest !== expected.request.recordDigest
+        ) {
+          throw new Error('ActionStore idempotency collision does not match the purchase outbox record.');
+        }
         await this.database.query(
           `UPDATE ${this.schema}.nexus_economy_purchase_outbox SET projected_action_id = COALESCE(projected_action_id,$2), projected_at = COALESCE(projected_at,NOW()), projection_error = NULL WHERE record_id = $1`,
           [row.record_id, action.actionId]
@@ -143,11 +153,11 @@ class EconomyPurchaseRuntime {
         const found = await client.query(`
           SELECT action_id, capability, source, actor, subject, destructive, status, idempotency_key, correlation_id, request
           FROM sentinel_actions
-          WHERE capability = $1 AND status = 'requested'
+          WHERE capability = $1 AND source = $2 AND status = 'requested'
           ORDER BY requested_at ASC
           FOR UPDATE SKIP LOCKED
           LIMIT 1
-        `, [CAPABILITY]);
+        `, [CAPABILITY, ACTION_SOURCE]);
         const row = found.rows?.[0];
         if (!row) { await client.query('COMMIT'); return null; }
         const attempts = await client.query('SELECT COALESCE(MAX(attempt),0) + 1 AS attempt FROM sentinel_action_attempts WHERE action_id = $1', [row.action_id]);
@@ -187,6 +197,9 @@ class EconomyPurchaseRuntime {
   #validateActionOrder(action, order) {
     const request = action.request || {};
     const payload = request.payload || {};
+    if (action.capability !== CAPABILITY || action.source !== ACTION_SOURCE) throw new Error('Purchase action source or capability is invalid.');
+    if (request.type !== 'nexus.economy.purchase' || payload.fulfillment !== 'rewards-ascended-item') throw new Error('Purchase action contract is invalid.');
+    if (String(request.orderId || '') !== String(order.orderId || '')) throw new Error('Purchase action order identity does not match the authoritative economy order.');
     if (order.type !== 'BUY') throw new Error('Purchase action does not reference a buy order.');
     if (!['PAID_QUEUED', 'PLAYER_OFFLINE', 'DELIVERY_FAILED'].includes(order.status)) throw new Error(`Purchase order is not executable from ${order.status}.`);
     if (String(order.discordUserId) !== String(payload.discordUserId) || String(order.quote?.itemId) !== String(payload.itemId) || Number(order.quote?.bundles) !== Number(payload.quantity) || Number(order.quote?.totalPrice) !== Number(payload.totalPrice)) {
