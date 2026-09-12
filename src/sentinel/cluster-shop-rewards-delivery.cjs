@@ -13,34 +13,58 @@ function rewardIdForShopOrder(order = {}) {
 
 function blueprintRef(value) {
   const raw = String(value || '').trim();
-  if (!/^\/(?:Game|SDinoVariants|RunicWyverns)\/[A-Za-z0-9_./-]{8,230}$/.test(raw)) {
+  if (!/^\/(?:Game|SDinoVariants|RunicWyverns|TG_Stack_10000_90|DinoDepot|CrazysPotions|PotionsHelpers)\/[A-Za-z0-9_./-]{8,230}$/.test(raw)) {
     throw new Error(`RewardsAscended item blueprint path is invalid: ${raw.slice(0, 120)}`);
   }
   return `Blueprint'${raw}'`;
 }
 
+function rewardItem({ blueprint, amount, quality = 0, forceBlueprint = false } = {}) {
+  const count = Number(amount);
+  if (!Number.isSafeInteger(count) || count <= 0 || count > 1000000) throw new Error('Cluster Shop delivery amount is invalid.');
+  const itemQuality = Number.isFinite(Number(quality)) ? Math.max(0, Number(quality)) : 0;
+  return {
+    Blueprint: blueprintRef(blueprint),
+    Quality: itemQuality,
+    ForceBlueprint: forceBlueprint === true,
+    Amount: count,
+    Armor: 0,
+    Durability: 0,
+    Damage: 0,
+    UseRandomQuality: false,
+    MinRandomQuality: 0,
+    MaxRandomQuality: 0,
+    UseRandomAmount: false,
+    MinRandomAmount: count,
+    MaxRandomAmount: count
+  };
+}
+
 function itemRewardEntry(order = {}) {
   const quote = order.quote || {};
-  const amount = Number(quote.totalQuantity);
-  if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 1000000) throw new Error('Cluster Shop delivery amount is invalid.');
   const metadata = quote.metadata && typeof quote.metadata === 'object' ? quote.metadata : {};
-  const quality = Number.isFinite(Number(metadata.quality)) ? Number(metadata.quality) : 0;
+  const bundleCount = Number(quote.bundles || 1);
+  if (!Number.isSafeInteger(bundleCount) || bundleCount <= 0 || bundleCount > 10000) throw new Error('Cluster Shop bundle count is invalid.');
+
+  if (Array.isArray(metadata.deliveryItems) && metadata.deliveryItems.length) {
+    if (metadata.deliveryItems.length > 100) throw new Error('Cluster Shop kit contains too many delivery items.');
+    return {
+      Items: metadata.deliveryItems.map((item) => rewardItem({
+        blueprint: item?.blueprint,
+        amount: Number(item?.amount) * bundleCount,
+        quality: item?.quality,
+        forceBlueprint: item?.forceBlueprint
+      }))
+    };
+  }
+
   return {
-    Items: [{
-      Blueprint: blueprintRef(quote.blueprint),
-      Quality: Math.max(0, quality),
-      ForceBlueprint: metadata.forceBlueprint === true,
-      Amount: amount,
-      Armor: 0,
-      Durability: 0,
-      Damage: 0,
-      UseRandomQuality: false,
-      MinRandomQuality: 0,
-      MaxRandomQuality: 0,
-      UseRandomAmount: false,
-      MinRandomAmount: amount,
-      MaxRandomAmount: amount
-    }]
+    Items: [rewardItem({
+      blueprint: quote.blueprint,
+      amount: Number(quote.totalQuantity),
+      quality: metadata.quality,
+      forceBlueprint: metadata.forceBlueprint
+    })]
   };
 }
 
@@ -146,6 +170,7 @@ async function deliverShopOrderWithRewardsAscended({ prefix, order, client, env 
 module.exports = {
   rewardIdForShopOrder,
   blueprintRef,
+  rewardItem,
   itemRewardEntry,
   upsertShopReward,
   deliverShopOrderWithRewardsAscended
