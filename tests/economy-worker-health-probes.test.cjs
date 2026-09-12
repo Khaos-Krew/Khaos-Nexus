@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const {
   runtimeLiveness,
   runtimeOperationalReadiness,
+  publicWalletHealth,
   drainMutationGate,
   writeGate,
   walletReadAccrualPermitted,
@@ -52,6 +53,23 @@ test('liveness is process-local and does not inspect economy state', () => {
   });
 });
 
+test('public wallet health whitelists counters and redacts internal diagnostic text', () => {
+  assert.deepEqual(publicWalletHealth({
+    ok: false,
+    error: 'database password secret-value rejected at /private/path',
+    accounts: 2,
+    linkedArkIds: 3,
+    ledgerEntries: 4,
+    internalPath: '/private/path'
+  }), {
+    ok: false,
+    accounts: 2,
+    linkedArkIds: 3,
+    ledgerEntries: 4,
+    error: 'diagnostic-unavailable'
+  });
+});
+
 test('readiness is healthy in read-only migration mode without enabling writes', () => {
   const { worker, shop, calls } = healthyRuntime();
   const result = runtimeOperationalReadiness({ worker, shop, token: '', writesEnabled: false });
@@ -66,20 +84,21 @@ test('readiness is healthy in read-only migration mode without enabling writes',
   assert.equal(calls.mutation, 0);
 });
 
-test('readiness fails closed when the wallet store health check fails', () => {
-  const { worker, shop, calls } = healthyRuntime({ health: { ok: false, error: 'store-invalid' } });
+test('readiness fails closed when the wallet store health check fails without leaking diagnostics', () => {
+  const { worker, shop, calls } = healthyRuntime({ health: { ok: false, error: 'store-invalid-secret-detail' } });
   const result = runtimeOperationalReadiness({ worker, shop, token: 'configured', writesEnabled: true });
 
   assert.equal(result.statusCode, 503);
   assert.equal(result.body.ok, false);
   assert.equal(result.body.status, 'not-ready');
   assert.equal(result.body.draining, false);
-  assert.equal(result.body.error, 'store-invalid');
+  assert.equal(result.body.error, 'diagnostic-unavailable');
+  assert.equal(JSON.stringify(result.body).includes('store-invalid-secret-detail'), false);
   assert.equal(calls.mutation, 0);
 });
 
-test('readiness converts diagnostic exceptions into a non-mutating 503', () => {
-  const { worker, shop, calls } = healthyRuntime({ catalogError: new Error('catalog-unavailable') });
+test('readiness converts diagnostic exceptions into a redacted non-mutating 503', () => {
+  const { worker, shop, calls } = healthyRuntime({ catalogError: new Error('catalog-secret-bearing-detail') });
   const result = runtimeOperationalReadiness({ worker, shop, token: 'configured', writesEnabled: true });
 
   assert.equal(result.statusCode, 503);
@@ -88,8 +107,9 @@ test('readiness converts diagnostic exceptions into a non-mutating 503', () => {
     service: 'nexus-economy-worker',
     status: 'not-ready',
     draining: false,
-    error: 'catalog-unavailable'
+    error: 'diagnostic-unavailable'
   });
+  assert.equal(JSON.stringify(result.body).includes('catalog-secret-bearing-detail'), false);
   assert.equal(calls.mutation, 0);
 });
 
