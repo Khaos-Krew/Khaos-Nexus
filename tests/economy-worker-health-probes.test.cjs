@@ -4,7 +4,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   runtimeLiveness,
-  runtimeOperationalReadiness
+  runtimeOperationalReadiness,
+  createEconomyServer
 } = require('../src/economy-worker/server.cjs');
 
 function healthyRuntime(overrides = {}) {
@@ -55,6 +56,7 @@ test('readiness is healthy in read-only migration mode without enabling writes',
   assert.equal(result.statusCode, 200);
   assert.equal(result.body.ok, true);
   assert.equal(result.body.status, 'ready');
+  assert.equal(result.body.draining, false);
   assert.equal(result.body.migrationMode, 'read-only');
   assert.equal(result.body.checkoutReady, false);
   assert.equal(result.body.sellbackCreditReady, false);
@@ -68,6 +70,7 @@ test('readiness fails closed when the wallet store health check fails', () => {
   assert.equal(result.statusCode, 503);
   assert.equal(result.body.ok, false);
   assert.equal(result.body.status, 'not-ready');
+  assert.equal(result.body.draining, false);
   assert.equal(result.body.error, 'store-invalid');
   assert.equal(calls.mutation, 0);
 });
@@ -81,7 +84,46 @@ test('readiness converts diagnostic exceptions into a non-mutating 503', () => {
     ok: false,
     service: 'nexus-economy-worker',
     status: 'not-ready',
+    draining: false,
     error: 'catalog-unavailable'
   });
+  assert.equal(calls.mutation, 0);
+});
+
+test('readiness fails closed while a healthy worker is draining', () => {
+  const { worker, shop, calls } = healthyRuntime();
+  const result = runtimeOperationalReadiness({
+    worker,
+    shop,
+    token: 'configured',
+    writesEnabled: true,
+    lifecycle: { draining: true }
+  });
+
+  assert.equal(result.statusCode, 503);
+  assert.equal(result.body.ok, false);
+  assert.equal(result.body.status, 'draining');
+  assert.equal(result.body.draining, true);
+  assert.equal(result.body.checkoutReady, true);
+  assert.equal(calls.mutation, 0);
+});
+
+test('beginDrain is idempotent and flips operational readiness without mutating economy state', () => {
+  const { worker, shop, calls } = healthyRuntime();
+  const runtime = createEconomyServer({ worker, shop, token: 'configured', writesEnabled: true });
+
+  const before = runtime.operationalReadiness();
+  assert.equal(before.statusCode, 200);
+  assert.equal(before.body.status, 'ready');
+  assert.equal(runtime.isDraining(), false);
+
+  assert.equal(runtime.beginDrain('SIGTERM'), true);
+  assert.equal(runtime.beginDrain('SIGTERM'), false);
+  assert.equal(runtime.isDraining(), true);
+
+  const after = runtime.operationalReadiness();
+  assert.equal(after.statusCode, 503);
+  assert.equal(after.body.status, 'draining');
+  assert.equal(after.body.draining, true);
   assert.equal(calls.mutation, 0);
 });
