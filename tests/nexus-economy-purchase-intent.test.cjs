@@ -38,7 +38,8 @@ function fixture(balance = '1000', mode = 'shadow') {
       if (String(sql).includes('pg_catalog')) return { rows: READY_RELATIONS };
       if (String(sql).includes('nexus_economy_accounts')) return { rows: [{ balance }] };
       throw new Error(`unexpected query: ${sql}`);
-    }
+    },
+    connect: async () => { throw new Error('read-only intent path must not connect'); }
   };
   return {
     calls,
@@ -72,7 +73,10 @@ test('invalid request id is rejected before Postgres or catalog access', async (
   let queries = 0;
   let reads = 0;
   const intent = createNexusEconomyPurchaseIntent({
-    pool: { query: async () => { queries += 1; throw new Error('must not query'); } },
+    pool: {
+      query: async () => { queries += 1; throw new Error('must not query'); },
+      connect: async () => { throw new Error('must not connect'); }
+    },
     env: { NEXUS_ECONOMY_RUNTIME_MODE: 'shadow' },
     readFile: async () => { reads += 1; throw new Error('must not read'); }
   });
@@ -90,7 +94,10 @@ test('invalid Discord user id is rejected before Postgres or catalog access', as
   let queries = 0;
   let reads = 0;
   const intent = createNexusEconomyPurchaseIntent({
-    pool: { query: async () => { queries += 1; throw new Error('must not query'); } },
+    pool: {
+      query: async () => { queries += 1; throw new Error('must not query'); },
+      connect: async () => { throw new Error('must not connect'); }
+    },
     env: { NEXUS_ECONOMY_RUNTIME_MODE: 'shadow' },
     readFile: async () => { reads += 1; throw new Error('must not read'); }
   });
@@ -108,7 +115,10 @@ test('off mode remains inert and cannot create an intent', async () => {
   let queries = 0;
   let reads = 0;
   const intent = createNexusEconomyPurchaseIntent({
-    pool: { query: async () => { queries += 1; throw new Error('must not query'); } },
+    pool: {
+      query: async () => { queries += 1; throw new Error('must not query'); },
+      connect: async () => { throw new Error('must not connect'); }
+    },
     env: { NEXUS_ECONOMY_RUNTIME_MODE: 'off', NEXUS_ECONOMY_AUTHORITY: 'nexus' },
     readFile: async () => { reads += 1; throw new Error('must not read'); }
   });
@@ -147,7 +157,7 @@ test('shadow mode creates an immutable idempotency-ready intent without mutation
   assert.equal(result.projectedBalance, 550);
   assert.equal(result.shortfall, 0);
   assert.equal(data.reads, 1);
-  assert.equal(data.calls.some(({ sql }) => /INSERT|UPDATE|DELETE|CREATE|ALTER|DROP/i.test(sql)), false);
+  assert.equal(data.calls.some(({ sql }) => /\b(?:INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/i.test(sql)), false);
   assert.equal(JSON.stringify(result).includes('SpawnDinoInBall'), false);
   assert.equal(Object.isFrozen(result), true);
 });
