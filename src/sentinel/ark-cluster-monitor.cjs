@@ -1,14 +1,13 @@
 'use strict';
 
 const { ArkRconClient } = require('./ark-rcon.cjs');
+const { resolveRconServer } = require('./ark-rcon-config-store.cjs');
 
 function serverConnectionFromRecord(record = {}) {
   const prefix = String(record.envPrefix || '').trim().toUpperCase();
   if (!prefix) throw new Error('ARK cluster record has no environment prefix.');
   return {
-    host: String(process.env[`${prefix}_HOST`] || '').trim(),
-    port: Number(process.env[`${prefix}_RCON_PORT`] || 0),
-    password: String(process.env[`${prefix}_RCON_PASSWORD`] || ''),
+    ...resolveRconServer(prefix),
     queryPort: Number(process.env[`${prefix}_QUERY_PORT`] || 0),
     apiUrl: String(process.env[`${prefix}_API_URL`] || '').trim(),
     sftpHost: String(process.env[`${prefix}_SFTP_HOST`] || '').trim()
@@ -61,7 +60,7 @@ async function probeArkServer(record = {}, { RconClient = ArkRconClient, now = (
     };
   }
 
-  if (!record.connections?.rcon || !connection.host || !connection.port || !connection.password) {
+  if ((connection.source === 'discord-override' && !connection.enabled) || !record.connections?.rcon || !connection.host || !connection.port || !connection.password) {
     return {
       state: publicState(record, false),
       playerCount: 0,
@@ -113,6 +112,7 @@ function summarizeCluster(servers = []) {
 }
 
 async function pollCluster(registry, options = {}) {
+  registry.syncRconServers?.();
   const servers = registry.list({ includeDisabled: true });
   for (const server of servers) {
     const runtime = await probeArkServer(server, options);
