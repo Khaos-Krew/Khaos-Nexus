@@ -64,6 +64,16 @@ async function body(req) {
   return JSON.parse(Buffer.concat(chunks, bytes).toString('utf8'));
 }
 
+function publicRequestError(error) {
+  if (error?.message === 'Request body too large.') {
+    return { statusCode: 413, body: { ok: false, error: 'request-body-too-large' } };
+  }
+  if (error instanceof SyntaxError) {
+    return { statusCode: 400, body: { ok: false, error: 'invalid-json' } };
+  }
+  return { statusCode: 500, body: { ok: false, error: 'internal-error' } };
+}
+
 function publicWalletHealth(wallet = {}) {
   const summary = { ok: wallet?.ok === true };
   for (const key of ['accounts', 'linkedArkIds', 'ledgerEntries']) {
@@ -289,7 +299,8 @@ function createEconomyServer(options = {}) {
       return json(res, 404, { ok: false, error: 'not-found' });
     } catch (error) {
       console.error('[Nexus Economy Worker]', error);
-      return json(res, 400, { ok: false, error: String(error?.message || error).slice(0, 300) });
+      const response = publicRequestError(error);
+      return json(res, response.statusCode, response.body);
     }
   });
 
@@ -328,6 +339,7 @@ module.exports = {
   WRITE_PATHS,
   enabled,
   body,
+  publicRequestError,
   publicWalletHealth,
   runtimeReadiness,
   runtimeLegacyHealth,
