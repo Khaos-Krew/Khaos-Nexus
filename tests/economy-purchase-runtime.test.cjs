@@ -27,7 +27,7 @@ function executorDatabase() {
       action_id: record.actionId, capability: 'economy.purchase.execute', source: 'sentinel-v2.economy.purchase',
       actor: 'discord-user:123456789', subject: 'discord-user:123456789', destructive: false,
       status: 'requested', idempotency_key: record.orderId, correlation_id: record.requestId,
-      request: { orderId: record.orderId, payload: record.payload }
+      request: { type: 'nexus.economy.purchase', orderId: record.orderId, payload: record.payload }
     },
     order: {
       orderId: record.orderId, type: 'BUY', status: 'PAID_QUEUED', discordUserId: '123456789', eosId: 'EOS_verified',
