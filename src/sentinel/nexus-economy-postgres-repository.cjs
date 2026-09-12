@@ -189,7 +189,21 @@ class NexusEconomyPostgresRepository {
           [idempotencyKey]
         );
         const row = result.rows?.[0];
-        if (!row) return null;
+        if (!row) {
+          const tombstone = await client.query(
+            `SELECT idempotency_key, legacy_entry_id, source FROM ${this.schema}.nexus_economy_idempotency_tombstones WHERE idempotency_key = $1`,
+            [idempotencyKey]
+          );
+          const legacy = tombstone.rows?.[0];
+          if (!legacy) return null;
+          return {
+            id: null,
+            tombstone: true,
+            idempotencyKey: legacy.idempotency_key,
+            legacyEntryId: legacy.legacy_entry_id,
+            source: legacy.source
+          };
+        }
         return {
           id: row.id,
           economicIdentityId: row.economic_identity_id,
@@ -252,7 +266,7 @@ class NexusEconomyPostgresRepository {
       '  provider TEXT NOT NULL,',
       '  external_id TEXT NOT NULL,',
       `  economic_identity_id TEXT NOT NULL REFERENCES ${s}.nexus_economic_identities(economic_identity_id),`,
-      '  verified_at TIMESTAMPTZ NOT NULL,',
+      '  verified_at TIMESTAMPTZ,',
       '  source TEXT NOT NULL,',
       '  PRIMARY KEY (provider, external_id)',
       ');',
@@ -279,6 +293,12 @@ class NexusEconomyPostgresRepository {
       `  FOREIGN KEY (economic_identity_id, currency) REFERENCES ${s}.nexus_economy_wallets(economic_identity_id, currency)`,
       ');',
       `CREATE INDEX IF NOT EXISTS nexus_economy_ledger_identity_currency_created_idx ON ${s}.nexus_economy_ledger (economic_identity_id, currency, created_at DESC);`,
+      `CREATE TABLE IF NOT EXISTS ${s}.nexus_economy_idempotency_tombstones (`,
+      '  idempotency_key TEXT PRIMARY KEY,',
+      '  legacy_entry_id TEXT,',
+      "  source TEXT NOT NULL DEFAULT 'legacy-economy-json',",
+      '  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
+      ');',
       `CREATE TABLE IF NOT EXISTS ${s}.nexus_economy_orders (`,
       '  order_id TEXT PRIMARY KEY,',
       '  request_id TEXT NOT NULL UNIQUE,',
