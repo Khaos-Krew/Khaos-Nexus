@@ -93,6 +93,25 @@ function runtimeReadiness({ worker, shop, token, writesEnabled }) {
   };
 }
 
+function runtimeLegacyHealth({ worker, shop, token, writesEnabled }) {
+  try {
+    return {
+      statusCode: 200,
+      body: runtimeReadiness({ worker, shop, token, writesEnabled })
+    };
+  } catch {
+    return {
+      statusCode: 503,
+      body: {
+        ok: false,
+        service: 'nexus-economy-worker',
+        status: 'not-ready',
+        error: 'diagnostic-unavailable'
+      }
+    };
+  }
+}
+
 function runtimeLiveness() {
   return {
     ok: true,
@@ -199,7 +218,8 @@ function createEconomyServer(options = {}) {
       }
 
       if (req.method === 'GET' && url.pathname === '/health') {
-        return json(res, 200, runtimeReadiness({ worker, shop, token, writesEnabled }));
+        const probe = runtimeLegacyHealth({ worker, shop, token, writesEnabled });
+        return json(res, probe.statusCode, probe.body);
       }
 
       if (!authorized(req, token)) return json(res, 401, { ok: false, error: 'unauthorized' });
@@ -310,6 +330,7 @@ module.exports = {
   body,
   publicWalletHealth,
   runtimeReadiness,
+  runtimeLegacyHealth,
   runtimeLiveness,
   runtimeOperationalReadiness,
   drainMutationGate,
