@@ -6,14 +6,21 @@ const assert = require('node:assert/strict');
 const { createNexusEconomyWalletReadService } = require('../src/sentinel/nexus-economy-wallet-read-service.cjs');
 
 const READY_RELATIONS = [
-  { relation_name: 'nexus_economy_accounts' },
-  { relation_name: 'nexus_economy_ledger' },
-  { relation_name: 'nexus_economy_audit' }
+  { relname: 'nexus_economy_accounts', relkind: 'r' },
+  { relname: 'nexus_economy_ledger', relkind: 'r' },
+  { relname: 'nexus_economy_audit', relkind: 'r' }
 ];
+
+function readOnlyPool(query) {
+  return {
+    query,
+    connect: async () => { throw new Error('read-only path must not open a transaction'); }
+  };
+}
 
 test('off mode returns unavailable wallet without querying Postgres', async () => {
   let queries = 0;
-  const pool = { query: async () => { queries += 1; throw new Error('must not query'); } };
+  const pool = readOnlyPool(async () => { queries += 1; throw new Error('must not query'); });
   const service = createNexusEconomyWalletReadService({
     pool,
     env: { NEXUS_ECONOMY_RUNTIME_MODE: 'off' }
@@ -33,7 +40,7 @@ test('off mode returns unavailable wallet without querying Postgres', async () =
 
 test('off mode wallet snapshot is inert and returns no ledger entries', async () => {
   let queries = 0;
-  const pool = { query: async () => { queries += 1; throw new Error('must not query'); } };
+  const pool = readOnlyPool(async () => { queries += 1; throw new Error('must not query'); });
   const service = createNexusEconomyWalletReadService({
     pool,
     env: { NEXUS_ECONOMY_RUNTIME_MODE: 'off' }
@@ -54,14 +61,12 @@ test('off mode wallet snapshot is inert and returns no ledger entries', async ()
 
 test('shadow-ready mode allows a read-only wallet balance lookup', async () => {
   const calls = [];
-  const pool = {
-    query: async (sql, params) => {
-      calls.push({ sql, params });
-      if (String(sql).includes('pg_catalog')) return { rows: READY_RELATIONS };
-      if (String(sql).includes('nexus_economy_accounts')) return { rows: [{ balance: '250' }] };
-      throw new Error(`unexpected query: ${sql}`);
-    }
-  };
+  const pool = readOnlyPool(async (sql, params) => {
+    calls.push({ sql, params });
+    if (String(sql).includes('pg_catalog')) return { rows: READY_RELATIONS };
+    if (String(sql).includes('nexus_economy_accounts')) return { rows: [{ balance: '250' }] };
+    throw new Error(`unexpected query: ${sql}`);
+  });
   const service = createNexusEconomyWalletReadService({
     pool,
     env: {
@@ -80,31 +85,29 @@ test('shadow-ready mode allows a read-only wallet balance lookup', async () => {
     balance: 250
   });
   assert.equal(calls.length, 2);
-  assert.equal(calls.some(({ sql }) => /INSERT|UPDATE|DELETE|CREATE|ALTER|DROP/i.test(String(sql))), false);
+  assert.equal(calls.some(({ sql }) => /\b(?:INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/i.test(String(sql))), false);
 });
 
 test('shadow-ready wallet snapshot returns balance and sanitized recent ledger history only', async () => {
   const calls = [];
-  const pool = {
-    query: async (sql, params) => {
-      calls.push({ sql, params });
-      if (String(sql).includes('pg_catalog')) return { rows: READY_RELATIONS };
-      if (String(sql).includes('nexus_economy_accounts')) return { rows: [{ balance: '250' }] };
-      if (String(sql).includes('nexus_economy_ledger')) {
-        return {
-          rows: [{
-            id: '41',
-            amount: '25',
-            balance_after: '250',
-            entry_type: 'cache-token-credit',
-            source: 'dino-cache',
-            created_at: '2026-09-11T12:00:00.000Z'
-          }]
-        };
-      }
-      throw new Error(`unexpected query: ${sql}`);
+  const pool = readOnlyPool(async (sql, params) => {
+    calls.push({ sql, params });
+    if (String(sql).includes('pg_catalog')) return { rows: READY_RELATIONS };
+    if (String(sql).includes('nexus_economy_accounts')) return { rows: [{ balance: '250' }] };
+    if (String(sql).includes('nexus_economy_ledger')) {
+      return {
+        rows: [{
+          id: '41',
+          amount: '25',
+          balance_after: '250',
+          entry_type: 'cache-token-credit',
+          source: 'dino-cache',
+          created_at: '2026-09-11T12:00:00.000Z'
+        }]
+      };
     }
-  };
+    throw new Error(`unexpected query: ${sql}`);
+  });
   const service = createNexusEconomyWalletReadService({
     pool,
     env: {
@@ -132,14 +135,14 @@ test('shadow-ready wallet snapshot returns balance and sanitized recent ledger h
   });
   assert.equal(calls.length, 3);
   assert.deepEqual(calls[2].params, ['123456789', 5]);
-  assert.equal(calls.some(({ sql }) => /INSERT|UPDATE|DELETE|CREATE|ALTER|DROP/i.test(String(sql))), false);
+  assert.equal(calls.some(({ sql }) => /\b(?:INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/i.test(String(sql))), false);
   assert.equal(JSON.stringify(result).includes('idempotency'), false);
   assert.equal(JSON.stringify(result).includes('metadata'), false);
 });
 
 test('wallet snapshot rejects invalid ledger limits before any database access', async () => {
   let queries = 0;
-  const pool = { query: async () => { queries += 1; throw new Error('must not query'); } };
+  const pool = readOnlyPool(async () => { queries += 1; throw new Error('must not query'); });
   const service = createNexusEconomyWalletReadService({
     pool,
     env: {
@@ -154,12 +157,10 @@ test('wallet snapshot rejects invalid ledger limits before any database access',
 
 test('readiness failure fails closed before wallet balance query', async () => {
   let queries = 0;
-  const pool = {
-    query: async () => {
-      queries += 1;
-      throw new Error('postgres://user:password@private-host/db');
-    }
-  };
+  const pool = readOnlyPool(async () => {
+    queries += 1;
+    throw new Error('postgres://user:password@private-host/db');
+  });
   const service = createNexusEconomyWalletReadService({
     pool,
     env: {
@@ -181,13 +182,11 @@ test('readiness failure fails closed before wallet balance query', async () => {
 
 test('invalid Discord user id is rejected before account read after readiness succeeds', async () => {
   let queries = 0;
-  const pool = {
-    query: async (sql) => {
-      queries += 1;
-      if (String(sql).includes('pg_catalog')) return { rows: READY_RELATIONS };
-      throw new Error('account query should not run');
-    }
-  };
+  const pool = readOnlyPool(async (sql) => {
+    queries += 1;
+    if (String(sql).includes('pg_catalog')) return { rows: READY_RELATIONS };
+    throw new Error('account query should not run');
+  });
   const service = createNexusEconomyWalletReadService({
     pool,
     env: {

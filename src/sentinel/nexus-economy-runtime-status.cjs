@@ -21,6 +21,7 @@ async function inspectNexusEconomyRuntimeStatus({ pool, schema = 'public', env =
       ready: false,
       databaseChecked: false,
       mutationAllowed: false,
+      reason: activation.reason,
       activation
     });
   }
@@ -51,6 +52,7 @@ async function inspectNexusEconomyRuntimeStatus({ pool, schema = 'public', env =
     ready: activation.allowed === true,
     databaseChecked: true,
     mutationAllowed: activation.mutationAllowed === true,
+    reason: activation.reason,
     activation,
     readiness
   });

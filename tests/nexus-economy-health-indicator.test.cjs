@@ -38,15 +38,10 @@ test('off indicator is healthy and performs zero database queries', async () => 
 
 test('database failure produces sanitized unhealthy indicator', async () => {
   const pool = { query: async () => { throw new Error('postgres://user:password@private-host/db'); } };
-
   const indicator = await getNexusEconomyHealthIndicator({
     pool,
-    env: {
-      NEXUS_ECONOMY_RUNTIME_MODE: 'shadow',
-      NEXUS_ECONOMY_AUTHORITY: 'nexus'
-    }
+    env: { NEXUS_ECONOMY_RUNTIME_MODE: 'shadow', NEXUS_ECONOMY_AUTHORITY: 'nexus' }
   });
-
   assert.equal(indicator.healthy, false);
   assert.equal(indicator.state, 'degraded');
   assert.equal(indicator.mutationAllowed, false);
@@ -60,19 +55,16 @@ test('shadow-ready indicator remains non-mutating', async () => {
   const pool = {
     query: async () => ({
       rows: [
-        { relation_name: 'nexus_economy_accounts' },
-        { relation_name: 'nexus_economy_ledger' },
-        { relation_name: 'nexus_economy_audit' }
+        { relname: 'nexus_economy_accounts', relkind: 'r' },
+        { relname: 'nexus_economy_ledger', relkind: 'r' },
+        { relname: 'nexus_economy_audit', relkind: 'r' }
       ]
     })
   };
 
   const indicator = await getNexusEconomyHealthIndicator({
     pool,
-    env: {
-      NEXUS_ECONOMY_RUNTIME_MODE: 'shadow',
-      NEXUS_ECONOMY_AUTHORITY: 'nexus'
-    }
+    env: { NEXUS_ECONOMY_RUNTIME_MODE: 'shadow', NEXUS_ECONOMY_AUTHORITY: 'nexus' }
   });
 
   assert.equal(indicator.healthy, true);

@@ -6,9 +6,9 @@ const assert = require('node:assert/strict');
 const { createNexusEconomyStorefrontReadService } = require('../src/sentinel/nexus-economy-storefront-read-service.cjs');
 
 const READY_RELATIONS = [
-  { relation_name: 'nexus_economy_accounts' },
-  { relation_name: 'nexus_economy_ledger' },
-  { relation_name: 'nexus_economy_audit' }
+  { relname: 'nexus_economy_accounts', relkind: 'r' },
+  { relname: 'nexus_economy_ledger', relkind: 'r' },
+  { relname: 'nexus_economy_audit', relkind: 'r' }
 ];
 
 const CATALOG = {
@@ -38,11 +38,18 @@ const CATALOG = {
   }
 };
 
+function readOnlyPool(query) {
+  return {
+    query,
+    connect: async () => { throw new Error('read-only path must not open a transaction'); }
+  };
+}
+
 test('off mode storefront is inert: no Postgres query and no catalog read', async () => {
   let queries = 0;
   let reads = 0;
   const service = createNexusEconomyStorefrontReadService({
-    pool: { query: async () => { queries += 1; throw new Error('must not query'); } },
+    pool: readOnlyPool(async () => { queries += 1; throw new Error('must not query'); }),
     env: { NEXUS_ECONOMY_RUNTIME_MODE: 'off' },
     readFile: async () => { reads += 1; throw new Error('must not read'); }
   });
@@ -66,14 +73,12 @@ test('off mode storefront is inert: no Postgres query and no catalog read', asyn
 test('shadow-ready storefront joins wallet balance to sanitized catalog without enabling purchase', async () => {
   const calls = [];
   let reads = 0;
-  const pool = {
-    query: async (sql, params) => {
-      calls.push({ sql, params });
-      if (String(sql).includes('pg_catalog')) return { rows: READY_RELATIONS };
-      if (String(sql).includes('nexus_economy_accounts')) return { rows: [{ balance: '250' }] };
-      throw new Error(`unexpected query: ${sql}`);
-    }
-  };
+  const pool = readOnlyPool(async (sql, params) => {
+    calls.push({ sql, params });
+    if (String(sql).includes('pg_catalog')) return { rows: READY_RELATIONS };
+    if (String(sql).includes('nexus_economy_accounts')) return { rows: [{ balance: '250' }] };
+    throw new Error(`unexpected query: ${sql}`);
+  });
   const service = createNexusEconomyStorefrontReadService({
     pool,
     env: {
@@ -134,13 +139,11 @@ test('shadow-ready storefront joins wallet balance to sanitized catalog without 
 });
 
 test('catalog failure is sanitized and keeps purchasing disabled', async () => {
-  const pool = {
-    query: async (sql) => {
-      if (String(sql).includes('pg_catalog')) return { rows: READY_RELATIONS };
-      if (String(sql).includes('nexus_economy_accounts')) return { rows: [{ balance: '400' }] };
-      throw new Error(`unexpected query: ${sql}`);
-    }
-  };
+  const pool = readOnlyPool(async (sql) => {
+    if (String(sql).includes('pg_catalog')) return { rows: READY_RELATIONS };
+    if (String(sql).includes('nexus_economy_accounts')) return { rows: [{ balance: '400' }] };
+    throw new Error(`unexpected query: ${sql}`);
+  });
   const service = createNexusEconomyStorefrontReadService({
     pool,
     env: {

@@ -70,9 +70,9 @@ test('shadow-ready snapshot never reports mutations allowed', async () => {
   const pool = {
     query: async () => ({
       rows: [
-        { relation_name: 'nexus_economy_accounts' },
-        { relation_name: 'nexus_economy_ledger' },
-        { relation_name: 'nexus_economy_audit' }
+        { relname: 'nexus_economy_accounts', relkind: 'r' },
+        { relname: 'nexus_economy_ledger', relkind: 'r' },
+        { relname: 'nexus_economy_audit', relkind: 'r' }
       ]
     })
   };

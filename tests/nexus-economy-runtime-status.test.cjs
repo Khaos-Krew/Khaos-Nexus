@@ -34,7 +34,10 @@ test('shadow mode performs only the readiness query and never permits mutation',
 
   const status = await inspectNexusEconomyRuntimeStatus({
     pool,
-    env: { NEXUS_ECONOMY_RUNTIME_MODE: 'shadow' }
+    env: {
+      NEXUS_ECONOMY_RUNTIME_MODE: 'shadow',
+      NEXUS_ECONOMY_AUTHORITY: 'nexus'
+    }
   });
 
   assert.equal(queries, 1);

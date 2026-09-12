@@ -15,8 +15,11 @@ test('economy activation defaults to off and denies mutation', () => {
   assert.equal(result.mutationAllowed, false);
 });
 
-test('shadow mode requires durable readiness but never permits mutation', () => {
-  const env = { NEXUS_ECONOMY_RUNTIME_MODE: 'shadow' };
+test('shadow mode requires durable readiness and Nexus authority but never permits mutation', () => {
+  const env = {
+    NEXUS_ECONOMY_RUNTIME_MODE: 'shadow',
+    NEXUS_ECONOMY_AUTHORITY: 'nexus'
+  };
   const blocked = evaluateNexusEconomyActivation({ readiness: { ready: false }, env });
   assert.equal(blocked.allowed, false);
   assert.equal(blocked.reason, 'economy-not-ready');
