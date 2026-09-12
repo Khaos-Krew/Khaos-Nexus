@@ -221,6 +221,12 @@ function createEconomyServer(options = {}) {
 
       const input = await body(req);
 
+      // Re-evaluate mutation eligibility after body parsing. A request may have passed
+      // the pre-body gate just before graceful drain began and then spent time streaming
+      // its body; it must not be allowed to mutate state after the lifecycle changed.
+      const executionGate = mutationRequestGate(url.pathname, { writesEnabled, lifecycle });
+      if (executionGate) return json(res, executionGate.statusCode, executionGate.body);
+
       // Identity linking is safe to stage before financial cutover because it does
       // not credit, debit, accrue, deliver, or remove anything from ARK. It is still
       // a state mutation, so mutationRequestGate rejects it once graceful drain begins.
