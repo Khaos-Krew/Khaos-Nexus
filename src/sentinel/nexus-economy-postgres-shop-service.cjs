@@ -67,6 +67,16 @@ class NexusEconomyPostgresShopService {
     const identityDigest = digest(`${discord}\u0000${idem}`);
     const requestId = `req_${identityDigest.slice(0, 40)}`;
     const orderId = `shop_${identityDigest.slice(0, 40)}`;
+    const prior = await this.repository.getOrder(orderId);
+    if (prior) {
+      const identity = await this.repository.resolveVerifiedIdentity({ discordUserId: discord, eosId: eos });
+      if (!identity || identity.economic_identity_id !== prior.economicIdentityId ||
+          prior.discordUserId !== discord || prior.eosId !== eos || prior.currency !== 'NEXUS_POINTS' ||
+          !sameQuote(prior.quote, quote) || prior.quote.server !== String(server || 'where-playing').slice(0, 64)) {
+        throw new Error('Order idempotency key is already bound to another purchase.');
+      }
+      return { ok: true, duplicate: true, order: prior, currency: prior.currency, balance: prior.balance };
+    }
     const balance = await this.wallet.balance(discord, 'NEXUS_POINTS');
     if (balance < quote.totalPrice) return { ok: false, reason: 'insufficient-funds', currency: 'NEXUS_POINTS', balance };
     const projectedBalance = balance - quote.totalPrice;

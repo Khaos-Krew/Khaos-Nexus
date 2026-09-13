@@ -277,13 +277,13 @@ function createEconomyServer(options = {}) {
       // Reject unknown POST routes before reading their bodies. Authenticated callers
       // cannot use a nonexistent route with a slow/chunked body to consume most of the
       // request or graceful-shutdown budget before receiving the inevitable 404.
-      if (!POST_PATHS.has(url.pathname)) return json(res, 404, { ok: false, error: 'not-found' });
 
       // Reject blocked mutations before reading their request bodies. During drain or
       // read-only migration this prevents slow/oversized bodies from consuming the
       // shutdown window for requests that cannot be accepted anyway.
       const mutationGate = mutationRequestGate(url.pathname, { writesEnabled, lifecycle });
       if (mutationGate) return json(res, mutationGate.statusCode, mutationGate.body);
+      if (!POST_PATHS.has(url.pathname)) return json(res, 404, { ok: false, error: 'not-found' });
 
       const input = await body(req);
 
