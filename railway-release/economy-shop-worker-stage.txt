@@ -1,0 +1,14 @@
+Nexus Economy / ARK Cluster Shop staged release marker
+
+Purpose: trigger production CI + Railway deployment for the inert Sentinel-v2 purchase worker stage after wallet relink cutover.
+
+Safety state at this stage:
+- Postgres wallet authority: enabled
+- identity relink: enabled and verified
+- economy financial writes: disabled
+- purchase outbox projection: disabled
+- purchase execution: disabled
+- Sentinel mutations: disabled / dry-run
+- legacy Cluster Shop delivery worker: disabled
+
+No customer purchase or ARK reward delivery is activated by this marker.
