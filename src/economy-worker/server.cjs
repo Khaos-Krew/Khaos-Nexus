@@ -71,6 +71,13 @@ function readPathId(pathname, prefix) {
   }
 }
 
+function requestObject(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new EconomyRequestError('invalid-json-object', 'JSON request body must be an object.');
+  }
+  return value;
+}
+
 async function body(req) {
   const declaredLength = String(req.headers?.['content-length'] || '').trim();
   if (/^\d+$/.test(declaredLength) && Number(declaredLength) > MAX_REQUEST_BODY_BYTES) {
@@ -90,7 +97,7 @@ async function body(req) {
 
   if (bytes === 0) return {};
   try {
-    return JSON.parse(Buffer.concat(chunks, bytes).toString('utf8'));
+    return requestObject(JSON.parse(Buffer.concat(chunks, bytes).toString('utf8')));
   } catch (error) {
     if (error instanceof SyntaxError) {
       throw new EconomyRequestError('invalid-json', 'Invalid JSON request body.');
@@ -105,6 +112,9 @@ function publicRequestError(error) {
   }
   if (error instanceof EconomyRequestError && error.code === 'invalid-json') {
     return { statusCode: 400, body: { ok: false, error: 'invalid-json' } };
+  }
+  if (error instanceof EconomyRequestError && error.code === 'invalid-json-object') {
+    return { statusCode: 400, body: { ok: false, error: 'invalid-json-object' } };
   }
   return { statusCode: 500, body: { ok: false, error: 'internal-error' } };
 }
@@ -384,6 +394,7 @@ module.exports = {
   enabled,
   authorized,
   readPathId,
+  requestObject,
   body,
   publicRequestError,
   publicWalletHealth,
