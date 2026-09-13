@@ -1,11 +1,48 @@
 'use strict';
 
 const { NexusEconomyPostgresRepository, sqlIdent } = require('./nexus-economy-postgres-repository.cjs');
+const { deterministicEconomicIdentityId } = require('./nexus-economy-json-postgres-migration.cjs');
+const { validDiscordId, validEosId } = require('./ark-identity-store.cjs');
 
 class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresRepository {
   constructor(options = {}) {
     super(options);
     this.runtimeSchema = sqlIdent(options.schema || 'public');
+  }
+
+  // Called only after the runtime verifies the Sentinel proof. No balance changes.
+  async linkVerifiedIdentity({ discordUserId, eosId, verifiedAt } = {}) {
+    if (!validDiscordId(discordUserId) || !validEosId(eosId) || !Number.isFinite(Date.parse(verifiedAt))) throw new Error('Invalid verified identity.');
+    const s = this.runtimeSchema;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      // Serialize link ownership changes with each other and migration inserts.
+      await client.query(`LOCK TABLE ${s}.nexus_economic_identity_links IN SHARE ROW EXCLUSIVE MODE`);
+      const links = await client.query(
+        `SELECT provider, external_id, economic_identity_id, verified_at FROM ${s}.nexus_economic_identity_links WHERE (provider = 'discord' AND external_id = $1) OR (provider = 'eos' AND external_id = $2) FOR UPDATE`,
+        [discordUserId, eosId]
+      );
+      const discord = links.rows.find((row) => row.provider === 'discord');
+      const eos = links.rows.find((row) => row.provider === 'eos');
+      const economicIdentityId = discord?.economic_identity_id || deterministicEconomicIdentityId(discordUserId);
+      if (eos && eos.economic_identity_id !== economicIdentityId) throw new Error('EOS identity is already owned by another economic identity.');
+      await client.query(`INSERT INTO ${s}.nexus_economic_identities (economic_identity_id, status) VALUES ($1, 'restricted') ON CONFLICT DO NOTHING`, [economicIdentityId]);
+      const identity = await client.query(`SELECT status FROM ${s}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`, [economicIdentityId]);
+      if (identity.rows[0]?.status === 'disabled') throw new Error('Economic identity is disabled.');
+      for (const [provider, externalId] of [['discord', discordUserId], ['eos', eosId]]) {
+        await client.query(
+          `INSERT INTO ${s}.nexus_economic_identity_links (provider, external_id, economic_identity_id, verified_at, source) VALUES ($1,$2,$3,$4,'sentinel-ownership-proof') ON CONFLICT (provider, external_id) DO UPDATE SET verified_at = COALESCE(nexus_economic_identity_links.verified_at, EXCLUDED.verified_at)`,
+          [provider, externalId, economicIdentityId, verifiedAt]
+        );
+      }
+      await client.query(`UPDATE ${s}.nexus_economic_identities SET status = 'verified', updated_at = NOW() WHERE economic_identity_id = $1`, [economicIdentityId]);
+      await client.query('COMMIT');
+      return { ok: true, duplicate: Boolean(discord?.verified_at && eos?.verified_at), economicIdentityId };
+    } catch (error) {
+      try { await client.query('ROLLBACK'); } catch {}
+      throw error;
+    } finally { client.release(); }
   }
 
   async getOrder(orderId) {

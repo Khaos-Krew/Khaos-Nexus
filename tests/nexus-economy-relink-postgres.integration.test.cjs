@@ -1,0 +1,76 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { Pool } = require('pg');
+const { createPostgresEconomyRuntime } = require('../src/economy-worker/postgres-runtime.cjs');
+const { createEconomyServer } = require('../src/economy-worker/server.cjs');
+const { ArkIdentityStore } = require('../src/sentinel/ark-identity-store.cjs');
+const { createArkIdentityWebhookRuntime } = require('../src/sentinel/ark-identity-webhook-runtime.cjs');
+const { signatureDigest } = require('../src/sentinel/ark-identity-webhook.cjs');
+const { withIdentityProof } = require('../src/sentinel/nexus-economy-identity-proof.cjs');
+const { applyLegacyJsonMigration, deterministicEconomicIdentityId } = require('../src/sentinel/nexus-economy-json-postgres-migration.cjs');
+
+test('real Postgres relink preserves migrated wallet, proves ownership, rejects conflicts and survives restart with spending off', { skip: !process.env.NEXUS_TEST_POSTGRES_URL }, async () => {
+  const url = process.env.NEXUS_TEST_POSTGRES_URL;
+  assert.ok(['127.0.0.1', 'localhost', '::1', '[::1]'].includes(new URL(url).hostname), 'integration database must be local');
+  const schema = `relink_${crypto.randomBytes(8).toString('hex')}`;
+  const admin = new Pool({ connectionString: url });
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-pg-relink-'));
+  const secret = 'isolated-identity-proof-secret-'.repeat(2);
+  const now = Date.now();
+  const discordUserId = '123456789012345678';
+  const eosId = 'EOS_RELINK_12345678';
+  let runtime;
+  let server;
+  try {
+    await admin.query(`CREATE SCHEMA "${schema}"`);
+    const env = { NEXUS_ECONOMY_DATABASE_URL: url, NEXUS_ECONOMY_SCHEMA: schema, NEXUS_ECONOMY_IDENTITY_LINKS_ENABLED: 'true', NEXUS_ECONOMY_IDENTITY_PROOF_SECRET: secret };
+    runtime = await createPostgresEconomyRuntime({ env, now: () => now });
+    const legacy = { version: 1, updatedAt: new Date(now).toISOString(), accounts: { [discordUserId]: { discordUserId, balance: 73, eosIds: [] } }, eosToDiscord: {}, ledger: [], processed: {} };
+    await applyLegacyJsonMigration({ pool: runtime.pool, schema, state: legacy, dryRun: false });
+    const store = new ArkIdentityStore({ root, secret, now: () => now });
+    const challenge = store.issueChallenge(discordUserId);
+    const httpRuntime = createEconomyServer({ worker: runtime.worker, shop: runtime.shop, token: secret, writesEnabled: false });
+    server = httpRuntime.server;
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const post = (route, body) => fetch(`http://127.0.0.1:${server.address().port}${route}`, { method: 'POST', headers: { authorization: `Bearer ${secret}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    assert.ok((await post('/identity/link', { discordUserId, eosId })).status >= 400);
+    const economyClient = { configured: () => true, async linkIdentity(input) {
+      const account = store.profileByArk(input.eosId).arkAccounts.find((a) => a.eosId === input.eosId);
+      const response = await post('/identity/link', withIdentityProof(input, account, { secret, now }));
+      assert.equal(response.status, 200);
+      return response.json();
+    } };
+    const webhook = () => createArkIdentityWebhookRuntime({ store: new ArkIdentityStore({ root, secret, now: () => now }), economyClient, secret, enabled: true, now: () => now });
+    const rawBody = Buffer.from(JSON.stringify({ source: 'rewardsascended', eventId: 'pg-proof-1', code: challenge.code, eosId, mapId: 'gen1' }));
+    const request = { rawBody, headers: { 'x-nexus-timestamp': String(now), 'x-nexus-signature': signatureDigest(secret, String(now), rawBody) } };
+    assert.equal((await webhook().process(request)).status, 202);
+    assert.equal((await webhook().process(request)).duplicate, true);
+    assert.equal(await runtime.worker.balance(discordUserId), 73);
+    assert.equal((await runtime.repository.resolveVerifiedIdentity({ discordUserId, eosId })).economic_identity_id, deterministicEconomicIdentityId(discordUserId));
+    const proof = (discord, eos) => withIdentityProof({ discordUserId: discord, eosId: eos }, { verifiedAt: new Date(now).toISOString() }, { secret, now });
+    const conflicts = await Promise.allSettled(['987654321', '987654322'].map((discord) => runtime.worker.linkArkIdentity(proof(discord, eosId))));
+    assert.ok(conflicts.every((result) => result.status === 'rejected'));
+    const contenders = await Promise.allSettled(['987654321', '987654322'].map((discord) => runtime.worker.linkArkIdentity(proof(discord, 'EOS_CONCURRENT_123'))));
+    assert.equal(contenders.filter((result) => result.status === 'fulfilled').length, 1);
+    assert.equal((await post('/wallet/spend', { discordUserId, amount: 1, orderId: 'denied' })).status, 503);
+    await applyLegacyJsonMigration({ pool: runtime.pool, schema, state: legacy, dryRun: false });
+    assert.equal(await runtime.worker.balance(discordUserId), 73);
+    assert.deepEqual(await runtime.worker.balances(discordUserId), { NEXUS_COINS: 0, NEXUS_POINTS: 73, DINO_CACHE_TOKENS: 0 });
+    assert.equal(Number((await runtime.pool.query(`SELECT count(*) FROM "${schema}".nexus_economy_wallets`)).rows[0].count), 1);
+    await runtime.close();
+    runtime = await createPostgresEconomyRuntime({ env, now: () => now });
+    assert.equal((await runtime.worker.linkArkIdentity(proof(discordUserId, eosId))).duplicate, true);
+    assert.equal(await runtime.worker.balance(discordUserId), 73);
+  } finally {
+    if (server) await new Promise((resolve) => server.close(resolve));
+    if (runtime) await runtime.close();
+    await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+    await admin.end();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

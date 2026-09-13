@@ -3,6 +3,7 @@
 const { ArkIdentityStore } = require('./ark-identity-store.cjs');
 const { ArkAccountLinkService } = require('./ark-account-linking.cjs');
 const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
+const { withIdentityProof } = require('./nexus-economy-identity-proof.cjs');
 const { MAX_BODY_BYTES, handleArkIdentityWebhook } = require('./ark-identity-webhook.cjs');
 
 const IDENTITY_WEBHOOK_ROUTE = '/ark/identity/link';
@@ -27,11 +28,12 @@ async function syncLinkedIdentityToEconomy({ store, economyClient, event, result
     throw new Error('Verified ARK identity could not be resolved for Nexus economy sync.');
   }
 
-  await economyClient.linkIdentity({
+  const account = profile.arkAccounts?.find((item) => item.eosId === eosId);
+  await economyClient.linkIdentity(withIdentityProof({
     discordUserId: profile.discordUserId,
     eosId,
     rankId: profile.rankId || 'shadow-recruit'
-  });
+  }, account));
   return { ok: true, discordUserId: profile.discordUserId, eosId };
 }
 

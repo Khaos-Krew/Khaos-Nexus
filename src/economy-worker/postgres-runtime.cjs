@@ -4,6 +4,7 @@ const { Pool } = require('pg');
 const { NexusEconomyWalletCore } = require('../sentinel/nexus-economy-wallet-core.cjs');
 const { NexusEconomyPostgresRuntimeRepository } = require('../sentinel/nexus-economy-postgres-runtime-repository.cjs');
 const { NexusEconomyPostgresShopService } = require('../sentinel/nexus-economy-postgres-shop-service.cjs');
+const { verifyIdentityProof } = require('../sentinel/nexus-economy-identity-proof.cjs');
 
 function postgresEnabled(env = process.env) {
   return String(env.NEXUS_ECONOMY_STORAGE || '').trim().toLowerCase() === 'postgres';
@@ -37,7 +38,11 @@ async function createPostgresEconomyRuntime({ env = process.env, now } = {}) {
     spend(input = {}) { return walletCore.spend({ ...input, currency: input.currency || 'NEXUS_POINTS' }); },
     async recordPresence() { return { ok: false, reason: 'postgres-presence-accrual-not-enabled' }; },
     async accrueOffline() { return { ok: false, reason: 'postgres-passive-accrual-not-enabled' }; },
-    linkArkIdentity() { throw new Error('Economic identity links require verification and cannot be self-created through the wallet API.'); }
+    linkArkIdentity(input) {
+      if (env.NEXUS_ECONOMY_IDENTITY_LINKS_ENABLED !== 'true') throw new Error('Economic identity linking is disabled.');
+      const verified = verifyIdentityProof(input, { secret: env.NEXUS_ECONOMY_IDENTITY_PROOF_SECRET, now: now ? now() : Date.now() });
+      return repository.linkVerifiedIdentity(verified);
+    }
   });
   const shop = new NexusEconomyPostgresShopService({ wallet: walletCore, repository });
 

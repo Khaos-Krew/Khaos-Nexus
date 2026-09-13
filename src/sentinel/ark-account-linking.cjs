@@ -169,15 +169,12 @@ class ArkAccountLinkService {
     const normalized = normalizeTrustedIdentityEvent(event);
     if (!normalized.ok) return normalized;
     const identityEvent = normalized.event;
-    const fingerprint = crypto.createHash('sha256')
-      .update(`trusted\n${identityEvent.source}\n${identityEvent.eventId}`)
-      .digest('hex');
-    if (!this.rememberFingerprint(fingerprint)) return { ok: true, duplicate: true, ignored: true };
     return this.store.verifyChallenge({
       code: identityEvent.code,
       eosId: identityEvent.eosId,
       playerName: identityEvent.playerName,
-      mapId: identityEvent.mapId
+      mapId: identityEvent.mapId,
+      trustedEvent: identityEvent
     });
   }
 

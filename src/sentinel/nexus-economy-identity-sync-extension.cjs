@@ -3,6 +3,7 @@
 const { Client, Events } = require('discord.js');
 const { ArkIdentityStore } = require('./ark-identity-store.cjs');
 const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
+const { withIdentityProof } = require('./nexus-economy-identity-proof.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.economy.identity.sync.installed');
 const INITIAL_DELAY_MS = 15_000;
@@ -16,11 +17,11 @@ async function syncVerifiedIdentities({ identityStore = new ArkIdentityStore(), 
   for (const [discordUserId, profile] of Object.entries(state.profiles || {})) {
     for (const account of profile.arkAccounts || []) {
       try {
-        await economyClient.linkIdentity({
+        await economyClient.linkIdentity(withIdentityProof({
           discordUserId,
           eosId: account.eosId,
           rankId: profile.rankId || 'shadow-recruit'
-        });
+        }, account));
         linked += 1;
       } catch (error) {
         failed += 1;
