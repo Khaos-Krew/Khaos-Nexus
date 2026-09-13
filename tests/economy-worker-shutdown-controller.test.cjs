@@ -8,7 +8,7 @@ const {
   createEconomyShutdownController,
 } = require('../src/economy-worker/shutdown-controller.cjs');
 
-test('economy shutdown starts drain only once across multiple signals', () => {
+test('economy shutdown starts drain only once across multiple signals', async () => {
   const calls = [];
   const timer = { unref() { calls.push(['unref']); } };
   let onClosed;
@@ -51,8 +51,34 @@ test('economy shutdown starts drain only once across multiple signals', () => {
   assert.deepEqual(calls.find(([name]) => name === 'setTimer'), ['setTimer', ECONOMY_FORCE_SHUTDOWN_MS]);
 
   onClosed();
+  await new Promise(setImmediate);
   assert.ok(calls.some(([name, value]) => name === 'clearTimer' && value === timer));
   assert.ok(calls.some(([name, code]) => name === 'exit' && code === 0));
+});
+
+test('economy shutdown waits for asynchronous resource cleanup before exiting', async () => {
+  const calls = [];
+  let onClosed;
+  let finishClose;
+  const closing = new Promise((resolve) => { finishClose = resolve; });
+  const timer = { unref() {} };
+  const shutdown = createEconomyShutdownController({
+    runtime: { beginDrain() {}, close() { calls.push('close'); return closing; } },
+    server: { close() {} },
+    beginHttpDrain(server, callback) { onClosed = callback; },
+    setTimer() { return timer; },
+    clearTimer(value) { assert.equal(value, timer); calls.push('clearTimer'); },
+    exit(code) { calls.push(['exit', code]); },
+    log() {},
+  });
+  shutdown('SIGTERM');
+  assert.deepEqual(calls, []);
+  onClosed();
+  await new Promise(setImmediate);
+  assert.deepEqual(calls, ['close']);
+  finishClose();
+  await new Promise(setImmediate);
+  assert.deepEqual(calls, ['close', 'clearTimer', ['exit', 0]]);
 });
 
 test('economy shutdown retains a bounded forced-exit fallback', () => {
