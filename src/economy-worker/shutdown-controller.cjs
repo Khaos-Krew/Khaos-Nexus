@@ -36,13 +36,19 @@ function createEconomyShutdownController({
     forceTimer = setTimer(() => exit(1), ECONOMY_FORCE_SHUTDOWN_MS);
     forceTimer?.unref?.();
 
-    beginHttpDrain(server, () => {
-      if (forceTimer) {
-        clearTimer(forceTimer);
-        forceTimer = null;
-      }
-      exit(0);
-    });
+    try {
+      beginHttpDrain(server, () => {
+        if (forceTimer) {
+          clearTimer(forceTimer);
+          forceTimer = null;
+        }
+        exit(0);
+      });
+    } catch {
+      // Do not let a synchronous HTTP-drain setup failure escape the signal handler.
+      // The bounded forced-exit timer remains armed so shutdown still fails closed.
+      log('[Nexus Economy Worker] HTTP drain setup failed; forced shutdown fallback remains armed.');
+    }
 
     return true;
   };
