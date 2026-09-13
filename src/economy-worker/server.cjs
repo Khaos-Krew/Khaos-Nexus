@@ -59,6 +59,18 @@ function authorized(req, token) {
   return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
 }
 
+function readPathId(pathname, prefix) {
+  const encoded = String(pathname || '').slice(prefix.length);
+  if (!encoded || encoded.includes('/') || encoded.length > 384) return null;
+  try {
+    const decoded = decodeURIComponent(encoded);
+    if (!decoded || decoded.length > 128 || !/^[A-Za-z0-9:_-]+$/.test(decoded)) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
 async function body(req) {
   const declaredLength = String(req.headers?.['content-length'] || '').trim();
   if (/^\d+$/.test(declaredLength) && Number(declaredLength) > MAX_REQUEST_BODY_BYTES) {
@@ -258,7 +270,8 @@ function createEconomyServer(options = {}) {
       if (!authorized(req, token)) return json(res, 401, { ok: false, error: 'unauthorized' });
 
       if (req.method === 'GET' && url.pathname.startsWith('/wallet/')) {
-        const discordUserId = decodeURIComponent(url.pathname.slice('/wallet/'.length));
+        const discordUserId = readPathId(url.pathname, '/wallet/');
+        if (!discordUserId) return json(res, 404, { ok: false, error: 'not-found' });
         const accrualPermitted = walletReadAccrualPermitted({ writesEnabled, lifecycle });
         if (accrualPermitted) await worker.accrueOffline(discordUserId).catch(() => null);
         return json(res, 200, {
@@ -279,7 +292,8 @@ function createEconomyServer(options = {}) {
       }
 
       if (req.method === 'GET' && url.pathname.startsWith('/shop/order/')) {
-        const orderId = decodeURIComponent(url.pathname.slice('/shop/order/'.length));
+        const orderId = readPathId(url.pathname, '/shop/order/');
+        if (!orderId) return json(res, 404, { ok: false, error: 'not-found' });
         const order = shop.order(orderId);
         return order ? json(res, 200, { ok: true, order }) : json(res, 404, { ok: false, error: 'order-not-found' });
       }
@@ -368,6 +382,8 @@ module.exports = {
   WRITE_PATHS,
   POST_PATHS,
   enabled,
+  authorized,
+  readPathId,
   body,
   publicRequestError,
   publicWalletHealth,
