@@ -22,7 +22,7 @@ function outboxRecord(orderId = 'shop_test') {
 function executorDatabase() {
   const record = outboxRecord();
   const state = {
-    actionStatus: 'requested', attemptStatus: null,
+    actionStatus: 'requested', attemptStatus: null, paidOwnership: true,
     action: {
       action_id: record.actionId, capability: 'economy.purchase.execute', source: 'sentinel-v2.economy.purchase',
       actor: 'discord-user:123456789', subject: 'discord-user:123456789', destructive: false,
@@ -38,6 +38,7 @@ function executorDatabase() {
   const query = async (sql, params = []) => {
     const text = String(sql).replace(/\s+/g, ' ').trim();
     if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK') return { rows: [] };
+    if (text.startsWith('SELECT o.order_id')) return { rows: state.paidOwnership ? [{ order_id: state.order.orderId }] : [] };
     if (text.includes('FROM sentinel_actions') && text.includes("status = 'requested'")) return { rows: state.actionStatus === 'requested' ? [state.action] : [] };
     if (text.includes('COALESCE(MAX(attempt),0)')) return { rows: [{ attempt: 1 }] };
     if (text.startsWith('INSERT INTO sentinel_action_attempts')) { state.attemptStatus = 'running'; return { rows: [] }; }
@@ -127,4 +128,20 @@ test('acknowledged reward completes both durable action and economy order', asyn
   assert.equal(result.state, 'DELIVERED');
   assert.equal(database.state.order.status, 'DELIVERED');
   assert.equal(completed[0].status, 'succeeded');
+});
+
+test('revoked ownership or missing debit prevents reward delivery', async () => {
+  let sent = 0;
+  const { runtime, database } = runtimeFixture({ deliver: async () => { sent += 1; } });
+  database.state.paidOwnership = false;
+  const result = await runtime.executeOne();
+  assert.equal(result.ok, false);
+  assert.equal(sent, 0);
+  assert.equal(database.state.order.status, 'PAID_QUEUED');
+});
+
+test('a delivered action cannot be delivered twice', async () => {
+  const { runtime } = runtimeFixture();
+  assert.equal((await runtime.executeOne()).state, 'DELIVERED');
+  assert.equal((await runtime.executeOne()).skipped, 'none-requested');
 });

@@ -104,6 +104,7 @@ class EconomyPurchaseRuntime {
         return { ok: true, skipped: 'player-offline', actionId: action.actionId, orderId };
       }
 
+      await this.#verifyPaidOwnership(order);
       await this.#updateOrder(orderId, 'DELIVERY_IN_PROGRESS');
       let delivery;
       try {
@@ -192,6 +193,19 @@ class EconomyPurchaseRuntime {
     const order = result.rows?.[0]?.order_data;
     if (!order) throw new Error(`Economy order not found: ${orderId}`);
     return order;
+  }
+
+  async #verifyPaidOwnership(order) {
+    const result = await this.database.query(`
+      SELECT o.order_id
+      FROM ${this.schema}.nexus_economy_orders o
+      JOIN ${this.schema}.nexus_economy_ledger l ON l.id = o.ledger_id AND l.economic_identity_id = o.economic_identity_id AND l.currency = o.currency
+      JOIN ${this.schema}.nexus_economic_identities i ON i.economic_identity_id = o.economic_identity_id AND i.status = 'verified'
+      JOIN ${this.schema}.nexus_economic_identity_links d ON d.economic_identity_id = i.economic_identity_id AND d.provider = 'discord' AND d.external_id = o.discord_user_id AND d.verified_at IS NOT NULL
+      JOIN ${this.schema}.nexus_economic_identity_links e ON e.economic_identity_id = i.economic_identity_id AND e.provider = 'eos' AND e.external_id = $3 AND e.verified_at IS NOT NULL
+      WHERE o.order_id = $1 AND o.discord_user_id = $2 AND l.amount = $4 AND o.currency = 'NEXUS_POINTS'
+    `, [order.orderId, order.discordUserId, order.eosId, -Number(order.quote.totalPrice)]);
+    if (!result.rows?.[0]) throw new Error('Purchase no longer has verified ownership and a matching persisted debit.');
   }
 
   #validateActionOrder(action, order) {
