@@ -111,6 +111,11 @@ test('trusted identity events fail closed for unknown sources and suppress exact
   };
   assert.equal(service.consumeTrustedIdentityEvent(event).ok, true);
   assert.deepEqual(service.consumeTrustedIdentityEvent(event), { ok: true, duplicate: true, ignored: true });
+  const restarted = new ArkAccountLinkService({ store: new ArkIdentityStore({ root, secret: 'test-secret-with-at-least-thirty-two-characters' }) });
+  assert.deepEqual(restarted.consumeTrustedIdentityEvent(event), { ok: true, duplicate: true, ignored: true });
+  assert.deepEqual(restarted.consumeTrustedIdentityEvent({ ...event, eosId: '0002differentplayer' }), { ok: false, reason: 'identity-event-conflict' });
+  store.unlinkArk({ discordUserId: '123456789012345678', eosId: event.eosId });
+  assert.deepEqual(restarted.consumeTrustedIdentityEvent(event), { ok: false, reason: 'identity-link-no-longer-active' });
 });
 
 test('rank resolution includes all six Nexus ranks and preserves legacy Origin Founder as highest', () => {

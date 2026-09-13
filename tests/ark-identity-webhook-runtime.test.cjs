@@ -87,7 +87,12 @@ test('authenticated runtime consumes a one-time EOS proof and immediately syncs 
       rankId: 'shadow-recruit'
     }]);
 
-    const replay = await runtime.process(request);
+    const restarted = createArkIdentityWebhookRuntime({
+      store: new ArkIdentityStore({ root, secret: identitySecret, now: () => now }),
+      economyClient: economyClient({ linkIdentity: async (input) => { synced.push(input); return { ok: true }; } }),
+      secret: webhookSecret, enabled: true, now: () => now,
+    });
+    const replay = await restarted.process(request);
     assert.equal(replay.ok, true);
     assert.equal(replay.status, 200);
     assert.equal(replay.duplicate, true);

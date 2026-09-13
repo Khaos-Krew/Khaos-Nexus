@@ -16,6 +16,7 @@
     "test:sentinel-v2": "node --test tests/sentinel-v2-*.test.cjs",
     "build-worker": "node src/build-worker/entry.cjs",
     "economy-worker": "node src/economy-worker/entry.cjs",
+    "economy:migrate": "node scripts/migrate-nexus-economy.cjs",
     "wshop:export": "node scripts/export-wshop-migration.cjs",
     "check": "node scripts/check.cjs",
     "test": "node --test tests/*.test.cjs",

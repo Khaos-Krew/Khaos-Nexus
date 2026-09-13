@@ -227,7 +227,7 @@ class ArkIdentityStore {
     return { code, challengeId: challenge.id, expiresAt: challenge.expiresAt };
   }
 
-  verifyChallenge({ code, eosId, playerName = '', mapId = '' } = {}) {
+  verifyChallenge({ code, eosId, playerName = '', mapId = '', trustedEvent = null } = {}) {
     const normalizedCode = cleanId(code, 32).toUpperCase();
     const arkId = cleanId(eosId);
     if (!/^[A-Z2-9]{6,12}$/.test(normalizedCode)) return { ok: false, reason: 'invalid-code' };
@@ -235,6 +235,16 @@ class ArkIdentityStore {
     const state = this.read();
     pruneChallenges(state, this.now());
     const wantedHash = this.codeHash(normalizedCode);
+    const eventKey = trustedEvent ? crypto.createHash('sha256').update(JSON.stringify([trustedEvent.source, trustedEvent.eventId])).digest('hex') : null;
+    const eventDigest = trustedEvent ? crypto.createHmac('sha256', this.secret).update(JSON.stringify(trustedEvent)).digest('hex') : null;
+    if (eventKey) {
+      const prior = Object.values(state.challenges).find((item) => item.eventKey === eventKey);
+      if (prior) {
+        if (prior.eventDigest !== eventDigest) return { ok: false, reason: 'identity-event-conflict' };
+        if (prior.state !== 'verified' || state.arkIndex[arkId] !== prior.discordUserId) return { ok: false, reason: 'identity-link-no-longer-active' };
+        return { ok: true, duplicate: true, ignored: true };
+      }
+    }
     const challenge = Object.values(state.challenges).find((item) => {
       if (item.state !== 'pending' || typeof item.codeHash !== 'string' || item.codeHash.length !== wantedHash.length) return false;
       return crypto.timingSafeEqual(Buffer.from(item.codeHash), Buffer.from(wantedHash));
@@ -269,6 +279,10 @@ class ArkIdentityStore {
     state.arkIndex[arkId] = challenge.discordUserId;
     challenge.state = 'verified';
     challenge.verifiedAt = profile.updatedAt;
+    if (eventKey) {
+      challenge.eventKey = eventKey;
+      challenge.eventDigest = eventDigest;
+    }
     delete challenge.codeHash;
     this.audit(state, 'ark-account-linked', { discordUserId: challenge.discordUserId, eosId: arkId, mapId: cleanId(mapId, 64), challengeId: challenge.id });
     this.write(state);
