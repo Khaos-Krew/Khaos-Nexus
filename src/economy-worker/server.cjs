@@ -78,6 +78,14 @@ function requestObject(value) {
   return value;
 }
 
+function jsonContentTypeAccepted(req) {
+  const declared = req.headers?.['content-type'];
+  if (declared == null || String(declared).trim() === '') return true;
+  const mediaType = String(declared).split(';', 1)[0].trim().toLowerCase();
+  if (mediaType === 'application/json') return true;
+  return /^application\/[a-z0-9!#$&^_.+-]+\+json$/.test(mediaType);
+}
+
 async function body(req) {
   const declaredLength = String(req.headers?.['content-length'] || '').trim();
   if (/^\d+$/.test(declaredLength) && Number(declaredLength) > MAX_REQUEST_BODY_BYTES) {
@@ -321,6 +329,12 @@ function createEconomyServer(options = {}) {
       const mutationGate = mutationRequestGate(url.pathname, { writesEnabled, lifecycle });
       if (mutationGate) return json(res, mutationGate.statusCode, mutationGate.body);
 
+      // Preserve compatibility with callers that omit Content-Type, but fail closed
+      // before buffering when a caller explicitly declares a non-JSON representation.
+      if (!jsonContentTypeAccepted(req)) {
+        return json(res, 415, { ok: false, error: 'unsupported-media-type' });
+      }
+
       const input = await body(req);
 
       // Re-evaluate mutation eligibility after body parsing. A request may have passed
@@ -395,6 +409,7 @@ module.exports = {
   authorized,
   readPathId,
   requestObject,
+  jsonContentTypeAccepted,
   body,
   publicRequestError,
   publicWalletHealth,
