@@ -2,6 +2,7 @@
 
 const http = require('node:http');
 const https = require('node:https');
+const { withIdentityProof } = require('./nexus-economy-identity-proof.cjs');
 
 function clean(value, max = 256) {
   return String(value || '').replace(/[\r\n\t\u0000-\u001f]+/g, '').trim().slice(0, max);
@@ -71,7 +72,8 @@ class NexusEconomyClient {
     for (const account of profile.arkAccounts || []) {
       const eosId = clean(account?.eosId, 128);
       if (!eosId) continue;
-      await this.linkIdentity({ discordUserId: id, eosId, rankId });
+      const signedLink = withIdentityProof({ discordUserId: id, eosId, rankId }, account);
+      await this.linkIdentity(signedLink);
       linked += 1;
     }
     return { ok: true, discordUserId: id, rankId, linked };
