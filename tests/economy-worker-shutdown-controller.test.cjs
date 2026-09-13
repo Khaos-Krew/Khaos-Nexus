@@ -79,6 +79,42 @@ test('economy shutdown retains a bounded forced-exit fallback', () => {
   assert.deepEqual(exits, [1]);
 });
 
+test('economy shutdown keeps the forced fallback armed when HTTP drain setup throws', () => {
+  const logs = [];
+  const exits = [];
+  let forceExit;
+
+  const shutdown = createEconomyShutdownController({
+    runtime: { beginDrain() {} },
+    server: { close() {} },
+    beginHttpDrain() {
+      throw new Error('socket implementation detail');
+    },
+    setTimer(callback, delay) {
+      assert.equal(delay, ECONOMY_FORCE_SHUTDOWN_MS);
+      forceExit = callback;
+      return { unref() {} };
+    },
+    clearTimer() {
+      assert.fail('forced timer must not be cleared after drain setup failure');
+    },
+    exit(code) {
+      exits.push(code);
+    },
+    log(message) {
+      logs.push(message);
+    },
+  });
+
+  assert.doesNotThrow(() => shutdown('SIGTERM'));
+  assert.equal(typeof forceExit, 'function');
+  assert.ok(logs.includes('[Nexus Economy Worker] HTTP drain setup failed; forced shutdown fallback remains armed.'));
+  assert.ok(logs.every((message) => !message.includes('socket implementation detail')));
+
+  forceExit();
+  assert.deepEqual(exits, [1]);
+});
+
 test('economy shutdown controller fails closed on incomplete dependencies', () => {
   assert.throws(
     () => createEconomyShutdownController({}),
