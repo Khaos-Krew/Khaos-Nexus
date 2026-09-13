@@ -75,8 +75,10 @@ function planLegacyJsonMigration(input) {
   }
 
   for (const [discordUserId, entry] of accountByDiscord) {
-    const verified = entry.eosIds.size > 0;
-    const linkedAt = validIso(entry.account.updatedAt) || validIso(entry.account.createdAt) || validIso(state.updatedAt);
+    // A legacy association is not an ownership proof. Reserve it, preserve funds,
+    // and require the authenticated relink flow before wallet access.
+    const verified = false;
+    const linkedAt = null;
     identities.push(Object.freeze({
       economicIdentityId: entry.economicIdentityId,
       status: verified ? 'verified' : 'restricted',

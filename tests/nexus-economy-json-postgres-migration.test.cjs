@@ -64,16 +64,17 @@ test('legacy migration is deterministic and maps only the legacy Nexus Points ba
   assert.equal(plan.identities[0].economicIdentityId, deterministicEconomicIdentityId('111111'));
 });
 
-test('EOS-linked legacy accounts become verified while unlinked accounts remain restricted', () => {
+test('legacy associations reserve ownership but remain restricted until proof is verified', () => {
   const plan = planLegacyJsonMigration(state());
   const one = plan.identities.find((identity) => identity.legacyDiscordUserId === '111111');
   const two = plan.identities.find((identity) => identity.legacyDiscordUserId === '222222');
-  assert.equal(one.status, 'verified');
+  assert.equal(one.status, 'restricted');
   assert.equal(two.status, 'restricted');
   const eos = plan.links.find((link) => link.provider === 'eos' && link.externalId === 'EOS_ONE');
   const discord = plan.links.find((link) => link.provider === 'discord' && link.externalId === '111111');
   assert.equal(eos.economicIdentityId, discord.economicIdentityId);
-  assert.ok(eos.verifiedAt);
+  assert.equal(eos.verifiedAt, null);
+  assert.equal(discord.verifiedAt, null);
 });
 
 test('retained legacy idempotency keys map to ledger entries and pruned keys become tombstones', () => {

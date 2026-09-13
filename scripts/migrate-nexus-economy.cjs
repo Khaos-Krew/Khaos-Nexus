@@ -13,7 +13,7 @@ async function main() {
   const apply = hasFlag('--apply');
   const dataDir = process.env.NEXUS_DATA_DIR || path.resolve(__dirname, '..', 'data');
   const file = path.resolve(process.env.NEXUS_ECONOMY_LEGACY_JSON || path.join(dataDir, 'nexus-economy.json'));
-  const schema = String(process.env.NEXUS_ECONOMY_DB_SCHEMA || 'public').trim();
+  const schema = String(process.env.NEXUS_ECONOMY_SCHEMA || process.env.NEXUS_ECONOMY_DB_SCHEMA || 'public').trim();
   const state = JSON.parse(fs.readFileSync(file, 'utf8'));
 
   let pool = null;
