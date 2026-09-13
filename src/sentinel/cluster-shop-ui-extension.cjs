@@ -198,7 +198,7 @@ async function openCategoryPicker(interaction, action, economyClient) {
 }
 
 async function handleCategory(interaction) {
-  const [, , , sessionId] = interaction.customId.split(':');
+  const [, , sessionId] = interaction.customId.split(':');
   const session = getSession(sessionId, interaction.user.id);
   if (!session) return interaction.update({ content: 'This shop menu expired. Use the main shop panel to start again.', components: [] });
   const category = interaction.values?.[0] || '';
@@ -224,7 +224,7 @@ async function handleCategory(interaction) {
 }
 
 async function handleItem(interaction) {
-  const [, , , sessionId] = interaction.customId.split(':');
+  const [, , sessionId] = interaction.customId.split(':');
   const session = getSession(sessionId, interaction.user.id);
   if (!session) return interaction.reply(ephemeral('This shop menu expired. Use the main shop panel to start again.'));
   const itemId = interaction.values?.[0] || '';
@@ -247,7 +247,7 @@ async function handleItem(interaction) {
 }
 
 async function handleQuantity(interaction, economyClient) {
-  const [, , , sessionId] = interaction.customId.split(':');
+  const [, , sessionId] = interaction.customId.split(':');
   const session = getSession(sessionId, interaction.user.id);
   if (!session) return interaction.reply(ephemeral('This shop session expired. Use the main shop panel to start again.'));
   const bundles = Number(interaction.fields.getTextInputValue('bundles'));
@@ -280,7 +280,7 @@ async function handleQuantity(interaction, economyClient) {
 }
 
 async function handleConfirm(interaction, economyClient, identityStore) {
-  const [, , , sessionId] = interaction.customId.split(':');
+  const [, , sessionId] = interaction.customId.split(':');
   const session = getSession(sessionId, interaction.user.id);
   if (!session) return interaction.update({ content: 'This shop session expired. No purchase was made.', components: [] });
   const eosId = linkedEos(identityStore, interaction.user.id);
@@ -328,7 +328,21 @@ async function handleConfirm(interaction, economyClient, identityStore) {
 async function handleWallet(interaction, economyClient) {
   if (!economyClient.configured()) return interaction.reply(ephemeral('⚠️ Nexus Wallet is not connected yet.'));
   const result = await economyClient.wallet(interaction.user.id);
-  return interaction.reply(ephemeral(`💳 **Nexus Wallet**\n**Balance:** ${Number(result.balance || 0).toLocaleString()} NP`));
+  const activePoints = Number(result.activePoints || 0);
+  const activeIntervalMinutes = Number(result.activeIntervalMinutes || 5);
+  const passivePointsPerHour = Number(result.passivePointsPerHour || 0);
+  const passiveCapHours = Number(result.passiveCapHours || 0);
+  const passiveText = passivePointsPerHour > 0
+    ? `+${passivePointsPerHour} NP/hour while offline${passiveCapHours > 0 ? ` • up to ${passiveCapHours}h` : ''}`
+    : 'No passive NP gain at this rank';
+  return interaction.reply(ephemeral([
+    '💳 **Nexus Wallet**',
+    `**Balance:** ${Number(result.balance || 0).toLocaleString()} NP`,
+    `**Rank:** ${String(result.rankName || 'Shadow Recruit')}`,
+    `**Status:** ${result.online === true ? '🟢 Online' : '⚫ Offline'}`,
+    `**Active gain:** +${activePoints} NP every ${activeIntervalMinutes} minutes while online`,
+    `**Passive gain:** ${passiveText}`
+  ].join('\n')));
 }
 
 async function handleInteraction(interaction, { economyClient, identityStore } = {}) {
@@ -377,7 +391,6 @@ function installClusterShopUiExtension() {
   Client.prototype[INSTALLED] = true;
   const config = loadConfig();
   const originalLogin = Client.prototype.login;
-
   Client.prototype.login = function nexusClusterShopLogin(...args) {
     const client = this;
     client.once(Events.ClientReady, () => {

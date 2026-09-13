@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { ArkRconConfigStore, normalizePrefix } = require('./ark-rcon-config-store.cjs');
 
 const REGISTRY_VERSION = 1;
 
@@ -187,6 +188,41 @@ class ArkClusterRegistry {
   }
 
   get(id) { return this.read().servers?.[cleanId(id)] || null; }
+
+  // Discover saved Discord endpoints on every poll, including maps added after
+  // startup. Only public metadata is copied; credentials stay in the RCON store.
+  syncRconServers(store = new ArkRconConfigStore(this.dir), env = process.env) {
+    const state = this.read();
+    let changed = false;
+    for (const [rawPrefix, endpoint] of Object.entries(store.read().servers || {})) {
+      let prefix;
+      try { prefix = normalizePrefix(rawPrefix); } catch { continue; }
+      if (!endpoint || !String(endpoint.host || '').trim() || !Number.isInteger(Number(endpoint.port)) || Number(endpoint.port) < 1 || Number(endpoint.port) > 65535) continue;
+      const existing = Object.values(state.servers).find((server) => server.envPrefix === prefix);
+      if (existing) {
+        if (!existing.connections.rcon) {
+          existing.connections.rcon = true;
+          changed = true;
+        }
+        continue;
+      }
+      let id = cleanId(prefix.replace(/^ARK_/, ''));
+      // Never combine servers just because they share a host or a display name.
+      if (state.servers[id]) id = cleanId(prefix);
+      if (state.servers[id]) continue;
+      const friendly = prefix === 'ARK_GEN1' ? 'Genesis Part 1' : prefix === 'ARK_MAP2' ? 'Astraeos' : prefix.replace(/^ARK_/, '').replace(/_/g, ' ');
+      state.servers[id] = normalizeRecord({
+        id, envPrefix: prefix,
+        name: env[`${prefix}_NAME`] || friendly,
+        mapName: env[`${prefix}_MAP_NAME`] || friendly,
+        mapIdentifier: env[`${prefix}_MAP_IDENTIFIER`] || '',
+        enabled: endpoint.enabled !== false,
+        connections: { rcon: true, query: false, api: false, sftp: false }
+      });
+      changed = true;
+    }
+    if (changed) this.write(state);
+  }
 
   upsert(input = {}) {
     const state = this.read();
