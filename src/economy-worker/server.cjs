@@ -109,6 +109,21 @@ function walletSummary(worker, discordUserId) {
   };
 }
 
+async function walletBalances(worker, discordUserId) {
+  if (typeof worker.balances === 'function') {
+    const balances = await Promise.resolve(worker.balances(discordUserId));
+    return {
+      NEXUS_COINS: Number(balances?.NEXUS_COINS || 0),
+      NEXUS_POINTS: Number(balances?.NEXUS_POINTS || 0),
+      DINO_CACHE_TOKENS: Number(balances?.DINO_CACHE_TOKENS || 0)
+    };
+  }
+  const points = typeof worker.balance === 'function'
+    ? Number(await Promise.resolve(worker.balance(discordUserId)) || 0)
+    : Number(worker.wallet?.(discordUserId)?.balance || 0);
+  return { NEXUS_COINS: 0, NEXUS_POINTS: points, DINO_CACHE_TOKENS: 0 };
+}
+
 function runtimeReadiness({ worker, shop, token, writesEnabled, presenceWritesEnabled }) {
   const catalog = shop.listCatalog();
   const buyableItems = catalog.filter((item) => item.buyable).length;
@@ -232,6 +247,16 @@ function createEconomyServer(options = {}) {
       }
       if (!authorized(req, token)) return json(res, 401, { ok: false, error: 'unauthorized' });
 
+      if (req.method === 'GET' && url.pathname.startsWith('/wallet-balances/')) {
+        const discordUserId = decodeURIComponent(url.pathname.slice('/wallet-balances/'.length));
+        return json(res, 200, {
+          ok: true,
+          discordUserId,
+          balances: await walletBalances(worker, discordUserId),
+          readOnly: true
+        });
+      }
+
       if (req.method === 'GET' && url.pathname.startsWith('/wallet/')) {
         const discordUserId = decodeURIComponent(url.pathname.slice('/wallet/'.length));
         const accrualPermitted = walletReadAccrualPermitted({ writesEnabled, presenceWritesEnabled, lifecycle });
@@ -341,6 +366,7 @@ module.exports = {
   publicRequestError,
   publicWalletHealth,
   walletSummary,
+  walletBalances,
   runtimeReadiness,
   runtimeLiveness,
   runtimeOperationalReadiness,
