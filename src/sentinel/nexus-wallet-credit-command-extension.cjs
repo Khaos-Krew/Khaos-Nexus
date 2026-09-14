@@ -3,6 +3,7 @@
 const crypto = require('node:crypto');
 const { Client, Events, MessageFlags, SlashCommandBuilder } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
+const { BackendClient } = require('./backend-client.cjs');
 const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.wallet.credit.command.installed');
@@ -18,6 +19,15 @@ function cleanReason(value) {
 
 function ownerUserIds(config = {}) {
   return new Set((config.discord?.ownerUserIds || []).map((value) => String(value || '').trim()).filter(Boolean));
+}
+
+async function canCreditWallet(interaction, { config = loadConfig(), backend = new BackendClient(config) } = {}) {
+  const issuerDiscordUserId = String(interaction?.user?.id || '').trim();
+  if (!issuerDiscordUserId) return false;
+  if (ownerUserIds(config).has(issuerDiscordUserId)) return true;
+  if (String(interaction?.guild?.ownerId || '').trim() === issuerDiscordUserId) return true;
+  const linked = await backend.accountByDiscord(issuerDiscordUserId).catch(() => null);
+  return Boolean(linked?.ok && ['owner', 'co-owner'].includes(linked.account?.role));
 }
 
 function walletCommandDefinition() {
@@ -95,15 +105,16 @@ function currencyLabel(currency) {
 
 async function handleWalletInteraction(interaction, {
   economyClient = new NexusEconomyClient(),
-  config = loadConfig()
+  config = loadConfig(),
+  backend = new BackendClient(config)
 } = {}) {
   if (!interaction?.isChatInputCommand?.() || interaction.commandName !== 'wallet') return false;
   if (interaction.options.getSubcommand(false) !== 'add') return false;
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const issuerDiscordUserId = String(interaction.user.id);
-  if (!ownerUserIds(config).has(issuerDiscordUserId)) {
-    await interaction.editReply({ content: '⛔ This wallet command is restricted to Nexus owners.' });
+  if (!(await canCreditWallet(interaction, { config, backend }))) {
+    await interaction.editReply({ content: '⛔ This wallet command is restricted to Nexus Owner/Co-Owner authority.' });
     return true;
   }
   if (!economyClient.configured()) {
@@ -168,6 +179,7 @@ module.exports = {
   CURRENCY_CHOICES,
   cleanReason,
   ownerUserIds,
+  canCreditWallet,
   walletCommandDefinition,
   registerWalletCommand,
   creditRequestFromInteraction,
