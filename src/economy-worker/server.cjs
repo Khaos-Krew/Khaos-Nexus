@@ -200,8 +200,9 @@ function mutationRequestGate(path, options = {}) {
   return drainMutationGate(path, { lifecycle }) || writeGate(path, { writesEnabled, presenceWritesEnabled, lifecycle });
 }
 
-function walletReadAccrualPermitted({ presenceWritesEnabled = false, lifecycle = {} }) {
-  return Boolean(presenceWritesEnabled && lifecycle.draining !== true);
+function walletReadAccrualPermitted({ writesEnabled = false, presenceWritesEnabled, lifecycle = {} }) {
+  const accrualWritesEnabled = presenceWritesEnabled == null ? Boolean(writesEnabled) : Boolean(presenceWritesEnabled);
+  return Boolean(accrualWritesEnabled && lifecycle.draining !== true);
 }
 
 function createEconomyServer(options = {}) {
@@ -233,7 +234,7 @@ function createEconomyServer(options = {}) {
 
       if (req.method === 'GET' && url.pathname.startsWith('/wallet/')) {
         const discordUserId = decodeURIComponent(url.pathname.slice('/wallet/'.length));
-        const accrualPermitted = walletReadAccrualPermitted({ presenceWritesEnabled, lifecycle });
+        const accrualPermitted = walletReadAccrualPermitted({ writesEnabled, presenceWritesEnabled, lifecycle });
         if (accrualPermitted) await Promise.resolve(worker.accrueOffline(discordUserId)).catch(() => null);
         if (typeof worker.wallet === 'function') {
           return json(res, 200, {
