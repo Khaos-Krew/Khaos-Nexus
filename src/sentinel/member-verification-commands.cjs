@@ -42,10 +42,10 @@ function memberVerificationCommandDefinition() {
 function formatStatus(record) {
   if (!record) return 'No Sentinal Discord-verify row (treated as pending / fail-closed).';
   return [
-    `**State:** \`${record.state}\`,`,
-    `**Updated:** ${record.updatedAt || 'n/a'}`,
-    `**By:** ${record.updatedBy || 'n/a'}`,
-    `**Reason:** ${record.reason || 'n/a'}`
+    '**State:** `' + String(record.state) + '`' ,
+    '**Updated:** ' + (record.updatedAt || 'n/a'),
+    '**By:** ' + (record.updatedBy || 'n/a'),
+    '**Reason:** ' + (record.reason || 'n/a')
   ].join('\n');
 }
 
@@ -91,7 +91,7 @@ async function handleMemberVerificationInteraction(interaction, {
 
   if (sub === 'status') {
     const record = store.get(targetId);
-    await interaction.editReply({ content: `O9 Discord verify for <@${targetId}>:\n${formatStatus(record)}` });
+    await interaction.editReply({ content: 'O9 Discord verify for <@' + targetId + '>:\n' + formatStatus(record) });
     return true;
   }
 
@@ -113,7 +113,7 @@ async function handleMemberVerificationInteraction(interaction, {
 
   if (!result?.ok) {
     await interaction.editReply({
-      content: `⚠️ Could not ${sub}: \`${result?.reason || 'failed'}\` (prior=\`${result?.priorState || 'n/a'}\`).`
+      content: '⚠️ Could not ' + sub + ': `' + String(result?.reason || 'failed') + '` (prior=`' + String(result?.priorState || 'n/a') + '` ).'
     });
     return true;
   }
@@ -124,14 +124,14 @@ async function handleMemberVerificationInteraction(interaction, {
     if (demote?.status === 'restricted' || demote?.result?.status === 'restricted') {
       demoteNote = '\nEcon identity demoted to `restricted` (links retained).';
     } else if (demote?.skipped) {
-      demoteNote = `\nEcon demote skipped: \`${demote.skipped}\` (Discord bar still rejected).`;
+      demoteNote = '\nEcon demote skipped: `' + String(demote.skipped) + '` (Discord bar still rejected).';
     }
   }
 
   const record = result.record || store.get(targetId);
   await interaction.editReply({
     content: [
-      `✅ \`/o9verify ${sub}\` for <@${targetId}>`,
+      '✅ `/o9verify ' + sub + '` for <@' + targetId + '>',
       formatStatus(record),
       demoteNote
     ].filter(Boolean).join('\n')
