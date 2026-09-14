@@ -3,6 +3,7 @@
 const { NexusEconomyPostgresRepository, sqlIdent } = require('./nexus-economy-postgres-repository.cjs');
 const { deterministicEconomicIdentityId } = require('./nexus-economy-json-postgres-migration.cjs');
 const { validDiscordId, validEosId } = require('./ark-identity-store.cjs');
+const { assertO9EligibilityForVerifiedMint } = require('./nexus-economy-o9-eligibility.cjs');
 
 class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresRepository {
   constructor(options = {}) {
@@ -11,6 +12,8 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
   }
 
   // Called only after the runtime verifies the Sentinel proof. No balance changes.
+  // O9: elevates to status=verified only when assertO9EligibilityForVerifiedMint passes.
+  // Already-verified rows are never demoted (idempotent re-link stays verified).
   async linkVerifiedIdentity({ discordUserId, eosId, verifiedAt } = {}) {
     if (!validDiscordId(discordUserId) || !validEosId(eosId) || !Number.isFinite(Date.parse(verifiedAt))) throw new Error('Invalid verified identity.');
     const s = this.runtimeSchema;
@@ -29,16 +32,28 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
       if (eos && eos.economic_identity_id !== economicIdentityId) throw new Error('EOS identity is already owned by another economic identity.');
       await client.query(`INSERT INTO ${s}.nexus_economic_identities (economic_identity_id, status) VALUES ($1, 'restricted') ON CONFLICT DO NOTHING`, [economicIdentityId]);
       const identity = await client.query(`SELECT status FROM ${s}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`, [economicIdentityId]);
-      if (identity.rows[0]?.status === 'disabled') throw new Error('Economic identity is disabled.');
+      const priorStatus = identity.rows[0]?.status;
+      if (priorStatus === 'disabled') throw new Error('Economic identity is disabled.');
       for (const [provider, externalId] of [['discord', discordUserId], ['eos', eosId]]) {
         await client.query(
           `INSERT INTO ${s}.nexus_economic_identity_links (provider, external_id, economic_identity_id, verified_at, source) VALUES ($1,$2,$3,$4,'sentinel-ownership-proof') ON CONFLICT (provider, external_id) DO UPDATE SET verified_at = COALESCE(nexus_economic_identity_links.verified_at, EXCLUDED.verified_at)`,
           [provider, externalId, economicIdentityId, verifiedAt]
         );
       }
+      // Idempotent re-link: never demote an already-verified identity.
+      if (priorStatus === 'verified') {
+        await client.query('COMMIT');
+        return { ok: true, duplicate: true, status: 'verified', economicIdentityId };
+      }
+      const eligibility = assertO9EligibilityForVerifiedMint({ discordUserId, eosId, verifiedAt });
+      if (!eligibility.ok) {
+        // Commit restricted + links; do not elevate to verified.
+        await client.query('COMMIT');
+        return { ok: true, status: 'restricted', eligibility: eligibility.reason, economicIdentityId };
+      }
       await client.query(`UPDATE ${s}.nexus_economic_identities SET status = 'verified', updated_at = NOW() WHERE economic_identity_id = $1`, [economicIdentityId]);
       await client.query('COMMIT');
-      return { ok: true, duplicate: Boolean(discord?.verified_at && eos?.verified_at), economicIdentityId };
+      return { ok: true, duplicate: Boolean(discord?.verified_at && eos?.verified_at), status: 'verified', economicIdentityId };
     } catch (error) {
       try { await client.query('ROLLBACK'); } catch {}
       throw error;

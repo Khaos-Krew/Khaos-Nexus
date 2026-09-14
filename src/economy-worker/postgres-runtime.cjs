@@ -5,6 +5,7 @@ const { NexusEconomyWalletCore } = require('../sentinel/nexus-economy-wallet-cor
 const { NexusEconomyPostgresRuntimeRepository } = require('../sentinel/nexus-economy-postgres-runtime-repository.cjs');
 const { NexusEconomyPostgresShopService } = require('../sentinel/nexus-economy-postgres-shop-service.cjs');
 const { verifyIdentityProof } = require('../sentinel/nexus-economy-identity-proof.cjs');
+const { assertO9EligibilityForVerifiedMint } = require('../sentinel/nexus-economy-o9-eligibility.cjs');
 const { PostgresEconomyAccrual } = require('./postgres-accrual.cjs');
 
 function postgresEnabled(env = process.env) {
@@ -45,6 +46,12 @@ async function createPostgresEconomyRuntime({ env = process.env, now } = {}) {
     async linkArkIdentity(input) {
       if (env.NEXUS_ECONOMY_IDENTITY_LINKS_ENABLED !== 'true') throw new Error('Economic identity linking is disabled.');
       const verified = verifyIdentityProof(input, { secret: env.NEXUS_ECONOMY_IDENTITY_PROOF_SECRET, now: now ? now() : Date.now() });
+      // O9: repository is source of truth for status elevation (restricted vs verified).
+      // Early-clear ark-link-required only; Discord stub unresolved still calls repo (restricted path).
+      const eligibility = assertO9EligibilityForVerifiedMint(verified);
+      if (!eligibility.ok && eligibility.reason === 'ark-link-required') {
+        throw new Error(eligibility.reason);
+      }
       const linked = await repository.linkVerifiedIdentity(verified);
       await accrual.syncRank(verified.discordUserId, input.rankId || 'shadow-recruit');
       return linked;
