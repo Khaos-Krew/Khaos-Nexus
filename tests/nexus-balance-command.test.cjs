@@ -21,7 +21,11 @@ test('/bal registration creates the guild command when missing', async () => {
   let created = null;
   const guild = {
     commands: {
-      async fetch() { return new Map(); },
+      async fetch() {
+        return {
+          find() { return undefined; }
+        };
+      },
       async create(value) { created = value; return value; },
       async edit() { throw new Error('unexpected edit'); }
     }
