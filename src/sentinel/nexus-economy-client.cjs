@@ -96,6 +96,10 @@ class NexusEconomyClient {
       passivePointsPerHour: perk.offlinePointsPerHour, passiveCapHours: OFFLINE_PASSIVE_CAP_HOURS };
   }
 
+  balances(discordUserId) {
+    return request(`/wallet-balances/${encodeURIComponent(String(discordUserId))}`);
+  }
+
   linkIdentity(input) { return request('/identity/link', { method: 'POST', body: input }); }
   presence(input) { return request('/presence', { method: 'POST', body: input }); }
   credit(input) { return request('/wallet/credit', { method: 'POST', body: input }); }
