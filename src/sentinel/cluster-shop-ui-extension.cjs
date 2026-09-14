@@ -327,7 +327,10 @@ async function handleConfirm(interaction, economyClient, identityStore) {
 
 async function handleWallet(interaction, economyClient) {
   if (!economyClient.configured()) return interaction.reply(ephemeral('⚠️ Nexus Wallet is not connected yet.'));
-  const result = await economyClient.wallet(interaction.user.id);
+  const member = interaction.guild?.members?.fetch
+    ? await interaction.guild.members.fetch({ user: interaction.user.id, force: true })
+    : interaction.member;
+  const result = await economyClient.wallet(interaction.user.id, { member, config: loadConfig() });
   const activePoints = Number(result.activePoints || 0);
   const activeIntervalMinutes = Number(result.activeIntervalMinutes || 5);
   const passivePointsPerHour = Number(result.passivePointsPerHour || 0);

@@ -488,7 +488,7 @@ function installArkOpsExtension() {
           const synced = accountLinking.syncMemberRank(member, effectiveConfig);
           if (!synced.ok) return { ok: false, reason: synced.reason, accounts: 0, changed: 0, failed: 0 };
           const evidence = rankEvidenceForMember(member, effectiveConfig);
-          console.log(`[Nexus Sentinal] linked profile rank resolved: rank=${synced.profile.rankId} canonical=${evidence.canonical.join(',') || 'none'} mapped=${evidence.mapped.join(',') || 'none'} memberRoles=${evidence.roleCount}`);
+          console.log(`[Nexus Sentinal] linked profile rank resolved: rank=${synced.profile.rankId} canonical=${evidence.canonical.join(',') || 'none'} mapped=${synced.profile.rankId} memberRoles=${evidence.roleCount} configuredMatches=${evidence.mapped.join(',') || 'none'}`);
           if (synced.changed) console.log(`[Nexus Sentinal] linked profile rank synchronized: discord=${member.id} rank=${synced.profile.rankId}`);
           if (!rankSyncEnabled || !client.__nexusArkContext?.rankSyncReady) return { ok: true, rankId: synced.profile.rankId, accounts: 0, changed: 0, failed: 0 };
           const results = [];

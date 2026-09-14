@@ -29,9 +29,9 @@ const NEXUS_ECONOMY_RANK_PERKS = Object.freeze({
     shopText: 'Earn boosted Nexus Points while playing plus 10 Nexus Points per offline hour, accruing for up to 48 hours.'
   }),
   'origin-founder': Object.freeze({
-    onlinePointsPerFiveMinutes: 4,
-    offlinePointsPerHour: 10,
-    shopText: 'Legacy Founder economy perk: boosted online earnings plus 10 Nexus Points per offline hour, accruing for up to 48 hours.'
+    onlinePointsPerFiveMinutes: 10,
+    offlinePointsPerHour: 4,
+    shopText: 'Legacy Founder economy perk: 10 Nexus Points every 5 minutes online plus 4 Nexus Points per offline hour, accruing for up to 48 hours.'
   })
 });
 

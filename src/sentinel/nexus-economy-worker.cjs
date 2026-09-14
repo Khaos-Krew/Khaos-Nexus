@@ -13,7 +13,7 @@ const DEFAULT_ONLINE_POINTS = Object.freeze({
   'nexus-raider': 4,
   'khaos-warden': 4,
   'blackout-legend': 4,
-  'origin-founder': 4
+  'origin-founder': 10
 });
 const DEFAULT_OFFLINE_POINTS_PER_HOUR = Object.freeze({
   'shadow-recruit': 0,
@@ -21,7 +21,7 @@ const DEFAULT_OFFLINE_POINTS_PER_HOUR = Object.freeze({
   'nexus-raider': 6,
   'khaos-warden': 8,
   'blackout-legend': 10,
-  'origin-founder': 10
+  'origin-founder': 4
 });
 const DEFAULT_OFFLINE_CAP_HOURS = 48;
 const MAX_LEDGER = 50_000;

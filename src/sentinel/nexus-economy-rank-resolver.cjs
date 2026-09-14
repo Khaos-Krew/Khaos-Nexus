@@ -1,11 +1,13 @@
-const RANK_PRIORITY = [
+'use strict';
+
+const RANK_PRIORITY = Object.freeze([
   'origin-founder',
   'blackout-legend',
   'khaos-warden',
   'nexus-raider',
   'cipher-runner',
   'shadow-recruit',
-];
+]);
 
 function normalizeRankId(value) {
   return String(value || '')

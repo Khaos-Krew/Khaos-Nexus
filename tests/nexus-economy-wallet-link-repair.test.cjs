@@ -68,7 +68,7 @@ test('verified ARK links and rank syncs are projected to the Nexus wallet immedi
   });
 });
 
-test('wallet reads and shop buys repair a locally verified identity before using the economy worker', async (t) => {
+test('wallet reads do not project stale profiles; shop buys retain identity repair', async (t) => {
   const requests = [];
   const server = http.createServer((req, res) => {
     let raw = '';
@@ -107,15 +107,9 @@ test('wallet reads and shop buys repair a locally verified identity before using
 
   const wallet = await client.wallet(profile.discordUserId);
   assert.equal(wallet.wallet.balance, 25);
-  assert.deepEqual(requests.slice(0, 2).map((item) => item.path), [
-    '/identity/link',
+  assert.deepEqual(requests.map((item) => item.path), [
     `/wallet/${profile.discordUserId}`
   ]);
-  assert.deepEqual(requests[0].body, {
-    discordUserId: profile.discordUserId,
-    eosId: '0002walletrepair',
-    rankId: 'nexus-raider'
-  });
 
   const buy = await client.shopBuy({
     discordUserId: profile.discordUserId,
@@ -125,7 +119,12 @@ test('wallet reads and shop buys repair a locally verified identity before using
     idempotencyKey: 'wallet-repair-test-order'
   });
   assert.equal(buy.ok, true);
-  assert.deepEqual(requests.slice(2, 4).map((item) => item.path), ['/identity/link', '/shop/buy']);
+  assert.deepEqual(requests.slice(1).map((item) => item.path), ['/identity/link', '/shop/buy']);
+  assert.deepEqual(requests[1].body, {
+    discordUserId: profile.discordUserId,
+    eosId: '0002walletrepair',
+    rankId: 'nexus-raider'
+  });
 });
 
 test('shop buy fails closed when identity projection fails', async (t) => {

@@ -2,6 +2,7 @@
 
 const crypto = require('node:crypto');
 const { NEXUS_RANKS } = require('../shared/ranks.cjs');
+const { resolveHighestRank } = require('./nexus-economy-rank-resolver.cjs');
 
 function clean(value, max = 256) {
   return String(value || '').replace(/[\r\n\t\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -112,17 +113,9 @@ function resolveGuildRankConfig(config = {}, guildRoles = []) {
 }
 
 function highestConfiguredRankForMember(member, config = {}) {
-  const roles = member?.roles?.cache;
-  const roleValues = typeof roles?.values === 'function' ? [...roles.values()] : Array.isArray(roles) ? roles : [];
-  let selected = NEXUS_RANKS[0];
-  for (const rank of NEXUS_RANKS) {
-    const roleId = clean(config?.discord?.rankRoles?.[rank.id], 32);
-    const hasConfiguredRole = roleId && (typeof roles?.has === 'function' ? roles.has(roleId) : roleValues.some((role) => clean(role?.id || role, 32) === roleId));
-    const hasNamedFallback = roleValues.some((role) => normalizedRankName(role?.name) === normalizedRankName(rank.name));
-    const hasRole = hasConfiguredRole || hasNamedFallback;
-    if (hasRole && rank.level > selected.level) selected = rank;
-  }
-  return selected;
+  const evidence = rankEvidenceForMember(member, config);
+  const rankId = resolveHighestRank([...evidence.canonical, ...evidence.mapped]);
+  return NEXUS_RANKS.find((rank) => rank.id === rankId);
 }
 
 function rankEvidenceForMember(member, config = {}) {
@@ -130,7 +123,7 @@ function rankEvidenceForMember(member, config = {}) {
   const canonical = NEXUS_RANKS.filter((rank) => roles.some((role) => normalizedRankName(role?.name) === normalizedRankName(rank.name))).map((rank) => rank.id);
   const mapped = NEXUS_RANKS.filter((rank) => {
     const roleId = clean(config?.discord?.rankRoles?.[rank.id], 32);
-    return roleId && roles.some((role) => clean(role?.id, 32) === roleId);
+    return roleId && (member?.roles?.cache?.has?.(roleId) || roles.some((role) => clean(role?.id || role, 32) === roleId));
   }).map((rank) => rank.id);
   return { canonical, mapped, roleCount: roles.length };
 }

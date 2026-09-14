@@ -3,6 +3,9 @@
 const http = require('node:http');
 const https = require('node:https');
 const { withIdentityProof } = require('./nexus-economy-identity-proof.cjs');
+const { rankById } = require('../shared/ranks.cjs');
+const { economyPerkForRank, OFFLINE_PASSIVE_CAP_HOURS } = require('../shared/nexus-economy-rank-perks.cjs');
+const { highestConfiguredRankForMember } = require('./ark-account-linking.cjs');
 
 function clean(value, max = 256) {
   return String(value || '').replace(/[\r\n\t\u0000-\u001f]+/g, '').trim().slice(0, max);
@@ -79,9 +82,18 @@ class NexusEconomyClient {
     return { ok: true, discordUserId: id, rankId, linked };
   }
 
-  async wallet(discordUserId) {
-    await this.ensureIdentityProjected(discordUserId);
-    return request(`/wallet/${encodeURIComponent(String(discordUserId))}`);
+  async wallet(discordUserId, { member, config = {} } = {}) {
+    // Rank/link events own projection. A read must not write a stale profile rank.
+    const result = await request(`/wallet/${encodeURIComponent(String(discordUserId))}`);
+    if (result.rankId) return result;
+    // Postgres returns the balance without rank metadata. Resolve current Discord
+    // evidence here instead of letting the UI silently label it Shadow Recruit.
+    if (!member) return result;
+    const rank = highestConfiguredRankForMember(member, config);
+    const perk = economyPerkForRank(rank.id);
+    return { ...result, rankId: rank.id, rankName: rankById(rank.id).name,
+      activePoints: perk.onlinePointsPerFiveMinutes, activeIntervalMinutes: 5,
+      passivePointsPerHour: perk.offlinePointsPerHour, passiveCapHours: OFFLINE_PASSIVE_CAP_HOURS };
   }
 
   linkIdentity(input) { return request('/identity/link', { method: 'POST', body: input }); }
