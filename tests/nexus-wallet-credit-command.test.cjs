@@ -74,7 +74,7 @@ test('/wallet add rejects ordinary admins/users without crediting a wallet', asy
   let credits = 0;
   const economyClient = {
     configured: () => true,
-    async credit() { credits += 1; return { ok: true }; }
+    async adminCredit() { credits += 1; return { ok: true }; }
   };
   const backend = { async accountByDiscord() { return { ok: true, account: { role: 'admin' } }; } };
   const config = { discord: {} };
@@ -83,19 +83,22 @@ test('/wallet add rejects ordinary admins/users without crediting a wallet', asy
   assert.match(fixture.reply().content, /restricted to Nexus Owner\/Co-Owner authority/i);
 });
 
-test('/wallet add credits through the ledger client with issuer audit metadata', async () => {
+test('/wallet add credits through the isolated admin ledger route with issuer audit metadata', async () => {
   const fixture = interactionFixture({ guildOwnerId: '111111111111111111', currency: 'DINO_CACHE_TOKENS', amount: 4, reason: 'Boss event payout' });
   let request = null;
+  let genericCredits = 0;
   const economyClient = {
     configured: () => true,
-    async credit(value) {
+    async adminCredit(value) {
       request = value;
       return { ok: true, balance: 11, transactionId: 'ledger-123' };
-    }
+    },
+    async credit() { genericCredits += 1; throw new Error('generic credit path must not be used'); }
   };
   const backend = { async accountByDiscord() { throw new Error('backend should not be required for guild owner'); } };
   const config = { discord: {} };
   assert.equal(await handleWalletInteraction(fixture.interaction, { economyClient, config, backend }), true);
+  assert.equal(genericCredits, 0);
   assert.equal(request.discordUserId, '222222222222222222');
   assert.equal(request.currency, 'DINO_CACHE_TOKENS');
   assert.equal(request.amount, 4);
