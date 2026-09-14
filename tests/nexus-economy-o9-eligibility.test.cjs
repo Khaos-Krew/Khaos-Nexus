@@ -1,57 +1,85 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const {
   O9_DISCORD_MEMBERSHIP_VERIFIED_STUB,
   assertDiscordMembershipVerified,
   assertArkEosLinkForVerifiedMint,
   assertO9EligibilityForVerifiedMint
 } = require('../src/sentinel/nexus-economy-o9-eligibility.cjs');
+const { MemberVerificationStore } = require('../src/sentinel/member-verification-store.cjs');
 
-test('O9 Discord membership stub is fail-closed with stable unresolved reason', () => {
+const ACTOR = '111111111111111111';
+const TARGET = '222222222222222222';
+
+test('deprecated stub constant retained but assert path no longer returns it', () => {
   assert.equal(O9_DISCORD_MEMBERSHIP_VERIFIED_STUB, 'o9-discord-membership-predicate-unresolved');
-  const result = assertDiscordMembershipVerified('123456789');
-  assert.deepEqual(result, { ok: false, reason: 'o9-discord-membership-predicate-unresolved' });
-  assert.equal(result.reason, O9_DISCORD_MEMBERSHIP_VERIFIED_STUB);
+  const result = assertDiscordMembershipVerified(TARGET, { discordMembershipVerified: false });
+  assert.deepEqual(result, { ok: false, reason: 'discord-verify-required' });
+  assert.notEqual(result.reason, O9_DISCORD_MEMBERSHIP_VERIFIED_STUB);
+});
+
+test('proof claim path: only true passes', () => {
+  assert.deepEqual(assertDiscordMembershipVerified(TARGET, { discordMembershipVerified: true }), { ok: true });
+  assert.deepEqual(assertDiscordMembershipVerified(TARGET, { discordMembershipVerified: false }), {
+    ok: false,
+    reason: 'discord-verify-required'
+  });
+});
+
+test('store path: pending/rejected/verified', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'o9-elig-'));
+  const store = new MemberVerificationStore({ root });
+  assert.deepEqual(assertDiscordMembershipVerified(TARGET, { store }), {
+    ok: false,
+    reason: 'discord-verify-required'
+  });
+  store.ensurePending(TARGET);
+  store.reject(TARGET, { actorId: ACTOR, reason: 'no' });
+  assert.deepEqual(assertDiscordMembershipVerified(TARGET, { store }), {
+    ok: false,
+    reason: 'discord-verify-rejected'
+  });
+  store.reopen(TARGET, { actorId: ACTOR });
+  store.grant(TARGET, { actorId: ACTOR, reason: 'ok' });
+  assert.deepEqual(assertDiscordMembershipVerified(TARGET, { store }), { ok: true });
 });
 
 test('O9 EOS floor refuses missing eosId or verifiedAt', () => {
   assert.deepEqual(assertArkEosLinkForVerifiedMint({}), { ok: false, reason: 'ark-link-required' });
-  assert.deepEqual(assertArkEosLinkForVerifiedMint({ eosId: 'EOS_A' }), { ok: false, reason: 'ark-link-required' });
-  assert.deepEqual(assertArkEosLinkForVerifiedMint({ verifiedAt: new Date().toISOString() }), { ok: false, reason: 'ark-link-required' });
   assert.deepEqual(
     assertArkEosLinkForVerifiedMint({ eosId: 'EOS_A', verifiedAt: new Date().toISOString() }),
     { ok: true }
   );
 });
 
-test('O9 eligibility fails closed on missing EOS before Discord stub', () => {
-  const missing = assertO9EligibilityForVerifiedMint({ discordUserId: '123456789' });
+test('O9 eligibility fails closed on missing EOS before Discord', () => {
+  const missing = assertO9EligibilityForVerifiedMint({ discordUserId: TARGET });
   assert.equal(missing.ok, false);
   assert.equal(missing.reason, 'ark-link-required');
 });
 
-test('O9 eligibility with EOS present still blocked by Discord stub', () => {
+test('O9 eligibility with EOS present blocked without Discord claim → store-blocked', () => {
   const result = assertO9EligibilityForVerifiedMint({
-    discordUserId: '123456789',
+    discordUserId: TARGET,
     eosId: 'EOS_PROOF_123',
     verifiedAt: new Date().toISOString()
   });
   assert.equal(result.ok, false);
-  assert.equal(result.reason, 'o9-discord-membership-predicate-unresolved');
+  assert.equal(result.reason, 'discord-verify-required');
   assert.equal(result.floor, 'eos-present');
-  assert.equal(result.discordMembership, 'stub-blocked');
+  assert.equal(result.discordMembership, 'store-blocked');
 });
 
-test('O9 eligibility Discord half would pass only when stub is replaced (stub always fails for now)', () => {
-  // Documented contract: assertO9EligibilityForVerifiedMint returns ok:true only after
-  // EOS ok AND Discord membership ok. Current stub always returns unresolved, so ok:true
-  // is unreachable until Director authorizes a real predicate.
-  const withEos = assertO9EligibilityForVerifiedMint({
-    discordUserId: '123456789',
+test('O9 eligibility passes when EOS + discordMembershipVerified claim true', () => {
+  const result = assertO9EligibilityForVerifiedMint({
+    discordUserId: TARGET,
     eosId: 'EOS_PROOF_123',
-    verifiedAt: new Date().toISOString()
+    verifiedAt: new Date().toISOString(),
+    discordMembershipVerified: true
   });
-  assert.equal(withEos.ok, false);
-  assert.equal(assertDiscordMembershipVerified('123456789').ok, false);
+  assert.deepEqual(result, { ok: true });
 });
