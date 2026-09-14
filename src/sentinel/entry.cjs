@@ -24,6 +24,7 @@ const { installGameServersExtension } = require('./game-servers-extension.cjs');
 const { installStaffWorkspaceExtension } = require('./staff-workspace-extension.cjs');
 const { installArnIntakeExtension } = require('./arn-intake-extension.cjs');
 const { installNexusEconomyIdentitySyncExtension } = require('./nexus-economy-identity-sync-extension.cjs');
+const { installNexusBalanceCommandExtension } = require('./nexus-balance-command-extension.cjs');
 const { installClusterShopUiExtension } = require('./cluster-shop-ui-extension.cjs');
 
 // ARK control, monitoring, identity, economy and cluster integration.
@@ -67,6 +68,7 @@ installGameServersExtension();
 installStaffWorkspaceExtension();
 installArnIntakeExtension();
 installNexusEconomyIdentitySyncExtension();
+installNexusBalanceCommandExtension();
 installClusterShopUiExtension();
 
 // ARK stack intentionally preserved during the Sentinal teardown.
