@@ -102,6 +102,7 @@ class NexusEconomyClient {
 
   linkIdentity(input) { return request('/identity/link', { method: 'POST', body: input }); }
   presence(input) { return request('/presence', { method: 'POST', body: input }); }
+  adminCredit(input) { return request('/wallet/admin-credit', { method: 'POST', body: input }); }
   credit(input) { return request('/wallet/credit', { method: 'POST', body: input }); }
   spend(input) { return request('/wallet/spend', { method: 'POST', body: input }); }
 
