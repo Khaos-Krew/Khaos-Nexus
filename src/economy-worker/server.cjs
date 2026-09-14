@@ -18,6 +18,7 @@ class EconomyRequestError extends Error {
 
 const DRAIN_MUTATION_PATHS = new Set(['/identity/link']);
 const PRESENCE_WRITE_PATHS = new Set(['/presence', '/wallet/accrue-offline']);
+const ADMIN_CREDIT_PATHS = new Set(['/wallet/admin-credit']);
 const FINANCIAL_WRITE_PATHS = new Set([
   '/wallet/credit',
   '/wallet/spend',
@@ -27,7 +28,7 @@ const FINANCIAL_WRITE_PATHS = new Set([
   '/shop/buy/delivery-status'
 ]);
 const WRITE_PATHS = new Set([...PRESENCE_WRITE_PATHS, ...FINANCIAL_WRITE_PATHS]);
-const POST_PATHS = new Set([...DRAIN_MUTATION_PATHS, ...WRITE_PATHS, '/shop/quote']);
+const POST_PATHS = new Set([...DRAIN_MUTATION_PATHS, ...WRITE_PATHS, ...ADMIN_CREDIT_PATHS, '/shop/quote']);
 
 function enabled(value) {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
@@ -81,6 +82,9 @@ function publicRequestError(error) {
   if (error instanceof EconomyRequestError && error.code === 'invalid-json') {
     return { statusCode: 400, body: { ok: false, error: 'invalid-json' } };
   }
+  if (error instanceof EconomyRequestError && error.code === 'invalid-admin-credit') {
+    return { statusCode: 400, body: { ok: false, error: 'invalid-admin-credit' } };
+  }
   return { statusCode: 500, body: { ok: false, error: 'internal-error' } };
 }
 
@@ -124,7 +128,7 @@ async function walletBalances(worker, discordUserId) {
   return { NEXUS_COINS: 0, NEXUS_POINTS: points, DINO_CACHE_TOKENS: 0 };
 }
 
-function runtimeReadiness({ worker, shop, token, writesEnabled, presenceWritesEnabled }) {
+function runtimeReadiness({ worker, shop, token, writesEnabled, presenceWritesEnabled, adminCreditsEnabled = false }) {
   const catalog = shop.listCatalog();
   const buyableItems = catalog.filter((item) => item.buyable).length;
   const sellableItems = catalog.filter((item) => item.sellable).length;
@@ -138,11 +142,13 @@ function runtimeReadiness({ worker, shop, token, writesEnabled, presenceWritesEn
     authenticated: Boolean(token),
     writesEnabled: Boolean(writesEnabled),
     presenceWritesEnabled: Boolean(presenceWritesEnabled),
+    adminCreditsEnabled: Boolean(adminCreditsEnabled),
     migrationMode: writesEnabled ? 'active' : (presenceWritesEnabled ? 'accrual-only' : 'read-only'),
     clusterShopItems: catalog.length,
     buyableItems,
     sellableItems,
     pendingBuyOrders: Array.isArray(pending) ? pending.length : null,
+    adminCreditReady: Boolean(token && adminCreditsEnabled),
     checkoutReady: Boolean(token && writesEnabled && buyableItems > 0),
     sellbackCreditReady: Boolean(token && writesEnabled && sellableItems > 0 && !postgresBacked)
   };
@@ -152,9 +158,9 @@ function runtimeLiveness() {
   return { ok: true, service: 'nexus-economy-worker', status: 'live' };
 }
 
-function runtimeOperationalReadiness({ worker, shop, token, writesEnabled, presenceWritesEnabled, lifecycle = {} }) {
+function runtimeOperationalReadiness({ worker, shop, token, writesEnabled, presenceWritesEnabled, adminCreditsEnabled = false, lifecycle = {} }) {
   try {
-    const readiness = runtimeReadiness({ worker, shop, token, writesEnabled, presenceWritesEnabled });
+    const readiness = runtimeReadiness({ worker, shop, token, writesEnabled, presenceWritesEnabled, adminCreditsEnabled });
     const draining = lifecycle.draining === true;
     const ready = readiness.ok === true && !draining;
     return {
@@ -164,6 +170,7 @@ function runtimeOperationalReadiness({ worker, shop, token, writesEnabled, prese
         ok: ready,
         status: ready ? 'ready' : (draining ? 'draining' : 'not-ready'),
         draining,
+        adminCreditReady: ready && readiness.adminCreditReady,
         checkoutReady: ready && readiness.checkoutReady,
         sellbackCreditReady: ready && readiness.sellbackCreditReady
       }
@@ -185,6 +192,17 @@ function runtimeOperationalReadiness({ worker, shop, token, writesEnabled, prese
 function drainMutationGate(path, { lifecycle = {} }) {
   if (!DRAIN_MUTATION_PATHS.has(path) || lifecycle.draining !== true) return null;
   return { statusCode: 503, body: { ok: false, error: 'economy-worker-draining', draining: true } };
+}
+
+function adminCreditGate(path, { adminCreditsEnabled = false, lifecycle = {} } = {}) {
+  if (!ADMIN_CREDIT_PATHS.has(path)) return null;
+  if (lifecycle.draining === true) {
+    return { statusCode: 503, body: { ok: false, error: 'economy-worker-draining', draining: true } };
+  }
+  if (!adminCreditsEnabled) {
+    return { statusCode: 503, body: { ok: false, error: 'economy-admin-credit-not-enabled', adminCreditsEnabled: false } };
+  }
+  return null;
 }
 
 function writeGate(path, options = {}) {
@@ -210,14 +228,44 @@ function writeGate(path, options = {}) {
 function mutationRequestGate(path, options = {}) {
   const writesEnabled = Boolean(options.writesEnabled);
   const presenceWritesEnabled = options.presenceWritesEnabled == null ? writesEnabled : Boolean(options.presenceWritesEnabled);
+  const adminCreditsEnabled = Boolean(options.adminCreditsEnabled);
   const lifecycle = options.lifecycle || {};
   if (lifecycle.draining === true && path !== '/shop/quote') return drainMutationGate('/identity/link', { lifecycle });
-  return drainMutationGate(path, { lifecycle }) || writeGate(path, { writesEnabled, presenceWritesEnabled, lifecycle });
+  return drainMutationGate(path, { lifecycle })
+    || adminCreditGate(path, { adminCreditsEnabled, lifecycle })
+    || writeGate(path, { writesEnabled, presenceWritesEnabled, lifecycle });
 }
 
 function walletReadAccrualPermitted({ writesEnabled = false, presenceWritesEnabled, lifecycle = {} }) {
   const accrualWritesEnabled = presenceWritesEnabled == null ? Boolean(writesEnabled) : Boolean(presenceWritesEnabled);
   return Boolean(accrualWritesEnabled && lifecycle.draining !== true);
+}
+
+function cleanAdminCreditReason(value) {
+  return String(value || '').replace(/[\r\n\t\u0000-\u001f]+/g, ' ').trim().replace(/\s+/g, ' ').slice(0, 240);
+}
+
+function adminCreditInput(input = {}) {
+  const metadata = input?.metadata && typeof input.metadata === 'object' && !Array.isArray(input.metadata) ? input.metadata : {};
+  const issuerDiscordUserId = String(metadata.issuerDiscordUserId || '').trim();
+  const targetDiscordUserId = String(input.discordUserId || '').trim();
+  const reason = cleanAdminCreditReason(metadata.reason);
+  if (!/^\d{5,25}$/.test(issuerDiscordUserId) || !/^\d{5,25}$/.test(targetDiscordUserId) || !reason) {
+    throw new EconomyRequestError('invalid-admin-credit', 'Admin credit requires issuer, target, and reason.');
+  }
+  return {
+    ...input,
+    discordUserId: targetDiscordUserId,
+    source: 'discord-owner-command',
+    type: 'admin-credit',
+    metadata: {
+      ...metadata,
+      command: '/wallet add',
+      issuerDiscordUserId,
+      targetDiscordUserId,
+      reason
+    }
+  };
 }
 
 function createEconomyServer(options = {}) {
@@ -231,6 +279,9 @@ function createEconomyServer(options = {}) {
   const presenceWritesEnabled = options.presenceWritesEnabled == null
     ? (presenceEnv ? enabled(presenceEnv) : writesEnabled)
     : Boolean(options.presenceWritesEnabled);
+  const adminCreditsEnabled = options.adminCreditsEnabled == null
+    ? enabled(process.env.NEXUS_ECONOMY_ADMIN_CREDITS_ENABLED)
+    : Boolean(options.adminCreditsEnabled);
   const lifecycle = { draining: false, signal: null };
 
   const server = http.createServer(async (req, res) => {
@@ -239,11 +290,11 @@ function createEconomyServer(options = {}) {
 
       if (req.method === 'GET' && url.pathname === '/health/live') return json(res, 200, runtimeLiveness());
       if (req.method === 'GET' && url.pathname === '/health/ready') {
-        const probe = runtimeOperationalReadiness({ worker, shop, token, writesEnabled, presenceWritesEnabled, lifecycle });
+        const probe = runtimeOperationalReadiness({ worker, shop, token, writesEnabled, presenceWritesEnabled, adminCreditsEnabled, lifecycle });
         return json(res, probe.statusCode, probe.body);
       }
       if (req.method === 'GET' && url.pathname === '/health') {
-        return json(res, 200, runtimeReadiness({ worker, shop, token, writesEnabled, presenceWritesEnabled }));
+        return json(res, 200, runtimeReadiness({ worker, shop, token, writesEnabled, presenceWritesEnabled, adminCreditsEnabled }));
       }
       if (!authorized(req, token)) return json(res, 401, { ok: false, error: 'unauthorized' });
 
@@ -294,17 +345,18 @@ function createEconomyServer(options = {}) {
       }
 
       if (req.method !== 'POST') return json(res, 404, { ok: false, error: 'not-found' });
-      const mutationGate = mutationRequestGate(url.pathname, { writesEnabled, presenceWritesEnabled, lifecycle });
+      const mutationGate = mutationRequestGate(url.pathname, { writesEnabled, presenceWritesEnabled, adminCreditsEnabled, lifecycle });
       if (mutationGate) return json(res, mutationGate.statusCode, mutationGate.body);
       if (!POST_PATHS.has(url.pathname)) return json(res, 404, { ok: false, error: 'not-found' });
 
       const input = await body(req);
-      const executionGate = mutationRequestGate(url.pathname, { writesEnabled, presenceWritesEnabled, lifecycle });
+      const executionGate = mutationRequestGate(url.pathname, { writesEnabled, presenceWritesEnabled, adminCreditsEnabled, lifecycle });
       if (executionGate) return json(res, executionGate.statusCode, executionGate.body);
 
       if (url.pathname === '/identity/link') return json(res, 200, { ok: true, result: await Promise.resolve(worker.linkArkIdentity(input)) });
       if (url.pathname === '/shop/quote') return json(res, 200, { ok: true, quote: shop.quote(input), writesEnabled });
       if (url.pathname === '/presence') return json(res, 200, await worker.recordPresence(input));
+      if (url.pathname === '/wallet/admin-credit') return json(res, 200, await worker.credit(adminCreditInput(input)));
       if (url.pathname === '/wallet/credit') return json(res, 200, await worker.credit(input));
       if (url.pathname === '/wallet/spend') return json(res, 200, await worker.spend(input));
       if (url.pathname === '/wallet/accrue-offline') return json(res, 200, await worker.accrueOffline(input.discordUserId));
@@ -330,6 +382,7 @@ function createEconomyServer(options = {}) {
     token,
     writesEnabled,
     presenceWritesEnabled,
+    adminCreditsEnabled,
     beginDrain(signal = 'shutdown') {
       if (lifecycle.draining) return false;
       lifecycle.draining = true;
@@ -337,8 +390,8 @@ function createEconomyServer(options = {}) {
       return true;
     },
     isDraining: () => lifecycle.draining,
-    readiness: () => runtimeReadiness({ worker, shop, token, writesEnabled, presenceWritesEnabled }),
-    operationalReadiness: () => runtimeOperationalReadiness({ worker, shop, token, writesEnabled, presenceWritesEnabled, lifecycle })
+    readiness: () => runtimeReadiness({ worker, shop, token, writesEnabled, presenceWritesEnabled, adminCreditsEnabled }),
+    operationalReadiness: () => runtimeOperationalReadiness({ worker, shop, token, writesEnabled, presenceWritesEnabled, adminCreditsEnabled, lifecycle })
   };
 }
 
@@ -358,6 +411,7 @@ module.exports = {
   EconomyRequestError,
   DRAIN_MUTATION_PATHS,
   PRESENCE_WRITE_PATHS,
+  ADMIN_CREDIT_PATHS,
   FINANCIAL_WRITE_PATHS,
   WRITE_PATHS,
   POST_PATHS,
@@ -371,9 +425,12 @@ module.exports = {
   runtimeLiveness,
   runtimeOperationalReadiness,
   drainMutationGate,
+  adminCreditGate,
   writeGate,
   mutationRequestGate,
   walletReadAccrualPermitted,
+  cleanAdminCreditReason,
+  adminCreditInput,
   createEconomyServer,
   listenEconomyServer
 };
