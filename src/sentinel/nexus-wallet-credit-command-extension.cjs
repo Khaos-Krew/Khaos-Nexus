@@ -124,7 +124,7 @@ async function handleWalletInteraction(interaction, {
 
   try {
     const { target, reason, request } = creditRequestFromInteraction(interaction);
-    const result = await economyClient.credit(request);
+    const result = await economyClient.adminCredit(request);
     if (!result?.ok) throw new Error(result?.reason || result?.error || 'Wallet credit failed.');
     const balance = Number(result.balance);
     const balanceText = Number.isSafeInteger(balance) && balance >= 0 ? balance.toLocaleString('en-US') : 'updated';
