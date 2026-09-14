@@ -55,6 +55,9 @@ async function createPostgresEconomyRuntime({ env = process.env, now } = {}) {
       const linked = await repository.linkVerifiedIdentity(verified);
       await accrual.syncRank(verified.discordUserId, input.rankId || 'shadow-recruit');
       return linked;
+    },
+    demoteIdentityToRestricted(discordUserId) {
+      return repository.demoteVerifiedIdentityToRestricted(String(discordUserId || ''));
     }
   });
   const shop = new NexusEconomyPostgresShopService({ wallet: walletCore, repository });
