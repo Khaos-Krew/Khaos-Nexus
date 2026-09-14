@@ -6,6 +6,8 @@ const { withIdentityProof } = require('./nexus-economy-identity-proof.cjs');
 const { rankById } = require('../shared/ranks.cjs');
 const { economyPerkForRank, OFFLINE_PASSIVE_CAP_HOURS } = require('../shared/nexus-economy-rank-perks.cjs');
 const { highestConfiguredRankForMember } = require('./ark-account-linking.cjs');
+const { assertDiscordMembershipVerified } = require('./nexus-economy-o9-eligibility.cjs');
+const { MemberVerificationStore } = require('./member-verification-store.cjs');
 
 function clean(value, max = 256) {
   return String(value || '').replace(/[\r\n\t\u0000-\u001f]+/g, '').trim().slice(0, max);
@@ -50,9 +52,14 @@ function request(pathname, { method = 'GET', body = null, timeoutMs = 8000, acce
   });
 }
 
+const _unverifiedLogOnce = new Set();
+
 class NexusEconomyClient {
-  constructor({ identityStoreFactory = null } = {}) {
+  constructor({ identityStoreFactory = null, memberVerificationStoreFactory = null } = {}) {
     this.identityStoreFactory = typeof identityStoreFactory === 'function' ? identityStoreFactory : null;
+    this.memberVerificationStoreFactory = typeof memberVerificationStoreFactory === 'function'
+      ? memberVerificationStoreFactory
+      : null;
   }
 
   configured() { return configured(); }
@@ -64,10 +71,26 @@ class NexusEconomyClient {
     return new ArkIdentityStore();
   }
 
+  memberVerificationStore() {
+    if (this.memberVerificationStoreFactory) return this.memberVerificationStoreFactory();
+    return new MemberVerificationStore();
+  }
+
   async ensureIdentityProjected(discordUserId) {
     if (!this.configured()) return { ok: false, skipped: 'economy-worker-unconfigured', linked: 0 };
     const id = clean(discordUserId, 32);
     if (!/^\d{5,25}$/.test(id)) return { ok: false, skipped: 'discord-user-id-invalid', linked: 0 };
+
+    // O9 client fail-closed: do not project/link without Sentinal Discord-verify grant.
+    const membership = assertDiscordMembershipVerified(id, { store: this.memberVerificationStore() });
+    if (!membership.ok) {
+      if (!_unverifiedLogOnce.has(id)) {
+        _unverifiedLogOnce.add(id);
+        console.warn(`[Nexus Economy] skip identity projection discord=${id}: ${membership.reason}`);
+      }
+      return { ok: false, skipped: membership.reason, linked: 0 };
+    }
+
     const profile = this.identityStore().profileByDiscord(id);
     if (!profile) return { ok: false, skipped: 'identity-not-linked', linked: 0 };
     const rankId = clean(profile.rankId, 48) || 'shadow-recruit';
@@ -75,7 +98,10 @@ class NexusEconomyClient {
     for (const account of profile.arkAccounts || []) {
       const eosId = clean(account?.eosId, 128);
       if (!eosId) continue;
-      const signedLink = withIdentityProof({ discordUserId: id, eosId, rankId }, account);
+      const signedLink = withIdentityProof(
+        { discordUserId: id, eosId, rankId, discordMembershipVerified: true },
+        account
+      );
       await this.linkIdentity(signedLink);
       linked += 1;
     }
@@ -83,11 +109,8 @@ class NexusEconomyClient {
   }
 
   async wallet(discordUserId, { member, config = {} } = {}) {
-    // Rank/link events own projection. A read must not write a stale profile rank.
     const result = await request(`/wallet/${encodeURIComponent(String(discordUserId))}`);
     if (result.rankId) return result;
-    // Postgres returns the balance without rank metadata. Resolve current Discord
-    // evidence here instead of letting the UI silently label it Shadow Recruit.
     if (!member) return result;
     const rank = highestConfiguredRankForMember(member, config);
     const perk = economyPerkForRank(rank.id);
@@ -101,6 +124,14 @@ class NexusEconomyClient {
   }
 
   linkIdentity(input) { return request('/identity/link', { method: 'POST', body: input }); }
+
+  demoteIdentityToRestricted(discordUserId) {
+    return request('/identity/demote-restricted', {
+      method: 'POST',
+      body: { discordUserId: String(discordUserId || '') }
+    });
+  }
+
   presence(input) { return request('/presence', { method: 'POST', body: input }); }
   credit(input) { return request('/wallet/credit', { method: 'POST', body: input }); }
   spend(input) { return request('/wallet/spend', { method: 'POST', body: input }); }
