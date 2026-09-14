@@ -6,16 +6,18 @@ const assert = require('node:assert/strict');
 const {
   walletCommandDefinition,
   registerWalletCommand,
+  canCreditWallet,
   handleWalletInteraction
 } = require('../src/sentinel/nexus-wallet-credit-command-extension.cjs');
 
-function interactionFixture({ issuerId = '111111111111111111', targetId = '222222222222222222', currency = 'NEXUS_POINTS', amount = 25, reason = 'Event reward', targetBot = false } = {}) {
+function interactionFixture({ issuerId = '111111111111111111', guildOwnerId = '999999999999999999', targetId = '222222222222222222', currency = 'NEXUS_POINTS', amount = 25, reason = 'Event reward', targetBot = false } = {}) {
   let reply = null;
   const target = { id: targetId, bot: targetBot, toString: () => `<@${targetId}>` };
   const interaction = {
     isChatInputCommand: () => true,
     commandName: 'wallet',
     user: { id: issuerId },
+    guild: { ownerId: guildOwnerId },
     options: {
       getSubcommand: () => 'add',
       getUser: () => target,
@@ -55,21 +57,34 @@ test('/wallet registration creates the guild command when missing', async () => 
   assert.equal(created.name, 'wallet');
 });
 
-test('/wallet add rejects non-owner issuers without crediting a wallet', async () => {
+test('wallet credit authority accepts the Discord guild owner', async () => {
+  const fixture = interactionFixture({ guildOwnerId: '111111111111111111' });
+  const backend = { async accountByDiscord() { throw new Error('backend should not be required for guild owner'); } };
+  assert.equal(await canCreditWallet(fixture.interaction, { config: { discord: {} }, backend }), true);
+});
+
+test('wallet credit authority accepts a linked Nexus co-owner', async () => {
+  const fixture = interactionFixture();
+  const backend = { async accountByDiscord() { return { ok: true, account: { role: 'co-owner' } }; } };
+  assert.equal(await canCreditWallet(fixture.interaction, { config: { discord: {} }, backend }), true);
+});
+
+test('/wallet add rejects ordinary admins/users without crediting a wallet', async () => {
   const fixture = interactionFixture();
   let credits = 0;
   const economyClient = {
     configured: () => true,
     async credit() { credits += 1; return { ok: true }; }
   };
-  const config = { discord: { ownerUserIds: ['999999999999999999'] } };
-  assert.equal(await handleWalletInteraction(fixture.interaction, { economyClient, config }), true);
+  const backend = { async accountByDiscord() { return { ok: true, account: { role: 'admin' } }; } };
+  const config = { discord: {} };
+  assert.equal(await handleWalletInteraction(fixture.interaction, { economyClient, config, backend }), true);
   assert.equal(credits, 0);
-  assert.match(fixture.reply().content, /restricted to Nexus owners/i);
+  assert.match(fixture.reply().content, /restricted to Nexus Owner\/Co-Owner authority/i);
 });
 
 test('/wallet add credits through the ledger client with issuer audit metadata', async () => {
-  const fixture = interactionFixture({ currency: 'DINO_CACHE_TOKENS', amount: 4, reason: 'Boss event payout' });
+  const fixture = interactionFixture({ guildOwnerId: '111111111111111111', currency: 'DINO_CACHE_TOKENS', amount: 4, reason: 'Boss event payout' });
   let request = null;
   const economyClient = {
     configured: () => true,
@@ -78,8 +93,9 @@ test('/wallet add credits through the ledger client with issuer audit metadata',
       return { ok: true, balance: 11, transactionId: 'ledger-123' };
     }
   };
-  const config = { discord: { ownerUserIds: ['111111111111111111'] } };
-  assert.equal(await handleWalletInteraction(fixture.interaction, { economyClient, config }), true);
+  const backend = { async accountByDiscord() { throw new Error('backend should not be required for guild owner'); } };
+  const config = { discord: {} };
+  assert.equal(await handleWalletInteraction(fixture.interaction, { economyClient, config, backend }), true);
   assert.equal(request.discordUserId, '222222222222222222');
   assert.equal(request.currency, 'DINO_CACHE_TOKENS');
   assert.equal(request.amount, 4);
