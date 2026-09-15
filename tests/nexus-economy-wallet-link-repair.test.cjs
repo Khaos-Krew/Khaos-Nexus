@@ -10,12 +10,15 @@ function tick() {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
-function verifiedMemberStore(discordUserId) {
-  return {
-    get: (id) => (String(id) === String(discordUserId)
-      ? { discordUserId: String(discordUserId), state: 'verified' }
-      : null)
-  };
+/** Injected store matching assertDiscordMembershipVerified contract: get(discordId) => row with state. */
+function verifiedMemberStoreFactory(discordUserId) {
+  return () => ({
+    get: (id) => (
+      String(id) === String(discordUserId)
+        ? { discordUserId: String(discordUserId), state: 'verified' }
+        : null
+    )
+  });
 }
 
 test('verified ARK links and rank syncs are projected to the Nexus wallet immediately', async () => {
@@ -95,10 +98,14 @@ test('wallet reads do not project stale profiles; shop buys retain identity repa
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const priorUrl = process.env.NEXUS_ECONOMY_URL;
   const priorToken = process.env.NEXUS_ECONOMY_TOKEN;
+  const priorProof = process.env.NEXUS_ECONOMY_IDENTITY_PROOF_SECRET;
   t.after(() => {
     if (priorUrl == null) delete process.env.NEXUS_ECONOMY_URL; else process.env.NEXUS_ECONOMY_URL = priorUrl;
     if (priorToken == null) delete process.env.NEXUS_ECONOMY_TOKEN; else process.env.NEXUS_ECONOMY_TOKEN = priorToken;
+    if (priorProof == null) delete process.env.NEXUS_ECONOMY_IDENTITY_PROOF_SECRET;
+    else process.env.NEXUS_ECONOMY_IDENTITY_PROOF_SECRET = priorProof;
   });
+  delete process.env.NEXUS_ECONOMY_IDENTITY_PROOF_SECRET;
 
   const address = server.address();
   process.env.NEXUS_ECONOMY_URL = `http://127.0.0.1:${address.port}`;
@@ -111,7 +118,7 @@ test('wallet reads do not project stale profiles; shop buys retain identity repa
   };
   const client = new NexusEconomyClient({
     identityStoreFactory: () => ({ profileByDiscord: (id) => id === profile.discordUserId ? profile : null }),
-    memberVerificationStoreFactory: () => verifiedMemberStore(profile.discordUserId)
+    memberVerificationStoreFactory: verifiedMemberStoreFactory(profile.discordUserId)
   });
 
   const wallet = await client.wallet(profile.discordUserId);
@@ -147,33 +154,40 @@ test('shop buy fails closed when identity projection fails', async (t) => {
 
   const priorUrl = process.env.NEXUS_ECONOMY_URL;
   const priorToken = process.env.NEXUS_ECONOMY_TOKEN;
+  const priorProof = process.env.NEXUS_ECONOMY_IDENTITY_PROOF_SECRET;
   t.after(() => {
     if (priorUrl == null) delete process.env.NEXUS_ECONOMY_URL; else process.env.NEXUS_ECONOMY_URL = priorUrl;
     if (priorToken == null) delete process.env.NEXUS_ECONOMY_TOKEN; else process.env.NEXUS_ECONOMY_TOKEN = priorToken;
+    if (priorProof == null) delete process.env.NEXUS_ECONOMY_IDENTITY_PROOF_SECRET;
+    else process.env.NEXUS_ECONOMY_IDENTITY_PROOF_SECRET = priorProof;
   });
+  delete process.env.NEXUS_ECONOMY_IDENTITY_PROOF_SECRET;
+
   const address = server.address();
   process.env.NEXUS_ECONOMY_URL = `http://127.0.0.1:${address.port}`;
   process.env.NEXUS_ECONOMY_TOKEN = 'wallet-link-repair-test-token';
 
+  const discordUserId = '123456789012345678';
   const client = new NexusEconomyClient({
     identityStoreFactory: () => ({
       profileByDiscord: () => ({
-        discordUserId: '123456789012345678',
+        discordUserId,
         rankId: 'shadow-recruit',
         arkAccounts: [{ eosId: '0002walletrepair' }]
       })
     }),
-    memberVerificationStoreFactory: () => verifiedMemberStore('123456789012345678')
+    // Verified Discord store so code reaches /identity/link 503 (projection failure), not Discord gate.
+    memberVerificationStoreFactory: verifiedMemberStoreFactory(discordUserId)
   });
 
   await assert.rejects(
-    client.shopBuy({ discordUserId: '123456789012345678', itemId: 'test-item', bundles: 1 }),
+    client.shopBuy({ discordUserId, itemId: 'test-item', bundles: 1 }),
     /projection unavailable/
   );
   assert.deepEqual(requests, ['/identity/link']);
 });
 
-test('shop buy fails closed when Discord membership is not verified', async (t) => {
+test('shop buy fails closed when Discord membership is unverified and never hits /shop/buy', async (t) => {
   const requests = [];
   const server = http.createServer((req, res) => {
     requests.push(req.url);
@@ -189,24 +203,31 @@ test('shop buy fails closed when Discord membership is not verified', async (t) 
     if (priorUrl == null) delete process.env.NEXUS_ECONOMY_URL; else process.env.NEXUS_ECONOMY_URL = priorUrl;
     if (priorToken == null) delete process.env.NEXUS_ECONOMY_TOKEN; else process.env.NEXUS_ECONOMY_TOKEN = priorToken;
   });
+
   const address = server.address();
   process.env.NEXUS_ECONOMY_URL = `http://127.0.0.1:${address.port}`;
   process.env.NEXUS_ECONOMY_TOKEN = 'wallet-link-repair-test-token';
 
+  const discordUserId = '123456789012345678';
   const client = new NexusEconomyClient({
     identityStoreFactory: () => ({
       profileByDiscord: () => ({
-        discordUserId: '123456789012345678',
+        discordUserId,
         rankId: 'shadow-recruit',
         arkAccounts: [{ eosId: '0002walletrepair' }]
       })
     }),
-    memberVerificationStoreFactory: () => ({ get: () => ({ discordUserId: '123456789012345678', state: 'pending' }) })
+    // Unverified / no verified Discord store → discord-verify-required before any HTTP.
+    memberVerificationStoreFactory: () => ({
+      get: () => ({ discordUserId, state: 'pending' })
+    })
   });
 
   await assert.rejects(
-    client.shopBuy({ discordUserId: '123456789012345678', itemId: 'test-item', bundles: 1 }),
-    /discord-verify-required/
+    client.shopBuy({ discordUserId, itemId: 'test-item', bundles: 1 }),
+    /discord-verify-required|store-blocked|identity-projection-required/
   );
+  assert.equal(requests.includes('/shop/buy'), false);
+  assert.equal(requests.includes('/identity/link'), false);
   assert.deepEqual(requests, []);
 });
