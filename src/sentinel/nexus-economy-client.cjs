@@ -132,6 +132,13 @@ class NexusEconomyClient {
     });
   }
 
+  ensureShadowRecruitWallet(discordUserId, rankId = 'shadow-recruit') {
+    return request('/wallet/ensure-shadow-recruit', {
+      method: 'POST',
+      body: { discordUserId: String(discordUserId || ''), rankId: String(rankId || 'shadow-recruit') }
+    });
+  }
+
   presence(input) { return request('/presence', { method: 'POST', body: input }); }
   credit(input) { return request('/wallet/credit', { method: 'POST', body: input }); }
   spend(input) { return request('/wallet/spend', { method: 'POST', body: input }); }
