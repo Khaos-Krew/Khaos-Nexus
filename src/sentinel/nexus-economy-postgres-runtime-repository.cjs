@@ -1,9 +1,22 @@
 'use strict';
 
-const { NexusEconomyPostgresRepository, sqlIdent } = require('./nexus-economy-postgres-repository.cjs');
+const { NexusEconomyPostgresRepository, sqlIdent, normalizeCurrency } = require('./nexus-economy-postgres-repository.cjs');
 const { deterministicEconomicIdentityId } = require('./nexus-economy-json-postgres-migration.cjs');
 const { validDiscordId, validEosId } = require('./ark-identity-store.cjs');
 const { assertO9EligibilityForVerifiedMint } = require('./nexus-economy-o9-eligibility.cjs');
+const { isShadowRecruitEligibleRank } = require('../shared/ranks.cjs');
+
+const SHADOW_RECRUIT_LINK_SOURCE = 'shadow-recruit-rank';
+const PRIMARY_CURRENCIES = Object.freeze(['NEXUS_COINS', 'NEXUS_POINTS', 'DINO_CACHE_TOKENS']);
+
+function quarantineDenylist(env = process.env) {
+  return new Set(
+    String(env.NEXUS_ECONOMY_QUARANTINE_DENYLIST || '')
+      .split(',')
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  );
+}
 
 class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresRepository {
   constructor(options = {}) {
@@ -92,6 +105,97 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
       );
       await client.query('COMMIT');
       return { ok: true, status: 'restricted', priorStatus: 'verified', economicIdentityId };
+    } catch (error) {
+      try { await client.query('ROLLBACK'); } catch {}
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+
+  // Shadow Recruit empty primary wallet mint (LEDGER §5.3). No EOS; no verified elevation; no grants.
+  async ensureShadowRecruitWallet(discordUserId, rankId = 'shadow-recruit', { env = process.env } = {}) {
+    if (!isShadowRecruitEligibleRank(rankId)) {
+      return { ok: true, skipped: 'rank-not-eligible', rankId: String(rankId || '') };
+    }
+    if (!validDiscordId(discordUserId)) throw new Error('Invalid discord user id.');
+    const discord = String(discordUserId);
+    const rank = String(rankId || 'shadow-recruit').trim().toLowerCase() || 'shadow-recruit';
+    const deny = quarantineDenylist(env);
+    const s = this.runtimeSchema;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(`LOCK TABLE ${s}.nexus_economic_identity_links IN SHARE ROW EXCLUSIVE MODE`);
+      const existing = await client.query(
+        `SELECT economic_identity_id, verified_at, source FROM ${s}.nexus_economic_identity_links WHERE provider = 'discord' AND external_id = $1 FOR UPDATE`,
+        [discord]
+      );
+      const economicIdentityId = existing.rows[0]?.economic_identity_id || deterministicEconomicIdentityId(discord);
+      if (deny.has(economicIdentityId)) {
+        await client.query('ROLLBACK');
+        return { ok: false, rejected: 'quarantine-denylist', economicIdentityId };
+      }
+      await client.query(
+        `INSERT INTO ${s}.nexus_economic_identities (economic_identity_id, status) VALUES ($1, 'restricted') ON CONFLICT DO NOTHING`,
+        [economicIdentityId]
+      );
+      const identity = await client.query(
+        `SELECT status FROM ${s}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
+        [economicIdentityId]
+      );
+      const status = identity.rows[0]?.status || null;
+      if (status === 'disabled') {
+        await client.query('ROLLBACK');
+        return { ok: false, rejected: 'disabled', economicIdentityId, status };
+      }
+      // UPSERT discord link: verified_at NULL on insert; never overwrite existing verified_at; never insert EOS.
+      await client.query(
+        `INSERT INTO ${s}.nexus_economic_identity_links (provider, external_id, economic_identity_id, verified_at, source)
+         VALUES ('discord', $1, $2, NULL, $3)
+         ON CONFLICT (provider, external_id) DO UPDATE SET
+           economic_identity_id = EXCLUDED.economic_identity_id,
+           verified_at = nexus_economic_identity_links.verified_at,
+           source = CASE
+             WHEN nexus_economic_identity_links.verified_at IS NOT NULL THEN nexus_economic_identity_links.source
+             ELSE EXCLUDED.source
+           END`,
+        [discord, economicIdentityId, SHADOW_RECRUIT_LINK_SOURCE]
+      );
+      // Leave status=verified if already; do not elevate restricted → verified here.
+      const walletsCreated = [];
+      const walletsExisting = [];
+      for (const currency of PRIMARY_CURRENCIES) {
+        const inserted = await client.query(
+          `INSERT INTO ${s}.nexus_economy_wallets (economic_identity_id, currency, balance)
+           SELECT $1, $2, 0 WHERE EXISTS (
+             SELECT 1 FROM ${s}.nexus_economic_identities WHERE economic_identity_id = $1 AND status IN ('verified', 'restricted')
+           )
+           ON CONFLICT (economic_identity_id, currency) DO NOTHING
+           RETURNING currency`,
+          [economicIdentityId, normalizeCurrency(currency)]
+        );
+        if (inserted.rowCount) walletsCreated.push(currency);
+        else walletsExisting.push(currency);
+      }
+      await client.query(
+        `INSERT INTO ${s}.nexus_economy_accrual_state (economic_identity_id, rank_id)
+         VALUES ($1, $2)
+         ON CONFLICT (economic_identity_id) DO UPDATE SET rank_id = EXCLUDED.rank_id, updated_at = NOW()`,
+        [economicIdentityId, rank]
+      );
+      await client.query('COMMIT');
+      console.log(`[Nexus Economy] shadow_recruit_wallet_ensured identity=${economicIdentityId} status=${status} discord=${discord} rank=${rank}`);
+      return {
+        ok: true,
+        economicIdentityId,
+        status,
+        rankId: rank,
+        walletsCreated,
+        walletsExisting,
+        source: SHADOW_RECRUIT_LINK_SOURCE
+      };
     } catch (error) {
       try { await client.query('ROLLBACK'); } catch {}
       throw error;
@@ -196,4 +300,4 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
   }
 }
 
-module.exports = { NexusEconomyPostgresRuntimeRepository };
+module.exports = { NexusEconomyPostgresRuntimeRepository, SHADOW_RECRUIT_LINK_SOURCE, quarantineDenylist };
