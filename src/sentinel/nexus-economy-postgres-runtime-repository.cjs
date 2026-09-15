@@ -14,7 +14,7 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
   // Called only after the runtime verifies the Sentinel proof. No balance changes.
   // O9: elevates to status=verified only when assertO9EligibilityForVerifiedMint passes.
   // Already-verified rows are never demoted (idempotent re-link stays verified).
-  async linkVerifiedIdentity({ discordUserId, eosId, verifiedAt } = {}) {
+  async linkVerifiedIdentity({ discordUserId, eosId, verifiedAt, discordMembershipVerified } = {}) {
     if (!validDiscordId(discordUserId) || !validEosId(eosId) || !Number.isFinite(Date.parse(verifiedAt))) throw new Error('Invalid verified identity.');
     const s = this.runtimeSchema;
     const client = await this.pool.connect();
@@ -45,7 +45,7 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
         await client.query('COMMIT');
         return { ok: true, duplicate: true, status: 'verified', economicIdentityId };
       }
-      const eligibility = assertO9EligibilityForVerifiedMint({ discordUserId, eosId, verifiedAt });
+      const eligibility = assertO9EligibilityForVerifiedMint({ discordUserId, eosId, verifiedAt, discordMembershipVerified });
       if (!eligibility.ok) {
         // Commit restricted + links; do not elevate to verified.
         await client.query('COMMIT');
@@ -58,6 +58,46 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
       try { await client.query('ROLLBACK'); } catch {}
       throw error;
     } finally { client.release(); }
+  }
+
+
+  // O9 revoke path: verified → restricted; links retained; no wipe; no money-flag dependency.
+  async demoteVerifiedIdentityToRestricted(discordUserId) {
+    if (!validDiscordId(discordUserId)) throw new Error('Invalid discord user id.');
+    const s = this.runtimeSchema;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const link = await client.query(
+        `SELECT economic_identity_id FROM ${s}.nexus_economic_identity_links WHERE provider = 'discord' AND external_id = $1 FOR UPDATE`,
+        [discordUserId]
+      );
+      if (!link.rows[0]) {
+        await client.query('COMMIT');
+        return { ok: true, skipped: 'no-identity', status: null };
+      }
+      const economicIdentityId = link.rows[0].economic_identity_id;
+      const identity = await client.query(
+        `SELECT status FROM ${s}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
+        [economicIdentityId]
+      );
+      const priorStatus = identity.rows[0]?.status || null;
+      if (priorStatus !== 'verified') {
+        await client.query('COMMIT');
+        return { ok: true, skipped: 'not-verified', status: priorStatus, economicIdentityId };
+      }
+      await client.query(
+        `UPDATE ${s}.nexus_economic_identities SET status = 'restricted', updated_at = NOW() WHERE economic_identity_id = $1`,
+        [economicIdentityId]
+      );
+      await client.query('COMMIT');
+      return { ok: true, status: 'restricted', priorStatus: 'verified', economicIdentityId };
+    } catch (error) {
+      try { await client.query('ROLLBACK'); } catch {}
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async getOrder(orderId) {
