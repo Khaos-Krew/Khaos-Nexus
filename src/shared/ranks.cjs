@@ -20,6 +20,13 @@ function rankById(value) {
   return RANK_BY_ID.get(normalizeId(value)) || null;
 }
 
+
+function isShadowRecruitEligibleRank(rankId) {
+  const rank = rankById(rankId);
+  if (!rank) return false;
+  return Number(rank.level) >= 0;
+}
+
 function isLegacyRank(rank) {
   const id = typeof rank === 'string' ? normalizeId(rank) : normalizeId(rank?.id);
   return LEGACY_RANK_IDS.has(id);
@@ -79,6 +86,7 @@ module.exports = {
   highestRankForEntitlements,
   isLegacyRank,
   isPurchasableRank,
+  isShadowRecruitEligibleRank,
   normalizeId,
   purchasableRanks,
   rankAuthority,
