@@ -240,6 +240,20 @@ function installWelcomeExtension() {
         void ensureShadowRecruitRole(member, config).then((result) => {
           if (result.changed) console.log(`[Nexus Sentinal] Shadow Recruit baseline (join): member=${member.id} role=${result.roleId} added=true`);
           else if (result.skipped && !['bot-member'].includes(result.skipped)) console.warn(`[Nexus Sentinal] Shadow Recruit baseline (join) skipped for ${member?.id || 'unknown'}: ${result.skipped}`);
+          // Empty wallet mint on join (best-effort; no Discord verify / no EOS required).
+          if (result.changed || result.already) {
+            try {
+              const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
+              const economy = new NexusEconomyClient();
+              if (economy.configured()) {
+                void economy.ensureShadowRecruitWallet(member.id, SHADOW_RECRUIT_RANK_ID).catch((error) => {
+                  console.warn(`[Nexus Sentinal] Shadow Recruit wallet ensure (join) failed for ${member?.id || 'unknown'}: ${String(error?.message || error).slice(0, 240)}`);
+                });
+              }
+            } catch (error) {
+              console.warn(`[Nexus Sentinal] Shadow Recruit wallet ensure (join) unavailable: ${String(error?.message || error).slice(0, 240)}`);
+            }
+          }
         }).catch((error) => {
           console.warn(`[Nexus Sentinal] Shadow Recruit baseline (join) failed for ${member?.id || 'unknown'}: ${String(error?.message || error).slice(0, 240)}`);
         });
