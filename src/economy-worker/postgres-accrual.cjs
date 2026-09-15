@@ -63,11 +63,13 @@ class PostgresEconomyAccrual {
     const discord = cleanExternalId(discordUserId, 'Discord user ID');
     const rank = cleanRank(rankId);
     const s = this.schema;
+    // Allow verified OR restricted (Shadow Recruit empty wallets with verified_at null).
     const result = await this.pool.query(
       `INSERT INTO ${s}.nexus_economy_accrual_state (economic_identity_id, rank_id) ` +
       `SELECT i.economic_identity_id, $2 FROM ${s}.nexus_economic_identity_links d ` +
       `JOIN ${s}.nexus_economic_identities i ON i.economic_identity_id = d.economic_identity_id ` +
-      `WHERE d.provider = 'discord' AND d.external_id = $1 AND d.verified_at IS NOT NULL AND i.status = 'verified' ` +
+      `WHERE d.provider = 'discord' AND d.external_id = $1 ` +
+      `AND i.status IN ('verified', 'restricted') ` +
       `ON CONFLICT (economic_identity_id) DO UPDATE SET rank_id = EXCLUDED.rank_id, updated_at = NOW() ` +
       `RETURNING economic_identity_id, rank_id`,
       [discord, rank]
@@ -102,6 +104,8 @@ class PostgresEconomyAccrual {
     return result.rows?.[0] || null;
   }
 
+  // Active/playtime credits only reach here via recordPresence → #resolveByEos (EOS verified_at required).
+  // accrueOffline → #resolveByDiscord (verified) then #accruePassive (EOS hard-gate). No Discord-only credit.
   async #lockStateAndWallet(client, economicIdentityId, rankId = null) {
     const s = this.schema;
     const rank = cleanRank(rankId);
@@ -143,8 +147,24 @@ class PostgresEconomyAccrual {
     return next;
   }
 
+  async #hasVerifiedEosLink(client, economicIdentityId) {
+    const result = await client.query(
+      `SELECT 1 FROM ${this.schema}.nexus_economic_identity_links ` +
+      `WHERE economic_identity_id = $1 AND provider = 'eos' AND external_id IS NOT NULL AND verified_at IS NOT NULL LIMIT 1`,
+      [economicIdentityId]
+    );
+    return Boolean(result.rows?.[0]);
+  }
+
   async #accruePassive(client, state, economicIdentityId, balance, nowMs) {
     if (state.online) return { balance, credited: 0 };
+    // OWNER lock: passive NP hard-requires linked ARK EOS (verified_at NOT NULL).
+    // No credit and no cursor advance that implies credit when EOS missing.
+    const eosLinked = await this.#hasVerifiedEosLink(client, economicIdentityId);
+    if (!eosLinked) {
+      console.warn(`[Nexus Economy] passive_blocked_no_eos identity=${economicIdentityId}`);
+      return { balance, credited: 0, blocked: 'passive_blocked_no_eos' };
+    }
     const perk = economyPerkForRank(state.rank_id);
     const rate = Number(perk.offlinePointsPerHour || 0);
     if (rate <= 0) return { balance, credited: 0 };
@@ -168,6 +188,9 @@ class PostgresEconomyAccrual {
     });
     state.passive_credit_cursor = cursor;
     state.last_passive_at = new Date(endMs).toISOString();
+    if (nextBalance !== balance) {
+      console.log(`[Nexus Economy] passive_credited identity=${economicIdentityId} amount=${amount}`);
+    }
     return { balance: nextBalance, credited: nextBalance === balance ? 0 : amount };
   }
 
