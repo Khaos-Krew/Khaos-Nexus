@@ -16,7 +16,8 @@ class EconomyRequestError extends Error {
   }
 }
 
-const DRAIN_MUTATION_PATHS = new Set(['/identity/link', '/identity/demote-restricted', '/wallet/ensure-shadow-recruit']);
+const { registerAdminWalletDrainPaths, handleAdminWalletPost } = require('./admin-wallet-routes.cjs');
+const DRAIN_MUTATION_PATHS = registerAdminWalletDrainPaths(new Set(['/identity/link', '/identity/demote-restricted', '/wallet/ensure-shadow-recruit']));
 const PRESENCE_WRITE_PATHS = new Set(['/presence', '/wallet/accrue-offline']);
 const FINANCIAL_WRITE_PATHS = new Set([
   '/wallet/credit',
@@ -320,6 +321,10 @@ function createEconomyServer(options = {}) {
       }
       if (url.pathname === '/shop/quote') return json(res, 200, { ok: true, quote: shop.quote(input), writesEnabled });
       if (url.pathname === '/presence') return json(res, 200, await worker.recordPresence(input));
+      {
+        const adminHandled = await handleAdminWalletPost(url.pathname, { worker, input, json, res });
+        if (adminHandled !== null) return adminHandled;
+      }
       if (url.pathname === '/wallet/credit') return json(res, 200, await worker.credit(input));
       if (url.pathname === '/wallet/spend') return json(res, 200, await worker.spend(input));
       if (url.pathname === '/wallet/accrue-offline') return json(res, 200, await worker.accrueOffline(input.discordUserId));
