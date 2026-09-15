@@ -86,13 +86,15 @@ class NexusEconomyPostgresRepository {
   async getWalletByDiscord(discordUserId, currency = 'NEXUS_POINTS') {
     const discord = cleanExternalId(discordUserId, 'Discord user ID');
     const normalizedCurrency = normalizeCurrency(currency);
+    // Shadow Recruit empty wallets: allow read for restricted + discord link even when verified_at is null.
+    // Do not mint on read. Credit/spend still require verified via wallet-core.
     const result = await this.pool.query(
       `SELECT w.economic_identity_id, w.currency, w.balance\n` +
       `FROM ${this.schema}.nexus_economy_wallets w\n` +
       `JOIN ${this.schema}.nexus_economic_identity_links l ON l.economic_identity_id = w.economic_identity_id\n` +
       `JOIN ${this.schema}.nexus_economic_identities i ON i.economic_identity_id = w.economic_identity_id\n` +
-      `WHERE l.provider = 'discord' AND l.external_id = $1 AND l.verified_at IS NOT NULL\n` +
-      `AND i.status = 'verified' AND w.currency = $2`,
+      `WHERE l.provider = 'discord' AND l.external_id = $1\n` +
+      `AND i.status IN ('verified', 'restricted') AND w.currency = $2`,
       [discord, normalizedCurrency]
     );
     return result.rows?.[0] || null;
@@ -219,9 +221,11 @@ class NexusEconomyPostgresRepository {
       },
       getOrCreateWallet: async (economicIdentityId, currency) => {
         const normalizedCurrency = normalizeCurrency(currency);
+        // Allow zero-balance insert for verified OR restricted (Shadow Recruit empty mint).
+        // Never for disabled. Credit/spend still require verified via wallet-core.
         await client.query(
           `INSERT INTO ${this.schema}.nexus_economy_wallets (economic_identity_id, currency, balance)\n` +
-          `SELECT $1, $2, 0 WHERE EXISTS (SELECT 1 FROM ${this.schema}.nexus_economic_identities WHERE economic_identity_id = $1 AND status = 'verified')\n` +
+          `SELECT $1, $2, 0 WHERE EXISTS (SELECT 1 FROM ${this.schema}.nexus_economic_identities WHERE economic_identity_id = $1 AND status IN ('verified', 'restricted'))\n` +
           `ON CONFLICT (economic_identity_id, currency) DO NOTHING`,
           [economicIdentityId, normalizedCurrency]
         );
