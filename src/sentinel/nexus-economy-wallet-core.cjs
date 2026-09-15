@@ -37,6 +37,16 @@ function walletBalance(wallet) {
   return balance;
 }
 
+function quarantineDenylist(env = process.env) {
+  return new Set(
+    String(env?.NEXUS_ECONOMY_QUARANTINE_DENYLIST || '')
+      .split(',')
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  );
+}
+
+
 class NexusEconomyWalletCore {
   constructor({ repository, now = () => new Date() } = {}) {
     if (!repository || typeof repository.transact !== 'function') throw new Error('Economy repository with transact() is required.');
@@ -136,6 +146,7 @@ class NexusEconomyWalletCore {
     });
   }
 
+
   async commitPurchase({ record, eosId, quote, validateQuote } = {}) {
     record = structuredClone(record);
     quote = structuredClone(quote);
@@ -211,4 +222,14 @@ class NexusEconomyWalletCore {
   }
 }
 
-module.exports = { NexusEconomyWalletCore, positiveWhole, walletBalance };
+
+const { attachAdminWalletMutations } = require('./nexus-economy-wallet-admin.cjs');
+attachAdminWalletMutations(NexusEconomyWalletCore, {
+  cleanId,
+  positiveWhole,
+  priorResult,
+  walletBalance,
+  quarantineDenylist
+});
+
+module.exports = { NexusEconomyWalletCore, positiveWhole, walletBalance, quarantineDenylist };
