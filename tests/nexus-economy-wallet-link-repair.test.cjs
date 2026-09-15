@@ -66,7 +66,7 @@ test('verified ARK links and rank syncs are projected to the Nexus wallet immedi
     rankId: 'shadow-recruit'
   });
 
-  the ranked = store.updateRank();
+  const ranked = store.updateRank();
   assert.equal(ranked.changed, true);
   await tick();
   assert.deepEqual(links[1], {
