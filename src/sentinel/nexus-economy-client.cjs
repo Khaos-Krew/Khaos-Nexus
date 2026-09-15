@@ -142,6 +142,8 @@ class NexusEconomyClient {
   presence(input) { return request('/presence', { method: 'POST', body: input }); }
   credit(input) { return request('/wallet/credit', { method: 'POST', body: input }); }
   spend(input) { return request('/wallet/spend', { method: 'POST', body: input }); }
+  adminCredit(input) { return request('/wallet/admin-credit', { method: 'POST', body: input }); }
+  adminSpend(input) { return request('/wallet/admin-spend', { method: 'POST', body: input }); }
 
   shopCatalog() { return request('/shop/catalog'); }
   shopQuote(input) { return request('/shop/quote', { method: 'POST', body: input }); }
