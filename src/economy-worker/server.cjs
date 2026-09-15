@@ -16,7 +16,7 @@ class EconomyRequestError extends Error {
   }
 }
 
-const DRAIN_MUTATION_PATHS = new Set(['/identity/link']);
+const DRAIN_MUTATION_PATHS = new Set(['/identity/link', '/identity/demote-restricted']);
 const PRESENCE_WRITE_PATHS = new Set(['/presence', '/wallet/accrue-offline']);
 const FINANCIAL_WRITE_PATHS = new Set([
   '/wallet/credit',
@@ -303,6 +303,12 @@ function createEconomyServer(options = {}) {
       if (executionGate) return json(res, executionGate.statusCode, executionGate.body);
 
       if (url.pathname === '/identity/link') return json(res, 200, { ok: true, result: await Promise.resolve(worker.linkArkIdentity(input)) });
+      if (url.pathname === '/identity/demote-restricted') {
+        const demote = typeof worker.demoteIdentityToRestricted === 'function'
+          ? worker.demoteIdentityToRestricted(input.discordUserId)
+          : { ok: false, skipped: 'demote-unsupported' };
+        return json(res, 200, { ok: true, result: await Promise.resolve(demote) });
+      }
       if (url.pathname === '/shop/quote') return json(res, 200, { ok: true, quote: shop.quote(input), writesEnabled });
       if (url.pathname === '/presence') return json(res, 200, await worker.recordPresence(input));
       if (url.pathname === '/wallet/credit') return json(res, 200, await worker.credit(input));
