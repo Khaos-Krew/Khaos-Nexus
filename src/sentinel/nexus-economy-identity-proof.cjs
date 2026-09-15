@@ -3,14 +3,22 @@
 const crypto = require('node:crypto');
 const { validDiscordId, validEosId } = require('./ark-identity-store.cjs');
 
+/**
+ * Signed payload. When discordMembershipVerified === true, bind true as 6th element.
+ * Otherwise keep legacy 5-tuple (backward compatible). Missing claim = not verified.
+ */
 function payload(input) {
-  const { discordUserId, eosId, verifiedAt, issuedAt } = input || {};
+  const { discordUserId, eosId, verifiedAt, issuedAt, discordMembershipVerified } = input || {};
   if (typeof discordUserId !== 'string' || !validDiscordId(discordUserId) ||
       typeof eosId !== 'string' || !validEosId(eosId) ||
       discordUserId.trim() !== discordUserId || eosId.trim() !== eosId ||
       typeof verifiedAt !== 'string' || !Number.isFinite(Date.parse(verifiedAt)) ||
       !Number.isSafeInteger(issuedAt)) throw new Error('Invalid economic identity proof.');
-  return JSON.stringify(['nexus-identity-v1', discordUserId, eosId, verifiedAt, issuedAt]);
+  const base = ['nexus-identity-v1', discordUserId, eosId, verifiedAt, issuedAt];
+  if (discordMembershipVerified === true) {
+    return JSON.stringify([...base, true]);
+  }
+  return JSON.stringify(base);
 }
 
 function signIdentityProof(input, secret) {
@@ -25,12 +33,25 @@ function verifyIdentityProof(input, { secret, now = Date.now() } = {}) {
       !crypto.timingSafeEqual(Buffer.from(input.proof, 'hex'), Buffer.from(expected, 'hex'))) {
     throw new Error('Economic identity proof is invalid or expired.');
   }
-  return { discordUserId: input.discordUserId, eosId: input.eosId, verifiedAt: input.verifiedAt };
+  return {
+    discordUserId: input.discordUserId,
+    eosId: input.eosId,
+    verifiedAt: input.verifiedAt,
+    discordMembershipVerified: input.discordMembershipVerified === true
+  };
 }
 
 function withIdentityProof(input, account, { secret = process.env.NEXUS_ECONOMY_IDENTITY_PROOF_SECRET, now = Date.now() } = {}) {
   if (!secret) return input;
-  const signed = { ...input, verifiedAt: account?.verifiedAt, issuedAt: now };
+  const signed = {
+    ...input,
+    verifiedAt: account?.verifiedAt,
+    issuedAt: now,
+    discordMembershipVerified: input?.discordMembershipVerified === true
+  };
+  // Do not put false into the wire body as a forgeable soft claim without signature binding:
+  // only true is bound into the HMAC (see payload). Still return explicit boolean for callers.
+  if (signed.discordMembershipVerified !== true) delete signed.discordMembershipVerified;
   return { ...signed, proof: signIdentityProof(signed, secret) };
 }
 
