@@ -14,17 +14,40 @@ function serverConnectionFromRecord(record = {}) {
   };
 }
 
+function isPlayerIdToken(value) {
+  return /^(?:EOS[_:])?[A-Za-z0-9_-]{4,128}$/.test(String(value || '').trim());
+}
+
+function preferPlayerId(ids = []) {
+  const normalized = ids
+    .map((id) => String(id || '').trim().replace(/^EOS[_:]/i, ''))
+    .filter(Boolean);
+  return normalized.find((id) => /^[0-9a-f]{32}$/i.test(id))
+    || normalized.find((id) => !/^\d{17}$/.test(id))
+    || normalized[0]
+    || '';
+}
+
+function parseListPlayersLine(line) {
+  const match = String(line || '').trim().match(/^\d+\.\s*(.*)$/);
+  if (!match) return null;
+  const fields = String(match[1] || '').split(',').map((part) => part.trim()).filter(Boolean);
+  if (!fields.length) return null;
+  const ids = [];
+  while (fields.length > 1 && isPlayerIdToken(fields[fields.length - 1])) ids.unshift(fields.pop());
+  const name = fields.join(', ').trim();
+  const eosId = preferPlayerId(ids);
+  if (!name && !eosId) return null;
+  return { name, eosId };
+}
+
 function parseListPlayers(response = '') {
   const text = String(response || '').trim();
   if (!text || /no players/i.test(text)) return [];
   const players = [];
   for (const line of text.split(/\r?\n/)) {
-    const match = line.trim().match(/^\d+\.\s*(.*?)(?:,\s*([^,\s]+))?\s*$/);
-    if (!match) continue;
-    const name = String(match[1] || '').trim();
-    const eosId = String(match[2] || '').trim();
-    if (!name && !eosId) continue;
-    players.push({ name, eosId });
+    const player = parseListPlayersLine(line);
+    if (player) players.push(player);
   }
   return players;
 }
