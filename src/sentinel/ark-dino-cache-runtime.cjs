@@ -1,6 +1,6 @@
 'use strict';
 
-const { connectMysql } = require('./arkshop-mysql.cjs');
+const { connectMysql, isRetired } = require('./arkshop-mysql.cjs');
 const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { CONFIG, cacheForPurchase } = require('./ark-dino-cache-engine.cjs');
@@ -34,6 +34,7 @@ function serverMapping(env = process.env) {
 }
 
 async function preflight(connection) {
+  if (isRetired()) return false;
   if (String(process.env.ARKSHOP_DB_MODE || '').toLowerCase() !== 'mysql') throw new Error('Dino Cache receipt processing requires ARKSHOP_DB_MODE=mysql.');
   const requiredTables = ['ArkShopLogTransactions', 'nexus_dino_cache_transactions', 'nexus_dino_cache_events'];
   const [tables] = await connection.query('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE()');
@@ -81,8 +82,11 @@ function rconResolver(registry) {
 
 async function runDinoCacheCycle({ connector = connectMysql, registry = new ArkClusterRegistry() } = {}) {
   if (!enabled()) return { skipped: 'disabled' };
+  if (isRetired()) return { skipped: 'arkshop-mysql-retired' };
   const mapping = serverMapping();
-  const { connection } = await connector();
+  const opened = await connector();
+  if (opened?.retired || !opened?.connection) return { skipped: 'arkshop-mysql-retired' };
+  const { connection } = opened;
   try {
     await preflight(connection);
     const store = new DinoCacheStore(connection);
@@ -109,9 +113,14 @@ function installDinoCacheRuntime() {
   installArkDinoBoxShopExtension();
   installArkDinoBoxTokenIssuerExtension();
   installArkDinoBoxShopImageExtension();
-  installArkDinoBoxDeliveryWorker();
+  const retired = isRetired();
+  if (!retired) installArkDinoBoxDeliveryWorker();
   if (globalThis[INSTALLED]) return false;
   globalThis[INSTALLED] = true;
+  if (retired) {
+    console.log('[dino-cache] ArkShop MySQL retired; receipt poller skipped.');
+    return false;
+  }
   if (!enabled()) { console.log('[dino-cache] legacy ArkShop receipt poller disabled; Discord #dino-box-shop and direct RCON delivery remain available'); return false; }
   const interval = Math.max(15_000, Math.min(300_000, Number(process.env.NEXUS_DINO_CACHE_POLL_MS || 30_000)));
   const run = () => runDinoCacheCycle().then((result) => console.log('[dino-cache] cycle', JSON.stringify(result))).catch((error) => console.error('[dino-cache] blocked', String(error?.message || error).slice(0, 500)));

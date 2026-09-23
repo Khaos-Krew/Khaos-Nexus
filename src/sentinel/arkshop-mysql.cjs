@@ -1,5 +1,9 @@
 'use strict';
 
+function isRetired(env = process.env) {
+  return require('./arkshop-database.cjs').isArkShopMysqlRetired(env);
+}
+
 function mysqlConfigFromEnv() {
   const port = Number(process.env.ARKSHOP_DB_PORT || 3306);
   const table = String(process.env.ARKSHOP_DB_TABLE || 'ArkShopPlayers').trim();
@@ -16,6 +20,7 @@ function mysqlConfigFromEnv() {
 }
 
 function validateMysqlConfig(config) {
+  if (isRetired()) return;
   const missing = [];
   if (!config.host) missing.push('ARKSHOP_DB_HOST');
   if (!config.database) missing.push('ARKSHOP_DB_NAME');
@@ -25,6 +30,7 @@ function validateMysqlConfig(config) {
 }
 
 async function connectMysql() {
+  if (isRetired()) return { retired: true, connection: null, config: null };
   const config = mysqlConfigFromEnv();
   validateMysqlConfig(config);
   let mysql;
@@ -45,7 +51,9 @@ async function connectMysql() {
 }
 
 async function mysqlStatus() {
-  const { connection, config } = await connectMysql();
+  const opened = await module.exports.connectMysql();
+  if (opened?.retired || !opened?.connection) return { connected: false, retired: true };
+  const { connection, config } = opened;
   try {
     const [pingRows] = await connection.query('SELECT 1 AS ok');
     const [tableRows] = await connection.query(
@@ -64,7 +72,9 @@ async function mysqlStatus() {
 }
 
 async function mysqlSchema() {
-  const { connection, config } = await connectMysql();
+  const opened = await module.exports.connectMysql();
+  if (opened?.retired || !opened?.connection) return { retired: true, columns: [] };
+  const { connection, config } = opened;
   try {
     const [rows] = await connection.query(
       'SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_KEY FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION',
@@ -79,7 +89,9 @@ async function mysqlSchema() {
 async function lookupPlayer(playerId) {
   const id = String(playerId || '').trim();
   if (!/^\d{5,30}$/.test(id)) throw new Error('ArkShop player/Steam ID must be numeric.');
-  const { connection, config } = await connectMysql();
+  const opened = await module.exports.connectMysql();
+  if (opened?.retired || !opened?.connection) return { retired: true, player: null };
+  const { connection, config } = opened;
   try {
     const [columns] = await connection.query(
       'SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?',
@@ -98,6 +110,7 @@ async function lookupPlayer(playerId) {
 }
 
 module.exports = {
+  isRetired,
   mysqlConfigFromEnv,
   validateMysqlConfig,
   connectMysql,

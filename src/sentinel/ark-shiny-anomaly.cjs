@@ -2,7 +2,7 @@
 
 const crypto = require('node:crypto');
 const { ChannelType } = require('discord.js');
-const { connectMysql } = require('./arkshop-mysql.cjs');
+const { connectMysql, isRetired } = require('./arkshop-mysql.cjs');
 const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 
@@ -80,7 +80,10 @@ class NexusAnomalyStore {
   }
 }
 
+let retiredNoticeLogged = false;
+
 async function anomalyPreflight(connection) {
+  if (isRetired()) return false;
   if (String(process.env.ARKSHOP_DB_MODE || '').toLowerCase() !== 'mysql') throw new Error('Nexus anomaly lifecycle storage requires the shared MySQL backend.');
   const [rows] = await connection.query("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('nexus_anomalies','nexus_anomaly_events')");
   if (new Set(rows.map((row) => row.TABLE_NAME)).size !== 2) throw new Error('Nexus anomaly MySQL migration 002 has not been applied.');
@@ -120,6 +123,13 @@ async function relayCrossChat(message, registry) {
 async function handleShinyWebhook({ token, payload, controller, connector = connectMysql, registry = new ArkClusterRegistry() } = {}) {
   if (!enabled()) return { status: 503, body: { ok: false, code: 'SHINY_INGEST_DISABLED' } };
   if (!validIngestToken(token)) return { status: 401, body: { ok: false, code: 'SHINY_INGEST_UNAUTHORIZED' } };
+  if (isRetired()) {
+    if (!retiredNoticeLogged) {
+      retiredNoticeLogged = true;
+      console.log('[shiny-anomaly] ArkShop MySQL retired; lifecycle ingest skipped.');
+    }
+    return { status: 503, body: { ok: false, code: 'ARKSHOP_MYSQL_RETIRED' } };
+  }
   if (!controller?.guild) return { status: 503, body: { ok: false, code: 'SENTINAL_STARTING' } };
   const event = parseShinyWebhook(payload);
   const server = resolveServer(event, registry);

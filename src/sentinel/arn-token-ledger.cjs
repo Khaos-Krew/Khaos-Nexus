@@ -1,6 +1,6 @@
 'use strict';
 const crypto = require('node:crypto');
-const { connectMysql } = require('./arkshop-mysql.cjs');
+const { connectMysql, isRetired } = require('./arkshop-mysql.cjs');
 function positive(n) { if (!Number.isSafeInteger(n)||n<1||n>1000000) throw new Error('ARN rates must be integers from 1 to 1,000,000.'); return n; }
 function identity(value) { if (!/^\d{5,25}$/.test(String(value))) throw new Error('Valid Discord identity required.'); return String(value); }
 async function ensureArnSchema(db) {
@@ -38,7 +38,21 @@ async function change(db,{user,delta,key,actor,reason,orderId=null}) {
 }
 class ArnTokenLedger {
   constructor({connector=connectMysql, randomInt=crypto.randomInt}={}) { this.connector=connector; this.randomInt=randomInt; }
-  async using(fn) { const {connection}=await this.connector(); try { await ensureArnSchema(connection); return await fn(connection); } finally { await connection.end().catch(()=>{}); } }
+  async using(fn) {
+    if (isRetired()) {
+      const error = new Error('ArkShop MySQL is retired.');
+      error.code = 'ARKSHOP_MYSQL_RETIRED';
+      throw error;
+    }
+    const opened = await this.connector();
+    if (opened?.retired || !opened?.connection) {
+      const error = new Error('ArkShop MySQL is retired.');
+      error.code = 'ARKSHOP_MYSQL_RETIRED';
+      throw error;
+    }
+    const { connection } = opened;
+    try { await ensureArnSchema(connection); return await fn(connection); } finally { await connection.end().catch(()=>{}); }
+  }
   async balance(user) { return this.using(async db=>{ const [rows]=await db.execute('SELECT balance FROM nexus_arn_wallets WHERE discord_user_id=?',[identity(user)]); return { balance:Number(rows[0]?.balance||0), settings:await settings(db) }; }); }
   async history(user) { return this.using(async db=>{ const [rows]=await db.execute('SELECT * FROM nexus_arn_ledger WHERE discord_user_id=? ORDER BY created_at DESC LIMIT 20',[identity(user)]); return rows; }); }
   async configure({enabled},actor) {
