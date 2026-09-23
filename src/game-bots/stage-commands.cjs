@@ -244,12 +244,14 @@ async function handleStageCommand(interaction, context) {
 }
 
 async function registerStageCommands(client, bot, env = process.env, options = {}) {
+  const builders = stageBuilders(bot);
+  if (!builders.length) return { registered: false, reason: 'none' };
   const config = options.config || loadConfig();
   const guildId = String(config?.discord?.guildId || env.NEXUS_DISCORD_GUILD_ID || env.DISCORD_GUILD_ID || '').trim();
   if (!guildId) return { registered: false, reason: 'guild-missing' };
   const guild = await client.guilds.fetch(guildId);
   const commands = await guild.commands.fetch();
-  for (const builder of stageBuilders(bot)) {
+  for (const builder of builders) {
     const definition = builder.toJSON();
     const existing = commands.find((item) => item.name === definition.name);
     if (existing) await guild.commands.edit(existing, definition);

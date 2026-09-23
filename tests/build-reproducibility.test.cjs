@@ -44,7 +44,9 @@ test('Railway Sentinal image is built from package-lock.json with npm ci', { ski
   assert.match(dockerfile, /COPY package\.json package-lock\.json \.\//);
   assert.match(dockerfile, /RUN npm ci --omit=dev --no-audit --no-fund/);
   assert.doesNotMatch(dockerfile, /RUN npm install /);
-  assert.match(dockerfile, /COPY Dockerfile\.sentinal Dockerfile\.cephalon Dockerfile\.ascended \.\//);
+  assert.match(dockerfile, /COPY Dockerfile\.sentinal Dockerfile\.cephalon Dockerfile\.ascended Dockerfile\.sanctuary \.\//);
+  assert.match(dockerfile, /COPY docs\/ops\/SANCTUARY_NEXUS_DISCORD\.md \.\/docs\/ops\/SANCTUARY_NEXUS_DISCORD\.md/);
+  assert.match(dockerfile, /COPY docs\/ops\/sanctuary-bot-runbook\.md \.\/docs\/ops\/sanctuary-bot-runbook\.md/);
   assert.match(dockerfile, /COPY docs\/ops\/STAGE1_GAME_BOT_OPS\.md \.\/docs\/ops\/STAGE1_GAME_BOT_OPS\.md/);
 });
 

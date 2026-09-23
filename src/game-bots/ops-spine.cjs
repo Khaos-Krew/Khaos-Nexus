@@ -8,7 +8,8 @@ const { ASCENDED_COMMANDS, CEPHALON_COMMANDS } = require('../sentinel/game-comma
 const { STAGE_HELP, stageCommandNames } = require('./stage-catalog.cjs');
 const { healthSummaryLines } = require('./ascended-rcon-health.cjs');
 const { BOT_LABELS, errorClass, reportCommandFailure, setGameBotMeta } = require('./command-failure.cjs');
-const { normalizeBot } = require('./category-gate.cjs');
+const { normalizeBot, resolveCategoryConfig } = require('./category-gate.cjs');
+const { sanctuaryHelpText, categoryGateLabel, resolveButtonChannel, buttonChannelLabel } = require('../sentinel/sanctuary-suite.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.gamebot.opsSpine');
 const SENTINAL_POINTER = 'Wallet, verify, and ranks stay on Nexus Sentinal (`/bal`, `/o9verify`, ranks).';
@@ -31,17 +32,24 @@ const COMMAND_HELP = Object.freeze({
   warframe: 'Warframe news, fissures, cycles, and world-state tools',
   nexushelp: 'This command list',
   status: 'Staff service status',
+  sanctuary: 'Sanctuary Nexus roles, groups, builds, and season notes',
   ...STAGE_HELP
 });
 
+function ownedCommandNames(key) {
+  if (key === 'ascended') return ASCENDED_COMMANDS;
+  if (key === 'sanctuary') return ['sanctuary'];
+  return CEPHALON_COMMANDS;
+}
+
 function liveCommandNames(bot) {
   const key = normalizeBot(bot);
-  const owned = key === 'ascended' ? ASCENDED_COMMANDS : CEPHALON_COMMANDS;
-  return [...owned, ...stageCommandNames(key), 'nexushelp', 'status'];
+  return [...ownedCommandNames(key), ...stageCommandNames(key), 'nexushelp', 'status'];
 }
 
 function helpText(bot) {
   const key = normalizeBot(bot);
+  if (key === 'sanctuary') return sanctuaryHelpText().slice(0, 1900);
   const title = key === 'ascended' ? '**Nexus Ascended help**' : '**Cephalon Nexus help**';
   const lines = [title, 'Live commands:'];
   for (const name of liveCommandNames(key)) {
@@ -118,13 +126,18 @@ async function buildStatusText({ bot, client, env = process.env, probe } = {}) {
   const key = normalizeBot(bot);
   const ready = Boolean(client?.isReady?.());
   const lines = [
-    key === 'ascended' ? '**Nexus Ascended status**' : '**Cephalon Nexus status**',
+    key === 'ascended' ? '**Nexus Ascended status**' : key === 'sanctuary' ? '**Sanctuary Nexus status**' : '**Cephalon Nexus status**',
     `Discord: ${ready ? 'ready' : 'not ready'}.`,
     deployTip(env)
   ];
   if (key === 'ascended') {
     lines.push(arkShopStatusLine(env));
     lines.push(...rconStaffLines(env));
+  } else if (key === 'sanctuary') {
+    lines.push(`Category id: ${categoryGateLabel(resolveCategoryConfig('sanctuary', env))}.`);
+    lines.push(`Button channel: ${buttonChannelLabel(resolveButtonChannel(env))}.`);
+    lines.push('Timers: community cadence, no live feed.');
+    lines.push('No game backend is started in this service.');
   } else {
     const runProbe = probe || ((url) => probeHealth(url, { timeoutMs: 2500 }));
     let label = 'unavailable';
