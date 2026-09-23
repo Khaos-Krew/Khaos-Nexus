@@ -1,6 +1,7 @@
 'use strict';
 
 const { Client, Events, MessageFlags, SlashCommandBuilder } = require('discord.js');
+const { reportCommandFailure } = require('../game-bots/command-failure.cjs');
 const { loadConfig } = require('../shared/config.cjs');
 const { isStaff } = require('./ark-ops-extension.cjs');
 const { inspectArkApiLog } = require('./ark-api-log-diagnostic.cjs');
@@ -147,11 +148,7 @@ function installArkDynamicEventsExtension() {
       const engine = new ArkDynamicEventEngine({ client });
       client.on(Events.InteractionCreate, (interaction) => {
         if (String(interaction.guildId || '') !== String(config.discord?.guildId || '')) return;
-        void handle(interaction, { config, engine }).catch(async (error) => {
-          const payload = { content: `⚠️ ${String(error?.message || error).slice(0, 1700)}`, allowedMentions: { parse: [] } };
-          if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
-          else await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => {});
-        });
+        void handle(interaction, { config, engine }).catch((error) => reportCommandFailure(interaction, error));
       });
       client.once(Events.ClientReady, () => {
         void (async () => {

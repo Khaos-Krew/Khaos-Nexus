@@ -6,6 +6,7 @@ ENV NEXUS_GAME_ROLE=ark_asa
 ENV NEXUS_DATA_DIR=/app/data
 ENV NEXUS_RCON_RAILWAY_ENV_FORBIDDEN=true
 ENV NEXUS_RCON_SOURCE=discord_override_store
+ENV ASCENDED_DISCORD_CATEGORY_ID=1516602943670059108
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund

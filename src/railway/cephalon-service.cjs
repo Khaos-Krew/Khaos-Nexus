@@ -11,6 +11,7 @@ process.env.NEXUS_BACKEND_URL ||= `http://${process.env.NEXUS_BACKEND_HOST}:${pr
 
 startGameBot({
   botName: 'Cephalon Nexus',
+  botKey: 'cephalon',
   gameRole: 'warframe',
   serviceName: 'cephalon-nexus',
   beforeClient: () => {

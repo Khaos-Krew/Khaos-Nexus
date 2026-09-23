@@ -1,6 +1,7 @@
 'use strict';
 
 const { Client, Events, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } = require('discord.js');
+const { reportCommandFailure } = require('../game-bots/command-failure.cjs');
 const { loadConfig } = require('../shared/config.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { performRestart } = require('./ark-restart-scheduler-extension.cjs');
@@ -201,11 +202,7 @@ function installArkServerControlsExtension({ prefix = 'ARK_GEN1' } = {}) {
       client[BOUND] = true;
       client.on(Events.InteractionCreate, (interaction) => {
         if (String(interaction.guildId || '') !== String(config.discord?.guildId || '')) return;
-        void handleInteraction(interaction, { config, prefix }).catch(async (error) => {
-          const payload = { content: `⚠️ ${safeError(error).slice(0, 1700)}`, allowedMentions: { parse: [] } };
-          if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
-          else await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => {});
-        });
+        void handleInteraction(interaction, { config, prefix }).catch((error) => reportCommandFailure(interaction, error));
       });
       client.once(Events.ClientReady, () => {
         void (async () => {

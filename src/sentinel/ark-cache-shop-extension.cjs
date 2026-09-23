@@ -181,14 +181,14 @@ function rewardsPayload(rows=[]){
 
 function reelPreview(cacheId,index){const entries=CONFIG.caches[cacheId]?.entries||[];if(!entries.length)return'???';return[0,1,2].map((n)=>entries[(index+n*2)%entries.length]?.name||'???').join('  ◀︎  ');}
 function revealPayload(order,stage){
-  const variant=order.variant==='normal'?'Normal':order.variant.toUpperCase();
+  const variant=order.variant==='normal'?'Normal':String(order.variant||'').toUpperCase();
   const stages=[
-    `🎰 **SPECIES REEL**\n${reelPreview(order.cacheType,0)}\n\nVariant: ▓▓▓ • Level: ▓▓▓ • Sex: ▓▓▓`,
-    `🔒 **SPECIES LOCKED:** ${order.species}\n🎰 **VARIANT REEL:** Normal  ◀︎  X  ◀︎  S\n\nLevel: ▓▓▓ • Sex: ▓▓▓`,
-    `🔒 ${order.species} • **${variant}**\n🎰 **LEVEL REEL:** 200  ◀︎  250  ◀︎  300\n\nSex: ▓▓▓`,
-    `🔒 ${order.species} • ${variant} • **Lv. ${order.level}**\n🎰 **SEX REEL:** Male  ◀︎  Female`
+    'Reading the stored seal.\n\nThis does not reroll and does not add another variant.',
+    `**Species:** ${order.species}\n\nStored roll. Level and sex are still hidden.`,
+    `**${order.species}**\n**${variant}** • Level **${order.level}**\n\nSex is the last stored field.`,
+    `**${order.species}** • ${variant} • Lv. ${order.level} • ${titleCase(order.sex)}\n\nDelivery uses this saved creature.`
   ];
-  return{embeds:[{title:'🎰 Nexus Cache Terminal • Rolling',description:stages[Math.max(0,Math.min(stages.length-1,stage))],color:0xb00020,footer:{text:`Reward already committed • ${order.publicCacheId}`}}],components:[],allowedMentions:{parse:[]}};
+  return{embeds:[{title:'Dino Cache reveal',description:stages[Math.max(0,Math.min(stages.length-1,stage))],color:0xb00020,footer:{text:`Stored roll • no reroll • ${order.publicCacheId}`}}],components:[],allowedMentions:{parse:[]}};
 }
 function finalRewardPayload(order,balance=null){
   const m=meta(order.cacheType),variant=order.variant==='normal'?'Normal':order.variant.toUpperCase();

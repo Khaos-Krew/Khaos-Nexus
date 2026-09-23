@@ -5,6 +5,7 @@ ENV NODE_ENV=production
 ENV NEXUS_GAME_ROLE=warframe
 ENV NEXUS_BACKEND_HOST=127.0.0.1
 ENV NEXUS_BACKEND_PORT=3210
+ENV CEPHALON_DISCORD_CATEGORY_ID=1516640233389822042
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund

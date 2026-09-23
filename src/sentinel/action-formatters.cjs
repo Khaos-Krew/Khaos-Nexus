@@ -177,6 +177,7 @@ function warframeAlertEmbed(data) {
 
 function warframeEmbed(actionId, data) {
   if (actionId === 'alerts') return warframeAlertEmbed(data);
+  if (actionId === 'market') return require('../game-bots/warframe-market.cjs').marketEmbed(data);
   return warframeCollectionEmbed(actionId, data) || genericEmbed('warframe', actionId, data);
 }
 
