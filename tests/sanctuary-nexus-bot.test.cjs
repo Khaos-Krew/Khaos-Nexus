@@ -37,6 +37,7 @@ const {
   sanctuaryHelpText,
   resolveButtonChannel
 } = require('../src/sentinel/sanctuary-suite.cjs');
+const { communityEventSchedule, eventTimerMessage } = require('../src/sentinel/sanctuary-events.cjs');
 
 const root = path.resolve(__dirname, '..');
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
@@ -315,8 +316,8 @@ test('sanctuary command registration surface lists the v1 suite', async () => {
   assert.ok(command.description.length <= 100);
   const names = [];
   for (const option of command.options) walkOptions(option, names);
-  assert.deepEqual(names.filter((name) => ['help', 'roles', 'lfg', 'build', 'season', 'seasonpost', 'status'].includes(name)).sort(), [
-    'build', 'help', 'lfg', 'roles', 'season', 'seasonpost', 'status'
+  assert.deepEqual(names.filter((name) => ['help', 'roles', 'lfg', 'build', 'season', 'seasonpost', 'status', 'timers', 'events'].includes(name)).sort(), [
+    'build', 'events', 'help', 'lfg', 'roles', 'season', 'seasonpost', 'status', 'timers'
   ]);
   assert.ok(names.includes('activity'));
   assert.ok(names.includes('link'));
@@ -345,6 +346,7 @@ test('sanctuary command registration surface lists the v1 suite', async () => {
   assert.match(help, /Sanctuary Nexus help/);
   assert.match(help, /\/nexushelp/);
   assert.match(help, /\/sanctuary lfg/);
+  assert.match(help, /\/sanctuary timers/);
   assert.match(help, /\/sanctuary roles/);
   assert.match(help, /\/sanctuary build/);
   assert.match(help, /\/sanctuary season/);
@@ -492,6 +494,20 @@ test('player commands post embeds inside the category and stay ephemeral for pri
     assert.match(status.replies[0].content, /READY flag: true/);
     assert.match(status.replies[0].content, /Category id: present/);
     assert.match(status.replies[0].content, /Latency: 42 ms/);
+    assert.match(status.replies[0].content, /community cadence, no live feed/);
+
+    const timers = interaction({
+      channel,
+      options: { getSubcommand: () => 'timers', getString: () => null, getBoolean: () => false, getChannel: () => null }
+    });
+    await handleSanctuaryInteraction(timers, context);
+    assert.equal(timers.replies[0].flags, MessageFlags.Ephemeral);
+    assert.match(timers.replies[0].embeds[0].description, /Approximate community schedule/);
+    assert.match(timers.replies[0].embeds[0].description, /Helltide/);
+    assert.match(timers.replies[0].embeds[0].description, /World boss/);
+    assert.match(timers.replies[0].embeds[0].description, /does not count one down/);
+    assert.match(timers.replies[0].embeds[0].description, /\/sanctuary lfg/);
+    assert.equal(posted.length, 1);
     assert.doesNotMatch(status.replies[0].content, new RegExp(CATEGORY));
     assert.equal(status.replies[0].flags, MessageFlags.Ephemeral);
 
@@ -564,6 +580,7 @@ test('sanctuary help and status stay off other bots and off a baked category id'
   assert.match(status, /Discord: ready/);
   assert.match(status, /Category id: present/);
   assert.match(status, /No game backend is started/);
+  assert.match(status, /community cadence, no live feed/);
   assert.doesNotMatch(status, /Warframe backend|RCON|ArkShop/);
   assert.doesNotMatch(status, new RegExp(CATEGORY));
 
@@ -592,6 +609,7 @@ test('sanctuary help and status stay off other bots and off a baked category id'
   const service = read('src/railway/sanctuary-service.cjs');
   const suite = read('src/sentinel/sanctuary-suite.cjs');
   const bot = read('src/sentinel/sanctuary-bot.cjs');
+  const events = read('src/sentinel/sanctuary-events.cjs');
   const doc = read('docs/ops/SANCTUARY_NEXUS_DISCORD.md');
   const runbook = read('docs/ops/sanctuary-bot-runbook.md');
   assert.match(dockerfile, /FROM node:22-slim/);
@@ -606,7 +624,12 @@ test('sanctuary help and status stay off other bots and off a baked category id'
   assert.match(service, /bindSanctuaryCommands/);
   assert.match(service, /startGameBot/);
   assert.doesNotMatch(service, /backend\/server|RCON|Nephalem|Sentinel/);
-  assert.doesNotMatch(suite + bot, /news\.blizzard\.com|\bhttps?:\/\/|_RCON_|Nephalem|Sentinel/);
+  assert.doesNotMatch(suite + bot + events, /news\.blizzard\.com|\bhttps?:\/\/|_RCON_|Nephalem|Sentinel|d4api\.dev|d4armory|helltides\.com/);
+  assert.match(runbook, /d4api\.dev/);
+  assert.match(runbook, /SANCTUARY_WORLD_BOSS_ANCHOR/);
+  assert.match(runbook, /warframestat\.us/);
+  assert.match(runbook, /officialserverstatus\.ini/);
+  assert.match(runbook, /Bungie API key/);
   for (const name of ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_ID', 'DISCORD_CLIENT_SECRET', 'DISCORD_GUILD_ID', 'SANCTUARY_DISCORD_CATEGORY_ID', 'READY', 'Dockerfile.sanctuary']) {
     assert.match(doc, new RegExp(name.replace(/\./g, '\\.')));
     assert.match(runbook, new RegExp(name.replace(/\./g, '\\.')));
@@ -629,4 +652,55 @@ test('sanctuary help and status stay off other bots and off a baked category id'
     PermissionFlagsBits.ManageRoles
   ].reduce((sum, bit) => BigInt(sum) | BigInt(bit), 0n);
   assert.match(runbook, new RegExp(bits.toString()));
+});
+
+test('sanctuary timers use the community cadence and do not call the network', async () => {
+  const during = Date.parse('2026-09-23T23:37:00.000Z');
+  const live = communityEventSchedule(during, {});
+  assert.equal(live.helltide.active, true);
+  assert.equal(live.helltide.end, Date.parse('2026-09-23T23:55:00.000Z'));
+  assert.equal(live.worldBoss.active, true);
+  assert.equal(live.worldBoss.end, Date.parse('2026-09-23T23:45:00.000Z'));
+  assert.equal(live.worldBoss.phase, 'built-in');
+  assert.equal(live.legion.pinned, false);
+
+  const gap = communityEventSchedule(Date.parse('2026-09-23T23:57:00.000Z'), {});
+  assert.equal(gap.helltide.active, false);
+  assert.equal(gap.helltide.start, Date.parse('2026-09-24T00:00:00.000Z'));
+  assert.equal(gap.worldBoss.active, false);
+  assert.equal(gap.worldBoss.start, Date.parse('2026-09-24T03:00:00.000Z'));
+
+  const beforeAnchor = communityEventSchedule(Date.parse('2026-09-23T19:00:00.000Z'), {});
+  assert.equal(beforeAnchor.worldBoss.active, false);
+  assert.equal(beforeAnchor.worldBoss.start, Date.parse('2026-09-23T20:00:00.000Z'));
+
+  const pinned = communityEventSchedule(during, { SANCTUARY_LEGION_ANCHOR: '2026-09-23T23:55:00.000Z' });
+  assert.equal(pinned.legion.pinned, true);
+  assert.equal(pinned.legion.active, false);
+  assert.equal(pinned.legion.start, Date.parse('2026-09-23T23:55:00.000Z'));
+  const legionLive = communityEventSchedule(Date.parse('2026-09-23T23:41:00.000Z'), {
+    SANCTUARY_LEGION_ANCHOR: '2026-09-23T23:40:00.000Z',
+    SANCTUARY_WORLD_BOSS_ANCHOR: 'not-a-time'
+  });
+  assert.equal(legionLive.legion.active, true);
+  assert.equal(legionLive.legion.end, Date.parse('2026-09-23T23:44:00.000Z'));
+  assert.equal(legionLive.worldBoss.phase, 'built-in');
+
+  const shifted = communityEventSchedule(during, { SANCTUARY_WORLD_BOSS_ANCHOR: '2026-09-23T23:00:00.000Z' });
+  assert.equal(shifted.worldBoss.phase, 'env');
+  assert.equal(shifted.worldBoss.active, false);
+  assert.equal(shifted.worldBoss.start, Date.parse('2026-09-24T02:30:00.000Z'));
+
+  const text = eventTimerMessage(live).embeds[0].description;
+  assert.match(text, /Approximate community schedule/);
+  assert.match(text, /<t:\d+:R>/);
+  assert.doesNotMatch(text, /Ashava|Avarice|Azmodan|d4api/);
+
+  const events = interaction({
+    channel: { parentId: CATEGORY, isThread: () => false },
+    options: { getSubcommand: () => 'events', getString: () => null, getBoolean: () => false, getChannel: () => null }
+  });
+  assert.equal(await handleSanctuaryInteraction(events, { env: {}, schedule: false }), true);
+  assert.equal(events.replies[0].flags, MessageFlags.Ephemeral);
+  assert.match(events.replies[0].embeds[0].title, /event timers/);
 });

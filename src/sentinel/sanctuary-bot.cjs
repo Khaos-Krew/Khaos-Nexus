@@ -32,6 +32,7 @@ const {
   resolveButtonChannel,
   buttonChannelLabel
 } = require('./sanctuary-suite.cjs');
+const { communityEventSchedule, eventTimerMessage } = require('./sanctuary-events.cjs');
 
 const EXPIRY = Symbol.for('khaos.nexus.sanctuary.expiry');
 
@@ -47,7 +48,7 @@ function sanctuaryCommands() {
   return [
     new SlashCommandBuilder()
       .setName('sanctuary')
-      .setDescription('Sanctuary Nexus roles, groups, builds, and season notes.')
+      .setDescription('Sanctuary Nexus roles, groups, builds, season notes, and event timers.')
       .addSubcommand((sub) => sub.setName('help').setDescription('List Sanctuary Nexus commands. Wallet and shop stay on Nexus Sentinal.'))
       .addSubcommand((sub) => sub
         .setName('roles')
@@ -67,6 +68,8 @@ function sanctuaryCommands() {
         .addStringOption((option) => option.setName('type').setDescription('Build type').setRequired(true).addChoices(...choiceOptions(BUILD_TYPES)))
         .addStringOption((option) => option.setName('note').setDescription('Short note').setMaxLength(200)))
       .addSubcommand((sub) => sub.setName('season').setDescription('Show your season checklist.'))
+      .addSubcommand((sub) => sub.setName('timers').setDescription('Approximate helltide, world boss, and legion times.'))
+      .addSubcommand((sub) => sub.setName('events').setDescription('Same as timers: helltide, world boss, and legion.'))
       .addSubcommand((sub) => sub
         .setName('seasonpost')
         .setDescription('Staff: post a season note with a Herald template.')
@@ -355,6 +358,11 @@ async function handleSanctuaryInteraction(interaction, context = {}) {
       return true;
     }
     await interaction.reply(ephemeral('', menu));
+    return true;
+  }
+
+  if (sub === 'timers' || sub === 'events') {
+    await interaction.reply(ephemeral('', eventTimerMessage(communityEventSchedule(Date.now(), env))));
     return true;
   }
 
