@@ -9,8 +9,10 @@ const {
   isGuildOwner,
   walletAdjustCommandDefinition,
   buildIdempotencyKey,
+  walletAdjustBaselineFailureContent,
   handleWalletAdjustInteraction
 } = require('../src/sentinel/wallet-adjust-commands.cjs');
+const { NexusEconomyWalletCore } = require('../src/sentinel/nexus-economy-wallet-core.cjs');
 const {
   DRAIN_MUTATION_PATHS,
   FINANCIAL_WRITE_PATHS,
@@ -110,13 +112,18 @@ test('non-owner is rejected before economy client calls', async () => {
 
 test('add calls adminCredit with audited payload', async () => {
   const calls = [];
+  let ensureCalls = 0;
   const economyClient = {
     configured: () => true,
     adminCredit: async (input) => {
       calls.push(input);
       return { ok: true, duplicate: false, balance: 42, currency: 'NEXUS_POINTS' };
     },
-    adminSpend: async () => { throw new Error('spend must not be called'); }
+    adminSpend: async () => { throw new Error('spend must not be called'); },
+    ensureShadowRecruitWallet: async () => {
+      ensureCalls += 1;
+      throw new Error('existing identity path must not ensure');
+    }
   };
   const interaction = mockInteraction({
     sub: 'add',
@@ -135,6 +142,7 @@ test('add calls adminCredit with audited payload', async () => {
   assert.equal(calls[0].allowOverride, false);
   assert.equal(calls[0].idempotencyKey, 'walletadjust:add:999888777666555444');
   assert.equal(calls[0].metadata.reason, 'season opener grant');
+  assert.equal(ensureCalls, 0);
   assert.match(interaction.edits[0].content, /Credited/);
 });
 
@@ -185,6 +193,82 @@ test('buildIdempotencyKey prefers interaction id and stays cleanId-safe', () => 
     timestamp: 42
   });
   assert.match(hashed, /^walletadjust:ownerA:targetB:DINO_CACHE_TOKENS:remove:[a-f0-9]{16}$/);
+});
+
+test('baseline wallet failure replies tell the owner what to do next', async () => {
+  const economyClient = {
+    configured: () => true,
+    adminCredit: async () => ({ ok: false, reason: 'baseline-wallet-unavailable', rejected: 'quarantine-denylist' }),
+    adminSpend: async () => { throw new Error('spend must not be called'); },
+    ensureShadowRecruitWallet: async () => { throw new Error('handler must not ensure after a structured failure'); }
+  };
+  const blocked = mockInteraction({ sub: 'add', targetId: '424242' });
+  await handleWalletAdjustInteraction(blocked, { economyClient });
+  assert.equal(blocked.deferred, true);
+  assert.equal(blocked.edits.length, 1);
+  assert.equal(blocked.edits[0].content, walletAdjustBaselineFailureContent('424242', 'quarantine-denylist'));
+  assert.match(blocked.edits[0].content, /quarantine denylist/i);
+  assert.match(blocked.edits[0].content, /Override does not mint/i);
+  assert.doesNotMatch(blocked.edits[0].content, /Economic identity is required|Verified economic identity is required/);
+
+  const thrown = mockInteraction({ sub: 'remove', targetId: '424243' });
+  const throwingClient = {
+    configured: () => true,
+    adminCredit: async () => { throw new Error('credit must not be called'); },
+    adminSpend: async () => { throw new Error('Verified economic identity is required.'); }
+  };
+  await handleWalletAdjustInteraction(thrown, { economyClient: throwingClient });
+  assert.equal(thrown.edits[0].content, walletAdjustBaselineFailureContent('424243', 'identity-still-missing'));
+  assert.match(thrown.edits[0].content, /Discord verify/);
+  assert.doesNotMatch(thrown.edits[0].content, /Verified economic identity is required/);
+  assert.match(walletAdjustBaselineFailureContent('424242', 'disabled'), /disabled economic identity/);
+});
+
+test('walletadjust add ensures a missing identity through wallet-core then credits', async () => {
+  const links = new Map();
+  const wallets = new Map();
+  const ledger = new Map();
+  let ensureCalls = 0;
+  const repository = {
+    async getIdentityByLink(provider, externalId) {
+      return links.get(`${provider}:${externalId}`) || null;
+    },
+    async ensureShadowRecruitWallet(discordUserId, rankId) {
+      ensureCalls += 1;
+      assert.equal(rankId, 'shadow-recruit');
+      links.set(`discord:${discordUserId}`, {
+        economic_identity_id: 'econ_cmd',
+        status: 'restricted',
+        verified_at: null
+      });
+      return { ok: true, economicIdentityId: 'econ_cmd', status: 'restricted', rankId };
+    },
+    async transact(economicIdentityId, currency, fn) {
+      const walletKey = `${economicIdentityId}:${currency}`;
+      return fn({
+        findLedgerByKey: async (key) => ledger.get(key) || null,
+        getOrCreateWallet: async () => {
+          if (!wallets.has(walletKey)) wallets.set(walletKey, { balance: 0 });
+          return wallets.get(walletKey);
+        },
+        appendLedger: async (entry) => {
+          const saved = { id: 'tx-cmd', ...entry };
+          ledger.set(entry.idempotencyKey, saved);
+          return saved;
+        },
+        setBalance: async (_identityId, _currency, balance) => {
+          wallets.set(walletKey, { balance });
+        }
+      });
+    }
+  };
+  const economyClient = new NexusEconomyWalletCore({ repository, now: () => new Date('2026-09-15T00:00:00Z') });
+  const interaction = mockInteraction({ sub: 'add', targetId: '424242', amount: 8, currency: 'NEXUS_POINTS' });
+  await handleWalletAdjustInteraction(interaction, { economyClient });
+  assert.equal(ensureCalls, 1);
+  assert.match(interaction.edits[0].content, /Credited/);
+  assert.match(interaction.edits[0].content, /8/);
+  assert.equal(interaction.deferred, true);
 });
 
 test('admin wallet routes are drain-gated outside FINANCIAL_WRITE_PATHS', () => {

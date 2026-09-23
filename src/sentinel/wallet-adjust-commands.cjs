@@ -2,6 +2,10 @@
 
 const crypto = require('node:crypto');
 const { MessageFlags, SlashCommandBuilder } = require('discord.js');
+const {
+  BASELINE_WALLET_UNAVAILABLE_REASON,
+  isMissingAdminIdentityError
+} = require('./nexus-economy-wallet-admin.cjs');
 
 const COMMAND_NAME = 'walletadjust';
 const ADJUST_CURRENCIES = Object.freeze(['NEXUS_POINTS', 'NEXUS_COINS', 'DINO_CACHE_TOKENS']);
@@ -69,6 +73,17 @@ function buildIdempotencyKey({ ownerId, targetId, currency, direction, reason, a
     .digest('hex')
     .slice(0, 16);
   return `walletadjust:${ownerId}:${targetId}:${currency}:${direction}:${digest}`.slice(0, 128);
+}
+
+function walletAdjustBaselineFailureContent(targetId, rejected) {
+  const who = `<@${targetId}>`;
+  if (rejected === 'quarantine-denylist') {
+    return `⚠️ ${who} has no usable Nexus wallet. A Shadow Recruit baseline wallet was not created because that economic identity is on the quarantine denylist. Override does not mint a new wallet. No wallet change was made.`;
+  }
+  if (rejected === 'disabled') {
+    return `⚠️ ${who} has a disabled economic identity, so a Shadow Recruit baseline wallet was not created. \`/walletadjust\` cannot change a disabled identity. No wallet change was made.`;
+  }
+  return `⚠️ ${who} has no Nexus wallet yet. Have them complete Discord verify, or rejoin the server so the Shadow Recruit baseline wallet is created, then retry \`/walletadjust\`. No wallet change was made.`;
 }
 
 function currencyLabel(currency) {
@@ -182,6 +197,13 @@ async function handleWalletAdjustInteraction(interaction, { economyClient } = {}
       : await economyClient.adminSpend(payload);
 
     if (!result || result.ok === false) {
+      if (result?.reason === BASELINE_WALLET_UNAVAILABLE_REASON) {
+        await interaction.editReply({
+          content: walletAdjustBaselineFailureContent(targetId, result.rejected),
+          allowedMentions: { users: [targetId] }
+        });
+        return true;
+      }
       const why = String(result?.reason || result?.skipped || result?.error || 'failed').slice(0, 200);
       await interaction.editReply({
         content: `⚠️ Could not ${direction} ${amount.toLocaleString('en-US')} ${currencyLabel(currency)} for <@${targetId}>: \`${why}\`.`,
@@ -205,6 +227,13 @@ async function handleWalletAdjustInteraction(interaction, { economyClient } = {}
   } catch (error) {
     const message = String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 300);
     console.warn(`[Wallet Adjust] ${direction} failed owner=${ownerId} target=${targetId}: ${message}`);
+    if (isMissingAdminIdentityError(error)) {
+      await interaction.editReply({
+        content: walletAdjustBaselineFailureContent(targetId, 'identity-still-missing'),
+        allowedMentions: { users: [targetId] }
+      });
+      return true;
+    }
     await interaction.editReply({
       content: `⚠️ Wallet adjust failed: \`${message}\`. No confirmed wallet change.`
     });
@@ -220,5 +249,6 @@ module.exports = {
   walletAdjustCommandDefinition,
   buildIdempotencyKey,
   currencyLabel,
+  walletAdjustBaselineFailureContent,
   handleWalletAdjustInteraction
 };

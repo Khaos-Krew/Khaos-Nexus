@@ -116,3 +116,174 @@ test('admin adjust fails closed on disabled and quarantine denylist', async () =
   });
   assert.equal(overridden.balance, 2);
 });
+
+function trackEnsure(repository, impl) {
+  const calls = [];
+  repository.ensureShadowRecruitWallet = async (discordUserId, rankId, options) => {
+    calls.push({ discordUserId, rankId, env: options?.env });
+    return impl(discordUserId, rankId, options);
+  };
+  return calls;
+}
+
+test('adminCredit ensures a Shadow Recruit wallet when the discord identity is missing', async () => {
+  const repository = new MemoryRepo();
+  const calls = trackEnsure(repository, async (discordUserId) => {
+    repository.link(discordUserId, 'econ_new', { status: 'restricted' });
+    return { ok: true, economicIdentityId: 'econ_new', status: 'restricted', rankId: 'shadow-recruit' };
+  });
+  const wallet = new NexusEconomyWalletCore({ repository, now: () => new Date('2026-09-15T00:00:00Z') });
+  const env = { NEXUS_ECONOMY_QUARANTINE_DENYLIST: '' };
+  const result = await wallet.adminCredit({
+    discordUserId: '555',
+    amount: 4,
+    idempotencyKey: 'missing_1',
+    currency: 'NEXUS_POINTS',
+    env
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.balance, 4);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].discordUserId, '555');
+  assert.equal(calls[0].rankId, 'shadow-recruit');
+  assert.equal(calls[0].env, env);
+  assert.equal(repository.ledger.get('missing_1').metadata.identityStatus, 'restricted');
+  assert.equal(repository.ledger.get('missing_1').type, 'admin-credit');
+
+  const replay = await wallet.adminCredit({
+    discordUserId: '555',
+    amount: 4,
+    idempotencyKey: 'missing_1',
+    currency: 'NEXUS_POINTS',
+    env
+  });
+  assert.equal(replay.duplicate, true);
+  assert.equal(calls.length, 1);
+});
+
+test('adminSpend ensures once then reports insufficient funds for an empty baseline wallet', async () => {
+  const repository = new MemoryRepo();
+  const calls = trackEnsure(repository, async (discordUserId) => {
+    repository.link(discordUserId, 'econ_empty', { status: 'restricted' });
+    return { ok: true, economicIdentityId: 'econ_empty', status: 'restricted' };
+  });
+  const wallet = new NexusEconomyWalletCore({ repository, now: () => new Date('2026-09-15T00:00:00Z') });
+  const spent = await wallet.adminSpend({
+    discordUserId: '556',
+    amount: 1,
+    idempotencyKey: 'spend_missing',
+    currency: 'NEXUS_COINS'
+  });
+  assert.equal(spent.ok, false);
+  assert.equal(spent.reason, 'insufficient-funds');
+  assert.equal(spent.balance, 0);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].rankId, 'shadow-recruit');
+});
+
+test('admin adjust does not ensure when an identity already exists', async () => {
+  const repository = new MemoryRepo();
+  repository.link('777', 'econ_777', { status: 'verified' });
+  repository.link('disabled1', 'econ_disabled', { status: 'disabled' });
+  repository.link('deny1', 'econ_denied', { status: 'restricted' });
+  const calls = trackEnsure(repository, async () => {
+    throw new Error('ensure must not run for an existing identity');
+  });
+  const wallet = new NexusEconomyWalletCore({ repository, now: () => new Date('2026-09-15T00:00:00Z') });
+  const credited = await wallet.adminCredit({
+    discordUserId: '777',
+    amount: 10,
+    idempotencyKey: 'existing_1',
+    currency: 'NEXUS_POINTS'
+  });
+  assert.equal(credited.balance, 10);
+  await assert.rejects(
+    wallet.adminCredit({ discordUserId: 'disabled1', amount: 1, idempotencyKey: 'existing_disabled' }),
+    /Economic identity is disabled/
+  );
+  await assert.rejects(
+    wallet.adminCredit({
+      discordUserId: 'deny1',
+      amount: 1,
+      idempotencyKey: 'existing_deny',
+      env: { NEXUS_ECONOMY_QUARANTINE_DENYLIST: 'econ_denied' }
+    }),
+    /quarantine-denylisted/
+  );
+  const overridden = await wallet.adminCredit({
+    discordUserId: 'deny1',
+    amount: 2,
+    idempotencyKey: 'existing_override',
+    allowOverride: true,
+    env: { NEXUS_ECONOMY_QUARANTINE_DENYLIST: 'econ_denied' }
+  });
+  assert.equal(overridden.balance, 2);
+  assert.equal(calls.length, 0);
+});
+
+test('adminCredit returns a baseline-wallet failure when ensure is blocked', async () => {
+  const repository = new MemoryRepo();
+  const calls = trackEnsure(repository, async () => ({ ok: false, rejected: 'quarantine-denylist', economicIdentityId: 'econ_blocked' }));
+  const wallet = new NexusEconomyWalletCore({ repository, now: () => new Date('2026-09-15T00:00:00Z') });
+  const blocked = await wallet.adminCredit({
+    discordUserId: '901',
+    amount: 3,
+    idempotencyKey: 'blocked_1',
+    allowOverride: true,
+    env: { NEXUS_ECONOMY_QUARANTINE_DENYLIST: 'econ_blocked' }
+  });
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.reason, 'baseline-wallet-unavailable');
+  assert.equal(blocked.rejected, 'quarantine-denylist');
+  assert.equal(repository.ledger.size, 0);
+  assert.equal(calls.length, 1);
+
+  const throwing = new MemoryRepo();
+  trackEnsure(throwing, async () => {
+    throw new Error('Verified economic identity is required.');
+  });
+  const thrown = await new NexusEconomyWalletCore({ repository: throwing, now: () => new Date('2026-09-15T00:00:00Z') }).adminCredit({
+    discordUserId: '902',
+    amount: 1,
+    idempotencyKey: 'blocked_throw'
+  });
+  assert.equal(thrown.ok, false);
+  assert.equal(thrown.reason, 'baseline-wallet-unavailable');
+  assert.equal(thrown.rejected, 'ensure-failed');
+  assert.equal(throwing.ledger.size, 0);
+
+  const ghost = new MemoryRepo();
+  trackEnsure(ghost, async () => ({ ok: true, economicIdentityId: 'econ_ghost', status: 'restricted' }));
+  const stillMissing = await new NexusEconomyWalletCore({ repository: ghost, now: () => new Date('2026-09-15T00:00:00Z') }).adminSpend({
+    discordUserId: '903',
+    amount: 1,
+    idempotencyKey: 'blocked_ghost'
+  });
+  assert.equal(stillMissing.ok, false);
+  assert.equal(stillMissing.rejected, 'identity-still-missing');
+  assert.doesNotMatch(JSON.stringify(stillMissing), /Verified economic identity is required/);
+});
+
+test('missing identity without an ensure hook does not throw the raw identity error', async () => {
+  const repository = new MemoryRepo();
+  const wallet = new NexusEconomyWalletCore({ repository, now: () => new Date('2026-09-15T00:00:00Z') });
+  const result = await wallet.adminCredit({
+    discordUserId: '904',
+    amount: 1,
+    idempotencyKey: 'no_ensure'
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'baseline-wallet-unavailable');
+  assert.equal(result.rejected, 'ensure-unsupported');
+});
+
+test('invalid admin adjust input does not ensure a wallet', async () => {
+  const repository = new MemoryRepo();
+  const calls = trackEnsure(repository, async () => ({ ok: true, economicIdentityId: 'econ_bad' }));
+  const wallet = new NexusEconomyWalletCore({ repository, now: () => new Date('2026-09-15T00:00:00Z') });
+  await assert.rejects(
+    wallet.adminCredit({ discordUserId: '905', amount: 0, idempotencyKey: 'bad_amount' }),
+    /positive whole number/
+  );
+  assert.equal(calls.length, 0);
+});
