@@ -5,6 +5,8 @@ const { loadConfig } = require('../shared/config.cjs');
 const { probeHealth } = require('../sentinel/nexus-status.cjs');
 const { isArkShopMysqlRetired } = require('../sentinel/arkshop-database.cjs');
 const { ASCENDED_COMMANDS, CEPHALON_COMMANDS } = require('../sentinel/game-command-ownership.cjs');
+const { STAGE_HELP, stageCommandNames } = require('./stage-catalog.cjs');
+const { healthSummaryLines } = require('./ascended-rcon-health.cjs');
 const { BOT_LABELS, errorClass, reportCommandFailure, setGameBotMeta } = require('./command-failure.cjs');
 const { normalizeBot } = require('./category-gate.cjs');
 
@@ -28,13 +30,14 @@ const COMMAND_HELP = Object.freeze({
   market: 'Look up an item on Warframe Market',
   warframe: 'Warframe news, fissures, cycles, and world-state tools',
   nexushelp: 'This command list',
-  status: 'Staff service status'
+  status: 'Staff service status',
+  ...STAGE_HELP
 });
 
 function liveCommandNames(bot) {
   const key = normalizeBot(bot);
   const owned = key === 'ascended' ? ASCENDED_COMMANDS : CEPHALON_COMMANDS;
-  return [...owned, 'nexushelp', 'status'];
+  return [...owned, ...stageCommandNames(key), 'nexushelp', 'status'];
 }
 
 function helpText(bot) {
@@ -93,7 +96,7 @@ function rconStaffLines(env = process.env) {
     const { ArkRconConfigStore } = require('../sentinel/ark-rcon-config-store.cjs');
     store = env.NEXUS_DATA_DIR ? new ArkRconConfigStore(env.NEXUS_DATA_DIR) : new ArkRconConfigStore();
   } catch {
-    return ['RCON: Discord override store unavailable.', 'No Stage 1 RCON health scheduler. Use `/ark-health` or `/arkrcon test`.'];
+    return ['RCON: Discord override store unavailable.', ...healthSummaryLines()];
   }
   const lines = ['RCON: Discord override store only. Railway env is not a connection source.'];
   for (const prefix of ['ARK_GEN1', 'ARK_MAP2']) {
@@ -107,7 +110,7 @@ function rconStaffLines(env = process.env) {
       lines.push(`${prefix}: unavailable.`);
     }
   }
-  lines.push('No Stage 1 RCON health scheduler. Use `/ark-health` or `/arkrcon test`.');
+  lines.push(...healthSummaryLines());
   return lines;
 }
 

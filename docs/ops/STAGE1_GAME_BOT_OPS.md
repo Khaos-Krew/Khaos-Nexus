@@ -42,7 +42,7 @@ Both bots register `/nexushelp` and staff-only `/status` for that bot only.
 `/status` is ephemeral and staff-only (owner ids, operator roles, or Discord Administrator). It reports Discord ready, a short deploy SHA when `RAILWAY_GIT_COMMIT_SHA` is a hex commit, and:
 
 - Cephalon: one on-demand Warframe backend health probe. No scheduler.
-- Ascended: ArkShop MySQL retired / `ARKSHOP_DB_MODE=disabled` when that switch is on, plus RCON override presence (configured or missing) without host, port, or password. Live RCON checks stay on `/ark-health` and `/arkrcon test`.
+- Ascended: ArkShop MySQL retired / `ARKSHOP_DB_MODE=disabled` when that switch is on, plus RCON override presence (configured or missing) without host, port, or password. The self-check summary is `RCON health: no self-check recorded yet.` until the Ascended health loop records a public row. See `docs/ops/STAGES_2-4_GAME_BOTS.md`.
 
 Cephalon commands and the Ascended slash-command handlers report player-facing failures with a generic ephemeral message. The staff alert contains the bot, command name, user id, and error class only. ARN and the Dino Cache Hub were not changed in this stage.
 

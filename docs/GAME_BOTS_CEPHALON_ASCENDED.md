@@ -24,7 +24,7 @@ Local equivalents: `npm run cephalon` and `npm run ascended`.
 
 ## Stage 1 category gate
 
-Ascended interactions only run under category `1516602943670059108` (`ASCENDED_DISCORD_CATEGORY_ID`). Cephalon interactions only run under category `1516640233389822042` (`CEPHALON_DISCORD_CATEGORY_ID`). Nexus Sentinal is not category-locked. See `docs/ops/STAGE1_GAME_BOT_OPS.md` for the staff alert, `/nexushelp`, `/status`, and Railway variable notes. Do not put ARK RCON host, port, or password on the Ascended service.
+Ascended interactions only run under category `1516602943670059108` (`ASCENDED_DISCORD_CATEGORY_ID`). Cephalon interactions only run under category `1516640233389822042` (`CEPHALON_DISCORD_CATEGORY_ID`). Nexus Sentinal is not category-locked. See `docs/ops/STAGE1_GAME_BOT_OPS.md` for the staff alert, `/nexushelp`, `/status`, and Railway variable notes. Stages 2–4 (RCON health, presence, shop and dino-cache copy, Warframe utility, welcome and rate cards) are in `docs/ops/STAGES_2-4_GAME_BOTS.md`. Do not put ARK RCON host, port, or password on the Ascended service.
 
 ## Commands moved to Nexus Ascended
 

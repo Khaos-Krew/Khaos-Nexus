@@ -290,7 +290,7 @@ test('staff status reports discord, arkshop retirement, and deploy sha without R
     assert.match(text, /ArkShop MySQL retired/);
     assert.match(text, /Deploy `abc1234`/);
     assert.match(text, /Nexus Sentinal/);
-    assert.match(text, /No Stage 1 RCON health scheduler/);
+    assert.match(text, /RCON health: no self-check recorded yet/);
     assert.doesNotMatch(text, /super-secret-rcon/);
     assert.doesNotMatch(text, /203\.0\.113\.9/);
     assert.doesNotMatch(text, /28015/);

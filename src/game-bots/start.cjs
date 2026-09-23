@@ -4,6 +4,8 @@ const { applyGameBotDiscordEnv } = require('./discord-env.cjs');
 const { createGameBotHealthServer } = require('./health.cjs');
 const { gameBotKey, installCategoryGate, resolveCategoryConfig } = require('./category-gate.cjs');
 const { installOpsSpine } = require('./ops-spine.cjs');
+const { installStageCommands } = require('./stage-commands.cjs');
+const { startAscendedOpsLoop } = require('./ascended-presence.cjs');
 
 async function startGameBot({ botName, botKey, gameRole, serviceName, beforeClient, bind } = {}) {
   const identity = applyGameBotDiscordEnv();
@@ -39,6 +41,8 @@ async function startGameBot({ botName, botKey, gameRole, serviceName, beforeClie
   console.log(`[${botName}] category gate ${category.envName}=${category.failClosed ? 'invalid' : category.id} source=${category.source}`);
   installCategoryGate(client, { bot: key });
   installOpsSpine(client, { bot: key });
+  installStageCommands(client, { bot: key });
+  if (key === 'ascended') startAscendedOpsLoop({ client });
   if (typeof bind === 'function') bind(client);
   client.once(Events.ClientReady, (ready) => {
     state.discordReady = true;

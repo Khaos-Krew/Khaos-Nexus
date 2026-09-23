@@ -266,7 +266,7 @@ function finalResultPayload(order, balance = null, source = '') {
     { name: 'Cache ID', value: `\`${order.publicCacheId}\``, inline: true },
     { name: 'Rarity', value: titleCase(order.rarity), inline: true },
     ...(source ? [{ name: 'Opened With', value: source, inline: true }] : []),
-    { name: 'Status', value: '⏳ **Awaiting ARK Delivery**', inline: false }
+    { name: 'Status', value: 'Awaiting ARK delivery. This is the stored roll, not a new one.', inline: false }
   ];
   if (Number.isFinite(balance)) fields.push({ name: source === 'ARN Tokens' ? 'Remaining ARN Tokens' : 'Remaining ArkShop Points', value: source === 'ARN Tokens' ? `${balance} ARN Tokens` : arkShopPoints(balance), inline: false });
   return { embeds: [{ title: `✨ ${m.name} • Revealed`, description: `**${order.species}**\nLevel **${order.level}** • **${variant}** • **${titleCase(order.sex)}**`, color: 0xb00020, fields, footer: { text: 'Stored result revealed • no rerolls • exact reward queued for ARK delivery' } }], components: [], allowedMentions: { parse: [] } };

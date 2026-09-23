@@ -17,6 +17,7 @@ const {
 const { loadConfig } = require('../shared/config.cjs');
 const { ArkIdentityStore } = require('./ark-identity-store.cjs');
 const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
+const { insufficientNpCopy, quoteCopy, orderCopy } = require('./cluster-shop-copy.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.cluster.shop.ui.installed');
 const PANEL_MARKER = 'Nexus Sentinal • Cluster Shop • v1';
@@ -264,19 +265,7 @@ async function handleQuantity(interaction, economyClient) {
     .setStyle(session.action === 'sell' ? ButtonStyle.Success : ButtonStyle.Primary);
   const cancel = new ButtonBuilder().setCustomId(`nexus-shop:cancel:${sessionId}`).setLabel('Cancel').setStyle(ButtonStyle.Secondary);
 
-  const q = result.quote;
-  const lines = [
-    `${session.action === 'sell' ? '💰 **SELL QUOTE**' : '🛒 **PURCHASE QUOTE**'}`,
-    `**Item:** ${q.name}`,
-    `**Bundles:** ${q.bundles}`,
-    `**Amount:** ${q.totalQuantity}`,
-    `**Price per bundle:** ${q.unitPrice} NP`,
-    `**Total:** ${q.totalPrice} NP`
-  ];
-  if (session.action === 'sell') lines.push('', 'Your wallet is credited only after ARK confirms the items were removed. Dinos cannot be sold.');
-  else lines.push('', 'Delivery will target where you are playing. If you are offline, the order remains queued.');
-
-  return interaction.reply(ephemeral(lines.join('\n'), { components: [new ActionRowBuilder().addComponents(confirm, cancel)] }));
+  return interaction.reply(ephemeral(quoteCopy({ action: session.action, quote: result.quote }), { components: [new ActionRowBuilder().addComponents(confirm, cancel)] }));
 }
 
 async function handleConfirm(interaction, economyClient, identityStore) {
@@ -300,26 +289,14 @@ async function handleConfirm(interaction, economyClient, identityStore) {
   sessions.delete(sessionId);
 
   if (!result.ok) {
-    const reason = result.order?.status === 'PAYMENT_REJECTED' ? 'Insufficient Nexus Points.' : 'The transaction could not be completed.';
-    return interaction.editReply({ content: `❌ ${reason}`, components: [] });
+    const content = result.order?.status === 'PAYMENT_REJECTED'
+      ? insufficientNpCopy({ price: session.quote?.totalPrice, balance: result.balance })
+      : 'The order could not be completed. Nothing else was changed. Check `/bal` on Nexus Sentinal if this was a purchase.';
+    return interaction.editReply({ content, components: [] });
   }
 
-  const order = result.order;
-  const statusText = session.action === 'sell'
-    ? 'ARK item removal confirmation is required before your wallet will be credited.'
-    : 'Your purchase is paid and queued for ARK delivery.';
   return interaction.editReply({
-    content: [
-      '✅ **Order created**',
-      `**Order:** ${order.orderId}`,
-      `**Item:** ${order.quote.name}`,
-      `**Amount:** ${order.quote.totalQuantity}`,
-      `**Total:** ${order.quote.totalPrice} NP`,
-      `**Status:** ${order.status}`,
-      session.action === 'buy' && Number.isFinite(Number(result.balance)) ? `**Wallet balance:** ${result.balance} NP` : '',
-      '',
-      statusText
-    ].filter(Boolean).join('\n'),
+    content: orderCopy({ action: session.action, order: result.order, balance: result.balance }),
     components: [],
     allowedMentions: { parse: [] }
   });
