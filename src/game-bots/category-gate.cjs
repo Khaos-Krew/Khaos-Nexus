@@ -4,8 +4,9 @@ const { replyEphemeral, reportCommandFailure, setGameBotMeta, BOT_LABELS } = req
 
 // Owner-provided Discord category IDs. Env overrides win; a blank var keeps
 // the documented default. A non-snowflake override fail-closes the gate.
-// Sanctuary has no owner category. Blank SANCTUARY_DISCORD_CATEGORY_ID and
-// DIABLO_DISCORD_CATEGORY_ID leave that gate open and log a warning.
+// Sanctuary's category id is Railway env only. Do not add it here.
+// SANCTUARY_DISCORD_CATEGORY_ID wins. DIABLO_DISCORD_CATEGORY_ID is used only
+// when the primary var is unset or blank. Both blank leaves the gate open.
 const OWNER_CATEGORY_IDS = Object.freeze({
   ascended: '1516602943670059108',
   cephalon: '1516640233389822042'

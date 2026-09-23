@@ -22,7 +22,7 @@ Set these on `sanctuary-nexus` only:
 - `READY` is logged and ignored. It does not block startup or commands.
 - `SANCTUARY_LFG_TTL_MINUTES` optional, clamped from 15 to 240. Default is 120.
 
-The category id lives only in Railway. Do not bake it into `Dockerfile.sanctuary` or source. If both category variables are unset, the process logs a warning and allows commands so a deploy can finish before the id is copied. A non-snowflake value fail-closes the gate. When a valid id is set, slash commands, role selects, checklist buttons, and group-close buttons outside that category (including its threads) and in DMs get an ephemeral deny.
+Railway service `sanctuary-nexus` already sets both category variables. The process reads `SANCTUARY_DISCORD_CATEGORY_ID` first and uses `DIABLO_DISCORD_CATEGORY_ID` only when that primary value is unset or blank. Do not copy the value into `Dockerfile.sanctuary` or into `OWNER_CATEGORY_IDS`. If both variables are unset, the process logs a warning and allows commands. A non-snowflake value fail-closes the gate. When a valid id is set, slash commands, role selects, checklist buttons, and group-close buttons outside that category (including its threads) and in DMs get an ephemeral deny.
 
 ## Intents and invite
 

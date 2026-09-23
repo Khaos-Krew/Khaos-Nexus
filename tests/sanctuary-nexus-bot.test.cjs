@@ -8,6 +8,7 @@ const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const { Events, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const {
+  OWNER_CATEGORY_IDS,
   gameBotKey,
   resolveCategoryConfig,
   redirectMessage,
@@ -78,6 +79,27 @@ function walkOptions(option, names) {
   for (const choice of option.choices || []) assert.ok(choice.name.length <= 100);
   for (const child of option.options || []) walkOptions(child, names);
 }
+
+test('sanctuary category id stays env-only and prefers SANCTUARY_DISCORD_CATEGORY_ID', () => {
+  assert.deepEqual(Object.keys(OWNER_CATEGORY_IDS).sort(), ['ascended', 'cephalon']);
+  assert.equal(OWNER_CATEGORY_IDS.sanctuary, undefined);
+  const primary = resolveCategoryConfig('sanctuary', {
+    SANCTUARY_DISCORD_CATEGORY_ID: '2000000000000000001',
+    DIABLO_DISCORD_CATEGORY_ID: '2000000000000000002'
+  });
+  assert.equal(primary.source, 'env');
+  assert.equal(primary.envName, 'SANCTUARY_DISCORD_CATEGORY_ID');
+  assert.equal(primary.id, '2000000000000000001');
+  assert.equal(primary.open, false);
+  const alias = resolveCategoryConfig('sanctuary', { DIABLO_DISCORD_CATEGORY_ID: '2000000000000000002' });
+  assert.equal(alias.envName, 'DIABLO_DISCORD_CATEGORY_ID');
+  assert.equal(alias.id, '2000000000000000002');
+  assert.equal(resolveCategoryConfig('sanctuary', {}).open, true);
+  assert.doesNotMatch(read('Dockerfile.sanctuary'), /SANCTUARY_DISCORD_CATEGORY_ID|DIABLO_DISCORD_CATEGORY_ID/);
+  assert.doesNotMatch(read('src/railway/sanctuary-service.cjs'), /SANCTUARY_DISCORD_CATEGORY_ID\s*=\s*\d+/);
+  assert.match(read('src/game-bots/start.cjs'), /resolveCategoryConfig/);
+  assert.match(read('src/game-bots/start.cjs'), /installCategoryGate/);
+});
 
 test('sanctuary game role maps onto the shared category gate', () => {
   assert.equal(gameBotKey({ botKey: 'sanctuary' }), 'sanctuary');

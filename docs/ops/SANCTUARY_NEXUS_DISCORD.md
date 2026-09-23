@@ -14,12 +14,12 @@ Set these on `sanctuary-nexus`:
 - `DISCORD_CLIENT_ID`
 - `DISCORD_CLIENT_SECRET`
 - `DISCORD_GUILD_ID`
-- `SANCTUARY_DISCORD_CATEGORY_ID` once the Discord category id is known
+- `SANCTUARY_DISCORD_CATEGORY_ID` (already set on the Railway service; not baked into the image)
 - `READY` is logged and ignored. It does not block startup or commands.
 
-`DIABLO_DISCORD_CATEGORY_ID` is used only when `SANCTUARY_DISCORD_CATEGORY_ID` is unset or blank.
+Railway service `sanctuary-nexus` already sets `SANCTUARY_DISCORD_CATEGORY_ID` and `DIABLO_DISCORD_CATEGORY_ID`. The gate reads `SANCTUARY_DISCORD_CATEGORY_ID` first. `DIABLO_DISCORD_CATEGORY_ID` applies only when the primary variable is unset or blank. Do not add either value to the image or to source defaults.
 
-If neither category variable is set, the process logs a warning and allows commands, including DMs, so the bot can log in before a category id exists. A non-empty value that is not a Discord snowflake fail-closes the gate. When a valid category id is set, commands outside that category and in DMs get an ephemeral deny: `Use this bot in the Sanctuary category.`
+If neither category variable is set, the process logs a warning and allows commands, including DMs. A non-empty value that is not a Discord snowflake fail-closes the gate. When a valid category id is set, commands outside that category and in DMs get an ephemeral deny: `Use this bot in the Sanctuary category.`
 
 Do not set ARK RCON host, port, or password on this service. This image does not start the Nexus backend.
 
