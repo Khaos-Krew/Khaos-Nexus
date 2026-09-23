@@ -12,7 +12,8 @@ COPY tests ./tests
 COPY config ./config
 COPY native ./native
 COPY config.example.json ./config.example.json
-COPY Dockerfile.sentinal ./Dockerfile.sentinal
+COPY Dockerfile.sentinal Dockerfile.cephalon Dockerfile.ascended ./
+COPY docs/ops/STAGE1_GAME_BOT_OPS.md ./docs/ops/STAGE1_GAME_BOT_OPS.md
 
 RUN npm run check && npm test
 
