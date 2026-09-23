@@ -7,7 +7,8 @@ const { inspectSftpLayout } = require('../sentinel/ark-sftp-diagnostic.cjs');
 const { inspectArkApiLog } = require('../sentinel/ark-api-log-diagnostic.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('../sentinel/ark-rcon.cjs');
 const { syncArkShopMysqlIfRequested } = require('../sentinel/arkshop-startup-sync.cjs');
-const { databaseModeFromEnv, databaseStatus } = require('../sentinel/arkshop-database.cjs');
+const { isArkShopMysqlRetired, databaseModeFromEnv, databaseStatus } = require('../sentinel/arkshop-database.cjs');
+const arkShopMysqlRetired = isArkShopMysqlRetired();
 
 process.env.NEXUS_BACKEND_HOST ||= '127.0.0.1';
 process.env.NEXUS_BACKEND_PORT ||= '3210';
@@ -76,15 +77,19 @@ if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
     })
     .catch((error) => console.warn(`[Nexus Sentinal] ARK baseline config sync failed: ${String(error?.message || error).slice(0, 500)}`));
 
-  void syncArkShopMysqlIfRequested({ prefix: 'ARK_GEN1', stampDirectory: '/app/data' })
-    .then((result) => {
-      if (result.skipped) {
-        console.log(`[Nexus Sentinal] ArkShop MySQL config sync skipped: ${result.skipped}`);
-        return;
-      }
-      console.log(`[Nexus Sentinal] ArkShop MySQL config synchronized: changed=${result.changed} file=${result.remoteFile} backup=${result.backup || 'none'} reloadOk=${result.reloaded === true} responseBytes=${result.responseBytes || 0} restartRequired=false`);
-    })
-    .catch((error) => console.warn(`[Nexus Sentinal] ArkShop MySQL config sync failed: ${String(error?.message || error).slice(0, 300)}`));
+  if (arkShopMysqlRetired) {
+    console.log('[Nexus Sentinal] ArkShop MySQL retired; startup sync and status watch skipped.');
+  } else {
+    void syncArkShopMysqlIfRequested({ prefix: 'ARK_GEN1', stampDirectory: '/app/data' })
+      .then((result) => {
+        if (result.skipped) {
+          console.log(`[Nexus Sentinal] ArkShop MySQL config sync skipped: ${result.skipped}`);
+          return;
+        }
+        console.log(`[Nexus Sentinal] ArkShop MySQL config synchronized: changed=${result.changed} file=${result.remoteFile} backup=${result.backup || 'none'} reloadOk=${result.reloaded === true} responseBytes=${result.responseBytes || 0} restartRequired=false`);
+      })
+      .catch((error) => console.warn(`[Nexus Sentinal] ArkShop MySQL config sync failed: ${String(error?.message || error).slice(0, 300)}`));
+  }
 
   void inspectSftpLayout('ARK_GEN1')
     .then((layout) => {
@@ -154,28 +159,30 @@ if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
   }, 12_000);
   rconTimer.unref?.();
 
-  let databaseSignature = '';
-  const checkDatabase = async (reason = 'periodic') => {
-    try {
-      const status = await databaseStatus();
-      const signature = `${status.backend}:${status.connected}:${status.database}:${status.table}:${status.tableExists}`;
-      if (reason === 'startup' || signature !== databaseSignature) {
-        console.log(`[Nexus Sentinal] ArkShop ${status.backend} ${reason}: connected=${status.connected} database=${status.database} table=${status.table} tableExists=${status.tableExists}`);
+  if (!arkShopMysqlRetired) {
+    let databaseSignature = '';
+    const checkDatabase = async (reason = 'periodic') => {
+      try {
+        const status = await databaseStatus();
+        const signature = `${status.backend}:${status.connected}:${status.database}:${status.table}:${status.tableExists}`;
+        if (reason === 'startup' || signature !== databaseSignature) {
+          console.log(`[Nexus Sentinal] ArkShop ${status.backend} ${reason}: connected=${status.connected} database=${status.database} table=${status.table} tableExists=${status.tableExists}`);
+        }
+        databaseSignature = signature;
+      } catch (error) {
+        const signature = `error:${String(error?.message || error).slice(0, 120)}`;
+        if (reason === 'startup' || signature !== databaseSignature) {
+          console.warn(`[Nexus Sentinal] ArkShop ${databaseModeFromEnv()} ${reason} unavailable: ${String(error?.message || error).slice(0, 300)}`);
+        }
+        databaseSignature = signature;
       }
-      databaseSignature = signature;
-    } catch (error) {
-      const signature = `error:${String(error?.message || error).slice(0, 120)}`;
-      if (reason === 'startup' || signature !== databaseSignature) {
-        console.warn(`[Nexus Sentinal] ArkShop ${databaseModeFromEnv()} ${reason} unavailable: ${String(error?.message || error).slice(0, 300)}`);
-      }
-      databaseSignature = signature;
-    }
-  };
+    };
 
-  void checkDatabase('startup');
-  const mysqlWatchMs = Math.max(60_000, Number(process.env.NEXUS_ARKSHOP_MYSQL_STATUS_SECONDS || 120) * 1000 || 120_000);
-  const mysqlWatch = setInterval(() => void checkDatabase('state-change'), mysqlWatchMs);
-  mysqlWatch.unref?.();
+    void checkDatabase('startup');
+    const mysqlWatchMs = Math.max(60_000, Number(process.env.NEXUS_ARKSHOP_MYSQL_STATUS_SECONDS || 120) * 1000 || 120_000);
+    const mysqlWatch = setInterval(() => void checkDatabase('state-change'), mysqlWatchMs);
+    mysqlWatch.unref?.();
+  }
 }
 
 // Read-only identity discovery for the configured second ARK service. This deliberately

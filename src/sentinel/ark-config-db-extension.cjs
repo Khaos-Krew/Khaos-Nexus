@@ -158,6 +158,10 @@ async function handleDb(interaction, context) {
 
   if (sub === 'status') {
     const status = await databaseStatus();
+    if (status.backend === 'retired') {
+      await interaction.editReply({ content: '🗄️ **ArkShop MySQL retired.** No connection attempted. Founder points live in Nexus Points wallets.', allowedMentions: { parse: [] } });
+      return true;
+    }
     await interaction.editReply({ content: [
       `🗄️ **ArkShop ${status.backend === 'sqlite' ? 'SQLite (read-only snapshot)' : 'MySQL'}**`,
       `Connection: ${status.connected ? '🟢 Connected' : '🔴 Offline'}`,
@@ -169,6 +173,10 @@ async function handleDb(interaction, context) {
 
   if (sub === 'schema') {
     const schema = await databaseSchema();
+    if (schema.backend === 'retired') {
+      await interaction.editReply({ content: '🗄️ **ArkShop MySQL retired.** Schema lookup was not attempted.', allowedMentions: { parse: [] } });
+      return true;
+    }
     const lines = schema.columns.slice(0, 35).map((column) => `• ${column.COLUMN_NAME} — ${column.DATA_TYPE}${column.COLUMN_KEY ? ` (${column.COLUMN_KEY})` : ''}`);
     await interaction.editReply({ content: [`🧬 **${schema.table} schema**`, ...lines].join('\n').slice(0, 1900), allowedMentions: { parse: [] } });
     return true;
@@ -176,6 +184,10 @@ async function handleDb(interaction, context) {
 
   if (sub === 'player') {
     const result = await lookupPlayer(interaction.options.getString('id', true));
+    if (result.backend === 'retired') {
+      await interaction.editReply({ content: '🗄️ **ArkShop MySQL retired.** Player lookup was not attempted.', allowedMentions: { parse: [] } });
+      return true;
+    }
     if (!result.player) {
       await interaction.editReply({ content: 'No ArkShop player record matched that ID.', allowedMentions: { parse: [] } });
       return true;

@@ -1,6 +1,6 @@
 'use strict';
 
-const { connectMysql } = require('./arkshop-mysql.cjs');
+const { connectMysql, isRetired } = require('./arkshop-mysql.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { ORDER_TABLE, EVENT_TABLE, ensureSchema } = require('./ark-cache-shop-service.cjs');
@@ -161,7 +161,10 @@ async function finishDinoDepotPath({ connection, row, target, saddle, result, ou
 }
 
 async function deliverOne({ connector = connectMysql, findServer = findOnlineServer, clientFactory = server => new ArkRconClient(server) } = {}) {
-  const { connection } = await connector();
+  if (isRetired()) return { skipped: 'arkshop-mysql-retired' };
+  const opened = await connector();
+  if (opened?.retired || !opened?.connection) return { skipped: 'arkshop-mysql-retired' };
+  const { connection } = opened;
   try {
     await ensureSchema(connection);
     await ensureDeliveryState(connection);
@@ -231,6 +234,7 @@ async function deliverOne({ connector = connectMysql, findServer = findOnlineSer
 }
 
 async function runCycle() {
+  if (isRetired()) return [{ skipped: 'arkshop-mysql-retired' }];
   if (running) return { skipped: 'busy' };
   running = true;
   try {
@@ -246,6 +250,11 @@ async function runCycle() {
 
 function installArkDinoBoxDeliveryWorker() {
   if (globalThis[INSTALLED]) return false;
+  if (isRetired()) {
+    globalThis[INSTALLED] = true;
+    console.log('[dino-cache-delivery] ArkShop MySQL retired; delivery poller not started.');
+    return false;
+  }
   globalThis[INSTALLED] = true;
   const interval = Math.max(5000, Math.min(60000, Number(process.env.NEXUS_DINO_CACHE_DELIVERY_POLL_MS || 10000)));
   if (backendMode() === 'rewardsascended') {

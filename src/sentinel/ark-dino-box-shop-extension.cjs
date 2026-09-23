@@ -15,6 +15,7 @@ const {
 } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { CONFIG } = require('./ark-weekly-cache.cjs');
+const { isRetired } = require('./arkshop-mysql.cjs');
 const { ArkCacheShopService } = require('./ark-cache-shop-service.cjs');
 const { ArkDinoBoxTokenService } = require('./ark-dino-box-token-service.cjs');
 const { BUTTON_CACHE_SHOP } = require('./ark-cluster-panel.cjs');
@@ -327,27 +328,34 @@ function installArkDinoBoxShopExtension(options = {}) {
       const announcing = new Set();
       client.once(Events.ClientReady, async () => {
         try {
-          await purchaseService.refreshWeekly().catch(error=>console.error('[weekly-cache] initial load:',error.message));
+          const mysqlRetired = isRetired();
+          if (mysqlRetired) console.log('[weekly-cache] ArkShop MySQL retired; weekly rotation poll skipped.');
+          else await purchaseService.refreshWeekly().catch(error=>console.error('[weekly-cache] initial load:',error.message));
           const guild = await client.guilds.fetch(String(config.discord?.guildId || ''));
           await guild.channels.fetch();
           const channel = await reconcileDinoBoxShop(guild);
-          const rotate = async () => {
-            const rotation = await purchaseService.refreshWeekly();
-            if (rotation.announcedAt) return;
-            const { connection } = await purchaseService.connector();
-            try {
-              // A MySQL advisory lock prevents two Sentinel instances announcing together.
-              const [locks] = await connection.execute("SELECT GET_LOCK('nexus-weekly-announcement', 0) AS acquired");
-              if (Number(locks[0]?.acquired) !== 1) return;
-              const [rows] = await connection.execute('SELECT announced_at FROM nexus_weekly_cache_rotations WHERE id=?', [rotation.id]);
-              if (rows[0]?.announced_at) return;
-              await channel.send({ content:`🗓️ **Weekly Featured Cache**\n${rotation.cache.entries.map(e=>e.name).join(' • ')}\n${arkShopPoints(rotation.cache.price)} • Resets <t:${Math.floor(rotation.endsAt/1000)}:R>`, allowedMentions:{ parse:[] }, nonce:rotation.id, enforceNonce:true });
-              await connection.execute('UPDATE nexus_weekly_cache_rotations SET announced_at=CURRENT_TIMESTAMP(3) WHERE id=? AND announced_at IS NULL', [rotation.id]);
-              await reconcileDinoBoxShop(guild);
-            } finally { await connection.execute("SELECT RELEASE_LOCK('nexus-weekly-announcement')").catch(()=>{}); await connection.end().catch(()=>{}); }
-          };
-          const timer = setInterval(()=>rotate().catch(error=>console.error('[weekly-cache]', error.message)),60000); timer.unref?.();
-          await rotate();
+          if (!mysqlRetired) {
+            const rotate = async () => {
+              if (isRetired()) return;
+              const rotation = await purchaseService.refreshWeekly();
+              if (rotation?.skipped === 'arkshop-mysql-retired' || rotation?.announcedAt) return;
+              const opened = await purchaseService.connector();
+              if (opened?.retired || !opened?.connection) return;
+              const { connection } = opened;
+              try {
+                // A MySQL advisory lock prevents two Sentinel instances announcing together.
+                const [locks] = await connection.execute("SELECT GET_LOCK('nexus-weekly-announcement', 0) AS acquired");
+                if (Number(locks[0]?.acquired) !== 1) return;
+                const [rows] = await connection.execute('SELECT announced_at FROM nexus_weekly_cache_rotations WHERE id=?', [rotation.id]);
+                if (rows[0]?.announced_at) return;
+                await channel.send({ content:`🗓️ **Weekly Featured Cache**\n${rotation.cache.entries.map(e=>e.name).join(' • ')}\n${arkShopPoints(rotation.cache.price)} • Resets <t:${Math.floor(rotation.endsAt/1000)}:R>`, allowedMentions:{ parse:[] }, nonce:rotation.id, enforceNonce:true });
+                await connection.execute('UPDATE nexus_weekly_cache_rotations SET announced_at=CURRENT_TIMESTAMP(3) WHERE id=? AND announced_at IS NULL', [rotation.id]);
+                await reconcileDinoBoxShop(guild);
+              } finally { await connection.execute("SELECT RELEASE_LOCK('nexus-weekly-announcement')").catch(()=>{}); await connection.end().catch(()=>{}); }
+            };
+            const timer = setInterval(()=>rotate().catch(error=>console.error('[weekly-cache]', error.message)),60000); timer.unref?.();
+            await rotate();
+          }
           console.log(`[Nexus Sentinal] Dino Cache Hub ready in #${channel.name} (${channel.id}) with one persistent panel and ${cacheIds().length} dropdown caches.`);
         } catch (error) { console.error('[Nexus Sentinal] Dino Cache Hub reconcile failed:', String(error?.message || error).slice(0, 500)); }
       });

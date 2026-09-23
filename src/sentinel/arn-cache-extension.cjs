@@ -1,6 +1,7 @@
 'use strict';
 const {Client,Events,MessageFlags,SlashCommandBuilder}=require('discord.js');
 const {ArnTokenLedger}=require('./arn-token-ledger.cjs');
+const {isRetired}=require('./arkshop-mysql.cjs');
 const {ArkCacheShopService}=require('./ark-cache-shop-service.cjs');
 const {ProtocolStore}=require('./protocol/store.cjs');
 const {isStaff}=require('./ark-ops-extension.cjs');
@@ -48,6 +49,8 @@ async function handle(interaction,{ledger,shop,config}) {
 function installArnCacheExtension({config=loadConfig(),ledger=new ArnTokenLedger(),shop=new ArkCacheShopService()}={}) {
   if(Client.prototype[INSTALLED])return;
   Client.prototype[INSTALLED]=true;
+  const mysqlRetired=isRetired();
+  if(mysqlRetired) console.log('[arn-tokens] ArkShop MySQL retired; participation sync skipped.');
   const login=Client.prototype.login;
   Client.prototype.login=function(...args) {
     const client=this;
@@ -59,8 +62,10 @@ function installArnCacheExtension({config=loadConfig(),ledger=new ArnTokenLedger
           const existing=registered.find(c=>c.name===definition.name);
           if(existing)await guild.commands.edit(existing.id,definition);else await guild.commands.create(definition);
         }
-        const sync=()=>ledger.syncParticipation(new ProtocolStore()).catch(e=>console.error('[arn-tokens]',e.message));
-        await sync(); const timer=setInterval(sync,30000);timer.unref?.();
+        if(!mysqlRetired){
+          const sync=()=>ledger.syncParticipation(new ProtocolStore()).catch(e=>console.error('[arn-tokens]',e.message));
+          await sync(); const timer=setInterval(sync,30000);timer.unref?.();
+        }
       }catch(e){console.error('[arn-tokens]',e.message);}
     });
     client.on(Events.InteractionCreate,interaction=>{
