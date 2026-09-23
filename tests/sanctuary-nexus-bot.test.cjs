@@ -3,9 +3,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { EventEmitter } = require('node:events');
-const { Events, MessageFlags } = require('discord.js');
+const { Events, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const {
   gameBotKey,
   resolveCategoryConfig,
@@ -15,7 +16,24 @@ const {
 } = require('../src/game-bots/category-gate.cjs');
 const { helpText, buildStatusText, installOpsSpine } = require('../src/game-bots/ops-spine.cjs');
 const { safeBotName } = require('../src/game-bots/command-failure.cjs');
-const { sanctuaryCommands, bindSanctuaryCommands, SANCTUARY_INFO } = require('../src/sentinel/sanctuary-bot.cjs');
+const {
+  sanctuaryCommands,
+  bindSanctuaryCommands,
+  handleSanctuaryInteraction,
+  registerSanctuaryCommands,
+  resolvedRoleGroups
+} = require('../src/sentinel/sanctuary-bot.cjs');
+const {
+  allRoleNames,
+  planRoles,
+  roleDiff,
+  safeHttpLink,
+  createLfgEntry,
+  lfgMessage,
+  toggleItem,
+  SanctuaryStore,
+  sanctuaryHelpText
+} = require('../src/sentinel/sanctuary-suite.cjs');
 
 const root = path.resolve(__dirname, '..');
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
@@ -41,13 +59,24 @@ function interaction(overrides = {}) {
     replied: false,
     isChatInputCommand: () => true,
     isAutocomplete: () => false,
+    isStringSelectMenu: () => false,
+    isButton: () => false,
     reply: record,
     editReply: record,
     followUp: record,
+    update: record,
     replies,
+    options: { getSubcommand: () => 'help', getString: () => null, getBoolean: () => false, getChannel: () => null },
     ...overrides
   };
   return target;
+}
+
+function walkOptions(option, names) {
+  assert.ok(option.description.length <= 100, option.name);
+  if (option.name) names.push(option.name);
+  for (const choice of option.choices || []) assert.ok(choice.name.length <= 100);
+  for (const child of option.options || []) walkOptions(child, names);
 }
 
 test('sanctuary game role maps onto the shared category gate', () => {
@@ -91,7 +120,7 @@ test('unset sanctuary category warns and allows, including DMs', async () => {
   }
 });
 
-test('a set sanctuary category denies other categories and DMs', async () => {
+test('a set sanctuary category denies other categories, DMs, and components', async () => {
   const env = { SANCTUARY_DISCORD_CATEGORY_ID: CATEGORY };
   const config = resolveCategoryConfig('sanctuary', env);
   assert.equal(config.source, 'env');
@@ -119,7 +148,13 @@ test('a set sanctuary category denies other categories and DMs', async () => {
 
   const client = new EventEmitter();
   installCategoryGate(client, { bot: 'sanctuary', env });
-  bindSanctuaryCommands(client, { config: { discord: { guildId: 'guild' } } });
+  const store = new SanctuaryStore();
+  bindSanctuaryCommands(client, {
+    config: { discord: { guildId: 'guild' } },
+    env,
+    store,
+    schedule: false
+  });
   let ran = 0;
   client.on('interactionCreate', () => { ran += 1; });
 
@@ -140,6 +175,21 @@ test('a set sanctuary category denies other categories and DMs', async () => {
   assert.equal(ran, 0);
   assert.equal(dm.replies[0].flags, MessageFlags.Ephemeral);
 
+  let applied = 0;
+  const select = interaction({
+    guildId: null,
+    channel: null,
+    isChatInputCommand: () => false,
+    isStringSelectMenu: () => true,
+    customId: 'sanctuary:roles:class',
+    values: ['1'],
+    member: { roles: { add: async () => { applied += 1; }, cache: { keys: () => [] } } }
+  });
+  client.emit('interactionCreate', select);
+  await flush();
+  assert.equal(applied, 0);
+  assert.match(select.replies[0].content, /Sanctuary category/);
+
   const thread = interaction({
     channel: { isThread: () => true, parentId: 'parent-text', parent: { parentId: CATEGORY } }
   });
@@ -147,7 +197,7 @@ test('a set sanctuary category denies other categories and DMs', async () => {
   await flush();
   assert.equal(ran, 1);
   assert.equal(thread.replies.length, 1);
-  assert.match(thread.replies[0].content, /Sanctuary Nexus/);
+  assert.match(thread.replies[0].embeds[0].description, /Sanctuary Nexus help/);
   assert.equal(thread.replies[0].flags, MessageFlags.Ephemeral);
 
   const cephalonStillDefault = resolveCategoryConfig('cephalon', {});
@@ -156,36 +206,242 @@ test('a set sanctuary category denies other categories and DMs', async () => {
   assert.equal(resolveCategoryConfig('ascended', {}).source, 'default');
 });
 
-test('sanctuary help lists nexushelp and does not borrow other bots', async () => {
+test('sanctuary command registration surface lists the v1 suite', async () => {
+  const command = sanctuaryCommands()[0].toJSON();
+  assert.equal(command.name, 'sanctuary');
+  assert.ok(command.description.length <= 100);
+  const names = [];
+  for (const option of command.options) walkOptions(option, names);
+  assert.deepEqual(names.filter((name) => ['help', 'roles', 'lfg', 'build', 'season', 'seasonpost', 'status'].includes(name)).sort(), [
+    'build', 'help', 'lfg', 'roles', 'season', 'seasonpost', 'status'
+  ]);
+  assert.ok(names.includes('activity'));
+  assert.ok(names.includes('link'));
+  assert.ok(names.includes('reregister'));
+  assert.equal(allRoleNames().length, 17);
+  assert.equal(planRoles([], false).ready, false);
+  assert.equal(planRoles(allRoleNames(), false).ready, true);
+  assert.deepEqual(roleDiff(['1', '2'], ['1', '2', '3'], ['3']), { add: ['3'], remove: ['1', '2'] });
+  assert.equal(safeHttpLink('javascript:alert(1)'), '');
+  assert.equal(safeHttpLink('https://user:pass@example.com/build'), '');
+  assert.equal(safeHttpLink('https://example.com/build'), 'https://example.com/build');
+  assert.deepEqual(toggleItem(['roles'], 'roles'), []);
+  assert.deepEqual(toggleItem([], 'build'), ['build']);
+
+  const created = [];
+  await registerSanctuaryCommands({
+    commands: {
+      fetch: async () => ({ find: () => null }),
+      create: async (json) => { created.push(json); return json; }
+    }
+  });
+  assert.deepEqual(created.map((item) => item.name), ['sanctuary']);
+
   const help = helpText('sanctuary');
+  assert.equal(help, sanctuaryHelpText());
   assert.match(help, /Sanctuary Nexus help/);
   assert.match(help, /\/nexushelp/);
-  assert.match(help, /\/sanctuary/);
+  assert.match(help, /\/sanctuary lfg/);
+  assert.match(help, /\/sanctuary roles/);
+  assert.match(help, /\/sanctuary build/);
+  assert.match(help, /\/sanctuary season/);
   assert.match(help, /\/status/);
   assert.match(help, /Nexus Sentinal/);
   assert.match(help, /\/bal/);
   assert.match(help, /\/o9verify/);
+  assert.match(help, /shop/);
+  assert.match(help, /ranks/);
   assert.doesNotMatch(help, /\/warframe/);
   assert.doesNotMatch(help, /\/arkrcon/);
   assert.doesNotMatch(help, /Sentinel/);
   assert.doesNotMatch(help, /Nephalem/);
   assert.doesNotMatch(helpText('cephalon'), /\/sanctuary/);
   assert.doesNotMatch(helpText('ascended'), /\/sanctuary/);
-  assert.equal(sanctuaryCommands().map((command) => command.name).join(','), 'sanctuary');
-  for (const command of sanctuaryCommands()) assert.ok(command.toJSON().description.length <= 100);
-  assert.match(SANCTUARY_INFO, /Nexus Sentinal/);
-  assert.doesNotMatch(SANCTUARY_INFO, /Sentinel|Nephalem/);
+});
 
+test('player commands post embeds inside the category and stay ephemeral for private views', async () => {
+  const env = { SANCTUARY_DISCORD_CATEGORY_ID: CATEGORY, READY: 'true' };
+  const store = new SanctuaryStore();
+  const config = { discord: { guildId: 'guild', ownerUserIds: ['7'], operatorRoleIds: [] } };
+  const context = { config, env, store, schedule: false, client: { isReady: () => true, ws: { ping: 42 } } };
+  const channel = { parentId: CATEGORY, isThread: () => false };
+  const originalFetch = global.fetch;
+  global.fetch = () => { throw new Error('fetch called'); };
+  try {
+    const lfg = interaction({
+      channel,
+      options: {
+        getSubcommand: () => 'lfg',
+        getString: (name) => (name === 'activity' ? 'helltide' : 'meet @everyone'),
+        getBoolean: () => false,
+        getChannel: () => ({ id: '1516602943670059108' })
+      },
+      fetchReply: async () => ({ id: '99' })
+    });
+    assert.equal(await handleSanctuaryInteraction(lfg, context), true);
+    assert.equal(lfg.replies[0].flags, undefined);
+    assert.match(lfg.replies[0].embeds[0].title, /Helltide/);
+    assert.equal(lfg.replies[0].components[0].components[0].custom_id.startsWith('sanctuary:lfg:close:'), true);
+    assert.doesNotMatch(lfg.replies[0].embeds[0].description, /@everyone/);
+    assert.equal(lfg.replies[0].content, 'Voice: <#1516602943670059108>');
+    assert.equal(store.state.lfg.length, 1);
+
+    const badBuild = interaction({
+      channel,
+      options: {
+        getSubcommand: () => 'build',
+        getString: (name) => (name === 'link' ? 'not a link' : 'barbarian'),
+        getBoolean: () => false,
+        getChannel: () => null
+      }
+    });
+    await handleSanctuaryInteraction(badBuild, context);
+    assert.match(badBuild.replies[0].content, /http or https/);
+    assert.equal(badBuild.replies[0].flags, MessageFlags.Ephemeral);
+
+    const build = interaction({
+      channel,
+      options: {
+        getSubcommand: () => 'build',
+        getString: (name) => ({ link: 'https://example.com/build', class: 'barbarian', type: 'pit', note: 'speed clear' }[name]),
+        getBoolean: () => false,
+        getChannel: () => null
+      }
+    });
+    await handleSanctuaryInteraction(build, context);
+    assert.equal(build.replies[0].flags, undefined);
+    assert.match(build.replies[0].embeds[0].description, /does not open or scrape/);
+    assert.equal(build.replies[0].embeds[0].fields.find((field) => field.name === 'Class').value, 'Barbarian');
+
+    const season = interaction({ channel, options: { getSubcommand: () => 'season', getString: () => null, getBoolean: () => false, getChannel: () => null } });
+    await handleSanctuaryInteraction(season, context);
+    assert.equal(season.replies[0].flags, MessageFlags.Ephemeral);
+    assert.match(season.replies[0].embeds[0].description, /☐/);
+    const check = interaction({
+      channel,
+      isChatInputCommand: () => false,
+      isButton: () => true,
+      customId: 'sanctuary:check:roles',
+      options: undefined
+    });
+    await handleSanctuaryInteraction(check, context);
+    assert.match(check.replies[0].embeds[0].description, /☑ Class/);
+
+    const deniedPost = interaction({
+      channel,
+      user: { id: '5' },
+      memberPermissions: { has: () => false },
+      options: { getSubcommand: () => 'seasonpost', getString: () => 'Tonight', getBoolean: () => false, getChannel: () => null }
+    });
+    await handleSanctuaryInteraction(deniedPost, context);
+    assert.match(deniedPost.replies[0].content, /restricted to Sanctuary Nexus staff/);
+    assert.equal(deniedPost.replies[0].flags, MessageFlags.Ephemeral);
+
+    const post = interaction({
+      channel,
+      user: { id: '7' },
+      options: { getSubcommand: () => 'seasonpost', getString: (name) => (name === 'title' ? 'Season window' : 'Groups are open'), getBoolean: () => false, getChannel: () => null }
+    });
+    await handleSanctuaryInteraction(post, context);
+    assert.equal(post.replies[0].flags, undefined);
+    assert.match(post.replies[0].embeds[0].description, /Herald template/);
+    assert.match(post.replies[0].embeds[0].description, /Nexus Sentinal/);
+
+    const deniedStatus = interaction({
+      channel,
+      user: { id: '5' },
+      memberPermissions: { has: () => false },
+      options: { getSubcommand: () => 'status', getString: () => null, getBoolean: () => false, getChannel: () => null }
+    });
+    await handleSanctuaryInteraction(deniedStatus, context);
+    assert.match(deniedStatus.replies[0].content, /restricted to Sanctuary Nexus staff/);
+
+    const status = interaction({
+      channel,
+      user: { id: '7' },
+      guild: { name: 'Khaos' },
+      client: context.client,
+      options: { getSubcommand: () => 'status', getString: () => null, getBoolean: () => false, getChannel: () => null }
+    });
+    await handleSanctuaryInteraction(status, context);
+    assert.match(status.replies[0].content, /Discord: ready/);
+    assert.match(status.replies[0].content, /READY flag: true/);
+    assert.match(status.replies[0].content, /Category id: present/);
+    assert.match(status.replies[0].content, /Latency: 42 ms/);
+    assert.doesNotMatch(status.replies[0].content, new RegExp(CATEGORY));
+    assert.equal(status.replies[0].flags, MessageFlags.Ephemeral);
+
+    const missingRoles = interaction({
+      channel,
+      guild: { roles: { cache: { values: () => [], find: () => null } }, members: { me: { permissions: { has: () => false } } } },
+      options: { getSubcommand: () => 'roles', getString: () => null, getBoolean: () => false, getChannel: () => null }
+    });
+    await handleSanctuaryInteraction(missingRoles, context);
+    assert.match(missingRoles.replies[0].embeds[0].title, /need setup/);
+    assert.match(missingRoles.replies[0].embeds[0].fields[0].value, /Sanctuary Barbarian/);
+    assert.match(missingRoles.replies[0].embeds[0].fields[0].value, /Sanctuary World Tier 1/);
+    assert.equal(missingRoles.replies[0].flags, MessageFlags.Ephemeral);
+  } finally {
+    global.fetch = originalFetch;
+  }
+
+  const entry = createLfgEntry({ id: 'abc', userId: '42', activity: 'pit', now: 1_700_000_000_000, ttlMs: 1000 });
+  entry.closed = true;
+  entry.reason = 'expired';
+  assert.match(lfgMessage(entry).embeds[0].title, /expired/);
+  assert.deepEqual(lfgMessage(entry).components, []);
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sanctuary-store-'));
+  try {
+    const disk = new SanctuaryStore(path.join(dir, 'sanctuary-nexus.json'));
+    disk.setChecks('42', ['roles', 'nope']);
+    disk.saveLfg(createLfgEntry({ id: 'disk', userId: '42', activity: 'boss' }));
+    const again = new SanctuaryStore(path.join(dir, 'sanctuary-nexus.json'));
+    assert.deepEqual(again.checksFor('42'), ['roles']);
+    assert.equal(again.getLfg('disk').activity, 'boss');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('missing sanctuary roles are created under the bot when Manage Roles is granted', async () => {
+  const roles = new Map();
+  const cache = {
+    values: () => roles.values(),
+    find: (fn) => [...roles.values()].find(fn)
+  };
+  const guild = {
+    roles: {
+      cache,
+      create: async ({ name }) => {
+        const role = { id: String(1700000000000000000n + BigInt(roles.size)), name };
+        roles.set(role.id, role);
+        return role;
+      },
+      fetch: async () => cache
+    }
+  };
+  const me = { permissions: { has: () => true }, roles: { highest: { position: 5 } } };
+  const resolved = await resolvedRoleGroups(guild, me);
+  assert.equal(roles.size, allRoleNames().length);
+  assert.equal(resolved.ready, true);
+  assert.equal(resolved.groups.length, 3);
+  assert.equal(resolved.groups.find((group) => group.id === 'class').roles.length, 8);
+  assert.equal(resolved.missing.length, 0);
+});
+
+test('sanctuary help and status stay off other bots and off a baked category id', async () => {
   const status = await buildStatusText({
     bot: 'sanctuary',
     client: { isReady: () => true },
-    env: { RAILWAY_GIT_COMMIT_SHA: 'abc1234def56789' }
+    env: { RAILWAY_GIT_COMMIT_SHA: 'abc1234def56789', SANCTUARY_DISCORD_CATEGORY_ID: CATEGORY }
   });
   assert.match(status, /Sanctuary Nexus status/);
   assert.match(status, /Discord: ready/);
-  assert.match(status, /Deploy `abc1234`/);
-  assert.match(status, /does not start a game backend/);
+  assert.match(status, /Category id: present/);
+  assert.match(status, /No game backend is started/);
   assert.doesNotMatch(status, /Warframe backend|RCON|ArkShop/);
+  assert.doesNotMatch(status, new RegExp(CATEGORY));
 
   const client = new EventEmitter();
   const created = [];
@@ -207,17 +463,18 @@ test('sanctuary help lists nexushelp and does not borrow other bots', async () =
   await flush();
   await flush();
   assert.deepEqual(created.sort(), ['nexushelp', 'status']);
-});
 
-test('Railway sanctuary files stay off BusyBox, RCON, and the backend', () => {
   const dockerfile = read('Dockerfile.sanctuary');
   const service = read('src/railway/sanctuary-service.cjs');
+  const suite = read('src/sentinel/sanctuary-suite.cjs');
+  const bot = read('src/sentinel/sanctuary-bot.cjs');
   const doc = read('docs/ops/SANCTUARY_NEXUS_DISCORD.md');
+  const runbook = read('docs/ops/sanctuary-bot-runbook.md');
   assert.match(dockerfile, /FROM node:22-slim/);
   assert.match(dockerfile, /npm ci --omit=dev/);
   assert.match(dockerfile, /NEXUS_GAME_ROLE=diablo/);
   assert.match(dockerfile, /src\/railway\/sanctuary-service\.cjs/);
-  assert.doesNotMatch(dockerfile, /busybox|_RCON_PASSWORD|_RCON_PORT|_HOST=|backend\/server/i);
+  assert.doesNotMatch(dockerfile, /busybox|_RCON_PASSWORD|_RCON_PORT|_HOST=|SANCTUARY_DISCORD_CATEGORY_ID=\d+/i);
   assert.match(service, /botName: 'Sanctuary Nexus'/);
   assert.match(service, /serviceName: 'sanctuary-nexus'/);
   assert.match(service, /gameRole: 'diablo'/);
@@ -225,14 +482,27 @@ test('Railway sanctuary files stay off BusyBox, RCON, and the backend', () => {
   assert.match(service, /bindSanctuaryCommands/);
   assert.match(service, /startGameBot/);
   assert.doesNotMatch(service, /backend\/server|RCON|Nephalem|Sentinel/);
-  for (const name of ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_ID', 'DISCORD_CLIENT_SECRET', 'DISCORD_GUILD_ID', 'SANCTUARY_DISCORD_CATEGORY_ID', 'READY']) {
-    assert.match(doc, new RegExp(name));
+  assert.doesNotMatch(suite + bot, /news\.blizzard\.com|\bhttps?:\/\/|_RCON_|Nephalem|Sentinel/);
+  for (const name of ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_ID', 'DISCORD_CLIENT_SECRET', 'DISCORD_GUILD_ID', 'SANCTUARY_DISCORD_CATEGORY_ID', 'READY', 'Dockerfile.sanctuary']) {
+    assert.match(doc, new RegExp(name.replace(/\./g, '\\.')));
+    assert.match(runbook, new RegExp(name.replace(/\./g, '\\.')));
   }
-  assert.match(doc, /Dockerfile\.sanctuary/);
-  assert.match(doc, /sanctuary-nexus/);
+  assert.match(runbook, /Server Members Intent/);
+  assert.match(runbook, /oauth2\/authorize/);
+  assert.match(runbook, /Rollback/);
+  assert.match(runbook, /DIABLO_DISCORD_CATEGORY_ID/);
   assert.match(doc, /Nexus Sentinal/);
   assert.match(doc, /BusyBox/);
-  assert.doesNotMatch(doc, /Nephalem|Sentinel/);
+  assert.doesNotMatch(doc + runbook, /Nephalem|Sentinel/);
+  assert.doesNotMatch(suite + bot + dockerfile + runbook, /SANCTUARY_DISCORD_CATEGORY_ID=\d+/);
   assert.match(read('Dockerfile.sentinal'), /Dockerfile\.sanctuary/);
-  assert.match(read('src/game-bots/start.cjs'), /sanctuary/);
+  assert.match(read('Dockerfile.sentinal'), /sanctuary-bot-runbook\.md/);
+  const bits = [
+    PermissionFlagsBits.ViewChannel,
+    PermissionFlagsBits.SendMessages,
+    PermissionFlagsBits.EmbedLinks,
+    PermissionFlagsBits.ReadMessageHistory,
+    PermissionFlagsBits.ManageRoles
+  ].reduce((sum, bit) => BigInt(sum) | BigInt(bit), 0n);
+  assert.match(runbook, new RegExp(bits.toString()));
 });

@@ -15,6 +15,7 @@ COPY config.example.json ./config.example.json
 COPY Dockerfile.sentinal Dockerfile.cephalon Dockerfile.ascended Dockerfile.sanctuary ./
 COPY docs/ops/STAGE1_GAME_BOT_OPS.md ./docs/ops/STAGE1_GAME_BOT_OPS.md
 COPY docs/ops/SANCTUARY_NEXUS_DISCORD.md ./docs/ops/SANCTUARY_NEXUS_DISCORD.md
+COPY docs/ops/sanctuary-bot-runbook.md ./docs/ops/sanctuary-bot-runbook.md
 
 RUN npm run check && npm test
 

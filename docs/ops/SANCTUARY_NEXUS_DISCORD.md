@@ -25,6 +25,8 @@ Do not set ARK RCON host, port, or password on this service. This image does not
 
 ## Commands
 
-`/nexushelp` lists this bot's commands and points wallet (`/bal`), verify (`/o9verify`), and ranks at Nexus Sentinal. `/sanctuary` is a short info reply. `/status` is staff-only and does not report a game backend.
+`/nexushelp` and `/sanctuary help` list commands and point wallet (`/bal`), verify (`/o9verify`), and shop at Nexus Sentinal. The guild command `/sanctuary` also posts role menus, group listings, build-link shares, a personal season checklist, a staff season note, and staff `/sanctuary status`.
+
+The category id is not baked into the image. See `docs/ops/sanctuary-bot-runbook.md` for the invite, intents, and rollback.
 
 Hub commands stay on Nexus Sentinal. The Discord display name stays Sanctuary Nexus.

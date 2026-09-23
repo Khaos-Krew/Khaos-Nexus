@@ -8,7 +8,8 @@ const { ASCENDED_COMMANDS, CEPHALON_COMMANDS } = require('../sentinel/game-comma
 const { STAGE_HELP, stageCommandNames } = require('./stage-catalog.cjs');
 const { healthSummaryLines } = require('./ascended-rcon-health.cjs');
 const { BOT_LABELS, errorClass, reportCommandFailure, setGameBotMeta } = require('./command-failure.cjs');
-const { normalizeBot } = require('./category-gate.cjs');
+const { normalizeBot, resolveCategoryConfig } = require('./category-gate.cjs');
+const { sanctuaryHelpText, categoryGateLabel } = require('../sentinel/sanctuary-suite.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.gamebot.opsSpine');
 const SENTINAL_POINTER = 'Wallet, verify, and ranks stay on Nexus Sentinal (`/bal`, `/o9verify`, ranks).';
@@ -31,7 +32,7 @@ const COMMAND_HELP = Object.freeze({
   warframe: 'Warframe news, fissures, cycles, and world-state tools',
   nexushelp: 'This command list',
   status: 'Staff service status',
-  sanctuary: 'Sanctuary Nexus info for this category',
+  sanctuary: 'Sanctuary Nexus roles, groups, builds, and season notes',
   ...STAGE_HELP
 });
 
@@ -48,7 +49,8 @@ function liveCommandNames(bot) {
 
 function helpText(bot) {
   const key = normalizeBot(bot);
-  const title = key === 'ascended' ? '**Nexus Ascended help**' : key === 'sanctuary' ? '**Sanctuary Nexus help**' : '**Cephalon Nexus help**';
+  if (key === 'sanctuary') return sanctuaryHelpText().slice(0, 1900);
+  const title = key === 'ascended' ? '**Nexus Ascended help**' : '**Cephalon Nexus help**';
   const lines = [title, 'Live commands:'];
   for (const name of liveCommandNames(key)) {
     lines.push(`• \`/${name}\` — ${COMMAND_HELP[name] || 'Bot command'}`);
@@ -132,7 +134,8 @@ async function buildStatusText({ bot, client, env = process.env, probe } = {}) {
     lines.push(arkShopStatusLine(env));
     lines.push(...rconStaffLines(env));
   } else if (key === 'sanctuary') {
-    lines.push('Commands: help and category gate. This service does not start a game backend.');
+    lines.push(`Category id: ${categoryGateLabel(resolveCategoryConfig('sanctuary', env))}.`);
+    lines.push('No game backend is started in this service.');
   } else {
     const runProbe = probe || ((url) => probeHealth(url, { timeoutMs: 2500 }));
     let label = 'unavailable';
