@@ -183,34 +183,46 @@ class ArkRconConfigStore {
   status(prefix, env = process.env) {
     const key = normalizePrefix(prefix);
     const override = this.get(key);
-    const envPassword = String(env[`${key}_RCON_PASSWORD`] || '');
+    const forbidEnv = rconRailwayEnvForbidden(env);
+    const envPassword = forbidEnv ? '' : String(env[`${key}_RCON_PASSWORD`] || '');
     return {
       prefix: key,
       overrideConfigured: Boolean(override),
-      hostSource: override?.host ? 'discord-override' : env[`${key}_HOST`] ? 'environment' : 'missing',
-      portSource: override?.port ? 'discord-override' : env[`${key}_RCON_PORT`] ? 'environment' : 'missing',
+      hostSource: override?.host ? 'discord-override' : (!forbidEnv && env[`${key}_HOST`]) ? 'environment' : 'missing',
+      portSource: override?.port ? 'discord-override' : (!forbidEnv && env[`${key}_RCON_PORT`]) ? 'environment' : 'missing',
       passwordSource: override?.password ? 'discord-protected' : envPassword ? 'environment' : 'missing',
       passwordConfigured: Boolean(override?.password || envPassword),
-      updatedAt: override?.updatedAt || ''
+      updatedAt: override?.updatedAt || '',
+      railwayEnvForbidden: forbidEnv
     };
   }
 
   resolve(prefix, env = process.env) {
     const key = normalizePrefix(prefix);
     const override = this.get(key);
+    const forbidEnv = rconRailwayEnvForbidden(env);
     const envEnabled = String(env[`${key}_ENABLED`] || 'false').toLowerCase() === 'true';
+    const host = String(override?.host || (forbidEnv ? '' : env[`${key}_HOST`] || '')).trim();
+    const port = Number(override?.port || (forbidEnv ? 0 : env[`${key}_RCON_PORT`] || 0));
+    const password = String(override?.password || (forbidEnv ? '' : env[`${key}_RCON_PASSWORD`] || ''));
     return {
       id: key.toLowerCase(),
       prefix: key,
       name: String(env[`${key}_NAME`] || (key === 'ARK_MAP2' ? 'Astraeos' : key)),
-      host: String(override?.host || env[`${key}_HOST`] || '').trim(),
-      port: Number(override?.port || env[`${key}_RCON_PORT`] || 0),
-      password: String(override?.password || env[`${key}_RCON_PASSWORD`] || ''),
-      enabled: override && typeof override.enabled === 'boolean' ? override.enabled : envEnabled,
-      timeoutMs: normalizeTimeout(override?.timeoutMs || env[`${key}_RCON_TIMEOUT_MS`] || 8000, 8000),
-      source: override ? 'discord-override' : 'environment'
+      host,
+      port,
+      password,
+      enabled: override && typeof override.enabled === 'boolean' ? override.enabled : (forbidEnv ? false : envEnabled),
+      timeoutMs: normalizeTimeout(override?.timeoutMs || (forbidEnv ? 8000 : env[`${key}_RCON_TIMEOUT_MS`] || 8000), 8000),
+      source: override ? 'discord-override' : (forbidEnv ? 'discord-override-required' : 'environment')
     };
   }
+}
+
+function rconRailwayEnvForbidden(env = process.env) {
+  const flag = String(env.NEXUS_RCON_RAILWAY_ENV_FORBIDDEN || '').trim().toLowerCase();
+  const source = String(env.NEXUS_RCON_SOURCE || '').trim().toLowerCase();
+  return flag === 'true' || flag === '1' || flag === 'yes' || source === 'discord_override_store';
 }
 
 function resolveRconServer(prefix = 'ARK_GEN1', env = process.env) {
@@ -224,5 +236,6 @@ module.exports = {
   normalizePort,
   normalizeTimeout,
   ArkRconConfigStore,
+  rconRailwayEnvForbidden,
   resolveRconServer
 };

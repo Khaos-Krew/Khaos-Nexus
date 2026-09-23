@@ -11,7 +11,8 @@ const RANK_OFFERING_SUFFIXES = new Set([
 ]);
 
 function desiredCommandNames() {
-  return [...new Set(['nexus', 'nexus-pair', 'market', 'clear', 'report', ...commandNames()])];
+  const { sentinalShouldRegister } = require('./game-command-ownership.cjs');
+  return [...new Set(['nexus', 'nexus-pair', 'market', 'clear', 'report', ...commandNames()].filter((name) => sentinalShouldRegister(name)))];
 }
 
 async function commandStatus(controller) {
