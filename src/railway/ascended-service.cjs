@@ -15,6 +15,7 @@ if (isArkShopMysqlRetired()) {
 
 startGameBot({
   botName: 'Nexus Ascended',
+  botKey: 'ascended',
   gameRole: 'ark_asa',
   serviceName: 'nexus-ascended',
   beforeClient: () => {

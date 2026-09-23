@@ -10,6 +10,7 @@ const {
   enforceCompatibilityVerdict,
   formatPreUpdateGate
 } = require('./ark-update-monitor.cjs');
+const { reportCommandFailure } = require('../game-bots/command-failure.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.update.safety.extension');
 const BOUND = Symbol.for('khaos.nexus.ark.update.safety.bound');
@@ -73,11 +74,7 @@ function installArkUpdateSafetyExtension({ prefix = 'ARK_GEN1' } = {}) {
       client.on(Events.InteractionCreate, (interaction) => {
         if (!isHealthInteraction(interaction)) return;
         if (String(interaction.guildId || '') !== String(config.discord?.guildId || '')) return;
-        void respondHealthInteraction(interaction, { config, prefix, server }).catch(async (error) => {
-          const payload = { content: `⚠️ ARK health check failed: ${String(error?.message || error).slice(0, 1700)}`, allowedMentions: { parse: [] } };
-          if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
-          else await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => {});
-        });
+        void respondHealthInteraction(interaction, { config, prefix, server }).catch((error) => reportCommandFailure(interaction, error));
       });
     }
 

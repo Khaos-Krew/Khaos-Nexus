@@ -23,6 +23,7 @@ const {
   GAME_USER_SETTINGS_PATH,
   GAME_INI_PATH
 } = require('./ark-sftp-config.cjs');
+const { reportCommandFailure } = require('../game-bots/command-failure.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.ops.extension');
 const BOUND = Symbol.for('khaos.nexus.ark.ops.bound');
@@ -458,11 +459,7 @@ function installArkOpsExtension() {
       client.on(Events.InteractionCreate, (interaction) => {
         const context = client.__nexusArkContext;
         if (!context || String(interaction.guildId || '') !== String(config.discord?.guildId || '')) return;
-        void handleArkInteraction(interaction, context).catch(async (error) => {
-          const payload = { content: `⚠️ ${String(error?.message || error).slice(0, 1700)}`, allowedMentions: { parse: [] } };
-          if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
-          else await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => {});
-        });
+        void handleArkInteraction(interaction, context).catch((error) => reportCommandFailure(interaction, error));
       });
     }
 

@@ -11,6 +11,7 @@ const {
 const { CONFIG } = require('./ark-dino-cache-engine.cjs');
 const { meta: legacyMeta, titleCase } = require('./ark-cache-shop-extension.cjs');
 const { ArkDinoBoxTokenService } = require('./ark-dino-box-token-service.cjs');
+const { reportCommandFailure } = require('../game-bots/command-failure.cjs');
 
 const COMMAND_NAME = 'cachetoken';
 const TOKEN_ISSUER_VERSION = 3;
@@ -147,11 +148,7 @@ function installArkDinoBoxTokenIssuerExtension(options = {}) {
         void (async () => {
           if (interaction.options.getSubcommand() !== 'give') return;
           await handleGive(interaction, tokenService);
-        })().catch(async (error) => {
-          const payload = { content: `⚠️ **Cache Token:** ${String(error?.message || error).slice(0, 400)}`, allowedMentions: { parse: [] } };
-          if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
-          else await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => {});
-        });
+        })().catch((error) => reportCommandFailure(interaction, error));
       });
     }
     return originalLogin.apply(this, args);

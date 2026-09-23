@@ -1,6 +1,7 @@
 'use strict';
 
 const { Client, Events, MessageFlags, SlashCommandBuilder } = require('discord.js');
+const { reportCommandFailure } = require('../game-bots/command-failure.cjs');
 const { loadConfig } = require('../shared/config.cjs');
 const { isStaff } = require('./ark-ops-extension.cjs');
 const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
@@ -240,11 +241,9 @@ function installArkShopProfileExtension() {
       client[BOUND] = true;
       client.on(Events.InteractionCreate, (interaction) => {
         if (String(interaction.guildId || '') !== String(config.discord?.guildId || '')) return;
-        void handleCommand(interaction, { config, registry, profiles, applies, client }).catch(async (error) => {
+        void handleCommand(interaction, { config, registry, profiles, applies, client }).catch((error) => {
           if (interaction.commandName !== 'arkshopadmin') return;
-          const payload = { content: `⚠️ ${String(error?.message || error).slice(0, 1700)}`, allowedMentions: { parse: [] } };
-          if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
-          else await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => {});
+          return reportCommandFailure(interaction, error);
         });
       });
     }

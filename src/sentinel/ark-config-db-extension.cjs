@@ -1,6 +1,7 @@
 'use strict';
 
 const { Client, Events, MessageFlags, SlashCommandBuilder } = require('discord.js');
+const { reportCommandFailure } = require('../game-bots/command-failure.cjs');
 const { loadConfig } = require('../shared/config.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { isStaff } = require('./ark-ops-extension.cjs');
@@ -240,11 +241,7 @@ function installArkConfigDbExtension() {
         const rcon = new ArkRconClient(live);
         const context = { config, server: live, rcon };
         const runner = interaction.commandName === 'arkconfig' ? handleConfig : handleDb;
-        void runner(interaction, context).catch(async (error) => {
-          const payload = { content: `⚠️ ${String(error?.message || error).slice(0, 1700)}`, allowedMentions: { parse: [] } };
-          if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
-          else await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => {});
-        });
+        void runner(interaction, context).catch((error) => reportCommandFailure(interaction, error));
       });
     }
 

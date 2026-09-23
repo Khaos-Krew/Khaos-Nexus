@@ -15,6 +15,7 @@ const { loadConfig } = require('../shared/config.cjs');
 const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { ArkRconConfigStore, normalizePrefix, rconRailwayEnvForbidden } = require('./ark-rcon-config-store.cjs');
+const { reportCommandFailure } = require('../game-bots/command-failure.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.rcon.config.extension');
 const BOUND = Symbol.for('khaos.nexus.ark.rcon.config.bound');
@@ -242,11 +243,7 @@ function installArkRconConfigExtension() {
         void (async () => {
           if (await handleCommand(interaction, config)) return;
           await handlePasswordModal(interaction, config);
-        })().catch(async (error) => {
-          const payload = { content: `⚠️ ${safeError(error).slice(0, 1700)}`, allowedMentions: { parse: [] } };
-          if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
-          else await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => {});
-        });
+        })().catch((error) => reportCommandFailure(interaction, error));
       });
       client.once(Events.ClientReady, () => {
         void (async () => {

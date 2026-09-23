@@ -1,6 +1,7 @@
 'use strict';
 
 const { Client, Events, MessageFlags, SlashCommandBuilder } = require('discord.js');
+const { reportCommandFailure } = require('../game-bots/command-failure.cjs');
 const { loadConfig } = require('../shared/config.cjs');
 const { isStaff } = require('./ark-ops-extension.cjs');
 const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
@@ -314,11 +315,7 @@ function installArkClusterExtension() {
         void (async () => {
           if (await handleClusterButton(interaction, context)) return;
           await handleClusterCommand(interaction, context);
-        })().catch(async (error) => {
-          const payload = { content: `⚠️ ${String(error?.message || error).slice(0, 1700)}`, allowedMentions: { parse: [] } };
-          if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
-          else await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => {});
-        });
+        })().catch((error) => reportCommandFailure(interaction, error));
       });
     }
 

@@ -8,6 +8,7 @@ const { formatActionResult } = require('./action-formatters.cjs');
 const { marketCommand } = require('./commands.cjs');
 const { commandDefinitions, resolveFriendlyCommand } = require('./friendly-commands.cjs');
 const { CEPHALON_COMMANDS } = require('./game-command-ownership.cjs');
+const { reportCommandFailure } = require('../game-bots/command-failure.cjs');
 
 function warframeCommands() {
   return [marketCommand(), ...commandDefinitions().filter((command) => CEPHALON_COMMANDS.includes(command.name))];
@@ -82,9 +83,7 @@ function bindCephalonCommands(client, options = {}) {
       else await interaction.deferReply();
       return interaction.editReply(await runAction(interaction, invocation.moduleId, invocation.actionId, invocation.payload));
     } catch (error) {
-      const content = `⚠️ ${String(error?.message || error)}`.slice(0, 1900);
-      if (interaction.deferred || interaction.replied) await interaction.editReply({ content }).catch(() => {});
-      else await interaction.reply({ content, flags: MessageFlags.Ephemeral }).catch(() => {});
+      await reportCommandFailure(interaction, error);
     }
   });
 }
