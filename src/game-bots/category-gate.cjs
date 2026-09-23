@@ -4,6 +4,8 @@ const { replyEphemeral, reportCommandFailure, setGameBotMeta, BOT_LABELS } = req
 
 // Owner-provided Discord category IDs. Env overrides win; a blank var keeps
 // the documented default. A non-snowflake override fail-closes the gate.
+// Sanctuary has no owner category. Blank SANCTUARY_DISCORD_CATEGORY_ID and
+// DIABLO_DISCORD_CATEGORY_ID leave that gate open and log a warning.
 const OWNER_CATEGORY_IDS = Object.freeze({
   ascended: '1516602943670059108',
   cephalon: '1516640233389822042'
@@ -11,7 +13,13 @@ const OWNER_CATEGORY_IDS = Object.freeze({
 
 const CATEGORY_ENV_NAMES = Object.freeze({
   ascended: 'ASCENDED_DISCORD_CATEGORY_ID',
-  cephalon: 'CEPHALON_DISCORD_CATEGORY_ID'
+  cephalon: 'CEPHALON_DISCORD_CATEGORY_ID',
+  sanctuary: 'SANCTUARY_DISCORD_CATEGORY_ID'
+});
+
+// Used only when the primary variable is unset or blank.
+const CATEGORY_ENV_ALIASES = Object.freeze({
+  sanctuary: 'DIABLO_DISCORD_CATEGORY_ID'
 });
 
 const GATE = Symbol.for('khaos.nexus.gamebot.categoryGate');
@@ -24,6 +32,7 @@ function normalizeBot(value) {
   const bot = String(value || '').trim().toLowerCase();
   if (bot === 'ascended' || bot === 'ark_asa' || bot === 'nexus-ascended') return 'ascended';
   if (bot === 'cephalon' || bot === 'warframe' || bot === 'cephalon-nexus') return 'cephalon';
+  if (bot === 'sanctuary' || bot === 'diablo' || bot === 'diablo4' || bot === 'sanctuary-nexus') return 'sanctuary';
   return '';
 }
 
@@ -31,24 +40,40 @@ function gameBotKey({ botKey, gameRole, serviceName } = {}) {
   return normalizeBot(botKey) || normalizeBot(gameRole) || normalizeBot(serviceName);
 }
 
+function categoryRaw(key, env) {
+  const envName = CATEGORY_ENV_NAMES[key] || '';
+  const aliasName = CATEGORY_ENV_ALIASES[key] || '';
+  const primary = envName ? env[envName] : undefined;
+  if (primary !== undefined && String(primary).trim() !== '') {
+    return { envName, raw: String(primary).trim() };
+  }
+  const alias = aliasName ? env[aliasName] : undefined;
+  if (alias !== undefined && String(alias).trim() !== '') {
+    return { envName: aliasName, raw: String(alias).trim() };
+  }
+  return { envName, raw: '' };
+}
+
 function resolveCategoryConfig(bot, env = process.env) {
   const key = normalizeBot(bot);
   const envName = CATEGORY_ENV_NAMES[key] || '';
   const fallback = OWNER_CATEGORY_IDS[key] || '';
-  if (!key) return { bot: '', id: '', source: 'invalid', envName, failClosed: true };
-  const raw = env[envName];
-  if (raw === undefined || String(raw).trim() === '') {
-    return { bot: key, id: fallback, source: 'default', envName, failClosed: false };
+  if (!key) return { bot: '', id: '', source: 'invalid', envName, failClosed: true, open: false };
+  const reading = categoryRaw(key, env);
+  if (!reading.raw) {
+    if (fallback) return { bot: key, id: fallback, source: 'default', envName: reading.envName, failClosed: false, open: false };
+    return { bot: key, id: '', source: 'unset', envName: reading.envName, failClosed: false, open: true };
   }
-  const id = String(raw).trim();
-  if (!/^\d{17,20}$/.test(id)) {
-    return { bot: key, id: '', source: 'invalid', envName, failClosed: true };
+  if (!/^\d{17,20}$/.test(reading.raw)) {
+    return { bot: key, id: '', source: 'invalid', envName: reading.envName, failClosed: true, open: false };
   }
-  return { bot: key, id, source: 'env', envName, failClosed: false };
+  return { bot: key, id: reading.raw, source: 'env', envName: reading.envName, failClosed: false, open: false };
 }
 
 function redirectMessage(bot) {
-  if (normalizeBot(bot) === 'ascended') return 'Use this bot in the ARK Ascended category.';
+  const key = normalizeBot(bot);
+  if (key === 'ascended') return 'Use this bot in the ARK Ascended category.';
+  if (key === 'sanctuary') return 'Use this bot in the Sanctuary category.';
   return 'Use this bot in the Warframe category.';
 }
 
@@ -74,6 +99,7 @@ async function categoryIdForInteraction(interaction) {
 }
 
 async function evaluateCategoryAccess(interaction, config) {
+  if (config?.open) return { allow: true, categoryId: '', reason: 'open' };
   if (!config?.id) return { allow: false, categoryId: '', reason: 'fail-closed' };
   const categoryId = await categoryIdForInteraction(interaction);
   if (!categoryId) return { allow: false, categoryId: '', reason: interaction?.guildId ? 'no-category' : 'dm' };
@@ -98,6 +124,8 @@ function installCategoryGate(client, { bot, env = process.env } = {}) {
   setGameBotMeta(client, { bot: key, botName: BOT_LABELS[key] });
   if (config.failClosed) {
     console.error(`[${BOT_LABELS[key]}] category gate fail-closed: ${config.envName} is not a Discord category id`);
+  } else if (config.open) {
+    console.warn(`[${BOT_LABELS[key]}] category gate open: ${config.envName} is unset; commands are allowed until a category id is provided`);
   }
 
   function wrap(listener) {
@@ -138,6 +166,7 @@ function installCategoryGate(client, { bot, env = process.env } = {}) {
 module.exports = {
   OWNER_CATEGORY_IDS,
   CATEGORY_ENV_NAMES,
+  CATEGORY_ENV_ALIASES,
   normalizeBot,
   gameBotKey,
   resolveCategoryConfig,

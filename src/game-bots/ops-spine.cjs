@@ -31,18 +31,24 @@ const COMMAND_HELP = Object.freeze({
   warframe: 'Warframe news, fissures, cycles, and world-state tools',
   nexushelp: 'This command list',
   status: 'Staff service status',
+  sanctuary: 'Sanctuary Nexus info for this category',
   ...STAGE_HELP
 });
 
+function ownedCommandNames(key) {
+  if (key === 'ascended') return ASCENDED_COMMANDS;
+  if (key === 'sanctuary') return ['sanctuary'];
+  return CEPHALON_COMMANDS;
+}
+
 function liveCommandNames(bot) {
   const key = normalizeBot(bot);
-  const owned = key === 'ascended' ? ASCENDED_COMMANDS : CEPHALON_COMMANDS;
-  return [...owned, ...stageCommandNames(key), 'nexushelp', 'status'];
+  return [...ownedCommandNames(key), ...stageCommandNames(key), 'nexushelp', 'status'];
 }
 
 function helpText(bot) {
   const key = normalizeBot(bot);
-  const title = key === 'ascended' ? '**Nexus Ascended help**' : '**Cephalon Nexus help**';
+  const title = key === 'ascended' ? '**Nexus Ascended help**' : key === 'sanctuary' ? '**Sanctuary Nexus help**' : '**Cephalon Nexus help**';
   const lines = [title, 'Live commands:'];
   for (const name of liveCommandNames(key)) {
     lines.push(`• \`/${name}\` — ${COMMAND_HELP[name] || 'Bot command'}`);
@@ -118,13 +124,15 @@ async function buildStatusText({ bot, client, env = process.env, probe } = {}) {
   const key = normalizeBot(bot);
   const ready = Boolean(client?.isReady?.());
   const lines = [
-    key === 'ascended' ? '**Nexus Ascended status**' : '**Cephalon Nexus status**',
+    key === 'ascended' ? '**Nexus Ascended status**' : key === 'sanctuary' ? '**Sanctuary Nexus status**' : '**Cephalon Nexus status**',
     `Discord: ${ready ? 'ready' : 'not ready'}.`,
     deployTip(env)
   ];
   if (key === 'ascended') {
     lines.push(arkShopStatusLine(env));
     lines.push(...rconStaffLines(env));
+  } else if (key === 'sanctuary') {
+    lines.push('Commands: help and category gate. This service does not start a game backend.');
   } else {
     const runProbe = probe || ((url) => probeHealth(url, { timeoutMs: 2500 }));
     let label = 'unavailable';

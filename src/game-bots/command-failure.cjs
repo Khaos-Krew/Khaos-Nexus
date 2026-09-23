@@ -6,13 +6,14 @@ const PLAYER_FAILURE_MESSAGE = 'Something went wrong running that command. Staff
 const GAME_BOT_META = Symbol.for('khaos.nexus.gamebot.meta');
 const BOT_LABELS = Object.freeze({
   cephalon: 'Cephalon Nexus',
-  ascended: 'Nexus Ascended'
+  ascended: 'Nexus Ascended',
+  sanctuary: 'Sanctuary Nexus'
 });
 const STAFF_CHANNEL_NAMES = Object.freeze(['staff-ops', 'staff-hub', 'ark-ops', 'server-ops', 'ark-server-status']);
 
 function setGameBotMeta(client, meta = {}) {
   if (!client) return null;
-  const bot = meta.bot === 'ascended' ? 'ascended' : meta.bot === 'cephalon' ? 'cephalon' : '';
+  const bot = meta.bot === 'ascended' || meta.bot === 'cephalon' || meta.bot === 'sanctuary' ? meta.bot : '';
   client[GAME_BOT_META] = Object.freeze({
     bot,
     botName: safeBotName(meta.botName || bot)
@@ -26,9 +27,8 @@ function gameBotMeta(client) {
 
 function safeBotName(value) {
   const text = String(value || '');
-  if (text === BOT_LABELS.cephalon || text === BOT_LABELS.ascended) return text;
-  if (text === 'cephalon') return BOT_LABELS.cephalon;
-  if (text === 'ascended') return BOT_LABELS.ascended;
+  if (Object.values(BOT_LABELS).includes(text)) return text;
+  if (Object.prototype.hasOwnProperty.call(BOT_LABELS, text)) return BOT_LABELS[text];
   return 'Game bot';
 }
 
