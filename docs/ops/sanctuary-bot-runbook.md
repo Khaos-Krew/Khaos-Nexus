@@ -19,10 +19,13 @@ Set these on `sanctuary-nexus` only:
 - `DISCORD_CLIENT_SECRET`
 - `DISCORD_GUILD_ID`
 - `SANCTUARY_DISCORD_CATEGORY_ID` (preferred) or `DIABLO_DISCORD_CATEGORY_ID` if the preferred variable is unset
+- `SANCTUARY_BUTTON_CHANNEL_ID` for persistent role menus and group buttons. `SANCTUARY_COMMANDS_CHANNEL_ID` and `DIABLO_BUTTON_CHANNEL_ID` are aliases used only when the primary value is unset or blank
 - `READY` is logged and ignored. It does not block startup or commands.
 - `SANCTUARY_LFG_TTL_MINUTES` optional, clamped from 15 to 240. Default is 120.
 
-Railway service `sanctuary-nexus` already sets both category variables. The process reads `SANCTUARY_DISCORD_CATEGORY_ID` first and uses `DIABLO_DISCORD_CATEGORY_ID` only when that primary value is unset or blank. Do not copy the value into `Dockerfile.sanctuary` or into `OWNER_CATEGORY_IDS`. If both variables are unset, the process logs a warning and allows commands. A non-snowflake value fail-closes the gate. When a valid id is set, slash commands, role selects, checklist buttons, and group-close buttons outside that category (including its threads) and in DMs get an ephemeral deny.
+Railway service `sanctuary-nexus` already sets both category variables and `SANCTUARY_BUTTON_CHANNEL_ID`. The process reads `SANCTUARY_DISCORD_CATEGORY_ID` first and uses `DIABLO_DISCORD_CATEGORY_ID` only when that primary value is unset or blank. Do not copy either id into `Dockerfile.sanctuary` or into source defaults. If both category variables are unset, the process logs a warning and allows commands. A non-snowflake value fail-closes the gate. When a valid category id is set, slash commands outside that category (including its threads) and in DMs get an ephemeral deny.
+
+Persistent role menus and LFG button posts go only to the button channel. `/sanctuary roles post:true` updates that channel. On startup the bot posts or edits the role menu there. If the button channel env is unset or not a snowflake, it logs a warning and skips the panel post. Slash commands stay category-gated and are not moved into that channel.
 
 ## Intents and invite
 

@@ -15,6 +15,7 @@ Set these on `sanctuary-nexus`:
 - `DISCORD_CLIENT_SECRET`
 - `DISCORD_GUILD_ID`
 - `SANCTUARY_DISCORD_CATEGORY_ID` (already set on the Railway service; not baked into the image)
+- `SANCTUARY_BUTTON_CHANNEL_ID` (already set on the Railway service; role menu and group buttons). Aliases: `SANCTUARY_COMMANDS_CHANNEL_ID`, `DIABLO_BUTTON_CHANNEL_ID`
 - `READY` is logged and ignored. It does not block startup or commands.
 
 Railway service `sanctuary-nexus` already sets `SANCTUARY_DISCORD_CATEGORY_ID` and `DIABLO_DISCORD_CATEGORY_ID`. The gate reads `SANCTUARY_DISCORD_CATEGORY_ID` first. `DIABLO_DISCORD_CATEGORY_ID` applies only when the primary variable is unset or blank. Do not add either value to the image or to source defaults.

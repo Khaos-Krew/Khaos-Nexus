@@ -112,8 +112,31 @@ function safeHttpLink(value) {
   }
 }
 
+const BUTTON_CHANNEL_ENVS = Object.freeze([
+  'SANCTUARY_BUTTON_CHANNEL_ID',
+  'SANCTUARY_COMMANDS_CHANNEL_ID',
+  'DIABLO_BUTTON_CHANNEL_ID'
+]);
+
+function resolveButtonChannel(env = process.env) {
+  for (const envName of BUTTON_CHANNEL_ENVS) {
+    const raw = env[envName];
+    if (raw === undefined || String(raw).trim() === '') continue;
+    const id = String(raw).trim();
+    if (!/^\d{17,20}$/.test(id)) return { id: '', envName, source: 'invalid', ok: false };
+    return { id, envName, source: 'env', ok: true };
+  }
+  return { id: '', envName: BUTTON_CHANNEL_ENVS[0], source: 'unset', ok: false };
+}
+
+function buttonChannelLabel(resolved) {
+  if (resolved?.source === 'invalid') return `invalid (${resolved.envName || 'button channel'})`;
+  if (resolved?.ok) return `present (${resolved.envName})`;
+  return 'unset (panel post skipped)';
+}
+
 function emptyState() {
-  return { lfg: [], checks: {} };
+  return { lfg: [], checks: {}, panels: {} };
 }
 
 function lfgTtlMs(env = process.env) {
@@ -232,7 +255,7 @@ function roleInstruction(missing) {
   return {
     embeds: [{
       title: 'Sanctuary Nexus roles need setup',
-      description: 'Create the roles below, or give Sanctuary Nexus Manage Roles and place its role above them. Then run `/sanctuary roles` again. A staff member can post the menu with `/sanctuary roles post:true`.',
+      description: 'Create the roles below, or give Sanctuary Nexus Manage Roles and place its role above them. Then run `/sanctuary roles` again. Staff post the menu with `/sanctuary roles post:true`. That panel goes to the Sanctuary button channel.',
       fields: [{ name: 'Required role names', value: (lines.join('\n') || 'None').slice(0, 1024) }],
       footer: { text: 'Sanctuary Nexus • role setup' }
     }],
@@ -302,7 +325,7 @@ function categoryGateLabel(config) {
   return 'missing';
 }
 
-function sanctuaryStatusText({ ready, readyFlag, category, guildName, guildConfigured, ping, registered } = {}) {
+function sanctuaryStatusText({ ready, readyFlag, category, guildName, guildConfigured, ping, registered, buttonChannel } = {}) {
   const latency = Number.isFinite(Number(ping)) && Number(ping) >= 0 ? `${Math.round(Number(ping))} ms` : 'unavailable';
   const lines = [
     '**Sanctuary Nexus status**',
@@ -310,7 +333,8 @@ function sanctuaryStatusText({ ready, readyFlag, category, guildName, guildConfi
     `READY flag: ${readyFlag || 'unset'} (logged only).`,
     `Category id: ${categoryGateLabel(category)}.`,
     `Guild: ${sanitizePublic(guildName, 80) || 'unknown'} (${guildConfigured ? 'id present' : 'missing'}).`,
-    `Latency: ${latency}.`
+    `Latency: ${latency}.`,
+    `Button channel: ${buttonChannel || 'unset (panel post skipped)'}.`
   ];
   if (registered === true) lines.push('Commands registered again.');
   if (registered === false) lines.push('Command registration failed.');
@@ -325,7 +349,7 @@ function sanctuaryHelpText() {
     '• `/nexushelp` — this list',
     '• `/sanctuary help` — this list',
     '• `/sanctuary roles` — class, world tier, and seasonal interest roles',
-    '• `/sanctuary lfg` — post a helltide, boss, pit, or seasonal group',
+    '• `/sanctuary lfg` — post a helltide, boss, pit, or seasonal group in the button channel',
     '• `/sanctuary build` — share a build link and tags',
     '• `/sanctuary season` — your season checklist',
     '• `/sanctuary seasonpost` — staff season note',
@@ -361,7 +385,8 @@ class SanctuaryStore {
       if (parsed && typeof parsed === 'object') {
         this.state = {
           lfg: Array.isArray(parsed.lfg) ? parsed.lfg.slice(-100) : [],
-          checks: parsed.checks && typeof parsed.checks === 'object' ? parsed.checks : {}
+          checks: parsed.checks && typeof parsed.checks === 'object' ? parsed.checks : {},
+          panels: parsed.panels && typeof parsed.panels === 'object' ? parsed.panels : {}
         };
       }
     } catch (error) {
@@ -398,6 +423,18 @@ class SanctuaryStore {
     return Array.isArray(saved) ? saved.map(String) : [];
   }
 
+  panelId(name) {
+    return String(this.state.panels?.[name] || '').replace(/\D/g, '').slice(0, 20);
+  }
+
+  setPanelId(name, id) {
+    this.state.panels ||= {};
+    const key = String(name || '').replace(/[^a-z]/g, '').slice(0, 20) || 'roles';
+    this.state.panels[key] = String(id || '').replace(/\D/g, '').slice(0, 20);
+    this.save();
+    return this.state.panels[key];
+  }
+
   setChecks(userId, ids) {
     const key = String(userId || '').replace(/\D/g, '').slice(0, 20);
     if (!key) return [];
@@ -431,6 +468,9 @@ module.exports = {
   seasonChecklistMessage,
   toggleItem,
   seasonPostMessage,
+  BUTTON_CHANNEL_ENVS,
+  resolveButtonChannel,
+  buttonChannelLabel,
   categoryGateLabel,
   sanctuaryStatusText,
   sanctuaryHelpText,

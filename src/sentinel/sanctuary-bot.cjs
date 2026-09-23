@@ -28,7 +28,9 @@ const {
   seasonPostMessage,
   sanctuaryStatusText,
   helpEmbed,
-  SanctuaryStore
+  SanctuaryStore,
+  resolveButtonChannel,
+  buttonChannelLabel
 } = require('./sanctuary-suite.cjs');
 
 const EXPIRY = Symbol.for('khaos.nexus.sanctuary.expiry');
@@ -50,7 +52,7 @@ function sanctuaryCommands() {
       .addSubcommand((sub) => sub
         .setName('roles')
         .setDescription('Choose class, world tier, and seasonal interest roles.')
-        .addBooleanOption((option) => option.setName('post').setDescription('Staff: post the role menu in this channel.')))
+        .addBooleanOption((option) => option.setName('post').setDescription('Staff: post the role menu in the button channel.')))
       .addSubcommand((sub) => sub
         .setName('lfg')
         .setDescription('Post a helltide, boss, pit, or seasonal group.')
@@ -201,6 +203,56 @@ async function expireLfg(id, context) {
   if (message?.edit) await message.edit(lfgMessage(entry)).catch(() => {});
 }
 
+function warnButtonChannel(resolved) {
+  if (resolved?.source === 'invalid') {
+    console.warn(`[Sanctuary Nexus] button channel skipped: ${resolved.envName} is not a Discord channel id`);
+    return;
+  }
+  console.warn('[Sanctuary Nexus] button channel skipped: SANCTUARY_BUTTON_CHANNEL_ID is unset; panel was not posted');
+}
+
+async function sendToButtonChannel(discord, env, payload, messageId = '') {
+  const resolved = resolveButtonChannel(env);
+  if (!resolved.ok) {
+    warnButtonChannel(resolved);
+    return { posted: false, reason: resolved.source === 'invalid' ? 'invalid' : 'unset', resolved };
+  }
+  const channel = typeof discord?.channels?.fetch === 'function'
+    ? await discord.channels.fetch(resolved.id).catch(() => null)
+    : null;
+  if (!channel || typeof channel.send !== 'function') {
+    console.warn(`[Sanctuary Nexus] button channel skipped: ${resolved.envName} could not be fetched`);
+    return { posted: false, reason: 'missing-channel', resolved };
+  }
+  if (messageId && channel.messages?.fetch) {
+    const existing = await channel.messages.fetch(messageId).catch(() => null);
+    if (existing?.edit) {
+      await existing.edit(payload);
+      return { posted: true, updated: true, messageId: String(existing.id || messageId), channelId: resolved.id, resolved };
+    }
+  }
+  const sent = await channel.send(payload);
+  return { posted: true, updated: false, messageId: String(sent?.id || ''), channelId: resolved.id, resolved };
+}
+
+async function syncRoleMenu(context, guild) {
+  const resolved = resolveButtonChannel(context.env);
+  if (!resolved.ok) {
+    warnButtonChannel(resolved);
+    return { posted: false, reason: resolved.source === 'invalid' ? 'invalid' : 'unset' };
+  }
+  let me = guild?.members?.me || null;
+  if (!me && typeof guild?.members?.fetchMe === 'function') me = await guild.members.fetchMe().catch(() => null);
+  const groups = await resolvedRoleGroups(guild, me);
+  if (!groups.ready) {
+    console.warn('[Sanctuary Nexus] role menu auto-post skipped: Sanctuary roles are not ready');
+    return { posted: false, reason: 'roles-not-ready' };
+  }
+  const result = await sendToButtonChannel(context.client, context.env, roleMenuPayload(groups.groups), context.store?.panelId?.('roles'));
+  if (result.posted) context.store?.setPanelId?.('roles', result.messageId);
+  return result;
+}
+
 async function replyWith(interaction, payload, { update = false } = {}) {
   if (update && typeof interaction.update === 'function') return interaction.update(payload);
   if (interaction.deferred || interaction.replied) return interaction.editReply(payload);
@@ -288,9 +340,18 @@ async function handleSanctuaryInteraction(interaction, context = {}) {
     const me = interaction.guild?.members?.me;
     const resolved = await resolvedRoleGroups(interaction.guild, me);
     const menu = resolved.ready ? roleMenuPayload(resolved.groups) : roleInstruction(resolved.missing);
-    if (post && resolved.ready && typeof interaction.channel?.send === 'function') {
-      await interaction.channel.send(menu);
-      await interaction.reply(ephemeral('Role menu posted.'));
+    if (post) {
+      if (!resolved.ready) {
+        await interaction.reply(ephemeral('', menu));
+        return true;
+      }
+      const published = await sendToButtonChannel(context.client || interaction.client, env, menu, store?.panelId?.('roles'));
+      if (!published.posted) {
+        await interaction.reply(ephemeral('Role menu was not posted. Set SANCTUARY_BUTTON_CHANNEL_ID and try again.'));
+        return true;
+      }
+      store?.setPanelId?.('roles', published.messageId);
+      await interaction.reply(ephemeral(published.updated ? 'Role menu updated in the button channel.' : 'Role menu posted in the button channel.'));
       return true;
     }
     await interaction.reply(ephemeral('', menu));
@@ -312,11 +373,16 @@ async function handleSanctuaryInteraction(interaction, context = {}) {
       await interaction.reply(ephemeral('Choose a helltide, boss, pit, or seasonal group.'));
       return true;
     }
-    await interaction.reply(lfgMessage(entry));
-    const message = typeof interaction.fetchReply === 'function' ? await interaction.fetchReply().catch(() => null) : null;
-    entry.messageId = String(message?.id || '').replace(/\D/g, '').slice(0, 20);
+    const published = await sendToButtonChannel(context.client || interaction.client, env, lfgMessage(entry));
+    if (!published.posted) {
+      await interaction.reply(ephemeral('Group was not posted. Set SANCTUARY_BUTTON_CHANNEL_ID and try again.'));
+      return true;
+    }
+    entry.channelId = published.channelId;
+    entry.messageId = published.messageId;
     store?.saveLfg?.(entry);
     armExpiry(entry, context);
+    await interaction.reply(ephemeral('Group posted in the Sanctuary button channel.'));
     return true;
   }
 
@@ -378,7 +444,8 @@ async function handleSanctuaryInteraction(interaction, context = {}) {
       guildName: interaction.guild?.name || '',
       guildConfigured: Boolean(interaction.guildId),
       ping: interaction.client?.ws?.ping,
-      registered
+      registered,
+      buttonChannel: buttonChannelLabel(resolveButtonChannel(env))
     });
     await interaction.reply(ephemeral(text));
     return true;
@@ -404,6 +471,7 @@ function bindSanctuaryCommands(client, options = {}) {
       }
       const guild = await client.guilds.fetch(guildId);
       await registerSanctuaryCommands(guild);
+      await syncRoleMenu(context, guild);
       for (const entry of store.state?.lfg || []) {
         if (!entry.closed) armExpiry(entry, context);
       }
@@ -424,5 +492,7 @@ module.exports = {
   bindSanctuaryCommands,
   handleSanctuaryInteraction,
   resolvedRoleGroups,
-  ensureRole
+  ensureRole,
+  syncRoleMenu,
+  sendToButtonChannel
 };

@@ -9,7 +9,7 @@ const { STAGE_HELP, stageCommandNames } = require('./stage-catalog.cjs');
 const { healthSummaryLines } = require('./ascended-rcon-health.cjs');
 const { BOT_LABELS, errorClass, reportCommandFailure, setGameBotMeta } = require('./command-failure.cjs');
 const { normalizeBot, resolveCategoryConfig } = require('./category-gate.cjs');
-const { sanctuaryHelpText, categoryGateLabel } = require('../sentinel/sanctuary-suite.cjs');
+const { sanctuaryHelpText, categoryGateLabel, resolveButtonChannel, buttonChannelLabel } = require('../sentinel/sanctuary-suite.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.gamebot.opsSpine');
 const SENTINAL_POINTER = 'Wallet, verify, and ranks stay on Nexus Sentinal (`/bal`, `/o9verify`, ranks).';
@@ -135,6 +135,7 @@ async function buildStatusText({ bot, client, env = process.env, probe } = {}) {
     lines.push(...rconStaffLines(env));
   } else if (key === 'sanctuary') {
     lines.push(`Category id: ${categoryGateLabel(resolveCategoryConfig('sanctuary', env))}.`);
+    lines.push(`Button channel: ${buttonChannelLabel(resolveButtonChannel(env))}.`);
     lines.push('No game backend is started in this service.');
   } else {
     const runProbe = probe || ((url) => probeHealth(url, { timeoutMs: 2500 }));

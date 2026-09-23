@@ -22,7 +22,8 @@ const {
   bindSanctuaryCommands,
   handleSanctuaryInteraction,
   registerSanctuaryCommands,
-  resolvedRoleGroups
+  resolvedRoleGroups,
+  syncRoleMenu
 } = require('../src/sentinel/sanctuary-bot.cjs');
 const {
   allRoleNames,
@@ -33,7 +34,8 @@ const {
   lfgMessage,
   toggleItem,
   SanctuaryStore,
-  sanctuaryHelpText
+  sanctuaryHelpText,
+  resolveButtonChannel
 } = require('../src/sentinel/sanctuary-suite.cjs');
 
 const root = path.resolve(__dirname, '..');
@@ -99,6 +101,85 @@ test('sanctuary category id stays env-only and prefers SANCTUARY_DISCORD_CATEGOR
   assert.doesNotMatch(read('src/railway/sanctuary-service.cjs'), /SANCTUARY_DISCORD_CATEGORY_ID\s*=\s*\d+/);
   assert.match(read('src/game-bots/start.cjs'), /resolveCategoryConfig/);
   assert.match(read('src/game-bots/start.cjs'), /installCategoryGate/);
+});
+
+test('button panels use the env channel and skip auto-post when it is unset', async () => {
+  assert.equal(resolveButtonChannel({}).source, 'unset');
+  assert.equal(resolveButtonChannel({}).ok, false);
+  const primary = resolveButtonChannel({
+    SANCTUARY_BUTTON_CHANNEL_ID: '2000000000000000001',
+    SANCTUARY_COMMANDS_CHANNEL_ID: '2000000000000000002',
+    DIABLO_BUTTON_CHANNEL_ID: '2000000000000000003'
+  });
+  assert.equal(primary.envName, 'SANCTUARY_BUTTON_CHANNEL_ID');
+  assert.equal(primary.id, '2000000000000000001');
+  const commandsAlias = resolveButtonChannel({
+    SANCTUARY_BUTTON_CHANNEL_ID: ' ',
+    SANCTUARY_COMMANDS_CHANNEL_ID: '2000000000000000002'
+  });
+  assert.equal(commandsAlias.envName, 'SANCTUARY_COMMANDS_CHANNEL_ID');
+  const diabloAlias = resolveButtonChannel({ DIABLO_BUTTON_CHANNEL_ID: '2000000000000000003' });
+  assert.equal(diabloAlias.envName, 'DIABLO_BUTTON_CHANNEL_ID');
+  const invalid = resolveButtonChannel({
+    SANCTUARY_BUTTON_CHANNEL_ID: 'nope',
+    DIABLO_BUTTON_CHANNEL_ID: '2000000000000000003'
+  });
+  assert.equal(invalid.source, 'invalid');
+  assert.equal(invalid.ok, false);
+  assert.doesNotMatch(read('Dockerfile.sanctuary') + read('src/sentinel/sanctuary-suite.cjs') + read('src/sentinel/sanctuary-bot.cjs'), /SANCTUARY_BUTTON_CHANNEL_ID=\d+/);
+
+  const warnings = [];
+  const original = console.warn;
+  console.warn = (...args) => warnings.push(args.join(' '));
+  try {
+    const skipped = await syncRoleMenu({ env: {}, client: { channels: { fetch: async () => { throw new Error('fetch'); } } }, store: new SanctuaryStore() }, { roles: { cache: { values: () => [] } } });
+    assert.equal(skipped.posted, false);
+    assert.equal(skipped.reason, 'unset');
+    assert.match(warnings.join('\n'), /SANCTUARY_BUTTON_CHANNEL_ID is unset/);
+  } finally {
+    console.warn = original;
+  }
+
+  const buttonId = '2000000000000000042';
+  let edited = null;
+  let sent = 0;
+  const channel = { parentId: CATEGORY, isThread: () => false, send: async () => { sent += 1; } };
+  const store = new SanctuaryStore();
+  store.setPanelId('roles', '77');
+  const roles = new Map(allRoleNames().map((name, index) => [String(index + 1), { id: String(1700000000000000000n + BigInt(index)), name }]));
+  const guild = {
+    roles: { cache: { values: () => roles.values(), find: (fn) => [...roles.values()].find(fn) } },
+    members: { me: { permissions: { has: () => true }, roles: { highest: { position: 5 } } } }
+  };
+  const discord = {
+    channels: {
+      fetch: async (id) => {
+        assert.equal(id, buttonId);
+        return {
+          id,
+          send: async () => { sent += 1; return { id: 'new' }; },
+          messages: { fetch: async (id) => (id === '77' ? { id: '77', edit: async (payload) => { edited = payload; } } : null) }
+        };
+      }
+    }
+  };
+  const env = { SANCTUARY_BUTTON_CHANNEL_ID: buttonId };
+  const posted = await handleSanctuaryInteraction(interaction({
+    channel,
+    user: { id: '7' },
+    guild,
+    options: { getSubcommand: () => 'roles', getBoolean: (name) => name === 'post', getString: () => null, getChannel: () => null }
+  }), {
+    config: { discord: { ownerUserIds: ['7'], operatorRoleIds: [] } },
+    env,
+    store,
+    client: discord,
+    schedule: false
+  });
+  assert.equal(posted, true);
+  assert.equal(sent, 0);
+  assert.match(edited.embeds[0].title, /Sanctuary Nexus roles/);
+  assert.equal(store.panelId('roles'), '77');
 });
 
 test('sanctuary game role maps onto the shared category gate', () => {
@@ -282,10 +363,27 @@ test('sanctuary command registration surface lists the v1 suite', async () => {
 });
 
 test('player commands post embeds inside the category and stay ephemeral for private views', async () => {
-  const env = { SANCTUARY_DISCORD_CATEGORY_ID: CATEGORY, READY: 'true' };
+  const buttonId = '2000000000000000099';
+  const posted = [];
+  const env = { SANCTUARY_DISCORD_CATEGORY_ID: CATEGORY, SANCTUARY_BUTTON_CHANNEL_ID: buttonId, READY: 'true' };
   const store = new SanctuaryStore();
   const config = { discord: { guildId: 'guild', ownerUserIds: ['7'], operatorRoleIds: [] } };
-  const context = { config, env, store, schedule: false, client: { isReady: () => true, ws: { ping: 42 } } };
+  const context = {
+    config,
+    env,
+    store,
+    schedule: false,
+    client: {
+      isReady: () => true,
+      ws: { ping: 42 },
+      channels: {
+        fetch: async (id) => ({
+          id,
+          send: async (payload) => { posted.push({ id, payload }); return { id: '555' }; }
+        })
+      }
+    }
+  };
   const channel = { parentId: CATEGORY, isThread: () => false };
   const originalFetch = global.fetch;
   global.fetch = () => { throw new Error('fetch called'); };
@@ -301,12 +399,16 @@ test('player commands post embeds inside the category and stay ephemeral for pri
       fetchReply: async () => ({ id: '99' })
     });
     assert.equal(await handleSanctuaryInteraction(lfg, context), true);
-    assert.equal(lfg.replies[0].flags, undefined);
-    assert.match(lfg.replies[0].embeds[0].title, /Helltide/);
-    assert.equal(lfg.replies[0].components[0].components[0].custom_id.startsWith('sanctuary:lfg:close:'), true);
-    assert.doesNotMatch(lfg.replies[0].embeds[0].description, /@everyone/);
-    assert.equal(lfg.replies[0].content, 'Voice: <#1516602943670059108>');
-    assert.equal(store.state.lfg.length, 1);
+    assert.equal(lfg.replies[0].flags, MessageFlags.Ephemeral);
+    assert.match(lfg.replies[0].content, /button channel/);
+    assert.equal(posted.length, 1);
+    assert.equal(posted[0].id, buttonId);
+    assert.match(posted[0].payload.embeds[0].title, /Helltide/);
+    assert.equal(posted[0].payload.components[0].components[0].custom_id.startsWith('sanctuary:lfg:close:'), true);
+    assert.doesNotMatch(posted[0].payload.embeds[0].description, /@everyone/);
+    assert.equal(posted[0].payload.content, 'Voice: <#1516602943670059108>');
+    assert.equal(store.state.lfg[0].channelId, buttonId);
+    assert.doesNotMatch(lfg.replies[0].content, new RegExp(buttonId));
 
     const badBuild = interaction({
       channel,
