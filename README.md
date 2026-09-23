@@ -90,6 +90,10 @@ PR #266 on `stabilize/nexus-66-baseline` remains open, draft, and unmerged. Its 
 
 The newest relevant legacy startup diagnostic remains issue #285 for installed `0.41.3-test.1`, reporting **8 passed, 0 warnings, 0 failures**. It is historical stabilization evidence only and does not validate Nexus 0.1.
 
+## Game bots
+
+ARK / ASA slash commands run on **Nexus Ascended**. Warframe slash commands, including `/market`, run on **Cephalon Nexus**. Hub commands stay on **Nexus Sentinal**. Railway wiring, the command inventory, and the Discord RCON override rule are in [`docs/GAME_BOTS_CEPHALON_ASCENDED.md`](docs/GAME_BOTS_CEPHALON_ASCENDED.md).
+
 ## Start
 
 1. Copy `config.example.json` to `config.json`.

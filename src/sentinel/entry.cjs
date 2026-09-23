@@ -1,11 +1,10 @@
 'use strict';
 
-// Nexus Sentinal runtime profile: CORE + ARK
+// Nexus Sentinal runtime profile: hub commands only.
 //
-// Keep Sentinal deliberately small and reliable. Game-native ARK systems stay
-// in place for now, while nonessential Nexus/game modules are no longer loaded
-// into the production bot runtime. Retired modules remain in the repository so
-// they can be recovered later without making them production dependencies.
+// ARK / ASA slash commands run on Nexus Ascended (src/sentinel/ascended-runtime.cjs).
+// Warframe slash commands run on Cephalon Nexus (src/sentinel/cephalon-bot.cjs).
+// Non-command ARK maintenance, HTTP hooks, and panel workers stay here.
 
 const { installGuildMembersIntentExtension } = require('./guild-members-intent-extension.cjs');
 const { installCommunityIntentsExtension } = require('./community-intents-extension.cjs');
@@ -30,8 +29,6 @@ const { installWalletAdjustExtension } = require('./wallet-adjust-extension.cjs'
 const { installClusterShopUiExtension } = require('./cluster-shop-ui-extension.cjs');
 
 // ARK control, monitoring, identity, economy and cluster integration.
-const { installArkOpsExtension } = require('./ark-ops-extension.cjs');
-const { installArkUpdateSafetyExtension } = require('./ark-update-safety-extension.cjs');
 const { installArkRconDiagnosticExtension } = require('./ark-rcon-diagnostic-extension.cjs');
 const { installArkStaffUnifiedOpsPanelExtension } = require('./ark-staff-unified-ops-panel-extension.cjs');
 const { installArkConfigDriftAlertExtension } = require('./ark-config-drift-alert-extension.cjs');
@@ -40,14 +37,8 @@ const { installArkShopProfileHealthExtension } = require('./arkshop-profile-heal
 const { installArkShopApplyHealthExtension } = require('./arkshop-apply-health-extension.cjs');
 const { installNexusBankHealthExtension } = require('./ark-nexus-bank-health-extension.cjs');
 const { installArkRestartSchedulerExtension } = require('./ark-restart-scheduler-extension.cjs');
-const { installArkServerControlsExtension } = require('./ark-server-controls-extension.cjs');
-const { installArkDynamicEventsExtension } = require('./ark-dynamic-events-extension.cjs');
-const { installArkConfigDbExtension } = require('./ark-config-db-extension.cjs');
-const { installArkClusterExtension } = require('./ark-cluster-extension.cjs');
 const { installArkAdditionalRegistryBootstrapExtension } = require('./ark-additional-registry-bootstrap-extension.cjs');
 const { installArkClusterMetadataExtension } = require('./ark-cluster-metadata-extension.cjs');
-const { installArkConfigProfileExtension } = require('./ark-config-profile-extension.cjs');
-const { installArkShopProfileExtension } = require('./arkshop-profile-extension.cjs');
 const { installArkClusterPublicActions } = require('./ark-cluster-public-actions.cjs');
 const { installArkShopProfileBootstrapExtension } = require('./arkshop-profile-bootstrap-extension.cjs');
 const { installArkEconomyPresenceExtension } = require('./ark-economy-presence-extension.cjs');
@@ -75,9 +66,7 @@ installMemberVerificationExtension();
 installWalletAdjustExtension();
 installClusterShopUiExtension();
 
-// ARK stack intentionally preserved during the Sentinal teardown.
-installArkOpsExtension();
-installArkUpdateSafetyExtension({ prefix: 'ARK_GEN1' });
+// ARK monitors that do not register slash commands stay on the hub bot.
 installArkRconDiagnosticExtension();
 installArkStaffUnifiedOpsPanelExtension();
 installArkConfigDriftAlertExtension();
@@ -86,14 +75,8 @@ installArkShopProfileHealthExtension();
 installArkShopApplyHealthExtension();
 installNexusBankHealthExtension();
 installArkRestartSchedulerExtension({ prefix: 'ARK_GEN1' });
-installArkServerControlsExtension({ prefix: 'ARK_GEN1' });
-installArkDynamicEventsExtension();
-installArkConfigDbExtension();
-installArkClusterExtension();
 installArkAdditionalRegistryBootstrapExtension();
 installArkClusterMetadataExtension();
-installArkConfigProfileExtension();
-installArkShopProfileExtension();
 installArkEconomyPresenceExtension();
 require('./arkshop-maintenance-monitor.cjs').installArkShopMaintenanceMonitor();
 installArkClusterPublicActions();
@@ -122,8 +105,6 @@ require('./arkshop-cluster-economy-guard.cjs').installArkShopClusterEconomyGuard
 require('./arkshop-backend-preflight-runtime.cjs').installArkShopBackendPreflightRuntime();
 require('./ark-dino-cache-sqlite-probe.cjs').installRuntime();
 require('./ark-shiny-config-runtime.cjs').installRuntime();
-require('./ark-dino-cache-runtime.cjs').installDinoCacheRuntime();
-require('./ark-command-routing-patch.cjs');
 require('./ark-dynamic-config-http.cjs');
 require('./ark-identity-webhook-http.cjs');
 require('./protocol/discord.cjs').installProtocolExtension();

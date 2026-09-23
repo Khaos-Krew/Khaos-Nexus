@@ -51,8 +51,11 @@ function isHealthInteraction(interaction) {
 async function respondHealthInteraction(interaction, { config, prefix, server }) {
   if (!isStaff(interaction, config)) throw new Error('ARK update safety is restricted to Nexus staff.');
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  if (!server.enabled) throw new Error(`${prefix} is disabled.`);
-  const result = await buildHealthReply(prefix, server);
+  const live = server?.host && server?.port && server?.password ? server : arkServerFromEnv(prefix);
+  if (!live.enabled || !live.host || !live.port || !live.password) {
+    throw new Error(`${prefix} RCON is not configured yet. An owner must use /arkrcon configure and /arkrcon password.`);
+  }
+  const result = await buildHealthReply(prefix, live);
   await interaction.editReply({ content: result.content, allowedMentions: { parse: [] } });
 }
 
@@ -80,7 +83,6 @@ function installArkUpdateSafetyExtension({ prefix = 'ARK_GEN1' } = {}) {
 
     client.once(Events.ClientReady, () => {
       void (async () => {
-        if (!server.enabled) return;
         const guild = await client.guilds.fetch(String(config.discord?.guildId || ''));
         await registerArkHealthCommand(guild);
         console.log(`[Nexus Sentinal] ARK update safety ready on demand: button + /ark-health server=${server.name}`);

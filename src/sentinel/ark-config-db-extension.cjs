@@ -214,7 +214,6 @@ function installArkConfigDbExtension() {
   if (Client.prototype[INSTALLED]) return;
   Client.prototype[INSTALLED] = true;
   const config = loadConfig();
-  const server = arkServerFromEnv('ARK_GEN1');
   const originalLogin = Client.prototype.login;
 
   Client.prototype.login = function nexusArkConfigDbLogin(...args) {
@@ -225,8 +224,9 @@ function installArkConfigDbExtension() {
         if (!interaction.isChatInputCommand?.()) return;
         if (!['arkconfig', 'arkdb'].includes(interaction.commandName)) return;
         if (String(interaction.guildId || '') !== String(config.discord?.guildId || '')) return;
-        const rcon = new ArkRconClient(server);
-        const context = { config, server, rcon };
+        const live = arkServerFromEnv('ARK_GEN1');
+        const rcon = new ArkRconClient(live);
+        const context = { config, server: live, rcon };
         const runner = interaction.commandName === 'arkconfig' ? handleConfig : handleDb;
         void runner(interaction, context).catch(async (error) => {
           const payload = { content: `⚠️ ${String(error?.message || error).slice(0, 1700)}`, allowedMentions: { parse: [] } };
@@ -238,7 +238,6 @@ function installArkConfigDbExtension() {
 
     client.once(Events.ClientReady, () => {
       void (async () => {
-        if (!server.enabled) return;
         const guild = await client.guilds.fetch(String(config.discord?.guildId || ''));
         await upsertGuildCommand(guild, configCommand());
         await upsertGuildCommand(guild, dbCommand());

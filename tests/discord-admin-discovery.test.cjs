@@ -9,8 +9,11 @@ const blackoutLegend = { id: 'blackout-legend', name: 'Blackout Legend', level: 
 
 test('Discord admin command health covers Nexus, moderation, and all friendly commands', () => {
   const names = desiredCommandNames();
-  for (const expected of ['nexus', 'market', 'clear', 'ark', 'palworld', 'minecraft', 'warframe', 'division2', 'rust', 'satisfactory', 'idleon', 'pogo']) {
+  for (const expected of ['nexus', 'clear', 'palworld', 'minecraft', 'division2', 'rust', 'satisfactory', 'idleon', 'pogo']) {
     assert.ok(names.includes(expected), `missing /${expected}`);
+  }
+  for (const moved of ['market', 'ark', 'warframe']) {
+    assert.equal(names.includes(moved), false, `/${moved} moved off Sentinal`);
   }
   assert.equal(new Set(names).size, names.length);
 });

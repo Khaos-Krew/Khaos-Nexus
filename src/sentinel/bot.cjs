@@ -10,8 +10,8 @@ const { ModuleProvisioner } = require('./module-provisioner.cjs');
 const { hasAdministrator, assertAdministrator } = require('./discord-permissions.cjs');
 const { parseActionId, renderModuleConsole, renderHelp } = require('./module-console.cjs');
 const { formatActionResult: renderActionResult } = require('./action-formatters.cjs');
-const { marketCommand } = require('./commands.cjs');
 const { commandDefinitions: friendlyCommandDefinitions, isFriendlyCommand, resolveFriendlyCommand } = require('./friendly-commands.cjs');
+const { ASCENDED_COMMANDS, CEPHALON_COMMANDS, commandOwner, sentinalShouldRegister, movedCommandReply } = require('./game-command-ownership.cjs');
 const { createArkTameUi } = require('./ark-tame-ui.cjs');
 const { SentinalAdminOps } = require('./admin-ops.cjs');
 const { createSentinalAdminServer } = require('./admin-server.cjs');
@@ -271,9 +271,15 @@ function nexusCommand() {
 }
 
 async function registerCommands(guild) {
-  const friendly = friendlyCommandDefinitions().filter((command) => !extensionOwnedCommands.has(command.name));
-  const definitions = [nexusCommand(), marketCommand(), ...friendly];
+  const friendly = friendlyCommandDefinitions().filter((command) => !extensionOwnedCommands.has(command.name) && sentinalShouldRegister(command.name));
+  const definitions = [nexusCommand(), ...friendly];
   const commands = await guild.commands.fetch();
+  for (const name of [...ASCENDED_COMMANDS, ...CEPHALON_COMMANDS]) {
+    const existing = commands.find((item) => item.name === name);
+    if (!existing) continue;
+    await guild.commands.delete(existing.id);
+    console.log(`[Nexus Sentinal] retired /${name}; owned by ${commandOwner(name)}`);
+  }
   for (const command of definitions) {
     const existing = commands.find((item) => item.name === command.name);
     if (existing) await guild.commands.edit(existing, command.toJSON());
@@ -349,6 +355,11 @@ client.on('interactionCreate', async (interaction) => {
   try {
     if (interaction.isAutocomplete()) return autocompleteActions(interaction);
 
+    if (interaction.isChatInputCommand?.() && !sentinalShouldRegister(interaction.commandName)) {
+      const content = movedCommandReply(interaction.commandName);
+      if (content) return interaction.reply({ content, flags: MessageFlags.Ephemeral });
+    }
+
     const tameHandled = await arkTameUi.handleComponent(interaction);
     if (tameHandled !== false) return tameHandled;
 
@@ -392,13 +403,7 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.editReply(await runAction(interaction, parsed.moduleId, parsed.actionId, {}));
     }
 
-    if (interaction.isChatInputCommand() && interaction.commandName === 'market') {
-      await interaction.deferReply();
-      const item = interaction.options.getString('item', true).trim();
-      return interaction.editReply(await runAction(interaction, 'warframe', 'market', { item, input: item }));
-    }
-
-    if (interaction.isChatInputCommand() && isFriendlyCommand(interaction.commandName) && !extensionOwnedCommands.has(interaction.commandName)) {
+    if (interaction.isChatInputCommand() && isFriendlyCommand(interaction.commandName) && !extensionOwnedCommands.has(interaction.commandName) && sentinalShouldRegister(interaction.commandName)) {
       const invocation = resolveFriendlyCommand(interaction);
       if (!invocation) return interaction.reply({ content: 'That module command is not available.', flags: MessageFlags.Ephemeral });
       if (invocation.moduleId === 'ark' && invocation.actionId === 'taming') return arkTameUi.start(interaction);

@@ -211,6 +211,18 @@ function formatAnomalyProposal(result = {}) {
   ].join('\n');
 }
 
+function ensureArkRcon(context) {
+  if (context?.rcon) return context.rcon;
+  const live = arkServerFromEnv('ARK_GEN1');
+  if (live.enabled && live.host && live.port && live.password) {
+    context.server = live;
+    context.rcon = new ArkRconClient(live);
+    context.pendingRcon = false;
+    return context.rcon;
+  }
+  throw new Error('ARK RCON is not configured yet. An owner must use /arkrcon configure and /arkrcon password. Connection settings stay in the Discord override store.');
+}
+
 async function registerArkCommand(guild) {
   const definition = arkCommand().toJSON();
   const commands = await guild.commands.fetch();
@@ -375,7 +387,7 @@ async function handleArkInteraction(interaction, context) {
     if (!isOwner(interaction, context.config)) throw new Error('Dino Cache test delivery is restricted to the Nexus owner.');
     const result = await runOwnerCacheTest({
       cacheId: interaction.options.getString('cache', true), eosId: interaction.options.getString('eos_id', true),
-      approved: interaction.options.getBoolean('approved', true), rcon: context.rcon
+      approved: interaction.options.getBoolean('approved', true), rcon: ensureArkRcon(context)
     });
     const roll = result.roll || {};
     await interaction.editReply({ content: [
@@ -425,7 +437,7 @@ async function handleArkInteraction(interaction, context) {
   }
   if (!command) throw new Error('Unsupported ARK operation.');
 
-  const result = await context.rcon.execute(command);
+  const result = await ensureArkRcon(context).execute(command);
   const content = sub === 'status'
     ? `🟢 **${context.server.name}** RCON is responding.\n\n${result || 'No players are currently connected.'}`
     : `✅ **${context.server.name}**\n\n${result || 'Command accepted.'}`;
@@ -437,7 +449,6 @@ function installArkOpsExtension() {
   if (Client.prototype[INSTALLED]) return;
   Client.prototype[INSTALLED] = true;
   const config = loadConfig();
-  const server = arkServerFromEnv('ARK_GEN1');
   const originalLogin = Client.prototype.login;
 
   Client.prototype.login = function nexusArkOpsLogin(...args) {
@@ -457,12 +468,15 @@ function installArkOpsExtension() {
 
     client.once(Events.ClientReady, () => {
       void (async () => {
-        if (!server.enabled) {
-          console.log('[Nexus Sentinal] ARK ops disabled by ARK_GEN1_ENABLED.');
+        const guild = await client.guilds.fetch(String(config.discord?.guildId || ''));
+        await registerArkCommand(guild);
+        console.log('[Nexus Sentinal] /ark registered');
+        const server = arkServerFromEnv('ARK_GEN1');
+        if (!server.enabled || !server.host || !server.port || !server.password) {
+          client.__nexusArkContext = { config, server, rcon: null, pendingRcon: true };
+          console.log('[Nexus Sentinal] /ark is registered. RCON runtime is waiting for /arkrcon Discord override configuration.');
           return;
         }
-        if (!server.host || !server.port || !server.password) throw new Error('ARK_GEN1 RCON variables are incomplete.');
-        const guild = await client.guilds.fetch(String(config.discord?.guildId || ''));
         await guild.roles.fetch();
         const rcon = new ArkRconClient(server);
         const identityStore = new ArkIdentityStore();

@@ -14,7 +14,7 @@ const {
 const { loadConfig } = require('../shared/config.cjs');
 const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
-const { ArkRconConfigStore, normalizePrefix } = require('./ark-rcon-config-store.cjs');
+const { ArkRconConfigStore, normalizePrefix, rconRailwayEnvForbidden } = require('./ark-rcon-config-store.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.rcon.config.extension');
 const BOUND = Symbol.for('khaos.nexus.ark.rcon.config.bound');
@@ -75,7 +75,9 @@ function rconCommand(registry = new ArkClusterRegistry()) {
   command.addSubcommand((sub) => addServerOption(sub.setName('password').setDescription('Owner-only: open a protected modal to set the RCON password.'), choices));
   command.addSubcommand((sub) => addServerOption(sub.setName('send').setDescription('Owner-only: send an exact raw command with no prefix rewriting.'), choices)
     .addStringOption((option) => option.setName('command').setDescription('Exact RCON command, e.g. scriptcommand SpawnDinoInBall ...').setRequired(true).setMaxLength(1800)));
-  command.addSubcommand((sub) => addServerOption(sub.setName('clear').setDescription('Owner-only: clear the Discord RCON override and return to Railway env settings.'), choices)
+  command.addSubcommand((sub) => addServerOption(sub.setName('clear').setDescription(rconRailwayEnvForbidden()
+    ? 'Owner-only: clear the Discord RCON override. Connection settings are not read from Railway.'
+    : 'Owner-only: clear the Discord RCON override and return to environment settings.'), choices)
     .addBooleanOption((option) => option.setName('confirm').setDescription('Confirm clearing this server override.').setRequired(true)));
   return command;
 }
