@@ -1,11 +1,17 @@
 'use strict';
 
+const { GatewayIntentBits } = require('discord.js');
 const { applyGameBotDiscordEnv } = require('./discord-env.cjs');
 const { createGameBotHealthServer } = require('./health.cjs');
 const { gameBotKey, installCategoryGate, resolveCategoryConfig } = require('./category-gate.cjs');
 const { installOpsSpine } = require('./ops-spine.cjs');
 const { installStageCommands } = require('./stage-commands.cjs');
 const { startAscendedOpsLoop } = require('./ascended-presence.cjs');
+const { installJoinToCreate } = require('./join-to-create.cjs');
+
+function gameBotIntentBits() {
+  return [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildVoiceStates];
+}
 
 async function startGameBot({ botName, botKey, gameRole, serviceName, beforeClient, bind } = {}) {
   const identity = applyGameBotDiscordEnv();
@@ -14,7 +20,7 @@ async function startGameBot({ botName, botKey, gameRole, serviceName, beforeClie
   console.log(`[${botName}] NEXUS_GAME_ROLE=${role}`);
   console.log(`[${botName}] DISCORD_GUILD_ID=${identity.guildConfigured ? 'present' : 'missing'}`);
   console.log(`[${botName}] READY=${identity.readyFlag || 'unset'} (logged only; it does not block startup or commands)`);
-  console.log(`[${botName}] intents: Guilds=on GuildMembers=on Presence=off MessageContent=off`);
+  console.log(`[${botName}] intents: Guilds=on GuildMembers=on GuildVoiceStates=on Presence=off MessageContent=off`);
   if (!identity.token) {
     console.error(`[${botName}] DISCORD_BOT_TOKEN is missing`);
     process.exit(1);
@@ -31,10 +37,8 @@ async function startGameBot({ botName, botKey, gameRole, serviceName, beforeClie
 
   if (typeof beforeClient === 'function') await beforeClient();
 
-  const { Client, Events, GatewayIntentBits } = require('discord.js');
-  const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
-  });
+  const { Client, Events } = require('discord.js');
+  const client = new Client({ intents: gameBotIntentBits() });
   const key = gameBotKey({ botKey, gameRole: role, serviceName });
   if (!key) throw new Error(`[${botName}] category gate requires the cephalon, ascended, or sanctuary bot`);
   const category = resolveCategoryConfig(key);
@@ -44,6 +48,9 @@ async function startGameBot({ botName, botKey, gameRole, serviceName, beforeClie
   installOpsSpine(client, { bot: key });
   installStageCommands(client, { bot: key });
   if (key === 'ascended') startAscendedOpsLoop({ client });
+  installJoinToCreate(client, { bot: key });
+  if (key === 'cephalon') require('./cephalon-relay.cjs').startCephalonBoards({ client });
+  if (key === 'ascended') require('./asa-official-status.cjs').startOfficialStatusBoard({ client });
   if (typeof bind === 'function') bind(client);
   client.once(Events.ClientReady, (ready) => {
     state.discordReady = true;
@@ -54,4 +61,4 @@ async function startGameBot({ botName, botKey, gameRole, serviceName, beforeClie
   return client;
 }
 
-module.exports = { startGameBot };
+module.exports = { startGameBot, gameBotIntentBits };

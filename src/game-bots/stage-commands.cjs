@@ -16,6 +16,10 @@ const { welcomeText } = require('./welcome-card.cjs');
 const { RateCardStore, ratesText, breedText, bossText } = require('./ark-rate-cards.cjs');
 const { wipeChecklist } = require('./wipe-checklist.cjs');
 const { ascendedHealthSnapshot, checkRconPrefix, HEALTH_PREFIXES, openStore } = require('./ascended-rcon-health.cjs');
+const { runtimeDataDir, upsertEmbed } = require('./panel-message.cjs');
+const { handleFissureCommand, handleNightwaveCommand, handleCycleCommand, handleCephalonButton } = require('./cephalon-relay.cjs');
+const { handleOfficialCommand } = require('./asa-official-status.cjs');
+const { handleClusterCommand } = require('./asa-cluster-presence.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.gamebot.stageCommands');
 
@@ -71,12 +75,26 @@ function stageBuilders(bot) {
   if (names.has('welcome')) {
     commands.push(new SlashCommandBuilder().setName('welcome').setDescription('Show this bot welcome card. Wallet and ranks stay on Nexus Sentinal.'));
   }
+  if (names.has('fissures')) {
+    commands.push(new SlashCommandBuilder().setName('fissures').setDescription('Open Void Fissures by tier, with Steel Path and storm flags.'));
+  }
+  if (names.has('nightwave')) {
+    commands.push(new SlashCommandBuilder().setName('nightwave').setDescription('Nightwave challenges with a personal done checklist.'));
+  }
+  if (names.has('cycles')) {
+    commands.push(new SlashCommandBuilder().setName('cycles').setDescription('Cetus, Vallis, Cambion, and Earth countdowns.'));
+  }
+  if (names.has('official')) {
+    commands.push(new SlashCommandBuilder().setName('official').setDescription('Official ASA network status from the Wildcard CDN.'));
+  }
+  if (names.has('cluster')) {
+    commands.push(new SlashCommandBuilder().setName('cluster').setDescription('Player count, map, and day for this Nexus cluster.'));
+  }
   return commands;
 }
 
 function dataDir(env = process.env) {
-  const configured = String(env.NEXUS_DATA_DIR || '').trim();
-  return configured || path.resolve(__dirname, '../../data');
+  return runtimeDataDir(env);
 }
 
 function welcomePinFile(dir, bot) {
@@ -106,25 +124,17 @@ function roleIdsOf(interaction) {
 }
 
 async function refreshPinnedEmbed(client, env, channelEnvName, entry, embed) {
-  const channelId = String(env[channelEnvName] || '').trim();
-  if (!/^\d{17,20}$/.test(channelId) || typeof client?.channels?.fetch !== 'function') return { pinned: false };
-  const channel = await client.channels.fetch(channelId).catch(() => null);
-  if (!channel?.send) return { pinned: false };
-  if (entry?.messageId && channel.messages?.fetch) {
-    const message = await channel.messages.fetch(entry.messageId).catch(() => null);
-    if (message?.edit) {
-      await message.edit({ embeds: [embed], allowedMentions: { parse: [] } });
-      return { pinned: true, messageId: entry.messageId };
-    }
-  }
-  const sent = await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
-  return { pinned: true, messageId: String(sent?.id || '') };
+  return upsertEmbed(client, env[channelEnvName], entry?.messageId, { embeds: [embed] });
 }
 
 async function handleStageCommand(interaction, context) {
+  const bot = normalizeBot(context.bot);
+  if (typeof interaction?.isButton === 'function' && interaction.isButton()) {
+    if (bot !== 'cephalon') return false;
+    return handleCephalonButton(interaction, context);
+  }
   if (typeof interaction?.isChatInputCommand === 'function' && !interaction.isChatInputCommand()) return false;
   const name = String(interaction?.commandName || '');
-  const bot = normalizeBot(context.bot);
   if (!stageCommandNames(bot).includes(name)) return false;
   const env = context.env || process.env;
   const config = context.config || loadConfig();
@@ -240,6 +250,11 @@ async function handleStageCommand(interaction, context) {
     await interaction.reply(ephemeral(wipeChecklist(snapshot)));
     return true;
   }
+  if (name === 'fissures') return handleFissureCommand(interaction, context);
+  if (name === 'nightwave') return handleNightwaveCommand(interaction, context);
+  if (name === 'cycles') return handleCycleCommand(interaction, context);
+  if (name === 'official') return handleOfficialCommand(interaction, context);
+  if (name === 'cluster') return handleClusterCommand(interaction, context);
   return false;
 }
 
@@ -265,7 +280,7 @@ function installStageCommands(client, { bot, env = process.env, config, provider
   const key = normalizeBot(bot);
   if (!client || client[INSTALLED] || !key) return client;
   client[INSTALLED] = true;
-  const context = { bot: key, env, config, client, provider, worldstate, calendar, rates, healthSnapshot };
+  const context = { bot: key, env, config, client, provider, worldstate, calendar, rates, healthSnapshot, dir: dataDir(env) };
   client.on(Events.InteractionCreate, (interaction) => {
     void handleStageCommand(interaction, context).catch((error) => reportCommandFailure(interaction, error, { bot: key, botName: BOT_LABELS[key], env }));
   });

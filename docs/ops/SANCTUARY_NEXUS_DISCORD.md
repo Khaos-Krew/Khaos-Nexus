@@ -15,6 +15,7 @@ Set these on `sanctuary-nexus`:
 - `DISCORD_CLIENT_SECRET`
 - `DISCORD_GUILD_ID`
 - `SANCTUARY_DISCORD_CATEGORY_ID` (already set on the Railway service; not baked into the image)
+- `SANCTUARY_JTC_LOBBY_CHANNEL_ID=1541540961937526916` (baked into `Dockerfile.sanctuary`; blank keeps this lobby). Join-to-create only. See `docs/ops/JOIN_TO_CREATE.md`.
 - `SANCTUARY_BUTTON_CHANNEL_ID` (already set on the Railway service; role menu and group buttons). Aliases: `SANCTUARY_COMMANDS_CHANNEL_ID`, `DIABLO_BUTTON_CHANNEL_ID`
 - `READY` is logged and ignored. It does not block startup or commands.
 

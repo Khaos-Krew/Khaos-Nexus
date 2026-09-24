@@ -11,6 +11,8 @@ Cephalon Nexus (Warframe) and Nexus Ascended (ARK ASA) only run slash commands a
 
 The image Dockerfiles set those ids. An unset or blank variable uses the same owner id. A non-empty value that is not a Discord snowflake fail-closes the gate: every interaction is denied and the command does not run.
 
+Join-to-create voice lobbies are owned by the game bot for that category, not by Nexus Sentinal. See `docs/ops/JOIN_TO_CREATE.md` for the lobby env vars and the Discord permissions (Manage Channels, Connect, and Move Members).
+
 Threads are allowed when the parent channel’s category matches. DMs and other categories get an ephemeral redirect:
 
 - Ascended: `Use this bot in the ARK Ascended category.`
@@ -21,11 +23,13 @@ Threads are allowed when the parent channel’s category matches. DMs and other 
 Set on `cephalon-nexus`:
 
 - `CEPHALON_DISCORD_CATEGORY_ID=1516640233389822042` (already baked into `Dockerfile.cephalon`)
+- `CEPHALON_JTC_LOBBY_CHANNEL_ID=1540877236184424500` (already baked; blank keeps this lobby)
 - `NEXUS_STAFF_ALERT_CHANNEL_ID` optional staff text channel for command-failure alerts
 
 Set on `nexus-ascended`:
 
 - `ASCENDED_DISCORD_CATEGORY_ID=1516602943670059108` (already baked into `Dockerfile.ascended`)
+- `ASCENDED_JTC_LOBBY_CHANNEL_ID=1540867019979890829` (already baked; blank keeps this lobby)
 - `ARKSHOP_DB_MODE=disabled` so the retired ArkShop MySQL bridge stays off
 - `NEXUS_STAFF_ALERT_CHANNEL_ID` optional, same meaning as Cephalon
 

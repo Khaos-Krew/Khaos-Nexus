@@ -390,10 +390,14 @@ test('Sentinal is not category-locked and Railway files keep RCON out of Ascende
   assert.match(read('src/game-bots/start.cjs'), /installCategoryGate/);
   assert.match(read('src/game-bots/start.cjs'), /installOpsSpine/);
   assert.match(read('Dockerfile.cephalon'), /CEPHALON_DISCORD_CATEGORY_ID=1516640233389822042/);
+  assert.match(read('Dockerfile.cephalon'), /CEPHALON_JTC_LOBBY_CHANNEL_ID=1540877236184424500/);
   assert.match(read('Dockerfile.ascended'), /ASCENDED_DISCORD_CATEGORY_ID=1516602943670059108/);
+  assert.match(read('Dockerfile.ascended'), /ASCENDED_JTC_LOBBY_CHANNEL_ID=1540867019979890829/);
   assert.doesNotMatch(read('Dockerfile.ascended'), /_RCON_PASSWORD|_RCON_PORT|_HOST=/);
   assert.match(read('docs/ops/STAGE1_GAME_BOT_OPS.md'), /1516602943670059108/);
   assert.match(read('docs/ops/STAGE1_GAME_BOT_OPS.md'), /1516640233389822042/);
+  assert.match(read('docs/ops/STAGE1_GAME_BOT_OPS.md'), /1540877236184424500/);
+  assert.match(read('docs/ops/STAGE1_GAME_BOT_OPS.md'), /1540867019979890829/);
   assert.match(read('docs/ops/STAGE1_GAME_BOT_OPS.md'), /Nexus Sentinal/);
   assert.doesNotMatch(read('docs/ops/STAGE1_GAME_BOT_OPS.md'), /Sentinel/);
 });

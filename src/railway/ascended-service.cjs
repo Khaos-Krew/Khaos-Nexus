@@ -1,7 +1,9 @@
 'use strict';
 
 const { startGameBot } = require('../game-bots/start.cjs');
+const { errorClass } = require('../game-bots/command-failure.cjs');
 const { isArkShopMysqlRetired } = require('../sentinel/arkshop-database.cjs');
+const { describeRconVault } = require('../sentinel/ark-rcon-config-store.cjs');
 
 process.env.NEXUS_GAME_ROLE ||= 'ark_asa';
 process.env.NEXUS_DATA_DIR ||= '/app/data';
@@ -11,6 +13,13 @@ process.env.NEXUS_RCON_SOURCE ||= 'discord_override_store';
 
 if (isArkShopMysqlRetired()) {
   console.log('[Nexus Ascended] ArkShop MySQL retired; MySQL polling disabled.');
+}
+
+try {
+  const vault = describeRconVault();
+  console.log(`[Nexus Ascended] RCON vault servers=${vault.servers} readable=${vault.readablePasswords} unreadable=${vault.unreadable} class=none`);
+} catch (error) {
+  console.warn(`[Nexus Ascended] RCON vault class=${errorClass(error)}`);
 }
 
 startGameBot({

@@ -19,6 +19,7 @@ Set these on `sanctuary-nexus` only:
 - `DISCORD_CLIENT_SECRET`
 - `DISCORD_GUILD_ID`
 - `SANCTUARY_DISCORD_CATEGORY_ID` (preferred) or `DIABLO_DISCORD_CATEGORY_ID` if the preferred variable is unset
+- `SANCTUARY_JTC_LOBBY_CHANNEL_ID=1541540961937526916` (baked into `Dockerfile.sanctuary`; blank keeps this lobby). This is join-to-create only.
 - `SANCTUARY_BUTTON_CHANNEL_ID` for persistent role menus and group buttons. `SANCTUARY_COMMANDS_CHANNEL_ID` and `DIABLO_BUTTON_CHANNEL_ID` are aliases used only when the primary value is unset or blank
 - `READY` is logged and ignored. It does not block startup or commands.
 - `SANCTUARY_LFG_TTL_MINUTES` optional, clamped from 15 to 240. Default is 120.
@@ -31,7 +32,7 @@ Persistent role menus and LFG button posts go only to the button channel. `/sanc
 
 ## Intents and invite
 
-Privileged intent: **Server Members Intent** (Guild Members). Gateway intents used: Guilds and Guild Members. Presence and Message Content stay off.
+Privileged intent: **Server Members Intent** (Guild Members). Gateway intents used: Guilds, Guild Members, and Guild Voice States. Presence and Message Content stay off. Join-to-create also needs View Channel, Manage Channels, Connect, and Move Members in the Sanctuary category. See `docs/ops/JOIN_TO_CREATE.md`.
 
 Invite with the bot and applications.commands scopes. Grant View Channels, Send Messages, Embed Links, Read Message History, and Manage Roles. Manage Roles is required to create missing Sanctuary roles and to place them under the bot role. If Manage Roles is missing, `/sanctuary roles` posts an instruction embed listing the required role names instead of creating them.
 

@@ -51,8 +51,8 @@ async function defaultExecute(server) {
 }
 
 function openStore(env = process.env) {
-  const { ArkRconConfigStore } = require('../sentinel/ark-rcon-config-store.cjs');
-  return env.NEXUS_DATA_DIR ? new ArkRconConfigStore(env.NEXUS_DATA_DIR) : new ArkRconConfigStore();
+  const { ArkRconConfigStore, resolveStoreRoot } = require('../sentinel/ark-rcon-config-store.cjs');
+  return new ArkRconConfigStore(resolveStoreRoot(undefined, env));
 }
 
 async function checkRconPrefix(prefix, { store, env = process.env, execute = defaultExecute, now = () => new Date() } = {}) {
