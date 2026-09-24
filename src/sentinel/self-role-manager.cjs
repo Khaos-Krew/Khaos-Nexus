@@ -167,6 +167,8 @@ class SelfRoleManager {
   }
 
   async prioritizeColorRoles(guild, menus, resolvedRoles, warnings) {
+    const { roleOrderEnabled } = require('./role-order.cjs');
+    if (roleOrderEnabled()) return { changed: 0, skipped: true, deferred: true };
     if (this.config.discord?.prioritizeColorRoles === false) return { changed: 0, skipped: true };
 
     const colorIds = new Set();

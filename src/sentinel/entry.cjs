@@ -11,6 +11,7 @@ const { installCommunityIntentsExtension } = require('./community-intents-extens
 const { installCommunityLevelingExtension } = require('./community-leveling-extension.cjs');
 const { installMentionResponseExtension } = require('./mention-response-extension.cjs');
 const { installRoleMenuExtension } = require('./role-menu-extension.cjs');
+const { installRoleOrderExtension } = require('./role-order-extension.cjs');
 const { installAdminPairingExtension } = require('./admin-pairing-extension.cjs');
 const { installModerationExtension } = require('./moderation-extension.cjs');
 const { installSafetyReportExtension } = require('./safety-report-extension.cjs');
@@ -51,6 +52,7 @@ installCommunityIntentsExtension();
 installCommunityLevelingExtension();
 installMentionResponseExtension();
 installRoleMenuExtension();
+installRoleOrderExtension();
 installAdminPairingExtension();
 installModerationExtension();
 installSafetyReportExtension();
