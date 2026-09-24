@@ -3,6 +3,9 @@
 const { Client, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { BackendClient } = require('./backend-client.cjs');
+const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
+const { COMMUNITY_LEVEL_UP_SOURCE } = require('./nexus-economy-community-level-coins.cjs');
+const { coinsForLevelsCrossed } = require('../backend/services/community-level-service.cjs');
 const {
   ensureLevelUpChannel,
   overviewPayload,
@@ -127,18 +130,70 @@ async function refreshLevelPanel(client, config, backend, settingsCache) {
   };
 }
 
-async function applyProgressResult({ client, guild, channel, userId, result, settings, backend = null, announce = true, forceRoleSync = false }) {
-  if (!result?.profile) return { roles: null, announced: false, achievementsAnnounced: false, achievements: null };
-  const levelChanged = Number(result.beforeLevel || result.profile.level) !== Number(result.profile.level);
+function communityLevelCoinKey(userId, beforeLevel, afterLevel) {
+  return `community-level-up:${String(userId)}:${Number(beforeLevel)}:${Number(afterLevel)}`;
+}
+
+async function grantLevelUpCoins(economy, userId, result = {}, logger = console) {
+  const coins = Number(result?.coinsAwarded || 0);
+  const beforeLevel = Number(result?.beforeLevel || 0);
+  const afterLevel = Number(result?.afterLevel || result?.profile?.level || 0);
+  if (!result?.leveledUp || !Number.isSafeInteger(coins) || coins <= 0 || afterLevel <= beforeLevel) {
+    return { ok: true, skipped: 'no-coin-reward', coins: 0, currency: 'NEXUS_COINS' };
+  }
+  if (!economy || (typeof economy.configured === 'function' && economy.configured() === false)) {
+    logger.warn?.(`[Nexus Sentinal] community level-up Coins skipped for ${userId}: economy worker is not configured. Level increased to ${afterLevel}.`);
+    return { ok: false, skipped: 'economy-unconfigured', coins, currency: 'NEXUS_COINS' };
+  }
+  const idempotencyKey = communityLevelCoinKey(userId, beforeLevel, afterLevel);
+  try {
+    const credit = await economy.credit({
+      discordUserId: String(userId),
+      amount: coins,
+      currency: 'NEXUS_COINS',
+      source: COMMUNITY_LEVEL_UP_SOURCE,
+      type: 'credit',
+      idempotencyKey,
+      metadata: {
+        reason: COMMUNITY_LEVEL_UP_SOURCE,
+        beforeLevel,
+        afterLevel,
+        coins
+      }
+    });
+    if (!credit || credit.ok === false) {
+      const reason = credit?.skipped || credit?.reason || credit?.error || 'coins-grant-failed';
+      logger.warn?.(`[Nexus Sentinal] community level-up Coins skipped for ${userId}: ${reason}. Level increased to ${afterLevel}.`);
+      return { ok: false, skipped: String(reason), coins, currency: 'NEXUS_COINS' };
+    }
+    logger.log?.(`[Nexus Sentinal] community level-up credited ${coins} Nexus Coins to ${userId} (level ${beforeLevel} -> ${afterLevel}).`);
+    return { ok: true, coins, currency: 'NEXUS_COINS', duplicate: credit.duplicate === true, balance: credit.balance ?? null };
+  } catch (error) {
+    const message = String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 240);
+    logger.warn?.(`[Nexus Sentinal] community level-up Coins skipped for ${userId}: ${message}. Level increased to ${afterLevel}.`);
+    return { ok: false, skipped: 'coins-grant-failed', coins, currency: 'NEXUS_COINS', error: message };
+  }
+}
+
+async function applyProgressResult({ client, guild, channel, userId, result, settings, backend = null, economy = null, announce = true, forceRoleSync = false, logger = console }) {
+  if (!result?.profile && !result?.leveledUp) return { roles: null, announced: false, achievementsAnnounced: false, achievements: null, coinsGrant: null };
+  let coinsGrant = null;
+  if (result?.leveledUp) {
+    const reported = Number(result.coinsAwarded);
+    const computed = coinsForLevelsCrossed(result.beforeLevel, result.afterLevel || result.profile?.level).coins;
+    result = { ...result, coinsAwarded: Number.isSafeInteger(reported) ? reported : computed };
+    coinsGrant = await grantLevelUpCoins(economy, userId, result, logger);
+  }
+  const levelChanged = Number(result.beforeLevel || result.profile?.level) !== Number(result.profile?.level);
   let roles = null;
-  if (result.leveledUp || levelChanged || forceRoleSync) {
+  if (result.profile && (result.leveledUp || levelChanged || forceRoleSync)) {
     const member = await guild.members.fetch(String(userId)).catch(() => null);
     roles = member ? await syncMilestoneRoles(member, result.profile.level, settings?.milestoneLevels || []) : null;
   }
 
   let announced = false;
   if (announce && result.leveledUp && channel?.send) {
-    await channel.send(levelUpPayload(userId, result));
+    await channel.send(levelUpPayload(userId, { ...result, coinsGrant }));
     announced = true;
   }
 
@@ -152,7 +207,7 @@ async function applyProgressResult({ client, guild, channel, userId, result, set
       achievementsAnnounced = true;
     }
   }
-  return { roles, announced, achievementsAnnounced, achievements };
+  return { roles, announced, achievementsAnnounced, achievements, coinsGrant };
 }
 
 function formatSettings(settings = {}, client = null) {
@@ -167,6 +222,7 @@ function formatSettings(settings = {}, client = null) {
     `Ignored channels: **${(settings.ignoredChannelIds || []).length}** • ignored roles: **${(settings.ignoredRoleIds || []).length}**`,
     `Message analysis: **${client && messageContentEnabled(client) ? 'enhanced content checks' : 'metadata + cooldown/cap mode'}**`,
     `Milestones: **${(settings.milestoneLevels || []).join(', ') || 'none'}**`,
+    'Level-up reward: **5 × each new level in Nexus Coins**',
     'Achievements: **enabled** • persistent badges + achievement points + progress cards',
     '',
     '_Community levels remain separate from Shop/supporter ranks, module access, staff authority, and Name Color roles._'
@@ -201,6 +257,7 @@ function installCommunityLevelingExtension() {
   Client.prototype[INSTALLED] = true;
   const config = loadConfig();
   const backend = new BackendClient(config);
+  const economy = new NexusEconomyClient();
   const settingsCache = createSettingsCache(backend);
   const messageGuard = createMessageAwardGuard();
   const voiceStartedAt = new Map();
@@ -228,7 +285,7 @@ function installCommunityLevelingExtension() {
           if (!result?.ok || Number(result.awarded || 0) <= 0) return;
           const guild = message.guild || await client.guilds.fetch(String(config.discord.guildId));
           const levelChannel = (await ensureLevelUpChannel(guild)).channel;
-          await applyProgressResult({ client, guild, channel: levelChannel, userId: message.author.id, result, settings, backend, announce: true });
+          await applyProgressResult({ client, guild, channel: levelChannel, userId: message.author.id, result, settings, backend, economy, announce: true });
         } catch (error) {
           console.warn(`[Nexus Sentinal] message XP unavailable: ${String(error?.message || error).slice(0, 180)}`);
         }
@@ -306,7 +363,7 @@ function installCommunityLevelingExtension() {
             if (sub === 'reset') result = await backend.communityResetXp({ userId: target.id, actorId, reason });
             if (!result?.ok) return interaction.editReply({ content: `⚠️ ${result?.message || 'XP update failed.'}` });
             settings = await settingsCache.get(true);
-            const roleSync = await applyProgressResult({ client, guild, channel: levelChannel, userId: target.id, result, settings, backend, announce: sub === 'add' || sub === 'set', forceRoleSync: true });
+            const roleSync = await applyProgressResult({ client, guild, channel: levelChannel, userId: target.id, result, settings, backend, economy, announce: sub === 'add' || sub === 'set', forceRoleSync: true });
             return interaction.editReply({ content: `✅ ${target.username}: **${result.profile?.xp || 0} XP • Level ${result.profile?.level || 1}**${roleSync.roles?.warnings?.length ? `\n⚠️ Role sync: ${roleSync.roles.warnings.join(' | ')}` : ''}` });
           }
 
@@ -399,7 +456,7 @@ function installCommunityLevelingExtension() {
             const result = await backend.communityAward({ userId: id, amount: Number(settings.voice?.xp || 10), source: 'voice' });
             if (!result?.ok || Number(result.awarded || 0) <= 0) continue;
             const levelChannel = (await ensureLevelUpChannel(guild)).channel;
-            await applyProgressResult({ client, guild, channel: levelChannel, userId: id, result, settings, backend, announce: true });
+            await applyProgressResult({ client, guild, channel: levelChannel, userId: id, result, settings, backend, economy, announce: true });
           }
         } catch (error) {
           console.warn(`[Nexus Sentinal] voice XP unavailable: ${String(error?.message || error).slice(0, 180)}`);
@@ -424,6 +481,8 @@ module.exports = {
   createMessageAwardGuard,
   registerLevelCommands,
   refreshLevelPanel,
+  communityLevelCoinKey,
+  grantLevelUpCoins,
   applyProgressResult,
   formatSettings,
   eligibilityRoleBlocked,

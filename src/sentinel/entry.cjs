@@ -8,6 +8,7 @@
 
 const { installGuildMembersIntentExtension } = require('./guild-members-intent-extension.cjs');
 const { installCommunityIntentsExtension } = require('./community-intents-extension.cjs');
+const { installCommunityLevelingExtension } = require('./community-leveling-extension.cjs');
 const { installMentionResponseExtension } = require('./mention-response-extension.cjs');
 const { installRoleMenuExtension } = require('./role-menu-extension.cjs');
 const { installAdminPairingExtension } = require('./admin-pairing-extension.cjs');
@@ -46,6 +47,7 @@ const { installArkEconomyPresenceExtension } = require('./ark-economy-presence-e
 // Minimal Nexus/Discord core.
 installGuildMembersIntentExtension();
 installCommunityIntentsExtension();
+installCommunityLevelingExtension();
 installMentionResponseExtension();
 installRoleMenuExtension();
 installAdminPairingExtension();
