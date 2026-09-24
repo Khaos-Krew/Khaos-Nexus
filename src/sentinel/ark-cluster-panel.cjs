@@ -68,16 +68,66 @@ function renderArkClusterPanel({ servers = [], summary = {}, checkedAt = '' } = 
 }
 function isArkStatusChannel(channel) { return Boolean(channel && (channel.isTextBased?.() || channel.type === ChannelType.GuildText || channel.type === ChannelType.GuildAnnouncement) && normalizeChannelName(channel.name) === STATUS_CHANNEL); }
 async function findArkStatusChannel(guild) { const channels = await guild.channels.fetch(); return valuesOf(channels).find(isArkStatusChannel) || null; }
-function messageMatches(message, botId = '') { if (!message) return false; if (botId && String(message.author?.id || '') !== String(botId)) return false; const embed = message.embeds?.[0]; return String(embed?.footer?.text || '').startsWith('Nexus Sentinal • ARK Cluster Management') || String(embed?.title || '') === PANEL_TITLE; }
+function panelContentMatches(message) {
+  if (!message) return false;
+  const embed = message.embeds?.[0];
+  return String(embed?.footer?.text || '').startsWith('Nexus Sentinal • ARK Cluster Management') || String(embed?.title || '') === PANEL_TITLE;
+}
+function messageMatches(message, botId = '') {
+  if (!panelContentMatches(message)) return false;
+  if (botId && String(message.author?.id || '') !== String(botId)) return false;
+  return true;
+}
+function foreignClusterPanel(message, botId) {
+  if (!panelContentMatches(message)) return false;
+  const author = String(message?.author?.id || '');
+  if (!botId || !author || author === String(botId)) return false;
+  if (message?.author?.bot === false && !message?.webhookId) return false;
+  return true;
+}
 async function reconcileArkClusterPanel(channel, payload, { botId = '', registry = null } = {}) {
-  let recent = []; try { recent = valuesOf(await channel.messages.fetch({ limit: 100 })); } catch {}
-  const candidates = recent.filter((message) => messageMatches(message, botId || channel.client?.user?.id || '')).sort((a, b) => Number(b.createdTimestamp || 0) - Number(a.createdTimestamp || 0));
-  let message = candidates[0] || null, created = false, updated = false, duplicatesRemoved = 0, pinned = false;
-  if (message) { if (!managedPayloadMatches(message, payload)) { await message.edit(payload); updated = true; } } else { message = await channel.send(payload); created = true; }
-  if (message?.pinned !== true && typeof message?.pin === 'function') { try { await message.pin('Nexus Sentinal canonical ARK cluster status panel'); pinned = true; } catch {} }
-  for (const duplicate of candidates.slice(1)) { try { await duplicate.delete('Nexus Sentinal duplicate ARK cluster panel cleanup'); duplicatesRemoved += 1; } catch {} }
+  let recent = [];
+  try { recent = valuesOf(await channel.messages.fetch({ limit: 100 })); } catch {}
+  const resolvedBotId = String(botId || channel?.client?.user?.id || '');
+  const owned = recent.filter((message) => messageMatches(message, resolvedBotId)).sort((a, b) => Number(b.createdTimestamp || 0) - Number(a.createdTimestamp || 0));
+  const foreign = recent.filter((message) => foreignClusterPanel(message, resolvedBotId));
+  let message = owned[0] || null;
+  if (!message && typeof registry?.getMeta === 'function' && typeof channel.messages?.fetch === 'function') {
+    const savedId = String(registry.getMeta()?.panelMessageId || '').replace(/\D/g, '').slice(0, 20);
+    if (savedId) {
+      const saved = await channel.messages.fetch(savedId).catch(() => null);
+      if (saved && messageMatches(saved, resolvedBotId)) message = saved;
+      else if (saved && foreignClusterPanel(saved, resolvedBotId) && !foreign.some((item) => String(item.id) === String(saved.id))) foreign.push(saved);
+    }
+  }
+  let created = false;
+  let updated = false;
+  let duplicatesRemoved = 0;
+  let foreignRemoved = 0;
+  let pinned = false;
+  const migrated = !message && foreign.length > 0;
+  if (message) {
+    if (!managedPayloadMatches(message, payload)) { await message.edit(payload); updated = true; }
+  } else if (typeof channel?.send === 'function') {
+    message = await channel.send(payload);
+    created = true;
+  }
+  if (message?.pinned !== true && typeof message?.pin === 'function') {
+    try { await message.pin('Nexus Sentinal canonical ARK cluster status panel'); pinned = true; } catch {}
+  }
+  for (const duplicate of owned.slice(1)) {
+    if (String(duplicate.id) === String(message?.id || '')) continue;
+    try { await duplicate.delete('Nexus Sentinal duplicate ARK cluster panel cleanup'); duplicatesRemoved += 1; } catch {}
+  }
+  for (const previous of foreign) {
+    if (String(previous.id) === String(message?.id || '')) continue;
+    try { await previous.delete('Nexus Ascended adopted the ARK cluster panel from the previous bot'); foreignRemoved += 1; } catch {}
+  }
   if (registry && message) registry.setMeta({ channelId: String(channel.id || ''), panelMessageId: String(message.id || ''), lastRefreshAt: new Date().toISOString() });
-  return { message, created, updated, duplicatesRemoved, pinned };
+  if (created || migrated || duplicatesRemoved || foreignRemoved) {
+    console.log(`[Nexus Ascended] cluster panel message=${message?.id || ''} created=${created ? 'yes' : 'no'} migrated=${migrated ? 'yes' : 'no'} duplicatesRemoved=${duplicatesRemoved} foreignRemoved=${foreignRemoved}`);
+  }
+  return { message, created, updated, duplicatesRemoved, pinned, migrated, foreignRemoved };
 }
 
 module.exports = {
@@ -85,5 +135,5 @@ module.exports = {
   BUTTON_SHOP, BUTTON_KITS, BUTTON_PUBLIC_SHOP, BUTTON_PUBLIC_KITS, BUTTON_EVENTS, BUTTON_CACHE_SHOP,
   normalizeChannelName, stateGlyph, stateLabel, discordTime, renderRates, renderMods, effectiveRates, effectiveMods,
   renderConnectivity, renderRestartState, renderMapField, clusterEvent, nextRestart, buildButtons, buildInfoButtons,
-  renderArkClusterPanel, isArkStatusChannel, findArkStatusChannel, messageMatches, reconcileArkClusterPanel
+  renderArkClusterPanel, isArkStatusChannel, findArkStatusChannel, panelContentMatches, messageMatches, reconcileArkClusterPanel
 };
