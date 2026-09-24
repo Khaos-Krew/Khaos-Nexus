@@ -17,7 +17,16 @@ const { RateCardStore, ratesText, breedText, bossText } = require('./ark-rate-ca
 const { wipeChecklist } = require('./wipe-checklist.cjs');
 const { ascendedHealthSnapshot, checkRconPrefix, resolveHealthPrefixes, openStore } = require('./ascended-rcon-health.cjs');
 const { runtimeDataDir, snowflake, upsertEmbed } = require('./panel-message.cjs');
-const { handleFissureCommand, handleNightwaveCommand, handleCycleCommand, handleCephalonButton } = require('./cephalon-relay.cjs');
+const {
+  handleFissureCommand,
+  handleNightwaveCommand,
+  handleCycleCommand,
+  handleCephalonButton,
+  handleCephalonModal,
+  handleClanPanelCommand,
+  handleProfileCommand,
+  handleCircuitCommand
+} = require('./cephalon-relay.cjs');
 const { handleOfficialCommand } = require('./asa-official-status.cjs');
 const { handleClusterCommand } = require('./asa-cluster-presence.cjs');
 
@@ -83,6 +92,18 @@ function stageBuilders(bot) {
   }
   if (names.has('cycles')) {
     commands.push(new SlashCommandBuilder().setName('cycles').setDescription('Cetus, Vallis, Cambion, and Earth countdowns.'));
+  }
+  if (names.has('clan')) {
+    const command = new SlashCommandBuilder().setName('clan').setDescription('Warframe clan application panel.');
+    command.addSubcommand((sub) => sub.setName('panel').setDescription('Staff: post or refresh the clan application panel.'));
+    commands.push(command);
+  }
+  if (names.has('profile')) {
+    commands.push(new SlashCommandBuilder().setName('profile').setDescription('Look up a public Warframe profile. No Digital Extremes login.')
+      .addStringOption((option) => option.setName('username').setDescription('In-game name').setRequired(true).setMinLength(1).setMaxLength(24)));
+  }
+  if (names.has('circuit')) {
+    commands.push(new SlashCommandBuilder().setName('circuit').setDescription('Duviri choices, Steel Path reward, and Archimedea.'));
   }
   if (names.has('official')) {
     commands.push(new SlashCommandBuilder().setName('official').setDescription('Official ASA network status from the Wildcard CDN.'));
@@ -186,6 +207,10 @@ async function handleStageCommand(interaction, context) {
   if (typeof interaction?.isButton === 'function' && interaction.isButton()) {
     if (bot !== 'cephalon') return false;
     return handleCephalonButton(interaction, context);
+  }
+  if (typeof interaction?.isModalSubmit === 'function' && interaction.isModalSubmit()) {
+    if (bot !== 'cephalon') return false;
+    return handleCephalonModal(interaction, context);
   }
   if (typeof interaction?.isChatInputCommand === 'function' && !interaction.isChatInputCommand()) return false;
   const name = String(interaction?.commandName || '');
@@ -310,6 +335,9 @@ async function handleStageCommand(interaction, context) {
   if (name === 'fissures') return handleFissureCommand(interaction, context);
   if (name === 'nightwave') return handleNightwaveCommand(interaction, context);
   if (name === 'cycles') return handleCycleCommand(interaction, context);
+  if (name === 'clan') return handleClanPanelCommand(interaction, { ...context, config });
+  if (name === 'profile') return handleProfileCommand(interaction, context);
+  if (name === 'circuit') return handleCircuitCommand(interaction, context);
   if (name === 'official') return handleOfficialCommand(interaction, context);
   if (name === 'cluster') return handleClusterCommand(interaction, context);
   return false;

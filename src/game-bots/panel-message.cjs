@@ -29,6 +29,10 @@ const PANEL_IDENTITIES = Object.freeze({
   cephalonEvent: Object.freeze({
     titles: Object.freeze(['Warframe event calendar']),
     footerPrefixes: Object.freeze(['Cephalon Nexus • staff-refreshable event pin'])
+  }),
+  clanApplications: Object.freeze({
+    titles: Object.freeze(['Warframe clan applications']),
+    footerPrefixes: Object.freeze(['Cephalon Nexus • clan applications'])
   })
 });
 
