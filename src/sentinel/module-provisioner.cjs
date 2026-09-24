@@ -2,8 +2,11 @@
 
 const { ChannelType } = require('discord.js');
 const { getModule, MODULES } = require('../backend/modules/catalog.cjs');
+const { GAME_BOT_JTC_MODULES } = require('../game-bots/join-to-create.cjs');
 const { layoutFor } = require('./module-layouts.cjs');
 const { reconcileModuleAccessPolicy } = require('./module-access-policy.cjs');
+
+const GAME_BOT_JTC = new Set(GAME_BOT_JTC_MODULES);
 
 const CATEGORY_MATCH_THRESHOLD = 0.72;
 
@@ -211,6 +214,7 @@ class ModuleProvisioner {
   }
 
   async createOrReuseLobby(member, setup) {
+    if (GAME_BOT_JTC.has(setup?.moduleId)) return null;
     const existingState = this.state.findTempLobbyByOwner(setup.moduleId, String(member.id));
     if (existingState) {
       try {
@@ -255,7 +259,7 @@ class ModuleProvisioner {
     if (oldState.channelId) await this.removeLobbyIfEmpty(oldState.guild, oldState.channelId);
     if (!newState.channelId || !newState.member) return;
     const setup = this.setupForBuilder(newState.guild.id, newState.channelId);
-    if (!setup) return;
+    if (!setup || GAME_BOT_JTC.has(setup.moduleId)) return;
     try { await this.createOrReuseLobby(newState.member, setup); }
     catch (error) { console.error(`[Sentinal] join-to-build ${setup.moduleId}:`, error.message); }
   }
