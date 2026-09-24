@@ -14,13 +14,52 @@ const {
 const { loadConfig } = require('../shared/config.cjs');
 const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
-const { ArkRconConfigStore, normalizePrefix, rconRailwayEnvForbidden } = require('./ark-rcon-config-store.cjs');
+const {
+  ArkRconConfigStore,
+  normalizeHost,
+  normalizePort,
+  normalizePrefix,
+  rconRailwayEnvForbidden
+} = require('./ark-rcon-config-store.cjs');
 const { reportCommandFailure } = require('../game-bots/command-failure.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.rcon.config.extension');
 const BOUND = Symbol.for('khaos.nexus.ark.rcon.config.bound');
 const COMMAND_NAME = 'arkrcon';
 const PASSWORD_MODAL_PREFIX = 'nexus:arkrcon:password:';
+const SETUP_MODAL_PREFIX = 'nexus:arkrcon:setup:';
+const DEFAULT_TIMEOUT_MS = 8000;
+const OWNER_CONFIG_ERROR = 'RCON configuration and raw command execution are restricted to the Nexus owner.';
+
+// Discord modals have no per-field description. Guidance lives in the label
+// (max 45) and placeholder (max 100). Text inputs cannot mask a password;
+// Short is the same protection the existing password modal uses.
+const SETUP_FIELDS = Object.freeze({
+  host: Object.freeze({
+    customId: 'host',
+    label: 'RCON host: Citadel public IP/hostname',
+    placeholder: 'From the Citadel panel: public IP or hostname. Example 203.0.113.10. No http:// or port.',
+    style: TextInputStyle.Short,
+    minLength: 1,
+    maxLength: 255
+  }),
+  port: Object.freeze({
+    customId: 'port',
+    label: 'RCON port (1-65535, not the game port)',
+    placeholder: 'Citadel RCON port as digits 1-65535. Not the game join port (often 7777) or query port.',
+    style: TextInputStyle.Short,
+    minLength: 1,
+    maxLength: 5
+  }),
+  password: Object.freeze({
+    customId: 'password',
+    label: 'RCON / Server Admin Password',
+    placeholder: 'Citadel admin password. Stored encrypted, never echoed, and not a Railway variable.',
+    style: TextInputStyle.Short,
+    minLength: 1,
+    maxLength: 256
+  })
+});
 
 function isOwner(interaction, config = {}) {
   const userId = String(interaction.user?.id || '');
@@ -64,10 +103,11 @@ function rconCommand(registry = new ArkClusterRegistry()) {
   const choices = serverChoices(registry);
   const command = new SlashCommandBuilder()
     .setName(COMMAND_NAME)
-    .setDescription('Owner/staff ARK RCON diagnostics, configuration, and raw command console.');
+    .setDescription('Owner/staff ARK RCON setup, diagnostics, configuration, and raw command console.');
 
   command.addSubcommand((sub) => addServerOption(sub.setName('status').setDescription('Show effective RCON configuration without exposing the password.'), choices));
   command.addSubcommand((sub) => addServerOption(sub.setName('test').setDescription('Test RCON authentication and ListPlayers.'), choices));
+  command.addSubcommand((sub) => addServerOption(sub.setName('setup').setDescription('Owner-only: one modal for RCON host, port, and password.'), choices));
   command.addSubcommand((sub) => addServerOption(sub.setName('configure').setDescription('Owner-only: persist an RCON endpoint override.'), choices)
     .addStringOption((option) => option.setName('host').setDescription('Citadel RCON host/IP.').setRequired(true).setMaxLength(255))
     .addIntegerOption((option) => option.setName('port').setDescription('Citadel RCON port.').setRequired(true).setMinValue(1).setMaxValue(65535))
@@ -155,16 +195,72 @@ function passwordModal(prefix) {
   return modal;
 }
 
+function serverChoiceName(prefix) {
+  const key = normalizePrefix(prefix);
+  const match = serverChoices().find((item) => item.value === key);
+  const name = String(match?.name || key).replace(/[`\r\n]/g, '').trim().slice(0, 80);
+  return name || key;
+}
+
+function addSetupInput(modal, field) {
+  const input = new TextInputBuilder()
+    .setCustomId(field.customId)
+    .setLabel(field.label)
+    .setStyle(field.style)
+    .setRequired(true)
+    .setMinLength(field.minLength)
+    .setMaxLength(field.maxLength)
+    .setPlaceholder(field.placeholder);
+  modal.addComponents(new ActionRowBuilder().addComponents(input));
+}
+
+function setupModal(prefix) {
+  const key = normalizePrefix(prefix);
+  const title = `Setup ${serverChoiceName(key)} RCON`.slice(0, 45);
+  const modal = new ModalBuilder()
+    .setCustomId(`${SETUP_MODAL_PREFIX}${key}`)
+    .setTitle(title);
+  addSetupInput(modal, SETUP_FIELDS.host);
+  addSetupInput(modal, SETUP_FIELDS.port);
+  addSetupInput(modal, SETUP_FIELDS.password);
+  return modal;
+}
+
+function setupFailureText(error) {
+  const message = String(error?.message || '');
+  if (message === 'RCON host is invalid.') return '❌ That host was rejected. Use a Citadel public IP or hostname, with no spaces, scheme, or port.';
+  if (message === 'RCON port is invalid.') return '❌ That port was rejected. Enter the RCON port as digits from 1 to 65535, not the game join port.';
+  if (message === 'RCON password cannot be empty.') return '❌ The password was empty. Enter the server admin password. It is stored encrypted and is not echoed.';
+  return '';
+}
+
+function setupSavedText(prefix) {
+  const name = serverChoiceName(prefix);
+  return [
+    `✅ **${name} RCON saved** in the Discord override store.`,
+    `Enabled, timeout ${DEFAULT_TIMEOUT_MS} ms. The password was encrypted and was not echoed.`,
+    '',
+    `Next: \`/arkrcon test server:${name}\``,
+    '',
+    statusText(prefix)
+  ].join('\n');
+}
+
 async function handleCommand(interaction, config) {
   if (!interaction.isChatInputCommand?.() || interaction.commandName !== COMMAND_NAME) return false;
   const sub = interaction.options.getSubcommand();
   const prefix = normalizePrefix(interaction.options.getString('server', true));
 
   if (!isStaff(interaction, config)) throw new Error('ARK RCON controls require Nexus staff authorization.');
-  if (['configure', 'password', 'send', 'clear'].includes(sub) && !isOwner(interaction, config)) throw new Error('RCON configuration and raw command execution are restricted to the Nexus owner.');
+  if (['configure', 'password', 'send', 'clear', 'setup'].includes(sub) && !isOwner(interaction, config)) throw new Error(OWNER_CONFIG_ERROR);
 
   if (sub === 'password') {
     await interaction.showModal(passwordModal(prefix));
+    return true;
+  }
+
+  if (sub === 'setup') {
+    await interaction.showModal(setupModal(prefix));
     return true;
   }
 
@@ -181,7 +277,7 @@ async function handleCommand(interaction, config) {
       host: interaction.options.getString('host', true),
       port: interaction.options.getInteger('port', true),
       enabled: interaction.options.getBoolean('enabled') ?? true,
-      timeoutMs: interaction.options.getInteger('timeout_ms') || 8000,
+      timeoutMs: interaction.options.getInteger('timeout_ms') || DEFAULT_TIMEOUT_MS,
       actorId: interaction.user.id
     });
     await interaction.editReply({ content: `✅ RCON endpoint override saved.\n\n${statusText(prefix)}`, allowedMentions: { parse: [] } });
@@ -197,7 +293,7 @@ async function handleCommand(interaction, config) {
 
   const server = arkServerFromEnv(prefix);
   if (!server.enabled) throw new Error(`${prefix} RCON is disabled.`);
-  if (!server.host || !server.port || !server.password) throw new Error(`${prefix} RCON configuration is incomplete. Use /arkrcon status, configure, and password.`);
+  if (!server.host || !server.port || !server.password) throw new Error(`${prefix} RCON configuration is incomplete. Use /arkrcon setup, or /arkrcon status, configure, and password.`);
   const rcon = new ArkRconClient(server);
 
   if (sub === 'test') {
@@ -228,6 +324,39 @@ async function handlePasswordModal(interaction, config) {
   return true;
 }
 
+async function handleSetupModal(interaction, config) {
+  if (!interaction.isModalSubmit?.() || !String(interaction.customId || '').startsWith(SETUP_MODAL_PREFIX)) return false;
+  const prefix = normalizePrefix(String(interaction.customId).slice(SETUP_MODAL_PREFIX.length));
+  if (!isOwner(interaction, config)) throw new Error(OWNER_CONFIG_ERROR);
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const password = interaction.fields.getTextInputValue(SETUP_FIELDS.password.customId);
+  let host;
+  let port;
+  try {
+    host = normalizeHost(interaction.fields.getTextInputValue(SETUP_FIELDS.host.customId));
+    port = normalizePort(String(interaction.fields.getTextInputValue(SETUP_FIELDS.port.customId) || '').trim());
+    if (!String(password || '')) throw new Error('RCON password cannot be empty.');
+  } catch (error) {
+    const text = setupFailureText(error);
+    if (!text) throw error;
+    await interaction.editReply({ content: text, allowedMentions: { parse: [] } });
+    return true;
+  }
+
+  const store = new ArkRconConfigStore();
+  store.setEndpoint(prefix, {
+    host,
+    port,
+    enabled: true,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    actorId: interaction.user.id
+  });
+  store.setPassword(prefix, password, interaction.user.id);
+  await interaction.editReply({ content: setupSavedText(prefix), allowedMentions: { parse: [] } });
+  return true;
+}
+
 function installArkRconConfigExtension() {
   if (Client.prototype[INSTALLED]) return;
   Client.prototype[INSTALLED] = true;
@@ -242,14 +371,15 @@ function installArkRconConfigExtension() {
         if (String(interaction.guildId || '') !== String(config.discord?.guildId || '')) return;
         void (async () => {
           if (await handleCommand(interaction, config)) return;
-          await handlePasswordModal(interaction, config);
+          if (await handlePasswordModal(interaction, config)) return;
+          await handleSetupModal(interaction, config);
         })().catch((error) => reportCommandFailure(interaction, error));
       });
       client.once(Events.ClientReady, () => {
         void (async () => {
           const guild = await client.guilds.fetch(String(config.discord?.guildId || ''));
           await registerCommand(guild);
-          console.log(`[Nexus Sentinal] /${COMMAND_NAME} registered: cluster-aware RCON status/config/test/raw-send`);
+          console.log(`[Nexus Sentinal] /${COMMAND_NAME} registered: cluster-aware RCON setup/status/config/test/raw-send`);
         })().catch((error) => console.warn(`[Nexus Sentinal] ARK RCON config command unavailable: ${safeError(error).slice(0, 300)}`));
       });
     }
@@ -260,14 +390,20 @@ function installArkRconConfigExtension() {
 module.exports = {
   COMMAND_NAME,
   PASSWORD_MODAL_PREFIX,
+  SETUP_MODAL_PREFIX,
+  SETUP_FIELDS,
+  DEFAULT_TIMEOUT_MS,
   isOwner,
   isStaff,
   serverChoices,
+  serverChoiceName,
   rconCommand,
   statusText,
   resultText,
   passwordModal,
+  setupModal,
   handleCommand,
   handlePasswordModal,
+  handleSetupModal,
   installArkRconConfigExtension
 };

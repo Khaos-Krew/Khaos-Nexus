@@ -221,7 +221,7 @@ function ensureArkRcon(context) {
     context.pendingRcon = false;
     return context.rcon;
   }
-  throw new Error('ARK RCON is not configured yet. An owner must use /arkrcon configure and /arkrcon password. Connection settings stay in the Discord override store.');
+  throw new Error('ARK RCON is not configured yet. An owner must use /arkrcon setup (or configure and password). Connection settings stay in the Discord override store.');
 }
 
 async function registerArkCommand(guild) {

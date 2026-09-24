@@ -54,7 +54,7 @@ async function respondHealthInteraction(interaction, { config, prefix, server })
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const live = server?.host && server?.port && server?.password ? server : arkServerFromEnv(prefix);
   if (!live.enabled || !live.host || !live.port || !live.password) {
-    throw new Error(`${prefix} RCON is not configured yet. An owner must use /arkrcon configure and /arkrcon password.`);
+    throw new Error(`${prefix} RCON is not configured yet. An owner must use /arkrcon setup (or configure and password).`);
   }
   const result = await buildHealthReply(prefix, live);
   await interaction.editReply({ content: result.content, allowedMentions: { parse: [] } });
