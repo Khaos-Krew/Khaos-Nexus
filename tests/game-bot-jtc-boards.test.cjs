@@ -16,6 +16,7 @@ const { gameBotIntentBits } = require('../src/game-bots/start.cjs');
 const { handleStageCommand } = require('../src/game-bots/stage-commands.cjs');
 const {
   GAME_BOT_JTC_MODULES,
+  OWNER_JTC_LOBBY_IDS,
   JoinToCreate,
   channelNameFor,
   installJoinToCreate,
@@ -105,20 +106,69 @@ test('game bots declare GuildVoiceStates and JTC config stays inside the categor
   const bits = gameBotIntentBits();
   assert.equal(bits.includes(GatewayIntentBits.GuildVoiceStates), true);
   assert.equal(bits.includes(GatewayIntentBits.Guilds), true);
+  assert.deepEqual(OWNER_JTC_LOBBY_IDS, {
+    cephalon: '1540877236184424500',
+    ascended: '1540867019979890829',
+    sanctuary: '1541540961937526916'
+  });
+  for (const id of Object.values(OWNER_JTC_LOBBY_IDS)) {
+    assert.equal(typeof id, 'string');
+    assert.equal(String(Number(id)) === id, false);
+  }
+  const owner = resolveJtcConfig('cephalon', {});
+  assert.equal(owner.lobbyId, '1540877236184424500');
+  assert.equal(owner.lobbySource, 'default');
+  assert.equal(owner.categoryId, OWNER_CATEGORY_IDS.cephalon);
+  assert.equal(owner.configured, true);
+  const blank = resolveJtcConfig('cephalon', { CEPHALON_JTC_LOBBY_CHANNEL_ID: '  ' });
+  assert.equal(blank.lobbyId, '1540877236184424500');
+  assert.equal(blank.lobbySource, 'default');
+  const invalid = resolveJtcConfig('cephalon', { CEPHALON_JTC_LOBBY_CHANNEL_ID: 'nope' });
+  assert.equal(invalid.lobbyId, '');
+  assert.equal(invalid.lobbySource, 'invalid');
+  assert.equal(invalid.configured, false);
   const configured = resolveJtcConfig('cephalon', jtcEnv());
   assert.equal(configured.configured, true);
+  assert.equal(configured.lobbyId, LOBBY);
+  assert.equal(configured.lobbySource, 'env');
   assert.equal(configured.categoryId, CATEGORY);
-  const fallback = resolveJtcConfig('ascended', { ASCENDED_JTC_LOBBY_CHANNEL_ID: LOBBY });
+  const fallback = resolveJtcConfig('ascended', {});
+  assert.equal(fallback.lobbyId, '1540867019979890829');
+  assert.equal(fallback.lobbySource, 'default');
   assert.equal(fallback.categoryId, OWNER_CATEGORY_IDS.ascended);
-  const sanctuary = resolveJtcConfig('sanctuary', {
+  assert.equal(fallback.configured, true);
+  const sanctuary = resolveJtcConfig('sanctuary', {});
+  assert.equal(sanctuary.lobbyId, '1541540961937526916');
+  assert.equal(sanctuary.lobbySource, 'default');
+  assert.equal(sanctuary.categoryId, '');
+  assert.equal(sanctuary.configured, false);
+  const sanctuaryOverride = resolveJtcConfig('sanctuary', {
     SANCTUARY_JTC_LOBBY_CHANNEL_ID: LOBBY,
     SANCTUARY_DISCORD_CATEGORY_ID: '1541540940471210128'
   });
-  assert.equal(sanctuary.categoryId, '1541540940471210128');
-  assert.equal(jtcStatusLine('cephalon', {}), 'Join-to-create: lobby not configured.');
+  assert.equal(sanctuaryOverride.lobbyId, LOBBY);
+  assert.equal(sanctuaryOverride.lobbySource, 'env');
+  assert.equal(sanctuaryOverride.categoryId, '1541540940471210128');
+  assert.equal(jtcStatusLine('cephalon', {}), 'Join-to-create: lobby configured.');
+  assert.equal(jtcStatusLine('cephalon', { CEPHALON_JTC_LOBBY_CHANNEL_ID: 'nope' }), 'Join-to-create: lobby override is not a channel id.');
+  assert.equal(jtcStatusLine('sanctuary', {}), 'Join-to-create: category not configured.');
   assert.equal(jtcStatusLine('cephalon', jtcEnv()), 'Join-to-create: lobby configured.');
   assert.equal(channelNameFor('cephalon', 'Nova'), "🎮 Nova's Squad");
   assert.deepEqual(GAME_BOT_JTC_MODULES, ['ark', 'warframe', 'diablo4']);
+  const cephalonDocker = fs.readFileSync(path.join(__dirname, '../Dockerfile.cephalon'), 'utf8');
+  const ascendedDocker = fs.readFileSync(path.join(__dirname, '../Dockerfile.ascended'), 'utf8');
+  const sanctuaryDocker = fs.readFileSync(path.join(__dirname, '../Dockerfile.sanctuary'), 'utf8');
+  assert.match(cephalonDocker, /CEPHALON_JTC_LOBBY_CHANNEL_ID=1540877236184424500/);
+  assert.match(ascendedDocker, /ASCENDED_JTC_LOBBY_CHANNEL_ID=1540867019979890829/);
+  assert.match(sanctuaryDocker, /SANCTUARY_JTC_LOBBY_CHANNEL_ID=1541540961937526916/);
+  assert.doesNotMatch(sanctuaryDocker, /SANCTUARY_DISCORD_CATEGORY_ID=\d+/);
+  const ops = fs.readFileSync(path.join(__dirname, '../docs/ops/JOIN_TO_CREATE.md'), 'utf8');
+  assert.match(ops, /1540877236184424500/);
+  assert.match(ops, /1540867019979890829/);
+  assert.match(ops, /1541540961937526916/);
+  assert.match(ops, /1516640233389822042/);
+  assert.match(ops, /1516602943670059108/);
+  assert.match(ops, /1541540940471210128/);
 });
 
 test('join-to-create creates, reuses, gates, and deletes empty channels without touching the lobby', async () => {
@@ -532,7 +582,7 @@ test('help and staff status mention the new boards and JTC without a second econ
     env: { NEXUS_DATA_DIR: statusDir, ASCENDED_SESSION_IDS: 'NexusGen1' }
   });
   fs.rmSync(statusDir, { recursive: true, force: true });
-  assert.match(ascendedStatus, /Join-to-create: lobby not configured/);
+  assert.match(ascendedStatus, /Join-to-create: lobby configured/);
   assert.match(ascendedStatus, /1 SessionID allowlisted/);
   assert.doesNotMatch(ascendedStatus, /NexusGen1/);
 });

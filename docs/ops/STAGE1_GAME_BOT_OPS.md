@@ -23,11 +23,13 @@ Threads are allowed when the parent channel’s category matches. DMs and other 
 Set on `cephalon-nexus`:
 
 - `CEPHALON_DISCORD_CATEGORY_ID=1516640233389822042` (already baked into `Dockerfile.cephalon`)
+- `CEPHALON_JTC_LOBBY_CHANNEL_ID=1540877236184424500` (already baked; blank keeps this lobby)
 - `NEXUS_STAFF_ALERT_CHANNEL_ID` optional staff text channel for command-failure alerts
 
 Set on `nexus-ascended`:
 
 - `ASCENDED_DISCORD_CATEGORY_ID=1516602943670059108` (already baked into `Dockerfile.ascended`)
+- `ASCENDED_JTC_LOBBY_CHANNEL_ID=1540867019979890829` (already baked; blank keeps this lobby)
 - `ARKSHOP_DB_MODE=disabled` so the retired ArkShop MySQL bridge stays off
 - `NEXUS_STAFF_ALERT_CHANNEL_ID` optional, same meaning as Cephalon
 

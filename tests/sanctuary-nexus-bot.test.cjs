@@ -616,6 +616,7 @@ test('sanctuary help and status stay off other bots and off a baked category id'
   assert.match(dockerfile, /npm ci --omit=dev/);
   assert.match(dockerfile, /NEXUS_GAME_ROLE=diablo/);
   assert.match(dockerfile, /src\/railway\/sanctuary-service\.cjs/);
+  assert.match(dockerfile, /SANCTUARY_JTC_LOBBY_CHANNEL_ID=1541540961937526916/);
   assert.doesNotMatch(dockerfile, /busybox|_RCON_PASSWORD|_RCON_PORT|_HOST=|SANCTUARY_DISCORD_CATEGORY_ID=\d+/i);
   assert.match(service, /botName: 'Sanctuary Nexus'/);
   assert.match(service, /serviceName: 'sanctuary-nexus'/);

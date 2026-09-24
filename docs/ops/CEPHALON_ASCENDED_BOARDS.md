@@ -26,6 +26,6 @@ Embeds attribute WFCD WarframeStat. Buttons opt into a cycle ping role. A ping i
 
 ## Owner smoke
 
-1. Set each bot's `*_JTC_LOBBY_CHANNEL_ID`. Join that lobby in the ARK, Warframe, and Sanctuary categories. A temporary channel appears and the member is moved. Leave it and confirm the lobby remains.
+1. The owner lobbies are already the defaults: Cephalon `1540877236184424500`, Ascended `1540867019979890829`, Sanctuary `1541540961937526916`. Join each lobby. A temporary channel appears and the member is moved. Leave it and confirm the lobby remains.
 2. In the Warframe category, `/fissures` lists a node and an expiry and credits WFCD. `/nightwave` toggles a challenge. `/cycles` shows four countdowns.
 3. In the ARK category, `/official` matches the Wildcard status text. Restart the Ascended process and confirm `/status` still shows the RCON vault without running `/arkrcon` again. `/cluster` shows only the allowlisted sessions.

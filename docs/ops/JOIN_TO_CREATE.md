@@ -15,13 +15,15 @@ Administrator includes those permissions. The bot also needs the Guild Voice Sta
 
 ## Environment variables
 
-| Bot | Lobby channel | Category override | Empty grace |
-|-----|---------------|-------------------|-------------|
-| Cephalon Nexus | `CEPHALON_JTC_LOBBY_CHANNEL_ID` | `CEPHALON_JTC_CATEGORY_ID` | `CEPHALON_JTC_EMPTY_GRACE_MS` |
-| Nexus Ascended | `ASCENDED_JTC_LOBBY_CHANNEL_ID` | `ASCENDED_JTC_CATEGORY_ID` | `ASCENDED_JTC_EMPTY_GRACE_MS` |
-| Sanctuary Nexus | `SANCTUARY_JTC_LOBBY_CHANNEL_ID` | `SANCTUARY_JTC_CATEGORY_ID` | `SANCTUARY_JTC_EMPTY_GRACE_MS` |
+| Bot | Lobby channel | Owner lobby id | Category override | Empty grace |
+|-----|---------------|-----------------|-------------------|-------------|
+| Cephalon Nexus | `CEPHALON_JTC_LOBBY_CHANNEL_ID` | `1540877236184424500` | `CEPHALON_JTC_CATEGORY_ID` | `CEPHALON_JTC_EMPTY_GRACE_MS` |
+| Nexus Ascended | `ASCENDED_JTC_LOBBY_CHANNEL_ID` | `1540867019979890829` | `ASCENDED_JTC_CATEGORY_ID` | `ASCENDED_JTC_EMPTY_GRACE_MS` |
+| Sanctuary Nexus | `SANCTUARY_JTC_LOBBY_CHANNEL_ID` | `1541540961937526916` | `SANCTUARY_JTC_CATEGORY_ID` | `SANCTUARY_JTC_EMPTY_GRACE_MS` |
 
-The lobby value is the existing "Join to Create" voice channel snowflake. The category override is optional. When it is unset, the bot uses its category gate id (`CEPHALON_DISCORD_CATEGORY_ID`, `ASCENDED_DISCORD_CATEGORY_ID`, or `SANCTUARY_DISCORD_CATEGORY_ID`). Those gates stay `1516640233389822042`, `1516602943670059108`, and `1541540940471210128`.
+Those lobby ids are the owner voice channels. They are the source default and are baked into `Dockerfile.cephalon`, `Dockerfile.ascended`, and `Dockerfile.sanctuary`, the same way Cephalon and Ascended bake category ids. A blank variable keeps the owner id. A non-empty value that is not a Discord snowflake turns join-to-create off instead of falling back. Set the variable to a different snowflake to point at another lobby.
+
+The category override is optional. When it is unset, the bot uses its category gate id (`CEPHALON_DISCORD_CATEGORY_ID`, `ASCENDED_DISCORD_CATEGORY_ID`, or `SANCTUARY_DISCORD_CATEGORY_ID`). Those gates stay `1516640233389822042`, `1516602943670059108`, and `1541540940471210128`. Sanctuary's category id stays a Railway variable and is not baked into the image.
 
 Grace defaults to 15 seconds and is clamped between 5 and 120 seconds. An empty temporary channel is deleted after that grace. The lobby channel itself is never deleted.
 

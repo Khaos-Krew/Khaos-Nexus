@@ -18,6 +18,13 @@ const NAME_KIND = Object.freeze({
   sanctuary: 'Party'
 });
 
+// Owner lobby voice channels. A blank env var uses these. A non-snowflake override fail-closes.
+const OWNER_JTC_LOBBY_IDS = Object.freeze({
+  cephalon: '1540877236184424500',
+  ascended: '1540867019979890829',
+  sanctuary: '1541540961937526916'
+});
+
 function snowflake(value) {
   const text = String(value || '').trim();
   return /^\d{17,20}$/.test(text) ? text : '';
@@ -36,10 +43,21 @@ function clampGrace(value) {
   return Math.max(5_000, Math.min(120_000, Math.round(raw)));
 }
 
+function resolveLobbyId(bot, env) {
+  const prefix = envPrefix(bot);
+  const fallback = OWNER_JTC_LOBBY_IDS[bot] || '';
+  if (!prefix) return { lobbyId: '', lobbySource: 'invalid' };
+  const raw = env[`${prefix}_JTC_LOBBY_CHANNEL_ID`];
+  if (raw === undefined || String(raw).trim() === '') return { lobbyId: fallback, lobbySource: fallback ? 'default' : 'unset' };
+  const lobbyId = snowflake(raw);
+  if (!lobbyId) return { lobbyId: '', lobbySource: 'invalid' };
+  return { lobbyId, lobbySource: 'env' };
+}
+
 function resolveJtcConfig(bot, env = process.env) {
   const key = normalizeBot(bot);
   const prefix = envPrefix(key);
-  const lobbyId = prefix ? snowflake(env[`${prefix}_JTC_LOBBY_CHANNEL_ID`]) : '';
+  const lobby = resolveLobbyId(key, env);
   const categoryOverride = prefix ? snowflake(env[`${prefix}_JTC_CATEGORY_ID`]) : '';
   const gate = key ? resolveCategoryConfig(key, env) : { id: '' };
   const categoryId = categoryOverride || snowflake(gate.id);
@@ -47,17 +65,19 @@ function resolveJtcConfig(bot, env = process.env) {
   const guildId = snowflake(env.NEXUS_DISCORD_GUILD_ID || env.DISCORD_GUILD_ID);
   return {
     bot: key,
-    lobbyId,
+    lobbyId: lobby.lobbyId,
+    lobbySource: lobby.lobbySource,
     categoryId,
     graceMs,
     guildId,
-    configured: Boolean(key && lobbyId && categoryId)
+    configured: Boolean(key && lobby.lobbyId && categoryId)
   };
 }
 
 function jtcStatusLine(bot, env = process.env) {
   const config = resolveJtcConfig(bot, env);
   if (!config.bot) return 'Join-to-create: unavailable.';
+  if (config.lobbySource === 'invalid') return 'Join-to-create: lobby override is not a channel id.';
   if (!config.lobbyId) return 'Join-to-create: lobby not configured.';
   if (!config.categoryId) return 'Join-to-create: category not configured.';
   return 'Join-to-create: lobby configured.';
@@ -339,6 +359,7 @@ function installJoinToCreate(client, { bot, env = process.env, controller } = {}
 
 module.exports = {
   GAME_BOT_JTC_MODULES,
+  OWNER_JTC_LOBBY_IDS,
   MODULE_SET,
   resolveJtcConfig,
   jtcStatusLine,
