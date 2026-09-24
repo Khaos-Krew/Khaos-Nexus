@@ -17,6 +17,7 @@ const { serverProvidersFromConfig } = require('./providers/server-providers.cjs'
 const { ArkCompanionService } = require('./services/ark-companion-service.cjs');
 const { CommunityLevelService } = require('./services/community-level-service.cjs');
 const { CommunityAchievementService } = require('./services/community-achievement-service.cjs');
+const { WalletCosmeticsService } = require('./services/wallet-cosmetics-service.cjs');
 const { trackedServersResponse } = require('./tracked-servers.cjs');
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
@@ -45,6 +46,10 @@ function communityAchievementStateFile(config = {}) {
   const configured = String(config.communityLeveling?.achievementStateFile || '').trim();
   return configured || path.join(process.env.NEXUS_DATA_DIR || 'data', 'community-achievements.json');
 }
+function walletCosmeticsStateFile(config = {}) {
+  const configured = String(config.communityLeveling?.walletCosmeticsStateFile || '').trim();
+  return configured || path.join(process.env.NEXUS_DATA_DIR || 'data', 'wallet-cosmetics.json');
+}
 function hostedServerStateFile(config = {}) {
   const configured = String(config.hostedServers?.stateFile || '').trim();
   return configured || path.join(process.env.NEXUS_DATA_DIR || 'data', 'hosted-servers.json');
@@ -71,6 +76,7 @@ function createBackendApplication(config, options = {}) {
   const arkCompanion = options.arkCompanion || new ArkCompanionService();
   const communityLevels = options.communityLevels || new CommunityLevelService({ stateFile: communityLevelStateFile(config), settings: config.communityLeveling || {} });
   const communityAchievements = options.communityAchievements || new CommunityAchievementService({ stateFile: communityAchievementStateFile(config), levelService: communityLevels });
+  const walletCosmetics = options.walletCosmetics || new WalletCosmeticsService({ stateFile: walletCosmeticsStateFile(config) });
   runtime.registerService('scheduler', scheduler);
   runtime.registerService('ark-companion', arkCompanion);
   scheduler.registerExecutor((moduleId, actionId, payload, context) => runtime.invoke(moduleId, actionId, payload, context));
@@ -130,6 +136,16 @@ function createBackendApplication(config, options = {}) {
       if (req.method === 'POST' && url.pathname === '/v1/community-xp/set') return json(res, 200, communityLevels.setXp(await readBody(req)));
       if (req.method === 'POST' && url.pathname === '/v1/community-xp/reset') return json(res, 200, communityLevels.reset(await readBody(req)));
       if (req.method === 'POST' && url.pathname === '/v1/community-xp/settings') return json(res, 200, communityLevels.updateSettings(await readBody(req)));
+      if (req.method === 'GET' && url.pathname === '/v1/wallet-cosmetics/catalog') return json(res, 200, { ok: true, catalog: walletCosmetics.catalog() });
+      const walletCosmeticsMatch = /^\/v1\/wallet-cosmetics\/users\/(\d{15,24})$/.exec(url.pathname);
+      if (req.method === 'GET' && walletCosmeticsMatch) return json(res, 200, walletCosmetics.profile(walletCosmeticsMatch[1]));
+      const walletCosmeticsSyncMatch = /^\/v1\/wallet-cosmetics\/users\/(\d{15,24})\/sync$/.exec(url.pathname);
+      if (req.method === 'POST' && walletCosmeticsSyncMatch) return json(res, 200, walletCosmetics.sync(walletCosmeticsSyncMatch[1], await readBody(req)));
+      const walletCosmeticsEquipMatch = /^\/v1\/wallet-cosmetics\/users\/(\d{15,24})\/equip$/.exec(url.pathname);
+      if (req.method === 'POST' && walletCosmeticsEquipMatch) {
+        const equipped = walletCosmetics.equip(walletCosmeticsEquipMatch[1], await readBody(req));
+        return json(res, equipped.ok ? 200 : 409, equipped);
+      }
 
       if (req.method === 'GET' && url.pathname === '/v1/ark/taming/species') { const species = await arkCompanion.listSpecies(); return json(res, 200, { ok: true, species }); }
       if (req.method === 'POST' && url.pathname === '/v1/admin/modules') { const body = await readBody(req); const enabled = body.enabled && typeof body.enabled === 'object' && !Array.isArray(body.enabled) ? body.enabled : {}; return json(res, 200, { ok: true, enabled: runtime.setModuleEnabled(enabled), modules: runtime.manifests() }); }
@@ -156,7 +172,7 @@ function createBackendApplication(config, options = {}) {
   }
   async function stop() { scheduler.stop(); if (!started || !server.listening) { started=false; return; } await new Promise((resolve)=>server.close(()=>resolve())); started=false; }
 
-  return { host, port, runtime, scheduler, arkCompanion, communityLevels, communityAchievements, accounts, hostedServers, serverApplications, providerValidator, configureProviders, server, start, stop, isStarted:()=>started && server.listening };
+  return { host, port, runtime, scheduler, arkCompanion, communityLevels, communityAchievements, walletCosmetics, accounts, hostedServers, serverApplications, providerValidator, configureProviders, server, start, stop, isStarted:()=>started && server.listening };
 }
 
-module.exports = { LOOPBACK_HOSTS, communityLevelStateFile, communityAchievementStateFile, hostedServerStateFile, serverApplicationStateFile, createBackendApplication, providersForConfig };
+module.exports = { LOOPBACK_HOSTS, communityLevelStateFile, communityAchievementStateFile, walletCosmeticsStateFile, hostedServerStateFile, serverApplicationStateFile, createBackendApplication, providersForConfig };

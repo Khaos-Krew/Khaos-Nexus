@@ -25,6 +25,7 @@ const { installStaffWorkspaceExtension } = require('./staff-workspace-extension.
 const { installArnIntakeExtension } = require('./arn-intake-extension.cjs');
 const { installNexusEconomyIdentitySyncExtension } = require('./nexus-economy-identity-sync-extension.cjs');
 const { installNexusBalanceCommandExtension } = require('./nexus-balance-command-extension.cjs');
+const { installWalletCosmeticsExtension } = require('./wallet-cosmetics-extension.cjs');
 const { installMemberVerificationExtension } = require('./member-verification-extension.cjs');
 const { installWalletAdjustExtension } = require('./wallet-adjust-extension.cjs');
 const { installClusterShopUiExtension } = require('./cluster-shop-ui-extension.cjs');
@@ -64,6 +65,7 @@ installStaffWorkspaceExtension();
 installArnIntakeExtension();
 installNexusEconomyIdentitySyncExtension();
 installNexusBalanceCommandExtension();
+installWalletCosmeticsExtension();
 installMemberVerificationExtension();
 installWalletAdjustExtension();
 installClusterShopUiExtension();

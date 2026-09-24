@@ -175,14 +175,37 @@ async function grantLevelUpCoins(economy, userId, result = {}, logger = console)
   }
 }
 
+async function grantWalletCosmetics(backend, userId, result, coinsGrant, logger = console) {
+  if (!result?.leveledUp) return { ok: true, skipped: 'no-level-up' };
+  if (typeof backend?.syncWalletCosmetics !== 'function') return { ok: true, skipped: 'cosmetics-unavailable' };
+  const level = Number(result.afterLevel || result.profile?.level);
+  const body = { coinsGranted: coinsGrant?.ok === true };
+  if (Number.isInteger(level) && level >= 1) body.level = level;
+  try {
+    const synced = await backend.syncWalletCosmetics(String(userId), body);
+    if (!synced || synced.ok === false) {
+      const reason = synced?.reason || synced?.skipped || 'cosmetics-sync-failed';
+      logger.warn?.(`[Nexus Sentinal] wallet cosmetics skipped for ${userId}: ${reason}. Level and Coins were not rolled back.`);
+      return { ok: false, skipped: String(reason) };
+    }
+    return synced;
+  } catch (error) {
+    const message = String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 240);
+    logger.warn?.(`[Nexus Sentinal] wallet cosmetics skipped for ${userId}: ${message}. Level and Coins were not rolled back.`);
+    return { ok: false, skipped: 'cosmetics-sync-failed', error: message };
+  }
+}
+
 async function applyProgressResult({ client, guild, channel, userId, result, settings, backend = null, economy = null, announce = true, forceRoleSync = false, logger = console }) {
-  if (!result?.profile && !result?.leveledUp) return { roles: null, announced: false, achievementsAnnounced: false, achievements: null, coinsGrant: null };
+  if (!result?.profile && !result?.leveledUp) return { roles: null, announced: false, achievementsAnnounced: false, achievements: null, coinsGrant: null, cosmetics: null };
   let coinsGrant = null;
+  let cosmetics = { ok: true, skipped: 'no-level-up' };
   if (result?.leveledUp) {
     const reported = Number(result.coinsAwarded);
     const computed = coinsForLevelsCrossed(result.beforeLevel, result.afterLevel || result.profile?.level).coins;
     result = { ...result, coinsAwarded: Number.isSafeInteger(reported) ? reported : computed };
     coinsGrant = await grantLevelUpCoins(economy, userId, result, logger);
+    cosmetics = await grantWalletCosmetics(backend, userId, result, coinsGrant, logger);
   }
   const levelChanged = Number(result.beforeLevel || result.profile?.level) !== Number(result.profile?.level);
   let roles = null;
@@ -207,7 +230,7 @@ async function applyProgressResult({ client, guild, channel, userId, result, set
       achievementsAnnounced = true;
     }
   }
-  return { roles, announced, achievementsAnnounced, achievements, coinsGrant };
+  return { roles, announced, achievementsAnnounced, achievements, coinsGrant, cosmetics };
 }
 
 function formatSettings(settings = {}, client = null) {
@@ -483,6 +506,7 @@ module.exports = {
   refreshLevelPanel,
   communityLevelCoinKey,
   grantLevelUpCoins,
+  grantWalletCosmetics,
   applyProgressResult,
   formatSettings,
   eligibilityRoleBlocked,

@@ -38,6 +38,9 @@ class BackendClient {
   communitySetXp(input) { return this.request('/v1/community-xp/set', { method: 'POST', body: JSON.stringify(input || {}) }); }
   communityResetXp(input) { return this.request('/v1/community-xp/reset', { method: 'POST', body: JSON.stringify(input || {}) }); }
   communityUpdateSettings(input) { return this.request('/v1/community-xp/settings', { method: 'POST', body: JSON.stringify(input || {}) }); }
+  walletCosmetics(userId) { return this.request(`/v1/wallet-cosmetics/users/${encodeURIComponent(userId)}`); }
+  syncWalletCosmetics(userId, input) { return this.request(`/v1/wallet-cosmetics/users/${encodeURIComponent(userId)}/sync`, { method: 'POST', body: JSON.stringify(input || {}) }); }
+  equipWalletCosmetic(userId, input) { return this.request(`/v1/wallet-cosmetics/users/${encodeURIComponent(userId)}/equip`, { method: 'POST', body: JSON.stringify(input || {}) }); }
   accounts() { return this.request('/v1/accounts'); }
   accountByDiscord(discordId) { return this.request(`/v1/accounts/discord/${encodeURIComponent(discordId)}`); }
   createPairingCode(role) { return this.request('/v1/accounts/pairing-codes', { method: 'POST', body: JSON.stringify({ role }) }); }
