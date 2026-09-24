@@ -13,6 +13,8 @@ COPY config ./config
 COPY native ./native
 COPY config.example.json ./config.example.json
 COPY Dockerfile.sentinel ./Dockerfile.sentinel
+COPY Dockerfile.craft ./Dockerfile.craft
+COPY docs/ops/NEXUS_CRAFT.md ./docs/ops/NEXUS_CRAFT.md
 
 RUN npm run check && npm test
 
