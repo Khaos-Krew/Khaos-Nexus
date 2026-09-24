@@ -76,6 +76,7 @@ function overviewPayload(settings = {}, options = {}) {
             lines(`🎙️ **Voice — ${on(source.voice)}**`, `${settings.voice?.xp || 10} XP every ${Math.round((settings.voice?.intervalSeconds || 600) / 60)} min • ${settings.voice?.dailyCap || 300}/day cap`),
             lines(`🎉 **Events — ${on(source.event)}**`, 'XP is awarded only through eligible Nexus event participation.'),
             lines(`🎮 **Game Modules — ${on(source.module)}**`, 'XP is awarded only through eligible Nexus module participation.'),
+            lines('🪙 **Level-up reward**', 'Each new community level grants Nexus Coins equal to 5 × that level.'),
             lines('🌐 **Global Multiplier**', `${Number(settings.globalMultiplier ?? 1).toFixed(2)}×`)
           ]),
           inline: false
@@ -195,6 +196,16 @@ function leaderboardPayload(entries = [], users = new Map()) {
   };
 }
 
+function levelUpCoinText(result = {}) {
+  const coins = Number(result.coinsAwarded ?? result.coins ?? 0);
+  if (!Number.isSafeInteger(coins) || coins <= 0) return '';
+  const amount = `🪙 **+${coins.toLocaleString('en-US')} Nexus Coins**`;
+  if (result.coinsGrant && result.coinsGrant.ok === false) {
+    return `${amount}\nWallet deposit did not complete. The level increased.`;
+  }
+  return amount;
+}
+
 function levelUpPayload(userId, result = {}) {
   const level = Number(result.afterLevel || result.profile?.level || 1);
   const milestones = result.milestonesCrossed || [];
@@ -204,6 +215,7 @@ function levelUpPayload(userId, result = {}) {
       title: `⚡ LEVEL UP • LEVEL ${level}`,
       description: paragraphs(
         `${userMention(userId)} reached **Community Level ${level}**!`,
+        levelUpCoinText(result),
         milestones.length ? `🏅 **Milestone unlocked**\n${milestones.map((item) => `Level ${item}`).join(' • ')}` : ''
       ),
       footer: { text: 'Nexus Sentinal • Community Progression' },
@@ -344,6 +356,7 @@ module.exports = {
   userMention,
   profilePayload,
   leaderboardPayload,
+  levelUpCoinText,
   levelUpPayload,
   normalizeMessageContent,
   messageFingerprint,

@@ -12,6 +12,7 @@ const {
   CommunityLevelService,
   xpForLevel,
   levelForXp,
+  coinsForLevelsCrossed,
   progressForXp,
   milestoneLevelsCrossed,
   normalizeSettings
@@ -31,8 +32,12 @@ const {
 } = require('../src/sentinel/community-intents-extension.cjs');
 const {
   createMessageAwardGuard,
-  formatSettings
+  formatSettings,
+  grantLevelUpCoins,
+  applyProgressResult,
+  communityLevelCoinKey
 } = require('../src/sentinel/community-leveling-extension.cjs');
+const { levelUpPayload } = require('../src/sentinel/community-leveling.cjs');
 
 function tempStateFile() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-levels-'));
@@ -178,6 +183,165 @@ test('community intent layer always adds Guild Messages and only requests Messag
   assert.equal(messageContentRequested({ NEXUS_LEVEL_MESSAGE_CONTENT: '1' }), true);
 });
 
+test('community levels keep progressing past milestone badges and the old formula clamp', () => {
+  assert.equal(levelForXp(xpForLevel(100)), 100);
+  assert.equal(levelForXp(xpForLevel(101)), 101);
+  assert.equal(levelForXp(xpForLevel(500)), 500);
+  assert.ok(xpForLevel(10001) > xpForLevel(10000));
+  assert.equal(levelForXp(xpForLevel(10001)), 10001);
+  const atMilestone = progressForXp(xpForLevel(100));
+  assert.equal(atMilestone.level, 100);
+  assert.ok(atMilestone.nextLevelXp > atMilestone.levelStartXp);
+  const beyond = progressForXp(xpForLevel(250) + 10);
+  assert.equal(beyond.level, 250);
+  assert.ok(beyond.nextLevelXp > beyond.xp);
+
+  const temp = tempStateFile();
+  try {
+    const service = new CommunityLevelService({ stateFile: temp.file });
+    const reached = service.setXp({ userId: '123456789012345678', xp: xpForLevel(120), actorId: '223456789012345678' });
+    assert.equal(reached.afterLevel, 120);
+    assert.equal(reached.leveledUp, true);
+    assert.equal(reached.coinsAwarded, coinsForLevelsCrossed(1, 120).coins);
+    const held = service.award({ userId: '123456789012345678', amount: 1, source: 'admin', actorId: '223456789012345678' });
+    assert.equal(held.afterLevel, 120);
+    assert.equal(held.leveledUp, false);
+    assert.equal(held.coinsAwarded, 0);
+    const next = service.setXp({ userId: '123456789012345678', xp: xpForLevel(121), actorId: '223456789012345678' });
+    assert.equal(next.afterLevel, 121);
+    assert.equal(next.coinsAwarded, 5 * 121);
+  } finally { fs.rmSync(temp.root, { recursive: true, force: true }); }
+});
+
+test('level-up Coin rewards are 5 times each new level and stack when several levels are crossed', () => {
+  assert.equal(coinsForLevelsCrossed(9, 10).coins, 50);
+  assert.deepEqual(coinsForLevelsCrossed(9, 10).levels, [10]);
+  assert.equal(coinsForLevelsCrossed(8, 10).coins, 95);
+  assert.deepEqual(coinsForLevelsCrossed(8, 10).levels, [9, 10]);
+  assert.equal(coinsForLevelsCrossed(1, 3).coins, 25);
+  assert.equal(coinsForLevelsCrossed(10, 10).coins, 0);
+  assert.equal(coinsForLevelsCrossed(6, 4).coins, 0);
+
+  const temp = tempStateFile();
+  try {
+    const service = new CommunityLevelService({ stateFile: temp.file });
+    const first = service.award({ userId: '123456789012345678', amount: 100, source: 'admin', actorId: '223456789012345678' });
+    assert.equal(first.afterLevel, 2);
+    assert.equal(first.coinsAwarded, 10);
+    assert.deepEqual(first.coinLevels, [2]);
+    const jump = service.award({ userId: '323456789012345678', amount: 1600, source: 'admin', actorId: '223456789012345678' });
+    assert.equal(jump.afterLevel, 5);
+    assert.equal(jump.coinsAwarded, 70);
+    assert.deepEqual(jump.coinLevels, [2, 3, 4, 5]);
+  } finally { fs.rmSync(temp.root, { recursive: true, force: true }); }
+});
+
+test('level-up announcement and wallet credit use Nexus Coins for the crossed levels', async () => {
+  const payload = levelUpPayload('123456789012345678', {
+    afterLevel: 10,
+    coinsAwarded: 50,
+    milestonesCrossed: [10],
+    coinsGrant: { ok: true, coins: 50 }
+  });
+  assert.match(payload.embeds[0].description, /Community Level 10/);
+  assert.match(payload.embeds[0].description, /\+50 Nexus Coins/);
+  assert.doesNotMatch(payload.embeds[0].description, /Nexus Points/);
+
+  const failed = levelUpPayload('123456789012345678', {
+    afterLevel: 10,
+    coinsAwarded: 95,
+    coinsGrant: { ok: false, skipped: 'wallet-identity-missing' }
+  });
+  assert.match(failed.embeds[0].description, /\+95 Nexus Coins/);
+  assert.match(failed.embeds[0].description, /Wallet deposit did not complete/);
+  assert.match(failed.embeds[0].description, /The level increased/);
+
+  const credits = [];
+  const silent = { warn() {}, log() {} };
+  const economy = {
+    configured: () => true,
+    credit: async (input) => {
+      credits.push(input);
+      if (input.idempotencyKey.endsWith(':8:10')) throw new Error('Verified economic identity is required.');
+      return { ok: true, balance: input.amount, duplicate: false, currency: input.currency };
+    }
+  };
+  const granted = await grantLevelUpCoins(economy, '123456789012345678', {
+    leveledUp: true,
+    beforeLevel: 9,
+    afterLevel: 10,
+    coinsAwarded: 50
+  }, silent);
+  assert.equal(granted.ok, true);
+  assert.equal(granted.currency, 'NEXUS_COINS');
+  assert.equal(credits[0].amount, 50);
+  assert.equal(credits[0].currency, 'NEXUS_COINS');
+  assert.equal(credits[0].source, 'community-level-up');
+  assert.equal(credits[0].idempotencyKey, communityLevelCoinKey('123456789012345678', 9, 10));
+  assert.equal(credits[0].metadata.reason, 'community-level-up');
+
+  const skipped = await grantLevelUpCoins(economy, '123456789012345678', {
+    leveledUp: true,
+    beforeLevel: 8,
+    afterLevel: 10,
+    coinsAwarded: 95
+  }, silent);
+  assert.equal(skipped.ok, false);
+  assert.equal(skipped.skipped, 'coins-grant-failed');
+  assert.equal(skipped.coins, 95);
+  assert.equal(credits.length, 2);
+  assert.equal(credits.every((input) => input.currency === 'NEXUS_COINS'), true);
+
+  const sent = [];
+  const result = await applyProgressResult({
+    guild: { members: { fetch: async () => null } },
+    channel: { send: async (body) => { sent.push(body); return body; } },
+    userId: '123456789012345678',
+    result: {
+      leveledUp: true,
+      beforeLevel: 9,
+      afterLevel: 10,
+      coinsAwarded: 50,
+      milestonesCrossed: [10],
+      profile: { level: 10, xp: 8100, userId: '123456789012345678' }
+    },
+    settings: { milestoneLevels: [10] },
+    economy,
+    announce: true,
+    logger: silent
+  });
+  assert.equal(result.announced, true);
+  assert.equal(result.coinsGrant.ok, true);
+  assert.match(sent[0].embeds[0].description, /\+50 Nexus Coins/);
+  assert.equal(sent[0].embeds[0].description.includes('Wallet deposit did not complete'), false);
+
+  const fallbackCredits = [];
+  const fallback = await applyProgressResult({
+    guild: { members: { fetch: async () => null } },
+    channel: { send: async (body) => body },
+    userId: '323456789012345678',
+    result: { leveledUp: true, beforeLevel: 8, afterLevel: 10, profile: { level: 10, xp: 8100 } },
+    settings: { milestoneLevels: [] },
+    economy: {
+      configured: () => true,
+      credit: async (input) => { fallbackCredits.push(input); return { ok: true, balance: input.amount, currency: 'NEXUS_COINS' }; }
+    },
+    announce: true,
+    logger: silent
+  });
+  assert.equal(fallback.coinsGrant.coins, 95);
+  assert.equal(fallbackCredits[0].amount, 95);
+  assert.equal(fallbackCredits[0].currency, 'NEXUS_COINS');
+});
+
+test('Sentinal entry installs community leveling after Guild Messages intents', () => {
+  const entry = fs.readFileSync(path.resolve(__dirname, '../src/sentinel/entry.cjs'), 'utf8');
+  assert.match(entry, /installCommunityIntentsExtension\(\)/);
+  assert.match(entry, /installCommunityLevelingExtension\(\)/);
+  assert.ok(entry.indexOf('installCommunityIntentsExtension();') < entry.indexOf('installCommunityLevelingExtension();'));
+  assert.ok(entry.indexOf('installCommunityLevelingExtension();') < entry.indexOf("require('./bot.cjs')"));
+});
+
 test('level command set exposes public progression and bounded admin controls', () => {
   const json = levelCommandDefinitions().map((command) => command.toJSON());
   assert.deepEqual(json.map((command) => command.name), ['level', 'rank', 'leaderboard', 'xp']);
@@ -186,4 +350,5 @@ test('level command set exposes public progression and bounded admin controls', 
   assert.deepEqual(names, ['add', 'remove', 'set', 'reset', 'multiplier', 'source', 'ignore-channel', 'ignore-role', 'status']);
   const statusText = formatSettings(normalizeSettings({}), null);
   assert.match(statusText, /separate from Shop\/supporter ranks/i);
+  assert.match(statusText, /5 × each new level in Nexus Coins/);
 });

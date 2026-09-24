@@ -45,8 +45,30 @@ function utcDay(now = new Date()) {
 }
 
 function xpForLevel(level) {
-  const normalized = Math.max(1, integer(level, 1, 1, 10000));
-  return (normalized - 1) * (normalized - 1) * 100;
+  const normalized = Math.max(1, integer(level, 1, 1));
+  const steps = normalized - 1;
+  const xp = steps * steps * 100;
+  return Number.isSafeInteger(xp) ? xp : Number.MAX_SAFE_INTEGER;
+}
+
+function coinsForLevelsCrossed(beforeLevel, afterLevel) {
+  const before = Math.max(1, integer(beforeLevel, 1, 1));
+  const after = Math.max(before, integer(afterLevel, before, 1));
+  if (after <= before) return { coins: 0, levels: [] };
+  const triangle = (value) => {
+    const sum = (value * (value + 1)) / 2;
+    return Number.isSafeInteger(sum) ? sum : null;
+  };
+  const high = triangle(after);
+  const low = triangle(before);
+  const coins = high == null || low == null ? null : 5 * (high - low);
+  if (!Number.isSafeInteger(coins)) return { coins: 0, levels: [], skipped: 'coins-out-of-range' };
+  const levels = [];
+  const span = after - before;
+  if (span <= 100) {
+    for (let level = before + 1; level <= after; level += 1) levels.push(level);
+  }
+  return { coins, levels };
 }
 
 function levelForXp(xp) {
@@ -245,6 +267,7 @@ class CommunityLevelService {
       user.updatedAt = new Date().toISOString();
       const afterLevel = levelForXp(user.xp);
       const crossed = milestoneLevelsCrossed(beforeLevel, afterLevel, settings.milestoneLevels);
+      const coinReward = coinsForLevelsCrossed(beforeLevel, afterLevel);
       if (source === 'admin' || source === 'event' || source === 'module' || afterLevel > beforeLevel) {
         this.addAudit(state, {
           action: afterLevel > beforeLevel ? 'xp-award-level-up' : 'xp-award',
@@ -263,6 +286,8 @@ class CommunityLevelService {
         leveledUp: afterLevel > beforeLevel,
         levelsGained: Math.max(0, afterLevel - beforeLevel),
         milestonesCrossed: crossed,
+        coinsAwarded: coinReward.coins,
+        coinLevels: coinReward.levels,
         profile: this.profileFromState(state, id)
       };
     });
@@ -285,6 +310,7 @@ class CommunityLevelService {
       user.xp = desired;
       user.updatedAt = new Date().toISOString();
       const afterLevel = levelForXp(desired);
+      const coinReward = coinsForLevelsCrossed(beforeLevel, afterLevel);
       this.addAudit(state, { action: 'xp-set', actorId: input.actorId, userId: id, source: 'admin', amount: desired - beforeXp, reason: input.reason });
       return {
         ok: true,
@@ -295,6 +321,8 @@ class CommunityLevelService {
         leveledUp: afterLevel > beforeLevel,
         levelsGained: Math.max(0, afterLevel - beforeLevel),
         milestonesCrossed: milestoneLevelsCrossed(beforeLevel, afterLevel, state.settings?.milestoneLevels),
+        coinsAwarded: coinReward.coins,
+        coinLevels: coinReward.levels,
         profile: this.profileFromState(state, id)
       };
     });
@@ -357,6 +385,7 @@ module.exports = {
   utcDay,
   xpForLevel,
   levelForXp,
+  coinsForLevelsCrossed,
   progressForXp,
   milestoneLevelsCrossed,
   normalizeSettings,

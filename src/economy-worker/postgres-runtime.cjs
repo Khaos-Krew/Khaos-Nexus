@@ -8,6 +8,7 @@ const { verifyIdentityProof } = require('../sentinel/nexus-economy-identity-proo
 const { assertO9EligibilityForVerifiedMint } = require('../sentinel/nexus-economy-o9-eligibility.cjs');
 const { PostgresEconomyAccrual } = require('./postgres-accrual.cjs');
 const { isShadowRecruitEligibleRank } = require('../shared/ranks.cjs');
+const { routeWalletCredit } = require('../sentinel/nexus-economy-community-level-coins.cjs');
 
 function postgresEnabled(env = process.env) {
   return String(env.NEXUS_ECONOMY_STORAGE || '').trim().toLowerCase() === 'postgres';
@@ -53,7 +54,7 @@ async function createPostgresEconomyRuntime({ env = process.env, now } = {}) {
     health() { return { ok: true }; },
     balance(discordUserId) { return walletCore.balance(discordUserId, 'NEXUS_POINTS'); },
     balances(discordUserId) { return walletCore.balances(discordUserId); },
-    credit(input = {}) { return walletCore.credit({ ...input, currency: input.currency || 'NEXUS_POINTS' }); },
+    credit(input = {}) { return routeWalletCredit(walletCore, input, env); },
     spend(input = {}) { return walletCore.spend({ ...input, currency: input.currency || 'NEXUS_POINTS' }); },
     adminCredit(input = {}) {
       return walletCore.adminCredit({ ...input, currency: input.currency || 'NEXUS_POINTS', env });

@@ -224,12 +224,15 @@ class NexusEconomyWalletCore {
 
 
 const { attachAdminWalletMutations } = require('./nexus-economy-wallet-admin.cjs');
-attachAdminWalletMutations(NexusEconomyWalletCore, {
+const { attachCommunityLevelCoinGrants } = require('./nexus-economy-community-level-coins.cjs');
+const walletMutationHelpers = {
   cleanId,
   positiveWhole,
   priorResult,
   walletBalance,
   quarantineDenylist
-});
+};
+attachAdminWalletMutations(NexusEconomyWalletCore, walletMutationHelpers);
+attachCommunityLevelCoinGrants(NexusEconomyWalletCore, walletMutationHelpers);
 
 module.exports = { NexusEconomyWalletCore, positiveWhole, walletBalance, quarantineDenylist };
