@@ -13,6 +13,7 @@
     "cephalon": "node src/railway/cephalon-service.cjs",
     "ascended": "node src/railway/ascended-service.cjs",
     "sanctuary": "node src/railway/sanctuary-service.cjs",
+    "craft": "node src/railway/craft-service.cjs",
     "sentinel:v2": "node src/sentinel-v2/control-plane.cjs",
     "sentinel:v2:worker": "node src/sentinel-v2/worker.cjs",
     "sentinel:v2:shadow": "node src/sentinel-v2/shadow.cjs",
