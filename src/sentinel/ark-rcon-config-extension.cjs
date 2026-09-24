@@ -120,7 +120,7 @@ function statusText(prefix) {
     `Timeout: **${server.timeoutMs} ms**`,
     `Endpoint source: **${server.source}**`,
     `Host source: **${state.hostSource}** • Port source: **${state.portSource}**`,
-    `Password: **${state.passwordConfigured ? 'configured' : 'missing'}** (${state.passwordSource})`,
+    `Password: **${state.passwordUnreadable ? 'unreadable' : state.passwordConfigured ? 'configured' : 'missing'}** (${state.passwordSource})`,
     state.updatedAt ? `Discord override updated: <t:${Math.floor(Date.parse(state.updatedAt) / 1000)}:R>` : 'Discord override: **none**',
     '',
     'Passwords are never echoed to Discord or committed to Git.'

@@ -1,12 +1,17 @@
 'use strict';
 
-const ASCENDED_STAGE_COMMANDS = Object.freeze(['rates', 'wipe', 'welcome']);
-const CEPHALON_STAGE_COMMANDS = Object.freeze(['worldstate', 'dojo', 'calendar', 'cosmetic', 'welcome']);
+const ASCENDED_STAGE_COMMANDS = Object.freeze(['rates', 'wipe', 'welcome', 'official', 'cluster']);
+const CEPHALON_STAGE_COMMANDS = Object.freeze(['worldstate', 'dojo', 'calendar', 'cosmetic', 'welcome', 'fissures', 'nightwave', 'cycles']);
 
 const STAGE_HELP = Object.freeze({
   rates: 'Tribe rates, breed timers, and the boss checklist',
   wipe: 'Staff wipe and transfer checklist',
   welcome: 'This bot welcome card; wallet and ranks stay on Nexus Sentinal',
+  official: 'Official ASA network status from the Wildcard CDN',
+  cluster: 'Player count, map, and day for this cluster',
+  fissures: 'Open Void Fissures by tier, with Steel Path and storm flags',
+  nightwave: 'Nightwave challenges with a personal done checklist',
+  cycles: 'Cetus, Vallis, Cambion, and Earth countdowns',
   worldstate: 'Cetus, Orb Vallis, Duviri, and a short invasion digest',
   dojo: 'Clan dojo checklist and official wiki links',
   calendar: 'Warframe event calendar pin',

@@ -6,6 +6,43 @@ const path = require('node:path');
 
 const VERSION = 1;
 
+function resolveStoreRoot(root, env = process.env) {
+  if (root) return path.resolve(String(root));
+  const data = String(env.NEXUS_DATA_DIR || '').trim();
+  if (data) return path.resolve(data);
+  const volume = String(env.RAILWAY_VOLUME_MOUNT_PATH || '').trim();
+  if (volume) return path.resolve(volume);
+  return path.resolve(__dirname, '../..', 'data');
+}
+
+function atomicWrite(file, text) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  const fd = fs.openSync(tmp, 'w', 0o600);
+  try {
+    fs.writeSync(fd, text);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmp, file);
+  try {
+    const dirFd = fs.openSync(path.dirname(file), 'r');
+    try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
+  } catch {}
+}
+
+function writeExclusive(file, text) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const fd = fs.openSync(file, 'wx', 0o600);
+  try {
+    fs.writeSync(fd, text);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 function normalizePrefix(value) {
   const prefix = String(value || '').trim().toUpperCase();
   if (!/^ARK_[A-Z0-9_]{2,60}$/.test(prefix)) throw new Error('Invalid ARK RCON server prefix.');
@@ -31,8 +68,8 @@ function normalizeTimeout(value, fallback = 8000) {
 }
 
 class ArkRconConfigStore {
-  constructor(root = process.env.NEXUS_DATA_DIR || path.resolve(__dirname, '../..', 'data')) {
-    this.dir = path.resolve(root);
+  constructor(root) {
+    this.dir = resolveStoreRoot(root);
     this.file = path.join(this.dir, 'ark-rcon-overrides.json');
     this.secretFile = path.join(this.dir, 'ark-rcon-config-secret');
   }
@@ -56,16 +93,17 @@ class ArkRconConfigStore {
   }
 
   write(state) {
-    fs.mkdirSync(this.dir, { recursive: true });
     const safe = {
       version: VERSION,
       servers: state.servers || {},
       updatedAt: new Date().toISOString()
     };
-    const tmp = `${this.file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, `${JSON.stringify(safe, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-    fs.renameSync(tmp, this.file);
+    atomicWrite(this.file, `${JSON.stringify(safe, null, 2)}\n`);
     return safe;
+  }
+
+  hasCiphertext() {
+    return Object.values(this.read().servers || {}).some((record) => record && record.password);
   }
 
   secret() {
@@ -75,21 +113,28 @@ class ArkRconConfigStore {
       return explicit;
     }
 
-    fs.mkdirSync(this.dir, { recursive: true });
     try {
       const existing = String(fs.readFileSync(this.secretFile, 'utf8')).trim();
       if (existing) return existing;
     } catch {}
 
+    if (this.hasCiphertext()) {
+      const error = new Error('RCON vault key is missing. Refusing to mint a new key over saved ciphertext.');
+      error.code = 'RCON_VAULT_KEY_MISSING';
+      throw error;
+    }
+
     const generated = crypto.randomBytes(32).toString('hex');
     try {
-      fs.writeFileSync(this.secretFile, `${generated}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+      writeExclusive(this.secretFile, `${generated}\n`);
     } catch (error) {
       if (error?.code !== 'EEXIST') throw error;
     }
-    const stored = String(fs.readFileSync(this.secretFile, 'utf8')).trim();
-    if (!stored) throw new Error('Unable to initialize protected RCON config secret.');
-    return stored;
+    try {
+      const stored = String(fs.readFileSync(this.secretFile, 'utf8')).trim();
+      if (stored) return stored;
+    } catch {}
+    throw new Error('Unable to initialize protected RCON config secret.');
   }
 
   encryptionKey() {
@@ -127,14 +172,26 @@ class ArkRconConfigStore {
     const key = normalizePrefix(prefix);
     const record = this.read().servers[key] || null;
     if (!record) return null;
+    let password = '';
+    let passwordUnreadable = false;
+    if (record.password) {
+      try {
+        password = this.decrypt(record.password);
+        passwordUnreadable = !password;
+      } catch (error) {
+        if (error?.code !== 'RCON_VAULT_KEY_MISSING') throw error;
+        passwordUnreadable = true;
+      }
+    }
     return {
       prefix: key,
       host: String(record.host || ''),
       port: Number(record.port || 0),
       enabled: typeof record.enabled === 'boolean' ? record.enabled : null,
       timeoutMs: normalizeTimeout(record.timeoutMs, 8000),
-      password: this.decrypt(record.password),
-      passwordConfigured: Boolean(record.password),
+      password,
+      passwordConfigured: Boolean(password),
+      passwordUnreadable,
       updatedAt: String(record.updatedAt || ''),
       updatedBy: String(record.updatedBy || '')
     };
@@ -190,8 +247,9 @@ class ArkRconConfigStore {
       overrideConfigured: Boolean(override),
       hostSource: override?.host ? 'discord-override' : (!forbidEnv && env[`${key}_HOST`]) ? 'environment' : 'missing',
       portSource: override?.port ? 'discord-override' : (!forbidEnv && env[`${key}_RCON_PORT`]) ? 'environment' : 'missing',
-      passwordSource: override?.password ? 'discord-protected' : envPassword ? 'environment' : 'missing',
+      passwordSource: override?.password ? 'discord-protected' : override?.passwordUnreadable ? 'unreadable' : envPassword ? 'environment' : 'missing',
       passwordConfigured: Boolean(override?.password || envPassword),
+      passwordUnreadable: Boolean(override?.passwordUnreadable),
       updatedAt: override?.updatedAt || '',
       railwayEnvForbidden: forbidEnv
     };
@@ -226,16 +284,38 @@ function rconRailwayEnvForbidden(env = process.env) {
 }
 
 function resolveRconServer(prefix = 'ARK_GEN1', env = process.env) {
-  return new ArkRconConfigStore().resolve(prefix, env);
+  return new ArkRconConfigStore(resolveStoreRoot(undefined, env)).resolve(prefix, env);
+}
+
+function describeRconVault(env = process.env, root) {
+  const store = new ArkRconConfigStore(resolveStoreRoot(root, env));
+  const servers = store.read().servers || {};
+  let sealed = 0;
+  let readablePasswords = 0;
+  let unreadable = 0;
+  for (const record of Object.values(servers)) {
+    if (!record?.password) continue;
+    sealed += 1;
+    try {
+      if (store.decrypt(record.password)) readablePasswords += 1;
+      else unreadable += 1;
+    } catch (error) {
+      if (error?.code !== 'RCON_VAULT_KEY_MISSING') throw error;
+      unreadable += 1;
+    }
+  }
+  return { servers: Object.keys(servers).length, sealed, readablePasswords, unreadable };
 }
 
 module.exports = {
   VERSION,
+  resolveStoreRoot,
   normalizePrefix,
   normalizeHost,
   normalizePort,
   normalizeTimeout,
   ArkRconConfigStore,
   rconRailwayEnvForbidden,
-  resolveRconServer
+  resolveRconServer,
+  describeRconVault
 };

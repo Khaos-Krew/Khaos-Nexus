@@ -10,6 +10,8 @@ const { healthSummaryLines } = require('./ascended-rcon-health.cjs');
 const { BOT_LABELS, errorClass, reportCommandFailure, setGameBotMeta } = require('./command-failure.cjs');
 const { normalizeBot, resolveCategoryConfig } = require('./category-gate.cjs');
 const { sanctuaryHelpText, categoryGateLabel, resolveButtonChannel, buttonChannelLabel } = require('../sentinel/sanctuary-suite.cjs');
+const { jtcStatusLine } = require('./join-to-create.cjs');
+const { clusterStaffLine } = require('./asa-cluster-presence.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.gamebot.opsSpine');
 const SENTINAL_POINTER = 'Wallet, verify, and ranks stay on Nexus Sentinal (`/bal`, `/o9verify`, ranks).';
@@ -107,12 +109,19 @@ function rconStaffLines(env = process.env) {
     return ['RCON: Discord override store unavailable.', ...healthSummaryLines()];
   }
   const lines = ['RCON: Discord override store only. Railway env is not a connection source.'];
+  try {
+    const { describeRconVault } = require('../sentinel/ark-rcon-config-store.cjs');
+    const vault = describeRconVault(env);
+    lines.push(`RCON vault: ${vault.readablePasswords} readable password(s), ${vault.unreadable} unreadable, ${vault.servers} server record(s).`);
+  } catch {
+    lines.push('RCON vault: unreadable.');
+  }
   for (const prefix of ['ARK_GEN1', 'ARK_MAP2']) {
     try {
       const state = store.status(prefix, env);
       const host = state.hostSource === 'missing' ? 'missing' : 'present';
       const port = state.portSource === 'missing' ? 'missing' : 'present';
-      const password = state.passwordConfigured ? 'configured' : 'missing';
+      const password = state.passwordUnreadable ? 'unreadable' : state.passwordConfigured ? 'configured' : 'missing';
       lines.push(`${prefix}: host ${host}, port ${port}, password ${password}.`);
     } catch {
       lines.push(`${prefix}: unavailable.`);
@@ -147,7 +156,10 @@ async function buildStatusText({ bot, client, env = process.env, probe } = {}) {
       label = 'unavailable';
     }
     lines.push(`Warframe backend: ${label}.`);
+    lines.push('Fissures, Nightwave, and cycles use WFCD and a cache of at least 60s.');
   }
+  if (key === 'ascended') lines.push(clusterStaffLine(env));
+  lines.push(jtcStatusLine(key, env));
   lines.push(SENTINAL_POINTER);
   return lines.join('\n').slice(0, 1900);
 }
