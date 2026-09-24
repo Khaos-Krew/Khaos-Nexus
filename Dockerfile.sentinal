@@ -18,6 +18,8 @@ COPY docs/ops/SANCTUARY_NEXUS_DISCORD.md ./docs/ops/SANCTUARY_NEXUS_DISCORD.md
 COPY docs/ops/sanctuary-bot-runbook.md ./docs/ops/sanctuary-bot-runbook.md
 COPY docs/ops/JOIN_TO_CREATE.md ./docs/ops/JOIN_TO_CREATE.md
 COPY docs/ops/SENTINAL_ROLE_ORDER.md ./docs/ops/SENTINAL_ROLE_ORDER.md
+COPY Dockerfile.craft ./Dockerfile.craft
+COPY docs/ops/NEXUS_CRAFT.md ./docs/ops/NEXUS_CRAFT.md
 
 RUN npm run check && npm test
 
