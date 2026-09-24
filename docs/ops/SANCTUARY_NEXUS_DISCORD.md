@@ -16,7 +16,8 @@ Set these on `sanctuary-nexus`:
 - `DISCORD_GUILD_ID`
 - `SANCTUARY_DISCORD_CATEGORY_ID` (already set on the Railway service; not baked into the image)
 - `SANCTUARY_JTC_LOBBY_CHANNEL_ID=1541540961937526916` (baked into `Dockerfile.sanctuary`; blank keeps this lobby). Join-to-create only. See `docs/ops/JOIN_TO_CREATE.md`.
-- `SANCTUARY_BUTTON_CHANNEL_ID` (already set on the Railway service; role menu and group buttons). Aliases: `SANCTUARY_COMMANDS_CHANNEL_ID`, `DIABLO_BUTTON_CHANNEL_ID`
+- `SANCTUARY_BUTTON_CHANNEL_ID` (already set on the Railway service; role menu and group buttons). Aliases: `SANCTUARY_COMMANDS_CHANNEL_ID`, `DIABLO_BUTTON_CHANNEL_ID`. The owner button channel is `1541540948239060992`.
+- `NEXUS_DATA_DIR` or a Railway volume (`RAILWAY_VOLUME_MOUNT_PATH`) so `sanctuary-nexus.json` keeps the role-menu message id. Optional override: `SANCTUARY_ROLES_MESSAGE_ID`.
 - `READY` is logged and ignored. It does not block startup or commands.
 
 Railway service `sanctuary-nexus` already sets `SANCTUARY_DISCORD_CATEGORY_ID` and `DIABLO_DISCORD_CATEGORY_ID`. The gate reads `SANCTUARY_DISCORD_CATEGORY_ID` first. `DIABLO_DISCORD_CATEGORY_ID` applies only when the primary variable is unset or blank. Do not add either value to the image or to source defaults.
@@ -32,5 +33,7 @@ Do not set ARK RCON host, port, or password on this service. This image does not
 Timers are a local community cadence for helltide, world boss, and legion. There is no official Blizzard event API, and this service does not call `d4api.dev` or scrape tracker pages. See `docs/ops/sanctuary-bot-runbook.md` for the cadence, optional phase anchors, and the Cephalon, Ascended, and Destiny notes that stay out of this service.
 
 The category id is not baked into the image. See `docs/ops/sanctuary-bot-runbook.md` for the invite, intents, and rollback.
+
+On ready, Sanctuary Nexus updates the role menu already in the button channel. A restart does not post a second menu. Group listings are still new messages. Discord cannot edit a menu posted by Nexus Sentinal; the first ready after this change posts one replacement, removes the previous bot message when the bot can manage messages, saves the new id, and edits that message from then on. Nexus Sentinal does not post the Sanctuary role menu.
 
 Hub commands stay on Nexus Sentinal. The Discord display name stays Sanctuary Nexus.

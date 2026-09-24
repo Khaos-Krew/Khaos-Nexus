@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const path = require('node:path');
 const { MessageFlags } = require('discord.js');
 const { TtlCache } = require('./ttl-cache.cjs');
-const { readJson, runtimeDataDir, upsertEmbed, writeJson } = require('./panel-message.cjs');
+const { readJson, runtimeDataDir, snowflake, upsertEmbed, writeJson } = require('./panel-message.cjs');
 const { errorClass } = require('./command-failure.cjs');
 
 const FISSURE_TIERS = Object.freeze(['Lith', 'Meso', 'Neo', 'Axi', 'Requiem', 'Omnia']);
@@ -265,8 +265,15 @@ async function refreshFissurePanel(context, env, embed) {
   if (!/^\d{17,20}$/.test(channelId)) return { pinned: false, reason: 'unset' };
   const file = path.join(context.dir || runtimeDataDir(env), 'cephalon-fissure-panel.json');
   const saved = readJson(file, { messageId: '' });
-  const result = await upsertEmbed(context.client, channelId, saved.messageId, { embeds: [embed] });
-  if (result.messageId) writeJson(file, { messageId: result.messageId });
+  const result = await upsertEmbed(context.client, channelId, saved.messageId, { embeds: [embed] }, {
+    panel: 'fissures',
+    botId: context.client?.user?.id,
+    envMessageId: snowflake(env.CEPHALON_FISSURE_MESSAGE_ID)
+  });
+  if (result.messageId && result.reason !== 'foreign-unmatched') writeJson(file, { messageId: result.messageId });
+  if (result.created || result.migrated || result.duplicatesRemoved || result.foreignRemoved) {
+    console.log(`[Cephalon Nexus] fissure panel message=${result.messageId} created=${result.created ? 'yes' : 'no'} migrated=${result.migrated ? 'yes' : 'no'} duplicatesRemoved=${result.duplicatesRemoved || 0} foreignRemoved=${result.foreignRemoved || 0}`);
+  }
   return result;
 }
 

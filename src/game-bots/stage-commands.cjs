@@ -16,7 +16,7 @@ const { welcomeText } = require('./welcome-card.cjs');
 const { RateCardStore, ratesText, breedText, bossText } = require('./ark-rate-cards.cjs');
 const { wipeChecklist } = require('./wipe-checklist.cjs');
 const { ascendedHealthSnapshot, checkRconPrefix, HEALTH_PREFIXES, openStore } = require('./ascended-rcon-health.cjs');
-const { runtimeDataDir, upsertEmbed } = require('./panel-message.cjs');
+const { runtimeDataDir, snowflake, upsertEmbed } = require('./panel-message.cjs');
 const { handleFissureCommand, handleNightwaveCommand, handleCycleCommand, handleCephalonButton } = require('./cephalon-relay.cjs');
 const { handleOfficialCommand } = require('./asa-official-status.cjs');
 const { handleClusterCommand } = require('./asa-cluster-presence.cjs');
@@ -123,8 +123,13 @@ function roleIdsOf(interaction) {
   return [];
 }
 
-async function refreshPinnedEmbed(client, env, channelEnvName, entry, embed) {
-  return upsertEmbed(client, env[channelEnvName], entry?.messageId, { embeds: [embed] });
+async function refreshPinnedEmbed(client, env, channelEnvName, entry, embed, options = {}) {
+  const messageId = snowflake(env[options.messageEnv]) || entry?.messageId;
+  return upsertEmbed(client, env[channelEnvName], messageId, { embeds: [embed] }, {
+    ...options,
+    botId: options.botId || client?.user?.id,
+    envMessageId: snowflake(env[options.messageEnv])
+  });
 }
 
 async function handleStageCommand(interaction, context) {
@@ -161,6 +166,9 @@ async function handleStageCommand(interaction, context) {
       const pinned = await refreshPinnedEmbed(context.client || interaction.client, env, channelEnv, pin, {
         title: bot === 'ascended' ? 'Welcome to Nexus Ascended' : 'Welcome to Cephalon Nexus',
         description: welcomeText(bot)
+      }, {
+        panel: bot === 'ascended' ? 'ascendedWelcome' : 'cephalonWelcome',
+        messageEnv: bot === 'ascended' ? 'ASCENDED_WELCOME_MESSAGE_ID' : 'CEPHALON_WELCOME_MESSAGE_ID'
       }).catch(() => null);
       if (pinned?.messageId) writeWelcomePin(dir, bot, pinned.messageId);
     }
@@ -203,7 +211,10 @@ async function handleStageCommand(interaction, context) {
     const entry = store.read();
     const embed = calendarEmbed(entry);
     if (isStaff(interaction, config) && entry.title) {
-      const pinned = await refreshPinnedEmbed(context.client || interaction.client, env, 'CEPHALON_EVENT_CHANNEL_ID', entry, embed).catch(() => ({ pinned: false }));
+      const pinned = await refreshPinnedEmbed(context.client || interaction.client, env, 'CEPHALON_EVENT_CHANNEL_ID', entry, embed, {
+        panel: 'cephalonEvent',
+        messageEnv: 'CEPHALON_EVENT_MESSAGE_ID'
+      }).catch(() => ({ pinned: false }));
       if (pinned?.messageId && pinned.messageId !== entry.messageId) store.write({ ...entry, messageId: pinned.messageId });
     }
     await interaction.reply({ ...ephemeral(entry.title ? `${entry.title}\n${entry.when}` : 'No Warframe event is pinned.'), embeds: [embed] });

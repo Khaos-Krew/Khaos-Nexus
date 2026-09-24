@@ -4,6 +4,7 @@ const path = require('node:path');
 const { ChannelType, Events, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { reportCommandFailure } = require('../game-bots/command-failure.cjs');
+const { runtimeDataDir, snowflake, upsertEmbed } = require('../game-bots/panel-message.cjs');
 const { isStaff, registerOpsCommands } = require('../game-bots/ops-spine.cjs');
 const { resolveCategoryConfig } = require('../game-bots/category-gate.cjs');
 const {
@@ -83,8 +84,7 @@ function sanctuaryCommands() {
 }
 
 function dataFile(env = process.env) {
-  const dir = String(env.NEXUS_DATA_DIR || '').trim() || path.resolve(__dirname, '../../data');
-  return path.join(dir, 'sanctuary-nexus.json');
+  return path.join(runtimeDataDir(env), 'sanctuary-nexus.json');
 }
 
 function ephemeral(content, extra = {}) {
@@ -214,11 +214,35 @@ function warnButtonChannel(resolved) {
   console.warn('[Sanctuary Nexus] button channel skipped: SANCTUARY_BUTTON_CHANNEL_ID is unset; panel was not posted');
 }
 
-async function sendToButtonChannel(discord, env, payload, messageId = '') {
+async function sendToButtonChannel(discord, env, payload, messageId = '', options = {}) {
   const resolved = resolveButtonChannel(env);
   if (!resolved.ok) {
     warnButtonChannel(resolved);
     return { posted: false, reason: resolved.source === 'invalid' ? 'invalid' : 'unset', resolved };
+  }
+  if (options.reuse) {
+    const result = await upsertEmbed(discord, resolved.id, messageId, payload, {
+      panel: options.panel || 'sanctuaryRoles',
+      botId: options.botId || discord?.user?.id,
+      envMessageId: snowflake(options.envMessageId || env.SANCTUARY_ROLES_MESSAGE_ID)
+    });
+    if (!result.pinned) {
+      const reason = result.reason === 'missing' ? 'missing-channel' : (result.reason || 'unset');
+      if (reason === 'missing-channel') console.warn(`[Sanctuary Nexus] button channel skipped: ${resolved.envName} could not be fetched`);
+      return { posted: false, reason, resolved };
+    }
+    if (result.created || result.migrated || result.duplicatesRemoved || result.foreignRemoved) {
+      console.log(`[Sanctuary Nexus] role menu message=${result.messageId} created=${result.created ? 'yes' : 'no'} migrated=${result.migrated ? 'yes' : 'no'} duplicatesRemoved=${result.duplicatesRemoved || 0} foreignRemoved=${result.foreignRemoved || 0}`);
+    }
+    return {
+      posted: true,
+      updated: Boolean(result.edited),
+      messageId: result.messageId,
+      channelId: resolved.id,
+      resolved,
+      created: Boolean(result.created),
+      migrated: Boolean(result.migrated)
+    };
   }
   const channel = typeof discord?.channels?.fetch === 'function'
     ? await discord.channels.fetch(resolved.id).catch(() => null)
@@ -251,7 +275,10 @@ async function syncRoleMenu(context, guild) {
     console.warn('[Sanctuary Nexus] role menu auto-post skipped: Sanctuary roles are not ready');
     return { posted: false, reason: 'roles-not-ready' };
   }
-  const result = await sendToButtonChannel(context.client, context.env, roleMenuPayload(groups.groups), context.store?.panelId?.('roles'));
+  const result = await sendToButtonChannel(context.client, context.env, roleMenuPayload(groups.groups), context.store?.panelId?.('roles'), {
+    reuse: true,
+    botId: context.client?.user?.id
+  });
   if (result.posted) context.store?.setPanelId?.('roles', result.messageId);
   return result;
 }
@@ -348,7 +375,10 @@ async function handleSanctuaryInteraction(interaction, context = {}) {
         await interaction.reply(ephemeral('', menu));
         return true;
       }
-      const published = await sendToButtonChannel(context.client || interaction.client, env, menu, store?.panelId?.('roles'));
+      const published = await sendToButtonChannel(context.client || interaction.client, env, menu, store?.panelId?.('roles'), {
+        reuse: true,
+        botId: (context.client || interaction.client)?.user?.id
+      });
       if (!published.posted) {
         await interaction.reply(ephemeral('Role menu was not posted. Set SANCTUARY_BUTTON_CHANNEL_ID and try again.'));
         return true;

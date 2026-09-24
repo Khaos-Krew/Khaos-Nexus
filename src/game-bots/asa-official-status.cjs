@@ -3,7 +3,7 @@
 const path = require('node:path');
 const { MessageFlags } = require('discord.js');
 const { TtlCache } = require('./ttl-cache.cjs');
-const { readJson, runtimeDataDir, upsertEmbed, writeJson } = require('./panel-message.cjs');
+const { readJson, runtimeDataDir, snowflake, upsertEmbed, writeJson } = require('./panel-message.cjs');
 const { errorClass } = require('./command-failure.cjs');
 
 const OFFICIAL_STATUS_URL = 'https://cdn2.arkdedicated.com/asa/officialserverstatus.ini';
@@ -84,8 +84,15 @@ async function refreshOfficialPanel(context, env, embed) {
   if (!/^\d{17,20}$/.test(channelId)) return { pinned: false, reason: 'unset' };
   const file = path.join(context.dir || runtimeDataDir(env), 'ascended-official-panel.json');
   const saved = readJson(file, { messageId: '' });
-  const result = await upsertEmbed(context.client, channelId, saved.messageId, { embeds: [embed] });
-  if (result.messageId) writeJson(file, { messageId: result.messageId });
+  const result = await upsertEmbed(context.client, channelId, saved.messageId, { embeds: [embed] }, {
+    panel: 'official',
+    botId: context.client?.user?.id,
+    envMessageId: snowflake(env.ASCENDED_OFFICIAL_STATUS_MESSAGE_ID)
+  });
+  if (result.messageId && result.reason !== 'foreign-unmatched') writeJson(file, { messageId: result.messageId });
+  if (result.created || result.migrated || result.duplicatesRemoved || result.foreignRemoved) {
+    console.log(`[Nexus Ascended] official panel message=${result.messageId} created=${result.created ? 'yes' : 'no'} migrated=${result.migrated ? 'yes' : 'no'} duplicatesRemoved=${result.duplicatesRemoved || 0} foreignRemoved=${result.foreignRemoved || 0}`);
+  }
   return result;
 }
 
