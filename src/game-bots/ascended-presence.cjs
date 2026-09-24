@@ -1,6 +1,6 @@
 'use strict';
 
-const { HEALTH_PREFIXES, LOOP, checkRconPrefix, healthEnabled, healthIntervalMs, healthLogLine, mapLabel, openStore, setAscendedHealthSnapshot } = require('./ascended-rcon-health.cjs');
+const { LOOP, checkRconPrefix, healthEnabled, healthIntervalMs, healthLogLine, mapLabel, openRegistry, openStore, resolveHealthPrefixes, setAscendedHealthSnapshot } = require('./ascended-rcon-health.cjs');
 const { errorClass } = require('./command-failure.cjs');
 
 function playerKey(player) {
@@ -25,19 +25,19 @@ function diffPlayers(previous = [], next = []) {
   return { joined, left };
 }
 
-function presenceLine(prefix, change, player) {
-  const label = playerLabel(player);
-  const map = mapLabel(prefix);
-  return change === 'join' ? `${label} joined ${map}.` : `${label} left ${map}.`;
+function presenceLine(prefix, change, player, label = '') {
+  const name = playerLabel(player);
+  const map = label || mapLabel(prefix);
+  return change === 'join' ? `${name} joined ${map}.` : `${name} left ${map}.`;
 }
 
-function presenceMessages(prefix, diff) {
+function presenceMessages(prefix, diff, label = '') {
   const lines = [
-    ...diff.joined.map((player) => presenceLine(prefix, 'join', player)),
-    ...diff.left.map((player) => presenceLine(prefix, 'leave', player))
+    ...diff.joined.map((player) => presenceLine(prefix, 'join', player, label)),
+    ...diff.left.map((player) => presenceLine(prefix, 'leave', player, label))
   ];
   if (lines.length <= 10) return lines;
-  return [...lines.slice(0, 10), `and ${lines.length - 10} more ${mapLabel(prefix)} presence changes.`];
+  return [...lines.slice(0, 10), `and ${lines.length - 10} more ${label || mapLabel(prefix)} presence changes.`];
 }
 
 function presenceChannelId(env = process.env) {
@@ -58,27 +58,29 @@ async function postPresence(client, env, lines) {
 function startAscendedOpsLoop({ client, env = process.env, store, execute, now } = {}) {
   if (client?.[LOOP]) return client[LOOP];
   const activeStore = store || openStore(env);
-  const lastPlayers = { ARK_GEN1: [], ARK_MAP2: [] };
-  const seeded = { ARK_GEN1: false, ARK_MAP2: false };
+  const lastPlayers = new Map();
+  const seeded = new Map();
   let timer = null;
   let stopped = false;
 
   async function tick() {
     if (stopped || !healthEnabled(env)) return setAscendedHealthSnapshot([]);
+    const registry = openRegistry(env);
     const rows = [];
-    for (const prefix of HEALTH_PREFIXES) {
-      const result = await checkRconPrefix(prefix, { store: activeStore, env, execute, now });
+    for (const prefix of resolveHealthPrefixes(env, registry)) {
+      const result = await checkRconPrefix(prefix, { store: activeStore, env, execute, now, registry });
       rows.push(result.row);
       console.log(`[Nexus Ascended] ${healthLogLine(result.row)}`);
       if (!result.row.ok) continue;
-      if (!seeded[prefix]) {
-        seeded[prefix] = true;
-        lastPlayers[prefix] = result.players;
+      const label = mapLabel(prefix, registry);
+      if (!seeded.get(prefix)) {
+        seeded.set(prefix, true);
+        lastPlayers.set(prefix, result.players);
         continue;
       }
-      const diff = diffPlayers(lastPlayers[prefix], result.players);
-      lastPlayers[prefix] = result.players;
-      const lines = presenceMessages(prefix, diff);
+      const diff = diffPlayers(lastPlayers.get(prefix) || [], result.players);
+      lastPlayers.set(prefix, result.players);
+      const lines = presenceMessages(prefix, diff, label);
       if (!lines.length) continue;
       try {
         const posted = await postPresence(client, env, lines);

@@ -1,6 +1,17 @@
 'use strict';
 
-const { Client, Events, MessageFlags, SlashCommandBuilder } = require('discord.js');
+const {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  Client,
+  Events,
+  MessageFlags,
+  ModalBuilder,
+  SlashCommandBuilder,
+  TextInputBuilder,
+  TextInputStyle
+} = require('discord.js');
 const { reportCommandFailure } = require('../game-bots/command-failure.cjs');
 const { loadConfig } = require('../shared/config.cjs');
 const { isStaff } = require('./ark-ops-extension.cjs');
@@ -20,12 +31,46 @@ const INSTALLED = Symbol.for('khaos.nexus.ark.cluster.extension');
 const BOUND = Symbol.for('khaos.nexus.ark.cluster.bound');
 const INITIAL_DELAY_MS = 12_000;
 const REFRESH_MS = Math.max(30_000, Number(process.env.NEXUS_ARK_CLUSTER_REFRESH_SECONDS || 60) * 1000 || 60_000);
+const SETUP_MODAL_ID = 'nexus:arkcluster:setup';
+const SETUP_MAP_MODAL_PREFIX = 'nexus:arkcluster:mapid:';
+const SETUP_MAP_BUTTON_PREFIX = 'nexus:arkcluster:mapbtn:';
+
+// One modal holds five fields. The ARK map identifier is a follow-up modal.
+const CLUSTER_SETUP_FIELDS = Object.freeze([
+  {
+    id: 'id',
+    label: 'Stable map id',
+    placeholder: 'Short id used to update this map later, e.g. gen1 or astraeos.'
+  },
+  {
+    id: 'display_name',
+    label: 'Board display name',
+    placeholder: 'Public name on the cluster board, e.g. Khaos Nexus Gen 1.'
+  },
+  {
+    id: 'map_name',
+    label: 'Friendly map name',
+    placeholder: 'Map label players see, e.g. Genesis Part 1 or Astraeos.'
+  },
+  {
+    id: 'env_prefix',
+    label: 'Env prefix (links RCON vault)',
+    placeholder: 'Like ARK_GEN1. Matches /arkrcon setup. Do not enter a password.'
+  },
+  {
+    id: 'cluster_id',
+    label: 'Cluster id shared by maps',
+    placeholder: 'Same id on every map in this cluster, e.g. khaos-nexus. Optional.'
+  }
+]);
 
 function arkClusterCommand() {
   const command = new SlashCommandBuilder()
     .setName('arkcluster')
     .setDescription('Manage the Nexus Sentinal ARK cluster registry.');
 
+  command.addSubcommand((sub) => sub.setName('setup').setDescription('Guided popup to add or update a map on the public cluster board.')
+    .addStringOption((o) => o.setName('id').setDescription('Existing map id to prefill. Leave blank to add a map.').setMaxLength(64)));
   command.addSubcommand((sub) => sub.setName('list').setDescription('List registered ARK maps and their current health.'));
   command.addSubcommand((sub) => sub.setName('refresh').setDescription('Poll all registered maps and refresh the ARK cluster panel now.'));
   command.addSubcommand((sub) => sub.setName('add').setDescription('Add or update a map in the ARK cluster registry.')
@@ -71,6 +116,75 @@ async function registerArkClusterCommand(guild) {
   const commands = await guild.commands.fetch();
   const existing = commands.find((item) => item.name === definition.name);
   if (existing) await guild.commands.edit(existing, definition); else await guild.commands.create(definition);
+}
+
+function textInput(field, { required = true, maxLength = 100, value = '' } = {}) {
+  const input = new TextInputBuilder()
+    .setCustomId(field.id)
+    .setLabel(field.label)
+    .setStyle(TextInputStyle.Short)
+    .setRequired(required)
+    .setMaxLength(maxLength)
+    .setPlaceholder(field.placeholder);
+  if (required) input.setMinLength(1);
+  if (value) input.setValue(String(value).slice(0, maxLength));
+  return input;
+}
+
+function clusterSetupModal(existing = null) {
+  const modal = new ModalBuilder().setCustomId(SETUP_MODAL_ID).setTitle('Cluster map setup');
+  const values = {
+    id: existing?.id || '',
+    display_name: existing?.name || '',
+    map_name: existing?.mapName || '',
+    env_prefix: existing?.envPrefix || '',
+    cluster_id: existing?.clusterId || ''
+  };
+  const limits = { id: 64, display_name: 100, map_name: 100, env_prefix: 64, cluster_id: 120 };
+  modal.addComponents(...CLUSTER_SETUP_FIELDS.map((field) => new ActionRowBuilder().addComponents(
+    textInput(field, {
+      required: field.id !== 'cluster_id',
+      maxLength: limits[field.id],
+      value: values[field.id]
+    })
+  )));
+  return modal;
+}
+
+function mapIdentifierModal(record) {
+  const modal = new ModalBuilder()
+    .setCustomId(`${SETUP_MAP_MODAL_PREFIX}${record.id}`)
+    .setTitle('ARK map identifier');
+  const input = textInput({
+    id: 'map_identifier',
+    label: 'ARK map identifier',
+    placeholder: 'In-game map id such as Genesis_WP. Type none to clear.'
+  }, { required: false, maxLength: 100, value: record.mapIdentifier || '' });
+  modal.addComponents(new ActionRowBuilder().addComponents(input));
+  return modal;
+}
+
+function mapIdentifierButton(id) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`${SETUP_MAP_BUTTON_PREFIX}${id}`)
+      .setLabel('Set map identifier')
+      .setStyle(ButtonStyle.Secondary)
+  );
+}
+
+function visible(value) {
+  return String(value || '').replace(/[`@]/g, '').slice(0, 100);
+}
+
+function setupSavedText(record) {
+  const cluster = record.clusterId ? ` • cluster \`${visible(record.clusterId)}\`` : '';
+  return [
+    `✅ **${visible(record.mapName)}** is on the cluster board as \`${visible(record.id)}\`.`,
+    `Display name: **${visible(record.name)}** • prefix \`${visible(record.envPrefix)}\`${cluster}`,
+    'RCON passwords are not stored here. Use `/arkrcon setup` for host, port, and password.',
+    'Optional: set the ARK map identifier (for example Genesis_WP) with the button.'
+  ].join('\n');
 }
 
 function parseMods(value) {
@@ -140,6 +254,17 @@ async function replyButton(interaction, content) {
 async function handleClusterButton(interaction, context) {
   if (!interaction.isButton?.()) return false;
   const id = String(interaction.customId || '');
+  if (id.startsWith(SETUP_MAP_BUTTON_PREFIX)) {
+    if (!isStaff(interaction, context.config)) {
+      await replyButton(interaction, '🔒 Cluster setup is limited to Nexus staff.');
+      return true;
+    }
+    const mapId = id.slice(SETUP_MAP_BUTTON_PREFIX.length);
+    const existing = context.registry.get(mapId);
+    if (!existing) throw new Error(`Unknown ARK cluster map: ${mapId}`);
+    await interaction.showModal(mapIdentifierModal(existing));
+    return true;
+  }
   if (![BUTTON_REFRESH, BUTTON_SHOP, BUTTON_KITS, BUTTON_EVENTS].includes(id)) return false;
 
   if (id === BUTTON_REFRESH) {
@@ -175,11 +300,60 @@ async function handleClusterButton(interaction, context) {
   return true;
 }
 
+async function handleClusterSetupModal(interaction, context) {
+  if (!interaction.isModalSubmit?.()) return false;
+  const customId = String(interaction.customId || '');
+  const setup = customId === SETUP_MODAL_ID;
+  const mapStep = customId.startsWith(SETUP_MAP_MODAL_PREFIX);
+  if (!setup && !mapStep) return false;
+  if (!isStaff(interaction, context.config)) throw new Error('ARK cluster management requires Nexus staff authorization.');
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const registry = context.registry;
+
+  if (mapStep) {
+    const mapId = customId.slice(SETUP_MAP_MODAL_PREFIX.length);
+    const existing = registry.get(mapId);
+    if (!existing) throw new Error(`Unknown ARK cluster map: ${mapId}`);
+    const raw = interaction.fields.getTextInputValue('map_identifier').trim();
+    const mapIdentifier = !raw ? existing.mapIdentifier : raw.toLowerCase() === 'none' ? '' : raw;
+    const record = registry.upsert({ ...existing, mapIdentifier });
+    if (typeof context.runRefresh === 'function') await context.runRefresh('registry-setup-map', false);
+    await interaction.editReply({
+      content: `✅ **${visible(record.mapName)}** map identifier is ${record.mapIdentifier ? `\`${visible(record.mapIdentifier)}\`` : 'cleared'}. RCON passwords stay on \`/arkrcon setup\`.`,
+      allowedMentions: { parse: [] }
+    });
+    return true;
+  }
+
+  const record = registry.upsert({
+    id: interaction.fields.getTextInputValue('id'),
+    name: interaction.fields.getTextInputValue('display_name'),
+    mapName: interaction.fields.getTextInputValue('map_name'),
+    envPrefix: interaction.fields.getTextInputValue('env_prefix'),
+    clusterId: interaction.fields.getTextInputValue('cluster_id') || '',
+    enabled: true
+  });
+  if (typeof context.runRefresh === 'function') await context.runRefresh('registry-setup');
+  await interaction.editReply({
+    content: setupSavedText(record),
+    components: [mapIdentifierButton(record.id)],
+    allowedMentions: { parse: [] }
+  });
+  return true;
+}
+
 async function handleClusterCommand(interaction, context) {
   if (!interaction.isChatInputCommand?.() || interaction.commandName !== 'arkcluster') return false;
   if (!isStaff(interaction, context.config)) throw new Error('ARK cluster management requires Nexus staff authorization.');
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const sub = interaction.options.getSubcommand();
+  if (sub === 'setup') {
+    const requested = interaction.options.getString('id');
+    const existing = requested ? context.registry.get(requested) : null;
+    if (requested && !existing) throw new Error(`Unknown ARK cluster map: ${requested}`);
+    await interaction.showModal(clusterSetupModal(existing));
+    return true;
+  }
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const registry = context.registry;
 
   if (sub === 'list') {
@@ -314,6 +488,7 @@ function installArkClusterExtension() {
         if (String(interaction.guildId || '') !== String(config.discord?.guildId || '')) return;
         void (async () => {
           if (await handleClusterButton(interaction, context)) return;
+          if (await handleClusterSetupModal(interaction, context)) return;
           await handleClusterCommand(interaction, context);
         })().catch((error) => reportCommandFailure(interaction, error));
       });
@@ -353,8 +528,15 @@ function installArkClusterExtension() {
 module.exports = {
   INITIAL_DELAY_MS,
   REFRESH_MS,
+  SETUP_MODAL_ID,
+  SETUP_MAP_MODAL_PREFIX,
+  SETUP_MAP_BUTTON_PREFIX,
+  CLUSTER_SETUP_FIELDS,
   arkClusterCommand,
   registerArkClusterCommand,
+  clusterSetupModal,
+  mapIdentifierModal,
+  setupSavedText,
   parseMods,
   parseRates,
   registryLine,
@@ -362,6 +544,7 @@ module.exports = {
   logClusterRuntime,
   refreshClusterPanel,
   handleClusterButton,
+  handleClusterSetupModal,
   handleClusterCommand,
   installArkClusterExtension
 };

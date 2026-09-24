@@ -1,5 +1,6 @@
 'use strict';
 
+const path = require('node:path');
 const { parseListPlayers } = require('../sentinel/ark-cluster-monitor.cjs');
 const { errorClass } = require('./command-failure.cjs');
 
@@ -17,14 +18,55 @@ function healthIntervalMs(env = process.env) {
   return Math.max(60_000, Math.min(30 * 60 * 1000, Math.round(raw)));
 }
 
-function mapLabel(prefix) {
-  return prefix === 'ARK_MAP2' ? 'Map2' : 'Gen1';
+function openRegistry(env = process.env) {
+  const { ArkClusterRegistry } = require('../sentinel/ark-cluster-registry.cjs');
+  const data = String(env?.NEXUS_DATA_DIR || '').trim();
+  const registry = new ArkClusterRegistry(data || undefined);
+  if (data) {
+    registry.dir = path.resolve(data);
+    registry.file = path.join(registry.dir, 'ark-cluster-registry.json');
+  }
+  return registry;
+}
+
+function resolveHealthPrefixes(env = process.env, registry) {
+  try {
+    const source = registry || openRegistry(env);
+    const servers = source.list({ includeDisabled: true });
+    if (!servers.length) return HEALTH_PREFIXES.slice();
+    const prefixes = [];
+    const seen = new Set();
+    for (const server of servers) {
+      if (server.enabled === false) continue;
+      const prefix = String(server.envPrefix || '').trim().toUpperCase();
+      if (!/^ARK_[A-Z0-9_]{2,60}$/.test(prefix) || seen.has(prefix)) continue;
+      seen.add(prefix);
+      prefixes.push(prefix);
+      if (prefixes.length >= 25) break;
+    }
+    return prefixes;
+  } catch {
+    return HEALTH_PREFIXES.slice();
+  }
+}
+
+function mapLabel(prefix, registry) {
+  if (registry && typeof registry.list === 'function') {
+    try {
+      const match = registry.list({ includeDisabled: true }).find((server) => server.envPrefix === prefix);
+      const label = String(match?.mapName || match?.name || '').trim();
+      if (label) return label.slice(0, 40);
+    } catch {}
+  }
+  if (prefix === 'ARK_MAP2') return 'Map2';
+  if (prefix === 'ARK_GEN1') return 'Gen1';
+  return String(prefix || 'map').replace(/^ARK_/, '').replace(/_/g, ' ').slice(0, 40) || 'map';
 }
 
 function publicRow(prefix, fields) {
   return {
     prefix,
-    map: mapLabel(prefix),
+    map: fields.registry ? mapLabel(prefix, fields.registry) : (String(fields.map || '').trim() || mapLabel(prefix)),
     ok: fields.ok === true,
     configured: fields.configured === true,
     playerCount: Number.isInteger(fields.playerCount) ? fields.playerCount : null,
@@ -55,29 +97,29 @@ function openStore(env = process.env) {
   return new ArkRconConfigStore(resolveStoreRoot(undefined, env));
 }
 
-async function checkRconPrefix(prefix, { store, env = process.env, execute = defaultExecute, now = () => new Date() } = {}) {
+async function checkRconPrefix(prefix, { store, env = process.env, execute = defaultExecute, now = () => new Date(), registry } = {}) {
   const started = Date.now();
   const checkedAt = now().toISOString();
   let server;
   try {
     server = (store || openStore(env)).resolve(prefix, env);
   } catch (error) {
-    return { row: publicRow(prefix, { ok: false, configured: false, elapsedMs: Date.now() - started, errorClass: errorClass(error), checkedAt }), players: [] };
+    return { row: publicRow(prefix, { ok: false, configured: false, elapsedMs: Date.now() - started, errorClass: errorClass(error), checkedAt, registry }), players: [] };
   }
   const configured = Boolean(server?.enabled && server.host && server.port && server.password);
   if (!configured) {
-    return { row: publicRow(prefix, { ok: false, configured: false, elapsedMs: Date.now() - started, errorClass: '', checkedAt }), players: [] };
+    return { row: publicRow(prefix, { ok: false, configured: false, elapsedMs: Date.now() - started, errorClass: '', checkedAt, registry }), players: [] };
   }
   try {
     const response = await execute(server, prefix);
     const players = parseListPlayers(response);
     return {
-      row: publicRow(prefix, { ok: true, configured: true, playerCount: players.length, elapsedMs: Date.now() - started, checkedAt }),
+      row: publicRow(prefix, { ok: true, configured: true, playerCount: players.length, elapsedMs: Date.now() - started, checkedAt, registry }),
       players
     };
   } catch (error) {
     return {
-      row: publicRow(prefix, { ok: false, configured: true, elapsedMs: Date.now() - started, errorClass: errorClass(error), checkedAt }),
+      row: publicRow(prefix, { ok: false, configured: true, elapsedMs: Date.now() - started, errorClass: errorClass(error), checkedAt, registry }),
       players: []
     };
   }
@@ -108,6 +150,8 @@ module.exports = {
   LOOP,
   healthEnabled,
   healthIntervalMs,
+  openRegistry,
+  resolveHealthPrefixes,
   mapLabel,
   publicRow,
   healthLogLine,

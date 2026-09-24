@@ -15,7 +15,7 @@ const { EventCalendarStore, calendarEmbed } = require('./event-calendar.cjs');
 const { welcomeText } = require('./welcome-card.cjs');
 const { RateCardStore, ratesText, breedText, bossText } = require('./ark-rate-cards.cjs');
 const { wipeChecklist } = require('./wipe-checklist.cjs');
-const { ascendedHealthSnapshot, checkRconPrefix, HEALTH_PREFIXES, openStore } = require('./ascended-rcon-health.cjs');
+const { ascendedHealthSnapshot, checkRconPrefix, resolveHealthPrefixes, openStore } = require('./ascended-rcon-health.cjs');
 const { runtimeDataDir, snowflake, upsertEmbed } = require('./panel-message.cjs');
 const { handleFissureCommand, handleNightwaveCommand, handleCycleCommand, handleCephalonButton } = require('./cephalon-relay.cjs');
 const { handleOfficialCommand } = require('./asa-official-status.cjs');
@@ -298,7 +298,7 @@ async function handleStageCommand(interaction, context) {
     if (!snapshot.length && context.checkHealth !== false) {
       const store = openStore(env);
       const rows = [];
-      for (const prefix of HEALTH_PREFIXES) {
+      for (const prefix of resolveHealthPrefixes(env)) {
         const result = await checkRconPrefix(prefix, { store, env });
         rows.push(result.row);
       }
