@@ -48,6 +48,7 @@ test('Railway Sentinal image is built from package-lock.json with npm ci', { ski
   assert.match(dockerfile, /COPY docs\/ops\/SANCTUARY_NEXUS_DISCORD\.md \.\/docs\/ops\/SANCTUARY_NEXUS_DISCORD\.md/);
   assert.match(dockerfile, /COPY docs\/ops\/sanctuary-bot-runbook\.md \.\/docs\/ops\/sanctuary-bot-runbook\.md/);
   assert.match(dockerfile, /COPY docs\/ops\/STAGE1_GAME_BOT_OPS\.md \.\/docs\/ops\/STAGE1_GAME_BOT_OPS\.md/);
+  assert.match(dockerfile, /COPY docs\/ops\/JOIN_TO_CREATE\.md \.\/docs\/ops\/JOIN_TO_CREATE\.md/);
 });
 
 test('runtime-only test contexts do not need repository orchestration files', () => {
