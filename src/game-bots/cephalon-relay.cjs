@@ -5,6 +5,7 @@ const path = require('node:path');
 const { MessageFlags } = require('discord.js');
 const { TtlCache } = require('./ttl-cache.cjs');
 const { readJson, runtimeDataDir, snowflake, upsertEmbed, writeJson } = require('./panel-message.cjs');
+const { attachBanner } = require('./brand-banners.cjs');
 const { errorClass } = require('./command-failure.cjs');
 
 const FISSURE_TIERS = Object.freeze(['Lith', 'Meso', 'Neo', 'Axi', 'Requiem', 'Omnia']);
@@ -296,7 +297,7 @@ async function handleNightwaveCommand(interaction, context) {
   const userId = interaction.user?.id;
   const embed = nightwaveEmbed(loaded.value, desk, userId);
   const components = nightwaveComponents(loaded.value, desk, userId);
-  await interaction.reply(ephemeralEmbed(embed, { components }));
+  await interaction.reply(attachBanner('cephalon', ephemeralEmbed(embed, { components })));
   return true;
 }
 
@@ -304,7 +305,7 @@ async function handleCycleCommand(interaction, context) {
   const env = context.env || process.env;
   const loaded = await cycleCacheFor(context, env).get();
   const roles = context.cycleRoles || parseCycleRoles(env);
-  await interaction.reply(ephemeralEmbed(cycleEmbed(loaded.value, roles), { components: cycleComponents(roles) }));
+  await interaction.reply(attachBanner('cephalon', ephemeralEmbed(cycleEmbed(loaded.value, roles), { components: cycleComponents(roles) })));
   return true;
 }
 
@@ -332,8 +333,11 @@ async function handleNightwaveButton(interaction, context) {
   desk.toggle(interaction.user?.id, board.season, match[2]);
   const embed = nightwaveEmbed(board, desk, interaction.user?.id);
   const components = nightwaveComponents(board, desk, interaction.user?.id);
-  if (typeof interaction.update === 'function') await interaction.update({ embeds: [embed], components, allowedMentions: { parse: [] } });
-  else await interaction.reply(ephemeralEmbed(embed, { components }));
+  const next = attachBanner('cephalon', ephemeralEmbed(embed, { components }));
+  if (typeof interaction.update === 'function') {
+    const { flags, ...update } = next;
+    await interaction.update(update);
+  } else await interaction.reply(next);
   return true;
 }
 

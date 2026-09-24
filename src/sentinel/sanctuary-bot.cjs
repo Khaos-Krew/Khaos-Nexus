@@ -5,6 +5,7 @@ const { ChannelType, Events, MessageFlags, PermissionFlagsBits, SlashCommandBuil
 const { loadConfig } = require('../shared/config.cjs');
 const { reportCommandFailure } = require('../game-bots/command-failure.cjs');
 const { runtimeDataDir, snowflake, upsertEmbed } = require('../game-bots/panel-message.cjs');
+const { attachBanner } = require('../game-bots/brand-banners.cjs');
 const { isStaff, registerOpsCommands } = require('../game-bots/ops-spine.cjs');
 const { resolveCategoryConfig } = require('../game-bots/category-gate.cjs');
 const {
@@ -316,7 +317,7 @@ async function handleSanctuaryInteraction(interaction, context = {}) {
     }
     const me = guild?.members?.me;
     const resolved = await resolvedRoleGroups(guild, me);
-    const menu = resolved.ready ? roleMenuPayload(resolved.groups) : roleInstruction(resolved.missing);
+    const menu = resolved.ready ? attachBanner('sanctuary', roleMenuPayload(resolved.groups)) : roleInstruction(resolved.missing);
     await replyWith(interaction, { content: 'Roles updated.', ...menu }, { update: true });
     return true;
   }

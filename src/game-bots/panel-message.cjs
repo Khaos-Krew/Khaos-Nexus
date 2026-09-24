@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { attachBanner, bannerBotForPanel, cloneDelivery } = require('./brand-banners.cjs');
 
 const RECENT_MESSAGE_LIMIT = 100;
 const FOREIGN_EDIT_CODE = 50005;
@@ -179,7 +180,10 @@ async function upsertEmbed(client, channelId, messageId, payload, options = {}) 
   const channel = await client.channels.fetch(id).catch(() => null);
   if (!channel || typeof channel.send !== 'function') return { pinned: false, reason: 'missing' };
 
-  const body = { ...payload, allowedMentions: payload?.allowedMentions || { parse: [] } };
+  const branded = bannerBotForPanel(options.panel) && options.banner !== false
+    ? attachBanner(bannerBotForPanel(options.panel), payload)
+    : payload;
+  const body = { ...branded, allowedMentions: branded?.allowedMentions || { parse: [] } };
   const botId = String(options.botId || client?.user?.id || '');
   const identity = options.identity || (options.panel ? PANEL_IDENTITIES[options.panel] : null);
   const matches = typeof options.matches === 'function' ? options.matches : (identity ? panelMatcher(identity) : null);
@@ -193,7 +197,7 @@ async function upsertEmbed(client, channelId, messageId, payload, options = {}) 
   if (preferredId && typeof channel.messages?.fetch === 'function') {
     const existing = await channel.messages.fetch(preferredId).catch(() => null);
     if (existing?.edit && !isForeignPanel(existing, botId)) {
-      const edited = await editOwned(existing, body);
+      const edited = await editOwned(existing, cloneDelivery(body));
       if (edited === 'edited') canonical = existing;
       else if (edited === 'foreign') remember(foreign, existing);
     } else if (existing && isForeignPanel(existing, botId) && (!matches || matches(existing))) {
@@ -216,7 +220,7 @@ async function upsertEmbed(client, channelId, messageId, payload, options = {}) 
     const preferred = envId ? owned.find((message) => String(message?.id || '') === envId) || null : null;
     canonical = preferred || newestMessage(owned);
     if (canonical?.edit) {
-      const edited = await editOwned(canonical, body);
+      const edited = await editOwned(canonical, cloneDelivery(body));
       if (edited !== 'edited') {
         if (edited === 'foreign' && isForeignPanel(canonical, botId)) remember(foreign, canonical);
         canonical = null;
@@ -229,7 +233,19 @@ async function upsertEmbed(client, channelId, messageId, payload, options = {}) 
   let created = false;
   let migrated = false;
   if (!canonical) {
-    canonical = await channel.send(body);
+    if (options.create === false) {
+      return {
+        pinned: false,
+        messageId: '',
+        edited: false,
+        created: false,
+        migrated: false,
+        duplicatesRemoved: 0,
+        foreignRemoved: 0,
+        reason: 'absent'
+      };
+    }
+    canonical = await channel.send(cloneDelivery(body));
     created = true;
     migrated = foreign.length > 0;
   }
