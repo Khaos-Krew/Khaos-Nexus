@@ -159,7 +159,7 @@ async function handleInteraction(interaction, context) {
   const server = arkServerFromEnv(context.prefix);
   if (!server.enabled) throw new Error(`${context.prefix} is not enabled.`);
   if (!server.host || !server.port || !server.password) {
-    throw new Error(`${context.prefix} RCON is not configured yet. An owner must use /arkrcon configure and /arkrcon password. Connection settings stay in the Discord override store.`);
+    throw new Error(`${context.prefix} RCON is not configured yet. An owner must use /arkrcon setup (or configure and password). Connection settings stay in the Discord override store.`);
   }
 
   if (sub === 'status') {

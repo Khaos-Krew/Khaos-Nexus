@@ -26,7 +26,7 @@ const COMMAND_HELP = Object.freeze({
   arkprofile: 'Reusable ARK config profiles',
   arkshopadmin: 'ArkShop profile management',
   arkserver: 'Save, restart, and shop reload',
-  arkrcon: 'RCON diagnostics and the Discord override store',
+  arkrcon: 'RCON setup, diagnostics, and the Discord override store',
   arn: 'ARN tokens and caches',
   cacheadmin: 'Staff cache delivery verification',
   cachetoken: 'Staff cache token issue',
@@ -56,6 +56,9 @@ function helpText(bot) {
   const lines = [title, 'Live commands:'];
   for (const name of liveCommandNames(key)) {
     lines.push(`• \`/${name}\` — ${COMMAND_HELP[name] || 'Bot command'}`);
+  }
+  if (key === 'ascended') {
+    lines.push('RCON setup: `/arkrcon setup server:Gen1` or `server:Astraeos`. One modal for host, RCON port, and password.');
   }
   lines.push('', SENTINAL_POINTER);
   return lines.join('\n').slice(0, 1900);
