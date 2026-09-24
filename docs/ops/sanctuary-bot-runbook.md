@@ -47,7 +47,7 @@ Permission bit `268520448` is View Channels, Send Messages, Embed Links, Read Me
 - `/nexushelp` and `/sanctuary help` list commands and point wallet (`/bal`), verify (`/o9verify`), and shop at Nexus Sentinal.
 - `/sanctuary roles` opens class, world tier, and seasonal interest selects. Staff can set `post:true` to pin that menu in the channel.
 - `/sanctuary lfg` posts a helltide, boss, pit, or seasonal group embed with an optional voice mention and a close button. The post expires on its own.
-- `/sanctuary timers` and `/sanctuary events` reply with an ephemeral approximate schedule for helltide, world boss, and legion. They do not post a button panel.
+- `/sanctuary timers` and `/sanctuary events` reply with an ephemeral live community tracker for helltide and world boss, plus an approximate legion line. They do not post a button panel.
 - `/sanctuary build` posts a link plus class and build-type tags. The bot does not open the link.
 - `/sanctuary season` is that member's checklist.
 - `/sanctuary seasonpost` is a staff season note with a Herald template.
@@ -56,15 +56,21 @@ Permission bit `268520448` is View Channels, Send Messages, Embed Links, Read Me
 
 ## Event timers
 
-There is no official Blizzard Diablo IV character, inventory, or event API. Do not add `d4api.dev`; that host does not resolve. A check on 2026-09-23 found no stable machine-readable JSON feed: helltides.com `/api/schedule` returned a Cloudflare challenge, d4armory.io event routes redirected away, and diablo4.life report history was empty or from 2024. The bot does not scrape HTML pages.
+There is no official Blizzard Diablo IV character, inventory, or event API. Do not add `d4api.dev`; that host does not resolve. Do not scrape HTML pages. A 2026-09-23 check found helltides.com `/api/schedule` behind a Cloudflare challenge and d4armory.io event routes redirected away. Helltide report history on diablo4.life is not used: the public `reports` array was still from 2024 on 2026-09-24.
 
-`/sanctuary timers` computes the schedule locally, so a down tracker cannot block the Discord interaction:
+`/sanctuary timers` and `/sanctuary events` call `https://diablo4.life/api/trackers/list` with User-Agent `KhaosNexus-Sanctuary/1.0`, a 5 second timeout, and a 5 minute in-memory cache. That JSON is community data, not a Blizzard feed. A timeout, non-200, or unreadable body falls back to the approximate local schedule and says so. The Discord process stays up.
+
+- World boss name and spawn time come from `worldBoss` and `nextWorldBoss` when those objects include a name, place, or time.
+- Helltide uses the same payload when it includes a name, place, or time. An empty `helltide` object shows "No community Helltide report right now" plus a short approximate line.
+- Legion stays approximate. It is not wired to the live feed. Optional phase: `SANCTUARY_LEGION_ANCHOR`.
+
+Approximate fallback, used when a live field is missing or the tracker is down:
 
 - Helltide starts at the top of each UTC hour and runs about 55 minutes.
-- World bosses use a 210-minute cycle and an about-15-minute window. The built-in phase is a community seed of 2026-09-23 23:30 UTC. Two public schedule pages agreed on that spawn during the check. The boss name is not predicted.
-- Legion gatherings are about every 25 minutes for about 4 minutes. Those same pages disagreed on the minute, so the countdown stays off unless `SANCTUARY_LEGION_ANCHOR` is set.
+- World bosses use a 210-minute cycle and an about-15-minute window. The built-in phase is a community seed of 2026-09-23 23:30 UTC. `SANCTUARY_WORLD_BOSS_ANCHOR` overrides that seed. The approximate line does not predict the boss name.
+- Legion gatherings are about every 25 minutes for about 4 minutes. The countdown stays off unless `SANCTUARY_LEGION_ANCHOR` is set.
 
-The reply says the schedule is approximate and to confirm the in-game map marker. Role menus and LFG button posts stay in the button channel.
+The reply says to confirm the in-game map marker. Role menus and LFG button posts stay in the button channel.
 
 ## Other games (not this service)
 

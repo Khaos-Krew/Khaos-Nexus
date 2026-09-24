@@ -147,7 +147,7 @@ async function buildStatusText({ bot, client, env = process.env, probe } = {}) {
   } else if (key === 'sanctuary') {
     lines.push(`Category id: ${categoryGateLabel(resolveCategoryConfig('sanctuary', env))}.`);
     lines.push(`Button channel: ${buttonChannelLabel(resolveButtonChannel(env))}.`);
-    lines.push('Timers: community cadence, no live feed.');
+    lines.push('Timers: live community trackers, with an approximate fallback.');
     lines.push('No game backend is started in this service.');
   } else {
     const runProbe = probe || ((url) => probeHealth(url, { timeoutMs: 2500 }));
