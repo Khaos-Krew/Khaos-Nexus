@@ -6,7 +6,7 @@ const { probeHealth } = require('../sentinel/nexus-status.cjs');
 const { isArkShopMysqlRetired } = require('../sentinel/arkshop-database.cjs');
 const { ASCENDED_COMMANDS, CEPHALON_COMMANDS } = require('../sentinel/game-command-ownership.cjs');
 const { STAGE_HELP, stageCommandNames } = require('./stage-catalog.cjs');
-const { healthSummaryLines } = require('./ascended-rcon-health.cjs');
+const { healthSummaryLines, resolveHealthPrefixes } = require('./ascended-rcon-health.cjs');
 const { BOT_LABELS, errorClass, reportCommandFailure, setGameBotMeta } = require('./command-failure.cjs');
 const { normalizeBot, resolveCategoryConfig } = require('./category-gate.cjs');
 const { sanctuaryHelpText, categoryGateLabel, resolveButtonChannel, buttonChannelLabel } = require('../sentinel/sanctuary-suite.cjs');
@@ -19,14 +19,14 @@ const SENTINAL_POINTER = 'Wallet, verify, and ranks stay on Nexus Sentinal (`/ba
 const COMMAND_HELP = Object.freeze({
   ark: 'ARK server, shop, link, and event tools',
   'ark-health': 'ASA server, mods, and update safety',
-  arkcluster: 'Cluster map management',
+  arkcluster: 'Staff: `/arkcluster setup` for map id, display name, and cluster id. No RCON password',
   arkconfig: 'ARK configuration controls',
   arkdb: 'ArkShop database controls',
   arkevent: 'Dynamic ARK events',
   arkprofile: 'Reusable ARK config profiles',
   arkshopadmin: 'ArkShop profile management',
   arkserver: 'Save, restart, and shop reload',
-  arkrcon: 'RCON diagnostics and the Discord override store',
+  arkrcon: 'Owner: `/arkrcon setup` for host, port, and password, then `/arkrcon test`',
   arn: 'ARN tokens and caches',
   cacheadmin: 'Staff cache delivery verification',
   cachetoken: 'Staff cache token issue',
@@ -116,7 +116,9 @@ function rconStaffLines(env = process.env) {
   } catch {
     lines.push('RCON vault: unreadable.');
   }
-  for (const prefix of ['ARK_GEN1', 'ARK_MAP2']) {
+  const prefixes = resolveHealthPrefixes(env);
+  if (!prefixes.length) lines.push('RCON: no enabled cluster maps.');
+  for (const prefix of prefixes) {
     try {
       const state = store.status(prefix, env);
       const host = state.hostSource === 'missing' ? 'missing' : 'present';
