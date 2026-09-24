@@ -1,0 +1,14 @@
+{
+  "helltide": {},
+  "worldBoss": {
+    "name": "Avarice, the Gold Cursed",
+    "time": 1790244000000
+  },
+  "nextWorldBoss": {
+    "name": "Avarice, the Gold Cursed",
+    "time": 1790244000000,
+    "_id": "6ab4c7f702e3732cf6209b32"
+  },
+  "zoneEvent": {},
+  "chestRespawn": 1790236800000
+}

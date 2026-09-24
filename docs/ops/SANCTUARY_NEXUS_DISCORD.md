@@ -30,7 +30,7 @@ Do not set ARK RCON host, port, or password on this service. This image does not
 
 `/nexushelp` and `/sanctuary help` list commands and point wallet (`/bal`), verify (`/o9verify`), and shop at Nexus Sentinal. The guild command `/sanctuary` also posts role menus, group listings, build-link shares, a personal season checklist, a staff season note, staff `/sanctuary status`, and ephemeral `/sanctuary timers` (alias `/sanctuary events`).
 
-Timers are a local community cadence for helltide, world boss, and legion. There is no official Blizzard event API, and this service does not call `d4api.dev` or scrape tracker pages. See `docs/ops/sanctuary-bot-runbook.md` for the cadence, optional phase anchors, and the Cephalon, Ascended, and Destiny notes that stay out of this service.
+`/sanctuary timers` and `/sanctuary events` show live community trackers from diablo4.life for helltide and world boss, with an approximate legion line and an approximate fallback when the tracker is empty or down. There is no official Blizzard event API, and this service does not call `d4api.dev` or scrape tracker pages. See `docs/ops/sanctuary-bot-runbook.md` for the feed, the fallback cadence, optional phase anchors, and the Cephalon, Ascended, and Destiny notes that stay out of this service.
 
 The category id is not baked into the image. See `docs/ops/sanctuary-bot-runbook.md` for the invite, intents, and rollback.
 

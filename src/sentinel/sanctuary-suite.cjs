@@ -335,7 +335,7 @@ function sanctuaryStatusText({ ready, readyFlag, category, guildName, guildConfi
     `Guild: ${sanitizePublic(guildName, 80) || 'unknown'} (${guildConfigured ? 'id present' : 'missing'}).`,
     `Latency: ${latency}.`,
     `Button channel: ${buttonChannel || 'unset (panel post skipped)'}.`,
-    'Timers: community cadence, no live feed.'
+    'Timers: live community trackers, with an approximate fallback.'
   ];
   if (registered === true) lines.push('Commands registered again.');
   if (registered === false) lines.push('Command registration failed.');
@@ -351,7 +351,7 @@ function sanctuaryHelpText() {
     '• `/sanctuary help` — this list',
     '• `/sanctuary roles` — class, world tier, and seasonal interest roles',
     '• `/sanctuary lfg` — post a helltide, boss, pit, or seasonal group in the button channel',
-    '• `/sanctuary timers` — approximate helltide, world boss, and legion schedule',
+    '• `/sanctuary timers` — live community trackers for helltide and world boss, plus an approximate legion line',
     '• `/sanctuary build` — share a build link and tags',
     '• `/sanctuary season` — your season checklist',
     '• `/sanctuary seasonpost` — staff season note',

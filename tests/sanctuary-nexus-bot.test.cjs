@@ -65,6 +65,11 @@ function interaction(overrides = {}) {
     isAutocomplete: () => false,
     isStringSelectMenu: () => false,
     isButton: () => false,
+    deferReply: async (payload = {}) => {
+      target.deferred = true;
+      replies.push(payload || {});
+      return payload;
+    },
     reply: record,
     editReply: record,
     followUp: record,
@@ -346,7 +351,8 @@ test('sanctuary command registration surface lists the v1 suite', async () => {
   assert.match(help, /Sanctuary Nexus help/);
   assert.match(help, /\/nexushelp/);
   assert.match(help, /\/sanctuary lfg/);
-  assert.match(help, /\/sanctuary timers/);
+    assert.match(help, /\/sanctuary timers/);
+    assert.match(help, /live community trackers/);
   assert.match(help, /\/sanctuary roles/);
   assert.match(help, /\/sanctuary build/);
   assert.match(help, /\/sanctuary season/);
@@ -494,19 +500,23 @@ test('player commands post embeds inside the category and stay ephemeral for pri
     assert.match(status.replies[0].content, /READY flag: true/);
     assert.match(status.replies[0].content, /Category id: present/);
     assert.match(status.replies[0].content, /Latency: 42 ms/);
-    assert.match(status.replies[0].content, /community cadence, no live feed/);
+    assert.match(status.replies[0].content, /live community trackers, with an approximate fallback/);
 
     const timers = interaction({
       channel,
       options: { getSubcommand: () => 'timers', getString: () => null, getBoolean: () => false, getChannel: () => null }
     });
     await handleSanctuaryInteraction(timers, context);
+    const timerEmbed = timers.replies.find((item) => item.embeds)?.embeds[0];
     assert.equal(timers.replies[0].flags, MessageFlags.Ephemeral);
-    assert.match(timers.replies[0].embeds[0].description, /Approximate community schedule/);
-    assert.match(timers.replies[0].embeds[0].description, /Helltide/);
-    assert.match(timers.replies[0].embeds[0].description, /World boss/);
-    assert.match(timers.replies[0].embeds[0].description, /does not count one down/);
-    assert.match(timers.replies[0].embeds[0].description, /\/sanctuary lfg/);
+    assert.match(timerEmbed.description, /Community tracker did not answer/);
+    assert.match(timerEmbed.description, /Approximate community schedule/);
+    assert.match(timerEmbed.description, /Helltide/);
+    assert.match(timerEmbed.description, /World boss/);
+    assert.match(timerEmbed.description, /does not count one down/);
+    assert.match(timerEmbed.description, /\/sanctuary lfg/);
+    assert.match(timerEmbed.footer.text, /diablo4\.life unavailable/);
+    assert.match(timerEmbed.footer.text, /not Blizzard-official/);
     assert.equal(posted.length, 1);
     assert.doesNotMatch(status.replies[0].content, new RegExp(CATEGORY));
     assert.equal(status.replies[0].flags, MessageFlags.Ephemeral);
@@ -580,7 +590,7 @@ test('sanctuary help and status stay off other bots and off a baked category id'
   assert.match(status, /Discord: ready/);
   assert.match(status, /Category id: present/);
   assert.match(status, /No game backend is started/);
-  assert.match(status, /community cadence, no live feed/);
+  assert.match(status, /live community trackers, with an approximate fallback/);
   assert.doesNotMatch(status, /Warframe backend|RCON|ArkShop/);
   assert.doesNotMatch(status, new RegExp(CATEGORY));
 
@@ -625,7 +635,10 @@ test('sanctuary help and status stay off other bots and off a baked category id'
   assert.match(service, /bindSanctuaryCommands/);
   assert.match(service, /startGameBot/);
   assert.doesNotMatch(service, /backend\/server|RCON|Nephalem|Sentinel/);
-  assert.doesNotMatch(suite + bot + events, /news\.blizzard\.com|\bhttps?:\/\/|_RCON_|Nephalem|Sentinel|d4api\.dev|d4armory|helltides\.com/);
+  const sources = suite + bot + events;
+  assert.doesNotMatch(sources, /news\.blizzard\.com|_RCON_|Nephalem|Sentinel|d4api\.dev|d4armory|helltides\.com/);
+  assert.match(events, /https:\/\/diablo4\.life\/api\/trackers\/list/);
+  assert.doesNotMatch(sources.replace(/https:\/\/diablo4\.life\/api\/trackers\/list/g, ''), /\bhttps?:\/\//);
   assert.match(runbook, /d4api\.dev/);
   assert.match(runbook, /SANCTUARY_WORLD_BOSS_ANCHOR/);
   assert.match(runbook, /warframestat\.us/);
@@ -701,7 +714,25 @@ test('sanctuary timers use the community cadence and do not call the network', a
     channel: { parentId: CATEGORY, isThread: () => false },
     options: { getSubcommand: () => 'events', getString: () => null, getBoolean: () => false, getChannel: () => null }
   });
-  assert.equal(await handleSanctuaryInteraction(events, { env: {}, schedule: false }), true);
+  let networkCalls = 0;
+  const originalFetch = global.fetch;
+  global.fetch = () => {
+    networkCalls += 1;
+    throw new Error('live network is not used by this test');
+  };
+  try {
+    assert.equal(await handleSanctuaryInteraction(events, {
+      env: {},
+      schedule: false,
+      trackerCache: { entry: null, pending: null },
+      trackerFetch: async () => { throw new Error('offline fixture'); }
+    }), true);
+  } finally {
+    global.fetch = originalFetch;
+  }
+  assert.equal(networkCalls, 0);
   assert.equal(events.replies[0].flags, MessageFlags.Ephemeral);
-  assert.match(events.replies[0].embeds[0].title, /event timers/);
+  const eventEmbed = events.replies.find((item) => item.embeds)?.embeds[0];
+  assert.match(eventEmbed.title, /event timers/);
+  assert.match(eventEmbed.description, /approximate, not a live report/);
 });

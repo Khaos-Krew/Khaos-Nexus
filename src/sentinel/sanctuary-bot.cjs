@@ -34,7 +34,7 @@ const {
   resolveButtonChannel,
   buttonChannelLabel
 } = require('./sanctuary-suite.cjs');
-const { communityEventSchedule, eventTimerMessage } = require('./sanctuary-events.cjs');
+const { buildSanctuaryTimerMessage } = require('./sanctuary-events.cjs');
 
 const EXPIRY = Symbol.for('khaos.nexus.sanctuary.expiry');
 
@@ -70,8 +70,8 @@ function sanctuaryCommands() {
         .addStringOption((option) => option.setName('type').setDescription('Build type').setRequired(true).addChoices(...choiceOptions(BUILD_TYPES)))
         .addStringOption((option) => option.setName('note').setDescription('Short note').setMaxLength(200)))
       .addSubcommand((sub) => sub.setName('season').setDescription('Show your season checklist.'))
-      .addSubcommand((sub) => sub.setName('timers').setDescription('Approximate helltide, world boss, and legion times.'))
-      .addSubcommand((sub) => sub.setName('events').setDescription('Same as timers: helltide, world boss, and legion.'))
+      .addSubcommand((sub) => sub.setName('timers').setDescription('Live community trackers for helltide and world boss, plus legion.'))
+      .addSubcommand((sub) => sub.setName('events').setDescription('Same as timers: live community helltide, world boss, and legion.'))
       .addSubcommand((sub) => sub
         .setName('seasonpost')
         .setDescription('Staff: post a season note with a Herald template.')
@@ -393,7 +393,39 @@ async function handleSanctuaryInteraction(interaction, context = {}) {
   }
 
   if (sub === 'timers' || sub === 'events') {
-    await interaction.reply(ephemeral('', eventTimerMessage(communityEventSchedule(Date.now(), env))));
+    let acked = Boolean(interaction.deferred || interaction.replied);
+    if (!acked && typeof interaction.deferReply === 'function') {
+      try {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        acked = true;
+      } catch (error) {
+        console.warn(`[Sanctuary Nexus] timer defer failed: ${String(error?.message || error).slice(0, 200)}`);
+      }
+    }
+    let message;
+    try {
+      message = await buildSanctuaryTimerMessage({
+        now: Date.now(),
+        env,
+        fetchImpl: context.trackerFetch,
+        cache: context.trackerCache
+      });
+    } catch (error) {
+      console.warn(`[Sanctuary Nexus] timer build failed: ${String(error?.message || error).slice(0, 200)}`);
+      message = {
+        embeds: [{
+          title: 'Sanctuary event timers',
+          description: 'Community tracker did not answer. Try again in a few minutes.',
+          footer: { text: `Sanctuary Nexus • community data from diablo4.life unavailable • not Blizzard-official • fetched ${new Date().toISOString()}` }
+        }],
+        allowedMentions: { parse: [] }
+      };
+    }
+    try {
+      await replyWith(interaction, acked ? message : ephemeral('', message));
+    } catch (error) {
+      console.warn(`[Sanctuary Nexus] timer reply failed: ${String(error?.message || error).slice(0, 200)}`);
+    }
     return true;
   }
 

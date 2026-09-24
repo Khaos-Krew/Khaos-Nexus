@@ -1,0 +1,17 @@
+{
+  "helltide": {
+    "name": "the Helltide Rises",
+    "location": "Kehjistan",
+    "time": 1790240400000
+  },
+  "worldBoss": {
+    "name": "Ashava the Pestilent",
+    "location": "Scosglen",
+    "time": 1790251200000
+  },
+  "nextWorldBoss": {
+    "name": "Wandering Death, Death Given Life",
+    "time": 1790263800000
+  },
+  "zoneEvent": {}
+}
