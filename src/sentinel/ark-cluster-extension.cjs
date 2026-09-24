@@ -12,7 +12,7 @@ const {
   BUTTON_KITS,
   BUTTON_EVENTS,
   findArkStatusChannel,
-  renderArkClusterPanel,
+  arkClusterBoardPayload,
   reconcileArkClusterPanel
 } = require('./ark-cluster-panel.cjs');
 
@@ -126,7 +126,7 @@ async function refreshClusterPanel(client, registry, config, { reason = 'manual'
     const servers = registry.list({ includeDisabled: true });
     snapshot = { servers, summary: summarizeCluster(servers), checkedAt: new Date().toISOString() };
   }
-  const payload = renderArkClusterPanel(snapshot);
+  const payload = arkClusterBoardPayload(snapshot);
   const panel = await reconcileArkClusterPanel(channel, payload, { botId: client.user?.id, registry });
   return { ...panel, ...snapshot, channelId: String(channel.id || ''), reason };
 }

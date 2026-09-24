@@ -3,6 +3,7 @@
 const path = require('node:path');
 const { MessageFlags } = require('discord.js');
 const { readJson, runtimeDataDir, writeJson } = require('./panel-message.cjs');
+const { attachBanner } = require('./brand-banners.cjs');
 const { errorClass } = require('./command-failure.cjs');
 
 const UNOFFICIAL_LIST_URL = 'https://cdn2.arkdedicated.com/servers/asa/unofficialserverlist.json';
@@ -205,7 +206,7 @@ async function handleClusterCommand(interaction, context) {
   const embed = clusterEmbed(loaded.servers, loaded);
   const text = JSON.stringify(embed);
   if (/\b[0-9a-f]{32}\b/i.test(text)) throw new Error('Cluster card included a private id.');
-  await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+  await interaction.reply(attachBanner('ascended', { embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } }));
   return true;
 }
 

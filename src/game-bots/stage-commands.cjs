@@ -123,6 +123,13 @@ function roleIdsOf(interaction) {
   return [];
 }
 
+function welcomePinEmbed(bot) {
+  return {
+    title: bot === 'ascended' ? 'Welcome to Nexus Ascended' : 'Welcome to Cephalon Nexus',
+    description: welcomeText(bot)
+  };
+}
+
 async function refreshPinnedEmbed(client, env, channelEnvName, entry, embed, options = {}) {
   const messageId = snowflake(env[options.messageEnv]) || entry?.messageId;
   return upsertEmbed(client, env[channelEnvName], messageId, { embeds: [embed] }, {
@@ -130,6 +137,48 @@ async function refreshPinnedEmbed(client, env, channelEnvName, entry, embed, opt
     botId: options.botId || client?.user?.id,
     envMessageId: snowflake(env[options.messageEnv])
   });
+}
+
+async function refreshDurablePins(client, bot, env = process.env) {
+  const key = normalizeBot(bot);
+  if (key !== 'cephalon' && key !== 'ascended') return { refreshed: 0 };
+  const dir = dataDir(env);
+  let refreshed = 0;
+  const channelEnv = key === 'ascended' ? 'ASCENDED_WELCOME_CHANNEL_ID' : 'CEPHALON_WELCOME_CHANNEL_ID';
+  if (snowflake(env[channelEnv])) {
+    const pin = readWelcomePin(dir, key);
+    const pinned = await refreshPinnedEmbed(client, env, channelEnv, pin, welcomePinEmbed(key), {
+      panel: key === 'ascended' ? 'ascendedWelcome' : 'cephalonWelcome',
+      messageEnv: key === 'ascended' ? 'ASCENDED_WELCOME_MESSAGE_ID' : 'CEPHALON_WELCOME_MESSAGE_ID',
+      create: false
+    }).catch((error) => {
+      console.warn(`[${BOT_LABELS[key]}] welcome pin class=${errorClass(error)}`);
+      return null;
+    });
+    if (pinned?.messageId) {
+      writeWelcomePin(dir, key, pinned.messageId);
+      refreshed += 1;
+    }
+  }
+  if (key === 'cephalon' && snowflake(env.CEPHALON_EVENT_CHANNEL_ID)) {
+    const store = new EventCalendarStore(dir);
+    const entry = store.read();
+    if (entry.title) {
+      const pinned = await refreshPinnedEmbed(client, env, 'CEPHALON_EVENT_CHANNEL_ID', entry, calendarEmbed(entry), {
+        panel: 'cephalonEvent',
+        messageEnv: 'CEPHALON_EVENT_MESSAGE_ID',
+        create: false
+      }).catch((error) => {
+        console.warn(`[${BOT_LABELS.cephalon}] event pin class=${errorClass(error)}`);
+        return null;
+      });
+      if (pinned?.messageId) {
+        if (pinned.messageId !== entry.messageId) store.write({ ...entry, messageId: pinned.messageId });
+        refreshed += 1;
+      }
+    }
+  }
+  return { refreshed };
 }
 
 async function handleStageCommand(interaction, context) {
@@ -163,10 +212,7 @@ async function handleStageCommand(interaction, context) {
     if (isStaff(interaction, config)) {
       const channelEnv = bot === 'ascended' ? 'ASCENDED_WELCOME_CHANNEL_ID' : 'CEPHALON_WELCOME_CHANNEL_ID';
       const pin = readWelcomePin(dir, bot);
-      const pinned = await refreshPinnedEmbed(context.client || interaction.client, env, channelEnv, pin, {
-        title: bot === 'ascended' ? 'Welcome to Nexus Ascended' : 'Welcome to Cephalon Nexus',
-        description: welcomeText(bot)
-      }, {
+      const pinned = await refreshPinnedEmbed(context.client || interaction.client, env, channelEnv, pin, welcomePinEmbed(bot), {
         panel: bot === 'ascended' ? 'ascendedWelcome' : 'cephalonWelcome',
         messageEnv: bot === 'ascended' ? 'ASCENDED_WELCOME_MESSAGE_ID' : 'CEPHALON_WELCOME_MESSAGE_ID'
       }).catch(() => null);
@@ -296,6 +342,9 @@ function installStageCommands(client, { bot, env = process.env, config, provider
     void handleStageCommand(interaction, context).catch((error) => reportCommandFailure(interaction, error, { bot: key, botName: BOT_LABELS[key], env }));
   });
   client.once(Events.ClientReady, () => {
+    void refreshDurablePins(client, key, env).catch((error) => {
+      console.warn(`[${BOT_LABELS[key]}] durable pin refresh failed: class=${errorClass(error)}`);
+    });
     void registerStageCommands(client, key, env, { config }).catch((error) => {
       console.warn(`[${BOT_LABELS[key]}] stage command registration failed: class=${errorClass(error)}`);
     });
@@ -308,5 +357,7 @@ module.exports = {
   handleStageCommand,
   registerStageCommands,
   installStageCommands,
-  refreshPinnedEmbed
+  refreshPinnedEmbed,
+  refreshDurablePins,
+  welcomePinEmbed
 };

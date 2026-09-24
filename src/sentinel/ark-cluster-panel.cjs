@@ -2,6 +2,7 @@
 
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType } = require('discord.js');
 const { managedPayloadMatches } = require('./managed-payload-compare.cjs');
+const { attachBanner, cloneDelivery } = require('../game-bots/brand-banners.cjs');
 
 const PANEL_MARKER = 'Nexus Sentinal • ARK Cluster Management • v2';
 const PANEL_TITLE = 'KHAOS NEXUS • ARK CLUSTER';
@@ -66,6 +67,9 @@ function renderArkClusterPanel({ servers = [], summary = {}, checkedAt = '' } = 
     allowedMentions: { parse: [] }
   };
 }
+function arkClusterBoardPayload(snapshot) {
+  return attachBanner('ascended', renderArkClusterPanel(snapshot));
+}
 function isArkStatusChannel(channel) { return Boolean(channel && (channel.isTextBased?.() || channel.type === ChannelType.GuildText || channel.type === ChannelType.GuildAnnouncement) && normalizeChannelName(channel.name) === STATUS_CHANNEL); }
 async function findArkStatusChannel(guild) { const channels = await guild.channels.fetch(); return valuesOf(channels).find(isArkStatusChannel) || null; }
 function panelContentMatches(message) {
@@ -107,9 +111,9 @@ async function reconcileArkClusterPanel(channel, payload, { botId = '', registry
   let pinned = false;
   const migrated = !message && foreign.length > 0;
   if (message) {
-    if (!managedPayloadMatches(message, payload)) { await message.edit(payload); updated = true; }
+    if (!managedPayloadMatches(message, payload)) { await message.edit(cloneDelivery(payload)); updated = true; }
   } else if (typeof channel?.send === 'function') {
-    message = await channel.send(payload);
+    message = await channel.send(cloneDelivery(payload));
     created = true;
   }
   if (message?.pinned !== true && typeof message?.pin === 'function') {
@@ -135,5 +139,5 @@ module.exports = {
   BUTTON_SHOP, BUTTON_KITS, BUTTON_PUBLIC_SHOP, BUTTON_PUBLIC_KITS, BUTTON_EVENTS, BUTTON_CACHE_SHOP,
   normalizeChannelName, stateGlyph, stateLabel, discordTime, renderRates, renderMods, effectiveRates, effectiveMods,
   renderConnectivity, renderRestartState, renderMapField, clusterEvent, nextRestart, buildButtons, buildInfoButtons,
-  renderArkClusterPanel, isArkStatusChannel, findArkStatusChannel, panelContentMatches, messageMatches, reconcileArkClusterPanel
+  renderArkClusterPanel, arkClusterBoardPayload, isArkStatusChannel, findArkStatusChannel, panelContentMatches, messageMatches, reconcileArkClusterPanel
 };
