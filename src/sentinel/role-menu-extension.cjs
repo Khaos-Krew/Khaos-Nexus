@@ -11,6 +11,7 @@ const { reconcileExistingModuleAccessPolicies } = require('./module-access-polic
 const { reconcileOwnerApprovedRoles } = require('./owner-role-decisions.cjs');
 const { reconcileGameCategoryOrder } = require('./category-order.cjs');
 const { createCoalescingRunner } = require('./coalescing-runner.cjs');
+const { notifyRoleMenuStartupComplete } = require('./role-order-extension.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.moduleAccessRoles.extension');
 const AUTO_PROVISION_MODULES = Object.freeze(['callofduty', 'deadbydaylight', 'diablo4']);
@@ -118,6 +119,8 @@ function installRoleMenuExtension() {
         else if (rules.edited || rules.deleted) console.log(`[Nexus Sentinal] rules website cleanup (${reason}): edited=${rules.edited} deleted=${rules.deleted}`);
       } catch (error) {
         console.error(`[Nexus Sentinal] role reconciliation (${reason}):`, error);
+      } finally {
+        if (reason === 'startup') notifyRoleMenuStartupComplete();
       }
     };
 
