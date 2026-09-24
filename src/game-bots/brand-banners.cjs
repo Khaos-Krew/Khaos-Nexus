@@ -16,6 +16,7 @@ const BANNERS = Object.freeze({
 
 const PANEL_BOTS = Object.freeze({
   fissures: 'cephalon',
+  clanApplications: 'cephalon',
   cephalonWelcome: 'cephalon',
   cephalonEvent: 'cephalon',
   official: 'ascended',
