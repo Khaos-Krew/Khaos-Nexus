@@ -9,6 +9,7 @@ const { normalizeFiles, countSettings } = require('./ark-config-profiles.cjs');
 
 const APPLY_STORE_VERSION = 1;
 const MAX_TRANSACTIONS = 100;
+const PROTECTED_PLAYER_STAT_KEY = /^PerLevelStatsMultiplier_Player\[\d+\]$/i;
 
 function cleanText(value, max = 240) {
   return String(value ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -31,6 +32,14 @@ function profileRefs(files) {
     }
   }
   return refs;
+}
+
+function isProtectedProfileRef(ref = {}) {
+  return String(ref.fileKey || '').toLowerCase() === 'game' && PROTECTED_PLAYER_STAT_KEY.test(String(ref.key || ''));
+}
+
+function protectedProfileRefs(files) {
+  return profileRefs(files).filter(isProtectedProfileRef);
 }
 
 class ArkConfigApplyStore {
@@ -93,6 +102,7 @@ async function previewProfile({ server, profile, reader = readConfig } = {}) {
   if (!profile?.id) throw new Error('ARK config profile is required.');
   const files = normalizeFiles(profile.files);
   const counts = countSettings(files);
+  const protectedRefs = protectedProfileRefs(files);
   const results = {};
   let changedFiles = 0;
 
@@ -116,6 +126,8 @@ async function previewProfile({ server, profile, reader = readConfig } = {}) {
     serverId: server.id,
     envPrefix: server.envPrefix,
     settings: counts.total,
+    protectedSettings: protectedRefs.length,
+    protectedRefs,
     changedFiles,
     files: results,
     restartRequired: changedFiles > 0
@@ -145,11 +157,15 @@ async function applyProfile({
   actorId = '',
   applyStore = new ArkConfigApplyStore(),
   dryRun = false,
+  allowProtected = false,
   reader = readConfig,
   setter = setIniValue,
   restorer = restoreBackup
 } = {}) {
   const preview = await previewProfile({ server, profile, reader });
+  if (!dryRun && preview.protectedSettings > 0 && allowProtected !== true) {
+    throw new Error(`ARK config profile contains ${preview.protectedSettings} protected player-stat setting(s). Ordinary apply is blocked; use an explicit owner-approved protected-setting workflow.`);
+  }
   if (dryRun || preview.changedFiles === 0) return { ...preview, dryRun: true, transaction: null, appliedSettings: 0 };
 
   const files = normalizeFiles(profile.files);
@@ -182,6 +198,7 @@ async function applyProfile({
     actorId: cleanText(actorId, 40),
     appliedAt: new Date().toISOString(),
     restartRequired: appliedSettings > 0,
+    protectedSettings: preview.protectedSettings,
     applied: applied.map((item) => ({
       fileKey: item.fileKey,
       section: cleanText(item.section, 120),
@@ -210,9 +227,12 @@ async function rollbackTransaction({ server, transactionId, applyStore = new Ark
 module.exports = {
   APPLY_STORE_VERSION,
   MAX_TRANSACTIONS,
+  PROTECTED_PLAYER_STAT_KEY,
   cleanText,
   applySectionsToText,
   profileRefs,
+  isProtectedProfileRef,
+  protectedProfileRefs,
   ArkConfigApplyStore,
   previewProfile,
   rollbackBackups,
