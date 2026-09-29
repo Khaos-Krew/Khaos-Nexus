@@ -91,7 +91,8 @@ const RESERVED_FLOOR = Object.freeze([
 // or more reserved or role words joined together. "owner" is checked on each
 // x-stripped word and on the whole letters-only name, raw and with repeated
 // letters collapsed. A hit is an exact "owner" or "coowner", or "owner" with
-// 3 or more letters on either side. Riot and Battle.net use the name before "#".
+// 3 or more letters on either side. Riot and Battle.net check the name before
+// "#" and the tagline separately. A tagline that folds to exactly "owner" is rejected.
 const SUBSTRING_TERMS = new Set(['admin', 'moderator', 'sentinal', 'sentinel', 'khaosnexus']);
 const WHOLE_WORD_TERMS = new Set([
   'support', 'staff', 'official', 'system', 'verified', 'nexus', 'gm', 'discord',
@@ -345,6 +346,12 @@ function ownerVariantHit(surface) {
   return ownerCandidateHit(lettersOnly(surface));
 }
 
+function taglineIsOwner(tagline) {
+  const surface = foldConfusables(String(tagline || '').toLowerCase());
+  const forms = new Set([lettersOnly(surface), ...digitFoldVariants(surface).map(lettersOnly)]);
+  return forms.has('owner');
+}
+
 function wholeWordTokens(value) {
   return letterTokens(value).map(stripXPadding).filter(Boolean);
 }
@@ -397,7 +404,10 @@ function isReservedCompound(token) {
 function impersonationKey(value, { nameBeforeHash = false } = {}) {
   let nfkc = String(value || '');
   try { nfkc = nfkc.normalize('NFKC'); } catch { /* keep the raw string */ }
-  const ownerSource = nameBeforeHash && nfkc.includes('#') ? nfkc.slice(0, nfkc.indexOf('#')) : nfkc;
+  const hashAt = nfkc.indexOf('#');
+  const splitHash = nameBeforeHash && hashAt >= 0;
+  const ownerSource = splitHash ? nfkc.slice(0, hashAt) : nfkc;
+  const taglineOwner = splitHash && taglineIsOwner(nfkc.slice(hashAt + 1));
   const folded = foldImpersonationDigits(foldConfusables(nfkc.toLowerCase()));
   const stripped = folded.replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF\s._\-'#*|+~\\/]+/g, '');
   const tokens = folded
@@ -414,7 +424,7 @@ function impersonationKey(value, { nameBeforeHash = false } = {}) {
   const ownerCamel = ownerSource.replace(/(?<=\p{Ll})(?=\p{Lu})/gu, ' ');
   const ownerSurface = foldConfusables(ownerCamel.toLowerCase());
   const ownerSurfaces = [...new Set([ownerSurface, ...digitFoldVariants(ownerSurface)])];
-  return { stripped, tokens, letterTokenSets, lettersOnlyTag, lettersOnlyForms, camelLetters, ownerSurfaces };
+  return { stripped, tokens, letterTokenSets, lettersOnlyTag, lettersOnlyForms, camelLetters, ownerSurfaces, taglineOwner };
 }
 
 function wholeWordTermHit(key, needle) {
@@ -424,7 +434,7 @@ function wholeWordTermHit(key, needle) {
   } else if (needle !== 'owner' && key.letterTokenSets.some((tokens) => tokens.includes(needle))) {
     return true;
   }
-  if (needle === 'owner' && key.ownerSurfaces.some(ownerVariantHit)) return true;
+  if (needle === 'owner' && (key.taglineOwner || key.ownerSurfaces.some(ownerVariantHit))) return true;
   return key.letterTokenSets.some((tokens) => tokens.some((token) => isReservedCompound(token)))
     || key.lettersOnlyForms.some((form) => isReservedCompound(form));
 }

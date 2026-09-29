@@ -1002,7 +1002,12 @@ test('platform validators cover every platform format and the impersonation chec
   for (const tag of ['serverownerK#1234', 'guildowner#1234', 'kiritoowner#99999', 'serverownerr#123456', 'Coowner#1234', 'coowner1#1234']) {
     assert.equal(validatePlatform({ platformId: 'battlenet', tag, rules: bypassRules }).reason, 'impersonation', tag);
   }
-  assert.equal(validatePlatform({ platformId: 'riot', tag: 'Cat#owner', rules: bypassRules }).ok, true);
+  for (const tag of ['Cat#owner', 'Kirito#OWNER', 'Kirito#owner', 'Kirito#Own3r']) {
+    assert.equal(validatePlatform({ platformId: 'riot', tag, rules: bypassRules }).reason, 'impersonation', tag);
+    assert.equal(validatePlatform({ platformId: 'riot', tag }).ok, false, tag);
+  }
+  assert.equal(validatePlatform({ platformId: 'riot', tag: 'Kirito#NA1', rules: bypassRules }).ok, true);
+  assert.equal(validatePlatform({ platformId: 'riot', tag: 'Player#EUW', rules: bypassRules }).ok, true);
   assert.equal(validatePlatform({ platformId: 'battlenet', tag: 'Kirito#1234', rules: bypassRules }).ok, true);
   assert.equal(validatePlatform({ platformId: 'steam', tag: 'Nexus Raider', rules: bypassRules }).ok, true);
   assert.equal(validatePlatform({ platformId: 'steam', tag: 'Nexus', rules: bypassRules }).reason, 'impersonation');
