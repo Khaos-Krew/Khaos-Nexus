@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { PermissionFlagsBits } = require('discord.js');
+const { MessageFlags, PermissionFlagsBits } = require('discord.js');
 const { HostedServerStore } = require('../src/backend/core/hosted-server-store.cjs');
 const { CraftStore } = require('../src/craft/store.cjs');
 const { onPublicServersChanged } = require('../src/shared/server-list-notify.cjs');
@@ -205,9 +205,57 @@ test('the server list edits one durable message', async () => {
   }
 });
 
+function embedChars(embed) {
+  const fields = embed.fields || [];
+  return (embed.title || '').length
+    + (embed.description || '').length
+    + (embed.footer?.text || '').length
+    + fields.reduce((sum, field) => sum + String(field.name || '').length + String(field.value || '').length, 0);
+}
+
+test('a full server list stays inside Discord embed limits and names the overflow', () => {
+  const rows = Array.from({ length: 30 }, () => ({
+    game: 'G'.repeat(80),
+    name: 'N'.repeat(200),
+    description: 'D'.repeat(2000),
+    joins: [`Java ${'h'.repeat(400)}:25565`],
+    status: 'Online',
+    players: '20/20',
+    kind: 'java'
+  }));
+  const embed = renderPublicServerList(rows).embeds[0];
+  assert.ok(embedChars(embed) <= 6000);
+  assert.ok(embed.fields.length <= 25);
+  assert.ok(embed.fields.length > 1);
+  const overflow = embed.fields[embed.fields.length - 1];
+  const match = `${overflow.name}\n${overflow.value}`.match(/\u2026and (\d+) more servers/);
+  assert.ok(match);
+  assert.equal(Number(match[1]), rows.length - (embed.fields.length - 1));
+
+  const exact = Array.from({ length: 24 }, (_, index) => ({
+    game: 'Game',
+    name: `Server ${index + 1}`,
+    joins: ['play.example:25565']
+  }));
+  const exactEmbed = renderPublicServerList(exact).embeds[0];
+  assert.equal(exactEmbed.fields.length, 24);
+  assert.equal(exactEmbed.fields.some((field) => String(field.value).includes('more servers')), false);
+
+  const extra = Array.from({ length: 26 }, (_, index) => ({
+    game: 'Game',
+    name: `Server ${index + 1}`,
+    joins: ['play.example:25565']
+  }));
+  const extraEmbed = renderPublicServerList(extra).embeds[0];
+  assert.equal(extraEmbed.fields.length, 25);
+  assert.ok(embedChars(extraEmbed) <= 6000);
+  assert.match(extraEmbed.fields[24].value, /\u2026and 2 more servers/);
+});
+
 test('server list setup stores the channel and refuses to invent one', async () => {
   const command = serverListCommand().toJSON();
   assert.equal(command.name, 'serverlist');
+  assert.equal(command.default_member_permissions, String(PermissionFlagsBits.ManageGuild));
   assert.equal(listEnabled({}), true);
   assert.equal(listEnabled({ NEXUS_PUBLIC_SERVER_LIST_ENABLED: 'off' }), false);
   const dir = tempDir();
@@ -237,13 +285,16 @@ test('server list setup stores the channel and refuses to invent one', async () 
     assert.match(denied[0].content, /staff/);
     assert.equal(state.getPublicServerList().channelId, '');
 
-    const replies = [];
+    const edits = [];
+    const deferred = [];
     await handleServerListCommand({
       commandName: 'serverlist',
       isChatInputCommand: () => true,
       memberPermissions: { has: (bit) => bit === PermissionFlagsBits.Administrator },
       options: { getSubcommand: () => 'setup', getChannel: () => ({ id: CHANNEL }) },
-      reply: async (payload) => replies.push(payload)
+      deferReply: async (payload) => deferred.push(payload),
+      editReply: async (payload) => edits.push(payload),
+      reply: async () => { throw new Error('setup should defer before probing'); }
     }, {
       env: {},
       state,
@@ -258,7 +309,8 @@ test('server list setup stores the channel and refuses to invent one', async () 
     assert.equal(state.getPublicServerList().channelId, CHANNEL);
     assert.equal(sent.length, 1);
     assert.deepEqual(sent[0].allowedMentions, { parse: [] });
-    assert.match(replies[0].content, /same message/);
+    assert.equal(deferred[0].flags, MessageFlags.Ephemeral);
+    assert.match(edits[0].content, /same message/);
 
     const blocked = [];
     await handleServerListCommand({
@@ -270,6 +322,111 @@ test('server list setup stores the channel and refuses to invent one', async () 
     }, { env: { NEXUS_PUBLIC_SERVER_LIST_CHANNEL_ID: CHANNEL }, state, config: { discord: {} }, client });
     assert.match(blocked[0].content, /NEXUS_PUBLIC_SERVER_LIST_CHANNEL_ID/);
     assert.equal(state.getPublicServerList().channelId, CHANNEL);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('concurrent server list updates post once', async () => {
+  const dir = tempDir();
+  try {
+    const state = new StateStore(dir);
+    state.setPublicServerList({ channelId: CHANNEL, messageId: '' });
+    let sends = 0;
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const channel = {
+      id: CHANNEL,
+      send: async (body) => {
+        sends += 1;
+        await gate;
+        return {
+          id: '1516602943670059111',
+          author: { id: '1516602943670059999' },
+          embeds: body.embeds,
+          edit: async () => {}
+        };
+      },
+      messages: { fetch: async () => { throw new Error('missing'); } }
+    };
+    const client = {
+      user: { id: '1516602943670059999' },
+      channels: { fetch: async () => channel }
+    };
+    const shared = {
+      env: {},
+      state,
+      probe: false,
+      runtime: emptyRuntime(),
+      arkRegistry: new ArkClusterRegistry(path.join(dir, 'ark')),
+      craftStore: new CraftStore(path.join(dir, 'craft'), {}),
+      hostedStore: new HostedServerStore({ filePath: path.join(dir, 'hosted.json') })
+    };
+    const pending = Promise.all([
+      publishPublicServerList(client, shared),
+      publishPublicServerList(client, shared),
+      publishPublicServerList(client, shared)
+    ]);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(sends, 1);
+    release();
+    const results = await pending;
+    assert.equal(sends, 1);
+    assert.equal(results[0], results[1]);
+    assert.equal(results[1], results[2]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('server list refresh defers before probing', async () => {
+  const dir = tempDir();
+  try {
+    const state = new StateStore(dir);
+    state.setPublicServerList({ channelId: CHANNEL, messageId: '' });
+    const craft = new CraftStore(path.join(dir, 'craft'), {});
+    craft.setStatusPanel({ channelId: CHANNEL, host: 'play.example', javaPort: 25565, kind: 'java' });
+    const order = [];
+    const client = {
+      user: { id: '1516602943670059999' },
+      channels: {
+        fetch: async () => ({
+          send: async (body) => ({
+            id: '1516602943670059111',
+            author: { id: '1516602943670059999' },
+            embeds: body.embeds,
+            edit: async () => {}
+          }),
+          messages: { fetch: async () => { throw new Error('missing'); } }
+        })
+      }
+    };
+    await handleServerListCommand({
+      commandName: 'serverlist',
+      isChatInputCommand: () => true,
+      memberPermissions: { has: (bit) => bit === PermissionFlagsBits.Administrator },
+      options: { getSubcommand: () => 'refresh' },
+      deferReply: async (payload) => {
+        order.push('defer');
+        assert.equal(payload.flags, MessageFlags.Ephemeral);
+      },
+      editReply: async () => { order.push('edit'); },
+      reply: async () => { order.push('reply'); }
+    }, {
+      env: {},
+      state,
+      config: { discord: {} },
+      client,
+      probeServerStatus: async () => {
+        order.push('probe');
+        return { java: { offline: true } };
+      },
+      runtime: emptyRuntime(),
+      arkRegistry: new ArkClusterRegistry(path.join(dir, 'ark')),
+      craftStore: craft,
+      hostedStore: new HostedServerStore({ filePath: path.join(dir, 'hosted.json') })
+    });
+    assert.deepEqual(order, ['defer', 'probe', 'edit']);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

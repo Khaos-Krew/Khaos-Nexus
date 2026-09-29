@@ -1,6 +1,6 @@
 'use strict';
 
-const { ChannelType, MessageFlags, SlashCommandBuilder } = require('discord.js');
+const { ChannelType, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } = require('discord.js');
 const { snowflake, upsertEmbed } = require('../game-bots/panel-message.cjs');
 const { isStaff } = require('../game-bots/ops-spine.cjs');
 const { probeServerStatus } = require('../craft/query.cjs');
@@ -9,7 +9,11 @@ const { loadConfig } = require('../shared/config.cjs');
 const { collectPublicServers } = require('./public-server-inventory.cjs');
 
 const LIST_TITLE = 'Khaos Nexus servers';
+const LIST_DESCRIPTION = 'Public Khaos Nexus game servers.';
 const LIST_FOOTER = `${MOTTO} • servers`;
+const EMBED_CHAR_BUDGET = 5900;
+const EMBED_FIELD_LIMIT = 25;
+const publishFlights = new WeakMap();
 const LIST_IDENTITY = Object.freeze({
   titles: Object.freeze([LIST_TITLE]),
   footerPrefixes: Object.freeze([LIST_FOOTER])
@@ -42,6 +46,7 @@ function serverListCommand() {
     .setName('serverlist')
     .setDescription('Post the public Khaos Nexus server list in a channel.')
     .setDMPermission(false)
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((sub) => sub
       .setName('setup')
       .setDescription('Admin: save the Info channel and post one durable server list.')
@@ -72,20 +77,46 @@ function renderServerValue(row) {
   return lines.join('\n').slice(0, 1024);
 }
 
+function fieldTextLength(field) {
+  return String(field?.name || '').length + String(field?.value || '').length;
+}
+
+function overflowField(hidden) {
+  const text = `\u2026and ${hidden} more servers`;
+  return { name: text, value: text, inline: false };
+}
+
 function renderPublicServerList(rows = []) {
   const list = Array.isArray(rows) ? rows : [];
-  const fields = list.slice(0, 24).map((row) => ({
-    name: `${row.game} • ${row.name}`.slice(0, 256),
-    value: renderServerValue(row),
-    inline: false
-  }));
+  const baseLength = LIST_TITLE.length + LIST_DESCRIPTION.length + LIST_FOOTER.length;
+  const fields = [];
+  let used = baseLength;
+  const contentLimit = list.length > EMBED_FIELD_LIMIT - 1 ? EMBED_FIELD_LIMIT - 1 : EMBED_FIELD_LIMIT;
+  for (let index = 0; index < list.length; index += 1) {
+    if (fields.length >= contentLimit) break;
+    const row = list[index];
+    const candidate = {
+      name: `${row.game} • ${row.name}`.slice(0, 256),
+      value: renderServerValue(row),
+      inline: false
+    };
+    const hiddenIfAdded = list.length - (fields.length + 1);
+    const reserved = hiddenIfAdded > 0 ? overflowField(hiddenIfAdded) : null;
+    if (reserved && fields.length + 2 > EMBED_FIELD_LIMIT) break;
+    const nextUsed = used + fieldTextLength(candidate) + (reserved ? fieldTextLength(reserved) : 0);
+    if (nextUsed > EMBED_CHAR_BUDGET) break;
+    fields.push(candidate);
+    used += fieldTextLength(candidate);
+  }
+  const hidden = list.length - fields.length;
+  if (hidden > 0) fields.push(overflowField(hidden));
   if (!fields.length) {
     fields.push({ name: 'Public servers', value: 'No public game servers are configured yet.', inline: false });
   }
   return {
     embeds: [{
       title: LIST_TITLE,
-      description: 'Public Khaos Nexus game servers.',
+      description: LIST_DESCRIPTION,
       color: list.length ? COLORS.fieryRed : COLORS.black,
       fields,
       footer: { text: LIST_FOOTER }
@@ -135,7 +166,7 @@ async function applyLiveMinecraftStatus(rows, options = {}) {
   return next;
 }
 
-async function publishPublicServerList(client, options = {}) {
+async function runPublicServerList(client, options = {}) {
   const env = options.env || process.env;
   if (!listEnabled(env)) return { skipped: 'disabled' };
   const state = options.state;
@@ -163,6 +194,18 @@ async function publishPublicServerList(client, options = {}) {
     state.setPublicServerList({ channelId: channel.id, messageId: result?.messageId || meta.messageId });
   }
   return { ...result, channelId: channel.id, servers: rows.length, payload };
+}
+
+function publishPublicServerList(client, options = {}) {
+  if (!client || typeof client !== 'object') return runPublicServerList(client, options);
+  const existing = publishFlights.get(client);
+  if (existing) return existing;
+  const run = runPublicServerList(client, options);
+  const tracked = run.finally(() => {
+    if (publishFlights.get(client) === tracked) publishFlights.delete(client);
+  });
+  publishFlights.set(client, tracked);
+  return tracked;
 }
 
 function ephemeral(content) {
@@ -201,9 +244,10 @@ async function handleServerListCommand(interaction, context = {}) {
       await interaction.reply(ephemeral(`Saved <#${saved.channelId}>. The public server list is turned off, so nothing was posted.`));
       return true;
     }
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const result = await publishPublicServerList(context.client || interaction.client, { ...context, env, state, meta: saved });
     const posted = result?.messageId ? `The server list is in <#${saved.channelId}> and later restarts edit that same message.` : 'The channel was saved, but the server list could not be posted.';
-    await interaction.reply(ephemeral(posted));
+    await interaction.editReply({ content: String(posted).slice(0, 1900), allowedMentions: { parse: [] } });
     return true;
   }
   if (sub === 'refresh') {
@@ -211,14 +255,14 @@ async function handleServerListCommand(interaction, context = {}) {
       await interaction.reply(ephemeral('The public server list is turned off.'));
       return true;
     }
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const result = await publishPublicServerList(context.client || interaction.client, { ...context, env, state });
-    if (result.skipped) {
-      await interaction.reply(ephemeral(result.skipped === 'unset'
+    const content = result.skipped
+      ? (result.skipped === 'unset'
         ? 'No server list channel is saved. Use /serverlist setup or set NEXUS_PUBLIC_SERVER_LIST_CHANNEL_ID.'
-        : 'The server list channel is not a Discord channel id.'));
-      return true;
-    }
-    await interaction.reply(ephemeral(result.messageId ? 'Updated the server list in place.' : 'The server list could not be posted.'));
+        : 'The server list channel is not a Discord channel id.')
+      : (result.messageId ? 'Updated the server list in place.' : 'The server list could not be posted.');
+    await interaction.editReply({ content: String(content).slice(0, 1900), allowedMentions: { parse: [] } });
     return true;
   }
   return true;
