@@ -29,6 +29,7 @@ function withTimeout(promise, ms, message) {
 function pingJava(host, port = 25565, timeoutMs = 4000) {
   const endpoint = normalizeRconEndpoint(host, port);
   const timeout = Math.max(500, Math.min(15000, Number(timeoutMs) || 4000));
+  const started = Date.now();
   return new Promise((resolve, reject) => {
     const socket = net.createConnection({ host: endpoint.host, port: endpoint.port });
     let buffer = Buffer.alloc(0);
@@ -51,7 +52,7 @@ function pingJava(host, port = 25565, timeoutMs = 4000) {
     socket.on('data', (chunk) => {
       buffer = Buffer.concat([buffer, chunk]);
       try {
-        finish(null, parseJavaStatusPacket(buffer));
+        finish(null, { ...parseJavaStatusPacket(buffer), latencyMs: Date.now() - started });
       } catch (error) {
         if (!/Incomplete/.test(String(error?.message || ''))) finish(error);
       }
@@ -127,6 +128,32 @@ function singleLine(value, max) {
   return text;
 }
 
+async function probeServerStatus({ host, kind = 'java', javaPort = 25565, bedrockPort = 19132, timeoutMs = 4000 } = {}) {
+  const resolved = kind === 'bedrock' || kind === 'geyser' ? kind : 'java';
+  const snapshot = {
+    kind: resolved,
+    host: String(host || ''),
+    javaPort: Number(javaPort) || 25565,
+    bedrockPort: Number(bedrockPort) || 19132,
+    java: null,
+    bedrock: null
+  };
+  if (resolved === 'bedrock') {
+    try {
+      snapshot.bedrock = await pingBedrock(host, snapshot.bedrockPort, timeoutMs);
+    } catch {
+      snapshot.bedrock = { offline: true };
+    }
+    return snapshot;
+  }
+  try {
+    snapshot.java = await pingJava(host, snapshot.javaPort, timeoutMs);
+  } catch {
+    snapshot.java = { offline: true };
+  }
+  return snapshot;
+}
+
 function minecraftCommand(kind, args = {}) {
   if (kind === 'list') return 'list';
   if (kind === 'say') return `say ${singleLine(args.message, 200)}`;
@@ -145,6 +172,7 @@ module.exports = {
   withTimeout,
   pingJava,
   pingBedrock,
+  probeServerStatus,
   runRcon,
   playerName,
   minecraftCommand

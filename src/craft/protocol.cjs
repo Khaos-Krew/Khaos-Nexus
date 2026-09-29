@@ -113,12 +113,20 @@ function parseJavaStatusPacket(buffer) {
   }
   const version = json?.version || {};
   const players = json?.players || {};
+  const sample = [];
+  for (const item of Array.isArray(players.sample) ? players.sample : []) {
+    const name = stripFormatting(String(item?.name || '')).replace(/[^\w .'-]/g, '').trim().slice(0, 16);
+    if (!name) continue;
+    sample.push(name);
+    if (sample.length >= 12) break;
+  }
   return {
     motd: stripFormatting(flattenMotd(json?.description)).trim(),
     version: String(version.name || ''),
     protocol: Number(version.protocol || 0),
     online: Number(players.online || 0),
-    max: Number(players.max || 0)
+    max: Number(players.max || 0),
+    sample
   };
 }
 

@@ -192,7 +192,7 @@ test('RCON settings come from the Discord store and the password is not echoed',
     assert.equal(file.includes('env-secret-should-not-load'), false);
     assert.equal(store.clearServer('survival'), true);
     assert.equal(store.getServer('survival'), null);
-    const sources = ['store.cjs', 'query.cjs', 'bot.cjs', 'boot.cjs', 'access.cjs']
+    const sources = ['store.cjs', 'query.cjs', 'bot.cjs', 'boot.cjs', 'access.cjs', 'embeds.cjs']
       .map((name) => read(`src/craft/${name}`))
       .join('\n');
     assert.doesNotMatch(sources, /RCON_PASSWORD|RCON_HOST|RCON_PORT|MINECRAFT_RCON/);
