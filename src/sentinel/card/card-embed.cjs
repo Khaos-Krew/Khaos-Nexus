@@ -64,7 +64,7 @@ function levelField(level) {
 function tagLine(gameId, record, games) {
   const entry = gameById(gameId, games);
   const label = gameId === 'other' ? (record.game || 'Other') : (entry?.label || gameId);
-  return `${escapeUserText(label)}: ${escapeUserText(record.tag || '')} (unverified)`;
+  return `${escapeUserText(label)}: ${escapeUserText(record.tag || '')}`;
 }
 
 function tagsField(tags, games) {
@@ -77,7 +77,7 @@ function tagsField(tags, games) {
 
 function platformLine(platformId, record, platforms) {
   const label = platformById(platformId, platforms)?.label || platformId;
-  return `${escapeUserText(label)}: ${escapeUserText(record.tag || '')} (unverified)`;
+  return `${escapeUserText(label)}: ${escapeUserText(record.tag || '')}`;
 }
 
 function platformsField(platforms, catalogEntries) {

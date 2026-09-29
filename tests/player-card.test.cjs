@@ -582,8 +582,8 @@ test('link, unlink, tags, privacy, autocomplete, and admin clear', async () => {
   });
   await handleCardInteraction(link, deps());
   assertMentionsSafe(link);
-  assert.match(link.calls.at(-1).payload.content, /unverified/);
   assert.match(link.calls.at(-1).payload.content, /Ada#1234/);
+  assert.doesNotMatch(link.calls.at(-1).payload.content, /unverified/i);
   assert.equal(store.getUser(VIEWER).tags.destiny2.verified, false);
 
   const tags = mockInteraction({
@@ -752,6 +752,11 @@ test('slash command tree, context menu, and feature flag wiring', () => {
   assert.equal(viewCardButton(VIEWER).toJSON().custom_id, `card:view:${VIEWER}`);
   const entry = fs.readFileSync(path.join(__dirname, '../src/sentinel/entry.cjs'), 'utf8');
   assert.match(entry, /installPlayerCardExtension\(\)/);
+  const commands = fs.readFileSync(path.join(__dirname, '../src/sentinel/card/card-commands.cjs'), 'utf8');
+  const embed = fs.readFileSync(path.join(__dirname, '../src/sentinel/card/card-embed.cjs'), 'utf8');
+  assert.doesNotMatch(commands, /unverified/i);
+  assert.doesNotMatch(embed, /unverified/i);
+  assert.doesNotMatch(JSON.stringify(json), /unverified/i);
   assert.ok(entry.indexOf('installPlayerCardExtension();') < entry.indexOf("require('./bot.cjs')"));
 });
 
@@ -897,7 +902,7 @@ test('platform validators cover every platform format and the impersonation chec
   assert.equal(validatePlatform({ platformId: 'nope', tag: 'Kirito' }).reason, 'unknown-platform');
 });
 
-test('platform accounts render apart from games, stay unverified, and follow privacy', async () => {
+test('platform accounts render apart from games and follow privacy', async () => {
   const dir = tempDir();
   const store = new JsonCardStore(path.join(dir, 'cards.json'));
   const games = catalog().filter((entry) => entry.id !== 'other').slice(0, TAG_CAP);
@@ -925,7 +930,8 @@ test('platform accounts render apart from games, stay unverified, and follow pri
   });
   const ownEmbed = renderCardEmbed(own, { username: 'Ada' });
   assert.match(field(ownEmbed, 'Games').value, /Warframe|ARK|Minecraft|Steam/);
-  assert.match(field(ownEmbed, 'Platforms').value, /Nintendo: SW-1234-5678-9012 \(unverified\)/);
+  assert.match(field(ownEmbed, 'Platforms').value, /Nintendo: SW-1234-5678-9012/);
+  assert.doesNotMatch(ownEmbed.fields.map((item) => item.value).join('\n'), /unverified/i);
   assert.doesNotMatch(field(ownEmbed, 'Games').value, /SW-1234-5678-9012/);
   assert.ok(field(ownEmbed, 'Balances'));
 
@@ -941,9 +947,10 @@ test('platform accounts render apart from games, stay unverified, and follow pri
     platforms: { steam: { tag: '*Ada*', verified: true }, nintendo: { tag: 'SW-1234-5678-9012', verified: false } },
     balances: { coins: 9, points: 1, cacheTokens: 0 }
   }, { username: 'Ada' });
-  assert.equal(field(marked, 'Games').value, `Warframe: ${escapeUserText('Nova_One')} (unverified)`);
-  assert.match(field(marked, 'Platforms').value, /Nintendo: SW-1234-5678-9012 \(unverified\)/);
-  assert.match(field(marked, 'Platforms').value, new RegExp(`Steam: ${escapeUserText('*Ada*').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\(unverified\\)`));
+  assert.equal(field(marked, 'Games').value, `Warframe: ${escapeUserText('Nova_One')}`);
+  assert.match(field(marked, 'Platforms').value, /Nintendo: SW-1234-5678-9012/);
+  assert.match(field(marked, 'Platforms').value, new RegExp(`Steam: ${escapeUserText('*Ada*').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.doesNotMatch(marked.fields.map((item) => `${item.name} ${item.value}`).join('\n'), /unverified/i);
   assert.notEqual(field(marked, 'Platforms').value.includes('*Ada*'), field(marked, 'Platforms').value.includes(escapeUserText('*Ada*')));
   assert.equal(field(marked, 'Balances'), null);
   assert.equal(renderCardEmbed({ hidden: true, platforms: { nintendo: { tag: 'SW-1234-5678-9012' } } }, { username: 'Ada' }), null);
@@ -979,7 +986,8 @@ test('platform accounts render apart from games, stay unverified, and follow pri
   });
   await handleCardInteraction(link, deps());
   assertMentionsSafe(link);
-  assert.match(link.calls.at(-1).payload.content, /unverified/);
+  assert.match(link.calls.at(-1).payload.content, /Player\.One/);
+  assert.doesNotMatch(link.calls.at(-1).payload.content, /unverified/i);
   assert.equal(store.getUser(VIEWER).platforms.ea.verified, false);
   const lines = fs.readFileSync(path.join(dir, 'audit', fs.readdirSync(path.join(dir, 'audit'))[0]), 'utf8');
   assert.match(lines, /platform:ea/);

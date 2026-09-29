@@ -44,7 +44,7 @@ function cardCommandDefinition() {
       .addUserOption((option) => option.setName('user').setDescription('Player to view in this channel').setRequired(false)))
     .addSubcommand((sub) => sub
       .setName('link')
-      .setDescription('Add or replace your unverified tag for a game')
+      .setDescription('Add or replace your tag for a game')
       .addStringOption((option) => option.setName('game').setDescription('Game').setRequired(true).setAutocomplete(true))
       .addStringOption((option) => option.setName('tag').setDescription('Your tag for that game').setRequired(true).setMaxLength(80))
       .addStringOption((option) => option.setName('name').setDescription('Game name (required for Other)').setRequired(false).setMaxLength(80)))
@@ -64,9 +64,9 @@ function cardCommandDefinition() {
       .setDescription('Link or unlink a Steam, Xbox, PSN, Nintendo, Epic, Battle.net, EA, Ubisoft, or Riot account')
       .addSubcommand((sub) => sub
         .setName('link')
-        .setDescription('Add or replace your unverified tag for a platform')
+        .setDescription('Add or replace your tag for a platform')
         .addStringOption((option) => platformOption(option, true))
-        .addStringOption((option) => option.setName('tag').setDescription('Your platform tag. Friend codes stay unverified.').setRequired(true).setMaxLength(96)))
+        .addStringOption((option) => option.setName('tag').setDescription('Your platform tag').setRequired(true).setMaxLength(96)))
       .addSubcommand((sub) => sub
         .setName('unlink')
         .setDescription('Remove your tag for a platform')
@@ -273,7 +273,7 @@ async function handleLink(interaction, deps) {
   const label = knownGame(deps, validated.game)?.label || validated.game;
   const shown = validated.game === 'other' ? `${validated.name}: ${validated.tag}` : validated.tag;
   await deliver(interaction, {
-    content: `Saved **${escapeUserText(label)}** as unverified:\n${escapeUserText(shown)}`
+    content: `Saved **${escapeUserText(label)}**:\n${escapeUserText(shown)}`
   }, { ephemeral: true });
 }
 
@@ -312,7 +312,7 @@ async function handlePlatformLink(interaction, deps) {
   });
   const label = platformById(validated.platform)?.label || validated.platform;
   await deliver(interaction, {
-    content: `Saved **${escapeUserText(label)}** as unverified:\n${escapeUserText(saved.tag.tag)}`
+    content: `Saved **${escapeUserText(label)}**:\n${escapeUserText(saved.tag.tag)}`
   }, { ephemeral: true });
 }
 
@@ -384,7 +384,7 @@ async function handleUnlink(interaction, deps) {
 }
 
 function catalogLines(entries, labelFor) {
-  return entries.map((entry) => `${escapeUserText(labelFor(entry))}: ${escapeUserText(entry.tag)} (unverified)`);
+  return entries.map((entry) => `${escapeUserText(labelFor(entry))}: ${escapeUserText(entry.tag)}`);
 }
 
 async function handleTags(interaction, deps) {
@@ -402,8 +402,8 @@ async function handleTags(interaction, deps) {
   if (platforms.length) sections.push(`Platforms:\n${platforms.join('\n')}`);
   await deliver(interaction, {
     content: sections.length
-      ? `${sections.join('\n\n')}\n\nLink again for the same game or platform to replace a tag. Tags stay unverified.`
-      : 'You have no gamer tags yet. Use `/card link` for a game and `/card platform link` for a platform. Tags stay unverified.'
+      ? `${sections.join('\n\n')}\n\nLink again for the same game or platform to replace a tag.`
+      : 'You have no gamer tags yet. Use `/card link` for a game and `/card platform link` for a platform.'
   }, { ephemeral: true });
 }
 
@@ -575,7 +575,7 @@ async function dispatch(interaction, deps) {
   }
   if (interaction.isButton?.() && interaction.customId === 'card:tags') {
     await deliver(interaction, {
-      content: 'Use `/card link` for a game and `/card platform link` for a platform account. `/card unlink` and `/card platform unlink` remove them. `/card tags` lists them. Tags stay unverified.'
+      content: 'Use `/card link` for a game and `/card platform link` for a platform account. `/card unlink` and `/card platform unlink` remove them. `/card tags` lists them.'
     }, { ephemeral: true });
     return;
   }
