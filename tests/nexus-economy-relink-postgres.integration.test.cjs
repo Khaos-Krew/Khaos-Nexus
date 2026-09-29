@@ -53,6 +53,10 @@ test('real Postgres relink preserves migrated wallet, proves ownership, rejects 
     assert.equal((await webhook().process(request)).status, 202);
     assert.equal((await webhook().process(request)).duplicate, true);
     assert.equal(await runtime.worker.balance(discordUserId), 73);
+    // O9: the ARK webhook link alone stays restricted. Elevate the way production does after Discord
+    // membership verification (NexusEconomyClient identity projection): signed discordMembershipVerified claim.
+    const verifiedAt = store.profileByArk(eosId).arkAccounts.find((a) => a.eosId === eosId).verifiedAt;
+    assert.equal((await runtime.worker.linkArkIdentity(withIdentityProof({ discordUserId, eosId, discordMembershipVerified: true }, { verifiedAt }, { secret, now }))).status, 'verified');
     await runtime.walletCore.credit({ discordUserId, currency: 'DINO_CACHE_TOKENS', amount: 2, idempotencyKey: 'cache_seed' });
     const tokenRequest = { discordUserId, currency: 'DINO_CACHE_TOKENS', amount: 1, orderId: 'cache_once' };
     const tokens = await Promise.all([runtime.walletCore.spend(tokenRequest), runtime.walletCore.spend(tokenRequest)]);
@@ -71,7 +75,9 @@ test('real Postgres relink preserves migrated wallet, proves ownership, rejects 
     await applyLegacyJsonMigration({ pool: runtime.pool, schema, state: legacy, dryRun: false });
     assert.equal(await runtime.worker.balance(discordUserId), 73);
     assert.deepEqual(await runtime.worker.balances(discordUserId), { NEXUS_COINS: 0, NEXUS_POINTS: 73, DINO_CACHE_TOKENS: 1 });
-    assert.equal(Number((await runtime.pool.query(`SELECT count(*) FROM "${schema}".nexus_economy_wallets`)).rows[0].count), 2);
+    // Shadow Recruit ensure (on link) gives each linked identity one wallet per primary currency (3):
+    // this user + the winning EOS_CONCURRENT contender = 6. Re-running migration must not add more.
+    assert.equal(Number((await runtime.pool.query(`SELECT count(*) FROM "${schema}".nexus_economy_wallets`)).rows[0].count), 6);
     await runtime.close();
     runtime = await createPostgresEconomyRuntime({ env, now: () => now });
     assert.equal((await runtime.worker.linkArkIdentity(proof(discordUserId, eosId))).duplicate, true);
