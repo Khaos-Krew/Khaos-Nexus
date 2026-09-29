@@ -257,7 +257,7 @@ test('tag validation covers every catalog game and the abuse rules', () => {
     assert.equal(result.ok, false, tag);
     assert.equal(result.reason, 'impersonation', `${tag} => ${result.reason}`);
   }
-  const allowedTags = ['Kirito', 'NightWolf', 'Chaos', 'gamer', 'Supporter', 'Supportive', 'Staffan', 'Discordian', 'KhaosKirito', 'KhaosFan', 'Nexus Raider'];
+  const allowedTags = ['Kirito', 'NightWolf', 'Chaos', 'gamer', 'Supporter', 'Supportive', 'Staffan', 'Discordian', 'KhaosKirito', 'KhaosFan', 'Nexus Raider', 'Modesto', 'Botany'];
   for (const tag of allowedTags) {
     const result = validateTag({ gameId: 'ark_asa', tag });
     assert.equal(result.ok, true, `${tag} => ${result.reason}`);
@@ -268,6 +268,8 @@ test('tag validation covers every catalog game and the abuse rules', () => {
     'Official Staff', 'NexusRaider', 'SentinalSupport', 'OfficialStaff', 'Sentina1', '\u0391dmin', 'KhaosNexusStaff',
     'Staff1', 'Support1', 'Official1', 'Verified1', 'Discord1', 'nexus1', 'staffmember', 'S.t.a.f.f',
     'Official_Staff', 'officialstaff', 'Staff_1', 'Staff2024', 'GM1', 'D1scord',
+    'xStaffx', 'xXStaffXx', 'Staffx', 'Nexus_Bot', 'ModTeam', 'CrewMember', 'BotTeam',
+    'Mod_Team', 'modteam', 'crewmember', 'Mod1', 'Mod2024', 'M0d1',
     'Owner1', 'Sentinelle'
   ];
   for (const tag of blockedTags) {

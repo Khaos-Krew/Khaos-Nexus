@@ -60,6 +60,7 @@ const RESERVED_FLOOR = Object.freeze([
   'admin',
   'staff',
   'mod',
+  'bot',
   'mods',
   'moderator',
   'moderators',
@@ -81,12 +82,18 @@ const RESERVED_FLOOR = Object.freeze([
 ]);
 
 // Substring terms stay blocked inside a longer tag. Whole-word terms are
-// matched on letter tokens: separators include digits, "_", ".", "-", and
-// spaces, and a digit-folded copy maps 1 to both i and l. "khaos" alone is
-// not reserved. "nexus" matches the letters-only tag or a camelCase segment,
-// so "Nexus" and "nexus1" are blocked and "Nexus Raider" is not.
+// matched on letter tokens after leading and trailing "x" padding is removed.
+// Separators include digits, "_", ".", "-", and spaces. A digit-folded copy
+// maps 1 to both i and l, and also keeps 1 as a separator so "M0d1" is "mod".
+// "khaos" alone is not reserved. "nexus" matches the letters-only tag or a
+// camelCase segment, so "Nexus" and "nexus1" are blocked and "Nexus Raider"
+// is not. A token, or the whole letters-only name, is blocked when it is two
+// or more reserved or role words joined together.
 const SUBSTRING_TERMS = new Set(['admin', 'moderator', 'sentinal', 'sentinel', 'khaosnexus']);
-const WHOLE_WORD_TERMS = new Set(['support', 'staff', 'official', 'system', 'verified', 'nexus', 'gm', 'discord']);
+const WHOLE_WORD_TERMS = new Set([
+  'support', 'staff', 'official', 'system', 'verified', 'nexus', 'gm', 'discord',
+  'mod', 'bot', 'owner'
+]);
 const COMPOUND_PARTS = Object.freeze([
   'account', 'admin', 'bot', 'crew', 'discord', 'gm', 'khaosnexus', 'member',
   'mod', 'moderator', 'mods', 'nexus', 'official', 'owner', 'sentinal', 'sentinel',
@@ -287,7 +294,25 @@ function digitFoldVariants(text) {
     }
     variants.push(out);
   }
+  // Keep 1 as a separator while folding the other leet digits. "M0d1" then
+  // tokenizes as "mod" instead of "modi" or "modl".
+  if (ones.length) {
+    let separated = '';
+    for (const char of chars) {
+      if (char === '1') separated += ' ';
+      else separated += fixed[char] || char;
+    }
+    variants.push(separated);
+  }
   return variants;
+}
+
+function stripXPadding(token) {
+  return String(token || '').replace(/^x+|x+$/g, '');
+}
+
+function wholeWordTokens(value) {
+  return letterTokens(value).map(stripXPadding).filter(Boolean);
 }
 
 function collapseLetterTokens(tokens) {
@@ -346,16 +371,23 @@ function impersonationKey(value) {
     .filter(Boolean);
   const camel = nfkc.replace(/(?<=\p{Ll})(?=\p{Lu})/gu, ' ');
   const surface = foldConfusables(camel.toLowerCase());
-  const letterTokenSets = [...new Set([surface, ...digitFoldVariants(surface)])].map(letterTokens);
+  const surfaces = [...new Set([surface, ...digitFoldVariants(surface)])];
+  const letterTokenSets = surfaces.map(wholeWordTokens);
   const lettersOnlyTag = lettersOnly(surface);
+  const lettersOnlyForms = surfaces.map((value) => stripXPadding(lettersOnly(value)));
   const camelLetters = nfkc.split(/(?<=\p{Ll})(?=\p{Lu})/gu).map((segment) => lettersOnly(foldConfusables(segment.toLowerCase())));
-  return { stripped, tokens, letterTokenSets, lettersOnlyTag, camelLetters };
+  return { stripped, tokens, letterTokenSets, lettersOnlyTag, lettersOnlyForms, camelLetters };
 }
 
 function wholeWordTermHit(key, needle) {
-  if (needle === 'nexus') return key.lettersOnlyTag === 'nexus' || key.camelLetters.some((segment) => segment === 'nexus');
-  if (key.letterTokenSets.some((tokens) => tokens.includes(needle))) return true;
-  return key.letterTokenSets.some((tokens) => tokens.some((token) => isReservedCompound(token)));
+  if (needle === 'nexus') {
+    if (key.lettersOnlyForms.some((form) => form === 'nexus')) return true;
+    if (key.camelLetters.some((segment) => stripXPadding(segment) === 'nexus')) return true;
+  } else if (key.letterTokenSets.some((tokens) => tokens.includes(needle))) {
+    return true;
+  }
+  return key.letterTokenSets.some((tokens) => tokens.some((token) => isReservedCompound(token)))
+    || key.lettersOnlyForms.some((form) => isReservedCompound(form));
 }
 
 function reservedTerms(rules) {
