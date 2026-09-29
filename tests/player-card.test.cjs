@@ -489,8 +489,22 @@ test('card model degrades when each source is down', async () => {
   );
   assert.equal(embed.color, 0xb00020);
   assert.equal(embed.title, undefined);
-  assert.match(embed.author.name, /\\?\*Ada\\?\*/);
+  assert.equal(embed.author.name, '*Ada*');
   assert.equal(embed.footer.text, FOOTER);
+  assert.doesNotMatch(embed.footer.text, /self-reported|unverified/i);
+  const named = renderCardEmbed({
+    hidden: false,
+    viewerId: VIEWER,
+    targetUserId: VIEWER,
+    allowBalances: false,
+    level: { level: 1, xp: 0, nextLevelXp: 100, progressPercent: 0 },
+    rank: { name: 'Shadow Recruit' },
+    cosmetics: { title: 'Nexus_Founder' },
+    tags: {},
+    platforms: {}
+  }, { username: 'Khaos_Kirito' });
+  assert.equal(named.author.name, 'Khaos_Kirito');
+  assert.equal(named.title, 'Nexus_Founder');
   assert.notEqual(escapeUserText('*Ada*'), '*Ada*');
 });
 

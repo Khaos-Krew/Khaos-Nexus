@@ -7,6 +7,7 @@ Phase 1 player cards live in Sentinal (`src/sentinel/card/`). The feature stays 
 | Variable | Default | Purpose |
 |---|---|---|
 | `CARD_ENABLED` | off | Turns `/card` and View Card on. Accepted true values are `1`, `true`, `yes`, and `on`. Anything else, including an unset variable, leaves the feature off. Commands are not registered while it is off. |
+| `CARD_IMAGE_ENABLED` | off | When on, `/card show`, View Card, and Share post a PNG card. Accepted true values are `1`, `true`, `yes`, and `on`. When off, or when the render fails or times out, Sentinal posts the phase 1 embed instead. |
 | `CARD_DATA_DIR` | `<NEXUS_DATA_DIR>/card`, or `<repo>/data/card` when `NEXUS_DATA_DIR` is unset | Directory for `cards.json` and the `audit/` JSON-lines log. Set this when card files should not sit next to other Sentinal data. The directory must be writable when the flag is on. If setup cannot create it, Sentinal logs a warning, leaves the card feature off, and still logs in. |
 | `CARD_LINK_RATE` | `5/600s` | Burst limit for link and unlink. The form is `count/seconds`, so `5/600s` is 5 actions in 600 seconds. A blank or invalid value uses `5/600s`. |
 | `CARD_VIEW_COOLDOWN_S` | `5` | Seconds a player waits between card views. A negative or non-numeric value uses 5. |
@@ -32,6 +33,12 @@ The searcher must have been in the guild for 7 days, must not be timed out, and 
 Limits are 10 lookups per 10 minutes, 30 per 24 hours, a 15-minute cooldown after 5 misses in a row, and 300 lookups per hour for the whole guild. The guild limit fails closed and alerts staff once when it trips.
 
 `/card admin find` is the only way to see a hidden or non-findable card. It requires Administrator or the O9 admin allow-list, a reason of 3 to 200 characters, and it is audited for 365 days, including denied attempts. Staff must not repost those results. Member lookup rows keep the folded query and result IDs for 30 days, then only counts remain.
+
+## Card image rollback
+
+`CARD_IMAGE_ENABLED` stays off until it is turned on deliberately. Turn the PNG card off by unsetting `CARD_IMAGE_ENABLED` (or setting it to anything other than a true value) and restarting Sentinal. `/card` keeps posting the embed. No card data is migrated. This change does not set Railway variables.
+
+The PNG renderer uses the prebuilt `@napi-rs/canvas` package. `Dockerfile.sentinal` stays on `node:22-slim` and does not install system canvas libraries. `npm ci` fetches the Linux x64 GNU binary. The two OFL font files live in `src/sentinel/card/fonts` and are copied with `src`.
 
 ## Rollback
 

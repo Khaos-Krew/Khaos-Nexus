@@ -28,6 +28,7 @@
     "dist:update": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-update-bundle.ps1 -Channel owner-test"
   },
   "dependencies": {
+    "@napi-rs/canvas": "1.0.9",
     "discord.js": "14.27.0",
     "mysql2": "3.24.2",
     "pg": "8.16.3",

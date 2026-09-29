@@ -4,7 +4,7 @@ const { escapeMarkdown } = require('discord.js');
 const { DEFAULT_COLOR } = require('./card-config.cjs');
 const { catalog, gameById, platformCatalog, platformById } = require('./tag-validate.cjs');
 
-const FOOTER = 'Khaos Nexus • Many Worlds — One Nexus • Tags are self-reported.';
+const FOOTER = 'Khaos Nexus • Many Worlds — One Nexus';
 const TAG_DISPLAY_CAP = 12;
 
 function escapeUserText(value) {
@@ -117,7 +117,7 @@ function renderCardEmbed(model, user, games = catalog(), platforms = platformCat
   if (!model || model.hidden) return null;
   const cosmetics = model.cosmetics || {};
   const color = !cosmetics.unavailable && Number.isInteger(cosmetics.color) ? cosmetics.color : DEFAULT_COLOR;
-  const title = !cosmetics.unavailable && cosmetics.title ? escapeUserText(cosmetics.title).slice(0, 256) : undefined;
+  const title = !cosmetics.unavailable && cosmetics.title ? String(cosmetics.title).slice(0, 256) : undefined;
   const fields = [
     { name: 'Level', value: levelField(model.level).slice(0, 1024), inline: false },
     { name: 'Rank', value: (model.rank?.unavailable ? 'unavailable' : escapeUserText(model.rank?.name || 'unavailable')).slice(0, 1024), inline: true },
@@ -128,7 +128,7 @@ function renderCardEmbed(model, user, games = catalog(), platforms = platformCat
   if (showBalances(model)) {
     fields.push({ name: 'Balances', value: balancesField(model.balances).slice(0, 1024), inline: false });
   }
-  const author = { name: escapeUserText(displayName(user)).slice(0, 256) };
+  const author = { name: String(displayName(user)).slice(0, 256) };
   const avatar = safeAvatar(user);
   if (avatar) author.icon_url = avatar;
   return {
