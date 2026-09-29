@@ -10,7 +10,7 @@ const {
   SlashCommandBuilder
 } = require('discord.js');
 const { isCardAdmin, DISCORD_ID } = require('./card-config.cjs');
-const { catalog, gameById, platformById, platformCatalog, suggestGames, validatePlatform, validateTag } = require('./tag-validate.cjs');
+const { catalog, gameById, platformById, platformCatalog, suggestGames, suggestPlatforms, validatePlatform, validateTag } = require('./tag-validate.cjs');
 const { assembleCardModel, balancesPermitted, buildReaders } = require('./card-model.cjs');
 const { escapeUserText, renderCardEmbed } = require('./card-embed.cjs');
 
@@ -78,9 +78,9 @@ function cardCommandDefinition() {
         .setName('clear')
         .setDescription('Remove a player tag. Requires Administrator or the O9 admin allow-list.')
         .addUserOption((option) => option.setName('user').setDescription('Player').setRequired(true))
+        .addStringOption((option) => option.setName('reason').setDescription('Why this tag is being removed').setRequired(true).setMinLength(3).setMaxLength(200))
         .addStringOption((option) => option.setName('game').setDescription('Game tag to remove').setRequired(false).setAutocomplete(true))
-        .addStringOption((option) => platformOption(option, false))
-        .addStringOption((option) => option.setName('reason').setDescription('Why this tag is being removed').setRequired(true).setMinLength(3).setMaxLength(200))));
+        .addStringOption((option) => platformOption(option, false))));
 }
 
 function viewCardContextMenu() {
@@ -549,11 +549,19 @@ async function handleAutocomplete(interaction, deps) {
   const focused = interaction.options.getFocused(true);
   const name = focused && typeof focused === 'object' ? focused.name : 'game';
   const value = focused && typeof focused === 'object' ? focused.value : focused;
-  if (!isEnabled(deps) || name !== 'game') {
+  if (!isEnabled(deps)) {
     await interaction.respond([]);
     return;
   }
-  await interaction.respond(suggestGames(value, gamesOf(deps)));
+  if (name === 'platform') {
+    await interaction.respond(suggestPlatforms(value, platformCatalog()));
+    return;
+  }
+  if (name === 'game') {
+    await interaction.respond(suggestGames(value, gamesOf(deps)));
+    return;
+  }
+  await interaction.respond([]);
 }
 
 async function dispatch(interaction, deps) {
@@ -616,12 +624,16 @@ async function handleCardInteraction(interaction, deps = {}) {
     await dispatch(interaction, deps);
   } catch (error) {
     console.warn(`[Player Card] interaction failed: ${String(error?.message || error).slice(0, 240)}`);
-    if (!interaction.replied && !interaction.deferred) {
-      await interaction.reply(mentionSafe({
-        content: 'The player card could not be loaded.',
-        flags: MessageFlags.Ephemeral
-      })).catch(() => {});
-    }
+    const content = 'The player card could not be loaded.';
+    try {
+      if (interaction.deferred || interaction.replied) await interaction.editReply(mentionSafe({ content }));
+      else {
+        await interaction.reply(mentionSafe({
+          content,
+          flags: MessageFlags.Ephemeral
+        }));
+      }
+    } catch { /* the interaction was already closed */ }
   }
   return true;
 }

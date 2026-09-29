@@ -126,7 +126,10 @@ async function readBalances(economy, userId) {
   }
   if (typeof economy.balances !== 'function') throw new Error('balances-unavailable');
   const result = await economy.balances(String(userId));
-  const balances = result?.balances || {};
+  const balances = result?.balances;
+  const present = balances && typeof balances === 'object'
+    && ['NEXUS_COINS', 'NEXUS_POINTS', 'DINO_CACHE_TOKENS'].some((key) => balances[key] != null && balances[key] !== '');
+  if (!present) throw new Error('balances-unavailable');
   return {
     coins: whole(balances.NEXUS_COINS),
     points: whole(balances.NEXUS_POINTS),

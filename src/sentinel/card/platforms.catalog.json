@@ -17,7 +17,7 @@
   {
     "id": "nintendo",
     "label": "Nintendo",
-    "hint": "Friend code SW-XXXX-XXXX-XXXX, a nickname, or both"
+    "hint": "Friend code SW-XXXX-XXXX-XXXX, a nickname, or SW-XXXX-XXXX-XXXX / nickname"
   },
   {
     "id": "epic",

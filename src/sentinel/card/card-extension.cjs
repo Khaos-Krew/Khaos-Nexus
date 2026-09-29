@@ -63,7 +63,11 @@ function installPlayerCardExtension() {
   Client.prototype.login = function playerCardLogin(...args) {
     const client = this;
     const deps = openCardDeps(process.env);
+    client[Symbol.for('khaos.nexus.playerCard.deps')] = deps;
     client.on(Events.InteractionCreate, (interaction) => {
+      // bot.cjs answers autocomplete first and routes /card there. Skipping it
+      // here keeps that response from being sent twice.
+      if (interaction.isAutocomplete?.() && interaction.commandName === 'card') return;
       return handleCardInteraction(interaction, deps).catch((error) => {
         console.warn(`[Player Card] interaction failed: ${String(error?.message || error).slice(0, 240)}`);
       });

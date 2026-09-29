@@ -68,7 +68,7 @@ const RESERVED_FLOOR = Object.freeze([
   'sentinal',
   'sentinel',
   'nexus',
-  'khaos',
+  'khaosnexus',
   'discord',
   'owner',
   'system',
@@ -81,11 +81,12 @@ const RESERVED_FLOOR = Object.freeze([
 ]);
 
 // Substring terms stay blocked inside a longer tag. Whole-word terms match
-// only on a folded word boundary, so "Supporter" is allowed. "nexus" is the
-// exception that still lets a spaced name such as "Nexus Raider" through:
-// it hits only when the compact tag, or a camelCase segment, is exactly "nexus".
+// only on a folded word boundary, so "Supporter" and "Discordian" are allowed.
+// "khaos" alone is not reserved; only the compact substring "khaosnexus" is.
+// "nexus" hits only when the compact tag, or a camelCase segment, is exactly
+// "nexus", so a spaced name such as "Nexus Raider" stays allowed.
 const SUBSTRING_TERMS = new Set(['admin', 'moderator', 'sentinal', 'sentinel', 'khaosnexus']);
-const WHOLE_WORD_TERMS = new Set(['support', 'staff', 'official', 'system', 'verified', 'nexus', 'gm']);
+const WHOLE_WORD_TERMS = new Set(['support', 'staff', 'official', 'system', 'verified', 'nexus', 'gm', 'discord']);
 
 let catalogCache = null;
 let platformCache = null;
@@ -142,15 +143,23 @@ function platformById(platformId, platforms = platformCatalog()) {
   return platforms.find((entry) => entry.id === String(platformId || '')) || null;
 }
 
-function suggestGames(query, games = catalog()) {
+function suggestFrom(entries, query) {
   const needle = String(query || '').trim().toLowerCase();
-  const matches = games.filter((entry) => {
+  const matches = entries.filter((entry) => {
     if (!needle) return true;
     if (String(entry.label || '').toLowerCase().includes(needle)) return true;
     if (String(entry.id || '').toLowerCase().includes(needle)) return true;
     return (entry.aliases || []).some((alias) => String(alias).toLowerCase().includes(needle));
   });
   return matches.slice(0, 25).map((entry) => ({ name: entry.label, value: entry.id }));
+}
+
+function suggestGames(query, games = catalog()) {
+  return suggestFrom(games, query);
+}
+
+function suggestPlatforms(query, platforms = platformCatalog()) {
+  return suggestFrom(platforms, query);
 }
 
 function forbiddenChar(value) {
@@ -275,7 +284,7 @@ function reservedTerms(rules) {
 
 function reservedHit(key, phrase) {
   const needle = impersonationKey(phrase).stripped;
-  if (!needle) return false;
+  if (!needle || needle === 'khaos') return false;
   if (SUBSTRING_TERMS.has(needle)) return key.stripped.includes(needle);
   if (WHOLE_WORD_TERMS.has(needle)) {
     if (needle === 'nexus') return key.stripped === 'nexus' || key.camelSegments.some((segment) => segment === 'nexus');
@@ -355,6 +364,13 @@ function normalizeNintendo(value) {
   const friend = /^SW-(\d{4})-(\d{4})-(\d{4})$/i.exec(value);
   if (friend) return { ok: true, value: `SW-${friend[1]}-${friend[2]}-${friend[3]}` };
   if (/^SW[-\d]*$/i.test(value)) return { ok: false, reason: 'pattern' };
+  const codeThenNick = /^(SW-\d{4}-\d{4}-\d{4}) \/ (.+)$/i.exec(value);
+  if (codeThenNick) {
+    const code = normalizeNintendo(codeThenNick[1]);
+    const nick = acceptPattern(codeThenNick[2], '^[\\p{L}\\p{N}][\\p{L}\\p{N}_.\' -]{0,15}$');
+    if (!code.ok || !nick.ok || nick.value.length > 16) return { ok: false, reason: 'pattern' };
+    return { ok: true, value: `${code.value} / ${nick.value}` };
+  }
   const both = /^(.+) (SW-\d{4}-\d{4}-\d{4})$/i.exec(value);
   if (both) {
     const nick = acceptPattern(both[1], '^[\\p{L}\\p{N}][\\p{L}\\p{N}_.\' -]{0,15}$');
@@ -463,6 +479,7 @@ module.exports = {
   gameById,
   platformById,
   suggestGames,
+  suggestPlatforms,
   canAddTag,
   validateTag,
   validatePlatform,

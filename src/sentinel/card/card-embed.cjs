@@ -96,7 +96,9 @@ function themeField(cosmetics) {
 }
 
 function balancesField(balances) {
-  if (!balances || balances.unavailable) return 'unavailable';
+  const amounts = [balances?.coins, balances?.points, balances?.cacheTokens];
+  const empty = amounts.every((amount) => amount == null || amount === '');
+  if (!balances || balances.unavailable || empty) return 'Balances unavailable';
   return [
     `Coins: ${formatCount(balances.coins)}`,
     `Nexus Points: ${formatCount(balances.points)}`,

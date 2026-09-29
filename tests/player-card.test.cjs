@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { MessageFlags, PermissionFlagsBits } = require('discord.js');
+const { ApplicationCommandOptionType, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const { levelForXp } = require('../src/backend/services/community-level-service.cjs');
 const { levelFromXp } = require('../src/sentinel/card/level-math.cjs');
 const { JsonCardStore } = require('../src/sentinel/card/card-store.cjs');
@@ -24,7 +24,8 @@ const {
 const {
   assembleCardModel,
   filterForViewer,
-  balancesPermitted
+  balancesPermitted,
+  readBalances
 } = require('../src/sentinel/card/card-model.cjs');
 const { renderCardEmbed, escapeUserText, FOOTER } = require('../src/sentinel/card/card-embed.cjs');
 const { cardEnabled, isCardAdmin } = require('../src/sentinel/card/card-config.cjs');
@@ -256,13 +257,16 @@ test('tag validation covers every catalog game and the abuse rules', () => {
     assert.equal(result.ok, false, tag);
     assert.equal(result.reason, 'impersonation', `${tag} => ${result.reason}`);
   }
-  for (const tag of ['Kirito', 'NightWolf', 'Chaos', 'gamer', 'Supporter', 'Nexus Raider']) {
+  const allowedTags = ['Kirito', 'NightWolf', 'Chaos', 'gamer', 'Supporter', 'Supportive', 'Staffan', 'Discordian', 'KhaosKirito', 'KhaosFan', 'Nexus Raider'];
+  for (const tag of allowedTags) {
     const result = validateTag({ gameId: 'ark_asa', tag });
     assert.equal(result.ok, true, `${tag} => ${result.reason}`);
     assert.equal(validateTag({ gameId: 'ark_asa', tag, rules: bypassRules }).ok, true, tag);
   }
-  for (const tag of ['gm', 'mod', 'support', 'staff', 'official', 'system', 'verified', 'nexus', 'Official Staff', 'NexusRaider']) {
+  const blockedTags = ['gm', 'mod', 'support', 'staff', 'Staff', 'official', 'system', 'verified', 'nexus', 'Nexus', 'discord', 'Official Staff', 'NexusRaider', 'SentinalSupport', 'OfficialStaff', 'Sentina1', '\u0391dmin', 'KhaosNexusStaff'];
+  for (const tag of blockedTags) {
     assert.equal(validateTag({ gameId: 'ark_asa', tag, rules: bypassRules }).reason, 'impersonation', tag);
+    assert.equal(validateTag({ gameId: 'ark_asa', tag }).ok, false, tag);
   }
   assert.equal(suggestGames('ark').map((item) => item.value).sort().join(','), 'ark_asa,ark_ase');
   assert.ok(suggestGames('').length <= 25);
@@ -451,7 +455,24 @@ test('card model degrades when each source is down', async () => {
   assert.equal(field(embed, 'Theme').value, 'unavailable');
   assert.equal(field(embed, 'Games').value, 'unavailable');
   assert.equal(field(embed, 'Platforms').value, 'unavailable');
-  assert.equal(field(embed, 'Balances').value, 'unavailable');
+  assert.equal(field(embed, 'Balances').value, 'Balances unavailable');
+  const emptyBalances = renderCardEmbed({
+    hidden: false,
+    viewerId: VIEWER,
+    targetUserId: VIEWER,
+    allowBalances: true,
+    level: { level: 1, xp: 0, nextLevelXp: 100, progressPercent: 0 },
+    rank: { name: 'Shadow Recruit' },
+    cosmetics: { title: null },
+    tags: {},
+    platforms: {},
+    balances: {}
+  }, { username: 'Ada' });
+  assert.equal(field(emptyBalances, 'Balances').value, 'Balances unavailable');
+  await assert.rejects(
+    () => readBalances({ configured: () => true, balances: async () => ({ ok: true, balances: {} }) }, VIEWER),
+    /balances-unavailable/
+  );
   assert.equal(embed.color, 0xb00020);
   assert.equal(embed.title, undefined);
   assert.match(embed.author.name, /\\?\*Ada\\?\*/);
@@ -663,6 +684,16 @@ test('link, unlink, tags, privacy, autocomplete, and admin clear', async () => {
   const choices = complete.calls.find((call) => call.method === 'respond').payload.map((item) => item.value);
   assert.ok(choices.includes('minecraft_java'));
   assert.ok(choices.includes('minecraft_bedrock'));
+  const platformComplete = mockInteraction({
+    isAutocomplete: () => true,
+    isChatInputCommand: () => false,
+    options: {
+      getFocused: () => ({ name: 'platform', value: 'nin' })
+    }
+  });
+  await handleCardInteraction(platformComplete, deps());
+  const platformChoices = platformComplete.calls.find((call) => call.method === 'respond').payload.map((item) => item.value);
+  assert.deepEqual(platformChoices, ['nintendo']);
 
   const denied = mockInteraction({
     memberPermissions: { has: () => false },
@@ -729,6 +760,19 @@ test('link, unlink, tags, privacy, autocomplete, and admin clear', async () => {
   assert.equal(cardEnabled({ CARD_ENABLED: 'true' }), true);
 });
 
+test('a deferred card error edits the reply instead of leaving it thinking', async () => {
+  const interaction = mockInteraction();
+  const deps = depsWith(tempDir(), { now: 9_000_000 });
+  deps.readers = () => { throw new Error('card source exploded'); };
+  await handleCardInteraction(interaction, deps);
+  assert.equal(interaction.calls.some((call) => call.method === 'deferReply'), true);
+  const edit = interaction.calls.find((call) => call.method === 'editReply');
+  assert.ok(edit);
+  assert.match(edit.payload.content, /could not be loaded/);
+  assert.deepEqual(edit.payload.allowedMentions, { parse: [] });
+  assert.equal(interaction.calls.some((call) => call.method === 'reply'), false);
+});
+
 test('slash command tree, context menu, and feature flag wiring', () => {
   const json = cardCommandDefinition().toJSON();
   const names = json.options.map((option) => option.name);
@@ -745,8 +789,26 @@ test('slash command tree, context menu, and feature flag wiring', () => {
   assert.equal(platformLink.options.find((option) => option.name === 'platform').choices.length, platformCatalog().length);
   const admin = json.options.find((option) => option.name === 'admin').options[0];
   assert.equal(admin.name, 'clear');
-  assert.equal(admin.options.find((option) => option.name === 'game').required, false);
-  assert.equal(admin.options.find((option) => option.name === 'platform').required, false);
+  assert.deepEqual(admin.options.map((option) => option.name), ['user', 'reason', 'game', 'platform']);
+  assert.deepEqual(admin.options.map((option) => option.required), [true, true, false, false]);
+  function assertRequiredBeforeOptional(node, label) {
+    const options = Array.isArray(node.options) ? node.options : [];
+    let sawOptional = false;
+    for (const option of options) {
+      if (option.type === ApplicationCommandOptionType.Subcommand || option.type === ApplicationCommandOptionType.SubcommandGroup) {
+        assertRequiredBeforeOptional(option, `${label} ${option.name}`);
+        continue;
+      }
+      if (option.required === true) {
+        assert.equal(sawOptional, false, `${label}: required option ${option.name} follows an optional option`);
+      } else {
+        sawOptional = true;
+      }
+    }
+  }
+  for (const command of [json, viewCardContextMenu().toJSON()]) {
+    assertRequiredBeforeOptional(command, command.name);
+  }
   assert.equal(json.default_member_permissions, undefined);
   const menu = viewCardContextMenu().toJSON();
   assert.equal(menu.name, 'View Card');
@@ -760,6 +822,10 @@ test('slash command tree, context menu, and feature flag wiring', () => {
   assert.doesNotMatch(embed, /unverified/i);
   assert.doesNotMatch(JSON.stringify(json), /unverified/i);
   assert.ok(entry.indexOf('installPlayerCardExtension();') < entry.indexOf("require('./bot.cjs')"));
+  const bot = fs.readFileSync(path.join(__dirname, '../src/sentinel/bot.cjs'), 'utf8');
+  const autocomplete = bot.slice(bot.indexOf('async function autocompleteActions'), bot.indexOf('function friendlyResponsePrivate'));
+  assert.ok(autocomplete.indexOf("commandName === 'card'") < autocomplete.indexOf('interaction.respond([])'));
+  assert.match(autocomplete, /handleCardInteraction/);
 });
 
 test('login continues when the card directory cannot be written', () => {
@@ -884,6 +950,9 @@ test('platform validators cover every platform format and the impersonation chec
   assert.equal(friend.tag, 'SW-1234-5678-9012');
   const both = validatePlatform({ platformId: 'nintendo', tag: 'Kirito sw-1111-2222-3333' });
   assert.equal(both.tag, 'Kirito SW-1111-2222-3333');
+  const codeFirst = validatePlatform({ platformId: 'nintendo', tag: 'sw-1234-5678-9012 / Kirito' });
+  assert.equal(codeFirst.ok, true, codeFirst.reason);
+  assert.equal(codeFirst.tag, 'SW-1234-5678-9012 / Kirito');
   assert.equal(validatePlatform({ platformId: 'nintendo', tag: 'Kirito' }).ok, true);
   assert.equal(validatePlatform({ platformId: 'nintendo', tag: 'SW-1234' }).reason, 'pattern');
   assert.equal(validatePlatform({ platformId: 'nintendo', tag: 'SW-1234-5678-90123' }).reason, 'pattern');
@@ -907,6 +976,9 @@ test('platform validators cover every platform format and the impersonation chec
   for (const tag of ['Kirito', 'NightWolf', 'Supporter']) {
     assert.equal(validatePlatform({ platformId: 'epic', tag, rules: bypassRules }).ok, true, tag);
   }
+  const steamKhaos = validatePlatform({ platformId: 'steam', tag: 'https://steamcommunity.com/id/khaos' });
+  assert.equal(steamKhaos.ok, true, steamKhaos.reason);
+  assert.equal(steamKhaos.tag, 'khaos');
   assert.equal(validatePlatform({ platformId: 'steam', tag: 'Nexus Raider', rules: bypassRules }).ok, true);
   assert.equal(validatePlatform({ platformId: 'steam', tag: 'Nexus', rules: bypassRules }).reason, 'impersonation');
   assert.equal(validatePlatform({ platformId: 'epic', tag: 'Official Staff', rules: bypassRules }).reason, 'impersonation');
