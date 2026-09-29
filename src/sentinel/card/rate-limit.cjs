@@ -85,8 +85,103 @@ function createRateLimiters(options = {}) {
   return new CardRateLimits(options);
 }
 
+const FIND_BURST_LIMIT = 10;
+const FIND_BURST_WINDOW_MS = 10 * 60 * 1000;
+const FIND_DAILY_LIMIT = 30;
+const FIND_DAILY_WINDOW_MS = 24 * 60 * 60 * 1000;
+const FIND_MISS_LIMIT = 5;
+const FIND_MISS_COOLDOWN_MS = 15 * 60 * 1000;
+const FIND_GUILD_LIMIT = 300;
+const FIND_GUILD_WINDOW_MS = 60 * 60 * 1000;
+
+class LookupRateLimits {
+  constructor(options = {}) {
+    this.burstLimit = options.burstLimit ?? FIND_BURST_LIMIT;
+    this.burstWindowMs = options.burstWindowMs ?? FIND_BURST_WINDOW_MS;
+    this.dailyLimit = options.dailyLimit ?? FIND_DAILY_LIMIT;
+    this.dailyWindowMs = options.dailyWindowMs ?? FIND_DAILY_WINDOW_MS;
+    this.missLimit = options.missLimit ?? FIND_MISS_LIMIT;
+    this.missCooldownMs = options.missCooldownMs ?? FIND_MISS_COOLDOWN_MS;
+    this.guildLimit = options.guildLimit ?? FIND_GUILD_LIMIT;
+    this.guildWindowMs = options.guildWindowMs ?? FIND_GUILD_WINDOW_MS;
+    this.hits = new Map();
+    this.misses = new Map();
+    this.guildAlerted = new Set();
+  }
+
+  #recent(key, windowMs, now) {
+    const prev = (this.hits.get(key) || []).filter((at) => now - at < windowMs);
+    this.hits.set(key, prev);
+    return prev;
+  }
+
+  #peek(key, limit, windowMs, now) {
+    const prev = this.#recent(key, windowMs, now);
+    if (prev.length >= limit) {
+      return { ok: false, retryAfterMs: Math.max(0, windowMs - (now - prev[0])), prev };
+    }
+    return { ok: true, prev };
+  }
+
+  #commit(key, prev, now) {
+    prev.push(now);
+    this.hits.set(key, prev);
+  }
+
+  take(userId, guildId, now = Date.now()) {
+    const miss = this.misses.get(userId);
+    if (miss?.until && now < miss.until) return { ok: false, reason: 'miss-cooldown' };
+    if (miss?.until && now >= miss.until) this.misses.set(userId, { streak: 0, until: 0 });
+    const burst = this.#peek(`find:burst:${userId}`, this.burstLimit, this.burstWindowMs, now);
+    if (!burst.ok) return { ok: false, reason: 'rate-10m', retryAfterMs: burst.retryAfterMs };
+    const daily = this.#peek(`find:day:${userId}`, this.dailyLimit, this.dailyWindowMs, now);
+    if (!daily.ok) return { ok: false, reason: 'rate-24h', retryAfterMs: daily.retryAfterMs };
+    const guildKey = `find:guild:${guildId}`;
+    const guild = this.#peek(guildKey, this.guildLimit, this.guildWindowMs, now);
+    if (!guild.ok) {
+      const alert = !this.guildAlerted.has(String(guildId));
+      this.guildAlerted.add(String(guildId));
+      return { ok: false, reason: 'guild-breaker', alert, retryAfterMs: guild.retryAfterMs };
+    }
+    if (this.guildAlerted.has(String(guildId))) this.guildAlerted.delete(String(guildId));
+    this.#commit(`find:burst:${userId}`, burst.prev, now);
+    this.#commit(`find:day:${userId}`, daily.prev, now);
+    this.#commit(guildKey, guild.prev, now);
+    return { ok: true };
+  }
+
+  noteMiss(userId, now = Date.now()) {
+    const prev = this.misses.get(userId) || { streak: 0, until: 0 };
+    const streak = (prev.until && now < prev.until) ? prev.streak : prev.streak + 1;
+    if (streak >= this.missLimit) {
+      this.misses.set(userId, { streak: 0, until: now + this.missCooldownMs });
+      return { cooled: true, streak: this.missLimit };
+    }
+    this.misses.set(userId, { streak, until: 0 });
+    return { cooled: false, streak };
+  }
+
+  noteHit(userId) {
+    this.misses.set(userId, { streak: 0, until: 0 });
+  }
+}
+
+function createLookupLimits(options = {}) {
+  return new LookupRateLimits(options);
+}
+
 module.exports = {
   parseLinkRate,
   CardRateLimits,
-  createRateLimiters
+  createRateLimiters,
+  LookupRateLimits,
+  createLookupLimits,
+  FIND_BURST_LIMIT,
+  FIND_BURST_WINDOW_MS,
+  FIND_DAILY_LIMIT,
+  FIND_DAILY_WINDOW_MS,
+  FIND_MISS_LIMIT,
+  FIND_MISS_COOLDOWN_MS,
+  FIND_GUILD_LIMIT,
+  FIND_GUILD_WINDOW_MS
 };
