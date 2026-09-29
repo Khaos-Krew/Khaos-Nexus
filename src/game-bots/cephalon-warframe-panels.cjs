@@ -20,6 +20,8 @@ const {
 const SHARED_CHANNEL_ENV = 'CEPHALON_WARFRAME_WORLD_CHANNEL_ID';
 const PANEL_INTERVAL_MS = 10 * 60 * 1000;
 const caches = new WeakMap();
+const panelFlights = new Map();
+let stateWrite = Promise.resolve();
 
 const PANEL_PATHS = Object.freeze({
   news: 'news',
@@ -67,6 +69,41 @@ function channelRaw(env, panel) {
 
 function panelFooter(id) {
   return `Cephalon Nexus • warframe:${id}`;
+}
+
+function singleFlight(key, fn) {
+  const existing = panelFlights.get(key);
+  if (existing) return existing;
+  const flight = Promise.resolve().then(fn);
+  panelFlights.set(key, flight);
+  const clear = () => {
+    if (panelFlights.get(key) === flight) panelFlights.delete(key);
+  };
+  flight.then(clear, clear);
+  return flight;
+}
+
+function writePanelRecord(file, panelId, record) {
+  const run = stateWrite.then(() => {
+    const latest = readJson(file, { version: 1, panels: {} });
+    if (!latest.panels || typeof latest.panels !== 'object') latest.panels = {};
+    latest.panels[panelId] = record;
+    writeJson(file, { version: 1, panels: latest.panels });
+  });
+  stateWrite = run.then(() => {}, () => {});
+  return run;
+}
+
+function ownedFooterMatcher(botId, footerPrefix) {
+  const owner = String(botId || '');
+  const prefix = String(footerPrefix || '');
+  return (message) => {
+    if (!owner || String(message?.author?.id || '') !== owner) return false;
+    if (message?.webhookId) return false;
+    const embed = message?.embeds?.[0] || null;
+    const footer = String(embed?.footer?.text || embed?.data?.footer?.text || '');
+    return Boolean(prefix) && footer.startsWith(prefix);
+  };
 }
 
 function panelFile(dir) {
@@ -184,7 +221,7 @@ function voidTraderEmbed(row) {
     return price ? `${item.item} — ${price}` : item.item;
   });
   return embed(
-    "Baro Ki'Teer",
+    "Cephalon • Baro Ki'Teer",
     [trader.character || "Baro Ki'Teer", trader.location || 'Location unavailable', when, '', lines.join('\n') || 'No inventory listed.'].join('\n'),
     [],
     'void-trader'
@@ -212,6 +249,7 @@ function circuitPanelEmbed(partial) {
   const credit = circuit.footer?.text || '';
   return {
     ...circuit,
+    title: 'Cephalon • Circuit',
     footer: { text: `${panelFooter('circuit')}${credit ? ` • ${credit}` : ''}`.slice(0, 2048) }
   };
 }
@@ -266,10 +304,12 @@ async function resolvePanelChannel(client, raw, env) {
 }
 
 async function pinPanel(client, channel, savedId, rendered, panel, env) {
+  const botId = String(client?.user?.id || '');
   const options = {
     panel: panel.panel,
-    botId: client?.user?.id,
-    envMessageId: snowflake(env[panel.messageEnv])
+    botId,
+    envMessageId: snowflake(env[panel.messageEnv]),
+    matches: ownedFooterMatcher(botId, panelFooter(panel.id))
   };
   let result = await upsertEmbed(client, channel.id, savedId, { embeds: [rendered] }, options);
   if (result.reason === 'foreign-unmatched') {
@@ -282,8 +322,6 @@ async function refreshWarframePanels({ client, env = process.env, provider, dir 
   if (!warframePanelsConfigured(env)) return { refreshed: 0, skipped: 'unset' };
   const root = dir || runtimeDataDir(env);
   const file = panelFile(root);
-  const state = readJson(file, { version: 1, panels: {} });
-  if (!state.panels || typeof state.panels !== 'object') state.panels = {};
   let refreshed = 0;
   const skipped = [];
   const targets = [];
@@ -311,19 +349,25 @@ async function refreshWarframePanels({ client, env = process.env, provider, dir 
       skipped.push({ id: panel.id, reason: 'unavailable' });
       continue;
     }
-    const saved = state.panels[panel.id] || {};
-    const result = await pinPanel(client, channel, saved.messageId, rendered, panel, env);
-    if (!result?.messageId || result.reason === 'foreign-unmatched') {
-      skipped.push({ id: panel.id, reason: result?.reason || 'unpinned' });
+    const outcome = await singleFlight(`${file}:${panel.id}`, async () => {
+      const latest = readJson(file, { version: 1, panels: {} });
+      const savedId = latest.panels?.[panel.id]?.messageId || '';
+      const result = await pinPanel(client, channel, savedId, rendered, panel, env);
+      if (!result?.messageId || result.reason === 'foreign-unmatched') {
+        return { ok: false, reason: result?.reason || 'unpinned', result };
+      }
+      await writePanelRecord(file, panel.id, { channelId: String(channel.id), messageId: String(result.messageId) });
+      if (result.created || result.duplicatesRemoved) {
+        console.log(`[Cephalon Nexus] warframe ${panel.id} message=${result.messageId} created=${result.created ? 'yes' : 'no'} duplicatesRemoved=${result.duplicatesRemoved || 0}`);
+      }
+      return { ok: true, result };
+    });
+    if (!outcome.ok) {
+      skipped.push({ id: panel.id, reason: outcome.reason });
       continue;
     }
-    state.panels[panel.id] = { channelId: String(channel.id), messageId: String(result.messageId) };
     refreshed += 1;
-    if (result.created || result.duplicatesRemoved) {
-      console.log(`[Cephalon Nexus] warframe ${panel.id} message=${result.messageId} created=${result.created ? 'yes' : 'no'} duplicatesRemoved=${result.duplicatesRemoved || 0}`);
-    }
   }
-  if (refreshed) writeJson(file, { version: 1, panels: state.panels });
   return { refreshed, skipped };
 }
 
@@ -356,6 +400,8 @@ module.exports = {
   PANELS,
   panelInterval,
   panelFooter,
+  ownedFooterMatcher,
+  singleFlight,
   warframePanelsConfigured,
   renderPanel,
   resolvePanelChannel,

@@ -157,7 +157,10 @@ function messageMatchesFeed(message, moduleId, actionId, botId = '') {
   const content = String(message?.content || '');
   const legacyLabels = [String(actionId || '')];
   if (moduleId === 'pokemongo' && actionId === 'events') legacyLabels.push('Pokémon GO Events');
-  return content.includes('Nexus Sentinal Live Feed') && legacyLabels.some((label) => content.includes(`• ${label}`));
+  if (!(content.includes('Nexus Sentinal Live Feed') && legacyLabels.some((label) => content.includes(`• ${label}`)))) return false;
+  if (moduleId !== 'warframe') return true;
+  const title = String(message?.embeds?.[0]?.title || '');
+  return /warframe/i.test(`${title}\n${content}`);
 }
 
 function newestMessage(messages = []) {

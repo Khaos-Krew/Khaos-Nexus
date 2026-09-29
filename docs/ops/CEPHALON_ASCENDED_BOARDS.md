@@ -55,7 +55,7 @@ Each value below is a channel snowflake or a channel name. The channel must sit 
 | Steel Path | `CEPHALON_WARFRAME_STEEL_PATH_CHANNEL_ID` | `CEPHALON_WARFRAME_STEEL_PATH_MESSAGE_ID` |
 | Circuit | `CEPHALON_CIRCUIT_CHANNEL_ID` | `CEPHALON_CIRCUIT_MESSAGE_ID` |
 
-Message ids are optional pins for Cephalon's own messages. Leave them unset on the first deploy. Do not paste a Sentinal message id. Cephalon cannot edit a message Sentinal authored, so it posts a new embed and then edits that embed on later refreshes. Ids are also stored in `cephalon-warframe-panels.json` under `NEXUS_DATA_DIR` (or `RAILWAY_VOLUME_MOUNT_PATH`).
+Message ids are optional pins for Cephalon's own messages. Leave them unset on the first deploy. Do not paste a Sentinal message id. Cephalon posts a new embed and then edits that embed. Titles use a `Cephalon • ` prefix. A refresh adopts or deletes a message only when this bot authored it and the footer starts with `Cephalon Nexus • warframe:<action>`. Another bot or webhook with the same title, including `Baro Ki'Teer` or `Circuit digest`, is left in place. Ids are stored in `cephalon-warframe-panels.json` under `NEXUS_DATA_DIR` (or `RAILWAY_VOLUME_MOUNT_PATH`).
 
 When the Sentinal flag is disabled, Sentinal deletes its own stored Warframe feed messages once, then scans `#warframe-world-state` for footers `Nexus Sentinal • Live Feed • warframe:<action>:v3`. A second boot does not delete again after that cleanup is recorded. If a delete fails, or the state file was lost and the message is older than the last 100 in the channel, delete those messages by hand. Cephalon will not remove them.
 

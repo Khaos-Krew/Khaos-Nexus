@@ -59,7 +59,7 @@ const PANEL_IDENTITIES = Object.freeze({
     footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:nightwave'])
   }),
   warframeVoidTrader: Object.freeze({
-    titles: Object.freeze(["Baro Ki'Teer"]),
+    titles: Object.freeze(["Cephalon • Baro Ki'Teer"]),
     footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:void-trader'])
   }),
   warframeSteelPath: Object.freeze({
@@ -67,7 +67,7 @@ const PANEL_IDENTITIES = Object.freeze({
     footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:steel-path'])
   }),
   warframeCircuit: Object.freeze({
-    titles: Object.freeze(['Circuit digest']),
+    titles: Object.freeze(['Cephalon • Circuit']),
     footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:circuit'])
   })
 });

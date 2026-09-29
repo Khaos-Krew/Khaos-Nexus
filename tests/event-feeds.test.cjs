@@ -106,6 +106,29 @@ test('feed matching adopts both the old literal events label and the new Pokémo
   assert.equal(messageMatchesFeed({ ...base, content:'📡 **Nexus Sentinal Live Feed** • Pokémon GO Events\nUpdated after deploy' }, 'pokemongo', 'events', 'sentinal'), true);
 });
 
+test('warframe legacy feed match stays on Warframe and ignores another module in the same channel', () => {
+  const division = {
+    author: { id: 'sentinal' },
+    content: '📡 **Nexus Sentinal Live Feed** • news\nUpdated',
+    embeds: [{ title: '📰 THE DIVISION 2 • NEWS', footer: { text: 'old footer' } }]
+  };
+  const warframe = {
+    author: { id: 'sentinal' },
+    content: '📡 **Nexus Sentinal Live Feed** • news\nUpdated',
+    embeds: [{ title: '📰 WARFRAME • NEWS', footer: { text: 'old footer' } }]
+  };
+  const pokemon = {
+    author: { id: 'sentinal' },
+    content: '📡 **Nexus Sentinal Live Feed** • events\nUpdated before deploy',
+    embeds: [{ title: '📅 POKÉMON GO • EVENTS & COMMUNITY DAYS', footer: { text: 'old footer' } }]
+  };
+  assert.equal(messageMatchesFeed(division, 'warframe', 'news', 'sentinal'), false);
+  assert.equal(messageMatchesFeed(division, 'division2', 'news', 'sentinal'), true);
+  assert.equal(messageMatchesFeed(warframe, 'warframe', 'news', 'sentinal'), true);
+  assert.equal(messageMatchesFeed(pokemon, 'warframe', 'events', 'sentinal'), false);
+  assert.equal(messageMatchesFeed(pokemon, 'pokemongo', 'events', 'sentinal'), true);
+});
+
 test('feed matching does not adopt another bot message', () => {
   const message = {
     author:{ id:'other' },
