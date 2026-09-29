@@ -25,8 +25,7 @@ const {
   LOOKUP_OFF_TEXT,
   LOOKUP_STARTING_TEXT,
   TENURE_MS,
-  performLookup,
-  shuffle
+  performLookup
 } = require('../src/sentinel/card/lookup-service.cjs');
 const { cardEnabled, cardFindEnabled } = require('../src/sentinel/card/card-config.cjs');
 const { cardCommandDefinition, handleCardInteraction } = require('../src/sentinel/card/card-commands.cjs');
@@ -168,8 +167,11 @@ test('fold keys reuse the confusable skeleton and ignore leetspeak', () => {
   assert.equal(lookupKey('platform:epic', 'Kirito').full, lookupKey('platform:epic', 'KIRITO').full);
   assert.equal(lookupKey('platform:epic', 'αdaprime').full, lookupKey('platform:epic', 'Adaprime').full);
   assert.equal(lookupKey('platform:epic', 'аdaprime').full, 'adaprime');
-  assert.equal(lookupKey('platform:epic', 'K1rito').full, lookupKey('platform:epic', 'Klrito').full);
+  assert.notEqual(lookupKey('platform:epic', 'K1rito').full, lookupKey('platform:epic', 'Klrito').full);
   assert.notEqual(lookupKey('platform:epic', 'K1rito').full, lookupKey('platform:epic', 'Kirito').full);
+  assert.equal(lookupKey('platform:epic', 'Sam5').full, 'sam5');
+  assert.equal(lookupKey('platform:epic', 'Sam5').full, lookupKey('platform:epic', 'sam5').full);
+  assert.notEqual(lookupKey('platform:epic', 'Sam5').full, lookupKey('platform:epic', 'Sams').full);
   assert.notEqual(lookupKey('platform:epic', 'B8ttle').full, lookupKey('platform:epic', 'Bbttle').full);
   assert.notEqual(lookupKey('platform:epic', '@da').full, lookupKey('platform:epic', 'Ada').full);
   assert.equal(lookupKey('platform:epic', 'Night Wolf').full, 'nightwolf');
@@ -178,15 +180,21 @@ test('fold keys reuse the confusable skeleton and ignore leetspeak', () => {
   assert.equal(parseLookupText('Night Wolf#TAG').base, 'nightwolf');
   assert.equal(parseLookupText('Night Wolf#TAG').full, 'nightwolf#tag');
   assert.equal(lookupKey('platform:riot', 'Night Wolf#TAG').base, 'nightwolf');
-  assert.equal(lookupKey('game:steam', 'Ada#1').full, 'ada#l');
-  assert.equal(lookupKey('game:steam', 'Ada#l').full, lookupKey('game:steam', 'Ada#1').full);
+  assert.equal(lookupKey('game:steam', 'Ada#1').full, 'ada#1');
+  assert.notEqual(lookupKey('game:steam', 'Ada#l').full, lookupKey('game:steam', 'Ada#1').full);
   assert.equal(lookupKey('game:steam', 'Ada#1').base, null);
+  const digitIndex = new TagIndex();
+  digitIndex.updateUser(BEA, { platforms: { epic: { tag: 'Sam5' } }, tags: {} });
+  digitIndex.updateUser(CYD, { platforms: { epic: { tag: 'Sams' } }, tags: {} });
+  const sam5 = digitIndex.findExact(parseLookupText('sam5'));
+  const sams = digitIndex.findExact(parseLookupText('Sams'));
+  assert.deepEqual(sam5.map((row) => row.userId), [BEA]);
+  assert.equal(sam5[0].tag, 'Sam5');
+  assert.deepEqual(sams.map((row) => row.userId), [CYD]);
   for (const slot of ['platform:riot', 'platform:battlenet', 'platform:xbox', 'game:diablo4', 'game:destiny2', 'game:battlenet', 'game:xbox', 'game:minecraft_bedrock']) {
     assert.equal(SUFFIX_SLOTS.has(slot), true, slot);
   }
   assert.equal(SUFFIX_SLOTS.has('platform:epic'), false);
-  assert.equal(shuffle([1, 2], () => 0).join(','), '2,1');
-  assert.equal(shuffle([1, 2], () => 0.999).join(','), '1,2');
 });
 
 test('lookup limits are 10 per 10 minutes, 30 per day, 5 misses, and 300 per guild hour', () => {
@@ -346,7 +354,7 @@ test('opt-in, tenure, and identical miss, throttle, and hidden replies', async (
   assert.equal(JSON.stringify(hiddenAudit).includes(BEA), false);
 });
 
-test('duplicate claimants are shuffled, suffix-less search shows the full tag, and results stay private', async () => {
+test('duplicate claimants stay in a stable order, suffix-less search shows the full tag, and results stay private', async () => {
   const dir = tempDir();
   const wired = wire(dir);
   const tags = [
@@ -370,7 +378,7 @@ test('duplicate claimants are shuffled, suffix-less search shows the full tag, a
   await wired.store.setPlatform(BEA, 'epic', { tag: 'αdaprime' });
 
   const people = Object.fromEntries([BEA, CYD, DEE, EVE, FAY, GUS, HUE, IVY, JOE].map((id) => [id, memberOf(id, { name: `M${id.slice(-2)}` })]));
-  function interactionFor(tag, where, random) {
+  function interactionFor(tag, where) {
     return {
       interaction: mockFind({
         guild: { members: { fetch: async (id) => people[id] || null } },
@@ -383,47 +391,44 @@ test('duplicate claimants are shuffled, suffix-less search shows the full tag, a
           getFocused: () => ({ name: 'where', value: '' })
         }
       }),
-      deps: depsFor(wired, { random })
+      deps: depsFor(wired)
     };
   }
 
-  const pair = [BEA, CYD];
-  const reversed = interactionFor('Kirito', 'platform:battlenet', () => 0);
-  await handleCardInteraction(reversed.interaction, reversed.deps);
-  const forward = interactionFor('Kirito', 'platform:battlenet', () => 0.999);
-  await handleCardInteraction(forward.interaction, forward.deps);
-  const backText = replyOf(reversed.interaction).content;
-  const foreText = replyOf(forward.interaction).content;
-  assertPrivate(replyOf(reversed.interaction));
-  assert.match(backText, /More than one member uses this tag\./);
-  assert.match(backText, /Kirito#1111/);
-  assert.match(foreText, /Kirito#2222/);
-  for (const id of pair) {
-    assert.ok(backText.includes(id));
-    assert.ok(foreText.includes(id));
-  }
-  assert.notEqual(backText.indexOf(BEA) < backText.indexOf(CYD), foreText.indexOf(BEA) < foreText.indexOf(CYD));
+  const firstPair = interactionFor('Kirito', 'platform:battlenet');
+  await handleCardInteraction(firstPair.interaction, firstPair.deps);
+  const secondPair = interactionFor('Kirito', 'platform:battlenet');
+  await handleCardInteraction(secondPair.interaction, secondPair.deps);
+  const firstText = replyOf(firstPair.interaction).content;
+  const secondText = replyOf(secondPair.interaction).content;
+  assertPrivate(replyOf(firstPair.interaction));
+  assert.equal(firstText, secondText);
+  assert.match(firstText, /More than one member uses this tag\./);
+  assert.match(firstText, /Kirito#1111/);
+  assert.match(firstText, /Kirito#2222/);
+  assert.ok(firstText.indexOf(BEA) < firstText.indexOf(CYD));
 
   for (const [id, suffix] of tags.slice(2)) {
     await wired.store.setPlatform(id, 'battlenet', { tag: `Kirito#${suffix}` });
     await wired.store.setFindable(id, true);
   }
-  const capped = interactionFor('Kirito', 'platform:battlenet', () => 0.999);
+  const capped = interactionFor('Kirito', 'platform:battlenet');
   await handleCardInteraction(capped.interaction, capped.deps);
   const cappedText = replyOf(capped.interaction).content;
-  const shown = [BEA, CYD, DEE, EVE, FAY, GUS].filter((id) => cappedText.includes(id));
-  assert.equal(shown.length, 5);
-  assert.equal(cappedText.includes(GUS), false);
-  assert.match(cappedText, /Kirito#/);
+  assert.equal(cappedText, LOOKUP_MISS_TEXT);
+  for (const id of [BEA, CYD, DEE, EVE, FAY, GUS]) assert.equal(cappedText.includes(id), false);
+  const cappedAudit = auditRows(dir).filter((row) => row.action === 'lookup' && row.folded === 'kirito').at(-1);
+  assert.equal(cappedAudit.hit, false);
+  assert.deepEqual(cappedAudit.resultIds, []);
 
-  const exact = interactionFor('Kirito#1111', null, () => 0.999);
+  const exact = interactionFor('Kirito#1111', null);
   await handleCardInteraction(exact.interaction, exact.deps);
   const exactText = replyOf(exact.interaction).content;
   assert.match(exactText, /Kirito#1111/);
   assert.doesNotMatch(exactText, /Kirito#2222/);
   assert.equal((exactText.match(/Kirito#/g) || []).length, 1);
 
-  const riot = interactionFor('NightWolf', 'platform:riot', () => 0.999);
+  const riot = interactionFor('NightWolf', 'platform:riot');
   await handleCardInteraction(riot.interaction, riot.deps);
   const riotText = replyOf(riot.interaction).content;
   assert.match(riotText, /Night Wolf#TAG/);
@@ -433,16 +438,16 @@ test('duplicate claimants are shuffled, suffix-less search shows the full tag, a
   assert.equal(riotRow.custom_id, `card:view:${HUE}`);
   assert.match(riotRow.label, /^View /);
 
-  const diablo = interactionFor('Lilith', 'game:diablo4', () => 0.999);
+  const diablo = interactionFor('Lilith', 'game:diablo4');
   await handleCardInteraction(diablo.interaction, diablo.deps);
   assert.match(replyOf(diablo.interaction).content, /Lilith#1234/);
   assert.match(replyOf(diablo.interaction).content, /Diablo IV/);
 
-  const xbox = interactionFor('AdaBox', 'platform:xbox', () => 0.999);
+  const xbox = interactionFor('AdaBox', 'platform:xbox');
   await handleCardInteraction(xbox.interaction, xbox.deps);
   assert.match(replyOf(xbox.interaction).content, /AdaBox#123/);
 
-  const greek = interactionFor('Adaprime', 'platform:epic', () => 0.999);
+  const greek = interactionFor('Adaprime', 'platform:epic');
   await handleCardInteraction(greek.interaction, greek.deps);
   assert.match(replyOf(greek.interaction).content, /αdaprime/);
   assert.match(replyOf(greek.interaction).content, new RegExp(escapeUserText('αdaprime').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
@@ -458,10 +463,84 @@ test('duplicate claimants are shuffled, suffix-less search shows the full tag, a
       getFocused: () => ({ name: 'tag', value: '' })
     }
   });
-  await handleCardInteraction(starred, depsFor(wired, { random: () => 0.999, lookupLimits: wideLimits() }));
+  await handleCardInteraction(starred, depsFor(wired, { lookupLimits: wideLimits() }));
   const starredText = replyOf(starred).content;
   assert.match(starredText, new RegExp(escapeUserText('*Zeus*').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.equal(starredText.includes('*Zeus*'), false);
+});
+
+test('the same requester gets the same five claimants for a query all day', async () => {
+  const dir = tempDir();
+  const wired = wire(dir);
+  const claimants = [BEA, CYD, DEE, EVE, FAY, GUS, HUE, IVY];
+  const people = {};
+  for (const [index, id] of claimants.entries()) {
+    await wired.store.setPlatform(id, 'battlenet', { tag: `Kirito#${1000 + index}` });
+    await wired.store.setFindable(id, true);
+    people[id] = memberOf(id, { name: `M${index}` });
+  }
+  async function search(actorId, now) {
+    const result = await performLookup({
+      query: 'Kirito',
+      where: 'platform:battlenet',
+      actorId,
+      guildId: GUILD,
+      member: memberOf(actorId, { name: 'Searcher' }),
+      store: wired.store,
+      index: wired.index,
+      limits: wideLimits(),
+      audit: wired.audit,
+      env: { CARD_FIND_ORDER_SECRET: 'card-find-order-test-secret' },
+      now,
+      findEnabled: true,
+      lookupPadMs: 0,
+      fetchMember: async (id) => people[id] || null
+    });
+    assert.equal(result.kind, 'hit');
+    assert.equal(result.rows.length, 5);
+    return result.rows.map((row) => row.userId);
+  }
+  const first = await search(ADA, NOW);
+  const second = await search(ADA, NOW);
+  assert.deepEqual(first, second);
+  const later = await search(ADA, NOW + DAY);
+  const other = await search(JOE, NOW);
+  assert.equal(first.join(',') === later.join(',') && first.join(',') === other.join(','), false);
+  for (const id of first) assert.equal(claimants.includes(id), true);
+});
+
+test('a non-admin with no allow-list entry is denied admin find and the denial is audited', async () => {
+  const dir = tempDir();
+  const wired = wire(dir);
+  await wired.store.setPlatform(BEA, 'epic', { tag: 'Kirito' });
+  await wired.store.setFindable(BEA, true);
+  const denied = mockFind({
+    memberPermissions: { has: () => false },
+    guild: { members: { fetch: async () => memberOf(BEA, { name: 'Bea' }) } },
+    options: {
+      getSubcommand: () => 'find',
+      getSubcommandGroup: () => 'admin',
+      getUser: () => null,
+      getString: (name) => ({ tag: 'Kirito', reason: 'not on the list' }[name] || null),
+      getBoolean: () => null,
+      getFocused: () => ({ name: 'tag', value: '' })
+    }
+  });
+  await handleCardInteraction(denied, depsFor(wired, {
+    config: { discord: { o9AdminUserIds: [], o9AdminVerifyUserIds: [] } }
+  }));
+  const payload = replyOf(denied);
+  assertPrivate(payload);
+  assert.match(payload.content, /Administrator/);
+  assert.equal(payload.content.includes('Kirito'), false);
+  assert.equal(payload.content.includes(BEA), false);
+  const row = auditRows(dir).find((item) => item.action === 'admin-find');
+  assert.equal(row.outcome, 'denied');
+  assert.equal(row.actorId, ADA);
+  assert.equal(row.reason, 'not on the list');
+  assert.equal(row.hit, false);
+  assert.deepEqual(row.resultIds, []);
+  assert.equal(JSON.stringify(row).includes('Kirito'), false);
 });
 
 test('guild breaker fails closed, autocomplete does not list tags, and the index stays in sync', async () => {
@@ -573,7 +652,7 @@ test('staff find is audited, sees hidden members, and member prefix search does 
   assert.ok(auditRows(dir).filter((row) => row.outcome === 'denied').length >= 2);
 
   const allowed = staffInteraction({ admin: true, tag: 'kiri' });
-  await handleCardInteraction(allowed, depsFor(wired, { random: () => 0.999 }));
+  await handleCardInteraction(allowed, depsFor(wired));
   const staffText = replyOf(allowed).content;
   assertPrivate(replyOf(allowed));
   assert.match(staffText, /Do not repost these results\./);
@@ -591,7 +670,6 @@ test('staff find is audited, sees hidden members, and member prefix search does 
 
   const listed = staffInteraction({ admin: false, reason: 'allow list review', tag: 'Kirito#1234' });
   await handleCardInteraction(listed, depsFor(wired, {
-    random: () => 0.999,
     config: { discord: { o9AdminUserIds: [ADA] } }
   }));
   assert.match(replyOf(listed).content, /hidden card/);
