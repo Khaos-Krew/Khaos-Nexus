@@ -245,6 +245,15 @@ function foldImpersonationDigits(value) {
   return out;
 }
 
+// F-03 confusable skeleton used by tag lookup. Case-fold, Greek and Cyrillic
+// lookalikes, and the impersonation digit map (1 folds to l). Leetspeak is
+// not applied, so 8, @, and $ stay as themselves.
+function lookupSkeleton(value) {
+  let nfkc = String(value ?? '');
+  try { nfkc = nfkc.normalize('NFKC'); } catch { /* keep the raw string */ }
+  return foldImpersonationDigits(foldConfusables(nfkc.toLowerCase()));
+}
+
 function stripSeparators(value) {
   return value.replace(/[\s._\-'#*|+~\\/]+/g, '');
 }
@@ -645,5 +654,7 @@ module.exports = {
   canAddTag,
   validateTag,
   validatePlatform,
-  foldedForms
+  foldedForms,
+  lookupSkeleton,
+  structuralReason
 };

@@ -9,10 +9,18 @@ const {
   MessageFlags,
   SlashCommandBuilder
 } = require('discord.js');
-const { isCardAdmin, DISCORD_ID } = require('./card-config.cjs');
+const { cardFindAlertChannelId, isCardAdmin, DISCORD_ID } = require('./card-config.cjs');
 const { catalog, gameById, platformById, platformCatalog, suggestGames, suggestPlatforms, validatePlatform, validateTag } = require('./tag-validate.cjs');
+const { suggestWhere } = require('./lookup-key.cjs');
 const { assembleCardModel, balancesPermitted, buildReaders } = require('./card-model.cjs');
 const { escapeUserText, renderCardEmbed } = require('./card-embed.cjs');
+const {
+  LOOKUP_MISS_TEXT,
+  LOOKUP_OFF_TEXT,
+  LOOKUP_PAD_MS,
+  LOOKUP_STARTING_TEXT,
+  performLookup
+} = require('./lookup-service.cjs');
 
 const HIDDEN_TEXT = "This player's card is hidden.";
 const NO_MENTIONS = Object.freeze({ parse: [] });
@@ -29,12 +37,12 @@ function platformOption(option, required) {
     .addChoices(...platformCatalog().map((entry) => ({ name: entry.label, value: entry.id })));
 }
 
-function cardCommandDefinition() {
+function cardCommandDefinition({ findEnabled = false } = {}) {
   // Discord only allows subcommands or root options, not both. `/card` and
-  // `/card user:` are the `show` subcommand (user optional). Admin clear cannot
-  // take a command-level Administrator default without hiding the rest of /card,
-  // so Administrator is enforced at runtime (B4-FINAL.10).
-  return new SlashCommandBuilder()
+  // `/card user:` are the `show` subcommand (user optional). Admin clear and
+  // admin find cannot take a command-level Administrator default without
+  // hiding the rest of /card, so Administrator is enforced at runtime.
+  const command = new SlashCommandBuilder()
     .setName('card')
     .setDescription('Show a Khaos Nexus player card, or manage your tags and privacy')
     .setDMPermission(false)
@@ -57,21 +65,30 @@ function cardCommandDefinition() {
       .setDescription('List your gamer tags'))
     .addSubcommand((sub) => sub
       .setName('privacy')
-      .setDescription('Hide or show your player card')
-      .addBooleanOption((option) => option.setName('hidden').setDescription('Hide your card from other players').setRequired(true)))
-    .addSubcommandGroup((group) => group
-      .setName('platform')
-      .setDescription('Link or unlink a Steam, Xbox, PSN, Nintendo, Epic, Battle.net, EA, Ubisoft, or Riot account')
-      .addSubcommand((sub) => sub
-        .setName('link')
-        .setDescription('Add or replace your tag for a platform')
-        .addStringOption((option) => platformOption(option, true))
-        .addStringOption((option) => option.setName('tag').setDescription('Your platform tag').setRequired(true).setMaxLength(96)))
-      .addSubcommand((sub) => sub
-        .setName('unlink')
-        .setDescription('Remove your tag for a platform')
-        .addStringOption((option) => platformOption(option, true))))
-    .addSubcommandGroup((group) => group
+      .setDescription('Hide your card, or let members find you by a tag')
+      .addBooleanOption((option) => option.setName('hidden').setDescription('Hide your card from other players').setRequired(false))
+      .addBooleanOption((option) => option.setName('findable').setDescription('Let members find you by your tags').setRequired(false)));
+  if (findEnabled) {
+    command.addSubcommand((sub) => sub
+      .setName('find')
+      .setDescription('Find a member by an exact game or platform tag')
+      .addStringOption((option) => option.setName('tag').setDescription('Exact tag to find').setRequired(true).setMaxLength(80))
+      .addStringOption((option) => option.setName('where').setDescription('Limit the search to one game or platform').setRequired(false).setAutocomplete(true)));
+  }
+  command.addSubcommandGroup((group) => group
+    .setName('platform')
+    .setDescription('Link or unlink a Steam, Xbox, PSN, Nintendo, Epic, Battle.net, EA, Ubisoft, or Riot account')
+    .addSubcommand((sub) => sub
+      .setName('link')
+      .setDescription('Add or replace your tag for a platform')
+      .addStringOption((option) => platformOption(option, true))
+      .addStringOption((option) => option.setName('tag').setDescription('Your platform tag').setRequired(true).setMaxLength(96)))
+    .addSubcommand((sub) => sub
+      .setName('unlink')
+      .setDescription('Remove your tag for a platform')
+      .addStringOption((option) => platformOption(option, true))));
+  command.addSubcommandGroup((group) => {
+    group
       .setName('admin')
       .setDescription('Administrator player-card tools')
       .addSubcommand((sub) => sub
@@ -80,7 +97,18 @@ function cardCommandDefinition() {
         .addUserOption((option) => option.setName('user').setDescription('Player').setRequired(true))
         .addStringOption((option) => option.setName('reason').setDescription('Why this tag is being removed').setRequired(true).setMinLength(3).setMaxLength(200))
         .addStringOption((option) => option.setName('game').setDescription('Game tag to remove').setRequired(false).setAutocomplete(true))
-        .addStringOption((option) => platformOption(option, false))));
+        .addStringOption((option) => platformOption(option, false)));
+    if (findEnabled) {
+      group.addSubcommand((sub) => sub
+        .setName('find')
+        .setDescription('Find a tag, including hidden cards. Do not repost results.')
+        .addStringOption((option) => option.setName('tag').setDescription('Tag or prefix of at least 3 characters').setRequired(true).setMaxLength(80))
+        .addStringOption((option) => option.setName('reason').setDescription('Why this lookup is needed. Do not repost the results.').setRequired(true).setMinLength(3).setMaxLength(200))
+        .addStringOption((option) => option.setName('where').setDescription('Limit the search to one game or platform').setRequired(false).setAutocomplete(true)));
+    }
+    return group;
+  });
+  return command;
 }
 
 function viewCardContextMenu() {
@@ -115,7 +143,7 @@ function isCardInteraction(interaction) {
   if (interaction?.isAutocomplete?.() && interaction.commandName === 'card') return true;
   if (interaction?.isUserContextMenuCommand?.() && interaction.commandName === 'View Card') return true;
   const customId = String(interaction?.customId || '');
-  if (interaction?.isButton?.() && (customId === 'card:share' || customId === 'card:tags' || customId.startsWith('card:view:'))) return true;
+  if (interaction?.isButton?.() && (customId === 'card:share' || customId === 'card:tags' || customId === 'card:findable:on' || customId.startsWith('card:view:'))) return true;
   return false;
 }
 
@@ -272,9 +300,9 @@ async function handleLink(interaction, deps) {
   });
   const label = knownGame(deps, validated.game)?.label || validated.game;
   const shown = validated.game === 'other' ? `${validated.name}: ${validated.tag}` : validated.tag;
-  await deliver(interaction, {
+  await deliver(interaction, withFindablePrompt({
     content: `Saved **${escapeUserText(label)}**:\n${escapeUserText(shown)}`
-  }, { ephemeral: true });
+  }, deps, viewerId), { ephemeral: true });
 }
 
 async function handlePlatformLink(interaction, deps) {
@@ -311,9 +339,9 @@ async function handlePlatformLink(interaction, deps) {
     reason: 'ok'
   });
   const label = platformById(validated.platform)?.label || validated.platform;
-  await deliver(interaction, {
+  await deliver(interaction, withFindablePrompt({
     content: `Saved **${escapeUserText(label)}**:\n${escapeUserText(saved.tag.tag)}`
-  }, { ephemeral: true });
+  }, deps, viewerId), { ephemeral: true });
 }
 
 async function handlePlatformUnlink(interaction, deps) {
@@ -407,20 +435,213 @@ async function handleTags(interaction, deps) {
   }, { ephemeral: true });
 }
 
-async function handlePrivacy(interaction, deps) {
-  const hidden = interaction.options.getBoolean('hidden') === true;
-  await deps.store.setHidden(interaction.user.id, hidden);
-  await deps.audit.append({
+function withFindablePrompt(payload, deps, userId) {
+  if (deps?.findEnabled !== true || typeof deps.store?.getUser !== 'function') return payload;
+  if (deps.store.getUser(userId).findable === true) return payload;
+  return {
+    ...payload,
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('card:findable:on')
+        .setLabel('Let members find me by my tags')
+        .setStyle(ButtonStyle.Secondary)
+    )]
+  };
+}
+
+function lookupButtonLabel(name) {
+  const clean = String(name || 'Card').replace(/\s+/g, ' ').trim().slice(0, 60);
+  return `View ${clean || 'Card'}`.slice(0, 80);
+}
+
+function lookupLines(rows, { duplicate = false, staff = false } = {}) {
+  const lines = [];
+  if (duplicate) lines.push('More than one member uses this tag.');
+  if (staff) lines.push('Do not repost these results.');
+  for (const row of rows) {
+    const marks = [];
+    if (staff && row.hidden) marks.push('hidden card');
+    if (staff && row.findable !== true) marks.push('not findable');
+    const suffix = marks.length ? ` · ${marks.join(', ')}` : '';
+    lines.push(`${escapeUserText(row.displayName)} (<@${row.userId}>) · ${escapeUserText(row.slotLabel)} · ${escapeUserText(row.tag)}${suffix}`);
+  }
+  return lines.join('\n');
+}
+
+function lookupComponents(rows) {
+  const buttons = rows.slice(0, 5).map((row) => viewCardButton(row.userId).setLabel(lookupButtonLabel(row.displayName)));
+  if (!buttons.length) return undefined;
+  return [new ActionRowBuilder().addComponents(...buttons)];
+}
+
+function lookupContext(interaction, deps) {
+  return {
     actorId: String(interaction.user.id),
-    targetId: String(interaction.user.id),
+    guildId: String(interaction.guildId || ''),
+    member: interaction.member,
+    store: deps.store,
+    index: deps.index,
+    limits: deps.lookupLimits,
+    audit: deps.audit,
+    config: deps.config || {},
+    env: deps.env || process.env,
+    now: clock(deps),
+    random: typeof deps.random === 'function' ? deps.random : Math.random,
+    findEnabled: deps.findEnabled === true,
+    lookupPadMs: Number.isFinite(deps.lookupPadMs) ? deps.lookupPadMs : LOOKUP_PAD_MS,
+    fetchMember: async (userId) => {
+      const fetch = interaction.guild?.members?.fetch;
+      if (typeof fetch !== 'function') return null;
+      return fetch.call(interaction.guild.members, String(userId));
+    }
+  };
+}
+
+async function notifyLookupBreaker(interaction, deps) {
+  const guildId = String(interaction.guildId || '');
+  console.error(`[Player Card] tag lookup paused for guild ${guildId} after the hourly limit.`);
+  if (typeof deps.onGuildBreaker === 'function') {
+    try { await deps.onGuildBreaker({ guildId }); } catch { /* the member reply still goes out */ }
+  }
+  const channelId = cardFindAlertChannelId(deps.config || {}, deps.env || process.env);
+  if (!DISCORD_ID.test(channelId) || typeof interaction.client?.channels?.fetch !== 'function') return;
+  try {
+    const channel = await interaction.client.channels.fetch(channelId);
+    if (channel && typeof channel.send === 'function') {
+      await channel.send(mentionSafe({
+        content: 'Tag lookup is paused in this server for an hour because the hourly lookup limit was reached.'
+      }));
+    }
+  } catch { /* alerting staff is best effort */ }
+}
+
+async function auditAdminFindDenied(deps, interaction, reason) {
+  if (!deps?.audit) return;
+  await deps.audit.append({
+    action: 'admin-find',
+    actorId: String(interaction.user?.id || ''),
+    guildId: String(interaction.guildId || ''),
     game: null,
-    action: 'privacy',
-    oldTag: null,
-    newTag: null,
-    reason: hidden ? 'hidden' : 'visible'
+    folded: null,
+    reason: String(reason || 'denied').slice(0, 200) || 'denied',
+    outcome: 'denied',
+    hit: false,
+    hitCount: 0,
+    resultIds: []
   });
+}
+
+async function handleFind(interaction, deps, { staff = false } = {}) {
+  if (deps.findEnabled !== true || !deps.lookupLimits || !deps.store) {
+    await deliver(interaction, { content: LOOKUP_OFF_TEXT }, { ephemeral: true });
+    return;
+  }
+  if (staff) {
+    const reason = String(interaction.options.getString('reason') || '').trim();
+    if (!isCardAdmin(interaction, deps.config || {})) {
+      await auditAdminFindDenied(deps, interaction, reason);
+      await deliver(interaction, { content: 'You need Administrator, or the O9 admin allow-list, to find a tag.' }, { ephemeral: true });
+      return;
+    }
+    if (reason.length < 3 || reason.length > 200) {
+      await auditAdminFindDenied(deps, interaction, reason);
+      await deliver(interaction, { content: 'A reason of 3 to 200 characters is required.' }, { ephemeral: true });
+      return;
+    }
+  }
+  const result = await performLookup({
+    ...lookupContext(interaction, deps),
+    query: interaction.options.getString('tag'),
+    where: interaction.options.getString('where'),
+    staff,
+    staffReason: staff ? String(interaction.options.getString('reason') || '').trim() : ''
+  });
+  if (result.alert) await notifyLookupBreaker(interaction, deps);
+  if (result.kind === 'disabled') {
+    await deliver(interaction, { content: LOOKUP_OFF_TEXT }, { ephemeral: true });
+    return;
+  }
+  if (result.kind === 'starting') {
+    await deliver(interaction, { content: LOOKUP_STARTING_TEXT }, { ephemeral: true });
+    return;
+  }
+  if (result.kind === 'staff-short') {
+    await deliver(interaction, { content: result.text }, { ephemeral: true });
+    return;
+  }
+  if (result.kind === 'hit') {
+    const payload = { content: lookupLines(result.rows, { duplicate: result.duplicate === true, staff }) };
+    if (!staff) payload.components = lookupComponents(result.rows);
+    await deliver(interaction, payload, { ephemeral: true });
+    return;
+  }
+  await deliver(interaction, { content: result.text || LOOKUP_MISS_TEXT }, { ephemeral: true });
+}
+
+async function handleFindableButton(interaction, deps) {
+  const userId = String(interaction.user.id);
+  const before = deps.store.getUser(userId).findable === true;
+  if (!before) {
+    await deps.store.setFindable(userId, true);
+    if (deps.audit) {
+      await deps.audit.append({
+        actorId: userId,
+        targetId: userId,
+        game: null,
+        action: 'privacy',
+        oldTag: null,
+        newTag: null,
+        reason: 'findable'
+      });
+    }
+  }
   await deliver(interaction, {
-    content: hidden ? 'Your card is now hidden from other players.' : 'Your card is visible to other players again.'
+    content: before ? 'Members can already find you by your tags.' : 'Members can now find you by your tags.'
+  }, { ephemeral: true });
+}
+
+async function handlePrivacy(interaction, deps) {
+  const hidden = interaction.options.getBoolean('hidden');
+  const findable = interaction.options.getBoolean('findable');
+  const userId = String(interaction.user.id);
+  const messages = [];
+  if (typeof hidden === 'boolean') {
+    await deps.store.setHidden(userId, hidden);
+    if (deps.audit) {
+      await deps.audit.append({
+        actorId: userId,
+        targetId: userId,
+        game: null,
+        action: 'privacy',
+        oldTag: null,
+        newTag: null,
+        reason: hidden ? 'hidden' : 'visible'
+      });
+    }
+    messages.push(hidden ? 'Your card is now hidden from other players.' : 'Your card is visible to other players again.');
+  }
+  if (typeof findable === 'boolean') {
+    const before = deps.store.getUser(userId).findable === true;
+    if (before !== findable) {
+      await deps.store.setFindable(userId, findable);
+      if (deps.audit) {
+        await deps.audit.append({
+          actorId: userId,
+          targetId: userId,
+          game: null,
+          action: 'privacy',
+          oldTag: null,
+          newTag: null,
+          reason: findable ? 'findable' : 'not-findable'
+        });
+      }
+    }
+    messages.push(findable ? 'Members can find you by your tags.' : 'Members cannot find you by your tags.');
+  }
+  await deliver(interaction, {
+    content: messages.length
+      ? messages.join('\n')
+      : 'Choose whether your card is hidden, and whether members can find you by your tags.'
   }, { ephemeral: true });
 }
 
@@ -557,6 +778,10 @@ async function handleAutocomplete(interaction, deps) {
     await interaction.respond(suggestPlatforms(value, platformCatalog()));
     return;
   }
+  if (name === 'where') {
+    await interaction.respond(suggestWhere(value, gamesOf(deps), platformCatalog()));
+    return;
+  }
   if (name === 'game') {
     await interaction.respond(suggestGames(value, gamesOf(deps)));
     return;
@@ -575,6 +800,10 @@ async function dispatch(interaction, deps) {
   }
   if (!isEnabled(deps)) {
     await deliver(interaction, { content: 'Player cards are turned off.' }, { ephemeral: true });
+    return;
+  }
+  if (interaction.isButton?.() && interaction.customId === 'card:findable:on') {
+    await handleFindableButton(interaction, deps);
     return;
   }
   if (interaction.isButton?.() && interaction.customId === 'card:share') {
@@ -599,6 +828,14 @@ async function dispatch(interaction, deps) {
   const sub = interaction.options.getSubcommand(true);
   if (group === 'admin' && sub === 'clear') {
     await handleAdminClear(interaction, deps);
+    return;
+  }
+  if (group === 'admin' && sub === 'find') {
+    await handleFind(interaction, deps, { staff: true });
+    return;
+  }
+  if (sub === 'find') {
+    await handleFind(interaction, deps, { staff: false });
     return;
   }
   if (group === 'platform' && sub === 'link') return handlePlatformLink(interaction, deps);
@@ -638,8 +875,8 @@ async function handleCardInteraction(interaction, deps = {}) {
   return true;
 }
 
-async function registerCardCommands(guild) {
-  const definitions = [cardCommandDefinition(), viewCardContextMenu()];
+async function registerCardCommands(guild, { findEnabled = false } = {}) {
+  const definitions = [cardCommandDefinition({ findEnabled: findEnabled === true }), viewCardContextMenu()];
   const commands = await guild.commands.fetch();
   for (const definition of definitions) {
     const json = definition.toJSON();

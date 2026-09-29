@@ -74,7 +74,28 @@ class JsonCardStore {
     this.maxTags = Number.isInteger(options.maxTags) ? options.maxTags : TAG_CAP;
     this.now = typeof options.now === 'function' ? options.now : () => new Date();
     this.mutex = new Mutex();
+    this.listeners = [];
     this.state = this.#load();
+  }
+
+  onUserChanged(listener) {
+    if (typeof listener === 'function') this.listeners.push(listener);
+  }
+
+  #notify(userId) {
+    if (!this.listeners.length) return;
+    let record;
+    try { record = this.getUser(userId); } catch { return; }
+    for (const listener of this.listeners) {
+      try { listener(userId, record); } catch (error) {
+        console.error(`[Player Card] store listener failed: ${String(error?.message || error).slice(0, 180)}`);
+      }
+    }
+  }
+
+  #commit(userId) {
+    this.#persist();
+    this.#notify(userId);
   }
 
   #load() {
@@ -136,6 +157,7 @@ class JsonCardStore {
     }
     return {
       hidden: record.hidden === true,
+      findable: record.findable === true,
       tags,
       platforms,
       updatedAt: String(record.updatedAt || '') || null,
@@ -149,19 +171,21 @@ class JsonCardStore {
       users: {}
     };
     for (const [userId, record] of Object.entries(this.state.users)) {
-      payload.users[userId] = {
+      const row = {
         hidden: record.hidden === true,
         tags: clone(record.tags),
         platforms: clone(record.platforms || {}),
         updatedAt: record.updatedAt
       };
+      if (record.findable === true) row.findable = true;
+      payload.users[userId] = row;
     }
     atomicWrite(this.filePath, `${JSON.stringify(payload, null, 2)}\n`);
   }
 
   #ensure(userId) {
     if (!this.state.users[userId]) {
-      this.state.users[userId] = { hidden: false, tags: {}, platforms: {}, updatedAt: null, userId };
+      this.state.users[userId] = { hidden: false, findable: false, tags: {}, platforms: {}, updatedAt: null, userId };
     }
     return this.state.users[userId];
   }
@@ -169,13 +193,18 @@ class JsonCardStore {
   getUser(userId) {
     const id = assertDiscordId(userId);
     const record = this.state.users[id];
-    if (!record) return { hidden: false, tags: {}, platforms: {}, updatedAt: null };
+    if (!record) return { hidden: false, findable: false, tags: {}, platforms: {}, updatedAt: null };
     return {
       hidden: record.hidden === true,
+      findable: record.findable === true,
       tags: clone(record.tags),
       platforms: clone(record.platforms || {}),
       updatedAt: record.updatedAt
     };
+  }
+
+  userIds() {
+    return Object.keys(this.state.users);
   }
 
   listTags(userId) {
@@ -204,7 +233,7 @@ class JsonCardStore {
       if (game === 'other') record.game = otherName;
       user.tags[game] = record;
       user.updatedAt = updatedAt;
-      this.#persist();
+      this.#commit(id);
       return { ok: true, game, oldTag, tag: clone(record) };
     });
   }
@@ -218,7 +247,7 @@ class JsonCardStore {
       const removed = clone(user.tags[game]);
       delete user.tags[game];
       user.updatedAt = new Date(this.now()).toISOString();
-      this.#persist();
+      this.#commit(id);
       return { ok: true, game, removed };
     });
   }
@@ -241,7 +270,7 @@ class JsonCardStore {
       const record = { tag, verified: false, updatedAt };
       user.platforms[platform] = record;
       user.updatedAt = updatedAt;
-      this.#persist();
+      this.#commit(id);
       return { ok: true, platform, oldTag, tag: clone(record) };
     });
   }
@@ -255,7 +284,7 @@ class JsonCardStore {
       const removed = clone(user.platforms[platform]);
       delete user.platforms[platform];
       user.updatedAt = new Date(this.now()).toISOString();
-      this.#persist();
+      this.#commit(id);
       return { ok: true, platform, removed };
     });
   }
@@ -266,8 +295,19 @@ class JsonCardStore {
       const user = this.#ensure(id);
       user.hidden = hidden === true;
       user.updatedAt = new Date(this.now()).toISOString();
-      this.#persist();
+      this.#commit(id);
       return { ok: true, hidden: user.hidden };
+    });
+  }
+
+  async setFindable(userId, findable) {
+    const id = assertDiscordId(userId);
+    return this.mutex.run(() => {
+      const user = this.#ensure(id);
+      user.findable = findable === true;
+      user.updatedAt = new Date(this.now()).toISOString();
+      this.#commit(id);
+      return { ok: true, findable: user.findable === true };
     });
   }
 }

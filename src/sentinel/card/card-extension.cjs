@@ -7,8 +7,9 @@ const { BackendClient } = require('../backend-client.cjs');
 const { NexusEconomyClient } = require('../nexus-economy-client.cjs');
 const { JsonCardStore } = require('./card-store.cjs');
 const { CardAuditLog } = require('./card-audit.cjs');
-const { createRateLimiters } = require('./rate-limit.cjs');
-const { cardDataDir, cardEnabled, cardLimitOptions, sourceTimeoutMs } = require('./card-config.cjs');
+const { createLookupLimits, createRateLimiters } = require('./rate-limit.cjs');
+const { cardDataDir, cardEnabled, cardFindEnabled, cardLimitOptions, sourceTimeoutMs } = require('./card-config.cjs');
+const { TagIndex } = require('./tag-index.cjs');
 const { handleCardInteraction, registerCardCommands } = require('./card-commands.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.playerCard.extension');
@@ -34,11 +35,27 @@ function createCardDeps(options = {}) {
   const store = options.store || new JsonCardStore(path.join(dir, 'cards.json'));
   const audit = options.audit || new CardAuditLog(path.join(dir, 'audit'));
   const limiters = options.limiters || createRateLimiters(cardLimitOptions(env));
+  const findEnabled = options.findEnabled ?? (cardEnabled(env) && cardFindEnabled(env));
+  let index = options.index || null;
+  if (findEnabled) {
+    if (!index) {
+      index = new TagIndex();
+      try { index.rebuild(store); } catch (error) {
+        index.ready = false;
+        console.error(`[Player Card] tag index failed: ${String(error?.message || error).slice(0, 180)}`);
+      }
+    }
+    store.onUserChanged?.((userId, record) => index.updateUser(userId, record));
+  }
   return {
     config,
     store,
     audit,
     limiters,
+    lookupLimits: options.lookupLimits || createLookupLimits(),
+    index: findEnabled ? index : null,
+    findEnabled: findEnabled === true,
+    env,
     backend: options.backend || new BackendClient(config),
     economy: options.economy || new NexusEconomyClient(),
     timeoutMs: options.timeoutMs || sourceTimeoutMs(env),
@@ -85,7 +102,7 @@ function installPlayerCardExtension() {
         const guildId = String(config.discord?.guildId || '').trim();
         if (!guildId) throw new Error('Nexus Discord guild ID is not configured.');
         const guild = await client.guilds.fetch(guildId);
-        await registerCardCommands(guild);
+        await registerCardCommands(guild, { findEnabled: deps.findEnabled === true });
         console.log(`[Player Card] registered /card and View Card in guild ${guild.id}`);
       } catch (error) {
         console.error(`[Player Card] registration failed: ${String(error?.message || error).slice(0, 300)}`);

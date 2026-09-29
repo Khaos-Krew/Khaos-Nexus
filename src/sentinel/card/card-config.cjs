@@ -11,6 +11,25 @@ function cardEnabled(env = process.env) {
   return ['1', 'true', 'yes', 'on'].includes(String(env.CARD_ENABLED || '').trim().toLowerCase());
 }
 
+function cardFindEnabled(env = process.env) {
+  return ['1', 'true', 'yes', 'on'].includes(String(env.CARD_FIND_ENABLED || '').trim().toLowerCase());
+}
+
+function cardFindAlertChannelId(config = {}, env = process.env) {
+  return String(env.CARD_FIND_ALERT_CHANNEL_ID || config?.discord?.cardFindAlertChannelId || '').trim();
+}
+
+function cardRestrictedRoleIds(config = {}, env = process.env) {
+  const raw = [
+    ...(Array.isArray(config?.discord?.cardRestrictedRoleIds) ? config.discord.cardRestrictedRoleIds : []),
+    ...(Array.isArray(config?.discord?.cardQuarantineRoleIds) ? config.discord.cardQuarantineRoleIds : []),
+    config?.discord?.quarantineRoleId,
+    ...String(env.CARD_RESTRICTED_ROLE_IDS || '').split(','),
+    ...String(env.CARD_QUARANTINE_ROLE_IDS || '').split(',')
+  ];
+  return [...new Set(raw.map((id) => String(id || '').trim()).filter((id) => DISCORD_ID.test(id)))];
+}
+
 function cardDataDir(env = process.env) {
   if (String(env.CARD_DATA_DIR || '').trim()) return path.resolve(env.CARD_DATA_DIR);
   const root = String(env.NEXUS_DATA_DIR || '').trim()
@@ -55,6 +74,9 @@ module.exports = {
   DEFAULT_COLOR,
   DISCORD_ID,
   cardEnabled,
+  cardFindEnabled,
+  cardFindAlertChannelId,
+  cardRestrictedRoleIds,
   cardDataDir,
   sourceTimeoutMs,
   cardLimitOptions,
