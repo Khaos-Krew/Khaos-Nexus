@@ -9,11 +9,13 @@ const {
   MessageFlags,
   SlashCommandBuilder
 } = require('discord.js');
-const { cardFindAlertChannelId, isCardAdmin, DISCORD_ID } = require('./card-config.cjs');
+const { cardFindAlertChannelId, cardImageEnabled, isCardAdmin, DISCORD_ID } = require('./card-config.cjs');
 const { catalog, gameById, platformById, platformCatalog, suggestGames, suggestPlatforms, validatePlatform, validateTag } = require('./tag-validate.cjs');
 const { suggestWhere } = require('./lookup-key.cjs');
 const { assembleCardModel, balancesPermitted, buildReaders } = require('./card-model.cjs');
 const { escapeUserText, renderCardEmbed } = require('./card-embed.cjs');
+const { buildCardImageModel } = require('./card-image-model.cjs');
+const { renderCardPng } = require('./card-image.cjs');
 const {
   LOOKUP_MISS_TEXT,
   LOOKUP_OFF_TEXT,
@@ -213,6 +215,46 @@ async function renderModel(deps, interaction, targetUserId, surface, knownUser) 
   return { model, embed: renderCardEmbed(model, user, gamesOf(deps)), user };
 }
 
+function imageEnabled(deps) {
+  if (typeof deps?.imageEnabled === 'boolean') return deps.imageEnabled;
+  return cardImageEnabled();
+}
+
+function avatarUrlOf(user) {
+  try {
+    const url = user?.displayAvatarURL?.({ size: 256, extension: 'png' });
+    return typeof url === 'string' && url.startsWith('https://') ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+async function cardMessage(deps, model, user, surface) {
+  const embed = renderCardEmbed(model, user, gamesOf(deps), platformCatalog());
+  if (!embed) return { content: 'The player card could not be loaded.' };
+  if (!imageEnabled(deps)) return { embeds: [embed] };
+  try {
+    const imageModel = buildCardImageModel(model, user, {
+      includeBalances: surface === 'own',
+      games: gamesOf(deps),
+      platforms: platformCatalog()
+    });
+    if (!imageModel) return { embeds: [embed] };
+    const render = typeof deps.renderCardPng === 'function' ? deps.renderCardPng : renderCardPng;
+    const png = await render(imageModel, {
+      avatarUrl: avatarUrlOf(user),
+      fetch: deps.fetch,
+      timeoutMs: deps.imageTimeoutMs,
+      avatarTimeoutMs: deps.avatarTimeoutMs
+    });
+    if (!Buffer.isBuffer(png) || png.length < 8) throw new Error('empty-image');
+    return { files: [{ attachment: png, name: 'player-card.png' }] };
+  } catch (error) {
+    console.warn(`[Player Card] image fallback: ${String(error?.message || error).slice(0, 180)}`);
+    return { embeds: [embed] };
+  }
+}
+
 async function handleShow(interaction, deps, { targetUser, surface }) {
   const viewerId = String(interaction.user.id);
   const target = targetUser || interaction.user;
@@ -254,7 +296,7 @@ async function handleShow(interaction, deps, { targetUser, surface }) {
     await deliver(interaction, { content: HIDDEN_TEXT }, { ephemeral: true });
     return;
   }
-  const payload = { embeds: [rendered.embed] };
+  const payload = await cardMessage(deps, rendered.model, rendered.user, surface);
   if (surface === 'own') payload.components = ownCardRows();
   await deliver(interaction, payload, { ephemeral: !postingPublic });
 }
@@ -737,7 +779,8 @@ async function handleShare(interaction, deps) {
     return;
   }
   try {
-    await interaction.channel.send(mentionSafe({ embeds: [rendered.embed] }));
+    const payload = await cardMessage(deps, rendered.model, rendered.user, 'share');
+    await interaction.channel.send(mentionSafe(payload));
   } catch {
     await deliver(interaction, { content: 'Your public card could not be posted in this channel.' }, { ephemeral: true });
     return;

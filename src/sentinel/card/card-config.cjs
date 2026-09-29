@@ -15,6 +15,10 @@ function cardFindEnabled(env = process.env) {
   return ['1', 'true', 'yes', 'on'].includes(String(env.CARD_FIND_ENABLED || '').trim().toLowerCase());
 }
 
+function cardImageEnabled(env = process.env) {
+  return ['1', 'true', 'yes', 'on'].includes(String(env.CARD_IMAGE_ENABLED || '').trim().toLowerCase());
+}
+
 function cardFindAlertChannelId(config = {}, env = process.env) {
   return String(env.CARD_FIND_ALERT_CHANNEL_ID || config?.discord?.cardFindAlertChannelId || '').trim();
 }
@@ -75,6 +79,7 @@ module.exports = {
   DISCORD_ID,
   cardEnabled,
   cardFindEnabled,
+  cardImageEnabled,
   cardFindAlertChannelId,
   cardRestrictedRoleIds,
   cardDataDir,
