@@ -13,6 +13,20 @@ const { handleCardInteraction, registerCardCommands } = require('./card-commands
 
 const INSTALLED = Symbol.for('khaos.nexus.playerCard.extension');
 
+function disabledCardDeps(reason) {
+  return {
+    config: {},
+    store: null,
+    audit: null,
+    limiters: null,
+    backend: null,
+    economy: null,
+    timeoutMs: 1500,
+    disabledReason: reason,
+    isEnabled: () => false
+  };
+}
+
 function createCardDeps(options = {}) {
   const env = options.env || process.env;
   const config = options.config || loadConfig();
@@ -32,26 +46,37 @@ function createCardDeps(options = {}) {
   };
 }
 
+function openCardDeps(env = process.env) {
+  if (!cardEnabled(env)) return disabledCardDeps('flag');
+  try {
+    return createCardDeps({ env });
+  } catch (error) {
+    console.warn(`[Player Card] setup failed; card feature disabled: ${String(error?.message || error).slice(0, 240)}`);
+    return disabledCardDeps('setup');
+  }
+}
+
 function installPlayerCardExtension() {
   if (Client.prototype[INSTALLED]) return;
   Client.prototype[INSTALLED] = true;
   const originalLogin = Client.prototype.login;
   Client.prototype.login = function playerCardLogin(...args) {
     const client = this;
-    const deps = createCardDeps();
+    const deps = openCardDeps(process.env);
     client.on(Events.InteractionCreate, (interaction) => {
-      void handleCardInteraction(interaction, deps).catch((error) => {
+      return handleCardInteraction(interaction, deps).catch((error) => {
         console.warn(`[Player Card] interaction failed: ${String(error?.message || error).slice(0, 240)}`);
       });
     });
     client.once(Events.ClientReady, async () => {
       try {
-        deps.audit.prune();
-        deps.audit.scheduleDaily();
-        if (!cardEnabled()) {
-          console.log('[Player Card] CARD_ENABLED is off. /card was not registered.');
+        if (!deps.isEnabled() || !deps.audit) {
+          const why = deps.disabledReason === 'setup' ? 'setup failed' : 'CARD_ENABLED is off';
+          console.log(`[Player Card] ${why}. /card was not registered.`);
           return;
         }
+        deps.audit.prune();
+        deps.audit.scheduleDaily();
         const config = deps.config || loadConfig();
         const guildId = String(config.discord?.guildId || '').trim();
         if (!guildId) throw new Error('Nexus Discord guild ID is not configured.');
@@ -68,5 +93,6 @@ function installPlayerCardExtension() {
 
 module.exports = {
   createCardDeps,
+  openCardDeps,
   installPlayerCardExtension
 };
