@@ -271,7 +271,9 @@ test('tag validation covers every catalog game and the abuse rules', () => {
     'xStaffx', 'xXStaffXx', 'Staffx', 'Nexus_Bot', 'ModTeam', 'CrewMember', 'BotTeam',
     'Mod_Team', 'modteam', 'crewmember', 'Mod1', 'Mod2024', 'M0d1',
     'Owner1', 'Sentinelle',
-    'serverowner', 'Serverowner', 'guildowner', 'ownerkirito', 'kiritoowner', 'Ownerr'
+    'serverowner', 'Serverowner', 'guildowner', 'ownerkirito', 'kiritoowner', 'Ownerr',
+    'serverowner NA', 'guildowner.tv', 'Serverowner Kirito', 'serverownerr', 'guildownerr1', 'Kirito Ownerr',
+    'Coowner', 'coowner1', 'guildowner Nova', 'serverowner.net', 'kirito.owner', 'ownnerr', 'serverownerrr'
   ];
   for (const tag of blockedTags) {
     assert.equal(validateTag({ gameId: 'ark_asa', tag, rules: bypassRules }).reason, 'impersonation', `${tag} => impersonation`);
@@ -994,6 +996,14 @@ test('platform validators cover every platform format and the impersonation chec
   const steamKhaos = validatePlatform({ platformId: 'steam', tag: 'https://steamcommunity.com/id/khaos' });
   assert.equal(steamKhaos.ok, true, steamKhaos.reason);
   assert.equal(steamKhaos.tag, 'khaos');
+  for (const tag of ['serverowner#NA1', 'kiritoowner#NA1', 'guildowner#EUW', 'Ownerr#NA1', 'coowner#TAG1']) {
+    assert.equal(validatePlatform({ platformId: 'riot', tag, rules: bypassRules }).reason, 'impersonation', tag);
+  }
+  for (const tag of ['serverownerK#1234', 'guildowner#1234', 'kiritoowner#99999', 'serverownerr#123456', 'Coowner#1234', 'coowner1#1234']) {
+    assert.equal(validatePlatform({ platformId: 'battlenet', tag, rules: bypassRules }).reason, 'impersonation', tag);
+  }
+  assert.equal(validatePlatform({ platformId: 'riot', tag: 'Cat#owner', rules: bypassRules }).ok, true);
+  assert.equal(validatePlatform({ platformId: 'battlenet', tag: 'Kirito#1234', rules: bypassRules }).ok, true);
   assert.equal(validatePlatform({ platformId: 'steam', tag: 'Nexus Raider', rules: bypassRules }).ok, true);
   assert.equal(validatePlatform({ platformId: 'steam', tag: 'Nexus', rules: bypassRules }).reason, 'impersonation');
   assert.equal(validatePlatform({ platformId: 'epic', tag: 'Official Staff', rules: bypassRules }).reason, 'impersonation');

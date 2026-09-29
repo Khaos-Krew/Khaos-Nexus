@@ -88,9 +88,10 @@ const RESERVED_FLOOR = Object.freeze([
 // "khaos" alone is not reserved. "nexus" matches the letters-only tag or a
 // camelCase segment, so "Nexus" and "nexus1" are blocked and "Nexus Raider"
 // is not. A token, or the whole letters-only name, is blocked when it is two
-// or more reserved or role words joined together. "owner" also matches a
-// letters-only name that starts or ends with "owner" when 3 or more letters
-// remain, and a repeated-letter collapse of that name back to "owner".
+// or more reserved or role words joined together. "owner" is checked on each
+// x-stripped word and on the whole letters-only name, raw and with repeated
+// letters collapsed. A hit is an exact "owner" or "coowner", or "owner" with
+// 3 or more letters on either side. Riot and Battle.net use the name before "#".
 const SUBSTRING_TERMS = new Set(['admin', 'moderator', 'sentinal', 'sentinel', 'khaosnexus']);
 const WHOLE_WORD_TERMS = new Set([
   'support', 'staff', 'official', 'system', 'verified', 'nexus', 'gm', 'discord',
@@ -317,11 +318,31 @@ function collapseRepeatedLetters(value) {
   return String(value || '').replace(/(.)\1+/gu, '$1');
 }
 
-function ownerAffixHit(form) {
-  const name = String(form || '');
-  if (name.startsWith('owner') && name.length - 5 >= 3) return true;
-  if (name.endsWith('owner') && name.length - 5 >= 3) return true;
-  return collapseRepeatedLetters(name) === 'owner';
+function ownerShapeHit(form) {
+  if (!form) return false;
+  if (form === 'owner' || form === 'coowner') return true;
+  let from = 0;
+  while (from < form.length) {
+    const at = form.indexOf('owner', from);
+    if (at < 0) return false;
+    const left = at;
+    const right = form.length - (at + 'owner'.length);
+    if (left >= 3 || right >= 3) return true;
+    from = at + 1;
+  }
+  return false;
+}
+
+function ownerCandidateHit(candidate) {
+  const name = stripXPadding(candidate);
+  if (!name) return false;
+  return ownerShapeHit(name) || ownerShapeHit(collapseRepeatedLetters(name));
+}
+
+function ownerVariantHit(surface) {
+  const words = String(surface || '').split(/[^\p{L}]+/u).filter(Boolean);
+  if (words.some((word) => ownerCandidateHit(word))) return true;
+  return ownerCandidateHit(lettersOnly(surface));
 }
 
 function wholeWordTokens(value) {
@@ -373,9 +394,10 @@ function isReservedCompound(token) {
   return canSplit(0, 0);
 }
 
-function impersonationKey(value) {
+function impersonationKey(value, { nameBeforeHash = false } = {}) {
   let nfkc = String(value || '');
   try { nfkc = nfkc.normalize('NFKC'); } catch { /* keep the raw string */ }
+  const ownerSource = nameBeforeHash && nfkc.includes('#') ? nfkc.slice(0, nfkc.indexOf('#')) : nfkc;
   const folded = foldImpersonationDigits(foldConfusables(nfkc.toLowerCase()));
   const stripped = folded.replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF\s._\-'#*|+~\\/]+/g, '');
   const tokens = folded
@@ -389,17 +411,20 @@ function impersonationKey(value) {
   const lettersOnlyTag = lettersOnly(surface);
   const lettersOnlyForms = surfaces.map((value) => stripXPadding(lettersOnly(value)));
   const camelLetters = nfkc.split(/(?<=\p{Ll})(?=\p{Lu})/gu).map((segment) => lettersOnly(foldConfusables(segment.toLowerCase())));
-  return { stripped, tokens, letterTokenSets, lettersOnlyTag, lettersOnlyForms, camelLetters };
+  const ownerCamel = ownerSource.replace(/(?<=\p{Ll})(?=\p{Lu})/gu, ' ');
+  const ownerSurface = foldConfusables(ownerCamel.toLowerCase());
+  const ownerSurfaces = [...new Set([ownerSurface, ...digitFoldVariants(ownerSurface)])];
+  return { stripped, tokens, letterTokenSets, lettersOnlyTag, lettersOnlyForms, camelLetters, ownerSurfaces };
 }
 
 function wholeWordTermHit(key, needle) {
   if (needle === 'nexus') {
     if (key.lettersOnlyForms.some((form) => form === 'nexus')) return true;
     if (key.camelLetters.some((segment) => stripXPadding(segment) === 'nexus')) return true;
-  } else if (key.letterTokenSets.some((tokens) => tokens.includes(needle))) {
+  } else if (needle !== 'owner' && key.letterTokenSets.some((tokens) => tokens.includes(needle))) {
     return true;
   }
-  if (needle === 'owner' && key.lettersOnlyForms.some(ownerAffixHit)) return true;
+  if (needle === 'owner' && key.ownerSurfaces.some(ownerVariantHit)) return true;
   return key.letterTokenSets.some((tokens) => tokens.some((token) => isReservedCompound(token)))
     || key.lettersOnlyForms.some((form) => isReservedCompound(form));
 }
@@ -430,8 +455,8 @@ function denylistReason(value, rules) {
   return null;
 }
 
-function impersonationReason(value, rules) {
-  const key = impersonationKey(value);
+function impersonationReason(value, rules, options) {
+  const key = impersonationKey(value, options);
   for (const phrase of reservedTerms(rules)) {
     if (reservedHit(key, phrase)) return 'impersonation';
   }
@@ -459,8 +484,8 @@ function structuralReason(raw, { allowSteamProfile = false } = {}) {
   return { ok: true, value: nfkc };
 }
 
-function abuseReason(value, rules) {
-  return denylistReason(value, rules) || impersonationReason(value, rules);
+function abuseReason(value, rules, options) {
+  return denylistReason(value, rules) || impersonationReason(value, rules, options);
 }
 
 function acceptPattern(value, pattern) {
@@ -538,7 +563,9 @@ function validatePlatform({ platformId, tag, platforms = platformCatalog(), rule
   if (!structural.ok) return { ok: false, reason: structural.reason, platform: entry.id };
   const normalized = normalizePlatformValue(entry.id, structural.value);
   if (!normalized.ok) return { ok: false, reason: normalized.reason, platform: entry.id };
-  const abuse = abuseReason(normalized.value, ruleset);
+  const abuse = abuseReason(normalized.value, ruleset, {
+    nameBeforeHash: entry.id === 'riot' || entry.id === 'battlenet'
+  });
   if (abuse) return { ok: false, reason: abuse, platform: entry.id };
   return { ok: true, platform: entry.id, tag: normalized.value, verified: false };
 }
@@ -548,13 +575,13 @@ function matchesPattern(value, pattern) {
   return new RegExp(pattern, 'u').test(value);
 }
 
-function screenText(raw, pattern, rules) {
+function screenText(raw, pattern, rules, options) {
   const structural = structuralReason(raw);
   if (!structural.ok) return structural;
   if (!matchesPattern(structural.value, pattern)) return { ok: false, reason: 'pattern' };
   const denied = denylistReason(structural.value, rules);
   if (denied) return { ok: false, reason: denied };
-  const impersonated = impersonationReason(structural.value, rules);
+  const impersonated = impersonationReason(structural.value, rules, options);
   if (impersonated) return { ok: false, reason: impersonated };
   return { ok: true, value: structural.value };
 }
@@ -570,6 +597,7 @@ function validateTag({ gameId, tag, name = '', games = catalog(), rules = policy
   const entry = gameById(gameId, games);
   if (!entry) return { ok: false, reason: 'unknown-game', game: null };
   const ruleset = rules || policy();
+  const screenOptions = { nameBeforeHash: entry.id === 'battlenet' };
   if (entry.id === 'other') {
     const gameName = screenText(name, entry.namePattern || entry.pattern, ruleset);
     if (!gameName.ok) return { ok: false, reason: `name-${gameName.reason}`, game: entry.id };
@@ -581,7 +609,7 @@ function validateTag({ gameId, tag, name = '', games = catalog(), rules = policy
     }
     return { ok: true, game: entry.id, tag: gamerTag.value, name: gameName.value, verified: false };
   }
-  const gamerTag = screenText(tag, entry.pattern, ruleset);
+  const gamerTag = screenText(tag, entry.pattern, ruleset, screenOptions);
   if (!gamerTag.ok) return { ok: false, reason: gamerTag.reason, game: entry.id };
   if (existingTags) {
     const cap = canAddTag(existingTags, entry.id);
