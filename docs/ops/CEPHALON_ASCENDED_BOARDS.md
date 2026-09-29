@@ -40,12 +40,13 @@ The id is stored under `NEXUS_DATA_DIR`, or `RAILWAY_VOLUME_MOUNT_PATH` when `NE
 
 Cephalon posts these durable boards on its own 10 minute schedule (`CEPHALON_WARFRAME_PANEL_MS` overrides it, minimum 60 seconds). Sentinal no longer posts or refreshes them. `SENTINAL_WARFRAME_FEED_DISABLED` defaults to disabled. Set it to `false` only to turn the old Sentinal feed back on. Other Sentinal feeds, including ARK and Pokémon GO, keep running. No RCON variables are involved.
 
+Warframe news is not one of these boards. The server already has a news channel that follows the official Warframe Discord, so Cephalon does not post or refresh a `Cephalon • Warframe News` panel. On boot, Cephalon deletes a leftover news panel once when `cephalon-warframe-panels.json` still has a `news` entry, or when the world channel has a Cephalon-authored embed titled `Cephalon • Warframe News`. It clears that store entry and records the retirement. A later boot does not scan, delete, or log again, including when the delete itself failed. If a leftover message is still in the channel after that single attempt, delete it by hand. `CEPHALON_WARFRAME_NEWS_CHANNEL_ID` and `CEPHALON_WARFRAME_NEWS_MESSAGE_ID` do not start a news board. While the retirement record is absent they are read only to find that one message.
+
 Each value below is a channel snowflake or a channel name. The channel must sit under category `1516640233389822042`. One shared channel is enough. A per-panel variable overrides it for that board.
 
 | Panel | Channel variable | Optional message id |
 | --- | --- | --- |
 | All panels, unless a row below is set | `CEPHALON_WARFRAME_WORLD_CHANNEL_ID` |  |
-| News | `CEPHALON_WARFRAME_NEWS_CHANNEL_ID` | `CEPHALON_WARFRAME_NEWS_MESSAGE_ID` |
 | Events | `CEPHALON_WARFRAME_EVENTS_CHANNEL_ID` | `CEPHALON_WARFRAME_EVENTS_MESSAGE_ID` |
 | Alerts | `CEPHALON_WARFRAME_ALERTS_CHANNEL_ID` | `CEPHALON_WARFRAME_ALERTS_MESSAGE_ID` |
 | Sortie | `CEPHALON_WARFRAME_SORTIE_CHANNEL_ID` | `CEPHALON_WARFRAME_SORTIE_MESSAGE_ID` |

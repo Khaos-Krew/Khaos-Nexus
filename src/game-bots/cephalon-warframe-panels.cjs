@@ -4,13 +4,12 @@ const path = require('node:path');
 const { errorClass } = require('./command-failure.cjs');
 const { evaluateChannelCategory } = require('./category-gate.cjs');
 const { WorldstateCache } = require('./warframe-worldstate.cjs');
-const { readJson, runtimeDataDir, snowflake, upsertEmbed, writeJson } = require('./panel-message.cjs');
+const { PANEL_IDENTITIES, readJson, runtimeDataDir, snowflake, upsertEmbed, writeJson } = require('./panel-message.cjs');
 const { circuitEmbed } = require('./cephalon-relay.cjs');
 const {
   summarizeAlerts,
   summarizeArbitration,
   summarizeEvents,
-  summarizeNews,
   summarizeNightwave,
   summarizeSortie,
   summarizeSteelPath,
@@ -23,8 +22,10 @@ const caches = new WeakMap();
 const panelFlights = new Map();
 let stateWrite = Promise.resolve();
 
+const NEWS_CHANNEL_ENV = 'CEPHALON_WARFRAME_NEWS_CHANNEL_ID';
+const NEWS_MESSAGE_ENV = 'CEPHALON_WARFRAME_NEWS_MESSAGE_ID';
+
 const PANEL_PATHS = Object.freeze({
-  news: 'news',
   events: 'events',
   alerts: 'alerts',
   sortie: 'sortie',
@@ -37,7 +38,6 @@ const PANEL_PATHS = Object.freeze({
 });
 
 const PANELS = Object.freeze([
-  { id: 'news', source: 'news', panel: 'warframeNews', channelEnv: 'CEPHALON_WARFRAME_NEWS_CHANNEL_ID', messageEnv: 'CEPHALON_WARFRAME_NEWS_MESSAGE_ID' },
   { id: 'events', source: 'events', panel: 'warframeEvents', channelEnv: 'CEPHALON_WARFRAME_EVENTS_CHANNEL_ID', messageEnv: 'CEPHALON_WARFRAME_EVENTS_MESSAGE_ID' },
   { id: 'alerts', source: 'alerts', panel: 'warframeAlerts', channelEnv: 'CEPHALON_WARFRAME_ALERTS_CHANNEL_ID', messageEnv: 'CEPHALON_WARFRAME_ALERTS_MESSAGE_ID' },
   { id: 'sortie', source: 'sortie', panel: 'warframeSortie', channelEnv: 'CEPHALON_WARFRAME_SORTIE_CHANNEL_ID', messageEnv: 'CEPHALON_WARFRAME_SORTIE_MESSAGE_ID' },
@@ -83,15 +83,166 @@ function singleFlight(key, fn) {
   return flight;
 }
 
-function writePanelRecord(file, panelId, record) {
+function panelState(file) {
+  const latest = readJson(file, { version: 1, panels: {} });
+  if (!latest.panels || typeof latest.panels !== 'object') latest.panels = {};
+  if (!latest.retired || typeof latest.retired !== 'object') latest.retired = {};
+  return latest;
+}
+
+function commitPanelState(file, state) {
+  const body = { version: 1, panels: state.panels };
+  if (Object.keys(state.retired).length) body.retired = state.retired;
+  writeJson(file, body);
+}
+
+function mutatePanelState(file, mutate) {
   const run = stateWrite.then(() => {
-    const latest = readJson(file, { version: 1, panels: {} });
-    if (!latest.panels || typeof latest.panels !== 'object') latest.panels = {};
-    latest.panels[panelId] = record;
-    writeJson(file, { version: 1, panels: latest.panels });
+    const latest = panelState(file);
+    mutate(latest);
+    commitPanelState(file, latest);
   });
   stateWrite = run.then(() => {}, () => {});
   return run;
+}
+
+function writePanelRecord(file, panelId, record) {
+  return mutatePanelState(file, (latest) => {
+    latest.panels[panelId] = record;
+  });
+}
+
+function addUnique(list, value) {
+  const text = String(value || '').trim();
+  if (!text || list.includes(text)) return;
+  list.push(text);
+}
+
+function newsPanelMessage(message, botId) {
+  const owner = String(botId || '');
+  if (!owner || String(message?.author?.id || '') !== owner) return false;
+  if (message?.webhookId) return false;
+  const embed = message?.embeds?.[0] || null;
+  const title = String(embed?.title || embed?.data?.title || '');
+  const footer = String(embed?.footer?.text || embed?.data?.footer?.text || '');
+  const identity = PANEL_IDENTITIES.warframeNews || {};
+  if (title && (identity.titles || []).includes(title)) return true;
+  return (identity.footerPrefixes || []).some((prefix) => footer.startsWith(prefix));
+}
+
+async function newsRetirementChannels(client, env, storedChannelId) {
+  const raws = [];
+  addUnique(raws, storedChannelId);
+  addUnique(raws, channelSetting(env, NEWS_CHANNEL_ENV));
+  addUnique(raws, channelSetting(env, SHARED_CHANNEL_ENV));
+  const channels = [];
+  const seen = new Set();
+  for (const raw of raws) {
+    let channel = null;
+    if (/^\d{17,20}$/.test(raw)) channel = await client?.channels?.fetch?.(raw).catch(() => null);
+    else channel = (await resolvePanelChannel(client, raw, env)).channel;
+    const id = String(channel?.id || '');
+    if (!id || seen.has(id) || typeof channel?.messages?.fetch !== 'function') continue;
+    seen.add(id);
+    channels.push(channel);
+  }
+  return channels;
+}
+
+async function deleteNewsMessages(channel, messageIds, botId) {
+  const pending = new Map();
+  for (const id of messageIds) {
+    const stored = await channel.messages.fetch(String(id)).catch(() => null);
+    if (stored?.id) pending.set(String(stored.id), stored);
+  }
+  const recent = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+  const values = recent && typeof recent.values === 'function'
+    ? [...recent.values()]
+    : (Array.isArray(recent) ? recent : []);
+  for (const message of values) {
+    if (message?.id) pending.set(String(message.id), message);
+  }
+  let deleted = 0;
+  let failed = 0;
+  for (const message of pending.values()) {
+    if (!newsPanelMessage(message, botId)) continue;
+    if (typeof message.delete !== 'function') {
+      failed += 1;
+      continue;
+    }
+    try {
+      await message.delete('Cephalon Nexus retired the Warframe news panel');
+      deleted += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  return { deleted, failed };
+}
+
+async function retireNewsPanelOnce({ client, env, file, logger }) {
+  const current = panelState(file);
+  if (current.retired?.news?.status === 'done') return { status: 'done', skipped: true, deleted: 0, failed: 0 };
+  const botId = String(client?.user?.id || '');
+  if (!botId) return { status: 'deferred', skipped: true, deleted: 0, failed: 0 };
+  const stored = current.panels?.news && typeof current.panels.news === 'object' ? current.panels.news : {};
+  const messageIds = [];
+  addUnique(messageIds, snowflake(stored.messageId));
+  addUnique(messageIds, snowflake(env?.[NEWS_MESSAGE_ENV]));
+  let deleted = 0;
+  let failed = 0;
+  try {
+    const channels = await newsRetirementChannels(client, env, stored.channelId);
+    for (const channel of channels) {
+      const outcome = await deleteNewsMessages(channel, messageIds, botId);
+      deleted += outcome.deleted;
+      failed += outcome.failed;
+    }
+  } catch {
+    failed += 1;
+  }
+  // One attempt is terminal, including a failed delete. The next boot only reads this record.
+  await mutatePanelState(file, (latest) => {
+    delete latest.panels.news;
+    latest.retired.news = {
+      status: 'done',
+      deleted,
+      failed,
+      at: new Date().toISOString()
+    };
+  });
+  logger.log?.(`[Cephalon Nexus] warframe news retired deleted=${deleted} failed=${failed}`);
+  return { status: 'done', skipped: false, deleted, failed };
+}
+
+async function retireNewsPanel({ client, env = process.env, dir, logger = console } = {}) {
+  const file = panelFile(dir || runtimeDataDir(env));
+  return singleFlight(`news-retire:${file}`, () => retireNewsPanelOnce({ client, env, file, logger }));
+}
+
+function scheduleNewsRetirement({ client, env, dir }) {
+  let timer = null;
+  let stopped = false;
+  const run = () => {
+    if (stopped) return;
+    retireNewsPanel({ client, env, dir }).catch((error) => {
+      console.warn(`[Cephalon Nexus] warframe news retirement class=${errorClass(error)}`);
+    });
+  };
+  const arm = () => {
+    if (stopped) return;
+    timer = setTimeout(run, 5000);
+    timer.unref?.();
+  };
+  if (typeof client?.isReady === 'function' && client.isReady()) arm();
+  else if (typeof client?.once === 'function') client.once('ready', arm);
+  else arm();
+  return {
+    stop() {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    }
+  };
 }
 
 function ownedFooterMatcher(botId, footerPrefix) {
@@ -146,16 +297,6 @@ function embed(title, description, fields, id) {
 function linesField(name, lines) {
   const value = lines.filter(Boolean).join('\n').slice(0, 1024);
   return value ? { name: clip(name, 256) || 'Detail', value } : null;
-}
-
-function newsEmbed(rows) {
-  const items = Array.isArray(rows) ? rows : [];
-  return embed(
-    'Cephalon • Warframe News',
-    items.length ? `${items.length} posts.` : 'No Warframe news returned.',
-    items.slice(0, 8).map((item) => linesField(item.title || 'News', [item.date, item.link])),
-    'news'
-  );
 }
 
 function eventsEmbed(rows) {
@@ -258,7 +399,6 @@ function renderPanel(panel, partial) {
   if (panel.id === 'circuit') return circuitPanelEmbed(partial);
   if ((partial.missing || []).includes(panel.source)) return null;
   const raw = partial[panel.source];
-  if (panel.id === 'news') return newsEmbed(summarizeNews(raw));
   if (panel.id === 'events') return eventsEmbed(summarizeEvents(raw));
   if (panel.id === 'alerts') return alertsEmbed(summarizeAlerts(raw));
   if (panel.id === 'sortie') return sortieEmbed(summarizeSortie(raw));
@@ -319,6 +459,9 @@ async function pinPanel(client, channel, savedId, rendered, panel, env) {
 }
 
 async function refreshWarframePanels({ client, env = process.env, provider, dir } = {}) {
+  await retireNewsPanel({ client, env, dir }).catch((error) => {
+    console.warn(`[Cephalon Nexus] warframe news retirement class=${errorClass(error)}`);
+  });
   if (!warframePanelsConfigured(env)) return { refreshed: 0, skipped: 'unset' };
   const root = dir || runtimeDataDir(env);
   const file = panelFile(root);
@@ -371,8 +514,9 @@ async function refreshWarframePanels({ client, env = process.env, provider, dir 
   return { refreshed, skipped };
 }
 
-function scheduleWarframePanels({ client, env = process.env, provider } = {}) {
-  if (!warframePanelsConfigured(env)) return { stop() {} };
+function scheduleWarframePanels({ client, env = process.env, provider, dir } = {}) {
+  const retirement = scheduleNewsRetirement({ client, env, dir });
+  if (!warframePanelsConfigured(env)) return retirement;
   let running = false;
   const tick = () => {
     if (running) return;
@@ -387,6 +531,7 @@ function scheduleWarframePanels({ client, env = process.env, provider } = {}) {
   timer.unref?.();
   return {
     stop() {
+      retirement.stop();
       clearTimeout(initial);
       clearInterval(timer);
     }
@@ -406,5 +551,6 @@ module.exports = {
   renderPanel,
   resolvePanelChannel,
   refreshWarframePanels,
+  retireNewsPanel,
   scheduleWarframePanels
 };
