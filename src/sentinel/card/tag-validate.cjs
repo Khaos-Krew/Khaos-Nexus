@@ -21,18 +21,63 @@ const LEET = Object.freeze({
 
 const CONFUSABLES = Object.freeze({
   '\u0430': 'a',
+  '\u03b1': 'a',
   '\u0435': 'e',
+  '\u03b5': 'e',
+  '\u0454': 'e',
   '\u043e': 'o',
+  '\u03bf': 'o',
   '\u0440': 'p',
+  '\u03c1': 'p',
   '\u0441': 'c',
-  '\u0443': 'y',
+  '\u03f2': 'c',
   '\u0445': 'x',
+  '\u03c7': 'x',
+  '\u0443': 'y',
   '\u0456': 'i',
+  '\u03b9': 'i',
+  '\u04cf': 'i',
   '\u0455': 's',
+  '\u0442': 't',
   '\u04bb': 'h',
   '\u0501': 'd',
   '\u051b': 'q'
 });
+
+// Impersonation folds 1 to l so "Sentina1" matches "sentinal". The denylist
+// leet map still folds 1 to i so "a.d.m.1.n" matches "admin".
+const IMPERSONATION_DIGITS = Object.freeze({
+  '0': 'o',
+  '1': 'l',
+  '3': 'e',
+  '4': 'a',
+  '5': 's',
+  '7': 't'
+});
+
+const RESERVED_FLOOR = Object.freeze([
+  'admin',
+  'staff',
+  'mod',
+  'mods',
+  'moderator',
+  'moderators',
+  'official',
+  'support',
+  'sentinal',
+  'sentinel',
+  'nexus',
+  'khaos',
+  'discord',
+  'owner',
+  'system',
+  'gm',
+  'verified',
+  'cephalon',
+  'ascended',
+  'sanctuary',
+  'vanguard'
+]);
 
 let catalogCache = null;
 let policyCache = null;
@@ -143,6 +188,12 @@ function foldLeet(value) {
   return out;
 }
 
+function foldImpersonationDigits(value) {
+  let out = '';
+  for (const char of value) out += IMPERSONATION_DIGITS[char] || char;
+  return out;
+}
+
 function stripSeparators(value) {
   return value.replace(/[\s._\-'#*|+~\\/]+/g, '');
 }
@@ -170,6 +221,29 @@ function phraseHit(forms, phrase) {
   return forms.stripped.includes(parts.join(''));
 }
 
+function impersonationKey(value) {
+  let nfkc = String(value || '');
+  try { nfkc = nfkc.normalize('NFKC'); } catch { /* keep the raw string */ }
+  const folded = foldImpersonationDigits(foldConfusables(nfkc.toLowerCase()));
+  const stripped = folded.replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF\s._\-'#*|+~\\/]+/g, '');
+  const tokens = folded
+    .split(/[\s._\-'#*|+~\\/]+/)
+    .map((token) => token.replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, ''))
+    .filter(Boolean);
+  return { stripped, tokens };
+}
+
+function reservedTerms(rules) {
+  return [...RESERVED_FLOOR, ...(rules?.impersonation || []), ...(rules?.staffNames || [])];
+}
+
+function reservedHit(key, phrase) {
+  const needle = impersonationKey(phrase).stripped;
+  if (!needle) return false;
+  if (needle.length >= 4) return key.stripped.includes(needle);
+  return key.stripped === needle || key.tokens.includes(needle);
+}
+
 function denylistReason(value, rules) {
   const forms = foldedForms(value);
   for (const slur of rules.slurs || []) {
@@ -184,10 +258,9 @@ function denylistReason(value, rules) {
 }
 
 function impersonationReason(value, rules) {
-  const forms = foldedForms(value);
-  const phrases = [...(rules.impersonation || []), ...(rules.staffNames || [])];
-  for (const phrase of phrases) {
-    if (phraseHit(forms, phrase)) return 'impersonation';
+  const key = impersonationKey(value);
+  for (const phrase of reservedTerms(rules)) {
+    if (reservedHit(key, phrase)) return 'impersonation';
   }
   return null;
 }
