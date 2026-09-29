@@ -80,6 +80,13 @@ const RESERVED_FLOOR = Object.freeze([
   'vanguard'
 ]);
 
+// Substring terms stay blocked inside a longer tag. Whole-word terms match
+// only on a folded word boundary, so "Supporter" is allowed. "nexus" is the
+// exception that still lets a spaced name such as "Nexus Raider" through:
+// it hits only when the compact tag, or a camelCase segment, is exactly "nexus".
+const SUBSTRING_TERMS = new Set(['admin', 'moderator', 'sentinal', 'sentinel', 'khaosnexus']);
+const WHOLE_WORD_TERMS = new Set(['support', 'staff', 'official', 'system', 'verified', 'nexus', 'gm']);
+
 let catalogCache = null;
 let platformCache = null;
 let policyCache = null;
@@ -249,7 +256,17 @@ function impersonationKey(value) {
     .split(/[\s._\-'#*|+~\\/]+/)
     .map((token) => token.replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, ''))
     .filter(Boolean);
-  return { stripped, tokens };
+  const bounded = foldImpersonationDigits(foldConfusables(nfkc.replace(/(?<=\p{Ll})(?=\p{Lu})/gu, ' ').toLowerCase()))
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '');
+  const camelSegments = nfkc.split(/(?<=\p{Ll})(?=\p{Lu})/gu).map((segment) => {
+    return foldImpersonationDigits(foldConfusables(segment.toLowerCase()))
+      .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF\s._\-'#*|+~\\/]+/g, '');
+  }).filter(Boolean);
+  return { stripped, tokens, bounded, camelSegments };
+}
+
+function wholeWordHit(bounded, needle) {
+  return new RegExp(`(?<![\\p{L}\\p{N}_])${needle}(?![\\p{L}\\p{N}_])`, 'u').test(bounded);
 }
 
 function reservedTerms(rules) {
@@ -259,6 +276,11 @@ function reservedTerms(rules) {
 function reservedHit(key, phrase) {
   const needle = impersonationKey(phrase).stripped;
   if (!needle) return false;
+  if (SUBSTRING_TERMS.has(needle)) return key.stripped.includes(needle);
+  if (WHOLE_WORD_TERMS.has(needle)) {
+    if (needle === 'nexus') return key.stripped === 'nexus' || key.camelSegments.some((segment) => segment === 'nexus');
+    return wholeWordHit(key.bounded, needle);
+  }
   if (needle.length >= 4) return key.stripped.includes(needle);
   return key.stripped === needle || key.tokens.includes(needle);
 }
@@ -287,8 +309,7 @@ function impersonationReason(value, rules) {
 function steamProfileText(value) {
   const match = /^(?:https?:\/\/)?steamcommunity\.com\/(?:profiles\/(\d{17})|id\/([A-Za-z0-9_-]{2,32}))\/?$/i.exec(value);
   if (!match) return null;
-  if (match[1]) return `https://steamcommunity.com/profiles/${match[1]}`;
-  return `https://steamcommunity.com/id/${match[2]}`;
+  return match[1] || match[2];
 }
 
 function structuralReason(raw, { allowSteamProfile = false } = {}) {
@@ -360,7 +381,7 @@ function normalizeRiot(value) {
 function normalizePlatformValue(platformId, value) {
   if (platformId === 'steam') return normalizeSteam(value);
   if (platformId === 'xbox') return normalizeXbox(value);
-  if (platformId === 'psn') return acceptPattern(value, '^[A-Za-z0-9_-]{3,16}$');
+  if (platformId === 'psn') return acceptPattern(value, '^[A-Za-z][A-Za-z0-9_-]{2,15}$');
   if (platformId === 'nintendo') return normalizeNintendo(value);
   if (platformId === 'epic') return acceptPattern(value, '^[\\p{L}\\p{N}_.\' -]{3,16}$');
   if (platformId === 'battlenet') return acceptPattern(value, '^[\\p{L}][\\p{L}\\p{N}]{2,11}#\\d{4,6}$');

@@ -2,7 +2,7 @@
   {
     "id": "steam",
     "label": "Steam",
-    "hint": "Display name, 17-digit SteamID64, or a steamcommunity.com profile URL"
+    "hint": "Display name or 17-digit SteamID64. A steamcommunity.com/id or /profiles URL is accepted and stored as the vanity name or SteamID64 only, never as a link."
   },
   {
     "id": "xbox",
@@ -12,7 +12,7 @@
   {
     "id": "psn",
     "label": "PlayStation",
-    "hint": "Online ID, 3–16 letters, digits, hyphens, or underscores"
+    "hint": "Online ID, 3–16 characters, starting with a letter, then letters, digits, hyphens, or underscores"
   },
   {
     "id": "nintendo",

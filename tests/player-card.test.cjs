@@ -256,12 +256,14 @@ test('tag validation covers every catalog game and the abuse rules', () => {
     assert.equal(result.ok, false, tag);
     assert.equal(result.reason, 'impersonation', `${tag} => ${result.reason}`);
   }
-  for (const tag of ['Kirito', 'NightWolf', 'Chaos', 'gamer']) {
+  for (const tag of ['Kirito', 'NightWolf', 'Chaos', 'gamer', 'Supporter', 'Nexus Raider']) {
     const result = validateTag({ gameId: 'ark_asa', tag });
     assert.equal(result.ok, true, `${tag} => ${result.reason}`);
+    assert.equal(validateTag({ gameId: 'ark_asa', tag, rules: bypassRules }).ok, true, tag);
   }
-  assert.equal(validateTag({ gameId: 'ark_asa', tag: 'gm', rules: bypassRules }).reason, 'impersonation');
-  assert.equal(validateTag({ gameId: 'ark_asa', tag: 'mod', rules: bypassRules }).reason, 'impersonation');
+  for (const tag of ['gm', 'mod', 'support', 'staff', 'official', 'system', 'verified', 'nexus', 'Official Staff', 'NexusRaider']) {
+    assert.equal(validateTag({ gameId: 'ark_asa', tag, rules: bypassRules }).reason, 'impersonation', tag);
+  }
   assert.equal(suggestGames('ark').map((item) => item.value).sort().join(','), 'ark_asa,ark_ase');
   assert.ok(suggestGames('').length <= 25);
   assert.equal(suggestGames('').length, games.length);
@@ -864,14 +866,20 @@ test('platform validators cover every platform format and the impersonation chec
   const steamId = validatePlatform({ platformId: 'steam', tag: '76561198000000000' });
   assert.equal(steamId.tag, '76561198000000000');
   const steamUrl = validatePlatform({ platformId: 'steam', tag: 'https://steamcommunity.com/id/Nova_One/' });
-  assert.equal(steamUrl.tag, 'https://steamcommunity.com/id/Nova_One');
+  assert.equal(steamUrl.tag, 'Nova_One');
   const steamProfiles = validatePlatform({ platformId: 'steam', tag: 'steamcommunity.com/profiles/76561198000000000' });
-  assert.equal(steamProfiles.tag, 'https://steamcommunity.com/profiles/76561198000000000');
+  assert.equal(steamProfiles.tag, '76561198000000000');
+  const steamHttp = validatePlatform({ platformId: 'steam', tag: 'http://steamcommunity.com/id/Nova_One' });
+  assert.equal(steamHttp.tag, 'Nova_One');
   assert.equal(validatePlatform({ platformId: 'steam', tag: 'https://evil.example/id/Nova' }).ok, false);
   assert.equal(validatePlatform({ platformId: 'xbox', tag: 'Ada#1234' }).ok, true);
   assert.equal(validatePlatform({ platformId: 'xbox', tag: 'ThisNameIsLong' }).reason, 'pattern');
-  assert.equal(validatePlatform({ platformId: 'psn', tag: '1abc' }).ok, true);
+  assert.equal(validatePlatform({ platformId: 'psn', tag: 'Abc' }).ok, true);
+  assert.equal(validatePlatform({ platformId: 'psn', tag: '1abc' }).reason, 'pattern');
+  assert.equal(validatePlatform({ platformId: 'psn', tag: '_abc' }).reason, 'pattern');
   assert.equal(validatePlatform({ platformId: 'psn', tag: 'ab' }).reason, 'pattern');
+  assert.equal(validatePlatform({ platformId: 'psn', tag: `A${'b'.repeat(15)}` }).ok, true);
+  assert.equal(validatePlatform({ platformId: 'psn', tag: `A${'b'.repeat(16)}` }).reason, 'pattern');
   const friend = validatePlatform({ platformId: 'nintendo', tag: 'sw-1234-5678-9012' });
   assert.equal(friend.tag, 'SW-1234-5678-9012');
   const both = validatePlatform({ platformId: 'nintendo', tag: 'Kirito sw-1111-2222-3333' });
@@ -896,10 +904,99 @@ test('platform validators cover every platform format and the impersonation chec
     assert.equal(result.ok, false, tag);
     assert.equal(result.reason, 'impersonation', `${tag} => ${result.reason}`);
   }
-  for (const tag of ['Kirito', 'NightWolf']) {
+  for (const tag of ['Kirito', 'NightWolf', 'Supporter']) {
     assert.equal(validatePlatform({ platformId: 'epic', tag, rules: bypassRules }).ok, true, tag);
   }
+  assert.equal(validatePlatform({ platformId: 'steam', tag: 'Nexus Raider', rules: bypassRules }).ok, true);
+  assert.equal(validatePlatform({ platformId: 'steam', tag: 'Nexus', rules: bypassRules }).reason, 'impersonation');
+  assert.equal(validatePlatform({ platformId: 'epic', tag: 'Official Staff', rules: bypassRules }).reason, 'impersonation');
   assert.equal(validatePlatform({ platformId: 'nope', tag: 'Kirito' }).reason, 'unknown-platform');
+  const steamHint = platforms.find((entry) => entry.id === 'steam').hint;
+  assert.match(steamHint, /vanity name or SteamID64/);
+  assert.match(steamHint, /never as a link/);
+  assert.match(platforms.find((entry) => entry.id === 'psn').hint, /starting with a letter/);
+});
+
+test('stored tags never contain a URL on any game or platform', async () => {
+  const gameSamples = {
+    warframe: 'Nova_One',
+    ark_asa: 'Survivor One',
+    ark_ase: 'Steam Name',
+    diablo4: 'Kirito#1234',
+    destiny2: 'A#1234',
+    minecraft_java: 'Steve_1',
+    minecraft_bedrock: 'Steve#1234',
+    steam: 'Valve',
+    xbox: 'MajorNelson',
+    psn: 'Abc',
+    battlenet: 'Kirito#1234',
+    epic: 'EpicName',
+    nintendo: 'SW-1234-5678-9012',
+    other: 'NovaK'
+  };
+  const platformSamples = {
+    steam: 'Nova Prime',
+    xbox: 'MajorNelson',
+    psn: 'Abc_Player',
+    nintendo: 'SW-1234-5678-9012',
+    epic: 'EpicName',
+    battlenet: 'Kirito#1234',
+    ea: 'Player.One',
+    ubisoft: 'NightWolf',
+    riot: 'Night Wolf#TAG'
+  };
+  assert.deepEqual(Object.keys(gameSamples).sort(), catalog().map((entry) => entry.id).sort());
+  assert.deepEqual(Object.keys(platformSamples).sort(), platformCatalog().map((entry) => entry.id).sort());
+  const stored = [];
+  for (const [gameId, tag] of Object.entries(gameSamples)) {
+    const result = validateTag({ gameId, tag, name: gameId === 'other' ? 'Rust' : '' });
+    assert.equal(result.ok, true, `${gameId} ${result.reason}`);
+    stored.push(result.tag);
+    if (result.name) stored.push(result.name);
+  }
+  for (const [platformId, tag] of Object.entries(platformSamples)) {
+    const result = validatePlatform({ platformId, tag });
+    assert.equal(result.ok, true, `${platformId} ${result.reason}`);
+    stored.push(result.tag);
+  }
+  const steamName = validatePlatform({ platformId: 'steam', tag: 'https://steamcommunity.com/id/Nova_One/' });
+  const steamId = validatePlatform({ platformId: 'steam', tag: 'http://steamcommunity.com/profiles/76561198000000000' });
+  assert.equal(steamName.tag, 'Nova_One');
+  assert.equal(steamId.tag, '76561198000000000');
+  stored.push(steamName.tag, steamId.tag);
+  for (const tag of stored) assert.equal(String(tag).includes('://'), false, tag);
+
+  const dir = tempDir();
+  const file = path.join(dir, 'cards.json');
+  const store = new JsonCardStore(file);
+  await store.setTag(VIEWER, 'steam', { tag: steamName.tag });
+  await store.setPlatform(VIEWER, 'steam', { tag: steamId.tag });
+  await store.setTag(VIEWER, 'ark_asa', { tag: 'Nexus Raider' });
+  await store.setPlatform(VIEWER, 'epic', { tag: 'Supporter' });
+  const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const savedTags = [
+    ...Object.values(saved.users[VIEWER].tags).map((record) => record.tag),
+    ...Object.values(saved.users[VIEWER].platforms).map((record) => record.tag)
+  ];
+  assert.deepEqual(savedTags.sort(), ['76561198000000000', 'Nexus Raider', 'Nova_One', 'Supporter']);
+  for (const tag of savedTags) assert.equal(tag.includes('://'), false);
+
+  const embedSource = fs.readFileSync(path.join(__dirname, '../src/sentinel/card/card-embed.cjs'), 'utf8');
+  assert.equal(embedSource.includes('steamcommunity'), false);
+  const embed = renderCardEmbed({
+    hidden: false,
+    viewerId: VIEWER,
+    targetUserId: VIEWER,
+    allowBalances: false,
+    level: { level: 1, xp: 0, nextLevelXp: 100, progressPercent: 0 },
+    rank: { name: 'Shadow Recruit' },
+    cosmetics: { title: null, themeLabel: null, color: null },
+    tags: { steam: { tag: steamName.tag } },
+    platforms: { steam: { tag: steamId.tag } }
+  }, { username: 'Ada' });
+  assert.equal(JSON.stringify(embed).includes('://'), false);
+  assert.match(field(embed, 'Platforms').value, /76561198000000000/);
+  assert.doesNotMatch(field(embed, 'Games').value, /steamcommunity/i);
 });
 
 test('platform accounts render apart from games and follow privacy', async () => {
