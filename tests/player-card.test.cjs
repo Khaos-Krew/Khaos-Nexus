@@ -263,10 +263,19 @@ test('tag validation covers every catalog game and the abuse rules', () => {
     assert.equal(result.ok, true, `${tag} => ${result.reason}`);
     assert.equal(validateTag({ gameId: 'ark_asa', tag, rules: bypassRules }).ok, true, tag);
   }
-  const blockedTags = ['gm', 'mod', 'support', 'staff', 'Staff', 'official', 'system', 'verified', 'nexus', 'Nexus', 'discord', 'Official Staff', 'NexusRaider', 'SentinalSupport', 'OfficialStaff', 'Sentina1', '\u0391dmin', 'KhaosNexusStaff'];
+  const blockedTags = [
+    'gm', 'mod', 'support', 'staff', 'Staff', 'official', 'system', 'verified', 'nexus', 'Nexus', 'discord',
+    'Official Staff', 'NexusRaider', 'SentinalSupport', 'OfficialStaff', 'Sentina1', '\u0391dmin', 'KhaosNexusStaff',
+    'Staff1', 'Support1', 'Official1', 'Verified1', 'Discord1', 'nexus1', 'staffmember', 'S.t.a.f.f',
+    'Official_Staff', 'officialstaff', 'Staff_1', 'Staff2024', 'GM1', 'D1scord',
+    'Owner1', 'Sentinelle'
+  ];
   for (const tag of blockedTags) {
-    assert.equal(validateTag({ gameId: 'ark_asa', tag, rules: bypassRules }).reason, 'impersonation', tag);
+    assert.equal(validateTag({ gameId: 'ark_asa', tag, rules: bypassRules }).reason, 'impersonation', `${tag} => impersonation`);
     assert.equal(validateTag({ gameId: 'ark_asa', tag }).ok, false, tag);
+  }
+  for (const tag of ['Nexus', 'Owner1', 'Sentinelle']) {
+    assert.equal(validateTag({ gameId: 'ark_asa', tag, rules: bypassRules }).reason, 'impersonation', `${tag} stays rejected by design`);
   }
   assert.equal(suggestGames('ark').map((item) => item.value).sort().join(','), 'ark_asa,ark_ase');
   assert.ok(suggestGames('').length <= 25);
@@ -953,6 +962,9 @@ test('platform validators cover every platform format and the impersonation chec
   const codeFirst = validatePlatform({ platformId: 'nintendo', tag: 'sw-1234-5678-9012 / Kirito' });
   assert.equal(codeFirst.ok, true, codeFirst.reason);
   assert.equal(codeFirst.tag, 'SW-1234-5678-9012 / Kirito');
+  const codeTight = validatePlatform({ platformId: 'nintendo', tag: 'SW-1234-5678-9012/Kirito' });
+  assert.equal(codeTight.ok, true, codeTight.reason);
+  assert.equal(codeTight.tag, 'SW-1234-5678-9012/Kirito');
   assert.equal(validatePlatform({ platformId: 'nintendo', tag: 'Kirito' }).ok, true);
   assert.equal(validatePlatform({ platformId: 'nintendo', tag: 'SW-1234' }).reason, 'pattern');
   assert.equal(validatePlatform({ platformId: 'nintendo', tag: 'SW-1234-5678-90123' }).reason, 'pattern');

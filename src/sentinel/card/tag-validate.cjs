@@ -80,13 +80,18 @@ const RESERVED_FLOOR = Object.freeze([
   'vanguard'
 ]);
 
-// Substring terms stay blocked inside a longer tag. Whole-word terms match
-// only on a folded word boundary, so "Supporter" and "Discordian" are allowed.
-// "khaos" alone is not reserved; only the compact substring "khaosnexus" is.
-// "nexus" hits only when the compact tag, or a camelCase segment, is exactly
-// "nexus", so a spaced name such as "Nexus Raider" stays allowed.
+// Substring terms stay blocked inside a longer tag. Whole-word terms are
+// matched on letter tokens: separators include digits, "_", ".", "-", and
+// spaces, and a digit-folded copy maps 1 to both i and l. "khaos" alone is
+// not reserved. "nexus" matches the letters-only tag or a camelCase segment,
+// so "Nexus" and "nexus1" are blocked and "Nexus Raider" is not.
 const SUBSTRING_TERMS = new Set(['admin', 'moderator', 'sentinal', 'sentinel', 'khaosnexus']);
 const WHOLE_WORD_TERMS = new Set(['support', 'staff', 'official', 'system', 'verified', 'nexus', 'gm', 'discord']);
+const COMPOUND_PARTS = Object.freeze([
+  'account', 'admin', 'bot', 'crew', 'discord', 'gm', 'khaosnexus', 'member',
+  'mod', 'moderator', 'mods', 'nexus', 'official', 'owner', 'sentinal', 'sentinel',
+  'staff', 'support', 'system', 'team', 'verified'
+].sort((left, right) => right.length - left.length));
 
 let catalogCache = null;
 let platformCache = null;
@@ -256,6 +261,80 @@ function phraseHit(forms, phrase) {
   return forms.stripped.includes(parts.join(''));
 }
 
+function lettersOnly(value) {
+  return String(value || '').replace(/[^\p{L}]+/gu, '');
+}
+
+function digitFoldVariants(text) {
+  const chars = [...text];
+  const ones = [];
+  chars.forEach((char, index) => { if (char === '1') ones.push(index); });
+  const fixed = { '0': 'o', '3': 'e', '4': 'a', '5': 's', '7': 't' };
+  const width = Math.min(ones.length, 8);
+  const variants = [];
+  const count = width === 0 ? 1 : (1 << width);
+  for (let mask = 0; mask < count; mask += 1) {
+    let out = '';
+    let oneIndex = 0;
+    for (const char of chars) {
+      if (char === '1') {
+        const bit = oneIndex < width ? (mask >> oneIndex) & 1 : 0;
+        oneIndex += 1;
+        out += bit ? 'l' : 'i';
+      } else {
+        out += fixed[char] || char;
+      }
+    }
+    variants.push(out);
+  }
+  return variants;
+}
+
+function collapseLetterTokens(tokens) {
+  const collapsed = [];
+  let run = '';
+  for (const token of tokens) {
+    if ([...token].length === 1) {
+      run += token;
+      continue;
+    }
+    if (run) collapsed.push(run);
+    run = '';
+    collapsed.push(token);
+  }
+  if (run) collapsed.push(run);
+  return collapsed;
+}
+
+function letterTokens(value) {
+  return collapseLetterTokens(String(value || '').split(/[^\p{L}]+/u).filter(Boolean));
+}
+
+function isReservedCompound(token) {
+  if (!token || token.length < 4) return false;
+  const memo = new Map();
+  function canSplit(start, parts) {
+    const capped = parts >= 2 ? 2 : parts;
+    const key = `${start}:${capped}`;
+    if (memo.has(key)) return memo.get(key);
+    if (start === token.length) {
+      const ok = parts >= 2;
+      memo.set(key, ok);
+      return ok;
+    }
+    let ok = false;
+    for (const word of COMPOUND_PARTS) {
+      if (token.startsWith(word, start) && canSplit(start + word.length, parts + 1)) {
+        ok = true;
+        break;
+      }
+    }
+    memo.set(key, ok);
+    return ok;
+  }
+  return canSplit(0, 0);
+}
+
 function impersonationKey(value) {
   let nfkc = String(value || '');
   try { nfkc = nfkc.normalize('NFKC'); } catch { /* keep the raw string */ }
@@ -265,17 +344,18 @@ function impersonationKey(value) {
     .split(/[\s._\-'#*|+~\\/]+/)
     .map((token) => token.replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, ''))
     .filter(Boolean);
-  const bounded = foldImpersonationDigits(foldConfusables(nfkc.replace(/(?<=\p{Ll})(?=\p{Lu})/gu, ' ').toLowerCase()))
-    .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '');
-  const camelSegments = nfkc.split(/(?<=\p{Ll})(?=\p{Lu})/gu).map((segment) => {
-    return foldImpersonationDigits(foldConfusables(segment.toLowerCase()))
-      .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF\s._\-'#*|+~\\/]+/g, '');
-  }).filter(Boolean);
-  return { stripped, tokens, bounded, camelSegments };
+  const camel = nfkc.replace(/(?<=\p{Ll})(?=\p{Lu})/gu, ' ');
+  const surface = foldConfusables(camel.toLowerCase());
+  const letterTokenSets = [...new Set([surface, ...digitFoldVariants(surface)])].map(letterTokens);
+  const lettersOnlyTag = lettersOnly(surface);
+  const camelLetters = nfkc.split(/(?<=\p{Ll})(?=\p{Lu})/gu).map((segment) => lettersOnly(foldConfusables(segment.toLowerCase())));
+  return { stripped, tokens, letterTokenSets, lettersOnlyTag, camelLetters };
 }
 
-function wholeWordHit(bounded, needle) {
-  return new RegExp(`(?<![\\p{L}\\p{N}_])${needle}(?![\\p{L}\\p{N}_])`, 'u').test(bounded);
+function wholeWordTermHit(key, needle) {
+  if (needle === 'nexus') return key.lettersOnlyTag === 'nexus' || key.camelLetters.some((segment) => segment === 'nexus');
+  if (key.letterTokenSets.some((tokens) => tokens.includes(needle))) return true;
+  return key.letterTokenSets.some((tokens) => tokens.some((token) => isReservedCompound(token)));
 }
 
 function reservedTerms(rules) {
@@ -286,10 +366,7 @@ function reservedHit(key, phrase) {
   const needle = impersonationKey(phrase).stripped;
   if (!needle || needle === 'khaos') return false;
   if (SUBSTRING_TERMS.has(needle)) return key.stripped.includes(needle);
-  if (WHOLE_WORD_TERMS.has(needle)) {
-    if (needle === 'nexus') return key.stripped === 'nexus' || key.camelSegments.some((segment) => segment === 'nexus');
-    return wholeWordHit(key.bounded, needle);
-  }
+  if (WHOLE_WORD_TERMS.has(needle)) return wholeWordTermHit(key, needle);
   if (needle.length >= 4) return key.stripped.includes(needle);
   return key.stripped === needle || key.tokens.includes(needle);
 }
@@ -364,12 +441,13 @@ function normalizeNintendo(value) {
   const friend = /^SW-(\d{4})-(\d{4})-(\d{4})$/i.exec(value);
   if (friend) return { ok: true, value: `SW-${friend[1]}-${friend[2]}-${friend[3]}` };
   if (/^SW[-\d]*$/i.test(value)) return { ok: false, reason: 'pattern' };
-  const codeThenNick = /^(SW-\d{4}-\d{4}-\d{4}) \/ (.+)$/i.exec(value);
+  const codeThenNick = /^(SW-\d{4}-\d{4}-\d{4})(\s*\/\s*)(.+)$/i.exec(value);
   if (codeThenNick) {
     const code = normalizeNintendo(codeThenNick[1]);
-    const nick = acceptPattern(codeThenNick[2], '^[\\p{L}\\p{N}][\\p{L}\\p{N}_.\' -]{0,15}$');
+    const nick = acceptPattern(codeThenNick[3], '^[\\p{L}\\p{N}][\\p{L}\\p{N}_.\' -]{0,15}$');
     if (!code.ok || !nick.ok || nick.value.length > 16) return { ok: false, reason: 'pattern' };
-    return { ok: true, value: `${code.value} / ${nick.value}` };
+    const joiner = /\s/.test(codeThenNick[2]) ? ' / ' : '/';
+    return { ok: true, value: `${code.value}${joiner}${nick.value}` };
   }
   const both = /^(.+) (SW-\d{4}-\d{4}-\d{4})$/i.exec(value);
   if (both) {
