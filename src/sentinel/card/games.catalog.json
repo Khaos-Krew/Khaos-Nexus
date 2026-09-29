@@ -1,0 +1,121 @@
+[
+  {
+    "id": "warframe",
+    "label": "Warframe",
+    "aliases": ["wf", "warframe"],
+    "tagHint": "In-game name",
+    "minLen": 3,
+    "maxLen": 24,
+    "pattern": "^[A-Za-z0-9_.-]{3,24}$"
+  },
+  {
+    "id": "ark_asa",
+    "label": "ARK: Survival Ascended",
+    "aliases": ["asa", "ark ascended", "ark survival ascended"],
+    "tagHint": "Survivor or EOS name",
+    "minLen": 2,
+    "maxLen": 32,
+    "pattern": "^[\\p{L}\\p{N}_.'# -]{2,32}$"
+  },
+  {
+    "id": "ark_ase",
+    "label": "ARK: Survival Evolved",
+    "aliases": ["ase", "ark evolved", "ark survival evolved"],
+    "tagHint": "Steam or survivor name",
+    "minLen": 2,
+    "maxLen": 32,
+    "pattern": "^[\\p{L}\\p{N}_.'# -]{2,32}$"
+  },
+  {
+    "id": "diablo4",
+    "label": "Diablo IV",
+    "aliases": ["d4", "diablo", "diablo 4", "diablo iv"],
+    "tagHint": "BattleTag Name#1234",
+    "pattern": "^[\\p{L}][\\p{L}\\p{N}]{2,11}#\\d{4,6}$"
+  },
+  {
+    "id": "destiny2",
+    "label": "Destiny 2",
+    "aliases": ["d2", "destiny", "destiny 2"],
+    "tagHint": "Bungie Name Name#1234",
+    "pattern": "^[\\p{L}\\p{N}][\\p{L}\\p{N} _.'-]{0,25}#\\d{4}$"
+  },
+  {
+    "id": "minecraft_java",
+    "label": "Minecraft Java",
+    "aliases": ["mc", "java", "minecraft"],
+    "tagHint": "Username",
+    "minLen": 3,
+    "maxLen": 16,
+    "pattern": "^[A-Za-z0-9_]{3,16}$"
+  },
+  {
+    "id": "minecraft_bedrock",
+    "label": "Minecraft Bedrock",
+    "aliases": ["bedrock", "mcbe", "minecraft bedrock"],
+    "tagHint": "Xbox gamertag",
+    "minLen": 1,
+    "maxLen": 16,
+    "pattern": "^(?=.{1,16}$)(?:[\\p{L}\\p{N}_.' -]{1,16}|[\\p{L}\\p{N}_.' -]{1,12}#\\d{1,4})$"
+  },
+  {
+    "id": "steam",
+    "label": "Steam",
+    "aliases": ["steam"],
+    "tagHint": "Profile name or vanity URL ID",
+    "minLen": 2,
+    "maxLen": 32,
+    "pattern": "^[\\p{L}\\p{N}_.'# -]{2,32}$"
+  },
+  {
+    "id": "xbox",
+    "label": "Xbox",
+    "aliases": ["xbox", "gamertag"],
+    "tagHint": "Gamertag",
+    "minLen": 1,
+    "maxLen": 16,
+    "pattern": "^[\\p{L}\\p{N}_.'# -]{1,16}$"
+  },
+  {
+    "id": "psn",
+    "label": "PlayStation",
+    "aliases": ["psn", "playstation", "ps5", "ps4"],
+    "tagHint": "Online ID",
+    "pattern": "^[A-Za-z][A-Za-z0-9_-]{2,15}$"
+  },
+  {
+    "id": "battlenet",
+    "label": "Battle.net",
+    "aliases": ["bnet", "battle.net", "battlenet"],
+    "tagHint": "BattleTag Name#1234",
+    "pattern": "^[\\p{L}][\\p{L}\\p{N}]{2,11}#\\d{4,6}$"
+  },
+  {
+    "id": "epic",
+    "label": "Epic Games",
+    "aliases": ["epic", "epic games"],
+    "tagHint": "Display name",
+    "minLen": 3,
+    "maxLen": 16,
+    "pattern": "^[\\p{L}\\p{N}_.'# -]{3,16}$"
+  },
+  {
+    "id": "nintendo",
+    "label": "Nintendo Switch",
+    "aliases": ["nintendo", "switch"],
+    "tagHint": "Friend code SW-1234-5678-9012",
+    "pattern": "^SW-\\d{4}-\\d{4}-\\d{4}$"
+  },
+  {
+    "id": "other",
+    "label": "Other",
+    "aliases": ["other", "custom"],
+    "tagHint": "Game name plus tag",
+    "minLen": 1,
+    "maxLen": 32,
+    "nameMin": 2,
+    "nameMax": 32,
+    "pattern": "^[\\p{L}\\p{N}_.'# -]{1,32}$",
+    "namePattern": "^[\\p{L}\\p{N}_.'# -]{2,32}$"
+  }
+]

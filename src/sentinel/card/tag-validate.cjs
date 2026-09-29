@@ -1,0 +1,270 @@
+'use strict';
+
+const fs = require('node:fs');
+const path = require('node:path');
+
+const TAG_CAP = 12;
+const CATALOG_PATH = path.join(__dirname, 'games.catalog.json');
+const POLICY_PATH = path.join(__dirname, 'tag-policy.json');
+
+const LEET = Object.freeze({
+  '0': 'o',
+  '1': 'i',
+  '3': 'e',
+  '4': 'a',
+  '5': 's',
+  '7': 't',
+  '8': 'b',
+  '@': 'a',
+  '$': 's'
+});
+
+const CONFUSABLES = Object.freeze({
+  '\u0430': 'a',
+  '\u0435': 'e',
+  '\u043e': 'o',
+  '\u0440': 'p',
+  '\u0441': 'c',
+  '\u0443': 'y',
+  '\u0445': 'x',
+  '\u0456': 'i',
+  '\u0455': 's',
+  '\u04bb': 'h',
+  '\u0501': 'd',
+  '\u051b': 'q'
+});
+
+let catalogCache = null;
+let policyCache = null;
+
+function loadCatalog(file = CATALOG_PATH) {
+  const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (!Array.isArray(parsed) || !parsed.length) throw new Error('Game catalog must be a non-empty array.');
+  return parsed.map((entry) => Object.freeze({ ...entry }));
+}
+
+function catalog(file) {
+  if (!file && catalogCache) return catalogCache;
+  const loaded = loadCatalog(file || CATALOG_PATH);
+  if (!file) catalogCache = loaded;
+  return loaded;
+}
+
+function loadPolicy(file = POLICY_PATH) {
+  const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+  return {
+    slurs: [...(parsed.slurs || [])],
+    mild: [...(parsed.mild || [])],
+    impersonation: [...(parsed.impersonation || [])],
+    staffNames: [...(parsed.staffNames || [])]
+  };
+}
+
+function policy(file) {
+  if (!file && policyCache) return policyCache;
+  const loaded = loadPolicy(file || POLICY_PATH);
+  if (!file) policyCache = loaded;
+  return loaded;
+}
+
+function gameById(gameId, games = catalog()) {
+  return games.find((entry) => entry.id === String(gameId || '')) || null;
+}
+
+function suggestGames(query, games = catalog()) {
+  const needle = String(query || '').trim().toLowerCase();
+  const matches = games.filter((entry) => {
+    if (!needle) return true;
+    if (String(entry.label || '').toLowerCase().includes(needle)) return true;
+    if (String(entry.id || '').toLowerCase().includes(needle)) return true;
+    return (entry.aliases || []).some((alias) => String(alias).toLowerCase().includes(needle));
+  });
+  return matches.slice(0, 25).map((entry) => ({ name: entry.label, value: entry.id }));
+}
+
+function forbiddenChar(value) {
+  if (/\p{Cc}/u.test(value)) return true;
+  if (/\p{Cf}/u.test(value)) return true;
+  if (/\p{Co}/u.test(value)) return true;
+  if (/[\uFE00-\uFE0F]/u.test(value)) return true;
+  if (/[\u{E0100}-\u{E01EF}]/u.test(value)) return true;
+  if (/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/u.test(value)) return true;
+  return false;
+}
+
+function combiningFlood(value) {
+  let run = 0;
+  for (const char of value) {
+    if (/\p{M}/u.test(char)) {
+      run += 1;
+      if (run > 2) return true;
+    } else {
+      run = 0;
+    }
+  }
+  return false;
+}
+
+function hasMention(value) {
+  if (/@(everyone|here)/i.test(value)) return true;
+  if (/<@[!&]?\d+>/.test(value)) return true;
+  if (/<#\d+>/.test(value)) return true;
+  return false;
+}
+
+function hasUrl(value) {
+  const lower = value.toLowerCase();
+  if (lower.includes('://')) return true;
+  if (lower.includes('www.')) return true;
+  if (lower.includes('discord.gg')) return true;
+  if (lower.includes('discord.com/invite') || lower.includes('discordapp.com/invite')) return true;
+  if (/[a-z0-9-]{1,63}\.[a-z]{2,24}\//i.test(lower)) return true;
+  return false;
+}
+
+function hasMarkdown(value) {
+  if (value.includes('`')) return true;
+  if (value.includes('*')) return true;
+  if (/_{2,}/.test(value)) return true;
+  if (value.includes('|') || value.includes('~') || value.includes('>')) return true;
+  if (/[\[\]()]/.test(value)) return true;
+  return false;
+}
+
+function foldConfusables(value) {
+  let out = '';
+  for (const char of value) out += CONFUSABLES[char] || char;
+  return out;
+}
+
+function foldLeet(value) {
+  let out = '';
+  for (const char of value.toLowerCase()) out += LEET[char] || char;
+  return out;
+}
+
+function stripSeparators(value) {
+  return value.replace(/[\s._\-'#*|+~\\/]+/g, '');
+}
+
+function tokensOf(value) {
+  return value.split(/[\s._\-'#*|+~\\/]+/).filter(Boolean);
+}
+
+function foldedForms(value) {
+  const folded = foldLeet(foldConfusables(String(value || '').toLowerCase()));
+  return {
+    folded,
+    stripped: stripSeparators(folded),
+    tokens: tokensOf(folded)
+  };
+}
+
+function phraseHit(forms, phrase) {
+  const parts = String(phrase || '').trim().toLowerCase().split(/\s+/).filter(Boolean).map((part) => stripSeparators(foldLeet(foldConfusables(part))));
+  if (!parts.length) return false;
+  if (parts.length === 1) {
+    const word = parts[0];
+    return forms.stripped === word || forms.tokens.includes(word);
+  }
+  return forms.stripped.includes(parts.join(''));
+}
+
+function denylistReason(value, rules) {
+  const forms = foldedForms(value);
+  for (const slur of rules.slurs || []) {
+    const needle = stripSeparators(foldLeet(foldConfusables(String(slur).toLowerCase())));
+    if (!needle) continue;
+    if (forms.folded.includes(needle) || forms.stripped.includes(needle)) return 'denylist';
+  }
+  for (const word of rules.mild || []) {
+    if (phraseHit(forms, word)) return 'denylist';
+  }
+  return null;
+}
+
+function impersonationReason(value, rules) {
+  const forms = foldedForms(value);
+  const phrases = [...(rules.impersonation || []), ...(rules.staffNames || [])];
+  for (const phrase of phrases) {
+    if (phraseHit(forms, phrase)) return 'impersonation';
+  }
+  return null;
+}
+
+function structuralReason(raw) {
+  const original = String(raw ?? '');
+  let nfkc;
+  try { nfkc = original.normalize('NFKC'); } catch { return { ok: false, reason: 'forbidden-char' }; }
+  if (forbiddenChar(original) || forbiddenChar(nfkc)) return { ok: false, reason: 'forbidden-char' };
+  if (combiningFlood(original) || combiningFlood(nfkc)) return { ok: false, reason: 'combining' };
+  if (nfkc.trim() === '') return { ok: false, reason: 'empty' };
+  if (nfkc !== nfkc.trim() || /\s{2,}/.test(nfkc)) return { ok: false, reason: 'spacing' };
+  if (hasMention(nfkc)) return { ok: false, reason: 'mention' };
+  if (hasUrl(nfkc)) return { ok: false, reason: 'url' };
+  if (hasMarkdown(nfkc)) return { ok: false, reason: 'markdown' };
+  if (nfkc.startsWith('#')) return { ok: false, reason: 'leading-hash' };
+  return { ok: true, value: nfkc };
+}
+
+function matchesPattern(value, pattern) {
+  if (!pattern) return false;
+  return new RegExp(pattern, 'u').test(value);
+}
+
+function screenText(raw, pattern, rules) {
+  const structural = structuralReason(raw);
+  if (!structural.ok) return structural;
+  if (!matchesPattern(structural.value, pattern)) return { ok: false, reason: 'pattern' };
+  const denied = denylistReason(structural.value, rules);
+  if (denied) return { ok: false, reason: denied };
+  const impersonated = impersonationReason(structural.value, rules);
+  if (impersonated) return { ok: false, reason: impersonated };
+  return { ok: true, value: structural.value };
+}
+
+function canAddTag(existingTags, gameId, cap = TAG_CAP) {
+  const tags = existingTags && typeof existingTags === 'object' ? existingTags : {};
+  if (Object.prototype.hasOwnProperty.call(tags, gameId)) return { ok: true, replacing: true };
+  if (Object.keys(tags).length >= cap) return { ok: false, reason: 'tag-cap' };
+  return { ok: true, replacing: false };
+}
+
+function validateTag({ gameId, tag, name = '', games = catalog(), rules = policy(), existingTags = null } = {}) {
+  const entry = gameById(gameId, games);
+  if (!entry) return { ok: false, reason: 'unknown-game', game: null };
+  const ruleset = rules || policy();
+  if (entry.id === 'other') {
+    const gameName = screenText(name, entry.namePattern || entry.pattern, ruleset);
+    if (!gameName.ok) return { ok: false, reason: `name-${gameName.reason}`, game: entry.id };
+    const gamerTag = screenText(tag, entry.pattern, ruleset);
+    if (!gamerTag.ok) return { ok: false, reason: gamerTag.reason, game: entry.id };
+    if (existingTags) {
+      const cap = canAddTag(existingTags, entry.id);
+      if (!cap.ok) return { ok: false, reason: cap.reason, game: entry.id };
+    }
+    return { ok: true, game: entry.id, tag: gamerTag.value, name: gameName.value, verified: false };
+  }
+  const gamerTag = screenText(tag, entry.pattern, ruleset);
+  if (!gamerTag.ok) return { ok: false, reason: gamerTag.reason, game: entry.id };
+  if (existingTags) {
+    const cap = canAddTag(existingTags, entry.id);
+    if (!cap.ok) return { ok: false, reason: cap.reason, game: entry.id };
+  }
+  return { ok: true, game: entry.id, tag: gamerTag.value, verified: false };
+}
+
+module.exports = {
+  TAG_CAP,
+  CATALOG_PATH,
+  POLICY_PATH,
+  loadCatalog,
+  loadPolicy,
+  catalog,
+  policy,
+  gameById,
+  suggestGames,
+  canAddTag,
+  validateTag,
+  foldedForms
+};
