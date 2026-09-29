@@ -19,7 +19,6 @@ const PANEL_BOTS = Object.freeze({
   clanApplications: 'cephalon',
   cephalonWelcome: 'cephalon',
   cephalonEvent: 'cephalon',
-  warframeNews: 'cephalon',
   warframeEvents: 'cephalon',
   warframeAlerts: 'cephalon',
   warframeSortie: 'cephalon',

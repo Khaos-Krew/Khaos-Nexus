@@ -14,7 +14,7 @@ const {
 const { BANNERS, PANEL_BOTS, attachBanner, bannerFor, bannerBotForPanel } = require('../src/game-bots/brand-banners.cjs');
 const { refreshDurablePins } = require('../src/game-bots/stage-commands.cjs');
 const { OWNER_CATEGORY_IDS } = require('../src/game-bots/category-gate.cjs');
-const { PANELS, refreshWarframePanels, singleFlight } = require('../src/game-bots/cephalon-warframe-panels.cjs');
+const { PANELS, refreshWarframePanels, retireNewsPanel, singleFlight } = require('../src/game-bots/cephalon-warframe-panels.cjs');
 const {
   FEEDS,
   WARFRAME_FEED,
@@ -902,10 +902,13 @@ test('Cephalon edits Warframe panels in place and stays inside its category', as
     assert.equal(sent.length, 0);
 
     const first = await refreshWarframePanels({ client, env, provider, dir });
+    assert.equal(PANELS.some((panel) => panel.id === 'news'), false);
+    assert.equal(calls.includes('news'), false);
     assert.equal(first.refreshed, PANELS.length);
     assert.equal(sent.length, PANELS.length);
     assert.equal(foreignEdits.length, 0);
     const packed = JSON.stringify(sent);
+    assert.doesNotMatch(packed, /Cephalon • Warframe News/);
     assert.match(packed, /Cephalon • Baro Ki'Teer/);
     assert.match(packed, /Prisma Gorgon/);
     assert.match(packed, /Cephalon • Circuit/);
@@ -1004,6 +1007,178 @@ test('the ready refresh and the first timer tick share one post per panel', asyn
     const saved = JSON.parse(fs.readFileSync(path.join(dir, 'cephalon-warframe-panels.json'), 'utf8'));
     assert.equal(Object.keys(saved.panels).length, PANELS.length);
     assert.equal(new Set(Object.values(saved.panels).map((panel) => panel.messageId)).size, PANELS.length);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Cephalon retires a Warframe news panel once and leaves the other boards in place', async () => {
+  assert.deepEqual(PANELS.map((panel) => panel.id), [
+    'events',
+    'alerts',
+    'sortie',
+    'arbitration',
+    'nightwave',
+    'void-trader',
+    'steel-path',
+    'circuit'
+  ]);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cephalon-news-retire-'));
+  const channelId = '1540956147241062401';
+  const newsId = '1554380090337534017';
+  const strayId = '1554380090337534018';
+  const titleOnlyId = '1554380090337534019';
+  const eventsId = '1554380090337534020';
+  const foreignId = '1554380090337534021';
+  const webhookId = '1554380090337534022';
+  const file = path.join(dir, 'cephalon-warframe-panels.json');
+  fs.writeFileSync(file, JSON.stringify({
+    version: 1,
+    panels: {
+      news: { channelId, messageId: newsId },
+      events: { channelId, messageId: eventsId }
+    }
+  }));
+  const deleted = [];
+  const logs = [];
+  const warns = [];
+  let fetches = 0;
+  const authored = (id, title, footer, extra = {}) => ({
+    id,
+    author: { id: BOT_ID, bot: true },
+    embeds: [{ title, footer: footer ? { text: footer } : undefined }],
+    delete: async () => { deleted.push(id); },
+    ...extra
+  });
+  const news = authored(newsId, 'Cephalon • Warframe News', 'Cephalon Nexus • warframe:news');
+  const stray = authored(strayId, 'Cephalon • Warframe News', 'Cephalon Nexus • warframe:news');
+  const titleOnly = authored(titleOnlyId, 'Cephalon • Warframe News', '');
+  const events = authored(eventsId, 'Cephalon • Warframe Events', 'Cephalon Nexus • warframe:events');
+  const foreign = {
+    id: foreignId,
+    author: { id: SENTINAL_ID, bot: true },
+    embeds: [{ title: 'Cephalon • Warframe News', footer: { text: 'Cephalon Nexus • warframe:news' } }],
+    delete: async () => { deleted.push(foreignId); }
+  };
+  const webhook = authored(webhookId, 'Cephalon • Warframe News', 'Cephalon Nexus • warframe:news', { webhookId: '999999999999999999' });
+  const recent = [news, titleOnly, events, foreign, webhook];
+  const byId = new Map([...recent, stray].map((item) => [item.id, item]));
+  const channel = {
+    id: channelId,
+    messages: {
+      fetch: async (arg) => {
+        fetches += 1;
+        if (arg && typeof arg === 'object') return { values: () => recent.values() };
+        return byId.get(String(arg)) || null;
+      }
+    }
+  };
+  const logger = {
+    log(line) { logs.push(String(line)); },
+    warn(line) { warns.push(String(line)); }
+  };
+  const client = {
+    user: { id: BOT_ID },
+    channels: { fetch: async (id) => (String(id) === channelId ? channel : null) }
+  };
+  const env = {
+    NEXUS_DATA_DIR: dir,
+    CEPHALON_WARFRAME_WORLD_CHANNEL_ID: channelId,
+    CEPHALON_WARFRAME_NEWS_CHANNEL_ID: channelId,
+    CEPHALON_WARFRAME_NEWS_MESSAGE_ID: strayId
+  };
+  try {
+    const earlyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cephalon-news-early-'));
+    const early = await retireNewsPanel({
+      client: { channels: { fetch: async () => { throw new Error('too early'); } } },
+      env: { NEXUS_DATA_DIR: earlyDir, CEPHALON_WARFRAME_WORLD_CHANNEL_ID: channelId },
+      dir: earlyDir,
+      logger
+    });
+    assert.equal(early.status, 'deferred');
+    assert.equal(logs.length, 0);
+    assert.equal(fs.existsSync(path.join(earlyDir, 'cephalon-warframe-panels.json')), false);
+    fs.rmSync(earlyDir, { recursive: true, force: true });
+
+    const first = await retireNewsPanel({ client, env, dir, logger });
+    assert.equal(first.status, 'done');
+    assert.equal(first.skipped, false);
+    assert.equal(first.deleted, 3);
+    assert.equal(deleted.includes(newsId), true);
+    assert.equal(deleted.includes(strayId), true);
+    assert.equal(deleted.includes(titleOnlyId), true);
+    assert.equal(deleted.includes(eventsId), false);
+    assert.equal(deleted.includes(foreignId), false);
+    assert.equal(deleted.includes(webhookId), false);
+    const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+    assert.equal(saved.panels.news, undefined);
+    assert.equal(saved.panels.events.messageId, eventsId);
+    assert.equal(saved.retired.news.status, 'done');
+    assert.equal(logs.length, 1);
+    assert.equal(warns.length, 0);
+    assert.match(logs[0], /warframe news retired deleted=3 failed=0/);
+    const after = fetches;
+    const second = await retireNewsPanel({ client, env, dir, logger });
+    assert.equal(second.skipped, true);
+    assert.equal(fetches, after);
+    assert.equal(logs.length, 1);
+    assert.equal(deleted.length, 3);
+
+    const failDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cephalon-news-fail-'));
+    const failFile = path.join(failDir, 'cephalon-warframe-panels.json');
+    const stuckId = '1554380090337534030';
+    fs.writeFileSync(failFile, JSON.stringify({
+      version: 1,
+      panels: { news: { channelId, messageId: stuckId }, events: { channelId, messageId: eventsId } }
+    }));
+    let failFetches = 0;
+    const stuck = {
+      id: stuckId,
+      author: { id: BOT_ID, bot: true },
+      embeds: [{ title: 'Cephalon • Warframe News', footer: { text: 'Cephalon Nexus • warframe:news' } }],
+      delete: async () => { throw new Error('missing access'); }
+    };
+    const failChannel = {
+      id: channelId,
+      messages: {
+        fetch: async (arg) => {
+          failFetches += 1;
+          if (arg && typeof arg === 'object') return { values: () => [stuck].values() };
+          return String(arg) === stuckId ? stuck : null;
+        }
+      }
+    };
+    const failClient = {
+      user: { id: BOT_ID },
+      channels: { fetch: async () => failChannel }
+    };
+    const failed = await retireNewsPanel({
+      client: failClient,
+      env: { NEXUS_DATA_DIR: failDir, CEPHALON_WARFRAME_WORLD_CHANNEL_ID: channelId },
+      dir: failDir,
+      logger
+    });
+    assert.equal(failed.status, 'done');
+    assert.equal(failed.failed, 1);
+    assert.equal(warns.length, 0);
+    assert.equal(logs.length, 2);
+    assert.match(logs[1], /deleted=0 failed=1/);
+    const failSaved = JSON.parse(fs.readFileSync(failFile, 'utf8'));
+    assert.equal(failSaved.panels.news, undefined);
+    assert.equal(failSaved.panels.events.messageId, eventsId);
+    assert.equal(failSaved.retired.news.status, 'done');
+    const failAfter = failFetches;
+    const again = await retireNewsPanel({
+      client: failClient,
+      env: { NEXUS_DATA_DIR: failDir },
+      dir: failDir,
+      logger
+    });
+    assert.equal(again.skipped, true);
+    assert.equal(failFetches, failAfter);
+    assert.equal(logs.length, 2);
+    assert.equal(warns.length, 0);
+    fs.rmSync(failDir, { recursive: true, force: true });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
