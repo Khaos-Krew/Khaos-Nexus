@@ -88,7 +88,9 @@ const RESERVED_FLOOR = Object.freeze([
 // "khaos" alone is not reserved. "nexus" matches the letters-only tag or a
 // camelCase segment, so "Nexus" and "nexus1" are blocked and "Nexus Raider"
 // is not. A token, or the whole letters-only name, is blocked when it is two
-// or more reserved or role words joined together.
+// or more reserved or role words joined together. "owner" also matches a
+// letters-only name that starts or ends with "owner" when 3 or more letters
+// remain, and a repeated-letter collapse of that name back to "owner".
 const SUBSTRING_TERMS = new Set(['admin', 'moderator', 'sentinal', 'sentinel', 'khaosnexus']);
 const WHOLE_WORD_TERMS = new Set([
   'support', 'staff', 'official', 'system', 'verified', 'nexus', 'gm', 'discord',
@@ -311,6 +313,17 @@ function stripXPadding(token) {
   return String(token || '').replace(/^x+|x+$/g, '');
 }
 
+function collapseRepeatedLetters(value) {
+  return String(value || '').replace(/(.)\1+/gu, '$1');
+}
+
+function ownerAffixHit(form) {
+  const name = String(form || '');
+  if (name.startsWith('owner') && name.length - 5 >= 3) return true;
+  if (name.endsWith('owner') && name.length - 5 >= 3) return true;
+  return collapseRepeatedLetters(name) === 'owner';
+}
+
 function wholeWordTokens(value) {
   return letterTokens(value).map(stripXPadding).filter(Boolean);
 }
@@ -386,6 +399,7 @@ function wholeWordTermHit(key, needle) {
   } else if (key.letterTokenSets.some((tokens) => tokens.includes(needle))) {
     return true;
   }
+  if (needle === 'owner' && key.lettersOnlyForms.some(ownerAffixHit)) return true;
   return key.letterTokenSets.some((tokens) => tokens.some((token) => isReservedCompound(token)))
     || key.lettersOnlyForms.some((form) => isReservedCompound(form));
 }

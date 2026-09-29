@@ -270,7 +270,8 @@ test('tag validation covers every catalog game and the abuse rules', () => {
     'Official_Staff', 'officialstaff', 'Staff_1', 'Staff2024', 'GM1', 'D1scord',
     'xStaffx', 'xXStaffXx', 'Staffx', 'Nexus_Bot', 'ModTeam', 'CrewMember', 'BotTeam',
     'Mod_Team', 'modteam', 'crewmember', 'Mod1', 'Mod2024', 'M0d1',
-    'Owner1', 'Sentinelle'
+    'Owner1', 'Sentinelle',
+    'serverowner', 'Serverowner', 'guildowner', 'ownerkirito', 'kiritoowner', 'Ownerr'
   ];
   for (const tag of blockedTags) {
     assert.equal(validateTag({ gameId: 'ark_asa', tag, rules: bypassRules }).reason, 'impersonation', `${tag} => impersonation`);
