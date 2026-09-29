@@ -1,0 +1,47 @@
+[
+  {
+    "id": "steam",
+    "label": "Steam",
+    "hint": "Display name or 17-digit SteamID64. A steamcommunity.com/id or /profiles URL is accepted and stored as the vanity name or SteamID64 only, never as a link."
+  },
+  {
+    "id": "xbox",
+    "label": "Xbox",
+    "hint": "Gamertag up to 12 characters, with an optional #suffix"
+  },
+  {
+    "id": "psn",
+    "label": "PlayStation",
+    "hint": "Online ID, 3–16 characters, starting with a letter, then letters, digits, hyphens, or underscores"
+  },
+  {
+    "id": "nintendo",
+    "label": "Nintendo",
+    "hint": "Friend code SW-XXXX-XXXX-XXXX, a nickname, or SW-XXXX-XXXX-XXXX/nickname with or without spaces around the slash"
+  },
+  {
+    "id": "epic",
+    "label": "Epic Games",
+    "hint": "Display name, 3–16 characters"
+  },
+  {
+    "id": "battlenet",
+    "label": "Battle.net",
+    "hint": "BattleTag Name#1234"
+  },
+  {
+    "id": "ea",
+    "label": "EA",
+    "hint": "EA app ID, 3–16 letters, digits, dots, hyphens, or underscores"
+  },
+  {
+    "id": "ubisoft",
+    "label": "Ubisoft Connect",
+    "hint": "Ubisoft Connect name, 3–16 letters, digits, dots, hyphens, or underscores"
+  },
+  {
+    "id": "riot",
+    "label": "Riot",
+    "hint": "Riot ID Name#TAG"
+  }
+]

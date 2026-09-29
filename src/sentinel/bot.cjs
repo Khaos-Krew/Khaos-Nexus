@@ -307,6 +307,11 @@ async function runAction(interaction, moduleId, actionId, payload = {}) {
 }
 
 async function autocompleteActions(interaction) {
+  if (interaction.commandName === 'card') {
+    const { handleCardInteraction } = require('./card/card-commands.cjs');
+    const deps = interaction.client && interaction.client[Symbol.for('khaos.nexus.playerCard.deps')];
+    return handleCardInteraction(interaction, deps || { isEnabled: () => false });
+  }
   if (interaction.commandName !== 'nexus' || interaction.options.getSubcommand(false) !== 'run') return interaction.respond([]);
   const focused = interaction.options.getFocused(true);
   if (focused.name !== 'action') return interaction.respond([]);
