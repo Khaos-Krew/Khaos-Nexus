@@ -10,7 +10,7 @@ const {
   SlashCommandBuilder
 } = require('discord.js');
 const { isCardAdmin, DISCORD_ID } = require('./card-config.cjs');
-const { catalog, gameById, suggestGames, validateTag } = require('./tag-validate.cjs');
+const { catalog, gameById, platformById, platformCatalog, suggestGames, validatePlatform, validateTag } = require('./tag-validate.cjs');
 const { assembleCardModel, balancesPermitted, buildReaders } = require('./card-model.cjs');
 const { escapeUserText, renderCardEmbed } = require('./card-embed.cjs');
 
@@ -19,6 +19,14 @@ const NO_MENTIONS = Object.freeze({ parse: [] });
 
 function mentionSafe(payload) {
   return { ...payload, allowedMentions: { parse: [] } };
+}
+
+function platformOption(option, required) {
+  return option
+    .setName('platform')
+    .setDescription('Platform account')
+    .setRequired(required)
+    .addChoices(...platformCatalog().map((entry) => ({ name: entry.label, value: entry.id })));
 }
 
 function cardCommandDefinition() {
@@ -52,13 +60,26 @@ function cardCommandDefinition() {
       .setDescription('Hide or show your player card')
       .addBooleanOption((option) => option.setName('hidden').setDescription('Hide your card from other players').setRequired(true)))
     .addSubcommandGroup((group) => group
+      .setName('platform')
+      .setDescription('Link or unlink a Steam, Xbox, PSN, Nintendo, Epic, Battle.net, EA, Ubisoft, or Riot account')
+      .addSubcommand((sub) => sub
+        .setName('link')
+        .setDescription('Add or replace your unverified tag for a platform')
+        .addStringOption((option) => platformOption(option, true))
+        .addStringOption((option) => option.setName('tag').setDescription('Your platform tag. Friend codes stay unverified.').setRequired(true).setMaxLength(96)))
+      .addSubcommand((sub) => sub
+        .setName('unlink')
+        .setDescription('Remove your tag for a platform')
+        .addStringOption((option) => platformOption(option, true))))
+    .addSubcommandGroup((group) => group
       .setName('admin')
       .setDescription('Administrator player-card tools')
       .addSubcommand((sub) => sub
         .setName('clear')
         .setDescription('Remove a player tag. Requires Administrator or the O9 admin allow-list.')
         .addUserOption((option) => option.setName('user').setDescription('Player').setRequired(true))
-        .addStringOption((option) => option.setName('game').setDescription('Game').setRequired(true).setAutocomplete(true))
+        .addStringOption((option) => option.setName('game').setDescription('Game tag to remove').setRequired(false).setAutocomplete(true))
+        .addStringOption((option) => platformOption(option, false))
         .addStringOption((option) => option.setName('reason').setDescription('Why this tag is being removed').setRequired(true).setMinLength(3).setMaxLength(200))));
 }
 
@@ -256,6 +277,79 @@ async function handleLink(interaction, deps) {
   }, { ephemeral: true });
 }
 
+async function handlePlatformLink(interaction, deps) {
+  const viewerId = String(interaction.user.id);
+  const platformId = String(interaction.options.getString('platform') || '');
+  const known = platformById(platformId);
+  const slot = known ? `platform:${known.id}` : 'platform:unknown';
+  const now = clock(deps);
+  const limited = deps.limiters.takeLink(viewerId, slot, now);
+  if (!limited.ok) {
+    await rejectAudit(deps, known ? slot : null, limited.reason);
+    await deliver(interaction, { content: 'You are linking tags too quickly. Try again later.' }, { ephemeral: true });
+    return;
+  }
+  const validated = validatePlatform({ platformId, tag: interaction.options.getString('tag') });
+  if (!validated.ok) {
+    await rejectAudit(deps, validated.platform ? `platform:${validated.platform}` : null, validated.reason);
+    await deliver(interaction, { content: 'That platform tag was not saved. Check the format and try a different tag.' }, { ephemeral: true });
+    return;
+  }
+  const saved = await deps.store.setPlatform(viewerId, validated.platform, { tag: validated.tag });
+  if (!saved.ok) {
+    await rejectAudit(deps, `platform:${validated.platform}`, saved.reason);
+    await deliver(interaction, { content: 'That platform tag was not saved.' }, { ephemeral: true });
+    return;
+  }
+  await deps.audit.append({
+    actorId: viewerId,
+    targetId: viewerId,
+    game: `platform:${validated.platform}`,
+    action: 'link',
+    oldTag: saved.oldTag,
+    newTag: saved.tag.tag,
+    reason: 'ok'
+  });
+  const label = platformById(validated.platform)?.label || validated.platform;
+  await deliver(interaction, {
+    content: `Saved **${escapeUserText(label)}** as unverified:\n${escapeUserText(saved.tag.tag)}`
+  }, { ephemeral: true });
+}
+
+async function handlePlatformUnlink(interaction, deps) {
+  const viewerId = String(interaction.user.id);
+  const platformId = String(interaction.options.getString('platform') || '');
+  const known = platformById(platformId);
+  const slot = known ? `platform:${known.id}` : 'platform:unknown';
+  const now = clock(deps);
+  const limited = deps.limiters.takeLink(viewerId, slot, now);
+  if (!limited.ok) {
+    await rejectAudit(deps, known ? slot : null, limited.reason);
+    await deliver(interaction, { content: 'You are changing tags too quickly. Try again later.' }, { ephemeral: true });
+    return;
+  }
+  if (!known) {
+    await rejectAudit(deps, null, 'unknown-platform');
+    await deliver(interaction, { content: 'That platform is not in the card catalog.' }, { ephemeral: true });
+    return;
+  }
+  const removed = await deps.store.removePlatform(viewerId, known.id);
+  if (!removed.ok) {
+    await deliver(interaction, { content: 'You do not have a tag for that platform.' }, { ephemeral: true });
+    return;
+  }
+  await deps.audit.append({
+    actorId: viewerId,
+    targetId: viewerId,
+    game: `platform:${known.id}`,
+    action: 'unlink',
+    oldTag: removed.removed.tag,
+    newTag: null,
+    reason: 'ok'
+  });
+  await deliver(interaction, { content: `Removed your **${escapeUserText(known.label)}** tag.` }, { ephemeral: true });
+}
+
 async function handleUnlink(interaction, deps) {
   const viewerId = String(interaction.user.id);
   const gameId = String(interaction.options.getString('game') || '');
@@ -289,15 +383,27 @@ async function handleUnlink(interaction, deps) {
   await deliver(interaction, { content: `Removed your **${escapeUserText(known.label)}** tag.` }, { ephemeral: true });
 }
 
+function catalogLines(entries, labelFor) {
+  return entries.map((entry) => `${escapeUserText(labelFor(entry))}: ${escapeUserText(entry.tag)} (unverified)`);
+}
+
 async function handleTags(interaction, deps) {
-  const lines = deps.store.listTags(interaction.user.id).map((entry) => {
-    const label = entry.gameId === 'other' ? (entry.game || 'Other') : (knownGame(deps, entry.gameId)?.label || entry.gameId);
-    return `${escapeUserText(label)}: ${escapeUserText(entry.tag)} (unverified)`;
-  });
+  const games = catalogLines(deps.store.listTags(interaction.user.id), (entry) => (
+    entry.gameId === 'other' ? (entry.game || 'Other') : (knownGame(deps, entry.gameId)?.label || entry.gameId)
+  ));
+  const platforms = catalogLines(
+    platformCatalog()
+      .map((entry) => deps.store.listPlatforms(interaction.user.id).find((item) => item.platformId === entry.id))
+      .filter(Boolean),
+    (entry) => platformById(entry.platformId)?.label || entry.platformId
+  );
+  const sections = [];
+  if (games.length) sections.push(`Games:\n${games.join('\n')}`);
+  if (platforms.length) sections.push(`Platforms:\n${platforms.join('\n')}`);
   await deliver(interaction, {
-    content: lines.length
-      ? `Your gamer tags:\n${lines.join('\n')}\n\nLink again for the same game to replace a tag.`
-      : 'You have no gamer tags yet. Use `/card link` to add one. Tags stay unverified.'
+    content: sections.length
+      ? `${sections.join('\n\n')}\n\nLink again for the same game or platform to replace a tag. Tags stay unverified.`
+      : 'You have no gamer tags yet. Use `/card link` for a game and `/card platform link` for a platform. Tags stay unverified.'
   }, { ephemeral: true });
 }
 
@@ -330,9 +436,40 @@ async function handleAdminClear(interaction, deps) {
   }
   const target = interaction.options.getUser('user', true);
   const gameId = String(interaction.options.getString('game') || '');
+  const platformId = String(interaction.options.getString('platform') || '');
+  if (!DISCORD_ID.test(String(target?.id || '')) || Boolean(gameId) === Boolean(platformId)) {
+    await deliver(interaction, { content: 'Choose one game or one platform to clear.' }, { ephemeral: true });
+    return;
+  }
+  if (platformId) {
+    const known = platformById(platformId);
+    if (!known) {
+      await rejectAudit(deps, null, 'unknown-platform');
+      await deliver(interaction, { content: 'That player or platform could not be cleared.' }, { ephemeral: true });
+      return;
+    }
+    const removed = await deps.store.removePlatform(target.id, known.id);
+    if (!removed.ok) {
+      await deliver(interaction, { content: 'That player does not have a tag for that platform.' }, { ephemeral: true });
+      return;
+    }
+    await deps.audit.append({
+      actorId: String(interaction.user.id),
+      targetId: String(target.id),
+      game: `platform:${known.id}`,
+      action: 'admin-clear',
+      oldTag: removed.removed.tag,
+      newTag: null,
+      reason
+    });
+    await deliver(interaction, {
+      content: `Removed the **${escapeUserText(known.label)}** tag for ${escapeUserText(target.username || 'that player')}.`
+    }, { ephemeral: true });
+    return;
+  }
   const known = knownGame(deps, gameId);
-  if (!known || !DISCORD_ID.test(String(target?.id || ''))) {
-    await rejectAudit(deps, known ? known.id : null, 'unknown-game');
+  if (!known) {
+    await rejectAudit(deps, null, 'unknown-game');
     await deliver(interaction, { content: 'That player or game could not be cleared.' }, { ephemeral: true });
     return;
   }
@@ -438,7 +575,7 @@ async function dispatch(interaction, deps) {
   }
   if (interaction.isButton?.() && interaction.customId === 'card:tags') {
     await deliver(interaction, {
-      content: 'Use `/card link` to add or replace a tag, `/card unlink` to remove one, and `/card tags` to list them. Tags are self-reported and stay unverified.'
+      content: 'Use `/card link` for a game and `/card platform link` for a platform account. `/card unlink` and `/card platform unlink` remove them. `/card tags` lists them. Tags stay unverified.'
     }, { ephemeral: true });
     return;
   }
@@ -456,6 +593,8 @@ async function dispatch(interaction, deps) {
     await handleAdminClear(interaction, deps);
     return;
   }
+  if (group === 'platform' && sub === 'link') return handlePlatformLink(interaction, deps);
+  if (group === 'platform' && sub === 'unlink') return handlePlatformUnlink(interaction, deps);
   if (sub === 'show') {
     const selected = interaction.options.getUser('user');
     await handleShow(interaction, deps, {

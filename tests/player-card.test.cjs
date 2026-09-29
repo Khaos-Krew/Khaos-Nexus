@@ -14,7 +14,9 @@ const { CardAuditLog, dayStamp } = require('../src/sentinel/card/card-audit.cjs'
 const { createRateLimiters } = require('../src/sentinel/card/rate-limit.cjs');
 const {
   catalog,
+  platformCatalog,
   suggestGames,
+  validatePlatform,
   validateTag,
   canAddTag,
   TAG_CAP
@@ -439,12 +441,14 @@ test('card model degrades when each source is down', async () => {
     rank: { unavailable: true },
     cosmetics: { unavailable: true },
     tags: { unavailable: true },
+    platforms: { unavailable: true },
     balances: { unavailable: true }
   }, { globalName: '*Ada*', username: 'Ada' });
   assert.equal(field(embed, 'Level').value, 'unavailable');
   assert.equal(field(embed, 'Rank').value, 'unavailable');
   assert.equal(field(embed, 'Theme').value, 'unavailable');
-  assert.equal(field(embed, 'Gamer Tags').value, 'unavailable');
+  assert.equal(field(embed, 'Games').value, 'unavailable');
+  assert.equal(field(embed, 'Platforms').value, 'unavailable');
   assert.equal(field(embed, 'Balances').value, 'unavailable');
   assert.equal(embed.color, 0xb00020);
   assert.equal(embed.title, undefined);
@@ -726,14 +730,21 @@ test('link, unlink, tags, privacy, autocomplete, and admin clear', async () => {
 test('slash command tree, context menu, and feature flag wiring', () => {
   const json = cardCommandDefinition().toJSON();
   const names = json.options.map((option) => option.name);
-  assert.deepEqual(names, ['show', 'link', 'unlink', 'tags', 'privacy', 'admin']);
+  assert.deepEqual(names, ['show', 'link', 'unlink', 'tags', 'privacy', 'platform', 'admin']);
   const show = json.options.find((option) => option.name === 'show');
   assert.equal(show.options[0].name, 'user');
   assert.equal(show.options[0].required, false);
   const link = json.options.find((option) => option.name === 'link');
   assert.equal(link.options.find((option) => option.name === 'game').autocomplete, true);
+  const platform = json.options.find((option) => option.name === 'platform');
+  assert.deepEqual(platform.options.map((option) => option.name), ['link', 'unlink']);
+  const platformLink = platform.options.find((option) => option.name === 'link');
+  assert.equal(platformLink.options.find((option) => option.name === 'platform').required, true);
+  assert.equal(platformLink.options.find((option) => option.name === 'platform').choices.length, platformCatalog().length);
   const admin = json.options.find((option) => option.name === 'admin').options[0];
   assert.equal(admin.name, 'clear');
+  assert.equal(admin.options.find((option) => option.name === 'game').required, false);
+  assert.equal(admin.options.find((option) => option.name === 'platform').required, false);
   assert.equal(json.default_member_permissions, undefined);
   const menu = viewCardContextMenu().toJSON();
   assert.equal(menu.name, 'View Card');
@@ -824,4 +835,203 @@ test('login continues when the card directory cannot be written', () => {
     encoding: 'utf8'
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test('platform validators cover every platform format and the impersonation checks', () => {
+  const platforms = platformCatalog();
+  const good = {
+    steam: 'Nova Prime',
+    xbox: 'MajorNelson',
+    psn: 'Abc_Player',
+    nintendo: 'SW-1234-5678-9012',
+    epic: 'EpicName',
+    battlenet: 'Kirito#1234',
+    ea: 'Player.One',
+    ubisoft: 'NightWolf',
+    riot: 'Night Wolf#TAG'
+  };
+  assert.deepEqual(Object.keys(good).sort(), platforms.map((entry) => entry.id).sort());
+  for (const [platformId, tag] of Object.entries(good)) {
+    const result = validatePlatform({ platformId, tag });
+    assert.equal(result.ok, true, `${platformId} ${tag} (${result.reason})`);
+    assert.equal(result.verified, false);
+  }
+  const steamId = validatePlatform({ platformId: 'steam', tag: '76561198000000000' });
+  assert.equal(steamId.tag, '76561198000000000');
+  const steamUrl = validatePlatform({ platformId: 'steam', tag: 'https://steamcommunity.com/id/Nova_One/' });
+  assert.equal(steamUrl.tag, 'https://steamcommunity.com/id/Nova_One');
+  const steamProfiles = validatePlatform({ platformId: 'steam', tag: 'steamcommunity.com/profiles/76561198000000000' });
+  assert.equal(steamProfiles.tag, 'https://steamcommunity.com/profiles/76561198000000000');
+  assert.equal(validatePlatform({ platformId: 'steam', tag: 'https://evil.example/id/Nova' }).ok, false);
+  assert.equal(validatePlatform({ platformId: 'xbox', tag: 'Ada#1234' }).ok, true);
+  assert.equal(validatePlatform({ platformId: 'xbox', tag: 'ThisNameIsLong' }).reason, 'pattern');
+  assert.equal(validatePlatform({ platformId: 'psn', tag: '1abc' }).ok, true);
+  assert.equal(validatePlatform({ platformId: 'psn', tag: 'ab' }).reason, 'pattern');
+  const friend = validatePlatform({ platformId: 'nintendo', tag: 'sw-1234-5678-9012' });
+  assert.equal(friend.tag, 'SW-1234-5678-9012');
+  const both = validatePlatform({ platformId: 'nintendo', tag: 'Kirito sw-1111-2222-3333' });
+  assert.equal(both.tag, 'Kirito SW-1111-2222-3333');
+  assert.equal(validatePlatform({ platformId: 'nintendo', tag: 'Kirito' }).ok, true);
+  assert.equal(validatePlatform({ platformId: 'nintendo', tag: 'SW-1234' }).reason, 'pattern');
+  assert.equal(validatePlatform({ platformId: 'nintendo', tag: 'SW-1234-5678-90123' }).reason, 'pattern');
+  assert.equal(validatePlatform({ platformId: 'battlenet', tag: 'Ki#1234' }).reason, 'pattern');
+  assert.equal(validatePlatform({ platformId: 'ea', tag: 'ab' }).reason, 'pattern');
+  assert.equal(validatePlatform({ platformId: 'ubisoft', tag: 'a' }).reason, 'pattern');
+  assert.equal(validatePlatform({ platformId: 'riot', tag: 'Kirito#AB' }).reason, 'pattern');
+  assert.equal(validatePlatform({ platformId: 'epic', tag: 'ab' }).reason, 'pattern');
+  const bypassRules = { slurs: [], mild: [], impersonation: [], staffNames: [] };
+  const bypasses = [
+    ['steam', 'SentinalSupport'],
+    ['epic', 'OfficialStaff'],
+    ['xbox', 'Sentina1'],
+    ['riot', '\u0391dmin#TAG']
+  ];
+  for (const [platformId, tag] of bypasses) {
+    const result = validatePlatform({ platformId, tag, rules: bypassRules });
+    assert.equal(result.ok, false, tag);
+    assert.equal(result.reason, 'impersonation', `${tag} => ${result.reason}`);
+  }
+  for (const tag of ['Kirito', 'NightWolf']) {
+    assert.equal(validatePlatform({ platformId: 'epic', tag, rules: bypassRules }).ok, true, tag);
+  }
+  assert.equal(validatePlatform({ platformId: 'nope', tag: 'Kirito' }).reason, 'unknown-platform');
+});
+
+test('platform accounts render apart from games, stay unverified, and follow privacy', async () => {
+  const dir = tempDir();
+  const store = new JsonCardStore(path.join(dir, 'cards.json'));
+  const games = catalog().filter((entry) => entry.id !== 'other').slice(0, TAG_CAP);
+  for (const game of games) await store.setTag(VIEWER, game.id, { tag: 'OkName' });
+  assert.equal(Object.keys(store.getUser(VIEWER).tags).length, TAG_CAP);
+  const saved = await store.setPlatform(VIEWER, 'steam', { tag: '76561198000000000', verified: true });
+  assert.equal(saved.ok, true);
+  assert.equal(store.getUser(VIEWER).platforms.steam.verified, false);
+  assert.equal(store.getUser(VIEWER).platforms.steam.tag, '76561198000000000');
+  await store.setPlatform(VIEWER, 'nintendo', { tag: 'SW-1234-5678-9012' });
+  await store.setPlatform(OTHER, 'nintendo', { tag: 'SW-9999-8888-7777' });
+
+  const own = await assembleCardModel({
+    viewerId: VIEWER,
+    targetUserId: VIEWER,
+    allowBalances: true,
+    timeoutMs: 200,
+    readers: {
+      prefs: async () => store.getUser(VIEWER),
+      xp: async () => levelFromXp(100),
+      rank: async () => ({ name: 'Shadow Recruit' }),
+      cosmetics: async () => ({ title: null, themeLabel: null, color: null }),
+      balances: async () => ({ coins: 9, points: 8, cacheTokens: 7 })
+    }
+  });
+  const ownEmbed = renderCardEmbed(own, { username: 'Ada' });
+  assert.match(field(ownEmbed, 'Games').value, /Warframe|ARK|Minecraft|Steam/);
+  assert.match(field(ownEmbed, 'Platforms').value, /Nintendo: SW-1234-5678-9012 \(unverified\)/);
+  assert.doesNotMatch(field(ownEmbed, 'Games').value, /SW-1234-5678-9012/);
+  assert.ok(field(ownEmbed, 'Balances'));
+
+  const marked = renderCardEmbed({
+    hidden: false,
+    viewerId: OTHER,
+    targetUserId: VIEWER,
+    allowBalances: false,
+    level: { unavailable: false, level: 2, xp: 100, nextLevelXp: 400, progressPercent: 0 },
+    rank: { unavailable: false, name: 'Shadow Recruit' },
+    cosmetics: { unavailable: false, title: null },
+    tags: { warframe: { tag: 'Nova_One', verified: false } },
+    platforms: { steam: { tag: '*Ada*', verified: true }, nintendo: { tag: 'SW-1234-5678-9012', verified: false } },
+    balances: { coins: 9, points: 1, cacheTokens: 0 }
+  }, { username: 'Ada' });
+  assert.equal(field(marked, 'Games').value, `Warframe: ${escapeUserText('Nova_One')} (unverified)`);
+  assert.match(field(marked, 'Platforms').value, /Nintendo: SW-1234-5678-9012 \(unverified\)/);
+  assert.match(field(marked, 'Platforms').value, new RegExp(`Steam: ${escapeUserText('*Ada*').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\(unverified\\)`));
+  assert.notEqual(field(marked, 'Platforms').value.includes('*Ada*'), field(marked, 'Platforms').value.includes(escapeUserText('*Ada*')));
+  assert.equal(field(marked, 'Balances'), null);
+  assert.equal(renderCardEmbed({ hidden: true, platforms: { nintendo: { tag: 'SW-1234-5678-9012' } } }, { username: 'Ada' }), null);
+
+  const hidden = await assembleCardModel({
+    viewerId: OTHER,
+    targetUserId: VIEWER,
+    allowBalances: true,
+    timeoutMs: 200,
+    readers: {
+      prefs: async () => ({ ...store.getUser(VIEWER), hidden: true }),
+      xp: async () => levelFromXp(0),
+      rank: async () => ({ name: 'Shadow Recruit' }),
+      cosmetics: async () => ({ title: null }),
+      balances: async () => ({ coins: 1, points: 1, cacheTokens: 1 })
+    }
+  });
+  assert.equal(JSON.stringify(hidden).includes('SW-1234'), false);
+
+  const audit = new CardAuditLog(path.join(dir, 'audit'));
+  const limiters = createRateLimiters({ linkLimit: 5, linkWindowMs: 600_000, perGameWindowMs: 60_000, dailyLimit: 20, viewCooldownMs: 0, channelWindowMs: 0 });
+  let now = 200_000;
+  const deps = () => depsWith(dir, { store, audit, limiters, now: now += 1 });
+  const link = mockInteraction({
+    options: {
+      getSubcommand: () => 'link',
+      getSubcommandGroup: () => 'platform',
+      getUser: () => null,
+      getString: (name) => ({ platform: 'ea', tag: 'Player.One' }[name] || null),
+      getBoolean: () => null,
+      getFocused: () => ({ name: 'game', value: '' })
+    }
+  });
+  await handleCardInteraction(link, deps());
+  assertMentionsSafe(link);
+  assert.match(link.calls.at(-1).payload.content, /unverified/);
+  assert.equal(store.getUser(VIEWER).platforms.ea.verified, false);
+  const lines = fs.readFileSync(path.join(dir, 'audit', fs.readdirSync(path.join(dir, 'audit'))[0]), 'utf8');
+  assert.match(lines, /platform:ea/);
+
+  const again = mockInteraction({
+    options: {
+      getSubcommand: () => 'link',
+      getSubcommandGroup: () => 'platform',
+      getUser: () => null,
+      getString: (name) => ({ platform: 'ea', tag: 'Other.Name' }[name] || null),
+      getBoolean: () => null,
+      getFocused: () => ({ name: 'game', value: '' })
+    }
+  });
+  await handleCardInteraction(again, depsWith(dir, { store, audit, limiters, now }));
+  assert.match(again.calls.at(-1).payload.content, /too quickly/);
+
+  now += 70_000;
+  const unlink = mockInteraction({
+    options: {
+      getSubcommand: () => 'unlink',
+      getSubcommandGroup: () => 'platform',
+      getUser: () => null,
+      getString: (name) => (name === 'platform' ? 'ea' : null),
+      getBoolean: () => null,
+      getFocused: () => ({ name: 'game', value: '' })
+    }
+  });
+  await handleCardInteraction(unlink, deps());
+  assertMentionsSafe(unlink);
+  assert.equal(store.getUser(VIEWER).platforms.ea, undefined);
+
+  const pub = mockInteraction({
+    options: {
+      getSubcommand: () => 'show',
+      getSubcommandGroup: () => null,
+      getUser: () => ({ id: OTHER, username: 'Bea', bot: false }),
+      getString: () => null,
+      getBoolean: () => null,
+      getFocused: () => ({ name: 'game', value: '' })
+    }
+  });
+  await handleCardInteraction(pub, depsWith(dir, { store, audit, limiters: createRateLimiters({ viewCooldownMs: 0, channelWindowMs: 0 }), now: now + 10 }));
+  assertMentionsSafe(pub);
+  assert.match(field(embedOf(pub), 'Platforms').value, /SW-9999-8888-7777/);
+  assert.equal(field(embedOf(pub), 'Balances'), null);
+
+  await store.setHidden(OTHER, true);
+  const blocked = mockInteraction({
+    options: pub.options
+  });
+  await handleCardInteraction(blocked, depsWith(dir, { store, audit, limiters: createRateLimiters({ viewCooldownMs: 0, channelWindowMs: 0 }), now: now + 20 }));
+  assert.match(blocked.calls.find((call) => call.method === 'reply').payload.content, /hidden/);
+  assert.equal(JSON.stringify(blocked.calls).includes('SW-9999'), false);
 });

@@ -5,6 +5,7 @@ const path = require('node:path');
 
 const TAG_CAP = 12;
 const CATALOG_PATH = path.join(__dirname, 'games.catalog.json');
+const PLATFORM_PATH = path.join(__dirname, 'platforms.catalog.json');
 const POLICY_PATH = path.join(__dirname, 'tag-policy.json');
 
 const LEET = Object.freeze({
@@ -80,6 +81,7 @@ const RESERVED_FLOOR = Object.freeze([
 ]);
 
 let catalogCache = null;
+let platformCache = null;
 let policyCache = null;
 
 function loadCatalog(file = CATALOG_PATH) {
@@ -114,6 +116,23 @@ function policy(file) {
 
 function gameById(gameId, games = catalog()) {
   return games.find((entry) => entry.id === String(gameId || '')) || null;
+}
+
+function loadPlatforms(file = PLATFORM_PATH) {
+  const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (!Array.isArray(parsed) || !parsed.length) throw new Error('Platform catalog must be a non-empty array.');
+  return parsed.map((entry) => Object.freeze({ ...entry }));
+}
+
+function platformCatalog(file) {
+  if (!file && platformCache) return platformCache;
+  const loaded = loadPlatforms(file || PLATFORM_PATH);
+  if (!file) platformCache = loaded;
+  return loaded;
+}
+
+function platformById(platformId, platforms = platformCatalog()) {
+  return platforms.find((entry) => entry.id === String(platformId || '')) || null;
 }
 
 function suggestGames(query, games = catalog()) {
@@ -265,7 +284,14 @@ function impersonationReason(value, rules) {
   return null;
 }
 
-function structuralReason(raw) {
+function steamProfileText(value) {
+  const match = /^(?:https?:\/\/)?steamcommunity\.com\/(?:profiles\/(\d{17})|id\/([A-Za-z0-9_-]{2,32}))\/?$/i.exec(value);
+  if (!match) return null;
+  if (match[1]) return `https://steamcommunity.com/profiles/${match[1]}`;
+  return `https://steamcommunity.com/id/${match[2]}`;
+}
+
+function structuralReason(raw, { allowSteamProfile = false } = {}) {
   const original = String(raw ?? '');
   let nfkc;
   try { nfkc = original.normalize('NFKC'); } catch { return { ok: false, reason: 'forbidden-char' }; }
@@ -274,10 +300,86 @@ function structuralReason(raw) {
   if (nfkc.trim() === '') return { ok: false, reason: 'empty' };
   if (nfkc !== nfkc.trim() || /\s{2,}/.test(nfkc)) return { ok: false, reason: 'spacing' };
   if (hasMention(nfkc)) return { ok: false, reason: 'mention' };
-  if (hasUrl(nfkc)) return { ok: false, reason: 'url' };
+  if (hasUrl(nfkc) && !(allowSteamProfile && steamProfileText(nfkc))) return { ok: false, reason: 'url' };
   if (hasMarkdown(nfkc)) return { ok: false, reason: 'markdown' };
   if (nfkc.startsWith('#')) return { ok: false, reason: 'leading-hash' };
   return { ok: true, value: nfkc };
+}
+
+function abuseReason(value, rules) {
+  return denylistReason(value, rules) || impersonationReason(value, rules);
+}
+
+function acceptPattern(value, pattern) {
+  if (!matchesPattern(value, pattern)) return { ok: false, reason: 'pattern' };
+  return { ok: true, value };
+}
+
+function normalizeSteam(value) {
+  const profile = steamProfileText(value);
+  if (profile) return { ok: true, value: profile };
+  if (/^\d{17}$/.test(value)) return { ok: true, value };
+  return acceptPattern(value, '^[\\p{L}\\p{N}_.\'# -]{2,32}$');
+}
+
+function normalizeXbox(value) {
+  const match = /^([\p{L}\p{N}](?:[\p{L}\p{N} ]{0,10}[\p{L}\p{N}])?)(?:#(\d{1,4}))?$/u.exec(value);
+  if (!match) return { ok: false, reason: 'pattern' };
+  const base = match[1];
+  if (base.length > 12) return { ok: false, reason: 'pattern' };
+  return { ok: true, value: match[2] ? `${base}#${match[2]}` : base };
+}
+
+function normalizeNintendo(value) {
+  const friend = /^SW-(\d{4})-(\d{4})-(\d{4})$/i.exec(value);
+  if (friend) return { ok: true, value: `SW-${friend[1]}-${friend[2]}-${friend[3]}` };
+  if (/^SW[-\d]*$/i.test(value)) return { ok: false, reason: 'pattern' };
+  const both = /^(.+) (SW-\d{4}-\d{4}-\d{4})$/i.exec(value);
+  if (both) {
+    const nick = acceptPattern(both[1], '^[\\p{L}\\p{N}][\\p{L}\\p{N}_.\' -]{0,15}$');
+    const code = normalizeNintendo(both[2]);
+    if (!nick.ok || !code.ok || nick.value.length > 16) return { ok: false, reason: 'pattern' };
+    return { ok: true, value: `${nick.value} ${code.value}` };
+  }
+  const nick = acceptPattern(value, '^[\\p{L}\\p{N}][\\p{L}\\p{N}_.\' -]{0,15}$');
+  if (!nick.ok || nick.value.length > 16) return { ok: false, reason: 'pattern' };
+  return nick;
+}
+
+function normalizeRiot(value) {
+  const hash = value.lastIndexOf('#');
+  if (hash <= 0) return { ok: false, reason: 'pattern' };
+  const name = value.slice(0, hash);
+  const tag = value.slice(hash + 1);
+  if (!/^[\p{L}\p{N}]{3,5}$/u.test(tag)) return { ok: false, reason: 'pattern' };
+  if (name.length < 3 || name.length > 16) return { ok: false, reason: 'pattern' };
+  if (!/^[\p{L}\p{N}](?:[\p{L}\p{N} ]*[\p{L}\p{N}])?$/u.test(name)) return { ok: false, reason: 'pattern' };
+  return { ok: true, value: `${name}#${tag}` };
+}
+
+function normalizePlatformValue(platformId, value) {
+  if (platformId === 'steam') return normalizeSteam(value);
+  if (platformId === 'xbox') return normalizeXbox(value);
+  if (platformId === 'psn') return acceptPattern(value, '^[A-Za-z0-9_-]{3,16}$');
+  if (platformId === 'nintendo') return normalizeNintendo(value);
+  if (platformId === 'epic') return acceptPattern(value, '^[\\p{L}\\p{N}_.\' -]{3,16}$');
+  if (platformId === 'battlenet') return acceptPattern(value, '^[\\p{L}][\\p{L}\\p{N}]{2,11}#\\d{4,6}$');
+  if (platformId === 'ea' || platformId === 'ubisoft') return acceptPattern(value, '^[A-Za-z0-9][A-Za-z0-9._-]{2,15}$');
+  if (platformId === 'riot') return normalizeRiot(value);
+  return { ok: false, reason: 'pattern' };
+}
+
+function validatePlatform({ platformId, tag, platforms = platformCatalog(), rules = policy() } = {}) {
+  const entry = platformById(platformId, platforms);
+  if (!entry) return { ok: false, reason: 'unknown-platform', platform: null };
+  const ruleset = rules || policy();
+  const structural = structuralReason(tag, { allowSteamProfile: entry.id === 'steam' });
+  if (!structural.ok) return { ok: false, reason: structural.reason, platform: entry.id };
+  const normalized = normalizePlatformValue(entry.id, structural.value);
+  if (!normalized.ok) return { ok: false, reason: normalized.reason, platform: entry.id };
+  const abuse = abuseReason(normalized.value, ruleset);
+  if (abuse) return { ok: false, reason: abuse, platform: entry.id };
+  return { ok: true, platform: entry.id, tag: normalized.value, verified: false };
 }
 
 function matchesPattern(value, pattern) {
@@ -330,14 +432,18 @@ function validateTag({ gameId, tag, name = '', games = catalog(), rules = policy
 module.exports = {
   TAG_CAP,
   CATALOG_PATH,
+  PLATFORM_PATH,
   POLICY_PATH,
   loadCatalog,
   loadPolicy,
   catalog,
+  platformCatalog,
   policy,
   gameById,
+  platformById,
   suggestGames,
   canAddTag,
   validateTag,
+  validatePlatform,
   foldedForms
 };

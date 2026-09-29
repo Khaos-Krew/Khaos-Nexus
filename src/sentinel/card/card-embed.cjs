@@ -2,7 +2,7 @@
 
 const { escapeMarkdown } = require('discord.js');
 const { DEFAULT_COLOR } = require('./card-config.cjs');
-const { catalog, gameById } = require('./tag-validate.cjs');
+const { catalog, gameById, platformCatalog, platformById } = require('./tag-validate.cjs');
 
 const FOOTER = 'Khaos Nexus • Many Worlds — One Nexus • Tags are self-reported.';
 const TAG_DISPLAY_CAP = 12;
@@ -75,6 +75,20 @@ function tagsField(tags, games) {
   return lines.length ? lines.join('\n') : 'None';
 }
 
+function platformLine(platformId, record, platforms) {
+  const label = platformById(platformId, platforms)?.label || platformId;
+  return `${escapeUserText(label)}: ${escapeUserText(record.tag || '')} (unverified)`;
+}
+
+function platformsField(platforms, catalogEntries) {
+  if (platforms?.unavailable) return 'unavailable';
+  const source = platforms && typeof platforms === 'object' ? platforms : {};
+  const ordered = catalogEntries.map((entry) => entry.id).filter((id) => source[id]);
+  const extras = Object.keys(source).filter((id) => !ordered.includes(id));
+  const lines = [...ordered, ...extras].map((id) => platformLine(id, source[id], catalogEntries));
+  return lines.length ? lines.join('\n') : 'None';
+}
+
 function themeField(cosmetics) {
   if (!cosmetics || cosmetics.unavailable) return 'unavailable';
   if (!cosmetics.themeLabel) return 'Default';
@@ -97,7 +111,7 @@ function showBalances(model) {
     && model.balances != null;
 }
 
-function renderCardEmbed(model, user, games = catalog()) {
+function renderCardEmbed(model, user, games = catalog(), platforms = platformCatalog()) {
   if (!model || model.hidden) return null;
   const cosmetics = model.cosmetics || {};
   const color = !cosmetics.unavailable && Number.isInteger(cosmetics.color) ? cosmetics.color : DEFAULT_COLOR;
@@ -106,7 +120,8 @@ function renderCardEmbed(model, user, games = catalog()) {
     { name: 'Level', value: levelField(model.level).slice(0, 1024), inline: false },
     { name: 'Rank', value: (model.rank?.unavailable ? 'unavailable' : escapeUserText(model.rank?.name || 'unavailable')).slice(0, 1024), inline: true },
     { name: 'Theme', value: themeField(cosmetics).slice(0, 1024), inline: true },
-    { name: 'Gamer Tags', value: tagsField(model.tags, games).slice(0, 1024), inline: false }
+    { name: 'Games', value: tagsField(model.tags, games).slice(0, 1024), inline: false },
+    { name: 'Platforms', value: platformsField(model.platforms, platforms).slice(0, 1024), inline: false }
   ];
   if (showBalances(model)) {
     fields.push({ name: 'Balances', value: balancesField(model.balances).slice(0, 1024), inline: false });

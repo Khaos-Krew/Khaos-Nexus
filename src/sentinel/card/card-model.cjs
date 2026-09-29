@@ -49,6 +49,7 @@ function filterForViewer(model, { viewerId, targetUserId, allowBalances = false 
     rank: model?.rank || unavailable(),
     cosmetics: model?.cosmetics || unavailable(),
     tags: model?.tags?.unavailable ? unavailable() : (model?.tags || {}),
+    platforms: model?.platforms?.unavailable ? unavailable() : (model?.platforms || {}),
     balances: permitted ? (model?.balances || unavailable()) : null
   };
 }
@@ -87,6 +88,7 @@ async function assembleCardModel({
     rank: rank.ok ? { unavailable: false, ...rank.value } : unavailable(rank.reason),
     cosmetics: cosmetics.ok ? { unavailable: false, ...cosmetics.value } : unavailable(cosmetics.reason),
     tags: prefs.ok ? (prefs.value?.tags || {}) : unavailable(prefs.reason),
+    platforms: prefs.ok ? (prefs.value?.platforms || {}) : unavailable(prefs.reason),
     balances: wantBalances
       ? (balances.ok ? { unavailable: false, ...balances.value } : unavailable(balances.reason))
       : null

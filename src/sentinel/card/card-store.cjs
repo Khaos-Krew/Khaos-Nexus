@@ -6,6 +6,7 @@ const { TAG_CAP } = require('./tag-validate.cjs');
 
 const DISCORD_ID = /^\d{15,24}$/;
 const GAME_ID = /^[a-z0-9_]{1,32}$/;
+const PLATFORM_TAG_MAX = 96;
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -119,9 +120,24 @@ class JsonCardStore {
       }
       tags[gameId] = entry;
     }
+    const platforms = {};
+    const platformSource = record.platforms && typeof record.platforms === 'object' && !Array.isArray(record.platforms)
+      ? record.platforms
+      : {};
+    for (const [platformId, value] of Object.entries(platformSource)) {
+      if (!GAME_ID.test(platformId) || !value || typeof value !== 'object') continue;
+      const tag = String(value.tag || '');
+      if (!tag || tag.length > PLATFORM_TAG_MAX) continue;
+      platforms[platformId] = {
+        tag,
+        verified: false,
+        updatedAt: String(value.updatedAt || '') || null
+      };
+    }
     return {
       hidden: record.hidden === true,
       tags,
+      platforms,
       updatedAt: String(record.updatedAt || '') || null,
       userId
     };
@@ -136,6 +152,7 @@ class JsonCardStore {
       payload.users[userId] = {
         hidden: record.hidden === true,
         tags: clone(record.tags),
+        platforms: clone(record.platforms || {}),
         updatedAt: record.updatedAt
       };
     }
@@ -144,7 +161,7 @@ class JsonCardStore {
 
   #ensure(userId) {
     if (!this.state.users[userId]) {
-      this.state.users[userId] = { hidden: false, tags: {}, updatedAt: null, userId };
+      this.state.users[userId] = { hidden: false, tags: {}, platforms: {}, updatedAt: null, userId };
     }
     return this.state.users[userId];
   }
@@ -152,8 +169,13 @@ class JsonCardStore {
   getUser(userId) {
     const id = assertDiscordId(userId);
     const record = this.state.users[id];
-    if (!record) return { hidden: false, tags: {}, updatedAt: null };
-    return { hidden: record.hidden === true, tags: clone(record.tags), updatedAt: record.updatedAt };
+    if (!record) return { hidden: false, tags: {}, platforms: {}, updatedAt: null };
+    return {
+      hidden: record.hidden === true,
+      tags: clone(record.tags),
+      platforms: clone(record.platforms || {}),
+      updatedAt: record.updatedAt
+    };
   }
 
   listTags(userId) {
@@ -198,6 +220,43 @@ class JsonCardStore {
       user.updatedAt = new Date(this.now()).toISOString();
       this.#persist();
       return { ok: true, game, removed };
+    });
+  }
+
+  listPlatforms(userId) {
+    const user = this.getUser(userId);
+    return Object.entries(user.platforms).map(([platformId, value]) => ({ platformId, ...value }));
+  }
+
+  async setPlatform(userId, platformId, input = {}) {
+    const id = assertDiscordId(userId);
+    const platform = assertGameId(platformId);
+    const tag = String(input.tag || '');
+    if (!tag || tag.length > PLATFORM_TAG_MAX) return { ok: false, reason: 'pattern' };
+    return this.mutex.run(() => {
+      const user = this.#ensure(id);
+      if (!user.platforms) user.platforms = {};
+      const oldTag = user.platforms[platform]?.tag || null;
+      const updatedAt = new Date(this.now()).toISOString();
+      const record = { tag, verified: false, updatedAt };
+      user.platforms[platform] = record;
+      user.updatedAt = updatedAt;
+      this.#persist();
+      return { ok: true, platform, oldTag, tag: clone(record) };
+    });
+  }
+
+  async removePlatform(userId, platformId) {
+    const id = assertDiscordId(userId);
+    const platform = assertGameId(platformId);
+    return this.mutex.run(() => {
+      const user = this.state.users[id];
+      if (!user?.platforms?.[platform]) return { ok: false, reason: 'not-linked' };
+      const removed = clone(user.platforms[platform]);
+      delete user.platforms[platform];
+      user.updatedAt = new Date(this.now()).toISOString();
+      this.#persist();
+      return { ok: true, platform, removed };
     });
   }
 
