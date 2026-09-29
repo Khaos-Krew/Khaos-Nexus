@@ -45,13 +45,4 @@ const CONFUSABLES = Object.freeze({
   '\u051b': 'q'
 });
 
-// Impersonation folds 1 to l so "Sentina1" matches "sentinal". The denylist
-// leet map still folds 1 to i so "a.d.m.1.n" matches "admin".
-const IMPERSONATION_DIGITS = Object.freeze({
-  '0': 'o',
-  '1': 'l',
-  '3': 'e',
-  '4': 'a',
-  '5': 's',
-  '7': 't'
-});
+PLACEHOLDER_WILL_FAIL
