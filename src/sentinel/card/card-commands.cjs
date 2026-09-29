@@ -486,7 +486,6 @@ function lookupContext(interaction, deps) {
     config: deps.config || {},
     env: deps.env || process.env,
     now: clock(deps),
-    random: typeof deps.random === 'function' ? deps.random : Math.random,
     findEnabled: deps.findEnabled === true,
     lookupPadMs: Number.isFinite(deps.lookupPadMs) ? deps.lookupPadMs : LOOKUP_PAD_MS,
     fetchMember: async (userId) => {
