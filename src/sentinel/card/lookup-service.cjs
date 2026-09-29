@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('node:crypto');
 const { cardRestrictedRoleIds } = require('./card-config.cjs');
 const { structuralReason } = require('./tag-validate.cjs');
 const { QUERY_MAX, QUERY_MIN, parseLookupText, parseWhere, slotLabel } = require('./lookup-key.cjs');
@@ -12,16 +13,36 @@ const MEMBER_CAP = 5;
 const STAFF_CAP = 25;
 const TENURE_MS = 7 * 24 * 60 * 60 * 1000;
 
-function shuffle(items, random = Math.random) {
+function utcDay(now) {
+  return new Date(now).toISOString().slice(0, 10);
+}
+
+function orderDigest(secret, requesterId, normalizedQuery, day, userId, slot) {
+  return crypto.createHmac('sha256', secret)
+    .update(`${requesterId}|${normalizedQuery}|${day}|${userId}|${slot}`)
+    .digest('hex');
+}
+
+function orderClaimants(items, { secret, requesterId, normalizedQuery, now }) {
   const copy = items.slice();
-  for (let i = copy.length - 1; i > 0; i -= 1) {
-    const roll = typeof random === 'function' ? random() : Math.random();
-    const j = Math.floor(Number(roll) * (i + 1));
-    const swap = Number.isInteger(j) && j >= 0 && j <= i ? j : i;
-    const tmp = copy[i];
-    copy[i] = copy[swap];
-    copy[swap] = tmp;
+  if (secret) {
+    const day = utcDay(now);
+    copy.sort((left, right) => {
+      const a = orderDigest(secret, requesterId, normalizedQuery, day, left.meta.userId, left.meta.slot);
+      const b = orderDigest(secret, requesterId, normalizedQuery, day, right.meta.userId, right.meta.slot);
+      if (a < b) return -1;
+      if (a > b) return 1;
+      return 0;
+    });
+    return copy;
   }
+  copy.sort((left, right) => {
+    const a = `${left.meta.userId}|${left.meta.slot}`;
+    const b = `${right.meta.userId}|${right.meta.slot}`;
+    if (a < b) return -1;
+    if (a > b) return 1;
+    return 0;
+  });
   return copy;
 }
 
@@ -90,7 +111,6 @@ async function performLookup({
   config = {},
   env = process.env,
   now = Date.now(),
-  random = Math.random,
   fetchMember = async () => null,
   staff = false,
   staffReason = '',
@@ -212,7 +232,30 @@ async function performLookup({
     visible.push({ meta, record });
   }
 
-  const ordered = shuffle(visible, random).slice(0, staff ? STAFF_CAP : MEMBER_CAP);
+  const orderSecret = String(env?.CARD_FIND_ORDER_SECRET || '').trim();
+  const claimantCount = new Set(visible.map((item) => item.meta.userId)).size;
+  if (!staff && !orderSecret && claimantCount > MEMBER_CAP) {
+    limits.noteMiss(actor, clock);
+    await writeAudit(audit, {
+      action: 'lookup',
+      actorId: actor,
+      guildId: guild,
+      game,
+      folded,
+      reason: 'miss',
+      outcome: 'miss',
+      hit: false,
+      hitCount: 0,
+      resultIds: []
+    });
+    return finish({ kind: 'miss', text: LOOKUP_MISS_TEXT, reason: 'miss' });
+  }
+  const ordered = orderClaimants(visible, {
+    secret: orderSecret,
+    requesterId: actor,
+    normalizedQuery: folded,
+    now: clock
+  }).slice(0, staff ? STAFF_CAP : MEMBER_CAP);
   const rows = [];
   for (const item of ordered) {
     let guildMember = null;
@@ -280,7 +323,7 @@ module.exports = {
   MEMBER_CAP,
   STAFF_CAP,
   TENURE_MS,
-  shuffle,
+  orderClaimants,
   pace,
   hasTenure,
   requesterAllowed,
