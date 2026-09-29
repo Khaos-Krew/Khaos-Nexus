@@ -10,9 +10,16 @@ const { isRetiredModuleId } = require('./retired-module-policy.cjs');
 const DEFAULT_POLL_MS = 10 * 60 * 1000;
 const FEED_RENDER_VERSION = 3;
 const FEED_MARKER_PREFIX = 'Nexus Sentinal • Live Feed • ';
+const WARFRAME_FEED_ACTIONS = Object.freeze(['news','events','alerts','sortie','arbitration','nightwave','void-trader','steel-path']);
+const WARFRAME_FEED = Object.freeze({
+  moduleId:'warframe',
+  channelName:'warframe-world-state',
+  actions: WARFRAME_FEED_ACTIONS,
+  pollMs:10 * 60 * 1000
+});
+const WARFRAME_FEED_MANUAL_FALLBACK = 'Delete this bot\'s messages in #warframe-world-state whose embed footer is "Nexus Sentinal • Live Feed • warframe:<action>:v3" (news, events, alerts, sortie, arbitration, nightwave, void-trader, steel-path). Cephalon cannot edit those messages.';
 const FEEDS = Object.freeze([
   { moduleId:'pokemongo', channelName:'pokemon-go-events', actions:['events'], pollMs:15 * 60 * 1000 },
-  { moduleId:'warframe', channelName:'warframe-world-state', actions:['news','events','alerts','sortie','arbitration','nightwave','void-trader','steel-path'], pollMs:10 * 60 * 1000 },
   { moduleId:'division2', channelName:'division-weekly', actions:['news'], pollMs:30 * 60 * 1000 },
   { moduleId:'diablo4', channelName:'diablo-news', actions:['news'], pollMs:30 * 60 * 1000 },
   { moduleId:'callofduty', channelName:'cod-news', actions:['news'], pollMs:30 * 60 * 1000 },
@@ -22,6 +29,21 @@ const FEEDS = Object.freeze([
   { moduleId:'rust', channelName:'rust-server-status', actions:['schedule-list'], pollMs:10 * 60 * 1000 },
   { moduleId:'satisfactory', channelName:'satisfactory-server-status', actions:['schedule-list'], pollMs:10 * 60 * 1000 }
 ].filter((feed) => !isRetiredModuleId(feed.moduleId)));
+
+function warframeFeedDisabled(env = process.env) {
+  const raw = env?.SENTINAL_WARFRAME_FEED_DISABLED;
+  if (raw == null || String(raw).trim() === '') return true;
+  return !/^(0|false|no|off)$/i.test(String(raw).trim());
+}
+
+function feedsFor(env = process.env, feeds = FEEDS) {
+  const base = (Array.isArray(feeds) ? feeds : FEEDS).filter((feed) => feed.moduleId !== 'warframe');
+  if (warframeFeedDisabled(env)) return base;
+  const index = base.findIndex((feed) => feed.moduleId === 'pokemongo');
+  const next = base.slice();
+  next.splice(index + 1, 0, WARFRAME_FEED);
+  return next;
+}
 
 function digest(value) {
   return crypto.createHash('sha256').update(JSON.stringify(value ?? null)).digest('hex');
@@ -73,6 +95,22 @@ class FeedState {
     catch { return { feeds:{} }; }
   }
   get(key) { return this.read().feeds?.[key] || null; }
+  retirement(moduleId) { return this.read().retired?.[moduleId] || null; }
+  completeRetirement(moduleId, record, keyPrefix) {
+    const state = this.read();
+    state.retired ||= {};
+    state.retired[moduleId] = record;
+    if (state.feeds && keyPrefix) {
+      for (const key of Object.keys(state.feeds)) {
+        if (key.startsWith(keyPrefix)) delete state.feeds[key];
+      }
+    }
+    fs.mkdirSync(path.dirname(this.file), { recursive:true });
+    const tmp = `${this.file}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
+    fs.renameSync(tmp, this.file);
+    return record;
+  }
   set(key, value) {
     const state = this.read();
     state.feeds ||= {};
@@ -119,7 +157,10 @@ function messageMatchesFeed(message, moduleId, actionId, botId = '') {
   const content = String(message?.content || '');
   const legacyLabels = [String(actionId || '')];
   if (moduleId === 'pokemongo' && actionId === 'events') legacyLabels.push('Pokémon GO Events');
-  return content.includes('Nexus Sentinal Live Feed') && legacyLabels.some((label) => content.includes(`• ${label}`));
+  if (!(content.includes('Nexus Sentinal Live Feed') && legacyLabels.some((label) => content.includes(`• ${label}`)))) return false;
+  if (moduleId !== 'warframe') return true;
+  const title = String(message?.embeds?.[0]?.title || '');
+  return /warframe/i.test(`${title}\n${content}`);
 }
 
 function newestMessage(messages = []) {
@@ -151,17 +192,88 @@ async function deleteFeedDuplicates(messages, canonical, logger = console) {
 }
 
 class EventFeedPublisher {
-  constructor({ client, guild, backend, state, feeds = FEEDS, logger = console } = {}) {
+  constructor({ client, guild, backend, state, feeds, env = process.env, logger = console } = {}) {
     this.client = client;
     this.guild = guild;
     this.backend = backend;
     this.state = state;
-    this.feeds = feeds;
+    this.env = env;
+    this.feeds = Array.isArray(feeds) ? feeds : feedsFor(env);
     this.logger = logger;
     this.feedState = new FeedState();
     this.timers = [];
     this.running = new Set();
     this.recovered = new Set();
+  }
+
+  async retireWarframeFeed() {
+    if (!warframeFeedDisabled(this.env)) return { status:'enabled', skipped:true, deleted:0 };
+    const prior = this.feedState.retirement('warframe');
+    if (prior?.status === 'done') return { status:'done', skipped:true, deleted:0 };
+    const botId = String(this.client?.user?.id || '');
+    if (!botId) return { status:'partial', skipped:false, deleted:0, failed:1 };
+    const definition = WARFRAME_FEED;
+    const savedState = this.feedState.read();
+    const channelIds = new Set();
+    const setupId = setupChannelId(this.state?.getModuleSetup?.(definition.moduleId), definition.channelName);
+    if (setupId) channelIds.add(String(setupId));
+    for (const actionId of definition.actions) {
+      const saved = savedState.feeds?.[`${definition.moduleId}:${definition.channelName}:${actionId}`];
+      if (saved?.channelId) channelIds.add(String(saved.channelId));
+    }
+    let deleted = 0;
+    let failed = 0;
+    const removedIds = new Set();
+    for (const channelId of channelIds) {
+      const channel = await this.client.channels.fetch(String(channelId)).catch(() => null);
+      if (typeof channel?.isTextBased === 'function' && !channel.isTextBased()) {
+        failed += 1;
+        continue;
+      }
+      if (!channel?.messages?.fetch) {
+        failed += 1;
+        continue;
+      }
+      let recent = [];
+      try {
+        recent = valuesOf(await channel.messages.fetch({ limit:100 }));
+      } catch {
+        failed += 1;
+        recent = [];
+      }
+      const pending = new Map();
+      for (const message of recent) pending.set(String(message.id), message);
+      for (const actionId of definition.actions) {
+        const saved = savedState.feeds?.[`${definition.moduleId}:${definition.channelName}:${actionId}`];
+        if (!saved?.messageId || String(saved.channelId || channelId) !== String(channelId)) continue;
+        if (pending.has(String(saved.messageId))) continue;
+        const stored = await channel.messages.fetch(String(saved.messageId)).catch(() => null);
+        if (stored) pending.set(String(stored.id), stored);
+      }
+      for (const message of pending.values()) {
+        const actionId = definition.actions.find((action) => messageMatchesFeed(message, definition.moduleId, action, botId));
+        if (!actionId || removedIds.has(String(message.id))) continue;
+        removedIds.add(String(message.id));
+        try {
+          await message.delete('Nexus Sentinal retired the Warframe live feed');
+          deleted += 1;
+        } catch (error) {
+          failed += 1;
+          this.logger.warn?.(`[Nexus Sentinal Feed] warframe message ${message.id} was not deleted: ${String(error?.message || error)}`);
+        }
+      }
+    }
+    if (failed > 0) {
+      this.logger.warn?.(`[Nexus Sentinal Feed] warframe retirement left ${failed} message(s). ${WARFRAME_FEED_MANUAL_FALLBACK}`);
+      return { status:'partial', skipped:false, deleted, failed };
+    }
+    this.feedState.completeRetirement('warframe', {
+      status:'done',
+      deleted,
+      at:new Date().toISOString()
+    }, 'warframe:');
+    this.logger.log?.(`[Nexus Sentinal Feed] warframe retirement done deleted=${deleted}`);
+    return { status:'done', skipped:false, deleted, failed:0 };
   }
 
   async publishAction(definition, channel, actionId) {
@@ -244,6 +356,7 @@ class EventFeedPublisher {
 
   async publish(definition) {
     try {
+      if (definition?.moduleId === 'warframe' && warframeFeedDisabled(this.env)) return { skipped:'warframe-disabled' };
       const setup = this.state.getModuleSetup(definition.moduleId);
       const channelId = setupChannelId(setup, definition.channelName);
       if (!channelId) return;
@@ -257,7 +370,17 @@ class EventFeedPublisher {
 
   start() {
     if (this.timers.length) return;
+    if (warframeFeedDisabled(this.env)) {
+      const retire = setTimeout(() => {
+        this.retireWarframeFeed().catch((error) => {
+          this.logger.error?.('[Nexus Sentinal Feed] warframe retirement:', String(error?.message || error));
+        });
+      }, 5000);
+      retire.unref?.();
+      this.timers.push(retire);
+    }
     for (const definition of this.feeds) {
+      if (definition.moduleId === 'warframe' && warframeFeedDisabled(this.env)) continue;
       const initial = setTimeout(() => this.publish(definition), 5000);
       initial.unref?.();
       const timer = setInterval(() => this.publish(definition), Math.max(60_000, Number(definition.pollMs || DEFAULT_POLL_MS)));
@@ -274,6 +397,11 @@ class EventFeedPublisher {
 
 module.exports = {
   FEEDS,
+  WARFRAME_FEED,
+  WARFRAME_FEED_ACTIONS,
+  WARFRAME_FEED_MANUAL_FALLBACK,
+  warframeFeedDisabled,
+  feedsFor,
   FEED_RENDER_VERSION,
   FEED_MARKER_PREFIX,
   FeedState,

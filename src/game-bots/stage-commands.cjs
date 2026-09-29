@@ -17,6 +17,7 @@ const { RateCardStore, ratesText, breedText, bossText } = require('./ark-rate-ca
 const { wipeChecklist } = require('./wipe-checklist.cjs');
 const { ascendedHealthSnapshot, checkRconPrefix, resolveHealthPrefixes, openStore } = require('./ascended-rcon-health.cjs');
 const { runtimeDataDir, snowflake, upsertEmbed } = require('./panel-message.cjs');
+const { refreshWarframePanels } = require('./cephalon-warframe-panels.cjs');
 const {
   handleFissureCommand,
   handleNightwaveCommand,
@@ -198,6 +199,13 @@ async function refreshDurablePins(client, bot, env = process.env) {
         refreshed += 1;
       }
     }
+  }
+  if (key === 'cephalon') {
+    const boards = await refreshWarframePanels({ client, env, dir }).catch((error) => {
+      console.warn(`[${BOT_LABELS.cephalon}] warframe panels class=${errorClass(error)}`);
+      return null;
+    });
+    refreshed += Number(boards?.refreshed || 0);
   }
   return { refreshed };
 }
