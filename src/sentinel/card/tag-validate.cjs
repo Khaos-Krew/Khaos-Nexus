@@ -245,13 +245,24 @@ function foldImpersonationDigits(value) {
   return out;
 }
 
-// Search and index key. NFKC, case-fold, and the confusable map. Digits stay
-// digits so Sam5 does not match Sams. The impersonation check still folds
-// digits on its own path.
+// Name half of the search key. NFKC, case-fold, and the confusable map.
+// The only digit-like fold is 1 and | to l. Other digits stay digits, and
+// leetspeak is not applied. The impersonation check still uses its own map.
+function foldLookupName(value) {
+  const folded = foldConfusables(String(value).toLowerCase());
+  let out = '';
+  for (const char of folded) out += (char === '1' || char === '|') ? 'l' : char;
+  return out;
+}
+
+// Search and index key. The #suffix is only lowercased. It is not run
+// through the confusable map or the 1/| fold, so Ada#1 stays #1.
 function lookupSkeleton(value) {
   let nfkc = String(value ?? '');
   try { nfkc = nfkc.normalize('NFKC'); } catch { /* keep the raw string */ }
-  return foldConfusables(nfkc.toLowerCase());
+  const hash = nfkc.indexOf('#');
+  if (hash < 0) return foldLookupName(nfkc);
+  return `${foldLookupName(nfkc.slice(0, hash))}#${nfkc.slice(hash + 1).toLowerCase()}`;
 }
 
 function stripSeparators(value) {
