@@ -13,6 +13,18 @@ const {
 } = require('../src/game-bots/panel-message.cjs');
 const { BANNERS, PANEL_BOTS, attachBanner, bannerFor, bannerBotForPanel } = require('../src/game-bots/brand-banners.cjs');
 const { refreshDurablePins } = require('../src/game-bots/stage-commands.cjs');
+const { OWNER_CATEGORY_IDS } = require('../src/game-bots/category-gate.cjs');
+const { PANELS, refreshWarframePanels } = require('../src/game-bots/cephalon-warframe-panels.cjs');
+const {
+  FEEDS,
+  WARFRAME_FEED,
+  WARFRAME_FEED_MANUAL_FALLBACK,
+  FeedState,
+  EventFeedPublisher,
+  feedMarker,
+  feedsFor,
+  warframeFeedDisabled
+} = require('../src/sentinel/event-feed.cjs');
 const { handleFissureCommand, handleNightwaveCommand, handleCycleCommand, handleCephalonButton, NightwaveDesk } = require('../src/game-bots/cephalon-relay.cjs');
 const { handleClusterCommand } = require('../src/game-bots/asa-cluster-presence.cjs');
 const { reconcileArkClusterPanel, arkClusterBoardPayload, PANEL_TITLE, PANEL_MARKER } = require('../src/sentinel/ark-cluster-panel.cjs');
@@ -658,4 +670,236 @@ test('brand banner files exist inside the paths the game-bot images copy', () =>
   assert.equal(hubRelative.startsWith('src/'), true);
   assert.match(fs.readFileSync(path.join(root, 'Dockerfile.sentinal'), 'utf8'), /^COPY src \.\/src$/m);
   assert.equal(PANEL_IDENTITIES.fissures.titles.includes('Fissure Relay Board'), true);
+});
+
+function warframeWorldstate(pathname) {
+  const table = {
+    news: [{ message: 'TennoCon', link: 'https://example.com/news', date: 'today' }],
+    events: [{ description: 'Double affinity', node: 'Earth', eta: '1d', expired: false }],
+    alerts: [{ mission: { node: 'Lua', type: 'Survival', reward: { credits: 5000 } }, eta: '30m' }],
+    sortie: { boss: 'Ambulas', eta: '12h', variants: [{ node: 'Mars', missionType: 'Spy', modifier: 'Eximus' }] },
+    arbitration: { node: 'Helene', type: 'Defense', enemy: 'Grineer', eta: '40m' },
+    nightwave: { season: 9, phase: 2, eta: '5d', activeChallenges: [{ title: 'Survivor', reputation: 1000 }] },
+    voidTrader: { character: "Baro Ki'Teer", location: 'Orcus Relay', active: true, eta: '2d', inventory: [{ item: 'Prisma Gorgon', ducats: 600, credits: 150000 }] },
+    steelPath: { currentReward: { name: 'Umbra Forma Blueprint' }, remaining: '3d', rotation: [{ name: 'Forma', cost: 10 }] },
+    duviriCycle: { state: 'joy', timeLeft: '40m', choices: [{ category: 'Normal', choices: ['Excalibur'] }] },
+    deepArchimedea: { eta: '1d', missions: [{ missionType: 'Exterminate', faction: 'Grineer', deviation: { name: 'Tight Belt' }, risks: [{ name: 'Powerless' }] }] }
+  };
+  if (!Object.prototype.hasOwnProperty.call(table, pathname)) throw new Error(`unexpected ${pathname}`);
+  return table[pathname];
+}
+
+function liveChannel({ id, name, parentId, sent, edited, deleted, seed = [] }) {
+  const list = [...seed];
+  return {
+    id,
+    name,
+    parentId,
+    send: async (body) => {
+      const created = message({
+        id: `81${String(list.length + 1).padStart(16, '0')}`,
+        author: { id: BOT_ID, bot: true },
+        embeds: body.embeds,
+        createdTimestamp: list.length + 1,
+        edit: async (next) => {
+          edited.push({ id: created.id, body: next });
+          created.embeds = next.embeds;
+        },
+        delete: async () => { deleted.push(created.id); }
+      });
+      sent.push(body);
+      list.push(created);
+      return created;
+    },
+    messages: {
+      fetch: async (arg) => {
+        if (arg && typeof arg === 'object') return { values: () => list.values() };
+        return list.find((item) => item.id === String(arg)) || null;
+      }
+    }
+  };
+}
+
+test('Sentinal stops the Warframe feed by default and deletes its old messages once', async () => {
+  assert.equal(warframeFeedDisabled({}), true);
+  assert.equal(warframeFeedDisabled({ SENTINAL_WARFRAME_FEED_DISABLED: 'true' }), true);
+  assert.equal(warframeFeedDisabled({ SENTINAL_WARFRAME_FEED_DISABLED: 'false' }), false);
+  assert.equal(warframeFeedDisabled({ SENTINAL_WARFRAME_FEED_DISABLED: '0' }), false);
+  assert.equal(FEEDS.some((feed) => feed.moduleId === 'warframe'), false);
+  assert.equal(feedsFor({}).some((feed) => feed.moduleId === 'warframe'), false);
+  assert.equal(feedsFor({}).some((feed) => feed.moduleId === 'ark'), true);
+  assert.equal(feedsFor({}).some((feed) => feed.moduleId === 'pokemongo'), true);
+  const enabled = feedsFor({ SENTINAL_WARFRAME_FEED_DISABLED: 'off' });
+  assert.equal(enabled.filter((feed) => feed.moduleId === 'warframe').length, 1);
+  assert.equal(WARFRAME_FEED.actions.includes('void-trader'), true);
+  assert.match(WARFRAME_FEED_MANUAL_FALLBACK, /warframe:<action>:v3/);
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sentinal-warframe-feed-'));
+  const feedState = new FeedState(dir);
+  const channelId = '1516640233389822222';
+  const newsId = '300000000000000001';
+  const baroId = '300000000000000002';
+  const extraId = '300000000000000004';
+  const pogoId = '300000000000000003';
+  const otherBotId = '300000000000000005';
+  feedState.set('warframe:warframe-world-state:news', { messageId: newsId, channelId, actionId: 'news' });
+  feedState.set('warframe:warframe-world-state:void-trader', { messageId: baroId, channelId, actionId: 'void-trader' });
+  feedState.set('pokemongo:pokemon-go-events:events', { messageId: pogoId, channelId, actionId: 'events' });
+
+  const deleted = [];
+  const make = (id, footer, author = 'sentinal') => ({
+    id,
+    author: { id: author, bot: true },
+    content: '',
+    embeds: [{ footer: { text: footer } }],
+    delete: async () => { deleted.push(id); }
+  });
+  const all = new Map([
+    [newsId, make(newsId, feedMarker('warframe', 'news'))],
+    [baroId, make(baroId, feedMarker('warframe', 'void-trader'))],
+    [extraId, make(extraId, feedMarker('warframe', 'sortie'))],
+    [pogoId, make(pogoId, feedMarker('pokemongo', 'events'))],
+    [otherBotId, make(otherBotId, feedMarker('warframe', 'alerts'), 'cephalon')]
+  ]);
+  let fetches = 0;
+  const channel = {
+    id: channelId,
+    isTextBased: () => true,
+    messages: {
+      fetch: async (input) => {
+        fetches += 1;
+        if (typeof input === 'string') return all.get(input) || null;
+        const recent = new Map(all);
+        recent.delete(baroId);
+        return recent;
+      }
+    }
+  };
+  const publisher = new EventFeedPublisher({
+    client: { user: { id: 'sentinal' }, channels: { fetch: async () => channel } },
+    guild: {},
+    backend: { invoke: async () => { throw new Error('warframe feed should not post'); } },
+    state: {
+      getModuleSetup: () => ({ textChannels: [{ name: 'warframe-world-state', id: channelId }] })
+    },
+    env: {},
+    logger: { log() {}, warn() {}, error() {} }
+  });
+  publisher.feedState = feedState;
+  let invoked = false;
+  publisher.backend = { invoke: async () => { invoked = true; return { ok: true, data: {} }; } };
+  publisher.state = {
+    getModuleSetup() { invoked = true; return null; }
+  };
+  assert.equal((await publisher.publish(WARFRAME_FEED)).skipped, 'warframe-disabled');
+  assert.equal(invoked, false);
+  publisher.state = {
+    getModuleSetup: () => ({ textChannels: [{ name: 'warframe-world-state', id: channelId }] })
+  };
+
+  const first = await publisher.retireWarframeFeed();
+  assert.equal(first.status, 'done');
+  assert.equal(first.skipped, false);
+  assert.equal(deleted.includes(newsId), true);
+  assert.equal(deleted.includes(baroId), true);
+  assert.equal(deleted.includes(extraId), true);
+  assert.equal(deleted.includes(pogoId), false);
+  assert.equal(deleted.includes(otherBotId), false);
+  const saved = JSON.parse(fs.readFileSync(feedState.file, 'utf8'));
+  assert.equal(saved.retired.warframe.status, 'done');
+  assert.equal(saved.feeds['warframe:warframe-world-state:news'], undefined);
+  assert.equal(saved.feeds['pokemongo:pokemon-go-events:events'].messageId, pogoId);
+  const after = fetches;
+  const second = await publisher.retireWarframeFeed();
+  assert.equal(second.skipped, true);
+  assert.equal(fetches, after);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('Cephalon edits Warframe panels in place and stays inside its category', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cephalon-warframe-panels-'));
+  const sent = [];
+  const edited = [];
+  const deleted = [];
+  const foreignEdits = [];
+  const foreign = message({
+    id: '555555555555555551',
+    author: { id: SENTINAL_ID, bot: true },
+    embeds: [{ title: '📰 WARFRAME • NEWS', footer: { text: feedMarker('warframe', 'news') } }],
+    edit: async () => { foreignEdits.push('edit'); },
+    delete: async () => { foreignEdits.push('delete'); }
+  });
+  const outside = {
+    id: '1516640233389822777',
+    name: 'warframe-world-state',
+    parentId: '1516602943670059108',
+    send: async () => { throw new Error('outside category'); }
+  };
+  const board = liveChannel({
+    id: CHANNEL_ID,
+    name: 'warframe-world-state',
+    parentId: OWNER_CATEGORY_IDS.cephalon,
+    sent,
+    edited,
+    deleted,
+    seed: [foreign]
+  });
+  const calls = [];
+  const provider = {
+    worldstate: async (pathname) => {
+      calls.push(pathname);
+      return warframeWorldstate(pathname);
+    }
+  };
+  const client = {
+    user: { id: BOT_ID },
+    channels: { fetch: async (id) => (id === CHANNEL_ID ? board : null) },
+    guilds: { cache: { values: () => [{ channels: { cache: { values: () => [outside, board] } } }] } }
+  };
+  const env = { NEXUS_DATA_DIR: dir, CEPHALON_WARFRAME_WORLD_CHANNEL_ID: 'warframe-world-state' };
+  try {
+    const blocked = await refreshWarframePanels({
+      client: { user: { id: BOT_ID }, channels: { fetch: async () => outside }, guilds: { cache: { values: () => [] } } },
+      env: { ...env, CEPHALON_WARFRAME_WORLD_CHANNEL_ID: outside.id },
+      provider: { worldstate: async () => { throw new Error('should-not-fetch'); } },
+      dir
+    });
+    assert.equal(blocked.refreshed, 0);
+    assert.equal(blocked.skipped.every((item) => item.reason === 'wrong-category'), true);
+    assert.equal(sent.length, 0);
+
+    const first = await refreshWarframePanels({ client, env, provider, dir });
+    assert.equal(first.refreshed, PANELS.length);
+    assert.equal(sent.length, PANELS.length);
+    assert.equal(foreignEdits.length, 0);
+    const packed = JSON.stringify(sent);
+    assert.match(packed, /Baro Ki'Teer/);
+    assert.match(packed, /Prisma Gorgon/);
+    assert.match(packed, /Circuit/);
+    assert.match(packed, /joy/);
+    assert.match(packed, /Excalibur/);
+    assert.match(packed, /Umbra Forma Blueprint/);
+    assertBotBanner(sent[0], 'cephalon');
+    const titles = sent.map((body) => body.embeds[0].title);
+    assert.equal(new Set(titles).size, titles.length);
+    for (const panel of PANELS) {
+      assert.equal(panelMatcher(PANEL_IDENTITIES[panel.panel])({ embeds: [sent.find((body) => body.embeds[0].footer.text.startsWith(`Cephalon Nexus • warframe:${panel.id}`)).embeds[0]] }), true);
+    }
+    const saved = JSON.parse(fs.readFileSync(path.join(dir, 'cephalon-warframe-panels.json'), 'utf8'));
+    assert.equal(Object.keys(saved.panels).length, PANELS.length);
+
+    const callsAfterCreate = calls.length;
+    const second = await refreshWarframePanels({ client, env, provider, dir });
+    assert.equal(second.refreshed, PANELS.length);
+    assert.equal(sent.length, PANELS.length);
+    assert.equal(edited.length, PANELS.length);
+    assert.equal(calls.length, callsAfterCreate);
+    assert.equal(foreignEdits.length, 0);
+    assert.equal(deleted.length, 0);
+    const ids = new Set(edited.map((item) => item.id));
+    assert.equal(ids.size, PANELS.length);
+    for (const panel of PANELS) assert.equal(ids.has(saved.panels[panel.id].messageId), true);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

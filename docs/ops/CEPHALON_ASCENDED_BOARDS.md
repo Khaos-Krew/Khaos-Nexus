@@ -36,6 +36,29 @@ The id is stored under `NEXUS_DATA_DIR`, or `RAILWAY_VOLUME_MOUNT_PATH` when `NE
 
 `/nightwave` and `/cycles` stay ephemeral command replies. Cycle pings are one message when a watched world changes state, not a new board on restart. Nexus Sentinal does not publish the fissure board, the official ASA board, or the public ARK cluster status panel. Ascended owns that cluster panel.
 
+## Warframe world-state panels
+
+Cephalon posts these durable boards on its own 10 minute schedule (`CEPHALON_WARFRAME_PANEL_MS` overrides it, minimum 60 seconds). Sentinal no longer posts or refreshes them. `SENTINAL_WARFRAME_FEED_DISABLED` defaults to disabled. Set it to `false` only to turn the old Sentinal feed back on. Other Sentinal feeds, including ARK and Pokémon GO, keep running. No RCON variables are involved.
+
+Each value below is a channel snowflake or a channel name. The channel must sit under category `1516640233389822042`. One shared channel is enough. A per-panel variable overrides it for that board.
+
+| Panel | Channel variable | Optional message id |
+| --- | --- | --- |
+| All panels, unless a row below is set | `CEPHALON_WARFRAME_WORLD_CHANNEL_ID` |  |
+| News | `CEPHALON_WARFRAME_NEWS_CHANNEL_ID` | `CEPHALON_WARFRAME_NEWS_MESSAGE_ID` |
+| Events | `CEPHALON_WARFRAME_EVENTS_CHANNEL_ID` | `CEPHALON_WARFRAME_EVENTS_MESSAGE_ID` |
+| Alerts | `CEPHALON_WARFRAME_ALERTS_CHANNEL_ID` | `CEPHALON_WARFRAME_ALERTS_MESSAGE_ID` |
+| Sortie | `CEPHALON_WARFRAME_SORTIE_CHANNEL_ID` | `CEPHALON_WARFRAME_SORTIE_MESSAGE_ID` |
+| Arbitration | `CEPHALON_WARFRAME_ARBITRATION_CHANNEL_ID` | `CEPHALON_WARFRAME_ARBITRATION_MESSAGE_ID` |
+| Nightwave | `CEPHALON_WARFRAME_NIGHTWAVE_CHANNEL_ID` | `CEPHALON_WARFRAME_NIGHTWAVE_MESSAGE_ID` |
+| Baro Ki'Teer | `CEPHALON_WARFRAME_VOID_TRADER_CHANNEL_ID` | `CEPHALON_WARFRAME_VOID_TRADER_MESSAGE_ID` |
+| Steel Path | `CEPHALON_WARFRAME_STEEL_PATH_CHANNEL_ID` | `CEPHALON_WARFRAME_STEEL_PATH_MESSAGE_ID` |
+| Circuit | `CEPHALON_CIRCUIT_CHANNEL_ID` | `CEPHALON_CIRCUIT_MESSAGE_ID` |
+
+Message ids are optional pins for Cephalon's own messages. Leave them unset on the first deploy. Do not paste a Sentinal message id. Cephalon cannot edit a message Sentinal authored, so it posts a new embed and then edits that embed on later refreshes. Ids are also stored in `cephalon-warframe-panels.json` under `NEXUS_DATA_DIR` (or `RAILWAY_VOLUME_MOUNT_PATH`).
+
+When the Sentinal flag is disabled, Sentinal deletes its own stored Warframe feed messages once, then scans `#warframe-world-state` for footers `Nexus Sentinal • Live Feed • warframe:<action>:v3`. A second boot does not delete again after that cleanup is recorded. If a delete fails, or the state file was lost and the message is older than the last 100 in the channel, delete those messages by hand. Cephalon will not remove them.
+
 `/arkrcon` still uses configure and the password modal. After a process restart, RCON health reads the same encrypted files. Railway env is not a connection source.
 
 ## Owner smoke

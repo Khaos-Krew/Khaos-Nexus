@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
-const { FEEDS } = require('../src/sentinel/event-feed.cjs');
+const { FEEDS, WARFRAME_FEED, feedsFor } = require('../src/sentinel/event-feed.cjs');
 const { LAYOUTS } = require('../src/sentinel/module-layouts.cjs');
 const {
   parseDiabloNews,
@@ -58,8 +58,11 @@ const TARGET_HTML = `<!doctype html><html><body>
 
 test('persistent feed registry includes active supported news modules and excludes retired Once Human', () => {
   const news = new Map();
-  for (const feed of FEEDS) if (feed.actions.includes('news')) news.set(feed.moduleId, feed.channelName);
-  assert.equal(news.get('warframe'), 'warframe-world-state');
+  for (const feed of feedsFor({})) if (feed.actions.includes('news')) news.set(feed.moduleId, feed.channelName);
+  assert.equal(news.has('warframe'), false);
+  assert.equal(FEEDS.some((feed) => feed.moduleId === 'warframe'), false);
+  assert.equal(WARFRAME_FEED.channelName, 'warframe-world-state');
+  assert.equal(feedsFor({ SENTINAL_WARFRAME_FEED_DISABLED: 'false' }).some((feed) => feed.moduleId === 'warframe'), true);
   assert.equal(news.get('division2'), 'division-weekly');
   assert.equal(news.has('oncehuman'), false);
   assert.equal(news.get('diablo4'), 'diablo-news');

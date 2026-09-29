@@ -46,19 +46,21 @@ function renderWorldstate(partial = {}) {
 }
 
 class WorldstateCache {
-  constructor({ provider, ttlMs = 60_000, now = () => Date.now() } = {}) {
+  constructor({ provider, ttlMs = 60_000, now = () => Date.now(), paths = PATHS } = {}) {
     this.provider = provider;
     this.ttlMs = Math.max(5_000, Number(ttlMs) || 60_000);
     this.now = now;
+    this.paths = paths && typeof paths === 'object' ? paths : PATHS;
     this.cached = null;
     this.cachedAt = 0;
+    this.partial = { missing: [] };
   }
 
   async load() {
     const at = this.now();
     if (this.cached && at - this.cachedAt < this.ttlMs) return this.cached;
     const partial = { missing: [] };
-    for (const [key, pathname] of Object.entries(PATHS)) {
+    for (const [key, pathname] of Object.entries(this.paths)) {
       try {
         partial[key] = await this.provider.worldstate(pathname);
       } catch {
@@ -66,6 +68,7 @@ class WorldstateCache {
       }
     }
     const rendered = renderWorldstate(partial);
+    this.partial = partial;
     this.cached = rendered;
     this.cachedAt = at;
     return rendered;

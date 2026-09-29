@@ -84,6 +84,22 @@ function isThreadChannel(channel) {
   return THREAD_TYPES.has(Number(channel.type));
 }
 
+function categoryIdForChannel(channel) {
+  if (!channel) return '';
+  if (!isThreadChannel(channel)) return String(channel.parentId || '');
+  return String(channel.parent?.parentId || '');
+}
+
+function evaluateChannelCategory(channel, bot, env = process.env) {
+  const config = resolveCategoryConfig(bot, env);
+  if (config.open) return { allow: true, categoryId: '', reason: 'open' };
+  if (!config.id) return { allow: false, categoryId: '', reason: 'fail-closed' };
+  const categoryId = categoryIdForChannel(channel);
+  if (!categoryId) return { allow: false, categoryId: '', reason: 'no-category' };
+  if (categoryId !== String(config.id)) return { allow: false, categoryId, reason: 'wrong-category' };
+  return { allow: true, categoryId, reason: 'allow' };
+}
+
 async function categoryIdForInteraction(interaction) {
   if (!interaction?.guildId) return '';
   let channel = interaction.channel || null;
@@ -173,7 +189,9 @@ module.exports = {
   resolveCategoryConfig,
   redirectMessage,
   isThreadChannel,
+  categoryIdForChannel,
   categoryIdForInteraction,
+  evaluateChannelCategory,
   evaluateCategoryAccess,
   installCategoryGate
 };

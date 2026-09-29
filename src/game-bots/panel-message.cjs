@@ -33,6 +33,42 @@ const PANEL_IDENTITIES = Object.freeze({
   clanApplications: Object.freeze({
     titles: Object.freeze(['Warframe clan applications']),
     footerPrefixes: Object.freeze(['Cephalon Nexus • clan applications'])
+  }),
+  warframeNews: Object.freeze({
+    titles: Object.freeze(['Cephalon • Warframe News']),
+    footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:news'])
+  }),
+  warframeEvents: Object.freeze({
+    titles: Object.freeze(['Cephalon • Warframe Events']),
+    footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:events'])
+  }),
+  warframeAlerts: Object.freeze({
+    titles: Object.freeze(['Cephalon • Warframe Alerts']),
+    footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:alerts'])
+  }),
+  warframeSortie: Object.freeze({
+    titles: Object.freeze(['Cephalon • Sortie']),
+    footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:sortie'])
+  }),
+  warframeArbitration: Object.freeze({
+    titles: Object.freeze(['Cephalon • Arbitration']),
+    footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:arbitration'])
+  }),
+  warframeNightwave: Object.freeze({
+    titles: Object.freeze(['Cephalon • Nightwave']),
+    footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:nightwave'])
+  }),
+  warframeVoidTrader: Object.freeze({
+    titles: Object.freeze(["Baro Ki'Teer"]),
+    footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:void-trader'])
+  }),
+  warframeSteelPath: Object.freeze({
+    titles: Object.freeze(['Cephalon • Steel Path']),
+    footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:steel-path'])
+  }),
+  warframeCircuit: Object.freeze({
+    titles: Object.freeze(['Circuit digest']),
+    footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:circuit'])
   })
 });
 

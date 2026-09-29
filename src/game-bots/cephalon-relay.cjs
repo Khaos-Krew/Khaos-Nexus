@@ -417,6 +417,7 @@ function startCephalonBoards({ client, env = process.env, provider } = {}) {
     timers.push(timer);
     void tick();
   }
+  const panels = require('./cephalon-warframe-panels.cjs').scheduleWarframePanels({ client, env, provider });
   const cycleChannel = String(env.CEPHALON_CYCLE_CHANNEL_ID || '').trim();
   const roles = parseCycleRoles(env);
   const postClanPanel = () => {
@@ -447,6 +448,7 @@ function startCephalonBoards({ client, env = process.env, provider } = {}) {
   }
   return {
     stop() {
+      panels.stop();
       for (const timer of timers) clearInterval(timer);
     }
   };
@@ -953,23 +955,24 @@ function circuitEmbed(partial) {
   };
 }
 
+async function loadCircuitPartial(provider) {
+  const partial = { missing: [] };
+  const paths = [['duviri', 'duviriCycle'], ['steelPath', 'steelPath'], ['archimedea', 'deepArchimedea']];
+  for (const [key, pathname] of paths) {
+    try {
+      partial[key] = await provider.worldstate(pathname);
+    } catch {
+      partial.missing.push(key);
+    }
+  }
+  return partial;
+}
+
 function circuitCacheFor(context, env) {
   if (context.circuitCache) return context.circuitCache;
   context.circuitCache = new TtlCache({
     ttlMs: cacheTtl(env.CEPHALON_CIRCUIT_CACHE_MS),
-    load: async () => {
-      const provider = providerFor(context);
-      const partial = { missing: [] };
-      const paths = [['duviri', 'duviriCycle'], ['steelPath', 'steelPath'], ['archimedea', 'deepArchimedea']];
-      for (const [key, pathname] of paths) {
-        try {
-          partial[key] = await provider.worldstate(pathname);
-        } catch {
-          partial.missing.push(key);
-        }
-      }
-      return partial;
-    }
+    load: async () => loadCircuitPartial(providerFor(context))
   });
   return context.circuitCache;
 }
@@ -1030,5 +1033,6 @@ module.exports = {
   normalizeSteelReward,
   normalizeArchimedea,
   circuitLines,
-  circuitEmbed
+  circuitEmbed,
+  loadCircuitPartial
 };

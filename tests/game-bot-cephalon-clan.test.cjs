@@ -7,9 +7,10 @@ const os = require('node:os');
 const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const { MessageFlags } = require('discord.js');
-const { OWNER_CATEGORY_IDS, installCategoryGate } = require('../src/game-bots/category-gate.cjs');
+const { OWNER_CATEGORY_IDS, evaluateChannelCategory, installCategoryGate } = require('../src/game-bots/category-gate.cjs');
 const { helpText } = require('../src/game-bots/ops-spine.cjs');
 const { handleStageCommand, stageBuilders } = require('../src/game-bots/stage-commands.cjs');
+const { refreshWarframePanels, scheduleWarframePanels } = require('../src/game-bots/cephalon-warframe-panels.cjs');
 const {
   CLAN_DEFAULTS,
   clanConfig,
@@ -17,6 +18,7 @@ const {
   parseClanApplication,
   clanApplicationModal,
   circuitEmbed,
+  circuitLines,
   profileCard,
   profileEmbed,
   startCephalonBoards
@@ -389,4 +391,36 @@ test('profile and circuit soft-fail and stay on cephalon', async () => {
   assert.equal(replies.at(-1).content, 'Use this bot in the Warframe category.');
   assert.equal(replies.at(-1).flags, MessageFlags.Ephemeral);
   assert.equal(OWNER_CATEGORY_IDS.cephalon, '1516640233389822042');
+
+  const inside = { id: '1516640233389822111', parentId: OWNER_CATEGORY_IDS.cephalon, send: async () => ({ id: '1' }) };
+  const outside = { id: '1516602943670059111', parentId: '1516602943670059108', send: async () => { throw new Error('wrong category'); } };
+  assert.equal(evaluateChannelCategory(inside, 'cephalon', {}).allow, true);
+  assert.equal(evaluateChannelCategory(outside, 'cephalon', {}).reason, 'wrong-category');
+  assert.equal(evaluateChannelCategory({ parentId: '' }, 'cephalon', {}).allow, false);
+  const lines = circuitLines({
+    duviri: { state: 'joy', timeLeft: '40m', choices: [{ category: 'Normal', choices: ['Excalibur'] }] },
+    steelPath: { currentReward: { name: 'Umbra Forma Blueprint' }, remaining: '2d' },
+    archimedea: { eta: '1d', missions: [{ missionType: 'Exterminate', faction: 'Grineer' }] }
+  });
+  assert.match(lines.join('\n'), /Excalibur/);
+  const gateDir = tempDir('warframe-gate');
+  const posted = [];
+  try {
+    const gated = await refreshWarframePanels({
+      client: {
+        user: { id: '1516640233389822001' },
+        channels: { fetch: async () => outside }
+      },
+      env: { NEXUS_DATA_DIR: gateDir, CEPHALON_CIRCUIT_CHANNEL_ID: outside.id },
+      provider: { worldstate: async () => { posted.push('fetch'); return {}; } },
+      dir: gateDir
+    });
+    assert.equal(gated.refreshed, 0);
+    assert.equal(posted.length, 0);
+    assert.equal(gated.skipped.some((item) => item.id === 'circuit' && item.reason === 'wrong-category'), true);
+    const boards = scheduleWarframePanels({ client: {}, env: { NEXUS_DATA_DIR: gateDir } });
+    boards.stop();
+  } finally {
+    fs.rmSync(gateDir, { recursive: true, force: true });
+  }
 });
