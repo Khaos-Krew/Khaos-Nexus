@@ -29,7 +29,8 @@ function emptyState() {
       nowLiveRoleId: '',
       panelMessageId: ''
     },
-    adminSettings: { rankRoles: {}, rankSkus: {}, moduleEnabled: {} }
+    adminSettings: { rankRoles: {}, rankSkus: {}, moduleEnabled: {} },
+    publicServerList: { channelId: '', messageId: '' }
   };
 }
 
@@ -78,6 +79,13 @@ class StateStore {
     state.adminSettings.rankRoles ||= {};
     state.adminSettings.rankSkus ||= {};
     state.adminSettings.moduleEnabled ||= {};
+    const list = state.publicServerList && typeof state.publicServerList === 'object' ? state.publicServerList : {};
+    state.publicServerList = {
+      channelId: String(list.channelId || '').replace(/\D/g, '').slice(0, 20),
+      messageId: String(list.messageId || '').replace(/\D/g, '').slice(0, 20)
+    };
+    if (!/^\d{17,20}$/.test(state.publicServerList.channelId)) state.publicServerList.channelId = '';
+    if (!/^\d{17,20}$/.test(state.publicServerList.messageId)) state.publicServerList.messageId = '';
     return state;
   }
 
@@ -212,6 +220,22 @@ class StateStore {
     };
     this.write(state);
     return this.getCreatorMeta();
+  }
+
+  getPublicServerList() {
+    return JSON.parse(JSON.stringify(this.read().publicServerList));
+  }
+
+  setPublicServerList(value = {}) {
+    const state = this.read();
+    const channelId = String(value.channelId ?? state.publicServerList.channelId ?? '').replace(/\D/g, '').slice(0, 20);
+    const messageId = String(value.messageId ?? state.publicServerList.messageId ?? '').replace(/\D/g, '').slice(0, 20);
+    state.publicServerList = {
+      channelId: /^\d{17,20}$/.test(channelId) ? channelId : '',
+      messageId: /^\d{17,20}$/.test(messageId) ? messageId : ''
+    };
+    this.write(state);
+    return this.getPublicServerList();
   }
 
   getAdminSettings() {

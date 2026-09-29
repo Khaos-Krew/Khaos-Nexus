@@ -67,13 +67,13 @@ Do not set RCON host, port, or password in Railway. `/mcrcon` ignores those vari
 4. In a channel inside that category, a staff member runs `/mcrcon setup` with the Java server host, RCON port, and password. Add `server` only when more than one Java server should be saved. Check with `/mcrcon status`. The password field is not printed back.
 5. Optional: `/mc panel` with the public host posts one status embed in the current channel. Restarts edit that message instead of posting another.
 6. Optional: set `NEXUS_CRAFT_REALMS_CHANNEL_ID`, or run `/realm channel` in the board channel.
-7. A Realm owner runs `/realm post` (name, Java or Bedrock, description, open slots, optional image). Players press Apply, enter a gamertag and a note, and the bot pings that listing's owner in a thread, or in a DM if a thread cannot be opened. Approve or Deny works for that owner or for staff. Approve tells the applicant the next step. The owner still adds them inside Minecraft.
+7. A Realm owner runs `/realm post` (name, Java or Bedrock, description, open slots, optional image). The listing embed shows the name, description, owner, and Apply button. Players press Apply, enter a gamertag and a note, and the bot messages that listing's owner by DM. It does not @-ping the owner in the channel. If the DM cannot be delivered and the person applying is staff, the review controls stay on an ephemeral reply. Approve or Deny works for that owner or for staff. Approve tells the applicant the next step. The owner still adds them inside Minecraft.
 
 ## Commands
 
 `/craft help` lists commands and the matrix below.
 
-`/mc status` pings a host with no RCON. Java uses the server-list ping (default port 25565). Bedrock uses a RakNet unconnected ping (default port 19132). `edition` can be `java`, `bedrock`, or `both`.
+`/mc status` pings a host with no RCON and replies with an embed for that type. Java shows online state, players and max, a player sample when the server sends one, version, MOTD, latency, and the join address. Bedrock shows online state, players, version, MOTD, and the Bedrock address. `both` is a Geyser server: Java status plus the Java and Bedrock join addresses. Empty fields are omitted. Java panels can add staff player-list and whitelist buttons when `/mcrcon` has saved a connection. Those buttons never show the RCON host, port, or password.
 
 Staff RCON, after `/mcrcon setup`: `/mc players`, `/mc say`, `/mc whitelist add`, `/mc whitelist remove`, `/mc whitelist list`, `/mc kick`, and `/mc cmd`. `/mc cmd` uses the same staff check as the other bots: owner id, Administrator, or an operator role.
 

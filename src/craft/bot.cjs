@@ -17,14 +17,20 @@ const { categoryIdForInteraction } = require('../game-bots/category-gate.cjs');
 const { errorClass } = require('../game-bots/command-failure.cjs');
 const { snowflake, upsertEmbed } = require('../game-bots/panel-message.cjs');
 const { craftIsStaff, decideCategory, readCraftCategory, realmDecisionAllowed } = require('./access.cjs');
+const { buildRealmEmbed, buildStatusPayload, COLORS, MOTTO } = require('./embeds.cjs');
 const { craftHelpText } = require('./help.cjs');
 const { redactSecret } = require('./protocol.cjs');
-const { minecraftCommand, pingBedrock, pingJava, runRcon } = require('./query.cjs');
+const { minecraftCommand, pingBedrock, pingJava, probeServerStatus, runRcon } = require('./query.cjs');
 const { openCraftStore } = require('./store.cjs');
 
 const STATUS_IDENTITY = Object.freeze({
-  titles: Object.freeze(['Nexus Craft server status']),
-  footerPrefixes: Object.freeze(['Nexus Craft • status'])
+  titles: Object.freeze([
+    'Nexus Craft server status',
+    'Nexus Craft • Java',
+    'Nexus Craft • Bedrock',
+    'Nexus Craft • Geyser'
+  ]),
+  footerPrefixes: Object.freeze(['Nexus Craft • status', `${MOTTO} • status`])
 });
 const LOOP = Symbol.for('khaos.nexus.craft.statusLoop');
 
@@ -120,9 +126,14 @@ function craftCommands() {
       .addSubcommand((sub) => sub
         .setName('panel')
         .setDescription('Staff: post or take over the durable status embed in this channel.')
-        .addStringOption((option) => option.setName('host').setDescription('Server hostname or IP.').setRequired(true).setMaxLength(255))
-        .addIntegerOption((option) => option.setName('port').setDescription('Java port. Default 25565.').setMinValue(1).setMaxValue(65535))
-        .addIntegerOption((option) => option.setName('bedrock_port').setDescription('Bedrock port. Default 19132.').setMinValue(1).setMaxValue(65535)))
+        .addStringOption((option) => option.setName('host').setDescription('Public join hostname or IP.').setRequired(true).setMaxLength(255))
+        .addStringOption((option) => option.setName('type').setDescription('Java, Bedrock, or a Java server with Geyser.').addChoices(
+          { name: 'Java', value: 'java' },
+          { name: 'Bedrock', value: 'bedrock' },
+          { name: 'Geyser', value: 'geyser' }
+        ))
+        .addIntegerOption((option) => option.setName('port').setDescription('Java join port. Default 25565.').setMinValue(1).setMaxValue(65535))
+        .addIntegerOption((option) => option.setName('bedrock_port').setDescription('Bedrock join port. Default 19132.').setMinValue(1).setMaxValue(65535)))
       .addSubcommand((sub) => server(sub.setName('players').setDescription('Staff: list players over Java RCON.')))
       .addSubcommand((sub) => server(sub
         .setName('say')
@@ -155,7 +166,7 @@ function craftCommands() {
       .setDMPermission(false)
       .addSubcommand((sub) => sub
         .setName('post')
-        .setDescription('Post your Realm. An Apply button pings you.')
+        .setDescription('Post your Realm. Apply messages the owner in private.')
         .addStringOption((option) => option.setName('name').setDescription('Realm name.').setRequired(true).setMaxLength(80))
         .addStringOption((option) => option.setName('edition').setDescription('Java or Bedrock.').setRequired(true).addChoices(
           { name: 'Java', value: 'java' },
@@ -217,38 +228,19 @@ async function queryStatus({ host, edition = 'java', javaPort = 25565, bedrockPo
 }
 
 function listingPayload(listing) {
-  const open = listing.status === 'open';
-  const embed = {
-    title: publicText(listing.name, 80) || 'Realm',
-    description: publicText(listing.description, 1000) || '—',
-    color: open ? (listing.edition === 'bedrock' ? 0x5D6D2A : 0x3C8527) : 0x99AAB5,
-    fields: [
-      { name: 'Edition', value: listing.edition === 'bedrock' ? 'Bedrock' : 'Java', inline: true },
-      { name: 'Open slots', value: String(listing.slots ?? 0), inline: true },
-      { name: 'Owner', value: `<@${listing.ownerId}>`, inline: true }
-    ],
-    footer: { text: `Nexus Craft • realm:${listing.id}` }
-  };
-  if (listing.image) embed.image = { url: listing.image };
-  return {
-    embeds: [embed],
-    components: [{
-      type: 1,
-      components: [{
-        type: 2,
-        style: open ? 1 : 2,
-        label: open ? 'Apply' : 'Closed',
-        custom_id: `craft:realm:apply:${listing.id}`,
-        disabled: !open
-      }]
-    }],
-    allowedMentions: { parse: [] }
-  };
+  return buildRealmEmbed(listing);
+}
+
+function panelKind(type, javaPort, bedrockPort) {
+  if (type === 'java' || type === 'bedrock' || type === 'geyser') return type;
+  if (bedrockPort && !javaPort) return 'bedrock';
+  if (bedrockPort && javaPort) return 'geyser';
+  return 'java';
 }
 
 function decisionPayload(listing, application, status = 'pending') {
   const titles = { pending: 'Realm application', approved: 'Realm application — Approved', denied: 'Realm application — Denied' };
-  const colors = { pending: 0x5865F2, approved: 0x57F287, denied: 0xED4245 };
+  const colors = { pending: COLORS.gunmetal, approved: COLORS.fieryRed, denied: COLORS.black };
   const decided = status !== 'pending';
   return {
     embeds: [{
@@ -264,7 +256,7 @@ function decisionPayload(listing, application, status = 'pending') {
         { name: 'Note', value: publicText(application.note, 200) || '—', inline: false },
         { name: 'Applicant', value: `<@${application.applicantId}>`, inline: false }
       ],
-      footer: { text: `Nexus Craft • realm-app:${application.id}` }
+      footer: { text: `${MOTTO} • realm-app:${application.id}` }
     }],
     components: [{
       type: 1,
@@ -365,12 +357,12 @@ async function ensureRcon(store, name) {
   return server;
 }
 
-async function runStaffRcon(interaction, context, kind, args) {
+async function runStaffRcon(interaction, context, kind, args, serverName = '') {
   if (!requireStaff(interaction, context.config)) {
     await replyStaff(interaction);
     return;
   }
-  const name = serverNameOf(interaction);
+  const name = serverName || serverNameOf(interaction);
   const command = minecraftCommand(kind, args);
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const server = await ensureRcon(context.store, name);
@@ -380,27 +372,44 @@ async function runStaffRcon(interaction, context, kind, args) {
   await interaction.editReply({ content: `**${name}** \`${shown}\`\n${body}`.slice(0, 1900), allowedMentions: { parse: [] } });
 }
 
-function statusPanelBody(text) {
-  return {
-    embeds: [{
-      title: 'Nexus Craft server status',
-      description: String(text || 'Status pending.').slice(0, 4000),
-      color: 0x3C8527,
-      footer: { text: 'Nexus Craft • status' },
-      timestamp: new Date().toISOString()
-    }],
-    allowedMentions: { parse: [] }
-  };
+function rconForbidden(store, name) {
+  const forbidden = [];
+  try {
+    const server = store.getServer(name || 'default');
+    if (server?.host) forbidden.push(server.host);
+    if (server?.password) forbidden.push(server.password);
+    if (server?.port) forbidden.push(String(server.port));
+  } catch {}
+  return forbidden;
+}
+
+function rconReady(store, name) {
+  try {
+    return store.publicStatus(name || 'default').password === 'configured';
+  } catch {
+    return false;
+  }
 }
 
 async function publishStatusPanel(client, store, panel) {
-  const text = await queryStatus({
+  const kind = panel.kind === 'bedrock' || panel.kind === 'geyser' || panel.kind === 'java'
+    ? panel.kind
+    : 'geyser';
+  const snapshot = await probeServerStatus({
     host: panel.host,
-    edition: 'both',
+    kind,
     javaPort: panel.javaPort || 25565,
     bedrockPort: panel.bedrockPort || 19132
   });
-  const result = await upsertEmbed(client, panel.channelId, panel.messageId, statusPanelBody(text), {
+  const rconName = panel.rconName || 'default';
+  const body = buildStatusPayload({
+    ...snapshot,
+    kind,
+    includeStaffActions: kind === 'java' && rconReady(store, rconName),
+    rconName,
+    forbidden: rconForbidden(store, rconName)
+  });
+  const result = await upsertEmbed(client, panel.channelId, panel.messageId, body, {
     identity: STATUS_IDENTITY,
     botId: client?.user?.id,
     banner: false
@@ -426,26 +435,16 @@ function startStatusLoop(client, store, env) {
   client[LOOP] = timer;
 }
 
-async function notifyOwner(client, listing, application, message) {
+async function notifyOwner(client, listing, application) {
   const payload = decisionPayload(listing, application, 'pending');
-  const ping = {
-    content: `<@${listing.ownerId}>`,
+  const body = {
     embeds: payload.embeds,
     components: payload.components,
-    allowedMentions: { parse: [], users: [listing.ownerId] }
+    allowedMentions: { parse: [] }
   };
-  if (message && typeof message.startThread === 'function') {
-    try {
-      const thread = await message.startThread({ name: `Apply ${application.gamertag}`.replace(/[^\w .'-]+/g, '').slice(0, 90) || 'Realm application' });
-      await thread.send(ping);
-      return 'thread';
-    } catch (error) {
-      console.warn(`[Nexus Craft] realm thread class=${errorClass(error)}`);
-    }
-  }
   try {
     const user = await client.users.fetch(listing.ownerId);
-    await user.send({ embeds: payload.embeds, components: payload.components, allowedMentions: { parse: [] } });
+    await user.send(body);
     return 'dm';
   } catch (error) {
     console.warn(`[Nexus Craft] realm owner dm class=${errorClass(error)}`);
@@ -571,13 +570,15 @@ async function handleCraftInteraction(interaction, context) {
     if (name === 'mc') {
       if (sub === 'status') {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        const text = await queryStatus({
+        const edition = optionString(interaction, 'edition') || 'java';
+        const kind = edition === 'bedrock' ? 'bedrock' : edition === 'both' ? 'geyser' : 'java';
+        const snapshot = await probeServerStatus({
           host: optionString(interaction, 'host'),
-          edition: optionString(interaction, 'edition') || 'java',
+          kind,
           javaPort: optionInteger(interaction, 'port') || 25565,
           bedrockPort: optionInteger(interaction, 'bedrock_port') || 19132
         });
-        await interaction.editReply({ content: text, allowedMentions: { parse: [] } });
+        await interaction.editReply(buildStatusPayload({ ...snapshot, kind, includeStaffActions: false }));
         return;
       }
       if (sub === 'panel') {
@@ -588,12 +589,16 @@ async function handleCraftInteraction(interaction, context) {
           return;
         }
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        const javaPort = optionInteger(interaction, 'port');
+        const bedrockPort = optionInteger(interaction, 'bedrock_port');
         const panel = store.setStatusPanel({
           channelId,
           messageId: store.getStatusPanel()?.messageId || '',
           host: optionString(interaction, 'host'),
-          javaPort: optionInteger(interaction, 'port') || 25565,
-          bedrockPort: optionInteger(interaction, 'bedrock_port') || 19132
+          javaPort: javaPort || 25565,
+          bedrockPort: bedrockPort || 19132,
+          kind: panelKind(optionString(interaction, 'type'), javaPort, bedrockPort),
+          rconName: serverNameOf(interaction)
         });
         const client = context.client || interaction.client;
         const result = await publishStatusPanel(client, store, panel);
@@ -704,6 +709,12 @@ async function handleCraftInteraction(interaction, context) {
   }
 
   if (typeof interaction.isButton === 'function' && interaction.isButton()) {
+    const staffAction = /^craft:staff:(players|whitelist):([a-z0-9][a-z0-9_-]{0,31})$/.exec(customId);
+    if (staffAction) {
+      const kind = staffAction[1] === 'players' ? 'list' : 'whitelist-list';
+      await runStaffRcon(interaction, context, kind, {}, staffAction[2]);
+      return;
+    }
     const apply = /^craft:realm:apply:([a-f0-9]{12})$/.exec(customId);
     if (apply) {
       const listing = store.getListing(apply[1]);
@@ -752,9 +763,20 @@ async function handleCraftInteraction(interaction, context) {
       return;
     }
     const client = context.client || interaction.client;
-    const where = await notifyOwner(client, listing, application, interaction.message);
-    const place = where === 'thread' ? 'in a thread on the listing' : where === 'dm' ? 'in a private message' : 'but the owner could not be reached';
-    await interaction.reply(ephemeral(`Application sent for **${publicText(listing.name, 80)}** ${place}.`));
+    const where = await notifyOwner(client, listing, application);
+    if (where === 'unsent' && craftIsStaff(interaction, config)) {
+      const review = decisionPayload(listing, application, 'pending');
+      await interaction.reply({
+        ...review,
+        flags: MessageFlags.Ephemeral,
+        allowedMentions: { parse: [] }
+      });
+      return;
+    }
+    const place = where === 'dm'
+      ? 'The Realm owner was notified by private message.'
+      : 'The Realm owner could not be reached by private message. Nothing was posted in this channel.';
+    await interaction.reply(ephemeral(`Application sent for **${publicText(listing.name, 80)}**. ${place}`));
   }
 }
 
@@ -817,6 +839,7 @@ module.exports = {
   handleCraftInteraction,
   handleRealmDecision,
   listingPayload,
+  notifyOwner,
   queryStatus,
   registerCraftCommands,
   startCraftDiscord,

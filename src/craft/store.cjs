@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { normalizeRconEndpoint } = require('../backend/transports/source-rcon.cjs');
 const { runtimeDataDir } = require('../game-bots/panel-message.cjs');
+const { notifyPublicServersChanged } = require('../shared/server-list-notify.cjs');
 
 const VERSION = 1;
 
@@ -125,6 +126,7 @@ class CraftStore {
       updatedAt: now
     };
     this.writeState(state);
+    notifyPublicServersChanged('craft-realm-add');
     return state.listings[id];
   }
 
@@ -139,7 +141,12 @@ class CraftStore {
     const state = this.readState();
     state.listings[current.id] = { ...current, ...listing, id: current.id, ownerId: current.ownerId, updatedAt: new Date().toISOString() };
     this.writeState(state);
+    notifyPublicServersChanged('craft-realm-update');
     return state.listings[current.id];
+  }
+
+  listListings() {
+    return Object.values(this.readState().listings || {});
   }
 
   addApplication({ listingId, applicantId, gamertag, note = '' } = {}) {
@@ -191,14 +198,20 @@ class CraftStore {
 
   setStatusPanel(panel) {
     const state = this.readState();
+    const kind = panel.kind === 'bedrock' || panel.kind === 'geyser' ? panel.kind : 'java';
+    let rconName = 'default';
+    try { rconName = normalizeServerName(panel.rconName || 'default'); } catch { rconName = 'default'; }
     state.statusPanel = {
       channelId: snowflake(panel.channelId),
       messageId: snowflake(panel.messageId),
       host: String(panel.host || '').slice(0, 255),
       javaPort: Number(panel.javaPort) || 25565,
-      bedrockPort: Number(panel.bedrockPort) || 19132
+      bedrockPort: Number(panel.bedrockPort) || 19132,
+      kind,
+      rconName
     };
     this.writeState(state);
+    notifyPublicServersChanged('craft-panel');
     return state.statusPanel;
   }
 

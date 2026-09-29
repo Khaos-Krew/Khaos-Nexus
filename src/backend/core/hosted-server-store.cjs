@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const path = require('node:path');
 const { JsonStore, clone } = require('./json-store.cjs');
 const { isPurchasableRank, rankById } = require('../../shared/ranks.cjs');
+const { notifyPublicServersChanged } = require('../../shared/server-list-notify.cjs');
 const {
   normalizeGameId, gameNameFromInput, inferServerType, normalizeServerDefinition,
   hasReliableAutomatedHealth, publicJoinInfo
@@ -131,6 +132,15 @@ function sameEndpoint(left = {}, right = {}) {
   const leftPort = normalizePort(left.port,null), rightPort = normalizePort(right.port,null);
   return leftPort !== null && rightPort !== null && leftPort === rightPort;
 }
+function listingIdentity(server = {}) {
+  return [
+    server.public !== false,
+    server.listingState || 'listed',
+    server.name || '',
+    server.joinInfo || '',
+    server.gameName || server.moduleId || ''
+  ].join('|');
+}
 function sameIdentity(left = {}, right = {}) {
   if (String(left.moduleId || '') !== String(right.moduleId || '')) return false;
   const leftExternal = safeText(left.externalId,80).toLowerCase(), rightExternal = safeText(right.externalId,80).toLowerCase();
@@ -181,6 +191,7 @@ class HostedServerStore {
       playerCount:null, playerMax:null, lastCheckedAt:'', lastOnlineAt:'', offlineSince:'', offlineWarningAt:'', autoDelistedAt:'', maintenanceUntil:'', statusMessage:'', createdAt:timestamp, updatedAt:timestamp
     };
     this.store.update((draft)=>{ draft.version=5; draft.servers=Array.isArray(draft.servers)?draft.servers:[]; draft.servers.push(server); return server; });
+    notifyPublicServersChanged('hosted-add');
     return privateServer(server);
   }
   update(id,input={}) {
@@ -189,6 +200,7 @@ class HostedServerStore {
       draft.version=5; const servers=Array.isArray(draft.servers)?draft.servers:[];
       const index=servers.findIndex((item)=>String(item.id)===String(id)); if(index<0)return null;
       const current=servers[index], next=clone(current);
+      const beforeIdentity=listingIdentity(current);
       const textFields = { name:80, gameName:80, externalId:80, region:80, scenario:100, description:300, joinInfo:400, joinSecret:400, adminNotes:1000, ownerDiscordId:32, approvalId:40, maintenanceUntil:64 };
       for(const [field,max] of Object.entries(textFields)) if(input[field]!==undefined) next[field]=safeText(input[field],max);
       if(input.serverType!==undefined) next.serverType=inferServerType({serverType:input.serverType,moduleId:next.moduleId,host:next.host});
@@ -214,7 +226,9 @@ class HostedServerStore {
       delete next.hostingProvider; next.updatedAt=this.now();
       const duplicate=servers.some((item,otherIndex)=>otherIndex!==index && (sameEndpoint(item,next)||(!normalizeHost(next.host)&&sameIdentity(item,next))));
       if(duplicate)throw new Error('That hosted server is already registered.');
-      servers[index]=next; updated=privateServer(next); return next;
+      servers[index]=next; updated=privateServer(next);
+      if (listingIdentity(next) !== beforeIdentity) notifyPublicServersChanged('hosted-update');
+      return next;
     });
     return updated;
   }
@@ -240,7 +254,7 @@ class HostedServerStore {
     return this.update(id,input);
   }
   remove(id) {
-    let removed=false; this.store.update((draft)=>{ const before=Array.isArray(draft.servers)?draft.servers:[]; const after=before.filter((item)=>String(item.id)!==String(id)); removed=after.length!==before.length; draft.version=5; draft.servers=after; return removed; }); return removed;
+    let removed=false; this.store.update((draft)=>{ const before=Array.isArray(draft.servers)?draft.servers:[]; const after=before.filter((item)=>String(item.id)!==String(id)); removed=after.length!==before.length; draft.version=5; draft.servers=after; return removed; }); if (removed) notifyPublicServersChanged('hosted-remove'); return removed;
   }
 }
 

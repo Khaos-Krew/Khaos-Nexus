@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { ArkRconConfigStore, normalizePrefix } = require('./ark-rcon-config-store.cjs');
+const { notifyPublicServersChanged } = require('../shared/server-list-notify.cjs');
 
 const REGISTRY_VERSION = 1;
 
@@ -221,7 +222,10 @@ class ArkClusterRegistry {
       });
       changed = true;
     }
-    if (changed) this.write(state);
+    if (changed) {
+      this.write(state);
+      notifyPublicServersChanged('ark-sync');
+    }
   }
 
   upsert(input = {}) {
@@ -232,6 +236,7 @@ class ArkClusterRegistry {
     record.updatedAt = new Date().toISOString();
     state.servers[id] = record;
     this.write(state);
+    if (!existing || existing.enabled !== record.enabled) notifyPublicServersChanged(existing ? 'ark-update' : 'ark-add');
     return JSON.parse(JSON.stringify(record));
   }
 
@@ -241,6 +246,7 @@ class ArkClusterRegistry {
     const existing = state.servers[key] || null;
     delete state.servers[key];
     this.write(state);
+    if (existing) notifyPublicServersChanged('ark-remove');
     return existing;
   }
 
