@@ -13,8 +13,9 @@ Phase 1 player cards live in Sentinal (`src/sentinel/card/`). The feature stays 
 | `CARD_SOURCE_TIMEOUT_MS` | `1500` | How long a card waits on each data source, in milliseconds, before that field is unavailable. A value below 1 uses 1500. |
 | `CARD_FIND_ENABLED` | off | Turns on `/card find` and `/card admin find`. Requires `CARD_ENABLED` as well. Accepted true values are `1`, `true`, `yes`, and `on`. While this is off, tag lookup is not registered and the in-memory tag index is not built. |
 | `CARD_FIND_ALERT_CHANNEL_ID` | unset | Optional channel that receives one message when a guild hits 300 tag lookups in an hour. The alert does not include the query or any player. |
-| `CARD_RESTRICTED_ROLE_IDS` | unset | Comma-separated role IDs. Members with one of these roles get the same reply as a miss. |
-| `CARD_QUARANTINE_ROLE_IDS` | unset | Comma-separated quarantine role IDs, treated the same as restricted roles. |
+| `CARD_FIND_ORDER_SECRET` | unset | HMAC-SHA256 key for claimant order. The same requester, folded query, and UTC date always yield the same five names. Required in production before `CARD_FIND_ENABLED=true`. If it is unset and more than five members match, the search returns the same reply as a miss and shows no names. |
+| `CARD_RESTRICTED_ROLE_IDS` | unset | Comma-separated role IDs. Members with one of these roles get the same reply as a miss. Required in production before `CARD_FIND_ENABLED=true`. |
+| `CARD_QUARANTINE_ROLE_IDS` | unset | Comma-separated quarantine role IDs, treated the same as restricted roles. Required in production before `CARD_FIND_ENABLED=true`. |
 
 `NEXUS_DATA_DIR` is the existing Sentinal data directory (image default `/app/data` on Railway). `CARD_DATA_DIR` overrides only the card subdirectory.
 
@@ -24,7 +25,7 @@ The same restricted and quarantine role IDs can be set on the Discord config as 
 
 Lookup is opt-in. `findable` defaults to false, including for cards saved before lookup existed. A hidden card is never returned to members. `/card privacy findable:True` turns it on, and the link confirmation offers the same choice when lookup is enabled. Turning it off takes effect on the next search.
 
-`/card find tag:` matches the folded tag exactly across game names and platform tags. Battle.net, Diablo IV, Destiny 2, Riot, and Xbox tags can also be searched without the `#` suffix. Each search returns at most five members, shuffled when more than one person uses the tag. The reply is ephemeral, does not ping, and does not include coin balances.
+`/card find tag:` matches the folded tag exactly across game names and platform tags. Digits in that fold stay digits. Battle.net, Diablo IV, Destiny 2, Riot, and Xbox tags can also be searched without the `#` suffix. Each search returns at most five members. With `CARD_FIND_ORDER_SECRET` set, those five are the first claimants after an HMAC-SHA256 sort of the requester, the folded query, and the UTC date, so the same person gets the same five for that query all day. If that secret is unset and more than five members match, the search returns the same reply as a miss and shows no names. The reply is ephemeral, does not ping, and does not include coin balances.
 
 The searcher must have been in the guild for 7 days, must not be timed out, and must not hold a restricted or quarantine role. A miss, a hidden card, a member who opted out, a rate limit, and an ineligible searcher all get the same reply: "No findable member with that tag."
 
