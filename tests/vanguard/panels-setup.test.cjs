@@ -146,6 +146,34 @@ test('setup plans the owner channel names and env ids win', () => {
   assert.equal(resolved.jtcLobby, '1516640233389826666');
 });
 
+test('a missing VANGUARD_DISCORD_TOKEN exits and does not fall back to DISCORD_BOT_TOKEN', () => {
+  const secret = 'super-secret-fallback';
+  const logs = [];
+  const originalLog = console.log;
+  const originalError = console.error;
+  const originalExit = process.exit;
+  console.log = (...args) => logs.push(args.join(' '));
+  console.error = (...args) => logs.push(args.join(' '));
+  process.exit = (code) => {
+    const error = new Error('exit');
+    error.code = code;
+    throw error;
+  };
+  try {
+    assert.throws(
+      () => prepareVanguardEnv({ DISCORD_BOT_TOKEN: secret, VANGUARD_DISCORD_TOKEN: '  ' }),
+      (error) => error.code === 1
+    );
+    const text = logs.join('\n');
+    assert.match(text, /VANGUARD_DISCORD_TOKEN is missing/);
+    assert.equal(text.includes(secret), false);
+  } finally {
+    console.log = originalLog;
+    console.error = originalError;
+    process.exit = originalExit;
+  }
+});
+
 test('status and command registration stay secret-free and inside discord limits', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vanguard-status-'));
   const token = `M${'a'.repeat(23)}.abcdef.${'b'.repeat(27)}`;
