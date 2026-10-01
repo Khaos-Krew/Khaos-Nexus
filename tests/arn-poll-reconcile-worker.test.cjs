@@ -17,7 +17,9 @@ test('ARN poll worker uses startup coordinator without consuming Discord listene
   assert.match(source, /reconcileArnLiveBoard/);
 });
 
-test('Sentinal Docker runtime preloads ARN poll worker', () => {
+test('Sentinal Docker runtime preloads ARN poll worker', {
+  skip: fs.existsSync(path.join(__dirname, '..', 'Dockerfile.sentinal')) ? false : 'image does not include Dockerfile.sentinal'
+}, () => {
   const dockerfile = fs.readFileSync(path.join(__dirname, '..', 'Dockerfile.sentinal'), 'utf8');
   assert.match(dockerfile, /arn-poll-reconcile-worker\.cjs/);
 });

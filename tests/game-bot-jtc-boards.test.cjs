@@ -37,6 +37,12 @@ const EOS = '0123456789abcdef0123456789abcdef';
 const LOBBY = '1516640233389822001';
 const CATEGORY = OWNER_CATEGORY_IDS.cephalon;
 const GUILD = '1516640233389822099';
+const root = path.resolve(__dirname, '..');
+
+function missingImageFiles(relatives) {
+  const missing = relatives.filter((relative) => !fs.existsSync(path.join(root, relative)));
+  return missing.length ? `image does not include ${missing.join(', ')}` : false;
+}
 
 function tempDir(label) {
   return fs.mkdtempSync(path.join(os.tmpdir(), `${label}-`));
@@ -155,6 +161,16 @@ test('game bots declare GuildVoiceStates and JTC config stays inside the categor
   assert.equal(jtcStatusLine('cephalon', jtcEnv()), 'Join-to-create: lobby configured.');
   assert.equal(channelNameFor('cephalon', 'Nova'), "🎮 Nova's Squad");
   assert.deepEqual(GAME_BOT_JTC_MODULES, ['ark', 'warframe', 'diablo4']);
+});
+
+test('game-bot images bake join-to-create lobbies and the ops note lists them', {
+  skip: missingImageFiles([
+    'Dockerfile.cephalon',
+    'Dockerfile.ascended',
+    'Dockerfile.sanctuary',
+    'docs/ops/JOIN_TO_CREATE.md'
+  ])
+}, () => {
   const cephalonDocker = fs.readFileSync(path.join(__dirname, '../Dockerfile.cephalon'), 'utf8');
   const ascendedDocker = fs.readFileSync(path.join(__dirname, '../Dockerfile.ascended'), 'utf8');
   const sanctuaryDocker = fs.readFileSync(path.join(__dirname, '../Dockerfile.sanctuary'), 'utf8');

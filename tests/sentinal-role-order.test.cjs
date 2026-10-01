@@ -382,10 +382,15 @@ test('name-color positioning defers to role order when the reconciler is enabled
 test('Sentinal wires role order after role menus and copies the ops note', () => {
   const entry = fs.readFileSync(path.join(root, 'src/sentinel/entry.cjs'), 'utf8');
   const roleMenu = fs.readFileSync(path.join(root, 'src/sentinel/role-menu-extension.cjs'), 'utf8');
-  const dockerfile = fs.readFileSync(path.join(root, 'Dockerfile.sentinal'), 'utf8');
   assert.match(entry, /installRoleOrderExtension\(\)/);
   assert.match(roleMenu, /notifyRoleMenuStartupComplete/);
   assert.equal(ROLE_ORDER_DEBOUNCE_MS, 30_000);
   assert.equal(ROLE_ORDER_INTERVAL_MS, 6 * 60 * 60 * 1000);
+});
+
+test('Sentinal image copies the role-order ops note', {
+  skip: fs.existsSync(path.join(root, 'Dockerfile.sentinal')) ? false : 'image does not include Dockerfile.sentinal'
+}, () => {
+  const dockerfile = fs.readFileSync(path.join(root, 'Dockerfile.sentinal'), 'utf8');
   assert.match(dockerfile, /docs\/ops\/SENTINAL_ROLE_ORDER\.md/);
 });
