@@ -25,10 +25,22 @@ const FINANCIAL_WRITE_PATHS = new Set([
   '/shop/buy',
   '/shop/sell',
   '/shop/sell/confirm-removal',
-  '/shop/buy/delivery-status'
+  '/shop/buy/delivery-status',
+  '/mc-shop/buy'
+]);
+const MC_NONECONOMY_PATHS = new Set([
+  '/mc/link/challenge',
+  '/mc/link/confirm',
+  '/mc/unlink',
+  '/mc/starter-kit/claim',
+  '/mc-shop/quote',
+  '/mc-shop/delivery-status',
+  '/mc-shop/claim',
+  '/mc-shop/refund',
+  '/mc-shop/refund-sweep'
 ]);
 const WRITE_PATHS = new Set([...PRESENCE_WRITE_PATHS, ...FINANCIAL_WRITE_PATHS]);
-const POST_PATHS = new Set([...DRAIN_MUTATION_PATHS, ...WRITE_PATHS, '/shop/quote']);
+const POST_PATHS = new Set([...DRAIN_MUTATION_PATHS, ...WRITE_PATHS, ...MC_NONECONOMY_PATHS, '/shop/quote']);
 
 function enabled(value) {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
@@ -288,6 +300,19 @@ function createEconomyServer(options = {}) {
       if (req.method === 'GET' && url.pathname === '/shop/orders/pending') {
         return json(res, 200, { ok: true, orders: await Promise.resolve(shop.pendingBuyOrders()) });
       }
+      if (req.method === 'GET' && url.pathname === '/mc-shop/catalog' && worker.minecraft) {
+        return json(res, 200, { ok: true, catalog: worker.minecraft.catalog, enabled: require('../shared/mc-points-flags.cjs').mcPointsFlags().shopEnabled });
+      }
+      if (req.method === 'GET' && url.pathname === '/mc-shop/orders/pending' && worker.minecraft) {
+        return json(res, 200, { ok: true, orders: await Promise.resolve(worker.minecraft.pendingOrders()) });
+      }
+      if (req.method === 'GET' && url.pathname === '/mc/grants' && worker.minecraft) {
+        return json(res, 200, { ok: true, grants: await Promise.resolve(worker.minecraft.listGrants()) });
+      }
+      if (req.method === 'GET' && url.pathname.startsWith('/mc/link/') && worker.minecraft) {
+        const discordUserId = decodeURIComponent(url.pathname.slice('/mc/link/'.length));
+        return json(res, 200, await Promise.resolve(worker.minecraft.status({ discordUserId })));
+      }
       if (req.method === 'GET' && url.pathname.startsWith('/shop/order/')) {
         const orderId = decodeURIComponent(url.pathname.slice('/shop/order/'.length));
         const order = await Promise.resolve(shop.order(orderId));
@@ -335,6 +360,19 @@ function createEconomyServer(options = {}) {
       if (url.pathname === '/shop/sell') return json(res, 200, await Promise.resolve(shop.createSellOrder(input)));
       if (url.pathname === '/shop/sell/confirm-removal') return json(res, 200, await shop.confirmSellRemoval(input));
       if (url.pathname === '/shop/buy/delivery-status') return json(res, 200, await Promise.resolve(shop.markBuyDelivery(input)));
+      if (worker.minecraft && url.pathname === '/mc/link/challenge') return json(res, 200, await worker.minecraft.challenge(input));
+      if (worker.minecraft && url.pathname === '/mc/link/confirm') return json(res, 200, await worker.minecraft.confirm(input));
+      if (worker.minecraft && url.pathname === '/mc/unlink') return json(res, 200, await worker.minecraft.unlink(input));
+      if (worker.minecraft && url.pathname === '/mc-shop/quote') return json(res, 200, await worker.minecraft.quote(input));
+      if (worker.minecraft && url.pathname === '/mc-shop/buy') {
+        const result = await worker.minecraft.buy({ ...input, writesEnabled: true });
+        return json(res, result.ok ? 200 : 409, result);
+      }
+      if (worker.minecraft && url.pathname === '/mc-shop/delivery-status') return json(res, 200, await worker.minecraft.markDelivery(input));
+      if (worker.minecraft && url.pathname === '/mc-shop/claim') return json(res, 200, { ok: true, order: await worker.minecraft.claimNext() });
+      if (worker.minecraft && url.pathname === '/mc-shop/refund') return json(res, 200, await worker.minecraft.refund({ ...input, writesEnabled }));
+      if (worker.minecraft && url.pathname === '/mc-shop/refund-sweep') return json(res, 200, { ok: true, results: await worker.minecraft.sweepRefunds({ writesEnabled }) });
+      if (worker.minecraft && url.pathname === '/mc/starter-kit/claim') return json(res, 200, await worker.minecraft.claimStarterKit(input));
       return json(res, 404, { ok: false, error: 'not-found' });
     } catch (error) {
       console.error('[Nexus Economy Worker]', error);
@@ -379,6 +417,7 @@ module.exports = {
   DRAIN_MUTATION_PATHS,
   PRESENCE_WRITE_PATHS,
   FINANCIAL_WRITE_PATHS,
+  MC_NONECONOMY_PATHS,
   WRITE_PATHS,
   POST_PATHS,
   enabled,

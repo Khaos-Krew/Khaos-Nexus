@@ -22,6 +22,7 @@ const { craftHelpText } = require('./help.cjs');
 const { redactSecret } = require('./protocol.cjs');
 const { minecraftCommand, pingBedrock, pingJava, probeServerStatus, runRcon } = require('./query.cjs');
 const { openCraftStore } = require('./store.cjs');
+const { handleMcPointsCommand, installMcEconomyLoops } = require('./mc-points-commands.cjs');
 
 const STATUS_IDENTITY = Object.freeze({
   titles: Object.freeze([
@@ -159,7 +160,43 @@ function craftCommands() {
       .addSubcommand((sub) => server(sub
         .setName('cmd')
         .setDescription('Staff: send one raw Java RCON command.')
-        .addStringOption((option) => option.setName('command').setDescription('Exact server command, one line.').setRequired(true).setMaxLength(1000)))),
+        .addStringOption((option) => option.setName('command').setDescription('Exact server command, one line.').setRequired(true).setMaxLength(1000))))
+      .addSubcommandGroup((group) => group
+        .setName('link')
+        .setDescription('Link this Discord account to your Minecraft Java UUID.')
+        .addSubcommand((sub) => sub
+          .setName('start')
+          .setDescription('Whisper a link code to your online Minecraft player.')
+          .addStringOption((option) => option.setName('username').setDescription('Your in-game name.').setRequired(true).setMaxLength(16)))
+        .addSubcommand((sub) => sub
+          .setName('confirm')
+          .setDescription('Confirm the whispered in-game link code.')
+          .addStringOption((option) => option.setName('code').setDescription('Code from the in-game whisper.').setRequired(true).setMaxLength(16)))
+        .addSubcommand((sub) => sub.setName('status').setDescription('Show your Minecraft link.')))
+      .addSubcommand((sub) => sub.setName('unlink').setDescription('Unlink Minecraft. There is a 30-day cooldown.'))
+      .addSubcommand((sub) => sub.setName('shop').setDescription('Where to spend Nexus Points on Minecraft items.'))
+      .addSubcommand((sub) => sub.setName('starter').setDescription('Claim the free one-time Starter Kit.'))
+      .addSubcommandGroup((group) => group
+        .setName('mcadmin')
+        .setDescription('Staff: Minecraft Points orders, links, and kits.')
+        .addSubcommand((sub) => sub
+          .setName('orders')
+          .setDescription('Staff: list queued Minecraft orders.')
+          .addStringOption((option) => option.setName('user').setDescription('Discord user id.').setMaxLength(32)))
+        .addSubcommand((sub) => sub
+          .setName('resolve')
+          .setDescription('Staff: mark an order delivered, refund it, or resend a failed kit.')
+          .addStringOption((option) => option.setName('order').setDescription('Order id.').setRequired(true).setMaxLength(32))
+          .addStringOption((option) => option.setName('action').setDescription('What to do.').setRequired(true).addChoices(
+            { name: 'Delivered', value: 'delivered' },
+            { name: 'Refund', value: 'refund' },
+            { name: 'Resend failed', value: 'resend' }
+          )))
+        .addSubcommand((sub) => sub
+          .setName('link-revoke')
+          .setDescription('Staff: revoke a Minecraft link.')
+          .addStringOption((option) => option.setName('user').setDescription('Discord user id.').setRequired(true).setMaxLength(32)))
+        .addSubcommand((sub) => sub.setName('kits').setDescription('Staff: list Starter Kit claims.'))),
     new SlashCommandBuilder()
       .setName('realm')
       .setDescription('Discord listing board for Minecraft Realms.')
@@ -616,6 +653,13 @@ async function handleCraftInteraction(interaction, context) {
       if (group === 'whitelist' && sub === 'add') return runStaffRcon(interaction, context, 'whitelist-add', { name: optionString(interaction, 'name') });
       if (group === 'whitelist' && sub === 'remove') return runStaffRcon(interaction, context, 'whitelist-remove', { name: optionString(interaction, 'name') });
       if (group === 'whitelist' && sub === 'list') return runStaffRcon(interaction, context, 'whitelist-list', {});
+      const mcPoints = await handleMcPointsCommand(interaction, {
+        ...context,
+        isStaff: requireStaff(interaction, config),
+        ephemeral,
+        ephemeralFlags: MessageFlags.Ephemeral
+      });
+      if (mcPoints) return;
     }
     if (name === 'realm') {
       if (sub === 'channel') {
@@ -829,6 +873,7 @@ function startCraftDiscord({ env = process.env, state = {}, token, client } = {}
       console.warn(`[Nexus Craft] command registration class=${errorClass(error)}`);
     });
     if (store.getStatusPanel()?.host) startStatusLoop(discord, store, env);
+    installMcEconomyLoops({ store, env });
   });
   discord.on(Events.Error, (error) => console.error(`[Nexus Craft] Discord error class=${errorClass(error)}`));
   return discord.login(token).then(() => discord);

@@ -79,6 +79,21 @@ Staff RCON, after `/mcrcon setup`: `/mc players`, `/mc say`, `/mc whitelist add`
 
 `/mcrcon clear` with `confirm: true` deletes one saved server.
 
+## Minecraft Points
+
+All of these default off, except dry-run. Nothing here turns on Nexus economy writes.
+
+- `MC_POINTS_ENABLED` — master switch for `/mc link`. Default false.
+- `MC_PLAYTIME_NP_ENABLED` — counted playtime may accrue. Default false.
+- `MC_PLAYTIME_DRY_RUN` — default true. The tracker logs online, AFK, and failures and does not post presence.
+- `MC_SHOP_ENABLED` — Sentinal Minecraft shop section. Default false.
+- `MC_SHOP_DELIVERY_ENABLED` — RCON delivery of paid orders and the Starter Kit. Default false.
+- `MC_STARTER_KIT_ENABLED` — one-time kit claim. Default false.
+
+Live playtime also requires the existing economy presence-write gate. Shop purchases require the existing economy write gate. Craft reads `NEXUS_ECONOMY_URL` and `NEXUS_ECONOMY_TOKEN` only when one of these flags is on. Item ids can be overridden with `MC_SHOP_CATALOG_JSON` and `MC_STARTER_KIT_JSON`. The kit must still include `sophisticatedbackpacks:backpack`.
+
+`/mc link start` whispers a code to the online Java player. `/mc link confirm` verifies that UUID. `/mc unlink` starts a 30-day cooldown. `/mc shop` points at Sentinal. `/mc starter` queues the free kit. Staff `/mc mcadmin` lists orders and kit claims.
+
 ## Edition support
 
 | Target | Status | RCON | Realms board |

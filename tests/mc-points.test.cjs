@@ -1,0 +1,360 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { mcPointsFlags } = require('../src/shared/mc-points-flags.cjs');
+const { loadMcShopCatalog, DEFAULT_MC_SHOP_ITEMS } = require('../src/shared/mc-shop-catalog.cjs');
+const { loadStarterKit, starterKitEligibility, BACKPACK_ID, FIRST_PLAY_MS, ACCOUNT_AGE_MS, TENURE_MS } = require('../src/shared/mc-starter-kit.cjs');
+const { planMinecraftContribution, MC_DAILY_CAP_MS, ctDayKey } = require('../src/economy-worker/mc-playtime-accounting.cjs');
+const { MemoryMcPoints, UNLINK_COOLDOWN_MS, REFUND_AFTER_MS } = require('../src/economy-worker/mc-points-service.cjs');
+const { schemaSql } = require('../src/economy-worker/mc-points-postgres.cjs');
+const { PostgresEconomyAccrual } = require('../src/economy-worker/postgres-accrual.cjs');
+const { NexusEconomyStore, NexusEconomyWorker } = require('../src/sentinel/nexus-economy-worker.cjs');
+const { McAfkTracker, AFK_UNCHANGED_MS } = require('../src/craft/mc-afk.cjs');
+const {
+  parseListUuids,
+  parseGiveResponse,
+  countInventorySlots,
+  tellrawCommand,
+  giveCommand,
+  isPremiumUuid
+} = require('../src/craft/mc-rcon-text.cjs');
+const { pollMcPlaytime } = require('../src/craft/mc-playtime.cjs');
+const { deliverMcOrder } = require('../src/craft/mc-delivery.cjs');
+const { beginMinecraftLink } = require('../src/craft/mc-link-flow.cjs');
+const { economyPerkForRank } = require('../src/shared/nexus-economy-rank-perks.cjs');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const UUID = '853c80ef-3c37-49fd-aa49-938b674adae6';
+const UUID_2 = '11111111-1111-4111-8111-111111111111';
+const DISCORD = '111111111111111111';
+const LIVE = Object.freeze({ pointsEnabled: true, playtimeEnabled: true, dryRun: false, shopEnabled: false, shopDeliveryEnabled: false, starterKitEnabled: false, trackingEnabled: true, playtimeWrites: true });
+
+function wallet(balance = 1000) {
+  const calls = [];
+  return {
+    calls,
+    balanceValue: balance,
+    async resolve(discordUserId) {
+      return { economicIdentityId: `econ_${discordUserId}`, status: 'verified', verifiedAt: '2026-01-01T00:00:00.000Z' };
+    },
+    async balance() { return this.balanceValue; },
+    async spend(input) {
+      calls.push(input);
+      if (this.balanceValue < input.amount) return { ok: false, reason: 'insufficient-funds', balance: this.balanceValue };
+      this.balanceValue -= input.amount;
+      return { ok: true, balance: this.balanceValue };
+    },
+    async credit(input) {
+      calls.push(input);
+      this.balanceValue += input.amount;
+      return { ok: true, balance: this.balanceValue };
+    },
+    async lifetimeMs() { return this.life || 0; },
+    async quarantined() { return false; }
+  };
+}
+
+function service(extra = {}) {
+  let now = Date.parse('2026-10-01T18:00:00Z');
+  const points = new MemoryMcPoints({
+    now: () => now,
+    wallet: extra.wallet || wallet(),
+    env: { MC_POINTS_ENABLED: 'true', MC_SHOP_ENABLED: 'true', MC_STARTER_KIT_ENABLED: 'true', ...(extra.env || {}) },
+    catalog: extra.catalog,
+    kit: extra.kit
+  });
+  return { points, advance: (ms) => { now += ms; }, setNow: (value) => { now = value; } };
+}
+
+test('minecraft points flags default off and dry-run defaults on', () => {
+  const flags = mcPointsFlags({});
+  assert.equal(flags.pointsEnabled, false);
+  assert.equal(flags.playtimeEnabled, false);
+  assert.equal(flags.shopEnabled, false);
+  assert.equal(flags.shopDeliveryEnabled, false);
+  assert.equal(flags.starterKitEnabled, false);
+  assert.equal(flags.dryRun, true);
+  assert.equal(flags.playtimeWrites, false);
+  assert.equal(mcPointsFlags({ MC_PLAYTIME_DRY_RUN: 'false', MC_POINTS_ENABLED: 'true', MC_PLAYTIME_NP_ENABLED: 'true' }).playtimeWrites, true);
+});
+
+test('list uuids parser keeps premium UUIDs and ignores junk', () => {
+  const parsed = parseListUuids('There are 2 of a max of 20 players online: Steve (853c80ef3c3749fdaa49938b674adae6), bad name! (not-a-uuid), Alex (11111111-1111-4111-8111-111111111111)');
+  assert.equal(parsed.ok, true);
+  assert.deepEqual(parsed.players.map((player) => player.name), ['Steve', 'Alex']);
+  assert.equal(isPremiumUuid(parsed.players[0].uuid), true);
+  assert.equal(isPremiumUuid('11111111-1111-3111-8111-111111111111'), false);
+  assert.equal(parseListUuids('nope').ok, false);
+});
+
+test('AFK is position and camera unchanged for five minutes', () => {
+  const afk = new McAfkTracker();
+  const pos = [1, 64, 2];
+  const rotation = [10, 20];
+  assert.equal(afk.observe(UUID, pos, rotation, 0).afk, false);
+  assert.equal(afk.observe(UUID, pos, rotation, AFK_UNCHANGED_MS - 1).afk, false);
+  assert.equal(afk.observe(UUID, pos, rotation, AFK_UNCHANGED_MS).afk, true);
+  assert.equal(afk.observe(UUID, pos, [11, 20], AFK_UNCHANGED_MS + 10).afk, false);
+});
+
+test('give and tellraw commands reject raw player input', () => {
+  assert.equal(giveCommand('Steve', 'minecraft:iron_ingot', 64), 'give Steve minecraft:iron_ingot 64');
+  assert.throws(() => giveCommand('Steve; say hi', 'minecraft:iron_ingot', 1));
+  assert.throws(() => giveCommand('Steve', 'minecraft:iron_ingot 64; say hi', 1));
+  assert.match(tellrawCommand('Steve', 'Nexus link code: ABC-234'), /^tellraw Steve \{/);
+  assert.equal(parseGiveResponse('Gave 64 [minecraft:iron_ingot] to Steve').outcome, 'delivered');
+  assert.equal(parseGiveResponse('Unknown item').outcome, 'failed');
+  assert.equal(parseGiveResponse('').outcome, 'unconfirmed');
+  assert.equal(countInventorySlots('{Inventory:[{Slot:0b},{Slot:10b},{Slot:40b}]}').free, 34);
+});
+
+test('catalog keeps 14 configurable item ids and the kit keeps the backpack', () => {
+  const catalog = loadMcShopCatalog({});
+  assert.equal(catalog.items.length, 14);
+  assert.equal(catalog.items.filter((item) => item.sku === 'mc_diamond4')[0].dailyLimit, 2);
+  const overridden = loadMcShopCatalog({ MC_SHOP_CATALOG_JSON: JSON.stringify([{ sku: 'mc_iron64', itemId: 'minecraft:raw_iron' }]) });
+  assert.equal(overridden.items.find((item) => item.sku === 'mc_iron64').itemId, 'minecraft:raw_iron');
+  assert.equal(loadStarterKit({}).items.at(-1).itemId, BACKPACK_ID);
+  assert.throws(() => loadStarterKit({ MC_STARTER_KIT_JSON: JSON.stringify([{ itemId: 'minecraft:bread', qty: 1 }]) }));
+  assert.equal(DEFAULT_MC_SHOP_ITEMS.some((item) => /tnt|nether_star|spawn_egg|allthemodium/i.test(item.itemId)), false);
+});
+
+test('shared minecraft cap stops at 8 counted hours and does not tax ARK time', () => {
+  const day = ctDayKey(Date.parse('2026-10-01T18:00:00Z'));
+  let state = { mcCountedDay: day, mcCountedMs: 0, mcLifetimeMs: 0, mcOnline: false, lastMcOnlineAt: null };
+  const started = Date.parse('2026-10-01T18:00:00Z');
+  state = { ...state, ...planMinecraftContribution({ ...state, online: true, nowMs: started, accountingGap: 0, otherOnline: false }) };
+  for (let step = 1; step <= 96; step += 1) {
+    const nowMs = started + step * 5 * 60 * 1000;
+    state = { ...state, ...planMinecraftContribution({ ...state, online: true, nowMs, accountingGap: 5 * 60 * 1000, otherOnline: false }) };
+  }
+  assert.equal(state.mcCountedMs, MC_DAILY_CAP_MS);
+  const blocked = planMinecraftContribution({ ...state, online: true, nowMs: started + 97 * 5 * 60 * 1000, accountingGap: 5 * 60 * 1000, otherOnline: false });
+  assert.equal(blocked.gap, 0);
+  assert.equal(blocked.capHit, true);
+  const shared = planMinecraftContribution({ ...blocked, online: true, nowMs: started + 98 * 5 * 60 * 1000, accountingGap: 5 * 60 * 1000, otherOnline: true, otherSource: 'ark-gen1' });
+  assert.equal(shared.gap, 5 * 60 * 1000);
+  assert.equal(shared.creditSource, 'ark-gen1');
+  assert.equal(shared.mcCountedMs, blocked.mcCountedMs);
+});
+
+test('dry-run and a missing link do not open a database connection', async () => {
+  const accrual = new PostgresEconomyAccrual({
+    pool: { async connect() { throw new Error('should not connect'); } }
+  });
+  const dry = await accrual.recordPresence({
+    provider: 'minecraft',
+    mcUuid: UUID,
+    online: true,
+    server: 'minecraft',
+    flags: { pointsEnabled: true, playtimeEnabled: true, dryRun: true }
+  });
+  assert.equal(dry.dryRun, true);
+  const off = await accrual.recordPresence({
+    provider: 'minecraft',
+    mcUuid: UUID,
+    online: true,
+    flags: { pointsEnabled: false, playtimeEnabled: false, dryRun: false }
+  });
+  assert.equal(off.reason, 'mc-points-disabled');
+});
+
+test('verified minecraft link shares the presence counter and the 8 hour cap', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-points-'));
+  let now = Date.parse('2026-10-01T16:00:00Z');
+  const worker = new NexusEconomyWorker({
+    store: new NexusEconomyStore(root),
+    now: () => now,
+    env: { MC_POINTS_ENABLED: 'true', MC_SHOP_ENABLED: 'true', MC_STARTER_KIT_ENABLED: 'true' }
+  });
+  const linked = worker.linkArkIdentity({ discordUserId: DISCORD, eosId: 'EOSshared1234', rankId: 'shadow-recruit' });
+  assert.equal(linked.discordUserId, DISCORD);
+  const challenge = await worker.minecraft.challenge({ discordUserId: DISCORD, mcUuid: UUID, mcName: 'Steve' });
+  assert.equal(challenge.ok, true, challenge.reason);
+  const confirmed = await worker.minecraft.confirm({ discordUserId: DISCORD, code: challenge.code });
+  assert.equal(confirmed.ok, true, confirmed.reason);
+  const unlinked = await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID_2, online: true, flags: LIVE });
+  assert.equal(unlinked.reason, 'unlinked-player');
+  await worker.recordPresence({ eosId: 'EOSshared1234', online: true, server: 'ark' });
+  now += 5 * 60 * 1000;
+  const ark = await worker.recordPresence({ eosId: 'EOSshared1234', online: true, server: 'ark' });
+  const again = await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft', flags: LIVE });
+  assert.equal(again.balance, ark.balance);
+  const rate = economyPerkForRank('shadow-recruit').onlinePointsPerFiveMinutes;
+  assert.equal(ark.balance, rate);
+  for (let step = 0; step < 96; step += 1) {
+    now += 5 * 60 * 1000;
+    await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft', flags: LIVE });
+  }
+  const capped = worker.wallet(DISCORD).balance;
+  now += 5 * 60 * 1000;
+  const after = await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft', flags: LIVE });
+  assert.equal(after.balance, capped);
+  assert.ok(capped < rate * 110);
+});
+
+test('link whispers a code, confirms the UUID, and enforces the 30-day cooldown', async () => {
+  const { points } = service();
+  const listed = `There are 1 of a max of 20 players online: Steve (${UUID})`;
+  const commands = [];
+  const result = await beginMinecraftLink({
+    username: 'Steve',
+    discordUserId: DISCORD,
+    rcon: async (command) => {
+      commands.push(command);
+      return command === 'list uuids' ? listed : 'Whispered';
+    },
+    points,
+    env: { MC_POINTS_ENABLED: 'true' },
+    fetchImpl: async () => ({ ok: true, json: async () => ({ id: UUID.replace(/-/g, ''), name: 'Steve' }) })
+  });
+  assert.equal(result.ok, true, result.reason);
+  assert.match(commands[1], /tellraw Steve/);
+  assert.match(commands[1], /Nexus link code:/);
+  const code = commands[1].match(/Nexus link code: ([A-Z0-9]{3}-[A-Z0-9]{3})/)[1];
+  const confirmed = await points.confirm({ discordUserId: DISCORD, code });
+  assert.equal(confirmed.mcUuid, UUID);
+  const unlinked = await points.unlink({ discordUserId: DISCORD });
+  assert.equal(Date.parse(unlinked.cooldownUntil) - Date.parse('2026-10-01T18:00:00Z'), UNLINK_COOLDOWN_MS);
+  const again = await points.challenge({ discordUserId: DISCORD, mcUuid: UUID_2, mcName: 'Alex' });
+  assert.equal(again.reason, 'unlink-cooldown');
+});
+
+test('shop debits through the wallet, checks slots, and never retries an unconfirmed give', async () => {
+  const bank = wallet(500);
+  const { points, advance } = service({ wallet: bank });
+  await points.challenge({ discordUserId: DISCORD, mcUuid: UUID, mcName: 'Steve' }).then(async (challenge) => {
+    assert.equal((await points.confirm({ discordUserId: DISCORD, code: challenge.code })).ok, true);
+  });
+  const quoted = await points.quote({ discordUserId: DISCORD, sku: 'mc_iron64', bundles: 1 });
+  assert.equal(quoted.quote.price, 40);
+  assert.equal(quoted.quote.balanceAfter, 460);
+  const bought = await points.buy({ discordUserId: DISCORD, sku: 'mc_iron64', bundles: 1, nonce: quoted.quote.nonce, writesEnabled: true });
+  assert.equal(bought.ok, true, bought.reason);
+  assert.equal(bought.ledgerKey, `mc-shop:econ_${DISCORD}:mc_iron64:${quoted.quote.nonce}`);
+  assert.equal(bank.calls[0].source, 'sink:mc-shop');
+  assert.equal(bank.balanceValue, 460);
+  const denied = await points.buy({ discordUserId: DISCORD, sku: 'mc_iron64', bundles: 1, nonce: 'missing', writesEnabled: false });
+  assert.equal(denied.reason, 'economy-write-cutover-not-enabled');
+
+  const offline = await deliverMcOrder(bought.order, {
+    points,
+    deliveryEnabled: true,
+    rcon: async () => 'There are 0 of a max of 20 players online:'
+  });
+  assert.equal(offline.status, 'PLAYER_OFFLINE');
+  bought.order.status = 'PAID';
+  bought.order.leaseUntil = null;
+  const full = await deliverMcOrder(bought.order, {
+    points,
+    deliveryEnabled: true,
+    rcon: async (command) => {
+      if (command === 'list uuids') return `There are 1 of a max of 20 players online: Steve (${UUID})`;
+      if (command.includes('Inventory')) return '{Inventory:[' + Array.from({ length: 36 }, (_, index) => `{Slot:${index}b}`).join(',') + ']}';
+      return '';
+    }
+  });
+  assert.equal(full.waitingSlots, 1);
+  bought.order.leaseUntil = null;
+  const lost = await deliverMcOrder(bought.order, {
+    points,
+    deliveryEnabled: true,
+    rcon: async (command) => command === 'list uuids'
+      ? `There are 1 of a max of 20 players online: Steve (${UUID})`
+      : command.includes('Inventory') ? '{Inventory:[]}' : ''
+  });
+  assert.equal(lost.status, 'SENT_UNCONFIRMED');
+  const retry = await deliverMcOrder(points.orders.get(bought.order.orderId), { points, deliveryEnabled: true, rcon: async () => { throw new Error('should not send'); } });
+  assert.equal(retry.skipped, 'no-retry');
+
+  const second = await points.quote({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1 });
+  const paid = await points.buy({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1, nonce: second.quote.nonce, writesEnabled: true });
+  const order = points.orders.get(paid.order.orderId);
+  order.createdAt = new Date(Date.parse(order.createdAt) - REFUND_AFTER_MS - 1000).toISOString();
+  advance(0);
+  const swept = await points.sweepRefunds({ writesEnabled: true, now: Date.parse(order.createdAt) + REFUND_AFTER_MS + 2000 });
+  assert.equal(swept.some((result) => result.ok && result.order.orderId === order.orderId), true);
+  assert.equal(points.orders.get(order.orderId).status, 'REFUNDED');
+});
+
+test('starter kit is once per identity and once per UUID', async () => {
+  const bank = wallet();
+  bank.life = FIRST_PLAY_MS;
+  const { points, setNow } = service({ wallet: bank });
+  const now = Date.parse('2026-10-01T18:00:00Z');
+  setNow(now);
+  const challenge = await points.challenge({ discordUserId: DISCORD, mcUuid: UUID, mcName: 'Steve' });
+  await points.confirm({ discordUserId: DISCORD, code: challenge.code });
+  const claim = await points.claimStarterKit({
+    discordUserId: DISCORD,
+    accountCreatedAt: now - ACCOUNT_AGE_MS,
+    joinedAt: now - TENURE_MS
+  });
+  assert.equal(claim.ok, true, claim.reason);
+  assert.equal(claim.order.price, 0);
+  assert.equal(claim.order.lines.some((line) => line.itemId === BACKPACK_ID), true);
+  assert.equal(claim.order.lines.at(-1).itemId, BACKPACK_ID);
+  const again = await points.claimStarterKit({
+    discordUserId: DISCORD,
+    accountCreatedAt: now - ACCOUNT_AGE_MS,
+    joinedAt: now - TENURE_MS
+  });
+  assert.equal(again.reason, 'already-claimed');
+  const young = starterKitEligibility({
+    identityVerified: true,
+    linkVerified: true,
+    premiumUuid: true,
+    accountCreatedAt: now - ACCOUNT_AGE_MS + 1000,
+    joinedAt: now - TENURE_MS,
+    lifetimeMs: FIRST_PLAY_MS,
+    now
+  });
+  assert.equal(young.reason, 'account-too-new');
+});
+
+test('playtime poll logs AFK and does not post while dry-run', async () => {
+  const posts = [];
+  const listed = `There are 1 of a max of 20 players online: Steve (${UUID})`;
+  const afk = new McAfkTracker();
+  const seen = new Set();
+  const rcon = async (command) => {
+    if (command === 'list uuids') return listed;
+    if (command.endsWith('Pos')) return '[1.0d, 64.0d, 2.0d]';
+    if (command.endsWith('Rotation')) return '[10.0f, 20.0f]';
+    return '';
+  };
+  const first = await pollMcPlaytime({
+    rcon,
+    afk,
+    seen,
+    presence: async (input) => { posts.push(input); },
+    now: () => 0,
+    env: { MC_POINTS_ENABLED: 'true', MC_PLAYTIME_DRY_RUN: 'true' }
+  });
+  assert.equal(first.posted, 0);
+  assert.equal(first.afk, 0);
+  assert.equal(posts.length, 0);
+  const second = await pollMcPlaytime({
+    rcon,
+    afk,
+    seen,
+    presence: async (input) => { posts.push(input); },
+    now: () => AFK_UNCHANGED_MS,
+    env: { MC_POINTS_ENABLED: 'true', MC_PLAYTIME_NP_ENABLED: 'true', MC_PLAYTIME_DRY_RUN: 'false' }
+  });
+  assert.equal(second.afk, 1);
+  assert.equal(posts.at(-1).online, false);
+});
+
+test('grant table schema keeps one kit per identity and per UUID', () => {
+  const sql = schemaSql('public');
+  assert.match(sql, /nexus_mc_grants/);
+  assert.match(sql, /UNIQUE \(kind, economic_identity_id\)/);
+  assert.match(sql, /UNIQUE \(kind, mc_uuid\)/);
+  const source = fs.readFileSync(path.join(__dirname, '../src/economy-worker/mc-points-postgres.cjs'), 'utf8');
+  assert.match(source, /provider, external_id, economic_identity_id, verified_at, source/);
+  assert.match(source, /'minecraft'/);
+});
