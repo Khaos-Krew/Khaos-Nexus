@@ -37,14 +37,15 @@ const COMMAND_HELP = Object.freeze({
   status: 'Staff service status',
   sanctuary: 'Sanctuary Nexus roles, groups, builds, and season notes',
   lfg: 'Fireteam posts, roster, and closing',
-  vanguard: 'Staff: create missing channels in this category',
+  vanguard: 'Staff: create missing channels and refresh panels',
+  d2: 'Destiny 2 player, reset, Xûr, clan, and roster lookups',
   ...STAGE_HELP
 });
 
 function ownedCommandNames(key) {
   if (key === 'ascended') return ASCENDED_COMMANDS;
   if (key === 'sanctuary') return ['sanctuary'];
-  if (key === 'vanguard') return ['lfg', 'vanguard'];
+  if (key === 'vanguard') return ['lfg', 'vanguard', 'd2'];
   return CEPHALON_COMMANDS;
 }
 

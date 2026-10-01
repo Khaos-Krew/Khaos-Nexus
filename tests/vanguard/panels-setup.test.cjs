@@ -208,7 +208,10 @@ test('status and command registration stay secret-free and inside discord limits
     assert.match(text, /Category gate: ok/);
     assert.match(text, /Data dir: writable/);
     assert.match(text, /Join-to-create: lobby configured/);
-    assert.match(text, /No Bungie calls/);
+    assert.match(text, /Bungie key: configured/);
+    assert.match(text, /Settings: not checked yet/);
+    assert.match(text, /Manifest: not loaded/);
+    assert.match(text, /Limiter: \d+ rps/);
     assert.match(text, /Many Worlds One Nexus/);
     assert.match(text, /Not affiliated with or endorsed by Bungie/);
     assert.match(text, /Deploy `abc1234`/);

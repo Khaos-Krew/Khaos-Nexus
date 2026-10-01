@@ -41,7 +41,7 @@ function resolveSlots(requested, activity) {
   return slots;
 }
 
-function createLfgService({ store, env = process.env, now = () => Date.now() } = {}) {
+function createLfgService({ store, env = process.env, now = () => Date.now(), findActivity: finder = findActivity } = {}) {
   const limits = new Map();
 
   function tooFast(userId, action, windowMs) {
@@ -76,7 +76,7 @@ function createLfgService({ store, env = process.env, now = () => Date.now() } =
       return post ? snapshot(post) : null;
     },
     async create(input = {}) {
-      const activity = findActivity(input.activityKey);
+      const activity = finder(input.activityKey);
       if (!activity) return { ok: false, reason: 'activity' };
       const slots = resolveSlots(input.slots, activity);
       if (!slots) return { ok: false, reason: 'slots' };
@@ -101,6 +101,7 @@ function createLfgService({ store, env = process.env, now = () => Date.now() } =
           guildId,
           hostId,
           activityKey: activity.key,
+          activityLabel: activity.label,
           slots,
           members: [hostId],
           when: cleanText(input.when, 80),

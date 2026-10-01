@@ -8,7 +8,7 @@ const { prepareVanguardEnv, installVanguard } = require('../game-bots/vanguard/e
 prepareVanguardEnv();
 process.env.NEXUS_GAME_ROLE ||= 'destiny';
 
-// Slice A does not start a game backend and does not call Bungie.
+// Vanguard stays read-only toward Bungie. There is no game backend and no economy.
 startGameBot({
   botName: 'Nexus Vanguard',
   botKey: 'vanguard',

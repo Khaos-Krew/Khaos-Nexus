@@ -6,11 +6,15 @@ const { dataDir, snowflake, statePaths } = require('./config.cjs');
 const { GuildStateStore } = require('./state-store.cjs');
 const { Scheduler } = require('./scheduler.cjs');
 const { installVanguardJtc } = require('./jtc.cjs');
+const { createActivityCatalog } = require('./lfg/activities-manifest.cjs');
 const { createLfgService } = require('./lfg/lfg-service.cjs');
 const { deliverPost } = require('./lfg/lfg-buttons.cjs');
 const { handleLfgInteraction, lfgCommandBuilder, refreshLfgBoard, refreshStatusPanel } = require('./lfg/lfg-commands.cjs');
+const { d2CommandBuilder, handleD2, handleD2Autocomplete } = require('./commands/d2.cjs');
+const { handlePanelsRefresh } = require('./commands/panels-refresh.cjs');
 const { publishRuntimeChannels, provisionChannels, resolvedChannels, runSetup, vanguardCommandBuilder } = require('./commands/setup.cjs');
 const { vanguardCategory } = require('./gate.cjs');
+const { createBungieRuntime } = require('./bungie/runtime.cjs');
 
 const PANEL_REFRESH_MS = 10 * 60 * 1000;
 const TICK_MS = 60 * 1000;
@@ -53,13 +57,13 @@ async function registerVanguardCommands(client, env) {
   }
   const guild = await client.guilds.fetch(guildId);
   const commands = await guild.commands.fetch();
-  for (const builder of [lfgCommandBuilder(), vanguardCommandBuilder()]) {
+  for (const builder of [lfgCommandBuilder(), vanguardCommandBuilder(), d2CommandBuilder(env)]) {
     const definition = builder.toJSON();
     const existing = commands.find((item) => item.name === definition.name);
     if (existing) await guild.commands.edit(existing, definition);
     else await guild.commands.create(definition);
   }
-  console.log('[Nexus Vanguard] registered /lfg and /vanguard');
+  console.log('[Nexus Vanguard] registered /lfg, /vanguard, and /d2');
   return { registered: true };
 }
 
@@ -146,6 +150,9 @@ async function onReady(ctx) {
     await ensureVanguardChannels(ctx);
     await expireAndEdit(ctx);
     await refreshGuildPanels(ctx, guildId, { force: true });
+    await ctx.bungie.boot(guildId).catch((error) => {
+      console.warn(`[Nexus Vanguard] bungie boot class=${errorClass(error)}`);
+    });
   }
   ctx.lastPanelAt = Date.now();
   await registerVanguardCommands(ctx.client, ctx.env);
@@ -155,9 +162,13 @@ async function onTick(ctx) {
   await expireAndEdit(ctx);
   const guildId = guildIdOf(ctx.env);
   if (!guildId) return;
-  if (Date.now() - ctx.lastPanelAt < PANEL_REFRESH_MS) return;
-  ctx.lastPanelAt = Date.now();
-  await refreshGuildPanels(ctx, guildId, { force: true });
+  if (Date.now() - ctx.lastPanelAt >= PANEL_REFRESH_MS) {
+    ctx.lastPanelAt = Date.now();
+    await refreshGuildPanels(ctx, guildId, { force: true });
+  }
+  await ctx.bungie.tick(guildId).catch((error) => {
+    console.warn(`[Nexus Vanguard] bungie tick class=${errorClass(error)}`);
+  });
 }
 
 function bindShutdown(ctx) {
@@ -177,13 +188,27 @@ function installVanguard(client, { env = process.env, shutdown = false } = {}) {
   const paths = statePaths(env);
   const channelStore = new GuildStateStore(paths.channels);
   const panelStore = new GuildStateStore(paths.panels);
-  const lfg = createLfgService({ store: new GuildStateStore(paths.lfg), env });
   const installed = installVanguardJtc(client, env);
+  const channelsFor = (guildId) => resolvedChannels(env, channelStore.read()?.[String(guildId)] || {});
+  const bungie = createBungieRuntime({
+    env,
+    discord: client,
+    panelStore,
+    channelsFor
+  });
+  const activities = createActivityCatalog({ query: bungie.query });
+  const lfg = createLfgService({
+    store: new GuildStateStore(paths.lfg),
+    env,
+    findActivity: (key) => activities.find(key)
+  });
   const ctx = {
     client,
     env,
     scheduler: new Scheduler(),
     lfg,
+    activities,
+    bungie,
     channelStore,
     panelStore,
     jtc: installed.controller,
@@ -195,11 +220,21 @@ function installVanguard(client, { env = process.env, shutdown = false } = {}) {
   client.on(Events.InteractionCreate, (interaction) => {
     const run = async () => {
       if (typeof interaction.isAutocomplete === 'function' && interaction.isAutocomplete()) {
-        const handled = await handleLfgInteraction(interaction, ctx);
-        return handled;
+        if (interaction.commandName === 'd2') return handleD2Autocomplete(interaction, ctx);
+        return handleLfgInteraction(interaction, ctx);
+      }
+      if (interaction.commandName === 'd2') {
+        await handleD2(interaction, ctx);
+        return;
       }
       await ctx.scheduler.run(async () => {
         if (interaction.commandName === 'vanguard') {
+          const group = interaction.options?.getSubcommandGroup?.(false);
+          const sub = interaction.options?.getSubcommand?.(false);
+          if (group === 'panels' && sub === 'refresh') {
+            await handlePanelsRefresh(interaction, ctx);
+            return;
+          }
           await runSetup(interaction, ctx);
           return;
         }

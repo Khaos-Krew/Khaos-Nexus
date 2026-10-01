@@ -21,7 +21,24 @@ function vanguardCommandBuilder() {
     .setDescription('Staff tools for Nexus Vanguard.')
     .addSubcommand((sub) => sub
       .setName('setup')
-      .setDescription('Create any missing lfg, fireteam, panel, alert, and lobby channels.'));
+      .setDescription('Create any missing lfg, fireteam, panel, alert, and lobby channels.'))
+    .addSubcommandGroup((group) => group
+      .setName('panels')
+      .setDescription('Panel tools.')
+      .addSubcommand((sub) => sub
+        .setName('refresh')
+        .setDescription('Refresh one panel now.')
+        .addStringOption((option) => option
+          .setName('panel')
+          .setDescription('Which panel to refresh')
+          .setRequired(true)
+          .addChoices(
+            { name: 'all', value: 'all' },
+            { name: 'reset', value: 'reset' },
+            { name: 'xur', value: 'xur' },
+            { name: 'clan', value: 'clan' },
+            { name: 'lfg-board', value: 'lfg-board' }
+          ))));
 }
 
 function planSetup({ channels = [], env = {}, categoryId, saved = {} } = {}) {
