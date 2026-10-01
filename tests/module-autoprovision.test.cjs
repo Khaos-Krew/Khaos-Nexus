@@ -68,7 +68,7 @@ test('retired Once Human never becomes pending or blocked even when configuratio
       diablo4: { enabled: false },
       palworld: { enabled: false },
       minecraft: { enabled: false },
-      warframe: { enabled: false },
+      warframe: { enabled: true },
       division2: { enabled: false },
       rust: { enabled: false },
       satisfactory: { enabled: false },
@@ -78,15 +78,19 @@ test('retired Once Human never becomes pending or blocked even when configuratio
     }
   };
   const state = stateFor({
-    roles: { osrs: 'role-osrs', runescape3: 'role-rs3', oncehuman: 'role-oncehuman' }
+    roles: { osrs: 'role-osrs', runescape3: 'role-rs3', oncehuman: 'role-oncehuman', warframe: 'role-warframe' }
   });
   const roles = new Map([
+    ['role-warframe', { id: 'role-warframe' }],
     ['role-osrs', { id: 'role-osrs' }],
     ['role-rs3', { id: 'role-rs3' }],
     ['role-oncehuman', { id: 'role-oncehuman' }]
   ]);
   const result = modulesNeedingProvision(config, state, new Map(), roles);
-  assert.deepEqual(result.pending.sort(), ['osrs', 'runescape3']);
+  // OSRS/RS3 categories were removed by the 2026-10-01 owner-approved cleanup and are on the
+  // no-provision-channels list, so only Warframe is queued.
+  assert.deepEqual(result.pending.sort(), ['warframe']);
+  assert.equal(result.blocked.some((item) => ['osrs', 'runescape3'].includes(item.moduleId)), false);
   assert.equal(result.pending.includes('oncehuman'), false);
   assert.equal(result.blocked.some((item) => item.moduleId === 'oncehuman'), false);
 });

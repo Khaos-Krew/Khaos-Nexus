@@ -5,6 +5,7 @@ const { envSecret } = require('../shared/config.cjs');
 const { MODULES, getModule } = require('../backend/modules/catalog.cjs');
 const { NEXUS_RANKS, highestRankForEntitlements, rankRoleIds } = require('../shared/ranks.cjs');
 const { inspectModuleLayout } = require('./module-inspector.cjs');
+const { isNoProvisionChannelModule, isModuleChannelsNotProvisionedError } = require('./no-provision-modules.cjs');
 
 const REQUIRED_PERMISSIONS = Object.freeze([
   ['administrator', 'Administrator', PermissionFlagsBits.Administrator],
@@ -158,6 +159,7 @@ class SentinalAdminOps {
     for (const id of ids) {
       const module = getModule(id);
       if (!module) continue;
+      if (isNoProvisionChannelModule(id)) { modules.push({ moduleId: id, name: module.name, ok: true, skipped: true, reason: 'channels-not-provisioned' }); continue; }
       try { modules.push(await inspectModuleLayout(this.guild, id)); }
       catch (error) { modules.push({ moduleId: id, name: module.name, ok: false, complete: false, error: safeError(error) }); }
     }
@@ -171,11 +173,18 @@ class SentinalAdminOps {
     for (const id of ids) {
       const module = getModule(id);
       if (!module) continue;
+      if (isNoProvisionChannelModule(id)) {
+        modules.push({ moduleId: id, name: module.name, ok: true, skipped: true, reason: 'channels-not-provisioned' });
+        continue;
+      }
       try {
         const setup = await this.provisioner.provision(this.guild, id);
         modules.push({ moduleId: id, name: module.name, ok: true, categoryId: setup.categoryId, categoryName: setup.categoryName,
           categoryCreated: Boolean(setup.categoryCreated), createdChannels: [...(setup.createdChannels || [])], consoleChannelId: setup.consoleChannelId });
-      } catch (error) { modules.push({ moduleId: id, name: module.name, ok: false, error: safeError(error) }); }
+      } catch (error) {
+        if (isModuleChannelsNotProvisionedError(error)) modules.push({ moduleId: id, name: module.name, ok: true, skipped: true, reason: 'channels-not-provisioned' });
+        else modules.push({ moduleId: id, name: module.name, ok: false, error: safeError(error) });
+      }
     }
     return { ok: modules.every((item) => item.ok), modules };
   }
@@ -186,7 +195,7 @@ class SentinalAdminOps {
     const modules = [];
     for (const id of ids) {
       const module = getModule(id);
-      if (!module || module.console === false) continue;
+      if (!module || module.console === false || isNoProvisionChannelModule(id)) continue;
       try {
         const message = await this.ensureConsole(id);
         modules.push({ moduleId: id, name: module.name, ok: Boolean(message), messageId: message ? String(message.id) : '', channelId: message ? String(message.channelId || message.channel?.id || '') : '' });
