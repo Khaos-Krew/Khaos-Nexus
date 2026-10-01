@@ -7,8 +7,9 @@ const path = require('node:path');
 const { rankById } = require('../shared/ranks.cjs');
 const { mcPointsFlags } = require('../shared/mc-points-flags.cjs');
 const { normalizeUuid } = require('../craft/mc-rcon-text.cjs');
-const { otherPresenceOnline, planMinecraftContribution, PRESENCE_TTL_MS } = require('../economy-worker/mc-playtime-accounting.cjs');
-const { MemoryMcPoints } = require('../economy-worker/mc-points-service.cjs');
+const { otherPresenceOnline, planMinecraftContribution, minecraftServerName, PRESENCE_TTL_MS } = require('../economy-worker/mc-playtime-accounting.cjs');
+const { MemoryMcPoints, mcEarnEligible, bumpMcMetric } = require('../economy-worker/mc-points-service.cjs');
+const { economyPerkForRank } = require('../shared/nexus-economy-rank-perks.cjs');
 
 const STORE_VERSION = 1;
 const ONLINE_INTERVAL_MS = 5 * 60_000;
@@ -99,6 +100,7 @@ class NexusEconomyWorker {
     this.offlineRates = options.offlineRates || loadRates('NEXUS_ECONOMY_OFFLINE_RATES_JSON', DEFAULT_OFFLINE_POINTS_PER_HOUR);
     this.offlineCapHours = Math.max(1, whole(process.env.NEXUS_ECONOMY_OFFLINE_CAP_HOURS, DEFAULT_OFFLINE_CAP_HOURS));
     this.locks = new Map();
+    this.env = options.env || process.env;
     const worker = this;
     this.minecraft = new MemoryMcPoints({
       now: () => worker.now(),
@@ -292,20 +294,52 @@ class NexusEconomyWorker {
     }
   }
 
-  async recordPresence({ eosId, mcUuid, online, rankId, server = 'ark', provider, flags = null } = {}) {
+  #dryRunMinecraft(state, discordUserId, link, { online, rankId, server, mcUuid }) {
+    const account = state.accounts[discordUserId];
+    const now = this.now();
+    const wasOnline = Boolean(account?.online);
+    const previous = account?.lastAccountingAt ? Date.parse(account.lastAccountingAt) : now;
+    const accountingGap = wasOnline ? Math.max(0, Math.min(now - previous, ONLINE_INTERVAL_MS * 2)) : 0;
+    const otherSource = otherPresenceOnline(account?.presenceByServer, now, PRESENCE_TTL_MS);
+    const planned = planMinecraftContribution({
+      mcCountedDay: account?.mcCountedDay || '',
+      mcCountedMs: Number(account?.mcCountedMs || 0),
+      mcLifetimeMs: Number(account?.mcLifetimeMs || 0),
+      mcOnline: account?.mcOnline === true,
+      lastMcOnlineAt: account?.lastMcOnlineAt,
+      online: Boolean(online),
+      nowMs: now,
+      accountingGap,
+      otherOnline: Boolean(otherSource),
+      otherSource: otherSource || 'ark',
+      maxGapMs: ONLINE_INTERVAL_MS * 2
+    });
+    const perk = economyPerkForRank(rankId || account?.rankId || 'shadow-recruit');
+    const projectedCredit = Math.floor((Number(account?.onlineUncreditedMs || 0) + planned.gap) / ONLINE_INTERVAL_MS) * Number(perk.onlinePointsPerFiveMinutes || 0);
+    bumpMcMetric('dryRun');
+    console.log(`[Nexus Economy] mc_playtime_dry_run identity=${link.economicIdentityId} server=${server} gap=${planned.gap} countedMs=${planned.mcCountedMs} capHit=${planned.capHit} projectedCredit=${projectedCredit} day=${planned.mcCountedDay} overflowDroppedMs=${planned.overflowDroppedMs} mcUuid=${mcUuid}`);
+    return { ok: true, dryRun: true, credited: 0, projectedCredit, capHit: planned.capHit, countedMs: planned.mcCountedMs };
+  }
+
+  async recordPresence({ eosId, mcUuid, online, rankId, server, provider } = {}) {
     const minecraft = provider === 'minecraft' || (mcUuid && !eosId);
     const state = this.store.read();
     let discordUserId = '';
     let subjectId = '';
+    let serverKey = minecraft ? (server == null || server === '' ? 'minecraft' : server) : cleanServer(server || 'ark');
     if (minecraft) {
-      const gate = flags || mcPointsFlags();
-      if (!gate.pointsEnabled || !gate.playtimeEnabled) return { ok: false, reason: 'mc-points-disabled', credited: 0 };
-      if (gate.dryRun) return { ok: true, dryRun: true, reason: 'mc-playtime-dry-run', credited: 0 };
+      const gate = mcPointsFlags(this.env);
+      if (!gate.pointsEnabled) return { ok: false, reason: 'mc-points-disabled', credited: 0 };
+      if (!gate.playtimeEnabled) return { ok: false, reason: 'mc-playtime-disabled', credited: 0 };
+      serverKey = minecraftServerName(serverKey);
+      if (!serverKey) return { ok: false, reason: 'invalid-mc-server', credited: 0 };
       const uuid = normalizeUuid(mcUuid);
       const link = this.minecraft?.linkByUuid(uuid);
-      if (!link?.verifiedAt) return { ok: false, reason: 'unlinked-player' };
+      const identity = link ? await this.minecraft.wallet.resolve(link.discordUserId) : null;
+      if (!mcEarnEligible(identity, link)) return { ok: false, reason: 'unlinked-player' };
       discordUserId = link.discordUserId;
       subjectId = uuid;
+      if (gate.dryRun) return this.#dryRunMinecraft(state, discordUserId, link, { online, rankId, server: serverKey, mcUuid: uuid });
     } else {
       const eos = cleanId(eosId);
       discordUserId = state.eosToDiscord[eos];
@@ -316,7 +350,6 @@ class NexusEconomyWorker {
       const fresh = this.store.read();
       const account = this.ensureAccount(fresh, discordUserId, rankId || fresh.accounts[discordUserId]?.rankId);
       const now = this.now();
-      const serverKey = minecraft ? 'minecraft' : cleanServer(server);
       const wasOnline = Boolean(account.online);
       const previous = account.lastAccountingAt ? Date.parse(account.lastAccountingAt) : now;
       const accountingGap = wasOnline ? Math.max(0, Math.min(now - previous, ONLINE_INTERVAL_MS * 2)) : 0;
@@ -337,6 +370,9 @@ class NexusEconomyWorker {
           maxGapMs: ONLINE_INTERVAL_MS * 2
         });
         planned.mcUuid = subjectId;
+        const link = this.minecraft.linkByUuid(subjectId);
+        const previousLifetime = Number(account.mcLifetimeMs || 0);
+        if (link) link.playtimeMs = Number(link.playtimeMs || 0) + Math.max(0, Number(planned.mcLifetimeMs || 0) - previousLifetime);
       }
       this.accrueOnlineInterval(fresh, account, now, serverKey, planned);
       account.presenceByServer[serverKey] = minecraft

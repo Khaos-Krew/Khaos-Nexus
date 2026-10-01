@@ -60,34 +60,40 @@ function countInventorySlots(text) {
   return { occupied: slots.size, free: 36 - slots.size };
 }
 
-function parseGiveResponse(text) {
-  const raw = String(text || '');
-  if (/Gave\s+\d+/i.test(raw)) return { outcome: 'delivered' };
-  if (/unknown item|does not exist|not a valid|item not found|couldn't find|no such item/i.test(raw)) {
-    return { outcome: 'failed' };
-  }
-  if (/no player was found|is not online|player not found/i.test(raw)) return { outcome: 'offline' };
-  return { outcome: 'unconfirmed' };
+function parseGiveResponse(text, expected = {}) {
+  const raw = String(text || '').trim();
+  const match = raw.match(/^Gave (\d+) \[([^\]]+)\] to ([A-Za-z0-9_]{3,16})$/);
+  if (!match) return { outcome: 'unconfirmed' };
+  const count = Number(match[1]);
+  const itemId = match[2];
+  const name = match[3];
+  if (expected.count != null && count !== Number(expected.count)) return { outcome: 'unconfirmed' };
+  if (expected.itemId && itemId !== expected.itemId) return { outcome: 'unconfirmed' };
+  if (expected.name && name !== expected.name) return { outcome: 'unconfirmed' };
+  return { outcome: 'delivered', count, itemId, name };
 }
 
-function tellrawCommand(name, text) {
-  if (!playerNameOk(name)) throw new Error('invalid-player-name');
+function tellrawCommand(uuid, text) {
+  const id = normalizeUuid(uuid);
+  if (!isPremiumUuid(id)) throw new Error('invalid-player-uuid');
   const payload = JSON.stringify({ text: String(text || '').slice(0, 200), color: 'gold' });
-  return `tellraw ${name} ${payload}`;
+  return `tellraw ${id} ${payload}`;
 }
 
-function giveCommand(name, itemId, count) {
-  if (!playerNameOk(name)) throw new Error('invalid-player-name');
+function giveCommand(uuid, itemId, count) {
+  const id = normalizeUuid(uuid);
+  if (!isPremiumUuid(id)) throw new Error('invalid-player-uuid');
   if (!itemIdOk(itemId)) throw new Error('invalid-item-id');
   const amount = Number(count);
   if (!Number.isSafeInteger(amount) || amount < 1 || amount > 64) throw new Error('invalid-item-count');
-  return `give ${name} ${itemId} ${amount}`;
+  return `give ${id} ${itemId} ${amount}`;
 }
 
-function dataGetCommand(name, path) {
-  if (!playerNameOk(name)) throw new Error('invalid-player-name');
+function dataGetCommand(uuid, path) {
+  const id = normalizeUuid(uuid);
+  if (!isPremiumUuid(id)) throw new Error('invalid-player-uuid');
   if (path !== 'Pos' && path !== 'Rotation' && path !== 'Inventory') throw new Error('invalid-data-path');
-  return `data get entity ${name} ${path}`;
+  return `data get entity ${id} ${path}`;
 }
 
 module.exports = {

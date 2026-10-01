@@ -13,9 +13,19 @@ function ctDayKey(nowMs, timeZone = 'America/Chicago') {
   }).format(new Date(nowMs));
 }
 
+function minecraftServerName(value) {
+  const server = String(value || '').trim().toLowerCase();
+  if (!/^minecraft(?:-[a-z0-9][a-z0-9_-]{0,32})?$/.test(server)) return '';
+  return server;
+}
+
+function isMinecraftPresenceKey(key) {
+  return minecraftServerName(key) !== '';
+}
+
 function otherPresenceOnline(presence, nowMs, ttlMs = PRESENCE_TTL_MS) {
   for (const [key, entry] of Object.entries(presence || {})) {
-    if (key === 'minecraft' || entry?.online !== true) continue;
+    if (isMinecraftPresenceKey(key) || entry?.online !== true) continue;
     const at = Date.parse(entry.at);
     if (Number.isFinite(at) && nowMs - at <= ttlMs) return key;
   }
@@ -45,24 +55,26 @@ function planMinecraftContribution({
     mcDelta = Math.max(0, Math.min(nowMs - previousMc, maxGapMs));
   }
   lifetime += mcDelta;
-  let gap = Math.max(0, Number(accountingGap) || 0);
+  const requestedGap = Math.max(0, Number(accountingGap) || 0);
+  let gap = requestedGap;
+  let overflowDroppedMs = 0;
   let capHit = false;
   let creditSource = 'minecraft';
   if (otherOnline) {
     creditSource = otherSource || 'ark';
   } else {
-    const room = MC_DAILY_CAP_MS - counted;
-    if (room <= 0) {
-      gap = 0;
-      capHit = true;
-    } else if (gap > room) {
+    const room = Math.max(0, MC_DAILY_CAP_MS - counted);
+    if (gap > room) {
+      overflowDroppedMs = gap - room;
       gap = room;
       capHit = true;
     }
     counted += gap;
+    if (room <= 0) capHit = true;
   }
   return {
     gap,
+    overflowDroppedMs,
     capHit,
     creditSource,
     mcCountedDay: day,
@@ -78,6 +90,8 @@ module.exports = {
   PRESENCE_TTL_MS,
   MAX_ACCOUNTING_GAP_MS,
   ctDayKey,
+  minecraftServerName,
+  isMinecraftPresenceKey,
   otherPresenceOnline,
   planMinecraftContribution
 };

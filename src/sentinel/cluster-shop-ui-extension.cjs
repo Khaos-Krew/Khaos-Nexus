@@ -89,7 +89,12 @@ function buildClusterShopPanelPayload() {
         ...(mcPointsFlags().shopEnabled
           ? [new ButtonBuilder().setCustomId('nexus-mc-shop:open').setLabel('Minecraft').setEmoji('⛏️').setStyle(ButtonStyle.Secondary)]
           : [])
-      )
+      ),
+      ...(mcPointsFlags().starterKitEnabled
+        ? [new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('nexus-mc-shop:starter').setLabel('MC Starter Kit').setStyle(ButtonStyle.Secondary)
+        )]
+        : [])
     ],
     allowedMentions: { parse: [] }
   };

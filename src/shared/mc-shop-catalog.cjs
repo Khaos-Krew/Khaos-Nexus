@@ -1,5 +1,7 @@
 'use strict';
 
+const crypto = require('node:crypto');
+
 const CATALOG_VERSION = '2026-10-01';
 const MAX_BUNDLES = 5;
 const MAX_PURCHASE_NP = 500;
@@ -55,6 +57,11 @@ function catalogItem(catalog, sku) {
   return (catalog?.items || []).find((item) => item.sku === sku && item.active !== false) || null;
 }
 
+function catalogFingerprint(catalog) {
+  const lines = (catalog?.items || []).map((item) => [item.sku, item.itemId, item.qty, item.price, item.active === false ? 0 : 1].join('\t'));
+  return crypto.createHash('sha256').update(`${catalog?.version || ''}\n${lines.join('\n')}`).digest('hex');
+}
+
 module.exports = {
   CATALOG_VERSION,
   MAX_BUNDLES,
@@ -63,5 +70,6 @@ module.exports = {
   MAX_DAILY_ORDERS,
   DEFAULT_MC_SHOP_ITEMS,
   loadMcShopCatalog,
-  catalogItem
+  catalogItem,
+  catalogFingerprint
 };

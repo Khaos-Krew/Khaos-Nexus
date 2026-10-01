@@ -62,7 +62,7 @@ function service(extra = {}) {
   const points = new MemoryMcPoints({
     now: () => now,
     wallet: extra.wallet || wallet(),
-    env: { MC_POINTS_ENABLED: 'true', MC_SHOP_ENABLED: 'true', MC_STARTER_KIT_ENABLED: 'true', ...(extra.env || {}) },
+    env: { MC_POINTS_ENABLED: 'true', MC_SHOP_ENABLED: 'true', MC_SHOP_DELIVERY_ENABLED: 'true', MC_STARTER_KIT_ENABLED: 'true', ...(extra.env || {}) },
     catalog: extra.catalog,
     kit: extra.kit
   });
@@ -101,12 +101,13 @@ test('AFK is position and camera unchanged for five minutes', () => {
 });
 
 test('give and tellraw commands reject raw player input', () => {
-  assert.equal(giveCommand('Steve', 'minecraft:iron_ingot', 64), 'give Steve minecraft:iron_ingot 64');
+  assert.equal(giveCommand(UUID, 'minecraft:iron_ingot', 64), `give ${UUID} minecraft:iron_ingot 64`);
   assert.throws(() => giveCommand('Steve; say hi', 'minecraft:iron_ingot', 1));
-  assert.throws(() => giveCommand('Steve', 'minecraft:iron_ingot 64; say hi', 1));
-  assert.match(tellrawCommand('Steve', 'Nexus link code: ABC-234'), /^tellraw Steve \{/);
-  assert.equal(parseGiveResponse('Gave 64 [minecraft:iron_ingot] to Steve').outcome, 'delivered');
-  assert.equal(parseGiveResponse('Unknown item').outcome, 'failed');
+  assert.throws(() => giveCommand(UUID, 'minecraft:iron_ingot 64; say hi', 1));
+  assert.match(tellrawCommand(UUID, 'Nexus link code: ABC-234'), new RegExp(`^tellraw ${UUID} \\{`));
+  assert.equal(parseGiveResponse('Gave 64 [minecraft:iron_ingot] to Steve', { count: 64, itemId: 'minecraft:iron_ingot', name: 'Steve' }).outcome, 'delivered');
+  assert.equal(parseGiveResponse('Gave 63 [minecraft:iron_ingot] to Steve', { count: 64, itemId: 'minecraft:iron_ingot', name: 'Steve' }).outcome, 'unconfirmed');
+  assert.equal(parseGiveResponse('Unknown item').outcome, 'unconfirmed');
   assert.equal(parseGiveResponse('').outcome, 'unconfirmed');
   assert.equal(countInventorySlots('{Inventory:[{Slot:0b},{Slot:10b},{Slot:40b}]}').free, 34);
 });
@@ -141,25 +142,45 @@ test('shared minecraft cap stops at 8 counted hours and does not tax ARK time', 
   assert.equal(shared.mcCountedMs, blocked.mcCountedMs);
 });
 
-test('dry-run and a missing link do not open a database connection', async () => {
+test('dry-run logs cap math without writes and a disabled master never connects', async () => {
+  const queries = [];
   const accrual = new PostgresEconomyAccrual({
+    env: { MC_POINTS_ENABLED: 'true', MC_PLAYTIME_NP_ENABLED: 'true', MC_PLAYTIME_DRY_RUN: 'true' },
+    pool: {
+      async connect() {
+        return {
+          async query(sql) {
+            queries.push(String(sql));
+            if (String(sql).includes('nexus_economic_identity_links')) return { rows: [] };
+            return { rows: [] };
+          },
+          release() {}
+        };
+      }
+    }
+  });
+  const lines = [];
+  const original = console.log;
+  console.log = (line) => lines.push(String(line));
+  try {
+    const dry = await accrual.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft', flags: { dryRun: false, pointsEnabled: true } });
+    assert.equal(dry.reason, 'unlinked-player');
+    assert.equal(queries.some((sql) => /INSERT|UPDATE|DELETE/i.test(sql)), false);
+  } finally {
+    console.log = original;
+  }
+  const off = new PostgresEconomyAccrual({
+    env: {},
     pool: { async connect() { throw new Error('should not connect'); } }
   });
-  const dry = await accrual.recordPresence({
+  const disabled = await off.recordPresence({
     provider: 'minecraft',
     mcUuid: UUID,
     online: true,
     server: 'minecraft',
-    flags: { pointsEnabled: true, playtimeEnabled: true, dryRun: true }
+    flags: { pointsEnabled: true, playtimeEnabled: true, dryRun: false }
   });
-  assert.equal(dry.dryRun, true);
-  const off = await accrual.recordPresence({
-    provider: 'minecraft',
-    mcUuid: UUID,
-    online: true,
-    flags: { pointsEnabled: false, playtimeEnabled: false, dryRun: false }
-  });
-  assert.equal(off.reason, 'mc-points-disabled');
+  assert.equal(disabled.reason, 'mc-points-disabled');
 });
 
 test('verified minecraft link shares the presence counter and the 8 hour cap', async () => {
@@ -168,7 +189,7 @@ test('verified minecraft link shares the presence counter and the 8 hour cap', a
   const worker = new NexusEconomyWorker({
     store: new NexusEconomyStore(root),
     now: () => now,
-    env: { MC_POINTS_ENABLED: 'true', MC_SHOP_ENABLED: 'true', MC_STARTER_KIT_ENABLED: 'true' }
+    env: { MC_POINTS_ENABLED: 'true', MC_PLAYTIME_NP_ENABLED: 'true', MC_PLAYTIME_DRY_RUN: 'false', MC_SHOP_ENABLED: 'true', MC_STARTER_KIT_ENABLED: 'true' }
   });
   const linked = worker.linkArkIdentity({ discordUserId: DISCORD, eosId: 'EOSshared1234', rankId: 'shadow-recruit' });
   assert.equal(linked.discordUserId, DISCORD);
@@ -176,22 +197,22 @@ test('verified minecraft link shares the presence counter and the 8 hour cap', a
   assert.equal(challenge.ok, true, challenge.reason);
   const confirmed = await worker.minecraft.confirm({ discordUserId: DISCORD, code: challenge.code });
   assert.equal(confirmed.ok, true, confirmed.reason);
-  const unlinked = await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID_2, online: true, flags: LIVE });
+  const unlinked = await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID_2, online: true, server: 'minecraft' });
   assert.equal(unlinked.reason, 'unlinked-player');
   await worker.recordPresence({ eosId: 'EOSshared1234', online: true, server: 'ark' });
   now += 5 * 60 * 1000;
   const ark = await worker.recordPresence({ eosId: 'EOSshared1234', online: true, server: 'ark' });
-  const again = await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft', flags: LIVE });
+  const again = await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
   assert.equal(again.balance, ark.balance);
   const rate = economyPerkForRank('shadow-recruit').onlinePointsPerFiveMinutes;
   assert.equal(ark.balance, rate);
   for (let step = 0; step < 96; step += 1) {
     now += 5 * 60 * 1000;
-    await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft', flags: LIVE });
+    await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
   }
   const capped = worker.wallet(DISCORD).balance;
   now += 5 * 60 * 1000;
-  const after = await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft', flags: LIVE });
+  const after = await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
   assert.equal(after.balance, capped);
   assert.ok(capped < rate * 110);
 });
@@ -212,9 +233,10 @@ test('link whispers a code, confirms the UUID, and enforces the 30-day cooldown'
     fetchImpl: async () => ({ ok: true, json: async () => ({ id: UUID.replace(/-/g, ''), name: 'Steve' }) })
   });
   assert.equal(result.ok, true, result.reason);
-  assert.match(commands[1], /tellraw Steve/);
-  assert.match(commands[1], /Nexus link code:/);
-  const code = commands[1].match(/Nexus link code: ([A-Z0-9]{3}-[A-Z0-9]{3})/)[1];
+  assert.match(commands[1], new RegExp(`tellraw ${UUID}`));
+  assert.match(commands[1], /asked to link/);
+  assert.match(commands[1], /Code:/);
+  const code = commands[1].match(/Code: ([A-Z0-9]{3}-[A-Z0-9]{3})/)[1];
   const confirmed = await points.confirm({ discordUserId: DISCORD, code });
   assert.equal(confirmed.mcUuid, UUID);
   const unlinked = await points.unlink({ discordUserId: DISCORD });
@@ -240,15 +262,18 @@ test('shop debits through the wallet, checks slots, and never retries an unconfi
   const denied = await points.buy({ discordUserId: DISCORD, sku: 'mc_iron64', bundles: 1, nonce: 'missing', writesEnabled: false });
   assert.equal(denied.reason, 'economy-write-cutover-not-enabled');
 
-  const offline = await deliverMcOrder(bought.order, {
+  const claimed = points.claimNext();
+  assert.equal(claimed.orderId, bought.order.orderId);
+  assert.ok(claimed.leaseToken);
+  const offline = await deliverMcOrder(claimed, {
     points,
     deliveryEnabled: true,
     rcon: async () => 'There are 0 of a max of 20 players online:'
   });
   assert.equal(offline.status, 'PLAYER_OFFLINE');
-  bought.order.status = 'PAID';
-  bought.order.leaseUntil = null;
-  const full = await deliverMcOrder(bought.order, {
+  assert.equal(offline.requeued, true);
+  const reclaimed = points.claimNext();
+  const full = await deliverMcOrder(reclaimed, {
     points,
     deliveryEnabled: true,
     rcon: async (command) => {
@@ -258,8 +283,7 @@ test('shop debits through the wallet, checks slots, and never retries an unconfi
     }
   });
   assert.equal(full.waitingSlots, 1);
-  bought.order.leaseUntil = null;
-  const lost = await deliverMcOrder(bought.order, {
+  const lost = await deliverMcOrder(points.orders.get(reclaimed.orderId), {
     points,
     deliveryEnabled: true,
     rcon: async (command) => command === 'list uuids'
@@ -290,8 +314,8 @@ test('starter kit is once per identity and once per UUID', async () => {
   await points.confirm({ discordUserId: DISCORD, code: challenge.code });
   const claim = await points.claimStarterKit({
     discordUserId: DISCORD,
-    accountCreatedAt: now - ACCOUNT_AGE_MS,
-    joinedAt: now - TENURE_MS
+    joinedAt: now - TENURE_MS,
+    tenureTrusted: true
   });
   assert.equal(claim.ok, true, claim.reason);
   assert.equal(claim.order.price, 0);
@@ -299,10 +323,11 @@ test('starter kit is once per identity and once per UUID', async () => {
   assert.equal(claim.order.lines.at(-1).itemId, BACKPACK_ID);
   const again = await points.claimStarterKit({
     discordUserId: DISCORD,
-    accountCreatedAt: now - ACCOUNT_AGE_MS,
-    joinedAt: now - TENURE_MS
+    joinedAt: now - TENURE_MS,
+    tenureTrusted: true
   });
-  assert.equal(again.reason, 'already-claimed');
+  assert.equal(again.duplicate, true);
+  assert.equal(again.order.orderId, claim.order.orderId);
   const young = starterKitEligibility({
     identityVerified: true,
     linkVerified: true,
@@ -357,4 +382,8 @@ test('grant table schema keeps one kit per identity and per UUID', () => {
   const source = fs.readFileSync(path.join(__dirname, '../src/economy-worker/mc-points-postgres.cjs'), 'utf8');
   assert.match(source, /provider, external_id, economic_identity_id, verified_at, source/);
   assert.match(source, /'minecraft'/);
+  assert.match(source, /ON CONFLICT \(provider, external_id\) DO NOTHING/);
+  assert.match(source, /FOR UPDATE SKIP LOCKED/);
+  assert.doesNotMatch(source, /DELETE FROM \$\{s\}\.nexus_mc_links/);
+  assert.match(source, /crypto\.randomUUID\(\)/);
 });

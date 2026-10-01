@@ -4,12 +4,12 @@ const http = require('node:http');
 const https = require('node:https');
 
 function economyConfigured(env = process.env) {
-  return Boolean(String(env.NEXUS_ECONOMY_URL || '').trim() && String(env.NEXUS_ECONOMY_TOKEN || '').trim());
+  return Boolean(String(env.NEXUS_ECONOMY_URL || '').trim() && String(env.NEXUS_ECONOMY_CRAFT_TOKEN || '').trim());
 }
 
 function economyRequest(pathname, { method = 'POST', body = null, env = process.env, timeoutMs = 8000 } = {}) {
   const base = String(env.NEXUS_ECONOMY_URL || '').trim().replace(/\/$/, '');
-  const token = String(env.NEXUS_ECONOMY_TOKEN || '').trim();
+  const token = String(env.NEXUS_ECONOMY_CRAFT_TOKEN || '').trim();
   if (!base || !token) return Promise.reject(new Error('Nexus economy worker is not configured.'));
   const url = new URL(`${base}${pathname}`);
   const transport = url.protocol === 'https:' ? https : http;

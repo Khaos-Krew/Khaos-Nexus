@@ -5,7 +5,8 @@ const { economyPerkForRank, OFFLINE_PASSIVE_CAP_HOURS } = require('../shared/nex
 const { sqlIdent } = require('../sentinel/nexus-economy-postgres-repository.cjs');
 const { mcPointsFlags } = require('../shared/mc-points-flags.cjs');
 const { normalizeUuid } = require('../craft/mc-rcon-text.cjs');
-const { otherPresenceOnline, planMinecraftContribution } = require('./mc-playtime-accounting.cjs');
+const { otherPresenceOnline, planMinecraftContribution, minecraftServerName } = require('./mc-playtime-accounting.cjs');
+const { bumpMcMetric } = require('./mc-points-service.cjs');
 
 const ONLINE_INTERVAL_MS = 5 * 60_000;
 const MAX_ACCOUNTING_GAP_MS = ONLINE_INTERVAL_MS * 2;
@@ -26,8 +27,8 @@ function cleanRank(value) {
   return rankById(id)?.id || 'shadow-recruit';
 }
 
-function flagsArg(flags) {
-  return flags || mcPointsFlags();
+function flagsArg(env) {
+  return mcPointsFlags(env);
 }
 
 function millis(value) {
@@ -37,11 +38,12 @@ function millis(value) {
 }
 
 class PostgresEconomyAccrual {
-  constructor({ pool, schema = 'public', now = Date.now } = {}) {
+  constructor({ pool, schema = 'public', now = Date.now, env = process.env } = {}) {
     if (!pool || typeof pool.connect !== 'function') throw new Error('Postgres pool is required.');
     this.pool = pool;
     this.schema = sqlIdent(schema);
     this.now = typeof now === 'function' ? now : Date.now;
+    this.env = env;
   }
 
   async ensureSchema() {
@@ -221,12 +223,68 @@ class PostgresEconomyAccrual {
     return { balance: nextBalance, credited: nextBalance === balance ? 0 : amount };
   }
 
-  async recordPresence({ eosId, mcUuid, online, rankId, server = 'ark', provider, flags = null } = {}) {
+  async #dryRunMinecraft({ mcUuid, online, rankId, server }) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN READ ONLY');
+      const identity = await this.#resolveByMinecraft(client, mcUuid);
+      if (!identity) {
+        await client.query('ROLLBACK');
+        return { ok: false, reason: 'unlinked-player', dryRun: true, credited: 0 };
+      }
+      const stateResult = await client.query(
+        `SELECT * FROM ${this.schema}.nexus_economy_accrual_state WHERE economic_identity_id = $1`,
+        [identity.economic_identity_id]
+      );
+      const state = stateResult.rows?.[0] || {};
+      const nowMs = this.now();
+      const presenceBefore = state.presence_by_server && typeof state.presence_by_server === 'object' ? state.presence_by_server : {};
+      const lastPresenceMs = millis(state.last_presence_at);
+      const wasOnline = state.online === true;
+      let accountingGap = 0;
+      if (wasOnline) {
+        const previous = millis(state.last_accounting_at) ?? nowMs;
+        accountingGap = Math.max(0, Math.min(nowMs - previous, MAX_ACCOUNTING_GAP_MS));
+      }
+      const otherSource = otherPresenceOnline(presenceBefore, nowMs, PRESENCE_TTL_MS);
+      const planned = planMinecraftContribution({
+        mcCountedDay: state.mc_counted_day || '',
+        mcCountedMs: Number(state.mc_counted_ms || 0),
+        mcLifetimeMs: Number(state.mc_lifetime_ms || 0),
+        mcOnline: state.mc_online === true,
+        lastMcOnlineAt: millis(state.last_mc_online_at),
+        online: Boolean(online),
+        nowMs,
+        accountingGap,
+        otherOnline: Boolean(otherSource),
+        otherSource: otherSource || 'ark',
+        maxGapMs: MAX_ACCOUNTING_GAP_MS
+      });
+      const perk = economyPerkForRank(state.rank_id || rankId || 'shadow-recruit');
+      const projectedCredit = Math.floor((Number(state.online_uncredited_ms || 0) + planned.gap) / ONLINE_INTERVAL_MS) * Number(perk.onlinePointsPerFiveMinutes || 0);
+      bumpMcMetric('dryRun');
+      console.log(`[Nexus Economy] mc_playtime_dry_run identity=${identity.economic_identity_id} server=${server} gap=${planned.gap} countedMs=${planned.mcCountedMs} capHit=${planned.capHit} projectedCredit=${projectedCredit} day=${planned.mcCountedDay} overflowDroppedMs=${planned.overflowDroppedMs} presenceAt=${lastPresenceMs || 0}`);
+      await client.query('ROLLBACK');
+      return { ok: true, dryRun: true, credited: 0, projectedCredit, capHit: planned.capHit, countedMs: planned.mcCountedMs };
+    } catch (error) {
+      try { await client.query('ROLLBACK'); } catch {}
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async recordPresence({ eosId, mcUuid, online, rankId, server, provider } = {}) {
     const minecraft = provider === 'minecraft' || (mcUuid && !eosId);
+    const serverKeyInput = minecraft ? (server == null || server === '' ? 'minecraft' : server) : (server || 'ark');
+    let minecraftServer = '';
     if (minecraft) {
-      const gate = flagsArg(flags);
-      if (!gate.pointsEnabled || !gate.playtimeEnabled) return { ok: false, reason: 'mc-points-disabled', credited: 0 };
-      if (gate.dryRun) return { ok: true, dryRun: true, reason: 'mc-playtime-dry-run', credited: 0 };
+      const gate = flagsArg(this.env);
+      if (!gate.pointsEnabled) return { ok: false, reason: 'mc-points-disabled', credited: 0 };
+      if (!gate.playtimeEnabled) return { ok: false, reason: 'mc-playtime-disabled', credited: 0 };
+      minecraftServer = minecraftServerName(serverKeyInput);
+      if (!minecraftServer) return { ok: false, reason: 'invalid-mc-server', credited: 0 };
+      if (gate.dryRun) return this.#dryRunMinecraft({ mcUuid, online, rankId, server: minecraftServer });
     }
     const client = await this.pool.connect();
     try {
@@ -244,7 +302,7 @@ class PostgresEconomyAccrual {
       let balance = locked.balance;
       const nowMs = this.now();
       const nowIso = new Date(nowMs).toISOString();
-      const serverKey = cleanServer(server);
+      const serverKey = minecraft ? minecraftServer : cleanServer(serverKeyInput);
       const lastPresenceMs = millis(state.last_presence_at);
       const staleOnline = state.online === true && lastPresenceMs != null && nowMs - lastPresenceMs > PRESENCE_TTL_MS;
       if (staleOnline) {

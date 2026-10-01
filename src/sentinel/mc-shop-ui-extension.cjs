@@ -37,6 +37,9 @@ async function openMinecraftShop(interaction, economyClient) {
   const catalog = await economyClient.mcShopCatalog();
   const items = (catalog.catalog?.items || []).filter((item) => item.active !== false).slice(0, 25);
   if (!items.length) return interaction.reply(ephemeral('No Minecraft items are available.'));
+  const starter = mcPointsFlags().starterKitEnabled
+    ? [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('nexus-mc-shop:starter').setLabel('Claim Starter Kit').setStyle(ButtonStyle.Secondary))]
+    : [];
   const sessionId = `${interaction.user.id}:${Date.now()}`;
   sessions.set(sessionId, { userId: interaction.user.id, expiresAt: Date.now() + 120000, items });
   const menu = new StringSelectMenuBuilder()
@@ -48,7 +51,7 @@ async function openMinecraftShop(interaction, economyClient) {
       description: `${item.qty} for ${item.price} NP`.slice(0, 100)
     })));
   return interaction.reply(ephemeral('Minecraft items deliver in-game when you are online.', {
-    components: [new ActionRowBuilder().addComponents(menu)]
+    components: [new ActionRowBuilder().addComponents(menu), ...starter]
   }));
 }
 
@@ -109,10 +112,20 @@ async function handleConfirm(interaction, economyClient) {
   ].join('\n')));
 }
 
+async function handleStarter(interaction, economyClient) {
+  if (!mcPointsFlags().starterKitEnabled) return interaction.reply(ephemeral('The Minecraft Starter Kit is off.'));
+  const joinedAt = Number(interaction.member?.joinedTimestamp || interaction.member?.joinedAt || NaN);
+  const result = await economyClient.mcClaimStarterKit({ discordUserId: interaction.user.id, joinedAt });
+  if (!result.ok) return interaction.reply(ephemeral(`Starter Kit was not claimed (${result.reason || 'unavailable'}).`));
+  if (result.duplicate) return interaction.reply(ephemeral(`Starter Kit is already queued as ${result.order?.orderId || result.grant?.orderId}.`));
+  return interaction.reply(ephemeral(`Starter Kit queued as ${result.order.orderId}. It delivers when you are online with free slots.`));
+}
+
 async function handleMcShopInteraction(interaction, economyClient) {
   if (!String(interaction.customId || '').startsWith('nexus-mc-shop:')) return false;
   try {
     if (interaction.customId === 'nexus-mc-shop:open') await openMinecraftShop(interaction, economyClient);
+    else if (interaction.customId === 'nexus-mc-shop:starter') await handleStarter(interaction, economyClient);
     else if (interaction.customId.startsWith('nexus-mc-shop:item:')) await handleItem(interaction);
     else if (interaction.customId.startsWith('nexus-mc-shop:qty:')) await handleQuantity(interaction, economyClient);
     else if (interaction.customId.startsWith('nexus-mc-shop:confirm:')) await handleConfirm(interaction, economyClient);

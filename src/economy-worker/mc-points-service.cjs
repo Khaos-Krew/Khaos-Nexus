@@ -8,26 +8,62 @@ const {
   MAX_DAILY_SPEND_NP,
   MAX_DAILY_ORDERS,
   catalogItem,
+  catalogFingerprint,
   loadMcShopCatalog
 } = require('../shared/mc-shop-catalog.cjs');
-const { loadStarterKit, starterKitEligibility } = require('../shared/mc-starter-kit.cjs');
+const { loadStarterKit, starterKitEligibility, discordAccountCreatedMs } = require('../shared/mc-starter-kit.cjs');
 const { ctDayKey } = require('./mc-playtime-accounting.cjs');
 const { isPremiumUuid, normalizeUuid, itemIdOk } = require('../craft/mc-rcon-text.cjs');
+const { withIdentityProof } = require('../sentinel/nexus-economy-identity-proof.cjs');
 
 const LINK_CODE_TTL_MS = 10 * 60 * 1000;
 const QUOTE_TTL_MS = 120 * 1000;
 const UNLINK_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
 const REFUND_AFTER_MS = 14 * 24 * 60 * 60 * 1000;
 const LEASE_MS = 60 * 1000;
+const CODE_ATTEMPT_LIMIT = 5;
+const LINK_REQUESTS_PER_HOUR = 3;
+const LINK_REQUEST_WINDOW_MS = 60 * 60 * 1000;
+const STAFF_REFUND_DAILY_CAP = 10;
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const FINAL_STATUSES = new Set(['REFUNDED', 'DELIVERED']);
+
+const metrics = { dryRun: 0, buy: 0, refund: 0, claim: 0, leaseExpired: 0, giveUnconfirmed: 0, linkLocked: 0 };
+
+function bumpMcMetric(name) {
+  metrics[name] = Number(metrics[name] || 0) + 1;
+}
+
+function mcMetrics() {
+  return { ...metrics };
+}
 
 function hashCode(code) {
   return crypto.createHash('sha256').update(String(code || '')).digest('hex');
 }
 
-function generateLinkCode(bytes = crypto.randomBytes(6)) {
-  const chars = [...bytes].map((value) => CODE_ALPHABET[value % CODE_ALPHABET.length]);
-  return `${chars.slice(0, 3).join('')}-${chars.slice(3, 6).join('')}`;
+function generateLinkCode() {
+  let raw = '';
+  for (let index = 0; index < 6; index += 1) raw += CODE_ALPHABET[crypto.randomInt(0, CODE_ALPHABET.length)];
+  return `${raw.slice(0, 3)}-${raw.slice(3)}`;
+}
+
+function verifiedDiscordIdentity(identity) {
+  return Boolean(identity && identity.status === 'verified' && identity.verifiedAt);
+}
+
+function mcEarnEligible(identity, link) {
+  // OWNER DECISION, pending WARDEN sign-off: a verified /mc link qualifies this identity for MC-earned NP. EOS is not required.
+  return verifiedDiscordIdentity(identity) && Boolean(link?.verifiedAt) && isPremiumUuid(link.mcUuid);
+}
+
+function isMinecraftShopOrder(order) {
+  if (!order || typeof order !== 'object') return false;
+  const source = String(order.source || '');
+  if (source === 'mc-shop' || source === 'starter-kit' || source === 'sink:mc-shop') return true;
+  if (order.provider === 'minecraft' || order.game === 'minecraft') return true;
+  if (order.mcUuid) return true;
+  return false;
 }
 
 function stackLines(itemId, total) {
@@ -42,88 +78,184 @@ function stackLines(itemId, total) {
   return lines;
 }
 
+function orderLineHash(version, lines) {
+  const body = [version, ...(lines || []).map((line) => `${line.itemId}:${line.count}`)].join('\n');
+  return crypto.createHash('sha256').update(body).digest('hex');
+}
+
+function quotePayload(quote) {
+  return JSON.stringify([
+    'mc-quote-v1',
+    quote.discordUserId,
+    quote.sku,
+    quote.bundles,
+    quote.price,
+    quote.nonce,
+    quote.catalogVersion,
+    quote.catalogHash,
+    quote.itemId,
+    quote.expiresAt
+  ]);
+}
+
+function signQuote(quote, secret) {
+  if (typeof secret !== 'string' || secret.length < 32) return '';
+  return crypto.createHmac('sha256', secret).update(quotePayload(quote)).digest('hex');
+}
+
+function quoteSignatureOk(quote, secret) {
+  const expected = signQuote(quote, secret);
+  if (!expected) return true;
+  const actual = String(quote?.signature || '');
+  if (!/^[a-f0-9]{64}$/.test(actual)) return false;
+  return crypto.timingSafeEqual(Buffer.from(actual, 'hex'), Buffer.from(expected, 'hex'));
+}
+
 function dayOrders(orders, discordUserId, nowMs) {
   const day = ctDayKey(nowMs);
   return orders.filter((order) => order.source === 'mc-shop' && order.discordUserId === discordUserId && ctDayKey(Date.parse(order.createdAt)) === day && order.status !== 'REFUNDED');
 }
 
+function linesSent(order) {
+  return (order?.lines || []).some((line) => line.status === 'DELIVERED' || line.status === 'SENT_UNCONFIRMED');
+}
+
+function quoteSecret(env = process.env) {
+  return String(env.NEXUS_ECONOMY_IDENTITY_PROOF_SECRET || env.MC_SHOP_QUOTE_SECRET || '');
+}
+
 class MemoryMcPoints {
-  constructor({ now = () => Date.now(), wallet, env = process.env, catalog, kit } = {}) {
+  constructor({ now = () => Date.now(), wallet, env = process.env, catalog, kit, createOrderId, tenureOf } = {}) {
     if (!wallet) throw new Error('Minecraft points service requires a wallet.');
     this.now = now;
     this.wallet = wallet;
     this.env = env;
     this.catalog = catalog || loadMcShopCatalog(env);
     this.kit = kit || loadStarterKit(env);
+    this.createOrderId = createOrderId || (() => crypto.randomUUID());
+    this.tenureOf = tenureOf || null;
     this.links = new Map();
     this.challenges = new Map();
     this.orders = new Map();
     this.grants = [];
     this.quotes = new Map();
+    this.outbox = new Map();
+    this.audits = [];
+    this.linkRequests = [];
+    this.crashAt = '';
   }
 
   flags() {
     return mcPointsFlags(this.env);
   }
 
-  async challenge({ discordUserId, mcUuid, mcName } = {}) {
-    const flags = this.flags();
-    if (!flags.pointsEnabled) return { ok: false, reason: 'mc-points-disabled' };
+  async challenge({ discordUserId, mcUuid, mcName, requesterName } = {}) {
+    if (!this.flags().pointsEnabled) return { ok: false, reason: 'mc-points-disabled' };
     const uuid = normalizeUuid(mcUuid);
     if (!isPremiumUuid(uuid)) return { ok: false, reason: 'uuid-not-premium' };
     const discord = String(discordUserId || '').trim();
     if (!/^\d{5,32}$/.test(discord)) return { ok: false, reason: 'discord-user-required' };
     const identity = await this.wallet.resolve(discord);
-    if (!identity || identity.status !== 'verified' || !identity.verifiedAt) {
-      return { ok: false, reason: 'verified-identity-required' };
-    }
-    const blocked = this.#cooldownReason(discord, uuid, this.now());
+    if (!verifiedDiscordIdentity(identity)) return { ok: false, reason: 'verified-identity-required' };
+    const now = this.now();
+    const blocked = this.#cooldownReason(discord, uuid, now);
     if (blocked) return { ok: false, reason: blocked };
+    const pending = this.challenges.get(discord);
+    if (pending?.locked && pending.expiresAt > now) {
+      bumpMcMetric('linkLocked');
+      return { ok: false, reason: 'code-locked' };
+    }
+    const recent = this.linkRequests.filter((row) => row.mcUuid === uuid && now - row.at < LINK_REQUEST_WINDOW_MS);
+    if (recent.length >= LINK_REQUESTS_PER_HOUR) return { ok: false, reason: 'link-rate-limited' };
     const code = generateLinkCode();
+    this.linkRequests.push({ mcUuid: uuid, discordUserId: discord, at: now });
     this.challenges.set(discord, {
       discordUserId: discord,
       mcUuid: uuid,
       mcName: String(mcName || '').slice(0, 16),
+      requesterName: String(requesterName || discord).slice(0, 32),
       codeHash: hashCode(code),
-      expiresAt: this.now() + LINK_CODE_TTL_MS,
-      economicIdentityId: identity.economicIdentityId
+      expiresAt: now + LINK_CODE_TTL_MS,
+      economicIdentityId: identity.economicIdentityId,
+      attempts: 0,
+      locked: false,
+      used: false
     });
-    return { ok: true, code, expiresInSec: LINK_CODE_TTL_MS / 1000, mcUuid: uuid };
+    return { ok: true, code, expiresInSec: LINK_CODE_TTL_MS / 1000, mcUuid: uuid, requesterName: String(requesterName || discord).slice(0, 32) };
   }
 
   async confirm({ discordUserId, code } = {}) {
-    const flags = this.flags();
-    if (!flags.pointsEnabled) return { ok: false, reason: 'mc-points-disabled' };
+    if (!this.flags().pointsEnabled) return { ok: false, reason: 'mc-points-disabled' };
     const discord = String(discordUserId || '').trim();
     const pending = this.challenges.get(discord);
     const now = this.now();
-    if (!pending || pending.expiresAt <= now) return { ok: false, reason: 'code-expired' };
+    if (!pending || pending.used || pending.expiresAt <= now) return { ok: false, reason: 'code-expired' };
+    if (pending.locked || pending.attempts >= CODE_ATTEMPT_LIMIT) {
+      pending.locked = true;
+      bumpMcMetric('linkLocked');
+      return { ok: false, reason: 'code-locked' };
+    }
     const supplied = hashCode(String(code || '').trim().toUpperCase());
     const expected = Buffer.from(pending.codeHash);
     const actual = Buffer.from(supplied);
     if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) {
+      pending.attempts += 1;
+      if (pending.attempts >= CODE_ATTEMPT_LIMIT) {
+        pending.locked = true;
+        bumpMcMetric('linkLocked');
+        return { ok: false, reason: 'code-locked' };
+      }
       return { ok: false, reason: 'code-mismatch' };
     }
     const identity = await this.wallet.resolve(discord);
-    if (!identity || identity.status !== 'verified' || identity.economicIdentityId !== pending.economicIdentityId) {
+    if (!verifiedDiscordIdentity(identity) || identity.economicIdentityId !== pending.economicIdentityId) {
       return { ok: false, reason: 'verified-identity-required' };
     }
     const blocked = this.#cooldownReason(discord, pending.mcUuid, now);
     if (blocked) return { ok: false, reason: blocked };
     const taken = [...this.links.values()].find((link) => link.mcUuid === pending.mcUuid && link.verifiedAt && link.discordUserId !== discord);
     if (taken) return { ok: false, reason: 'uuid-taken' };
-    const own = [...this.links.values()].find((link) => link.discordUserId === discord && link.verifiedAt && link.mcUuid !== pending.mcUuid);
+    const own = [...this.links.values()].find((link) => link.economicIdentityId === identity.economicIdentityId && link.verifiedAt && link.mcUuid !== pending.mcUuid);
     if (own) return { ok: false, reason: 'already-linked' };
-    this.links.set(pending.mcUuid, {
+    const verifiedAt = new Date(now).toISOString();
+    const link = {
       mcUuid: pending.mcUuid,
       discordUserId: discord,
       economicIdentityId: identity.economicIdentityId,
-      verifiedAt: new Date(now).toISOString(),
+      verifiedAt,
       unlinkedAt: null,
-      cooldownUntil: null
-    });
+      cooldownUntil: null,
+      playtimeMs: this.links.get(pending.mcUuid)?.playtimeMs || 0,
+      proof: null
+    };
+    const secret = quoteSecret(this.env);
+    if (secret.length >= 32) {
+      const signed = withIdentityProof(
+        { discordUserId: discord, eosId: pending.mcUuid },
+        { verifiedAt },
+        { secret, now }
+      );
+      link.proof = {
+        discordUserId: signed.discordUserId,
+        eosId: signed.eosId,
+        verifiedAt: signed.verifiedAt,
+        issuedAt: signed.issuedAt,
+        proof: signed.proof
+      };
+    }
+    const wrote = this.#putLink(link);
+    if (!wrote) return { ok: false, reason: 'uuid-taken' };
+    pending.used = true;
     this.challenges.delete(discord);
-    return { ok: true, mcUuid: pending.mcUuid, economicIdentityId: identity.economicIdentityId };
+    return { ok: true, mcUuid: pending.mcUuid, economicIdentityId: identity.economicIdentityId, proof: link.proof };
+  }
+
+  #putLink(link) {
+    const existing = this.links.get(link.mcUuid);
+    if (existing?.verifiedAt && existing.economicIdentityId !== link.economicIdentityId) return false;
+    if (existing?.verifiedAt && existing.discordUserId !== link.discordUserId) return false;
+    this.links.set(link.mcUuid, link);
+    return true;
   }
 
   async unlink({ discordUserId } = {}) {
@@ -135,19 +267,15 @@ class MemoryMcPoints {
     link.verifiedAt = null;
     link.unlinkedAt = new Date(now).toISOString();
     link.cooldownUntil = new Date(now + UNLINK_COOLDOWN_MS).toISOString();
+    link.proof = null;
     return { ok: true, cooldownUntil: link.cooldownUntil, mcUuid: link.mcUuid };
   }
 
   async status({ discordUserId } = {}) {
     const discord = String(discordUserId || '').trim();
     const link = [...this.links.values()].find((row) => row.discordUserId === discord && row.verifiedAt);
-    const cooling = [...this.links.values()].find((row) => row.discordUserId === discord && row.cooldownUntil && Date.parse(row.cooldownUntil) > this.now());
-    return {
-      ok: true,
-      linked: Boolean(link),
-      mcUuid: link?.mcUuid || '',
-      cooldownUntil: cooling?.cooldownUntil || null
-    };
+    const cooling = [...this.links.values()].find((row) => (row.discordUserId === discord || row.mcUuid === link?.mcUuid) && row.cooldownUntil && Date.parse(row.cooldownUntil) > this.now());
+    return { ok: true, linked: Boolean(link), mcUuid: link?.mcUuid || '', cooldownUntil: cooling?.cooldownUntil || null };
   }
 
   linkByUuid(mcUuid) {
@@ -160,9 +288,10 @@ class MemoryMcPoints {
     if (!this.flags().shopEnabled) return { ok: false, reason: 'mc-shop-disabled' };
     const discord = String(discordUserId || '').trim();
     const identity = await this.wallet.resolve(discord);
-    if (!identity || identity.status !== 'verified') return { ok: false, reason: 'verified-identity-required' };
     const link = [...this.links.values()].find((row) => row.discordUserId === discord && row.verifiedAt);
-    if (!link) return { ok: false, reason: 'verified-minecraft-link-required' };
+    if (!mcEarnEligible(identity, link)) {
+      return { ok: false, reason: verifiedDiscordIdentity(identity) ? 'verified-minecraft-link-required' : 'verified-identity-required' };
+    }
     const item = catalogItem(this.catalog, String(sku || ''));
     if (!item) return { ok: false, reason: 'unknown-sku' };
     const count = Number(bundles);
@@ -170,7 +299,7 @@ class MemoryMcPoints {
     const price = item.price * count;
     if (price <= 0 || price > MAX_PURCHASE_NP) return { ok: false, reason: 'price-limit' };
     const balance = Number(await this.wallet.balance(discord));
-    const nonce = crypto.randomBytes(8).toString('hex');
+    const nonce = crypto.randomBytes(16).toString('hex');
     const quote = {
       nonce,
       discordUserId: discord,
@@ -182,12 +311,15 @@ class MemoryMcPoints {
       qty: item.qty * count,
       price,
       catalogVersion: this.catalog.version,
+      catalogHash: catalogFingerprint(this.catalog),
       expiresAt: this.now() + QUOTE_TTL_MS,
       balance,
-      balanceAfter: balance - price
+      balanceAfter: balance - price,
+      consumed: false
     };
+    quote.signature = signQuote(quote, quoteSecret(this.env));
     this.quotes.set(nonce, quote);
-    return { ok: true, quote };
+    return { ok: true, quote: { ...quote } };
   }
 
   async buy({ discordUserId, sku, bundles = 1, nonce, writesEnabled = false } = {}) {
@@ -196,66 +328,122 @@ class MemoryMcPoints {
     const pending = this.quotes.get(String(nonce || ''));
     const now = this.now();
     if (!pending || pending.expiresAt <= now) return { ok: false, reason: 'quote-expired' };
-    if (pending.discordUserId !== String(discordUserId || '').trim()) return { ok: false, reason: 'subject-mismatch' };
+    if (!quoteSignatureOk(pending, quoteSecret(this.env))) return { ok: false, reason: 'quote-invalid' };
+    const discord = String(discordUserId || '').trim();
+    if (pending.discordUserId !== discord) return { ok: false, reason: 'subject-mismatch' };
     if (pending.sku !== sku || pending.bundles !== Number(bundles)) return { ok: false, reason: 'quote-mismatch' };
     const existing = [...this.orders.values()].find((order) => order.nonce === pending.nonce);
     if (existing) return { ok: true, duplicate: true, order: existing };
+    const item = catalogItem(this.catalog, pending.sku);
+    if (!item) return { ok: false, reason: 'unknown-sku' };
+    const price = item.price * pending.bundles;
+    if (price !== pending.price || item.itemId !== pending.itemId) return { ok: false, reason: 'price-changed' };
     const today = dayOrders([...this.orders.values()], pending.discordUserId, now);
     if (today.length >= MAX_DAILY_ORDERS) return { ok: false, reason: 'daily-order-limit' };
     const spentToday = today.reduce((sum, order) => sum + Number(order.price || 0), 0);
-    if (spentToday + pending.price > MAX_DAILY_SPEND_NP) return { ok: false, reason: 'daily-spend-limit' };
-    const item = catalogItem(this.catalog, pending.sku);
-    if (item?.dailyLimit) {
+    if (spentToday + price > MAX_DAILY_SPEND_NP) return { ok: false, reason: 'daily-spend-limit' };
+    if (item.dailyLimit) {
       const skuCount = today.filter((order) => order.sku === pending.sku).reduce((sum, order) => sum + Number(order.bundles || 0), 0);
       if (skuCount + pending.bundles > item.dailyLimit) return { ok: false, reason: 'sku-daily-limit' };
     }
     const ledgerKey = `mc-shop:${pending.economicIdentityId}:${pending.sku}:${pending.nonce}`;
+    const lines = stackLines(item.itemId, item.qty * pending.bundles);
+    const orderId = this.createOrderId();
+    const balanceMark = this.wallet.balanceValue;
+    const callMark = Array.isArray(this.wallet.calls) ? this.wallet.calls.length : null;
     const spent = await this.wallet.spend({
       discordUserId: pending.discordUserId,
-      amount: pending.price,
+      amount: price,
       orderId: ledgerKey,
       idempotencyKey: ledgerKey,
       source: 'sink:mc-shop',
-      metadata: { sku: pending.sku, qty: pending.qty, catalogVersion: pending.catalogVersion }
+      metadata: { sku: pending.sku, qty: lines.reduce((sum, line) => sum + line.count, 0), catalogVersion: pending.catalogVersion, price }
     });
     if (!spent?.ok) return { ok: false, reason: spent?.reason || 'spend-failed', balance: spent?.balance };
-    const order = this.#newOrder({
-      discordUserId: pending.discordUserId,
-      economicIdentityId: pending.economicIdentityId,
-      mcUuid: pending.mcUuid,
-      sku: pending.sku,
-      price: pending.price,
-      source: 'mc-shop',
-      nonce: pending.nonce,
-      ledgerKey,
-      lines: stackLines(pending.itemId, pending.qty),
-      balance: spent.balance
-    });
-    return { ok: true, order, balance: spent.balance, ledgerKey };
+    try {
+      if (this.crashAt === 'after-ledger') {
+        this.crashAt = '';
+        const error = new Error('crash');
+        error.code = 'mc-buy-crash';
+        throw error;
+      }
+      if (this.orders.has(orderId) || this.outbox.has(orderId)) {
+        const error = new Error('duplicate-order-id');
+        error.code = 'duplicate-order-id';
+        throw error;
+      }
+      const order = this.#insertOrder({
+        orderId,
+        discordUserId: pending.discordUserId,
+        economicIdentityId: pending.economicIdentityId,
+        mcUuid: pending.mcUuid,
+        sku: pending.sku,
+        price,
+        source: 'mc-shop',
+        nonce: pending.nonce,
+        ledgerKey,
+        lines,
+        balance: spent.balance,
+        catalogVersion: pending.catalogVersion,
+        catalogHash: orderLineHash(pending.catalogVersion, lines)
+      });
+      this.outbox.set(order.orderId, { outboxId: order.orderId, orderId: order.orderId, createdAt: order.createdAt });
+      pending.consumed = true;
+      bumpMcMetric('buy');
+      return { ok: true, order, balance: spent.balance, ledgerKey };
+    } catch (error) {
+      await this.wallet.credit?.({
+        discordUserId: pending.discordUserId,
+        amount: price,
+        idempotencyKey: `${ledgerKey}:rollback`,
+        type: 'reversal',
+        source: 'mc-shop',
+        metadata: { reason: 'purchase-rollback', orderId }
+      });
+      if (typeof balanceMark === 'number') this.wallet.balanceValue = balanceMark;
+      if (callMark != null && Array.isArray(this.wallet.calls)) this.wallet.calls.length = callMark;
+      if (error.code === 'duplicate-order-id') return { ok: false, reason: 'duplicate-order-id' };
+      if (error.code === 'mc-buy-crash') return { ok: false, reason: 'rolled-back' };
+      throw error;
+    }
   }
 
-  async claimStarterKit({ discordUserId, accountCreatedAt, joinedAt } = {}) {
+  async claimStarterKit({ discordUserId, joinedAt = null, tenureTrusted = false } = {}) {
     if (!this.flags().starterKitEnabled) return { ok: false, reason: 'mc-starter-kit-disabled' };
     const discord = String(discordUserId || '').trim();
     const identity = await this.wallet.resolve(discord);
     const link = [...this.links.values()].find((row) => row.discordUserId === discord && row.verifiedAt);
-    const lifetimeMs = identity ? Number(await this.wallet.lifetimeMs(identity.economicIdentityId)) : 0;
+    if (!mcEarnEligible(identity, link)) {
+      return { ok: false, reason: verifiedDiscordIdentity(identity) ? 'verified-minecraft-link-required' : 'verified-identity-required' };
+    }
+    const existing = this.grants.find((grant) => grant.kind === 'starter_kit' && (grant.economicIdentityId === identity.economicIdentityId || grant.mcUuid === link.mcUuid));
+    if (existing) {
+      return { ok: true, duplicate: true, grant: existing, order: this.orders.get(existing.orderId) || null };
+    }
+    const accountCreatedAt = discordAccountCreatedMs(discord);
+    let tenureAt = Number.NaN;
+    if (tenureTrusted && Number.isFinite(Number(joinedAt))) tenureAt = Number(joinedAt);
+    else if (typeof this.tenureOf === 'function') tenureAt = Number(await this.tenureOf(discord));
+    const lifetimeMs = Math.max(
+      Number(link.playtimeMs || 0),
+      Number(await this.wallet.lifetimeMs(identity.economicIdentityId, link.mcUuid) || 0)
+    );
     const decision = starterKitEligibility({
-      identityVerified: identity?.status === 'verified' && Boolean(identity?.verifiedAt),
-      linkVerified: Boolean(link),
-      premiumUuid: isPremiumUuid(link?.mcUuid),
-      quarantined: Boolean(identity && await this.wallet.quarantined?.(identity.economicIdentityId)),
-      disabled: identity?.status === 'disabled',
+      identityVerified: true,
+      linkVerified: true,
+      premiumUuid: true,
+      quarantined: Boolean(await this.wallet.quarantined?.(identity.economicIdentityId)),
+      disabled: identity.status === 'disabled',
       accountCreatedAt,
-      joinedAt,
+      joinedAt: tenureAt,
       lifetimeMs,
-      alreadyClaimedByIdentity: this.grants.some((grant) => grant.kind === 'starter_kit' && grant.economicIdentityId === identity?.economicIdentityId),
-      alreadyClaimedByUuid: this.grants.some((grant) => grant.kind === 'starter_kit' && grant.mcUuid === link?.mcUuid),
+      alreadyClaimedByIdentity: false,
+      alreadyClaimedByUuid: false,
       now: this.now()
     });
     if (!decision.ok) return decision;
     const lines = this.kit.items.flatMap((item) => stackLines(item.itemId, item.qty));
-    const order = this.#newOrder({
+    const order = this.#insertOrder({
       discordUserId: discord,
       economicIdentityId: identity.economicIdentityId,
       mcUuid: link.mcUuid,
@@ -264,7 +452,9 @@ class MemoryMcPoints {
       source: 'starter-kit',
       nonce: '',
       ledgerKey: '',
-      lines
+      lines,
+      catalogVersion: this.kit.version,
+      catalogHash: orderLineHash(this.kit.version, lines)
     });
     const grant = {
       kind: 'starter_kit',
@@ -275,7 +465,15 @@ class MemoryMcPoints {
       status: order.status,
       claimedAt: order.createdAt
     };
+    const identityTaken = this.grants.some((row) => row.kind === grant.kind && row.economicIdentityId === grant.economicIdentityId);
+    const uuidTaken = this.grants.some((row) => row.kind === grant.kind && row.mcUuid === grant.mcUuid);
+    if (identityTaken || uuidTaken) {
+      this.orders.delete(order.orderId);
+      const prior = this.grants.find((row) => row.kind === grant.kind && (row.economicIdentityId === grant.economicIdentityId || row.mcUuid === grant.mcUuid));
+      return { ok: true, duplicate: true, grant: prior, order: this.orders.get(prior.orderId) || null };
+    }
     this.grants.push(grant);
+    this.outbox.set(order.orderId, { outboxId: order.orderId, orderId: order.orderId, createdAt: order.createdAt });
     return { ok: true, grant, order };
   }
 
@@ -283,47 +481,83 @@ class MemoryMcPoints {
     return this.grants.map((grant) => ({ ...grant, status: this.orders.get(grant.orderId)?.status || grant.status }));
   }
 
-  claimNext(now = this.now()) {
+  sweepExpiredLeases(now = this.now()) {
+    const expired = [];
+    for (const order of this.orders.values()) {
+      if (order.status !== 'DELIVERY_IN_PROGRESS') continue;
+      if (!order.leaseUntil || Date.parse(order.leaseUntil) > now) continue;
+      order.status = 'SENT_UNCONFIRMED';
+      order.leaseToken = null;
+      order.leaseOwner = null;
+      order.leaseUntil = null;
+      order.updatedAt = new Date(now).toISOString();
+      for (const line of order.lines) {
+        if (line.status !== 'DELIVERED') line.status = 'SENT_UNCONFIRMED';
+      }
+      bumpMcMetric('leaseExpired');
+      console.warn(`[Nexus Economy] mc_lease_expired order=${order.orderId} status=SENT_UNCONFIRMED`);
+      expired.push(order.orderId);
+    }
+    return expired;
+  }
+
+  claimNext({ owner = 'nexus-craft', now = this.now() } = {}) {
+    if (!this.flags().shopDeliveryEnabled) return null;
+    this.sweepExpiredLeases(now);
     const order = [...this.orders.values()]
-      .filter((row) => (row.status === 'PAID' || row.status === 'PLAYER_OFFLINE') && (!row.leaseUntil || Date.parse(row.leaseUntil) <= now))
+      .filter((row) => (row.status === 'PAID' || row.status === 'PLAYER_OFFLINE') && !this.#leaseLive(row, now))
       .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))[0];
     if (!order) return null;
+    order.status = 'DELIVERY_IN_PROGRESS';
+    order.leaseToken = crypto.randomUUID();
+    order.leaseOwner = String(owner || 'nexus-craft').slice(0, 64);
     order.leaseUntil = new Date(now + LEASE_MS).toISOString();
+    order.updatedAt = new Date(now).toISOString();
+    bumpMcMetric('claim');
     return order;
   }
 
   pendingOrders() {
-    return [...this.orders.values()].filter((order) => order.status === 'PAID' || order.status === 'PLAYER_OFFLINE');
+    this.sweepExpiredLeases(this.now());
+    return [...this.orders.values()].filter((order) => order.status === 'PAID' || order.status === 'PLAYER_OFFLINE' || order.status === 'DELIVERY_IN_PROGRESS');
   }
 
-  markDelivery({ orderId, status, lineIndex = null, lineStatus = '', note = '' } = {}) {
+  markDelivery({ orderId, status, leaseToken = '', expectedStatus = '', lineIndex = null, lineStatus = '', note = '' } = {}) {
+    if (!this.flags().shopDeliveryEnabled) return { ok: false, reason: 'mc-shop-delivery-disabled' };
     const order = this.orders.get(String(orderId || ''));
     if (!order) return { ok: false, reason: 'order-not-found' };
-    if (order.status === 'SENT_UNCONFIRMED' && status !== 'DELIVERED') {
-      return { ok: false, reason: 'unconfirmed-no-retry', order };
-    }
-    if (status === 'DELIVERED' && order.status === 'SENT_UNCONFIRMED') {
-      order.status = 'DELIVERED';
-      order.updatedAt = new Date(this.now()).toISOString();
-      return { ok: true, order };
-    }
-    if (status === 'RESEND') {
-      if (order.status !== 'DELIVERY_FAILED') return { ok: false, reason: 'resend-not-allowed', order };
-      if (order.lines.some((line) => line.status === 'SENT_UNCONFIRMED')) return { ok: false, reason: 'unconfirmed-no-retry', order };
-      order.status = 'PAID';
-      order.leaseUntil = null;
-      for (const line of order.lines) if (line.status === 'DELIVERY_FAILED') line.status = 'PENDING';
-      return { ok: true, order };
-    }
-    const allowed = new Set(['PLAYER_OFFLINE', 'DELIVERY_IN_PROGRESS', 'DELIVERED', 'DELIVERY_FAILED', 'SENT_UNCONFIRMED']);
-    if (!allowed.has(status)) return { ok: false, reason: 'invalid-status' };
+    if (FINAL_STATUSES.has(order.status)) return { ok: false, reason: 'final-status', order };
+    if (!expectedStatus || order.status !== expectedStatus) return { ok: false, reason: 'illegal-transition', order };
+    if (!order.leaseToken || order.leaseToken !== leaseToken) return { ok: false, reason: 'lease-lost', order };
     if (lineIndex != null) {
       const line = order.lines[lineIndex];
       if (!line) return { ok: false, reason: 'line-not-found' };
-      if (line.status === 'DELIVERED' || line.status === 'SENT_UNCONFIRMED') return { ok: false, reason: 'line-frozen', order };
+      if (line.status === 'DELIVERED') return { ok: true, order };
+      if (line.status === 'SENT_UNCONFIRMED' && lineStatus !== 'SENT_UNCONFIRMED') return { ok: false, reason: 'unconfirmed-no-retry', order };
       line.status = lineStatus || status;
     }
-    order.status = status;
+    if (status === 'PLAYER_OFFLINE') {
+      if (linesSent(order)) return this.#freezeUnconfirmed(order, note);
+      order.status = 'PLAYER_OFFLINE';
+      order.leaseToken = null;
+      order.leaseOwner = null;
+      order.leaseUntil = null;
+    } else if (status === 'SENT_UNCONFIRMED') {
+      return this.#freezeUnconfirmed(order, note);
+    } else if (status === 'DELIVERED') {
+      if (order.lines.some((line) => line.status !== 'DELIVERED')) return { ok: false, reason: 'illegal-transition', order };
+      order.status = 'DELIVERED';
+    } else if (status === 'DELIVERY_IN_PROGRESS') {
+      order.status = 'DELIVERY_IN_PROGRESS';
+    } else if (status === 'DELIVERY_FAILED') {
+      if (linesSent(order)) return this.#freezeUnconfirmed(order, note);
+      order.status = 'DELIVERY_FAILED';
+      order.leaseToken = null;
+      order.leaseOwner = null;
+      order.leaseUntil = null;
+    } else {
+      return { ok: false, reason: 'invalid-status', order };
+    }
     if (note) order.note = String(note).slice(0, 300);
     order.updatedAt = new Date(this.now()).toISOString();
     const grant = this.grants.find((row) => row.orderId === order.orderId);
@@ -331,15 +565,45 @@ class MemoryMcPoints {
     return { ok: true, order };
   }
 
-  async refund({ orderId, reason = 'staff', actor = 'staff', writesEnabled = false, now = this.now() } = {}) {
+  #freezeUnconfirmed(order, note) {
+    order.status = 'SENT_UNCONFIRMED';
+    for (const line of order.lines) {
+      if (line.status !== 'DELIVERED') line.status = 'SENT_UNCONFIRMED';
+    }
+    order.leaseToken = null;
+    order.leaseOwner = null;
+    order.leaseUntil = null;
+    if (note) order.note = String(note).slice(0, 300);
+    order.updatedAt = new Date(this.now()).toISOString();
+    bumpMcMetric('giveUnconfirmed');
+    return { ok: true, order };
+  }
+
+  #leaseLive(order, now) {
+    return Boolean(order.leaseUntil && Date.parse(order.leaseUntil) > now);
+  }
+
+  async refund({ orderId, reason = '', actor = '', writesEnabled = false, now = this.now(), applyWallet = true } = {}) {
     const order = this.orders.get(String(orderId || ''));
     if (!order) return { ok: false, reason: 'order-not-found' };
     if (order.status === 'REFUNDED' || order.refunded) return { ok: true, duplicate: true, order };
-    const auto = reason === 'auto-14d' || reason === 'delivery-failed';
-    if (auto && !this.#autoRefundable(order, reason, now)) return { ok: false, reason: 'refund-not-due', order };
-    if (!auto && reason !== 'staff') return { ok: false, reason: 'refund-not-allowed' };
-    if (Number(order.price) > 0) {
-      if (!writesEnabled) return { ok: false, reason: 'economy-write-cutover-not-enabled' };
+    if (order.status === 'DELIVERED') return { ok: false, reason: 'final-status', order };
+    const auto = reason === 'auto-14d';
+    if (auto) {
+      if (!this.#autoRefundable(order, now)) return { ok: false, reason: 'refund-not-due', order };
+    } else {
+      const staffReason = String(reason || '').trim();
+      const staffActor = String(actor || '').trim();
+      if (staffReason.length < 3) return { ok: false, reason: 'refund-reason-required' };
+      if (!this.#staffAllowed(staffActor, order)) return { ok: false, reason: 'staff-not-authorized' };
+      if (order.status !== 'SENT_UNCONFIRMED' && order.status !== 'DELIVERY_FAILED') return { ok: false, reason: 'refund-not-allowed', order };
+      if (this.#leaseLive(order, now)) return { ok: false, reason: 'lease-live', order };
+      const today = this.audits.filter((row) => row.actor === staffActor && ctDayKey(Date.parse(row.createdAt)) === ctDayKey(now));
+      if (today.length >= STAFF_REFUND_DAILY_CAP) return { ok: false, reason: 'staff-refund-cap' };
+    }
+    if (this.audits.some((row) => row.orderId === order.orderId)) return { ok: true, duplicate: true, order };
+    if (Number(order.price) > 0 && !writesEnabled) return { ok: false, reason: 'economy-write-cutover-not-enabled' };
+    if (Number(order.price) > 0 && applyWallet) {
       const key = `mc-shop-refund:${order.orderId}`;
       const credited = await this.wallet.credit({
         discordUserId: order.discordUserId,
@@ -353,33 +617,49 @@ class MemoryMcPoints {
       order.ledgerRefundKey = key;
       order.balance = credited.balance;
     }
+    const previous = order.status;
     order.refunded = true;
     order.status = 'REFUNDED';
+    order.leaseToken = null;
+    order.leaseOwner = null;
+    order.leaseUntil = null;
     order.updatedAt = new Date(now).toISOString();
+    this.audits.push({
+      orderId: order.orderId,
+      actor: auto ? 'auto' : String(actor),
+      reason: String(reason).slice(0, 300),
+      amount: Number(order.price || 0),
+      fromStatus: previous,
+      createdAt: new Date(now).toISOString()
+    });
     const grant = this.grants.find((row) => row.orderId === order.orderId);
     if (grant) grant.status = 'REFUNDED';
+    bumpMcMetric('refund');
     return { ok: true, order };
   }
 
   async sweepRefunds({ writesEnabled = false, now = this.now() } = {}) {
     const results = [];
     for (const order of this.orders.values()) {
-      if (!this.#autoRefundable(order, 'auto-14d', now) && !(order.status === 'DELIVERY_FAILED' && this.#autoRefundable(order, 'delivery-failed', now))) continue;
-      const reason = order.status === 'DELIVERY_FAILED' ? 'delivery-failed' : 'auto-14d';
-      results.push(await this.refund({ orderId: order.orderId, reason, actor: 'auto', writesEnabled, now }));
+      if (!this.#autoRefundable(order, now)) continue;
+      results.push(await this.refund({ orderId: order.orderId, reason: 'auto-14d', actor: 'auto', writesEnabled, now }));
     }
     return results;
   }
 
-  #autoRefundable(order, reason, now) {
+  #autoRefundable(order, now) {
     if (order.refunded || order.status === 'REFUNDED' || order.status === 'DELIVERED' || order.status === 'SENT_UNCONFIRMED') return false;
-    const sent = order.lines.some((line) => line.status === 'DELIVERED' || line.status === 'SENT_UNCONFIRMED');
-    if (sent) return false;
-    if (reason === 'delivery-failed') return order.status === 'DELIVERY_FAILED';
-    if (reason === 'auto-14d') {
-      return (order.status === 'PAID' || order.status === 'PLAYER_OFFLINE') && now - Date.parse(order.createdAt) >= REFUND_AFTER_MS;
-    }
-    return false;
+    if (order.status !== 'PAID' && order.status !== 'PLAYER_OFFLINE') return false;
+    if (this.#leaseLive(order, now)) return false;
+    if (linesSent(order)) return false;
+    return now - Date.parse(order.createdAt) >= REFUND_AFTER_MS;
+  }
+
+  #staffAllowed(actor, order) {
+    if (!/^\d{5,32}$/.test(actor)) return false;
+    if (actor === order.discordUserId) return false;
+    const allow = String(this.env.NEXUS_MC_REFUND_STAFF_IDS || '').split(',').map((value) => value.trim()).filter(Boolean);
+    return allow.includes(actor);
   }
 
   #cooldownReason(discordUserId, mcUuid, now) {
@@ -391,10 +671,16 @@ class MemoryMcPoints {
     return '';
   }
 
-  #newOrder(input) {
+  #insertOrder(input) {
+    const orderId = input.orderId || this.createOrderId();
+    if (this.orders.has(orderId)) {
+      const error = new Error('duplicate-order-id');
+      error.code = 'duplicate-order-id';
+      throw error;
+    }
     const now = new Date(this.now()).toISOString();
     const order = {
-      orderId: `MC-${crypto.randomBytes(3).toString('hex').toUpperCase()}`,
+      orderId,
       discordUserId: input.discordUserId,
       economicIdentityId: input.economicIdentityId,
       mcUuid: input.mcUuid,
@@ -405,9 +691,13 @@ class MemoryMcPoints {
       ledgerKey: input.ledgerKey || '',
       status: 'PAID',
       lines: input.lines,
+      catalogVersion: input.catalogVersion || '',
+      catalogHash: input.catalogHash || '',
       createdAt: now,
       updatedAt: now,
       leaseUntil: null,
+      leaseToken: null,
+      leaseOwner: null,
       refunded: false,
       balance: input.balance
     };
@@ -422,8 +712,19 @@ module.exports = {
   UNLINK_COOLDOWN_MS,
   REFUND_AFTER_MS,
   LEASE_MS,
+  CODE_ATTEMPT_LIMIT,
+  LINK_REQUESTS_PER_HOUR,
+  STAFF_REFUND_DAILY_CAP,
+  CODE_ALPHABET,
   hashCode,
   generateLinkCode,
+  verifiedDiscordIdentity,
+  mcEarnEligible,
+  isMinecraftShopOrder,
   stackLines,
+  orderLineHash,
+  signQuote,
+  bumpMcMetric,
+  mcMetrics,
   MemoryMcPoints
 };

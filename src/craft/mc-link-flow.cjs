@@ -21,7 +21,7 @@ async function verifyMojangProfile(uuid, { fetchImpl, name } = {}) {
   return { ok: true, name: body.name, uuid };
 }
 
-async function beginMinecraftLink({ username, discordUserId, rcon, points, fetchImpl, env = process.env } = {}) {
+async function beginMinecraftLink({ username, discordUserId, requesterName, rcon, points, fetchImpl, env = process.env } = {}) {
   if (!mcPointsFlags(env).pointsEnabled) return { ok: false, reason: 'mc-points-disabled' };
   if (!playerNameOk(username)) return { ok: false, reason: 'invalid-player-name' };
   let listed;
@@ -36,10 +36,11 @@ async function beginMinecraftLink({ username, discordUserId, rcon, points, fetch
   if (!isPremiumUuid(player.uuid)) return { ok: false, reason: 'uuid-not-premium' };
   const profile = await verifyMojangProfile(player.uuid, { fetchImpl, name: player.name });
   if (!profile.ok) return profile;
-  const challenge = await points.challenge({ discordUserId, mcUuid: player.uuid, mcName: player.name });
+  const who = String(requesterName || discordUserId || 'someone').slice(0, 32);
+  const challenge = await points.challenge({ discordUserId, mcUuid: player.uuid, mcName: player.name, requesterName: who });
   if (!challenge.ok) return challenge;
   try {
-    await rcon(tellrawCommand(player.name, `Nexus link code: ${challenge.code} (expires 10 min)`));
+    await rcon(tellrawCommand(player.uuid, `${who} asked to link this account. Code: ${challenge.code}. Expires in 10 minutes.`));
   } catch {
     return { ok: false, reason: 'whisper-failed' };
   }

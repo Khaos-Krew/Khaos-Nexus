@@ -9,6 +9,7 @@ const { runMcDeliveryCycle } = require('./mc-delivery.cjs');
 
 const DELIVERY_LOOP = Symbol.for('khaos.nexus.craft.mc.delivery');
 const PLAYTIME_LOOP = Symbol.for('khaos.nexus.craft.mc.playtime');
+const SWEEP_LOOP = Symbol.for('khaos.nexus.craft.mc.refund-sweep');
 
 function reasonText(reason) {
   const messages = {
@@ -25,6 +26,8 @@ function reasonText(reason) {
     'invalid-player-name': 'Use the in-game name: 3 to 16 letters, numbers, or underscores.',
     'code-expired': 'That code expired. Run `/mc link start` again.',
     'code-mismatch': 'That code does not match. Check the whisper in game.',
+    'code-locked': 'Too many wrong codes. Wait for the code to expire, then start again.',
+    'link-rate-limited': 'That Minecraft account has had too many link requests this hour.',
     'unlink-cooldown': 'Unlink has a 30-day cooldown.',
     'not-linked': 'No verified Minecraft link was found.',
     'already-linked': 'Unlink the current Minecraft account first.',
@@ -37,6 +40,8 @@ function reasonText(reason) {
     'already-claimed': 'The Starter Kit was already claimed for this identity or Minecraft account.',
     'not-eligible': 'That account cannot claim the Starter Kit.',
     'economy-worker-unconfigured': 'The Nexus economy worker is not configured for Craft.',
+    'staff-refund-sentinal-only': 'Staff refunds run in Sentinal, with a reason and a staff check.',
+    'staff-resolve-sentinal-only': 'Staff order changes run in Sentinal.',
     'account-age-unknown': 'I could not read the Discord account age.',
     'tenure-unknown': 'I could not read how long you have been in this Discord.'
   };
@@ -94,10 +99,8 @@ async function handleMcPointsCommand(interaction, context) {
       const orderId = interaction.options.getString('order');
       const action = interaction.options.getString('action');
       const result = action === 'refund'
-        ? await points.refund({ orderId, reason: 'staff', actor: discordUserId })
-        : action === 'resend'
-          ? await points.markDelivery({ orderId, status: 'RESEND' })
-          : await points.markDelivery({ orderId, status: 'DELIVERED' });
+        ? { ok: false, reason: 'staff-refund-sentinal-only' }
+        : { ok: false, reason: 'staff-resolve-sentinal-only' };
       await interaction.reply(context.ephemeral(result.ok ? `${orderId} is now ${result.order?.status || action}.` : reasonText(result.reason)));
       return true;
     }
@@ -114,6 +117,7 @@ async function handleMcPointsCommand(interaction, context) {
     const result = await beginMinecraftLink({
       username: interaction.options.getString('username'),
       discordUserId,
+      requesterName: interaction.user?.username || discordUserId,
       rcon,
       points,
       fetchImpl: context.fetchImpl,
@@ -155,15 +159,9 @@ async function handleMcPointsCommand(interaction, context) {
     return true;
   }
   if (sub === 'starter') {
-    const member = interaction.member;
-    const result = await points.claimStarterKit({
-      discordUserId,
-      accountCreatedAt: interaction.user?.createdTimestamp,
-      joinedAt: member?.joinedTimestamp || null
-    });
-    await interaction.reply(context.ephemeral(result.ok
-      ? `Starter Kit queued as ${result.order.orderId}. It delivers the next time you are online with free inventory slots.`
-      : reasonText(result.reason)));
+    await interaction.reply(context.ephemeral(mcPointsFlags(env).starterKitEnabled
+      ? 'Claim the Starter Kit from the Minecraft section in Sentinal. Nexus Craft does not grant it.'
+      : 'The Minecraft Starter Kit is off.'));
     return true;
   }
   return false;
@@ -184,6 +182,13 @@ function installMcEconomyLoops({ store, env = process.env, log = console.log } =
       },
       log: (summary) => log(`[Nexus Craft] mc playtime online=${summary.online} players=${summary.players} afk=${summary.afk} failures=${summary.failures}`)
     });
+  }
+  if ((flags.shopEnabled || flags.starterKitEnabled) && !globalThis[SWEEP_LOOP]) {
+    globalThis[SWEEP_LOOP] = true;
+    const sweepTimer = setInterval(() => {
+      points.sweepRefunds({}).catch((error) => log(`[Nexus Craft] mc refund sweep ${String(error?.message || error).slice(0, 160)}`));
+    }, 60 * 1000);
+    sweepTimer.unref?.();
   }
   if (flags.shopDeliveryEnabled && !globalThis[DELIVERY_LOOP]) {
     globalThis[DELIVERY_LOOP] = true;

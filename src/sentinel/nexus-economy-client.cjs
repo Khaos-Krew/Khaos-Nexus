@@ -164,6 +164,7 @@ class NexusEconomyClient {
   mcShopCatalog() { return request('/mc-shop/catalog'); }
   mcShopQuote(input) { return request('/mc-shop/quote', { method: 'POST', body: input }); }
   mcShopBuy(input) { return request('/mc-shop/buy', { method: 'POST', body: input, acceptedStatusCodes: [409] }); }
+  mcClaimStarterKit(input) { return request('/mc/starter-kit/claim', { method: 'POST', body: input }); }
 }
 
 module.exports = { configured, NexusEconomyClient };

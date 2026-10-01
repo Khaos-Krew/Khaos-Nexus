@@ -28,8 +28,8 @@ async function pollMcPlaytime({ rcon, presence, afk = new McAfkTracker(), now = 
   const samples = [];
   for (const player of listed.players) {
     try {
-      const pos = parseDataVector(await rcon(dataGetCommand(player.name, 'Pos')));
-      const rotation = parseDataVector(await rcon(dataGetCommand(player.name, 'Rotation')));
+      const pos = parseDataVector(await rcon(dataGetCommand(player.uuid, 'Pos')));
+      const rotation = parseDataVector(await rcon(dataGetCommand(player.uuid, 'Rotation')));
       if (!pos || !rotation) {
         failures += 1;
         continue;

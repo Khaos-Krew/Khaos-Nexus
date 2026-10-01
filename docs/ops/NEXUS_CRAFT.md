@@ -85,12 +85,14 @@ All of these default off, except dry-run. Nothing here turns on Nexus economy wr
 
 - `MC_POINTS_ENABLED` — master switch for `/mc link`. Default false.
 - `MC_PLAYTIME_NP_ENABLED` — counted playtime may accrue. Default false.
-- `MC_PLAYTIME_DRY_RUN` — default true. The tracker logs online, AFK, and failures and does not post presence.
+- `MC_PLAYTIME_DRY_RUN` — default true. The tracker logs the credit and cap math and does not write a ledger row.
 - `MC_SHOP_ENABLED` — Sentinal Minecraft shop section. Default false.
 - `MC_SHOP_DELIVERY_ENABLED` — RCON delivery of paid orders and the Starter Kit. Default false.
 - `MC_STARTER_KIT_ENABLED` — one-time kit claim. Default false.
 
-Live playtime also requires the existing economy presence-write gate. Shop purchases require the existing economy write gate. Craft reads `NEXUS_ECONOMY_URL` and `NEXUS_ECONOMY_TOKEN` only when one of these flags is on. Item ids can be overridden with `MC_SHOP_CATALOG_JSON` and `MC_STARTER_KIT_JSON`. The kit must still include `sophisticatedbackpacks:backpack`.
+Live playtime also requires the existing economy presence-write gate. Shop purchases and refunds require the existing economy write gate. Craft reads `NEXUS_ECONOMY_URL` and `NEXUS_ECONOMY_CRAFT_TOKEN` only when one of these flags is on. That token cannot buy, quote, or staff-refund. Item ids can be overridden with `MC_SHOP_CATALOG_JSON` and `MC_STARTER_KIT_JSON`. The kit must still include `sophisticatedbackpacks:backpack`.
+
+Partial delivery keeps every line that already arrived. The rest is marked SENT_UNCONFIRMED for staff and is not auto-retried or auto-refunded.
 
 `/mc link start` whispers a code to the online Java player. `/mc link confirm` verifies that UUID. `/mc unlink` starts a 30-day cooldown. `/mc shop` points at Sentinal. `/mc starter` queues the free kit. Staff `/mc mcadmin` lists orders and kit claims.
 

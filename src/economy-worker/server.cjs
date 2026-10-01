@@ -26,7 +26,9 @@ const FINANCIAL_WRITE_PATHS = new Set([
   '/shop/sell',
   '/shop/sell/confirm-removal',
   '/shop/buy/delivery-status',
-  '/mc-shop/buy'
+  '/mc-shop/buy',
+  '/mc-shop/refund',
+  '/mc-shop/refund-sweep'
 ]);
 const MC_NONECONOMY_PATHS = new Set([
   '/mc/link/challenge',
@@ -35,9 +37,18 @@ const MC_NONECONOMY_PATHS = new Set([
   '/mc/starter-kit/claim',
   '/mc-shop/quote',
   '/mc-shop/delivery-status',
-  '/mc-shop/claim',
-  '/mc-shop/refund',
-  '/mc-shop/refund-sweep'
+  '/mc-shop/claim'
+]);
+const CRAFT_ROUTES = new Set([
+  'POST /presence',
+  'POST /mc/link/challenge',
+  'POST /mc/link/confirm',
+  'POST /mc/unlink',
+  'POST /mc-shop/claim',
+  'POST /mc-shop/delivery-status',
+  'POST /mc-shop/refund-sweep',
+  'GET /mc-shop/orders/pending',
+  'GET /mc/grants'
 ]);
 const WRITE_PATHS = new Set([...PRESENCE_WRITE_PATHS, ...FINANCIAL_WRITE_PATHS]);
 const POST_PATHS = new Set([...DRAIN_MUTATION_PATHS, ...WRITE_PATHS, ...MC_NONECONOMY_PATHS, '/shop/quote']);
@@ -56,13 +67,41 @@ function json(res, status, body) {
   res.end(payload);
 }
 
-function authorized(req, token) {
-  if (!token) return false;
+function bearerToken(req) {
   const auth = String(req.headers.authorization || '');
-  if (!auth.startsWith('Bearer ')) return false;
-  const supplied = Buffer.from(auth.slice(7));
-  const expected = Buffer.from(token);
-  return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
+  if (!auth.startsWith('Bearer ')) return '';
+  return auth.slice(7);
+}
+
+function tokenMatches(supplied, expected) {
+  if (!supplied || !expected) return false;
+  const left = Buffer.from(supplied);
+  const right = Buffer.from(expected);
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function requestScope(req, { token = '', craftToken = '' } = {}) {
+  const supplied = bearerToken(req);
+  if (!supplied) return '';
+  if (token && tokenMatches(supplied, token)) return 'sentinal';
+  if (craftToken && craftToken !== token && tokenMatches(supplied, craftToken)) return 'craft';
+  return '';
+}
+
+function presenceBody(input) {
+  const body = input && typeof input === 'object' ? input : {};
+  const copy = {};
+  if ('provider' in body) copy.provider = body.provider;
+  if ('eosId' in body) copy.eosId = body.eosId;
+  if ('mcUuid' in body) copy.mcUuid = body.mcUuid;
+  if ('online' in body) copy.online = body.online === true;
+  if ('rankId' in body) copy.rankId = body.rankId;
+  if ('server' in body) copy.server = body.server;
+  return copy;
+}
+
+function craftRouteAllowed(method, pathname) {
+  return CRAFT_ROUTES.has(`${method} ${pathname}`);
 }
 
 async function body(req) {
@@ -237,6 +276,7 @@ function createEconomyServer(options = {}) {
   const worker = options.worker || new NexusEconomyWorker();
   const shop = options.shop || new ClusterShopService({ economy: worker });
   const token = String(options.token ?? process.env.NEXUS_ECONOMY_TOKEN ?? '').trim();
+  const craftToken = String(options.craftToken ?? process.env.NEXUS_ECONOMY_CRAFT_TOKEN ?? '').trim();
   const writesEnabled = options.writesEnabled == null
     ? enabled(process.env.NEXUS_ECONOMY_WRITES_ENABLED)
     : Boolean(options.writesEnabled);
@@ -258,7 +298,11 @@ function createEconomyServer(options = {}) {
       if (req.method === 'GET' && url.pathname === '/health') {
         return json(res, 200, runtimeReadiness({ worker, shop, token, writesEnabled, presenceWritesEnabled }));
       }
-      if (!authorized(req, token)) return json(res, 401, { ok: false, error: 'unauthorized' });
+      const scope = requestScope(req, { token, craftToken });
+      if (!scope) return json(res, 401, { ok: false, error: 'unauthorized' });
+      if (scope === 'craft' && !craftRouteAllowed(req.method, url.pathname)) {
+        return json(res, 403, { ok: false, error: 'craft-token-scope' });
+      }
 
       if (req.method === 'GET' && url.pathname.startsWith('/wallet-balances/')) {
         const discordUserId = decodeURIComponent(url.pathname.slice('/wallet-balances/'.length));
@@ -345,7 +389,7 @@ function createEconomyServer(options = {}) {
         return json(res, 200, { ok: true, result: ensured });
       }
       if (url.pathname === '/shop/quote') return json(res, 200, { ok: true, quote: shop.quote(input), writesEnabled });
-      if (url.pathname === '/presence') return json(res, 200, await worker.recordPresence(input));
+      if (url.pathname === '/presence') return json(res, 200, await worker.recordPresence(presenceBody(input)));
       {
         const adminHandled = await handleAdminWalletPost(url.pathname, { worker, input, json, res });
         if (adminHandled !== null) return adminHandled;
@@ -368,11 +412,34 @@ function createEconomyServer(options = {}) {
         const result = await worker.minecraft.buy({ ...input, writesEnabled: true });
         return json(res, result.ok ? 200 : 409, result);
       }
-      if (worker.minecraft && url.pathname === '/mc-shop/delivery-status') return json(res, 200, await worker.minecraft.markDelivery(input));
-      if (worker.minecraft && url.pathname === '/mc-shop/claim') return json(res, 200, { ok: true, order: await worker.minecraft.claimNext() });
-      if (worker.minecraft && url.pathname === '/mc-shop/refund') return json(res, 200, await worker.minecraft.refund({ ...input, writesEnabled }));
+      if (worker.minecraft && url.pathname === '/mc-shop/delivery-status') {
+        if (!require('../shared/mc-points-flags.cjs').mcPointsFlags().shopDeliveryEnabled) {
+          return json(res, 200, { ok: false, reason: 'mc-shop-delivery-disabled' });
+        }
+        return json(res, 200, await worker.minecraft.markDelivery(input));
+      }
+      if (worker.minecraft && url.pathname === '/mc-shop/claim') {
+        if (!require('../shared/mc-points-flags.cjs').mcPointsFlags().shopDeliveryEnabled) {
+          return json(res, 200, { ok: false, reason: 'mc-shop-delivery-disabled' });
+        }
+        return json(res, 200, { ok: true, order: await worker.minecraft.claimNext({ owner: input.owner || 'nexus-craft' }) });
+      }
+      if (worker.minecraft && url.pathname === '/mc-shop/refund') {
+        return json(res, 200, await worker.minecraft.refund({
+          orderId: input.orderId,
+          reason: input.reason,
+          actor: input.actor,
+          writesEnabled
+        }));
+      }
       if (worker.minecraft && url.pathname === '/mc-shop/refund-sweep') return json(res, 200, { ok: true, results: await worker.minecraft.sweepRefunds({ writesEnabled }) });
-      if (worker.minecraft && url.pathname === '/mc/starter-kit/claim') return json(res, 200, await worker.minecraft.claimStarterKit(input));
+      if (worker.minecraft && url.pathname === '/mc/starter-kit/claim') {
+        return json(res, 200, await worker.minecraft.claimStarterKit({
+          discordUserId: input.discordUserId,
+          joinedAt: input.joinedAt,
+          tenureTrusted: scope === 'sentinal'
+        }));
+      }
       return json(res, 404, { ok: false, error: 'not-found' });
     } catch (error) {
       console.error('[Nexus Economy Worker]', error);
@@ -418,6 +485,7 @@ module.exports = {
   PRESENCE_WRITE_PATHS,
   FINANCIAL_WRITE_PATHS,
   MC_NONECONOMY_PATHS,
+  CRAFT_ROUTES,
   WRITE_PATHS,
   POST_PATHS,
   enabled,
@@ -433,6 +501,9 @@ module.exports = {
   writeGate,
   mutationRequestGate,
   walletReadAccrualPermitted,
+  presenceBody,
+  craftRouteAllowed,
+  requestScope,
   createEconomyServer,
   listenEconomyServer
 };

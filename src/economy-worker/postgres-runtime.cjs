@@ -26,7 +26,7 @@ async function createPostgresEconomyRuntime({ env = process.env, now } = {}) {
   const pool = new Pool({ connectionString, max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 });
   const repository = new NexusEconomyPostgresRuntimeRepository({ pool, schema });
   const nowFn = now ? () => Number(now()) : Date.now;
-  const accrual = new PostgresEconomyAccrual({ pool, schema, now: nowFn });
+  const accrual = new PostgresEconomyAccrual({ pool, schema, now: nowFn, env });
   try {
     await pool.query(NexusEconomyPostgresRuntimeRepository.runtimeSchemaSql({ schema }));
     await accrual.ensureSchema();

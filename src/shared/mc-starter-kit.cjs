@@ -42,6 +42,18 @@ function loadStarterKit(env = process.env) {
   });
 }
 
+const DISCORD_EPOCH_MS = 1420070400000n;
+
+function discordAccountCreatedMs(discordUserId) {
+  try {
+    const id = BigInt(String(discordUserId || '').trim());
+    if (id <= 0n) return NaN;
+    return Number((id >> 22n) + DISCORD_EPOCH_MS);
+  } catch {
+    return NaN;
+  }
+}
+
 function starterKitEligibility({
   identityVerified = false,
   linkVerified = false,
@@ -77,5 +89,6 @@ module.exports = {
   BACKPACK_ID,
   DEFAULT_KIT_ITEMS,
   loadStarterKit,
+  discordAccountCreatedMs,
   starterKitEligibility
 };
