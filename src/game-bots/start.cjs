@@ -42,7 +42,7 @@ async function startGameBot({ botName, botKey, gameRole, serviceName, beforeClie
   const key = gameBotKey({ botKey, gameRole: role, serviceName });
   if (!key) throw new Error(`[${botName}] category gate requires the cephalon, ascended, or sanctuary bot`);
   const category = resolveCategoryConfig(key);
-  const gateValue = category.failClosed ? 'invalid' : category.open ? 'unset' : category.id;
+  const gateValue = category.failClosed ? (category.source === 'unset' ? 'unset' : 'invalid') : category.open ? 'unset' : category.id;
   console.log(`[${botName}] category gate ${category.envName}=${gateValue} source=${category.source}`);
   installCategoryGate(client, { bot: key });
   installOpsSpine(client, { bot: key });

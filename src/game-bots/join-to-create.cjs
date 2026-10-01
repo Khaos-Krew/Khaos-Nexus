@@ -15,7 +15,8 @@ const MAX_CHANNELS = 20;
 const NAME_KIND = Object.freeze({
   cephalon: 'Squad',
   ascended: 'Tribe',
-  sanctuary: 'Party'
+  sanctuary: 'Party',
+  vanguard: 'Fireteam'
 });
 
 // Owner lobby voice channels. A blank env var uses these. A non-snowflake override fail-closes.
@@ -34,6 +35,7 @@ function envPrefix(bot) {
   if (bot === 'ascended') return 'ASCENDED';
   if (bot === 'sanctuary') return 'SANCTUARY';
   if (bot === 'cephalon') return 'CEPHALON';
+  if (bot === 'vanguard') return 'VANGUARD';
   return '';
 }
 

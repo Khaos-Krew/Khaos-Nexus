@@ -30,3 +30,5 @@ Grace defaults to 15 seconds and is clamped between 5 and 120 seconds. An empty 
 The bot ignores joins outside its guild and outside its category. A member who already has a temporary channel is moved back into it. Staff `/status` reports whether the lobby is configured. It does not print display names.
 
 Temporary channel ids are stored under `NEXUS_DATA_DIR` so a reconnect does not open a second channel for the same member.
+
+Nexus Vanguard uses the same module with `VANGUARD_JTC_LOBBY_CHANNEL_ID`. There is no baked lobby id: an unset or blank value leaves join-to-create off. A non-snowflake value also leaves it off. The category comes from `VANGUARD_DISCORD_CATEGORY_ID` (or `VANGUARD_CATEGORY_ID` when the primary value is unset). Temporary channels are named as a player's Fireteam and are deleted by this module when they stay empty. See `docs/ops/NEXUS_VANGUARD.md`.
