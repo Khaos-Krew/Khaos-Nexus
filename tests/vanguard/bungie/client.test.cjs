@@ -12,6 +12,7 @@ const { allowed, createBungieClient } = require('../../../src/game-bots/vanguard
 const { createBungieRuntime } = require('../../../src/game-bots/vanguard/bungie/runtime.cjs');
 const { bungieConfig } = require('../../../src/game-bots/vanguard/config.cjs');
 const { d2CommandBuilder } = require('../../../src/game-bots/vanguard/commands/d2.cjs');
+const { panelFooter } = require('../../../src/game-bots/vanguard/panels.cjs');
 
 const KEY = 'test-key-do-not-log';
 
@@ -48,6 +49,11 @@ test('platform errors map to retry, unavailable, auth, privacy, and not-found', 
   assert.equal(html.retry, false);
   assert.equal(classifyResponse({ status: 403, contentType: 'application/json', json: { ErrorCode: 1 } }).reason, 'http-403');
   assert.equal(classifyResponse({ status: 200, contentType: 'text/html', bodyText: '<!DOCTYPE html>' }).reason, 'html');
+  assert.equal(classifyResponse({ status: 200, contentType: 'text/plain', bodyText: 'ok' }).reason, 'bad-body');
+  assert.equal(classifyResponse({ status: 200, json: { ok: true } }).reason, 'bad-body');
+  assert.equal(classifyResponse({ status: 200, json: { ErrorCode: 1 } }).reason, 'bad-body');
+  assert.equal(classifyResponse({ status: 200, json: { ErrorCode: 1, Response: null } }).kind, 'ok');
+  assert.equal(classifyResponse({ status: 503, json: { ErrorCode: 51, ThrottleSeconds: 300, Response: null } }).throttleSeconds, 60);
   assert.equal(backoffMs(0, () => 0.5), 1000);
   assert.equal(backoffMs(1, () => 0.5), 2000);
   assert.equal(backoffMs(2, () => 0.5), 4000);
@@ -73,6 +79,23 @@ test('the limiter stays at or below the request cap and honors ThrottleSeconds',
   lanes.pause('vendors', 3);
   const next = await lanes.acquire('vendors');
   assert.ok(next - 5_000 >= 3000);
+
+  const split = clock(10_000);
+  const splitLimiter = createLimiter({ rps: 5, now: split.now, sleep: split.sleep });
+  await splitLimiter.acquire('vendors');
+  splitLimiter.pause('vendors', 30);
+  const other = await splitLimiter.acquire('milestones');
+  assert.ok(other - 10_000 < 1000, `other lane waited ${other - 10_000}`);
+  const again = await splitLimiter.acquire('vendors');
+  assert.ok(again - 10_000 >= 30_000);
+
+  const capped = clock(0);
+  const capLimiter = createLimiter({ rps: 10, now: capped.now, sleep: capped.sleep });
+  await capLimiter.acquire('settings');
+  capLimiter.pause('settings', 300);
+  const after = await capLimiter.acquire('settings');
+  assert.ok(after >= 60_000);
+  assert.ok(after < 90_000);
 });
 
 test('xur defaults on, other bungie flags default off, and the rps cap is 10', () => {
@@ -120,7 +143,12 @@ test('fixtures for 5, 31, 36, 1665, 2101, and an HTML 403 follow the client rule
     alert: (kind, text) => alerter.alert(kind, text),
     fetch: async (url, options) => {
       calls += 1;
-      seen.push({ url, key: options.headers['X-API-Key'], origin: options.headers.Origin });
+      seen.push({
+        url,
+        key: options.headers['X-API-Key'],
+        origin: options.headers.Origin,
+        userAgent: options.headers['User-Agent']
+      });
       const next = script.shift();
       return next || jsonResponse(200, { ErrorCode: 1, Response: {} });
     }
@@ -130,6 +158,7 @@ test('fixtures for 5, 31, 36, 1665, 2101, and an HTML 403 follow the client rule
   assert.equal(calls, 3);
   assert.equal(seen[0].key, KEY);
   assert.equal(seen[0].origin, undefined);
+  assert.match(seen[0].userAgent, /NexusVanguard\//);
   assert.equal(alerts.length, 0);
   assert.equal(logs.some((line) => line.includes(KEY)), false);
   assert.match(logs.join('\n'), /endpoint=\/Destiny2\/Milestones\//);
@@ -305,5 +334,136 @@ test('an HTML or 403 settings response fail-closes without a manifest download',
     assert.match(alerts.join('\n'), /No workaround/);
   } finally {
     console.log = original;
+  }
+});
+
+test('requests send BUNGIE_USER_AGENT and a configured value replaces the default', async () => {
+  assert.match(bungieConfig({}).userAgent, /NexusVanguard\/0\.1\.0/);
+  assert.match(bungieConfig({}).userAgent, /github\.com\/Khaos-Krew\/Khaos-Nexus/);
+  let ua = '';
+  const client = createBungieClient({
+    env: { BUNGIE_API_KEY: KEY, BUNGIE_USER_AGENT: 'NexusVanguardTest/9' },
+    sleep: async () => {},
+    log: () => {},
+    warn: () => {},
+    fetch: async (_url, options) => {
+      ua = options.headers['User-Agent'];
+      return jsonResponse(200, { ErrorCode: 1, Response: {} });
+    }
+  });
+  const result = await client.get('/Settings/');
+  assert.equal(result.ok, true);
+  assert.equal(ua, 'NexusVanguardTest/9');
+});
+
+test('a retry budget stops a throttled call before ThrottleSeconds is slept', async () => {
+  const timer = clock(1_000_000);
+  let calls = 0;
+  const client = createBungieClient({
+    env: { BUNGIE_API_KEY: KEY },
+    now: timer.now,
+    sleep: timer.sleep,
+    random: () => 0.5,
+    log: () => {},
+    warn: () => {},
+    fetch: async () => {
+      calls += 1;
+      return jsonResponse(503, { ErrorCode: 51, ThrottleSeconds: 300, Response: null });
+    }
+  });
+  assert.equal(client.beginBudget(timer.now() + 60_000), true);
+  const result = await client.get('/Settings/');
+  client.endBudget();
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'budget');
+  assert.equal(calls, 1);
+  assert.equal(timer.now(), 1_000_000);
+});
+
+test('a non-JSON 200 keeps the last good panel and is not treated as success', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vanguard-bad-body-'));
+  const guildId = '1516640233389822001';
+  const channelId = '1516640233389822991';
+  const messageId = '1516640233389822771';
+  const botId = '111111111111111111';
+  const lastGood = 'Nightfall: The Glassway\nRaid: Salvation';
+  const edits = [];
+  const footer = panelFooter('weekly-reset');
+  const message = {
+    id: messageId,
+    author: { id: botId },
+    embeds: [{ description: lastGood, footer: { text: footer } }],
+    edit: async (body) => {
+      edits.push(body);
+      return message;
+    }
+  };
+  let state = {
+    [guildId]: {
+      'weekly-reset': { channelId, messageId, lastHash: 'old', lastGood }
+    }
+  };
+  try {
+    const runtime = createBungieRuntime({
+      env: {
+        BUNGIE_API_KEY: KEY,
+        VANGUARD_DATA_DIR: dir,
+        VANGUARD_RESET_PANEL_ENABLED: 'true',
+        VANGUARD_XUR_PANEL_ENABLED: 'false'
+      },
+      now: () => 50_000_000,
+      sleep: async () => {},
+      discord: {
+        user: { id: botId },
+        channels: {
+          fetch: async () => ({
+            id: channelId,
+            send: async () => message,
+            messages: {
+              fetch: async (arg) => (arg && typeof arg === 'object' ? new Map([[message.id, message]]) : message)
+            }
+          })
+        }
+      },
+      panelStore: {
+        read: () => state,
+        update: async (fn) => {
+          state = fn(state);
+          return state;
+        }
+      },
+      channelsFor: () => ({ panels: channelId }),
+      fetch: async (url) => {
+        if (String(url).endsWith('/Settings/')) {
+          return jsonResponse(200, { ErrorCode: 1, Response: { systems: { D2Milestones: { enabled: true } } } });
+        }
+        return {
+          status: 200,
+          headers: { get: () => 'text/plain' },
+          async text() { return 'not-json'; }
+        };
+      }
+    });
+    await runtime.health.poll(runtime.api);
+    const plain = await runtime.api.get('/Destiny2/Milestones/');
+    assert.equal(plain.ok, false);
+    assert.equal(plain.reason, 'bad-body');
+    const schemaLess = createBungieClient({
+      env: { BUNGIE_API_KEY: KEY },
+      sleep: async () => {},
+      log: () => {},
+      warn: () => {},
+      fetch: async () => jsonResponse(200, { ok: true })
+    });
+    const shapeless = await schemaLess.get('/Destiny2/Milestones/');
+    assert.equal(shapeless.ok, false);
+    assert.equal(shapeless.reason, 'bad-body');
+    await runtime.refreshPanels(guildId, { which: 'reset', force: true });
+    assert.equal(runtime.cache.get('milestones'), undefined);
+    assert.equal(state[guildId]['weekly-reset'].lastGood, lastGood);
+    assert.match(edits[0].embeds[0].description, /Nightfall: The Glassway/);
+    assert.doesNotMatch(edits[0].embeds[0].description, /not found/i);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });

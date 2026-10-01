@@ -1,7 +1,7 @@
 'use strict';
 
 const { bungieConfig } = require('../config.cjs');
-const { classifyResponse, backoffMs } = require('./errors.cjs');
+const { classifyResponse, backoffMs, THROTTLE_CAP_SECONDS } = require('./errors.cjs');
 const { createLimiter } = require('./limiter.cjs');
 const { alertText } = require('./alerts.cjs');
 const { updateBungieStatus } = require('./status-snapshot.cjs');
@@ -88,6 +88,23 @@ function createBungieClient({
   const lanes = new Map();
   let stopped = false;
   let settingsLogged = false;
+  let deadline = 0;
+
+  function beginBudget(until) {
+    if (deadline > 0) return false;
+    const at = Number(until);
+    if (!(at > 0)) return false;
+    deadline = at;
+    return true;
+  }
+
+  function endBudget() {
+    deadline = 0;
+  }
+
+  function budgetBlocks(extraMs = 0) {
+    return deadline > 0 && now() + extraMs >= deadline;
+  }
 
   function headers() {
     return {
@@ -172,6 +189,9 @@ function createBungieClient({
     if (!config.configured) return { ok: false, kind: 'unconfigured', reason: 'unconfigured', errorCode: 0 };
     if (stopped) return { ok: false, kind: 'auth', reason: 'api-key', errorCode: 2101 };
     if (!allowed(method, endpoint)) return { ok: false, kind: 'forbidden', reason: 'forbidden', errorCode: 0 };
+    if (budgetBlocks(0)) {
+      return { ok: false, kind: 'unavailable', reason: 'budget', retry: false, errorCode: 0, throttleSeconds: 0 };
+    }
     await bucket.acquire(endpoint);
     return laneLock(endpoint, async () => {
       let last = null;
@@ -186,7 +206,13 @@ function createBungieClient({
         if (last.kind === 'auth' && last.reason === 'api-key') stopped = true;
         if (last.alert) await sendAlert(last.alert);
         if (!last.retry || attempt === attempts) break;
-        const delay = Math.max(backoffMs(attempt, roll), (last.throttleSeconds || 0) * 1000);
+        const delay = Math.min(
+          THROTTLE_CAP_SECONDS * 1000,
+          Math.max(backoffMs(attempt, roll), (last.throttleSeconds || 0) * 1000)
+        );
+        if (budgetBlocks(delay)) {
+          return { ...last, ok: false, kind: 'unavailable', reason: 'budget', retry: false };
+        }
         await wait(delay);
       }
       if (last?.retry) {
@@ -264,6 +290,8 @@ function createBungieClient({
       return request({ method: 'POST', path, body });
     },
     download,
+    beginBudget,
+    endBudget,
     get stopped() {
       return stopped;
     }

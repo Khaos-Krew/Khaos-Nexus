@@ -129,7 +129,8 @@ async function ensureVanguardChannels(ctx) {
     env,
     categoryId: category.id,
     saved,
-    reason: 'Nexus Vanguard startup'
+    reason: 'Nexus Vanguard startup',
+    botId: ctx.client?.user?.id || guild?.members?.me?.id || ''
   });
   await ctx.channelStore.update((state) => {
     state[guildId] = { ...(state[guildId] || {}), ...result.resolved };
@@ -150,9 +151,6 @@ async function onReady(ctx) {
     await ensureVanguardChannels(ctx);
     await expireAndEdit(ctx);
     await refreshGuildPanels(ctx, guildId, { force: true });
-    await ctx.bungie.boot(guildId).catch((error) => {
-      console.warn(`[Nexus Vanguard] bungie boot class=${errorClass(error)}`);
-    });
   }
   ctx.lastPanelAt = Date.now();
   await registerVanguardCommands(ctx.client, ctx.env);
@@ -166,9 +164,42 @@ async function onTick(ctx) {
     ctx.lastPanelAt = Date.now();
     await refreshGuildPanels(ctx, guildId, { force: true });
   }
-  await ctx.bungie.tick(guildId).catch((error) => {
-    console.warn(`[Nexus Vanguard] bungie tick class=${errorClass(error)}`);
-  });
+}
+
+function createBungieLoop(ctx, { intervalMs = TICK_MS } = {}) {
+  let inFlight = false;
+  let booted = false;
+  async function pass() {
+    if (inFlight) return { skipped: true };
+    inFlight = true;
+    const guildId = guildIdOf(ctx.env);
+    try {
+      if (!booted) {
+        await ctx.bungie.boot(guildId);
+        booted = true;
+      } else if (guildId) {
+        await ctx.bungie.tick(guildId);
+      }
+      return { skipped: false };
+    } catch (error) {
+      console.warn(`[Nexus Vanguard] bungie tick class=${errorClass(error)}`);
+      return { skipped: false, error: true };
+    } finally {
+      inFlight = false;
+    }
+  }
+  const timer = setInterval(() => {
+    void pass();
+  }, intervalMs);
+  timer.unref?.();
+  void pass();
+  return {
+    pass,
+    timer,
+    stop() {
+      clearInterval(timer);
+    }
+  };
 }
 
 function bindShutdown(ctx) {
@@ -176,6 +207,7 @@ function bindShutdown(ctx) {
   ctx.shutdownBound = true;
   const stop = (signal) => {
     clearTimeout(ctx.boardTimer);
+    ctx.bungieLoop?.stop();
     ctx.scheduler.stop();
     console.log(`[Nexus Vanguard] ${signal}`);
     process.exit(0);
@@ -184,17 +216,20 @@ function bindShutdown(ctx) {
   process.once('SIGINT', () => stop('SIGINT'));
 }
 
-function installVanguard(client, { env = process.env, shutdown = false } = {}) {
+function installVanguard(client, { env = process.env, shutdown = false, fetch } = {}) {
   const paths = statePaths(env);
   const channelStore = new GuildStateStore(paths.channels);
   const panelStore = new GuildStateStore(paths.panels);
   const installed = installVanguardJtc(client, env);
+  const scheduler = new Scheduler();
   const channelsFor = (guildId) => resolvedChannels(env, channelStore.read()?.[String(guildId)] || {});
   const bungie = createBungieRuntime({
     env,
     discord: client,
     panelStore,
-    channelsFor
+    channelsFor,
+    fetch,
+    editLock: (task) => scheduler.run(task)
   });
   const activities = createActivityCatalog({ query: bungie.query });
   const lfg = createLfgService({
@@ -205,7 +240,7 @@ function installVanguard(client, { env = process.env, shutdown = false } = {}) {
   const ctx = {
     client,
     env,
-    scheduler: new Scheduler(),
+    scheduler,
     lfg,
     activities,
     bungie,
@@ -214,6 +249,7 @@ function installVanguard(client, { env = process.env, shutdown = false } = {}) {
     jtc: installed.controller,
     lastPanelAt: 0,
     boardTimer: null,
+    bungieLoop: null,
     shutdownBound: false
   };
   ctx.scheduleBoard = (guildId) => scheduleBoard(ctx, guildId);
@@ -227,19 +263,17 @@ function installVanguard(client, { env = process.env, shutdown = false } = {}) {
         await handleD2(interaction, ctx);
         return;
       }
-      await ctx.scheduler.run(async () => {
-        if (interaction.commandName === 'vanguard') {
-          const group = interaction.options?.getSubcommandGroup?.(false);
-          const sub = interaction.options?.getSubcommand?.(false);
-          if (group === 'panels' && sub === 'refresh') {
-            await handlePanelsRefresh(interaction, ctx);
-            return;
-          }
-          await runSetup(interaction, ctx);
+      if (interaction.commandName === 'vanguard') {
+        const group = interaction.options?.getSubcommandGroup?.(false);
+        const sub = interaction.options?.getSubcommand?.(false);
+        if (group === 'panels' && sub === 'refresh') {
+          await handlePanelsRefresh(interaction, ctx);
           return;
         }
-        await handleLfgInteraction(interaction, ctx);
-      });
+        await ctx.scheduler.run(() => runSetup(interaction, ctx));
+        return;
+      }
+      await ctx.scheduler.run(() => handleLfgInteraction(interaction, ctx));
     };
     void run().catch((error) => reportCommandFailure(interaction, error, {
       bot: 'vanguard',
@@ -252,6 +286,7 @@ function installVanguard(client, { env = process.env, shutdown = false } = {}) {
       console.warn(`[Nexus Vanguard] ready class=${errorClass(error)}`);
     });
     ctx.scheduler.every(TICK_MS, () => onTick(ctx));
+    ctx.bungieLoop = createBungieLoop(ctx);
   });
   if (shutdown) bindShutdown(ctx);
   return ctx;
@@ -264,5 +299,6 @@ module.exports = {
   prepareVanguardEnv,
   ensureVanguardChannels,
   installVanguard,
-  registerVanguardCommands
+  registerVanguardCommands,
+  createBungieLoop
 };

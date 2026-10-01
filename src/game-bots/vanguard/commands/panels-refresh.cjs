@@ -16,7 +16,9 @@ async function handlePanelsRefresh(interaction, ctx) {
   const panel = interaction.options.getString('panel', true);
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   if (panel === 'lfg-board' || panel === 'all') {
-    await refreshLfgBoard(ctx, { guildId: interaction.guildId, force: true });
+    const editBoard = () => refreshLfgBoard(ctx, { guildId: interaction.guildId, force: true });
+    if (typeof ctx.scheduler?.run === 'function') await ctx.scheduler.run(editBoard);
+    else await editBoard();
   }
   if (panel !== 'lfg-board') {
     const which = panel === 'all' ? 'all' : panel;

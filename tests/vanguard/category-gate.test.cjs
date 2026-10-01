@@ -170,5 +170,6 @@ test('vanguard image starts the service without baking tokens or category ids', 
   const docker = fs.readFileSync(path.join(root, 'Dockerfile.vanguard'), 'utf8');
   assert.match(docker, /src\/railway\/vanguard-service\.cjs/);
   assert.match(docker, /VANGUARD_DATA_DIR=\/data\/vanguard/);
+  assert.match(docker, /FROM node:22\.(?:1[3-9]|[2-9]\d)(?:\.\d+)?-slim/);
   assert.doesNotMatch(docker, /VANGUARD_DISCORD_TOKEN|VANGUARD_DISCORD_CATEGORY_ID=\d+|BUNGIE_/);
 });

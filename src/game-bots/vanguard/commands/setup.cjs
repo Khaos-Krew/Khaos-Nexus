@@ -1,8 +1,8 @@
 'use strict';
 
-const { ChannelType, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } = require('discord.js');
+const { ChannelType, MessageFlags, OverwriteType, PermissionFlagsBits, SlashCommandBuilder } = require('discord.js');
 const { errorClass } = require('../../command-failure.cjs');
-const { snowflake } = require('../config.cjs');
+const { csvIds, snowflake } = require('../config.cjs');
 const { vanguardCategory } = require('../gate.cjs');
 const { applyJtcLobby } = require('../jtc.cjs');
 const { actorIsStaff } = require('../staff.cjs');
@@ -14,6 +14,68 @@ const SETUP_CHANNELS = Object.freeze([
   Object.freeze({ key: 'staffAlerts', name: 'staff-alerts', type: ChannelType.GuildText, envName: 'VANGUARD_STAFF_ALERT_CHANNEL_ID' }),
   Object.freeze({ key: 'jtcLobby', name: 'lobby', type: ChannelType.GuildVoice, envName: 'VANGUARD_JTC_LOBBY_CHANNEL_ID' })
 ]);
+
+const BOT_CHANNEL_ALLOW = Object.freeze(['ViewChannel', 'SendMessages', 'EmbedLinks', 'ReadMessageHistory']);
+
+function channelAccessOverwrites(key, { everyoneId = '', botId = '', staffRoleIds = [] } = {}) {
+  if (key === 'staffAlerts') {
+    const rows = [{ id: everyoneId, type: OverwriteType.Role, deny: ['ViewChannel'] }];
+    if (botId) rows.push({ id: botId, type: OverwriteType.Member, allow: [...BOT_CHANNEL_ALLOW] });
+    for (const roleId of staffRoleIds) {
+      if (!roleId || roleId === everyoneId) continue;
+      rows.push({ id: roleId, type: OverwriteType.Role, allow: ['ViewChannel', 'ReadMessageHistory'] });
+    }
+    return rows.filter((row) => row.id);
+  }
+  if (key === 'panels') {
+    const rows = [{
+      id: everyoneId,
+      type: OverwriteType.Role,
+      allow: ['ViewChannel', 'ReadMessageHistory'],
+      deny: ['SendMessages']
+    }];
+    if (botId) rows.push({ id: botId, type: OverwriteType.Member, allow: [...BOT_CHANNEL_ALLOW] });
+    return rows.filter((row) => row.id);
+  }
+  return [];
+}
+
+function bitfield(names = []) {
+  return names.map((name) => PermissionFlagsBits[name]).filter((bit) => bit !== undefined);
+}
+
+function discordOverwrites(rows) {
+  return rows.map((row) => ({
+    id: row.id,
+    type: row.type,
+    allow: bitfield(row.allow),
+    deny: bitfield(row.deny)
+  }));
+}
+
+function editPayload(row) {
+  const payload = {};
+  for (const name of row.allow || []) payload[name] = true;
+  for (const name of row.deny || []) payload[name] = false;
+  return payload;
+}
+
+function accessContext({ guild, env, botId }) {
+  return {
+    everyoneId: snowflake(guild?.roles?.everyone?.id) || snowflake(guild?.id) || '',
+    botId: snowflake(botId) || snowflake(guild?.members?.me?.id) || snowflake(guild?.client?.user?.id) || '',
+    staffRoleIds: csvIds(env.VANGUARD_STAFF_ROLE_IDS)
+  };
+}
+
+async function applyChannelAccess(channel, key, access) {
+  const rows = channelAccessOverwrites(key, access);
+  if (!rows.length || typeof channel?.permissionOverwrites?.edit !== 'function') return rows;
+  for (const row of rows) {
+    await channel.permissionOverwrites.edit(row.id, editPayload(row), { type: row.type, reason: 'Nexus Vanguard channel access' });
+  }
+  return rows;
+}
 
 function vanguardCommandBuilder() {
   return new SlashCommandBuilder()
@@ -96,7 +158,11 @@ function channelList(fetched) {
   return [];
 }
 
-async function provisionChannels({ guild, env = {}, categoryId, saved = {}, reason = 'Nexus Vanguard setup' } = {}) {
+function channelById(list, id) {
+  return list.find((channel) => String(channel?.id || '') === String(id || '')) || null;
+}
+
+async function provisionChannels({ guild, env = {}, categoryId, saved = {}, reason = 'Nexus Vanguard setup', botId = '' } = {}) {
   const gateId = snowflake(categoryId);
   if (!gateId) {
     return { ok: false, reason: 'fail-closed', created: [], reused: [], pinned: [], invalid: [], resolved: {} };
@@ -108,30 +174,33 @@ async function provisionChannels({ guild, env = {}, categoryId, saved = {}, reas
   const reused = [];
   const pinned = [];
   const invalid = [];
+  const known = channelList(fetched);
+  const access = accessContext({ guild, env, botId });
   try {
     for (const step of plan) {
       if (step.action === 'invalid') {
         invalid.push(step.name);
         continue;
       }
-      if (step.action === 'env') {
+      const rows = channelAccessOverwrites(step.key, access);
+      if (step.action === 'env' || step.action === 'reuse') {
         resolved[step.key] = step.id;
-        pinned.push(step.name);
+        if (step.action === 'env') pinned.push(step.name);
+        else reused.push(step.name);
+        await applyChannelAccess(channelById(known, step.id), step.key, access);
         continue;
       }
-      if (step.action === 'reuse') {
-        resolved[step.key] = step.id;
-        reused.push(step.name);
-        continue;
-      }
-      const channel = await guild.channels.create({
+      const options = {
         name: step.name,
         type: step.type,
         parent: gateId,
         reason
-      });
+      };
+      if (rows.length) options.permissionOverwrites = discordOverwrites(rows);
+      const channel = await guild.channels.create(options);
       resolved[step.key] = String(channel.id);
       created.push(step.name);
+      await applyChannelAccess(channel, step.key, access);
     }
   } catch (error) {
     return { ok: false, reason: 'partial', errorClass: errorClass(error), created, reused, pinned, invalid, resolved };
@@ -166,7 +235,8 @@ async function runSetup(interaction, ctx) {
     env,
     categoryId: category.id,
     saved,
-    reason: 'Nexus Vanguard setup'
+    reason: 'Nexus Vanguard setup',
+    botId: interaction.client?.user?.id || interaction.guild?.members?.me?.id || ''
   });
   await ctx.channelStore.update((state) => {
     state[String(interaction.guildId)] = { ...(state[String(interaction.guildId)] || {}), ...result.resolved };
@@ -190,6 +260,7 @@ async function runSetup(interaction, ctx) {
 
 module.exports = {
   SETUP_CHANNELS,
+  channelAccessOverwrites,
   vanguardCommandBuilder,
   planSetup,
   resolvedChannels,

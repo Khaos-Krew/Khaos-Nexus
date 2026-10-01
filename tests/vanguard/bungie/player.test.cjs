@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createCache } = require('../../../src/game-bots/vanguard/bungie/cache.cjs');
+const { createBungieClient } = require('../../../src/game-bots/vanguard/bungie/client.cjs');
 const { lookupPlayer, parseBungieName } = require('../../../src/game-bots/vanguard/bungie/player.cjs');
 const { createBungieRuntime } = require('../../../src/game-bots/vanguard/bungie/runtime.cjs');
 
@@ -140,4 +141,36 @@ test('player data stays in memory and the lookup is rate limited', async () => {
   time += 11_000;
   const third = await runtime.player('Nobody#1', 'user-1');
   assert.equal(third.reason, 'not-found');
+});
+
+test('a non-JSON or schema-less 200 is not cached as not-found', async () => {
+  const bodies = [
+    { status: 200, headers: { get: () => 'text/plain' }, async text() { return 'nope'; } },
+    {
+      status: 200,
+      headers: { get: () => 'application/json' },
+      async text() { return JSON.stringify({ ok: true }); }
+    }
+  ];
+  for (const response of bodies) {
+    let calls = 0;
+    const cache = createCache({ now: () => 5_000_000 });
+    const client = createBungieClient({
+      env: { BUNGIE_API_KEY: 'present' },
+      sleep: async () => {},
+      log: () => {},
+      warn: () => {},
+      fetch: async () => {
+        calls += 1;
+        return response;
+      }
+    });
+    const first = await lookupPlayer({ client, cache, rawName: 'Ghost#1234' });
+    const second = await lookupPlayer({ client, cache, rawName: 'Ghost#1234' });
+    assert.equal(first.ok, false);
+    assert.equal(first.reason, 'bad-body');
+    assert.equal(second.reason, 'bad-body');
+    assert.equal(calls, 2);
+    assert.equal(cache.get('player:ghost#1234'), undefined);
+  }
 });

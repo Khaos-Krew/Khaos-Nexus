@@ -21,6 +21,7 @@ const HEALTH_MS = 5 * 60 * 1000;
 const XUR_MS = 60 * 60 * 1000;
 const SLOW_MS = 6 * 60 * 60 * 1000;
 const PLAYER_MS = 10 * 1000;
+const TICK_BUDGET_MS = 60 * 1000;
 
 function reasonText(reason) {
   if (reason === 'unconfigured') return 'Bungie is not configured.';
@@ -42,7 +43,8 @@ function createBungieRuntime({
   now = Date.now,
   fetch,
   sleep,
-  random
+  random,
+  editLock = (task) => Promise.resolve().then(task)
 } = {}) {
   const paths = statePaths(env);
   const cache = createCache({ now });
@@ -220,7 +222,7 @@ function createBungieRuntime({
 
   async function publishOne(guildId, panelId, embed, { degraded = false, force = false } = {}) {
     const channelId = channelsFor(guildId).panels;
-    return publishPanel({ client: discord, panelStore, env }, {
+    return editLock(() => publishPanel({ client: discord, panelStore, env }, {
       guildId,
       panelId,
       channelId,
@@ -228,10 +230,23 @@ function createBungieRuntime({
       degraded,
       asOf: health.read()?.checkedAt || now(),
       force
-    });
+    }));
+  }
+
+  async function withBudget(task) {
+    const opened = typeof api.beginBudget === 'function' && api.beginBudget(now() + TICK_BUDGET_MS);
+    try {
+      return await task();
+    } finally {
+      if (opened) api.endBudget();
+    }
   }
 
   async function refreshPanels(guildId, { which = 'all', force = false } = {}) {
+    return withBudget(() => refreshPanelsWithin(guildId, { which, force }));
+  }
+
+  async function refreshPanelsWithin(guildId, { which = 'all', force = false } = {}) {
     const wanted = which === 'all' ? ['reset', 'xur', 'clan'] : [which];
     const results = {};
     for (const name of wanted) {
@@ -285,6 +300,10 @@ function createBungieRuntime({
   }
 
   async function boot(guildId) {
+    return withBudget(() => bootWithin(guildId));
+  }
+
+  async function bootWithin(guildId) {
     if (!config().configured) {
       syncStatus();
       return { ok: false, reason: 'unconfigured' };
@@ -292,7 +311,7 @@ function createBungieRuntime({
     await refreshHealth();
     let manifestResult = null;
     if (health.allows('manifest')) manifestResult = await refreshManifest();
-    const panels = guildId ? await refreshPanels(guildId, { which: 'all', force: true }) : {};
+    const panels = guildId ? await refreshPanelsWithin(guildId, { which: 'all', force: true }) : {};
     const at = now();
     timers.health = at;
     timers.manifest = at;
@@ -303,6 +322,10 @@ function createBungieRuntime({
   }
 
   async function tick(guildId) {
+    return withBudget(() => tickWithin(guildId));
+  }
+
+  async function tickWithin(guildId) {
     if (!config().configured || !guildId) return;
     const at = now();
     if (at - timers.health >= HEALTH_MS) await refreshHealth();
@@ -314,28 +337,28 @@ function createBungieRuntime({
     if (versionBefore && versionAfter && versionBefore !== versionAfter) {
       cache.delete('milestones');
       cache.delete('vendors');
-      await refreshPanels(guildId, { which: 'all', force: true });
+      await refreshPanelsWithin(guildId, { which: 'all', force: true });
       timers.reset = at;
       timers.xur = at;
       timers.clan = at;
       return;
     }
     if (health.read()?.degraded) {
-      await refreshPanels(guildId, { which: 'all', force: false });
+      await refreshPanelsWithin(guildId, { which: 'all', force: false });
       return;
     }
     if (config().resetPanel && (at - timers.reset >= SLOW_MS || (resetAt && at >= resetAt))) {
       timers.reset = at;
       if (resetAt && at >= resetAt) cache.delete('milestones');
-      await refreshPanels(guildId, { which: 'reset', force: true });
+      await refreshPanelsWithin(guildId, { which: 'reset', force: true });
     }
     if (config().xurPanel && at - timers.xur >= XUR_MS) {
       timers.xur = at;
-      await refreshPanels(guildId, { which: 'xur', force: true });
+      await refreshPanelsWithin(guildId, { which: 'xur', force: true });
     }
     if (config().clanPanel && at - timers.clan >= SLOW_MS) {
       timers.clan = at;
-      await refreshPanels(guildId, { which: 'clan', force: true });
+      await refreshPanelsWithin(guildId, { which: 'clan', force: true });
     }
   }
 
@@ -365,6 +388,7 @@ module.exports = {
   XUR_MS,
   SLOW_MS,
   PLAYER_MS,
+  TICK_BUDGET_MS,
   reasonText,
   createBungieRuntime
 };

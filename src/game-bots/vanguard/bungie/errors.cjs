@@ -2,6 +2,7 @@
 
 const RETRY_CODES = new Set([31, 35, 36, 37, 51, 54, 55, 56, 57, 1672]);
 const AUTH_STOP_CODES = new Set([2101, 2102, 2107]);
+const THROTTLE_CAP_SECONDS = 60;
 
 function looksLikeHtml(contentType, body) {
   const type = String(contentType || '').toLowerCase();
@@ -15,9 +16,16 @@ function finiteNumber(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function successBody(json, errorCode) {
+  if (!json || typeof json !== 'object' || Array.isArray(json)) return false;
+  if (!Object.prototype.hasOwnProperty.call(json, 'ErrorCode')) return false;
+  if (!Object.prototype.hasOwnProperty.call(json, 'Response')) return false;
+  return errorCode === 0 || errorCode === 1;
+}
+
 function classifyResponse({ status = 0, contentType = '', bodyText = '', json = null } = {}) {
   const errorCode = finiteNumber(json?.ErrorCode);
-  const throttleSeconds = Math.max(0, finiteNumber(json?.ThrottleSeconds));
+  const throttleSeconds = Math.min(THROTTLE_CAP_SECONDS, Math.max(0, finiteNumber(json?.ThrottleSeconds)));
   const html = looksLikeHtml(contentType, bodyText);
   if (html || status === 403) {
     return {
@@ -54,8 +62,11 @@ function classifyResponse({ status = 0, contentType = '', bodyText = '', json = 
       alert: ''
     };
   }
-  if (status >= 200 && status < 300 && (!json || errorCode === 0 || errorCode === 1)) {
+  if (status >= 200 && status < 300 && successBody(json, errorCode)) {
     return { kind: 'ok', reason: 'success', retry: false, errorCode: errorCode || 1, throttleSeconds, alert: '' };
+  }
+  if (status >= 200 && status < 300 && (errorCode === 0 || errorCode === 1)) {
+    return { kind: 'unavailable', reason: 'bad-body', retry: false, errorCode: errorCode || 0, throttleSeconds: 0, alert: '' };
   }
   if (errorCode && errorCode !== 1) {
     return { kind: 'error', reason: 'platform', retry: false, errorCode, throttleSeconds, alert: '' };
@@ -73,7 +84,9 @@ function backoffMs(attempt, random = Math.random) {
 module.exports = {
   RETRY_CODES,
   AUTH_STOP_CODES,
+  THROTTLE_CAP_SECONDS,
   looksLikeHtml,
+  successBody,
   classifyResponse,
   backoffMs
 };
