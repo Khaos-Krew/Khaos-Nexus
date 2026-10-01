@@ -16,7 +16,7 @@ function helpText(env = process.env) {
   ];
   if (bungieConfig(env).xurPanel) lines.push('• `/d2 xur` — Xûr\'s public stock');
   lines.push(
-    '• `/d2 roster` — staff: paged clan roster',
+    '• `/vanguard roster` — staff: paged clan roster',
     '• `/vanguard setup` — staff: create missing channels',
     '• `/vanguard panels refresh` — staff: refresh a panel',
     '• `/nexushelp` — this list',

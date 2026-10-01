@@ -18,10 +18,21 @@ function createAlerter({ now = Date.now, send, windowMs = WINDOW_MS } = {}) {
   return { alert, windowMs };
 }
 
-function alertText(kind) {
+function alertText(kind, detail = '') {
   if (kind === 'auth') return 'API key invalid or misconfigured.';
   if (kind === 'disabled') return 'Bungie system disabled.';
-  return 'Bungie data unavailable (HTML or HTTP 403). No workaround will be attempted.';
+  const cause = detail === 'timeout' || detail === 'network'
+    ? 'timeout'
+    : detail === 'server'
+      ? 'server error'
+      : detail === 'rate limit'
+        ? 'rate limit'
+        : detail === 'http-403'
+          ? 'HTTP 403'
+          : detail === 'html'
+            ? 'HTML'
+            : 'HTML or HTTP 403';
+  return `Bungie data unavailable (${cause}). No workaround will be attempted.`;
 }
 
 module.exports = { WINDOW_MS, createAlerter, alertText };

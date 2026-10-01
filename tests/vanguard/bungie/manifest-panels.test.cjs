@@ -106,7 +106,8 @@ test('weekly reset time comes from milestone dates and says when the list is sho
     now
   });
   assert.equal(nextResetAt(milestones.Response, now), Date.parse('2026-10-06T17:00:00Z'));
-  assert.match(embed.description, /LIMITED/);
+  assert.doesNotMatch(embed.description, /LIMITED/);
+  assert.doesNotMatch(embed.description, /Milestone /);
   assert.match(embed.description, /Few public milestones/);
   assert.match(embed.description, /Weekly Clan Engrams/);
   assert.match(embed.description, /Next reset: Oct 6, 2026, 12:00 PM CT/);

@@ -48,7 +48,7 @@ function bungieUserAgent(env = process.env) {
     version = '0.1.0';
   }
   const appId = String(env.VANGUARD_DISCORD_APP_ID || '').trim() || 'unset';
-  return `NexusVanguard/${version} AppId/${appId} (+https://github.com/Khaos-Krew/Khaos-Nexus;unset)`;
+  return `NexusVanguard/${version} AppId/${appId} (+https://github.com/Khaos-Krew/Khaos-Nexus)`;
 }
 
 function bungieConfig(env = process.env) {

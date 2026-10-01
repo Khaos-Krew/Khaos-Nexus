@@ -10,6 +10,7 @@ const { fetchClanRoster, normalizeRoster, normalizeSummary } = require('../../..
 const { createBungieRuntime } = require('../../../src/game-bots/vanguard/bungie/runtime.cjs');
 const { renderClanSummary, renderRoster } = require('../../../src/game-bots/vanguard/panels/clan.cjs');
 const { panelFooter } = require('../../../src/game-bots/vanguard/panels.cjs');
+const { handleClanAutocomplete } = require('../../../src/game-bots/vanguard/commands/d2-clan.cjs');
 const { handleRoster } = require('../../../src/game-bots/vanguard/commands/d2-roster.cjs');
 const { handleD2 } = require('../../../src/game-bots/vanguard/commands/d2.cjs');
 const { GuildStateStore } = require('../../../src/game-bots/vanguard/state-store.cjs');
@@ -250,4 +251,15 @@ test('roster is staff-only and can request a later page', async () => {
   assert.equal(outside[0].flags, MessageFlags.Ephemeral);
   assert.match(outside[1].embeds[0].description, /KHAOS NEXUS/);
   assert.match(outside[1].embeds[0].footer.text, /Not affiliated with or endorsed by Bungie/);
+  const choices = [];
+  await handleClanAutocomplete({
+    options: { getFocused: () => ({ name: 'clan', value: '' }) },
+    respond: async (rows) => choices.push(...rows)
+  }, {
+    env,
+    bungie: { cache: { get: () => ({ summary: { name: 'KHAOS NEXUS' } }) } }
+  });
+  assert.equal(choices[0].name, 'KHAOS NEXUS');
+  assert.equal(choices[0].value, GROUP);
+  assert.equal(choices[0].name.includes(GROUP), false);
 });

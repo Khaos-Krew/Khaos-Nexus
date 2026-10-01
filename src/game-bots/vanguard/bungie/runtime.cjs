@@ -24,15 +24,30 @@ const PLAYER_MS = 10 * 1000;
 const TICK_BUDGET_MS = 60 * 1000;
 
 function reasonText(reason) {
-  if (reason === 'unconfigured') return 'Bungie is not configured.';
-  if (reason === 'disabled') return 'That Destiny lookup is not configured.';
-  if (reason === 'auth' || reason === 'api-key') return 'API key invalid or misconfigured.';
-  if (reason === 'gated' || reason === 'system-disabled') return 'Bungie system disabled.';
-  if (reason === 'private') return 'Private';
+  if (reason === 'disabled') return "That Destiny lookup isn't turned on yet. Ask staff.";
+  if (reason === 'unconfigured' || reason === 'gated' || reason === 'system-disabled') {
+    return "Bungie isn't turned on yet. Ask staff.";
+  }
+  if (reason === 'auth' || reason === 'api-key') {
+    return "Destiny lookups aren't working right now. Staff have been told; try again later.";
+  }
+  if (reason === 'private') {
+    return "That player's Destiny profile is private, so we can't show it. They can make it public in their Bungie.net privacy settings.";
+  }
   if (reason === 'not-found' || reason === 'no-account') return 'No Destiny account found.';
   if (reason === 'name') return 'Use a Bungie name like Name#1234.';
   if (reason === 'rate') return 'Slow down a moment and try again.';
-  return 'Bungie data unavailable.';
+  return 'Bungie data unavailable. Try again in a few minutes.';
+}
+
+function panelLanded(result) {
+  if (!result) return false;
+  if (Array.isArray(result)) return result.some(panelLanded);
+  return result.reason !== 'unset' && result.reason !== 'missing';
+}
+
+function due(last, interval, at) {
+  return !last || at - last >= interval;
 }
 
 function createBungieRuntime({
@@ -315,9 +330,9 @@ function createBungieRuntime({
     const at = now();
     timers.health = at;
     timers.manifest = at;
-    timers.reset = at;
-    timers.xur = at;
-    timers.clan = at;
+    if (panelLanded(panels.reset)) timers.reset = at;
+    if (panelLanded(panels.xur)) timers.xur = at;
+    if (panelLanded(panels.clan)) timers.clan = at;
     return { ok: true, manifest: manifestResult, panels };
   }
 
@@ -337,28 +352,28 @@ function createBungieRuntime({
     if (versionBefore && versionAfter && versionBefore !== versionAfter) {
       cache.delete('milestones');
       cache.delete('vendors');
-      await refreshPanelsWithin(guildId, { which: 'all', force: true });
-      timers.reset = at;
-      timers.xur = at;
-      timers.clan = at;
+      const refreshed = await refreshPanelsWithin(guildId, { which: 'all', force: true });
+      if (panelLanded(refreshed.reset)) timers.reset = at;
+      if (panelLanded(refreshed.xur)) timers.xur = at;
+      if (panelLanded(refreshed.clan)) timers.clan = at;
       return;
     }
     if (health.read()?.degraded) {
       await refreshPanelsWithin(guildId, { which: 'all', force: false });
       return;
     }
-    if (config().resetPanel && (at - timers.reset >= SLOW_MS || (resetAt && at >= resetAt))) {
-      timers.reset = at;
+    if (config().resetPanel && (due(timers.reset, SLOW_MS, at) || (resetAt && at >= resetAt))) {
       if (resetAt && at >= resetAt) cache.delete('milestones');
-      await refreshPanelsWithin(guildId, { which: 'reset', force: true });
+      const refreshed = await refreshPanelsWithin(guildId, { which: 'reset', force: true });
+      if (panelLanded(refreshed.reset)) timers.reset = at;
     }
-    if (config().xurPanel && at - timers.xur >= XUR_MS) {
-      timers.xur = at;
-      await refreshPanelsWithin(guildId, { which: 'xur', force: true });
+    if (config().xurPanel && due(timers.xur, XUR_MS, at)) {
+      const refreshed = await refreshPanelsWithin(guildId, { which: 'xur', force: true });
+      if (panelLanded(refreshed.xur)) timers.xur = at;
     }
-    if (config().clanPanel && at - timers.clan >= SLOW_MS) {
-      timers.clan = at;
-      await refreshPanelsWithin(guildId, { which: 'clan', force: true });
+    if (config().clanPanel && due(timers.clan, SLOW_MS, at)) {
+      const refreshed = await refreshPanelsWithin(guildId, { which: 'clan', force: true });
+      if (panelLanded(refreshed.clan)) timers.clan = at;
     }
   }
 

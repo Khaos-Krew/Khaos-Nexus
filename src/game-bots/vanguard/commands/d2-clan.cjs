@@ -18,16 +18,20 @@ async function handleClanAutocomplete(interaction, ctx) {
     await interaction.respond([]);
     return true;
   }
-  const ids = bungieConfig(ctx.env).clanGroupIds;
+  const ids = bungieConfig(ctx.env).clanGroupIds.slice(0, 25);
   const query = String(focused.value || '').trim().toLowerCase();
-  const choices = ids
-    .filter((id) => !query || id.includes(query))
-    .slice(0, 25)
-    .map((id) => {
-      const cached = ctx.bungie?.cache?.get?.(`clan:${id}`);
-      const name = cached?.summary?.name ? `${cached.summary.name} (${id})` : id;
-      return { name: name.slice(0, 100), value: id };
-    });
+  const choices = [];
+  for (const id of ids) {
+    const cached = ctx.bungie?.cache?.get?.(`clan:${id}`);
+    let name = String(cached?.summary?.name || '').trim();
+    if (!name && typeof ctx.bungie?.clanSummary === 'function') {
+      const view = await ctx.bungie.clanSummary(id);
+      name = String(view?.summary?.name || '').trim();
+    }
+    if (!name) name = 'Clan';
+    if (query && !name.toLowerCase().includes(query)) continue;
+    choices.push({ name: name.slice(0, 100), value: id });
+  }
   await interaction.respond(choices);
   return true;
 }

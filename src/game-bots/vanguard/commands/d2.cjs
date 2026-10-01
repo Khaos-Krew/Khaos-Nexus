@@ -6,7 +6,6 @@ const { panelFooter, postFooter } = require('../panels.cjs');
 const { handleClan, handleClanAutocomplete } = require('./d2-clan.cjs');
 const { handlePlayer } = require('./d2-player.cjs');
 const { handleReset } = require('./d2-reset.cjs');
-const { handleRoster } = require('./d2-roster.cjs');
 const { handleXur } = require('./d2-xur.cjs');
 
 function d2CommandBuilder(env = process.env) {
@@ -35,19 +34,8 @@ function d2CommandBuilder(env = process.env) {
       .setDescription('Show a clan summary.')
       .addStringOption((option) => option
         .setName('clan')
-        .setDescription('Configured clan')
-        .setAutocomplete(true)))
-    .addSubcommand((sub) => sub
-      .setName('roster')
-      .setDescription('Staff: paged clan roster.')
-      .addStringOption((option) => option
-        .setName('clan')
-        .setDescription('Configured clan')
-        .setAutocomplete(true))
-      .addIntegerOption((option) => option
-        .setName('page')
-        .setDescription('Page number, starting at 1')
-        .setMinValue(1)));
+        .setDescription('Clan')
+        .setAutocomplete(true)));
   return builder;
 }
 
@@ -86,7 +74,6 @@ async function handleD2(interaction, ctx) {
   if (sub === 'reset') return handleReset(interaction, ctx, { replyText, replyEmbed, footer: panelFooter('weekly-reset') });
   if (sub === 'xur') return handleXur(interaction, ctx, { replyText, replyEmbed, footer: panelFooter('xur') });
   if (sub === 'clan') return handleClan(interaction, ctx, { replyText, replyEmbed, footer: panelFooter('clan') });
-  if (sub === 'roster') return handleRoster(interaction, ctx, { replyText, replyEmbed, footer: postFooter() });
   await replyText(interaction, 'That Destiny command is not available.');
   return true;
 }

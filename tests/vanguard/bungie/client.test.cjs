@@ -340,6 +340,7 @@ test('an HTML or 403 settings response fail-closes without a manifest download',
 test('requests send BUNGIE_USER_AGENT and a configured value replaces the default', async () => {
   assert.match(bungieConfig({}).userAgent, /NexusVanguard\/0\.1\.0/);
   assert.match(bungieConfig({}).userAgent, /github\.com\/Khaos-Krew\/Khaos-Nexus/);
+  assert.doesNotMatch(bungieConfig({}).userAgent, /;unset/);
   let ua = '';
   const client = createBungieClient({
     env: { BUNGIE_API_KEY: KEY, BUNGIE_USER_AGENT: 'NexusVanguardTest/9' },

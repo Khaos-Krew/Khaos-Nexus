@@ -12,7 +12,11 @@ const { deliverPost } = require('./lfg/lfg-buttons.cjs');
 const { handleLfgInteraction, lfgCommandBuilder, refreshLfgBoard, refreshStatusPanel } = require('./lfg/lfg-commands.cjs');
 const { d2CommandBuilder, handleD2, handleD2Autocomplete } = require('./commands/d2.cjs');
 const { handlePanelsRefresh } = require('./commands/panels-refresh.cjs');
-const { publishRuntimeChannels, provisionChannels, resolvedChannels, runSetup, vanguardCommandBuilder } = require('./commands/setup.cjs');
+const { publishRuntimeChannels, provisionChannels, resolvedChannels, runSetup, staffChannelAlert, vanguardCommandBuilder } = require('./commands/setup.cjs');
+const { handleClanAutocomplete } = require('./commands/d2-clan.cjs');
+const { replyEmbed, replyText } = require('./commands/d2.cjs');
+const { handleRoster } = require('./commands/d2-roster.cjs');
+const { postFooter } = require('./panels.cjs');
 const { vanguardCategory } = require('./gate.cjs');
 const { createBungieRuntime } = require('./bungie/runtime.cjs');
 
@@ -130,7 +134,8 @@ async function ensureVanguardChannels(ctx) {
     categoryId: category.id,
     saved,
     reason: 'Nexus Vanguard startup',
-    botId: ctx.client?.user?.id || guild?.members?.me?.id || ''
+    botId: ctx.client?.user?.id || guild?.members?.me?.id || '',
+    alert: staffChannelAlert(ctx.client, env)
   });
   await ctx.channelStore.update((state) => {
     state[guildId] = { ...(state[guildId] || {}), ...result.resolved };
@@ -257,6 +262,7 @@ function installVanguard(client, { env = process.env, shutdown = false, fetch } 
     const run = async () => {
       if (typeof interaction.isAutocomplete === 'function' && interaction.isAutocomplete()) {
         if (interaction.commandName === 'd2') return handleD2Autocomplete(interaction, ctx);
+        if (interaction.commandName === 'vanguard') return handleClanAutocomplete(interaction, ctx);
         return handleLfgInteraction(interaction, ctx);
       }
       if (interaction.commandName === 'd2') {
@@ -268,6 +274,10 @@ function installVanguard(client, { env = process.env, shutdown = false, fetch } 
         const sub = interaction.options?.getSubcommand?.(false);
         if (group === 'panels' && sub === 'refresh') {
           await handlePanelsRefresh(interaction, ctx);
+          return;
+        }
+        if (sub === 'roster') {
+          await handleRoster(interaction, ctx, { replyText, replyEmbed, footer: postFooter() });
           return;
         }
         await ctx.scheduler.run(() => runSetup(interaction, ctx));

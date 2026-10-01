@@ -77,6 +77,20 @@ async function applyChannelAccess(channel, key, access) {
   return rows;
 }
 
+function inCategory(channel, categoryId) {
+  return Boolean(channel) && String(channel.parentId || '') === String(categoryId || '');
+}
+
+function staffChannelAlert(client, env = process.env) {
+  return async (text) => {
+    const channelId = snowflake(env.VANGUARD_STAFF_ALERT_CHANNEL_ID) || snowflake(env.NEXUS_STAFF_ALERT_CHANNEL_ID);
+    if (!channelId || typeof client?.channels?.fetch !== 'function') return;
+    const channel = await client.channels.fetch(channelId).catch(() => null);
+    if (typeof channel?.send !== 'function') return;
+    await channel.send({ content: String(text).slice(0, 1800), allowedMentions: { parse: [] } });
+  };
+}
+
 function vanguardCommandBuilder() {
   return new SlashCommandBuilder()
     .setName('vanguard')
@@ -84,6 +98,17 @@ function vanguardCommandBuilder() {
     .addSubcommand((sub) => sub
       .setName('setup')
       .setDescription('Create any missing lfg, fireteam, panel, alert, and lobby channels.'))
+    .addSubcommand((sub) => sub
+      .setName('roster')
+      .setDescription('Staff: paged clan roster.')
+      .addStringOption((option) => option
+        .setName('clan')
+        .setDescription('Clan')
+        .setAutocomplete(true))
+      .addIntegerOption((option) => option
+        .setName('page')
+        .setDescription('Page number, starting at 1')
+        .setMinValue(1)))
     .addSubcommandGroup((group) => group
       .setName('panels')
       .setDescription('Panel tools.')
@@ -162,7 +187,7 @@ function channelById(list, id) {
   return list.find((channel) => String(channel?.id || '') === String(id || '')) || null;
 }
 
-async function provisionChannels({ guild, env = {}, categoryId, saved = {}, reason = 'Nexus Vanguard setup', botId = '' } = {}) {
+async function provisionChannels({ guild, env = {}, categoryId, saved = {}, reason = 'Nexus Vanguard setup', botId = '', alert } = {}) {
   const gateId = snowflake(categoryId);
   if (!gateId) {
     return { ok: false, reason: 'fail-closed', created: [], reused: [], pinned: [], invalid: [], resolved: {} };
@@ -176,17 +201,39 @@ async function provisionChannels({ guild, env = {}, categoryId, saved = {}, reas
   const invalid = [];
   const known = channelList(fetched);
   const access = accessContext({ guild, env, botId });
-  try {
-    for (const step of plan) {
+  const failed = [];
+  const skipped = [];
+  async function notify(text) {
+    console.warn(`[Nexus Vanguard] ${text}`);
+    if (typeof alert !== 'function') return;
+    try {
+      await alert(text);
+    } catch (error) {
+      console.warn(`[Nexus Vanguard] staff alert class=${errorClass(error)}`);
+    }
+  }
+  for (const step of plan) {
+    try {
       if (step.action === 'invalid') {
         invalid.push(step.name);
         continue;
       }
       const rows = channelAccessOverwrites(step.key, access);
-      if (step.action === 'env' || step.action === 'reuse') {
+      if (step.action === 'env') {
         resolved[step.key] = step.id;
-        if (step.action === 'env') pinned.push(step.name);
-        else reused.push(step.name);
+        pinned.push(step.name);
+        const existing = channelById(known, step.id);
+        if (!inCategory(existing, gateId)) {
+          skipped.push(step.name);
+          await notify(`Skipped permission changes on ${step.name} (${step.id}): it is not in the Vanguard category.`);
+          continue;
+        }
+        await applyChannelAccess(existing, step.key, access);
+        continue;
+      }
+      if (step.action === 'reuse') {
+        resolved[step.key] = step.id;
+        reused.push(step.name);
         await applyChannelAccess(channelById(known, step.id), step.key, access);
         continue;
       }
@@ -201,11 +248,22 @@ async function provisionChannels({ guild, env = {}, categoryId, saved = {}, reas
       resolved[step.key] = String(channel.id);
       created.push(step.name);
       await applyChannelAccess(channel, step.key, access);
+    } catch (error) {
+      failed.push(step.name);
+      console.warn(`[Nexus Vanguard] channel ${step.name} class=${errorClass(error)}`);
     }
-  } catch (error) {
-    return { ok: false, reason: 'partial', errorClass: errorClass(error), created, reused, pinned, invalid, resolved };
   }
-  return { ok: true, reason: 'ready', created, reused, pinned, invalid, resolved };
+  return {
+    ok: failed.length === 0,
+    reason: failed.length ? 'partial' : 'ready',
+    created,
+    reused,
+    pinned,
+    invalid,
+    skipped,
+    failed,
+    resolved
+  };
 }
 
 function ephemeral(content) {
@@ -236,14 +294,15 @@ async function runSetup(interaction, ctx) {
     categoryId: category.id,
     saved,
     reason: 'Nexus Vanguard setup',
-    botId: interaction.client?.user?.id || interaction.guild?.members?.me?.id || ''
+    botId: interaction.client?.user?.id || interaction.guild?.members?.me?.id || '',
+    alert: staffChannelAlert(interaction.client, env)
   });
   await ctx.channelStore.update((state) => {
     state[String(interaction.guildId)] = { ...(state[String(interaction.guildId)] || {}), ...result.resolved };
     return state;
   });
   publishRuntimeChannels(env, resolvedChannels(env, result.resolved), ctx.jtc);
-  if (!result.ok) {
+  if (!result.ok && result.reason !== 'partial') {
     await interaction.editReply(ephemeral(`Channel setup stopped (class ${result.errorClass || 'error'}). Run it again to reuse channels that were already created.`));
     return true;
   }
@@ -253,6 +312,8 @@ async function runSetup(interaction, ctx) {
   lines.push(reused.length ? `Reused: ${reused.join(', ')}` : 'Reused: none');
   lines.push(pinned.length ? `Left on env ids: ${pinned.join(', ')}` : 'Left on env ids: none');
   if (invalid.length) lines.push(`Ignored invalid env ids (fix them in Railway): ${invalid.join(', ')}`);
+  if (result.skipped?.length) lines.push(`Left unchanged (outside the category): ${result.skipped.join(', ')}`);
+  if (result.failed?.length) lines.push(`Permission update failed, other channels continued: ${result.failed.join(', ')}`);
   lines.push('Channel names stay free of the game name.');
   await interaction.editReply(ephemeral(lines.join('\n')));
   return true;
@@ -261,6 +322,7 @@ async function runSetup(interaction, ctx) {
 module.exports = {
   SETUP_CHANNELS,
   channelAccessOverwrites,
+  staffChannelAlert,
   vanguardCommandBuilder,
   planSetup,
   resolvedChannels,

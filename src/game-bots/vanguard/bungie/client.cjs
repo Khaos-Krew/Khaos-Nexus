@@ -133,10 +133,19 @@ function createBungieClient({
     return prev.then(task, task).finally(() => release());
   }
 
-  async function sendAlert(kind) {
+  function alertDetail(last) {
+    if (last?.reason === 'timeout' || last?.reason === 'network') return 'timeout';
+    if (last?.reason === 'html') return 'html';
+    if (last?.reason === 'http-403' || last?.status === 403) return 'http-403';
+    if ((last?.status >= 500 && last?.status <= 599) || last?.reason === 'server') return 'server';
+    if (last?.status === 429 || last?.reason === 'throttle') return 'rate limit';
+    return last?.reason || '';
+  }
+
+  async function sendAlert(kind, detail = '') {
     if (typeof alert !== 'function') return;
     const key = kind === 'auth' || kind === 'disabled' ? kind : 'unavailable';
-    await alert(key, alertText(key));
+    await alert(key, alertText(key, detail));
   }
 
   async function once({ method, url, endpoint, body, timeoutMs }) {
@@ -199,12 +208,13 @@ function createBungieClient({
       for (let attempt = 0; attempt <= attempts; attempt += 1) {
         try {
           last = await once({ method, url, endpoint, body, timeoutMs });
-        } catch {
-          problem(`[Nexus Vanguard] bungie endpoint=${endpoint} error=network throttle=0`);
-          last = { kind: 'retry', reason: 'network', retry: true, errorCode: 0, throttleSeconds: 0, alert: '', status: 0, contentType: '' };
+        } catch (error) {
+          const timedOut = error?.name === 'TimeoutError' || error?.name === 'AbortError';
+          problem(`[Nexus Vanguard] bungie endpoint=${endpoint} error=${timedOut ? 'timeout' : 'network'} throttle=0`);
+          last = { kind: 'retry', reason: timedOut ? 'timeout' : 'network', retry: true, errorCode: 0, throttleSeconds: 0, alert: '', status: 0, contentType: '' };
         }
         if (last.kind === 'auth' && last.reason === 'api-key') stopped = true;
-        if (last.alert) await sendAlert(last.alert);
+        if (last.alert) await sendAlert(last.alert, alertDetail(last));
         if (!last.retry || attempt === attempts) break;
         const delay = Math.min(
           THROTTLE_CAP_SECONDS * 1000,
@@ -216,7 +226,7 @@ function createBungieClient({
         await wait(delay);
       }
       if (last?.retry) {
-        await sendAlert('unavailable');
+        await sendAlert('unavailable', alertDetail(last));
         return { ...last, ok: false, kind: 'unavailable', reason: 'retries', retry: false };
       }
       return { ...last, ok: last?.kind === 'ok' };
@@ -265,8 +275,9 @@ function createBungieClient({
       });
       const contentType = headerMap(response).get('content-type');
       if (response.status === 403 || String(contentType).toLowerCase().includes('html')) {
-        problem(`[Nexus Vanguard] bungie endpoint=manifest-content error=${response.status === 403 ? 'http-403' : 'html'} status=${response.status} throttle=0`);
-        await sendAlert('unavailable');
+        const detail = response.status === 403 ? 'http-403' : 'html';
+        problem(`[Nexus Vanguard] bungie endpoint=manifest-content error=${detail} status=${response.status} throttle=0`);
+        await sendAlert('unavailable', detail);
         return { ok: false, kind: 'unavailable', reason: response.status === 403 ? 'http-403' : 'html', status: response.status, contentType };
       }
       if (response.status < 200 || response.status >= 300) {

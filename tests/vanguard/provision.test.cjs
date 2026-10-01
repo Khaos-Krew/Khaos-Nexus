@@ -183,6 +183,94 @@ test('staff-alerts are private and panels are read-only, including channels that
   assert.ok(edits.length > pinnedEdits);
 });
 
+test('env-pinned channels outside the category are not rewritten', async () => {
+  const OUTSIDE_PANELS = '1516640233389822555';
+  const INSIDE_STAFF = '1516640233389822666';
+  const alerts = [];
+  const edits = [];
+  function track(channel) {
+    channel.permissionOverwrites = {
+      edit: async (id) => { edits.push({ channel: channel.id, id }); }
+    };
+    return channel;
+  }
+  const panels = track({ id: OUTSIDE_PANELS, name: 'panels', parentId: OUTSIDE, type: ChannelType.GuildText });
+  const staff = track({ id: INSIDE_STAFF, name: 'staff-alerts', parentId: CATEGORY, type: ChannelType.GuildText });
+  const inside = [
+    { id: '1516640233389822101', name: 'lfg', parentId: CATEGORY, type: ChannelType.GuildText },
+    { id: '1516640233389822102', name: 'fireteam-finder', parentId: CATEGORY, type: ChannelType.GuildText },
+    { id: '1516640233389822105', name: 'lobby', parentId: CATEGORY, type: ChannelType.GuildVoice }
+  ];
+  const guild = {
+    id: GUILD,
+    channels: {
+      fetch: async () => ({ values: () => [panels, staff, ...inside].values() }),
+      create: async () => { throw new Error('should reuse or pin'); }
+    }
+  };
+  const result = await provisionChannels({
+    guild,
+    env: {
+      VANGUARD_PANELS_CHANNEL_ID: OUTSIDE_PANELS,
+      VANGUARD_STAFF_ALERT_CHANNEL_ID: INSIDE_STAFF
+    },
+    categoryId: CATEGORY,
+    saved: {},
+    botId: '111111111111111111',
+    alert: async (text) => { alerts.push(text); }
+  });
+  assert.equal(result.ok, true);
+  assert.ok(result.skipped.includes('panels'));
+  assert.ok(result.pinned.includes('staff-alerts'));
+  assert.equal(edits.some((row) => row.channel === OUTSIDE_PANELS), false);
+  assert.equal(edits.some((row) => row.channel === INSIDE_STAFF), true);
+  assert.match(alerts.join('\n'), /not in the Vanguard category/);
+});
+
+test('a permission failure on one channel does not stop the rest', async () => {
+  const PANELS = '1516640233389822888';
+  const panels = {
+    id: PANELS,
+    name: 'panels',
+    parentId: CATEGORY,
+    type: ChannelType.GuildText,
+    permissionOverwrites: {
+      edit: async () => { throw new Error('Missing Permissions'); }
+    }
+  };
+  const created = [];
+  const guild = {
+    id: GUILD,
+    roles: { everyone: { id: GUILD } },
+    channels: {
+      fetch: async () => ({ values: () => [panels].values() }),
+      create: async (options) => {
+        const channel = {
+          id: IDS[created.length],
+          name: options.name,
+          parentId: options.parent,
+          type: options.type,
+          permissionOverwrites: { edit: async () => {} }
+        };
+        created.push(channel.name);
+        return channel;
+      }
+    }
+  };
+  const result = await provisionChannels({
+    guild,
+    env: {},
+    categoryId: CATEGORY,
+    saved: {},
+    botId: '111111111111111111'
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.failed.includes('panels'));
+  assert.ok(created.includes('staff-alerts'));
+  assert.ok(created.includes('lobby'));
+  assert.equal(result.resolved.staffAlerts, IDS[created.indexOf('staff-alerts')]);
+});
+
 test('startup fail-closes when the category is missing or invalid', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vanguard-provision-closed-'));
   try {
