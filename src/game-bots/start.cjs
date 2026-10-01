@@ -48,7 +48,8 @@ async function startGameBot({ botName, botKey, gameRole, serviceName, beforeClie
   installOpsSpine(client, { bot: key });
   installStageCommands(client, { bot: key });
   if (key === 'ascended') startAscendedOpsLoop({ client });
-  installJoinToCreate(client, { bot: key });
+  // Vanguard installs Join-To-Create once inside installVanguard so a setup lobby can turn it on.
+  if (key !== 'vanguard') installJoinToCreate(client, { bot: key });
   if (key === 'cephalon') require('./cephalon-relay.cjs').startCephalonBoards({ client });
   if (key === 'ascended') require('./asa-official-status.cjs').startOfficialStatusBoard({ client });
   if (typeof bind === 'function') bind(client);
