@@ -9,6 +9,7 @@ Wallet, verify, and ranks stay on Nexus Sentinal. These commands do not add a se
 | `/fissures` | `CEPHALON_FISSURE_CHANNEL_ID` optional in-place panel. `CEPHALON_FISSURE_CACHE_MS` at least 60s. | `GET https://api.warframestat.us/pc/fissures` |
 | `/nightwave` | none | `GET /pc/nightwave`. Done toggles are local Discord state. No Digital Extremes login. |
 | `/cycles` | `CEPHALON_CYCLE_ROLES=cetus:ROLE,vallis:ROLE,cambion:ROLE,earth:ROLE` and optional `CEPHALON_CYCLE_CHANNEL_ID` | `cetusCycle`, `vallisCycle`, `cambionCycle`, `earthCycle` |
+| `/descendia` | Optional durable panel. `CEPHALON_DESCENDIA_CHANNEL_ID`, or the shared world channel when that is unset. | `GET https://api.warframestat.us/pc/descendia` |
 
 Embeds attribute WFCD WarframeStat. Buttons opt into a cycle ping role. A ping is sent only when that cycle's state changes, and only if both the role and the channel are set.
 
@@ -55,6 +56,9 @@ Each value below is a channel snowflake or a channel name. The channel must sit 
 | Baro Ki'Teer | `CEPHALON_WARFRAME_VOID_TRADER_CHANNEL_ID` | `CEPHALON_WARFRAME_VOID_TRADER_MESSAGE_ID` |
 | Steel Path | `CEPHALON_WARFRAME_STEEL_PATH_CHANNEL_ID` | `CEPHALON_WARFRAME_STEEL_PATH_MESSAGE_ID` |
 | Circuit | `CEPHALON_CIRCUIT_CHANNEL_ID` | `CEPHALON_CIRCUIT_MESSAGE_ID` |
+| Descendia | `CEPHALON_DESCENDIA_CHANNEL_ID` | `CEPHALON_DESCENDIA_MESSAGE_ID` |
+
+Descendia is the weekly Descent board. It reads the `descendia` key: activation, expiry, and the 21 floors. Mission names come from `typeKey` (`DT_SHRINE_DEFENSE` becomes Shrine Defense). Each floor shows its challenge and a short aura summary when the feed includes one. The description uses a Discord relative countdown to `expiry`. The 10 minute schedule edits the saved message. When that expiry has passed, the refresh fetches `descendia` again before posting so a cached week is not left up after the reset. `/descendia` replies with the same embed and does not post a second channel message. Point `CEPHALON_DESCENDIA_CHANNEL_ID` at `1540956147241062401`, or leave it unset when `CEPHALON_WARFRAME_WORLD_CHANNEL_ID` is already that channel. Leave `CEPHALON_DESCENDIA_MESSAGE_ID` unset on the first deploy.
 
 Message ids are optional pins for Cephalon's own messages. Leave them unset on the first deploy. Do not paste a Sentinal message id. Cephalon posts a new embed and then edits that embed. Titles use a `Cephalon • ` prefix. A refresh adopts or deletes a message only when this bot authored it and the footer starts with `Cephalon Nexus • warframe:<action>`. Another bot or webhook with the same title, including `Baro Ki'Teer` or `Circuit digest`, is left in place. Ids are stored in `cephalon-warframe-panels.json` under `NEXUS_DATA_DIR` (or `RAILWAY_VOLUME_MOUNT_PATH`).
 

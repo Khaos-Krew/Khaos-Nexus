@@ -1,7 +1,9 @@
 'use strict';
 
 const path = require('node:path');
+const { MessageFlags } = require('discord.js');
 const { errorClass } = require('./command-failure.cjs');
+const { TtlCache } = require('./ttl-cache.cjs');
 const { evaluateChannelCategory } = require('./category-gate.cjs');
 const { WorldstateCache } = require('./warframe-worldstate.cjs');
 const { PANEL_IDENTITIES, readJson, runtimeDataDir, snowflake, upsertEmbed, writeJson } = require('./panel-message.cjs');
@@ -34,7 +36,8 @@ const PANEL_PATHS = Object.freeze({
   voidTrader: 'voidTrader',
   steelPath: 'steelPath',
   duviri: 'duviriCycle',
-  archimedea: 'deepArchimedea'
+  archimedea: 'deepArchimedea',
+  descendia: 'descendia'
 });
 
 const PANELS = Object.freeze([
@@ -45,7 +48,8 @@ const PANELS = Object.freeze([
   { id: 'nightwave', source: 'nightwave', panel: 'warframeNightwave', channelEnv: 'CEPHALON_WARFRAME_NIGHTWAVE_CHANNEL_ID', messageEnv: 'CEPHALON_WARFRAME_NIGHTWAVE_MESSAGE_ID' },
   { id: 'void-trader', source: 'voidTrader', panel: 'warframeVoidTrader', channelEnv: 'CEPHALON_WARFRAME_VOID_TRADER_CHANNEL_ID', messageEnv: 'CEPHALON_WARFRAME_VOID_TRADER_MESSAGE_ID' },
   { id: 'steel-path', source: 'steelPath', panel: 'warframeSteelPath', channelEnv: 'CEPHALON_WARFRAME_STEEL_PATH_CHANNEL_ID', messageEnv: 'CEPHALON_WARFRAME_STEEL_PATH_MESSAGE_ID' },
-  { id: 'circuit', source: 'circuit', panel: 'warframeCircuit', channelEnv: 'CEPHALON_CIRCUIT_CHANNEL_ID', messageEnv: 'CEPHALON_CIRCUIT_MESSAGE_ID' }
+  { id: 'circuit', source: 'circuit', panel: 'warframeCircuit', channelEnv: 'CEPHALON_CIRCUIT_CHANNEL_ID', messageEnv: 'CEPHALON_CIRCUIT_MESSAGE_ID' },
+  { id: 'descendia', source: 'descendia', panel: 'warframeDescendia', channelEnv: 'CEPHALON_DESCENDIA_CHANNEL_ID', messageEnv: 'CEPHALON_DESCENDIA_MESSAGE_ID' }
 ]);
 
 function panelInterval(env = process.env) {
@@ -395,8 +399,243 @@ function circuitPanelEmbed(partial) {
   };
 }
 
+const BRAND_MOTTO = 'Many Worlds One Nexus';
+const DESCENDIA_TITLE = 'Cephalon • Descendia';
+const DESCENDIA_UNAVAILABLE = 'Descendia data unavailable';
+const ROLLOVER_GRACE_MS = 5_000;
+const MAX_TIMEOUT_MS = 2_147_483_647;
+
+function descendiaFooter() {
+  return `${panelFooter('descendia')} • ${BRAND_MOTTO}`.slice(0, 2048);
+}
+
+function missionNameFromTypeKey(typeKey) {
+  const stripped = String(typeKey ?? '').trim().replace(/^DT_/i, '').replace(/_+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!stripped) return '';
+  return stripped.toLowerCase().replace(/(^|[^a-z])([a-z])/g, (all, lead, char) => `${lead}${char.toUpperCase()}`);
+}
+
+function labelFromKey(key) {
+  const text = String(key || '')
+    .replace(/_/g, ' ')
+    .replace(/([a-z\d])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) return '';
+  return text.replace(/\b([a-z])/g, (letter) => letter.toUpperCase()).slice(0, 80);
+}
+
+function looksSpaced(value) {
+  const tokens = String(value || '').trim().split(/\s+/).filter(Boolean);
+  if (tokens.length < 2) return false;
+  const short = tokens.filter((token) => token.replace(/[^A-Za-z]/g, '').length <= 1).length;
+  return short >= 2 && short / tokens.length >= 0.4;
+}
+
+function challengeName(floor) {
+  const text = clip(floor?.challenge, 80);
+  const fromKey = labelFromKey(floor?.challengeKey);
+  if (!text) return fromKey;
+  if (looksSpaced(text) && fromKey) return fromKey;
+  return text;
+}
+
+function shortModifier(value) {
+  return String(value || '')
+    .replace(/\s+Aura$/i, '')
+    .replace(/\s+Spec$/i, '')
+    .replace(/\s+Enhancement$/i, '')
+    .replace(/^Co H\s+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function namedModifiers(rows) {
+  const names = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const name = shortModifier(typeof row === 'string' ? row : row?.name);
+    if (!name || names.includes(name)) continue;
+    names.push(name);
+  }
+  return names;
+}
+
+function modifierSummary(floor, max = 90) {
+  const auras = namedModifiers(floor?.auras);
+  const source = auras.length ? auras : namedModifiers(floor?.specs);
+  return source.join(', ').slice(0, max);
+}
+
+function floorLine(floor, options = {}) {
+  const index = Number(floor?.index);
+  const mission = missionNameFromTypeKey(floor?.typeKey) || 'Mission';
+  const challenge = challengeName(floor) || 'Challenge';
+  const mods = options.modifiers === false ? '' : modifierSummary(floor);
+  const prefix = Number.isInteger(index) && index > 0 ? `${index}. ` : '';
+  const body = mods ? `${mission} — ${challenge} · ${mods}` : `${mission} — ${challenge}`;
+  return `${prefix}${body}`.slice(0, 300);
+}
+
+function descendiaFloors(data) {
+  if (!data || typeof data !== 'object' || !Array.isArray(data.challenges)) return [];
+  return data.challenges
+    .filter((row) => row && typeof row === 'object')
+    .filter((row) => missionNameFromTypeKey(row.typeKey) || challengeName(row))
+    .slice()
+    .sort((left, right) => (Number(left.index) || 0) - (Number(right.index) || 0));
+}
+
+function discordStamp(iso, style) {
+  const ms = Date.parse(iso || '');
+  if (!Number.isFinite(ms)) return '';
+  return `<t:${Math.floor(ms / 1000)}:${style}>`;
+}
+
+function descendiaDescription(data, count) {
+  const heading = count === 1 ? 'Weekly Descent · 1 floor.' : `Weekly Descent · ${count} floors.`;
+  const relative = discordStamp(data?.expiry, 'R');
+  const absolute = discordStamp(data?.expiry, 'F');
+  if (!relative) return heading.slice(0, 4096);
+  return `${heading} Resets ${relative}${absolute ? ` (${absolute})` : ''}.`.slice(0, 4096);
+}
+
+function packFloorFields(lines, indexes) {
+  const fields = [];
+  let start = 0;
+  while (start < lines.length && fields.length < 25) {
+    let end = start;
+    let value = '';
+    while (end < lines.length) {
+      const next = value ? `${value}\n${lines[end]}` : lines[end];
+      const count = end - start + 1;
+      if (end > start && (next.length > 1024 || count > 7)) break;
+      value = next.slice(0, 1024);
+      end += 1;
+      if (next.length >= 1024 || count >= 7) break;
+    }
+    const first = indexes[start];
+    const last = indexes[end - 1];
+    const name = first && first === last ? `Floor ${first}` : `Floors ${first}–${last}`;
+    fields.push({ name: String(name).slice(0, 256), value });
+    start = end;
+  }
+  return fields;
+}
+
+function embedChars(body) {
+  const fields = Array.isArray(body.fields) ? body.fields : [];
+  return (body.title || '').length
+    + (body.description || '').length
+    + (body.footer?.text || '').length
+    + fields.reduce((sum, field) => sum + String(field?.name || '').length + String(field?.value || '').length, 0);
+}
+
+function unavailableDescendiaEmbed() {
+  return {
+    title: DESCENDIA_TITLE,
+    description: DESCENDIA_UNAVAILABLE,
+    footer: { text: descendiaFooter() }
+  };
+}
+
+function descendiaEmbed(data) {
+  const floors = descendiaFloors(data);
+  if (!floors.length) return unavailableDescendiaEmbed();
+  const indexed = floors.map((floor) => ({
+    index: Number(floor.index) || 0,
+    line: floorLine(floor),
+    plain: floorLine(floor, { modifiers: false })
+  }));
+  const description = descendiaDescription(data, floors.length);
+  let fields = packFloorFields(indexed.map((item) => item.line), indexed.map((item) => item.index));
+  let body = {
+    title: DESCENDIA_TITLE,
+    description,
+    fields,
+    footer: { text: descendiaFooter() }
+  };
+  if (embedChars(body) > 6000) {
+    fields = packFloorFields(indexed.map((item) => item.plain), indexed.map((item) => item.index));
+    body = { ...body, fields };
+  }
+  return body;
+}
+
+function descendiaWeekExpired(data, now = Date.now()) {
+  if (!data || typeof data !== 'object') return false;
+  const expiry = Date.parse(data.expiry || '');
+  return Number.isFinite(expiry) && expiry <= now;
+}
+
+function descendiaRolloverDelay(expiry, now = Date.now()) {
+  const at = Date.parse(expiry || '');
+  if (!Number.isFinite(at)) return 0;
+  const delay = at + ROLLOVER_GRACE_MS - now;
+  if (delay <= 0) return 0;
+  return Math.min(delay, MAX_TIMEOUT_MS);
+}
+
+function ephemeralEmbed(body) {
+  return { embeds: [body], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } };
+}
+
+function ephemeralText(content) {
+  return { content: String(content || '').slice(0, 1900), flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } };
+}
+
+function descendiaCacheFor(context, env) {
+  if (context.descendiaCache) return context.descendiaCache;
+  context.descendiaCache = new TtlCache({
+    ttlMs: panelInterval(env),
+    load: async () => providerFor(context.provider).worldstate('descendia')
+  });
+  return context.descendiaCache;
+}
+
+async function readDescendia(context, env) {
+  const cache = descendiaCacheFor(context, env);
+  let loaded = await cache.get();
+  if (!descendiaWeekExpired(loaded.value)) return loaded.value;
+  cache.at = 0;
+  loaded = await cache.get();
+  return loaded.value;
+}
+
+async function handleDescendiaCommand(interaction, context = {}) {
+  const env = context.env || process.env;
+  try {
+    const data = await readDescendia(context, env);
+    await interaction.reply(ephemeralEmbed(descendiaEmbed(data)));
+  } catch (error) {
+    console.warn(`[Cephalon Nexus] descendia class=${errorClass(error)}`);
+    await interaction.reply(ephemeralText('Descendia data unavailable. Try again in a minute.'));
+  }
+  return true;
+}
+
+async function refreshDescendiaIfDue(cache, now = Date.now()) {
+  const partial = cache?.partial;
+  if (!partial || typeof partial !== 'object') return partial;
+  if (!descendiaWeekExpired(partial.descendia, now)) return partial;
+  try {
+    partial.descendia = await cache.provider.worldstate('descendia');
+    partial.missing = (partial.missing || []).filter((key) => key !== 'descendia');
+  } catch {
+    partial.descendia = null;
+    const missing = Array.isArray(partial.missing) ? partial.missing : [];
+    if (!missing.includes('descendia')) missing.push('descendia');
+    partial.missing = missing;
+  }
+  return partial;
+}
+
 function renderPanel(panel, partial) {
   if (panel.id === 'circuit') return circuitPanelEmbed(partial);
+  if (panel.id === 'descendia') {
+    const missing = (partial.missing || []).includes('descendia');
+    return descendiaEmbed(missing ? null : partial.descendia);
+  }
   if ((partial.missing || []).includes(panel.source)) return null;
   const raw = partial[panel.source];
   if (panel.id === 'events') return eventsEmbed(summarizeEvents(raw));
@@ -481,11 +720,13 @@ async function refreshWarframePanels({ client, env = process.env, provider, dir 
     }
     targets.push({ panel, channel: resolved.channel });
   }
-  if (!targets.length) return { refreshed: 0, skipped };
+  if (!targets.length) return { refreshed: 0, skipped, descendiaExpiry: '' };
   const source = providerFor(provider);
   const cache = snapshotCache(source, env);
   await cache.load();
+  await refreshDescendiaIfDue(cache);
   const partial = cache.partial || { missing: [] };
+  const descendiaExpiry = typeof partial.descendia?.expiry === 'string' ? partial.descendia.expiry : '';
   for (const { panel, channel } of targets) {
     const rendered = renderPanel(panel, partial);
     if (!rendered) {
@@ -511,17 +752,29 @@ async function refreshWarframePanels({ client, env = process.env, provider, dir 
     }
     refreshed += 1;
   }
-  return { refreshed, skipped };
+  return { refreshed, skipped, descendiaExpiry };
 }
 
 function scheduleWarframePanels({ client, env = process.env, provider, dir } = {}) {
   const retirement = scheduleNewsRetirement({ client, env, dir });
   if (!warframePanelsConfigured(env)) return retirement;
   let running = false;
+  let rolloverTimer = null;
+  const clearRollover = () => {
+    if (rolloverTimer) clearTimeout(rolloverTimer);
+    rolloverTimer = null;
+  };
   const tick = () => {
     if (running) return;
     running = true;
-    refreshWarframePanels({ client, env, provider })
+    refreshWarframePanels({ client, env, provider, dir })
+      .then((result) => {
+        clearRollover();
+        const delay = descendiaRolloverDelay(result?.descendiaExpiry);
+        if (!delay) return;
+        rolloverTimer = setTimeout(tick, delay);
+        rolloverTimer.unref?.();
+      })
       .catch((error) => console.warn(`[Cephalon Nexus] warframe panels class=${errorClass(error)}`))
       .finally(() => { running = false; });
   };
@@ -534,6 +787,7 @@ function scheduleWarframePanels({ client, env = process.env, provider, dir } = {
       retirement.stop();
       clearTimeout(initial);
       clearInterval(timer);
+      clearRollover();
     }
   };
 }
@@ -548,6 +802,11 @@ module.exports = {
   ownedFooterMatcher,
   singleFlight,
   warframePanelsConfigured,
+  missionNameFromTypeKey,
+  descendiaEmbed,
+  descendiaWeekExpired,
+  descendiaRolloverDelay,
+  handleDescendiaCommand,
   renderPanel,
   resolvePanelChannel,
   refreshWarframePanels,
