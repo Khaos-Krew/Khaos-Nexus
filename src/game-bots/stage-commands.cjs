@@ -17,7 +17,7 @@ const { RateCardStore, ratesText, breedText, bossText } = require('./ark-rate-ca
 const { wipeChecklist } = require('./wipe-checklist.cjs');
 const { ascendedHealthSnapshot, checkRconPrefix, resolveHealthPrefixes, openStore } = require('./ascended-rcon-health.cjs');
 const { runtimeDataDir, snowflake, upsertEmbed } = require('./panel-message.cjs');
-const { refreshWarframePanels } = require('./cephalon-warframe-panels.cjs');
+const { refreshWarframePanels, handleDescendiaCommand } = require('./cephalon-warframe-panels.cjs');
 const {
   handleFissureCommand,
   handleNightwaveCommand,
@@ -105,6 +105,9 @@ function stageBuilders(bot) {
   }
   if (names.has('circuit')) {
     commands.push(new SlashCommandBuilder().setName('circuit').setDescription('Duviri choices, Steel Path reward, and Archimedea.'));
+  }
+  if (names.has('descendia')) {
+    commands.push(new SlashCommandBuilder().setName('descendia').setDescription('Weekly Descent floors and the reset countdown.'));
   }
   if (names.has('official')) {
     commands.push(new SlashCommandBuilder().setName('official').setDescription('Official ASA network status from the Wildcard CDN.'));
@@ -346,6 +349,7 @@ async function handleStageCommand(interaction, context) {
   if (name === 'clan') return handleClanPanelCommand(interaction, { ...context, config });
   if (name === 'profile') return handleProfileCommand(interaction, context);
   if (name === 'circuit') return handleCircuitCommand(interaction, context);
+  if (name === 'descendia') return handleDescendiaCommand(interaction, context);
   if (name === 'official') return handleOfficialCommand(interaction, context);
   if (name === 'cluster') return handleClusterCommand(interaction, context);
   return false;

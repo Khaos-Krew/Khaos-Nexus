@@ -69,6 +69,10 @@ const PANEL_IDENTITIES = Object.freeze({
   warframeCircuit: Object.freeze({
     titles: Object.freeze(['Cephalon • Circuit']),
     footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:circuit'])
+  }),
+  warframeDescendia: Object.freeze({
+    titles: Object.freeze(['Cephalon • Descendia']),
+    footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:descendia'])
   })
 });
 
