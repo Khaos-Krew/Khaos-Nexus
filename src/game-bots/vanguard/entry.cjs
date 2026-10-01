@@ -17,7 +17,12 @@ const BOARD_DEBOUNCE_MS = 5 * 1000;
 
 function prepareVanguardEnv(env = process.env) {
   const token = String(env.VANGUARD_DISCORD_TOKEN || '').trim();
-  if (token) env.DISCORD_BOT_TOKEN = token;
+  if (!token) {
+    console.error('[Nexus Vanguard] VANGUARD_DISCORD_TOKEN is missing');
+    process.exit(1);
+    return env;
+  }
+  env.DISCORD_BOT_TOKEN = token;
   const guild = String(env.VANGUARD_GUILD_ID || '').trim();
   if (guild) {
     env.DISCORD_GUILD_ID = guild;
@@ -30,9 +35,8 @@ function prepareVanguardEnv(env = process.env) {
   const staff = snowflake(env.VANGUARD_STAFF_ALERT_CHANNEL_ID);
   if (staff && !snowflake(env.NEXUS_STAFF_ALERT_CHANNEL_ID)) env.NEXUS_STAFF_ALERT_CHANNEL_ID = staff;
   if (!String(env.NEXUS_GAME_ROLE || '').trim()) env.NEXUS_GAME_ROLE = 'destiny';
-  const tokenState = String(env.DISCORD_BOT_TOKEN || '').trim() ? 'present' : 'missing';
   const guildState = snowflake(env.VANGUARD_GUILD_ID || env.DISCORD_GUILD_ID) ? 'present' : 'missing';
-  console.log(`[Nexus Vanguard] token=${tokenState} guild=${guildState} data=${env.VANGUARD_DATA_DIR}`);
+  console.log(`[Nexus Vanguard] token=present guild=${guildState} data=${env.VANGUARD_DATA_DIR}`);
   return env;
 }
 
