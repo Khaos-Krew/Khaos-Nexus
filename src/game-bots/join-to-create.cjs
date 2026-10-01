@@ -56,13 +56,27 @@ function resolveLobbyId(bot, env) {
   return { lobbyId, lobbySource: 'env' };
 }
 
+function resolveVanguardJtcCategoryId(env) {
+  const gateId = snowflake(env.VANGUARD_DISCORD_CATEGORY_ID);
+  if (!gateId) return '';
+  const override = snowflake(env.VANGUARD_JTC_CATEGORY_ID);
+  // A different override is ignored. Temporary channels stay inside the gate.
+  if (override && override !== gateId) return gateId;
+  return gateId;
+}
+
 function resolveJtcConfig(bot, env = process.env) {
   const key = normalizeBot(bot);
   const prefix = envPrefix(key);
   const lobby = resolveLobbyId(key, env);
-  const categoryOverride = prefix ? snowflake(env[`${prefix}_JTC_CATEGORY_ID`]) : '';
-  const gate = key ? resolveCategoryConfig(key, env) : { id: '' };
-  const categoryId = categoryOverride || snowflake(gate.id);
+  let categoryId = '';
+  if (key === 'vanguard') {
+    categoryId = resolveVanguardJtcCategoryId(env);
+  } else {
+    const categoryOverride = prefix ? snowflake(env[`${prefix}_JTC_CATEGORY_ID`]) : '';
+    const gate = key ? resolveCategoryConfig(key, env) : { id: '' };
+    categoryId = categoryOverride || snowflake(gate.id);
+  }
   const graceMs = prefix ? clampGrace(env[`${prefix}_JTC_EMPTY_GRACE_MS`]) : DEFAULT_GRACE_MS;
   const guildId = snowflake(env.NEXUS_DISCORD_GUILD_ID || env.DISCORD_GUILD_ID);
   return {
