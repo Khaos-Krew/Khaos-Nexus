@@ -54,7 +54,7 @@ test('vanguard join-to-create reuses the shared module and has no baked lobby', 
   assert.equal(ready.lobbySource, 'env');
 
   const name = channelNameFor('vanguard', 'Nova');
-  assert.equal(name, "\uD83C\uDFAE Nova's Fireteam");
+  assert.equal(name, "🎮 Nova's Fireteam");
   assert.doesNotMatch(name, /destiny|vanguard/i);
 });
 
@@ -115,7 +115,7 @@ function joinState(guild, person, channelId = LOBBY, parentId = CATEGORY) {
   };
 }
 
-test('gate unset + override set \u2192 JTC off', async () => {
+test('gate unset + override set → JTC off', async () => {
   const cephalon = resolveJtcConfig('cephalon', { CEPHALON_JTC_CATEGORY_ID: OVERRIDE });
   assert.equal(cephalon.categoryId, OVERRIDE);
 
@@ -166,7 +166,7 @@ test('gate unset + override set \u2192 JTC off', async () => {
   }
 });
 
-test('override != gate \u2192 no channels created outside the gate', async () => {
+test('override != gate → no channels created outside the gate', async () => {
   const matched = resolveJtcConfig('vanguard', {
     VANGUARD_DISCORD_CATEGORY_ID: CATEGORY,
     VANGUARD_JTC_CATEGORY_ID: CATEGORY,
