@@ -6,7 +6,7 @@ Creator Program applications are gated by the existing Khaos Nexus Community XP/
 
 ## Default
 
-- Default minimum application level: **10**.
+- Default minimum application level: **5**.
 - The threshold must be configurable without a code change (environment/config driven).
 - This gate applies to new applications only; it does not revoke or downgrade already-approved creators.
 
@@ -41,7 +41,7 @@ Verification unavailable:
 
 The managed Creator Program panel should state the current minimum level clearly, for example:
 
-> **Community requirement:** Reach Nexus Community Level 10 before applying.
+> **Community requirement:** Reach Nexus Community Level 5 before applying.
 
 The application button remains visible so ineligible users can receive a clear private eligibility explanation rather than wondering why the feature is missing.
 

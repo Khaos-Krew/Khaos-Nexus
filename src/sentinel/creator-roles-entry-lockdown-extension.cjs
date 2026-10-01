@@ -17,7 +17,8 @@ const { minimumCreatorLevel } = require('./creator-level-gate.cjs');
 const {
   CATEGORY_NAME,
   CREATOR_ROLE_NAME,
-  APPLY_BUTTON_ID
+  APPLY_BUTTON_ID,
+  isPublicCreatorChannel
 } = require('./creator-program-extension.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.creatorRolesEntryLockdown.extension');
@@ -73,7 +74,7 @@ function entryPayload(minimumLevel) {
         },
         {
           name: '📺 Supported Platforms',
-          value: 'Twitch and YouTube are supported first. Additional platforms can be added later after their integrations are accepted.',
+          value: 'Twitch, YouTube, and TikTok are supported. Approved creators can share a post in the public creator feed.',
           inline: false
         },
         {
@@ -125,10 +126,16 @@ async function enforceCreatorWorkspaceLock(guild, { state, config, botId } = {})
 
   const staffRoleIds = await resolveStaffRoleIds(guild, config).catch(() => []);
   const ownerIds = [...new Set([String(guild.ownerId || ''), ...(config.discord?.ownerUserIds || []).map(String)].filter(Boolean))];
+  const meta = state?.getCreatorMeta?.() || {};
   const children = valuesOf(channels).filter((channel) => String(channel?.parentId || '') === String(category.id));
   let changed = 0;
+  let skippedPublic = 0;
 
   for (const channel of children) {
+    if (isPublicCreatorChannel(channel, meta)) {
+      skippedPublic += 1;
+      continue;
+    }
     if (!channel?.permissionOverwrites?.edit) continue;
     await channel.permissionOverwrites.edit(String(guild.id), { ViewChannel: false }, { reason: 'Keep Content Creator Program private until approval' });
     await channel.permissionOverwrites.edit(String(creatorRole.id), {
@@ -159,7 +166,7 @@ async function enforceCreatorWorkspaceLock(guild, { state, config, botId } = {})
     changed += 1;
   }
 
-  return { skipped: false, reason: '', changed, categoryId: String(category.id), creatorRoleId: String(creatorRole.id) };
+  return { skipped: false, reason: '', changed, skippedPublic, categoryId: String(category.id), creatorRoleId: String(creatorRole.id) };
 }
 
 async function reconcileCreatorRolesEntry(client, { config, state } = {}) {
@@ -192,7 +199,7 @@ function installCreatorRolesEntryLockdownExtension() {
       running = true;
       try {
         const result = await reconcileCreatorRolesEntry(client, { config, state });
-        if (!result.skipped) console.log(`[Nexus Sentinal] creator roles entry (${reason}): rolesChannel=${result.rolesChannelId} minLevel=${result.minimumLevel} panelCreated=${result.panel.created} workspaceChannelsLocked=${result.lock?.changed || 0}`);
+        if (!result.skipped) console.log(`[Nexus Sentinal] creator roles entry (${reason}): rolesChannel=${result.rolesChannelId} minLevel=${result.minimumLevel} panelCreated=${result.panel.created} workspaceChannelsLocked=${result.lock?.changed || 0} publicFeedsExempt=${result.lock?.skippedPublic || 0}`);
       } catch (error) {
         console.warn(`[Nexus Sentinal] creator roles entry (${reason}) unavailable: ${String(error?.message || error).slice(0, 260)}`);
       } finally { running = false; }

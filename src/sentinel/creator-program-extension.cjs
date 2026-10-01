@@ -19,6 +19,8 @@ const { loadConfig } = require('../shared/config.cjs');
 const { StateStore } = require('./state-store.cjs');
 const { findStaffCategory, resolveStaffRoleIds } = require('./staff-workspace.cjs');
 const { managedPayloadMatches } = require('./managed-payload-compare.cjs');
+const { findInformationCategory } = require('./nexus-status.cjs');
+const { parsePlatforms, extractCreatorHandles, handleCreatorPost } = require('./creator-post.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.creator-program.extension');
 const CATEGORY_NAME = 'CONTENT CREATOR PROGRAM';
@@ -27,6 +29,9 @@ const ASSETS_CHANNEL = 'creator-assets';
 const CREATOR_CHAT_CHANNEL = 'creator-chat';
 const TWITCH_LIVE_CHANNEL = 'twitch-live';
 const YOUTUBE_LIVE_CHANNEL = 'youtube-live';
+const CREATOR_FEED_CHANNEL = 'creator-feed';
+const CREATOR_FEED_TOPIC = 'Public Khaos Nexus creator posts. Members can read this channel. Only Nexus Sentinal can send messages.';
+const PUBLIC_CREATOR_CHANNEL_NAMES = Object.freeze([CREATOR_FEED_CHANNEL, TWITCH_LIVE_CHANNEL, YOUTUBE_LIVE_CHANNEL]);
 const REVIEW_CHANNEL = 'creator-review';
 const CREATOR_ROLE_NAME = 'Content Creator';
 const NOW_LIVE_ROLE_NAME = 'Now Live';
@@ -57,14 +62,6 @@ function cleanText(value, max, fallback = '') {
   return (text || fallback).slice(0, max);
 }
 
-function parsePlatforms(value) {
-  const text = String(value || '').toLowerCase();
-  const platforms = [];
-  if (/twitch/.test(text)) platforms.push('twitch');
-  if (/youtube|you tube|yt\b/.test(text)) platforms.push('youtube');
-  return platforms.length ? platforms : ['other'];
-}
-
 function findCategory(channels) {
   return valuesOf(channels).find((channel) => channel?.type === ChannelType.GuildCategory && normalizeName(channel.name) === normalizeName(CATEGORY_NAME)) || null;
 }
@@ -75,6 +72,13 @@ function findChannel(channels, name, categoryId = '') {
 
 function findRole(roles, name) {
   return valuesOf(roles).find((role) => role && role.managed !== true && normalizeName(role.name) === normalizeName(name)) || null;
+}
+
+function isPublicCreatorChannel(channel, meta = {}) {
+  const feedId = String(meta?.creatorFeedChannelId || '');
+  if (feedId && String(channel?.id || '') === feedId) return true;
+  const name = normalizeName(channel?.name || '');
+  return PUBLIC_CREATOR_CHANNEL_NAMES.some((item) => normalizeName(item) === name);
 }
 
 async function ensureProgramRoles(guild) {
@@ -223,7 +227,24 @@ function providerStatus(env = process.env) {
 function creatorCommand() {
   return new SlashCommandBuilder().setName('creator').setDescription('View the Khaos Nexus Content Creator Program.')
     .addSubcommand((sub) => sub.setName('status').setDescription('View your private application and approval status.'))
-    .addSubcommand((sub) => sub.setName('roster').setDescription('List approved Khaos Nexus creators.'));
+    .addSubcommand((sub) => sub.setName('roster').setDescription('List approved Khaos Nexus creators.'))
+    .addSubcommand((sub) => sub
+      .setName('post')
+      .setDescription('Share a TikTok, YouTube, or Twitch post in the public creator feed.')
+      .addStringOption((option) => option.setName('url').setDescription('TikTok, YouTube, or Twitch link to share').setRequired(true).setMaxLength(500))
+      .addBooleanOption((option) => option.setName('ping').setDescription('Ping the Stream Alerts role').setRequired(false)));
+}
+
+function creatorRosterLine(profile) {
+  const platforms = (profile.platforms || []).filter((item) => item && item !== 'other').join(' / ') || 'Creator';
+  const links = [];
+  if (profile.channelRef) links.push(String(profile.channelRef));
+  const tiktok = String(profile.handles?.tiktok || '').replace(/^@+/, '').toLowerCase();
+  if (/^[a-z0-9._]{2,24}$/.test(tiktok)) {
+    const url = `https://www.tiktok.com/@${tiktok}`;
+    if (!links.some((item) => item.toLowerCase().includes(`tiktok.com/@${tiktok}`))) links.push(url);
+  }
+  return `• <@${profile.userId}> — ${platforms}${links.length ? ` — ${links.join(' — ')}` : ''}`;
 }
 
 async function registerCreatorCommand(guild) {
@@ -234,9 +255,13 @@ async function registerCreatorCommand(guild) {
   return definition.name;
 }
 
-async function handleCreatorCommand(interaction, store) {
+async function handleCreatorCommand(interaction, store, context = {}) {
   if (!interaction.isChatInputCommand?.() || interaction.commandName !== 'creator') return false;
   const subcommand = interaction.options.getSubcommand();
+  if (subcommand === 'post') {
+    await handleCreatorPost(interaction, store, context);
+    return true;
+  }
   if (subcommand === 'status') {
     const profile = store.getCreatorProfile(interaction.user.id);
     const application = store.findCreatorApplicationByUser(interaction.user.id);
@@ -247,7 +272,7 @@ async function handleCreatorCommand(interaction, store) {
     return true;
   }
   const profiles = Object.values(store.listCreatorProfiles()).sort((a, b) => String(a.approvedAt || '').localeCompare(String(b.approvedAt || '')));
-  const lines = profiles.slice(0, 40).map((profile) => `• <@${profile.userId}> — ${(profile.platforms || []).join(' / ') || 'Creator'}${profile.channelRef ? ` — ${profile.channelRef}` : ''}`);
+  const lines = profiles.slice(0, 40).map((profile) => creatorRosterLine(profile));
   await interaction.reply({ content: lines.length ? `**Approved Khaos Nexus Creators**\n${lines.join('\n')}`.slice(0, 1900) : 'No approved creator profiles are published yet.', allowedMentions: { parse: [] } });
   return true;
 }
@@ -260,7 +285,7 @@ function programPayload(env = process.env) {
       description: 'The Content Creator Program gives approved community creators a dedicated place inside Khaos Nexus for collaboration, promotion resources, and live visibility. Creator access is **application-based** — it is never granted automatically just for posting a channel link.',
       color: 0xe3264f,
       fields: [
-        { name: '📺 Initial Platforms', value: 'Twitch and YouTube are the initial supported platforms. TikTok may be added later after the first two provider integrations are stable.', inline: false },
+        { name: '📺 Platforms', value: 'Twitch, YouTube, and TikTok are supported. Approved creators share a post with `/creator post`. TikTok is a saved handle, not an unknown platform. Automatic live detection stays off until an authorized provider adapter is configured.', inline: false },
         { name: '📝 How to Join', value: 'Use **Apply for Creator Program** below. Staff reviews your platform/channel, content focus, and community fit. Approved applicants receive the **Content Creator** role.', inline: false },
         { name: '🔴 Now Live', value: 'The **Now Live** role is temporary and intentionally has no name color so member-selected Name Color roles keep visual priority. Automatic live detection activates only through authorized platform adapters.', inline: false },
         { name: '🧰 Creator Resources', value: 'Approved creators receive access to reusable Khaos Nexus promotional assets/templates designed so the creator name can be added without changing the core Nexus identity.', inline: false },
@@ -320,8 +345,8 @@ function applicationModal() {
     .setCustomId(APPLY_MODAL_ID)
     .setTitle('Creator Program Application')
     .addComponents(
-      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('platforms').setLabel('Platform(s): Twitch / YouTube').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(60).setPlaceholder('Twitch, YouTube, or both')),
-      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('channel').setLabel('Channel URL or handle').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(200).setPlaceholder('https://twitch.tv/... or YouTube channel URL')),
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('platforms').setLabel('Platform(s): Twitch / YouTube / TikTok').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(60).setPlaceholder('Twitch, YouTube, TikTok, or a mix')),
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('channel').setLabel('Channel URL or handle').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(200).setPlaceholder('twitch.tv/name, YouTube URL, or tiktok.com/@handle')),
       new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('content').setLabel('What content do you create?').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(750).setPlaceholder('Games, stream style, upload/stream frequency, etc.')),
       new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('reason').setLabel('Why join the Nexus creator program?').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(750).setPlaceholder('How you want to participate in or promote the community'))
     );
@@ -430,6 +455,7 @@ async function applyDecision(interaction, store, creatorRole, applicationId, dec
       platformText: application.platformText,
       platforms: application.platforms,
       channelRef: application.channelRef,
+      handles: extractCreatorHandles(application.platformText, application.channelRef),
       approvedAt: next.reviewedAt,
       approvedBy: next.reviewedBy,
       isLive: false,
@@ -454,6 +480,39 @@ async function reconcileReviews(reviewChannel, store, botId) {
   return { tracked: applications.length, created, updated };
 }
 
+async function ensureCreatorFeedChannel(guild, botId) {
+  const channels = await guild.channels.fetch();
+  const information = findInformationCategory(channels);
+  if (!information) return { channel: null, created: false, moved: false, reason: 'information-category-missing' };
+  const overwrites = publicReadOnlyOverwrites(guild, botId);
+  let channel = findChannel(channels, CREATOR_FEED_CHANNEL, information.id);
+  let created = false;
+  let moved = false;
+  if (!channel) {
+    const elsewhere = findChannel(channels, CREATOR_FEED_CHANNEL);
+    if (elsewhere && typeof elsewhere.setParent === 'function') {
+      channel = elsewhere;
+      await channel.setParent(information.id, { lockPermissions: false, reason: 'Keep creator-feed under INFORMATION' });
+      moved = true;
+    } else {
+      channel = await guild.channels.create({
+        name: CREATOR_FEED_CHANNEL,
+        type: ChannelType.GuildText,
+        parent: information.id,
+        topic: CREATOR_FEED_TOPIC,
+        permissionOverwrites: overwrites,
+        reason: 'Khaos Nexus public creator feed'
+      });
+      created = true;
+    }
+  }
+  if (String(channel.topic || '') !== CREATOR_FEED_TOPIC && typeof channel.setTopic === 'function') {
+    await channel.setTopic(CREATOR_FEED_TOPIC, 'Maintain Khaos Nexus creator feed topic');
+  }
+  if (channel.permissionOverwrites?.set) await channel.permissionOverwrites.set(overwrites, 'Keep creator-feed public and read-only');
+  return { channel, created, moved, reason: '' };
+}
+
 async function ensureCreatorProgram(guild, config, store, botId) {
   const roles = await ensureProgramRoles(guild);
   const categoryResult = await ensureCategory(guild);
@@ -461,29 +520,29 @@ async function ensureCreatorProgram(guild, config, store, botId) {
   const program = await ensureTextChannel(guild, category, PROGRAM_CHANNEL, 'Apply for and learn about the Khaos Nexus Content Creator Program.', publicReadOnlyOverwrites(guild, botId));
   const assets = await ensureTextChannel(guild, category, ASSETS_CHANNEL, 'Official reusable Khaos Nexus creator emblems, promotional graphics, and templates.', creatorOnlyOverwrites(guild, botId, roles.creatorRole.id));
   const chat = await ensureTextChannel(guild, category, CREATOR_CHAT_CHANNEL, 'Private collaboration space for approved Khaos Nexus Content Creators.', creatorOnlyOverwrites(guild, botId, roles.creatorRole.id, { writable: true }));
-  const twitchLive = await ensureTextChannel(guild, category, TWITCH_LIVE_CHANNEL, 'Automated Khaos Nexus Twitch creator live notifications.', publicReadOnlyOverwrites(guild, botId));
-  const youtubeLive = await ensureTextChannel(guild, category, YOUTUBE_LIVE_CHANNEL, 'Automated Khaos Nexus YouTube creator live notifications.', publicReadOnlyOverwrites(guild, botId));
   const review = await ensureReviewChannel(guild, config, botId);
+  const feed = await ensureCreatorFeedChannel(guild, botId);
   const programPanel = await reconcilePanel(program.channel, programPayload(), PROGRAM_MARKER, botId);
   const assetsPanel = await reconcilePanel(assets.channel, assetsPayload(), ASSETS_MARKER, botId);
   const reviewStats = await reconcileReviews(review.channel, store, botId);
 
-  store.setCreatorMeta({
+  const metaUpdate = {
     categoryId: category.id,
     programChannelId: program.channel.id,
     reviewChannelId: review.channel.id,
     assetsChannelId: assets.channel.id,
     creatorChatChannelId: chat.channel.id,
-    twitchLiveChannelId: twitchLive.channel.id,
-    youtubeLiveChannelId: youtubeLive.channel.id,
     creatorRoleId: roles.creatorRole.id,
     nowLiveRoleId: roles.nowLiveRole.id,
     panelMessageId: programPanel.message.id
-  });
+  };
+  if (feed.channel?.id) metaUpdate.creatorFeedChannelId = String(feed.channel.id);
+  store.setCreatorMeta(metaUpdate);
   return {
     categoryId: category.id,
     categoryCreated: categoryResult.created,
-    channelsCreated: [program, assets, chat, twitchLive, youtubeLive, review].filter((item) => item.created).length,
+    channelsCreated: [program, assets, chat, review, feed].filter((item) => item?.created).length,
+    feedChannelId: String(feed.channel?.id || ''),
     creatorRoleId: roles.creatorRole.id,
     nowLiveRoleId: roles.nowLiveRole.id,
     creatorRoleCreated: roles.creatorRoleCreated,
@@ -498,7 +557,7 @@ async function ensureCreatorProgram(guild, config, store, botId) {
 
 async function handleInteraction(interaction, context) {
   const { store, config } = context;
-  if (await handleCreatorCommand(interaction, store)) return true;
+  if (await handleCreatorCommand(interaction, store, context)) return true;
   const customId = String(interaction.customId || '');
   if (interaction.isButton?.() && customId === APPLY_BUTTON_ID) {
     await interaction.showModal(applicationModal());
@@ -588,7 +647,7 @@ function installCreatorProgramExtension() {
             creatorRole: await guild.roles.fetch(result.creatorRoleId)
           };
           const providers = providerStatus();
-          console.log(`[Nexus Sentinal] creator program (${reason}): category=${result.categoryId} categoryCreated=${result.categoryCreated} channelsCreated=${result.channelsCreated} creatorRoleCreated=${result.creatorRoleCreated} nowLiveRoleCreated=${result.nowLiveRoleCreated} command=/${command} applications=${result.reviewStats.tracked} reviewCardsCreated=${result.reviewStats.created} twitch=${providers.twitch ? 'ready' : 'pending'} youtube=${providers.youtube ? 'ready' : 'pending'}`);
+          console.log(`[Nexus Sentinal] creator program (${reason}): category=${result.categoryId} categoryCreated=${result.categoryCreated} channelsCreated=${result.channelsCreated} creatorRoleCreated=${result.creatorRoleCreated} nowLiveRoleCreated=${result.nowLiveRoleCreated} command=/${command} applications=${result.reviewStats.tracked} reviewCardsCreated=${result.reviewStats.created} feed=${result.feedChannelId || 'missing'} twitch=${providers.twitch ? 'ready' : 'pending'} youtube=${providers.youtube ? 'ready' : 'pending'}`);
         } catch (error) {
           console.warn(`[Nexus Sentinal] creator program (${reason}) unavailable: ${String(error?.message || error).slice(0, 300)}`);
         } finally {
@@ -611,6 +670,8 @@ module.exports = {
   CREATOR_CHAT_CHANNEL,
   TWITCH_LIVE_CHANNEL,
   YOUTUBE_LIVE_CHANNEL,
+  CREATOR_FEED_CHANNEL,
+  CREATOR_FEED_TOPIC,
   REVIEW_CHANNEL,
   CREATOR_ROLE_NAME,
   NOW_LIVE_ROLE_NAME,
@@ -628,7 +689,9 @@ module.exports = {
   findCategory,
   findChannel,
   findRole,
+  isPublicCreatorChannel,
   ensureProgramRoles,
+  ensureCreatorFeedChannel,
   publicReadOnlyOverwrites,
   creatorOnlyOverwrites,
   ownerIds,
