@@ -21,7 +21,7 @@ function vanguardCommandBuilder() {
     .setDescription('Staff tools for Nexus Vanguard.')
     .addSubcommand((sub) => sub
       .setName('setup')
-      .setDescription('Create missing lfg, fireteam, panel, alert, and lobby channels.'));
+      .setDescription('Create any missing lfg, fireteam, panel, alert, and lobby channels.'));
 }
 
 function planSetup({ channels = [], env = {}, categoryId, saved = {} } = {}) {
@@ -72,33 +72,20 @@ function publishRuntimeChannels(env, channels, controller) {
   return channels;
 }
 
-function ephemeral(content) {
-  return { content: String(content || '').slice(0, 1900), flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } };
+function channelList(fetched) {
+  if (!fetched) return [];
+  if (typeof fetched.values === 'function') return [...fetched.values()];
+  if (Array.isArray(fetched)) return fetched;
+  return [];
 }
 
-async function runSetup(interaction, ctx) {
-  const env = ctx.env || process.env;
-  if (!actorIsStaff(interaction, env)) {
-    await interaction.reply(ephemeral('Channel setup is restricted to Nexus staff.'));
-    return true;
+async function provisionChannels({ guild, env = {}, categoryId, saved = {}, reason = 'Nexus Vanguard setup' } = {}) {
+  const gateId = snowflake(categoryId);
+  if (!gateId) {
+    return { ok: false, reason: 'fail-closed', created: [], reused: [], pinned: [], invalid: [], resolved: {} };
   }
-  const category = vanguardCategory(env);
-  if (!category.id) {
-    await interaction.reply(ephemeral(`Vanguard is fail-closed: ${category.envName || 'VANGUARD_DISCORD_CATEGORY_ID'} is missing or not a Discord category id.`));
-    return true;
-  }
-  const perms = interaction.appPermissions || interaction.guild?.members?.me?.permissions;
-  if (perms && typeof perms.has === 'function' && !perms.has(PermissionFlagsBits.ManageChannels)) {
-    await interaction.reply(ephemeral('I need Manage Channels in this category before I can create channels.'));
-    return true;
-  }
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const guild = interaction.guild;
   const fetched = typeof guild?.channels?.fetch === 'function' ? await guild.channels.fetch() : null;
-  const list = fetched && typeof fetched.values === 'function' ? [...fetched.values()] : [];
-  const savedRoot = ctx.channelStore.read();
-  const saved = savedRoot[String(interaction.guildId)] || {};
-  const plan = planSetup({ channels: list, env, categoryId: category.id, saved });
+  const plan = planSetup({ channels: channelList(fetched), env, categoryId: gateId, saved });
   const resolved = { ...saved };
   const created = [];
   const reused = [];
@@ -123,26 +110,57 @@ async function runSetup(interaction, ctx) {
       const channel = await guild.channels.create({
         name: step.name,
         type: step.type,
-        parent: category.id,
-        reason: 'Nexus Vanguard setup'
+        parent: gateId,
+        reason
       });
       resolved[step.key] = String(channel.id);
       created.push(step.name);
     }
   } catch (error) {
-    await ctx.channelStore.update((state) => {
-      state[String(interaction.guildId)] = { ...(state[String(interaction.guildId)] || {}), ...resolved };
-      return state;
-    });
-    publishRuntimeChannels(env, resolvedChannels(env, resolved), ctx.jtc);
-    await interaction.editReply(ephemeral(`Channel setup stopped (class ${errorClass(error)}). Run it again to reuse channels that were already created.`));
+    return { ok: false, reason: 'partial', errorClass: errorClass(error), created, reused, pinned, invalid, resolved };
+  }
+  return { ok: true, reason: 'ready', created, reused, pinned, invalid, resolved };
+}
+
+function ephemeral(content) {
+  return { content: String(content || '').slice(0, 1900), flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } };
+}
+
+async function runSetup(interaction, ctx) {
+  const env = ctx.env || process.env;
+  if (!actorIsStaff(interaction, env)) {
+    await interaction.reply(ephemeral('Channel setup is restricted to Nexus staff.'));
     return true;
   }
+  const category = vanguardCategory(env);
+  if (!category.id) {
+    await interaction.reply(ephemeral(`Vanguard is fail-closed: ${category.envName || 'VANGUARD_DISCORD_CATEGORY_ID'} is missing or not a Discord category id.`));
+    return true;
+  }
+  const perms = interaction.appPermissions || interaction.guild?.members?.me?.permissions;
+  if (perms && typeof perms.has === 'function' && !perms.has(PermissionFlagsBits.ManageChannels)) {
+    await interaction.reply(ephemeral('I need Manage Channels in this category before I can create channels.'));
+    return true;
+  }
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const saved = ctx.channelStore.read()?.[String(interaction.guildId)] || {};
+  const result = await provisionChannels({
+    guild: interaction.guild,
+    env,
+    categoryId: category.id,
+    saved,
+    reason: 'Nexus Vanguard setup'
+  });
   await ctx.channelStore.update((state) => {
-    state[String(interaction.guildId)] = resolved;
+    state[String(interaction.guildId)] = { ...(state[String(interaction.guildId)] || {}), ...result.resolved };
     return state;
   });
-  publishRuntimeChannels(env, resolvedChannels(env, resolved), ctx.jtc);
+  publishRuntimeChannels(env, resolvedChannels(env, result.resolved), ctx.jtc);
+  if (!result.ok) {
+    await interaction.editReply(ephemeral(`Channel setup stopped (class ${result.errorClass || 'error'}). Run it again to reuse channels that were already created.`));
+    return true;
+  }
+  const { created, reused, pinned, invalid } = result;
   const lines = ['**Vanguard channel setup**'];
   lines.push(created.length ? `Created: ${created.join(', ')}` : 'Created: none');
   lines.push(reused.length ? `Reused: ${reused.join(', ')}` : 'Reused: none');
@@ -159,5 +177,6 @@ module.exports = {
   planSetup,
   resolvedChannels,
   publishRuntimeChannels,
+  provisionChannels,
   runSetup
 };

@@ -9,7 +9,8 @@ const { installVanguardJtc } = require('./jtc.cjs');
 const { createLfgService } = require('./lfg/lfg-service.cjs');
 const { deliverPost } = require('./lfg/lfg-buttons.cjs');
 const { handleLfgInteraction, lfgCommandBuilder, refreshLfgBoard, refreshStatusPanel } = require('./lfg/lfg-commands.cjs');
-const { publishRuntimeChannels, resolvedChannels, runSetup, vanguardCommandBuilder } = require('./commands/setup.cjs');
+const { publishRuntimeChannels, provisionChannels, resolvedChannels, runSetup, vanguardCommandBuilder } = require('./commands/setup.cjs');
+const { vanguardCategory } = require('./gate.cjs');
 
 const PANEL_REFRESH_MS = 10 * 60 * 1000;
 const TICK_MS = 60 * 1000;
@@ -99,11 +100,50 @@ function scheduleBoard(ctx, guildId) {
   ctx.boardTimer.unref?.();
 }
 
+async function ensureVanguardChannels(ctx) {
+  const env = ctx.env;
+  const guildId = guildIdOf(env);
+  if (!guildId) {
+    console.warn('[Nexus Vanguard] channel provision skipped: guild id missing');
+    return { ok: false, reason: 'guild-missing' };
+  }
+  const category = vanguardCategory(env);
+  if (!category.id) {
+    console.warn('[Nexus Vanguard] channel provision skipped: VANGUARD_DISCORD_CATEGORY_ID is missing or not a Discord category id');
+    return { ok: false, reason: 'fail-closed' };
+  }
+  let guild = null;
+  try {
+    guild = await ctx.client.guilds.fetch(guildId);
+  } catch (error) {
+    console.warn(`[Nexus Vanguard] channel provision class=${errorClass(error)}`);
+    return { ok: false, reason: 'guild' };
+  }
+  const saved = ctx.channelStore.read()?.[guildId] || {};
+  const result = await provisionChannels({
+    guild,
+    env,
+    categoryId: category.id,
+    saved,
+    reason: 'Nexus Vanguard startup'
+  });
+  await ctx.channelStore.update((state) => {
+    state[guildId] = { ...(state[guildId] || {}), ...result.resolved };
+    return state;
+  });
+  publishRuntimeChannels(env, resolvedChannels(env, result.resolved), ctx.jtc);
+  if (!result.ok) {
+    console.warn(`[Nexus Vanguard] channel provision class=${result.errorClass || result.reason}`);
+    return result;
+  }
+  console.log(`[Nexus Vanguard] channels created=${result.created.length} reused=${result.reused.length}`);
+  return result;
+}
+
 async function onReady(ctx) {
   const guildId = guildIdOf(ctx.env);
   if (guildId) {
-    const saved = ctx.channelStore.read()?.[guildId] || {};
-    publishRuntimeChannels(ctx.env, resolvedChannels(ctx.env, saved), ctx.jtc);
+    await ensureVanguardChannels(ctx);
     await expireAndEdit(ctx);
     await refreshGuildPanels(ctx, guildId, { force: true });
   }
@@ -187,6 +227,7 @@ module.exports = {
   TICK_MS,
   BOARD_DEBOUNCE_MS,
   prepareVanguardEnv,
+  ensureVanguardChannels,
   installVanguard,
   registerVanguardCommands
 };

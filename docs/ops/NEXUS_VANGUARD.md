@@ -90,7 +90,7 @@ Permission bit `17910800` is the set above. Manage Channels, Connect, and Move M
 
 ## Channels
 
-If the channel ids above are unset, a staff member inside the category runs `/vanguard setup`. The bot creates only missing channels under `VANGUARD_DISCORD_CATEGORY_ID`:
+When Discord is ready, the bot creates any missing channels under `VANGUARD_DISCORD_CATEGORY_ID`. It reuses a channel already in that category when the stored id or the channel name matches, and it does not create channels anywhere else. A missing or invalid category fail-closes this step: nothing is created. Staff can run `/vanguard setup` again later; that command uses the same rules and stays staff-only. The channels are:
 
 | Name | Type | Use |
 |------|------|-----|
@@ -102,7 +102,7 @@ If the channel ids above are unset, a staff member inside the category runs `/va
 
 Names must not include the game name (`destiny-lfg` is not used). An id already set in Railway is left alone. A non-empty value that is not a snowflake is ignored and reported; fix it in Railway. Setup reuses an existing channel with the same name in the category.
 
-Created ids are stored in `state/channels.json` and used when the matching env var is unset. After setup, the running process points Join-To-Create at `lobby` without a restart.
+Created ids are stored in `state/channels.json` and used when the matching env var is unset. Startup and `/vanguard setup` both point Join-To-Create at `lobby` through the one install path. A restart reuses the stored ids.
 
 ## Commands
 
