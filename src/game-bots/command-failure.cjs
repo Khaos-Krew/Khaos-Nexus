@@ -7,13 +7,14 @@ const GAME_BOT_META = Symbol.for('khaos.nexus.gamebot.meta');
 const BOT_LABELS = Object.freeze({
   cephalon: 'Cephalon Nexus',
   ascended: 'Nexus Ascended',
-  sanctuary: 'Sanctuary Nexus'
+  sanctuary: 'Sanctuary Nexus',
+  vanguard: 'Nexus Vanguard'
 });
 const STAFF_CHANNEL_NAMES = Object.freeze(['staff-ops', 'staff-hub', 'ark-ops', 'server-ops', 'ark-server-status']);
 
 function setGameBotMeta(client, meta = {}) {
   if (!client) return null;
-  const bot = meta.bot === 'ascended' || meta.bot === 'cephalon' || meta.bot === 'sanctuary' ? meta.bot : '';
+  const bot = meta.bot === 'ascended' || meta.bot === 'cephalon' || meta.bot === 'sanctuary' || meta.bot === 'vanguard' ? meta.bot : '';
   client[GAME_BOT_META] = Object.freeze({
     bot,
     botName: safeBotName(meta.botName || bot)

@@ -1,0 +1,24 @@
+'use strict';
+
+const { installGuildMembersIntentExtension } = require('../sentinel/guild-members-intent-extension.cjs');
+const { errorClass } = require('../game-bots/command-failure.cjs');
+const { startGameBot } = require('../game-bots/start.cjs');
+const { prepareVanguardEnv, installVanguard } = require('../game-bots/vanguard/entry.cjs');
+
+prepareVanguardEnv();
+process.env.NEXUS_GAME_ROLE ||= 'destiny';
+
+// Slice A does not start a game backend and does not call Bungie.
+startGameBot({
+  botName: 'Nexus Vanguard',
+  botKey: 'vanguard',
+  gameRole: 'destiny',
+  serviceName: 'nexus-vanguard',
+  beforeClient: () => {
+    installGuildMembersIntentExtension();
+  },
+  bind: (client) => installVanguard(client, { env: process.env, shutdown: true })
+}).catch((error) => {
+  console.error(`[Nexus Vanguard] startup failed: class=${errorClass(error)}`);
+  process.exit(1);
+});
