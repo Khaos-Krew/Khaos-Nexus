@@ -7,7 +7,7 @@ const { loadMcShopCatalog, DEFAULT_MC_SHOP_ITEMS } = require('../src/shared/mc-s
 const { loadStarterKit, starterKitEligibility, BACKPACK_ID, FIRST_PLAY_MS, ACCOUNT_AGE_MS, TENURE_MS } = require('../src/shared/mc-starter-kit.cjs');
 const { planMinecraftContribution, MC_DAILY_CAP_MS, ctDayKey } = require('../src/economy-worker/mc-playtime-accounting.cjs');
 const { MemoryMcPoints, UNLINK_COOLDOWN_MS, REFUND_AFTER_MS } = require('../src/economy-worker/mc-points-service.cjs');
-const { schemaSql } = require('../src/economy-worker/mc-points-postgres.cjs');
+const { schemaSql, ensureMinecraftSchema } = require('../src/economy-worker/mc-points-postgres.cjs');
 const { PostgresEconomyAccrual } = require('../src/economy-worker/postgres-accrual.cjs');
 const { NexusEconomyStore, NexusEconomyWorker } = require('../src/sentinel/nexus-economy-worker.cjs');
 const { McAfkTracker, AFK_UNCHANGED_MS } = require('../src/craft/mc-afk.cjs');
@@ -62,9 +62,17 @@ function service(extra = {}) {
   const points = new MemoryMcPoints({
     now: () => now,
     wallet: extra.wallet || wallet(),
-    env: { MC_POINTS_ENABLED: 'true', MC_SHOP_ENABLED: 'true', MC_SHOP_DELIVERY_ENABLED: 'true', MC_STARTER_KIT_ENABLED: 'true', ...(extra.env || {}) },
+    env: {
+      MC_POINTS_ENABLED: 'true',
+      MC_SHOP_ENABLED: 'true',
+      MC_SHOP_DELIVERY_ENABLED: 'true',
+      MC_STARTER_KIT_ENABLED: 'true',
+      MC_LINK_CODE_SECRET: 'mc-link-code-hmac-secret-32chars!',
+      ...(extra.env || {})
+    },
     catalog: extra.catalog,
-    kit: extra.kit
+    kit: extra.kit,
+    tenureOf: extra.tenureOf
   });
   return { points, advance: (ms) => { now += ms; }, setNow: (value) => { now = value; } };
 }
@@ -90,14 +98,20 @@ test('list uuids parser keeps premium UUIDs and ignores junk', () => {
   assert.equal(parseListUuids('nope').ok, false);
 });
 
-test('AFK is position and camera unchanged for five minutes', () => {
+test('AFK uses input signals and treats a missing signal as AFK', () => {
   const afk = new McAfkTracker();
-  const pos = [1, 64, 2];
-  const rotation = [10, 20];
-  assert.equal(afk.observe(UUID, pos, rotation, 0).afk, false);
-  assert.equal(afk.observe(UUID, pos, rotation, AFK_UNCHANGED_MS - 1).afk, false);
-  assert.equal(afk.observe(UUID, pos, rotation, AFK_UNCHANGED_MS).afk, true);
-  assert.equal(afk.observe(UUID, pos, [11, 20], AFK_UNCHANGED_MS + 10).afk, false);
+  const active = { rotation: [10, 20], ftbAfk: false, interactions: 1 };
+  assert.equal(afk.observe(UUID, active, 0).afk, false);
+  assert.equal(afk.observe(UUID, { ...active, rotation: [10, 20] }, AFK_UNCHANGED_MS - 1).afk, false);
+  assert.equal(afk.observe(UUID, active, AFK_UNCHANGED_MS).afk, true);
+  assert.equal(afk.observe(UUID, active, AFK_UNCHANGED_MS + 10).afk, true);
+  assert.equal(afk.observe(UUID, { rotation: [11, 20], ftbAfk: false, interactions: 1 }, AFK_UNCHANGED_MS + 20).afk, false);
+  assert.equal(afk.observe(UUID, { rotation: [12, 20], ftbAfk: true, interactions: 9 }, AFK_UNCHANGED_MS + 30).reason, 'ftb-afk');
+  assert.equal(afk.observe(UUID_2, { rotation: [1, 2] }, 0).reason, 'signal-missing');
+  assert.equal(afk.observe(UUID_2, { rotation: [3, 4] }, 1).afk, true);
+  const jumps = new McAfkTracker();
+  assert.equal(jumps.observe(UUID, { interactions: 3 }, 0).afk, false);
+  assert.equal(jumps.observe(UUID, { interactions: 4 }, 1000).afk, false);
 });
 
 test('give and tellraw commands reject raw player input', () => {
@@ -189,7 +203,7 @@ test('verified minecraft link shares the presence counter and the 8 hour cap', a
   const worker = new NexusEconomyWorker({
     store: new NexusEconomyStore(root),
     now: () => now,
-    env: { MC_POINTS_ENABLED: 'true', MC_PLAYTIME_NP_ENABLED: 'true', MC_PLAYTIME_DRY_RUN: 'false', MC_SHOP_ENABLED: 'true', MC_STARTER_KIT_ENABLED: 'true' }
+    env: { MC_POINTS_ENABLED: 'true', MC_PLAYTIME_NP_ENABLED: 'true', MC_PLAYTIME_DRY_RUN: 'false', MC_SHOP_ENABLED: 'true', MC_STARTER_KIT_ENABLED: 'true', MC_LINK_CODE_SECRET: 'mc-link-code-hmac-secret-32chars!' }
   });
   const linked = worker.linkArkIdentity({ discordUserId: DISCORD, eosId: 'EOSshared1234', rankId: 'shadow-recruit' });
   assert.equal(linked.discordUserId, DISCORD);
@@ -236,6 +250,7 @@ test('link whispers a code, confirms the UUID, and enforces the 30-day cooldown'
   assert.match(commands[1], new RegExp(`tellraw ${UUID}`));
   assert.match(commands[1], /asked to link/);
   assert.match(commands[1], /Code:/);
+  assert.match(commands[1], /never share this code/);
   const code = commands[1].match(/Code: ([A-Z0-9]{3}-[A-Z0-9]{3})/)[1];
   const confirmed = await points.confirm({ discordUserId: DISCORD, code });
   assert.equal(confirmed.mcUuid, UUID);
@@ -306,15 +321,15 @@ test('shop debits through the wallet, checks slots, and never retries an unconfi
 
 test('starter kit is once per identity and once per UUID', async () => {
   const bank = wallet();
-  bank.life = FIRST_PLAY_MS;
-  const { points, setNow } = service({ wallet: bank });
   const now = Date.parse('2026-10-01T18:00:00Z');
+  const { points, setNow } = service({ wallet: bank, tenureOf: async () => now - TENURE_MS });
   setNow(now);
   const challenge = await points.challenge({ discordUserId: DISCORD, mcUuid: UUID, mcName: 'Steve' });
   await points.confirm({ discordUserId: DISCORD, code: challenge.code });
+  points.links.get(UUID).playtimeMs = FIRST_PLAY_MS;
   const claim = await points.claimStarterKit({
     discordUserId: DISCORD,
-    joinedAt: now - TENURE_MS,
+    joinedAt: now,
     tenureTrusted: true
   });
   assert.equal(claim.ok, true, claim.reason);
@@ -328,6 +343,18 @@ test('starter kit is once per identity and once per UUID', async () => {
   });
   assert.equal(again.duplicate, true);
   assert.equal(again.order.orderId, claim.order.orderId);
+  const untrusted = service({ wallet });
+  const youngBank = wallet();
+  const denied = service({ wallet: youngBank });
+  const deniedChallenge = await denied.points.challenge({ discordUserId: DISCORD, mcUuid: UUID_2, mcName: 'Alex' });
+  await denied.points.confirm({ discordUserId: DISCORD, code: deniedChallenge.code });
+  denied.points.links.get(UUID_2).playtimeMs = FIRST_PLAY_MS;
+  const ignoredBody = await denied.points.claimStarterKit({
+    discordUserId: DISCORD,
+    joinedAt: now - TENURE_MS,
+    tenureTrusted: true
+  });
+  assert.equal(ignoredBody.reason, 'tenure-unknown');
   const young = starterKitEligibility({
     identityVerified: true,
     linkVerified: true,
@@ -349,6 +376,8 @@ test('playtime poll logs AFK and does not post while dry-run', async () => {
     if (command === 'list uuids') return listed;
     if (command.endsWith('Pos')) return '[1.0d, 64.0d, 2.0d]';
     if (command.endsWith('Rotation')) return '[10.0f, 20.0f]';
+    if (command.startsWith('ftbessentials afkstatus')) return 'Steve is not AFK';
+    if (command.includes('minecraft:jump')) return 'Steve has the following entity data: 4';
     return '';
   };
   const first = await pollMcPlaytime({
@@ -372,6 +401,18 @@ test('playtime poll logs AFK and does not post while dry-run', async () => {
   });
   assert.equal(second.afk, 1);
   assert.equal(posts.at(-1).online, false);
+  const dryPosts = [];
+  const dry = await pollMcPlaytime({
+    rcon,
+    afk: new McAfkTracker(),
+    seen: new Set(),
+    presence: async (input) => { dryPosts.push(input); },
+    now: () => 0,
+    env: { MC_POINTS_ENABLED: 'true', MC_PLAYTIME_NP_ENABLED: 'true', MC_PLAYTIME_DRY_RUN: 'true' }
+  });
+  assert.equal(dry.posted, 1);
+  assert.equal(dry.dryRun, true);
+  assert.equal(dryPosts[0].online, true);
 });
 
 test('grant table schema keeps one kit per identity and per UUID', () => {
@@ -379,6 +420,16 @@ test('grant table schema keeps one kit per identity and per UUID', () => {
   assert.match(sql, /nexus_mc_grants/);
   assert.match(sql, /UNIQUE \(kind, economic_identity_id\)/);
   assert.match(sql, /UNIQUE \(kind, mc_uuid\)/);
+  assert.match(sql, /nexus_mc_action_audit/);
+  assert.match(sql, /nexus_mc_schema_version/);
+  const auditSql = sql.slice(sql.indexOf('nexus_mc_action_audit'), sql.indexOf('nexus_mc_schema_version'));
+  assert.doesNotMatch(auditSql, /nonce/);
+  assert.doesNotMatch(auditSql, /code_hash/);
+  const runtime = fs.readFileSync(path.join(__dirname, '../src/economy-worker/postgres-runtime.cjs'), 'utf8');
+  assert.doesNotMatch(runtime, /minecraft\.ensureSchema/);
+  const accrualSource = fs.readFileSync(path.join(__dirname, '../src/economy-worker/postgres-accrual.cjs'), 'utf8');
+  const bootSchema = accrualSource.slice(accrualSource.indexOf('async ensureSchema'), accrualSource.indexOf('async syncRank'));
+  assert.doesNotMatch(bootSchema, /mc_counted_day/);
   const source = fs.readFileSync(path.join(__dirname, '../src/economy-worker/mc-points-postgres.cjs'), 'utf8');
   assert.match(source, /provider, external_id, economic_identity_id, verified_at, source/);
   assert.match(source, /'minecraft'/);
@@ -386,4 +437,46 @@ test('grant table schema keeps one kit per identity and per UUID', () => {
   assert.match(source, /FOR UPDATE SKIP LOCKED/);
   assert.doesNotMatch(source, /DELETE FROM \$\{s\}\.nexus_mc_links/);
   assert.match(source, /crypto\.randomUUID\(\)/);
+});
+
+test('dry-run accrues per-uuid playtime and a schema failure stays inside minecraft', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-dry-play-'));
+  let now = Date.parse('2026-10-01T16:00:00Z');
+  const worker = new NexusEconomyWorker({
+    store: new NexusEconomyStore(root),
+    now: () => now,
+    env: {
+      MC_POINTS_ENABLED: 'true',
+      MC_PLAYTIME_NP_ENABLED: 'true',
+      MC_PLAYTIME_DRY_RUN: 'true',
+      MC_STARTER_KIT_ENABLED: 'true',
+      MC_LINK_CODE_SECRET: 'mc-link-code-hmac-secret-32chars!'
+    }
+  });
+  worker.linkArkIdentity({ discordUserId: DISCORD, eosId: 'EOSdryrun12345', rankId: 'shadow-recruit' });
+  const challenge = await worker.minecraft.challenge({ discordUserId: DISCORD, mcUuid: UUID, mcName: 'Steve' });
+  assert.equal((await worker.minecraft.confirm({ discordUserId: DISCORD, code: challenge.code })).ok, true);
+  await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
+  for (let step = 0; step < 3; step += 1) {
+    now += 5 * 60 * 1000;
+    const tick = await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
+    assert.equal(tick.dryRun, true);
+    assert.equal(tick.credited, 0);
+  }
+  assert.equal(worker.balance(DISCORD), 0);
+  assert.equal(worker.minecraft.linkByUuid(UUID).playtimeMs, 15 * 60 * 1000);
+  assert.equal(Object.keys(worker.store.read().processed || {}).some((key) => key.startsWith('playtime:')), false);
+  worker.minecraft.tenureOf = async () => now - 8 * 24 * 60 * 60 * 1000;
+  const claim = await worker.minecraft.claimStarterKit({ discordUserId: DISCORD, joinedAt: now, tenureTrusted: true });
+  assert.equal(claim.ok, true, claim.reason);
+  const pool = {
+    ended: false,
+    async query() { throw new Error('ddl failed'); },
+    async end() { this.ended = true; }
+  };
+  const failed = await ensureMinecraftSchema({ pool, schema: 'public' });
+  assert.equal(failed.reason, 'mc-schema-unavailable');
+  assert.equal(pool.ended, false);
+  const again = await ensureMinecraftSchema({ pool, schema: 'public' });
+  assert.equal(again.reason, 'mc-schema-unavailable');
 });

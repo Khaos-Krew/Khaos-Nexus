@@ -318,7 +318,18 @@ class NexusEconomyWorker {
     const projectedCredit = Math.floor((Number(account?.onlineUncreditedMs || 0) + planned.gap) / ONLINE_INTERVAL_MS) * Number(perk.onlinePointsPerFiveMinutes || 0);
     bumpMcMetric('dryRun');
     console.log(`[Nexus Economy] mc_playtime_dry_run identity=${link.economicIdentityId} server=${server} gap=${planned.gap} countedMs=${planned.mcCountedMs} capHit=${planned.capHit} projectedCredit=${projectedCredit} day=${planned.mcCountedDay} overflowDroppedMs=${planned.overflowDroppedMs} mcUuid=${mcUuid}`);
-    return { ok: true, dryRun: true, credited: 0, projectedCredit, capHit: planned.capHit, countedMs: planned.mcCountedMs };
+    if (account) {
+      const previousLifetime = Number(account.mcLifetimeMs || 0);
+      const delta = Math.max(0, Number(planned.mcLifetimeMs || 0) - previousLifetime);
+      account.mcCountedDay = planned.mcCountedDay;
+      account.mcCountedMs = planned.mcCountedMs;
+      account.mcLifetimeMs = planned.mcLifetimeMs;
+      account.mcOnline = planned.mcOnline;
+      account.lastMcOnlineAt = planned.lastMcOnlineAt;
+      if (link) link.playtimeMs = Number(link.playtimeMs || 0) + delta;
+      this.store.write(state);
+    }
+    return { ok: true, dryRun: true, credited: 0, projectedCredit, capHit: planned.capHit, countedMs: planned.mcCountedMs, playtimeMs: Number(link?.playtimeMs || 0) };
   }
 
   async recordPresence({ eosId, mcUuid, online, rankId, server, provider } = {}) {

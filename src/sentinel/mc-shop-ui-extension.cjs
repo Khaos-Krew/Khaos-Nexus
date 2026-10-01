@@ -114,8 +114,7 @@ async function handleConfirm(interaction, economyClient) {
 
 async function handleStarter(interaction, economyClient) {
   if (!mcPointsFlags().starterKitEnabled) return interaction.reply(ephemeral('The Minecraft Starter Kit is off.'));
-  const joinedAt = Number(interaction.member?.joinedTimestamp || interaction.member?.joinedAt || NaN);
-  const result = await economyClient.mcClaimStarterKit({ discordUserId: interaction.user.id, joinedAt });
+  const result = await economyClient.mcClaimStarterKit({ discordUserId: interaction.user.id });
   if (!result.ok) return interaction.reply(ephemeral(`Starter Kit was not claimed (${result.reason || 'unavailable'}).`));
   if (result.duplicate) return interaction.reply(ephemeral(`Starter Kit is already queued as ${result.order?.orderId || result.grant?.orderId}.`));
   return interaction.reply(ephemeral(`Starter Kit queued as ${result.order.orderId}. It delivers when you are online with free slots.`));

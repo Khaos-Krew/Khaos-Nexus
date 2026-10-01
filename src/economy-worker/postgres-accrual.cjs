@@ -7,6 +7,7 @@ const { mcPointsFlags } = require('../shared/mc-points-flags.cjs');
 const { normalizeUuid } = require('../craft/mc-rcon-text.cjs');
 const { otherPresenceOnline, planMinecraftContribution, minecraftServerName } = require('./mc-playtime-accounting.cjs');
 const { bumpMcMetric } = require('./mc-points-service.cjs');
+const { ensureMinecraftSchema } = require('./mc-points-postgres.cjs');
 
 const ONLINE_INTERVAL_MS = 5 * 60_000;
 const MAX_ACCOUNTING_GAP_MS = ONLINE_INTERVAL_MS * 2;
@@ -41,9 +42,11 @@ class PostgresEconomyAccrual {
   constructor({ pool, schema = 'public', now = Date.now, env = process.env } = {}) {
     if (!pool || typeof pool.connect !== 'function') throw new Error('Postgres pool is required.');
     this.pool = pool;
-    this.schema = sqlIdent(schema);
+    this.schemaName = String(schema || 'public');
+    this.schema = sqlIdent(this.schemaName);
     this.now = typeof now === 'function' ? now : Date.now;
     this.env = env;
+    this.mcColumns = false;
   }
 
   async ensureSchema() {
@@ -64,12 +67,7 @@ class PostgresEconomyAccrual {
       `  presence_by_server JSONB NOT NULL DEFAULT '{}'::jsonb,`,
       `  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
       `);`,
-      `CREATE INDEX IF NOT EXISTS nexus_economy_accrual_state_online_idx ON ${s}.nexus_economy_accrual_state (online, updated_at);`,
-      `ALTER TABLE ${s}.nexus_economy_accrual_state ADD COLUMN IF NOT EXISTS mc_counted_day TEXT;`,
-      `ALTER TABLE ${s}.nexus_economy_accrual_state ADD COLUMN IF NOT EXISTS mc_counted_ms BIGINT NOT NULL DEFAULT 0;`,
-      `ALTER TABLE ${s}.nexus_economy_accrual_state ADD COLUMN IF NOT EXISTS mc_lifetime_ms BIGINT NOT NULL DEFAULT 0;`,
-      `ALTER TABLE ${s}.nexus_economy_accrual_state ADD COLUMN IF NOT EXISTS mc_online BOOLEAN NOT NULL DEFAULT FALSE;`,
-      `ALTER TABLE ${s}.nexus_economy_accrual_state ADD COLUMN IF NOT EXISTS last_mc_online_at TIMESTAMPTZ;`
+      `CREATE INDEX IF NOT EXISTS nexus_economy_accrual_state_online_idx ON ${s}.nexus_economy_accrual_state (online, updated_at);`
     ].join('\n'));
   }
 
@@ -265,10 +263,48 @@ class PostgresEconomyAccrual {
       bumpMcMetric('dryRun');
       console.log(`[Nexus Economy] mc_playtime_dry_run identity=${identity.economic_identity_id} server=${server} gap=${planned.gap} countedMs=${planned.mcCountedMs} capHit=${planned.capHit} projectedCredit=${projectedCredit} day=${planned.mcCountedDay} overflowDroppedMs=${planned.overflowDroppedMs} presenceAt=${lastPresenceMs || 0}`);
       await client.query('ROLLBACK');
-      return { ok: true, dryRun: true, credited: 0, projectedCredit, capHit: planned.capHit, countedMs: planned.mcCountedMs };
+      return this.#persistDryRunPlaytime({
+        identity,
+        planned,
+        previousLifetime: Number(state.mc_lifetime_ms || 0),
+        mcUuid: identity.mc_uuid || normalizeUuid(mcUuid)
+      });
     } catch (error) {
       try { await client.query('ROLLBACK'); } catch {}
       throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async #persistDryRunPlaytime({ identity, planned, previousLifetime, mcUuid }) {
+    const ready = await ensureMinecraftSchema({ pool: this.pool, schema: this.schemaName, mark: this });
+    if (!ready.ok) return { ok: false, reason: 'mc-schema-unavailable', dryRun: true, credited: 0 };
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const delta = Math.max(0, Number(planned.mcLifetimeMs || 0) - Number(previousLifetime || 0));
+      const link = await client.query(
+        `SELECT playtime_ms FROM ${this.schema}.nexus_mc_links WHERE mc_uuid = $1 FOR UPDATE`,
+        [mcUuid]
+      );
+      if (link.rows?.[0]) {
+        const nextPlay = Number(link.rows[0].playtime_ms || 0) + delta;
+        await client.query(
+          `UPDATE ${this.schema}.nexus_mc_links SET playtime_ms = $2, updated_at = NOW() WHERE mc_uuid = $1`,
+          [mcUuid, nextPlay]
+        );
+      }
+      await client.query(
+        `UPDATE ${this.schema}.nexus_economy_accrual_state SET mc_counted_day = $2, mc_counted_ms = $3, mc_lifetime_ms = $4, mc_online = $5, last_mc_online_at = $6, updated_at = NOW() WHERE economic_identity_id = $1`,
+        [identity.economic_identity_id, planned.mcCountedDay || null, Number(planned.mcCountedMs || 0), Number(planned.mcLifetimeMs || 0), planned.mcOnline === true, new Date(planned.lastMcOnlineAt).toISOString()]
+      );
+      await client.query('COMMIT');
+      return { ok: true, dryRun: true, credited: 0, capHit: planned.capHit, countedMs: planned.mcCountedMs, playtimeMs: delta };
+    } catch (error) {
+      try { await client.query('ROLLBACK'); } catch {}
+      console.warn(`[Nexus Economy] mc_schema_unavailable ${String(error?.message || error).slice(0, 240)}`);
+      return { ok: false, reason: 'mc-schema-unavailable', dryRun: true, credited: 0 };
     } finally {
       client.release();
     }
@@ -285,6 +321,8 @@ class PostgresEconomyAccrual {
       minecraftServer = minecraftServerName(serverKeyInput);
       if (!minecraftServer) return { ok: false, reason: 'invalid-mc-server', credited: 0 };
       if (gate.dryRun) return this.#dryRunMinecraft({ mcUuid, online, rankId, server: minecraftServer });
+      const ready = await ensureMinecraftSchema({ pool: this.pool, schema: this.schemaName, mark: this });
+      if (!ready.ok) return { ok: false, reason: 'mc-schema-unavailable', credited: 0 };
     }
     const client = await this.pool.connect();
     try {
@@ -398,18 +436,31 @@ class PostgresEconomyAccrual {
       }
 
       state.online_uncredited_ms = Math.max(0, Math.floor(uncredited));
-      await client.query(
-        `UPDATE ${this.schema}.nexus_economy_accrual_state SET ` +
-        `rank_id=$2, online=$3, online_since=$4, online_uncredited_ms=$5, online_credit_cursor=$6, ` +
-        `last_accounting_at=$7, last_presence_at=$8, offline_since=$9, last_passive_at=$10, ` +
-        `passive_credit_cursor=$11, presence_by_server=$12::jsonb, mc_counted_day=$13, mc_counted_ms=$14, ` +
-        `mc_lifetime_ms=$15, mc_online=$16, last_mc_online_at=$17, updated_at=NOW() WHERE economic_identity_id=$1`,
-        [identity.economic_identity_id, state.rank_id, state.online, state.online_since, state.online_uncredited_ms,
-          state.online_credit_cursor, state.last_accounting_at, state.last_presence_at, state.offline_since,
-          state.last_passive_at, state.passive_credit_cursor, JSON.stringify(state.presence_by_server),
-          state.mc_counted_day || null, Number(state.mc_counted_ms || 0), Number(state.mc_lifetime_ms || 0),
-          state.mc_online === true, state.last_mc_online_at || null]
-      );
+      const includeMc = minecraft && this.mcColumns === true;
+      if (includeMc) {
+        await client.query(
+          `UPDATE ${this.schema}.nexus_economy_accrual_state SET ` +
+          `rank_id=$2, online=$3, online_since=$4, online_uncredited_ms=$5, online_credit_cursor=$6, ` +
+          `last_accounting_at=$7, last_presence_at=$8, offline_since=$9, last_passive_at=$10, ` +
+          `passive_credit_cursor=$11, presence_by_server=$12::jsonb, mc_counted_day=$13, mc_counted_ms=$14, ` +
+          `mc_lifetime_ms=$15, mc_online=$16, last_mc_online_at=$17, updated_at=NOW() WHERE economic_identity_id=$1`,
+          [identity.economic_identity_id, state.rank_id, state.online, state.online_since, state.online_uncredited_ms,
+            state.online_credit_cursor, state.last_accounting_at, state.last_presence_at, state.offline_since,
+            state.last_passive_at, state.passive_credit_cursor, JSON.stringify(state.presence_by_server),
+            state.mc_counted_day || null, Number(state.mc_counted_ms || 0), Number(state.mc_lifetime_ms || 0),
+            state.mc_online === true, state.last_mc_online_at || null]
+        );
+      } else {
+        await client.query(
+          `UPDATE ${this.schema}.nexus_economy_accrual_state SET ` +
+          `rank_id=$2, online=$3, online_since=$4, online_uncredited_ms=$5, online_credit_cursor=$6, ` +
+          `last_accounting_at=$7, last_presence_at=$8, offline_since=$9, last_passive_at=$10, ` +
+          `passive_credit_cursor=$11, presence_by_server=$12::jsonb, updated_at=NOW() WHERE economic_identity_id=$1`,
+          [identity.economic_identity_id, state.rank_id, state.online, state.online_since, state.online_uncredited_ms,
+            state.online_credit_cursor, state.last_accounting_at, state.last_presence_at, state.offline_since,
+            state.last_passive_at, state.passive_credit_cursor, JSON.stringify(state.presence_by_server)]
+        );
+      }
       await client.query('COMMIT');
       return { ok: true, online: state.online, server: serverKey, balance, rankId: state.rank_id, capHit: state.mcCapHit === true, creditedSource: creditSource };
     } catch (error) {

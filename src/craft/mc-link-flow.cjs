@@ -40,7 +40,7 @@ async function beginMinecraftLink({ username, discordUserId, requesterName, rcon
   const challenge = await points.challenge({ discordUserId, mcUuid: player.uuid, mcName: player.name, requesterName: who });
   if (!challenge.ok) return challenge;
   try {
-    await rcon(tellrawCommand(player.uuid, `${who} asked to link this account. Code: ${challenge.code}. Expires in 10 minutes.`));
+    await rcon(tellrawCommand(player.uuid, `${who} asked to link this account. Code: ${challenge.code}. never share this code. Expires in 10 minutes.`));
   } catch {
     return { ok: false, reason: 'whisper-failed' };
   }

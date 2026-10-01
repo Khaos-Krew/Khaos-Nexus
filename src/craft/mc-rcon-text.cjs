@@ -96,6 +96,27 @@ function dataGetCommand(uuid, path) {
   return `data get entity ${id} ${path}`;
 }
 
+function statGetCommand(uuid) {
+  const id = normalizeUuid(uuid);
+  if (!isPremiumUuid(id)) throw new Error('invalid-player-uuid');
+  return `data get entity ${id} Stats.minecraft:custom.minecraft:jump`;
+}
+
+function parseStat(text) {
+  const match = String(text || '').match(/(-?\d+)\s*$/);
+  if (!match) return null;
+  const value = Number(match[1]);
+  return Number.isFinite(value) ? value : null;
+}
+
+function parseFtbAfk(text) {
+  const raw = String(text || '').trim().toLowerCase();
+  if (!raw) return null;
+  if (/\bnot[\s_-]*afk\b/.test(raw) || raw === 'false' || raw === 'active') return false;
+  if (/\bafk\b/.test(raw) || raw === 'true') return true;
+  return null;
+}
+
 module.exports = {
   PLAYER_NAME,
   ITEM_ID,
@@ -109,5 +130,8 @@ module.exports = {
   parseGiveResponse,
   tellrawCommand,
   giveCommand,
-  dataGetCommand
+  dataGetCommand,
+  statGetCommand,
+  parseStat,
+  parseFtbAfk
 };

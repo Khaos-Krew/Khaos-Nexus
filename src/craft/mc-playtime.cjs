@@ -2,7 +2,7 @@
 
 const { mcPointsFlags } = require('../shared/mc-points-flags.cjs');
 const { McAfkTracker } = require('./mc-afk.cjs');
-const { parseListUuids, parseDataVector, dataGetCommand } = require('./mc-rcon-text.cjs');
+const { parseListUuids, parseDataVector, dataGetCommand, statGetCommand, parseStat, parseFtbAfk } = require('./mc-rcon-text.cjs');
 
 const POLL_MS = 60 * 1000;
 
@@ -28,19 +28,20 @@ async function pollMcPlaytime({ rcon, presence, afk = new McAfkTracker(), now = 
   const samples = [];
   for (const player of listed.players) {
     try {
-      const pos = parseDataVector(await rcon(dataGetCommand(player.uuid, 'Pos')));
       const rotation = parseDataVector(await rcon(dataGetCommand(player.uuid, 'Rotation')));
-      if (!pos || !rotation) {
-        failures += 1;
-        continue;
-      }
-      const state = afk.observe(player.uuid, pos, rotation, at);
+      const ftbAfk = parseFtbAfk(await rcon(`ftbessentials afkstatus ${player.uuid}`));
+      const interactions = parseStat(await rcon(statGetCommand(player.uuid)));
+      const state = afk.observe(player.uuid, { rotation, ftbAfk, interactions }, at);
       if (state.afk) afkCount += 1;
       onlineIds.add(player.uuid);
       seen.add(player.uuid);
       samples.push({ mcUuid: player.uuid, online: state.afk !== true });
     } catch {
       failures += 1;
+      afkCount += 1;
+      onlineIds.add(player.uuid);
+      seen.add(player.uuid);
+      samples.push({ mcUuid: player.uuid, online: false });
     }
   }
   for (const uuid of [...seen]) {
@@ -51,7 +52,7 @@ async function pollMcPlaytime({ rcon, presence, afk = new McAfkTracker(), now = 
     }
   }
   let posted = 0;
-  if (flags.playtimeWrites && typeof presence === 'function') {
+  if (flags.playtimeEnabled && typeof presence === 'function') {
     for (const sample of samples) {
       await presence({ provider: 'minecraft', mcUuid: sample.mcUuid, online: sample.online, server: 'minecraft' });
       posted += 1;

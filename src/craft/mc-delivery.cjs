@@ -144,7 +144,11 @@ async function runMcDeliveryCycle({ points, rcon, env = process.env, limit = 10 
     const results = [];
     await points.sweepExpiredLeases?.();
     for (let index = 0; index < limit; index += 1) {
-      const order = await Promise.resolve(points.claimNext?.({ owner: 'nexus-craft' }));
+      if (typeof points.claimNext !== 'function') {
+        results.push({ skipped: 'none-pending' });
+        break;
+      }
+      const order = await points.claimNext({ owner: 'nexus-craft' });
       if (!order) {
         results.push({ skipped: 'none-pending' });
         break;

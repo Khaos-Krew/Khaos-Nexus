@@ -54,6 +54,24 @@ function discordAccountCreatedMs(discordUserId) {
   }
 }
 
+async function guildJoinedAtMs(discordUserId, env = process.env, fetchImpl = globalThis.fetch) {
+  const guild = String(env.NEXUS_DISCORD_GUILD_ID || env.DISCORD_GUILD_ID || '').trim();
+  const token = String(env.NEXUS_SENTINAL_DISCORD_TOKEN || env.DISCORD_BOT_TOKEN || '').trim();
+  const user = String(discordUserId || '').trim();
+  if (!/^\d{5,32}$/.test(guild) || !/^\d{5,32}$/.test(user) || !token || typeof fetchImpl !== 'function') return NaN;
+  try {
+    const response = await fetchImpl(`https://discord.com/api/v10/guilds/${guild}/members/${user}`, {
+      headers: { authorization: `Bot ${token}` }
+    });
+    if (!response?.ok) return NaN;
+    const body = await response.json();
+    const joined = Date.parse(body?.joined_at || '');
+    return Number.isFinite(joined) ? joined : NaN;
+  } catch {
+    return NaN;
+  }
+}
+
 function starterKitEligibility({
   identityVerified = false,
   linkVerified = false,
@@ -90,5 +108,6 @@ module.exports = {
   DEFAULT_KIT_ITEMS,
   loadStarterKit,
   discordAccountCreatedMs,
+  guildJoinedAtMs,
   starterKitEligibility
 };

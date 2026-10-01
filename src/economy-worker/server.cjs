@@ -35,6 +35,8 @@ const MC_NONECONOMY_PATHS = new Set([
   '/mc/link/confirm',
   '/mc/unlink',
   '/mc/starter-kit/claim',
+  '/mc/staff/resend',
+  '/mc/staff/resolve',
   '/mc-shop/quote',
   '/mc-shop/delivery-status',
   '/mc-shop/claim'
@@ -435,10 +437,14 @@ function createEconomyServer(options = {}) {
       if (worker.minecraft && url.pathname === '/mc-shop/refund-sweep') return json(res, 200, { ok: true, results: await worker.minecraft.sweepRefunds({ writesEnabled }) });
       if (worker.minecraft && url.pathname === '/mc/starter-kit/claim') {
         return json(res, 200, await worker.minecraft.claimStarterKit({
-          discordUserId: input.discordUserId,
-          joinedAt: input.joinedAt,
-          tenureTrusted: scope === 'sentinal'
+          discordUserId: input.discordUserId
         }));
+      }
+      if (worker.minecraft && url.pathname === '/mc/staff/resend') {
+        return json(res, 200, await worker.minecraft.staffResend(input));
+      }
+      if (worker.minecraft && url.pathname === '/mc/staff/resolve') {
+        return json(res, 200, await worker.minecraft.staffResolve(input));
       }
       return json(res, 404, { ok: false, error: 'not-found' });
     } catch (error) {

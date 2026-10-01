@@ -5,6 +5,11 @@ const { sqlIdent } = require('../sentinel/nexus-economy-postgres-repository.cjs'
 const { MemoryMcPoints, orderLineHash, stackLines } = require('./mc-points-service.cjs');
 const { catalogItem, catalogFingerprint, loadMcShopCatalog } = require('../shared/mc-shop-catalog.cjs');
 const { quarantineDenylist } = require('../sentinel/nexus-economy-wallet-core.cjs');
+const { guildJoinedAtMs } = require('../shared/mc-starter-kit.cjs');
+const { ctDayKey } = require('./mc-playtime-accounting.cjs');
+
+const MC_SCHEMA_VERSION = 1;
+const schemaState = new WeakMap();
 
 function schemaSql(schema = 'public') {
   const s = sqlIdent(schema);
@@ -91,8 +96,75 @@ function schemaSql(schema = 'public') {
     '  claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),',
     '  UNIQUE (kind, economic_identity_id),',
     '  UNIQUE (kind, mc_uuid)',
+    ');',
+    `CREATE TABLE IF NOT EXISTS ${s}.nexus_mc_action_audit (`,
+    '  audit_id TEXT PRIMARY KEY,',
+    '  action TEXT NOT NULL,',
+    '  actor TEXT NOT NULL,',
+    '  reason TEXT NOT NULL,',
+    '  result TEXT NOT NULL,',
+    '  subject TEXT NOT NULL,',
+    '  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
+    ');',
+    `CREATE TABLE IF NOT EXISTS ${s}.nexus_mc_schema_version (`,
+    '  component TEXT PRIMARY KEY,',
+    '  version INT NOT NULL,',
+    '  applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
     ');'
   ].join('\n');
+}
+
+function accrualColumnSql(schema = 'public') {
+  const s = sqlIdent(schema);
+  return [
+    `ALTER TABLE ${s}.nexus_economy_accrual_state ADD COLUMN IF NOT EXISTS mc_counted_day TEXT;`,
+    `ALTER TABLE ${s}.nexus_economy_accrual_state ADD COLUMN IF NOT EXISTS mc_counted_ms BIGINT NOT NULL DEFAULT 0;`,
+    `ALTER TABLE ${s}.nexus_economy_accrual_state ADD COLUMN IF NOT EXISTS mc_lifetime_ms BIGINT NOT NULL DEFAULT 0;`,
+    `ALTER TABLE ${s}.nexus_economy_accrual_state ADD COLUMN IF NOT EXISTS mc_online BOOLEAN NOT NULL DEFAULT FALSE;`,
+    `ALTER TABLE ${s}.nexus_economy_accrual_state ADD COLUMN IF NOT EXISTS last_mc_online_at TIMESTAMPTZ;`
+  ].join('\n');
+}
+
+async function ensureMinecraftSchema({ pool, schema = 'public', mark } = {}) {
+  if (!pool || typeof pool.query !== 'function') return { ok: false, reason: 'mc-schema-unavailable' };
+  let state = schemaState.get(pool);
+  if (!state) {
+    state = { ready: false, failed: false, inflight: null };
+    schemaState.set(pool, state);
+  }
+  if (state.ready) {
+    if (mark) mark.mcColumns = true;
+    return { ok: true };
+  }
+  if (state.failed) return { ok: false, reason: 'mc-schema-unavailable' };
+  if (state.inflight) return state.inflight;
+  state.inflight = (async () => {
+    try {
+      const s = sqlIdent(schema);
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS ${s}.nexus_mc_schema_version (component TEXT PRIMARY KEY, version INT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`
+      );
+      const current = await pool.query(`SELECT version FROM ${s}.nexus_mc_schema_version WHERE component = 'minecraft'`);
+      if (Number(current.rows?.[0]?.version || 0) < MC_SCHEMA_VERSION) {
+        await pool.query(schemaSql(schema));
+        await pool.query(accrualColumnSql(schema));
+        await pool.query(
+          `INSERT INTO ${s}.nexus_mc_schema_version (component, version) VALUES ('minecraft', $1) ON CONFLICT (component) DO UPDATE SET version = EXCLUDED.version, applied_at = NOW()`,
+          [MC_SCHEMA_VERSION]
+        );
+      }
+      state.ready = true;
+      if (mark) mark.mcColumns = true;
+      return { ok: true };
+    } catch (error) {
+      state.failed = true;
+      console.warn(`[Nexus Economy] mc_schema_unavailable ${String(error?.message || error).slice(0, 240)}`);
+      return { ok: false, reason: 'mc-schema-unavailable' };
+    } finally {
+      state.inflight = null;
+    }
+  })();
+  return state.inflight;
 }
 
 class PostgresMcPoints {
@@ -108,28 +180,113 @@ class PostgresMcPoints {
   }
 
   async ensureSchema() {
-    await this.pool.query(schemaSql(this.schema));
+    const ready = await ensureMinecraftSchema({ pool: this.pool, schema: this.schema, mark: this });
+    if (!ready.ok) return ready;
+    return { ok: true };
+  }
+
+  async #ready() {
+    const flags = this.flags();
+    if (!flags.pointsEnabled && !flags.playtimeEnabled && !flags.shopEnabled && !flags.shopDeliveryEnabled && !flags.starterKitEnabled) {
+      return { ok: false, reason: 'mc-points-disabled' };
+    }
+    return ensureMinecraftSchema({ pool: this.pool, schema: this.schema, mark: this });
   }
 
   flags() {
     return new MemoryMcPoints({ wallet: this.wallet, env: this.env, now: this.now }).flags();
   }
 
-  async challenge(input) { return this.#touch((memory) => memory.challenge(input), ['challenges', 'requests']); }
-  async confirm(input) { return this.#confirm(input); }
-  async unlink(input) { return this.#touch((memory) => memory.unlink(input), ['links']); }
-  async status(input) { return this.#touch((memory) => memory.status(input), []); }
-  async quote(input) { return this.#quote(input); }
-  async buy(input) { return this.#buy(input); }
-  async claimStarterKit(input) { return this.#claimKit(input); }
-  listGrants() { return this.#readGrants(); }
-  pendingOrders() { return this.#pending(); }
-  claimNext(input) { return this.#claimNext(input); }
-  markDelivery(input) { return this.#mark(input); }
-  refund(input) { return this.#refund(input); }
-  sweepRefunds(input) { return this.#sweep(input); }
-  linkByUuid(mcUuid) { return this.#touch((memory) => memory.linkByUuid(mcUuid), []); }
-  sweepExpiredLeases() { return this.#expireLeases(); }
+  async challenge(input) {
+    if (!this.flags().pointsEnabled) return { ok: false, reason: 'mc-points-disabled' };
+    const ready = await this.#ready();
+    if (!ready.ok) return ready;
+    return this.#touch((memory) => memory.challenge(input));
+  }
+  async confirm(input) {
+    if (!this.flags().pointsEnabled) return { ok: false, reason: 'mc-points-disabled' };
+    const ready = await this.#ready();
+    if (!ready.ok) return ready;
+    return this.#confirm(input);
+  }
+  async unlink(input) {
+    if (!this.flags().pointsEnabled) return { ok: false, reason: 'mc-points-disabled' };
+    const ready = await this.#ready();
+    if (!ready.ok) return ready;
+    return this.#touch((memory) => memory.unlink(input));
+  }
+  async status(input) {
+    const ready = await this.#ready();
+    if (!ready.ok) return ready;
+    return this.#touch((memory) => memory.status(input));
+  }
+  async quote(input) {
+    if (!this.flags().shopEnabled) return { ok: false, reason: 'mc-shop-disabled' };
+    const ready = await this.#ready();
+    if (!ready.ok) return ready;
+    return this.#quote(input);
+  }
+  async buy(input) {
+    if (!this.flags().shopEnabled) return { ok: false, reason: 'mc-shop-disabled' };
+    const ready = await this.#ready();
+    if (!ready.ok) return ready;
+    return this.#buy(input);
+  }
+  async claimStarterKit(input) {
+    if (!this.flags().starterKitEnabled) return { ok: false, reason: 'mc-starter-kit-disabled' };
+    const ready = await this.#ready();
+    if (!ready.ok) return ready;
+    return this.#claimKit(input);
+  }
+  async staffResend(input) {
+    const ready = await this.#ready();
+    if (!ready.ok) return ready;
+    return this.#staffMutate((memory) => memory.staffResend(input), input?.orderId, 'DELIVERY_FAILED');
+  }
+  async staffResolve(input) {
+    const ready = await this.#ready();
+    if (!ready.ok) return ready;
+    return this.#staffMutate((memory) => memory.staffResolve(input), input?.orderId);
+  }
+  async listGrants() {
+    const ready = await this.#ready();
+    if (!ready.ok) return [];
+    return this.#readGrants();
+  }
+  async pendingOrders() {
+    const ready = await this.#ready();
+    if (!ready.ok) return [];
+    return this.#pending();
+  }
+  async claimNext(input) {
+    if (!this.flags().shopDeliveryEnabled) return null;
+    const ready = await this.#ready();
+    if (!ready.ok) return null;
+    return this.#claimNext(input);
+  }
+  async markDelivery(input) {
+    if (!this.flags().shopDeliveryEnabled) return { ok: false, reason: 'mc-shop-delivery-disabled' };
+    const ready = await this.#ready();
+    if (!ready.ok) return ready;
+    return this.#mark(input);
+  }
+  async refund(input) {
+    const ready = await this.#ready();
+    if (!ready.ok) return ready;
+    return this.#refund(input);
+  }
+  async sweepRefunds(input) {
+    const ready = await this.#ready();
+    if (!ready.ok) return [];
+    return this.#sweep(input);
+  }
+  linkByUuid(mcUuid) { return this.#touch((memory) => memory.linkByUuid(mcUuid)); }
+  async sweepExpiredLeases() {
+    if (!this.flags().shopDeliveryEnabled) return [];
+    const ready = await this.#ready();
+    if (!ready.ok) return [];
+    return this.#expireLeases();
+  }
 
   async #walletView() {
     const wallet = this.wallet;
@@ -280,12 +437,14 @@ class PostgresMcPoints {
           const pending = memory.challenges.get(String(input.discordUserId || '').trim());
           if (pending) await this.#saveChallenge(client, pending);
         }
+        await this.#saveActionAudits(client, memory.actionAudits);
         await client.query('COMMIT');
         return result;
       }
       const link = memory.links.get(result.mcUuid);
       await this.#saveLink(client, link);
       await client.query(`DELETE FROM ${sqlIdent(this.schema)}.nexus_mc_link_challenges WHERE discord_user_id = $1`, [String(input.discordUserId || '').trim()]);
+      await this.#saveActionAudits(client, memory.actionAudits);
       await client.query('COMMIT');
       return result;
     } catch (error) {
@@ -362,6 +521,22 @@ class PostgresMcPoints {
         await client.query('ROLLBACK');
         return { ok: false, reason: 'price-changed' };
       }
+      if (item.dailyLimit) {
+        const prior = await client.query(
+          `SELECT order_data FROM ${s}.nexus_mc_orders WHERE status <> 'REFUNDED' AND order_data->>'discordUserId' = $1 AND order_data->>'sku' = $2 AND order_data->>'source' = 'mc-shop'`,
+          [discord, row.sku]
+        );
+        const day = ctDayKey(this.now());
+        const skuCount = (prior.rows || []).reduce((sum, entry) => {
+          const order = entry.order_data || {};
+          if (ctDayKey(Date.parse(order.createdAt)) !== day) return sum;
+          return sum + Number(order.bundles || 0);
+        }, 0);
+        if (skuCount + Number(row.bundles) > item.dailyLimit) {
+          await client.query('ROLLBACK');
+          return { ok: false, reason: 'sku-daily-limit' };
+        }
+      }
       const duplicate = await client.query(`SELECT order_data FROM ${s}.nexus_mc_orders WHERE nonce = $1`, [row.nonce]);
       if (duplicate.rows?.[0]) {
         await client.query('COMMIT');
@@ -405,6 +580,7 @@ class PostgresMcPoints {
         economicIdentityId: row.economic_identity_id,
         mcUuid: row.mc_uuid,
         sku: row.sku,
+        bundles: Number(row.bundles),
         price,
         source: 'mc-shop',
         nonce: row.nonce,
@@ -614,6 +790,7 @@ class PostgresMcPoints {
       const memory = await this.#memory(client);
       const result = await memory.claimStarterKit(input);
       if (!result.ok || result.duplicate) {
+        await this.#saveActionAudits(client, memory.actionAudits);
         await client.query('COMMIT');
         return result;
       }
@@ -632,6 +809,7 @@ class PostgresMcPoints {
         `VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING RETURNING grant_id`,
         [`${grant.kind}:${grant.economicIdentityId}`, grant.kind, grant.economicIdentityId, grant.mcUuid, grant.kitVersion, grant.orderId, grant.status, grant.claimedAt]
       );
+      await this.#saveActionAudits(client, memory.actionAudits);
       if (!inserted.rowCount) {
         await client.query('ROLLBACK');
         const existing = await this.pool.query(
@@ -653,8 +831,58 @@ class PostgresMcPoints {
     }
   }
 
+  async #saveActionAudits(client, rows) {
+    const s = sqlIdent(this.schema);
+    for (const row of rows || []) {
+      await client.query(
+        `INSERT INTO ${s}.nexus_mc_action_audit (audit_id, action, actor, reason, result, subject, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (audit_id) DO NOTHING`,
+        [row.auditId, row.action, row.actor, row.reason, row.result, row.subject, row.createdAt]
+      );
+    }
+  }
+
+  async #staffMutate(fn, orderId, expectedStatus = '') {
+    const client = await this.pool.connect();
+    const s = sqlIdent(this.schema);
+    try {
+      await client.query('BEGIN');
+      const memory = await this.#memory(client);
+      const result = await fn(memory);
+      if (result.ok && result.order) {
+        const params = [result.order.orderId, result.order.status, JSON.stringify(result.order)];
+        const updated = expectedStatus
+          ? await client.query(
+            `UPDATE ${s}.nexus_mc_orders SET status = $2, order_data = $3::jsonb WHERE order_id = $1 AND status = $4 RETURNING order_id`,
+            [...params, expectedStatus]
+          )
+          : await client.query(
+            `UPDATE ${s}.nexus_mc_orders SET status = $2, order_data = $3::jsonb WHERE order_id = $1 AND status <> 'REFUNDED' AND status <> 'DELIVERED' RETURNING order_id`,
+            params
+          );
+        if (!updated.rowCount) {
+          await client.query('ROLLBACK');
+          return { ok: false, reason: 'illegal-transition' };
+        }
+      }
+      await this.#saveActionAudits(client, memory.actionAudits);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      try { await client.query('ROLLBACK'); } catch {}
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async #memory(client) {
-    const memory = new MemoryMcPoints({ wallet: await this.#walletView(), now: this.now, env: this.env, catalog: this.catalog });
+    const memory = new MemoryMcPoints({
+      wallet: await this.#walletView(),
+      now: this.now,
+      env: this.env,
+      catalog: this.catalog,
+      tenureOf: (discordUserId) => guildJoinedAtMs(discordUserId, this.env)
+    });
     await this.#load(client, memory);
     return memory;
   }
@@ -677,6 +905,7 @@ class PostgresMcPoints {
           [request.mcUuid, request.discordUserId, new Date(request.at).toISOString()]
         );
       }
+      await this.#saveActionAudits(client, memory.actionAudits);
       await client.query('COMMIT');
       return result;
     } catch (error) {
@@ -709,4 +938,4 @@ class PostgresMcPoints {
   }
 }
 
-module.exports = { schemaSql, PostgresMcPoints };
+module.exports = { schemaSql, accrualColumnSql, MC_SCHEMA_VERSION, ensureMinecraftSchema, PostgresMcPoints };

@@ -91,7 +91,11 @@ async function handleMcPointsCommand(interaction, context) {
       return true;
     }
     if (sub === 'link-revoke') {
-      const result = await points.unlink({ discordUserId: interaction.options.getString('user') });
+      const result = await points.unlink({
+        discordUserId: interaction.options.getString('user'),
+        actor: discordUserId,
+        reason: 'staff-revoke'
+      });
       await interaction.reply(context.ephemeral(result.ok ? `Link revoked. Cooldown until ${result.cooldownUntil}.` : reasonText(result.reason)));
       return true;
     }

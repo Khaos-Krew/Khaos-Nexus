@@ -38,12 +38,6 @@ async function createPostgresEconomyRuntime({ env = process.env, now } = {}) {
 
   const walletCore = new NexusEconomyWalletCore({ repository, now: now ? () => new Date(now()) : undefined });
   const minecraft = new PostgresMcPoints({ pool, schema, wallet: walletCore, now: nowFn, env });
-  try {
-    await minecraft.ensureSchema();
-  } catch (error) {
-    await pool.end().catch(() => {});
-    throw error;
-  }
   async function syncRankAndEnsure(discordUserId, rankId) {
     const rank = rankId || 'shadow-recruit';
     const synced = await accrual.syncRank(discordUserId, rank);

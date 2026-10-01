@@ -11,7 +11,7 @@ const {
   catalogFingerprint,
   loadMcShopCatalog
 } = require('../shared/mc-shop-catalog.cjs');
-const { loadStarterKit, starterKitEligibility, discordAccountCreatedMs } = require('../shared/mc-starter-kit.cjs');
+const { loadStarterKit, starterKitEligibility, discordAccountCreatedMs, guildJoinedAtMs } = require('../shared/mc-starter-kit.cjs');
 const { ctDayKey } = require('./mc-playtime-accounting.cjs');
 const { isPremiumUuid, normalizeUuid, itemIdOk } = require('../craft/mc-rcon-text.cjs');
 const { withIdentityProof } = require('../sentinel/nexus-economy-identity-proof.cjs');
@@ -38,8 +38,15 @@ function mcMetrics() {
   return { ...metrics };
 }
 
-function hashCode(code) {
-  return crypto.createHash('sha256').update(String(code || '')).digest('hex');
+function linkCodeSecret(env = process.env) {
+  return String(env.MC_LINK_CODE_SECRET || '');
+}
+
+function hashCode(code, secret = linkCodeSecret()) {
+  const key = String(secret || '');
+  if (key.length < 32) return '';
+  const normalized = String(code || '').trim().toUpperCase();
+  return crypto.createHmac('sha256', key).update(normalized).digest('hex');
 }
 
 function generateLinkCode() {
@@ -141,8 +148,27 @@ class MemoryMcPoints {
     this.quotes = new Map();
     this.outbox = new Map();
     this.audits = [];
+    this.actionAudits = [];
     this.linkRequests = [];
     this.crashAt = '';
+  }
+
+  #audit({ action, actor, reason, result, subject } = {}) {
+    const reasonText = String(reason ?? '')
+      .replace(/[A-Z0-9]{3}-[A-Z0-9]{3}/g, '')
+      .replace(/\b[a-f0-9]{16,}\b/g, '')
+      .slice(0, 120);
+    const row = {
+      auditId: crypto.randomUUID(),
+      action: String(action || '').slice(0, 40),
+      actor: String(actor || '').replace(/\s/g, '').slice(0, 32),
+      reason: reasonText,
+      result: String(result || '').slice(0, 64),
+      subject: String(subject || '').slice(0, 64),
+      createdAt: new Date(this.now()).toISOString()
+    };
+    this.actionAudits.push(row);
+    return row;
   }
 
   flags() {
@@ -151,6 +177,7 @@ class MemoryMcPoints {
 
   async challenge({ discordUserId, mcUuid, mcName, requesterName } = {}) {
     if (!this.flags().pointsEnabled) return { ok: false, reason: 'mc-points-disabled' };
+    if (linkCodeSecret(this.env).length < 32) return { ok: false, reason: 'link-code-secret-missing' };
     const uuid = normalizeUuid(mcUuid);
     if (!isPremiumUuid(uuid)) return { ok: false, reason: 'uuid-not-premium' };
     const discord = String(discordUserId || '').trim();
@@ -174,7 +201,7 @@ class MemoryMcPoints {
       mcUuid: uuid,
       mcName: String(mcName || '').slice(0, 16),
       requesterName: String(requesterName || discord).slice(0, 32),
-      codeHash: hashCode(code),
+      codeHash: hashCode(code, linkCodeSecret(this.env)),
       expiresAt: now + LINK_CODE_TTL_MS,
       economicIdentityId: identity.economicIdentityId,
       attempts: 0,
@@ -190,33 +217,47 @@ class MemoryMcPoints {
     const pending = this.challenges.get(discord);
     const now = this.now();
     if (!pending || pending.used || pending.expiresAt <= now) return { ok: false, reason: 'code-expired' };
+    if (linkCodeSecret(this.env).length < 32) return { ok: false, reason: 'link-code-secret-missing' };
     if (pending.locked || pending.attempts >= CODE_ATTEMPT_LIMIT) {
       pending.locked = true;
       bumpMcMetric('linkLocked');
+      this.#audit({ action: 'link', actor: discord, reason: 'confirm', result: 'code-locked', subject: pending.mcUuid });
       return { ok: false, reason: 'code-locked' };
     }
-    const supplied = hashCode(String(code || '').trim().toUpperCase());
-    const expected = Buffer.from(pending.codeHash);
+    const supplied = hashCode(code, linkCodeSecret(this.env));
+    const expected = Buffer.from(String(pending.codeHash || ''));
     const actual = Buffer.from(supplied);
     if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) {
       pending.attempts += 1;
       if (pending.attempts >= CODE_ATTEMPT_LIMIT) {
         pending.locked = true;
         bumpMcMetric('linkLocked');
+        this.#audit({ action: 'link', actor: discord, reason: 'confirm', result: 'code-locked', subject: pending.mcUuid });
         return { ok: false, reason: 'code-locked' };
       }
+      this.#audit({ action: 'link', actor: discord, reason: 'confirm', result: 'code-mismatch', subject: pending.mcUuid });
       return { ok: false, reason: 'code-mismatch' };
     }
     const identity = await this.wallet.resolve(discord);
     if (!verifiedDiscordIdentity(identity) || identity.economicIdentityId !== pending.economicIdentityId) {
+      this.#audit({ action: 'link', actor: discord, reason: 'confirm', result: 'verified-identity-required', subject: pending.mcUuid });
       return { ok: false, reason: 'verified-identity-required' };
     }
     const blocked = this.#cooldownReason(discord, pending.mcUuid, now);
-    if (blocked) return { ok: false, reason: blocked };
+    if (blocked) {
+      this.#audit({ action: 'link', actor: discord, reason: 'confirm', result: blocked, subject: pending.mcUuid });
+      return { ok: false, reason: blocked };
+    }
     const taken = [...this.links.values()].find((link) => link.mcUuid === pending.mcUuid && link.verifiedAt && link.discordUserId !== discord);
-    if (taken) return { ok: false, reason: 'uuid-taken' };
+    if (taken) {
+      this.#audit({ action: 'link', actor: discord, reason: 'confirm', result: 'uuid-taken', subject: pending.mcUuid });
+      return { ok: false, reason: 'uuid-taken' };
+    }
     const own = [...this.links.values()].find((link) => link.economicIdentityId === identity.economicIdentityId && link.verifiedAt && link.mcUuid !== pending.mcUuid);
-    if (own) return { ok: false, reason: 'already-linked' };
+    if (own) {
+      this.#audit({ action: 'link', actor: discord, reason: 'confirm', result: 'already-linked', subject: pending.mcUuid });
+      return { ok: false, reason: 'already-linked' };
+    }
     const verifiedAt = new Date(now).toISOString();
     const link = {
       mcUuid: pending.mcUuid,
@@ -247,6 +288,7 @@ class MemoryMcPoints {
     if (!wrote) return { ok: false, reason: 'uuid-taken' };
     pending.used = true;
     this.challenges.delete(discord);
+    this.#audit({ action: 'link', actor: discord, reason: 'confirm', result: 'ok', subject: pending.mcUuid });
     return { ok: true, mcUuid: pending.mcUuid, economicIdentityId: identity.economicIdentityId, proof: link.proof };
   }
 
@@ -258,16 +300,32 @@ class MemoryMcPoints {
     return true;
   }
 
-  async unlink({ discordUserId } = {}) {
+  async unlink({ discordUserId, actor = '', reason = '' } = {}) {
     if (!this.flags().pointsEnabled) return { ok: false, reason: 'mc-points-disabled' };
     const discord = String(discordUserId || '').trim();
+    const staffActor = String(actor || '').trim();
+    const staffRevoke = Boolean(staffActor) && staffActor !== discord;
     const link = [...this.links.values()].find((row) => row.discordUserId === discord && row.verifiedAt);
-    if (!link) return { ok: false, reason: 'not-linked' };
+    if (staffRevoke && !this.#staffAllowed(staffActor, { discordUserId: discord })) {
+      this.#audit({ action: 'staff-revoke', actor: staffActor, reason: 'staff-revoke', result: 'staff-not-authorized', subject: link?.mcUuid || discord });
+      return { ok: false, reason: 'staff-not-authorized' };
+    }
+    if (!link) {
+      this.#audit({ action: staffRevoke ? 'staff-revoke' : 'unlink', actor: staffRevoke ? staffActor : discord, reason: staffRevoke ? 'staff-revoke' : 'unlink', result: 'not-linked', subject: discord });
+      return { ok: false, reason: 'not-linked' };
+    }
     const now = this.now();
     link.verifiedAt = null;
     link.unlinkedAt = new Date(now).toISOString();
     link.cooldownUntil = new Date(now + UNLINK_COOLDOWN_MS).toISOString();
     link.proof = null;
+    this.#audit({
+      action: staffRevoke ? 'staff-revoke' : 'unlink',
+      actor: staffRevoke ? staffActor : discord,
+      reason: staffRevoke ? (String(reason || 'staff-revoke').trim() || 'staff-revoke') : 'unlink',
+      result: 'ok',
+      subject: link.mcUuid
+    });
     return { ok: true, cooldownUntil: link.cooldownUntil, mcUuid: link.mcUuid };
   }
 
@@ -378,6 +436,7 @@ class MemoryMcPoints {
         economicIdentityId: pending.economicIdentityId,
         mcUuid: pending.mcUuid,
         sku: pending.sku,
+        bundles: pending.bundles,
         price,
         source: 'mc-shop',
         nonce: pending.nonce,
@@ -408,7 +467,7 @@ class MemoryMcPoints {
     }
   }
 
-  async claimStarterKit({ discordUserId, joinedAt = null, tenureTrusted = false } = {}) {
+  async claimStarterKit({ discordUserId } = {}) {
     if (!this.flags().starterKitEnabled) return { ok: false, reason: 'mc-starter-kit-disabled' };
     const discord = String(discordUserId || '').trim();
     const identity = await this.wallet.resolve(discord);
@@ -418,16 +477,14 @@ class MemoryMcPoints {
     }
     const existing = this.grants.find((grant) => grant.kind === 'starter_kit' && (grant.economicIdentityId === identity.economicIdentityId || grant.mcUuid === link.mcUuid));
     if (existing) {
+      this.#audit({ action: 'kit-claim', actor: discord, reason: 'starter-kit', result: 'duplicate', subject: link.mcUuid });
       return { ok: true, duplicate: true, grant: existing, order: this.orders.get(existing.orderId) || null };
     }
     const accountCreatedAt = discordAccountCreatedMs(discord);
-    let tenureAt = Number.NaN;
-    if (tenureTrusted && Number.isFinite(Number(joinedAt))) tenureAt = Number(joinedAt);
-    else if (typeof this.tenureOf === 'function') tenureAt = Number(await this.tenureOf(discord));
-    const lifetimeMs = Math.max(
-      Number(link.playtimeMs || 0),
-      Number(await this.wallet.lifetimeMs(identity.economicIdentityId, link.mcUuid) || 0)
-    );
+    const tenureAt = typeof this.tenureOf === 'function'
+      ? Number(await this.tenureOf(discord))
+      : Number(await guildJoinedAtMs(discord, this.env));
+    const lifetimeMs = Number(link.playtimeMs || 0);
     const decision = starterKitEligibility({
       identityVerified: true,
       linkVerified: true,
@@ -441,7 +498,10 @@ class MemoryMcPoints {
       alreadyClaimedByUuid: false,
       now: this.now()
     });
-    if (!decision.ok) return decision;
+    if (!decision.ok) {
+      this.#audit({ action: 'kit-claim', actor: discord, reason: 'starter-kit', result: decision.reason, subject: link.mcUuid });
+      return decision;
+    }
     const lines = this.kit.items.flatMap((item) => stackLines(item.itemId, item.qty));
     const order = this.#insertOrder({
       discordUserId: discord,
@@ -474,7 +534,62 @@ class MemoryMcPoints {
     }
     this.grants.push(grant);
     this.outbox.set(order.orderId, { outboxId: order.orderId, orderId: order.orderId, createdAt: order.createdAt });
+    this.#audit({ action: 'kit-claim', actor: discord, reason: 'starter-kit', result: 'ok', subject: link.mcUuid });
     return { ok: true, grant, order };
+  }
+
+  async staffResend({ orderId, actor = '', reason = '' } = {}) {
+    const staff = String(actor || '').trim();
+    const why = String(reason || '').trim();
+    const order = this.orders.get(String(orderId || ''));
+    const deny = (result) => {
+      this.#audit({ action: 'resend', actor: staff, reason: why || 'resend', result, subject: order?.orderId || String(orderId || '') });
+      return { ok: false, reason: result };
+    };
+    if (!order) return deny('order-not-found');
+    if (!this.#staffAllowed(staff, order)) return deny('staff-not-authorized');
+    if (why.length < 3) return deny('reason-required');
+    if (order.status === 'SENT_UNCONFIRMED' || order.lines.some((line) => line.status === 'SENT_UNCONFIRMED') || linesSent(order)) {
+      return deny('unconfirmed-no-retry');
+    }
+    if (order.status !== 'DELIVERY_FAILED') return deny('resend-not-allowed');
+    order.status = 'PAID';
+    order.leaseToken = null;
+    order.leaseOwner = null;
+    order.leaseUntil = null;
+    order.updatedAt = new Date(this.now()).toISOString();
+    this.#audit({ action: 'resend', actor: staff, reason: why, result: 'ok', subject: order.orderId });
+    return { ok: true, order };
+  }
+
+  async staffResolve({ orderId, actor = '', reason = '', resolution = '' } = {}) {
+    const staff = String(actor || '').trim();
+    const why = String(reason || '').trim();
+    const order = this.orders.get(String(orderId || ''));
+    const deny = (result) => {
+      this.#audit({ action: 'staff-resolve', actor: staff, reason: why || 'resolve', result, subject: order?.orderId || String(orderId || '') });
+      return { ok: false, reason: result };
+    };
+    if (!order) return deny('order-not-found');
+    if (!this.#staffAllowed(staff, order)) return deny('staff-not-authorized');
+    if (why.length < 3) return deny('reason-required');
+    if (FINAL_STATUSES.has(order.status)) return deny('final-status');
+    if (resolution !== 'delivered' && resolution !== 'unconfirmed') return deny('invalid-resolution');
+    if (resolution === 'delivered') {
+      order.status = 'DELIVERED';
+      for (const line of order.lines) line.status = 'DELIVERED';
+    } else {
+      order.status = 'SENT_UNCONFIRMED';
+      for (const line of order.lines) {
+        if (line.status !== 'DELIVERED') line.status = 'SENT_UNCONFIRMED';
+      }
+    }
+    order.leaseToken = null;
+    order.leaseOwner = null;
+    order.leaseUntil = null;
+    order.updatedAt = new Date(this.now()).toISOString();
+    this.#audit({ action: 'staff-resolve', actor: staff, reason: why, result: 'ok', subject: order.orderId });
+    return { ok: true, order };
   }
 
   listGrants() {
@@ -685,6 +800,7 @@ class MemoryMcPoints {
       economicIdentityId: input.economicIdentityId,
       mcUuid: input.mcUuid,
       sku: input.sku,
+      bundles: Number(input.bundles || 0),
       price: input.price,
       source: input.source,
       nonce: input.nonce || '',
@@ -717,6 +833,7 @@ module.exports = {
   STAFF_REFUND_DAILY_CAP,
   CODE_ALPHABET,
   hashCode,
+  linkCodeSecret,
   generateLinkCode,
   verifiedDiscordIdentity,
   mcEarnEligible,
