@@ -1,5 +1,6 @@
 'use strict';
 
+const { errorClass } = require('../../command-failure.cjs');
 const { bungieConfig, statePaths } = require('../config.cjs');
 const { createAlerter } = require('./alerts.cjs');
 const { createCache } = require('./cache.cjs');
@@ -128,8 +129,12 @@ function createBungieRuntime({
   function snapshotReason() {
     const snapshot = health.read();
     if (!snapshot) return 'gated';
-    if (snapshot.degraded) return snapshot.reason === 'api-key' ? 'auth' : 'unavailable';
-    return 'gated';
+    if (snapshot.degraded) {
+      if (snapshot.reason === 'api-key') return 'auth';
+      if (snapshot.reason === 'system-disabled') return 'system-disabled';
+      return 'unavailable';
+    }
+    return 'system-disabled';
   }
 
   async function refreshHealth() {
@@ -210,7 +215,9 @@ function createBungieRuntime({
     if (!feature('clan').ok) return;
     if (warming.has(id)) return;
     warming.add(id);
-    void clanSummary(id).finally(() => warming.delete(id));
+    void clanSummary(id).catch((error) => {
+      console.warn(`[Nexus Vanguard] clan warm class=${errorClass(error)}`);
+    }).finally(() => warming.delete(id));
   }
 
   async function clanRoster(groupId, page) {
@@ -237,6 +244,12 @@ function createBungieRuntime({
 
   async function publishClosed(guildId, panelId, title, gate, force) {
     if (gate.reason === 'disabled' || gate.reason === 'unconfigured') return gate;
+    if (gate.reason === 'system-disabled') {
+      return publishOne(guildId, panelId, {
+        title,
+        description: 'Bungie is down for maintenance right now; try again later.'
+      }, { force });
+    }
     if (gate.reason === 'gated') {
       return publishOne(guildId, panelId, {
         title,

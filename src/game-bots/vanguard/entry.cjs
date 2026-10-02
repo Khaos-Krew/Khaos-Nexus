@@ -23,6 +23,15 @@ const { createBungieRuntime } = require('./bungie/runtime.cjs');
 const PANEL_REFRESH_MS = 10 * 60 * 1000;
 const TICK_MS = 60 * 1000;
 const BOARD_DEBOUNCE_MS = 5 * 1000;
+let rejectionGuardInstalled = false;
+
+function installRejectionGuard() {
+  if (rejectionGuardInstalled) return;
+  rejectionGuardInstalled = true;
+  process.on('unhandledRejection', (error) => {
+    console.error(`[Nexus Vanguard] unhandled rejection class=${errorClass(error)}`);
+  });
+}
 
 function prepareVanguardEnv(env = process.env) {
   const token = String(env.VANGUARD_DISCORD_TOKEN || '').trim();
@@ -222,6 +231,7 @@ function bindShutdown(ctx) {
 }
 
 function installVanguard(client, { env = process.env, shutdown = false, fetch } = {}) {
+  installRejectionGuard();
   const paths = statePaths(env);
   const channelStore = new GuildStateStore(paths.channels);
   const panelStore = new GuildStateStore(paths.panels);
@@ -307,6 +317,7 @@ module.exports = {
   TICK_MS,
   BOARD_DEBOUNCE_MS,
   prepareVanguardEnv,
+  installRejectionGuard,
   ensureVanguardChannels,
   installVanguard,
   registerVanguardCommands,

@@ -1,5 +1,7 @@
 'use strict';
 
+const { errorClass } = require('../command-failure.cjs');
+
 class Scheduler {
   constructor() {
     this.tail = Promise.resolve();
@@ -16,7 +18,9 @@ class Scheduler {
 
   every(ms, task) {
     const timer = setInterval(() => {
-      void this.run(task);
+      void this.run(task).catch((error) => {
+        console.warn(`[Nexus Vanguard] scheduler class=${errorClass(error)}`);
+      });
     }, ms);
     timer.unref?.();
     this.timers.add(timer);

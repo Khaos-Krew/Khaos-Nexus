@@ -2,6 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -309,6 +310,155 @@ test('clan autocomplete answers from cache only while Bungie hangs', async () =>
     assert.equal(reasonText('unconfigured'), "Bungie isn't turned on yet. Ask staff.");
   } finally {
     release();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function settingsResponse(body, status = 200) {
+  return {
+    status,
+    headers: { get: () => 'application/json' },
+    async text() { return JSON.stringify(body); }
+  };
+}
+
+test('maintenance copy is used only after Bungie reports the system disabled', async () => {
+  const maintenance = 'Bungie is down for maintenance right now; try again later.';
+  const notOn = "Bungie isn't turned on yet. Ask staff.";
+  const flagOff = "That Destiny lookup isn't turned on yet. Ask staff.";
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vanguard-maintenance-'));
+  const base = {
+    now: () => 50_000_000,
+    sleep: async () => {},
+    channelsFor: () => ({}),
+    panelStore: { read: () => ({}), update: async (fn) => fn({}) }
+  };
+  try {
+    const before = createBungieRuntime({
+      ...base,
+      env: { BUNGIE_API_KEY: 'present', VANGUARD_DATA_DIR: dir },
+      fetch: async () => settingsResponse({ ErrorCode: 1, Response: { systems: {} } })
+    });
+    assert.equal(before.feature('xur').reason, 'gated');
+    assert.equal(before.reasonText(before.feature('xur').reason), notOn);
+
+    const flagged = createBungieRuntime({
+      ...base,
+      env: { BUNGIE_API_KEY: 'present', VANGUARD_DATA_DIR: dir, VANGUARD_XUR_PANEL_ENABLED: 'false' },
+      fetch: async () => settingsResponse({ ErrorCode: 1, Response: { systems: {} } })
+    });
+    assert.equal(flagged.feature('xur').reason, 'disabled');
+    assert.equal(flagged.reasonText(flagged.feature('xur').reason), flagOff);
+
+    const disabledSystems = createBungieRuntime({
+      ...base,
+      env: { BUNGIE_API_KEY: 'present', VANGUARD_DATA_DIR: path.join(dir, 'systems') },
+      fetch: async () => settingsResponse({
+        ErrorCode: 1,
+        Response: { systems: { D2Vendors: { enabled: false }, Destiny2: { enabled: true }, D2Profiles: { enabled: true } } }
+      })
+    });
+    fs.mkdirSync(path.join(dir, 'systems'), { recursive: true });
+    await disabledSystems.health.poll(disabledSystems.api);
+    assert.equal(disabledSystems.health.read().degraded, false);
+    assert.equal(disabledSystems.feature('xur').reason, 'system-disabled');
+    assert.equal(disabledSystems.reasonText(disabledSystems.feature('xur').reason), maintenance);
+
+    const errorFive = createBungieRuntime({
+      ...base,
+      env: { BUNGIE_API_KEY: 'present', VANGUARD_DATA_DIR: path.join(dir, 'error5') },
+      fetch: async () => settingsResponse({ ErrorCode: 5, Response: null })
+    });
+    fs.mkdirSync(path.join(dir, 'error5'), { recursive: true });
+    await errorFive.health.poll(errorFive.api);
+    assert.equal(errorFive.health.read().degraded, true);
+    assert.equal(errorFive.health.read().reason, 'system-disabled');
+    assert.equal(errorFive.feature('xur').reason, 'system-disabled');
+    assert.equal(errorFive.reasonText(errorFive.feature('xur').reason), maintenance);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a rejected staff alert does not take the process down', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vanguard-alert-crash-'));
+  const script = path.join(dir, 'alert-crash.cjs');
+  const runtimePath = path.join(__dirname, '../../../src/game-bots/vanguard/bungie/runtime.cjs');
+  const entryPath = path.join(__dirname, '../../../src/game-bots/vanguard/entry.cjs');
+  fs.writeFileSync(script, `'use strict';
+const { createBungieRuntime } = require(${JSON.stringify(runtimePath)});
+const { installRejectionGuard } = require(${JSON.stringify(entryPath)});
+installRejectionGuard();
+const dir = ${JSON.stringify(dir)};
+const channel = '1516640233389822777';
+async function main() {
+  const runtime = createBungieRuntime({
+    env: {
+      BUNGIE_API_KEY: 'present',
+      VANGUARD_DATA_DIR: dir,
+      VANGUARD_CLAN_GROUP_IDS: '5453042',
+      VANGUARD_STAFF_ALERT_CHANNEL_ID: channel
+    },
+    now: () => 50000000,
+    sleep: async () => {},
+    discord: {
+      channels: {
+        fetch: async () => ({
+          send: async () => {
+            const error = new Error('Missing Access');
+            error.name = 'DiscordAPIError';
+            error.code = 50001;
+            throw error;
+          }
+        })
+      }
+    },
+    fetch: async (url) => {
+      const target = String(url);
+      if (target.includes('/Settings/')) {
+        return {
+          status: 200,
+          headers: { get: () => 'application/json' },
+          async text() {
+            return JSON.stringify({
+              ErrorCode: 1,
+              Response: { systems: { Destiny2: { enabled: true }, D2Profiles: { enabled: true } } }
+            });
+          }
+        };
+      }
+      return {
+        status: 403,
+        headers: { get: () => 'text/html' },
+        async text() { return '<html>down</html>'; }
+      };
+    }
+  });
+  await runtime.health.poll(runtime.api);
+  if (!runtime.feature('clan').ok) {
+    console.error('health-not-open');
+    process.exit(2);
+  }
+  runtime.warmClan('5453042');
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  Promise.reject(Object.assign(new Error('Missing Access'), { name: 'DiscordAPIError', code: 50001 }));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  console.log('STAYED_UP');
+  process.exit(0);
+}
+main().catch((error) => {
+  console.error(error && error.stack || error);
+  process.exit(1);
+});
+`);
+  try {
+    const result = spawnSync(process.execPath, [script], { encoding: 'utf8', timeout: 15000 });
+    const output = `${result.stdout || ''}\n${result.stderr || ''}`;
+    assert.equal(result.status, 0, output);
+    assert.match(result.stdout || '', /STAYED_UP/);
+    assert.match(output, /clan warm class=DiscordAPIError:50001/);
+    assert.match(output, /unhandled rejection class=DiscordAPIError:50001/);
+  } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
