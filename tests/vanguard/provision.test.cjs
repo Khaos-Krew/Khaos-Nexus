@@ -6,9 +6,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { EventEmitter } = require('node:events');
-const { ChannelType, Events, PermissionFlagsBits } = require('discord.js');
+const { ChannelType, Events, OverwriteType, PermissionFlagsBits } = require('discord.js');
 const { ensureVanguardChannels, installVanguard } = require('../../src/game-bots/vanguard/entry.cjs');
-const { runSetup } = require('../../src/game-bots/vanguard/commands/setup.cjs');
+const { provisionChannels, runSetup } = require('../../src/game-bots/vanguard/commands/setup.cjs');
 
 const CATEGORY = '1516640233389822042';
 const OUTSIDE = '1516602943670059108';
@@ -94,6 +94,184 @@ test('startup creates only missing channels inside the gate and enables join-to-
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('staff-alerts are private and panels are read-only, including channels that already exist', async () => {
+  const STAFF_ROLE = '1516640233389822777';
+  const BOT = '111111111111111111';
+  const PANELS = '1516640233389822888';
+  const edits = [];
+  function track(channel) {
+    channel.permissionOverwrites = {
+      edit: async (id, perms, extra) => {
+        edits.push({ channel: channel.name, id, perms, type: extra?.type });
+      }
+    };
+    return channel;
+  }
+  const panels = track({ id: PANELS, name: 'panels', parentId: CATEGORY, type: ChannelType.GuildText });
+  const channels = [panels];
+  const created = [];
+  const guild = {
+    id: GUILD,
+    roles: { everyone: { id: GUILD } },
+    members: { me: { id: BOT } },
+    channels: {
+      fetch: async () => ({ values: () => channels.values() }),
+      create: async (options) => {
+        const channel = track({
+          id: IDS[created.length],
+          name: options.name,
+          parentId: options.parent,
+          type: options.type,
+          createdOverwrites: options.permissionOverwrites || null
+        });
+        created.push(channel);
+        channels.push(channel);
+        return channel;
+      }
+    }
+  };
+  const env = { VANGUARD_STAFF_ROLE_IDS: STAFF_ROLE };
+  const first = await provisionChannels({
+    guild,
+    env,
+    categoryId: CATEGORY,
+    saved: {},
+    botId: BOT
+  });
+  assert.equal(first.ok, true);
+  assert.ok(first.reused.includes('panels'));
+  assert.ok(first.created.includes('staff-alerts'));
+  const staff = created.find((channel) => channel.name === 'staff-alerts');
+  const staffCreate = staff.createdOverwrites;
+  assert.ok(staffCreate.some((row) => row.id === GUILD && row.deny.includes(PermissionFlagsBits.ViewChannel)));
+  assert.ok(staffCreate.some((row) => row.id === BOT && row.allow.includes(PermissionFlagsBits.SendMessages)));
+  assert.ok(staffCreate.some((row) => row.id === STAFF_ROLE && row.type === OverwriteType.Role && row.allow.includes(PermissionFlagsBits.ViewChannel)));
+  assert.equal(created.find((channel) => channel.name === 'panels'), undefined);
+  assert.equal(created.find((channel) => channel.name === 'lfg').createdOverwrites, null);
+  const panelEdit = edits.find((row) => row.channel === 'panels' && row.id === GUILD);
+  assert.equal(panelEdit.perms.SendMessages, false);
+  assert.equal(panelEdit.perms.ViewChannel, true);
+  const staffEveryone = edits.find((row) => row.channel === 'staff-alerts' && row.id === GUILD);
+  assert.equal(staffEveryone.perms.ViewChannel, false);
+  const staffRole = edits.find((row) => row.channel === 'staff-alerts' && row.id === STAFF_ROLE);
+  assert.equal(staffRole.perms.ViewChannel, true);
+  const before = edits.length;
+  const second = await provisionChannels({
+    guild,
+    env,
+    categoryId: CATEGORY,
+    saved: first.resolved,
+    botId: BOT
+  });
+  assert.equal(second.ok, true);
+  assert.equal(second.created.length, 0);
+  assert.ok(edits.length > before);
+  const again = edits.filter((row) => row.channel === 'staff-alerts' && row.id === GUILD);
+  assert.ok(again.length >= 2);
+  assert.ok(again.every((row) => row.perms.ViewChannel === false));
+  const pinnedEdits = edits.length;
+  const pinned = await provisionChannels({
+    guild,
+    env: { ...env, VANGUARD_STAFF_ALERT_CHANNEL_ID: first.resolved.staffAlerts },
+    categoryId: CATEGORY,
+    saved: first.resolved,
+    botId: BOT
+  });
+  assert.ok(pinned.pinned.includes('staff-alerts'));
+  assert.ok(edits.length > pinnedEdits);
+});
+
+test('env-pinned channels outside the category are not rewritten', async () => {
+  const OUTSIDE_PANELS = '1516640233389822555';
+  const INSIDE_STAFF = '1516640233389822666';
+  const alerts = [];
+  const edits = [];
+  function track(channel) {
+    channel.permissionOverwrites = {
+      edit: async (id) => { edits.push({ channel: channel.id, id }); }
+    };
+    return channel;
+  }
+  const panels = track({ id: OUTSIDE_PANELS, name: 'panels', parentId: OUTSIDE, type: ChannelType.GuildText });
+  const staff = track({ id: INSIDE_STAFF, name: 'staff-alerts', parentId: CATEGORY, type: ChannelType.GuildText });
+  const inside = [
+    { id: '1516640233389822101', name: 'lfg', parentId: CATEGORY, type: ChannelType.GuildText },
+    { id: '1516640233389822102', name: 'fireteam-finder', parentId: CATEGORY, type: ChannelType.GuildText },
+    { id: '1516640233389822105', name: 'lobby', parentId: CATEGORY, type: ChannelType.GuildVoice }
+  ];
+  const guild = {
+    id: GUILD,
+    channels: {
+      fetch: async () => ({ values: () => [panels, staff, ...inside].values() }),
+      create: async () => { throw new Error('should reuse or pin'); }
+    }
+  };
+  const result = await provisionChannels({
+    guild,
+    env: {
+      VANGUARD_PANELS_CHANNEL_ID: OUTSIDE_PANELS,
+      VANGUARD_STAFF_ALERT_CHANNEL_ID: INSIDE_STAFF
+    },
+    categoryId: CATEGORY,
+    saved: {},
+    botId: '111111111111111111',
+    alert: async (text) => { alerts.push(text); }
+  });
+  assert.equal(result.ok, true);
+  assert.ok(result.skipped.includes('panels'));
+  assert.ok(result.pinned.includes('staff-alerts'));
+  assert.equal(edits.some((row) => row.channel === OUTSIDE_PANELS), false);
+  assert.equal(edits.some((row) => row.channel === INSIDE_STAFF), true);
+  assert.match(alerts.join('\n'), /not in the Vanguard category/);
+});
+
+test('a permission failure on one channel does not stop the rest', async () => {
+  const PANELS = '1516640233389822888';
+  const panels = {
+    id: PANELS,
+    name: 'panels',
+    parentId: CATEGORY,
+    type: ChannelType.GuildText,
+    permissionOverwrites: {
+      edit: async () => { throw new Error('Missing Permissions'); }
+    }
+  };
+  const created = [];
+  const guild = {
+    id: GUILD,
+    roles: { everyone: { id: GUILD } },
+    channels: {
+      fetch: async () => ({ values: () => [panels].values() }),
+      create: async (options) => {
+        const channel = {
+          id: IDS[created.length],
+          name: options.name,
+          parentId: options.parent,
+          type: options.type,
+          permissionOverwrites: { edit: async () => {} }
+        };
+        created.push(channel.name);
+        return channel;
+      }
+    }
+  };
+  const alerts = [];
+  const result = await provisionChannels({
+    guild,
+    env: {},
+    categoryId: CATEGORY,
+    saved: {},
+    botId: '111111111111111111',
+    alert: async (text) => { alerts.push(text); }
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.failed.includes('panels'));
+  assert.ok(created.includes('staff-alerts'));
+  assert.ok(created.includes('lobby'));
+  assert.match(alerts.join('\n'), /Permission update failed on panels/);
+  assert.equal(result.resolved.staffAlerts, IDS[created.indexOf('staff-alerts')]);
 });
 
 test('startup fail-closes when the category is missing or invalid', async () => {

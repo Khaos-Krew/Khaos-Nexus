@@ -89,7 +89,8 @@ async function handleAutocomplete(interaction, ctx) {
     return true;
   }
   if (focused.name === 'activity') {
-    await interaction.respond(searchActivities(focused.value));
+    const search = ctx.activities?.search || searchActivities;
+    await interaction.respond(search(focused.value));
     return true;
   }
   if (focused.name === 'post') {

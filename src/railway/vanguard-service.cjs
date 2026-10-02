@@ -3,12 +3,13 @@
 const { installGuildMembersIntentExtension } = require('../sentinel/guild-members-intent-extension.cjs');
 const { errorClass } = require('../game-bots/command-failure.cjs');
 const { startGameBot } = require('../game-bots/start.cjs');
-const { prepareVanguardEnv, installVanguard } = require('../game-bots/vanguard/entry.cjs');
+const { prepareVanguardEnv, installRejectionGuard, installVanguard } = require('../game-bots/vanguard/entry.cjs');
 
+installRejectionGuard();
 prepareVanguardEnv();
 process.env.NEXUS_GAME_ROLE ||= 'destiny';
 
-// Slice A does not start a game backend and does not call Bungie.
+// Vanguard stays read-only toward Bungie. There is no game backend and no economy.
 startGameBot({
   botName: 'Nexus Vanguard',
   botKey: 'vanguard',

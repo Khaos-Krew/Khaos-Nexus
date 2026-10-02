@@ -31,7 +31,7 @@ function buttonRow(post) {
 
 function renderPost(post, { lobbyId = '', ping = false } = {}) {
   const activity = findActivity(post.activityKey);
-  const label = activity?.label || 'Fireteam';
+  const label = post.activityLabel || activity?.label || 'Fireteam';
   const members = Array.isArray(post.members) ? post.members : [];
   const roster = members.map((id) => `<@${id}>`).join('\n') || 'Empty';
   const unix = Math.floor(Date.parse(post.expiresAt) / 1000);
@@ -68,7 +68,7 @@ function renderPost(post, { lobbyId = '', ping = false } = {}) {
 
 function boardEmbed(posts = []) {
   const lines = posts.slice(0, 20).map((post) => {
-    const label = findActivity(post.activityKey)?.label || post.activityKey;
+    const label = post.activityLabel || findActivity(post.activityKey)?.label || post.activityKey;
     const unix = Math.floor(Date.parse(post.expiresAt) / 1000);
     const when = Number.isFinite(unix) ? `<t:${unix}:R>` : 'soon';
     return `**${label}** ${post.members.length}/${post.slots} · <@${post.hostId}> · ${when} · \`${post.id}\``;

@@ -156,8 +156,12 @@ test('vanguard sources import shared helpers and do not call Bungie or the econo
   assert.match(fs.readFileSync(path.join(dir, 'jtc.cjs'), 'utf8'), /installJoinToCreate/);
   assert.match(fs.readFileSync(path.join(dir, 'panels.cjs'), 'utf8'), /upsertEmbed/);
   assert.match(fs.readFileSync(path.join(root, 'src/railway/vanguard-service.cjs'), 'utf8'), /startGameBot/);
-  assert.doesNotMatch(source, /bungie\.net|X-API-Key|require\('\.\.\/.*economy|require\('pg'\)|paypal|patreon|kofi/i);
-  assert.doesNotMatch(source, /https?:\/\//);
+  assert.match(fs.readFileSync(path.join(dir, 'entry.cjs'), 'utf8'), /commandName === 'd2'/);
+  assert.match(fs.readFileSync(path.join(dir, 'bungie/client.cjs'), 'utf8'), /X-API-Key/);
+  assert.match(fs.readFileSync(path.join(dir, 'bungie/client.cjs'), 'utf8'), /https:\/\/www\.bungie\.net\/Platform/);
+  assert.doesNotMatch(source, /MoveEquipDestinyItems|AdminGroups|BnetWrite|paypal|patreon|kofi|require\('pg'\)|HttpsProxyAgent|HTTP_PROXY|HTTPS_PROXY|oauth/i);
+  const urls = source.replace(/https:\/\/www\.bungie\.net/g, '').replace(/https:\/\/github\.com\/Khaos-Krew\/Khaos-Nexus/g, '');
+  assert.doesNotMatch(urls, /https?:\/\//);
 });
 
 test('vanguard image starts the service without baking tokens or category ids', {
@@ -166,5 +170,6 @@ test('vanguard image starts the service without baking tokens or category ids', 
   const docker = fs.readFileSync(path.join(root, 'Dockerfile.vanguard'), 'utf8');
   assert.match(docker, /src\/railway\/vanguard-service\.cjs/);
   assert.match(docker, /VANGUARD_DATA_DIR=\/data\/vanguard/);
+  assert.match(docker, /FROM node:22\.(?:1[3-9]|[2-9]\d)(?:\.\d+)?-slim/);
   assert.doesNotMatch(docker, /VANGUARD_DISCORD_TOKEN|VANGUARD_DISCORD_CATEGORY_ID=\d+|BUNGIE_/);
 });
