@@ -25,7 +25,8 @@ const TICK_BUDGET_MS = 60 * 1000;
 
 function reasonText(reason) {
   if (reason === 'disabled') return "That Destiny lookup isn't turned on yet. Ask staff.";
-  if (reason === 'unconfigured' || reason === 'gated' || reason === 'system-disabled') {
+  if (reason === 'system-disabled') return 'Bungie is down for maintenance right now; try again later.';
+  if (reason === 'unconfigured' || reason === 'gated') {
     return "Bungie isn't turned on yet. Ask staff.";
   }
   if (reason === 'auth' || reason === 'api-key') {
@@ -67,6 +68,7 @@ function createBungieRuntime({
   const health = createHealth({ file: paths.health, now: () => new Date(now()) });
   const manifest = createManifest({ dir: paths.manifestDir, now: () => new Date(now()) });
   const playerHits = new Map();
+  const warming = new Set();
   const timers = { health: 0, manifest: 0, reset: 0, xur: 0, clan: 0 };
   let resetAt = 0;
 
@@ -200,6 +202,15 @@ function createBungieRuntime({
       cache.set(key, payload);
     }
     return { ok: true, ...payload, embed: renderClanSummary(payload) };
+  }
+
+  function warmClan(groupId) {
+    const id = String(groupId || '');
+    if (!id || cache.get(`clan:${id}`)) return;
+    if (!feature('clan').ok) return;
+    if (warming.has(id)) return;
+    warming.add(id);
+    void clanSummary(id).finally(() => warming.delete(id));
   }
 
   async function clanRoster(groupId, page) {
@@ -389,6 +400,7 @@ function createBungieRuntime({
     weeklyView,
     xurView,
     clanSummary,
+    warmClan,
     clanRoster,
     player,
     refreshPanels,

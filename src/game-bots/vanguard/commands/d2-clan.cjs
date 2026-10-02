@@ -23,14 +23,11 @@ async function handleClanAutocomplete(interaction, ctx) {
   const choices = [];
   for (const id of ids) {
     const cached = ctx.bungie?.cache?.get?.(`clan:${id}`);
-    let name = String(cached?.summary?.name || '').trim();
-    if (!name && typeof ctx.bungie?.clanSummary === 'function') {
-      const view = await ctx.bungie.clanSummary(id);
-      name = String(view?.summary?.name || '').trim();
-    }
-    if (!name) name = 'Clan';
-    if (query && !name.toLowerCase().includes(query)) continue;
-    choices.push({ name: name.slice(0, 100), value: id });
+    const name = String(cached?.summary?.name || '').trim();
+    if (!name && typeof ctx.bungie?.warmClan === 'function') ctx.bungie.warmClan(id);
+    const label = name || id;
+    if (query && !label.toLowerCase().includes(query) && !id.includes(query)) continue;
+    choices.push({ name: String(label).slice(0, 100), value: id });
   }
   await interaction.respond(choices);
   return true;

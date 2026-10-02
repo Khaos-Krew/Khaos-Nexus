@@ -250,7 +250,7 @@ async function provisionChannels({ guild, env = {}, categoryId, saved = {}, reas
       await applyChannelAccess(channel, step.key, access);
     } catch (error) {
       failed.push(step.name);
-      console.warn(`[Nexus Vanguard] channel ${step.name} class=${errorClass(error)}`);
+      await notify(`Permission update failed on ${step.name} (class=${errorClass(error)}). Setup continued with the other channels.`);
     }
   }
   return {

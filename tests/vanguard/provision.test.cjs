@@ -257,17 +257,20 @@ test('a permission failure on one channel does not stop the rest', async () => {
       }
     }
   };
+  const alerts = [];
   const result = await provisionChannels({
     guild,
     env: {},
     categoryId: CATEGORY,
     saved: {},
-    botId: '111111111111111111'
+    botId: '111111111111111111',
+    alert: async (text) => { alerts.push(text); }
   });
   assert.equal(result.ok, false);
   assert.ok(result.failed.includes('panels'));
   assert.ok(created.includes('staff-alerts'));
   assert.ok(created.includes('lobby'));
+  assert.match(alerts.join('\n'), /Permission update failed on panels/);
   assert.equal(result.resolved.staffAlerts, IDS[created.indexOf('staff-alerts')]);
 });
 

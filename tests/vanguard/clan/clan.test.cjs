@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { MessageFlags } = require('discord.js');
 const { fetchClanRoster, normalizeRoster, normalizeSummary } = require('../../../src/game-bots/vanguard/bungie/clan.cjs');
-const { createBungieRuntime } = require('../../../src/game-bots/vanguard/bungie/runtime.cjs');
+const { createBungieRuntime, reasonText } = require('../../../src/game-bots/vanguard/bungie/runtime.cjs');
 const { renderClanSummary, renderRoster } = require('../../../src/game-bots/vanguard/panels/clan.cjs');
 const { panelFooter } = require('../../../src/game-bots/vanguard/panels.cjs');
 const { handleClanAutocomplete } = require('../../../src/game-bots/vanguard/commands/d2-clan.cjs');
@@ -262,4 +262,53 @@ test('roster is staff-only and can request a later page', async () => {
   assert.equal(choices[0].name, 'KHAOS NEXUS');
   assert.equal(choices[0].value, GROUP);
   assert.equal(choices[0].name.includes(GROUP), false);
+});
+
+test('clan autocomplete answers from cache only while Bungie hangs', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vanguard-clan-ac-'));
+  let fetches = 0;
+  let release = () => {};
+  const gate = new Promise((resolve) => { release = resolve; });
+  const env = {
+    BUNGIE_API_KEY: 'present',
+    VANGUARD_DATA_DIR: dir,
+    VANGUARD_CLAN_GROUP_IDS: GROUP
+  };
+  const runtime = createBungieRuntime({
+    env,
+    now: () => 1_000_000,
+    sleep: async () => {},
+    fetch: async () => {
+      fetches += 1;
+      await gate;
+      return {
+        status: 503,
+        headers: { get: () => 'application/json' },
+        async text() { return ''; }
+      };
+    }
+  });
+  const choices = [];
+  const started = Date.now();
+  try {
+    const pending = handleClanAutocomplete({
+      options: { getFocused: () => ({ name: 'clan', value: '' }) },
+      respond: async (rows) => choices.push(...rows)
+    }, { env, bungie: runtime });
+    const result = await Promise.race([
+      pending.then(() => 'done'),
+      new Promise((resolve) => setTimeout(() => resolve('slow'), 80))
+    ]);
+    assert.equal(result, 'done');
+    assert.ok(Date.now() - started < 50);
+    assert.equal(fetches, 0);
+    assert.equal(choices.length, 1);
+    assert.equal(choices[0].name, GROUP);
+    assert.equal(choices[0].value, GROUP);
+    assert.equal(reasonText('system-disabled'), 'Bungie is down for maintenance right now; try again later.');
+    assert.equal(reasonText('unconfigured'), "Bungie isn't turned on yet. Ask staff.");
+  } finally {
+    release();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
