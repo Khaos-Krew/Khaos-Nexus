@@ -9,11 +9,25 @@ const {
   eligibilityMessage
 } = require('../src/sentinel/creator-level-gate.cjs');
 
-test('creator application level gate defaults to level 10 and is configurable', () => {
-  assert.equal(DEFAULT_MINIMUM_LEVEL, 10);
-  assert.equal(minimumCreatorLevel({}, {}), 10);
+test('creator application level gate defaults to level 5 and is configurable', () => {
+  assert.equal(DEFAULT_MINIMUM_LEVEL, 5);
+  assert.equal(minimumCreatorLevel({}, {}), 5);
   assert.equal(minimumCreatorLevel({}, { NEXUS_CREATOR_MIN_LEVEL: '15' }), 15);
   assert.equal(minimumCreatorLevel({ discord: { creatorProgram: { minimumLevel: 7 } } }, {}), 7);
+});
+
+test('default level gate accepts level 5 and rejects level 4', () => {
+  const denied = evaluateCreatorEligibility({ ok: true, profile: { level: 4 } });
+  assert.equal(denied.eligible, false);
+  assert.equal(denied.verifiable, true);
+  assert.equal(denied.requiredLevel, 5);
+  assert.equal(denied.reason, 'level-too-low');
+  assert.match(eligibilityMessage(denied), /Level 5/);
+
+  const accepted = evaluateCreatorEligibility({ ok: true, profile: { level: 5 } });
+  assert.equal(accepted.eligible, true);
+  assert.equal(accepted.verifiable, true);
+  assert.equal(accepted.reason, 'eligible');
 });
 
 test('creator eligibility denies below threshold and accepts exact threshold', () => {

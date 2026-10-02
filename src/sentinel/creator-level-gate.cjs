@@ -1,6 +1,6 @@
 'use strict';
 
-const DEFAULT_MINIMUM_LEVEL = 10;
+const DEFAULT_MINIMUM_LEVEL = 5;
 
 function minimumCreatorLevel(config = {}, env = process.env) {
   const configured = Number(config.discord?.creatorProgram?.minimumLevel ?? config.creatorProgram?.minimumLevel ?? env.NEXUS_CREATOR_MIN_LEVEL ?? DEFAULT_MINIMUM_LEVEL);

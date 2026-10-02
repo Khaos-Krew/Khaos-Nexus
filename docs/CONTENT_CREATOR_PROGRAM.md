@@ -8,12 +8,16 @@ The Content Creator Program gives approved community creators a consistent Khaos
 
 Sentinal manages a dedicated `CONTENT CREATOR PROGRAM` category with these core channels:
 
-- `#creator-program` — public read-only program information and application intake.
+- `#creator-program` — program information and application intake.
 - `#creator-assets` — approved-creator access to official reusable Nexus creator assets/templates.
 - `#creator-chat` — approved-creator collaboration space.
-- `#twitch-live` — public read-only Twitch live-notification feed.
-- `#youtube-live` — public read-only YouTube live-notification feed.
 - `#creator-review` — protected Staff review queue outside the public category.
+
+Public posts use one read-only channel under `INFORMATION`:
+
+- `#creator-feed` — members can view and read history. Only Nexus Sentinal can send. Sentinal finds this channel or creates it. The 60-second creator-workspace lockdown does not hide it, and it also leaves public creator channels (`#creator-feed`, `#twitch-live`, `#youtube-live`) exempt if they sit inside the creator category.
+
+`#twitch-live` and `#youtube-live` are legacy channels. Sentinal no longer creates or rewrites them. `#creator-feed` replaces those feeds.
 
 ## Roles
 
@@ -37,24 +41,33 @@ Sentinal manages a dedicated `CONTENT CREATOR PROGRAM` category with these core 
 3. Application receives a durable `CCR-####` identifier and is stored in Sentinal state.
 4. Sentinal posts the application into protected `#creator-review`.
 5. Authorized Staff/Owners approve or deny.
-6. Approval assigns the `Content Creator` role and creates a creator profile for future provider linking.
+6. Approval assigns the `Content Creator` role and creates a creator profile, including saved Twitch, YouTube, and TikTok handles when the application includes them.
 7. Denial requires a staff reason and preserves the decision in the application record.
 8. A member with a pending or approved application cannot create duplicate active applications.
 
 ## Platform scope
 
-Initial supported targets:
+Supported platforms on the application form:
 
 - Twitch
 - YouTube
+- TikTok
 
-TikTok is deferred until the first two live-detection adapters are stable.
+TikTok is stored as `tiktok` with a saved handle. It is not recorded as `other`.
 
-The Discord program core does not pretend external automation is ready merely because channels exist. Provider readiness is explicit:
+Approved creators can share a link with `/creator post url:` into `#creator-feed`. Optional `ping` mentions the existing Stream Alerts role through `allowed_mentions` and does not ping `@everyone`. Verification uses free, keyless endpoints only:
+
+- TikTok: `https://www.tiktok.com/oembed`, and `author_unique_id` must match the saved handle.
+- YouTube: oEmbed, and the author must match the saved channel.
+- Twitch: a channel URL or clip whose login matches the saved handle. Clip links that omit the login are rejected.
+
+Each creator can post 3 times per 24 hours. A URL already in the feed is rejected. Revoked creators are blocked. `CREATOR_POST_ENABLED` defaults to true and does nothing harmful when `#creator-feed` is missing.
+
+There is no paid API, no scraper, no automatic live detection, and no manual Now Live toggle. The `Now Live` role stays provider-only:
 
 - Twitch automatic live detection requires authorized Twitch application credentials.
 - YouTube automatic live detection requires an authorized YouTube Data API credential.
-- Until those adapters are configured and accepted, the `Now Live` role and live-feed channels remain provider-ready infrastructure rather than manually/falsely updated status.
+- Until those adapters are configured and accepted, `Now Live` is not assigned by creator posts.
 
 ## Creator assets
 
