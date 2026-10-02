@@ -25,6 +25,8 @@ const DEFAULT_MC_SHOP_ITEMS = Object.freeze([
   Object.freeze({ sku: 'mc_backpack', itemId: 'sophisticatedbackpacks:backpack', qty: 1, price: 60, name: 'Backpack', dailyLimit: null })
 ]);
 
+const ALLOWED_SHOP_ITEM_IDS = new Set(DEFAULT_MC_SHOP_ITEMS.map((item) => item.itemId));
+
 function loadMcShopCatalog(env = process.env) {
   const raw = String(env.MC_SHOP_CATALOG_JSON || '').trim();
   let overrides = [];
@@ -36,18 +38,20 @@ function loadMcShopCatalog(env = process.env) {
   const bySku = new Map(overrides.map((item) => [String(item?.sku || '').trim(), item]));
   const items = DEFAULT_MC_SHOP_ITEMS.map((item) => {
     const override = bySku.get(item.sku) || {};
-    const itemId = String(override.itemId || item.itemId).trim();
-    const qty = Number.isSafeInteger(Number(override.qty)) ? Number(override.qty) : item.qty;
-    const price = Number.isSafeInteger(Number(override.price)) ? Number(override.price) : item.price;
-    const dailyLimit = override.dailyLimit == null ? item.dailyLimit : Number(override.dailyLimit);
+    if (override.qty != null && (!Number.isSafeInteger(Number(override.qty)) || Number(override.qty) <= 0)) {
+      throw new Error('MC shop catalog qty must be a positive whole number.');
+    }
+    if (!Number.isSafeInteger(item.qty) || item.qty <= 0) throw new Error('MC shop catalog qty must be a positive whole number.');
+    const requested = String(override.itemId || '').trim();
+    const itemId = ALLOWED_SHOP_ITEM_IDS.has(requested) ? requested : item.itemId;
     return Object.freeze({
       sku: item.sku,
       itemId,
-      qty,
-      price,
-      name: String(override.name || item.name),
-      dailyLimit: Number.isSafeInteger(dailyLimit) && dailyLimit > 0 ? dailyLimit : null,
-      active: override.active === false ? false : item && override.active !== false
+      qty: item.qty,
+      price: item.price,
+      name: item.name,
+      dailyLimit: item.dailyLimit,
+      active: true
     });
   });
   return Object.freeze({ version: CATALOG_VERSION, items: Object.freeze(items) });
@@ -69,6 +73,7 @@ module.exports = {
   MAX_DAILY_SPEND_NP,
   MAX_DAILY_ORDERS,
   DEFAULT_MC_SHOP_ITEMS,
+  ALLOWED_SHOP_ITEM_IDS,
   loadMcShopCatalog,
   catalogItem,
   catalogFingerprint

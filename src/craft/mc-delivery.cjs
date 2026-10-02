@@ -136,10 +136,11 @@ async function deliverMcOrder(order, { rcon, points, deliveryEnabled = false } =
 }
 
 async function runMcDeliveryCycle({ points, rcon, env = process.env, limit = 10 } = {}) {
+  const flags = mcPointsFlags(env);
+  if (flags.dryRun) return [{ skipped: 'dry-run' }];
   if (delivering) return [{ skipped: 'in-flight' }];
   delivering = true;
   try {
-    const flags = mcPointsFlags(env);
     if (!flags.shopDeliveryEnabled || !points) return [{ skipped: 'delivery-disabled' }];
     const results = [];
     await points.sweepExpiredLeases?.();

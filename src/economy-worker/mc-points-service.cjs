@@ -77,6 +77,7 @@ function stackLines(itemId, total) {
   if (!itemIdOk(itemId)) throw new Error('invalid-item-id');
   const lines = [];
   let left = Number(total);
+  if (!Number.isSafeInteger(left) || left <= 0) throw new Error('invalid-qty');
   while (left > 0) {
     const count = Math.min(64, left);
     lines.push({ itemId, count, status: 'PENDING' });
@@ -118,9 +119,10 @@ function quoteSignatureOk(quote, secret) {
   return crypto.timingSafeEqual(Buffer.from(actual, 'hex'), Buffer.from(expected, 'hex'));
 }
 
-function dayOrders(orders, discordUserId, nowMs) {
+function dayOrders(orders, economicIdentityId, nowMs) {
   const day = ctDayKey(nowMs);
-  return orders.filter((order) => order.source === 'mc-shop' && order.discordUserId === discordUserId && ctDayKey(Date.parse(order.createdAt)) === day && order.status !== 'REFUNDED');
+  const identity = String(economicIdentityId || '');
+  return orders.filter((order) => order.source === 'mc-shop' && order.economicIdentityId === identity && ctDayKey(Date.parse(order.createdAt)) === day && order.status !== 'REFUNDED');
 }
 
 function linesSent(order) {
@@ -350,8 +352,10 @@ class MemoryMcPoints {
     if (!mcEarnEligible(identity, link)) {
       return { ok: false, reason: verifiedDiscordIdentity(identity) ? 'verified-minecraft-link-required' : 'verified-identity-required' };
     }
+    if (await this.wallet.quarantined?.(identity.economicIdentityId)) return { ok: false, reason: 'quarantined' };
     const item = catalogItem(this.catalog, String(sku || ''));
     if (!item) return { ok: false, reason: 'unknown-sku' };
+    if (!Number.isSafeInteger(item.qty) || item.qty <= 0) return { ok: false, reason: 'invalid-qty' };
     const count = Number(bundles);
     if (!Number.isSafeInteger(count) || count < 1 || count > MAX_BUNDLES) return { ok: false, reason: 'bundle-limit' };
     const price = item.price * count;
@@ -394,9 +398,11 @@ class MemoryMcPoints {
     if (existing) return { ok: true, duplicate: true, order: existing };
     const item = catalogItem(this.catalog, pending.sku);
     if (!item) return { ok: false, reason: 'unknown-sku' };
+    if (!Number.isSafeInteger(item.qty) || item.qty <= 0) return { ok: false, reason: 'invalid-qty' };
     const price = item.price * pending.bundles;
     if (price !== pending.price || item.itemId !== pending.itemId) return { ok: false, reason: 'price-changed' };
-    const today = dayOrders([...this.orders.values()], pending.discordUserId, now);
+    if (await this.wallet.quarantined?.(pending.economicIdentityId)) return { ok: false, reason: 'quarantined' };
+    const today = dayOrders([...this.orders.values()], pending.economicIdentityId, now);
     if (today.length >= MAX_DAILY_ORDERS) return { ok: false, reason: 'daily-order-limit' };
     const spentToday = today.reduce((sum, order) => sum + Number(order.price || 0), 0);
     if (spentToday + price > MAX_DAILY_SPEND_NP) return { ok: false, reason: 'daily-spend-limit' };
@@ -418,8 +424,9 @@ class MemoryMcPoints {
       metadata: { sku: pending.sku, qty: lines.reduce((sum, line) => sum + line.count, 0), catalogVersion: pending.catalogVersion, price }
     });
     if (!spent?.ok) return { ok: false, reason: spent?.reason || 'spend-failed', balance: spent?.balance };
+    const replay = spent.duplicate === true;
     try {
-      if (this.crashAt === 'after-ledger') {
+      if (!replay && this.crashAt === 'after-ledger') {
         this.crashAt = '';
         const error = new Error('crash');
         error.code = 'mc-buy-crash';
@@ -449,8 +456,12 @@ class MemoryMcPoints {
       this.outbox.set(order.orderId, { outboxId: order.orderId, orderId: order.orderId, createdAt: order.createdAt });
       pending.consumed = true;
       bumpMcMetric('buy');
-      return { ok: true, order, balance: spent.balance, ledgerKey };
+      return { ok: true, order, balance: spent.balance, ledgerKey, replayed: replay };
     } catch (error) {
+      if (replay) {
+        if (error.code === 'duplicate-order-id') return { ok: false, reason: 'duplicate-order-id' };
+        throw error;
+      }
       await this.wallet.credit?.({
         discordUserId: pending.discordUserId,
         amount: price,
@@ -754,6 +765,7 @@ class MemoryMcPoints {
   }
 
   async sweepRefunds({ writesEnabled = false, now = this.now() } = {}) {
+    this.sweepExpiredLeases(now);
     const results = [];
     for (const order of this.orders.values()) {
       if (!this.#autoRefundable(order, now)) continue;

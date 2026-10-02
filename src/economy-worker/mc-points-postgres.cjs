@@ -517,14 +517,22 @@ class PostgresMcPoints {
       }
       const item = catalogItem(this.catalog, row.sku);
       const price = item ? item.price * Number(row.bundles) : null;
-      if (!item || price !== Number(row.price) || item.itemId !== row.item_id || catalogFingerprint(this.catalog) !== row.catalog_hash) {
+      if (!item || !Number.isSafeInteger(item.qty) || item.qty <= 0) {
+        await client.query('ROLLBACK');
+        return { ok: false, reason: 'invalid-qty' };
+      }
+      if (price !== Number(row.price) || item.itemId !== row.item_id || catalogFingerprint(this.catalog) !== row.catalog_hash) {
         await client.query('ROLLBACK');
         return { ok: false, reason: 'price-changed' };
       }
+      if (quarantineDenylist(this.env).has(String(row.economic_identity_id || ''))) {
+        await client.query('ROLLBACK');
+        return { ok: false, reason: 'quarantined' };
+      }
       if (item.dailyLimit) {
         const prior = await client.query(
-          `SELECT order_data FROM ${s}.nexus_mc_orders WHERE status <> 'REFUNDED' AND order_data->>'discordUserId' = $1 AND order_data->>'sku' = $2 AND order_data->>'source' = 'mc-shop'`,
-          [discord, row.sku]
+          `SELECT order_data FROM ${s}.nexus_mc_orders WHERE status <> 'REFUNDED' AND order_data->>'economicIdentityId' = $1 AND order_data->>'sku' = $2 AND order_data->>'source' = 'mc-shop'`,
+          [row.economic_identity_id, row.sku]
         );
         const day = ctDayKey(this.now());
         const skuCount = (prior.rows || []).reduce((sum, entry) => {
@@ -552,27 +560,34 @@ class PostgresMcPoints {
         [row.economic_identity_id]
       );
       const current = Number(wallet.rows?.[0]?.balance || 0);
-      if (current < price) {
+      const ledgerKey = `mc-shop:${row.economic_identity_id}:${row.sku}:${row.nonce}`;
+      const existingLedger = await client.query(
+        `SELECT id FROM ${s}.nexus_economy_ledger WHERE idempotency_key = $1`,
+        [ledgerKey]
+      );
+      const replay = Boolean(existingLedger.rowCount);
+      if (!replay && current < price) {
         await client.query('ROLLBACK');
         return { ok: false, reason: 'insufficient-funds', balance: current };
       }
       const next = current - price;
-      const ledgerKey = `mc-shop:${row.economic_identity_id}:${row.sku}:${row.nonce}`;
       const lines = stackLines(item.itemId, item.qty * Number(row.bundles));
       const orderId = crypto.randomUUID();
-      const insertedLedger = await client.query(
-        `INSERT INTO ${s}.nexus_economy_ledger (economic_identity_id, currency, amount, balance_after, entry_type, source, idempotency_key, metadata, created_at) ` +
-        `VALUES ($1,'NEXUS_POINTS',$2,$3,'purchase','sink:mc-shop',$4,$5::jsonb,NOW()) ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`,
-        [row.economic_identity_id, -price, next, ledgerKey, JSON.stringify({ sku: row.sku, price, catalogVersion: row.catalog_version })]
-      );
-      if (!insertedLedger.rowCount) {
-        await client.query('ROLLBACK');
-        return { ok: false, reason: 'duplicate-ledger' };
+      if (!replay) {
+        const insertedLedger = await client.query(
+          `INSERT INTO ${s}.nexus_economy_ledger (economic_identity_id, currency, amount, balance_after, entry_type, source, idempotency_key, metadata, created_at) ` +
+          `VALUES ($1,'NEXUS_POINTS',$2,$3,'purchase','sink:mc-shop',$4,$5::jsonb,NOW()) ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`,
+          [row.economic_identity_id, -price, next, ledgerKey, JSON.stringify({ sku: row.sku, price, catalogVersion: row.catalog_version })]
+        );
+        if (!insertedLedger.rowCount) {
+          await client.query('ROLLBACK');
+          return { ok: false, reason: 'duplicate-ledger' };
+        }
+        await client.query(
+          `UPDATE ${s}.nexus_economy_wallets SET balance = $2, updated_at = NOW() WHERE economic_identity_id = $1 AND currency = 'NEXUS_POINTS'`,
+          [row.economic_identity_id, next]
+        );
       }
-      await client.query(
-        `UPDATE ${s}.nexus_economy_wallets SET balance = $2, updated_at = NOW() WHERE economic_identity_id = $1 AND currency = 'NEXUS_POINTS'`,
-        [row.economic_identity_id, next]
-      );
       const nowIso = new Date(this.now()).toISOString();
       const order = {
         orderId,
@@ -595,7 +610,7 @@ class PostgresMcPoints {
         leaseOwner: null,
         leaseUntil: null,
         refunded: false,
-        balance: next
+        balance: replay ? current : next
       };
       await client.query(
         `INSERT INTO ${s}.nexus_mc_orders (order_id, nonce, order_data, status, price, created_at) VALUES ($1,$2,$3::jsonb,$4,$5,$6)`,
@@ -607,7 +622,7 @@ class PostgresMcPoints {
       );
       await client.query(`UPDATE ${s}.nexus_mc_quotes SET consumed_at = NOW() WHERE nonce = $1`, [row.nonce]);
       await client.query('COMMIT');
-      return { ok: true, order, balance: next, ledgerKey };
+      return { ok: true, order, balance: replay ? current : next, ledgerKey, replayed: replay };
     } catch (error) {
       try { await client.query('ROLLBACK'); } catch {}
       if (error.code === '23505') return { ok: false, reason: 'duplicate-order-id' };
@@ -766,6 +781,7 @@ class PostgresMcPoints {
   }
 
   async #sweep(input = {}) {
+    await this.#expireLeases();
     const ids = await this.pool.query(
       `SELECT order_id FROM ${sqlIdent(this.schema)}.nexus_mc_orders WHERE status IN ('PAID','PLAYER_OFFLINE')`
     );

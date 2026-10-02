@@ -347,6 +347,38 @@ test('help text covers setup and the edition matrix', () => {
   assert.match(help, /Java dedicated server: status ping and full RCON/);
 });
 
+test('minecraft economy loops start behind the flags without waiting for Discord', async () => {
+  const play = Symbol.for('khaos.nexus.craft.mc.playtime');
+  const delivery = Symbol.for('khaos.nexus.craft.mc.delivery');
+  const sweep = Symbol.for('khaos.nexus.craft.mc.refund-sweep');
+  delete globalThis[play];
+  delete globalThis[delivery];
+  delete globalThis[sweep];
+  const env = {
+    NEXUS_ECONOMY_URL: 'http://127.0.0.1:9',
+    NEXUS_ECONOMY_CRAFT_TOKEN: 'craft-token-for-loops',
+    MC_POINTS_ENABLED: 'true',
+    MC_PLAYTIME_NP_ENABLED: 'true',
+    MC_SHOP_ENABLED: 'true',
+    MC_SHOP_DELIVERY_ENABLED: 'true',
+    MC_PLAYTIME_DRY_RUN: 'false'
+  };
+  const started = await startNexusCraft({ env, port: 0, store: { getServer() { return null; } }, log: () => {} });
+  try {
+    assert.equal(started.idle, true);
+    assert.equal(started.mcLoops.started, true);
+    assert.equal(globalThis[play], true);
+    assert.equal(globalThis[delivery], true);
+    assert.equal(globalThis[sweep], true);
+  } finally {
+    for (const timer of started.mcLoops.timers || []) clearInterval(timer);
+    delete globalThis[play];
+    delete globalThis[delivery];
+    delete globalThis[sweep];
+    await new Promise((resolve) => started.server.close(resolve));
+  }
+});
+
 test('boots healthy when NEXUS_CRAFT_TOKEN is missing', async () => {
   const lines = [];
   let started;

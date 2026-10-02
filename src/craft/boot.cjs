@@ -54,15 +54,26 @@ async function startNexusCraft(options = {}) {
   const port = Number.isInteger(options.port) ? options.port : Number(env.PORT || 8080);
   const state = { discord: 'idle' };
   const server = await createHealthServer(port, () => state);
+  const { economyConfigured } = require('./mc-economy-http.cjs');
+  const { installMcEconomyLoops } = require('./mc-points-commands.cjs');
+  let mcLoops = { started: false, timers: [] };
+  if (economyConfigured(env)) {
+    try {
+      const store = options.store || require('./store.cjs').openCraftStore(env);
+      mcLoops = installMcEconomyLoops({ store, env, log: (line) => writeLog(options.log, line) });
+    } catch (error) {
+      writeLog(options.log, `[Nexus Craft] mc loops ${String(error?.message || error).slice(0, 160)}`);
+    }
+  }
   const token = String(env.NEXUS_CRAFT_TOKEN || '').trim();
   if (!token) {
     writeLog(options.log, '[Nexus Craft] token missing, Discord idle');
-    return { server, idle: true, state };
+    return { server, idle: true, state, mcLoops };
   }
   state.discord = 'starting';
   const { startCraftDiscord } = require('./bot.cjs');
   await startCraftDiscord({ env, state, token, client: options.client });
-  return { server, idle: false, state };
+  return { server, idle: false, state, mcLoops };
 }
 
 module.exports = { createHealthServer, healthPayload, startNexusCraft };

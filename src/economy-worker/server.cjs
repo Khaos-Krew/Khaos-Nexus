@@ -17,7 +17,6 @@ class EconomyRequestError extends Error {
 }
 
 const { registerAdminWalletDrainPaths, handleAdminWalletPost } = require('./admin-wallet-routes.cjs');
-const DRAIN_MUTATION_PATHS = registerAdminWalletDrainPaths(new Set(['/identity/link', '/identity/demote-restricted', '/wallet/ensure-shadow-recruit']));
 const PRESENCE_WRITE_PATHS = new Set(['/presence', '/wallet/accrue-offline']);
 const FINANCIAL_WRITE_PATHS = new Set([
   '/wallet/credit',
@@ -41,6 +40,15 @@ const MC_NONECONOMY_PATHS = new Set([
   '/mc-shop/delivery-status',
   '/mc-shop/claim'
 ]);
+const DRAIN_MUTATION_PATHS = registerAdminWalletDrainPaths(new Set([
+  '/identity/link',
+  '/identity/demote-restricted',
+  '/wallet/ensure-shadow-recruit',
+  ...MC_NONECONOMY_PATHS,
+  '/mc-shop/buy',
+  '/mc-shop/refund',
+  '/mc-shop/refund-sweep'
+]));
 const CRAFT_ROUTES = new Set([
   'POST /presence',
   'POST /mc/link/challenge',
@@ -97,7 +105,7 @@ function presenceBody(input) {
   if ('eosId' in body) copy.eosId = body.eosId;
   if ('mcUuid' in body) copy.mcUuid = body.mcUuid;
   if ('online' in body) copy.online = body.online === true;
-  if ('rankId' in body) copy.rankId = body.rankId;
+  if (body.afk === true) copy.afk = true;
   if ('server' in body) copy.server = body.server;
   return copy;
 }
@@ -346,8 +354,11 @@ function createEconomyServer(options = {}) {
       if (req.method === 'GET' && url.pathname === '/shop/orders/pending') {
         return json(res, 200, { ok: true, orders: await Promise.resolve(shop.pendingBuyOrders()) });
       }
-      if (req.method === 'GET' && url.pathname === '/mc-shop/catalog' && worker.minecraft) {
-        return json(res, 200, { ok: true, catalog: worker.minecraft.catalog, enabled: require('../shared/mc-points-flags.cjs').mcPointsFlags().shopEnabled });
+      if (req.method === 'GET' && url.pathname === '/mc-shop/catalog') {
+        const { loadMcShopCatalog } = require('../shared/mc-shop-catalog.cjs');
+        const { mcPointsFlags } = require('../shared/mc-points-flags.cjs');
+        const catalog = worker.minecraft?.catalog || loadMcShopCatalog();
+        return json(res, 200, { ok: true, catalog, enabled: mcPointsFlags().shopEnabled });
       }
       if (req.method === 'GET' && url.pathname === '/mc-shop/orders/pending' && worker.minecraft) {
         return json(res, 200, { ok: true, orders: await Promise.resolve(worker.minecraft.pendingOrders()) });

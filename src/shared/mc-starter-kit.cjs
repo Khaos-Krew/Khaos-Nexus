@@ -20,16 +20,25 @@ const DEFAULT_KIT_ITEMS = Object.freeze([
   Object.freeze({ itemId: BACKPACK_ID, qty: 1 })
 ]);
 
+const ALLOWED_KIT_ITEM_IDS = new Set(DEFAULT_KIT_ITEMS.map((item) => item.itemId));
+
 function loadStarterKit(env = process.env) {
   const raw = String(env.MC_STARTER_KIT_JSON || '').trim();
-  let items = DEFAULT_KIT_ITEMS.map((item) => ({ ...item }));
+  let items = DEFAULT_KIT_ITEMS.map((item) => ({ itemId: item.itemId, qty: item.qty }));
   if (raw) {
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || !parsed.length) throw new Error('MC_STARTER_KIT_JSON must be a non-empty array.');
-    items = parsed.map((item) => ({
-      itemId: String(item?.itemId || '').trim(),
-      qty: Number(item?.qty)
-    }));
+    if (!Array.isArray(parsed) || parsed.length !== items.length) {
+      throw new Error('MC_STARTER_KIT_JSON cannot add or remove kit items.');
+    }
+    items = items.map((item, index) => {
+      const override = parsed[index] || {};
+      if (override.qty != null && (!Number.isSafeInteger(Number(override.qty)) || Number(override.qty) <= 0)) {
+        throw new Error('Starter Kit qty must be a positive whole number.');
+      }
+      if (!Number.isSafeInteger(item.qty) || item.qty <= 0) throw new Error('Starter Kit qty must be a positive whole number.');
+      const requested = String(override.itemId || '').trim();
+      return { itemId: ALLOWED_KIT_ITEM_IDS.has(requested) ? requested : item.itemId, qty: item.qty };
+    });
   }
   if (!items.some((item) => item.itemId === BACKPACK_ID && item.qty >= 1)) {
     throw new Error('Starter Kit must include sophisticatedbackpacks:backpack.');

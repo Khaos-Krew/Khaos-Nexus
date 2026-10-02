@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { mutationRequestGate } = require('../src/economy-worker/server.cjs');
+const { mutationRequestGate, drainMutationGate, MC_NONECONOMY_PATHS } = require('../src/economy-worker/server.cjs');
 
 test('mutation request gate rejects financial writes before body parsing in read-only mode', () => {
   assert.deepEqual(mutationRequestGate('/wallet/credit', {
@@ -55,6 +55,15 @@ test('mutation request gate can be re-evaluated after body parsing to catch a dr
       draining: true
     }
   });
+});
+
+test('minecraft mutation routes are on the drain gate', () => {
+  const draining = { statusCode: 503, body: { ok: false, error: 'economy-worker-draining', draining: true } };
+  for (const path of [...MC_NONECONOMY_PATHS, '/mc-shop/buy', '/mc-shop/refund', '/mc-shop/refund-sweep']) {
+    assert.deepEqual(drainMutationGate(path, { lifecycle: { draining: true } }), draining, path);
+    assert.deepEqual(mutationRequestGate(path, { writesEnabled: true, lifecycle: { draining: true } }), draining, path);
+  }
+  assert.equal(drainMutationGate('/mc-shop/quote', { lifecycle: { draining: false } }), null);
 });
 
 test('mutation request gate leaves non-mutating quote requests readable during drain', () => {

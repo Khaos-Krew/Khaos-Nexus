@@ -8,6 +8,7 @@ const { normalizeUuid } = require('../craft/mc-rcon-text.cjs');
 const { otherPresenceOnline, planMinecraftContribution, minecraftServerName } = require('./mc-playtime-accounting.cjs');
 const { bumpMcMetric } = require('./mc-points-service.cjs');
 const { ensureMinecraftSchema } = require('./mc-points-postgres.cjs');
+const { quarantineDenylist } = require('../sentinel/nexus-economy-wallet-core.cjs');
 
 const ONLINE_INTERVAL_MS = 5 * 60_000;
 const MAX_ACCOUNTING_GAP_MS = ONLINE_INTERVAL_MS * 2;
@@ -221,7 +222,7 @@ class PostgresEconomyAccrual {
     return { balance: nextBalance, credited: nextBalance === balance ? 0 : amount };
   }
 
-  async #dryRunMinecraft({ mcUuid, online, rankId, server }) {
+  async #dryRunMinecraft({ mcUuid, online, server, afk = false }) {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN READ ONLY');
@@ -229,6 +230,10 @@ class PostgresEconomyAccrual {
       if (!identity) {
         await client.query('ROLLBACK');
         return { ok: false, reason: 'unlinked-player', dryRun: true, credited: 0 };
+      }
+      if (quarantineDenylist(this.env).has(String(identity.economic_identity_id || ''))) {
+        await client.query('ROLLBACK');
+        return { ok: false, reason: 'quarantined', dryRun: true, credited: 0 };
       }
       const stateResult = await client.query(
         `SELECT * FROM ${this.schema}.nexus_economy_accrual_state WHERE economic_identity_id = $1`,
@@ -256,10 +261,12 @@ class PostgresEconomyAccrual {
         accountingGap,
         otherOnline: Boolean(otherSource),
         otherSource: otherSource || 'ark',
-        maxGapMs: MAX_ACCOUNTING_GAP_MS
+        maxGapMs: MAX_ACCOUNTING_GAP_MS,
+        afk: afk === true
       });
-      const perk = economyPerkForRank(state.rank_id || rankId || 'shadow-recruit');
-      const projectedCredit = Math.floor((Number(state.online_uncredited_ms || 0) + planned.gap) / ONLINE_INTERVAL_MS) * Number(perk.onlinePointsPerFiveMinutes || 0);
+      const perk = economyPerkForRank(state.rank_id || 'shadow-recruit');
+      const projectedUncredited = Math.max(0, Number(state.online_uncredited_ms || 0) + planned.gap - Number(planned.afkClawbackMs || 0));
+      const projectedCredit = Math.floor(projectedUncredited / ONLINE_INTERVAL_MS) * Number(perk.onlinePointsPerFiveMinutes || 0);
       bumpMcMetric('dryRun');
       console.log(`[Nexus Economy] mc_playtime_dry_run identity=${identity.economic_identity_id} server=${server} gap=${planned.gap} countedMs=${planned.mcCountedMs} capHit=${planned.capHit} projectedCredit=${projectedCredit} day=${planned.mcCountedDay} overflowDroppedMs=${planned.overflowDroppedMs} presenceAt=${lastPresenceMs || 0}`);
       await client.query('ROLLBACK');
@@ -283,13 +290,13 @@ class PostgresEconomyAccrual {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      const delta = Math.max(0, Number(planned.mcLifetimeMs || 0) - Number(previousLifetime || 0));
+      const delta = Number(planned.mcLifetimeMs || 0) - Number(previousLifetime || 0);
       const link = await client.query(
         `SELECT playtime_ms FROM ${this.schema}.nexus_mc_links WHERE mc_uuid = $1 FOR UPDATE`,
         [mcUuid]
       );
       if (link.rows?.[0]) {
-        const nextPlay = Number(link.rows[0].playtime_ms || 0) + delta;
+        const nextPlay = Math.max(0, Number(link.rows[0].playtime_ms || 0) + delta);
         await client.query(
           `UPDATE ${this.schema}.nexus_mc_links SET playtime_ms = $2, updated_at = NOW() WHERE mc_uuid = $1`,
           [mcUuid, nextPlay]
@@ -310,7 +317,7 @@ class PostgresEconomyAccrual {
     }
   }
 
-  async recordPresence({ eosId, mcUuid, online, rankId, server, provider } = {}) {
+  async recordPresence({ eosId, mcUuid, online, rankId, server, provider, afk = false } = {}) {
     const minecraft = provider === 'minecraft' || (mcUuid && !eosId);
     const serverKeyInput = minecraft ? (server == null || server === '' ? 'minecraft' : server) : (server || 'ark');
     let minecraftServer = '';
@@ -320,7 +327,7 @@ class PostgresEconomyAccrual {
       if (!gate.playtimeEnabled) return { ok: false, reason: 'mc-playtime-disabled', credited: 0 };
       minecraftServer = minecraftServerName(serverKeyInput);
       if (!minecraftServer) return { ok: false, reason: 'invalid-mc-server', credited: 0 };
-      if (gate.dryRun) return this.#dryRunMinecraft({ mcUuid, online, rankId, server: minecraftServer });
+      if (gate.dryRun) return this.#dryRunMinecraft({ mcUuid, online, server: minecraftServer, afk });
       const ready = await ensureMinecraftSchema({ pool: this.pool, schema: this.schemaName, mark: this });
       if (!ready.ok) return { ok: false, reason: 'mc-schema-unavailable', credited: 0 };
     }
@@ -334,8 +341,13 @@ class PostgresEconomyAccrual {
         await client.query('ROLLBACK');
         return { ok: false, reason: 'unlinked-player' };
       }
+      if (minecraft && quarantineDenylist(this.env).has(String(identity.economic_identity_id || ''))) {
+        await client.query('ROLLBACK');
+        return { ok: false, reason: 'quarantined', credited: 0 };
+      }
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${identity.economic_identity_id}:NEXUS_POINTS`]);
-      const locked = await this.#lockStateAndWallet(client, identity.economic_identity_id, rankId);
+      // Minecraft earn uses the rank synced from Discord roles. The presence body cannot overwrite it.
+      const locked = await this.#lockStateAndWallet(client, identity.economic_identity_id, minecraft ? null : rankId);
       const state = locked.state;
       let balance = locked.balance;
       const nowMs = this.now();
@@ -359,9 +371,10 @@ class PostgresEconomyAccrual {
         accountingGap = Math.max(0, Math.min(nowMs - previous, MAX_ACCOUNTING_GAP_MS));
       }
       let creditSource = serverKey;
+      let planned = null;
       if (minecraft) {
         const otherSource = otherPresenceOnline(presenceBefore, nowMs, PRESENCE_TTL_MS);
-        const planned = planMinecraftContribution({
+        planned = planMinecraftContribution({
           mcCountedDay: state.mc_counted_day || '',
           mcCountedMs: Number(state.mc_counted_ms || 0),
           mcLifetimeMs: Number(state.mc_lifetime_ms || 0),
@@ -372,7 +385,8 @@ class PostgresEconomyAccrual {
           accountingGap,
           otherOnline: Boolean(otherSource),
           otherSource: otherSource || 'ark',
-          maxGapMs: MAX_ACCOUNTING_GAP_MS
+          maxGapMs: MAX_ACCOUNTING_GAP_MS,
+          afk: afk === true
         });
         accountingGap = planned.gap;
         creditSource = planned.creditSource;
@@ -384,6 +398,7 @@ class PostgresEconomyAccrual {
         state.mcCapHit = planned.capHit;
       }
       uncredited += accountingGap;
+      if (planned?.afkClawbackMs) uncredited = Math.max(0, uncredited - Number(planned.afkClawbackMs));
       state.last_accounting_at = nowIso;
 
       while (uncredited >= ONLINE_INTERVAL_MS) {

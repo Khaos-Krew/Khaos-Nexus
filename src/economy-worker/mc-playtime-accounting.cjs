@@ -3,6 +3,7 @@
 const MC_DAILY_CAP_MS = 8 * 60 * 60 * 1000;
 const PRESENCE_TTL_MS = 3 * 60 * 1000;
 const MAX_ACCOUNTING_GAP_MS = 10 * 60 * 1000;
+const AFK_CLAWBACK_MS = 5 * 60 * 1000;
 
 function ctDayKey(nowMs, timeZone = 'America/Chicago') {
   return new Intl.DateTimeFormat('en-CA', {
@@ -43,7 +44,9 @@ function planMinecraftContribution({
   accountingGap = 0,
   otherOnline = false,
   otherSource = 'ark',
-  maxGapMs = MAX_ACCOUNTING_GAP_MS
+  maxGapMs = MAX_ACCOUNTING_GAP_MS,
+  afk = false,
+  afkWindowMs = AFK_CLAWBACK_MS
 } = {}) {
   const day = ctDayKey(nowMs);
   let counted = Number(mcCountedMs || 0);
@@ -60,8 +63,16 @@ function planMinecraftContribution({
   let overflowDroppedMs = 0;
   let capHit = false;
   let creditSource = 'minecraft';
+  let afkClawbackMs = 0;
+  if (afk === true) {
+    lifetime -= Math.min(Math.max(0, Number(afkWindowMs) || 0), lifetime);
+  }
   if (otherOnline) {
     creditSource = otherSource || 'ark';
+  } else if (afk === true) {
+    gap = 0;
+    afkClawbackMs = Math.max(0, Number(afkWindowMs) || 0);
+    capHit = counted >= MC_DAILY_CAP_MS;
   } else {
     const room = Math.max(0, MC_DAILY_CAP_MS - counted);
     if (gap > room) {
@@ -77,6 +88,7 @@ function planMinecraftContribution({
     overflowDroppedMs,
     capHit,
     creditSource,
+    afkClawbackMs,
     mcCountedDay: day,
     mcCountedMs: counted,
     mcLifetimeMs: lifetime,
@@ -89,6 +101,7 @@ module.exports = {
   MC_DAILY_CAP_MS,
   PRESENCE_TTL_MS,
   MAX_ACCOUNTING_GAP_MS,
+  AFK_CLAWBACK_MS,
   ctDayKey,
   minecraftServerName,
   isMinecraftPresenceKey,

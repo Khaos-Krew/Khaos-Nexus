@@ -172,12 +172,13 @@ async function handleMcPointsCommand(interaction, context) {
 }
 
 function installMcEconomyLoops({ store, env = process.env, log = console.log } = {}) {
-  if (!economyConfigured(env)) return { started: false };
+  if (!economyConfigured(env)) return { started: false, timers: [] };
   const points = httpMinecraftPoints(env);
   const flags = mcPointsFlags(env);
+  const timers = [];
   if (flags.trackingEnabled && !globalThis[PLAYTIME_LOOP]) {
     globalThis[PLAYTIME_LOOP] = true;
-    installMcPlaytimeLoop({
+    const playtime = installMcPlaytimeLoop({
       env,
       presence: (input) => points.presence(input),
       rcon: async (command) => {
@@ -186,6 +187,7 @@ function installMcEconomyLoops({ store, env = process.env, log = console.log } =
       },
       log: (summary) => log(`[Nexus Craft] mc playtime online=${summary.online} players=${summary.players} afk=${summary.afk} failures=${summary.failures}`)
     });
+    if (playtime.timer) timers.push(playtime.timer);
   }
   if ((flags.shopEnabled || flags.starterKitEnabled) && !globalThis[SWEEP_LOOP]) {
     globalThis[SWEEP_LOOP] = true;
@@ -193,8 +195,9 @@ function installMcEconomyLoops({ store, env = process.env, log = console.log } =
       points.sweepRefunds({}).catch((error) => log(`[Nexus Craft] mc refund sweep ${String(error?.message || error).slice(0, 160)}`));
     }, 60 * 1000);
     sweepTimer.unref?.();
+    timers.push(sweepTimer);
   }
-  if (flags.shopDeliveryEnabled && !globalThis[DELIVERY_LOOP]) {
+  if (flags.shopDeliveryEnabled && !flags.dryRun && !globalThis[DELIVERY_LOOP]) {
     globalThis[DELIVERY_LOOP] = true;
     const timer = setInterval(() => {
       defaultRcon(store).then((rcon) => runMcDeliveryCycle({ points, rcon, env })).catch((error) => {
@@ -202,8 +205,9 @@ function installMcEconomyLoops({ store, env = process.env, log = console.log } =
       });
     }, 10000);
     timer.unref?.();
+    timers.push(timer);
   }
-  return { started: true };
+  return { started: true, timers };
 }
 
 module.exports = { reasonText, handleMcPointsCommand, installMcEconomyLoops };

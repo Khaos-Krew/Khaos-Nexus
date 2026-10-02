@@ -130,8 +130,13 @@ test('catalog keeps 14 configurable item ids and the kit keeps the backpack', ()
   const catalog = loadMcShopCatalog({});
   assert.equal(catalog.items.length, 14);
   assert.equal(catalog.items.filter((item) => item.sku === 'mc_diamond4')[0].dailyLimit, 2);
-  const overridden = loadMcShopCatalog({ MC_SHOP_CATALOG_JSON: JSON.stringify([{ sku: 'mc_iron64', itemId: 'minecraft:raw_iron' }]) });
-  assert.equal(overridden.items.find((item) => item.sku === 'mc_iron64').itemId, 'minecraft:raw_iron');
+  const overridden = loadMcShopCatalog({ MC_SHOP_CATALOG_JSON: JSON.stringify([{ sku: 'mc_iron64', itemId: 'minecraft:diamond', price: 1, qty: 9 }, { sku: 'mc_new', itemId: 'minecraft:tnt', price: 1 }]) });
+  assert.equal(overridden.items.find((item) => item.sku === 'mc_iron64').itemId, 'minecraft:diamond');
+  assert.equal(overridden.items.find((item) => item.sku === 'mc_iron64').price, 40);
+  assert.equal(overridden.items.find((item) => item.sku === 'mc_iron64').qty, 64);
+  assert.equal(overridden.items.length, 14);
+  assert.equal(loadMcShopCatalog({ MC_SHOP_CATALOG_JSON: JSON.stringify([{ sku: 'mc_iron64', itemId: 'minecraft:raw_iron' }]) }).items.find((item) => item.sku === 'mc_iron64').itemId, 'minecraft:iron_ingot');
+  assert.throws(() => loadMcShopCatalog({ MC_SHOP_CATALOG_JSON: JSON.stringify([{ sku: 'mc_iron64', qty: 0 }]) }));
   assert.equal(loadStarterKit({}).items.at(-1).itemId, BACKPACK_ID);
   assert.throws(() => loadStarterKit({ MC_STARTER_KIT_JSON: JSON.stringify([{ itemId: 'minecraft:bread', qty: 1 }]) }));
   assert.equal(DEFAULT_MC_SHOP_ITEMS.some((item) => /tnt|nether_star|spawn_egg|allthemodium/i.test(item.itemId)), false);
@@ -401,6 +406,18 @@ test('playtime poll logs AFK and does not post while dry-run', async () => {
   });
   assert.equal(second.afk, 1);
   assert.equal(posts.at(-1).online, false);
+  assert.equal(posts.at(-1).afk, true);
+  const commands = [];
+  const bare = await pollMcPlaytime({
+    rcon: async (command) => {
+      commands.push(command);
+      return rcon(command);
+    },
+    presence: async () => {},
+    env: { MC_POINTS_ENABLED: 'true', MC_PLAYTIME_NP_ENABLED: 'true', MC_PLAYTIME_DRY_RUN: 'true' }
+  });
+  assert.equal(bare.ok, true);
+  assert.equal(commands.some((command) => String(command).startsWith('give ')), false);
   const dryPosts = [];
   const dry = await pollMcPlaytime({
     rcon,
