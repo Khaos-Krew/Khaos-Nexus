@@ -13,6 +13,7 @@ const { renderModuleConsole } = require('./module-console.cjs');
 const { ensurePanelMessage } = require('./persistent-panel-extension.cjs');
 const { createCoalescingRunner } = require('./coalescing-runner.cjs');
 const { activeSentinelModules } = require('./retired-module-policy.cjs');
+const { isNoProvisionChannelModule } = require('./no-provision-modules.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.moduleAutoprovision.extension');
 const INITIAL_PROVISION_DELAY_MS = 160_000;
@@ -50,6 +51,8 @@ function modulesNeedingProvision(config = {}, state, channels, roles) {
   const pending = [];
   const blocked = [];
   for (const module of enabledSentinelModules(config)) {
+    // Removed games never get channels/categories back, regardless of enabled flags.
+    if (isNoProvisionChannelModule(module.id)) continue;
     const setup = state?.getModuleSetup?.(module.id) || null;
     if (setupHealthy(setup, channels, module.id)) continue;
     const access = state?.getAccessRole?.(module.id) || null;
