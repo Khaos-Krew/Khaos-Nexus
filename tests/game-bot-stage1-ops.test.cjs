@@ -34,6 +34,11 @@ const {
 const root = path.resolve(__dirname, '..');
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
 
+function missingImageFiles(relatives) {
+  const missing = relatives.filter((relative) => !fs.existsSync(path.join(root, relative)));
+  return missing.length ? `image does not include ${missing.join(', ')}` : false;
+}
+
 function flush() {
   return new Promise((resolve) => setImmediate(resolve));
 }
@@ -389,6 +394,15 @@ test('Sentinal is not category-locked and Railway files keep RCON out of Ascende
   assert.doesNotMatch(read('src/railway/sentinal-service.cjs'), /installCategoryGate|installOpsSpine|category-gate/);
   assert.match(read('src/game-bots/start.cjs'), /installCategoryGate/);
   assert.match(read('src/game-bots/start.cjs'), /installOpsSpine/);
+});
+
+test('Railway game-bot files keep category ids and leave RCON out of Ascended env', {
+  skip: missingImageFiles([
+    'Dockerfile.cephalon',
+    'Dockerfile.ascended',
+    'docs/ops/STAGE1_GAME_BOT_OPS.md'
+  ])
+}, () => {
   assert.match(read('Dockerfile.cephalon'), /CEPHALON_DISCORD_CATEGORY_ID=1516640233389822042/);
   assert.match(read('Dockerfile.cephalon'), /CEPHALON_JTC_LOBBY_CHANNEL_ID=1540877236184424500/);
   assert.match(read('Dockerfile.ascended'), /ASCENDED_DISCORD_CATEGORY_ID=1516602943670059108/);

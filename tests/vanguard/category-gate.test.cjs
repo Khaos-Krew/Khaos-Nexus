@@ -158,6 +158,11 @@ test('vanguard sources import shared helpers and do not call Bungie or the econo
   assert.match(fs.readFileSync(path.join(root, 'src/railway/vanguard-service.cjs'), 'utf8'), /startGameBot/);
   assert.doesNotMatch(source, /bungie\.net|X-API-Key|require\('\.\.\/.*economy|require\('pg'\)|paypal|patreon|kofi/i);
   assert.doesNotMatch(source, /https?:\/\//);
+});
+
+test('vanguard image starts the service without baking tokens or category ids', {
+  skip: fs.existsSync(path.join(root, 'Dockerfile.vanguard')) ? false : 'image does not include Dockerfile.vanguard'
+}, () => {
   const docker = fs.readFileSync(path.join(root, 'Dockerfile.vanguard'), 'utf8');
   assert.match(docker, /src\/railway\/vanguard-service\.cjs/);
   assert.match(docker, /VANGUARD_DATA_DIR=\/data\/vanguard/);

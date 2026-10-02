@@ -654,6 +654,23 @@ test('brand banner files exist inside the paths the game-bot images copy', () =>
     assert.ok(bytes.length > 8_000);
     assert.ok(bytes.length < 500_000);
     assert.equal(relative.startsWith('src/'), true);
+  }
+  const hub = bannerFor('sentinal');
+  const hubRelative = path.relative(root, hub.path).split(path.sep).join('/');
+  assert.equal(fs.existsSync(hub.path), true);
+  assert.equal(hubRelative.startsWith('src/'), true);
+  assert.equal(PANEL_IDENTITIES.fissures.titles.includes('Fissure Relay Board'), true);
+});
+
+test('game-bot images copy src so brand banners ship with the bot', {
+  skip: ['cephalon', 'ascended', 'sanctuary', 'sentinal'].some((bot) => !fs.existsSync(path.join(__dirname, '..', `Dockerfile.${bot}`)))
+    ? 'image does not include every game-bot Dockerfile'
+    : false
+}, () => {
+  const root = path.join(__dirname, '..');
+  for (const bot of ['cephalon', 'ascended', 'sanctuary']) {
+    const banner = bannerFor(bot);
+    const relative = path.relative(root, banner.path).split(path.sep).join('/');
     const docker = fs.readFileSync(path.join(root, `Dockerfile.${bot}`), 'utf8');
     assert.match(docker, /^COPY src \.\/src$/m);
     const copied = docker.split('\n').some((line) => {
@@ -664,12 +681,7 @@ test('brand banner files exist inside the paths the game-bot images copy', () =>
     });
     assert.equal(copied, true);
   }
-  const hub = bannerFor('sentinal');
-  const hubRelative = path.relative(root, hub.path).split(path.sep).join('/');
-  assert.equal(fs.existsSync(hub.path), true);
-  assert.equal(hubRelative.startsWith('src/'), true);
   assert.match(fs.readFileSync(path.join(root, 'Dockerfile.sentinal'), 'utf8'), /^COPY src \.\/src$/m);
-  assert.equal(PANEL_IDENTITIES.fissures.titles.includes('Fissure Relay Board'), true);
 });
 
 function warframeWorldstate(pathname) {
