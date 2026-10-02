@@ -11,9 +11,12 @@ const STREAM_ALERTS_ROLE_NAME = 'Stream Alerts';
 const TIKTOK_OEMBED_ORIGIN = 'https://www.tiktok.com/oembed';
 const YOUTUBE_OEMBED_ORIGIN = 'https://www.youtube.com/oembed';
 const TIKTOK_HOSTS = new Set(['tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com', 'm.tiktok.com']);
+const TIKTOK_SHORT_HOSTS = new Set(['vm.tiktok.com', 'vt.tiktok.com']);
 const YOUTUBE_HOSTS = new Set(['youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be']);
 const TWITCH_HOSTS = new Set(['twitch.tv', 'm.twitch.tv', 'clips.twitch.tv']);
 const TWITCH_RESERVED = new Set(['directory', 'videos', 'video', 'settings', 'subscriptions', 'downloads', 'jobs', 'search', 'p', 'clip', 'clips', 'popout', 'embed', 'moderator', 'products']);
+const MAX_OEMBED_BYTES = 64 * 1024;
+const pendingCreatorPosts = [];
 
 function creatorPostEnabled(env = process.env) {
   const raw = env?.CREATOR_POST_ENABLED;
@@ -128,10 +131,7 @@ function tiktokAuthorMatches(oembed, savedHandle) {
 function youtubeAuthorMatches(savedChannel, oembed) {
   const saved = youtubeKeys(savedChannel);
   if (!saved.size) return false;
-  const author = new Set([
-    ...youtubeKeys(oembed?.author_url || ''),
-    ...youtubeKeys(oembed?.author_name || '')
-  ]);
+  const author = youtubeKeys(oembed?.author_url || '');
   for (const key of saved) {
     if (author.has(key)) return true;
   }
@@ -177,9 +177,18 @@ function canonicalPostUrl(value) {
     const path = url.pathname.replace(/\/+$/, '');
     return path && path !== '/' ? `https://${host}${path}` : '';
   }
-  if (host === 'twitch.tv' || host === 'clips.twitch.tv') {
-    const path = url.pathname.replace(/\/+$/, '').toLowerCase();
-    return path && path !== '/' ? `https://${host}${path}` : '';
+  if (host === 'clips.twitch.tv') {
+    const slug = decodePart(url.pathname.split('/').filter(Boolean)[0] || '');
+    return slug ? `https://clips.twitch.tv/${slug}` : '';
+  }
+  if (host === 'twitch.tv') {
+    const parts = url.pathname.split('/').filter(Boolean).map((part) => decodePart(part));
+    if (!parts.length) return '';
+    const login = normalizeTwitchLogin(parts[0]);
+    if (!login) return '';
+    if ((parts[1] || '').toLowerCase() === 'clip' && parts[2]) return `https://twitch.tv/${login}/clip/${parts[2]}`;
+    const rest = parts.slice(1).map((part) => part.toLowerCase());
+    return `https://twitch.tv/${[login, ...rest].join('/')}`;
   }
   return '';
 }
@@ -214,6 +223,42 @@ function creatorPostDuplicate(entries, canonicalUrl) {
   const key = String(canonicalUrl || '');
   if (!key) return false;
   return (Array.isArray(entries) ? entries : []).some((entry) => String(entry?.normalizedUrl || '') === key);
+}
+
+function creatorPostRetryAt(entries, userId, nowMs = Date.now()) {
+  const recent = postsWithinWindow(entries, userId, nowMs)
+    .map((entry) => Date.parse(entry?.createdAt || ''))
+    .filter((at) => Number.isFinite(at))
+    .sort((a, b) => a - b);
+  if (recent.length < CREATOR_POST_LIMIT) return '';
+  return new Date(recent[recent.length - CREATOR_POST_LIMIT] + CREATOR_POST_WINDOW_MS).toISOString();
+}
+
+function combinedCreatorPosts(entries) {
+  return [...(Array.isArray(entries) ? entries : []), ...pendingCreatorPosts];
+}
+
+function reserveCreatorPost(entries, { userId, canonicalUrl, nowMs = Date.now() } = {}) {
+  const combined = combinedCreatorPosts(entries);
+  if (creatorPostDuplicate(combined, canonicalUrl)) return { ok: false, reason: 'duplicate' };
+  if (creatorPostRateLimit(combined, userId, nowMs).limited) {
+    return { ok: false, reason: 'rate-limited', retryAt: creatorPostRetryAt(combined, userId, nowMs) };
+  }
+  const reservation = {
+    userId: String(userId || ''),
+    normalizedUrl: String(canonicalUrl || ''),
+    createdAt: new Date(nowMs).toISOString(),
+    released: false
+  };
+  pendingCreatorPosts.push(reservation);
+  return { ok: true, reservation };
+}
+
+function releaseCreatorPostReservation(reservation) {
+  if (!reservation || reservation.released) return;
+  reservation.released = true;
+  const index = pendingCreatorPosts.indexOf(reservation);
+  if (index >= 0) pendingCreatorPosts.splice(index, 1);
 }
 
 function savedHandle(profile, platform) {
@@ -272,6 +317,32 @@ function oEmbedEndpoint(platform, postUrl) {
   return '';
 }
 
+function declaredBodyBytes(response) {
+  const headers = response?.headers;
+  const raw = typeof headers?.get === 'function' ? headers.get('content-length') : headers?.['content-length'];
+  const length = Number(raw || 0);
+  return Number.isFinite(length) ? length : 0;
+}
+
+async function readBoundedJson(response) {
+  if (declaredBodyBytes(response) > MAX_OEMBED_BYTES) return null;
+  if (typeof response?.text === 'function') {
+    const text = await response.text();
+    if (typeof text !== 'string' || Buffer.byteLength(text) > MAX_OEMBED_BYTES) return null;
+    try {
+      const data = JSON.parse(text);
+      return data && typeof data === 'object' ? data : null;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof response?.json !== 'function') return null;
+  const data = await response.json();
+  if (!data || typeof data !== 'object') return null;
+  if (Buffer.byteLength(JSON.stringify(data)) > MAX_OEMBED_BYTES) return null;
+  return data;
+}
+
 async function fetchOEmbed(platform, postUrl, fetchImpl) {
   const endpoint = oEmbedEndpoint(platform, postUrl);
   if (!endpoint || typeof fetchImpl !== 'function') return { ok: false, data: null };
@@ -282,13 +353,38 @@ async function fetchOEmbed(platform, postUrl, fetchImpl) {
       redirect: 'follow',
       signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined
     });
-    if (!response?.ok || typeof response.json !== 'function') return { ok: false, data: null };
-    const data = await response.json();
-    if (!data || typeof data !== 'object') return { ok: false, data: null };
+    if (!response?.ok) return { ok: false, data: null };
+    const data = await readBoundedJson(response);
+    if (!data) return { ok: false, data: null };
     return { ok: true, data };
   } catch {
     return { ok: false, data: null };
   }
+}
+
+async function resolveTikTokShareUrl(rawUrl, fetchImpl) {
+  const url = parseHttpsUrl(rawUrl);
+  if (!url || !TIKTOK_SHORT_HOSTS.has(hostOf(url)) || typeof fetchImpl !== 'function') return String(rawUrl || '');
+  let current = url.toString();
+  for (let hop = 0; hop < 2; hop += 1) {
+    const parsed = parseHttpsUrl(current);
+    if (!parsed || !TIKTOK_SHORT_HOSTS.has(hostOf(parsed))) return current;
+    try {
+      const response = await fetchImpl(current, {
+        method: 'GET',
+        redirect: 'manual',
+        headers: { 'User-Agent': 'KhaosNexusSentinal/0.1' },
+        signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined
+      });
+      const location = response?.headers?.get?.('location') || response?.headers?.location || '';
+      const next = parseHttpsUrl(String(location).slice(0, 500));
+      if (!next || !TIKTOK_HOSTS.has(hostOf(next))) return current;
+      current = next.toString();
+    } catch {
+      return current;
+    }
+  }
+  return current;
 }
 
 function memberHasCreatorRole(interaction, roleId) {
@@ -299,10 +395,18 @@ function memberHasCreatorRole(interaction, roleId) {
   return roles.some((role) => normalizeName(role?.name) === normalizeName(CREATOR_ROLE_NAME));
 }
 
+function creatorWasRevoked(store, userId, profile) {
+  if (profile?.revokedAt || profile?.status === 'revoked') return true;
+  if (profile) return false;
+  const applications = store?.listCreatorApplications?.() || {};
+  return Object.values(applications).some((application) => String(application?.userId || '') === String(userId || '') && application?.revokedAt);
+}
+
 function authorizeCreatorPost(interaction, store) {
   const userId = String(interaction?.user?.id || '');
   const profile = store?.getCreatorProfile?.(userId) || null;
-  if (!profile || profile.revokedAt || profile.status === 'revoked') return { ok: false, reason: 'not-approved', profile: null };
+  if (creatorWasRevoked(store, userId, profile)) return { ok: false, reason: 'revoked', profile: null };
+  if (!profile) return { ok: false, reason: 'not-approved', profile: null };
   const roleId = String(store?.getCreatorMeta?.()?.creatorRoleId || '');
   const allowed = memberHasCreatorRole(interaction, roleId);
   if (allowed === false) return { ok: false, reason: 'not-approved', profile };
@@ -379,22 +483,27 @@ async function verifyCreatorPost(classified, profile, fetchImpl) {
   return { ok: true, title: oembed.data.title || '' };
 }
 
-function failureMessage(reason, platform = '') {
+function failureMessage(reason, platform = '', extra = {}) {
   const label = platformLabel(platform);
   if (reason === 'disabled') return 'Creator posting is turned off right now.';
-  if (reason === 'not-approved') return 'Only approved creators can post in the creator feed.';
+  if (reason === 'revoked') return 'Your creator access was revoked, so you cannot post in the creator feed. Tell staff if that is a mistake.';
+  if (reason === 'not-approved') return 'Only approved creators can post in the creator feed. Press Apply for Creator Program in #creator-program.';
   if (reason === 'unsupported-url') return 'Share a TikTok, YouTube, or Twitch link.';
   if (reason === 'twitch-login-unverified') return 'Use a Twitch channel or clip link that includes the channel login, such as https://www.twitch.tv/yourname or https://www.twitch.tv/yourname/clip/....';
   if (reason === 'duplicate') return 'That link is already in the creator feed.';
-  if (reason === 'rate-limited') return `You can share ${CREATOR_POST_LIMIT} creator posts every 24 hours. Try again later.`;
-  if (reason === 'handle-missing') return `Your creator profile does not have a saved ${label} handle yet.`;
+  if (reason === 'rate-limited') {
+    const at = Date.parse(extra.retryAt || '');
+    const when = Number.isFinite(at) ? ` You can post again <t:${Math.floor(at / 1000)}:F>.` : ' Try again later.';
+    return `You can share ${CREATOR_POST_LIMIT} creator posts every 24 hours.${when}`;
+  }
+  if (reason === 'handle-missing') return `Your creator profile does not have a saved ${label} handle yet. Ask staff to add it, then try the post again.`;
   if (reason === 'author-mismatch' && platform === 'tiktok') return 'That TikTok was not posted because the author does not match your saved TikTok handle.';
   if (reason === 'author-mismatch' && platform === 'youtube') return 'That YouTube video was not posted because the channel does not match your saved YouTube channel.';
   if (reason === 'author-mismatch' && platform === 'twitch') return 'That Twitch link was not posted because the channel login does not match your saved Twitch handle.';
   if (reason === 'author-mismatch') return 'That post was not shared because it does not match your saved creator profile.';
-  if (reason === 'unverified') return 'That post could not be verified, so it was not shared.';
-  if (reason === 'feed-missing') return 'The creator feed channel is not available, so nothing was posted.';
-  if (reason === 'send-failed') return 'The creator feed could not be posted to right now.';
+  if (reason === 'unverified') return 'That post could not be verified, so it was not shared. A private video, or a post from a different account than the one on your profile, cannot be checked.';
+  if (reason === 'feed-missing') return 'The creator feed channel is not available, so nothing was posted. Tell staff.';
+  if (reason === 'send-failed') return 'The creator feed could not be posted to right now. Tell staff.';
   return 'The creator post could not be completed.';
 }
 
@@ -406,11 +515,11 @@ async function handleCreatorPost(interaction, store, context = {}) {
   }
   const auth = authorizeCreatorPost(interaction, store);
   if (!auth.ok) {
-    await respond(interaction, failureMessage('not-approved'));
-    return { ok: false, reason: 'not-approved' };
+    await respond(interaction, failureMessage(auth.reason));
+    return { ok: false, reason: auth.reason };
   }
   const rawUrl = String(interaction.options?.getString?.('url') || '').trim();
-  const classified = classifyCreatorPostUrl(rawUrl);
+  let classified = classifyCreatorPostUrl(rawUrl);
   if (!classified) {
     await respond(interaction, failureMessage('unsupported-url'));
     return { ok: false, reason: 'unsupported-url' };
@@ -420,64 +529,80 @@ async function handleCreatorPost(interaction, store, context = {}) {
     return { ok: false, reason: 'twitch-login-unverified' };
   }
   const nowMs = context.now instanceof Date ? context.now.getTime() : Date.parse(context.now || '') || Date.now();
-  const entries = typeof store.listCreatorPosts === 'function' ? store.listCreatorPosts() : [];
-  if (creatorPostDuplicate(entries, classified.canonicalUrl)) {
-    await respond(interaction, failureMessage('duplicate'));
-    return { ok: false, reason: 'duplicate' };
-  }
-  if (creatorPostRateLimit(entries, interaction.user.id, nowMs).limited) {
-    await respond(interaction, failureMessage('rate-limited'));
-    return { ok: false, reason: 'rate-limited' };
-  }
-
-  await deferEphemeral(interaction);
   const fetchImpl = context.fetchImpl || globalThis.fetch;
-  const verified = await verifyCreatorPost(classified, auth.profile, fetchImpl);
-  if (!verified.ok) {
-    await respond(interaction, failureMessage(verified.reason, classified.platform));
-    return { ok: false, reason: verified.reason };
+  const submitted = parseHttpsUrl(classified.rawUrl);
+  if (classified.platform === 'tiktok' && submitted && TIKTOK_SHORT_HOSTS.has(hostOf(submitted))) {
+    const resolved = await resolveTikTokShareUrl(classified.rawUrl, fetchImpl);
+    const again = classifyCreatorPostUrl(resolved);
+    if (again?.platform === 'tiktok') classified = again;
   }
-
-  const resolveFeed = context.resolveFeedChannel || ((guild) => resolveCreatorFeedChannel(guild, store));
-  const channel = await resolveFeed(interaction.guild);
-  if (!channel?.send) {
-    await respond(interaction, failureMessage('feed-missing'));
-    return { ok: false, reason: 'feed-missing' };
-  }
-
-  const ping = interaction.options?.getBoolean?.('ping') === true;
-  let role = null;
-  if (ping) {
-    const resolveRole = context.resolveStreamAlertsRole || ((guild) => resolveStreamAlertsRole(guild, context.config || {}));
-    role = await resolveRole(interaction.guild);
-  }
-  const payload = creatorFeedPostPayload({
+  const entries = typeof store.listCreatorPosts === 'function' ? store.listCreatorPosts() : [];
+  const reservation = reserveCreatorPost(entries, {
     userId: interaction.user.id,
-    platform: classified.platform,
-    url: classified.rawUrl,
-    title: verified.title,
-    roleId: role?.id || ''
+    canonicalUrl: classified.canonicalUrl,
+    nowMs
   });
-  let message = null;
+  if (!reservation.ok) {
+    await respond(interaction, failureMessage(reservation.reason, classified.platform, reservation));
+    return { ok: false, reason: reservation.reason };
+  }
+  const hold = reservation.reservation;
+
   try {
-    message = await channel.send(payload);
-  } catch {
-    await respond(interaction, failureMessage('send-failed'));
-    return { ok: false, reason: 'send-failed' };
-  }
-  if (typeof store.recordCreatorPost === 'function') {
-    store.recordCreatorPost({
-      userId: String(interaction.user.id),
-      url: classified.rawUrl,
-      normalizedUrl: classified.canonicalUrl,
+    await deferEphemeral(interaction);
+    const verified = await verifyCreatorPost(classified, auth.profile, fetchImpl);
+    if (!verified.ok) {
+      releaseCreatorPostReservation(hold);
+      await respond(interaction, failureMessage(verified.reason, classified.platform));
+      return { ok: false, reason: verified.reason };
+    }
+
+    const resolveFeed = context.resolveFeedChannel || ((guild) => resolveCreatorFeedChannel(guild, store));
+    const channel = await resolveFeed(interaction.guild);
+    if (!channel?.send) {
+      releaseCreatorPostReservation(hold);
+      await respond(interaction, failureMessage('feed-missing'));
+      return { ok: false, reason: 'feed-missing' };
+    }
+
+    const ping = interaction.options?.getBoolean?.('ping') === true;
+    let role = null;
+    if (ping) {
+      const resolveRole = context.resolveStreamAlertsRole || ((guild) => resolveStreamAlertsRole(guild, context.config || {}));
+      role = await resolveRole(interaction.guild);
+    }
+    const payload = creatorFeedPostPayload({
+      userId: interaction.user.id,
       platform: classified.platform,
-      createdAt: new Date(nowMs).toISOString(),
-      messageId: String(message?.id || '')
+      url: classified.rawUrl,
+      title: verified.title,
+      roleId: role?.id || ''
     });
+    let message = null;
+    try {
+      message = await channel.send(payload);
+    } catch {
+      releaseCreatorPostReservation(hold);
+      await respond(interaction, failureMessage('send-failed'));
+      return { ok: false, reason: 'send-failed' };
+    }
+    if (typeof store.recordCreatorPost === 'function') {
+      store.recordCreatorPost({
+        userId: String(interaction.user.id),
+        url: classified.rawUrl,
+        normalizedUrl: classified.canonicalUrl,
+        platform: classified.platform,
+        createdAt: new Date(nowMs).toISOString(),
+        messageId: String(message?.id || '')
+      });
+    }
+    releaseCreatorPostReservation(hold);
+    const pingNote = ping && role?.id ? ' and pinged Stream Alerts.' : ping ? '. Stream Alerts was not pinged because that role was not found.' : '.';
+    await respond(interaction, `Posted to the creator feed${pingNote}`);
+    return { ok: true, reason: 'posted', channelId: String(channel.id || ''), messageId: String(message?.id || '') };
+  } finally {
+    releaseCreatorPostReservation(hold);
   }
-  const pingNote = ping && role?.id ? ' and pinged Stream Alerts.' : ping ? '. Stream Alerts was not pinged because that role was not found.' : '.';
-  await respond(interaction, `Posted to the creator feed${pingNote}`);
-  return { ok: true, reason: 'posted', channelId: String(channel.id || ''), messageId: String(message?.id || '') };
 }
 
 module.exports = {

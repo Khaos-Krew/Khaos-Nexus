@@ -31,7 +31,7 @@ const TWITCH_LIVE_CHANNEL = 'twitch-live';
 const YOUTUBE_LIVE_CHANNEL = 'youtube-live';
 const CREATOR_FEED_CHANNEL = 'creator-feed';
 const CREATOR_FEED_TOPIC = 'Public Khaos Nexus creator posts. Members can read this channel. Only Nexus Sentinal can send messages.';
-const PUBLIC_CREATOR_CHANNEL_NAMES = Object.freeze([CREATOR_FEED_CHANNEL, TWITCH_LIVE_CHANNEL, YOUTUBE_LIVE_CHANNEL]);
+const PUBLIC_CREATOR_CHANNEL_NAMES = Object.freeze([CREATOR_FEED_CHANNEL, TWITCH_LIVE_CHANNEL, YOUTUBE_LIVE_CHANNEL, PROGRAM_CHANNEL]);
 const REVIEW_CHANNEL = 'creator-review';
 const CREATOR_ROLE_NAME = 'Content Creator';
 const NOW_LIVE_ROLE_NAME = 'Now Live';
@@ -75,8 +75,9 @@ function findRole(roles, name) {
 }
 
 function isPublicCreatorChannel(channel, meta = {}) {
-  const feedId = String(meta?.creatorFeedChannelId || '');
-  if (feedId && String(channel?.id || '') === feedId) return true;
+  const id = String(channel?.id || '');
+  const storedIds = [meta?.creatorFeedChannelId, meta?.programChannelId].map((value) => String(value || '')).filter(Boolean);
+  if (id && storedIds.includes(id)) return true;
   const name = normalizeName(channel?.name || '');
   return PUBLIC_CREATOR_CHANNEL_NAMES.some((item) => normalizeName(item) === name);
 }
@@ -285,7 +286,7 @@ function programPayload(env = process.env) {
       description: 'The Content Creator Program gives approved community creators a dedicated place inside Khaos Nexus for collaboration, promotion resources, and live visibility. Creator access is **application-based** — it is never granted automatically just for posting a channel link.',
       color: 0xe3264f,
       fields: [
-        { name: '📺 Platforms', value: 'Twitch, YouTube, and TikTok are supported. Approved creators share a post with `/creator post`. TikTok is a saved handle, not an unknown platform. Automatic live detection stays off until an authorized provider adapter is configured.', inline: false },
+        { name: '📺 Platforms', value: 'Twitch, YouTube, and TikTok. Approved creators share a link with `/creator post`.', inline: false },
         { name: '📝 How to Join', value: 'Use **Apply for Creator Program** below. Staff reviews your platform/channel, content focus, and community fit. Approved applicants receive the **Content Creator** role.', inline: false },
         { name: '🔴 Now Live', value: 'The **Now Live** role is temporary and intentionally has no name color so member-selected Name Color roles keep visual priority. Automatic live detection activates only through authorized platform adapters.', inline: false },
         { name: '🧰 Creator Resources', value: 'Approved creators receive access to reusable Khaos Nexus promotional assets/templates designed so the creator name can be added without changing the core Nexus identity.', inline: false },
@@ -480,31 +481,30 @@ async function reconcileReviews(reviewChannel, store, botId) {
   return { tracked: applications.length, created, updated };
 }
 
-async function ensureCreatorFeedChannel(guild, botId) {
+async function ensureCreatorFeedChannel(guild, botId, storedChannelId = '') {
   const channels = await guild.channels.fetch();
   const information = findInformationCategory(channels);
   if (!information) return { channel: null, created: false, moved: false, reason: 'information-category-missing' };
   const overwrites = publicReadOnlyOverwrites(guild, botId);
-  let channel = findChannel(channels, CREATOR_FEED_CHANNEL, information.id);
+  const storedId = String(storedChannelId || '');
+  let channel = storedId ? valuesOf(channels).find((item) => String(item?.id || '') === storedId && item?.isTextBased?.()) || null : null;
   let created = false;
   let moved = false;
+  if (channel && String(channel.parentId || '') !== String(information.id) && typeof channel.setParent === 'function') {
+    await channel.setParent(information.id, { lockPermissions: false, reason: 'Keep the stored creator-feed under INFORMATION' });
+    moved = true;
+  }
+  if (!channel) channel = findChannel(channels, CREATOR_FEED_CHANNEL, information.id);
   if (!channel) {
-    const elsewhere = findChannel(channels, CREATOR_FEED_CHANNEL);
-    if (elsewhere && typeof elsewhere.setParent === 'function') {
-      channel = elsewhere;
-      await channel.setParent(information.id, { lockPermissions: false, reason: 'Keep creator-feed under INFORMATION' });
-      moved = true;
-    } else {
-      channel = await guild.channels.create({
-        name: CREATOR_FEED_CHANNEL,
-        type: ChannelType.GuildText,
-        parent: information.id,
-        topic: CREATOR_FEED_TOPIC,
-        permissionOverwrites: overwrites,
-        reason: 'Khaos Nexus public creator feed'
-      });
-      created = true;
-    }
+    channel = await guild.channels.create({
+      name: CREATOR_FEED_CHANNEL,
+      type: ChannelType.GuildText,
+      parent: information.id,
+      topic: CREATOR_FEED_TOPIC,
+      permissionOverwrites: overwrites,
+      reason: 'Khaos Nexus public creator feed'
+    });
+    created = true;
   }
   if (String(channel.topic || '') !== CREATOR_FEED_TOPIC && typeof channel.setTopic === 'function') {
     await channel.setTopic(CREATOR_FEED_TOPIC, 'Maintain Khaos Nexus creator feed topic');
@@ -521,7 +521,7 @@ async function ensureCreatorProgram(guild, config, store, botId) {
   const assets = await ensureTextChannel(guild, category, ASSETS_CHANNEL, 'Official reusable Khaos Nexus creator emblems, promotional graphics, and templates.', creatorOnlyOverwrites(guild, botId, roles.creatorRole.id));
   const chat = await ensureTextChannel(guild, category, CREATOR_CHAT_CHANNEL, 'Private collaboration space for approved Khaos Nexus Content Creators.', creatorOnlyOverwrites(guild, botId, roles.creatorRole.id, { writable: true }));
   const review = await ensureReviewChannel(guild, config, botId);
-  const feed = await ensureCreatorFeedChannel(guild, botId);
+  const feed = await ensureCreatorFeedChannel(guild, botId, store?.getCreatorMeta?.()?.creatorFeedChannelId || '');
   const programPanel = await reconcilePanel(program.channel, programPayload(), PROGRAM_MARKER, botId);
   const assetsPanel = await reconcilePanel(assets.channel, assetsPayload(), ASSETS_MARKER, botId);
   const reviewStats = await reconcileReviews(review.channel, store, botId);

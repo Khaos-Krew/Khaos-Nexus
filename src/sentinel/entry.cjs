@@ -70,6 +70,11 @@ installAboutExtension();
 installRanksExtension();
 installGameServersExtension();
 installPublicServerListExtension();
+// Creator program extensions:
+// - level gate: blocks the apply modal below the configured community level
+// - program refresh: every 15 minutes, keeps channels, panels, and /creator current
+// - roles-entry lockdown: public apply panel in #roles, and private workspace overwrites only when they differ
+// - /creator-admin: staff request-info and revoke
 installCreatorLevelGateExtension();
 installCreatorProgramExtension();
 installCreatorRolesEntryLockdownExtension();

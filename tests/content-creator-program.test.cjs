@@ -106,6 +106,8 @@ test('public program panel is application-based and preserves Name Color priorit
   const text = JSON.stringify(payload);
   assert.match(text, /application-based/i);
   assert.match(text, /Twitch, YouTube, and TikTok/);
+  assert.match(payload.embeds[0].fields.find((field) => field.name.includes('Platforms')).value, /Approved creators share a link with `\/creator post`/);
+  assert.doesNotMatch(payload.embeds[0].fields.find((field) => field.name.includes('Platforms')).value, /unknown platform|provider adapter|saved handle/i);
   assert.doesNotMatch(text, /TikTok may be added later/);
   assert.match(text, /Now Live/);
   assert.match(text, /no name color/i);
@@ -342,16 +344,26 @@ test('creator feed is found or created under INFORMATION and legacy live channel
   assert.equal(store.meta.creatorFeedChannelId, 'created-creator-feed');
 });
 
-test('existing creator-feed is moved under INFORMATION instead of duplicated', async () => {
-  const existing = {
-    id: 'feed-1',
+test('creator feed repair moves only the stored channel or reuses one already in INFORMATION', async () => {
+  const stored = {
+    id: 'feed-stored',
+    name: 'announcements',
+    parentId: 'elsewhere',
+    topic: '',
+    isTextBased: () => true,
+    async setParent(parent) { stored.parentId = parent; },
+    async setTopic(topic) { stored.topic = topic; },
+    permissionOverwrites: { set: async (overwrites) => { stored.overwrites = overwrites; } }
+  };
+  const namesake = {
+    id: 'feed-other',
     name: 'creator-feed',
     parentId: 'elsewhere',
     topic: '',
     isTextBased: () => true,
-    async setParent(parent) { existing.parentId = parent; },
-    async setTopic(topic) { existing.topic = topic; },
-    permissionOverwrites: { set: async (overwrites) => { existing.overwrites = overwrites; } }
+    async setParent() { throw new Error('a creator-feed outside INFORMATION must not be moved'); },
+    async setTopic() { throw new Error('a creator-feed outside INFORMATION must not be edited'); },
+    permissionOverwrites: { set: async () => { throw new Error('a creator-feed outside INFORMATION must not be edited'); } }
   };
   const guild = {
     id: '100000000000000010',
@@ -359,18 +371,56 @@ test('existing creator-feed is moved under INFORMATION instead of duplicated', a
       async fetch() {
         return [
           { id: 'info', name: 'INFORMATION', type: ChannelType.GuildCategory },
-          existing
+          stored,
+          namesake
         ];
       },
-      async create() { throw new Error('existing creator-feed must be reused'); }
+      async create() { throw new Error('stored creator-feed must be reused'); }
     }
   };
-  const result = await ensureCreatorFeedChannel(guild, '100000000000000099');
-  assert.equal(result.created, false);
-  assert.equal(result.moved, true);
-  assert.equal(result.channel.id, 'feed-1');
-  assert.equal(existing.parentId, 'info');
-  assert.deepEqual(existing.overwrites, publicReadOnlyOverwrites(guild, '100000000000000099'));
+  const moved = await ensureCreatorFeedChannel(guild, '100000000000000099', 'feed-stored');
+  assert.equal(moved.created, false);
+  assert.equal(moved.moved, true);
+  assert.equal(moved.channel.id, 'feed-stored');
+  assert.equal(stored.parentId, 'info');
+  assert.deepEqual(stored.overwrites, publicReadOnlyOverwrites(guild, '100000000000000099'));
+
+  const already = {
+    id: 'feed-info',
+    name: 'creator-feed',
+    parentId: 'info',
+    topic: '',
+    isTextBased: () => true,
+    async setParent() { throw new Error('a feed already in INFORMATION must not move'); },
+    async setTopic(topic) { already.topic = topic; },
+    permissionOverwrites: { set: async (overwrites) => { already.overwrites = overwrites; } }
+  };
+  const untouched = {
+    id: 'feed-outside',
+    name: 'creator-feed',
+    parentId: 'elsewhere',
+    isTextBased: () => true,
+    async setParent() { throw new Error('must not move a namesake'); },
+    async setTopic() { throw new Error('must not edit a namesake'); },
+    permissionOverwrites: { set: async () => { throw new Error('must not edit a namesake'); } }
+  };
+  const reuseGuild = {
+    id: '100000000000000010',
+    channels: {
+      async fetch() {
+        return [
+          { id: 'info', name: 'INFORMATION', type: ChannelType.GuildCategory },
+          already,
+          untouched
+        ];
+      },
+      async create() { throw new Error('the INFORMATION creator-feed must be reused'); }
+    }
+  };
+  const reused = await ensureCreatorFeedChannel(reuseGuild, '100000000000000099');
+  assert.equal(reused.channel.id, 'feed-info');
+  assert.equal(reused.moved, false);
+  assert.equal(reused.created, false);
 });
 
 test('creator feed setup is harmless when INFORMATION is missing', async () => {
