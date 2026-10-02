@@ -72,21 +72,6 @@ function parseGiveResponse(text, expected = {}) {
   return { outcome: 'delivered', count, itemId };
 }
 
-function tagListCommand(uuid) {
-  const id = normalizeUuid(uuid);
-  if (!isPremiumUuid(id)) throw new Error('invalid-player-uuid');
-  return `tag ${id} list`;
-}
-
-function parseTagList(text) {
-  const raw = String(text || '').trim();
-  if (!raw) return null;
-  if (/\bno tags\b/i.test(raw)) return [];
-  const match = raw.match(/\btags:\s*\[([^\]]*)\]/i);
-  if (!match) return null;
-  return match[1].split(',').map((part) => part.trim()).filter(Boolean);
-}
-
 function tellrawCommand(uuid, text) {
   const id = normalizeUuid(uuid);
   if (!isPremiumUuid(id)) throw new Error('invalid-player-uuid');
@@ -123,7 +108,5 @@ module.exports = {
   parseGiveResponse,
   tellrawCommand,
   giveCommand,
-  dataGetCommand,
-  tagListCommand,
-  parseTagList
+  dataGetCommand
 };

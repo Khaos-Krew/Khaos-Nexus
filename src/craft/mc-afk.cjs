@@ -18,12 +18,6 @@ class McAfkTracker {
     const id = String(uuid || '');
     const position = vectorKey(sample.position);
     const rotation = vectorKey(sample.rotation);
-    if (sample.datapackAfk === true) {
-      const previous = this.samples.get(id);
-      const since = previous?.since ?? nowMs;
-      this.samples.set(id, { position: position || previous?.position || '', rotation: rotation || previous?.rotation || '', since });
-      return { afk: true, since, reason: 'datapack-afk' };
-    }
     if (!position || !rotation) return { afk: true, since: nowMs, reason: 'signal-missing' };
     const previous = this.samples.get(id);
     const moved = Boolean(previous && (previous.position !== position || previous.rotation !== rotation));

@@ -109,7 +109,7 @@ test('AFK uses position and rotation and treats a missing signal as AFK', () => 
   assert.equal(afk.observe(UUID, still, AFK_UNCHANGED_MS).reason, 'unchanged');
   assert.equal(afk.observe(UUID, { position: [2, 64, 2], rotation: [10, 20] }, AFK_UNCHANGED_MS + 20).afk, false);
   assert.equal(afk.observe(UUID, { position: [2, 64, 2], rotation: [11, 20] }, AFK_UNCHANGED_MS + 25).afk, false);
-  assert.equal(afk.observe(UUID, { position: [2, 64, 2], rotation: [11, 20], datapackAfk: true }, AFK_UNCHANGED_MS + 30).reason, 'datapack-afk');
+  assert.equal(afk.observe(UUID, { position: [2, 64, 2], rotation: [11, 20], datapackAfk: true }, AFK_UNCHANGED_MS + 30).reason, 'input');
   assert.equal(afk.observe(UUID_2, { rotation: [1, 2] }, 0).reason, 'signal-missing');
   assert.equal(afk.observe(UUID_2, { position: [1, 2, 3] }, 1).reason, 'signal-missing');
 });
@@ -438,23 +438,21 @@ test('playtime poll logs AFK and does not post while dry-run', async () => {
   assert.equal(dry.posted, 1);
   assert.equal(dry.dryRun, true);
   assert.equal(dryPosts[0].online, true);
-  const tagged = [];
-  const datapack = await pollMcPlaytime({
+  const ignored = [];
+  const ignoredTag = await pollMcPlaytime({
     rcon: async (command) => {
-      if (String(command).includes('ftbessentials')) throw new Error('ftb-essentials-afk');
-      if (command === 'list uuids') return listed;
-      if (String(command).startsWith('tag ')) return `${UUID} has 1 tags: [afk]`;
+      ignored.push(command);
+      if (String(command).includes('ftbessentials') || String(command).startsWith('tag ')) throw new Error('afk-datapack');
       return rcon(command);
     },
     afk: new McAfkTracker(),
     seen: new Set(),
-    presence: async (input) => { tagged.push(input); },
+    presence: async () => {},
     now: () => 0,
     env: { MC_POINTS_ENABLED: 'true', MC_PLAYTIME_NP_ENABLED: 'true', MC_PLAYTIME_DRY_RUN: 'true', MC_AFK_DATAPACK_TAG: 'afk' }
   });
-  assert.equal(datapack.afk, 1);
-  assert.equal(tagged[0].afk, true);
-  assert.equal(tagged[0].online, false);
+  assert.equal(ignoredTag.afk, 0);
+  assert.equal(ignored.some((command) => String(command).startsWith('tag ')), false);
 });
 
 test('grant table schema keeps one kit per identity and per UUID', () => {

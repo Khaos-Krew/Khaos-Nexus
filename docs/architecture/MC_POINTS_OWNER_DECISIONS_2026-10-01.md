@@ -18,11 +18,11 @@ A Minecraft-only player earns at the rank already synced from that identity's Di
 
 A quarantined economic identity cannot earn or spend Minecraft Points. The Minecraft resolve path and the shop quote/buy path both refuse it. ARK's EOS resolve path is unchanged. Once AFK is detected, the five minutes that led up to it are not paid and are removed from Minecraft lifetime playtime.
 
-AFK on the live server is position plus rotation, unchanged for five minutes. FTB Essentials is not an AFK source. `MC_AFK_DATAPACK_TAG`, when set, also reads `tag <uuid> list` for that Detect AFK tag. Unset means the datapack is ignored. A missing signal or a failed read counts as AFK.
+AFK on the live server is position plus rotation, unchanged for five minutes. There is no datapack signal and no `MC_AFK_DATAPACK_TAG`. FTB Essentials is not an AFK source. A missing position or rotation counts as AFK.
 
 ## Live pack
 
-Item ids are the ones on ATM10: Aeronautics 0.6.1 (Minecraft 1.21.1, NeoForge 21.1.250, hosted on Citadel). `give` targets the premium UUID. A success reply is `Gave <count> [` with that same count. The display name is not compared. Delivery reads free inventory slots with `data get` on the UUID and requeues when there is no room. `list uuids` is `There are N of a max of M players online: name (uuid), ...` with lowercase hyphenated UUIDs.
+Item ids are the ones on ATM10: Aeronautics 0.6.1 (Minecraft 1.21.1, NeoForge 21.1.250, hosted on Kinetic Hosting). `give` targets the premium UUID. A success reply is `Gave <count> [` with that same count. The display name is not compared. Delivery reads free inventory slots with `data get` on the UUID and requeues when there is no room. `list uuids` is `There are N of a max of M players online: name (uuid), ...` with lowercase hyphenated UUIDs.
 
 ## Craft token
 

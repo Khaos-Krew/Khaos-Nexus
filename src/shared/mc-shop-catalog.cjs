@@ -2,7 +2,7 @@
 
 const crypto = require('node:crypto');
 
-// Live pack: ATM10: Aeronautics 0.6.1 on Minecraft 1.21.1, NeoForge 21.1.250.
+// Live pack: ATM10: Aeronautics 0.6.1 on Minecraft 1.21.1, NeoForge 21.1.250, hosted on Kinetic Hosting.
 const MC_LIVE_PACK = Object.freeze({
   pack: 'ATM10: Aeronautics',
   packVersion: '0.6.1',

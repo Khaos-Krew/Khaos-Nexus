@@ -2,17 +2,9 @@
 
 const { mcPointsFlags } = require('../shared/mc-points-flags.cjs');
 const { McAfkTracker } = require('./mc-afk.cjs');
-const { parseListUuids, parseDataVector, dataGetCommand, tagListCommand, parseTagList } = require('./mc-rcon-text.cjs');
+const { parseListUuids, parseDataVector, dataGetCommand } = require('./mc-rcon-text.cjs');
 
 const POLL_MS = 60 * 1000;
-
-function afkDatapackTag(env = process.env) {
-  const raw = env.MC_AFK_DATAPACK_TAG;
-  if (raw == null || String(raw).trim() === '') return { enabled: false, tag: '' };
-  const tag = String(raw).trim();
-  if (!/^[A-Za-z0-9_.:-]{1,64}$/.test(tag)) return { enabled: true, tag: '', invalid: true };
-  return { enabled: true, tag, invalid: false };
-}
 
 function clockMs(now) {
   if (typeof now === 'function') {
@@ -39,7 +31,6 @@ async function pollMcPlaytime({ rcon, presence, afk = new McAfkTracker(), now = 
     return { ok: false, authoritative: false, reason: 'unparseable' };
   }
   const at = clockMs(now);
-  const datapack = afkDatapackTag(env);
   let afkCount = 0;
   let failures = 0;
   const onlineIds = new Set();
@@ -48,14 +39,7 @@ async function pollMcPlaytime({ rcon, presence, afk = new McAfkTracker(), now = 
     try {
       const position = parseDataVector(await rcon(dataGetCommand(player.uuid, 'Pos')));
       const rotation = parseDataVector(await rcon(dataGetCommand(player.uuid, 'Rotation')));
-      let datapackAfk;
-      if (datapack.enabled) {
-        if (datapack.invalid) throw new Error('afk-tag-invalid');
-        const tags = parseTagList(await rcon(tagListCommand(player.uuid)));
-        if (!tags) throw new Error('afk-tag-unreadable');
-        datapackAfk = tags.includes(datapack.tag);
-      }
-      const state = afk.observe(player.uuid, { position, rotation, datapackAfk }, at);
+      const state = afk.observe(player.uuid, { position, rotation }, at);
       if (state.afk) afkCount += 1;
       onlineIds.add(player.uuid);
       seen.add(player.uuid);
@@ -103,4 +87,4 @@ function installMcPlaytimeLoop({ rcon, presence, env = process.env, log } = {}) 
   return { started: true, timer };
 }
 
-module.exports = { POLL_MS, clockMs, afkDatapackTag, pollMcPlaytime, installMcPlaytimeLoop };
+module.exports = { POLL_MS, clockMs, pollMcPlaytime, installMcPlaytimeLoop };
