@@ -14,6 +14,7 @@ const {
 } = require('discord.js');
 const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
 const { mcPointsFlags } = require('../shared/mc-points-flags.cjs');
+const { mcMemberText } = require('../shared/mc-member-text.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.mc.shop.ui.installed');
 const sessions = new Map();
@@ -31,12 +32,12 @@ function sessionFor(interaction) {
 
 async function openMinecraftShop(interaction, economyClient) {
   if (!mcPointsFlags().shopEnabled) {
-    return interaction.reply(ephemeral('The Minecraft Points shop is off.'));
+    return interaction.reply(ephemeral(mcMemberText('mc-shop-disabled')));
   }
-  if (!economyClient.configured()) return interaction.reply(ephemeral('Nexus Wallet is not connected yet.'));
+  if (!economyClient.configured()) return interaction.reply(ephemeral('The wallet is not connected yet. Ask a staff member to finish setup, then open the Minecraft shop again.'));
   const catalog = await economyClient.mcShopCatalog();
   const items = (catalog.catalog?.items || []).filter((item) => item.active !== false).slice(0, 25);
-  if (!items.length) return interaction.reply(ephemeral('No Minecraft items are available.'));
+  if (!items.length) return interaction.reply(ephemeral('No Minecraft items are for sale right now. Ask a staff member when the shop has stock.'));
   const starter = mcPointsFlags().starterKitEnabled
     ? [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('nexus-mc-shop:starter').setLabel('Claim Starter Kit').setStyle(ButtonStyle.Secondary))]
     : [];
@@ -50,17 +51,17 @@ async function openMinecraftShop(interaction, economyClient) {
       value: item.sku,
       description: `${item.qty} for ${item.price} NP`.slice(0, 100)
     })));
-  return interaction.reply(ephemeral('Minecraft items deliver in-game when you are online.', {
+  return interaction.reply(ephemeral('Choose an item. It is delivered in Minecraft when you are online and your inventory has room.', {
     components: [new ActionRowBuilder().addComponents(menu), ...starter]
   }));
 }
 
 async function handleItem(interaction) {
   const session = sessionFor(interaction);
-  if (!session) return interaction.reply(ephemeral('This Minecraft shop menu expired.'));
+  if (!session) return interaction.reply(ephemeral('This shop menu expired. Open the Minecraft shop again. No points were spent.'));
   const sku = interaction.values?.[0];
   const item = session.items.find((entry) => entry.sku === sku);
-  if (!item) return interaction.reply(ephemeral('That item is no longer available.'));
+  if (!item) return interaction.reply(ephemeral('That item is no longer for sale. Open the Minecraft shop again and pick another.'));
   session.sku = sku;
   const modal = new ModalBuilder().setCustomId(`nexus-mc-shop:qty:${interaction.customId.split(':')[2]}`).setTitle(String(item.name).slice(0, 45));
   modal.addComponents(new ActionRowBuilder().addComponents(
@@ -71,10 +72,10 @@ async function handleItem(interaction) {
 
 async function handleQuantity(interaction, economyClient) {
   const session = sessionFor(interaction);
-  if (!session) return interaction.reply(ephemeral('This Minecraft shop menu expired.'));
+  if (!session) return interaction.reply(ephemeral('This shop menu expired. Open the Minecraft shop again. No points were spent.'));
   const bundles = Number(interaction.fields.getTextInputValue('bundles'));
   const quoted = await economyClient.mcShopQuote({ discordUserId: interaction.user.id, sku: session.sku, bundles });
-  if (!quoted.ok) return interaction.reply(ephemeral(`Could not quote that item (${quoted.reason || 'unavailable'}).`));
+  if (!quoted.ok) return interaction.reply(ephemeral(mcMemberText(quoted.reason, 'That price could not be checked. Open the Minecraft shop again.')));
   session.bundles = bundles;
   session.nonce = quoted.quote.nonce;
   session.quote = quoted.quote;
@@ -84,13 +85,13 @@ async function handleQuantity(interaction, economyClient) {
     `**${quoted.quote.sku}** × ${quoted.quote.bundles}`,
     `Price: ${quoted.quote.price} NP`,
     `Balance: ${quoted.quote.balance} → ${quoted.quote.balanceAfter} NP`,
-    'Delivered in-game when you are online.'
+    'Confirm to spend the points. The items arrive in Minecraft when you are online and your inventory has room.'
   ].join('\n'), { components: [new ActionRowBuilder().addComponents(confirm, cancel)] }));
 }
 
 async function handleConfirm(interaction, economyClient) {
   const session = sessionFor(interaction);
-  if (!session?.nonce) return interaction.update(ephemeral('This Minecraft shop session expired. No points were spent.'));
+  if (!session?.nonce) return interaction.update(ephemeral('This shop menu expired. Open the Minecraft shop again. No points were spent.'));
   await interaction.deferUpdate();
   const result = await economyClient.mcShopBuy({
     discordUserId: interaction.user.id,
@@ -101,23 +102,23 @@ async function handleConfirm(interaction, economyClient) {
   sessions.delete(interaction.customId.split(':')[2]);
   if (!result.ok) {
     return interaction.editReply(ephemeral(result.reason === 'insufficient-funds'
-      ? `Not enough Nexus Points. Price ${session.quote?.price} NP, balance ${result.balance ?? session.quote?.balance} NP.`
-      : `Purchase was not completed (${result.reason || 'unavailable'}).`));
+      ? `You do not have enough Nexus Points. This costs ${session.quote?.price} NP and your balance is ${result.balance ?? session.quote?.balance} NP. Earn more by playing, then open the shop again.`
+      : mcMemberText(result.reason, 'The purchase did not finish. Check your balance in Sentinal before you try again.')));
   }
   return interaction.editReply(ephemeral([
-    `Queued **${result.order.orderId}**.`,
-    `Ledger: \`${result.ledgerKey || result.order.ledgerKey}\``,
-    `Balance: ${result.balance} NP`,
-    'You will get the items in Minecraft the next time you are online with free slots.'
+    'Your order is queued.',
+    `Balance: ${result.balance} NP.`,
+    'Be online on Nexus Craft with room in your inventory. The items arrive in game.',
+    `If they do not arrive, tell a staff member this order id: ${result.order.orderId}.`
   ].join('\n')));
 }
 
 async function handleStarter(interaction, economyClient) {
-  if (!mcPointsFlags().starterKitEnabled) return interaction.reply(ephemeral('The Minecraft Starter Kit is off.'));
+  if (!mcPointsFlags().starterKitEnabled) return interaction.reply(ephemeral(mcMemberText('mc-starter-kit-disabled')));
   const result = await economyClient.mcClaimStarterKit({ discordUserId: interaction.user.id });
-  if (!result.ok) return interaction.reply(ephemeral(`Starter Kit was not claimed (${result.reason || 'unavailable'}).`));
-  if (result.duplicate) return interaction.reply(ephemeral(`Starter Kit is already queued as ${result.order?.orderId || result.grant?.orderId}.`));
-  return interaction.reply(ephemeral(`Starter Kit queued as ${result.order.orderId}. It delivers when you are online with free slots.`));
+  if (!result.ok) return interaction.reply(ephemeral(mcMemberText(result.reason)));
+  if (result.duplicate) return interaction.reply(ephemeral(`The Starter Kit is already queued. If it does not arrive, tell a staff member this order id: ${result.order?.orderId || result.grant?.orderId}.`));
+  return interaction.reply(ephemeral(`The Starter Kit is queued. Be online on Nexus Craft with room in your inventory. If it does not arrive, tell a staff member this order id: ${result.order.orderId}.`));
 }
 
 async function handleMcShopInteraction(interaction, economyClient) {
@@ -133,7 +134,7 @@ async function handleMcShopInteraction(interaction, economyClient) {
       await interaction.update(ephemeral('Purchase cancelled. No points were spent.'));
     }
   } catch (error) {
-    const message = ephemeral(`Minecraft shop error: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 180)}`);
+    const message = ephemeral('Something went wrong showing the shop. Check your balance in Sentinal before you buy again. If points are missing, tell a staff member.');
     if (interaction.deferred || interaction.replied) await interaction.editReply(message).catch(() => null);
     else await interaction.reply(message).catch(() => null);
   }

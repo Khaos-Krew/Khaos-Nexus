@@ -28,6 +28,22 @@ Item ids are the ones on ATM10: Aeronautics 0.6.1 (Minecraft 1.21.1, NeoForge 21
 
 `NEXUS_ECONOMY_CRAFT_TOKEN` is limited to presence, link and unlink, delivery claim and delivery status, the refund sweep, and the pending-order and kit-grant reads. Buy, quote, and staff refunds use Sentinal's token only. Credit, spend, identity, and admin routes reject the craft token.
 
+## Member commands
+
+`/mc link`, `/mc unlink`, `/mc shop`, and `/mc starter` are registered only when that feature's flag is on. `/mcadmin` is a separate command. Its default member permission is Moderate Members, so regular members do not see it.
+
+## Daily cap and ARK offline
+
+Once Minecraft counted time hits 8 hours, that Minecraft presence does not keep the shared online flag set. ARK offline Points can accrue. A fresh ARK presence still counts as online. Minecraft lifetime playtime keeps moving.
+
+## offline_since
+
+`offline_since` is nullable. Going online stores null. The accrual table drops NOT NULL on fresh and existing databases so that write matches the column.
+
+## Schema
+
+Minecraft schema stays lazy. A failure returns `mc-schema-unavailable`, disables only Minecraft, and does not close the economy pool.
+
 ## Catalog
 
 `MC_SHOP_CATALOG_JSON` and `MC_STARTER_KIT_JSON` may only swap an item id for another id already in the reviewed catalog or kit. They cannot change prices, quantities, or add items. A quantity of zero or less is rejected. `GET /mc-shop/catalog` returns that catalog. Shop daily limits are counted per economic identity. Stuck `DELIVERY_IN_PROGRESS` orders move to `SENT_UNCONFIRMED` on the refund sweep, and staff resolve them in Sentinal.

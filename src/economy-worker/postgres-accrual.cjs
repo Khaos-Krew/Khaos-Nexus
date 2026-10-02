@@ -5,7 +5,7 @@ const { economyPerkForRank, OFFLINE_PASSIVE_CAP_HOURS } = require('../shared/nex
 const { sqlIdent } = require('../sentinel/nexus-economy-postgres-repository.cjs');
 const { mcPointsFlags } = require('../shared/mc-points-flags.cjs');
 const { normalizeUuid } = require('../craft/mc-rcon-text.cjs');
-const { otherPresenceOnline, planMinecraftContribution, minecraftServerName } = require('./mc-playtime-accounting.cjs');
+const { otherPresenceOnline, planMinecraftContribution, minecraftServerName, countsForSharedOnline } = require('./mc-playtime-accounting.cjs');
 const { bumpMcMetric } = require('./mc-points-service.cjs');
 const { ensureMinecraftSchema } = require('./mc-points-postgres.cjs');
 const { quarantineDenylist } = require('../sentinel/nexus-economy-wallet-core.cjs');
@@ -31,6 +31,12 @@ function cleanRank(value) {
 
 function flagsArg(env) {
   return mcPointsFlags(env);
+}
+
+function minecraftSchemaError(error) {
+  const code = String(error?.code || '');
+  if (code === '42703' || code === '42P01') return true;
+  return /nexus_mc_|mc_counted|mc_lifetime|mc_online|last_mc_online|mc-schema|mc_schema/i.test(String(error?.message || ''));
 }
 
 function millis(value) {
@@ -62,7 +68,7 @@ class PostgresEconomyAccrual {
       `  online_credit_cursor BIGINT NOT NULL DEFAULT 0 CHECK (online_credit_cursor >= 0),`,
       `  last_accounting_at TIMESTAMPTZ,`,
       `  last_presence_at TIMESTAMPTZ,`,
-      `  offline_since TIMESTAMPTZ NOT NULL DEFAULT NOW(),`,
+      `  offline_since TIMESTAMPTZ,`,
       `  last_passive_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),`,
       `  passive_credit_cursor BIGINT NOT NULL DEFAULT 0 CHECK (passive_credit_cursor >= 0),`,
       `  presence_by_server JSONB NOT NULL DEFAULT '{}'::jsonb,`,
@@ -70,6 +76,7 @@ class PostgresEconomyAccrual {
       `);`,
       `CREATE INDEX IF NOT EXISTS nexus_economy_accrual_state_online_idx ON ${s}.nexus_economy_accrual_state (online, updated_at);`
     ].join('\n'));
+    await this.pool.query(`ALTER TABLE ${s}.nexus_economy_accrual_state ALTER COLUMN offline_since DROP NOT NULL`);
   }
 
   async syncRank(discordUserId, rankId) {
@@ -328,7 +335,13 @@ class PostgresEconomyAccrual {
       minecraftServer = minecraftServerName(serverKeyInput);
       if (!minecraftServer) return { ok: false, reason: 'invalid-mc-server', credited: 0 };
       if (gate.dryRun) return this.#dryRunMinecraft({ mcUuid, online, server: minecraftServer, afk });
-      const ready = await ensureMinecraftSchema({ pool: this.pool, schema: this.schemaName, mark: this });
+      let ready = { ok: false, reason: 'mc-schema-unavailable' };
+      try {
+        ready = await ensureMinecraftSchema({ pool: this.pool, schema: this.schemaName, mark: this });
+      } catch (error) {
+        console.warn(`[Nexus Economy] mc_schema_unavailable ${String(error?.message || error).slice(0, 240)}`);
+        ready = { ok: false, reason: 'mc-schema-unavailable' };
+      }
       if (!ready.ok) return { ok: false, reason: 'mc-schema-unavailable', credited: 0 };
     }
     const client = await this.pool.connect();
@@ -426,9 +439,10 @@ class PostgresEconomyAccrual {
       }
 
       const presence = presenceBefore;
+      const sharedOnline = countsForSharedOnline(Boolean(online), { minecraft, capHit: planned?.capHit === true });
       presence[serverKey] = minecraft
-        ? { online: Boolean(online), mcUuid: identity.mc_uuid || normalizeUuid(mcUuid), at: nowIso }
-        : { online: Boolean(online), eosId: String(eosId), at: nowIso };
+        ? { online: sharedOnline, mcUuid: identity.mc_uuid || normalizeUuid(mcUuid), at: nowIso }
+        : { online: sharedOnline, eosId: String(eosId), at: nowIso };
       const isOnline = Object.values(presence).some((entry) => entry?.online === true && (millis(entry.at) ?? 0) >= nowMs - PRESENCE_TTL_MS);
       state.presence_by_server = presence;
       state.online = isOnline;
@@ -480,6 +494,11 @@ class PostgresEconomyAccrual {
       return { ok: true, online: state.online, server: serverKey, balance, rankId: state.rank_id, capHit: state.mcCapHit === true, creditedSource: creditSource };
     } catch (error) {
       try { await client.query('ROLLBACK'); } catch {}
+      if (minecraft && minecraftSchemaError(error)) {
+        this.mcColumns = false;
+        console.warn(`[Nexus Economy] mc_schema_unavailable ${String(error?.message || error).slice(0, 240)}`);
+        return { ok: false, reason: 'mc-schema-unavailable', credited: 0 };
+      }
       throw error;
     } finally {
       client.release();

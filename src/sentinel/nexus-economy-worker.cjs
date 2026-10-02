@@ -7,7 +7,7 @@ const path = require('node:path');
 const { rankById } = require('../shared/ranks.cjs');
 const { mcPointsFlags } = require('../shared/mc-points-flags.cjs');
 const { normalizeUuid } = require('../craft/mc-rcon-text.cjs');
-const { otherPresenceOnline, planMinecraftContribution, minecraftServerName, PRESENCE_TTL_MS } = require('../economy-worker/mc-playtime-accounting.cjs');
+const { otherPresenceOnline, planMinecraftContribution, minecraftServerName, countsForSharedOnline, PRESENCE_TTL_MS } = require('../economy-worker/mc-playtime-accounting.cjs');
 const { MemoryMcPoints, mcEarnEligible, bumpMcMetric } = require('../economy-worker/mc-points-service.cjs');
 const { economyPerkForRank } = require('../shared/nexus-economy-rank-perks.cjs');
 const { quarantineDenylist } = require('./nexus-economy-wallet-core.cjs');
@@ -400,9 +400,10 @@ class NexusEconomyWorker {
         if (link) link.playtimeMs = Math.max(0, Number(link.playtimeMs || 0) + lifetimeDelta);
       }
       this.accrueOnlineInterval(fresh, account, now, serverKey, planned);
+      const sharedOnline = countsForSharedOnline(Boolean(online), { minecraft, capHit: planned?.capHit === true });
       account.presenceByServer[serverKey] = minecraft
-        ? { online: Boolean(online), mcUuid: subjectId, at: new Date(now).toISOString() }
-        : { online: Boolean(online), eosId: subjectId, at: new Date(now).toISOString() };
+        ? { online: sharedOnline, mcUuid: subjectId, at: new Date(now).toISOString() }
+        : { online: sharedOnline, eosId: subjectId, at: new Date(now).toISOString() };
       account.online = this.accountOnline(account);
       account.lastPresenceAt = new Date(now).toISOString();
 

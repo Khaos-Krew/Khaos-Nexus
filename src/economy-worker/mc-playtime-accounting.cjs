@@ -24,6 +24,12 @@ function isMinecraftPresenceKey(key) {
   return minecraftServerName(key) !== '';
 }
 
+function countsForSharedOnline(online, { minecraft = false, capHit = false } = {}) {
+  if (online !== true) return false;
+  if (minecraft && capHit === true) return false;
+  return true;
+}
+
 function otherPresenceOnline(presence, nowMs, ttlMs = PRESENCE_TTL_MS) {
   for (const [key, entry] of Object.entries(presence || {})) {
     if (isMinecraftPresenceKey(key) || entry?.online !== true) continue;
@@ -69,6 +75,7 @@ function planMinecraftContribution({
   }
   if (otherOnline) {
     creditSource = otherSource || 'ark';
+    capHit = counted >= MC_DAILY_CAP_MS;
   } else if (afk === true) {
     gap = 0;
     afkClawbackMs = Math.max(0, Number(afkWindowMs) || 0);
@@ -78,10 +85,9 @@ function planMinecraftContribution({
     if (gap > room) {
       overflowDroppedMs = gap - room;
       gap = room;
-      capHit = true;
     }
     counted += gap;
-    if (room <= 0) capHit = true;
+    if (counted >= MC_DAILY_CAP_MS) capHit = true;
   }
   return {
     gap,
@@ -105,6 +111,7 @@ module.exports = {
   ctDayKey,
   minecraftServerName,
   isMinecraftPresenceKey,
+  countsForSharedOnline,
   otherPresenceOnline,
   planMinecraftContribution
 };

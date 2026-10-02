@@ -98,7 +98,7 @@ AFK is five minutes of unchanged position and rotation. There is no datapack tag
 
 Partial delivery keeps every line that already arrived. The rest is marked SENT_UNCONFIRMED for staff and is not auto-retried or auto-refunded.
 
-`/mc link start` whispers a code to the online Java player. `/mc link confirm` verifies that UUID. `/mc unlink` starts a 30-day cooldown. `/mc shop` points at Sentinal. `/mc starter` queues the free kit. Staff `/mc mcadmin` lists orders and kit claims.
+`/mc link`, `/mc unlink`, `/mc shop`, and `/mc starter` are registered only when that feature's flag is on. `/mc link start` whispers a code to the online Java player and says not to share it. `/mc link confirm` verifies that UUID. `/mc unlink` starts a 30-day cooldown. `/mc shop` and `/mc starter` point at Sentinal. Staff `/mcadmin` lists orders and kit claims. Members do not see `/mcadmin`.
 
 ## Edition support
 

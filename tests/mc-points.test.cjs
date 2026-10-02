@@ -20,6 +20,7 @@ const {
   isPremiumUuid
 } = require('../src/craft/mc-rcon-text.cjs');
 const { pollMcPlaytime } = require('../src/craft/mc-playtime.cjs');
+const { countsForSharedOnline } = require('../src/economy-worker/mc-playtime-accounting.cjs');
 const { deliverMcOrder } = require('../src/craft/mc-delivery.cjs');
 const { beginMinecraftLink } = require('../src/craft/mc-link-flow.cjs');
 const { economyPerkForRank } = require('../src/shared/nexus-economy-rank-perks.cjs');
@@ -240,6 +241,70 @@ test('verified minecraft link shares the presence counter and the 8 hour cap', a
   const after = await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
   assert.equal(after.balance, capped);
   assert.ok(capped < rate * 110);
+});
+
+test('a capped minecraft session does not block ARK offline accrual', async () => {
+  assert.equal(countsForSharedOnline(true, { minecraft: true, capHit: true }), false);
+  assert.equal(countsForSharedOnline(true, { minecraft: true, capHit: false }), true);
+  assert.equal(countsForSharedOnline(true, { minecraft: false, capHit: true }), true);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-cap-offline-'));
+  let now = Date.parse('2026-10-01T16:00:00Z');
+  const worker = new NexusEconomyWorker({
+    store: new NexusEconomyStore(root),
+    now: () => now,
+    env: { MC_POINTS_ENABLED: 'true', MC_PLAYTIME_NP_ENABLED: 'true', MC_PLAYTIME_DRY_RUN: 'false', MC_LINK_CODE_SECRET: 'mc-link-code-hmac-secret-32chars!' }
+  });
+  worker.linkArkIdentity({ discordUserId: DISCORD, eosId: 'EOScapoffline1', rankId: 'cipher-runner' });
+  const challenge = await worker.minecraft.challenge({ discordUserId: DISCORD, mcUuid: UUID, mcName: 'Steve' });
+  assert.equal((await worker.minecraft.confirm({ discordUserId: DISCORD, code: challenge.code })).ok, true);
+  const seeded = worker.store.read();
+  const account = seeded.accounts[DISCORD];
+  account.online = true;
+  account.mcCountedDay = ctDayKey(now);
+  account.mcCountedMs = MC_DAILY_CAP_MS;
+  account.mcOnline = true;
+  account.lastMcOnlineAt = new Date(now - 60_000).toISOString();
+  account.lastAccountingAt = new Date(now).toISOString();
+  account.lastPresenceAt = new Date(now).toISOString();
+  account.presenceByServer = { minecraft: { online: true, mcUuid: UUID, at: new Date(now).toISOString() } };
+  worker.store.write(seeded);
+  now += 5 * 60 * 1000;
+  const capped = await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
+  assert.equal(capped.online, false);
+  assert.equal(worker.store.read().accounts[DISCORD].mcOnline, true);
+  now += 60 * 60 * 1000;
+  const passive = await worker.accrueOffline(DISCORD);
+  assert.equal(passive.credited, 4);
+  const bothRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-cap-ark-'));
+  let bothNow = Date.parse('2026-10-01T16:00:00Z');
+  const both = new NexusEconomyWorker({
+    store: new NexusEconomyStore(bothRoot),
+    now: () => bothNow,
+    env: { MC_POINTS_ENABLED: 'true', MC_PLAYTIME_NP_ENABLED: 'true', MC_PLAYTIME_DRY_RUN: 'false', MC_LINK_CODE_SECRET: 'mc-link-code-hmac-secret-32chars!' }
+  });
+  both.linkArkIdentity({ discordUserId: DISCORD, eosId: 'EOScapark12345', rankId: 'cipher-runner' });
+  const bothChallenge = await both.minecraft.challenge({ discordUserId: DISCORD, mcUuid: UUID, mcName: 'Steve' });
+  assert.equal((await both.minecraft.confirm({ discordUserId: DISCORD, code: bothChallenge.code })).ok, true);
+  const bothState = both.store.read();
+  const bothAccount = bothState.accounts[DISCORD];
+  bothAccount.online = true;
+  bothAccount.mcCountedDay = ctDayKey(bothNow);
+  bothAccount.mcCountedMs = MC_DAILY_CAP_MS;
+  bothAccount.mcOnline = true;
+  bothAccount.lastMcOnlineAt = new Date(bothNow).toISOString();
+  bothAccount.lastAccountingAt = new Date(bothNow).toISOString();
+  bothAccount.lastPresenceAt = new Date(bothNow).toISOString();
+  bothNow += 60 * 1000;
+  bothAccount.presenceByServer = {
+    minecraft: { online: true, mcUuid: UUID, at: new Date(bothNow).toISOString() },
+    ark: { online: true, eosId: 'EOScapark12345', at: new Date(bothNow).toISOString() }
+  };
+  both.store.write(bothState);
+  const stillOnline = await both.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
+  assert.equal(stillOnline.online, true);
+  bothNow += 60 * 60 * 1000;
+  const blocked = await both.accrueOffline(DISCORD);
+  assert.equal(blocked.credited, 0);
 });
 
 test('link whispers a code, confirms the UUID, and enforces the 30-day cooldown', async () => {
@@ -519,4 +584,31 @@ test('dry-run accrues per-uuid playtime and a schema failure stays inside minecr
   assert.equal(pool.ended, false);
   const again = await ensureMinecraftSchema({ pool, schema: 'public' });
   assert.equal(again.reason, 'mc-schema-unavailable');
+  let connected = false;
+  const livePool = {
+    ended: false,
+    async query() { throw new Error('ddl failed'); },
+    async connect() { connected = true; throw new Error('should not connect'); },
+    async end() { this.ended = true; }
+  };
+  const accrual = new PostgresEconomyAccrual({
+    env: { MC_POINTS_ENABLED: 'true', MC_PLAYTIME_NP_ENABLED: 'true', MC_PLAYTIME_DRY_RUN: 'false' },
+    pool: livePool
+  });
+  const blocked = await accrual.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
+  assert.equal(blocked.reason, 'mc-schema-unavailable');
+  assert.equal(connected, false);
+  assert.equal(livePool.ended, false);
+  const queries = [];
+  const schema = new PostgresEconomyAccrual({
+    pool: {
+      async query(sql) { queries.push(String(sql)); return { rows: [] }; },
+      async connect() { throw new Error('schema check does not connect'); }
+    }
+  });
+  await schema.ensureSchema();
+  const sql = queries.join('\n');
+  assert.match(sql, /offline_since TIMESTAMPTZ,/);
+  assert.doesNotMatch(sql, /offline_since TIMESTAMPTZ NOT NULL/);
+  assert.match(sql, /ALTER COLUMN offline_since DROP NOT NULL/);
 });

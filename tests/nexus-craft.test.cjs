@@ -431,9 +431,22 @@ test('Craft image and slash commands stay inside the Minecraft bot', () => {
   assert.match(doc, /NEXUS_CRAFT_REALMS_CHANNEL_ID/);
   assert.match(doc, /src\/craft\/\*\*/);
 
+  const { PermissionFlagsBits } = require('discord.js');
   const { craftCommands } = require('../src/craft/bot.cjs');
-  const commands = craftCommands().map((command) => command.toJSON());
+  const commands = craftCommands({}).map((command) => command.toJSON());
   assert.deepEqual(commands.map((command) => command.name), ['craft', 'mcrcon', 'mc', 'realm']);
+  const hidden = commands.find((command) => command.name === 'mc').options.map((option) => option.name);
+  assert.deepEqual(hidden.filter((name) => ['link', 'unlink', 'shop', 'starter', 'mcadmin'].includes(name)), []);
+  const shown = craftCommands({
+    MC_POINTS_ENABLED: 'true',
+    MC_SHOP_ENABLED: 'true',
+    MC_STARTER_KIT_ENABLED: 'true'
+  }).map((command) => command.toJSON());
+  assert.deepEqual(shown.map((command) => command.name), ['craft', 'mcrcon', 'mc', 'mcadmin', 'realm']);
+  const member = shown.find((command) => command.name === 'mc').options.map((option) => option.name);
+  assert.deepEqual(member.filter((name) => ['link', 'unlink', 'shop', 'starter'].includes(name)), ['link', 'unlink', 'shop', 'starter']);
+  const mcadmin = shown.find((command) => command.name === 'mcadmin');
+  assert.equal(mcadmin.default_member_permissions, String(PermissionFlagsBits.ModerateMembers));
   function walk(option, label) {
     assert.ok(option.description && option.description.length <= 100, label);
     for (const child of option.options || []) walk(child, `${label}.${child.name}`);

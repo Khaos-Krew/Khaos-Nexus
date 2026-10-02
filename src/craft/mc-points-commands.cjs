@@ -1,6 +1,7 @@
 'use strict';
 
 const { mcPointsFlags } = require('../shared/mc-points-flags.cjs');
+const { mcMemberText } = require('../shared/mc-member-text.cjs');
 const { beginMinecraftLink } = require('./mc-link-flow.cjs');
 const { httpMinecraftPoints, economyConfigured } = require('./mc-economy-http.cjs');
 const { runRcon } = require('./query.cjs');
@@ -12,40 +13,7 @@ const PLAYTIME_LOOP = Symbol.for('khaos.nexus.craft.mc.playtime');
 const SWEEP_LOOP = Symbol.for('khaos.nexus.craft.mc.refund-sweep');
 
 function reasonText(reason) {
-  const messages = {
-    'mc-points-disabled': 'Minecraft Points are off.',
-    'mc-shop-disabled': 'The Minecraft shop is off. Open Sentinal when a staff member enables it.',
-    'mc-starter-kit-disabled': 'The Minecraft Starter Kit is off.',
-    'player-offline': 'That player is not on Nexus Craft right now.',
-    'uuid-not-premium': 'That Minecraft account is not a premium Java UUID.',
-    'mojang-mismatch': 'Mojang does not match that online player.',
-    'mojang-unavailable': 'Mojang profile lookup failed. Try again shortly.',
-    'whisper-failed': 'I could not whisper the code in game.',
-    'rcon-failed': 'RCON did not answer. Nothing was changed.',
-    'rcon-unparseable': 'The player list could not be read. Nothing was changed.',
-    'invalid-player-name': 'Use the in-game name: 3 to 16 letters, numbers, or underscores.',
-    'code-expired': 'That code expired. Run `/mc link start` again.',
-    'code-mismatch': 'That code does not match. Check the whisper in game.',
-    'code-locked': 'Too many wrong codes. Wait for the code to expire, then start again.',
-    'link-rate-limited': 'That Minecraft account has had too many link requests this hour.',
-    'unlink-cooldown': 'Unlink has a 30-day cooldown.',
-    'not-linked': 'No verified Minecraft link was found.',
-    'already-linked': 'Unlink the current Minecraft account first.',
-    'uuid-taken': 'That Minecraft account is already linked.',
-    'verified-identity-required': 'A verified Nexus identity is required before linking Minecraft.',
-    'verified-minecraft-link-required': 'Link Minecraft with `/mc link start` first.',
-    'account-too-new': 'The Discord account must be at least 30 days old.',
-    'tenure-too-short': 'You need 7 days in this Discord first.',
-    'playtime-too-short': 'Play on Nexus Craft for 15 counted minutes first.',
-    'already-claimed': 'The Starter Kit was already claimed for this identity or Minecraft account.',
-    'not-eligible': 'That account cannot claim the Starter Kit.',
-    'economy-worker-unconfigured': 'The Nexus economy worker is not configured for Craft.',
-    'staff-refund-sentinal-only': 'Staff refunds run in Sentinal, with a reason and a staff check.',
-    'staff-resolve-sentinal-only': 'Staff order changes run in Sentinal.',
-    'account-age-unknown': 'I could not read the Discord account age.',
-    'tenure-unknown': 'I could not read how long you have been in this Discord.'
-  };
-  return messages[reason] || 'That Minecraft Points action could not be completed.';
+  return mcMemberText(reason);
 }
 
 async function defaultRcon(store) {
@@ -62,14 +30,15 @@ function pointsFor(env) {
 async function handleMcPointsCommand(interaction, context) {
   const sub = interaction.options?.getSubcommand?.(false) || '';
   const group = interaction.options?.getSubcommandGroup?.(false) || '';
-  const handled = group === 'link' || group === 'mcadmin' || sub === 'unlink' || sub === 'shop' || sub === 'starter';
+  const staffCommand = interaction.commandName === 'mcadmin' || group === 'mcadmin';
+  const handled = staffCommand || group === 'link' || sub === 'unlink' || sub === 'shop' || sub === 'starter';
   if (!handled) return false;
   const env = context.env || process.env;
   const points = context.points || pointsFor(env);
   const discordUserId = String(interaction.user?.id || '');
-  if (group === 'mcadmin') {
+  if (staffCommand) {
     if (!context.isStaff) {
-      await interaction.reply(context.ephemeral('Only Nexus staff can use that command.'));
+      await interaction.reply(context.ephemeral('Only Nexus staff can use `/mcadmin`. Ask a staff member if you need an order, a link, or a kit checked.'));
       return true;
     }
     if (!points) {
@@ -81,13 +50,13 @@ async function handleMcPointsCommand(interaction, context) {
       const user = interaction.options.getString('user') || '';
       const lines = orders.filter((order) => !user || order.discordUserId === user).slice(0, 15)
         .map((order) => `${order.orderId} ${order.status} ${order.sku} <@${order.discordUserId}>`);
-      await interaction.reply(context.ephemeral(lines.length ? lines.join('\n') : 'No queued Minecraft orders.'));
+      await interaction.reply(context.ephemeral(lines.length ? lines.join('\n') : 'No Minecraft orders are waiting.'));
       return true;
     }
     if (sub === 'kits') {
       const grants = await points.listGrants();
       const lines = grants.slice(0, 15).map((grant) => `${grant.orderId} ${grant.status} \`${grant.mcUuid}\``);
-      await interaction.reply(context.ephemeral(lines.length ? lines.join('\n') : 'No Starter Kit claims.'));
+      await interaction.reply(context.ephemeral(lines.length ? lines.join('\n') : 'No Starter Kit claims yet.'));
       return true;
     }
     if (sub === 'link-revoke') {
@@ -96,7 +65,7 @@ async function handleMcPointsCommand(interaction, context) {
         actor: discordUserId,
         reason: 'staff-revoke'
       });
-      await interaction.reply(context.ephemeral(result.ok ? `Link revoked. Cooldown until ${result.cooldownUntil}.` : reasonText(result.reason)));
+      await interaction.reply(context.ephemeral(result.ok ? `Link revoked. They can link again after ${result.cooldownUntil} with \`/mc link start\`.` : reasonText(result.reason)));
       return true;
     }
     if (sub === 'resolve') {
@@ -116,7 +85,7 @@ async function handleMcPointsCommand(interaction, context) {
   if (group === 'link' && sub === 'start') {
     let rcon;
     try { rcon = context.rcon || await defaultRcon(context.store); }
-    catch { await interaction.reply(context.ephemeral('RCON for `default` is not configured. Staff use `/mcrcon setup`.')); return true; }
+    catch { await interaction.reply(context.ephemeral('I cannot reach the game server yet. Ask a staff member to save the connection with `/mcrcon setup`, then run `/mc link start` again.')); return true; }
     await interaction.deferReply({ flags: context.ephemeralFlags });
     const result = await beginMinecraftLink({
       username: interaction.options.getString('username'),
@@ -129,7 +98,7 @@ async function handleMcPointsCommand(interaction, context) {
     });
     await interaction.editReply({
       content: result.ok
-        ? `Whispered a link code to **${result.mcName}**. It expires in 10 minutes. Confirm with \`/mc link confirm\`.`
+        ? `I whispered a link code to **${result.mcName}** in Minecraft. It expires in 10 minutes. Do not share it. Run \`/mc link confirm\` and paste the code.`
         : reasonText(result.reason),
       allowedMentions: { parse: [] }
     });
@@ -137,35 +106,35 @@ async function handleMcPointsCommand(interaction, context) {
   }
   if (group === 'link' && sub === 'confirm') {
     const result = await points.confirm({ discordUserId, code: interaction.options.getString('code') });
-    await interaction.reply(context.ephemeral(result.ok ? `Minecraft linked (\`${result.mcUuid}\`).` : reasonText(result.reason)));
+    await interaction.reply(context.ephemeral(result.ok ? 'Minecraft is linked. Play on Nexus Craft to earn Points. Check it any time with `/mc link status`.' : reasonText(result.reason)));
     return true;
   }
   if (group === 'link' && sub === 'status') {
     const result = await points.status({ discordUserId });
     const text = result.linked
-      ? `Linked Minecraft \`${result.mcUuid}\`.`
+      ? 'Your Minecraft account is linked. Play on Nexus Craft to earn Points.'
       : result.cooldownUntil
-        ? `Not linked. Unlink cooldown until ${result.cooldownUntil}.`
-        : 'No verified Minecraft link.';
+        ? `Minecraft is not linked. You can link again after ${result.cooldownUntil}. Run \`/mc link start\` then.`
+        : 'Minecraft is not linked. Be online in game, then run `/mc link start`.';
     await interaction.reply(context.ephemeral(text));
     return true;
   }
   if (sub === 'unlink') {
     const result = await points.unlink({ discordUserId });
-    await interaction.reply(context.ephemeral(result.ok ? `Unlinked. You can link again after ${result.cooldownUntil}.` : reasonText(result.reason)));
+    await interaction.reply(context.ephemeral(result.ok ? `Minecraft is unlinked. You can link again after ${result.cooldownUntil} with \`/mc link start\`.` : reasonText(result.reason)));
     return true;
   }
   if (sub === 'shop') {
     const flags = mcPointsFlags(env);
     await interaction.reply(context.ephemeral(flags.shopEnabled
-      ? 'Open the Minecraft section of the shop in Sentinal. Nexus Craft does not sell items.'
-      : 'The Minecraft shop is off. It will appear in Sentinal after it is enabled.'));
+      ? 'Open Sentinal and choose the Minecraft shop. This bot does not sell items.'
+      : mcMemberText('mc-shop-disabled')));
     return true;
   }
   if (sub === 'starter') {
     await interaction.reply(context.ephemeral(mcPointsFlags(env).starterKitEnabled
-      ? 'Claim the Starter Kit from the Minecraft section in Sentinal. Nexus Craft does not grant it.'
-      : 'The Minecraft Starter Kit is off.'));
+      ? 'Open Sentinal and claim the free Starter Kit from the Minecraft section. This bot does not give the kit.'
+      : mcMemberText('mc-starter-kit-disabled')));
     return true;
   }
   return false;
