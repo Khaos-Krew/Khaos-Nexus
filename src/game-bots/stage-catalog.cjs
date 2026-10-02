@@ -1,7 +1,7 @@
 'use strict';
 
 const ASCENDED_STAGE_COMMANDS = Object.freeze(['rates', 'wipe', 'welcome', 'official', 'cluster']);
-const CEPHALON_STAGE_COMMANDS = Object.freeze(['worldstate', 'dojo', 'calendar', 'cosmetic', 'welcome', 'fissures', 'nightwave', 'cycles', 'clan', 'profile', 'circuit']);
+const CEPHALON_STAGE_COMMANDS = Object.freeze(['worldstate', 'dojo', 'calendar', 'cosmetic', 'welcome', 'fissures', 'nightwave', 'cycles', 'clan', 'profile', 'circuit', 'descendia']);
 
 const STAGE_HELP = Object.freeze({
   rates: 'Tribe rates, breed timers, and the boss checklist',
@@ -15,6 +15,7 @@ const STAGE_HELP = Object.freeze({
   clan: 'Staff: refresh the Warframe clan application panel',
   profile: 'Public Warframe profile lookup',
   circuit: 'Duviri choices, Steel Path reward, and Archimedea',
+  descendia: 'Weekly Descent floors and the reset countdown',
   worldstate: 'Cetus, Orb Vallis, Duviri, and a short invasion digest',
   dojo: 'Clan dojo checklist and official wiki links',
   calendar: 'Warframe event calendar pin',

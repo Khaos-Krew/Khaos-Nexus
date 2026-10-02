@@ -42,13 +42,14 @@ async function startGameBot({ botName, botKey, gameRole, serviceName, beforeClie
   const key = gameBotKey({ botKey, gameRole: role, serviceName });
   if (!key) throw new Error(`[${botName}] category gate requires the cephalon, ascended, or sanctuary bot`);
   const category = resolveCategoryConfig(key);
-  const gateValue = category.failClosed ? 'invalid' : category.open ? 'unset' : category.id;
+  const gateValue = category.failClosed ? (category.source === 'unset' ? 'unset' : 'invalid') : category.open ? 'unset' : category.id;
   console.log(`[${botName}] category gate ${category.envName}=${gateValue} source=${category.source}`);
   installCategoryGate(client, { bot: key });
   installOpsSpine(client, { bot: key });
   installStageCommands(client, { bot: key });
   if (key === 'ascended') startAscendedOpsLoop({ client });
-  installJoinToCreate(client, { bot: key });
+  // Vanguard installs Join-To-Create once inside installVanguard so a setup lobby can turn it on.
+  if (key !== 'vanguard') installJoinToCreate(client, { bot: key });
   if (key === 'cephalon') require('./cephalon-relay.cjs').startCephalonBoards({ client });
   if (key === 'ascended') require('./asa-official-status.cjs').startOfficialStatusBoard({ client });
   if (typeof bind === 'function') bind(client);

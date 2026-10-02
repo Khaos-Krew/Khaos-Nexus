@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { ChannelType, OverwriteType, PermissionFlagsBits } = require('discord.js');
 const { StateStore } = require('../src/sentinel/state-store.cjs');
 const {
   CATEGORY_NAME,
@@ -19,6 +20,10 @@ const {
   reviewPayload,
   isReviewer,
   ensureProgramRoles,
+  ensureCreatorFeedChannel,
+  ensureCreatorProgram,
+  publicReadOnlyOverwrites,
+  applicationModal,
   applyDecision,
   creatorCommand,
   handleCreatorCommand
@@ -48,7 +53,10 @@ function application(overrides = {}) {
 test('creator command exposes private status and approved roster views', () => {
   const command = creatorCommand().toJSON();
   assert.equal(command.name, 'creator');
-  assert.deepEqual(command.options.map((option) => option.name), ['status', 'roster']);
+  assert.deepEqual(command.options.map((option) => option.name), ['status', 'roster', 'post']);
+  const post = command.options.find((option) => option.name === 'post');
+  assert.equal(post.options.find((option) => option.name === 'url').required, true);
+  assert.equal(post.options.some((option) => option.name === 'ping'), true);
 });
 
 test('creator status is private while roster publishes approved profiles only', async () => {
@@ -81,7 +89,10 @@ test('platform parsing recognizes Twitch and YouTube without pretending unsuppor
   assert.deepEqual(parsePlatforms('Twitch'), ['twitch']);
   assert.deepEqual(parsePlatforms('YouTube'), ['youtube']);
   assert.deepEqual(parsePlatforms('Twitch + YouTube'), ['twitch', 'youtube']);
-  assert.deepEqual(parsePlatforms('TikTok'), ['other']);
+  assert.deepEqual(parsePlatforms('TikTok'), ['tiktok']);
+  assert.deepEqual(parsePlatforms('tik tok'), ['tiktok']);
+  assert.deepEqual(parsePlatforms('Twitch + TikTok'), ['twitch', 'tiktok']);
+  assert.deepEqual(parsePlatforms('Instagram'), ['other']);
 });
 
 test('provider status is credential-gated', () => {
@@ -94,8 +105,10 @@ test('public program panel is application-based and preserves Name Color priorit
   const payload = programPayload({});
   const text = JSON.stringify(payload);
   assert.match(text, /application-based/i);
-  assert.match(text, /Twitch and YouTube/);
-  assert.match(text, /TikTok may be added later/);
+  assert.match(text, /Twitch, YouTube, and TikTok/);
+  assert.match(payload.embeds[0].fields.find((field) => field.name.includes('Platforms')).value, /Approved creators share a link with `\/creator post`/);
+  assert.doesNotMatch(payload.embeds[0].fields.find((field) => field.name.includes('Platforms')).value, /unknown platform|provider adapter|saved handle/i);
+  assert.doesNotMatch(text, /TikTok may be added later/);
   assert.match(text, /Now Live/);
   assert.match(text, /no name color/i);
   assert.match(text, /Name Color roles keep visual priority/);
@@ -209,4 +222,215 @@ test('creator denial records a reason and never assigns the creator role', async
   assert.equal(result.ok, true);
   assert.equal(stored.application.status, 'denied');
   assert.match(stored.application.reviewReason, /community participation/);
+});
+
+test('creator application form names TikTok and approval stores the handle', async () => {
+  const modal = applicationModal().toJSON();
+  const labels = modal.components.map((row) => row.components[0].label);
+  const placeholders = modal.components.map((row) => row.components[0].placeholder);
+  assert.match(labels[0], /TikTok/);
+  assert.match(placeholders[1], /tiktok\.com\/@handle/i);
+
+  const app = application({
+    platformText: 'TikTok',
+    platforms: ['tiktok'],
+    channelRef: 'https://www.tiktok.com/@Cool.Creator'
+  });
+  const stored = { application: app, profile: null };
+  const store = {
+    getCreatorApplication() { return stored.application; },
+    setCreatorApplication(id, value) { stored.application = value; return value; },
+    setCreatorProfile(id, value) { stored.profile = value; return value; }
+  };
+  const interaction = {
+    user: { id: '100000000000000001' },
+    guild: { members: { async fetch() { return { roles: { async add() {} } }; } } }
+  };
+  const result = await applyDecision(interaction, store, { id: '200000000000000001' }, app.id, 'approved');
+  assert.equal(result.ok, true);
+  assert.deepEqual(stored.profile.platforms, ['tiktok']);
+  assert.equal(stored.profile.handles.tiktok, 'cool.creator');
+  assert.notEqual(stored.profile.platforms[0], 'other');
+});
+
+test('creator feed overwrites let everyone view and only Sentinal send', () => {
+  const guildId = '100000000000000010';
+  const botId = '100000000000000099';
+  const overwrites = publicReadOnlyOverwrites({ id: guildId }, botId);
+  const everyone = overwrites.find((entry) => entry.id === guildId);
+  const bot = overwrites.find((entry) => entry.id === botId);
+  assert.equal(everyone.type, OverwriteType.Role);
+  assert.ok(everyone.allow.includes(PermissionFlagsBits.ViewChannel));
+  assert.ok(everyone.allow.includes(PermissionFlagsBits.ReadMessageHistory));
+  assert.ok(everyone.deny.includes(PermissionFlagsBits.SendMessages));
+  assert.equal(everyone.allow.includes(PermissionFlagsBits.SendMessages), false);
+  assert.equal(bot.type, OverwriteType.Member);
+  assert.ok(bot.allow.includes(PermissionFlagsBits.ViewChannel));
+  assert.ok(bot.allow.includes(PermissionFlagsBits.SendMessages));
+  assert.ok(bot.allow.includes(PermissionFlagsBits.EmbedLinks));
+});
+
+test('creator feed is found or created under INFORMATION and legacy live channels are left alone', async () => {
+  const events = [];
+  const botId = '100000000000000099';
+  const guildId = '100000000000000010';
+  const channels = [
+    { id: 'info', name: 'INFORMATION', type: ChannelType.GuildCategory },
+    { id: 'creator-cat', name: 'CONTENT CREATOR PROGRAM', type: ChannelType.GuildCategory },
+    { id: 'staff-cat', name: '🔒 STAFF', type: ChannelType.GuildCategory }
+  ];
+  const textChannel = (id, name, parentId, legacy = false) => {
+    const trap = async () => { throw new Error(`legacy channel ${name} must be left alone`); };
+    return {
+      id,
+      name,
+      parentId,
+      topic: '',
+      isTextBased: () => true,
+      permissionOverwrites: { set: legacy ? trap : async (overwrites) => { events.push({ type: 'overwrites', name, overwrites }); } },
+      setTopic: legacy ? trap : async (topic) => { events.push({ type: 'topic', name, topic }); },
+      setParent: legacy ? trap : async () => { events.push({ type: 'parent', name }); },
+      messages: { fetch: legacy ? trap : async () => new Map() },
+      send: legacy ? trap : async () => ({ id: `msg-${id}`, pinned: false, async pin() {} })
+    };
+  };
+  channels.push(
+    textChannel('program', 'creator-program', 'creator-cat'),
+    textChannel('assets', 'creator-assets', 'creator-cat'),
+    textChannel('chat', 'creator-chat', 'creator-cat'),
+    textChannel('review', 'creator-review', 'staff-cat'),
+    textChannel('twitch', 'twitch-live', 'creator-cat', true),
+    textChannel('youtube', 'youtube-live', 'creator-cat', true)
+  );
+  const roles = new Map([
+    ['200000000000000001', { id: '200000000000000001', name: 'Content Creator', managed: false }],
+    ['200000000000000002', { id: '200000000000000002', name: 'Now Live', managed: false }]
+  ]);
+  const guild = {
+    id: guildId,
+    ownerId: '100000000000000001',
+    roles: {
+      async fetch() { return roles; },
+      async create() { throw new Error('creator roles already exist'); }
+    },
+    channels: {
+      async fetch() { return channels; },
+      async create(options) {
+        events.push({ type: 'create', name: options.name, parent: options.parent, overwrites: options.permissionOverwrites });
+        const channel = textChannel(`created-${options.name}`, options.name, options.parent);
+        channel.topic = options.topic || '';
+        channels.push(channel);
+        return channel;
+      }
+    }
+  };
+  const store = {
+    listCreatorApplications() { return {}; },
+    setCreatorMeta(value) { this.meta = value; return value; }
+  };
+  const config = { discord: { ownerUserIds: ['100000000000000001'] } };
+  const first = await ensureCreatorProgram(guild, config, store, botId);
+  const second = await ensureCreatorProgram(guild, config, store, botId);
+  const creates = events.filter((event) => event.type === 'create');
+  assert.deepEqual(creates.map((event) => event.name), ['creator-feed']);
+  assert.equal(creates[0].parent, 'info');
+  assert.deepEqual(creates[0].overwrites, publicReadOnlyOverwrites(guild, botId));
+  const feedSets = events.filter((event) => event.type === 'overwrites' && event.name === 'creator-feed');
+  assert.ok(feedSets.length >= 2);
+  assert.deepEqual(feedSets[0].overwrites, publicReadOnlyOverwrites(guild, botId));
+  assert.equal(events.some((event) => event.name === 'twitch-live' || event.name === 'youtube-live'), false);
+  assert.equal(first.feedChannelId, 'created-creator-feed');
+  assert.equal(second.feedChannelId, 'created-creator-feed');
+  assert.equal(store.meta.creatorFeedChannelId, 'created-creator-feed');
+});
+
+test('creator feed repair moves only the stored channel or reuses one already in INFORMATION', async () => {
+  const stored = {
+    id: 'feed-stored',
+    name: 'announcements',
+    parentId: 'elsewhere',
+    topic: '',
+    isTextBased: () => true,
+    async setParent(parent) { stored.parentId = parent; },
+    async setTopic(topic) { stored.topic = topic; },
+    permissionOverwrites: { set: async (overwrites) => { stored.overwrites = overwrites; } }
+  };
+  const namesake = {
+    id: 'feed-other',
+    name: 'creator-feed',
+    parentId: 'elsewhere',
+    topic: '',
+    isTextBased: () => true,
+    async setParent() { throw new Error('a creator-feed outside INFORMATION must not be moved'); },
+    async setTopic() { throw new Error('a creator-feed outside INFORMATION must not be edited'); },
+    permissionOverwrites: { set: async () => { throw new Error('a creator-feed outside INFORMATION must not be edited'); } }
+  };
+  const guild = {
+    id: '100000000000000010',
+    channels: {
+      async fetch() {
+        return [
+          { id: 'info', name: 'INFORMATION', type: ChannelType.GuildCategory },
+          stored,
+          namesake
+        ];
+      },
+      async create() { throw new Error('stored creator-feed must be reused'); }
+    }
+  };
+  const moved = await ensureCreatorFeedChannel(guild, '100000000000000099', 'feed-stored');
+  assert.equal(moved.created, false);
+  assert.equal(moved.moved, true);
+  assert.equal(moved.channel.id, 'feed-stored');
+  assert.equal(stored.parentId, 'info');
+  assert.deepEqual(stored.overwrites, publicReadOnlyOverwrites(guild, '100000000000000099'));
+
+  const already = {
+    id: 'feed-info',
+    name: 'creator-feed',
+    parentId: 'info',
+    topic: '',
+    isTextBased: () => true,
+    async setParent() { throw new Error('a feed already in INFORMATION must not move'); },
+    async setTopic(topic) { already.topic = topic; },
+    permissionOverwrites: { set: async (overwrites) => { already.overwrites = overwrites; } }
+  };
+  const untouched = {
+    id: 'feed-outside',
+    name: 'creator-feed',
+    parentId: 'elsewhere',
+    isTextBased: () => true,
+    async setParent() { throw new Error('must not move a namesake'); },
+    async setTopic() { throw new Error('must not edit a namesake'); },
+    permissionOverwrites: { set: async () => { throw new Error('must not edit a namesake'); } }
+  };
+  const reuseGuild = {
+    id: '100000000000000010',
+    channels: {
+      async fetch() {
+        return [
+          { id: 'info', name: 'INFORMATION', type: ChannelType.GuildCategory },
+          already,
+          untouched
+        ];
+      },
+      async create() { throw new Error('the INFORMATION creator-feed must be reused'); }
+    }
+  };
+  const reused = await ensureCreatorFeedChannel(reuseGuild, '100000000000000099');
+  assert.equal(reused.channel.id, 'feed-info');
+  assert.equal(reused.moved, false);
+  assert.equal(reused.created, false);
+});
+
+test('creator feed setup is harmless when INFORMATION is missing', async () => {
+  const guild = {
+    channels: {
+      async fetch() { return [{ id: 'cat', name: 'CONTENT CREATOR PROGRAM', type: ChannelType.GuildCategory }]; },
+      async create() { throw new Error('must not create creator-feed without INFORMATION'); }
+    }
+  };
+  const result = await ensureCreatorFeedChannel(guild, 'bot');
+  assert.equal(result.channel, null);
+  assert.equal(result.reason, 'information-category-missing');
 });

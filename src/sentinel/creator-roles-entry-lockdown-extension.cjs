@@ -17,7 +17,8 @@ const { minimumCreatorLevel } = require('./creator-level-gate.cjs');
 const {
   CATEGORY_NAME,
   CREATOR_ROLE_NAME,
-  APPLY_BUTTON_ID
+  APPLY_BUTTON_ID,
+  isPublicCreatorChannel
 } = require('./creator-program-extension.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.creatorRolesEntryLockdown.extension');
@@ -73,7 +74,7 @@ function entryPayload(minimumLevel) {
         },
         {
           name: '📺 Supported Platforms',
-          value: 'Twitch and YouTube are supported first. Additional platforms can be added later after their integrations are accepted.',
+          value: 'Twitch, YouTube, and TikTok are supported. Approved creators can share a post in the public creator feed.',
           inline: false
         },
         {
@@ -117,49 +118,101 @@ async function reconcileEntryPanel(channel, minimumLevel, botId) {
   return { messageId: String(message?.id || ''), created, updated, duplicatesRemoved: Math.max(0, matches.length - 1) };
 }
 
+function overwriteFor(channel, id) {
+  const cache = channel?.permissionOverwrites?.cache;
+  if (!cache || typeof cache.get !== 'function') return null;
+  return cache.get(String(id || '')) || null;
+}
+
+function overwriteHas(overwrite, side, flag) {
+  const field = overwrite?.[side];
+  if (!field) return false;
+  if (typeof field.has === 'function') return field.has(flag);
+  if (field.bitfield !== undefined) return (BigInt(field.bitfield) & BigInt(flag)) === BigInt(flag);
+  return false;
+}
+
+function patchSatisfied(overwrite, patch) {
+  if (!overwrite) return false;
+  for (const [key, enabled] of Object.entries(patch || {})) {
+    const flag = PermissionFlagsBits[key];
+    const allowed = overwriteHas(overwrite, 'allow', flag);
+    const denied = overwriteHas(overwrite, 'deny', flag);
+    if (enabled === true && (!allowed || denied)) return false;
+    if (enabled === false && !denied) return false;
+  }
+  return true;
+}
+
+function creatorLockdownTargets({ guildId, creatorRoleId, staffRoleIds = [], ownerIds = [], botId = '' } = {}) {
+  const targets = [
+    [guildId, { ViewChannel: false }, { reason: 'Keep Content Creator Program private until approval' }],
+    [creatorRoleId, { ViewChannel: true, ReadMessageHistory: true }, { reason: 'Approved Khaos Nexus creators may access creator workspace' }]
+  ];
+  for (const roleId of staffRoleIds) {
+    targets.push([roleId, { ViewChannel: true, ReadMessageHistory: true }, { reason: 'Khaos Nexus staff creator-program access' }]);
+  }
+  for (const ownerId of ownerIds) {
+    targets.push([ownerId, { ViewChannel: true, ReadMessageHistory: true }, { type: OverwriteType.Member, reason: 'Khaos Nexus owner creator-program access' }]);
+  }
+  if (botId) {
+    targets.push([botId, {
+      ViewChannel: true,
+      SendMessages: true,
+      ReadMessageHistory: true,
+      EmbedLinks: true,
+      ManageMessages: true
+    }, { type: OverwriteType.Member, reason: 'Nexus Sentinal creator-program management access' }]);
+  }
+  return targets.filter(([id]) => String(id || '').trim());
+}
+
+function creatorLockdownEditsNeeded(channel, spec = {}) {
+  if (!channel?.permissionOverwrites?.cache || typeof channel.permissionOverwrites.cache.get !== 'function') return true;
+  return creatorLockdownTargets(spec).some(([id, patch]) => !patchSatisfied(overwriteFor(channel, id), patch));
+}
+
+async function editOverwriteIfNeeded(channel, targetId, patch, options) {
+  if (patchSatisfied(overwriteFor(channel, targetId), patch)) return false;
+  await channel.permissionOverwrites.edit(String(targetId), patch, options);
+  return true;
+}
+
 async function enforceCreatorWorkspaceLock(guild, { state, config, botId } = {}) {
   const [channels, roles] = await Promise.all([guild.channels.fetch(), guild.roles.fetch()]);
   const category = findCreatorCategory(channels);
   const creatorRole = findCreatorRole(roles, state);
-  if (!category || !creatorRole) return { skipped: true, reason: !category ? 'creator-category-missing' : 'creator-role-missing', changed: 0 };
+  if (!category || !creatorRole) return { skipped: true, reason: !category ? 'creator-category-missing' : 'creator-role-missing', changed: 0, apiCalls: 0 };
 
-  const staffRoleIds = await resolveStaffRoleIds(guild, config).catch(() => []);
+  const staffRoleIds = await resolveStaffRoleIds(guild, config, roles).catch(() => []);
   const ownerIds = [...new Set([String(guild.ownerId || ''), ...(config.discord?.ownerUserIds || []).map(String)].filter(Boolean))];
+  const meta = state?.getCreatorMeta?.() || {};
   const children = valuesOf(channels).filter((channel) => String(channel?.parentId || '') === String(category.id));
+  const spec = { guildId: guild.id, creatorRoleId: creatorRole.id, staffRoleIds, ownerIds, botId };
   let changed = 0;
+  let skippedPublic = 0;
+  let apiCalls = 0;
 
   for (const channel of children) {
+    if (isPublicCreatorChannel(channel, meta)) {
+      skippedPublic += 1;
+      continue;
+    }
     if (!channel?.permissionOverwrites?.edit) continue;
-    await channel.permissionOverwrites.edit(String(guild.id), { ViewChannel: false }, { reason: 'Keep Content Creator Program private until approval' });
-    await channel.permissionOverwrites.edit(String(creatorRole.id), {
-      ViewChannel: true,
-      ReadMessageHistory: true
-    }, { reason: 'Approved Khaos Nexus creators may access creator workspace' });
-    for (const roleId of staffRoleIds) {
-      await channel.permissionOverwrites.edit(String(roleId), {
-        ViewChannel: true,
-        ReadMessageHistory: true
-      }, { reason: 'Khaos Nexus staff creator-program access' }).catch(() => {});
+    if (!creatorLockdownEditsNeeded(channel, spec)) continue;
+    let wrote = false;
+    for (const [targetId, patch, options] of creatorLockdownTargets(spec)) {
+      try {
+        if (await editOverwriteIfNeeded(channel, targetId, patch, options)) {
+          wrote = true;
+          apiCalls += 1;
+        }
+      } catch { /* leave the rest of the channel lock in place */ }
     }
-    for (const ownerId of ownerIds) {
-      await channel.permissionOverwrites.edit(String(ownerId), {
-        ViewChannel: true,
-        ReadMessageHistory: true
-      }, { type: OverwriteType.Member, reason: 'Khaos Nexus owner creator-program access' }).catch(() => {});
-    }
-    if (botId) {
-      await channel.permissionOverwrites.edit(String(botId), {
-        ViewChannel: true,
-        SendMessages: true,
-        ReadMessageHistory: true,
-        EmbedLinks: true,
-        ManageMessages: true
-      }, { type: OverwriteType.Member, reason: 'Nexus Sentinal creator-program management access' }).catch(() => {});
-    }
-    changed += 1;
+    if (wrote) changed += 1;
   }
 
-  return { skipped: false, reason: '', changed, categoryId: String(category.id), creatorRoleId: String(creatorRole.id) };
+  return { skipped: false, reason: '', changed, skippedPublic, apiCalls, categoryId: String(category.id), creatorRoleId: String(creatorRole.id) };
 }
 
 async function reconcileCreatorRolesEntry(client, { config, state } = {}) {
@@ -192,7 +245,7 @@ function installCreatorRolesEntryLockdownExtension() {
       running = true;
       try {
         const result = await reconcileCreatorRolesEntry(client, { config, state });
-        if (!result.skipped) console.log(`[Nexus Sentinal] creator roles entry (${reason}): rolesChannel=${result.rolesChannelId} minLevel=${result.minimumLevel} panelCreated=${result.panel.created} workspaceChannelsLocked=${result.lock?.changed || 0}`);
+        if (!result.skipped) console.log(`[Nexus Sentinal] creator roles entry (${reason}): rolesChannel=${result.rolesChannelId} minLevel=${result.minimumLevel} panelCreated=${result.panel.created} workspaceChannelsLocked=${result.lock?.changed || 0} publicFeedsExempt=${result.lock?.skippedPublic || 0}`);
       } catch (error) {
         console.warn(`[Nexus Sentinal] creator roles entry (${reason}) unavailable: ${String(error?.message || error).slice(0, 260)}`);
       } finally { running = false; }
@@ -204,8 +257,20 @@ function installCreatorRolesEntryLockdownExtension() {
       const periodic = setInterval(() => void run('periodic'), REFRESH_MS);
       periodic.unref?.();
     });
-    client.on(Events.ChannelUpdate, (before, after) => {
+    client.on(Events.ChannelUpdate, (_before, after) => {
       if (normalizeName(after?.parent?.name || '') !== normalizeName(CATEGORY_NAME)) return;
+      const meta = state.getCreatorMeta?.() || {};
+      if (isPublicCreatorChannel(after, meta)) return;
+      const guild = after.guild;
+      const roles = guild?.roles?.cache;
+      const creatorRole = roles ? findCreatorRole(roles, state) : null;
+      if (creatorRole && !creatorLockdownEditsNeeded(after, {
+        guildId: String(after.guildId || guild?.id || config.discord?.guildId || ''),
+        creatorRoleId: creatorRole.id,
+        staffRoleIds: [],
+        ownerIds: [String(guild?.ownerId || ''), ...(config.discord?.ownerUserIds || []).map(String)].filter(Boolean),
+        botId: String(client.user?.id || '')
+      })) return;
       void run('channel-update');
     });
     return originalLogin.apply(client, args);
@@ -221,6 +286,7 @@ module.exports = {
   findCreatorRole,
   entryPayload,
   reconcileEntryPanel,
+  creatorLockdownEditsNeeded,
   enforceCreatorWorkspaceLock,
   reconcileCreatorRolesEntry,
   installCreatorRolesEntryLockdownExtension

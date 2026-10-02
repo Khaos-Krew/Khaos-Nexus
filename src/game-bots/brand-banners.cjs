@@ -27,6 +27,7 @@ const PANEL_BOTS = Object.freeze({
   warframeVoidTrader: 'cephalon',
   warframeSteelPath: 'cephalon',
   warframeCircuit: 'cephalon',
+  warframeDescendia: 'cephalon',
   official: 'ascended',
   ascendedWelcome: 'ascended',
   arkCluster: 'ascended',

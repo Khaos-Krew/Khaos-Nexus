@@ -23,6 +23,10 @@ const { installAboutExtension } = require('./about-extension.cjs');
 const { installRanksExtension } = require('./ranks-extension.cjs');
 const { installGameServersExtension } = require('./game-servers-extension.cjs');
 const { installPublicServerListExtension } = require('./public-server-list-extension.cjs');
+const { installCreatorLevelGateExtension } = require('./creator-level-gate-extension.cjs');
+const { installCreatorProgramExtension } = require('./creator-program-extension.cjs');
+const { installCreatorRolesEntryLockdownExtension } = require('./creator-roles-entry-lockdown-extension.cjs');
+const { installCreatorLifecycleExtension } = require('./creator-lifecycle-extension.cjs');
 const { installStaffWorkspaceExtension } = require('./staff-workspace-extension.cjs');
 const { installArnIntakeExtension } = require('./arn-intake-extension.cjs');
 const { installNexusEconomyIdentitySyncExtension } = require('./nexus-economy-identity-sync-extension.cjs');
@@ -66,6 +70,15 @@ installAboutExtension();
 installRanksExtension();
 installGameServersExtension();
 installPublicServerListExtension();
+// Creator program extensions:
+// - level gate: blocks the apply modal below the configured community level
+// - program refresh: every 15 minutes, keeps channels, panels, and /creator current
+// - roles-entry lockdown: public apply panel in #roles, and private workspace overwrites only when they differ
+// - /creator-admin: staff request-info and revoke
+installCreatorLevelGateExtension();
+installCreatorProgramExtension();
+installCreatorRolesEntryLockdownExtension();
+installCreatorLifecycleExtension();
 installStaffWorkspaceExtension();
 installArnIntakeExtension();
 installNexusEconomyIdentitySyncExtension();
