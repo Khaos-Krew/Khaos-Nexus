@@ -1,6 +1,7 @@
 'use strict';
 
-const KIT_VERSION = '2026-10-01';
+// Same live pack as the shop catalog: ATM10: Aeronautics 0.6.1 (Minecraft 1.21.1, NeoForge 21.1.250).
+const KIT_VERSION = 'atm10-aeronautics-0.6.1';
 const ACCOUNT_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const TENURE_MS = 7 * 24 * 60 * 60 * 1000;
 const FIRST_PLAY_MS = 15 * 60 * 1000;

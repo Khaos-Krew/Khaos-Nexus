@@ -62,15 +62,29 @@ function countInventorySlots(text) {
 
 function parseGiveResponse(text, expected = {}) {
   const raw = String(text || '').trim();
-  const match = raw.match(/^Gave (\d+) \[([^\]]+)\] to ([A-Za-z0-9_]{3,16})$/);
+  const match = raw.match(/^Gave (\d+) \[/);
   if (!match) return { outcome: 'unconfirmed' };
   const count = Number(match[1]);
-  const itemId = match[2];
-  const name = match[3];
   if (expected.count != null && count !== Number(expected.count)) return { outcome: 'unconfirmed' };
+  const item = raw.match(/^Gave \d+ \[([^\]]+)\]/);
+  const itemId = item ? item[1] : '';
   if (expected.itemId && itemId !== expected.itemId) return { outcome: 'unconfirmed' };
-  if (expected.name && name !== expected.name) return { outcome: 'unconfirmed' };
-  return { outcome: 'delivered', count, itemId, name };
+  return { outcome: 'delivered', count, itemId };
+}
+
+function tagListCommand(uuid) {
+  const id = normalizeUuid(uuid);
+  if (!isPremiumUuid(id)) throw new Error('invalid-player-uuid');
+  return `tag ${id} list`;
+}
+
+function parseTagList(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return null;
+  if (/\bno tags\b/i.test(raw)) return [];
+  const match = raw.match(/\btags:\s*\[([^\]]*)\]/i);
+  if (!match) return null;
+  return match[1].split(',').map((part) => part.trim()).filter(Boolean);
 }
 
 function tellrawCommand(uuid, text) {
@@ -96,27 +110,6 @@ function dataGetCommand(uuid, path) {
   return `data get entity ${id} ${path}`;
 }
 
-function statGetCommand(uuid) {
-  const id = normalizeUuid(uuid);
-  if (!isPremiumUuid(id)) throw new Error('invalid-player-uuid');
-  return `data get entity ${id} Stats.minecraft:custom.minecraft:jump`;
-}
-
-function parseStat(text) {
-  const match = String(text || '').match(/(-?\d+)\s*$/);
-  if (!match) return null;
-  const value = Number(match[1]);
-  return Number.isFinite(value) ? value : null;
-}
-
-function parseFtbAfk(text) {
-  const raw = String(text || '').trim().toLowerCase();
-  if (!raw) return null;
-  if (/\bnot[\s_-]*afk\b/.test(raw) || raw === 'false' || raw === 'active') return false;
-  if (/\bafk\b/.test(raw) || raw === 'true') return true;
-  return null;
-}
-
 module.exports = {
   PLAYER_NAME,
   ITEM_ID,
@@ -131,7 +124,6 @@ module.exports = {
   tellrawCommand,
   giveCommand,
   dataGetCommand,
-  statGetCommand,
-  parseStat,
-  parseFtbAfk
+  tagListCommand,
+  parseTagList
 };

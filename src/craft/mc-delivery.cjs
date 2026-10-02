@@ -69,7 +69,15 @@ async function deliverMcOrder(order, { rcon, points, deliveryEnabled = false } =
     try {
       await rcon(tellrawCommand(player.uuid, `Free ${needed} slots to receive order ${order.orderId}`));
     } catch {}
-    return { orderId: order.orderId, status: order.status, waitingSlots: needed, free };
+    const status = sent ? 'SENT_UNCONFIRMED' : 'PLAYER_OFFLINE';
+    await points.markDelivery({
+      orderId: order.orderId,
+      status,
+      expectedStatus: 'DELIVERY_IN_PROGRESS',
+      leaseToken: order.leaseToken,
+      note: 'inventory-full'
+    });
+    return { orderId: order.orderId, status, requeued: status === 'PLAYER_OFFLINE', waitingSlots: needed, free };
   }
   for (let index = 0; index < order.lines.length; index += 1) {
     const line = order.lines[index];
@@ -84,7 +92,7 @@ async function deliverMcOrder(order, { rcon, points, deliveryEnabled = false } =
       return { orderId: order.orderId, status: 'SENT_UNCONFIRMED' };
     }
     const stillOnline = parseListUuids(await rcon('list uuids'));
-    if (!stillOnline.ok || !stillOnline.players.some((entry) => entry.uuid === order.mcUuid && entry.name === player.name)) {
+    if (!stillOnline.ok || !stillOnline.players.some((entry) => entry.uuid === order.mcUuid)) {
       const status = order.lines.some((entry) => entry.status === 'DELIVERED') ? 'SENT_UNCONFIRMED' : 'PLAYER_OFFLINE';
       await points.markDelivery({
         orderId: order.orderId,
@@ -100,7 +108,7 @@ async function deliverMcOrder(order, { rcon, points, deliveryEnabled = false } =
     } catch {
       response = '';
     }
-    const parsed = parseGiveResponse(response, { count: line.count, itemId: line.itemId, name: player.name });
+    const parsed = parseGiveResponse(response, { count: line.count, itemId: line.itemId });
     if (parsed.outcome === 'delivered') {
       await points.markDelivery({
         orderId: order.orderId,

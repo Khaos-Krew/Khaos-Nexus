@@ -197,10 +197,13 @@ test('final statuses and a lost lease do not change the order', async () => {
   assert.equal(illegal.reason, 'final-status');
 });
 
-test('give replies count only an exact count, item, and player', () => {
-  assert.equal(parseGiveResponse('Gave 4 [minecraft:diamond] to Steve', { count: 4, itemId: 'minecraft:diamond', name: 'Steve' }).outcome, 'delivered');
-  assert.equal(parseGiveResponse('Gave 4 [minecraft:diamond] to Steve extra', { count: 4, itemId: 'minecraft:diamond', name: 'Steve' }).outcome, 'unconfirmed');
-  assert.equal(parseGiveResponse('Gave 4 [minecraft:diamond] to Alex', { count: 4, itemId: 'minecraft:diamond', name: 'Steve' }).outcome, 'unconfirmed');
+test('give replies match the count and ignore the display name', () => {
+  assert.equal(parseGiveResponse('Gave 4 [minecraft:diamond] to [Team] Steve*', { count: 4, itemId: 'minecraft:diamond', name: 'Steve' }).outcome, 'delivered');
+  assert.equal(parseGiveResponse('Gave 4 [minecraft:diamond] to Alex', { count: 4, itemId: 'minecraft:diamond', name: 'Steve' }).outcome, 'delivered');
+  assert.equal(parseGiveResponse('Gave 3 [minecraft:diamond] to Steve', { count: 4, itemId: 'minecraft:diamond' }).outcome, 'unconfirmed');
+  assert.equal(parseGiveResponse('No player was found', { count: 4, itemId: 'minecraft:diamond' }).outcome, 'unconfirmed');
+  assert.equal(parseGiveResponse("Unknown item 'minecraft:diamond'", { count: 4, itemId: 'minecraft:diamond' }).outcome, 'unconfirmed');
+  assert.equal(parseGiveResponse("Can't give more than 1 of [minecraft:diamond]", { count: 1, itemId: 'minecraft:diamond' }).outcome, 'unconfirmed');
 });
 
 test('a second identity cannot take a linked UUID and codes lock after five failures', async () => {

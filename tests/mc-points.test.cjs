@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { mcPointsFlags } = require('../src/shared/mc-points-flags.cjs');
-const { loadMcShopCatalog, DEFAULT_MC_SHOP_ITEMS } = require('../src/shared/mc-shop-catalog.cjs');
+const { loadMcShopCatalog, DEFAULT_MC_SHOP_ITEMS, MC_LIVE_PACK } = require('../src/shared/mc-shop-catalog.cjs');
 const { loadStarterKit, starterKitEligibility, BACKPACK_ID, FIRST_PLAY_MS, ACCOUNT_AGE_MS, TENURE_MS } = require('../src/shared/mc-starter-kit.cjs');
 const { planMinecraftContribution, MC_DAILY_CAP_MS, ctDayKey } = require('../src/economy-worker/mc-playtime-accounting.cjs');
 const { MemoryMcPoints, UNLINK_COOLDOWN_MS, REFUND_AFTER_MS } = require('../src/economy-worker/mc-points-service.cjs');
@@ -96,22 +96,22 @@ test('list uuids parser keeps premium UUIDs and ignores junk', () => {
   assert.equal(isPremiumUuid(parsed.players[0].uuid), true);
   assert.equal(isPremiumUuid('11111111-1111-3111-8111-111111111111'), false);
   assert.equal(parseListUuids('nope').ok, false);
+  const live = parseListUuids(`There are 1 of a max of 40 players online: Steve (${UUID})`);
+  assert.equal(live.ok, true);
+  assert.equal(live.players[0].uuid, UUID);
 });
 
-test('AFK uses input signals and treats a missing signal as AFK', () => {
+test('AFK uses position and rotation and treats a missing signal as AFK', () => {
   const afk = new McAfkTracker();
-  const active = { rotation: [10, 20], ftbAfk: false, interactions: 1 };
-  assert.equal(afk.observe(UUID, active, 0).afk, false);
-  assert.equal(afk.observe(UUID, { ...active, rotation: [10, 20] }, AFK_UNCHANGED_MS - 1).afk, false);
-  assert.equal(afk.observe(UUID, active, AFK_UNCHANGED_MS).afk, true);
-  assert.equal(afk.observe(UUID, active, AFK_UNCHANGED_MS + 10).afk, true);
-  assert.equal(afk.observe(UUID, { rotation: [11, 20], ftbAfk: false, interactions: 1 }, AFK_UNCHANGED_MS + 20).afk, false);
-  assert.equal(afk.observe(UUID, { rotation: [12, 20], ftbAfk: true, interactions: 9 }, AFK_UNCHANGED_MS + 30).reason, 'ftb-afk');
+  const still = { position: [1, 64, 2], rotation: [10, 20] };
+  assert.equal(afk.observe(UUID, still, 0).afk, false);
+  assert.equal(afk.observe(UUID, still, AFK_UNCHANGED_MS - 1).afk, false);
+  assert.equal(afk.observe(UUID, still, AFK_UNCHANGED_MS).reason, 'unchanged');
+  assert.equal(afk.observe(UUID, { position: [2, 64, 2], rotation: [10, 20] }, AFK_UNCHANGED_MS + 20).afk, false);
+  assert.equal(afk.observe(UUID, { position: [2, 64, 2], rotation: [11, 20] }, AFK_UNCHANGED_MS + 25).afk, false);
+  assert.equal(afk.observe(UUID, { position: [2, 64, 2], rotation: [11, 20], datapackAfk: true }, AFK_UNCHANGED_MS + 30).reason, 'datapack-afk');
   assert.equal(afk.observe(UUID_2, { rotation: [1, 2] }, 0).reason, 'signal-missing');
-  assert.equal(afk.observe(UUID_2, { rotation: [3, 4] }, 1).afk, true);
-  const jumps = new McAfkTracker();
-  assert.equal(jumps.observe(UUID, { interactions: 3 }, 0).afk, false);
-  assert.equal(jumps.observe(UUID, { interactions: 4 }, 1000).afk, false);
+  assert.equal(afk.observe(UUID_2, { position: [1, 2, 3] }, 1).reason, 'signal-missing');
 });
 
 test('give and tellraw commands reject raw player input', () => {
@@ -119,9 +119,11 @@ test('give and tellraw commands reject raw player input', () => {
   assert.throws(() => giveCommand('Steve; say hi', 'minecraft:iron_ingot', 1));
   assert.throws(() => giveCommand(UUID, 'minecraft:iron_ingot 64; say hi', 1));
   assert.match(tellrawCommand(UUID, 'Nexus link code: ABC-234'), new RegExp(`^tellraw ${UUID} \\{`));
-  assert.equal(parseGiveResponse('Gave 64 [minecraft:iron_ingot] to Steve', { count: 64, itemId: 'minecraft:iron_ingot', name: 'Steve' }).outcome, 'delivered');
-  assert.equal(parseGiveResponse('Gave 63 [minecraft:iron_ingot] to Steve', { count: 64, itemId: 'minecraft:iron_ingot', name: 'Steve' }).outcome, 'unconfirmed');
-  assert.equal(parseGiveResponse('Unknown item').outcome, 'unconfirmed');
+  assert.equal(parseGiveResponse('Gave 64 [minecraft:iron_ingot] to [Team] Steve*', { count: 64, itemId: 'minecraft:iron_ingot', name: 'Steve' }).outcome, 'delivered');
+  assert.equal(parseGiveResponse('Gave 63 [minecraft:iron_ingot] to Steve', { count: 64, itemId: 'minecraft:iron_ingot' }).outcome, 'unconfirmed');
+  assert.equal(parseGiveResponse("Unknown item 'minecraft:nope'").outcome, 'unconfirmed');
+  assert.equal(parseGiveResponse('No player was found').outcome, 'unconfirmed');
+  assert.equal(parseGiveResponse("Can't give more than 1 of [sophisticatedbackpacks:backpack]").outcome, 'unconfirmed');
   assert.equal(parseGiveResponse('').outcome, 'unconfirmed');
   assert.equal(countInventorySlots('{Inventory:[{Slot:0b},{Slot:10b},{Slot:40b}]}').free, 34);
 });
@@ -129,6 +131,10 @@ test('give and tellraw commands reject raw player input', () => {
 test('catalog keeps 14 configurable item ids and the kit keeps the backpack', () => {
   const catalog = loadMcShopCatalog({});
   assert.equal(catalog.items.length, 14);
+  assert.equal(MC_LIVE_PACK.pack, 'ATM10: Aeronautics');
+  assert.equal(MC_LIVE_PACK.packVersion, '0.6.1');
+  assert.equal(MC_LIVE_PACK.minecraft, '1.21.1');
+  assert.equal(catalog.version, 'atm10-aeronautics-0.6.1');
   assert.equal(catalog.items.filter((item) => item.sku === 'mc_diamond4')[0].dailyLimit, 2);
   const overridden = loadMcShopCatalog({ MC_SHOP_CATALOG_JSON: JSON.stringify([{ sku: 'mc_iron64', itemId: 'minecraft:diamond', price: 1, qty: 9 }, { sku: 'mc_new', itemId: 'minecraft:tnt', price: 1 }]) });
   assert.equal(overridden.items.find((item) => item.sku === 'mc_iron64').itemId, 'minecraft:diamond');
@@ -303,12 +309,15 @@ test('shop debits through the wallet, checks slots, and never retries an unconfi
     }
   });
   assert.equal(full.waitingSlots, 1);
-  const lost = await deliverMcOrder(points.orders.get(reclaimed.orderId), {
+  assert.equal(full.requeued, true);
+  assert.equal(points.orders.get(reclaimed.orderId).status, 'PLAYER_OFFLINE');
+  const reclaimedAgain = points.claimNext();
+  const lost = await deliverMcOrder(reclaimedAgain, {
     points,
     deliveryEnabled: true,
     rcon: async (command) => command === 'list uuids'
       ? `There are 1 of a max of 20 players online: Steve (${UUID})`
-      : command.includes('Inventory') ? '{Inventory:[]}' : ''
+      : command.includes('Inventory') ? '{Inventory:[]}' : 'No player was found'
   });
   assert.equal(lost.status, 'SENT_UNCONFIRMED');
   const retry = await deliverMcOrder(points.orders.get(bought.order.orderId), { points, deliveryEnabled: true, rcon: async () => { throw new Error('should not send'); } });
@@ -381,8 +390,7 @@ test('playtime poll logs AFK and does not post while dry-run', async () => {
     if (command === 'list uuids') return listed;
     if (command.endsWith('Pos')) return '[1.0d, 64.0d, 2.0d]';
     if (command.endsWith('Rotation')) return '[10.0f, 20.0f]';
-    if (command.startsWith('ftbessentials afkstatus')) return 'Steve is not AFK';
-    if (command.includes('minecraft:jump')) return 'Steve has the following entity data: 4';
+    if (String(command).includes('ftbessentials')) throw new Error('ftb-essentials-afk');
     return '';
   };
   const first = await pollMcPlaytime({
@@ -430,6 +438,23 @@ test('playtime poll logs AFK and does not post while dry-run', async () => {
   assert.equal(dry.posted, 1);
   assert.equal(dry.dryRun, true);
   assert.equal(dryPosts[0].online, true);
+  const tagged = [];
+  const datapack = await pollMcPlaytime({
+    rcon: async (command) => {
+      if (String(command).includes('ftbessentials')) throw new Error('ftb-essentials-afk');
+      if (command === 'list uuids') return listed;
+      if (String(command).startsWith('tag ')) return `${UUID} has 1 tags: [afk]`;
+      return rcon(command);
+    },
+    afk: new McAfkTracker(),
+    seen: new Set(),
+    presence: async (input) => { tagged.push(input); },
+    now: () => 0,
+    env: { MC_POINTS_ENABLED: 'true', MC_PLAYTIME_NP_ENABLED: 'true', MC_PLAYTIME_DRY_RUN: 'true', MC_AFK_DATAPACK_TAG: 'afk' }
+  });
+  assert.equal(datapack.afk, 1);
+  assert.equal(tagged[0].afk, true);
+  assert.equal(tagged[0].online, false);
 });
 
 test('grant table schema keeps one kit per identity and per UUID', () => {

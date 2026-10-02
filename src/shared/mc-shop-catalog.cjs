@@ -2,7 +2,14 @@
 
 const crypto = require('node:crypto');
 
-const CATALOG_VERSION = '2026-10-01';
+// Live pack: ATM10: Aeronautics 0.6.1 on Minecraft 1.21.1, NeoForge 21.1.250.
+const MC_LIVE_PACK = Object.freeze({
+  pack: 'ATM10: Aeronautics',
+  packVersion: '0.6.1',
+  minecraft: '1.21.1',
+  loader: 'NeoForge 21.1.250'
+});
+const CATALOG_VERSION = 'atm10-aeronautics-0.6.1';
 const MAX_BUNDLES = 5;
 const MAX_PURCHASE_NP = 500;
 const MAX_DAILY_SPEND_NP = 1500;
@@ -68,6 +75,7 @@ function catalogFingerprint(catalog) {
 
 module.exports = {
   CATALOG_VERSION,
+  MC_LIVE_PACK,
   MAX_BUNDLES,
   MAX_PURCHASE_NP,
   MAX_DAILY_SPEND_NP,
