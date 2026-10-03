@@ -65,6 +65,8 @@ test('only canonical live ARK config locations are accepted', () => {
   assert.equal(approvedConfigPath('game', '/map2/ShooterGame/Saved/Config/WindowsServer/Game.ini'), true);
   assert.equal(approvedConfigPath('arkshop', '/map2/ShooterGame/Binaries/Win64/ArkApi/Plugins/ArkShop/config.json'), true);
   assert.equal(approvedConfigPath('arkshop', '/map2/ShooterGame/Binaries/Win64/ArkApi/Plugins/ArkShop/Configs/config.json'), true);
+  assert.equal(approvedConfigPath('arkshop', '/map2/ShooterGame/Binaries/Win64/ArkApi/Plugins/ArkShop_DISABLED/config.json'), false);
+  assert.equal(approvedConfigPath('arkshop', '/map2/ShooterGame/Binaries/Win64/ArkApi/Plugins/ArkShop_DISABLED/Configs/config.json'), false);
   assert.equal(approvedConfigPath('game', '/map2/ConfigBackups/Game.ini'), false);
   assert.equal(approvedConfigPath('arkshop', '/map2/ShooterGame/Binaries/Win64/config.json'), false);
 });

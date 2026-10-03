@@ -16,6 +16,7 @@ const {
 const { loadConfig } = require('../shared/config.cjs');
 const { CONFIG } = require('./ark-weekly-cache.cjs');
 const { isRetired } = require('./arkshop-mysql.cjs');
+const { memberFeatureUnavailableMessage } = require('./arkshop-cluster-economy-guard.cjs');
 const { ArkCacheShopService } = require('./ark-cache-shop-service.cjs');
 const { ArkDinoBoxTokenService } = require('./ark-dino-box-token-service.cjs');
 const { BUTTON_CACHE_SHOP } = require('./ark-cluster-panel.cjs');
@@ -308,7 +309,8 @@ async function revealStoredResult(interaction, purchaseService, client, config, 
 }
 
 async function interactionFailure(interaction, error) {
-  const payload = { content: `⚠️ **Dino Cache Hub:** ${String(error?.message || error).slice(0, 400)}`, embeds: [], components: [], allowedMentions: { parse: [] } };
+  const plain = memberFeatureUnavailableMessage(error);
+  const payload = { content: plain || `⚠️ **Dino Cache Hub:** ${String(error?.message || error).slice(0, 400)}`, embeds: [], components: [], allowedMentions: { parse: [] } };
   if (interaction.deferred || interaction.replied) return interaction.editReply(payload).catch(() => {});
   return interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => {});
 }
