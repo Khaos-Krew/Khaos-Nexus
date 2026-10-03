@@ -965,7 +965,10 @@ test('a verified minecraft link earns without EOS and quarantine still blocks', 
   linked.accounts[DISCORD].status = 'restricted';
   worker.store.write(linked);
   const denied = await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
-  assert.equal(denied.reason, 'unlinked-player');
+  assert.equal(denied.ok, false);
+  assert.equal(denied.reason, 'account-hold');
+  assert.equal(denied.message, 'Your account is on hold. Ask an Admin for help.');
+  assert.equal(denied.credited, 0);
   const shop = await worker.minecraft.quote({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1 });
   assert.equal(shop.reason, 'verified-identity-required');
 

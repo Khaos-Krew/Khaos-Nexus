@@ -8,7 +8,7 @@ const { normalizeUuid } = require('../craft/mc-rcon-text.cjs');
 const { otherPresenceOnline, planMinecraftContribution, minecraftServerName, countsForSharedOnline } = require('./mc-playtime-accounting.cjs');
 const { bumpMcMetric } = require('./mc-points-service.cjs');
 const { ensureMinecraftSchema } = require('./mc-points-postgres.cjs');
-const { quarantineDenylist } = require('../sentinel/nexus-economy-wallet-core.cjs');
+const { BLOCKED_MEMBER_STATUSES, memberIdentityHold } = require('../sentinel/nexus-economy-identity-hold.cjs');
 
 const ONLINE_INTERVAL_MS = 5 * 60_000;
 const MAX_ACCOUNTING_GAP_MS = ONLINE_INTERVAL_MS * 2;
@@ -134,6 +134,62 @@ class PostgresEconomyAccrual {
     return result.rows?.[0] || null;
   }
 
+  async #lockedMemberHold(client, economicIdentityId) {
+    const result = await client.query(
+      `SELECT status FROM ${this.schema}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
+      [economicIdentityId]
+    );
+    const status = result.rows?.[0]?.status;
+    return memberIdentityHold({
+      status: status == null || status === '' ? 'verified' : status,
+      economicIdentityId,
+      env: this.env
+    });
+  }
+
+  async #resolveHeldIdentity(client, { kind, eosId, mcUuid, discordUserId } = {}) {
+    const statuses = [...BLOCKED_MEMBER_STATUSES];
+    if (kind === 'eos') {
+      const eos = cleanExternalId(eosId, 'EOS ID');
+      const result = await client.query(
+        `SELECT i.economic_identity_id, i.status, d.external_id AS discord_user_id ` +
+        `FROM ${this.schema}.nexus_economic_identity_links e ` +
+        `JOIN ${this.schema}.nexus_economic_identities i ON i.economic_identity_id = e.economic_identity_id ` +
+        `JOIN ${this.schema}.nexus_economic_identity_links d ON d.economic_identity_id = i.economic_identity_id ` +
+        `WHERE e.provider = 'eos' AND e.external_id = $1 AND e.verified_at IS NOT NULL ` +
+        `AND d.provider = 'discord' AND d.verified_at IS NOT NULL ` +
+        `AND i.status = ANY($2::text[]) LIMIT 1`,
+        [eos, statuses]
+      );
+      return result.rows?.[0] || null;
+    }
+    if (kind === 'minecraft') {
+      const uuid = normalizeUuid(mcUuid);
+      if (!uuid) return null;
+      const result = await client.query(
+        `SELECT i.economic_identity_id, i.status, d.external_id AS discord_user_id, m.external_id AS mc_uuid ` +
+        `FROM ${this.schema}.nexus_economic_identity_links m ` +
+        `JOIN ${this.schema}.nexus_economic_identities i ON i.economic_identity_id = m.economic_identity_id ` +
+        `JOIN ${this.schema}.nexus_economic_identity_links d ON d.economic_identity_id = i.economic_identity_id ` +
+        `WHERE m.provider = 'minecraft' AND m.external_id = $1 AND m.verified_at IS NOT NULL ` +
+        `AND d.provider = 'discord' AND d.verified_at IS NOT NULL ` +
+        `AND i.status = ANY($2::text[]) LIMIT 1`,
+        [uuid, statuses]
+      );
+      return result.rows?.[0] || null;
+    }
+    const discord = cleanExternalId(discordUserId, 'Discord user ID');
+    const result = await client.query(
+      `SELECT i.economic_identity_id, i.status, d.external_id AS discord_user_id ` +
+      `FROM ${this.schema}.nexus_economic_identity_links d ` +
+      `JOIN ${this.schema}.nexus_economic_identities i ON i.economic_identity_id = d.economic_identity_id ` +
+      `WHERE d.provider = 'discord' AND d.external_id = $1 AND d.verified_at IS NOT NULL ` +
+      `AND i.status = ANY($2::text[]) LIMIT 1`,
+      [discord, statuses]
+    );
+    return result.rows?.[0] || null;
+  }
+
   async #resolveByDiscord(client, discordUserId) {
     const discord = cleanExternalId(discordUserId, 'Discord user ID');
     const result = await client.query(
@@ -242,14 +298,24 @@ class PostgresEconomyAccrual {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN READ ONLY');
-      const identity = await this.#resolveByMinecraft(client, mcUuid);
+      let identity = await this.#resolveByMinecraft(client, mcUuid);
       if (!identity) {
+        const heldIdentity = await this.#resolveHeldIdentity(client, { kind: 'minecraft', mcUuid });
+        const decision = heldIdentity
+          ? memberIdentityHold({ status: heldIdentity.status, economicIdentityId: heldIdentity.economic_identity_id, env: this.env })
+          : null;
         await client.query('ROLLBACK');
+        if (decision) return { ...decision, dryRun: true };
         return { ok: false, reason: 'unlinked-player', dryRun: true, credited: 0 };
       }
-      if (quarantineDenylist(this.env).has(String(identity.economic_identity_id || ''))) {
+      const dryHold = memberIdentityHold({
+        status: 'verified',
+        economicIdentityId: identity.economic_identity_id,
+        env: this.env
+      });
+      if (dryHold) {
         await client.query('ROLLBACK');
-        return { ok: false, reason: 'quarantined', dryRun: true, credited: 0 };
+        return { ...dryHold, dryRun: true };
       }
       const stateResult = await client.query(
         `SELECT * FROM ${this.schema}.nexus_economy_accrual_state WHERE economic_identity_id = $1`,
@@ -356,18 +422,25 @@ class PostgresEconomyAccrual {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      const identity = minecraft
+      let identity = minecraft
         ? await this.#resolveByMinecraft(client, mcUuid)
         : await this.#resolveByEos(client, eosId);
       if (!identity) {
-        await client.query('ROLLBACK');
-        return { ok: false, reason: 'unlinked-player' };
-      }
-      if (minecraft && quarantineDenylist(this.env).has(String(identity.economic_identity_id || ''))) {
-        await client.query('ROLLBACK');
-        return { ok: false, reason: 'quarantined', credited: 0 };
+        const heldIdentity = minecraft
+          ? await this.#resolveHeldIdentity(client, { kind: 'minecraft', mcUuid })
+          : await this.#resolveHeldIdentity(client, { kind: 'eos', eosId });
+        if (!heldIdentity) {
+          await client.query('ROLLBACK');
+          return { ok: false, reason: 'unlinked-player' };
+        }
+        identity = heldIdentity;
       }
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${identity.economic_identity_id}:NEXUS_POINTS`]);
+      const held = await this.#lockedMemberHold(client, identity.economic_identity_id);
+      if (held) {
+        await client.query('ROLLBACK');
+        return { ...held, credited: 0 };
+      }
       // Minecraft earn uses the rank synced from Discord roles. The presence body cannot overwrite it.
       const locked = await this.#lockStateAndWallet(client, identity.economic_identity_id, minecraft ? null : rankId);
       const state = locked.state;
@@ -518,12 +591,21 @@ class PostgresEconomyAccrual {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      const identity = await this.#resolveByDiscord(client, discordUserId);
+      let identity = await this.#resolveByDiscord(client, discordUserId);
       if (!identity) {
-        await client.query('ROLLBACK');
-        return { ok: false, reason: 'wallet-not-found' };
+        const heldIdentity = await this.#resolveHeldIdentity(client, { kind: 'discord', discordUserId });
+        if (!heldIdentity) {
+          await client.query('ROLLBACK');
+          return { ok: false, reason: 'wallet-not-found' };
+        }
+        identity = heldIdentity;
       }
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${identity.economic_identity_id}:NEXUS_POINTS`]);
+      const offlineHold = await this.#lockedMemberHold(client, identity.economic_identity_id);
+      if (offlineHold) {
+        await client.query('ROLLBACK');
+        return { ...offlineHold, credited: 0 };
+      }
       const locked = await this.#lockStateAndWallet(client, identity.economic_identity_id);
       const state = locked.state;
       const nowMs = this.now();

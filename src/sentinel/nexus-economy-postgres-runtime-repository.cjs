@@ -1,6 +1,7 @@
 'use strict';
 
 const { NexusEconomyPostgresRepository, sqlIdent, normalizeCurrency } = require('./nexus-economy-postgres-repository.cjs');
+const { quarantineDenylist } = require('./nexus-economy-identity-hold.cjs');
 const { deterministicEconomicIdentityId } = require('./nexus-economy-json-postgres-migration.cjs');
 const { validDiscordId, validEosId } = require('./ark-identity-store.cjs');
 const { assertO9EligibilityForVerifiedMint } = require('./nexus-economy-o9-eligibility.cjs');
@@ -8,15 +9,6 @@ const { isShadowRecruitEligibleRank } = require('../shared/ranks.cjs');
 
 const SHADOW_RECRUIT_LINK_SOURCE = 'shadow-recruit-rank';
 const PRIMARY_CURRENCIES = Object.freeze(['NEXUS_COINS', 'NEXUS_POINTS', 'DINO_CACHE_TOKENS']);
-
-function quarantineDenylist(env = process.env) {
-  return new Set(
-    String(env.NEXUS_ECONOMY_QUARANTINE_DENYLIST || '')
-      .split(',')
-      .map((value) => String(value || '').trim())
-      .filter(Boolean)
-  );
-}
 
 class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresRepository {
   constructor(options = {}) {

@@ -50,10 +50,10 @@ test('adminCredit allows restricted Shadow Recruit wallets', async () => {
   const repository = new MemoryRepo();
   repository.link('777', 'econ_777', { status: 'restricted' });
   const wallet = new NexusEconomyWalletCore({ repository, now: () => new Date('2026-09-15T00:00:00Z') });
-  await assert.rejects(
-    wallet.credit({ discordUserId: '777', amount: 1, idempotencyKey: 'normal' }),
-    /Verified economic identity/
-  );
+  const memberCredit = await wallet.credit({ discordUserId: '777', amount: 1, idempotencyKey: 'normal' });
+  assert.equal(memberCredit.ok, false);
+  assert.equal(memberCredit.reason, 'account-hold');
+  assert.equal(memberCredit.message, 'Your account is on hold. Ask an Admin for help.');
   const result = await wallet.adminCredit({
     discordUserId: '777',
     amount: 10,

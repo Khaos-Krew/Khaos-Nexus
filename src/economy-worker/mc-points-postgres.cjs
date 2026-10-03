@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const { sqlIdent } = require('../sentinel/nexus-economy-postgres-repository.cjs');
 const { MemoryMcPoints, orderLineHash, stackLines, leaseMsForOrder, dayOrders } = require('./mc-points-service.cjs');
 const { catalogItem, catalogFingerprint, loadMcShopCatalog, MAX_DAILY_SPEND_NP, MAX_DAILY_ORDERS } = require('../shared/mc-shop-catalog.cjs');
+const { memberIdentityHold } = require('../sentinel/nexus-economy-identity-hold.cjs');
 const { quarantineDenylist } = require('../sentinel/nexus-economy-wallet-core.cjs');
 const { guildJoinedAtMs } = require('../shared/mc-starter-kit.cjs');
 
@@ -516,16 +517,25 @@ class PostgresMcPoints {
         await client.query('ROLLBACK');
         return { ok: false, reason: 'price-changed' };
       }
-      if (quarantineDenylist(this.env).has(String(row.economic_identity_id || ''))) {
-        await client.query('ROLLBACK');
-        return { ok: false, reason: 'quarantined' };
-      }
       const duplicate = await client.query(`SELECT order_data FROM ${s}.nexus_mc_orders WHERE nonce = $1`, [row.nonce]);
       if (duplicate.rows?.[0]) {
         await client.query('COMMIT');
         return { ok: true, duplicate: true, order: duplicate.rows[0].order_data };
       }
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${row.economic_identity_id}:NEXUS_POINTS`]);
+      const identityStatus = await client.query(
+        `SELECT status FROM ${s}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
+        [row.economic_identity_id]
+      );
+      const buyHold = memberIdentityHold({
+        status: identityStatus.rows?.[0]?.status ?? 'verified',
+        economicIdentityId: row.economic_identity_id,
+        env: this.env
+      });
+      if (buyHold) {
+        await client.query('ROLLBACK');
+        return buyHold;
+      }
       const prior = await client.query(
         `SELECT order_data FROM ${s}.nexus_mc_orders WHERE status <> 'REFUNDED' AND order_data->>'economicIdentityId' = $1 AND order_data->>'source' = 'mc-shop'`,
         [row.economic_identity_id]
@@ -733,6 +743,23 @@ class PostgresMcPoints {
       if (!result.ok || result.duplicate) {
         await client.query(result.ok ? 'COMMIT' : 'ROLLBACK');
         return result;
+      }
+      const identityId = result.order.economicIdentityId;
+      if (identityId) {
+        await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${identityId}:NEXUS_POINTS`]);
+        const identityStatus = await client.query(
+          `SELECT status FROM ${s}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
+          [identityId]
+        );
+        const refundHold = memberIdentityHold({
+          status: identityStatus.rows?.[0]?.status ?? 'verified',
+          economicIdentityId: identityId,
+          env: this.env
+        });
+        if (refundHold) {
+          await client.query('ROLLBACK');
+          return refundHold;
+        }
       }
       const flipped = await client.query(
         `UPDATE ${s}.nexus_mc_orders SET status = 'REFUNDED', order_data = $2::jsonb WHERE order_id = $1 AND status = $3 AND status <> 'REFUNDED' AND status <> 'DELIVERED' RETURNING order_id`,

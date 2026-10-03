@@ -440,7 +440,7 @@ class MemoryMcPoints {
       source: 'sink:mc-shop',
       metadata: { sku: pending.sku, qty: lines.reduce((sum, line) => sum + line.count, 0), catalogVersion: pending.catalogVersion, price }
     });
-    if (!spent?.ok) return { ok: false, reason: spent?.reason || 'spend-failed', balance: spent?.balance };
+    if (!spent?.ok) return { ok: false, reason: spent?.reason || 'spend-failed', message: spent?.message, balance: spent?.balance };
     const replay = spent.duplicate === true;
     try {
       if (!replay && this.crashAt === 'after-ledger') {
@@ -760,7 +760,7 @@ class MemoryMcPoints {
         source: 'mc-shop',
         metadata: { reason, actor, orderId: order.orderId, sku: order.sku }
       });
-      if (!credited?.ok) return { ok: false, reason: credited?.reason || 'refund-failed', order };
+      if (!credited?.ok) return { ok: false, reason: credited?.reason || 'refund-failed', message: credited?.message, order };
       order.ledgerRefundKey = key;
       order.balance = credited.balance;
     }

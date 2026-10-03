@@ -160,6 +160,13 @@ class NexusEconomyPostgresRepository {
         const result = await client.query(`SELECT order_data FROM ${this.schema}.nexus_economy_orders WHERE order_id = $1`, [orderId]);
         return result.rows?.[0]?.order_data || null;
       },
+      lockIdentity: async (economicIdentityId) => {
+        const result = await client.query(
+          `SELECT economic_identity_id, status FROM ${this.schema}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
+          [economicIdentityId]
+        );
+        return result.rows?.[0] || null;
+      },
       findIdentity: async (discordUserId, eosId) => {
         const result = await client.query(
           `SELECT i.economic_identity_id, i.status\n` +

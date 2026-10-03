@@ -290,23 +290,23 @@ test('T6: credit/spend on restricted empty wallet still rejected (verified requi
   });
   const repository = new NexusEconomyPostgresRepository({ pool });
   const walletCore = new NexusEconomyWalletCore({ repository });
-  await assert.rejects(
-    () => walletCore.credit({
-      discordUserId: DISCORD,
-      amount: 1,
-      idempotencyKey: 'credit_restricted_1',
-      source: 'test'
-    }),
-    /Verified economic identity is required/
-  );
-  await assert.rejects(
-    () => walletCore.spend({
-      discordUserId: DISCORD,
-      amount: 1,
-      orderId: 'order_restricted_1'
-    }),
-    /Verified economic identity is required/
-  );
+  const credited = await walletCore.credit({
+    discordUserId: DISCORD,
+    amount: 1,
+    idempotencyKey: 'credit_restricted_1',
+    source: 'test'
+  });
+  const spent = await walletCore.spend({
+    discordUserId: DISCORD,
+    amount: 1,
+    orderId: 'order_restricted_1'
+  });
+  assert.equal(credited.ok, false);
+  assert.equal(spent.ok, false);
+  assert.equal(credited.reason, 'account-hold');
+  assert.equal(spent.reason, 'account-hold');
+  assert.equal(credited.message, 'Your account is on hold. Ask an Admin for help.');
+  assert.equal(spent.message, credited.message);
 });
 
 test('T7: shop WRITES remain fail-closed; ensure is not a financial write path', () => {

@@ -2,6 +2,7 @@
 
 const { createNexusEconomyPurchaseActionRequest } = require('./nexus-economy-purchase-action-request.cjs');
 const { normalizeCurrency } = require('./nexus-economy-postgres-repository.cjs');
+const { memberIdentityHold, quarantineDenylist } = require('./nexus-economy-identity-hold.cjs');
 
 function cleanId(value, label) {
   const id = String(value || '').trim();
@@ -37,29 +38,55 @@ function walletBalance(wallet) {
   return balance;
 }
 
-function quarantineDenylist(env = process.env) {
-  return new Set(
-    String(env?.NEXUS_ECONOMY_QUARANTINE_DENYLIST || '')
-      .split(',')
-      .map((value) => String(value || '').trim())
-      .filter(Boolean)
-  );
-}
-
-
 class NexusEconomyWalletCore {
-  constructor({ repository, now = () => new Date() } = {}) {
+  constructor({ repository, now = () => new Date(), env = process.env } = {}) {
     if (!repository || typeof repository.transact !== 'function') throw new Error('Economy repository with transact() is required.');
     this.repository = repository;
     this.now = now;
+    this.env = env || process.env;
   }
 
-  async resolveDiscordIdentity(discordUserId) {
+  async loadLinkedIdentity(discordUserId) {
     const discord = cleanId(discordUserId, 'Discord user ID');
     if (typeof this.repository.getIdentityByLink !== 'function') throw new Error('Economy repository identity resolution is required.');
     const identity = await this.repository.getIdentityByLink('discord', discord);
-    if (!identity || identity.status !== 'verified' || !identity.verified_at) throw new Error('Verified economic identity is required.');
-    return { discordUserId: discord, economicIdentityId: cleanId(identity.economic_identity_id ?? identity.economicIdentityId, 'Economic identity ID') };
+    if (!identity) throw new Error('Verified economic identity is required.');
+    return {
+      discordUserId: discord,
+      economicIdentityId: cleanId(identity.economic_identity_id ?? identity.economicIdentityId, 'Economic identity ID'),
+      status: identity.status,
+      verified_at: identity.verified_at ?? identity.verifiedAt ?? null
+    };
+  }
+
+  // Reads status while the caller already holds the identity/currency transaction lock.
+  // A locked row wins over the pre-transaction snapshot so a concurrent status change is respected.
+  async guardMemberMutation(tx, loaded) {
+    let status = loaded.status;
+    let economicIdentityId = loaded.economicIdentityId;
+    let verifiedAt = loaded.verified_at;
+    if (typeof tx.lockIdentity === 'function') {
+      const row = await tx.lockIdentity(economicIdentityId);
+      if (row) {
+        status = row.status;
+        economicIdentityId = row.economic_identity_id || row.economicIdentityId || economicIdentityId;
+        if (Object.prototype.hasOwnProperty.call(row, 'verified_at') || Object.prototype.hasOwnProperty.call(row, 'verifiedAt')) {
+          verifiedAt = row.verified_at ?? row.verifiedAt ?? null;
+        }
+      }
+    }
+    const hold = memberIdentityHold({ status, economicIdentityId, env: this.env });
+    if (hold) return { hold, economicIdentityId, status };
+    if (String(status || '') !== 'verified' || !verifiedAt) {
+      throw new Error('Verified economic identity is required.');
+    }
+    return { hold: null, economicIdentityId, status };
+  }
+
+  async resolveDiscordIdentity(discordUserId) {
+    const loaded = await this.loadLinkedIdentity(discordUserId);
+    if (String(loaded.status || '') !== 'verified' || !loaded.verified_at) throw new Error('Verified economic identity is required.');
+    return { discordUserId: loaded.discordUserId, economicIdentityId: loaded.economicIdentityId };
   }
 
   async balance(discordUserId, currency = 'NEXUS_POINTS') {
@@ -80,23 +107,25 @@ class NexusEconomyWalletCore {
 
   async credit({ discordUserId, amount, idempotencyKey, source = 'nexus', type = 'credit', currency = 'NEXUS_POINTS', metadata = {} } = {}) {
     const normalizedCurrency = normalizeCurrency(currency);
-    const identity = await this.resolveDiscordIdentity(discordUserId);
+    const loaded = await this.loadLinkedIdentity(discordUserId);
     const value = positiveWhole(amount);
     const key = cleanId(idempotencyKey, 'Idempotency key');
-    return this.repository.transact(identity.economicIdentityId, normalizedCurrency, async (tx) => {
+    return this.repository.transact(loaded.economicIdentityId, normalizedCurrency, async (tx) => {
+      const guard = await this.guardMemberMutation(tx, loaded);
       const prior = await tx.findLedgerByKey(key);
       if (prior) return priorResult(prior, {
-        economicIdentityId: identity.economicIdentityId,
+        economicIdentityId: guard.economicIdentityId,
         currency: normalizedCurrency,
         amount: value,
         type,
         source
       });
-      const wallet = await tx.getOrCreateWallet(identity.economicIdentityId, normalizedCurrency);
+      if (guard.hold) return { ...guard.hold, currency: normalizedCurrency };
+      const wallet = await tx.getOrCreateWallet(guard.economicIdentityId, normalizedCurrency);
       const balance = walletBalance(wallet) + value;
       if (!Number.isSafeInteger(balance)) throw new Error('Wallet balance exceeds the supported range.');
       const entry = await tx.appendLedger({
-        economicIdentityId: identity.economicIdentityId,
+        economicIdentityId: guard.economicIdentityId,
         currency: normalizedCurrency,
         amount: value,
         balanceAfter: balance,
@@ -106,32 +135,34 @@ class NexusEconomyWalletCore {
         metadata: { ...metadata, currency: normalizedCurrency },
         at: this.now().toISOString()
       });
-      await tx.setBalance(identity.economicIdentityId, normalizedCurrency, balance);
+      await tx.setBalance(guard.economicIdentityId, normalizedCurrency, balance);
       return { ok: true, duplicate: false, currency: normalizedCurrency, balance, transactionId: entry?.id || null };
     });
   }
 
   async spend({ discordUserId, amount, orderId, source = 'cluster-shop', currency = 'NEXUS_POINTS', metadata = {}, idempotencyKey = '' } = {}) {
     const normalizedCurrency = normalizeCurrency(currency);
-    const identity = await this.resolveDiscordIdentity(discordUserId);
+    const loaded = await this.loadLinkedIdentity(discordUserId);
     const value = positiveWhole(amount);
     const order = cleanId(orderId, 'Order ID');
     const key = idempotencyKey ? cleanId(idempotencyKey, 'Idempotency key') : `purchase_${order}`;
-    return this.repository.transact(identity.economicIdentityId, normalizedCurrency, async (tx) => {
+    return this.repository.transact(loaded.economicIdentityId, normalizedCurrency, async (tx) => {
+      const guard = await this.guardMemberMutation(tx, loaded);
       const prior = await tx.findLedgerByKey(key);
       if (prior) return priorResult(prior, {
-        economicIdentityId: identity.economicIdentityId,
+        economicIdentityId: guard.economicIdentityId,
         currency: normalizedCurrency,
         amount: -value,
         type: 'purchase',
         source
       });
-      const wallet = await tx.getOrCreateWallet(identity.economicIdentityId, normalizedCurrency);
+      if (guard.hold) return { ...guard.hold, currency: normalizedCurrency };
+      const wallet = await tx.getOrCreateWallet(guard.economicIdentityId, normalizedCurrency);
       const current = walletBalance(wallet);
       if (current < value) return { ok: false, reason: 'insufficient-funds', currency: normalizedCurrency, balance: current };
       const balance = current - value;
       const entry = await tx.appendLedger({
-        economicIdentityId: identity.economicIdentityId,
+        economicIdentityId: guard.economicIdentityId,
         currency: normalizedCurrency,
         amount: -value,
         balanceAfter: balance,
@@ -141,7 +172,7 @@ class NexusEconomyWalletCore {
         metadata: { ...metadata, orderId: order, currency: normalizedCurrency },
         at: this.now().toISOString()
       });
-      await tx.setBalance(identity.economicIdentityId, normalizedCurrency, balance);
+      await tx.setBalance(guard.economicIdentityId, normalizedCurrency, balance);
       return { ok: true, duplicate: false, currency: normalizedCurrency, balance, transactionId: entry?.id || null };
     });
   }
@@ -156,12 +187,32 @@ class NexusEconomyWalletCore {
     if (typeof validateQuote !== 'function') throw new Error('Current quote validation is required.');
     const { discordUserId, totalPrice, projectedBalance } = record.payload;
     const normalizedCurrency = normalizeCurrency(record.payload.currency);
-    if (typeof this.repository.resolveVerifiedIdentity !== 'function') throw new Error('Economy repository identity resolution is required.');
-    const resolved = await this.repository.resolveVerifiedIdentity({ discordUserId, eosId: eos });
-    if (!resolved) throw new Error('Verified economic identity is required.');
-    const economicIdentityId = cleanId(resolved.economic_identity_id ?? resolved.economicIdentityId, 'Economic identity ID');
+    let economicIdentityId = '';
+    let statusHint = 'verified';
+    if (typeof this.repository.getIdentityByLink === 'function') {
+      const linked = await this.repository.getIdentityByLink('discord', discordUserId);
+      if (!linked) throw new Error('Verified economic identity is required.');
+      economicIdentityId = cleanId(linked.economic_identity_id ?? linked.economicIdentityId, 'Economic identity ID');
+      statusHint = linked.status || 'verified';
+    } else if (typeof this.repository.resolveVerifiedIdentity === 'function') {
+      const resolved = await this.repository.resolveVerifiedIdentity({ discordUserId, eosId: eos });
+      if (!resolved) throw new Error('Verified economic identity is required.');
+      economicIdentityId = cleanId(resolved.economic_identity_id ?? resolved.economicIdentityId, 'Economic identity ID');
+      statusHint = resolved.status || 'verified';
+    } else {
+      throw new Error('Economy repository identity resolution is required.');
+    }
 
     return this.repository.transact(economicIdentityId, normalizedCurrency, async (tx) => {
+      let lockedStatus = statusHint;
+      let lockedIdentityId = economicIdentityId;
+      if (typeof tx.lockIdentity === 'function') {
+        const row = await tx.lockIdentity(economicIdentityId);
+        if (row) {
+          lockedStatus = row.status;
+          lockedIdentityId = row.economic_identity_id || row.economicIdentityId || economicIdentityId;
+        }
+      }
       const prior = await tx.findOrder(record.orderId);
       if (prior) {
         if (
@@ -175,6 +226,8 @@ class NexusEconomyWalletCore {
         }
         return { ok: true, duplicate: true, order: prior, currency: normalizedCurrency, balance: prior.balance };
       }
+      const hold = memberIdentityHold({ status: lockedStatus, economicIdentityId: lockedIdentityId, env: this.env });
+      if (hold) return { ...hold, currency: normalizedCurrency };
       const verified = await tx.findIdentity(discordUserId, eos);
       const verifiedIdentityId = verified?.economic_identity_id ?? verified?.economicIdentityId;
       if (!verifiedIdentityId || verifiedIdentityId !== economicIdentityId) throw new Error('Verified economic identity is required.');

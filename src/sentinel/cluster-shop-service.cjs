@@ -187,7 +187,9 @@ class ClusterShopService {
     const fresh = this.store.read();
     const current = fresh.orders[orderId];
     if (!spent.ok) {
-      current.status = spent.reason === 'insufficient-funds' ? 'PAYMENT_REJECTED' : 'PAYMENT_FAILED';
+      current.status = spent.reason === 'insufficient-funds' || spent.reason === 'account-hold' || spent.reason === 'quarantined'
+        ? 'PAYMENT_REJECTED'
+        : 'PAYMENT_FAILED';
       current.payment = spent;
     } else {
       current.status = 'PAID_QUEUED';
@@ -195,7 +197,13 @@ class ClusterShopService {
     }
     current.updatedAt = new Date().toISOString();
     this.store.write(fresh);
-    return { ok: spent.ok, duplicate: false, order: current, balance: spent.balance };
+    return {
+      ok: spent.ok,
+      duplicate: false,
+      order: current,
+      balance: spent.balance,
+      ...(spent.ok ? {} : { reason: spent.reason, message: spent.message })
+    };
   }
 
   createSellOrder({ discordUserId, eosId, itemId, bundles = 1, server = 'where-playing', idempotencyKey = '' } = {}) {
