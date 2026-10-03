@@ -140,6 +140,8 @@ test('weekly reset time comes from milestone dates and says when the list is sho
   assert.ok(embed.description.split('\n').length <= 4);
   const none = renderWeeklyReset({ milestones: { Response: {} }, now });
   assert.match(none.description, /No public milestones/);
+  assert.doesNotMatch(none.description, /Few public|not listed/);
+  assert.match(none.description, new RegExp(`⏳ Next reset <t:${resetUnix}:R>`));
 });
 
 test('weekly lines stay names only, with one countdown for the soonest reset', () => {
@@ -175,7 +177,8 @@ test('weekly lines stay names only, with one countdown for the soonest reset', (
   assert.equal(raid.value, 'Featured Dungeon');
   assert.equal(rewards.value, 'Weekly Clan Engrams');
   assert.doesNotMatch(JSON.stringify(raidWeek.fields), /<t:/);
-  assert.match(raidWeek.description, new RegExp(`⏳ Next reset <t:${activityUnix}:R>`));
+  assert.match(raidWeek.description, new RegExp(`⏳ Next reset <t:${resetUnix}:R>`));
+  assert.doesNotMatch(raidWeek.description, new RegExp(`<t:${activityUnix}:R>`));
   assert.equal((raidWeek.description.match(/<t:/g) || []).length, 1);
 });
 
