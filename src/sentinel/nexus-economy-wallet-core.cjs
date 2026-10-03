@@ -111,12 +111,12 @@ class NexusEconomyWalletCore {
     });
   }
 
-  async spend({ discordUserId, amount, orderId, source = 'cluster-shop', currency = 'NEXUS_POINTS', metadata = {} } = {}) {
+  async spend({ discordUserId, amount, orderId, source = 'cluster-shop', currency = 'NEXUS_POINTS', metadata = {}, idempotencyKey = '' } = {}) {
     const normalizedCurrency = normalizeCurrency(currency);
     const identity = await this.resolveDiscordIdentity(discordUserId);
     const value = positiveWhole(amount);
     const order = cleanId(orderId, 'Order ID');
-    const key = `purchase_${order}`;
+    const key = idempotencyKey ? cleanId(idempotencyKey, 'Idempotency key') : `purchase_${order}`;
     return this.repository.transact(identity.economicIdentityId, normalizedCurrency, async (tx) => {
       const prior = await tx.findLedgerByKey(key);
       if (prior) return priorResult(prior, {

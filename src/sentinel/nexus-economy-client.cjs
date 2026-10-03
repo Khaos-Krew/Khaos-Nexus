@@ -160,6 +160,11 @@ class NexusEconomyClient {
   pendingShopOrders() { return request('/shop/orders/pending'); }
   confirmShopSellRemoval(input) { return request('/shop/sell/confirm-removal', { method: 'POST', body: input }); }
   markShopBuyDelivery(input) { return request('/shop/buy/delivery-status', { method: 'POST', body: input }); }
+
+  mcShopCatalog() { return request('/mc-shop/catalog'); }
+  mcShopQuote(input) { return request('/mc-shop/quote', { method: 'POST', body: input }); }
+  mcShopBuy(input) { return request('/mc-shop/buy', { method: 'POST', body: input, acceptedStatusCodes: [409] }); }
+  mcClaimStarterKit(input) { return request('/mc/starter-kit/claim', { method: 'POST', body: input }); }
 }
 
 module.exports = { configured, NexusEconomyClient };

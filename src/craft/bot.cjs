@@ -8,10 +8,12 @@ const {
   GatewayIntentBits,
   MessageFlags,
   ModalBuilder,
+  PermissionFlagsBits,
   SlashCommandBuilder,
   TextInputBuilder,
   TextInputStyle
 } = require('discord.js');
+const { mcPointsFlags } = require('../shared/mc-points-flags.cjs');
 const { loadConfig } = require('../shared/config.cjs');
 const { categoryIdForInteraction } = require('../game-bots/category-gate.cjs');
 const { errorClass } = require('../game-bots/command-failure.cjs');
@@ -22,6 +24,7 @@ const { craftHelpText } = require('./help.cjs');
 const { redactSecret } = require('./protocol.cjs');
 const { minecraftCommand, pingBedrock, pingJava, probeServerStatus, runRcon } = require('./query.cjs');
 const { openCraftStore } = require('./store.cjs');
+const { handleMcPointsCommand, installMcEconomyLoops } = require('./mc-points-commands.cjs');
 
 const STATUS_IDENTITY = Object.freeze({
   titles: Object.freeze([
@@ -81,34 +84,40 @@ function serverNameOf(interaction) {
   return optionString(interaction, 'server') || 'default';
 }
 
-function craftCommands() {
+function mcAdminCommand() {
+  return new SlashCommandBuilder()
+    .setName('mcadmin')
+    .setDescription('Staff: Minecraft orders, links, and kits.')
+    .setDMPermission(false)
+    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+    .addSubcommand((sub) => sub
+      .setName('orders')
+      .setDescription('List queued Minecraft orders.')
+      .addStringOption((option) => option.setName('user').setDescription('Discord user id.').setMaxLength(32)))
+    .addSubcommand((sub) => sub
+      .setName('resolve')
+      .setDescription('Open Sentinal to deliver, refund, or resend an order.')
+      .addStringOption((option) => option.setName('order').setDescription('Order id.').setRequired(true).setMaxLength(80))
+      .addStringOption((option) => option.setName('action').setDescription('What to do.').setRequired(true).addChoices(
+        { name: 'Delivered', value: 'delivered' },
+        { name: 'Refund', value: 'refund' },
+        { name: 'Resend failed', value: 'resend' }
+      )))
+    .addSubcommand((sub) => sub
+      .setName('link-revoke')
+      .setDescription('Revoke a Minecraft link.')
+      .addStringOption((option) => option.setName('user').setDescription('Discord user id.').setRequired(true).setMaxLength(32)))
+    .addSubcommand((sub) => sub.setName('kits').setDescription('List Starter Kit claims.'));
+}
+
+function craftCommands(env = process.env) {
   const server = (sub) => sub.addStringOption((option) => option
     .setName('server')
     .setDescription('Saved server name. Blank uses default.')
     .setMaxLength(32)
     .setRequired(false));
-  return [
-    new SlashCommandBuilder()
-      .setName('craft')
-      .setDescription('Nexus Craft help and edition support.')
-      .setDMPermission(false)
-      .addSubcommand((sub) => sub.setName('help').setDescription('Commands, setup, and which editions support RCON.')),
-    new SlashCommandBuilder()
-      .setName('mcrcon')
-      .setDescription('Staff: save Minecraft Java RCON in the Discord store.')
-      .setDMPermission(false)
-      .addSubcommand((sub) => server(sub
-        .setName('setup')
-        .setDescription('Staff: save host, port, and password. The reply does not repeat the password.')
-        .addStringOption((option) => option.setName('host').setDescription('RCON hostname or IP.').setRequired(true).setMaxLength(255))
-        .addIntegerOption((option) => option.setName('port').setDescription('RCON port.').setRequired(true).setMinValue(1).setMaxValue(65535))
-        .addStringOption((option) => option.setName('password').setDescription('RCON password. Stored encrypted and never echoed.').setRequired(true).setMaxLength(256))))
-      .addSubcommand((sub) => server(sub.setName('status').setDescription('Staff: show saved RCON without the password.')))
-      .addSubcommand((sub) => server(sub
-        .setName('clear')
-        .setDescription('Staff: delete one saved RCON server.')
-        .addBooleanOption((option) => option.setName('confirm').setDescription('Confirm the delete.').setRequired(true)))),
-    new SlashCommandBuilder()
+  const flags = mcPointsFlags(env);
+  const mc = new SlashCommandBuilder()
       .setName('mc')
       .setDescription('Minecraft status and staff RCON controls.')
       .setDMPermission(false)
@@ -159,8 +168,55 @@ function craftCommands() {
       .addSubcommand((sub) => server(sub
         .setName('cmd')
         .setDescription('Staff: send one raw Java RCON command.')
-        .addStringOption((option) => option.setName('command').setDescription('Exact server command, one line.').setRequired(true).setMaxLength(1000)))),
+        .addStringOption((option) => option.setName('command').setDescription('Exact server command, one line.').setRequired(true).setMaxLength(1000))));
+  if (flags.pointsEnabled) {
+    mc.addSubcommandGroup((group) => group
+      .setName('link')
+      .setDescription('Link this Discord account to your Minecraft Java account.')
+      .addSubcommand((sub) => sub
+        .setName('start')
+        .setDescription('Whisper a link code to your online Minecraft player.')
+        .addStringOption((option) => option.setName('username').setDescription('Your in-game name.').setRequired(true).setMaxLength(16)))
+      .addSubcommand((sub) => sub
+        .setName('confirm')
+        .setDescription('Confirm the whispered in-game link code.')
+        .addStringOption((option) => option.setName('code').setDescription('Code from the in-game whisper.').setRequired(true).setMaxLength(16)))
+      .addSubcommand((sub) => sub.setName('status').setDescription('Show your Minecraft link.')))
+      .addSubcommand((sub) => sub.setName('unlink').setDescription('Unlink Minecraft. You can link again after 30 days.'));
+  }
+  if (flags.shopEnabled) {
+    mc.addSubcommand((sub) => sub.setName('shop').setDescription('Where to spend Nexus Points on Minecraft items.'));
+  }
+  if (flags.starterKitEnabled) {
+    mc.addSubcommand((sub) => sub.setName('starter').setDescription('How to claim the free one-time Starter Kit.'));
+  }
+  const commands = [
     new SlashCommandBuilder()
+      .setName('craft')
+      .setDescription('Nexus Craft help and edition support.')
+      .setDMPermission(false)
+      .addSubcommand((sub) => sub.setName('help').setDescription('Commands, setup, and which editions support RCON.')),
+    new SlashCommandBuilder()
+      .setName('mcrcon')
+      .setDescription('Staff: save Minecraft Java RCON in the Discord store.')
+      .setDMPermission(false)
+      .addSubcommand((sub) => server(sub
+        .setName('setup')
+        .setDescription('Staff: save host, port, and password. The reply does not repeat the password.')
+        .addStringOption((option) => option.setName('host').setDescription('RCON hostname or IP.').setRequired(true).setMaxLength(255))
+        .addIntegerOption((option) => option.setName('port').setDescription('RCON port.').setRequired(true).setMinValue(1).setMaxValue(65535))
+        .addStringOption((option) => option.setName('password').setDescription('RCON password. Stored encrypted and never echoed.').setRequired(true).setMaxLength(256))))
+      .addSubcommand((sub) => server(sub.setName('status').setDescription('Staff: show saved RCON without the password.')))
+      .addSubcommand((sub) => server(sub
+        .setName('clear')
+        .setDescription('Staff: delete one saved RCON server.')
+        .addBooleanOption((option) => option.setName('confirm').setDescription('Confirm the delete.').setRequired(true)))),
+    mc
+  ];
+  if (flags.pointsEnabled || flags.shopEnabled || flags.starterKitEnabled || flags.shopDeliveryEnabled) {
+    commands.push(mcAdminCommand());
+  }
+  commands.push(new SlashCommandBuilder()
       .setName('realm')
       .setDescription('Discord listing board for Minecraft Realms.')
       .setDMPermission(false)
@@ -194,8 +250,8 @@ function craftCommands() {
       .addSubcommand((sub) => sub
         .setName('channel')
         .setDescription('Staff: save this channel as the Realms board when the env var is unset.')
-        .addChannelOption((option) => option.setName('channel').setDescription('Board channel. Blank uses this channel.').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)))
-  ];
+        .addChannelOption((option) => option.setName('channel').setDescription('Board channel. Blank uses this channel.').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement))));
+  return commands;
 }
 
 function statusLines(label, host, port, result, error) {
@@ -527,7 +583,7 @@ async function handleCraftInteraction(interaction, context) {
     const sub = interaction.options?.getSubcommand?.(false) || '';
     const group = interaction.options?.getSubcommandGroup?.(false) || '';
     if (name === 'craft' && sub === 'help') {
-      await interaction.reply(ephemeral(craftHelpText()));
+      await interaction.reply(ephemeral(craftHelpText(env)));
       return;
     }
     if (name === 'mcrcon') {
@@ -566,6 +622,15 @@ async function handleCraftInteraction(interaction, context) {
         await interaction.reply(ephemeral(existed ? `Cleared RCON for \`${server}\`. The password was discarded.` : `No saved RCON named \`${server}\`.`));
         return;
       }
+    }
+    if (name === 'mcadmin') {
+      await handleMcPointsCommand(interaction, {
+        ...context,
+        isStaff: requireStaff(interaction, config),
+        ephemeral,
+        ephemeralFlags: MessageFlags.Ephemeral
+      });
+      return;
     }
     if (name === 'mc') {
       if (sub === 'status') {
@@ -616,6 +681,13 @@ async function handleCraftInteraction(interaction, context) {
       if (group === 'whitelist' && sub === 'add') return runStaffRcon(interaction, context, 'whitelist-add', { name: optionString(interaction, 'name') });
       if (group === 'whitelist' && sub === 'remove') return runStaffRcon(interaction, context, 'whitelist-remove', { name: optionString(interaction, 'name') });
       if (group === 'whitelist' && sub === 'list') return runStaffRcon(interaction, context, 'whitelist-list', {});
+      const mcPoints = await handleMcPointsCommand(interaction, {
+        ...context,
+        isStaff: requireStaff(interaction, config),
+        ephemeral,
+        ephemeralFlags: MessageFlags.Ephemeral
+      });
+      if (mcPoints) return;
     }
     if (name === 'realm') {
       if (sub === 'channel') {
@@ -788,7 +860,7 @@ async function registerCraftCommands(client, env) {
   }
   const guild = await client.guilds.fetch(guildId);
   const commands = await guild.commands.fetch();
-  const definitions = craftCommands();
+  const definitions = craftCommands(env);
   for (const command of definitions) {
     const json = command.toJSON();
     const existing = commands.find((item) => item.name === json.name);
@@ -829,6 +901,7 @@ function startCraftDiscord({ env = process.env, state = {}, token, client } = {}
       console.warn(`[Nexus Craft] command registration class=${errorClass(error)}`);
     });
     if (store.getStatusPanel()?.host) startStatusLoop(discord, store, env);
+    installMcEconomyLoops({ store, env });
   });
   discord.on(Events.Error, (error) => console.error(`[Nexus Craft] Discord error class=${errorClass(error)}`));
   return discord.login(token).then(() => discord);

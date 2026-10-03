@@ -18,6 +18,7 @@ const { loadConfig } = require('../shared/config.cjs');
 const { ArkIdentityStore } = require('./ark-identity-store.cjs');
 const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
 const { insufficientNpCopy, quoteCopy, orderCopy } = require('./cluster-shop-copy.cjs');
+const { mcPointsFlags } = require('../shared/mc-points-flags.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.cluster.shop.ui.installed');
 const PANEL_MARKER = 'Nexus Sentinal • Cluster Shop • v1';
@@ -84,8 +85,16 @@ function buildClusterShopPanelPayload() {
         new ButtonBuilder().setCustomId('nexus-shop:buy').setLabel('Buy Items').setEmoji('🛒').setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId('nexus-shop:sell').setLabel('Sell Items').setEmoji('💰').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId('nexus-shop:wallet').setLabel('Wallet').setEmoji('💳').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('nexus-shop:help').setLabel('How It Works').setEmoji('❔').setStyle(ButtonStyle.Secondary)
-      )
+        new ButtonBuilder().setCustomId('nexus-shop:help').setLabel('How It Works').setEmoji('❔').setStyle(ButtonStyle.Secondary),
+        ...(mcPointsFlags().shopEnabled
+          ? [new ButtonBuilder().setCustomId('nexus-mc-shop:open').setLabel('Minecraft').setEmoji('⛏️').setStyle(ButtonStyle.Secondary)]
+          : [])
+      ),
+      ...(mcPointsFlags().starterKitEnabled
+        ? [new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('nexus-mc-shop:starter').setLabel('MC Starter Kit').setStyle(ButtonStyle.Secondary)
+        )]
+        : [])
     ],
     allowedMentions: { parse: [] }
   };

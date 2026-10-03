@@ -221,7 +221,8 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
       `WHERE order_data->>'status' = ANY($1::text[]) ORDER BY created_at ASC LIMIT $2`,
       [safeStatuses, safeLimit]
     );
-    return (result.rows || []).map((row) => row.order_data).filter(Boolean);
+    const { isMinecraftShopOrder } = require('../economy-worker/mc-points-service.cjs');
+    return (result.rows || []).map((row) => row.order_data).filter((order) => order && !isMinecraftShopOrder(order));
   }
 
   async updateOrderDelivery({ orderId, status, deliveryReceipt = '', error = '' } = {}) {
@@ -233,7 +234,8 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
         [String(orderId)]
       );
       const order = found.rows?.[0]?.order_data;
-      if (!order || order.type !== 'BUY') throw new Error('Buy order not found.');
+      const { isMinecraftShopOrder } = require('../economy-worker/mc-points-service.cjs');
+      if (!order || order.type !== 'BUY' || isMinecraftShopOrder(order)) throw new Error('Buy order not found.');
       if (order.status === 'DELIVERED') {
         await client.query('COMMIT');
         return { ok: true, duplicate: true, order };
