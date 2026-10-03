@@ -171,16 +171,28 @@ function ensureClanMarker(panelId, description) {
   return text.slice(0, 4000);
 }
 
-async function upsertOwnedPanel(client, { channelId, messageId, panelId, embed, botId } = {}) {
+function panelPages(embed, embeds) {
+  const source = Array.isArray(embeds) && embeds.length
+    ? embeds
+    : (Array.isArray(embed?.embeds) && embed.embeds.length ? embed.embeds : [embed || {}]);
+  return source.map((page) => {
+    const copy = { ...(page || {}) };
+    delete copy.embeds;
+    return copy;
+  });
+}
+
+async function upsertOwnedPanel(client, { channelId, messageId, panelId, embed, embeds, botId } = {}) {
   const footer = panelFooter(panelId);
   const ownerId = String(botId || client?.user?.id || '');
   const mode = visualMode(panelId);
+  const pages = panelPages(embed, embeds);
   const body = {
-    embeds: [{
-      ...(embed || {}),
-      description: appendDisclaimer(ensureClanMarker(panelId, embed?.description)),
+    embeds: pages.map((page) => ({
+      ...page,
+      description: appendDisclaimer(ensureClanMarker(panelId, page?.description)),
       footer: { text: footer }
-    }],
+    })),
     allowedMentions: { parse: [] }
   };
   return upsertEmbed(client, channelId, messageId, body, {
@@ -189,10 +201,10 @@ async function upsertOwnedPanel(client, { channelId, messageId, panelId, embed, 
     banner: false,
     prepare: (message, payload) => withAssets({
       ...payload,
-      embeds: (payload?.embeds || []).map((row) => applyChrome(row, {
+      embeds: (payload?.embeds || []).map((row, index) => applyChrome(row, {
         client,
         footerText: footer,
-        mode
+        mode: index === 0 ? mode : ''
       }))
     }, message, mode)
   });

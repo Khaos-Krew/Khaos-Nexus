@@ -128,20 +128,21 @@ test('weekly reset time comes from milestone dates and says when the list is sho
   assert.doesNotMatch(embed.description, /17:00 UTC/);
   const rewards = embed.fields.find((field) => field.name.includes('Rewards'));
   assert.match(rewards.value, /Weekly Clan Engrams/);
-  assert.match(rewards.value, new RegExp(`<t:${resetUnix}:R>`));
-  assert.ok(embed.fields.length <= 6);
-  assert.ok(embed.fields.filter((field) => field.inline).length <= 6);
+  assert.doesNotMatch(rewards.value, /<t:/);
+  assert.equal(embed.fields.find((field) => field.name.includes('Nightfall')), undefined);
+  assert.equal(embed.fields.find((field) => field.name.includes('Raid')), undefined);
+  assert.equal(embed.fields.some((field) => field.value === 'None'), false);
+  assert.ok(embed.fields.length <= 25);
   for (const field of embed.fields) {
-    const lines = field.value.split('\n');
-    assert.ok(lines.length <= 5);
-    for (const line of lines) assert.ok(line.length <= 60);
+    assert.equal(field.inline, false);
+    assert.ok(field.value.length <= 1024);
   }
   assert.ok(embed.description.split('\n').length <= 4);
   const none = renderWeeklyReset({ milestones: { Response: {} }, now });
   assert.match(none.description, /No public milestones/);
 });
 
-test('purification without its own end uses the weekly reset, and activity ends win', () => {
+test('weekly lines stay names only, with one countdown for the soonest reset', () => {
   const now = Date.parse('2026-10-01T18:00:00Z');
   const resetUnix = Math.floor(Date.parse('2026-10-06T17:00:00Z') / 1000);
   const activityUnix = Math.floor(Date.parse('2026-10-05T17:00:00Z') / 1000);
@@ -156,8 +157,9 @@ test('purification without its own end uses the weekly reset, and activity ends 
     now
   });
   const week = purification.fields.find((field) => field.name.includes('This Week'));
-  assert.match(week.value, new RegExp(`Purification <t:${resetUnix}:R>`));
-  assert.doesNotMatch(week.value, /^Purification$/);
+  assert.equal(week.value, 'Purification');
+  assert.doesNotMatch(week.value, /<t:/);
+  assert.match(purification.description, new RegExp(`⏳ Next reset <t:${resetUnix}:R>`));
   const raidWeek = renderWeeklyReset({
     milestones: {
       Response: {
@@ -170,8 +172,11 @@ test('purification without its own end uses the weekly reset, and activity ends 
   });
   const raid = raidWeek.fields.find((field) => field.name.includes('Raid'));
   const rewards = raidWeek.fields.find((field) => field.name.includes('Rewards'));
-  assert.match(raid.value, new RegExp(`Featured Dungeon <t:${activityUnix}:R>`));
-  assert.match(rewards.value, new RegExp(`Weekly Clan Engrams <t:${resetUnix}:R>`));
+  assert.equal(raid.value, 'Featured Dungeon');
+  assert.equal(rewards.value, 'Weekly Clan Engrams');
+  assert.doesNotMatch(JSON.stringify(raidWeek.fields), /<t:/);
+  assert.match(raidWeek.description, new RegExp(`⏳ Next reset <t:${activityUnix}:R>`));
+  assert.equal((raidWeek.description.match(/<t:/g) || []).length, 1);
 });
 
 test('xur is absent outside his window and the panel leaves location out', () => {
@@ -201,7 +206,10 @@ test('xur is absent outside his window and the panel leaves location out', () =>
   });
   assert.equal(here.present, true);
   const other = here.fields.find((field) => field.name.includes('Other'));
-  assert.match(other.value, /Young Ahamkara's Spine • 41 Strange Coin/);
+  assert.match(other.value, /Young Ahamkara's Spine — 41 Strange Coin/);
+  assert.equal(here.fields.find((field) => field.name.includes('Exotics')), undefined);
+  assert.equal(here.fields.find((field) => field.name.includes('Legendaries')), undefined);
+  assert.equal(here.fields.every((field) => field.inline === false), true);
   assert.doesNotMatch(here.description, /📍 Location|not listed|Last City|Tower/i);
   const placedVendors = {
     Response: {
@@ -261,11 +269,12 @@ test('xur drops category headings and groups real items by tier', () => {
   });
   const text = JSON.stringify(embed);
   assert.doesNotMatch(text, /Exotic Gear|Dummy Category|Featured|Redacted Exotic/);
-  assert.match(embed.fields.find((field) => field.name.includes('Exotics')).value, /Young Ahamkara's Spine • 41 Strange Coin/);
-  assert.match(embed.fields.find((field) => field.name.includes('Legendaries')).value, /Palindrome • 23 Strange Coin/);
+  assert.match(embed.fields.find((field) => field.name.includes('Exotics')).value, /Young Ahamkara's Spine — 41 Strange Coin/);
+  assert.match(embed.fields.find((field) => field.name.includes('Legendaries')).value, /Palindrome — 23 Strange Coin/);
   assert.match(embed.fields.find((field) => field.name.includes('Other')).value, /Strange Coin Bundle/);
   assert.match(embed.description, /📍 Location: European Dead Zone/);
   assert.doesNotMatch(embed.description, /Last City|Tower/i);
   assert.ok(embed.description.split('\n').length <= 4);
-  assert.equal(embed.fields.filter((field) => field.inline).length, 3);
+  assert.equal(embed.fields.length, 3);
+  assert.equal(embed.fields.every((field) => field.inline === false), true);
 });

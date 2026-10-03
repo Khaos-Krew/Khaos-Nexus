@@ -14,7 +14,7 @@ const { updateBungieStatus } = require('./status-snapshot.cjs');
 const { formatCt } = require('./time.cjs');
 const { publishPanel } = require('../panels/publish.cjs');
 const { renderClanSummary } = require('../panels/clan.cjs');
-const { milestoneRows, renderWeeklyReset } = require('../panels/weekly-reset.cjs');
+const { describeMilestone, milestoneRows, renderWeeklyReset } = require('../panels/weekly-reset.cjs');
 const { locationFromVendors, renderXur, saleHashes } = require('../panels/xur.cjs');
 const { lookupSaleItems } = require('../commands/d2-xur.cjs');
 const { snowflake } = require('../config.cjs');
@@ -155,11 +155,11 @@ function createBungieRuntime({
     return loaded;
   }
 
-  function namesFor(table, hashes) {
+  function milestoneNames(rows) {
     const names = new Map();
-    for (const hash of hashes) {
-      const name = query.nameFor(table, hash);
-      if (name) names.set(String(hash), name);
+    for (const row of rows) {
+      const described = describeMilestone(query, row);
+      if (described.name) names.set(String(row.milestoneHash || ''), described);
     }
     return names;
   }
@@ -175,7 +175,7 @@ function createBungieRuntime({
     const rows = milestoneRows(payload);
     const embed = renderWeeklyReset({
       milestones: payload,
-      names: namesFor('DestinyMilestoneDefinition', rows.map((row) => row.milestoneHash)),
+      names: milestoneNames(rows),
       now: now()
     });
     resetAt = embed.resetAt || 0;
