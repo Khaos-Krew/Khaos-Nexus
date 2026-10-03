@@ -64,6 +64,11 @@ async function main() {
       console.log('Held rows are not paid. Copy the hash only after the owner approves this list.');
       return;
     }
+    if ((has('--execute') || has('--reverse') || has('--flag-spent')) && !flat.legacyBankFlatEnabled()) {
+      console.error('legacy-bank-flat: NEXUS_LEGACY_BANK_FLAT_ENABLED is off');
+      process.exitCode = 1;
+      return;
+    }
     if (has('--execute')) {
       const result = await flat.execute({
         pool,
@@ -85,7 +90,7 @@ async function main() {
       return;
     }
     if (has('--flag-spent')) {
-      const result = await flat.flagSpentCredit({ pool, schema, econId: arg('--econ'), operator: arg('--operator') });
+      const result = await flat.flagSpentCredit({ pool, schema, econId: arg('--econ'), operator: arg('--operator'), env: process.env });
       console.log(JSON.stringify({ ok: result.ok === true, flagged: result.flagged === true, reversed: false }));
       if (!result.ok) process.exitCode = 1;
       return;
@@ -96,7 +101,8 @@ async function main() {
         schema,
         econId: arg('--econ'),
         operator: arg('--operator'),
-        confirm: has('--confirm-reverse')
+        confirm: has('--confirm-reverse'),
+        env: process.env
       });
       console.log(JSON.stringify({
         ok: result.ok === true,

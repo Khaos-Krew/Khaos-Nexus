@@ -15,6 +15,7 @@ const { loadConfig } = require('../shared/config.cjs');
 const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
 const { arkNpFlags } = require('../shared/ark-np-flags.cjs');
 const { arkMemberText, orderStatusText, ledgerLineText } = require('../shared/ark-np-member-text.cjs');
+const { isStaffAdmin } = require('./staff-roles.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.np.shop.ui.installed');
 const sessions = new Map();
@@ -51,15 +52,16 @@ function adminCommand() {
       .addStringOption((option) => option.setName('reason').setDescription('Why').setRequired(true)));
 }
 
-function isArkStaff(interaction, config = loadConfig()) {
+function isArkStaff(interaction, config = loadConfig(), env = process.env) {
   const userId = String(interaction.user?.id || '');
   const owners = new Set((config.discord?.ownerUserIds || []).map(String));
   if (owners.has(userId)) return true;
-  return interaction.memberPermissions?.has?.(PermissionFlagsBits.Administrator) === true;
+  if (interaction.memberPermissions?.has?.(PermissionFlagsBits.Administrator) === true) return true;
+  return isStaffAdmin(interaction, env);
 }
 
 function formatActivity(result = {}) {
-  if (!result.linked) return 'Link your Discord and your ARK character, then use /points again.';
+  if (!result.linked) return arkMemberText(result.reason || 'verified-identity-required');
   const lines = [`**Points:** ${Number(result.balance || 0).toLocaleString('en-US')}`, 'This is your bank. There is nothing to deposit or withdraw.'];
   const entries = (result.entries || []).slice(0, 10).map((row) => ledgerLineText(row)).filter(Boolean);
   if (entries.length) lines.push('', '**Recent**', ...entries);

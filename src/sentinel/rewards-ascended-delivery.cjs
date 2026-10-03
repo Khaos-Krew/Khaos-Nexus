@@ -203,8 +203,14 @@ function classifyReloadResult(result = {}) {
 function classifyRewardResult(result = {}) {
   const response = String(result?.response || '').trim();
   if (/^Player rewarded!$/i.test(response)) return { state: 'DELIVERED', failureClass: '', details: response };
-  if (/failed to give reward to player|unknown command|not found|invalid|error/i.test(response)) return { state: 'DELIVERY_FAILED', failureClass: 'REWARDS_ASCENDED_REJECTED', details: response || 'RewardsAscended rejected the reward command.' };
-  if (result?.status === 'sent_no_reply' || result?.status === 'sent_blank_reply' || !response) return { state: 'SENT_UNCONFIRMED', failureClass: 'REWARDS_ASCENDED_UNCONFIRMED', details: response || result?.status || 'RewardsAscended reward command sent without acknowledgement.' };
+  // Only this exact pre-verified rejection is a failed delivery. A reply that merely
+  // contains "not found", "invalid", or "error" can arrive after the item was given.
+  if (/^Failed to give reward to player\.?$/i.test(response)) {
+    return { state: 'DELIVERY_FAILED', failureClass: 'REWARDS_ASCENDED_REJECTED', details: response };
+  }
+  if (result?.status === 'sent_no_reply' || result?.status === 'sent_blank_reply' || !response) {
+    return { state: 'SENT_UNCONFIRMED', failureClass: 'REWARDS_ASCENDED_UNCONFIRMED', details: response || result?.status || 'RewardsAscended reward command sent without acknowledgement.' };
+  }
   return { state: 'SENT_UNCONFIRMED', failureClass: 'REWARDS_ASCENDED_UNCONFIRMED', details: response };
 }
 

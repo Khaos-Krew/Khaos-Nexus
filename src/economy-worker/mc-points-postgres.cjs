@@ -8,7 +8,7 @@ const { memberIdentityHold } = require('../sentinel/nexus-economy-identity-hold.
 const { quarantineDenylist } = require('../sentinel/nexus-economy-wallet-core.cjs');
 const { guildJoinedAtMs } = require('../shared/mc-starter-kit.cjs');
 
-const MC_SCHEMA_VERSION = 2;
+const MC_SCHEMA_VERSION = 3;
 const schemaState = new WeakMap();
 
 function schemaSql(schema = 'public') {
@@ -119,6 +119,8 @@ function schemaSql(schema = 'public') {
     `ALTER TABLE ${s}.nexus_mc_grants ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'minecraft';`,
     `ALTER TABLE ${s}.nexus_mc_grants ADD COLUMN IF NOT EXISTS eos_id TEXT;`,
     `CREATE UNIQUE INDEX IF NOT EXISTS nexus_mc_grants_kind_eos ON ${s}.nexus_mc_grants (kind, eos_id) WHERE eos_id IS NOT NULL;`,
+    `ALTER TABLE ${s}.nexus_mc_grants DROP CONSTRAINT IF EXISTS nexus_mc_grants_kind_economic_identity_id_key;`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS nexus_mc_grants_kind_identity_without_eos ON ${s}.nexus_mc_grants (kind, economic_identity_id) WHERE eos_id IS NULL;`,
     `CREATE INDEX IF NOT EXISTS nexus_mc_orders_provider_status_idx ON ${s}.nexus_mc_orders (provider, status, created_at);`
   ].join('\n');
 }

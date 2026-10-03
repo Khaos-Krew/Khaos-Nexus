@@ -11,6 +11,7 @@ const { PostgresMcPoints } = require('./mc-points-postgres.cjs');
 const { PostgresArkShop } = require('./ark-np-postgres.cjs');
 const { isShadowRecruitEligibleRank } = require('../shared/ranks.cjs');
 const { routeWalletCredit } = require('../sentinel/nexus-economy-community-level-coins.cjs');
+const { applySystemMintBalanceChecks } = require('../shared/economy-system-accounts.cjs');
 
 function postgresEnabled(env = process.env) {
   return String(env.NEXUS_ECONOMY_STORAGE || '').trim().toLowerCase() === 'postgres';
@@ -30,6 +31,7 @@ async function createPostgresEconomyRuntime({ env = process.env, now } = {}) {
   const accrual = new PostgresEconomyAccrual({ pool, schema, now: nowFn, env });
   try {
     await pool.query(NexusEconomyPostgresRuntimeRepository.runtimeSchemaSql({ schema }));
+    await applySystemMintBalanceChecks(pool, schema);
     await accrual.ensureSchema();
     await repository.backfillLegacyRestrictedHolds();
     await pool.query('SELECT 1 AS ok');

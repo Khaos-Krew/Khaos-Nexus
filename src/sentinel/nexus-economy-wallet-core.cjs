@@ -3,6 +3,7 @@
 const { createNexusEconomyPurchaseActionRequest } = require('./nexus-economy-purchase-action-request.cjs');
 const { normalizeCurrency } = require('./nexus-economy-postgres-repository.cjs');
 const { memberIdentityHold, MEMBER_HOLD_MESSAGE, quarantineDenylist } = require('./nexus-economy-identity-hold.cjs');
+const { assertMemberAccount } = require('../shared/economy-system-accounts.cjs');
 
 // Reads status while the caller already holds the identity/currency transaction lock.
 // A locked row wins over the pre-transaction snapshot so a concurrent status change is respected.
@@ -25,6 +26,7 @@ async function guardMemberMutation(tx, loaded, env = process.env, currency = 'NE
       missingRow = true;
     }
   }
+  assertMemberAccount(economicIdentityId);
   const hold = memberIdentityHold({ status, holdReason, economicIdentityId, missingRow, env });
   if (hold) return { hold, economicIdentityId, status };
   const normalized = String(status || '').trim().toLowerCase();
@@ -83,11 +85,14 @@ class NexusEconomyWalletCore {
     if (typeof this.repository.getIdentityByLink !== 'function') throw new Error('Economy repository identity resolution is required.');
     const identity = await this.repository.getIdentityByLink('discord', discord);
     if (!identity) throw new Error('Verified economic identity is required.');
+    const economicIdentityId = cleanId(identity.economic_identity_id ?? identity.economicIdentityId, 'Economic identity ID');
+    assertMemberAccount(economicIdentityId);
     return {
       discordUserId: discord,
-      economicIdentityId: cleanId(identity.economic_identity_id ?? identity.economicIdentityId, 'Economic identity ID'),
+      economicIdentityId,
       status: identity.status,
-      verified_at: identity.verified_at ?? identity.verifiedAt ?? null
+      verified_at: identity.verified_at ?? identity.verifiedAt ?? null,
+      hold_reason: identity.hold_reason ?? identity.holdReason ?? ''
     };
   }
 
@@ -216,6 +221,7 @@ class NexusEconomyWalletCore {
     } else {
       throw new Error('Economy repository identity resolution is required.');
     }
+    assertMemberAccount(economicIdentityId);
 
     return this.repository.transact(economicIdentityId, normalizedCurrency, async (tx) => {
       let lockedStatus = statusHint;
@@ -232,6 +238,7 @@ class NexusEconomyWalletCore {
           missingRow = true;
         }
       }
+      assertMemberAccount(lockedIdentityId);
       const prior = await tx.findOrder(record.orderId);
       if (prior) {
         if (
