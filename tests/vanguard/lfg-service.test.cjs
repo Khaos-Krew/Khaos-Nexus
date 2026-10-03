@@ -200,7 +200,7 @@ test('a full fireteam render offers voice and an expired post drops its buttons'
   assert.equal(rendered.embeds[0].image, undefined);
   assert.equal(rendered.files[0].name, 'icon-vanguard.png');
   assert.deepEqual(rendered.embeds[0].fields.slice(0, 3).map((field) => field.name), ['Activity', 'Time', 'Slots']);
-  assert.ok(rendered.embeds[0].fields.slice(0, 3).every((field) => field.inline === true));
+  assert.ok(rendered.embeds[0].fields.every((field) => field.inline === false));
   assert.equal(rendered.embeds[0].fields[3].name, 'Roster');
   assert.equal(rendered.embeds[0].fields[3].inline, false);
   assert.doesNotMatch(rendered.embeds[0].footer.text, /[-–—]/);

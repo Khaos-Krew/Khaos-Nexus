@@ -4,7 +4,8 @@ const { ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } = re
 const { findActivity } = require('./activities-static.cjs');
 const { snowflake } = require('../config.cjs');
 const { appendDisclaimer, applyChrome, postFooter, withAssets } = require('../panels.cjs');
-const { boundedLines, clipLine } = require('../style.cjs');
+const { clipLine } = require('../style.cjs');
+const { packSections } = require('../panels/layout.cjs');
 
 function voiceOffer(lobbyId) {
   if (snowflake(lobbyId)) return `Fireteam is full. Join <#${lobbyId}> and a voice channel will open.`;
@@ -56,36 +57,43 @@ function renderPost(post, { lobbyId = '', ping = false, client = null } = {}) {
   const content = offered
     ? `${members.map((id) => `<@${id}>`).join(' ')}\n${voiceOffer(lobbyId || post.voiceId)}`.slice(0, 1800)
     : '';
-  const embed = applyChrome({
+  const packed = packSections({
     title,
     description: appendDisclaimer(lines.join('\n'), { maxLines: 4 }),
-    fields: [
-      { name: 'Activity', value: clipLine(label, 60) || 'Fireteam', inline: true },
-      { name: 'Time', value: timeLines.join('\n') || 'Not set', inline: true },
-      { name: 'Slots', value: clipLine(slots, 60), inline: true },
-      { name: 'Roster', value: boundedLines(members.length ? members.map((id) => `<@${id}>`) : ['Empty']).join('\n'), inline: false }
+    sections: [
+      { name: 'Activity', lines: [label || 'Fireteam'] },
+      { name: 'Time', lines: timeLines.length ? timeLines : ['Not set'] },
+      { name: 'Slots', lines: [slots || 'Not set'] },
+      { name: 'Roster', lines: members.length ? members.map((id) => `<@${id}>`) : ['Empty'] }
     ]
-  }, { client, footerText: postFooter(), mode: 'icon' });
+  });
+  const embeds = packed.embeds.map((page, index) => applyChrome(page, {
+    client,
+    footerText: postFooter(),
+    mode: index === 0 ? 'icon' : ''
+  }));
   return withAssets({
     content,
-    embeds: [embed],
+    embeds,
     components: post.status === 'open' ? [buttonRow(post)] : [],
     allowedMentions: ping ? { users: members.slice(), parse: [] } : { parse: [] }
   }, null, 'icon');
 }
 
 function boardEmbed(posts = []) {
-  const lines = posts.map((post) => {
-    const label = clipLine(post.activityLabel || findActivity(post.activityKey)?.label || post.activityKey, 24);
+  const lines = (Array.isArray(posts) ? posts : []).map((post) => {
+    const label = String(post.activityLabel || findActivity(post.activityKey)?.label || post.activityKey || 'Fireteam').replace(/\s+/g, ' ').trim();
     const unix = Math.floor(Date.parse(post.expiresAt) / 1000);
     const when = Number.isFinite(unix) ? `<t:${unix}:R>` : 'soon';
-    return clipLine(`**${label}** ${post.members.length}/${post.slots} • ${when}`, 60);
+    const count = Array.isArray(post.members) ? post.members.length : 0;
+    return `**${label || 'Fireteam'}** ${count}/${post.slots} • ${when}`;
   });
-  const shown = lines.length > 3 ? [...lines.slice(0, 2), `+${lines.length - 2} more`] : lines;
-  return {
+  if (!lines.length) return { title: '🎮 Fireteam board', description: 'No open fireteams.', fields: [] };
+  return packSections({
     title: '🎮 Fireteam board',
-    description: shown.length ? shown.join('\n') : 'No open fireteams.'
-  };
+    description: 'Open fireteams.',
+    sections: [{ name: 'Open fireteams', lines }]
+  });
 }
 
 const ICON_FILE = 'icon-vanguard.png';
