@@ -3,6 +3,7 @@
 const path = require('node:path');
 const { PermissionFlagsBits } = require('discord.js');
 const { parseLinkRate } = require('./rate-limit.cjs');
+const { hasStaffAdminRole } = require('../staff-roles.cjs');
 
 const DEFAULT_COLOR = 0xb00020;
 const DISCORD_ID = /^\d{15,24}$/;
@@ -59,17 +60,19 @@ function cardLimitOptions(env = process.env) {
 }
 
 function o9AdminAllowList(config = {}) {
-  // /o9verify grants only Discord Administrator today. There is no allow-list
-  // key on the box. This optional list is the card runtime OR-path. Operator
-  // and staff role IDs are intentionally not read.
+  // /o9verify accepts Discord Administrator, the guild owner, or the staff
+  // admin role (NEXUS_STAFF_ADMIN_ROLE_IDS). This optional user list is an
+  // extra card-only OR-path. Operator and staff mod role IDs are intentionally
+  // not read.
   const raw = config?.discord?.o9AdminUserIds || config?.discord?.o9AdminVerifyUserIds || [];
   return new Set((Array.isArray(raw) ? raw : [])
     .map((id) => String(id || '').trim())
     .filter((id) => DISCORD_ID.test(id)));
 }
 
-function isCardAdmin(interaction, config = {}) {
+function isCardAdmin(interaction, config = {}, env = process.env) {
   if (interaction?.memberPermissions?.has?.(PermissionFlagsBits.Administrator)) return true;
+  if (hasStaffAdminRole(interaction, env)) return true;
   const userId = String(interaction?.user?.id || '');
   return o9AdminAllowList(config).has(userId);
 }

@@ -1,7 +1,7 @@
 'use strict';
 
 const { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } = require('discord.js');
-const { csv } = require('../shared/config.cjs');
+const { isStaffAdmin } = require('./staff-roles.cjs');
 
 const MAX_CLEAR_MESSAGES = 100;
 
@@ -9,6 +9,8 @@ function clearCommand() {
   return new SlashCommandBuilder()
     .setName('clear')
     .setDescription('Clear recent messages from this channel')
+    // ManageGuild so Discord shows /clear to admins, not mods.
+    // The runtime gate below is the real authorization check.
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addIntegerOption((option) => option
       .setName('amount')
@@ -18,44 +20,22 @@ function clearCommand() {
       .setMaxValue(MAX_CLEAR_MESSAGES));
 }
 
-function memberRoles(interaction) {
-  const cache = interaction?.member?.roles?.cache;
-  if (!cache) {
-    if (Array.isArray(interaction?.member?.roles)) return interaction.member.roles;
-    return [];
-  }
-  if (typeof cache.values === 'function') return [...cache.values()];
-  if (Array.isArray(cache)) return cache;
-  return [];
-}
-
-function hasOperatorRole(interaction, env = process.env) {
-  const guildId = String(interaction?.guild?.id || '');
-  const allowed = new Set(csv(env?.NEXUS_OPERATOR_ROLE_IDS).filter((id) => id !== guildId));
-  if (!allowed.size) return false;
-  return memberRoles(interaction).some((role) => {
-    const id = String(role?.id || '');
-    if (!id || id === guildId || role?.managed === true) return false;
-    return allowed.has(id);
-  });
-}
-
+// Staff admin role, guild owner, or Discord Administrator, and the member must
+// also be able to manage messages. Administrator implies Manage Messages.
+// Staff mod roles do not grant /clear. Guild id and managed roles are ignored
+// by roleIdsOf, which isStaffAdmin uses. Sentinal never deletes messages for
+// someone who could not do it by hand.
 function canClear(interaction, env = process.env) {
+  if (!isStaffAdmin(interaction, env)) return false;
   const permissions = interaction?.memberPermissions;
-  const administrator = Boolean(permissions?.has?.(PermissionFlagsBits.Administrator));
-  const manageMessages = administrator || Boolean(permissions?.has?.(PermissionFlagsBits.ManageMessages));
-  if (!manageMessages) return false;
-  if (administrator) return true;
-  const ownerId = interaction?.guild?.ownerId;
-  const userId = interaction?.user?.id;
-  if (ownerId && userId && String(ownerId) === String(userId)) return true;
-  return hasOperatorRole(interaction, env);
+  if (permissions?.has?.(PermissionFlagsBits.Administrator)) return true;
+  return Boolean(permissions?.has?.(PermissionFlagsBits.ManageMessages));
 }
 
 async function handleClearCommand(interaction) {
   if (!canClear(interaction, process.env)) {
     return interaction.reply({
-      content: 'Only Admins can use /clear.',
+      content: 'Only Admins can use /clear. Ask an Admin if something needs cleaning up.',
       flags: MessageFlags.Ephemeral
     });
   }

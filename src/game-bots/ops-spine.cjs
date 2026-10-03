@@ -13,6 +13,7 @@ const { hasStaffRole } = require('./vanguard/config.cjs');
 const { sanctuaryHelpText, categoryGateLabel, resolveButtonChannel, buttonChannelLabel } = require('../sentinel/sanctuary-suite.cjs');
 const { jtcStatusLine } = require('./join-to-create.cjs');
 const { clusterStaffLine } = require('./asa-cluster-presence.cjs');
+const { hasStaffAdminRole } = require('../sentinel/staff-roles.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.gamebot.opsSpine');
 const SENTINAL_POINTER = 'Wallet, verify, and ranks stay on Nexus Sentinal (`/bal`, `/o9verify`, ranks).';
@@ -78,11 +79,12 @@ function opsCommandBuilders() {
   ];
 }
 
-function isStaff(interaction, config = {}) {
+function isStaff(interaction, config = {}, env = process.env) {
   const userId = String(interaction?.user?.id || '');
   const owners = new Set((config.discord?.ownerUserIds || []).map(String));
   if (owners.has(userId)) return true;
   if (interaction?.memberPermissions?.has?.(PermissionFlagsBits.Administrator)) return true;
+  if (hasStaffAdminRole(interaction, env)) return true;
   const operatorRoles = new Set((config.discord?.operatorRoleIds || []).map(String));
   return Boolean(interaction?.member?.roles?.cache?.some?.((role) => operatorRoles.has(String(role.id))));
 }

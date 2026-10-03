@@ -139,7 +139,7 @@ function staffCategoryOverwrites(guild, botId, staffRoleIds = [], ownerIds = [])
 
 function adminCommandInventory() {
   const core = [
-    { scope: 'Server', command: '/clear amount:<1-100>', access: 'Administrator', description: 'Bulk-delete recent messages in the current channel.' },
+    { scope: 'Server', command: '/clear amount:<1-100>', access: 'Staff admins with Manage Messages', description: 'Bulk-delete recent messages in the current channel.' },
     { scope: 'Nexus', command: '/nexus-pair', access: 'Owner / Co-Owner / Manage Server', description: 'Create a one-time pairing code for the hosted Admin Control Center.' },
     { scope: 'Nexus', command: '/nexus setup', access: 'Owner / Manage Server', description: 'Open guided module setup.' },
     { scope: 'Nexus', command: '/nexus repair module:<game>', access: 'Owner / Manage Server', description: 'Repair one module Discord layout.' },

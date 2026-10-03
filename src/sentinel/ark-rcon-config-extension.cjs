@@ -16,6 +16,7 @@ const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { ArkRconConfigStore, normalizePrefix, rconRailwayEnvForbidden } = require('./ark-rcon-config-store.cjs');
 const { reportCommandFailure } = require('../game-bots/command-failure.cjs');
+const { hasStaffAdminRole } = require('./staff-roles.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.rcon.config.extension');
 const BOUND = Symbol.for('khaos.nexus.ark.rcon.config.bound');
@@ -49,9 +50,10 @@ function isOwner(interaction, config = {}) {
   return owners.has(userId) || userId === String(interaction.guild?.ownerId || '');
 }
 
-function isStaff(interaction, config = {}) {
+function isStaff(interaction, config = {}, env = process.env) {
   if (isOwner(interaction, config)) return true;
   if (interaction.memberPermissions?.has?.(PermissionFlagsBits.Administrator)) return true;
+  if (hasStaffAdminRole(interaction, env)) return true;
   const operatorRoles = new Set((config.discord?.operatorRoleIds || []).map(String));
   return interaction.member?.roles?.cache?.some?.((role) => operatorRoles.has(String(role.id))) || false;
 }
