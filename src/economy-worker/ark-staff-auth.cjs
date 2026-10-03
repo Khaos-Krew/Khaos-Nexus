@@ -53,17 +53,30 @@ async function authorizeStaffRefundActor({ actor, env = process.env, fetchImpl =
   const roleIds = Array.isArray(member?.roles) ? member.roles.map(String) : [];
   const byId = new Map((Array.isArray(roles) ? roles : []).map((role) => [String(role.id), role]));
   let permissions = 0n;
+  const cache = new Map();
   for (const roleId of roleIds) {
     const role = byId.get(roleId);
+    cache.set(roleId, {
+      id: roleId,
+      name: String(role?.name || ''),
+      managed: role?.managed === true
+    });
     if (!role) continue;
     try { permissions |= BigInt(role.permissions || 0); } catch { /* ignore a bad bitfield */ }
   }
   const subject = {
     user: { id: userId },
     userId,
+    guild: { id: guild, ownerId: String(guildBody?.owner_id || '') },
     guildOwnerId: String(guildBody?.owner_id || ''),
-    roleIds,
-    permissions
+    member: { guild: { id: guild }, roles: { cache } },
+    permissions,
+    memberPermissions: {
+      has(bit) {
+        try { return (permissions & BigInt(bit)) === BigInt(bit); }
+        catch { return false; }
+      }
+    }
   };
   if (!isStaffAdmin(subject, env)) return { ok: false, reason: 'staff-required' };
   return { ok: true, actor: userId };
