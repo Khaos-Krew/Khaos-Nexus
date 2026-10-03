@@ -114,9 +114,12 @@ async function inspectRewardsAscended(prefix, env = process.env) {
   }
 }
 
-async function upsertOrderReward(prefix, row, saddleBlueprint = '', env = process.env) {
-  const rewardId = rewardIdForOrder(row);
-  const desired = buildRewardEntry({ blueprint: row.blueprint, level: Number(row.rolled_level), sex: row.sex, saddleBlueprint });
+async function upsertRewardDefinition(prefix, rewardId, desired, env = process.env) {
+  if (!/^[A-Za-z0-9_-]{1,60}$/.test(String(rewardId || ''))) {
+    const error = new Error('RewardsAscended reward id is invalid.');
+    error.code = 'REWARDS_ASCENDED_REWARD_ID';
+    throw error;
+  }
   const { client, settings } = await connect(prefix, env);
   try {
     const relative = configRelativePath(prefix, env);
@@ -155,6 +158,12 @@ async function upsertOrderReward(prefix, row, saddleBlueprint = '', env = proces
   } finally {
     await client.end().catch(() => {});
   }
+}
+
+async function upsertOrderReward(prefix, row, saddleBlueprint = '', env = process.env) {
+  const rewardId = rewardIdForOrder(row);
+  const desired = buildRewardEntry({ blueprint: row.blueprint, level: Number(row.rolled_level), sex: row.sex, saddleBlueprint });
+  return upsertRewardDefinition(prefix, rewardId, desired, env);
 }
 
 async function upsertEffectiveOrderReward({ client, settings, prefix, relative, rewardId, desired, currentText = null, currentConfig = null }) {
@@ -246,6 +255,7 @@ module.exports = {
   buildRewardEntry,
   inspectRewardsAscended,
   upsertOrderReward,
+  upsertRewardDefinition,
   classifyReloadResult,
   classifyRewardResult,
   deliverWithRewardsAscended

@@ -18,6 +18,11 @@ class EconomyRequestError extends Error {
 
 const { registerAdminWalletDrainPaths, handleAdminWalletPost } = require('./admin-wallet-routes.cjs');
 const PRESENCE_WRITE_PATHS = new Set(['/presence', '/wallet/accrue-offline']);
+const NP_SHOP_FINANCIAL_PATHS = new Set([
+  '/np-shop/buy',
+  '/np-shop/refund',
+  '/np-shop/refund-sweep'
+]);
 const FINANCIAL_WRITE_PATHS = new Set([
   '/wallet/credit',
   '/wallet/spend',
@@ -27,7 +32,8 @@ const FINANCIAL_WRITE_PATHS = new Set([
   '/shop/buy/delivery-status',
   '/mc-shop/buy',
   '/mc-shop/refund',
-  '/mc-shop/refund-sweep'
+  '/mc-shop/refund-sweep',
+  ...NP_SHOP_FINANCIAL_PATHS
 ]);
 const MC_NONECONOMY_PATHS = new Set([
   '/mc/link/challenge',
@@ -40,14 +46,29 @@ const MC_NONECONOMY_PATHS = new Set([
   '/mc-shop/delivery-status',
   '/mc-shop/claim'
 ]);
+const ARK_NONECONOMY_PATHS = new Set([
+  '/np-shop/quote',
+  '/np-shop/delivery-status',
+  '/np-shop/claim',
+  '/ark/starter-kit/claim',
+  '/ark/staff/resolve'
+]);
+const ARK_DELIVERY_ROUTES = new Set([
+  'POST /np-shop/claim',
+  'POST /np-shop/delivery-status',
+  'POST /np-shop/refund-sweep',
+  'GET /np-shop/orders/pending'
+]);
 const DRAIN_MUTATION_PATHS = registerAdminWalletDrainPaths(new Set([
   '/identity/link',
   '/identity/demote-restricted',
   '/wallet/ensure-shadow-recruit',
   ...MC_NONECONOMY_PATHS,
+  ...ARK_NONECONOMY_PATHS,
   '/mc-shop/buy',
   '/mc-shop/refund',
-  '/mc-shop/refund-sweep'
+  '/mc-shop/refund-sweep',
+  ...NP_SHOP_FINANCIAL_PATHS
 ]));
 const CRAFT_ROUTES = new Set([
   'POST /presence',
@@ -90,12 +111,17 @@ function tokenMatches(supplied, expected) {
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
-function requestScope(req, { token = '', craftToken = '' } = {}) {
+function requestScope(req, { token = '', craftToken = '', arkToken = '' } = {}) {
   const supplied = bearerToken(req);
   if (!supplied) return '';
   if (token && tokenMatches(supplied, token)) return 'sentinal';
   if (craftToken && craftToken !== token && tokenMatches(supplied, craftToken)) return 'craft';
+  if (arkToken && arkToken !== token && arkToken !== craftToken && tokenMatches(supplied, arkToken)) return 'ark';
   return '';
+}
+
+function arkRouteAllowed(method, pathname) {
+  return ARK_DELIVERY_ROUTES.has(`${method} ${pathname}`);
 }
 
 function presenceBody(input) {
@@ -275,6 +301,12 @@ function writeGate(path, options = {}) {
     }
     return null;
   }
+  if (NP_SHOP_FINANCIAL_PATHS.has(path)) {
+    if (options.npShopWritesEnabled !== true) {
+      return { statusCode: 503, body: { ok: false, error: 'economy-np-shop-writes-not-enabled', npShopWritesEnabled: false } };
+    }
+    return null;
+  }
   if (!writesEnabled) {
     return { statusCode: 503, body: { ok: false, error: 'economy-write-cutover-not-enabled', writesEnabled: false } };
   }
@@ -286,7 +318,12 @@ function mutationRequestGate(path, options = {}) {
   const presenceWritesEnabled = options.presenceWritesEnabled == null ? writesEnabled : Boolean(options.presenceWritesEnabled);
   const lifecycle = options.lifecycle || {};
   if (lifecycle.draining === true && path !== '/shop/quote') return drainMutationGate('/identity/link', { lifecycle });
-  return drainMutationGate(path, { lifecycle }) || writeGate(path, { writesEnabled, presenceWritesEnabled, lifecycle });
+  return drainMutationGate(path, { lifecycle }) || writeGate(path, {
+    writesEnabled,
+    presenceWritesEnabled,
+    npShopWritesEnabled: options.npShopWritesEnabled === true,
+    lifecycle
+  });
 }
 
 function walletReadAccrualPermitted({ writesEnabled = false, presenceWritesEnabled, lifecycle = {} }) {
@@ -299,6 +336,10 @@ function createEconomyServer(options = {}) {
   const shop = options.shop || new ClusterShopService({ economy: worker });
   const token = String(options.token ?? process.env.NEXUS_ECONOMY_TOKEN ?? '').trim();
   const craftToken = String(options.craftToken ?? process.env.NEXUS_ECONOMY_CRAFT_TOKEN ?? '').trim();
+  const arkToken = String(options.arkToken ?? process.env.NEXUS_ECONOMY_ARK_DELIVERY_TOKEN ?? '').trim();
+  const npShopWritesEnabled = options.npShopWritesEnabled == null
+    ? enabled(process.env.NEXUS_ECONOMY_NP_SHOP_WRITES_ENABLED)
+    : Boolean(options.npShopWritesEnabled);
   const writesEnabled = options.writesEnabled == null
     ? enabled(process.env.NEXUS_ECONOMY_WRITES_ENABLED)
     : Boolean(options.writesEnabled);
@@ -320,10 +361,13 @@ function createEconomyServer(options = {}) {
       if (req.method === 'GET' && url.pathname === '/health') {
         return json(res, 200, runtimeReadiness({ worker, shop, token, writesEnabled, presenceWritesEnabled }));
       }
-      const scope = requestScope(req, { token, craftToken });
+      const scope = requestScope(req, { token, craftToken, arkToken });
       if (!scope) return json(res, 401, { ok: false, error: 'unauthorized' });
       if (scope === 'craft' && !craftRouteAllowed(req.method, url.pathname)) {
         return json(res, 403, { ok: false, error: 'craft-token-scope' });
+      }
+      if (scope === 'ark' && !arkRouteAllowed(req.method, url.pathname)) {
+        return json(res, 403, { ok: false, error: 'ark-token-scope' });
       }
 
       if (req.method === 'GET' && url.pathname.startsWith('/wallet-balances/')) {
@@ -366,6 +410,25 @@ function createEconomyServer(options = {}) {
       if (req.method === 'GET' && url.pathname === '/shop/orders/pending') {
         return json(res, 200, { ok: true, orders: await Promise.resolve(shop.pendingBuyOrders()) });
       }
+      if (req.method === 'GET' && url.pathname === '/np-shop/catalog') {
+        const { loadArkNpCatalog } = require('../shared/ark-np-catalog.cjs');
+        const { arkNpFlags } = require('../shared/ark-np-flags.cjs');
+        const catalog = worker.arkShop?.catalog || loadArkNpCatalog();
+        return json(res, 200, { ok: true, catalog, enabled: arkNpFlags().shopEnabled });
+      }
+      if (req.method === 'GET' && url.pathname === '/np-shop/orders/pending') {
+        if (!worker.arkShop) return json(res, 200, { ok: false, reason: 'ark-shop-disabled', orders: [] });
+        return json(res, 200, { ok: true, orders: await Promise.resolve(worker.arkShop.pendingOrders()) });
+      }
+      if (req.method === 'GET' && url.pathname === '/ark/grants') {
+        if (!worker.arkShop) return json(res, 200, { ok: false, reason: 'ark-shop-disabled', grants: [] });
+        return json(res, 200, { ok: true, grants: await Promise.resolve(worker.arkShop.listGrants()) });
+      }
+      if (req.method === 'GET' && url.pathname.startsWith('/np-shop/activity/')) {
+        if (!worker.arkShop) return json(res, 200, { ok: true, balance: 0, entries: [], orders: [], linked: false });
+        const discordUserId = decodeURIComponent(url.pathname.slice('/np-shop/activity/'.length));
+        return json(res, 200, await Promise.resolve(worker.arkShop.activity(discordUserId)));
+      }
       if (req.method === 'GET' && url.pathname === '/mc-shop/catalog') {
         const { loadMcShopCatalog } = require('../shared/mc-shop-catalog.cjs');
         const { mcPointsFlags } = require('../shared/mc-points-flags.cjs');
@@ -389,12 +452,12 @@ function createEconomyServer(options = {}) {
       }
 
       if (req.method !== 'POST') return json(res, 404, { ok: false, error: 'not-found' });
-      const mutationGate = mutationRequestGate(url.pathname, { writesEnabled, presenceWritesEnabled, lifecycle });
+      const mutationGate = mutationRequestGate(url.pathname, { writesEnabled, presenceWritesEnabled, npShopWritesEnabled, lifecycle });
       if (mutationGate) return json(res, mutationGate.statusCode, mutationGate.body);
       if (!POST_PATHS.has(url.pathname)) return json(res, 404, { ok: false, error: 'not-found' });
 
       const input = await body(req);
-      const executionGate = mutationRequestGate(url.pathname, { writesEnabled, presenceWritesEnabled, lifecycle });
+      const executionGate = mutationRequestGate(url.pathname, { writesEnabled, presenceWritesEnabled, npShopWritesEnabled, lifecycle });
       if (executionGate) return json(res, executionGate.statusCode, executionGate.body);
 
       if (url.pathname === '/identity/link') return json(res, 200, { ok: true, result: await Promise.resolve(worker.linkArkIdentity(input)) });
@@ -474,6 +537,39 @@ function createEconomyServer(options = {}) {
       if (worker.minecraft && url.pathname === '/mc/staff/resolve') {
         return json(res, 200, await worker.minecraft.staffResolve(input));
       }
+      if (url.pathname === '/np-shop/quote') {
+        if (!worker.arkShop) return json(res, 200, { ok: false, reason: 'ark-shop-disabled' });
+        return json(res, 200, await worker.arkShop.quote(input));
+      }
+      if (url.pathname === '/np-shop/buy') {
+        if (!worker.arkShop) return json(res, 200, { ok: false, reason: 'ark-shop-disabled' });
+        const result = await worker.arkShop.buy(input);
+        return json(res, result.ok ? 200 : 409, result);
+      }
+      if (url.pathname === '/np-shop/claim') {
+        if (!worker.arkShop) return json(res, 200, { ok: false, reason: 'ark-shop-disabled' });
+        return json(res, 200, { ok: true, order: await worker.arkShop.prepareDelivery({ owner: input.owner || 'sentinal-ark' }) });
+      }
+      if (url.pathname === '/np-shop/delivery-status') {
+        if (!worker.arkShop) return json(res, 200, { ok: false, reason: 'ark-shop-disabled' });
+        return json(res, 200, await worker.arkShop.applyDeliveryUpdate(input));
+      }
+      if (url.pathname === '/np-shop/refund') {
+        if (!worker.arkShop) return json(res, 200, { ok: false, reason: 'ark-shop-disabled' });
+        return json(res, 200, await worker.arkShop.refund({ ...input, staff: true }));
+      }
+      if (url.pathname === '/np-shop/refund-sweep') {
+        if (!worker.arkShop) return json(res, 200, { ok: false, reason: 'ark-shop-disabled' });
+        return json(res, 200, { ok: true, results: await worker.arkShop.sweepRefunds() });
+      }
+      if (url.pathname === '/ark/starter-kit/claim') {
+        if (!worker.arkShop) return json(res, 200, { ok: false, reason: 'ark-shop-disabled' });
+        return json(res, 200, await worker.arkShop.claimStarterKit(input));
+      }
+      if (url.pathname === '/ark/staff/resolve') {
+        if (!worker.arkShop) return json(res, 200, { ok: false, reason: 'ark-shop-disabled' });
+        return json(res, 200, await worker.arkShop.staffResolve(input));
+      }
       return json(res, 404, { ok: false, error: 'not-found' });
     } catch (error) {
       console.error('[Nexus Economy Worker]', error);
@@ -518,7 +614,10 @@ module.exports = {
   DRAIN_MUTATION_PATHS,
   PRESENCE_WRITE_PATHS,
   FINANCIAL_WRITE_PATHS,
+  NP_SHOP_FINANCIAL_PATHS,
   MC_NONECONOMY_PATHS,
+  ARK_NONECONOMY_PATHS,
+  ARK_DELIVERY_ROUTES,
   CRAFT_ROUTES,
   WRITE_PATHS,
   POST_PATHS,
@@ -538,6 +637,7 @@ module.exports = {
   presenceBody,
   craftMinecraftPresence,
   craftRouteAllowed,
+  arkRouteAllowed,
   requestScope,
   createEconomyServer,
   listenEconomyServer

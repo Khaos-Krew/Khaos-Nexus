@@ -8,6 +8,7 @@ const { verifyIdentityProof } = require('../sentinel/nexus-economy-identity-proo
 const { assertO9EligibilityForVerifiedMint } = require('../sentinel/nexus-economy-o9-eligibility.cjs');
 const { PostgresEconomyAccrual } = require('./postgres-accrual.cjs');
 const { PostgresMcPoints } = require('./mc-points-postgres.cjs');
+const { PostgresArkShop } = require('./ark-np-postgres.cjs');
 const { isShadowRecruitEligibleRank } = require('../shared/ranks.cjs');
 const { routeWalletCredit } = require('../sentinel/nexus-economy-community-level-coins.cjs');
 
@@ -38,6 +39,7 @@ async function createPostgresEconomyRuntime({ env = process.env, now } = {}) {
 
   const walletCore = new NexusEconomyWalletCore({ repository, now: now ? () => new Date(now()) : undefined });
   const minecraft = new PostgresMcPoints({ pool, schema, wallet: walletCore, now: nowFn, env });
+  const arkShop = new PostgresArkShop({ pool, schema, now: nowFn, env });
   async function syncRankAndEnsure(discordUserId, rankId) {
     const rank = rankId || 'shadow-recruit';
     const synced = await accrual.syncRank(discordUserId, rank);
@@ -66,6 +68,7 @@ async function createPostgresEconomyRuntime({ env = process.env, now } = {}) {
     },
     recordPresence(input = {}) { return accrual.recordPresence(input); },
     minecraft,
+    arkShop,
     accrueOffline(discordUserId) { return accrual.accrueOffline(discordUserId); },
     syncRank(discordUserId, rankId) { return syncRankAndEnsure(discordUserId, rankId); },
     ensureShadowRecruitWallet(discordUserId, rankId = 'shadow-recruit') {

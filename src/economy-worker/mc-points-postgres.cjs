@@ -7,7 +7,7 @@ const { catalogItem, catalogFingerprint, loadMcShopCatalog, MAX_DAILY_SPEND_NP, 
 const { quarantineDenylist } = require('../sentinel/nexus-economy-wallet-core.cjs');
 const { guildJoinedAtMs } = require('../shared/mc-starter-kit.cjs');
 
-const MC_SCHEMA_VERSION = 1;
+const MC_SCHEMA_VERSION = 2;
 const schemaState = new WeakMap();
 
 function schemaSql(schema = 'public') {
@@ -109,7 +109,16 @@ function schemaSql(schema = 'public') {
     '  component TEXT PRIMARY KEY,',
     '  version INT NOT NULL,',
     '  applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
-    ');'
+    ');',
+    `ALTER TABLE ${s}.nexus_mc_quotes ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'minecraft';`,
+    `ALTER TABLE ${s}.nexus_mc_orders ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'minecraft';`,
+    `ALTER TABLE ${s}.nexus_mc_outbox ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'minecraft';`,
+    `ALTER TABLE ${s}.nexus_mc_refund_audit ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'minecraft';`,
+    `ALTER TABLE ${s}.nexus_mc_refund_audit ADD COLUMN IF NOT EXISTS retain_until TIMESTAMPTZ;`,
+    `ALTER TABLE ${s}.nexus_mc_grants ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'minecraft';`,
+    `ALTER TABLE ${s}.nexus_mc_grants ADD COLUMN IF NOT EXISTS eos_id TEXT;`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS nexus_mc_grants_kind_eos ON ${s}.nexus_mc_grants (kind, eos_id) WHERE eos_id IS NOT NULL;`,
+    `CREATE INDEX IF NOT EXISTS nexus_mc_orders_provider_status_idx ON ${s}.nexus_mc_orders (provider, status, created_at);`
   ].join('\n');
 }
 
@@ -637,7 +646,7 @@ class PostgresMcPoints {
       await client.query('BEGIN');
       const picked = await client.query(
         `SELECT order_id, order_data FROM ${s}.nexus_mc_orders ` +
-        `WHERE status IN ('PAID','PLAYER_OFFLINE') AND (order_data->>'leaseUntil' IS NULL OR (order_data->>'leaseUntil')::timestamptz <= NOW()) ` +
+        `WHERE provider = 'minecraft' AND status IN ('PAID','PLAYER_OFFLINE') AND (order_data->>'leaseUntil' IS NULL OR (order_data->>'leaseUntil')::timestamptz <= NOW()) ` +
         `ORDER BY created_at ASC FOR UPDATE SKIP LOCKED LIMIT 1`
       );
       const row = picked.rows?.[0];
@@ -675,7 +684,7 @@ class PostgresMcPoints {
     const result = await this.pool.query(
       `UPDATE ${s}.nexus_mc_orders SET status = 'SENT_UNCONFIRMED', ` +
       `order_data = jsonb_set(jsonb_set(order_data, '{status}', '"SENT_UNCONFIRMED"'), '{leaseToken}', 'null') ` +
-      `WHERE status = 'DELIVERY_IN_PROGRESS' AND (order_data->>'leaseUntil')::timestamptz <= NOW() RETURNING order_id`
+      `WHERE provider = 'minecraft' AND status = 'DELIVERY_IN_PROGRESS' AND (order_data->>'leaseUntil')::timestamptz <= NOW() RETURNING order_id`
     );
     for (const row of result.rows || []) console.warn(`[Nexus Economy] mc_lease_expired order=${row.order_id} status=SENT_UNCONFIRMED`);
     return (result.rows || []).map((row) => row.order_id);
@@ -944,7 +953,7 @@ class PostgresMcPoints {
 
   async #pending() {
     const result = await this.pool.query(
-      `SELECT order_data FROM ${sqlIdent(this.schema)}.nexus_mc_orders WHERE status IN ('PAID','PLAYER_OFFLINE','DELIVERY_IN_PROGRESS') ORDER BY created_at ASC`
+      `SELECT order_data FROM ${sqlIdent(this.schema)}.nexus_mc_orders WHERE provider = 'minecraft' AND status IN ('PAID','PLAYER_OFFLINE','DELIVERY_IN_PROGRESS') ORDER BY created_at ASC`
     );
     return result.rows.map((row) => row.order_data);
   }
