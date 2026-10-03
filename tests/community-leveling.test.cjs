@@ -334,6 +334,47 @@ test('level-up announcement and wallet credit use Nexus Coins for the crossed le
   assert.equal(fallbackCredits[0].currency, 'NEXUS_COINS');
 });
 
+test('a held member level-up records no Coin credit and sends no hold message', async () => {
+  const logs = [];
+  const logger = {
+    warn(message) { logs.push(['warn', message]); },
+    info(message) { logs.push(['info', message]); },
+    debug(message) { logs.push(['debug', message]); },
+    log(message) { logs.push(['log', message]); }
+  };
+  const sent = [];
+  const result = await applyProgressResult({
+    guild: { members: { fetch: async () => null } },
+    channel: { send: async (body) => { sent.push(body); return body; } },
+    userId: '123456789012345678',
+    result: {
+      leveledUp: true,
+      beforeLevel: 1,
+      afterLevel: 2,
+      coinsAwarded: 10,
+      profile: { level: 2, xp: 100, userId: '123456789012345678' }
+    },
+    settings: { milestoneLevels: [] },
+    economy: {
+      configured: () => true,
+      credit: async () => ({ ok: false, skipped: 'account-hold', reason: 'account-hold', credited: 0, currency: 'NEXUS_COINS' })
+    },
+    announce: true,
+    logger
+  });
+  assert.equal(result.coinsGrant.ok, false);
+  assert.equal(result.coinsGrant.skipped, 'account-hold');
+  assert.equal(result.coinsGrant.coins, 0);
+  assert.equal(result.coinsGrant.credited, 0);
+  assert.equal(logs.some((entry) => entry[0] === 'warn'), false);
+  assert.equal(logs.some((entry) => entry[0] === 'info' || entry[0] === 'debug'), true);
+  assert.equal(result.announced, true);
+  assert.match(sent[0].embeds[0].description, /Community Level 2/);
+  assert.doesNotMatch(sent[0].embeds[0].description, /Nexus Coins/);
+  assert.doesNotMatch(sent[0].embeds[0].description, /on hold/i);
+  assert.doesNotMatch(sent[0].embeds[0].description, /Wallet deposit did not complete/);
+});
+
 test('Sentinal entry installs community leveling after Guild Messages intents', () => {
   const entry = fs.readFileSync(path.resolve(__dirname, '../src/sentinel/entry.cjs'), 'utf8');
   assert.match(entry, /installCommunityIntentsExtension\(\)/);

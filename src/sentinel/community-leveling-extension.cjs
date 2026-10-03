@@ -161,6 +161,12 @@ async function grantLevelUpCoins(economy, userId, result = {}, logger = console)
         coins
       }
     });
+    if (credit?.skipped === 'account-hold') {
+      const line = `[Nexus Sentinal] community level-up Coins skipped for ${userId}: account-hold. Level increased to ${afterLevel}.`;
+      if (typeof logger?.info === 'function') logger.info(line);
+      else logger?.debug?.(line);
+      return { ok: false, skipped: 'account-hold', coins: 0, currency: 'NEXUS_COINS', credited: 0 };
+    }
     if (!credit || credit.ok === false) {
       const reason = credit?.skipped || credit?.reason || credit?.error || 'coins-grant-failed';
       logger.warn?.(`[Nexus Sentinal] community level-up Coins skipped for ${userId}: ${reason}. Level increased to ${afterLevel}.`);
@@ -216,7 +222,10 @@ async function applyProgressResult({ client, guild, channel, userId, result, set
 
   let announced = false;
   if (announce && result.leveledUp && channel?.send) {
-    await channel.send(levelUpPayload(userId, { ...result, coinsGrant }));
+    const announcedResult = coinsGrant?.skipped === 'account-hold'
+      ? { ...result, coinsAwarded: 0, coinsGrant }
+      : { ...result, coinsGrant };
+    await channel.send(levelUpPayload(userId, announcedResult));
     announced = true;
   }
 
