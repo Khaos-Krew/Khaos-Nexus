@@ -14,7 +14,7 @@ const {
 const { BANNERS, PANEL_BOTS, attachBanner, bannerFor, bannerBotForPanel } = require('../src/game-bots/brand-banners.cjs');
 const { refreshDurablePins } = require('../src/game-bots/stage-commands.cjs');
 const { OWNER_CATEGORY_IDS } = require('../src/game-bots/category-gate.cjs');
-const { PANELS, refreshWarframePanels, retireNewsPanel, singleFlight } = require('../src/game-bots/cephalon-warframe-panels.cjs');
+const { PANELS, panelFooter, refreshWarframePanels, retireNewsPanel, singleFlight } = require('../src/game-bots/cephalon-warframe-panels.cjs');
 const {
   FEEDS,
   WARFRAME_FEED,
@@ -404,7 +404,7 @@ test('each durable panel embed carries only that bot banner', async () => {
     });
     const result = await upsertEmbed(clientFor(channelFrom([existing], sent)), CHANNEL_ID, existing.id, {
       embeds: [{ title, description: 'refresh' }]
-    }, { panel, botId: BOT_ID });
+    }, { panel, botId: BOT_ID, banner: bot === 'cephalon' ? true : undefined });
     assert.equal(result.edited, true);
     assert.equal(result.created, false);
     assert.equal(sent.length, 0);
@@ -425,7 +425,7 @@ test('an existing panel edit adds the banner attachment instead of posting again
   });
   const result = await upsertEmbed(clientFor(channelFrom([existing], sent)), CHANNEL_ID, existing.id, {
     embeds: [{ title: 'Fissure Relay Board', description: 'after' }]
-  }, { panel: 'fissures', botId: BOT_ID });
+  }, { panel: 'fissures', botId: BOT_ID, banner: true });
   assert.equal(result.messageId, existing.id);
   assert.equal(sent.length, 0);
   assert.equal(edited.length, 1);
@@ -487,7 +487,7 @@ test('restart edits saved welcome and event pins with that bot banner', async ()
   assert.equal(edited[0].embeds[0].title, 'Welcome to Cephalon Nexus');
   assert.equal(edited[1].embeds[0].title, 'Baro');
   assertBotBanner(edited[0], 'cephalon');
-  assertBotBanner(edited[1], 'cephalon');
+  assert.equal(edited[1].embeds[0].image, undefined);
 
   const ascendedEdited = [];
   const ascendedSent = [];
@@ -563,11 +563,15 @@ test('ephemeral nightwave, cycles, and cluster replies use that bot banner', asy
     clusterCache: { load: async () => ({ servers: [], stale: false, fetchedAt: '2026-09-24T00:00:00.000Z' }) }
   });
   assert.equal(replies.length, 3);
-  assert.equal(replies[0].embeds[0].title, 'Nightwave Challenge Desk');
-  assert.equal(replies[1].embeds[0].title, 'Open-World Cycle Watch');
+  assert.equal(replies[0].embeds[0].title, '🌙 Nightwave');
+  assert.equal(replies[1].embeds[0].title, '🌍 Cycles');
   assert.equal(replies[2].embeds[0].title, 'Nexus Cluster');
-  assertBotBanner(replies[0], 'cephalon');
-  assertBotBanner(replies[1], 'cephalon');
+  assert.equal(replies[0].embeds[0].image, undefined);
+  assert.equal(replies[0].embeds[0].thumbnail.url, 'attachment://icon-cephalon.png');
+  assert.equal(replies[1].embeds[0].image, undefined);
+  assert.equal(replies[1].embeds[0].thumbnail.url, 'attachment://icon-cephalon.png');
+  assert.equal(replies[0].files.some((file) => String(file.name).includes('banner')), false);
+  assert.equal(replies[1].files.some((file) => String(file.name).includes('banner')), false);
   assertBotBanner(replies[2], 'ascended');
 });
 
@@ -596,7 +600,9 @@ test('nightwave button updates keep the Cephalon banner on the same reply', asyn
   });
   assert.equal(updated.length, 1);
   assert.equal(updated[0].flags, undefined);
-  assertBotBanner(updated[0], 'cephalon');
+  assert.equal(updated[0].embeds[0].image, undefined);
+  assert.equal(updated[0].embeds[0].thumbnail.url, 'attachment://icon-cephalon.png');
+  assert.equal(updated[0].files.some((file) => String(file.name).includes('banner')), false);
 });
 
 test('fissure slash reply stays text-only while the board edit gets the banner', async () => {
@@ -621,7 +627,8 @@ test('fissure slash reply stays text-only while the board edit gets the banner',
     fissureCache: { get: async () => ({ value: [] }) }
   });
   assert.equal(replies[0].embeds[0].image, undefined);
-  assert.equal(replies[0].files, undefined);
+  assert.equal(replies[0].embeds[0].thumbnail.url, 'attachment://icon-cephalon.png');
+  assert.equal(replies[0].files.some((file) => String(file.name).includes('banner')), false);
   assert.equal(sent.length, 0);
   assertBotBanner(edited[0], 'cephalon');
 });
@@ -645,7 +652,7 @@ test('discord.js edit payload uploads the banner and drops the previous attachme
 
 test('brand banner files exist inside the paths the game-bot images copy', () => {
   const root = path.join(__dirname, '..');
-  for (const bot of ['cephalon', 'ascended', 'sanctuary']) {
+  for (const bot of ['ascended', 'sanctuary']) {
     const banner = bannerFor(bot);
     const relative = path.relative(root, banner.path).split(path.sep).join('/');
     const bytes = fs.readFileSync(banner.path);
@@ -926,20 +933,24 @@ test('Cephalon edits Warframe panels in place and stays inside its category', as
     assert.equal(foreignEdits.length, 0);
     const packed = JSON.stringify(sent);
     assert.doesNotMatch(packed, /Cephalon • Warframe News/);
-    assert.match(packed, /Cephalon • Baro Ki'Teer/);
+    assert.match(packed, /💎 Baro Ki'Teer/);
     assert.match(packed, /Prisma Gorgon/);
-    assert.match(packed, /Cephalon • Circuit/);
-    assert.match(packed, /Cephalon • Descendia/);
+    assert.match(packed, /🌀 Circuit/);
+    assert.match(packed, /🕳️ Descendia/);
     assert.match(packed, /Fiery Trail Rollers/);
     assert.match(packed, /Many Worlds One Nexus/);
+    assert.doesNotMatch(packed, /Many Worlds — One Nexus/);
     assert.match(packed, /joy/);
     assert.match(packed, /Excalibur/);
     assert.match(packed, /Umbra Forma Blueprint/);
     assertBotBanner(sent[0], 'cephalon');
+    assert.equal(sent.filter((body) => String(body.embeds?.[0]?.image?.url || '').includes('cephalon-panel-banner.png')).length, 1);
     const titles = sent.map((body) => body.embeds[0].title);
     assert.equal(new Set(titles).size, titles.length);
     for (const panel of PANELS) {
-      assert.equal(panelMatcher(PANEL_IDENTITIES[panel.panel])({ embeds: [sent.find((body) => body.embeds[0].footer.text.startsWith(`Cephalon Nexus • warframe:${panel.id}`)).embeds[0]] }), true);
+      const body = sent.find((item) => item.embeds[0].footer.text === panelFooter(panel.id));
+      assert.ok(body, panel.id);
+      assert.equal(panelMatcher(PANEL_IDENTITIES[panel.panel])({ embeds: [body.embeds[0]] }), true);
     }
     const saved = JSON.parse(fs.readFileSync(path.join(dir, 'cephalon-warframe-panels.json'), 'utf8'));
     assert.equal(Object.keys(saved.panels).length, PANELS.length);

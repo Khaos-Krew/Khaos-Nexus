@@ -96,6 +96,7 @@ function summarizeSortie(data) {
   if (!data || typeof data !== 'object') return data;
   return {
     boss: cleanText(data.boss || ''), faction: cleanText(data.faction || ''), eta: cleanText(data.eta || etaFromExpiry(data.expiry) || ''),
+    expiry: cleanText(data.expiry || ''),
     variants: takeArray(data.variants, 6).map((variant) => ({
       node: cleanText(variant?.node || ''), mission: cleanText(variant?.missionType || ''),
       modifier: cleanText(variant?.modifier || variant?.modifierDescription || '')
@@ -124,7 +125,7 @@ function summarizeArbitration(data) {
   if (!data || typeof data !== 'object') return data;
   return {
     node: cleanText(data.node || ''), enemy: cleanText(data.enemy || ''), mission: cleanText(data.type || data.missionType || ''),
-    eta: cleanText(data.eta || etaFromExpiry(data.expiry) || ''), expired: Boolean(data.expired)
+    eta: cleanText(data.eta || etaFromExpiry(data.expiry) || ''), expiry: cleanText(data.expiry || ''), expired: Boolean(data.expired)
   };
 }
 
@@ -133,7 +134,7 @@ function summarizeNightwave(data) {
   return {
     season: Number.isFinite(Number(data.season)) ? Number(data.season) : null,
     phase: Number.isFinite(Number(data.phase)) ? Number(data.phase) : null,
-    tag: cleanText(data.tag || ''), eta: cleanText(data.eta || etaFromExpiry(data.expiry) || ''),
+    tag: cleanText(data.tag || ''), eta: cleanText(data.eta || etaFromExpiry(data.expiry) || ''), expiry: cleanText(data.expiry || ''),
     challenges: takeArray(data.activeChallenges || data.challenges, 20).map((challenge) => ({
       title: cleanText(challenge?.title || ''), description: cleanText(challenge?.desc || challenge?.description || '', 320),
       reputation: Number(challenge?.reputation || 0), daily: Boolean(challenge?.isDaily || challenge?.daily),
@@ -152,7 +153,7 @@ function summarizeNews(data) {
 function summarizeEvents(data) {
   return takeArray(data, 15).filter((item) => !item?.expired).map((item) => ({
     description: cleanText(item?.description || item?.name || item?.tooltip || ''), node: cleanText(item?.node || ''),
-    eta: cleanText(item?.eta || etaFromExpiry(item?.expiry) || ''), scoreLocTag: cleanText(item?.scoreLocTag || ''), health: Number(item?.health || 0) || null
+    eta: cleanText(item?.eta || etaFromExpiry(item?.expiry) || ''), expiry: cleanText(item?.expiry || ''), scoreLocTag: cleanText(item?.scoreLocTag || ''), health: Number(item?.health || 0) || null
   }));
 }
 
@@ -179,6 +180,7 @@ function summarizeSteelPath(data) {
   return {
     currentReward: cleanText(data.currentReward?.name || data.currentReward || ''),
     remaining: cleanText(data.remaining || data.eta || etaFromExpiry(data.expiry) || ''),
+    expiry: cleanText(data.expiry || ''),
     rotation: takeArray(data.rotation, 8).map((item) => ({ name: cleanText(item?.name || item), cost: Number(item?.cost || 0) || null }))
   };
 }

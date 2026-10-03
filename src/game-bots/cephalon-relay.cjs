@@ -6,7 +6,7 @@ const { ActionRowBuilder, Events, MessageFlags, ModalBuilder, TextInputBuilder, 
 const { isStaff } = require('./ops-spine.cjs');
 const { TtlCache } = require('./ttl-cache.cjs');
 const { readJson, runtimeDataDir, snowflake, upsertEmbed, writeJson } = require('./panel-message.cjs');
-const { attachBanner } = require('./brand-banners.cjs');
+const { attachBrandFiles, botAvatarUrl, brandEmbed, keepExistingAttachments } = require('../shared/embed-style.cjs');
 const { errorClass } = require('./command-failure.cjs');
 
 const FISSURE_TIERS = Object.freeze(['Lith', 'Meso', 'Neo', 'Axi', 'Requiem', 'Omnia']);
@@ -17,6 +17,43 @@ const CYCLE_DEFS = Object.freeze([
   { key: 'earth', path: 'earthCycle', label: 'Earth' }
 ]);
 const WFCD_FOOTER = 'WFCD WarframeStat • api.warframestat.us • cached at least 60s';
+const DATA_CREDIT = '-# Data: WarframeStat';
+const CLAN_STATUS = Object.freeze({
+  pending: '🟡 Pending',
+  approved: '🟢 Approved',
+  rejected: '🔴 Declined'
+});
+
+function discordStamp(value) {
+  const ms = Date.parse(value || '');
+  if (!Number.isFinite(ms)) return '';
+  return `<t:${Math.floor(ms / 1000)}:R>`;
+}
+
+function withCredit(lines) {
+  return [...(Array.isArray(lines) ? lines : [lines]).filter((line) => line != null && String(line).length), DATA_CREDIT].join('\n');
+}
+
+function cappedLines(lines, max = 5) {
+  const clean = lines.filter(Boolean);
+  if (!clean.length) return '';
+  if (clean.length <= max) return clean.join('\n');
+  const room = Math.max(1, max - 1);
+  return [...clean.slice(0, room), `+${clean.length - room} more`].join('\n');
+}
+
+function cephalonEmbed(spec, options = {}) {
+  const banner = options.banner === 'auto';
+  return brandEmbed('cephalon', {
+    title: spec.title,
+    description: spec.description,
+    fields: spec.fields,
+    footerKey: spec.footerKey,
+    banner: banner ? 'auto' : 'none',
+    thumbnail: banner ? 'none' : 'icon',
+    avatarUrl: options.avatarUrl || ''
+  }).embed;
+}
 
 function clean(value, max = 80) {
   return String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -42,7 +79,8 @@ function normalizeFissures(data) {
       tier: clean(item.tier || 'Other', 24) || 'Other',
       node: clean(item.node || 'Unknown node', 60),
       mission: clean(item.missionType || item.mission || '', 40),
-      eta: clean(item.eta || item.expiry || '', 40),
+      eta: clean(item.eta || '', 40),
+      expiry: clean(item.expiry || '', 40),
       storm: Boolean(item.isStorm || item.storm),
       hard: Boolean(item.isHard || item.hard)
     }));
@@ -52,9 +90,11 @@ function groupFissures(rows) {
   const groups = new Map();
   for (const row of normalizeFissures(rows)) {
     const list = groups.get(row.tier) || [];
-    const flags = [row.hard ? 'SP' : '', row.storm ? 'Storm' : ''].filter(Boolean).join(' ');
-    const detail = [row.node, row.mission, row.eta ? `ends ${row.eta}` : ''].filter(Boolean).join(' · ');
-    list.push(flags ? `${detail} · ${flags}` : detail);
+    const when = discordStamp(row.expiry) || row.eta;
+    const mission = row.mission ? ` (${row.mission})` : '';
+    const flags = [row.hard ? '⚡ Steel Path' : '', row.storm ? '🌪️ Storm' : ''].filter(Boolean).join(' ');
+    const detail = `${row.node}${mission}${when ? ` ends ${when}` : ''}`.trim();
+    list.push(flags ? `${detail} ${flags}` : detail);
     groups.set(row.tier, list);
   }
   const ordered = [];
@@ -67,18 +107,42 @@ function groupFissures(rows) {
   return ordered;
 }
 
-function fissureEmbed(rows) {
+function fissureFields(groups) {
+  const fields = [];
+  for (const group of groups) {
+    if (fields.length >= 6) break;
+    const normal = [];
+    const steel = [];
+    const storm = [];
+    for (const line of group.lines) {
+      if (line.includes('🌪️')) storm.push(line);
+      else if (line.includes('⚡')) steel.push(line);
+      else normal.push(line);
+    }
+    const chunks = group.lines.length <= 5
+      ? [{ name: group.tier, lines: group.lines }]
+      : [
+        normal.length ? { name: group.tier, lines: normal } : null,
+        steel.length ? { name: `${group.tier} ⚡`, lines: steel } : null,
+        storm.length ? { name: `${group.tier} 🌪️`, lines: storm } : null
+      ].filter(Boolean);
+    for (const chunk of chunks) {
+      if (fields.length >= 6) break;
+      fields.push({ name: chunk.name.slice(0, 256), value: cappedLines(chunk.lines) || 'None' });
+    }
+  }
+  return fields;
+}
+
+function fissureEmbed(rows, options = {}) {
   const groups = groupFissures(rows);
-  const fields = groups.slice(0, 12).map((group) => ({
-    name: group.tier.slice(0, 256),
-    value: group.lines.join('\n').slice(0, 1024) || 'None'
-  }));
-  return {
-    title: 'Fissure Relay Board',
-    description: groups.length ? `${groups.reduce((sum, group) => sum + group.lines.length, 0)} open fissures.` : 'No open fissures right now.',
-    fields,
-    footer: { text: WFCD_FOOTER }
-  };
+  const count = groups.reduce((sum, group) => sum + group.lines.length, 0);
+  return cephalonEmbed({
+    title: '🔶 Fissures',
+    description: withCredit([count ? `${count} open fissures.` : 'No open fissures right now.']),
+    fields: fissureFields(groups),
+    footerKey: 'fissures'
+  }, options);
 }
 
 function challengeKey(challenge) {
@@ -135,18 +199,32 @@ class NightwaveDesk {
   }
 }
 
-function nightwaveEmbed(board, desk, userId) {
-  const lines = board.challenges.map((challenge) => {
-    const mark = desk.isDone(userId, board.season, challenge.key) ? '✅' : '▫️';
-    const meta = [challenge.daily ? 'daily' : '', challenge.elite ? 'elite' : '', challenge.reputation ? `${challenge.reputation} standing` : '', challenge.eta].filter(Boolean).join(' · ');
-    return `${mark} **${challenge.title}**${meta ? `\n${meta}` : ''}`;
-  });
-  const heading = [`Season ${board.season || 'unknown'}`, board.phase != null ? `phase ${board.phase}` : '', board.eta ? `ends ${board.eta}` : ''].filter(Boolean).join(' · ');
-  return {
-    title: 'Nightwave Challenge Desk',
-    description: [heading, '', lines.join('\n\n') || 'No active challenges.'].join('\n').slice(0, 4000),
-    footer: { text: `${WFCD_FOOTER} • checklist is local Discord state` }
-  };
+function nightwaveLine(challenge, done) {
+  const mark = done ? '✅' : '▫️';
+  const standing = challenge.reputation ? ` **${challenge.reputation}** standing` : '';
+  return `${mark} **${challenge.title || 'Challenge'}**${standing}`;
+}
+
+function nightwaveEmbed(board, desk, userId, options = {}) {
+  const buckets = { daily: [], weekly: [], elite: [] };
+  for (const challenge of board?.challenges || []) {
+    const line = nightwaveLine(challenge, Boolean(desk?.isDone?.(userId, board.season, challenge.key)));
+    if (challenge.elite) buckets.elite.push(line);
+    else if (challenge.daily) buckets.daily.push(line);
+    else buckets.weekly.push(line);
+  }
+  const when = discordStamp(board?.expiry) || clean(board?.eta, 40);
+  const heading = [`Season ${board?.season || 'unknown'}`, board?.phase != null ? `phase ${board.phase}` : ''].filter(Boolean).join(' · ');
+  return cephalonEmbed({
+    title: '🌙 Nightwave',
+    description: withCredit([heading || 'Your Nightwave checklist.', when ? `⏳ Ends ${when}` : 'Your checklist stays on this server.']),
+    fields: [
+      { name: '📅 Daily', value: cappedLines(buckets.daily) || 'Nothing right now.' },
+      { name: '🗓️ Weekly', value: cappedLines(buckets.weekly) || 'Nothing right now.' },
+      { name: '👑 Elite', value: cappedLines(buckets.elite) || 'Nothing right now.' }
+    ],
+    footerKey: 'nightwave'
+  }, options);
 }
 
 function nightwaveComponents(board, desk, userId) {
@@ -176,17 +254,21 @@ function normalizeCycle(key, label, data) {
   };
 }
 
-function cycleEmbed(cycles, roles = {}) {
-  const lines = cycles.map((cycle) => {
-    const left = cycle.timeLeft ? ` · ${cycle.timeLeft}` : '';
-    const ping = roles[cycle.key] ? ' · ping role available' : '';
-    return `**${cycle.label}:** ${cycle.state}${left}${ping}`;
+function cycleEmbed(cycles, roles = {}, options = {}) {
+  const rows = Array.isArray(cycles) ? cycles : [];
+  const fields = rows.slice(0, 6).map((cycle) => {
+    const when = discordStamp(cycle.expiry) || cycle.timeLeft;
+    return {
+      name: cycle.label || 'Cycle',
+      value: [cycle.state || 'unknown', when ? `⏳ ${when}` : '', roles[cycle.key] ? 'Ping role available' : ''].filter(Boolean).join('\n')
+    };
   });
-  return {
-    title: 'Open-World Cycle Watch',
-    description: lines.join('\n').slice(0, 4000) || 'Cycles are unavailable.',
-    footer: { text: WFCD_FOOTER }
-  };
+  return cephalonEmbed({
+    title: '🌍 Cycles',
+    description: withCredit([rows.length ? 'Open-world timers.' : 'Cycles are unavailable.']),
+    fields,
+    footerKey: 'cycles'
+  }, options);
 }
 
 function parseCycleRoles(env = process.env) {
@@ -259,7 +341,18 @@ function deskFor(context, env) {
 }
 
 function ephemeralEmbed(embed, extra = {}) {
-  return { embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] }, ...extra };
+  return attachBrandFiles({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] }, ...extra });
+}
+
+function fissureUsesBanner(env, channelId) {
+  const id = String(channelId || '');
+  const welcome = snowflake(env?.CEPHALON_WELCOME_CHANNEL_ID);
+  const event = snowflake(env?.CEPHALON_EVENT_CHANNEL_ID);
+  const shared = snowflake(env?.CEPHALON_WARFRAME_WORLD_CHANNEL_ID);
+  if (welcome && welcome === id) return false;
+  if (event && event === id && event !== welcome) return false;
+  if (shared && shared === id) return false;
+  return true;
 }
 
 async function refreshFissurePanel(context, env, embed) {
@@ -283,9 +376,12 @@ async function handleFissureCommand(interaction, context) {
   const env = context.env || process.env;
   const cache = fissureCacheFor(context, env);
   const loaded = await cache.get();
-  const embed = fissureEmbed(loaded.value);
-  await interaction.reply(ephemeralEmbed(embed));
-  await refreshFissurePanel({ ...context, client: context.client || interaction.client }, env, embed).catch((error) => {
+  const client = context.client || interaction.client;
+  const avatarUrl = botAvatarUrl(client);
+  const channelId = String(env.CEPHALON_FISSURE_CHANNEL_ID || '').trim();
+  await interaction.reply(ephemeralEmbed(fissureEmbed(loaded.value, { avatarUrl })));
+  const panel = fissureEmbed(loaded.value, { banner: fissureUsesBanner(env, channelId) ? 'auto' : 'none', avatarUrl });
+  await refreshFissurePanel({ ...context, client }, env, panel).catch((error) => {
     console.warn(`[Cephalon Nexus] fissure panel class=${errorClass(error)}`);
   });
   return true;
@@ -296,9 +392,9 @@ async function handleNightwaveCommand(interaction, context) {
   const loaded = await nightwaveCacheFor(context, env).get();
   const desk = deskFor(context, env);
   const userId = interaction.user?.id;
-  const embed = nightwaveEmbed(loaded.value, desk, userId);
+  const embed = nightwaveEmbed(loaded.value, desk, userId, { avatarUrl: botAvatarUrl(context.client || interaction.client) });
   const components = nightwaveComponents(loaded.value, desk, userId);
-  await interaction.reply(attachBanner('cephalon', ephemeralEmbed(embed, { components })));
+  await interaction.reply(ephemeralEmbed(embed, { components }));
   return true;
 }
 
@@ -306,7 +402,7 @@ async function handleCycleCommand(interaction, context) {
   const env = context.env || process.env;
   const loaded = await cycleCacheFor(context, env).get();
   const roles = context.cycleRoles || parseCycleRoles(env);
-  await interaction.reply(attachBanner('cephalon', ephemeralEmbed(cycleEmbed(loaded.value, roles), { components: cycleComponents(roles) })));
+  await interaction.reply(ephemeralEmbed(cycleEmbed(loaded.value, roles, { avatarUrl: botAvatarUrl(context.client || interaction.client) }), { components: cycleComponents(roles) }));
   return true;
 }
 
@@ -339,9 +435,9 @@ async function handleNightwaveButton(interaction, context) {
   }
   const desk = deskFor(context, env);
   desk.toggle(interaction.user?.id, board.season, match[2]);
-  const embed = nightwaveEmbed(board, desk, interaction.user?.id);
+  const embed = nightwaveEmbed(board, desk, interaction.user?.id, { avatarUrl: botAvatarUrl(context.client || interaction.client) });
   const components = nightwaveComponents(board, desk, interaction.user?.id);
-  const next = attachBanner('cephalon', ephemeralEmbed(embed, { components }));
+  const next = ephemeralEmbed(embed, { components });
   if (typeof interaction.update === 'function') {
     const { flags, ...update } = next;
     await interaction.update(update);
@@ -578,27 +674,33 @@ function isClanOfficer(interaction, officerRoleId) {
   return false;
 }
 
-function clanApplicationEmbed(userId, application, status = 'pending') {
-  const titles = {
-    pending: 'Warframe clan application',
-    approved: 'Warframe clan application — Approved',
-    rejected: 'Warframe clan application — Rejected'
-  };
-  const colors = { pending: 0x5865F2, approved: 0x57F287, rejected: 0xED4245 };
-  return {
-    title: titles[status] || titles.pending,
-    description: `<@${userId}>`,
-    color: colors[status] || colors.pending,
+function clanFooterKey(status, userId) {
+  return `clan ${status}:${userId}`;
+}
+
+function parseClanMarker(footer) {
+  const text = String(footer || '').trim();
+  const legacy = /^cephalon:clan:(pending|approved|rejected):(\d{17,20})$/.exec(text);
+  if (legacy) return { state: legacy[1], userId: legacy[2] };
+  const branded = /(?:^|• )clan (pending|approved|rejected):(\d{17,20})$/.exec(text);
+  if (branded) return { state: branded[1], userId: branded[2] };
+  return null;
+}
+
+function clanApplicationEmbed(userId, application, status = 'pending', options = {}) {
+  return cephalonEmbed({
+    title: '🛡️ Clan application',
+    description: [`<@${userId}>`, `Prior clan: ${application.prior || 'None listed'}`].join('\n'),
     fields: [
+      { name: 'Status', value: CLAN_STATUS[status] || CLAN_STATUS.pending },
       { name: 'Alias', value: application.alias || '—', inline: true },
       { name: 'Platform', value: application.platform || '—', inline: true },
       { name: 'MR', value: application.mr || '—', inline: true },
-      { name: 'Availability', value: application.availability || '—', inline: false },
-      { name: 'Prior clan', value: application.prior || 'None listed', inline: false },
-      { name: 'Why join', value: application.why || '—', inline: false }
+      { name: 'Availability', value: application.availability || '—' },
+      { name: 'Why join', value: application.why || '—' }
     ],
-    footer: { text: `cephalon:clan:${status}:${userId}` }
-  };
+    footerKey: clanFooterKey(status, userId)
+  }, options);
 }
 
 function decisionComponents(applicantId, disabled = false) {
@@ -611,46 +713,60 @@ function decisionComponents(applicantId, disabled = false) {
   }];
 }
 
-function clanPanelPayload() {
-  return {
-    embeds: [{
-      title: 'Warframe clan applications',
-      description: 'Press **Apply** to open the form. Officers use Approve or Reject on each application. Approve adds the Warframe Clan Member role.',
-      footer: { text: 'Cephalon Nexus • clan applications' }
-    }],
+function clanPanelPayload(options = {}) {
+  const embed = cephalonEmbed({
+    title: '🛡️ Clan applications',
+    description: 'Press **Apply** to open the form. Officers use Approve or Reject on each application. Approve adds the Warframe Clan Member role.',
+    fields: [],
+    footerKey: 'clan panel'
+  }, { banner: 'auto', avatarUrl: options.avatarUrl || '' });
+  return attachBrandFiles({
+    embeds: [embed],
     components: [{
       type: 1,
       components: [{ type: 2, style: 1, label: 'Apply', custom_id: 'cephalon:clan:apply' }]
     }]
-  };
+  });
 }
 
 function applicationStatus(message) {
   const embed = message?.embeds?.[0];
   const footer = String(embed?.footer?.text || embed?.data?.footer?.text || '');
-  const match = /^cephalon:clan:(pending|approved|rejected):(\d{17,20})$/.exec(footer);
-  return match ? { status: match[1], userId: match[2] } : { status: '', userId: '' };
+  const parsed = parseClanMarker(footer);
+  return parsed ? { status: parsed.state, userId: parsed.userId } : { status: '', userId: '' };
 }
 
-function decidedEmbed(message, status, userId) {
+function decidedEmbed(message, status, userId, options = {}) {
   const embed = message?.embeds?.[0]?.toJSON?.() || message?.embeds?.[0]?.data || message?.embeds?.[0] || {};
-  const titles = {
-    approved: 'Warframe clan application — Approved',
-    rejected: 'Warframe clan application — Rejected'
-  };
-  const colors = { approved: 0x57F287, rejected: 0xED4245 };
-  const fields = (Array.isArray(embed.fields) ? embed.fields : []).map((field) => ({
-    name: String(field.name || 'Field').slice(0, 256),
-    value: String(field.value || '—').slice(0, 1024),
-    inline: Boolean(field.inline)
-  }));
-  return {
-    title: titles[status] || titles.approved,
-    description: embed.description || `<@${userId}>`,
-    color: colors[status] || colors.approved,
-    fields,
-    footer: { text: `cephalon:clan:${status}:${userId}` }
-  };
+  const existing = (Array.isArray(embed.fields) ? embed.fields : []).filter((field) => String(field?.name || '') !== 'Status');
+  const order = ['Alias', 'Platform', 'MR', 'Availability', 'Why join'];
+  const picked = [];
+  for (const name of order) {
+    const field = existing.find((item) => String(item?.name || '') === name);
+    if (!field) continue;
+    picked.push({
+      name,
+      value: String(field.value || '—').slice(0, 1024),
+      inline: name === 'Alias' || name === 'Platform' || name === 'MR'
+    });
+  }
+  for (const field of existing) {
+    if (picked.length >= 5) break;
+    if (order.includes(String(field?.name || '')) || String(field?.name || '') === 'Prior clan') continue;
+    picked.push({
+      name: String(field.name || 'Field').slice(0, 256),
+      value: String(field.value || '—').slice(0, 1024),
+      inline: Boolean(field.inline)
+    });
+  }
+  const prior = existing.find((field) => String(field?.name || '') === 'Prior clan');
+  const description = [embed.description || `<@${userId}>`, prior ? `Prior clan: ${String(prior.value || 'None listed')}` : ''].filter(Boolean).join('\n');
+  return cephalonEmbed({
+    title: '🛡️ Clan application',
+    description,
+    fields: [{ name: 'Status', value: CLAN_STATUS[status] || CLAN_STATUS.pending }, ...picked].slice(0, 6),
+    footerKey: clanFooterKey(status, userId)
+  }, options);
 }
 
 function clanPanelFile(context, env) {
@@ -662,7 +778,7 @@ async function refreshClanPanel(context, env = context.env || process.env) {
   if (!channelId) return { pinned: false, reason: 'unset' };
   const file = clanPanelFile(context, env);
   const saved = readJson(file, { messageId: '' });
-  const result = await upsertEmbed(context.client, channelId, saved.messageId, clanPanelPayload(), {
+  const result = await upsertEmbed(context.client, channelId, saved.messageId, clanPanelPayload({ avatarUrl: botAvatarUrl(context.client) }), {
     panel: 'clanApplications',
     botId: context.client?.user?.id
   });
@@ -755,11 +871,11 @@ async function decideClanApplication(interaction, context, parsed) {
     }
   }
   const status = parsed.action === 'approve' ? 'approved' : 'rejected';
-  const payload = {
-    embeds: [decidedEmbed(interaction.message, status, parsed.userId)],
+  const payload = keepExistingAttachments(interaction.message, attachBrandFiles({
+    embeds: [decidedEmbed(interaction.message, status, parsed.userId, { avatarUrl: botAvatarUrl(context.client || interaction.client) })],
     components: decisionComponents(parsed.userId, true),
     allowedMentions: { parse: [] }
-  };
+  }));
   const note = status === 'approved'
     ? 'Approved. Warframe Clan Member role added.'
     : 'Rejected. No role was added.';
@@ -794,12 +910,12 @@ async function handleClanModal(interaction, context) {
   try {
     const channel = await client.channels.fetch(channelId);
     if (!channel || typeof channel.send !== 'function') throw new Error('channel-missing');
-    const sent = await channel.send({
+    const sent = await channel.send(attachBrandFiles({
       content: officerRoleId ? `<@&${officerRoleId}>` : '',
-      embeds: [clanApplicationEmbed(userId, form.application, 'pending')],
+      embeds: [clanApplicationEmbed(userId, form.application, 'pending', { avatarUrl: botAvatarUrl(client) })],
       components: decisionComponents(userId, false),
       allowedMentions: { parse: [], roles: officerRoleId ? [officerRoleId] : [] }
-    });
+    }));
     console.log(`[Cephalon Nexus] clan application user=${userId} message=${sent?.id || ''}`);
   } catch (error) {
     console.warn(`[Cephalon Nexus] clan application class=${errorClass(error)}`);
@@ -834,17 +950,17 @@ function profileCard(data, queried = '') {
   return { displayName: displayName || clean(queried, 32), mastery, guildName, guildId };
 }
 
-function profileEmbed(card) {
+function profileEmbed(card, options = {}) {
   const fields = [{ name: 'Mastery', value: card.mastery ? `MR ${card.mastery}` : 'Not listed', inline: true }];
   if (card.guildName) fields.push({ name: 'Clan', value: card.guildName, inline: true });
   if (card.guildId) fields.push({ name: 'Clan id', value: card.guildId, inline: true });
   if (!card.guildName && !card.guildId) fields.push({ name: 'Clan', value: 'Not listed', inline: true });
-  return {
+  return cephalonEmbed({
     title: card.displayName || 'Warframe profile',
-    description: 'Public Warframe profile. No Digital Extremes login.',
+    description: withCredit(['Public Warframe profile. No Digital Extremes login.']),
     fields,
-    footer: { text: WFCD_FOOTER }
-  };
+    footerKey: 'profile'
+  }, options);
 }
 
 function profileFailure(error) {
@@ -873,7 +989,7 @@ async function handleProfileCommand(interaction, context) {
       await interaction.reply(ephemeralText(`No public profile for **${username}**. Check the spelling. This lookup does not use a Digital Extremes login.`));
       return true;
     }
-    await interaction.reply(ephemeralEmbed(profileEmbed(card)));
+    await interaction.reply(ephemeralEmbed(profileEmbed(card, { avatarUrl: botAvatarUrl(context.client || interaction.client) })));
   } catch (error) {
     if (profileFailure(error) === 'missing') {
       await interaction.reply(ephemeralText(`No public profile for **${username}**. Check the spelling. This lookup does not use a Digital Extremes login.`));
@@ -947,12 +1063,49 @@ function circuitLines(partial = {}) {
   return lines;
 }
 
-function circuitEmbed(partial) {
-  return {
-    title: 'Circuit digest',
-    description: circuitLines(partial).join('\n').slice(0, 4000),
-    footer: { text: WFCD_FOOTER }
-  };
+function circuitFields(partial = {}) {
+  const missing = new Set(partial.missing || []);
+  const duviri = missing.has('duviri') ? null : normalizeDuviri(partial.duviri);
+  const duviriLines = [];
+  if (!duviri) duviriLines.push('Unavailable');
+  else {
+    const when = discordStamp(duviri.expiry) || duviri.timeLeft;
+    duviriLines.push(when ? `${duviri.state} · ⏳ ${when}` : duviri.state);
+    for (const group of duviri.choices) duviriLines.push(`${group.category}: ${group.choices.join(', ')}`);
+  }
+  const steel = missing.has('steelPath') ? null : normalizeSteelReward(partial.steelPath);
+  const steelLines = [];
+  if (!steel) steelLines.push('Unavailable');
+  else if (!steel.reward) steelLines.push(`No reward listed${steel.remaining ? ` · ${steel.remaining}` : ''}`);
+  else steelLines.push(steel.remaining ? `${steel.reward} · ⏳ ${steel.remaining}` : steel.reward);
+  const archimedea = missing.has('archimedea') ? [] : normalizeArchimedea(partial.archimedea);
+  const archLines = [];
+  if (!archimedea.length) archLines.push('Unavailable');
+  else {
+    for (const row of archimedea) {
+      const when = discordStamp(row.expiry) || row.eta;
+      if (when) archLines.push(`Resets ${when}`);
+      for (const mission of row.missions) {
+        const bits = [mission.type, mission.faction, mission.deviation].filter(Boolean);
+        if (bits.length) archLines.push(bits.join(' · '));
+        for (const risk of mission.risks) archLines.push(`Risk: ${risk}`);
+      }
+    }
+  }
+  return [
+    { name: '🌀 Duviri Circuit', value: cappedLines(duviriLines) || 'Unavailable' },
+    { name: '⚔️ Steel Path', value: cappedLines(steelLines) || 'Unavailable' },
+    { name: '🏛️ Deep Archimedea', value: cappedLines(archLines) || 'Unavailable' }
+  ];
+}
+
+function circuitEmbed(partial, options = {}) {
+  return cephalonEmbed({
+    title: '🌀 Circuit',
+    description: withCredit(['This week in Duviri.']),
+    fields: circuitFields(partial),
+    footerKey: options.footerKey || 'circuit'
+  }, options);
 }
 
 async function loadCircuitPartial(provider) {
@@ -981,7 +1134,7 @@ async function handleCircuitCommand(interaction, context) {
   const env = context.env || process.env;
   try {
     const loaded = await circuitCacheFor(context, env).get();
-    await interaction.reply(ephemeralEmbed(circuitEmbed(loaded.value)));
+    await interaction.reply(ephemeralEmbed(circuitEmbed(loaded.value, { avatarUrl: botAvatarUrl(context.client || interaction.client) })));
   } catch (error) {
     console.warn(`[Cephalon Nexus] circuit class=${errorClass(error)}`);
     await interaction.reply(ephemeralText('Circuit data is unavailable right now. Try again in a minute.'));
@@ -1020,6 +1173,7 @@ module.exports = {
   CLAN_DEFAULTS,
   clanConfig,
   parseClanCustomId,
+  parseClanMarker,
   parseClanApplication,
   clanApplicationModal,
   isClanOfficer,

@@ -7,6 +7,7 @@ const { TtlCache } = require('./ttl-cache.cjs');
 const { evaluateChannelCategory } = require('./category-gate.cjs');
 const { WorldstateCache } = require('./warframe-worldstate.cjs');
 const { PANEL_IDENTITIES, readJson, runtimeDataDir, snowflake, upsertEmbed, writeJson } = require('./panel-message.cjs');
+const { attachBrandFiles, botAvatarUrl, brandEmbed } = require('../shared/embed-style.cjs');
 const { circuitEmbed } = require('./cephalon-relay.cjs');
 const {
   summarizeAlerts,
@@ -71,8 +72,35 @@ function channelRaw(env, panel) {
   return channelSetting(env, panel.channelEnv) || channelSetting(env, SHARED_CHANNEL_ENV);
 }
 
+const FOOTER_KEYS = Object.freeze({
+  events: 'events',
+  alerts: 'alerts',
+  sortie: 'sortie',
+  arbitration: 'arbitration',
+  nightwave: 'nightwave',
+  'void-trader': 'baro',
+  'steel-path': 'steel-path',
+  circuit: 'circuit',
+  descendia: 'descendia',
+  fissures: 'fissures',
+  news: 'news'
+});
+
 function panelFooter(id) {
+  return `Many Worlds One Nexus • ${FOOTER_KEYS[id] || id}`;
+}
+
+function legacyPanelFooter(id) {
   return `Cephalon Nexus • warframe:${id}`;
+}
+
+function externalBannerChannel(env, channelId) {
+  const id = String(channelId || '');
+  const welcome = snowflake(env?.CEPHALON_WELCOME_CHANNEL_ID);
+  const event = snowflake(env?.CEPHALON_EVENT_CHANNEL_ID);
+  if (welcome && welcome === id) return true;
+  if (event && event === id && event !== welcome) return true;
+  return false;
 }
 
 function singleFlight(key, fn) {
@@ -251,13 +279,13 @@ function scheduleNewsRetirement({ client, env, dir }) {
 
 function ownedFooterMatcher(botId, footerPrefix) {
   const owner = String(botId || '');
-  const prefix = String(footerPrefix || '');
+  const prefixes = (Array.isArray(footerPrefix) ? footerPrefix : [footerPrefix]).map((item) => String(item || '')).filter(Boolean);
   return (message) => {
     if (!owner || String(message?.author?.id || '') !== owner) return false;
     if (message?.webhookId) return false;
     const embed = message?.embeds?.[0] || null;
     const footer = String(embed?.footer?.text || embed?.data?.footer?.text || '');
-    return Boolean(prefix) && footer.startsWith(prefix);
+    return prefixes.some((prefix) => footer.startsWith(prefix));
   };
 }
 
@@ -283,131 +311,196 @@ function snapshotCache(provider, env) {
   return cache;
 }
 
+const DATA_CREDIT = '-# Data: WarframeStat';
+const DESCENDIA_TITLE = '🕳️ Descendia';
+const DESCENDIA_UNAVAILABLE = 'Descendia data unavailable';
+
 function clip(value, max = 1024) {
   return String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
-function embed(title, description, fields, id) {
-  const body = {
-    title,
-    description: String(description || 'Nothing to report.').slice(0, 4000),
-    footer: { text: panelFooter(id) }
-  };
-  const usable = (fields || []).filter((field) => field?.name && field?.value).slice(0, 25);
-  if (usable.length) body.fields = usable;
-  return body;
+function present(spec, options = {}) {
+  const banner = Boolean(options.banner);
+  return brandEmbed('cephalon', {
+    title: spec.title,
+    description: spec.description,
+    fields: spec.fields,
+    footerKey: spec.footerKey,
+    banner: banner ? 'auto' : 'none',
+    thumbnail: banner ? 'none' : 'icon',
+    avatarUrl: options.avatarUrl || ''
+  }).embed;
 }
 
-function linesField(name, lines) {
-  const value = lines.filter(Boolean).join('\n').slice(0, 1024);
-  return value ? { name: clip(name, 256) || 'Detail', value } : null;
+function whenText(expiry, eta) {
+  return discordStamp(expiry, 'R') || discordStamp(eta, 'R') || clip(eta, 40);
 }
 
-function eventsEmbed(rows) {
+function withCredit(lines) {
+  return [...(Array.isArray(lines) ? lines : [lines]).filter((line) => line != null && String(line).length), DATA_CREDIT].join('\n');
+}
+
+function cappedLines(lines, max = 5, overflow) {
+  const clean = lines.filter(Boolean);
+  if (clean.length <= max) return clean.join('\n');
+  const room = Math.max(1, max - 1);
+  const hidden = clean.length - room;
+  return [...clean.slice(0, room), overflow || `+${hidden} more`].join('\n');
+}
+
+function challengeBuckets(challenges) {
+  const buckets = { daily: [], weekly: [], elite: [] };
+  for (const challenge of challenges) {
+    if (challenge?.elite) buckets.elite.push(challenge);
+    else if (challenge?.daily) buckets.daily.push(challenge);
+    else buckets.weekly.push(challenge);
+  }
+  return buckets;
+}
+
+function challengeLine(challenge, done) {
+  const mark = done ? '✅' : '▫️';
+  const title = clip(challenge?.title || 'Challenge', 40) || 'Challenge';
+  const standing = Number(challenge?.reputation) > 0 ? ` **${challenge.reputation}** standing` : '';
+  return `${mark} **${title}**${standing}`;
+}
+
+function eventsEmbed(rows, options = {}) {
   const items = Array.isArray(rows) ? rows : [];
-  return embed(
-    'Cephalon • Warframe Events',
-    items.length ? `${items.length} active events.` : 'No active Warframe events.',
-    items.slice(0, 8).map((item) => linesField(item.description || item.node || 'Event', [item.node, item.eta])),
-    'events'
-  );
+  const lines = items.map((item) => {
+    const name = clip(item.description || item.node || 'Event', 40) || 'Event';
+    const when = whenText(item.expiry, item.eta);
+    const where = item.node && item.description ? clip(item.node, 30) : '';
+    return [where && where !== name ? `${name} (${where})` : name, when ? `ends ${when}` : ''].filter(Boolean).join(' ');
+  });
+  return present({
+    title: '📅 Events',
+    description: withCredit([items.length ? `${items.length} active events.` : 'No active Warframe events.']),
+    fields: lines.length ? [{ name: '📅 Now', value: cappedLines(lines) }] : [],
+    footerKey: 'events'
+  }, options);
 }
 
-function alertsEmbed(rows) {
+function alertsEmbed(rows, options = {}) {
   const items = Array.isArray(rows) ? rows : [];
-  return embed(
-    'Cephalon • Warframe Alerts',
-    items.length ? `${items.length} active alerts.` : 'No active alerts.',
-    items.slice(0, 8).map((item) => linesField([item.node, item.type].filter(Boolean).join(' • ') || 'Alert', [item.faction, item.reward, item.eta])),
-    'alerts'
-  );
+  const fields = items.slice(0, 5).map((item) => ({
+    name: clip(item.node || 'Alert', 40) || 'Alert',
+    value: [item.type, item.reward, whenText(item.expiry, item.eta) ? `⏳ ${whenText(item.expiry, item.eta)}` : ''].filter(Boolean).join('\n') || 'Active'
+  }));
+  const extra = items.length > 5 ? `+${items.length - 5} more` : '';
+  return present({
+    title: '🚨 Alerts',
+    description: withCredit([items.length ? `${items.length} active alerts.` : 'No active alerts.', extra]),
+    fields,
+    footerKey: 'alerts'
+  }, options);
 }
 
-function sortieEmbed(row) {
+function sortieEmbed(row, options = {}) {
   const sortie = row && typeof row === 'object' ? row : {};
   const variants = Array.isArray(sortie.variants) ? sortie.variants : [];
-  return embed(
-    'Cephalon • Sortie',
-    [sortie.boss, sortie.faction, sortie.eta].filter(Boolean).join(' · ') || 'No sortie reported.',
-    variants.slice(0, 6).map((variant) => linesField(variant.node || variant.mission || 'Mission', [variant.mission, variant.modifier])),
-    'sortie'
-  );
+  const when = whenText(sortie.expiry, sortie.eta);
+  const heading = [sortie.boss, sortie.faction].filter(Boolean).join(' · ');
+  return present({
+    title: '🎯 Sortie',
+    description: withCredit([heading || 'No sortie reported.', when ? `⏳ Ends ${when}` : '']),
+    fields: variants.slice(0, 5).map((variant) => ({
+      name: clip(variant.node || variant.mission || 'Mission', 40) || 'Mission',
+      value: [variant.mission, variant.modifier].filter(Boolean).join('\n') || 'Mission'
+    })),
+    footerKey: 'sortie'
+  }, options);
 }
 
-function arbitrationEmbed(row) {
+function arbitrationEmbed(row, options = {}) {
   const item = row && typeof row === 'object' ? row : {};
-  return embed(
-    'Cephalon • Arbitration',
-    [item.node, item.mission, item.enemy, item.eta].filter(Boolean).join(' · ') || 'No arbitration reported.',
-    [],
-    'arbitration'
-  );
+  const when = whenText(item.expiry, item.eta);
+  const known = item.node || item.mission || item.enemy;
+  return present({
+    title: '⚖️ Arbitration',
+    description: withCredit([known ? (when ? `⏳ Ends ${when}` : 'Active now.') : 'No arbitration reported.']),
+    fields: known ? [
+      { name: 'Node', value: clip(item.node || '—', 40), inline: true },
+      { name: 'Mission', value: clip(item.mission || '—', 40), inline: true },
+      { name: 'Enemy', value: clip(item.enemy || '—', 40), inline: true }
+    ] : [],
+    footerKey: 'arbitration'
+  }, options);
 }
 
-function nightwaveEmbed(row) {
+function nightwaveEmbed(row, options = {}) {
   const board = row && typeof row === 'object' ? row : {};
   const challenges = Array.isArray(board.challenges) ? board.challenges : [];
-  const heading = [`Season ${board.season || 'unknown'}`, board.phase != null ? `phase ${board.phase}` : '', board.eta ? `ends ${board.eta}` : ''].filter(Boolean).join(' · ');
-  const lines = challenges.slice(0, 12).map((challenge) => {
-    const meta = [challenge.daily ? 'daily' : '', challenge.elite ? 'elite' : '', challenge.reputation ? `${challenge.reputation} standing` : '', challenge.eta].filter(Boolean).join(' · ');
-    return `**${challenge.title || 'Challenge'}**${meta ? ` — ${meta}` : ''}`;
-  });
-  return embed('Cephalon • Nightwave', [heading, '', lines.join('\n') || 'No active challenges.'].filter((line) => line != null).join('\n'), [], 'nightwave');
+  const buckets = challengeBuckets(challenges);
+  const when = whenText(board.expiry, board.eta);
+  const heading = [`Season ${board.season || 'unknown'}`, board.phase != null ? `phase ${board.phase}` : ''].filter(Boolean).join(' · ');
+  return present({
+    title: '🌙 Nightwave',
+    description: withCredit([heading || 'Nightwave', when ? `⏳ Ends ${when}` : '']),
+    fields: [
+      { name: '📅 Daily', value: cappedLines(buckets.daily.map((item) => challengeLine(item, false))) || 'Nothing right now.' },
+      { name: '🗓️ Weekly', value: cappedLines(buckets.weekly.map((item) => challengeLine(item, false))) || 'Nothing right now.' },
+      { name: '👑 Elite', value: cappedLines(buckets.elite.map((item) => challengeLine(item, false))) || 'Nothing right now.' }
+    ],
+    footerKey: 'nightwave'
+  }, options);
 }
 
-function voidTraderEmbed(row) {
+function voidTraderEmbed(row, options = {}) {
   const trader = row && typeof row === 'object' ? row : {};
   const inventory = Array.isArray(trader.inventory) ? trader.inventory : [];
-  const when = trader.active
-    ? `In system${trader.eta ? ` · leaves ${trader.eta}` : ''}`
-    : `Away${trader.eta ? ` · ${trader.eta}` : ''}`;
-  const lines = inventory.slice(0, 20).map((item) => {
-    const price = [item.ducats ? `${item.ducats} ducats` : '', item.credits ? `${Number(item.credits).toLocaleString('en-US')} credits` : ''].filter(Boolean).join(' · ');
-    return price ? `${item.item} — ${price}` : item.item;
-  });
-  return embed(
-    "Cephalon • Baro Ki'Teer",
-    [trader.character || "Baro Ki'Teer", trader.location || 'Location unavailable', when, '', lines.join('\n') || 'No inventory listed.'].join('\n'),
-    [],
-    'void-trader'
-  );
+  const place = trader.active ? (trader.location || 'In the system') : 'Away';
+  const when = whenText(trader.active ? trader.expiry : (trader.activation || trader.expiry), trader.eta);
+  const verb = trader.active ? 'Leaves' : 'Back';
+  const ducats = [];
+  const credits = [];
+  for (const item of inventory) {
+    const name = clip(item.item || 'Item', 40);
+    if (!name) continue;
+    if (Number(item.ducats) > 0) ducats.push(`${name}: ${item.ducats} 💎`);
+    if (Number(item.credits) > 0) credits.push(`${name}: ${Number(item.credits).toLocaleString('en-US')} credits`);
+  }
+  const fields = [];
+  if (ducats.length) fields.push({ name: '💎 Ducats', value: cappedLines(ducats, 8, `+${Math.max(0, ducats.length - 7)} more on /baro`) });
+  if (credits.length) fields.push({ name: '💰 Credits', value: cappedLines(credits, 8, `+${Math.max(0, credits.length - 7)} more on /baro`) });
+  if (!fields.length) fields.push({ name: '💎 Ducats', value: 'No inventory listed.' });
+  return present({
+    title: "💎 Baro Ki'Teer",
+    description: withCredit([`📍 ${place}`, `⏳ ${verb} ${when || 'soon'}`]),
+    fields,
+    footerKey: 'baro'
+  }, options);
 }
 
-function steelPathEmbed(row) {
+function steelPathEmbed(row, options = {}) {
   const board = row && typeof row === 'object' ? row : {};
   const rotation = Array.isArray(board.rotation) ? board.rotation : [];
-  return embed(
-    'Cephalon • Steel Path',
-    [board.currentReward ? `Current reward: ${board.currentReward}` : 'No current reward listed.', board.remaining ? `Remaining ${board.remaining}` : ''].filter(Boolean).join('\n'),
-    rotation.length ? [linesField('Rotation', rotation.map((item) => item.cost ? `${item.name} · ${item.cost}` : item.name))] : [],
-    'steel-path'
-  );
+  const when = whenText(board.expiry, board.remaining);
+  const reward = board.currentReward ? `Current reward: ${board.currentReward}` : 'No current reward listed.';
+  const lines = rotation.map((item) => (item.cost ? `${item.name}: ${item.cost}` : item.name));
+  return present({
+    title: '⚔️ Steel Path',
+    description: withCredit([reward, when ? `⏳ ${when}` : '']),
+    fields: lines.length ? [{ name: 'Rotation', value: cappedLines(lines) }] : [],
+    footerKey: 'steel-path'
+  }, options);
 }
 
-function circuitPanelEmbed(partial) {
-  const circuit = circuitEmbed({
+function circuitPanelEmbed(partial, options = {}) {
+  return circuitEmbed({
     duviri: partial.duviri,
     steelPath: partial.steelPath,
     archimedea: partial.archimedea,
     missing: (partial.missing || []).filter((key) => key === 'duviri' || key === 'steelPath' || key === 'archimedea')
+  }, {
+    banner: options.banner ? 'auto' : 'none',
+    thumbnail: options.banner ? 'none' : 'icon',
+    avatarUrl: options.avatarUrl || '',
+    footerKey: 'circuit'
   });
-  const credit = circuit.footer?.text || '';
-  return {
-    ...circuit,
-    title: 'Cephalon • Circuit',
-    footer: { text: `${panelFooter('circuit')}${credit ? ` • ${credit}` : ''}`.slice(0, 2048) }
-  };
 }
-
-const BRAND_MOTTO = 'Many Worlds One Nexus';
-const DESCENDIA_TITLE = 'Cephalon • Descendia';
-const DESCENDIA_UNAVAILABLE = 'Descendia data unavailable';
 const ROLLOVER_GRACE_MS = 5_000;
 const MAX_TIMEOUT_MS = 2_147_483_647;
-
-function descendiaFooter() {
-  return `${panelFooter('descendia')} • ${BRAND_MOTTO}`.slice(0, 2048);
-}
 
 function missionNameFromTypeKey(typeKey) {
   const stripped = String(typeKey ?? '').trim().replace(/^DT_/i, '').replace(/_+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -461,20 +554,21 @@ function namedModifiers(rows) {
   return names;
 }
 
-function modifierSummary(floor, max = 90) {
+function modifierSummary(floor, max = 56) {
   const auras = namedModifiers(floor?.auras);
   const source = auras.length ? auras : namedModifiers(floor?.specs);
   return source.join(', ').slice(0, max);
 }
 
-function floorLine(floor, options = {}) {
+function floorBlock(floor) {
   const index = Number(floor?.index);
   const mission = missionNameFromTypeKey(floor?.typeKey) || 'Mission';
   const challenge = challengeName(floor) || 'Challenge';
-  const mods = options.modifiers === false ? '' : modifierSummary(floor);
-  const prefix = Number.isInteger(index) && index > 0 ? `${index}. ` : '';
-  const body = mods ? `${mission} — ${challenge} · ${mods}` : `${mission} — ${challenge}`;
-  return `${prefix}${body}`.slice(0, 300);
+  const label = Number.isInteger(index) && index > 0 ? `Floor ${index}` : 'Floor';
+  const lines = [`${label}: ${mission} (${challenge})`];
+  const mods = modifierSummary(floor);
+  if (mods) lines.push(`└ ${mods}`);
+  return { index: Number.isInteger(index) && index > 0 ? index : 0, lines };
 }
 
 function descendiaFloors(data) {
@@ -496,70 +590,61 @@ function descendiaDescription(data, count) {
   const heading = count === 1 ? 'Weekly Descent · 1 floor.' : `Weekly Descent · ${count} floors.`;
   const relative = discordStamp(data?.expiry, 'R');
   const absolute = discordStamp(data?.expiry, 'F');
-  if (!relative) return heading.slice(0, 4096);
-  return `${heading} Resets ${relative}${absolute ? ` (${absolute})` : ''}.`.slice(0, 4096);
+  const when = relative ? `Resets ${relative}${absolute ? ` (${absolute})` : ''}.` : '';
+  return [heading, when, DATA_CREDIT].filter(Boolean).join('\n');
 }
 
-function packFloorFields(lines, indexes) {
+function floorField(bucket) {
+  const indexes = bucket.map((item) => item.index).filter((index) => index > 0);
+  const first = indexes[0];
+  const last = indexes[indexes.length - 1];
+  const name = !first ? 'More' : (first === last ? `Floor ${first}` : `Floors ${first}–${last}`);
+  return { name, value: bucket.flatMap((item) => item.lines).join('\n') };
+}
+
+function packFloorBlocks(blocks) {
   const fields = [];
-  let start = 0;
-  while (start < lines.length && fields.length < 25) {
-    let end = start;
-    let value = '';
-    while (end < lines.length) {
-      const next = value ? `${value}\n${lines[end]}` : lines[end];
-      const count = end - start + 1;
-      if (end > start && (next.length > 1024 || count > 7)) break;
-      value = next.slice(0, 1024);
-      end += 1;
-      if (next.length >= 1024 || count >= 7) break;
+  let cursor = 0;
+  while (cursor < blocks.length && fields.length < 6) {
+    const bucket = [];
+    let lines = 0;
+    const lastField = fields.length === 5;
+    while (cursor < blocks.length) {
+      const block = blocks[cursor];
+      const remainAfter = blocks.length - (cursor + 1);
+      const reserve = lastField && remainAfter > 0 ? 1 : 0;
+      if (lines + block.lines.length + reserve > 5) break;
+      bucket.push(block);
+      lines += block.lines.length;
+      cursor += 1;
     }
-    const first = indexes[start];
-    const last = indexes[end - 1];
-    const name = first && first === last ? `Floor ${first}` : `Floors ${first}–${last}`;
-    fields.push({ name: String(name).slice(0, 256), value });
-    start = end;
+    if (!bucket.length) break;
+    const hidden = blocks.length - cursor;
+    if (lastField && hidden > 0) bucket.push({ index: 0, lines: [`+${hidden} more`] });
+    fields.push(floorField(bucket));
+    if (lastField) break;
   }
   return fields;
 }
 
-function embedChars(body) {
-  const fields = Array.isArray(body.fields) ? body.fields : [];
-  return (body.title || '').length
-    + (body.description || '').length
-    + (body.footer?.text || '').length
-    + fields.reduce((sum, field) => sum + String(field?.name || '').length + String(field?.value || '').length, 0);
-}
-
-function unavailableDescendiaEmbed() {
-  return {
+function unavailableDescendiaEmbed(options = {}) {
+  return present({
     title: DESCENDIA_TITLE,
     description: DESCENDIA_UNAVAILABLE,
-    footer: { text: descendiaFooter() }
-  };
+    fields: [],
+    footerKey: 'descendia'
+  }, options);
 }
 
-function descendiaEmbed(data) {
+function descendiaEmbed(data, options = {}) {
   const floors = descendiaFloors(data);
-  if (!floors.length) return unavailableDescendiaEmbed();
-  const indexed = floors.map((floor) => ({
-    index: Number(floor.index) || 0,
-    line: floorLine(floor),
-    plain: floorLine(floor, { modifiers: false })
-  }));
-  const description = descendiaDescription(data, floors.length);
-  let fields = packFloorFields(indexed.map((item) => item.line), indexed.map((item) => item.index));
-  let body = {
+  if (!floors.length) return unavailableDescendiaEmbed(options);
+  return present({
     title: DESCENDIA_TITLE,
-    description,
-    fields,
-    footer: { text: descendiaFooter() }
-  };
-  if (embedChars(body) > 6000) {
-    fields = packFloorFields(indexed.map((item) => item.plain), indexed.map((item) => item.index));
-    body = { ...body, fields };
-  }
-  return body;
+    description: descendiaDescription(data, floors.length),
+    fields: packFloorBlocks(floors.map(floorBlock)),
+    footerKey: 'descendia'
+  }, options);
 }
 
 function descendiaWeekExpired(data, now = Date.now()) {
@@ -577,7 +662,7 @@ function descendiaRolloverDelay(expiry, now = Date.now()) {
 }
 
 function ephemeralEmbed(body) {
-  return { embeds: [body], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } };
+  return attachBrandFiles({ embeds: [body], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
 }
 
 function ephemeralText(content) {
@@ -630,21 +715,21 @@ async function refreshDescendiaIfDue(cache, now = Date.now()) {
   return partial;
 }
 
-function renderPanel(panel, partial) {
-  if (panel.id === 'circuit') return circuitPanelEmbed(partial);
+function renderPanel(panel, partial, options = {}) {
+  if (panel.id === 'circuit') return circuitPanelEmbed(partial, options);
   if (panel.id === 'descendia') {
     const missing = (partial.missing || []).includes('descendia');
-    return descendiaEmbed(missing ? null : partial.descendia);
+    return descendiaEmbed(missing ? null : partial.descendia, options);
   }
   if ((partial.missing || []).includes(panel.source)) return null;
   const raw = partial[panel.source];
-  if (panel.id === 'events') return eventsEmbed(summarizeEvents(raw));
-  if (panel.id === 'alerts') return alertsEmbed(summarizeAlerts(raw));
-  if (panel.id === 'sortie') return sortieEmbed(summarizeSortie(raw));
-  if (panel.id === 'arbitration') return arbitrationEmbed(summarizeArbitration(raw));
-  if (panel.id === 'nightwave') return nightwaveEmbed(summarizeNightwave(raw));
-  if (panel.id === 'void-trader') return voidTraderEmbed(summarizeVoidTrader(raw));
-  if (panel.id === 'steel-path') return steelPathEmbed(summarizeSteelPath(raw));
+  if (panel.id === 'events') return eventsEmbed(summarizeEvents(raw), options);
+  if (panel.id === 'alerts') return alertsEmbed(summarizeAlerts(raw), options);
+  if (panel.id === 'sortie') return sortieEmbed(summarizeSortie(raw), options);
+  if (panel.id === 'arbitration') return arbitrationEmbed(summarizeArbitration(raw), options);
+  if (panel.id === 'nightwave') return nightwaveEmbed(summarizeNightwave(raw), options);
+  if (panel.id === 'void-trader') return voidTraderEmbed(summarizeVoidTrader(raw), options);
+  if (panel.id === 'steel-path') return steelPathEmbed(summarizeSteelPath(raw), options);
   return null;
 }
 
@@ -688,7 +773,8 @@ async function pinPanel(client, channel, savedId, rendered, panel, env) {
     panel: panel.panel,
     botId,
     envMessageId: snowflake(env[panel.messageEnv]),
-    matches: ownedFooterMatcher(botId, panelFooter(panel.id))
+    matches: ownedFooterMatcher(botId, [panelFooter(panel.id), legacyPanelFooter(panel.id)]),
+    banner: false
   };
   let result = await upsertEmbed(client, channel.id, savedId, { embeds: [rendered] }, options);
   if (result.reason === 'foreign-unmatched') {
@@ -721,14 +807,24 @@ async function refreshWarframePanels({ client, env = process.env, provider, dir 
     targets.push({ panel, channel: resolved.channel });
   }
   if (!targets.length) return { refreshed: 0, skipped, descendiaExpiry: '' };
+  const claimedBanners = new Set();
+  for (const target of targets) {
+    const channelId = String(target.channel.id);
+    if (externalBannerChannel(env, channelId) || claimedBanners.has(channelId)) target.banner = false;
+    else {
+      claimedBanners.add(channelId);
+      target.banner = true;
+    }
+  }
+  const avatarUrl = botAvatarUrl(client);
   const source = providerFor(provider);
   const cache = snapshotCache(source, env);
   await cache.load();
   await refreshDescendiaIfDue(cache);
   const partial = cache.partial || { missing: [] };
   const descendiaExpiry = typeof partial.descendia?.expiry === 'string' ? partial.descendia.expiry : '';
-  for (const { panel, channel } of targets) {
-    const rendered = renderPanel(panel, partial);
+  for (const { panel, channel, banner } of targets) {
+    const rendered = renderPanel(panel, partial, { banner, avatarUrl });
     if (!rendered) {
       skipped.push({ id: panel.id, reason: 'unavailable' });
       continue;

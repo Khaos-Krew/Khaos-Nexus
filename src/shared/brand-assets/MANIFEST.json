@@ -1,0 +1,30 @@
+{
+  "generated": "2026-10-02",
+  "rule": "Embed banners show game logo/title only, no bot names (owner 2026-10-02)",
+  "files": [
+    {
+      "file": "cephalon-panel-banner.png",
+      "sha256": "d35e6351c2bbbadd94bfaa4b0efcc648bc5d17cd0fb621d92cf7824c8b8388f6",
+      "bytes": 618711,
+      "size": [
+        1200,
+        400
+      ],
+      "mode": "RGB"
+    },
+    {
+      "file": "icon-cephalon.png",
+      "sha256": "be918f8dd66c066d7cf1e73d2d18fc6a43e9cdaf90cda06bc5623784acaedb60",
+      "bytes": 241386,
+      "size": [
+        512,
+        512
+      ],
+      "mode": "RGB"
+    }
+  ],
+  "banner_scene_sources": {
+    "cephalon": "_src/warframe-scene-ai-1280x720.jpg",
+    "vanguard": "_src/vanguard-scene-ai-1280x720.jpg (1 AI generation; title = official Destiny 2 logo from Wikimedia Commons, recolored silver)"
+  }
+}

@@ -155,6 +155,17 @@ function welcomePinEmbed(bot) {
   };
 }
 
+function cephalonPinBanner(env, channelEnvName) {
+  const channel = snowflake(env?.[channelEnvName]);
+  if (!channel) return false;
+  if (channelEnvName === 'CEPHALON_WELCOME_CHANNEL_ID') return true;
+  if (channelEnvName === 'CEPHALON_EVENT_CHANNEL_ID') {
+    const welcome = snowflake(env?.CEPHALON_WELCOME_CHANNEL_ID);
+    return !welcome || welcome !== channel;
+  }
+  return false;
+}
+
 async function refreshPinnedEmbed(client, env, channelEnvName, entry, embed, options = {}) {
   const messageId = snowflake(env[options.messageEnv]) || entry?.messageId;
   return upsertEmbed(client, env[channelEnvName], messageId, { embeds: [embed] }, {
@@ -175,7 +186,8 @@ async function refreshDurablePins(client, bot, env = process.env) {
     const pinned = await refreshPinnedEmbed(client, env, channelEnv, pin, welcomePinEmbed(key), {
       panel: key === 'ascended' ? 'ascendedWelcome' : 'cephalonWelcome',
       messageEnv: key === 'ascended' ? 'ASCENDED_WELCOME_MESSAGE_ID' : 'CEPHALON_WELCOME_MESSAGE_ID',
-      create: false
+      create: false,
+      banner: key === 'cephalon' ? cephalonPinBanner(env, channelEnv) : undefined
     }).catch((error) => {
       console.warn(`[${BOT_LABELS[key]}] welcome pin class=${errorClass(error)}`);
       return null;
@@ -192,7 +204,8 @@ async function refreshDurablePins(client, bot, env = process.env) {
       const pinned = await refreshPinnedEmbed(client, env, 'CEPHALON_EVENT_CHANNEL_ID', entry, calendarEmbed(entry), {
         panel: 'cephalonEvent',
         messageEnv: 'CEPHALON_EVENT_MESSAGE_ID',
-        create: false
+        create: false,
+        banner: cephalonPinBanner(env, 'CEPHALON_EVENT_CHANNEL_ID')
       }).catch((error) => {
         console.warn(`[${BOT_LABELS.cephalon}] event pin class=${errorClass(error)}`);
         return null;
@@ -250,7 +263,8 @@ async function handleStageCommand(interaction, context) {
       const pin = readWelcomePin(dir, bot);
       const pinned = await refreshPinnedEmbed(context.client || interaction.client, env, channelEnv, pin, welcomePinEmbed(bot), {
         panel: bot === 'ascended' ? 'ascendedWelcome' : 'cephalonWelcome',
-        messageEnv: bot === 'ascended' ? 'ASCENDED_WELCOME_MESSAGE_ID' : 'CEPHALON_WELCOME_MESSAGE_ID'
+        messageEnv: bot === 'ascended' ? 'ASCENDED_WELCOME_MESSAGE_ID' : 'CEPHALON_WELCOME_MESSAGE_ID',
+        banner: bot === 'cephalon' ? cephalonPinBanner(env, channelEnv) : undefined
       }).catch(() => null);
       if (pinned?.messageId) writeWelcomePin(dir, bot, pinned.messageId);
     }
@@ -295,7 +309,8 @@ async function handleStageCommand(interaction, context) {
     if (isStaff(interaction, config) && entry.title) {
       const pinned = await refreshPinnedEmbed(context.client || interaction.client, env, 'CEPHALON_EVENT_CHANNEL_ID', entry, embed, {
         panel: 'cephalonEvent',
-        messageEnv: 'CEPHALON_EVENT_MESSAGE_ID'
+        messageEnv: 'CEPHALON_EVENT_MESSAGE_ID',
+        banner: cephalonPinBanner(env, 'CEPHALON_EVENT_CHANNEL_ID')
       }).catch(() => ({ pinned: false }));
       if (pinned?.messageId && pinned.messageId !== entry.messageId) store.write({ ...entry, messageId: pinned.messageId });
     }

@@ -369,7 +369,8 @@ test('cephalon fissures, nightwave, and cycles stay gated, cached, and local', a
     assert.equal(calls.filter((pathname) => pathname === 'fissures').length, 1);
     assert.match(JSON.stringify(replies[0].embeds[0]), /Lith, Earth/);
     assert.match(JSON.stringify(replies[0].embeds[0]), /12m/);
-    assert.match(replies[0].embeds[0].footer.text, /WFCD/);
+    assert.match(replies[0].embeds[0].footer.text, /Many Worlds One Nexus/);
+    assert.match(replies[0].embeds[0].description, /Data: WarframeStat/);
     assert.equal(sent.length, 1);
     assert.equal(edited.length, 1);
     const grouped = groupFissures([{ tier: 'Axi', node: 'Axi, Void', eta: '1m', isStorm: true }]);
