@@ -92,7 +92,7 @@ function cardCommandDefinition({ findEnabled = false } = {}) {
   command.addSubcommandGroup((group) => {
     group
       .setName('admin')
-      .setDescription('Administrator player-card tools')
+      .setDescription('Staff Admin player-card tools')
       .addSubcommand((sub) => sub
         .setName('clear')
         .setDescription('Remove a player tag. Only staff Admins can use this.')

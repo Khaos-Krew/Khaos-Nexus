@@ -35,7 +35,8 @@ function role(id, permissions = []) {
 
 function member(roleIds = [], permissions = []) {
   return {
-    roles: { cache: { has: (id) => roleIds.includes(String(id)) } },
+    guild: { id: IDS.guild },
+    roles: { cache: new Map(roleIds.map((id) => [String(id), { id: String(id), managed: false }])) },
     permissions: { has: (permission) => permissions.includes(permission) }
   };
 }

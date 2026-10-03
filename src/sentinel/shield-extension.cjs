@@ -16,6 +16,7 @@ const {
   resolveStaffRoleIds,
   staffOnlyOverwrites
 } = require('./safety-report-access.cjs');
+const { applyManagedOverwrites } = require('./staff-workspace.cjs');
 const { ShieldStore } = require('./shield-store.cjs');
 const {
   SECURITY_MODES,
@@ -96,7 +97,7 @@ async function ensureAlertChannel(guild, client, config) {
     if (String(channel.parentId || '') !== String(category.id)) {
       await channel.setParent(category.id, { lockPermissions: false, reason: 'Nexus Sentinal Shield move alerts into private staff area' }).catch(() => {});
     }
-    await channel.permissionOverwrites.set(overwrites, 'Nexus Sentinal Shield current staff authority').catch(() => {});
+    await applyManagedOverwrites(channel, overwrites, 'Nexus Sentinal Shield current staff authority').catch(() => {});
   }
   return { channel, category, staffRoleIds, ownerIds };
 }

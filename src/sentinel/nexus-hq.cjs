@@ -2,6 +2,7 @@
 
 const { ChannelType, OverwriteType, PermissionFlagsBits } = require('discord.js');
 const { NEXUS_RANKS } = require('../shared/ranks.cjs');
+const { applyManagedOverwrites } = require('./staff-workspace.cjs');
 
 const HQ_CATEGORY_NAME = '🌐 NEXUS HQ';
 const HQ_CATEGORY_ALIASES = Object.freeze(['nexus hq', 'nexus headquarters', 'community hq']);
@@ -336,9 +337,7 @@ async function ensureCategory(guild, channels) {
 
 async function applyOverwriteSet(channel, desiredEntries, reason) {
   if (!channel?.permissionOverwrites?.set) throw new Error('Discord permission overwrites are unavailable.');
-  if (overwritePlanSatisfies(channel, desiredEntries)) return false;
-  await channel.permissionOverwrites.set(desiredEntries, reason);
-  return true;
+  return applyManagedOverwrites(channel, desiredEntries, reason);
 }
 
 async function applyCategoryAccess(category, guild, rankRoleIds, operatorRoleIds, botId) {
@@ -561,6 +560,7 @@ module.exports = {
   shadowRecruitRoleIdFrom,
   operatorRoleIdsFrom,
   memberAllowPermissions,
+  applyOverwriteSet,
   hqCategoryOverwrites,
   hqChildRequiredOverwrites,
   announcementOverwrites,

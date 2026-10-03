@@ -283,7 +283,7 @@ async function handleArkInteraction(interaction, context) {
   if (!playerButton && !slashCommand) return false;
   const sub = playerButton?.subcommand || interaction.options.getSubcommand();
   const publicShopAction = ['shop-cache', 'shop-cache-guide', 'link', 'link-status', 'unlink', 'supporter-cache', 'supporter-cache-status'].includes(sub);
-  if (!publicShopAction && !isStaff(interaction, context.config)) throw new Error('ARK server controls require Nexus staff authorization.');
+  if (!publicShopAction && !isStaff(interaction, context.config)) throw new Error('ARK server controls require Nexus staff authorization. Ask an Admin.');
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   if (sub === 'link') {

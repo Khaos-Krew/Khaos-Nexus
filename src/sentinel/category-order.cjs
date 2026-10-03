@@ -3,6 +3,7 @@
 const { ChannelType, OverwriteType, PermissionFlagsBits } = require('discord.js');
 const { MODULES } = require('../backend/modules/catalog.cjs');
 const { layoutFor } = require('./module-layouts.cjs');
+const { applyManagedOverwrites, existingOverwriteEntries } = require('./staff-workspace.cjs');
 
 const DEFAULT_BOUNDARY_NAMES = Object.freeze(['hidden server', 'staff']);
 const STRUCTURAL_CATEGORY_ALIASES = Object.freeze({
@@ -242,21 +243,17 @@ function ownerOnlyOverwrites(guild, botId) {
 }
 
 async function applyOverwriteSet(channel, desiredEntries, reason) {
-  if (!channel?.permissionOverwrites?.set) return false;
-  if (overwriteSetMatches(channel, desiredEntries)) return false;
-  await channel.permissionOverwrites.set(desiredEntries, reason);
-  return true;
+  return applyManagedOverwrites(channel, desiredEntries, reason);
 }
 
 async function lockCategoryChildren(category, channels, reason) {
   if (!category) return 0;
+  const parentOverwrites = existingOverwriteEntries(category);
   let locked = 0;
   for (const channel of valuesOf(channels)) {
     if (String(channel?.parentId || '') !== String(category.id)) continue;
     if (channel.permissionsLocked === true) continue;
-    if (typeof channel.lockPermissions !== 'function') continue;
-    await channel.lockPermissions(reason).catch(() => {});
-    locked += 1;
+    if (await applyManagedOverwrites(channel, parentOverwrites, reason)) locked += 1;
   }
   return locked;
 }

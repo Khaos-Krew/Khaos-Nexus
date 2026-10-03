@@ -146,7 +146,7 @@ function formatMysqlResult(result = {}) {
 async function handleInteraction(interaction, context) {
   if (!interaction.isChatInputCommand?.() || interaction.commandName !== COMMAND_NAME) return false;
   const sub = interaction.options.getSubcommand();
-  if (!isStaff(interaction, context.config)) throw new Error('ARK server controls require Nexus staff authorization.');
+  if (!isStaff(interaction, context.config)) throw new Error('ARK server controls require Nexus staff authorization. Ask an Admin.');
   if ((sub === 'restart' || sub === 'mysql-sync') && !isOwner(interaction, context.config)) {
     throw new Error('This live operation is restricted to the Nexus owner.');
   }

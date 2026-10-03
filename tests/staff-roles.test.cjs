@@ -246,3 +246,21 @@ test('ignored @everyone and managed role ids are logged once each', () => {
     console.warn = original;
   }
 });
+
+test('an id listed as both admin and mod stays mod-level and cannot clear', () => {
+  const { canClear } = require('../src/sentinel/moderation-commands.cjs');
+  const same = '333333333333333333';
+  const env = {
+    NEXUS_STAFF_ADMIN_ROLE_IDS: same,
+    NEXUS_STAFF_MOD_ROLE_IDS: same,
+    NEXUS_OPERATOR_ROLE_IDS: same
+  };
+  const subject = interaction([same], [PermissionFlagsBits.ManageMessages]);
+  assert.equal(hasStaffAdminRole(subject, env), false);
+  assert.equal(isStaffAdmin(subject, env), false);
+  assert.equal(isStaffModOrAbove(subject, env), true);
+  assert.equal(canClear(subject, env), false);
+  const distinct = interaction([ADMIN_ROLE, MOD_ROLE], [PermissionFlagsBits.ManageMessages]);
+  assert.equal(isStaffAdmin(distinct, ENV), true);
+  assert.equal(canClear(distinct, { ...ENV, NEXUS_OPERATOR_ROLE_IDS: MOD_ROLE }), true);
+});

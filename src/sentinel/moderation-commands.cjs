@@ -1,7 +1,8 @@
 'use strict';
 
 const { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } = require('discord.js');
-const { isStaffAdmin } = require('./staff-roles.cjs');
+const { csvIds, hasListedRole } = require('../game-bots/vanguard/config.cjs');
+const { hasStaffAdminRole, isGuildOwner, staffModRoleIds } = require('./staff-roles.cjs');
 
 const MAX_CLEAR_MESSAGES = 100;
 
@@ -20,16 +21,24 @@ function clearCommand() {
       .setMaxValue(MAX_CLEAR_MESSAGES));
 }
 
-// Staff admin role, guild owner, or Discord Administrator, and the member must
-// also be able to manage messages. Administrator implies Manage Messages.
-// Staff mod roles do not grant /clear. Guild id and managed roles are ignored
-// by roleIdsOf, which isStaffAdmin uses. Sentinal never deletes messages for
-// someone who could not do it by hand.
+// Manage Messages is required. Discord Administrator counts as Manage Messages.
+// Then the member must be a staff admin (exclusive admin role, guild owner, or
+// Administrator) or hold an operator role. A mod role never passes, even when
+// that same id is also listed as admin or operator. roleIdsOf drops the guild
+// id and managed roles before the operator list is checked.
+function clearOperatorRoleIds(env = process.env) {
+  const mods = new Set(staffModRoleIds(env));
+  return csvIds(env?.NEXUS_OPERATOR_ROLE_IDS).filter((id) => !mods.has(id));
+}
+
 function canClear(interaction, env = process.env) {
-  if (!isStaffAdmin(interaction, env)) return false;
   const permissions = interaction?.memberPermissions;
-  if (permissions?.has?.(PermissionFlagsBits.Administrator)) return true;
-  return Boolean(permissions?.has?.(PermissionFlagsBits.ManageMessages));
+  const administrator = Boolean(permissions?.has?.(PermissionFlagsBits.Administrator));
+  const manageMessages = administrator || Boolean(permissions?.has?.(PermissionFlagsBits.ManageMessages));
+  if (!manageMessages) return false;
+  if (administrator || isGuildOwner(interaction)) return true;
+  if (hasStaffAdminRole(interaction, env)) return true;
+  return hasListedRole(interaction, clearOperatorRoleIds(env));
 }
 
 async function handleClearCommand(interaction) {

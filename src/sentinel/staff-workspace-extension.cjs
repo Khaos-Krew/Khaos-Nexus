@@ -29,6 +29,7 @@ const {
   findOfficeThread,
   legacyOfficeChannelName
 } = require('./staff-workspace.cjs');
+const { hasListedRole } = require('../game-bots/vanguard/config.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.staffWorkspace.extension');
 const INITIAL_RECONCILE_DELAY_MS = 75_000;
@@ -156,7 +157,7 @@ function memberIsStaff(member, staffRoleIds, ownerIds) {
   if (!member || member.user?.bot) return false;
   const id = String(member.id || '');
   if (ownerIds.includes(id)) return true;
-  return staffRoleIds.some((roleId) => member.roles?.cache?.has?.(String(roleId)));
+  return hasListedRole(member, staffRoleIds);
 }
 
 async function staffMembers(guild, staffRoleIds, ownerIds) {

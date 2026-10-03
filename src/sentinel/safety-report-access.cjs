@@ -1,6 +1,8 @@
 'use strict';
 
 const { ChannelType, OverwriteType, PermissionFlagsBits } = require('discord.js');
+const { hasListedRole, isGrantableStaffRole } = require('../game-bots/vanguard/config.cjs');
+const { applyManagedOverwrites } = require('./staff-workspace.cjs');
 const { normalizeIds } = require('./safety-report-model.cjs');
 
 const STAFF_ALLOW = Object.freeze([
@@ -41,13 +43,10 @@ async function resolveStaffRoleIds(guild, config = {}) {
   const explicit = normalizeIds([
     ...(config.discord?.safetyStaffRoleIds || []),
     ...(config.discord?.operatorRoleIds || [])
-  ]).filter((id) => {
-    const role = roles.get(id);
-    return Boolean(role && role.id !== guild.id && role.managed !== true);
-  });
+  ]).filter((id) => isGrantableStaffRole(roles.get(id), guild.id));
   if (explicit.length) return explicit;
   return [...roles.values()]
-    .filter((role) => role && role.id !== guild.id && role.managed !== true)
+    .filter((role) => isGrantableStaffRole(role, guild.id))
     .filter((role) => role.permissions?.has?.(PermissionFlagsBits.Administrator)
       || role.permissions?.has?.(PermissionFlagsBits.ModerateMembers)
       || role.permissions?.has?.(PermissionFlagsBits.ManageGuild))
@@ -65,7 +64,7 @@ async function isStaff(guild, userId, config = {}) {
   const member = await memberFor(guild, id);
   if (!member) return false;
   const currentStaffRoleIds = await resolveStaffRoleIds(guild, config);
-  return currentStaffRoleIds.some((roleId) => member.roles?.cache?.has?.(String(roleId)));
+  return hasListedRole({ member, guild }, currentStaffRoleIds);
 }
 
 function staffRoleOverwrites(staffRoleIds = []) {
@@ -139,7 +138,7 @@ async function reconcileReportAccess(guild, client, config, store, report, chann
   }
   const current = { ...report, staffRoleIds, ownerIds };
   const overwrites = reportAccessOverwrites(guild, botId, current, staffRoleIds, ownerIds);
-  await target.permissionOverwrites.set(overwrites, `Nexus Sentinal current-authority reconciliation ${report.caseId}`);
+  await applyManagedOverwrites(target, overwrites, `Nexus Sentinal current-authority reconciliation ${report.caseId}`);
   store?.set?.(report.caseId, { staffRoleIds, ownerIds });
   return {
     ok: true,

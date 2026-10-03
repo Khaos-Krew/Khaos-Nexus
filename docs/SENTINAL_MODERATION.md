@@ -18,7 +18,9 @@ Rules:
 - The guild owner passes `isStaffAdmin` / `isStaffModOrAbove`.
 - Empty or unset variables fail closed. No role grants access and behavior is exactly the pre-existing Administrator / owner / allow-list behavior.
 - Values that are not 17–20 digit snowflakes are ignored.
-- The guild id (`@everyone`) and managed bot roles never grant access, even when their ids are listed. Each ignored id is logged once.
+- The guild id (`@everyone`) and managed bot roles never grant access, even when their ids are listed. Each ignored id is logged once. Config load also drops the guild id from `NEXUS_OPERATOR_ROLE_IDS`.
+- An id listed in both staff admin and staff mod lists is mod-level only. It does not pass admin gates or `/clear`.
+- A role in `NEXUS_OPERATOR_ROLE_IDS` can use `/clear` when the member also has Manage Messages. A mod role id in that list still cannot.
 - Set the variables on every service that runs these gates: Sentinal, and the game bots that use the shared ops `isStaff` (Cephalon, Ascended, Sanctuary, Craft, Vanguard).
 
 Sites that accept the staff admin role in addition to their existing paths:
@@ -30,11 +32,11 @@ reuse it), and Sentinal privileged mention commands.
 
 ## `/clear amount:<1-100>`
 
-Staff channel cleanup command for staff admins only. A staff mod role does not grant it, even with Manage Messages.
+Staff channel cleanup. A staff mod role does not grant it, even with Manage Messages, and even if that same role id is also listed as a staff admin or an operator.
 
 - Operates only in the channel where the slash command is run.
 - Registered with `default_member_permissions = ManageGuild`, so Discord shows it to members who can manage the guild rather than every member who can manage messages.
-- Runtime check: the member must be a staff admin (staff admin role, guild owner, or Discord `Administrator`) **and** hold `Manage Messages` in Discord. Discord `Administrator` counts as Manage Messages. `isStaffModOrAbove` is not used here. The guild id and managed roles are ignored by the shared `roleIdsOf` helper, not by a `/clear`-only filter.
+- Runtime check: the member must hold `Manage Messages` (Discord `Administrator` counts) **and** be a staff admin (exclusive staff admin role, guild owner, or Discord `Administrator`) **or** hold a role in `NEXUS_OPERATOR_ROLE_IDS`. The guild id and managed roles are ignored by the shared `roleIdsOf` helper. An id that appears in both `NEXUS_STAFF_ADMIN_ROLE_IDS` and `NEXUS_STAFF_MOD_ROLE_IDS` is mod-level only and cannot clear.
 - Denial: `Only Admins can use /clear. Ask an Admin if something needs cleaning up.`
 - `amount` is required and accepts 1 through 100.
 - Uses Discord bulk deletion with old-message filtering enabled.

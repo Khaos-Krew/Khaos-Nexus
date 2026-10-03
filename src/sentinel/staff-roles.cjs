@@ -56,8 +56,15 @@ function hasAnyRole(subject, allowedIds) {
 
 // Role-only checks. Use these at sites that already have their own
 // Administrator / owner / allow-list paths.
+// An id listed as both admin and mod is mod-level only. It must not pass
+// admin gates, /clear, or any future ban gate. Distinct admin ids still do.
+function exclusiveStaffAdminRoleIds(env = process.env) {
+  const mods = new Set(staffModRoleIds(env));
+  return staffAdminRoleIds(env).filter((id) => !mods.has(id));
+}
+
 function hasStaffAdminRole(subject, env = process.env) {
-  return hasAnyRole(subject, staffAdminRoleIds(env));
+  return hasAnyRole(subject, exclusiveStaffAdminRoleIds(env));
 }
 
 function hasStaffModRole(subject, env = process.env) {

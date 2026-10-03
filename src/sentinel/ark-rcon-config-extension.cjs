@@ -223,7 +223,7 @@ async function handleCommand(interaction, config) {
   const sub = interaction.options.getSubcommand();
   const prefix = normalizePrefix(interaction.options.getString('server', true));
 
-  if (!isStaff(interaction, config)) throw new Error('ARK RCON controls require Nexus staff authorization.');
+  if (!isStaff(interaction, config)) throw new Error('ARK RCON controls require Nexus staff authorization. Ask an Admin.');
   if (['configure', 'password', 'setup', 'send', 'clear'].includes(sub) && !isOwner(interaction, config)) throw new Error('RCON configuration and raw command execution are restricted to the Nexus owner.');
 
   if (sub === 'password') {

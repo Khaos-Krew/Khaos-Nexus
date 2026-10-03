@@ -81,6 +81,38 @@ test('clear is limited to staff admins who can manage messages', () => {
   assert.equal(canClear(actor({ userId: OWNER }), {}), false);
 });
 
+test('an operator role with Manage Messages can clear, and a mod role cannot pass through either list', () => {
+  const operator = '1516640233389822099';
+  const env = { ...STAFF_ENV, NEXUS_OPERATOR_ROLE_IDS: `${operator},${MOD_ROLE},${GUILD},${BOT_ROLE}` };
+  assert.equal(canClear(actor({
+    bits: [PermissionFlagsBits.ManageMessages],
+    roles: [
+      { id: GUILD, name: '@everyone' },
+      { id: operator, name: 'Operator', managed: false }
+    ]
+  }), env), true);
+  assert.equal(canClear(actor({
+    bits: [PermissionFlagsBits.ManageMessages],
+    roles: [
+      { id: GUILD, name: '@everyone' },
+      { id: MOD_ROLE, name: 'Mod', managed: false }
+    ]
+  }), env), false);
+  assert.equal(canClear(actor({
+    bits: [PermissionFlagsBits.ManageMessages],
+    roles: [
+      { id: GUILD, name: '@everyone' },
+      { id: BOT_ROLE, name: 'Nexus Sentinal', managed: true }
+    ]
+  }), env), false);
+  assert.equal(canClear(actor({
+    roles: [{ id: operator, name: 'Operator', managed: false }]
+  }), { NEXUS_OPERATOR_ROLE_IDS: operator }), false);
+  assert.equal(canClear(actor({
+    bits: [PermissionFlagsBits.Administrator]
+  }), {}), true);
+});
+
 test('a staff mod with Manage Messages is denied /clear', () => {
   assert.equal(canClear(actor({
     bits: [PermissionFlagsBits.ManageMessages],

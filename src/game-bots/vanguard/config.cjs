@@ -102,8 +102,22 @@ function isEveryoneRole(id, role, guildId) {
   return Boolean(roleGuildId && text === roleGuildId);
 }
 
-function roleEntriesOf(interaction) {
-  const cache = interaction?.member?.roles?.cache;
+function roleCollectionOf(subject) {
+  if (!subject || typeof subject !== 'object') return null;
+  if (subject.member?.roles) return subject.member.roles;
+  if (subject.roles) return subject.roles;
+  return null;
+}
+
+function entriesFromList(list) {
+  return list.map((role) => [role?.id || role, role && typeof role === 'object' ? role : null]);
+}
+
+function roleEntriesOf(subject) {
+  const roles = roleCollectionOf(subject);
+  if (Array.isArray(roles)) return entriesFromList(roles);
+  const cache = roles && typeof roles === 'object' && roles.cache ? roles.cache : null;
+  if (Array.isArray(cache)) return entriesFromList(cache);
   if (cache && typeof cache.entries === 'function') {
     return [...cache.entries()].map(([key, role]) => [role?.id || key, role]);
   }
@@ -113,11 +127,22 @@ function roleEntriesOf(interaction) {
       return [role?.id || key, role];
     });
   }
-  if (Array.isArray(cache)) return cache.map((role) => [role?.id || role, role && typeof role === 'object' ? role : null]);
-  if (Array.isArray(interaction?.member?.roles)) {
-    return interaction.member.roles.map((role) => [role?.id || role, role && typeof role === 'object' ? role : null]);
-  }
+  if (Array.isArray(subject?.member?.roles)) return entriesFromList(subject.member.roles);
   return [];
+}
+
+function isGrantableStaffRole(role, guildId = '') {
+  const id = String(role?.id || '');
+  if (!id) return false;
+  if (isEveryoneRole(id, role, guildId || role?.guild?.id)) {
+    noteIgnoredStaffRole(id, '@everyone');
+    return false;
+  }
+  if (role?.managed === true) {
+    noteIgnoredStaffRole(id, 'managed');
+    return false;
+  }
+  return true;
 }
 
 // One filter for every staff-role gate. discord.js always includes @everyone
@@ -180,6 +205,7 @@ module.exports = {
   dataDir,
   lfgLimits,
   roleIdsOf,
+  isGrantableStaffRole,
   hasListedRole,
   hasStaffRole,
   statePaths

@@ -9,6 +9,7 @@ const { NEXUS_RANKS } = require('../shared/ranks.cjs');
 const { profileById } = require('../backend/services/poll-profiles.cjs');
 const { evaluatePoll, visibleResult } = require('../backend/services/poll-engine.cjs');
 const { findHqCategory, normalizedName } = require('./nexus-hq.cjs');
+const { hasListedRole, isGrantableStaffRole } = require('../game-bots/vanguard/config.cjs');
 
 const POLL_CHANNEL_NAME = 'polls';
 const POLL_CHANNEL_TOPIC = 'Nexus Sentinal managed polls, community decisions, scheduling votes, and governance results.';
@@ -150,8 +151,8 @@ function isAuthorizedPollManager(member, config = {}, guild = null) {
   const userId = String(member?.id || member?.user?.id || '');
   if (!userId) return false;
   if (configuredOwnerIds(config, guild).includes(userId)) return true;
-  const memberRoles = new Set(roleIdsFromMember(member));
-  if (configuredManagerRoleIds(config).some((roleId) => memberRoles.has(roleId))) return true;
+  const guildSubject = guild || member?.guild || null;
+  if (hasListedRole({ member, guild: guildSubject }, configuredManagerRoleIds(config))) return true;
   return Boolean(member?.permissions?.has?.(PermissionFlagsBits.Administrator)
     || member?.permissions?.has?.(PermissionFlagsBits.ManageGuild));
 }
@@ -171,11 +172,11 @@ function nexusRankRoleIds(roles, config = {}) {
 
 function pollManagerRoleIds(roles, config = {}) {
   const values = roles?.values ? [...roles.values()] : Array.isArray(roles) ? roles : [];
-  const existing = new Set(values.map((role) => String(role?.id || '')));
-  const explicit = configuredManagerRoleIds(config).filter((id) => existing.has(id));
+  const guildId = String(values.find((role) => role?.id && (role.name === '@everyone' || String(role.id) === String(role.guild?.id)))?.id || '');
+  const explicit = configuredManagerRoleIds(config).filter((id) => isGrantableStaffRole(values.find((role) => String(role?.id || '') === String(id)), guildId));
   if (explicit.length) return explicit;
   return values
-    .filter((role) => role && role.managed !== true)
+    .filter((role) => isGrantableStaffRole(role, guildId))
     .filter((role) => role.permissions?.has?.(PermissionFlagsBits.Administrator) || role.permissions?.has?.(PermissionFlagsBits.ManageGuild))
     .map((role) => String(role.id));
 }
