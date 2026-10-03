@@ -20,7 +20,7 @@ const {
   findStaffCategory,
   resolveStaffRoleIds,
   staffCategoryOverwrites,
-  overwriteSetMatches,
+  applyManagedOverwrites,
   adminCommandsPayload,
   roadmapPayload,
   staffHubPayload,
@@ -58,14 +58,13 @@ async function ensureStaffCategory(guild, client, config, channelsSnapshot = nul
     });
     channels?.set?.(String(category.id), category);
     created = true;
-  } else if (!overwriteSetMatches(category, overwrites)) {
-    await category.permissionOverwrites.set(overwrites, 'Nexus Sentinal staff workspace privacy reconciliation');
+  } else if (await applyManagedOverwrites(category, overwrites, 'Nexus Sentinal staff workspace privacy reconciliation')) {
     permissionsUpdated = true;
   }
-  return { category, created, permissionsUpdated, staffRoleIds, ownerIds };
+  return { category, created, permissionsUpdated, staffRoleIds, ownerIds, overwrites };
 }
 
-async function ensureManagedChannel(guild, category, definition, type, channelsSnapshot = null) {
+async function ensureManagedChannel(guild, category, definition, type, channelsSnapshot = null, overwrites = null) {
   const channels = channelsSnapshot || await guild.channels.fetch();
   let channel = channelNamed(channels, definition.name, type, category.id);
   let created = false;
@@ -86,11 +85,10 @@ async function ensureManagedChannel(guild, category, definition, type, channelsS
     channels?.set?.(String(channel.id), channel);
     created = true;
   } else if (String(channel.parentId || '') !== String(category.id)) {
-    await channel.setParent(category.id, { lockPermissions: true, reason: 'Nexus Sentinal staff workspace organization' });
+    await channel.setParent(category.id, { lockPermissions: false, reason: 'Nexus Sentinal staff workspace organization' });
     moved = true;
   }
-  if (!created && !moved && channel.permissionsLocked !== true && typeof channel.lockPermissions === 'function') {
-    await channel.lockPermissions('Nexus Sentinal staff workspace permission inheritance').catch(() => {});
+  if (!created && overwrites && await applyManagedOverwrites(channel, overwrites, 'Nexus Sentinal staff workspace permission reconciliation')) {
     permissionsLocked = true;
   }
   if (definition.topic && [ChannelType.GuildText, ChannelType.GuildForum].includes(channel.type) && String(channel.topic || '') !== definition.topic) {
@@ -100,7 +98,7 @@ async function ensureManagedChannel(guild, category, definition, type, channelsS
   return { channel, created, moved, permissionsLocked, topicUpdated };
 }
 
-async function ensureStaffOfficesForum(guild, category, channelsSnapshot = null) {
+async function ensureStaffOfficesForum(guild, category, channelsSnapshot = null, overwrites = null) {
   const channels = channelsSnapshot || await guild.channels.fetch();
   let forum = channelNamed(channels, STAFF_OFFICES_FORUM.name, ChannelType.GuildForum, category.id);
   let created = false;
@@ -139,12 +137,11 @@ async function ensureStaffOfficesForum(guild, category, channelsSnapshot = null)
     channels?.set?.(String(forum.id), forum);
     created = true;
   } else if (String(forum.parentId || '') !== String(category.id)) {
-    await forum.setParent(category.id, { lockPermissions: true, reason: 'Nexus Sentinal staff offices forum organization' });
+    await forum.setParent(category.id, { lockPermissions: false, reason: 'Nexus Sentinal staff offices forum organization' });
     moved = true;
   }
 
-  if (!created && !moved && forum.permissionsLocked !== true && typeof forum.lockPermissions === 'function') {
-    await forum.lockPermissions('Nexus Sentinal staff offices permission inheritance').catch(() => {});
+  if (!created && overwrites && await applyManagedOverwrites(forum, overwrites, 'Nexus Sentinal staff offices permission reconciliation')) {
     permissionsLocked = true;
   }
   if (String(forum.topic || '') !== STAFF_OFFICES_FORUM.topic) {
@@ -202,22 +199,25 @@ async function reconcileStaffWorkspace(client, config, options = {}) {
   const [channelsSnapshot, rolesSnapshot] = await Promise.all([guild.channels.fetch(), guild.roles.fetch()]);
   const categoryResult = await ensureStaffCategory(guild, client, config, channelsSnapshot, rolesSnapshot);
   const channelResults = {};
+  const overwrites = categoryResult.overwrites;
   for (const definition of MANAGED_TEXT_CHANNELS) {
     channelResults[definition.name] = await ensureManagedChannel(
       guild,
       categoryResult.category,
       definition,
       ChannelType.GuildText,
-      channelsSnapshot
+      channelsSnapshot,
+      overwrites
     );
   }
-  channelResults['staff-offices'] = await ensureStaffOfficesForum(guild, categoryResult.category, channelsSnapshot);
+  channelResults['staff-offices'] = await ensureStaffOfficesForum(guild, categoryResult.category, channelsSnapshot, overwrites);
   channelResults.voice = await ensureManagedChannel(
     guild,
     categoryResult.category,
     MANAGED_VOICE_CHANNEL,
     ChannelType.GuildVoice,
-    channelsSnapshot
+    channelsSnapshot,
+    overwrites
   );
 
   const channels = Object.fromEntries(MANAGED_TEXT_CHANNELS.map((definition) => [definition.name, channelResults[definition.name].channel]));

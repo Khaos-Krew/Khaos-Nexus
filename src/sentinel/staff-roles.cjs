@@ -49,8 +49,9 @@ function hasAnyRole(subject, allowedIds) {
   if (!allowedIds.length) return false;
   const { member } = resolveSubject(subject);
   if (!member) return false;
-  const allowed = new Set(allowedIds);
-  return roleIdsOf({ member }).some((id) => allowed.has(String(id)));
+  const guild = subject?.guild || member.guild || null;
+  const allowed = new Set(allowedIds.map(String));
+  return roleIdsOf({ member, guild }).some((id) => allowed.has(String(id)));
 }
 
 // Role-only checks. Use these at sites that already have their own

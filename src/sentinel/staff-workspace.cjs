@@ -82,6 +82,67 @@ function overwriteSetMatches(channel, desiredEntries = []) {
   });
 }
 
+function existingOverwriteEntries(channel) {
+  const cache = channel?.permissionOverwrites?.cache;
+  if (!cache) return [];
+  return valuesOf(cache).map((entry) => ({
+    id: String(entry?.id || ''),
+    type: Number(entry?.type ?? OverwriteType.Role),
+    allow: entry?.allow,
+    deny: entry?.deny
+  })).filter((entry) => entry.id);
+}
+
+function managedOverwritesMatch(channel, desiredEntries = []) {
+  const desired = normalizedOverwritePlan(desiredEntries);
+  if (!desired.length) return true;
+  const actual = new Map(existingOverwriteEntries(channel).map((entry) => {
+    const type = Number(entry.type ?? OverwriteType.Role);
+    return [`${type}:${entry.id}`, {
+      allow: overwriteMask(entry.allow),
+      deny: overwriteMask(entry.deny)
+    }];
+  }));
+  return desired.every((entry) => {
+    const found = actual.get(`${entry.type}:${entry.id}`);
+    return Boolean(found && found.allow === entry.allow && found.deny === entry.deny);
+  });
+}
+
+// Keep every overwrite whose target this sync does not manage. Managed targets
+// are replaced by the desired plan. Callers must not delete Community Manager,
+// Bots, or any other role they do not own.
+function mergeOverwritePlan(existingEntries = [], desiredEntries = []) {
+  const desired = normalizedOverwritePlan(desiredEntries);
+  const managed = new Set(desired.map((entry) => `${entry.type}:${entry.id}`));
+  const preserved = [];
+  for (const entry of existingEntries) {
+    const id = String(entry?.id || '');
+    if (!id) continue;
+    const type = Number(entry?.type ?? OverwriteType.Role);
+    if (managed.has(`${type}:${id}`)) continue;
+    preserved.push({
+      id,
+      type,
+      allow: overwriteMask(entry.allow),
+      deny: overwriteMask(entry.deny)
+    });
+  }
+  if (!preserved.length) return desiredEntries;
+  return [
+    ...desired.map((entry) => ({ id: entry.id, type: entry.type, allow: entry.allow, deny: entry.deny })),
+    ...preserved
+  ];
+}
+
+async function applyManagedOverwrites(channel, desiredEntries = [], reason = '') {
+  if (!channel?.permissionOverwrites?.set) return false;
+  if (managedOverwritesMatch(channel, desiredEntries)) return false;
+  const merged = mergeOverwritePlan(existingOverwriteEntries(channel), desiredEntries);
+  await channel.permissionOverwrites.set(merged, reason);
+  return true;
+}
+
 function isPrivateSafeText(value) {
   const text = String(value || '');
   return !PRIVATE_DENYLIST.some((pattern) => pattern.test(text));
@@ -338,6 +399,10 @@ module.exports = {
   overwriteMask,
   normalizedOverwritePlan,
   overwriteSetMatches,
+  existingOverwriteEntries,
+  managedOverwritesMatch,
+  mergeOverwritePlan,
+  applyManagedOverwrites,
   isPrivateSafeText,
   findStaffCategory,
   resolveStaffRoleIds,

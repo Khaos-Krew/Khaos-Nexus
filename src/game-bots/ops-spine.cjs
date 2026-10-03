@@ -9,7 +9,7 @@ const { STAGE_HELP, stageCommandNames } = require('./stage-catalog.cjs');
 const { healthSummaryLines, resolveHealthPrefixes } = require('./ascended-rcon-health.cjs');
 const { BOT_LABELS, errorClass, reportCommandFailure, setGameBotMeta } = require('./command-failure.cjs');
 const { normalizeBot, resolveCategoryConfig } = require('./category-gate.cjs');
-const { hasStaffRole } = require('./vanguard/config.cjs');
+const { hasListedRole, hasStaffRole } = require('./vanguard/config.cjs');
 const { sanctuaryHelpText, categoryGateLabel, resolveButtonChannel, buttonChannelLabel } = require('../sentinel/sanctuary-suite.cjs');
 const { jtcStatusLine } = require('./join-to-create.cjs');
 const { clusterStaffLine } = require('./asa-cluster-presence.cjs');
@@ -85,8 +85,7 @@ function isStaff(interaction, config = {}, env = process.env) {
   if (owners.has(userId)) return true;
   if (interaction?.memberPermissions?.has?.(PermissionFlagsBits.Administrator)) return true;
   if (hasStaffAdminRole(interaction, env)) return true;
-  const operatorRoles = new Set((config.discord?.operatorRoleIds || []).map(String));
-  return Boolean(interaction?.member?.roles?.cache?.some?.((role) => operatorRoles.has(String(role.id))));
+  return hasListedRole(interaction, config.discord?.operatorRoleIds);
 }
 
 function deployTip(env = process.env) {

@@ -3,6 +3,7 @@
 const { Client, Events, MessageFlags, SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const SftpClient = require('ssh2-sftp-client');
 const { loadConfig } = require('../shared/config.cjs');
+const { hasListedRole } = require('../game-bots/vanguard/config.cjs');
 const { hasStaffAdminRole } = require('./staff-roles.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { CACHE_POOLS } = require('./ark-dino-cache-engine.cjs');
@@ -104,8 +105,7 @@ function isStaff(interaction, config, env = process.env) {
   if (owners.has(userId)) return true;
   if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
   if (hasStaffAdminRole(interaction, env)) return true;
-  const operatorRoles = new Set((config.discord?.operatorRoleIds || []).map(String));
-  return interaction.member?.roles?.cache?.some?.((role) => operatorRoles.has(String(role.id))) || false;
+  return hasListedRole(interaction, config.discord?.operatorRoleIds);
 }
 
 function isOwner(interaction, config) {

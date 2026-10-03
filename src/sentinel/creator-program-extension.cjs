@@ -17,7 +17,7 @@ const {
 } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { StateStore } = require('./state-store.cjs');
-const { findStaffCategory, resolveStaffRoleIds } = require('./staff-workspace.cjs');
+const { findStaffCategory, resolveStaffRoleIds, applyManagedOverwrites } = require('./staff-workspace.cjs');
 const { managedPayloadMatches } = require('./managed-payload-compare.cjs');
 const { findInformationCategory } = require('./nexus-status.cjs');
 const { parsePlatforms, extractCreatorHandles, handleCreatorPost } = require('./creator-post.cjs');
@@ -170,7 +170,7 @@ async function ensureTextChannel(guild, category, name, topic, overwrites) {
     }
   }
   if (String(channel.topic || '') !== topic && typeof channel.setTopic === 'function') await channel.setTopic(topic, 'Maintain Khaos Nexus creator program channel topic');
-  if (channel.permissionOverwrites?.set) await channel.permissionOverwrites.set(overwrites, 'Maintain Khaos Nexus creator program permissions');
+  await applyManagedOverwrites(channel, overwrites, 'Maintain Khaos Nexus creator program permissions');
   return { channel, created, moved };
 }
 
@@ -214,7 +214,7 @@ async function ensureReviewChannel(guild, config, botId) {
       created = true;
     }
   }
-  if (channel.permissionOverwrites?.set) await channel.permissionOverwrites.set(reviewOverwrites(guild, botId, staffRoleIds, owners), 'Protect Khaos Nexus creator application review');
+  await applyManagedOverwrites(channel, reviewOverwrites(guild, botId, staffRoleIds, owners), 'Protect Khaos Nexus creator application review');
   return { channel, created, moved, staffRoleIds, owners };
 }
 

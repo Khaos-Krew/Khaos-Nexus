@@ -1,11 +1,11 @@
 'use strict';
 
-const { Client, Events, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } = require('discord.js');
+const { Client, Events, MessageFlags, SlashCommandBuilder } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { normalizeRequiredOptions } = require('./discord-command-schema.cjs');
 const { ForgeClient } = require('./forge-client.cjs');
 const { ForgeWorkerClient } = require('./forge-worker-client.cjs');
-const { hasStaffAdminRole } = require('./staff-roles.cjs');
+const { memberIsOperator } = require('./forge-staff.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.forge.control-plane.extension');
 
@@ -33,14 +33,6 @@ function commandDefinition() {
           { name: 'ARK server/config', value: 'ark' },
           { name: 'General', value: 'general' }
         )));
-}
-
-function memberIsOperator(interaction, config, env = process.env) {
-  if ((config.discord?.ownerUserIds || []).includes(String(interaction.user?.id || ''))) return true;
-  if (interaction.memberPermissions?.has?.(PermissionFlagsBits.Administrator)) return true;
-  if (hasStaffAdminRole(interaction, env)) return true;
-  const roles = interaction.member?.roles?.cache;
-  return Boolean(roles && (config.discord?.operatorRoleIds || []).some((id) => roles.has(String(id))));
 }
 
 function compactHealth(result, lane) {

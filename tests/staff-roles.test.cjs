@@ -131,3 +131,118 @@ test('allow-list sites accept the staff admin role and keep fail-closed behavior
   assert.equal(memberIsAdmin(msg(member([ADMIN_ROLE])), { discord: {} }, {}), false);
   assert.equal(memberIsAdmin(msg(member([], [PermissionFlagsBits.Administrator])), { discord: {} }, {}), true);
 });
+
+const GUILD_ID = '1016059608789434408';
+const MANAGED_ROLE = '555555555555555555';
+const LOG_GUILD = '121212121212121212';
+const LOG_MANAGED = '131313131313131313';
+
+function everyoneCache(extra = [], guildId = GUILD_ID) {
+  const entries = [[guildId, { id: guildId, name: '@everyone', managed: false }]];
+  for (const role of extra) entries.push([role.id, role]);
+  return new Map(entries);
+}
+
+function gatedMember(extra = [], { userId = '333333333333333333', guildId = GUILD_ID, perms = [] } = {}) {
+  const cache = everyoneCache(extra, guildId);
+  const member = {
+    id: userId,
+    guild: { id: guildId, ownerId: OWNER_ID },
+    roles: { cache },
+    permissions: { has: (bit) => perms.includes(bit) }
+  };
+  return {
+    id: userId,
+    user: { id: userId },
+    author: { id: userId },
+    guild: { id: guildId, ownerId: OWNER_ID },
+    member,
+    memberPermissions: { has: (bit) => perms.includes(bit) }
+  };
+}
+
+function adminSites() {
+  const { isCardAdmin } = require('../src/sentinel/card/card-config.cjs');
+  const { isStaff: arkRconIsStaff } = require('../src/sentinel/ark-rcon-config-extension.cjs');
+  const { isStaff: opsIsStaff } = require('../src/game-bots/ops-spine.cjs');
+  const { isStaff: arkServerIsStaff } = require('../src/sentinel/ark-server-controls-extension.cjs');
+  const { isStaff: arkOpsIsStaff } = require('../src/sentinel/ark-ops-extension.cjs');
+  const { memberIsOperator } = require('../src/sentinel/forge-staff.cjs');
+  const { memberIsAdmin } = require('../src/sentinel/mention-response-extension.cjs');
+  return [
+    ['staff admin', (subject, env, config) => isStaffAdmin(subject, env)],
+    ['card admin', (subject, env, config) => isCardAdmin(subject, config, env)],
+    ['ark rcon', (subject, env, config) => arkRconIsStaff(subject, config, env)],
+    ['ark server', (subject, env, config) => arkServerIsStaff(subject, config, env)],
+    ['ark ops', (subject, env, config) => arkOpsIsStaff(subject, config, env)],
+    ['ops spine', (subject, env, config) => opsIsStaff(subject, config, env)],
+    ['forge', (subject, env, config) => memberIsOperator(subject, config, env)],
+    ['mention', (subject, env, config) => memberIsAdmin(subject, config, env)]
+  ];
+}
+
+test('guild id listed as a staff admin role grants nothing at any admin gate', () => {
+  const env = { NEXUS_STAFF_ADMIN_ROLE_IDS: GUILD_ID, NEXUS_STAFF_MOD_ROLE_IDS: '' };
+  const subject = gatedMember();
+  const config = { discord: { operatorRoleIds: [], ownerUserIds: [] } };
+  for (const [name, allow] of adminSites()) {
+    assert.equal(allow(subject, env, config), false, name);
+  }
+});
+
+test('guild id listed as a staff mod role does not grant /clear', () => {
+  const { canClear } = require('../src/sentinel/moderation-commands.cjs');
+  const env = { NEXUS_STAFF_ADMIN_ROLE_IDS: '', NEXUS_STAFF_MOD_ROLE_IDS: GUILD_ID };
+  const subject = gatedMember([], { perms: [PermissionFlagsBits.ManageMessages] });
+  assert.equal(canClear(subject, env), false);
+});
+
+test('a real admin role still passes when the guild id is also listed', () => {
+  const env = { NEXUS_STAFF_ADMIN_ROLE_IDS: `${GUILD_ID}, ${ADMIN_ROLE}`, NEXUS_STAFF_MOD_ROLE_IDS: GUILD_ID };
+  const subject = gatedMember([{ id: ADMIN_ROLE, name: 'Admin', managed: false }], { perms: [PermissionFlagsBits.ManageMessages] });
+  const config = { discord: { operatorRoleIds: [], ownerUserIds: [] } };
+  for (const [name, allow] of adminSites()) {
+    assert.equal(allow(subject, env, config), true, name);
+  }
+  const { canClear } = require('../src/sentinel/moderation-commands.cjs');
+  assert.equal(canClear(subject, env), true);
+});
+
+test('a managed bot role listed as staff admin grants nothing', () => {
+  const env = { NEXUS_STAFF_ADMIN_ROLE_IDS: MANAGED_ROLE, NEXUS_STAFF_MOD_ROLE_IDS: '' };
+  const subject = gatedMember([{ id: MANAGED_ROLE, name: 'Bots', managed: true }]);
+  const config = { discord: { operatorRoleIds: [], ownerUserIds: [] } };
+  for (const [name, allow] of adminSites()) {
+    assert.equal(allow(subject, env, config), false, name);
+  }
+});
+
+test('guild id in operator roles and Vanguard staff roles grants nothing', () => {
+  const { hasStaffRole } = require('../src/game-bots/vanguard/config.cjs');
+  const env = { VANGUARD_STAFF_ROLE_IDS: GUILD_ID, NEXUS_STAFF_ADMIN_ROLE_IDS: '', NEXUS_STAFF_MOD_ROLE_IDS: '' };
+  const subject = gatedMember();
+  const config = { discord: { operatorRoleIds: [GUILD_ID], ownerUserIds: [] } };
+  assert.equal(hasStaffRole(subject, env), false);
+  for (const [name, allow] of adminSites()) {
+    assert.equal(allow(subject, env, config), false, name);
+  }
+});
+
+test('ignored @everyone and managed role ids are logged once each', () => {
+  const warnings = [];
+  const original = console.warn;
+  console.warn = (...args) => warnings.push(args.join(' '));
+  try {
+    const env = { NEXUS_STAFF_ADMIN_ROLE_IDS: `${LOG_GUILD},${LOG_MANAGED}` };
+    const subject = gatedMember(
+      [{ id: LOG_MANAGED, name: 'Bots', managed: true }],
+      { guildId: LOG_GUILD }
+    );
+    assert.equal(isStaffAdmin(subject, env), false);
+    assert.equal(isStaffAdmin(subject, env), false);
+    assert.equal(warnings.filter((line) => line.includes(LOG_GUILD)).length, 1);
+    assert.equal(warnings.filter((line) => line.includes(LOG_MANAGED)).length, 1);
+  } finally {
+    console.warn = original;
+  }
+});

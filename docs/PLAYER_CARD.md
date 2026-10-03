@@ -32,7 +32,7 @@ The searcher must have been in the guild for 7 days, must not be timed out, and 
 
 Limits are 10 lookups per 10 minutes, 30 per 24 hours, a 15-minute cooldown after 5 misses in a row, and 300 lookups per hour for the whole guild. The guild limit fails closed and alerts staff once when it trips.
 
-`/card admin find` is the only way to see a hidden or non-findable card. It requires Administrator, the staff admin role (`NEXUS_STAFF_ADMIN_ROLE_IDS`), or the O9 admin allow-list, a reason of 3 to 200 characters, and it is audited for 365 days, including denied attempts. Staff must not repost those results. Member lookup rows keep the folded query and result IDs for 30 days, then only counts remain.
+`/card admin find` is the only way to see a hidden or non-findable card. It requires a staff Admin (Discord Administrator, the staff admin role in `NEXUS_STAFF_ADMIN_ROLE_IDS`, or a configured admin user), a reason of 3 to 200 characters, and it is audited for 365 days, including denied attempts. Staff must not repost those results. Member lookup rows keep the folded query and result IDs for 30 days, then only counts remain.
 
 ## Card image rollback
 

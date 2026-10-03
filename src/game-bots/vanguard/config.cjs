@@ -79,21 +79,77 @@ function lfgLimits(env = process.env) {
   };
 }
 
-function roleIdsOf(interaction) {
+const ignoredStaffRoleIds = new Set();
+
+function guildIdOf(subject) {
+  if (!subject || typeof subject !== 'object') return '';
+  return String(subject.guild?.id || subject.member?.guild?.id || subject.guildId || '');
+}
+
+function noteIgnoredStaffRole(id, reason) {
+  const key = `${reason}:${String(id)}`;
+  if (ignoredStaffRoleIds.has(key)) return;
+  ignoredStaffRoleIds.add(key);
+  console.warn(`[Nexus staff roles] ignoring ${reason} role id ${id}`);
+}
+
+function isEveryoneRole(id, role, guildId) {
+  const text = String(id || role?.id || '');
+  if (!text) return false;
+  if (guildId && text === String(guildId)) return true;
+  if (role?.name === '@everyone') return true;
+  const roleGuildId = String(role?.guild?.id || '');
+  return Boolean(roleGuildId && text === roleGuildId);
+}
+
+function roleEntriesOf(interaction) {
   const cache = interaction?.member?.roles?.cache;
-  if (!cache) {
-    if (Array.isArray(interaction?.member?.roles)) return interaction.member.roles.map(String);
-    return [];
+  if (cache && typeof cache.entries === 'function') {
+    return [...cache.entries()].map(([key, role]) => [role?.id || key, role]);
   }
-  if (typeof cache.keys === 'function') return [...cache.keys()].map(String);
-  if (Array.isArray(cache)) return cache.map(String);
+  if (cache && typeof cache.keys === 'function') {
+    return [...cache.keys()].map((key) => {
+      const role = typeof cache.get === 'function' ? cache.get(key) : null;
+      return [role?.id || key, role];
+    });
+  }
+  if (Array.isArray(cache)) return cache.map((role) => [role?.id || role, role && typeof role === 'object' ? role : null]);
+  if (Array.isArray(interaction?.member?.roles)) {
+    return interaction.member.roles.map((role) => [role?.id || role, role && typeof role === 'object' ? role : null]);
+  }
   return [];
 }
 
-function hasStaffRole(interaction, env = process.env) {
-  const allowed = new Set(csvIds(env.VANGUARD_STAFF_ROLE_IDS));
+// One filter for every staff-role gate. discord.js always includes @everyone
+// (id === guild.id) on a member, and bot roles are managed. Neither may grant
+// staff access, even when that id is listed in an env var.
+function roleIdsOf(interaction) {
+  const guildId = guildIdOf(interaction);
+  const ids = [];
+  for (const [rawId, role] of roleEntriesOf(interaction)) {
+    const id = String(rawId || '');
+    if (!id) continue;
+    if (isEveryoneRole(id, role, guildId)) {
+      noteIgnoredStaffRole(id, '@everyone');
+      continue;
+    }
+    if (role?.managed === true) {
+      noteIgnoredStaffRole(id, 'managed');
+      continue;
+    }
+    ids.push(id);
+  }
+  return ids;
+}
+
+function hasListedRole(subject, roleIds) {
+  const allowed = new Set((Array.isArray(roleIds) ? roleIds : []).map((id) => String(id || '').trim()).filter(Boolean));
   if (!allowed.size) return false;
-  return roleIdsOf(interaction).some((id) => allowed.has(id));
+  return roleIdsOf(subject).some((id) => allowed.has(id));
+}
+
+function hasStaffRole(interaction, env = process.env) {
+  return hasListedRole(interaction, csvIds(env.VANGUARD_STAFF_ROLE_IDS));
 }
 
 function statePaths(env = process.env) {
@@ -124,6 +180,7 @@ module.exports = {
   dataDir,
   lfgLimits,
   roleIdsOf,
+  hasListedRole,
   hasStaffRole,
   statePaths
 };

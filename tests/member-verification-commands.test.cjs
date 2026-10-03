@@ -68,7 +68,7 @@ test('/o9verify: handler rejects a staff mod before touching the store', async (
     const handled = await handleMemberVerificationInteraction(interaction, { storeFactory: () => { storeTouched = true; return {}; } });
     assert.equal(handled, true);
     assert.equal(storeTouched, false);
-    assert.match(reply.content, /restricted to Nexus staff admins/);
+    assert.match(reply.content, /Only staff Admins can use this/);
   } finally {
     if (prior.a === undefined) delete process.env.NEXUS_STAFF_ADMIN_ROLE_IDS; else process.env.NEXUS_STAFF_ADMIN_ROLE_IDS = prior.a;
     if (prior.m === undefined) delete process.env.NEXUS_STAFF_MOD_ROLE_IDS; else process.env.NEXUS_STAFF_MOD_ROLE_IDS = prior.m;

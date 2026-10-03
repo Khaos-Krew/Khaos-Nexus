@@ -2,6 +2,7 @@
 
 const { Client, Events, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } = require('discord.js');
 const { reportCommandFailure } = require('../game-bots/command-failure.cjs');
+const { hasListedRole } = require('../game-bots/vanguard/config.cjs');
 const { hasStaffAdminRole } = require('./staff-roles.cjs');
 const { loadConfig } = require('../shared/config.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
@@ -36,8 +37,7 @@ function isStaff(interaction, config = {}, env = process.env) {
   if (isOwner(interaction, config)) return true;
   if (interaction.memberPermissions?.has?.(PermissionFlagsBits.Administrator)) return true;
   if (hasStaffAdminRole(interaction, env)) return true;
-  const operatorRoles = new Set((config.discord?.operatorRoleIds || []).map(String));
-  return interaction.member?.roles?.cache?.some?.((role) => operatorRoles.has(String(role.id))) || false;
+  return hasListedRole(interaction, config.discord?.operatorRoleIds);
 }
 
 function configuredPrefixes(registry = new ArkClusterRegistry()) {

@@ -95,7 +95,7 @@ function cardCommandDefinition({ findEnabled = false } = {}) {
       .setDescription('Administrator player-card tools')
       .addSubcommand((sub) => sub
         .setName('clear')
-        .setDescription('Remove a player tag. Requires Administrator, staff admin, or O9 allow-list.')
+        .setDescription('Remove a player tag. Only staff Admins can use this.')
         .addUserOption((option) => option.setName('user').setDescription('Player').setRequired(true))
         .addStringOption((option) => option.setName('reason').setDescription('Why this tag is being removed').setRequired(true).setMinLength(3).setMaxLength(200))
         .addStringOption((option) => option.setName('game').setDescription('Game tag to remove').setRequired(false).setAutocomplete(true))
@@ -581,7 +581,7 @@ async function handleFind(interaction, deps, { staff = false } = {}) {
     const reason = String(interaction.options.getString('reason') || '').trim();
     if (!isCardAdmin(interaction, deps.config || {})) {
       await auditAdminFindDenied(deps, interaction, reason);
-      await deliver(interaction, { content: 'You need Administrator, the staff admin role, or the O9 admin allow-list, to find a tag.' }, { ephemeral: true });
+      await deliver(interaction, { content: 'Only staff Admins can use this. Ask an Admin if you need it.' }, { ephemeral: true });
       return;
     }
     if (reason.length < 3 || reason.length > 200) {
@@ -688,7 +688,7 @@ async function handlePrivacy(interaction, deps) {
 
 async function handleAdminClear(interaction, deps) {
   if (!isCardAdmin(interaction, deps.config || {})) {
-    await deliver(interaction, { content: 'You need Administrator, the staff admin role, or the O9 admin allow-list, to clear a tag.' }, { ephemeral: true });
+    await deliver(interaction, { content: 'Only staff Admins can use this. Ask an Admin if you need it.' }, { ephemeral: true });
     return;
   }
   const reason = String(interaction.options.getString('reason') || '').trim();

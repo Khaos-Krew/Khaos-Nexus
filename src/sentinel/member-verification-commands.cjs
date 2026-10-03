@@ -81,7 +81,7 @@ async function handleMemberVerificationInteraction(interaction, {
 
   if (!canGrant(interaction)) {
     await interaction.reply({
-      content: '⚠️ `/o9verify` is restricted to Nexus staff admins.',
+      content: 'Only staff Admins can use this. Ask an Admin if you need it.',
       flags: MessageFlags.Ephemeral
     });
     return true;

@@ -18,6 +18,7 @@ Rules:
 - The guild owner passes `isStaffAdmin` / `isStaffModOrAbove`.
 - Empty or unset variables fail closed. No role grants access and behavior is exactly the pre-existing Administrator / owner / allow-list behavior.
 - Values that are not 17–20 digit snowflakes are ignored.
+- The guild id (`@everyone`) and managed bot roles never grant access, even when their ids are listed. Each ignored id is logged once.
 - Set the variables on every service that runs these gates: Sentinal, and the game bots that use the shared ops `isStaff` (Cephalon, Ascended, Sanctuary, Craft, Vanguard).
 
 Sites that accept the staff admin role in addition to their existing paths:
