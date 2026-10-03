@@ -2,6 +2,7 @@
 
 const { createNexusEconomyPurchaseActionRequest } = require('./nexus-economy-purchase-action-request.cjs');
 const { normalizeCurrency } = require('./nexus-economy-postgres-repository.cjs');
+const { assertMemberAccount } = require('../shared/economy-system-accounts.cjs');
 
 function cleanId(value, label) {
   const id = String(value || '').trim();
@@ -59,7 +60,9 @@ class NexusEconomyWalletCore {
     if (typeof this.repository.getIdentityByLink !== 'function') throw new Error('Economy repository identity resolution is required.');
     const identity = await this.repository.getIdentityByLink('discord', discord);
     if (!identity || identity.status !== 'verified' || !identity.verified_at) throw new Error('Verified economic identity is required.');
-    return { discordUserId: discord, economicIdentityId: cleanId(identity.economic_identity_id ?? identity.economicIdentityId, 'Economic identity ID') };
+    const economicIdentityId = cleanId(identity.economic_identity_id ?? identity.economicIdentityId, 'Economic identity ID');
+    assertMemberAccount(economicIdentityId);
+    return { discordUserId: discord, economicIdentityId };
   }
 
   async balance(discordUserId, currency = 'NEXUS_POINTS') {
@@ -160,6 +163,7 @@ class NexusEconomyWalletCore {
     const resolved = await this.repository.resolveVerifiedIdentity({ discordUserId, eosId: eos });
     if (!resolved) throw new Error('Verified economic identity is required.');
     const economicIdentityId = cleanId(resolved.economic_identity_id ?? resolved.economicIdentityId, 'Economic identity ID');
+    assertMemberAccount(economicIdentityId);
 
     return this.repository.transact(economicIdentityId, normalizedCurrency, async (tx) => {
       const prior = await tx.findOrder(record.orderId);

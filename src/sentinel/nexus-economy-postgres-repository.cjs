@@ -94,7 +94,10 @@ class NexusEconomyPostgresRepository {
       `JOIN ${this.schema}.nexus_economic_identity_links l ON l.economic_identity_id = w.economic_identity_id\n` +
       `JOIN ${this.schema}.nexus_economic_identities i ON i.economic_identity_id = w.economic_identity_id\n` +
       `WHERE l.provider = 'discord' AND l.external_id = $1\n` +
-      `AND i.status IN ('verified', 'restricted') AND w.currency = $2`,
+      `AND i.status IN ('verified', 'restricted') AND w.currency = $2\n` +
+      `AND w.economic_identity_id NOT LIKE 'system:%'\n` +
+      `AND i.economic_identity_id NOT LIKE 'system:%'\n` +
+      `AND i.status <> 'system'`,
       [discord, normalizedCurrency]
     );
     return result.rows?.[0] || null;
@@ -114,6 +117,7 @@ class NexusEconomyPostgresRepository {
       `FROM ${this.schema}.nexus_economy_ledger x\n` +
       `JOIN ${this.schema}.nexus_economic_identity_links l ON l.economic_identity_id = x.economic_identity_id\n` +
       `WHERE l.provider = 'discord' AND l.external_id = $1 AND x.currency = $2\n` +
+      `AND x.economic_identity_id NOT LIKE 'system:%'\n` +
       `ORDER BY x.created_at DESC, x.id DESC\n` +
       `LIMIT $3`,
       [discord, normalizedCurrency, safeLimit]

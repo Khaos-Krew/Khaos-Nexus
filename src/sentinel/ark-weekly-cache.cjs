@@ -3,6 +3,7 @@ const crypto = require('node:crypto');
 const { CONFIG: BASE, deterministicRng } = require('./ark-dino-cache-engine.cjs');
 const WEEK = 7 * 86400000;
 const WEEKLY_PRICE = 900;
+const WEEKLY_CACHE_RETIRED = true;
 // Explicit ASA Island allowlist; no DLC/mod creature is implicitly approved.
 const APPROVED = new Set(['Parasaur','Moschops','Carbonemys','Trike','Pteranodon','Raptor','Carnotaurus','Dire Bear','Therizinosaur','Thylacoleo','Sarco','Beelzebufo','Kaprosuchus','Baryonyx','Ankylosaurus','Doedicurus','Sabertooth','Argentavis','Allosaurus','Rex','Yutyrannus']);
 function weekStart(now = Date.now()) {
@@ -53,4 +54,4 @@ async function loadWeekly(db, secret, now = Date.now()) {
   current = applyCurrentPrice(validateSnapshot(rows[0]));
   return { ...current, announcedAt:rows[0].announced_at };
 }
-module.exports = { CONFIG, APPROVED, WEEK, WEEKLY_PRICE, weekStart, allowed, applyCurrentPrice, generateRotation, ensureWeeklySchema, validateSnapshot, loadWeekly, setArnPolicy };
+module.exports = { CONFIG, APPROVED, WEEK, WEEKLY_PRICE, WEEKLY_CACHE_RETIRED, weekStart, allowed, applyCurrentPrice, generateRotation, ensureWeeklySchema, validateSnapshot, loadWeekly, setArnPolicy };

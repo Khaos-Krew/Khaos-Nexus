@@ -16,6 +16,8 @@ COPY Dockerfile.sentinel ./Dockerfile.sentinel
 COPY Dockerfile.craft ./Dockerfile.craft
 COPY docs/ops/NEXUS_CRAFT.md ./docs/ops/NEXUS_CRAFT.md
 COPY docs/architecture/MC_POINTS_OWNER_DECISIONS_2026-10-01.md ./docs/architecture/MC_POINTS_OWNER_DECISIONS_2026-10-01.md
+COPY docs/architecture/ARK_NP_SHOP_REBUILD_PLAN_2026-10-02.md ./docs/architecture/ARK_NP_SHOP_REBUILD_PLAN_2026-10-02.md
+COPY docs/ops/LEGACY_BANK_FLAT.md ./docs/ops/LEGACY_BANK_FLAT.md
 COPY docs/WINDOWS_RELEASE_VALIDATION.md ./docs/WINDOWS_RELEASE_VALIDATION.md
 
 RUN npm run check && npm test

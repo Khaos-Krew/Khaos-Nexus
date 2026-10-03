@@ -165,6 +165,15 @@ class NexusEconomyClient {
   mcShopQuote(input) { return request('/mc-shop/quote', { method: 'POST', body: input }); }
   mcShopBuy(input) { return request('/mc-shop/buy', { method: 'POST', body: input, acceptedStatusCodes: [409] }); }
   mcClaimStarterKit(input) { return request('/mc/starter-kit/claim', { method: 'POST', body: input }); }
+
+  arkShopCatalog() { return request('/np-shop/catalog'); }
+  arkShopQuote(input) { return request('/np-shop/quote', { method: 'POST', body: input }); }
+  arkShopBuy(input) { return request('/np-shop/buy', { method: 'POST', body: input, acceptedStatusCodes: [409] }); }
+  arkClaimStarterKit(input) { return request('/ark/starter-kit/claim', { method: 'POST', body: input }); }
+  arkPoints(discordUserId) { return request(`/np-shop/activity/${encodeURIComponent(String(discordUserId || ''))}`); }
+  arkPendingOrders() { return request('/np-shop/orders/pending'); }
+  arkGrants() { return request('/ark/grants'); }
+  arkStaffResolve(input) { return request('/ark/staff/resolve', { method: 'POST', body: input }); }
 }
 
 module.exports = { configured, NexusEconomyClient };
