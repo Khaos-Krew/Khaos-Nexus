@@ -76,9 +76,7 @@ function entryMeta(value) {
     activityModeTypes: value.activityModeTypes,
     activityNames: stringList(value.activityNames),
     modifiers: stringList(value.modifiers || value.modifierNames),
-    featured: value.featured === true,
-    rotator: value.rotator === true,
-    isFocusedActivity: value.isFocusedActivity === true
+    weeklyChallenges: value.weeklyChallenges === true
   };
 }
 
@@ -128,15 +126,14 @@ function raidIdentity(name, hints, text) {
   return [...modeSet(hints.activityModeTypes)].some((mode) => RAID_MODES.has(mode));
 }
 
-function featuredSignal(name, hints) {
-  if (hints.featured === true || hints.rotator === true || hints.isFocusedActivity === true) return true;
-  const modifiers = modifierText(hints).toLowerCase();
-  if (/\bfeatured\b|\brotator\b/.test(modifiers)) return true;
-  const activities = Array.isArray(hints.activityNames) ? hints.activityNames.join(' ') : '';
-  const label = `${name || ''} ${hints.friendlyName || ''} ${activities}`.toLowerCase();
-  return /\bfeatured\b|\brotator\b/.test(label);
+// Featured this week means the public milestone activity has challenge objectives.
+// That array is DestinyPublicMilestoneChallengeActivity.challengeObjectiveHashes.
+function featuredSignal(hints) {
+  return hints.weeklyChallenges === true;
 }
 
+// Nightfall uses documented fields: milestone, activity, or modifier names, and
+// DestinyActivityDefinition modes 16, 17, 46, and 47.
 function nightfallIdentity(hints, text) {
   if (/\bnightfall\b|\bgrandmaster\b|\bordeal\b/.test(text)) return true;
   return [...modeSet(hints.activityModeTypes)].some((mode) => NIGHTFALL_MODES.has(mode));
@@ -149,7 +146,7 @@ function sectionFor(name, hints = {}) {
   const raid = raidIdentity(name, hints, text);
   const nightfall = nightfallIdentity(hints, text);
   if (nightfall && !raid) return 'nightfall';
-  if (raid) return featuredSignal(name, hints) ? 'raid' : null;
+  if (raid) return featuredSignal(hints) ? 'raid' : null;
   if (matchesKnown(name, KNOWN_PLAYLISTS)) return 'week';
   if (nightfall) return 'nightfall';
   if (/engram|reward|pinnacle|powerful|challenge/.test(text)) return 'rewards';
@@ -219,31 +216,31 @@ function visitLiveActivities(row, visit) {
   }
 }
 
+function hasChallengeObjectives(activity) {
+  const hashes = Array.isArray(activity?.challengeObjectiveHashes) ? activity.challengeObjectiveHashes : [];
+  return hashes.some((hash) => {
+    const number = Number(hash);
+    return Number.isInteger(number) && number !== 0;
+  });
+}
+
+function rowHasWeeklyChallenges(row) {
+  let found = false;
+  visitLiveActivities(row, (activity) => {
+    if (hasChallengeObjectives(activity)) found = true;
+  });
+  return found;
+}
+
 function liveSignals(row) {
   const modifierHashes = [];
-  const modifierNames = [];
   const modes = [];
-  let focused = row?.featured === true || row?.isFocusedActivity === true;
-  const rotator = row?.rotator === true;
   visitLiveActivities(row, (activity) => {
     if (!activity || typeof activity !== 'object') return;
     modes.push(...modesFromActivity(activity));
-    if (activity.isFocusedActivity === true) focused = true;
     for (const hash of Array.isArray(activity.modifierHashes) ? activity.modifierHashes : []) pushHash(modifierHashes, hash);
-    const listed = activity.modifiers || activity.modifierNames || [];
-    for (const modifier of Array.isArray(listed) ? listed : []) {
-      if (typeof modifier === 'string') {
-        const label = modifier.trim();
-        if (label) modifierNames.push(label);
-        continue;
-      }
-      if (!modifier || typeof modifier !== 'object') continue;
-      const label = String(modifier.displayProperties?.name || modifier.name || '').trim();
-      if (label) modifierNames.push(label);
-      pushHash(modifierHashes, modifier.activityModifierHash || modifier.hash);
-    }
   });
-  return { modifierHashes: [...new Set(modifierHashes)], modifierNames, modes, focused, rotator };
+  return { modifierHashes: [...new Set(modifierHashes)], modes };
 }
 
 function genericNightfallName(name) {
@@ -274,15 +271,13 @@ function describeMilestone(query, row) {
   const live = liveSignals(row);
   const activityModeTypes = [...live.modes];
   const activityNames = [];
-  let isFocusedActivity = live.focused;
   for (const activityHash of activityHashesFor(definition, row)) {
     const activity = lookupDefinition(query, 'DestinyActivityDefinition', activityHash);
     activityModeTypes.push(...modesFromActivity(activity));
-    if (activity?.isFocusedActivity === true) isFocusedActivity = true;
     const label = String(activity?.displayProperties?.name || '').trim();
     if (label) activityNames.push(label);
   }
-  const modifiers = [...live.modifierNames];
+  const modifiers = [];
   for (const modifierHash of live.modifierHashes) {
     const modifier = lookupDefinition(query, 'DestinyActivityModifierDefinition', modifierHash);
     const label = String(modifier?.displayProperties?.name || '').trim();
@@ -297,9 +292,7 @@ function describeMilestone(query, row) {
     activityModeTypes,
     activityNames,
     modifiers,
-    featured: row?.featured === true || isFocusedActivity,
-    rotator: live.rotator,
-    isFocusedActivity
+    weeklyChallenges: rowHasWeeklyChallenges(row)
   };
 }
 
@@ -331,7 +324,10 @@ function renderWeeklyReset({ milestones, names = new Map(), now = Date.now() } =
     const hash = String(row.milestoneHash || '');
     const meta = entryMeta(names.get(hash) || names.get(Number(hash)) || '');
     if (!meta.name) continue;
-    const section = sectionFor(meta.name, meta);
+    const section = sectionFor(meta.name, {
+      ...meta,
+      weeklyChallenges: meta.weeklyChallenges || rowHasWeeklyChallenges(row)
+    });
     if (!section || !buckets[section]) continue;
     buckets[section].push(meta.name);
   }

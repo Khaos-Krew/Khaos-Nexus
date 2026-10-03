@@ -7,6 +7,7 @@ const { describeMilestone, renderWeeklyReset, sectionFor } = require('../../src/
 const { boardEmbed, renderPost } = require('../../src/game-bots/vanguard/lfg/lfg-buttons.cjs');
 const { upsertOwnedPanel } = require('../../src/game-bots/vanguard/panels.cjs');
 const { DISCORD, messageCharacterCount, packSections } = require('../../src/game-bots/vanguard/panels/layout.cjs');
+const liveMilestones = require('./fixtures/bungie-milestones-2026-10-02.json');
 
 const NOW = Date.parse('2026-10-02T19:00:00Z');
 const RESET = '2026-10-06T17:00:00Z';
@@ -38,12 +39,13 @@ test('weekly reset stacks full sections and files raids, dungeons, and the night
   const rows = {};
   const names = new Map();
   const add = (hash, name, extra = {}) => {
-    rows[hash] = { milestoneHash: hash, endDate: RESET, ...extra.row };
+    rows[hash] = { milestoneHash: hash, endDate: RESET, activities: extra.activities || [], ...extra.row };
     names.set(String(hash), { name, ...extra.meta });
   };
+  const challenge = [{ activityHash: 1, challengeObjectiveHashes: [3767289993], modifierHashes: [] }];
   add(1, "King's Fall");
-  add(2, "Crota's End", { meta: { featured: true } });
-  add(3, 'Deep Stone Crypt', { meta: { modifiers: ['Weekly Featured'] } });
+  add(2, "Crota's End", { activities: challenge });
+  add(3, 'Deep Stone Crypt', { activities: challenge });
   add(4, 'Vault of Glass');
   add(5, 'Vow of the Disciple');
   add(6, 'Root of Nightmares');
@@ -51,14 +53,14 @@ test('weekly reset stacks full sections and files raids, dungeons, and the night
   add(8, 'Last Wish');
   add(9, 'Grasp of Avarice');
   add(10, 'The Corrupted', { meta: { activityModeTypes: [46] } });
+  add(14, 'Garden of Salvation');
+  add(15, 'The Desert Perpetual', { activities: challenge });
+  add(16, 'Ghosts of the Deep');
+  add(17, 'Shattered Throne');
+  add(18, 'Equilibrium', { activities: challenge });
   add(11, 'Crucible Rotator');
   add(12, 'Vanguard Ops');
   add(13, 'Weekly Clan Engrams');
-  add(14, 'Garden of Salvation');
-  add(15, 'Desert Perpetual');
-  add(16, 'Ghosts of the Deep', { meta: { isFocusedActivity: true } });
-  add(17, 'Shattered Throne', { meta: { rotator: true } });
-  add(18, 'Equilibrium');
   add(19, 'Pinnacle Ops');
   add(20, 'Weekly Pinnacle Challenge');
   const embed = renderWeeklyReset({ milestones: { Response: rows }, names, now: NOW });
@@ -71,10 +73,10 @@ test('weekly reset stacks full sections and files raids, dungeons, and the night
   assert.doesNotMatch(text, /\+ \d+ more|\+\d+ more/);
   assert.doesNotMatch(text, /"value":"None"/);
   const raids = fieldText(embed, 'Raid');
-  for (const name of ["Crota's End", 'Deep Stone Crypt', 'Ghosts of the Deep', 'Shattered Throne']) {
+  for (const name of ["Crota's End", 'Deep Stone Crypt', 'The Desert Perpetual', 'Equilibrium']) {
     assert.match(raids, new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
-  const pool = ["King's Fall", 'Vault of Glass', 'Vow of the Disciple', 'Root of Nightmares', "Salvation's Edge", 'Last Wish', 'Garden of Salvation', 'Desert Perpetual', 'Grasp of Avarice', 'Equilibrium'];
+  const pool = ["King's Fall", 'Vault of Glass', 'Vow of the Disciple', 'Root of Nightmares', "Salvation's Edge", 'Last Wish', 'Garden of Salvation', 'Grasp of Avarice', 'Ghosts of the Deep', 'Shattered Throne'];
   for (const name of pool) {
     const pattern = new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
     assert.doesNotMatch(raids, pattern);
@@ -103,12 +105,12 @@ test('weekly reset stacks full sections and files raids, dungeons, and the night
 test('milestone activity modes categorize a strike nightfall even when the name does not say nightfall', () => {
   assert.equal(sectionFor("King's Fall"), null);
   assert.equal(sectionFor("King's Fall", { activityModeTypes: [46] }), null);
-  assert.equal(sectionFor("King's Fall", { featured: true }), 'raid');
-  assert.equal(sectionFor("King's Fall", { activityModeTypes: [46], isFocusedActivity: true }), 'raid');
+  assert.equal(sectionFor("King's Fall", { weeklyChallenges: true }), 'raid');
+  assert.equal(sectionFor("King's Fall", { activityModeTypes: [46], weeklyChallenges: true }), 'raid');
   assert.equal(sectionFor('Prophecy'), null);
-  assert.equal(sectionFor('Prophecy', { rotator: true }), 'raid');
+  assert.equal(sectionFor('Prophecy', { weeklyChallenges: true }), 'raid');
   assert.equal(sectionFor('Equilibrium'), null);
-  assert.equal(sectionFor('Equilibrium', { modifiers: ['Weekly Featured'] }), 'raid');
+  assert.equal(sectionFor('Equilibrium', { weeklyChallenges: true }), 'raid');
   assert.equal(sectionFor('Pinnacle Ops'), 'week');
   assert.equal(sectionFor('Weekly Pinnacle Challenge'), 'rewards');
   assert.equal(sectionFor('The Corrupted', { activityModeTypes: [46] }), 'nightfall');
@@ -138,10 +140,10 @@ test('milestone activity modes categorize a strike nightfall even when the name 
     milestones: {
       Response: {
         5: { milestoneHash: 5, endDate: RESET, activities: [{ activityHash: 88 }] },
-        6: { milestoneHash: 6, endDate: RESET }
+        6: { milestoneHash: 6, endDate: RESET, activities: [{ activityHash: 1, challengeObjectiveHashes: [3767289993], modifierHashes: [] }] }
       }
     },
-    names: new Map([['5', described], ['6', { name: "King's Fall", featured: true }]]),
+    names: new Map([['5', described], ['6', { name: "King's Fall" }]]),
     now: NOW
   });
   assert.match(fieldText(embed, 'Nightfall'), /^The Corrupted$/);
@@ -149,76 +151,61 @@ test('milestone activity modes categorize a strike nightfall even when the name 
   assert.equal(embed.fields.find((field) => field.name.includes('This Week')), undefined);
 });
 
-test('weekly reset keeps the featured raid and dungeon rotation and shows a nightfall strike from activity data', () => {
+test('recorded public milestones list only the raids that have weekly challenge objectives', () => {
+  // Display names for the ten raid milestones in the 2026-10-02 recording.
+  // The three with challengeObjectiveHashes are Crota's End (540415767, activity 107319834),
+  // Deep Stone Crypt (541780856, activity 910380154), and The Desert Perpetual (3022338715, activity 1044919065).
+  const milestoneNames = {
+    292102995: "King's Fall",
+    540415767: "Crota's End",
+    541780856: 'Deep Stone Crypt',
+    1888320892: 'Vault of Glass',
+    2136320298: 'Vow of the Disciple',
+    2712317338: 'Garden of Salvation',
+    3022338715: 'The Desert Perpetual',
+    3181387331: 'Last Wish',
+    3699252268: 'Root of Nightmares',
+    4196566271: "Salvation's Edge"
+  };
   const query = {
     definition(table, hash) {
-      const id = Number(hash);
-      if (table === 'DestinyMilestoneDefinition' && id === 1) return { displayProperties: { name: 'Nightfall' }, friendlyName: 'Nightfall' };
-      if (table === 'DestinyMilestoneDefinition' && id === 2) return { displayProperties: { name: "Crota's End" }, friendlyName: 'Raid' };
-      if (table === 'DestinyMilestoneDefinition' && id === 3) return { displayProperties: { name: 'Ghosts of the Deep' }, friendlyName: 'Dungeon' };
-      if (table === 'DestinyMilestoneDefinition' && id === 4) return { displayProperties: { name: "King's Fall" }, friendlyName: 'Raid' };
-      if (table === 'DestinyActivityDefinition' && id === 88) return { displayProperties: { name: 'The Corrupted' }, directActivityModeType: 46 };
-      if (table === 'DestinyActivityDefinition' && id === 90) return { displayProperties: { name: "Crota's End" }, directActivityModeType: 4, isFocusedActivity: true };
-      if (table === 'DestinyActivityDefinition' && id === 91) return { displayProperties: { name: 'Ghosts of the Deep' }, directActivityModeType: 82 };
-      if (table === 'DestinyActivityDefinition' && id === 92) return { displayProperties: { name: "King's Fall" }, directActivityModeType: 4, isFocusedActivity: false };
-      if (table === 'DestinyActivityModifierDefinition' && id === 501) return { displayProperties: { name: 'Weekly Featured' } };
-      if (table === 'DestinyActivityModifierDefinition' && id === 502) return { displayProperties: { name: 'Nightfall' } };
+      const name = milestoneNames[Number(hash)];
+      if (table === 'DestinyMilestoneDefinition' && name) {
+        return { displayProperties: { name }, friendlyName: 'Raid' };
+      }
+      if (table === 'DestinyActivityModifierDefinition' && Number(hash) === 1783825372) {
+        return { displayProperties: { name: 'Normal' } };
+      }
       return null;
     }
   };
-  const nightfall = describeMilestone(query, { milestoneHash: 1, activities: [{ activityHash: 88, modifierHashes: [502] }] });
-  const crota = describeMilestone(query, { milestoneHash: 2, activities: [{ activityHash: 90 }] });
-  const ghosts = describeMilestone(query, { milestoneHash: 3, activities: [{ activityHash: 91, modifierHashes: [501] }] });
-  const kings = describeMilestone(query, { milestoneHash: 4, activities: [{ activityHash: 92 }] });
-  assert.equal(nightfall.name, 'The Corrupted');
-  assert.ok(nightfall.modifiers.includes('Nightfall'));
-  assert.ok(nightfall.activityModeTypes.includes(46));
-  assert.equal(crota.isFocusedActivity, true);
-  assert.ok(ghosts.modifiers.includes('Weekly Featured'));
-  assert.equal(kings.featured, false);
-  const embed = renderWeeklyReset({
+  const names = new Map();
+  for (const row of Object.values(liveMilestones.Response)) {
+    const described = describeMilestone(query, row);
+    if (described.name) names.set(String(row.milestoneHash), described);
+    if (milestoneNames[row.milestoneHash]) assert.equal(described.weeklyChallenges, [540415767, 541780856, 3022338715].includes(row.milestoneHash));
+  }
+  const embed = renderWeeklyReset({ milestones: liveMilestones, names, now: NOW });
+  assert.equal(fieldText(embed, 'Raid'), "Crota's End\nDeep Stone Crypt\nThe Desert Perpetual");
+  assert.equal(embed.fields.find((field) => field.name.includes('Nightfall')), undefined);
+  const pool = ["King's Fall", 'Vault of Glass', 'Vow of the Disciple', 'Garden of Salvation', 'Last Wish', 'Root of Nightmares', "Salvation's Edge"];
+  for (const name of pool) {
+    assert.doesNotMatch(fieldText(embed, 'Raid'), new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.doesNotMatch(fieldText(embed, 'This Week'), new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+  const dungeon = renderWeeklyReset({
     milestones: {
       Response: {
-        1: { milestoneHash: 1, endDate: RESET, activities: [{ activityHash: 88, modifierHashes: [502] }] },
-        2: { milestoneHash: 2, endDate: RESET, activities: [{ activityHash: 90 }] },
-        3: { milestoneHash: 3, endDate: RESET, activities: [{ activityHash: 91, modifierHashes: [501] }] },
-        4: { milestoneHash: 4, endDate: RESET, activities: [{ activityHash: 92 }] },
-        5: { milestoneHash: 5, endDate: RESET }
+        8: {
+          milestoneHash: 8,
+          activities: [{ activityHash: 1, challengeObjectiveHashes: [3767289993], modifierHashes: [1783825372], phaseHashes: [] }]
+        }
       }
     },
-    names: new Map([
-      ['1', nightfall],
-      ['2', crota],
-      ['3', ghosts],
-      ['4', kings],
-      ['5', { name: 'Vanguard Ops' }]
-    ]),
+    names: new Map([['8', { name: 'Equilibrium', friendlyName: 'Dungeon' }]]),
     now: NOW
   });
-  assert.match(fieldText(embed, 'Nightfall'), /The Corrupted/);
-  assert.match(fieldText(embed, 'Raid'), /Crota's End/);
-  assert.match(fieldText(embed, 'Raid'), /Ghosts of the Deep/);
-  assert.doesNotMatch(fieldText(embed, 'Raid'), /King's Fall/);
-  assert.doesNotMatch(fieldText(embed, 'This Week'), /King's Fall|Crota's End|Ghosts of the Deep|The Corrupted/);
-  const hidden = renderWeeklyReset({
-    milestones: {
-      Response: {
-        4: { milestoneHash: 4, endDate: RESET },
-        8: { milestoneHash: 8, endDate: RESET },
-        5: { milestoneHash: 5, endDate: RESET }
-      }
-    },
-    names: new Map([
-      ['4', { name: "King's Fall", friendlyName: 'Raid' }],
-      ['8', { name: 'Equilibrium', friendlyName: 'Dungeon' }],
-      ['5', { name: 'Vanguard Ops' }]
-    ]),
-    now: NOW
-  });
-  assert.equal(hidden.fields.find((field) => field.name.includes('Nightfall')), undefined);
-  assert.equal(hidden.fields.find((field) => field.name.includes('Raid')), undefined);
-  assert.match(fieldText(hidden, 'This Week'), /Vanguard Ops/);
-  assert.doesNotMatch(fieldText(hidden, 'This Week'), /King's Fall|Equilibrium/);
+  assert.equal(fieldText(dungeon, 'Raid'), 'Equilibrium');
 });
 
 test('xur lists every item on its own line, groups armor by class, and hides empty sections', () => {

@@ -174,7 +174,8 @@ test('weekly lines stay names only, with one countdown for the soonest reset', (
   });
   const raid = raidWeek.fields.find((field) => field.name.includes('Raid'));
   const rewards = raidWeek.fields.find((field) => field.name.includes('Rewards'));
-  assert.equal(raid.value, 'Featured Dungeon');
+  assert.equal(raid, undefined);
+  assert.doesNotMatch(JSON.stringify(raidWeek.fields), /Featured Dungeon/);
   assert.equal(rewards.value, 'Weekly Clan Engrams');
   assert.doesNotMatch(JSON.stringify(raidWeek.fields), /<t:/);
   assert.match(raidWeek.description, new RegExp(`⏳ Next reset <t:${resetUnix}:R>`));
