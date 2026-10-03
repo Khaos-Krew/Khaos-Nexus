@@ -2,6 +2,7 @@
 
 const { ChannelType, OverwriteType, PermissionFlagsBits } = require('discord.js');
 const { NEXUS_RANKS } = require('../shared/ranks.cjs');
+const { applyManagedOverwrites, refusePermissionStaffFallback } = require('./staff-workspace.cjs');
 
 const HQ_CATEGORY_NAME = '🌐 NEXUS HQ';
 const HQ_CATEGORY_ALIASES = Object.freeze(['nexus hq', 'nexus headquarters', 'community hq']);
@@ -174,14 +175,13 @@ function shadowRecruitRoleIdFrom(roles, config = {}) {
 
 function operatorRoleIdsFrom(roles, config = {}) {
   const allRoles = valuesOf(roles);
-  const existing = new Set(allRoles.map((role) => String(role?.id || '')));
-  const explicit = normalizeIds(config.discord?.operatorRoleIds || []).filter((id) => existing.has(id));
+  const guildId = String(config.discord?.guildId || allRoles.find((role) => role?.name === '@everyone')?.id || '');
+  const explicit = normalizeIds(config.discord?.operatorRoleIds || []).filter((id) => {
+    const role = allRoles.find((item) => String(item?.id || '') === id);
+    return Boolean(role && String(role.id) !== guildId && role.name !== '@everyone' && role.managed !== true);
+  });
   if (explicit.length) return explicit;
-  return allRoles
-    .filter((role) => role?.id && role.id !== role.guild?.id)
-    .filter((role) => role.permissions?.has?.(PermissionFlagsBits.Administrator)
-      || role.permissions?.has?.(PermissionFlagsBits.ManageGuild))
-    .map((role) => String(role.id));
+  return refusePermissionStaffFallback('Nexus HQ', guildId);
 }
 
 function memberAllowPermissions() {
@@ -336,9 +336,7 @@ async function ensureCategory(guild, channels) {
 
 async function applyOverwriteSet(channel, desiredEntries, reason) {
   if (!channel?.permissionOverwrites?.set) throw new Error('Discord permission overwrites are unavailable.');
-  if (overwritePlanSatisfies(channel, desiredEntries)) return false;
-  await channel.permissionOverwrites.set(desiredEntries, reason);
-  return true;
+  return applyManagedOverwrites(channel, desiredEntries, reason);
 }
 
 async function applyCategoryAccess(category, guild, rankRoleIds, operatorRoleIds, botId) {
@@ -561,6 +559,7 @@ module.exports = {
   shadowRecruitRoleIdFrom,
   operatorRoleIdsFrom,
   memberAllowPermissions,
+  applyOverwriteSet,
   hqCategoryOverwrites,
   hqChildRequiredOverwrites,
   announcementOverwrites,

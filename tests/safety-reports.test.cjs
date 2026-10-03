@@ -155,7 +155,7 @@ test('report permission plan denies everyone, admits reporter, staff and owners,
   assert.ok(archive.find((item) => item.id === staffRoleId));
 });
 
-test('configured safety/operator roles are preferred, with moderation roles as safe fallback', async () => {
+test('configured safety/operator roles are used and an empty list does not fall back to moderation roles', async () => {
   const staff = fakeRole('100000000000000010', 'Staff');
   const mod = fakeRole('100000000000000011', 'Moderator', [PermissionFlagsBits.ModerateMembers]);
   const member = fakeRole('100000000000000012', 'Member');
@@ -164,5 +164,5 @@ test('configured safety/operator roles are preferred, with moderation roles as s
     roles: { fetch: async () => new Map([[staff.id, staff], [mod.id, mod], [member.id, member]]) }
   };
   assert.deepEqual(await resolveStaffRoleIds(guild, { discord: { safetyStaffRoleIds: [staff.id], operatorRoleIds: [] } }), [staff.id]);
-  assert.deepEqual(await resolveStaffRoleIds(guild, { discord: { safetyStaffRoleIds: [], operatorRoleIds: [] } }), [mod.id]);
+  assert.deepEqual(await resolveStaffRoleIds(guild, { discord: { safetyStaffRoleIds: [], operatorRoleIds: [] } }), []);
 });

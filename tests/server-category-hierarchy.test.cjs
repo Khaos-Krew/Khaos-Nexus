@@ -97,27 +97,42 @@ test('already-correct structural privacy overwrite sets are recognized without a
   assert.equal(overwriteSetMatches(channel, desired), true);
 });
 
-test('structural child locking only repairs channels whose permissions are not already inherited', async () => {
-  const parent = { id: '900000000000000050' };
+test('structural child locking merges parent overwrites and skips channels that are already locked', async () => {
+  const parent = {
+    id: '900000000000000050',
+    permissionOverwrites: {
+      cache: new Map([
+        ['900000000000000050', {
+          id: '900000000000000050',
+          type: OverwriteType.Role,
+          allow: { bitfield: 0n },
+          deny: { bitfield: permissionMask([PermissionFlagsBits.ViewChannel]) }
+        }]
+      ])
+    }
+  };
   let repaired = 0;
   const channels = new Map([
     ['900000000000000051', {
       id: '900000000000000051',
       parentId: parent.id,
       permissionsLocked: true,
-      lockPermissions: async () => { throw new Error('already-locked child should not be touched'); }
+      permissionOverwrites: { set: async () => { throw new Error('already-locked child should not be touched'); } }
     }],
     ['900000000000000052', {
       id: '900000000000000052',
       parentId: parent.id,
       permissionsLocked: false,
-      lockPermissions: async () => { repaired += 1; }
+      permissionOverwrites: {
+        cache: new Map(),
+        set: async () => { repaired += 1; }
+      }
     }],
     ['900000000000000053', {
       id: '900000000000000053',
       parentId: 'other-parent',
       permissionsLocked: false,
-      lockPermissions: async () => { throw new Error('unrelated child should not be touched'); }
+      permissionOverwrites: { set: async () => { throw new Error('unrelated child should not be touched'); } }
     }]
   ]);
   const locked = await lockCategoryChildren(parent, channels, 'test');

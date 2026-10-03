@@ -3,6 +3,8 @@
 const { Client, Events, MessageFlags, SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const SftpClient = require('ssh2-sftp-client');
 const { loadConfig } = require('../shared/config.cjs');
+const { hasListedRole } = require('../game-bots/vanguard/config.cjs');
+const { hasStaffAdminRole } = require('./staff-roles.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { CACHE_POOLS } = require('./ark-dino-cache-engine.cjs');
 const { runOwnerCacheTest } = require('./ark-dino-cache-test-harness.cjs');
@@ -97,13 +99,13 @@ function arkCommand() {
   return command;
 }
 
-function isStaff(interaction, config) {
+function isStaff(interaction, config, env = process.env) {
   const userId = String(interaction.user?.id || '');
   const owners = new Set((config.discord?.ownerUserIds || []).map(String));
   if (owners.has(userId)) return true;
   if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
-  const operatorRoles = new Set((config.discord?.operatorRoleIds || []).map(String));
-  return interaction.member?.roles?.cache?.some?.((role) => operatorRoles.has(String(role.id))) || false;
+  if (hasStaffAdminRole(interaction, env)) return true;
+  return hasListedRole(interaction, config.discord?.operatorRoleIds);
 }
 
 function isOwner(interaction, config) {
@@ -281,7 +283,7 @@ async function handleArkInteraction(interaction, context) {
   if (!playerButton && !slashCommand) return false;
   const sub = playerButton?.subcommand || interaction.options.getSubcommand();
   const publicShopAction = ['shop-cache', 'shop-cache-guide', 'link', 'link-status', 'unlink', 'supporter-cache', 'supporter-cache-status'].includes(sub);
-  if (!publicShopAction && !isStaff(interaction, context.config)) throw new Error('ARK server controls require Nexus staff authorization.');
+  if (!publicShopAction && !isStaff(interaction, context.config)) throw new Error('ARK server controls require Nexus staff authorization. Ask an Admin.');
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   if (sub === 'link') {

@@ -9,6 +9,11 @@ const { marketCommand } = require('./commands.cjs');
 const { commandDefinitions, resolveFriendlyCommand } = require('./friendly-commands.cjs');
 const { CEPHALON_COMMANDS } = require('./game-command-ownership.cjs');
 const { reportCommandFailure } = require('../game-bots/command-failure.cjs');
+const { discordCommandRole } = require('./discord-command-role.cjs');
+
+function cephalonCommandRole(interaction, config, backend) {
+  return discordCommandRole(interaction, config, backend);
+}
 
 function warframeCommands() {
   return [marketCommand(), ...commandDefinitions().filter((command) => CEPHALON_COMMANDS.includes(command.name))];
@@ -37,12 +42,7 @@ function bindCephalonCommands(client, options = {}) {
   const guildId = String(config.discord?.guildId || process.env.NEXUS_DISCORD_GUILD_ID || '');
 
   async function roleFor(interaction) {
-    if ((config.discord?.ownerUserIds || []).includes(String(interaction.user.id))) return 'owner';
-    const roles = interaction.member?.roles?.cache;
-    if (roles && (config.discord?.operatorRoleIds || []).some((id) => roles.has(String(id)))) return 'operator';
-    const linked = await backend.accountByDiscord(String(interaction.user.id)).catch(() => null);
-    if (linked?.ok && ['owner', 'co-owner'].includes(linked.account?.role)) return 'owner';
-    return 'viewer';
+    return cephalonCommandRole(interaction, config, backend);
   }
 
   async function runAction(interaction, moduleId, actionId, payload = {}) {
@@ -88,4 +88,4 @@ function bindCephalonCommands(client, options = {}) {
   });
 }
 
-module.exports = { bindCephalonCommands, registerWarframeCommands, warframeCommands };
+module.exports = { bindCephalonCommands, cephalonCommandRole, registerWarframeCommands, warframeCommands };

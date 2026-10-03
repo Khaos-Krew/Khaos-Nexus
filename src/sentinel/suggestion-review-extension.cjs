@@ -15,7 +15,7 @@ const {
 } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { StateStore } = require('./state-store.cjs');
-const { findStaffCategory } = require('./staff-workspace.cjs');
+const { applyManagedOverwrites, findStaffCategory } = require('./staff-workspace.cjs');
 const { suggestionPayload, suggestionSettings, voteCounts } = require('./suggestions-extension.cjs');
 const {
   developmentPlanMarker,
@@ -100,7 +100,7 @@ async function ensureReviewChannel(guild, config = {}, botId = '') {
       await channel.setTopic(CHANNEL_TOPIC, 'Keep suggestion review purpose current');
     }
     if (channel.permissionOverwrites?.set) {
-      await channel.permissionOverwrites.set(reviewChannelOverwrites(guild, botId, authorized), 'Protect the Nexus suggestion Owner review queue');
+      await applyManagedOverwrites(channel, reviewChannelOverwrites(guild, botId, authorized), 'Protect the Nexus suggestion Owner review queue');
     }
   }
   return { channel, created, moved, authorizedOwnerIds: authorized };

@@ -96,7 +96,7 @@ async function refreshPanel(client) {
 
 async function handleCommand(interaction, context) {
   if (!interaction.isChatInputCommand?.() || interaction.commandName !== 'arkshopadmin') return false;
-  if (!isStaff(interaction, context.config)) throw new Error('ArkShop management requires Nexus staff authorization.');
+  if (!isStaff(interaction, context.config)) throw new Error('ArkShop management requires Nexus staff authorization. Ask an Admin.');
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const sub = interaction.options.getSubcommand();
   const { profiles, registry, applies, client } = context;

@@ -737,7 +737,7 @@ test('link, unlink, tags, privacy, autocomplete, and admin clear', async () => {
   await store.setTag(OTHER, 'destiny2', { tag: 'Bea#1234' });
   await handleCardInteraction(denied, depsWith(dir, { store, audit, limiters, config: { discord: { operatorRoleIds: ['999'], safetyStaffRoleIds: ['888'] } }, now: now + 5 }));
   assertMentionsSafe(denied);
-  assert.match(denied.calls.at(-1).payload.content, /Administrator/);
+  assert.match(denied.calls.at(-1).payload.content, /Only staff Admins can use this/);
   assert.equal(denied.calls.at(-1).payload.flags, MessageFlags.Ephemeral);
   assert.equal(store.getUser(OTHER).tags.destiny2.tag, 'Bea#1234');
   assert.equal(isCardAdmin(denied, { discord: { operatorRoleIds: ['999'] } }), false);

@@ -11,6 +11,23 @@ function csv(value) {
   return String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
 }
 
+// @everyone cannot be an operator. Managed bot roles are only known at runtime
+// and are dropped by roleIdsOf. Short test ids stay; this is not a snowflake check.
+function operatorRoleIdsWithoutGuild(ids, guildId) {
+  const guild = String(guildId || '').trim();
+  const list = (Array.isArray(ids) ? ids : csv(ids)).map((item) => String(item || '').trim()).filter(Boolean);
+  if (!guild) return list;
+  const kept = [];
+  for (const id of list) {
+    if (id === guild) {
+      console.warn(`[Nexus staff roles] ignoring @everyone role id ${id}`);
+      continue;
+    }
+    kept.push(id);
+  }
+  return kept;
+}
+
 function loadConfig(options = {}) {
   const root = path.resolve(__dirname, '../..');
   const requested = options.requestedPath
@@ -32,7 +49,12 @@ function loadConfig(options = {}) {
   if (process.env.NEXUS_DISCORD_GUILD_ID) config.discord.guildId = process.env.NEXUS_DISCORD_GUILD_ID;
   if (process.env.NEXUS_OWNER_USER_IDS) config.discord.ownerUserIds = csv(process.env.NEXUS_OWNER_USER_IDS);
   if (process.env.NEXUS_CACHE_TOKEN_ISSUER_USER_ID) config.discord.cacheTokenIssuerUserId = String(process.env.NEXUS_CACHE_TOKEN_ISSUER_USER_ID).trim();
-  if (process.env.NEXUS_OPERATOR_ROLE_IDS) config.discord.operatorRoleIds = csv(process.env.NEXUS_OPERATOR_ROLE_IDS);
+  if (process.env.NEXUS_OPERATOR_ROLE_IDS || config.discord.operatorRoleIds) {
+    config.discord.operatorRoleIds = operatorRoleIdsWithoutGuild(
+      process.env.NEXUS_OPERATOR_ROLE_IDS || config.discord.operatorRoleIds,
+      config.discord.guildId
+    );
+  }
   if (process.env.NEXUS_MAX_TEMP_LOBBIES) config.discord.maxTemporaryLobbiesPerModule = Number(process.env.NEXUS_MAX_TEMP_LOBBIES);
   if (process.env.NEXUS_SENTINAL_ADMIN_URL) config.discord.sentinalAdminUrl = process.env.NEXUS_SENTINAL_ADMIN_URL;
   if (process.env.NEXUS_SENTINAL_ADMIN_TOKEN_ENV) config.discord.sentinalAdminTokenEnv = process.env.NEXUS_SENTINAL_ADMIN_TOKEN_ENV;

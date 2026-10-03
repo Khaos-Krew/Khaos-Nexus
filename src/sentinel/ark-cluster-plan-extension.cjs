@@ -2,7 +2,7 @@
 
 const { ChannelType, Client, Events } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
-const { findStaffCategory, normalizeName } = require('./staff-workspace.cjs');
+const { applyManagedOverwrites, existingOverwriteEntries, findStaffCategory, normalizeName } = require('./staff-workspace.cjs');
 const { SECTIONS: SHOP_SECTIONS } = require('./ark-shop-plan-extension.cjs');
 const { ADDITIONS: SHOP_ADDITIONS } = require('./ark-shop-plan-additions-extension.cjs');
 
@@ -148,7 +148,7 @@ async function ensureChannel(guild) {
   }
 
   if (String(channel.parentId || '') !== String(category.id)) {
-    await channel.setParent(category.id, { lockPermissions: true, reason: 'Nexus Sentinal ARK cluster-plan organization' });
+    await channel.setParent(category.id, { lockPermissions: false, reason: 'Nexus Sentinal ARK cluster-plan organization' });
   }
 
   if (typeof channel.setTopic === 'function') {
@@ -158,9 +158,7 @@ async function ensureChannel(guild) {
     }
   }
 
-  if (typeof channel.lockPermissions === 'function') {
-    await channel.lockPermissions('Nexus Sentinal ARK cluster-plan staff privacy').catch(() => {});
-  }
+  await applyManagedOverwrites(channel, existingOverwriteEntries(category), 'Nexus Sentinal ARK cluster-plan staff privacy');
 
   return { channel, created, renamed };
 }
@@ -259,6 +257,7 @@ module.exports = {
   LEGACY_CHANNEL_NAME,
   PLAN_VERSION,
   PLAN_SECTIONS,
+  ensureChannel,
   reconcileArkClusterPlan,
   installArkClusterPlanExtension
 };

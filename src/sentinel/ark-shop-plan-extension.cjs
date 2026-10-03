@@ -2,7 +2,7 @@
 
 const { ChannelType, Client, Events } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
-const { findStaffCategory, normalizeName } = require('./staff-workspace.cjs');
+const { applyManagedOverwrites, existingOverwriteEntries, findStaffCategory, normalizeName } = require('./staff-workspace.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.arkShopPlan.extension');
 const CHANNEL_NAME = 'ark-shop-plan';
@@ -206,12 +206,10 @@ async function ensureChannel(guild) {
     });
     created = true;
   } else if (String(channel.parentId || '') !== String(category.id)) {
-    await channel.setParent(category.id, { lockPermissions: true, reason: 'Nexus Sentinal ARK shop plan organization' });
+    await channel.setParent(category.id, { lockPermissions: false, reason: 'Nexus Sentinal ARK shop plan organization' });
   }
 
-  if (typeof channel.lockPermissions === 'function') {
-    await channel.lockPermissions('Nexus Sentinal ARK shop plan staff privacy').catch(() => {});
-  }
+  await applyManagedOverwrites(channel, existingOverwriteEntries(category), 'Nexus Sentinal ARK shop plan staff privacy');
   return { channel, created };
 }
 
@@ -288,6 +286,7 @@ module.exports = {
   CHANNEL_NAME,
   PLAN_VERSION,
   SECTIONS,
+  ensureChannel,
   reconcileArkShopPlan,
   installArkShopPlanExtension
 };
