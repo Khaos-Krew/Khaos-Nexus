@@ -1,5 +1,7 @@
 'use strict';
 
+const { MEMBER_HOLD_MESSAGE } = require('../sentinel/nexus-economy-identity-hold.cjs');
+
 const MESSAGES = Object.freeze({
   'mc-points-disabled': 'Minecraft Points are turned off. Ask a staff member when you can link your account.',
   'mc-shop-disabled': 'The Minecraft shop is turned off. Ask a staff member when it opens in Sentinal.',
@@ -34,7 +36,8 @@ const MESSAGES = Object.freeze({
   'tenure-unknown': 'I could not read when you joined this Discord. Try the claim again in Sentinal. If it still fails, ask a staff member.',
   'insufficient-funds': 'You do not have enough Nexus Points. Earn more by playing, then open the Minecraft shop again.',
   'invalid-qty': 'Choose 1 to 5 bundles, then open the Minecraft shop again.',
-  'quarantined': 'This account cannot earn or spend Nexus Points. Ask a staff member if you think that is a mistake.',
+  'account-hold': MEMBER_HOLD_MESSAGE,
+  'quarantined': MEMBER_HOLD_MESSAGE,
   'mc-schema-unavailable': 'Minecraft Points could not be saved. ARK Points are unchanged. Try again later, or ask a staff member.'
 });
 

@@ -21,6 +21,10 @@ const {
   memberIdentityHold
 } = require('../src/sentinel/nexus-economy-identity-hold.cjs');
 const { catalogFingerprint, loadMcShopCatalog } = require('../src/shared/mc-shop-catalog.cjs');
+const { mcMemberText } = require('../src/shared/mc-member-text.cjs');
+const { reasonText, handleMcPointsCommand } = require('../src/craft/mc-points-commands.cjs');
+const { mcShopBuyFailureText } = require('../src/sentinel/mc-shop-ui-extension.cjs');
+const { orderFailureCopy } = require('../src/sentinel/cluster-shop-copy.cjs');
 
 const MESSAGE = 'Your account is on hold. Ask an Admin for help.';
 const DISCORD = '111111111111111111';
@@ -312,10 +316,13 @@ test('economy routes refuse each blocked status and still serve a verified membe
       const spend = await call(port, '/wallet/spend', 'POST', { discordUserId: DISCORD, amount: 10, orderId: `spend_${status}` });
       const credit = await call(port, '/wallet/credit', 'POST', { discordUserId: DISCORD, amount: 10, idempotencyKey: `credit_${status}` });
       const shop = await call(port, '/shop/buy', 'POST', { discordUserId: DISCORD, eosId: EOS, itemId: 'metal', bundles: 1 });
+      const sell = await call(port, '/shop/sell', 'POST', { discordUserId: DISCORD, eosId: EOS, itemId: 'metal', bundles: 1 });
       const presence = await call(port, '/presence', 'POST', { eosId: EOS, online: true, server: 'ark' });
       const passive = await call(port, '/wallet/accrue-offline', 'POST', { discordUserId: DISCORD });
-      for (const response of [spend, credit, shop, presence, passive]) assertHold(response.body);
+      for (const response of [spend, credit, shop, presence, passive, sell]) assertHold(response.body);
       assert.equal(shop.status, 409);
+      assert.equal(shop.body.order.status, 'ACCOUNT_HOLD');
+      assert.equal(sell.body.order, null);
       assert.equal(worker.balance(DISCORD), before);
     });
   }
@@ -371,15 +378,25 @@ test('minecraft buy and refund refuse each blocked status after the member was v
     fresh.accounts[DISCORD].status = status;
     worker.store.write(fresh);
     paid.order.status = 'SENT_UNCONFIRMED';
+    const self = await worker.minecraft.refund({
+      orderId: paid.order.orderId,
+      reason: 'give me my points',
+      actor: DISCORD,
+      writesEnabled: true
+    });
+    assertHold(self);
+    assert.equal(worker.balance(DISCORD), balanceAfterBuy);
+    assert.notEqual(worker.minecraft.orders.get(paid.order.orderId).status, 'REFUNDED');
     const refunded = await worker.minecraft.refund({
       orderId: paid.order.orderId,
       reason: 'held account',
       actor: STAFF,
       writesEnabled: true
     });
-    assertHold(refunded);
-    assert.equal(worker.balance(DISCORD), balanceAfterBuy);
-    assert.notEqual(worker.minecraft.orders.get(paid.order.orderId).status, 'REFUNDED');
+    assert.equal(refunded.ok, true, JSON.stringify(refunded));
+    assert.equal(worker.balance(DISCORD), 500);
+    assert.equal(worker.minecraft.orders.get(paid.order.orderId).status, 'REFUNDED');
+    assert.match(worker.minecraft.audits.at(-1).reason, /\[account-hold\]/);
   }
 });
 
@@ -493,6 +510,7 @@ test('ARK and passive points accrual refuse each blocked status under the wallet
 function shopClient({ status, flip = '' }) {
   const catalogHash = catalogFingerprint(loadMcShopCatalog());
   const writes = [];
+  const audits = [];
   let locked = status;
   const quote = {
     nonce: 'logs-hold',
@@ -520,7 +538,7 @@ function shopClient({ status, flip = '' }) {
     refunded: false
   };
   const client = {
-    async query(sql) {
+    async query(sql, params = []) {
       const text = String(sql);
       if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK') return { rows: [], rowCount: 0 };
       if (text.includes('pg_advisory_xact_lock')) return { rows: [], rowCount: 0 };
@@ -532,6 +550,10 @@ function shopClient({ status, flip = '' }) {
       if (text.includes('SELECT status') && text.includes('nexus_economic_identities')) {
         if (flip) locked = flip;
         return { rows: [{ status: locked }], rowCount: 1 };
+      }
+      if (text.includes('INSERT') && text.includes('nexus_mc_refund_audit')) {
+        audits.push(params);
+        return { rows: [], rowCount: 1 };
       }
       if (text.includes('SELECT balance')) return { rows: [{ balance: 100 }], rowCount: 1 };
       if (text.includes('nexus_economy_ledger') && text.includes('SELECT')) return { rows: [], rowCount: 0 };
@@ -545,6 +567,7 @@ function shopClient({ status, flip = '' }) {
   };
   return {
     writes,
+    audits,
     pool: {
       async query(sql) {
         const text = String(sql);
@@ -576,9 +599,22 @@ test('postgres minecraft buy and refund refuse each blocked status inside the ba
       wallet: { async balance() { return 100; } },
       pool: refunded.pool
     });
+    const selfClient = shopClient({ status });
+    const member = new PostgresMcPoints({
+      env: { MC_POINTS_ENABLED: 'true', MC_SHOP_ENABLED: 'true', NEXUS_MC_REFUND_STAFF_IDS: STAFF },
+      now: () => Date.parse('2026-10-01T18:00:00.000Z'),
+      wallet: { async balance() { return 100; } },
+      pool: selfClient.pool
+    });
+    const self = await member.refund({ orderId: 'refund-hold', reason: 'my points', actor: DISCORD, writesEnabled: true });
+    assertHold(self);
+    assert.equal(selfClient.writes.length, 0);
+    assert.equal(selfClient.audits.length, 0);
+
     const refund = await refunder.refund({ orderId: 'refund-hold', reason: 'held account', actor: STAFF, writesEnabled: true });
-    assertHold(refund);
-    assert.equal(refunded.writes.length, 0);
+    assert.equal(refund.ok, true, JSON.stringify(refund));
+    assert.ok(refunded.writes.length > 0);
+    assert.match(String(refunded.audits[0]?.[2] || ''), /\[account-hold\]/);
   }
 
   const raced = shopClient({ status: 'verified', flip: 'disabled' });
@@ -591,4 +627,126 @@ test('postgres minecraft buy and refund refuse each blocked status inside the ba
   const buy = await buyer.buy({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1, nonce: 'logs-hold', writesEnabled: true });
   assertHold(buy);
   assert.equal(raced.writes.length, 0);
+});
+
+test('held member routes render the exact hold sentence', async () => {
+  assert.equal(mcMemberText('account-hold'), MESSAGE);
+  assert.equal(mcMemberText('quarantined'), MESSAGE);
+  assert.equal(reasonText('account-hold'), MESSAGE);
+  assert.equal(reasonText('quarantined'), MESSAGE);
+  assert.equal(mcShopBuyFailureText({ ok: false, reason: 'account-hold', balance: 1000 }, { quote: { price: 200, balance: 1000 } }), MESSAGE);
+  assert.equal(mcShopBuyFailureText({ ok: false, reason: 'quarantined' }, {}), MESSAGE);
+  assert.doesNotMatch(
+    mcShopBuyFailureText({ ok: false, reason: 'insufficient-funds', balance: 1000 }, { quote: { price: 200, balance: 1000 } }),
+    /on hold/
+  );
+  const falseBalance = orderFailureCopy({
+    ok: false,
+    reason: 'account-hold',
+    message: MESSAGE,
+    balance: 1000,
+    order: { status: 'PAYMENT_REJECTED' }
+  }, { price: 200, balance: 1000 });
+  assert.equal(falseBalance, MESSAGE);
+  assert.equal(orderFailureCopy({ ok: false, reason: 'quarantined', balance: 1000 }, { price: 200, balance: 1000 }), MESSAGE);
+  assert.match(
+    orderFailureCopy({ ok: false, reason: 'insufficient-funds', balance: 5, order: { status: 'PAYMENT_REJECTED' } }, { price: 20, balance: 5 }),
+    /Not enough Nexus Points/
+  );
+  assert.doesNotMatch(
+    orderFailureCopy({ ok: false, reason: 'account-hold', balance: 1000, order: { status: 'ACCOUNT_HOLD' } }, { price: 200, balance: 1000 }),
+    /Not enough Nexus Points/
+  );
+
+  const replies = [];
+  await handleMcPointsCommand({
+    commandName: 'mc',
+    user: { id: DISCORD },
+    options: {
+      getSubcommand: () => 'confirm',
+      getSubcommandGroup: () => 'link',
+      getString: () => 'ABC-DEF'
+    },
+    async reply(payload) { replies.push(payload.content || payload); }
+  }, {
+    ephemeral: (text) => ({ content: text }),
+    points: { async confirm() { return { ok: false, reason: 'account-hold' }; } },
+    env: {}
+  });
+  assert.equal(replies[0], MESSAGE);
+});
+
+test('postgres offline accrual skips held time instead of paying it later', async () => {
+  const start = Date.parse('2026-10-01T06:00:00.000Z');
+  let now = Date.parse('2026-10-01T12:00:00.000Z');
+  let status = 'restricted';
+  const ledger = [];
+  const state = {
+    economic_identity_id: 'econ_accrual',
+    rank_id: 'cipher-runner',
+    online: false,
+    online_uncredited_ms: 0,
+    online_credit_cursor: 0,
+    last_accounting_at: new Date(start).toISOString(),
+    last_presence_at: new Date(start).toISOString(),
+    offline_since: new Date(start).toISOString(),
+    last_passive_at: new Date(start).toISOString(),
+    passive_credit_cursor: 0,
+    presence_by_server: {}
+  };
+  const identity = { economic_identity_id: 'econ_accrual', status, discord_user_id: DISCORD };
+  const client = {
+    async query(sql, params = []) {
+      const text = String(sql);
+      if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK') return { rows: [], rowCount: 0 };
+      if (text.includes('pg_advisory_xact_lock')) return { rows: [], rowCount: 0 };
+      if (text.includes("i.status = 'verified'")) return { rows: status === 'verified' ? [identity] : [] };
+      if (text.includes('status = ANY')) return { rows: status === 'verified' ? [] : [{ ...identity, status }] };
+      if (text.includes('SELECT status') && text.includes('nexus_economic_identities')) return { rows: [{ status }] };
+      if (text.includes("provider = 'eos'") && !text.includes('JOIN')) return { rows: [{ '?column?': 1 }] };
+      if (text.includes('nexus_economy_accrual_state') && (text.includes('SELECT *') || text.includes('FOR UPDATE'))) {
+        return { rows: [{ ...state }], rowCount: 1 };
+      }
+      if (text.includes('SELECT balance')) return { rows: [{ balance: 0 }], rowCount: 1 };
+      if (text.includes('UPDATE') && text.includes('last_accounting_at=$2')) {
+        state.last_accounting_at = params[1];
+        state.online_uncredited_ms = params[2];
+        state.last_passive_at = params[3];
+        return { rowCount: 1, rows: [] };
+      }
+      if (text.includes('UPDATE') && text.includes('last_passive_at=$5')) {
+        state.online = params[1];
+        state.online_since = params[2];
+        state.offline_since = params[3];
+        state.last_passive_at = params[4];
+        state.passive_credit_cursor = params[5];
+        return { rowCount: 1, rows: [] };
+      }
+      if (text.includes('nexus_economy_ledger') && text.includes('INSERT')) {
+        ledger.push(params);
+        return { rowCount: 1, rows: [{ id: ledger.length }] };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    release() {}
+  };
+  const pool = { async connect() { return client; }, async query() { return { rows: [], rowCount: 0 }; } };
+  const accrual = new PostgresEconomyAccrual({ pool, now: () => now });
+  const held = await accrual.accrueOffline(DISCORD);
+  assertHold(held);
+  assert.equal(ledger.length, 0);
+  assert.equal(state.last_passive_at, new Date(now).toISOString());
+
+  status = 'verified';
+  identity.status = 'verified';
+  const after = await accrual.accrueOffline(DISCORD);
+  assert.equal(after.ok, true, JSON.stringify(after));
+  assert.equal(after.credited, 0);
+  assert.equal(ledger.length, 0);
+
+  now += 3_600_000;
+  const nextHour = await accrual.accrueOffline(DISCORD);
+  assert.equal(nextHour.ok, true, JSON.stringify(nextHour));
+  assert.equal(nextHour.credited, 4);
+  assert.equal(ledger.length, 1);
 });

@@ -121,7 +121,7 @@ class NexusEconomyWorker {
         },
         balance: (discordUserId) => worker.balance(discordUserId),
         spend: (input) => worker.spend(input),
-        credit: (input) => worker.credit(input),
+        credit: (input, creditOptions) => worker.credit(input, creditOptions),
         async lifetimeMs(discordUserId) {
           return Number(worker.store.read().accounts?.[discordUserId]?.mcLifetimeMs || 0);
         },
@@ -225,24 +225,34 @@ class NexusEconomyWorker {
     });
   }
 
-  credit({ discordUserId, amount, type = 'credit', source = 'nexus', idempotencyKey = '', metadata = {} } = {}) {
+  // Same in-process identity lock as spend and credit. A status written while the lock is held is visible here.
+  memberHold(discordUserId) {
+    return this.withLock(discordUserId, async () => {
+      const state = this.store.read();
+      const existing = state.accounts[cleanId(discordUserId)] || null;
+      return this.accountHold(existing, discordUserId);
+    });
+  }
+
+  credit({ discordUserId, amount, type = 'credit', source = 'nexus', idempotencyKey = '', metadata = {} } = {}, options = {}) {
     if (String(source || '').trim() === COMMUNITY_LEVEL_UP_SOURCE) {
       return { ok: false, skipped: 'coins-wallet-unavailable', currency: 'NEXUS_COINS' };
     }
+    const staffRefund = options?.allowHeldStaffRefund === true && source === 'mc-shop' && type === 'reversal';
     return this.withLock(discordUserId, async () => {
       const value = whole(amount);
       if (value <= 0) throw new Error('Credit amount must be a positive whole number.');
       const state = this.store.read();
       const existing = state.accounts[cleanId(discordUserId)] || null;
-      if (existing && idempotencyKey && state.processed[idempotencyKey]) return { ok: true, duplicate: true, balance: existing.balance };
+      if (existing && idempotencyKey && state.processed[idempotencyKey]) return { ok: true, duplicate: true, balance: existing.balance, accountHold: false };
       const hold = this.accountHold(existing, discordUserId);
-      if (hold) return { ...hold, balance: existing?.balance || 0 };
+      if (hold && !staffRefund) return { ...hold, balance: existing?.balance || 0 };
       const account = this.ensureAccount(state, discordUserId, existing?.rankId);
       account.balance += value;
       account.updatedAt = new Date(this.now()).toISOString();
       const result = this.appendLedger(state, account, { amount: value, type, source, idempotencyKey, metadata });
       this.store.write(state);
-      return { ok: true, duplicate: result.duplicate, balance: account.balance, transactionId: result.entry?.id || null };
+      return { ok: true, duplicate: result.duplicate, balance: account.balance, transactionId: result.entry?.id || null, accountHold: Boolean(hold) };
     });
   }
 

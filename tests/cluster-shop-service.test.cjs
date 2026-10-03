@@ -96,7 +96,7 @@ test('buy order snapshots quote and debits the wallet only once', async () => {
 
 test('sell order does not credit wallet until ARK item removal is confirmed', async () => {
   const { economy, shop } = fixture();
-  const created = shop.createSellOrder({
+  const created = await shop.createSellOrder({
     discordUserId: '111',
     eosId: 'EOS_abc12345',
     itemId: 'metal',
@@ -120,5 +120,59 @@ test('sell order does not credit wallet until ARK item removal is confirmed', as
     removalReceipt: 'ark-removal:receipt-123'
   });
   assert.equal(duplicate.duplicate, true);
+  assert.equal(economy.balance('111'), 34);
+});
+
+test('held member sell-back removes nothing and does not complete', async () => {
+  const { economy, shop } = fixture();
+  const state = economy.store.read();
+  state.accounts['111'].status = 'restricted';
+  economy.store.write(state);
+  const created = await shop.createSellOrder({
+    discordUserId: '111',
+    eosId: 'EOS_abc12345',
+    itemId: 'metal',
+    bundles: 2
+  });
+  assert.equal(created.ok, false);
+  assert.equal(created.message, 'Your account is on hold. Ask an Admin for help.');
+  assert.equal(created.order, null);
+  assert.equal(Object.keys(shop.store.read().orders).length, 0);
+  assert.equal(economy.balance('111'), 0);
+});
+
+test('a sell-back credit failure stays refundable and is not marked complete', async () => {
+  const { economy, shop } = fixture();
+  let fail = true;
+  const wrapped = new ClusterShopService({
+    economy: {
+      async credit(input) {
+        if (fail) return { ok: false, reason: 'database-unavailable', message: 'The wallet did not answer.' };
+        return economy.credit(input);
+      }
+    },
+    store: shop.store,
+    catalog: shop.catalog
+  });
+  const created = await wrapped.createSellOrder({
+    discordUserId: '111',
+    eosId: 'EOS_abc12345',
+    itemId: 'metal',
+    bundles: 2
+  });
+  const failed = await wrapped.confirmSellRemoval({
+    orderId: created.order.orderId,
+    removalReceipt: 'ark-removal:receipt-held'
+  });
+  assert.equal(failed.ok, false);
+  assert.equal(failed.order.status, 'CREDIT_FAILED');
+  assert.equal(economy.balance('111'), 0);
+  fail = false;
+  const completed = await wrapped.confirmSellRemoval({
+    orderId: created.order.orderId,
+    removalReceipt: 'ark-removal:receipt-held'
+  });
+  assert.equal(completed.ok, true);
+  assert.equal(completed.order.status, 'COMPLETE');
   assert.equal(economy.balance('111'), 34);
 });

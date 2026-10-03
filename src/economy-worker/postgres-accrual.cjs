@@ -134,6 +134,31 @@ class PostgresEconomyAccrual {
     return result.rows?.[0] || null;
   }
 
+  // Advance the accrual cursor without a ledger row so held time is not paid after the hold lifts.
+  async #skipHeldAccrual(client, economicIdentityId, { online = false, passive = false } = {}) {
+    const s = this.schema;
+    await client.query(
+      `INSERT INTO ${s}.nexus_economy_accrual_state (economic_identity_id) VALUES ($1) ON CONFLICT DO NOTHING`,
+      [economicIdentityId]
+    );
+    const stateResult = await client.query(
+      `SELECT last_accounting_at, online_uncredited_ms, last_passive_at FROM ${s}.nexus_economy_accrual_state WHERE economic_identity_id = $1 FOR UPDATE`,
+      [economicIdentityId]
+    );
+    const state = stateResult.rows?.[0];
+    if (!state) return;
+    const nowIso = new Date(this.now()).toISOString();
+    await client.query(
+      `UPDATE ${s}.nexus_economy_accrual_state SET last_accounting_at=$2, online_uncredited_ms=$3, last_passive_at=$4, updated_at=NOW() WHERE economic_identity_id=$1`,
+      [
+        economicIdentityId,
+        online ? nowIso : state.last_accounting_at,
+        online ? 0 : Math.max(0, Math.floor(Number(state.online_uncredited_ms || 0))),
+        passive ? nowIso : state.last_passive_at
+      ]
+    );
+  }
+
   async #lockedMemberHold(client, economicIdentityId) {
     const result = await client.query(
       `SELECT status FROM ${this.schema}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
@@ -438,7 +463,8 @@ class PostgresEconomyAccrual {
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${identity.economic_identity_id}:NEXUS_POINTS`]);
       const held = await this.#lockedMemberHold(client, identity.economic_identity_id);
       if (held) {
-        await client.query('ROLLBACK');
+        await this.#skipHeldAccrual(client, identity.economic_identity_id, { online: true });
+        await client.query('COMMIT');
         return { ...held, credited: 0 };
       }
       // Minecraft earn uses the rank synced from Discord roles. The presence body cannot overwrite it.
@@ -603,7 +629,8 @@ class PostgresEconomyAccrual {
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${identity.economic_identity_id}:NEXUS_POINTS`]);
       const offlineHold = await this.#lockedMemberHold(client, identity.economic_identity_id);
       if (offlineHold) {
-        await client.query('ROLLBACK');
+        await this.#skipHeldAccrual(client, identity.economic_identity_id, { passive: true });
+        await client.query('COMMIT');
         return { ...offlineHold, credited: 0 };
       }
       const locked = await this.#lockStateAndWallet(client, identity.economic_identity_id);

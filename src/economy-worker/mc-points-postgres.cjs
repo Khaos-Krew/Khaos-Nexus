@@ -739,28 +739,42 @@ class PostgresMcPoints {
       const memory = await this.#memory(client, new Set(['orders', 'grants', 'audits']));
       const before = memory.orders.get(String(input.orderId || ''));
       const previous = before?.status;
-      const result = await memory.refund({ ...input, applyWallet: false });
-      if (!result.ok || result.duplicate) {
-        await client.query(result.ok ? 'COMMIT' : 'ROLLBACK');
+      const result = await memory.refund({ ...input, applyWallet: false, deferHold: true });
+      if (result.duplicate) {
+        await client.query('COMMIT');
         return result;
       }
-      const identityId = result.order.economicIdentityId;
+      const identityId = before?.economicIdentityId || result.order?.economicIdentityId;
+      let refundHold = null;
       if (identityId) {
         await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${identityId}:NEXUS_POINTS`]);
         const identityStatus = await client.query(
           `SELECT status FROM ${s}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
           [identityId]
         );
-        const refundHold = memberIdentityHold({
+        refundHold = memberIdentityHold({
           status: identityStatus.rows?.[0]?.status ?? 'verified',
           economicIdentityId: identityId,
           env: this.env
         });
-        if (refundHold) {
-          await client.query('ROLLBACK');
-          return refundHold;
-        }
       }
+      const actor = String(input.actor || '').trim();
+      const self = Boolean(before && actor && actor === before.discordUserId);
+      const auto = input.reason === 'auto-14d';
+      if (refundHold && (self || auto)) {
+        await client.query('ROLLBACK');
+        return { ...refundHold, order: before };
+      }
+      if (!result.ok) {
+        await client.query('ROLLBACK');
+        return result;
+      }
+      if (refundHold) {
+        console.log(`[Nexus Economy] mc_staff_refund_while_held order=${result.order.orderId} actor=${actor}`);
+      }
+      const auditReason = refundHold
+        ? `${String(input.reason || '').slice(0, 260)} [account-hold]`
+        : String(input.reason || '');
       const flipped = await client.query(
         `UPDATE ${s}.nexus_mc_orders SET status = 'REFUNDED', order_data = $2::jsonb WHERE order_id = $1 AND status = $3 AND status <> 'REFUNDED' AND status <> 'DELIVERED' RETURNING order_id`,
         [result.order.orderId, JSON.stringify(result.order), previous]
@@ -780,7 +794,7 @@ class PostgresMcPoints {
         const ledger = await client.query(
           `INSERT INTO ${s}.nexus_economy_ledger (economic_identity_id, currency, amount, balance_after, entry_type, source, idempotency_key, metadata, created_at) ` +
           `VALUES ($1,'NEXUS_POINTS',$2,$3,'reversal','mc-shop',$4,$5::jsonb,NOW()) ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`,
-          [result.order.economicIdentityId, Number(result.order.price), next, key, JSON.stringify({ orderId: result.order.orderId, reason: input.reason, actor: input.actor })]
+          [result.order.economicIdentityId, Number(result.order.price), next, key, JSON.stringify({ orderId: result.order.orderId, reason: auditReason, actor: input.actor, accountHold: Boolean(refundHold) })]
         );
         if (ledger.rowCount) {
           await client.query(
@@ -791,7 +805,7 @@ class PostgresMcPoints {
       }
       await client.query(
         `INSERT INTO ${s}.nexus_mc_refund_audit (order_id, actor, reason, amount) VALUES ($1,$2,$3,$4) ON CONFLICT (order_id) DO NOTHING`,
-        [result.order.orderId, String(input.actor || 'auto'), String(input.reason || ''), Number(result.order.price || 0)]
+        [result.order.orderId, String(input.actor || 'auto'), auditReason, Number(result.order.price || 0)]
       );
       await client.query('COMMIT');
       return result;

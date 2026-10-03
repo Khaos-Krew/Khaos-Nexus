@@ -187,9 +187,8 @@ class ClusterShopService {
     const fresh = this.store.read();
     const current = fresh.orders[orderId];
     if (!spent.ok) {
-      current.status = spent.reason === 'insufficient-funds' || spent.reason === 'account-hold' || spent.reason === 'quarantined'
-        ? 'PAYMENT_REJECTED'
-        : 'PAYMENT_FAILED';
+      const held = spent.reason === 'account-hold' || spent.reason === 'quarantined';
+      current.status = held ? 'ACCOUNT_HOLD' : (spent.reason === 'insufficient-funds' ? 'PAYMENT_REJECTED' : 'PAYMENT_FAILED');
       current.payment = spent;
     } else {
       current.status = 'PAID_QUEUED';
@@ -206,7 +205,7 @@ class ClusterShopService {
     };
   }
 
-  createSellOrder({ discordUserId, eosId, itemId, bundles = 1, server = 'where-playing', idempotencyKey = '' } = {}) {
+  async createSellOrder({ discordUserId, eosId, itemId, bundles = 1, server = 'where-playing', idempotencyKey = '' } = {}) {
     const discord = cleanId(discordUserId);
     const eos = cleanId(eosId);
     if (!discord || !eos) throw new Error('Discord user ID and EOS ID are required.');
@@ -214,6 +213,10 @@ class ClusterShopService {
     const state = this.store.read();
     const idem = String(idempotencyKey || '').trim().slice(0, 200);
     if (idem && state.idempotency[idem]) return { ok: true, duplicate: true, order: state.orders[state.idempotency[idem]] };
+    if (typeof this.economy.memberHold === 'function') {
+      const hold = await this.economy.memberHold(discord);
+      if (hold) return { ok: false, duplicate: false, order: null, ...hold };
+    }
 
     const orderId = `NXSELL-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
     const order = {
@@ -241,28 +244,47 @@ class ClusterShopService {
     const order = state.orders[id];
     if (!order || order.type !== 'SELL') throw new Error('Sell order not found.');
     if (order.status === 'COMPLETE') return { ok: true, duplicate: true, order };
-    if (order.status !== 'AWAITING_ITEM_REMOVAL' && order.status !== 'ITEMS_REMOVED') throw new Error(`Sell order cannot be completed from ${order.status}.`);
+    if (!['AWAITING_ITEM_REMOVAL', 'ITEMS_REMOVED', 'CREDIT_FAILED'].includes(order.status)) {
+      throw new Error(`Sell order cannot be completed from ${order.status}.`);
+    }
 
     order.status = 'ITEMS_REMOVED';
     order.removalReceipt = receipt;
     order.updatedAt = new Date().toISOString();
     this.store.write(state);
 
-    const credited = await this.economy.credit({
-      discordUserId: order.discordUserId,
-      amount: order.quote.totalPrice,
-      type: 'shop-sellback',
-      source: 'cluster-shop',
-      idempotencyKey: `sell:${order.orderId}`,
-      metadata: { orderId: order.orderId, itemId: order.quote.itemId, bundles: order.quote.bundles, totalQuantity: order.quote.totalQuantity, removalReceipt: receipt }
-    });
+    let credited;
+    try {
+      credited = await this.economy.credit({
+        discordUserId: order.discordUserId,
+        amount: order.quote.totalPrice,
+        type: 'shop-sellback',
+        source: 'cluster-shop',
+        idempotencyKey: `sell:${order.orderId}`,
+        metadata: { orderId: order.orderId, itemId: order.quote.itemId, bundles: order.quote.bundles, totalQuantity: order.quote.totalQuantity, removalReceipt: receipt }
+      });
+    } catch (error) {
+      credited = { ok: false, reason: 'credit-failed', message: String(error?.message || 'credit-failed') };
+    }
 
     const fresh = this.store.read();
     const current = fresh.orders[id];
-    current.status = 'COMPLETE';
     current.walletCredit = credited;
-    current.completedAt = new Date().toISOString();
-    current.updatedAt = current.completedAt;
+    current.updatedAt = new Date().toISOString();
+    if (!credited?.ok) {
+      current.status = 'CREDIT_FAILED';
+      delete current.completedAt;
+      this.store.write(fresh);
+      return {
+        ok: false,
+        reason: credited?.reason || 'credit-failed',
+        message: credited?.message,
+        order: current,
+        balance: credited?.balance
+      };
+    }
+    current.status = 'COMPLETE';
+    current.completedAt = current.updatedAt;
     this.store.write(fresh);
     return { ok: true, duplicate: credited.duplicate, order: current, balance: credited.balance };
   }

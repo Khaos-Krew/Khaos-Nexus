@@ -2,7 +2,31 @@
 
 const { createNexusEconomyPurchaseActionRequest } = require('./nexus-economy-purchase-action-request.cjs');
 const { normalizeCurrency } = require('./nexus-economy-postgres-repository.cjs');
-const { memberIdentityHold, quarantineDenylist } = require('./nexus-economy-identity-hold.cjs');
+const { memberIdentityHold, MEMBER_HOLD_MESSAGE, quarantineDenylist } = require('./nexus-economy-identity-hold.cjs');
+
+// Reads status while the caller already holds the identity/currency transaction lock.
+// A locked row wins over the pre-transaction snapshot so a concurrent status change is respected.
+async function guardMemberMutation(tx, loaded, env = process.env) {
+  let status = loaded.status;
+  let economicIdentityId = loaded.economicIdentityId;
+  let verifiedAt = loaded.verified_at;
+  if (tx && typeof tx.lockIdentity === 'function') {
+    const row = await tx.lockIdentity(economicIdentityId);
+    if (row) {
+      status = row.status;
+      economicIdentityId = row.economic_identity_id || row.economicIdentityId || economicIdentityId;
+      if (Object.prototype.hasOwnProperty.call(row, 'verified_at') || Object.prototype.hasOwnProperty.call(row, 'verifiedAt')) {
+        verifiedAt = row.verified_at ?? row.verifiedAt ?? null;
+      }
+    }
+  }
+  const hold = memberIdentityHold({ status, economicIdentityId, env });
+  if (hold) return { hold, economicIdentityId, status };
+  if (String(status || '') !== 'verified' || !verifiedAt) {
+    throw new Error('Verified economic identity is required.');
+  }
+  return { hold: null, economicIdentityId, status };
+}
 
 function cleanId(value, label) {
   const id = String(value || '').trim();
@@ -62,25 +86,7 @@ class NexusEconomyWalletCore {
   // Reads status while the caller already holds the identity/currency transaction lock.
   // A locked row wins over the pre-transaction snapshot so a concurrent status change is respected.
   async guardMemberMutation(tx, loaded) {
-    let status = loaded.status;
-    let economicIdentityId = loaded.economicIdentityId;
-    let verifiedAt = loaded.verified_at;
-    if (typeof tx.lockIdentity === 'function') {
-      const row = await tx.lockIdentity(economicIdentityId);
-      if (row) {
-        status = row.status;
-        economicIdentityId = row.economic_identity_id || row.economicIdentityId || economicIdentityId;
-        if (Object.prototype.hasOwnProperty.call(row, 'verified_at') || Object.prototype.hasOwnProperty.call(row, 'verifiedAt')) {
-          verifiedAt = row.verified_at ?? row.verifiedAt ?? null;
-        }
-      }
-    }
-    const hold = memberIdentityHold({ status, economicIdentityId, env: this.env });
-    if (hold) return { hold, economicIdentityId, status };
-    if (String(status || '') !== 'verified' || !verifiedAt) {
-      throw new Error('Verified economic identity is required.');
-    }
-    return { hold: null, economicIdentityId, status };
+    return guardMemberMutation(tx, loaded, this.env);
   }
 
   async resolveDiscordIdentity(discordUserId) {
@@ -288,4 +294,12 @@ const walletMutationHelpers = {
 attachAdminWalletMutations(NexusEconomyWalletCore, walletMutationHelpers);
 attachCommunityLevelCoinGrants(NexusEconomyWalletCore, walletMutationHelpers);
 
-module.exports = { NexusEconomyWalletCore, positiveWhole, walletBalance, quarantineDenylist };
+module.exports = {
+  NexusEconomyWalletCore,
+  positiveWhole,
+  walletBalance,
+  quarantineDenylist,
+  memberIdentityHold,
+  MEMBER_HOLD_MESSAGE,
+  guardMemberMutation
+};
