@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { attachBanner, bannerBotForPanel, cloneDelivery } = require('./brand-banners.cjs');
+const { attachBrandFiles, keepExistingAttachments, payloadHasBrandImage } = require('../shared/embed-style.cjs');
 
 const RECENT_MESSAGE_LIMIT = 100;
 const FOREIGN_EDIT_CODE = 50005;
@@ -10,8 +11,12 @@ const UNKNOWN_MESSAGE_CODE = 10008;
 
 const PANEL_IDENTITIES = Object.freeze({
   fissures: Object.freeze({
-    titles: Object.freeze(['Fissure Relay Board', 'WARFRAME • FISSURES']),
-    footerPrefixes: Object.freeze(['Nexus Sentinal • Live Feed • warframe:fissures'])
+    titles: Object.freeze(['🔶 Fissures', 'Fissure Relay Board', 'WARFRAME • FISSURES']),
+    footerPrefixes: Object.freeze([
+      'Many Worlds One Nexus • fissures',
+      'Nexus Sentinal • Live Feed • warframe:fissures',
+      'WFCD WarframeStat'
+    ])
   }),
   official: Object.freeze({
     titles: Object.freeze(['Official ASA Network'])
@@ -31,48 +36,48 @@ const PANEL_IDENTITIES = Object.freeze({
     footerPrefixes: Object.freeze(['Cephalon Nexus • staff-refreshable event pin'])
   }),
   clanApplications: Object.freeze({
-    titles: Object.freeze(['Warframe clan applications']),
-    footerPrefixes: Object.freeze(['Cephalon Nexus • clan applications'])
+    titles: Object.freeze(['🛡️ Clan applications', 'Warframe clan applications']),
+    footerPrefixes: Object.freeze(['Many Worlds One Nexus • clan panel', 'Cephalon Nexus • clan applications'])
   }),
   warframeNews: Object.freeze({
     titles: Object.freeze(['Cephalon • Warframe News']),
     footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:news'])
   }),
   warframeEvents: Object.freeze({
-    titles: Object.freeze(['Cephalon • Warframe Events']),
-    footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:events'])
+    titles: Object.freeze(['📅 Events', 'Cephalon • Warframe Events']),
+    footerPrefixes: Object.freeze(['Many Worlds One Nexus • events', 'Cephalon Nexus • warframe:events'])
   }),
   warframeAlerts: Object.freeze({
-    titles: Object.freeze(['Cephalon • Warframe Alerts']),
-    footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:alerts'])
+    titles: Object.freeze(['🚨 Alerts', 'Cephalon • Warframe Alerts']),
+    footerPrefixes: Object.freeze(['Many Worlds One Nexus • alerts', 'Cephalon Nexus • warframe:alerts'])
   }),
   warframeSortie: Object.freeze({
-    titles: Object.freeze(['Cephalon • Sortie']),
-    footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:sortie'])
+    titles: Object.freeze(['🎯 Sortie', 'Cephalon • Sortie']),
+    footerPrefixes: Object.freeze(['Many Worlds One Nexus • sortie', 'Cephalon Nexus • warframe:sortie'])
   }),
   warframeArbitration: Object.freeze({
-    titles: Object.freeze(['Cephalon • Arbitration']),
-    footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:arbitration'])
+    titles: Object.freeze(['⚖️ Arbitration', 'Cephalon • Arbitration']),
+    footerPrefixes: Object.freeze(['Many Worlds One Nexus • arbitration', 'Cephalon Nexus • warframe:arbitration'])
   }),
   warframeNightwave: Object.freeze({
-    titles: Object.freeze(['Cephalon • Nightwave']),
-    footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:nightwave'])
+    titles: Object.freeze(['🌙 Nightwave', 'Cephalon • Nightwave']),
+    footerPrefixes: Object.freeze(['Many Worlds One Nexus • nightwave', 'Cephalon Nexus • warframe:nightwave'])
   }),
   warframeVoidTrader: Object.freeze({
-    titles: Object.freeze(["Cephalon • Baro Ki'Teer"]),
-    footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:void-trader'])
+    titles: Object.freeze(["💎 Baro Ki'Teer", "Cephalon • Baro Ki'Teer"]),
+    footerPrefixes: Object.freeze(['Many Worlds One Nexus • baro', 'Cephalon Nexus • warframe:void-trader'])
   }),
   warframeSteelPath: Object.freeze({
-    titles: Object.freeze(['Cephalon • Steel Path']),
-    footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:steel-path'])
+    titles: Object.freeze(['⚔️ Steel Path', 'Cephalon • Steel Path']),
+    footerPrefixes: Object.freeze(['Many Worlds One Nexus • steel-path', 'Cephalon Nexus • warframe:steel-path'])
   }),
   warframeCircuit: Object.freeze({
-    titles: Object.freeze(['Cephalon • Circuit']),
-    footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:circuit'])
+    titles: Object.freeze(['🌀 Circuit', 'Cephalon • Circuit']),
+    footerPrefixes: Object.freeze(['Many Worlds One Nexus • circuit', 'Cephalon Nexus • warframe:circuit'])
   }),
   warframeDescendia: Object.freeze({
-    titles: Object.freeze(['Cephalon • Descendia']),
-    footerPrefixes: Object.freeze(['Cephalon Nexus • warframe:descendia'])
+    titles: Object.freeze(['🕳️ Descendia', 'Cephalon • Descendia']),
+    footerPrefixes: Object.freeze(['Many Worlds One Nexus • descendia', 'Cephalon Nexus • warframe:descendia'])
   })
 });
 
@@ -216,6 +221,23 @@ function remember(list, message) {
   list.push(message);
 }
 
+function shouldAttachPanelBanner(options, payload) {
+  const bot = bannerBotForPanel(options.panel);
+  if (!bot || options.banner === false || payloadHasBrandImage(payload)) return false;
+  if (options.banner === true) return true;
+  // Cephalon banners are opt-in (one per channel). Other bots keep auto-attach until their phase.
+  return bot !== 'cephalon';
+}
+
+function finalizeDelivery(message, body, editing) {
+  let next = attachBrandFiles(body);
+  if (editing) next = keepExistingAttachments(message, next);
+  if (Array.isArray(next.files) && next.files.length && !Array.isArray(next.attachments)) {
+    next = { ...next, attachments: [] };
+  }
+  return next;
+}
+
 async function upsertEmbed(client, channelId, messageId, payload, options = {}) {
   const id = String(channelId || '').trim();
   if (!/^\d{17,20}$/.test(id) || typeof client?.channels?.fetch !== 'function') {
@@ -224,9 +246,8 @@ async function upsertEmbed(client, channelId, messageId, payload, options = {}) 
   const channel = await client.channels.fetch(id).catch(() => null);
   if (!channel || typeof channel.send !== 'function') return { pinned: false, reason: 'missing' };
 
-  const branded = bannerBotForPanel(options.panel) && options.banner !== false
-    ? attachBanner(bannerBotForPanel(options.panel), payload)
-    : payload;
+  const bot = bannerBotForPanel(options.panel);
+  const branded = shouldAttachPanelBanner(options, payload) ? attachBanner(bot, payload) : payload;
   const body = { ...branded, allowedMentions: branded?.allowedMentions || { parse: [] } };
   const botId = String(options.botId || client?.user?.id || '');
   const identity = options.identity || (options.panel ? PANEL_IDENTITIES[options.panel] : null);
@@ -241,7 +262,7 @@ async function upsertEmbed(client, channelId, messageId, payload, options = {}) 
   if (preferredId && typeof channel.messages?.fetch === 'function') {
     const existing = await channel.messages.fetch(preferredId).catch(() => null);
     if (existing?.edit && !isForeignPanel(existing, botId)) {
-      const edited = await editOwned(existing, cloneDelivery(body));
+      const edited = await editOwned(existing, finalizeDelivery(existing, cloneDelivery(body), true));
       if (edited === 'edited') canonical = existing;
       else if (edited === 'foreign') remember(foreign, existing);
     } else if (existing && isForeignPanel(existing, botId) && (!matches || matches(existing))) {
@@ -264,7 +285,7 @@ async function upsertEmbed(client, channelId, messageId, payload, options = {}) 
     const preferred = envId ? owned.find((message) => String(message?.id || '') === envId) || null : null;
     canonical = preferred || newestMessage(owned);
     if (canonical?.edit) {
-      const edited = await editOwned(canonical, cloneDelivery(body));
+      const edited = await editOwned(canonical, finalizeDelivery(canonical, cloneDelivery(body), true));
       if (edited !== 'edited') {
         if (edited === 'foreign' && isForeignPanel(canonical, botId)) remember(foreign, canonical);
         canonical = null;
@@ -289,7 +310,7 @@ async function upsertEmbed(client, channelId, messageId, payload, options = {}) 
         reason: 'absent'
       };
     }
-    canonical = await channel.send(cloneDelivery(body));
+    canonical = await channel.send(finalizeDelivery(null, cloneDelivery(body), false));
     created = true;
     migrated = foreign.length > 0;
   }

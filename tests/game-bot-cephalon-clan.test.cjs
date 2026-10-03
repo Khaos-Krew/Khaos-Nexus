@@ -125,8 +125,9 @@ test('clan custom ids, modal parse, and officer gate', async () => {
   };
   assert.equal(await handleStageCommand(approve, { bot: 'cephalon', env: {} }), true);
   assert.deepEqual(added, [{ id: APPLICANT, roleId: MEMBER }]);
-  assert.match(updates[0].embeds[0].title, /Approved/);
-  assert.equal(updates[0].embeds[0].footer.text, `cephalon:clan:approved:${APPLICANT}`);
+  assert.equal(updates[0].embeds[0].fields.find((field) => field.name === 'Status').value, '🟢 Approved');
+  assert.equal(updates[0].embeds[0].footer.text, `Many Worlds One Nexus • clan approved:${APPLICANT}`);
+  assert.equal(updates[0].embeds[0].color, 0x00B4D8);
   assert.equal(updates[0].components[0].components.every((button) => button.disabled === true), true);
   assert.match(followUps[0].content, /Clan Member role added/);
 
@@ -161,7 +162,7 @@ test('clan custom ids, modal parse, and officer gate', async () => {
   };
   assert.equal(await handleStageCommand(reject, { bot: 'cephalon', env: {} }), true);
   assert.deepEqual(rejectAdds, []);
-  assert.match(rejected[0].embeds[0].title, /Rejected/);
+  assert.equal(rejected[0].embeds[0].fields.find((field) => field.name === 'Status').value, '🔴 Declined');
   assert.equal(rejected[0].components[0].components.every((button) => button.disabled === true), true);
 });
 
@@ -337,7 +338,8 @@ test('profile and circuit soft-fail and stay on cephalon', async () => {
   assert.match(JSON.stringify(replies[0].embeds[0].fields), /MR 30/);
   assert.match(JSON.stringify(replies[0].embeds[0].fields), /Khaos/);
   assert.match(JSON.stringify(replies[0].embeds[0].fields), /guild-9/);
-  assert.match(replies[0].embeds[0].footer.text, /WFCD/);
+  assert.match(replies[0].embeds[0].footer.text, /Many Worlds One Nexus/);
+  assert.match(replies[0].embeds[0].description, /Data: WarframeStat/);
 
   await handleStageCommand({ ...base, commandName: 'profile', options: { getString: () => 'Missing' } }, { ...context, provider: { profile: profileLookup } });
   assert.match(replies.at(-1).content, /No public profile for \*\*Missing\*\*/);
@@ -352,21 +354,25 @@ test('profile and circuit soft-fail and stay on cephalon', async () => {
   await handleStageCommand({ ...base, commandName: 'circuit' }, context);
   await handleStageCommand({ ...base, commandName: 'circuit' }, context);
   assert.equal(urls.filter((item) => item === 'duviriCycle').length, 1);
-  const digest = replies.at(-1).embeds[0].description;
+  const digest = JSON.stringify(replies.at(-1).embeds[0]);
   assert.match(digest, /joy/);
   assert.match(digest, /Excalibur/);
   assert.match(digest, /Umbra Forma Blueprint/);
   assert.match(digest, /Exterminate/);
   assert.match(digest, /Tight Belt/);
   assert.match(digest, /Powerless/);
+  assert.equal(replies.at(-1).embeds[0].image, undefined);
+  assert.equal(replies.at(-1).embeds[0].thumbnail.url, 'attachment://icon-cephalon.png');
 
   const partial = circuitEmbed({
     missing: ['duviri', 'archimedea'],
     steelPath: { currentReward: { name: 'Forma' }, remaining: '1h' }
   });
-  assert.match(partial.description, /Duviri:\*\* unavailable/);
-  assert.match(partial.description, /Forma/);
-  assert.match(partial.description, /Archimedea:\*\* unavailable/);
+  const partialText = JSON.stringify(partial);
+  assert.match(partialText, /Duviri Circuit/);
+  assert.match(partialText, /Unavailable/);
+  assert.match(partialText, /Forma/);
+  assert.match(partialText, /Deep Archimedea/);
 
   const calls = [];
   const gated = new EventEmitter();

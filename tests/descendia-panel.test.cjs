@@ -54,21 +54,23 @@ test('descendia embed lists the fixture floors inside Discord limits', () => {
   const packed = JSON.stringify(embed);
   const lines = embed.fields.flatMap((field) => field.value.split('\n'));
   const expiry = Math.floor(Date.parse(fixture.expiry) / 1000);
-  assert.equal(embed.title, 'Cephalon • Descendia');
+  assert.equal(embed.title, '🕳️ Descendia');
   assert.match(embed.description, /Weekly Descent · 21 floors\./);
   assert.match(embed.description, new RegExp(`<t:${expiry}:R>`));
   assert.match(embed.description, new RegExp(`<t:${expiry}:F>`));
-  assert.equal(lines.length, 21);
-  assert.match(lines[0], /^1\. Exterminate — Fiery Trail Rollers · Fiery Trail$/);
-  assert.match(lines[1], /^2\. Shrine Defense — Slip And Slide · Slip And Slide$/);
-  assert.match(lines[2], /^3\. Mimics — Basic Mimics$/);
-  assert.match(lines.find((line) => line.startsWith('10. ')), /Sabotage Hive — Heavy Weapons Only · Heavy Weapon Spawn, Heavy Weapons Only/);
-  assert.match(lines.find((line) => line.startsWith('12. ')), /^12\. Collection — NC Security Spin/);
-  assert.match(lines[20], /^21\. Protoframe — Devil$/);
+  assert.match(embed.description, /Data: WarframeStat/);
+  assert.match(lines[0], /^Floor 1: Exterminate \(Fiery Trail Rollers\)$/);
+  assert.match(lines[1], /^└ Fiery Trail$/);
+  assert.match(packed, /Floor 3: Mimics \(Basic Mimics\)/);
+  assert.match(packed, /\+\d+ more/);
   assert.doesNotMatch(packed, /D T_/);
   assert.doesNotMatch(packed, /N C_/);
-  assert.match(embed.footer.text, /^Cephalon Nexus • warframe:descendia/);
-  assert.match(embed.footer.text, /Many Worlds One Nexus/);
+  assert.equal(embed.footer.text, 'Many Worlds One Nexus • descendia');
+  assert.doesNotMatch(embed.footer.text, /—/);
+  for (const field of embed.fields) {
+    assert.ok(field.value.split('\n').length <= 5);
+  }
+  assert.ok(embed.fields.length <= 6);
   assert.ok(embed.fields.length >= 1);
   assert.ok(embed.fields.length <= 25);
   assert.ok(embed.title.length <= 256);
@@ -86,7 +88,7 @@ test('missing or empty descendia data stays on the unavailable embed', () => {
   const samples = [null, undefined, {}, { challenges: [] }, { challenges: null }, { challenges: [{ type: 'D T_ E X T E R M I N A T E' }] }, 'descendia'];
   for (const sample of samples) {
     const embed = descendiaEmbed(sample);
-    assert.equal(embed.title, 'Cephalon • Descendia');
+    assert.equal(embed.title, '🕳️ Descendia');
     assert.equal(embed.description, 'Descendia data unavailable');
     assert.equal(embed.fields, undefined);
     assert.match(embed.footer.text, /Many Worlds One Nexus/);
@@ -222,8 +224,8 @@ test('an expired descendia week is fetched again before the panel is edited', as
     assert.match(JSON.stringify(sent[0]), /New Week/);
     assert.doesNotMatch(JSON.stringify(sent[0]), /Old Week/);
     assert.match(sent[0].embeds[0].footer.text, /Many Worlds One Nexus/);
-    assert.equal(sent[0].embeds[0].image.url, 'attachment://cephalon-banner.webp');
-    assert.equal(sent[0].files[0].name, 'cephalon-banner.webp');
+    assert.equal(sent[0].embeds[0].image.url, 'attachment://cephalon-panel-banner.png');
+    assert.equal(sent[0].files[0].name, 'cephalon-panel-banner.png');
     assert.deepEqual(sent[0].attachments, []);
     const second = await refreshWarframePanels({ client, env, provider, dir });
     assert.equal(second.refreshed, 1);

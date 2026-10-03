@@ -528,7 +528,9 @@ async function handleCreatorPost(interaction, store, context = {}) {
     await respond(interaction, failureMessage('twitch-login-unverified', 'twitch'));
     return { ok: false, reason: 'twitch-login-unverified' };
   }
-  const nowMs = context.now instanceof Date ? context.now.getTime() : Date.parse(context.now || '') || Date.now();
+  const nowMs = context.now instanceof Date
+    ? context.now.getTime()
+    : (typeof context.now === 'number' && Number.isFinite(context.now) ? context.now : (Date.parse(context.now || '') || Date.now()));
   const fetchImpl = context.fetchImpl || globalThis.fetch;
   const submitted = parseHttpsUrl(classified.rawUrl);
   if (classified.platform === 'tiktok' && submitted && TIKTOK_SHORT_HOSTS.has(hostOf(submitted))) {
