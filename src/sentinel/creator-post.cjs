@@ -205,6 +205,13 @@ function classifyCreatorPostUrl(value) {
   return null;
 }
 
+function clockMs(value) {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  const parsed = Date.parse(value || '');
+  return Number.isFinite(parsed) ? parsed : Date.now();
+}
+
 function postsWithinWindow(entries, userId, nowMs = Date.now()) {
   return (Array.isArray(entries) ? entries : []).filter((entry) => {
     if (String(entry?.userId || '') !== String(userId || '')) return false;
@@ -528,7 +535,7 @@ async function handleCreatorPost(interaction, store, context = {}) {
     await respond(interaction, failureMessage('twitch-login-unverified', 'twitch'));
     return { ok: false, reason: 'twitch-login-unverified' };
   }
-  const nowMs = context.now instanceof Date ? context.now.getTime() : Date.parse(context.now || '') || Date.now();
+  const nowMs = clockMs(context.now);
   const fetchImpl = context.fetchImpl || globalThis.fetch;
   const submitted = parseHttpsUrl(classified.rawUrl);
   if (classified.platform === 'tiktok' && submitted && TIKTOK_SHORT_HOSTS.has(hostOf(submitted))) {

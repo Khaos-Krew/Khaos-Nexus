@@ -383,11 +383,18 @@ test('minecraft playtime does not require EOS when the identity and link are ver
   assert.equal(credited.ok, true, credited.reason);
   assert.ok(credited.balance > 0);
   assert.equal(worker.store.read().eosToDiscord[UUID], undefined);
+  assert.equal(isMinecraftShopOrder({ source: 'mc-shop' }), true);
+  assert.equal(isMinecraftShopOrder({ type: 'BUY', eosId: 'EOS' }), false);
+});
+
+test('Minecraft points owner decisions do not require EOS and leave partial delivery unconfirmed', {
+  skip: fs.existsSync(path.join(__dirname, '../docs/architecture/MC_POINTS_OWNER_DECISIONS_2026-10-01.md'))
+    ? false
+    : 'image does not include docs/architecture/MC_POINTS_OWNER_DECISIONS_2026-10-01.md'
+}, () => {
   const decision = fs.readFileSync(path.join(__dirname, '../docs/architecture/MC_POINTS_OWNER_DECISIONS_2026-10-01.md'), 'utf8');
   assert.match(decision, /pending WARDEN sign-off/);
   assert.match(decision, /remainder goes to SENT_UNCONFIRMED/);
-  assert.equal(isMinecraftShopOrder({ source: 'mc-shop' }), true);
-  assert.equal(isMinecraftShopOrder({ type: 'BUY', eosId: 'EOS' }), false);
 });
 
 test('link proof verifies with the ARK identity proof secret', async () => {

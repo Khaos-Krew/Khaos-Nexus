@@ -12,7 +12,8 @@ const { createManifestQuery, hashKeys } = require('../../../src/game-bots/vangua
 const { createActivityCatalog } = require('../../../src/game-bots/vanguard/lfg/activities-manifest.cjs');
 const { nextResetAt } = require('../../../src/game-bots/vanguard/bungie/time.cjs');
 const { renderWeeklyReset } = require('../../../src/game-bots/vanguard/panels/weekly-reset.cjs');
-const { XUR_VENDOR_HASH, renderXur } = require('../../../src/game-bots/vanguard/panels/xur.cjs');
+const { XUR_VENDOR_HASH, locationFromVendors, renderXur } = require('../../../src/game-bots/vanguard/panels/xur.cjs');
+const { lookupSaleItems } = require('../../../src/game-bots/vanguard/commands/d2-xur.cjs');
 const { featureOpen } = require('../../../src/game-bots/vanguard/bungie/health.cjs');
 
 function sqliteBytes() {
@@ -28,7 +29,13 @@ function sqliteBytes() {
   insert('DestinyMilestoneDefinition', 10, { hash: 10, displayProperties: { name: 'Weekly Clan Engrams' } });
   insert('DestinyActivityModeDefinition', 4, { hash: 4, modeType: 4, displayProperties: { name: 'Raid' } });
   insert('DestinyActivityDefinition', 77, { hash: 77, directActivityModeType: 4, displayProperties: { name: 'Vault of Glass' } });
-  insert('DestinyInventoryItemDefinition', 99, { hash: 99, displayProperties: { name: 'Young Ahamkara\'s Spine' }, inventory: { tierType: 6, tierTypeName: 'Exotic' } });
+  insert('DestinyInventoryItemDefinition', 99, {
+    hash: 99,
+    itemType: 3,
+    displayProperties: { name: 'Young Ahamkara\'s Spine' },
+    inventory: { tierType: 6, tierTypeName: 'Exotic', bucketTypeHash: 1498876634 }
+  });
+  insert('DestinyInventoryItemDefinition', 7, { hash: 7, itemType: 0, displayProperties: { name: 'Exotic Gear' } });
   db.close();
   return fs.readFileSync(file);
 }
@@ -82,6 +89,13 @@ test('manifest download validates, swaps once, and keeps the previous version', 
   const query = createManifestQuery();
   query.open(next.path);
   assert.equal(query.nameFor('DestinyMilestoneDefinition', 10), 'Weekly Clan Engrams');
+  const exotic = query.itemMeta('DestinyInventoryItemDefinition', 99);
+  assert.equal(exotic.itemType, 3);
+  assert.equal(exotic.tierType, 6);
+  assert.equal(exotic.bucketTypeHash, 1498876634);
+  const sales = lookupSaleItems(query, [99, 7]);
+  assert.equal(sales.get('99').tierTypeName, 'Exotic');
+  assert.equal(sales.get('7').itemType, 0);
   const catalog = createActivityCatalog({ query });
   assert.equal(catalog.find('raid').label, 'Raid');
   const found = catalog.search('vault');
@@ -105,15 +119,59 @@ test('weekly reset time comes from milestone dates and says when the list is sho
     names: new Map([['10', 'Weekly Clan Engrams']]),
     now
   });
+  const resetUnix = Math.floor(Date.parse('2026-10-06T17:00:00Z') / 1000);
   assert.equal(nextResetAt(milestones.Response, now), Date.parse('2026-10-06T17:00:00Z'));
   assert.doesNotMatch(embed.description, /LIMITED/);
   assert.doesNotMatch(embed.description, /Milestone /);
   assert.match(embed.description, /Few public milestones/);
-  assert.match(embed.description, /Weekly Clan Engrams/);
-  assert.match(embed.description, /Next reset: Oct 6, 2026, 12:00 PM CT/);
+  assert.match(embed.description, new RegExp(`⏳ Next reset <t:${resetUnix}:R>`));
   assert.doesNotMatch(embed.description, /17:00 UTC/);
+  const rewards = embed.fields.find((field) => field.name.includes('Rewards'));
+  assert.match(rewards.value, /Weekly Clan Engrams/);
+  assert.match(rewards.value, new RegExp(`<t:${resetUnix}:R>`));
+  assert.ok(embed.fields.length <= 6);
+  assert.ok(embed.fields.filter((field) => field.inline).length <= 6);
+  for (const field of embed.fields) {
+    const lines = field.value.split('\n');
+    assert.ok(lines.length <= 5);
+    for (const line of lines) assert.ok(line.length <= 60);
+  }
+  assert.ok(embed.description.split('\n').length <= 4);
   const none = renderWeeklyReset({ milestones: { Response: {} }, now });
   assert.match(none.description, /No public milestones/);
+});
+
+test('purification without its own end uses the weekly reset, and activity ends win', () => {
+  const now = Date.parse('2026-10-01T18:00:00Z');
+  const resetUnix = Math.floor(Date.parse('2026-10-06T17:00:00Z') / 1000);
+  const activityUnix = Math.floor(Date.parse('2026-10-05T17:00:00Z') / 1000);
+  const purification = renderWeeklyReset({
+    milestones: {
+      Response: {
+        10: { milestoneHash: 10, endDate: '2026-10-06T17:00:00Z' },
+        12: { milestoneHash: 12 }
+      }
+    },
+    names: new Map([['10', 'Weekly Clan Engrams'], ['12', 'Purification']]),
+    now
+  });
+  const week = purification.fields.find((field) => field.name.includes('This Week'));
+  assert.match(week.value, new RegExp(`Purification <t:${resetUnix}:R>`));
+  assert.doesNotMatch(week.value, /^Purification$/);
+  const raidWeek = renderWeeklyReset({
+    milestones: {
+      Response: {
+        10: { milestoneHash: 10, endDate: '2026-10-06T17:00:00Z' },
+        13: { milestoneHash: 13, activities: [{ endDate: '2026-10-05T17:00:00Z' }] }
+      }
+    },
+    names: new Map([['10', 'Weekly Clan Engrams'], ['13', 'Featured Dungeon']]),
+    now
+  });
+  const raid = raidWeek.fields.find((field) => field.name.includes('Raid'));
+  const rewards = raidWeek.fields.find((field) => field.name.includes('Rewards'));
+  assert.match(raid.value, new RegExp(`Featured Dungeon <t:${activityUnix}:R>`));
+  assert.match(rewards.value, new RegExp(`Weekly Clan Engrams <t:${resetUnix}:R>`));
 });
 
 test('xur is absent outside his window and the panel leaves location out', () => {
@@ -142,10 +200,72 @@ test('xur is absent outside his window and the panel leaves location out', () =>
     now: Date.parse('2026-10-01T22:00:00Z')
   });
   assert.equal(here.present, true);
-  assert.match(here.description, /Young Ahamkara's Spine — 41 Strange Coin/);
-  assert.doesNotMatch(here.description, /location|Last City|Tower/i);
+  const other = here.fields.find((field) => field.name.includes('Other'));
+  assert.match(other.value, /Young Ahamkara's Spine • 41 Strange Coin/);
+  assert.doesNotMatch(here.description, /📍 Location|not listed|Last City|Tower/i);
+  const placedVendors = {
+    Response: {
+      vendors: { data: { [String(XUR_VENDOR_HASH)]: { vendorHash: XUR_VENDOR_HASH, enabled: true, nextRefreshDate: '2026-10-02T09:00:00Z', location: 'European Dead Zone' } } }
+    }
+  };
+  assert.equal(locationFromVendors(placedVendors), 'European Dead Zone');
+  const placed = renderXur({ vendors: placedVendors, now: Date.parse('2026-10-01T22:00:00Z') });
+  assert.match(placed.description, /📍 Location: European Dead Zone/);
+  assert.doesNotMatch(placed.description, /not listed|Last City|Tower/i);
+  const leaves = Math.floor(Date.parse('2026-10-02T09:00:00Z') / 1000);
+  assert.match(here.description, new RegExp(`⏳ Leaves <t:${leaves}:R>`));
+  const returns = Math.floor(Date.parse('2026-10-09T17:00:00Z') / 1000);
+  assert.match(gone.description, /Xûr is not here/);
+  assert.match(gone.description, new RegExp(`⏳ Returns <t:${returns}:R>`));
+  assert.doesNotMatch(gone.description, /Last City|Tower/i);
   assert.equal(featureOpen({ D2PublicMilestones: false, D2Milestones: true }, 'reset'), true);
   assert.equal(featureOpen({ D2Vendors: false }, 'xur'), false);
   assert.equal(featureOpen({ Destiny2: true, D2Profiles: true }, 'lookup'), true);
   assert.equal(featureOpen({ Destiny2: true }, 'clan'), false);
+});
+
+test('xur drops category headings and groups real items by tier', () => {
+  const embed = renderXur({
+    vendors: {
+      Response: {
+        vendors: { data: { [String(XUR_VENDOR_HASH)]: { vendorHash: XUR_VENDOR_HASH, enabled: true, nextRefreshDate: '2026-10-02T09:00:00Z' } } },
+        sales: {
+          data: {
+            [String(XUR_VENDOR_HASH)]: {
+              saleItems: {
+                1: { itemHash: 7 },
+                2: { itemHash: 20 },
+                3: { itemHash: 21 },
+                4: { itemHash: 99, costs: [{ itemHash: 50, quantity: 41 }] },
+                5: { itemHash: 88, costs: [{ itemHash: 50, quantity: 23 }] },
+                6: { itemHash: 77 },
+                7: { itemHash: 22 }
+              }
+            }
+          }
+        }
+      }
+    },
+    names: new Map([
+      ['7', { name: 'Exotic Gear', itemType: 0, tierType: 0, bucketTypeHash: 0 }],
+      ['20', { name: 'Dummy Category', itemType: 20, tierType: 6, bucketTypeHash: 1498876634 }],
+      ['21', { name: 'Featured', itemType: 3, tierType: 6, tierTypeName: 'Exotic', bucketTypeHash: 1498876634, displayCategory: true }],
+      ['22', { name: 'Redacted Exotic', itemType: 3, tierType: 6, bucketTypeHash: 1498876634, redacted: true }],
+      ['99', { name: 'Young Ahamkara\'s Spine', itemType: 3, tierType: 6, tierTypeName: 'Exotic', bucketTypeHash: 1498876634 }],
+      ['88', { name: 'Palindrome', itemType: 3, tierType: 5, tierTypeName: 'Legendary', bucketTypeHash: 1498876634 }],
+      ['77', { name: 'Strange Coin Bundle', itemType: 9, tierType: 3, bucketTypeHash: 1469714392 }],
+      ['50', { name: 'Strange Coin', itemType: 1, tierType: 3, bucketTypeHash: 1469714392 }]
+    ]),
+    now: Date.parse('2026-10-01T22:00:00Z'),
+    location: 'European Dead Zone'
+  });
+  const text = JSON.stringify(embed);
+  assert.doesNotMatch(text, /Exotic Gear|Dummy Category|Featured|Redacted Exotic/);
+  assert.match(embed.fields.find((field) => field.name.includes('Exotics')).value, /Young Ahamkara's Spine • 41 Strange Coin/);
+  assert.match(embed.fields.find((field) => field.name.includes('Legendaries')).value, /Palindrome • 23 Strange Coin/);
+  assert.match(embed.fields.find((field) => field.name.includes('Other')).value, /Strange Coin Bundle/);
+  assert.match(embed.description, /📍 Location: European Dead Zone/);
+  assert.doesNotMatch(embed.description, /Last City|Tower/i);
+  assert.ok(embed.description.split('\n').length <= 4);
+  assert.equal(embed.fields.filter((field) => field.inline).length, 3);
 });

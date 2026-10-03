@@ -2,7 +2,7 @@
 
 const { MessageFlags, SlashCommandBuilder } = require('discord.js');
 const { bungieConfig } = require('../config.cjs');
-const { panelFooter, postFooter } = require('../panels.cjs');
+const { appendDisclaimer, applyChrome, panelFooter, postFooter, withAssets } = require('../panels.cjs');
 const { handleClan, handleClanAutocomplete } = require('./d2-clan.cjs');
 const { handlePlayer } = require('./d2-player.cjs');
 const { handleReset } = require('./d2-reset.cjs');
@@ -53,14 +53,19 @@ async function replyText(interaction, text) {
 }
 
 async function replyEmbed(interaction, embed, footer) {
-  const body = {
-    embeds: [{
-      title: embed.title,
-      description: String(embed.description || '').slice(0, 4000),
-      footer: { text: footer }
-    }],
+  const branded = applyChrome({
+    title: embed.title,
+    description: appendDisclaimer(embed.description),
+    fields: Array.isArray(embed.fields) ? embed.fields.slice(0, 6) : undefined
+  }, {
+    client: interaction.client,
+    footerText: footer,
+    mode: 'icon'
+  });
+  const body = withAssets({
+    embeds: [branded],
     allowedMentions: { parse: [] }
-  };
+  }, null, 'icon');
   if (interaction.deferred || interaction.replied) {
     await interaction.editReply(body);
     return;

@@ -1,6 +1,7 @@
 'use strict';
 const crypto = require('node:crypto');
 const { connectMysql, isRetired } = require('./arkshop-mysql.cjs');
+const { arkShopMemberFeatureStatus, ARKSHOP_FEATURES_OFF_MESSAGE } = require('./arkshop-cluster-economy-guard.cjs');
 function positive(n) { if (!Number.isSafeInteger(n)||n<1||n>1000000) throw new Error('ARN rates must be integers from 1 to 1,000,000.'); return n; }
 function identity(value) { if (!/^\d{5,25}$/.test(String(value))) throw new Error('Valid Discord identity required.'); return String(value); }
 async function ensureArnSchema(db) {
@@ -36,20 +37,25 @@ async function change(db,{user,delta,key,actor,reason,orderId=null}) {
   await db.execute('INSERT INTO nexus_arn_ledger (id,event_key,discord_user_id,delta,balance_before,balance_after,actor,reason,order_id) VALUES (?,?,?,?,?,?,?,?,?)',[crypto.randomUUID(),key,user,delta,before,after,String(actor).slice(0,128),String(reason).slice(0,500),orderId]);
   return { duplicate:false,balance:after,before };
 }
+function retiredLedgerError(code) {
+  const error = new Error(ARKSHOP_FEATURES_OFF_MESSAGE);
+  error.code = code;
+  return error;
+}
 class ArnTokenLedger {
-  constructor({connector=connectMysql, randomInt=crypto.randomInt}={}) { this.connector=connector; this.randomInt=randomInt; }
+  constructor({connector=connectMysql, randomInt=crypto.randomInt, economyAuditor=arkShopMemberFeatureStatus}={}) {
+    this.connector=connector; this.randomInt=randomInt; this.economyAuditor=economyAuditor;
+  }
   async using(fn) {
-    if (isRetired()) {
-      const error = new Error('ArkShop MySQL is retired.');
-      error.code = 'ARKSHOP_MYSQL_RETIRED';
-      throw error;
+    if (isRetired()) throw retiredLedgerError('ARKSHOP_MYSQL_RETIRED');
+    let economy;
+    try { economy = await this.economyAuditor(); }
+    catch { economy = { ok: false, mode: 'audit-failed' }; }
+    if (economy?.ok !== true) {
+      throw retiredLedgerError(economy?.mode === 'arkshop-retired' ? 'ARKSHOP_RETIRED' : 'CLUSTER_ECONOMY_NOT_READY');
     }
     const opened = await this.connector();
-    if (opened?.retired || !opened?.connection) {
-      const error = new Error('ArkShop MySQL is retired.');
-      error.code = 'ARKSHOP_MYSQL_RETIRED';
-      throw error;
-    }
+    if (opened?.retired || !opened?.connection) throw retiredLedgerError('ARKSHOP_MYSQL_RETIRED');
     const { connection } = opened;
     try { await ensureArnSchema(connection); return await fn(connection); } finally { await connection.end().catch(()=>{}); }
   }

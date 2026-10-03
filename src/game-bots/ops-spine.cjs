@@ -103,7 +103,7 @@ function arkShopStatusLine(env = process.env) {
   if (!isArkShopMysqlRetired(env)) return 'ArkShop MySQL: bridge enabled.';
   const mode = String(env.ARKSHOP_DB_MODE || '').trim().toLowerCase();
   const shown = /^(disabled|off|retired|none|false|0)$/.test(mode) ? mode : 'disabled';
-  return `ArkShop MySQL retired (\`ARKSHOP_DB_MODE=${shown}\`).`;
+  return `ArkShop MySQL retired (\`ARKSHOP_DB_MODE=${shown}\`) mode=arkshop-retired.`;
 }
 
 function rconStaffLines(env = process.env) {

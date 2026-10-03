@@ -1,6 +1,7 @@
 'use strict';
 
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType } = require('discord.js');
+const { isArkShopMysqlRetired } = require('./arkshop-database.cjs');
 const { managedPayloadMatches } = require('./managed-payload-compare.cjs');
 const { attachBanner, cloneDelivery } = require('../game-bots/brand-banners.cjs');
 
@@ -39,19 +40,23 @@ function renderMapField(server = {}) { const runtime = server.runtime || {}; con
 function clusterEvent(servers = []) { const active = servers.find((server) => server.enabled !== false && server.currentEvent); return active ? { name: active.currentEvent, endsAt: active.eventEndsAt } : null; }
 function nextRestart(servers = []) { const list = servers.map((server) => new Date(server.nextRestartAt).getTime()).filter(Number.isFinite).sort((a, b) => a - b); return list.length ? new Date(list[0]).toISOString() : ''; }
 
+function retireShopButton(button) {
+  if (isArkShopMysqlRetired()) button.setDisabled(true);
+  return button;
+}
 function buildButtons() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(BUTTON_REFRESH).setLabel('Refresh').setEmoji('🔄').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(BUTTON_MODS).setLabel('Mod List').setEmoji('🧩').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(BUTTON_PUBLIC_SHOP).setLabel('Shop').setEmoji('🛒').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(BUTTON_PUBLIC_KITS).setLabel('Kits').setEmoji('🎁').setStyle(ButtonStyle.Primary),
+    retireShopButton(new ButtonBuilder().setCustomId(BUTTON_PUBLIC_KITS).setLabel('Kits').setEmoji('🎁').setStyle(ButtonStyle.Primary)),
     new ButtonBuilder().setCustomId(BUTTON_EVENTS).setLabel('Events').setEmoji('🎉').setStyle(ButtonStyle.Primary)
   );
 }
 function buildInfoButtons() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(BUTTON_STATS).setLabel('Server Stats & Rates').setEmoji('📊').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(BUTTON_CACHE_SHOP).setLabel('Cache Shop').setEmoji('🎰').setStyle(ButtonStyle.Primary),
+    retireShopButton(new ButtonBuilder().setCustomId(BUTTON_CACHE_SHOP).setLabel('Cache Shop').setEmoji('🎰').setStyle(ButtonStyle.Primary)),
     new ButtonBuilder().setCustomId(BUTTON_UPDATE_SAFETY).setLabel('Update Safety').setEmoji('🛡️').setStyle(ButtonStyle.Danger)
   );
 }

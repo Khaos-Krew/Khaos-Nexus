@@ -293,6 +293,7 @@ test('staff status reports discord, arkshop retirement, and deploy sha without R
     assert.match(text, /Discord: ready/);
     assert.match(text, /ARKSHOP_DB_MODE=disabled/);
     assert.match(text, /ArkShop MySQL retired/);
+    assert.match(text, /mode=arkshop-retired/);
     assert.match(text, /Deploy `abc1234`/);
     assert.match(text, /Nexus Sentinal/);
     assert.match(text, /RCON health: no self-check recorded yet/);

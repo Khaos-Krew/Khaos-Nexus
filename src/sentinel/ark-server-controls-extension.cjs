@@ -126,6 +126,7 @@ function formatMysqlResult(result = {}) {
     return [
       '⚠️ **ArkShop MySQL sync did not pass verification**',
       `Stage: **${mode}**`,
+      mode === 'arkshop-retired' ? 'mode=arkshop-retired' : '',
       failed ? `Config write failed: **${failed}**` : '',
       affected ? `Economy guard affected servers: **${affected}**` : '',
       'The cluster economy guard remains locked; no database credentials were exposed.'
@@ -134,7 +135,7 @@ function formatMysqlResult(result = {}) {
   return [
     '✅ **ArkShop shared MySQL verified**',
     `Maps checked: **${result.prefixes.length}** • configs changed: **${changed}** • backups created: **${backups}**`,
-    `Economy guard: **${result.audit?.mode || 'verified'}**`,
+    `Economy guard: **${result.audit?.mode || 'verified'}**${result.audit?.mode === 'arkshop-retired' ? ' mode=arkshop-retired' : ''}`,
     `ArkShop reload: **${reloadOk} succeeded**${reloadFailed ? ` • **${reloadFailed} failed**` : ''}`,
     'No ARK server restart was performed.'
   ].join('\n');

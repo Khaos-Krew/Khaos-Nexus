@@ -151,6 +151,16 @@ async function ensureVanguardChannels(ctx) {
     return state;
   });
   publishRuntimeChannels(env, resolvedChannels(env, result.resolved), ctx.jtc);
+  if (result.warnings?.length && !result.alertReady) {
+    const alert = staffChannelAlert(ctx.client, env);
+    for (const text of result.warnings) {
+      try {
+        await alert(text);
+      } catch (error) {
+        console.warn(`[Nexus Vanguard] staff alert class=${errorClass(error)}`);
+      }
+    }
+  }
   if (!result.ok) {
     console.warn(`[Nexus Vanguard] channel provision class=${result.errorClass || result.reason}`);
     return result;
