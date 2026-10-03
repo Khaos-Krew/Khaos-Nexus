@@ -123,7 +123,7 @@ function locationText(vendor, location) {
     || placeName(vendor?.location)
     || placeName(vendor?.locationName)
     || placeName(vendor?.vendorLocation);
-  if (!explicit || /^not listed$/i.test(explicit) || /^x[uûr$/i.test(explicit)) return '';
+  if (!explicit || /^not listed$/i.test(explicit) || /^x[u\u00fb]r$/i.test(explicit)) return '';
   return clipLine(explicit, 80);
 }
 
@@ -180,7 +180,7 @@ function salePrice(names, costs) {
 function itemLine(name, price) {
   const label = String(name || '').replace(/\s+/g, ' ').trim();
   if (!label) return '';
-  return price ? `${label} — ${price}` : label;
+  return price ? `${label} \u2014 ${price}` : label;
 }
 
 function armorClass(value) {
@@ -240,14 +240,14 @@ function renderXur({ vendors, names = new Map(), now = Date.now(), location = ''
   if (!present) {
     const returns = Number.isFinite(refresh) && refresh > now ? refresh : nextXurArrival(now);
     const when = relativeTag(returns);
-    const lines = ['Xûr is not here.'];
-    if (when) lines.push(`⏳ Returns ${when}`);
+    const lines = ['X\u00fbr is not here.'];
+    if (when) lines.push(`\u23f3 Returns ${when}`);
     const description = appendDisclaimer(lines.join('\n'), { maxLines: 4 });
     return {
-      title: '✨ Xûr',
+      title: '\u2728 X\u00fbr',
       description,
       fields: [],
-      embeds: [{ title: '✨ Xûr', description, fields: [] }],
+      embeds: [{ title: '\u2728 X\u00fbr', description, fields: [] }],
       present: false
     };
   }
@@ -266,18 +266,18 @@ function renderXur({ vendors, names = new Map(), now = Date.now(), location = ''
     });
   }
   const sections = [
-    { name: '🟡 Exotics', key: 'exotic' },
-    { name: '🟣 Legendaries', key: 'legendary' },
-    { name: '📦 Other', key: 'other' }
+    { name: '\ud83d\udfe1 Exotics', key: 'exotic' },
+    { name: '\ud83d\udfe3 Legendaries', key: 'legendary' },
+    { name: '\ud83d\udce6 Other', key: 'other' }
   ].filter((section) => groups[section.key].length)
     .map((section) => ({ name: section.name, lines: linesForGroup(groups[section.key]) }));
   const leaves = relativeTag(refresh);
   const place = locationText(vendor, location);
-  const lines = ['Xûr is here.'];
-  if (place) lines.push(`📍 Location: ${place}`);
-  if (leaves) lines.push(`⏳ Leaves ${leaves}`);
+  const lines = ['X\u00fbr is here.'];
+  if (place) lines.push(`\ud83d\udccd Location: ${place}`);
+  if (leaves) lines.push(`\u23f3 Leaves ${leaves}`);
   const packed = packSections({
-    title: '✨ Xûr',
+    title: '\u2728 X\u00fbr',
     description: appendDisclaimer(lines.join('\n'), { maxLines: 4 }),
     sections
   });
