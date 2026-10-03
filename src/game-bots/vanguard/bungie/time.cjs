@@ -40,4 +40,26 @@ function nextResetAt(milestones, now = Date.now()) {
   return future.length ? future[0] : null;
 }
 
-module.exports = { formatCt, collectDates, nextResetAt };
+// Destiny's weekly reset is Tuesday at 17:00 UTC.
+const WEEKLY_RESET_UTC_DAY = 2;
+const WEEKLY_RESET_UTC_HOUR = 17;
+
+function nextWeeklyReset(now = Date.now()) {
+  const current = new Date(now);
+  const candidate = new Date(Date.UTC(
+    current.getUTCFullYear(),
+    current.getUTCMonth(),
+    current.getUTCDate(),
+    WEEKLY_RESET_UTC_HOUR,
+    0,
+    0,
+    0
+  ));
+  const day = candidate.getUTCDay();
+  let delta = (WEEKLY_RESET_UTC_DAY - day + 7) % 7;
+  if (delta === 0 && candidate.getTime() <= now) delta = 7;
+  candidate.setUTCDate(candidate.getUTCDate() + delta);
+  return candidate.getTime();
+}
+
+module.exports = { formatCt, collectDates, nextResetAt, nextWeeklyReset };

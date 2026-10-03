@@ -11,6 +11,12 @@ const ITEM_NONE = 0;
 const ITEM_DUMMY = 20;
 const ITEM_WEAPON = 3;
 
+const WEAPON_BUCKETS = new Set([
+  1498876634,
+  2465295065,
+  953998645
+]);
+
 const ARMOR_BUCKETS = new Set([
   3448274439,
   3551918588,
@@ -117,21 +123,64 @@ function locationText(vendor, location) {
     || placeName(vendor?.location)
     || placeName(vendor?.locationName)
     || placeName(vendor?.vendorLocation);
-  if (!explicit || /^not listed$/i.test(explicit) || /^x[uû]r$/i.test(explicit)) return '';
+  if (!explicit || /^not listed$/i.test(explicit) || /^x[u\u00fb]r$/i.test(explicit)) return '';
   return clipLine(explicit, 80);
+}
+
+function hashAliases(hash) {
+  const keys = [];
+  const push = (key) => {
+    if (key == null || key === '') return;
+    if (!keys.some((existing) => existing === key)) keys.push(key);
+  };
+  push(hash);
+  push(String(hash));
+  const numeric = Number(hash);
+  if (Number.isFinite(numeric)) {
+    const unsigned = numeric >>> 0;
+    const signed = unsigned > 0x7fffffff ? unsigned - 0x100000000 : unsigned;
+    push(unsigned);
+    push(signed);
+    push(String(unsigned));
+    push(String(signed));
+  }
+  return keys;
+}
+
+function lookupMeta(names, hash) {
+  if (!names || typeof names.get !== 'function') return null;
+  for (const key of hashAliases(hash)) {
+    if (names.has(key)) return names.get(key);
+  }
+  return null;
+}
+
+function currencyName(names, hash) {
+  const name = metaName(lookupMeta(names, hash));
+  if (!name || /^\d+$/.test(name)) return '';
+  return name;
 }
 
 function priceText(quantity, costName) {
   const count = Number(quantity);
   if (!Number.isFinite(count) || count <= 0) return '';
   const label = String(costName || '').replace(/\s+/g, ' ').trim();
-  return label ? `${count} ${label}` : String(count);
+  if (!label || /^\d+$/.test(label)) return '';
+  return `${count} ${label}`;
+}
+
+function salePrice(names, costs) {
+  for (const cost of Array.isArray(costs) ? costs : []) {
+    const price = priceText(cost?.quantity, currencyName(names, cost?.itemHash));
+    if (price) return price;
+  }
+  return '';
 }
 
 function itemLine(name, price) {
   const label = String(name || '').replace(/\s+/g, ' ').trim();
   if (!label) return '';
-  return price ? `${label} — ${price}` : label;
+  return price ? `${label} \u2014 ${price}` : label;
 }
 
 function armorClass(value) {
@@ -141,10 +190,15 @@ function armorClass(value) {
   return number;
 }
 
+function isWeapon(item) {
+  if (WEAPON_BUCKETS.has(Number(item?.bucketTypeHash))) return true;
+  return Number(item?.itemType) === ITEM_WEAPON;
+}
+
 function linesForGroup(items) {
   const classes = { 0: [], 1: [], 2: [] };
   const weapons = [];
-  const rest = [];
+  const otherGear = [];
   for (const item of items) {
     const line = itemLine(item?.name, item?.price);
     if (!line) continue;
@@ -154,11 +208,11 @@ function linesForGroup(items) {
       classes[classType].push(line);
       continue;
     }
-    if (Number(item?.itemType) === ITEM_WEAPON) weapons.push(line);
-    else rest.push(line);
+    if (isWeapon(item)) weapons.push(line);
+    else otherGear.push(line);
   }
   const armor = classes[0].length + classes[1].length + classes[2].length;
-  if (!armor) return [...weapons, ...rest];
+  if (!armor) return [...weapons, ...otherGear];
   const lines = [];
   for (const [classType, label] of CLASS_LABELS) {
     if (!classes[classType].length) continue;
@@ -171,9 +225,10 @@ function linesForGroup(items) {
     lines.push('**Weapons**');
     lines.push(...weapons);
   }
-  if (rest.length) {
+  if (otherGear.length) {
     if (lines.length) lines.push('');
-    lines.push(...rest);
+    lines.push('**Other gear**');
+    lines.push(...otherGear);
   }
   return lines;
 }
@@ -185,24 +240,22 @@ function renderXur({ vendors, names = new Map(), now = Date.now(), location = ''
   if (!present) {
     const returns = Number.isFinite(refresh) && refresh > now ? refresh : nextXurArrival(now);
     const when = relativeTag(returns);
-    const lines = ['Xûr is not here.'];
-    if (when) lines.push(`⏳ Returns ${when}`);
+    const lines = ['X\u00fbr is not here.'];
+    if (when) lines.push(`\u23f3 Returns ${when}`);
     const description = appendDisclaimer(lines.join('\n'), { maxLines: 4 });
     return {
-      title: '✨ Xûr',
+      title: '\u2728 X\u00fbr',
       description,
       fields: [],
-      embeds: [{ title: '✨ Xûr', description, fields: [] }],
+      embeds: [{ title: '\u2728 X\u00fbr', description, fields: [] }],
       present: false
     };
   }
   const groups = { exotic: [], legendary: [], other: [] };
   for (const sale of Object.values(salesMap(vendors))) {
-    const meta = names.get(String(sale?.itemHash)) || names.get(Number(sale?.itemHash)) || null;
+    const meta = lookupMeta(names, sale?.itemHash);
     if (!isStockItem(meta)) continue;
-    const cost = Array.isArray(sale?.costs) ? sale.costs[0] : null;
-    const costMeta = cost ? (names.get(String(cost.itemHash)) || names.get(Number(cost.itemHash)) || null) : null;
-    const price = cost ? priceText(cost.quantity, metaName(costMeta)) : '';
+    const price = salePrice(names, sale?.costs);
     const record = metaOf(meta) || {};
     groups[tierGroup(meta)].push({
       name: metaName(meta),
@@ -213,18 +266,18 @@ function renderXur({ vendors, names = new Map(), now = Date.now(), location = ''
     });
   }
   const sections = [
-    { name: '🟡 Exotics', key: 'exotic' },
-    { name: '🟣 Legendaries', key: 'legendary' },
-    { name: '📦 Other', key: 'other' }
+    { name: '\ud83d\udfe1 Exotics', key: 'exotic' },
+    { name: '\ud83d\udfe3 Legendaries', key: 'legendary' },
+    { name: '\ud83d\udce6 Other', key: 'other' }
   ].filter((section) => groups[section.key].length)
     .map((section) => ({ name: section.name, lines: linesForGroup(groups[section.key]) }));
   const leaves = relativeTag(refresh);
   const place = locationText(vendor, location);
-  const lines = ['Xûr is here.'];
-  if (place) lines.push(`📍 Location: ${place}`);
-  if (leaves) lines.push(`⏳ Leaves ${leaves}`);
+  const lines = ['X\u00fbr is here.'];
+  if (place) lines.push(`\ud83d\udccd Location: ${place}`);
+  if (leaves) lines.push(`\u23f3 Leaves ${leaves}`);
   const packed = packSections({
-    title: '✨ Xûr',
+    title: '\u2728 X\u00fbr',
     description: appendDisclaimer(lines.join('\n'), { maxLines: 4 }),
     sections
   });

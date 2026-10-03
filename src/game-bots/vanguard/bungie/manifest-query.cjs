@@ -8,6 +8,7 @@ const TABLES = new Set([
   'DestinyInventoryItemDefinition',
   'DestinyActivityDefinition',
   'DestinyActivityModeDefinition',
+  'DestinyActivityModifierDefinition',
   'DestinyClassDefinition'
 ]);
 
