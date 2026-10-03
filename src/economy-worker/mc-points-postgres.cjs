@@ -2,11 +2,10 @@
 
 const crypto = require('node:crypto');
 const { sqlIdent } = require('../sentinel/nexus-economy-postgres-repository.cjs');
-const { MemoryMcPoints, orderLineHash, stackLines, leaseMsForOrder } = require('./mc-points-service.cjs');
-const { catalogItem, catalogFingerprint, loadMcShopCatalog } = require('../shared/mc-shop-catalog.cjs');
+const { MemoryMcPoints, orderLineHash, stackLines, leaseMsForOrder, dayOrders } = require('./mc-points-service.cjs');
+const { catalogItem, catalogFingerprint, loadMcShopCatalog, MAX_DAILY_SPEND_NP, MAX_DAILY_ORDERS } = require('../shared/mc-shop-catalog.cjs');
 const { quarantineDenylist } = require('../sentinel/nexus-economy-wallet-core.cjs');
 const { guildJoinedAtMs } = require('../shared/mc-starter-kit.cjs');
-const { ctDayKey } = require('./mc-playtime-accounting.cjs');
 
 const MC_SCHEMA_VERSION = 1;
 const schemaState = new WeakMap();
@@ -521,28 +520,33 @@ class PostgresMcPoints {
         await client.query('ROLLBACK');
         return { ok: false, reason: 'quarantined' };
       }
-      if (item.dailyLimit) {
-        const prior = await client.query(
-          `SELECT order_data FROM ${s}.nexus_mc_orders WHERE status <> 'REFUNDED' AND order_data->>'economicIdentityId' = $1 AND order_data->>'sku' = $2 AND order_data->>'source' = 'mc-shop'`,
-          [row.economic_identity_id, row.sku]
-        );
-        const day = ctDayKey(this.now());
-        const skuCount = (prior.rows || []).reduce((sum, entry) => {
-          const order = entry.order_data || {};
-          if (ctDayKey(Date.parse(order.createdAt)) !== day) return sum;
-          return sum + Number(order.bundles || 0);
-        }, 0);
-        if (skuCount + Number(row.bundles) > item.dailyLimit) {
-          await client.query('ROLLBACK');
-          return { ok: false, reason: 'sku-daily-limit' };
-        }
-      }
       const duplicate = await client.query(`SELECT order_data FROM ${s}.nexus_mc_orders WHERE nonce = $1`, [row.nonce]);
       if (duplicate.rows?.[0]) {
         await client.query('COMMIT');
         return { ok: true, duplicate: true, order: duplicate.rows[0].order_data };
       }
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${row.economic_identity_id}:NEXUS_POINTS`]);
+      const prior = await client.query(
+        `SELECT order_data FROM ${s}.nexus_mc_orders WHERE status <> 'REFUNDED' AND order_data->>'economicIdentityId' = $1 AND order_data->>'source' = 'mc-shop'`,
+        [row.economic_identity_id]
+      );
+      const today = dayOrders((prior.rows || []).map((entry) => entry.order_data || {}), row.economic_identity_id, this.now());
+      if (today.length >= MAX_DAILY_ORDERS) {
+        await client.query('ROLLBACK');
+        return { ok: false, reason: 'daily-order-limit' };
+      }
+      const spentToday = today.reduce((sum, order) => sum + Number(order.price || 0), 0);
+      if (spentToday + price > MAX_DAILY_SPEND_NP) {
+        await client.query('ROLLBACK');
+        return { ok: false, reason: 'daily-spend-limit' };
+      }
+      if (item.dailyLimit) {
+        const skuCount = today.filter((order) => order.sku === row.sku).reduce((sum, order) => sum + Number(order.bundles || 0), 0);
+        if (skuCount + Number(row.bundles) > item.dailyLimit) {
+          await client.query('ROLLBACK');
+          return { ok: false, reason: 'sku-daily-limit' };
+        }
+      }
       await client.query(
         `INSERT INTO ${s}.nexus_economy_wallets (economic_identity_id, currency, balance) VALUES ($1,'NEXUS_POINTS',0) ON CONFLICT DO NOTHING`,
         [row.economic_identity_id]

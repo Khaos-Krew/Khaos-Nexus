@@ -17,6 +17,7 @@ const { verifyIdentityProof } = require('../src/sentinel/nexus-economy-identity-
 const { isMinecraftShopOrder } = require('../src/economy-worker/mc-points-service.cjs');
 const { mcEarnEligible, mcPlaytimeEligible, UNLINK_COOLDOWN_MS, OFFLINE_BACKOFF_MS, leaseMsForOrder } = require('../src/economy-worker/mc-points-service.cjs');
 const { writeVerifiedMinecraftLink, PostgresMcPoints } = require('../src/economy-worker/mc-points-postgres.cjs');
+const { catalogFingerprint, loadMcShopCatalog } = require('../src/shared/mc-shop-catalog.cjs');
 const { deliverMcOrder, runMcDeliveryCycle } = require('../src/craft/mc-delivery.cjs');
 
 const UUID = '853c80ef-3c37-49fd-aa49-938b674adae6';
@@ -1085,5 +1086,268 @@ function minecraftEarnPool(queries, identity) {
   return {
     async query(sql) { return answered.query(sql); },
     async connect() { return answered; }
+  };
+}
+
+test('postgres buy locks the identity before the daily spend, order, and item caps', async () => {
+  const now = Date.parse('2026-10-01T18:00:00.000Z');
+  const today = '2026-10-01T17:00:00.000Z';
+  const yesterday = '2026-09-30T18:00:00.000Z';
+  const catalog = loadMcShopCatalog();
+  const catalogHash = catalogFingerprint(catalog);
+  const env = { MC_SHOP_ENABLED: 'true' };
+
+  function shop(pool) {
+    return new PostgresMcPoints({
+      env,
+      now: () => now,
+      wallet: { async balance() { return 0; } },
+      pool
+    });
+  }
+
+  const open = shopBuyPool({ balance: 100000 });
+  const first = await shop(open.pool).buy({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1, nonce: 'logs-1', writesEnabled: true });
+  assert.equal(first.ok, true, first.reason);
+  assert.equal(open.committed.wallets.get('econ_shop'), 99990);
+  const lockAt = open.sqlLog.findIndex((sql) => sql.includes('pg_advisory_xact_lock'));
+  const scanAt = open.sqlLog.findIndex((sql) => sql.includes("order_data->>'economicIdentityId'") && sql.includes("order_data->>'source' = 'mc-shop'"));
+  assert.ok(lockAt >= 0 && scanAt > lockAt);
+
+  const cappedOrders = shopBuyPool({
+    balance: 100000,
+    orders: Array.from({ length: 10 }, (_, index) => shopOrder({ nonce: `cap-${index}`, sku: 'mc_logs64', bundles: 1, price: 10, createdAt: today }))
+  });
+  const orderLimited = await shop(cappedOrders.pool).buy({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1, nonce: 'logs-11', writesEnabled: true });
+  assert.equal(orderLimited.reason, 'daily-order-limit');
+  assert.equal(cappedOrders.committed.orders.length, 10);
+  assert.equal(cappedOrders.committed.wallets.get('econ_shop'), 100000);
+
+  const yesterdayOnly = shopBuyPool({
+    balance: 100000,
+    orders: Array.from({ length: 10 }, (_, index) => shopOrder({ nonce: `yday-${index}`, sku: 'mc_logs64', bundles: 1, price: 10, createdAt: yesterday }))
+  });
+  const nextDay = await shop(yesterdayOnly.pool).buy({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1, nonce: 'logs-next-day', writesEnabled: true });
+  assert.equal(nextDay.ok, true, nextDay.reason);
+
+  const refunded = shopBuyPool({
+    balance: 100000,
+    orders: Array.from({ length: 10 }, (_, index) => shopOrder({ nonce: `refund-${index}`, sku: 'mc_logs64', bundles: 1, price: 10, createdAt: today, status: 'REFUNDED' }))
+  });
+  const afterRefund = await shop(refunded.pool).buy({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1, nonce: 'logs-after-refund', writesEnabled: true });
+  assert.equal(afterRefund.ok, true, afterRefund.reason);
+
+  const spent = shopBuyPool({
+    balance: 100000,
+    orders: Array.from({ length: 4 }, (_, index) => shopOrder({ nonce: `brass-${index}`, sku: 'mc_brass32', bundles: 5, price: 350, createdAt: today }))
+  });
+  const spendLimited = await shop(spent.pool).buy({ discordUserId: DISCORD, sku: 'mc_brass32', bundles: 5, nonce: 'brass-5', writesEnabled: true });
+  assert.equal(spendLimited.reason, 'daily-spend-limit');
+  assert.equal(spent.committed.wallets.get('econ_shop'), 100000);
+  const stillUnder = await shop(spent.pool).buy({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1, nonce: 'logs-under-spend', writesEnabled: true });
+  assert.equal(stillUnder.ok, true, stillUnder.reason);
+
+  const diamonds = shopBuyPool({
+    balance: 100000,
+    orders: [shopOrder({ nonce: 'diamond-held', sku: 'mc_diamond4', bundles: 2, price: 160, createdAt: today })]
+  });
+  const skuLimited = await shop(diamonds.pool).buy({ discordUserId: DISCORD, sku: 'mc_diamond4', bundles: 1, nonce: 'diamond-3', writesEnabled: true });
+  assert.equal(skuLimited.reason, 'sku-daily-limit');
+
+  const race = shopBuyPool({ balance: 100000, quotes: [
+    quoteRow({ nonce: 'race-a', sku: 'mc_diamond4', bundles: 2, price: 160, itemId: 'minecraft:diamond', catalogHash }),
+    quoteRow({ nonce: 'race-b', sku: 'mc_diamond4', bundles: 2, price: 160, itemId: 'minecraft:diamond', catalogHash })
+  ] });
+  const raced = await Promise.all([
+    shop(race.pool).buy({ discordUserId: DISCORD, sku: 'mc_diamond4', bundles: 2, nonce: 'race-a', writesEnabled: true }),
+    shop(race.pool).buy({ discordUserId: DISCORD, sku: 'mc_diamond4', bundles: 2, nonce: 'race-b', writesEnabled: true })
+  ]);
+  const paid = raced.filter((result) => result.ok);
+  const blocked = raced.filter((result) => result.reason === 'sku-daily-limit');
+  assert.equal(paid.length, 1);
+  assert.equal(blocked.length, 1);
+  assert.equal(race.committed.orders.length, 1);
+  assert.equal(race.committed.wallets.get('econ_shop'), 99840);
+  assert.equal(catalog.items.find((item) => item.sku === 'mc_diamond4').dailyLimit, 2);
+});
+
+function quoteRow({ nonce, sku, bundles, price, itemId, catalogHash }) {
+  return {
+    nonce,
+    discord_user_id: DISCORD,
+    economic_identity_id: 'econ_shop',
+    mc_uuid: UUID,
+    sku,
+    bundles,
+    qty: 1,
+    price,
+    item_id: itemId,
+    catalog_version: 'atm10-aeronautics-0.6.1',
+    catalog_hash: catalogHash,
+    signature: '',
+    expires_at: '2026-10-01T19:00:00.000Z',
+    consumed_at: null
+  };
+}
+
+function shopOrder({ nonce, sku, bundles, price, createdAt, status = 'PAID' }) {
+  return {
+    order_id: nonce,
+    nonce,
+    status,
+    price,
+    created_at: createdAt,
+    order_data: {
+      orderId: nonce,
+      nonce,
+      economicIdentityId: 'econ_shop',
+      sku,
+      bundles,
+      price,
+      source: 'mc-shop',
+      status,
+      createdAt
+    }
+  };
+}
+
+function shopBuyPool({ quotes = [], orders = [], balance = 100000 } = {}) {
+  const catalog = loadMcShopCatalog();
+  const catalogHash = catalogFingerprint(catalog);
+  const defaultQuotes = [
+    quoteRow({ nonce: 'logs-1', sku: 'mc_logs64', bundles: 1, price: 10, itemId: 'minecraft:oak_log', catalogHash }),
+    quoteRow({ nonce: 'logs-11', sku: 'mc_logs64', bundles: 1, price: 10, itemId: 'minecraft:oak_log', catalogHash }),
+    quoteRow({ nonce: 'logs-next-day', sku: 'mc_logs64', bundles: 1, price: 10, itemId: 'minecraft:oak_log', catalogHash }),
+    quoteRow({ nonce: 'logs-after-refund', sku: 'mc_logs64', bundles: 1, price: 10, itemId: 'minecraft:oak_log', catalogHash }),
+    quoteRow({ nonce: 'logs-under-spend', sku: 'mc_logs64', bundles: 1, price: 10, itemId: 'minecraft:oak_log', catalogHash }),
+    quoteRow({ nonce: 'brass-5', sku: 'mc_brass32', bundles: 5, price: 350, itemId: 'create:brass_ingot', catalogHash }),
+    quoteRow({ nonce: 'diamond-3', sku: 'mc_diamond4', bundles: 1, price: 80, itemId: 'minecraft:diamond', catalogHash })
+  ];
+  const committed = {
+    quotes: new Map([...defaultQuotes, ...quotes].map((row) => [row.nonce, { ...row }])),
+    orders: orders.map((row) => ({ ...row, order_data: { ...row.order_data } })),
+    wallets: new Map([['econ_shop', balance]]),
+    ledger: new Set()
+  };
+  const locks = new Map();
+  const sqlLog = [];
+
+  function acquire(key) {
+    return new Promise((resolve) => {
+      const entry = locks.get(key) || { locked: false, queue: [] };
+      locks.set(key, entry);
+      if (!entry.locked) {
+        entry.locked = true;
+        resolve();
+        return;
+      }
+      entry.queue.push(resolve);
+    });
+  }
+
+  function release(key) {
+    const entry = locks.get(key);
+    if (!entry) return;
+    const next = entry.queue.shift();
+    if (next) next();
+    else entry.locked = false;
+  }
+
+  function connect() {
+    const pending = { orders: [], ledger: [], wallet: null, consumed: [] };
+    let lockKey = null;
+    return {
+      async query(sql, params = []) {
+        const text = String(sql);
+        sqlLog.push(text);
+        if (text === 'BEGIN') return { rows: [], rowCount: 0 };
+        if (text === 'ROLLBACK') {
+          if (lockKey) release(lockKey);
+          lockKey = null;
+          return { rows: [], rowCount: 0 };
+        }
+        if (text === 'COMMIT') {
+          committed.orders.push(...pending.orders);
+          for (const key of pending.ledger) committed.ledger.add(key);
+          if (pending.wallet) committed.wallets.set(pending.wallet.id, pending.wallet.balance);
+          for (const nonce of pending.consumed) {
+            const quote = committed.quotes.get(nonce);
+            if (quote) quote.consumed_at = '2026-10-01T18:00:01.000Z';
+          }
+          if (lockKey) release(lockKey);
+          lockKey = null;
+          return { rows: [], rowCount: 0 };
+        }
+        if (text.includes('pg_advisory_xact_lock')) {
+          lockKey = params[0];
+          await acquire(lockKey);
+          return { rows: [], rowCount: 0 };
+        }
+        if (text.includes('nexus_mc_quotes') && text.includes('SELECT')) {
+          const quote = committed.quotes.get(params[0]);
+          return { rows: quote ? [{ ...quote }] : [], rowCount: quote ? 1 : 0 };
+        }
+        if (text.includes('nexus_mc_quotes') && text.includes('UPDATE')) {
+          pending.consumed.push(params[0]);
+          return { rows: [], rowCount: 1 };
+        }
+        if (text.includes('nexus_mc_orders') && text.includes('WHERE nonce')) {
+          const found = committed.orders.find((order) => order.nonce === params[0]);
+          return { rows: found ? [{ order_data: found.order_data }] : [], rowCount: found ? 1 : 0 };
+        }
+        if (text.includes('nexus_mc_orders') && text.includes('economicIdentityId')) {
+          const rows = committed.orders.filter((order) => order.status !== 'REFUNDED' && order.order_data.economicIdentityId === params[0] && order.order_data.source === 'mc-shop');
+          return { rows: rows.map((order) => ({ order_data: order.order_data })), rowCount: rows.length };
+        }
+        if (text.includes('nexus_economy_wallets') && text.includes('INSERT')) {
+          if (!committed.wallets.has(params[0])) committed.wallets.set(params[0], 0);
+          return { rows: [], rowCount: 1 };
+        }
+        if (text.includes('SELECT balance')) {
+          const current = pending.wallet?.id === params[0] ? pending.wallet.balance : committed.wallets.get(params[0]);
+          return { rows: [{ balance: current ?? 0 }], rowCount: 1 };
+        }
+        if (text.includes('nexus_economy_wallets') && text.includes('UPDATE')) {
+          pending.wallet = { id: params[0], balance: params[1] };
+          return { rows: [], rowCount: 1 };
+        }
+        if (text.includes('nexus_economy_ledger') && text.includes('SELECT')) {
+          const exists = committed.ledger.has(params[0]) || pending.ledger.includes(params[0]);
+          return { rows: exists ? [{ id: 1 }] : [], rowCount: exists ? 1 : 0 };
+        }
+        if (text.includes('nexus_economy_ledger') && text.includes('INSERT')) {
+          if (committed.ledger.has(params[3]) || pending.ledger.includes(params[3])) return { rows: [], rowCount: 0 };
+          pending.ledger.push(params[3]);
+          return { rows: [{ id: 1 }], rowCount: 1 };
+        }
+        if (text.includes('nexus_mc_orders') && text.includes('INSERT')) {
+          pending.orders.push({
+            order_id: params[0],
+            nonce: params[1],
+            order_data: JSON.parse(params[2]),
+            status: params[3],
+            price: params[4],
+            created_at: params[5]
+          });
+          return { rows: [], rowCount: 1 };
+        }
+        if (text.includes('nexus_mc_outbox')) return { rows: [], rowCount: 1 };
+        return { rows: [], rowCount: 1 };
+      },
+      release() {}
+    };
+  }
+
+  return {
+    sqlLog,
+    committed,
+    pool: {
+      async query(sql) {
+        const text = String(sql);
+        if (text.includes('nexus_mc_schema_version') && text.includes('SELECT')) return { rows: [{ version: 1 }] };
+        return { rows: [], rowCount: 1 };
+      },
+      async connect() { return connect(); }
+    }
   };
 }

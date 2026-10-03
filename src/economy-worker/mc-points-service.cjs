@@ -874,6 +874,7 @@ module.exports = {
   mcPlaytimeEligible,
   leaseMsForOrder,
   offlineBackoffMs,
+  dayOrders,
   isMinecraftShopOrder,
   stackLines,
   orderLineHash,
