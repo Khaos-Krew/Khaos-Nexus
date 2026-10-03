@@ -2,7 +2,7 @@
 
 const { MessageFlags, SlashCommandBuilder } = require('discord.js');
 const { searchActivities } = require('./activities-static.cjs');
-const { boardEmbed, deliverPost, parseLfgButton, renderPost } = require('./lfg-buttons.cjs');
+const { boardEmbed, deliverPost, parseLfgButton, renderPost, sendOrEdit } = require('./lfg-buttons.cjs');
 const { actorIsStaff } = require('../staff.cjs');
 const { snowflake } = require('../config.cjs');
 const { resolvedChannels } = require('../commands/setup.cjs');
@@ -141,7 +141,12 @@ async function handleCreate(interaction, ctx) {
     return true;
   }
   try {
-    const message = await channel.send(renderPost(result.post, { lobbyId: channels.jtcLobby, client: interaction.client }));
+    const message = await sendOrEdit(
+      channel,
+      'send',
+      renderPost(result.post, { lobbyId: channels.jtcLobby, client: interaction.client }),
+      channel
+    );
     await ctx.lfg.attachMessage(interaction.guildId, result.post.id, {
       channelId: channel.id,
       messageId: message.id

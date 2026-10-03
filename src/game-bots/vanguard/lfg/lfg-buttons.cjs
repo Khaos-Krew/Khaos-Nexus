@@ -1,6 +1,6 @@
 'use strict';
 
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } = require('discord.js');
 const { findActivity } = require('./activities-static.cjs');
 const { snowflake } = require('../config.cjs');
 const { appendDisclaimer, applyChrome, postFooter, withAssets } = require('../panels.cjs');
@@ -88,6 +88,72 @@ function boardEmbed(posts = []) {
   };
 }
 
+const ICON_FILE = 'icon-vanguard.png';
+
+function isIconFile(file) {
+  const name = file?.name || file?.filename || '';
+  return name === ICON_FILE;
+}
+
+function withoutIcon(payload) {
+  const next = { ...(payload || {}) };
+  if (Array.isArray(next.files)) {
+    const files = next.files.filter((file) => !isIconFile(file));
+    if (files.length) next.files = files;
+    else delete next.files;
+  }
+  if (Array.isArray(next.attachments)) {
+    next.attachments = next.attachments.filter((file) => !isIconFile(file));
+  }
+  if (Array.isArray(next.embeds)) {
+    next.embeds = next.embeds.map((embed) => {
+      if (!String(embed?.thumbnail?.url || '').includes(ICON_FILE)) return embed;
+      const copy = { ...embed };
+      delete copy.thumbnail;
+      return copy;
+    });
+  }
+  return next;
+}
+
+function canAttachFiles(channel) {
+  if (!channel || typeof channel.permissionsFor !== 'function') return true;
+  const me = channel.guild?.members?.me || channel.client?.user;
+  if (!me) return false;
+  let perms = null;
+  try {
+    perms = channel.permissionsFor(me);
+  } catch {
+    return false;
+  }
+  if (!perms || typeof perms.has !== 'function') return false;
+  try {
+    return Boolean(perms.has(PermissionFlagsBits.AttachFiles));
+  } catch {
+    return false;
+  }
+}
+
+function payloadForChannel(payload, channel) {
+  return canAttachFiles(channel) ? payload : withoutIcon(payload);
+}
+
+function isAttachFailure(error) {
+  const code = Number(error?.code);
+  if (code === 50013 || code === 50001) return true;
+  return /attach files|missing permissions|missing access/i.test(String(error?.message || ''));
+}
+
+async function sendOrEdit(target, method, payload, channel) {
+  const first = payloadForChannel(payload, channel);
+  try {
+    return await target[method](first);
+  } catch (error) {
+    if (first.files && isAttachFailure(error)) return target[method](withoutIcon(first));
+    throw error;
+  }
+}
+
 function parseLfgButton(customId) {
   const match = String(customId || '').match(/^vanguard:lfg:(join|leave|close):([a-f0-9]{8,32})$/);
   if (!match) return null;
@@ -103,7 +169,7 @@ async function deliverPost(client, post, options = {}) {
   const message = await channel.messages.fetch(post.messageId).catch(() => null);
   if (!message || typeof message.edit !== 'function') return { updated: false, reason: 'missing' };
   const rendered = renderPost(post, { ...options, client });
-  await message.edit(withAssets(rendered, message, 'icon'));
+  await sendOrEdit(message, 'edit', withAssets(rendered, message, 'icon'), channel);
   return { updated: true };
 }
 
@@ -112,6 +178,10 @@ module.exports = {
   buttonRow,
   renderPost,
   boardEmbed,
+  withoutIcon,
+  canAttachFiles,
+  payloadForChannel,
+  sendOrEdit,
   parseLfgButton,
   deliverPost
 };

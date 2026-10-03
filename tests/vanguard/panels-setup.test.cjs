@@ -18,6 +18,7 @@ const {
   postFooter,
   upsertOwnedPanel
 } = require('../../src/game-bots/vanguard/panels.cjs');
+const { presentEmbed } = require('../../src/game-bots/vanguard/panels/publish.cjs');
 const { SETUP_CHANNELS, planSetup, resolvedChannels, vanguardCommandBuilder } = require('../../src/game-bots/vanguard/commands/setup.cjs');
 const { lfgCommandBuilder } = require('../../src/game-bots/vanguard/lfg/lfg-commands.cjs');
 
@@ -46,6 +47,23 @@ function message(partial) {
   if (!row.delete) row.delete = async () => { row.deleted = true; };
   return row;
 }
+
+test('a degraded clan panel names Khaos Nexus clan', () => {
+  const closed = presentEmbed('clan:5453042', {
+    title: '👥 Clan',
+    description: 'Bungie is down for maintenance right now; try again later.'
+  });
+  assert.match(closed.description, /Khaos Nexus clan/);
+  assert.match(closed.description, /groupId=5453042/);
+  assert.doesNotMatch(closed.description, /Group 5453042/);
+  const degraded = presentEmbed('clan:5453042', {
+    title: '👥 Clan',
+    description: 'Group 5453042'
+  }, { degraded: true, asOf: '2026-10-01T00:00:00Z' });
+  assert.match(degraded.description, /Khaos Nexus clan/);
+  assert.match(degraded.description, /groupId=5453042/);
+  assert.doesNotMatch(degraded.description, /Group 5453042/);
+});
 
 test('panel footer is exact, own-bot only, and does not delete foreign messages', async () => {
   const footer = panelFooter('lfg-board');

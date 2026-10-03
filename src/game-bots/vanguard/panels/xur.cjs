@@ -85,9 +85,24 @@ function nextXurArrival(now = Date.now()) {
   return candidate.getTime();
 }
 
+function placeName(value) {
+  if (typeof value === 'string') return value.replace(/\s+/g, ' ').trim();
+  if (!value || typeof value !== 'object') return '';
+  return placeName(value.displayProperties?.name || value.name || '');
+}
+
+function locationFromVendors(vendors) {
+  const vendor = vendorMap(vendors)[String(XUR_VENDOR_HASH)] || null;
+  return locationText(vendor, '');
+}
+
 function locationText(vendor, location) {
-  const explicit = String(location || vendor?.location || vendor?.locationName || '').replace(/\s+/g, ' ').trim();
-  return clipLine(explicit || 'not listed', 60);
+  const explicit = placeName(location)
+    || placeName(vendor?.location)
+    || placeName(vendor?.locationName)
+    || placeName(vendor?.vendorLocation);
+  if (!explicit || /^not listed$/i.test(explicit) || /^x[uû]r$/i.test(explicit)) return '';
+  return clipLine(explicit, 60);
 }
 
 function itemLine(name, price) {
@@ -131,13 +146,13 @@ function renderXur({ vendors, names = new Map(), now = Date.now(), location = ''
     inline: true
   }));
   const leaves = relativeTag(refresh);
+  const place = locationText(vendor, location);
+  const lines = ['Xûr is here.'];
+  if (place) lines.push(`📍 Location: ${place}`);
+  lines.push(leaves ? `⏳ Leaves ${leaves}` : '⏳ Leaves: not listed');
   return {
     title: '✨ Xûr',
-    description: appendDisclaimer([
-      'Xûr is here.',
-      `📍 Location: ${locationText(vendor, location)}`,
-      leaves ? `⏳ Leaves ${leaves}` : '⏳ Leaves: not listed'
-    ].join('\n'), { maxLines: 4 }),
+    description: appendDisclaimer(lines.join('\n'), { maxLines: 4 }),
     fields,
     present: true
   };
@@ -149,5 +164,6 @@ module.exports = {
   isStockItem,
   tierGroup,
   nextXurArrival,
+  locationFromVendors,
   renderXur
 };

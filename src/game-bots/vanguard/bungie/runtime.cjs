@@ -15,7 +15,7 @@ const { formatCt } = require('./time.cjs');
 const { publishPanel } = require('../panels/publish.cjs');
 const { renderClanSummary } = require('../panels/clan.cjs');
 const { milestoneRows, renderWeeklyReset } = require('../panels/weekly-reset.cjs');
-const { renderXur, saleHashes } = require('../panels/xur.cjs');
+const { locationFromVendors, renderXur, saleHashes } = require('../panels/xur.cjs');
 const { lookupSaleItems } = require('../commands/d2-xur.cjs');
 const { snowflake } = require('../config.cjs');
 
@@ -191,7 +191,7 @@ function createBungieRuntime({
       cache.set('vendors', payload);
     }
     const names = lookupSaleItems(query, saleHashes(payload));
-    return { ok: true, embed: renderXur({ vendors: payload, names, now: now() }) };
+    return { ok: true, embed: renderXur({ vendors: payload, names, now: now(), location: locationFromVendors(payload) }) };
   }
 
   async function clanSummary(groupId) {
@@ -339,7 +339,7 @@ function createBungieRuntime({
           const view = await clanSummary(groupId);
           const published = view.ok
             ? await publishOne(guildId, `clan:${groupId}`, view.embed, { force })
-            : await publishOne(guildId, `clan:${groupId}`, { title: '👥 Clan', description: `Group ${groupId}` }, { degraded: true, force });
+            : await publishOne(guildId, `clan:${groupId}`, { title: '👥 Clan', description: 'Khaos Nexus clan' }, { degraded: true, force });
           results.clan.push(published);
         }
       }

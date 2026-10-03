@@ -146,12 +146,27 @@ function withAssets(payload, message, mode) {
   return next;
 }
 
+const CLAN_LABEL = 'Khaos Nexus clan';
+
+function clanJoinLine(groupId) {
+  return `Join: https://www.bungie.net/en/ClanV2/Index?groupId=${groupId}`;
+}
+
 function ensureClanMarker(panelId, description) {
   const id = String(panelId || '');
   if (!id.startsWith('clan:')) return description;
   const groupId = id.slice('clan:'.length);
-  if (!groupId || String(description || '').includes(groupId)) return description;
-  return `Group ${groupId}\n${description || ''}`.slice(0, 4000);
+  if (!groupId) return description;
+  const stripped = String(description || '')
+    .split('\n')
+    .filter((line) => line.trim() !== `Group ${groupId}`)
+    .join('\n')
+    .trim();
+  if (stripped.includes(groupId)) return stripped.slice(0, 4000);
+  let text = stripped;
+  if (!text.includes(CLAN_LABEL)) text = text ? `${CLAN_LABEL}\n${text}` : CLAN_LABEL;
+  text = `${text}\n${clanJoinLine(groupId)}`;
+  return text.slice(0, 4000);
 }
 
 async function upsertOwnedPanel(client, { channelId, messageId, panelId, embed, botId } = {}) {
@@ -206,5 +221,7 @@ module.exports = {
   applyChrome,
   withAssets,
   upsertOwnedPanel,
-  degradedEmbed
+  degradedEmbed,
+  ensureClanMarker,
+  CLAN_LABEL
 };

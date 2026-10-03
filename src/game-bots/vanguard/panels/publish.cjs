@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const { appendDisclaimer, panelFooter, upsertOwnedPanel, degradedEmbed } = require('../panels.cjs');
+const { appendDisclaimer, ensureClanMarker, panelFooter, upsertOwnedPanel, degradedEmbed } = require('../panels.cjs');
 const { formatCt } = require('../bungie/time.cjs');
 
 function shortHash(value) {
@@ -23,11 +23,7 @@ function presentEmbed(panelId, embed, { degraded = false, asOf, lastGood = '' } 
     description = body.description;
     fields = [];
   }
-  const id = String(panelId || '');
-  if (id.startsWith('clan:')) {
-    const groupId = id.slice('clan:'.length);
-    if (groupId && !description.includes(groupId)) description = `Group ${groupId}\n${description}`;
-  }
+  description = ensureClanMarker(panelId, description);
   return {
     title,
     description: appendDisclaimer(description).slice(0, 4000),

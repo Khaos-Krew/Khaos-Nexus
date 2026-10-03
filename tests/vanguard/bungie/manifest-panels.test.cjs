@@ -12,7 +12,7 @@ const { createManifestQuery, hashKeys } = require('../../../src/game-bots/vangua
 const { createActivityCatalog } = require('../../../src/game-bots/vanguard/lfg/activities-manifest.cjs');
 const { nextResetAt } = require('../../../src/game-bots/vanguard/bungie/time.cjs');
 const { renderWeeklyReset } = require('../../../src/game-bots/vanguard/panels/weekly-reset.cjs');
-const { XUR_VENDOR_HASH, renderXur } = require('../../../src/game-bots/vanguard/panels/xur.cjs');
+const { XUR_VENDOR_HASH, locationFromVendors, renderXur } = require('../../../src/game-bots/vanguard/panels/xur.cjs');
 const { lookupSaleItems } = require('../../../src/game-bots/vanguard/commands/d2-xur.cjs');
 const { featureOpen } = require('../../../src/game-bots/vanguard/bungie/health.cjs');
 
@@ -202,8 +202,16 @@ test('xur is absent outside his window and the panel leaves location out', () =>
   assert.equal(here.present, true);
   const other = here.fields.find((field) => field.name.includes('Other'));
   assert.match(other.value, /Young Ahamkara's Spine • 41 Strange Coin/);
-  assert.match(here.description, /📍 Location: not listed/);
-  assert.doesNotMatch(here.description, /Last City|Tower/i);
+  assert.doesNotMatch(here.description, /📍 Location|not listed|Last City|Tower/i);
+  const placedVendors = {
+    Response: {
+      vendors: { data: { [String(XUR_VENDOR_HASH)]: { vendorHash: XUR_VENDOR_HASH, enabled: true, nextRefreshDate: '2026-10-02T09:00:00Z', location: 'European Dead Zone' } } }
+    }
+  };
+  assert.equal(locationFromVendors(placedVendors), 'European Dead Zone');
+  const placed = renderXur({ vendors: placedVendors, now: Date.parse('2026-10-01T22:00:00Z') });
+  assert.match(placed.description, /📍 Location: European Dead Zone/);
+  assert.doesNotMatch(placed.description, /not listed|Last City|Tower/i);
   const leaves = Math.floor(Date.parse('2026-10-02T09:00:00Z') / 1000);
   assert.match(here.description, new RegExp(`⏳ Leaves <t:${leaves}:R>`));
   const returns = Math.floor(Date.parse('2026-10-09T17:00:00Z') / 1000);
