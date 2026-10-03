@@ -88,6 +88,25 @@ test('a staff mod with Manage Messages is denied /clear', () => {
   }), STAFF_ENV), false);
 });
 
+test('guild id and a managed role do not grant /clear', () => {
+  const everyone = actor({
+    bits: [PermissionFlagsBits.ManageMessages],
+    roles: [{ id: GUILD, name: '@everyone' }]
+  });
+  assert.equal(canClear(everyone, { NEXUS_STAFF_ADMIN_ROLE_IDS: GUILD, NEXUS_STAFF_MOD_ROLE_IDS: '' }), false);
+  const bot = actor({
+    bits: [PermissionFlagsBits.ManageMessages],
+    roles: [
+      { id: GUILD, name: '@everyone' },
+      { id: BOT_ROLE, name: 'Nexus Sentinal', managed: true }
+    ]
+  });
+  assert.equal(canClear(bot, {
+    NEXUS_STAFF_ADMIN_ROLE_IDS: `${GUILD}, ${BOT_ROLE}`,
+    NEXUS_STAFF_MOD_ROLE_IDS: MOD_ROLE
+  }), false);
+});
+
 test('clear without admin access is rejected before any channel deletion', async () => {
   let deleted = false;
   let reply = null;
