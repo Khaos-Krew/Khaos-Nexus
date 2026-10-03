@@ -12,6 +12,7 @@ const {
   isCommunityLevelCoinGrant,
   routeWalletCredit
 } = require('../src/sentinel/nexus-economy-community-level-coins.cjs');
+const { coinsForLevelsCrossed } = require('../src/backend/services/community-level-service.cjs');
 
 class MemoryRepo {
   constructor() {
@@ -22,11 +23,12 @@ class MemoryRepo {
     this.ensureCalls = 0;
   }
 
-  link(discordUserId, economicIdentityId = `econ_${discordUserId}`, { status = 'verified', verified = null } = {}) {
+  link(discordUserId, economicIdentityId = `econ_${discordUserId}`, { status = 'verified', verified = null, holdReason = '' } = {}) {
     const resolved = verified == null ? status : (verified ? 'verified' : 'restricted');
     this.links.set(`discord:${discordUserId}`, {
       economic_identity_id: economicIdentityId,
       status: resolved,
+      hold_reason: holdReason,
       verified_at: resolved === 'verified' ? '2026-09-12T00:00:00.000Z' : null
     });
     return economicIdentityId;
@@ -95,6 +97,50 @@ test('community level Coin grants credit Nexus Coins and leave Nexus Points unch
   assert.equal(coinEntry.type, 'credit');
   assert.equal(coinEntry.metadata.reason, COMMUNITY_LEVEL_UP_SOURCE);
   assert.equal(coinEntry.metadata.adminAdjust, undefined);
+});
+
+test('held members earn no level-up Coins, and a lift does not back-pay the skipped level', async () => {
+  const repository = new MemoryRepo();
+  const wallet = walletFor(repository);
+  const heldAmount = coinsForLevelsCrossed(1, 2).coins;
+  assert.equal(heldAmount, 5 * 2);
+  for (const [discordUserId, holdReason, status] of [
+    ['hold-staff', 'staff', 'verified'],
+    ['hold-demote', 'o9-demote', 'restricted'],
+    ['hold-legacy', 'legacy-review', 'restricted'],
+    ['hold-quarantine', 'quarantine', 'restricted']
+  ]) {
+    repository.link(discordUserId, `econ_${discordUserId}`, { status, holdReason });
+    const skipped = await wallet.grantCommunityLevelCoins(grantInput(discordUserId, heldAmount, `community-level-up:${discordUserId}:1:2`));
+    assert.equal(skipped.ok, false);
+    assert.equal(skipped.skipped, 'account-hold');
+    assert.equal(skipped.credited, 0);
+    assert.equal(repository.wallets.has(`econ_${discordUserId}:NEXUS_COINS`), false);
+  }
+  assert.equal(repository.ledger.size, 0);
+
+  repository.link('verified-member', 'econ_verified', { status: 'verified', holdReason: '' });
+  const verifiedAmount = coinsForLevelsCrossed(9, 10).coins;
+  assert.equal(verifiedAmount, 5 * 10);
+  const verified = await wallet.grantCommunityLevelCoins(grantInput('verified-member', verifiedAmount, 'community-level-up:verified-member:9:10'));
+  assert.equal(verified.ok, true);
+  assert.equal(verified.balance, verifiedAmount);
+
+  repository.link('shadow-recruit', 'econ_shadow', { status: 'restricted', holdReason: '' });
+  const shadowAmount = coinsForLevelsCrossed(8, 10).coins;
+  const shadow = await wallet.grantCommunityLevelCoins(grantInput('shadow-recruit', shadowAmount, 'community-level-up:shadow-recruit:8:10'));
+  assert.equal(shadow.ok, true);
+  assert.equal(shadow.balance, shadowAmount);
+  assert.equal(shadow.currency, 'NEXUS_COINS');
+
+  repository.link('hold-staff', 'econ_hold-staff', { status: 'verified', holdReason: '' });
+  const nextAmount = coinsForLevelsCrossed(2, 3).coins;
+  assert.equal(nextAmount, 5 * 3);
+  const next = await wallet.grantCommunityLevelCoins(grantInput('hold-staff', nextAmount, 'community-level-up:hold-staff:2:3'));
+  assert.equal(next.ok, true);
+  assert.equal(next.balance, nextAmount);
+  assert.equal(repository.wallets.get('econ_hold-staff:NEXUS_COINS').balance, nextAmount);
+  assert.equal([...repository.ledger.keys()].includes('community-level-up:hold-staff:1:2'), false);
 });
 
 test('restricted Shadow Recruit wallets can receive level-up Coins and ordinary credit stays verified-only', async () => {

@@ -301,6 +301,52 @@ test('level-up Coins still credit a restricted identity while member spend stays
   const marked = new NexusEconomyWalletCore({ repository, now: () => new Date('2026-10-01T00:00:00.000Z') });
   const markedCoins = await marked.spend({ discordUserId: DISCORD, amount: 1, orderId: 'marked_coins', currency: 'NEXUS_COINS' });
   assertHold(markedCoins);
+  const markedLevel = await routeWalletCredit(marked, {
+    discordUserId: DISCORD,
+    amount: 10,
+    currency: 'NEXUS_COINS',
+    source: COMMUNITY_LEVEL_UP_SOURCE,
+    idempotencyKey: 'community-level-up:111111111111111111:1:2',
+    metadata: { reason: COMMUNITY_LEVEL_UP_SOURCE, beforeLevel: 1, afterLevel: 2 }
+  });
+  assert.equal(markedLevel.ok, false);
+  assert.equal(markedLevel.skipped, 'account-hold');
+  assert.equal(markedLevel.credited, 0);
+  assert.equal(repository.ledger.size, 1);
+});
+
+test('a hold taken under the identity lock skips level-up Coins with no back-pay after lift', async () => {
+  const repository = new LockingRepo();
+  repository.link(DISCORD, 'econ_race_level', { status: 'verified' });
+  repository.flip = 'restricted';
+  const wallet = new NexusEconomyWalletCore({ repository, now: () => new Date('2026-10-01T00:00:00.000Z') });
+  const skipped = await routeWalletCredit(wallet, {
+    discordUserId: DISCORD,
+    amount: 10,
+    currency: 'NEXUS_COINS',
+    source: COMMUNITY_LEVEL_UP_SOURCE,
+    idempotencyKey: 'community-level-up:111111111111111111:1:2',
+    metadata: { reason: COMMUNITY_LEVEL_UP_SOURCE, beforeLevel: 1, afterLevel: 2 }
+  });
+  assert.equal(skipped.ok, false);
+  assert.equal(skipped.skipped, 'account-hold');
+  assert.equal(skipped.credited, 0);
+  assert.equal(repository.ledger.size, 0);
+  assert.equal(repository.wallets.has('econ_race_level:NEXUS_COINS'), false);
+  repository.flip = null;
+  repository.link(DISCORD, 'econ_race_level', { status: 'verified', holdReason: '' });
+  const next = await routeWalletCredit(wallet, {
+    discordUserId: DISCORD,
+    amount: 15,
+    currency: 'NEXUS_COINS',
+    source: COMMUNITY_LEVEL_UP_SOURCE,
+    idempotencyKey: 'community-level-up:111111111111111111:2:3',
+    metadata: { reason: COMMUNITY_LEVEL_UP_SOURCE, beforeLevel: 2, afterLevel: 3 }
+  });
+  assert.equal(next.ok, true);
+  assert.equal(next.balance, 15);
+  assert.equal(repository.wallets.get('econ_race_level:NEXUS_COINS').balance, 15);
+  assert.equal(repository.ledger.has('community-level-up:111111111111111111:1:2'), false);
 });
 
 test('cluster shop purchase refuses a status that changes under the wallet lock', async () => {

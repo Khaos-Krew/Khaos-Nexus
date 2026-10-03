@@ -1,6 +1,7 @@
 'use strict';
 
 const { normalizeCurrency } = require('./nexus-economy-postgres-repository.cjs');
+const { memberIdentityHold } = require('./nexus-economy-identity-hold.cjs');
 
 const COMMUNITY_LEVEL_UP_SOURCE = 'community-level-up';
 const COMMUNITY_LEVEL_UP_TYPE = 'credit';
@@ -13,6 +14,15 @@ function isCommunityLevelCoinGrant(input = {}) {
 function shadowRecruitEnsureSucceeded(ensured) {
   if (!ensured || ensured.ok !== true || ensured.rejected || ensured.skipped) return false;
   return Boolean(ensured.economicIdentityId || ensured.economic_identity_id);
+}
+
+function levelUpHoldSkip(hold) {
+  return {
+    ok: false,
+    skipped: 'account-hold',
+    reason: hold?.reason || 'account-hold',
+    credited: 0
+  };
 }
 
 function attachCommunityLevelCoinGrants(WalletCoreClass, {
@@ -41,6 +51,13 @@ function attachCommunityLevelCoinGrants(WalletCoreClass, {
     if (quarantineDenylist(env).has(economicIdentityId)) {
       return { ok: false, skipped: 'wallet-identity-missing', reason: 'quarantine-denylist' };
     }
+    const hold = memberIdentityHold({
+      status,
+      holdReason: identity.hold_reason ?? identity.holdReason,
+      economicIdentityId,
+      env
+    });
+    if (hold) return levelUpHoldSkip(hold);
     return { ok: true, discordUserId: discord, economicIdentityId, status };
   }
 
@@ -86,7 +103,12 @@ function attachCommunityLevelCoinGrants(WalletCoreClass, {
     const value = positiveWhole(amount, 'Nexus Coins');
     const key = cleanId(idempotencyKey, 'Idempotency key');
     const resolved = await ensureThenResolve(this, discordUserId, env);
-    if (resolved.ok === false) return { ...resolved, currency: 'NEXUS_COINS', missing: undefined };
+    if (resolved.ok === false) {
+      if (resolved.skipped === 'account-hold') {
+        console.info(`[Nexus Economy] community level-up Coins skipped for ${resolved.discordUserId || discordUserId}: account-hold.`);
+      }
+      return { ...resolved, currency: 'NEXUS_COINS', missing: undefined };
+    }
     return this.repository.transact(resolved.economicIdentityId, 'NEXUS_COINS', async (tx) => {
       const prior = await tx.findLedgerByKey(key);
       if (prior) {
@@ -97,6 +119,20 @@ function attachCommunityLevelCoinGrants(WalletCoreClass, {
           type: COMMUNITY_LEVEL_UP_TYPE,
           source: COMMUNITY_LEVEL_UP_SOURCE
         });
+      }
+      if (typeof tx.lockIdentity === 'function') {
+        const row = await tx.lockIdentity(resolved.economicIdentityId);
+        const hold = memberIdentityHold({
+          status: row?.status,
+          holdReason: row?.hold_reason ?? row?.holdReason,
+          economicIdentityId: resolved.economicIdentityId,
+          missingRow: !row,
+          env
+        });
+        if (hold) {
+          console.info(`[Nexus Economy] community level-up Coins skipped for ${resolved.discordUserId}: account-hold.`);
+          return { ...levelUpHoldSkip(hold), currency: 'NEXUS_COINS' };
+        }
       }
       const wallet = await tx.getOrCreateWallet(resolved.economicIdentityId, 'NEXUS_COINS');
       const balance = walletBalance(wallet) + value;
