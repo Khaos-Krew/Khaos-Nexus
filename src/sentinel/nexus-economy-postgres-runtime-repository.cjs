@@ -1,7 +1,7 @@
 'use strict';
 
 const { NexusEconomyPostgresRepository, sqlIdent, normalizeCurrency } = require('./nexus-economy-postgres-repository.cjs');
-const { memberIdentityHold, quarantineDenylist } = require('./nexus-economy-identity-hold.cjs');
+const { linkElevationHold, quarantineDenylist } = require('./nexus-economy-identity-hold.cjs');
 const { deterministicEconomicIdentityId } = require('./nexus-economy-json-postgres-migration.cjs');
 const { validDiscordId, validEosId } = require('./ark-identity-store.cjs');
 const { assertO9EligibilityForVerifiedMint } = require('./nexus-economy-o9-eligibility.cjs');
@@ -14,15 +14,33 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
   constructor(options = {}) {
     super(options);
     this.runtimeSchema = sqlIdent(options.schema || 'public');
+    this.env = options.env || process.env;
+    this.now = options.now || (() => Date.now());
+  }
+
+  // Close the passive cursor so held time cannot be paid on the next lazy read.
+  async #checkpointAccrual(client, economicIdentityId, atMs = this.now()) {
+    const s = this.runtimeSchema;
+    const atIso = new Date(atMs).toISOString();
+    await client.query(
+      `INSERT INTO ${s}.nexus_economy_accrual_state (economic_identity_id) VALUES ($1) ON CONFLICT DO NOTHING`,
+      [economicIdentityId]
+    );
+    await client.query(
+      `UPDATE ${s}.nexus_economy_accrual_state SET online = false, online_since = NULL, offline_since = $2, last_passive_at = $2, last_presence_at = $2, last_accounting_at = $2, online_uncredited_ms = 0, updated_at = NOW() WHERE economic_identity_id = $1`,
+      [economicIdentityId, atIso]
+    );
+    return atIso;
   }
 
   // Called only after the runtime verifies the Sentinel proof. No balance changes.
-  // O9: elevates to status=verified only for a row this call just inserted, and only when
-  // assertO9EligibilityForVerifiedMint passes. Already-verified rows are never demoted.
-  // An existing restricted, quarantined, or disabled row keeps that status.
+  // O9: elevates a freshly minted row, or an existing restricted row with no hold marker,
+  // only when assertO9EligibilityForVerifiedMint passes. Already-verified rows are never demoted.
+  // Restricted-with-marker, quarantined, disabled, and a missing row stay held.
   async linkVerifiedIdentity({ discordUserId, eosId, verifiedAt, discordMembershipVerified } = {}) {
     if (!validDiscordId(discordUserId) || !validEosId(eosId) || !Number.isFinite(Date.parse(verifiedAt))) throw new Error('Invalid verified identity.');
     const s = this.runtimeSchema;
+    const env = this.env || process.env;
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -36,20 +54,37 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
       const eos = links.rows.find((row) => row.provider === 'eos');
       const economicIdentityId = discord?.economic_identity_id || deterministicEconomicIdentityId(discordUserId);
       if (eos && eos.economic_identity_id !== economicIdentityId) throw new Error('EOS identity is already owned by another economic identity.');
-      const inserted = await client.query(
+      await client.query(
         `INSERT INTO ${s}.nexus_economic_identities (economic_identity_id, status) VALUES ($1, 'restricted') ON CONFLICT DO NOTHING RETURNING economic_identity_id`,
         [economicIdentityId]
       );
-      const freshlyMinted = Number(inserted?.rowCount || 0) > 0;
-      const identity = await client.query(`SELECT status FROM ${s}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`, [economicIdentityId]);
+      const identity = await client.query(
+        `SELECT status, hold_reason, held_by FROM ${s}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
+        [economicIdentityId]
+      );
       const priorStatus = identity.rows[0]?.status;
-      if (!freshlyMinted && (!identity.rows[0] || memberIdentityHold({ status: priorStatus, economicIdentityId }))) {
-        await client.query('ROLLBACK');
-        return {
-          ...memberIdentityHold({ status: priorStatus, economicIdentityId, missingRow: !identity.rows[0] }),
-          status: priorStatus || null,
-          economicIdentityId
-        };
+      let holdReason = identity.rows[0]?.hold_reason || '';
+      let stamped = false;
+      if (quarantineDenylist(env).has(economicIdentityId) && !String(holdReason || '').trim()) {
+        await client.query(
+          `UPDATE ${s}.nexus_economic_identities SET hold_reason = 'quarantine', updated_at = NOW() WHERE economic_identity_id = $1 AND (hold_reason IS NULL OR btrim(hold_reason) = '')`,
+          [economicIdentityId]
+        );
+        holdReason = 'quarantine';
+        stamped = true;
+        await this.#checkpointAccrual(client, economicIdentityId);
+      }
+      const held = linkElevationHold({
+        status: priorStatus,
+        holdReason,
+        economicIdentityId,
+        missingRow: !identity.rows[0],
+        env
+      });
+      if (held) {
+        if (stamped) await client.query('COMMIT');
+        else await client.query('ROLLBACK');
+        return { ...held, status: priorStatus || null, holdReason: holdReason || null, economicIdentityId };
       }
       for (const [provider, externalId] of [['discord', discordUserId], ['eos', eosId]]) {
         await client.query(
@@ -68,7 +103,10 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
         await client.query('COMMIT');
         return { ok: true, status: 'restricted', eligibility: eligibility.reason, economicIdentityId };
       }
-      await client.query(`UPDATE ${s}.nexus_economic_identities SET status = 'verified', updated_at = NOW() WHERE economic_identity_id = $1`, [economicIdentityId]);
+      await client.query(
+        `UPDATE ${s}.nexus_economic_identities SET status = 'verified', hold_reason = NULL, held_by = NULL, updated_at = NOW() WHERE economic_identity_id = $1`,
+        [economicIdentityId]
+      );
       await client.query('COMMIT');
       return { ok: true, duplicate: Boolean(discord?.verified_at && eos?.verified_at), status: 'verified', economicIdentityId };
     } catch (error) {
@@ -104,11 +142,12 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
         return { ok: true, skipped: 'not-verified', status: priorStatus, economicIdentityId };
       }
       await client.query(
-        `UPDATE ${s}.nexus_economic_identities SET status = 'restricted', updated_at = NOW() WHERE economic_identity_id = $1`,
+        `UPDATE ${s}.nexus_economic_identities SET status = 'restricted', hold_reason = 'o9-demote', held_by = NULL, updated_at = NOW() WHERE economic_identity_id = $1`,
         [economicIdentityId]
       );
+      await this.#checkpointAccrual(client, economicIdentityId);
       await client.query('COMMIT');
-      return { ok: true, status: 'restricted', priorStatus: 'verified', economicIdentityId };
+      return { ok: true, status: 'restricted', holdReason: 'o9-demote', priorStatus: 'verified', economicIdentityId };
     } catch (error) {
       try { await client.query('ROLLBACK'); } catch {}
       throw error;
@@ -138,8 +177,13 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
       );
       const economicIdentityId = existing.rows[0]?.economic_identity_id || deterministicEconomicIdentityId(discord);
       if (deny.has(economicIdentityId)) {
-        await client.query('ROLLBACK');
-        return { ok: false, rejected: 'quarantine-denylist', economicIdentityId };
+        await client.query(
+          `INSERT INTO ${s}.nexus_economic_identities (economic_identity_id, status, hold_reason) VALUES ($1, 'restricted', 'quarantine') ON CONFLICT (economic_identity_id) DO UPDATE SET hold_reason = COALESCE(NULLIF(btrim(${s}.nexus_economic_identities.hold_reason), ''), 'quarantine'), updated_at = NOW()`,
+          [economicIdentityId]
+        );
+        await this.#checkpointAccrual(client, economicIdentityId);
+        await client.query('COMMIT');
+        return { ok: false, rejected: 'quarantine-denylist', economicIdentityId, holdReason: 'quarantine' };
       }
       await client.query(
         `INSERT INTO ${s}.nexus_economic_identities (economic_identity_id, status) VALUES ($1, 'restricted') ON CONFLICT DO NOTHING`,
@@ -200,6 +244,81 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
         walletsExisting,
         source: SHADOW_RECRUIT_LINK_SOURCE
       };
+    } catch (error) {
+      try { await client.query('ROLLBACK'); } catch {}
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async placeStaffHold(discordUserId, { reason = 'staff', heldBy = null } = {}) {
+    if (!validDiscordId(discordUserId)) throw new Error('Invalid discord user id.');
+    const marker = String(reason || '').trim().slice(0, 64);
+    if (!marker) throw new Error('Hold reason is required.');
+    const actor = heldBy == null ? null : String(heldBy).trim().slice(0, 128) || null;
+    const s = this.runtimeSchema;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const link = await client.query(
+        `SELECT economic_identity_id FROM ${s}.nexus_economic_identity_links WHERE provider = 'discord' AND external_id = $1 FOR UPDATE`,
+        [String(discordUserId)]
+      );
+      if (!link.rows[0]) {
+        await client.query('ROLLBACK');
+        return { ok: false, reason: 'wallet-not-found' };
+      }
+      const economicIdentityId = link.rows[0].economic_identity_id;
+      await client.query(
+        `UPDATE ${s}.nexus_economic_identities SET hold_reason = $2, held_by = $3, updated_at = NOW() WHERE economic_identity_id = $1`,
+        [economicIdentityId, marker, actor]
+      );
+      const checkpointAt = await this.#checkpointAccrual(client, economicIdentityId);
+      await client.query('COMMIT');
+      console.log(`[Nexus Economy] identity_hold_applied identity=${economicIdentityId} reason=${marker} by=${actor || ''}`);
+      return { ok: true, economicIdentityId, holdReason: marker, heldBy: actor, checkpointAt };
+    } catch (error) {
+      try { await client.query('ROLLBACK'); } catch {}
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async liftIdentityHold(discordUserId) {
+    if (!validDiscordId(discordUserId)) throw new Error('Invalid discord user id.');
+    const s = this.runtimeSchema;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const link = await client.query(
+        `SELECT economic_identity_id FROM ${s}.nexus_economic_identity_links WHERE provider = 'discord' AND external_id = $1 FOR UPDATE`,
+        [String(discordUserId)]
+      );
+      if (!link.rows[0]) {
+        await client.query('ROLLBACK');
+        return { ok: false, reason: 'wallet-not-found' };
+      }
+      const economicIdentityId = link.rows[0].economic_identity_id;
+      const identity = await client.query(
+        `SELECT status, hold_reason FROM ${s}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
+        [economicIdentityId]
+      );
+      const status = identity.rows[0]?.status || null;
+      const priorReason = String(identity.rows[0]?.hold_reason || '').trim();
+      if (!priorReason) {
+        await client.query('ROLLBACK');
+        return { ok: true, skipped: 'not-marked', status, economicIdentityId };
+      }
+      await client.query(
+        `UPDATE ${s}.nexus_economic_identities SET hold_reason = NULL, held_by = NULL, updated_at = NOW() WHERE economic_identity_id = $1`,
+        [economicIdentityId]
+      );
+      const checkpointAt = await this.#checkpointAccrual(client, economicIdentityId);
+      await client.query('COMMIT');
+      console.log(`[Nexus Economy] identity_hold_lifted identity=${economicIdentityId} prior=${priorReason} status=${status}`);
+      return { ok: true, lifted: true, status, priorReason, economicIdentityId, checkpointAt };
     } catch (error) {
       try { await client.query('ROLLBACK'); } catch {}
       throw error;
@@ -297,6 +416,8 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
     const s = sqlIdent(schema);
     return [
       NexusEconomyPostgresRepository.schemaSql({ schema }),
+      `ALTER TABLE ${s}.nexus_economic_identities ADD COLUMN IF NOT EXISTS hold_reason TEXT;`,
+      `ALTER TABLE ${s}.nexus_economic_identities ADD COLUMN IF NOT EXISTS held_by TEXT;`,
       `ALTER TABLE ${s}.nexus_economy_purchase_outbox ADD COLUMN IF NOT EXISTS projected_action_id TEXT;`,
       `ALTER TABLE ${s}.nexus_economy_purchase_outbox ADD COLUMN IF NOT EXISTS projected_at TIMESTAMPTZ;`,
       `ALTER TABLE ${s}.nexus_economy_purchase_outbox ADD COLUMN IF NOT EXISTS projection_attempts INTEGER NOT NULL DEFAULT 0;`,

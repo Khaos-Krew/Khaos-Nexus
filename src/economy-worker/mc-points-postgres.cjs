@@ -524,12 +524,13 @@ class PostgresMcPoints {
       }
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${row.economic_identity_id}:NEXUS_POINTS`]);
       const identityStatus = await client.query(
-        `SELECT status FROM ${s}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
+        `SELECT status, hold_reason FROM ${s}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
         [row.economic_identity_id]
       );
       const buyStatus = identityStatus.rows?.[0];
       const buyHold = memberIdentityHold({
         status: buyStatus?.status,
+        holdReason: buyStatus?.hold_reason,
         missingRow: !buyStatus,
         economicIdentityId: row.economic_identity_id,
         env: this.env
@@ -537,6 +538,10 @@ class PostgresMcPoints {
       if (buyHold) {
         await client.query('ROLLBACK');
         return buyHold;
+      }
+      if (String(buyStatus?.status || '') === 'restricted') {
+        await client.query('ROLLBACK');
+        return { ok: false, reason: 'verified-identity-required', message: 'Verified economic identity is required.' };
       }
       const prior = await client.query(
         `SELECT order_data FROM ${s}.nexus_mc_orders WHERE status <> 'REFUNDED' AND order_data->>'economicIdentityId' = $1 AND order_data->>'source' = 'mc-shop'`,
@@ -751,12 +756,13 @@ class PostgresMcPoints {
       if (identityId) {
         await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${identityId}:NEXUS_POINTS`]);
         const identityStatus = await client.query(
-          `SELECT status FROM ${s}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
+          `SELECT status, hold_reason FROM ${s}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
           [identityId]
         );
         const refundStatus = identityStatus.rows?.[0];
         refundHold = memberIdentityHold({
           status: refundStatus?.status,
+          holdReason: refundStatus?.hold_reason,
           missingRow: !refundStatus,
           economicIdentityId: identityId,
           env: this.env

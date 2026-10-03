@@ -734,9 +734,17 @@ class MemoryMcPoints {
   async #orderHold(order) {
     if (typeof this.wallet.resolve !== 'function') return null;
     const identity = await this.wallet.resolve(order.discordUserId);
+    if (!identity || !String(identity.status || '').trim()) {
+      return memberIdentityHold({
+        missingRow: true,
+        economicIdentityId: identity?.economicIdentityId || order.economicIdentityId,
+        env: this.env
+      });
+    }
     return memberIdentityHold({
-      status: identity?.status || 'verified',
-      economicIdentityId: identity?.economicIdentityId || order.economicIdentityId,
+      status: identity.status,
+      holdReason: identity.holdReason,
+      economicIdentityId: identity.economicIdentityId || order.economicIdentityId,
       env: this.env
     });
   }

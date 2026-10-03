@@ -963,6 +963,7 @@ test('a verified minecraft link earns without EOS and quarantine still blocks', 
   assert.ok(earned.balance > 0);
   const linked = worker.store.read();
   linked.accounts[DISCORD].status = 'restricted';
+  linked.accounts[DISCORD].holdReason = 'staff';
   worker.store.write(linked);
   const denied = await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
   assert.equal(denied.ok, false);

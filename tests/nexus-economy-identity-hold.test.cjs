@@ -27,6 +27,8 @@ const { mcShopBuyFailureText } = require('../src/sentinel/mc-shop-ui-extension.c
 const { orderFailureCopy } = require('../src/sentinel/cluster-shop-copy.cjs');
 const { NexusEconomyClient } = require('../src/sentinel/nexus-economy-client.cjs');
 const { handleInteraction, newSession } = require('../src/sentinel/cluster-shop-ui-extension.cjs');
+const { runCycle } = require('../src/sentinel/cluster-shop-delivery-worker.cjs');
+const { NexusEconomyPostgresRuntimeRepository } = require('../src/sentinel/nexus-economy-postgres-runtime-repository.cjs');
 const { publicRequestError } = require('../src/economy-worker/server.cjs');
 
 const MESSAGE = 'Your account is on hold. Ask an Admin for help.';
@@ -55,10 +57,11 @@ class LockingRepo {
     this.lockedReads = 0;
   }
 
-  link(discordUserId, economicIdentityId, { status = 'verified', verifiedAt = '2026-09-12T00:00:00.000Z' } = {}) {
+  link(discordUserId, economicIdentityId, { status = 'verified', holdReason = '', verifiedAt = '2026-09-12T00:00:00.000Z' } = {}) {
     const row = {
       economic_identity_id: economicIdentityId,
       status,
+      hold_reason: holdReason,
       verified_at: status === 'verified' ? verifiedAt : verifiedAt
     };
     this.links.set(`discord:${discordUserId}`, row);
@@ -86,8 +89,11 @@ class LockingRepo {
       lockIdentity: async () => {
         this.lockedReads += 1;
         const row = this.links.get(`id:${economicIdentityId}`);
-        if (this.flip) row.status = this.flip;
-        return row ? { economic_identity_id: economicIdentityId, status: row.status } : null;
+        if (this.flip) {
+          row.status = this.flip;
+          if (this.flip === 'restricted' && !row.hold_reason) row.hold_reason = 'staff';
+        }
+        return row ? { economic_identity_id: economicIdentityId, status: row.status, hold_reason: row.hold_reason || null } : null;
       },
       findLedgerByKey: async (key) => this.ledger.get(key) || null,
       findOrder: async (orderId) => this.orders.get(orderId) || null,
@@ -131,7 +137,7 @@ function catalog() {
   }]));
 }
 
-function workerFixture(status = 'verified') {
+function workerFixture(status = 'verified', options = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-hold-'));
   const now = Date.parse('2026-10-01T12:00:00.000Z');
   const worker = new NexusEconomyWorker({
@@ -148,7 +154,9 @@ function workerFixture(status = 'verified') {
   });
   worker.linkArkIdentity({ discordUserId: DISCORD, eosId: EOS, rankId: 'cipher-runner' });
   const state = worker.store.read();
+  const holdReason = options.holdReason != null ? options.holdReason : (status === 'restricted' ? 'staff' : '');
   state.accounts[DISCORD].status = status;
+  state.accounts[DISCORD].holdReason = holdReason;
   state.accounts[DISCORD].balance = 500;
   state.accounts[DISCORD].online = false;
   state.accounts[DISCORD].lastPassiveAt = new Date(now - 5 * 3_600_000).toISOString();
@@ -203,7 +211,12 @@ test('blocked statuses match the identity schema, plus the literal quarantined h
   assert.deepEqual(SCHEMA_IDENTITY_STATUSES, ['verified', 'restricted', 'disabled']);
   for (const status of ['restricted', 'disabled']) assert.equal(BLOCKED_MEMBER_STATUSES.includes(status), true);
   assert.equal(BLOCKED_MEMBER_STATUSES.includes('quarantined'), true);
+  assert.match(sql, /hold_reason TEXT/);
+  assert.match(sql, /held_by TEXT/);
   assert.equal(memberIdentityHold({ status: 'verified', economicIdentityId: 'econ_ok' }), null);
+  assert.equal(memberIdentityHold({ status: 'restricted', economicIdentityId: 'econ_shadow' }), null);
+  assert.equal(memberIdentityHold({ status: 'restricted', holdReason: 'o9-demote', economicIdentityId: 'econ_mark' }).reason, 'account-hold');
+  assert.equal(memberIdentityHold({ status: 'verified', holdReason: 'staff', economicIdentityId: 'econ_staff' }).reason, 'account-hold');
   assert.equal(memberIdentityHold({ status: 'verified', economicIdentityId: 'econ_q', env: { NEXUS_ECONOMY_QUARANTINE_DENYLIST: 'econ_q' } }).reason, 'quarantined');
   assert.equal(MEMBER_HOLD_MESSAGE, MESSAGE);
 });
@@ -211,7 +224,7 @@ test('blocked statuses match the identity schema, plus the literal quarantined h
 test('wallet spend and non-level-up credit refuse each blocked status and still allow verified', async () => {
   for (const status of BLOCKED) {
     const repository = new LockingRepo();
-    repository.link(DISCORD, 'econ_hold', { status, verifiedAt: '2026-09-12T00:00:00.000Z' });
+    repository.link(DISCORD, 'econ_hold', { status, holdReason: status === 'restricted' ? 'staff' : '', verifiedAt: '2026-09-12T00:00:00.000Z' });
     const wallet = new NexusEconomyWalletCore({ repository, now: () => new Date('2026-10-01T00:00:00.000Z') });
     const spent = await wallet.spend({ discordUserId: DISCORD, amount: 10, orderId: `order_${status}` });
     const credited = await wallet.credit({ discordUserId: DISCORD, amount: 10, idempotencyKey: `credit_${status}` });
@@ -260,9 +273,22 @@ test('level-up Coins still credit a restricted identity while member spend stays
   assert.equal(coins.ok, true);
   assert.equal(coins.currency, 'NEXUS_COINS');
   assert.equal(coins.balance, 25);
-  const spent = await wallet.spend({ discordUserId: DISCORD, amount: 1, orderId: 'no_spend', currency: 'NEXUS_COINS' });
-  assertHold(spent);
-  assert.equal(repository.wallets.get('econ_level:NEXUS_COINS').balance, 25);
+  const spent = await wallet.spend({ discordUserId: DISCORD, amount: 1, orderId: 'coin_spend', currency: 'NEXUS_COINS' });
+  assert.equal(spent.ok, true);
+  assert.equal(spent.reason, undefined);
+  assert.equal(repository.wallets.get('econ_level:NEXUS_COINS').balance, 24);
+  await assert.rejects(
+    () => wallet.spend({ discordUserId: DISCORD, amount: 1, orderId: 'np_spend', currency: 'NEXUS_POINTS' }),
+    (error) => {
+      assert.equal(error.message, 'Verified economic identity is required.');
+      assert.doesNotMatch(error.message, /on hold/);
+      return true;
+    }
+  );
+  repository.link(DISCORD, 'econ_marked', { status: 'restricted', holdReason: 'o9-demote', verifiedAt: null });
+  const marked = new NexusEconomyWalletCore({ repository, now: () => new Date('2026-10-01T00:00:00.000Z') });
+  const markedCoins = await marked.spend({ discordUserId: DISCORD, amount: 1, orderId: 'marked_coins', currency: 'NEXUS_COINS' });
+  assertHold(markedCoins);
 });
 
 test('cluster shop purchase refuses a status that changes under the wallet lock', async () => {
@@ -354,6 +380,7 @@ test('minecraft buy and refund refuse each blocked status after the member was v
     assert.equal(quoted.ok, true, quoted.reason);
     const state = worker.store.read();
     state.accounts[DISCORD].status = status;
+    if (status === 'restricted') state.accounts[DISCORD].holdReason = 'staff';
     worker.store.write(state);
     const bought = await worker.minecraft.buy({
       discordUserId: DISCORD,
@@ -367,6 +394,7 @@ test('minecraft buy and refund refuse each blocked status after the member was v
     assert.equal(worker.minecraft.orders.size, 0);
 
     state.accounts[DISCORD].status = 'verified';
+    state.accounts[DISCORD].holdReason = '';
     worker.store.write(state);
     const paid = await worker.minecraft.buy({
       discordUserId: DISCORD,
@@ -379,6 +407,7 @@ test('minecraft buy and refund refuse each blocked status after the member was v
     const balanceAfterBuy = worker.balance(DISCORD);
     const fresh = worker.store.read();
     fresh.accounts[DISCORD].status = status;
+    fresh.accounts[DISCORD].holdReason = status === 'restricted' ? 'staff' : '';
     worker.store.write(fresh);
     paid.order.status = 'SENT_UNCONFIRMED';
     const self = await worker.minecraft.refund({
@@ -440,7 +469,7 @@ function accrualClient({ kind, status, flip = '' }) {
       if (text.includes('status = ANY')) return { rows: status === 'verified' ? [] : [identity] };
       if (text.includes('SELECT status') && text.includes('nexus_economic_identities')) {
         if (flip) locked = flip;
-        return { rows: [{ status: locked }] };
+        return { rows: [{ status: locked, hold_reason: locked === 'restricted' ? 'staff' : null }] };
       }
       if (text.includes('provider = \'eos\'') && text.includes('verified_at IS NOT NULL') && !text.includes('JOIN')) {
         return { rows: [{ '?column?': 1 }] };
@@ -553,7 +582,7 @@ function shopClient({ status, flip = '', missingStatus = false } = {}) {
       if (text.includes('SELECT status') && text.includes('nexus_economic_identities')) {
         if (missingStatus) return { rows: [], rowCount: 0 };
         if (flip) locked = flip;
-        return { rows: [{ status: locked }], rowCount: 1 };
+        return { rows: [{ status: locked, hold_reason: locked === 'restricted' ? 'staff' : null }], rowCount: 1 };
       }
       if (text.includes('INSERT') && text.includes('nexus_mc_refund_audit')) {
         audits.push(params);
@@ -706,7 +735,9 @@ test('postgres offline accrual skips held time instead of paying it later', asyn
       if (text.includes('pg_advisory_xact_lock')) return { rows: [], rowCount: 0 };
       if (text.includes("i.status = 'verified'")) return { rows: status === 'verified' ? [identity] : [] };
       if (text.includes('status = ANY')) return { rows: status === 'verified' ? [] : [{ ...identity, status }] };
-      if (text.includes('SELECT status') && text.includes('nexus_economic_identities')) return { rows: [{ status }] };
+      if (text.includes('SELECT status') && text.includes('nexus_economic_identities')) {
+        return { rows: [{ status, hold_reason: status === 'restricted' ? 'staff' : null }] };
+      }
       if (text.includes("provider = 'eos'") && !text.includes('JOIN')) return { rows: [{ '?column?': 1 }] };
       if (text.includes('nexus_economy_accrual_state') && (text.includes('SELECT *') || text.includes('FOR UPDATE'))) {
         return { rows: [{ ...state }], rowCount: 1 };
@@ -774,7 +805,9 @@ function backpayPool(state, statusBox, ledger) {
       if (text.includes('pg_advisory_xact_lock')) return { rows: [], rowCount: 0 };
       if (text.includes("i.status = 'verified'")) return { rows: statusBox.status === 'verified' ? [{ ...identity, status: statusBox.status }] : [] };
       if (text.includes('status = ANY')) return { rows: statusBox.status === 'verified' ? [] : [{ ...identity, status: statusBox.status }] };
-      if (text.includes('SELECT status') && text.includes('nexus_economic_identities')) return { rows: [{ status: statusBox.status }] };
+      if (text.includes('SELECT status') && text.includes('nexus_economic_identities')) {
+        return { rows: [{ status: statusBox.status, hold_reason: statusBox.status === 'restricted' ? (statusBox.holdReason || 'staff') : null }] };
+      }
       if (text.includes("provider = 'eos'") && !text.includes('JOIN')) return { rows: [{ '?column?': 1 }] };
       if (text.includes('nexus_economy_accrual_state') && (text.includes('SELECT *') || text.includes('FOR UPDATE'))) {
         return { rows: [{ ...state }], rowCount: 1 };
@@ -1053,4 +1086,140 @@ test('PG cluster buy and shop confirm show the hold sentence', async () => {
     identityStore
   });
   assert.match(other.edits.at(-1).content, /❌ Cluster Shop error: database offline/);
+});
+
+test('JSON and memory identity reads fail closed when status is missing', async () => {
+  const { worker } = workerFixture('verified');
+  const state = worker.store.read();
+  delete state.accounts[DISCORD].status;
+  worker.store.write(state);
+  const spent = await worker.spend({ discordUserId: DISCORD, amount: 10, orderId: 'missing_status' });
+  assertHold(spent);
+  assert.equal(worker.balance(DISCORD), 500);
+  const resolved = await worker.minecraft.wallet.resolve(DISCORD);
+  assert.equal(resolved.status, '');
+  const memoryHold = await worker.minecraft.wallet.resolve(DISCORD);
+  assert.equal(String(memoryHold.status || ''), '');
+});
+
+test('an unmarked restricted wallet is not shown the hold sentence', async () => {
+  const { worker } = workerFixture('restricted', { holdReason: '' });
+  const spent = await worker.spend({ discordUserId: DISCORD, amount: 10, orderId: 'shadow_np' });
+  assert.equal(spent.ok, false);
+  assert.equal(spent.reason, 'verified-identity-required');
+  assert.doesNotMatch(String(spent.message || ''), /on hold/);
+  assert.equal(worker.balance(DISCORD), 500);
+});
+
+test('CREDIT_FAILED sell orders retry once after the hold lifts', async () => {
+  const { worker, shop } = workerFixture('verified');
+  const created = await shop.createSellOrder({ discordUserId: DISCORD, eosId: EOS, itemId: 'metal', bundles: 1 });
+  assert.equal(created.ok, true, JSON.stringify(created));
+  const heldState = worker.store.read();
+  heldState.accounts[DISCORD].status = 'disabled';
+  worker.store.write(heldState);
+  const failed = await shop.confirmSellRemoval({ orderId: created.order.orderId, removalReceipt: 'removed-1' });
+  assert.equal(failed.ok, false);
+  assert.equal(failed.order.status, 'CREDIT_FAILED');
+  const heldSweep = await shop.sweepCreditFailedSells();
+  assert.equal(heldSweep[0].skipped, 'account-hold');
+  assert.equal(shop.store.read().orders[created.order.orderId].status, 'CREDIT_FAILED');
+  const lifted = worker.store.read();
+  lifted.accounts[DISCORD].status = 'verified';
+  lifted.accounts[DISCORD].holdReason = '';
+  worker.store.write(lifted);
+  const before = worker.balance(DISCORD);
+  const swept = await shop.sweepCreditFailedSells();
+  assert.equal(swept[0].ok, true, JSON.stringify(swept));
+  assert.equal(shop.store.read().orders[created.order.orderId].status, 'COMPLETE');
+  const price = created.order.quote.totalPrice;
+  assert.equal(worker.balance(DISCORD), before + price);
+  const again = await shop.sweepCreditFailedSells();
+  assert.equal(again.length, 0);
+  assert.equal(worker.balance(DISCORD), before + price);
+  const audits = shop.store.read().audits || [];
+  assert.ok(audits.some((row) => row.skipped === 'account-hold'));
+  assert.ok(audits.some((row) => row.ok === true && row.reason === 'credited'));
+});
+
+test('the shop delivery sweep asks for CREDIT_FAILED retries', async () => {
+  const calls = [];
+  const economyClient = {
+    configured: () => true,
+    async sweepCreditFailedSells() {
+      calls.push('sweep');
+      return { ok: true, results: [{ orderId: 'NXSELL-1', ok: true }] };
+    },
+    async pendingShopOrders() {
+      calls.push('pending');
+      return { orders: [] };
+    }
+  };
+  const results = await runCycle({ economyClient });
+  assert.equal(calls[0], 'sweep');
+  assert.ok(results.some((row) => Array.isArray(row.creditFailedSweep)));
+});
+
+test('hold apply and lift checkpoint the passive cursor', async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK') return { rows: [] };
+      if (/nexus_economic_identity_links/.test(text) && /SELECT/.test(text)) return { rows: [{ economic_identity_id: 'econ_cp' }] };
+      if (/SELECT status, hold_reason/.test(text)) return { rows: [{ status: 'verified', hold_reason: 'staff' }] };
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  const repository = new NexusEconomyPostgresRuntimeRepository({
+    pool: {
+      async connect() { return client; },
+      async query() { return { rows: [], rowCount: 0 }; }
+    },
+    now: () => Date.parse('2026-10-03T00:00:00.000Z')
+  });
+  const applied = await repository.placeStaffHold(DISCORD, { reason: 'staff', heldBy: STAFF });
+  assert.equal(applied.checkpointAt, '2026-10-03T00:00:00.000Z');
+  const applyUpdate = calls.find((call) => /nexus_economy_accrual_state SET online = false/.test(call.text));
+  assert.equal(applyUpdate.params[1], '2026-10-03T00:00:00.000Z');
+  calls.length = 0;
+  const lifted = await repository.liftIdentityHold(DISCORD);
+  assert.equal(lifted.lifted, true);
+  assert.equal(lifted.checkpointAt, '2026-10-03T00:00:00.000Z');
+  const liftUpdate = calls.find((call) => /nexus_economy_accrual_state SET online = false/.test(call.text));
+  assert.ok(liftUpdate);
+  assert.equal(liftUpdate.params[1], '2026-10-03T00:00:00.000Z');
+});
+
+test('offline accrual pays nothing for held time when the lift checkpointed the cursor and nobody pinged', async () => {
+  const start = Date.parse('2026-10-01T06:00:00.000Z');
+  const lift = Date.parse('2026-10-01T18:00:00.000Z');
+  let now = lift;
+  const ledger = [];
+  const state = {
+    economic_identity_id: 'econ_accrual',
+    rank_id: 'cipher-runner',
+    online: false,
+    online_uncredited_ms: 0,
+    online_credit_cursor: 0,
+    last_accounting_at: new Date(start).toISOString(),
+    last_presence_at: new Date(start).toISOString(),
+    offline_since: new Date(lift).toISOString(),
+    last_passive_at: new Date(lift).toISOString(),
+    passive_credit_cursor: 0,
+    presence_by_server: {}
+  };
+  const accrual = new PostgresEconomyAccrual({
+    pool: backpayPool(state, { status: 'verified' }, ledger),
+    now: () => now
+  });
+  const immediate = await accrual.accrueOffline(DISCORD);
+  assert.equal(immediate.ok, true, JSON.stringify(immediate));
+  assert.equal(immediate.credited, 0);
+  assert.equal(ledger.length, 0);
+  now += 3_600_000;
+  const nextHour = await accrual.accrueOffline(DISCORD);
+  assert.equal(nextHour.credited, 4);
+  assert.equal(ledger.length, 1);
 });

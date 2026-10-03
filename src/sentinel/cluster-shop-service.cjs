@@ -289,6 +289,54 @@ class ClusterShopService {
     return { ok: true, duplicate: credited.duplicate, order: current, balance: credited.balance };
   }
 
+  #recordCreditRetry(orderId, entry) {
+    const state = this.store.read();
+    const order = state.orders[orderId];
+    if (order) order.creditRetries = [...(order.creditRetries || []), entry];
+    state.audits = [...(state.audits || []), { type: 'credit-failed-retry', ...entry }];
+    this.store.write(state);
+    console.log(`[Nexus Economy] cluster_shop_credit_failed_retry order=${orderId} ok=${entry.ok} reason=${entry.reason || entry.skipped || ''}`);
+  }
+
+  // Retries CREDIT_FAILED sell credits. The wallet idempotency key credits once.
+  // A held member is left CREDIT_FAILED until the hold lifts; each attempt is audited.
+  async sweepCreditFailedSells({ now = Date.now() } = {}) {
+    const pending = Object.values(this.store.read().orders || [])
+      .filter((order) => order && order.type === 'SELL' && order.status === 'CREDIT_FAILED');
+    const results = [];
+    for (const order of pending) {
+      const at = new Date(now).toISOString();
+      if (typeof this.economy.memberHold === 'function') {
+        const hold = await this.economy.memberHold(order.discordUserId);
+        if (hold && (hold.reason === 'account-hold' || hold.reason === 'quarantined')) {
+          const entry = { orderId: order.orderId, ok: false, skipped: hold.reason, reason: hold.reason, at };
+          this.#recordCreditRetry(order.orderId, entry);
+          results.push(entry);
+          continue;
+        }
+      }
+      let result;
+      try {
+        result = await this.confirmSellRemoval({
+          orderId: order.orderId,
+          removalReceipt: order.removalReceipt || 'credit-failed-sweep'
+        });
+      } catch (error) {
+        result = { ok: false, reason: 'credit-failed', message: String(error?.message || error) };
+      }
+      const entry = {
+        orderId: order.orderId,
+        ok: Boolean(result?.ok),
+        duplicate: Boolean(result?.duplicate),
+        reason: result?.reason || (result?.ok ? 'credited' : 'credit-failed'),
+        at
+      };
+      this.#recordCreditRetry(order.orderId, entry);
+      results.push(entry);
+    }
+    return results;
+  }
+
   markBuyDelivery({ orderId, status, deliveryReceipt = '', error = '' } = {}) {
     const id = cleanId(orderId);
     const allowed = new Set(['DELIVERY_IN_PROGRESS', 'DELIVERED', 'DELIVERY_FAILED', 'SENT_UNCONFIRMED', 'PLAYER_OFFLINE']);

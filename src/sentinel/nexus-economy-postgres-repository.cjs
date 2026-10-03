@@ -58,7 +58,7 @@ class NexusEconomyPostgresRepository {
     const p = cleanProvider(provider);
     const id = cleanExternalId(externalId);
     const result = await this.pool.query(
-      `SELECT i.economic_identity_id, i.status, l.provider, l.external_id, l.verified_at, l.source\n` +
+      `SELECT i.economic_identity_id, i.status, i.hold_reason, i.held_by, l.provider, l.external_id, l.verified_at, l.source\n` +
       `FROM ${this.schema}.nexus_economic_identity_links l\n` +
       `JOIN ${this.schema}.nexus_economic_identities i ON i.economic_identity_id = l.economic_identity_id\n` +
       `WHERE l.provider = $1 AND l.external_id = $2`,
@@ -162,7 +162,7 @@ class NexusEconomyPostgresRepository {
       },
       lockIdentity: async (economicIdentityId) => {
         const result = await client.query(
-          `SELECT economic_identity_id, status FROM ${this.schema}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
+          `SELECT economic_identity_id, status, hold_reason, held_by FROM ${this.schema}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
           [economicIdentityId]
         );
         return result.rows?.[0] || null;
@@ -270,6 +270,8 @@ class NexusEconomyPostgresRepository {
       `CREATE TABLE IF NOT EXISTS ${s}.nexus_economic_identities (`,
       '  economic_identity_id TEXT PRIMARY KEY,',
       "  status TEXT NOT NULL DEFAULT 'verified' CHECK (status IN ('verified','restricted','disabled')),",
+      '  hold_reason TEXT,',
+      '  held_by TEXT,',
       '  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),',
       '  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
       ');',

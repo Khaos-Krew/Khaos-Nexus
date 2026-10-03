@@ -112,11 +112,11 @@ class NexusEconomyWorker {
           const account = worker.store.read().accounts?.[String(discordUserId || '').trim()];
           if (!account) return null;
           const rawStatus = String(account.status || '').trim().toLowerCase();
-          const status = rawStatus === 'restricted' || rawStatus === 'disabled' || rawStatus === 'quarantined' ? rawStatus : 'verified';
           return {
             economicIdentityId: account.discordUserId,
-            status,
-            verifiedAt: status === 'verified' ? (account.createdAt || new Date(worker.now()).toISOString()) : account.verifiedAt || null
+            status: rawStatus,
+            holdReason: String(account.holdReason || '').trim(),
+            verifiedAt: rawStatus === 'verified' ? (account.verifiedAt || account.createdAt || new Date(worker.now()).toISOString()) : (account.verifiedAt || null)
           };
         },
         balance: (discordUserId) => worker.balance(discordUserId),
@@ -159,6 +159,8 @@ class NexusEconomyWorker {
       presenceByServer: {},
       offlineSince: nowIso,
       lastPassiveAt: nowIso,
+      status: 'verified',
+      holdReason: '',
       createdAt: nowIso,
       updatedAt: nowIso
     };
@@ -218,11 +220,23 @@ class NexusEconomyWorker {
   }
 
   accountHold(account, discordUserId) {
-    return memberIdentityHold({
-      status: account?.status || 'verified',
-      economicIdentityId: account?.discordUserId || cleanId(discordUserId),
+    const economicIdentityId = account?.discordUserId || cleanId(discordUserId);
+    if (!account) return null;
+    const status = String(account.status || '').trim().toLowerCase();
+    if (!status) {
+      return memberIdentityHold({ missingRow: true, economicIdentityId, env: this.env });
+    }
+    const hold = memberIdentityHold({
+      status,
+      holdReason: account.holdReason,
+      economicIdentityId,
       env: this.env
     });
+    if (hold) return hold;
+    if (status === 'restricted') {
+      return { ok: false, reason: 'verified-identity-required', message: 'Verified economic identity is required.', credited: 0 };
+    }
+    return null;
   }
 
   // Same in-process identity lock as spend and credit. A status written while the lock is held is visible here.
@@ -383,6 +397,8 @@ class NexusEconomyWorker {
       if (identity) {
         const hold = memberIdentityHold({
           status: identity.status,
+          holdReason: identity.holdReason,
+          missingRow: !String(identity.status || '').trim(),
           economicIdentityId: identity.economicIdentityId,
           env: this.env
         });

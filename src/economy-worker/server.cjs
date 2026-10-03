@@ -25,6 +25,7 @@ const FINANCIAL_WRITE_PATHS = new Set([
   '/shop/buy',
   '/shop/sell',
   '/shop/sell/confirm-removal',
+  '/shop/sell/sweep-credit-failed',
   '/shop/buy/delivery-status',
   '/mc-shop/buy',
   '/mc-shop/refund',
@@ -448,6 +449,10 @@ function createEconomyServer(options = {}) {
       }
       if (url.pathname === '/shop/sell') return json(res, 200, await Promise.resolve(shop.createSellOrder(input)));
       if (url.pathname === '/shop/sell/confirm-removal') return json(res, 200, await shop.confirmSellRemoval(input));
+      if (url.pathname === '/shop/sell/sweep-credit-failed') {
+        if (typeof shop.sweepCreditFailedSells !== 'function') return json(res, 200, { ok: true, results: [], skipped: 'unsupported' });
+        return json(res, 200, { ok: true, results: await shop.sweepCreditFailedSells() });
+      }
       if (url.pathname === '/shop/buy/delivery-status') return json(res, 200, await Promise.resolve(shop.markBuyDelivery(input)));
       if (worker.minecraft && url.pathname === '/mc/link/challenge') return json(res, 200, await worker.minecraft.challenge(input));
       if (worker.minecraft && url.pathname === '/mc/link/confirm') return json(res, 200, await worker.minecraft.confirm(input));

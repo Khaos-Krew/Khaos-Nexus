@@ -6,15 +6,17 @@ const { memberIdentityHold, MEMBER_HOLD_MESSAGE, quarantineDenylist } = require(
 
 // Reads status while the caller already holds the identity/currency transaction lock.
 // A locked row wins over the pre-transaction snapshot so a concurrent status change is respected.
-async function guardMemberMutation(tx, loaded, env = process.env) {
+async function guardMemberMutation(tx, loaded, env = process.env, currency = 'NEXUS_POINTS') {
   let status = loaded.status;
   let economicIdentityId = loaded.economicIdentityId;
   let verifiedAt = loaded.verified_at;
+  let holdReason = loaded.hold_reason || loaded.holdReason || '';
   let missingRow = false;
   if (tx && typeof tx.lockIdentity === 'function') {
     const row = await tx.lockIdentity(economicIdentityId);
     if (row) {
       status = row.status;
+      holdReason = row.hold_reason ?? row.holdReason ?? '';
       economicIdentityId = row.economic_identity_id || row.economicIdentityId || economicIdentityId;
       if (Object.prototype.hasOwnProperty.call(row, 'verified_at') || Object.prototype.hasOwnProperty.call(row, 'verifiedAt')) {
         verifiedAt = row.verified_at ?? row.verifiedAt ?? null;
@@ -23,9 +25,15 @@ async function guardMemberMutation(tx, loaded, env = process.env) {
       missingRow = true;
     }
   }
-  const hold = memberIdentityHold({ status, economicIdentityId, missingRow, env });
+  const hold = memberIdentityHold({ status, holdReason, economicIdentityId, missingRow, env });
   if (hold) return { hold, economicIdentityId, status };
-  if (String(status || '') !== 'verified' || !verifiedAt) {
+  const normalized = String(status || '').trim().toLowerCase();
+  const unmarkedRestricted = normalized === 'restricted' && !String(holdReason || '').trim() && !missingRow;
+  // Shadow Recruits may spend Coins. Nexus Points spend still requires a verified identity.
+  if (unmarkedRestricted && normalizeCurrency(currency) === 'NEXUS_COINS') {
+    return { hold: null, economicIdentityId, status };
+  }
+  if (normalized !== 'verified' || !verifiedAt) {
     throw new Error('Verified economic identity is required.');
   }
   return { hold: null, economicIdentityId, status };
@@ -88,8 +96,8 @@ class NexusEconomyWalletCore {
 
   // Reads status while the caller already holds the identity/currency transaction lock.
   // A locked row wins over the pre-transaction snapshot so a concurrent status change is respected.
-  async guardMemberMutation(tx, loaded) {
-    return guardMemberMutation(tx, loaded, this.env);
+  async guardMemberMutation(tx, loaded, currency = 'NEXUS_POINTS') {
+    return guardMemberMutation(tx, loaded, this.env, currency);
   }
 
   async resolveDiscordIdentity(discordUserId) {
@@ -120,7 +128,7 @@ class NexusEconomyWalletCore {
     const value = positiveWhole(amount);
     const key = cleanId(idempotencyKey, 'Idempotency key');
     return this.repository.transact(loaded.economicIdentityId, normalizedCurrency, async (tx) => {
-      const guard = await this.guardMemberMutation(tx, loaded);
+      const guard = await this.guardMemberMutation(tx, loaded, normalizedCurrency);
       const prior = await tx.findLedgerByKey(key);
       if (prior) return priorResult(prior, {
         economicIdentityId: guard.economicIdentityId,
@@ -156,7 +164,7 @@ class NexusEconomyWalletCore {
     const order = cleanId(orderId, 'Order ID');
     const key = idempotencyKey ? cleanId(idempotencyKey, 'Idempotency key') : `purchase_${order}`;
     return this.repository.transact(loaded.economicIdentityId, normalizedCurrency, async (tx) => {
-      const guard = await this.guardMemberMutation(tx, loaded);
+      const guard = await this.guardMemberMutation(tx, loaded, normalizedCurrency);
       const prior = await tx.findLedgerByKey(key);
       if (prior) return priorResult(prior, {
         economicIdentityId: guard.economicIdentityId,
@@ -202,12 +210,12 @@ class NexusEconomyWalletCore {
       const linked = await this.repository.getIdentityByLink('discord', discordUserId);
       if (!linked) throw new Error('Verified economic identity is required.');
       economicIdentityId = cleanId(linked.economic_identity_id ?? linked.economicIdentityId, 'Economic identity ID');
-      statusHint = linked.status || 'verified';
+      statusHint = linked.status || '';
     } else if (typeof this.repository.resolveVerifiedIdentity === 'function') {
       const resolved = await this.repository.resolveVerifiedIdentity({ discordUserId, eosId: eos });
       if (!resolved) throw new Error('Verified economic identity is required.');
       economicIdentityId = cleanId(resolved.economic_identity_id ?? resolved.economicIdentityId, 'Economic identity ID');
-      statusHint = resolved.status || 'verified';
+      statusHint = resolved.status || '';
     } else {
       throw new Error('Economy repository identity resolution is required.');
     }
@@ -215,11 +223,13 @@ class NexusEconomyWalletCore {
     return this.repository.transact(economicIdentityId, normalizedCurrency, async (tx) => {
       let lockedStatus = statusHint;
       let lockedIdentityId = economicIdentityId;
+      let lockedHoldReason = '';
       let missingRow = false;
       if (typeof tx.lockIdentity === 'function') {
         const row = await tx.lockIdentity(economicIdentityId);
         if (row) {
           lockedStatus = row.status;
+          lockedHoldReason = row.hold_reason ?? row.holdReason ?? '';
           lockedIdentityId = row.economic_identity_id || row.economicIdentityId || economicIdentityId;
         } else {
           missingRow = true;
@@ -238,7 +248,13 @@ class NexusEconomyWalletCore {
         }
         return { ok: true, duplicate: true, order: prior, currency: normalizedCurrency, balance: prior.balance };
       }
-      const hold = memberIdentityHold({ status: lockedStatus, economicIdentityId: lockedIdentityId, missingRow, env: this.env });
+      const hold = memberIdentityHold({
+        status: lockedStatus,
+        holdReason: lockedHoldReason,
+        economicIdentityId: lockedIdentityId,
+        missingRow,
+        env: this.env
+      });
       if (hold) return { ...hold, currency: normalizedCurrency };
       const verified = await tx.findIdentity(discordUserId, eos);
       const verifiedIdentityId = verified?.economic_identity_id ?? verified?.economicIdentityId;

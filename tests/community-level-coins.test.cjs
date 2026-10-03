@@ -107,10 +107,14 @@ test('restricted Shadow Recruit wallets can receive level-up Coins and ordinary 
   assert.equal(result.currency, 'NEXUS_COINS');
   assert.equal(repository.ensureCalls, 0);
   assert.equal(repository.wallets.has('econ_555:NEXUS_POINTS'), false);
-  const points = await wallet.credit({ discordUserId: '555', amount: 1, idempotencyKey: 'points-blocked', currency: 'NEXUS_POINTS' });
-  assert.equal(points.ok, false);
-  assert.equal(points.reason, 'account-hold');
-  assert.equal(points.message, 'Your account is on hold. Ask an Admin for help.');
+  await assert.rejects(
+    () => wallet.credit({ discordUserId: '555', amount: 1, idempotencyKey: 'points-blocked', currency: 'NEXUS_POINTS' }),
+    (error) => {
+      assert.equal(error.message, 'Verified economic identity is required.');
+      assert.doesNotMatch(error.message, /on hold/);
+      return true;
+    }
+  );
   assert.equal(repository.wallets.has('econ_555:NEXUS_POINTS'), false);
 });
 

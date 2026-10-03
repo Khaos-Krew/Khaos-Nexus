@@ -115,10 +115,14 @@ test('Dino Cache grant supports quantities greater than one as one ledger credit
 test('unverified or unlinked Discord identities cannot create spendable wallets', async () => {
   const { wallet, repository } = fixture();
   repository.link('999', 'econ_999', { verified: false });
-  const held = await wallet.credit({ discordUserId: '999', amount: 1, idempotencyKey: 'blocked' });
-  assert.equal(held.ok, false);
-  assert.equal(held.reason, 'account-hold');
-  assert.equal(held.message, 'Your account is on hold. Ask an Admin for help.');
+  await assert.rejects(
+    () => wallet.credit({ discordUserId: '999', amount: 1, idempotencyKey: 'blocked' }),
+    (error) => {
+      assert.equal(error.message, 'Verified economic identity is required.');
+      assert.doesNotMatch(error.message, /on hold/);
+      return true;
+    }
+  );
   await assert.rejects(wallet.credit({ discordUserId: '888', amount: 1, idempotencyKey: 'blocked2' }), /Verified economic identity/);
   assert.equal(repository.wallets.has('econ_999:NEXUS_POINTS'), false);
 });

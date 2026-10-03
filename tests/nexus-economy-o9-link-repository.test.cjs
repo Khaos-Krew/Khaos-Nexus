@@ -42,7 +42,7 @@ test('O9 repository: new link without Discord claim commits restricted and does 
     if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK' || /LOCK TABLE/.test(text)) return { rows: [] };
     if (/FROM .*nexus_economic_identity_links WHERE/.test(text)) return { rows: [] };
     if (/INSERT INTO .*nexus_economic_identities/.test(text)) return { rows: [{ economic_identity_id: 'minted' }], rowCount: 1 };
-    if (/SELECT status FROM .*nexus_economic_identities/.test(text)) return { rows: [statusRow] };
+    if (/SELECT status, hold_reason/.test(text)) return { rows: [statusRow] };
     if (/INSERT INTO .*nexus_economic_identity_links/.test(text)) return { rows: [] };
     if (/UPDATE .*nexus_economic_identities SET status = 'verified'/.test(text)) {
       statusRow = { status: 'verified' };
@@ -68,7 +68,7 @@ test('O9 repository: Discord claim true elevates to verified', async () => {
     if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK' || /LOCK TABLE/.test(text)) return { rows: [] };
     if (/FROM .*nexus_economic_identity_links WHERE/.test(text)) return { rows: [] };
     if (/INSERT INTO .*nexus_economic_identities/.test(text)) return { rows: [{ economic_identity_id: 'minted' }], rowCount: 1 };
-    if (/SELECT status FROM .*nexus_economic_identities/.test(text)) return { rows: [statusRow] };
+    if (/SELECT status, hold_reason/.test(text)) return { rows: [statusRow] };
     if (/INSERT INTO .*nexus_economic_identity_links/.test(text)) return { rows: [] };
     if (/UPDATE .*nexus_economic_identities SET status = 'verified'/.test(text)) {
       statusRow = { status: 'verified' };
@@ -99,7 +99,7 @@ test('O9 repository: already-verified re-link stays verified and never demotes',
       };
     }
     if (/INSERT INTO .*nexus_economic_identities/.test(text)) return { rows: [] };
-    if (/SELECT status FROM .*nexus_economic_identities/.test(text)) return { rows: [{ status: 'verified' }] };
+    if (/SELECT status, hold_reason/.test(text)) return { rows: [{ status: 'verified' }] };
     if (/INSERT INTO .*nexus_economic_identity_links/.test(text)) return { rows: [] };
     if (/UPDATE .*nexus_economic_identities SET status/.test(text)) {
       throw new Error('unexpected status UPDATE on verified re-link');
@@ -139,8 +139,43 @@ test('O9 repository: demoteVerifiedIdentityToRestricted demotes verified only', 
   assert.ok(calls.some((c) => /SET status = 'restricted'/.test(c.text || '')));
 });
 
-test('re-link preserves an existing restricted, quarantined, or disabled status', async () => {
-  for (const prior of ['restricted', 'disabled', 'quarantined']) {
+test('re-link elevates an unmarked restricted Shadow Recruit when Discord is verified', async () => {
+  let statusRow = { status: 'restricted', hold_reason: null };
+  const { pool, calls } = fakePool((text) => {
+    if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK' || /LOCK TABLE/.test(text)) return { rows: [] };
+    if (/FROM .*nexus_economic_identity_links WHERE/.test(text)) {
+      return {
+        rows: [
+          { provider: 'discord', external_id: discordUserId, economic_identity_id: 'econ_shadow', verified_at: null }
+        ]
+      };
+    }
+    if (/INSERT INTO .*nexus_economic_identities/.test(text)) return { rows: [], rowCount: 0 };
+    if (/SELECT status, hold_reason/.test(text)) return { rows: [statusRow] };
+    if (/INSERT INTO .*nexus_economic_identity_links/.test(text)) return { rows: [] };
+    if (/UPDATE .*nexus_economic_identities SET status = 'verified'/.test(text)) {
+      statusRow = { status: 'verified', hold_reason: null };
+      return { rows: [] };
+    }
+    return { rows: [] };
+  });
+  const repository = new NexusEconomyPostgresRuntimeRepository({ pool });
+  const result = await repository.linkVerifiedIdentity({
+    discordUserId, eosId, verifiedAt, discordMembershipVerified: true
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.status, 'verified');
+  assert.equal(result.reason, undefined);
+  assert.ok(calls.some((c) => /SET status = 'verified'/.test(c.text || '')));
+  assert.equal(calls.some((c) => c.text === 'ROLLBACK'), false);
+});
+
+test('re-link keeps a marked restricted, quarantined, or disabled identity held', async () => {
+  for (const prior of [
+    { status: 'restricted', hold_reason: 'o9-demote' },
+    { status: 'disabled', hold_reason: null },
+    { status: 'quarantined', hold_reason: null }
+  ]) {
     const updates = [];
     const { pool, calls } = fakePool((text) => {
       if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK' || /LOCK TABLE/.test(text)) return { rows: [] };
@@ -153,7 +188,7 @@ test('re-link preserves an existing restricted, quarantined, or disabled status'
         };
       }
       if (/INSERT INTO .*nexus_economic_identities/.test(text)) return { rows: [], rowCount: 0 };
-      if (/SELECT status FROM .*nexus_economic_identities/.test(text)) return { rows: [{ status: prior }] };
+      if (/SELECT status, hold_reason/.test(text)) return { rows: [prior] };
       if (/UPDATE .*nexus_economic_identities SET status/.test(text)) {
         updates.push(text);
         return { rows: [] };
@@ -165,14 +200,14 @@ test('re-link preserves an existing restricted, quarantined, or disabled status'
     const result = await repository.linkVerifiedIdentity({
       discordUserId, eosId, verifiedAt, discordMembershipVerified: true
     });
-    assert.equal(result.ok, false, prior);
+    assert.equal(result.ok, false, prior.status);
     assert.equal(result.reason, 'account-hold');
     assert.equal(result.message, MEMBER_HOLD_MESSAGE);
-    assert.equal(result.status, prior);
+    assert.equal(result.status, prior.status);
     assert.equal(result.economicIdentityId, 'econ_held');
-    assert.equal(updates.length, 0, prior);
-    assert.equal(calls.some((c) => c.text === 'ROLLBACK'), true, prior);
-    assert.equal(calls.some((c) => c.text === 'COMMIT'), false, prior);
-    assert.equal(calls.some((c) => /INSERT INTO .*nexus_economic_identity_links/.test(c.text || '')), false, prior);
+    assert.equal(updates.length, 0, prior.status);
+    assert.equal(calls.some((c) => c.text === 'ROLLBACK'), true, prior.status);
+    assert.equal(calls.some((c) => c.text === 'COMMIT'), false, prior.status);
+    assert.equal(calls.some((c) => /INSERT INTO .*nexus_economic_identity_links/.test(c.text || '')), false, prior.status);
   }
 });

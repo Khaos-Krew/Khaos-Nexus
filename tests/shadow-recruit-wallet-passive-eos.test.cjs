@@ -73,7 +73,7 @@ test('T1: rank shadow-recruit ensure mints restricted identity + discord link + 
       if (status == null) status = 'restricted';
       return { rows: [] };
     }
-    if (/SELECT status FROM .*nexus_economic_identities/.test(text)) return { rows: [{ status }] };
+    if (/SELECT status.*nexus_economic_identities/.test(text)) return { rows: [{ status }] };
     if (/INSERT INTO .*nexus_economic_identity_links/.test(text)) {
       discordLink = {
         economic_identity_id: params[1],
@@ -128,7 +128,7 @@ test('T2: repeat ensure is idempotent (no duplicate wallets / no ledger)', async
     if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK' || /LOCK TABLE/.test(text)) return { rows: [] };
     if (/FROM .*nexus_economic_identity_links WHERE provider = 'discord'/.test(text)) return { rows: [discordLink] };
     if (/INSERT INTO .*nexus_economic_identities/.test(text)) return { rows: [] };
-    if (/SELECT status FROM .*nexus_economic_identities/.test(text)) return { rows: [{ status }] };
+    if (/SELECT status.*nexus_economic_identities/.test(text)) return { rows: [{ status }] };
     if (/INSERT INTO .*nexus_economic_identity_links/.test(text)) return { rows: [] };
     if (/INSERT INTO .*nexus_economy_wallets/.test(text)) {
       walletInsertAttempts += 1;
@@ -156,7 +156,7 @@ test('T3: no EOS → #accruePassive returns credited:0 and does not advance curs
     if (/provider = 'discord'/.test(text) && /status = 'verified'/.test(text)) {
       return { rows: [{ economic_identity_id: 'econ_1', discord_user_id: DISCORD }] };
     }
-    if (/SELECT status FROM .*nexus_economic_identities/.test(text)) return { rows: [{ status: 'verified' }] };
+    if (/SELECT status.*nexus_economic_identities/.test(text)) return { rows: [{ status: 'verified' }] };
     if (/INSERT INTO .*nexus_economy_accrual_state/.test(text)) return { rows: [] };
     if (/SELECT \* FROM .*nexus_economy_accrual_state/.test(text)) {
       return {
@@ -201,7 +201,7 @@ test('T4: EOS linked → passive credit allowed when rate/cap permit', async () 
     if (/provider = 'discord'/.test(text) && /status = 'verified'/.test(text)) {
       return { rows: [{ economic_identity_id: 'econ_eos', discord_user_id: DISCORD }] };
     }
-    if (/SELECT status FROM .*nexus_economic_identities/.test(text)) return { rows: [{ status: 'verified' }] };
+    if (/SELECT status.*nexus_economic_identities/.test(text)) return { rows: [{ status: 'verified' }] };
     if (/INSERT INTO .*nexus_economy_accrual_state/.test(text)) return { rows: [] };
     if (/SELECT \* FROM .*nexus_economy_accrual_state/.test(text)) {
       return {
@@ -245,7 +245,7 @@ test('T5: status=disabled rejects ensure (no wallet open)', async () => {
       return { rows: [{ economic_identity_id: economicIdentityId, verified_at: null, source: 'x' }] };
     }
     if (/INSERT INTO .*nexus_economic_identities/.test(text)) return { rows: [] };
-    if (/SELECT status FROM .*nexus_economic_identities/.test(text)) return { rows: [{ status: 'disabled' }] };
+    if (/SELECT status.*nexus_economic_identities/.test(text)) return { rows: [{ status: 'disabled' }] };
     if (/INSERT INTO .*nexus_economy_wallets/.test(text)) throw new Error('unexpected wallet insert for disabled');
     return { rows: [] };
   });
@@ -352,7 +352,7 @@ test('T8: higher rank (>= shadow-recruit) still ensures wallet', async () => {
       status = 'restricted';
       return { rows: [] };
     }
-    if (/SELECT status FROM .*nexus_economic_identities/.test(text)) return { rows: [{ status }] };
+    if (/SELECT status.*nexus_economic_identities/.test(text)) return { rows: [{ status }] };
     if (/INSERT INTO .*nexus_economic_identity_links/.test(text)) return { rows: [] };
     if (/INSERT INTO .*nexus_economy_wallets/.test(text)) {
       wallets.add(params[1]);

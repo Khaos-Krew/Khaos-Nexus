@@ -185,6 +185,7 @@ class NexusEconomyClient {
   shopOrder(orderId) { return request(`/shop/order/${encodeURIComponent(String(orderId))}`); }
   pendingShopOrders() { return request('/shop/orders/pending'); }
   confirmShopSellRemoval(input) { return request('/shop/sell/confirm-removal', { method: 'POST', body: input }); }
+  sweepCreditFailedSells() { return request('/shop/sell/sweep-credit-failed', { method: 'POST', body: {} }); }
   markShopBuyDelivery(input) { return request('/shop/buy/delivery-status', { method: 'POST', body: input }); }
 
   mcShopCatalog() { return request('/mc-shop/catalog'); }

@@ -70,6 +70,7 @@ class NexusEconomyPostgresShopService {
       if (linked) {
         const hold = memberIdentityHold({
           status: linked.status,
+          holdReason: linked.hold_reason ?? linked.holdReason,
           economicIdentityId: linked.economic_identity_id ?? linked.economicIdentityId,
           env: this.wallet.env || process.env
         });

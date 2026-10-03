@@ -127,6 +127,7 @@ test('held member sell-back removes nothing and does not complete', async () => 
   const { economy, shop } = fixture();
   const state = economy.store.read();
   state.accounts['111'].status = 'restricted';
+  state.accounts['111'].holdReason = 'staff';
   economy.store.write(state);
   const created = await shop.createSellOrder({
     discordUserId: '111',

@@ -18,18 +18,38 @@ function quarantineDenylist(env = process.env) {
   );
 }
 
-function memberIdentityHold({ status, economicIdentityId, missingRow = false, env = process.env } = {}) {
+// A hold is disabled, the quarantined literal, the quarantine denylist, a missing row,
+// or any non-empty hold marker (staff, denylist, O9 demote). An unmarked restricted row
+// is a Shadow Recruit pending verification: it is not shown the hold message.
+function memberIdentityHold({ status, holdReason, economicIdentityId, missingRow = false, env = process.env } = {}) {
   const normalized = String(status || '').trim().toLowerCase();
+  const marker = String(holdReason || '').trim();
   const denylisted = quarantineDenylist(env).has(String(economicIdentityId || '').trim());
-  const statusBlocked = BLOCKED_MEMBER_STATUSES.includes(normalized);
-  // A missing identity row fails closed. The denylist still wins its own reason.
-  if (!statusBlocked && !denylisted && !missingRow) return null;
+  const markedRestricted = normalized === 'restricted' && Boolean(marker);
+  const blockedStatus = normalized === 'disabled' || normalized === 'quarantined' || markedRestricted;
+  if (!blockedStatus && !denylisted && !missingRow && !marker) return null;
   return {
     ok: false,
-    reason: denylisted && !statusBlocked ? 'quarantined' : 'account-hold',
+    reason: denylisted && !blockedStatus && !marker ? 'quarantined' : 'account-hold',
     message: MEMBER_HOLD_MESSAGE,
     credited: 0
   };
+}
+
+// Linking may elevate an unmarked restricted row. A marker, disabled, quarantined,
+// denylist, or missing row stays held and is not elevated.
+function linkElevationHold({ status, holdReason, economicIdentityId, missingRow = false, env = process.env } = {}) {
+  const normalized = String(status || '').trim().toLowerCase();
+  const marker = String(holdReason || '').trim();
+  const denylisted = quarantineDenylist(env).has(String(economicIdentityId || '').trim());
+  const durable = Boolean(missingRow)
+    || normalized === 'disabled'
+    || normalized === 'quarantined'
+    || Boolean(marker)
+    || denylisted;
+  if (!durable) return null;
+  return memberIdentityHold({ status: normalized, holdReason: marker, economicIdentityId, missingRow, env })
+    || { ok: false, reason: 'account-hold', message: MEMBER_HOLD_MESSAGE, credited: 0 };
 }
 
 function memberHoldFromError(error) {
@@ -46,5 +66,6 @@ module.exports = {
   MEMBER_HOLD_MESSAGE,
   quarantineDenylist,
   memberIdentityHold,
+  linkElevationHold,
   memberHoldFromError
 };

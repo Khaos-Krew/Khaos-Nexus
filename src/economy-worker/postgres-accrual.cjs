@@ -8,7 +8,7 @@ const { normalizeUuid } = require('../craft/mc-rcon-text.cjs');
 const { otherPresenceOnline, planMinecraftContribution, minecraftServerName, countsForSharedOnline } = require('./mc-playtime-accounting.cjs');
 const { bumpMcMetric } = require('./mc-points-service.cjs');
 const { ensureMinecraftSchema } = require('./mc-points-postgres.cjs');
-const { BLOCKED_MEMBER_STATUSES, memberIdentityHold } = require('../sentinel/nexus-economy-identity-hold.cjs');
+const { memberIdentityHold } = require('../sentinel/nexus-economy-identity-hold.cjs');
 
 const ONLINE_INTERVAL_MS = 5 * 60_000;
 const MAX_ACCOUNTING_GAP_MS = ONLINE_INTERVAL_MS * 2;
@@ -158,12 +158,13 @@ class PostgresEconomyAccrual {
 
   async #lockedMemberHold(client, economicIdentityId) {
     const result = await client.query(
-      `SELECT status FROM ${this.schema}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
+      `SELECT status, hold_reason FROM ${this.schema}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
       [economicIdentityId]
     );
     const row = result.rows?.[0];
     return memberIdentityHold({
       status: row?.status,
+      holdReason: row?.hold_reason,
       missingRow: !row,
       economicIdentityId,
       env: this.env
@@ -171,7 +172,9 @@ class PostgresEconomyAccrual {
   }
 
   async #resolveHeldIdentity(client, { kind, eosId, mcUuid, discordUserId } = {}) {
-    const statuses = [...BLOCKED_MEMBER_STATUSES];
+    // Unmarked restricted is pending verification, not a hold. Only a hold marker counts.
+    const statuses = ['disabled', 'quarantined'];
+    const heldPredicate = `(i.status = ANY($2::text[]) OR (i.status = 'restricted' AND NULLIF(btrim(COALESCE(i.hold_reason, '')), '') IS NOT NULL))`;
     if (kind === 'eos') {
       const eos = cleanExternalId(eosId, 'EOS ID');
       const result = await client.query(
@@ -181,7 +184,7 @@ class PostgresEconomyAccrual {
         `JOIN ${this.schema}.nexus_economic_identity_links d ON d.economic_identity_id = i.economic_identity_id ` +
         `WHERE e.provider = 'eos' AND e.external_id = $1 AND e.verified_at IS NOT NULL ` +
         `AND d.provider = 'discord' AND d.verified_at IS NOT NULL ` +
-        `AND i.status = ANY($2::text[]) LIMIT 1`,
+        `AND ${heldPredicate} LIMIT 1`,
         [eos, statuses]
       );
       return result.rows?.[0] || null;
@@ -196,7 +199,7 @@ class PostgresEconomyAccrual {
         `JOIN ${this.schema}.nexus_economic_identity_links d ON d.economic_identity_id = i.economic_identity_id ` +
         `WHERE m.provider = 'minecraft' AND m.external_id = $1 AND m.verified_at IS NOT NULL ` +
         `AND d.provider = 'discord' AND d.verified_at IS NOT NULL ` +
-        `AND i.status = ANY($2::text[]) LIMIT 1`,
+        `AND ${heldPredicate} LIMIT 1`,
         [uuid, statuses]
       );
       return result.rows?.[0] || null;
@@ -207,7 +210,7 @@ class PostgresEconomyAccrual {
       `FROM ${this.schema}.nexus_economic_identity_links d ` +
       `JOIN ${this.schema}.nexus_economic_identities i ON i.economic_identity_id = d.economic_identity_id ` +
       `WHERE d.provider = 'discord' AND d.external_id = $1 AND d.verified_at IS NOT NULL ` +
-      `AND i.status = ANY($2::text[]) LIMIT 1`,
+      `AND ${heldPredicate} LIMIT 1`,
       [discord, statuses]
     );
     return result.rows?.[0] || null;
