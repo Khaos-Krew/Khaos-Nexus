@@ -1,0 +1,16 @@
+{
+  "vanguard-panel-banner.png": {
+    "sha256": "0b75ecd2430610caa0e43840d9ee667b6b425c50f762c754b4249a7fb4fdc600",
+    "bytes": 771713,
+    "width": 1200,
+    "height": 400,
+    "mode": "RGB"
+  },
+  "icon-vanguard.png": {
+    "sha256": "ed87db7748c5a361a8469e1ac1dfade5669ae4d1ddc9be5945e9ba55ee81f0ac",
+    "bytes": 202159,
+    "width": 512,
+    "height": 512,
+    "mode": "RGB"
+  }
+}

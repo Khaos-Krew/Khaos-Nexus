@@ -8,7 +8,7 @@ const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const { ChannelType, Events, OverwriteType, PermissionFlagsBits } = require('discord.js');
 const { ensureVanguardChannels, installVanguard } = require('../../src/game-bots/vanguard/entry.cjs');
-const { provisionChannels, runSetup } = require('../../src/game-bots/vanguard/commands/setup.cjs');
+const { MEMBER_ROLE_WARNING, missingMemberRoleWarning, channelAccessOverwrites, provisionChannels, runSetup } = require('../../src/game-bots/vanguard/commands/setup.cjs');
 
 const CATEGORY = '1516640233389822042';
 const OUTSIDE = '1516602943670059108';
@@ -153,6 +153,7 @@ test('staff-alerts are private and panels are read-only, including channels that
   const panelEdit = edits.find((row) => row.channel === 'panels' && row.id === GUILD);
   assert.equal(panelEdit.perms.SendMessages, false);
   assert.equal(panelEdit.perms.ViewChannel, true);
+  assert.match(first.warnings.join('\n'), /Destiny 2 role was not found/);
   const staffEveryone = edits.find((row) => row.channel === 'staff-alerts' && row.id === GUILD);
   assert.equal(staffEveryone.perms.ViewChannel, false);
   const staffRole = edits.find((row) => row.channel === 'staff-alerts' && row.id === STAFF_ROLE);
@@ -181,6 +182,349 @@ test('staff-alerts are private and panels are read-only, including channels that
   });
   assert.ok(pinned.pinned.includes('staff-alerts'));
   assert.ok(edits.length > pinnedEdits);
+});
+
+test('panels lock to Destiny 2 when that role exists and stay visible when it does not', async () => {
+  const STAFF_ROLE = '1516640233389822777';
+  const BOT = '111111111111111111';
+  const MEMBER = '1516640233389822666';
+  const ENV_ROLE = '1516640233389822555';
+  const locked = channelAccessOverwrites('panels', {
+    everyoneId: GUILD,
+    botId: BOT,
+    staffRoleIds: [STAFF_ROLE],
+    memberRoleId: MEMBER
+  });
+  const everyone = locked.find((row) => row.id === GUILD);
+  assert.deepEqual(everyone.deny, ['ViewChannel', 'SendMessages']);
+  assert.deepEqual(everyone.clear, ['ReadMessageHistory']);
+  assert.equal(everyone.allow, undefined);
+  const member = locked.find((row) => row.id === MEMBER);
+  assert.deepEqual(member.allow, ['ViewChannel', 'ReadMessageHistory']);
+  assert.deepEqual(member.deny, ['SendMessages', 'AddReactions', 'CreatePublicThreads']);
+  const staff = locked.find((row) => row.id === STAFF_ROLE);
+  assert.deepEqual(staff.allow, ['ViewChannel', 'ReadMessageHistory']);
+  const bot = locked.find((row) => row.id === BOT);
+  assert.ok(bot.allow.includes('AttachFiles'));
+  assert.ok(bot.allow.includes('ViewChannel'));
+  assert.deepEqual(locked.map((row) => row.id), [MEMBER, STAFF_ROLE, BOT, GUILD]);
+  const open = channelAccessOverwrites('panels', { everyoneId: GUILD, botId: BOT, staffRoleIds: [STAFF_ROLE] });
+  assert.equal(open.find((row) => row.id === GUILD).deny.includes('ViewChannel'), false);
+  assert.equal(open.find((row) => row.id === GUILD).allow.includes('ViewChannel'), true);
+
+  const edits = [];
+  const alerts = [];
+  function track(channel) {
+    channel.permissionOverwrites = {
+      edit: async (id, perms) => { edits.push({ channel: channel.name, id, perms }); }
+    };
+    return channel;
+  }
+  const panels = track({ id: '1516640233389822888', name: 'panels', parentId: CATEGORY, type: ChannelType.GuildText });
+  const guild = {
+    id: GUILD,
+    roles: {
+      everyone: { id: GUILD },
+      cache: new Map([
+        [MEMBER, { id: MEMBER, name: 'DESTINY 2' }],
+        ['1516640233389822444', { id: '1516640233389822444', name: 'Destiny 2 Veterans' }]
+      ])
+    },
+    channels: {
+      fetch: async () => ({ values: () => [panels].values() }),
+      create: async (options) => track({
+        id: IDS[0],
+        name: options.name,
+        parentId: options.parent,
+        type: options.type,
+        createdOverwrites: options.permissionOverwrites || null
+      })
+    }
+  };
+  const named = await provisionChannels({
+    guild,
+    env: { VANGUARD_STAFF_ROLE_IDS: STAFF_ROLE },
+    categoryId: CATEGORY,
+    saved: {
+      lfg: '1516640233389822101',
+      fireteamFinder: '1516640233389822102',
+      panels: panels.id,
+      staffAlerts: '1516640233389822103',
+      jtcLobby: '1516640233389822104'
+    },
+    botId: BOT,
+    alert: async (text) => { alerts.push(text); }
+  });
+  assert.equal(named.warnings.length, 0);
+  assert.equal(alerts.length, 0);
+  const deny = edits.find((row) => row.channel === 'panels' && row.id === GUILD);
+  assert.equal(deny.perms.ViewChannel, false);
+  assert.equal(deny.perms.SendMessages, false);
+  assert.equal(deny.perms.ReadMessageHistory, null);
+  const memberEdit = edits.find((row) => row.channel === 'panels' && row.id === MEMBER);
+  assert.equal(memberEdit.perms.ViewChannel, true);
+  assert.equal(memberEdit.perms.ReadMessageHistory, true);
+  assert.equal(memberEdit.perms.SendMessages, false);
+  assert.equal(memberEdit.perms.AddReactions, false);
+  assert.equal(memberEdit.perms.CreatePublicThreads, false);
+  const staffEdit = edits.find((row) => row.channel === 'panels' && row.id === STAFF_ROLE);
+  assert.equal(staffEdit.perms.ViewChannel, true);
+  assert.equal(staffEdit.perms.ReadMessageHistory, true);
+  const botEdit = edits.find((row) => row.channel === 'panels' && row.id === BOT);
+  assert.equal(botEdit.perms.AttachFiles, true);
+  assert.equal(botEdit.perms.SendMessages, true);
+
+  edits.length = 0;
+  const envGuild = {
+    ...guild,
+    roles: {
+      everyone: { id: GUILD },
+      cache: new Map([
+        [MEMBER, { id: MEMBER, name: 'DESTINY 2' }],
+        [ENV_ROLE, { id: ENV_ROLE, name: 'D2 Members' }]
+      ])
+    }
+  };
+  const fromEnv = await provisionChannels({
+    guild: envGuild,
+    env: { VANGUARD_STAFF_ROLE_IDS: STAFF_ROLE, VANGUARD_MEMBER_ROLE_ID: ENV_ROLE },
+    categoryId: CATEGORY,
+    saved: named.resolved,
+    botId: BOT
+  });
+  assert.equal(fromEnv.warnings.length, 0);
+  assert.equal(edits.some((row) => row.channel === 'panels' && row.id === ENV_ROLE && row.perms.ViewChannel === true), true);
+  assert.equal(edits.some((row) => row.channel === 'panels' && row.id === MEMBER), false);
+  const envPanelIds = edits.filter((row) => row.channel === 'panels').map((row) => row.id);
+  assert.deepEqual(envPanelIds, [ENV_ROLE, STAFF_ROLE, BOT, GUILD]);
+
+  const missingAlerts = [];
+  const missing = await provisionChannels({
+    guild: { ...guild, roles: { everyone: { id: GUILD }, cache: new Map() } },
+    env: { VANGUARD_STAFF_ROLE_IDS: STAFF_ROLE },
+    categoryId: CATEGORY,
+    saved: named.resolved,
+    botId: BOT,
+    alert: async (text) => { missingAlerts.push(text); }
+  });
+  assert.deepEqual(missing.warnings, [MEMBER_ROLE_WARNING]);
+  assert.match(missingAlerts.join('\n'), /Destiny 2 role was not found/);
+  const kept = edits.filter((row) => row.channel === 'panels' && row.id === GUILD).at(-1);
+  assert.equal(kept.perms.ViewChannel, true);
+  assert.equal(kept.perms.SendMessages, false);
+});
+
+test('a stale member role id does not hide #panels', async () => {
+  const STALE = '1516640233389822999';
+  const MEMBER = '1516640233389822666';
+  const BOT = '111111111111111111';
+  const STAFF_ROLE = '1516640233389822777';
+  const edits = [];
+  const alerts = [];
+  const panels = {
+    id: '1516640233389822888',
+    name: 'panels',
+    parentId: CATEGORY,
+    type: ChannelType.GuildText,
+    permissionOverwrites: {
+      edit: async (id, perms) => { edits.push({ id, perms }); }
+    }
+  };
+  const guild = {
+    id: GUILD,
+    roles: {
+      everyone: { id: GUILD },
+      cache: new Map([[MEMBER, { id: MEMBER, name: 'Destiny 2' }]]),
+      fetch: async () => { throw Object.assign(new Error('Unknown Role'), { code: 10011 }); }
+    },
+    channels: {
+      fetch: async () => ({ values: () => [panels].values() }),
+      create: async (options) => ({
+        id: '1516640233389822109',
+        name: options.name,
+        parentId: options.parent,
+        type: options.type,
+        permissionOverwrites: { edit: async () => {} }
+      })
+    }
+  };
+  const result = await provisionChannels({
+    guild,
+    env: { VANGUARD_STAFF_ROLE_IDS: STAFF_ROLE, VANGUARD_MEMBER_ROLE_ID: STALE },
+    categoryId: CATEGORY,
+    saved: {
+      lfg: '1516640233389822101',
+      fireteamFinder: '1516640233389822102',
+      panels: panels.id,
+      staffAlerts: '1516640233389822103',
+      jtcLobby: '1516640233389822104'
+    },
+    botId: BOT,
+    alert: async (text) => { alerts.push(text); }
+  });
+  assert.deepEqual(result.warnings, [missingMemberRoleWarning(STALE)]);
+  assert.match(alerts.join('\n'), new RegExp(STALE));
+  assert.equal(edits.some((row) => row.id === STALE), false);
+  assert.equal(edits.some((row) => row.id === MEMBER), false);
+  const everyone = edits.find((row) => row.id === GUILD);
+  assert.equal(everyone.perms.ViewChannel, true);
+  assert.equal(everyone.perms.SendMessages, false);
+  assert.equal(result.failed.length, 0);
+});
+
+test('the guild id and managed bot roles are not the Destiny 2 role', async () => {
+  const MEMBER = '1516640233389822666';
+  const BOT = '111111111111111111';
+  const BOT_ROLE = '1516640233389822444';
+  const STAFF_ROLE = '1516640233389822777';
+  const panels = {
+    id: '1516640233389822888',
+    name: 'panels',
+    parentId: CATEGORY,
+    type: ChannelType.GuildText,
+    permissionOverwrites: { edit: async (id, perms) => { edits.push({ id, perms }); } }
+  };
+  const edits = [];
+  const alerts = [];
+  function guildWith(roles) {
+    return {
+      id: GUILD,
+      roles: {
+        everyone: { id: GUILD },
+        cache: new Map(roles.map((role) => [role.id, role]))
+      },
+      channels: {
+        fetch: async () => ({ values: () => [panels].values() }),
+        create: async (options) => ({
+          id: '1516640233389822109',
+          name: options.name,
+          parentId: options.parent,
+          type: options.type,
+          permissionOverwrites: { edit: async () => {} }
+        })
+      }
+    };
+  }
+  const saved = {
+    lfg: '1516640233389822101',
+    fireteamFinder: '1516640233389822102',
+    panels: panels.id,
+    staffAlerts: '1516640233389822103',
+    jtcLobby: '1516640233389822104'
+  };
+  async function run(roles, env) {
+    edits.length = 0;
+    alerts.length = 0;
+    return provisionChannels({
+      guild: guildWith(roles),
+      env: { VANGUARD_STAFF_ROLE_IDS: STAFF_ROLE, ...env },
+      categoryId: CATEGORY,
+      saved,
+      botId: BOT,
+      alert: async (text) => { alerts.push(text); }
+    });
+  }
+  function stayedOpen() {
+    const everyone = edits.filter((row) => row.id === GUILD);
+    assert.equal(everyone.some((row) => row.perms.ViewChannel === false), false);
+    assert.equal(everyone.at(-1).perms.ViewChannel, true);
+    assert.equal(edits.some((row) => row.perms.AddReactions === false), false);
+  }
+
+  const everyoneRole = await run([
+    { id: GUILD, name: '@everyone' },
+    { id: MEMBER, name: 'Destiny 2' }
+  ], { VANGUARD_MEMBER_ROLE_ID: GUILD });
+  assert.deepEqual(everyoneRole.warnings, [missingMemberRoleWarning(GUILD)]);
+  assert.match(alerts.join('\n'), new RegExp(GUILD));
+  assert.equal(edits.some((row) => row.id === MEMBER), false);
+  stayedOpen();
+
+  const botRole = await run([
+    { id: BOT_ROLE, name: 'Nexus Vanguard', managed: true, tags: { botId: BOT } },
+    { id: MEMBER, name: 'Destiny 2' }
+  ], { VANGUARD_MEMBER_ROLE_ID: BOT_ROLE });
+  assert.deepEqual(botRole.warnings, [missingMemberRoleWarning(BOT_ROLE)]);
+  assert.equal(edits.some((row) => row.id === BOT_ROLE && row.perms.AddReactions === false), false);
+  assert.equal(edits.some((row) => row.id === MEMBER), false);
+  stayedOpen();
+
+  const namedBot = await run([
+    { id: BOT_ROLE, name: 'Destiny 2', managed: true }
+  ], {});
+  assert.deepEqual(namedBot.warnings, [MEMBER_ROLE_WARNING]);
+  assert.equal(edits.some((row) => row.id === BOT_ROLE), false);
+  stayedOpen();
+});
+
+test('a mid-loop panels overwrite failure rolls visibility back', async () => {
+  const MEMBER = '1516640233389822666';
+  const BOT = '111111111111111111';
+  const STAFF_ROLE = '1516640233389822777';
+  const edits = [];
+  const alerts = [];
+  const panels = {
+    id: '1516640233389822888',
+    name: 'panels',
+    parentId: CATEGORY,
+    type: ChannelType.GuildText,
+    permissionOverwrites: {
+      edit: async (id, perms) => {
+        edits.push({ id, perms });
+        if (id === STAFF_ROLE) throw Object.assign(new Error('Missing Permissions'), { code: 50013 });
+        if (id === GUILD && perms.ViewChannel === false) throw Object.assign(new Error('Unknown Role'), { code: 10011 });
+      }
+    }
+  };
+  const guild = {
+    id: GUILD,
+    roles: {
+      everyone: { id: GUILD },
+      cache: new Map([[MEMBER, { id: MEMBER, name: 'Destiny 2' }]])
+    },
+    channels: {
+      fetch: async () => ({ values: () => [panels].values() }),
+      create: async () => { throw new Error('should reuse'); }
+    }
+  };
+  const saved = {
+    lfg: '1516640233389822101',
+    fireteamFinder: '1516640233389822102',
+    panels: panels.id,
+    staffAlerts: '1516640233389822103',
+    jtcLobby: '1516640233389822104'
+  };
+  const stopped = await provisionChannels({
+    guild,
+    env: { VANGUARD_STAFF_ROLE_IDS: STAFF_ROLE },
+    categoryId: CATEGORY,
+    saved,
+    botId: BOT,
+    alert: async (text) => { alerts.push(text); }
+  });
+  assert.ok(stopped.failed.includes('panels'));
+  assert.equal(edits.some((row) => row.id === MEMBER && row.perms.ViewChannel === true), true);
+  assert.equal(edits.some((row) => row.id === GUILD && row.perms.ViewChannel === false), false);
+  assert.equal(edits.filter((row) => row.id === GUILD).at(-1).perms.ViewChannel, true);
+  assert.match(alerts.join('\n'), /Permission update failed on panels/);
+
+  edits.length = 0;
+  panels.permissionOverwrites.edit = async (id, perms) => {
+    edits.push({ id, perms });
+    if (id === GUILD && perms.ViewChannel === false) throw Object.assign(new Error('Unknown Role'), { code: 10011 });
+  };
+  const denied = await provisionChannels({
+    guild,
+    env: { VANGUARD_STAFF_ROLE_IDS: STAFF_ROLE },
+    categoryId: CATEGORY,
+    saved,
+    botId: BOT,
+    alert: async () => {}
+  });
+  assert.ok(denied.failed.includes('panels'));
+  assert.equal(edits.some((row) => row.id === GUILD && row.perms.ViewChannel === false), true);
+  assert.equal(edits.filter((row) => row.id === GUILD).at(-1).perms.ViewChannel, true);
+  assert.equal(edits.filter((row) => row.id === GUILD).at(-1).perms.SendMessages, false);
 });
 
 test('env-pinned channels outside the category are not rewritten', async () => {

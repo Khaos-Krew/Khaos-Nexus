@@ -78,10 +78,20 @@ test('clan summary omits weekly rewards and roster pages past 50', async () => {
     admins: [{ name: 'Ada#0007', memberType: 5, founder: true }, { name: 'Bee#0002', memberType: 3, founder: false }]
   });
   assert.match(embed.title, /KHAOS NEXUS/);
+  assert.doesNotMatch(embed.title, /Vanguard •/);
   assert.match(embed.description, /Members: 51/);
-  assert.match(embed.description, /Founder: Ada#0007/);
-  assert.match(embed.description, /Admin — Bee#0002/);
+  assert.doesNotMatch(embed.description, /Online:/);
+  const unnamed = renderClanSummary({ summary: { memberCount: 3 } });
+  assert.match(unnamed.title, /KHAOS NEXUS/);
+  assert.match(unnamed.description, /^Join:$/m);
+  assert.equal((unnamed.description.match(/^Join:/gm) || []).length, 1);
+  assert.doesNotMatch(unnamed.description, /ask a clan admin|Online:/);
+  const unnamedRoster = renderRoster({ summary: {}, roster: { members: [], total: 0 }, page: 1 });
+  assert.match(unnamedRoster.title, /KHAOS NEXUS/);
+  assert.match(embed.description, /groupId=5453042/);
+  assert.match(embed.description, /-# Not affiliated with or endorsed by Bungie/);
   assert.doesNotMatch(embed.description, /reward|redeemed/i);
+  assert.ok(embed.description.split('\n').length <= 4);
   const page = normalizeRoster({
     Response: { results: [member(50)], totalResults: 51, hasMore: false, query: { currentPage: 2, itemsPerPage: 50 } }
   }, 2);
@@ -251,7 +261,10 @@ test('roster is staff-only and can request a later page', async () => {
   }, { bungie: runtime, env });
   assert.equal(outside[0].flags, MessageFlags.Ephemeral);
   assert.match(outside[1].embeds[0].description, /KHAOS NEXUS/);
-  assert.match(outside[1].embeds[0].footer.text, /Not affiliated with or endorsed by Bungie/);
+  assert.match(outside[1].embeds[0].description, /-# Not affiliated with or endorsed by Bungie/);
+  assert.equal(outside[1].embeds[0].footer.text, 'Many Worlds One Nexus • clan');
+  assert.equal(outside[1].embeds[0].thumbnail.url, 'attachment://icon-vanguard.png');
+  assert.equal(outside[1].embeds[0].image, undefined);
   const choices = [];
   await handleClanAutocomplete({
     options: { getFocused: () => ({ name: 'clan', value: '' }) },
