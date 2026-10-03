@@ -332,7 +332,7 @@ test('duplicate humans are held on both sides and a denylist failure writes noth
     const blocked = await execute({
       pool,
       schema: opened.schema,
-      env: opened.env,
+      env: { ...opened.env, NEXUS_LEGACY_BANK_FLAT_APPROVED_HASH: preview.hash },
       operator: 'warden-test',
       approvalRef: 'test-approval',
       approvedCount: preview.eligibleCount,

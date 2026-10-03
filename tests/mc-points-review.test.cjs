@@ -16,7 +16,7 @@ const { parseGiveResponse } = require('../src/craft/mc-rcon-text.cjs');
 const { verifyIdentityProof } = require('../src/sentinel/nexus-economy-identity-proof.cjs');
 const { isMinecraftShopOrder } = require('../src/economy-worker/mc-points-service.cjs');
 const { mcEarnEligible, mcPlaytimeEligible, UNLINK_COOLDOWN_MS, OFFLINE_BACKOFF_MS, leaseMsForOrder } = require('../src/economy-worker/mc-points-service.cjs');
-const { writeVerifiedMinecraftLink, PostgresMcPoints } = require('../src/economy-worker/mc-points-postgres.cjs');
+const { writeVerifiedMinecraftLink, PostgresMcPoints, MC_SCHEMA_VERSION } = require('../src/economy-worker/mc-points-postgres.cjs');
 const { catalogFingerprint, loadMcShopCatalog } = require('../src/shared/mc-shop-catalog.cjs');
 const { deliverMcOrder, runMcDeliveryCycle } = require('../src/craft/mc-delivery.cjs');
 
@@ -1011,7 +1011,7 @@ test('quote loads the link table and skips the other minecraft tables', async ()
     pool: {
       async query(sql) {
         queries.push(String(sql));
-        if (String(sql).includes('nexus_mc_schema_version') && String(sql).includes('SELECT')) return { rows: [{ version: 1 }] };
+        if (String(sql).includes('nexus_mc_schema_version') && String(sql).includes('SELECT')) return { rows: [{ version: MC_SCHEMA_VERSION }] };
         if (String(sql).includes('nexus_economic_identities')) {
           return { rows: [{ economic_identity_id: 'econ_1', status: 'verified', verified_at: '2026-01-01T00:00:00.000Z' }] };
         }
