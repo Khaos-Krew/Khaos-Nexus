@@ -9,8 +9,10 @@
 //   node scripts/identity-hold.cjs preview
 //   node scripts/identity-hold.cjs --dry-run
 //
-// preview / --dry-run only counts restricted rows the legacy-review backfill would mark.
-// It does not take the migration lock and does not write.
+// preview / --dry-run counts restricted rows the legacy-review backfill would mark.
+// list shows current holds. Neither runs schema setup. Both are read-only, including
+// on a database that does not have hold_reason yet (those rows count as unmarked).
+// Only place and lift run runtime schema setup.
 
 const { Pool } = require('pg');
 const { NexusEconomyPostgresRuntimeRepository } = require('../src/sentinel/nexus-economy-postgres-runtime-repository.cjs');
@@ -68,7 +70,7 @@ async function main() {
   const pool = new Pool({ connectionString: databaseUrl(), max: 2, idleTimeoutMillis: 10000, connectionTimeoutMillis: 10000 });
   const repository = new NexusEconomyPostgresRuntimeRepository({ pool, schema: schemaName(), env: process.env });
   try {
-    if (!preview) {
+    if (command === 'place' || command === 'lift') {
       await pool.query(NexusEconomyPostgresRuntimeRepository.runtimeSchemaSql({ schema: schemaName() }));
       await new PostgresEconomyAccrual({ pool, schema: schemaName(), env: process.env }).ensureSchema();
     }

@@ -466,3 +466,110 @@ test('real Postgres identity-hold script places, lists, audits, checkpoints, and
     await admin.end();
   }
 });
+
+test('dry-run and list stay read-only on a pre-migration schema with no hold_reason column', { skip: !process.env.NEXUS_TEST_POSTGRES_URL }, async () => {
+  const url = process.env.NEXUS_TEST_POSTGRES_URL;
+  assert.ok(['127.0.0.1', 'localhost', '::1', '[::1]'].includes(new URL(url).hostname), 'integration database must be local');
+  const schema = `pre_${crypto.randomBytes(8).toString('hex')}`;
+  const admin = new Pool({ connectionString: url });
+  const legacyId = 'econ_legacy_064c274f0fbe961a05cd66263ed214b3';
+  const levelId = 'econ_shadow_level_coins';
+  const env = { NEXUS_ECONOMY_DATABASE_URL: url, NEXUS_ECONOMY_SCHEMA: schema };
+  try {
+    await admin.query(`CREATE SCHEMA "${schema}"`);
+    await admin.query(`
+      CREATE TABLE "${schema}".nexus_economic_identities (
+        economic_identity_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL CHECK (status IN ('verified','restricted','disabled')),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE TABLE "${schema}".nexus_economic_identity_links (
+        provider TEXT NOT NULL,
+        external_id TEXT NOT NULL,
+        economic_identity_id TEXT NOT NULL REFERENCES "${schema}".nexus_economic_identities(economic_identity_id),
+        verified_at TIMESTAMPTZ,
+        source TEXT NOT NULL,
+        PRIMARY KEY (provider, external_id)
+      );
+      CREATE TABLE "${schema}".nexus_economy_wallets (
+        economic_identity_id TEXT NOT NULL REFERENCES "${schema}".nexus_economic_identities(economic_identity_id),
+        currency TEXT NOT NULL CHECK (currency IN ('NEXUS_COINS','NEXUS_POINTS','DINO_CACHE_TOKENS')),
+        balance BIGINT NOT NULL DEFAULT 0 CHECK (balance >= 0),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (economic_identity_id, currency)
+      );
+      CREATE TABLE "${schema}".nexus_economy_ledger (
+        id BIGSERIAL PRIMARY KEY,
+        economic_identity_id TEXT NOT NULL,
+        currency TEXT NOT NULL CHECK (currency IN ('NEXUS_COINS','NEXUS_POINTS','DINO_CACHE_TOKENS')),
+        amount BIGINT NOT NULL CHECK (amount <> 0),
+        balance_after BIGINT NOT NULL CHECK (balance_after >= 0),
+        entry_type TEXT NOT NULL,
+        source TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        FOREIGN KEY (economic_identity_id, currency) REFERENCES "${schema}".nexus_economy_wallets(economic_identity_id, currency)
+      );
+    `);
+    await admin.query(
+      `INSERT INTO "${schema}".nexus_economic_identities (economic_identity_id, status) VALUES ($1, 'restricted'), ($2, 'restricted')`,
+      [legacyId, levelId]
+    );
+    await admin.query(
+      `INSERT INTO "${schema}".nexus_economic_identity_links (provider, external_id, economic_identity_id, verified_at, source)
+       VALUES ('eos', '0002a40e00000001', $1, NOW(), 'legacy-economy-json')`,
+      [legacyId]
+    );
+    await admin.query(
+      `INSERT INTO "${schema}".nexus_economy_wallets (economic_identity_id, currency, balance) VALUES
+        ($1, 'NEXUS_POINTS', 147), ($1, 'NEXUS_COINS', 0),
+        ($2, 'NEXUS_COINS', 25), ($2, 'NEXUS_POINTS', 0)`,
+      [legacyId, levelId]
+    );
+    await admin.query(
+      `INSERT INTO "${schema}".nexus_economy_ledger
+        (economic_identity_id, currency, amount, balance_after, entry_type, source, idempotency_key)
+       VALUES
+        ($1, 'NEXUS_POINTS', 147, 147, 'credit', 'legacy-economy-json', $3),
+        ($2, 'NEXUS_COINS', 25, 25, 'credit', 'community-level-up', $4)`,
+      [legacyId, levelId, `legacy:${legacyId}`, `level:${levelId}`]
+    );
+
+    const dry = runIdentityHold(['--dry-run'], env);
+    assert.equal(dry.status, 0, `${dry.stderr}\n${dry.stdout}`);
+    assert.equal(dry.json.dryRun, true);
+    assert.equal(dry.json.readOnly, true);
+    assert.equal(dry.json.holdReasonColumn, false);
+    assert.equal(dry.json.wouldMark, 1);
+    assert.equal(dry.json.byReason.verifiedEosOrMinecraftLink, 1);
+    assert.equal(dry.json.byReason.npOrCacheTokenLedger, 1);
+    assert.equal(dry.json.byReason.nonzeroNpOrCacheTokenBalance, 1);
+    assert.equal(dry.json.byReason.excludedCoinLedgerOnly, 1);
+    assert.doesNotMatch(dry.json.sql, /hold_reason/);
+
+    const listed = runIdentityHold(['list'], env);
+    assert.equal(listed.status, 0, `${listed.stderr}\n${listed.stdout}`);
+    assert.equal(listed.json.readOnly, true);
+    assert.equal(listed.json.holdReasonColumn, false);
+    assert.deepEqual(listed.json.holds, []);
+
+    const columns = await admin.query(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = $1 AND table_name = 'nexus_economic_identities'`,
+      [schema]
+    );
+    assert.deepEqual(columns.rows.map((row) => row.column_name).sort(), ['created_at', 'economic_identity_id', 'status', 'updated_at']);
+    const extras = await admin.query(
+      `SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = $1 AND c.relname IN ('nexus_economy_schema_migrations', 'nexus_economy_identity_hold_audit', 'nexus_economy_accrual_state')`,
+      [schema]
+    );
+    assert.equal(extras.rows.length, 0);
+  } finally {
+    await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+    await admin.end();
+  }
+});

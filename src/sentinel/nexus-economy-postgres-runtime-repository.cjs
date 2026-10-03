@@ -430,23 +430,57 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
     }
   }
 
-  // Read-only. Does not take the migration lock and does not mark rows.
+  async #holdReasonColumnExists(client) {
+    const found = await client.query(
+      `SELECT 1 FROM information_schema.columns
+       WHERE table_schema = $1 AND table_name = 'nexus_economic_identities' AND column_name = 'hold_reason'
+       LIMIT 1`,
+      [this.schemaName]
+    );
+    return Boolean(found.rows[0]);
+  }
+
+  // SELECT only. ROLLBACK so the session cannot leave a write behind.
+  async #readOnly(fn) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN READ ONLY');
+      const result = await fn(client);
+      await client.query('ROLLBACK');
+      return result;
+    } catch (error) {
+      try { await client.query('ROLLBACK'); } catch {}
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  // Read-only. A pre-migration table has no hold_reason column; every restricted row counts as unmarked.
   async previewLegacyRestrictedHolds() {
-    const sql = NexusEconomyPostgresRuntimeRepository.legacyReviewPreviewSql({ schema: this.schemaName });
-    const result = await this.pool.query(sql);
-    const row = result.rows[0] || {};
-    return {
-      ok: true,
-      dryRun: true,
-      wouldMark: Number(row.would_mark || 0),
-      byReason: {
-        verifiedEosOrMinecraftLink: Number(row.verified_eos_or_minecraft_link || 0),
-        npOrCacheTokenLedger: Number(row.np_or_cache_token_ledger || 0),
-        nonzeroNpOrCacheTokenBalance: Number(row.nonzero_np_or_cache_token_balance || 0),
-        excludedCoinLedgerOnly: Number(row.excluded_coin_ledger_only || 0)
-      },
-      sql
-    };
+    return this.#readOnly(async (client) => {
+      const holdReasonColumn = await this.#holdReasonColumnExists(client);
+      const sql = NexusEconomyPostgresRuntimeRepository.legacyReviewPreviewSql({
+        schema: this.schemaName,
+        holdReasonColumn
+      });
+      const result = await client.query(sql);
+      const row = result.rows[0] || {};
+      return {
+        ok: true,
+        dryRun: true,
+        readOnly: true,
+        holdReasonColumn,
+        wouldMark: Number(row.would_mark || 0),
+        byReason: {
+          verifiedEosOrMinecraftLink: Number(row.verified_eos_or_minecraft_link || 0),
+          npOrCacheTokenLedger: Number(row.np_or_cache_token_ledger || 0),
+          nonzeroNpOrCacheTokenBalance: Number(row.nonzero_np_or_cache_token_balance || 0),
+          excludedCoinLedgerOnly: Number(row.excluded_coin_ledger_only || 0)
+        },
+        sql
+      };
+    });
   }
 
   async placeIdentityHold(economicIdentityId, { reason = 'staff', heldBy = null } = {}) {
@@ -496,24 +530,30 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
 
   async listIdentityHolds({ limit = 200 } = {}) {
     const safeLimit = Math.max(1, Math.min(500, Number(limit) || 200));
-    const result = await this.pool.query(
-      `SELECT economic_identity_id, status, hold_reason, held_by, updated_at
-       FROM ${this.runtimeSchema}.nexus_economic_identities
-       WHERE hold_reason IS NOT NULL AND btrim(hold_reason) <> ''
-       ORDER BY updated_at DESC NULLS LAST, economic_identity_id
-       LIMIT $1`,
-      [safeLimit]
-    );
-    return {
-      ok: true,
-      holds: (result.rows || []).map((row) => ({
-        economicIdentityId: row.economic_identity_id,
-        status: row.status,
-        holdReason: row.hold_reason,
-        heldBy: row.held_by,
-        updatedAt: row.updated_at
-      }))
-    };
+    return this.#readOnly(async (client) => {
+      const holdReasonColumn = await this.#holdReasonColumnExists(client);
+      if (!holdReasonColumn) return { ok: true, readOnly: true, holdReasonColumn: false, holds: [] };
+      const result = await client.query(
+        `SELECT economic_identity_id, status, hold_reason, held_by, updated_at
+         FROM ${this.runtimeSchema}.nexus_economic_identities
+         WHERE hold_reason IS NOT NULL AND btrim(hold_reason) <> ''
+         ORDER BY updated_at DESC NULLS LAST, economic_identity_id
+         LIMIT $1`,
+        [safeLimit]
+      );
+      return {
+        ok: true,
+        readOnly: true,
+        holdReasonColumn: true,
+        holds: (result.rows || []).map((row) => ({
+          economicIdentityId: row.economic_identity_id,
+          status: row.status,
+          holdReason: row.hold_reason,
+          heldBy: row.held_by,
+          updatedAt: row.updated_at
+        }))
+      };
+    });
   }
 
   async placeStaffHold(discordUserId, { reason = 'staff', heldBy = null } = {}) {
@@ -664,9 +704,10 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
     );
   }
 
-  static legacyReviewPreviewSql({ schema = 'public' } = {}) {
+  static legacyReviewPreviewSql({ schema = 'public', holdReasonColumn = true } = {}) {
     const s = sqlIdent(schema);
     const predicates = legacyReviewPredicates(s);
+    const unmarked = holdReasonColumn ? predicates.unmarkedRestricted : `i.status = 'restricted'`;
     return `SELECT
   count(*) FILTER (WHERE ${predicates.verifiedLink} OR ${predicates.fundedLedger} OR ${predicates.fundedBalance}) AS would_mark,
   count(*) FILTER (WHERE ${predicates.verifiedLink}) AS verified_eos_or_minecraft_link,
@@ -674,7 +715,7 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
   count(*) FILTER (WHERE ${predicates.fundedBalance}) AS nonzero_np_or_cache_token_balance,
   count(*) FILTER (WHERE ${predicates.coinLedger} AND NOT (${predicates.verifiedLink}) AND NOT (${predicates.fundedLedger}) AND NOT (${predicates.fundedBalance})) AS excluded_coin_ledger_only
 FROM ${s}.nexus_economic_identities AS i
-WHERE ${predicates.unmarkedRestricted}`;
+WHERE ${unmarked}`;
   }
 
   static runtimeSchemaSql({ schema = 'public' } = {}) {
