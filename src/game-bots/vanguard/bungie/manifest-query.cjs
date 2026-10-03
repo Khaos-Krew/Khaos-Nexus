@@ -85,6 +85,7 @@ function createManifestQuery() {
       tierType: Number(inventory?.tierType ?? row.tierType) || 0,
       tierTypeName: String(inventory?.tierTypeName || row.tierTypeName || ''),
       bucketTypeHash: Number(inventory?.bucketTypeHash) || 0,
+      classType: row.classType == null || row.classType === '' ? null : Number(row.classType),
       redacted: row.redacted === true,
       displayCategory: row.displayCategory === true || row.vendorDisplayCategory === true
     };

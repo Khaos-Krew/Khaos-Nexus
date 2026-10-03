@@ -53,17 +53,18 @@ async function replyText(interaction, text) {
 }
 
 async function replyEmbed(interaction, embed, footer) {
-  const branded = applyChrome({
-    title: embed.title,
-    description: appendDisclaimer(embed.description),
-    fields: Array.isArray(embed.fields) ? embed.fields.slice(0, 6) : undefined
+  const pages = Array.isArray(embed?.embeds) && embed.embeds.length ? embed.embeds : [embed || {}];
+  const branded = pages.map((page, index) => applyChrome({
+    title: page?.title,
+    description: appendDisclaimer(page?.description),
+    fields: Array.isArray(page?.fields) ? page.fields.slice(0, 25) : undefined
   }, {
     client: interaction.client,
     footerText: footer,
-    mode: 'icon'
-  });
+    mode: index === 0 ? 'icon' : ''
+  }));
   const body = withAssets({
-    embeds: [branded],
+    embeds: branded,
     allowedMentions: { parse: [] }
   }, null, 'icon');
   if (interaction.deferred || interaction.replied) {

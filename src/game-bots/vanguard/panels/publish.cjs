@@ -8,28 +8,37 @@ function shortHash(value) {
   return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 16);
 }
 
+function sourcePages(embed) {
+  if (Array.isArray(embed?.embeds) && embed.embeds.length) return embed.embeds;
+  return [embed || {}];
+}
+
 function presentEmbed(panelId, embed, { degraded = false, asOf, lastGood = '' } = {}) {
-  let title = embed?.title;
-  let description = String(embed?.description || '');
-  let fields = Array.isArray(embed?.fields) ? embed.fields.slice(0, 6) : [];
   if (degraded) {
     const collapsed = lastGood ? lastGood.split('\n').slice(0, 8).join('\n') : '';
     const body = degradedEmbed({
-      title,
+      title: embed?.title,
       asOf: formatCt(asOf || Date.now()),
       detail: collapsed
     });
-    title = body.title;
-    description = body.description;
-    fields = [];
+    const page = {
+      title: body.title,
+      description: appendDisclaimer(ensureClanMarker(panelId, body.description)).slice(0, 4000),
+      fields: []
+    };
+    return { ...page, embeds: [page], footer: { text: panelFooter(panelId) } };
   }
-  description = ensureClanMarker(panelId, description);
-  return {
-    title,
-    description: appendDisclaimer(description).slice(0, 4000),
-    fields,
-    footer: { text: panelFooter(panelId) }
+  const pages = sourcePages(embed).slice(0, 10).map((page) => ({
+    title: page?.title,
+    description: appendDisclaimer(ensureClanMarker(panelId, page?.description)).slice(0, 4000),
+    fields: Array.isArray(page?.fields) ? page.fields.filter((field) => field && field.value).slice(0, 25) : []
+  }));
+  const first = pages[0] || {
+    title: embed?.title,
+    description: appendDisclaimer(ensureClanMarker(panelId, '')).slice(0, 4000),
+    fields: []
   };
+  return { ...first, embeds: pages.length ? pages : [first], footer: { text: panelFooter(panelId) } };
 }
 
 async function publishPanel(ctx, { guildId, panelId, channelId, embed, degraded = false, asOf, force = false } = {}) {
@@ -45,6 +54,7 @@ async function publishPanel(ctx, { guildId, panelId, channelId, embed, degraded 
     channelId,
     messageId: saved.channelId === channelId ? saved.messageId : '',
     panelId,
+    embeds: body.embeds,
     embed: { title: body.title, description: body.description, fields: body.fields },
     botId: ctx.client?.user?.id
   });

@@ -1,13 +1,29 @@
 'use strict';
 
 const { appendDisclaimer } = require('../panels.cjs');
-const { boundedLines, clipLine } = require('../style.cjs');
+const { clipLine } = require('../style.cjs');
+const { packSections } = require('./layout.cjs');
 
 const XUR_VENDOR_HASH = 2190858386;
 const XUR_ARRIVES_UTC_DAY = 5;
 const XUR_ARRIVES_UTC_HOUR = 17;
 const ITEM_NONE = 0;
 const ITEM_DUMMY = 20;
+const ITEM_WEAPON = 3;
+
+const ARMOR_BUCKETS = new Set([
+  3448274439,
+  3551918588,
+  14239492,
+  20886954,
+  1585787867
+]);
+
+const CLASS_LABELS = Object.freeze([
+  Object.freeze([0, 'Titan']),
+  Object.freeze([1, 'Hunter']),
+  Object.freeze([2, 'Warlock'])
+]);
 
 function vendorMap(payload) {
   return payload?.Response?.vendors?.data || payload?.vendors?.data || {};
@@ -102,11 +118,64 @@ function locationText(vendor, location) {
     || placeName(vendor?.locationName)
     || placeName(vendor?.vendorLocation);
   if (!explicit || /^not listed$/i.test(explicit) || /^x[uû]r$/i.test(explicit)) return '';
-  return clipLine(explicit, 60);
+  return clipLine(explicit, 80);
+}
+
+function priceText(quantity, costName) {
+  const count = Number(quantity);
+  if (!Number.isFinite(count) || count <= 0) return '';
+  const label = String(costName || '').replace(/\s+/g, ' ').trim();
+  return label ? `${count} ${label}` : String(count);
 }
 
 function itemLine(name, price) {
-  return clipLine(price ? `${name} • ${price}` : name, 60);
+  const label = String(name || '').replace(/\s+/g, ' ').trim();
+  if (!label) return '';
+  return price ? `${label} — ${price}` : label;
+}
+
+function armorClass(value) {
+  if (value == null || value === '') return null;
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 0 || number > 2) return null;
+  return number;
+}
+
+function linesForGroup(items) {
+  const classes = { 0: [], 1: [], 2: [] };
+  const weapons = [];
+  const rest = [];
+  for (const item of items) {
+    const line = itemLine(item?.name, item?.price);
+    if (!line) continue;
+    const classType = armorClass(item?.classType);
+    const bucket = Number(item?.bucketTypeHash);
+    if (classType != null && ARMOR_BUCKETS.has(bucket)) {
+      classes[classType].push(line);
+      continue;
+    }
+    if (Number(item?.itemType) === ITEM_WEAPON) weapons.push(line);
+    else rest.push(line);
+  }
+  const armor = classes[0].length + classes[1].length + classes[2].length;
+  if (!armor) return [...weapons, ...rest];
+  const lines = [];
+  for (const [classType, label] of CLASS_LABELS) {
+    if (!classes[classType].length) continue;
+    if (lines.length) lines.push('');
+    lines.push(`**${label}**`);
+    lines.push(...classes[classType]);
+  }
+  if (weapons.length) {
+    if (lines.length) lines.push('');
+    lines.push('**Weapons**');
+    lines.push(...weapons);
+  }
+  if (rest.length) {
+    if (lines.length) lines.push('');
+    lines.push(...rest);
+  }
+  return lines;
 }
 
 function renderXur({ vendors, names = new Map(), now = Date.now(), location = '' } = {}) {
@@ -118,10 +187,12 @@ function renderXur({ vendors, names = new Map(), now = Date.now(), location = ''
     const when = relativeTag(returns);
     const lines = ['Xûr is not here.'];
     if (when) lines.push(`⏳ Returns ${when}`);
+    const description = appendDisclaimer(lines.join('\n'), { maxLines: 4 });
     return {
       title: '✨ Xûr',
-      description: appendDisclaimer(lines.join('\n'), { maxLines: 4 }),
+      description,
       fields: [],
+      embeds: [{ title: '✨ Xûr', description, fields: [] }],
       present: false
     };
   }
@@ -131,30 +202,33 @@ function renderXur({ vendors, names = new Map(), now = Date.now(), location = ''
     if (!isStockItem(meta)) continue;
     const cost = Array.isArray(sale?.costs) ? sale.costs[0] : null;
     const costMeta = cost ? (names.get(String(cost.itemHash)) || names.get(Number(cost.itemHash)) || null) : null;
-    const costName = metaName(costMeta);
-    const price = cost && Number(cost.quantity) ? `${cost.quantity}${costName ? ` ${costName}` : ''}` : '';
-    groups[tierGroup(meta)].push(itemLine(metaName(meta), price));
+    const price = cost ? priceText(cost.quantity, metaName(costMeta)) : '';
+    const record = metaOf(meta) || {};
+    groups[tierGroup(meta)].push({
+      name: metaName(meta),
+      price,
+      classType: record.classType,
+      bucketTypeHash: record.bucketTypeHash,
+      itemType: record.itemType
+    });
   }
-  const fields = [
+  const sections = [
     { name: '🟡 Exotics', key: 'exotic' },
     { name: '🟣 Legendaries', key: 'legendary' },
     { name: '📦 Other', key: 'other' }
-  ].map((section) => ({
-    name: section.name,
-    value: boundedLines(groups[section.key]).join('\n') || 'None',
-    inline: true
-  }));
+  ].filter((section) => groups[section.key].length)
+    .map((section) => ({ name: section.name, lines: linesForGroup(groups[section.key]) }));
   const leaves = relativeTag(refresh);
   const place = locationText(vendor, location);
   const lines = ['Xûr is here.'];
   if (place) lines.push(`📍 Location: ${place}`);
   if (leaves) lines.push(`⏳ Leaves ${leaves}`);
-  return {
+  const packed = packSections({
     title: '✨ Xûr',
     description: appendDisclaimer(lines.join('\n'), { maxLines: 4 }),
-    fields,
-    present: true
-  };
+    sections
+  });
+  return { ...packed, present: true };
 }
 
 module.exports = {
