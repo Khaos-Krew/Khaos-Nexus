@@ -17,6 +17,7 @@ const { SentinalAdminOps } = require('./admin-ops.cjs');
 const { createSentinalAdminServer } = require('./admin-server.cjs');
 const { ensureAnomalyChannel } = require('./ark-shiny-anomaly.cjs');
 const { isModuleChannelsNotProvisionedError } = require('./no-provision-modules.cjs');
+const { configuredDiscordRole } = require('./discord-command-role.cjs');
 
 const config = loadConfig();
 const token = envSecret(config.discord?.tokenEnv);
@@ -56,10 +57,7 @@ const moduleChoices = () => MODULES.map((module) => ({ name: module.name.slice(0
 const enabledModuleIds = () => MODULES.filter((module) => config.modules?.[module.id]?.enabled !== false).map((module) => module.id);
 
 function configuredRoleFor(interaction) {
-  if ((config.discord?.ownerUserIds || []).includes(String(interaction.user.id))) return 'owner';
-  const roles = interaction.member?.roles?.cache;
-  if (roles && (config.discord?.operatorRoleIds || []).some((id) => roles.has(String(id)))) return 'operator';
-  return 'viewer';
+  return configuredDiscordRole(interaction, config);
 }
 
 async function roleFor(interaction) {

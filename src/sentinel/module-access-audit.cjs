@@ -11,6 +11,7 @@ const {
   strictCategoryMatch
 } = require('./module-access-policy.cjs');
 const { normalizeIds } = require('./staff-workspace.cjs');
+const { hasListedRole, isGrantableStaffRole } = require('../game-bots/vanguard/config.cjs');
 
 const ACCESS_AUDIT_MARKER = 'Nexus Sentinal • Module Access Acceptance Preflight • v1';
 
@@ -75,13 +76,10 @@ function staffRoleIdsFromSnapshot(roles, guild, config = {}) {
   const explicit = normalizeIds([
     ...(config.discord?.safetyStaffRoleIds || []),
     ...(config.discord?.operatorRoleIds || [])
-  ]).filter((id) => {
-    const role = roles.get(String(id));
-    return Boolean(role && role.id !== guild.id && role.managed !== true);
-  });
+  ]).filter((id) => isGrantableStaffRole(roles.get(String(id)), guild.id));
   if (explicit.length) return explicit;
   return valuesOf(roles)
-    .filter((role) => role && role.id !== guild.id && role.managed !== true)
+    .filter((role) => isGrantableStaffRole(role, guild.id))
     .filter((role) => role.permissions?.has?.(PermissionFlagsBits.Administrator)
       || role.permissions?.has?.(PermissionFlagsBits.ModerateMembers)
       || role.permissions?.has?.(PermissionFlagsBits.ManageGuild))
@@ -95,7 +93,7 @@ function staffSubjectsFromSnapshot(guild, roles, config = {}) {
   const cachedMembers = valuesOf(guild.members?.cache).filter((member) => {
     if (!member || member.user?.bot) return false;
     if (ownerIds.includes(String(member.id))) return true;
-    return staffRoleIds.some((roleId) => member.roles?.cache?.has?.(String(roleId)));
+    return hasListedRole({ member, guild }, staffRoleIds);
   });
   return { staffRoleIds, ownerIds, roleSubjects, cachedMembers };
 }

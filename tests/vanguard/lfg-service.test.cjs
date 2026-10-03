@@ -5,11 +5,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { ButtonStyle } = require('discord.js');
+const { ButtonStyle, PermissionFlagsBits } = require('discord.js');
 const { GuildStateStore } = require('../../src/game-bots/vanguard/state-store.cjs');
 const { createLfgService } = require('../../src/game-bots/vanguard/lfg/lfg-service.cjs');
 const { ACTIVITIES } = require('../../src/game-bots/vanguard/lfg/activities-static.cjs');
-const { renderPost, voiceOffer } = require('../../src/game-bots/vanguard/lfg/lfg-buttons.cjs');
+const { deliverPost, payloadForChannel, renderPost, voiceOffer } = require('../../src/game-bots/vanguard/lfg/lfg-buttons.cjs');
 const { postFooter } = require('../../src/game-bots/vanguard/panels.cjs');
 const { lfgLimits } = require('../../src/game-bots/vanguard/config.cjs');
 
@@ -18,6 +18,7 @@ const OTHER = '1516640233389822002';
 const HOST = '1516640233389822101';
 const MEMBER = '1516640233389822102';
 const LOBBY = '1516640233389822777';
+const LFG = '1516640233389822222';
 
 function clock(start = 1_700_000_000_000) {
   let time = start;
@@ -190,8 +191,82 @@ test('a full fireteam render offers voice and an expired post drops its buttons'
   assert.equal(voiceOffer('').includes('not configured'), true);
 
   const expired = renderPost({ ...post, status: 'expired', voiceOffered: false }, {});
-  assert.equal(expired.embeds[0].title, 'Fireteam • Expired');
+  assert.equal(expired.embeds[0].title, '⏰ Fireteam expired');
   assert.equal(expired.components.length, 0);
   const closed = renderPost({ ...post, status: 'closed' }, {});
-  assert.equal(closed.embeds[0].title, 'Fireteam • Closed');
+  assert.equal(closed.embeds[0].title, '🔒 Fireteam closed');
+  assert.equal(rendered.embeds[0].color, 0xAEB4BD);
+  assert.equal(rendered.embeds[0].thumbnail.url, 'attachment://icon-vanguard.png');
+  assert.equal(rendered.embeds[0].image, undefined);
+  assert.equal(rendered.files[0].name, 'icon-vanguard.png');
+  assert.deepEqual(rendered.embeds[0].fields.slice(0, 3).map((field) => field.name), ['Activity', 'Time', 'Slots']);
+  assert.ok(rendered.embeds[0].fields.every((field) => field.inline === false));
+  assert.equal(rendered.embeds[0].fields[3].name, 'Roster');
+  assert.equal(rendered.embeds[0].fields[3].inline, false);
+  assert.doesNotMatch(rendered.embeds[0].footer.text, /[-–—]/);
+});
+
+test('lfg posts omit the icon when the channel cannot attach files', async () => {
+  const post = {
+    id: 'abcdef123456',
+    hostId: HOST,
+    activityKey: 'raid',
+    slots: 3,
+    members: [HOST],
+    when: 'now',
+    note: 'One fireteam.',
+    status: 'open',
+    expiresAt: '2026-10-01T18:00:00.000Z',
+    channelId: LFG,
+    messageId: '1516640233389822333'
+  };
+  const rendered = renderPost(post, {});
+  const blocked = {
+    guild: { members: { me: { id: '111111111111111111' } } },
+    permissionsFor() {
+      return { has: (bit) => bit !== PermissionFlagsBits.AttachFiles };
+    }
+  };
+  const plain = payloadForChannel(rendered, blocked);
+  assert.equal(plain.files, undefined);
+  assert.equal(plain.embeds[0].thumbnail, undefined);
+  assert.equal(plain.embeds[0].title, '🎮 Fireteam');
+  const allowedChannel = {
+    guild: blocked.guild,
+    permissionsFor: () => ({ has: () => true })
+  };
+  assert.equal(payloadForChannel(rendered, allowedChannel).files[0].name, 'icon-vanguard.png');
+
+  const edits = [];
+  let failed = false;
+  const channel = {
+    ...blocked,
+    messages: {
+      fetch: async () => ({
+        edit: async (body) => {
+          if (!failed && body.files) {
+            failed = true;
+            throw new Error('Invalid Form Body');
+          }
+          edits.push(body);
+          return body;
+        }
+      })
+    }
+  };
+  const allowed = {
+    permissionsFor: () => ({ has: () => true }),
+    guild: blocked.guild,
+    messages: channel.messages
+  };
+  const client = {
+    user: { id: '111111111111111111' },
+    channels: { fetch: async () => allowed }
+  };
+  const updated = await deliverPost(client, post, {});
+  assert.equal(updated.updated, true);
+  assert.equal(edits.length, 1);
+  assert.equal(edits[0].files, undefined);
+  assert.equal(edits[0].embeds[0].thumbnail, undefined);
+  assert.match(edits[0].embeds[0].description, /One fireteam/);
 });

@@ -233,6 +233,10 @@ async function upsertEmbed(client, channelId, messageId, payload, options = {}) 
   const matches = typeof options.matches === 'function' ? options.matches : (identity ? panelMatcher(identity) : null);
   const envId = storedMessageId(options.envMessageId);
   const preferredId = envId || storedMessageId(messageId);
+  const deliveryFor = (message, payload) => {
+    const prepared = typeof options.prepare === 'function' ? options.prepare(message, payload) : payload;
+    return cloneDelivery(prepared || payload);
+  };
 
   const owned = [];
   const foreign = [];
@@ -241,7 +245,7 @@ async function upsertEmbed(client, channelId, messageId, payload, options = {}) 
   if (preferredId && typeof channel.messages?.fetch === 'function') {
     const existing = await channel.messages.fetch(preferredId).catch(() => null);
     if (existing?.edit && !isForeignPanel(existing, botId)) {
-      const edited = await editOwned(existing, cloneDelivery(body));
+      const edited = await editOwned(existing, deliveryFor(existing, body));
       if (edited === 'edited') canonical = existing;
       else if (edited === 'foreign') remember(foreign, existing);
     } else if (existing && isForeignPanel(existing, botId) && (!matches || matches(existing))) {
@@ -264,7 +268,7 @@ async function upsertEmbed(client, channelId, messageId, payload, options = {}) 
     const preferred = envId ? owned.find((message) => String(message?.id || '') === envId) || null : null;
     canonical = preferred || newestMessage(owned);
     if (canonical?.edit) {
-      const edited = await editOwned(canonical, cloneDelivery(body));
+      const edited = await editOwned(canonical, deliveryFor(canonical, body));
       if (edited !== 'edited') {
         if (edited === 'foreign' && isForeignPanel(canonical, botId)) remember(foreign, canonical);
         canonical = null;
@@ -289,7 +293,7 @@ async function upsertEmbed(client, channelId, messageId, payload, options = {}) 
         reason: 'absent'
       };
     }
-    canonical = await channel.send(cloneDelivery(body));
+    canonical = await channel.send(deliveryFor(null, body));
     created = true;
     migrated = foreign.length > 0;
   }

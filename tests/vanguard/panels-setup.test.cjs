@@ -12,10 +12,13 @@ const {
   BRAND,
   DISCLAIMER,
   degradedEmbed,
+  legacyFooter,
   ownsFooter,
   panelFooter,
+  postFooter,
   upsertOwnedPanel
 } = require('../../src/game-bots/vanguard/panels.cjs');
+const { presentEmbed } = require('../../src/game-bots/vanguard/panels/publish.cjs');
 const { SETUP_CHANNELS, planSetup, resolvedChannels, vanguardCommandBuilder } = require('../../src/game-bots/vanguard/commands/setup.cjs');
 const { lfgCommandBuilder } = require('../../src/game-bots/vanguard/lfg/lfg-commands.cjs');
 
@@ -45,11 +48,33 @@ function message(partial) {
   return row;
 }
 
+test('a degraded clan panel names Khaos Nexus clan', () => {
+  const closed = presentEmbed('clan:5453042', {
+    title: '👥 Clan',
+    description: 'Bungie is down for maintenance right now; try again later.'
+  });
+  assert.match(closed.description, /Khaos Nexus clan/);
+  assert.match(closed.description, /groupId=5453042/);
+  assert.doesNotMatch(closed.description, /Group 5453042/);
+  const degraded = presentEmbed('clan:5453042', {
+    title: '👥 Clan',
+    description: 'Group 5453042'
+  }, { degraded: true, asOf: '2026-10-01T00:00:00Z' });
+  assert.match(degraded.description, /Khaos Nexus clan/);
+  assert.match(degraded.description, /groupId=5453042/);
+  assert.doesNotMatch(degraded.description, /Group 5453042/);
+});
+
 test('panel footer is exact, own-bot only, and does not delete foreign messages', async () => {
   const footer = panelFooter('lfg-board');
-  assert.equal(footer, `${BRAND} • Nexus Vanguard • lfg-board • v1 • ${DISCLAIMER}`);
-  assert.match(footer, /Many Worlds One Nexus/);
-  assert.match(footer, /Not affiliated with or endorsed by Bungie/);
+  assert.equal(footer, `${BRAND} • lfg`);
+  assert.equal(panelFooter('weekly-reset'), `${BRAND} • reset`);
+  assert.equal(panelFooter('xur'), `${BRAND} • xur`);
+  assert.equal(panelFooter('clan:5453042'), `${BRAND} • clan`);
+  assert.equal(postFooter(), BRAND);
+  assert.doesNotMatch(footer, /[-–—]/);
+  assert.doesNotMatch(postFooter(), /[-–—]/);
+  assert.equal(legacyFooter('weekly-reset'), `${BRAND} • Nexus Vanguard • weekly-reset • v1 • ${DISCLAIMER}`);
   const foreign = message({
     id: '333333333333333333',
     author: { id: FOREIGN_ID, bot: true },
@@ -112,7 +137,131 @@ test('panel footer is exact, own-bot only, and does not delete foreign messages'
   assert.equal(second.edited, true);
   assert.equal(sent.length, 1);
   assert.equal(foreign.deleted, false);
-  assert.equal(list.find((item) => item.id === first.messageId).embeds[0].description, 'One fireteam.');
+  assert.match(list.find((item) => item.id === first.messageId).embeds[0].description, /One fireteam/);
+  assert.match(list.find((item) => item.id === first.messageId).embeds[0].description, /-# Not affiliated with or endorsed by Bungie/);
+});
+
+test('legacy and new footers edit in place and never adopt another panel or bot', async () => {
+  const legacy = legacyFooter('weekly-reset');
+  const current = panelFooter('weekly-reset');
+  const otherLegacy = legacyFooter('xur');
+  let sends = 0;
+  const edits = [];
+  function owned(id, footer, description) {
+    const row = message({
+      id,
+      author: { id: BOT_ID, bot: true },
+      embeds: [{ footer: { text: footer }, description }]
+    });
+    const original = row.edit;
+    row.edit = async (body) => {
+      edits.push({ id, body });
+      return original(body);
+    };
+    return row;
+  }
+  const legacyMessage = owned('1516640233389822701', legacy, 'old reset');
+  const channel = {
+    send: async () => { sends += 1; throw new Error('legacy reset must be edited'); },
+    messages: {
+      fetch: async (arg) => (arg && typeof arg === 'object' ? { values: () => [legacyMessage].values() } : null)
+    }
+  };
+  const client = {
+    user: {
+      id: BOT_ID,
+      displayName: 'Nexus Vanguard',
+      displayAvatarURL: () => 'https://cdn.example/avatar.png'
+    },
+    channels: { fetch: async () => channel }
+  };
+  const edited = await upsertOwnedPanel(client, {
+    channelId: CHANNEL,
+    panelId: 'weekly-reset',
+    embed: { title: '🗓️ Weekly Reset', description: 'Fresh reset' },
+    botId: BOT_ID
+  });
+  assert.equal(edited.created, false);
+  assert.equal(edited.edited, true);
+  assert.equal(sends, 0);
+  assert.equal(legacyMessage.embeds[0].footer.text, current);
+  assert.equal(legacyMessage.embeds[0].author.name, 'Nexus Vanguard');
+  assert.equal(legacyMessage.embeds[0].author.icon_url, 'https://cdn.example/avatar.png');
+  assert.equal(legacyMessage.embeds[0].footer.icon_url, 'https://cdn.example/avatar.png');
+  assert.equal(legacyMessage.embeds[0].color, 0xAEB4BD);
+  assert.equal(legacyMessage.embeds[0].image.url, 'attachment://vanguard-panel-banner.png');
+  assert.equal(edits.at(-1).body.files[0].name, 'vanguard-panel-banner.png');
+
+  legacyMessage.embeds = [{ footer: { text: current }, description: 'Fresh reset', image: { url: 'attachment://vanguard-panel-banner.png' } }];
+  legacyMessage.attachments = [{ id: 'att-banner', name: 'vanguard-panel-banner.png' }];
+  const again = await upsertOwnedPanel(client, {
+    channelId: CHANNEL,
+    panelId: 'weekly-reset',
+    embed: { title: '🗓️ Weekly Reset', description: 'Edited reset' },
+    botId: BOT_ID
+  });
+  assert.equal(again.created, false);
+  assert.equal(sends, 0);
+  assert.deepEqual(edits.at(-1).body.attachments, [{ id: 'att-banner' }]);
+  assert.equal(edits.at(-1).body.files, undefined);
+
+  const xurMessage = owned('1516640233389822702', otherLegacy, 'xur');
+  const foreign = message({
+    id: '1516640233389822703',
+    author: { id: FOREIGN_ID, bot: true },
+    embeds: [{ footer: { text: legacy }, description: 'foreign reset' }]
+  });
+  let created = 0;
+  const mixed = {
+    send: async (body) => {
+      created += 1;
+      return message({
+        id: '1516640233389822799',
+        author: { id: BOT_ID, bot: true },
+        embeds: body.embeds
+      });
+    },
+    messages: {
+      fetch: async (arg) => (arg && typeof arg === 'object' ? { values: () => [xurMessage, foreign].values() } : null)
+    }
+  };
+  const sent = await upsertOwnedPanel({ ...client, channels: { fetch: async () => mixed } }, {
+    channelId: CHANNEL,
+    panelId: 'weekly-reset',
+    embed: { title: '🗓️ Weekly Reset', description: 'New reset' },
+    botId: BOT_ID
+  });
+  assert.equal(sent.created, true);
+  assert.equal(created, 1);
+  assert.equal(xurMessage.deleted, false);
+  assert.equal(foreign.deleted, false);
+  assert.equal(ownsFooter(xurMessage, BOT_ID, 'weekly-reset'), false);
+  assert.equal(ownsFooter(foreign, BOT_ID, 'weekly-reset'), false);
+  assert.equal(ownsFooter(legacyMessage, BOT_ID, 'weekly-reset'), true);
+
+  const stored = owned('1516640233389822704', 'unrelated', 'stored');
+  const decoy = owned('1516640233389822705', otherLegacy, 'other panel');
+  const preferred = {
+    send: async () => { throw new Error('stored id must win'); },
+    messages: {
+      fetch: async (arg) => {
+        if (arg && typeof arg === 'object') return { values: () => [decoy, stored].values() };
+        if (arg === stored.id) return stored;
+        return null;
+      }
+    }
+  };
+  const kept = await upsertOwnedPanel({ ...client, channels: { fetch: async () => preferred } }, {
+    channelId: CHANNEL,
+    messageId: stored.id,
+    panelId: 'weekly-reset',
+    embed: { title: '🗓️ Weekly Reset', description: 'Stored reset' },
+    botId: BOT_ID
+  });
+  assert.equal(kept.created, false);
+  assert.equal(kept.messageId, stored.id);
+  assert.match(stored.embeds[0].description, /Stored reset/);
+  assert.equal(decoy.deleted, false);
 });
 
 test('setup plans the owner channel names and env ids win', () => {

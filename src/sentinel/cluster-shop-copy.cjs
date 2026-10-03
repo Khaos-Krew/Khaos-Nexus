@@ -1,5 +1,7 @@
 'use strict';
 
+const { MEMBER_HOLD_MESSAGE } = require('./nexus-economy-identity-hold.cjs');
+
 function insufficientNpCopy({ price, balance } = {}) {
   const priceText = Number.isFinite(Number(price)) ? `${Number(price)} NP` : 'this quote';
   const balanceText = Number.isFinite(Number(balance)) ? `${Number(balance)} NP` : 'your current balance';
@@ -31,6 +33,17 @@ function quoteCopy({ action, quote }) {
   return lines.join('\n');
 }
 
+function orderFailureCopy(result, { price, balance } = {}) {
+  const reason = String(result?.reason || '');
+  if (reason === 'account-hold' || reason === 'quarantined' || result?.message === MEMBER_HOLD_MESSAGE) {
+    return MEMBER_HOLD_MESSAGE;
+  }
+  if (result?.order?.status === 'PAYMENT_REJECTED' || reason === 'insufficient-funds') {
+    return insufficientNpCopy({ price, balance: balance ?? result?.balance });
+  }
+  return 'The order could not be completed. Nothing else was changed. Check `/bal` on Nexus Sentinal if this was a purchase.';
+}
+
 function orderCopy({ action, order, balance }) {
   const lines = [
     '**Order confirmed**',
@@ -45,4 +58,4 @@ function orderCopy({ action, order, balance }) {
   return lines.filter((line) => line !== '**Amount:** ' && line !== '**Total:**  NP').join('\n');
 }
 
-module.exports = { insufficientNpCopy, deliveryStatusCopy, quoteCopy, orderCopy };
+module.exports = { insufficientNpCopy, deliveryStatusCopy, quoteCopy, orderCopy, orderFailureCopy, MEMBER_HOLD_MESSAGE };

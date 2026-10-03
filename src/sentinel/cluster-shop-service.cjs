@@ -4,7 +4,11 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
+const { isMinecraftShopOrder } = require('../economy-worker/mc-points-service.cjs');
+
 const ORDER_VERSION = 1;
+const CREDIT_RETRY_CAP = 8;
+const CREDIT_RETRY_AUDIT_CAP = 100;
 const DEFAULT_MAX_BUNDLES = 100;
 const FORBIDDEN_SELL_KINDS = new Set(['dino', 'dinos', 'creature', 'creatures', 'dino-cache']);
 
@@ -185,7 +189,8 @@ class ClusterShopService {
     const fresh = this.store.read();
     const current = fresh.orders[orderId];
     if (!spent.ok) {
-      current.status = spent.reason === 'insufficient-funds' ? 'PAYMENT_REJECTED' : 'PAYMENT_FAILED';
+      const held = spent.reason === 'account-hold' || spent.reason === 'quarantined';
+      current.status = held ? 'ACCOUNT_HOLD' : (spent.reason === 'insufficient-funds' ? 'PAYMENT_REJECTED' : 'PAYMENT_FAILED');
       current.payment = spent;
     } else {
       current.status = 'PAID_QUEUED';
@@ -193,10 +198,16 @@ class ClusterShopService {
     }
     current.updatedAt = new Date().toISOString();
     this.store.write(fresh);
-    return { ok: spent.ok, duplicate: false, order: current, balance: spent.balance };
+    return {
+      ok: spent.ok,
+      duplicate: false,
+      order: current,
+      balance: spent.balance,
+      ...(spent.ok ? {} : { reason: spent.reason, message: spent.message })
+    };
   }
 
-  createSellOrder({ discordUserId, eosId, itemId, bundles = 1, server = 'where-playing', idempotencyKey = '' } = {}) {
+  async createSellOrder({ discordUserId, eosId, itemId, bundles = 1, server = 'where-playing', idempotencyKey = '' } = {}) {
     const discord = cleanId(discordUserId);
     const eos = cleanId(eosId);
     if (!discord || !eos) throw new Error('Discord user ID and EOS ID are required.');
@@ -204,6 +215,10 @@ class ClusterShopService {
     const state = this.store.read();
     const idem = String(idempotencyKey || '').trim().slice(0, 200);
     if (idem && state.idempotency[idem]) return { ok: true, duplicate: true, order: state.orders[state.idempotency[idem]] };
+    if (typeof this.economy.memberHold === 'function') {
+      const hold = await this.economy.memberHold(discord);
+      if (hold) return { ok: false, duplicate: false, order: null, ...hold };
+    }
 
     const orderId = `NXSELL-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
     const order = {
@@ -231,30 +246,105 @@ class ClusterShopService {
     const order = state.orders[id];
     if (!order || order.type !== 'SELL') throw new Error('Sell order not found.');
     if (order.status === 'COMPLETE') return { ok: true, duplicate: true, order };
-    if (order.status !== 'AWAITING_ITEM_REMOVAL' && order.status !== 'ITEMS_REMOVED') throw new Error(`Sell order cannot be completed from ${order.status}.`);
+    if (!['AWAITING_ITEM_REMOVAL', 'ITEMS_REMOVED', 'CREDIT_FAILED'].includes(order.status)) {
+      throw new Error(`Sell order cannot be completed from ${order.status}.`);
+    }
 
     order.status = 'ITEMS_REMOVED';
     order.removalReceipt = receipt;
     order.updatedAt = new Date().toISOString();
     this.store.write(state);
 
-    const credited = await this.economy.credit({
-      discordUserId: order.discordUserId,
-      amount: order.quote.totalPrice,
-      type: 'shop-sellback',
-      source: 'cluster-shop',
-      idempotencyKey: `sell:${order.orderId}`,
-      metadata: { orderId: order.orderId, itemId: order.quote.itemId, bundles: order.quote.bundles, totalQuantity: order.quote.totalQuantity, removalReceipt: receipt }
-    });
+    let credited;
+    try {
+      credited = await this.economy.credit({
+        discordUserId: order.discordUserId,
+        amount: order.quote.totalPrice,
+        type: 'shop-sellback',
+        source: 'cluster-shop',
+        idempotencyKey: `sell:${order.orderId}`,
+        metadata: { orderId: order.orderId, itemId: order.quote.itemId, bundles: order.quote.bundles, totalQuantity: order.quote.totalQuantity, removalReceipt: receipt }
+      });
+    } catch (error) {
+      credited = { ok: false, reason: 'credit-failed', message: String(error?.message || 'credit-failed') };
+    }
 
     const fresh = this.store.read();
     const current = fresh.orders[id];
-    current.status = 'COMPLETE';
     current.walletCredit = credited;
-    current.completedAt = new Date().toISOString();
-    current.updatedAt = current.completedAt;
+    current.updatedAt = new Date().toISOString();
+    if (!credited?.ok) {
+      current.status = 'CREDIT_FAILED';
+      delete current.completedAt;
+      this.store.write(fresh);
+      return {
+        ok: false,
+        reason: credited?.reason || 'credit-failed',
+        message: credited?.message,
+        order: current,
+        balance: credited?.balance
+      };
+    }
+    current.status = 'COMPLETE';
+    current.completedAt = current.updatedAt;
     this.store.write(fresh);
     return { ok: true, duplicate: credited.duplicate, order: current, balance: credited.balance };
+  }
+
+  #recordCreditRetry(orderId, entry) {
+    const state = this.store.read();
+    const order = state.orders[orderId];
+    const outcome = `${entry.ok ? 'ok' : 'fail'}:${entry.skipped || entry.reason || ''}`;
+    const retries = order && Array.isArray(order.creditRetries) ? order.creditRetries : [];
+    if (retries.some((row) => row.outcome === outcome)) return { recorded: false, outcome };
+    const stored = { ...entry, outcome };
+    if (order) order.creditRetries = [...retries, stored].slice(-CREDIT_RETRY_CAP);
+    const prior = Array.isArray(state.audits) ? state.audits : [];
+    const creditAudits = prior.filter((row) => row.type === 'credit-failed-retry');
+    const other = prior.filter((row) => row.type !== 'credit-failed-retry');
+    state.audits = [...other, ...[...creditAudits, { type: 'credit-failed-retry', ...stored }].slice(-CREDIT_RETRY_AUDIT_CAP)];
+    this.store.write(state);
+    console.log(`[Nexus Economy] cluster_shop_credit_failed_retry order=${orderId} ok=${entry.ok} reason=${entry.reason || entry.skipped || ''}`);
+    return { recorded: true, outcome };
+  }
+
+  // Retries CREDIT_FAILED sell credits. The wallet idempotency key credits once.
+  // A held member is left CREDIT_FAILED until the hold lifts; each attempt is audited.
+  async sweepCreditFailedSells({ now = Date.now() } = {}) {
+    const pending = Object.values(this.store.read().orders || [])
+      .filter((order) => order && order.type === 'SELL' && order.status === 'CREDIT_FAILED');
+    const results = [];
+    for (const order of pending) {
+      const at = new Date(now).toISOString();
+      if (typeof this.economy.memberHold === 'function') {
+        const hold = await this.economy.memberHold(order.discordUserId);
+        if (hold && (hold.reason === 'account-hold' || hold.reason === 'quarantined')) {
+          const entry = { orderId: order.orderId, ok: false, skipped: hold.reason, reason: hold.reason, at };
+          this.#recordCreditRetry(order.orderId, entry);
+          results.push(entry);
+          continue;
+        }
+      }
+      let result;
+      try {
+        result = await this.confirmSellRemoval({
+          orderId: order.orderId,
+          removalReceipt: order.removalReceipt || 'credit-failed-sweep'
+        });
+      } catch (error) {
+        result = { ok: false, reason: 'credit-failed', message: String(error?.message || error) };
+      }
+      const entry = {
+        orderId: order.orderId,
+        ok: Boolean(result?.ok),
+        duplicate: Boolean(result?.duplicate),
+        reason: result?.reason || (result?.ok ? 'credited' : 'credit-failed'),
+        at
+      };
+      this.#recordCreditRetry(order.orderId, entry);
+      results.push(entry);
+    }
+    return results;
   }
 
   markBuyDelivery({ orderId, status, deliveryReceipt = '', error = '' } = {}) {
@@ -263,7 +353,7 @@ class ClusterShopService {
     if (!allowed.has(String(status))) throw new Error('Invalid delivery status.');
     const state = this.store.read();
     const order = state.orders[id];
-    if (!order || order.type !== 'BUY') throw new Error('Buy order not found.');
+    if (!order || order.type !== 'BUY' || isMinecraftShopOrder(order)) throw new Error('Buy order not found.');
     if (order.status === 'DELIVERED') return { ok: true, duplicate: true, order };
     if (!['PAID_QUEUED', 'PLAYER_OFFLINE', 'DELIVERY_IN_PROGRESS', 'SENT_UNCONFIRMED', 'DELIVERY_FAILED'].includes(order.status)) {
       throw new Error(`Buy order cannot transition from ${order.status}.`);
@@ -279,7 +369,7 @@ class ClusterShopService {
 
   pendingBuyOrders() {
     const orders = Object.values(this.store.read().orders);
-    return orders.filter((order) => order.type === 'BUY' && ['PAID_QUEUED', 'PLAYER_OFFLINE', 'DELIVERY_FAILED'].includes(order.status));
+    return orders.filter((order) => order.type === 'BUY' && !isMinecraftShopOrder(order) && ['PAID_QUEUED', 'PLAYER_OFFLINE', 'DELIVERY_FAILED'].includes(order.status));
   }
 }
 

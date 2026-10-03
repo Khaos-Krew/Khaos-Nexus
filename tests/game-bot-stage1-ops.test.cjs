@@ -293,6 +293,7 @@ test('staff status reports discord, arkshop retirement, and deploy sha without R
     assert.match(text, /Discord: ready/);
     assert.match(text, /ARKSHOP_DB_MODE=disabled/);
     assert.match(text, /ArkShop MySQL retired/);
+    assert.match(text, /mode=arkshop-retired/);
     assert.match(text, /Deploy `abc1234`/);
     assert.match(text, /Nexus Sentinal/);
     assert.match(text, /RCON health: no self-check recorded yet/);
@@ -351,7 +352,7 @@ test('staff status reports discord, arkshop retirement, and deploy sha without R
   const operator = interaction({
     commandName: 'status',
     user: { id: '8' },
-    member: { roles: { cache: { some: (fn) => fn({ id: 'operator-role' }) } } },
+    member: { roles: { cache: new Map([['operator-role', { id: 'operator-role', managed: false }]]) } },
     memberPermissions: { has: () => false },
     deferReply: async () => { operator.deferred = true; },
     editReply: async (payload) => { operator.edited = payload.content; }

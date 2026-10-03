@@ -6,6 +6,8 @@ const { loadConfig } = require('../shared/config.cjs');
 const { BackendClient } = require('./backend-client.cjs');
 const { getModule } = require('../backend/modules/catalog.cjs');
 const { formatActionResult } = require('./action-formatters.cjs');
+const { hasListedRole } = require('../game-bots/vanguard/config.cjs');
+const { hasStaffAdminRole } = require('./staff-roles.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.mentionResponse.constructor');
 const PENDING_TTL_MS = 2 * 60 * 1000;
@@ -38,14 +40,13 @@ function directMentionText(message, client) {
   return String(message.content).replace(mention, ' ').replace(/\s+/g, ' ').trim();
 }
 
-function memberIsAdmin(message, config) {
+function memberIsAdmin(message, config, env = process.env) {
   const member = message?.member;
   if (!member) return false;
   if (member.permissions?.has?.(PermissionFlagsBits.Administrator)) return true;
+  if (hasStaffAdminRole(member, env)) return true;
   if ((config.discord?.ownerUserIds || []).includes(String(message.author.id))) return true;
-  const roles = member.roles?.cache;
-  if (roles && (config.discord?.operatorRoleIds || []).some((id) => roles.has(String(id)))) return true;
-  return false;
+  return hasListedRole({ member, guild: member.guild || message.guild }, config.discord?.operatorRoleIds);
 }
 
 function resolveModule(text) {

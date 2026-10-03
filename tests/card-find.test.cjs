@@ -547,7 +547,7 @@ test('a non-admin with no allow-list entry is denied admin find and the denial i
   }));
   const payload = replyOf(denied);
   assertPrivate(payload);
-  assert.match(payload.content, /Administrator/);
+  assert.match(payload.content, /Only staff Admins can use this/);
   assert.equal(payload.content.includes('Kirito'), false);
   assert.equal(payload.content.includes(BEA), false);
   const row = auditRows(dir).find((item) => item.action === 'admin-find');
@@ -654,7 +654,7 @@ test('staff find is audited, sees hidden members, and member prefix search does 
   const denied = staffInteraction();
   await handleCardInteraction(denied, depsFor(wired, { config: { discord: { operatorRoleIds: ['999'], safetyStaffRoleIds: ['888'] } } }));
   assertPrivate(replyOf(denied));
-  assert.match(replyOf(denied).content, /Administrator/);
+  assert.match(replyOf(denied).content, /Only staff Admins can use this/);
   assert.equal(replyOf(denied).content.includes('Kirito'), false);
   const deniedRow = auditRows(dir).find((row) => row.action === 'admin-find' && row.outcome === 'denied');
   assert.equal(deniedRow.actorId, ADA);

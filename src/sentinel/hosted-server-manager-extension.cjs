@@ -1,6 +1,6 @@
 'use strict';
 
-const { ActionRowBuilder, Client, Events, MessageFlags, ModalBuilder, PermissionFlagsBits, TextInputBuilder, TextInputStyle } = require('discord.js');
+const { ActionRowBuilder, Client, Events, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { NEXUS_RANKS } = require('../shared/ranks.cjs');
 const { HostedServerStatusService } = require('../backend/services/hosted-server-status-service.cjs');
@@ -11,6 +11,7 @@ const { refreshGameServersPanel } = require('./game-servers-extension.cjs');
 const { COMMUNITY_SERVER_APPLY_BUTTON_ID, COMMUNITY_SERVER_MIN_LEVEL } = require('./game-servers-panel.cjs');
 const { syncServerHostTitle } = require('./server-host-titles.cjs');
 const { hostedServerCommand, handleHostedServerCommand } = require('./hosted-server-manager.cjs');
+const { hostedServerManagerAuthorized } = require('./discord-command-role.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.hostedServerManager.extension');
 const HEALTH_WATCHER = Symbol.for('khaos.nexus.hostedServerManager.healthWatcher');
@@ -88,14 +89,9 @@ function installHostedServerManagerExtension() {
   }
 
   async function isManager(interaction) {
+    if (hostedServerManagerAuthorized(interaction, config)) return true;
     const userId = String(interaction.user?.id || '');
     if (!userId) return false;
-    if (userId === String(interaction.guild?.ownerId || '')) return true;
-    if ((config.discord?.ownerUserIds || []).map(String).includes(userId)) return true;
-    const permissions = interaction.member?.permissions;
-    if (permissions?.has?.(PermissionFlagsBits.Administrator) || permissions?.has?.(PermissionFlagsBits.ManageGuild)) return true;
-    const roles = interaction.member?.roles?.cache;
-    if (roles && (config.discord?.operatorRoleIds || []).some((id) => roles.has(String(id)))) return true;
     const linked = await backend.accountByDiscord(userId).catch(() => null);
     return Boolean(linked?.ok && ['owner', 'co-owner'].includes(linked.account?.role));
   }
@@ -226,4 +222,4 @@ function installHostedServerManagerExtension() {
   };
 }
 
-module.exports = { COMMUNITY_SERVER_MODAL_ID, aggregateApprovedHosts, applicationModal, simpleApplicationInput, simplifyApplySubcommand, installHostedServerManagerExtension };
+module.exports = { COMMUNITY_SERVER_MODAL_ID, aggregateApprovedHosts, applicationModal, hostedServerManagerAuthorized, simpleApplicationInput, simplifyApplySubcommand, installHostedServerManagerExtension };

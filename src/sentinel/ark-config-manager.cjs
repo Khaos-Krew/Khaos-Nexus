@@ -51,6 +51,26 @@ function approvedConfigPath(fileKey, remoteFile) {
   return false;
 }
 
+function disabledArkShopPluginPath(remoteFile) {
+  const value = String(remoteFile || '').trim().replace(/\\/g, '/').toLowerCase();
+  return /(^|\/)shootergame\/binaries\/win64\/arkapi\/plugins\/arkshop_disabled\/(configs\/)?config\.json$/.test(value);
+}
+
+function assertApprovedConfigPath(prefix, fileKey, remoteFile) {
+  const key = String(fileKey || '').trim().toLowerCase();
+  if (key === 'arkshop' && disabledArkShopPluginPath(remoteFile)) {
+    const tail = String(remoteFile || '').replace(/\\/g, '/').split('/').slice(-4).join('/');
+    const error = new Error(`ArkShop plugin folder is disabled for ${prefix} (${tail}). Config was not read. ArkShop stays retired.`);
+    error.code = 'ARKSHOP_PLUGIN_DISABLED';
+    error.pluginDisabled = true;
+    throw error;
+  }
+  if (!approvedConfigPath(key, remoteFile)) {
+    const spec = FILES[key];
+    throw new Error(`SFTP discovery rejected a non-canonical ${spec?.fileName || 'config'} path for ${prefix}. Configure the exact live ARK service path.`);
+  }
+}
+
 async function resolveExistingFile(client, prefix, fileKey) {
   const resolved = resolveFile(prefix, fileKey);
   const serverRoot = configuredServerRoot(prefix) || resolved.settings.root;
@@ -62,9 +82,7 @@ async function resolveExistingFile(client, prefix, fileKey) {
     strictRoot: Boolean(serverRoot),
     maxDepth: resolved.key === 'arkshop' ? 9 : 7
   });
-  if (!approvedConfigPath(resolved.key, found.path)) {
-    throw new Error(`SFTP discovery rejected a non-canonical ${resolved.spec.fileName} path for ${prefix}. Configure the exact live ARK service path.`);
-  }
+  assertApprovedConfigPath(prefix, resolved.key, found.path);
   return { ...resolved, remoteFile: found.path, discovered: found.discovered === true };
 }
 
@@ -350,6 +368,8 @@ module.exports = {
   ARKSHOP_CONFIG_PATH,
   FILES,
   approvedConfigPath,
+  disabledArkShopPluginPath,
+  assertApprovedConfigPath,
   configuredServerRoot,
   resolveFile,
   resolveExistingFile,

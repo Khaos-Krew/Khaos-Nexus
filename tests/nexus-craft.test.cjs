@@ -347,6 +347,38 @@ test('help text covers setup and the edition matrix', () => {
   assert.match(help, /Java dedicated server: status ping and full RCON/);
 });
 
+test('minecraft economy loops start behind the flags without waiting for Discord', async () => {
+  const play = Symbol.for('khaos.nexus.craft.mc.playtime');
+  const delivery = Symbol.for('khaos.nexus.craft.mc.delivery');
+  const sweep = Symbol.for('khaos.nexus.craft.mc.refund-sweep');
+  delete globalThis[play];
+  delete globalThis[delivery];
+  delete globalThis[sweep];
+  const env = {
+    NEXUS_ECONOMY_URL: 'http://127.0.0.1:9',
+    NEXUS_ECONOMY_CRAFT_TOKEN: 'craft-token-for-loops',
+    MC_POINTS_ENABLED: 'true',
+    MC_PLAYTIME_NP_ENABLED: 'true',
+    MC_SHOP_ENABLED: 'true',
+    MC_SHOP_DELIVERY_ENABLED: 'true',
+    MC_PLAYTIME_DRY_RUN: 'false'
+  };
+  const started = await startNexusCraft({ env, port: 0, store: { getServer() { return null; } }, log: () => {} });
+  try {
+    assert.equal(started.idle, true);
+    assert.equal(started.mcLoops.started, true);
+    assert.equal(globalThis[play], true);
+    assert.equal(globalThis[delivery], true);
+    assert.equal(globalThis[sweep], true);
+  } finally {
+    for (const timer of started.mcLoops.timers || []) clearInterval(timer);
+    delete globalThis[play];
+    delete globalThis[delivery];
+    delete globalThis[sweep];
+    await new Promise((resolve) => started.server.close(resolve));
+  }
+});
+
 test('boots healthy when NEXUS_CRAFT_TOKEN is missing', async () => {
   const lines = [];
   let started;
@@ -386,11 +418,18 @@ test('boots healthy when NEXUS_CRAFT_TOKEN is missing', async () => {
   }
 });
 
-test('Craft image and slash commands stay inside the Minecraft bot', () => {
+test('Craft image stays inside the Minecraft bot', {
+  skip: fs.existsSync(path.join(root, 'Dockerfile.craft')) ? false : 'image does not include Dockerfile.craft'
+}, () => {
   const dockerfile = read('Dockerfile.craft');
   assert.match(dockerfile, /src\/railway\/craft-service\.cjs/);
   assert.match(dockerfile, /docs\/ops\/NEXUS_CRAFT\.md/);
   assert.doesNotMatch(dockerfile, /RCON_PASSWORD|RCON_PORT|RCON_HOST|NEXUS_CRAFT_TOKEN=/);
+});
+
+test('Craft ops note stays with the Minecraft bot', {
+  skip: fs.existsSync(path.join(root, 'docs/ops/NEXUS_CRAFT.md')) ? false : 'image does not include docs/ops/NEXUS_CRAFT.md'
+}, () => {
   const doc = read('docs/ops/NEXUS_CRAFT.md');
   assert.match(doc, /Dockerfile\.craft/);
   assert.match(doc, /\/health/);
@@ -398,10 +437,25 @@ test('Craft image and slash commands stay inside the Minecraft bot', () => {
   assert.match(doc, /NEXUS_CRAFT_DISCORD_CATEGORY_ID/);
   assert.match(doc, /NEXUS_CRAFT_REALMS_CHANNEL_ID/);
   assert.match(doc, /src\/craft\/\*\*/);
+});
 
+test('Craft slash commands stay inside the Minecraft bot', () => {
+  const { PermissionFlagsBits } = require('discord.js');
   const { craftCommands } = require('../src/craft/bot.cjs');
-  const commands = craftCommands().map((command) => command.toJSON());
+  const commands = craftCommands({}).map((command) => command.toJSON());
   assert.deepEqual(commands.map((command) => command.name), ['craft', 'mcrcon', 'mc', 'realm']);
+  const hidden = commands.find((command) => command.name === 'mc').options.map((option) => option.name);
+  assert.deepEqual(hidden.filter((name) => ['link', 'unlink', 'shop', 'starter', 'mcadmin'].includes(name)), []);
+  const shown = craftCommands({
+    MC_POINTS_ENABLED: 'true',
+    MC_SHOP_ENABLED: 'true',
+    MC_STARTER_KIT_ENABLED: 'true'
+  }).map((command) => command.toJSON());
+  assert.deepEqual(shown.map((command) => command.name), ['craft', 'mcrcon', 'mc', 'mcadmin', 'realm']);
+  const member = shown.find((command) => command.name === 'mc').options.map((option) => option.name);
+  assert.deepEqual(member.filter((name) => ['link', 'unlink', 'shop', 'starter'].includes(name)), ['link', 'unlink', 'shop', 'starter']);
+  const mcadmin = shown.find((command) => command.name === 'mcadmin');
+  assert.equal(mcadmin.default_member_permissions, String(PermissionFlagsBits.ModerateMembers));
   function walk(option, label) {
     assert.ok(option.description && option.description.length <= 100, label);
     for (const child of option.options || []) walk(child, `${label}.${child.name}`);

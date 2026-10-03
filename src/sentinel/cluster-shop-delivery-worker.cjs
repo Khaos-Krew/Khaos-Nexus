@@ -4,6 +4,7 @@ const { ArkRconClient } = require('./ark-rcon.cjs');
 const { findOnlineServer } = require('./ark-dino-box-delivery-worker.cjs');
 const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
 const { deliverShopOrderWithRewardsAscended } = require('./cluster-shop-rewards-delivery.cjs');
+const { isMinecraftShopOrder } = require('../economy-worker/mc-points-service.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.cluster.shop.delivery.worker');
 let timer = null;
@@ -20,8 +21,9 @@ function pollMs(env = process.env) {
 async function deliverOne({ economyClient = new NexusEconomyClient(), findServer = findOnlineServer, clientFactory = (server) => new ArkRconClient(server), rewardDelivery = deliverShopOrderWithRewardsAscended } = {}) {
   if (!economyClient.configured()) return { skipped: 'economy-worker-unconfigured' };
   const pending = await economyClient.pendingShopOrders();
-  const order = (pending.orders || [])[0];
+  const order = (pending.orders || []).find((entry) => !isMinecraftShopOrder(entry));
   if (!order) return { skipped: 'none-pending' };
+  if (isMinecraftShopOrder(order)) return { skipped: 'minecraft-order-blocked', orderId: order.orderId };
 
   const target = await findServer(order.eosId);
   if (!target) {
@@ -54,8 +56,17 @@ async function runCycle(options = {}) {
   running = true;
   try {
     const results = [];
+    const economyClient = options.economyClient || new NexusEconomyClient();
+    if (economyClient.configured?.() && typeof economyClient.sweepCreditFailedSells === 'function') {
+      try {
+        const swept = await economyClient.sweepCreditFailedSells();
+        results.push({ creditFailedSweep: swept?.results || [] });
+      } catch (error) {
+        results.push({ creditFailedSweep: [], error: String(error?.message || error).slice(0, 200) });
+      }
+    }
     for (let index = 0; index < 10; index += 1) {
-      const result = await deliverOne(options);
+      const result = await deliverOne({ ...options, economyClient });
       results.push(result);
       if (result?.skipped) break;
     }

@@ -65,11 +65,29 @@ async function fetchClanRoster(client, groupId, page) {
   return { result, page: current };
 }
 
+async function countOnlineMembers(client, groupId, { maxPages = 4 } = {}) {
+  let online = 0;
+  let complete = false;
+  const cap = Math.max(1, Math.min(8, Number(maxPages) || 4));
+  for (let page = 1; page <= cap; page += 1) {
+    const fetched = await fetchClanRoster(client, groupId, page);
+    if (!fetched.result?.ok) return null;
+    const roster = normalizeRoster(fetched.result.json, page);
+    online += roster.members.filter((member) => member.online === true).length;
+    if (!roster.hasMore) {
+      complete = true;
+      break;
+    }
+  }
+  return { count: online, complete };
+}
+
 module.exports = {
   memberName,
   normalizeSummary,
   normalizeAdmins,
   normalizeRoster,
   fetchClanSummary,
-  fetchClanRoster
+  fetchClanRoster,
+  countOnlineMembers
 };

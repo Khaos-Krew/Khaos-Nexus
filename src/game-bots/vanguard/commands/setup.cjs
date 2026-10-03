@@ -17,7 +17,68 @@ const SETUP_CHANNELS = Object.freeze([
 
 const BOT_CHANNEL_ALLOW = Object.freeze(['ViewChannel', 'SendMessages', 'EmbedLinks', 'ReadMessageHistory']);
 
-function channelAccessOverwrites(key, { everyoneId = '', botId = '', staffRoleIds = [] } = {}) {
+function roleList(guild) {
+  const cache = guild?.roles?.cache;
+  if (!cache) return [];
+  if (typeof cache.values === 'function') return [...cache.values()];
+  if (Array.isArray(cache)) return cache;
+  return [];
+}
+
+async function findGuildRole(guild, id) {
+  const cached = roleList(guild).find((role) => String(role?.id || '') === String(id));
+  if (cached) return cached;
+  if (typeof guild?.roles?.fetch !== 'function') return null;
+  try {
+    const role = await guild.roles.fetch(id);
+    return role && String(role.id) === String(id) ? role : null;
+  } catch {
+    return null;
+  }
+}
+
+function everyoneRoleId(guild) {
+  return snowflake(guild?.roles?.everyone?.id) || snowflake(guild?.id) || '';
+}
+
+function isManagedBotRole(role) {
+  if (!role) return false;
+  const tags = role.tags || {};
+  if (tags.botId || tags.bot_id) return true;
+  if (role.managed !== true) return false;
+  if (tags.integrationId || tags.integration_id) return false;
+  if ('premiumSubscriber' in tags || 'premium_subscriber' in tags) return false;
+  return true;
+}
+
+function usableMemberRole(role, guild) {
+  const id = snowflake(role?.id);
+  if (!id) return false;
+  const everyone = everyoneRoleId(guild);
+  if (everyone && id === everyone) return false;
+  if (isManagedBotRole(role)) return false;
+  return true;
+}
+
+async function resolveMemberRole(guild, env = {}) {
+  const fromEnv = snowflake(env.VANGUARD_MEMBER_ROLE_ID);
+  if (fromEnv) {
+    const found = await findGuildRole(guild, fromEnv);
+    if (found && usableMemberRole(found, guild)) return { id: fromEnv, source: 'env' };
+    return { id: '', source: 'missing', missingId: fromEnv };
+  }
+  const found = roleList(guild).find((role) => String(role?.name || '').trim().toLowerCase() === 'destiny 2' && usableMemberRole(role, guild));
+  const id = snowflake(found?.id);
+  return id ? { id, source: 'name' } : { id: '', source: '' };
+}
+
+const MEMBER_ROLE_WARNING = 'Destiny 2 role was not found. #panels stays visible to @everyone until VANGUARD_MEMBER_ROLE_ID is set or a role named Destiny 2 exists.';
+
+function missingMemberRoleWarning(roleId) {
+  return `Destiny 2 role ${roleId} was not found. #panels stays visible to @everyone until VANGUARD_MEMBER_ROLE_ID points at a role in this server.`;
+}
+
+function channelAccessOverwrites(key, { everyoneId = '', botId = '', staffRoleIds = [], memberRoleId = '' } = {}) {
   if (key === 'staffAlerts') {
     const rows = [{ id: everyoneId, type: OverwriteType.Role, deny: ['ViewChannel'] }];
     if (botId) rows.push({ id: botId, type: OverwriteType.Member, allow: [...BOT_CHANNEL_ALLOW] });
@@ -28,13 +89,35 @@ function channelAccessOverwrites(key, { everyoneId = '', botId = '', staffRoleId
     return rows.filter((row) => row.id);
   }
   if (key === 'panels') {
-    const rows = [{
-      id: everyoneId,
-      type: OverwriteType.Role,
-      allow: ['ViewChannel', 'ReadMessageHistory'],
-      deny: ['SendMessages']
-    }];
-    if (botId) rows.push({ id: botId, type: OverwriteType.Member, allow: [...BOT_CHANNEL_ALLOW] });
+    const rows = [];
+    if (memberRoleId) {
+      rows.push({
+        id: memberRoleId,
+        type: OverwriteType.Role,
+        allow: ['ViewChannel', 'ReadMessageHistory'],
+        deny: ['SendMessages', 'AddReactions', 'CreatePublicThreads']
+      });
+    }
+    for (const roleId of staffRoleIds) {
+      if (!roleId || roleId === everyoneId || roleId === memberRoleId) continue;
+      rows.push({ id: roleId, type: OverwriteType.Role, allow: ['ViewChannel', 'ReadMessageHistory'] });
+    }
+    if (botId) rows.push({ id: botId, type: OverwriteType.Member, allow: [...BOT_CHANNEL_ALLOW, 'AttachFiles'] });
+    if (memberRoleId) {
+      rows.push({
+        id: everyoneId,
+        type: OverwriteType.Role,
+        deny: ['ViewChannel', 'SendMessages'],
+        clear: ['ReadMessageHistory']
+      });
+    } else {
+      rows.push({
+        id: everyoneId,
+        type: OverwriteType.Role,
+        allow: ['ViewChannel', 'ReadMessageHistory'],
+        deny: ['SendMessages']
+      });
+    }
     return rows.filter((row) => row.id);
   }
   return [];
@@ -57,22 +140,63 @@ function editPayload(row) {
   const payload = {};
   for (const name of row.allow || []) payload[name] = true;
   for (const name of row.deny || []) payload[name] = false;
+  for (const name of row.clear || []) {
+    if (!Object.prototype.hasOwnProperty.call(payload, name)) payload[name] = null;
+  }
   return payload;
 }
 
-function accessContext({ guild, env, botId }) {
+async function accessContext({ guild, env, botId }) {
+  const memberRole = await resolveMemberRole(guild, env);
   return {
     everyoneId: snowflake(guild?.roles?.everyone?.id) || snowflake(guild?.id) || '',
     botId: snowflake(botId) || snowflake(guild?.members?.me?.id) || snowflake(guild?.client?.user?.id) || '',
-    staffRoleIds: csvIds(env.VANGUARD_STAFF_ROLE_IDS)
+    staffRoleIds: csvIds(env.VANGUARD_STAFF_ROLE_IDS),
+    memberRoleId: memberRole.id,
+    memberRoleSource: memberRole.source,
+    memberRoleMissingId: memberRole.missingId || ''
   };
+}
+
+function openEveryoneRow(everyoneId) {
+  return {
+    id: everyoneId,
+    type: OverwriteType.Role,
+    allow: ['ViewChannel', 'ReadMessageHistory'],
+    deny: ['SendMessages']
+  };
+}
+
+async function restoreEveryoneView(channel, access) {
+  if (!access?.everyoneId || typeof channel?.permissionOverwrites?.edit !== 'function') return;
+  const open = openEveryoneRow(access.everyoneId);
+  await channel.permissionOverwrites.edit(open.id, editPayload(open), {
+    type: open.type,
+    reason: 'Nexus Vanguard rollback channel access'
+  });
+}
+
+function staffAlertConfigured(env = {}) {
+  return Boolean(snowflake(env.VANGUARD_STAFF_ALERT_CHANNEL_ID) || snowflake(env.NEXUS_STAFF_ALERT_CHANNEL_ID));
 }
 
 async function applyChannelAccess(channel, key, access) {
   const rows = channelAccessOverwrites(key, access);
   if (!rows.length || typeof channel?.permissionOverwrites?.edit !== 'function') return rows;
-  for (const row of rows) {
-    await channel.permissionOverwrites.edit(row.id, editPayload(row), { type: row.type, reason: 'Nexus Vanguard channel access' });
+  const locksEveryone = Boolean(access?.memberRoleId) && rows.some((row) => row.id === access.everyoneId && (row.deny || []).includes('ViewChannel'));
+  try {
+    for (const row of rows) {
+      await channel.permissionOverwrites.edit(row.id, editPayload(row), { type: row.type, reason: 'Nexus Vanguard channel access' });
+    }
+  } catch (error) {
+    if (locksEveryone) {
+      try {
+        await restoreEveryoneView(channel, access);
+      } catch (rollbackError) {
+        console.warn(`[Nexus Vanguard] panels rollback class=${errorClass(rollbackError)}`);
+      }
+    }
+    throw error;
   }
   return rows;
 }
@@ -200,9 +324,13 @@ async function provisionChannels({ guild, env = {}, categoryId, saved = {}, reas
   const pinned = [];
   const invalid = [];
   const known = channelList(fetched);
-  const access = accessContext({ guild, env, botId });
+  const access = await accessContext({ guild, env, botId });
   const failed = [];
   const skipped = [];
+  const warnings = [];
+  const alertReady = staffAlertConfigured(env);
+  if (access.memberRoleSource === 'missing') warnings.push(missingMemberRoleWarning(access.memberRoleMissingId));
+  else if (!access.memberRoleId) warnings.push(MEMBER_ROLE_WARNING);
   async function notify(text) {
     console.warn(`[Nexus Vanguard] ${text}`);
     if (typeof alert !== 'function') return;
@@ -253,6 +381,7 @@ async function provisionChannels({ guild, env = {}, categoryId, saved = {}, reas
       await notify(`Permission update failed on ${step.name} (class=${errorClass(error)}). Setup continued with the other channels.`);
     }
   }
+  for (const text of warnings) await notify(text);
   return {
     ok: failed.length === 0,
     reason: failed.length ? 'partial' : 'ready',
@@ -262,7 +391,9 @@ async function provisionChannels({ guild, env = {}, categoryId, saved = {}, reas
     invalid,
     skipped,
     failed,
-    resolved
+    resolved,
+    warnings,
+    alertReady
   };
 }
 
@@ -302,6 +433,16 @@ async function runSetup(interaction, ctx) {
     return state;
   });
   publishRuntimeChannels(env, resolvedChannels(env, result.resolved), ctx.jtc);
+  if (result.warnings?.length && !result.alertReady) {
+    const alert = staffChannelAlert(interaction.client, env);
+    for (const text of result.warnings) {
+      try {
+        await alert(text);
+      } catch (error) {
+        console.warn(`[Nexus Vanguard] staff alert class=${errorClass(error)}`);
+      }
+    }
+  }
   if (!result.ok && result.reason !== 'partial') {
     await interaction.editReply(ephemeral(`Channel setup stopped (class ${result.errorClass || 'error'}). Run it again to reuse channels that were already created.`));
     return true;
@@ -314,6 +455,7 @@ async function runSetup(interaction, ctx) {
   if (invalid.length) lines.push(`Ignored invalid env ids (fix them in Railway): ${invalid.join(', ')}`);
   if (result.skipped?.length) lines.push(`Left unchanged (outside the category): ${result.skipped.join(', ')}`);
   if (result.failed?.length) lines.push(`Permission update failed, other channels continued: ${result.failed.join(', ')}`);
+  for (const text of result.warnings || []) lines.push(text);
   lines.push('Channel names stay free of the game name.');
   await interaction.editReply(ephemeral(lines.join('\n')));
   return true;
@@ -321,7 +463,11 @@ async function runSetup(interaction, ctx) {
 
 module.exports = {
   SETUP_CHANNELS,
+  MEMBER_ROLE_WARNING,
+  missingMemberRoleWarning,
   channelAccessOverwrites,
+  resolveMemberRole,
+  staffAlertConfigured,
   staffChannelAlert,
   vanguardCommandBuilder,
   planSetup,

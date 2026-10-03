@@ -8,6 +8,14 @@ const { economyPerkForRank, OFFLINE_PASSIVE_CAP_HOURS } = require('../shared/nex
 const { highestConfiguredRankForMember } = require('./ark-account-linking.cjs');
 const { assertDiscordMembershipVerified } = require('./nexus-economy-o9-eligibility.cjs');
 const { MemberVerificationStore } = require('./member-verification-store.cjs');
+const { MEMBER_HOLD_MESSAGE, memberHoldFromError } = require('./nexus-economy-identity-hold.cjs');
+
+function asMemberHold(result) {
+  if (!result || result.ok !== false) return null;
+  if (result.reason !== 'account-hold' && result.reason !== 'quarantined' && result.message !== MEMBER_HOLD_MESSAGE) return null;
+  const reason = result.reason === 'quarantined' ? 'quarantined' : 'account-hold';
+  return { ok: false, reason, message: MEMBER_HOLD_MESSAGE, credited: 0 };
+}
 
 function clean(value, max = 256) {
   return String(value || '').replace(/[\r\n\t\u0000-\u001f]+/g, '').trim().slice(0, max);
@@ -102,7 +110,16 @@ class NexusEconomyClient {
         { discordUserId: id, eosId, rankId, discordMembershipVerified: true },
         account
       );
-      await this.linkIdentity(signedLink);
+      let linkedResult;
+      try {
+        linkedResult = await request('/identity/link', { method: 'POST', body: signedLink, acceptedStatusCodes: [409] });
+      } catch (error) {
+        const held = memberHoldFromError(error);
+        if (held) return held;
+        throw error;
+      }
+      const held = asMemberHold(linkedResult?.result) || asMemberHold(linkedResult);
+      if (held) return held;
       linked += 1;
     }
     return { ok: true, discordUserId: id, rankId, linked };
@@ -149,7 +166,16 @@ class NexusEconomyClient {
   shopQuote(input) { return request('/shop/quote', { method: 'POST', body: input }); }
   async shopBuy(input) {
     // O9 fail-closed: Discord-verify required and link failures must reject before /shop/buy.
-    const projection = await this.ensureIdentityProjected(input?.discordUserId);
+    let projection;
+    try {
+      projection = await this.ensureIdentityProjected(input?.discordUserId);
+    } catch (error) {
+      const held = memberHoldFromError(error);
+      if (held) return held;
+      throw error;
+    }
+    const held = asMemberHold(projection);
+    if (held) return held;
     if (!projection?.ok) {
       throw new Error(projection?.skipped || 'identity-projection-required');
     }
@@ -159,7 +185,13 @@ class NexusEconomyClient {
   shopOrder(orderId) { return request(`/shop/order/${encodeURIComponent(String(orderId))}`); }
   pendingShopOrders() { return request('/shop/orders/pending'); }
   confirmShopSellRemoval(input) { return request('/shop/sell/confirm-removal', { method: 'POST', body: input }); }
+  sweepCreditFailedSells() { return request('/shop/sell/sweep-credit-failed', { method: 'POST', body: {} }); }
   markShopBuyDelivery(input) { return request('/shop/buy/delivery-status', { method: 'POST', body: input }); }
+
+  mcShopCatalog() { return request('/mc-shop/catalog'); }
+  mcShopQuote(input) { return request('/mc-shop/quote', { method: 'POST', body: input }); }
+  mcShopBuy(input) { return request('/mc-shop/buy', { method: 'POST', body: input, acceptedStatusCodes: [409] }); }
+  mcClaimStarterKit(input) { return request('/mc/starter-kit/claim', { method: 'POST', body: input }); }
 }
 
 module.exports = { configured, NexusEconomyClient };

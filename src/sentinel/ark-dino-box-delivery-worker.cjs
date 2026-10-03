@@ -1,6 +1,7 @@
 'use strict';
 
 const { connectMysql, isRetired } = require('./arkshop-mysql.cjs');
+const { arkShopFeaturesAreOpen } = require('./arkshop-cluster-economy-guard.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { ORDER_TABLE, EVENT_TABLE, ensureSchema } = require('./ark-cache-shop-service.cjs');
@@ -160,8 +161,8 @@ async function finishDinoDepotPath({ connection, row, target, saddle, result, ou
   return { orderId: row.id, publicCacheId: row.public_cache_id, backend: 'dinodepot', command, rconStatus: result?.status, server: row.deliveryPrefix, ...outcome };
 }
 
-async function deliverOne({ connector = connectMysql, findServer = findOnlineServer, clientFactory = server => new ArkRconClient(server) } = {}) {
-  if (isRetired()) return { skipped: 'arkshop-mysql-retired' };
+async function deliverOne({ connector = connectMysql, findServer = findOnlineServer, clientFactory = server => new ArkRconClient(server), featuresOpen = arkShopFeaturesAreOpen } = {}) {
+  if (isRetired() || await featuresOpen() !== true) return { skipped: 'arkshop-mysql-retired' };
   const opened = await connector();
   if (opened?.retired || !opened?.connection) return { skipped: 'arkshop-mysql-retired' };
   const { connection } = opened;
@@ -233,14 +234,14 @@ async function deliverOne({ connector = connectMysql, findServer = findOnlineSer
   } finally { await connection.end().catch(() => {}); }
 }
 
-async function runCycle() {
-  if (isRetired()) return [{ skipped: 'arkshop-mysql-retired' }];
+async function runCycle({ featuresOpen = arkShopFeaturesAreOpen } = {}) {
+  if (isRetired() || await featuresOpen() !== true) return [{ skipped: 'arkshop-mysql-retired' }];
   if (running) return { skipped: 'busy' };
   running = true;
   try {
     const results = [];
     for (let index = 0; index < 10; index += 1) {
-      const result = await deliverOne();
+      const result = await deliverOne({ featuresOpen: async () => true });
       results.push(result);
       if (result?.skipped) break;
     }

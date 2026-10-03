@@ -8,6 +8,7 @@ const TABLES = new Set([
   'DestinyInventoryItemDefinition',
   'DestinyActivityDefinition',
   'DestinyActivityModeDefinition',
+  'DestinyActivityModifierDefinition',
   'DestinyClassDefinition'
 ]);
 
@@ -75,6 +76,22 @@ function createManifestQuery() {
     return displayName(definition(table, hash));
   }
 
+  function itemMeta(table, hash) {
+    const row = definition(table, hash);
+    if (!row) return null;
+    const inventory = row.inventory && typeof row.inventory === 'object' ? row.inventory : null;
+    return {
+      name: displayName(row),
+      itemType: Number(row.itemType) || 0,
+      tierType: Number(inventory?.tierType ?? row.tierType) || 0,
+      tierTypeName: String(inventory?.tierTypeName || row.tierTypeName || ''),
+      bucketTypeHash: Number(inventory?.bucketTypeHash) || 0,
+      classType: row.classType == null || row.classType === '' ? null : Number(row.classType),
+      redacted: row.redacted === true,
+      displayCategory: row.displayCategory === true || row.vendorDisplayCategory === true
+    };
+  }
+
   function readAll(table) {
     if (!tableExists(table)) return [];
     const rows = db.prepare(`SELECT json FROM ${table}`).all();
@@ -133,7 +150,7 @@ function createManifestQuery() {
     return matches.slice(0, cap);
   }
 
-  return { open, close, definition, nameFor, activityModes, searchActivities, hashKeys };
+  return { open, close, definition, nameFor, itemMeta, activityModes, searchActivities, hashKeys };
 }
 
 module.exports = {

@@ -50,7 +50,7 @@ function isHealthInteraction(interaction) {
 }
 
 async function respondHealthInteraction(interaction, { config, prefix, server }) {
-  if (!isStaff(interaction, config)) throw new Error('ARK update safety is restricted to Nexus staff.');
+  if (!isStaff(interaction, config)) throw new Error('ARK update safety is restricted to Nexus staff. Ask an Admin.');
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const live = server?.host && server?.port && server?.password ? server : arkServerFromEnv(prefix);
   if (!live.enabled || !live.host || !live.port || !live.password) {

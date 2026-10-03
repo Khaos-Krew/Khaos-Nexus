@@ -19,6 +19,7 @@ const {
   resolveStaffRoleIds,
   staffOnlyOverwrites
 } = require('./safety-report-access.cjs');
+const { applyManagedOverwrites } = require('./staff-workspace.cjs');
 const { ShieldStore } = require('./shield-store.cjs');
 const {
   ShieldIsolationStore,
@@ -116,7 +117,7 @@ async function ensureHelpChannel(guild, client, config, role) {
     if (String(channel.parentId || '') !== String(parent.id)) {
       await channel.setParent(parent.id, { lockPermissions: false, reason: 'Nexus Sentinel Shield move verification help into INFORMATION' });
     }
-    await channel.permissionOverwrites.set(overwrites, 'Nexus Sentinel Shield reconcile controlled quarantine help access');
+    await applyManagedOverwrites(channel, overwrites, 'Nexus Sentinel Shield reconcile controlled quarantine help access');
     if (typeof channel.setTopic === 'function') {
       await channel.setTopic('Nexus Sentinel Shield quarantine information and staff-review status. Never share credentials, tokens, or suspicious files here.', 'Nexus Sentinel Shield help topic').catch(() => {});
     }

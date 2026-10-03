@@ -14,6 +14,7 @@ const { CONFIG } = require('./ark-dino-cache-engine.cjs');
 const { BUTTON_CACHE_SHOP } = require('./ark-cluster-panel.cjs');
 const { ArkCacheShopService } = require('./ark-cache-shop-service.cjs');
 const { cacheImageAttachment, cacheImageName } = require('./ark-cache-shop-art.cjs');
+const { ARKSHOP_FEATURES_OFF_MESSAGE, memberActionFallback } = require('./arkshop-cluster-economy-guard.cjs');
 
 const SELECT_CACHE = 'nexus-ark-cache-select';
 const BUTTON_BACK = 'nexus-ark-cache-back';
@@ -85,7 +86,7 @@ function returnToShopRow(){
 function economyLine(shopper){
   if(!shopper)return 'Economy: **purchase identity not verified**';
   if(shopper.economy?.ok===true)return 'Economy: ✅ **Shared MySQL verified**';
-  return `Economy: 🔒 **Purchases locked** (${String(shopper.economy?.mode||'unverified').slice(0,64)})`;
+  return ARKSHOP_FEATURES_OFF_MESSAGE;
 }
 
 function catalogEmbed(shopper=null,warning=''){
@@ -138,7 +139,7 @@ function detailPayload(cacheId,shopper=null,warning=''){
   const fields=[
     {name:'👤 Player',value:account,inline:true},
     {name:'💳 Wallet',value:Number.isFinite(shopper?.points)?`**${fmtPoints(shopper.points)}**`:'Checked at checkout',inline:true},
-    {name:'🔐 Economy',value:shopper?(canBuy?'✅ Shared MySQL verified':`🔒 ${String(shopper.economy?.mode||'unverified').slice(0,64)}`):'Not verified',inline:true},
+    {name:'🔐 Economy',value:shopper?(canBuy?'✅ Shared MySQL verified':ARKSHOP_FEATURES_OFF_MESSAGE):'Not verified',inline:true},
     {name:'💰 Cost & Cooldown',value:`**${fmtPoints(cache.price)}**${cache.cooldownHours?`\nCooldown: **${fmtCooldown(cache.cooldownHours)}**`:'\nCooldown: **None**'}`,inline:true},
     {name:'🎲 Rarity Roll',value:raritySummary(cache),inline:false},
     ...speciesByRarity(cache),
@@ -219,14 +220,17 @@ function installArkCacheShopExtension(options={}){
         if(!isOpen&&!isBack&&!isRewards&&!isBuy&&!isPage&&!isSelect)return;
         void(async()=>{
           const userId=String(interaction.user?.id||'');
-          if(isOpen){await interaction.deferReply({flags:MessageFlags.Ephemeral});const view=await safeShopper(service,userId);return interaction.editReply(catalogPayload(view.shopper,view.warning));}
-          if(isBack){await interaction.deferUpdate();const view=await safeShopper(service,userId);return interaction.editReply(catalogPayload(view.shopper,view.warning));}
+          const retiredPayload=()=>({content:ARKSHOP_FEATURES_OFF_MESSAGE,embeds:[],components:[],files:[],attachments:[],allowedMentions:{parse:[]}});
+          if(isOpen){await interaction.deferReply({flags:MessageFlags.Ephemeral});const view=await safeShopper(service,userId);return interaction.editReply(view.warning===ARKSHOP_FEATURES_OFF_MESSAGE?retiredPayload():catalogPayload(view.shopper,view.warning));}
+          if(isBack){await interaction.deferUpdate();const view=await safeShopper(service,userId);return interaction.editReply(view.warning===ARKSHOP_FEATURES_OFF_MESSAGE?retiredPayload():catalogPayload(view.shopper,view.warning));}
           if(isRewards){await interaction.deferUpdate();const rows=await service.rewards(userId,8);return interaction.editReply(rewardsPayload(rows));}
-          if(isPage){await interaction.deferUpdate();const cacheId=id.slice(PAGE_PREFIX.length).toLowerCase();const view=await safeShopper(service,userId);return interaction.editReply(detailPayload(cacheId,view.shopper,view.warning));}
-          if(isSelect){await interaction.deferUpdate();const cacheId=String(interaction.values?.[0]||'').toLowerCase();const view=await safeShopper(service,userId);return interaction.editReply(detailPayload(cacheId,view.shopper,view.warning));}
+          if(isPage){await interaction.deferUpdate();const cacheId=id.slice(PAGE_PREFIX.length).toLowerCase();const view=await safeShopper(service,userId);return interaction.editReply(view.warning===ARKSHOP_FEATURES_OFF_MESSAGE?retiredPayload():detailPayload(cacheId,view.shopper,view.warning));}
+          if(isSelect){await interaction.deferUpdate();const cacheId=String(interaction.values?.[0]||'').toLowerCase();const view=await safeShopper(service,userId);return interaction.editReply(view.warning===ARKSHOP_FEATURES_OFF_MESSAGE?retiredPayload():detailPayload(cacheId,view.shopper,view.warning));}
           if(isBuy){await interaction.deferUpdate();const cacheId=id.slice(BUY_PREFIX.length).toLowerCase();const result=await service.purchase({discordUserId:userId,cacheId,purchaseNonce:String(interaction.id)});for(let stage=0;stage<4;stage+=1){await interaction.editReply(revealPayload(result.order,stage));await sleep(420);}return interaction.editReply(finalRewardPayload(result.order,result.balance));}
         })().catch(async(error)=>{
-          const content=`⚠️ **Cache Shop:** ${String(error?.message||error).slice(0,400)}`,payload={content,embeds:[],components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(BUTTON_BACK).setLabel('Back to Cache Shop').setStyle(ButtonStyle.Secondary))],attachments:[],allowedMentions:{parse:[]}};
+          const content=memberActionFallback(error,'Cache Shop');
+          const retired=content===ARKSHOP_FEATURES_OFF_MESSAGE;
+          const payload={content,embeds:[],components:retired?[]:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(BUTTON_BACK).setLabel('Back to Cache Shop').setStyle(ButtonStyle.Secondary))],attachments:[],allowedMentions:{parse:[]}};
           if(interaction.deferred||interaction.replied)await interaction.editReply(payload).catch(()=>{});else await interaction.reply({...payload,flags:MessageFlags.Ephemeral}).catch(()=>{});
         });
       });

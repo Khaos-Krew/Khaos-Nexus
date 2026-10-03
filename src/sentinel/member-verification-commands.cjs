@@ -2,16 +2,23 @@
 
 const { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } = require('discord.js');
 const { MemberVerificationStore } = require('./member-verification-store.cjs');
+const { isStaffAdmin } = require('./staff-roles.cjs');
 
-function canGrant(interaction) {
-  return Boolean(interaction?.memberPermissions?.has?.(PermissionFlagsBits.Administrator));
+// Narrow admin gate: staff admin role, guild owner, or Discord Administrator.
+// Staff mod roles are never accepted here.
+function canGrant(interaction, env = process.env) {
+  return isStaffAdmin(interaction, env);
 }
 
 function memberVerificationCommandDefinition() {
   return new SlashCommandBuilder()
     .setName('o9verify')
     .setDescription('Admin only: manage Sentinal Discord membership verification (O9)')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    // ManageGuild instead of Administrator so the command stays visible to the
+    // staff admin role once Administrator is removed from it. ManageGuild is an
+    // admin-tier permission mods do not normally hold. canGrant() is the real
+    // gate and never accepts mod roles.
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false)
     .addSubcommand((sub) => sub
       .setName('grant')
@@ -74,7 +81,7 @@ async function handleMemberVerificationInteraction(interaction, {
 
   if (!canGrant(interaction)) {
     await interaction.reply({
-      content: '⚠️ `/o9verify` is restricted to Discord administrators.',
+      content: 'Only staff Admins can use this. Ask an Admin if you need it.',
       flags: MessageFlags.Ephemeral
     });
     return true;

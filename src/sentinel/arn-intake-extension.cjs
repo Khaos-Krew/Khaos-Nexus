@@ -9,8 +9,8 @@ const {
 } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const {
-  normalizeName,
-  overwriteSetMatches
+  applyManagedOverwrites,
+  normalizeName
 } = require('./staff-workspace.cjs');
 const { ensureStaffCategory } = require('./staff-workspace-extension.cjs');
 const { sentinalArnLegacyEnabled } = require('./arn-legacy-mode.cjs');
@@ -146,11 +146,7 @@ async function reconcileArnIntake(client, config = loadConfig(), options = {}) {
   }
 
   const desiredOverwrites = intakeOverwrites(category, client.user.id);
-  if (!overwriteSetMatches(channel, desiredOverwrites)) {
-    await channel.permissionOverwrites.set(
-      desiredOverwrites,
-      'Nexus Sentinal ARN intake privacy and webhook permission reconciliation'
-    );
+  if (await applyManagedOverwrites(channel, desiredOverwrites, 'Nexus Sentinal ARN intake privacy and webhook permission reconciliation')) {
     permissionsUpdated = true;
   }
 

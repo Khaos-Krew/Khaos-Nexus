@@ -17,7 +17,7 @@ class EconomyRequestError extends Error {
 }
 
 const { registerAdminWalletDrainPaths, handleAdminWalletPost } = require('./admin-wallet-routes.cjs');
-const DRAIN_MUTATION_PATHS = registerAdminWalletDrainPaths(new Set(['/identity/link', '/identity/demote-restricted', '/wallet/ensure-shadow-recruit']));
+const { MEMBER_HOLD_MESSAGE, memberHoldFromError } = require('../sentinel/nexus-economy-identity-hold.cjs');
 const PRESENCE_WRITE_PATHS = new Set(['/presence', '/wallet/accrue-offline']);
 const FINANCIAL_WRITE_PATHS = new Set([
   '/wallet/credit',
@@ -25,10 +25,45 @@ const FINANCIAL_WRITE_PATHS = new Set([
   '/shop/buy',
   '/shop/sell',
   '/shop/sell/confirm-removal',
-  '/shop/buy/delivery-status'
+  '/shop/sell/sweep-credit-failed',
+  '/shop/buy/delivery-status',
+  '/mc-shop/buy',
+  '/mc-shop/refund',
+  '/mc-shop/refund-sweep'
+]);
+const MC_NONECONOMY_PATHS = new Set([
+  '/mc/link/challenge',
+  '/mc/link/confirm',
+  '/mc/unlink',
+  '/mc/starter-kit/claim',
+  '/mc/staff/resend',
+  '/mc/staff/resolve',
+  '/mc-shop/quote',
+  '/mc-shop/delivery-status',
+  '/mc-shop/claim'
+]);
+const DRAIN_MUTATION_PATHS = registerAdminWalletDrainPaths(new Set([
+  '/identity/link',
+  '/identity/demote-restricted',
+  '/wallet/ensure-shadow-recruit',
+  ...MC_NONECONOMY_PATHS,
+  '/mc-shop/buy',
+  '/mc-shop/refund',
+  '/mc-shop/refund-sweep'
+]));
+const CRAFT_ROUTES = new Set([
+  'POST /presence',
+  'POST /mc/link/challenge',
+  'POST /mc/link/confirm',
+  'POST /mc/unlink',
+  'POST /mc-shop/claim',
+  'POST /mc-shop/delivery-status',
+  'POST /mc-shop/refund-sweep',
+  'GET /mc-shop/orders/pending',
+  'GET /mc/grants'
 ]);
 const WRITE_PATHS = new Set([...PRESENCE_WRITE_PATHS, ...FINANCIAL_WRITE_PATHS]);
-const POST_PATHS = new Set([...DRAIN_MUTATION_PATHS, ...WRITE_PATHS, '/shop/quote']);
+const POST_PATHS = new Set([...DRAIN_MUTATION_PATHS, ...WRITE_PATHS, ...MC_NONECONOMY_PATHS, '/shop/quote']);
 
 function enabled(value) {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
@@ -44,13 +79,53 @@ function json(res, status, body) {
   res.end(payload);
 }
 
-function authorized(req, token) {
-  if (!token) return false;
+function bearerToken(req) {
   const auth = String(req.headers.authorization || '');
-  if (!auth.startsWith('Bearer ')) return false;
-  const supplied = Buffer.from(auth.slice(7));
-  const expected = Buffer.from(token);
-  return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
+  if (!auth.startsWith('Bearer ')) return '';
+  return auth.slice(7);
+}
+
+function tokenMatches(supplied, expected) {
+  if (!supplied || !expected) return false;
+  const left = Buffer.from(supplied);
+  const right = Buffer.from(expected);
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function requestScope(req, { token = '', craftToken = '' } = {}) {
+  const supplied = bearerToken(req);
+  if (!supplied) return '';
+  if (token && tokenMatches(supplied, token)) return 'sentinal';
+  if (craftToken && craftToken !== token && tokenMatches(supplied, craftToken)) return 'craft';
+  return '';
+}
+
+function presenceBody(input) {
+  const body = input && typeof input === 'object' ? input : {};
+  const copy = {};
+  if ('provider' in body) copy.provider = body.provider;
+  if ('eosId' in body) copy.eosId = body.eosId;
+  if ('mcUuid' in body) copy.mcUuid = body.mcUuid;
+  if ('online' in body) copy.online = body.online === true;
+  if (body.afk === true) copy.afk = true;
+  if ('server' in body) copy.server = body.server;
+  return copy;
+}
+
+function craftMinecraftPresence(input) {
+  const body = input && typeof input === 'object' ? input : {};
+  const provider = String(body.provider || '').trim().toLowerCase();
+  const eosId = body.eosId == null ? '' : String(body.eosId).trim();
+  const mcUuid = body.mcUuid == null ? '' : String(body.mcUuid).trim();
+  if (eosId) return false;
+  if (provider === 'ark') return false;
+  if (provider && provider !== 'minecraft') return false;
+  if (provider === 'minecraft') return true;
+  return Boolean(mcUuid);
+}
+
+function craftRouteAllowed(method, pathname) {
+  return CRAFT_ROUTES.has(`${method} ${pathname}`);
 }
 
 async function body(req) {
@@ -75,6 +150,13 @@ async function body(req) {
   }
 }
 
+function holdResponse(result) {
+  if (!result || result.ok !== false) return null;
+  if (result.reason !== 'account-hold' && result.reason !== 'quarantined' && result.message !== MEMBER_HOLD_MESSAGE) return null;
+  const reason = result.reason === 'quarantined' ? 'quarantined' : 'account-hold';
+  return { ok: false, reason, message: MEMBER_HOLD_MESSAGE, error: MEMBER_HOLD_MESSAGE, credited: 0 };
+}
+
 function publicRequestError(error) {
   if (error instanceof EconomyRequestError && error.code === 'request-body-too-large') {
     return { statusCode: 413, body: { ok: false, error: 'request-body-too-large' } };
@@ -82,6 +164,8 @@ function publicRequestError(error) {
   if (error instanceof EconomyRequestError && error.code === 'invalid-json') {
     return { statusCode: 400, body: { ok: false, error: 'invalid-json' } };
   }
+  const held = memberHoldFromError(error);
+  if (held) return { statusCode: 409, body: { ...held, error: held.message } };
   return { statusCode: 500, body: { ok: false, error: 'internal-error' } };
 }
 
@@ -225,6 +309,7 @@ function createEconomyServer(options = {}) {
   const worker = options.worker || new NexusEconomyWorker();
   const shop = options.shop || new ClusterShopService({ economy: worker });
   const token = String(options.token ?? process.env.NEXUS_ECONOMY_TOKEN ?? '').trim();
+  const craftToken = String(options.craftToken ?? process.env.NEXUS_ECONOMY_CRAFT_TOKEN ?? '').trim();
   const writesEnabled = options.writesEnabled == null
     ? enabled(process.env.NEXUS_ECONOMY_WRITES_ENABLED)
     : Boolean(options.writesEnabled);
@@ -246,7 +331,11 @@ function createEconomyServer(options = {}) {
       if (req.method === 'GET' && url.pathname === '/health') {
         return json(res, 200, runtimeReadiness({ worker, shop, token, writesEnabled, presenceWritesEnabled }));
       }
-      if (!authorized(req, token)) return json(res, 401, { ok: false, error: 'unauthorized' });
+      const scope = requestScope(req, { token, craftToken });
+      if (!scope) return json(res, 401, { ok: false, error: 'unauthorized' });
+      if (scope === 'craft' && !craftRouteAllowed(req.method, url.pathname)) {
+        return json(res, 403, { ok: false, error: 'craft-token-scope' });
+      }
 
       if (req.method === 'GET' && url.pathname.startsWith('/wallet-balances/')) {
         const discordUserId = decodeURIComponent(url.pathname.slice('/wallet-balances/'.length));
@@ -288,6 +377,22 @@ function createEconomyServer(options = {}) {
       if (req.method === 'GET' && url.pathname === '/shop/orders/pending') {
         return json(res, 200, { ok: true, orders: await Promise.resolve(shop.pendingBuyOrders()) });
       }
+      if (req.method === 'GET' && url.pathname === '/mc-shop/catalog') {
+        const { loadMcShopCatalog } = require('../shared/mc-shop-catalog.cjs');
+        const { mcPointsFlags } = require('../shared/mc-points-flags.cjs');
+        const catalog = worker.minecraft?.catalog || loadMcShopCatalog();
+        return json(res, 200, { ok: true, catalog, enabled: mcPointsFlags().shopEnabled });
+      }
+      if (req.method === 'GET' && url.pathname === '/mc-shop/orders/pending' && worker.minecraft) {
+        return json(res, 200, { ok: true, orders: await Promise.resolve(worker.minecraft.pendingOrders()) });
+      }
+      if (req.method === 'GET' && url.pathname === '/mc/grants' && worker.minecraft) {
+        return json(res, 200, { ok: true, grants: await Promise.resolve(worker.minecraft.listGrants()) });
+      }
+      if (req.method === 'GET' && url.pathname.startsWith('/mc/link/') && worker.minecraft) {
+        const discordUserId = decodeURIComponent(url.pathname.slice('/mc/link/'.length));
+        return json(res, 200, await Promise.resolve(worker.minecraft.status({ discordUserId })));
+      }
       if (req.method === 'GET' && url.pathname.startsWith('/shop/order/')) {
         const orderId = decodeURIComponent(url.pathname.slice('/shop/order/'.length));
         const order = await Promise.resolve(shop.order(orderId));
@@ -303,7 +408,12 @@ function createEconomyServer(options = {}) {
       const executionGate = mutationRequestGate(url.pathname, { writesEnabled, presenceWritesEnabled, lifecycle });
       if (executionGate) return json(res, executionGate.statusCode, executionGate.body);
 
-      if (url.pathname === '/identity/link') return json(res, 200, { ok: true, result: await Promise.resolve(worker.linkArkIdentity(input)) });
+      if (url.pathname === '/identity/link') {
+        const linked = await Promise.resolve(worker.linkArkIdentity(input));
+        const held = holdResponse(linked);
+        if (held) return json(res, 409, held);
+        return json(res, 200, { ok: true, result: linked });
+      }
       if (url.pathname === '/identity/demote-restricted') {
         const demote = typeof worker.demoteIdentityToRestricted === 'function'
           ? worker.demoteIdentityToRestricted(input.discordUserId)
@@ -320,7 +430,12 @@ function createEconomyServer(options = {}) {
         return json(res, 200, { ok: true, result: ensured });
       }
       if (url.pathname === '/shop/quote') return json(res, 200, { ok: true, quote: shop.quote(input), writesEnabled });
-      if (url.pathname === '/presence') return json(res, 200, await worker.recordPresence(input));
+      if (url.pathname === '/presence') {
+        if (scope === 'craft' && !craftMinecraftPresence(input)) {
+          return json(res, 403, { ok: false, error: 'craft-presence-scope' });
+        }
+        return json(res, 200, await worker.recordPresence(presenceBody(input)));
+      }
       {
         const adminHandled = await handleAdminWalletPost(url.pathname, { worker, input, json, res });
         if (adminHandled !== null) return adminHandled;
@@ -334,7 +449,51 @@ function createEconomyServer(options = {}) {
       }
       if (url.pathname === '/shop/sell') return json(res, 200, await Promise.resolve(shop.createSellOrder(input)));
       if (url.pathname === '/shop/sell/confirm-removal') return json(res, 200, await shop.confirmSellRemoval(input));
+      if (url.pathname === '/shop/sell/sweep-credit-failed') {
+        if (typeof shop.sweepCreditFailedSells !== 'function') return json(res, 200, { ok: true, results: [], skipped: 'unsupported' });
+        return json(res, 200, { ok: true, results: await shop.sweepCreditFailedSells() });
+      }
       if (url.pathname === '/shop/buy/delivery-status') return json(res, 200, await Promise.resolve(shop.markBuyDelivery(input)));
+      if (worker.minecraft && url.pathname === '/mc/link/challenge') return json(res, 200, await worker.minecraft.challenge(input));
+      if (worker.minecraft && url.pathname === '/mc/link/confirm') return json(res, 200, await worker.minecraft.confirm(input));
+      if (worker.minecraft && url.pathname === '/mc/unlink') return json(res, 200, await worker.minecraft.unlink(input));
+      if (worker.minecraft && url.pathname === '/mc-shop/quote') return json(res, 200, await worker.minecraft.quote(input));
+      if (worker.minecraft && url.pathname === '/mc-shop/buy') {
+        const result = await worker.minecraft.buy({ ...input, writesEnabled: true });
+        return json(res, result.ok ? 200 : 409, result);
+      }
+      if (worker.minecraft && url.pathname === '/mc-shop/delivery-status') {
+        if (!require('../shared/mc-points-flags.cjs').mcPointsFlags().shopDeliveryEnabled) {
+          return json(res, 200, { ok: false, reason: 'mc-shop-delivery-disabled' });
+        }
+        return json(res, 200, await worker.minecraft.markDelivery(input));
+      }
+      if (worker.minecraft && url.pathname === '/mc-shop/claim') {
+        if (!require('../shared/mc-points-flags.cjs').mcPointsFlags().shopDeliveryEnabled) {
+          return json(res, 200, { ok: false, reason: 'mc-shop-delivery-disabled' });
+        }
+        return json(res, 200, { ok: true, order: await worker.minecraft.claimNext({ owner: input.owner || 'nexus-craft' }) });
+      }
+      if (worker.minecraft && url.pathname === '/mc-shop/refund') {
+        return json(res, 200, await worker.minecraft.refund({
+          orderId: input.orderId,
+          reason: input.reason,
+          actor: input.actor,
+          writesEnabled
+        }));
+      }
+      if (worker.minecraft && url.pathname === '/mc-shop/refund-sweep') return json(res, 200, { ok: true, results: await worker.minecraft.sweepRefunds({ writesEnabled }) });
+      if (worker.minecraft && url.pathname === '/mc/starter-kit/claim') {
+        return json(res, 200, await worker.minecraft.claimStarterKit({
+          discordUserId: input.discordUserId
+        }));
+      }
+      if (worker.minecraft && url.pathname === '/mc/staff/resend') {
+        return json(res, 200, await worker.minecraft.staffResend(input));
+      }
+      if (worker.minecraft && url.pathname === '/mc/staff/resolve') {
+        return json(res, 200, await worker.minecraft.staffResolve(input));
+      }
       return json(res, 404, { ok: false, error: 'not-found' });
     } catch (error) {
       console.error('[Nexus Economy Worker]', error);
@@ -379,6 +538,8 @@ module.exports = {
   DRAIN_MUTATION_PATHS,
   PRESENCE_WRITE_PATHS,
   FINANCIAL_WRITE_PATHS,
+  MC_NONECONOMY_PATHS,
+  CRAFT_ROUTES,
   WRITE_PATHS,
   POST_PATHS,
   enabled,
@@ -394,6 +555,10 @@ module.exports = {
   writeGate,
   mutationRequestGate,
   walletReadAccrualPermitted,
+  presenceBody,
+  craftMinecraftPresence,
+  craftRouteAllowed,
+  requestScope,
   createEconomyServer,
   listenEconomyServer
 };

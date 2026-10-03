@@ -36,6 +36,7 @@ const { installPlayerCardExtension } = require('./card/card-extension.cjs');
 const { installMemberVerificationExtension } = require('./member-verification-extension.cjs');
 const { installWalletAdjustExtension } = require('./wallet-adjust-extension.cjs');
 const { installClusterShopUiExtension } = require('./cluster-shop-ui-extension.cjs');
+const { installMcShopUiExtension } = require('./mc-shop-ui-extension.cjs');
 
 // ARK control, monitoring, identity, economy and cluster integration.
 const { installArkRconDiagnosticExtension } = require('./ark-rcon-diagnostic-extension.cjs');
@@ -88,6 +89,7 @@ installPlayerCardExtension();
 installMemberVerificationExtension();
 installWalletAdjustExtension();
 installClusterShopUiExtension();
+installMcShopUiExtension();
 
 // ARK monitors that do not register slash commands stay on the hub bot.
 installArkRconDiagnosticExtension();

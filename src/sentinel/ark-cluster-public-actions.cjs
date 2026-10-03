@@ -13,6 +13,7 @@ const {
   effectiveMods
 } = require('./ark-cluster-panel.cjs');
 const { renderPublicShopReply, renderPublicKitsReply } = require('./arkshop-public-view.cjs');
+const { arkShopFeaturesUnavailableMessage, ARKSHOP_FEATURES_OFF_MESSAGE } = require('./arkshop-cluster-economy-guard.cjs');
 const {
   curseForgeLookupUrl,
   loadLiveArkPublicInfo,
@@ -199,11 +200,23 @@ function installArkClusterPublicActions() {
         if (String(interaction.guildId || '') !== String(config.discord?.guildId || '')) return;
         const servers = registry.list({ includeDisabled: false });
 
-        if (id === BUTTON_PUBLIC_SHOP || id === BUTTON_PUBLIC_KITS) {
-          const content = id === BUTTON_PUBLIC_SHOP
-            ? renderPublicShopReply(servers, profiles)
-            : renderPublicKitsReply(servers, profiles);
+        if (id === BUTTON_PUBLIC_SHOP) {
+          const content = renderPublicShopReply(servers, profiles);
           void interaction.reply({ content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } }).catch(() => {});
+          return;
+        }
+        if (id === BUTTON_PUBLIC_KITS) {
+          void (async () => {
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            const blocked = await arkShopFeaturesUnavailableMessage();
+            const content = blocked || renderPublicKitsReply(servers, profiles);
+            await interaction.editReply({ content, allowedMentions: { parse: [] } });
+          })().catch(async (error) => {
+            console.warn(`[Nexus Sentinel] ARK kit interaction failed closed: ${clean(error?.message || error, 240)}`);
+            const content = ARKSHOP_FEATURES_OFF_MESSAGE;
+            if (interaction.deferred || interaction.replied) await interaction.editReply({ content, embeds: [], allowedMentions: { parse: [] } }).catch(() => {});
+            else await interaction.reply({ content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } }).catch(() => {});
+          });
           return;
         }
 

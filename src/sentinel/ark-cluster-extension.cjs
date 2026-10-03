@@ -26,6 +26,7 @@ const {
   arkClusterBoardPayload,
   reconcileArkClusterPanel
 } = require('./ark-cluster-panel.cjs');
+const { arkShopFeaturesUnavailableMessage } = require('./arkshop-cluster-economy-guard.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.cluster.extension');
 const BOUND = Symbol.for('khaos.nexus.ark.cluster.bound');
@@ -256,7 +257,7 @@ async function handleClusterButton(interaction, context) {
   const id = String(interaction.customId || '');
   if (id.startsWith(SETUP_MAP_BUTTON_PREFIX)) {
     if (!isStaff(interaction, context.config)) {
-      await replyButton(interaction, '🔒 Cluster setup is limited to Nexus staff.');
+      await replyButton(interaction, '🔒 Cluster setup is limited to Nexus staff. Ask an Admin.');
       return true;
     }
     const mapId = id.slice(SETUP_MAP_BUTTON_PREFIX.length);
@@ -269,7 +270,7 @@ async function handleClusterButton(interaction, context) {
 
   if (id === BUTTON_REFRESH) {
     if (!isStaff(interaction, context.config)) {
-      await replyButton(interaction, '🔒 Manual cluster refresh is limited to Nexus staff. The panel also refreshes automatically.');
+      await replyButton(interaction, '🔒 Manual cluster refresh is limited to Nexus staff. Ask an Admin. The panel also refreshes automatically.');
       return true;
     }
     const now = Date.now();
@@ -291,6 +292,12 @@ async function handleClusterButton(interaction, context) {
     return true;
   }
   if (id === BUTTON_KITS) {
+    if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const blocked = await arkShopFeaturesUnavailableMessage();
+    if (blocked) {
+      await replyButton(interaction, blocked);
+      return true;
+    }
     const maps = servers.filter((server) => server.kitsEnabled !== false).map((server) => server.mapName).join(', ') || 'None';
     await replyButton(interaction, `🎁 **ARK Kits**\nKit access is enabled on: ${maps}. Availability and contents are controlled by the active ArkShop profile.`);
     return true;
@@ -306,7 +313,7 @@ async function handleClusterSetupModal(interaction, context) {
   const setup = customId === SETUP_MODAL_ID;
   const mapStep = customId.startsWith(SETUP_MAP_MODAL_PREFIX);
   if (!setup && !mapStep) return false;
-  if (!isStaff(interaction, context.config)) throw new Error('ARK cluster management requires Nexus staff authorization.');
+  if (!isStaff(interaction, context.config)) throw new Error('ARK cluster management requires Nexus staff authorization. Ask an Admin.');
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const registry = context.registry;
 
@@ -344,7 +351,7 @@ async function handleClusterSetupModal(interaction, context) {
 
 async function handleClusterCommand(interaction, context) {
   if (!interaction.isChatInputCommand?.() || interaction.commandName !== 'arkcluster') return false;
-  if (!isStaff(interaction, context.config)) throw new Error('ARK cluster management requires Nexus staff authorization.');
+  if (!isStaff(interaction, context.config)) throw new Error('ARK cluster management requires Nexus staff authorization. Ask an Admin.');
   const sub = interaction.options.getSubcommand();
   if (sub === 'setup') {
     const requested = interaction.options.getString('id');

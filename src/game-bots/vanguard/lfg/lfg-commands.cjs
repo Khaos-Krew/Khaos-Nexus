@@ -2,7 +2,7 @@
 
 const { MessageFlags, SlashCommandBuilder } = require('discord.js');
 const { searchActivities } = require('./activities-static.cjs');
-const { boardEmbed, deliverPost, parseLfgButton, renderPost } = require('./lfg-buttons.cjs');
+const { boardEmbed, deliverPost, parseLfgButton, renderPost, sendOrEdit } = require('./lfg-buttons.cjs');
 const { actorIsStaff } = require('../staff.cjs');
 const { snowflake } = require('../config.cjs');
 const { resolvedChannels } = require('../commands/setup.cjs');
@@ -141,7 +141,12 @@ async function handleCreate(interaction, ctx) {
     return true;
   }
   try {
-    const message = await channel.send(renderPost(result.post, { lobbyId: channels.jtcLobby }));
+    const message = await sendOrEdit(
+      channel,
+      'send',
+      renderPost(result.post, { lobbyId: channels.jtcLobby, client: interaction.client }),
+      channel
+    );
     await ctx.lfg.attachMessage(interaction.guildId, result.post.id, {
       channelId: channel.id,
       messageId: message.id
@@ -273,7 +278,7 @@ async function refreshStatusPanel(ctx, { guildId, force = false } = {}) {
   if (!snowflake(channels.staffAlerts)) return { refreshed: false, reason: 'unset' };
   const { buildStatusText } = require('../commands/status.cjs');
   const description = buildStatusText({ client: ctx.client, env: ctx.env });
-  const embed = { title: 'Vanguard • Status', description };
+  const embed = { title: 'Status', description };
   const hash = shortHash(embed);
   const saved = ctx.panelStore.read()?.[guild]?.status || {};
   if (!force && saved.lastHash === hash && saved.messageId && saved.channelId === channels.staffAlerts) {
