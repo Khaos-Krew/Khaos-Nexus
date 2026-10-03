@@ -42,8 +42,8 @@ test('weekly reset stacks full sections and files raids, dungeons, and the night
     names.set(String(hash), { name, ...extra.meta });
   };
   add(1, "King's Fall");
-  add(2, "Crota's End");
-  add(3, 'Deep Stone Crypt');
+  add(2, "Crota's End", { meta: { featured: true } });
+  add(3, 'Deep Stone Crypt', { meta: { modifiers: ['Weekly Featured'] } });
   add(4, 'Vault of Glass');
   add(5, 'Vow of the Disciple');
   add(6, 'Root of Nightmares');
@@ -54,6 +54,13 @@ test('weekly reset stacks full sections and files raids, dungeons, and the night
   add(11, 'Crucible Rotator');
   add(12, 'Vanguard Ops');
   add(13, 'Weekly Clan Engrams');
+  add(14, 'Garden of Salvation');
+  add(15, 'Desert Perpetual');
+  add(16, 'Ghosts of the Deep', { meta: { isFocusedActivity: true } });
+  add(17, 'Shattered Throne', { meta: { rotator: true } });
+  add(18, 'Equilibrium');
+  add(19, 'Pinnacle Ops');
+  add(20, 'Weekly Pinnacle Challenge');
   const embed = renderWeeklyReset({ milestones: { Response: rows }, names, now: NOW });
   const resetUnix = Math.floor(Date.parse(RESET) / 1000);
   const text = JSON.stringify(embed);
@@ -64,13 +71,22 @@ test('weekly reset stacks full sections and files raids, dungeons, and the night
   assert.doesNotMatch(text, /\+ \d+ more|\+\d+ more/);
   assert.doesNotMatch(text, /"value":"None"/);
   const raids = fieldText(embed, 'Raid');
-  for (const name of ["King's Fall", "Crota's End", 'Deep Stone Crypt', 'Vault of Glass', 'Vow of the Disciple', 'Grasp of Avarice']) {
+  for (const name of ["Crota's End", 'Deep Stone Crypt', 'Ghosts of the Deep', 'Shattered Throne']) {
     assert.match(raids, new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+  const pool = ["King's Fall", 'Vault of Glass', 'Vow of the Disciple', 'Root of Nightmares', "Salvation's Edge", 'Last Wish', 'Garden of Salvation', 'Desert Perpetual', 'Grasp of Avarice', 'Equilibrium'];
+  for (const name of pool) {
+    const pattern = new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    assert.doesNotMatch(raids, pattern);
+    assert.doesNotMatch(fieldText(embed, 'This Week'), pattern);
   }
   assert.match(fieldText(embed, 'Nightfall'), /The Corrupted/);
   assert.match(fieldText(embed, 'Rewards'), /Weekly Clan Engrams/);
+  assert.match(fieldText(embed, 'Rewards'), /Weekly Pinnacle Challenge/);
+  assert.doesNotMatch(fieldText(embed, 'Rewards'), /Pinnacle Ops/);
   assert.match(fieldText(embed, 'This Week'), /Crucible Rotator/);
   assert.match(fieldText(embed, 'This Week'), /Vanguard Ops/);
+  assert.match(fieldText(embed, 'This Week'), /Pinnacle Ops/);
   assert.doesNotMatch(fieldText(embed, 'This Week'), /King's Fall|The Corrupted|Weekly Clan Engrams/);
   assert.equal(embed.fields.find((field) => /Nightfall|Raid|This Week|Rewards/.test(field.name)).inline, false);
   const empty = renderWeeklyReset({
@@ -85,10 +101,18 @@ test('weekly reset stacks full sections and files raids, dungeons, and the night
 });
 
 test('milestone activity modes categorize a strike nightfall even when the name does not say nightfall', () => {
-  assert.equal(sectionFor("King's Fall"), 'raid');
-  assert.equal(sectionFor("King's Fall", { activityModeTypes: [46] }), 'raid');
-  assert.equal(sectionFor('Prophecy'), 'raid');
+  assert.equal(sectionFor("King's Fall"), null);
+  assert.equal(sectionFor("King's Fall", { activityModeTypes: [46] }), null);
+  assert.equal(sectionFor("King's Fall", { featured: true }), 'raid');
+  assert.equal(sectionFor("King's Fall", { activityModeTypes: [46], isFocusedActivity: true }), 'raid');
+  assert.equal(sectionFor('Prophecy'), null);
+  assert.equal(sectionFor('Prophecy', { rotator: true }), 'raid');
+  assert.equal(sectionFor('Equilibrium'), null);
+  assert.equal(sectionFor('Equilibrium', { modifiers: ['Weekly Featured'] }), 'raid');
+  assert.equal(sectionFor('Pinnacle Ops'), 'week');
+  assert.equal(sectionFor('Weekly Pinnacle Challenge'), 'rewards');
   assert.equal(sectionFor('The Corrupted', { activityModeTypes: [46] }), 'nightfall');
+  assert.equal(sectionFor('The Corrupted', { modifiers: ['Nightfall'] }), 'nightfall');
   assert.equal(sectionFor('Weekly Clan Engrams'), 'rewards');
   assert.equal(sectionFor('Crucible Rotator'), 'week');
   const query = {
@@ -117,12 +141,84 @@ test('milestone activity modes categorize a strike nightfall even when the name 
         6: { milestoneHash: 6, endDate: RESET }
       }
     },
-    names: new Map([['5', described], ['6', { name: "King's Fall" }]]),
+    names: new Map([['5', described], ['6', { name: "King's Fall", featured: true }]]),
     now: NOW
   });
   assert.match(fieldText(embed, 'Nightfall'), /^The Corrupted$/);
   assert.match(fieldText(embed, 'Raid'), /^King's Fall$/);
   assert.equal(embed.fields.find((field) => field.name.includes('This Week')), undefined);
+});
+
+test('weekly reset keeps the featured raid and dungeon rotation and shows a nightfall strike from activity data', () => {
+  const query = {
+    definition(table, hash) {
+      const id = Number(hash);
+      if (table === 'DestinyMilestoneDefinition' && id === 1) return { displayProperties: { name: 'Nightfall' }, friendlyName: 'Nightfall' };
+      if (table === 'DestinyMilestoneDefinition' && id === 2) return { displayProperties: { name: "Crota's End" }, friendlyName: 'Raid' };
+      if (table === 'DestinyMilestoneDefinition' && id === 3) return { displayProperties: { name: 'Ghosts of the Deep' }, friendlyName: 'Dungeon' };
+      if (table === 'DestinyMilestoneDefinition' && id === 4) return { displayProperties: { name: "King's Fall" }, friendlyName: 'Raid' };
+      if (table === 'DestinyActivityDefinition' && id === 88) return { displayProperties: { name: 'The Corrupted' }, directActivityModeType: 46 };
+      if (table === 'DestinyActivityDefinition' && id === 90) return { displayProperties: { name: "Crota's End" }, directActivityModeType: 4, isFocusedActivity: true };
+      if (table === 'DestinyActivityDefinition' && id === 91) return { displayProperties: { name: 'Ghosts of the Deep' }, directActivityModeType: 82 };
+      if (table === 'DestinyActivityDefinition' && id === 92) return { displayProperties: { name: "King's Fall" }, directActivityModeType: 4, isFocusedActivity: false };
+      if (table === 'DestinyActivityModifierDefinition' && id === 501) return { displayProperties: { name: 'Weekly Featured' } };
+      if (table === 'DestinyActivityModifierDefinition' && id === 502) return { displayProperties: { name: 'Nightfall' } };
+      return null;
+    }
+  };
+  const nightfall = describeMilestone(query, { milestoneHash: 1, activities: [{ activityHash: 88, modifierHashes: [502] }] });
+  const crota = describeMilestone(query, { milestoneHash: 2, activities: [{ activityHash: 90 }] });
+  const ghosts = describeMilestone(query, { milestoneHash: 3, activities: [{ activityHash: 91, modifierHashes: [501] }] });
+  const kings = describeMilestone(query, { milestoneHash: 4, activities: [{ activityHash: 92 }] });
+  assert.equal(nightfall.name, 'The Corrupted');
+  assert.ok(nightfall.modifiers.includes('Nightfall'));
+  assert.ok(nightfall.activityModeTypes.includes(46));
+  assert.equal(crota.isFocusedActivity, true);
+  assert.ok(ghosts.modifiers.includes('Weekly Featured'));
+  assert.equal(kings.featured, false);
+  const embed = renderWeeklyReset({
+    milestones: {
+      Response: {
+        1: { milestoneHash: 1, endDate: RESET, activities: [{ activityHash: 88, modifierHashes: [502] }] },
+        2: { milestoneHash: 2, endDate: RESET, activities: [{ activityHash: 90 }] },
+        3: { milestoneHash: 3, endDate: RESET, activities: [{ activityHash: 91, modifierHashes: [501] }] },
+        4: { milestoneHash: 4, endDate: RESET, activities: [{ activityHash: 92 }] },
+        5: { milestoneHash: 5, endDate: RESET }
+      }
+    },
+    names: new Map([
+      ['1', nightfall],
+      ['2', crota],
+      ['3', ghosts],
+      ['4', kings],
+      ['5', { name: 'Vanguard Ops' }]
+    ]),
+    now: NOW
+  });
+  assert.match(fieldText(embed, 'Nightfall'), /The Corrupted/);
+  assert.match(fieldText(embed, 'Raid'), /Crota's End/);
+  assert.match(fieldText(embed, 'Raid'), /Ghosts of the Deep/);
+  assert.doesNotMatch(fieldText(embed, 'Raid'), /King's Fall/);
+  assert.doesNotMatch(fieldText(embed, 'This Week'), /King's Fall|Crota's End|Ghosts of the Deep|The Corrupted/);
+  const hidden = renderWeeklyReset({
+    milestones: {
+      Response: {
+        4: { milestoneHash: 4, endDate: RESET },
+        8: { milestoneHash: 8, endDate: RESET },
+        5: { milestoneHash: 5, endDate: RESET }
+      }
+    },
+    names: new Map([
+      ['4', { name: "King's Fall", friendlyName: 'Raid' }],
+      ['8', { name: 'Equilibrium', friendlyName: 'Dungeon' }],
+      ['5', { name: 'Vanguard Ops' }]
+    ]),
+    now: NOW
+  });
+  assert.equal(hidden.fields.find((field) => field.name.includes('Nightfall')), undefined);
+  assert.equal(hidden.fields.find((field) => field.name.includes('Raid')), undefined);
+  assert.match(fieldText(hidden, 'This Week'), /Vanguard Ops/);
+  assert.doesNotMatch(fieldText(hidden, 'This Week'), /King's Fall|Equilibrium/);
 });
 
 test('xur lists every item on its own line, groups armor by class, and hides empty sections', () => {
@@ -194,6 +290,68 @@ test('a long xur list splits into continuation fields before it hides anything',
   for (const line of expected) assert.ok(shown.includes(line), line);
   assert.doesNotMatch(shown, /\+\d+ more/);
   assert.equal(embed.fields.find((field) => field.name.includes('Other')), undefined);
+});
+
+test('xur drops a bare price, resolves signed currency hashes, and files non-weapons under other gear', () => {
+  const UNSIGNED = 3000000000;
+  const SIGNED = UNSIGNED - 0x100000000;
+  const GHOST = 4023194814;
+  const embed = renderXur({
+    vendors: {
+      Response: {
+        vendors: { data: { [String(XUR_VENDOR_HASH)]: { vendorHash: XUR_VENDOR_HASH, enabled: true, nextRefreshDate: '2026-10-06T17:00:00Z' } } },
+        sales: {
+          data: {
+            [String(XUR_VENDOR_HASH)]: {
+              saleItems: {
+                1: { itemHash: 1, costs: [{ itemHash: SIGNED, quantity: 41 }] },
+                2: { itemHash: 2, costs: [{ itemHash: 999, quantity: 41 }] },
+                3: { itemHash: 3, costs: [{ itemHash: 50, quantity: 23 }] }
+              }
+            }
+          }
+        }
+      }
+    },
+    names: new Map([
+      ['1', { name: 'Cuirass of the Falling Star', itemType: 2, tierType: 6, tierTypeName: 'Exotic', bucketTypeHash: HELMET, classType: 0 }],
+      ['2', { name: 'Gjallarhorn', itemType: 3, tierType: 6, tierTypeName: 'Exotic', bucketTypeHash: KINETIC, classType: 3 }],
+      ['3', { name: 'Sagira Shell', itemType: 24, tierType: 6, tierTypeName: 'Exotic', bucketTypeHash: GHOST, classType: 3 }],
+      [String(UNSIGNED), { name: 'Strange Coin', itemType: 1, tierType: 3, bucketTypeHash: 1469714392 }]
+    ]),
+    now: NOW
+  });
+  const exotics = fieldText(embed, 'Exotics');
+  assert.match(exotics, /Cuirass of the Falling Star — 41 Strange Coin/);
+  assert.match(exotics, /Gjallarhorn(?! —)/);
+  assert.doesNotMatch(exotics, /Gjallarhorn — 41/);
+  assert.match(exotics, /\*\*Other gear\*\*\nSagira Shell/);
+  assert.doesNotMatch(exotics, /\*\*Weapons\*\*\nSagira Shell/);
+  assert.match(exotics, /\*\*Weapons\*\*\nGjallarhorn/);
+});
+
+test('overflow notes skip class headers and continuation fields repeat them', () => {
+  const lines = ['**Hunter**'];
+  for (let index = 0; index < 70; index += 1) {
+    lines.push(`Hunter Exotic Helmet With A Very Long Name ${String(index).padStart(2, '0')} ${'Y'.repeat(60)}`);
+  }
+  const packed = packSections({
+    title: 'Xûr',
+    description: 'Xûr is here.',
+    sections: [{ name: '🟡 Exotics', lines }]
+  });
+  withinDiscord(packed.embeds);
+  const flat = packed.embeds.flatMap((page) => page.fields);
+  const tail = flat[flat.length - 1].value.split('\n').pop();
+  assert.match(tail, /^\+\d+ more$/);
+  const hidden = Number(tail.slice(1).split(' ')[0]);
+  const visibleItems = flat.flatMap((field) => field.value.split('\n')).filter((line) => line.trim() && !/^\+\d+ more$/.test(line) && !/^\*\*[^*]+\*\*$/.test(line));
+  const itemLines = lines.filter((line) => !/^\*\*[^*]+\*\*$/.test(line));
+  assert.equal(visibleItems.length + hidden, itemLines.length);
+  assert.ok(hidden < itemLines.length);
+  for (const field of flat) {
+    if (/Hunter Exotic/.test(field.value)) assert.match(field.value, /^\*\*Hunter\*\*/);
+  }
 });
 
 test('field packing stays inside Discord limits and uses +N more only past the message cap', () => {
