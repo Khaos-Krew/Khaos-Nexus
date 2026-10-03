@@ -72,7 +72,7 @@ async function apiUtilsStatus(prefix = 'ARK_GEN1') {
 
 async function handle(interaction, context) {
   if (!interaction.isChatInputCommand?.() || interaction.commandName !== 'arkevent') return false;
-  if (!isStaff(interaction, context.config)) throw new Error('ARK event controls require Nexus staff authorization.');
+  if (!isStaff(interaction, context.config)) throw new Error('ARK event controls require Nexus staff authorization. Ask an Admin.');
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const sub = interaction.options.getSubcommand();
 

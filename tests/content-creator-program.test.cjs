@@ -434,3 +434,75 @@ test('creator feed setup is harmless when INFORMATION is missing', async () => {
   assert.equal(result.channel, null);
   assert.equal(result.reason, 'information-category-missing');
 });
+
+test('creator-chat re-lock merges permissions and keeps an Admin allow', async () => {
+  const botId = '100000000000000099';
+  const guildId = '100000000000000010';
+  const adminRole = '777777777777777777';
+  const adminAllow = PermissionFlagsBits.ViewChannel | PermissionFlagsBits.SendMessages;
+  const events = [];
+  const textChannel = (id, name, parentId, extra = {}) => ({
+    id,
+    name,
+    parentId,
+    topic: '',
+    isTextBased: () => true,
+    permissionOverwrites: {
+      cache: extra.cache || new Map(),
+      set: async (overwrites) => { events.push({ name, overwrites }); }
+    },
+    setTopic: async () => {},
+    setParent: async () => {},
+    messages: { fetch: async () => new Map() },
+    send: async () => ({ id: `msg-${id}`, pinned: false, async pin() {} })
+  });
+  const chat = textChannel('chat', 'creator-chat', 'creator-cat', {
+    cache: new Map([[adminRole, {
+      id: adminRole,
+      type: OverwriteType.Role,
+      allow: { bitfield: adminAllow },
+      deny: { bitfield: 0n }
+    }]])
+  });
+  const channels = [
+    { id: 'info', name: 'INFORMATION', type: ChannelType.GuildCategory },
+    { id: 'creator-cat', name: 'CONTENT CREATOR PROGRAM', type: ChannelType.GuildCategory },
+    { id: 'staff-cat', name: '🔒 STAFF', type: ChannelType.GuildCategory },
+    textChannel('program', 'creator-program', 'creator-cat'),
+    textChannel('assets', 'creator-assets', 'creator-cat'),
+    chat,
+    textChannel('review', 'creator-review', 'staff-cat')
+  ];
+  const roles = new Map([
+    ['200000000000000001', { id: '200000000000000001', name: 'Content Creator', managed: false }],
+    ['200000000000000002', { id: '200000000000000002', name: 'Now Live', managed: false }]
+  ]);
+  const guild = {
+    id: guildId,
+    ownerId: '100000000000000001',
+    roles: {
+      async fetch() { return roles; },
+      async create() { throw new Error('creator roles already exist'); }
+    },
+    channels: {
+      async fetch() { return channels; },
+      async create(options) {
+        const channel = textChannel(`created-${options.name}`, options.name, options.parent);
+        channel.topic = options.topic || '';
+        channels.push(channel);
+        return channel;
+      }
+    }
+  };
+  await ensureCreatorProgram(guild, { discord: { ownerUserIds: ['100000000000000001'] } }, {
+    listCreatorApplications() { return {}; },
+    setCreatorMeta() {}
+  }, botId);
+  const written = events.filter((event) => event.name === 'creator-chat').at(-1);
+  assert.ok(written);
+  const kept = written.overwrites.find((entry) => String(entry.id) === adminRole);
+  assert.ok(kept);
+  const allow = typeof kept.allow === 'bigint' ? kept.allow : BigInt(kept.allow?.bitfield || 0);
+  assert.equal(allow, adminAllow);
+  assert.ok(written.overwrites.some((entry) => String(entry.id) === '200000000000000001'));
+});

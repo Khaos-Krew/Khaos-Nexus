@@ -65,6 +65,7 @@ Set these on `nexus-vanguard` only. Never put the bot token in the Dockerfile, a
 | `VANGUARD_LFG_MAX_OPEN_PER_USER` | no | Default 2. Clamped 1–10. |
 | `NEXUS_OWNER_USER_IDS` | no | Owner user ids, same meaning as the other bots. |
 | `NEXUS_OPERATOR_ROLE_IDS` | no | Operator role ids, same meaning as the other bots. |
+| `NEXUS_STAFF_ADMIN_ROLE_IDS` | no | Staff admin role ids. Count as staff in the shared ops check. Unset fails closed. See `docs/SENTINAL_MODERATION.md`. |
 
 `READY` is not read. Category and lobby ids are not baked into `Dockerfile.vanguard`.
 

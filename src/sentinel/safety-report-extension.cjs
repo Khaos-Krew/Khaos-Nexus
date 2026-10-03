@@ -35,6 +35,7 @@ const {
   reconcileReportAccess,
   reconcileStoredReportAccess
 } = require('./safety-report-access.cjs');
+const { applyManagedOverwrites } = require('./staff-workspace.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.safetyReports.extension');
 const REPORT_CATEGORY = 'PRIVATE REPORTS';
@@ -147,7 +148,7 @@ async function ensureInfrastructure(guild, client, config, store) {
       reason: 'Nexus Sentinal private safety reporting'
     });
   } else {
-    await category.permissionOverwrites.set(staffOnlyOverwrites(guild, botId, staffRoleIds, ownerIds), 'Nexus Sentinal private report privacy reconciliation');
+    await applyManagedOverwrites(category, staffOnlyOverwrites(guild, botId, staffRoleIds, ownerIds), 'Nexus Sentinal private report privacy reconciliation');
   }
 
   let archive = await fetchChannel(guild, config.discord?.safetyReportsArchiveChannelId || saved.archiveChannelId, ChannelType.GuildText);
@@ -168,7 +169,7 @@ async function ensureInfrastructure(guild, client, config, store) {
     });
   } else {
     if (String(archive.parentId || '') !== String(category.id)) await archive.setParent(category.id, { lockPermissions: false, reason: 'Nexus Sentinal safety report archive reconciliation' });
-    await archive.permissionOverwrites.set(staffOnlyOverwrites(guild, botId, staffRoleIds, ownerIds), 'Nexus Sentinal report archive privacy reconciliation');
+    await applyManagedOverwrites(archive, staffOnlyOverwrites(guild, botId, staffRoleIds, ownerIds), 'Nexus Sentinal report archive privacy reconciliation');
   }
 
   store.setInfrastructure({ categoryId: String(category.id), archiveChannelId: String(archive.id), staffRoleIds, ownerIds });

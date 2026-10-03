@@ -6,6 +6,11 @@ const { BackendClient } = require('./backend-client.cjs');
 const { pogoCommand, handlePokemonGoCommand, handlePokemonGoButton } = require('./pokemon-go.cjs');
 const { handlePokemonGoEventList } = require('./pokemon-go-event-ui.cjs');
 const { normalizeRequiredOptions } = require('./discord-command-schema.cjs');
+const { discordCommandRole } = require('./discord-command-role.cjs');
+
+function pokemonGoCommandRole(interaction, config, backend) {
+  return discordCommandRole(interaction, config, backend);
+}
 
 const INSTALLED = Symbol.for('khaos.nexus.pogo.extension');
 
@@ -19,12 +24,7 @@ function installPokemonGoExtension() {
   const originalLogin = Client.prototype.login;
 
   async function roleFor(interaction) {
-    if ((config.discord?.ownerUserIds || []).includes(String(interaction.user.id))) return 'owner';
-    const roles = interaction.member?.roles?.cache;
-    if (roles && (config.discord?.operatorRoleIds || []).some((id) => roles.has(String(id)))) return 'operator';
-    const linked = await backend.accountByDiscord(String(interaction.user.id)).catch(() => null);
-    if (linked?.ok && ['owner', 'co-owner'].includes(linked.account?.role)) return 'owner';
-    return 'viewer';
+    return pokemonGoCommandRole(interaction, config, backend);
   }
 
   Client.prototype.login = function nexusPokemonGoLogin(...args) {
@@ -70,4 +70,4 @@ function installPokemonGoExtension() {
   };
 }
 
-module.exports = { installPokemonGoExtension };
+module.exports = { installPokemonGoExtension, pokemonGoCommandRole };

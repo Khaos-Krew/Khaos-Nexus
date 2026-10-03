@@ -2,6 +2,8 @@
 
 const { Client, Events, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } = require('discord.js');
 const { reportCommandFailure } = require('../game-bots/command-failure.cjs');
+const { hasListedRole } = require('../game-bots/vanguard/config.cjs');
+const { hasStaffAdminRole } = require('./staff-roles.cjs');
 const { loadConfig } = require('../shared/config.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { performRestart } = require('./ark-restart-scheduler-extension.cjs');
@@ -31,11 +33,11 @@ function isOwner(interaction, config = {}) {
   return owners.has(userId) || userId === String(interaction.guild?.ownerId || '');
 }
 
-function isStaff(interaction, config = {}) {
+function isStaff(interaction, config = {}, env = process.env) {
   if (isOwner(interaction, config)) return true;
   if (interaction.memberPermissions?.has?.(PermissionFlagsBits.Administrator)) return true;
-  const operatorRoles = new Set((config.discord?.operatorRoleIds || []).map(String));
-  return interaction.member?.roles?.cache?.some?.((role) => operatorRoles.has(String(role.id))) || false;
+  if (hasStaffAdminRole(interaction, env)) return true;
+  return hasListedRole(interaction, config.discord?.operatorRoleIds);
 }
 
 function configuredPrefixes(registry = new ArkClusterRegistry()) {
@@ -144,7 +146,7 @@ function formatMysqlResult(result = {}) {
 async function handleInteraction(interaction, context) {
   if (!interaction.isChatInputCommand?.() || interaction.commandName !== COMMAND_NAME) return false;
   const sub = interaction.options.getSubcommand();
-  if (!isStaff(interaction, context.config)) throw new Error('ARK server controls require Nexus staff authorization.');
+  if (!isStaff(interaction, context.config)) throw new Error('ARK server controls require Nexus staff authorization. Ask an Admin.');
   if ((sub === 'restart' || sub === 'mysql-sync') && !isOwner(interaction, context.config)) {
     throw new Error('This live operation is restricted to the Nexus owner.');
   }

@@ -17,7 +17,8 @@ const {
 } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { StateStore } = require('./state-store.cjs');
-const { findStaffCategory, resolveStaffRoleIds } = require('./staff-workspace.cjs');
+const { findStaffCategory, resolveStaffRoleIds, applyManagedOverwrites } = require('./staff-workspace.cjs');
+const { hasListedRole } = require('../game-bots/vanguard/config.cjs');
 const { managedPayloadMatches } = require('./managed-payload-compare.cjs');
 const { findInformationCategory } = require('./nexus-status.cjs');
 const { parsePlatforms, extractCreatorHandles, handleCreatorPost } = require('./creator-post.cjs');
@@ -170,7 +171,7 @@ async function ensureTextChannel(guild, category, name, topic, overwrites) {
     }
   }
   if (String(channel.topic || '') !== topic && typeof channel.setTopic === 'function') await channel.setTopic(topic, 'Maintain Khaos Nexus creator program channel topic');
-  if (channel.permissionOverwrites?.set) await channel.permissionOverwrites.set(overwrites, 'Maintain Khaos Nexus creator program permissions');
+  await applyManagedOverwrites(channel, overwrites, 'Maintain Khaos Nexus creator program permissions');
   return { channel, created, moved };
 }
 
@@ -214,7 +215,7 @@ async function ensureReviewChannel(guild, config, botId) {
       created = true;
     }
   }
-  if (channel.permissionOverwrites?.set) await channel.permissionOverwrites.set(reviewOverwrites(guild, botId, staffRoleIds, owners), 'Protect Khaos Nexus creator application review');
+  await applyManagedOverwrites(channel, reviewOverwrites(guild, botId, staffRoleIds, owners), 'Protect Khaos Nexus creator application review');
   return { channel, created, moved, staffRoleIds, owners };
 }
 
@@ -395,7 +396,7 @@ function isReviewer(interaction, config, staffRoleIds = []) {
   if (new Set(ownerIds(interaction.guild, config)).has(userId)) return true;
   const member = interaction.member;
   if (member?.permissions?.has?.(PermissionFlagsBits.Administrator) || member?.permissions?.has?.(PermissionFlagsBits.ManageGuild)) return true;
-  return normalizeIds(staffRoleIds).some((id) => member?.roles?.cache?.has?.(id));
+  return hasListedRole(interaction, normalizeIds(staffRoleIds));
 }
 
 function denialModal(applicationId) {
@@ -509,7 +510,9 @@ async function ensureCreatorFeedChannel(guild, botId, storedChannelId = '') {
   if (String(channel.topic || '') !== CREATOR_FEED_TOPIC && typeof channel.setTopic === 'function') {
     await channel.setTopic(CREATOR_FEED_TOPIC, 'Maintain Khaos Nexus creator feed topic');
   }
-  if (channel.permissionOverwrites?.set) await channel.permissionOverwrites.set(overwrites, 'Keep creator-feed public and read-only');
+  if (channel.permissionOverwrites?.set) {
+    await applyManagedOverwrites(channel, overwrites, 'Keep creator-feed public and read-only');
+  }
   return { channel, created, moved, reason: '' };
 }
 

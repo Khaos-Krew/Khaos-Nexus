@@ -4,6 +4,7 @@ const { ChannelType, OverwriteType, PermissionFlagsBits } = require('discord.js'
 const { MODULES } = require('../backend/modules/catalog.cjs');
 const { managedPayloadMatches } = require('./managed-payload-compare.cjs');
 
+const COMMUNITY_MANAGER_ROLE_ID = '1521219329360920767';
 const STAFF_CATEGORY_NAME = '🔒 STAFF';
 const STAFF_PANEL_MARKER = 'Nexus Sentinal • Managed Staff Workspace • v2';
 const LEGACY_STAFF_PANEL_MARKERS = Object.freeze(['Nexus Sentinal • Managed Staff Workspace • v1']);
@@ -39,7 +40,8 @@ function normalizeIds(values = []) {
 }
 
 function permissionMask(values = []) {
-  return (Array.isArray(values) ? values : []).reduce((mask, value) => mask | BigInt(value), 0n);
+  if (Array.isArray(values)) return values.reduce((mask, value) => mask | BigInt(value), 0n);
+  return overwriteMask(values);
 }
 
 function overwriteMask(value) {
@@ -82,6 +84,125 @@ function overwriteSetMatches(channel, desiredEntries = []) {
   });
 }
 
+function existingOverwriteEntries(channel) {
+  const cache = channel?.permissionOverwrites?.cache;
+  if (!cache) return [];
+  return valuesOf(cache).map((entry) => ({
+    id: String(entry?.id || ''),
+    type: Number(entry?.type ?? OverwriteType.Role),
+    allow: entry?.allow,
+    deny: entry?.deny
+  })).filter((entry) => entry.id);
+}
+
+function managedOverwritesMatch(channel, desiredEntries = []) {
+  const desired = normalizedOverwritePlan(desiredEntries);
+  if (!desired.length) return true;
+  const actual = new Map(existingOverwriteEntries(channel).map((entry) => {
+    const type = Number(entry.type ?? OverwriteType.Role);
+    return [`${type}:${entry.id}`, {
+      allow: overwriteMask(entry.allow),
+      deny: overwriteMask(entry.deny)
+    }];
+  }));
+  return desired.every((entry) => {
+    const found = actual.get(`${entry.type}:${entry.id}`);
+    return Boolean(found && found.allow === entry.allow && found.deny === entry.deny);
+  });
+}
+
+function bitsOf(value) {
+  return Array.isArray(value) ? permissionMask(value) : overwriteMask(value);
+}
+
+function canonicalOverwriteList(entries = []) {
+  const byTarget = new Map();
+  for (const entry of entries) {
+    const id = String(entry?.id || '');
+    if (!id) continue;
+    const type = Number(entry?.type ?? OverwriteType.Role);
+    const key = `${type}:${id}`;
+    const current = byTarget.get(key) || { id, type, allow: 0n, deny: 0n };
+    current.allow |= bitsOf(entry.allow);
+    current.deny |= bitsOf(entry.deny);
+    current.allow &= ~current.deny;
+    byTarget.set(key, current);
+  }
+  return [...byTarget.values()].sort((a, b) => `${a.type}:${a.id}`.localeCompare(`${b.type}:${b.id}`));
+}
+
+function overwriteSetsEqual(left = [], right = []) {
+  const a = canonicalOverwriteList(left);
+  const b = canonicalOverwriteList(right);
+  if (a.length !== b.length) return false;
+  return a.every((entry, index) => {
+    const other = b[index];
+    return entry.id === other.id && entry.type === other.type && entry.allow === other.allow && entry.deny === other.deny;
+  });
+}
+
+// Community Manager is never revocable. Callers pass any other targets that
+// must survive even if an older sync recorded them, such as Bots, Owner,
+// @everyone, and the reporter.
+function revokeTargetIds(options = {}) {
+  const protectedIds = new Set([
+    COMMUNITY_MANAGER_ROLE_ID,
+    ...normalizeIds(options.protectedIds || [])
+  ]);
+  return new Set(normalizeIds(options.revokeIds || []).filter((id) => !protectedIds.has(id)));
+}
+
+// Keep every overwrite this sync does not manage. Desired targets are
+// replaced. Previously managed ids in options.revokeIds are deleted when they
+// are no longer in the desired plan. Every other target is left as it is.
+function mergeOverwritePlan(existingEntries = [], desiredEntries = [], options = {}) {
+  const desired = normalizedOverwritePlan(desiredEntries);
+  const managed = new Set(desired.map((entry) => `${entry.type}:${entry.id}`));
+  const revokeIds = revokeTargetIds(options);
+  const preserved = [];
+  for (const entry of existingEntries) {
+    const id = String(entry?.id || '');
+    if (!id) continue;
+    const type = Number(entry?.type ?? OverwriteType.Role);
+    if (managed.has(`${type}:${id}`)) continue;
+    if (revokeIds.has(id)) continue;
+    preserved.push({
+      id,
+      type,
+      allow: overwriteMask(entry.allow),
+      deny: overwriteMask(entry.deny)
+    });
+  }
+  if (!preserved.length) return desiredEntries;
+  return [
+    ...desired.map((entry) => ({ id: entry.id, type: entry.type, allow: entry.allow, deny: entry.deny })),
+    ...preserved
+  ];
+}
+
+async function applyManagedOverwrites(channel, desiredEntries = [], reason = '', options = {}) {
+  if (!channel?.permissionOverwrites?.set) return false;
+  const existing = existingOverwriteEntries(channel);
+  const merged = mergeOverwritePlan(existing, desiredEntries, options);
+  if (overwriteSetsEqual(existing, merged)) return false;
+  await channel.permissionOverwrites.set(merged, reason);
+  return true;
+}
+
+const loggedStaffRoleFallbacks = new Set();
+
+// An empty or missing operator/safety list must not adopt every
+// Administrator/ManageGuild role. That scan picks up Community Manager, bots,
+// Owner, @everyone, and mod roles.
+function refusePermissionStaffFallback(source, guildId = '') {
+  const key = `${source}:${guildId || ''}`;
+  if (!loggedStaffRoleFallbacks.has(key)) {
+    loggedStaffRoleFallbacks.add(key);
+    console.warn(`[Nexus Sentinal] ${source} guild ${guildId || 'unknown'} has no usable operator/safety role configured. Refusing the Administrator/ManageGuild fallback so Community Manager ${COMMUNITY_MANAGER_ROLE_ID}, bots, Owner, @everyone, and mod roles are not treated as staff.`);
+  }
+  return [];
+}
+
 function isPrivateSafeText(value) {
   const text = String(value || '');
   return !PRIVATE_DENYLIST.some((pattern) => pattern.test(text));
@@ -104,12 +225,7 @@ async function resolveStaffRoleIds(guild, config = {}, rolesSnapshot = null) {
     return Boolean(role && role.id !== guild.id && role.managed !== true);
   });
   if (explicit.length) return explicit;
-  return valuesOf(roles)
-    .filter((role) => role && role.id !== guild.id && role.managed !== true)
-    .filter((role) => role.permissions?.has?.(PermissionFlagsBits.Administrator)
-      || role.permissions?.has?.(PermissionFlagsBits.ModerateMembers)
-      || role.permissions?.has?.(PermissionFlagsBits.ManageGuild))
-    .map((role) => String(role.id));
+  return refusePermissionStaffFallback('staff workspace', guild?.id);
 }
 
 function staffCategoryOverwrites(guild, botId, staffRoleIds = [], ownerIds = []) {
@@ -139,7 +255,7 @@ function staffCategoryOverwrites(guild, botId, staffRoleIds = [], ownerIds = [])
 
 function adminCommandInventory() {
   const core = [
-    { scope: 'Server', command: '/clear amount:<1-100>', access: 'Administrator', description: 'Bulk-delete recent messages in the current channel.' },
+    { scope: 'Server', command: '/clear amount:<1-100>', access: 'Staff admins or operator roles with Manage Messages', description: 'Bulk-delete recent messages in the current channel. Mods cannot use it.' },
     { scope: 'Nexus', command: '/nexus-pair', access: 'Owner / Co-Owner / Manage Server', description: 'Create a one-time pairing code for the hosted Admin Control Center.' },
     { scope: 'Nexus', command: '/nexus setup', access: 'Owner / Manage Server', description: 'Open guided module setup.' },
     { scope: 'Nexus', command: '/nexus repair module:<game>', access: 'Owner / Manage Server', description: 'Repair one module Discord layout.' },
@@ -322,6 +438,7 @@ function legacyOfficeChannelName(channelId = '') {
 }
 
 module.exports = {
+  COMMUNITY_MANAGER_ROLE_ID,
   STAFF_CATEGORY_NAME,
   STAFF_PANEL_MARKER,
   LEGACY_STAFF_PANEL_MARKERS,
@@ -338,6 +455,12 @@ module.exports = {
   overwriteMask,
   normalizedOverwritePlan,
   overwriteSetMatches,
+  existingOverwriteEntries,
+  managedOverwritesMatch,
+  mergeOverwritePlan,
+  applyManagedOverwrites,
+  overwriteSetsEqual,
+  refusePermissionStaffFallback,
   isPrivateSafeText,
   findStaffCategory,
   resolveStaffRoleIds,

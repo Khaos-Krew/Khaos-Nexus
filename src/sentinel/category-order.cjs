@@ -3,6 +3,7 @@
 const { ChannelType, OverwriteType, PermissionFlagsBits } = require('discord.js');
 const { MODULES } = require('../backend/modules/catalog.cjs');
 const { layoutFor } = require('./module-layouts.cjs');
+const { applyManagedOverwrites, existingOverwriteEntries, refusePermissionStaffFallback } = require('./staff-workspace.cjs');
 
 const DEFAULT_BOUNDARY_NAMES = Object.freeze(['hidden server', 'staff']);
 const STRUCTURAL_CATEGORY_ALIASES = Object.freeze({
@@ -194,11 +195,7 @@ async function resolveAdminRoleIds(guild, config = {}, rolesSnapshot = null) {
     return Boolean(role && role.id !== guild.id && role.managed !== true);
   });
   if (explicit.length) return explicit;
-  return valuesOf(roles)
-    .filter((role) => role && role.id !== guild.id && role.managed !== true)
-    .filter((role) => role.permissions?.has?.(PermissionFlagsBits.Administrator)
-      || role.permissions?.has?.(PermissionFlagsBits.ManageGuild))
-    .map((role) => String(role.id));
+  return refusePermissionStaffFallback('category order', guild?.id);
 }
 
 function staffAdminOverwrites(guild, botId, adminRoleIds = [], ownerIds = []) {
@@ -242,21 +239,17 @@ function ownerOnlyOverwrites(guild, botId) {
 }
 
 async function applyOverwriteSet(channel, desiredEntries, reason) {
-  if (!channel?.permissionOverwrites?.set) return false;
-  if (overwriteSetMatches(channel, desiredEntries)) return false;
-  await channel.permissionOverwrites.set(desiredEntries, reason);
-  return true;
+  return applyManagedOverwrites(channel, desiredEntries, reason);
 }
 
 async function lockCategoryChildren(category, channels, reason) {
   if (!category) return 0;
+  const parentOverwrites = existingOverwriteEntries(category);
   let locked = 0;
   for (const channel of valuesOf(channels)) {
     if (String(channel?.parentId || '') !== String(category.id)) continue;
     if (channel.permissionsLocked === true) continue;
-    if (typeof channel.lockPermissions !== 'function') continue;
-    await channel.lockPermissions(reason).catch(() => {});
-    locked += 1;
+    if (await applyManagedOverwrites(channel, parentOverwrites, reason)) locked += 1;
   }
   return locked;
 }

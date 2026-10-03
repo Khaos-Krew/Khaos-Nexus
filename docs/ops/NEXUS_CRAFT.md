@@ -53,6 +53,7 @@ Optional.
 - `NEXUS_CRAFT_STATUS_REFRESH_SECONDS` — status panel edit interval. Default 120. Clamped to 30–900.
 - `NEXUS_OWNER_USER_IDS` — comma-separated owner user ids. Count as staff.
 - `NEXUS_OPERATOR_ROLE_IDS` — comma-separated staff role ids. Count as staff, same check the other game bots use, plus Administrator.
+- `NEXUS_STAFF_ADMIN_ROLE_IDS` — comma-separated staff admin role ids. Count as staff in the same shared check. Unset fails closed. See `docs/SENTINAL_MODERATION.md`.
 - `NEXUS_RCON_CONFIG_SECRET` — optional vault key of at least 32 characters. This encrypts the saved RCON password. It is not the RCON password. If unset, the bot creates `/app/data/nexus-craft-rcon-secret` on first save.
 - `NEXUS_DATA_DIR` — already `/app/data` in the image. `RAILWAY_VOLUME_MOUNT_PATH` is used only when `NEXUS_DATA_DIR` is blank.
 - `PORT` — health server port. Default 8080.

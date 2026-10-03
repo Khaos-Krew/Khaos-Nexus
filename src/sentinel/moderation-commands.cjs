@@ -1,7 +1,8 @@
 'use strict';
 
 const { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } = require('discord.js');
-const { csv } = require('../shared/config.cjs');
+const { csvIds, hasListedRole } = require('../game-bots/vanguard/config.cjs');
+const { hasStaffAdminRole, isGuildOwner, staffModRoleIds } = require('./staff-roles.cjs');
 
 const MAX_CLEAR_MESSAGES = 100;
 
@@ -9,6 +10,8 @@ function clearCommand() {
   return new SlashCommandBuilder()
     .setName('clear')
     .setDescription('Clear recent messages from this channel')
+    // ManageGuild so Discord shows /clear to admins, not mods.
+    // The runtime gate below is the real authorization check.
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addIntegerOption((option) => option
       .setName('amount')
@@ -18,26 +21,14 @@ function clearCommand() {
       .setMaxValue(MAX_CLEAR_MESSAGES));
 }
 
-function memberRoles(interaction) {
-  const cache = interaction?.member?.roles?.cache;
-  if (!cache) {
-    if (Array.isArray(interaction?.member?.roles)) return interaction.member.roles;
-    return [];
-  }
-  if (typeof cache.values === 'function') return [...cache.values()];
-  if (Array.isArray(cache)) return cache;
-  return [];
-}
-
-function hasOperatorRole(interaction, env = process.env) {
-  const guildId = String(interaction?.guild?.id || '');
-  const allowed = new Set(csv(env?.NEXUS_OPERATOR_ROLE_IDS).filter((id) => id !== guildId));
-  if (!allowed.size) return false;
-  return memberRoles(interaction).some((role) => {
-    const id = String(role?.id || '');
-    if (!id || id === guildId || role?.managed === true) return false;
-    return allowed.has(id);
-  });
+// Manage Messages is required. Discord Administrator counts as Manage Messages.
+// Then the member must be a staff admin (exclusive admin role, guild owner, or
+// Administrator) or hold an operator role. A mod role never passes, even when
+// that same id is also listed as admin or operator. roleIdsOf drops the guild
+// id and managed roles before the operator list is checked.
+function clearOperatorRoleIds(env = process.env) {
+  const mods = new Set(staffModRoleIds(env));
+  return csvIds(env?.NEXUS_OPERATOR_ROLE_IDS).filter((id) => !mods.has(id));
 }
 
 function canClear(interaction, env = process.env) {
@@ -45,17 +36,15 @@ function canClear(interaction, env = process.env) {
   const administrator = Boolean(permissions?.has?.(PermissionFlagsBits.Administrator));
   const manageMessages = administrator || Boolean(permissions?.has?.(PermissionFlagsBits.ManageMessages));
   if (!manageMessages) return false;
-  if (administrator) return true;
-  const ownerId = interaction?.guild?.ownerId;
-  const userId = interaction?.user?.id;
-  if (ownerId && userId && String(ownerId) === String(userId)) return true;
-  return hasOperatorRole(interaction, env);
+  if (administrator || isGuildOwner(interaction)) return true;
+  if (hasStaffAdminRole(interaction, env)) return true;
+  return hasListedRole(interaction, clearOperatorRoleIds(env));
 }
 
 async function handleClearCommand(interaction) {
   if (!canClear(interaction, process.env)) {
     return interaction.reply({
-      content: 'Only Admins can use /clear.',
+      content: 'Only Admins can use /clear. Ask an Admin if something needs cleaning up.',
       flags: MessageFlags.Ephemeral
     });
   }

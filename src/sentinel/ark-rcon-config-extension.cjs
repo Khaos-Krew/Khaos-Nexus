@@ -16,6 +16,8 @@ const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { ArkRconConfigStore, normalizePrefix, rconRailwayEnvForbidden } = require('./ark-rcon-config-store.cjs');
 const { reportCommandFailure } = require('../game-bots/command-failure.cjs');
+const { hasListedRole } = require('../game-bots/vanguard/config.cjs');
+const { hasStaffAdminRole } = require('./staff-roles.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.rcon.config.extension');
 const BOUND = Symbol.for('khaos.nexus.ark.rcon.config.bound');
@@ -49,11 +51,11 @@ function isOwner(interaction, config = {}) {
   return owners.has(userId) || userId === String(interaction.guild?.ownerId || '');
 }
 
-function isStaff(interaction, config = {}) {
+function isStaff(interaction, config = {}, env = process.env) {
   if (isOwner(interaction, config)) return true;
   if (interaction.memberPermissions?.has?.(PermissionFlagsBits.Administrator)) return true;
-  const operatorRoles = new Set((config.discord?.operatorRoleIds || []).map(String));
-  return interaction.member?.roles?.cache?.some?.((role) => operatorRoles.has(String(role.id))) || false;
+  if (hasStaffAdminRole(interaction, env)) return true;
+  return hasListedRole(interaction, config.discord?.operatorRoleIds);
 }
 
 function serverChoices(registry = new ArkClusterRegistry()) {
@@ -221,7 +223,7 @@ async function handleCommand(interaction, config) {
   const sub = interaction.options.getSubcommand();
   const prefix = normalizePrefix(interaction.options.getString('server', true));
 
-  if (!isStaff(interaction, config)) throw new Error('ARK RCON controls require Nexus staff authorization.');
+  if (!isStaff(interaction, config)) throw new Error('ARK RCON controls require Nexus staff authorization. Ask an Admin.');
   if (['configure', 'password', 'setup', 'send', 'clear'].includes(sub) && !isOwner(interaction, config)) throw new Error('RCON configuration and raw command execution are restricted to the Nexus owner.');
 
   if (sub === 'password') {

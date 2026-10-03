@@ -68,7 +68,7 @@ function clean(value, max = 900) {
 
 async function handleConfig(interaction, context) {
   if (interaction.commandName !== 'arkconfig') return false;
-  if (!isStaff(interaction, context.config)) throw new Error('ARK configuration controls require Nexus staff authorization.');
+  if (!isStaff(interaction, context.config)) throw new Error('ARK configuration controls require Nexus staff authorization. Ask an Admin.');
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const sub = interaction.options.getSubcommand();
 
@@ -153,7 +153,7 @@ async function handleConfig(interaction, context) {
 
 async function handleDb(interaction, context) {
   if (interaction.commandName !== 'arkdb') return false;
-  if (!isStaff(interaction, context.config)) throw new Error('ArkShop database controls require Nexus staff authorization.');
+  if (!isStaff(interaction, context.config)) throw new Error('ArkShop database controls require Nexus staff authorization. Ask an Admin.');
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const sub = interaction.options.getSubcommand();
 
