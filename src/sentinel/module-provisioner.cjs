@@ -5,6 +5,7 @@ const { getModule, MODULES } = require('../backend/modules/catalog.cjs');
 const { GAME_BOT_JTC_MODULES } = require('../game-bots/join-to-create.cjs');
 const { layoutFor } = require('./module-layouts.cjs');
 const { reconcileModuleAccessPolicy } = require('./module-access-policy.cjs');
+const { assertModuleChannelsProvisionable } = require('./no-provision-modules.cjs');
 
 const GAME_BOT_JTC = new Set(GAME_BOT_JTC_MODULES);
 
@@ -87,6 +88,8 @@ class ModuleProvisioner {
   }
 
   async category(guild, moduleId, categoryId = '') {
+    // Shared choke point: every path that finds/creates a module category runs here.
+    assertModuleChannelsProvisionable(moduleId);
     const layout = layoutFor(moduleId);
     const displayName = desiredCategoryName(moduleId);
     if (categoryId) {
@@ -151,6 +154,7 @@ class ModuleProvisioner {
   async provision(guild, moduleId, categoryId = '') {
     const module = getModule(moduleId);
     if (!module) throw new Error(`Unknown module: ${moduleId}`);
+    assertModuleChannelsProvisionable(moduleId);
     const layout = layoutFor(moduleId);
     const categoryResult = await this.category(guild, moduleId, categoryId);
     const category = categoryResult.category;

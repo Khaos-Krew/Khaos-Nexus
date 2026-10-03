@@ -14,7 +14,7 @@ const { createCoalescingRunner } = require('./coalescing-runner.cjs');
 const { notifyRoleMenuStartupComplete } = require('./role-order-extension.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.moduleAccessRoles.extension');
-const AUTO_PROVISION_MODULES = Object.freeze(['callofduty', 'deadbydaylight', 'diablo4']);
+const AUTO_PROVISION_MODULES = Object.freeze(['diablo4']);
 
 function installManageableRoleFallback(manager, state) {
   const original = manager.ensureAccessRole.bind(manager);

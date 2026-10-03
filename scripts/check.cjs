@@ -18,7 +18,7 @@ const required = [
   'src/backend/providers/satisfactory-provider.cjs',
   'src/backend/transports/source-rcon.cjs', 'src/backend/transports/rcon-protocol.cjs',
   'src/railway/sentinal-service.cjs', 'src/railway/hosted-provider-store.cjs',
-  'src/railway/cephalon-service.cjs', 'src/railway/ascended-service.cjs', 'src/railway/sanctuary-service.cjs', 'src/railway/craft-service.cjs',
+  'src/railway/cephalon-service.cjs', 'src/railway/ascended-service.cjs', 'src/railway/sanctuary-service.cjs', 'src/railway/craft-service.cjs', 'src/railway/vanguard-service.cjs',
   'src/craft/protocol.cjs', 'src/craft/store.cjs', 'src/craft/access.cjs', 'src/craft/help.cjs', 'src/craft/query.cjs', 'src/craft/bot.cjs', 'src/craft/boot.cjs',
   'src/craft/mc-rcon-text.cjs', 'src/craft/mc-afk.cjs', 'src/craft/mc-playtime.cjs', 'src/craft/mc-delivery.cjs', 'src/craft/mc-link-flow.cjs', 'src/craft/mc-economy-http.cjs', 'src/craft/mc-points-commands.cjs',
   'src/shared/mc-points-flags.cjs', 'src/shared/mc-member-text.cjs', 'src/shared/mc-shop-catalog.cjs', 'src/shared/mc-starter-kit.cjs',

@@ -25,10 +25,12 @@ function emptyState() {
       creatorChatChannelId: '',
       twitchLiveChannelId: '',
       youtubeLiveChannelId: '',
+      creatorFeedChannelId: '',
       creatorRoleId: '',
       nowLiveRoleId: '',
       panelMessageId: ''
     },
+    creatorPosts: [],
     adminSettings: { rankRoles: {}, rankSkus: {}, moduleEnabled: {} },
     publicServerList: { channelId: '', messageId: '' }
   };
@@ -71,10 +73,19 @@ class StateStore {
       creatorChatChannelId: String(state.creatorMeta.creatorChatChannelId || ''),
       twitchLiveChannelId: String(state.creatorMeta.twitchLiveChannelId || ''),
       youtubeLiveChannelId: String(state.creatorMeta.youtubeLiveChannelId || ''),
+      creatorFeedChannelId: String(state.creatorMeta.creatorFeedChannelId || ''),
       creatorRoleId: String(state.creatorMeta.creatorRoleId || ''),
       nowLiveRoleId: String(state.creatorMeta.nowLiveRoleId || ''),
       panelMessageId: String(state.creatorMeta.panelMessageId || '')
     };
+    state.creatorPosts = (Array.isArray(state.creatorPosts) ? state.creatorPosts : []).slice(-1000).map((entry) => ({
+      userId: String(entry?.userId || ''),
+      url: String(entry?.url || '').slice(0, 500),
+      normalizedUrl: String(entry?.normalizedUrl || ''),
+      platform: String(entry?.platform || ''),
+      createdAt: String(entry?.createdAt || ''),
+      messageId: String(entry?.messageId || '')
+    })).filter((entry) => entry.userId && entry.normalizedUrl && entry.createdAt);
     state.adminSettings ||= {};
     state.adminSettings.rankRoles ||= {};
     state.adminSettings.rankSkus ||= {};
@@ -210,6 +221,23 @@ class StateStore {
     delete state.creatorProfiles[String(userId)];
     this.write(state);
     return existing;
+  }
+  listCreatorPosts() { return JSON.parse(JSON.stringify(this.read().creatorPosts || [])); }
+  recordCreatorPost(entry = {}) {
+    const state = this.read();
+    const record = {
+      userId: String(entry.userId || ''),
+      url: String(entry.url || '').slice(0, 500),
+      normalizedUrl: String(entry.normalizedUrl || '').slice(0, 500),
+      platform: String(entry.platform || ''),
+      createdAt: String(entry.createdAt || new Date().toISOString()),
+      messageId: String(entry.messageId || '')
+    };
+    if (!record.userId || !record.normalizedUrl) return null;
+    state.creatorPosts.push(record);
+    if (state.creatorPosts.length > 1000) state.creatorPosts = state.creatorPosts.slice(-1000);
+    this.write(state);
+    return record;
   }
   getCreatorMeta() { return JSON.parse(JSON.stringify(this.read().creatorMeta)); }
   setCreatorMeta(value = {}) {

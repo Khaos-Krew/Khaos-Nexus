@@ -16,6 +16,7 @@ const { createArkTameUi } = require('./ark-tame-ui.cjs');
 const { SentinalAdminOps } = require('./admin-ops.cjs');
 const { createSentinalAdminServer } = require('./admin-server.cjs');
 const { ensureAnomalyChannel } = require('./ark-shiny-anomaly.cjs');
+const { isModuleChannelsNotProvisionedError } = require('./no-provision-modules.cjs');
 
 const config = loadConfig();
 const token = envSecret(config.discord?.tokenEnv);
@@ -217,7 +218,8 @@ async function repairModuleIds(interaction, moduleIds, title) {
       if (setup.createdChannels.length) changes.push(`restored ${setup.createdChannels.length} channel${setup.createdChannels.length === 1 ? '' : 's'}`);
       lines.push(`✅ **${module.name}** — ${changes.length ? changes.join(' • ') : 'layout already complete'}`);
     } catch (error) {
-      lines.push(`⚠️ **${module.name}** — ${String(error?.message || error).slice(0, 160)}`);
+      if (isModuleChannelsNotProvisionedError(error)) lines.push(`⏭️ **${module.name}** — channels not provisioned (removed game; role kept)`);
+      else lines.push(`⚠️ **${module.name}** — ${String(error?.message || error).slice(0, 160)}`);
     }
   }
   return `**${title}**\n${lines.join('\n')}`;

@@ -1,0 +1,285 @@
+{
+  "activation": "2026-09-28T00:00:00.000Z",
+  "expiry": "2026-10-05T00:00:00.000Z",
+  "challenges": [
+    {
+      "index": 1,
+      "typeKey": "DT_EXTERMINATE",
+      "challenge": "Fiery Trail Rollers",
+      "challengeKey": "FieryTrailRollers",
+      "specs": [
+        {
+          "name": "Co H Roller Spec"
+        }
+      ],
+      "auras": [
+        {
+          "name": "Fiery Trail Aura"
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "typeKey": "DT_SHRINE_DEFENSE",
+      "challenge": "Slip And Slide",
+      "challengeKey": "SlipAndSlide",
+      "specs": [
+        {
+          "name": "Five Fates Defense"
+        }
+      ],
+      "auras": [
+        {
+          "name": "Co H Slip And Slide Aura"
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "typeKey": "DT_MIMICS",
+      "challenge": "Basic Mimics",
+      "challengeKey": "BasicMimics",
+      "specs": [],
+      "auras": []
+    },
+    {
+      "index": 4,
+      "typeKey": "DT_DEFENSE",
+      "challenge": "Fire Chain",
+      "challengeKey": "FireChain",
+      "specs": [
+        {
+          "name": "Duviri Exterminate Hardmode A"
+        }
+      ],
+      "auras": [
+        {
+          "name": "Fire Chain Aura"
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "typeKey": "DT_INFESTED_SALVAGE",
+      "challenge": "Head Shots Only",
+      "challengeKey": "HeadShotsOnly",
+      "specs": [
+        {
+          "name": "P N W Narmer Forest Grineer Exterminate"
+        }
+      ],
+      "auras": [
+        {
+          "name": "Generic Fortified Foes Weakpoint Aura"
+        }
+      ]
+    },
+    {
+      "index": 6,
+      "typeKey": "DT_EXCAVATION",
+      "challenge": "Poison Gas",
+      "challengeKey": "PoisonGas",
+      "specs": [
+        {
+          "name": "Corpus Grineer Invasion Hard"
+        }
+      ],
+      "auras": [
+        {
+          "name": "Poison Gas Aura"
+        }
+      ]
+    },
+    {
+      "index": 7,
+      "typeKey": "DT_PROTOFRAME",
+      "challenge": "Wisp",
+      "challengeKey": "Wisp",
+      "specs": [],
+      "auras": []
+    },
+    {
+      "index": 8,
+      "typeKey": "DT_SABOTAGE_DEFENSE",
+      "challenge": "Power House",
+      "challengeKey": "PowerHouse",
+      "specs": [
+        {
+          "name": "Orokin Exterminate B"
+        }
+      ],
+      "auras": [
+        {
+          "name": "Power House Enhancement Aura"
+        }
+      ]
+    },
+    {
+      "index": 9,
+      "typeKey": "DT_RACE",
+      "challenge": "Basic Race",
+      "challengeKey": "BasicRace",
+      "specs": [],
+      "auras": []
+    },
+    {
+      "index": 10,
+      "typeKey": "DT_SABOTAGE_HIVE",
+      "challenge": "Heavy Weapons Only",
+      "challengeKey": "HeavyWeaponsOnly",
+      "specs": [
+        {
+          "name": "Co H Corpus Zariman Exterminate Spec"
+        }
+      ],
+      "auras": [
+        {
+          "name": "Heavy Weapon Spawn Aura"
+        },
+        {
+          "name": "Heavy Weapons Only Aura"
+        }
+      ]
+    },
+    {
+      "index": 11,
+      "typeKey": "DT_PRESURE_GAUGE",
+      "challenge": "Security Spin",
+      "challengeKey": "SecuritySpin",
+      "specs": [
+        {
+          "name": "Co H Corpus Gas Exterminate Mixed"
+        }
+      ],
+      "auras": [
+        {
+          "name": "Co H Security Spin Aura"
+        }
+      ]
+    },
+    {
+      "index": 12,
+      "typeKey": "DT_COLLECTION",
+      "challenge": "N C_ Security Spin",
+      "challengeKey": "NC_SecuritySpin",
+      "specs": [],
+      "auras": [
+        {
+          "name": "Co H Security Spin Aura"
+        }
+      ]
+    },
+    {
+      "index": 13,
+      "typeKey": "DT_NETRACELLS",
+      "challenge": "Giant Realm",
+      "challengeKey": "GiantRealm",
+      "specs": [
+        {
+          "name": "Co H Vania Scaldra Techrot"
+        }
+      ],
+      "auras": [
+        {
+          "name": "Giant Realm Aura"
+        }
+      ]
+    },
+    {
+      "index": 14,
+      "typeKey": "DT_PROTOFRAME",
+      "challenge": "Harrow",
+      "challengeKey": "Harrow",
+      "specs": [],
+      "auras": []
+    },
+    {
+      "index": 15,
+      "typeKey": "DT_LOOT_CREATURES",
+      "challenge": "Basic Loot Creatures",
+      "challengeKey": "BasicLootCreatures",
+      "specs": [],
+      "auras": []
+    },
+    {
+      "index": 16,
+      "typeKey": "DT_EXTERMINATE",
+      "challenge": "Spike Ceiling",
+      "challengeKey": "SpikeCeiling",
+      "specs": [
+        {
+          "name": "Co H Entrati Alchemy Spec"
+        }
+      ],
+      "auras": [
+        {
+          "name": "Co H Spike Orb Aura"
+        }
+      ]
+    },
+    {
+      "index": 17,
+      "typeKey": "DT_SHRINE_DEFENSE",
+      "challenge": "Hard Shell",
+      "challengeKey": "HardShell",
+      "specs": [
+        {
+          "name": "Tau12 Min War Dax Spec"
+        }
+      ],
+      "auras": [
+        {
+          "name": "Hard Shell Enhancement Aura"
+        }
+      ]
+    },
+    {
+      "index": 18,
+      "typeKey": "DT_CAPTURE",
+      "challenge": "Escapist",
+      "challengeKey": "Escapist",
+      "specs": [
+        {
+          "name": "Co H P N W Narmer Corpus Gas Exterminate"
+        }
+      ],
+      "auras": [
+        {
+          "name": "Co H Escapist Aura"
+        }
+      ]
+    },
+    {
+      "index": 19,
+      "typeKey": "DT_RACE",
+      "challenge": "Basic Race",
+      "challengeKey": "BasicRace",
+      "specs": [],
+      "auras": []
+    },
+    {
+      "index": 20,
+      "typeKey": "DT_EXCAVATION",
+      "challenge": "Toxic Fire",
+      "challengeKey": "ToxicFire",
+      "specs": [
+        {
+          "name": "Co H Grineer Zariman Exterminate"
+        }
+      ],
+      "auras": [
+        {
+          "name": "Toxic Fire Enhancement Aura"
+        }
+      ]
+    },
+    {
+      "index": 21,
+      "typeKey": "DT_PROTOFRAME",
+      "challenge": "Devil",
+      "challengeKey": "Devil",
+      "specs": [],
+      "auras": []
+    }
+  ]
+}

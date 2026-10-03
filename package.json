@@ -13,6 +13,7 @@
     "cephalon": "node src/railway/cephalon-service.cjs",
     "ascended": "node src/railway/ascended-service.cjs",
     "sanctuary": "node src/railway/sanctuary-service.cjs",
+    "vanguard": "node src/railway/vanguard-service.cjs",
     "craft": "node src/railway/craft-service.cjs",
     "sentinel:v2": "node src/sentinel-v2/control-plane.cjs",
     "sentinel:v2:worker": "node src/sentinel-v2/worker.cjs",
@@ -23,7 +24,7 @@
     "economy:migrate": "node scripts/migrate-nexus-economy.cjs",
     "wshop:export": "node scripts/export-wshop-migration.cjs",
     "check": "node scripts/check.cjs",
-    "test": "node --test tests/*.test.cjs",
+    "test": "node --test tests/*.test.cjs tests/vanguard/*.test.cjs tests/vanguard/bungie/*.test.cjs tests/vanguard/clan/*.test.cjs",
     "dist:win": "electron-builder --win --x64 --publish never",
     "dist:update": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-update-bundle.ps1 -Channel owner-test"
   },

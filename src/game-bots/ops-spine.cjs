@@ -9,6 +9,7 @@ const { STAGE_HELP, stageCommandNames } = require('./stage-catalog.cjs');
 const { healthSummaryLines, resolveHealthPrefixes } = require('./ascended-rcon-health.cjs');
 const { BOT_LABELS, errorClass, reportCommandFailure, setGameBotMeta } = require('./command-failure.cjs');
 const { normalizeBot, resolveCategoryConfig } = require('./category-gate.cjs');
+const { hasStaffRole } = require('./vanguard/config.cjs');
 const { sanctuaryHelpText, categoryGateLabel, resolveButtonChannel, buttonChannelLabel } = require('../sentinel/sanctuary-suite.cjs');
 const { jtcStatusLine } = require('./join-to-create.cjs');
 const { clusterStaffLine } = require('./asa-cluster-presence.cjs');
@@ -35,12 +36,16 @@ const COMMAND_HELP = Object.freeze({
   nexushelp: 'This command list',
   status: 'Staff service status',
   sanctuary: 'Sanctuary Nexus roles, groups, builds, and season notes',
+  lfg: 'Fireteam posts, roster, and closing',
+  vanguard: 'Staff: create missing channels and refresh panels',
+  d2: 'Destiny 2 player, reset, Xûr, clan, and roster lookups',
   ...STAGE_HELP
 });
 
 function ownedCommandNames(key) {
   if (key === 'ascended') return ASCENDED_COMMANDS;
   if (key === 'sanctuary') return ['sanctuary'];
+  if (key === 'vanguard') return ['lfg', 'vanguard', 'd2'];
   return CEPHALON_COMMANDS;
 }
 
@@ -51,6 +56,7 @@ function liveCommandNames(bot) {
 
 function helpText(bot) {
   const key = normalizeBot(bot);
+  if (key === 'vanguard') return require('./vanguard/commands/help.cjs').helpText().slice(0, 1900);
   if (key === 'sanctuary') return sanctuaryHelpText().slice(0, 1900);
   const title = key === 'ascended' ? '**Nexus Ascended help**' : '**Cephalon Nexus help**';
   const lines = [title, 'Live commands:'];
@@ -135,6 +141,7 @@ function rconStaffLines(env = process.env) {
 
 async function buildStatusText({ bot, client, env = process.env, probe } = {}) {
   const key = normalizeBot(bot);
+  if (key === 'vanguard') return require('./vanguard/commands/status.cjs').buildStatusText({ client, env });
   const ready = Boolean(client?.isReady?.());
   const lines = [
     key === 'ascended' ? '**Nexus Ascended status**' : key === 'sanctuary' ? '**Sanctuary Nexus status**' : '**Cephalon Nexus status**',
@@ -177,7 +184,8 @@ async function handleOpsCommand(interaction, context = {}) {
     await interaction.reply({ content: helpText(bot), flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
     return true;
   }
-  if (!isStaff(interaction, config)) {
+  const staff = isStaff(interaction, config) || (bot === 'vanguard' && hasStaffRole(interaction, env));
+  if (!staff) {
     await interaction.reply({ content: 'Status is restricted to Nexus staff.', flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
     return true;
   }

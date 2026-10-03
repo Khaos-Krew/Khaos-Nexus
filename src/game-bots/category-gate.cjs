@@ -15,13 +15,18 @@ const OWNER_CATEGORY_IDS = Object.freeze({
 const CATEGORY_ENV_NAMES = Object.freeze({
   ascended: 'ASCENDED_DISCORD_CATEGORY_ID',
   cephalon: 'CEPHALON_DISCORD_CATEGORY_ID',
-  sanctuary: 'SANCTUARY_DISCORD_CATEGORY_ID'
+  sanctuary: 'SANCTUARY_DISCORD_CATEGORY_ID',
+  vanguard: 'VANGUARD_DISCORD_CATEGORY_ID'
 });
 
 // Used only when the primary variable is unset or blank.
 const CATEGORY_ENV_ALIASES = Object.freeze({
-  sanctuary: 'DIABLO_DISCORD_CATEGORY_ID'
+  sanctuary: 'DIABLO_DISCORD_CATEGORY_ID',
+  vanguard: 'VANGUARD_CATEGORY_ID'
 });
+
+// Sanctuary stays open until a category id is set. Vanguard does not.
+const FAIL_CLOSED_WHEN_UNSET = new Set(['vanguard']);
 
 const GATE = Symbol.for('khaos.nexus.gamebot.categoryGate');
 const WRAPPED = Symbol.for('khaos.nexus.gamebot.categoryWrapped');
@@ -34,6 +39,7 @@ function normalizeBot(value) {
   if (bot === 'ascended' || bot === 'ark_asa' || bot === 'nexus-ascended') return 'ascended';
   if (bot === 'cephalon' || bot === 'warframe' || bot === 'cephalon-nexus') return 'cephalon';
   if (bot === 'sanctuary' || bot === 'diablo' || bot === 'diablo4' || bot === 'sanctuary-nexus') return 'sanctuary';
+  if (bot === 'vanguard' || bot === 'destiny' || bot === 'destiny2' || bot === 'nexus-vanguard') return 'vanguard';
   return '';
 }
 
@@ -63,6 +69,9 @@ function resolveCategoryConfig(bot, env = process.env) {
   const reading = categoryRaw(key, env);
   if (!reading.raw) {
     if (fallback) return { bot: key, id: fallback, source: 'default', envName: reading.envName, failClosed: false, open: false };
+    if (FAIL_CLOSED_WHEN_UNSET.has(key)) {
+      return { bot: key, id: '', source: 'unset', envName: reading.envName, failClosed: true, open: false };
+    }
     return { bot: key, id: '', source: 'unset', envName: reading.envName, failClosed: false, open: true };
   }
   if (!/^\d{17,20}$/.test(reading.raw)) {
@@ -75,7 +84,16 @@ function redirectMessage(bot) {
   const key = normalizeBot(bot);
   if (key === 'ascended') return 'Use this bot in the ARK Ascended category.';
   if (key === 'sanctuary') return 'Use this bot in the Sanctuary category.';
+  if (key === 'vanguard') return 'Use this bot in the Vanguard category.';
   return 'Use this bot in the Warframe category.';
+}
+
+function gateDenyText(key, config) {
+  if (key === 'vanguard' && config?.failClosed) {
+    const envName = config.envName || 'VANGUARD_DISCORD_CATEGORY_ID';
+    return `Vanguard is fail-closed: ${envName} is missing or not a Discord category id.`;
+  }
+  return redirectMessage(key);
 }
 
 function isThreadChannel(channel) {
@@ -140,7 +158,8 @@ function installCategoryGate(client, { bot, env = process.env } = {}) {
   const config = resolveCategoryConfig(key, env);
   setGameBotMeta(client, { bot: key, botName: BOT_LABELS[key] });
   if (config.failClosed) {
-    console.error(`[${BOT_LABELS[key]}] category gate fail-closed: ${config.envName} is not a Discord category id`);
+    const why = config.source === 'unset' ? 'is unset' : 'is not a Discord category id';
+    console.error(`[${BOT_LABELS[key]}] category gate fail-closed: ${config.envName} ${why}`);
   } else if (config.open) {
     console.warn(`[${BOT_LABELS[key]}] category gate open: ${config.envName} is unset; commands are allowed until a category id is provided`);
   }
@@ -152,7 +171,7 @@ function installCategoryGate(client, { bot, env = process.env } = {}) {
       if (!decision.allow) {
         if (!interaction[DENIED]) {
           interaction[DENIED] = true;
-          await replyEphemeral(interaction, redirectMessage(key));
+          await replyEphemeral(interaction, gateDenyText(key, config));
         }
         return;
       }
@@ -188,6 +207,7 @@ module.exports = {
   gameBotKey,
   resolveCategoryConfig,
   redirectMessage,
+  gateDenyText,
   isThreadChannel,
   categoryIdForChannel,
   categoryIdForInteraction,

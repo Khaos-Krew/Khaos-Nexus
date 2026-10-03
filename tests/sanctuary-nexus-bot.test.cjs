@@ -41,6 +41,11 @@ const { communityEventSchedule, eventTimerMessage } = require('../src/sentinel/s
 
 const root = path.resolve(__dirname, '..');
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
+
+function missingImageFiles(relatives) {
+  const missing = relatives.filter((relative) => !fs.existsSync(path.join(root, relative)));
+  return missing.length ? `image does not include ${missing.join(', ')}` : false;
+}
 const CATEGORY = '1516640233389822042';
 
 function flush() {
@@ -103,7 +108,6 @@ test('sanctuary category id stays env-only and prefers SANCTUARY_DISCORD_CATEGOR
   assert.equal(alias.envName, 'DIABLO_DISCORD_CATEGORY_ID');
   assert.equal(alias.id, '2000000000000000002');
   assert.equal(resolveCategoryConfig('sanctuary', {}).open, true);
-  assert.doesNotMatch(read('Dockerfile.sanctuary'), /SANCTUARY_DISCORD_CATEGORY_ID|DIABLO_DISCORD_CATEGORY_ID/);
   assert.doesNotMatch(read('src/railway/sanctuary-service.cjs'), /SANCTUARY_DISCORD_CATEGORY_ID\s*=\s*\d+/);
   assert.match(read('src/game-bots/start.cjs'), /resolveCategoryConfig/);
   assert.match(read('src/game-bots/start.cjs'), /installCategoryGate/);
@@ -132,7 +136,7 @@ test('button panels use the env channel and skip auto-post when it is unset', as
   });
   assert.equal(invalid.source, 'invalid');
   assert.equal(invalid.ok, false);
-  assert.doesNotMatch(read('Dockerfile.sanctuary') + read('src/sentinel/sanctuary-suite.cjs') + read('src/sentinel/sanctuary-bot.cjs'), /SANCTUARY_BUTTON_CHANNEL_ID=\d+/);
+  assert.doesNotMatch(read('src/sentinel/sanctuary-suite.cjs') + read('src/sentinel/sanctuary-bot.cjs'), /SANCTUARY_BUTTON_CHANNEL_ID=\d+/);
 
   const warnings = [];
   const original = console.warn;
@@ -615,19 +619,10 @@ test('sanctuary help and status stay off other bots and off a baked category id'
   await flush();
   assert.deepEqual(created.sort(), ['nexushelp', 'status']);
 
-  const dockerfile = read('Dockerfile.sanctuary');
   const service = read('src/railway/sanctuary-service.cjs');
   const suite = read('src/sentinel/sanctuary-suite.cjs');
   const bot = read('src/sentinel/sanctuary-bot.cjs');
   const events = read('src/sentinel/sanctuary-events.cjs');
-  const doc = read('docs/ops/SANCTUARY_NEXUS_DISCORD.md');
-  const runbook = read('docs/ops/sanctuary-bot-runbook.md');
-  assert.match(dockerfile, /FROM node:22-slim/);
-  assert.match(dockerfile, /npm ci --omit=dev/);
-  assert.match(dockerfile, /NEXUS_GAME_ROLE=diablo/);
-  assert.match(dockerfile, /src\/railway\/sanctuary-service\.cjs/);
-  assert.match(dockerfile, /SANCTUARY_JTC_LOBBY_CHANNEL_ID=1541540961937526916/);
-  assert.doesNotMatch(dockerfile, /busybox|_RCON_PASSWORD|_RCON_PORT|_HOST=|SANCTUARY_DISCORD_CATEGORY_ID=\d+/i);
   assert.match(service, /botName: 'Sanctuary Nexus'/);
   assert.match(service, /serviceName: 'sanctuary-nexus'/);
   assert.match(service, /gameRole: 'diablo'/);
@@ -639,6 +634,30 @@ test('sanctuary help and status stay off other bots and off a baked category id'
   assert.doesNotMatch(sources, /news\.blizzard\.com|_RCON_|Nephalem|Sentinel|d4api\.dev|d4armory|helltides\.com/);
   assert.match(events, /https:\/\/diablo4\.life\/api\/trackers\/list/);
   assert.doesNotMatch(sources.replace(/https:\/\/diablo4\.life\/api\/trackers\/list/g, ''), /\bhttps?:\/\//);
+  assert.doesNotMatch(suite + bot, /SANCTUARY_DISCORD_CATEGORY_ID=\d+/);
+});
+
+test('sanctuary image and ops notes keep the category id out of the build', {
+  skip: missingImageFiles([
+    'Dockerfile.sanctuary',
+    'docs/ops/SANCTUARY_NEXUS_DISCORD.md',
+    'docs/ops/sanctuary-bot-runbook.md',
+    'Dockerfile.sentinal'
+  ])
+}, () => {
+  const dockerfile = read('Dockerfile.sanctuary');
+  const suite = read('src/sentinel/sanctuary-suite.cjs');
+  const bot = read('src/sentinel/sanctuary-bot.cjs');
+  const doc = read('docs/ops/SANCTUARY_NEXUS_DISCORD.md');
+  const runbook = read('docs/ops/sanctuary-bot-runbook.md');
+  assert.doesNotMatch(dockerfile, /SANCTUARY_DISCORD_CATEGORY_ID|DIABLO_DISCORD_CATEGORY_ID/);
+  assert.doesNotMatch(dockerfile, /SANCTUARY_BUTTON_CHANNEL_ID=\d+/);
+  assert.match(dockerfile, /FROM node:22-slim/);
+  assert.match(dockerfile, /npm ci --omit=dev/);
+  assert.match(dockerfile, /NEXUS_GAME_ROLE=diablo/);
+  assert.match(dockerfile, /src\/railway\/sanctuary-service\.cjs/);
+  assert.match(dockerfile, /SANCTUARY_JTC_LOBBY_CHANNEL_ID=1541540961937526916/);
+  assert.doesNotMatch(dockerfile, /busybox|_RCON_PASSWORD|_RCON_PORT|_HOST=|SANCTUARY_DISCORD_CATEGORY_ID=\d+/i);
   assert.match(runbook, /d4api\.dev/);
   assert.match(runbook, /SANCTUARY_WORLD_BOSS_ANCHOR/);
   assert.match(runbook, /warframestat\.us/);

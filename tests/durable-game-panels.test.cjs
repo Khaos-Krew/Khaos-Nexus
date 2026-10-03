@@ -654,6 +654,23 @@ test('brand banner files exist inside the paths the game-bot images copy', () =>
     assert.ok(bytes.length > 8_000);
     assert.ok(bytes.length < 500_000);
     assert.equal(relative.startsWith('src/'), true);
+  }
+  const hub = bannerFor('sentinal');
+  const hubRelative = path.relative(root, hub.path).split(path.sep).join('/');
+  assert.equal(fs.existsSync(hub.path), true);
+  assert.equal(hubRelative.startsWith('src/'), true);
+  assert.equal(PANEL_IDENTITIES.fissures.titles.includes('Fissure Relay Board'), true);
+});
+
+test('game-bot images copy src so brand banners ship with the bot', {
+  skip: ['cephalon', 'ascended', 'sanctuary', 'sentinal'].some((bot) => !fs.existsSync(path.join(__dirname, '..', `Dockerfile.${bot}`)))
+    ? 'image does not include every game-bot Dockerfile'
+    : false
+}, () => {
+  const root = path.join(__dirname, '..');
+  for (const bot of ['cephalon', 'ascended', 'sanctuary']) {
+    const banner = bannerFor(bot);
+    const relative = path.relative(root, banner.path).split(path.sep).join('/');
     const docker = fs.readFileSync(path.join(root, `Dockerfile.${bot}`), 'utf8');
     assert.match(docker, /^COPY src \.\/src$/m);
     const copied = docker.split('\n').some((line) => {
@@ -664,12 +681,7 @@ test('brand banner files exist inside the paths the game-bot images copy', () =>
     });
     assert.equal(copied, true);
   }
-  const hub = bannerFor('sentinal');
-  const hubRelative = path.relative(root, hub.path).split(path.sep).join('/');
-  assert.equal(fs.existsSync(hub.path), true);
-  assert.equal(hubRelative.startsWith('src/'), true);
   assert.match(fs.readFileSync(path.join(root, 'Dockerfile.sentinal'), 'utf8'), /^COPY src \.\/src$/m);
-  assert.equal(PANEL_IDENTITIES.fissures.titles.includes('Fissure Relay Board'), true);
 });
 
 function warframeWorldstate(pathname) {
@@ -683,7 +695,12 @@ function warframeWorldstate(pathname) {
     voidTrader: { character: "Baro Ki'Teer", location: 'Orcus Relay', active: true, eta: '2d', inventory: [{ item: 'Prisma Gorgon', ducats: 600, credits: 150000 }] },
     steelPath: { currentReward: { name: 'Umbra Forma Blueprint' }, remaining: '3d', rotation: [{ name: 'Forma', cost: 10 }] },
     duviriCycle: { state: 'joy', timeLeft: '40m', choices: [{ category: 'Normal', choices: ['Excalibur'] }] },
-    deepArchimedea: { eta: '1d', missions: [{ missionType: 'Exterminate', faction: 'Grineer', deviation: { name: 'Tight Belt' }, risks: [{ name: 'Powerless' }] }] }
+    deepArchimedea: { eta: '1d', missions: [{ missionType: 'Exterminate', faction: 'Grineer', deviation: { name: 'Tight Belt' }, risks: [{ name: 'Powerless' }] }] },
+    descendia: {
+      activation: '2026-09-28T00:00:00.000Z',
+      expiry: '2099-01-01T00:00:00.000Z',
+      challenges: [{ index: 1, typeKey: 'DT_EXTERMINATE', challenge: 'Fiery Trail Rollers', auras: [{ name: 'Fiery Trail Aura' }] }]
+    }
   };
   if (!Object.prototype.hasOwnProperty.call(table, pathname)) throw new Error(`unexpected ${pathname}`);
   return table[pathname];
@@ -912,6 +929,9 @@ test('Cephalon edits Warframe panels in place and stays inside its category', as
     assert.match(packed, /Cephalon • Baro Ki'Teer/);
     assert.match(packed, /Prisma Gorgon/);
     assert.match(packed, /Cephalon • Circuit/);
+    assert.match(packed, /Cephalon • Descendia/);
+    assert.match(packed, /Fiery Trail Rollers/);
+    assert.match(packed, /Many Worlds One Nexus/);
     assert.match(packed, /joy/);
     assert.match(packed, /Excalibur/);
     assert.match(packed, /Umbra Forma Blueprint/);
@@ -1021,7 +1041,8 @@ test('Cephalon retires a Warframe news panel once and leaves the other boards in
     'nightwave',
     'void-trader',
     'steel-path',
-    'circuit'
+    'circuit',
+    'descendia'
   ]);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cephalon-news-retire-'));
   const channelId = '1540956147241062401';
