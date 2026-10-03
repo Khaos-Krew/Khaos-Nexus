@@ -67,10 +67,8 @@ function mcEarnEligible(identity, link) {
 }
 
 function mcPlaytimeEligible(identity, link) {
-  // A verified /mc link is enough for Minecraft playtime. EOS status=verified is not required. Disabled identities do not earn.
-  if (!identity || identity.status === 'disabled') return false;
-  if (identity.status !== 'verified' && identity.status !== 'restricted') return false;
-  return Boolean(link?.verifiedAt) && isPremiumUuid(link.mcUuid);
+  // Verified Discord identity and a verified /mc link. An EOS link is not required.
+  return verifiedDiscordIdentity(identity) && Boolean(link?.verifiedAt) && isPremiumUuid(link.mcUuid);
 }
 
 function leaseMsForOrder(order) {

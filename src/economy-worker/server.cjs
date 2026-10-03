@@ -110,6 +110,18 @@ function presenceBody(input) {
   return copy;
 }
 
+function craftMinecraftPresence(input) {
+  const body = input && typeof input === 'object' ? input : {};
+  const provider = String(body.provider || '').trim().toLowerCase();
+  const eosId = body.eosId == null ? '' : String(body.eosId).trim();
+  const mcUuid = body.mcUuid == null ? '' : String(body.mcUuid).trim();
+  if (eosId) return false;
+  if (provider === 'ark') return false;
+  if (provider && provider !== 'minecraft') return false;
+  if (provider === 'minecraft') return true;
+  return Boolean(mcUuid);
+}
+
 function craftRouteAllowed(method, pathname) {
   return CRAFT_ROUTES.has(`${method} ${pathname}`);
 }
@@ -402,7 +414,12 @@ function createEconomyServer(options = {}) {
         return json(res, 200, { ok: true, result: ensured });
       }
       if (url.pathname === '/shop/quote') return json(res, 200, { ok: true, quote: shop.quote(input), writesEnabled });
-      if (url.pathname === '/presence') return json(res, 200, await worker.recordPresence(presenceBody(input)));
+      if (url.pathname === '/presence') {
+        if (scope === 'craft' && !craftMinecraftPresence(input)) {
+          return json(res, 403, { ok: false, error: 'craft-presence-scope' });
+        }
+        return json(res, 200, await worker.recordPresence(presenceBody(input)));
+      }
       {
         const adminHandled = await handleAdminWalletPost(url.pathname, { worker, input, json, res });
         if (adminHandled !== null) return adminHandled;
@@ -519,6 +536,7 @@ module.exports = {
   mutationRequestGate,
   walletReadAccrualPermitted,
   presenceBody,
+  craftMinecraftPresence,
   craftRouteAllowed,
   requestScope,
   createEconomyServer,

@@ -606,7 +606,11 @@ test('dry-run accrues per-uuid playtime and a schema failure stays inside minecr
   const queries = [];
   const schema = new PostgresEconomyAccrual({
     pool: {
-      async query(sql) { queries.push(String(sql)); return { rows: [] }; },
+      async query(sql) {
+        queries.push(String(sql));
+        if (String(sql).includes('information_schema.columns')) return { rows: [{ is_nullable: 'NO' }] };
+        return { rows: [] };
+      },
       async connect() { throw new Error('schema check does not connect'); }
     }
   });
@@ -614,5 +618,19 @@ test('dry-run accrues per-uuid playtime and a schema failure stays inside minecr
   const sql = queries.join('\n');
   assert.match(sql, /offline_since TIMESTAMPTZ,/);
   assert.doesNotMatch(sql, /offline_since TIMESTAMPTZ NOT NULL/);
+  assert.match(sql, /information_schema\.columns/);
   assert.match(sql, /ALTER COLUMN offline_since DROP NOT NULL/);
+  const skipped = [];
+  const already = new PostgresEconomyAccrual({
+    pool: {
+      async query(sql) {
+        skipped.push(String(sql));
+        if (String(sql).includes('information_schema.columns')) return { rows: [{ is_nullable: 'YES' }] };
+        return { rows: [] };
+      },
+      async connect() { throw new Error('schema check does not connect'); }
+    }
+  });
+  await already.ensureSchema();
+  assert.equal(skipped.some((text) => text.includes('DROP NOT NULL')), false);
 });

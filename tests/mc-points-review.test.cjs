@@ -296,6 +296,69 @@ test('the craft token cannot buy, credit, or refund', async () => {
   }
 });
 
+test('the craft token can post minecraft presence only', async () => {
+  const seen = [];
+  const worker = {
+    health: () => ({ ok: true }),
+    recordPresence: async (input) => { seen.push(input); return { ok: true, credited: 0 }; }
+  };
+  const runtime = createEconomyServer({
+    worker,
+    shop: { listCatalog: () => [], pendingBuyOrders: () => [] },
+    token: 'sentinal-token',
+    craftToken: 'craft-token',
+    writesEnabled: true,
+    presenceWritesEnabled: true
+  });
+  await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
+  const port = runtime.server.address().port;
+  async function post(token, payload) {
+    const body = Buffer.from(JSON.stringify(payload));
+    return new Promise((resolve, reject) => {
+      const req = http.request({
+        host: '127.0.0.1',
+        port,
+        path: '/presence',
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'content-length': body.length }
+      }, (res) => {
+        let raw = '';
+        res.on('data', (chunk) => { raw += chunk; });
+        res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(raw || '{}') }));
+      });
+      req.on('error', reject);
+      req.end(body);
+    });
+  }
+  try {
+    const minecraft = await post('craft-token', { provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
+    assert.equal(minecraft.status, 200);
+    assert.equal(seen.at(-1).provider, 'minecraft');
+    assert.equal(seen.at(-1).eosId, undefined);
+    const uuidOnly = await post('craft-token', { mcUuid: UUID, online: true, server: 'minecraft' });
+    assert.equal(uuidOnly.status, 200);
+    for (const payload of [
+      { provider: 'minecraft', mcUuid: UUID, eosId: 'eos-1', online: true, server: 'minecraft' },
+      { provider: 'ark', eosId: 'eos-1', online: true, server: 'ark' },
+      { provider: 'ARK', eosId: 'eos-1', online: true },
+      { eosId: 'eos-1', online: true, server: 'ark' },
+      { provider: 'rust', online: true },
+      { online: true, server: 'ark' }
+    ]) {
+      const blocked = await post('craft-token', payload);
+      assert.equal(blocked.status, 403, JSON.stringify(payload));
+      assert.equal(blocked.body.error, 'craft-presence-scope');
+    }
+    assert.equal(seen.length, 2);
+    const sentinal = await post('sentinal-token', { provider: 'ark', eosId: 'eos-1', online: true, server: 'ark' });
+    assert.equal(sentinal.status, 200);
+    assert.equal(seen.at(-1).provider, 'ark');
+    assert.equal(seen.at(-1).eosId, 'eos-1');
+  } finally {
+    await new Promise((resolve) => runtime.server.close(resolve));
+  }
+});
+
 test('minecraft playtime does not require EOS when the identity and link are verified', async () => {
   assert.equal(mcEarnEligible({ status: 'verified', verifiedAt: '2026-01-01' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), true);
   assert.equal(mcEarnEligible({ status: 'verified', verifiedAt: '2026-01-01' }, null), false);
@@ -865,8 +928,9 @@ test('the same player can relink an unlinked UUID', async () => {
 });
 
 test('a verified minecraft link earns without EOS and quarantine still blocks', async () => {
-  assert.equal(mcPlaytimeEligible({ status: 'restricted' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), true);
   assert.equal(mcPlaytimeEligible({ status: 'verified', verifiedAt: '2026-01-01' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), true);
+  assert.equal(mcPlaytimeEligible({ status: 'verified' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), false);
+  assert.equal(mcPlaytimeEligible({ status: 'restricted' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), false);
   assert.equal(mcPlaytimeEligible({ status: 'disabled' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), false);
   assert.equal(mcPlaytimeEligible({ status: 'restricted' }, null), false);
   assert.equal(mcEarnEligible({ status: 'restricted' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), false);
@@ -883,15 +947,17 @@ test('a verified minecraft link earns without EOS and quarantine still blocks', 
   worker.store.write(state);
   const challenge = await worker.minecraft.challenge({ discordUserId: DISCORD, mcUuid: UUID, mcName: 'Steve' });
   assert.equal((await worker.minecraft.confirm({ discordUserId: DISCORD, code: challenge.code })).ok, true);
-  const linked = worker.store.read();
-  linked.accounts[DISCORD].status = 'restricted';
-  worker.store.write(linked);
   assert.equal(worker.store.read().eosToDiscord[UUID], undefined);
   await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
   now += 5 * 60 * 1000;
   const earned = await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
   assert.equal(earned.ok, true, earned.reason);
   assert.ok(earned.balance > 0);
+  const linked = worker.store.read();
+  linked.accounts[DISCORD].status = 'restricted';
+  worker.store.write(linked);
+  const denied = await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
+  assert.equal(denied.reason, 'unlinked-player');
   const shop = await worker.minecraft.quote({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1 });
   assert.equal(shop.reason, 'verified-identity-required');
 
@@ -906,9 +972,11 @@ test('a verified minecraft link earns without EOS and quarantine still blocks', 
   assert.equal(credited.balance, 2);
   const resolveSql = queries.find((sql) => sql.includes("provider = 'minecraft'"));
   assert.match(resolveSql, /m\.verified_at IS NOT NULL/);
-  assert.match(resolveSql, /i\.status IN \('verified', 'restricted'\)/);
+  assert.match(resolveSql, /d\.provider = 'discord' AND d\.verified_at IS NOT NULL/);
+  assert.match(resolveSql, /i\.status = 'verified'/);
   assert.doesNotMatch(resolveSql, /provider = 'eos'/);
-  assert.doesNotMatch(resolveSql, /i\.status = 'verified'/);
+  assert.doesNotMatch(resolveSql, /i\.status IN \('verified', 'restricted'\)/);
+  assert.doesNotMatch(resolveSql, /LEFT JOIN/);
   assert.equal(queries.some((sql) => /INSERT INTO/.test(sql) && /nexus_economy_ledger/.test(sql)), true);
 
   const blockedQueries = [];
