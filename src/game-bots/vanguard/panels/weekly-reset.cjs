@@ -1,7 +1,7 @@
 'use strict';
 
 const { appendDisclaimer } = require('../panels.cjs');
-const { collectDates, nextResetAt } = require('../bungie/time.cjs');
+const { collectDates, nextWeeklyReset } = require('../bungie/time.cjs');
 const { packSections } = require('./layout.cjs');
 
 const SECTIONS = Object.freeze([
@@ -43,7 +43,13 @@ const KNOWN_DUNGEONS = Object.freeze([
   'ghosts of the deep',
   'warlords ruin',
   'vespers host',
-  'sundered doctrine'
+  'sundered doctrine',
+  'equilibrium'
+]);
+
+// Playlists whose names look like rewards ("pinnacle") but are activities.
+const KNOWN_PLAYLISTS = Object.freeze([
+  'pinnacle ops'
 ]);
 
 function milestoneRows(payload) {
@@ -55,6 +61,11 @@ function milestoneRows(payload) {
   }));
 }
 
+function stringList(value) {
+  const list = Array.isArray(value) ? value : [];
+  return list.map((item) => String(item || '').trim()).filter(Boolean);
+}
+
 function entryMeta(value) {
   if (typeof value === 'string') return { name: value.trim() };
   if (!value || typeof value !== 'object') return { name: '' };
@@ -62,7 +73,12 @@ function entryMeta(value) {
     name: String(value.name || '').trim(),
     category: value.category,
     friendlyName: value.friendlyName,
-    activityModeTypes: value.activityModeTypes
+    activityModeTypes: value.activityModeTypes,
+    activityNames: stringList(value.activityNames),
+    modifiers: stringList(value.modifiers || value.modifierNames),
+    featured: value.featured === true,
+    rotator: value.rotator === true,
+    isFocusedActivity: value.isFocusedActivity === true
   };
 }
 
@@ -90,24 +106,59 @@ function modeSet(value) {
   return found;
 }
 
+function modifierText(hints) {
+  return (Array.isArray(hints.modifiers) ? hints.modifiers : []).join(' ');
+}
+
+function classifyText(name, hints) {
+  const activities = Array.isArray(hints.activityNames) ? hints.activityNames.join(' ') : '';
+  return `${name || ''} ${hints.friendlyName || ''} ${activities} ${modifierText(hints)}`.toLowerCase();
+}
+
+function knownRaidOrDungeon(name) {
+  return matchesKnown(name, KNOWN_RAIDS) || matchesKnown(name, KNOWN_DUNGEONS);
+}
+
+function raidIdentity(name, hints, text) {
+  if (knownRaidOrDungeon(name)) return true;
+  for (const activity of Array.isArray(hints.activityNames) ? hints.activityNames : []) {
+    if (knownRaidOrDungeon(activity)) return true;
+  }
+  if (text.includes('raid') || text.includes('dungeon')) return true;
+  return [...modeSet(hints.activityModeTypes)].some((mode) => RAID_MODES.has(mode));
+}
+
+function featuredSignal(name, hints) {
+  if (hints.featured === true || hints.rotator === true || hints.isFocusedActivity === true) return true;
+  const modifiers = modifierText(hints).toLowerCase();
+  if (/\bfeatured\b|\brotator\b/.test(modifiers)) return true;
+  const activities = Array.isArray(hints.activityNames) ? hints.activityNames.join(' ') : '';
+  const label = `${name || ''} ${hints.friendlyName || ''} ${activities}`.toLowerCase();
+  return /\bfeatured\b|\brotator\b/.test(label);
+}
+
+function nightfallIdentity(hints, text) {
+  if (/\bnightfall\b|\bgrandmaster\b|\bordeal\b/.test(text)) return true;
+  return [...modeSet(hints.activityModeTypes)].some((mode) => NIGHTFALL_MODES.has(mode));
+}
+
 function sectionFor(name, hints = {}) {
   const explicit = String(hints.category || '').toLowerCase();
   if (explicit === 'nightfall' || explicit === 'raid' || explicit === 'rewards' || explicit === 'week') return explicit;
-  const text = `${name || ''} ${hints.friendlyName || ''}`.toLowerCase();
-  const modes = modeSet(hints.activityModeTypes);
-  const nightfallName = text.includes('nightfall') || text.includes('grandmaster') || text.includes('ordeal');
-  const raidName = text.includes('raid') || text.includes('dungeon') || matchesKnown(name, KNOWN_RAIDS) || matchesKnown(name, KNOWN_DUNGEONS);
-  if (nightfallName) return 'nightfall';
-  if (raidName) return 'raid';
-  if ([...modes].some((mode) => NIGHTFALL_MODES.has(mode))) return 'nightfall';
-  if ([...modes].some((mode) => RAID_MODES.has(mode))) return 'raid';
+  const text = classifyText(name, hints);
+  const raid = raidIdentity(name, hints, text);
+  const nightfall = nightfallIdentity(hints, text);
+  if (nightfall && !raid) return 'nightfall';
+  if (raid) return featuredSignal(name, hints) ? 'raid' : null;
+  if (matchesKnown(name, KNOWN_PLAYLISTS)) return 'week';
+  if (nightfall) return 'nightfall';
   if (/engram|reward|pinnacle|powerful|challenge/.test(text)) return 'rewards';
   return 'week';
 }
 
 function pushHash(hashes, value) {
   const number = Number(value);
-  if (Number.isFinite(number) && number > 0) hashes.push(number);
+  if (Number.isInteger(number) && number !== 0) hashes.push(number);
 }
 
 function liveActivityHashes(row) {
@@ -148,13 +199,55 @@ function activityHashesFor(definition, row) {
 
 function modesFromActivity(activity) {
   const modes = [];
-  const direct = Number(activity?.directActivityModeType);
+  const direct = Number(activity?.activityModeType ?? activity?.directActivityModeType);
   if (Number.isFinite(direct) && direct > 0) modes.push(direct);
   for (const mode of Array.isArray(activity?.activityModeTypes) ? activity.activityModeTypes : []) {
     const value = Number(mode);
     if (Number.isFinite(value) && value > 0) modes.push(value);
   }
   return modes;
+}
+
+function visitLiveActivities(row, visit) {
+  const activities = Array.isArray(row?.activities) ? row.activities : [];
+  for (const activity of activities) {
+    visit(activity);
+    for (const variant of Array.isArray(activity?.variants) ? activity.variants : []) visit(variant);
+  }
+  for (const quest of Array.isArray(row?.availableQuests) ? row.availableQuests : []) {
+    if (quest?.activity) visit(quest.activity);
+  }
+}
+
+function liveSignals(row) {
+  const modifierHashes = [];
+  const modifierNames = [];
+  const modes = [];
+  let focused = row?.featured === true || row?.isFocusedActivity === true;
+  const rotator = row?.rotator === true;
+  visitLiveActivities(row, (activity) => {
+    if (!activity || typeof activity !== 'object') return;
+    modes.push(...modesFromActivity(activity));
+    if (activity.isFocusedActivity === true) focused = true;
+    for (const hash of Array.isArray(activity.modifierHashes) ? activity.modifierHashes : []) pushHash(modifierHashes, hash);
+    const listed = activity.modifiers || activity.modifierNames || [];
+    for (const modifier of Array.isArray(listed) ? listed : []) {
+      if (typeof modifier === 'string') {
+        const label = modifier.trim();
+        if (label) modifierNames.push(label);
+        continue;
+      }
+      if (!modifier || typeof modifier !== 'object') continue;
+      const label = String(modifier.displayProperties?.name || modifier.name || '').trim();
+      if (label) modifierNames.push(label);
+      pushHash(modifierHashes, modifier.activityModifierHash || modifier.hash);
+    }
+  });
+  return { modifierHashes: [...new Set(modifierHashes)], modifierNames, modes, focused, rotator };
+}
+
+function genericNightfallName(name) {
+  return /^(the\s+)?(nightfall|grandmaster)(\s+strike)?$/i.test(String(name || '').trim());
 }
 
 function lookupDefinition(query, table, hash) {
@@ -178,14 +271,35 @@ function describeMilestone(query, row) {
       fromQuery = '';
     }
   }
-  const activityModeTypes = [];
+  const live = liveSignals(row);
+  const activityModeTypes = [...live.modes];
+  const activityNames = [];
+  let isFocusedActivity = live.focused;
   for (const activityHash of activityHashesFor(definition, row)) {
-    activityModeTypes.push(...modesFromActivity(lookupDefinition(query, 'DestinyActivityDefinition', activityHash)));
+    const activity = lookupDefinition(query, 'DestinyActivityDefinition', activityHash);
+    activityModeTypes.push(...modesFromActivity(activity));
+    if (activity?.isFocusedActivity === true) isFocusedActivity = true;
+    const label = String(activity?.displayProperties?.name || '').trim();
+    if (label) activityNames.push(label);
   }
+  const modifiers = [...live.modifierNames];
+  for (const modifierHash of live.modifierHashes) {
+    const modifier = lookupDefinition(query, 'DestinyActivityModifierDefinition', modifierHash);
+    const label = String(modifier?.displayProperties?.name || '').trim();
+    if (label) modifiers.push(label);
+  }
+  const milestoneName = fromDefinition || fromQuery;
+  const strike = activityNames.find((label) => label && label.toLowerCase() !== milestoneName.toLowerCase());
+  const name = (!milestoneName || genericNightfallName(milestoneName)) && strike ? strike : milestoneName;
   return {
-    name: fromDefinition || fromQuery,
+    name,
     friendlyName: String(definition?.friendlyName || ''),
-    activityModeTypes
+    activityModeTypes,
+    activityNames,
+    modifiers,
+    featured: row?.featured === true || isFocusedActivity,
+    rotator: live.rotator,
+    isFocusedActivity
   };
 }
 
@@ -211,18 +325,19 @@ function milestoneTime(row, resetAt, now) {
 
 function renderWeeklyReset({ milestones, names = new Map(), now = Date.now() } = {}) {
   const rows = milestoneRows(milestones);
-  const resetAt = nextResetAt(rows, now);
+  const resetAt = nextWeeklyReset(now);
   const buckets = { week: [], nightfall: [], raid: [], rewards: [] };
   for (const row of rows) {
     const hash = String(row.milestoneHash || '');
     const meta = entryMeta(names.get(hash) || names.get(Number(hash)) || '');
     if (!meta.name) continue;
-    buckets[sectionFor(meta.name, meta)].push(meta.name);
+    const section = sectionFor(meta.name, meta);
+    if (!section || !buckets[section]) continue;
+    buckets[section].push(meta.name);
   }
-  const lines = [];
-  lines.push(resetAt ? `⏳ Next reset ${relativeTag(resetAt)}` : '⏳ Next reset: not listed');
-  if (rows.length < 3) lines.push('Few public milestones are available right now.');
+  const lines = [`⏳ Next reset ${relativeTag(resetAt)}`];
   if (!rows.length) lines.push('No public milestones were returned.');
+  else if (rows.length < 3) lines.push('Few public milestones are available right now.');
   const packed = packSections({
     title: '🗓️ Weekly Reset',
     description: appendDisclaimer(lines.join('\n'), { maxLines: 4 }),
