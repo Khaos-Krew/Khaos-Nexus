@@ -825,6 +825,7 @@ function startCraftDiscord({ env = process.env, state = {}, token, client } = {}
   discord.once(Events.ClientReady, (ready) => {
     state.discord = 'ready';
     console.log(`[Nexus Craft] Discord ready as ${ready.user?.tag || 'bot'}`);
+    require('../shared/bot-status.cjs').applyBotStatus(ready, 'craft', env);
     void registerCraftCommands(discord, env).catch((error) => {
       console.warn(`[Nexus Craft] command registration class=${errorClass(error)}`);
     });

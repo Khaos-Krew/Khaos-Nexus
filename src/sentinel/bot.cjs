@@ -336,6 +336,7 @@ function friendlyResponsePrivate(invocation) {
 
 client.once(Events.ClientReady, async () => {
   console.log(`[Nexus Sentinal] logged in as ${client.user.tag}`);
+  require('../shared/bot-status.cjs').applyBotStatus(client, 'sentinal');
   const guild = await client.guilds.fetch(guildId);
   adminOps = new SentinalAdminOps({ client, guild, config, state, provisioner, backend, ensureConsole, registerCommands });
   if (String(process.env.NEXUS_SHINY_CHANNEL_ENABLED || 'false').toLowerCase() === 'true') {

@@ -8,6 +8,7 @@ const { installOpsSpine } = require('./ops-spine.cjs');
 const { installStageCommands } = require('./stage-commands.cjs');
 const { startAscendedOpsLoop } = require('./ascended-presence.cjs');
 const { installJoinToCreate } = require('./join-to-create.cjs');
+const { applyBotStatus } = require('../shared/bot-status.cjs');
 
 function gameBotIntentBits() {
   return [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildVoiceStates];
@@ -56,6 +57,7 @@ async function startGameBot({ botName, botKey, gameRole, serviceName, beforeClie
   client.once(Events.ClientReady, (ready) => {
     state.discordReady = true;
     console.log(`[${botName}] Discord ready as ${ready.user?.tag || 'bot'}`);
+    applyBotStatus(ready, key);
   });
   client.on(Events.Error, (error) => console.error(`[${botName}] Discord error:`, error));
   await client.login(identity.token);
