@@ -4,6 +4,7 @@ const { ChannelType, OverwriteType, PermissionFlagsBits } = require('discord.js'
 const { MODULES } = require('../backend/modules/catalog.cjs');
 const { managedPayloadMatches } = require('./managed-payload-compare.cjs');
 
+const COMMUNITY_MANAGER_ROLE_ID = '1521219329360920767';
 const STAFF_CATEGORY_NAME = '🔒 STAFF';
 const STAFF_PANEL_MARKER = 'Nexus Sentinal • Managed Staff Workspace • v2';
 const LEGACY_STAFF_PANEL_MARKERS = Object.freeze(['Nexus Sentinal • Managed Staff Workspace • v1']);
@@ -39,7 +40,8 @@ function normalizeIds(values = []) {
 }
 
 function permissionMask(values = []) {
-  return (Array.isArray(values) ? values : []).reduce((mask, value) => mask | BigInt(value), 0n);
+  if (Array.isArray(values)) return values.reduce((mask, value) => mask | BigInt(value), 0n);
+  return overwriteMask(values);
 }
 
 function overwriteMask(value) {
@@ -109,18 +111,61 @@ function managedOverwritesMatch(channel, desiredEntries = []) {
   });
 }
 
-// Keep every overwrite whose target this sync does not manage. Managed targets
-// are replaced by the desired plan. Callers must not delete Community Manager,
-// Bots, or any other role they do not own.
-function mergeOverwritePlan(existingEntries = [], desiredEntries = []) {
+function bitsOf(value) {
+  return Array.isArray(value) ? permissionMask(value) : overwriteMask(value);
+}
+
+function canonicalOverwriteList(entries = []) {
+  const byTarget = new Map();
+  for (const entry of entries) {
+    const id = String(entry?.id || '');
+    if (!id) continue;
+    const type = Number(entry?.type ?? OverwriteType.Role);
+    const key = `${type}:${id}`;
+    const current = byTarget.get(key) || { id, type, allow: 0n, deny: 0n };
+    current.allow |= bitsOf(entry.allow);
+    current.deny |= bitsOf(entry.deny);
+    current.allow &= ~current.deny;
+    byTarget.set(key, current);
+  }
+  return [...byTarget.values()].sort((a, b) => `${a.type}:${a.id}`.localeCompare(`${b.type}:${b.id}`));
+}
+
+function overwriteSetsEqual(left = [], right = []) {
+  const a = canonicalOverwriteList(left);
+  const b = canonicalOverwriteList(right);
+  if (a.length !== b.length) return false;
+  return a.every((entry, index) => {
+    const other = b[index];
+    return entry.id === other.id && entry.type === other.type && entry.allow === other.allow && entry.deny === other.deny;
+  });
+}
+
+// Community Manager is never revocable. Callers pass any other targets that
+// must survive even if an older sync recorded them, such as Bots, Owner,
+// @everyone, and the reporter.
+function revokeTargetIds(options = {}) {
+  const protectedIds = new Set([
+    COMMUNITY_MANAGER_ROLE_ID,
+    ...normalizeIds(options.protectedIds || [])
+  ]);
+  return new Set(normalizeIds(options.revokeIds || []).filter((id) => !protectedIds.has(id)));
+}
+
+// Keep every overwrite this sync does not manage. Desired targets are
+// replaced. Previously managed ids in options.revokeIds are deleted when they
+// are no longer in the desired plan. Every other target is left as it is.
+function mergeOverwritePlan(existingEntries = [], desiredEntries = [], options = {}) {
   const desired = normalizedOverwritePlan(desiredEntries);
   const managed = new Set(desired.map((entry) => `${entry.type}:${entry.id}`));
+  const revokeIds = revokeTargetIds(options);
   const preserved = [];
   for (const entry of existingEntries) {
     const id = String(entry?.id || '');
     if (!id) continue;
     const type = Number(entry?.type ?? OverwriteType.Role);
     if (managed.has(`${type}:${id}`)) continue;
+    if (revokeIds.has(id)) continue;
     preserved.push({
       id,
       type,
@@ -135,12 +180,27 @@ function mergeOverwritePlan(existingEntries = [], desiredEntries = []) {
   ];
 }
 
-async function applyManagedOverwrites(channel, desiredEntries = [], reason = '') {
+async function applyManagedOverwrites(channel, desiredEntries = [], reason = '', options = {}) {
   if (!channel?.permissionOverwrites?.set) return false;
-  if (managedOverwritesMatch(channel, desiredEntries)) return false;
-  const merged = mergeOverwritePlan(existingOverwriteEntries(channel), desiredEntries);
+  const existing = existingOverwriteEntries(channel);
+  const merged = mergeOverwritePlan(existing, desiredEntries, options);
+  if (overwriteSetsEqual(existing, merged)) return false;
   await channel.permissionOverwrites.set(merged, reason);
   return true;
+}
+
+const loggedStaffRoleFallbacks = new Set();
+
+// An empty or missing operator/safety list must not adopt every
+// Administrator/ManageGuild role. That scan picks up Community Manager, bots,
+// Owner, @everyone, and mod roles.
+function refusePermissionStaffFallback(source, guildId = '') {
+  const key = `${source}:${guildId || ''}`;
+  if (!loggedStaffRoleFallbacks.has(key)) {
+    loggedStaffRoleFallbacks.add(key);
+    console.warn(`[Nexus Sentinal] ${source} guild ${guildId || 'unknown'} has no usable operator/safety role configured. Refusing the Administrator/ManageGuild fallback so Community Manager ${COMMUNITY_MANAGER_ROLE_ID}, bots, Owner, @everyone, and mod roles are not treated as staff.`);
+  }
+  return [];
 }
 
 function isPrivateSafeText(value) {
@@ -165,12 +225,7 @@ async function resolveStaffRoleIds(guild, config = {}, rolesSnapshot = null) {
     return Boolean(role && role.id !== guild.id && role.managed !== true);
   });
   if (explicit.length) return explicit;
-  return valuesOf(roles)
-    .filter((role) => role && role.id !== guild.id && role.managed !== true)
-    .filter((role) => role.permissions?.has?.(PermissionFlagsBits.Administrator)
-      || role.permissions?.has?.(PermissionFlagsBits.ModerateMembers)
-      || role.permissions?.has?.(PermissionFlagsBits.ManageGuild))
-    .map((role) => String(role.id));
+  return refusePermissionStaffFallback('staff workspace', guild?.id);
 }
 
 function staffCategoryOverwrites(guild, botId, staffRoleIds = [], ownerIds = []) {
@@ -383,6 +438,7 @@ function legacyOfficeChannelName(channelId = '') {
 }
 
 module.exports = {
+  COMMUNITY_MANAGER_ROLE_ID,
   STAFF_CATEGORY_NAME,
   STAFF_PANEL_MARKER,
   LEGACY_STAFF_PANEL_MARKERS,
@@ -403,6 +459,8 @@ module.exports = {
   managedOverwritesMatch,
   mergeOverwritePlan,
   applyManagedOverwrites,
+  overwriteSetsEqual,
+  refusePermissionStaffFallback,
   isPrivateSafeText,
   findStaffCategory,
   resolveStaffRoleIds,

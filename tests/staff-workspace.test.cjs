@@ -28,7 +28,7 @@ const {
   legacyOfficeChannelName
 } = require('../src/sentinel/staff-workspace.cjs');
 const { memberIsStaff, staffMembers, channelNamed, ensureStaffCategory } = require('../src/sentinel/staff-workspace-extension.cjs');
-const { applyManagedOverwrites, overwriteMask } = require('../src/sentinel/staff-workspace.cjs');
+const { applyManagedOverwrites, overwriteMask, COMMUNITY_MANAGER_ROLE_ID } = require('../src/sentinel/staff-workspace.cjs');
 
 const IDS = Object.freeze({
   guild: '1016059608789434408',
@@ -322,4 +322,73 @@ test('staff member discovery never falls back to an opcode-8 full guild fetch wh
   };
   assert.deepEqual(await staffMembers(guild, ['staff'], ['owner']), []);
   assert.equal(fetches, 0);
+});
+
+test('applyManagedOverwrites revokes previously managed ids and keeps protected targets', async () => {
+  const cm = COMMUNITY_MANAGER_ROLE_ID;
+  const bots = '1541540961937526916';
+  const owner = '1541540961937526917';
+  const reporter = '1541540961937526918';
+  const oldRole = '1541540961937526919';
+  const former = '1541540961937526920';
+  const random = '1541540961937526921';
+  const staff = '1541540961937526922';
+  const view = permissionMask([PermissionFlagsBits.ViewChannel]);
+  const send = permissionMask([PermissionFlagsBits.SendMessages]);
+  const initial = [
+    { id: cm, type: OverwriteType.Role, allow: view, deny: send },
+    { id: bots, type: OverwriteType.Role, allow: send, deny: 0n },
+    { id: owner, type: OverwriteType.Member, allow: view, deny: 0n },
+    { id: reporter, type: OverwriteType.Member, allow: view, deny: 0n },
+    { id: oldRole, type: OverwriteType.Role, allow: view, deny: 0n },
+    { id: former, type: OverwriteType.Member, allow: send, deny: 0n },
+    { id: random, type: OverwriteType.Role, allow: view, deny: send }
+  ];
+  const cache = new Map(initial.map((entry) => [`${entry.type}:${entry.id}`, {
+    id: entry.id,
+    type: entry.type,
+    allow: { bitfield: entry.allow },
+    deny: { bitfield: entry.deny }
+  }]));
+  const sets = [];
+  const channel = {
+    permissionOverwrites: {
+      cache,
+      set: async (entries) => {
+        sets.push(entries);
+        cache.clear();
+        for (const entry of entries) {
+          const type = Number(entry.type ?? OverwriteType.Role);
+          const id = String(entry.id);
+          cache.set(`${type}:${id}`, {
+            id,
+            type,
+            allow: { bitfield: overwriteMask(Array.isArray(entry.allow) ? permissionMask(entry.allow) : entry.allow) },
+            deny: { bitfield: overwriteMask(Array.isArray(entry.deny) ? permissionMask(entry.deny) : entry.deny) }
+          });
+        }
+      }
+    }
+  };
+  const desired = [
+    { id: staff, type: OverwriteType.Role, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ManageMessages] },
+    { id: reporter, type: OverwriteType.Member, allow: [PermissionFlagsBits.ViewChannel] }
+  ];
+  const options = {
+    revokeIds: [oldRole, former, cm, bots, owner, reporter],
+    protectedIds: [bots, owner, reporter]
+  };
+  assert.equal(await applyManagedOverwrites(channel, desired, 'revoke former staff', options), true);
+  const ids = sets[0].map((entry) => String(entry.id));
+  assert.equal(ids.includes(oldRole), false);
+  assert.equal(ids.includes(former), false);
+  for (const id of [cm, bots, owner, reporter, random, staff]) assert.ok(ids.includes(id), id);
+  const cmEntry = sets[0].find((entry) => String(entry.id) === cm);
+  assert.equal(overwriteMask(cmEntry.allow), view);
+  assert.equal(overwriteMask(cmEntry.deny), send);
+  const randomEntry = sets[0].find((entry) => String(entry.id) === random);
+  assert.equal(overwriteMask(randomEntry.allow), view);
+  assert.equal(overwriteMask(randomEntry.deny), send);
+  assert.equal(await applyManagedOverwrites(channel, desired, 'revoke former staff', options), false);
+  assert.equal(sets.length, 1);
 });

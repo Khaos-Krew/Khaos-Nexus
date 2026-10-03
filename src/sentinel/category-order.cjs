@@ -3,7 +3,7 @@
 const { ChannelType, OverwriteType, PermissionFlagsBits } = require('discord.js');
 const { MODULES } = require('../backend/modules/catalog.cjs');
 const { layoutFor } = require('./module-layouts.cjs');
-const { applyManagedOverwrites, existingOverwriteEntries } = require('./staff-workspace.cjs');
+const { applyManagedOverwrites, existingOverwriteEntries, refusePermissionStaffFallback } = require('./staff-workspace.cjs');
 
 const DEFAULT_BOUNDARY_NAMES = Object.freeze(['hidden server', 'staff']);
 const STRUCTURAL_CATEGORY_ALIASES = Object.freeze({
@@ -195,11 +195,7 @@ async function resolveAdminRoleIds(guild, config = {}, rolesSnapshot = null) {
     return Boolean(role && role.id !== guild.id && role.managed !== true);
   });
   if (explicit.length) return explicit;
-  return valuesOf(roles)
-    .filter((role) => role && role.id !== guild.id && role.managed !== true)
-    .filter((role) => role.permissions?.has?.(PermissionFlagsBits.Administrator)
-      || role.permissions?.has?.(PermissionFlagsBits.ManageGuild))
-    .map((role) => String(role.id));
+  return refusePermissionStaffFallback('category order', guild?.id);
 }
 
 function staffAdminOverwrites(guild, botId, adminRoleIds = [], ownerIds = []) {
