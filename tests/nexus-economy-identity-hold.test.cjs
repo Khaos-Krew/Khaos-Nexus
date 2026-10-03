@@ -1184,7 +1184,10 @@ test('hold apply and lift checkpoint the passive cursor', async () => {
       calls.push({ text: String(text), params });
       if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK') return { rows: [] };
       if (/nexus_economic_identity_links/.test(text) && /SELECT/.test(text)) return { rows: [{ economic_identity_id: 'econ_cp' }] };
-      if (/SELECT status, hold_reason/.test(text)) return { rows: [{ status: 'verified', hold_reason: 'staff' }] };
+      if (/SELECT economic_identity_id, status, hold_reason, held_by/.test(text)) {
+        return { rows: [{ economic_identity_id: 'econ_cp', status: 'verified', hold_reason: 'staff', held_by: STAFF }] };
+      }
+      if (/INSERT INTO/.test(text) && /nexus_economy_identity_hold_audit/.test(text)) return { rows: [{ audit_id: 7 }], rowCount: 1 };
       return { rows: [], rowCount: 1 };
     },
     release() {}
@@ -1198,15 +1201,89 @@ test('hold apply and lift checkpoint the passive cursor', async () => {
   });
   const applied = await repository.placeStaffHold(DISCORD, { reason: 'staff', heldBy: STAFF });
   assert.equal(applied.checkpointAt, '2026-10-03T00:00:00.000Z');
+  assert.equal(applied.auditId, 7);
   const applyUpdate = calls.find((call) => /nexus_economy_accrual_state SET online = false/.test(call.text));
   assert.equal(applyUpdate.params[1], '2026-10-03T00:00:00.000Z');
+  const placeAudit = calls.find((call) => /INSERT INTO/.test(call.text) && /nexus_economy_identity_hold_audit/.test(call.text));
+  assert.deepEqual(placeAudit.params, ['econ_cp', 'place', 'staff', 'staff', STAFF, '2026-10-03T00:00:00.000Z']);
+  const placeCommit = calls.findIndex((call) => call.text === 'COMMIT');
+  const placeAuditAt = calls.indexOf(placeAudit);
+  const placeLock = calls.findIndex((call) => /SELECT economic_identity_id, status, hold_reason, held_by/.test(call.text) && /FOR UPDATE/.test(call.text));
+  assert.ok(placeLock >= 0 && placeLock < placeAuditAt && placeAuditAt < placeCommit);
   calls.length = 0;
-  const lifted = await repository.liftIdentityHold(DISCORD);
+  const lifted = await repository.liftIdentityHold(DISCORD, { actor: STAFF });
   assert.equal(lifted.lifted, true);
   assert.equal(lifted.checkpointAt, '2026-10-03T00:00:00.000Z');
+  assert.equal(lifted.auditId, 7);
   const liftUpdate = calls.find((call) => /nexus_economy_accrual_state SET online = false/.test(call.text));
   assert.ok(liftUpdate);
   assert.equal(liftUpdate.params[1], '2026-10-03T00:00:00.000Z');
+  const liftAudit = calls.find((call) => /INSERT INTO/.test(call.text) && /nexus_economy_identity_hold_audit/.test(call.text));
+  assert.equal(liftAudit.params[1], 'lift');
+  assert.equal(liftAudit.params[3], 'staff');
+  assert.equal(liftAudit.params[4], STAFF);
+  assert.ok(calls.indexOf(liftAudit) < calls.findIndex((call) => call.text === 'COMMIT'));
+});
+
+test('legacy-review backfill takes the advisory lock before creating tables and ignores coin ledger rows', async () => {
+  const calls = [];
+  const client = {
+    async query(text) {
+      calls.push(String(text));
+      if (/schema_migrations WHERE/.test(text)) return { rows: [] };
+      if (/hold_reason = 'legacy-review'/.test(text)) return { rows: [], rowCount: 0 };
+      return { rows: [], rowCount: 0 };
+    },
+    release() {}
+  };
+  const repository = new NexusEconomyPostgresRuntimeRepository({
+    pool: {
+      async connect() { return client; },
+      async query() { return { rows: [], rowCount: 0 }; }
+    }
+  });
+  const result = await repository.backfillLegacyRestrictedHolds();
+  assert.equal(result.ok, true);
+  assert.equal(result.marked, 0);
+  const lockAt = calls.findIndex((text) => /pg_advisory_xact_lock/.test(text));
+  const migrationsAt = calls.findIndex((text) => /CREATE TABLE IF NOT EXISTS/.test(text) && /nexus_economy_schema_migrations/.test(text));
+  const auditAt = calls.findIndex((text) => /CREATE TABLE IF NOT EXISTS/.test(text) && /nexus_economy_identity_hold_audit/.test(text));
+  const updateAt = calls.findIndex((text) => /hold_reason = 'legacy-review'/.test(text));
+  assert.ok(lockAt > calls.indexOf('BEGIN'));
+  assert.ok(migrationsAt > lockAt);
+  assert.ok(auditAt > lockAt && auditAt < updateAt);
+  assert.match(calls[updateAt], /g\.currency IN \('NEXUS_POINTS', 'DINO_CACHE_TOKENS'\)/);
+  assert.doesNotMatch(calls[updateAt], /NEXUS_COINS/);
+});
+
+test('a staff hold rolls back when the audit insert fails', async () => {
+  const calls = [];
+  const client = {
+    async query(text) {
+      calls.push(String(text));
+      if (/INSERT INTO/.test(text) && /nexus_economy_identity_hold_audit/.test(text)) throw new Error('audit down');
+      if (/SELECT economic_identity_id, status, hold_reason, held_by/.test(text)) {
+        return { rows: [{ economic_identity_id: 'econ_cp', status: 'restricted', hold_reason: null, held_by: null }] };
+      }
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  const repository = new NexusEconomyPostgresRuntimeRepository({
+    pool: {
+      async connect() { return client; },
+      async query() { return { rows: [], rowCount: 0 }; }
+    }
+  });
+  await assert.rejects(
+    () => repository.placeIdentityHold('econ_cp', { reason: 'staff', heldBy: 'ops' }),
+    /audit down/
+  );
+  assert.equal(calls.at(-1), 'ROLLBACK');
+  assert.equal(calls.includes('COMMIT'), false);
+  const lockAt = calls.findIndex((text) => /FOR UPDATE/.test(text));
+  const updateAt = calls.findIndex((text) => /SET hold_reason/.test(text));
+  assert.ok(lockAt >= 0 && lockAt < updateAt);
 });
 
 test('offline accrual pays nothing for held time when the lift checkpointed the cursor and nobody pinged', async () => {
