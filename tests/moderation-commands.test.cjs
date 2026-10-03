@@ -5,10 +5,15 @@ const assert = require('node:assert/strict');
 const { PermissionFlagsBits } = require('discord.js');
 const { MAX_CLEAR_MESSAGES, canClear, clearCommand, handleClearCommand } = require('../src/sentinel/moderation-commands.cjs');
 
-test('clear command is administrator-only and exposes a bounded amount option', () => {
+function permissions(...allowed) {
+  const bits = new Set(allowed);
+  return { has: (bit) => bits.has(bit) };
+}
+
+test('clear command requires Manage Messages and exposes a bounded amount option', () => {
   const json = clearCommand().toJSON();
   assert.equal(json.name, 'clear');
-  assert.equal(json.default_member_permissions, PermissionFlagsBits.Administrator.toString());
+  assert.equal(json.default_member_permissions, PermissionFlagsBits.ManageMessages.toString());
   const amount = json.options.find((option) => option.name === 'amount');
   assert.ok(amount);
   assert.equal(amount.required, true);
@@ -17,23 +22,34 @@ test('clear command is administrator-only and exposes a bounded amount option', 
   assert.equal(MAX_CLEAR_MESSAGES, 100);
 });
 
-test('clear runtime authorization requires Administrator even if command permissions are overridden', () => {
-  assert.equal(canClear({ memberPermissions: { has: () => true } }), true);
-  assert.equal(canClear({ memberPermissions: { has: () => false } }), false);
+test('clear allows Manage Messages or Administrator, and denies anyone with neither', () => {
+  assert.equal(canClear({ memberPermissions: permissions(PermissionFlagsBits.ManageMessages) }), true);
+  assert.equal(canClear({ memberPermissions: permissions(PermissionFlagsBits.Administrator) }), true);
+  assert.equal(canClear({
+    memberPermissions: permissions(),
+    guild: { ownerId: '1516602943670059101' },
+    user: { id: '1516602943670059101' }
+  }), true);
+  assert.equal(canClear({ memberPermissions: permissions() }), false);
+  assert.equal(canClear({
+    memberPermissions: permissions(),
+    guild: { ownerId: '1516602943670059101' },
+    user: { id: '1516640233389822042' }
+  }), false);
 });
 
-test('non-admin clear requests are rejected before any channel deletion', async () => {
+test('clear without Manage Messages is rejected before any channel deletion', async () => {
   let deleted = false;
   let reply = null;
   const interaction = {
-    memberPermissions: { has: () => false },
+    memberPermissions: permissions(),
     options: { getInteger: () => 20 },
     channel: { bulkDelete: async () => { deleted = true; } },
     reply: async (payload) => { reply = payload; return payload; }
   };
   await handleClearCommand(interaction);
   assert.equal(deleted, false);
-  assert.match(reply.content, /restricted to Discord administrators/i);
+  assert.equal(reply.content, 'You need Manage Messages to use /clear.');
 });
 
 test('admin clear deletes the requested recent messages and responds privately', async () => {

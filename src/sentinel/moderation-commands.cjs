@@ -7,8 +7,8 @@ const MAX_CLEAR_MESSAGES = 100;
 function clearCommand() {
   return new SlashCommandBuilder()
     .setName('clear')
-    .setDescription('Admin only: clear recent messages from this channel')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .setDescription('Clear recent messages from this channel')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
     .addIntegerOption((option) => option
       .setName('amount')
       .setDescription('Number of recent messages to delete (1-100)')
@@ -18,13 +18,18 @@ function clearCommand() {
 }
 
 function canClear(interaction) {
-  return Boolean(interaction?.memberPermissions?.has?.(PermissionFlagsBits.Administrator));
+  const permissions = interaction?.memberPermissions;
+  if (permissions?.has?.(PermissionFlagsBits.ManageMessages)) return true;
+  if (permissions?.has?.(PermissionFlagsBits.Administrator)) return true;
+  const ownerId = interaction?.guild?.ownerId;
+  const userId = interaction?.user?.id;
+  return Boolean(ownerId && userId && String(ownerId) === String(userId));
 }
 
 async function handleClearCommand(interaction) {
   if (!canClear(interaction)) {
     return interaction.reply({
-      content: '⚠️ `/clear` is restricted to Discord administrators.',
+      content: 'You need Manage Messages to use /clear.',
       flags: MessageFlags.Ephemeral
     });
   }
