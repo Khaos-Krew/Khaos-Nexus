@@ -1,5 +1,7 @@
 'use strict';
 
+const { ARKSHOP_FEATURES_OFF_MESSAGE } = require('./arkshop-cluster-economy-guard.cjs');
+
 function clean(value, max = 160) {
   return String(value ?? '').replace(/[\r\n\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 }
@@ -68,7 +70,8 @@ function renderPublicShopReply(servers = [], profileStore) {
   return `🛒 **ARK Shop**\n\n${sections.join('\n\n')}`.slice(0, 1900);
 }
 
-function renderPublicKitsReply(servers = [], profileStore) {
+function renderPublicKitsReply(servers = [], profileStore, economy) {
+  if (economy && economy.ok !== true) return ARKSHOP_FEATURES_OFF_MESSAGE;
   const sections = [];
   for (const server of servers.filter((item) => item.enabled !== false && item.kitsEnabled !== false)) {
     const profile = mapProfile(server, profileStore);

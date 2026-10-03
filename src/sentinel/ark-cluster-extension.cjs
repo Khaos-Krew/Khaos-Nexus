@@ -26,6 +26,7 @@ const {
   arkClusterBoardPayload,
   reconcileArkClusterPanel
 } = require('./ark-cluster-panel.cjs');
+const { arkShopFeaturesUnavailableMessage } = require('./arkshop-cluster-economy-guard.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.cluster.extension');
 const BOUND = Symbol.for('khaos.nexus.ark.cluster.bound');
@@ -291,6 +292,12 @@ async function handleClusterButton(interaction, context) {
     return true;
   }
   if (id === BUTTON_KITS) {
+    if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const blocked = await arkShopFeaturesUnavailableMessage();
+    if (blocked) {
+      await replyButton(interaction, blocked);
+      return true;
+    }
     const maps = servers.filter((server) => server.kitsEnabled !== false).map((server) => server.mapName).join(', ') || 'None';
     await replyButton(interaction, `🎁 **ARK Kits**\nKit access is enabled on: ${maps}. Availability and contents are controlled by the active ArkShop profile.`);
     return true;

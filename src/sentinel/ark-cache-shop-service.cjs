@@ -7,7 +7,7 @@ const { deterministicRng, rollCache } = require('./ark-dino-cache-engine.cjs');
 const { CONFIG, loadWeekly, setArnPolicy } = require('./ark-weekly-cache.cjs');
 const arn = require('./arn-token-ledger.cjs');
 const receipts = require('./ark-cache-receipts.cjs');
-const { auditArkShopClusterDatabase } = require('./arkshop-cluster-economy-guard.cjs');
+const { arkShopMemberFeatureStatus, ARKSHOP_FEATURES_OFF_MESSAGE } = require('./arkshop-cluster-economy-guard.cjs');
 
 const ORDER_TABLE = 'nexus_discord_cache_orders';
 const EVENT_TABLE = 'nexus_discord_cache_events';
@@ -54,8 +54,7 @@ function pickLinkedArkAccount(profile) {
 
 function assertEconomyReady(result = {}) {
   if (result?.ok === true) return result;
-  const mode = cleanId(result?.mode || 'unverified', 64);
-  throw shopError('CLUSTER_ECONOMY_NOT_READY', `Cache purchases are temporarily locked because the ARK shared-MySQL economy is not verified (${mode}). No Nexus Points were charged.`);
+  throw shopError('CLUSTER_ECONOMY_NOT_READY', ARKSHOP_FEATURES_OFF_MESSAGE);
 }
 
 async function ensureRevealColumns(connection) {
@@ -149,14 +148,14 @@ function committedRoll(cacheId, secret, identity, config = CONFIG) {
 }
 
 class ArkCacheShopService {
-  constructor({ identityStore = new ArkIdentityStore(), connector = connectMysql, rngSecret = process.env.NEXUS_DINO_CACHE_RNG_SECRET, economyAuditor = auditArkShopClusterDatabase } = {}) {
+  constructor({ identityStore = new ArkIdentityStore(), connector = connectMysql, rngSecret = process.env.NEXUS_DINO_CACHE_RNG_SECRET, economyAuditor = arkShopMemberFeatureStatus } = {}) {
     this.identityStore = identityStore; this.connector = connector; this.rngSecret = rngSecret; this.economyAuditor = economyAuditor;
   }
 
   linkedAccount(discordUserId) { return pickLinkedArkAccount(this.identityStore.profileByDiscord(cleanId(discordUserId, 25))); }
   async openConnection() {
     const opened = await this.connector();
-    if (opened?.retired || !opened?.connection) throw shopError('ARKSHOP_MYSQL_RETIRED', 'ArkShop MySQL is retired.');
+    if (opened?.retired || !opened?.connection) throw shopError('ARKSHOP_MYSQL_RETIRED', ARKSHOP_FEATURES_OFF_MESSAGE);
     return opened;
   }
   async refreshWeekly() {
@@ -170,6 +169,7 @@ class ArkCacheShopService {
   async shopper(discordUserId) {
     const account = this.linkedAccount(discordUserId);
     const economy = await this.economyStatus();
+    if (economy?.ok !== true) throw shopError('CLUSTER_ECONOMY_NOT_READY', ARKSHOP_FEATURES_OFF_MESSAGE);
     const { connection, config } = await this.openConnection();
     try {
       const points = await findPointsAccount(connection, config, account.eosId);
@@ -181,6 +181,7 @@ class ArkCacheShopService {
     const userId = cleanId(discordUserId, 25), type = cleanId(cacheId, 48).toLowerCase(), nonce = cleanId(purchaseNonce, 80);
     if(String(purchaseNonce||'').length>80)throw shopError('INVALID_PURCHASE_NONCE','Purchase identity is too long.');
     if (!/^\d{5,25}$/.test(userId)) throw shopError('INVALID_DISCORD_USER', 'A valid Discord user is required.');
+    if (type !== 'arn') assertEconomyReady(await this.economyStatus());
     if (type === 'weekly') {
       // A committed purchase remains replayable even after its rotation expires.
       const {connection:replayDb}=await this.openConnection();
@@ -197,7 +198,6 @@ class ArkCacheShopService {
     }
     if (!VALID_CACHE_ID.test(type) || !CONFIG.caches[type]) throw shopError('INVALID_CACHE', 'That Dino Cache is not available.');
     if (!nonce) throw shopError('INVALID_PURCHASE_NONCE', 'Discord purchase identity is missing.');
-    if (type !== 'arn') assertEconomyReady(await this.economyStatus());
     const account = this.linkedAccount(userId);
     let cache = CONFIG.caches[type];
     const { connection, config } = await this.openConnection();
