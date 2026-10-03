@@ -8,7 +8,8 @@ const {
   auditArkShopClusterDatabase,
   formatArkShopGuardLog,
   databaseFingerprint,
-  memberFeatureUnavailableMessage
+  memberFeatureUnavailableMessage,
+  memberActionFallback
 } = require('../src/sentinel/arkshop-cluster-economy-guard.cjs');
 const {
   approvedConfigPath,
@@ -20,8 +21,14 @@ const { assertEconomyReady, ArkCacheShopService } = require('../src/sentinel/ark
 const { detailPayload } = require('../src/sentinel/ark-cache-shop-extension.cjs');
 const { renderPublicKitsReply } = require('../src/sentinel/arkshop-public-view.cjs');
 const { ArkNexusBankService } = require('../src/sentinel/ark-nexus-bank.cjs');
+const { ArkDinoBoxTokenService } = require('../src/sentinel/ark-dino-box-token-service.cjs');
+const { arnMemberErrorContent } = require('../src/sentinel/arn-cache-extension.cjs');
+const { buildButtons, buildInfoButtons, BUTTON_PUBLIC_KITS, BUTTON_CACHE_SHOP } = require('../src/sentinel/ark-cluster-panel.cjs');
+const { hubHomePayload, cacheDetailPayload } = require('../src/sentinel/ark-dino-box-shop-extension.cjs');
+const { arkShopStatusLine } = require('../src/game-bots/ops-spine.cjs');
+const { formatMysqlResult } = require('../src/sentinel/ark-server-controls-extension.cjs');
 
-const MEMBER_MESSAGE = 'Starter kits, the bank and caches are turned off on our ARK servers for now. Nothing was charged.';
+const MEMBER_MESSAGE = 'Starter kits, the bank and caches are turned off on our ARK servers for now. Nothing was charged. Watch #announcements for when they\'re back.';
 
 function mysqlConfig() {
   return {
@@ -212,7 +219,7 @@ test('member-facing starter kit, bank, and cache unavailability uses the retired
     account: { playerName: 'Rider' }
   });
   const text = JSON.stringify(payload.embeds);
-  assert.match(text, /Starter kits, the bank and caches are turned off on our ARK servers for now\. Nothing was charged\./);
+  assert.match(text, /Starter kits, the bank and caches are turned off on our ARK servers for now\. Nothing was charged\. Watch #announcements for when they're back\./);
   assert.doesNotMatch(text, /shared-MySQL|Purchases locked|config-read-failed/i);
 
   assert.equal(renderPublicKitsReply(
@@ -257,4 +264,127 @@ test('member-facing starter kit, bank, and cache unavailability uses the retired
     return true;
   });
   assert.equal(opened, 0);
+});
+
+test('retired ARN buy, rewards, sealed reveal, and token redeem do not touch MySQL', async () => {
+  const user = '12345678901234567';
+  let opened = 0;
+  const connector = async () => {
+    opened += 1;
+    throw new Error('ArkShop MySQL must not be opened');
+  };
+  const shop = new ArkCacheShopService({
+    identityStore: { profileByDiscord() { throw new Error('identity store must not be read'); } },
+    economyAuditor: async () => ({ ok: false, mode: 'arkshop-retired' }),
+    connector
+  });
+  const calls = [
+    () => shop.purchase({ discordUserId: user, cacheId: 'arn', purchaseNonce: 'arn-retired-1' }),
+    () => shop.rewards(user),
+    () => shop.sealed(user),
+    () => shop.reveal({ discordUserId: user, orderId: '11111111-2222-3333-4444-555555555555' }),
+    () => shop.markAnnounced('11111111-2222-3333-4444-555555555555')
+  ];
+  for (const call of calls) {
+    await assert.rejects(call, (error) => {
+      assert.equal(error.message, MEMBER_MESSAGE);
+      assert.equal(error.code, 'CLUSTER_ECONOMY_NOT_READY');
+      return true;
+    });
+  }
+  const tokens = new ArkDinoBoxTokenService({
+    economyAuditor: async () => ({ ok: false, mode: 'arkshop-retired' }),
+    connector,
+    secret: 's'.repeat(40),
+    identityStore: { profileByDiscord() { throw new Error('identity store must not be read'); } }
+  });
+  await assert.rejects(() => tokens.redeem({
+    discordUserId: user,
+    cacheId: 'coastal',
+    tokenCode: `NXC-${'A'.repeat(32)}`
+  }), (error) => {
+    assert.equal(error.message, MEMBER_MESSAGE);
+    assert.equal(error.code, 'CLUSTER_ECONOMY_NOT_READY');
+    return true;
+  });
+  assert.equal(opened, 0);
+
+  await withEnv({ ARKSHOP_DB_MODE: 'disabled', NEXUS_ARKSHOP_MYSQL_ENABLED: null }, async () => {
+    const live = new ArkCacheShopService({ connector });
+    await assert.rejects(() => live.purchase({ discordUserId: user, cacheId: 'arn', purchaseNonce: 'arn-env-1' }), (error) => {
+      assert.equal(error.message, MEMBER_MESSAGE);
+      assert.equal(error.code, 'ARKSHOP_MYSQL_RETIRED');
+      return true;
+    });
+    await assert.rejects(() => live.rewards(user), (error) => {
+      assert.equal(error.code, 'ARKSHOP_MYSQL_RETIRED');
+      return true;
+    });
+    const liveTokens = new ArkDinoBoxTokenService({ connector, secret: 's'.repeat(40) });
+    await assert.rejects(() => liveTokens.redeem({ discordUserId: user, cacheId: 'coastal', tokenCode: `NXC-${'B'.repeat(32)}` }), (error) => {
+      assert.equal(error.code, 'ARKSHOP_MYSQL_RETIRED');
+      return true;
+    });
+    assert.equal(opened, 0);
+  });
+});
+
+test('member cache failures hide raw errors and ARN retirement uses the same sentence', () => {
+  const logs = [];
+  const original = console.error;
+  console.error = (...args) => logs.push(args.join(' '));
+  try {
+    const leaked = new Error('ER_ACCESS_DENIED password=hunter2 host=10.1.2.3');
+    const shop = memberActionFallback(leaked, 'Cache Shop');
+    const hub = memberActionFallback(leaked, 'Dino Cache Hub');
+    assert.equal(shop, '⚠️ **Cache Shop:** That action could not be completed. Nothing was charged.');
+    assert.equal(hub, '⚠️ **Dino Cache Hub:** That action could not be completed. Nothing was charged.');
+    assert.doesNotMatch(`${shop}\n${hub}`, /hunter2|10\.1\.2\.3|ER_ACCESS_DENIED/);
+    assert.match(logs.join('\n'), /hunter2/);
+    const retired = Object.assign(new Error('ArkShop MySQL is retired.'), { code: 'ARKSHOP_MYSQL_RETIRED' });
+    assert.equal(memberActionFallback(retired, 'Cache Shop'), MEMBER_MESSAGE);
+    assert.equal(memberActionFallback(retired, 'Dino Cache Hub'), MEMBER_MESSAGE);
+    assert.equal(arnMemberErrorContent(retired), MEMBER_MESSAGE);
+    assert.equal(arnMemberErrorContent(new Error('ArkShop MySQL is retired.')), MEMBER_MESSAGE);
+    assert.doesNotMatch(arnMemberErrorContent(retired), /^ARN:/);
+  } finally {
+    console.error = original;
+  }
+});
+
+test('retired member panels disable kits, cache shop, and hub controls in place', async () => {
+  await withEnv({ ARKSHOP_DB_MODE: 'disabled', NEXUS_ARKSHOP_MYSQL_ENABLED: null }, async () => {
+    const kits = buildButtons().toJSON().components.find((item) => item.custom_id === BUTTON_PUBLIC_KITS);
+    const cache = buildInfoButtons().toJSON().components.find((item) => item.custom_id === BUTTON_CACHE_SHOP);
+    assert.equal(kits.disabled, true);
+    assert.equal(kits.label, 'Kits');
+    assert.equal(cache.disabled, true);
+    assert.equal(cache.label, 'Cache Shop');
+    const home = hubHomePayload();
+    assert.equal(home.embeds.length, 1);
+    assert.equal(home.components[0].toJSON().components[0].disabled, true);
+    assert.equal(home.components[1].toJSON().components[0].disabled, true);
+    const detail = cacheDetailPayload('coastal');
+    for (const button of detail.components[1].toJSON().components) assert.equal(button.disabled, true);
+  });
+  const kits = buildButtons().toJSON().components.find((item) => item.custom_id === BUTTON_PUBLIC_KITS);
+  const cache = buildInfoButtons().toJSON().components.find((item) => item.custom_id === BUTTON_CACHE_SHOP);
+  assert.notEqual(kits.disabled, true);
+  assert.notEqual(cache.disabled, true);
+});
+
+test('staff shop status includes mode=arkshop-retired', () => {
+  assert.match(arkShopStatusLine({ ARKSHOP_DB_MODE: 'disabled' }), /mode=arkshop-retired/);
+  assert.match(arkShopStatusLine({ ARKSHOP_DB_MODE: 'retired' }), /ARKSHOP_DB_MODE=retired/);
+  assert.equal(arkShopStatusLine({ ARKSHOP_DB_MODE: 'mysql' }), 'ArkShop MySQL: bridge enabled.');
+  const text = formatMysqlResult({
+    ok: false,
+    stage: 'audit',
+    prefixes: ['ARK_GEN1'],
+    writes: [],
+    audit: { ok: false, mode: 'arkshop-retired', problemServerIds: ['gen1'] },
+    reloads: []
+  });
+  assert.match(text, /mode=arkshop-retired/);
+  assert.match(text, /Stage: \*\*arkshop-retired\*\*/);
 });

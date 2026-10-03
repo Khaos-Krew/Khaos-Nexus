@@ -1,7 +1,8 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const { connectMysql } = require('./arkshop-mysql.cjs');
+const { connectMysql, isRetired } = require('./arkshop-mysql.cjs');
+const { arkShopMemberFeatureStatus, ARKSHOP_FEATURES_OFF_MESSAGE } = require('./arkshop-cluster-economy-guard.cjs');
 const { ArkIdentityStore } = require('./ark-identity-store.cjs');
 const { CONFIG } = require('./ark-dino-cache-engine.cjs');
 const {
@@ -12,7 +13,8 @@ const {
   orderView,
   ensureSchema,
   claimCacheCooldown,
-  committedRoll
+  committedRoll,
+  assertEconomyReady
 } = require('./ark-cache-shop-service.cjs');
 
 const TOKEN_TABLE = 'nexus_dino_box_tokens';
@@ -70,12 +72,22 @@ class ArkDinoBoxTokenService {
     identityStore = new ArkIdentityStore(),
     connector = connectMysql,
     rngSecret = process.env.NEXUS_DINO_CACHE_RNG_SECRET,
-    secret = null
+    secret = null,
+    economyAuditor = arkShopMemberFeatureStatus
   } = {}) {
     this.identityStore = identityStore;
     this.connector = connector;
     this.rngSecret = rngSecret;
     this.secret = secret;
+    this.economyAuditor = economyAuditor;
+  }
+
+  async assertFeaturesAvailable() {
+    if (isRetired()) throw shopError('ARKSHOP_MYSQL_RETIRED', ARKSHOP_FEATURES_OFF_MESSAGE);
+    let economy;
+    try { economy = await this.economyAuditor(); }
+    catch { economy = { ok: false, mode: 'audit-failed' }; }
+    assertEconomyReady(economy);
   }
 
   linkedAccount(discordUserId) {
@@ -115,6 +127,7 @@ class ArkDinoBoxTokenService {
   }
 
   async redeem({ discordUserId, cacheId, tokenCode } = {}) {
+    await this.assertFeaturesAvailable();
     const userId = cleanId(discordUserId, 25);
     const type = cleanId(cacheId, 48).toLowerCase();
     if (!/^\d{5,25}$/.test(userId)) throw shopError('INVALID_DISCORD_USER', 'A valid Discord user is required.');

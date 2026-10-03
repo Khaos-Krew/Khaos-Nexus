@@ -16,7 +16,7 @@ const {
 const { loadConfig } = require('../shared/config.cjs');
 const { CONFIG } = require('./ark-weekly-cache.cjs');
 const { isRetired } = require('./arkshop-mysql.cjs');
-const { memberFeatureUnavailableMessage } = require('./arkshop-cluster-economy-guard.cjs');
+const { memberActionFallback } = require('./arkshop-cluster-economy-guard.cjs');
 const { ArkCacheShopService } = require('./ark-cache-shop-service.cjs');
 const { ArkDinoBoxTokenService } = require('./ark-dino-box-token-service.cjs');
 const { BUTTON_CACHE_SHOP } = require('./ark-cluster-panel.cjs');
@@ -57,6 +57,10 @@ function meta(cacheId) {
 }
 
 function cachePrice(cache) { return cache.currency === 'ARN_TOKENS' ? (cache.enabled ? `${cache.price} ARN Tokens` : 'ARN redemption disabled') : arkShopPoints(cache.price); }
+function retireControl(component) {
+  if (isRetired()) component.setDisabled(true);
+  return component;
+}
 
 function arkShopPoints(value) { return `${Math.max(0, Number(value) || 0).toLocaleString('en-US')} ArkShop Points`; }
 function cooldownLabel(cache) {
@@ -78,16 +82,16 @@ function cachePanelPayload(cacheId) {
     ? [{ name: '⚠️ DLC Ownership Required', value: m.disclaimer.slice(0, 1024), inline: false }]
     : [];
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
+    retireControl(new ButtonBuilder()
       .setCustomId(`${BUY_PREFIX}${cacheId}`)
       .setLabel(`Buy • ${cachePrice(cache)}`)
       .setEmoji('🎰')
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
+      .setStyle(ButtonStyle.Success)),
+    retireControl(new ButtonBuilder()
       .setCustomId(`${TOKEN_PREFIX}${cacheId}`)
       .setLabel('Redeem Token')
       .setEmoji('🎟️')
-      .setStyle(ButtonStyle.Primary)
+      .setStyle(ButtonStyle.Primary))
   );
 
   return {
@@ -131,12 +135,12 @@ function cacheSelect(selected = HUB_HOME_ID) {
     const cache = CONFIG.caches[id], m = meta(id);
     menu.addOptions({ label: m.name.slice(0, 100), value: id, emoji: m.emoji, description: `${cachePrice(cache)} • ${cooldownLabel(cache)} cooldown`.slice(0, 100), default: selected === id });
   }
-  return new ActionRowBuilder().addComponents(menu);
+  return new ActionRowBuilder().addComponents(retireControl(menu));
 }
 
 function mySealedRow() {
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(HUB_MY_SEALED_ID).setLabel('My Sealed Caches').setEmoji('🔒').setStyle(ButtonStyle.Secondary)
+    retireControl(new ButtonBuilder().setCustomId(HUB_MY_SEALED_ID).setLabel('My Sealed Caches').setEmoji('🔒').setStyle(ButtonStyle.Secondary))
   );
 }
 
@@ -178,9 +182,9 @@ function cacheDetailPayload(cacheId) {
     { name: '🔒 Purchase & Reveal', value: 'The complete reward is rolled and stored **at purchase time**, then remains hidden and **SEALED**. Delivery cannot start until you press **Reveal Now**. Reveal only exposes the saved result—there is no second RNG roll.', inline: false }
   ];
   const purchaseRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`${BUY_PREFIX}${cacheId}${cache.rotationId ? ':'+cache.rotationId : ''}`).setLabel(`Buy • ${cachePrice(cache)}`).setEmoji('🎰').setStyle(ButtonStyle.Success).setDisabled(cache.currency === 'ARN_TOKENS' && !cache.enabled),
-    new ButtonBuilder().setCustomId(`${TOKEN_PREFIX}${cacheId}`).setLabel('Redeem Token').setEmoji('🎟️').setStyle(ButtonStyle.Primary).setDisabled(['weekly','arn'].includes(cacheId)),
-    new ButtonBuilder().setCustomId(HUB_MY_SEALED_ID).setLabel('My Sealed Caches').setEmoji('🔒').setStyle(ButtonStyle.Secondary)
+    retireControl(new ButtonBuilder().setCustomId(`${BUY_PREFIX}${cacheId}${cache.rotationId ? ':'+cache.rotationId : ''}`).setLabel(`Buy • ${cachePrice(cache)}`).setEmoji('🎰').setStyle(ButtonStyle.Success).setDisabled(cache.currency === 'ARN_TOKENS' && !cache.enabled)),
+    retireControl(new ButtonBuilder().setCustomId(`${TOKEN_PREFIX}${cacheId}`).setLabel('Redeem Token').setEmoji('🎟️').setStyle(ButtonStyle.Primary).setDisabled(['weekly','arn'].includes(cacheId))),
+    retireControl(new ButtonBuilder().setCustomId(HUB_MY_SEALED_ID).setLabel('My Sealed Caches').setEmoji('🔒').setStyle(ButtonStyle.Secondary))
   );
   return {
     embeds: [{ title: `${m.emoji} ${m.name}`, description: m.tagline, color: 0xb00020, fields: fields.slice(0, 25), footer: { text: `${HUB_MARKER} • ${cacheId}` } }],
@@ -309,8 +313,8 @@ async function revealStoredResult(interaction, purchaseService, client, config, 
 }
 
 async function interactionFailure(interaction, error) {
-  const plain = memberFeatureUnavailableMessage(error);
-  const payload = { content: plain || `⚠️ **Dino Cache Hub:** ${String(error?.message || error).slice(0, 400)}`, embeds: [], components: [], allowedMentions: { parse: [] } };
+  const content = memberActionFallback(error, 'Dino Cache Hub');
+  const payload = { content, embeds: [], components: [], allowedMentions: { parse: [] } };
   if (interaction.deferred || interaction.replied) return interaction.editReply(payload).catch(() => {});
   return interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => {});
 }

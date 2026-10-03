@@ -5,7 +5,7 @@ const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { readConfig } = require('./ark-config-manager.cjs');
 const { isArkShopMysqlRetired } = require('./arkshop-database.cjs');
 
-const ARKSHOP_FEATURES_OFF_MESSAGE = 'Starter kits, the bank and caches are turned off on our ARK servers for now. Nothing was charged.';
+const ARKSHOP_FEATURES_OFF_MESSAGE = 'Starter kits, the bank and caches are turned off on our ARK servers for now. Nothing was charged. Watch #announcements for when they\'re back.';
 
 function clean(value, max = 120) {
   return String(value ?? '').trim().slice(0, max);
@@ -186,7 +186,16 @@ function memberFeatureUnavailableMessage(error) {
     return ARKSHOP_FEATURES_OFF_MESSAGE;
   }
   if (String(error?.message || '') === ARKSHOP_FEATURES_OFF_MESSAGE) return ARKSHOP_FEATURES_OFF_MESSAGE;
+  if (String(error?.message || '') === 'ArkShop MySQL is retired.') return ARKSHOP_FEATURES_OFF_MESSAGE;
   return '';
+}
+
+function memberActionFallback(error, label) {
+  const plain = memberFeatureUnavailableMessage(error);
+  if (plain) return plain;
+  const detail = String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 500);
+  console.error(`[Nexus Sentinal] ${label}: ${detail}`);
+  return `⚠️ **${label}:** That action could not be completed. Nothing was charged.`;
 }
 
 function installArkShopClusterEconomyGuard({ delayMs = 45_000 } = {}) {
@@ -214,5 +223,6 @@ module.exports = {
   arkShopFeaturesUnavailableMessageFrom,
   arkShopFeaturesUnavailableMessage,
   memberFeatureUnavailableMessage,
+  memberActionFallback,
   installArkShopClusterEconomyGuard
 };

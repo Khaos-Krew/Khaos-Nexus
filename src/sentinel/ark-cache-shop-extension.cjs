@@ -14,7 +14,7 @@ const { CONFIG } = require('./ark-dino-cache-engine.cjs');
 const { BUTTON_CACHE_SHOP } = require('./ark-cluster-panel.cjs');
 const { ArkCacheShopService } = require('./ark-cache-shop-service.cjs');
 const { cacheImageAttachment, cacheImageName } = require('./ark-cache-shop-art.cjs');
-const { ARKSHOP_FEATURES_OFF_MESSAGE, memberFeatureUnavailableMessage } = require('./arkshop-cluster-economy-guard.cjs');
+const { ARKSHOP_FEATURES_OFF_MESSAGE, memberActionFallback } = require('./arkshop-cluster-economy-guard.cjs');
 
 const SELECT_CACHE = 'nexus-ark-cache-select';
 const BUTTON_BACK = 'nexus-ark-cache-back';
@@ -228,8 +228,9 @@ function installArkCacheShopExtension(options={}){
           if(isSelect){await interaction.deferUpdate();const cacheId=String(interaction.values?.[0]||'').toLowerCase();const view=await safeShopper(service,userId);return interaction.editReply(view.warning===ARKSHOP_FEATURES_OFF_MESSAGE?retiredPayload():detailPayload(cacheId,view.shopper,view.warning));}
           if(isBuy){await interaction.deferUpdate();const cacheId=id.slice(BUY_PREFIX.length).toLowerCase();const result=await service.purchase({discordUserId:userId,cacheId,purchaseNonce:String(interaction.id)});for(let stage=0;stage<4;stage+=1){await interaction.editReply(revealPayload(result.order,stage));await sleep(420);}return interaction.editReply(finalRewardPayload(result.order,result.balance));}
         })().catch(async(error)=>{
-          const plain=memberFeatureUnavailableMessage(error);
-          const content=plain||`⚠️ **Cache Shop:** ${String(error?.message||error).slice(0,400)}`,payload={content,embeds:[],components:plain?[]:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(BUTTON_BACK).setLabel('Back to Cache Shop').setStyle(ButtonStyle.Secondary))],attachments:[],allowedMentions:{parse:[]}};
+          const content=memberActionFallback(error,'Cache Shop');
+          const retired=content===ARKSHOP_FEATURES_OFF_MESSAGE;
+          const payload={content,embeds:[],components:retired?[]:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(BUTTON_BACK).setLabel('Back to Cache Shop').setStyle(ButtonStyle.Secondary))],attachments:[],allowedMentions:{parse:[]}};
           if(interaction.deferred||interaction.replied)await interaction.editReply(payload).catch(()=>{});else await interaction.reply({...payload,flags:MessageFlags.Ephemeral}).catch(()=>{});
         });
       });
