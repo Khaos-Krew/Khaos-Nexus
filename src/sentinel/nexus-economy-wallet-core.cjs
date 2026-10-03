@@ -28,11 +28,8 @@ async function guardMemberMutation(tx, loaded, env = process.env, currency = 'NE
   const hold = memberIdentityHold({ status, holdReason, economicIdentityId, missingRow, env });
   if (hold) return { hold, economicIdentityId, status };
   const normalized = String(status || '').trim().toLowerCase();
-  const unmarkedRestricted = normalized === 'restricted' && !String(holdReason || '').trim() && !missingRow;
-  // Shadow Recruits may spend Coins. Nexus Points spend still requires a verified identity.
-  if (unmarkedRestricted && normalizeCurrency(currency) === 'NEXUS_COINS') {
-    return { hold: null, economicIdentityId, status };
-  }
+  // Coins, Points, and cache tokens all require a verified identity. Level-up Coins use a separate grant.
+  void normalizeCurrency(currency);
   if (normalized !== 'verified' || !verifiedAt) {
     throw new Error('Verified economic identity is required.');
   }

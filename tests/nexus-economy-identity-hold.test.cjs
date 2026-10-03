@@ -273,10 +273,22 @@ test('level-up Coins still credit a restricted identity while member spend stays
   assert.equal(coins.ok, true);
   assert.equal(coins.currency, 'NEXUS_COINS');
   assert.equal(coins.balance, 25);
-  const spent = await wallet.spend({ discordUserId: DISCORD, amount: 1, orderId: 'coin_spend', currency: 'NEXUS_COINS' });
-  assert.equal(spent.ok, true);
-  assert.equal(spent.reason, undefined);
-  assert.equal(repository.wallets.get('econ_level:NEXUS_COINS').balance, 24);
+  await assert.rejects(
+    () => wallet.spend({ discordUserId: DISCORD, amount: 1, orderId: 'coin_spend', currency: 'NEXUS_COINS' }),
+    (error) => {
+      assert.equal(error.message, 'Verified economic identity is required.');
+      assert.doesNotMatch(error.message, /on hold/);
+      return true;
+    }
+  );
+  await assert.rejects(
+    () => wallet.credit({ discordUserId: DISCORD, amount: 1, idempotencyKey: 'coin_credit', currency: 'NEXUS_COINS' }),
+    (error) => {
+      assert.equal(error.message, 'Verified economic identity is required.');
+      return true;
+    }
+  );
+  assert.equal(repository.wallets.get('econ_level:NEXUS_COINS').balance, 25);
   await assert.rejects(
     () => wallet.spend({ discordUserId: DISCORD, amount: 1, orderId: 'np_spend', currency: 'NEXUS_POINTS' }),
     (error) => {
@@ -1123,6 +1135,11 @@ test('CREDIT_FAILED sell orders retry once after the hold lifts', async () => {
   assert.equal(failed.order.status, 'CREDIT_FAILED');
   const heldSweep = await shop.sweepCreditFailedSells();
   assert.equal(heldSweep[0].skipped, 'account-hold');
+  await shop.sweepCreditFailedSells();
+  await shop.sweepCreditFailedSells();
+  const heldAudits = (shop.store.read().audits || []).filter((row) => row.type === 'credit-failed-retry');
+  assert.equal(heldAudits.length, 1);
+  assert.equal(shop.store.read().orders[created.order.orderId].creditRetries.length, 1);
   assert.equal(shop.store.read().orders[created.order.orderId].status, 'CREDIT_FAILED');
   const lifted = worker.store.read();
   lifted.accounts[DISCORD].status = 'verified';

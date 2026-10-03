@@ -30,6 +30,7 @@ async function createPostgresEconomyRuntime({ env = process.env, now } = {}) {
   try {
     await pool.query(NexusEconomyPostgresRuntimeRepository.runtimeSchemaSql({ schema }));
     await accrual.ensureSchema();
+    await repository.backfillLegacyRestrictedHolds();
     await pool.query('SELECT 1 AS ok');
   } catch (error) {
     await pool.end().catch(() => {});

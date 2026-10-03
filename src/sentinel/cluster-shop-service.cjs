@@ -7,6 +7,8 @@ const path = require('node:path');
 const { isMinecraftShopOrder } = require('../economy-worker/mc-points-service.cjs');
 
 const ORDER_VERSION = 1;
+const CREDIT_RETRY_CAP = 8;
+const CREDIT_RETRY_AUDIT_CAP = 100;
 const DEFAULT_MAX_BUNDLES = 100;
 const FORBIDDEN_SELL_KINDS = new Set(['dino', 'dinos', 'creature', 'creatures', 'dino-cache']);
 
@@ -292,10 +294,18 @@ class ClusterShopService {
   #recordCreditRetry(orderId, entry) {
     const state = this.store.read();
     const order = state.orders[orderId];
-    if (order) order.creditRetries = [...(order.creditRetries || []), entry];
-    state.audits = [...(state.audits || []), { type: 'credit-failed-retry', ...entry }];
+    const outcome = `${entry.ok ? 'ok' : 'fail'}:${entry.skipped || entry.reason || ''}`;
+    const retries = order && Array.isArray(order.creditRetries) ? order.creditRetries : [];
+    if (retries.some((row) => row.outcome === outcome)) return { recorded: false, outcome };
+    const stored = { ...entry, outcome };
+    if (order) order.creditRetries = [...retries, stored].slice(-CREDIT_RETRY_CAP);
+    const prior = Array.isArray(state.audits) ? state.audits : [];
+    const creditAudits = prior.filter((row) => row.type === 'credit-failed-retry');
+    const other = prior.filter((row) => row.type !== 'credit-failed-retry');
+    state.audits = [...other, ...[...creditAudits, { type: 'credit-failed-retry', ...stored }].slice(-CREDIT_RETRY_AUDIT_CAP)];
     this.store.write(state);
     console.log(`[Nexus Economy] cluster_shop_credit_failed_retry order=${orderId} ok=${entry.ok} reason=${entry.reason || entry.skipped || ''}`);
+    return { recorded: true, outcome };
   }
 
   // Retries CREDIT_FAILED sell credits. The wallet idempotency key credits once.

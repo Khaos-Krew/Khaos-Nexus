@@ -19,8 +19,9 @@ function quarantineDenylist(env = process.env) {
 }
 
 // A hold is disabled, the quarantined literal, the quarantine denylist, a missing row,
-// or any non-empty hold marker (staff, denylist, O9 demote). An unmarked restricted row
-// is a Shadow Recruit pending verification: it is not shown the hold message.
+// or any non-empty hold marker (staff, denylist quarantine, o9-demote, legacy-review).
+// An unmarked restricted row is a Shadow Recruit pending verification: it is not shown
+// the hold message.
 function memberIdentityHold({ status, holdReason, economicIdentityId, missingRow = false, env = process.env } = {}) {
   const normalized = String(status || '').trim().toLowerCase();
   const marker = String(holdReason || '').trim();

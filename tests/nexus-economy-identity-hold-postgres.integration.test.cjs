@@ -56,14 +56,28 @@ test('real Postgres hold marker, Shadow Recruit coins, and lazy accrual checkpoi
       `UPDATE "${schema}".nexus_economy_wallets SET balance = 40 WHERE economic_identity_id = $1 AND currency = 'NEXUS_COINS'`,
       [recruited.economicIdentityId]
     );
-    const coins = await walletCore.spend({
-      discordUserId: recruit,
-      amount: 5,
-      orderId: 'shadow_coins',
-      currency: 'NEXUS_COINS'
-    });
-    assert.equal(coins.ok, true, JSON.stringify(coins));
-    assert.equal(coins.balance, 35);
+    await assert.rejects(
+      () => walletCore.spend({
+        discordUserId: recruit,
+        amount: 5,
+        orderId: 'shadow_coins',
+        currency: 'NEXUS_COINS'
+      }),
+      (error) => {
+        assert.equal(error.message, 'Verified economic identity is required.');
+        assert.doesNotMatch(error.message, /on hold/);
+        return true;
+      }
+    );
+    await assert.rejects(
+      () => walletCore.credit({
+        discordUserId: recruit,
+        amount: 1,
+        idempotencyKey: 'shadow_coin_credit',
+        currency: 'NEXUS_COINS'
+      }),
+      /Verified economic identity is required/
+    );
     await assert.rejects(
       () => walletCore.spend({ discordUserId: recruit, amount: 1, orderId: 'shadow_np', currency: 'NEXUS_POINTS' }),
       (error) => {
@@ -157,6 +171,143 @@ test('real Postgres hold marker, Shadow Recruit coins, and lazy accrual checkpoi
     const deniedNp = await walletCore.spend({ discordUserId: deniedDiscord, amount: 1, orderId: 'denied_np', currency: 'NEXUS_POINTS' });
     assert.equal(deniedNp.message, MESSAGE);
   } finally {
+    if (runtime) await runtime.close();
+    await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+    await admin.end();
+  }
+});
+
+test('real Postgres legacy-review backfill marks a funded restricted row and leaves an empty Shadow Recruit unmarked', { skip: !process.env.NEXUS_TEST_POSTGRES_URL }, async () => {
+  const url = process.env.NEXUS_TEST_POSTGRES_URL;
+  assert.ok(['127.0.0.1', 'localhost', '::1', '[::1]'].includes(new URL(url).hostname), 'integration database must be local');
+  const schema = `legacy_${crypto.randomBytes(8).toString('hex')}`;
+  const admin = new Pool({ connectionString: url });
+  const { NexusEconomyPostgresRuntimeRepository } = require('../src/sentinel/nexus-economy-postgres-runtime-repository.cjs');
+  const legacyId = 'econ_legacy_064c274f0fbe961a05cd66263ed214b3';
+  const legacyDiscord = '143900000000000984';
+  const shadowDiscord = '611111111111111111';
+  const shadowId = 'econ_shadow_empty_review';
+  const coinsDiscord = '711111111111111111';
+  const coinsId = 'econ_coins_only_review';
+  let now = Date.parse('2026-10-01T12:00:00.000Z');
+  let runtime;
+  const logs = [];
+  const originalLog = console.log;
+  console.log = (...args) => {
+    logs.push(args.map((part) => String(part)).join(' '));
+    originalLog(...args);
+  };
+  try {
+    await admin.query(`CREATE SCHEMA "${schema}"`);
+    await admin.query(NexusEconomyPostgresRuntimeRepository.runtimeSchemaSql({ schema }));
+    await admin.query(
+      `INSERT INTO "${schema}".nexus_economic_identities (economic_identity_id, status) VALUES ($1, 'restricted'), ($2, 'restricted'), ($3, 'restricted')`,
+      [legacyId, shadowId, coinsId]
+    );
+    await admin.query(
+      `INSERT INTO "${schema}".nexus_economic_identity_links (provider, external_id, economic_identity_id, verified_at, source) VALUES
+        ('discord', $2, $1, NOW(), 'legacy-economy-json'),
+        ('eos', '0002a40e00000001', $1, NOW(), 'legacy-economy-json'),
+        ('discord', $4, $3, NULL, 'shadow-recruit-rank'),
+        ('discord', $6, $5, NULL, 'shadow-recruit-rank')`,
+      [legacyId, legacyDiscord, shadowId, shadowDiscord, coinsId, coinsDiscord]
+    );
+    await admin.query(
+      `INSERT INTO "${schema}".nexus_economy_wallets (economic_identity_id, currency, balance) VALUES
+        ($1, 'NEXUS_POINTS', 147),
+        ($1, 'NEXUS_COINS', 0),
+        ($1, 'DINO_CACHE_TOKENS', 0),
+        ($2, 'NEXUS_POINTS', 0),
+        ($2, 'NEXUS_COINS', 0),
+        ($2, 'DINO_CACHE_TOKENS', 0),
+        ($3, 'NEXUS_COINS', 12),
+        ($3, 'NEXUS_POINTS', 0)`,
+      [legacyId, shadowId, coinsId]
+    );
+    await admin.query(
+      `INSERT INTO "${schema}".nexus_economy_ledger
+        (economic_identity_id, currency, amount, balance_after, entry_type, source, idempotency_key)
+       VALUES ($1, 'NEXUS_POINTS', 147, 147, 'credit', 'legacy-economy-json', $2)`,
+      [legacyId, `legacy:${legacyId}`]
+    );
+    runtime = await createPostgresEconomyRuntime({
+      env: {
+        NEXUS_ECONOMY_DATABASE_URL: url,
+        NEXUS_ECONOMY_SCHEMA: schema,
+        NEXUS_ECONOMY_IDENTITY_LINKS_ENABLED: 'true'
+      },
+      now: () => now
+    });
+    assert.match(logs.join('\n'), /legacy_review_hold_backfill marked=1/);
+    const rows = await runtime.pool.query(
+      `SELECT economic_identity_id, status, hold_reason FROM "${schema}".nexus_economic_identities ORDER BY economic_identity_id`
+    );
+    const byId = Object.fromEntries(rows.rows.map((row) => [row.economic_identity_id, row]));
+    assert.equal(byId[legacyId].status, 'restricted');
+    assert.equal(byId[legacyId].hold_reason, 'legacy-review');
+    assert.equal(byId[shadowId].hold_reason, null);
+    assert.equal(byId[coinsId].hold_reason, null);
+
+    const linked = await runtime.repository.linkVerifiedIdentity({
+      discordUserId: legacyDiscord,
+      eosId: '0002a40e00000001',
+      verifiedAt: new Date(now).toISOString(),
+      discordMembershipVerified: true
+    });
+    assert.equal(linked.ok, false);
+    assert.equal(linked.reason, 'account-hold');
+    assert.equal(linked.message, MESSAGE);
+    const still = await runtime.pool.query(
+      `SELECT status, hold_reason FROM "${schema}".nexus_economic_identities WHERE economic_identity_id = $1`,
+      [legacyId]
+    );
+    assert.equal(still.rows[0].status, 'restricted');
+    assert.equal(still.rows[0].hold_reason, 'legacy-review');
+
+    const coinSpend = await runtime.walletCore.spend({
+      discordUserId: legacyDiscord, amount: 1, orderId: 'legacy_coins', currency: 'NEXUS_COINS'
+    });
+    assert.equal(coinSpend.reason, 'account-hold');
+    assert.equal(coinSpend.message, MESSAGE);
+    const pointSpend = await runtime.walletCore.spend({
+      discordUserId: legacyDiscord, amount: 1, orderId: 'legacy_np', currency: 'NEXUS_POINTS'
+    });
+    assert.equal(pointSpend.reason, 'account-hold');
+    assert.equal(pointSpend.message, MESSAGE);
+    const accrued = await runtime.accrual.accrueOffline(legacyDiscord);
+    assert.equal(accrued.reason, 'account-hold');
+    assert.equal(accrued.credited, 0);
+    assert.equal(await runtime.walletCore.balance(legacyDiscord, 'NEXUS_POINTS'), 147);
+
+    const elevated = await runtime.repository.linkVerifiedIdentity({
+      discordUserId: shadowDiscord,
+      eosId: 'EOS_EMPTY_SHADOW_01',
+      verifiedAt: new Date(now).toISOString(),
+      discordMembershipVerified: true
+    });
+    assert.equal(elevated.ok, true);
+    assert.equal(elevated.status, 'verified');
+    const shadowRow = await runtime.pool.query(
+      `SELECT status, hold_reason FROM "${schema}".nexus_economic_identities WHERE economic_identity_id = $1`,
+      [shadowId]
+    );
+    assert.equal(shadowRow.rows[0].status, 'verified');
+    assert.equal(shadowRow.rows[0].hold_reason, null);
+
+    await runtime.pool.query(
+      `UPDATE "${schema}".nexus_economic_identities SET hold_reason = NULL WHERE economic_identity_id = $1`,
+      [legacyId]
+    );
+    const again = await runtime.repository.backfillLegacyRestrictedHolds();
+    assert.equal(again.skipped, 'already-applied');
+    assert.equal(again.marked, 0);
+    const lifted = await runtime.pool.query(
+      `SELECT hold_reason FROM "${schema}".nexus_economic_identities WHERE economic_identity_id = $1`,
+      [legacyId]
+    );
+    assert.equal(lifted.rows[0].hold_reason, null);
+  } finally {
+    console.log = originalLog;
     if (runtime) await runtime.close();
     await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     await admin.end();

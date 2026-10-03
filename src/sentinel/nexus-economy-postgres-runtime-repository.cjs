@@ -252,6 +252,70 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
     }
   }
 
+  // One-time. A later staff lift is not marked again.
+  async backfillLegacyRestrictedHolds() {
+    const s = this.runtimeSchema;
+    const migrationId = 'legacy-review-restricted-holds';
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `CREATE TABLE IF NOT EXISTS ${s}.nexus_economy_schema_migrations (
+          id TEXT PRIMARY KEY,
+          applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          row_count INTEGER NOT NULL DEFAULT 0
+        )`
+      );
+      await client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [`nexus-economy:${migrationId}`]);
+      const existing = await client.query(
+        `SELECT id, row_count FROM ${s}.nexus_economy_schema_migrations WHERE id = $1`,
+        [migrationId]
+      );
+      if (existing.rows[0]) {
+        await client.query('COMMIT');
+        return { ok: true, skipped: 'already-applied', marked: 0, previouslyMarked: Number(existing.rows[0].row_count) };
+      }
+      const updated = await client.query(
+        `UPDATE ${s}.nexus_economic_identities AS i
+         SET hold_reason = 'legacy-review', updated_at = NOW()
+         WHERE i.status = 'restricted'
+           AND (i.hold_reason IS NULL OR btrim(i.hold_reason) = '')
+           AND (
+             EXISTS (
+               SELECT 1 FROM ${s}.nexus_economic_identity_links AS l
+               WHERE l.economic_identity_id = i.economic_identity_id
+                 AND l.provider IN ('eos', 'minecraft')
+                 AND l.verified_at IS NOT NULL
+             )
+             OR EXISTS (
+               SELECT 1 FROM ${s}.nexus_economy_ledger AS g
+               WHERE g.economic_identity_id = i.economic_identity_id
+             )
+             OR EXISTS (
+               SELECT 1 FROM ${s}.nexus_economy_wallets AS w
+               WHERE w.economic_identity_id = i.economic_identity_id
+                 AND w.currency IN ('NEXUS_POINTS', 'DINO_CACHE_TOKENS')
+                 AND w.balance > 0
+             )
+           )
+         RETURNING i.economic_identity_id`
+      );
+      const marked = Number(updated.rowCount || 0);
+      await client.query(
+        `INSERT INTO ${s}.nexus_economy_schema_migrations (id, row_count) VALUES ($1, $2)`,
+        [migrationId, marked]
+      );
+      await client.query('COMMIT');
+      console.log(`[Nexus Economy] legacy_review_hold_backfill marked=${marked}`);
+      return { ok: true, marked };
+    } catch (error) {
+      try { await client.query('ROLLBACK'); } catch {}
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async placeStaffHold(discordUserId, { reason = 'staff', heldBy = null } = {}) {
     if (!validDiscordId(discordUserId)) throw new Error('Invalid discord user id.');
     const marker = String(reason || '').trim().slice(0, 64);
