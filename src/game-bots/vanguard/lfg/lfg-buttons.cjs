@@ -3,7 +3,8 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { findActivity } = require('./activities-static.cjs');
 const { snowflake } = require('../config.cjs');
-const { postFooter } = require('../panels.cjs');
+const { appendDisclaimer, applyChrome, postFooter, withAssets } = require('../panels.cjs');
+const { boundedLines, clipLine } = require('../style.cjs');
 
 function voiceOffer(lobbyId) {
   if (snowflake(lobbyId)) return `Fireteam is full. Join <#${lobbyId}> and a voice channel will open.`;
@@ -29,54 +30,61 @@ function buttonRow(post) {
   );
 }
 
-function renderPost(post, { lobbyId = '', ping = false } = {}) {
+function renderPost(post, { lobbyId = '', ping = false, client = null } = {}) {
   const activity = findActivity(post.activityKey);
   const label = post.activityLabel || activity?.label || 'Fireteam';
   const members = Array.isArray(post.members) ? post.members : [];
-  const roster = members.map((id) => `<@${id}>`).join('\n') || 'Empty';
   const unix = Math.floor(Date.parse(post.expiresAt) / 1000);
-  const when = post.when ? `\nWhen: ${post.when}` : '';
-  const note = post.note ? `\nNote: ${post.note}` : '';
-  let title = `Fireteam • ${label}`;
-  let statusLine = `Open · ${members.length}/${post.slots}`;
+  let title = '🎮 Fireteam';
+  let slots = `${members.length}/${post.slots}`;
   if (post.status === 'closed') {
-    title = 'Fireteam • Closed';
-    statusLine = 'Closed';
+    title = '🔒 Fireteam closed';
+    slots = 'Closed';
   } else if (post.status === 'expired') {
-    title = 'Fireteam • Expired';
-    statusLine = 'Expired';
+    title = '⏰ Fireteam expired';
+    slots = 'Expired';
   } else if (post.voiceOffered || members.length >= post.slots) {
-    statusLine = `Full · ${members.length}/${post.slots}`;
+    slots = `Full ${members.length}/${post.slots}`;
   }
   const offered = Boolean(post.voiceOffered || (post.status === 'open' && members.length >= post.slots));
-  const voice = offered ? `\n${voiceOffer(lobbyId || post.voiceId)}` : '';
-  const description = `${statusLine}${when}${note}\n\nRoster:\n${roster}${voice}\n\n${Number.isFinite(unix) ? `Expires <t:${unix}:R>` : 'Expires soon'}`.slice(0, 4000);
+  const timeLines = [];
+  if (post.when) timeLines.push(clipLine(post.when, 60));
+  if (Number.isFinite(unix)) timeLines.push(`<t:${unix}:R>`);
+  const lines = [];
+  if (post.note) lines.push(clipLine(post.note, 200));
+  if (offered) lines.push(voiceOffer(lobbyId || post.voiceId));
   const content = offered
     ? `${members.map((id) => `<@${id}>`).join(' ')}\n${voiceOffer(lobbyId || post.voiceId)}`.slice(0, 1800)
     : '';
-  return {
+  const embed = applyChrome({
+    title,
+    description: appendDisclaimer(lines.join('\n'), { maxLines: 4 }),
+    fields: [
+      { name: 'Activity', value: clipLine(label, 60) || 'Fireteam', inline: true },
+      { name: 'Time', value: timeLines.join('\n') || 'Not set', inline: true },
+      { name: 'Slots', value: clipLine(slots, 60), inline: true },
+      { name: 'Roster', value: boundedLines(members.length ? members.map((id) => `<@${id}>`) : ['Empty']).join('\n'), inline: false }
+    ]
+  }, { client, footerText: postFooter(), mode: 'icon' });
+  return withAssets({
     content,
-    embeds: [{
-      title,
-      description,
-      footer: { text: postFooter() }
-    }],
+    embeds: [embed],
     components: post.status === 'open' ? [buttonRow(post)] : [],
     allowedMentions: ping ? { users: members.slice(), parse: [] } : { parse: [] }
-  };
+  }, null, 'icon');
 }
 
 function boardEmbed(posts = []) {
-  const lines = posts.slice(0, 20).map((post) => {
-    const label = post.activityLabel || findActivity(post.activityKey)?.label || post.activityKey;
+  const lines = posts.map((post) => {
+    const label = clipLine(post.activityLabel || findActivity(post.activityKey)?.label || post.activityKey, 24);
     const unix = Math.floor(Date.parse(post.expiresAt) / 1000);
     const when = Number.isFinite(unix) ? `<t:${unix}:R>` : 'soon';
-    return `**${label}** ${post.members.length}/${post.slots} · <@${post.hostId}> · ${when} · \`${post.id}\``;
+    return clipLine(`**${label}** ${post.members.length}/${post.slots} • ${when}`, 60);
   });
-  if (posts.length > 20) lines.push(`…and ${posts.length - 20} more`);
+  const shown = lines.length > 3 ? [...lines.slice(0, 2), `+${lines.length - 2} more`] : lines;
   return {
-    title: 'Vanguard • Fireteam Board',
-    description: lines.length ? lines.join('\n').slice(0, 4000) : 'No open fireteams.'
+    title: '🎮 Fireteam board',
+    description: shown.length ? shown.join('\n') : 'No open fireteams.'
   };
 }
 
@@ -94,7 +102,8 @@ async function deliverPost(client, post, options = {}) {
   if (!channel || typeof channel.messages?.fetch !== 'function') return { updated: false, reason: 'missing' };
   const message = await channel.messages.fetch(post.messageId).catch(() => null);
   if (!message || typeof message.edit !== 'function') return { updated: false, reason: 'missing' };
-  await message.edit(renderPost(post, options));
+  const rendered = renderPost(post, { ...options, client });
+  await message.edit(withAssets(rendered, message, 'icon'));
   return { updated: true };
 }
 

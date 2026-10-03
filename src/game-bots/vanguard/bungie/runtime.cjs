@@ -5,7 +5,7 @@ const { bungieConfig, statePaths } = require('../config.cjs');
 const { createAlerter } = require('./alerts.cjs');
 const { createCache } = require('./cache.cjs');
 const { createBungieClient } = require('./client.cjs');
-const { fetchClanRoster, fetchClanSummary, normalizeAdmins, normalizeRoster, normalizeSummary } = require('./clan.cjs');
+const { countOnlineMembers, fetchClanRoster, fetchClanSummary, normalizeAdmins, normalizeRoster, normalizeSummary } = require('./clan.cjs');
 const { createHealth } = require('./health.cjs');
 const { createManifest } = require('./manifest.cjs');
 const { createManifestQuery } = require('./manifest-query.cjs');
@@ -16,6 +16,7 @@ const { publishPanel } = require('../panels/publish.cjs');
 const { renderClanSummary } = require('../panels/clan.cjs');
 const { milestoneRows, renderWeeklyReset } = require('../panels/weekly-reset.cjs');
 const { renderXur, saleHashes } = require('../panels/xur.cjs');
+const { lookupSaleItems } = require('../commands/d2-xur.cjs');
 const { snowflake } = require('../config.cjs');
 
 const HEALTH_MS = 5 * 60 * 1000;
@@ -189,8 +190,7 @@ function createBungieRuntime({
       payload = result.json;
       cache.set('vendors', payload);
     }
-    const hashes = saleHashes(payload);
-    const names = namesFor('DestinyInventoryItemDefinition', hashes);
+    const names = lookupSaleItems(query, saleHashes(payload));
     return { ok: true, embed: renderXur({ vendors: payload, names, now: now() }) };
   }
 
@@ -200,13 +200,22 @@ function createBungieRuntime({
     if (!payload) {
       const fetched = await fetchClanSummary(api, groupId);
       if (!fetched.summary.ok) return { ok: false, reason: fetched.summary.reason || fetched.summary.kind || 'unavailable' };
+      const summary = normalizeSummary(fetched.summary.json);
+      let online = null;
+      try {
+        online = await countOnlineMembers(api, groupId);
+      } catch (error) {
+        online = null;
+        console.warn(`[Nexus Vanguard] clan online class=${errorClass(error)}`);
+      }
       payload = {
-        summary: normalizeSummary(fetched.summary.json),
-        admins: fetched.admins.ok ? normalizeAdmins(fetched.admins.json) : []
+        summary,
+        admins: fetched.admins.ok ? normalizeAdmins(fetched.admins.json) : [],
+        online
       };
       cache.set(key, payload);
     }
-    return { ok: true, ...payload, embed: renderClanSummary(payload) };
+    return { ok: true, ...payload, embed: renderClanSummary({ summary: payload.summary, online: payload.online }) };
   }
 
   function warmClan(groupId) {
@@ -292,25 +301,25 @@ function createBungieRuntime({
       if (name === 'reset') {
         const gate = feature('reset');
         if (!gate.ok) {
-          results.reset = await publishClosed(guildId, 'weekly-reset', 'Vanguard • Weekly Reset', gate, force);
+          results.reset = await publishClosed(guildId, 'weekly-reset', '🗓️ Weekly Reset', gate, force);
           continue;
         }
         if (force) cache.delete('milestones');
         const view = await weeklyView();
         results.reset = view.ok
           ? await publishOne(guildId, 'weekly-reset', view.embed, { force })
-          : await publishOne(guildId, 'weekly-reset', { title: 'Vanguard • Weekly Reset', description: '' }, { degraded: true, force });
+          : await publishOne(guildId, 'weekly-reset', { title: '🗓️ Weekly Reset', description: '' }, { degraded: true, force });
       } else if (name === 'xur') {
         const gate = feature('xur');
         if (!gate.ok) {
-          results.xur = await publishClosed(guildId, 'xur', 'Vanguard • Xûr', gate, force);
+          results.xur = await publishClosed(guildId, 'xur', '✨ Xûr', gate, force);
           continue;
         }
         if (force) cache.delete('vendors');
         const view = await xurView();
         results.xur = view.ok
           ? await publishOne(guildId, 'xur', view.embed, { force })
-          : await publishOne(guildId, 'xur', { title: 'Vanguard • Xûr', description: '' }, { degraded: true, force });
+          : await publishOne(guildId, 'xur', { title: '✨ Xûr', description: '' }, { degraded: true, force });
       } else if (name === 'clan') {
         const gate = feature('clan-panel');
         if (!gate.ok) {
@@ -320,7 +329,7 @@ function createBungieRuntime({
           }
           results.clan = [];
           for (const groupId of config().clanGroupIds) {
-            results.clan.push(await publishClosed(guildId, `clan:${groupId}`, 'Vanguard • Clan', gate, force));
+            results.clan.push(await publishClosed(guildId, `clan:${groupId}`, '👥 Clan', gate, force));
           }
           continue;
         }
@@ -330,7 +339,7 @@ function createBungieRuntime({
           const view = await clanSummary(groupId);
           const published = view.ok
             ? await publishOne(guildId, `clan:${groupId}`, view.embed, { force })
-            : await publishOne(guildId, `clan:${groupId}`, { title: 'Vanguard • Clan', description: '' }, { degraded: true, force });
+            : await publishOne(guildId, `clan:${groupId}`, { title: '👥 Clan', description: `Group ${groupId}` }, { degraded: true, force });
           results.clan.push(published);
         }
       }

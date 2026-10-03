@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const { panelFooter, upsertOwnedPanel, degradedEmbed } = require('../panels.cjs');
+const { appendDisclaimer, panelFooter, upsertOwnedPanel, degradedEmbed } = require('../panels.cjs');
 const { formatCt } = require('../bungie/time.cjs');
 
 function shortHash(value) {
@@ -9,21 +9,29 @@ function shortHash(value) {
 }
 
 function presentEmbed(panelId, embed, { degraded = false, asOf, lastGood = '' } = {}) {
-  if (!degraded) {
-    return {
-      title: embed.title,
-      description: String(embed.description || '').slice(0, 4000),
-      footer: { text: panelFooter(panelId) }
-    };
+  let title = embed?.title;
+  let description = String(embed?.description || '');
+  let fields = Array.isArray(embed?.fields) ? embed.fields.slice(0, 6) : [];
+  if (degraded) {
+    const collapsed = lastGood ? lastGood.split('\n').slice(0, 8).join('\n') : '';
+    const body = degradedEmbed({
+      title,
+      asOf: formatCt(asOf || Date.now()),
+      detail: collapsed
+    });
+    title = body.title;
+    description = body.description;
+    fields = [];
   }
-  const collapsed = lastGood ? lastGood.split('\n').slice(0, 8).join('\n') : '';
-  const body = degradedEmbed({
-    title: embed.title,
-    asOf: formatCt(asOf || Date.now()),
-    detail: collapsed
-  });
+  const id = String(panelId || '');
+  if (id.startsWith('clan:')) {
+    const groupId = id.slice('clan:'.length);
+    if (groupId && !description.includes(groupId)) description = `Group ${groupId}\n${description}`;
+  }
   return {
-    ...body,
+    title,
+    description: appendDisclaimer(description).slice(0, 4000),
+    fields,
     footer: { text: panelFooter(panelId) }
   };
 }
@@ -41,7 +49,7 @@ async function publishPanel(ctx, { guildId, panelId, channelId, embed, degraded 
     channelId,
     messageId: saved.channelId === channelId ? saved.messageId : '',
     panelId,
-    embed: { title: body.title, description: body.description },
+    embed: { title: body.title, description: body.description, fields: body.fields },
     botId: ctx.client?.user?.id
   });
   if (!result?.messageId) return { refreshed: false, reason: result?.reason || 'missing' };

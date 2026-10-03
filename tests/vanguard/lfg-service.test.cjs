@@ -190,8 +190,17 @@ test('a full fireteam render offers voice and an expired post drops its buttons'
   assert.equal(voiceOffer('').includes('not configured'), true);
 
   const expired = renderPost({ ...post, status: 'expired', voiceOffered: false }, {});
-  assert.equal(expired.embeds[0].title, 'Fireteam • Expired');
+  assert.equal(expired.embeds[0].title, '⏰ Fireteam expired');
   assert.equal(expired.components.length, 0);
   const closed = renderPost({ ...post, status: 'closed' }, {});
-  assert.equal(closed.embeds[0].title, 'Fireteam • Closed');
+  assert.equal(closed.embeds[0].title, '🔒 Fireteam closed');
+  assert.equal(rendered.embeds[0].color, 0xAEB4BD);
+  assert.equal(rendered.embeds[0].thumbnail.url, 'attachment://icon-vanguard.png');
+  assert.equal(rendered.embeds[0].image, undefined);
+  assert.equal(rendered.files[0].name, 'icon-vanguard.png');
+  assert.deepEqual(rendered.embeds[0].fields.slice(0, 3).map((field) => field.name), ['Activity', 'Time', 'Slots']);
+  assert.ok(rendered.embeds[0].fields.slice(0, 3).every((field) => field.inline === true));
+  assert.equal(rendered.embeds[0].fields[3].name, 'Roster');
+  assert.equal(rendered.embeds[0].fields[3].inline, false);
+  assert.doesNotMatch(rendered.embeds[0].footer.text, /[-–—]/);
 });

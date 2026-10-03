@@ -141,7 +141,7 @@ async function handleCreate(interaction, ctx) {
     return true;
   }
   try {
-    const message = await channel.send(renderPost(result.post, { lobbyId: channels.jtcLobby }));
+    const message = await channel.send(renderPost(result.post, { lobbyId: channels.jtcLobby, client: interaction.client }));
     await ctx.lfg.attachMessage(interaction.guildId, result.post.id, {
       channelId: channel.id,
       messageId: message.id
@@ -273,7 +273,7 @@ async function refreshStatusPanel(ctx, { guildId, force = false } = {}) {
   if (!snowflake(channels.staffAlerts)) return { refreshed: false, reason: 'unset' };
   const { buildStatusText } = require('../commands/status.cjs');
   const description = buildStatusText({ client: ctx.client, env: ctx.env });
-  const embed = { title: 'Vanguard • Status', description };
+  const embed = { title: 'Status', description };
   const hash = shortHash(embed);
   const saved = ctx.panelStore.read()?.[guild]?.status || {};
   if (!force && saved.lastHash === hash && saved.messageId && saved.channelId === channels.staffAlerts) {

@@ -15,7 +15,7 @@ async function handlePlayer(interaction, ctx, reply) {
     await reply.replyText(interaction, ctx.bungie.reasonText(result.reason));
     return true;
   }
-  await reply.replyEmbed(interaction, { title: 'Vanguard • Player', description: result.text }, reply.footer);
+  await reply.replyEmbed(interaction, { title: '👤 Player', description: result.text }, reply.footer);
   return true;
 }
 
