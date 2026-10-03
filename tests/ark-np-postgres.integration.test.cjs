@@ -10,9 +10,12 @@ const {
   dryRun,
   execute,
   reverseCredit,
+  reconcile,
   SNAPSHOT_AT,
-  AMOUNT
+  AMOUNT,
+  MINT_ID
 } = require('../src/economy-worker/legacy-bank-flat.cjs');
+const { sumMemberPointBalances } = require('../src/shared/economy-system-accounts.cjs');
 const { deterministicEconomicIdentityId } = require('../src/sentinel/nexus-economy-json-postgres-migration.cjs');
 
 const postgresUrl = process.env.NEXUS_TEST_POSTGRES_URL || '';
@@ -38,6 +41,7 @@ async function openRuntime(label) {
     ARK_SHOP_DELIVERY_ENABLED: 'true',
     ARK_STARTER_KIT_ENABLED: 'true',
     NEXUS_ECONOMY_NP_SHOP_WRITES_ENABLED: 'true',
+    NEXUS_LEGACY_BANK_FLAT_ENABLED: 'true',
     NEXUS_ECONOMY_QUARANTINE_DENYLIST: ''
   };
   const runtime = await createPostgresEconomyRuntime({ env, now: () => Date.parse(BEFORE) });
@@ -188,6 +192,12 @@ test('legacy flat credit refuses a swapped list, holds duplicates, and resumes a
     });
     const preview = await dryRun({ pool, schema: opened.schema, operator: 'warden-test' });
     assert.equal(preview.ok, true);
+    const mintBefore = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM "${opened.schema}".nexus_economic_identities WHERE economic_identity_id LIKE 'system:%'`
+    );
+    assert.equal(mintBefore.rows[0].n, 0);
+    const batchTable = await pool.query('SELECT to_regclass($1) AS reg', [`${opened.schema}.nexus_economy_batches`]);
+    assert.equal(batchTable.rows[0].reg, null);
     const byId = Object.fromEntries(preview.rows.map((row) => [row.econId, row]));
     assert.equal(byId.econ_a.amount, AMOUNT);
     assert.equal(byId.econ_b.amount, AMOUNT);
@@ -269,6 +279,29 @@ test('legacy flat credit refuses a swapped list, holds duplicates, and resumes a
     assert.equal(await balanceOf(pool, opened.schema, 'econ_owner'), 1500);
     assert.equal(await balanceOf(pool, opened.schema, legacyId), 0);
     assert.equal(await balanceOf(pool, opened.schema, 'econ_late'), 0);
+    const mintStatus = await pool.query(
+      `SELECT status FROM "${opened.schema}".nexus_economic_identities WHERE economic_identity_id = $1`,
+      [MINT_ID]
+    );
+    assert.equal(mintStatus.rows[0].status, 'system');
+    assert.equal(await balanceOf(pool, opened.schema, MINT_ID), -4500);
+    assert.equal(await sumMemberPointBalances(pool, opened.schema), 4500);
+    const net = await pool.query(
+      `SELECT COALESCE(SUM(amount), 0)::bigint AS total FROM "${opened.schema}".nexus_economy_ledger WHERE currency = 'NEXUS_POINTS'`
+    );
+    assert.equal(Number(net.rows[0].total), 0);
+    await assert.rejects(pool.query(
+      `UPDATE "${opened.schema}".nexus_economy_wallets SET balance = -1 WHERE economic_identity_id = 'econ_a'`
+    ));
+    await pool.query(
+      `INSERT INTO "${opened.schema}".nexus_economic_identities (economic_identity_id, status) VALUES ('system:other', 'system')`
+    );
+    await pool.query(
+      `INSERT INTO "${opened.schema}".nexus_economy_wallets (economic_identity_id, currency, balance) VALUES ('system:other', 'NEXUS_POINTS', 0)`
+    );
+    await assert.rejects(pool.query(
+      `UPDATE "${opened.schema}".nexus_economy_wallets SET balance = -1 WHERE economic_identity_id = 'system:other'`
+    ));
     const again = await execute({
       pool,
       schema: opened.schema,
@@ -285,20 +318,54 @@ test('legacy flat credit refuses a swapped list, holds duplicates, and resumes a
       schema: opened.schema,
       econId: 'econ_a',
       operator: 'warden-test',
-      confirm: true
+      confirm: true,
+      env: opened.env
     });
     assert.equal(spent.reversed, true);
+    assert.equal(await balanceOf(pool, opened.schema, 'econ_a'), 0);
+    assert.equal(await balanceOf(pool, opened.schema, MINT_ID), -3000);
+    const second = await reverseCredit({
+      pool,
+      schema: opened.schema,
+      econId: 'econ_a',
+      operator: 'warden-test',
+      confirm: true,
+      env: opened.env
+    });
+    assert.equal(second.duplicate, true);
+    assert.equal(second.reversed, false);
+    assert.equal(await balanceOf(pool, opened.schema, 'econ_a'), 0);
+    assert.equal(await balanceOf(pool, opened.schema, MINT_ID), -3000);
+    const books = await reconcile(pool, opened.schema, 2);
+    assert.equal(books.ok, true);
+    assert.equal(books.credits, -books.contra);
     await pool.query(`UPDATE "${opened.schema}".nexus_economy_wallets SET balance = 100 WHERE economic_identity_id = 'econ_b'`);
     const flagged = await reverseCredit({
       pool,
       schema: opened.schema,
       econId: 'econ_b',
       operator: 'warden-test',
-      confirm: true
+      confirm: true,
+      env: opened.env
     });
     assert.equal(flagged.flagged, true);
     assert.equal(flagged.reversed, false);
     assert.equal(await balanceOf(pool, opened.schema, 'econ_b'), 100);
+    await seedIdentity(pool, opened.schema, { econId: 'econ_none', discord: '200000000000000099', eos: ['EOSNONE0001'] });
+    await pool.query(
+      `UPDATE "${opened.schema}".nexus_economy_wallets SET balance = 1500 WHERE economic_identity_id = 'econ_none'`
+    );
+    const missingCredit = await reverseCredit({
+      pool,
+      schema: opened.schema,
+      econId: 'econ_none',
+      operator: 'warden-test',
+      confirm: true,
+      env: opened.env
+    });
+    assert.equal(missingCredit.reason, 'credit-missing');
+    assert.equal(missingCredit.reversed, false);
+    assert.equal(await balanceOf(pool, opened.schema, 'econ_none'), 1500);
   } finally {
     await closeRuntime(opened);
   }
@@ -344,6 +411,86 @@ test('duplicate humans are held on both sides and a denylist failure writes noth
     assert.equal(rows.rowCount, 0);
     assert.equal(await balanceOf(pool, opened.schema, 'econ_left'), 0);
     assert.equal(SNAPSHOT_AT, '2026-10-03T01:14:00.000Z');
+  } finally {
+    await closeRuntime(opened);
+  }
+});
+
+test('starter kit records every linked EOS so a relink cannot claim a second kit', { skip }, async () => {
+  const opened = await openRuntime('k4');
+  try {
+    const { pool } = opened.runtime;
+    const discord = '200000000000000201';
+    const otherDiscord = '200000000000000202';
+    await seedIdentity(pool, opened.schema, { econId: 'econ_multi', discord, eos: ['EOSE1000001', 'EOSE2000002'] });
+    const shop = new PostgresArkShop({
+      pool,
+      schema: opened.schema,
+      env: opened.env,
+      now: () => Date.parse(BEFORE),
+      tenureOf: async () => Date.parse('2020-01-01T00:00:00.000Z')
+    });
+    const claimed = await shop.claimStarterKit({ discordUserId: discord });
+    assert.equal(claimed.ok, true);
+    assert.equal(claimed.duplicate, undefined);
+    const grants = await pool.query(
+      `SELECT eos_id FROM "${opened.schema}".nexus_mc_grants WHERE economic_identity_id = 'econ_multi' ORDER BY eos_id`
+    );
+    assert.deepEqual(grants.rows.map((row) => row.eos_id), ['EOSE1000001', 'EOSE2000002']);
+    await seedIdentity(pool, opened.schema, { econId: 'econ_relink', discord: otherDiscord, eos: [] });
+    await pool.query(
+      `UPDATE "${opened.schema}".nexus_economic_identity_links SET economic_identity_id = 'econ_relink' WHERE external_id = 'EOSE2000002'`
+    );
+    const again = await shop.claimStarterKit({ discordUserId: otherDiscord });
+    assert.equal(again.duplicate, true);
+    assert.equal(again.reason, 'already-claimed');
+    const count = await pool.query(`SELECT COUNT(*)::int AS n FROM "${opened.schema}".nexus_mc_grants`);
+    assert.equal(count.rows[0].n, 2);
+  } finally {
+    await closeRuntime(opened);
+  }
+});
+
+test('two staff refunds at the daily cap cannot both land', { skip }, async () => {
+  const opened = await openRuntime('cap');
+  try {
+    const { pool } = opened.runtime;
+    const actor = '300000000000000099';
+    const shop = new PostgresArkShop({
+      pool,
+      schema: opened.schema,
+      env: { ...opened.env, NEXUS_OWNER_USER_IDS: actor },
+      now: () => Date.now()
+    });
+    await shop.ensureSchema();
+    for (let index = 0; index < 9; index += 1) {
+      await pool.query(
+        `INSERT INTO "${opened.schema}".nexus_mc_refund_audit (order_id, actor, reason, amount, provider)
+         VALUES ($1, $2, 'seed', 0, 'ark')`,
+        [`seed-${index}`, actor]
+      );
+    }
+    for (const orderId of ['order-left', 'order-right']) {
+      const order = { orderId, discordUserId: '200000000000000301', status: 'SENT_UNCONFIRMED', price: 0, sku: 'coastal' };
+      await pool.query(
+        `INSERT INTO "${opened.schema}".nexus_mc_orders (order_id, nonce, order_data, status, price, provider)
+         VALUES ($1, $2, $3::jsonb, 'SENT_UNCONFIRMED', 0, 'ark')`,
+        [orderId, orderId, JSON.stringify(order)]
+      );
+    }
+    const [left, right] = await Promise.all([
+      shop.refund({ orderId: 'order-left', reason: 'checked the log', actor, staff: true }),
+      shop.refund({ orderId: 'order-right', reason: 'checked the log', actor, staff: true })
+    ]);
+    const succeeded = [left, right].filter((result) => result.ok);
+    const capped = [left, right].filter((result) => result.reason === 'staff-refund-cap');
+    assert.equal(succeeded.length, 1);
+    assert.equal(capped.length, 1);
+    const audits = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM "${opened.schema}".nexus_mc_refund_audit WHERE actor = $1`,
+      [actor]
+    );
+    assert.equal(audits.rows[0].n, 10);
   } finally {
     await closeRuntime(opened);
   }

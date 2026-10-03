@@ -1,6 +1,7 @@
 'use strict';
 
 const { normalizeCurrency } = require('./nexus-economy-postgres-repository.cjs');
+const { assertMemberAccount } = require('../shared/economy-system-accounts.cjs');
 
 const BASELINE_WALLET_UNAVAILABLE_REASON = 'baseline-wallet-unavailable';
 const SHADOW_RECRUIT_RANK_ID = 'shadow-recruit';
@@ -83,6 +84,7 @@ function attachAdminWalletMutations(WalletCoreClass, {
       identity.economic_identity_id ?? identity.economicIdentityId,
       'Economic identity ID'
     );
+    assertMemberAccount(economicIdentityId);
     if (quarantineDenylist(env).has(economicIdentityId) && !allowOverride) {
       throw new Error('Economic identity is quarantine-denylisted.');
     }

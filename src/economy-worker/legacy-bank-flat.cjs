@@ -6,12 +6,17 @@ const { execSync } = require('node:child_process');
 const { sqlIdent } = require('../sentinel/nexus-economy-postgres-repository.cjs');
 const { deterministicEconomicIdentityId } = require('../sentinel/nexus-economy-json-postgres-migration.cjs');
 const { quarantineDenylist } = require('../sentinel/nexus-economy-wallet-core.cjs');
+const { applySystemMintBalanceChecks, sumMemberPointBalances } = require('../shared/economy-system-accounts.cjs');
 
 const BATCH_NAME = 'legacy-bank-flat-2026-10';
 const AMOUNT = 1500;
 const MINT_ID = 'system:mint:legacy-bank-flat';
 const SNAPSHOT_AT = '2026-10-03T01:14:00.000Z';
 const SOURCE = 'legacy_bank_flat';
+
+function legacyBankFlatEnabled(env = process.env) {
+  return ['1', 'true', 'yes', 'on'].includes(String(env?.NEXUS_LEGACY_BANK_FLAT_ENABLED ?? '').trim().toLowerCase());
+}
 
 function hashPrefix(hash) {
   return String(hash || '').slice(0, 8);
@@ -30,7 +35,9 @@ function hashesEqual(expected, actual) {
 
 function canonicalListHash({ rows, eligibleCount, total, batchName = BATCH_NAME, snapshotAt = SNAPSHOT_AT } = {}) {
   const header = { batchName, snapshotAt, amountPerGrant: AMOUNT, eligibleCount, total };
-  const body = (rows || []).map((row) => [row.econId, row.discordUserId, row.eosIds, row.amount, row.skipReason]);
+  const body = (rows || [])
+    .filter((row) => row.skipReason === '' && Number(row.amount) === AMOUNT)
+    .map((row) => [row.econId, row.discordUserId, row.eosIds, row.amount, row.skipReason]);
   return crypto.createHash('sha256').update(JSON.stringify({ header, rows: body })).digest('hex');
 }
 
@@ -68,15 +75,21 @@ function classifyPopulation(identities, { denylist = new Set(), priorKeys = new 
     }))
     .filter((identity) => identity.econId && !identity.econId.startsWith('system:'));
 
+  const snapshotIds = new Set(list.filter((identity) => {
+    const created = Date.parse(identity.createdAt);
+    return Number.isFinite(created) && created <= snapshotMs;
+  }).map((identity) => identity.econId));
   const allDiscord = new Set();
   for (const identity of list) {
-    for (const link of identity.discord) allDiscord.add(String(link.id));
+    if (!snapshotIds.has(identity.econId)) continue;
+    for (const id of verifiedBefore(identity.discord, snapshotMs)) allDiscord.add(id);
   }
   const carried = new Map();
   const discordOwners = new Map();
   const eosOwners = new Map();
   for (const identity of list) {
-    const ids = new Set((identity.discord || []).map((link) => String(link.id)));
+    if (!snapshotIds.has(identity.econId)) continue;
+    const ids = new Set(verifiedBefore(identity.discord, snapshotMs));
     for (const discordId of allDiscord) {
       try {
         if (identity.econId === deterministicEconomicIdentityId(discordId)) ids.add(discordId);
@@ -89,8 +102,7 @@ function classifyPopulation(identities, { denylist = new Set(), priorKeys = new 
       if (!discordOwners.has(id)) discordOwners.set(id, new Set());
       discordOwners.get(id).add(identity.econId);
     }
-    for (const link of identity.eos) {
-      const id = String(link.id);
+    for (const id of verifiedBefore(identity.eos, snapshotMs)) {
       if (!eosOwners.has(id)) eosOwners.set(id, new Set());
       eosOwners.get(id).add(identity.econId);
     }
@@ -157,6 +169,9 @@ function evaluateExecuteGate({
   if (!String(envHash || '').trim()) return { ok: false, reason: 'missing-env' };
   if (complete) return { ok: false, reason: 'batch-complete' };
   if (!hashesEqual(envHash, computedHash)) return { ok: false, reason: 'hash-mismatch' };
+  if (!Number.isInteger(eligibleCount) || !Number.isInteger(total) || total !== eligibleCount * AMOUNT) {
+    return { ok: false, reason: 'total-mismatch' };
+  }
   if (!Number.isInteger(approvedCount) || !Number.isInteger(approvedTotal)) return { ok: false, reason: 'missing-ceiling' };
   if (eligibleCount > approvedCount || total > approvedTotal) return { ok: false, reason: 'ceiling' };
   if (grantAmounts.some((amount) => amount !== AMOUNT)) return { ok: false, reason: 'grant-amount' };
@@ -203,9 +218,11 @@ async function ensureBatchSchema(pool, schema) {
       completed_at TIMESTAMPTZ
     )`
   );
+  await applySystemMintBalanceChecks(pool, schema);
   await pool.query(
     `INSERT INTO ${s}.nexus_economic_identities (economic_identity_id, status)
-     VALUES ($1, 'verified') ON CONFLICT (economic_identity_id) DO NOTHING`,
+     VALUES ($1, 'system')
+     ON CONFLICT (economic_identity_id) DO UPDATE SET status = 'system', updated_at = NOW()`,
     [MINT_ID]
   );
   await pool.query(
@@ -329,22 +346,23 @@ async function grantOne(pool, schema, row, context) {
       `SELECT balance FROM ${s}.nexus_economy_wallets WHERE economic_identity_id = $1 AND currency = 'NEXUS_POINTS' FOR UPDATE`,
       [MINT_ID]
     );
-    const mintNext = Number(mintWallet.rows?.[0]?.balance || 0) + AMOUNT;
+    const mintNext = Number(mintWallet.rows?.[0]?.balance || 0) - AMOUNT;
     const contraKey = `legacy-bank-flat-contra:${row.econId}`;
     const contra = await client.query(
       `INSERT INTO ${s}.nexus_economy_ledger
        (economic_identity_id, currency, amount, balance_after, entry_type, source, idempotency_key, metadata, created_at)
-       VALUES ($1, 'NEXUS_POINTS', $2, $3, 'credit', 'legacy_bank_flat_contra', $4, $5::jsonb, NOW())
+       VALUES ($1, 'NEXUS_POINTS', $2, $3, 'debit', 'legacy_bank_flat_contra', $4, $5::jsonb, NOW())
        ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`,
-      [MINT_ID, AMOUNT, mintNext, contraKey, JSON.stringify({ econId: row.econId, batchId: context.batchName })]
+      [MINT_ID, -AMOUNT, mintNext, contraKey, JSON.stringify({ econId: row.econId, batchId: context.batchName })]
     );
-    if (contra.rowCount) {
-      await client.query(
-        `UPDATE ${s}.nexus_economy_wallets SET balance = $2, updated_at = NOW()
-         WHERE economic_identity_id = $1 AND currency = 'NEXUS_POINTS'`,
-        [MINT_ID, mintNext]
-      );
+    if (!contra.rowCount) {
+      throw Object.assign(new Error('contra-insert-missing'), { code: 'contra-insert-missing' });
     }
+    await client.query(
+      `UPDATE ${s}.nexus_economy_wallets SET balance = $2, updated_at = NOW()
+       WHERE economic_identity_id = $1 AND currency = 'NEXUS_POINTS'`,
+      [MINT_ID, mintNext]
+    );
     await audit(client, schema, { ...context, econId: row.econId, amount: AMOUNT, key, result: 'credited' });
     await client.query('COMMIT');
     return { outcome: 'credited' };
@@ -358,20 +376,43 @@ async function grantOne(pool, schema, row, context) {
 
 async function reconcile(pool, schema, expectedGrants) {
   const s = sqlIdent(schema);
-  const sum = await pool.query(
+  const members = await pool.query(
     `SELECT COALESCE(SUM(amount), 0)::bigint AS total FROM ${s}.nexus_economy_ledger
-     WHERE source = $1 AND entry_type = 'credit' AND economic_identity_id <> $2
-       AND metadata->>'batchId' = $3`,
-    [SOURCE, MINT_ID, BATCH_NAME]
+     WHERE economic_identity_id NOT LIKE 'system:%'
+       AND source = $1
+       AND (
+         metadata->>'batchId' = $2
+         OR idempotency_key LIKE 'legacy-bank-flat-reversal:%'
+       )`,
+    [SOURCE, BATCH_NAME]
+  );
+  const contraRows = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0)::bigint AS total FROM ${s}.nexus_economy_ledger
+     WHERE economic_identity_id = $1
+       AND source = 'legacy_bank_flat_contra'
+       AND (
+         idempotency_key LIKE 'legacy-bank-flat-contra:%'
+         OR idempotency_key LIKE 'legacy-bank-flat-contra-reversal:%'
+       )`,
+    [MINT_ID]
   );
   const mint = await pool.query(
     `SELECT balance FROM ${s}.nexus_economy_wallets WHERE economic_identity_id = $1 AND currency = 'NEXUS_POINTS'`,
     [MINT_ID]
   );
-  const credits = Number(sum.rows?.[0]?.total || 0);
-  const contra = Number(mint.rows?.[0]?.balance || 0);
+  const credits = Number(members.rows?.[0]?.total || 0);
+  const contra = Number(contraRows.rows?.[0]?.total || 0);
+  const mintBalance = Number(mint.rows?.[0]?.balance || 0);
   const expected = expectedGrants * AMOUNT;
-  return { ok: credits === contra && contra === expected, credits, contra, expected };
+  const memberBalances = await sumMemberPointBalances(pool, schema);
+  return {
+    ok: credits === -contra && contra === -expected && mintBalance === contra,
+    credits,
+    contra,
+    mintBalance,
+    expected,
+    memberBalances
+  };
 }
 
 async function buildList(pool, schema, { env = process.env, readDenylist: reader, cutoff = null } = {}) {
@@ -387,18 +428,34 @@ async function buildList(pool, schema, { env = process.env, readDenylist: reader
   return classifyPopulation(loaded.identities, { denylist, priorKeys: loaded.priorKeys });
 }
 
+async function schemaReady(client, schema) {
+  const names = ['nexus_economic_identities', 'nexus_economic_identity_links', 'nexus_economy_wallets', 'nexus_economy_ledger'];
+  for (const name of names) {
+    const found = await client.query('SELECT to_regclass($1) AS reg', [`${schema}.${name}`]);
+    if (!found.rows?.[0]?.reg) return false;
+  }
+  return true;
+}
+
 async function dryRun({ pool, schema = 'public', env = process.env, operator = '', readDenylist: reader } = {}) {
   if (!String(operator || '').trim()) return { ok: false, reason: 'operator-required' };
-  const { ensureMinecraftSchema } = require('./mc-points-postgres.cjs');
-  const ready = await ensureMinecraftSchema({ pool, schema });
-  if (!ready.ok) return ready;
-  await ensureBatchSchema(pool, schema);
+  const client = await pool.connect();
   let list;
   try {
-    list = await buildList(pool, schema, { env, readDenylist: reader, cutoff: null });
+    await client.query('BEGIN READ ONLY');
+    if (!await schemaReady(client, schema)) {
+      await client.query('ROLLBACK');
+      return { ok: false, reason: 'schema-missing' };
+    }
+    list = await buildList(client, schema, { env, readDenylist: reader, cutoff: null });
+    await client.query('COMMIT');
   } catch (error) {
+    try { await client.query('ROLLBACK'); } catch { /* ignore */ }
     if (error.code === 'denylist-read-error') return { ok: false, reason: 'denylist-read-error' };
+    if (error.code === '42P01' || error.code === '3D000') return { ok: false, reason: 'schema-missing' };
     throw error;
+  } finally {
+    client.release();
   }
   return {
     ok: true,
@@ -426,6 +483,7 @@ async function execute({
   afterGrant = null
 } = {}) {
   const envHash = String(env.NEXUS_LEGACY_BANK_FLAT_APPROVED_HASH || '').trim();
+  if (!legacyBankFlatEnabled(env)) return { ok: false, reason: 'legacy-bank-flat-disabled' };
   if (!String(operator || '').trim()) return { ok: false, reason: 'operator-required' };
   if (!String(approvalRef || '').trim()) return { ok: false, reason: 'approval-required' };
   if (!envHash) {
@@ -516,7 +574,8 @@ async function execute({
   return { ok: true, credited, skipped, noop, eligibleCount: list.eligibleCount, reconcile: check };
 }
 
-async function flagSpentCredit({ pool, schema = 'public', econId, operator = '' } = {}) {
+async function flagSpentCredit({ pool, schema = 'public', econId, operator = '', env = process.env } = {}) {
+  if (!legacyBankFlatEnabled(env)) return { ok: false, reason: 'legacy-bank-flat-disabled' };
   if (!String(operator || '').trim() || !String(econId || '').trim()) return { ok: false, reason: 'operator-required' };
   const s = sqlIdent(schema);
   const wallet = await pool.query(
@@ -551,14 +610,49 @@ async function flagSpentCredit({ pool, schema = 'public', econId, operator = '' 
   return { ok: true, flagged: false, balance, clawedBack: false };
 }
 
-async function reverseCredit({ pool, schema = 'public', econId, operator = '', confirm = false } = {}) {
+async function reverseCredit({ pool, schema = 'public', econId, operator = '', confirm = false, env = process.env } = {}) {
+  if (!legacyBankFlatEnabled(env)) return { ok: false, reason: 'legacy-bank-flat-disabled' };
   if (!confirm) return { ok: false, reason: 'confirmation-required' };
   if (!String(operator || '').trim() || !String(econId || '').trim()) return { ok: false, reason: 'operator-required' };
   const s = sqlIdent(schema);
   const client = await pool.connect();
+  const creditKey = `legacy-bank-flat:${econId}`;
+  const reversalKey = `legacy-bank-flat-reversal:${econId}`;
   try {
     await client.query('BEGIN');
     await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${econId}:NEXUS_POINTS`]);
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${MINT_ID}:NEXUS_POINTS`]);
+    const original = await client.query(
+      `SELECT id FROM ${s}.nexus_economy_ledger
+       WHERE idempotency_key = $1 AND economic_identity_id = $2 AND source = $3 AND entry_type = 'credit' AND amount = $4`,
+      [creditKey, econId, SOURCE, AMOUNT]
+    );
+    if (!original.rowCount) {
+      await audit(client, schema, {
+        operator: String(operator).trim(),
+        host: os.hostname(),
+        sha: commitSha(),
+        batchName: BATCH_NAME,
+        econId,
+        amount: 0,
+        key: reversalKey,
+        result: 'credit-missing'
+      });
+      await client.query('COMMIT');
+      return { ok: false, reason: 'credit-missing', reversed: false };
+    }
+    const already = await client.query(
+      `SELECT id FROM ${s}.nexus_economy_ledger WHERE idempotency_key = $1`,
+      [reversalKey]
+    );
+    if (already.rowCount) {
+      await client.query('COMMIT');
+      const current = await client.query(
+        `SELECT balance FROM ${s}.nexus_economy_wallets WHERE economic_identity_id = $1 AND currency = 'NEXUS_POINTS'`,
+        [econId]
+      );
+      return { ok: true, duplicate: true, reversed: false, balance: Number(current.rows?.[0]?.balance || 0) };
+    }
     const wallet = await client.query(
       `SELECT balance FROM ${s}.nexus_economy_wallets WHERE economic_identity_id = $1 AND currency = 'NEXUS_POINTS' FOR UPDATE`,
       [econId]
@@ -597,29 +691,37 @@ async function reverseCredit({ pool, schema = 'public', econId, operator = '', c
        WHERE economic_identity_id = $1 AND currency = 'NEXUS_POINTS'`,
       [econId, next]
     );
+    const contraKey = `legacy-bank-flat-contra:${econId}`;
+    const contraOriginal = await client.query(
+      `SELECT id FROM ${s}.nexus_economy_ledger
+       WHERE idempotency_key = $1 AND economic_identity_id = $2 AND source = 'legacy_bank_flat_contra' AND amount = $3`,
+      [contraKey, MINT_ID, -AMOUNT]
+    );
+    if (!contraOriginal.rowCount) {
+      throw Object.assign(new Error('contra-insert-missing'), { code: 'contra-insert-missing' });
+    }
     const mint = await client.query(
       `SELECT balance FROM ${s}.nexus_economy_wallets WHERE economic_identity_id = $1 AND currency = 'NEXUS_POINTS' FOR UPDATE`,
       [MINT_ID]
     );
     const mintBalance = Number(mint.rows?.[0]?.balance || 0);
-    if (mintBalance >= AMOUNT) {
-      const mintNext = mintBalance - AMOUNT;
-      const contraKey = `legacy-bank-flat-contra-reversal:${econId}`;
-      const contra = await client.query(
-        `INSERT INTO ${s}.nexus_economy_ledger
-         (economic_identity_id, currency, amount, balance_after, entry_type, source, idempotency_key, metadata, created_at)
-         VALUES ($1, 'NEXUS_POINTS', $2, $3, 'debit', 'legacy_bank_flat_contra', $4, $5::jsonb, NOW())
-         ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`,
-        [MINT_ID, -AMOUNT, mintNext, contraKey, JSON.stringify({ econId })]
-      );
-      if (contra.rowCount) {
-        await client.query(
-          `UPDATE ${s}.nexus_economy_wallets SET balance = $2, updated_at = NOW()
-           WHERE economic_identity_id = $1 AND currency = 'NEXUS_POINTS'`,
-          [MINT_ID, mintNext]
-        );
-      }
+    const mintNext = mintBalance + AMOUNT;
+    const contraReversalKey = `legacy-bank-flat-contra-reversal:${econId}`;
+    const contra = await client.query(
+      `INSERT INTO ${s}.nexus_economy_ledger
+       (economic_identity_id, currency, amount, balance_after, entry_type, source, idempotency_key, metadata, created_at)
+       VALUES ($1, 'NEXUS_POINTS', $2, $3, 'credit', 'legacy_bank_flat_contra', $4, $5::jsonb, NOW())
+       ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`,
+      [MINT_ID, AMOUNT, mintNext, contraReversalKey, JSON.stringify({ econId, reverses: contraKey })]
+    );
+    if (!contra.rowCount) {
+      throw Object.assign(new Error('contra-insert-missing'), { code: 'contra-insert-missing' });
     }
+    await client.query(
+      `UPDATE ${s}.nexus_economy_wallets SET balance = $2, updated_at = NOW()
+       WHERE economic_identity_id = $1 AND currency = 'NEXUS_POINTS'`,
+      [MINT_ID, mintNext]
+    );
     await audit(client, schema, {
       operator: String(operator).trim(),
       host: os.hostname(),
@@ -647,6 +749,7 @@ module.exports = {
   SNAPSHOT_AT,
   SOURCE,
   hashPrefix,
+  legacyBankFlatEnabled,
   hashesEqual,
   canonicalListHash,
   denylistDigest,
@@ -657,5 +760,7 @@ module.exports = {
   execute,
   flagSpentCredit,
   reverseCredit,
+  reconcile,
+  grantOne,
   ensureBatchSchema
 };

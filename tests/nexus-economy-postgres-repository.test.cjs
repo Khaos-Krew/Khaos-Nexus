@@ -113,6 +113,7 @@ test('Discord wallet reads use identity linkage and a canonical currency paramet
   assert.deepEqual(read.params, ['123', 'NEXUS_POINTS']);
   assert.match(read.text, /nexus_economic_identity_links/);
   assert.match(read.text, /w\.currency = \$2/);
+  assert.match(read.text, /NOT LIKE 'system:%'/);
 });
 
 test('verified Discord and EOS links must resolve to the same economic identity', async () => {

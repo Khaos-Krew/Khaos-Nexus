@@ -11,6 +11,7 @@ const { saddleFor } = require('../sentinel/ark-cache-receipts.cjs');
 const { blueprintRef } = require('../sentinel/rewards-ascended-delivery.cjs');
 const { ctDayKey } = require('./mc-playtime-accounting.cjs');
 const { discordAccountCreatedMs, guildJoinedAtMs } = require('../shared/mc-starter-kit.cjs');
+const { authorizeStaffRefundActor } = require('./ark-staff-auth.cjs');
 const {
   STAFF_REFUND_DAILY_CAP,
   STAFF_REFUND_ALERT_AT,
@@ -26,7 +27,7 @@ const {
 } = require('../shared/ark-np-orders.cjs');
 
 class PostgresArkShop {
-  constructor({ pool, schema = 'public', now = () => Date.now(), env = process.env, catalog = null, tenureOf = null } = {}) {
+  constructor({ pool, schema = 'public', now = () => Date.now(), env = process.env, catalog = null, tenureOf = null, fetchImpl = null } = {}) {
     if (!pool) throw new Error('Postgres pool is required.');
     this.pool = pool;
     this.schema = schema;
@@ -34,6 +35,7 @@ class PostgresArkShop {
     this.env = env;
     this.catalog = catalog || loadArkNpCatalog();
     this.tenureOf = tenureOf;
+    this.fetchImpl = fetchImpl;
   }
 
   flags() {
@@ -258,6 +260,7 @@ class PostgresArkShop {
         await client.query('COMMIT');
         return { ok: true, duplicate: true, order: prior.rows?.[0]?.order_data || null, reason: 'already-claimed' };
       }
+      // Recorded for the audit trail only. The owner did not ask for an age or tenure gate, so these dates are not enforced.
       const accountCreatedAt = discordAccountCreatedMs(discord);
       const joinedAt = this.tenureOf ? await this.tenureOf(discord) : await guildJoinedAtMs(discord, this.env);
       const nowIso = new Date(this.now()).toISOString();
@@ -289,19 +292,23 @@ class PostgresArkShop {
         `INSERT INTO ${s}.nexus_mc_outbox (outbox_id, order_id, payload, provider) VALUES ($1,$2,$3::jsonb,'ark')`,
         [order.orderId, order.orderId, JSON.stringify({ orderId: order.orderId, source: 'ark-starter-kit', provider: 'ark' })]
       );
-      const grant = await client.query(
-        `INSERT INTO ${s}.nexus_mc_grants
-         (grant_id, kind, economic_identity_id, mc_uuid, eos_id, kit_version, order_id, status, claimed_at, provider)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'PAID',$8,'ark')
-         ON CONFLICT DO NOTHING RETURNING grant_id`,
-        [`${KIT_KIND}:${locked.econId}`, KIT_KIND, locked.econId, locked.eosIds[0], locked.eosIds[0], this.catalog.kit.version, order.orderId, nowIso]
-      );
-      if (!grant.rowCount) {
-        await client.query('ROLLBACK');
-        return { ok: true, duplicate: true, reason: 'already-claimed' };
+      const grantedEos = [];
+      for (const eosId of locked.eosIds) {
+        const grant = await client.query(
+          `INSERT INTO ${s}.nexus_mc_grants
+           (grant_id, kind, economic_identity_id, mc_uuid, eos_id, kit_version, order_id, status, claimed_at, provider)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'PAID',$8,'ark')
+           ON CONFLICT DO NOTHING RETURNING grant_id`,
+          [`${KIT_KIND}:${locked.econId}:${eosId}`, KIT_KIND, locked.econId, eosId, eosId, this.catalog.kit.version, order.orderId, nowIso]
+        );
+        if (!grant.rowCount) {
+          await client.query('ROLLBACK');
+          return { ok: true, duplicate: true, reason: 'already-claimed' };
+        }
+        grantedEos.push(eosId);
       }
       await client.query('COMMIT');
-      return { ok: true, order, grant: { kind: KIT_KIND, economicIdentityId: locked.econId, eosId: locked.eosIds[0], orderId: order.orderId } };
+      return { ok: true, order, grant: { kind: KIT_KIND, economicIdentityId: locked.econId, eosIds: grantedEos, orderId: order.orderId } };
     } catch (error) {
       try { await client.query('ROLLBACK'); } catch { /* ignore */ }
       if (error.code === '23505') return { ok: true, duplicate: true, reason: 'already-claimed' };
@@ -437,7 +444,7 @@ class PostgresArkShop {
         return { ok: false, reason: 'lease-lost' };
       }
       await client.query('COMMIT');
-      if (status === 'DELIVERY_FAILED') await this.#refundFailed(orderId);
+      if (status === 'DELIVERY_FAILED' && failureClass === 'REWARDS_ASCENDED_REJECTED') await this.#refundFailed(orderId);
       return { ok: true, order };
     } catch (error) {
       try { await client.query('ROLLBACK'); } catch { /* ignore */ }
@@ -464,13 +471,12 @@ class PostgresArkShop {
   }
 
   async refund(input = {}) {
+    if (input.staff === true) {
+      const allowed = await this.#authorizeStaff(input.actor);
+      if (!allowed.ok) return allowed;
+    }
     const ready = await this.ensureSchema();
     if (!ready.ok) return ready;
-    if (Number(input.price || 0) >= 0 && input.staff !== true && input.reason !== 'auto-14d' && input.reason !== 'delivery-failed') {
-      if (!this.flags().npShopWritesEnabled && input.writesEnabled !== true) {
-        // Checked again inside the lock. A missing flag still refuses below.
-      }
-    }
     const s = sqlIdent(this.schema);
     const client = await this.pool.connect();
     try {
@@ -572,6 +578,8 @@ class PostgresArkShop {
   }
 
   async staffResolve(input = {}) {
+    const allowed = await this.#authorizeStaff(input.actor);
+    if (!allowed.ok) return allowed;
     const action = String(input.action || '');
     if (action === 'refund') {
       return this.refund({ ...input, staff: true, reason: input.reason, actor: input.actor });
@@ -641,15 +649,13 @@ class PostgresArkShop {
   }
 
   async activity(discordUserId) {
-    const ready = await this.ensureSchema();
-    if (!ready.ok) return ready;
     const s = sqlIdent(this.schema);
     const discord = String(discordUserId || '').trim();
     const client = await this.pool.connect();
     try {
       const identity = await this.#identity(client, discord);
-      if (!identity.ok) return { ok: true, balance: 0, entries: [], orders: [], linked: false };
-      const balance = await this.#balance(client, identity.econId);
+      if (!identity.ok) return { ok: true, balance: 0, entries: [], orders: [], linked: false, reason: identity.reason };
+      const balance = await this.#readBalance(client, identity.econId);
       const ledger = await client.query(
         `SELECT amount, entry_type, source, created_at FROM ${s}.nexus_economy_ledger
          WHERE economic_identity_id = $1 AND currency = 'NEXUS_POINTS'
@@ -675,9 +681,22 @@ class PostgresArkShop {
         })),
         orders: (orders.rows || []).map((row) => row.order_data)
       };
+    } catch (error) {
+      if (error.code === '42P01') {
+        return { ok: true, balance: 0, entries: [], orders: [], linked: false, reason: 'schema-missing' };
+      }
+      throw error;
     } finally {
       client.release();
     }
+  }
+
+  async #authorizeStaff(actor) {
+    return authorizeStaffRefundActor({
+      actor,
+      env: this.env,
+      fetchImpl: this.fetchImpl || globalThis.fetch
+    });
   }
 
   async pendingOrders() {
@@ -720,7 +739,13 @@ class PostgresArkShop {
       [discordUserId]
     );
     const row = identity.rows?.[0];
-    if (!row || row.status !== 'verified') return { ok: false, reason: 'verified-identity-required' };
+    if (!row) {
+      if (await this.#minecraftLinked(client, discordUserId, '')) return { ok: false, reason: 'minecraft-only' };
+      return { ok: false, reason: 'verified-identity-required' };
+    }
+    if (row.status === 'restricted') return { ok: false, reason: 'restricted' };
+    if (row.status === 'disabled') return { ok: false, reason: 'disabled' };
+    if (row.status !== 'verified') return { ok: false, reason: 'verified-identity-required' };
     if (quarantineDenylist(this.env).has(String(row.economic_identity_id))) return { ok: false, reason: 'quarantined' };
     const eos = await client.query(
       `SELECT external_id FROM ${s}.nexus_economic_identity_links
@@ -729,8 +754,43 @@ class PostgresArkShop {
       [row.economic_identity_id]
     );
     const eosIds = (eos.rows || []).map((item) => String(item.external_id)).filter((id) => /^[A-Za-z0-9_-]{8,96}$/.test(id));
-    if (!eosIds.length) return { ok: false, reason: 'verified-eos-required' };
+    if (!eosIds.length) {
+      if (await this.#minecraftLinked(client, discordUserId, row.economic_identity_id)) return { ok: false, reason: 'minecraft-only' };
+      return { ok: false, reason: 'verified-eos-required' };
+    }
     return { ok: true, econId: row.economic_identity_id, eosIds };
+  }
+
+  async #minecraftLinked(client, discordUserId, econId) {
+    const s = sqlIdent(this.schema);
+    try {
+      const byDiscord = await client.query(
+        `SELECT 1 FROM ${s}.nexus_mc_links
+         WHERE discord_user_id = $1 AND verified_at IS NOT NULL AND unlinked_at IS NULL LIMIT 1`,
+        [discordUserId]
+      );
+      if (byDiscord.rows?.length) return true;
+      if (econId) {
+        const byIdentity = await client.query(
+          `SELECT 1 FROM ${s}.nexus_economic_identity_links
+           WHERE economic_identity_id = $1 AND provider = 'minecraft' AND verified_at IS NOT NULL LIMIT 1`,
+          [econId]
+        );
+        if (byIdentity.rows?.length) return true;
+      }
+    } catch (error) {
+      if (error.code !== '42P01') throw error;
+    }
+    return false;
+  }
+
+  async #readBalance(client, econId) {
+    const wallet = await client.query(
+      `SELECT balance FROM ${sqlIdent(this.schema)}.nexus_economy_wallets
+       WHERE economic_identity_id = $1 AND currency = 'NEXUS_POINTS'`,
+      [econId]
+    );
+    return Number(wallet.rows?.[0]?.balance || 0);
   }
 
   async #balance(client, econId) {
@@ -809,11 +869,13 @@ class PostgresArkShop {
   }
 
   async #staffCap(client, actor) {
-    const rows = await client.query(
-      `SELECT actor, created_at FROM ${sqlIdent(this.schema)}.nexus_mc_refund_audit WHERE provider = 'ark' AND actor = $1`,
-      [String(actor || '')]
-    );
+    const staffActor = String(actor || '');
     const day = ctDayKey(this.now());
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`ark-staff-refund:${staffActor}:${day}`]);
+    const rows = await client.query(
+      `SELECT actor, created_at FROM ${sqlIdent(this.schema)}.nexus_mc_refund_audit WHERE provider = 'ark' AND actor = $1 FOR UPDATE`,
+      [staffActor]
+    );
     const today = (rows.rows || []).filter((row) => ctDayKey(Date.parse(row.created_at)) === day);
     if (today.length >= STAFF_REFUND_ALERT_AT) console.warn(`[Nexus Economy] ark_staff_refund_alert actor=${actor} count=${today.length}`);
     if (today.length >= STAFF_REFUND_DAILY_CAP) return { ok: false, reason: 'staff-refund-cap' };

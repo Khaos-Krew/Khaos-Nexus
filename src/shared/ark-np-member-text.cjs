@@ -11,9 +11,14 @@ const REASONS = Object.freeze({
   'insufficient-funds': 'You do not have enough Points for that.',
   'quarantined': 'This account cannot use the shop right now. Ask a staff member.',
   'not-eligible': 'This account cannot use the shop right now. Ask a staff member.',
-  'verified-identity-required': 'Link your Discord account before you use the shop.',
-  'verified-eos-required': 'Link your ARK character before you use the shop.',
-  'already-claimed': 'The starter kit was already claimed for this account.',
+  'restricted': 'This account is restricted. Your Points stay as they are. Ask a staff member if that looks wrong.',
+  'disabled': 'This account is turned off. Ask a staff member.',
+  'minecraft-only': 'This Discord account is linked to Minecraft. ARK Points are a separate bank. Nothing was spent.',
+  'verified-identity-required': 'Run `/ark link` to connect this Discord account, then use `/points` again.',
+  'verified-eos-required': 'Run `/ark link` and finish the in-game check, then use `/points` again.',
+  'already-claimed': 'The starter kit was already claimed for this player.',
+  'staff-required': 'That command is for staff.',
+  'schema-missing': 'The bank is not ready yet. Ask a staff member. No Points were spent.',
   'unknown-item': 'That item is not in the shop.',
   'price-changed': 'The price changed. Open the shop again. No Points were spent.',
   'staff-refund-cap': 'That staff member has reached today’s refund limit.',
@@ -42,7 +47,8 @@ function orderStatusText(status) {
 
 function ledgerLineText(row = {}) {
   const amount = Number(row.amount || 0);
-  const when = row.createdAt ? String(row.createdAt).slice(0, 16).replace('T', ' ') : '';
+  const parsed = Date.parse(row.createdAt || '');
+  const when = Number.isFinite(parsed) ? `<t:${Math.floor(parsed / 1000)}:R>` : '';
   const direction = amount > 0 ? `+${amount} Points` : `${amount} Points`;
   const source = String(row.source || '');
   let label = 'Points update';

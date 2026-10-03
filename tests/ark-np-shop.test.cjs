@@ -15,19 +15,28 @@ const {
   FINANCIAL_WRITE_PATHS
 } = require('../src/economy-worker/server.cjs');
 const { arkNpFlags } = require('../src/shared/ark-np-flags.cjs');
-const { arkMemberText, orderStatusText } = require('../src/shared/ark-np-member-text.cjs');
+const { arkMemberText, orderStatusText, ledgerLineText } = require('../src/shared/ark-np-member-text.cjs');
 const { loadArkNpCatalog, EXPECTED_PRICES, NOTIONAL_POINTS } = require('../src/shared/ark-np-catalog.cjs');
 const { refundDecision, offlineBackoffMs } = require('../src/shared/ark-np-orders.cjs');
 const { deliverPreparedOrder, runDeliveryPass } = require('../src/sentinel/ark-np-delivery.cjs');
 const { PermissionFlagsBits } = require('discord.js');
-const { isArkStaff, shopCommand, pointsCommand, adminCommand } = require('../src/sentinel/ark-np-shop-ui.cjs');
+const { isArkStaff, shopCommand, pointsCommand, adminCommand, formatActivity } = require('../src/sentinel/ark-np-shop-ui.cjs');
+const { authorizeStaffRefundActor } = require('../src/economy-worker/ark-staff-auth.cjs');
+const { PostgresArkShop } = require('../src/economy-worker/ark-np-postgres.cjs');
+const { memberPointSumSql } = require('../src/shared/economy-system-accounts.cjs');
 const {
   SNAPSHOT_AT,
   hashesEqual,
   canonicalListHash,
   classifyPopulation,
   evaluateExecuteGate,
-  AMOUNT
+  dryRun,
+  execute,
+  reverseCredit,
+  grantOne,
+  legacyBankFlatEnabled,
+  AMOUNT,
+  MINT_ID
 } = require('../src/economy-worker/legacy-bank-flat.cjs');
 const { deterministicEconomicIdentityId } = require('../src/sentinel/nexus-economy-json-postgres-migration.cjs');
 
@@ -87,7 +96,21 @@ test('catalog keeps the 1:1 cache prices and leaves the weekly cache out', () =>
 test('member text says Points and hides raw errors', () => {
   const text = arkMemberText('insufficient-funds');
   assert.match(text, /Points/);
+  assert.match(arkMemberText('verified-identity-required'), /\/ark link/);
+  assert.match(arkMemberText('verified-eos-required'), /\/ark link/);
+  assert.match(arkMemberText('restricted'), /restricted/);
+  assert.doesNotMatch(arkMemberText('restricted'), /\/ark link/);
+  assert.doesNotMatch(arkMemberText('minecraft-only'), /\/ark link/);
+  assert.match(ledgerLineText({ amount: 1500, createdAt: '2026-10-01T00:00:00.000Z', source: 'legacy_bank_flat' }), /<t:\d+:R>/);
   assert.doesNotMatch(text, /\bNP\b/);
+  assert.match(formatActivity({ linked: false, reason: 'restricted' }), /restricted/);
+  assert.doesNotMatch(formatActivity({ linked: false, reason: 'minecraft-only' }), /\/ark link/);
+  assert.match(formatActivity({
+    linked: true,
+    balance: 10,
+    entries: [{ amount: 5, source: 'legacy_bank_flat', createdAt: '2026-10-01T00:00:00.000Z' }],
+    orders: []
+  }), /<t:\d+:R>/);
   const hidden = arkMemberText('relation "secret" does not exist');
   assert.equal(hidden.includes('relation'), false);
   assert.equal(hidden.includes('secret'), false);
@@ -101,7 +124,11 @@ test('guide explains spending Points on ARK', () => {
   const entry = guide.topics.find((topic) => topic.id === 'spending-points-on-ark');
   assert.equal(entry.label, 'Spending Nexus Points on ARK');
   const body = entry.details.join('\n');
-  assert.match(body, /ArkShop is gone/);
+  assert.doesNotMatch(body, /ArkShop is gone/);
+  assert.doesNotMatch(body, /use \/shop/i);
+  assert.match(body, /not open yet/);
+  assert.match(body, /once per player/);
+  assert.doesNotMatch(body, /each ARK character/);
   assert.match(body, /\/points/);
   assert.match(body, /150/);
   assert.match(body, /550/);
@@ -140,6 +167,9 @@ test('buy checks run after the advisory lock', () => {
 test('legacy flat credit does not use the shop writes flag', () => {
   const src = fs.readFileSync(path.join(__dirname, '../src/economy-worker/legacy-bank-flat.cjs'), 'utf8');
   assert.equal(src.includes('NEXUS_ECONOMY_NP_SHOP_WRITES_ENABLED'), false);
+  assert.equal(src.includes('NEXUS_ECONOMY_WRITES_ENABLED'), false);
+  assert.equal(legacyBankFlatEnabled({}), false);
+  assert.equal(legacyBankFlatEnabled({ NEXUS_LEGACY_BANK_FLAT_ENABLED: 'true' }), true);
   assert.match(src, /approved-prefix=\$\{hashPrefix/);
   assert.equal(SNAPSHOT_AT, '2026-10-03T01:14:00.000Z');
   assert.equal(AMOUNT, 1500);
@@ -353,4 +383,208 @@ test('staff command names and the owner allow-list', () => {
     memberPermissions: { has: (bit) => bit === PermissionFlagsBits.Administrator }
   }, config), true);
   assert.equal(isArkStaff({ user: { id: '1' }, memberPermissions: { has: () => false } }, config), false);
+  const adminRole = '222222222222222222';
+  assert.equal(isArkStaff({
+    user: { id: '5' },
+    memberPermissions: { has: () => false },
+    member: { roles: { cache: { keys: () => [adminRole] } } }
+  }, config, { NEXUS_STAFF_ADMIN_ROLE_IDS: adminRole }), true);
+  assert.equal(isArkStaff({
+    user: { id: '42' },
+    guild: { ownerId: '42' },
+    memberPermissions: { has: () => false }
+  }, config, {}), true);
+});
+
+test('post-snapshot identities stay out of the approval hash', () => {
+  const base = classifyPopulation([person('econ_a', { discord: '100000000000000041', eos: ['EOSPOST0001'] })]);
+  const extra = classifyPopulation([
+    person('econ_a', { discord: '100000000000000041', eos: ['EOSPOST0001'] }),
+    person('econ_late', { discord: '100000000000000042', eos: ['EOSPOST0001'], createdAt: AFTER })
+  ]);
+  assert.equal(extra.rows.find((row) => row.econId === 'econ_a').skipReason, '');
+  assert.equal(extra.rows.find((row) => row.econId === 'econ_late').skipReason, 'not_verified');
+  assert.equal(base.eligibleCount, extra.eligibleCount);
+  assert.equal(base.hash, extra.hash);
+  assert.equal(evaluateExecuteGate({
+    envHash: base.hash,
+    computedHash: extra.hash,
+    eligibleCount: extra.eligibleCount,
+    total: extra.total,
+    approvedCount: extra.eligibleCount,
+    approvedTotal: extra.total
+  }).ok, true);
+  assert.equal(evaluateExecuteGate({
+    envHash: 'aa',
+    computedHash: 'aa',
+    eligibleCount: 2,
+    total: 1500,
+    approvedCount: 2,
+    approvedTotal: 3000
+  }).reason, 'total-mismatch');
+});
+
+test('legacy dry-run does not write and a missing contra aborts', async () => {
+  const sql = [];
+  const client = {
+    async query(text) {
+      const query = String(text);
+      sql.push(query);
+      if (/\b(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|TRUNCATE)\b/i.test(query)) throw new Error(`write ${query}`);
+      if (/to_regclass/.test(query)) return { rows: [{ reg: 'present' }] };
+      return { rows: [] };
+    },
+    release() {}
+  };
+  const pool = { async connect() { return client; } };
+  const preview = await dryRun({ pool, schema: 'public', operator: 'reader' });
+  assert.equal(preview.ok, true);
+  assert.equal(preview.eligibleCount, 0);
+  assert.equal(sql.some((query) => /\b(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/i.test(query)), false);
+  const missing = await dryRun({
+    pool: {
+      async connect() {
+        return {
+          async query(text) {
+            if (/to_regclass/.test(String(text))) return { rows: [{ reg: null }] };
+            if (/\b(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/i.test(String(text))) throw new Error('write');
+            return { rows: [] };
+          },
+          release() {}
+        };
+      }
+    },
+    operator: 'reader'
+  });
+  assert.equal(missing.reason, 'schema-missing');
+  let wrote = false;
+  await assert.rejects(grantOne({
+    async connect() {
+      return {
+        async query(text) {
+          const query = String(text);
+          if (/\bCOMMIT\b/.test(query)) wrote = true;
+          if (/SELECT status/.test(query)) return { rows: [{ status: 'verified' }] };
+          if (/legacy_bank_flat_contra/.test(query)) return { rowCount: 0, rows: [] };
+          if (/INSERT INTO/.test(query) && /nexus_economy_ledger/.test(query)) return { rowCount: 1, rows: [{ id: 1 }] };
+          if (/SELECT balance/.test(query)) return { rows: [{ balance: 0 }] };
+          return { rowCount: 1, rows: [] };
+        },
+        release() {}
+      };
+    }
+  }, 'public', { econId: 'econ_x', eosIds: ['EOSXXXX0001'], amount: 1500, skipReason: '' }, {
+    env: {},
+    operator: 'op',
+    host: 'host',
+    sha: 'abc',
+    batchName: 'legacy-bank-flat-2026-10',
+    approvalRef: 'ref',
+    listHash: 'hash',
+    denylistHash: 'deny'
+  }), /contra-insert-missing/);
+  assert.equal(wrote, false);
+  const disabled = await execute({
+    pool: { async query() { throw new Error('called'); }, async connect() { throw new Error('called'); } },
+    operator: 'op',
+    approvalRef: 'ref',
+    approvedCount: 0,
+    approvedTotal: 0,
+    env: {}
+  });
+  assert.equal(disabled.reason, 'legacy-bank-flat-disabled');
+  const reversed = await reverseCredit({
+    pool: { async query() { throw new Error('called'); }, async connect() { throw new Error('called'); } },
+    econId: 'econ_x',
+    operator: 'op',
+    confirm: true,
+    env: {}
+  });
+  assert.equal(reversed.reason, 'legacy-bank-flat-disabled');
+  assert.equal(MINT_ID.startsWith('system:mint:'), true);
+  assert.match(memberPointSumSql('public'), /NOT LIKE 'system:%'/);
+  assert.match(fs.readFileSync(path.join(__dirname, '../docs/ops/LEGACY_BANK_FLAT.md'), 'utf8'), /incomplete marker/);
+  const plan = fs.readFileSync(path.join(__dirname, '../docs/architecture/ARK_NP_SHOP_REBUILD_PLAN_2026-10-02.md'), 'utf8');
+  assert.match(plan, /−1500 × grants/);
+  assert.equal((plan.match(/−1500 × grants/g) || []).length >= 2, true);
+});
+
+test('points reads do not create schema and staff refund actors are checked on the server', async () => {
+  const sql = [];
+  const shop = new PostgresArkShop({
+    pool: {
+      async connect() {
+        return {
+          async query(text) {
+            const query = String(text);
+            sql.push(query);
+            if (/\b(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/i.test(query)) throw new Error(`write ${query}`);
+            return { rows: [] };
+          },
+          release() {}
+        };
+      }
+    },
+    env: {}
+  });
+  const activity = await shop.activity('100000000000000099');
+  assert.equal(activity.linked, false);
+  assert.equal(sql.some((query) => /\b(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/i.test(query)), false);
+  const blocked = await shop.refund({ staff: true, actor: '100000000000000077', orderId: 'order', reason: 'check', administrator: true });
+  assert.equal(blocked.reason, 'staff-required');
+  const actor = '333333333333333333';
+  const adminRole = '222222222222222222';
+  const env = {
+    NEXUS_DISCORD_GUILD_ID: '444444444444444444',
+    NEXUS_SENTINAL_DISCORD_TOKEN: 'token',
+    NEXUS_STAFF_ADMIN_ROLE_IDS: adminRole
+  };
+  function discordFetch({ owner = '9', memberRoles = [], permissions = {} }) {
+    return async (url) => {
+      if (String(url).includes('/members/')) return { ok: true, json: async () => ({ roles: memberRoles }) };
+      if (String(url).endsWith('/roles')) {
+        return { ok: true, json: async () => memberRoles.map((id) => ({ id, permissions: String(permissions[id] || 0) })) };
+      }
+      return { ok: true, json: async () => ({ owner_id: owner }) };
+    };
+  }
+  const allowed = await authorizeStaffRefundActor({
+    actor,
+    env,
+    fetchImpl: discordFetch({ memberRoles: [adminRole] })
+  });
+  assert.equal(allowed.ok, true);
+  const denied = await authorizeStaffRefundActor({
+    actor,
+    env,
+    fetchImpl: discordFetch({ memberRoles: ['555555555555555555'] }),
+    administrator: true,
+    roleIds: [adminRole]
+  });
+  assert.equal(denied.reason, 'staff-required');
+  const administrator = await authorizeStaffRefundActor({
+    actor,
+    env: { ...env, NEXUS_STAFF_ADMIN_ROLE_IDS: '' },
+    fetchImpl: discordFetch({ memberRoles: ['555555555555555555'], permissions: { '555555555555555555': 8 } })
+  });
+  assert.equal(administrator.ok, true);
+  const owner = await authorizeStaffRefundActor({
+    actor,
+    env: { NEXUS_DISCORD_GUILD_ID: env.NEXUS_DISCORD_GUILD_ID, NEXUS_SENTINAL_DISCORD_TOKEN: 'token' },
+    fetchImpl: discordFetch({ owner: actor, memberRoles: [] })
+  });
+  assert.equal(owner.ok, true);
+  const offline = await authorizeStaffRefundActor({
+    actor,
+    env: { NEXUS_DISCORD_GUILD_ID: env.NEXUS_DISCORD_GUILD_ID },
+    fetchImpl: async () => { throw new Error('should not fetch'); }
+  });
+  assert.equal(offline.reason, 'staff-required');
+  const shopSource = fs.readFileSync(path.join(__dirname, '../src/economy-worker/ark-np-postgres.cjs'), 'utf8');
+  const activitySource = shopSource.slice(shopSource.indexOf('async activity('), shopSource.indexOf('async #authorizeStaff('));
+  assert.equal(activitySource.includes('ensureSchema'), false);
+  const refundSource = shopSource.slice(shopSource.indexOf('async refund('), shopSource.indexOf('async sweepRefunds('));
+  assert.equal(refundSource.includes('Checked again inside the lock'), false);
+  assert.match(refundSource, /#authorizeStaff/);
+  assert.match(shopSource, /ark-staff-refund:/);
 });

@@ -52,6 +52,8 @@ test('Railway Sentinal image is built from package-lock.json with npm ci', { ski
   assert.match(dockerfile, /COPY Dockerfile\.craft \.\/Dockerfile\.craft/);
   assert.match(dockerfile, /COPY docs\/ops\/NEXUS_CRAFT\.md \.\/docs\/ops\/NEXUS_CRAFT\.md/);
   assert.match(dockerfile, /COPY docs\/architecture\/MC_POINTS_OWNER_DECISIONS_2026-10-01\.md \.\/docs\/architecture\/MC_POINTS_OWNER_DECISIONS_2026-10-01\.md/);
+  assert.match(dockerfile, /COPY docs\/architecture\/ARK_NP_SHOP_REBUILD_PLAN_2026-10-02\.md \.\/docs\/architecture\/ARK_NP_SHOP_REBUILD_PLAN_2026-10-02\.md/);
+  assert.match(dockerfile, /COPY docs\/ops\/LEGACY_BANK_FLAT\.md \.\/docs\/ops\/LEGACY_BANK_FLAT\.md/);
   assert.match(dockerfile, /COPY docs\/WINDOWS_RELEASE_VALIDATION\.md \.\/docs\/WINDOWS_RELEASE_VALIDATION\.md/);
 });
 
@@ -60,6 +62,8 @@ test('Railway Sentinel image copies docs that npm test reads', {
 }, () => {
   const dockerfile = read('Dockerfile.sentinel');
   assert.match(dockerfile, /COPY docs\/architecture\/MC_POINTS_OWNER_DECISIONS_2026-10-01\.md \.\/docs\/architecture\/MC_POINTS_OWNER_DECISIONS_2026-10-01\.md/);
+  assert.match(dockerfile, /COPY docs\/architecture\/ARK_NP_SHOP_REBUILD_PLAN_2026-10-02\.md \.\/docs\/architecture\/ARK_NP_SHOP_REBUILD_PLAN_2026-10-02\.md/);
+  assert.match(dockerfile, /COPY docs\/ops\/LEGACY_BANK_FLAT\.md \.\/docs\/ops\/LEGACY_BANK_FLAT\.md/);
   assert.match(dockerfile, /COPY docs\/WINDOWS_RELEASE_VALIDATION\.md \.\/docs\/WINDOWS_RELEASE_VALIDATION\.md/);
   assert.match(dockerfile, /npm test/);
 });
