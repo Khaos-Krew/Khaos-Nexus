@@ -180,6 +180,15 @@ async function arkShopFeaturesUnavailableMessage(options) {
   return arkShopFeaturesUnavailableMessageFrom(await arkShopMemberFeatureStatus(options));
 }
 
+async function arkShopFeaturesAreOpen(options) {
+  try {
+    const status = await arkShopMemberFeatureStatus(options);
+    return status?.ok === true;
+  } catch {
+    return false;
+  }
+}
+
 function memberFeatureUnavailableMessage(error) {
   const code = String(error?.code || '');
   if (code === 'ARKSHOP_RETIRED' || code === 'CLUSTER_ECONOMY_NOT_READY' || code === 'ARKSHOP_MYSQL_RETIRED' || code === 'ARKSHOP_PLUGIN_DISABLED') {
@@ -222,6 +231,7 @@ module.exports = {
   arkShopMemberFeatureStatus,
   arkShopFeaturesUnavailableMessageFrom,
   arkShopFeaturesUnavailableMessage,
+  arkShopFeaturesAreOpen,
   memberFeatureUnavailableMessage,
   memberActionFallback,
   installArkShopClusterEconomyGuard

@@ -36,7 +36,8 @@ test('every Dino Box cache panel has exactly Buy and Redeem Token buttons', () =
     assert.match(row.components[1].custom_id, new RegExp(`^${TOKEN_PREFIX}`));
     assert.equal(row.components[1].label, 'Redeem Token');
     const text = JSON.stringify(payload.embeds[0]);
-    assert.match(text, /ArkShop Points/);
+    assert.match(text, /Points/);
+    assert.doesNotMatch(text, /ArkShop Points|ARN redemption disabled/);
     assert.doesNotMatch(text, /shiny/i);
   }
 });

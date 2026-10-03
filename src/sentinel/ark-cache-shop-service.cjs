@@ -165,6 +165,8 @@ class ArkCacheShopService {
   }
   async refreshWeekly() {
     if (isRetired()) return { skipped: 'arkshop-mysql-retired' };
+    const economy = await this.economyStatus();
+    if (economy?.ok !== true) return { skipped: 'arkshop-mysql-retired' };
     const { connection } = await this.openConnection();
     try { await arn.ensureArnSchema(connection); setArnPolicy(await arn.settings(connection)); return await loadWeekly(connection, this.rngSecret); }
     finally { await connection.end().catch(()=>{}); }

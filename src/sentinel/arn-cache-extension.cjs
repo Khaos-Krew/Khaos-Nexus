@@ -2,7 +2,7 @@
 const {Client,Events,MessageFlags,SlashCommandBuilder}=require('discord.js');
 const {ArnTokenLedger}=require('./arn-token-ledger.cjs');
 const {isRetired}=require('./arkshop-mysql.cjs');
-const {ARKSHOP_FEATURES_OFF_MESSAGE, memberFeatureUnavailableMessage}=require('./arkshop-cluster-economy-guard.cjs');
+const {ARKSHOP_FEATURES_OFF_MESSAGE, memberFeatureUnavailableMessage, arkShopFeaturesAreOpen}=require('./arkshop-cluster-economy-guard.cjs');
 const {ArkCacheShopService}=require('./ark-cache-shop-service.cjs');
 const {ProtocolStore}=require('./protocol/store.cjs');
 const {isStaff}=require('./ark-ops-extension.cjs');
@@ -48,10 +48,10 @@ async function handle(interaction,{ledger,shop,config}) {
   return {content:`**${view.balance} ARN Tokens**\n${view.settings.enabled?`5% chance to earn 1 token per qualified completed Anomaly activity. Cache cost: 1 ARN Token.`:'Earning and redemption are disabled. Configured: 5% chance of 1 token; 1 token per cache.'}`};
 }
 function arnMemberErrorContent(error) {
-  const plain = memberFeatureUnavailableMessage(error);
-  if (plain) return plain;
-  if (String(error?.message || '') === 'ArkShop MySQL is retired.') return ARKSHOP_FEATURES_OFF_MESSAGE;
-  return `ARN: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 400)}`;
+  const detail = String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 500);
+  const code = String(error?.code || '');
+  console.error(`[arn-tokens] ${code ? `code=${code} ` : ''}${detail}`);
+  return memberFeatureUnavailableMessage(error) || ARKSHOP_FEATURES_OFF_MESSAGE;
 }
 function installArnCacheExtension({config=loadConfig(),ledger=new ArnTokenLedger(),shop=new ArkCacheShopService()}={}) {
   if(Client.prototype[INSTALLED])return;
@@ -69,10 +69,10 @@ function installArnCacheExtension({config=loadConfig(),ledger=new ArnTokenLedger
           const existing=registered.find(c=>c.name===definition.name);
           if(existing)await guild.commands.edit(existing.id,definition);else await guild.commands.create(definition);
         }
-        if(!mysqlRetired){
+        if(!mysqlRetired && await arkShopFeaturesAreOpen()){
           const sync=()=>ledger.syncParticipation(new ProtocolStore()).catch(e=>console.error('[arn-tokens]',e.message));
           await sync(); const timer=setInterval(sync,30000);timer.unref?.();
-        }
+        } else if(!mysqlRetired) console.log('[arn-tokens] ArkShop cluster economy is retired; participation sync skipped.');
       }catch(e){console.error('[arn-tokens]',e.message);}
     });
     client.on(Events.InteractionCreate,interaction=>{

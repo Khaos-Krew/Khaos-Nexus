@@ -56,13 +56,13 @@ function meta(cacheId) {
   return { ...legacyMeta(cacheId), disclaimer: cache?.disclaimer || '' };
 }
 
-function cachePrice(cache) { return cache.currency === 'ARN_TOKENS' ? (cache.enabled ? `${cache.price} ARN Tokens` : 'ARN redemption disabled') : arkShopPoints(cache.price); }
+function cachePrice(cache) { return cache.currency === 'ARN_TOKENS' ? (cache.enabled ? `${cache.price} Tokens` : 'Redemption is turned off') : arkShopPoints(cache.price); }
 function retireControl(component) {
   if (isRetired()) component.setDisabled(true);
   return component;
 }
 
-function arkShopPoints(value) { return `${Math.max(0, Number(value) || 0).toLocaleString('en-US')} ArkShop Points`; }
+function arkShopPoints(value) { return `${Math.max(0, Number(value) || 0).toLocaleString('en-US')} Points`; }
 function cooldownLabel(cache) {
   const minutes = Math.max(0, Number(cache?.cooldownMinutes || 0));
   if (!minutes) return 'None';
@@ -97,7 +97,7 @@ function cachePanelPayload(cacheId) {
   return {
     embeds: [{
       title: `${m.emoji} ${m.name}`,
-      description: `${m.tagline}\n\nChoose **Buy** to spend ArkShop Points or **Redeem Token** to open this box with a single-use Nexus token.`,
+      description: `${m.tagline}\n\nChoose **Buy** to spend Points or **Redeem Token** to open this box with a single-use Nexus token.`,
       color: 0xb00020,
       fields: [
         ...disclaimerFields,
@@ -108,7 +108,7 @@ function cachePanelPayload(cacheId) {
         { name: '🧬 Variant Odds', value: `${variantTable(cache)}\nVariants are re-normalized when a species does not support X or S.`, inline: false },
         { name: '📈 Level Odds', value: levelTable(), inline: false },
         { name: '⚥ Sex', value: 'Male **50%** • Female **50%**', inline: true },
-        { name: '📦 Delivery', value: 'Your result is locked before the reveal and queued for delivery to your linked ARK account. The **5-minute cooldown applies to both ArkShop purchases and token redemptions** for this box. Token redemption charges **0 ArkShop Points**.', inline: false }
+        { name: '📦 Delivery', value: 'Your result is locked before the reveal and queued for delivery to your linked ARK account. The **5-minute cooldown applies to both purchases and token redemptions** for this box. Token redemption charges **0 Points**.', inline: false }
       ].slice(0, 25),
       footer: { text: `${LEGACY_PANEL_MARKER}${cacheId}` }
     }],
@@ -151,7 +151,7 @@ function hubHomePayload() {
       description: 'Choose a cache from the dropdown below. **This one message is the entire public cache shop**—switching caches replaces the information here instead of filling the channel with separate panels.',
       color: 0xb00020,
       fields: [
-        { name: '🎲 How Dino Caches Work', value: '**1. Purchase** with ArkShop Points or redeem an eligible Nexus token.\n**2. Sentinel rolls the complete reward immediately** and permanently stores the species, valid Normal/X/S variant, level, and sex.\n**3. The reward stays 🔒 SEALED.** Nothing is shown and nothing is delivered yet.\n**4. Press Reveal Now** when you are ready. Reveal reads the stored reward—it never rerolls.\n**5. After reveal**, that exact saved tame becomes eligible for ARK delivery.', inline: false },
+        { name: '🎲 How Dino Caches Work', value: '**1. Purchase** with Points or redeem an eligible Nexus token.\n**2. Sentinel rolls the complete reward immediately** and permanently stores the species, valid Normal/X/S variant, level, and sex.\n**3. The reward stays 🔒 SEALED.** Nothing is shown and nothing is delivered yet.\n**4. Press Reveal Now** when you are ready. Reveal reads the stored reward—it never rerolls.\n**5. After reveal**, that exact saved tame becomes eligible for ARK delivery.', inline: false },
         { name: '🧬 Reward Rules', value: '• ARK: Survival Ascended creatures only\n• Normal / X / S only where that species has an approved safe form\n• Level **200–300**\n• Male / Female where applicable\n• Shiny outcomes are not part of Dino Caches', inline: false },
         { name: '📣 Public Reveals', value: 'When a cache is revealed, Sentinel posts the result to **Cluster Chat**. **AAT** handles the Discord ↔ ARK cross-chat mirror so players in-game can see the pull too.', inline: false },
         { name: '🔒 Reveal Later', value: 'Close the reveal or choose **Reveal Later** and the reward remains sealed. Use **My Sealed Caches** here at any time to reopen it.', inline: false }
@@ -243,7 +243,7 @@ function sealedResultPayload(order, balance = null, source = 'ArkShop Points') {
     { name: 'Opened With', value: source, inline: true },
     { name: 'Status', value: '🔒 **SEALED**\nYour exact reward has already been rolled and permanently stored. No creature details are shown until you choose **Reveal Now**.', inline: false }
   ];
-  if (Number.isFinite(balance)) fields.push({ name: source === 'ARN Tokens' ? 'Remaining ARN Tokens' : 'Remaining ArkShop Points', value: source === 'ARN Tokens' ? `${balance} ARN Tokens` : arkShopPoints(balance), inline: false });
+  if (Number.isFinite(balance)) fields.push({ name: source === 'ARN Tokens' ? 'Remaining Tokens' : 'Remaining Points', value: source === 'ARN Tokens' ? `${balance} Tokens` : arkShopPoints(balance), inline: false });
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`${REVEAL_PREFIX}${order.id}`).setLabel('Reveal Now').setEmoji('🎁').setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId(REVEAL_LATER_ID).setLabel('Reveal Later').setEmoji('🔒').setStyle(ButtonStyle.Secondary)
@@ -273,7 +273,7 @@ function finalResultPayload(order, balance = null, source = '') {
     ...(source ? [{ name: 'Opened With', value: source, inline: true }] : []),
     { name: 'Status', value: 'Awaiting ARK delivery. This is the stored roll, not a new one.', inline: false }
   ];
-  if (Number.isFinite(balance)) fields.push({ name: source === 'ARN Tokens' ? 'Remaining ARN Tokens' : 'Remaining ArkShop Points', value: source === 'ARN Tokens' ? `${balance} ARN Tokens` : arkShopPoints(balance), inline: false });
+  if (Number.isFinite(balance)) fields.push({ name: source === 'ARN Tokens' ? 'Remaining Tokens' : 'Remaining Points', value: source === 'ARN Tokens' ? `${balance} Tokens` : arkShopPoints(balance), inline: false });
   return { embeds: [{ title: `✨ ${m.name} • Revealed`, description: `**${order.species}**\nLevel **${order.level}** • **${variant}** • **${titleCase(order.sex)}**`, color: 0xb00020, fields, footer: { text: 'Stored result revealed • no rerolls • exact reward queued for ARK delivery' } }], components: [], allowedMentions: { parse: [] } };
 }
 
@@ -344,7 +344,7 @@ function installArkDinoBoxShopExtension(options = {}) {
             const rotate = async () => {
               if (isRetired()) return;
               const rotation = await purchaseService.refreshWeekly();
-              if (rotation?.skipped === 'arkshop-mysql-retired' || rotation?.announcedAt) return;
+              if (rotation?.skipped || rotation?.announcedAt) return;
               const opened = await purchaseService.connector();
               if (opened?.retired || !opened?.connection) return;
               const { connection } = opened;
@@ -414,8 +414,8 @@ function installArkDinoBoxShopExtension(options = {}) {
             const [cacheId, rotationId] = id.slice(BUY_PREFIX.length).toLowerCase().split(':');
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             const result = await purchaseService.purchase({ discordUserId: userId, cacheId, rotationId, purchaseNonce: String(interaction.id) });
-            if (result.order.state !== 'SEALED') return interaction.editReply(finalResultPayload(result.order, result.balance, cacheId === 'arn' ? 'ARN Tokens' : 'ArkShop Points'));
-            return interaction.editReply(sealedResultPayload(result.order, result.balance, cacheId === 'arn' ? 'ARN Tokens' : 'ArkShop Points'));
+            if (result.order.state !== 'SEALED') return interaction.editReply(finalResultPayload(result.order, result.balance, cacheId === 'arn' ? 'ARN Tokens' : 'Points'));
+            return interaction.editReply(sealedResultPayload(result.order, result.balance, cacheId === 'arn' ? 'ARN Tokens' : 'Points'));
           }
           if (isTokenSubmit) {
             const cacheId = id.slice(TOKEN_MODAL_PREFIX.length).toLowerCase();
