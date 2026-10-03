@@ -30,6 +30,8 @@ const {
   canonicalListHash,
   classifyPopulation,
   evaluateExecuteGate,
+  MAX_LEGACY_FLAT_GRANTS,
+  ensureBatchSchema,
   dryRun,
   execute,
   reverseCredit,
@@ -101,6 +103,8 @@ test('member text says Points and hides raw errors', () => {
   assert.match(arkMemberText('restricted'), /restricted/);
   assert.doesNotMatch(arkMemberText('restricted'), /\/ark link/);
   assert.doesNotMatch(arkMemberText('minecraft-only'), /\/ark link/);
+  assert.match(arkMemberText('minecraft-only'), /one Points wallet/);
+  assert.doesNotMatch(arkMemberText('minecraft-only'), /separate bank/);
   assert.match(ledgerLineText({ amount: 1500, createdAt: '2026-10-01T00:00:00.000Z', source: 'legacy_bank_flat' }), /<t:\d+:R>/);
   assert.doesNotMatch(text, /\bNP\b/);
   assert.match(formatActivity({ linked: false, reason: 'restricted' }), /restricted/);
@@ -394,6 +398,17 @@ test('staff command names and the owner allow-list', () => {
     guild: { ownerId: '42' },
     memberPermissions: { has: () => false }
   }, config, {}), true);
+  const guildId = '444444444444444444';
+  const cache = new Map([
+    [guildId, { id: guildId, name: '@everyone', managed: false }],
+    [adminRole, { id: adminRole, name: 'Bot', managed: true }]
+  ]);
+  assert.equal(isArkStaff({
+    user: { id: '5' },
+    guild: { id: guildId },
+    memberPermissions: { has: () => false },
+    member: { roles: { cache } }
+  }, config, { NEXUS_STAFF_ADMIN_ROLE_IDS: `${adminRole},${guildId}` }), false);
 });
 
 test('post-snapshot identities stay out of the approval hash', () => {
@@ -422,6 +437,83 @@ test('post-snapshot identities stay out of the approval hash', () => {
     approvedCount: 2,
     approvedTotal: 3000
   }).reason, 'total-mismatch');
+  assert.equal(evaluateExecuteGate({
+    envHash: 'aa',
+    computedHash: 'aa',
+    eligibleCount: MAX_LEGACY_FLAT_GRANTS + 1,
+    total: (MAX_LEGACY_FLAT_GRANTS + 1) * AMOUNT,
+    approvedCount: MAX_LEGACY_FLAT_GRANTS + 1,
+    approvedTotal: (MAX_LEGACY_FLAT_GRANTS + 1) * AMOUNT
+  }).reason, 'hard-cap');
+  assert.equal(evaluateExecuteGate({
+    envHash: 'aa',
+    computedHash: 'aa',
+    eligibleCount: 1,
+    total: AMOUNT,
+    approvedCount: MAX_LEGACY_FLAT_GRANTS + 1,
+    approvedTotal: AMOUNT
+  }).reason, 'hard-cap');
+});
+
+test('mint balance migration is locked, idempotent, and absent when the flag is off', async () => {
+  await assert.rejects(
+    () => ensureBatchSchema({ async connect() { throw new Error('should not connect'); } }, 'public', {}),
+    /legacy-bank-flat-disabled/
+  );
+  const strict = [
+    { conname: 'nexus_economic_identities_status_check', relname: 'nexus_economic_identities', def: "CHECK (status IN ('verified', 'restricted', 'disabled'))" },
+    { conname: 'nexus_economy_wallets_balance_check', relname: 'nexus_economy_wallets', def: 'CHECK (balance >= 0)' },
+    { conname: 'nexus_economy_ledger_balance_after_check', relname: 'nexus_economy_ledger', def: 'CHECK (balance_after >= 0)' }
+  ];
+  async function run(rows) {
+    const sql = [];
+    const client = {
+      async query(text) {
+        sql.push(String(text));
+        if (String(text).includes('pg_constraint')) return { rows };
+        return { rowCount: 1, rows: [] };
+      },
+      release() {}
+    };
+    await ensureBatchSchema({ async connect() { return client; } }, 'public', { NEXUS_LEGACY_BANK_FLAT_ENABLED: 'true' });
+    return sql.join('\n');
+  }
+  const migrated = await run(strict);
+  assert.match(migrated, /BEGIN/);
+  assert.match(migrated, /lock_timeout = '5s'/);
+  assert.ok(migrated.indexOf('lock_timeout') < migrated.indexOf('CREATE TABLE'));
+  assert.match(migrated, /pg_advisory_xact_lock/);
+  assert.match(migrated, /DROP CONSTRAINT IF EXISTS/);
+  assert.match(migrated, /NOT VALID/);
+  assert.match(migrated, /VALIDATE CONSTRAINT/);
+  assert.match(migrated, /COMMIT/);
+  const again = await run(strict.map((row) => ({
+    ...row,
+    def: row.relname === 'nexus_economic_identities'
+      ? "CHECK (status IN ('verified', 'restricted', 'disabled', 'system'))"
+      : `${row.def.slice(0, -1)} OR economic_identity_id LIKE 'system:mint:%')`
+  })));
+  assert.doesNotMatch(again, /ALTER TABLE/);
+  let rolledBack = false;
+  await assert.rejects(async () => {
+    await ensureBatchSchema({
+      async connect() {
+        return {
+          async query(text) {
+            if (String(text) === 'ROLLBACK') rolledBack = true;
+            if (/pg_advisory_xact_lock/.test(String(text))) {
+              const error = new Error('canceling statement due to lock timeout');
+              error.code = '55P03';
+              throw error;
+            }
+            return { rows: [] };
+          },
+          release() {}
+        };
+      }
+    }, 'public', { NEXUS_LEGACY_BANK_FLAT_ENABLED: 'true' });
+  }, (error) => error.code === 'lock-timeout');
+  assert.equal(rolledBack, true);
 });
 
 test('legacy dry-run does not write and a missing contra aborts', async () => {
@@ -539,11 +631,14 @@ test('points reads do not create schema and staff refund actors are checked on t
     NEXUS_SENTINAL_DISCORD_TOKEN: 'token',
     NEXUS_STAFF_ADMIN_ROLE_IDS: adminRole
   };
-  function discordFetch({ owner = '9', memberRoles = [], permissions = {} }) {
+  function discordFetch({ owner = '9', memberRoles = [], permissions = {}, managed = {} }) {
     return async (url) => {
       if (String(url).includes('/members/')) return { ok: true, json: async () => ({ roles: memberRoles }) };
       if (String(url).endsWith('/roles')) {
-        return { ok: true, json: async () => memberRoles.map((id) => ({ id, permissions: String(permissions[id] || 0) })) };
+        return {
+          ok: true,
+          json: async () => memberRoles.map((id) => ({ id, permissions: String(permissions[id] || 0), managed: managed[id] === true }))
+        };
       }
       return { ok: true, json: async () => ({ owner_id: owner }) };
     };
@@ -580,6 +675,18 @@ test('points reads do not create schema and staff refund actors are checked on t
     fetchImpl: async () => { throw new Error('should not fetch'); }
   });
   assert.equal(offline.reason, 'staff-required');
+  const managedRole = await authorizeStaffRefundActor({
+    actor,
+    env,
+    fetchImpl: discordFetch({ memberRoles: [adminRole, env.NEXUS_DISCORD_GUILD_ID], managed: { [adminRole]: true } })
+  });
+  assert.equal(managedRole.reason, 'staff-required');
+  const everyone = await authorizeStaffRefundActor({
+    actor,
+    env: { ...env, NEXUS_STAFF_ADMIN_ROLE_IDS: env.NEXUS_DISCORD_GUILD_ID },
+    fetchImpl: discordFetch({ memberRoles: [env.NEXUS_DISCORD_GUILD_ID] })
+  });
+  assert.equal(everyone.reason, 'staff-required');
   const shopSource = fs.readFileSync(path.join(__dirname, '../src/economy-worker/ark-np-postgres.cjs'), 'utf8');
   const activitySource = shopSource.slice(shopSource.indexOf('async activity('), shopSource.indexOf('async #authorizeStaff('));
   assert.equal(activitySource.includes('ensureSchema'), false);
@@ -587,4 +694,35 @@ test('points reads do not create schema and staff refund actors are checked on t
   assert.equal(refundSource.includes('Checked again inside the lock'), false);
   assert.match(refundSource, /#authorizeStaff/);
   assert.match(shopSource, /ark-staff-refund:/);
+  const capSource = shopSource.slice(shopSource.indexOf('async #staffCap'));
+  assert.match(capSource, /now\(\) AT TIME ZONE 'America\/Chicago'/);
+  assert.doesNotMatch(capSource, /this\.now\(\)/);
+  const shared = new PostgresArkShop({
+    pool: {
+      async connect() {
+        return {
+          async query(text) {
+            const query = String(text);
+            if (/nexus_mc_orders|nexus_mc_links/.test(query)) {
+              const error = new Error('relation does not exist');
+              error.code = '42P01';
+              throw error;
+            }
+            if (/nexus_economic_identities/.test(query)) return { rows: [{ economic_identity_id: 'econ_shared', status: 'verified' }] };
+            if (/provider = 'eos'/.test(query)) return { rows: [{ external_id: 'EOSSHARED01' }] };
+            if (/nexus_economy_wallets/.test(query)) return { rows: [{ balance: 1500 }] };
+            if (/nexus_economy_ledger/.test(query)) return { rows: [] };
+            return { rows: [] };
+          },
+          release() {}
+        };
+      }
+    },
+    env: {}
+  });
+  const points = await shared.activity('100000000000000099');
+  assert.equal(points.linked, true);
+  assert.equal(points.balance, 1500);
+  assert.deepEqual(points.orders, []);
+  assert.notEqual(points.reason, 'schema-missing');
 });

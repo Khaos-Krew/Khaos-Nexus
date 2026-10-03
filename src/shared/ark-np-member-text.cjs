@@ -13,7 +13,7 @@ const REASONS = Object.freeze({
   'not-eligible': 'This account cannot use the shop right now. Ask a staff member.',
   'restricted': 'This account is restricted. Your Points stay as they are. Ask a staff member if that looks wrong.',
   'disabled': 'This account is turned off. Ask a staff member.',
-  'minecraft-only': 'This Discord account is linked to Minecraft. ARK Points are a separate bank. Nothing was spent.',
+  'minecraft-only': 'This Discord account is linked to Minecraft. Minecraft and ARK share one Points wallet. Nothing was spent.',
   'verified-identity-required': 'Run `/ark link` to connect this Discord account, then use `/points` again.',
   'verified-eos-required': 'Run `/ark link` and finish the in-game check, then use `/points` again.',
   'already-claimed': 'The starter kit was already claimed for this player.',

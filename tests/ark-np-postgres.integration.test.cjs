@@ -9,6 +9,7 @@ const { PostgresArkShop } = require('../src/economy-worker/ark-np-postgres.cjs')
 const {
   dryRun,
   execute,
+  ensureBatchSchema,
   reverseCredit,
   reconcile,
   SNAPSHOT_AT,
@@ -446,6 +447,62 @@ test('starter kit records every linked EOS so a relink cannot claim a second kit
     assert.equal(again.reason, 'already-claimed');
     const count = await pool.query(`SELECT COUNT(*)::int AS n FROM "${opened.schema}".nexus_mc_grants`);
     assert.equal(count.rows[0].n, 2);
+    await assert.rejects(
+      () => pool.query(
+        `INSERT INTO "${opened.schema}".nexus_mc_grants
+         (grant_id, kind, economic_identity_id, mc_uuid, eos_id, kit_version, order_id, status, provider, kit_anchor)
+         VALUES ('second-anchor', 'ark_starter_kit', 'econ_multi', 'EOSE3000003', 'EOSE3000003', '1', 'order-extra', 'PAID', 'ark', TRUE)`
+      ),
+      (error) => error.code === '23505'
+    );
+    await assert.rejects(
+      () => pool.query(
+        `INSERT INTO "${opened.schema}".nexus_mc_grants
+         (grant_id, kind, economic_identity_id, mc_uuid, eos_id, kit_version, order_id, status, provider, kit_anchor)
+         VALUES ('second-eos', 'ark_starter_kit', 'econ_relink', 'EOSE2000002', 'EOSE2000002', '1', 'order-eos', 'PAID', 'ark', FALSE)`
+      ),
+      (error) => error.code === '23505'
+    );
+    const still = await pool.query(`SELECT COUNT(*)::int AS n FROM "${opened.schema}".nexus_mc_grants`);
+    assert.equal(still.rows[0].n, 2);
+  } finally {
+    await closeRuntime(opened);
+  }
+});
+
+test('boot leaves member balance checks strict and four migrations serialize', { skip }, async () => {
+  const opened = await openRuntime('mint4');
+  try {
+    const checks = () => opened.admin.query(
+      `SELECT r.relname, pg_get_constraintdef(c.oid) AS def
+       FROM pg_constraint c
+       JOIN pg_class r ON r.oid = c.conrelid
+       JOIN pg_namespace n ON n.oid = r.relnamespace
+       WHERE n.nspname = $1 AND c.contype = 'c'
+         AND r.relname IN ('nexus_economic_identities', 'nexus_economy_wallets', 'nexus_economy_ledger')`,
+      [opened.schema]
+    );
+    const before = await checks();
+    assert.equal(before.rows.some((row) => /system:mint/.test(row.def)), false);
+    const mc = await opened.admin.query('SELECT to_regclass($1) AS name', [`${opened.schema}.nexus_mc_grants`]);
+    assert.equal(mc.rows[0].name, null);
+    await Promise.all([0, 1, 2, 3].map(() => ensureBatchSchema(opened.runtime.pool, opened.schema, opened.env)));
+    const after = await checks();
+    const wallet = after.rows.filter((row) => row.relname === 'nexus_economy_wallets' && /system:mint:%/.test(row.def));
+    const ledger = after.rows.filter((row) => row.relname === 'nexus_economy_ledger' && /system:mint:%/.test(row.def));
+    assert.equal(wallet.length, 1);
+    assert.equal(ledger.length, 1);
+    await opened.runtime.pool.query(
+      `INSERT INTO "${opened.schema}".nexus_economic_identities (economic_identity_id, status) VALUES ('econ_member', 'verified')`
+    );
+    await opened.runtime.pool.query(
+      `INSERT INTO "${opened.schema}".nexus_economy_wallets (economic_identity_id, currency, balance) VALUES ('econ_member', 'NEXUS_POINTS', 0)`
+    );
+    await assert.rejects(
+      () => opened.runtime.pool.query(`UPDATE "${opened.schema}".nexus_economy_wallets SET balance = -1 WHERE economic_identity_id = 'econ_member'`),
+      (error) => error.code === '23514'
+    );
+    await opened.runtime.pool.query(`UPDATE "${opened.schema}".nexus_economy_wallets SET balance = -1500 WHERE economic_identity_id = $1`, [MINT_ID]);
   } finally {
     await closeRuntime(opened);
   }

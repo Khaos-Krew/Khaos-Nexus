@@ -22,9 +22,41 @@ function memberAccountSql(column) {
   return `${name} NOT LIKE 'system:%'`;
 }
 
-async function applySystemMintBalanceChecks(pool, schema = 'public') {
+const SYSTEM_MINT_CHECK_LOCK = 'nexus-economy:system-mint-balance-checks';
+
+const MINT_CHECK_SPECS = [
+  {
+    table: 'nexus_economic_identities',
+    name: 'nexus_economic_identities_status_check',
+    match: (def) => /\bstatus\b/i.test(def) && /verified/.test(def),
+    exempt: (def) => /'system'/.test(def),
+    check: "CHECK (status IN ('verified', 'restricted', 'disabled', 'system'))"
+  },
+  {
+    table: 'nexus_economy_wallets',
+    name: 'nexus_economy_wallets_balance_check',
+    match: (def) => /\bbalance\b/i.test(def) && !/balance_after/i.test(def) && />=/.test(def),
+    exempt: (def) => /system:mint:%/.test(def),
+    check: "CHECK (balance >= 0 OR economic_identity_id LIKE 'system:mint:%')"
+  },
+  {
+    table: 'nexus_economy_ledger',
+    name: 'nexus_economy_ledger_balance_after_check',
+    match: (def) => /balance_after/i.test(def) && />=/.test(def),
+    exempt: (def) => /system:mint:%/.test(def),
+    check: "CHECK (balance_after >= 0 OR economic_identity_id LIKE 'system:mint:%')"
+  }
+];
+
+// Caller holds one open transaction. The advisory lock serializes concurrent
+// legacy executes. An exempting constraint is left in place. Otherwise the
+// strict check is dropped with IF EXISTS and the mint exemption is added
+// NOT VALID, then VALIDATE, so member rows are still checked.
+async function applySystemMintBalanceChecks(client, schema = 'public') {
+  if (!client || typeof client.query !== 'function') throw new Error('Mint check migration requires a database client.');
   const s = sqlIdent(schema);
-  const found = await pool.query(
+  await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [SYSTEM_MINT_CHECK_LOCK]);
+  const found = await client.query(
     `SELECT c.conname, r.relname, pg_get_constraintdef(c.oid) AS def
      FROM pg_constraint c
      JOIN pg_class r ON r.oid = c.conrelid
@@ -33,27 +65,22 @@ async function applySystemMintBalanceChecks(pool, schema = 'public') {
        AND r.relname IN ('nexus_economic_identities', 'nexus_economy_wallets', 'nexus_economy_ledger')`,
     [schema]
   );
-  for (const row of found.rows || []) {
-    const def = String(row.def || '');
-    const constraint = sqlIdent(row.conname);
-    if (row.relname === 'nexus_economic_identities' && /status/i.test(def) && !/'system'/.test(def)) {
-      await pool.query(`ALTER TABLE ${s}.nexus_economic_identities DROP CONSTRAINT ${constraint}`);
-      await pool.query(
-        `ALTER TABLE ${s}.nexus_economic_identities ADD CONSTRAINT ${constraint} CHECK (status IN ('verified', 'restricted', 'disabled', 'system'))`
-      );
+  const rows = found.rows || [];
+  for (const spec of MINT_CHECK_SPECS) {
+    const matching = rows.filter((row) => row.relname === spec.table && spec.match(String(row.def || '')));
+    if (matching.some((row) => spec.exempt(String(row.def || '')))) {
+      for (const row of matching) {
+        if (spec.exempt(String(row.def || ''))) continue;
+        await client.query(`ALTER TABLE ${s}.${spec.table} DROP CONSTRAINT IF EXISTS ${sqlIdent(row.conname)}`);
+      }
+      continue;
     }
-    if (row.relname === 'nexus_economy_wallets' && /balance/i.test(def) && !/system:mint:%/.test(def)) {
-      await pool.query(`ALTER TABLE ${s}.nexus_economy_wallets DROP CONSTRAINT ${constraint}`);
-      await pool.query(
-        `ALTER TABLE ${s}.nexus_economy_wallets ADD CONSTRAINT ${constraint} CHECK (balance >= 0 OR economic_identity_id LIKE 'system:mint:%')`
-      );
+    for (const row of matching) {
+      await client.query(`ALTER TABLE ${s}.${spec.table} DROP CONSTRAINT IF EXISTS ${sqlIdent(row.conname)}`);
     }
-    if (row.relname === 'nexus_economy_ledger' && /balance_after/i.test(def) && !/system:mint:%/.test(def)) {
-      await pool.query(`ALTER TABLE ${s}.nexus_economy_ledger DROP CONSTRAINT ${constraint}`);
-      await pool.query(
-        `ALTER TABLE ${s}.nexus_economy_ledger ADD CONSTRAINT ${constraint} CHECK (balance_after >= 0 OR economic_identity_id LIKE 'system:mint:%')`
-      );
-    }
+    const name = sqlIdent(spec.name);
+    await client.query(`ALTER TABLE ${s}.${spec.table} ADD CONSTRAINT ${name} ${spec.check} NOT VALID`);
+    await client.query(`ALTER TABLE ${s}.${spec.table} VALIDATE CONSTRAINT ${name}`);
   }
   return { ok: true };
 }
@@ -79,6 +106,7 @@ module.exports = {
   isMintAccount,
   assertMemberAccount,
   memberAccountSql,
+  SYSTEM_MINT_CHECK_LOCK,
   applySystemMintBalanceChecks,
   memberPointSumSql,
   sumMemberPointBalances

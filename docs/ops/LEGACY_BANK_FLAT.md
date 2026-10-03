@@ -4,6 +4,8 @@ One-shot operator runbook for `legacy-bank-flat-2026-10`. The shop writes flag d
 
 The mint account is `system:mint:legacy-bank-flat`, status `system`. Each grant books +1,500 on the member and −1,500 on the mint. Member wallets still cannot go negative. The mint is not a member and is left out of balance sums, leaderboards, and reports.
 
+Economy-worker and Sentinal startup do not alter wallet, ledger, or identity checks. The mint exemption is a migration that runs only from `--execute`, and only when `NEXUS_LEGACY_BANK_FLAT_ENABLED` is on. It takes one transaction, sets `lock_timeout` to 5 seconds, takes the advisory lock `nexus-economy:system-mint-balance-checks`, and is idempotent: if the exempting check already exists it does nothing. Otherwise it `DROP CONSTRAINT IF EXISTS` the strict check and adds the new check `NOT VALID`, then `VALIDATE CONSTRAINT`. Only `economic_identity_id LIKE 'system:mint:%'` may go negative. Member checks stay `balance >= 0` and `balance_after >= 0`. A compiled cap (`MAX_LEGACY_FLAT_GRANTS`, 4096 grants) refuses a larger N or total even when `--approved-count` / `--approved-total` are higher.
+
 ## Dry-run
 
 ```sh

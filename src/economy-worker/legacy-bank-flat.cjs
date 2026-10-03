@@ -6,13 +6,17 @@ const { execSync } = require('node:child_process');
 const { sqlIdent } = require('../sentinel/nexus-economy-postgres-repository.cjs');
 const { deterministicEconomicIdentityId } = require('../sentinel/nexus-economy-json-postgres-migration.cjs');
 const { quarantineDenylist } = require('../sentinel/nexus-economy-wallet-core.cjs');
-const { applySystemMintBalanceChecks, sumMemberPointBalances } = require('../shared/economy-system-accounts.cjs');
+const { applySystemMintBalanceChecks, sumMemberPointBalances, SYSTEM_MINT_CHECK_LOCK } = require('../shared/economy-system-accounts.cjs');
 
 const BATCH_NAME = 'legacy-bank-flat-2026-10';
 const AMOUNT = 1500;
 const MINT_ID = 'system:mint:legacy-bank-flat';
 const SNAPSHOT_AT = '2026-10-03T01:14:00.000Z';
 const SOURCE = 'legacy_bank_flat';
+// Compiled ceiling. --approved-count cannot raise it. The snapshot list is not
+// stored in the repo, so this constant is the code limit until a reviewed change.
+const MAX_LEGACY_FLAT_GRANTS = 4096;
+const MAX_LEGACY_FLAT_TOTAL = MAX_LEGACY_FLAT_GRANTS * AMOUNT;
 
 function legacyBankFlatEnabled(env = process.env) {
   return ['1', 'true', 'yes', 'on'].includes(String(env?.NEXUS_LEGACY_BANK_FLAT_ENABLED ?? '').trim().toLowerCase());
@@ -172,7 +176,13 @@ function evaluateExecuteGate({
   if (!Number.isInteger(eligibleCount) || !Number.isInteger(total) || total !== eligibleCount * AMOUNT) {
     return { ok: false, reason: 'total-mismatch' };
   }
+  if (eligibleCount > MAX_LEGACY_FLAT_GRANTS || total > MAX_LEGACY_FLAT_TOTAL) {
+    return { ok: false, reason: 'hard-cap' };
+  }
   if (!Number.isInteger(approvedCount) || !Number.isInteger(approvedTotal)) return { ok: false, reason: 'missing-ceiling' };
+  if (approvedCount > MAX_LEGACY_FLAT_GRANTS || approvedTotal > MAX_LEGACY_FLAT_TOTAL) {
+    return { ok: false, reason: 'hard-cap' };
+  }
   if (eligibleCount > approvedCount || total > approvedTotal) return { ok: false, reason: 'ceiling' };
   if (grantAmounts.some((amount) => amount !== AMOUNT)) return { ok: false, reason: 'grant-amount' };
   return { ok: true };
@@ -202,34 +212,56 @@ function commitSha() {
   }
 }
 
-async function ensureBatchSchema(pool, schema) {
+async function ensureBatchSchema(pool, schema, env = process.env) {
+  if (!legacyBankFlatEnabled(env)) {
+    const error = new Error('legacy-bank-flat-disabled');
+    error.code = 'legacy-bank-flat-disabled';
+    throw error;
+  }
   const s = sqlIdent(schema);
-  await pool.query(
-    `CREATE TABLE IF NOT EXISTS ${s}.nexus_economy_batches (
-      batch_name TEXT PRIMARY KEY,
-      list_hash TEXT NOT NULL,
-      approval_ref TEXT NOT NULL,
-      approved_count INTEGER NOT NULL,
-      approved_total BIGINT NOT NULL,
-      operator TEXT NOT NULL,
-      host TEXT NOT NULL,
-      commit_sha TEXT NOT NULL,
-      started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      completed_at TIMESTAMPTZ
-    )`
-  );
-  await applySystemMintBalanceChecks(pool, schema);
-  await pool.query(
-    `INSERT INTO ${s}.nexus_economic_identities (economic_identity_id, status)
-     VALUES ($1, 'system')
-     ON CONFLICT (economic_identity_id) DO UPDATE SET status = 'system', updated_at = NOW()`,
-    [MINT_ID]
-  );
-  await pool.query(
-    `INSERT INTO ${s}.nexus_economy_wallets (economic_identity_id, currency, balance)
-     VALUES ($1, 'NEXUS_POINTS', 0) ON CONFLICT (economic_identity_id, currency) DO NOTHING`,
-    [MINT_ID]
-  );
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query("SET LOCAL lock_timeout = '5s'");
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [SYSTEM_MINT_CHECK_LOCK]);
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS ${s}.nexus_economy_batches (
+        batch_name TEXT PRIMARY KEY,
+        list_hash TEXT NOT NULL,
+        approval_ref TEXT NOT NULL,
+        approved_count INTEGER NOT NULL,
+        approved_total BIGINT NOT NULL,
+        operator TEXT NOT NULL,
+        host TEXT NOT NULL,
+        commit_sha TEXT NOT NULL,
+        started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        completed_at TIMESTAMPTZ
+      )`
+    );
+    await applySystemMintBalanceChecks(client, schema);
+    await client.query(
+      `INSERT INTO ${s}.nexus_economic_identities (economic_identity_id, status)
+       VALUES ($1, 'system')
+       ON CONFLICT (economic_identity_id) DO UPDATE SET status = 'system', updated_at = NOW()`,
+      [MINT_ID]
+    );
+    await client.query(
+      `INSERT INTO ${s}.nexus_economy_wallets (economic_identity_id, currency, balance)
+       VALUES ($1, 'NEXUS_POINTS', 0) ON CONFLICT (economic_identity_id, currency) DO NOTHING`,
+      [MINT_ID]
+    );
+    await client.query('COMMIT');
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch { /* ignore */ }
+    if (error.code === '55P03' || error.code === 'lock-timeout') {
+      const timeout = new Error('lock-timeout');
+      timeout.code = 'lock-timeout';
+      throw timeout;
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function loadPopulation(pool, schema, cutoff) {
@@ -493,7 +525,15 @@ async function execute({
   const { ensureMinecraftSchema } = require('./mc-points-postgres.cjs');
   const ready = await ensureMinecraftSchema({ pool, schema });
   if (!ready.ok) return ready;
-  await ensureBatchSchema(pool, schema);
+  try {
+    await ensureBatchSchema(pool, schema, env);
+  } catch (error) {
+    if (error.code === 'lock-timeout') {
+      logDecision('lock-timeout', envHash);
+      return { ok: false, reason: 'lock-timeout' };
+    }
+    throw error;
+  }
   const s = sqlIdent(schema);
   const existing = await pool.query(`SELECT * FROM ${s}.nexus_economy_batches WHERE batch_name = $1`, [BATCH_NAME]);
   const marker = existing.rows?.[0] || null;
@@ -745,6 +785,7 @@ async function reverseCredit({ pool, schema = 'public', econId, operator = '', c
 module.exports = {
   BATCH_NAME,
   AMOUNT,
+  MAX_LEGACY_FLAT_GRANTS,
   MINT_ID,
   SNAPSHOT_AT,
   SOURCE,

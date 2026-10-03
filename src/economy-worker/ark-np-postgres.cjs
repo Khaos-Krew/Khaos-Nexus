@@ -9,7 +9,6 @@ const { quarantineDenylist } = require('../sentinel/nexus-economy-wallet-core.cj
 const { rollCache } = require('../sentinel/ark-dino-cache-engine.cjs');
 const { saddleFor } = require('../sentinel/ark-cache-receipts.cjs');
 const { blueprintRef } = require('../sentinel/rewards-ascended-delivery.cjs');
-const { ctDayKey } = require('./mc-playtime-accounting.cjs');
 const { discordAccountCreatedMs, guildJoinedAtMs } = require('../shared/mc-starter-kit.cjs');
 const { authorizeStaffRefundActor } = require('./ark-staff-auth.cjs');
 const {
@@ -294,12 +293,13 @@ class PostgresArkShop {
       );
       const grantedEos = [];
       for (const eosId of locked.eosIds) {
+        const anchor = grantedEos.length === 0;
         const grant = await client.query(
           `INSERT INTO ${s}.nexus_mc_grants
-           (grant_id, kind, economic_identity_id, mc_uuid, eos_id, kit_version, order_id, status, claimed_at, provider)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,'PAID',$8,'ark')
+           (grant_id, kind, economic_identity_id, mc_uuid, eos_id, kit_version, order_id, status, claimed_at, provider, kit_anchor)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'PAID',$8,'ark',$9)
            ON CONFLICT DO NOTHING RETURNING grant_id`,
-          [`${KIT_KIND}:${locked.econId}:${eosId}`, KIT_KIND, locked.econId, eosId, eosId, this.catalog.kit.version, order.orderId, nowIso]
+          [anchor ? `${KIT_KIND}:${locked.econId}` : `${KIT_KIND}:${locked.econId}:${eosId}`, KIT_KIND, locked.econId, eosId, eosId, this.catalog.kit.version, order.orderId, nowIso, anchor]
         );
         if (!grant.rowCount) {
           await client.query('ROLLBACK');
@@ -662,13 +662,19 @@ class PostgresArkShop {
          ORDER BY created_at DESC LIMIT 10`,
         [identity.econId]
       );
-      const orders = await client.query(
-        `SELECT order_data FROM ${s}.nexus_mc_orders
-         WHERE provider = 'ark' AND order_data->>'discordUserId' = $1
-           AND status IN ('PAID','PLAYER_OFFLINE','DELIVERY_IN_PROGRESS','SENT_UNCONFIRMED','DELIVERY_FAILED')
-         ORDER BY created_at DESC LIMIT 10`,
-        [discord]
-      );
+      let orders = [];
+      try {
+        const orderRows = await client.query(
+          `SELECT order_data FROM ${s}.nexus_mc_orders
+           WHERE provider = 'ark' AND order_data->>'discordUserId' = $1
+             AND status IN ('PAID','PLAYER_OFFLINE','DELIVERY_IN_PROGRESS','SENT_UNCONFIRMED','DELIVERY_FAILED')
+           ORDER BY created_at DESC LIMIT 10`,
+          [discord]
+        );
+        orders = (orderRows.rows || []).map((row) => row.order_data);
+      } catch (error) {
+        if (error.code !== '42P01') throw error;
+      }
       return {
         ok: true,
         linked: true,
@@ -679,7 +685,7 @@ class PostgresArkShop {
           source: row.source,
           createdAt: new Date(row.created_at).toISOString()
         })),
-        orders: (orders.rows || []).map((row) => row.order_data)
+        orders
       };
     } catch (error) {
       if (error.code === '42P01') {
@@ -870,15 +876,19 @@ class PostgresArkShop {
 
   async #staffCap(client, actor) {
     const staffActor = String(actor || '');
-    const day = ctDayKey(this.now());
-    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`ark-staff-refund:${staffActor}:${day}`]);
+    const s = sqlIdent(this.schema);
+    const day = await client.query(`SELECT to_char(now() AT TIME ZONE 'America/Chicago', 'YYYY-MM-DD') AS day`);
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`ark-staff-refund:${staffActor}:${day.rows?.[0]?.day || ''}`]);
     const rows = await client.query(
-      `SELECT actor, created_at FROM ${sqlIdent(this.schema)}.nexus_mc_refund_audit WHERE provider = 'ark' AND actor = $1 FOR UPDATE`,
+      `SELECT created_at FROM ${s}.nexus_mc_refund_audit
+       WHERE provider = 'ark' AND actor = $1
+         AND (created_at AT TIME ZONE 'America/Chicago')::date = (now() AT TIME ZONE 'America/Chicago')::date
+       FOR UPDATE`,
       [staffActor]
     );
-    const today = (rows.rows || []).filter((row) => ctDayKey(Date.parse(row.created_at)) === day);
-    if (today.length >= STAFF_REFUND_ALERT_AT) console.warn(`[Nexus Economy] ark_staff_refund_alert actor=${actor} count=${today.length}`);
-    if (today.length >= STAFF_REFUND_DAILY_CAP) return { ok: false, reason: 'staff-refund-cap' };
+    const todayCount = rows.rowCount || 0;
+    if (todayCount >= STAFF_REFUND_ALERT_AT) console.warn(`[Nexus Economy] ark_staff_refund_alert actor=${actor} count=${todayCount}`);
+    if (todayCount >= STAFF_REFUND_DAILY_CAP) return { ok: false, reason: 'staff-refund-cap' };
     await client.query(
       `DELETE FROM ${sqlIdent(this.schema)}.nexus_mc_refund_audit WHERE provider = 'ark' AND retain_until IS NOT NULL AND retain_until < NOW()`
     );

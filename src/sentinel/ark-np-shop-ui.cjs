@@ -15,7 +15,7 @@ const { loadConfig } = require('../shared/config.cjs');
 const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
 const { arkNpFlags } = require('../shared/ark-np-flags.cjs');
 const { arkMemberText, orderStatusText, ledgerLineText } = require('../shared/ark-np-member-text.cjs');
-const { isStaffAdmin } = require('./staff-roles.cjs');
+const { hasStaffAdminRole, isGuildOwner } = require('./staff-roles.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.np.shop.ui.installed');
 const sessions = new Map();
@@ -57,7 +57,11 @@ function isArkStaff(interaction, config = loadConfig(), env = process.env) {
   const owners = new Set((config.discord?.ownerUserIds || []).map(String));
   if (owners.has(userId)) return true;
   if (interaction.memberPermissions?.has?.(PermissionFlagsBits.Administrator) === true) return true;
-  return isStaffAdmin(interaction, env);
+  if (isGuildOwner(interaction)) return true;
+  // hasStaffAdminRole reads the shared roleIdsOf list and drops the guild id
+  // (@everyone) and managed roles. Replace this with the staff-role helper
+  // from that branch once it merges, and delete this branch's staff-roles copy.
+  return hasStaffAdminRole(interaction, env);
 }
 
 function formatActivity(result = {}) {
