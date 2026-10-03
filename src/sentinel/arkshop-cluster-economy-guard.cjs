@@ -3,6 +3,9 @@
 const crypto = require('node:crypto');
 const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { readConfig } = require('./ark-config-manager.cjs');
+const { isArkShopMysqlRetired } = require('./arkshop-database.cjs');
+
+const ARKSHOP_FEATURES_OFF_MESSAGE = 'Starter kits, the bank and caches are turned off on our ARK servers for now. Nothing was charged.';
 
 function clean(value, max = 120) {
   return String(value ?? '').trim().slice(0, max);
@@ -27,8 +30,27 @@ function databaseFingerprint(config = {}) {
   return crypto.createHash('sha256').update(canonical).digest('hex');
 }
 
-function evaluateClusterDatabase(records = []) {
+function retiredReason(mysqlRetired, pluginDisabledCount) {
+  if (mysqlRetired && pluginDisabledCount) return 'mysql-retired+plugin-folder-disabled';
+  if (mysqlRetired) return 'mysql-retired';
+  return 'plugin-folder-disabled';
+}
+
+function evaluateClusterDatabase(records = [], { mysqlRetired = false } = {}) {
   const active = records.filter((entry) => entry?.enabled !== false && entry?.shopEnabled !== false);
+  const pluginDisabled = active.filter((entry) => entry.pluginDisabled === true);
+  if (mysqlRetired || pluginDisabled.length) {
+    const problems = pluginDisabled.length ? pluginDisabled : active;
+    return {
+      ok: false,
+      mode: 'arkshop-retired',
+      reason: retiredReason(mysqlRetired, pluginDisabled.length),
+      servers: active.length,
+      problemServerIds: problems.map((entry) => clean(entry.id, 64)).filter(Boolean),
+      fingerprint: ''
+    };
+  }
+
   if (!active.length) return { ok: true, mode: 'no-active-shop-servers', servers: 0, fingerprint: '' };
 
   const unreadable = active.filter((entry) => entry.readFailed === true);
@@ -88,32 +110,92 @@ async function auditArkShopClusterDatabase({ registry = new ArkClusterRegistry()
         useMysqlType: typeof config?.Mysql?.UseMysql
       });
     } catch (error) {
+      const pluginDisabled = error?.code === 'ARKSHOP_PLUGIN_DISABLED' || error?.pluginDisabled === true;
       records.push({
         id: server.id,
         enabled: server.enabled,
         shopEnabled: server.shopEnabled,
         mysqlEnabled: false,
         fingerprint: '',
-        readFailed: true,
+        readFailed: pluginDisabled !== true,
+        pluginDisabled,
         error: String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 180)
       });
     }
   }
-  const result = evaluateClusterDatabase(records);
+  const result = evaluateClusterDatabase(records, { mysqlRetired: isArkShopMysqlRetired() });
   return { ...result, records };
+}
+
+function formatArkShopGuardLog(result = {}) {
+  if (result?.ok) {
+    const types = [...new Set((result.records || []).map((record) => record.useMysqlType).filter(Boolean))].join(',') || 'unknown';
+    return `[Nexus Sentinal] ArkShop cluster economy guard: ok=true mode=${result.mode} servers=${result.servers} useMysqlType=${types} dbFingerprint=${result.fingerprint ? result.fingerprint.slice(0, 12) : 'none'}`;
+  }
+  const affected = (result.problemServerIds || []).join(',') || 'unknown';
+  if (result?.mode === 'arkshop-retired') {
+    const detail = (result.records || [])
+      .filter((record) => record?.pluginDisabled || record?.readFailed)
+      .map((record) => `${record.id}:${record.pluginDisabled ? 'plugin-folder-disabled' : 'read-failed'}${record.error ? `:${record.error}` : ''}`)
+      .join(' | ');
+    return `[Nexus Sentinal] ArkShop cluster economy guard: ok=false mode=arkshop-retired servers=${result.servers} affected=${affected} reason=${result.reason || 'retired'}${detail ? ` detail=${detail}` : ''}; ArkShop is retired (MySQL retired and/or plugin folder disabled). Starter kits, the bank and caches stay off. Fail closed: ArkShop and its MySQL wallet were not re-enabled.`;
+  }
+  const readErrors = (result.records || []).filter((record) => record.readFailed).map((record) => `${record.id}:${record.error}`).join(' | ');
+  return `[Nexus Sentinal] ArkShop cluster economy guard: ok=false mode=${result.mode} servers=${result.servers} affected=${affected}${readErrors ? ` readErrors=${readErrors}` : ''}; cluster-wide starter/bank/cache operations must remain disabled until all maps share one verified MySQL backend.`;
+}
+
+async function arkShopMemberFeatureStatus(options) {
+  if (isArkShopMysqlRetired()) {
+    return {
+      ok: false,
+      mode: 'arkshop-retired',
+      reason: 'mysql-retired',
+      servers: 0,
+      problemServerIds: [],
+      fingerprint: '',
+      records: []
+    };
+  }
+  try {
+    return await auditArkShopClusterDatabase(options);
+  } catch (error) {
+    return {
+      ok: false,
+      mode: 'audit-failed',
+      reason: 'audit-failed',
+      servers: 0,
+      problemServerIds: [],
+      fingerprint: '',
+      records: [],
+      error: String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 180)
+    };
+  }
+}
+
+function arkShopFeaturesUnavailableMessageFrom(status) {
+  return status?.ok === true ? '' : ARKSHOP_FEATURES_OFF_MESSAGE;
+}
+
+async function arkShopFeaturesUnavailableMessage(options) {
+  return arkShopFeaturesUnavailableMessageFrom(await arkShopMemberFeatureStatus(options));
+}
+
+function memberFeatureUnavailableMessage(error) {
+  const code = String(error?.code || '');
+  if (code === 'ARKSHOP_RETIRED' || code === 'CLUSTER_ECONOMY_NOT_READY' || code === 'ARKSHOP_MYSQL_RETIRED' || code === 'ARKSHOP_PLUGIN_DISABLED') {
+    return ARKSHOP_FEATURES_OFF_MESSAGE;
+  }
+  if (String(error?.message || '') === ARKSHOP_FEATURES_OFF_MESSAGE) return ARKSHOP_FEATURES_OFF_MESSAGE;
+  return '';
 }
 
 function installArkShopClusterEconomyGuard({ delayMs = 45_000 } = {}) {
   const timer = setTimeout(() => {
     void auditArkShopClusterDatabase()
       .then((result) => {
-        if (result.ok) {
-          const types = [...new Set(result.records.map((record) => record.useMysqlType).filter(Boolean))].join(',') || 'unknown';
-          console.log(`[Nexus Sentinal] ArkShop cluster economy guard: ok=true mode=${result.mode} servers=${result.servers} useMysqlType=${types} dbFingerprint=${result.fingerprint ? result.fingerprint.slice(0, 12) : 'none'}`);
-        } else {
-          const readErrors = result.records.filter((record) => record.readFailed).map((record) => `${record.id}:${record.error}`).join(' | ');
-          console.error(`[Nexus Sentinal] ArkShop cluster economy guard: ok=false mode=${result.mode} servers=${result.servers} affected=${(result.problemServerIds || []).join(',') || 'unknown'}${readErrors ? ` readErrors=${readErrors}` : ''}; cluster-wide starter/bank/cache operations must remain disabled until all maps share one verified MySQL backend.`);
-        }
+        const line = formatArkShopGuardLog(result);
+        if (result.ok) console.log(line);
+        else console.error(line);
       })
       .catch((error) => console.error(`[Nexus Sentinal] ArkShop cluster economy guard audit failed closed: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 240)}`));
   }, Math.max(5_000, Number(delayMs) || 45_000));
@@ -122,9 +204,15 @@ function installArkShopClusterEconomyGuard({ delayMs = 45_000 } = {}) {
 }
 
 module.exports = {
+  ARKSHOP_FEATURES_OFF_MESSAGE,
   mysqlEnabled,
   databaseFingerprint,
   evaluateClusterDatabase,
   auditArkShopClusterDatabase,
+  formatArkShopGuardLog,
+  arkShopMemberFeatureStatus,
+  arkShopFeaturesUnavailableMessageFrom,
+  arkShopFeaturesUnavailableMessage,
+  memberFeatureUnavailableMessage,
   installArkShopClusterEconomyGuard
 };

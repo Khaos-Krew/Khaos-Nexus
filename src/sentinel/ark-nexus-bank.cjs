@@ -5,6 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { cleanEosId, parsePointsResponse } = require('./ark-dino-cache-purchase.cjs');
+const { ARKSHOP_FEATURES_OFF_MESSAGE, arkShopFeaturesUnavailableMessage } = require('./arkshop-cluster-economy-guard.cjs');
 
 const STORE_VERSION = 1;
 const MAX_TRANSACTIONS = 10000;
@@ -170,10 +171,17 @@ class NexusBankStore {
   }
 }
 
+function featuresOffError() {
+  const error = new Error(ARKSHOP_FEATURES_OFF_MESSAGE);
+  error.code = 'ARKSHOP_RETIRED';
+  return error;
+}
+
 class ArkNexusBankService {
-  constructor({ prefix = 'ARK_GEN1', rcon, store } = {}) {
+  constructor({ prefix = 'ARK_GEN1', rcon, store, economyAuditor } = {}) {
     this.prefix = prefix;
     this.store = store || new NexusBankStore();
+    this.economyAuditor = economyAuditor;
     this.locks = new Map();
     if (rcon) this.rcon = rcon;
     else {
@@ -211,7 +219,19 @@ class ArkNexusBankService {
     return this.store.balance(eosId);
   }
 
+  async assertFeaturesAvailable() {
+    if (typeof this.economyAuditor === 'function') {
+      const status = await this.economyAuditor();
+      if (!status || status.ok !== true) throw featuresOffError();
+      return status;
+    }
+    const blocked = await arkShopFeaturesUnavailableMessage();
+    if (blocked) throw featuresOffError();
+    return null;
+  }
+
   async deposit({ eosId, amount } = {}) {
+    await this.assertFeaturesAvailable();
     const value = safeAmount(amount);
     return this.withPlayerLock(eosId, async (player) => {
       this.store.read();
@@ -233,6 +253,7 @@ class ArkNexusBankService {
   }
 
   async withdraw({ eosId, amount } = {}) {
+    await this.assertFeaturesAvailable();
     const value = safeAmount(amount);
     return this.withPlayerLock(eosId, async (player) => {
       const bankBefore = this.store.balance(player);
@@ -258,6 +279,7 @@ class ArkNexusBankService {
   }
 
   async recoverTransaction(transactionId) {
+    await this.assertFeaturesAvailable();
     const state = this.store.read();
     const tx = state.transactions.find((entry) => entry.id === transactionId);
     if (!tx) throw new Error('Unknown Nexus Bank transaction.');

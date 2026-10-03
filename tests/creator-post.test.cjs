@@ -159,7 +159,7 @@ test('creator posts are limited to 3 per creator per 24 hours', async () => {
   const { interaction, replies } = interactionFor({ url: 'https://www.tiktok.com/@realcreator/video/999' });
   const result = await handleCreatorPost(interaction, store, {
     env: {},
-    now,
+    now: new Date(now),
     fetchImpl: async () => { throw new Error('rate limit must not fetch'); },
     resolveFeedChannel: async () => { throw new Error('rate limit must not resolve the feed'); }
   });
