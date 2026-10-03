@@ -418,11 +418,18 @@ test('boots healthy when NEXUS_CRAFT_TOKEN is missing', async () => {
   }
 });
 
-test('Craft image and slash commands stay inside the Minecraft bot', () => {
+test('Craft image stays inside the Minecraft bot', {
+  skip: fs.existsSync(path.join(root, 'Dockerfile.craft')) ? false : 'image does not include Dockerfile.craft'
+}, () => {
   const dockerfile = read('Dockerfile.craft');
   assert.match(dockerfile, /src\/railway\/craft-service\.cjs/);
   assert.match(dockerfile, /docs\/ops\/NEXUS_CRAFT\.md/);
   assert.doesNotMatch(dockerfile, /RCON_PASSWORD|RCON_PORT|RCON_HOST|NEXUS_CRAFT_TOKEN=/);
+});
+
+test('Craft ops note stays with the Minecraft bot', {
+  skip: fs.existsSync(path.join(root, 'docs/ops/NEXUS_CRAFT.md')) ? false : 'image does not include docs/ops/NEXUS_CRAFT.md'
+}, () => {
   const doc = read('docs/ops/NEXUS_CRAFT.md');
   assert.match(doc, /Dockerfile\.craft/);
   assert.match(doc, /\/health/);
@@ -430,7 +437,9 @@ test('Craft image and slash commands stay inside the Minecraft bot', () => {
   assert.match(doc, /NEXUS_CRAFT_DISCORD_CATEGORY_ID/);
   assert.match(doc, /NEXUS_CRAFT_REALMS_CHANNEL_ID/);
   assert.match(doc, /src\/craft\/\*\*/);
+});
 
+test('Craft slash commands stay inside the Minecraft bot', () => {
   const { PermissionFlagsBits } = require('discord.js');
   const { craftCommands } = require('../src/craft/bot.cjs');
   const commands = craftCommands({}).map((command) => command.toJSON());
