@@ -165,7 +165,9 @@ function ensureClanMarker(panelId, description) {
   if (stripped.includes(groupId)) return stripped.slice(0, 4000);
   let text = stripped;
   if (!text.includes(CLAN_LABEL)) text = text ? `${CLAN_LABEL}\n${text}` : CLAN_LABEL;
-  text = `${text}\n${clanJoinLine(groupId)}`;
+  const join = clanJoinLine(groupId);
+  if (/^Join:/m.test(text)) text = text.replace(/^Join:.*$/m, join);
+  else text = text ? `${text}\n${join}` : join;
   return text.slice(0, 4000);
 }
 

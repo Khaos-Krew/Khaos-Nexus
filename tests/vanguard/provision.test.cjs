@@ -372,6 +372,91 @@ test('a stale member role id does not hide #panels', async () => {
   assert.equal(result.failed.length, 0);
 });
 
+test('the guild id and managed bot roles are not the Destiny 2 role', async () => {
+  const MEMBER = '1516640233389822666';
+  const BOT = '111111111111111111';
+  const BOT_ROLE = '1516640233389822444';
+  const STAFF_ROLE = '1516640233389822777';
+  const panels = {
+    id: '1516640233389822888',
+    name: 'panels',
+    parentId: CATEGORY,
+    type: ChannelType.GuildText,
+    permissionOverwrites: { edit: async (id, perms) => { edits.push({ id, perms }); } }
+  };
+  const edits = [];
+  const alerts = [];
+  function guildWith(roles) {
+    return {
+      id: GUILD,
+      roles: {
+        everyone: { id: GUILD },
+        cache: new Map(roles.map((role) => [role.id, role]))
+      },
+      channels: {
+        fetch: async () => ({ values: () => [panels].values() }),
+        create: async (options) => ({
+          id: '1516640233389822109',
+          name: options.name,
+          parentId: options.parent,
+          type: options.type,
+          permissionOverwrites: { edit: async () => {} }
+        })
+      }
+    };
+  }
+  const saved = {
+    lfg: '1516640233389822101',
+    fireteamFinder: '1516640233389822102',
+    panels: panels.id,
+    staffAlerts: '1516640233389822103',
+    jtcLobby: '1516640233389822104'
+  };
+  async function run(roles, env) {
+    edits.length = 0;
+    alerts.length = 0;
+    return provisionChannels({
+      guild: guildWith(roles),
+      env: { VANGUARD_STAFF_ROLE_IDS: STAFF_ROLE, ...env },
+      categoryId: CATEGORY,
+      saved,
+      botId: BOT,
+      alert: async (text) => { alerts.push(text); }
+    });
+  }
+  function stayedOpen() {
+    const everyone = edits.filter((row) => row.id === GUILD);
+    assert.equal(everyone.some((row) => row.perms.ViewChannel === false), false);
+    assert.equal(everyone.at(-1).perms.ViewChannel, true);
+    assert.equal(edits.some((row) => row.perms.AddReactions === false), false);
+  }
+
+  const everyoneRole = await run([
+    { id: GUILD, name: '@everyone' },
+    { id: MEMBER, name: 'Destiny 2' }
+  ], { VANGUARD_MEMBER_ROLE_ID: GUILD });
+  assert.deepEqual(everyoneRole.warnings, [missingMemberRoleWarning(GUILD)]);
+  assert.match(alerts.join('\n'), new RegExp(GUILD));
+  assert.equal(edits.some((row) => row.id === MEMBER), false);
+  stayedOpen();
+
+  const botRole = await run([
+    { id: BOT_ROLE, name: 'Nexus Vanguard', managed: true, tags: { botId: BOT } },
+    { id: MEMBER, name: 'Destiny 2' }
+  ], { VANGUARD_MEMBER_ROLE_ID: BOT_ROLE });
+  assert.deepEqual(botRole.warnings, [missingMemberRoleWarning(BOT_ROLE)]);
+  assert.equal(edits.some((row) => row.id === BOT_ROLE && row.perms.AddReactions === false), false);
+  assert.equal(edits.some((row) => row.id === MEMBER), false);
+  stayedOpen();
+
+  const namedBot = await run([
+    { id: BOT_ROLE, name: 'Destiny 2', managed: true }
+  ], {});
+  assert.deepEqual(namedBot.warnings, [MEMBER_ROLE_WARNING]);
+  assert.equal(edits.some((row) => row.id === BOT_ROLE), false);
+  stayedOpen();
+});
+
 test('a mid-loop panels overwrite failure rolls visibility back', async () => {
   const MEMBER = '1516640233389822666';
   const BOT = '111111111111111111';

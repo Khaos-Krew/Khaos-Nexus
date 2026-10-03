@@ -138,18 +138,12 @@ function payloadForChannel(payload, channel) {
   return canAttachFiles(channel) ? payload : withoutIcon(payload);
 }
 
-function isAttachFailure(error) {
-  const code = Number(error?.code);
-  if (code === 50013 || code === 50001) return true;
-  return /attach files|missing permissions|missing access/i.test(String(error?.message || ''));
-}
-
 async function sendOrEdit(target, method, payload, channel) {
   const first = payloadForChannel(payload, channel);
   try {
     return await target[method](first);
   } catch (error) {
-    if (first.files && isAttachFailure(error)) return target[method](withoutIcon(first));
+    if (first.files) return target[method](withoutIcon(first));
     throw error;
   }
 }

@@ -116,12 +116,11 @@ function renderXur({ vendors, names = new Map(), now = Date.now(), location = ''
   if (!present) {
     const returns = Number.isFinite(refresh) && refresh > now ? refresh : nextXurArrival(now);
     const when = relativeTag(returns);
+    const lines = ['Xûr is not here.'];
+    if (when) lines.push(`⏳ Returns ${when}`);
     return {
       title: '✨ Xûr',
-      description: appendDisclaimer([
-        'Xûr is not here.',
-        when ? `⏳ Returns ${when}` : '⏳ Returns: not listed'
-      ].join('\n'), { maxLines: 4 }),
+      description: appendDisclaimer(lines.join('\n'), { maxLines: 4 }),
       fields: [],
       present: false
     };
@@ -149,7 +148,7 @@ function renderXur({ vendors, names = new Map(), now = Date.now(), location = ''
   const place = locationText(vendor, location);
   const lines = ['Xûr is here.'];
   if (place) lines.push(`📍 Location: ${place}`);
-  lines.push(leaves ? `⏳ Leaves ${leaves}` : '⏳ Leaves: not listed');
+  if (leaves) lines.push(`⏳ Leaves ${leaves}`);
   return {
     title: '✨ Xûr',
     description: appendDisclaimer(lines.join('\n'), { maxLines: 4 }),

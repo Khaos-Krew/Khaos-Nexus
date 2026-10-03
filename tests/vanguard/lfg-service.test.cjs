@@ -246,7 +246,7 @@ test('lfg posts omit the icon when the channel cannot attach files', async () =>
         edit: async (body) => {
           if (!failed && body.files) {
             failed = true;
-            throw Object.assign(new Error('Missing Permissions'), { code: 50013 });
+            throw new Error('Invalid Form Body');
           }
           edits.push(body);
           return body;

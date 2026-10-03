@@ -37,14 +37,37 @@ async function findGuildRole(guild, id) {
   }
 }
 
+function everyoneRoleId(guild) {
+  return snowflake(guild?.roles?.everyone?.id) || snowflake(guild?.id) || '';
+}
+
+function isManagedBotRole(role) {
+  if (!role) return false;
+  const tags = role.tags || {};
+  if (tags.botId || tags.bot_id) return true;
+  if (role.managed !== true) return false;
+  if (tags.integrationId || tags.integration_id) return false;
+  if ('premiumSubscriber' in tags || 'premium_subscriber' in tags) return false;
+  return true;
+}
+
+function usableMemberRole(role, guild) {
+  const id = snowflake(role?.id);
+  if (!id) return false;
+  const everyone = everyoneRoleId(guild);
+  if (everyone && id === everyone) return false;
+  if (isManagedBotRole(role)) return false;
+  return true;
+}
+
 async function resolveMemberRole(guild, env = {}) {
   const fromEnv = snowflake(env.VANGUARD_MEMBER_ROLE_ID);
   if (fromEnv) {
     const found = await findGuildRole(guild, fromEnv);
-    if (found) return { id: fromEnv, source: 'env' };
+    if (found && usableMemberRole(found, guild)) return { id: fromEnv, source: 'env' };
     return { id: '', source: 'missing', missingId: fromEnv };
   }
-  const found = roleList(guild).find((role) => String(role?.name || '').trim().toLowerCase() === 'destiny 2');
+  const found = roleList(guild).find((role) => String(role?.name || '').trim().toLowerCase() === 'destiny 2' && usableMemberRole(role, guild));
   const id = snowflake(found?.id);
   return id ? { id, source: 'name' } : { id: '', source: '' };
 }

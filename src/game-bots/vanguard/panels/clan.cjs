@@ -4,22 +4,20 @@ const { appendDisclaimer } = require('../panels.cjs');
 const { formatCt } = require('../bungie/time.cjs');
 
 function onlineText(online) {
-  if (online == null || typeof online.count !== 'number') return 'not listed';
+  if (online == null || typeof online.count !== 'number') return '';
   return online.complete === false ? `${online.count}+` : String(online.count);
 }
 
 function renderClanSummary({ summary, online = null } = {}) {
-  const name = summary?.name || 'Clan';
+  const name = summary?.name || 'KHAOS NEXUS';
   const callsign = summary?.callsign ? ` [${summary.callsign}]` : '';
   const members = Number(summary?.memberCount) || 0;
   const groupId = String(summary?.groupId || '').trim();
-  const join = groupId
-    ? `https://www.bungie.net/en/ClanV2/Index?groupId=${groupId}`
-    : 'ask a clan admin';
+  const onlineLabel = onlineText(online);
   const lines = [
     `**${name}**${callsign}`,
-    `Members: ${members} • Online: ${onlineText(online)}`,
-    `Join: ${join}`
+    onlineLabel ? `Members: ${members} • Online: ${onlineLabel}` : `Members: ${members}`,
+    groupId ? `Join: https://www.bungie.net/en/ClanV2/Index?groupId=${groupId}` : 'Join:'
   ];
   return {
     title: `👥 ${name}`.slice(0, 250),
@@ -28,7 +26,7 @@ function renderClanSummary({ summary, online = null } = {}) {
 }
 
 function renderRoster({ summary, roster, page } = {}) {
-  const name = summary?.name || 'Clan';
+  const name = summary?.name || 'KHAOS NEXUS';
   const members = roster?.members || [];
   const lines = [`**${name}** roster, page ${page}`, `Members: ${roster?.total || members.length}`];
   if (!members.length) lines.push('No members on this page.');
