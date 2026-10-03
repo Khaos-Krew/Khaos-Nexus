@@ -5,15 +5,34 @@ const assert = require('node:assert/strict');
 const { PermissionFlagsBits } = require('discord.js');
 const { MAX_CLEAR_MESSAGES, canClear, clearCommand, handleClearCommand } = require('../src/sentinel/moderation-commands.cjs');
 
+const GUILD = '1516602943670059108';
+const OWNER = '1516602943670059101';
+const ADMIN_ROLE = '1516640233389822042';
+const MOD_ROLE = '1540867019979890829';
+const BOT_ROLE = '1541540961937526916';
+
 function permissions(...allowed) {
   const bits = new Set(allowed);
   return { has: (bit) => bits.has(bit) };
 }
 
-test('clear command requires Manage Messages and exposes a bounded amount option', () => {
+function actor({ bits = [], roles = [], userId = '222222222222222222', ownerId = OWNER, guildId = GUILD } = {}) {
+  return {
+    memberPermissions: permissions(...bits),
+    user: { id: userId },
+    guild: { id: guildId, ownerId },
+    member: {
+      roles: {
+        cache: new Map(roles.map((role) => [role.id, role]))
+      }
+    }
+  };
+}
+
+test('clear command requires Manage Guild and exposes a bounded amount option', () => {
   const json = clearCommand().toJSON();
   assert.equal(json.name, 'clear');
-  assert.equal(json.default_member_permissions, PermissionFlagsBits.ManageMessages.toString());
+  assert.equal(json.default_member_permissions, PermissionFlagsBits.ManageGuild.toString());
   const amount = json.options.find((option) => option.name === 'amount');
   assert.ok(amount);
   assert.equal(amount.required, true);
@@ -22,34 +41,74 @@ test('clear command requires Manage Messages and exposes a bounded amount option
   assert.equal(MAX_CLEAR_MESSAGES, 100);
 });
 
-test('clear allows Manage Messages or Administrator, and denies anyone with neither', () => {
-  assert.equal(canClear({ memberPermissions: permissions(PermissionFlagsBits.ManageMessages) }), true);
-  assert.equal(canClear({ memberPermissions: permissions(PermissionFlagsBits.Administrator) }), true);
-  assert.equal(canClear({
-    memberPermissions: permissions(),
-    guild: { ownerId: '1516602943670059101' },
-    user: { id: '1516602943670059101' }
-  }), true);
-  assert.equal(canClear({ memberPermissions: permissions() }), false);
-  assert.equal(canClear({
-    memberPermissions: permissions(),
-    guild: { ownerId: '1516602943670059101' },
-    user: { id: '1516640233389822042' }
-  }), false);
+test('clear is limited to Admins who can manage messages', () => {
+  const env = { NEXUS_OPERATOR_ROLE_IDS: ADMIN_ROLE };
+  const admin = actor({
+    bits: [PermissionFlagsBits.ManageMessages],
+    roles: [
+      { id: GUILD, name: '@everyone' },
+      { id: ADMIN_ROLE, name: 'Admin' }
+    ]
+  });
+  const mod = actor({
+    bits: [PermissionFlagsBits.ManageMessages],
+    roles: [
+      { id: GUILD, name: '@everyone' },
+      { id: MOD_ROLE, name: 'Mod' }
+    ]
+  });
+  assert.equal(canClear(admin, env), true);
+  assert.equal(canClear(mod, env), false);
+  assert.equal(canClear(actor({
+    bits: [PermissionFlagsBits.Administrator]
+  }), { NEXUS_OPERATOR_ROLE_IDS: '' }), true);
+  assert.equal(canClear(actor({
+    bits: [PermissionFlagsBits.ManageMessages],
+    roles: [{ id: ADMIN_ROLE, name: 'Admin' }]
+  }), { NEXUS_OPERATOR_ROLE_IDS: '' }), false);
+  assert.equal(canClear(actor({
+    roles: [{ id: ADMIN_ROLE, name: 'Admin' }]
+  }), env), false);
 });
 
-test('clear without Manage Messages is rejected before any channel deletion', async () => {
+test('guild id in NEXUS_OPERATOR_ROLE_IDS grants a Mod nothing', () => {
+  const mod = actor({
+    bits: [PermissionFlagsBits.ManageMessages],
+    roles: [
+      { id: GUILD, name: '@everyone' },
+      { id: MOD_ROLE, name: 'Mod' },
+      { id: BOT_ROLE, name: 'Nexus Sentinal', managed: true }
+    ]
+  });
+  assert.equal(canClear(mod, { NEXUS_OPERATOR_ROLE_IDS: GUILD }), false);
+  assert.equal(canClear(mod, { NEXUS_OPERATOR_ROLE_IDS: `${GUILD}, ${BOT_ROLE}` }), false);
+});
+
+test('clear without admin access is rejected before any channel deletion', async () => {
   let deleted = false;
   let reply = null;
   const interaction = {
-    memberPermissions: permissions(),
+    ...actor({
+      bits: [PermissionFlagsBits.ManageMessages],
+      roles: [
+        { id: GUILD, name: '@everyone' },
+        { id: MOD_ROLE, name: 'Mod' }
+      ]
+    }),
     options: { getInteger: () => 20 },
     channel: { bulkDelete: async () => { deleted = true; } },
     reply: async (payload) => { reply = payload; return payload; }
   };
-  await handleClearCommand(interaction);
+  const previous = process.env.NEXUS_OPERATOR_ROLE_IDS;
+  process.env.NEXUS_OPERATOR_ROLE_IDS = ADMIN_ROLE;
+  try {
+    await handleClearCommand(interaction);
+  } finally {
+    if (previous === undefined) delete process.env.NEXUS_OPERATOR_ROLE_IDS;
+    else process.env.NEXUS_OPERATOR_ROLE_IDS = previous;
+  }
   assert.equal(deleted, false);
-  assert.equal(reply.content, 'You need Manage Messages to use /clear.');
+  assert.equal(reply.content, 'Only Admins can use /clear.');
 });
 
 test('admin clear deletes the requested recent messages and responds privately', async () => {
