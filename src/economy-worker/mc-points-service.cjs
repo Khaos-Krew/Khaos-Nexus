@@ -2,6 +2,7 @@
 
 const crypto = require('node:crypto');
 const { mcPointsFlags } = require('../shared/mc-points-flags.cjs');
+const { memberIdentityHold } = require('../sentinel/nexus-economy-identity-hold.cjs');
 const {
   MAX_BUNDLES,
   MAX_PURCHASE_NP,
@@ -440,7 +441,7 @@ class MemoryMcPoints {
       source: 'sink:mc-shop',
       metadata: { sku: pending.sku, qty: lines.reduce((sum, line) => sum + line.count, 0), catalogVersion: pending.catalogVersion, price }
     });
-    if (!spent?.ok) return { ok: false, reason: spent?.reason || 'spend-failed', balance: spent?.balance };
+    if (!spent?.ok) return { ok: false, reason: spent?.reason || 'spend-failed', message: spent?.message, balance: spent?.balance };
     const replay = spent.duplicate === true;
     try {
       if (!replay && this.crashAt === 'after-ledger') {
@@ -730,17 +731,41 @@ class MemoryMcPoints {
     return Boolean(order.leaseUntil && Date.parse(order.leaseUntil) > now);
   }
 
-  async refund({ orderId, reason = '', actor = '', writesEnabled = false, now = this.now(), applyWallet = true } = {}) {
+  async #orderHold(order) {
+    if (typeof this.wallet.resolve !== 'function') return null;
+    const identity = await this.wallet.resolve(order.discordUserId);
+    if (!identity || !String(identity.status || '').trim()) {
+      return memberIdentityHold({
+        missingRow: true,
+        economicIdentityId: identity?.economicIdentityId || order.economicIdentityId,
+        env: this.env
+      });
+    }
+    return memberIdentityHold({
+      status: identity.status,
+      holdReason: identity.holdReason,
+      economicIdentityId: identity.economicIdentityId || order.economicIdentityId,
+      env: this.env
+    });
+  }
+
+  async refund({ orderId, reason = '', actor = '', writesEnabled = false, now = this.now(), applyWallet = true, deferHold = false } = {}) {
     const order = this.orders.get(String(orderId || ''));
     if (!order) return { ok: false, reason: 'order-not-found' };
     if (order.status === 'REFUNDED' || order.refunded) return { ok: true, duplicate: true, order };
     if (order.status === 'DELIVERED') return { ok: false, reason: 'final-status', order };
     const auto = reason === 'auto-14d';
+    const staffActor = String(actor || '').trim();
+    const hold = deferHold ? null : await this.#orderHold(order);
+    if (!auto && staffActor === order.discordUserId) {
+      if (hold) return { ...hold, order };
+      return { ok: false, reason: 'staff-not-authorized', order };
+    }
+    if (auto && hold) return { ...hold, order };
     if (auto) {
       if (!this.#autoRefundable(order, now)) return { ok: false, reason: 'refund-not-due', order };
     } else {
       const staffReason = String(reason || '').trim();
-      const staffActor = String(actor || '').trim();
       if (staffReason.length < 3) return { ok: false, reason: 'refund-reason-required' };
       if (!this.#staffAllowed(staffActor, order)) return { ok: false, reason: 'staff-not-authorized' };
       if (order.status !== 'SENT_UNCONFIRMED' && order.status !== 'DELIVERY_FAILED') return { ok: false, reason: 'refund-not-allowed', order };
@@ -759,10 +784,11 @@ class MemoryMcPoints {
         type: 'reversal',
         source: 'mc-shop',
         metadata: { reason, actor, orderId: order.orderId, sku: order.sku }
-      });
-      if (!credited?.ok) return { ok: false, reason: credited?.reason || 'refund-failed', order };
+      }, auto ? undefined : { allowHeldStaffRefund: true });
+      if (!credited?.ok) return { ok: false, reason: credited?.reason || 'refund-failed', message: credited?.message, order };
       order.ledgerRefundKey = key;
       order.balance = credited.balance;
+      if (credited.accountHold) order.refundedWhileHeld = true;
     }
     const previous = order.status;
     order.refunded = true;
@@ -771,10 +797,14 @@ class MemoryMcPoints {
     order.leaseOwner = null;
     order.leaseUntil = null;
     order.updatedAt = new Date(now).toISOString();
+    const heldRefund = Boolean(hold) || order.refundedWhileHeld === true;
+    if (heldRefund && !auto) {
+      console.log(`[Nexus Economy] mc_staff_refund_while_held order=${order.orderId} actor=${staffActor}`);
+    }
     this.audits.push({
       orderId: order.orderId,
       actor: auto ? 'auto' : String(actor),
-      reason: String(reason).slice(0, 300),
+      reason: (heldRefund && !auto ? `${String(reason).slice(0, 260)} [account-hold]` : String(reason)).slice(0, 300),
       amount: Number(order.price || 0),
       fromStatus: previous,
       createdAt: new Date(now).toISOString()

@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const { sqlIdent } = require('../sentinel/nexus-economy-postgres-repository.cjs');
 const { MemoryMcPoints, orderLineHash, stackLines, leaseMsForOrder, dayOrders } = require('./mc-points-service.cjs');
 const { catalogItem, catalogFingerprint, loadMcShopCatalog, MAX_DAILY_SPEND_NP, MAX_DAILY_ORDERS } = require('../shared/mc-shop-catalog.cjs');
+const { memberIdentityHold } = require('../sentinel/nexus-economy-identity-hold.cjs');
 const { quarantineDenylist } = require('../sentinel/nexus-economy-wallet-core.cjs');
 const { guildJoinedAtMs } = require('../shared/mc-starter-kit.cjs');
 
@@ -516,16 +517,32 @@ class PostgresMcPoints {
         await client.query('ROLLBACK');
         return { ok: false, reason: 'price-changed' };
       }
-      if (quarantineDenylist(this.env).has(String(row.economic_identity_id || ''))) {
-        await client.query('ROLLBACK');
-        return { ok: false, reason: 'quarantined' };
-      }
       const duplicate = await client.query(`SELECT order_data FROM ${s}.nexus_mc_orders WHERE nonce = $1`, [row.nonce]);
       if (duplicate.rows?.[0]) {
         await client.query('COMMIT');
         return { ok: true, duplicate: true, order: duplicate.rows[0].order_data };
       }
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${row.economic_identity_id}:NEXUS_POINTS`]);
+      const identityStatus = await client.query(
+        `SELECT status, hold_reason FROM ${s}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
+        [row.economic_identity_id]
+      );
+      const buyStatus = identityStatus.rows?.[0];
+      const buyHold = memberIdentityHold({
+        status: buyStatus?.status,
+        holdReason: buyStatus?.hold_reason,
+        missingRow: !buyStatus,
+        economicIdentityId: row.economic_identity_id,
+        env: this.env
+      });
+      if (buyHold) {
+        await client.query('ROLLBACK');
+        return buyHold;
+      }
+      if (String(buyStatus?.status || '') === 'restricted') {
+        await client.query('ROLLBACK');
+        return { ok: false, reason: 'verified-identity-required', message: 'Verified economic identity is required.' };
+      }
       const prior = await client.query(
         `SELECT order_data FROM ${s}.nexus_mc_orders WHERE status <> 'REFUNDED' AND order_data->>'economicIdentityId' = $1 AND order_data->>'source' = 'mc-shop'`,
         [row.economic_identity_id]
@@ -729,11 +746,45 @@ class PostgresMcPoints {
       const memory = await this.#memory(client, new Set(['orders', 'grants', 'audits']));
       const before = memory.orders.get(String(input.orderId || ''));
       const previous = before?.status;
-      const result = await memory.refund({ ...input, applyWallet: false });
-      if (!result.ok || result.duplicate) {
-        await client.query(result.ok ? 'COMMIT' : 'ROLLBACK');
+      const result = await memory.refund({ ...input, applyWallet: false, deferHold: true });
+      if (result.duplicate) {
+        await client.query('COMMIT');
         return result;
       }
+      const identityId = before?.economicIdentityId || result.order?.economicIdentityId;
+      let refundHold = null;
+      if (identityId) {
+        await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${identityId}:NEXUS_POINTS`]);
+        const identityStatus = await client.query(
+          `SELECT status, hold_reason FROM ${s}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
+          [identityId]
+        );
+        const refundStatus = identityStatus.rows?.[0];
+        refundHold = memberIdentityHold({
+          status: refundStatus?.status,
+          holdReason: refundStatus?.hold_reason,
+          missingRow: !refundStatus,
+          economicIdentityId: identityId,
+          env: this.env
+        });
+      }
+      const actor = String(input.actor || '').trim();
+      const self = Boolean(before && actor && actor === before.discordUserId);
+      const auto = input.reason === 'auto-14d';
+      if (refundHold && (self || auto)) {
+        await client.query('ROLLBACK');
+        return { ...refundHold, order: before };
+      }
+      if (!result.ok) {
+        await client.query('ROLLBACK');
+        return result;
+      }
+      if (refundHold) {
+        console.log(`[Nexus Economy] mc_staff_refund_while_held order=${result.order.orderId} actor=${actor}`);
+      }
+      const auditReason = refundHold
+        ? `${String(input.reason || '').slice(0, 260)} [account-hold]`
+        : String(input.reason || '');
       const flipped = await client.query(
         `UPDATE ${s}.nexus_mc_orders SET status = 'REFUNDED', order_data = $2::jsonb WHERE order_id = $1 AND status = $3 AND status <> 'REFUNDED' AND status <> 'DELIVERED' RETURNING order_id`,
         [result.order.orderId, JSON.stringify(result.order), previous]
@@ -753,7 +804,7 @@ class PostgresMcPoints {
         const ledger = await client.query(
           `INSERT INTO ${s}.nexus_economy_ledger (economic_identity_id, currency, amount, balance_after, entry_type, source, idempotency_key, metadata, created_at) ` +
           `VALUES ($1,'NEXUS_POINTS',$2,$3,'reversal','mc-shop',$4,$5::jsonb,NOW()) ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`,
-          [result.order.economicIdentityId, Number(result.order.price), next, key, JSON.stringify({ orderId: result.order.orderId, reason: input.reason, actor: input.actor })]
+          [result.order.economicIdentityId, Number(result.order.price), next, key, JSON.stringify({ orderId: result.order.orderId, reason: auditReason, actor: input.actor, accountHold: Boolean(refundHold) })]
         );
         if (ledger.rowCount) {
           await client.query(
@@ -764,7 +815,7 @@ class PostgresMcPoints {
       }
       await client.query(
         `INSERT INTO ${s}.nexus_mc_refund_audit (order_id, actor, reason, amount) VALUES ($1,$2,$3,$4) ON CONFLICT (order_id) DO NOTHING`,
-        [result.order.orderId, String(input.actor || 'auto'), String(input.reason || ''), Number(result.order.price || 0)]
+        [result.order.orderId, String(input.actor || 'auto'), auditReason, Number(result.order.price || 0)]
       );
       await client.query('COMMIT');
       return result;

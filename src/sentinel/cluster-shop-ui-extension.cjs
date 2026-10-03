@@ -17,7 +17,8 @@ const {
 const { loadConfig } = require('../shared/config.cjs');
 const { ArkIdentityStore } = require('./ark-identity-store.cjs');
 const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
-const { insufficientNpCopy, quoteCopy, orderCopy } = require('./cluster-shop-copy.cjs');
+const { quoteCopy, orderCopy, orderFailureCopy } = require('./cluster-shop-copy.cjs');
+const { MEMBER_HOLD_MESSAGE, memberHoldFromError } = require('./nexus-economy-identity-hold.cjs');
 const { mcPointsFlags } = require('../shared/mc-points-flags.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.cluster.shop.ui.installed');
@@ -298,10 +299,10 @@ async function handleConfirm(interaction, economyClient, identityStore) {
   sessions.delete(sessionId);
 
   if (!result.ok) {
-    const content = result.order?.status === 'PAYMENT_REJECTED'
-      ? insufficientNpCopy({ price: session.quote?.totalPrice, balance: result.balance })
-      : 'The order could not be completed. Nothing else was changed. Check `/bal` on Nexus Sentinal if this was a purchase.';
-    return interaction.editReply({ content, components: [] });
+    return interaction.editReply({
+      content: orderFailureCopy(result, { price: session.quote?.totalPrice, balance: result.balance }),
+      components: []
+    });
   }
 
   return interaction.editReply({
@@ -367,7 +368,10 @@ async function handleInteraction(interaction, { economyClient, identityStore } =
       return true;
     }
   } catch (error) {
-    const message = `❌ Cluster Shop error: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 220)}`;
+    const held = memberHoldFromError(error);
+    const message = held
+      ? MEMBER_HOLD_MESSAGE
+      : `❌ Cluster Shop error: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 220)}`;
     if (interaction.deferred || interaction.replied) await interaction.editReply({ content: message, components: [] }).catch(() => null);
     else await interaction.reply(ephemeral(message)).catch(() => null);
     return true;
@@ -420,6 +424,7 @@ module.exports = {
   isManagedPanel,
   uniqueCategories,
   linkedEos,
+  newSession,
   reconcileClusterShopPanel,
   handleInteraction,
   installClusterShopUiExtension

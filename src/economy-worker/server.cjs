@@ -17,6 +17,7 @@ class EconomyRequestError extends Error {
 }
 
 const { registerAdminWalletDrainPaths, handleAdminWalletPost } = require('./admin-wallet-routes.cjs');
+const { MEMBER_HOLD_MESSAGE, memberHoldFromError } = require('../sentinel/nexus-economy-identity-hold.cjs');
 const PRESENCE_WRITE_PATHS = new Set(['/presence', '/wallet/accrue-offline']);
 const FINANCIAL_WRITE_PATHS = new Set([
   '/wallet/credit',
@@ -24,6 +25,7 @@ const FINANCIAL_WRITE_PATHS = new Set([
   '/shop/buy',
   '/shop/sell',
   '/shop/sell/confirm-removal',
+  '/shop/sell/sweep-credit-failed',
   '/shop/buy/delivery-status',
   '/mc-shop/buy',
   '/mc-shop/refund',
@@ -148,6 +150,13 @@ async function body(req) {
   }
 }
 
+function holdResponse(result) {
+  if (!result || result.ok !== false) return null;
+  if (result.reason !== 'account-hold' && result.reason !== 'quarantined' && result.message !== MEMBER_HOLD_MESSAGE) return null;
+  const reason = result.reason === 'quarantined' ? 'quarantined' : 'account-hold';
+  return { ok: false, reason, message: MEMBER_HOLD_MESSAGE, error: MEMBER_HOLD_MESSAGE, credited: 0 };
+}
+
 function publicRequestError(error) {
   if (error instanceof EconomyRequestError && error.code === 'request-body-too-large') {
     return { statusCode: 413, body: { ok: false, error: 'request-body-too-large' } };
@@ -155,6 +164,8 @@ function publicRequestError(error) {
   if (error instanceof EconomyRequestError && error.code === 'invalid-json') {
     return { statusCode: 400, body: { ok: false, error: 'invalid-json' } };
   }
+  const held = memberHoldFromError(error);
+  if (held) return { statusCode: 409, body: { ...held, error: held.message } };
   return { statusCode: 500, body: { ok: false, error: 'internal-error' } };
 }
 
@@ -397,7 +408,12 @@ function createEconomyServer(options = {}) {
       const executionGate = mutationRequestGate(url.pathname, { writesEnabled, presenceWritesEnabled, lifecycle });
       if (executionGate) return json(res, executionGate.statusCode, executionGate.body);
 
-      if (url.pathname === '/identity/link') return json(res, 200, { ok: true, result: await Promise.resolve(worker.linkArkIdentity(input)) });
+      if (url.pathname === '/identity/link') {
+        const linked = await Promise.resolve(worker.linkArkIdentity(input));
+        const held = holdResponse(linked);
+        if (held) return json(res, 409, held);
+        return json(res, 200, { ok: true, result: linked });
+      }
       if (url.pathname === '/identity/demote-restricted') {
         const demote = typeof worker.demoteIdentityToRestricted === 'function'
           ? worker.demoteIdentityToRestricted(input.discordUserId)
@@ -433,6 +449,10 @@ function createEconomyServer(options = {}) {
       }
       if (url.pathname === '/shop/sell') return json(res, 200, await Promise.resolve(shop.createSellOrder(input)));
       if (url.pathname === '/shop/sell/confirm-removal') return json(res, 200, await shop.confirmSellRemoval(input));
+      if (url.pathname === '/shop/sell/sweep-credit-failed') {
+        if (typeof shop.sweepCreditFailedSells !== 'function') return json(res, 200, { ok: true, results: [], skipped: 'unsupported' });
+        return json(res, 200, { ok: true, results: await shop.sweepCreditFailedSells() });
+      }
       if (url.pathname === '/shop/buy/delivery-status') return json(res, 200, await Promise.resolve(shop.markBuyDelivery(input)));
       if (worker.minecraft && url.pathname === '/mc/link/challenge') return json(res, 200, await worker.minecraft.challenge(input));
       if (worker.minecraft && url.pathname === '/mc/link/confirm') return json(res, 200, await worker.minecraft.confirm(input));

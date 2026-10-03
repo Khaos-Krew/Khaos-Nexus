@@ -89,6 +89,13 @@ async function handleQuantity(interaction, economyClient) {
   ].join('\n'), { components: [new ActionRowBuilder().addComponents(confirm, cancel)] }));
 }
 
+function mcShopBuyFailureText(result, session) {
+  if (result?.reason === 'insufficient-funds') {
+    return `You do not have enough Nexus Points. This costs ${session?.quote?.price} NP and your balance is ${result.balance ?? session?.quote?.balance} NP. Earn more by playing, then open the shop again.`;
+  }
+  return mcMemberText(result?.reason, 'The purchase did not finish. Check your balance in Sentinal before you try again.');
+}
+
 async function handleConfirm(interaction, economyClient) {
   const session = sessionFor(interaction);
   if (!session?.nonce) return interaction.update(ephemeral('This shop menu expired. Open the Minecraft shop again. No points were spent.'));
@@ -101,9 +108,7 @@ async function handleConfirm(interaction, economyClient) {
   });
   sessions.delete(interaction.customId.split(':')[2]);
   if (!result.ok) {
-    return interaction.editReply(ephemeral(result.reason === 'insufficient-funds'
-      ? `You do not have enough Nexus Points. This costs ${session.quote?.price} NP and your balance is ${result.balance ?? session.quote?.balance} NP. Earn more by playing, then open the shop again.`
-      : mcMemberText(result.reason, 'The purchase did not finish. Check your balance in Sentinal before you try again.')));
+    return interaction.editReply(ephemeral(mcShopBuyFailureText(result, session)));
   }
   return interaction.editReply(ephemeral([
     'Your order is queued.',
@@ -158,4 +163,4 @@ function installMcShopUiExtension() {
   };
 }
 
-module.exports = { installMcShopUiExtension, handleMcShopInteraction, openMinecraftShop };
+module.exports = { installMcShopUiExtension, handleMcShopInteraction, openMinecraftShop, mcShopBuyFailureText };

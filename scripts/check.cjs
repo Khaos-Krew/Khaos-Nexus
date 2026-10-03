@@ -23,6 +23,7 @@ const required = [
   'src/craft/mc-rcon-text.cjs', 'src/craft/mc-afk.cjs', 'src/craft/mc-playtime.cjs', 'src/craft/mc-delivery.cjs', 'src/craft/mc-link-flow.cjs', 'src/craft/mc-economy-http.cjs', 'src/craft/mc-points-commands.cjs',
   'src/shared/mc-points-flags.cjs', 'src/shared/mc-member-text.cjs', 'src/shared/mc-shop-catalog.cjs', 'src/shared/mc-starter-kit.cjs',
   'src/economy-worker/mc-playtime-accounting.cjs', 'src/economy-worker/mc-points-service.cjs', 'src/economy-worker/mc-points-postgres.cjs',
+  'src/sentinel/nexus-economy-identity-hold.cjs',
   'src/sentinel/mc-shop-ui-extension.cjs',
   'src/game-bots/discord-env.cjs', 'src/game-bots/health.cjs', 'src/game-bots/start.cjs',
   'src/sentinel/game-command-ownership.cjs', 'src/sentinel/ascended-runtime.cjs', 'src/sentinel/cephalon-bot.cjs', 'src/sentinel/sanctuary-suite.cjs', 'src/sentinel/sanctuary-events.cjs', 'src/sentinel/sanctuary-bot.cjs',

@@ -10,6 +10,7 @@ const { normalizeUuid } = require('../craft/mc-rcon-text.cjs');
 const { otherPresenceOnline, planMinecraftContribution, minecraftServerName, countsForSharedOnline, PRESENCE_TTL_MS } = require('../economy-worker/mc-playtime-accounting.cjs');
 const { MemoryMcPoints, mcPlaytimeEligible, bumpMcMetric } = require('../economy-worker/mc-points-service.cjs');
 const { economyPerkForRank } = require('../shared/nexus-economy-rank-perks.cjs');
+const { memberIdentityHold } = require('./nexus-economy-identity-hold.cjs');
 const { quarantineDenylist } = require('./nexus-economy-wallet-core.cjs');
 
 const STORE_VERSION = 1;
@@ -110,16 +111,17 @@ class NexusEconomyWorker {
         async resolve(discordUserId) {
           const account = worker.store.read().accounts?.[String(discordUserId || '').trim()];
           if (!account) return null;
-          const status = account.status === 'restricted' || account.status === 'disabled' ? account.status : 'verified';
+          const rawStatus = String(account.status || '').trim().toLowerCase();
           return {
             economicIdentityId: account.discordUserId,
-            status,
-            verifiedAt: status === 'verified' ? (account.createdAt || new Date(worker.now()).toISOString()) : account.verifiedAt || null
+            status: rawStatus,
+            holdReason: String(account.holdReason || '').trim(),
+            verifiedAt: rawStatus === 'verified' ? (account.verifiedAt || account.createdAt || new Date(worker.now()).toISOString()) : (account.verifiedAt || null)
           };
         },
         balance: (discordUserId) => worker.balance(discordUserId),
         spend: (input) => worker.spend(input),
-        credit: (input) => worker.credit(input),
+        credit: (input, creditOptions) => worker.credit(input, creditOptions),
         async lifetimeMs(discordUserId) {
           return Number(worker.store.read().accounts?.[discordUserId]?.mcLifetimeMs || 0);
         },
@@ -157,6 +159,8 @@ class NexusEconomyWorker {
       presenceByServer: {},
       offlineSince: nowIso,
       lastPassiveAt: nowIso,
+      status: 'verified',
+      holdReason: '',
       createdAt: nowIso,
       updatedAt: nowIso
     };
@@ -215,21 +219,54 @@ class NexusEconomyWorker {
     return { duplicate: false, entry };
   }
 
-  credit({ discordUserId, amount, type = 'credit', source = 'nexus', idempotencyKey = '', metadata = {} } = {}) {
+  accountHold(account, discordUserId) {
+    const economicIdentityId = account?.discordUserId || cleanId(discordUserId);
+    if (!account) return null;
+    const status = String(account.status || '').trim().toLowerCase();
+    if (!status) {
+      return memberIdentityHold({ missingRow: true, economicIdentityId, env: this.env });
+    }
+    const hold = memberIdentityHold({
+      status,
+      holdReason: account.holdReason,
+      economicIdentityId,
+      env: this.env
+    });
+    if (hold) return hold;
+    if (status === 'restricted') {
+      return { ok: false, reason: 'verified-identity-required', message: 'Verified economic identity is required.', credited: 0 };
+    }
+    return null;
+  }
+
+  // Same in-process identity lock as spend and credit. A status written while the lock is held is visible here.
+  memberHold(discordUserId) {
+    return this.withLock(discordUserId, async () => {
+      const state = this.store.read();
+      const existing = state.accounts[cleanId(discordUserId)] || null;
+      return this.accountHold(existing, discordUserId);
+    });
+  }
+
+  credit({ discordUserId, amount, type = 'credit', source = 'nexus', idempotencyKey = '', metadata = {} } = {}, options = {}) {
     if (String(source || '').trim() === COMMUNITY_LEVEL_UP_SOURCE) {
       return { ok: false, skipped: 'coins-wallet-unavailable', currency: 'NEXUS_COINS' };
     }
+    const staffRefund = options?.allowHeldStaffRefund === true && source === 'mc-shop' && type === 'reversal';
     return this.withLock(discordUserId, async () => {
       const value = whole(amount);
       if (value <= 0) throw new Error('Credit amount must be a positive whole number.');
       const state = this.store.read();
-      const account = this.ensureAccount(state, discordUserId, state.accounts[cleanId(discordUserId)]?.rankId);
-      if (idempotencyKey && state.processed[idempotencyKey]) return { ok: true, duplicate: true, balance: account.balance };
+      const existing = state.accounts[cleanId(discordUserId)] || null;
+      if (existing && idempotencyKey && state.processed[idempotencyKey]) return { ok: true, duplicate: true, balance: existing.balance, accountHold: false };
+      const hold = this.accountHold(existing, discordUserId);
+      if (hold && !staffRefund) return { ...hold, balance: existing?.balance || 0 };
+      const account = this.ensureAccount(state, discordUserId, existing?.rankId);
       account.balance += value;
       account.updatedAt = new Date(this.now()).toISOString();
       const result = this.appendLedger(state, account, { amount: value, type, source, idempotencyKey, metadata });
       this.store.write(state);
-      return { ok: true, duplicate: result.duplicate, balance: account.balance, transactionId: result.entry?.id || null };
+      return { ok: true, duplicate: result.duplicate, balance: account.balance, transactionId: result.entry?.id || null, accountHold: Boolean(hold) };
     });
   }
 
@@ -241,8 +278,11 @@ class NexusEconomyWorker {
       const key = explicit || `purchase:${String(orderId || '').trim()}`;
       if (!key || key === 'purchase:' || key.length > 200 || !/^[A-Za-z0-9:_-]+$/.test(key)) throw new Error('Order ID is required.');
       const state = this.store.read();
-      const account = this.ensureAccount(state, discordUserId, state.accounts[cleanId(discordUserId)]?.rankId);
-      if (state.processed[key]) return { ok: true, duplicate: true, balance: account.balance };
+      const existing = state.accounts[cleanId(discordUserId)] || null;
+      if (existing && state.processed[key]) return { ok: true, duplicate: true, balance: existing.balance };
+      const hold = this.accountHold(existing, discordUserId);
+      if (hold) return { ...hold, balance: existing?.balance || 0 };
+      const account = this.ensureAccount(state, discordUserId, existing?.rankId);
       if (account.balance < value) return { ok: false, reason: 'insufficient-funds', balance: account.balance };
       account.balance -= value;
       account.updatedAt = new Date(this.now()).toISOString();
@@ -354,10 +394,17 @@ class NexusEconomyWorker {
       const uuid = normalizeUuid(mcUuid);
       const link = this.minecraft?.linkByUuid(uuid);
       const identity = link ? await this.minecraft.wallet.resolve(link.discordUserId) : null;
-      if (!mcPlaytimeEligible(identity, link)) return { ok: false, reason: 'unlinked-player' };
-      if (await this.minecraft.wallet.quarantined?.(identity.economicIdentityId)) {
-        return { ok: false, reason: 'quarantined', credited: 0 };
+      if (identity) {
+        const hold = memberIdentityHold({
+          status: identity.status,
+          holdReason: identity.holdReason,
+          missingRow: !String(identity.status || '').trim(),
+          economicIdentityId: identity.economicIdentityId,
+          env: this.env
+        });
+        if (hold) return { ...hold, credited: 0 };
       }
+      if (!mcPlaytimeEligible(identity, link)) return { ok: false, reason: 'unlinked-player' };
       discordUserId = link.discordUserId;
       subjectId = uuid;
       if (gate.dryRun) return this.#dryRunMinecraft(state, discordUserId, link, { online, server: serverKey, mcUuid: uuid, afk });
@@ -374,6 +421,14 @@ class NexusEconomyWorker {
         ? this.ensureAccount(fresh, discordUserId, syncedRank)
         : this.ensureAccount(fresh, discordUserId, rankId || syncedRank);
       const now = this.now();
+      const hold = this.accountHold(account, discordUserId);
+      if (hold) {
+        account.lastAccountingAt = new Date(now).toISOString();
+        account.onlineUncreditedMs = 0;
+        account.updatedAt = account.lastAccountingAt;
+        this.store.write(fresh);
+        return { ...hold, online: account.online, server: serverKey, balance: account.balance, rankId: account.rankId };
+      }
       const wasOnline = Boolean(account.online);
       const previous = account.lastAccountingAt ? Date.parse(account.lastAccountingAt) : now;
       const accountingGap = wasOnline ? Math.max(0, Math.min(now - previous, ONLINE_INTERVAL_MS * 2)) : 0;
@@ -448,6 +503,16 @@ class NexusEconomyWorker {
   accrueOffline(discordUserId) {
     return this.withLock(discordUserId, async () => {
       const state = this.store.read();
+      const existing = state.accounts[cleanId(discordUserId)] || null;
+      const hold = this.accountHold(existing, discordUserId);
+      if (hold) {
+        if (existing) {
+          existing.lastPassiveAt = new Date(this.now()).toISOString();
+          existing.updatedAt = existing.lastPassiveAt;
+          this.store.write(state);
+        }
+        return { ...hold, balance: existing?.balance || 0 };
+      }
       const account = state.accounts[cleanId(discordUserId)];
       if (!account) return { ok: false, reason: 'wallet-not-found' };
       const points = await this.accrueOfflineInternal(state, account, this.now());

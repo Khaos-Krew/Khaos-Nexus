@@ -3,6 +3,7 @@
 const crypto = require('node:crypto');
 const { ClusterShopService, loadCatalog } = require('./cluster-shop-service.cjs');
 const { createNexusEconomyPurchaseOutboxRecord } = require('./nexus-economy-purchase-outbox-record.cjs');
+const { memberIdentityHold } = require('./nexus-economy-identity-hold.cjs');
 
 const SHOP_CURRENCY = 'Nexus Points';
 const MAX_ACTION_BUNDLES = 25;
@@ -64,6 +65,18 @@ class NexusEconomyPostgresShopService {
     const quote = this.quote({ itemId, bundles, action: 'buy' });
     if (quote.bundles > MAX_ACTION_BUNDLES) throw new Error(`A single purchase is limited to ${MAX_ACTION_BUNDLES} bundles.`);
 
+    if (typeof this.repository.getIdentityByLink === 'function') {
+      const linked = await this.repository.getIdentityByLink('discord', discord);
+      if (linked) {
+        const hold = memberIdentityHold({
+          status: linked.status,
+          holdReason: linked.hold_reason ?? linked.holdReason,
+          economicIdentityId: linked.economic_identity_id ?? linked.economicIdentityId,
+          env: this.wallet.env || process.env
+        });
+        if (hold) return { ...hold, currency: 'NEXUS_POINTS' };
+      }
+    }
     const identityDigest = digest(`${discord}\u0000${idem}`);
     const requestId = `req_${identityDigest.slice(0, 40)}`;
     const orderId = `shop_${identityDigest.slice(0, 40)}`;

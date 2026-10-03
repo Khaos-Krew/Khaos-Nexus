@@ -963,9 +963,13 @@ test('a verified minecraft link earns without EOS and quarantine still blocks', 
   assert.ok(earned.balance > 0);
   const linked = worker.store.read();
   linked.accounts[DISCORD].status = 'restricted';
+  linked.accounts[DISCORD].holdReason = 'staff';
   worker.store.write(linked);
   const denied = await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
-  assert.equal(denied.reason, 'unlinked-player');
+  assert.equal(denied.ok, false);
+  assert.equal(denied.reason, 'account-hold');
+  assert.equal(denied.message, 'Your account is on hold. Ask an Admin for help.');
+  assert.equal(denied.credited, 0);
   const shop = await worker.minecraft.quote({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1 });
   assert.equal(shop.reason, 'verified-identity-required');
 
@@ -1064,6 +1068,7 @@ function minecraftEarnPool(queries, identity) {
       const text = String(sql);
       if (text.includes('nexus_mc_schema_version') && text.includes('SELECT')) return { rows: [{ version: 1 }] };
       if (text.includes("provider = 'minecraft'")) return { rows: [identity] };
+      if (text.includes('SELECT status') && text.includes('nexus_economic_identities')) return { rows: [{ status: 'verified' }], rowCount: 1 };
       if (text.includes('SELECT *') && text.includes('nexus_economy_accrual_state')) {
         return {
           rows: [{
@@ -1289,6 +1294,9 @@ function shopBuyPool({ quotes = [], orders = [], balance = 100000 } = {}) {
           lockKey = params[0];
           await acquire(lockKey);
           return { rows: [], rowCount: 0 };
+        }
+        if (text.includes('SELECT status') && text.includes('nexus_economic_identities')) {
+          return { rows: [{ status: 'verified' }], rowCount: 1 };
         }
         if (text.includes('nexus_mc_quotes') && text.includes('SELECT')) {
           const quote = committed.quotes.get(params[0]);

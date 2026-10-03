@@ -56,8 +56,17 @@ async function runCycle(options = {}) {
   running = true;
   try {
     const results = [];
+    const economyClient = options.economyClient || new NexusEconomyClient();
+    if (economyClient.configured?.() && typeof economyClient.sweepCreditFailedSells === 'function') {
+      try {
+        const swept = await economyClient.sweepCreditFailedSells();
+        results.push({ creditFailedSweep: swept?.results || [] });
+      } catch (error) {
+        results.push({ creditFailedSweep: [], error: String(error?.message || error).slice(0, 200) });
+      }
+    }
     for (let index = 0; index < 10; index += 1) {
-      const result = await deliverOne(options);
+      const result = await deliverOne({ ...options, economyClient });
       results.push(result);
       if (result?.skipped) break;
     }

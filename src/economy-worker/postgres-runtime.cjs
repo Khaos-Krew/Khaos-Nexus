@@ -24,12 +24,13 @@ async function createPostgresEconomyRuntime({ env = process.env, now } = {}) {
   if (!connectionString) throw new Error('Postgres economy storage requires NEXUS_ECONOMY_DATABASE_URL or DATABASE_URL.');
   const schema = String(env.NEXUS_ECONOMY_SCHEMA || 'public').trim() || 'public';
   const pool = new Pool({ connectionString, max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 });
-  const repository = new NexusEconomyPostgresRuntimeRepository({ pool, schema });
   const nowFn = now ? () => Number(now()) : Date.now;
+  const repository = new NexusEconomyPostgresRuntimeRepository({ pool, schema, env, now: nowFn });
   const accrual = new PostgresEconomyAccrual({ pool, schema, now: nowFn, env });
   try {
     await pool.query(NexusEconomyPostgresRuntimeRepository.runtimeSchemaSql({ schema }));
     await accrual.ensureSchema();
+    await repository.backfillLegacyRestrictedHolds();
     await pool.query('SELECT 1 AS ok');
   } catch (error) {
     await pool.end().catch(() => {});
@@ -81,6 +82,7 @@ async function createPostgresEconomyRuntime({ env = process.env, now } = {}) {
         throw new Error(eligibility.reason);
       }
       const linked = await repository.linkVerifiedIdentity(verified);
+      if (linked && linked.ok === false) return linked;
       await syncRankAndEnsure(verified.discordUserId, input.rankId || 'shadow-recruit');
       return linked;
     },
