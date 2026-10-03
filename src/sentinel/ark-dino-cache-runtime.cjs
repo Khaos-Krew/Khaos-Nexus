@@ -1,6 +1,7 @@
 'use strict';
 
 const { connectMysql, isRetired } = require('./arkshop-mysql.cjs');
+const { arkShopFeaturesAreOpen } = require('./arkshop-cluster-economy-guard.cjs');
 const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 const { CONFIG, cacheForPurchase } = require('./ark-dino-cache-engine.cjs');
@@ -80,9 +81,9 @@ function rconResolver(registry) {
   };
 }
 
-async function runDinoCacheCycle({ connector = connectMysql, registry = new ArkClusterRegistry() } = {}) {
+async function runDinoCacheCycle({ connector = connectMysql, registry = new ArkClusterRegistry(), featuresOpen = arkShopFeaturesAreOpen } = {}) {
   if (!enabled()) return { skipped: 'disabled' };
-  if (isRetired()) return { skipped: 'arkshop-mysql-retired' };
+  if (isRetired() || await featuresOpen() !== true) return { skipped: 'arkshop-mysql-retired' };
   const mapping = serverMapping();
   const opened = await connector();
   if (opened?.retired || !opened?.connection) return { skipped: 'arkshop-mysql-retired' };

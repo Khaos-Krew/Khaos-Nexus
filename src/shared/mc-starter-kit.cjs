@@ -1,0 +1,123 @@
+'use strict';
+
+// Same live pack as the shop catalog: ATM10: Aeronautics 0.6.1 (Minecraft 1.21.1, NeoForge 21.1.250, hosted on Kinetic Hosting).
+const KIT_VERSION = 'atm10-aeronautics-0.6.1';
+const ACCOUNT_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const TENURE_MS = 7 * 24 * 60 * 60 * 1000;
+const FIRST_PLAY_MS = 15 * 60 * 1000;
+const BACKPACK_ID = 'sophisticatedbackpacks:backpack';
+
+const DEFAULT_KIT_ITEMS = Object.freeze([
+  Object.freeze({ itemId: 'minecraft:iron_pickaxe', qty: 1 }),
+  Object.freeze({ itemId: 'minecraft:iron_axe', qty: 1 }),
+  Object.freeze({ itemId: 'minecraft:iron_shovel', qty: 1 }),
+  Object.freeze({ itemId: 'minecraft:stone_sword', qty: 1 }),
+  Object.freeze({ itemId: 'minecraft:bread', qty: 16 }),
+  Object.freeze({ itemId: 'minecraft:torch', qty: 32 }),
+  Object.freeze({ itemId: 'minecraft:white_bed', qty: 1 }),
+  Object.freeze({ itemId: 'minecraft:crafting_table', qty: 1 }),
+  Object.freeze({ itemId: 'create:wrench', qty: 1 }),
+  Object.freeze({ itemId: 'create:andesite_alloy', qty: 16 }),
+  Object.freeze({ itemId: BACKPACK_ID, qty: 1 })
+]);
+
+const ALLOWED_KIT_ITEM_IDS = new Set(DEFAULT_KIT_ITEMS.map((item) => item.itemId));
+
+function loadStarterKit(env = process.env) {
+  const raw = String(env.MC_STARTER_KIT_JSON || '').trim();
+  let items = DEFAULT_KIT_ITEMS.map((item) => ({ itemId: item.itemId, qty: item.qty }));
+  if (raw) {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length !== items.length) {
+      throw new Error('MC_STARTER_KIT_JSON cannot add or remove kit items.');
+    }
+    items = items.map((item, index) => {
+      const override = parsed[index] || {};
+      if (override.qty != null && (!Number.isSafeInteger(Number(override.qty)) || Number(override.qty) <= 0)) {
+        throw new Error('Starter Kit qty must be a positive whole number.');
+      }
+      if (!Number.isSafeInteger(item.qty) || item.qty <= 0) throw new Error('Starter Kit qty must be a positive whole number.');
+      const requested = String(override.itemId || '').trim();
+      return { itemId: ALLOWED_KIT_ITEM_IDS.has(requested) ? requested : item.itemId, qty: item.qty };
+    });
+  }
+  if (!items.some((item) => item.itemId === BACKPACK_ID && item.qty >= 1)) {
+    throw new Error('Starter Kit must include sophisticatedbackpacks:backpack.');
+  }
+  const backpack = items.filter((item) => item.itemId === BACKPACK_ID);
+  const rest = items.filter((item) => item.itemId !== BACKPACK_ID);
+  return Object.freeze({
+    version: KIT_VERSION,
+    items: Object.freeze([...rest, ...backpack].map((item) => Object.freeze({ ...item })))
+  });
+}
+
+const DISCORD_EPOCH_MS = 1420070400000n;
+
+function discordAccountCreatedMs(discordUserId) {
+  try {
+    const id = BigInt(String(discordUserId || '').trim());
+    if (id <= 0n) return NaN;
+    return Number((id >> 22n) + DISCORD_EPOCH_MS);
+  } catch {
+    return NaN;
+  }
+}
+
+async function guildJoinedAtMs(discordUserId, env = process.env, fetchImpl = globalThis.fetch) {
+  const guild = String(env.NEXUS_DISCORD_GUILD_ID || env.DISCORD_GUILD_ID || '').trim();
+  const token = String(env.NEXUS_SENTINAL_DISCORD_TOKEN || env.DISCORD_BOT_TOKEN || '').trim();
+  const user = String(discordUserId || '').trim();
+  if (!/^\d{5,32}$/.test(guild) || !/^\d{5,32}$/.test(user) || !token || typeof fetchImpl !== 'function') return NaN;
+  try {
+    const response = await fetchImpl(`https://discord.com/api/v10/guilds/${guild}/members/${user}`, {
+      headers: { authorization: `Bot ${token}` }
+    });
+    if (!response?.ok) return NaN;
+    const body = await response.json();
+    const joined = Date.parse(body?.joined_at || '');
+    return Number.isFinite(joined) ? joined : NaN;
+  } catch {
+    return NaN;
+  }
+}
+
+function starterKitEligibility({
+  identityVerified = false,
+  linkVerified = false,
+  premiumUuid = false,
+  quarantined = false,
+  disabled = false,
+  accountCreatedAt = null,
+  joinedAt = null,
+  lifetimeMs = 0,
+  alreadyClaimedByIdentity = false,
+  alreadyClaimedByUuid = false,
+  now = Date.now()
+} = {}) {
+  if (disabled || quarantined) return { ok: false, reason: 'not-eligible' };
+  if (!identityVerified) return { ok: false, reason: 'verified-identity-required' };
+  if (!linkVerified || !premiumUuid) return { ok: false, reason: 'verified-minecraft-link-required' };
+  if (alreadyClaimedByIdentity || alreadyClaimedByUuid) return { ok: false, reason: 'already-claimed' };
+  const created = Number(accountCreatedAt);
+  const joined = Number(joinedAt);
+  if (!Number.isFinite(created)) return { ok: false, reason: 'account-age-unknown' };
+  if (now - created < ACCOUNT_AGE_MS) return { ok: false, reason: 'account-too-new' };
+  if (!Number.isFinite(joined)) return { ok: false, reason: 'tenure-unknown' };
+  if (now - joined < TENURE_MS) return { ok: false, reason: 'tenure-too-short' };
+  if (Number(lifetimeMs || 0) < FIRST_PLAY_MS) return { ok: false, reason: 'playtime-too-short' };
+  return { ok: true };
+}
+
+module.exports = {
+  KIT_VERSION,
+  ACCOUNT_AGE_MS,
+  TENURE_MS,
+  FIRST_PLAY_MS,
+  BACKPACK_ID,
+  DEFAULT_KIT_ITEMS,
+  loadStarterKit,
+  discordAccountCreatedMs,
+  guildJoinedAtMs,
+  starterKitEligibility
+};

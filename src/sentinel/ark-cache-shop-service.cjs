@@ -154,12 +154,19 @@ class ArkCacheShopService {
 
   linkedAccount(discordUserId) { return pickLinkedArkAccount(this.identityStore.profileByDiscord(cleanId(discordUserId, 25))); }
   async openConnection() {
+    if (isRetired()) throw shopError('ARKSHOP_MYSQL_RETIRED', ARKSHOP_FEATURES_OFF_MESSAGE);
     const opened = await this.connector();
     if (opened?.retired || !opened?.connection) throw shopError('ARKSHOP_MYSQL_RETIRED', ARKSHOP_FEATURES_OFF_MESSAGE);
     return opened;
   }
+  async assertFeaturesAvailable() {
+    if (isRetired()) throw shopError('ARKSHOP_MYSQL_RETIRED', ARKSHOP_FEATURES_OFF_MESSAGE);
+    assertEconomyReady(await this.economyStatus());
+  }
   async refreshWeekly() {
     if (isRetired()) return { skipped: 'arkshop-mysql-retired' };
+    const economy = await this.economyStatus();
+    if (economy?.ok !== true) return { skipped: 'arkshop-mysql-retired' };
     const { connection } = await this.openConnection();
     try { await arn.ensureArnSchema(connection); setArnPolicy(await arn.settings(connection)); return await loadWeekly(connection, this.rngSecret); }
     finally { await connection.end().catch(()=>{}); }
@@ -178,10 +185,10 @@ class ArkCacheShopService {
   }
 
   async purchase({ discordUserId, cacheId, purchaseNonce, rotationId } = {}) {
+    await this.assertFeaturesAvailable();
     const userId = cleanId(discordUserId, 25), type = cleanId(cacheId, 48).toLowerCase(), nonce = cleanId(purchaseNonce, 80);
     if(String(purchaseNonce||'').length>80)throw shopError('INVALID_PURCHASE_NONCE','Purchase identity is too long.');
     if (!/^\d{5,25}$/.test(userId)) throw shopError('INVALID_DISCORD_USER', 'A valid Discord user is required.');
-    if (type !== 'arn') assertEconomyReady(await this.economyStatus());
     if (type === 'weekly') {
       // A committed purchase remains replayable even after its rotation expires.
       const {connection:replayDb}=await this.openConnection();
@@ -247,6 +254,7 @@ class ArkCacheShopService {
   }
 
   async reveal({ discordUserId, orderId } = {}) {
+    await this.assertFeaturesAvailable();
     const userId = cleanId(discordUserId, 25), id = cleanId(orderId, 36);
     if (!/^\d{5,25}$/.test(userId) || !/^[0-9a-f-]{36}$/i.test(id)) throw shopError('INVALID_REVEAL', 'That sealed Dino Cache cannot be revealed.');
     const { connection } = await this.openConnection();
@@ -269,6 +277,7 @@ class ArkCacheShopService {
   }
 
   async sealed(discordUserId, limit = 12) {
+    await this.assertFeaturesAvailable();
     const userId = cleanId(discordUserId, 25), safeLimit = Math.max(1, Math.min(20, Number(limit) || 12));
     const { connection } = await this.openConnection();
     try {
@@ -279,6 +288,7 @@ class ArkCacheShopService {
   }
 
   async markAnnounced(orderId) {
+    await this.assertFeaturesAvailable();
     const id = cleanId(orderId, 36);
     const { connection } = await this.openConnection();
     try {
@@ -290,6 +300,7 @@ class ArkCacheShopService {
   }
 
   async rewards(discordUserId, limit = 8) {
+    await this.assertFeaturesAvailable();
     const userId = cleanId(discordUserId, 25), safeLimit = Math.max(1, Math.min(20, Number(limit) || 8));
     const { connection } = await this.openConnection();
     try { await ensureSchema(connection); const [rows] = await connection.query(`SELECT * FROM ${ORDER_TABLE} WHERE discord_user_id=? ORDER BY created_at DESC LIMIT ${safeLimit}`, [userId]); return rows.map(orderView); }

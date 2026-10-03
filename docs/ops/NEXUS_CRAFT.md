@@ -79,6 +79,27 @@ Staff RCON, after `/mcrcon setup`: `/mc players`, `/mc say`, `/mc whitelist add`
 
 `/mcrcon clear` with `confirm: true` deletes one saved server.
 
+## Minecraft Points
+
+Live target: ATM10: Aeronautics 0.6.1, Minecraft 1.21.1, NeoForge 21.1.250, hosted on Kinetic Hosting. Item ids such as `sophisticatedbackpacks:backpack`, `create:wrench`, and `create:andesite_alloy` match that pack.
+
+All of these default off, except dry-run. Nothing here turns on Nexus economy writes.
+
+- `MC_POINTS_ENABLED` — master switch for `/mc link`. Default false.
+- `MC_PLAYTIME_NP_ENABLED` — counted playtime may accrue. Default false.
+- `MC_PLAYTIME_DRY_RUN` — default true. The tracker logs the credit and cap math and does not write a ledger row.
+- `MC_SHOP_ENABLED` — Sentinal Minecraft shop section. Default false.
+- `MC_SHOP_DELIVERY_ENABLED` — RCON delivery of paid orders and the Starter Kit. Default false.
+- `MC_STARTER_KIT_ENABLED` — one-time kit claim. Default false.
+
+Live playtime also requires the existing economy presence-write gate. Shop purchases and refunds require the existing economy write gate. Craft reads `NEXUS_ECONOMY_URL` and `NEXUS_ECONOMY_CRAFT_TOKEN` only when one of these flags is on. That token cannot buy, quote, or staff-refund. Item ids can be overridden with `MC_SHOP_CATALOG_JSON` and `MC_STARTER_KIT_JSON` only within the reviewed allow-list. The kit must still include `sophisticatedbackpacks:backpack`.
+
+AFK is five minutes of unchanged position and rotation. There is no datapack tag and FTB Essentials is not used. A missing position or rotation counts as AFK. `give` is sent to the UUID. Success is a reply that starts `Gave <count> [` for the requested count. The player name is not checked. A full inventory still says `Gave` and drops the overflow, so delivery checks free slots first and requeues when there is no room.
+
+Partial delivery keeps every line that already arrived. The rest is marked SENT_UNCONFIRMED for staff and is not auto-retried or auto-refunded.
+
+`/mc link`, `/mc unlink`, `/mc shop`, and `/mc starter` are registered only when that feature's flag is on. `/mc link start` whispers a code to the online Java player and says not to share it. `/mc link confirm` verifies that UUID. `/mc unlink` starts a 30-day cooldown. `/mc shop` and `/mc starter` point at Sentinal. Staff `/mcadmin` lists orders and kit claims. Members do not see `/mcadmin`.
+
 ## Edition support
 
 | Target | Status | RCON | Realms board |

@@ -4,6 +4,8 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
+const { isMinecraftShopOrder } = require('../economy-worker/mc-points-service.cjs');
+
 const ORDER_VERSION = 1;
 const DEFAULT_MAX_BUNDLES = 100;
 const FORBIDDEN_SELL_KINDS = new Set(['dino', 'dinos', 'creature', 'creatures', 'dino-cache']);
@@ -263,7 +265,7 @@ class ClusterShopService {
     if (!allowed.has(String(status))) throw new Error('Invalid delivery status.');
     const state = this.store.read();
     const order = state.orders[id];
-    if (!order || order.type !== 'BUY') throw new Error('Buy order not found.');
+    if (!order || order.type !== 'BUY' || isMinecraftShopOrder(order)) throw new Error('Buy order not found.');
     if (order.status === 'DELIVERED') return { ok: true, duplicate: true, order };
     if (!['PAID_QUEUED', 'PLAYER_OFFLINE', 'DELIVERY_IN_PROGRESS', 'SENT_UNCONFIRMED', 'DELIVERY_FAILED'].includes(order.status)) {
       throw new Error(`Buy order cannot transition from ${order.status}.`);
@@ -279,7 +281,7 @@ class ClusterShopService {
 
   pendingBuyOrders() {
     const orders = Object.values(this.store.read().orders);
-    return orders.filter((order) => order.type === 'BUY' && ['PAID_QUEUED', 'PLAYER_OFFLINE', 'DELIVERY_FAILED'].includes(order.status));
+    return orders.filter((order) => order.type === 'BUY' && !isMinecraftShopOrder(order) && ['PAID_QUEUED', 'PLAYER_OFFLINE', 'DELIVERY_FAILED'].includes(order.status));
   }
 }
 

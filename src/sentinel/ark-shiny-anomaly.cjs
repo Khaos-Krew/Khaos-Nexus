@@ -3,6 +3,7 @@
 const crypto = require('node:crypto');
 const { ChannelType } = require('discord.js');
 const { connectMysql, isRetired } = require('./arkshop-mysql.cjs');
+const { arkShopFeaturesAreOpen } = require('./arkshop-cluster-economy-guard.cjs');
 const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { ArkRconClient, arkServerFromEnv } = require('./ark-rcon.cjs');
 
@@ -120,10 +121,10 @@ async function relayCrossChat(message, registry) {
   return { sent };
 }
 
-async function handleShinyWebhook({ token, payload, controller, connector = connectMysql, registry = new ArkClusterRegistry() } = {}) {
+async function handleShinyWebhook({ token, payload, controller, connector = connectMysql, registry = new ArkClusterRegistry(), featuresOpen = arkShopFeaturesAreOpen } = {}) {
   if (!enabled()) return { status: 503, body: { ok: false, code: 'SHINY_INGEST_DISABLED' } };
   if (!validIngestToken(token)) return { status: 401, body: { ok: false, code: 'SHINY_INGEST_UNAUTHORIZED' } };
-  if (isRetired()) {
+  if (isRetired() || await featuresOpen() !== true) {
     if (!retiredNoticeLogged) {
       retiredNoticeLogged = true;
       console.log('[shiny-anomaly] ArkShop MySQL retired; lifecycle ingest skipped.');

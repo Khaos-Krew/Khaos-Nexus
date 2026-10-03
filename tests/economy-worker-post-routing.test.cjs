@@ -6,13 +6,15 @@ const assert = require('node:assert/strict');
 const {
   DRAIN_MUTATION_PATHS,
   WRITE_PATHS,
-  POST_PATHS
+  POST_PATHS,
+  MC_NONECONOMY_PATHS
 } = require('../src/economy-worker/server.cjs');
 
 test('economy POST allowlist covers every executable POST route', () => {
   const expected = new Set([
     ...DRAIN_MUTATION_PATHS,
     ...WRITE_PATHS,
+    ...MC_NONECONOMY_PATHS,
     '/shop/quote'
   ]);
 
