@@ -2,7 +2,7 @@
 
 const crypto = require('node:crypto');
 const { sqlIdent } = require('../sentinel/nexus-economy-postgres-repository.cjs');
-const { MemoryMcPoints, orderLineHash, stackLines } = require('./mc-points-service.cjs');
+const { MemoryMcPoints, orderLineHash, stackLines, leaseMsForOrder } = require('./mc-points-service.cjs');
 const { catalogItem, catalogFingerprint, loadMcShopCatalog } = require('../shared/mc-shop-catalog.cjs');
 const { quarantineDenylist } = require('../sentinel/nexus-economy-wallet-core.cjs');
 const { guildJoinedAtMs } = require('../shared/mc-starter-kit.cjs');
@@ -201,7 +201,7 @@ class PostgresMcPoints {
     if (!this.flags().pointsEnabled) return { ok: false, reason: 'mc-points-disabled' };
     const ready = await this.#ready();
     if (!ready.ok) return ready;
-    return this.#touch((memory) => memory.challenge(input));
+    return this.#touch((memory) => memory.challenge(input), new Set(['links', 'challenges', 'requests']));
   }
   async confirm(input) {
     if (!this.flags().pointsEnabled) return { ok: false, reason: 'mc-points-disabled' };
@@ -213,12 +213,12 @@ class PostgresMcPoints {
     if (!this.flags().pointsEnabled) return { ok: false, reason: 'mc-points-disabled' };
     const ready = await this.#ready();
     if (!ready.ok) return ready;
-    return this.#touch((memory) => memory.unlink(input));
+    return this.#touch((memory) => memory.unlink(input), new Set(['links']));
   }
   async status(input) {
     const ready = await this.#ready();
     if (!ready.ok) return ready;
-    return this.#touch((memory) => memory.status(input));
+    return this.#touch((memory) => memory.status(input), new Set(['links']));
   }
   async quote(input) {
     if (!this.flags().shopEnabled) return { ok: false, reason: 'mc-shop-disabled' };
@@ -280,7 +280,7 @@ class PostgresMcPoints {
     if (!ready.ok) return [];
     return this.#sweep(input);
   }
-  linkByUuid(mcUuid) { return this.#touch((memory) => memory.linkByUuid(mcUuid)); }
+  linkByUuid(mcUuid) { return this.#touch((memory) => memory.linkByUuid(mcUuid), new Set(['links'])); }
   async sweepExpiredLeases() {
     if (!this.flags().shopDeliveryEnabled) return [];
     const ready = await this.#ready();
@@ -318,70 +318,85 @@ class PostgresMcPoints {
     };
   }
 
-  async #load(client, memory) {
+  async #load(client, memory, parts = null) {
     const s = sqlIdent(this.schema);
-    const links = await client.query(`SELECT mc_uuid, economic_identity_id, discord_user_id, verified_at, unlinked_at, cooldown_until, playtime_ms, proof FROM ${s}.nexus_mc_links`);
-    memory.links = new Map(links.rows.map((row) => [row.mc_uuid, {
-      mcUuid: row.mc_uuid,
-      economicIdentityId: row.economic_identity_id,
-      discordUserId: row.discord_user_id,
-      verifiedAt: row.verified_at ? new Date(row.verified_at).toISOString() : null,
-      unlinkedAt: row.unlinked_at ? new Date(row.unlinked_at).toISOString() : null,
-      cooldownUntil: row.cooldown_until ? new Date(row.cooldown_until).toISOString() : null,
-      playtimeMs: Number(row.playtime_ms || 0),
-      proof: row.proof || null
-    }]));
-    const challenges = await client.query(`SELECT discord_user_id, mc_uuid, mc_name, code_hash, economic_identity_id, expires_at, attempts, locked, used_at FROM ${s}.nexus_mc_link_challenges`);
-    memory.challenges = new Map(challenges.rows.map((row) => [row.discord_user_id, {
-      discordUserId: row.discord_user_id,
-      mcUuid: row.mc_uuid,
-      mcName: row.mc_name,
-      codeHash: row.code_hash,
-      economicIdentityId: row.economic_identity_id,
-      expiresAt: Date.parse(row.expires_at),
-      attempts: Number(row.attempts || 0),
-      locked: row.locked === true,
-      used: Boolean(row.used_at)
-    }]));
-    const requests = await client.query(`SELECT mc_uuid, discord_user_id, created_at FROM ${s}.nexus_mc_link_requests WHERE created_at > NOW() - INTERVAL '1 hour'`);
-    memory.linkRequests = requests.rows.map((row) => ({ mcUuid: row.mc_uuid, discordUserId: row.discord_user_id, at: Date.parse(row.created_at) }));
-    const orders = await client.query(`SELECT order_data FROM ${s}.nexus_mc_orders`);
-    memory.orders = new Map(orders.rows.map((row) => [row.order_data.orderId, row.order_data]));
-    const grants = await client.query(`SELECT kind, economic_identity_id, mc_uuid, kit_version, order_id, status, claimed_at FROM ${s}.nexus_mc_grants`);
-    memory.grants = grants.rows.map((row) => ({
-      kind: row.kind,
-      economicIdentityId: row.economic_identity_id,
-      mcUuid: row.mc_uuid,
-      kitVersion: row.kit_version,
-      orderId: row.order_id,
-      status: row.status,
-      claimedAt: new Date(row.claimed_at).toISOString()
-    }));
-    const quotes = await client.query(`SELECT * FROM ${s}.nexus_mc_quotes WHERE consumed_at IS NULL`);
-    memory.quotes = new Map(quotes.rows.map((row) => [row.nonce, {
-      nonce: row.nonce,
-      discordUserId: row.discord_user_id,
-      economicIdentityId: row.economic_identity_id,
-      mcUuid: row.mc_uuid,
-      sku: row.sku,
-      itemId: row.item_id,
-      bundles: Number(row.bundles),
-      qty: Number(row.qty),
-      price: Number(row.price),
-      catalogVersion: row.catalog_version,
-      catalogHash: row.catalog_hash,
-      signature: row.signature,
-      expiresAt: Date.parse(row.expires_at),
-      consumed: Boolean(row.consumed_at)
-    }]));
-    const audits = await client.query(`SELECT order_id, actor, reason, amount, created_at FROM ${s}.nexus_mc_refund_audit`);
-    memory.audits = audits.rows.map((row) => ({
-      orderId: row.order_id,
-      actor: row.actor,
-      reason: row.reason,
-      amount: Number(row.amount),
-      createdAt: new Date(row.created_at).toISOString()
-    }));
+    const want = (name) => !parts || parts.has(name);
+    if (want('links')) {
+      const links = await client.query(`SELECT mc_uuid, economic_identity_id, discord_user_id, verified_at, unlinked_at, cooldown_until, playtime_ms, proof FROM ${s}.nexus_mc_links`);
+      memory.links = new Map(links.rows.map((row) => [row.mc_uuid, {
+        mcUuid: row.mc_uuid,
+        economicIdentityId: row.economic_identity_id,
+        discordUserId: row.discord_user_id,
+        verifiedAt: row.verified_at ? new Date(row.verified_at).toISOString() : null,
+        unlinkedAt: row.unlinked_at ? new Date(row.unlinked_at).toISOString() : null,
+        cooldownUntil: row.cooldown_until ? new Date(row.cooldown_until).toISOString() : null,
+        playtimeMs: Number(row.playtime_ms || 0),
+        proof: row.proof || null
+      }]));
+    }
+    if (want('challenges')) {
+      const challenges = await client.query(`SELECT discord_user_id, mc_uuid, mc_name, code_hash, economic_identity_id, expires_at, attempts, locked, used_at FROM ${s}.nexus_mc_link_challenges`);
+      memory.challenges = new Map(challenges.rows.map((row) => [row.discord_user_id, {
+        discordUserId: row.discord_user_id,
+        mcUuid: row.mc_uuid,
+        mcName: row.mc_name,
+        codeHash: row.code_hash,
+        economicIdentityId: row.economic_identity_id,
+        expiresAt: Date.parse(row.expires_at),
+        attempts: Number(row.attempts || 0),
+        locked: row.locked === true,
+        used: Boolean(row.used_at)
+      }]));
+    }
+    if (want('requests')) {
+      const requests = await client.query(`SELECT mc_uuid, discord_user_id, created_at FROM ${s}.nexus_mc_link_requests WHERE created_at > NOW() - INTERVAL '1 hour'`);
+      memory.linkRequests = requests.rows.map((row) => ({ mcUuid: row.mc_uuid, discordUserId: row.discord_user_id, at: Date.parse(row.created_at) }));
+    }
+    if (want('orders')) {
+      const orders = await client.query(`SELECT order_data FROM ${s}.nexus_mc_orders`);
+      memory.orders = new Map(orders.rows.map((row) => [row.order_data.orderId, row.order_data]));
+    }
+    if (want('grants')) {
+      const grants = await client.query(`SELECT kind, economic_identity_id, mc_uuid, kit_version, order_id, status, claimed_at FROM ${s}.nexus_mc_grants`);
+      memory.grants = grants.rows.map((row) => ({
+        kind: row.kind,
+        economicIdentityId: row.economic_identity_id,
+        mcUuid: row.mc_uuid,
+        kitVersion: row.kit_version,
+        orderId: row.order_id,
+        status: row.status,
+        claimedAt: new Date(row.claimed_at).toISOString()
+      }));
+    }
+    if (want('quotes')) {
+      const quotes = await client.query(`SELECT * FROM ${s}.nexus_mc_quotes WHERE consumed_at IS NULL`);
+      memory.quotes = new Map(quotes.rows.map((row) => [row.nonce, {
+        nonce: row.nonce,
+        discordUserId: row.discord_user_id,
+        economicIdentityId: row.economic_identity_id,
+        mcUuid: row.mc_uuid,
+        sku: row.sku,
+        itemId: row.item_id,
+        bundles: Number(row.bundles),
+        qty: Number(row.qty),
+        price: Number(row.price),
+        catalogVersion: row.catalog_version,
+        catalogHash: row.catalog_hash,
+        signature: row.signature,
+        expiresAt: Date.parse(row.expires_at),
+        consumed: Boolean(row.consumed_at)
+      }]));
+    }
+    if (want('audits')) {
+      const audits = await client.query(`SELECT order_id, actor, reason, amount, created_at FROM ${s}.nexus_mc_refund_audit`);
+      memory.audits = audits.rows.map((row) => ({
+        orderId: row.order_id,
+        actor: row.actor,
+        reason: row.reason,
+        amount: Number(row.amount),
+        createdAt: new Date(row.created_at).toISOString()
+      }));
+    }
   }
 
   async #saveLink(client, link) {
@@ -400,37 +415,14 @@ class PostgresMcPoints {
       error.code = 'uuid-taken';
       throw error;
     }
-    if (link.verifiedAt) {
-      const linked = await client.query(
-        `INSERT INTO ${s}.nexus_economic_identity_links (provider, external_id, economic_identity_id, verified_at, source) ` +
-        `VALUES ('minecraft', $1, $2, $3, 'mc-link') ON CONFLICT (provider, external_id) DO NOTHING`,
-        [link.mcUuid, link.economicIdentityId, link.verifiedAt]
-      );
-      if (!linked.rowCount) {
-        const current = await client.query(
-          `SELECT economic_identity_id, verified_at FROM ${s}.nexus_economic_identity_links WHERE provider = 'minecraft' AND external_id = $1`,
-          [link.mcUuid]
-        );
-        const row = current.rows?.[0];
-        if (!row || row.economic_identity_id !== link.economicIdentityId || !row.verified_at) {
-          const error = new Error('uuid-taken');
-          error.code = 'uuid-taken';
-          throw error;
-        }
-      }
-    } else {
-      await client.query(
-        `UPDATE ${s}.nexus_economic_identity_links SET verified_at = NULL WHERE provider = 'minecraft' AND external_id = $1 AND economic_identity_id = $2`,
-        [link.mcUuid, link.economicIdentityId]
-      );
-    }
+    await writeVerifiedMinecraftLink(client, this.schema, link);
   }
 
   async #confirm(input) {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      const memory = await this.#memory(client);
+      const memory = await this.#memory(client, new Set(['links', 'challenges', 'requests']));
       const result = await memory.confirm(input);
       if (!result.ok) {
         if (result.reason === 'code-mismatch' || result.reason === 'code-locked') {
@@ -471,7 +463,7 @@ class PostgresMcPoints {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      await this.#load(client, memory);
+      await this.#load(client, memory, new Set(['links']));
       const result = await memory.quote(input);
       if (result.ok) {
         const quote = result.quote;
@@ -653,7 +645,7 @@ class PostgresMcPoints {
       order.status = 'DELIVERY_IN_PROGRESS';
       order.leaseToken = crypto.randomUUID();
       order.leaseOwner = String(owner || 'nexus-craft');
-      order.leaseUntil = new Date(this.now() + 60 * 1000).toISOString();
+      order.leaseUntil = new Date(this.now() + leaseMsForOrder(order)).toISOString();
       order.updatedAt = order.leaseUntil;
       const updated = await client.query(
         `UPDATE ${s}.nexus_mc_orders SET status = 'DELIVERY_IN_PROGRESS', order_data = $2::jsonb ` +
@@ -730,7 +722,7 @@ class PostgresMcPoints {
     const s = sqlIdent(this.schema);
     try {
       await client.query('BEGIN');
-      const memory = await this.#memory(client);
+      const memory = await this.#memory(client, new Set(['orders', 'grants', 'audits']));
       const before = memory.orders.get(String(input.orderId || ''));
       const previous = before?.status;
       const result = await memory.refund({ ...input, applyWallet: false });
@@ -803,7 +795,7 @@ class PostgresMcPoints {
     const s = sqlIdent(this.schema);
     try {
       await client.query('BEGIN');
-      const memory = await this.#memory(client);
+      const memory = await this.#memory(client, new Set(['links', 'grants', 'orders']));
       const result = await memory.claimStarterKit(input);
       if (!result.ok || result.duplicate) {
         await this.#saveActionAudits(client, memory.actionAudits);
@@ -862,7 +854,7 @@ class PostgresMcPoints {
     const s = sqlIdent(this.schema);
     try {
       await client.query('BEGIN');
-      const memory = await this.#memory(client);
+      const memory = await this.#memory(client, new Set(['orders']));
       const result = await fn(memory);
       if (result.ok && result.order) {
         const params = [result.order.orderId, result.order.status, JSON.stringify(result.order)];
@@ -891,7 +883,7 @@ class PostgresMcPoints {
     }
   }
 
-  async #memory(client) {
+  async #memory(client, parts) {
     const memory = new MemoryMcPoints({
       wallet: await this.#walletView(),
       now: this.now,
@@ -899,15 +891,15 @@ class PostgresMcPoints {
       catalog: this.catalog,
       tenureOf: (discordUserId) => guildJoinedAtMs(discordUserId, this.env)
     });
-    await this.#load(client, memory);
+    await this.#load(client, memory, parts);
     return memory;
   }
 
-  async #touch(fn) {
+  async #touch(fn, parts) {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      const memory = await this.#memory(client);
+      const memory = await this.#memory(client, parts);
       const beforeLinks = new Map([...memory.links.entries()].map(([key, value]) => [key, JSON.stringify(value)]));
       const result = await fn(memory);
       for (const link of memory.links.values()) {
@@ -954,4 +946,36 @@ class PostgresMcPoints {
   }
 }
 
-module.exports = { schemaSql, accrualColumnSql, MC_SCHEMA_VERSION, ensureMinecraftSchema, PostgresMcPoints };
+async function writeVerifiedMinecraftLink(client, schema, link) {
+  const s = sqlIdent(schema);
+  if (!link?.verifiedAt) {
+    await client.query(
+      `UPDATE ${s}.nexus_economic_identity_links SET verified_at = NULL WHERE provider = 'minecraft' AND external_id = $1 AND economic_identity_id = $2`,
+      [link.mcUuid, link.economicIdentityId]
+    );
+    return { ok: true, unlinked: true };
+  }
+  const linked = await client.query(
+    `INSERT INTO ${s}.nexus_economic_identity_links (provider, external_id, economic_identity_id, verified_at, source) ` +
+    `VALUES ('minecraft', $1, $2, $3, 'mc-link') ON CONFLICT (provider, external_id) DO NOTHING`,
+    [link.mcUuid, link.economicIdentityId, link.verifiedAt]
+  );
+  if (linked.rowCount) return { ok: true, inserted: true };
+  const current = await client.query(
+    `SELECT economic_identity_id, verified_at FROM ${s}.nexus_economic_identity_links WHERE provider = 'minecraft' AND external_id = $1`,
+    [link.mcUuid]
+  );
+  const row = current.rows?.[0];
+  if (row && row.economic_identity_id === link.economicIdentityId) {
+    await client.query(
+      `UPDATE ${s}.nexus_economic_identity_links SET verified_at = $3, source = 'mc-link' WHERE provider = 'minecraft' AND external_id = $1 AND economic_identity_id = $2`,
+      [link.mcUuid, link.economicIdentityId, link.verifiedAt]
+    );
+    return { ok: true, relinked: true };
+  }
+  const error = new Error('uuid-taken');
+  error.code = 'uuid-taken';
+  throw error;
+}
+
+module.exports = { schemaSql, accrualColumnSql, MC_SCHEMA_VERSION, ensureMinecraftSchema, writeVerifiedMinecraftLink, PostgresMcPoints };

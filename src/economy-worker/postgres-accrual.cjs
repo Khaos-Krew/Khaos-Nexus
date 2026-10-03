@@ -114,13 +114,14 @@ class PostgresEconomyAccrual {
   async #resolveByMinecraft(client, mcUuid) {
     const uuid = normalizeUuid(mcUuid);
     if (!uuid) return null;
+    // Verified /mc link is enough. Restricted (no EOS mint) may earn. Disabled may not. Quarantine is checked by the caller.
     const result = await client.query(
-      `SELECT i.economic_identity_id, d.external_id AS discord_user_id, m.external_id AS mc_uuid ` +
+      `SELECT i.economic_identity_id, COALESCE(d.external_id, '') AS discord_user_id, m.external_id AS mc_uuid ` +
       `FROM ${this.schema}.nexus_economic_identity_links m ` +
       `JOIN ${this.schema}.nexus_economic_identities i ON i.economic_identity_id = m.economic_identity_id ` +
-      `JOIN ${this.schema}.nexus_economic_identity_links d ON d.economic_identity_id = i.economic_identity_id ` +
+      `LEFT JOIN ${this.schema}.nexus_economic_identity_links d ON d.economic_identity_id = i.economic_identity_id AND d.provider = 'discord' ` +
       `WHERE m.provider = 'minecraft' AND m.external_id = $1 AND m.verified_at IS NOT NULL ` +
-      `AND d.provider = 'discord' AND d.verified_at IS NOT NULL AND i.status = 'verified' LIMIT 1`,
+      `AND i.status IN ('verified', 'restricted') LIMIT 1`,
       [uuid]
     );
     return result.rows?.[0] || null;
@@ -139,8 +140,9 @@ class PostgresEconomyAccrual {
     return result.rows?.[0] || null;
   }
 
-  // Active/playtime credits only reach here via recordPresence → #resolveByEos (EOS verified_at required).
-  // accrueOffline → #resolveByDiscord (verified) then #accruePassive (EOS hard-gate). No Discord-only credit.
+  // ARK playtime still resolves through #resolveByEos (EOS verified_at required).
+  // Minecraft playtime resolves through a verified /mc link and does not require EOS.
+  // accrueOffline still uses #resolveByDiscord, then passive income keeps the EOS hard-gate.
   async #lockStateAndWallet(client, economicIdentityId, rankId = null) {
     const s = this.schema;
     const rank = cleanRank(rankId);

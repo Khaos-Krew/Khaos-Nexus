@@ -8,7 +8,7 @@ const { rankById } = require('../shared/ranks.cjs');
 const { mcPointsFlags } = require('../shared/mc-points-flags.cjs');
 const { normalizeUuid } = require('../craft/mc-rcon-text.cjs');
 const { otherPresenceOnline, planMinecraftContribution, minecraftServerName, countsForSharedOnline, PRESENCE_TTL_MS } = require('../economy-worker/mc-playtime-accounting.cjs');
-const { MemoryMcPoints, mcEarnEligible, bumpMcMetric } = require('../economy-worker/mc-points-service.cjs');
+const { MemoryMcPoints, mcPlaytimeEligible, bumpMcMetric } = require('../economy-worker/mc-points-service.cjs');
 const { economyPerkForRank } = require('../shared/nexus-economy-rank-perks.cjs');
 const { quarantineDenylist } = require('./nexus-economy-wallet-core.cjs');
 
@@ -110,10 +110,11 @@ class NexusEconomyWorker {
         async resolve(discordUserId) {
           const account = worker.store.read().accounts?.[String(discordUserId || '').trim()];
           if (!account) return null;
+          const status = account.status === 'restricted' || account.status === 'disabled' ? account.status : 'verified';
           return {
             economicIdentityId: account.discordUserId,
-            status: 'verified',
-            verifiedAt: account.createdAt || new Date(worker.now()).toISOString()
+            status,
+            verifiedAt: status === 'verified' ? (account.createdAt || new Date(worker.now()).toISOString()) : account.verifiedAt || null
           };
         },
         balance: (discordUserId) => worker.balance(discordUserId),
@@ -353,7 +354,7 @@ class NexusEconomyWorker {
       const uuid = normalizeUuid(mcUuid);
       const link = this.minecraft?.linkByUuid(uuid);
       const identity = link ? await this.minecraft.wallet.resolve(link.discordUserId) : null;
-      if (!mcEarnEligible(identity, link)) return { ok: false, reason: 'unlinked-player' };
+      if (!mcPlaytimeEligible(identity, link)) return { ok: false, reason: 'unlinked-player' };
       if (await this.minecraft.wallet.quarantined?.(identity.economicIdentityId)) {
         return { ok: false, reason: 'quarantined', credited: 0 };
       }

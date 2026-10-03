@@ -6,7 +6,7 @@ const { mcPointsFlags } = require('../src/shared/mc-points-flags.cjs');
 const { loadMcShopCatalog, DEFAULT_MC_SHOP_ITEMS, MC_LIVE_PACK } = require('../src/shared/mc-shop-catalog.cjs');
 const { loadStarterKit, starterKitEligibility, BACKPACK_ID, FIRST_PLAY_MS, ACCOUNT_AGE_MS, TENURE_MS } = require('../src/shared/mc-starter-kit.cjs');
 const { planMinecraftContribution, MC_DAILY_CAP_MS, ctDayKey } = require('../src/economy-worker/mc-playtime-accounting.cjs');
-const { MemoryMcPoints, UNLINK_COOLDOWN_MS, REFUND_AFTER_MS } = require('../src/economy-worker/mc-points-service.cjs');
+const { MemoryMcPoints, UNLINK_COOLDOWN_MS, REFUND_AFTER_MS, OFFLINE_BACKOFF_MS } = require('../src/economy-worker/mc-points-service.cjs');
 const { schemaSql, ensureMinecraftSchema } = require('../src/economy-worker/mc-points-postgres.cjs');
 const { PostgresEconomyAccrual } = require('../src/economy-worker/postgres-accrual.cjs');
 const { NexusEconomyStore, NexusEconomyWorker } = require('../src/sentinel/nexus-economy-worker.cjs');
@@ -363,6 +363,8 @@ test('shop debits through the wallet, checks slots, and never retries an unconfi
   });
   assert.equal(offline.status, 'PLAYER_OFFLINE');
   assert.equal(offline.requeued, true);
+  assert.equal(points.claimNext(), null);
+  advance(OFFLINE_BACKOFF_MS);
   const reclaimed = points.claimNext();
   const full = await deliverMcOrder(reclaimed, {
     points,
@@ -376,6 +378,8 @@ test('shop debits through the wallet, checks slots, and never retries an unconfi
   assert.equal(full.waitingSlots, 1);
   assert.equal(full.requeued, true);
   assert.equal(points.orders.get(reclaimed.orderId).status, 'PLAYER_OFFLINE');
+  assert.equal(points.claimNext(), null);
+  advance(OFFLINE_BACKOFF_MS * 2);
   const reclaimedAgain = points.claimNext();
   const lost = await deliverMcOrder(reclaimedAgain, {
     points,

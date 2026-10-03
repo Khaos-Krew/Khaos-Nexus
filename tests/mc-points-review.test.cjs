@@ -15,7 +15,8 @@ const { planMinecraftContribution, otherPresenceOnline, MC_DAILY_CAP_MS } = requ
 const { parseGiveResponse } = require('../src/craft/mc-rcon-text.cjs');
 const { verifyIdentityProof } = require('../src/sentinel/nexus-economy-identity-proof.cjs');
 const { isMinecraftShopOrder } = require('../src/economy-worker/mc-points-service.cjs');
-const { mcEarnEligible } = require('../src/economy-worker/mc-points-service.cjs');
+const { mcEarnEligible, mcPlaytimeEligible, UNLINK_COOLDOWN_MS, OFFLINE_BACKOFF_MS, leaseMsForOrder } = require('../src/economy-worker/mc-points-service.cjs');
+const { writeVerifiedMinecraftLink, PostgresMcPoints } = require('../src/economy-worker/mc-points-postgres.cjs');
 const { deliverMcOrder, runMcDeliveryCycle } = require('../src/craft/mc-delivery.cjs');
 
 const UUID = '853c80ef-3c37-49fd-aa49-938b674adae6';
@@ -750,3 +751,271 @@ test('GET /mc-shop/catalog returns the catalog and a non-positive qty is rejecte
   const quoted = await points.quote({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1 });
   assert.equal(quoted.reason, 'invalid-qty');
 });
+
+test('rcon failure before give requeues with backoff and a failed status update stops the loop', async () => {
+  const { points, advance } = service();
+  await link(points, DISCORD, UUID);
+  const quoted = await points.quote({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1 });
+  const bought = await points.buy({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1, nonce: quoted.quote.nonce, writesEnabled: true });
+  const claimed = points.claimNext();
+  assert.equal(leaseMsForOrder(claimed), 60 * 1000);
+  assert.equal(leaseMsForOrder({ lines: [{ status: 'PENDING' }, { status: 'PENDING' }] }), 120 * 1000);
+  const failed = await deliverMcOrder(claimed, {
+    points,
+    deliveryEnabled: true,
+    rcon: async () => { throw new Error('connection reset'); }
+  });
+  assert.equal(failed.status, 'PLAYER_OFFLINE');
+  assert.equal(failed.requeued, true);
+  assert.equal(points.orders.get(bought.order.orderId).status, 'PLAYER_OFFLINE');
+  assert.notEqual(points.orders.get(bought.order.orderId).status, 'SENT_UNCONFIRMED');
+  assert.equal(points.claimNext(), null);
+  advance(OFFLINE_BACKOFF_MS);
+  const again = points.claimNext();
+  assert.equal(again.orderId, bought.order.orderId);
+  const partial = points.orders.get(again.orderId);
+  partial.lines[0].status = 'DELIVERED';
+  const afterGive = await deliverMcOrder(partial, {
+    points,
+    deliveryEnabled: true,
+    rcon: async () => { throw new Error('connection reset'); }
+  });
+  assert.equal(afterGive.status, 'SENT_UNCONFIRMED');
+
+  let claims = 0;
+  const cycle = await runMcDeliveryCycle({
+    env: { MC_POINTS_ENABLED: 'true', MC_SHOP_DELIVERY_ENABLED: 'true', MC_PLAYTIME_DRY_RUN: 'false' },
+    rcon: async () => 'There are 0 of a max of 20 players online:',
+    points: {
+      sweepExpiredLeases: async () => {},
+      claimNext: async () => {
+        claims += 1;
+        return {
+          orderId: `order-${claims}`,
+          status: 'DELIVERY_IN_PROGRESS',
+          leaseToken: 'lease',
+          mcUuid: UUID,
+          catalogVersion: 'atm10-aeronautics-0.6.1',
+          catalogHash: 'mismatch',
+          lines: [{ itemId: 'minecraft:oak_log', count: 64, status: 'PENDING' }]
+        };
+      },
+      markDelivery: async () => ({ ok: false, reason: 'lease-lost' })
+    }
+  });
+  assert.equal(claims, 1);
+  assert.equal(cycle.at(-1).statusUpdateFailed, true);
+  assert.equal(cycle.at(-1).reason, 'lease-lost');
+
+  const nextQuote = await points.quote({ discordUserId: DISCORD, sku: 'mc_food32', bundles: 1 });
+  const nextPaid = await points.buy({ discordUserId: DISCORD, sku: 'mc_food32', bundles: 1, nonce: nextQuote.quote.nonce, writesEnabled: true });
+  const leased = points.claimNext();
+  assert.equal(leased.orderId, nextPaid.order.orderId);
+  const heldUntil = Date.parse(leased.leaseUntil);
+  advance(5_000);
+  const renewed = points.markDelivery({
+    orderId: leased.orderId,
+    status: 'DELIVERY_IN_PROGRESS',
+    expectedStatus: 'DELIVERY_IN_PROGRESS',
+    leaseToken: leased.leaseToken,
+    lineIndex: 0,
+    lineStatus: 'DELIVERED'
+  });
+  assert.equal(renewed.ok, true, renewed.reason);
+  assert.ok(Date.parse(renewed.order.leaseUntil) > heldUntil);
+});
+
+test('the same player can relink an unlinked UUID', async () => {
+  const { points, advance } = service();
+  await link(points, DISCORD, UUID);
+  const removed = await points.unlink({ discordUserId: DISCORD });
+  assert.equal(removed.ok, true, removed.reason);
+  advance(UNLINK_COOLDOWN_MS + 1000);
+  const again = await points.challenge({ discordUserId: DISCORD, mcUuid: UUID, mcName: 'Steve' });
+  assert.equal(again.ok, true, again.reason);
+  const confirmed = await points.confirm({ discordUserId: DISCORD, code: again.code });
+  assert.equal(confirmed.ok, true, confirmed.reason);
+  assert.ok(points.links.get(UUID).verifiedAt);
+
+  const calls = [];
+  const client = {
+    async query(sql, params) {
+      calls.push(String(sql));
+      if (String(sql).includes('INSERT INTO') && String(sql).includes('nexus_economic_identity_links')) return { rowCount: 0, rows: [] };
+      if (String(sql).includes('SELECT')) return { rowCount: 1, rows: [{ economic_identity_id: 'econ_same', verified_at: null }] };
+      return { rowCount: 1, rows: [] };
+    }
+  };
+  const relinked = await writeVerifiedMinecraftLink(client, 'public', {
+    mcUuid: UUID,
+    economicIdentityId: 'econ_same',
+    verifiedAt: '2026-10-01T18:00:00.000Z'
+  });
+  assert.equal(relinked.relinked, true);
+  assert.equal(calls.some((sql) => /UPDATE/.test(sql) && /verified_at = \$3/.test(sql)), true);
+  await assert.rejects(
+    () => writeVerifiedMinecraftLink({
+      async query(sql) {
+        if (String(sql).includes('INSERT')) return { rowCount: 0, rows: [] };
+        return { rowCount: 1, rows: [{ economic_identity_id: 'econ_other', verified_at: null }] };
+      }
+    }, 'public', { mcUuid: UUID, economicIdentityId: 'econ_same', verifiedAt: '2026-10-01T18:00:00.000Z' }),
+    (error) => error.code === 'uuid-taken'
+  );
+});
+
+test('a verified minecraft link earns without EOS and quarantine still blocks', async () => {
+  assert.equal(mcPlaytimeEligible({ status: 'restricted' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), true);
+  assert.equal(mcPlaytimeEligible({ status: 'verified', verifiedAt: '2026-01-01' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), true);
+  assert.equal(mcPlaytimeEligible({ status: 'disabled' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), false);
+  assert.equal(mcPlaytimeEligible({ status: 'restricted' }, null), false);
+  assert.equal(mcEarnEligible({ status: 'restricted' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), false);
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-eosless-'));
+  let now = Date.parse('2026-10-01T16:00:00Z');
+  const worker = new NexusEconomyWorker({
+    store: new NexusEconomyStore(root),
+    now: () => now,
+    env: { MC_POINTS_ENABLED: 'true', MC_PLAYTIME_NP_ENABLED: 'true', MC_PLAYTIME_DRY_RUN: 'false', MC_SHOP_ENABLED: 'true', MC_LINK_CODE_SECRET: LINK_SECRET }
+  });
+  const state = worker.store.read();
+  worker.ensureAccount(state, DISCORD, 'shadow-recruit');
+  worker.store.write(state);
+  const challenge = await worker.minecraft.challenge({ discordUserId: DISCORD, mcUuid: UUID, mcName: 'Steve' });
+  assert.equal((await worker.minecraft.confirm({ discordUserId: DISCORD, code: challenge.code })).ok, true);
+  const linked = worker.store.read();
+  linked.accounts[DISCORD].status = 'restricted';
+  worker.store.write(linked);
+  assert.equal(worker.store.read().eosToDiscord[UUID], undefined);
+  await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
+  now += 5 * 60 * 1000;
+  const earned = await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
+  assert.equal(earned.ok, true, earned.reason);
+  assert.ok(earned.balance > 0);
+  const shop = await worker.minecraft.quote({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1 });
+  assert.equal(shop.reason, 'verified-identity-required');
+
+  const queries = [];
+  const accrual = new PostgresEconomyAccrual({
+    env: { MC_POINTS_ENABLED: 'true', MC_PLAYTIME_NP_ENABLED: 'true', MC_PLAYTIME_DRY_RUN: 'false' },
+    now: () => Date.parse('2026-10-01T18:00:00.000Z'),
+    pool: minecraftEarnPool(queries, { economic_identity_id: 'econ_mc_only', discord_user_id: DISCORD, mc_uuid: UUID })
+  });
+  const credited = await accrual.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
+  assert.equal(credited.ok, true, credited.reason);
+  assert.equal(credited.balance, 2);
+  const resolveSql = queries.find((sql) => sql.includes("provider = 'minecraft'"));
+  assert.match(resolveSql, /m\.verified_at IS NOT NULL/);
+  assert.match(resolveSql, /i\.status IN \('verified', 'restricted'\)/);
+  assert.doesNotMatch(resolveSql, /provider = 'eos'/);
+  assert.doesNotMatch(resolveSql, /i\.status = 'verified'/);
+  assert.equal(queries.some((sql) => /INSERT INTO/.test(sql) && /nexus_economy_ledger/.test(sql)), true);
+
+  const blockedQueries = [];
+  const blocked = new PostgresEconomyAccrual({
+    env: {
+      MC_POINTS_ENABLED: 'true',
+      MC_PLAYTIME_NP_ENABLED: 'true',
+      MC_PLAYTIME_DRY_RUN: 'false',
+      NEXUS_ECONOMY_QUARANTINE_DENYLIST: 'econ_mc_only'
+    },
+    now: () => Date.parse('2026-10-01T18:00:00.000Z'),
+    pool: minecraftEarnPool(blockedQueries, { economic_identity_id: 'econ_mc_only', discord_user_id: DISCORD, mc_uuid: UUID })
+  });
+  const quarantined = await blocked.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
+  assert.equal(quarantined.reason, 'quarantined');
+  assert.equal(blockedQueries.some((sql) => /nexus_economy_ledger/.test(sql)), false);
+});
+
+test('quote loads the link table and skips the other minecraft tables', async () => {
+  const queries = [];
+  const points = new PostgresMcPoints({
+    env: { MC_POINTS_ENABLED: 'true', MC_SHOP_ENABLED: 'true', MC_LINK_CODE_SECRET: LINK_SECRET },
+    now: () => Date.parse('2026-10-01T18:00:00.000Z'),
+    wallet: {
+      async resolve() {
+        return { economicIdentityId: 'econ_1', status: 'verified', verifiedAt: '2026-01-01T00:00:00.000Z' };
+      },
+      async balance() { return 100; },
+      async quarantined() { return false; }
+    },
+    pool: {
+      async query(sql) {
+        queries.push(String(sql));
+        if (String(sql).includes('nexus_mc_schema_version') && String(sql).includes('SELECT')) return { rows: [{ version: 1 }] };
+        if (String(sql).includes('nexus_economic_identities')) {
+          return { rows: [{ economic_identity_id: 'econ_1', status: 'verified', verified_at: '2026-01-01T00:00:00.000Z' }] };
+        }
+        return { rows: [], rowCount: 1 };
+      },
+      async connect() {
+        return {
+          async query(sql) {
+            queries.push(String(sql));
+            if (String(sql).includes('nexus_mc_links')) {
+              return {
+                rows: [{
+                  mc_uuid: UUID,
+                  economic_identity_id: 'econ_1',
+                  discord_user_id: DISCORD,
+                  verified_at: '2026-01-02T00:00:00.000Z',
+                  unlinked_at: null,
+                  cooldown_until: null,
+                  playtime_ms: 0,
+                  proof: null
+                }]
+              };
+            }
+            return { rows: [], rowCount: 1 };
+          },
+          release() {}
+        };
+      }
+    }
+  });
+  const quoted = await points.quote({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1 });
+  assert.equal(quoted.ok, true, quoted.reason);
+  assert.equal(queries.some((sql) => sql.includes('nexus_mc_links')), true);
+  for (const table of ['nexus_mc_orders', 'nexus_mc_link_challenges', 'nexus_mc_grants', 'nexus_mc_refund_audit', 'nexus_mc_link_requests']) {
+    assert.equal(queries.some((sql) => sql.includes(table)), false, table);
+  }
+});
+
+function minecraftEarnPool(queries, identity) {
+  const answered = {
+    async query(sql) {
+      queries.push(String(sql));
+      const text = String(sql);
+      if (text.includes('nexus_mc_schema_version') && text.includes('SELECT')) return { rows: [{ version: 1 }] };
+      if (text.includes("provider = 'minecraft'")) return { rows: [identity] };
+      if (text.includes('SELECT *') && text.includes('nexus_economy_accrual_state')) {
+        return {
+          rows: [{
+            rank_id: 'shadow-recruit',
+            online: true,
+            online_uncredited_ms: 0,
+            online_credit_cursor: 0,
+            last_accounting_at: '2026-10-01T17:55:00.000Z',
+            last_presence_at: '2026-10-01T17:59:00.000Z',
+            offline_since: null,
+            last_passive_at: '2026-10-01T17:00:00.000Z',
+            passive_credit_cursor: 0,
+            presence_by_server: { minecraft: { online: true, at: '2026-10-01T17:59:00.000Z' } },
+            mc_counted_ms: 0,
+            mc_lifetime_ms: 0,
+            mc_online: true,
+            last_mc_online_at: '2026-10-01T17:55:00.000Z'
+          }]
+        };
+      }
+      if (text.includes('SELECT balance')) return { rows: [{ balance: 0 }] };
+      if (text.includes('nexus_economy_ledger')) return { rows: [{ id: 1 }], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  return {
+    async query(sql) { return answered.query(sql); },
+    async connect() { return answered; }
+  };
+}

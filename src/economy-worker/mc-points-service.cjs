@@ -21,6 +21,9 @@ const QUOTE_TTL_MS = 120 * 1000;
 const UNLINK_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
 const REFUND_AFTER_MS = 14 * 24 * 60 * 60 * 1000;
 const LEASE_MS = 60 * 1000;
+const LEASE_MAX_MS = 10 * 60 * 1000;
+const OFFLINE_BACKOFF_MS = 30 * 1000;
+const OFFLINE_BACKOFF_MAX_MS = 5 * 60 * 1000;
 const CODE_ATTEMPT_LIMIT = 5;
 const LINK_REQUESTS_PER_HOUR = 3;
 const LINK_REQUEST_WINDOW_MS = 60 * 60 * 1000;
@@ -60,8 +63,24 @@ function verifiedDiscordIdentity(identity) {
 }
 
 function mcEarnEligible(identity, link) {
-  // OWNER DECISION, pending WARDEN sign-off: a verified /mc link qualifies this identity for MC-earned NP. EOS is not required.
   return verifiedDiscordIdentity(identity) && Boolean(link?.verifiedAt) && isPremiumUuid(link.mcUuid);
+}
+
+function mcPlaytimeEligible(identity, link) {
+  // A verified /mc link is enough for Minecraft playtime. EOS status=verified is not required. Disabled identities do not earn.
+  if (!identity || identity.status === 'disabled') return false;
+  if (identity.status !== 'verified' && identity.status !== 'restricted') return false;
+  return Boolean(link?.verifiedAt) && isPremiumUuid(link.mcUuid);
+}
+
+function leaseMsForOrder(order) {
+  const remaining = (order?.lines || []).filter((line) => line.status !== 'DELIVERED' && line.status !== 'SENT_UNCONFIRMED').length;
+  return Math.min(Math.max(1, remaining) * LEASE_MS, LEASE_MAX_MS);
+}
+
+function offlineBackoffMs(attempts) {
+  const step = Math.max(1, Number(attempts) || 1);
+  return Math.min(OFFLINE_BACKOFF_MS * step, OFFLINE_BACKOFF_MAX_MS);
 }
 
 function isMinecraftShopOrder(order) {
@@ -637,7 +656,7 @@ class MemoryMcPoints {
     order.status = 'DELIVERY_IN_PROGRESS';
     order.leaseToken = crypto.randomUUID();
     order.leaseOwner = String(owner || 'nexus-craft').slice(0, 64);
-    order.leaseUntil = new Date(now + LEASE_MS).toISOString();
+    order.leaseUntil = new Date(now + leaseMsForOrder(order)).toISOString();
     order.updatedAt = new Date(now).toISOString();
     bumpMcMetric('claim');
     return order;
@@ -665,16 +684,20 @@ class MemoryMcPoints {
     if (status === 'PLAYER_OFFLINE') {
       if (linesSent(order)) return this.#freezeUnconfirmed(order, note);
       order.status = 'PLAYER_OFFLINE';
+      order.offlineAttempts = Number(order.offlineAttempts || 0) + 1;
       order.leaseToken = null;
       order.leaseOwner = null;
-      order.leaseUntil = null;
+      order.leaseUntil = new Date(this.now() + offlineBackoffMs(order.offlineAttempts)).toISOString();
     } else if (status === 'SENT_UNCONFIRMED') {
       return this.#freezeUnconfirmed(order, note);
     } else if (status === 'DELIVERED') {
       if (order.lines.some((line) => line.status !== 'DELIVERED')) return { ok: false, reason: 'illegal-transition', order };
       order.status = 'DELIVERED';
+      order.offlineAttempts = 0;
     } else if (status === 'DELIVERY_IN_PROGRESS') {
       order.status = 'DELIVERY_IN_PROGRESS';
+      if (lineStatus === 'DELIVERED') order.offlineAttempts = 0;
+      order.leaseUntil = new Date(this.now() + leaseMsForOrder(order)).toISOString();
     } else if (status === 'DELIVERY_FAILED') {
       if (linesSent(order)) return this.#freezeUnconfirmed(order, note);
       order.status = 'DELIVERY_FAILED';
@@ -840,6 +863,7 @@ module.exports = {
   UNLINK_COOLDOWN_MS,
   REFUND_AFTER_MS,
   LEASE_MS,
+  OFFLINE_BACKOFF_MS,
   CODE_ATTEMPT_LIMIT,
   LINK_REQUESTS_PER_HOUR,
   STAFF_REFUND_DAILY_CAP,
@@ -849,6 +873,9 @@ module.exports = {
   generateLinkCode,
   verifiedDiscordIdentity,
   mcEarnEligible,
+  mcPlaytimeEligible,
+  leaseMsForOrder,
+  offlineBackoffMs,
   isMinecraftShopOrder,
   stackLines,
   orderLineHash,
