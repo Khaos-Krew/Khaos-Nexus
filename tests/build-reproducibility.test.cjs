@@ -51,6 +51,17 @@ test('Railway Sentinal image is built from package-lock.json with npm ci', { ski
   assert.match(dockerfile, /COPY docs\/ops\/JOIN_TO_CREATE\.md \.\/docs\/ops\/JOIN_TO_CREATE\.md/);
   assert.match(dockerfile, /COPY Dockerfile\.craft \.\/Dockerfile\.craft/);
   assert.match(dockerfile, /COPY docs\/ops\/NEXUS_CRAFT\.md \.\/docs\/ops\/NEXUS_CRAFT\.md/);
+  assert.match(dockerfile, /COPY docs\/architecture\/MC_POINTS_OWNER_DECISIONS_2026-10-01\.md \.\/docs\/architecture\/MC_POINTS_OWNER_DECISIONS_2026-10-01\.md/);
+  assert.match(dockerfile, /COPY docs\/WINDOWS_RELEASE_VALIDATION\.md \.\/docs\/WINDOWS_RELEASE_VALIDATION\.md/);
+});
+
+test('Railway Sentinel image copies docs that npm test reads', {
+  skip: exists('Dockerfile.sentinel') ? false : 'image does not include Dockerfile.sentinel'
+}, () => {
+  const dockerfile = read('Dockerfile.sentinel');
+  assert.match(dockerfile, /COPY docs\/architecture\/MC_POINTS_OWNER_DECISIONS_2026-10-01\.md \.\/docs\/architecture\/MC_POINTS_OWNER_DECISIONS_2026-10-01\.md/);
+  assert.match(dockerfile, /COPY docs\/WINDOWS_RELEASE_VALIDATION\.md \.\/docs\/WINDOWS_RELEASE_VALIDATION\.md/);
+  assert.match(dockerfile, /npm test/);
 });
 
 test('runtime-only test contexts do not need repository orchestration files', () => {
