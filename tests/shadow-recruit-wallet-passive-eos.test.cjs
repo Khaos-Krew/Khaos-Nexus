@@ -156,6 +156,7 @@ test('T3: no EOS → #accruePassive returns credited:0 and does not advance curs
     if (/provider = 'discord'/.test(text) && /status = 'verified'/.test(text)) {
       return { rows: [{ economic_identity_id: 'econ_1', discord_user_id: DISCORD }] };
     }
+    if (/SELECT status FROM .*nexus_economic_identities/.test(text)) return { rows: [{ status: 'verified' }] };
     if (/INSERT INTO .*nexus_economy_accrual_state/.test(text)) return { rows: [] };
     if (/SELECT \* FROM .*nexus_economy_accrual_state/.test(text)) {
       return {
@@ -200,6 +201,7 @@ test('T4: EOS linked → passive credit allowed when rate/cap permit', async () 
     if (/provider = 'discord'/.test(text) && /status = 'verified'/.test(text)) {
       return { rows: [{ economic_identity_id: 'econ_eos', discord_user_id: DISCORD }] };
     }
+    if (/SELECT status FROM .*nexus_economic_identities/.test(text)) return { rows: [{ status: 'verified' }] };
     if (/INSERT INTO .*nexus_economy_accrual_state/.test(text)) return { rows: [] };
     if (/SELECT \* FROM .*nexus_economy_accrual_state/.test(text)) {
       return {

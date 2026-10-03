@@ -1,7 +1,7 @@
 'use strict';
 
 const { NexusEconomyPostgresRepository, sqlIdent, normalizeCurrency } = require('./nexus-economy-postgres-repository.cjs');
-const { quarantineDenylist } = require('./nexus-economy-identity-hold.cjs');
+const { memberIdentityHold, quarantineDenylist } = require('./nexus-economy-identity-hold.cjs');
 const { deterministicEconomicIdentityId } = require('./nexus-economy-json-postgres-migration.cjs');
 const { validDiscordId, validEosId } = require('./ark-identity-store.cjs');
 const { assertO9EligibilityForVerifiedMint } = require('./nexus-economy-o9-eligibility.cjs');
@@ -17,8 +17,9 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
   }
 
   // Called only after the runtime verifies the Sentinel proof. No balance changes.
-  // O9: elevates to status=verified only when assertO9EligibilityForVerifiedMint passes.
-  // Already-verified rows are never demoted (idempotent re-link stays verified).
+  // O9: elevates to status=verified only for a row this call just inserted, and only when
+  // assertO9EligibilityForVerifiedMint passes. Already-verified rows are never demoted.
+  // An existing restricted, quarantined, or disabled row keeps that status.
   async linkVerifiedIdentity({ discordUserId, eosId, verifiedAt, discordMembershipVerified } = {}) {
     if (!validDiscordId(discordUserId) || !validEosId(eosId) || !Number.isFinite(Date.parse(verifiedAt))) throw new Error('Invalid verified identity.');
     const s = this.runtimeSchema;
@@ -35,10 +36,21 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
       const eos = links.rows.find((row) => row.provider === 'eos');
       const economicIdentityId = discord?.economic_identity_id || deterministicEconomicIdentityId(discordUserId);
       if (eos && eos.economic_identity_id !== economicIdentityId) throw new Error('EOS identity is already owned by another economic identity.');
-      await client.query(`INSERT INTO ${s}.nexus_economic_identities (economic_identity_id, status) VALUES ($1, 'restricted') ON CONFLICT DO NOTHING`, [economicIdentityId]);
+      const inserted = await client.query(
+        `INSERT INTO ${s}.nexus_economic_identities (economic_identity_id, status) VALUES ($1, 'restricted') ON CONFLICT DO NOTHING RETURNING economic_identity_id`,
+        [economicIdentityId]
+      );
+      const freshlyMinted = Number(inserted?.rowCount || 0) > 0;
       const identity = await client.query(`SELECT status FROM ${s}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`, [economicIdentityId]);
       const priorStatus = identity.rows[0]?.status;
-      if (priorStatus === 'disabled') throw new Error('Economic identity is disabled.');
+      if (!freshlyMinted && (!identity.rows[0] || memberIdentityHold({ status: priorStatus, economicIdentityId }))) {
+        await client.query('ROLLBACK');
+        return {
+          ...memberIdentityHold({ status: priorStatus, economicIdentityId, missingRow: !identity.rows[0] }),
+          status: priorStatus || null,
+          economicIdentityId
+        };
+      }
       for (const [provider, externalId] of [['discord', discordUserId], ['eos', eosId]]) {
         await client.query(
           `INSERT INTO ${s}.nexus_economic_identity_links (provider, external_id, economic_identity_id, verified_at, source) VALUES ($1,$2,$3,$4,'sentinel-ownership-proof') ON CONFLICT (provider, external_id) DO UPDATE SET verified_at = COALESCE(nexus_economic_identity_links.verified_at, EXCLUDED.verified_at)`,

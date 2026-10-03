@@ -10,6 +10,7 @@ async function guardMemberMutation(tx, loaded, env = process.env) {
   let status = loaded.status;
   let economicIdentityId = loaded.economicIdentityId;
   let verifiedAt = loaded.verified_at;
+  let missingRow = false;
   if (tx && typeof tx.lockIdentity === 'function') {
     const row = await tx.lockIdentity(economicIdentityId);
     if (row) {
@@ -18,9 +19,11 @@ async function guardMemberMutation(tx, loaded, env = process.env) {
       if (Object.prototype.hasOwnProperty.call(row, 'verified_at') || Object.prototype.hasOwnProperty.call(row, 'verifiedAt')) {
         verifiedAt = row.verified_at ?? row.verifiedAt ?? null;
       }
+    } else {
+      missingRow = true;
     }
   }
-  const hold = memberIdentityHold({ status, economicIdentityId, env });
+  const hold = memberIdentityHold({ status, economicIdentityId, missingRow, env });
   if (hold) return { hold, economicIdentityId, status };
   if (String(status || '') !== 'verified' || !verifiedAt) {
     throw new Error('Verified economic identity is required.');
@@ -212,11 +215,14 @@ class NexusEconomyWalletCore {
     return this.repository.transact(economicIdentityId, normalizedCurrency, async (tx) => {
       let lockedStatus = statusHint;
       let lockedIdentityId = economicIdentityId;
+      let missingRow = false;
       if (typeof tx.lockIdentity === 'function') {
         const row = await tx.lockIdentity(economicIdentityId);
         if (row) {
           lockedStatus = row.status;
           lockedIdentityId = row.economic_identity_id || row.economicIdentityId || economicIdentityId;
+        } else {
+          missingRow = true;
         }
       }
       const prior = await tx.findOrder(record.orderId);
@@ -232,7 +238,7 @@ class NexusEconomyWalletCore {
         }
         return { ok: true, duplicate: true, order: prior, currency: normalizedCurrency, balance: prior.balance };
       }
-      const hold = memberIdentityHold({ status: lockedStatus, economicIdentityId: lockedIdentityId, env: this.env });
+      const hold = memberIdentityHold({ status: lockedStatus, economicIdentityId: lockedIdentityId, missingRow, env: this.env });
       if (hold) return { ...hold, currency: normalizedCurrency };
       const verified = await tx.findIdentity(discordUserId, eos);
       const verifiedIdentityId = verified?.economic_identity_id ?? verified?.economicIdentityId;

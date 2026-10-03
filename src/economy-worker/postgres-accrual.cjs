@@ -134,8 +134,10 @@ class PostgresEconomyAccrual {
     return result.rows?.[0] || null;
   }
 
-  // Advance the accrual cursor without a ledger row so held time is not paid after the hold lifts.
-  async #skipHeldAccrual(client, economicIdentityId, { online = false, passive = false } = {}) {
+  // Close the accrual cursor at "now" and mark the member offline. Held presence pings do not
+  // refresh last_presence_at, so leaving online=true lets the stale-online branch rewind
+  // last_passive_at and pay the held window after the lift.
+  async #skipHeldAccrual(client, economicIdentityId) {
     const s = this.schema;
     await client.query(
       `INSERT INTO ${s}.nexus_economy_accrual_state (economic_identity_id) VALUES ($1) ON CONFLICT DO NOTHING`,
@@ -149,13 +151,8 @@ class PostgresEconomyAccrual {
     if (!state) return;
     const nowIso = new Date(this.now()).toISOString();
     await client.query(
-      `UPDATE ${s}.nexus_economy_accrual_state SET last_accounting_at=$2, online_uncredited_ms=$3, last_passive_at=$4, updated_at=NOW() WHERE economic_identity_id=$1`,
-      [
-        economicIdentityId,
-        online ? nowIso : state.last_accounting_at,
-        online ? 0 : Math.max(0, Math.floor(Number(state.online_uncredited_ms || 0))),
-        passive ? nowIso : state.last_passive_at
-      ]
+      `UPDATE ${s}.nexus_economy_accrual_state SET online = false, online_since = NULL, offline_since = $2, last_passive_at = $2, last_presence_at = $2, last_accounting_at = $2, online_uncredited_ms = 0, updated_at = NOW() WHERE economic_identity_id = $1`,
+      [economicIdentityId, nowIso]
     );
   }
 
@@ -164,9 +161,10 @@ class PostgresEconomyAccrual {
       `SELECT status FROM ${this.schema}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
       [economicIdentityId]
     );
-    const status = result.rows?.[0]?.status;
+    const row = result.rows?.[0];
     return memberIdentityHold({
-      status: status == null || status === '' ? 'verified' : status,
+      status: row?.status,
+      missingRow: !row,
       economicIdentityId,
       env: this.env
     });

@@ -81,6 +81,7 @@ async function createPostgresEconomyRuntime({ env = process.env, now } = {}) {
         throw new Error(eligibility.reason);
       }
       const linked = await repository.linkVerifiedIdentity(verified);
+      if (linked && linked.ok === false) return linked;
       await syncRankAndEnsure(verified.discordUserId, input.rankId || 'shadow-recruit');
       return linked;
     },

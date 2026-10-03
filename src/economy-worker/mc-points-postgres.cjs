@@ -527,8 +527,10 @@ class PostgresMcPoints {
         `SELECT status FROM ${s}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
         [row.economic_identity_id]
       );
+      const buyStatus = identityStatus.rows?.[0];
       const buyHold = memberIdentityHold({
-        status: identityStatus.rows?.[0]?.status ?? 'verified',
+        status: buyStatus?.status,
+        missingRow: !buyStatus,
         economicIdentityId: row.economic_identity_id,
         env: this.env
       });
@@ -752,8 +754,10 @@ class PostgresMcPoints {
           `SELECT status FROM ${s}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
           [identityId]
         );
+        const refundStatus = identityStatus.rows?.[0];
         refundHold = memberIdentityHold({
-          status: identityStatus.rows?.[0]?.status ?? 'verified',
+          status: refundStatus?.status,
+          missingRow: !refundStatus,
           economicIdentityId: identityId,
           env: this.env
         });

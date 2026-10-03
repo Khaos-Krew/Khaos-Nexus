@@ -1067,6 +1067,7 @@ function minecraftEarnPool(queries, identity) {
       const text = String(sql);
       if (text.includes('nexus_mc_schema_version') && text.includes('SELECT')) return { rows: [{ version: 1 }] };
       if (text.includes("provider = 'minecraft'")) return { rows: [identity] };
+      if (text.includes('SELECT status') && text.includes('nexus_economic_identities')) return { rows: [{ status: 'verified' }], rowCount: 1 };
       if (text.includes('SELECT *') && text.includes('nexus_economy_accrual_state')) {
         return {
           rows: [{
@@ -1292,6 +1293,9 @@ function shopBuyPool({ quotes = [], orders = [], balance = 100000 } = {}) {
           lockKey = params[0];
           await acquire(lockKey);
           return { rows: [], rowCount: 0 };
+        }
+        if (text.includes('SELECT status') && text.includes('nexus_economic_identities')) {
+          return { rows: [{ status: 'verified' }], rowCount: 1 };
         }
         if (text.includes('nexus_mc_quotes') && text.includes('SELECT')) {
           const quote = committed.quotes.get(params[0]);

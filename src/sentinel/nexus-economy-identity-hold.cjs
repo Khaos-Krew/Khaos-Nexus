@@ -18,11 +18,12 @@ function quarantineDenylist(env = process.env) {
   );
 }
 
-function memberIdentityHold({ status, economicIdentityId, env = process.env } = {}) {
+function memberIdentityHold({ status, economicIdentityId, missingRow = false, env = process.env } = {}) {
   const normalized = String(status || '').trim().toLowerCase();
   const denylisted = quarantineDenylist(env).has(String(economicIdentityId || '').trim());
   const statusBlocked = BLOCKED_MEMBER_STATUSES.includes(normalized);
-  if (!statusBlocked && !denylisted) return null;
+  // A missing identity row fails closed. The denylist still wins its own reason.
+  if (!statusBlocked && !denylisted && !missingRow) return null;
   return {
     ok: false,
     reason: denylisted && !statusBlocked ? 'quarantined' : 'account-hold',
@@ -31,10 +32,19 @@ function memberIdentityHold({ status, economicIdentityId, env = process.env } = 
   };
 }
 
+function memberHoldFromError(error) {
+  const message = String(error?.message || error || '').trim();
+  if (message === 'Economic identity is disabled.' || message === MEMBER_HOLD_MESSAGE) {
+    return { ok: false, reason: 'account-hold', message: MEMBER_HOLD_MESSAGE, credited: 0 };
+  }
+  return null;
+}
+
 module.exports = {
   SCHEMA_IDENTITY_STATUSES,
   BLOCKED_MEMBER_STATUSES,
   MEMBER_HOLD_MESSAGE,
   quarantineDenylist,
-  memberIdentityHold
+  memberIdentityHold,
+  memberHoldFromError
 };

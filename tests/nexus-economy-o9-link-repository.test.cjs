@@ -9,6 +9,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { NexusEconomyPostgresRuntimeRepository } = require('../src/sentinel/nexus-economy-postgres-runtime-repository.cjs');
+const { MEMBER_HOLD_MESSAGE } = require('../src/sentinel/nexus-economy-identity-hold.cjs');
 
 function fakePool(handler) {
   const calls = [];
@@ -40,7 +41,7 @@ test('O9 repository: new link without Discord claim commits restricted and does 
   const { pool, calls } = fakePool((text) => {
     if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK' || /LOCK TABLE/.test(text)) return { rows: [] };
     if (/FROM .*nexus_economic_identity_links WHERE/.test(text)) return { rows: [] };
-    if (/INSERT INTO .*nexus_economic_identities/.test(text)) return { rows: [] };
+    if (/INSERT INTO .*nexus_economic_identities/.test(text)) return { rows: [{ economic_identity_id: 'minted' }], rowCount: 1 };
     if (/SELECT status FROM .*nexus_economic_identities/.test(text)) return { rows: [statusRow] };
     if (/INSERT INTO .*nexus_economic_identity_links/.test(text)) return { rows: [] };
     if (/UPDATE .*nexus_economic_identities SET status = 'verified'/.test(text)) {
@@ -66,7 +67,7 @@ test('O9 repository: Discord claim true elevates to verified', async () => {
   const { pool, calls } = fakePool((text) => {
     if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK' || /LOCK TABLE/.test(text)) return { rows: [] };
     if (/FROM .*nexus_economic_identity_links WHERE/.test(text)) return { rows: [] };
-    if (/INSERT INTO .*nexus_economic_identities/.test(text)) return { rows: [] };
+    if (/INSERT INTO .*nexus_economic_identities/.test(text)) return { rows: [{ economic_identity_id: 'minted' }], rowCount: 1 };
     if (/SELECT status FROM .*nexus_economic_identities/.test(text)) return { rows: [statusRow] };
     if (/INSERT INTO .*nexus_economic_identity_links/.test(text)) return { rows: [] };
     if (/UPDATE .*nexus_economic_identities SET status = 'verified'/.test(text)) {
@@ -136,4 +137,42 @@ test('O9 repository: demoteVerifiedIdentityToRestricted demotes verified only', 
   assert.equal(result.status, 'restricted');
   assert.equal(result.priorStatus, 'verified');
   assert.ok(calls.some((c) => /SET status = 'restricted'/.test(c.text || '')));
+});
+
+test('re-link preserves an existing restricted, quarantined, or disabled status', async () => {
+  for (const prior of ['restricted', 'disabled', 'quarantined']) {
+    const updates = [];
+    const { pool, calls } = fakePool((text) => {
+      if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK' || /LOCK TABLE/.test(text)) return { rows: [] };
+      if (/FROM .*nexus_economic_identity_links WHERE/.test(text)) {
+        return {
+          rows: [
+            { provider: 'discord', external_id: discordUserId, economic_identity_id: 'econ_held', verified_at: verifiedAt },
+            { provider: 'eos', external_id: eosId, economic_identity_id: 'econ_held', verified_at: verifiedAt }
+          ]
+        };
+      }
+      if (/INSERT INTO .*nexus_economic_identities/.test(text)) return { rows: [], rowCount: 0 };
+      if (/SELECT status FROM .*nexus_economic_identities/.test(text)) return { rows: [{ status: prior }] };
+      if (/UPDATE .*nexus_economic_identities SET status/.test(text)) {
+        updates.push(text);
+        return { rows: [] };
+      }
+      if (/INSERT INTO .*nexus_economic_identity_links/.test(text)) return { rows: [] };
+      return { rows: [] };
+    });
+    const repository = new NexusEconomyPostgresRuntimeRepository({ pool });
+    const result = await repository.linkVerifiedIdentity({
+      discordUserId, eosId, verifiedAt, discordMembershipVerified: true
+    });
+    assert.equal(result.ok, false, prior);
+    assert.equal(result.reason, 'account-hold');
+    assert.equal(result.message, MEMBER_HOLD_MESSAGE);
+    assert.equal(result.status, prior);
+    assert.equal(result.economicIdentityId, 'econ_held');
+    assert.equal(updates.length, 0, prior);
+    assert.equal(calls.some((c) => c.text === 'ROLLBACK'), true, prior);
+    assert.equal(calls.some((c) => c.text === 'COMMIT'), false, prior);
+    assert.equal(calls.some((c) => /INSERT INTO .*nexus_economic_identity_links/.test(c.text || '')), false, prior);
+  }
 });
