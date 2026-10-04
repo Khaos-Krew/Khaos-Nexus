@@ -111,7 +111,7 @@ function registerArkRconPlayersJob(scheduler, { adapter, servers, intervalMs = 3
   scheduler.register({
     name: 'ark.rcon.players.read',
     owner: 'ark',
-    trigger: { type: 'interval', intervalMs, jitterMs },
+    trigger: { type: 'interval', everyMs: intervalMs, jitterMs },
     timeoutMs: 60000,
     retry: { attempts: 2, baseDelayMs: 2000, maxDelayMs: 10000, factor: 2, jitterMs: 1000 },
     run: async ({ correlationId } = {}) => {

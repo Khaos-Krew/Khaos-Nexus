@@ -31,7 +31,7 @@ test('ARK shadow runtime hydrates durable history before registering recurring c
   assert.deepEqual(calls, [['hydrate', { since: '2026-09-09T00:00:00.000Z', limit: 250 }]]);
   assert.equal(scheduler.jobs.length, 1);
   assert.equal(scheduler.jobs[0].name, 'ark.health.shadow_compare');
-  assert.deepEqual(scheduler.jobs[0].trigger, { type: 'interval', intervalMs: 600000, jitterMs: 10000 });
+  assert.deepEqual(scheduler.jobs[0].trigger, { type: 'interval', everyMs: 600000, jitterMs: 10000 });
 });
 
 test('ARK shadow runtime does not create acceptance evidence when no servers are configured', async () => {

@@ -83,10 +83,31 @@ function tierGroup(value) {
   return 'other';
 }
 
+function apiUnixSeconds(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    if (value >= 1e12) return Math.floor(value / 1000);
+    if (value >= 1e9) return Math.floor(value);
+    return null;
+  }
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const dotNet = /^\/Date\((\d+)\)\/$/.exec(text);
+  if (dotNet) return Math.floor(Number(dotNet[1]) / 1000);
+  if (/^\d{10,13}$/.test(text)) return apiUnixSeconds(Number(text));
+  const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(text) ? text : `${text.replace(' ', 'T')}Z`;
+  const parsed = Date.parse(normalized);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.floor(parsed / 1000);
+}
+
 function relativeTag(value) {
-  const time = typeof value === 'number' ? value : Date.parse(value);
-  if (!Number.isFinite(time)) return '';
-  return `<t:${Math.floor(time / 1000)}:R>`;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const unix = value >= 1e12 ? Math.floor(value / 1000) : Math.floor(value);
+    if (unix < 1e9) return '';
+    return `<t:${unix}:R>`;
+  }
+  const unix = apiUnixSeconds(value);
+  return unix == null ? '' : `<t:${unix}:R>`;
 }
 
 function nextXurArrival(now = Date.now()) {
@@ -235,7 +256,8 @@ function linesForGroup(items) {
 
 function renderXur({ vendors, names = new Map(), now = Date.now(), location = '' } = {}) {
   const vendor = vendorMap(vendors)[String(XUR_VENDOR_HASH)] || null;
-  const refresh = Date.parse(vendor?.nextRefreshDate || '');
+  const refreshUnix = apiUnixSeconds(vendor?.nextRefreshDate);
+  const refresh = refreshUnix == null ? NaN : refreshUnix * 1000;
   const present = Boolean(vendor) && vendor.enabled !== false && (!Number.isFinite(refresh) || refresh > now);
   if (!present) {
     const returns = Number.isFinite(refresh) && refresh > now ? refresh : nextXurArrival(now);
@@ -271,7 +293,7 @@ function renderXur({ vendors, names = new Map(), now = Date.now(), location = ''
     { name: '\ud83d\udce6 Other', key: 'other' }
   ].filter((section) => groups[section.key].length)
     .map((section) => ({ name: section.name, lines: linesForGroup(groups[section.key]) }));
-  const leaves = relativeTag(refresh);
+  const leaves = refreshUnix == null ? '' : `<t:${refreshUnix}:R>`;
   const place = locationText(vendor, location);
   const lines = ['X\u00fbr is here.'];
   if (place) lines.push(`\ud83d\udccd Location: ${place}`);
@@ -291,5 +313,6 @@ module.exports = {
   tierGroup,
   nextXurArrival,
   locationFromVendors,
+  apiUnixSeconds,
   renderXur
 };

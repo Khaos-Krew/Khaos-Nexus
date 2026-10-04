@@ -54,14 +54,16 @@ test('a degraded clan panel names Khaos Nexus clan', () => {
     description: 'Bungie is down for maintenance right now; try again later.'
   });
   assert.match(closed.description, /Khaos Nexus clan/);
-  assert.match(closed.description, /groupId=5453042/);
+  assert.match(closed.description, /https:\/\/www\.bungie\.net\/7\/en\/Clan\/Profile\/5453042/);
+  assert.doesNotMatch(closed.description, /ClanV2/);
   assert.doesNotMatch(closed.description, /Group 5453042/);
   const degraded = presentEmbed('clan:5453042', {
     title: '👥 Clan',
     description: 'Group 5453042'
   }, { degraded: true, asOf: '2026-10-01T00:00:00Z' });
   assert.match(degraded.description, /Khaos Nexus clan/);
-  assert.match(degraded.description, /groupId=5453042/);
+  assert.match(degraded.description, /https:\/\/www\.bungie\.net\/7\/en\/Clan\/Profile\/5453042/);
+  assert.doesNotMatch(degraded.description, /ClanV2/);
   assert.doesNotMatch(degraded.description, /Group 5453042/);
 });
 

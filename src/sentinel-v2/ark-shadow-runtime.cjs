@@ -93,7 +93,7 @@ class ArkShadowRuntime {
     this.scheduler.register({
       name: 'ark.health.shadow_compare',
       owner: 'ark',
-      trigger: { type: 'interval', intervalMs, jitterMs },
+      trigger: { type: 'interval', everyMs: intervalMs, jitterMs },
       timeoutMs: 180000,
       retry: { attempts: 2, baseDelayMs: 3000, maxDelayMs: 15000, factor: 2, jitterMs: 1000 },
       run: async () => this.runOnce(),

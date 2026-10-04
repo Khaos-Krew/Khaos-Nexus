@@ -84,7 +84,7 @@ function registerArkHealthJob(scheduler, { adapter, servers, intervalMs = 300000
   scheduler.register({
     name: 'ark.health.read',
     owner: 'ark',
-    trigger: { type: 'interval', intervalMs, jitterMs },
+    trigger: { type: 'interval', everyMs: intervalMs, jitterMs },
     timeoutMs: 120000,
     retry: { attempts: 3, baseDelayMs: 2000, maxDelayMs: 15000, factor: 2, jitterMs: 1000 },
     run: async () => {

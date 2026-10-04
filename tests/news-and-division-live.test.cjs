@@ -66,7 +66,8 @@ test('persistent feed registry includes active supported news modules and exclud
   assert.equal(news.get('division2'), 'division-weekly');
   assert.equal(news.has('oncehuman'), false);
   assert.equal(news.get('diablo4'), 'diablo-news');
-  assert.equal(news.get('callofduty'), 'cod-news');
+  assert.equal(news.has('callofduty'), false);
+  assert.equal(news.has('deadbydaylight'), false);
   assert.ok(LAYOUTS.diablo4.text.includes('diablo-news'));
   assert.ok(LAYOUTS.callofduty.text.includes('cod-news'));
 });

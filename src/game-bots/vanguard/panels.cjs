@@ -148,8 +148,12 @@ function withAssets(payload, message, mode) {
 
 const CLAN_LABEL = 'Khaos Nexus clan';
 
+function clanProfileUrl(groupId) {
+  return `https://www.bungie.net/7/en/Clan/Profile/${groupId}`;
+}
+
 function clanJoinLine(groupId) {
-  return `Join: https://www.bungie.net/en/ClanV2/Index?groupId=${groupId}`;
+  return `Join: ${clanProfileUrl(groupId)}`;
 }
 
 function ensureClanMarker(panelId, description) {
@@ -162,12 +166,12 @@ function ensureClanMarker(panelId, description) {
     .filter((line) => line.trim() !== `Group ${groupId}`)
     .join('\n')
     .trim();
-  if (stripped.includes(groupId)) return stripped.slice(0, 4000);
-  let text = stripped;
-  if (!text.includes(CLAN_LABEL)) text = text ? `${CLAN_LABEL}\n${text}` : CLAN_LABEL;
   const join = clanJoinLine(groupId);
+  let text = stripped.replace(/https:\/\/www\.bungie\.net\/en\/ClanV2\/Index\?groupId=\d+/g, clanProfileUrl(groupId));
   if (/^Join:/m.test(text)) text = text.replace(/^Join:.*$/m, join);
-  else text = text ? `${text}\n${join}` : join;
+  if (text.includes(groupId)) return text.slice(0, 4000);
+  if (!text.includes(CLAN_LABEL)) text = text ? `${CLAN_LABEL}\n${text}` : CLAN_LABEL;
+  text = text ? `${text}\n${join}` : join;
   return text.slice(0, 4000);
 }
 
@@ -237,5 +241,7 @@ module.exports = {
   upsertOwnedPanel,
   degradedEmbed,
   ensureClanMarker,
+  clanJoinLine,
+  clanProfileUrl,
   CLAN_LABEL
 };

@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const { formatActionResult } = require('./action-formatters.cjs');
 const { pokemonGoEventPayload } = require('./pokemon-go-event-ui.cjs');
 const { isRetiredModuleId } = require('./retired-module-policy.cjs');
+const { isNoProvisionChannelModule } = require('./no-provision-modules.cjs');
 
 const DEFAULT_POLL_MS = 10 * 60 * 1000;
 const FEED_RENDER_VERSION = 3;
@@ -28,7 +29,7 @@ const FEEDS = Object.freeze([
   { moduleId:'minecraft', channelName:'minecraft-server-status', actions:['schedule-list'], pollMs:10 * 60 * 1000 },
   { moduleId:'rust', channelName:'rust-server-status', actions:['schedule-list'], pollMs:10 * 60 * 1000 },
   { moduleId:'satisfactory', channelName:'satisfactory-server-status', actions:['schedule-list'], pollMs:10 * 60 * 1000 }
-].filter((feed) => !isRetiredModuleId(feed.moduleId)));
+].filter((feed) => !isRetiredModuleId(feed.moduleId) && !isNoProvisionChannelModule(feed.moduleId)));
 
 function warframeFeedDisabled(env = process.env) {
   const raw = env?.SENTINAL_WARFRAME_FEED_DISABLED;
@@ -356,6 +357,7 @@ class EventFeedPublisher {
 
   async publish(definition) {
     try {
+      if (isNoProvisionChannelModule(definition?.moduleId)) return { skipped: 'removed-game' };
       if (definition?.moduleId === 'warframe' && warframeFeedDisabled(this.env)) return { skipped:'warframe-disabled' };
       const setup = this.state.getModuleSetup(definition.moduleId);
       const channelId = setupChannelId(setup, definition.channelName);
