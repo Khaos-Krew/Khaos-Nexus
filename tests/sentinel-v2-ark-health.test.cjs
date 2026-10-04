@@ -67,7 +67,7 @@ test('registerArkHealthJob creates a scheduler-owned read-only interval job', as
   registerArkHealthJob(scheduler, { adapter, servers: [{ id: 'gen1' }], intervalMs: 60000, jitterMs: 5000 });
   assert.equal(registered.name, 'ark.health.read');
   assert.equal(registered.owner, 'ark');
-  assert.deepEqual(registered.trigger, { type: 'interval', intervalMs: 60000, jitterMs: 5000 });
+  assert.deepEqual(registered.trigger, { type: 'interval', everyMs: 60000, jitterMs: 5000 });
   const result = await registered.run();
   assert.equal(result.servers, 1);
   assert.equal(result.healthy, 1);

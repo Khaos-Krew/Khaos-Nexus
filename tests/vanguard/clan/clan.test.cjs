@@ -88,7 +88,8 @@ test('clan summary omits weekly rewards and roster pages past 50', async () => {
   assert.doesNotMatch(unnamed.description, /ask a clan admin|Online:/);
   const unnamedRoster = renderRoster({ summary: {}, roster: { members: [], total: 0 }, page: 1 });
   assert.match(unnamedRoster.title, /KHAOS NEXUS/);
-  assert.match(embed.description, /groupId=5453042/);
+  assert.match(embed.description, /https:\/\/www\.bungie\.net\/7\/en\/Clan\/Profile\/5453042/);
+  assert.doesNotMatch(embed.description, /ClanV2/);
   assert.match(embed.description, /-# Not affiliated with or endorsed by Bungie/);
   assert.doesNotMatch(embed.description, /reward|redeemed/i);
   assert.ok(embed.description.split('\n').length <= 4);

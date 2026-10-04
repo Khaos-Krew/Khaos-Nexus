@@ -10,9 +10,18 @@ const { syncArkShopMysqlIfRequested } = require('../sentinel/arkshop-startup-syn
 const { isArkShopMysqlRetired, databaseModeFromEnv, databaseStatus } = require('../sentinel/arkshop-database.cjs');
 const arkShopMysqlRetired = isArkShopMysqlRetired();
 
-process.env.NEXUS_BACKEND_HOST ||= '127.0.0.1';
-process.env.NEXUS_BACKEND_PORT ||= '3210';
-process.env.NEXUS_BACKEND_URL ||= `http://${process.env.NEXUS_BACKEND_HOST}:${process.env.NEXUS_BACKEND_PORT}`;
+const { resolveSharedListenerPorts } = require('../sentinel/listener-ports.cjs');
+const listeners = resolveSharedListenerPorts(process.env);
+if (listeners.movedBackend) {
+  console.warn(listeners.warning);
+  process.env.NEXUS_BACKEND_HOST = '127.0.0.1';
+  process.env.NEXUS_BACKEND_PORT = listeners.backendPort;
+  process.env.NEXUS_BACKEND_URL = `http://127.0.0.1:${listeners.backendPort}`;
+} else {
+  process.env.NEXUS_BACKEND_HOST ||= '127.0.0.1';
+  process.env.NEXUS_BACKEND_PORT ||= listeners.backendPort;
+  process.env.NEXUS_BACKEND_URL ||= `http://${process.env.NEXUS_BACKEND_HOST}:${process.env.NEXUS_BACKEND_PORT}`;
+}
 
 const hosted = bootstrapHostedProviderStore();
 if (hosted.secretState.failed.length) {

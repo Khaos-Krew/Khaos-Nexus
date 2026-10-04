@@ -6,6 +6,7 @@ const { getModule, MODULES } = require('../backend/modules/catalog.cjs');
 const { BackendClient } = require('./backend-client.cjs');
 const { StateStore } = require('./state-store.cjs');
 const { renderModuleConsole } = require('./module-console.cjs');
+const { isNoProvisionChannelModule } = require('./no-provision-modules.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.persistent.panel.extension');
 const SEND_PATCHED = Symbol.for('khaos.nexus.persistent.panel.send');
@@ -158,7 +159,7 @@ async function sweepManagedPanels(client, { config, state, backend, logger = con
     const moduleConfig = config?.modules?.[moduleId] || {};
     const setup = state.getModuleSetup(moduleId);
     const channelId = setup?.consoleChannelId || moduleConfig.channelId || '';
-    if (!module || module.console === false || moduleConfig.enabled === false || !channelId) continue;
+    if (!module || module.console === false || moduleConfig.enabled === false || !channelId || isNoProvisionChannelModule(moduleId)) continue;
     const channel = await client.channels.fetch(String(channelId)).catch(() => null);
     if (!channel?.isTextBased?.()) continue;
     const payload = renderModuleConsole(moduleId, states.get(moduleId) || {

@@ -16,7 +16,7 @@ const { createArkTameUi } = require('./ark-tame-ui.cjs');
 const { SentinalAdminOps } = require('./admin-ops.cjs');
 const { createSentinalAdminServer } = require('./admin-server.cjs');
 const { ensureAnomalyChannel } = require('./ark-shiny-anomaly.cjs');
-const { isModuleChannelsNotProvisionedError } = require('./no-provision-modules.cjs');
+const { isModuleChannelsNotProvisionedError, isNoProvisionChannelModule } = require('./no-provision-modules.cjs');
 const { configuredDiscordRole } = require('./discord-command-role.cjs');
 
 const config = loadConfig();
@@ -170,6 +170,7 @@ async function ensureConsole(moduleId) {
 async function ensureAllConsoles() {
   const moduleIds = new Set([...Object.keys(config.modules || {}), ...Object.keys(state.listModuleSetups())]);
   for (const moduleId of moduleIds) {
+    if (isNoProvisionChannelModule(moduleId)) continue;
     try { await ensureConsole(moduleId); }
     catch (error) { console.error(`[Sentinal] ${moduleId} console:`, error.message); }
   }

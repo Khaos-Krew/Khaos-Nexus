@@ -1,6 +1,6 @@
 'use strict';
 
-const { appendDisclaimer } = require('../panels.cjs');
+const { appendDisclaimer, clanJoinLine } = require('../panels.cjs');
 const { formatCt } = require('../bungie/time.cjs');
 
 function onlineText(online) {
@@ -17,7 +17,7 @@ function renderClanSummary({ summary, online = null } = {}) {
   const lines = [
     `**${name}**${callsign}`,
     onlineLabel ? `Members: ${members} • Online: ${onlineLabel}` : `Members: ${members}`,
-    groupId ? `Join: https://www.bungie.net/en/ClanV2/Index?groupId=${groupId}` : 'Join:'
+    groupId ? clanJoinLine(groupId) : 'Join:'
   ];
   return {
     title: `👥 ${name}`.slice(0, 250),

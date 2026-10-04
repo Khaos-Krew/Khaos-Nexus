@@ -72,7 +72,27 @@ function createSentinalAdminServer(options = {}) {
     } catch (error) { logger.error?.('[Nexus Sentinal Admin]', error); return json(res, 500, { ok: false, code: 'INTERNAL', message: String(error?.message || error).slice(0, 300) }); }
   });
   let started = false;
-  async function start() { if (started) return { host, port }; await new Promise((resolve, reject) => { const onError = (error) => { server.off('listening', onListening); reject(error); }; const onListening = () => { server.off('error', onError); started = true; resolve(); }; server.once('error', onError); server.once('listening', onListening); server.listen(port, host); }); logger.log?.(`[Nexus Sentinal Admin] listening on http://${host}:${port}`); return { host, port }; }
+  let collisionNoted = false;
+  async function start() {
+    if (started) return { host, port };
+    if (collisionNoted) return { host, port, skipped: 'address-in-use' };
+    try {
+      await new Promise((resolve, reject) => {
+        const onError = (error) => { server.off('listening', onListening); reject(error); };
+        const onListening = () => { server.off('error', onError); started = true; resolve(); };
+        server.once('error', onError);
+        server.once('listening', onListening);
+        server.listen(port, host);
+      });
+    } catch (error) {
+      if (error?.code !== 'EADDRINUSE') throw error;
+      collisionNoted = true;
+      logger.warn?.(`[Nexus Sentinal Admin] ${host}:${port} is already in use; not starting a duplicate listener.`);
+      return { host, port, skipped: 'address-in-use' };
+    }
+    logger.log?.(`[Nexus Sentinal Admin] listening on http://${host}:${port}`);
+    return { host, port };
+  }
   async function stop() { if (!started || !server.listening) return; await new Promise((resolve) => server.close(resolve)); started = false; }
   return { host, port, server, start, stop, isStarted: () => started && server.listening };
 }
