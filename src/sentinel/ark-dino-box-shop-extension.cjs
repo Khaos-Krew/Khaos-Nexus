@@ -14,7 +14,7 @@ const {
   TextInputStyle
 } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
-const { CONFIG } = require('./ark-weekly-cache.cjs');
+const { CONFIG, WEEKLY_CACHE_RETIRED } = require('./ark-weekly-cache.cjs');
 const { isRetired } = require('./arkshop-mysql.cjs');
 const { memberActionFallback } = require('./arkshop-cluster-economy-guard.cjs');
 const { ArkCacheShopService } = require('./ark-cache-shop-service.cjs');
@@ -335,12 +335,13 @@ function installArkDinoBoxShopExtension(options = {}) {
       client.once(Events.ClientReady, async () => {
         try {
           const mysqlRetired = isRetired();
-          if (mysqlRetired) console.log('[weekly-cache] ArkShop MySQL retired; weekly rotation poll skipped.');
+          const weeklyOff = mysqlRetired || WEEKLY_CACHE_RETIRED === true;
+          if (weeklyOff) console.log('[weekly-cache] weekly cache surface is off.');
           else await purchaseService.refreshWeekly().catch(error=>console.error('[weekly-cache] initial load:',error.message));
           const guild = await client.guilds.fetch(String(config.discord?.guildId || ''));
           await guild.channels.fetch();
           const channel = await reconcileDinoBoxShop(guild);
-          if (!mysqlRetired) {
+          if (!weeklyOff) {
             const rotate = async () => {
               if (isRetired()) return;
               const rotation = await purchaseService.refreshWeekly();
@@ -382,7 +383,7 @@ function installArkDinoBoxShopExtension(options = {}) {
         void (async () => {
           const userId = String(interaction.user?.id || '');
           if (isHubSelect) {
-            await purchaseService.refreshWeekly();
+            if (WEEKLY_CACHE_RETIRED !== true && !isRetired()) await purchaseService.refreshWeekly();
             const selected = String(interaction.values?.[0] || HUB_HOME_ID).toLowerCase();
             if (selected !== HUB_HOME_ID && !CONFIG.caches[selected]) throw new Error('Unknown Dino Cache selection.');
             return interaction.update(hubPayload(selected));

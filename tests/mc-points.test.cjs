@@ -529,6 +529,14 @@ test('grant table schema keeps one kit per identity and per UUID', () => {
   assert.match(sql, /nexus_mc_grants/);
   assert.match(sql, /UNIQUE \(kind, economic_identity_id\)/);
   assert.match(sql, /UNIQUE \(kind, mc_uuid\)/);
+  const perIdentity = sql.indexOf('nexus_mc_grants_one_starter_per_identity');
+  const perEos = sql.indexOf('nexus_mc_grants_one_starter_per_eos');
+  const withoutEos = sql.indexOf('nexus_mc_grants_kind_identity_without_eos');
+  const dropIdentity = sql.indexOf('DROP CONSTRAINT IF EXISTS nexus_mc_grants_kind_economic_identity_id_key');
+  const dropKitIndex = sql.indexOf('DROP INDEX IF EXISTS "public".nexus_mc_grants_kind_eos');
+  assert.ok(perIdentity > 0 && perEos > 0 && withoutEos > 0);
+  assert.ok(dropIdentity > perIdentity && dropIdentity > perEos && dropIdentity > withoutEos);
+  assert.ok(dropKitIndex > dropIdentity);
   assert.match(sql, /nexus_mc_action_audit/);
   assert.match(sql, /nexus_mc_schema_version/);
   const auditSql = sql.slice(sql.indexOf('nexus_mc_action_audit'), sql.indexOf('nexus_mc_schema_version'));
@@ -536,6 +544,9 @@ test('grant table schema keeps one kit per identity and per UUID', () => {
   assert.doesNotMatch(auditSql, /code_hash/);
   const runtime = fs.readFileSync(path.join(__dirname, '../src/economy-worker/postgres-runtime.cjs'), 'utf8');
   assert.doesNotMatch(runtime, /minecraft\.ensureSchema/);
+  assert.doesNotMatch(runtime, /applySystemMintBalanceChecks/);
+  const runtimeBoot = runtime.slice(runtime.indexOf('async function createPostgresEconomyRuntime'), runtime.indexOf('module.exports'));
+  assert.doesNotMatch(runtimeBoot, /nexus_mc_grants|DROP CONSTRAINT/);
   const accrualSource = fs.readFileSync(path.join(__dirname, '../src/economy-worker/postgres-accrual.cjs'), 'utf8');
   const bootSchema = accrualSource.slice(accrualSource.indexOf('async ensureSchema'), accrualSource.indexOf('async syncRank'));
   assert.doesNotMatch(bootSchema, /mc_counted_day/);

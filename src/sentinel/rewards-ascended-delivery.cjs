@@ -114,9 +114,12 @@ async function inspectRewardsAscended(prefix, env = process.env) {
   }
 }
 
-async function upsertOrderReward(prefix, row, saddleBlueprint = '', env = process.env) {
-  const rewardId = rewardIdForOrder(row);
-  const desired = buildRewardEntry({ blueprint: row.blueprint, level: Number(row.rolled_level), sex: row.sex, saddleBlueprint });
+async function upsertRewardDefinition(prefix, rewardId, desired, env = process.env) {
+  if (!/^[A-Za-z0-9_-]{1,60}$/.test(String(rewardId || ''))) {
+    const error = new Error('RewardsAscended reward id is invalid.');
+    error.code = 'REWARDS_ASCENDED_REWARD_ID';
+    throw error;
+  }
   const { client, settings } = await connect(prefix, env);
   try {
     const relative = configRelativePath(prefix, env);
@@ -157,6 +160,12 @@ async function upsertOrderReward(prefix, row, saddleBlueprint = '', env = proces
   }
 }
 
+async function upsertOrderReward(prefix, row, saddleBlueprint = '', env = process.env) {
+  const rewardId = rewardIdForOrder(row);
+  const desired = buildRewardEntry({ blueprint: row.blueprint, level: Number(row.rolled_level), sex: row.sex, saddleBlueprint });
+  return upsertRewardDefinition(prefix, rewardId, desired, env);
+}
+
 async function upsertEffectiveOrderReward({ client, settings, prefix, relative, rewardId, desired, currentText = null, currentConfig = null }) {
   const configFile = remotePath(settings.root, relative);
   if (!(await client.exists(configFile))) {
@@ -194,8 +203,14 @@ function classifyReloadResult(result = {}) {
 function classifyRewardResult(result = {}) {
   const response = String(result?.response || '').trim();
   if (/^Player rewarded!$/i.test(response)) return { state: 'DELIVERED', failureClass: '', details: response };
-  if (/failed to give reward to player|unknown command|not found|invalid|error/i.test(response)) return { state: 'DELIVERY_FAILED', failureClass: 'REWARDS_ASCENDED_REJECTED', details: response || 'RewardsAscended rejected the reward command.' };
-  if (result?.status === 'sent_no_reply' || result?.status === 'sent_blank_reply' || !response) return { state: 'SENT_UNCONFIRMED', failureClass: 'REWARDS_ASCENDED_UNCONFIRMED', details: response || result?.status || 'RewardsAscended reward command sent without acknowledgement.' };
+  // Only this exact pre-verified rejection is a failed delivery. A reply that merely
+  // contains "not found", "invalid", or "error" can arrive after the item was given.
+  if (/^Failed to give reward to player\.?$/i.test(response)) {
+    return { state: 'DELIVERY_FAILED', failureClass: 'REWARDS_ASCENDED_REJECTED', details: response };
+  }
+  if (result?.status === 'sent_no_reply' || result?.status === 'sent_blank_reply' || !response) {
+    return { state: 'SENT_UNCONFIRMED', failureClass: 'REWARDS_ASCENDED_UNCONFIRMED', details: response || result?.status || 'RewardsAscended reward command sent without acknowledgement.' };
+  }
   return { state: 'SENT_UNCONFIRMED', failureClass: 'REWARDS_ASCENDED_UNCONFIRMED', details: response };
 }
 
@@ -246,6 +261,7 @@ module.exports = {
   buildRewardEntry,
   inspectRewardsAscended,
   upsertOrderReward,
+  upsertRewardDefinition,
   classifyReloadResult,
   classifyRewardResult,
   deliverWithRewardsAscended

@@ -59,6 +59,20 @@
       ]
     },
     {
+      "id": "spending-points-on-ark",
+      "label": "Spending Nexus Points on ARK",
+      "emoji": "🦖",
+      "summary": "How to spend Points on caches and the starter kit, and where to see your balance.",
+      "details": [
+        "Points live in /points, which is the bank. There is nothing to deposit or withdraw. The shop is not open yet, so nothing can be spent.",
+        "Playing earns Points. Shadow Recruit earns 2 Points every 5 minutes, which is 24 an hour, with no offline Points. Cipher Runner, Nexus Raider, Khaos Warden, and Blackout Legend earn 4 every 5 minutes, which is 48 an hour, plus 4, 6, 8, or 10 Points an hour while offline. Origin Founder earns 10 every 5 minutes, which is 120 an hour, plus 4 Points an hour while offline. Offline Points stop after 48 hours.",
+        "When the shop opens, the planned prices are Coastal 150, Forest 200, Swamp 200, Mountain 250, Winged 300, Ocean 350, Deep Cave 350, Fantastical 400, Bob's Tall Tales 400, and Apex 550 Points.",
+        "The starter kit will be free, once per player. It is delivered on whatever map you are on.",
+        "If you are offline, or online on more than one map, the order stays queued. When you are on one map, it delivers there.",
+        "If nothing was sent, a failed delivery is refunded right away. An order that is still queued after 14 days is refunded. A delivered order is not refunded. If delivery is unclear, it needs a staff member."
+      ]
+    },
+    {
       "id": "ranks-supporters",
       "label": "Ranks & Supporter Perks",
       "emoji": "⭐",

@@ -29,4 +29,10 @@ test('only the reward acknowledgement proves delivery; ambiguous replies remain 
   }
   assert.equal(classifyRewardResult({ status: 'sent_no_reply' }).state, 'SENT_UNCONFIRMED');
   assert.equal(classifyRewardResult({ response: 'Failed to give reward to player' }).state, 'DELIVERY_FAILED');
+  assert.equal(classifyRewardResult({ response: 'Failed to give reward to player.' }).failureClass, 'REWARDS_ASCENDED_REJECTED');
+  for (const response of ['not found', 'invalid', 'error', 'Unknown command', 'Player rewarded! error']) {
+    const outcome = classifyRewardResult({ status: 'success', response });
+    assert.equal(outcome.state, 'SENT_UNCONFIRMED', response);
+    assert.notEqual(outcome.failureClass, 'REWARDS_ASCENDED_REJECTED');
+  }
 });
