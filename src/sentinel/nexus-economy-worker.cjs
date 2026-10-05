@@ -2,6 +2,7 @@
 
 const crypto = require('node:crypto');
 const { COMMUNITY_LEVEL_UP_SOURCE } = require('./nexus-economy-community-level-coins.cjs');
+const { BIRTHDAY_GIFT_SOURCE } = require('./nexus-economy-birthday-gift.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const { rankById } = require('../shared/ranks.cjs');
@@ -249,7 +250,7 @@ class NexusEconomyWorker {
   }
 
   credit({ discordUserId, amount, type = 'credit', source = 'nexus', idempotencyKey = '', metadata = {} } = {}, options = {}) {
-    if (String(source || '').trim() === COMMUNITY_LEVEL_UP_SOURCE) {
+    if (String(source || '').trim() === COMMUNITY_LEVEL_UP_SOURCE || String(source || '').trim() === BIRTHDAY_GIFT_SOURCE) {
       return { ok: false, skipped: 'coins-wallet-unavailable', currency: 'NEXUS_COINS' };
     }
     const staffRefund = options?.allowHeldStaffRefund === true && source === 'mc-shop' && type === 'reversal';

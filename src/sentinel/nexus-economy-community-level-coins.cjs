@@ -2,6 +2,8 @@
 
 const { normalizeCurrency } = require('./nexus-economy-postgres-repository.cjs');
 const { memberIdentityHold } = require('./nexus-economy-identity-hold.cjs');
+const { evaluateSystemGrant } = require('./economy-system-grants.cjs');
+const { isBirthdayGiftGrant } = require('./nexus-economy-birthday-gift.cjs');
 
 const COMMUNITY_LEVEL_UP_SOURCE = 'community-level-up';
 const COMMUNITY_LEVEL_UP_TYPE = 'credit';
@@ -163,7 +165,17 @@ function routeWalletCredit(walletCore, input = {}, env = process.env) {
   if (!walletCore || typeof walletCore.credit !== 'function' || typeof walletCore.grantCommunityLevelCoins !== 'function') {
     throw new Error('Economy wallet core is required.');
   }
+  const gate = evaluateSystemGrant(input, env);
+  if (gate.applies && !gate.ok) {
+    return { ok: false, skipped: gate.skipped, currency: 'NEXUS_COINS', credited: 0 };
+  }
   if (isCommunityLevelCoinGrant(input)) return walletCore.grantCommunityLevelCoins({ ...input, env });
+  if (isBirthdayGiftGrant(input)) {
+    if (typeof walletCore.grantBirthdayGift !== 'function') {
+      return { ok: false, skipped: 'coins-wallet-unavailable', currency: 'NEXUS_COINS', credited: 0 };
+    }
+    return walletCore.grantBirthdayGift({ ...input, env });
+  }
   return walletCore.credit({ ...input, currency: input.currency || 'NEXUS_POINTS' });
 }
 

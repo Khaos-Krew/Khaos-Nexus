@@ -126,6 +126,18 @@
         "Use the appropriate help, suggestion, or private reporting flow when you need staff assistance rather than posting sensitive information publicly.",
         "If a guide entry and an official staff announcement conflict, follow the newer official announcement and let staff know the guide needs an update."
       ]
+    },
+    {
+      "id": "birthdays",
+      "label": "Birthdays",
+      "emoji": "🎂",
+      "summary": "A private birthday present you open yourself.",
+      "details": [
+        "Use /card birthday set to save a month, day, and timezone. The date stays off your public card.",
+        "A Nexus Coins present can be opened once each calendar year with /card birthday gift. It arrives in the morning, in your timezone.",
+        "Birthdays stay private unless you allow a celebration. The date, year, and age are never posted.",
+        "This is not turned on yet, so no present is sent until it is."
+      ]
     }
   ]
 }

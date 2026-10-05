@@ -23,6 +23,7 @@ const {
   LOOKUP_STARTING_TEXT,
   performLookup
 } = require('./lookup-service.cjs');
+const { addBirthdayCommands, handleBirthdayCommand, handleBirthdayReveal, suggestBirthdayTimezone } = require('./birthday-commands.cjs');
 
 const HIDDEN_TEXT = "This player's card is hidden.";
 const NO_MENTIONS = Object.freeze({ parse: [] });
@@ -39,7 +40,7 @@ function platformOption(option, required) {
     .addChoices(...platformCatalog().map((entry) => ({ name: entry.label, value: entry.id })));
 }
 
-function cardCommandDefinition({ findEnabled = false } = {}) {
+function cardCommandDefinition({ findEnabled = false, birthdayEnabled = false } = {}) {
   // Discord only allows subcommands or root options, not both. `/card` and
   // `/card user:` are the `show` subcommand (user optional). Admin clear and
   // admin find cannot take a command-level Administrator default without
@@ -70,6 +71,7 @@ function cardCommandDefinition({ findEnabled = false } = {}) {
       .setDescription('Hide your card, or let members find you by a tag')
       .addBooleanOption((option) => option.setName('hidden').setDescription('Hide your card from other players').setRequired(false))
       .addBooleanOption((option) => option.setName('findable').setDescription('Let members find you by your tags').setRequired(false)));
+  if (birthdayEnabled) addBirthdayCommands(command);
   if (findEnabled) {
     command.addSubcommand((sub) => sub
       .setName('find')
@@ -145,7 +147,7 @@ function isCardInteraction(interaction) {
   if (interaction?.isAutocomplete?.() && interaction.commandName === 'card') return true;
   if (interaction?.isUserContextMenuCommand?.() && interaction.commandName === 'View Card') return true;
   const customId = String(interaction?.customId || '');
-  if (interaction?.isButton?.() && (customId === 'card:share' || customId === 'card:tags' || customId === 'card:findable:on' || customId.startsWith('card:view:'))) return true;
+  if (interaction?.isButton?.() && (customId === 'card:share' || customId === 'card:tags' || customId === 'card:findable:on' || customId === 'card:bday:reveal' || customId.startsWith('card:view:'))) return true;
   return false;
 }
 
@@ -820,6 +822,10 @@ async function handleAutocomplete(interaction, deps) {
     await interaction.respond(suggestPlatforms(value, platformCatalog()));
     return;
   }
+  if (name === 'timezone') {
+    await interaction.respond(suggestBirthdayTimezone(value));
+    return;
+  }
   if (name === 'where') {
     await interaction.respond(suggestWhere(value, gamesOf(deps), platformCatalog()));
     return;
@@ -862,6 +868,10 @@ async function dispatch(interaction, deps) {
     await handleViewButton(interaction, deps);
     return;
   }
+  if (interaction.isButton?.() && interaction.customId === 'card:bday:reveal') {
+    await handleBirthdayReveal(interaction, deps);
+    return;
+  }
   if (interaction.isUserContextMenuCommand?.()) {
     await handleContextMenu(interaction, deps);
     return;
@@ -880,6 +890,7 @@ async function dispatch(interaction, deps) {
     await handleFind(interaction, deps, { staff: false });
     return;
   }
+  if (group === 'birthday') return handleBirthdayCommand(interaction, deps);
   if (group === 'platform' && sub === 'link') return handlePlatformLink(interaction, deps);
   if (group === 'platform' && sub === 'unlink') return handlePlatformUnlink(interaction, deps);
   if (sub === 'show') {
@@ -917,8 +928,8 @@ async function handleCardInteraction(interaction, deps = {}) {
   return true;
 }
 
-async function registerCardCommands(guild, { findEnabled = false } = {}) {
-  const definitions = [cardCommandDefinition({ findEnabled: findEnabled === true }), viewCardContextMenu()];
+async function registerCardCommands(guild, { findEnabled = false, birthdayEnabled = false } = {}) {
+  const definitions = [cardCommandDefinition({ findEnabled: findEnabled === true, birthdayEnabled: birthdayEnabled === true }), viewCardContextMenu()];
   const commands = await guild.commands.fetch();
   for (const definition of definitions) {
     const json = definition.toJSON();
