@@ -4,13 +4,17 @@ const crypto = require('node:crypto');
 const { normalizeCurrency } = require('./nexus-economy-postgres-repository.cjs');
 const { memberIdentityHold } = require('./nexus-economy-identity-hold.cjs');
 const { systemGrantsEnabled } = require('./economy-system-grants.cjs');
-const { readBirthdayCoins, HARD_BIRTHDAY_GIFT_CEILING } = require('./card/birthday-config.cjs');
+const { readBirthdayCoins, HARD_BIRTHDAY_GIFT_CEILING, BIRTHDAY_POLICY } = require('./card/birthday-config.cjs');
 const { nextCapMidnight, startOfCapDay } = require('./card/birthday-calendar.cjs');
 
 const BIRTHDAY_GIFT_SOURCE = 'birthday-gift';
 const BIRTHDAY_GIFT_TYPE = 'credit';
 const SHADOW_RECRUIT_RANK_ID = 'shadow-recruit';
 const REQUEST_KEY = /^birthday-gift:(\d{15,24}):((?:19|20|21)\d{2})$/;
+
+function birthdayGiftSkipKey(economicIdentityId, giftYear) {
+  return `birthday-gift-skip:${economicIdentityId}:${giftYear}`;
+}
 const ROLL_SPAN = 0x100000000;
 
 function isBirthdayGiftGrant(input = {}) {
@@ -94,7 +98,7 @@ function attachBirthdayGiftGrants(WalletCoreClass, {
       economicIdentityId,
       env
     });
-    if (hold) return holdSkip(hold);
+    if (hold) return { ...holdSkip(hold), economicIdentityId, discordUserId: discord };
     return { ok: true, discordUserId: discord, economicIdentityId, status };
   }
 
@@ -140,7 +144,8 @@ function attachBirthdayGiftGrants(WalletCoreClass, {
     const coins = readBirthdayCoins(env);
     if (!coins.ok) return { ok: false, skipped: coins.reason, currency: 'NEXUS_COINS', credited: 0 };
     const resolved = await ensureThenResolve(this, request.discordUserId, env);
-    if (resolved.ok === false) return { ...resolved, currency: 'NEXUS_COINS', missing: undefined, credited: 0 };
+    const heldResolved = resolved.ok === false && resolved.skipped === 'account-hold' && resolved.economicIdentityId;
+    if (resolved.ok === false && !heldResolved) return { ...resolved, currency: 'NEXUS_COINS', missing: undefined, credited: 0 };
     let amount;
     try {
       amount = rollBirthdayCoins({
@@ -159,18 +164,32 @@ function attachBirthdayGiftGrants(WalletCoreClass, {
       return { ok: false, skipped: 'grant-ceiling', currency: 'NEXUS_COINS', credited: 0 };
     }
     const ledgerKey = cleanId(`birthday-gift:${resolved.economicIdentityId}:${request.giftYear}`, 'Idempotency key');
+    const skipKey = cleanId(birthdayGiftSkipKey(resolved.economicIdentityId, request.giftYear), 'Idempotency key');
     const nowMs = this.now().getTime();
     return this.repository.transact(resolved.economicIdentityId, 'NEXUS_COINS', async (tx) => {
+      if (typeof tx.findLedgerByKey !== 'function' || typeof tx.rememberSkip !== 'function' || typeof tx.latestCreditAt !== 'function') {
+        return { ok: false, skipped: 'skip-unavailable', currency: 'NEXUS_COINS', credited: 0 };
+      }
+      let hold = null;
       if (typeof tx.lockIdentity === 'function') {
         const row = await tx.lockIdentity(resolved.economicIdentityId);
-        const hold = memberIdentityHold({
+        hold = memberIdentityHold({
           status: row?.status,
           holdReason: row?.hold_reason ?? row?.holdReason,
           economicIdentityId: resolved.economicIdentityId,
           missingRow: !row,
           env
         });
-        if (hold) return { ...holdSkip(hold), currency: 'NEXUS_COINS' };
+      }
+      const skippedYear = await tx.findLedgerByKey(skipKey);
+      if (skippedYear) {
+        return { ok: false, skipped: 'gift-year-skipped', reason: 'account-hold', currency: 'NEXUS_COINS', credited: 0 };
+      }
+      if (hold || heldResolved) {
+        await tx.rememberSkip(skipKey);
+        const written = await tx.findLedgerByKey(skipKey);
+        if (!written) return { ok: false, skipped: 'skip-unavailable', currency: 'NEXUS_COINS', credited: 0 };
+        return { ...holdSkip(hold || { reason: 'account-hold' }), currency: 'NEXUS_COINS' };
       }
       const prior = await tx.findLedgerByKey(ledgerKey);
       if (prior) {
@@ -186,6 +205,23 @@ function attachBirthdayGiftGrants(WalletCoreClass, {
         return { ok: false, skipped: 'cap-unavailable', currency: 'NEXUS_COINS', credited: 0 };
       }
       await tx.lockSource(BIRTHDAY_GIFT_SOURCE);
+      const lastCreditAt = await tx.latestCreditAt(resolved.economicIdentityId, BIRTHDAY_GIFT_SOURCE, 'NEXUS_COINS');
+      if (lastCreditAt) {
+        const lastMs = Date.parse(lastCreditAt);
+        const retryAtMs = lastMs + BIRTHDAY_POLICY.giftCooldownMs;
+        if (!Number.isFinite(lastMs) || !Number.isFinite(retryAtMs)) {
+          return { ok: false, skipped: 'cooldown-unavailable', currency: 'NEXUS_COINS', credited: 0 };
+        }
+        if (nowMs < retryAtMs) {
+          return {
+            ok: false,
+            skipped: 'gift-cooldown',
+            retryAt: new Date(retryAtMs).toISOString(),
+            currency: 'NEXUS_COINS',
+            credited: 0
+          };
+        }
+      }
       const spent = await tx.sumCreditsSince(BIRTHDAY_GIFT_SOURCE, 'NEXUS_COINS', new Date(startOfCapDay(nowMs)).toISOString());
       if (!Number.isSafeInteger(spent) || spent < 0 || spent + amount > coins.dailyCap) {
         return {
@@ -234,6 +270,7 @@ module.exports = {
   isBirthdayGiftGrant,
   assertBirthdayRequest,
   rollBirthdayCoins,
+  birthdayGiftSkipKey,
   attachBirthdayGiftGrants,
   HARD_BIRTHDAY_GIFT_CEILING
 };

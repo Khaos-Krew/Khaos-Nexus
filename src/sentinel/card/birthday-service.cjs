@@ -369,7 +369,10 @@ async function claimBirthdayGift(deps, userId) {
     }, auditSecrets(birthday));
     return { ok: true, code: 'deferred', text: COPY.tomorrow };
   }
-  if (granted?.skipped === 'account-hold') {
+  if (granted?.skipped === 'gift-cooldown') {
+    return { ok: false, code: 'cooldown', text: COPY.recent, reason: 'gift-cooldown' };
+  }
+  if (granted?.skipped === 'account-hold' || granted?.skipped === 'gift-year-skipped') {
     await deps.store.updateBirthday(userId, (current) => {
       const gift = current?.gifts?.[String(giftYear)];
       if (!gift || gift.status === 'revealed' || gift.status === 'skipped') return { keep: true };

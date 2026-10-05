@@ -19,6 +19,7 @@ const BIRTHDAY_POLICY = Object.freeze({
   postChangeDelayMs: 30 * DAY_MS,
   deliveryHour: 9,
   revealMs: 7 * DAY_MS,
+  giftCooldownMs: 300 * DAY_MS,
   tenureMs: 7 * DAY_MS,
   accountAgeMs: 30 * DAY_MS,
   schedulerMs: 60 * 60 * 1000

@@ -63,7 +63,9 @@ The scheduler does not start while any of the four Coin settings is unset or sti
 
 A member must have been in the guild for 7 days, the Discord account must be at least 30 days old, and the account must not be a bot, timed out, or holding a restricted or quarantine role. The date, year, and age are not posted. Audit rows do not store the month, day, or timezone. The birthday stays hidden unless the member opts in.
 
-Coins currently follow the same identity rules as community level-up: a verified or unmarked restricted identity can receive them. Whether gifts should be verified-only is still awaiting an owner decision; unmarked restricted Shadow Recruits can still receive a gift. An account hold at claim time writes a skip marker for that gift year on the card and does not write a Coin ledger row. After the hold is lifted, that year is not paid. The member change lock stays 60 days; a staff-only 365-day lock is not in this change.
+Coins currently follow the same identity rules as community level-up: a verified or unmarked restricted identity can receive them. Verified-only is not applied. The member change lock stays 60 days. A staff-only 365-day lock is not applied.
+
+An account hold at claim time writes `birthday-gift-skip:<economicIdentityId>:<giftYear>` on the economy identity. That marker is not a Coin credit. A second Discord account on the same identity cannot claim that year after the hold is lifted. The card copy is only a reminder of that marker. A successful birthday credit also starts a 300-day cooldown for that identity, so a date change cannot produce another gift inside that window.
 
 The ledger key is `birthday-gift:<economicIdentityId>:<giftYear>`. The request key is `birthday-gift:<discordUserId>:<giftYear>` and must match that Discord user. Two linked Discord accounts share one grant per year. The legacy JSON wallet cannot turn the grant into Nexus Points. No ArkShop grant is used.
 

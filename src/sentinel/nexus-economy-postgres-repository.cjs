@@ -265,6 +265,35 @@ class NexusEconomyPostgresRepository {
           [economicIdentityId, normalizeCurrency(currency), balance]
         );
       },
+      rememberSkip: async (idempotencyKey) => {
+        const key = String(idempotencyKey || '').trim();
+        if (!key || key.length > 128) throw new Error('Idempotency key is invalid.');
+        await client.query(
+          `INSERT INTO ${this.schema}.nexus_economy_idempotency_tombstones (idempotency_key, source)\n` +
+          `VALUES ($1, 'birthday-gift-skip')\n` +
+          `ON CONFLICT (idempotency_key) DO NOTHING`,
+          [key]
+        );
+      },
+      latestCreditAt: async (economicIdentityId, source, currency) => {
+        const result = await client.query(
+          `SELECT created_at\n` +
+          `FROM ${this.schema}.nexus_economy_ledger\n` +
+          `WHERE economic_identity_id = $1 AND source = $2 AND currency = $3 AND entry_type = 'credit' AND amount > 0\n` +
+          `ORDER BY created_at DESC\n` +
+          `LIMIT 1`,
+          [economicIdentityId, String(source || ''), normalizeCurrency(currency)]
+        );
+        const at = result.rows?.[0]?.created_at;
+        if (!at) return null;
+        const iso = at instanceof Date ? at.toISOString() : String(at);
+        if (!Number.isFinite(Date.parse(iso))) {
+          const error = new Error('Birthday gift cooldown is unreadable.');
+          error.reason = 'cooldown-unavailable';
+          throw error;
+        }
+        return iso;
+      },
       lockSource: async (source) => {
         const name = String(source || '').trim();
         if (!name || name.length > 64 || !/^[a-z0-9-]+$/.test(name)) throw new Error('Ledger source is invalid.');

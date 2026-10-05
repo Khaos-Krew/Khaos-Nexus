@@ -126,6 +126,7 @@ test('owner-locked Coin numbers are documented defaults and stay unset until env
   assert.equal(BIRTHDAY_POLICY.postChangeDelayMs, 30 * DAY);
   assert.equal(BIRTHDAY_POLICY.deliveryHour, 9);
   assert.equal(BIRTHDAY_POLICY.revealMs, 7 * DAY);
+  assert.equal(BIRTHDAY_POLICY.giftCooldownMs, 300 * DAY);
 });
 
 test('date math honors time zones, DST, leap day, and catch-up windows', () => {

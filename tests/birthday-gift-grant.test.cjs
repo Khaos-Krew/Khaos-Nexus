@@ -10,7 +10,8 @@ const { routeWalletCredit, COMMUNITY_LEVEL_UP_SOURCE } = require('../src/sentine
 const {
   BIRTHDAY_GIFT_SOURCE,
   rollBirthdayCoins,
-  assertBirthdayRequest
+  assertBirthdayRequest,
+  birthdayGiftSkipKey
 } = require('../src/sentinel/nexus-economy-birthday-gift.cjs');
 const { evaluateSystemGrant, SYSTEM_GRANT_SOURCES, systemGrantsEnabled } = require('../src/sentinel/economy-system-grants.cjs');
 const { mutationRequestGate } = require('../src/economy-worker/server.cjs');
@@ -35,6 +36,7 @@ class MemoryRepo {
     this.links = new Map();
     this.wallets = new Map();
     this.ledger = new Map();
+    this.markers = new Map();
     this.nextId = 1;
     this.rows = new Map();
   }
@@ -64,7 +66,21 @@ class MemoryRepo {
     const tx = {
       lockIdentity: async () => this.rows.get(economicIdentityId) || null,
       lockSource: async () => {},
-      findLedgerByKey: async (key) => this.ledger.get(key) || null,
+      findLedgerByKey: async (key) => this.ledger.get(key) || this.markers.get(key) || null,
+      rememberSkip: async (key) => {
+        this.markers.set(key, { tombstone: true, idempotencyKey: key, source: 'birthday-gift-skip' });
+      },
+      latestCreditAt: async (economicIdentityId, source, currency) => {
+        let latest = null;
+        for (const entry of this.ledger.values()) {
+          if (entry.economicIdentityId !== economicIdentityId || entry.source !== source || entry.currency !== currency) continue;
+          if (entry.type !== 'credit' || entry.amount <= 0) continue;
+          const at = Date.parse(entry.at);
+          if (!Number.isFinite(at)) continue;
+          if (latest == null || at > latest) latest = at;
+        }
+        return latest == null ? null : new Date(latest).toISOString();
+      },
       sumCreditsSince: async (source, wanted, sinceIso) => {
         const since = Date.parse(sinceIso);
         let total = 0;
@@ -246,6 +262,7 @@ test('birthday grants fail closed without config, defer over the daily cap, and 
   assert.equal(deferred.deferred, true);
   assert.equal(deferred.skipped, 'daily-cap-deferred');
   assert.equal(deferred.retryAt, '2026-10-06T05:00:00.000Z');
+  assert.equal(tight.markers.size, 0);
   assert.equal(tight.ledger.size, 1);
   assert.equal(tight.wallets.has('econ_b:NEXUS_COINS'), false);
   now = Date.parse('2026-10-06T00:30:00.000Z');
@@ -265,6 +282,7 @@ test('birthday grants fail closed without config, defer over the daily cap, and 
   const skipped = await heldWallet.grantBirthdayGift(giftInput(DISCORD_A));
   assert.equal(skipped.skipped, 'account-hold');
   assert.equal(held.ledger.size, 0);
+  assert.equal(held.markers.has(birthdayGiftSkipKey('econ_hold', 2026)), true);
 
   const shadow = new MemoryRepo();
   shadow.link(DISCORD_A, 'econ_shadow', { status: 'restricted' });
@@ -286,4 +304,108 @@ test('birthday grants fail closed without config, defer over the daily cap, and 
   assert.equal(blocked.skipped, 'coins-wallet-unavailable');
   assert.equal(blocked.currency, 'NEXUS_COINS');
   assert.equal(legacy.balance(DISCORD_A), 0);
+});
+
+test('hold-skip on Discord A then claim on Discord B same econId stays skipped', async () => {
+  const repository = new MemoryRepo();
+  repository.link(DISCORD_A, 'econ_shared', { status: 'restricted', holdReason: 'staff' });
+  repository.link(DISCORD_B, 'econ_shared', { status: 'restricted', holdReason: 'staff' });
+  const wallet = walletFor(repository);
+  const held = await wallet.grantBirthdayGift(giftInput(DISCORD_A));
+  assert.equal(held.skipped, 'account-hold');
+  assert.equal(held.credited, 0);
+  assert.equal(repository.ledger.size, 0);
+  assert.equal(repository.markers.has(birthdayGiftSkipKey('econ_shared', 2026)), true);
+  for (const discordUserId of [DISCORD_A, DISCORD_B]) {
+    repository.links.get(`discord:${discordUserId}`).hold_reason = '';
+  }
+  repository.rows.get('econ_shared').hold_reason = '';
+  const lifted = await wallet.grantBirthdayGift(giftInput(DISCORD_B));
+  assert.equal(lifted.ok, false);
+  assert.equal(lifted.skipped, 'gift-year-skipped');
+  assert.equal(repository.ledger.size, 0);
+  assert.equal(repository.wallets.has('econ_shared:NEXUS_COINS'), false);
+});
+
+test('a gift then a changed date within 300 days is refused', async () => {
+  const { JsonCardStore } = require('../src/sentinel/card/card-store.cjs');
+  const { CardAuditLog } = require('../src/sentinel/card/card-audit.cjs');
+  const { setBirthday, claimBirthdayGift } = require('../src/sentinel/card/birthday-service.cjs');
+  const { COPY } = require('../src/sentinel/card/birthday-copy.cjs');
+  const repository = new MemoryRepo();
+  repository.link(DISCORD_A, 'econ_a');
+  let now = Date.parse('2026-12-01T15:00:00.000Z');
+  const wallet = walletFor(repository, () => new Date(now));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'birthday-cooldown-'));
+  const store = new JsonCardStore(path.join(root, 'cards.json'));
+  const audit = new CardAuditLog(path.join(root, 'audit'));
+  const claimAt = Date.parse('2026-12-01T15:00:00.000Z');
+  await store.updateBirthday(DISCORD_A, () => ({
+    birthday: {
+      month: 12,
+      day: 1,
+      timezone: 'UTC',
+      visibility: 'hidden',
+      announce: false,
+      cleared: false,
+      setAt: '2026-10-01T00:00:00.000Z',
+      changedAt: '2026-10-01T00:00:00.000Z',
+      revision: 1,
+      gifts: {
+        2026: {
+          status: 'ready',
+          provider: 'coins',
+          scheduledAt: '2026-12-01T15:00:00.000Z',
+          revealExpiresAt: '2026-12-08T15:00:00.000Z',
+          readyAt: '2026-12-01T15:00:00.000Z'
+        }
+      }
+    }
+  }));
+  const member = {
+    joinedAt: new Date('2020-01-01T00:00:00.000Z'),
+    roles: { cache: new Map() },
+    displayName: 'Ada',
+    user: { id: DISCORD_A, bot: false, username: 'Ada', createdAt: new Date('2020-01-01T00:00:00.000Z') }
+  };
+  const deps = {
+    enabled: true,
+    env: coinsEnv(),
+    store,
+    audit,
+    now: () => now,
+    loadMember: async () => member,
+    economy: { credit: (input) => wallet.grantBirthdayGift(input) }
+  };
+  const opened = await claimBirthdayGift(deps, DISCORD_A);
+  assert.equal(opened.code, 'revealed');
+  assert.equal(repository.ledger.size, 1);
+  now = claimAt + (70 * 24 * 60 * 60 * 1000);
+  const changed = await setBirthday(deps, DISCORD_A, { month: 2, day: 9, timezone: 'UTC' });
+  assert.equal(changed.ok, true);
+  await store.updateBirthday(DISCORD_A, (current) => ({
+    birthday: {
+      ...current,
+      gifts: {
+        ...current.gifts,
+        2027: {
+          status: 'ready',
+          provider: 'coins',
+          scheduledAt: new Date(now).toISOString(),
+          revealExpiresAt: new Date(now + (7 * 24 * 60 * 60 * 1000)).toISOString(),
+          readyAt: new Date(now).toISOString()
+        }
+      }
+    }
+  }));
+  const gamed = await claimBirthdayGift(deps, DISCORD_A);
+  assert.equal(gamed.ok, false);
+  assert.equal(gamed.code, 'cooldown');
+  assert.equal(gamed.text, COPY.recent);
+  assert.equal(repository.ledger.size, 1);
+  assert.equal(store.getUser(DISCORD_A).birthday.month, 2);
+  now = claimAt + (300 * 24 * 60 * 60 * 1000);
+  const later = await wallet.grantBirthdayGift(giftInput(DISCORD_A, coinsEnv(), 2027));
+  assert.equal(later.ok, true);
+  assert.equal(repository.ledger.size, 2);
 });
