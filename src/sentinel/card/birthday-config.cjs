@@ -5,10 +5,11 @@ const PENDING_LEDGER = '__PENDING_LEDGER__';
 
 // Owner lock 2026-10-05. These are the intended production numbers.
 // Readers still fail closed until the environment sets them.
+const HARD_BIRTHDAY_GIFT_CEILING = 150;
 const OWNER_LOCKED_BIRTHDAY_COINS = Object.freeze({
   min: 75,
   max: 125,
-  ceiling: 150,
+  ceiling: HARD_BIRTHDAY_GIFT_CEILING,
   dailyCap: 1500
 });
 
@@ -47,7 +48,8 @@ function readBirthdayCoins(env = process.env) {
   if (min == null || max == null) return { ok: false, reason: 'coins-pending' };
   if (ceiling == null) return { ok: false, reason: 'grant-ceiling-unset' };
   if (dailyCap == null) return { ok: false, reason: 'daily-cap-unset' };
-  if (min > max || max > ceiling) return { ok: false, reason: 'coins-range' };
+  if (ceiling > HARD_BIRTHDAY_GIFT_CEILING) return { ok: false, reason: 'grant-ceiling' };
+  if (min > max || max > ceiling || max > HARD_BIRTHDAY_GIFT_CEILING) return { ok: false, reason: 'coins-range' };
   return { ok: true, min, max, ceiling, dailyCap };
 }
 
@@ -87,8 +89,13 @@ function normalizeGifts(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return gifts;
   for (const [year, gift] of Object.entries(value)) {
     if (!/^(19|20|21)\d{2}$/.test(year) || !gift || typeof gift !== 'object') continue;
-    const status = ['ready', 'revealed', 'expired'].includes(gift.status) ? gift.status : 'ready';
+    const status = ['ready', 'revealed', 'expired', 'skipped'].includes(gift.status) ? gift.status : 'ready';
     const row = { status, provider: 'coins' };
+    if (status === 'skipped') {
+      const skippedAt = isoOrNull(gift.skippedAt);
+      if (skippedAt) row.skippedAt = skippedAt;
+      if (gift.skipReason === 'account-hold') row.skipReason = 'account-hold';
+    }
     if (/^\d{4}-\d{2}-\d{2}$/.test(String(gift.alertedFor || ''))) row.alertedFor = String(gift.alertedFor);
     for (const key of ['scheduledAt', 'revealExpiresAt', 'readyAt', 'revealedAt', 'deferredUntil', 'notifiedAt']) {
       const stamp = isoOrNull(gift[key]);
@@ -128,6 +135,7 @@ function normalizeBirthday(value) {
 module.exports = {
   DAY_MS,
   PENDING_LEDGER,
+  HARD_BIRTHDAY_GIFT_CEILING,
   OWNER_LOCKED_BIRTHDAY_COINS,
   BIRTHDAY_POLICY,
   birthdayEnabled,

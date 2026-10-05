@@ -239,7 +239,8 @@ test('wallet credit routing sends community level-ups to Coins and other credits
     }
   };
   assert.equal(isCommunityLevelCoinGrant({ source: COMMUNITY_LEVEL_UP_SOURCE, currency: 'NEXUS_COINS' }), true);
-  await routeWalletCredit(wallet, { source: COMMUNITY_LEVEL_UP_SOURCE, currency: 'NEXUS_COINS', amount: 50 }, { marker: 'env', NEXUS_ECONOMY_SYSTEM_GRANTS_ENABLED: 'true' });
+  const routed = await routeWalletCredit(wallet, { source: COMMUNITY_LEVEL_UP_SOURCE, currency: 'NEXUS_COINS', amount: 50 }, { marker: 'env', NEXUS_ECONOMY_SYSTEM_GRANTS_ENABLED: '' });
+  assert.equal(routed.ok, true);
   await routeWalletCredit(wallet, { amount: 4, source: 'nexus' });
   await routeWalletCredit(wallet, { amount: 2, currency: 'NEXUS_POINTS', source: 'playtime' });
   assert.deepEqual(calls, [

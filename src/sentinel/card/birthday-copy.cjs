@@ -18,6 +18,7 @@ const COPY = Object.freeze({
   already: 'You already opened this present.',
   expired: 'That present has expired.',
   unavailable: "You can't open a birthday present right now.",
+  skipped: "This year's present was skipped.",
   notReady: 'Birthday presents are not available yet.',
   tomorrow: 'Your present will be ready tomorrow.',
   none: 'No birthday present is waiting.',

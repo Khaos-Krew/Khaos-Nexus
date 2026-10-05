@@ -117,18 +117,22 @@ function suggestTimezones(query) {
   return matches.slice(0, 25);
 }
 
-function startOfUtcDay(nowMs) {
-  const date = new Date(nowMs);
-  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+const BIRTHDAY_CAP_TIME_ZONE = 'America/Chicago';
+
+function capDayKey(nowMs, timeZone = BIRTHDAY_CAP_TIME_ZONE) {
+  const parts = zonedParts(nowMs, timeZone);
+  return `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
 }
 
-function nextUtcMidnight(nowMs) {
-  const date = new Date(nowMs);
-  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1);
+function startOfCapDay(nowMs, timeZone = BIRTHDAY_CAP_TIME_ZONE) {
+  const parts = zonedParts(nowMs, timeZone);
+  return zonedLocalToUtc(parts.year, parts.month, parts.day, 0, 0, timeZone);
 }
 
-function utcDayKey(nowMs) {
-  return new Date(startOfUtcDay(nowMs)).toISOString().slice(0, 10);
+function nextCapMidnight(nowMs, timeZone = BIRTHDAY_CAP_TIME_ZONE) {
+  const parts = zonedParts(nowMs, timeZone);
+  const next = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + 1));
+  return zonedLocalToUtc(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), 0, 0, timeZone);
 }
 
 module.exports = {
@@ -142,7 +146,8 @@ module.exports = {
   delaySatisfied,
   changeLocked,
   suggestTimezones,
-  startOfUtcDay,
-  nextUtcMidnight,
-  utcDayKey
+  BIRTHDAY_CAP_TIME_ZONE,
+  capDayKey,
+  startOfCapDay,
+  nextCapMidnight
 };

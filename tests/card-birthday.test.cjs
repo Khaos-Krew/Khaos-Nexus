@@ -10,6 +10,7 @@ const { JsonCardStore } = require('../src/sentinel/card/card-store.cjs');
 const { CardAuditLog } = require('../src/sentinel/card/card-audit.cjs');
 const { cardCommandDefinition, handleCardInteraction } = require('../src/sentinel/card/card-commands.cjs');
 const {
+  HARD_BIRTHDAY_GIFT_CEILING,
   OWNER_LOCKED_BIRTHDAY_COINS,
   PENDING_LEDGER,
   birthdayEnabled,
@@ -20,7 +21,9 @@ const {
   celebrationDay,
   deliveryInstant,
   zonedParts,
-  suggestTimezones
+  suggestTimezones,
+  capDayKey,
+  nextCapMidnight
 } = require('../src/sentinel/card/birthday-calendar.cjs');
 const { schedulerDecision, startBirthdayScheduler } = require('../src/sentinel/card/birthday-scheduler.cjs');
 const { liveBirthdayProviders, grantBirthdayProvider } = require('../src/sentinel/card/birthday-providers.cjs');
@@ -114,6 +117,9 @@ test('owner-locked Coin numbers are documented defaults and stay unset until env
   assert.equal(readBirthdayCoins({ BIRTHDAY_COINS_MIN: '75', BIRTHDAY_COINS_MAX: '125', BIRTHDAY_GIFT_DAILY_CAP: '1500' }).reason, 'grant-ceiling-unset');
   assert.equal(readBirthdayCoins({ BIRTHDAY_COINS_MIN: '75', BIRTHDAY_COINS_MAX: '125', BIRTHDAY_GIFT_CEILING: '150' }).reason, 'daily-cap-unset');
   assert.equal(readBirthdayCoins({ BIRTHDAY_COINS_MIN: '75', BIRTHDAY_COINS_MAX: '200', BIRTHDAY_GIFT_CEILING: '150', BIRTHDAY_GIFT_DAILY_CAP: '1500' }).reason, 'coins-range');
+  assert.equal(HARD_BIRTHDAY_GIFT_CEILING, 150);
+  assert.equal(readBirthdayCoins({ ...coinEnv(), BIRTHDAY_GIFT_CEILING: '151' }).reason, 'grant-ceiling');
+  assert.equal(readBirthdayCoins({ ...coinEnv(), BIRTHDAY_GIFT_CEILING: '1500', BIRTHDAY_COINS_MAX: '125' }).reason, 'grant-ceiling');
   assert.deepEqual(readBirthdayCoins(coinEnv()), { ok: true, ...OWNER_LOCKED_BIRTHDAY_COINS });
   assert.equal(BIRTHDAY_POLICY.firstGiftDelayMs, 14 * DAY);
   assert.equal(BIRTHDAY_POLICY.changeLockMs, 60 * DAY);
@@ -138,6 +144,12 @@ test('date math honors time zones, DST, leap day, and catch-up windows', () => {
   assert.equal(zonedParts(losAngeles - 60 * 1000, 'America/Los_Angeles').hour, 8);
   const leap = deliveryInstant({ month: 2, day: 29, timezone: 'UTC' }, 2027, 9);
   assert.equal(zonedParts(leap, 'UTC').day, 28);
+  const capNow = Date.parse('2026-10-05T15:00:00.000Z');
+  assert.equal(capDayKey(capNow), '2026-10-05');
+  assert.equal(new Date(nextCapMidnight(capNow)).toISOString(), '2026-10-06T05:00:00.000Z');
+  assert.equal(capDayKey(Date.parse('2026-10-06T00:30:00.000Z')), '2026-10-05');
+  assert.equal(capDayKey(Date.parse('2026-01-15T05:30:00.000Z')), '2026-01-14');
+  assert.equal(new Date(nextCapMidnight(Date.parse('2026-01-14T23:30:00.000Z'))).toISOString(), '2026-01-15T06:00:00.000Z');
 });
 
 test('scheduler refuses to start while flags or Coin settings are off, and catch-up runs once they are set', async () => {
@@ -449,7 +461,7 @@ test('delivery catch-up, delays, privacy fallback, eligibility, and reveal idemp
     env: coinEnv(),
     store: deferredStore.store,
     audit: deferredStore.audit,
-    now: () => scheduled + 60 * 1000,
+    now: () => Date.parse('2026-03-09T04:00:00.000Z'),
     loadMember: async () => member(scheduled),
     alertStaff: async (payload) => { alerts.push(payload); },
     economy: {
@@ -466,6 +478,7 @@ test('delivery catch-up, delays, privacy fallback, eligibility, and reveal idemp
   assert.deepEqual(alerts[0].allowedMentions, { parse: [] });
   assert.equal(alerts[0].content.includes('America/New_York'), false);
   assert.equal(deferredStore.store.getUser(USER).birthday.gifts['2026'].status, 'ready');
+  assert.equal(deferredStore.store.getUser(USER).birthday.gifts['2026'].alertedFor, '2026-03-08');
   mode = 'pay';
   const later = await claimBirthdayGift({ ...deferDeps, now: () => Date.parse(retryAt) + 1000 }, USER);
   assert.match(later.text, /100 Nexus Coins/);
@@ -522,4 +535,69 @@ test('delivery catch-up, delays, privacy fallback, eligibility, and reveal idemp
     }
   });
   assert.equal(JSON.stringify(model).includes(ZONE), false);
+});
+
+test('a hold at claim skips that gift year and a lift does not back-pay', async () => {
+  const { dir, store, audit } = openStore();
+  const birthday = { month: 3, day: 8, timezone: 'America/New_York' };
+  const scheduled = deliveryInstant(birthday, 2026, 9);
+  const now = scheduled + 60 * 1000;
+  await store.updateBirthday(USER, () => ({
+    birthday: {
+      ...birthday,
+      visibility: 'hidden',
+      announce: false,
+      cleared: false,
+      setAt: new Date(scheduled - 40 * DAY).toISOString(),
+      changedAt: new Date(scheduled - 40 * DAY).toISOString(),
+      revision: 1,
+      gifts: {
+        2026: {
+          status: 'ready',
+          provider: 'coins',
+          scheduledAt: new Date(scheduled).toISOString(),
+          revealExpiresAt: new Date(scheduled + 7 * DAY).toISOString(),
+          readyAt: new Date(scheduled).toISOString()
+        }
+      }
+    }
+  }));
+  let held = true;
+  const calls = [];
+  const deps = {
+    enabled: true,
+    env: coinEnv(),
+    store,
+    audit,
+    now: () => now,
+    loadMember: async () => member(scheduled),
+    economy: {
+      credit: async () => {
+        calls.push(held ? 'held' : 'lifted');
+        if (held) return { ok: false, skipped: 'account-hold', credited: 0 };
+        return { ok: true, amount: 90, duplicate: false };
+      }
+    }
+  };
+  const first = await claimBirthdayGift(deps, USER);
+  assert.equal(first.code, 'skipped');
+  assert.equal(first.text, COPY.skipped);
+  assert.equal(store.getUser(USER).birthday.gifts['2026'].status, 'skipped');
+  assert.equal(store.getUser(USER).birthday.gifts['2026'].skipReason, 'account-hold');
+  held = false;
+  const second = await claimBirthdayGift(deps, USER);
+  const described = await describeBirthdayGift(deps, USER);
+  assert.equal(second.text, COPY.skipped);
+  assert.equal(described.text, COPY.skipped);
+  assert.deepEqual(calls, ['held']);
+  assert.equal(store.getUser(USER).birthday.gifts['2026'].status, 'skipped');
+  const reloaded = new JsonCardStore(path.join(dir, 'cards.json'));
+  assert.equal(reloaded.getUser(USER).birthday.gifts['2026'].status, 'skipped');
+  const again = await runBirthdayPass({ ...deps, now: () => now + DAY });
+  assert.equal(again.ready, 0);
+  assert.equal(store.getUser(USER).birthday.gifts['2026'].status, 'skipped');
+  const text = auditText(dir);
+  assert.equal(text.includes('America/New_York'), false);
+  assert.equal(text.includes('"month"'), false);
+  assert.equal(text.includes('"day"'), false);
 });

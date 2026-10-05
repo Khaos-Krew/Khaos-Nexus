@@ -2,7 +2,7 @@
 
 const { normalizeCurrency } = require('./nexus-economy-postgres-repository.cjs');
 
-const SYSTEM_GRANT_SOURCES = Object.freeze(['community-level-up', 'birthday-gift']);
+const SYSTEM_GRANT_SOURCES = Object.freeze(['birthday-gift']);
 
 function systemGrantsEnabled(env = process.env) {
   return ['1', 'true', 'yes', 'on'].includes(String(env?.NEXUS_ECONOMY_SYSTEM_GRANTS_ENABLED || '').trim().toLowerCase());

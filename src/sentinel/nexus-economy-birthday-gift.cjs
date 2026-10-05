@@ -4,8 +4,8 @@ const crypto = require('node:crypto');
 const { normalizeCurrency } = require('./nexus-economy-postgres-repository.cjs');
 const { memberIdentityHold } = require('./nexus-economy-identity-hold.cjs');
 const { systemGrantsEnabled } = require('./economy-system-grants.cjs');
-const { readBirthdayCoins } = require('./card/birthday-config.cjs');
-const { nextUtcMidnight, startOfUtcDay } = require('./card/birthday-calendar.cjs');
+const { readBirthdayCoins, HARD_BIRTHDAY_GIFT_CEILING } = require('./card/birthday-config.cjs');
+const { nextCapMidnight, startOfCapDay } = require('./card/birthday-calendar.cjs');
 
 const BIRTHDAY_GIFT_SOURCE = 'birthday-gift';
 const BIRTHDAY_GIFT_TYPE = 'credit';
@@ -155,7 +155,7 @@ function attachBirthdayGiftGrants(WalletCoreClass, {
     if (input.amount != null && input.amount !== '' && Number(input.amount) !== amount) {
       return { ok: false, skipped: 'amount-mismatch', currency: 'NEXUS_COINS', credited: 0 };
     }
-    if (amount > coins.ceiling) {
+    if (amount > HARD_BIRTHDAY_GIFT_CEILING || amount > coins.ceiling) {
       return { ok: false, skipped: 'grant-ceiling', currency: 'NEXUS_COINS', credited: 0 };
     }
     const ledgerKey = cleanId(`birthday-gift:${resolved.economicIdentityId}:${request.giftYear}`, 'Idempotency key');
@@ -186,13 +186,13 @@ function attachBirthdayGiftGrants(WalletCoreClass, {
         return { ok: false, skipped: 'cap-unavailable', currency: 'NEXUS_COINS', credited: 0 };
       }
       await tx.lockSource(BIRTHDAY_GIFT_SOURCE);
-      const spent = await tx.sumCreditsSince(BIRTHDAY_GIFT_SOURCE, 'NEXUS_COINS', new Date(startOfUtcDay(nowMs)).toISOString());
+      const spent = await tx.sumCreditsSince(BIRTHDAY_GIFT_SOURCE, 'NEXUS_COINS', new Date(startOfCapDay(nowMs)).toISOString());
       if (!Number.isSafeInteger(spent) || spent < 0 || spent + amount > coins.dailyCap) {
         return {
           ok: false,
           deferred: true,
           skipped: 'daily-cap-deferred',
-          retryAt: new Date(nextUtcMidnight(nowMs)).toISOString(),
+          retryAt: new Date(nextCapMidnight(nowMs)).toISOString(),
           currency: 'NEXUS_COINS',
           credited: 0
         };
@@ -234,5 +234,6 @@ module.exports = {
   isBirthdayGiftGrant,
   assertBirthdayRequest,
   rollBirthdayCoins,
-  attachBirthdayGiftGrants
+  attachBirthdayGiftGrants,
+  HARD_BIRTHDAY_GIFT_CEILING
 };

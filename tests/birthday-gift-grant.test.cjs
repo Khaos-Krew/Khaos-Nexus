@@ -109,24 +109,24 @@ function giftInput(discordUserId, env = coinsEnv(), year = 2026) {
   };
 }
 
-test('system-grant gate defaults off and only allows the two Coin credits', async () => {
+test('system-grant gate defaults off for birthday gifts and leaves level-up Coins running', async () => {
   assert.equal(systemGrantsEnabled({}), false);
-  assert.deepEqual([...SYSTEM_GRANT_SOURCES], ['community-level-up', 'birthday-gift']);
+  assert.deepEqual([...SYSTEM_GRANT_SOURCES], ['birthday-gift']);
+  const levelGate = evaluateSystemGrant({ source: 'community-level-up', currency: 'NEXUS_COINS', type: 'credit' }, {});
+  assert.equal(levelGate.applies, false);
+  assert.equal(levelGate.ok, true);
   const cases = [
     [{ source: 'birthday-gift', currency: 'NEXUS_COINS', type: 'credit' }, {}, 'system-grants-disabled'],
-    [{ source: 'community-level-up', currency: 'NEXUS_COINS', type: 'credit' }, {}, 'system-grants-disabled'],
     [{ source: 'birthday-gift', currency: 'NEXUS_COINS', type: 'credit' }, coinsEnv(), null],
-    [{ source: 'community-level-up', currency: 'NEXUS_COINS', type: 'credit' }, coinsEnv(), null],
     [{ source: 'birthday-gift', currency: 'NEXUS_POINTS', type: 'credit' }, coinsEnv(), 'coins-only'],
     [{ source: 'birthday-gift', currency: 'NEXUS_COINS', type: 'debit' }, coinsEnv(), 'credit-only'],
     [{ source: 'legacy_bank_flat', currency: 'NEXUS_POINTS', type: 'credit' }, coinsEnv(), null],
     [{ source: 'system_grant', currency: 'NEXUS_COINS', type: 'credit' }, coinsEnv(), null]
   ];
-  assert.equal(evaluateSystemGrant(cases[2][0], cases[2][1]).ok, true);
-  assert.equal(evaluateSystemGrant(cases[3][0], cases[3][1]).ok, true);
-  assert.equal(evaluateSystemGrant(cases[6][0], cases[6][1]).applies, false);
-  assert.equal(evaluateSystemGrant(cases[7][0], cases[7][1]).applies, false);
-  for (const [input, env, skipped] of cases.slice(0, 2).concat(cases.slice(4, 6))) {
+  assert.equal(evaluateSystemGrant(cases[1][0], cases[1][1]).ok, true);
+  assert.equal(evaluateSystemGrant(cases[4][0], cases[4][1]).applies, false);
+  assert.equal(evaluateSystemGrant(cases[5][0], cases[5][1]).applies, false);
+  for (const [input, env, skipped] of [cases[0], cases[2], cases[3]]) {
     assert.equal(evaluateSystemGrant(input, env).skipped, skipped);
     assert.equal(evaluateSystemGrant(input, env).ok, false);
   }
@@ -141,14 +141,33 @@ test('system-grant gate defaults off and only allows the two Coin credits', asyn
   assert.equal(denied.skipped, 'system-grants-disabled');
   const points = await routeWalletCredit(wallet, { source: BIRTHDAY_GIFT_SOURCE, currency: 'NEXUS_POINTS', type: 'credit' }, coinsEnv());
   assert.equal(points.skipped, 'coins-only');
+  const levelWhileUnset = await routeWalletCredit(wallet, { source: COMMUNITY_LEVEL_UP_SOURCE, currency: 'NEXUS_COINS', type: 'credit' }, {});
+  assert.equal(levelWhileUnset.ok, true);
   await routeWalletCredit(wallet, { source: BIRTHDAY_GIFT_SOURCE, currency: 'NEXUS_COINS', type: 'credit' }, coinsEnv());
-  await routeWalletCredit(wallet, { source: COMMUNITY_LEVEL_UP_SOURCE, currency: 'NEXUS_COINS', type: 'credit' }, coinsEnv());
   await routeWalletCredit(wallet, { source: 'playtime', currency: 'NEXUS_POINTS', amount: 2 }, coinsEnv());
   assert.deepEqual(calls, [
-    ['birthday', BIRTHDAY_GIFT_SOURCE],
     ['level', COMMUNITY_LEVEL_UP_SOURCE],
+    ['birthday', BIRTHDAY_GIFT_SOURCE],
     ['credit', 'playtime', 'NEXUS_POINTS']
   ]);
+  const live = new MemoryRepo();
+  live.link(DISCORD_A, 'econ_a');
+  const liveWallet = walletFor(live);
+  const unset = coinsEnv({ NEXUS_ECONOMY_SYSTEM_GRANTS_ENABLED: '' });
+  const credited = await routeWalletCredit(liveWallet, {
+    discordUserId: DISCORD_A,
+    amount: 40,
+    currency: 'NEXUS_COINS',
+    source: COMMUNITY_LEVEL_UP_SOURCE,
+    type: 'credit',
+    idempotencyKey: `community-level-up:${DISCORD_A}:1:2`
+  }, unset);
+  assert.equal(credited.ok, true);
+  assert.equal(credited.currency, 'NEXUS_COINS');
+  const birthday = await routeWalletCredit(liveWallet, giftInput(DISCORD_A, unset), unset);
+  assert.equal(birthday.skipped, 'system-grants-disabled');
+  assert.equal(live.ledger.size, 1);
+  assert.equal([...live.ledger.values()][0].source, COMMUNITY_LEVEL_UP_SOURCE);
   const server = fs.readFileSync(path.join(__dirname, '../src/economy-worker/server.cjs'), 'utf8');
   assert.equal(server.includes('NEXUS_ECONOMY_SYSTEM_GRANTS_ENABLED'), false);
   assert.match(server, /NEXUS_ECONOMY_WRITES_ENABLED/);
@@ -226,10 +245,14 @@ test('birthday grants fail closed without config, defer over the daily cap, and 
   assert.equal(paid.ok, true);
   assert.equal(deferred.deferred, true);
   assert.equal(deferred.skipped, 'daily-cap-deferred');
-  assert.equal(deferred.retryAt, '2026-10-06T00:00:00.000Z');
+  assert.equal(deferred.retryAt, '2026-10-06T05:00:00.000Z');
   assert.equal(tight.ledger.size, 1);
   assert.equal(tight.wallets.has('econ_b:NEXUS_COINS'), false);
   now = Date.parse('2026-10-06T00:30:00.000Z');
+  const sameChicagoDay = await capped.grantBirthdayGift(giftInput(DISCORD_B, env));
+  assert.equal(sameChicagoDay.deferred, true);
+  assert.equal(tight.ledger.size, 1);
+  now = Date.parse('2026-10-06T05:30:00.000Z');
   const nextDay = await capped.grantBirthdayGift(giftInput(DISCORD_B, env));
   assert.equal(nextDay.ok, true);
   assert.equal(nextDay.duplicate, false);

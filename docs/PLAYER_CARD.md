@@ -46,16 +46,16 @@ Turn lookup off by unsetting `CARD_FIND_ENABLED` (or setting it to anything othe
 
 ## Birthdays
 
-Birthday commands and the morning pass stay off until `BIRTHDAY_ENABLED` is turned on. `CARD_ENABLED` must be on as well. `NEXUS_ECONOMY_SYSTEM_GRANTS_ENABLED` stays off until an owner turns system grants on. None of these flags are set by this change.
+Birthday commands and the morning pass stay off until `BIRTHDAY_ENABLED` is turned on. `CARD_ENABLED` must be on as well. `NEXUS_ECONOMY_SYSTEM_GRANTS_ENABLED` stays off until an owner turns birthday grants on. That flag gates `birthday-gift` only. Community level-up Coins keep crediting while it is unset. None of these flags are set by this change.
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `BIRTHDAY_ENABLED` | off | Turns on `/card birthday` and the scheduler. Requires `CARD_ENABLED`. |
-| `NEXUS_ECONOMY_SYSTEM_GRANTS_ENABLED` | off | Allows only `community-level-up` and `birthday-gift` Coin credits. It does not change `NEXUS_ECONOMY_WRITES_ENABLED`. |
+| `NEXUS_ECONOMY_SYSTEM_GRANTS_ENABLED` | off | Allows `birthday-gift` Coin credits. Community level-up is not on this gate. It does not change `NEXUS_ECONOMY_WRITES_ENABLED`. |
 | `BIRTHDAY_COINS_MIN` | unset | Lowest Coin in the uniform whole-number roll. Owner lock: `75`. `__PENDING_LEDGER__` counts as unset. |
 | `BIRTHDAY_COINS_MAX` | unset | Highest Coin in that roll. Owner lock: `125`. |
-| `BIRTHDAY_GIFT_CEILING` | unset | Per-grant ceiling for `birthday-gift`. Owner lock: `150`. A grant above it is refused. |
-| `BIRTHDAY_GIFT_DAILY_CAP` | unset | Global birthday Coin cap per UTC day. Owner lock: `1500`. Overflow waits until the next UTC day and alerts staff. It is not discarded. |
+| `BIRTHDAY_GIFT_CEILING` | unset | Per-grant ceiling for `birthday-gift`. Hard code ceiling is `150`. An env value above 150 is refused. |
+| `BIRTHDAY_GIFT_DAILY_CAP` | unset | Global birthday Coin cap per America/Chicago calendar day. Owner lock: `1500`. Overflow waits until the next Chicago midnight and alerts staff once that Chicago day. It is not discarded. |
 | `BIRTHDAY_CHANNEL_ID` | unset | Optional channel used only when a private message fails and the member set visibility to shown or announce to true. |
 | `BIRTHDAY_STAFF_ALERT_CHANNEL_ID` | unset | Staff channel for a daily-cap deferral. The alert has no birthday date. |
 
@@ -63,10 +63,12 @@ The scheduler does not start while any of the four Coin settings is unset or sti
 
 A member must have been in the guild for 7 days, the Discord account must be at least 30 days old, and the account must not be a bot, timed out, or holding a restricted or quarantine role. The date, year, and age are not posted. Audit rows do not store the month, day, or timezone. The birthday stays hidden unless the member opts in.
 
-Coins use the same identity rules as community level-up: a verified or unmarked restricted identity can receive them, and an account hold is skipped. The ledger key is `birthday-gift:<economicIdentityId>:<giftYear>`. The request key is `birthday-gift:<discordUserId>:<giftYear>` and must match that Discord user. Two linked Discord accounts share one grant per year. The legacy JSON wallet cannot turn the grant into Nexus Points. No ArkShop grant is used.
+Coins currently follow the same identity rules as community level-up: a verified or unmarked restricted identity can receive them. Whether gifts should be verified-only is still awaiting an owner decision; unmarked restricted Shadow Recruits can still receive a gift. An account hold at claim time writes a skip marker for that gift year on the card and does not write a Coin ledger row. After the hold is lifted, that year is not paid. The member change lock stays 60 days; a staff-only 365-day lock is not in this change.
+
+The ledger key is `birthday-gift:<economicIdentityId>:<giftYear>`. The request key is `birthday-gift:<discordUserId>:<giftYear>` and must match that Discord user. Two linked Discord accounts share one grant per year. The legacy JSON wallet cannot turn the grant into Nexus Points. No ArkShop grant is used.
 
 ### Rollback
 
 Leave `BIRTHDAY_ENABLED` and `NEXUS_ECONOMY_SYSTEM_GRANTS_ENABLED` unset and restart Sentinal and the economy worker. `/card` stays as it was. Stored birthdays can remain in `cards.json`; they are ignored while the birthday flag is off. No data migration is required.
 
-Do not enable birthdays until the Coin settings above are set to the owner-locked amounts, warden items W-B1 and W-B2 are closed, and an owner turns on the system-grant gate. `NEXUS_ECONOMY_WRITES_ENABLED` is a separate gate and is not flipped here.
+Do not enable birthdays until the Coin settings above are set to the owner-locked amounts (ceiling at most 150), warden items W-B1 and W-B2 are closed, and an owner turns on the system-grant gate. That gate does not stop community level-up Coins. `NEXUS_ECONOMY_WRITES_ENABLED` is a separate gate and is not flipped here.

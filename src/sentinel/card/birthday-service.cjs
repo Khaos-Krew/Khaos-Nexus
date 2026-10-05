@@ -7,7 +7,7 @@ const {
   changeLocked,
   delaySatisfied,
   deliveryInstant,
-  utcDayKey
+  capDayKey
 } = require('./birthday-calendar.cjs');
 const { assessBirthdayEligibility, restrictedRolesFor } = require('./birthday-eligibility.cjs');
 const { writeBirthdayAudit } = require('./birthday-audit.cjs');
@@ -45,13 +45,21 @@ function revealedThisWindow(birthday, nowMs) {
   return null;
 }
 
+function skippedGift(birthday) {
+  if (!birthday?.gifts) return null;
+  for (const [year, gift] of Object.entries(birthday.gifts)) {
+    if (gift?.status === 'skipped') return { year, gift };
+  }
+  return null;
+}
+
 function claimableGift(birthday, nowMs) {
   if (!birthday || birthday.cleared) return null;
   const years = Object.keys(birthday.gifts || {}).sort();
   let deferred = null;
   for (const year of years) {
     const gift = birthday.gifts[year];
-    if (!gift || gift.status === 'revealed' || gift.status === 'expired') continue;
+    if (!gift || gift.status === 'revealed' || gift.status === 'expired' || gift.status === 'skipped') continue;
     const waiting = gift.deferredUntil && Date.parse(gift.deferredUntil) > nowMs;
     if (waiting) {
       deferred = deferred || { kind: 'deferred', year, gift };
@@ -284,6 +292,7 @@ async function describeBirthdayGift(deps, userId) {
   const birthday = deps.store.getUser(userId)?.birthday;
   const open = claimableGift(birthday, nowMs);
   if (!open && revealedThisWindow(birthday, nowMs)) return { ok: true, code: 'already', text: COPY.already, reveal: false };
+  if (!open && skippedGift(birthday)) return { ok: false, code: 'skipped', text: COPY.skipped, reveal: false };
   if (!open) return { ok: false, code: 'none', text: COPY.none, reveal: false };
   if (open.kind === 'deferred') return { ok: true, code: 'deferred', text: COPY.tomorrow, reveal: false };
   return { ok: true, code: 'waiting', text: COPY.waiting, reveal: true, giftYear: Number(open.year) };
@@ -315,6 +324,7 @@ async function claimBirthdayGift(deps, userId) {
   const birthday = deps.store.getUser(userId)?.birthday;
   const open = claimableGift(birthday, nowMs);
   if (!open && revealedThisWindow(birthday, nowMs)) return { ok: true, code: 'already', text: COPY.already };
+  if (!open && skippedGift(birthday)) return { ok: false, code: 'skipped', text: COPY.skipped, reason: 'account-hold' };
   if (!open) return { ok: false, code: 'none', text: COPY.none };
   if (open.kind === 'deferred') return { ok: true, code: 'deferred', text: COPY.tomorrow };
   if (open.gift.status === 'revealed') return { ok: true, code: 'already', text: COPY.already };
@@ -332,7 +342,7 @@ async function claimBirthdayGift(deps, userId) {
   }
   if (granted?.deferred === true) {
     const retryAt = granted.retryAt || new Date(nowMs + policy.schedulerMs).toISOString();
-    const day = utcDayKey(nowMs);
+    const day = capDayKey(nowMs);
     const shouldAlert = open.gift.alertedFor !== day;
     await deps.store.updateBirthday(userId, (current) => {
       const gift = current?.gifts?.[String(giftYear)];
@@ -358,6 +368,34 @@ async function claimBirthdayGift(deps, userId) {
       provider: 'coins'
     }, auditSecrets(birthday));
     return { ok: true, code: 'deferred', text: COPY.tomorrow };
+  }
+  if (granted?.skipped === 'account-hold') {
+    await deps.store.updateBirthday(userId, (current) => {
+      const gift = current?.gifts?.[String(giftYear)];
+      if (!gift || gift.status === 'revealed' || gift.status === 'skipped') return { keep: true };
+      return {
+        birthday: {
+          ...current,
+          gifts: {
+            ...current.gifts,
+            [String(giftYear)]: {
+              ...gift,
+              status: 'skipped',
+              skippedAt: new Date(nowMs).toISOString(),
+              skipReason: 'account-hold'
+            }
+          }
+        }
+      };
+    });
+    await writeBirthdayAudit(deps.audit, {
+      action: 'birthday-skip',
+      userId: String(userId),
+      outcome: 'skipped',
+      giftYear,
+      provider: 'coins'
+    }, auditSecrets(birthday));
+    return { ok: false, code: 'skipped', text: COPY.skipped, reason: 'account-hold' };
   }
   if (!granted || granted.ok === false) {
     return { ok: false, code: 'not-ready', text: COPY.notReady, reason: granted?.skipped || granted?.reason || 'grant-failed' };
@@ -394,6 +432,7 @@ async function claimBirthdayGift(deps, userId) {
 module.exports = {
   featureOn,
   claimableGift,
+  skippedGift,
   setBirthday,
   clearBirthday,
   setBirthdayPrivacy,
