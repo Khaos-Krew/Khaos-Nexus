@@ -1,5 +1,7 @@
 'use strict';
 
+const { MEMBER_HOLD_MESSAGE } = require('../sentinel/nexus-economy-identity-hold.cjs');
+
 const REASONS = Object.freeze({
   'ark-shop-disabled': 'The ARK shop is turned off. No Points were spent.',
   'ark-shop-delivery-disabled': 'Delivery is turned off. If you already paid, your order stays queued.',
@@ -13,7 +15,8 @@ const REASONS = Object.freeze({
   'not-eligible': 'This account cannot use the shop right now. Ask a staff member.',
   'restricted': 'This account is restricted. Your Points stay as they are. Ask a staff member if that looks wrong.',
   'disabled': 'This account is turned off. Ask a staff member.',
-  'minecraft-only': 'This Discord account is linked to Minecraft. Minecraft and ARK share one Points wallet. Nothing was spent.',
+  'account-hold': MEMBER_HOLD_MESSAGE,
+  'minecraft-only': 'This Discord account is linked to Minecraft. `/points` shows the one Points wallet Minecraft and ARK share. Nothing was spent.',
   'verified-identity-required': 'Run `/ark link` to connect this Discord account, then use `/points` again.',
   'verified-eos-required': 'Run `/ark link` and finish the in-game check, then use `/points` again.',
   'already-claimed': 'The starter kit was already claimed for this player.',

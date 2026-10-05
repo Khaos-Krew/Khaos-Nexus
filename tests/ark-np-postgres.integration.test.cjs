@@ -552,3 +552,66 @@ test('two staff refunds at the daily cap cannot both land', { skip }, async () =
     await closeRuntime(opened);
   }
 });
+
+test('a locked hold blocks ARK buy, kit, and auto refund, and the old kit index is gone', { skip }, async () => {
+  const opened = await openRuntime('hold');
+  try {
+    const { pool } = opened.runtime;
+    const shop = opened.runtime.worker.arkShop;
+    const ready = await shop.ensureSchema();
+    assert.equal(ready.ok, true);
+    const indexes = await pool.query(
+      `SELECT indexname FROM pg_indexes WHERE schemaname = $1 AND tablename = 'nexus_mc_grants' ORDER BY indexname`,
+      [opened.schema]
+    );
+    const names = indexes.rows.map((row) => row.indexname);
+    assert.equal(names.includes('nexus_mc_grants_kind_eos'), false);
+    assert.equal(names.includes('nexus_mc_grants_one_starter_per_eos'), true);
+    assert.equal(names.includes('nexus_mc_grants_one_starter_per_identity'), true);
+    const discord = '200000000000000401';
+    await seedIdentity(pool, opened.schema, { econId: 'econ_held', discord, eos: ['EOSHELD0001'], status: 'restricted' });
+    await pool.query(
+      `UPDATE "${opened.schema}".nexus_economic_identities SET hold_reason = 'staff' WHERE economic_identity_id = 'econ_held'`
+    );
+    await pool.query(
+      `UPDATE "${opened.schema}".nexus_economy_wallets SET balance = 500 WHERE economic_identity_id = 'econ_held'`
+    );
+    const quote = await shop.quote({ discordUserId: discord, sku: 'coastal' });
+    assert.equal(quote.reason, 'account-hold');
+    await pool.query(
+      `INSERT INTO "${opened.schema}".nexus_mc_quotes
+       (nonce, discord_user_id, economic_identity_id, mc_uuid, sku, bundles, qty, price, item_id, catalog_version, catalog_hash, signature, expires_at, provider)
+       VALUES ('held-quote', $1, 'econ_held', 'EOSHELD0001', 'coastal', 1, 1, 150, 'coastal', 'test', 'test', '', '2099-01-01T00:00:00.000Z', 'ark')`,
+      [discord]
+    );
+    const bought = await shop.buy({ discordUserId: discord, sku: 'coastal', nonce: 'held-quote' });
+    assert.equal(bought.reason, 'account-hold');
+    assert.equal(await balanceOf(pool, opened.schema, 'econ_held'), 500);
+    const claimed = await shop.claimStarterKit({ discordUserId: discord });
+    assert.equal(claimed.reason, 'account-hold');
+    const order = {
+      orderId: 'held-order',
+      discordUserId: discord,
+      economicIdentityId: 'econ_held',
+      status: 'PAID',
+      price: 150,
+      sku: 'coastal',
+      paidAt: '2020-01-01T00:00:00.000Z'
+    };
+    await pool.query(
+      `INSERT INTO "${opened.schema}".nexus_mc_orders (order_id, nonce, order_data, status, price, provider)
+       VALUES ('held-order', 'held-nonce', $1::jsonb, 'PAID', 150, 'ark')`,
+      [JSON.stringify(order)]
+    );
+    const refunded = await shop.refund({ orderId: 'held-order', reason: 'auto-14d', actor: 'auto', staff: false });
+    assert.equal(refunded.reason, 'account-hold');
+    assert.equal(await balanceOf(pool, opened.schema, 'econ_held'), 500);
+    const unmarked = '200000000000000402';
+    await seedIdentity(pool, opened.schema, { econId: 'econ_shadow', discord: unmarked, eos: ['EOSSHADOW1'], status: 'restricted' });
+    const shadow = await shop.quote({ discordUserId: unmarked, sku: 'coastal' });
+    assert.equal(shadow.reason, 'restricted');
+    assert.notEqual(shadow.reason, 'account-hold');
+  } finally {
+    await closeRuntime(opened);
+  }
+});

@@ -103,6 +103,11 @@ test('member text says Points and hides raw errors', () => {
   assert.match(arkMemberText('restricted'), /restricted/);
   assert.doesNotMatch(arkMemberText('restricted'), /\/ark link/);
   assert.doesNotMatch(arkMemberText('minecraft-only'), /\/ark link/);
+  assert.match(arkMemberText('minecraft-only'), /\/points/);
+  assert.match(arkMemberText('minecraft-only'), /Minecraft/);
+  assert.doesNotMatch(arkMemberText('verified-identity-required'), /Minecraft/);
+  assert.doesNotMatch(arkMemberText('verified-eos-required'), /Minecraft/);
+  assert.doesNotMatch(arkMemberText('insufficient-funds'), /Minecraft/);
   assert.match(arkMemberText('minecraft-only'), /one Points wallet/);
   assert.doesNotMatch(arkMemberText('minecraft-only'), /separate bank/);
   assert.match(ledgerLineText({ amount: 1500, createdAt: '2026-10-01T00:00:00.000Z', source: 'legacy_bank_flat' }), /<t:\d+:R>/);
@@ -165,7 +170,14 @@ test('buy checks run after the advisory lock', () => {
   assert.ok(lock < buy.indexOf('FOR UPDATE'));
   assert.ok(lock < buy.indexOf("'quarantined'"));
   assert.ok(lock < buy.indexOf("'insufficient-funds'"));
+  assert.ok(lock < buy.indexOf('#lockedMarker'));
   assert.equal(buy.includes('daily'), false);
+  const claim = src.slice(src.indexOf('async claimStarterKit('), src.indexOf('async prepareDelivery('));
+  assert.ok(claim.indexOf('pg_advisory_xact_lock') < claim.indexOf('#lockedMarker'));
+  const refund = src.slice(src.indexOf('async refund('), src.indexOf('async sweepRefunds('));
+  assert.match(refund, /#lockedMarker/);
+  assert.match(refund, /NOW\(\), NOW\(\) \+ \(\$5::bigint \* INTERVAL '1 millisecond'\)/);
+  assert.doesNotMatch(refund, /AUDIT_RETAIN_MS\)\.toISOString|new Date\(this\.now\(\) \+ AUDIT_RETAIN_MS\)/);
 });
 
 test('legacy flat credit does not use the shop writes flag', () => {
@@ -399,16 +411,48 @@ test('staff command names and the owner allow-list', () => {
     memberPermissions: { has: () => false }
   }, config, {}), true);
   const guildId = '444444444444444444';
-  const cache = new Map([
-    [guildId, { id: guildId, name: '@everyone', managed: false }],
-    [adminRole, { id: adminRole, name: 'Bot', managed: true }]
-  ]);
-  assert.equal(isArkStaff({
-    user: { id: '5' },
-    guild: { id: guildId },
-    memberPermissions: { has: () => false },
-    member: { roles: { cache } }
-  }, config, { NEXUS_STAFF_ADMIN_ROLE_IDS: `${adminRole},${guildId}` }), false);
+  function staffInteraction(roleList, { userId = '333333333333333333', perms = [] } = {}) {
+    return {
+      user: { id: userId },
+      guild: { id: guildId, ownerId: '999999999999999999' },
+      member: {
+        guild: { id: guildId },
+        roles: { cache: new Map(roleList.map((role) => [role.id, role])) }
+      },
+      memberPermissions: { has: (bit) => perms.includes(bit) }
+    };
+  }
+  const everyoneRole = { id: guildId, name: '@everyone', managed: false };
+  const managedRole = '555555555555555555';
+  const bothLists = '666666666666666666';
+  const communityManager = '1521219329360920767';
+  const ownerRole = '1616602943670059102';
+  assert.equal(isArkStaff(staffInteraction([everyoneRole]), config, { NEXUS_STAFF_ADMIN_ROLE_IDS: guildId }), false);
+  assert.equal(isArkStaff(staffInteraction([
+    everyoneRole,
+    { id: managedRole, name: 'Bots', managed: true, permissions: 8 }
+  ]), config, { NEXUS_STAFF_ADMIN_ROLE_IDS: managedRole }), false);
+  assert.equal(isArkStaff(staffInteraction([
+    everyoneRole,
+    { id: bothLists, name: 'Mod', managed: false }
+  ]), config, {
+    NEXUS_STAFF_ADMIN_ROLE_IDS: bothLists,
+    NEXUS_STAFF_MOD_ROLE_IDS: bothLists
+  }), false);
+  assert.equal(isArkStaff(staffInteraction([
+    everyoneRole,
+    { id: communityManager, name: 'Community Manager', managed: false, permissions: 8 }
+  ]), config, { NEXUS_STAFF_ADMIN_ROLE_IDS: communityManager }), false);
+  assert.equal(isArkStaff(staffInteraction([
+    everyoneRole,
+    { id: ownerRole, name: 'Owner', managed: false, permissions: 8 }
+  ]), config, { NEXUS_STAFF_ADMIN_ROLE_IDS: ownerRole }), false);
+  assert.equal(isArkStaff(staffInteraction([
+    everyoneRole,
+    { id: communityManager, name: 'Community Manager', managed: false },
+    { id: ownerRole, name: 'Owner', managed: false, permissions: 8 },
+    { id: adminRole, name: 'Admin', managed: false }
+  ]), config, { NEXUS_STAFF_ADMIN_ROLE_IDS: adminRole }), true);
 });
 
 test('post-snapshot identities stay out of the approval hash', () => {
@@ -631,13 +675,18 @@ test('points reads do not create schema and staff refund actors are checked on t
     NEXUS_SENTINAL_DISCORD_TOKEN: 'token',
     NEXUS_STAFF_ADMIN_ROLE_IDS: adminRole
   };
-  function discordFetch({ owner = '9', memberRoles = [], permissions = {}, managed = {} }) {
+  function discordFetch({ owner = '9', memberRoles = [], permissions = {}, managed = {}, names = {} }) {
     return async (url) => {
       if (String(url).includes('/members/')) return { ok: true, json: async () => ({ roles: memberRoles }) };
       if (String(url).endsWith('/roles')) {
         return {
           ok: true,
-          json: async () => memberRoles.map((id) => ({ id, permissions: String(permissions[id] || 0), managed: managed[id] === true }))
+          json: async () => memberRoles.map((id) => ({
+            id,
+            name: names[id] || '',
+            permissions: String(permissions[id] || 0),
+            managed: managed[id] === true
+          }))
         };
       }
       return { ok: true, json: async () => ({ owner_id: owner }) };
@@ -687,6 +736,45 @@ test('points reads do not create schema and staff refund actors are checked on t
     fetchImpl: discordFetch({ memberRoles: [env.NEXUS_DISCORD_GUILD_ID] })
   });
   assert.equal(everyone.reason, 'staff-required');
+  const bothLists = '666666666666666666';
+  const listedTwice = await authorizeStaffRefundActor({
+    actor,
+    env: { ...env, NEXUS_STAFF_ADMIN_ROLE_IDS: bothLists, NEXUS_STAFF_MOD_ROLE_IDS: bothLists },
+    fetchImpl: discordFetch({ memberRoles: [bothLists] })
+  });
+  assert.equal(listedTwice.reason, 'staff-required');
+  const communityManager = '1521219329360920767';
+  const ownerRole = '1616602943670059102';
+  const community = await authorizeStaffRefundActor({
+    actor,
+    env: { ...env, NEXUS_STAFF_ADMIN_ROLE_IDS: communityManager },
+    fetchImpl: discordFetch({
+      memberRoles: [communityManager],
+      permissions: { [communityManager]: 8 },
+      names: { [communityManager]: 'Community Manager' }
+    })
+  });
+  assert.equal(community.reason, 'staff-required');
+  const ownerRoleDenied = await authorizeStaffRefundActor({
+    actor,
+    env: { ...env, NEXUS_STAFF_ADMIN_ROLE_IDS: ownerRole },
+    fetchImpl: discordFetch({
+      memberRoles: [ownerRole],
+      permissions: { [ownerRole]: 8 },
+      names: { [ownerRole]: 'Owner' }
+    })
+  });
+  assert.equal(ownerRoleDenied.reason, 'staff-required');
+  const managedAdminBit = await authorizeStaffRefundActor({
+    actor,
+    env,
+    fetchImpl: discordFetch({
+      memberRoles: [adminRole],
+      permissions: { [adminRole]: 8 },
+      managed: { [adminRole]: true }
+    })
+  });
+  assert.equal(managedAdminBit.reason, 'staff-required');
   const shopSource = fs.readFileSync(path.join(__dirname, '../src/economy-worker/ark-np-postgres.cjs'), 'utf8');
   const activitySource = shopSource.slice(shopSource.indexOf('async activity('), shopSource.indexOf('async #authorizeStaff('));
   assert.equal(activitySource.includes('ensureSchema'), false);

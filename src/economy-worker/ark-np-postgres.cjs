@@ -6,6 +6,8 @@ const { ensureMinecraftSchema } = require('./mc-points-postgres.cjs');
 const { arkNpFlags } = require('../shared/ark-np-flags.cjs');
 const { loadArkNpCatalog, catalogItem, catalogFingerprint, assertBlueprint, KIT_KIND } = require('../shared/ark-np-catalog.cjs');
 const { quarantineDenylist } = require('../sentinel/nexus-economy-wallet-core.cjs');
+const { memberIdentityHold } = require('../sentinel/nexus-economy-identity-hold.cjs');
+const { assertMemberAccount } = require('../shared/economy-system-accounts.cjs');
 const { rollCache } = require('../sentinel/ark-dino-cache-engine.cjs');
 const { saddleFor } = require('../sentinel/ark-cache-receipts.cjs');
 const { blueprintRef } = require('../sentinel/rewards-ascended-delivery.cjs');
@@ -139,6 +141,11 @@ class PostgresArkShop {
         await client.query('ROLLBACK');
         return { ok: false, reason: identity.econId !== row.economic_identity_id ? 'quote-mismatch' : 'quarantined' };
       }
+      const marker = await this.#lockedMarker(client, identity.econId);
+      if (!marker.ok) {
+        await client.query('ROLLBACK');
+        return marker;
+      }
       const item = catalogItem(this.catalog, row.sku);
       if (!item || item.price !== Number(row.price) || catalogFingerprint(this.catalog) !== row.catalog_hash) {
         await client.query('ROLLBACK');
@@ -248,6 +255,11 @@ class PostgresArkShop {
       if (!locked.ok) {
         await client.query('ROLLBACK');
         return locked;
+      }
+      const marker = await this.#lockedMarker(client, locked.econId);
+      if (!marker.ok) {
+        await client.query('ROLLBACK');
+        return marker;
       }
       const existing = await client.query(
         `SELECT order_id, economic_identity_id, eos_id FROM ${s}.nexus_mc_grants
@@ -500,6 +512,19 @@ class PostgresArkShop {
         await client.query(decision.ok ? 'COMMIT' : 'ROLLBACK');
         return decision;
       }
+      let refundHold = null;
+      if (order.economicIdentityId) {
+        const marker = await this.#lockedMarker(client, order.economicIdentityId);
+        const held = marker.reason === 'account-hold' || marker.reason === 'quarantined' || marker.reason === 'not-eligible';
+        if (marker.reason === 'not-eligible' || (held && (input.staff !== true || !marker.rowPresent))) {
+          await client.query('ROLLBACK');
+          return marker;
+        }
+        if (held && input.staff === true && marker.rowPresent) {
+          refundHold = marker;
+          console.log(`[Nexus Economy] ark_staff_refund_while_held order=${order.orderId} actor=${input.actor}`);
+        }
+      }
       if (input.staff === true) {
         const cap = await this.#staffCap(client, input.actor);
         if (!cap.ok) {
@@ -514,7 +539,9 @@ class PostgresArkShop {
       const previous = order.status;
       order.status = 'REFUNDED';
       order.refunded = true;
-      order.refundReason = String(input.reason || '');
+      order.refundReason = refundHold
+        ? `${String(input.reason || '').slice(0, 260)} [account-hold]`
+        : String(input.reason || '');
       order.refundActor = String(input.actor || 'auto');
       order.updatedAt = new Date(this.now()).toISOString();
       const flipped = await client.query(
@@ -550,9 +577,10 @@ class PostgresArkShop {
         }
       }
       await client.query(
-        `INSERT INTO ${s}.nexus_mc_refund_audit (order_id, actor, reason, amount, provider, retain_until)
-         VALUES ($1,$2,$3,$4,'ark',$5) ON CONFLICT (order_id) DO NOTHING`,
-        [order.orderId, String(input.actor || 'auto'), String(input.reason || ''), Number(order.price || 0), new Date(this.now() + AUDIT_RETAIN_MS).toISOString()]
+        `INSERT INTO ${s}.nexus_mc_refund_audit (order_id, actor, reason, amount, provider, created_at, retain_until)
+         VALUES ($1,$2,$3,$4,'ark', NOW(), NOW() + ($5::bigint * INTERVAL '1 millisecond'))
+         ON CONFLICT (order_id) DO NOTHING`,
+        [order.orderId, String(input.actor || 'auto'), order.refundReason, Number(order.price || 0), AUDIT_RETAIN_MS]
       );
       await client.query('COMMIT');
       return { ok: true, order };
@@ -737,7 +765,7 @@ class PostgresArkShop {
   async #identity(client, discordUserId) {
     const s = sqlIdent(this.schema);
     const identity = await client.query(
-      `SELECT i.economic_identity_id, i.status
+      `SELECT i.economic_identity_id, i.status, i.hold_reason
        FROM ${s}.nexus_economic_identity_links d
        JOIN ${s}.nexus_economic_identities i ON i.economic_identity_id = d.economic_identity_id
        WHERE d.provider = 'discord' AND d.external_id = $1 AND d.verified_at IS NOT NULL
@@ -749,6 +777,13 @@ class PostgresArkShop {
       if (await this.#minecraftLinked(client, discordUserId, '')) return { ok: false, reason: 'minecraft-only' };
       return { ok: false, reason: 'verified-identity-required' };
     }
+    const hold = memberIdentityHold({
+      status: row.status,
+      holdReason: row.hold_reason,
+      economicIdentityId: row.economic_identity_id,
+      env: this.env
+    });
+    if (hold) return hold;
     if (row.status === 'restricted') return { ok: false, reason: 'restricted' };
     if (row.status === 'disabled') return { ok: false, reason: 'disabled' };
     if (row.status !== 'verified') return { ok: false, reason: 'verified-identity-required' };
@@ -765,6 +800,34 @@ class PostgresArkShop {
       return { ok: false, reason: 'verified-eos-required' };
     }
     return { ok: true, econId: row.economic_identity_id, eosIds };
+  }
+
+  async #lockedMarker(client, economicIdentityId) {
+    try {
+      assertMemberAccount(economicIdentityId);
+    } catch {
+      return { ok: false, reason: 'not-eligible', rowPresent: false };
+    }
+    const locked = await client.query(
+      `SELECT status, hold_reason FROM ${sqlIdent(this.schema)}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
+      [economicIdentityId]
+    );
+    const row = locked.rows?.[0];
+    const hold = memberIdentityHold({
+      status: row?.status,
+      holdReason: row?.hold_reason,
+      missingRow: !row,
+      economicIdentityId,
+      env: this.env
+    });
+    if (hold) return { ...hold, rowPresent: Boolean(row), status: row?.status || '' };
+    const status = String(row?.status || '').trim().toLowerCase();
+    if (status !== 'verified') {
+      if (status === 'restricted') return { ok: false, reason: 'restricted', rowPresent: true, status };
+      if (status === 'disabled') return { ok: false, reason: 'disabled', rowPresent: true, status };
+      return { ok: false, reason: 'verified-identity-required', rowPresent: Boolean(row), status };
+    }
+    return { ok: true, rowPresent: true, status, holdReason: String(row?.hold_reason || '') };
   }
 
   async #minecraftLinked(client, discordUserId, econId) {
