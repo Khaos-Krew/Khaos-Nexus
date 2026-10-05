@@ -14,6 +14,10 @@ const { ClusterShopService, ShopOrderStore, loadCatalog } = require('../src/sent
 const { NexusEconomyWalletCore } = require('../src/sentinel/nexus-economy-wallet-core.cjs');
 const { NexusEconomyPostgresRepository } = require('../src/sentinel/nexus-economy-postgres-repository.cjs');
 const { routeWalletCredit, COMMUNITY_LEVEL_UP_SOURCE } = require('../src/sentinel/nexus-economy-community-level-coins.cjs');
+
+function systemGrantsOn() {
+  return { ...process.env, NEXUS_ECONOMY_SYSTEM_GRANTS_ENABLED: 'true' };
+}
 const {
   SCHEMA_IDENTITY_STATUSES,
   BLOCKED_MEMBER_STATUSES,
@@ -269,7 +273,7 @@ test('level-up Coins still credit a restricted identity while member spend stays
     source: COMMUNITY_LEVEL_UP_SOURCE,
     idempotencyKey: 'community-level-up:111111111111111111:1:2',
     metadata: { reason: COMMUNITY_LEVEL_UP_SOURCE, beforeLevel: 1, afterLevel: 2 }
-  });
+  }, systemGrantsOn());
   assert.equal(coins.ok, true);
   assert.equal(coins.currency, 'NEXUS_COINS');
   assert.equal(coins.balance, 25);
@@ -308,7 +312,7 @@ test('level-up Coins still credit a restricted identity while member spend stays
     source: COMMUNITY_LEVEL_UP_SOURCE,
     idempotencyKey: 'community-level-up:111111111111111111:1:2',
     metadata: { reason: COMMUNITY_LEVEL_UP_SOURCE, beforeLevel: 1, afterLevel: 2 }
-  });
+  }, systemGrantsOn());
   assert.equal(markedLevel.ok, false);
   assert.equal(markedLevel.skipped, 'account-hold');
   assert.equal(markedLevel.credited, 0);
@@ -327,7 +331,7 @@ test('a hold taken under the identity lock skips level-up Coins with no back-pay
     source: COMMUNITY_LEVEL_UP_SOURCE,
     idempotencyKey: 'community-level-up:111111111111111111:1:2',
     metadata: { reason: COMMUNITY_LEVEL_UP_SOURCE, beforeLevel: 1, afterLevel: 2 }
-  });
+  }, systemGrantsOn());
   assert.equal(skipped.ok, false);
   assert.equal(skipped.skipped, 'account-hold');
   assert.equal(skipped.credited, 0);
@@ -342,7 +346,7 @@ test('a hold taken under the identity lock skips level-up Coins with no back-pay
     source: COMMUNITY_LEVEL_UP_SOURCE,
     idempotencyKey: 'community-level-up:111111111111111111:2:3',
     metadata: { reason: COMMUNITY_LEVEL_UP_SOURCE, beforeLevel: 2, afterLevel: 3 }
-  });
+  }, systemGrantsOn());
   assert.equal(next.ok, true);
   assert.equal(next.balance, 15);
   assert.equal(repository.wallets.get('econ_race_level:NEXUS_COINS').balance, 15);

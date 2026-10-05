@@ -310,6 +310,7 @@ class NexusEconomyWalletCore {
 
 const { attachAdminWalletMutations } = require('./nexus-economy-wallet-admin.cjs');
 const { attachCommunityLevelCoinGrants } = require('./nexus-economy-community-level-coins.cjs');
+const { attachBirthdayGiftGrants } = require('./nexus-economy-birthday-gift.cjs');
 const walletMutationHelpers = {
   cleanId,
   positiveWhole,
@@ -319,6 +320,7 @@ const walletMutationHelpers = {
 };
 attachAdminWalletMutations(NexusEconomyWalletCore, walletMutationHelpers);
 attachCommunityLevelCoinGrants(NexusEconomyWalletCore, walletMutationHelpers);
+attachBirthdayGiftGrants(NexusEconomyWalletCore, walletMutationHelpers);
 
 module.exports = {
   NexusEconomyWalletCore,

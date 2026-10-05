@@ -9,6 +9,8 @@ const { JsonCardStore } = require('./card-store.cjs');
 const { CardAuditLog } = require('./card-audit.cjs');
 const { createLookupLimits, createRateLimiters } = require('./rate-limit.cjs');
 const { cardDataDir, cardEnabled, cardFindEnabled, cardLimitOptions, sourceTimeoutMs } = require('./card-config.cjs');
+const { birthdayEnabled } = require('./birthday-config.cjs');
+const { attachBirthdayDelivery, startBirthdayScheduler } = require('./birthday-scheduler.cjs');
 const { TagIndex } = require('./tag-index.cjs');
 const { handleCardInteraction, registerCardCommands } = require('./card-commands.cjs');
 
@@ -55,6 +57,7 @@ function createCardDeps(options = {}) {
     lookupLimits: options.lookupLimits || createLookupLimits(),
     index: findEnabled ? index : null,
     findEnabled: findEnabled === true,
+    birthdayEnabled: cardEnabled(env) && birthdayEnabled(env),
     env,
     backend: options.backend || new BackendClient(config),
     economy: options.economy || new NexusEconomyClient(),
@@ -102,10 +105,21 @@ function installPlayerCardExtension() {
         const guildId = String(config.discord?.guildId || '').trim();
         if (!guildId) throw new Error('Nexus Discord guild ID is not configured.');
         const guild = await client.guilds.fetch(guildId);
-        await registerCardCommands(guild, { findEnabled: deps.findEnabled === true });
+        await registerCardCommands(guild, {
+          findEnabled: deps.findEnabled === true,
+          birthdayEnabled: deps.birthdayEnabled === true
+        });
         console.log(`[Player Card] registered /card and View Card in guild ${guild.id}`);
       } catch (error) {
         console.error(`[Player Card] registration failed: ${String(error?.message || error).slice(0, 300)}`);
+      }
+      try {
+        if (!deps.isEnabled() || !deps.store) return;
+        const started = startBirthdayScheduler(attachBirthdayDelivery(client, deps));
+        if (!started.ok) console.log(`[Player Card] birthday scheduler not started (${started.reason}).`);
+        else console.log('[Player Card] birthday scheduler started.');
+      } catch (error) {
+        console.error(`[Player Card] birthday scheduler failed: ${String(error?.message || error).slice(0, 240)}`);
       }
     });
     return originalLogin.apply(client, args);

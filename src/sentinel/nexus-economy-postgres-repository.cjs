@@ -264,6 +264,26 @@ class NexusEconomyPostgresRepository {
           `WHERE economic_identity_id = $1 AND currency = $2`,
           [economicIdentityId, normalizeCurrency(currency), balance]
         );
+      },
+      lockSource: async (source) => {
+        const name = String(source || '').trim();
+        if (!name || name.length > 64 || !/^[a-z0-9-]+$/.test(name)) throw new Error('Ledger source is invalid.');
+        await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy-source:${name}`]);
+      },
+      sumCreditsSince: async (source, currency, sinceIso) => {
+        const result = await client.query(
+          `SELECT COALESCE(SUM(amount), 0) AS total\n` +
+          `FROM ${this.schema}.nexus_economy_ledger\n` +
+          `WHERE source = $1 AND currency = $2 AND entry_type = 'credit' AND amount > 0 AND created_at >= $3`,
+          [String(source || ''), normalizeCurrency(currency), sinceIso]
+        );
+        const total = Number(result.rows?.[0]?.total ?? 0);
+        if (!Number.isSafeInteger(total) || total < 0) {
+          const error = new Error('Birthday Coin daily total is unreadable.');
+          error.reason = 'cap-unavailable';
+          throw error;
+        }
+        return total;
       }
     };
   }

@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { TAG_CAP } = require('./tag-validate.cjs');
+const { normalizeBirthday } = require('./birthday-config.cjs');
 
 const DISCORD_ID = /^\d{15,24}$/;
 const GAME_ID = /^[a-z0-9_]{1,32}$/;
@@ -155,7 +156,8 @@ class JsonCardStore {
         updatedAt: String(value.updatedAt || '') || null
       };
     }
-    return {
+    const birthday = normalizeBirthday(record.birthday);
+    const user = {
       hidden: record.hidden === true,
       findable: record.findable === true,
       tags,
@@ -163,6 +165,8 @@ class JsonCardStore {
       updatedAt: String(record.updatedAt || '') || null,
       userId
     };
+    if (birthday) user.birthday = birthday;
+    return user;
   }
 
   #persist() {
@@ -178,6 +182,7 @@ class JsonCardStore {
         updatedAt: record.updatedAt
       };
       if (record.findable === true) row.findable = true;
+      if (record.birthday) row.birthday = clone(record.birthday);
       payload.users[userId] = row;
     }
     atomicWrite(this.filePath, `${JSON.stringify(payload, null, 2)}\n`);
@@ -193,14 +198,32 @@ class JsonCardStore {
   getUser(userId) {
     const id = assertDiscordId(userId);
     const record = this.state.users[id];
-    if (!record) return { hidden: false, findable: false, tags: {}, platforms: {}, updatedAt: null };
+    if (!record) return { hidden: false, findable: false, tags: {}, platforms: {}, birthday: null, updatedAt: null };
     return {
       hidden: record.hidden === true,
       findable: record.findable === true,
       tags: clone(record.tags),
       platforms: clone(record.platforms || {}),
+      birthday: record.birthday ? clone(record.birthday) : null,
       updatedAt: record.updatedAt
     };
+  }
+
+  async updateBirthday(userId, mutator) {
+    const id = assertDiscordId(userId);
+    return this.mutex.run(() => {
+      const user = this.#ensure(id);
+      const current = user.birthday ? clone(user.birthday) : null;
+      const result = mutator(current) || { keep: true };
+      if (result.keep) return { ok: true, birthday: current ? clone(current) : null, status: result.status || 'unchanged' };
+      if (result.reject) return { ok: false, reason: result.reason || 'rejected', birthday: current ? clone(current) : null };
+      const birthday = normalizeBirthday(result.birthday);
+      if (!birthday) return { ok: false, reason: 'invalid-birthday', birthday: current ? clone(current) : null };
+      user.birthday = birthday;
+      user.updatedAt = new Date(this.now()).toISOString();
+      this.#commit(id);
+      return { ok: true, birthday: clone(birthday), status: result.status || 'saved' };
+    });
   }
 
   userIds() {
