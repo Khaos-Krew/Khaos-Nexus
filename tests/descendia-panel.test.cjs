@@ -111,12 +111,15 @@ test('/descendia is a cephalon quick view and survives a dead feed', async () =>
 
   const calls = [];
   const replies = [];
+  // The captured week ended 2026-10-05T00:00:00Z. readDescendia busts the TTL
+  // cache once a week is expired, so this cache-sharing case needs a live expiry.
+  const liveWeek = { ...fixture, expiry: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() };
   const context = {
     env: {},
     provider: {
       worldstate: async (pathname) => {
         calls.push(pathname);
-        return fixture;
+        return liveWeek;
       }
     }
   };
