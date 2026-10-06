@@ -1002,6 +1002,7 @@ test('a verified minecraft link earns without EOS and quarantine still blocks', 
   assert.doesNotMatch(resolveSql, /provider = 'eos'/);
   assert.doesNotMatch(resolveSql, /LEFT JOIN/);
   assert.equal(queries.some((sql) => /INSERT INTO/.test(sql) && /nexus_economy_ledger/.test(sql)), true);
+  assert.equal(queries.some((sql) => /UPDATE/.test(sql) && /nexus_mc_links/.test(sql) && /playtime_ms/.test(sql)), true);
 
   const blockedQueries = [];
   const blocked = new PostgresEconomyAccrual({

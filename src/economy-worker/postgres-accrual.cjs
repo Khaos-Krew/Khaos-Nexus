@@ -495,12 +495,14 @@ class PostgresEconomyAccrual {
       }
       let creditSource = serverKey;
       let planned = null;
+      let playtimeDelta = 0;
       if (minecraft) {
+        const previousLifetime = Number(state.mc_lifetime_ms || 0);
         const otherSource = otherPresenceOnline(presenceBefore, nowMs, PRESENCE_TTL_MS);
         planned = planMinecraftContribution({
           mcCountedDay: state.mc_counted_day || '',
           mcCountedMs: Number(state.mc_counted_ms || 0),
-          mcLifetimeMs: Number(state.mc_lifetime_ms || 0),
+          mcLifetimeMs: previousLifetime,
           mcOnline: state.mc_online === true,
           lastMcOnlineAt: millis(state.last_mc_online_at),
           online: Boolean(online),
@@ -513,6 +515,7 @@ class PostgresEconomyAccrual {
         });
         accountingGap = planned.gap;
         creditSource = planned.creditSource;
+        playtimeDelta = Number(planned.mcLifetimeMs || 0) - previousLifetime;
         state.mc_counted_day = planned.mcCountedDay;
         state.mc_counted_ms = planned.mcCountedMs;
         state.mc_lifetime_ms = planned.mcLifetimeMs;
@@ -598,6 +601,14 @@ class PostgresEconomyAccrual {
           [identity.economic_identity_id, state.rank_id, state.online, state.online_since, state.online_uncredited_ms,
             state.online_credit_cursor, state.last_accounting_at, state.last_presence_at, state.offline_since,
             state.last_passive_at, state.passive_credit_cursor, JSON.stringify(state.presence_by_server)]
+        );
+      }
+      // The starter-kit clock reads nexus_mc_links.playtime_ms. Dry-run already writes
+      // that column; live playtime has to write the same lifetime delta.
+      if (playtimeDelta !== 0) {
+        await client.query(
+          `UPDATE ${this.schema}.nexus_mc_links SET playtime_ms = GREATEST(0, playtime_ms + $2), updated_at = NOW() WHERE mc_uuid = $1 AND unlinked_at IS NULL`,
+          [identity.mc_uuid || normalizeUuid(mcUuid), playtimeDelta]
         );
       }
       await client.query('COMMIT');

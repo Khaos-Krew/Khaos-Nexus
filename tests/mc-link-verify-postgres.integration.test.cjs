@@ -132,9 +132,12 @@ test('a restricted Minecraft link stays restricted on postgres and opens only Mi
     assert.equal(population.rows[0].amount, 0);
     assert.notEqual(population.rows[0].amount, AMOUNT);
 
+    // Postgres marks a presence older than 3 minutes offline before it counts the gap.
+    // Steps stay inside that window. Thirteen 2-minute steps are 26 minutes: five
+    // shadow-recruit intervals (10 NP) and more than the kit's 15 minutes.
     await runtime.worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
-    for (let step = 0; step < 6; step += 1) {
-      advance(5 * 60 * 1000);
+    for (let step = 0; step < 13; step += 1) {
+      advance(2 * 60 * 1000);
       const earned = await runtime.worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
       assert.equal(earned.ok, true, earned.reason);
     }
