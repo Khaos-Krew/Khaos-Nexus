@@ -5,6 +5,7 @@ const { ChannelType, Client, Events, PermissionFlagsBits, Routes } = discord;
 const { loadConfig } = require('../shared/config.cjs');
 const { getArnWebhookRegistry, discoverNamedWebhooks, ARN_INTAKE_CHANNEL_NAME } = require('./arn-intake-extension.cjs');
 const { pruneStaleActive, resolveLifecyclePolicy } = require('./arn-lifecycle-policy.cjs');
+const { observeFromDiscordMessage } = require('./arn-token-award.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.arnLiveBoard.extension');
 const ARN_PUBLIC_CHANNEL_NAME = 'arn';
@@ -359,6 +360,16 @@ async function handleIntakeMessage(client, message) {
     return false;
   }
   const payload = await rawMessagePayload(client, message);
+  try {
+    await observeFromDiscordMessage({
+      message,
+      payload,
+      authoritativeMap,
+      now: Date.now()
+    });
+  } catch (error) {
+    console.warn(`[Nexus Sentinal] ARN token observe failed: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 250)}`);
+  }
   const event = parseShinyDiscordPayload(payload, authoritativeMap);
   if (!event) {
     const shape = payloadText(payload).replace(/[\r\n]+/g, ' | ').slice(0, 500);
