@@ -514,7 +514,6 @@ function createEconomyServer(options = {}) {
       if (req.method === 'GET' && url.pathname === '/coin-shop/catalog') {
         const { ITEMS, CATEGORIES, OMITTED } = require('../shared/coin-shop-catalog.cjs');
         const { coinShopFlags } = require('../shared/coin-shop-flags.cjs');
-const { assertMemberAccount } = require('../shared/economy-system-accounts.cjs');
         return json(res, 200, {
           ok: true,
           items: ITEMS,

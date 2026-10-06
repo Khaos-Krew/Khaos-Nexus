@@ -492,6 +492,33 @@ test('the shop panel is ephemeral, locked to the buyer, and shows the balance ch
   process.env.COIN_SHOP_ENABLED = 'true';
   process.env.ARK_SHOP_ENABLED = 'false';
   try {
+    const panel = mockInteraction({ kind: 'button', customId: 'nxshop:coin' });
+    await handleCoinShopInteraction(panel, {
+      economyClient: {
+        async balances() { return { balances: { NEXUS_COINS: 420 } }; },
+        async coinShopEntitlements() { return { entitlements: [] }; }
+      },
+      backend: { async walletCosmetics() { return { profile: {} }; } }
+    });
+    const panelJson = panel.updates[0].embeds[0].toJSON();
+    assert.equal(panelJson.image.url, 'attachment://coin-shop-panel-banner.png');
+    assert.equal(panel.updates[0].files[0].name, 'coin-shop-panel-banner.png');
+    const detail = mockInteraction({ kind: 'select', customId: `nxcoin:item:${USER}`, values: ['thm_circuit'] });
+    await handleCoinShopInteraction(detail, { economyClient: {}, backend: {} });
+    assert.equal(detail.updates[0].embeds[0].toJSON().image.url, 'attachment://item-circuit-wallet-theme.png');
+    assert.equal(detail.updates[0].files[0].name, 'item-circuit-wallet-theme.png');
+    const banner = fs.readFileSync(path.join(__dirname, '../src/shared/brand-assets/coin-shop/coin-shop-panel-banner.png'));
+    assert.equal(banner.readUInt32BE(16), 1200);
+    assert.equal(banner.readUInt32BE(20), 400);
+    for (const file of ['item-nebula-wallet-theme.png', 'item-circuit-wallet-theme.png', 'item-night-owl-title.png']) {
+      const card = fs.readFileSync(path.join(__dirname, '../src/shared/brand-assets/coin-shop', file));
+      assert.equal(card.readUInt32BE(16), 512);
+      assert.equal(card.readUInt32BE(20), 512);
+    }
+    const sentinalImage = fs.readFileSync(path.join(__dirname, '../Dockerfile.sentinal'), 'utf8');
+    const sentinelImage = fs.readFileSync(path.join(__dirname, '../Dockerfile.sentinel'), 'utf8');
+    assert.match(sentinalImage, /COPY src\/shared\/brand-assets \.\/src\/shared\/brand-assets/);
+    assert.match(sentinelImage, /COPY src\/shared\/brand-assets \.\/src\/shared\/brand-assets/);
     assert.equal(shopCommand().name, 'shop');
     assert.equal(shopAdminCommand().name, 'shopadmin');
     const closed = mockInteraction({ kind: 'command', commandName: 'shop' });

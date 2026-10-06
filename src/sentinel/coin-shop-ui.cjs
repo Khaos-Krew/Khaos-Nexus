@@ -1,5 +1,6 @@
 'use strict';
 
+const path = require('node:path');
 const {
   ActionRowBuilder,
   ButtonBuilder,
@@ -24,6 +25,17 @@ const { isCoinShopAdmin } = require('../economy-worker/coin-shop-staff.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.coin.shop.ui');
 const sessions = new Map();
+const ART_DIR = path.join(__dirname, '../shared/brand-assets/coin-shop');
+const PANEL_BANNER = 'coin-shop-panel-banner.png';
+const ITEM_ART = Object.freeze({
+  thm_nebula: 'item-nebula-wallet-theme.png',
+  thm_circuit: 'item-circuit-wallet-theme.png',
+  ttl_night_owl: 'item-night-owl-title.png'
+});
+
+function artFile(name) {
+  return { attachment: path.join(ART_DIR, name), name };
+}
 
 function shopSections(env = process.env) {
   return Object.freeze({
@@ -210,7 +222,12 @@ async function openCoinShop(interaction, economy, backend) {
     balance == null ? 'Your Coin balance is unavailable right now.' : balanceLine(balance),
     [{ name: 'Categories', value: 'Themes and titles. Pick one to see prices.' }]
   );
-  return replyOrUpdate(interaction, ephemeral('', { embeds: [embed], components: [categoryRow(userId)] }));
+  embed.setImage(`attachment://${PANEL_BANNER}`);
+  return replyOrUpdate(interaction, ephemeral('', {
+    embeds: [embed],
+    components: [categoryRow(userId)],
+    files: [artFile(PANEL_BANNER)]
+  }));
 }
 
 async function showCategory(interaction, parsed) {
@@ -243,10 +260,16 @@ async function showDetail(interaction, economy, parsed) {
   const equipped = session.profile?.equippedThemeId === sku || session.profile?.equippedTitleId === sku;
   const badges = [owned ? 'Owned' : '', equipped ? 'Equipped' : ''].filter(Boolean).join(' · ');
   const embed = footerEmbed(item.label, [item.description, '', `Price: ${item.price} Coins`, badges].filter(Boolean).join('\n'));
+  const card = ITEM_ART[item.sku];
+  if (card) embed.setImage(`attachment://${card}`);
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`nxcoin:buy:${sku}:${parsed.userId}`).setLabel(owned ? 'Owned' : 'Continue').setStyle(ButtonStyle.Primary).setDisabled(Boolean(owned))
   );
-  return replyOrUpdate(interaction, ephemeral('', { embeds: [embed], components: [row] }));
+  return replyOrUpdate(interaction, ephemeral('', {
+    embeds: [embed],
+    components: [row],
+    files: card ? [artFile(card)] : []
+  }));
 }
 
 async function showConfirm(interaction, economy, parsed) {

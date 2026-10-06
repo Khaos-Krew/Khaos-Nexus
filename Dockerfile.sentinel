@@ -7,6 +7,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
 
 COPY src ./src
+COPY src/shared/brand-assets ./src/shared/brand-assets
 COPY scripts ./scripts
 COPY tests ./tests
 COPY config ./config
