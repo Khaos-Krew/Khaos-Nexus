@@ -5,6 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const {
   GUIDE_CONFIG_PATH,
+  APPROVED_PUBLIC_LINES,
+  guideTextForPolicy,
   loadGuideConfig,
   validateGuideConfig,
   buildGuideOverviewEmbed,
@@ -35,8 +37,11 @@ test('Nexus guide config is valid and within Discord menu limits', () => {
 
 test('public Nexus guide does not advertise unvalidated features', () => {
   const raw = fs.readFileSync(GUIDE_CONFIG_PATH, 'utf8');
+  assert.match(raw, /ARN caches are redeemed in the Dino Cache shop with ARN Tokens\./);
+  const screened = guideTextForPolicy(raw);
+  for (const line of APPROVED_PUBLIC_LINES) assert.equal(screened.includes(line), false);
   for (const pattern of FORBIDDEN_PUBLIC_FEATURES) {
-    assert.doesNotMatch(raw, pattern);
+    assert.doesNotMatch(screened, pattern);
   }
 });
 

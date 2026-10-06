@@ -8,6 +8,8 @@ const { pruneStaleActive, resolveLifecyclePolicy } = require('./arn-lifecycle-po
 const { observeFromDiscordMessage } = require('./arn-token-award.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.arnLiveBoard.extension');
+const GUILD_MESSAGES = Symbol.for('khaos.nexus.arn.guildMessages');
+const boundClients = new WeakSet();
 const ARN_PUBLIC_CHANNEL_NAME = 'arn';
 const ARN_PUBLIC_TOPIC = 'Anomaly Response Network — live Shiny! Dinos detections and lifecycle tracking across the Khaos Nexus ARK cluster.';
 const INFO_MARKER = 'ARN • NETWORK BRIEFING';
@@ -298,15 +300,81 @@ async function refreshBoard(client) {
   return true;
 }
 
+function messagePayload(message) {
+  return {
+    content: message?.content,
+    embeds: (message?.embeds || []).map((embed) => (embed?.toJSON ? embed.toJSON() : embed))
+  };
+}
+
 async function rawMessagePayload(client, message) {
+  // Gateway deliveries omit content and embeds when Message Content is off.
+  // Webhook history and a single REST read still include the embed.
   try {
     return await client.rest.get(Routes.channelMessage(String(message.channelId), String(message.id)));
-  } catch {
-    return {
-      content: message.content,
-      embeds: (message.embeds || []).map((embed) => embed.toJSON ? embed.toJSON() : embed)
-    };
+  } catch (error) {
+    console.warn(`[Nexus Sentinal] ARN message read failed; using gateway payload: ${cleanLog(error)}`);
+    return messagePayload(message);
   }
+}
+
+const SETUP_DELAY_MS = 105_000;
+const SETUP_TIMEOUT_MS = 20_000;
+
+function cleanLog(error) {
+  return String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 350);
+}
+
+async function runArnLiveBoardSetup(client, options = {}) {
+  const logger = options.logger || console;
+  const timeoutMs = Number.isFinite(Number(options.timeoutMs)) ? Number(options.timeoutMs) : SETUP_TIMEOUT_MS;
+  const reconcile = options.reconcile || ((active) => reconcileArnLiveBoard(active, options.config || loadConfig(), options));
+  let timer;
+  const pending = Promise.resolve()
+    .then(() => reconcile(client))
+    .then((result) => ({ result }))
+    .catch((error) => ({ error }));
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({ timeout: true }), timeoutMs);
+  });
+  const outcome = await Promise.race([pending, timeout]);
+  clearTimeout(timer);
+  function finishLate(late) {
+    if (!late || late.error) return;
+    const result = late.result || {};
+    if (result.skipped) {
+      logger.warn(`[Nexus Sentinal] ARN live board skipped: ${result.skipped}`);
+      return;
+    }
+    logger.log(`[Nexus Sentinal] ARN live board ready: publicChannel=${result.publicChannelId} intakeChannel=${result.intakeChannelId} replayed=${result.replayed} tracked=${result.tracked}`);
+    if (typeof options.onReady === 'function') options.onReady(result);
+  }
+  if (outcome.timeout) {
+    logger.warn('[Nexus Sentinal] ARN live board unavailable: setup-timeout');
+    pending.then(finishLate).catch(() => {});
+    return { unavailable: 'setup-timeout' };
+  }
+  if (outcome.error) {
+    logger.warn(`[Nexus Sentinal] ARN live board unavailable: ${cleanLog(outcome.error)}`);
+    return { unavailable: cleanLog(outcome.error) };
+  }
+  const result = outcome.result || {};
+  if (result.skipped) {
+    logger.warn(`[Nexus Sentinal] ARN live board skipped: ${result.skipped}`);
+    return result;
+  }
+  logger.log(`[Nexus Sentinal] ARN live board ready: publicChannel=${result.publicChannelId} intakeChannel=${result.intakeChannelId} replayed=${result.replayed} tracked=${result.tracked}`);
+  if (typeof options.onReady === 'function') options.onReady(result);
+  return result;
+}
+
+function armArnLiveBoard(client, options = {}) {
+  const delayMs = Number.isFinite(Number(options.delayMs)) ? Number(options.delayMs) : SETUP_DELAY_MS;
+  const timer = setTimeout(() => {
+    void runArnLiveBoardSetup(client, options);
+  }, delayMs);
+  timer.unref?.();
+  return timer;
 }
 
 async function replayIntake(client, channel) {
@@ -319,7 +387,8 @@ async function replayIntake(client, channel) {
     if (!message.webhookId) continue;
     const authoritativeMap = registry.get(String(message.webhookId));
     if (!authoritativeMap) continue;
-    const payload = await rawMessagePayload(client, message);
+    // History fetch is REST, so embeds are present without the Message Content intent.
+    const payload = messagePayload(message);
     const event = parseShinyDiscordPayload(payload, authoritativeMap);
     if (!event) continue;
     applyEvent(event, Number(message.createdTimestamp || Date.now()));
@@ -382,37 +451,51 @@ async function handleIntakeMessage(client, message) {
   return true;
 }
 
+function ensureArnGuildMessages() {
+  const discord = require('discord.js');
+  if (discord[GUILD_MESSAGES]) return discord.Client;
+  discord[GUILD_MESSAGES] = true;
+  const BaseClient = discord.Client;
+  const { GatewayIntentBits, IntentsBitField } = discord;
+  class NexusArnMessagesClient extends BaseClient {
+    constructor(clientOptions = {}) {
+      const intents = new IntentsBitField(clientOptions.intents || []);
+      intents.add(GatewayIntentBits.GuildMessages);
+      super({ ...clientOptions, intents });
+    }
+  }
+  discord.Client = NexusArnMessagesClient;
+  console.log('[Nexus Sentinal] ARN intake declares Guild Messages. Message Content stays off; embeds are read with one REST GET.');
+  return NexusArnMessagesClient;
+}
+
 function installArnLiveBoardExtension() {
-  if (Client.prototype[INSTALLED]) return;
-  Client.prototype[INSTALLED] = true;
+  // Call this after the last discord.Client swap and before bot.cjs loads.
+  // A Docker preload only requires this file; it must not install the hook.
+  const ActiveClient = require('discord.js').Client;
+  if (Object.prototype.hasOwnProperty.call(ActiveClient.prototype, INSTALLED)) return;
+  ActiveClient.prototype[INSTALLED] = true;
   const config = loadConfig();
-  const originalLogin = Client.prototype.login;
+  const originalLogin = ActiveClient.prototype.login;
 
-  Client.prototype.login = function nexusArnLiveBoardLogin(...args) {
+  ActiveClient.prototype.login = function nexusArnLiveBoardLogin(...args) {
     const client = this;
-    client.once(Events.ClientReady, () => {
-      const start = async () => {
-        try {
-          const result = await reconcileArnLiveBoard(client, config);
-          if (result.skipped) {
-            console.warn(`[Nexus Sentinal] ARN live board skipped: ${result.skipped}`);
-            return;
+    if (!boundClients.has(client)) {
+      boundClients.add(client);
+      client.once(Events.ClientReady, function nexusArnLiveBoardReady() {
+        armArnLiveBoard(client, {
+          config,
+          onReady() {
+            clearInterval(state.refreshTimer);
+            state.refreshTimer = setInterval(() => void refreshBoard(client).catch((error) => console.warn(`[Nexus Sentinal] ARN board refresh failed: ${String(error?.message || error).slice(0, 250)}`)), BOARD_REFRESH_MS);
+            state.refreshTimer.unref?.();
           }
-          console.log(`[Nexus Sentinal] ARN live board ready: publicChannel=${result.publicChannelId} intakeChannel=${result.intakeChannelId} replayed=${result.replayed} tracked=${result.tracked}`);
-          clearInterval(state.refreshTimer);
-          state.refreshTimer = setInterval(() => void refreshBoard(client).catch((error) => console.warn(`[Nexus Sentinal] ARN board refresh failed: ${String(error?.message || error).slice(0, 250)}`)), BOARD_REFRESH_MS);
-          state.refreshTimer.unref?.();
-        } catch (error) {
-          console.warn(`[Nexus Sentinal] ARN live board unavailable: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 350)}`);
-        }
-      };
-      const timer = setTimeout(() => void start(), 105_000);
-      timer.unref?.();
-    });
-
-    client.on(Events.MessageCreate, (message) => {
-      void handleIntakeMessage(client, message).catch((error) => console.warn(`[Nexus Sentinal] ARN intake event failed: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 350)}`));
-    });
+        });
+      });
+      client.on(Events.MessageCreate, function nexusArnLiveBoardMessage(message) {
+        void handleIntakeMessage(client, message).catch((error) => console.warn(`[Nexus Sentinal] ARN intake event failed: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 350)}`));
+      });
+    }
     return originalLogin.apply(client, args);
   };
 }
@@ -454,6 +537,12 @@ module.exports = {
   replayIntake,
   reconcileArnLiveBoard,
   handleIntakeMessage,
+  rawMessagePayload,
+  runArnLiveBoardSetup,
+  armArnLiveBoard,
+  SETUP_DELAY_MS,
+  SETUP_TIMEOUT_MS,
+  ensureArnGuildMessages,
   installArnLiveBoardExtension,
   resetArnStateForTest
 };

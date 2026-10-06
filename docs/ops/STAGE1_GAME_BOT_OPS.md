@@ -60,3 +60,7 @@ Cephalon commands and the Ascended slash-command handlers report player-facing f
 6. Repeat for Cephalon Nexus under category `1516640233389822042` with `/warframe` or `/market`, including a thread and a wrong category.
 7. As staff, `/status` in each game category is ephemeral. Ascended shows ArkShop MySQL retired and does not show an RCON password. Cephalon shows Discord ready.
 8. Outside those categories, Nexus Sentinal `/bal` (or `/nexushelp` is not required on Sentinal) still works. Sentinal hub commands are not category-locked.
+
+## ARN journal
+
+`/arn` and `/cacheadmin` register only when `NEXUS_GAME_ROLE=ark_asa`, so Sentinal no longer registers them. Ascended must have `NEXUS_GAME_ROLE=ark_asa`. `ARN_JOURNAL_URL` must be the private URL. Sentinal: `ARN_JOURNAL_READ_TOKEN` (32+ characters, different from the admin and forge tokens) and `NEXUS_SENTINAL_ADMIN_HOST=::`. Ascended: `ARN_JOURNAL_URL=http://<sentinal>.railway.internal:<PORT>` and the same token.

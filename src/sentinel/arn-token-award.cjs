@@ -585,6 +585,17 @@ function resetSharedArnBookForTest() {
   sharedBook = null;
 }
 
+function readOwnedJournal(discordUserId = '', now = Date.now()) {
+  const book = sharedArnBook();
+  const id = String(discordUserId || '').trim();
+  return {
+    ok: true,
+    readOnly: true,
+    balance: id ? book.balanceForDiscord(id) : 0,
+    summary: book.summary(now)
+  };
+}
+
 function staleReport(createdAt, now, env = process.env) {
   const policy = resolveLifecyclePolicy(env);
   const at = Number(createdAt);
@@ -653,6 +664,7 @@ module.exports = {
   createArnBook,
   sharedArnBook,
   resetSharedArnBookForTest,
+  readOwnedJournal,
   staleReport,
   observeFromDiscordMessage,
   warnIfJournalUnwritable

@@ -8,8 +8,11 @@ const {ProtocolStore}=require('./protocol/store.cjs');
 const {isStaff}=require('./ark-ops-extension.cjs');
 const {loadConfig}=require('../shared/config.cjs');
 const {sharedArnBook, staffSummaryText, writeSummaryFile}=require('./arn-token-award.cjs');
-const {tokenText, openPointerText}=require('./arn-member-copy.cjs');
+const {journalReader, readArnJournal, JOURNAL_UNAVAILABLE_TEXT}=require('./arn-journal-client.cjs');
+const {tokenText}=require('./arn-member-copy.cjs');
 const INSTALLED=Symbol.for('nexus.arn.cache.extension');
+const boundClients=new WeakSet();
+function ascendedOwnsArnCommands(env=process.env){return String(env.NEXUS_GAME_ROLE||'').trim()==='ark_asa';}
 function adminCommand() {
   const c=new SlashCommandBuilder().setName('cacheadmin').setDescription('Staff cache delivery verification and recovery.');
   c.addSubcommand(s=>{
@@ -23,7 +26,6 @@ function adminCommand() {
 function command() {
   const c=new SlashCommandBuilder().setName('arn').setDescription('ARN tokens.');
   c.addSubcommand(s=>s.setName('tokens').setDescription('What ARN tokens are, and how many you have.'));
-  c.addSubcommand(s=>s.setName('open').setDescription('Where to redeem an ARN cache.'));
   c.addSubcommand(s=>s.setName('report').setDescription('Staff: ARN trial summary. No payouts.'));
   c.addSubcommand(s=>s.setName('configure').setDescription('Staff: payouts are off during the test week.'));
   c.addSubcommand(s=>s.setName('pause').setDescription('Staff: payouts are off during the test week.'));
@@ -42,14 +44,22 @@ async function handle(interaction,{ledger,shop,config, book, env, now, secret, b
       return {content:'Cache delivery verification recorded.'};
     });
   }
-  if(interaction.commandName==='arn' && sub==='open') return {content: openPointerText()};
-  if(interaction.commandName==='arn' && ['balance','history','cache','buy'].includes(sub)) {
+  if(interaction.commandName==='arn' && ['balance','history','cache','buy','open'].includes(sub)) {
     return {content:'Use /arn tokens to see what ARN tokens are and how to earn them. Redeem a cache in #dino-box-shop.'};
   }
   if(interaction.commandName==='arn' && sub==='report' && !isStaff(interaction,config)) return {content:'Staff only.'};
   if(interaction.commandName==='arn' && ['tokens','report'].includes(sub)) {
-    const activeBook = book || sharedArnBook();
     const activeEnv = env || process.env;
+    if (!book && journalReader(activeEnv)) {
+      const remote = await readArnJournal({ env: activeEnv, discordUserId: sub === 'tokens' ? user : '' });
+      if (!remote.ok) return {content:JOURNAL_UNAVAILABLE_TEXT};
+      if (sub === 'report') {
+        if (activeEnv.ARN_DRY_RUN_REPORT) writeSummaryFile(remote.summary, activeEnv.ARN_DRY_RUN_REPORT);
+        return {content: staffSummaryText(remote.summary)};
+      }
+      return {content: tokenText(remote.balance, activeEnv)};
+    }
+    const activeBook = book || sharedArnBook();
       if(sub==='report') {
       const summary = activeBook.summary(Date.now());
       if(activeEnv.ARN_DRY_RUN_REPORT) writeSummaryFile(summary, activeEnv.ARN_DRY_RUN_REPORT);
@@ -74,32 +84,40 @@ function arnMemberErrorContent(error) {
   return memberFeatureUnavailableMessage(error) || ARKSHOP_FEATURES_OFF_MESSAGE;
 }
 function installArnCacheExtension({config=loadConfig(),ledger=new ArnTokenLedger(),shop=new ArkCacheShopService()}={}) {
-  if(Client.prototype[INSTALLED])return;
-  Client.prototype[INSTALLED]=true;
+  const ActiveClient=require('discord.js').Client;
+  if(Object.prototype.hasOwnProperty.call(ActiveClient.prototype, INSTALLED))return;
+  ActiveClient.prototype[INSTALLED]=true;
   const mysqlRetired=isRetired();
   if(mysqlRetired) console.log('[arn-tokens] ArkShop MySQL retired; participation sync skipped.');
-  const login=Client.prototype.login;
-  Client.prototype.login=function(...args) {
+  const login=ActiveClient.prototype.login;
+  ActiveClient.prototype.login=function nexusArnCacheLogin(...args) {
     const client=this;
-    client.once(Events.ClientReady,async()=>{
-      try {
-        sharedArnBook();
-        const guild=await client.guilds.fetch(String(config.discord?.guildId));
-        const registered=await guild.commands.fetch();
-        for(const definition of [command(),adminCommand()]) {
-          const existing=registered.find(c=>c.name===definition.name);
-          if(existing)await guild.commands.edit(existing.id,definition);else await guild.commands.create(definition);
-        }
-        if(!mysqlRetired && await arkShopFeaturesAreOpen()){
-          const sync=()=>ledger.syncParticipation(new ProtocolStore()).catch(e=>console.error('[arn-tokens]',e.message));
-          await sync(); const timer=setInterval(sync,30000);timer.unref?.();
-        } else if(!mysqlRetired) console.log('[arn-tokens] ArkShop cluster economy is retired; participation sync skipped.');
-      }catch(e){console.error('[arn-tokens]',e.message);}
-    });
-    client.on(Events.InteractionCreate,interaction=>{
-      if(!interaction.isChatInputCommand?.()||!['arn','cacheadmin'].includes(interaction.commandName)||String(interaction.guildId)!==String(config.discord?.guildId))return;
-      void(async()=>{await interaction.deferReply({flags:MessageFlags.Ephemeral});const payload=await handle(interaction,{ledger,shop,config});await interaction.editReply({...payload,allowedMentions:{parse:[]}});})().catch(e=>interaction.editReply({content:arnMemberErrorContent(e),allowedMentions:{parse:[]}}).catch(()=>{}));
-    });
+    if(!boundClients.has(client)) {
+      boundClients.add(client);
+      client.once(Events.ClientReady, async function nexusArnCacheReady(){
+        try {
+          sharedArnBook();
+          if(!ascendedOwnsArnCommands()) {
+            if(!mysqlRetired) console.log('[arn-tokens] ArkShop cluster economy is retired; participation sync skipped.');
+            return;
+          }
+          const guild=await client.guilds.fetch(String(config.discord?.guildId));
+          const registered=await guild.commands.fetch();
+          for(const definition of [command(),adminCommand()]) {
+            const existing=registered.find(c=>c.name===definition.name);
+            if(existing)await guild.commands.edit(existing.id,definition);else await guild.commands.create(definition);
+          }
+          if(!mysqlRetired && await arkShopFeaturesAreOpen()){
+            const sync=()=>ledger.syncParticipation(new ProtocolStore()).catch(e=>console.error('[arn-tokens]',e.message));
+            await sync(); const timer=setInterval(sync,30000);timer.unref?.();
+          } else if(!mysqlRetired) console.log('[arn-tokens] ArkShop cluster economy is retired; participation sync skipped.');
+        }catch(e){console.error('[arn-tokens]',e.message);}
+      });
+      client.on(Events.InteractionCreate, function nexusArnCacheInteraction(interaction){
+        if(!interaction.isChatInputCommand?.()||!['arn','cacheadmin'].includes(interaction.commandName)||String(interaction.guildId)!==String(config.discord?.guildId))return;
+        void(async()=>{await interaction.deferReply({flags:MessageFlags.Ephemeral});const payload=await handle(interaction,{ledger,shop,config});await interaction.editReply({...payload,allowedMentions:{parse:[]}});})().catch(e=>interaction.editReply({content:arnMemberErrorContent(e),allowedMentions:{parse:[]}}).catch(()=>{}));
+      });
+    }
     return login.apply(this,args);
   };
 }

@@ -14,6 +14,7 @@ process.env.NEXUS_RCON_SOURCE ||= 'discord_override_store';
 if (isArkShopMysqlRetired()) {
   console.log('[Nexus Ascended] ArkShop MySQL retired; MySQL polling disabled.');
 }
+require('../sentinel/arn-journal-client.cjs').logArnJournalBoot();
 
 try {
   const vault = describeRconVault();

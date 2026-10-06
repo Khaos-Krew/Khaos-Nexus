@@ -41,7 +41,7 @@ const { arnFlags } = require('../src/shared/arn-flags.cjs');
 const { arkNpFlags } = require('../src/shared/ark-np-flags.cjs');
 const { SUPPORTED_CURRENCIES } = require('../src/sentinel/nexus-economy-postgres-repository.cjs');
 const { handle, command } = require('../src/sentinel/arn-cache-extension.cjs');
-const { tokenText, openText, openPointerText, copyHasBotName } = require('../src/sentinel/arn-member-copy.cjs');
+const { tokenText, openText, copyHasBotName } = require('../src/sentinel/arn-member-copy.cjs');
 const {
   ARN_SHOP_ID,
   HUB_MY_SEALED_ID,
@@ -469,8 +469,9 @@ test('member copy stays plain and there is no exchange into Points, Coins, or ca
   assert.match(tokenText(0, {}), /25%/);
   assert.match(tokenText(0, {}), /10%/);
   assert.doesNotMatch(guideText, /\/arn open/);
+  assert.match(guideText, /ARN caches are redeemed in the Dino Cache shop with ARN Tokens\./);
   assert.equal(copyHasBotName(guideText), false);
-  assert.doesNotMatch(guideText, /dino\s*caches?/i);
+  assert.doesNotMatch(guideText, /\/arn open/);
 
   const book = bookFor(account(), {});
   const interaction = {
@@ -494,7 +495,7 @@ test('member copy stays plain and there is no exchange into Points, Coins, or ca
 
   const names = command().options.map((option) => option.name);
   assert.ok(names.includes('tokens'));
-  assert.ok(names.includes('open'));
+  assert.equal(names.includes('open'), false);
   assert.ok(names.includes('report'));
   for (const hidden of ['balance', 'history', 'cache', 'buy']) assert.equal(names.includes(hidden), false);
   assert.equal(rotationSecret({}), '');
@@ -529,7 +530,7 @@ test('member copy stays plain and there is no exchange into Points, Coins, or ca
     options: { getSubcommand: () => 'report' }
   }, { ledger: {}, shop: {}, config: { discord: {} }, book, env: {} });
   assert.equal(denied.content, 'Staff only.');
-  for (const hiddenName of ['balance', 'history', 'cache', 'buy']) {
+  for (const hiddenName of ['balance', 'history', 'cache', 'buy', 'open']) {
     const hidden = await handle({
       commandName: 'arn',
       user: { id: DISCORD },
@@ -546,7 +547,7 @@ test('member copy stays plain and there is no exchange into Points, Coins, or ca
   }
 });
 
-test('ARN caches redeem from the dino box shop and /arn open only points there', async () => {
+test('ARN caches redeem from the dino box shop', async () => {
   const now = Date.parse('2026-10-07T18:00:00.000Z');
   const book = bookFor(account(), {});
   const preview = await arnShopPreview({ discordUserId: DISCORD, book, env: {}, now });
@@ -608,15 +609,6 @@ test('ARN caches redeem from the dino box shop and /arn open only points there',
     else process.env.ARKSHOP_DB_MODE = previousMode;
   }
 
-  const pointer = await handle({
-    commandName: 'arn',
-    user: { id: DISCORD },
-    options: { getSubcommand: () => 'open' }
-  }, { ledger: { balance() { throw new Error('mysql'); } }, shop: { purchase() { throw new Error('mysql'); } }, config: { discord: {} }, book, env: {} });
-  assert.equal(pointer.content, openPointerText());
-  assert.match(pointer.content, /#dino-box-shop/);
-  assert.equal(copyHasBotName(pointer.content), false);
-  assert.equal(book.state.ledger.length, 0);
 });
 
 test('a repeat feed post does not roll twice, and the live message cannot set the roll', async () => {

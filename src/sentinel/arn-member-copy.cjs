@@ -34,14 +34,14 @@ function trialLine(env = process.env) {
   return 'This is a test run. Payouts are off.';
 }
 
-function arnShopLines({ balance, rotation, redeemed = false, drawn = null, env = process.env } = {}) {
+function arnShopLines({ balance, balanceText, rotation, redeemed = false, drawn = null, env = process.env } = {}) {
   const lines = [
     trialLine(env),
     'An ARN cache costs 1 ARN token.',
     'Accepted currency: ARN tokens only.',
     poolLine(rotation),
     'The list changes every Monday at 12:00 AM Central time.',
-    `Your ARN tokens: ${Number(balance || 0)}.`
+    `Your ARN tokens: ${balanceText != null ? balanceText : Number(balance || 0)}.`
   ];
   if (redeemed && drawn) lines.push(`Redeemed. The tame is ${drawn.species}, level ${drawn.level}.`);
   else if (redeemed) lines.push('Nothing was opened and no tame was sent.');
@@ -61,10 +61,6 @@ function arnShopPublicLines(rotation, env = process.env) {
   ].filter(Boolean).join('\n');
 }
 
-function openPointerText() {
-  return 'Redeem an ARN cache in #dino-box-shop. Pick ARN Cache. This command does not open one.';
-}
-
 function openText(result = {}) {
   if (result.debited === true && result.drawn && result.raCalled === true) {
     return `Opened an ARN cache. The tame is ${result.drawn.species}, level ${result.drawn.level}.`;
@@ -82,4 +78,4 @@ function copyHasBotName(value) {
   return /sentinal|sentinel|cephalon/i.test(String(value || ''));
 }
 
-module.exports = { tokenText, openText, arnShopLines, arnShopPublicLines, openPointerText, copyHasBotName };
+module.exports = { tokenText, openText, arnShopLines, arnShopPublicLines, copyHasBotName };
