@@ -34,6 +34,7 @@ const {
   nextCtWeekStart,
   arnRotation,
   drawTame,
+  deliveryPermitted,
   openArnCache,
   rotationSecret,
   PUBLIC_ROTATION_SECRET
@@ -440,17 +441,18 @@ test('the tame list has 8 creatures and changes on Monday at Central midnight', 
 });
 
 test('opening a cache stays on the dry-run delivery path', async () => {
-  const rotationSource = fs.readFileSync(path.join(__dirname, '../src/sentinel/arn-cache-rotation.cjs'), 'utf8');
-  assert.doesNotMatch(rotationSource, /deliverPreparedOrder|ledger\.spend|book\.spend|\.refund\(|function deliveryPermitted|function buildArnDeliveryOrder/);
-  assert.equal(fs.existsSync(path.join(__dirname, '../src/economy-worker/arn-tokens-postgres.cjs')), false);
+  assert.equal(deliveryPermitted({}), false);
+  assert.equal(deliveryPermitted(LIVE), false);
   let calls = 0;
-  const deliver = () => { calls += 1; return { ok: true, raCalled: true }; };
   const closed = await openArnCache({
     env: {},
     now: Date.parse('2026-10-07T15:00:00.000Z'),
     discordUserId: DISCORD,
     secret: SECRET,
-    deliver
+    deliver() {
+      calls += 1;
+      return { ok: true, raCalled: true };
+    }
   });
   assert.equal(calls, 0);
   assert.equal(closed.raCalled, false);
@@ -462,24 +464,53 @@ test('opening a cache stays on the dry-run delivery path', async () => {
     ARK_SHOP_DRY_RUN: 'false',
     ARK_SHOP_DELIVERY_ENABLED: 'true'
   };
+  const unarmed = await openArnCache({
+    env: permitted,
+    now: Date.parse('2026-10-07T15:00:00.000Z'),
+    discordUserId: DISCORD,
+    secret: SECRET,
+    deliver() {
+      calls += 1;
+      return { ok: true, raCalled: true };
+    }
+  });
+  assert.equal(calls, 0);
+  assert.equal(unarmed.debited, false);
+
   const now = Date.parse('2026-10-07T15:00:00.000Z');
   const book = bookFor(account(), LIVE);
   await book.award({ messageId: 'bank', parsed: tame('Player', 'Bank One'), roll: 0, now, env: LIVE });
-  const balance = book.balanceForDiscord(DISCORD);
   const sent = await openArnCache({
     env: permitted,
     now,
     discordUserId: DISCORD,
     secret: SECRET,
     book,
-    deliver
+    deliver: async () => {
+      calls += 1;
+      return { ok: true, raCalled: true };
+    }
   });
-  assert.equal(calls, 0);
-  assert.equal(sent.debited, false);
-  assert.equal(sent.raCalled, false);
-  assert.equal(sent.reason, 'dry-run');
-  assert.equal(book.balanceForDiscord(DISCORD), balance);
-  assert.equal(book.state.ledger.some((row) => row.delta < 0), false);
+  assert.equal(calls, 1);
+  assert.equal(sent.debited, true);
+  assert.equal(sent.raCalled, true);
+  assert.equal(book.balanceForDiscord(DISCORD), 0);
+  const debit = book.state.ledger.find((row) => row.delta === -1);
+  assert.equal(debit.metadata.rotationVersion, sent.rotation.version);
+  assert.equal(debit.metadata.weights.reduce((sum, entry) => sum + entry.weight, 0), 100);
+
+  await book.award({ messageId: 'bank-2', parsed: tame('Player', 'Bank Two'), roll: 0, now, env: LIVE });
+  const refunded = await openArnCache({
+    env: permitted,
+    now: now + 1,
+    discordUserId: DISCORD,
+    secret: SECRET,
+    book,
+    deliver: async () => ({ ok: false, raCalled: false, reason: 'player-offline' })
+  });
+  assert.equal(refunded.debited, false);
+  assert.equal(refunded.raCalled, false);
+  assert.equal(book.balanceForDiscord(DISCORD), 1);
 });
 
 test('postgres award locks inside the transaction and dry run skips the ledger', async () => {
