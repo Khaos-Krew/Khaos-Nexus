@@ -33,8 +33,11 @@ function mockInteraction(partial = {}) {
     customId: partial.customId || '',
     values: partial.values || [],
     channelId: partial.channelId || '',
+    guildId: partial.guildId || '',
+    guild: { id: partial.guildId || '' },
     user: { id: partial.userId || USER },
     member: {
+      guild: { id: partial.guildId || '' },
       roles: { cache: new Map(roles.map((item) => [item.id, item])) }
     },
     deferred: false,
@@ -150,8 +153,9 @@ test('a listed role browses the Coin shop read-only in the preview channel only'
     });
     await handleCoinShopInteraction(opened, { economyClient: economy, backend });
     const browse = opened.replies[0];
-    assert.match(descriptionOf(browse), new RegExp(PREVIEW_LINE));
+    assert.equal(descriptionOf(browse).includes(PREVIEW_LINE), true);
     assert.match(descriptionOf(browse), /420/);
+    assert.match(JSON.stringify(browse), new RegExp(`nxcoin:cat:${USER}`));
     assert.deepEqual(buttonIds(browse), []);
     assert.doesNotMatch(JSON.stringify(browse), /nxcoin:buy|nxcoin:ok|Confirm/);
 
@@ -163,7 +167,7 @@ test('a listed role browses the Coin shop read-only in the preview channel only'
       roles: [owner]
     });
     await handleCoinShopInteraction(category, { economyClient: economy, backend });
-    assert.match(descriptionOf(category.updates[0]), new RegExp(PREVIEW_LINE));
+    assert.equal(descriptionOf(category.updates[0]).includes(PREVIEW_LINE), true);
     assert.match(JSON.stringify(category.updates[0]), /285 Coins/);
     assert.match(JSON.stringify(category.updates[0]), /315 Coins/);
     assert.deepEqual(buttonIds(category.updates[0]), []);
@@ -176,7 +180,7 @@ test('a listed role browses the Coin shop read-only in the preview channel only'
       roles: [role(CM_ROLE_ID, 'Helpers')]
     });
     await handleCoinShopInteraction(detail, { economyClient: economy, backend });
-    assert.match(descriptionOf(detail.updates[0]), new RegExp(PREVIEW_LINE));
+    assert.equal(descriptionOf(detail.updates[0]).includes(PREVIEW_LINE), true);
     assert.match(descriptionOf(detail.updates[0]), /Price: 285 Coins/);
     assert.deepEqual(buttonIds(detail.updates[0]), []);
 
@@ -187,7 +191,7 @@ test('a listed role browses the Coin shop read-only in the preview channel only'
       roles: [owner]
     });
     await handleCoinShopInteraction(buy, { economyClient: economy, backend });
-    assert.match(buy.updates[0].content, new RegExp(PREVIEW_LINE));
+    assert.equal(String(buy.updates[0].content).includes(PREVIEW_LINE), true);
     const confirm = mockInteraction({
       kind: 'button',
       customId: `nxcoin:ok:nonce-1:${USER}`,
@@ -195,18 +199,18 @@ test('a listed role browses the Coin shop read-only in the preview channel only'
       roles: [owner]
     });
     await handleCoinShopInteraction(confirm, { economyClient: economy, backend });
-    assert.match(confirm.updates[0].content, new RegExp(PREVIEW_LINE));
+    assert.equal(String(confirm.updates[0].content).includes(PREVIEW_LINE), true);
     assert.equal(economy.calls.quote, 0);
     assert.equal(economy.calls.purchase, 0);
 
     const unlisted = mockInteraction({ kind: 'command', commandName: 'shop', channelId: CHANNEL, roles: [] });
     await handleCoinShopInteraction(unlisted, { economyClient: economy, backend });
     assert.equal(unlisted.replies[0].content, ARK_OFF);
-    assert.doesNotMatch(unlisted.replies[0].content, /Coin|Preview/);
+    assert.doesNotMatch(unlisted.replies[0].content, /coin|preview/i);
     const unlistedCoin = mockInteraction({ kind: 'button', customId: 'nxshop:coin', channelId: CHANNEL, roles: [role(NAMED_ONLY, 'Server Owner')] });
     await handleCoinShopInteraction(unlistedCoin, { economyClient: economy, backend });
     assert.match(unlistedCoin.updates[0].content, new RegExp(GATE_OFF.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-    assert.doesNotMatch(unlistedCoin.updates[0].content, /Preview/);
+    assert.doesNotMatch(unlistedCoin.updates[0].content, /preview/i);
     assert.equal(unlistedCoin.updates[0].content.includes(COSMETIC_FOOTER), true);
 
     const elsewhere = mockInteraction({
@@ -217,7 +221,7 @@ test('a listed role browses the Coin shop read-only in the preview channel only'
     });
     await handleCoinShopInteraction(elsewhere, { economyClient: economy, backend });
     assert.equal(elsewhere.replies[0].content, ARK_OFF);
-    assert.doesNotMatch(elsewhere.replies[0].content, /Coin|Preview/);
+    assert.doesNotMatch(elsewhere.replies[0].content, /coin|preview/i);
     const elsewhereCoin = mockInteraction({
       kind: 'button',
       customId: 'nxshop:coin',
@@ -226,7 +230,7 @@ test('a listed role browses the Coin shop read-only in the preview channel only'
     });
     await handleCoinShopInteraction(elsewhereCoin, { economyClient: economy, backend });
     assert.match(elsewhereCoin.updates[0].content, /The Coin shop isn't open yet/);
-    assert.doesNotMatch(elsewhereCoin.updates[0].content, /Preview/);
+    assert.doesNotMatch(elsewhereCoin.updates[0].content, /preview/i);
 
     apply(previewEnv({ COIN_SHOP_PREVIEW_ROLE_IDS: `${OWNER_ROLE_ID},not-a-role` }));
     const garbage = mockInteraction({
@@ -250,7 +254,7 @@ test('a listed role browses the Coin shop read-only in the preview channel only'
     });
     await handleCoinShopInteraction(live, { economyClient: economy, backend });
     assert.match(live.replies[0].content, /Coin Shop \(cosmetics\)/);
-    assert.doesNotMatch(live.replies[0].content, /Preview/);
+    assert.doesNotMatch(live.replies[0].content, /preview/i);
     assert.equal(economy.calls.quote, 0);
     assert.equal(economy.calls.purchase, 0);
 
@@ -272,13 +276,79 @@ test('a listed role browses the Coin shop read-only in the preview channel only'
   }
 });
 
+test('the guild id and a managed role do not open the preview', async () => {
+  const previous = {
+    COIN_SHOP_ENABLED: process.env.COIN_SHOP_ENABLED,
+    ARK_SHOP_ENABLED: process.env.ARK_SHOP_ENABLED,
+    COIN_SHOP_PREVIEW_ROLE_IDS: process.env.COIN_SHOP_PREVIEW_ROLE_IDS,
+    COIN_SHOP_PREVIEW_CHANNEL_ID: process.env.COIN_SHOP_PREVIEW_CHANNEL_ID
+  };
+  const guildId = '444444444444444449';
+  const managedId = '333333333333333331';
+  function apply(env) {
+    for (const [key, value] of Object.entries(env)) {
+      if (value == null || value === '') delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+  apply(previewEnv({ COIN_SHOP_PREVIEW_ROLE_IDS: guildId }));
+  try {
+    const economy = economySpy();
+    const everyone = mockInteraction({
+      kind: 'command',
+      commandName: 'shop',
+      channelId: CHANNEL,
+      guildId,
+      roles: [role(guildId, 'Members')]
+    });
+    await handleCoinShopInteraction(everyone, { economyClient: economy, backend: {} });
+    assert.equal(everyone.replies[0].content, ARK_OFF);
+    assert.doesNotMatch(everyone.replies[0].content, /preview/i);
+
+    apply(previewEnv({ COIN_SHOP_PREVIEW_ROLE_IDS: managedId }));
+    const managed = mockInteraction({
+      kind: 'command',
+      commandName: 'shop',
+      channelId: CHANNEL,
+      guildId,
+      roles: [{ id: managedId, name: 'Server Bot', managed: true, permissions: '8' }]
+    });
+    await handleCoinShopInteraction(managed, { economyClient: economy, backend: {} });
+    assert.equal(managed.replies[0].content, ARK_OFF);
+    assert.doesNotMatch(managed.replies[0].content, /preview/i);
+    assert.equal(economy.calls.quote, 0);
+    assert.equal(economy.calls.purchase, 0);
+
+    apply(previewEnv({ COIN_SHOP_PREVIEW_ROLE_IDS: `${guildId},${OWNER_ROLE_ID}` }));
+    const owner = mockInteraction({
+      kind: 'command',
+      commandName: 'shop',
+      channelId: CHANNEL,
+      guildId,
+      roles: [role(guildId, 'Members'), role(OWNER_ROLE_ID, 'Khaos Lead')]
+    });
+    await handleCoinShopInteraction(owner, {
+      economyClient: economy,
+      backend: { async walletCosmetics() { return { profile: {} }; } }
+    });
+    assert.equal(descriptionOf(owner.replies[0]).includes(PREVIEW_LINE), true);
+    assert.match(JSON.stringify(owner.replies[0]), new RegExp(`nxcoin:cat:${USER}`));
+  } finally {
+    clearCoinShopSessions();
+    for (const [key, value] of Object.entries(previous)) {
+      if (value == null) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
 test('the preview channel keeps one read-only catalog panel', async () => {
   const payload = previewCatalogPayload();
   const json = payload.embeds[0].toJSON();
   assert.equal(json.title, 'KHAOS NEXUS • COIN SHOP');
   assert.equal(json.footer.text, COIN_SHOP_PREVIEW_PANEL_MARKER);
   assert.equal(json.author, undefined);
-  assert.match(json.description, new RegExp(PREVIEW_LINE));
+  assert.equal(json.description.includes(PREVIEW_LINE), true);
   assert.match(json.description, /Cosmetic only/);
   assert.match(json.fields.map((field) => field.value).join('\n'), /Nebula — 285 Coins/);
   assert.match(json.fields.map((field) => field.value).join('\n'), /Circuit — 315 Coins/);
@@ -291,7 +361,9 @@ test('the preview channel keeps one read-only catalog panel', async () => {
   const botId = '888888888888888888';
   const messages = new Map();
   let sendCount = 0;
+  let wrongDeletes = 0;
   const channel = {
+    id: CHANNEL,
     async send(body) {
       sendCount += 1;
       const message = {
@@ -314,9 +386,25 @@ test('the preview channel keeps one read-only catalog panel', async () => {
     },
     messages: { async fetch() { return messages; } }
   };
+  const otherChannel = {
+    id: OTHER_CHANNEL,
+    messages: {
+      async fetch() {
+        return new Map([['note', {
+          id: 'note',
+          author: { id: botId },
+          embeds: [{ footer: { text: 'A member note' } }],
+          async delete() { throw new Error('deleted a message that is not the preview panel'); }
+        }]]);
+      }
+    }
+  };
   const client = {
     user: { id: botId },
-    channels: { async fetch(id) { return id === CHANNEL ? channel : null; } }
+    channels: {
+      cache: new Map([[CHANNEL, channel], [OTHER_CHANNEL, otherChannel]]),
+      async fetch(id) { return id === CHANNEL ? channel : null; }
+    }
   };
   const env = previewEnv();
   const first = await ensureCoinShopPreviewPanel(client, env);
@@ -327,6 +415,30 @@ test('the preview channel keeps one read-only catalog panel', async () => {
   assert.equal(sendCount, 1);
   assert.equal(messages.size, 1);
 
+  messages.set('keep', {
+    id: 'keep',
+    author: { id: botId },
+    embeds: [{ footer: { text: 'KHAOS NEXUS • RULES' } }],
+    async delete() { wrongDeletes += 1; }
+  });
+  const enabled = await ensureCoinShopPreviewPanel(client, previewEnv({ COIN_SHOP_ENABLED: 'true' }));
+  assert.equal(enabled.posted, false);
+  assert.equal(enabled.removed, 1);
+  assert.equal(messages.has('keep'), true);
+  assert.equal(wrongDeletes, 0);
+  assert.equal(sendCount, 1);
+
+  const restored = await ensureCoinShopPreviewPanel(client, env);
+  assert.equal(restored.posted, true);
+  assert.equal(restored.created, true);
+  assert.equal(sendCount, 2);
+  const unset = await ensureCoinShopPreviewPanel(client, {});
+  assert.equal(unset.posted, false);
+  assert.equal(unset.removed, 1);
+  assert.equal(messages.has('keep'), true);
+  assert.equal([...messages.keys()].filter((id) => id !== 'keep').length, 0);
+  assert.equal(wrongDeletes, 0);
+
   let fetched = 0;
   const closed = await ensureCoinShopPreviewPanel({
     user: { id: botId },
@@ -334,4 +446,32 @@ test('the preview channel keeps one read-only catalog panel', async () => {
   }, { COIN_SHOP_PREVIEW_CHANNEL_ID: 'not-a-channel', COIN_SHOP_PREVIEW_ROLE_IDS: OWNER_ROLE_ID });
   assert.equal(closed.posted, false);
   assert.equal(fetched, 0);
+
+  const logs = [];
+  let threw = false;
+  let deniedResult = null;
+  try {
+    deniedResult = await ensureCoinShopPreviewPanel({
+      user: { id: botId },
+      channels: {
+        async fetch() {
+          return {
+            messages: { async fetch() { return new Map(); } },
+            async send() {
+              const error = new Error('Missing Permissions token SECRET_TOKEN_VALUE');
+              error.code = 50013;
+              throw error;
+            }
+          };
+        }
+      }
+    }, env, { warn(line) { logs.push(line); } });
+  } catch {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(deniedResult.posted, false);
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /missing permissions/);
+  assert.doesNotMatch(logs[0], /SECRET_TOKEN_VALUE/);
 });

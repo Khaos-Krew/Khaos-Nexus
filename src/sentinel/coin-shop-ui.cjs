@@ -36,7 +36,7 @@ const ITEM_ART = Object.freeze({
   thm_circuit: 'item-circuit-wallet-theme.png',
   ttl_night_owl: 'item-night-owl-title.png'
 });
-const PREVIEW_LINE = 'Preview: buying is off';
+const PREVIEW_LINE = 'This is a preview. Buying isn\'t open yet.';
 const COIN_SHOP_PREVIEW_PANEL_MARKER = 'Khaos Nexus • Coin Shop Catalog • v5';
 
 function artFile(name, root = ART_DIR) {
@@ -216,6 +216,21 @@ function interactionChannelId(interaction) {
   return String(interaction?.channelId || interaction?.channel?.id || '').trim();
 }
 
+function interactionGuildId(interaction) {
+  return String(interaction?.guildId || interaction?.guild?.id || interaction?.member?.guild?.id || '').trim();
+}
+
+// The guild id is the @everyone role. A managed role is a bot or integration
+// role. Neither grants preview, even when that id is listed.
+function previewRoleCounts(role, guildId) {
+  const id = String(role?.id || '');
+  if (!id) return false;
+  if (guildId && id === guildId) return false;
+  if (String(role?.name || '').trim().toLowerCase() === '@everyone') return false;
+  if (role?.managed === true) return false;
+  return true;
+}
+
 // Read-only browse while the Coin shop flag is off. Role match is by id only.
 // A listed role in any other channel, or any member without a listed role,
 // keeps the closed-shop path.
@@ -224,8 +239,9 @@ function previewBrowse(interaction, env = process.env) {
   const preview = coinShopPreview(env);
   if (!preview.open) return false;
   if (interactionChannelId(interaction) !== preview.channelId) return false;
+  const guildId = interactionGuildId(interaction);
   const allowed = new Set(preview.roleIds);
-  return rolesFromSubject(interaction).some((role) => allowed.has(String(role?.id || '')));
+  return rolesFromSubject(interaction).some((role) => previewRoleCounts(role, guildId) && allowed.has(String(role.id || '')));
 }
 
 function coinBrowseAllowed(interaction, env = process.env) {
@@ -515,13 +531,84 @@ function previewCatalogPayload(artRoot = ART_DIR) {
   };
 }
 
-async function ensureCoinShopPreviewPanel(client, env = process.env) {
+function sanitizePanelReason(error) {
+  const code = Number(error?.code);
+  if (code === 50001 || code === 50013) return 'missing permissions';
+  const text = String(error?.message || error || 'unavailable')
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/[A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{20,}/g, '[redacted]')
+    .replace(/\b[A-Za-z0-9_-]{40,}\b/g, '[redacted]')
+    .trim()
+    .slice(0, 160);
+  return text || 'unavailable';
+}
+
+function warnPreview(logger, error) {
+  logger?.warn?.(`[Nexus Coin Shop] preview catalog skipped: ${sanitizePanelReason(error)}`);
+}
+
+function isPreviewPanelMessage(message, botId) {
+  if (!message) return false;
+  if (botId && String(message.author?.id || '') !== String(botId)) return false;
+  return (message.embeds || []).some((embed) => String(embed?.footer?.text || '') === COIN_SHOP_PREVIEW_PANEL_MARKER);
+}
+
+function cachedTextChannels(client) {
+  const cache = client?.channels?.cache;
+  if (!cache || typeof cache.values !== 'function') return [];
+  return [...cache.values()].filter((channel) => channel && typeof channel.messages?.fetch === 'function');
+}
+
+async function deletePreviewPanels(channel, botId) {
+  const recent = await channel.messages.fetch({ limit: 100 });
+  const messages = recent?.values ? [...recent.values()] : [];
+  let removed = 0;
+  for (const message of messages) {
+    if (!isPreviewPanelMessage(message, botId)) continue;
+    await message.delete('Nexus Coin Shop preview catalog removed');
+    removed += 1;
+  }
+  return removed;
+}
+
+// The catalog stays only while the shop flag is off and both preview ids are
+// valid. Otherwise the marked preview message is deleted. Other messages stay.
+async function ensureCoinShopPreviewPanel(client, env = process.env, logger = console) {
   const preview = coinShopPreview(env);
-  if (!preview.channelId) return { posted: false };
-  const channel = await client.channels.fetch(preview.channelId).catch(() => null);
-  if (!channel || typeof channel.send !== 'function') return { posted: false };
-  const result = await reconcilePanel(channel, previewCatalogPayload(), COIN_SHOP_PREVIEW_PANEL_MARKER, client.user?.id);
-  return { posted: true, ...result };
+  const active = !coinShopFlags(env).shopEnabled && preview.open;
+  const botId = String(client?.user?.id || '');
+  if (!active) {
+    let channels = [];
+    if (preview.channelId) {
+      try {
+        const channel = await client.channels.fetch(preview.channelId);
+        if (channel) channels = [channel];
+      } catch (error) {
+        warnPreview(logger, error);
+        return { posted: false, removed: 0 };
+      }
+    } else {
+      channels = cachedTextChannels(client);
+    }
+    let removed = 0;
+    for (const channel of channels) {
+      try {
+        removed += await deletePreviewPanels(channel, botId);
+      } catch (error) {
+        warnPreview(logger, error);
+      }
+    }
+    return { posted: false, removed };
+  }
+  try {
+    const channel = await client.channels.fetch(preview.channelId);
+    if (!channel || typeof channel.send !== 'function') return { posted: false, removed: 0 };
+    const result = await reconcilePanel(channel, previewCatalogPayload(), COIN_SHOP_PREVIEW_PANEL_MARKER, botId);
+    return { posted: true, removed: 0, ...result };
+  } catch (error) {
+    warnPreview(logger, error);
+    return { posted: false, removed: 0 };
+  }
 }
 
 function installCoinShopUi() {
@@ -554,6 +641,8 @@ function installCoinShopUi() {
         const panel = await ensureCoinShopPreviewPanel(client);
         if (panel.posted) {
           console.log(`[Nexus Coin Shop] preview catalog channel=${coinShopPreview().channelId} created=${panel.created === true}`);
+        } else if (panel.removed) {
+          console.log(`[Nexus Coin Shop] preview catalog removed=${panel.removed}`);
         }
       } catch (error) {
         console.error(`[Nexus Coin Shop] preview catalog failed: ${String(error?.message || error).slice(0, 240)}`);
