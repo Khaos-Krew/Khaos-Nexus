@@ -18,7 +18,7 @@ const { CONFIG, WEEKLY_CACHE_RETIRED } = require('./ark-weekly-cache.cjs');
 const { isRetired } = require('./arkshop-mysql.cjs');
 const { memberActionFallback } = require('./arkshop-cluster-economy-guard.cjs');
 const { arnRotation, openArnCache, rotationSecret } = require('./arn-cache-rotation.cjs');
-const { sharedArnBook } = require('./arn-token-award.cjs');
+const { sharedArnBook, readMainArnBalance } = require('./arn-token-award.cjs');
 const { arnShopLines, arnShopPublicLines } = require('./arn-member-copy.cjs');
 const { ArkCacheShopService } = require('./ark-cache-shop-service.cjs');
 const { ArkDinoBoxTokenService } = require('./ark-dino-box-token-service.cjs');
@@ -154,24 +154,61 @@ function arnRedeemButton() {
   return new ButtonBuilder().setCustomId(`${BUY_PREFIX}arn`).setLabel('Redeem • 1 ARN token').setStyle(ButtonStyle.Success);
 }
 
-function arnShopPreview({ discordUserId, book, env = process.env, now = Date.now() } = {}) {
-  const activeBook = book || sharedArnBook();
-  const rotation = arnRotation(now, rotationSecret(env));
+async function shownArnBalance(discordUserId, { book, ledger, env } = {}) {
+  if (book) return book.balanceForDiscord(discordUserId);
+  if (ledger && typeof ledger.balance === 'function') {
+    const value = await ledger.balance(discordUserId);
+    return Number(value?.balance ?? value ?? 0);
+  }
+  const remote = await readMainArnBalance(discordUserId);
+  if (remote != null) return remote;
+  return sharedArnBook(env).balanceForDiscord(discordUserId);
+}
+
+async function mainLedgerAdapter() {
+  const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
+  const client = new NexusEconomyClient();
+  if (!client.configured()) return null;
   return {
-    content: arnShopLines({ balance: activeBook.balanceForDiscord(discordUserId), rotation }),
+    spend: (input) => client.arnSpend(input),
+    refund: (input) => client.arnRefund(input),
+    async balance(discordUserId) {
+      const result = await client.arnBalance(discordUserId);
+      return Number(result?.balance || 0);
+    }
+  };
+}
+
+async function arnShopPreview({ discordUserId, book, ledger, env = process.env, now = Date.now(), balance } = {}) {
+  const rotation = arnRotation(now, rotationSecret(env));
+  const shown = Number.isFinite(Number(balance))
+    ? Number(balance)
+    : await shownArnBalance(discordUserId, { book, ledger, env });
+  return {
+    content: arnShopLines({ balance: shown, rotation }),
     embeds: [],
     components: [new ActionRowBuilder().addComponents(arnRedeemButton())],
     allowedMentions: { parse: [] }
   };
 }
 
-async function redeemArnInShop({ discordUserId, book, env = process.env, now = Date.now(), deliver } = {}) {
-  const activeBook = book || sharedArnBook();
-  const result = await openArnCache({ env, now, discordUserId, book: activeBook, deliver });
+async function redeemArnInShop({ discordUserId, book, ledger, env = process.env, now = Date.now(), deliver, secret } = {}) {
+  const { deliveryPermitted } = require('./arn-cache-rotation.cjs');
+  let activeLedger = ledger || null;
+  if (!activeLedger && !book && deliveryPermitted(env)) activeLedger = await mainLedgerAdapter();
+  const result = await openArnCache({
+    env,
+    now,
+    discordUserId,
+    secret,
+    deliver,
+    book: activeLedger ? undefined : book,
+    ledger: activeLedger || undefined
+  });
   const sent = result.debited === true && result.raCalled === true && result.drawn;
   return {
     content: arnShopLines({
-      balance: activeBook.balanceForDiscord(discordUserId),
+      balance: await shownArnBalance(discordUserId, { book: activeLedger ? undefined : book, ledger: activeLedger, env }),
       rotation: result.rotation,
       redeemed: true,
       drawn: sent ? result.drawn : null
@@ -180,7 +217,8 @@ async function redeemArnInShop({ discordUserId, book, env = process.env, now = D
     components: [],
     allowedMentions: { parse: [] },
     debited: result.debited === true,
-    raCalled: result.raCalled === true
+    raCalled: result.raCalled === true,
+    reason: result.reason || ''
   };
 }
 
@@ -445,7 +483,7 @@ function installArkDinoBoxShopExtension(options = {}) {
           const userId = String(interaction.user?.id || '');
           if (isArnShop || (isHubSelect && String(interaction.values?.[0] || '').toLowerCase() === 'arn')) {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-            return interaction.editReply(arnShopPreview({ discordUserId: userId }));
+            return interaction.editReply(await arnShopPreview({ discordUserId: userId }));
           }
           if (isHubSelect) {
             if (WEEKLY_CACHE_RETIRED !== true && !isRetired()) await purchaseService.refreshWeekly();

@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('node:crypto');
 const { CONFIG, deterministicRng, rollLevel } = require('./ark-dino-cache-engine.cjs');
 const { allowed, WEEKLY_CACHE_RETIRED } = require('./ark-weekly-cache.cjs');
 const { zonedParts, zonedLocalToUtc } = require('./card/birthday-calendar.cjs');
@@ -9,6 +10,12 @@ const { arkNpFlags } = require('../shared/ark-np-flags.cjs');
 const CT = 'America/Chicago';
 const POOL_SIZE = 8;
 const PUBLIC_ROTATION_SECRET = 'khaos-nexus-arn-rotation-v1-public';
+const SLOT_WEIGHTS = Object.freeze({
+  common: Object.freeze([20, 20]),
+  uncommon: Object.freeze([15, 15]),
+  rare: Object.freeze([10, 10]),
+  ultra: Object.freeze([5, 5])
+});
 const WEEKDAY_INDEX = Object.freeze({ Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 });
 
 function ctWeekdayIndex(nowMs) {
@@ -52,32 +59,62 @@ function approvedEntries() {
   return entries;
 }
 
+function slotsFor(entries, rarity, secretRng) {
+  const weights = SLOT_WEIGHTS[rarity];
+  const ranked = entries
+    .filter((entry) => entry.rarity === rarity)
+    .map((entry) => ({ entry, score: secretRng() }))
+    .sort((left, right) => left.score - right.score);
+  if (!ranked.length) throw new Error(`ARN cache is missing an approved ${rarity} creature.`);
+  return weights.map((weight, index) => {
+    const source = ranked[Math.min(index, ranked.length - 1)].entry;
+    return {
+      name: source.name,
+      blueprint: source.blueprint,
+      rarity: source.rarity,
+      weight
+    };
+  });
+}
+
 function arnRotation(nowMs = Date.now(), secret = rotationSecret()) {
   if (WEEKLY_CACHE_RETIRED !== true) throw new Error('ARN cache requires the weekly cache to stay retired.');
   const startsAt = ctWeekStart(nowMs);
   const rng = deterministicRng(secret, `arn-cache:${startsAt}`);
-  const ranked = approvedEntries()
-    .map((entry) => ({ entry, score: rng() }))
-    .sort((a, b) => a.score - b.score);
-  if (ranked.length < POOL_SIZE) throw new Error('ARN cache needs eight approved ASA creatures.');
+  const approved = approvedEntries();
+  const entries = ['common', 'uncommon', 'rare', 'ultra'].flatMap((rarity) => slotsFor(approved, rarity, rng));
+  if (entries.length !== POOL_SIZE) throw new Error('ARN cache needs eight weighted slots.');
+  const version = String(startsAt);
   return {
-    id: String(startsAt),
+    id: version,
+    version,
     startsAt,
     endsAt: nextCtWeekStart(startsAt),
     timeZone: CT,
-    entries: ranked.slice(0, POOL_SIZE).map((row) => ({
-      name: row.entry.name,
-      blueprint: row.entry.blueprint,
-      rarity: row.entry.rarity
-    }))
+    entries
   };
 }
 
-function drawTame(rotation, seed) {
-  const key = String(seed || '').length >= 32 ? String(seed) : `${String(seed || 'arn-draw')}-arn-draw-padding-32chars`;
-  const rng = deterministicRng(key, `arn-draw:${rotation.id}`);
-  const index = Math.floor(rng() * rotation.entries.length);
-  const entry = rotation.entries[index];
+function hmacUnit(secret, orderId) {
+  const digest = crypto.createHmac('sha256', String(secret)).update(String(orderId)).digest();
+  return digest.readUIntBE(0, 6) / 281474976710656;
+}
+
+function drawTame(rotation, orderId, secret = rotationSecret()) {
+  const entries = rotation?.entries || [];
+  const total = entries.reduce((sum, entry) => sum + Number(entry.weight || 0), 0);
+  if (!(total > 0)) throw new Error('ARN rotation weights are empty.');
+  let cursor = hmacUnit(secret, orderId) * total;
+  let entry = entries[entries.length - 1];
+  for (const candidate of entries) {
+    cursor -= Number(candidate.weight || 0);
+    if (cursor < 0) {
+      entry = candidate;
+      break;
+    }
+  }
+  const rngKey = String(secret).length >= 32 ? String(secret) : `${String(secret)}-arn-draw-padding-32chars`;
+  const rng = deterministicRng(rngKey, `arn-level:${rotation.id}:${orderId}`);
   const level = rollLevel(rng, CONFIG);
   const sex = rng() < 0.5 ? 'female' : 'male';
   return {
@@ -87,7 +124,9 @@ function drawTame(rotation, seed) {
     sex,
     variant: 'normal',
     shiny: false,
-    saddle: ''
+    saddle: '',
+    weight: entry.weight,
+    rotationVersion: rotation.version || rotation.id
   };
 }
 
@@ -120,6 +159,7 @@ async function openArnCache({
   secret,
   deliver,
   book,
+  ledger,
   eosId = ''
 } = {}) {
   const rotation = arnRotation(now, secret || rotationSecret(env));
@@ -131,11 +171,14 @@ async function openArnCache({
     currency: 'ARN_TOKENS',
     rotation
   };
-  if (!deliveryPermitted(env) || !book) return base;
-  const drawn = drawTame(rotation, `open:${discordUserId}:${rotation.id}:${now}`);
+  const spender = ledger || book;
+  if (!deliveryPermitted(env) || !spender) return base;
   const orderId = `arn-open:${discordUserId}:${rotation.id}:${now}`;
+  const drawn = drawTame(rotation, orderId, secret || rotationSecret(env));
   const order = buildArnDeliveryOrder({ drawn, eosId, orderId });
-  const spent = await book.spend({ discordUserId, key: orderId, now, env });
+  const spent = ledger
+    ? await ledger.spend({ discordUserId, orderId, rotation, now, env })
+    : await book.spend({ discordUserId, key: orderId, orderId, rotation, now, env });
   if (!spent?.debited) return { ...base, reason: spent?.reason || 'not-spent', drawn, order };
   const send = deliver || (async () => {
     const flags = arkNpFlags(env);
@@ -147,12 +190,14 @@ async function openArnCache({
   try {
     delivery = await send(order, env);
   } catch (error) {
-    await book.refund({ economicIdentityId: spent.economicIdentityId, key: orderId, now });
-    return { ...base, reason: 'delivery-failed', drawn, order };
+    if (ledger) await ledger.refund({ orderId, economicIdentityId: spent.economicIdentityId, now });
+    else await book.refund({ economicIdentityId: spent.economicIdentityId, key: orderId, now });
+    return { ...base, reason: 'delivery-failed', drawn, order, refunded: true };
   }
   if (delivery?.raCalled !== true) {
-    await book.refund({ economicIdentityId: spent.economicIdentityId, key: orderId, now });
-    return { ...base, reason: delivery?.reason || 'not-sent', drawn, order };
+    if (ledger) await ledger.refund({ orderId, economicIdentityId: spent.economicIdentityId, now });
+    else await book.refund({ economicIdentityId: spent.economicIdentityId, key: orderId, now });
+    return { ...base, reason: delivery?.reason || 'not-sent', drawn, order, refunded: true };
   }
   return {
     ok: true,
@@ -170,6 +215,7 @@ module.exports = {
   CT,
   POOL_SIZE,
   PUBLIC_ROTATION_SECRET,
+  SLOT_WEIGHTS,
   ctDayStart,
   ctWeekStart,
   nextCtWeekStart,

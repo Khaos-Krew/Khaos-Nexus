@@ -14,7 +14,16 @@ const TAME_ODDS_BPS = 2500;
 const KILL_ODDS_BPS = 1000;
 const DAY_CAP = 3;
 const WEEK_CAP = 10;
+const FEED_DEDUPE_MS = 10 * 60 * 1000;
 const DEFAULT_JOURNAL = path.join(process.cwd(), 'data', 'arn-dry-run.json');
+
+function feedKeyOf(parsed) {
+  return [
+    String(parsed?.kind || ''),
+    normalizeExactName(parsed?.playerName),
+    normalizeExactName(parsed?.dinoName)
+  ].join('|');
+}
 
 function normalizeExactName(value) {
   return String(value || '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -31,12 +40,14 @@ function oddsRoll(seed, messageId) {
   return digest.readUInt32BE(0) % 10000;
 }
 
-function oddsThreshold(kind) {
-  return kind === 'tame' ? TAME_ODDS_BPS : KILL_ODDS_BPS;
+function oddsThreshold(kind, env = {}) {
+  const flags = arnFlags(env || {});
+  if (kind === 'kill') return flags.killOddsBp;
+  return flags.tameOddsBp;
 }
 
-function oddsHit(kind, roll) {
-  return Number.isInteger(roll) && roll >= 0 && roll < oddsThreshold(kind);
+function oddsHit(kind, roll, env = {}) {
+  return Number.isInteger(roll) && roll >= 0 && roll < oddsThreshold(kind, env);
 }
 
 function balanceOf(state, economicIdentityId) {
@@ -46,14 +57,14 @@ function balanceOf(state, economicIdentityId) {
 }
 
 function countCredits(state, economicIdentityId, start, end, which) {
-  if (state.seededCredits && state.seededCredits.economicIdentityId === economicIdentityId) {
-    return which === 'day' ? Number(state.seededCredits.day || 0) : Number(state.seededCredits.week || 0);
-  }
   let total = 0;
   for (const row of state.observations) {
     if (row.economicIdentityId !== economicIdentityId) continue;
     if (row.outcome !== 'would-credit' && row.outcome !== 'credited') continue;
     if (Number(row.at) >= start && Number(row.at) < end) total += Number(row.amount || 1);
+  }
+  if (state.seededCredits && state.seededCredits.economicIdentityId === economicIdentityId) {
+    total += which === 'day' ? Number(state.seededCredits.day || 0) : Number(state.seededCredits.week || 0);
   }
   return total;
 }
@@ -83,6 +94,7 @@ function observation(input, extra) {
     mapName: input.parsed?.mapName || '',
     economicIdentityId: extra.economicIdentityId || '',
     discordUserId: extra.discordUserId || '',
+    feedKey: extra.feedKey || feedKeyOf(input.parsed),
     roll: extra.roll == null ? null : extra.roll,
     amount: Number(extra.amount || 0),
     at: input.at,
@@ -111,6 +123,19 @@ function decideAward(state, input) {
     return { outcome: 'stale', wroteLedger: false, observation: observation(input, { outcome: 'stale' }) };
   }
 
+  const feedKey = feedKeyOf(parsed);
+  const anchor = state.observations.find((row) => (
+    row.feedKey === feedKey
+    && row.messageId !== messageId
+    && row.outcome !== 'feed-duplicate'
+    && Number.isFinite(Number(row.at))
+    && input.at >= Number(row.at)
+    && input.at - Number(row.at) < FEED_DEDUPE_MS
+  ));
+  if (anchor) {
+    return { outcome: 'feed-duplicate', wroteLedger: false, observation: observation(input, { outcome: 'feed-duplicate', reason: 'feed-window' }) };
+  }
+
   const matches = exactNameMatches(input.accounts, parsed.playerName);
   if (matches.length === 0) {
     return { outcome: 'unlinked', wroteLedger: false, observation: observation(input, { outcome: 'unlinked' }) };
@@ -120,6 +145,14 @@ function decideAward(state, input) {
   }
 
   const account = matches[0];
+  const economicIdentityId = String(account.economicIdentityId || '');
+  if (!economicIdentityId || economicIdentityId.startsWith('discord:')) {
+    return {
+      outcome: 'identity-unresolved',
+      wroteLedger: false,
+      observation: observation(input, { outcome: 'identity-unresolved', discordUserId: account.discordUserId || '' })
+    };
+  }
   const skip = levelUpStyleSkip(account, input.env);
   if (skip) {
     return {
@@ -140,7 +173,7 @@ function decideAward(state, input) {
     economicIdentityId: account.economicIdentityId,
     discordUserId: account.discordUserId
   };
-  if (!oddsHit(parsed.kind, roll)) {
+  if (!oddsHit(parsed.kind, roll, input.env)) {
     return { outcome: 'miss', wroteLedger: false, observation: observation(input, { outcome: 'miss', roll, ...identity }) };
   }
 
@@ -157,6 +190,14 @@ function decideAward(state, input) {
     return { outcome: 'cap-week', wroteLedger: false, observation: observation(input, { outcome: 'cap-week', roll, ...identity }) };
   }
 
+  const flags = arnFlags(input.env || {});
+  if (input.creditsEnabled === true && flags.dropsEnabled(parsed.kind) !== true) {
+    return {
+      outcome: 'drops-disabled',
+      wroteLedger: false,
+      observation: observation(input, { outcome: 'drops-disabled', roll, ...identity })
+    };
+  }
   if (input.creditsEnabled !== true) {
     return {
       outcome: 'would-credit',
@@ -235,8 +276,8 @@ function loadLinkedAccounts() {
           playerName: account.playerName || '',
           eosId: account.eosId,
           discordUserId: profile.discordUserId || discordUserId,
-          economicIdentityId: profile.economicIdentityId || `discord:${profile.discordUserId || discordUserId}`,
-          status: profile.economyStatus || account.status || 'verified',
+          economicIdentityId: profile.economicIdentityId || '',
+          status: profile.economyStatus || account.status || '',
           holdReason: profile.holdReason || account.holdReason || ''
         });
       }
@@ -300,7 +341,7 @@ function createArnBook({ loadAccounts = async () => [], env = {}, persistPath = 
       return exclusive(async () => {
         const at = Number(input.now || Date.now());
         const flags = arnFlags(input.env || env);
-        const accounts = await loadAccounts(input);
+        const accounts = Array.isArray(input.accounts) ? input.accounts : await loadAccounts(input);
         const decision = decideAward(state, {
           ...input,
           at,
@@ -313,31 +354,37 @@ function createArnBook({ loadAccounts = async () => [], env = {}, persistPath = 
         return { ...decision, wroteLedger: decision.wroteLedger === true, ledgerRows: state.ledger.length };
       });
     },
-    spend({ discordUserId, key, now = Date.now(), env: spendEnv = env } = {}) {
+    spend({ discordUserId, key, orderId, rotation, now = Date.now(), env: spendEnv = env } = {}) {
       return exclusive(async () => {
         const flags = arnFlags(spendEnv);
         if (dryRunOnly || !flags.creditsEnabled) return { ok: false, reason: 'dry-run', debited: false };
         const accounts = await loadAccounts();
-        const ids = [...new Set(accounts.filter((account) => account.discordUserId === discordUserId).map((account) => account.economicIdentityId).filter(Boolean))];
+        const ids = [...new Set(accounts.filter((account) => account.discordUserId === discordUserId && account.economicIdentityId && !String(account.economicIdentityId).startsWith('discord:')).map((account) => account.economicIdentityId))];
         if (ids.length !== 1) return { ok: false, reason: ids.length ? 'ambiguous' : 'unlinked', debited: false };
         const account = accounts.find((item) => item.economicIdentityId === ids[0]);
         if (levelUpStyleSkip(account, spendEnv)) return { ok: false, reason: 'held', debited: false };
-        const spendKey = String(key || '').trim();
+        const spendKey = String(key || orderId || '').trim();
         if (!spendKey) return { ok: false, reason: 'malformed', debited: false };
         if (state.ledger.some((row) => row.messageId === spendKey)) return { ok: true, duplicate: true, debited: false, economicIdentityId: ids[0] };
         if (balanceOf(state, ids[0]) < 1) return { ok: false, reason: 'insufficient', debited: false };
         const at = Number(now);
+        const after = balanceOf(state, ids[0]) - 1;
+        if (after < 0) return { ok: false, reason: 'insufficient', debited: false };
         state.ledger.push({
           messageId: spendKey,
           economicIdentityId: ids[0],
           discordUserId,
           delta: -1,
-          balanceAfter: balanceOf(state, ids[0]) - 1,
+          balanceAfter: after,
           at,
-          currency: CURRENCY
+          currency: CURRENCY,
+          metadata: rotation ? {
+            rotationVersion: rotation.version || rotation.id || '',
+            weights: (rotation.entries || []).map((entry) => ({ name: entry.name, rarity: entry.rarity, weight: entry.weight }))
+          } : null
         });
         persist();
-        return { ok: true, debited: true, economicIdentityId: ids[0], key: spendKey };
+        return { ok: true, debited: true, economicIdentityId: ids[0], key: spendKey, balance: after };
       });
     },
     refund({ economicIdentityId, key, now = Date.now() } = {}) {
@@ -393,13 +440,42 @@ function staleReport(createdAt, now, env = process.env) {
   return now - at >= policy.hardExpiryMs;
 }
 
+async function readMainArnBalance(discordUserId) {
+  try {
+    const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
+    const client = new NexusEconomyClient();
+    if (!client.configured()) return null;
+    const result = await client.arnBalance(discordUserId);
+    if (!result || result.ok === false) return null;
+    return Number(result.balance || 0);
+  } catch (error) {
+    console.warn(`[ARN] balance unavailable: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 200)}`);
+    return null;
+  }
+}
+
+async function resolveLinkedIdentity(account, env = process.env) {
+  if (!account?.eosId || !account?.discordUserId) return null;
+  try {
+    const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
+    const client = new NexusEconomyClient();
+    if (!client.configured()) return null;
+    return await client.arnPreview({ eosId: account.eosId, discordUserId: account.discordUserId, env });
+  } catch (error) {
+    console.warn(`[ARN] identity preview unavailable: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 200)}`);
+    return null;
+  }
+}
+
 async function observeFromDiscordMessage({
   message,
   payload,
   authoritativeMap = '',
   book,
   env = process.env,
-  now = Date.now()
+  now = Date.now(),
+  roll,
+  seed
 } = {}) {
   const parsed = parseArnReport(payload, authoritativeMap);
   if (!parsed.ok && parsed.reason === 'not-award') return { ok: true, skipped: 'not-award', wroteLedger: false };
@@ -407,24 +483,56 @@ async function observeFromDiscordMessage({
   const report = {
     messageId: String(message?.id || ''),
     parsed,
-    roll: message?.roll,
-    seed: message?.seed,
+    roll,
+    seed,
     stale: staleReport(message?.createdTimestamp, at, env),
     now: at,
     env
   };
   if (book) return book.award(report);
-  if (arnFlags(env).creditsEnabled) {
+  const accounts = await loadLinkedAccounts();
+  const matches = exactNameMatches(accounts, parsed.playerName);
+  if (matches.length === 1) {
+    const resolved = await resolveLinkedIdentity(matches[0], env);
+    if (resolved?.economicIdentityId) {
+      matches[0] = {
+        ...matches[0],
+        economicIdentityId: resolved.economicIdentityId,
+        status: resolved.status || '',
+        holdReason: resolved.holdReason || '',
+        missingRow: resolved.missingRow === true
+      };
+    }
+  }
+  const flags = arnFlags(env);
+  if (flags.creditsEnabled && matches.length === 1 && matches[0].eosId) {
     try {
-      const { awardLiveReport } = require('../economy-worker/arn-tokens-postgres.cjs');
-      const live = await awardLiveReport({ ...report, loadAccounts: loadLinkedAccounts });
-      if (live) return live;
+      const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
+      const client = new NexusEconomyClient();
+      if (client.configured()) {
+        const live = await client.arnDrop({
+          messageId: report.messageId,
+          parsed,
+          eosId: matches[0].eosId,
+          discordUserId: matches[0].discordUserId,
+          roll: report.roll,
+          seed: report.seed,
+          stale: report.stale,
+          env
+        });
+        return sharedArnBook(env).award({
+          ...report,
+          accounts: matches,
+          env: dryJournalEnv(env),
+          blockedOutcome: live?.outcome || 'ledger-unavailable'
+        });
+      }
     } catch (error) {
       console.warn(`[ARN] token credit unavailable: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 200)}`);
+      return sharedArnBook(env).award({ ...report, accounts: matches, env: dryJournalEnv(env), blockedOutcome: 'ledger-unavailable' });
     }
-    return sharedArnBook(env).award({ ...report, env: dryJournalEnv(env), blockedOutcome: 'ledger-unavailable' });
   }
-  return sharedArnBook(env).award({ ...report, env: dryJournalEnv(env) });
+  return sharedArnBook(env).award({ ...report, accounts: matches, env: dryJournalEnv(env) });
 }
 
 module.exports = {
@@ -433,7 +541,9 @@ module.exports = {
   KILL_ODDS_BPS,
   DAY_CAP,
   WEEK_CAP,
+  FEED_DEDUPE_MS,
   DEFAULT_JOURNAL,
+  feedKeyOf,
   normalizeExactName,
   exactNameMatches,
   oddsRoll,
@@ -452,5 +562,6 @@ module.exports = {
   sharedArnBook,
   resetSharedArnBookForTest,
   staleReport,
-  observeFromDiscordMessage
+  observeFromDiscordMessage,
+  readMainArnBalance
 };

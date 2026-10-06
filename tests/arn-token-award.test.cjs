@@ -10,6 +10,7 @@ const {
   CURRENCY,
   DAY_CAP,
   WEEK_CAP,
+  FEED_DEDUPE_MS,
   exactNameMatches,
   oddsRoll,
   oddsHit,
@@ -21,6 +22,7 @@ const {
 const {
   CT,
   POOL_SIZE,
+  SLOT_WEIGHTS,
   ctDayStart,
   ctWeekStart,
   nextCtWeekStart,
@@ -32,7 +34,16 @@ const {
 const { weekStart, WEEKLY_CACHE_RETIRED: weeklyRetired, APPROVED } = require('../src/sentinel/ark-weekly-cache.cjs');
 const { arnFlags } = require('../src/shared/arn-flags.cjs');
 const { arkNpFlags } = require('../src/shared/ark-np-flags.cjs');
-const { awardWithClient, awardLiveReport, schemaStatements } = require('../src/economy-worker/arn-tokens-postgres.cjs');
+const {
+  awardDropWithClient,
+  spendWithClient,
+  refundWithClient,
+  balanceForDiscord,
+  dropKey,
+  spendKey,
+  refundKey
+} = require('../src/economy-worker/arn-tokens-postgres.cjs');
+const { writeGate, ARN_FINANCIAL_PATHS, POST_PATHS, WRITE_PATHS } = require('../src/economy-worker/server.cjs');
 const { SUPPORTED_CURRENCIES } = require('../src/sentinel/nexus-economy-postgres-repository.cjs');
 const { handle, command } = require('../src/sentinel/arn-cache-extension.cjs');
 const { tokenText, openText, openPointerText, copyHasBotName } = require('../src/sentinel/arn-member-copy.cjs');
@@ -48,9 +59,10 @@ const {
 const { loadGuideConfig } = require('../src/sentinel/nexus-guide-extension.cjs');
 
 const LIVE = {
-  ARN_TOKENS_ENABLED: 'true',
   ARN_DRY_RUN: 'false',
-  NEXUS_ECONOMY_WRITES_ENABLED: 'true'
+  NEXUS_ECONOMY_WRITES_ENABLED: 'true',
+  ARN_TAME_DROPS_ENABLED: 'true',
+  ARN_KILL_DROPS_ENABLED: 'true'
 };
 const SECRET = 'arn-rotation-secret-at-least-32-characters';
 const DISCORD = '111111111111111111';
@@ -71,8 +83,8 @@ function tame(playerName = 'Player', dinoName = 'Filthy Pastel Dodo') {
   return { ok: true, kind: 'tame', playerName, dinoName, mapName: 'Astraeos', serverName: '' };
 }
 
-function kill(playerName = 'Survivor') {
-  return { ok: true, kind: 'kill', playerName, dinoName: 'Enraged Rex', mapName: 'Astraeos', serverName: '' };
+function kill(playerName = 'Survivor', dinoName = 'Enraged Rex') {
+  return { ok: true, kind: 'kill', playerName, dinoName, mapName: 'Astraeos', serverName: '' };
 }
 
 function bookFor(accounts, env = {}) {
@@ -116,15 +128,16 @@ test('parses recorded tame and kill reports and rejects malformed or duplicate p
   const book = bookFor(account(), LIVE);
   const now = Date.parse('2026-10-07T15:00:00.000Z');
   const first = await observeFromDiscordMessage({
-    message: { id: 'post-1', createdTimestamp: now, roll: 0 },
+    message: { id: 'post-1', createdTimestamp: now },
     payload: tamePayload,
     authoritativeMap: 'Astraeos',
     book,
     env: LIVE,
-    now
+    now,
+    roll: 0
   });
   const second = await observeFromDiscordMessage({
-    message: { id: 'post-1', createdTimestamp: now, roll: 0 },
+    message: { id: 'post-1', createdTimestamp: now, roll: 0, seed: 'exposed' },
     payload: tamePayload,
     authoritativeMap: 'Astraeos',
     book,
@@ -175,9 +188,9 @@ test('seeded odds are stable and use 25% for a tame and 10% for a kill', () => {
 test('odds boundaries are recorded and a losing roll is not paid again', async () => {
   const now = Date.parse('2026-10-07T15:00:00.000Z');
   const book = bookFor(account(), LIVE);
-  const tameMiss = await book.award({ messageId: 'tame-miss', parsed: tame(), roll: 2500, now, env: LIVE });
-  const killMiss = await book.award({ messageId: 'kill-miss', parsed: kill('Player'), roll: 1000, now, env: LIVE });
-  const killHit = await book.award({ messageId: 'kill-hit', parsed: kill('Player'), roll: 999, now, env: LIVE });
+  const tameMiss = await book.award({ messageId: 'tame-miss', parsed: tame('Player', 'Miss Dodo'), roll: 2500, now, env: LIVE });
+  const killMiss = await book.award({ messageId: 'kill-miss', parsed: kill('Player', 'Miss Rex'), roll: 1000, now, env: LIVE });
+  const killHit = await book.award({ messageId: 'kill-hit', parsed: kill('Player', 'Hit Rex'), roll: 999, now, env: LIVE });
   assert.equal(tameMiss.outcome, 'miss');
   assert.equal(killMiss.outcome, 'miss');
   assert.equal(killHit.outcome, 'credited');
@@ -201,17 +214,17 @@ test('day and week caps follow Central Time boundaries', async () => {
   for (let index = 0; index < DAY_CAP; index += 1) {
     const result = await book.award({
       messageId: `day-${index}`,
-      parsed: tame(),
+      parsed: tame('Player', `Day Dodo ${index}`),
       roll: 0,
       now: monday + 1000 + index,
       env: LIVE
     });
     assert.equal(result.outcome, 'credited');
   }
-  const capped = await book.award({ messageId: 'day-cap', parsed: tame(), roll: 0, now: monday + 5000, env: LIVE });
+  const capped = await book.award({ messageId: 'day-cap', parsed: tame('Player', 'Day Cap'), roll: 0, now: monday + 5000, env: LIVE });
   assert.equal(capped.outcome, 'cap-day');
   const nextDay = ctDayStart(monday + (26 * 60 * 60 * 1000)) + 1000;
-  const reset = await book.award({ messageId: 'next-day', parsed: tame(), roll: 0, now: nextDay, env: LIVE });
+  const reset = await book.award({ messageId: 'next-day', parsed: tame('Player', 'Next Day'), roll: 0, now: nextDay, env: LIVE });
   assert.equal(reset.outcome, 'credited');
 
   const weekBook = bookFor(account(), LIVE);
@@ -222,7 +235,7 @@ test('day and week caps follow Central Time boundaries', async () => {
     for (let index = 0; index < limit; index += 1) {
       const result = await weekBook.award({
         messageId: `week-${day}-${index}`,
-        parsed: tame(),
+        parsed: tame('Player', `Week ${day}-${index}`),
         roll: 0,
         now: when + index,
         env: LIVE
@@ -233,11 +246,11 @@ test('day and week caps follow Central Time boundaries', async () => {
   }
   assert.equal(credited, WEEK_CAP);
   const sameDay = ctDayStart(monday + (3 * 26 * 60 * 60 * 1000)) + 8000;
-  const weekCap = await weekBook.award({ messageId: 'week-cap', parsed: tame(), roll: 0, now: sameDay, env: LIVE });
+  const weekCap = await weekBook.award({ messageId: 'week-cap', parsed: tame('Player', 'Week Cap'), roll: 0, now: sameDay, env: LIVE });
   assert.equal(weekCap.outcome, 'cap-week');
   const following = nextCtWeekStart(monday) + 1000;
   assert.notEqual(ctWeekStart(following), monday);
-  const freshWeek = await weekBook.award({ messageId: 'next-week', parsed: tame(), roll: 0, now: following, env: LIVE });
+  const freshWeek = await weekBook.award({ messageId: 'next-week', parsed: tame('Player', 'Next Week'), roll: 0, now: following, env: LIVE });
   assert.equal(freshWeek.outcome, 'credited');
 });
 
@@ -257,12 +270,12 @@ test('two posts at the same moment serialize and only one passes a full day cap'
     }
   });
   for (let index = 0; index < DAY_CAP - 1; index += 1) {
-    const seeded = await book.award({ messageId: `seed-${index}`, parsed: tame(), roll: 0, now, env: LIVE });
+    const seeded = await book.award({ messageId: `seed-${index}`, parsed: tame('Player', `Seed ${index}`), roll: 0, now, env: LIVE });
     assert.equal(seeded.outcome, 'credited');
   }
   const [left, right] = await Promise.all([
-    book.award({ messageId: 'race-a', parsed: tame(), roll: 0, now, env: LIVE }),
-    book.award({ messageId: 'race-b', parsed: tame(), roll: 0, now, env: LIVE })
+    book.award({ messageId: 'race-a', parsed: tame('Player', 'Race A'), roll: 0, now, env: LIVE }),
+    book.award({ messageId: 'race-b', parsed: tame('Player', 'Race B'), roll: 0, now, env: LIVE })
   ]);
   const outcomes = [left.outcome, right.outcome].sort();
   assert.deepEqual(outcomes, ['cap-day', 'credited']);
@@ -312,22 +325,41 @@ test('stale reports are not paid', async () => {
 });
 
 test('dry run and flags-off write no ledger rows', async () => {
-  assert.equal(arnFlags({}).tokensEnabled, false);
   assert.equal(arnFlags({}).dryRun, true);
   assert.equal(arnFlags({}).creditsEnabled, false);
-  assert.equal(arnFlags({ ARN_TOKENS_ENABLED: 'true' }).creditsEnabled, false);
-  assert.equal(arnFlags({ ARN_TOKENS_ENABLED: 'true', ARN_DRY_RUN: 'false' }).creditsEnabled, false);
+  assert.equal(arnFlags({}).tameDropsEnabled, false);
+  assert.equal(arnFlags({}).killDropsEnabled, false);
+  assert.equal(arnFlags({}).tameOddsBp, 2500);
+  assert.equal(arnFlags({}).killOddsBp, 1000);
+  assert.equal(arnFlags({ ARN_TAME_ODDS_BP: '1000' }).tameOddsBp, 1000);
+  assert.equal(arnFlags({ ARN_KILL_ODDS_BP: '2500' }).killOddsBp, 2500);
+  assert.equal(arnFlags({ NEXUS_ECONOMY_PRESENCE_WRITES_ENABLED: 'true', ARN_DRY_RUN: 'false' }).creditsEnabled, false);
+  assert.equal(arnFlags({ ARN_ECONOMY_WRITES_ENABLED: 'true', ARN_DRY_RUN: 'false' }).creditsEnabled, true);
+  assert.equal(arnFlags({ NEXUS_ECONOMY_WRITES_ENABLED: 'true', ARN_DRY_RUN: 'false' }).dropsEnabled('tame'), false);
   assert.equal(arnFlags(LIVE).creditsEnabled, true);
+  assert.equal(arnFlags(LIVE).dropsEnabled('kill'), true);
   assert.equal(arkNpFlags({}).dryRun, true);
+  assert.equal(POST_PATHS.has('/arn/preview'), true);
+  assert.equal(WRITE_PATHS.has('/arn/preview'), false);
+  assert.equal(writeGate('/arn/preview', { writesEnabled: false, presenceWritesEnabled: true }), null);
+  for (const path of ARN_FINANCIAL_PATHS) {
+    assert.equal(writeGate(path, { writesEnabled: false, presenceWritesEnabled: true }).body.error, 'economy-write-cutover-not-enabled');
+    assert.equal(writeGate(path, { writesEnabled: false, arnEconomyWritesEnabled: true }), null);
+    assert.equal(writeGate(path, { writesEnabled: true, presenceWritesEnabled: false }), null);
+  }
 
   const now = Date.parse('2026-10-07T15:00:00.000Z');
+  const killBook = bookFor(account(), {});
+  const dryKill = await killBook.award({ messageId: 'dry-kill', parsed: kill('Player', 'Dry Kill'), roll: 0, now, env: {} });
+  assert.equal(dryKill.outcome, 'would-credit');
+  assert.equal(dryKill.wroteLedger, false);
   const book = bookFor(account(), {});
   for (let index = 0; index < DAY_CAP; index += 1) {
-    const result = await book.award({ messageId: `dry-${index}`, parsed: tame(), roll: 0, now, env: {} });
+    const result = await book.award({ messageId: `dry-${index}`, parsed: tame('Player', `Dry ${index}`), roll: 0, now, env: {} });
     assert.equal(result.outcome, 'would-credit');
     assert.equal(result.wroteLedger, false);
   }
-  const capped = await book.award({ messageId: 'dry-cap', parsed: tame(), roll: 0, now, env: {} });
+  const capped = await book.award({ messageId: 'dry-cap', parsed: tame('Player', 'Dry Cap'), roll: 0, now, env: {} });
   assert.equal(capped.outcome, 'cap-day');
   assert.equal(book.state.ledger.length, 0);
   const summary = book.summary();
@@ -346,11 +378,21 @@ test('the tame list has 8 creatures and changes on Monday at Central midnight', 
   assert.equal(first.entries.length, POOL_SIZE);
   assert.equal(next.entries.length, POOL_SIZE);
   assert.notEqual(first.id, next.id);
-  assert.equal(new Set(first.entries.map((entry) => entry.name)).size, POOL_SIZE);
+  assert.equal(first.version, first.id);
+  assert.deepEqual(first.entries.map((entry) => entry.weight), [...SLOT_WEIGHTS.common, ...SLOT_WEIGHTS.uncommon, ...SLOT_WEIGHTS.rare, ...SLOT_WEIGHTS.ultra]);
+  assert.equal(first.entries.reduce((sum, entry) => sum + entry.weight, 0), 100);
+  const ultras = first.entries.filter((entry) => entry.rarity === 'ultra');
+  assert.equal(ultras.length, 2);
+  assert.equal(ultras[0].name, ultras[1].name);
+  assert.equal(ultras[0].weight, 5);
+  assert.equal(new Set(first.entries.map((entry) => entry.name)).size, POOL_SIZE - 1);
   for (const entry of first.entries) assert.equal(APPROVED.has(entry.name), true);
-  const drawn = drawTame(first, SECRET);
-  assert.equal(drawTame(first, SECRET).species, drawn.species);
+  const drawn = drawTame(first, 'order-1', SECRET);
+  assert.equal(drawTame(first, 'order-1', SECRET).species, drawn.species);
+  assert.equal(drawTame(first, 'order-1', SECRET).level, drawn.level);
+  assert.equal(first.entries.some((entry) => entry.name === drawn.species), true);
   assert.equal(drawn.shiny, false);
+  assert.equal(drawn.rotationVersion, first.version);
   assert.equal(CURRENCY, 'ARN_TOKENS');
 });
 
@@ -393,7 +435,7 @@ test('opening a cache stays on the dry-run delivery path', async () => {
 
   const now = Date.parse('2026-10-07T15:00:00.000Z');
   const book = bookFor(account(), LIVE);
-  await book.award({ messageId: 'bank', parsed: tame(), roll: 0, now, env: LIVE });
+  await book.award({ messageId: 'bank', parsed: tame('Player', 'Bank One'), roll: 0, now, env: LIVE });
   const sent = await openArnCache({
     env: permitted,
     now,
@@ -409,8 +451,11 @@ test('opening a cache stays on the dry-run delivery path', async () => {
   assert.equal(sent.debited, true);
   assert.equal(sent.raCalled, true);
   assert.equal(book.balanceForDiscord(DISCORD), 0);
+  const debit = book.state.ledger.find((row) => row.delta === -1);
+  assert.equal(debit.metadata.rotationVersion, sent.rotation.version);
+  assert.equal(debit.metadata.weights.reduce((sum, entry) => sum + entry.weight, 0), 100);
 
-  await book.award({ messageId: 'bank-2', parsed: tame(), roll: 0, now, env: LIVE });
+  await book.award({ messageId: 'bank-2', parsed: tame('Player', 'Bank Two'), roll: 0, now, env: LIVE });
   const refunded = await openArnCache({
     env: permitted,
     now: now + 1,
@@ -425,9 +470,8 @@ test('opening a cache stays on the dry-run delivery path', async () => {
 });
 
 test('postgres award locks inside the transaction and dry run skips the ledger', async () => {
-  function fakeClient() {
+  function fakeClient(identityRows) {
     const calls = [];
-    const observations = [];
     const ledger = [];
     return {
       calls,
@@ -435,19 +479,11 @@ test('postgres award locks inside the transaction and dry run skips the ledger',
       async query(text, params = []) {
         calls.push(String(text));
         if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK' || /pg_advisory_xact_lock/.test(text)) return { rows: [] };
-        if (/nexus_economic_identities/.test(text)) return { rows: [{ status: 'verified', hold_reason: '' }] };
-        if (/nexus_arn_observations WHERE message_id/.test(text)) {
-          const row = observations.find((item) => item.message_id === params[0]);
-          return { rows: row ? [row] : [] };
-        }
+        if (/SELECT NOW\(\)/.test(text)) return { rows: [{ now: '2026-10-07T15:00:00.000Z' }] };
+        if (/nexus_economic_identities/.test(text)) return { rows: identityRows };
         if (/arn-cap-count/.test(text)) return { rows: [{ day_count: '0', week_count: '0' }] };
-        if (/INSERT INTO .*nexus_arn_observations/.test(text)) {
-          observations.push({ message_id: params[0], outcome: params[1], amount: params[3], economic_identity_id: params[2], at: Date.now() });
-          return { rows: [] };
-        }
-        if (/SELECT balance FROM .*nexus_arn_wallets/.test(text)) return { rows: [{ balance: 0 }] };
-        if (/INSERT INTO .*nexus_arn_ledger/.test(text)) {
-          ledger.push(params);
+        if (/INSERT INTO .*nexus_economy_ledger/.test(text)) {
+          ledger.push({ params, text: String(text) });
           return { rows: [] };
         }
         return { rows: [] };
@@ -455,69 +491,77 @@ test('postgres award locks inside the transaction and dry run skips the ledger',
     };
   }
 
-  const now = Date.parse('2026-10-07T15:00:00.000Z');
-  const dry = fakeClient();
-  const dryResult = await awardWithClient(dry, {
+  const verified = [{ economic_identity_id: 'econ-player', status: 'verified', hold_reason: '' }];
+  const dry = fakeClient(verified);
+  const dryResult = await awardDropWithClient(dry, {
     messageId: 'pg-dry',
     parsed: tame(),
     roll: 0,
-    now,
-    env: {},
-    loadAccounts: async () => [account()]
+    eosId: 'EOS_PLAYER_01',
+    discordUserId: DISCORD,
+    env: {}
   });
   assert.equal(dryResult.outcome, 'would-credit');
   assert.equal(dryResult.wroteLedger, false);
   assert.equal(dry.ledger.length, 0);
+  const nowAt = dry.calls.findIndex((sql) => sql.includes('SELECT NOW()'));
   const lockAt = dry.calls.findIndex((sql) => sql.includes('pg_advisory_xact_lock'));
   const capAt = dry.calls.findIndex((sql) => sql.includes('arn-cap-count'));
   const identityAt = dry.calls.findIndex((sql) => sql.includes('FOR UPDATE'));
-  assert.ok(lockAt >= 0 && identityAt > lockAt && capAt > identityAt);
-  assert.equal(dry.calls.some((sql) => sql.includes('nexus_arn_ledger')), false);
+  assert.ok(nowAt >= 0 && lockAt > nowAt && identityAt > lockAt && capAt > identityAt);
+  assert.equal(dry.calls.some((sql) => /CREATE|nexus_arn_wallets|nexus_arn_ledger|new Pool/.test(sql)), false);
 
-  const live = fakeClient();
-  const liveResult = await awardWithClient(live, {
+  const live = fakeClient(verified);
+  const liveResult = await awardDropWithClient(live, {
     messageId: 'pg-live',
-    parsed: tame(),
+    parsed: tame('Player', 'Live Dodo'),
     roll: 0,
-    now,
-    env: LIVE,
-    loadAccounts: async () => [account()]
+    eosId: 'EOS_PLAYER_01',
+    discordUserId: DISCORD,
+    env: LIVE
   });
+  assert.equal(liveResult.outcome, 'credited');
   assert.equal(liveResult.wroteLedger, true);
   assert.equal(live.ledger.length, 1);
-  assert.equal(live.ledger[0][2], 'ARN_TOKENS');
+  assert.match(live.ledger[0].text, /ARN_TOKENS/);
+  assert.match(live.ledger[0].text, /arn_drop/);
+  assert.equal(live.ledger[0].params[2], dropKey('pg-live'));
 
-  const held = fakeClient();
-  held.query = async function heldQuery(text, params = []) {
-    this.calls.push(String(text));
-    if (/nexus_economic_identities/.test(text)) return { rows: [{ status: 'restricted', hold_reason: 'o9-demote' }] };
-    if (/arn-cap-count/.test(text)) return { rows: [{ day_count: 0, week_count: 0 }] };
-    if (/INSERT INTO .*nexus_arn_ledger/.test(text)) this.ledger.push(params);
-    if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK' || /pg_advisory/.test(text)) return { rows: [] };
-    if (/nexus_arn_observations WHERE message_id/.test(text)) return { rows: [] };
-    if (/INSERT INTO .*nexus_arn_observations/.test(text)) return { rows: [] };
-    return { rows: [] };
-  }.bind(held);
-  const heldResult = await awardWithClient(held, {
+  const held = fakeClient([{ economic_identity_id: 'econ-player', status: 'restricted', hold_reason: 'o9-demote' }]);
+  const heldResult = await awardDropWithClient(held, {
     messageId: 'pg-held',
-    parsed: tame(),
+    parsed: tame('Player', 'Held Dodo'),
     roll: 0,
-    now,
-    env: LIVE,
-    loadAccounts: async () => [account({ status: 'restricted', holdReason: 'o9-demote' })]
+    eosId: 'EOS_PLAYER_01',
+    discordUserId: DISCORD,
+    env: LIVE
   });
   assert.equal(heldResult.outcome, 'held');
   assert.equal(held.ledger.length, 0);
+
+  const missing = fakeClient([]);
+  const missingResult = await awardDropWithClient(missing, {
+    messageId: 'pg-missing',
+    parsed: tame('Player', 'Missing Dodo'),
+    roll: 0,
+    eosId: 'EOS_PLAYER_01',
+    discordUserId: DISCORD,
+    env: {}
+  });
+  assert.equal(missingResult.outcome, 'identity-unresolved');
+  assert.equal(missingResult.wroteLedger, false);
 });
 
-test('awardLiveReport does not connect unless postgres storage is configured', async () => {
-  assert.equal(schemaStatements('public').length, 3);
-  assert.equal(await awardLiveReport({ env: {}, messageId: 'off', loadAccounts: async () => { throw new Error('should not load'); } }), null);
-  assert.equal(await awardLiveReport({
-    env: LIVE,
-    messageId: 'no-postgres',
-    loadAccounts: async () => { throw new Error('should not load'); }
-  }), null);
+test('the award writer does not open a pool or create tables', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../src/economy-worker/arn-tokens-postgres.cjs'), 'utf8');
+  const runtime = fs.readFileSync(path.join(__dirname, '../src/economy-worker/postgres-runtime.cjs'), 'utf8');
+  const bot = fs.readFileSync(path.join(__dirname, '../src/sentinel/arn-token-award.cjs'), 'utf8');
+  assert.doesNotMatch(awardDropWithClient.toString(), /CREATE TABLE|new Pool/);
+  assert.doesNotMatch(source, /nexus_arn_wallets|nexus_arn_ledger|require\('pg'\)|new Pool/);
+  assert.match(source, /arn-drop:/);
+  assert.match(source, /arn_drop/);
+  assert.match(runtime, /applyArnCurrencyMigration/);
+  assert.doesNotMatch(bot, /applyArnCurrencyMigration|CREATE TABLE|new Pool/);
 });
 
 test('member copy stays plain and there is no exchange into Points, Coins, or cache tokens', async () => {
@@ -527,7 +571,8 @@ test('member copy stays plain and there is no exchange into Points, Coins, or ca
   const postgres = fs.readFileSync(path.join(__dirname, '../src/economy-worker/arn-tokens-postgres.cjs'), 'utf8');
   assert.doesNotMatch(wallet, /ARN_TOKENS/);
   assert.doesNotMatch(catalog, /ARN_TOKENS/);
-  assert.doesNotMatch(postgres, /NEXUS_POINTS|NEXUS_COINS|DINO_CACHE_TOKENS/);
+  assert.doesNotMatch(postgres, /nexus_arn_wallets|nexus_arn_ledger/);
+  assert.match(postgres, /ARN_TOKENS/);
 
   const guide = loadGuideConfig();
   const topic = guide.topics.find((item) => item.id === 'arn-tokens');
@@ -547,6 +592,14 @@ test('member copy stays plain and there is no exchange into Points, Coins, or ca
   };
   const payload = await handle(interaction, { ledger: { balance() { throw new Error('mysql'); } }, shop: {}, config: { discord: {} }, book, env: {} });
   assert.match(payload.content, /Nothing is being paid out yet/);
+  const fromLedger = await handle(interaction, {
+    ledger: { balance() { throw new Error('mysql'); } },
+    shop: {},
+    config: { discord: {} },
+    env: {},
+    balanceReader: async () => 4
+  });
+  assert.match(fromLedger.content, /ARN tokens: 4/);
   assert.equal(copyHasBotName(payload.content), false);
   assert.equal(copyHasBotName(tokenText(0, {})), false);
   assert.equal(copyHasBotName(openText({ rotation: { entries: [{ name: 'Rex' }] } })), false);
@@ -560,7 +613,7 @@ test('member copy stays plain and there is no exchange into Points, Coins, or ca
 test('ARN caches redeem from the dino box shop and /arn open only points there', async () => {
   const now = Date.parse('2026-10-07T18:00:00.000Z');
   const book = bookFor(account(), {});
-  const preview = arnShopPreview({ discordUserId: DISCORD, book, env: {}, now });
+  const preview = await arnShopPreview({ discordUserId: DISCORD, book, env: {}, now });
   assert.match(preview.content, /costs 1 ARN token/);
   assert.match(preview.content, /Your ARN tokens: 0/);
   assert.equal(copyHasBotName(preview.content), false);
@@ -619,6 +672,189 @@ test('ARN caches redeem from the dino box shop and /arn open only points there',
   assert.match(pointer.content, /#dino-box-shop/);
   assert.equal(copyHasBotName(pointer.content), false);
   assert.equal(book.state.ledger.length, 0);
+});
+
+test('a repeat feed post does not roll twice, and the live message cannot set the roll', async () => {
+  const now = Date.parse('2026-10-07T15:00:00.000Z');
+  const book = bookFor(account(), {});
+  const first = await book.award({ messageId: 'feed-1', parsed: tame('Player', 'Repeat Dodo'), roll: 0, now, env: {} });
+  const second = await book.award({ messageId: 'feed-2', parsed: tame('Player', 'Repeat Dodo'), roll: 0, now: now + 1000, env: {} });
+  assert.equal(first.outcome, 'would-credit');
+  assert.equal(second.outcome, 'feed-duplicate');
+  assert.equal(second.observation.roll, null);
+  assert.equal(book.state.ledger.length, 0);
+  const later = await book.award({
+    messageId: 'feed-3',
+    parsed: tame('Player', 'Repeat Dodo'),
+    roll: 0,
+    now: now + FEED_DEDUPE_MS,
+    env: {}
+  });
+  assert.equal(later.outcome, 'would-credit');
+
+  const hooked = bookFor(account(), {});
+  const ignored = await observeFromDiscordMessage({
+    message: { id: 'hooked', createdTimestamp: now, roll: 0, seed: 'exposed-seed' },
+    payload: { content: '**Hook Dodo** has been tamed by Player!' },
+    authoritativeMap: 'Astraeos',
+    book: hooked,
+    env: {},
+    now
+  });
+  assert.equal(ignored.observation.roll, oddsRoll('arn-tokens-v1', 'hooked'));
+  assert.notEqual(ignored.observation.roll, 0);
+});
+
+test('dry-run would-credit checks identity and holds, and disabled drops do not pay', async () => {
+  const now = Date.parse('2026-10-07T15:00:00.000Z');
+  const missing = bookFor(account({ economicIdentityId: '' }), {});
+  assert.equal((await missing.award({ messageId: 'no-id', parsed: tame('Player', 'No Id'), roll: 0, now, env: {} })).outcome, 'identity-unresolved');
+  const discordKey = bookFor(account({ economicIdentityId: `discord:${DISCORD}` }), {});
+  assert.equal((await discordKey.award({ messageId: 'discord-id', parsed: tame('Player', 'Discord Id'), roll: 0, now, env: {} })).outcome, 'identity-unresolved');
+  const held = bookFor(account({ holdReason: 'staff-review' }), {});
+  const heldResult = await held.award({ messageId: 'dry-held', parsed: tame('Player', 'Held Dry'), roll: 0, now, env: {} });
+  assert.equal(heldResult.outcome, 'held');
+  assert.equal(held.state.ledger.length, 0);
+
+  const closed = {
+    ARN_DRY_RUN: 'false',
+    NEXUS_ECONOMY_WRITES_ENABLED: 'true'
+  };
+  const book = bookFor(account(), closed);
+  assert.equal((await book.award({ messageId: 'tame-off', parsed: tame('Player', 'Tame Off'), roll: 0, now, env: closed })).outcome, 'drops-disabled');
+  assert.equal((await book.award({ messageId: 'kill-off', parsed: kill('Player', 'Kill Off'), roll: 0, now, env: closed })).outcome, 'drops-disabled');
+  assert.equal(book.state.ledger.length, 0);
+});
+
+test('main-ledger spend is idempotent, refuses holds, and refunds a failed delivery once', async () => {
+  function ledgerClient(identityRows, openingBalance) {
+    const state = { balance: openingBalance, rows: [] };
+    const calls = [];
+    const client = {
+      calls,
+      state,
+      async query(text, params = []) {
+        calls.push(String(text));
+        if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK' || /pg_advisory/.test(text)) return { rows: [] };
+        if (/nexus_economic_identities/.test(text)) return { rows: identityRows };
+        if (/SELECT id, balance_after/.test(text)) {
+          const row = state.rows.find((item) => item.key === params[0]);
+          return { rows: row ? [{ id: 1, balance_after: row.balanceAfter, economic_identity_id: row.economicIdentityId }] : [] };
+        }
+        if (/SELECT id FROM/.test(text)) {
+          const row = state.rows.find((item) => item.key === params[0]);
+          return { rows: row ? [{ id: 1 }] : [] };
+        }
+        if (/SELECT economic_identity_id FROM/.test(text)) {
+          const row = state.rows.find((item) => item.key === params[0]);
+          return { rows: row ? [{ economic_identity_id: row.economicIdentityId }] : [] };
+        }
+        if (/SELECT balance FROM/.test(text)) return { rows: state.balance == null ? [] : [{ balance: state.balance }] };
+        if (/UPDATE .*nexus_economy_wallets/.test(text)) {
+          state.balance = Number(params[1]);
+          return { rows: [] };
+        }
+        if (/INSERT INTO .*nexus_economy_ledger/.test(text)) {
+          state.rows.push({ key: params[2], economicIdentityId: params[0], balanceAfter: params[1], metadata: params[3], text: String(text) });
+          return { rows: [] };
+        }
+        return { rows: [] };
+      }
+    };
+    return client;
+  }
+
+  const verified = [{ economic_identity_id: 'econ-player', status: 'verified', hold_reason: '' }];
+  const rotation = arnRotation(Date.parse('2026-10-07T18:00:00.000Z'), SECRET);
+  const client = ledgerClient(verified, 1);
+  const spent = await spendWithClient(client, {
+    discordUserId: DISCORD,
+    orderId: 'order-1',
+    rotation,
+    env: LIVE
+  });
+  assert.equal(spent.debited, true);
+  assert.equal(spent.balance, 0);
+  assert.equal(client.state.rows[0].key, spendKey('order-1'));
+  const metadata = JSON.parse(client.state.rows[0].metadata);
+  assert.equal(metadata.rotationVersion, rotation.version);
+  assert.equal(metadata.weights.reduce((sum, entry) => sum + entry.weight, 0), 100);
+  const again = await spendWithClient(client, { discordUserId: DISCORD, orderId: 'order-1', rotation, env: LIVE });
+  assert.equal(again.duplicate, true);
+  assert.equal(again.debited, false);
+  assert.equal(client.state.balance, 0);
+  const broke = await spendWithClient(client, { discordUserId: DISCORD, orderId: 'order-2', rotation, env: LIVE });
+  assert.equal(broke.reason, 'insufficient');
+  assert.equal(client.state.balance, 0);
+
+  const held = ledgerClient([{ economic_identity_id: 'econ-player', status: 'restricted', hold_reason: 'o9-demote' }], 3);
+  const refused = await spendWithClient(held, { discordUserId: DISCORD, orderId: 'held-order', rotation, env: LIVE });
+  assert.equal(refused.reason, 'held');
+  assert.equal(refused.debited, false);
+  assert.equal(held.state.rows.length, 0);
+
+  const dry = await spendWithClient(ledgerClient(verified, 5), { discordUserId: DISCORD, orderId: 'dry-order', env: {} });
+  assert.equal(dry.reason, 'dry-run');
+  assert.equal(dry.debited, false);
+
+  const refunded = await refundWithClient(client, { orderId: 'order-1' });
+  assert.equal(refunded.refunded, true);
+  assert.equal(client.state.balance, 1);
+  assert.equal(client.state.rows.some((row) => row.key === refundKey('order-1')), true);
+  const secondRefund = await refundWithClient(client, { orderId: 'order-1' });
+  assert.equal(secondRefund.duplicate, true);
+  assert.equal(secondRefund.refunded, false);
+  assert.equal(client.state.balance, 1);
+  assert.equal(await balanceForDiscord(client, DISCORD), 1);
+  const ambiguous = ledgerClient([
+    { economic_identity_id: 'econ-player', status: 'verified', hold_reason: '' },
+    { economic_identity_id: 'econ-other', status: 'verified', hold_reason: '' }
+  ], 9);
+  assert.equal(await balanceForDiscord(ambiguous, DISCORD), 0);
+
+  let deliveries = 0;
+  let refunds = 0;
+  const shopLedger = {
+    async balance() { return 0; },
+    async spend() { return { ok: false, reason: 'held', debited: false }; },
+    async refund() { refunds += 1; return { ok: true, refunded: true }; }
+  };
+  const heldShop = await openArnCache({
+    env: { ...LIVE, ARK_SHOP_DRY_RUN: 'false', ARK_SHOP_DELIVERY_ENABLED: 'true' },
+    now: Date.parse('2026-10-07T18:00:00.000Z'),
+    discordUserId: DISCORD,
+    secret: SECRET,
+    ledger: shopLedger,
+    deliver: async () => { deliveries += 1; return { raCalled: true }; }
+  });
+  assert.equal(heldShop.debited, false);
+  assert.equal(deliveries, 0);
+  assert.equal(refunds, 0);
+
+  const paid = {
+    tokens: 1,
+    async spend() {
+      this.tokens -= 1;
+      return { ok: true, debited: true, economicIdentityId: 'econ-player', balance: this.tokens };
+    },
+    async refund() {
+      refunds += 1;
+      this.tokens += 1;
+      return { ok: true, refunded: true, balance: this.tokens };
+    }
+  };
+  const failed = await openArnCache({
+    env: { ...LIVE, ARK_SHOP_DRY_RUN: 'false', ARK_SHOP_DELIVERY_ENABLED: 'true' },
+    now: Date.parse('2026-10-07T19:00:00.000Z'),
+    discordUserId: DISCORD,
+    secret: SECRET,
+    ledger: paid,
+    deliver: async () => ({ raCalled: false, reason: 'player-offline' })
+  });
+  assert.equal(failed.debited, false);
+  assert.equal(failed.raCalled, false);
+  assert.equal(refunds, 1);
+  assert.equal(paid.tokens, 1);
 });
 
 test('new ARN files do not flip economy, shop, or birthday flags', () => {

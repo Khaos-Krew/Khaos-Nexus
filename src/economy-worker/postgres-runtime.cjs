@@ -11,6 +11,7 @@ const { PostgresMcPoints } = require('./mc-points-postgres.cjs');
 const { PostgresArkShop } = require('./ark-np-postgres.cjs');
 const { isShadowRecruitEligibleRank } = require('../shared/ranks.cjs');
 const { routeWalletCredit } = require('../sentinel/nexus-economy-community-level-coins.cjs');
+const { applyArnCurrencyMigration, createArnLedger } = require('./arn-tokens-postgres.cjs');
 
 function postgresEnabled(env = process.env) {
   return String(env.NEXUS_ECONOMY_STORAGE || '').trim().toLowerCase() === 'postgres';
@@ -32,6 +33,7 @@ async function createPostgresEconomyRuntime({ env = process.env, now } = {}) {
     await pool.query(NexusEconomyPostgresRuntimeRepository.runtimeSchemaSql({ schema }));
     await accrual.ensureSchema();
     await repository.backfillLegacyRestrictedHolds();
+    await applyArnCurrencyMigration(pool, schema);
     await pool.query('SELECT 1 AS ok');
   } catch (error) {
     await pool.end().catch(() => {});
@@ -39,6 +41,7 @@ async function createPostgresEconomyRuntime({ env = process.env, now } = {}) {
   }
 
   const walletCore = new NexusEconomyWalletCore({ repository, now: now ? () => new Date(now()) : undefined });
+  const arnLedger = createArnLedger({ pool, schema, env });
   const minecraft = new PostgresMcPoints({ pool, schema, wallet: walletCore, now: nowFn, env });
   const arkShop = new PostgresArkShop({ pool, schema, now: nowFn, env });
   const { PostgresCoinShop } = require('./coin-shop-postgres.cjs');
@@ -94,7 +97,12 @@ async function createPostgresEconomyRuntime({ env = process.env, now } = {}) {
     },
     demoteIdentityToRestricted(discordUserId) {
       return repository.demoteVerifiedIdentityToRestricted(String(discordUserId || ''));
-    }
+    },
+    arnPreview(input = {}) { return arnLedger.preview(input); },
+    arnDrop(input = {}) { return arnLedger.drop(input); },
+    arnSpend(input = {}) { return arnLedger.spend(input); },
+    arnRefund(input = {}) { return arnLedger.refund(input); },
+    arnBalance(discordUserId) { return arnLedger.balance(discordUserId); }
   });
   const shop = new NexusEconomyPostgresShopService({ wallet: walletCore, repository });
 

@@ -17,8 +17,12 @@ function tokenText(balance, env = process.env) {
   return lines.join('\n');
 }
 
+function poolNames(rotation) {
+  return [...new Set((rotation?.entries || []).map((entry) => entry.name).filter(Boolean))];
+}
+
 function poolLine(rotation) {
-  const names = (rotation?.entries || []).map((entry) => entry.name).filter(Boolean);
+  const names = poolNames(rotation);
   return names.length ? `This week: ${names.join(', ')}.` : 'This week\'s list is not available.';
 }
 
@@ -53,7 +57,7 @@ function openText(result = {}) {
   if (result.debited === true && result.drawn && result.raCalled === true) {
     return `Opened an ARN cache. The tame is ${result.drawn.species}, level ${result.drawn.level}.`;
   }
-  const names = (result.rotation?.entries || []).map((entry) => entry.name).join(', ');
+  const names = [...new Set((result.rotation?.entries || []).map((entry) => entry.name).filter(Boolean))].join(', ');
   return [
     'Opening an ARN cache costs 1 token and draws one tame from a list of 8.',
     names ? `This week: ${names}.` : 'This week\'s list is not available.',

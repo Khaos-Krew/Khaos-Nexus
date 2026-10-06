@@ -7,7 +7,7 @@ const {ArkCacheShopService}=require('./ark-cache-shop-service.cjs');
 const {ProtocolStore}=require('./protocol/store.cjs');
 const {isStaff}=require('./ark-ops-extension.cjs');
 const {loadConfig}=require('../shared/config.cjs');
-const {sharedArnBook, staffSummaryText, writeSummaryFile}=require('./arn-token-award.cjs');
+const {sharedArnBook, staffSummaryText, writeSummaryFile, readMainArnBalance}=require('./arn-token-award.cjs');
 const {tokenText, openPointerText}=require('./arn-member-copy.cjs');
 const INSTALLED=Symbol.for('nexus.arn.cache.extension');
 function adminCommand() {
@@ -30,7 +30,7 @@ function command() {
   c.addSubcommand(s=>s.setName('adjust').setDescription('Staff: audited token grant or removal.').addUserOption(o=>o.setName('player').setDescription('Player.').setRequired(true)).addIntegerOption(o=>o.setName('amount').setDescription('Signed token adjustment.').setRequired(true).setMinValue(-1000000).setMaxValue(1000000)).addStringOption(o=>o.setName('reason').setDescription('Audit reason.').setRequired(true).setMinLength(3).setMaxLength(300)));
   return c.toJSON();
 }
-async function handle(interaction,{ledger,shop,config, book, env, now, secret} = {}) {
+async function handle(interaction,{ledger,shop,config, book, env, now, secret, balanceReader} = {}) {
   const sub=interaction.options.getSubcommand(), user=String(interaction.user.id);
   if(interaction.commandName==='cacheadmin') {
     if(!isStaff(interaction,config))throw new Error('Nexus staff authorization required.');
@@ -52,7 +52,14 @@ async function handle(interaction,{ledger,shop,config, book, env, now, secret} =
       if(activeEnv.ARN_DRY_RUN_REPORT) writeSummaryFile(summary, activeEnv.ARN_DRY_RUN_REPORT);
       return {content: staffSummaryText(summary)};
     }
-    return {content: tokenText(activeBook.balanceForDiscord(user), activeEnv)};
+    let balance;
+    if (book) balance = activeBook.balanceForDiscord(user);
+    else if (typeof balanceReader === 'function') balance = await balanceReader(user);
+    else {
+      const remote = await readMainArnBalance(user);
+      balance = remote == null ? activeBook.balanceForDiscord(user) : remote;
+    }
+    return {content: tokenText(balance, activeEnv)};
   }
   if(!['balance','history','cache','buy'].includes(sub)&&!isStaff(interaction,config)) throw new Error('Nexus staff authorization required.');
   if(sub==='configure') {await ledger.configure({enabled:true},user);return {content:'ARN enabled: 5% chance to earn 1 token per qualified activity; 1 token per cache.'};}
