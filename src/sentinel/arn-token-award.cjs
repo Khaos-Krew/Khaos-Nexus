@@ -17,6 +17,43 @@ const WEEK_CAP = 10;
 const FEED_DEDUPE_MS = 10 * 60 * 1000;
 const DEFAULT_JOURNAL = path.join(process.cwd(), 'data', 'arn-dry-run.json');
 
+// Dry-run dedupe and caps live in this file, on the Sentinal Railway volume.
+// NEXUS_DATA_DIR wins, then RAILWAY_VOLUME_MOUNT_PATH. On the current image
+// both are unset and cwd/data is the volume mounted at /app/data.
+function journalPath(env = process.env) {
+  const explicit = String(env.ARN_DRY_RUN_FILE || '').trim();
+  if (explicit) return path.resolve(explicit);
+  const data = String(env.NEXUS_DATA_DIR || '').trim();
+  if (data) return path.join(path.resolve(data), 'arn-dry-run.json');
+  const volume = String(env.RAILWAY_VOLUME_MOUNT_PATH || '').trim();
+  if (volume) return path.join(path.resolve(volume), 'arn-dry-run.json');
+  return path.resolve(DEFAULT_JOURNAL);
+}
+
+function readJournal(file) {
+  if (!file) return { observations: [], ledger: [], ok: true };
+  const target = path.resolve(file);
+  if (!fs.existsSync(target)) return { observations: [], ledger: [], ok: true };
+  try {
+    const parsed = JSON.parse(fs.readFileSync(target, 'utf8'));
+    if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.observations) || !Array.isArray(parsed.ledger)) {
+      throw new Error('shape');
+    }
+    return { observations: parsed.observations, ledger: parsed.ledger, ok: true };
+  } catch (error) {
+    console.warn(`[ARN] dry-run journal unreadable; leaving ${target} unchanged`);
+    return { observations: [], ledger: [], ok: false };
+  }
+}
+
+function writeJournal(file, state) {
+  const target = path.resolve(file);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const tmp = `${target}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify({ observations: state.observations, ledger: state.ledger }), { mode: 0o600 });
+  fs.renameSync(tmp, target);
+}
+
 function feedKeyOf(parsed) {
   return [
     String(parsed?.kind || ''),
@@ -298,7 +335,9 @@ function dryJournalEnv(env = process.env) {
 }
 
 function createArnBook({ loadAccounts = async () => [], env = {}, persistPath = '', dryRunOnly = false } = {}) {
-  const state = { observations: [], ledger: [] };
+  const loaded = readJournal(persistPath);
+  const state = { observations: loaded.observations, ledger: loaded.ledger };
+  let canPersist = loaded.ok;
   let tail = Promise.resolve();
   let inLock = 0;
   let maxInLock = 0;
@@ -326,10 +365,8 @@ function createArnBook({ loadAccounts = async () => [], env = {}, persistPath = 
   }
 
   function persist() {
-    if (!persistPath) return;
-    const target = path.resolve(persistPath);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, JSON.stringify({ observations: state.observations, ledger: state.ledger }), { mode: 0o600 });
+    if (!persistPath || !canPersist) return;
+    writeJournal(persistPath, state);
   }
 
   return {
@@ -421,7 +458,7 @@ function sharedArnBook(env = process.env) {
     sharedBook = createArnBook({
       env: dryJournalEnv(env),
       dryRunOnly: true,
-      persistPath: env.ARN_DRY_RUN_FILE || DEFAULT_JOURNAL,
+      persistPath: journalPath(env),
       loadAccounts: async () => loadLinkedAccounts()
     });
   }
@@ -543,6 +580,7 @@ module.exports = {
   WEEK_CAP,
   FEED_DEDUPE_MS,
   DEFAULT_JOURNAL,
+  journalPath,
   feedKeyOf,
   normalizeExactName,
   exactNameMatches,

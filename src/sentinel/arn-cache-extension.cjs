@@ -21,12 +21,12 @@ function adminCommand() {
   return c.toJSON();
 }
 function command() {
-  const c=new SlashCommandBuilder().setName('arn').setDescription('ARN Tokens and caches.');
-  for(const name of ['balance','history','cache','buy','pause']) c.addSubcommand(s=>s.setName(name).setDescription(name==='pause'?'Staff: disable ARN earning and redemption.':`View or use ARN ${name}.`));
-  c.addSubcommand(s=>s.setName('tokens').setDescription('See your ARN tokens.'));
+  const c=new SlashCommandBuilder().setName('arn').setDescription('ARN tokens.');
+  c.addSubcommand(s=>s.setName('tokens').setDescription('What ARN tokens are, and how many you have.'));
   c.addSubcommand(s=>s.setName('open').setDescription('Where to redeem an ARN cache.'));
   c.addSubcommand(s=>s.setName('report').setDescription('Staff: ARN trial summary. No payouts.'));
-  c.addSubcommand(s=>s.setName('configure').setDescription('Staff: enable ARN. 5% chance of 1 token; caches cost 1 token.'));
+  c.addSubcommand(s=>s.setName('configure').setDescription('Staff: enable ARN. 25% chance on a tame, 10% on a kill.'));
+  c.addSubcommand(s=>s.setName('pause').setDescription('Staff: disable ARN earning and redemption.'));
   c.addSubcommand(s=>s.setName('adjust').setDescription('Staff: audited token grant or removal.').addUserOption(o=>o.setName('player').setDescription('Player.').setRequired(true)).addIntegerOption(o=>o.setName('amount').setDescription('Signed token adjustment.').setRequired(true).setMinValue(-1000000).setMaxValue(1000000)).addStringOption(o=>o.setName('reason').setDescription('Audit reason.').setRequired(true).setMinLength(3).setMaxLength(300)));
   return c.toJSON();
 }
@@ -43,11 +43,14 @@ async function handle(interaction,{ledger,shop,config, book, env, now, secret, b
     });
   }
   if(interaction.commandName==='arn' && sub==='open') return {content: openPointerText()};
+  if(interaction.commandName==='arn' && ['balance','history','cache','buy'].includes(sub)) {
+    return {content:'Use /arn tokens to see what ARN tokens are and how to earn them. Redeem a cache in #dino-box-shop.'};
+  }
+  if(interaction.commandName==='arn' && sub==='report' && !isStaff(interaction,config)) return {content:'Staff only.'};
   if(interaction.commandName==='arn' && ['tokens','report'].includes(sub)) {
     const activeBook = book || sharedArnBook();
     const activeEnv = env || process.env;
     if(sub==='report') {
-      if(!isStaff(interaction,config)) throw new Error('Nexus staff authorization required.');
       const summary = activeBook.summary();
       if(activeEnv.ARN_DRY_RUN_REPORT) writeSummaryFile(summary, activeEnv.ARN_DRY_RUN_REPORT);
       return {content: staffSummaryText(summary)};
@@ -61,15 +64,11 @@ async function handle(interaction,{ledger,shop,config, book, env, now, secret, b
     }
     return {content: tokenText(balance, activeEnv)};
   }
-  if(!['balance','history','cache','buy'].includes(sub)&&!isStaff(interaction,config)) throw new Error('Nexus staff authorization required.');
-  if(sub==='configure') {await ledger.configure({enabled:true},user);return {content:'ARN enabled: 5% chance to earn 1 token per qualified activity; 1 token per cache.'};}
+  if(!isStaff(interaction,config)) throw new Error('Nexus staff authorization required.');
+  if(sub==='configure') {await ledger.configure({enabled:true},user);return {content:'ARN enabled: 25% chance on a shiny tame and 10% on a shiny kill; 1 token per cache.'};}
   if(sub==='pause') {await ledger.configure({enabled:false},user);return {content:'ARN earning and redemption disabled. Existing balances and rewards are preserved.'};}
   if(sub==='adjust') {const result=await ledger.adjust({user:interaction.options.getUser('player').id,delta:interaction.options.getInteger('amount'),key:interaction.id,reason:interaction.options.getString('reason')},user);return {content:`Adjustment recorded. Balance: ${result.balance} ARN Tokens.`};}
-  if(sub==='history') {const rows=await ledger.history(user);return {content:rows.map(r=>`${Number(r.delta)>0?'+':''}${r.delta} • balance ${r.balance_after} • ${r.reason}`).join('\n').slice(0,1900)||'No ARN token transactions yet.'};}
-  if(sub==='buy') {const result=await shop.purchase({discordUserId:user,cacheId:'arn',purchaseNonce:interaction.id});return require('./ark-dino-box-shop-extension.cjs').sealedResultPayload(result.order,result.balance,'ARN Tokens');}
-  const view=await ledger.balance(user);
-  if(sub==='cache') {await shop.refreshWeekly();return require('./ark-dino-box-shop-extension.cjs').cacheDetailPayload('arn');}
-  return {content:`**${view.balance} ARN Tokens**\n${view.settings.enabled?`5% chance to earn 1 token per qualified completed Anomaly activity. Cache cost: 1 ARN Token.`:'Earning and redemption are disabled. Configured: 5% chance of 1 token; 1 token per cache.'}`};
+  return {content:'Use /arn tokens to see what ARN tokens are and how to earn them. Redeem a cache in #dino-box-shop.'};
 }
 function arnMemberErrorContent(error) {
   const detail = String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 500);
@@ -87,6 +86,7 @@ function installArnCacheExtension({config=loadConfig(),ledger=new ArnTokenLedger
     const client=this;
     client.once(Events.ClientReady,async()=>{
       try {
+        sharedArnBook();
         const guild=await client.guilds.fetch(String(config.discord?.guildId));
         const registered=await guild.commands.fetch();
         for(const definition of [command(),adminCommand()]) {

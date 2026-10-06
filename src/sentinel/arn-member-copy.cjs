@@ -6,6 +6,7 @@ function tokenText(balance, env = process.env) {
   const flags = arnFlags(env);
   const lines = [
     `ARN tokens: ${Number(balance || 0)}.`,
+    'ARN tokens are a trial reward for shiny tames and shiny kills.',
     'Taming a shiny has a 25% chance to earn 1 token. Defeating one has a 10% chance.',
     'The cap is 3 tokens a day and 10 a week, Central time.',
     'Your in-game name has to match one linked ARK account exactly.',
@@ -26,8 +27,14 @@ function poolLine(rotation) {
   return names.length ? `This week: ${names.join(', ')}.` : 'This week\'s list is not available.';
 }
 
-function arnShopLines({ balance, rotation, redeemed = false, drawn = null } = {}) {
+function trialLine(env = process.env) {
+  if (arnFlags(env).creditsEnabled) return '';
+  return 'This is a test run. Payouts are off.';
+}
+
+function arnShopLines({ balance, rotation, redeemed = false, drawn = null, env = process.env } = {}) {
   const lines = [
+    trialLine(env),
     'An ARN cache costs 1 ARN token.',
     'Accepted currency: ARN tokens only.',
     poolLine(rotation),
@@ -37,18 +44,19 @@ function arnShopLines({ balance, rotation, redeemed = false, drawn = null } = {}
   if (redeemed && drawn) lines.push(`Redeemed. The tame is ${drawn.species}, level ${drawn.level}.`);
   else if (redeemed) lines.push('Nothing was opened and no tame was sent.');
   else lines.push('Press Redeem to draw one tame from this list.');
-  return lines.join('\n');
+  return lines.filter(Boolean).join('\n');
 }
 
-function arnShopPublicLines(rotation) {
+function arnShopPublicLines(rotation, env = process.env) {
   return [
+    trialLine(env),
     'An ARN cache costs 1 ARN token.',
     'Accepted currency: ARN tokens only.',
     poolLine(rotation),
     'The list changes every Monday at 12:00 AM Central time.',
     'Your ARN token balance is shown when you redeem.',
     'Nothing is sent while payouts are off.'
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 function openPointerText() {

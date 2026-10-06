@@ -427,7 +427,12 @@ test('retired server setup blocks every ARN ledger entry before MySQL', async ()
     refreshWeekly: async () => { shopCalls.push('weekly'); throw new Error('weekly'); }
   };
   const config = { discord: { ownerUserIds: [user] } };
-  for (const sub of ['balance', 'cache', 'history', 'configure', 'pause', 'adjust']) {
+  for (const sub of ['balance', 'cache', 'history', 'buy']) {
+    const hidden = await handleArn(arnCall(sub), { ledger, shop, config });
+    assert.match(hidden.content, /\/arn tokens/);
+    assert.match(hidden.content, /#dino-box-shop/);
+  }
+  for (const sub of ['configure', 'pause', 'adjust']) {
     await assert.rejects(() => handleArn(arnCall(sub), { ledger, shop, config }), (error) => {
       assert.equal(error.message, MEMBER_MESSAGE);
       return true;

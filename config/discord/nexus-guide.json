@@ -131,7 +131,7 @@
       "id": "arn-tokens",
       "label": "ARN Tokens",
       "emoji": "🎫",
-      "summary": "A chance at a token when you tame or defeat a shiny on the ARK cluster.",
+      "summary": "ARN tokens are a trial reward for shiny tames and shiny kills on the ARK cluster.",
       "details": [
         "Taming a shiny has a 25% chance to earn 1 ARN token. Defeating one has a 10% chance. Your in-game name has to match one linked ARK account exactly.",
         "You can earn up to 3 tokens a day and 10 a week, using Central time. A held account does not earn tokens, and missed chances are not paid later.",

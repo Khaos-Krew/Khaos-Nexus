@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { parseArnReport } = require('../src/sentinel/arn-report-parser.cjs');
 const { parseShinyDiscordPayload } = require('../src/sentinel/arn-live-board-extension.cjs');
@@ -15,6 +16,8 @@ const {
   oddsRoll,
   oddsHit,
   createArnBook,
+  journalPath,
+  DEFAULT_JOURNAL,
   observeFromDiscordMessage,
   staffSummaryText,
   levelUpStyleSkip
@@ -581,8 +584,14 @@ test('member copy stays plain and there is no exchange into Points, Coins, or ca
   const topic = guide.topics.find((item) => item.id === 'arn-tokens');
   assert.ok(topic);
   const guideText = [topic.summary, ...topic.details].join('\n');
+  assert.match(guideText, /trial reward/);
+  assert.match(guideText, /25%/);
+  assert.match(guideText, /10%/);
   assert.match(guideText, /\/arn tokens/);
   assert.match(guideText, /#dino-box-shop/);
+  assert.match(tokenText(0, {}), /trial reward for shiny tames and shiny kills/);
+  assert.match(tokenText(0, {}), /25%/);
+  assert.match(tokenText(0, {}), /10%/);
   assert.doesNotMatch(guideText, /\/arn open/);
   assert.equal(copyHasBotName(guideText), false);
   assert.doesNotMatch(guideText, /dino\s*caches?/i);
@@ -611,12 +620,39 @@ test('member copy stays plain and there is no exchange into Points, Coins, or ca
   assert.ok(names.includes('tokens'));
   assert.ok(names.includes('open'));
   assert.ok(names.includes('report'));
+  for (const hidden of ['balance', 'history', 'cache', 'buy']) assert.equal(names.includes(hidden), false);
+  const configure = command().options.find((option) => option.name === 'configure');
+  assert.match(configure.description, /25%/);
+  assert.match(configure.description, /10%/);
+  assert.doesNotMatch(configure.description, /\b5%/);
+  const denied = await handle({
+    commandName: 'arn',
+    user: { id: DISCORD },
+    options: { getSubcommand: () => 'report' }
+  }, { ledger: {}, shop: {}, config: { discord: {} }, book, env: {} });
+  assert.equal(denied.content, 'Staff only.');
+  for (const hiddenName of ['balance', 'history', 'cache', 'buy']) {
+    const hidden = await handle({
+      commandName: 'arn',
+      user: { id: DISCORD },
+      options: { getSubcommand: () => hiddenName }
+    }, {
+      ledger: { balance() { throw new Error('mysql'); }, history() { throw new Error('mysql'); } },
+      shop: { purchase() { throw new Error('mysql'); }, refreshWeekly() { throw new Error('mysql'); } },
+      config: { discord: {} },
+      book,
+      env: {}
+    });
+    assert.match(hidden.content, /\/arn tokens/);
+    assert.match(hidden.content, /#dino-box-shop/);
+  }
 });
 
 test('ARN caches redeem from the dino box shop and /arn open only points there', async () => {
   const now = Date.parse('2026-10-07T18:00:00.000Z');
   const book = bookFor(account(), {});
   const preview = await arnShopPreview({ discordUserId: DISCORD, book, env: {}, now });
+  assert.match(preview.content, /This is a test run\. Payouts are off/);
   assert.match(preview.content, /costs 1 ARN token/);
   assert.match(preview.content, /Your ARN tokens: 0/);
   assert.equal(copyHasBotName(preview.content), false);
@@ -636,11 +672,13 @@ test('ARN caches redeem from the dino box shop and /arn open only points there',
   assert.equal(delivered, false);
   assert.equal(redeemed.debited, false);
   assert.equal(redeemed.raCalled, false);
+  assert.match(redeemed.content, /This is a test run\. Payouts are off/);
   assert.match(redeemed.content, /Nothing was opened and no tame was sent/);
   assert.match(redeemed.content, /Your ARN tokens: 0/);
   assert.equal(book.state.ledger.length, 0);
 
   const pageText = cacheDetailPayload('arn').embeds[0].description;
+  assert.match(pageText, /This is a test run\. Payouts are off/);
   assert.match(pageText, /costs 1 ARN token/);
   assert.match(pageText, /Your ARN token balance is shown when you redeem/);
   assert.equal(copyHasBotName(pageText), false);
@@ -858,6 +896,59 @@ test('main-ledger spend is idempotent, refuses holds, and refunds a failed deliv
   assert.equal(failed.raCalled, false);
   assert.equal(refunds, 1);
   assert.equal(paid.tokens, 1);
+});
+
+test('a restart reloads the dry-run journal from the Railway volume', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'arn-journal-'));
+  const file = path.join(dir, 'arn-dry-run.json');
+  assert.equal(journalPath({ NEXUS_DATA_DIR: dir }), file);
+  assert.equal(journalPath({ RAILWAY_VOLUME_MOUNT_PATH: dir }), file);
+  assert.equal(journalPath({ ARN_DRY_RUN_FILE: path.join(dir, 'custom.json'), NEXUS_DATA_DIR: dir }), path.join(dir, 'custom.json'));
+  assert.equal(journalPath({}), path.resolve(DEFAULT_JOURNAL));
+
+  const now = Date.parse('2026-10-07T15:00:00.000Z');
+  const first = createArnBook({ persistPath: file, env: {}, loadAccounts: async () => [account()] });
+  for (let index = 0; index < DAY_CAP; index += 1) {
+    const awarded = await first.award({
+      messageId: `journal-${index}`,
+      parsed: tame('Player', `Journal Dodo ${index}`),
+      roll: 0,
+      now: now + (index * 60 * 1000),
+      env: {}
+    });
+    assert.equal(awarded.outcome, 'would-credit');
+  }
+  const restarted = createArnBook({ persistPath: file, env: {}, loadAccounts: async () => [account()] });
+  assert.equal(restarted.state.observations.length, DAY_CAP);
+  const duplicate = await restarted.award({
+    messageId: 'journal-0',
+    parsed: tame('Player', 'Journal Dodo 0'),
+    roll: 0,
+    now: now + (5 * 60 * 1000),
+    env: {}
+  });
+  assert.equal(duplicate.outcome, 'duplicate');
+  const capped = await restarted.award({
+    messageId: 'journal-cap',
+    parsed: tame('Player', 'Journal Dodo cap'),
+    roll: 0,
+    now: now + (6 * 60 * 1000),
+    env: {}
+  });
+  assert.equal(capped.outcome, 'cap-day');
+
+  const broken = path.join(dir, 'broken.json');
+  fs.writeFileSync(broken, '{not json');
+  const kept = fs.readFileSync(broken, 'utf8');
+  const unsafe = createArnBook({ persistPath: broken, env: {}, loadAccounts: async () => [account()] });
+  await unsafe.award({
+    messageId: 'journal-broken',
+    parsed: tame('Player', 'Broken Dodo'),
+    roll: 0,
+    now,
+    env: {}
+  });
+  assert.equal(fs.readFileSync(broken, 'utf8'), kept);
 });
 
 test('new ARN files do not flip economy, shop, or birthday flags', () => {

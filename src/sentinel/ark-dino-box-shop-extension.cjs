@@ -201,7 +201,7 @@ async function arnShopPreview({ discordUserId, book, ledger, env = process.env, 
     ? Number(balance)
     : await shownArnBalance(discordUserId, { book, ledger, env });
   return {
-    content: arnShopLines({ balance: shown, rotation }),
+    content: arnShopLines({ balance: shown, rotation, env }),
     embeds: [],
     components: [new ActionRowBuilder().addComponents(arnRedeemButton())],
     allowedMentions: { parse: [] }
@@ -227,7 +227,8 @@ async function redeemArnInShop({ discordUserId, book, ledger, env = process.env,
       balance: await shownArnBalance(discordUserId, { book: activeLedger ? undefined : book, ledger: activeLedger, env }),
       rotation: result.rotation,
       redeemed: true,
-      drawn: sent ? result.drawn : null
+      drawn: sent ? result.drawn : null,
+      env
     }),
     embeds: [],
     components: [],
