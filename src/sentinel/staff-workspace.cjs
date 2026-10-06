@@ -2,9 +2,8 @@
 
 const { ChannelType, OverwriteType, PermissionFlagsBits } = require('discord.js');
 const { MODULES } = require('../backend/modules/catalog.cjs');
+const { COMMUNITY_MANAGER_ROLE_ID } = require('../shared/protected-role-ids.cjs');
 const { managedPayloadMatches } = require('./managed-payload-compare.cjs');
-
-const COMMUNITY_MANAGER_ROLE_ID = '1521219329360920767';
 const STAFF_CATEGORY_NAME = '🔒 STAFF';
 const STAFF_PANEL_MARKER = 'Nexus Sentinal • Managed Staff Workspace • v2';
 const LEGACY_STAFF_PANEL_MARKERS = Object.freeze(['Nexus Sentinal • Managed Staff Workspace • v1']);

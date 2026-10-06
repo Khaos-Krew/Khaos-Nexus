@@ -2,13 +2,13 @@
 
 const { loadConfig } = require('../shared/config.cjs');
 const { discordBotToken } = require('../shared/mc-starter-kit.cjs');
+const { COMMUNITY_MANAGER_ROLE_ID, OWNER_ROLE_ID } = require('../shared/protected-role-ids.cjs');
 const { isStaffAdmin } = require('../sentinel/staff-roles.cjs');
 
-// These Discord roles never authorize the ARK shop, even when their ids are
-// listed as staff. The shared role lookup still drops the guild id, @everyone,
-// and managed roles from the subject below.
-const COMMUNITY_MANAGER_ROLE_ID = '1521219329360920767';
-const OWNER_ROLE_ID = '1616602943670059102';
+// The Community Manager role never authorizes the ARK shop, even when its id
+// is listed as staff. The Server Owner role id does, matched by id only.
+// The shared role lookup still drops the guild id, @everyone, and managed
+// roles from the subject below.
 const ADMINISTRATOR_BIT = 8n;
 
 function blockedNamedRole(role) {
@@ -149,6 +149,7 @@ async function authorizeStaffRefundActor({ actor, env = process.env, fetchImpl =
       permissions: role?.permissions
     };
   });
+  if (roleRecords.some((role) => String(role.id) === OWNER_ROLE_ID)) return { ok: true, actor: userId };
   const subject = buildStaffSubject({
     userId,
     guildId: guild,
@@ -164,6 +165,7 @@ module.exports = {
   ownerIds,
   buildStaffSubject,
   rolesFromSubject,
+  blockedNamedRole,
   COMMUNITY_MANAGER_ROLE_ID,
   OWNER_ROLE_ID
 };

@@ -17,6 +17,7 @@ const { memberJoinedAtMs } = require('../shared/mc-starter-kit.cjs');
 const { arkNpFlags } = require('../shared/ark-np-flags.cjs');
 const { arkMemberText, orderStatusText, ledgerLineText } = require('../shared/ark-np-member-text.cjs');
 const { shopCurrencyCopy } = require('../shared/dino-cache-currency.cjs');
+const { OWNER_ROLE_ID } = require('../shared/protected-role-ids.cjs');
 const { isStaffAdmin } = require('./staff-roles.cjs');
 const { buildStaffSubject, rolesFromSubject } = require('../economy-worker/ark-staff-auth.cjs');
 const { mcRefundActorAllowed } = require('../economy-worker/mc-refund-auth.cjs');
@@ -62,6 +63,7 @@ function isArkStaff(interaction, config = loadConfig(), env = process.env) {
   const owners = new Set((config?.discord?.ownerUserIds || []).map(String));
   if (owners.has(userId)) return true;
   const roles = rolesFromSubject(interaction);
+  if (roles.some((role) => String(role?.id || '') === OWNER_ROLE_ID)) return true;
   const fallbackAdministrator = roles.length === 0
     && interaction?.memberPermissions?.has?.(PermissionFlagsBits.Administrator) === true;
   return isStaffAdmin(buildStaffSubject({

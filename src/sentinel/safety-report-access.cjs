@@ -2,11 +2,10 @@
 
 const { ChannelType, OverwriteType, PermissionFlagsBits } = require('discord.js');
 const { hasListedRole, isGrantableStaffRole } = require('../game-bots/vanguard/config.cjs');
-const { OWNER_ROLE_ID } = require('../economy-worker/ark-staff-auth.cjs');
+const { COMMUNITY_MANAGER_ROLE_ID, OWNER_ROLE_ID } = require('../shared/protected-role-ids.cjs');
 const {
   applyManagedOverwrites,
-  refusePermissionStaffFallback,
-  COMMUNITY_MANAGER_ROLE_ID
+  refusePermissionStaffFallback
 } = require('./staff-workspace.cjs');
 const { normalizeIds } = require('./safety-report-model.cjs');
 

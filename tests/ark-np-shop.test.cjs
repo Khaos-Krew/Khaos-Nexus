@@ -21,7 +21,7 @@ const { refundDecision, offlineBackoffMs } = require('../src/shared/ark-np-order
 const { deliverPreparedOrder, runDeliveryPass } = require('../src/sentinel/ark-np-delivery.cjs');
 const { PermissionFlagsBits } = require('discord.js');
 const { isArkStaff, shopCommand, pointsCommand, adminCommand, formatActivity } = require('../src/sentinel/ark-np-shop-ui.cjs');
-const { authorizeStaffRefundActor } = require('../src/economy-worker/ark-staff-auth.cjs');
+const { authorizeStaffRefundActor, OWNER_ROLE_ID } = require('../src/economy-worker/ark-staff-auth.cjs');
 const { PostgresArkShop } = require('../src/economy-worker/ark-np-postgres.cjs');
 const { memberPointSumSql } = require('../src/shared/economy-system-accounts.cjs');
 const {
@@ -426,7 +426,7 @@ test('staff command names and the owner allow-list', () => {
   const managedRole = '555555555555555555';
   const bothLists = '666666666666666666';
   const communityManager = '1521219329360920767';
-  const ownerRole = '1616602943670059102';
+  const ownerRole = OWNER_ROLE_ID;
   assert.equal(isArkStaff(staffInteraction([everyoneRole]), config, { NEXUS_STAFF_ADMIN_ROLE_IDS: guildId }), false);
   assert.equal(isArkStaff(staffInteraction([
     everyoneRole,
@@ -446,7 +446,7 @@ test('staff command names and the owner allow-list', () => {
   assert.equal(isArkStaff(staffInteraction([
     everyoneRole,
     { id: ownerRole, name: 'Owner', managed: false, permissions: 8 }
-  ]), config, { NEXUS_STAFF_ADMIN_ROLE_IDS: ownerRole }), false);
+  ]), config, { NEXUS_STAFF_ADMIN_ROLE_IDS: ownerRole }), true);
   assert.equal(isArkStaff(staffInteraction([
     everyoneRole,
     { id: communityManager, name: 'Community Manager', managed: false },
@@ -744,7 +744,7 @@ test('points reads do not create schema and staff refund actors are checked on t
   });
   assert.equal(listedTwice.reason, 'staff-required');
   const communityManager = '1521219329360920767';
-  const ownerRole = '1616602943670059102';
+  const ownerRole = OWNER_ROLE_ID;
   const community = await authorizeStaffRefundActor({
     actor,
     env: { ...env, NEXUS_STAFF_ADMIN_ROLE_IDS: communityManager },
@@ -755,7 +755,7 @@ test('points reads do not create schema and staff refund actors are checked on t
     })
   });
   assert.equal(community.reason, 'staff-required');
-  const ownerRoleDenied = await authorizeStaffRefundActor({
+  const ownerRoleAllowed = await authorizeStaffRefundActor({
     actor,
     env: { ...env, NEXUS_STAFF_ADMIN_ROLE_IDS: ownerRole },
     fetchImpl: discordFetch({
@@ -764,17 +764,17 @@ test('points reads do not create schema and staff refund actors are checked on t
       names: { [ownerRole]: 'Owner' }
     })
   });
-  assert.equal(ownerRoleDenied.reason, 'staff-required');
+  assert.equal(ownerRoleAllowed.ok, true);
   const ownerById = await authorizeStaffRefundActor({
     actor,
-    env: { ...env, NEXUS_STAFF_ADMIN_ROLE_IDS: ownerRole },
+    env: { ...env, NEXUS_STAFF_ADMIN_ROLE_IDS: '' },
     fetchImpl: discordFetch({
       memberRoles: [ownerRole],
-      permissions: { [ownerRole]: 8 },
+      permissions: { [ownerRole]: 0 },
       names: { [ownerRole]: 'Khaos Lead' }
     })
   });
-  assert.equal(ownerById.reason, 'staff-required');
+  assert.equal(ownerById.ok, true);
   const namedOwner = '777777777777777777';
   const namedOwnerAllowed = await authorizeStaffRefundActor({
     actor,
