@@ -10,6 +10,8 @@ The worker does not apply schema changes on boot, and it does not drop or rebuil
 
 `db/migrations/005-arn-tokens-control.sql` creates `nexus_economy_arn_control` for the pause switch. The runner records `arn-tokens-control`. Pause is not a ledger row: ledger amounts must be non-zero. An empty control table means earning is not paused.
 
+`db/migrations/006-arn-tokens-migration-holds.sql` creates `nexus_economy_arn_migration_holds`. The runner records `arn-tokens-legacy-holds`. Creating the table does not move balances. The staff balance script is separate and is not part of this runner.
+
 ```sh
 node scripts/apply-economy-sql-migrations.cjs
 ```
@@ -52,4 +54,20 @@ A repeat spend of an order that was debited but not delivered returns the same E
 
 ## Legacy MySQL balances
 
-Moving old MySQL ARN balances onto `ARN_TOKENS` is waiting on an owner decision. `migrateLegacyArnBalances` returns `pending-owner-decision` and is not run by boot or the SQL runner.
+Legacy MySQL ARN balances move onto `ARN_TOKENS` once, 1-for-1. `npm run economy:arn-migrate` prints a dry-run report and writes nothing. `npm run economy:arn-migrate -- --apply` writes, and only when `ARN_ECONOMY_WRITES_ENABLED` is true. `ARN_DRY_RUN` and `ARN_TOKENS_ENABLED` do not block that command. Boot, the economy worker, and the SQL runner do not call it.
+
+Apply the additive SQL first so the hold table exists:
+
+```sh
+node scripts/apply-economy-sql-migrations.cjs
+node scripts/migrate-legacy-arn-balances.cjs
+ARN_ECONOMY_WRITES_ENABLED=true node scripts/migrate-legacy-arn-balances.cjs --apply
+```
+
+Each positive `nexus_arn_wallets.balance` becomes one main-ledger credit. Source is `arn_migrate`. The idempotency key is `arn-migrate:<econId>`. Metadata reason is `arn_migrate`. The economic identity is the Discord link plus one verified EOS identity. Several verified EOS ids on that same identity still count as one. Zero balances are skipped. A Discord wallet with no verified EOS link gets a pending row in `nexus_economy_arn_migration_holds`. Run the same command again after the member verifies. The stored hold amount is credited once. A later MySQL balance change does not replace it.
+
+An invalid balance, more than one economic identity, or an `arn-migrate` key that already belongs to a different Discord id blocks the whole apply. Nothing is written and the MySQL wallet stays writable.
+
+A successful apply, including one that only stores pending holds, freezes MySQL ARN wallet writes. The script creates `nexus_arn_wallet_freeze` and sets `read_only`. Balance and history reads still work. Wallet changes, configure, adjust, and participation sync refuse with `ARN_WALLET_READ_ONLY`. Running `--apply` again is idempotent: existing keys are duplicates, pending holds credit once, and the freeze is set again.
+
+The command reads MySQL even when ArkShop is retired. It requires `ARKSHOP_DB_HOST`, `ARKSHOP_DB_NAME`, `ARKSHOP_DB_USER`, and `ARKSHOP_DB_PASSWORD`. It does not open `ArnTokenLedger`.

@@ -23,6 +23,7 @@
     "economy-worker": "node src/economy-worker/entry.cjs",
     "economy:migrate": "node scripts/migrate-nexus-economy.cjs",
     "economy:sql-migrate": "node scripts/apply-economy-sql-migrations.cjs",
+    "economy:arn-migrate": "node scripts/migrate-legacy-arn-balances.cjs",
     "wshop:export": "node scripts/export-wshop-migration.cjs",
     "check": "node scripts/check.cjs",
     "test": "node --test tests/*.test.cjs tests/vanguard/*.test.cjs tests/vanguard/bungie/*.test.cjs tests/vanguard/clan/*.test.cjs",
