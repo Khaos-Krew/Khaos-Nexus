@@ -375,9 +375,9 @@ async function handleAdmin(interaction, economy, backend) {
       ? await economy.coinShopRefundPreview(payload)
       : { ok: false, reason: 'coin-shop-unavailable' };
     if (!preview?.ok) return interaction.reply(ephemeral(coinShopMemberText(preview?.reason)));
+    if (preview.duplicate) return interaction.reply(ephemeral('That purchase was already refunded.'));
     const removed = await removeWalletCosmetic(backend, preview);
     if (!removed) return interaction.reply(ephemeral(coinShopMemberText('revoke-failed')));
-    if (preview.duplicate) return interaction.reply(ephemeral('That purchase was already refunded.'));
     const result = await economy.coinShopRefund(payload);
     if (!result?.ok) return interaction.reply(ephemeral(coinShopMemberText(result?.reason)));
     const text = result.duplicate

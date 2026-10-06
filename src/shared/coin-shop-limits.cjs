@@ -6,6 +6,7 @@ const ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
 const ATTEMPT_LIMIT = 5;
 const ATTEMPT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const DAILY_SPEND_CAP = 1500;
+const STAFF_REFUND_DAILY_CAP = 10;
 const CHICAGO = 'America/Chicago';
 
 function purchaseKey(econId, sku, nonce) {
@@ -73,6 +74,7 @@ module.exports = {
   ATTEMPT_LIMIT,
   ATTEMPT_RETENTION_MS,
   DAILY_SPEND_CAP,
+  STAFF_REFUND_DAILY_CAP,
   CHICAGO,
   purchaseKey,
   refundKey,

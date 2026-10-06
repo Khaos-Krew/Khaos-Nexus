@@ -7,6 +7,7 @@ const {
   REFUND_WINDOW_MS,
   ATTEMPT_LIMIT,
   DAILY_SPEND_CAP,
+  STAFF_REFUND_DAILY_CAP,
   purchaseKey,
   refundKey
 } = require('./coin-shop-limits.cjs');
@@ -207,9 +208,16 @@ function decideRefund(state, input, now) {
       discordUserId: purchase.discordUserId || ''
     });
   }
+  const actor = String(input.actor || '').trim();
+  if (purchase.discordUserId && actor === String(purchase.discordUserId)) {
+    return halt({ ok: false, reason: 'self-refund' });
+  }
   const outsideWindow = purchase.withinWindow === false
     || (purchase.withinWindow !== true && (!Number.isFinite(purchase.createdAt) || now - purchase.createdAt > REFUND_WINDOW_MS));
   if (outsideWindow) return halt({ ok: false, reason: 'refund-window' });
+  if (Number(state.staffRefundsToday || 0) >= STAFF_REFUND_DAILY_CAP) {
+    return halt({ ok: false, reason: 'refund-cap' });
+  }
   const price = Number(purchase.price || 0);
   if (!Number.isSafeInteger(price) || price < 1) return halt({ ok: false, reason: 'not-found' });
   const balance = Number(state.balance || 0);

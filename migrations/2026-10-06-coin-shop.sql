@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS {{schema}}.nexus_coin_shop_attempts (
 );
 CREATE INDEX IF NOT EXISTS nexus_coin_shop_attempts_identity_created_idx
   ON {{schema}}.nexus_coin_shop_attempts (economic_identity_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS nexus_coin_shop_attempts_created_idx
+  ON {{schema}}.nexus_coin_shop_attempts (created_at);
 CREATE TABLE IF NOT EXISTS {{schema}}.nexus_coin_shop_audit (
   audit_id TEXT PRIMARY KEY,
   action TEXT NOT NULL,

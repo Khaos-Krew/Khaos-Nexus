@@ -386,7 +386,7 @@ test('the receipt uses a short ref and a short ref can be refunded', async () =>
   assert.equal(coinShopReceiptRef(result.ledgerId), 'CS-0001');
   assert.equal(memberReceipt(result), 'New balance: 225 Coins\nRef: CS-0001');
   assert.doesNotMatch(memberReceipt(result), /coin-shop:/);
-  const refunded = await service.refund({ ledgerRef: 'CS-0001', reason: 'short ref', actor: USER });
+  const refunded = await service.refund({ ledgerRef: 'CS-0001', reason: 'short ref', actor: OTHER });
   assert.equal(refunded.ok, true, refunded.reason);
   assert.equal(service.coinBalance(USER), 420);
   assert.doesNotMatch(memberReceipt(refunded), /coin-shop:/);
@@ -395,14 +395,14 @@ test('the receipt uses a short ref and a short ref can be refunded', async () =>
 test('staff can refund an unused purchase once inside 24 hours', async () => {
   const service = shop();
   const { result } = await buy(service);
-  const refunded = await service.refund({ ledgerRef: result.ledgerRef, reason: 'bought the wrong theme', actor: USER });
+  const refunded = await service.refund({ ledgerRef: result.ledgerRef, reason: 'bought the wrong theme', actor: OTHER });
   assert.equal(refunded.ok, true);
   assert.equal(refunded.duplicate, false);
   assert.equal(service.coinBalance(USER), 420);
   assert.equal(service.pointBalance(USER), 80);
   assert.equal(refunded.ledgerRef, refundKey(result.ledgerId));
   assert.equal(service.entitlementsFor(USER).entitlements[0].status, 'refunded');
-  const again = await service.refund({ ledgerRef: result.ledgerRef, reason: 'second try', actor: USER });
+  const again = await service.refund({ ledgerRef: result.ledgerRef, reason: 'second try', actor: OTHER });
   assert.equal(again.duplicate, true);
   assert.equal(service.coinBalance(USER), 420);
   assert.equal(service.ledger.filter((row) => row.entryType === 'refund').length, 1);
@@ -410,7 +410,7 @@ test('staff can refund an unused purchase once inside 24 hours', async () => {
   const worn = shop();
   const wornBuy = await buy(worn);
   await worn.markEquipped({ discordUserId: USER, sku: 'ttl_night_owl' });
-  const used = await worn.refund({ ledgerRef: wornBuy.result.ledgerRef, reason: 'changed my mind', actor: USER });
+  const used = await worn.refund({ ledgerRef: wornBuy.result.ledgerRef, reason: 'changed my mind', actor: OTHER });
   assert.equal(used.ok, true, used.reason);
   assert.equal(worn.coinBalance(USER), 420);
   assert.equal(worn.entitlementsFor(USER).entitlements[0].status, 'refunded');
@@ -419,7 +419,7 @@ test('staff can refund an unused purchase once inside 24 hours', async () => {
   const missing = shop();
   const missingBuy = await buy(missing);
   missing.entitlements.length = 0;
-  const revoked = await missing.refund({ ledgerRef: missingBuy.result.ledgerRef, reason: 'no entitlement', actor: USER });
+  const revoked = await missing.refund({ ledgerRef: missingBuy.result.ledgerRef, reason: 'no entitlement', actor: OTHER });
   assert.equal(revoked.reason, 'revoke-failed');
   assert.equal(missing.coinBalance(USER), 225);
   assert.equal(missing.ledger.filter((row) => row.entryType === 'refund').length, 0);
@@ -427,7 +427,7 @@ test('staff can refund an unused purchase once inside 24 hours', async () => {
   const late = shop();
   const lateBuy = await buy(late);
   late.moveClock(DAY + (24 * 60 * 60 * 1000) + 1000);
-  const expired = await late.refund({ ledgerRef: lateBuy.result.ledgerRef, reason: 'too late', actor: USER });
+  const expired = await late.refund({ ledgerRef: lateBuy.result.ledgerRef, reason: 'too late', actor: OTHER });
   assert.equal(expired.reason, 'refund-window');
   assert.equal(late.coinBalance(USER), 225);
 });
@@ -757,7 +757,7 @@ test('a failed wallet revoke refunds nothing, and sync strips a refunded item', 
   const preview = await service.previewRefund({
     ledgerRef: result.ledgerRef,
     reason: 'discord revoke failed',
-    actor: USER,
+    actor: OTHER,
     staffVerified: true
   });
   assert.equal(preview.ok, true);
@@ -783,6 +783,7 @@ test('a failed wallet revoke refunds nothing, and sync strips a refunded item', 
       getUser: () => null
     }
   });
+  staff.user = { id: OTHER };
   staff.guild = { id: '111111111111111111', ownerId: '0' };
   staff.member = {
     guild: { id: '111111111111111111' },
@@ -842,6 +843,125 @@ test('a failed wallet revoke refunds nothing, and sync strips a refunded item', 
   }
 });
 
+test('replaying a refunded receipt does not strip a re-bought cosmetic', async () => {
+  const service = shop({ coins: 2000 });
+  const { result } = await buy(service);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coin-shop-replay-'));
+  try {
+    const cosmetics = new WalletCosmeticsService({ stateFile: path.join(dir, 'wallet.json') });
+    cosmetics.grantShopCosmetic(USER, { sku: 'ttl_night_owl' });
+    cosmetics.equip(USER, { titleId: 'ttl_night_owl' });
+    let revokes = 0;
+    const economy = {
+      coinShopRefundPreview: (input) => service.previewRefund(input),
+      coinShopRefund: (input) => service.refund(input)
+    };
+    const backend = {
+      revokeWalletCosmetic(id, input) {
+        revokes += 1;
+        return cosmetics.revokeShopCosmetic(id, input);
+      }
+    };
+    const staff = mockInteraction({
+      kind: 'command',
+      commandName: 'shopadmin',
+      userId: OTHER,
+      options: {
+        getSubcommand: () => 'refund',
+        getString: (name) => (name === 'ledger' ? result.ledgerRef : 'wrong theme'),
+        getUser: () => null
+      }
+    });
+    staff.guild = { id: '111111111111111111', ownerId: '0' };
+    staff.member = {
+      guild: { id: '111111111111111111' },
+      roles: { cache: new Map([[OWNER_ROLE_ID, { id: OWNER_ROLE_ID, name: 'Owner' }]]) }
+    };
+    staff.memberPermissions = { has: () => false };
+    await handleCoinShopInteraction(staff, { economyClient: economy, backend });
+    assert.equal(revokes, 1);
+    assert.equal(service.entitlements[0].status, 'refunded');
+    assert.equal(cosmetics.profile(USER).profile.titles.find((item) => item.id === 'ttl_night_owl').unlocked, false);
+
+    await buy(service);
+    cosmetics.grantShopCosmetic(USER, { sku: 'ttl_night_owl' });
+    cosmetics.equip(USER, { titleId: 'ttl_night_owl' });
+    staff.replied = false;
+    await handleCoinShopInteraction(staff, { economyClient: economy, backend });
+    assert.equal(revokes, 1);
+    assert.match(staff.replies.at(-1).content, /already refunded/);
+    const profile = cosmetics.profile(USER).profile;
+    assert.equal(profile.equippedTitleId, 'ttl_night_owl');
+    assert.equal(profile.titles.find((item) => item.id === 'ttl_night_owl').unlocked, true);
+    assert.equal(service.coinBalance(USER), 2000 - 195);
+    assert.equal(service.ledger.filter((row) => row.entryType === 'refund').length, 1);
+
+    service.identities.get(USER).holdReason = 'staff';
+    const held = mockInteraction({
+      kind: 'command',
+      commandName: 'shopadmin',
+      userId: OTHER,
+      options: {
+        getSubcommand: () => 'refund',
+        getString: (name) => (name === 'ledger' ? service.ledger.find((row) => row.entryType === 'purchase' && row.metadata?.sku === 'ttl_night_owl' && !service.ledger.some((refund) => refund.key === refundKey(row.id))).ledgerRef || result.ledgerRef : 'held'),
+        getUser: () => null
+      }
+    });
+    held.guild = staff.guild;
+    held.member = staff.member;
+    held.memberPermissions = staff.memberPermissions;
+    const active = service.ledger.find((row) => row.entryType === 'purchase' && !service.ledger.some((refund) => refund.key === refundKey(row.id)));
+    held.options.getString = (name) => (name === 'ledger' ? `CS-${String(active.id).padStart(4, '0')}` : 'held');
+    await handleCoinShopInteraction(held, { economyClient: economy, backend });
+    assert.equal(revokes, 1);
+    assert.match(held.replies[0].content, /on hold/);
+    assert.equal(cosmetics.profile(USER).profile.equippedTitleId, 'ttl_night_owl');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('staff cannot refund their own purchase or more than 10 refunds in a Chicago day', async () => {
+  const service = shop({ coins: 2000 });
+  const { result } = await buy(service);
+  const own = await service.previewRefund({ ledgerRef: result.ledgerRef, reason: 'mine', actor: USER });
+  assert.equal(own.reason, 'self-refund');
+  const refused = await service.refund({ ledgerRef: result.ledgerRef, reason: 'mine', actor: USER });
+  assert.equal(refused.reason, 'self-refund');
+  assert.equal(coinShopMemberText('self-refund'), 'You cannot refund your own Coin shop purchase. Nothing was refunded.');
+  assert.equal(service.coinBalance(USER), 2000 - 195);
+  assert.equal(service.entitlements[0].status, 'active');
+  assert.equal(service.ledger.filter((row) => row.entryType === 'refund').length, 0);
+
+  for (let index = 0; index < 10; index += 1) {
+    service.audit.push({
+      action: 'refund',
+      actor: OTHER,
+      createdAt: new Date(DAY).toISOString(),
+      ledgerId: index + 1,
+      reason: 'earlier'
+    });
+  }
+  service.audit.push({
+    action: 'refund',
+    actor: OTHER,
+    createdAt: new Date(DAY - (2 * 24 * 60 * 60 * 1000)).toISOString(),
+    ledgerId: 99,
+    reason: 'yesterday'
+  });
+  const capped = await service.refund({ ledgerRef: result.ledgerRef, reason: 'eleventh', actor: OTHER });
+  assert.equal(capped.reason, 'refund-cap');
+  assert.equal(coinShopMemberText('refund-cap'), 'This staff account has already refunded 10 Coin shop purchases today. Nothing was refunded.');
+  assert.equal(service.coinBalance(USER), 2000 - 195);
+  assert.equal(service.entitlements[0].status, 'active');
+
+  const third = '323456789012345678';
+  const allowed = await service.refund({ ledgerRef: result.ledgerRef, reason: 'different staff', actor: third });
+  assert.equal(allowed.ok, true, allowed.reason);
+  assert.equal(service.coinBalance(USER), 2000);
+  assert.equal(service.entitlements[0].status, 'refunded');
+});
+
 test('quote creation is rate limited and expired quotes are pruned', async () => {
   const service = shop({ coins: 2000 });
   service.quotes.set('old-quote', { nonce: 'old-quote', expiresAt: new Date(DAY - 1000).toISOString() });
@@ -881,6 +1001,8 @@ test('postgres coin shop stays on Coins and does not touch Points, RCON, or the 
   const migration = fs.readFileSync(path.join(__dirname, '../migrations/2026-10-06-coin-shop.sql'), 'utf8');
   assert.match(migration, /nexus_coin_shop_entitlements/);
   assert.match(migration, /nexus_coin_shop_quotes/);
+  assert.match(migration, /CREATE INDEX IF NOT EXISTS nexus_coin_shop_attempts_created_idx/);
+  assert.match(migration, /ON \{\{schema\}\}\.nexus_coin_shop_attempts \(created_at\)/);
   const holdSrc = fs.readFileSync(path.join(__dirname, '../src/sentinel/nexus-economy-postgres-runtime-repository.cjs'), 'utf8');
   const place = holdSrc.slice(holdSrc.indexOf('async placeStaffHold'), holdSrc.indexOf('async liftIdentityHold('));
   assert.ok(place.indexOf('coin-shop:') > 0 && place.indexOf('coin-shop:') < place.indexOf('#lockIdentity'));
@@ -889,6 +1011,8 @@ test('postgres coin shop stays on Coins and does not touch Points, RCON, or the 
   assert.ok(refundFn.indexOf("type: 'refund-entitlement'") < refundFn.indexOf("type: 'cas-credit'"));
   const ui = fs.readFileSync(path.join(__dirname, '../src/sentinel/coin-shop-ui.cjs'), 'utf8');
   assert.doesNotMatch(ui, /shop\.delete/);
+  const refundUi = ui.slice(ui.indexOf("if (sub === 'refund')"));
+  assert.ok(refundUi.indexOf('preview.duplicate') > 0 && refundUi.indexOf('preview.duplicate') < refundUi.indexOf('removeWalletCosmetic'));
   const arkUi = fs.readFileSync(path.join(__dirname, '../src/sentinel/ark-np-shop-ui.cjs'), 'utf8');
   assert.match(arkUi, /Open \/shop again/);
   const server = fs.readFileSync(path.join(__dirname, '../src/economy-worker/server.cjs'), 'utf8');
@@ -931,5 +1055,15 @@ test('coin shop entitlement reads require the service token', async () => {
   assert.equal(allowed.status, 200);
   assert.equal(allowed.body.ok, true);
   assert.equal(seen, 1);
+  for (const pathname of ['/coin-shop/refund', '/coin-shop/refund-preview', '/coin-shop/purchase', '/coin-shop/quote']) {
+    const craftPost = await callServer(runtime, { method: 'POST', pathname, token: 'craft-token' });
+    assert.equal(craftPost.status, 403, pathname);
+    assert.equal(craftPost.body.error, 'craft-token-scope');
+    const arkPost = await callServer(runtime, { method: 'POST', pathname, token: 'ark-token' });
+    assert.equal(arkPost.status, 403, pathname);
+    assert.equal(arkPost.body.error, 'ark-token-scope');
+    const sentinalPost = await callServer(runtime, { method: 'POST', pathname, token: 'sentinal-token' });
+    assert.equal(sentinalPost.status, 503, pathname);
+  }
   runtime.server.close();
 });

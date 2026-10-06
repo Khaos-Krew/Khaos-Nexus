@@ -29,7 +29,9 @@ const REASONS = Object.freeze({
   'not-found': 'That purchase was not found. Nothing was refunded.',
   'staff-required': 'That command is for a staff admin.',
   'member-held': 'That member is on hold. The refund was not applied.',
-  'reason-required': 'A refund needs a reason. Nothing was refunded.'
+  'reason-required': 'A refund needs a reason. Nothing was refunded.',
+  'self-refund': 'You cannot refund your own Coin shop purchase. Nothing was refunded.',
+  'refund-cap': 'This staff account has already refunded 10 Coin shop purchases today. Nothing was refunded.'
 });
 
 function coinShopMemberText(reason = '', details = {}) {

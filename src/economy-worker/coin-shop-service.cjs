@@ -369,6 +369,15 @@ class CoinShopService {
     };
   }
 
+  #staffRefundsToday(actor, now) {
+    const day = chicagoDayKey(now);
+    return this.audit.filter((row) => {
+      if (row.action !== 'refund' || String(row.actor || '') !== String(actor || '')) return false;
+      const at = Date.parse(row.createdAt);
+      return Number.isFinite(at) && chicagoDayKey(at) === day;
+    }).length;
+  }
+
   #refundDecision(input, auth) {
     const now = this.now();
     const purchase = this.#findPurchase(input.ledgerRef || input.ledgerId);
@@ -378,10 +387,12 @@ class CoinShopService {
       return { decision: { result: { ok: false, reason: 'not-eligible' }, effects: [] }, purchase };
     }
     const holder = purchase ? this.#identityByEcon(purchase.econId) : null;
+    const actor = String(auth.actor || input.actor || '');
     const state = {
       balance: purchase ? Number(this.coins.get(purchase.econId) || 0) : 0,
       purchase,
-      held: Boolean(holder?.held)
+      held: Boolean(holder?.held),
+      staffRefundsToday: this.#staffRefundsToday(actor, now)
     };
     return {
       decision: decideRefund(state, { ...input, actor: auth.actor || input.actor }, now),

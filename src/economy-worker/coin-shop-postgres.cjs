@@ -151,6 +151,10 @@ class PostgresCoinShop {
 
   async #prepareRefund(client, input, auth) {
     const now = this.now();
+    const actor = String(auth.actor || input.actor || '');
+    if (actor) {
+      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`coin-shop-refund-actor:${actor}`]);
+    }
     const purchase = await this.#findPurchase(client, input.ledgerRef || input.ledgerId);
     await this.#lockCoinShop(client, purchase?.econId);
     const fresh = purchase ? await this.#findPurchase(client, input.ledgerRef || input.ledgerId) : null;
@@ -162,10 +166,27 @@ class PostgresCoinShop {
     const refused = this.#memberAccount(fresh?.econId);
     if (refused) return { decision: { result: refused, effects: [] }, econId: fresh?.econId || '' };
     const balance = fresh ? await this.#coinBalance(client, fresh.econId, true) : 0;
+    const staffRefundsToday = actor ? await this.#staffRefundsToday(client, actor) : 0;
     return {
-      decision: decideRefund({ balance, purchase: fresh, held }, { ...input, actor: auth.actor || input.actor }, now),
+      decision: decideRefund({
+        balance,
+        purchase: fresh,
+        held,
+        staffRefundsToday
+      }, { ...input, actor }, now),
       econId: fresh?.econId || ''
     };
+  }
+
+  async #staffRefundsToday(client, actor) {
+    const result = await client.query(
+      `SELECT COUNT(*)::bigint AS n
+       FROM ${sqlIdent(this.schema)}.nexus_coin_shop_audit
+       WHERE action = 'refund' AND actor = $1
+         AND (created_at AT TIME ZONE 'America/Chicago')::date = (NOW() AT TIME ZONE 'America/Chicago')::date`,
+      [actor]
+    );
+    return Number(result.rows?.[0]?.n || 0);
   }
 
   async markEquipped(input = {}) {

@@ -19,6 +19,7 @@ const local = (() => {
 const skip = !postgresUrl || !local;
 const DAY = Date.parse('2026-10-06T18:00:00.000Z');
 const USER = '123456789012345678';
+const STAFF = '424242424242424242';
 const ECON = 'econ_coin_shop';
 
 async function openShop(label) {
@@ -127,7 +128,7 @@ test('postgres refund is once, refuses a held member, and clears the entitlement
     const preview = await opened.shop.previewRefund({
       ledgerRef: bought.ledgerRef,
       reason: 'wrong theme',
-      actor: USER,
+      actor: STAFF,
       staffVerified: true
     });
     assert.equal(preview.ok, true, preview.reason);
@@ -139,7 +140,7 @@ test('postgres refund is once, refuses a held member, and clears the entitlement
     const refunded = await opened.shop.refund({
       ledgerRef: bought.ledgerRef,
       reason: 'wrong theme',
-      actor: USER,
+      actor: STAFF,
       staffVerified: true
     });
     assert.equal(refunded.ok, true, refunded.reason);
@@ -226,7 +227,7 @@ test('postgres refund waits on the identity row and refuses a hold', { skip }, a
       const pending = opened.shop.refund({
         ledgerRef: bought.ledgerRef,
         reason: 'while locked',
-        actor: USER,
+        actor: STAFF,
         staffVerified: true
       });
       pending.then((result) => { refundResult = result; });
@@ -293,7 +294,7 @@ test('postgres daily cap and refund window follow the database clock, and a miss
     const late = await opened.shop.refund({
       ledgerRef: bought.ledgerRef,
       reason: 'too late',
-      actor: USER,
+      actor: STAFF,
       staffVerified: true
     });
     assert.equal(late.reason, 'refund-window');
@@ -305,7 +306,7 @@ test('postgres daily cap and refund window follow the database clock, and a miss
     const blocked = await opened.shop.refund({
       ledgerRef: current.ledgerRef,
       reason: 'entitlement already gone',
-      actor: USER,
+      actor: STAFF,
       staffVerified: true
     });
     assert.equal(blocked.reason, 'revoke-failed');
@@ -352,6 +353,60 @@ test('postgres does not treat an mc-link discord source as membership verificati
     const allowed = await opened.shop.quote({ discordUserId: USER, sku: 'ttl_night_owl' });
     assert.equal(allowed.ok, true, allowed.reason);
     assert.equal((await balances(opened.pool, opened.schema)).NEXUS_COINS, 2000);
+  } finally {
+    await closeShop(opened);
+  }
+});
+
+test('postgres blocks a self-refund and a staff actor past 10 refunds today', { skip }, async () => {
+  const opened = await openShop('staffcap');
+  try {
+    const quoted = await opened.shop.quote({ discordUserId: USER, sku: 'ttl_night_owl' });
+    const bought = await opened.shop.purchase({ discordUserId: USER, sku: 'ttl_night_owl', nonce: quoted.quote.nonce });
+    assert.equal(bought.ok, true, bought.reason);
+    const own = await opened.shop.refund({
+      ledgerRef: bought.ledgerRef,
+      reason: 'my own purchase',
+      actor: USER,
+      staffVerified: true
+    });
+    assert.equal(own.reason, 'self-refund');
+    assert.equal((await balances(opened.pool, opened.schema)).NEXUS_COINS, 2000 - 195);
+    const active = await opened.pool.query(
+      `SELECT status FROM "${opened.schema}".nexus_coin_shop_entitlements WHERE economic_identity_id = $1 AND sku = 'ttl_night_owl'`,
+      [ECON]
+    );
+    assert.equal(active.rows[0].status, 'active');
+    for (let index = 0; index < 10; index += 1) {
+      await opened.pool.query(
+        `INSERT INTO "${opened.schema}".nexus_coin_shop_audit (audit_id, action, actor, reason, sku, created_at)
+         VALUES ($1, 'refund', $2, 'earlier', 'ttl_night_owl', NOW())`,
+        [`cap-${index}`, STAFF]
+      );
+    }
+    await opened.pool.query(
+      `INSERT INTO "${opened.schema}".nexus_coin_shop_audit (audit_id, action, actor, reason, sku, created_at)
+       VALUES ('cap-old', 'refund', $1, 'older', 'ttl_night_owl', NOW() - INTERVAL '2 days')`,
+      [STAFF]
+    );
+    const capped = await opened.shop.refund({
+      ledgerRef: bought.ledgerRef,
+      reason: 'eleventh today',
+      actor: STAFF,
+      staffVerified: true
+    });
+    assert.equal(capped.reason, 'refund-cap');
+    assert.equal((await balances(opened.pool, opened.schema)).NEXUS_COINS, 2000 - 195);
+    const other = '323456789012345678';
+    const allowed = await opened.shop.refund({
+      ledgerRef: bought.ledgerRef,
+      reason: 'different staff',
+      actor: other,
+      staffVerified: true
+    });
+    assert.equal(allowed.ok, true, allowed.reason);
+    assert.equal((await balances(opened.pool, opened.schema)).NEXUS_COINS, 2000);
+    assert.equal((await balances(opened.pool, opened.schema)).NEXUS_POINTS, 80);
   } finally {
     await closeShop(opened);
   }
