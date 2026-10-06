@@ -8,8 +8,7 @@ const {ProtocolStore}=require('./protocol/store.cjs');
 const {isStaff}=require('./ark-ops-extension.cjs');
 const {loadConfig}=require('../shared/config.cjs');
 const {sharedArnBook, staffSummaryText, writeSummaryFile}=require('./arn-token-award.cjs');
-const {tokenText, openText}=require('./arn-member-copy.cjs');
-const {openArnCache}=require('./arn-cache-rotation.cjs');
+const {tokenText, openPointerText}=require('./arn-member-copy.cjs');
 const INSTALLED=Symbol.for('nexus.arn.cache.extension');
 function adminCommand() {
   const c=new SlashCommandBuilder().setName('cacheadmin').setDescription('Staff cache delivery verification and recovery.');
@@ -25,7 +24,7 @@ function command() {
   const c=new SlashCommandBuilder().setName('arn').setDescription('ARN Tokens and caches.');
   for(const name of ['balance','history','cache','buy','pause']) c.addSubcommand(s=>s.setName(name).setDescription(name==='pause'?'Staff: disable ARN earning and redemption.':`View or use ARN ${name}.`));
   c.addSubcommand(s=>s.setName('tokens').setDescription('See your ARN tokens.'));
-  c.addSubcommand(s=>s.setName('open').setDescription('Open an ARN cache.'));
+  c.addSubcommand(s=>s.setName('open').setDescription('Where to redeem an ARN cache.'));
   c.addSubcommand(s=>s.setName('report').setDescription('Staff: ARN trial summary. No payouts.'));
   c.addSubcommand(s=>s.setName('configure').setDescription('Staff: enable ARN. 5% chance of 1 token; caches cost 1 token.'));
   c.addSubcommand(s=>s.setName('adjust').setDescription('Staff: audited token grant or removal.').addUserOption(o=>o.setName('player').setDescription('Player.').setRequired(true)).addIntegerOption(o=>o.setName('amount').setDescription('Signed token adjustment.').setRequired(true).setMinValue(-1000000).setMaxValue(1000000)).addStringOption(o=>o.setName('reason').setDescription('Audit reason.').setRequired(true).setMinLength(3).setMaxLength(300)));
@@ -43,7 +42,8 @@ async function handle(interaction,{ledger,shop,config, book, env, now, secret} =
       return {content:'Cache delivery verification recorded.'};
     });
   }
-  if(interaction.commandName==='arn' && ['tokens','open','report'].includes(sub)) {
+  if(interaction.commandName==='arn' && sub==='open') return {content: openPointerText()};
+  if(interaction.commandName==='arn' && ['tokens','report'].includes(sub)) {
     const activeBook = book || sharedArnBook();
     const activeEnv = env || process.env;
     if(sub==='report') {
@@ -51,10 +51,6 @@ async function handle(interaction,{ledger,shop,config, book, env, now, secret} =
       const summary = activeBook.summary();
       if(activeEnv.ARN_DRY_RUN_REPORT) writeSummaryFile(summary, activeEnv.ARN_DRY_RUN_REPORT);
       return {content: staffSummaryText(summary)};
-    }
-    if(sub==='open') {
-      const result = await openArnCache({ env: activeEnv, now: now || Date.now(), discordUserId: user, book: activeBook, secret });
-      return {content: openText(result)};
     }
     return {content: tokenText(activeBook.balanceForDiscord(user), activeEnv)};
   }

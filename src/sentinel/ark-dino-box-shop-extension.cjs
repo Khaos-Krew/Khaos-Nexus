@@ -17,6 +17,9 @@ const { loadConfig } = require('../shared/config.cjs');
 const { CONFIG, WEEKLY_CACHE_RETIRED } = require('./ark-weekly-cache.cjs');
 const { isRetired } = require('./arkshop-mysql.cjs');
 const { memberActionFallback } = require('./arkshop-cluster-economy-guard.cjs');
+const { arnRotation, openArnCache, rotationSecret } = require('./arn-cache-rotation.cjs');
+const { sharedArnBook } = require('./arn-token-award.cjs');
+const { arnShopLines, arnShopPublicLines } = require('./arn-member-copy.cjs');
 const { ArkCacheShopService } = require('./ark-cache-shop-service.cjs');
 const { ArkDinoBoxTokenService } = require('./ark-dino-box-token-service.cjs');
 const { BUTTON_CACHE_SHOP } = require('./ark-cluster-panel.cjs');
@@ -39,6 +42,7 @@ const LEGACY_PANEL_MARKER = 'Nexus Dino Box Shop • cache:';
 const HUB_SELECT_ID = 'nexus-dino-box-hub-select';
 const HUB_HOME_ID = '__guide__';
 const HUB_MY_SEALED_ID = 'nexus-dino-box-my-sealed';
+const ARN_SHOP_ID = 'nexus-dino-box-arn';
 const BUY_PREFIX = 'nexus-dino-box-buy:';
 const TOKEN_PREFIX = 'nexus-dino-box-token:';
 const TOKEN_MODAL_PREFIX = 'nexus-dino-box-token-modal:';
@@ -133,15 +137,70 @@ function cacheSelect(selected = HUB_HOME_ID) {
     .addOptions({ label: 'Cache System Guide', value: HUB_HOME_ID, emoji: '📖', description: 'How purchases, sealed rolls, reveals, and delivery work.', default: selected === HUB_HOME_ID });
   for (const id of cacheIds().slice(0, 24)) {
     const cache = CONFIG.caches[id], m = meta(id);
-    menu.addOptions({ label: m.name.slice(0, 100), value: id, emoji: m.emoji, description: `${cachePrice(cache)} • ${cooldownLabel(cache)} cooldown`.slice(0, 100), default: selected === id });
+    const description = id === 'arn' ? '1 ARN token • Monday Central' : `${cachePrice(cache)} • ${cooldownLabel(cache)} cooldown`;
+    menu.addOptions({ label: m.name.slice(0, 100), value: id, emoji: m.emoji, description: description.slice(0, 100), default: selected === id });
   }
   return new ActionRowBuilder().addComponents(retireControl(menu));
 }
 
 function mySealedRow() {
   return new ActionRowBuilder().addComponents(
+    retireControl(new ButtonBuilder().setCustomId(HUB_MY_SEALED_ID).setLabel('My Sealed Caches').setEmoji('🔒').setStyle(ButtonStyle.Secondary)),
+    new ButtonBuilder().setCustomId(ARN_SHOP_ID).setLabel('ARN Cache').setStyle(ButtonStyle.Primary)
+  );
+}
+
+function arnRedeemButton() {
+  return new ButtonBuilder().setCustomId(`${BUY_PREFIX}arn`).setLabel('Redeem • 1 ARN token').setStyle(ButtonStyle.Success);
+}
+
+function arnShopPreview({ discordUserId, book, env = process.env, now = Date.now() } = {}) {
+  const activeBook = book || sharedArnBook();
+  const rotation = arnRotation(now, rotationSecret(env));
+  return {
+    content: arnShopLines({ balance: activeBook.balanceForDiscord(discordUserId), rotation }),
+    embeds: [],
+    components: [new ActionRowBuilder().addComponents(arnRedeemButton())],
+    allowedMentions: { parse: [] }
+  };
+}
+
+async function redeemArnInShop({ discordUserId, book, env = process.env, now = Date.now(), deliver } = {}) {
+  const activeBook = book || sharedArnBook();
+  const result = await openArnCache({ env, now, discordUserId, book: activeBook, deliver });
+  const sent = result.debited === true && result.raCalled === true && result.drawn;
+  return {
+    content: arnShopLines({
+      balance: activeBook.balanceForDiscord(discordUserId),
+      rotation: result.rotation,
+      redeemed: true,
+      drawn: sent ? result.drawn : null
+    }),
+    embeds: [],
+    components: [],
+    allowedMentions: { parse: [] },
+    debited: result.debited === true,
+    raCalled: result.raCalled === true
+  };
+}
+
+function arnCacheDetailPayload(now = Date.now(), env = process.env) {
+  const rotation = arnRotation(now, rotationSecret(env));
+  const purchaseRow = new ActionRowBuilder().addComponents(
+    arnRedeemButton(),
     retireControl(new ButtonBuilder().setCustomId(HUB_MY_SEALED_ID).setLabel('My Sealed Caches').setEmoji('🔒').setStyle(ButtonStyle.Secondary))
   );
+  return {
+    embeds: [{
+      title: '🎟️ ARN Cache',
+      description: arnShopPublicLines(rotation),
+      color: 0xb00020,
+      footer: { text: `${HUB_MARKER} • arn` }
+    }],
+    components: [cacheSelect('arn'), purchaseRow],
+    attachments: [],
+    allowedMentions: { parse: [] }
+  };
 }
 
 function hubHomePayload() {
@@ -165,6 +224,7 @@ function hubHomePayload() {
 }
 
 function cacheDetailPayload(cacheId) {
+  if (String(cacheId || '').toLowerCase() === 'arn') return arnCacheDetailPayload();
   const cache = CONFIG.caches[cacheId];
   if (!cache) throw new Error('Unknown Dino Box cache.');
   const m = meta(cacheId);
@@ -377,11 +437,16 @@ function installArkDinoBoxShopExtension(options = {}) {
         const isBuy = interaction.isButton?.() && id.startsWith(BUY_PREFIX);
         const isToken = interaction.isButton?.() && id.startsWith(TOKEN_PREFIX);
         const isTokenSubmit = interaction.isModalSubmit?.() && id.startsWith(TOKEN_MODAL_PREFIX);
+        const isArnShop = interaction.isButton?.() && id === ARN_SHOP_ID;
         const isLegacyOpen = interaction.isButton?.() && id === BUTTON_CACHE_SHOP;
-        if (!isHubSelect && !isMySealed && !isReveal && !isRevealLater && !isBuy && !isToken && !isTokenSubmit && !isLegacyOpen) return;
+        if (!isHubSelect && !isMySealed && !isReveal && !isRevealLater && !isBuy && !isToken && !isTokenSubmit && !isLegacyOpen && !isArnShop) return;
 
         void (async () => {
           const userId = String(interaction.user?.id || '');
+          if (isArnShop || (isHubSelect && String(interaction.values?.[0] || '').toLowerCase() === 'arn')) {
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            return interaction.editReply(arnShopPreview({ discordUserId: userId }));
+          }
           if (isHubSelect) {
             if (WEEKLY_CACHE_RETIRED !== true && !isRetired()) await purchaseService.refreshWeekly();
             const selected = String(interaction.values?.[0] || HUB_HOME_ID).toLowerCase();
@@ -414,6 +479,7 @@ function installArkDinoBoxShopExtension(options = {}) {
           if (isBuy) {
             const [cacheId, rotationId] = id.slice(BUY_PREFIX.length).toLowerCase().split(':');
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            if (cacheId === 'arn') return interaction.editReply(await redeemArnInShop({ discordUserId: userId }));
             const result = await purchaseService.purchase({ discordUserId: userId, cacheId, rotationId, purchaseNonce: String(interaction.id) });
             if (result.order.state !== 'SEALED') return interaction.editReply(finalResultPayload(result.order, result.balance, cacheId === 'arn' ? 'ARN Tokens' : 'Points'));
             return interaction.editReply(sealedResultPayload(result.order, result.balance, cacheId === 'arn' ? 'ARN Tokens' : 'Points'));
@@ -441,6 +507,9 @@ module.exports = {
   HUB_SELECT_ID,
   HUB_HOME_ID,
   HUB_MY_SEALED_ID,
+  ARN_SHOP_ID,
+  arnShopPreview,
+  redeemArnInShop,
   BUY_PREFIX,
   TOKEN_PREFIX,
   TOKEN_MODAL_PREFIX,

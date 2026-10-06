@@ -35,7 +35,16 @@ const { arkNpFlags } = require('../src/shared/ark-np-flags.cjs');
 const { awardWithClient, awardLiveReport, schemaStatements } = require('../src/economy-worker/arn-tokens-postgres.cjs');
 const { SUPPORTED_CURRENCIES } = require('../src/sentinel/nexus-economy-postgres-repository.cjs');
 const { handle, command } = require('../src/sentinel/arn-cache-extension.cjs');
-const { tokenText, openText, copyHasBotName } = require('../src/sentinel/arn-member-copy.cjs');
+const { tokenText, openText, openPointerText, copyHasBotName } = require('../src/sentinel/arn-member-copy.cjs');
+const {
+  ARN_SHOP_ID,
+  HUB_MY_SEALED_ID,
+  BUY_PREFIX,
+  hubHomePayload,
+  cacheDetailPayload,
+  arnShopPreview,
+  redeemArnInShop
+} = require('../src/sentinel/ark-dino-box-shop-extension.cjs');
 const { loadGuideConfig } = require('../src/sentinel/nexus-guide-extension.cjs');
 
 const LIVE = {
@@ -525,7 +534,8 @@ test('member copy stays plain and there is no exchange into Points, Coins, or ca
   assert.ok(topic);
   const guideText = [topic.summary, ...topic.details].join('\n');
   assert.match(guideText, /\/arn tokens/);
-  assert.match(guideText, /\/arn open/);
+  assert.match(guideText, /#dino-box-shop/);
+  assert.doesNotMatch(guideText, /\/arn open/);
   assert.equal(copyHasBotName(guideText), false);
   assert.doesNotMatch(guideText, /dino\s*caches?/i);
 
@@ -544,6 +554,71 @@ test('member copy stays plain and there is no exchange into Points, Coins, or ca
   const names = command().options.map((option) => option.name);
   assert.ok(names.includes('tokens'));
   assert.ok(names.includes('open'));
+  assert.ok(names.includes('report'));
+});
+
+test('ARN caches redeem from the dino box shop and /arn open only points there', async () => {
+  const now = Date.parse('2026-10-07T18:00:00.000Z');
+  const book = bookFor(account(), {});
+  const preview = arnShopPreview({ discordUserId: DISCORD, book, env: {}, now });
+  assert.match(preview.content, /costs 1 ARN token/);
+  assert.match(preview.content, /Your ARN tokens: 0/);
+  assert.equal(copyHasBotName(preview.content), false);
+  const rotation = arnRotation(now);
+  assert.equal(rotation.entries.length, 8);
+  for (const entry of rotation.entries) assert.match(preview.content, new RegExp(entry.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.equal(preview.components[0].toJSON().components[0].custom_id, `${BUY_PREFIX}arn`);
+
+  let delivered = false;
+  const redeemed = await redeemArnInShop({
+    discordUserId: DISCORD,
+    book,
+    env: {},
+    now,
+    deliver: async () => { delivered = true; return { raCalled: true }; }
+  });
+  assert.equal(delivered, false);
+  assert.equal(redeemed.debited, false);
+  assert.equal(redeemed.raCalled, false);
+  assert.match(redeemed.content, /Nothing was opened and no tame was sent/);
+  assert.match(redeemed.content, /Your ARN tokens: 0/);
+  assert.equal(book.state.ledger.length, 0);
+
+  const pageText = cacheDetailPayload('arn').embeds[0].description;
+  assert.match(pageText, /costs 1 ARN token/);
+  assert.match(pageText, /Your ARN token balance is shown when you redeem/);
+  assert.equal(copyHasBotName(pageText), false);
+  for (const entry of rotation.entries) assert.match(pageText, new RegExp(entry.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+
+  const coastalText = JSON.stringify(cacheDetailPayload('coastal').embeds[0]);
+  assert.match(coastalText, /150 Points/);
+  assert.doesNotMatch(coastalText, /1 ARN token/);
+
+  const previousMode = process.env.ARKSHOP_DB_MODE;
+  process.env.ARKSHOP_DB_MODE = 'disabled';
+  try {
+    const row = hubHomePayload().components[1].toJSON().components;
+    assert.equal(row[0].custom_id, HUB_MY_SEALED_ID);
+    assert.equal(row[0].disabled, true);
+    const arn = row.find((item) => item.custom_id === ARN_SHOP_ID);
+    assert.equal(arn.label, 'ARN Cache');
+    assert.notEqual(arn.disabled, true);
+    for (const button of cacheDetailPayload('coastal').components[1].toJSON().components) assert.equal(button.disabled, true);
+    assert.notEqual(cacheDetailPayload('arn').components[1].toJSON().components[0].disabled, true);
+  } finally {
+    if (previousMode == null) delete process.env.ARKSHOP_DB_MODE;
+    else process.env.ARKSHOP_DB_MODE = previousMode;
+  }
+
+  const pointer = await handle({
+    commandName: 'arn',
+    user: { id: DISCORD },
+    options: { getSubcommand: () => 'open' }
+  }, { ledger: { balance() { throw new Error('mysql'); } }, shop: { purchase() { throw new Error('mysql'); } }, config: { discord: {} }, book, env: {} });
+  assert.equal(pointer.content, openPointerText());
+  assert.match(pointer.content, /#dino-box-shop/);
+  assert.equal(copyHasBotName(pointer.content), false);
+  assert.equal(book.state.ledger.length, 0);
 });
 
 test('new ARN files do not flip economy, shop, or birthday flags', () => {
@@ -554,7 +629,8 @@ test('new ARN files do not flip economy, shop, or birthday flags', () => {
     'src/sentinel/arn-member-copy.cjs',
     'src/economy-worker/arn-tokens-postgres.cjs',
     'src/sentinel/arn-cache-extension.cjs',
-    'src/sentinel/arn-live-board-extension.cjs'
+    'src/sentinel/arn-live-board-extension.cjs',
+    'src/sentinel/ark-dino-box-shop-extension.cjs'
   ];
   for (const file of files) {
     const src = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');

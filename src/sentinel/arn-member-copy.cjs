@@ -10,10 +10,43 @@ function tokenText(balance, env = process.env) {
     'The cap is 3 tokens a day and 10 a week, Central time.',
     'Your in-game name has to match one linked ARK account exactly.',
     'A held account does not earn tokens, and missed chances are not paid later.',
-    'Tokens are not Points, Coins, or the old cache currency.'
+    'Tokens are not Points, Coins, or the old cache currency.',
+    'Redeem a cache in #dino-box-shop.'
   ];
   if (!flags.creditsEnabled) lines.push('Nothing is being paid out yet.');
   return lines.join('\n');
+}
+
+function poolLine(rotation) {
+  const names = (rotation?.entries || []).map((entry) => entry.name).filter(Boolean);
+  return names.length ? `This week: ${names.join(', ')}.` : 'This week\'s list is not available.';
+}
+
+function arnShopLines({ balance, rotation, redeemed = false, drawn = null } = {}) {
+  const lines = [
+    'An ARN cache costs 1 ARN token.',
+    poolLine(rotation),
+    'The list changes every Monday at 12:00 AM Central time.',
+    `Your ARN tokens: ${Number(balance || 0)}.`
+  ];
+  if (redeemed && drawn) lines.push(`Redeemed. The tame is ${drawn.species}, level ${drawn.level}.`);
+  else if (redeemed) lines.push('Nothing was opened and no tame was sent.');
+  else lines.push('Press Redeem to draw one tame from this list.');
+  return lines.join('\n');
+}
+
+function arnShopPublicLines(rotation) {
+  return [
+    'An ARN cache costs 1 ARN token.',
+    poolLine(rotation),
+    'The list changes every Monday at 12:00 AM Central time.',
+    'Your ARN token balance is shown when you redeem.',
+    'Nothing is sent while payouts are off.'
+  ].join('\n');
+}
+
+function openPointerText() {
+  return 'Redeem an ARN cache in #dino-box-shop. Pick ARN Cache. This command does not open one.';
 }
 
 function openText(result = {}) {
@@ -33,4 +66,4 @@ function copyHasBotName(value) {
   return /sentinal|sentinel|cephalon/i.test(String(value || ''));
 }
 
-module.exports = { tokenText, openText, copyHasBotName };
+module.exports = { tokenText, openText, arnShopLines, arnShopPublicLines, openPointerText, copyHasBotName };
