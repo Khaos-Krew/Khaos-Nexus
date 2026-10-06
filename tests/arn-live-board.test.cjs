@@ -1,9 +1,15 @@
 'use strict';
 
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { ChannelType } = require('discord.js');
 const {
   RESOLVED_LINGER_MS,
+  INFO_MARKER,
+  BOARD_MARKER,
   parseShinyDiscordPayload,
   classifyThreat,
   applyEvent,
@@ -13,6 +19,7 @@ const {
   runArnLiveBoardSetup,
   replayIntake,
   armArnLiveBoard,
+  ensurePublicChannel,
   ensurePanelMessages,
   installArnLiveBoardExtension,
   SETUP_DELAY_MS,
@@ -133,7 +140,8 @@ test('live board setup logs one outcome and does not hang', async () => {
     reconcile: async () => ({ publicChannelId: 'pub', intakeChannelId: 'in', replayed: 2, tracked: 1 })
   });
   assert.equal(ready.replayed, 2);
-  assert.match(lines.at(-1), /ARN live board ready: publicChannel=pub intakeChannel=in replayed=2 tracked=1/);
+  assert.match(lines.at(-1), /ARN live board ready: publicChannel=pub intakeChannel=in tracked=1/);
+  assert.doesNotMatch(lines.at(-1), /replayed=/);
 
   lines.length = 0;
   const skipped = await runArnLiveBoardSetup({}, {
@@ -205,7 +213,8 @@ test('a slow live-board step arms refresh when it finishes and names a step erro
   await gate;
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(armed, 1);
-  assert.match(lines.at(-1), /ARN live board ready \(late\): publicChannel=late intakeChannel=in replayed=4 tracked=1/);
+  assert.match(lines.at(-1), /ARN live board ready \(late\): publicChannel=late intakeChannel=in tracked=1/);
+  assert.doesNotMatch(lines.at(-1), /replayed=/);
 
   lines.length = 0;
   let failRelease;
@@ -248,13 +257,20 @@ test('replay stops after two history pages', async () => {
       }
     }
   };
-  const accepted = await replayIntake({}, channel);
+  const lines = [];
+  const accepted = await replayIntake({}, channel, { logger: { log(line) { lines.push(line); } } });
   assert.equal(accepted, 0);
+  assert.match(lines[0], /ARN live board replayed: count=0/);
   assert.equal(fetches.length, 2);
   assert.equal(fetches[0].limit, 50);
   assert.equal(fetches[0].before, undefined);
   assert.equal(fetches[1].before, '4901');
 });
+
+function panelEnv() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'arn-board-'));
+  return { ARN_DRY_RUN_FILE: path.join(dir, 'arn-dry-run.json') };
+}
 
 test('panel setup reads one page and does not edit the other ARN service', async () => {
   const fetches = [];
@@ -263,7 +279,7 @@ test('panel setup reads one page and does not edit the other ARN service', async
   const channel = {
     async send(body) {
       sent.push(String(body.embeds[0].footer.text));
-      return { id: `new-${sent.length}`, embeds: body.embeds };
+      return { id: `new-${sent.length}`, embeds: body.embeds, author: { id: 'sentinal-bot', bot: true } };
     },
     messages: {
       async fetch(query) {
@@ -273,8 +289,8 @@ test('panel setup reads one page and does not edit the other ARN service', async
             id: 'foreign',
             author: { id: 'arn-service', bot: true },
             embeds: [
-              { footer: { text: 'ARN • NETWORK BRIEFING' } },
-              { footer: { text: 'ARN • LIVE BOUNTY BOARD • Sentinel managed • Last refresh' } }
+              { footer: { text: INFO_MARKER } },
+              { footer: { text: `${BOARD_MARKER} • Sentinel managed • Last refresh` } }
             ],
             async edit() { edits.push('foreign'); }
           }]
@@ -282,13 +298,139 @@ test('panel setup reads one page and does not edit the other ARN service', async
       }
     }
   };
-  const placed = await ensurePanelMessages(channel, 'sentinal-bot');
+  const placed = await ensurePanelMessages(channel, 'sentinal-bot', { env: panelEnv() });
   assert.equal(fetches.length, 1);
   assert.deepEqual(fetches[0], { limit: 50 });
   assert.deepEqual(edits, []);
   assert.equal(sent.length, 2);
   assert.equal(placed.info.id, 'new-1');
   assert.equal(placed.board.id, 'new-2');
+});
+
+test('a second panel setup edits the stored messages instead of posting', async () => {
+  const env = panelEnv();
+  let sends = 0;
+  const sent = new Map();
+  const channel = {
+    async send(body) {
+      sends += 1;
+      const message = {
+        id: String(100 + sends),
+        author: { id: 'sentinal-bot', bot: true },
+        embeds: body.embeds,
+        edits: 0,
+        async edit() { this.edits += 1; return this; }
+      };
+      sent.set(message.id, message);
+      return message;
+    },
+    messages: {
+      async fetch(query) {
+        if (typeof query === 'string') return sent.get(query);
+        return new Map();
+      }
+    }
+  };
+  await ensurePanelMessages(channel, 'sentinal-bot', { env });
+  const again = await ensurePanelMessages(channel, 'sentinal-bot', { env });
+  assert.equal(sends, 2);
+  assert.equal(again.info.edits, 1);
+  assert.equal(again.board.edits, 1);
+});
+
+test('a stored board older than the recent page is edited by id', async () => {
+  const env = panelEnv();
+  const recordDir = path.dirname(env.ARN_DRY_RUN_FILE);
+  fs.mkdirSync(recordDir, { recursive: true });
+  fs.writeFileSync(path.join(recordDir, 'arn-live-board.json'), JSON.stringify({
+    infoMessageId: '11',
+    boardMessageId: '12'
+  }));
+  const queries = [];
+  const edits = [];
+  const recent = new Map();
+  for (let index = 0; index < 50; index += 1) {
+    recent.set(`new-${index}`, {
+      id: `new-${index}`,
+      author: { id: 'arn-service', bot: true },
+      embeds: [{ footer: { text: 'other board' } }]
+    });
+  }
+  const stored = {
+    11: {
+      id: '11',
+      author: { id: 'sentinal-bot', bot: true },
+      embeds: [{ footer: { text: INFO_MARKER } }],
+      async edit() { edits.push('11'); return this; }
+    },
+    12: {
+      id: '12',
+      author: { id: 'sentinal-bot', bot: true },
+      embeds: [{ footer: { text: `${BOARD_MARKER} • Sentinel managed • kept` } }],
+      async edit() { edits.push('12'); return this; }
+    }
+  };
+  let sends = 0;
+  const channel = {
+    async send() { sends += 1; return { id: 'posted' }; },
+    messages: {
+      async fetch(query) {
+        queries.push(query);
+        if (typeof query === 'string') return stored[query];
+        return recent;
+      }
+    }
+  };
+  const placed = await ensurePanelMessages(channel, 'sentinal-bot', { env });
+  assert.deepEqual(edits, ['11', '12']);
+  assert.equal(sends, 0);
+  assert.equal(placed.board.id, '12');
+  assert.equal(queries.some((query) => query?.limit === 50), false);
+});
+
+test('concurrent setup posts one channel and one board', async () => {
+  let creates = 0;
+  const guild = {
+    channels: {
+      async create() {
+        creates += 1;
+        await new Promise((resolve) => setTimeout(resolve, 15));
+        return { id: 'arn-channel', parentId: 'cat', name: 'arn' };
+      }
+    }
+  };
+  const channels = new Map([
+    ['cat', { id: 'cat', type: ChannelType.GuildCategory, name: 'ARK' }]
+  ]);
+  const [first, second] = await Promise.all([
+    ensurePublicChannel(guild, channels),
+    ensurePublicChannel(guild, channels)
+  ]);
+  assert.equal(creates, 1);
+  assert.equal(first.channel.id, 'arn-channel');
+  assert.equal(second.channel.id, 'arn-channel');
+
+  const env = panelEnv();
+  let sends = 0;
+  const channel = {
+    async send(body) {
+      sends += 1;
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      return {
+        id: String(sends),
+        author: { id: 'sentinal-bot', bot: true },
+        embeds: body.embeds,
+        async edit() { return this; }
+      };
+    },
+    messages: { async fetch() { return new Map(); } }
+  };
+  const [panelA, panelB] = await Promise.all([
+    ensurePanelMessages(channel, 'sentinal-bot', { env }),
+    ensurePanelMessages(channel, 'sentinal-bot', { env })
+  ]);
+  assert.equal(sends, 2);
+  assert.equal(panelA.board.id, panelB.board.id);
 });
 
 test('a timed-out setup retries with backoff and late success cancels the retry', async () => {
@@ -328,31 +470,29 @@ test('a timed-out setup retries with backoff and late success cancels the retry'
   assert.equal(armed, 1);
 });
 
-test('a timed-out setup keeps retrying until a later attempt is ready', async () => {
+test('an overlapping retry waits and does not post a second board', async () => {
   const lines = [];
   const logger = {
     log(line) { lines.push(line); },
     warn(line) { lines.push(line); }
   };
   let calls = 0;
-  let armed = 0;
+  let posts = 0;
   armArnLiveBoard({}, {
     delayMs: 0,
     timeoutMs: 15,
     retryDelays: [20],
     logger,
-    onReady() { armed += 1; },
     async reconcile() {
       calls += 1;
-      if (calls === 1) await new Promise(() => {});
-      return { publicChannelId: 'p', intakeChannelId: 'i', replayed: 0, tracked: 0 };
+      posts += 1;
+      await new Promise(() => {});
     }
   });
-  await new Promise((resolve) => setTimeout(resolve, 70));
-  assert.equal(calls, 2);
-  assert.equal(armed, 1);
-  assert.match(lines.join('\n'), /ARN live board retry: attempt=1 waitMs=20/);
-  assert.match(lines.join('\n'), /ARN live board ready: publicChannel=p/);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(calls, 1);
+  assert.equal(posts, 1);
+  assert.match(lines.join('\n'), /ARN live board retry: attempt=1 waitMs=20 pending/);
 });
 
 test('a failed REST read logs once and keeps the gateway payload', async () => {

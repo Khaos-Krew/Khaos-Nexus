@@ -1,11 +1,13 @@
 'use strict';
 
+const fs = require('node:fs');
+const path = require('node:path');
 const discord = require('discord.js');
 const { ChannelType, Client, Events, PermissionFlagsBits, Routes } = discord;
 const { loadConfig } = require('../shared/config.cjs');
 const { getArnWebhookRegistry, discoverNamedWebhooks, ARN_INTAKE_CHANNEL_NAME } = require('./arn-intake-extension.cjs');
 const { pruneStaleActive, resolveLifecyclePolicy } = require('./arn-lifecycle-policy.cjs');
-const { observeFromDiscordMessage } = require('./arn-token-award.cjs');
+const { observeFromDiscordMessage, journalPath } = require('./arn-token-award.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.arnLiveBoard.extension');
 const GUILD_MESSAGES = Symbol.for('khaos.nexus.arn.guildMessages');
@@ -31,8 +33,12 @@ const state = {
   anomalies: new Map(),
   refreshTimer: null,
   retryTimer: null,
-  setupToken: 0
+  setupWork: null
 };
+
+let publicChannelFlight = null;
+let panelFlight = null;
+let knownPublic = null;
 
 const clean = (value, max = 180) => String(value || '')
   .replace(/[\r\n\0]+/g, ' ')
@@ -259,7 +265,8 @@ function findArkCategory(channels) {
     || null;
 }
 
-async function ensurePublicChannel(guild, channels) {
+async function createPublicChannel(guild, channels) {
+  if (knownPublic?.channel) return knownPublic;
   const list = channels || await guild.channels.fetch();
   const category = findArkCategory(list);
   if (!category) {
@@ -277,7 +284,17 @@ async function ensurePublicChannel(guild, channels) {
       reason: 'Nexus Sentinel ARN public live board'
     });
   }
-  return { channel, category };
+  knownPublic = { channel, category };
+  return knownPublic;
+}
+
+function ensurePublicChannel(guild, channels) {
+  if (!publicChannelFlight) {
+    publicChannelFlight = createPublicChannel(guild, channels).finally(() => {
+      publicChannelFlight = null;
+    });
+  }
+  return publicChannelFlight;
 }
 
 async function organizePublicChannel(channel, category) {
@@ -298,19 +315,75 @@ function isOwnPanelMessage(message, marker, botId) {
   });
 }
 
-async function ensurePanelMessages(channel, botId) {
-  // One page. The active ARN service also writes #arn, so messages it owns are left alone.
-  const recent = await channel.messages.fetch({ limit: PANEL_SCAN_LIMIT });
-  const owned = [...recent.values()];
-  let info = owned.find((message) => isOwnPanelMessage(message, INFO_MARKER, botId));
-  let board = owned.find((message) => isOwnPanelMessage(message, BOARD_MARKER, botId));
+function boardRecordPath(env = process.env) {
+  return path.join(path.dirname(journalPath(env)), 'arn-live-board.json');
+}
+
+function readBoardRecord(env = process.env) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(boardRecordPath(env), 'utf8'));
+    const infoMessageId = String(parsed?.infoMessageId || '').replace(/\D/g, '');
+    const boardMessageId = String(parsed?.boardMessageId || '').replace(/\D/g, '');
+    if (!infoMessageId && !boardMessageId) return null;
+    return { infoMessageId, boardMessageId };
+  } catch {
+    return null;
+  }
+}
+
+function writeBoardRecord(record, env = process.env) {
+  const target = boardRecordPath(env);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const body = JSON.stringify({
+    infoMessageId: String(record.infoMessageId || ''),
+    boardMessageId: String(record.boardMessageId || '')
+  });
+  const temporary = `${target}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, body);
+  fs.renameSync(temporary, target);
+}
+
+async function fetchOwnedPanelMessage(channel, id, marker, botId) {
+  if (!id) return null;
+  try {
+    const message = await channel.messages.fetch(id);
+    return isOwnPanelMessage(message, marker, botId) ? message : null;
+  } catch {
+    return null;
+  }
+}
+
+async function placePanelMessages(channel, botId, env) {
+  const stored = readBoardRecord(env);
+  let info = await fetchOwnedPanelMessage(channel, stored?.infoMessageId, INFO_MARKER, botId);
+  let board = await fetchOwnedPanelMessage(channel, stored?.boardMessageId, BOARD_MARKER, botId);
+  if (!info || !board) {
+    const recent = await channel.messages.fetch({ limit: PANEL_SCAN_LIMIT });
+    const owned = [...recent.values()];
+    if (!info) info = owned.find((message) => isOwnPanelMessage(message, INFO_MARKER, botId));
+    if (!board) board = owned.find((message) => isOwnPanelMessage(message, BOARD_MARKER, botId));
+  }
   if (!info) info = await channel.send({ embeds: [infoEmbed()], allowedMentions: { parse: [] } });
   else await info.edit({ embeds: [infoEmbed()], allowedMentions: { parse: [] } });
   if (!board) board = await channel.send({ embeds: [boardEmbed()], allowedMentions: { parse: [] } });
   else await board.edit({ embeds: [boardEmbed()], allowedMentions: { parse: [] } });
   state.infoMessageId = String(info.id);
   state.boardMessageId = String(board.id);
+  try {
+    writeBoardRecord({ infoMessageId: info.id, boardMessageId: board.id }, env);
+  } catch (error) {
+    warnLiveBoardStep(console, error, 'panel-record');
+  }
   return { info, board };
+}
+
+function ensurePanelMessages(channel, botId, options = {}) {
+  if (!panelFlight) {
+    panelFlight = placePanelMessages(channel, botId, options.env).finally(() => {
+      panelFlight = null;
+    });
+  }
+  return panelFlight;
 }
 
 async function refreshBoard(client) {
@@ -398,6 +471,10 @@ async function runArnLiveBoardSetup(client, options = {}) {
     .then(() => reconcile(client, hooks))
     .then((result) => ({ result }))
     .catch((error) => ({ error }));
+  state.setupWork = pending;
+  pending.finally(() => {
+    if (state.setupWork === pending) state.setupWork = null;
+  });
   const timeout = new Promise((resolve) => {
     timer = setTimeout(() => resolve({ timeout: true }), timeoutMs);
   });
@@ -414,7 +491,7 @@ async function runArnLiveBoardSetup(client, options = {}) {
       logger.warn(`[Nexus Sentinal] ARN live board skipped: ${result.skipped}`);
       return;
     }
-    logger.log(`[Nexus Sentinal] ARN live board ready (late): publicChannel=${result.publicChannelId} intakeChannel=${result.intakeChannelId} replayed=${result.replayed} tracked=${result.tracked}`);
+    logger.log(`[Nexus Sentinal] ARN live board ready (late): publicChannel=${result.publicChannelId} intakeChannel=${result.intakeChannelId} tracked=${result.tracked}`);
     if (typeof options.onReady === 'function') options.onReady(result);
   }
   if (outcome.timeout) {
@@ -431,7 +508,7 @@ async function runArnLiveBoardSetup(client, options = {}) {
     logger.warn(`[Nexus Sentinal] ARN live board skipped: ${result.skipped}`);
     return result;
   }
-  logger.log(`[Nexus Sentinal] ARN live board ready: publicChannel=${result.publicChannelId} intakeChannel=${result.intakeChannelId} replayed=${result.replayed} tracked=${result.tracked}`);
+  logger.log(`[Nexus Sentinal] ARN live board ready: publicChannel=${result.publicChannelId} intakeChannel=${result.intakeChannelId} tracked=${result.tracked}`);
   if (typeof options.onReady === 'function') options.onReady(result);
   return result;
 }
@@ -444,10 +521,6 @@ function setupRetryDelay(attempt, options = {}) {
   return Math.min(SETUP_RETRY_CAP_MS, SETUP_RETRY_BASE_MS * (2 ** Math.min(attempt, 4)));
 }
 
-function setupIsCurrent(options = {}) {
-  return options.setupToken == null || options.setupToken === state.setupToken;
-}
-
 function armArnLiveBoard(client, options = {}) {
   const logger = options.logger || console;
   const delayMs = Number.isFinite(Number(options.delayMs)) ? Number(options.delayMs) : SETUP_DELAY_MS;
@@ -456,11 +529,14 @@ function armArnLiveBoard(client, options = {}) {
   const run = (wait) => {
     const timer = setTimeout(() => {
       if (ready) return;
-      state.setupToken += 1;
-      const setupToken = state.setupToken;
+      if (state.setupWork) {
+        const waitMs = setupRetryDelay(Math.max(0, attempt - 1), options);
+        logger.warn?.(`[Nexus Sentinal] ARN live board retry: attempt=${Math.max(attempt, 1)} waitMs=${waitMs} pending`);
+        state.retryTimer = run(waitMs);
+        return;
+      }
       void runArnLiveBoardSetup(client, {
         ...options,
-        setupToken,
         onReady(result) {
           ready = true;
           if (state.retryTimer) clearTimeout(state.retryTimer);
@@ -527,6 +603,7 @@ async function replayIntake(client, channel, options = {}) {
     if (applyReplayEvent(event, Number(message.createdTimestamp || Date.now()))) accepted += 1;
   }
   pruneResolved();
+  options.logger?.log?.(`[Nexus Sentinal] ARN live board replayed: count=${accepted}`);
   return accepted;
 }
 
@@ -573,16 +650,14 @@ async function reconcileArnLiveBoard(client, config = loadConfig(), options = {}
   const placedChannel = placed.ok ? placed.value : null;
   const botId = String(client.user?.id || '');
   void (async () => {
-    if (!setupIsCurrent(options)) return;
     if (placedChannel?.channel && placedChannel?.category) {
       await trackLiveBoardStep('public-organize', () => organizePublicChannel(placedChannel.channel, placedChannel.category), options)
         .catch((error) => warnLiveBoardStep(logger, error, 'public-organize'));
     }
-    if (!setupIsCurrent(options)) return;
-    await trackLiveBoardStep('replay', () => replayIntake(client, intake), options)
+    await trackLiveBoardStep('replay', () => replayIntake(client, intake, { logger }), options)
       .catch((error) => warnLiveBoardStep(logger, error, 'replay'));
-    if (!setupIsCurrent(options) || !placedChannel?.channel) return;
-    await trackLiveBoardStep('panel', () => ensurePanelMessages(placedChannel.channel, botId), options)
+    if (!placedChannel?.channel) return;
+    await trackLiveBoardStep('panel', () => ensurePanelMessages(placedChannel.channel, botId, { env: options.env }), options)
       .catch((error) => warnLiveBoardStep(logger, error, 'panel'));
   })();
 
@@ -590,7 +665,6 @@ async function reconcileArnLiveBoard(client, config = loadConfig(), options = {}
     guildId,
     intakeChannelId: state.intakeChannelId,
     publicChannelId: state.publicChannelId,
-    replayed: 0,
     tracked: state.anomalies.size
   };
 }
@@ -691,7 +765,10 @@ function resetArnStateForTest() {
   state.refreshTimer = null;
   if (state.retryTimer) clearTimeout(state.retryTimer);
   state.retryTimer = null;
-  state.setupToken = 0;
+  state.setupWork = null;
+  publicChannelFlight = null;
+  panelFlight = null;
+  knownPublic = null;
 }
 
 module.exports = {
