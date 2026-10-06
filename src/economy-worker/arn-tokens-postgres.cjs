@@ -2,6 +2,7 @@
 
 const { sqlIdent } = require('../sentinel/nexus-economy-postgres-repository.cjs');
 const { arnFlags } = require('../shared/arn-flags.cjs');
+const { resolveCachePayment } = require('../shared/dino-cache-currency.cjs');
 const { memberIdentityHold } = require('../sentinel/nexus-economy-identity-hold.cjs');
 const {
   CURRENCY,
@@ -338,6 +339,10 @@ async function spendWithClient(client, input = {}) {
   const schema = sqlIdent(input.schema || 'public');
   const orderId = String(input.orderId || '').trim();
   const flags = arnFlags(input.env || {});
+  const pay = resolveCachePayment(input.cacheId || 'arn', input.currency || 'ARN_TOKENS');
+  if (!pay.ok || pay.currency !== 'ARN_TOKENS') {
+    return { ok: false, reason: 'currency-not-accepted', cacheId: pay.cacheId, currency: pay.currency, accepted: pay.accepted, debited: false };
+  }
   await client.query('BEGIN');
   try {
     if (!orderId) {

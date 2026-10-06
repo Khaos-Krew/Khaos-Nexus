@@ -29,6 +29,7 @@ function poolLine(rotation) {
 function arnShopLines({ balance, rotation, redeemed = false, drawn = null } = {}) {
   const lines = [
     'An ARN cache costs 1 ARN token.',
+    'Accepted currency: ARN tokens only.',
     poolLine(rotation),
     'The list changes every Monday at 12:00 AM Central time.',
     `Your ARN tokens: ${Number(balance || 0)}.`
@@ -42,6 +43,7 @@ function arnShopLines({ balance, rotation, redeemed = false, drawn = null } = {}
 function arnShopPublicLines(rotation) {
   return [
     'An ARN cache costs 1 ARN token.',
+    'Accepted currency: ARN tokens only.',
     poolLine(rotation),
     'The list changes every Monday at 12:00 AM Central time.',
     'Your ARN token balance is shown when you redeem.',

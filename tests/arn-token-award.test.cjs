@@ -570,7 +570,10 @@ test('member copy stays plain and there is no exchange into Points, Coins, or ca
   const catalog = fs.readFileSync(path.join(__dirname, '../src/shared/ark-np-catalog.cjs'), 'utf8');
   const postgres = fs.readFileSync(path.join(__dirname, '../src/economy-worker/arn-tokens-postgres.cjs'), 'utf8');
   assert.doesNotMatch(wallet, /ARN_TOKENS/);
-  assert.doesNotMatch(catalog, /ARN_TOKENS/);
+  const arnCatalog = catalog.indexOf('arn: Object.freeze');
+  assert.ok(arnCatalog > 0);
+  assert.doesNotMatch(catalog.slice(0, arnCatalog), /ARN_TOKENS/);
+  assert.match(catalog.slice(arnCatalog), /ARN_TOKENS/);
   assert.doesNotMatch(postgres, /nexus_arn_wallets|nexus_arn_ledger/);
   assert.match(postgres, /ARN_TOKENS/);
 

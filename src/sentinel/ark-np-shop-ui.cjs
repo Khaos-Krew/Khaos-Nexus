@@ -123,7 +123,7 @@ async function showCaches(interaction, economy) {
     .addOptions(items.map((item) => ({
       label: String(item.name).slice(0, 100),
       value: item.sku,
-      description: `${item.price} Points`.slice(0, 100)
+      description: `${item.price} Points or 1 Cache token`.slice(0, 100)
     })));
   return interaction.update(ephemeral('Choose a cache. It is delivered on whatever map you are on.', {
     components: [new ActionRowBuilder().addComponents(menu)]
@@ -146,7 +146,8 @@ async function quoteSku(interaction, economy) {
   const cancel = new ButtonBuilder().setCustomId('ark-np:cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary);
   return interaction.reply(ephemeral([
     `**${quoted.quote.name || item.name}**`,
-    `Price: ${quoted.quote.price} Points`,
+    'Accepted currency: Nexus Points or Cache tokens.',
+    quoted.quote.currency === 'DINO_CACHE_TOKENS' ? 'Price: 1 Cache token' : `Price: ${quoted.quote.price} Points`,
     `Balance: ${quoted.quote.balance} → ${quoted.quote.balanceAfter} Points`,
     'Delivered on whatever map you are on.',
     'Confirm to spend the Points.'
