@@ -167,28 +167,37 @@ class PostgresCoinShop {
     if (refused) return { decision: { result: refused, effects: [] }, econId: fresh?.econId || '' };
     const balance = fresh ? await this.#coinBalance(client, fresh.econId, true) : 0;
     const staffRefundsToday = actor ? await this.#staffRefundsToday(client, actor) : 0;
-    const actorEconId = actor ? await this.#actorEconId(client, actor) : '';
+    const actorIdentity = actor ? await this.#actorEconId(client, actor) : { econId: '', unresolved: true };
     return {
       decision: decideRefund({
         balance,
         purchase: fresh,
         held,
         staffRefundsToday,
-        actorEconId
+        actorEconId: actorIdentity.econId,
+        actorEconUnresolved: actorIdentity.unresolved
       }, { ...input, actor }, now),
       econId: fresh?.econId || ''
     };
   }
 
   async #actorEconId(client, discordUserId) {
-    const result = await client.query(
-      `SELECT economic_identity_id
-       FROM ${sqlIdent(this.schema)}.nexus_economic_identity_links
-       WHERE provider = 'discord' AND external_id = $1
-       LIMIT 1`,
-      [String(discordUserId || '')]
-    );
-    return String(result.rows?.[0]?.economic_identity_id || '');
+    await client.query('SAVEPOINT coin_shop_actor_link');
+    try {
+      const result = await client.query(
+        `SELECT economic_identity_id
+         FROM ${sqlIdent(this.schema)}.nexus_economic_identity_links
+         WHERE provider = 'discord' AND external_id = $1
+         LIMIT 1`,
+        [String(discordUserId || '')]
+      );
+      await client.query('RELEASE SAVEPOINT coin_shop_actor_link');
+      const econId = String(result.rows?.[0]?.economic_identity_id || '');
+      return { econId, unresolved: !econId };
+    } catch {
+      try { await client.query('ROLLBACK TO SAVEPOINT coin_shop_actor_link'); } catch { /* ignore */ }
+      return { econId: '', unresolved: true };
+    }
   }
 
   async #staffRefundsToday(client, actor) {

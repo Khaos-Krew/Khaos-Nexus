@@ -23,9 +23,7 @@ function hasRoleId(subject, roleId) {
 }
 
 function isCommunityManagerRole(role) {
-  const id = String(role?.id || '');
-  const name = String(role?.name || '').trim().toLowerCase();
-  return id === COMMUNITY_MANAGER_ROLE_ID || name === 'community manager';
+  return String(role?.id || '') === COMMUNITY_MANAGER_ROLE_ID;
 }
 
 function subjectWithoutCommunityManager(subject) {

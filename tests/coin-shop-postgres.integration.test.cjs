@@ -55,6 +55,15 @@ async function openShop(label) {
      ($1, 'NEXUS_POINTS', 80)`,
     [ECON]
   );
+  await pool.query(
+    `INSERT INTO "${schema}".nexus_economic_identities (economic_identity_id, status) VALUES ('econ_coin_staff', 'verified')`
+  );
+  await pool.query(
+    `INSERT INTO "${schema}".nexus_economic_identity_links
+     (provider, external_id, economic_identity_id, verified_at, source)
+     VALUES ('discord', $1, 'econ_coin_staff', $2, 'test')`,
+    [STAFF, new Date(DAY).toISOString()]
+  );
   return {
     pool,
     schema,
@@ -358,6 +367,45 @@ test('postgres does not treat an mc-link discord source as membership verificati
   }
 });
 
+test('postgres refuses a refund when the staff actor has no economic identity', { skip }, async () => {
+  const stranger = '623456789012345678';
+  const opened = await openShop('unlinked');
+  try {
+    const quoted = await opened.shop.quote({ discordUserId: USER, sku: 'ttl_night_owl' });
+    const bought = await opened.shop.purchase({ discordUserId: USER, sku: 'ttl_night_owl', nonce: quoted.quote.nonce });
+    assert.equal(bought.ok, true, bought.reason);
+    const missing = await opened.shop.refund({
+      ledgerRef: bought.ledgerRef,
+      reason: 'no staff link',
+      actor: stranger,
+      staffVerified: true
+    });
+    assert.equal(missing.reason, 'staff-unlinked');
+    assert.equal((await balances(opened.pool, opened.schema)).NEXUS_COINS, 2000 - 195);
+    const active = await opened.pool.query(
+      `SELECT status FROM "${opened.schema}".nexus_coin_shop_entitlements WHERE economic_identity_id = $1 AND sku = 'ttl_night_owl'`,
+      [ECON]
+    );
+    assert.equal(active.rows[0].status, 'active');
+    await opened.pool.query(`ALTER TABLE "${opened.schema}".nexus_economic_identity_links RENAME TO nexus_economic_identity_links_hidden`);
+    try {
+      const broken = await opened.shop.refund({
+        ledgerRef: bought.ledgerRef,
+        reason: 'lookup failed',
+        actor: STAFF,
+        staffVerified: true
+      });
+      assert.equal(broken.reason, 'staff-unlinked');
+    } finally {
+      await opened.pool.query(`ALTER TABLE "${opened.schema}".nexus_economic_identity_links_hidden RENAME TO nexus_economic_identity_links`);
+    }
+    assert.equal((await balances(opened.pool, opened.schema)).NEXUS_COINS, 2000 - 195);
+    assert.equal((await balances(opened.pool, opened.schema)).NEXUS_POINTS, 80);
+  } finally {
+    await closeShop(opened);
+  }
+});
+
 test('postgres blocks a refund from a Discord alt of the buyer', { skip }, async () => {
   const ALT = '523456789012345678';
   const opened = await openShop('altrefund');
@@ -494,6 +542,15 @@ test('postgres blocks a self-refund and a staff actor past 10 refunds today', { 
     assert.equal(capped.reason, 'refund-cap');
     assert.equal((await balances(opened.pool, opened.schema)).NEXUS_COINS, 2000 - 195);
     const other = '323456789012345678';
+    await opened.pool.query(
+      `INSERT INTO "${opened.schema}".nexus_economic_identities (economic_identity_id, status) VALUES ('econ_coin_third', 'verified')`
+    );
+    await opened.pool.query(
+      `INSERT INTO "${opened.schema}".nexus_economic_identity_links
+       (provider, external_id, economic_identity_id, verified_at, source)
+       VALUES ('discord', $1, 'econ_coin_third', $2, 'test')`,
+      [other, new Date(DAY).toISOString()]
+    );
     const allowed = await opened.shop.refund({
       ledgerRef: bought.ledgerRef,
       reason: 'different staff',

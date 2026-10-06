@@ -86,7 +86,7 @@ function shopAdminCommand() {
       .setName('mc-refund')
       .setDescription('Refund a Minecraft shop order')
       .addStringOption((option) => option.setName('order').setDescription('Order id').setRequired(true))
-      .addStringOption((option) => option.setName('reason').setDescription('Why').setRequired(true))
+      .addStringOption((option) => option.setName('reason').setDescription('Why this refund is needed').setRequired(true))
       .addBooleanOption((option) => option.setName('force').setDescription('Refund a delivery that was sent and is not confirmed yet'))
       .addBooleanOption((option) => option.setName('confirm').setDescription('Apply the refund. Leave this off to preview.')));
 }

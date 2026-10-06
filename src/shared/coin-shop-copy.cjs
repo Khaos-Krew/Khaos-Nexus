@@ -30,8 +30,9 @@ const REASONS = Object.freeze({
   'staff-required': 'That command is for a staff admin.',
   'member-held': 'That member is on hold. The refund was not applied.',
   'reason-required': 'A refund needs a reason. Nothing was refunded.',
-  'self-refund': 'Ask another staff admin to do this refund.',
-  'refund-cap': 'Ask another staff admin, or try again after 12:00 AM Central.'
+  'self-refund': 'Nothing was refunded. Ask another staff admin to do this refund.',
+  'refund-cap': 'Nothing was refunded. Ask another staff admin, or try again after 12:00 AM Central.',
+  'staff-unlinked': 'Nothing was refunded. Your staff account isn\'t linked to the economy yet. Ask another staff admin to do this refund.'
 });
 
 function coinShopMemberText(reason = '', details = {}) {

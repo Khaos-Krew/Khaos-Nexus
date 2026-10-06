@@ -51,6 +51,9 @@ function shop(overrides = {}) {
     linkSource: overrides.linkSource || '',
     rankId: overrides.rankId || 'cipher-runner'
   });
+  if ((overrides.discordUserId || USER) !== OTHER) {
+    service.seed({ discordUserId: OTHER, econId: 'econ-staff' });
+  }
   service.moveClock = (value) => { now = value; };
   return service;
 }
@@ -703,6 +706,23 @@ test('shopadmin uses the staff admin role, allows the Owner role, and ignores Co
   assert.equal(isCoinShopAdmin(interaction(['777777777777777777'], { adminPerm: true }), env), false);
   assert.equal(isCoinShopAdmin(interaction([adminRole]), { NEXUS_STAFF_ADMIN_ROLE_IDS: adminRole, NEXUS_STAFF_MOD_ROLE_IDS: adminRole }), false);
   assert.equal(isCoinShopAdmin(interaction([COMMUNITY_MANAGER_ROLE_ID]), { NEXUS_STAFF_ADMIN_ROLE_IDS: COMMUNITY_MANAGER_ROLE_ID }), false);
+  const namedManager = '888888888888888888';
+  assert.equal(isCoinShopAdmin({
+    user: { id: USER },
+    guild: { id: guildId, ownerId: '999999999999999999' },
+    member: {
+      guild: { id: guildId },
+      roles: { cache: new Map([[namedManager, { id: namedManager, name: 'Community Manager' }]]) }
+    }
+  }, { NEXUS_STAFF_ADMIN_ROLE_IDS: namedManager }), true);
+  assert.equal(isCoinShopAdmin({
+    user: { id: USER },
+    guild: { id: guildId, ownerId: '999999999999999999' },
+    member: {
+      guild: { id: guildId },
+      roles: { cache: new Map([[COMMUNITY_MANAGER_ROLE_ID, { id: COMMUNITY_MANAGER_ROLE_ID, name: 'Helpers' }]]) }
+    }
+  }, { NEXUS_STAFF_ADMIN_ROLE_IDS: COMMUNITY_MANAGER_ROLE_ID }), false);
   assert.equal(isCoinShopAdmin(interaction([], { userId: '999999999999999999', ownerId: '999999999999999999' }), env), true);
   assert.deepEqual(acceptVerifiedStaff({ actor: USER }), { ok: false, reason: 'staff-required' });
   assert.deepEqual(acceptVerifiedStaff({ actor: USER, staffVerified: true }), { ok: true, actor: USER });
@@ -927,6 +947,27 @@ test('replaying a refunded receipt does not strip a re-bought cosmetic', async (
   }
 });
 
+test('an unlinked staff actor cannot refund, and a lookup error refuses the refund', async () => {
+  const service = shop({ coins: 2000 });
+  const { result } = await buy(service);
+  const stranger = '623456789012345678';
+  const missing = await service.refund({ ledgerRef: result.ledgerRef, reason: 'no link', actor: stranger });
+  assert.equal(missing.reason, 'staff-unlinked');
+  assert.equal(coinShopMemberText('staff-unlinked'), 'Nothing was refunded. Your staff account isn\'t linked to the economy yet. Ask another staff admin to do this refund.');
+  assert.equal(service.coinBalance(USER), 2000 - 195);
+  assert.equal(service.pointBalance(USER), 80);
+  assert.equal(service.entitlements[0].status, 'active');
+  const original = service.identityView.bind(service);
+  service.identityView = (id) => {
+    if (String(id) === OTHER) throw new Error('lookup failed');
+    return original(id);
+  };
+  const broken = await service.refund({ ledgerRef: result.ledgerRef, reason: 'lookup failed', actor: OTHER });
+  assert.equal(broken.reason, 'staff-unlinked');
+  assert.equal(service.ledger.filter((row) => row.entryType === 'refund').length, 0);
+  assert.equal(service.entitlements[0].status, 'active');
+});
+
 test('a Discord alt linked to the buyer cannot refund that purchase', async () => {
   const ALT = '523456789012345678';
   const service = shop({ coins: 2000 });
@@ -952,7 +993,7 @@ test('staff cannot refund their own purchase or more than 10 refunds in a Chicag
   assert.equal(own.reason, 'self-refund');
   const refused = await service.refund({ ledgerRef: result.ledgerRef, reason: 'mine', actor: USER });
   assert.equal(refused.reason, 'self-refund');
-  assert.equal(coinShopMemberText('self-refund'), 'Ask another staff admin to do this refund.');
+  assert.equal(coinShopMemberText('self-refund'), 'Nothing was refunded. Ask another staff admin to do this refund.');
   assert.equal(service.coinBalance(USER), 2000 - 195);
   assert.equal(service.entitlements[0].status, 'active');
   assert.equal(service.ledger.filter((row) => row.entryType === 'refund').length, 0);
@@ -975,11 +1016,12 @@ test('staff cannot refund their own purchase or more than 10 refunds in a Chicag
   });
   const capped = await service.refund({ ledgerRef: result.ledgerRef, reason: 'eleventh', actor: OTHER });
   assert.equal(capped.reason, 'refund-cap');
-  assert.equal(coinShopMemberText('refund-cap'), 'Ask another staff admin, or try again after 12:00 AM Central.');
+  assert.equal(coinShopMemberText('refund-cap'), 'Nothing was refunded. Ask another staff admin, or try again after 12:00 AM Central.');
   assert.equal(service.coinBalance(USER), 2000 - 195);
   assert.equal(service.entitlements[0].status, 'active');
 
   const third = '323456789012345678';
+  service.seed({ discordUserId: third, econId: 'econ-third' });
   const allowed = await service.refund({ ledgerRef: result.ledgerRef, reason: 'different staff', actor: third });
   assert.equal(allowed.ok, true, allowed.reason);
   assert.equal(service.coinBalance(USER), 2000);
@@ -1093,8 +1135,11 @@ test('coin shop entitlement reads require the service token', async () => {
 });
 
 test('one /shopadmin registers refund, lookup, and mc-refund, and each handler claims only its subcommand', async () => {
-  const names = shopAdminCommand().options.map((option) => option.toJSON().name);
+  const definitions = shopAdminCommand().options.map((option) => option.toJSON());
+  const names = definitions.map((option) => option.name);
   assert.deepEqual(names, ['refund', 'lookup', 'mc-refund']);
+  const mcReason = definitions.find((option) => option.name === 'mc-refund').options.find((option) => option.name === 'reason');
+  assert.equal(mcReason.description, 'Why this refund is needed');
   const calls = { coin: 0, mc: 0 };
   const economy = {
     async coinShopRefundPreview() { calls.coin += 1; return { ok: false, reason: 'not-found' }; },

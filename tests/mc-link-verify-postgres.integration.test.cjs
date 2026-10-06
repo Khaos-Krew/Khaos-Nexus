@@ -227,6 +227,16 @@ test('a restricted Minecraft link stays restricted on postgres and opens only Mi
       `UPDATE "${schema}".nexus_mc_orders SET created_at = NOW() - INTERVAL '25 hours', status = 'DELIVERY_FAILED', order_data = jsonb_set(order_data, '{status}', '"DELIVERY_FAILED"') WHERE order_id = $1`,
       [bought.order.orderId]
     );
+    await admin.query(
+      `INSERT INTO "${schema}".nexus_economic_identities (economic_identity_id, status) VALUES ('econ_staff_actor', 'verified')
+       ON CONFLICT (economic_identity_id) DO NOTHING`
+    );
+    await admin.query(
+      `INSERT INTO "${schema}".nexus_economic_identity_links
+       (provider, external_id, economic_identity_id, verified_at, source)
+       VALUES ('discord', '444444444444444444', 'econ_staff_actor', NULL, 'sentinel-ownership-proof')
+       ON CONFLICT (provider, external_id) DO NOTHING`
+    );
     const tooLate = await points.refund({
       orderId: bought.order.orderId,
       reason: 'outside the day',
@@ -383,6 +393,39 @@ test('a linked alt cannot refund the main Minecraft order, and the daily cap is 
       `INSERT INTO "${schema}".nexus_mc_orders (order_id, nonce, order_data, status, price, provider)
        VALUES ('alt-order', 'alt-order', $1::jsonb, 'DELIVERY_FAILED', 0, 'minecraft')`,
       [JSON.stringify(order)]
+    );
+    const unlinked = await points.refund({
+      orderId: 'alt-order',
+      reason: 'staff has no economy link',
+      actor,
+      writesEnabled: true,
+      staffAuthorized: true
+    });
+    assert.equal(unlinked.reason, 'staff-unlinked');
+    assert.equal((await admin.query(`SELECT status FROM "${schema}".nexus_mc_orders WHERE order_id = 'alt-order'`)).rows[0].status, 'DELIVERY_FAILED');
+    await admin.query(`ALTER TABLE "${schema}".nexus_economic_identity_links RENAME TO nexus_economic_identity_links_hidden`);
+    try {
+      const broken = await points.refund({
+        orderId: 'alt-order',
+        reason: 'staff lookup failed',
+        actor,
+        writesEnabled: true,
+        staffAuthorized: true
+      });
+      assert.equal(broken.reason, 'staff-unlinked');
+    } finally {
+      await admin.query(`ALTER TABLE "${schema}".nexus_economic_identity_links_hidden RENAME TO nexus_economic_identity_links`);
+    }
+    assert.equal((await admin.query(`SELECT status FROM "${schema}".nexus_mc_orders WHERE order_id = 'alt-order'`)).rows[0].status, 'DELIVERY_FAILED');
+    await admin.query(
+      `INSERT INTO "${schema}".nexus_economic_identities (economic_identity_id, status) VALUES ('econ_staff_actor', 'verified')
+       ON CONFLICT (economic_identity_id) DO NOTHING`
+    );
+    await admin.query(
+      `INSERT INTO "${schema}".nexus_economic_identity_links
+       (provider, external_id, economic_identity_id, verified_at, source)
+       VALUES ('discord', $1, 'econ_staff_actor', NULL, 'sentinel-ownership-proof')`,
+      [actor]
     );
     const refused = await points.refund({
       orderId: 'alt-order',

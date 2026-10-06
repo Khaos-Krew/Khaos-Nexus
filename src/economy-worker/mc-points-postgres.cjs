@@ -830,11 +830,19 @@ class PostgresMcPoints {
   }
 
   async #discordEconomicIdentity(client, discordUserId) {
-    const found = await client.query(
-      `SELECT economic_identity_id FROM ${sqlIdent(this.schema)}.nexus_economic_identity_links WHERE provider = 'discord' AND external_id = $1`,
-      [String(discordUserId || '')]
-    );
-    return String(found.rows?.[0]?.economic_identity_id || '');
+    await client.query('SAVEPOINT mc_actor_link');
+    try {
+      const found = await client.query(
+        `SELECT economic_identity_id FROM ${sqlIdent(this.schema)}.nexus_economic_identity_links WHERE provider = 'discord' AND external_id = $1`,
+        [String(discordUserId || '')]
+      );
+      await client.query('RELEASE SAVEPOINT mc_actor_link');
+      const econId = String(found.rows?.[0]?.economic_identity_id || '');
+      return { econId, unresolved: !econId };
+    } catch {
+      try { await client.query('ROLLBACK TO SAVEPOINT mc_actor_link'); } catch { /* ignore */ }
+      return { econId: '', unresolved: true };
+    }
   }
 
   async #staffRefundsToday(client, actor) {
@@ -888,7 +896,12 @@ class PostgresMcPoints {
       }
       const actor = String(input.actor || '').trim();
       const auto = input.reason === 'auto-14d';
-      const actorIdentity = !auto && actor ? await this.#discordEconomicIdentity(client, actor) : '';
+      const resolved = !auto && actor ? await this.#discordEconomicIdentity(client, actor) : { econId: '', unresolved: false };
+      if (!auto && actor && resolved.unresolved) {
+        await client.query('ROLLBACK');
+        return { ok: false, reason: 'staff-unlinked', order: before };
+      }
+      const actorIdentity = resolved.econId;
       const self = Boolean(actor && (actor === before.discordUserId || (actorIdentity && actorIdentity === before.economicIdentityId)));
       if (!auto && self) {
         const selfHold = await this.#lockedIdentityHold(client, before.economicIdentityId);
