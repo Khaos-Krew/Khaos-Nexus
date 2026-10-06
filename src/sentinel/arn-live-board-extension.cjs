@@ -17,7 +17,10 @@ const BOARD_MARKER = 'ARN • LIVE BOUNTY BOARD';
 const RESOLVED_LINGER_MS = 15 * 60 * 1000;
 const REPLAY_PAGE_SIZE = 50;
 const REPLAY_MAX_PAGES = 2;
+const PANEL_SCAN_LIMIT = 50;
 const BOARD_REFRESH_MS = 60 * 1000;
+const SETUP_RETRY_BASE_MS = 20_000;
+const SETUP_RETRY_CAP_MS = 5 * 60_000;
 
 const state = {
   guildId: '',
@@ -26,7 +29,9 @@ const state = {
   infoMessageId: '',
   boardMessageId: '',
   anomalies: new Map(),
-  refreshTimer: null
+  refreshTimer: null,
+  retryTimer: null,
+  setupToken: 0
 };
 
 const clean = (value, max = 180) => String(value || '')
@@ -285,15 +290,20 @@ async function organizePublicChannel(channel, category) {
   }
 }
 
-function isManagedMessage(message, marker) {
-  if (!message?.author?.bot) return false;
-  return (message.embeds || []).some((embed) => String(embed?.footer?.text || '').includes(marker));
+function isOwnPanelMessage(message, marker, botId) {
+  if (!botId || String(message?.author?.id || '') !== String(botId)) return false;
+  return (message.embeds || []).some((embed) => {
+    const footer = String(embed?.footer?.text || '');
+    return footer === marker || footer.startsWith(`${marker} • Sentinel managed`);
+  });
 }
 
-async function ensurePanelMessages(channel) {
-  const recent = await channel.messages.fetch({ limit: 50 });
-  let info = recent.find((message) => isManagedMessage(message, INFO_MARKER));
-  let board = recent.find((message) => isManagedMessage(message, BOARD_MARKER));
+async function ensurePanelMessages(channel, botId) {
+  // One page. The active ARN service also writes #arn, so messages it owns are left alone.
+  const recent = await channel.messages.fetch({ limit: PANEL_SCAN_LIMIT });
+  const owned = [...recent.values()];
+  let info = owned.find((message) => isOwnPanelMessage(message, INFO_MARKER, botId));
+  let board = owned.find((message) => isOwnPanelMessage(message, BOARD_MARKER, botId));
   if (!info) info = await channel.send({ embeds: [infoEmbed()], allowedMentions: { parse: [] } });
   else await info.edit({ embeds: [infoEmbed()], allowedMentions: { parse: [] } });
   if (!board) board = await channel.send({ embeds: [boardEmbed()], allowedMentions: { parse: [] } });
@@ -426,13 +436,49 @@ async function runArnLiveBoardSetup(client, options = {}) {
   return result;
 }
 
+function setupRetryDelay(attempt, options = {}) {
+  if (Array.isArray(options.retryDelays) && options.retryDelays.length) {
+    const index = Math.min(Math.max(0, attempt), options.retryDelays.length - 1);
+    return Number(options.retryDelays[index]);
+  }
+  return Math.min(SETUP_RETRY_CAP_MS, SETUP_RETRY_BASE_MS * (2 ** Math.min(attempt, 4)));
+}
+
+function setupIsCurrent(options = {}) {
+  return options.setupToken == null || options.setupToken === state.setupToken;
+}
+
 function armArnLiveBoard(client, options = {}) {
+  const logger = options.logger || console;
   const delayMs = Number.isFinite(Number(options.delayMs)) ? Number(options.delayMs) : SETUP_DELAY_MS;
-  const timer = setTimeout(() => {
-    void runArnLiveBoardSetup(client, options);
-  }, delayMs);
-  timer.unref?.();
-  return timer;
+  let attempt = 0;
+  let ready = false;
+  const run = (wait) => {
+    const timer = setTimeout(() => {
+      if (ready) return;
+      state.setupToken += 1;
+      const setupToken = state.setupToken;
+      void runArnLiveBoardSetup(client, {
+        ...options,
+        setupToken,
+        onReady(result) {
+          ready = true;
+          if (state.retryTimer) clearTimeout(state.retryTimer);
+          if (typeof options.onReady === 'function') options.onReady(result);
+        }
+      }).then((result) => {
+        if (ready || result?.unavailable !== 'setup-timeout') return;
+        const waitMs = setupRetryDelay(attempt, options);
+        attempt += 1;
+        logger.warn?.(`[Nexus Sentinal] ARN live board retry: attempt=${attempt} waitMs=${waitMs}`);
+        state.retryTimer = run(waitMs);
+      }).catch((error) => warnLiveBoardStep(logger, error, 'setup'));
+    }, wait);
+    timer.unref?.();
+    state.retryTimer = timer;
+    return timer;
+  };
+  return run(delayMs);
 }
 
 function oldestMessageId(messages) {
@@ -525,17 +571,19 @@ async function reconcileArnLiveBoard(client, config = loadConfig(), options = {}
   else warnLiveBoardStep(logger, placed.error, 'public-channel');
 
   const placedChannel = placed.ok ? placed.value : null;
+  const botId = String(client.user?.id || '');
   void (async () => {
+    if (!setupIsCurrent(options)) return;
     if (placedChannel?.channel && placedChannel?.category) {
       await trackLiveBoardStep('public-organize', () => organizePublicChannel(placedChannel.channel, placedChannel.category), options)
         .catch((error) => warnLiveBoardStep(logger, error, 'public-organize'));
     }
+    if (!setupIsCurrent(options)) return;
     await trackLiveBoardStep('replay', () => replayIntake(client, intake), options)
       .catch((error) => warnLiveBoardStep(logger, error, 'replay'));
-    if (placedChannel?.channel) {
-      await trackLiveBoardStep('panel', () => ensurePanelMessages(placedChannel.channel), options)
-        .catch((error) => warnLiveBoardStep(logger, error, 'panel'));
-    }
+    if (!setupIsCurrent(options) || !placedChannel?.channel) return;
+    await trackLiveBoardStep('panel', () => ensurePanelMessages(placedChannel.channel, botId), options)
+      .catch((error) => warnLiveBoardStep(logger, error, 'panel'));
   })();
 
   return {
@@ -641,6 +689,9 @@ function resetArnStateForTest() {
   state.boardMessageId = '';
   if (state.refreshTimer) clearInterval(state.refreshTimer);
   state.refreshTimer = null;
+  if (state.retryTimer) clearTimeout(state.retryTimer);
+  state.retryTimer = null;
+  state.setupToken = 0;
 }
 
 module.exports = {

@@ -12,6 +12,8 @@ const {
   rawMessagePayload,
   runArnLiveBoardSetup,
   replayIntake,
+  armArnLiveBoard,
+  ensurePanelMessages,
   installArnLiveBoardExtension,
   SETUP_DELAY_MS,
   resetArnStateForTest
@@ -252,6 +254,105 @@ test('replay stops after two history pages', async () => {
   assert.equal(fetches[0].limit, 50);
   assert.equal(fetches[0].before, undefined);
   assert.equal(fetches[1].before, '4901');
+});
+
+test('panel setup reads one page and does not edit the other ARN service', async () => {
+  const fetches = [];
+  const edits = [];
+  const sent = [];
+  const channel = {
+    async send(body) {
+      sent.push(String(body.embeds[0].footer.text));
+      return { id: `new-${sent.length}`, embeds: body.embeds };
+    },
+    messages: {
+      async fetch(query) {
+        fetches.push(query);
+        return new Map([
+          ['foreign', {
+            id: 'foreign',
+            author: { id: 'arn-service', bot: true },
+            embeds: [
+              { footer: { text: 'ARN • NETWORK BRIEFING' } },
+              { footer: { text: 'ARN • LIVE BOUNTY BOARD • Sentinel managed • Last refresh' } }
+            ],
+            async edit() { edits.push('foreign'); }
+          }]
+        ]);
+      }
+    }
+  };
+  const placed = await ensurePanelMessages(channel, 'sentinal-bot');
+  assert.equal(fetches.length, 1);
+  assert.deepEqual(fetches[0], { limit: 50 });
+  assert.deepEqual(edits, []);
+  assert.equal(sent.length, 2);
+  assert.equal(placed.info.id, 'new-1');
+  assert.equal(placed.board.id, 'new-2');
+});
+
+test('a timed-out setup retries with backoff and late success cancels the retry', async () => {
+  const lines = [];
+  const logger = {
+    log(line) { lines.push(line); },
+    warn(line) { lines.push(line); }
+  };
+  let calls = 0;
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  let armed = 0;
+  armArnLiveBoard({}, {
+    delayMs: 0,
+    timeoutMs: 20,
+    retryDelays: [50],
+    logger,
+    onReady() { armed += 1; },
+    async reconcile(_client, hooks) {
+      calls += 1;
+      hooks.noteStep('guild-fetch');
+      await gate;
+      return { publicChannelId: 'p', intakeChannelId: 'i', replayed: 0, tracked: 0 };
+    }
+  });
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(calls, 1);
+  assert.match(lines.join('\n'), /setup-timeout step=guild-fetch/);
+  assert.match(lines.join('\n'), /ARN live board retry: attempt=1 waitMs=50/);
+  release();
+  await gate;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(armed, 1);
+  assert.match(lines.join('\n'), /ARN live board ready \(late\):/);
+  await new Promise((resolve) => setTimeout(resolve, 70));
+  assert.equal(calls, 1);
+  assert.equal(armed, 1);
+});
+
+test('a timed-out setup keeps retrying until a later attempt is ready', async () => {
+  const lines = [];
+  const logger = {
+    log(line) { lines.push(line); },
+    warn(line) { lines.push(line); }
+  };
+  let calls = 0;
+  let armed = 0;
+  armArnLiveBoard({}, {
+    delayMs: 0,
+    timeoutMs: 15,
+    retryDelays: [20],
+    logger,
+    onReady() { armed += 1; },
+    async reconcile() {
+      calls += 1;
+      if (calls === 1) await new Promise(() => {});
+      return { publicChannelId: 'p', intakeChannelId: 'i', replayed: 0, tracked: 0 };
+    }
+  });
+  await new Promise((resolve) => setTimeout(resolve, 70));
+  assert.equal(calls, 2);
+  assert.equal(armed, 1);
+  assert.match(lines.join('\n'), /ARN live board retry: attempt=1 waitMs=20/);
+  assert.match(lines.join('\n'), /ARN live board ready: publicChannel=p/);
 });
 
 test('a failed REST read logs once and keeps the gateway payload', async () => {
