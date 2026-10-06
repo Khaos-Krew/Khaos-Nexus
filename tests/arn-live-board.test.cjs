@@ -156,6 +156,42 @@ test('live board setup logs one outcome and does not hang', async () => {
   assert.equal(lines.length, 1);
   finishHang({ skipped: 'test-release' });
   await hung;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(lines.at(-1), /ARN live board skipped: test-release/);
+
+  lines.length = 0;
+  let finishLate;
+  let armed = 0;
+  const late = new Promise((resolve) => { finishLate = resolve; });
+  const timedOut = await runArnLiveBoardSetup({}, {
+    logger,
+    timeoutMs: 20,
+    onReady() { armed += 1; },
+    reconcile: () => late
+  });
+  assert.equal(timedOut.unavailable, 'setup-timeout');
+  finishLate({ publicChannelId: 'late', intakeChannelId: 'in', replayed: 3, tracked: 2 });
+  await late;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(armed, 1);
+  assert.match(lines.at(-1), /ARN live board ready: publicChannel=late/);
+});
+
+test('a failed REST read logs once and keeps the gateway payload', async () => {
+  const warnings = [];
+  const original = console.warn;
+  console.warn = (line) => warnings.push(String(line));
+  try {
+    const payload = await rawMessagePayload({
+      rest: { async get() { throw new Error('boom\nsecret'); } }
+    }, { channelId: '1', id: '2', content: 'plain', embeds: [] });
+    assert.equal(payload.content, 'plain');
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /ARN message read failed; using gateway payload: boom secret/);
+    assert.equal(warnings[0].includes('\n'), false);
+  } finally {
+    console.warn = original;
+  }
 });
 
 test('the live board hook is installed on the Client Sentinal logs in with', () => {

@@ -469,8 +469,9 @@ test('member copy stays plain and there is no exchange into Points, Coins, or ca
   assert.match(tokenText(0, {}), /25%/);
   assert.match(tokenText(0, {}), /10%/);
   assert.doesNotMatch(guideText, /\/arn open/);
+  assert.match(guideText, /ARN caches are redeemed in the Dino Cache shop with ARN Tokens\./);
   assert.equal(copyHasBotName(guideText), false);
-  assert.doesNotMatch(guideText, /dino\s*caches?/i);
+  assert.doesNotMatch(guideText, /\/arn open/);
 
   const book = bookFor(account(), {});
   const interaction = {

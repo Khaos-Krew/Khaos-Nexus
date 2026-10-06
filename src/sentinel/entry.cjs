@@ -84,7 +84,6 @@ installCreatorProgramExtension();
 installCreatorRolesEntryLockdownExtension();
 installCreatorLifecycleExtension();
 installStaffWorkspaceExtension();
-installArnIntakeExtension();
 installNexusEconomyIdentitySyncExtension();
 installNexusBalanceCommandExtension();
 installWalletCosmeticsExtension();
@@ -139,5 +138,12 @@ require('./ark-shiny-config-runtime.cjs').installRuntime();
 require('./ark-dynamic-config-http.cjs');
 require('./ark-identity-webhook-http.cjs');
 require('./protocol/discord.cjs').installProtocolExtension();
+
+// Last discord.Client swap, then the ARN login hooks, then bot.cjs (which
+// destructures Client at load). A Docker -r preload must not install these.
+require('./arn-live-board-extension.cjs').ensureArnGuildMessages();
+installArnIntakeExtension();
+require('./arn-live-board-extension.cjs').installArnLiveBoardExtension();
+require('./arn-cache-extension.cjs').installArnCacheExtension();
 
 require('./bot.cjs');

@@ -19,7 +19,7 @@ const { isRetired } = require('./arkshop-mysql.cjs');
 const { memberActionFallback } = require('./arkshop-cluster-economy-guard.cjs');
 const { arnRotation, openArnCache, rotationSecret } = require('./arn-cache-rotation.cjs');
 const { sharedArnBook } = require('./arn-token-award.cjs');
-const { journalReader, readArnJournal } = require('./arn-journal-client.cjs');
+const { journalReader, readArnJournal, JOURNAL_UNAVAILABLE_TEXT } = require('./arn-journal-client.cjs');
 const { arnShopLines, arnShopPublicLines } = require('./arn-member-copy.cjs');
 const { shopCurrencyCopy, isArnCache } = require('../shared/dino-cache-currency.cjs');
 const { ArkCacheShopService } = require('./ark-cache-shop-service.cjs');
@@ -196,9 +196,9 @@ async function arnShopPreview({ discordUserId, book, ledger, env = process.env, 
     unavailable = remote.ok !== true;
     shown = remote.ok ? Number(remote.balance || 0) : 0;
   } else shown = await shownArnBalance(discordUserId, { book, ledger, env });
-  const lines = arnShopLines({ balance: shown, rotation, env });
+  const lines = arnShopLines({ balance: shown, balanceText: unavailable ? 'unavailable' : undefined, rotation, env });
   return {
-    content: unavailable ? `ARN trial records are not available from this bot right now.\n${lines}` : lines,
+    content: unavailable ? `${JOURNAL_UNAVAILABLE_TEXT}\n${lines}` : lines,
     embeds: [],
     components: [new ActionRowBuilder().addComponents(arnRedeemButton())],
     allowedMentions: { parse: [] }

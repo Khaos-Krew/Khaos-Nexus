@@ -1,14 +1,11 @@
 'use strict';
 
 const { run, cleanError } = require('./ark-shiny-config-startup.cjs');
-const { installArnLiveBoardExtension } = require('./arn-live-board-extension.cjs');
 const ENV_KEY = 'ARK_GEN1_SHINY_BALANCED_CONFIG_ONCE';
 
 function installRuntime({ delayMs = 30000 } = {}) {
-  // ARN is a Discord-side Shiny runtime and must remain active independently of
-  // the one-shot server config deployment gate below.
-  installArnLiveBoardExtension();
-
+  // The ARN live board is installed from entry.cjs after the Discord client
+  // subclass swap. This runtime only deploys the one-shot Shiny config.
   if (!String(process.env[ENV_KEY] || '').trim()) return { enabled: false };
   const timer = setTimeout(() => void run().then((result) => {
     if (result.skipped) console.log(`[Nexus Sentinal] balanced Shiny config skipped: ${result.skipped}`);

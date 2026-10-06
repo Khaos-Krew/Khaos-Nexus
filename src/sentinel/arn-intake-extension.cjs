@@ -16,6 +16,7 @@ const { ensureStaffCategory } = require('./staff-workspace-extension.cjs');
 const { sentinalArnLegacyEnabled } = require('./arn-legacy-mode.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.arnIntake.extension');
+const boundClients = new WeakSet();
 const ARN_INTAKE_CHANNEL_NAME = 'arn-ingest';
 const ARN_INTAKE_TOPIC = 'Private ARN intake bus for per-map Shiny! Dinos webhooks. Read by Nexus Sentinel.';
 const INITIAL_RECONCILE_DELAY_MS = 90_000;
@@ -168,8 +169,9 @@ async function reconcileArnIntake(client, config = loadConfig(), options = {}) {
 }
 
 function installArnIntakeExtension() {
-  if (Client.prototype[INSTALLED]) return;
-  Client.prototype[INSTALLED] = true;
+  const ActiveClient = require('discord.js').Client;
+  if (Object.prototype.hasOwnProperty.call(ActiveClient.prototype, INSTALLED)) return;
+  ActiveClient.prototype[INSTALLED] = true;
 
   if (!sentinalArnLegacyEnabled()) {
     console.log('[Nexus Sentinal] ARN legacy intake maintenance disabled by SENTINAL_ARN_LEGACY_ENABLED=false');
@@ -177,11 +179,13 @@ function installArnIntakeExtension() {
   }
 
   const config = loadConfig();
-  const originalLogin = Client.prototype.login;
+  const originalLogin = ActiveClient.prototype.login;
 
-  Client.prototype.login = function nexusArnIntakeLogin(...args) {
+  ActiveClient.prototype.login = function nexusArnIntakeLogin(...args) {
     const client = this;
-    client.once(Events.ClientReady, () => {
+    if (!boundClients.has(client)) {
+      boundClients.add(client);
+      client.once(Events.ClientReady, function nexusArnIntakeReady() {
       const run = async (reason) => {
         try {
           const result = await reconcileArnIntake(client, config, { reason });
@@ -199,7 +203,8 @@ function installArnIntakeExtension() {
       initial.unref?.();
       const periodic = setInterval(() => void run('periodic'), PERIODIC_RECONCILE_MS);
       periodic.unref?.();
-    });
+      });
+    }
     return originalLogin.apply(client, args);
   };
 }

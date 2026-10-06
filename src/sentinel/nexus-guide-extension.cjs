@@ -20,10 +20,19 @@ const BOUND = Symbol.for('khaos.nexus.guide.bound');
 const GUIDE_CUSTOM_ID = 'nexusguide:topic';
 const GUIDE_CHANNEL_NAME = 'nexus-guide';
 const GUIDE_CONFIG_PATH = path.resolve(__dirname, '../../config/discord/nexus-guide.json');
+const APPROVED_PUBLIC_LINES = Object.freeze([
+  'ARN caches are redeemed in the Dino Cache shop with ARN Tokens.'
+]);
 const FORBIDDEN_PUBLIC_PATTERNS = [
   /dino\s*caches?/i,
   /nexus\s*anomal(?:y|ies)/i
 ];
+
+function guideTextForPolicy(value) {
+  let text = typeof value === 'string' ? value : JSON.stringify(value);
+  for (const line of APPROVED_PUBLIC_LINES) text = text.split(line).join('');
+  return text;
+}
 
 function normalizeName(value) {
   return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
@@ -56,7 +65,7 @@ function validateGuideConfig(guide) {
     }
   }
 
-  const publicText = JSON.stringify(guide);
+  const publicText = guideTextForPolicy(guide);
   for (const pattern of FORBIDDEN_PUBLIC_PATTERNS) {
     if (pattern.test(publicText)) throw new Error(`Nexus guide contains a feature that is not approved for public documentation: ${pattern}`);
   }
@@ -246,6 +255,8 @@ function installNexusGuideExtension() {
 module.exports = {
   GUIDE_CONFIG_PATH,
   GUIDE_CUSTOM_ID,
+  APPROVED_PUBLIC_LINES,
+  guideTextForPolicy,
   loadGuideConfig,
   validateGuideConfig,
   buildGuideOverviewEmbed,
