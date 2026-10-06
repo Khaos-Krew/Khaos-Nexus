@@ -19,6 +19,8 @@ const { arkMemberText, orderStatusText, ledgerLineText } = require('../shared/ar
 const { shopCurrencyCopy } = require('../shared/dino-cache-currency.cjs');
 const { isStaffAdmin } = require('./staff-roles.cjs');
 const { buildStaffSubject, rolesFromSubject } = require('../economy-worker/ark-staff-auth.cjs');
+const { mcRefundActorAllowed } = require('../economy-worker/mc-refund-auth.cjs');
+const { mcMemberText } = require('../shared/mc-member-text.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.np.shop.ui.installed');
 const sessions = new Map();
@@ -53,6 +55,18 @@ function adminCommand() {
       .addStringOption((option) => option.setName('action').setDescription('What to do').setRequired(true)
         .addChoices({ name: 'delivered', value: 'delivered' }, { name: 'refund', value: 'refund' }))
       .addStringOption((option) => option.setName('reason').setDescription('Why').setRequired(true)));
+}
+
+function shopAdminCommand() {
+  return new SlashCommandBuilder()
+    .setName('shopadmin')
+    .setDescription('Staff tools for the Minecraft shop')
+    .setDMPermission(false)
+    .addSubcommand((sub) => sub.setName('mc-refund').setDescription('Refund a Minecraft shop order')
+      .addStringOption((option) => option.setName('order').setDescription('Order id').setRequired(true))
+      .addStringOption((option) => option.setName('reason').setDescription('Why').setRequired(true))
+      .addBooleanOption((option) => option.setName('force').setDescription('Refund a delivery that was sent and is not confirmed yet'))
+      .addBooleanOption((option) => option.setName('confirm').setDescription('Apply the refund. Leave this off to preview.')));
 }
 
 function isArkStaff(interaction, config = loadConfig(), env = process.env) {
@@ -213,12 +227,35 @@ async function handleAdmin(interaction, economy, config) {
   return interaction.reply(ephemeral('That command is for staff.'));
 }
 
-async function handleArkShopInteraction(interaction, { economyClient = new NexusEconomyClient(), config = loadConfig() } = {}) {
+async function handleMcRefund(interaction, economy, env = process.env) {
+  if (!mcRefundActorAllowed(interaction, env)) return interaction.reply(ephemeral(mcMemberText('staff-not-authorized')));
+  const orderId = interaction.options.getString('order');
+  const reason = interaction.options.getString('reason');
+  const force = interaction.options.getBoolean?.('force') === true;
+  const confirm = interaction.options.getBoolean?.('confirm') === true;
+  const body = {
+    orderId,
+    reason,
+    actor: interaction.user.id,
+    staffAuthorized: true,
+    force
+  };
+  const result = confirm ? await economy.mcShopRefund(body) : await economy.mcShopRefundPreview(body);
+  if (result?.duplicate) return interaction.reply(ephemeral(`Order ${orderId} was already refunded. Nexus Points were not returned again.`));
+  if (!result?.ok) return interaction.reply(ephemeral(mcMemberText(result?.reason)));
+  if (!confirm) return interaction.reply(ephemeral(`Preview: ${orderId} can be refunded. Run \`/shopadmin mc-refund\` again with confirm to return the Points.`));
+  const price = Number(result.order?.price || 0);
+  const returned = price > 0 ? `${price} Nexus Points were returned.` : 'No Nexus Points were owed.';
+  return interaction.reply(ephemeral(`Refunded ${orderId}. ${returned} The audit is stored. This order cannot be refunded again.`));
+}
+
+async function handleArkShopInteraction(interaction, { economyClient = new NexusEconomyClient(), config = loadConfig(), env = process.env } = {}) {
   try {
     if (interaction.isChatInputCommand?.()) {
       if (interaction.commandName === 'points') return showPoints(interaction, economyClient);
       if (interaction.commandName === 'shop') return false;
       if (interaction.commandName === 'arkshop-admin') return handleAdmin(interaction, economyClient, config);
+      if (interaction.commandName === 'shopadmin') return handleMcRefund(interaction, economyClient, env);
       return false;
     }
     const id = String(interaction.customId || '');
@@ -272,6 +309,7 @@ module.exports = {
   shopCommand,
   pointsCommand,
   adminCommand,
+  shopAdminCommand,
   isArkStaff,
   formatActivity,
   openArkShop: openShop,

@@ -3,8 +3,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
+const { createEconomyServer } = require('../src/economy-worker/server.cjs');
 const { NexusEconomyStore, NexusEconomyWorker } = require('../src/sentinel/nexus-economy-worker.cjs');
 const { PostgresMcPoints, MC_SCHEMA_VERSION } = require('../src/economy-worker/mc-points-postgres.cjs');
 const { PostgresArkShop } = require('../src/economy-worker/ark-np-postgres.cjs');
@@ -66,6 +68,19 @@ async function earnFiveMinuteTicks(worker, advance, ticks) {
   }
 }
 
+test('an unlinked Minecraft row does not keep shop, kit, or wallet access', async () => {
+  const { worker } = workerAt();
+  await linkMinecraft(worker, DISCORD, UUID);
+  const link = [...worker.minecraft.links.values()].find((row) => row.discordUserId === DISCORD);
+  link.unlinkedAt = '2026-10-01T16:00:00.000Z';
+  const quoted = await worker.minecraft.quote({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1 });
+  assert.equal(quoted.reason, 'verified-identity-required');
+  const kit = await worker.minecraft.claimStarterKit({ discordUserId: DISCORD, tenureOf: async () => JOINED });
+  assert.equal(kit.reason, 'verified-identity-required');
+  const spent = await worker.spend({ discordUserId: DISCORD, amount: 1, orderId: 'unlinked-shop', source: 'sink:mc-shop' }, { minecraftShop: true });
+  assert.equal(spent.reason, 'verified-identity-required');
+});
+
 test('minecraft member text points a new member at the in-game code', () => {
   const text = mcMemberText('verified-identity-required');
   assert.match(text, /\/mc link start/);
@@ -90,10 +105,44 @@ test('an MC-only member verifies with the link code, earns, buys, and claims the
   assert.equal(account.status, 'restricted');
   assert.equal(account.verifiedAt, null);
   assert.deepEqual(account.eosIds, []);
-  const coinSpend = await worker.spend({ discordUserId: DISCORD, amount: 1, orderId: 'coin-shop', source: 'cluster-shop' });
+  const coinSpend = await worker.spend({ discordUserId: DISCORD, amount: 1, orderId: 'coin-shop', source: 'cluster-shop', currency: 'NEXUS_COINS' });
   assert.equal(coinSpend.reason, 'verified-identity-required');
+  const pointSpend = await worker.spend({ discordUserId: DISCORD, amount: 1, orderId: 'np-shop', source: 'cluster-shop', currency: 'NEXUS_POINTS' });
+  assert.equal(pointSpend.reason, 'verified-identity-required');
   const coinCredit = await worker.credit({ discordUserId: DISCORD, amount: 5, idempotencyKey: 'coin-credit-1' });
   assert.equal(coinCredit.reason, 'verified-identity-required');
+  const runtime = createEconomyServer({ worker, token: 'sentinal-token', writesEnabled: true, mcRoutesEnabled: true });
+  await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
+  try {
+    const refused = async (pathname, body) => {
+      const payload = Buffer.from(JSON.stringify(body));
+      return new Promise((resolve, reject) => {
+        const req = http.request({
+          host: '127.0.0.1',
+          port: runtime.server.address().port,
+          path: pathname,
+          method: 'POST',
+          headers: { authorization: 'Bearer sentinal-token', 'content-type': 'application/json', 'content-length': payload.length }
+        }, (res) => {
+          let raw = '';
+          res.on('data', (chunk) => { raw += chunk; });
+          res.on('end', () => resolve(JSON.parse(raw)));
+        });
+        req.on('error', reject);
+        req.end(payload);
+      });
+    };
+    assert.equal((await refused('/wallet/spend', { discordUserId: DISCORD, amount: 1, orderId: 'http-coins', currency: 'NEXUS_COINS', source: 'cluster-shop' })).reason, 'verified-identity-required');
+    assert.equal((await refused('/wallet/spend', { discordUserId: DISCORD, amount: 1, orderId: 'http-points', currency: 'NEXUS_POINTS', source: 'cluster-shop' })).reason, 'verified-identity-required');
+    assert.equal((await refused('/wallet/credit', { discordUserId: DISCORD, amount: 1, idempotencyKey: 'http-credit' })).reason, 'verified-identity-required');
+  } finally {
+    runtime.server.close();
+  }
+  assert.equal(account.discordLinkSource, 'mc-link');
+  const proof = await worker.recordSentinelOwnershipProof(DISCORD, '2026-10-02T00:00:00.000Z');
+  assert.equal(proof.status, 'restricted');
+  assert.equal(proof.discordLinkSource, 'sentinel-ownership-proof');
+  assert.equal(worker.wallet(DISCORD).status, 'restricted');
   const levelUp = await worker.credit({ discordUserId: DISCORD, amount: 5, idempotencyKey: 'level-up-1', source: COMMUNITY_LEVEL_UP_SOURCE });
   assert.equal(levelUp.skipped, 'coins-wallet-unavailable');
   const cluster = new ClusterShopService({
@@ -377,7 +426,10 @@ function economyPool() {
       const [provider, externalId, economicIdentityId, verifiedAt] = params;
       const found = linkRow(provider, externalId);
       if (!found) db.links.push({ provider, external_id: externalId, economic_identity_id: economicIdentityId, verified_at: verifiedAt, source: 'sentinel-ownership-proof' });
-      else if (!found.verified_at) found.verified_at = verifiedAt;
+      else if (!found.verified_at) {
+        found.verified_at = verifiedAt;
+        found.source = 'sentinel-ownership-proof';
+      }
       return { rows: [], rowCount: 1 };
     }
     if (text.includes("VALUES ('discord'") && text.includes('DO NOTHING')) {
@@ -576,6 +628,7 @@ test('postgres MC verify reuses one wallet and does not open ARK, legacy, or Coi
   assert.equal(confirmed.economicIdentityId, econId);
   assert.equal(pool.db.identities.get(econId).status, 'restricted');
   assert.equal(pool.db.links.find((row) => row.provider === 'discord').verified_at, null);
+  assert.equal(pool.db.links.find((row) => row.provider === 'discord').source, 'mc-link');
   assert.ok(pool.db.links.find((row) => row.provider === 'minecraft' && row.external_id === UUID).verified_at);
   assert.equal(pool.db.links.some((row) => row.provider === 'eos'), false);
   assert.deepEqual(pool.db.wallets.map((row) => row.currency), ['NEXUS_POINTS']);
@@ -624,8 +677,8 @@ test('postgres MC verify reuses one wallet and does not open ARK, legacy, or Coi
   assert.equal(refusedArk.status, 'restricted');
   assert.equal(pool.db.identities.get(econId).status, 'restricted');
   const stillBlocked = await ark.quote({ discordUserId: DISCORD, sku: 'coastal' });
-  assert.equal(stillBlocked.ok, false);
-  assert.notEqual(stillBlocked.reason, undefined);
+  assert.equal(stillBlocked.reason, 'restricted');
+  assert.equal(pool.db.links.find((row) => row.provider === 'discord' && row.external_id === DISCORD).source, 'sentinel-ownership-proof');
   const linked = await repository.linkVerifiedIdentity({
     discordUserId: DISCORD,
     eosId: EOS,

@@ -487,12 +487,13 @@ test('minecraft buy and refund refuse each blocked status after the member was v
       reason: 'held account',
       actor: STAFF,
       writesEnabled: true,
-      force: true
+      force: true,
+      staffAuthorized: true
     });
-    assert.equal(refunded.ok, true, JSON.stringify(refunded));
-    assert.equal(worker.balance(DISCORD), 500);
-    assert.equal(worker.minecraft.orders.get(paid.order.orderId).status, 'REFUNDED');
-    assert.match(worker.minecraft.audits.at(-1).reason, /\[account-hold\]/);
+    assertHold(refunded);
+    assert.equal(worker.balance(DISCORD), balanceAfterBuy);
+    assert.notEqual(worker.minecraft.orders.get(paid.order.orderId).status, 'REFUNDED');
+    assert.equal(worker.minecraft.audits.some((row) => /\[account-hold\]/.test(row.reason)), false);
   }
 });
 
@@ -603,7 +604,7 @@ test('ARK and passive points accrual refuse each blocked status under the wallet
   assert.equal(raced.ledger.length, 0);
 });
 
-function shopClient({ status, flip = '', missingStatus = false } = {}) {
+function shopClient({ status, flip = '', missingStatus = false, withinWindow = true } = {}) {
   const catalogHash = catalogFingerprint(loadMcShopCatalog());
   const writes = [];
   const audits = [];
@@ -640,6 +641,7 @@ function shopClient({ status, flip = '', missingStatus = false } = {}) {
       if (text.includes('pg_advisory_xact_lock')) return { rows: [], rowCount: 0 };
       if (text.includes('nexus_mc_quotes') && text.includes('SELECT')) return { rows: [quote], rowCount: 1 };
       if (text.includes('nexus_mc_orders') && text.includes('WHERE nonce')) return { rows: [], rowCount: 0 };
+      if (text.includes('within_window')) return { rows: [{ within_window: withinWindow }], rowCount: 1 };
       if (text.includes('SELECT order_data FROM')) return { rows: [{ order_data: order }], rowCount: 1 };
       if (text.includes('nexus_mc_grants') || (text.includes('nexus_mc_refund_audit') && text.includes('SELECT'))) return { rows: [], rowCount: 0 };
       if (text.includes('economicIdentityId')) return { rows: [], rowCount: 0 };
@@ -708,11 +710,34 @@ test('postgres minecraft buy and refund refuse each blocked status inside the ba
     assert.equal(selfClient.writes.length, 0);
     assert.equal(selfClient.audits.length, 0);
 
-    const refund = await refunder.refund({ orderId: 'refund-hold', reason: 'held account', actor: STAFF, writesEnabled: true, force: true });
-    assert.equal(refund.ok, true, JSON.stringify(refund));
-    assert.ok(refunded.writes.length > 0);
-    assert.match(String(refunded.audits[0]?.[2] || ''), /\[account-hold\]/);
+    const refund = await refunder.refund({ orderId: 'refund-hold', reason: 'held account', actor: STAFF, writesEnabled: true, force: true, staffAuthorized: true });
+    assertHold(refund);
+    assert.equal(refunded.writes.length, 0);
+    assert.equal(refunded.audits.length, 0);
   }
+
+  const outside = shopClient({ status: 'verified', withinWindow: false });
+  const late = new PostgresMcPoints({
+    env: { MC_POINTS_ENABLED: 'true', MC_SHOP_ENABLED: 'true', NEXUS_MC_REFUND_STAFF_IDS: STAFF },
+    now: () => Date.parse('2026-10-01T18:00:00.000Z'),
+    wallet: { async balance() { return 100; } },
+    pool: outside.pool
+  });
+  const lateRefund = await late.refund({ orderId: 'refund-hold', reason: 'outside the day', actor: STAFF, writesEnabled: true, force: true, staffAuthorized: true });
+  assert.equal(lateRefund.reason, 'refund-window');
+  assert.equal(outside.writes.length, 0);
+  const previewClient = shopClient({ status: 'verified', withinWindow: true });
+  const previewer = new PostgresMcPoints({
+    env: { MC_POINTS_ENABLED: 'true', MC_SHOP_ENABLED: 'true', NEXUS_MC_REFUND_STAFF_IDS: STAFF },
+    now: () => Date.parse('2026-10-01T18:00:00.000Z'),
+    wallet: { async balance() { return 100; } },
+    pool: previewClient.pool
+  });
+  const preview = await previewer.refundPreview({ orderId: 'refund-hold', reason: 'preview only', actor: STAFF, force: true, staffAuthorized: true });
+  assert.equal(preview.preview, true);
+  assert.equal(preview.ok, true);
+  assert.equal(previewClient.writes.length, 0);
+  assert.equal(previewClient.audits.length, 0);
 
   const raced = shopClient({ status: 'verified', flip: 'disabled' });
   const buyer = new PostgresMcPoints({

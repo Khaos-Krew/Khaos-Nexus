@@ -14,7 +14,10 @@ const { PostgresMcPoints, MC_SCHEMA_VERSION } = require('../src/economy-worker/m
 const { PostgresEconomyAccrual } = require('../src/economy-worker/postgres-accrual.cjs');
 const { createEconomyServer, craftRouteAllowed, writeGate } = require('../src/economy-worker/server.cjs');
 const { pollMcPlaytime } = require('../src/craft/mc-playtime.cjs');
-const { handleMcPointsCommand } = require('../src/craft/mc-points-commands.cjs');
+const { handleMcPointsCommand, installMcEconomyLoops } = require('../src/craft/mc-points-commands.cjs');
+const { httpMinecraftPoints } = require('../src/craft/mc-economy-http.cjs');
+const { NexusEconomyClient } = require('../src/sentinel/nexus-economy-client.cjs');
+const { handleArkShopInteraction } = require('../src/sentinel/ark-np-shop-ui.cjs');
 const { craftHelpText } = require('../src/craft/help.cjs');
 const { NexusEconomyStore, NexusEconomyWorker } = require('../src/sentinel/nexus-economy-worker.cjs');
 const { mcShopConfirmText, mcShopReceiptText } = require('../src/sentinel/mc-shop-ui-extension.cjs');
@@ -511,13 +514,63 @@ test('shop dry-run shows a test receipt and debits nothing', async () => {
   });
 });
 
-test('startup fails closed when Minecraft Points are on and the link secret is short', () => {
-  assert.throws(
-    () => assertMcLinkCodeSecret({ MC_POINTS_ENABLED: 'true', MC_LINK_CODE_SECRET: 'too-short' }),
-    /at least 32/
-  );
-  assert.doesNotThrow(() => assertMcLinkCodeSecret({ MC_POINTS_ENABLED: 'false' }));
-  assert.doesNotThrow(() => assertMcLinkCodeSecret({ MC_POINTS_ENABLED: 'true', MC_LINK_CODE_SECRET: LINK_SECRET }));
+test('a short link secret disables Minecraft routes and leaves the rest of the worker up', async () => {
+  const short = assertMcLinkCodeSecret({ MC_POINTS_ENABLED: 'true', MC_LINK_CODE_SECRET: 'too-short' });
+  assert.equal(short.ok, false);
+  assert.equal(short.code, 'link-code-secret-missing');
+  assert.equal(assertMcLinkCodeSecret({ MC_POINTS_ENABLED: 'false' }).ok, true);
+  assert.equal(assertMcLinkCodeSecret({ MC_POINTS_ENABLED: 'true', MC_LINK_CODE_SECRET: LINK_SECRET }).ok, true);
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-secret-'));
+  const worker = new NexusEconomyWorker({
+    store: new NexusEconomyStore(root),
+    env: { MC_POINTS_ENABLED: 'true', MC_SHOP_ENABLED: 'true', MC_LINK_CODE_SECRET: 'too-short' }
+  });
+  worker.linkArkIdentity({ discordUserId: DISCORD, eosId: 'EOSsecret1', rankId: 'shadow-recruit' });
+  const runtime = createEconomyServer({
+    worker,
+    token: 'sentinal-token',
+    craftToken: 'craft-token',
+    writesEnabled: true,
+    env: { MC_POINTS_ENABLED: 'true', MC_LINK_CODE_SECRET: 'too-short' },
+    mcRoutesEnabled: false
+  });
+  await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
+  const port = runtime.server.address().port;
+  try {
+    const creditBody = JSON.stringify({ discordUserId: DISCORD, amount: 4, idempotencyKey: 'level-up-stays-up', source: 'community-level-up' });
+    const credit = await new Promise((resolve, reject) => {
+      const req = http.request({
+        host: '127.0.0.1', port, path: '/wallet/credit', method: 'POST',
+        headers: { authorization: 'Bearer sentinal-token', 'content-type': 'application/json', 'content-length': Buffer.byteLength(creditBody) }
+      }, (res) => {
+        let raw = '';
+        res.on('data', (chunk) => { raw += chunk; });
+        res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(raw) }));
+      });
+      req.on('error', reject);
+      req.end(creditBody);
+    });
+    assert.notEqual(credit.body.reason, 'link-code-secret-missing');
+    assert.notEqual(credit.body.error, 'link-code-secret-missing');
+    const quoteBody = JSON.stringify({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1 });
+    const quote = await new Promise((resolve, reject) => {
+      const req = http.request({
+        host: '127.0.0.1', port, path: '/mc-shop/quote', method: 'POST',
+        headers: { authorization: 'Bearer sentinal-token', 'content-type': 'application/json', 'content-length': Buffer.byteLength(quoteBody) }
+      }, (res) => {
+        let raw = '';
+        res.on('data', (chunk) => { raw += chunk; });
+        res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(raw) }));
+      });
+      req.on('error', reject);
+      req.end(quoteBody);
+    });
+    assert.equal(quote.status, 503);
+    assert.equal(quote.body.reason, 'link-code-secret-missing');
+  } finally {
+    runtime.server.close();
+  }
 });
 
 test('an Administrator can refund one Minecraft order and named owner roles cannot', async () => {
@@ -581,8 +634,8 @@ test('an Administrator can refund one Minecraft order and named owner roles cann
     env: { NEXUS_MC_REFUND_STAFF_IDS: '333333333333333333' },
     fetchImpl: async () => { throw new Error('list does not fetch'); }
   });
-  assert.equal(onList.ok, true);
-  assert.equal(onList.source, 'staff-list');
+  assert.equal(onList.ok, false);
+  assert.equal(onList.reason, 'staff-not-authorized');
 
   const failedBank = wallet(100);
   const failedService = service({
@@ -604,19 +657,20 @@ test('an Administrator can refund one Minecraft order and named owner roles cann
     orderId: failedOrder.orderId,
     reason: 'delivery failed',
     actor: ADMIN,
-    writesEnabled: true
+    writesEnabled: true,
+    staffAuthorized: true
   });
   assert.equal(failedRefund.ok, true, failedRefund.reason);
   assert.equal(failedRefund.order.status, 'REFUNDED');
   assert.equal(failedBank.calls.find((call) => call[0] === 'credit')[2].metadata.force, undefined);
 });
 
-test('Craft /mcadmin refund is Administrator-only unless staff ids are set', async () => {
-  const calls = [];
+test('Craft /mcadmin refund points at Sentinal and the staff list only narrows', async () => {
+  let refunds = 0;
   const points = {
-    async refund(input) {
-      calls.push(input);
-      return { ok: true, order: { price: 10, orderId: input.orderId } };
+    async refund() {
+      refunds += 1;
+      return { ok: true, order: { price: 10, orderId: 'order-1' } };
     }
   };
   async function run(interaction, env) {
@@ -629,36 +683,32 @@ test('Craft /mcadmin refund is Administrator-only unless staff ids are set', asy
     });
     return interaction.replies[0];
   }
-  const allowed = await run(refundInteraction(ADMIN, [{ id: ROLE, name: 'Administrators', permissions: '8' }]), {});
-  assert.match(allowed, /Refunded/);
-  assert.match(allowed, /audit/i);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].actor, ADMIN);
-
-  const moderator = await run(refundInteraction(ADMIN, [{ id: ROLE, name: 'Moderator', permissions: '0' }]), {});
-  assert.equal(moderator, mcMemberText('staff-not-authorized'));
-  assert.equal(calls.length, 1);
-
-  const listed = await run(
-    refundInteraction(ADMIN, [{ id: ROLE, name: 'Administrators', permissions: '8' }]),
-    { NEXUS_MC_REFUND_STAFF_IDS: '333333333333333333' }
-  );
-  assert.match(listed, /Refunded/);
-  assert.equal(calls.length, 2);
-  assert.equal(calls[1].staffAuthorized, true);
+  const pointed = await run(refundInteraction(ADMIN, [{ id: ROLE, name: 'Administrators', permissions: '8' }]), {});
+  assert.match(pointed, /\/shopadmin mc-refund/);
+  assert.equal(refunds, 0);
   const listedOnly = await run(
     refundInteraction('333333333333333333', [{ id: ROLE, name: 'Member', permissions: '0' }]),
     { NEXUS_MC_REFUND_STAFF_IDS: '333333333333333333' }
   );
-  assert.match(listedOnly, /Refunded/);
-  assert.equal(calls.length, 3);
+  assert.match(listedOnly, /\/shopadmin mc-refund/);
+  assert.equal(refunds, 0);
 
-  const named = await run(refundInteraction(ADMIN, [
+  assert.equal(mcRefundActorAllowed(refundInteraction(ADMIN, [{ id: ROLE, name: 'Administrators', permissions: '8' }]), {}), true);
+  assert.equal(mcRefundActorAllowed(refundInteraction(ADMIN, [{ id: ROLE, name: 'Moderator', permissions: '0' }]), {}), false);
+  assert.equal(mcRefundActorAllowed(
+    refundInteraction(ADMIN, [{ id: ROLE, name: 'Administrators', permissions: '8' }]),
+    { NEXUS_MC_REFUND_STAFF_IDS: '333333333333333333' }
+  ), false);
+  assert.equal(mcRefundActorAllowed(
+    refundInteraction('333333333333333333', [{ id: ROLE, name: 'Member', permissions: '0' }]),
+    { NEXUS_MC_REFUND_STAFF_IDS: '333333333333333333' }
+  ), false);
+  assert.equal(mcRefundActorAllowed(refundInteraction(ADMIN, [{ id: OWNER_ROLE_ID, name: 'Owner', permissions: '8' }]), {}), true);
+  assert.equal(mcRefundActorAllowed(refundInteraction(ADMIN, [{ id: COMMUNITY_MANAGER_ROLE_ID, name: 'Community Manager', permissions: '8' }]), {}), false);
+  assert.equal(mcRefundActorAllowed(refundInteraction(ADMIN, [
     { id: OWNER_ROLE_ID, name: 'Owner', permissions: '8' },
     { id: COMMUNITY_MANAGER_ROLE_ID, name: 'Community Manager', permissions: '8' }
-  ]), {});
-  assert.equal(named, mcMemberText('staff-not-authorized'));
-
+  ]), {}), true);
   const fallback = mcRefundActorAllowed({
     user: { id: ADMIN },
     member: { roles: { cache: new Map() } },
@@ -667,6 +717,84 @@ test('Craft /mcadmin refund is Administrator-only unless staff ids are set', asy
   assert.equal(fallback, true);
   assert.match(craftHelpText({ MC_POINTS_ENABLED: 'true' }), /\/mcadmin refund/);
   assert.ok(craftHelpText({ MC_POINTS_ENABLED: 'true', MC_SHOP_ENABLED: 'true', MC_STARTER_KIT_ENABLED: 'true' }).length <= 1900);
+});
+
+test('playtime dry-run does not stop the Minecraft delivery loop', () => {
+  const deliveryLoop = Symbol.for('khaos.nexus.craft.mc.delivery');
+  delete globalThis[deliveryLoop];
+  const started = installMcEconomyLoops({
+    store: { getServer() { return null; } },
+    env: {
+      NEXUS_ECONOMY_URL: 'http://127.0.0.1:9',
+      NEXUS_ECONOMY_CRAFT_TOKEN: 'craft-token',
+      MC_POINTS_ENABLED: 'true',
+      MC_SHOP_DELIVERY_ENABLED: 'true'
+    }
+  });
+  assert.equal(globalThis[deliveryLoop], true);
+  assert.ok(started.timers.length > 0);
+  for (const timer of started.timers) clearInterval(timer);
+  delete globalThis[deliveryLoop];
+  delete globalThis[Symbol.for('khaos.nexus.craft.mc.playtime')];
+  delete globalThis[Symbol.for('khaos.nexus.craft.mc.refund-sweep')];
+});
+
+test('Sentinal previews and refunds a Minecraft order and Craft cannot', async () => {
+  const bank = wallet(100);
+  const { points } = service({
+    bank,
+    env: {
+      MC_POINTS_ENABLED: 'true',
+      MC_SHOP_ENABLED: 'true',
+      MC_SHOP_DRY_RUN: 'false',
+      MC_LINK_CODE_SECRET: LINK_SECRET
+    }
+  });
+  await link(points, BUYER);
+  const quoted = await points.quote({ discordUserId: BUYER, sku: 'mc_logs64', bundles: 1 });
+  const paid = await points.buy({ discordUserId: BUYER, sku: 'mc_logs64', bundles: 1, nonce: quoted.quote.nonce, writesEnabled: true });
+  paid.order.status = 'DELIVERY_FAILED';
+  const runtime = createEconomyServer({
+    worker: {
+      minecraft: points,
+      health: () => ({ ok: true }),
+      credit: async (input) => points.wallet.credit(input),
+      spend: async (input) => points.wallet.spend(input)
+    },
+    token: 'sentinal-token',
+    craftToken: 'craft-token',
+    writesEnabled: true,
+    mcRoutesEnabled: true
+  });
+  await new Promise((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
+  const port = runtime.server.address().port;
+  try {
+    await withEnv({
+      NEXUS_ECONOMY_URL: `http://127.0.0.1:${port}`,
+      NEXUS_ECONOMY_CRAFT_TOKEN: 'craft-token',
+      NEXUS_ECONOMY_TOKEN: 'sentinal-token'
+    }, async () => {
+      await assert.rejects(
+        () => httpMinecraftPoints().refund({ orderId: paid.order.orderId, reason: 'from craft', actor: ADMIN }),
+        /craft-token-scope/
+      );
+      assert.notEqual(points.orders.get(paid.order.orderId).status, 'REFUNDED');
+      const interaction = refundInteraction(ADMIN, [{ id: ROLE, name: 'Administrators', permissions: '8' }]);
+      interaction.commandName = 'shopadmin';
+      interaction.isChatInputCommand = () => true;
+      interaction.options.getBoolean = () => false;
+      interaction.options.getString = (name) => (name === 'order' ? paid.order.orderId : 'delivery failed in game');
+      await handleArkShopInteraction(interaction, { economyClient: new NexusEconomyClient(), env: {} });
+      assert.match(interaction.replies.at(-1), /Preview/);
+      assert.notEqual(points.orders.get(paid.order.orderId).status, 'REFUNDED');
+      interaction.options.getBoolean = (name) => name === 'confirm';
+      await handleArkShopInteraction(interaction, { economyClient: new NexusEconomyClient(), env: {} });
+      assert.match(interaction.replies.at(-1), /Refunded/);
+      assert.equal(points.orders.get(paid.order.orderId).status, 'REFUNDED');
+    });
+  } finally {
+    runtime.server.close();
+  }
 });
 
 test('the kit clock uses dry-run playtime and does not require live Point credits', async () => {

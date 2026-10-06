@@ -60,7 +60,8 @@ const MC_NONECONOMY_PATHS = new Set([
   '/mc/staff/resolve',
   '/mc-shop/quote',
   '/mc-shop/delivery-status',
-  '/mc-shop/claim'
+  '/mc-shop/claim',
+  '/mc-shop/refund-preview'
 ]);
 const ARK_NONECONOMY_PATHS = new Set([
   '/np-shop/quote',
@@ -213,6 +214,9 @@ function publicRequestError(error) {
   }
   const held = memberHoldFromError(error);
   if (held) return { statusCode: 409, body: { ...held, error: held.message } };
+  if (/Verified economic identity is required/i.test(String(error?.message || ''))) {
+    return { statusCode: 409, body: { ok: false, reason: 'verified-identity-required', error: 'verified-identity-required' } };
+  }
   return { statusCode: 500, body: { ok: false, error: 'internal-error' } };
 }
 
@@ -452,6 +456,9 @@ function createEconomyServer(options = {}) {
   const lifecycle = { draining: false, signal: null };
   const discordEnv = options.discordEnv || process.env;
   const fetchImpl = options.fetchImpl || globalThis.fetch;
+  const mcRoutesEnabled = options.mcRoutesEnabled != null
+    ? options.mcRoutesEnabled !== false
+    : require('./mc-points-service.cjs').assertMcLinkCodeSecret(options.env || process.env).ok;
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -472,6 +479,9 @@ function createEconomyServer(options = {}) {
       }
       if (scope === 'ark' && !arkRouteAllowed(req.method, url.pathname)) {
         return json(res, 403, { ok: false, error: 'ark-token-scope' });
+      }
+      if (!mcRoutesEnabled && (url.pathname.startsWith('/mc/') || url.pathname.startsWith('/mc-shop/'))) {
+        return json(res, 503, { ok: false, reason: 'link-code-secret-missing', error: 'link-code-secret-missing' });
       }
 
       if (req.method === 'GET' && url.pathname.startsWith('/wallet-balances/')) {
@@ -656,6 +666,16 @@ function createEconomyServer(options = {}) {
         }
         return json(res, 200, { ok: true, order: await worker.minecraft.claimNext({ owner: input.owner || 'nexus-craft' }) });
       }
+      if (worker.minecraft && url.pathname === '/mc-shop/refund-preview') {
+        if (scope !== 'sentinal') return json(res, 403, { ok: false, error: 'sentinal-token-required' });
+        return json(res, 200, await worker.minecraft.refundPreview({
+          orderId: input.orderId,
+          reason: input.reason,
+          actor: input.actor,
+          force: input.force === true,
+          staffAuthorized: input.staffAuthorized === true
+        }));
+      }
       if (worker.minecraft && url.pathname === '/mc-shop/refund') {
         return json(res, 200, await worker.minecraft.refund({
           orderId: input.orderId,
@@ -750,8 +770,8 @@ function createEconomyServer(options = {}) {
 }
 
 function listenEconomyServer(options = {}) {
-  require('./mc-points-service.cjs').assertMcLinkCodeSecret(options.env || process.env);
-  const runtime = createEconomyServer(options);
+  const secret = require('./mc-points-service.cjs').assertMcLinkCodeSecret(options.env || process.env);
+  const runtime = createEconomyServer({ ...options, mcRoutesEnabled: secret.ok });
   const host = String(options.host || process.env.NEXUS_ECONOMY_HOST || '0.0.0.0');
   const port = Number(options.port || process.env.PORT || process.env.NEXUS_ECONOMY_PORT || 3230);
   runtime.server.listen(port, host, () => {

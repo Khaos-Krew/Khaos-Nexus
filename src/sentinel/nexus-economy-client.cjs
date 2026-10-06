@@ -192,6 +192,8 @@ class NexusEconomyClient {
   mcShopQuote(input) { return request('/mc-shop/quote', { method: 'POST', body: input }); }
   mcShopBuy(input) { return request('/mc-shop/buy', { method: 'POST', body: input, acceptedStatusCodes: [409] }); }
   mcClaimStarterKit(input) { return request('/mc/starter-kit/claim', { method: 'POST', body: input }); }
+  mcShopRefundPreview(input) { return request('/mc-shop/refund-preview', { method: 'POST', body: input }); }
+  mcShopRefund(input) { return request('/mc-shop/refund', { method: 'POST', body: input }); }
 
   arkShopCatalog() { return request('/np-shop/catalog'); }
   arkShopQuote(input) { return request('/np-shop/quote', { method: 'POST', body: input }); }

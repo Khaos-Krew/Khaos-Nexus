@@ -290,6 +290,11 @@ class PostgresMcPoints {
     if (!ready.ok) return ready;
     return this.#refund(input);
   }
+  async refundPreview(input) {
+    const ready = await this.#ready();
+    if (!ready.ok) return ready;
+    return this.#refund(input, { preview: true });
+  }
   async sweepRefunds(input) {
     const ready = await this.#ready();
     if (!ready.ok) return [];
@@ -807,53 +812,108 @@ class PostgresMcPoints {
     }
   }
 
-  async #refund(input) {
+  async #lockedOrder(client, orderId) {
+    const s = sqlIdent(this.schema);
+    const locked = await client.query(
+      `SELECT order_data FROM ${s}.nexus_mc_orders WHERE order_id = $1 FOR UPDATE`,
+      [String(orderId || '')]
+    );
+    return locked.rows?.[0]?.order_data || null;
+  }
+
+  async #withinStaffWindow(client, orderId) {
+    const window = await client.query(
+      `SELECT (created_at >= NOW() - INTERVAL '24 hours') AS within_window FROM ${sqlIdent(this.schema)}.nexus_mc_orders WHERE order_id = $1`,
+      [String(orderId || '')]
+    );
+    return window.rows?.[0]?.within_window === true;
+  }
+
+  async #lockedIdentityHold(client, identityId) {
+    if (!identityId) {
+      return memberIdentityHold({ missingRow: true, economicIdentityId: '', env: this.env });
+    }
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${identityId}:NEXUS_POINTS`]);
+    const identityStatus = await client.query(
+      `SELECT status, hold_reason FROM ${sqlIdent(this.schema)}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
+      [identityId]
+    );
+    const refundStatus = identityStatus.rows?.[0];
+    return memberIdentityHold({
+      status: refundStatus?.status,
+      holdReason: refundStatus?.hold_reason,
+      missingRow: !refundStatus,
+      economicIdentityId: identityId,
+      env: this.env
+    });
+  }
+
+  async #refund(input, options = {}) {
+    const preview = options.preview === true || input?.preview === true;
     const client = await this.pool.connect();
     const s = sqlIdent(this.schema);
     try {
       await client.query('BEGIN');
+      const before = await this.#lockedOrder(client, input.orderId);
+      if (!before) {
+        await client.query('ROLLBACK');
+        return { ok: false, reason: 'order-not-found' };
+      }
+      if (before.status === 'REFUNDED' || before.refunded) {
+        await client.query(preview ? 'ROLLBACK' : 'COMMIT');
+        return { ok: true, duplicate: true, order: before, ...(preview ? { preview: true } : {}) };
+      }
+      if (before.status === 'DELIVERED') {
+        await client.query('ROLLBACK');
+        return { ok: false, reason: 'final-status', order: before };
+      }
+      const actor = String(input.actor || '').trim();
+      const auto = input.reason === 'auto-14d';
+      const self = Boolean(actor && actor === before.discordUserId);
+      const staff = !auto && !self;
+      if (staff) {
+        const refundHold = await this.#lockedIdentityHold(client, before.economicIdentityId);
+        if (refundHold) {
+          await client.query('ROLLBACK');
+          return { ...refundHold, order: before };
+        }
+        if (!await this.#withinStaffWindow(client, before.orderId || input.orderId)) {
+          await client.query('ROLLBACK');
+          return { ok: false, reason: 'refund-window', order: before };
+        }
+      }
       const memory = await this.#memory(client, new Set(['orders', 'grants', 'audits']));
-      const before = memory.orders.get(String(input.orderId || ''));
-      const previous = before?.status;
-      const result = await memory.refund({ ...input, applyWallet: false, deferHold: true });
+      const loaded = memory.orders.get(String(input.orderId || ''));
+      const previous = loaded?.status || before.status;
+      const result = await memory.refund({
+        ...input,
+        applyWallet: false,
+        deferHold: true,
+        preview,
+        windowChecked: staff
+      });
+      if (preview) {
+        await client.query('ROLLBACK');
+        return result;
+      }
       if (result.duplicate) {
         await client.query('COMMIT');
         return result;
       }
-      const identityId = before?.economicIdentityId || result.order?.economicIdentityId;
       let refundHold = null;
-      if (identityId) {
-        await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${identityId}:NEXUS_POINTS`]);
-        const identityStatus = await client.query(
-          `SELECT status, hold_reason FROM ${s}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
-          [identityId]
-        );
-        const refundStatus = identityStatus.rows?.[0];
-        refundHold = memberIdentityHold({
-          status: refundStatus?.status,
-          holdReason: refundStatus?.hold_reason,
-          missingRow: !refundStatus,
-          economicIdentityId: identityId,
-          env: this.env
-        });
-      }
-      const actor = String(input.actor || '').trim();
-      const self = Boolean(before && actor && actor === before.discordUserId);
-      const auto = input.reason === 'auto-14d';
-      if (refundHold && (self || auto)) {
-        await client.query('ROLLBACK');
-        return { ...refundHold, order: before };
+      if (!staff) {
+        const identityId = before.economicIdentityId || result.order?.economicIdentityId;
+        if (identityId) refundHold = await this.#lockedIdentityHold(client, identityId);
+        if (refundHold && (self || auto)) {
+          await client.query('ROLLBACK');
+          return { ...refundHold, order: before };
+        }
       }
       if (!result.ok) {
         await client.query('ROLLBACK');
         return result;
       }
-      if (refundHold) {
-        console.log(`[Nexus Economy] mc_staff_refund_while_held order=${result.order.orderId} actor=${actor}`);
-      }
-      const auditReason = refundHold
-        ? `${String(input.reason || '').slice(0, 260)} [account-hold]`
-        : String(input.reason || '');
+      const auditReason = String(input.reason || '');
       const flipped = await client.query(
         `UPDATE ${s}.nexus_mc_orders SET status = 'REFUNDED', order_data = $2::jsonb WHERE order_id = $1 AND status = $3 AND status <> 'REFUNDED' AND status <> 'DELIVERED' RETURNING order_id`,
         [result.order.orderId, JSON.stringify(result.order), previous]
@@ -873,7 +933,7 @@ class PostgresMcPoints {
         const ledger = await client.query(
           `INSERT INTO ${s}.nexus_economy_ledger (economic_identity_id, currency, amount, balance_after, entry_type, source, idempotency_key, metadata, created_at) ` +
           `VALUES ($1,'NEXUS_POINTS',$2,$3,'reversal','mc-shop',$4,$5::jsonb,NOW()) ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`,
-          [result.order.economicIdentityId, Number(result.order.price), next, key, JSON.stringify({ orderId: result.order.orderId, reason: auditReason, actor: input.actor, accountHold: Boolean(refundHold), ...(input.force === true ? { force: true } : {}) })]
+          [result.order.economicIdentityId, Number(result.order.price), next, key, JSON.stringify({ orderId: result.order.orderId, reason: auditReason, actor: input.actor, ...(input.force === true ? { force: true } : {}) })]
         );
         if (ledger.rowCount) {
           await client.query(

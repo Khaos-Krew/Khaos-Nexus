@@ -4,6 +4,7 @@ const { ArkIdentityStore } = require('./ark-identity-store.cjs');
 const { ArkAccountLinkService } = require('./ark-account-linking.cjs');
 const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
 const { withIdentityProof } = require('./nexus-economy-identity-proof.cjs');
+const { assertDiscordMembershipVerified } = require('./nexus-economy-o9-eligibility.cjs');
 const { MAX_BODY_BYTES, handleArkIdentityWebhook } = require('./ark-identity-webhook.cjs');
 
 const IDENTITY_WEBHOOK_ROUTE = '/ark/identity/link';
@@ -28,11 +29,19 @@ async function syncLinkedIdentityToEconomy({ store, economyClient, event, result
     throw new Error('Verified ARK identity could not be resolved for Nexus economy sync.');
   }
 
+  let membershipOk = false;
+  try {
+    membershipOk = assertDiscordMembershipVerified(profile.discordUserId).ok === true;
+  } catch {
+    membershipOk = false;
+  }
+  if (!membershipOk) return { skipped: 'discord-verify-required', discordUserId: profile.discordUserId };
   const account = profile.arkAccounts?.find((item) => item.eosId === eosId);
   await economyClient.linkIdentity(withIdentityProof({
     discordUserId: profile.discordUserId,
     eosId,
-    rankId: profile.rankId || 'shadow-recruit'
+    rankId: profile.rankId || 'shadow-recruit',
+    discordMembershipVerified: true
   }, account));
   return { ok: true, discordUserId: profile.discordUserId, eosId };
 }

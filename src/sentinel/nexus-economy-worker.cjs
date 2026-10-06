@@ -150,6 +150,7 @@ class NexusEconomyWorker {
         account.status = 'restricted';
         account.holdReason = '';
         account.verifiedAt = null;
+        account.discordLinkSource = 'mc-link';
         account.eosIds = [];
       }
       if (quarantineDenylist(this.env).has(id) && !String(account.holdReason || '').trim()) {
@@ -301,7 +302,31 @@ class NexusEconomyWorker {
     const id = cleanId(discordUserId);
     const links = this.minecraft?.links;
     if (!id || !links) return null;
-    return [...links.values()].find((row) => row.discordUserId === id && row.verifiedAt) || null;
+    return [...links.values()].find((row) => row.discordUserId === id && row.verifiedAt && !row.unlinkedAt) || null;
+  }
+
+  // Fills a missing Discord verification stamp. Does not change status.
+  // An existing verifiedAt keeps its source.
+  recordSentinelOwnershipProof(discordUserId, verifiedAt) {
+    const id = cleanId(discordUserId);
+    if (!id) return { ok: false, reason: 'discord-user-required' };
+    return this.withLock(id, async () => {
+      const state = this.store.read();
+      const account = state.accounts[id];
+      if (!account) return { ok: false, reason: 'verified-identity-required' };
+      if (!account.verifiedAt) {
+        account.verifiedAt = verifiedAt || new Date(this.now()).toISOString();
+        account.discordLinkSource = 'sentinel-ownership-proof';
+        account.updatedAt = new Date(this.now()).toISOString();
+        this.store.write(state);
+      }
+      return {
+        ok: true,
+        status: account.status,
+        verifiedAt: account.verifiedAt,
+        discordLinkSource: account.discordLinkSource || null
+      };
+    });
   }
 
   credit({ discordUserId, amount, type = 'credit', source = 'nexus', idempotencyKey = '', metadata = {} } = {}, options = {}) {

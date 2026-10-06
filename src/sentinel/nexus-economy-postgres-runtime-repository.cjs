@@ -161,7 +161,7 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
       }
       for (const [provider, externalId] of [['discord', discordUserId], ['eos', eosId]]) {
         await client.query(
-          `INSERT INTO ${s}.nexus_economic_identity_links (provider, external_id, economic_identity_id, verified_at, source) VALUES ($1,$2,$3,$4,'sentinel-ownership-proof') ON CONFLICT (provider, external_id) DO UPDATE SET verified_at = COALESCE(nexus_economic_identity_links.verified_at, EXCLUDED.verified_at)`,
+          `INSERT INTO ${s}.nexus_economic_identity_links (provider, external_id, economic_identity_id, verified_at, source) VALUES ($1,$2,$3,$4,'sentinel-ownership-proof') ON CONFLICT (provider, external_id) DO UPDATE SET verified_at = COALESCE(nexus_economic_identity_links.verified_at, EXCLUDED.verified_at), source = CASE WHEN nexus_economic_identity_links.verified_at IS NULL THEN EXCLUDED.source ELSE nexus_economic_identity_links.source END`,
           [provider, externalId, economicIdentityId, verifiedAt]
         );
       }

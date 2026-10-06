@@ -2,7 +2,6 @@
 
 const { mcPointsFlags } = require('../shared/mc-points-flags.cjs');
 const { mcMemberText } = require('../shared/mc-member-text.cjs');
-const { mcRefundActorAllowed } = require('../economy-worker/mc-refund-auth.cjs');
 const { beginMinecraftLink } = require('./mc-link-flow.cjs');
 const { httpMinecraftPoints, economyConfigured } = require('./mc-economy-http.cjs');
 const { runRcon } = require('./query.cjs');
@@ -70,30 +69,7 @@ async function handleMcPointsCommand(interaction, context) {
       return true;
     }
     if (sub === 'refund') {
-      if (!mcRefundActorAllowed(interaction, env)) {
-        await interaction.reply(context.ephemeral(reasonText('staff-not-authorized')));
-        return true;
-      }
-      const orderId = interaction.options.getString('order');
-      const reason = interaction.options.getString('reason');
-      const result = await points.refund({
-        orderId,
-        reason,
-        actor: discordUserId,
-        staffAuthorized: true,
-        force: interaction.options.getBoolean?.('force') === true
-      });
-      if (result?.duplicate) {
-        await interaction.reply(context.ephemeral(`Order ${orderId} was already refunded. Nexus Points were not returned again.`));
-        return true;
-      }
-      if (!result?.ok) {
-        await interaction.reply(context.ephemeral(reasonText(result?.reason)));
-        return true;
-      }
-      const price = Number(result.order?.price || 0);
-      const returned = price > 0 ? `${price} Nexus Points were returned.` : 'No Nexus Points were owed.';
-      await interaction.reply(context.ephemeral(`Refunded ${orderId}. ${returned} The audit is stored. This order cannot be refunded again.`));
+      await interaction.reply(context.ephemeral('Minecraft refunds run in Sentinal with `/shopadmin mc-refund`. This bot does not refund.'));
       return true;
     }
     if (sub === 'resolve') {
@@ -204,7 +180,7 @@ function installMcEconomyLoops({ store, env = process.env, log = console.log } =
     sweepTimer.unref?.();
     timers.push(sweepTimer);
   }
-  if (flags.shopDeliveryEnabled && !flags.dryRun && !globalThis[DELIVERY_LOOP]) {
+  if (flags.shopDeliveryEnabled && !globalThis[DELIVERY_LOOP]) {
     globalThis[DELIVERY_LOOP] = true;
     const timer = setInterval(() => {
       defaultRcon(store).then((rcon) => runMcDeliveryCycle({ points, rcon, env })).catch((error) => {
