@@ -70,7 +70,7 @@ function shopCommand() {
 function shopAdminCommand() {
   return new SlashCommandBuilder()
     .setName('shopadmin')
-    .setDescription('Coin shop tools for Administrators')
+    .setDescription('Staff tools for the Coin shop and Minecraft refunds')
     .setDMPermission(false)
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addSubcommand((sub) => sub
@@ -81,7 +81,14 @@ function shopAdminCommand() {
     .addSubcommand((sub) => sub
       .setName('lookup')
       .setDescription('Look up a member Coin shop record')
-      .addUserOption((option) => option.setName('user').setDescription('Member to look up').setRequired(true)));
+      .addUserOption((option) => option.setName('user').setDescription('Member to look up').setRequired(true)))
+    .addSubcommand((sub) => sub
+      .setName('mc-refund')
+      .setDescription('Refund a Minecraft shop order')
+      .addStringOption((option) => option.setName('order').setDescription('Order id').setRequired(true))
+      .addStringOption((option) => option.setName('reason').setDescription('Why').setRequired(true))
+      .addBooleanOption((option) => option.setName('force').setDescription('Refund a delivery that was sent and is not confirmed yet'))
+      .addBooleanOption((option) => option.setName('confirm').setDescription('Apply the refund. Leave this off to preview.')));
 }
 
 function clearCoinShopSessions() {
@@ -350,8 +357,9 @@ async function removeWalletCosmetic(backend, preview) {
 }
 
 async function handleAdmin(interaction, economy, backend) {
+  const sub = interaction.options.getSubcommand(false);
+  if (sub !== 'lookup' && sub !== 'refund') return false;
   if (!isCoinShopAdmin(interaction)) return interaction.reply(ephemeral('That command is for a staff admin.'));
-  const sub = interaction.options.getSubcommand();
   const actor = { actor: interaction.user.id, staffVerified: true };
   if (sub === 'lookup') {
     const user = interaction.options.getUser('user');
@@ -385,7 +393,7 @@ async function handleAdmin(interaction, economy, backend) {
       : memberReceipt(result).replace('\n', '. ');
     return interaction.reply(ephemeral(text));
   }
-  return interaction.reply(ephemeral('That command is for a staff admin.'));
+  return false;
 }
 
 async function handleCoinShopInteraction(interaction, { economyClient, backend, config = loadConfig(), artRoot = ART_DIR } = {}) {
@@ -394,7 +402,11 @@ async function handleCoinShopInteraction(interaction, { economyClient, backend, 
   try {
     if (interaction.isChatInputCommand?.()) {
       if (interaction.commandName === 'shop') return openShop(interaction);
-      if (interaction.commandName === 'shopadmin') return handleAdmin(interaction, economy, cosmetics);
+      if (interaction.commandName === 'shopadmin') {
+        const sub = interaction.options?.getSubcommand?.(false);
+        if (sub !== 'refund' && sub !== 'lookup') return false;
+        return handleAdmin(interaction, economy, cosmetics);
+      }
       return false;
     }
     const customId = String(interaction.customId || '');

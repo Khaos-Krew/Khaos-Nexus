@@ -13,11 +13,14 @@ const {
 } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
+const { memberJoinedAtMs } = require('../shared/mc-starter-kit.cjs');
 const { arkNpFlags } = require('../shared/ark-np-flags.cjs');
 const { arkMemberText, orderStatusText, ledgerLineText } = require('../shared/ark-np-member-text.cjs');
 const { shopCurrencyCopy } = require('../shared/dino-cache-currency.cjs');
 const { isStaffAdmin } = require('./staff-roles.cjs');
 const { buildStaffSubject, rolesFromSubject } = require('../economy-worker/ark-staff-auth.cjs');
+const { mcRefundActorAllowed } = require('../economy-worker/mc-refund-auth.cjs');
+const { mcMemberText } = require('../shared/mc-member-text.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.ark.np.shop.ui.installed');
 const sessions = new Map();
@@ -173,7 +176,11 @@ async function confirmBuy(interaction, economy) {
 
 async function claimKit(interaction, economy) {
   if (!arkNpFlags().starterKitEnabled) return interaction.reply(ephemeral(arkMemberText('ark-starter-kit-disabled')));
-  const result = await economy.arkClaimStarterKit({ discordUserId: interaction.user.id });
+  const joinedAt = await memberJoinedAtMs(interaction);
+  const result = await economy.arkClaimStarterKit({
+    discordUserId: interaction.user.id,
+    ...(Number.isFinite(joinedAt) ? { joinedAt } : {})
+  });
   if (!result?.ok) return interaction.reply(ephemeral(arkMemberText(result?.reason)));
   if (result.duplicate) return interaction.reply(ephemeral(arkMemberText('already-claimed')));
   return interaction.reply(ephemeral(`The starter kit is free and claimed once. Order: ${result.order?.orderId}. It is delivered on whatever map you are on.`));
@@ -208,12 +215,39 @@ async function handleAdmin(interaction, economy, config) {
   return interaction.reply(ephemeral('That command is for staff.'));
 }
 
-async function handleArkShopInteraction(interaction, { economyClient = new NexusEconomyClient(), config = loadConfig() } = {}) {
+async function handleMcRefund(interaction, economy, env = process.env) {
+  if (!mcRefundActorAllowed(interaction, env)) return interaction.reply(ephemeral(mcMemberText('staff-not-authorized')));
+  const orderId = interaction.options.getString('order');
+  const reason = interaction.options.getString('reason');
+  const force = interaction.options.getBoolean?.('force') === true;
+  const confirm = interaction.options.getBoolean?.('confirm') === true;
+  const body = {
+    orderId,
+    reason,
+    actor: interaction.user.id,
+    staffAuthorized: true,
+    force
+  };
+  const result = confirm ? await economy.mcShopRefund(body) : await economy.mcShopRefundPreview(body);
+  if (result?.duplicate) return interaction.reply(ephemeral(`Order ${orderId} was already refunded. Nexus Points were not returned again.`));
+  if (!result?.ok) return interaction.reply(ephemeral(mcMemberText(result?.reason)));
+  if (!confirm) return interaction.reply(ephemeral(`Preview: ${orderId} can be refunded. Run \`/shopadmin mc-refund\` again with confirm to return the Points.`));
+  const price = Number(result.order?.price || 0);
+  const returned = price > 0 ? `${price} Nexus Points were returned.` : 'No Nexus Points were owed.';
+  return interaction.reply(ephemeral(`Refunded ${orderId}. ${returned} The audit is stored. This order cannot be refunded again.`));
+}
+
+async function handleArkShopInteraction(interaction, { economyClient = new NexusEconomyClient(), config = loadConfig(), env = process.env } = {}) {
   try {
     if (interaction.isChatInputCommand?.()) {
       if (interaction.commandName === 'points') return showPoints(interaction, economyClient);
       if (interaction.commandName === 'shop') return false;
       if (interaction.commandName === 'arkshop-admin') return handleAdmin(interaction, economyClient, config);
+      if (interaction.commandName === 'shopadmin') {
+        const sub = interaction.options?.getSubcommand?.(false);
+        if (sub !== 'mc-refund') return false;
+        return handleMcRefund(interaction, economyClient, env);
+      }
       return false;
     }
     const id = String(interaction.customId || '');

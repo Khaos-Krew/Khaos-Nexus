@@ -60,6 +60,7 @@ function service(extra = {}) {
     env: {
       MC_POINTS_ENABLED: 'true',
       MC_SHOP_ENABLED: 'true',
+      MC_SHOP_DRY_RUN: 'false',
       MC_SHOP_DELIVERY_ENABLED: 'true',
       MC_STARTER_KIT_ENABLED: 'true',
       NEXUS_ECONOMY_IDENTITY_PROOF_SECRET: SECRET,
@@ -189,9 +190,9 @@ test('final statuses and a lost lease do not change the order', async () => {
   const expired = points.sweepExpiredLeases();
   assert.deepEqual(expired, [claimed.orderId]);
   assert.equal(points.orders.get(claimed.orderId).status, 'SENT_UNCONFIRMED');
-  const staff = await points.refund({ orderId: claimed.orderId, reason: 'crate missing', actor: STAFF, writesEnabled: true });
+  const staff = await points.refund({ orderId: claimed.orderId, reason: 'crate missing', actor: STAFF, writesEnabled: true, force: true, staffAuthorized: true });
   assert.equal(staff.ok, true, staff.reason);
-  const again = await points.refund({ orderId: claimed.orderId, reason: 'crate missing', actor: STAFF, writesEnabled: true });
+  const again = await points.refund({ orderId: claimed.orderId, reason: 'crate missing', actor: STAFF, writesEnabled: true, staffAuthorized: true });
   assert.equal(again.duplicate, true);
   const delivered = points.orders.get(bought.order.orderId);
   delivered.status = 'DELIVERED';
@@ -276,11 +277,15 @@ test('the craft token cannot buy, credit, or refund', async () => {
     });
   }
   try {
-    for (const path of ['/wallet/credit', '/wallet/spend', '/mc-shop/refund', '/identity/link', '/identity/demote-restricted', '/wallet/ensure-shadow-recruit', '/wallet/admin-credit', '/wallet/admin-spend', '/mc-shop/buy', '/mc-shop/quote', '/mc/staff/resend', '/mc/staff/resolve']) {
+    for (const path of ['/wallet/credit', '/wallet/spend', '/identity/link', '/identity/demote-restricted', '/wallet/ensure-shadow-recruit', '/wallet/admin-credit', '/wallet/admin-spend', '/mc-shop/buy', '/mc-shop/quote', '/mc/staff/resend', '/mc/staff/resolve']) {
       const blocked = await post(path, 'craft-token');
       assert.equal(blocked.status, 403, path);
       assert.equal(blocked.body.error, 'craft-token-scope');
     }
+    assert.deepEqual(calls, []);
+    const refund = await post('/mc-shop/refund', 'craft-token');
+    assert.equal(refund.status, 403);
+    assert.equal(refund.body.error, 'craft-token-scope');
     assert.deepEqual(calls, []);
     const pending = await new Promise((resolve, reject) => {
       const req = http.request({ host: '127.0.0.1', port, path: '/mc-shop/orders/pending', method: 'GET', headers: { authorization: 'Bearer craft-token' } }, (res) => {
@@ -363,7 +368,8 @@ test('the craft token can post minecraft presence only', async () => {
 test('minecraft playtime does not require EOS when the identity and link are verified', async () => {
   assert.equal(mcEarnEligible({ status: 'verified', verifiedAt: '2026-01-01' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), true);
   assert.equal(mcEarnEligible({ status: 'verified', verifiedAt: '2026-01-01' }, null), false);
-  assert.equal(mcEarnEligible({ status: 'restricted' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), false);
+  assert.equal(mcEarnEligible({ status: 'restricted', economicIdentityId: 'econ' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), true);
+  assert.equal(mcEarnEligible({ status: 'restricted', economicIdentityId: 'econ', holdReason: 'staff' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), false);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-eos-'));
   let now = Date.parse('2026-10-01T16:00:00Z');
   const worker = new NexusEconomyWorker({
@@ -393,8 +399,12 @@ test('Minecraft points owner decisions do not require EOS and leave partial deli
     : 'image does not include docs/architecture/MC_POINTS_OWNER_DECISIONS_2026-10-01.md'
 }, () => {
   const decision = fs.readFileSync(path.join(__dirname, '../docs/architecture/MC_POINTS_OWNER_DECISIONS_2026-10-01.md'), 'utf8');
-  assert.match(decision, /pending WARDEN sign-off/);
+  assert.match(decision, /8:29 PM CT on 2026-10-05/);
+  assert.match(decision, /does not unlock ARK shop items/);
+  assert.match(decision, /does not change Coin rules/);
+  assert.doesNotMatch(decision, /pending WARDEN sign-off/);
   assert.match(decision, /remainder goes to SENT_UNCONFIRMED/);
+  assert.match(decision, /1,500 Point ARK legacy grant/);
 });
 
 test('link proof verifies with the ARK identity proof secret', async () => {
@@ -416,6 +426,26 @@ test('staff cannot refund themselves, a delivered order, or without a reason', a
   points.orders.get(claimed.orderId).leaseUntil = null;
   const self = await points.refund({ orderId: bought.order.orderId, reason: 'lost crate', actor: DISCORD, writesEnabled: true });
   assert.equal(self.reason, 'staff-not-authorized');
+  const alt = '666666666666666666';
+  const shared = wallet();
+  const resolve = shared.resolve.bind(shared);
+  shared.resolve = async (id) => (id === alt
+    ? { economicIdentityId: `econ_${DISCORD}`, status: 'verified', verifiedAt: '2026-01-01T00:00:00.000Z' }
+    : resolve(id));
+  const linkedAlt = service({ wallet: shared, env: { NEXUS_MC_REFUND_STAFF_IDS: `${STAFF},${alt}` } });
+  await link(linkedAlt.points, DISCORD, UUID_2);
+  const altQuote = await linkedAlt.points.quote({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1 });
+  const altBuy = await linkedAlt.points.buy({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1, nonce: altQuote.quote.nonce, writesEnabled: true });
+  altBuy.order.status = 'DELIVERY_FAILED';
+  const altRefund = await linkedAlt.points.refund({
+    orderId: altBuy.order.orderId,
+    reason: 'linked alt',
+    actor: alt,
+    writesEnabled: true,
+    staffAuthorized: true
+  });
+  assert.equal(altRefund.reason, 'staff-not-authorized');
+  assert.notEqual(linkedAlt.points.orders.get(altBuy.order.orderId).status, 'REFUNDED');
   const bare = await points.refund({ orderId: bought.order.orderId, reason: 'no', actor: STAFF, writesEnabled: true });
   assert.equal(bare.reason, 'refund-reason-required');
   const delivered = points.orders.get(bought.order.orderId);
@@ -549,8 +579,28 @@ test('a refund wins over a late delivery and a stuck lease resolves through the 
   advance(61 * 1000);
   await points.sweepRefunds({ writesEnabled: true });
   assert.equal(points.orders.get(paid.order.orderId).status, 'SENT_UNCONFIRMED');
-  const refunded = await points.refund({ orderId: paid.order.orderId, actor: STAFF, reason: 'late delivery', writesEnabled: true });
+  const refunded = await points.refund({ orderId: paid.order.orderId, actor: STAFF, reason: 'late delivery', writesEnabled: true, force: true, staffAuthorized: true });
   assert.equal(refunded.ok, true, refunded.reason);
+  const aged = await buySku(points, 'mc_logs64');
+  aged.order.status = 'DELIVERY_FAILED';
+  advance(25 * 60 * 60 * 1000);
+  const lateStaff = await points.refund({ orderId: aged.order.orderId, actor: STAFF, reason: 'too late', writesEnabled: true, staffAuthorized: true });
+  assert.equal(lateStaff.reason, 'refund-window');
+  assert.notEqual(points.orders.get(aged.order.orderId).status, 'REFUNDED');
+  const heldBank = wallet(100);
+  const heldService = service({ wallet: heldBank });
+  await link(heldService.points, DISCORD, UUID);
+  const heldPaid = await buySku(heldService.points, 'mc_logs64');
+  heldPaid.order.status = 'DELIVERY_FAILED';
+  heldBank.resolve = async () => ({ economicIdentityId: DISCORD, status: 'restricted', holdReason: 'staff', verifiedAt: null });
+  const heldRefund = await heldService.points.refund({ orderId: heldPaid.order.orderId, actor: STAFF, reason: 'held buyer', writesEnabled: true, staffAuthorized: true });
+  assert.equal(heldRefund.reason, 'account-hold');
+  assert.notEqual(heldService.points.orders.get(heldPaid.order.orderId).status, 'REFUNDED');
+  const old = await buySku(points, 'mc_food32');
+  old.order.status = 'PAID';
+  old.order.createdAt = new Date(Date.parse('2026-10-01T18:00:00Z') - 15 * 24 * 60 * 60 * 1000).toISOString();
+  const swept = await points.sweepRefunds({ writesEnabled: true });
+  assert.equal(swept.some((row) => row.order?.orderId === old.order.orderId && row.ok), true);
   assert.equal(points.orders.get(paid.order.orderId).status, 'REFUNDED');
   const commands = [];
   const late = await deliverMcOrder(points.orders.get(paid.order.orderId), {
@@ -654,21 +704,23 @@ test('quarantine blocks minecraft earn and shop spend', async () => {
   assert.equal(again.reason, 'quarantined');
 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-quarantine-'));
+  const env = {
+    MC_POINTS_ENABLED: 'true',
+    MC_PLAYTIME_NP_ENABLED: 'true',
+    MC_PLAYTIME_DRY_RUN: 'false',
+    MC_LINK_CODE_SECRET: LINK_SECRET,
+    NEXUS_ECONOMY_QUARANTINE_DENYLIST: ''
+  };
   const worker = new NexusEconomyWorker({
     store: new NexusEconomyStore(root),
-    env: {
-      MC_POINTS_ENABLED: 'true',
-      MC_PLAYTIME_NP_ENABLED: 'true',
-      MC_PLAYTIME_DRY_RUN: 'false',
-      MC_LINK_CODE_SECRET: LINK_SECRET,
-      NEXUS_ECONOMY_QUARANTINE_DENYLIST: DISCORD
-    }
+    env
   });
   const state = worker.store.read();
   worker.ensureAccount(state, DISCORD, 'cipher-runner');
   worker.store.write(state);
   const challenge = await worker.minecraft.challenge({ discordUserId: DISCORD, mcUuid: UUID, mcName: 'Steve' });
   assert.equal((await worker.minecraft.confirm({ discordUserId: DISCORD, code: challenge.code })).ok, true);
+  env.NEXUS_ECONOMY_QUARANTINE_DENYLIST = DISCORD;
   const earned = await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, rankId: 'origin-founder', server: 'minecraft' });
   assert.equal(earned.reason, 'quarantined');
   assert.equal(worker.wallet(DISCORD).balance, 0);
@@ -936,12 +988,12 @@ test('the same player can relink an unlinked UUID', async () => {
 });
 
 test('a verified minecraft link earns without EOS and quarantine still blocks', async () => {
-  assert.equal(mcPlaytimeEligible({ status: 'verified', verifiedAt: '2026-01-01' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), true);
-  assert.equal(mcPlaytimeEligible({ status: 'verified' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), false);
-  assert.equal(mcPlaytimeEligible({ status: 'restricted' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), false);
-  assert.equal(mcPlaytimeEligible({ status: 'disabled' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), false);
-  assert.equal(mcPlaytimeEligible({ status: 'restricted' }, null), false);
-  assert.equal(mcEarnEligible({ status: 'restricted' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), false);
+  assert.equal(mcPlaytimeEligible({ status: 'verified', verifiedAt: '2026-01-01', economicIdentityId: 'econ' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), true);
+  assert.equal(mcPlaytimeEligible({ status: 'verified', economicIdentityId: 'econ' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), true);
+  assert.equal(mcPlaytimeEligible({ status: 'restricted', economicIdentityId: 'econ' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), true);
+  assert.equal(mcPlaytimeEligible({ status: 'disabled', economicIdentityId: 'econ' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), false);
+  assert.equal(mcPlaytimeEligible({ status: 'restricted', economicIdentityId: 'econ' }, null), false);
+  assert.equal(mcEarnEligible({ status: 'restricted', economicIdentityId: 'econ' }, { verifiedAt: '2026-01-02', mcUuid: UUID }), true);
 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-eosless-'));
   let now = Date.parse('2026-10-01T16:00:00Z');
@@ -971,7 +1023,7 @@ test('a verified minecraft link earns without EOS and quarantine still blocks', 
   assert.equal(denied.message, 'Your account is on hold. Ask an Admin for help.');
   assert.equal(denied.credited, 0);
   const shop = await worker.minecraft.quote({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1 });
-  assert.equal(shop.reason, 'verified-identity-required');
+  assert.equal(shop.reason, 'account-hold');
 
   const queries = [];
   const accrual = new PostgresEconomyAccrual({
@@ -982,14 +1034,15 @@ test('a verified minecraft link earns without EOS and quarantine still blocks', 
   const credited = await accrual.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, server: 'minecraft' });
   assert.equal(credited.ok, true, credited.reason);
   assert.equal(credited.balance, 2);
-  const resolveSql = queries.find((sql) => sql.includes("provider = 'minecraft'"));
-  assert.match(resolveSql, /m\.verified_at IS NOT NULL/);
-  assert.match(resolveSql, /d\.provider = 'discord' AND d\.verified_at IS NOT NULL/);
-  assert.match(resolveSql, /i\.status = 'verified'/);
+  const resolveSql = queries.find((sql) => /FROM\s+\S*nexus_mc_links l\b/.test(sql) && sql.includes('discord_user_id'));
+  assert.match(resolveSql, /l\.verified_at IS NOT NULL/);
+  assert.match(resolveSql, /d\.provider = 'discord'/);
+  assert.match(resolveSql, /i\.status IN \('verified', 'restricted'\)/);
+  assert.doesNotMatch(resolveSql, /d\.verified_at IS NOT NULL/);
   assert.doesNotMatch(resolveSql, /provider = 'eos'/);
-  assert.doesNotMatch(resolveSql, /i\.status IN \('verified', 'restricted'\)/);
   assert.doesNotMatch(resolveSql, /LEFT JOIN/);
   assert.equal(queries.some((sql) => /INSERT INTO/.test(sql) && /nexus_economy_ledger/.test(sql)), true);
+  assert.equal(queries.some((sql) => /UPDATE/.test(sql) && /nexus_mc_links/.test(sql) && /playtime_ms/.test(sql)), true);
 
   const blockedQueries = [];
   const blocked = new PostgresEconomyAccrual({
@@ -1067,7 +1120,7 @@ function minecraftEarnPool(queries, identity) {
       queries.push(String(sql));
       const text = String(sql);
       if (text.includes('nexus_mc_schema_version') && text.includes('SELECT')) return { rows: [{ version: 1 }] };
-      if (text.includes("provider = 'minecraft'")) return { rows: [identity] };
+      if (text.includes('nexus_mc_links') && text.includes('verified_at IS NOT NULL') && !text.includes('status = ANY')) return { rows: [identity] };
       if (text.includes('SELECT status') && text.includes('nexus_economic_identities')) return { rows: [{ status: 'verified' }], rowCount: 1 };
       if (text.includes('SELECT *') && text.includes('nexus_economy_accrual_state')) {
         return {
@@ -1107,7 +1160,7 @@ test('postgres buy locks the identity before the daily spend, order, and item ca
   const yesterday = '2026-09-30T18:00:00.000Z';
   const catalog = loadMcShopCatalog();
   const catalogHash = catalogFingerprint(catalog);
-  const env = { MC_SHOP_ENABLED: 'true' };
+  const env = { MC_SHOP_ENABLED: 'true', MC_SHOP_DRY_RUN: 'false' };
 
   function shop(pool) {
     return new PostgresMcPoints({
@@ -1294,6 +1347,9 @@ function shopBuyPool({ quotes = [], orders = [], balance = 100000 } = {}) {
           lockKey = params[0];
           await acquire(lockKey);
           return { rows: [], rowCount: 0 };
+        }
+        if (text.includes('nexus_mc_links') && text.includes('SELECT')) {
+          return { rows: [{ mc_uuid: params[0] || 'linked' }], rowCount: 1 };
         }
         if (text.includes('SELECT status') && text.includes('nexus_economic_identities')) {
           return { rows: [{ status: 'verified' }], rowCount: 1 };

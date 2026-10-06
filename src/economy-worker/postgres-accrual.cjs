@@ -121,14 +121,16 @@ class PostgresEconomyAccrual {
   async #resolveByMinecraft(client, mcUuid) {
     const uuid = normalizeUuid(mcUuid);
     if (!uuid) return null;
-    // Verified Discord identity and a verified /mc link. No EOS join. Quarantine is checked by the caller.
+    // A verified nexus_mc_links row. Discord verified_at is not required. No EOS join.
+    // Unmarked restricted may earn. A hold marker is resolved on the held path. Quarantine is checked by the caller.
     const result = await client.query(
-      `SELECT i.economic_identity_id, d.external_id AS discord_user_id, m.external_id AS mc_uuid ` +
-      `FROM ${this.schema}.nexus_economic_identity_links m ` +
-      `JOIN ${this.schema}.nexus_economic_identities i ON i.economic_identity_id = m.economic_identity_id ` +
-      `JOIN ${this.schema}.nexus_economic_identity_links d ON d.economic_identity_id = i.economic_identity_id ` +
-      `WHERE m.provider = 'minecraft' AND m.external_id = $1 AND m.verified_at IS NOT NULL ` +
-      `AND d.provider = 'discord' AND d.verified_at IS NOT NULL AND i.status = 'verified' LIMIT 1`,
+      `SELECT i.economic_identity_id, d.external_id AS discord_user_id, l.mc_uuid ` +
+      `FROM ${this.schema}.nexus_mc_links l ` +
+      `JOIN ${this.schema}.nexus_economic_identities i ON i.economic_identity_id = l.economic_identity_id ` +
+      `JOIN ${this.schema}.nexus_economic_identity_links d ON d.economic_identity_id = i.economic_identity_id AND d.provider = 'discord' ` +
+      `WHERE l.mc_uuid = $1 AND l.verified_at IS NOT NULL AND l.unlinked_at IS NULL ` +
+      `AND i.status IN ('verified', 'restricted') ` +
+      `AND NULLIF(btrim(COALESCE(i.hold_reason, '')), '') IS NULL LIMIT 1`,
       [uuid]
     );
     return result.rows?.[0] || null;
@@ -193,12 +195,11 @@ class PostgresEconomyAccrual {
       const uuid = normalizeUuid(mcUuid);
       if (!uuid) return null;
       const result = await client.query(
-        `SELECT i.economic_identity_id, i.status, d.external_id AS discord_user_id, m.external_id AS mc_uuid ` +
-        `FROM ${this.schema}.nexus_economic_identity_links m ` +
-        `JOIN ${this.schema}.nexus_economic_identities i ON i.economic_identity_id = m.economic_identity_id ` +
-        `JOIN ${this.schema}.nexus_economic_identity_links d ON d.economic_identity_id = i.economic_identity_id ` +
-        `WHERE m.provider = 'minecraft' AND m.external_id = $1 AND m.verified_at IS NOT NULL ` +
-        `AND d.provider = 'discord' AND d.verified_at IS NOT NULL ` +
+        `SELECT i.economic_identity_id, i.status, d.external_id AS discord_user_id, l.mc_uuid ` +
+        `FROM ${this.schema}.nexus_mc_links l ` +
+        `JOIN ${this.schema}.nexus_economic_identities i ON i.economic_identity_id = l.economic_identity_id ` +
+        `JOIN ${this.schema}.nexus_economic_identity_links d ON d.economic_identity_id = i.economic_identity_id AND d.provider = 'discord' ` +
+        `WHERE l.mc_uuid = $1 AND l.verified_at IS NOT NULL AND l.unlinked_at IS NULL ` +
         `AND ${heldPredicate} LIMIT 1`,
         [uuid, statuses]
       );
@@ -230,7 +231,7 @@ class PostgresEconomyAccrual {
   }
 
   // ARK playtime still resolves through #resolveByEos (EOS verified_at required).
-  // Minecraft playtime resolves through a verified Discord identity and a verified /mc link, with no EOS join.
+  // Minecraft playtime resolves through a verified nexus_mc_links row, with no EOS join.
   // accrueOffline still uses #resolveByDiscord, then passive income keeps the EOS hard-gate.
   async #lockStateAndWallet(client, economicIdentityId, rankId = null) {
     const s = this.schema;
@@ -432,7 +433,7 @@ class PostgresEconomyAccrual {
     if (minecraft) {
       const gate = flagsArg(this.env);
       if (!gate.pointsEnabled) return { ok: false, reason: 'mc-points-disabled', credited: 0 };
-      if (!gate.playtimeEnabled) return { ok: false, reason: 'mc-playtime-disabled', credited: 0 };
+      if (!gate.playtimeEnabled && !gate.kitPlaytimeObservation) return { ok: false, reason: 'mc-playtime-disabled', credited: 0 };
       minecraftServer = minecraftServerName(serverKeyInput);
       if (!minecraftServer) return { ok: false, reason: 'invalid-mc-server', credited: 0 };
       if (gate.dryRun) return this.#dryRunMinecraft({ mcUuid, online, server: minecraftServer, afk });
@@ -494,12 +495,14 @@ class PostgresEconomyAccrual {
       }
       let creditSource = serverKey;
       let planned = null;
+      let playtimeDelta = 0;
       if (minecraft) {
+        const previousLifetime = Number(state.mc_lifetime_ms || 0);
         const otherSource = otherPresenceOnline(presenceBefore, nowMs, PRESENCE_TTL_MS);
         planned = planMinecraftContribution({
           mcCountedDay: state.mc_counted_day || '',
           mcCountedMs: Number(state.mc_counted_ms || 0),
-          mcLifetimeMs: Number(state.mc_lifetime_ms || 0),
+          mcLifetimeMs: previousLifetime,
           mcOnline: state.mc_online === true,
           lastMcOnlineAt: millis(state.last_mc_online_at),
           online: Boolean(online),
@@ -512,6 +515,7 @@ class PostgresEconomyAccrual {
         });
         accountingGap = planned.gap;
         creditSource = planned.creditSource;
+        playtimeDelta = Number(planned.mcLifetimeMs || 0) - previousLifetime;
         state.mc_counted_day = planned.mcCountedDay;
         state.mc_counted_ms = planned.mcCountedMs;
         state.mc_lifetime_ms = planned.mcLifetimeMs;
@@ -597,6 +601,14 @@ class PostgresEconomyAccrual {
           [identity.economic_identity_id, state.rank_id, state.online, state.online_since, state.online_uncredited_ms,
             state.online_credit_cursor, state.last_accounting_at, state.last_presence_at, state.offline_since,
             state.last_passive_at, state.passive_credit_cursor, JSON.stringify(state.presence_by_server)]
+        );
+      }
+      // The starter-kit clock reads nexus_mc_links.playtime_ms. Dry-run already writes
+      // that column; live playtime has to write the same lifetime delta.
+      if (playtimeDelta !== 0) {
+        await client.query(
+          `UPDATE ${this.schema}.nexus_mc_links SET playtime_ms = GREATEST(0, playtime_ms + $2), updated_at = NOW() WHERE mc_uuid = $1 AND unlinked_at IS NULL`,
+          [identity.mc_uuid || normalizeUuid(mcUuid), playtimeDelta]
         );
       }
       await client.query('COMMIT');

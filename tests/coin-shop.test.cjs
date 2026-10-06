@@ -22,6 +22,7 @@ const { WalletCosmeticsService } = require('../src/backend/services/wallet-cosme
 const { walletEquipRow } = require('../src/sentinel/wallet-cosmetics-ui.cjs');
 const { handleWalletInteraction, syncWalletView } = require('../src/sentinel/wallet-cosmetics-extension.cjs');
 const { handleCoinShopInteraction, parseCoinCustomId, shopCommand, shopAdminCommand, registerCoinShopCommands, artFile, artForEmbed } = require('../src/sentinel/coin-shop-ui.cjs');
+const { handleArkShopInteraction } = require('../src/sentinel/ark-np-shop-ui.cjs');
 const { EmbedBuilder } = require('discord.js');
 
 const USER = '123456789012345678';
@@ -1071,4 +1072,34 @@ test('coin shop entitlement reads require the service token', async () => {
     assert.equal(sentinalPost.status, 503, pathname);
   }
   runtime.server.close();
+});
+
+test('one /shopadmin registers refund, lookup, and mc-refund, and each handler claims only its subcommand', async () => {
+  const names = shopAdminCommand().options.map((option) => option.toJSON().name);
+  assert.deepEqual(names, ['refund', 'lookup', 'mc-refund']);
+  const calls = { coin: 0, mc: 0 };
+  const economy = {
+    async coinShopRefundPreview() { calls.coin += 1; return { ok: false, reason: 'not-found' }; },
+    async coinShopLookup() { calls.coin += 1; return { ok: true, found: false }; },
+    async mcShopRefundPreview() { calls.mc += 1; return { ok: true, preview: true, order: { orderId: 'mc-1' } }; },
+    async mcShopRefund() { calls.mc += 1; return { ok: true, order: { orderId: 'mc-1', price: 1 } }; }
+  };
+  function command(sub) {
+    return mockInteraction({
+      kind: 'command',
+      commandName: 'shopadmin',
+      options: { getSubcommand: () => sub, getString: () => 'reason text', getUser: () => ({ id: OTHER }), getBoolean: () => false }
+    });
+  }
+  const mc = command('mc-refund');
+  assert.equal(await handleCoinShopInteraction(mc, { economyClient: economy, backend: {} }), false);
+  assert.equal(mc.replies.length, 0);
+  assert.equal(calls.coin, 0);
+  const coinRefund = command('refund');
+  assert.equal(await handleArkShopInteraction(coinRefund, { economyClient: economy }), false);
+  assert.equal(coinRefund.replies.length, 0);
+  assert.equal(calls.mc, 0);
+  const lookup = command('lookup');
+  assert.equal(await handleArkShopInteraction(lookup, { economyClient: economy }), false);
+  assert.equal(lookup.replies.length, 0);
 });

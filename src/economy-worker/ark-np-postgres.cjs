@@ -273,7 +273,11 @@ class PostgresArkShop {
       }
       // Recorded for the audit trail only. The owner did not ask for an age or tenure gate, so these dates are not enforced.
       const accountCreatedAt = discordAccountCreatedMs(discord);
-      const joinedAt = this.tenureOf ? await this.tenureOf(discord) : await guildJoinedAtMs(discord, this.env);
+      let joinedAt = this.tenureOf ? await this.tenureOf(discord) : await guildJoinedAtMs(discord, this.env, this.fetchImpl);
+      if (!Number.isFinite(Number(joinedAt))) {
+        const supplied = Number(input?.joinedAt);
+        if (Number.isFinite(supplied) && supplied >= 1420070400000 && supplied <= this.now()) joinedAt = supplied;
+      }
       const nowIso = new Date(this.now()).toISOString();
       const order = this.#order({
         discord,

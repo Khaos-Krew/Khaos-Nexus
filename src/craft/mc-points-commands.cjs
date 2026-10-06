@@ -68,6 +68,10 @@ async function handleMcPointsCommand(interaction, context) {
       await interaction.reply(context.ephemeral(result.ok ? `Link revoked. They can link again after ${result.cooldownUntil} with \`/mc link start\`.` : reasonText(result.reason)));
       return true;
     }
+    if (sub === 'refund') {
+      await interaction.reply(context.ephemeral('Minecraft refunds run in Sentinal with `/shopadmin mc-refund`. This bot does not refund.'));
+      return true;
+    }
     if (sub === 'resolve') {
       const orderId = interaction.options.getString('order');
       const action = interaction.options.getString('action');
@@ -110,7 +114,17 @@ async function handleMcPointsCommand(interaction, context) {
     return true;
   }
   if (group === 'link' && sub === 'status') {
-    const result = await points.status({ discordUserId });
+    let result;
+    try {
+      result = await points.status({ discordUserId });
+    } catch {
+      await interaction.reply(context.ephemeral(reasonText('link-status-unavailable')));
+      return true;
+    }
+    if (!result || result.ok === false) {
+      await interaction.reply(context.ephemeral(reasonText(result?.reason || 'link-status-unavailable')));
+      return true;
+    }
     const text = result.linked
       ? 'Your Minecraft account is linked. Play on Nexus Craft to earn Points.'
       : result.cooldownUntil
@@ -166,7 +180,7 @@ function installMcEconomyLoops({ store, env = process.env, log = console.log } =
     sweepTimer.unref?.();
     timers.push(sweepTimer);
   }
-  if (flags.shopDeliveryEnabled && !flags.dryRun && !globalThis[DELIVERY_LOOP]) {
+  if (flags.shopDeliveryEnabled && !globalThis[DELIVERY_LOOP]) {
     globalThis[DELIVERY_LOOP] = true;
     const timer = setInterval(() => {
       defaultRcon(store).then((rcon) => runMcDeliveryCycle({ points, rcon, env })).catch((error) => {

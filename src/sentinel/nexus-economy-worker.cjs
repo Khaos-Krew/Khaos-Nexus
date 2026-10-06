@@ -11,7 +11,7 @@ const { normalizeUuid } = require('../craft/mc-rcon-text.cjs');
 const { otherPresenceOnline, planMinecraftContribution, minecraftServerName, countsForSharedOnline, PRESENCE_TTL_MS } = require('../economy-worker/mc-playtime-accounting.cjs');
 const { MemoryMcPoints, mcPlaytimeEligible, bumpMcMetric } = require('../economy-worker/mc-points-service.cjs');
 const { economyPerkForRank } = require('../shared/nexus-economy-rank-perks.cjs');
-const { memberIdentityHold } = require('./nexus-economy-identity-hold.cjs');
+const { memberIdentityHold, linkElevationHold } = require('./nexus-economy-identity-hold.cjs');
 const { quarantineDenylist } = require('./nexus-economy-wallet-core.cjs');
 
 const STORE_VERSION = 1;
@@ -122,14 +122,63 @@ class NexusEconomyWorker {
         },
         balance: (discordUserId) => worker.balance(discordUserId),
         spend: (input) => worker.spend(input),
+        spendMinecraftShop: (input) => worker.spendMinecraftShop(input),
         credit: (input, creditOptions) => worker.credit(input, creditOptions),
         async lifetimeMs(discordUserId) {
           return Number(worker.store.read().accounts?.[discordUserId]?.mcLifetimeMs || 0);
         },
         async quarantined(economicIdentityId) {
           return quarantineDenylist(worker.env).has(String(economicIdentityId || ''));
-        }
+        },
+        ensureMinecraftMember: (discordUserId, options) => worker.ensureMinecraftMember(discordUserId, options)
       }
+    });
+  }
+
+  // The in-game link code opens Minecraft features on this Discord wallet.
+  // It creates a restricted identity when none exists and never changes status or verifiedAt.
+  // An EOS id is never written here.
+  ensureMinecraftMember(discordUserId) {
+    const id = cleanId(discordUserId);
+    if (!id) return { ok: false, reason: 'discord-user-required' };
+    return this.withLock(id, async () => {
+      const state = this.store.read();
+      let account = state.accounts[id] || null;
+      const created = !account;
+      if (!account) account = this.ensureAccount(state, id);
+      if (created) {
+        account.status = 'restricted';
+        account.holdReason = '';
+        account.verifiedAt = null;
+        account.discordLinkSource = 'mc-link';
+        account.eosIds = [];
+      }
+      if (quarantineDenylist(this.env).has(id) && !String(account.holdReason || '').trim()) {
+        account.holdReason = 'quarantine';
+        if (created) account.status = 'restricted';
+      }
+      const held = linkElevationHold({
+        status: account.status,
+        holdReason: account.holdReason,
+        economicIdentityId: id,
+        env: this.env
+      });
+      if (held) {
+        this.store.write(state);
+        return { ...held, commitStamp: quarantineDenylist(this.env).has(id), economicIdentityId: id };
+      }
+      account.eosIds = Array.isArray(account.eosIds) ? account.eosIds : [];
+      this.store.write(state);
+      const rawStatus = String(account.status || '').trim().toLowerCase();
+      return {
+        ok: true,
+        identity: {
+          economicIdentityId: account.discordUserId,
+          status: rawStatus,
+          holdReason: String(account.holdReason || '').trim(),
+          verifiedAt: rawStatus === 'verified' ? (account.verifiedAt || account.createdAt) : (account.verifiedAt || null)
+        }
+      };
     });
   }
 
@@ -172,7 +221,7 @@ class NexusEconomyWorker {
     return account;
   }
 
-  linkArkIdentity({ discordUserId, eosId, rankId = 'shadow-recruit' } = {}) {
+  linkArkIdentity({ discordUserId, eosId, rankId = 'shadow-recruit', verifiedAt, discordMembershipVerified } = {}) {
     const state = this.store.read();
     const account = this.ensureAccount(state, discordUserId, rankId);
     const eos = cleanId(eosId);
@@ -181,9 +230,35 @@ class NexusEconomyWorker {
     if (prior && prior !== account.discordUserId) throw new Error('EOS ID is already linked to another Nexus wallet.');
     if (!account.eosIds.includes(eos)) account.eosIds.push(eos);
     state.eosToDiscord[eos] = account.discordUserId;
+    if (discordMembershipVerified === true) {
+      const held = linkElevationHold({
+        status: account.status,
+        holdReason: account.holdReason,
+        economicIdentityId: account.discordUserId,
+        env: this.env
+      });
+      if (!held) {
+        if (!account.verifiedAt) {
+          account.verifiedAt = verifiedAt || new Date(this.now()).toISOString();
+          account.discordLinkSource = 'sentinel-ownership-proof';
+        }
+        if (String(account.status || '').trim().toLowerCase() === 'restricted') {
+          account.status = 'verified';
+          account.holdReason = '';
+        }
+      }
+    }
     account.updatedAt = new Date(this.now()).toISOString();
     this.store.write(state);
-    return { discordUserId: account.discordUserId, eosId: eos, rankId: account.rankId, balance: account.balance };
+    return {
+      discordUserId: account.discordUserId,
+      eosId: eos,
+      rankId: account.rankId,
+      balance: account.balance,
+      status: account.status,
+      discordLinkSource: account.discordLinkSource || null,
+      verifiedAt: account.verifiedAt || null
+    };
   }
 
   accountByEos(eosId) {
@@ -249,18 +324,58 @@ class NexusEconomyWorker {
     });
   }
 
+  #verifiedMcLink(discordUserId) {
+    const id = cleanId(discordUserId);
+    const links = this.minecraft?.links;
+    if (!id || !links) return null;
+    return [...links.values()].find((row) => row.discordUserId === id && row.verifiedAt && !row.unlinkedAt) || null;
+  }
+
+  // Fills a missing Discord verification stamp. Does not change status.
+  // An existing verifiedAt keeps its source.
+  recordSentinelOwnershipProof(discordUserId, verifiedAt) {
+    const id = cleanId(discordUserId);
+    if (!id) return { ok: false, reason: 'discord-user-required' };
+    return this.withLock(id, async () => {
+      const state = this.store.read();
+      const account = state.accounts[id];
+      if (!account) return { ok: false, reason: 'verified-identity-required' };
+      if (!account.verifiedAt) {
+        account.verifiedAt = verifiedAt || new Date(this.now()).toISOString();
+        account.discordLinkSource = 'sentinel-ownership-proof';
+        account.updatedAt = new Date(this.now()).toISOString();
+        this.store.write(state);
+      }
+      return {
+        ok: true,
+        status: account.status,
+        verifiedAt: account.verifiedAt,
+        discordLinkSource: account.discordLinkSource || null
+      };
+    });
+  }
+
   credit({ discordUserId, amount, type = 'credit', source = 'nexus', idempotencyKey = '', metadata = {} } = {}, options = {}) {
     if (String(source || '').trim() === COMMUNITY_LEVEL_UP_SOURCE || String(source || '').trim() === BIRTHDAY_GIFT_SOURCE) {
       return { ok: false, skipped: 'coins-wallet-unavailable', currency: 'NEXUS_COINS' };
     }
     const staffRefund = options?.allowHeldStaffRefund === true && source === 'mc-shop' && type === 'reversal';
+    const mcRollback = options?.minecraftPurchaseRollback === true && source === 'mc-shop' && type === 'reversal' && this.#verifiedMcLink(discordUserId);
     return this.withLock(discordUserId, async () => {
       const value = whole(amount);
       if (value <= 0) throw new Error('Credit amount must be a positive whole number.');
       const state = this.store.read();
       const existing = state.accounts[cleanId(discordUserId)] || null;
       if (existing && idempotencyKey && state.processed[idempotencyKey]) return { ok: true, duplicate: true, balance: existing.balance, accountHold: false };
-      const hold = this.accountHold(existing, discordUserId);
+      const hold = mcRollback
+        ? memberIdentityHold({
+          status: existing?.status,
+          holdReason: existing?.holdReason,
+          missingRow: !existing || !String(existing.status || '').trim(),
+          economicIdentityId: existing?.discordUserId || cleanId(discordUserId),
+          env: this.env
+        })
+        : this.accountHold(existing, discordUserId);
       if (hold && !staffRefund) return { ...hold, balance: existing?.balance || 0 };
       const account = this.ensureAccount(state, discordUserId, existing?.rankId);
       account.balance += value;
@@ -271,7 +386,11 @@ class NexusEconomyWorker {
     });
   }
 
-  spend({ discordUserId, amount, orderId, source = 'cluster-shop', metadata = {}, idempotencyKey = '' } = {}) {
+  spendMinecraftShop(input = {}) {
+    return this.spend({ ...input, source: 'sink:mc-shop' }, { minecraftShop: true });
+  }
+
+  spend({ discordUserId, amount, orderId, source = 'cluster-shop', metadata = {}, idempotencyKey = '' } = {}, options = {}) {
     return this.withLock(discordUserId, async () => {
       const value = whole(amount);
       if (value <= 0) throw new Error('Spend amount must be a positive whole number.');
@@ -281,7 +400,16 @@ class NexusEconomyWorker {
       const state = this.store.read();
       const existing = state.accounts[cleanId(discordUserId)] || null;
       if (existing && state.processed[key]) return { ok: true, duplicate: true, balance: existing.balance };
-      const hold = this.accountHold(existing, discordUserId);
+      const minecraftShop = options?.minecraftShop === true && this.#verifiedMcLink(discordUserId);
+      const hold = minecraftShop
+        ? memberIdentityHold({
+          status: existing?.status,
+          holdReason: existing?.holdReason,
+          missingRow: !existing || !String(existing.status || '').trim(),
+          economicIdentityId: existing?.discordUserId || cleanId(discordUserId),
+          env: this.env
+        })
+        : this.accountHold(existing, discordUserId);
       if (hold) return { ...hold, balance: existing?.balance || 0 };
       const account = this.ensureAccount(state, discordUserId, existing?.rankId);
       if (account.balance < value) return { ok: false, reason: 'insufficient-funds', balance: account.balance };
@@ -389,7 +517,7 @@ class NexusEconomyWorker {
     if (minecraft) {
       const gate = mcPointsFlags(this.env);
       if (!gate.pointsEnabled) return { ok: false, reason: 'mc-points-disabled', credited: 0 };
-      if (!gate.playtimeEnabled) return { ok: false, reason: 'mc-playtime-disabled', credited: 0 };
+      if (!gate.playtimeEnabled && !gate.kitPlaytimeObservation) return { ok: false, reason: 'mc-playtime-disabled', credited: 0 };
       serverKey = minecraftServerName(serverKey);
       if (!serverKey) return { ok: false, reason: 'invalid-mc-server', credited: 0 };
       const uuid = normalizeUuid(mcUuid);
@@ -422,7 +550,15 @@ class NexusEconomyWorker {
         ? this.ensureAccount(fresh, discordUserId, syncedRank)
         : this.ensureAccount(fresh, discordUserId, rankId || syncedRank);
       const now = this.now();
-      const hold = this.accountHold(account, discordUserId);
+      const hold = minecraft
+        ? memberIdentityHold({
+          status: account.status,
+          holdReason: account.holdReason,
+          missingRow: !String(account.status || '').trim(),
+          economicIdentityId: account.discordUserId,
+          env: this.env
+        })
+        : this.accountHold(account, discordUserId);
       if (hold) {
         account.lastAccountingAt = new Date(now).toISOString();
         account.onlineUncreditedMs = 0;

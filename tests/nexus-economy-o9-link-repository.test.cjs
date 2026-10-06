@@ -108,13 +108,25 @@ test('O9 repository: already-verified re-link stays verified and never demotes',
   });
 
   const repository = new NexusEconomyPostgresRuntimeRepository({ pool });
-  const result = await repository.linkVerifiedIdentity({ discordUserId, eosId, verifiedAt });
+  const result = await repository.linkVerifiedIdentity({
+    discordUserId, eosId, verifiedAt, discordMembershipVerified: true
+  });
 
   assert.equal(result.ok, true);
   assert.equal(result.duplicate, true);
   assert.equal(result.status, 'verified');
   assert.equal(result.economicIdentityId, 'econ_verified_1');
   assert.equal(calls.some((c) => /SET status = 'restricted'/.test(c.text || '')), false);
+  assert.equal(calls.some((c) => /SET status = 'verified'/.test(c.text || '')), false);
+
+  const refused = await repository.linkVerifiedIdentity({
+    discordUserId, eosId, verifiedAt, discordMembershipVerified: false
+  });
+  assert.equal(refused.ok, false);
+  assert.equal(refused.status, 'verified');
+  assert.equal(refused.eligibility, 'discord-verify-required');
+  assert.equal(calls.some((c) => /SET status = 'verified'/.test(c.text || '')), false);
+  assert.equal(calls.some((c) => c.text === 'ROLLBACK'), true);
 });
 
 test('O9 repository: demoteVerifiedIdentityToRestricted demotes verified only', async () => {

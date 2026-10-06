@@ -2,13 +2,13 @@
 
 ## OWNER DECISIONS
 
-- A verified `/mc link` qualifies an identity for Minecraft-earned Nexus Points. EOS is not required. Status: pending WARDEN sign-off.
-- No Minecraft Points are credited unless the economic identity is verified and the Minecraft link is verified.
+- Owner decision (8:29 PM CT on 2026-10-05, B4): the in-game link code and `/mc link confirm` verify a member for Minecraft Points. A Minecraft-only member with no ARK or EOS link can link, earn Minecraft playtime Points, buy from the Minecraft shop, and claim the Minecraft starter kit. That verification does not unlock ARK shop items, the 1,500 Point ARK legacy grant, or other ARK-only paths, and it does not change Coin rules. Restricted, held, quarantined, and disabled rules still apply. One Discord member who links both games keeps one Nexus Points wallet. Confirming the link does not change identity status or the Discord link's verified_at. Minecraft playtime, the Minecraft shop, and the Minecraft starter kit read a verified `nexus_mc_links` row.
+- Minecraft Points are credited only when that Minecraft link is verified and the identity is not held, disabled, or quarantined. An unmarked restricted identity can use those Minecraft features and still cannot spend Coins.
 - Partial delivery: lines already delivered stand, and the remainder goes to SENT_UNCONFIRMED for staff. Those lines are not auto-retried and not auto-refunded.
 
 ## Flags
 
-Enable flags stay off unless set: `MC_POINTS_ENABLED`, `MC_PLAYTIME_NP_ENABLED`, `MC_SHOP_ENABLED`, `MC_SHOP_DELIVERY_ENABLED`, `MC_STARTER_KIT_ENABLED`. `MC_SHOP_ENABLED` is the narrow shop flag. `MC_PLAYTIME_DRY_RUN` defaults on. Dry-run logs the credit and cap math, accrues per-UUID playtime, and writes no ledger row. While dry-run is on, Craft does not send `give`. Poller timestamps, rank, flags, and dry-run switches in the HTTP body are ignored. Existing economy write flags are unchanged.
+Enable flags stay off unless set: `MC_POINTS_ENABLED`, `MC_PLAYTIME_NP_ENABLED`, `MC_SHOP_ENABLED`, `MC_SHOP_DELIVERY_ENABLED`, `MC_STARTER_KIT_ENABLED`. `MC_SHOP_ENABLED` is the narrow shop flag. `MC_PLAYTIME_DRY_RUN` and `MC_SHOP_DRY_RUN` default on. Playtime dry-run logs the credit and cap math, accrues per-UUID playtime, and writes no ledger row. Shop dry-run shows the confirm and a test receipt and debits nothing. While playtime dry-run is on, Craft does not send `give`. Poller timestamps, rank, flags, and dry-run switches in the HTTP body are ignored. Existing economy write flags are unchanged. The Starter Kit counts its 15 minutes from that dry-run playtime and does not require `MC_PLAYTIME_NP_ENABLED`.
 
 ## Rank
 
@@ -26,7 +26,7 @@ Item ids are the ones on ATM10: Aeronautics 0.6.1 (Minecraft 1.21.1, NeoForge 21
 
 ## Craft token
 
-`NEXUS_ECONOMY_CRAFT_TOKEN` is limited to presence, link and unlink, delivery claim and delivery status, the refund sweep, and the pending-order and kit-grant reads. Buy, quote, and staff refunds use Sentinal's token only. Credit, spend, identity, and admin routes reject the craft token.
+`NEXUS_ECONOMY_CRAFT_TOKEN` is limited to presence, link and unlink, the link-status read, delivery claim and delivery status, the refund sweep, and the pending-order and kit-grant reads. It cannot call the staff refund route. Buy, quote, and refund use Sentinal's token only. Minecraft refunds use the same staff check as the Coin shop: the configured Owner role id, the guild owner, or a staff-admin role that is not also a mod role. A role named Owner with a different id does not pass, and the Administrator bit alone does not pass. A non-empty `NEXUS_MC_REFUND_STAFF_IDS` list only narrows that check. Leave it unset. Staff can post 10 Minecraft refunds per Chicago day, counted from committed audit rows under a lock on the actor. A refund is refused when the actor's Discord id or economic identity matches the order. The worker does not hold Sentinal's bot token for refunds. Staff refunds are only within 24 hours of the purchase, measured with the database clock, and a held member cannot be refunded. The 14-day automatic refund of an undelivered order is unchanged. A delivery that was sent and is not confirmed or failed is refunded only when staff pass `force: true`, and that flag is stored on the refund ledger metadata. Credit, spend, identity, and admin routes reject the craft token. Sentinal's kit claim looks up the join date. If that lookup fails, an in-range `joinedAt` from Sentinal is accepted and a future value is ignored.
 
 ## Member commands
 

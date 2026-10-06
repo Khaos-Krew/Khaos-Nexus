@@ -95,8 +95,14 @@ function mcAdminCommand() {
       .setDescription('List queued Minecraft orders.')
       .addStringOption((option) => option.setName('user').setDescription('Discord user id.').setMaxLength(32)))
     .addSubcommand((sub) => sub
+      .setName('refund')
+      .setDescription('Administrator: refund one Minecraft order.')
+      .addStringOption((option) => option.setName('order').setDescription('Order id.').setRequired(true).setMaxLength(80))
+      .addStringOption((option) => option.setName('reason').setDescription('Why this order is being refunded.').setRequired(true).setMaxLength(200))
+      .addBooleanOption((option) => option.setName('force').setDescription('Refund a delivery that was sent and is not confirmed yet.').setRequired(false)))
+    .addSubcommand((sub) => sub
       .setName('resolve')
-      .setDescription('Open Sentinal to deliver, refund, or resend an order.')
+      .setDescription('Open Sentinal to deliver or resend an order.')
       .addStringOption((option) => option.setName('order').setDescription('Order id.').setRequired(true).setMaxLength(80))
       .addStringOption((option) => option.setName('action').setDescription('What to do.').setRequired(true).addChoices(
         { name: 'Delivered', value: 'delivered' },

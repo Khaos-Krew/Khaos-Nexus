@@ -73,6 +73,19 @@
       ]
     },
     {
+      "id": "minecraft-points",
+      "label": "Minecraft Points",
+      "emoji": "⛏️",
+      "summary": "How to link Minecraft, earn Points, buy from the Minecraft shop, and claim the starter kit.",
+      "details": [
+        "On the Minecraft server, use /mc link start. Confirm the whispered code with /mc link confirm. Do not share that code.",
+        "Playing on the Minecraft server earns Points. An ARK link is not required, and linking Minecraft does not open the ARK shop or Coins.",
+        "The Minecraft shop is not open yet. When it opens, buy from it in Sentinal.",
+        "The starter kit is claimed once, after the account is old enough and you have played. It is delivered on the Minecraft server.",
+        "Staff refund a Minecraft order in Sentinal with /shopadmin mc-refund. Refunds are only available within 24 hours of purchase."
+      ]
+    },
+    {
       "id": "ranks-supporters",
       "label": "Ranks & Supporter Perks",
       "emoji": "⭐",

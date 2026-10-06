@@ -2,7 +2,10 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const http = require('node:http');
+const os = require('node:os');
+const path = require('node:path');
 const { installIdentityProjectionHooks } = require('../src/sentinel/nexus-economy-identity-sync-extension.cjs');
 const { NexusEconomyClient } = require('../src/sentinel/nexus-economy-client.cjs');
 
@@ -56,24 +59,36 @@ test('verified ARK links and rank syncs are projected to the Nexus wallet immedi
   assert.equal(installed, true);
   assert.equal(installIdentityProjectionHooks({ IdentityStoreClass: FakeIdentityStore }), false);
 
-  const store = new FakeIdentityStore();
-  const verified = store.verifyChallenge();
-  assert.equal(verified.ok, true);
-  await tick();
-  assert.deepEqual(links[0], {
-    discordUserId: '123456789012345678',
-    eosId: '0002walletrepair',
-    rankId: 'shadow-recruit'
-  });
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'member-verify-'));
+  const priorData = process.env.NEXUS_DATA_DIR;
+  process.env.NEXUS_DATA_DIR = root;
+  try {
+    const store = new FakeIdentityStore();
+    const unverified = store.verifyChallenge();
+    assert.equal(unverified.ok, true);
+    await tick();
+    assert.equal(links.length, 1);
+    assert.equal(links[0].discordUserId, '123456789012345678');
+    assert.equal(links[0].rankId, 'shadow-recruit');
+    assert.equal(links[0].discordMembershipVerified, undefined);
 
-  const ranked = store.updateRank();
-  assert.equal(ranked.changed, true);
-  await tick();
-  assert.deepEqual(links[1], {
-    discordUserId: '123456789012345678',
-    eosId: '0002walletrepair',
-    rankId: 'blackout-legend'
-  });
+    fs.writeFileSync(path.join(root, 'member-verifications.json'), JSON.stringify({
+      version: 1,
+      members: { '123456789012345678': { state: 'verified', discordUserId: '123456789012345678' } },
+      audit: []
+    }));
+    const ranked = store.updateRank();
+    assert.equal(ranked.changed, true);
+    await tick();
+    assert.equal(links.length, 2);
+    assert.equal(links[1].discordUserId, '123456789012345678');
+    assert.equal(links[1].eosId, '0002walletrepair');
+    assert.equal(links[1].rankId, 'blackout-legend');
+    assert.equal(links[1].discordMembershipVerified, true);
+  } finally {
+    if (priorData == null) delete process.env.NEXUS_DATA_DIR;
+    else process.env.NEXUS_DATA_DIR = priorData;
+  }
 });
 
 test('wallet reads do not project stale profiles; shop buys retain identity repair', async (t) => {

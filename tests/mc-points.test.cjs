@@ -66,6 +66,7 @@ function service(extra = {}) {
     env: {
       MC_POINTS_ENABLED: 'true',
       MC_SHOP_ENABLED: 'true',
+      MC_SHOP_DRY_RUN: 'false',
       MC_SHOP_DELIVERY_ENABLED: 'true',
       MC_STARTER_KIT_ENABLED: 'true',
       MC_LINK_CODE_SECRET: 'mc-link-code-hmac-secret-32chars!',
@@ -86,6 +87,8 @@ test('minecraft points flags default off and dry-run defaults on', () => {
   assert.equal(flags.shopDeliveryEnabled, false);
   assert.equal(flags.starterKitEnabled, false);
   assert.equal(flags.dryRun, true);
+  assert.equal(flags.shopDryRun, true);
+  assert.equal(flags.kitPlaytimeObservation, false);
   assert.equal(flags.playtimeWrites, false);
   assert.equal(mcPointsFlags({ MC_PLAYTIME_DRY_RUN: 'false', MC_POINTS_ENABLED: 'true', MC_PLAYTIME_NP_ENABLED: 'true' }).playtimeWrites, true);
 });
