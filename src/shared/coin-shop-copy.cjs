@@ -24,7 +24,8 @@ const REASONS = Object.freeze({
   'already-used': 'That item was already equipped. It was not refunded.',
   'refund-window': 'That purchase is older than 24 hours. It was not refunded.',
   'not-found': 'That purchase was not found. Nothing was refunded.',
-  'staff-required': 'That command is for an Administrator.',
+  'staff-required': 'That command is for a staff admin.',
+  'member-held': 'That member is on hold. The refund was not applied.',
   'reason-required': 'A refund needs a reason. Nothing was refunded.'
 });
 

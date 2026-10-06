@@ -269,11 +269,12 @@ async function confirmBuy(interaction, economy, backend, parsed) {
 }
 
 async function handleAdmin(interaction, economy, backend) {
-  if (!isCoinShopAdmin(interaction)) return interaction.reply(ephemeral('That command is for an Administrator.'));
+  if (!isCoinShopAdmin(interaction)) return interaction.reply(ephemeral('That command is for a staff admin.'));
   const sub = interaction.options.getSubcommand();
+  const actor = { actor: interaction.user.id, staffVerified: true };
   if (sub === 'lookup') {
     const user = interaction.options.getUser('user');
-    const result = await economy.coinShopLookup({ discordUserId: user?.id, actor: interaction.user.id });
+    const result = await economy.coinShopLookup({ discordUserId: user?.id, ...actor });
     if (!result?.ok) return interaction.reply(ephemeral(coinShopMemberText(result?.reason)));
     if (!result.found) return interaction.reply(ephemeral('No Coin shop record for that member.'));
     const lines = [
@@ -287,7 +288,7 @@ async function handleAdmin(interaction, economy, backend) {
     const result = await economy.coinShopRefund({
       ledgerRef: interaction.options.getString('ledger'),
       reason: interaction.options.getString('reason'),
-      actor: interaction.user.id
+      ...actor
     });
     if (!result?.ok) return interaction.reply(ephemeral(coinShopMemberText(result?.reason)));
     if (!result.duplicate && result.sku && typeof backend?.revokeWalletCosmetic === 'function') {
@@ -300,7 +301,7 @@ async function handleAdmin(interaction, economy, backend) {
       : `Refunded. New balance: ${Number(result.balance).toLocaleString('en-US')} Coins. Ledger: ${result.ledgerRef}`;
     return interaction.reply(ephemeral(text));
   }
-  return interaction.reply(ephemeral('That command is for an Administrator.'));
+  return interaction.reply(ephemeral('That command is for a staff admin.'));
 }
 
 async function handleCoinShopInteraction(interaction, { economyClient, backend, config = loadConfig() } = {}) {

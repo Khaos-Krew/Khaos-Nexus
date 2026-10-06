@@ -7,7 +7,7 @@ const { coinShopFlags, purchaseCeiling } = require('../shared/coin-shop-flags.cj
 const { purchaseKey, refundKey, chicagoDayStart, ATTEMPT_WINDOW_MS } = require('../shared/coin-shop-limits.cjs');
 const { decideQuote, decidePurchase, decideRefund } = require('../shared/coin-shop-decide.cjs');
 const { memberIdentityHold, quarantineDenylist } = require('../sentinel/nexus-economy-identity-hold.cjs');
-const { authorizeCoinShopStaff } = require('./coin-shop-staff.cjs');
+const { acceptVerifiedStaff } = require('./coin-shop-staff.cjs');
 
 class PostgresCoinShop {
   constructor({ pool, schema = 'public', now = () => Date.now(), env = process.env, authorizeStaff = null } = {}) {
@@ -17,7 +17,7 @@ class PostgresCoinShop {
     this.now = now;
     this.env = env;
     this.ready = false;
-    this.authorizeStaff = authorizeStaff || ((input) => authorizeCoinShopStaff({ actor: input?.actor, env: this.env }));
+    this.authorizeStaff = authorizeStaff || ((input) => acceptVerifiedStaff(input));
   }
 
   flags() {
@@ -76,7 +76,8 @@ class PostgresCoinShop {
     if (!this.ready) return { ok: false, reason: 'coin-shop-unavailable' };
     return this.#transact(async (client) => {
       const now = this.now();
-      const state = await this.#loadBuyer(client, input.discordUserId, String(input.sku || ''), now);
+      await this.#pruneQuotes(client, now);
+      const state = await this.#loadBuyer(client, input.discordUserId, String(input.sku || ''), now, { forUpdate: true });
       const nonce = crypto.randomUUID();
       const decision = decideQuote(state, input, now, { ceiling: purchaseCeiling(this.env) }, nonce);
       if (!decision.result.ok) return decision.result;
@@ -153,8 +154,13 @@ class PostgresCoinShop {
         await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`coin-shop:${purchase.econId}`]);
       }
       const fresh = purchase ? await this.#findPurchase(client, input.ledgerRef || input.ledgerId) : null;
+      let held = false;
+      if (fresh?.econId) {
+        const locked = await this.#lockIdentity(client, fresh.econId);
+        held = locked.held;
+      }
       const balance = fresh ? await this.#coinBalance(client, fresh.econId, true) : 0;
-      const decision = decideRefund({ balance, purchase: fresh }, { ...input, actor: auth.actor || input.actor }, now);
+      const decision = decideRefund({ balance, purchase: fresh, held }, { ...input, actor: auth.actor || input.actor }, now);
       if (!decision.effects.length) return decision.result;
       const applied = await this.#apply(client, decision.effects, fresh.econId);
       if (!applied.ok) return applied;
@@ -362,7 +368,7 @@ class PostgresCoinShop {
       } else if (effect.type === 'refund-entitlement') {
         await client.query(
           `UPDATE ${s}.nexus_coin_shop_entitlements
-           SET status = 'refunded', refund_ledger_id = $3, updated_at = NOW()
+           SET status = 'refunded', refund_ledger_id = $3, equipped_at = NULL, updated_at = NOW()
            WHERE economic_identity_id = $1 AND sku = $2`,
           [effect.econId, effect.sku, ledgerId]
         );
@@ -378,7 +384,7 @@ class PostgresCoinShop {
   }
 
   async #loadBuyer(client, discordUserId, sku, now, { forUpdate = false, nonce = '' } = {}) {
-    const identity = await this.#identity(client, discordUserId);
+    const identity = await this.#identity(client, discordUserId, { forUpdate });
     const econId = identity?.econId || '';
     const balance = econId ? await this.#coinBalance(client, econId, forUpdate) : 0;
     const spentToday = econId ? await this.#spentToday(client, econId, now) : 0;
@@ -427,7 +433,40 @@ class PostgresCoinShop {
     return state;
   }
 
-  async #identity(client, discordUserId) {
+  async #pruneQuotes(client, now) {
+    await client.query(
+      `DELETE FROM ${sqlIdent(this.schema)}.nexus_coin_shop_quotes WHERE expires_at <= $1`,
+      [new Date(now).toISOString()]
+    );
+  }
+
+  async #lockIdentity(client, econId) {
+    const locked = await client.query(
+      `SELECT status, hold_reason FROM ${sqlIdent(this.schema)}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
+      [econId]
+    );
+    return this.#identityView(locked.rows?.[0] || null, econId);
+  }
+
+  #identityView(row, econId) {
+    const status = String(row?.status || '');
+    const holdReason = String(row?.hold_reason || '');
+    const hold = memberIdentityHold({
+      status,
+      holdReason,
+      missingRow: !row,
+      economicIdentityId: econId,
+      env: this.env
+    });
+    return {
+      status,
+      holdReason,
+      held: Boolean(hold) || Boolean(holdReason.trim()),
+      quarantined: quarantineDenylist(this.env).has(String(econId || '')) || status === 'quarantined'
+    };
+  }
+
+  async #identity(client, discordUserId, { forUpdate = false } = {}) {
     const s = sqlIdent(this.schema);
     const identity = await client.query(
       `SELECT i.economic_identity_id, i.status, i.hold_reason, d.verified_at
@@ -437,32 +476,35 @@ class PostgresCoinShop {
        LIMIT 1`,
       [String(discordUserId || '')]
     );
-    const row = identity.rows?.[0];
-    if (!row) return null;
+    const linked = identity.rows?.[0];
+    if (!linked) return null;
+    let row = linked;
+    if (forUpdate) {
+      const locked = await this.#lockIdentity(client, linked.economic_identity_id);
+      row = {
+        ...linked,
+        status: locked.status,
+        hold_reason: locked.holdReason
+      };
+    }
+    const viewed = this.#identityView(row, row.economic_identity_id);
     let rankId = '';
-    try {
+    const rankTable = await client.query('SELECT to_regclass($1) AS rel', [`${this.schema}.nexus_economy_accrual_state`]);
+    if (rankTable.rows?.[0]?.rel) {
       const rank = await client.query(
         `SELECT rank_id FROM ${s}.nexus_economy_accrual_state WHERE economic_identity_id = $1`,
         [row.economic_identity_id]
       );
       rankId = String(rank.rows?.[0]?.rank_id || '');
-    } catch (error) {
-      if (error.code !== '42P01') throw error;
     }
-    const hold = memberIdentityHold({
-      status: row.status,
-      holdReason: row.hold_reason,
-      economicIdentityId: row.economic_identity_id,
-      env: this.env
-    });
     return {
       econId: row.economic_identity_id,
-      status: String(row.status || ''),
-      holdReason: String(row.hold_reason || ''),
+      status: viewed.status,
+      holdReason: viewed.holdReason,
       verifiedAt: row.verified_at ? new Date(row.verified_at).toISOString() : null,
       rankId,
-      held: Boolean(hold) || Boolean(String(row.hold_reason || '').trim()),
-      quarantined: quarantineDenylist(this.env).has(String(row.economic_identity_id)) || String(row.status || '') === 'quarantined'
+      held: viewed.held,
+      quarantined: viewed.quarantined
     };
   }
 

@@ -282,13 +282,11 @@ class WalletCosmeticsService {
     const theme = THEME_BY_ID.get(sku);
     const item = (title && title.kind === 'coin-shop') ? title : ((theme && theme.kind === 'coin-shop') ? theme : null);
     if (!item) return { ok: false, reason: 'unknown', profile: publicProfile(id, this.readRecord(id)) };
-    const current = this.readRecord(id);
-    if ((title && current.equippedTitleId === sku) || (theme && current.equippedThemeId === sku)) {
-      return { ok: false, reason: 'equipped', profile: publicProfile(id, current) };
-    }
     return this.store.update((state) => {
       state.users ||= {};
       const record = normalizeRecord(id, state.users[id]);
+      if (title && record.equippedTitleId === sku) record.equippedTitleId = '';
+      if (theme && record.equippedThemeId === sku) record.equippedThemeId = '';
       if (title) delete record.titles[sku];
       if (theme) delete record.themes[sku];
       record.updatedAt = stamp(input.now);

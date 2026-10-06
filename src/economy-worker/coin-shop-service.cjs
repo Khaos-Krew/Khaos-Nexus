@@ -6,7 +6,7 @@ const { coinShopFlags, purchaseCeiling } = require('../shared/coin-shop-flags.cj
 const { purchaseKey, refundKey, chicagoDayKey, ATTEMPT_WINDOW_MS } = require('../shared/coin-shop-limits.cjs');
 const { decideQuote, decidePurchase, decideRefund } = require('../shared/coin-shop-decide.cjs');
 const { memberIdentityHold, quarantineDenylist } = require('../sentinel/nexus-economy-identity-hold.cjs');
-const { authorizeCoinShopStaff } = require('./coin-shop-staff.cjs');
+const { acceptVerifiedStaff } = require('./coin-shop-staff.cjs');
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -16,10 +16,7 @@ class CoinShopService {
   constructor({ now = () => Date.now(), env = process.env, authorizeStaff = null } = {}) {
     this.now = now;
     this.env = env;
-    this.authorizeStaff = authorizeStaff || ((input) => authorizeCoinShopStaff({
-      actor: input?.actor,
-      env: this.env
-    }));
+    this.authorizeStaff = authorizeStaff || ((input) => acceptVerifiedStaff(input));
     this.identities = new Map();
     this.coins = new Map();
     this.points = new Map();
@@ -215,6 +212,7 @@ class CoinShopService {
         if (row) {
           row.status = 'refunded';
           row.refundLedgerId = ledgerId;
+          row.equippedAt = null;
         }
       } else if (effect.type === 'audit') {
         this.audit.push({
@@ -247,9 +245,24 @@ class CoinShopService {
     return applied;
   }
 
+  #pruneQuotes(now) {
+    for (const [nonce, quote] of this.quotes) {
+      if (Date.parse(quote.expiresAt) <= now) this.quotes.delete(nonce);
+    }
+  }
+
+  #identityByEcon(econId) {
+    for (const discordUserId of this.identities.keys()) {
+      const view = this.identityView(discordUserId);
+      if (view?.econId === econId) return view;
+    }
+    return null;
+  }
+
   async quote(input = {}) {
     if (!this.flags().spendEnabled) return { ok: false, reason: 'economy-coin-shop-spend-not-enabled' };
     const now = this.now();
+    this.#pruneQuotes(now);
     const sku = String(input.sku || '').trim();
     const state = this.#stateFor(input.discordUserId, sku, now);
     const nonce = crypto.randomUUID();
@@ -352,9 +365,11 @@ class CoinShopService {
     if (!auth?.ok) return { ok: false, reason: auth?.reason || 'staff-required' };
     const now = this.now();
     const purchase = this.#findPurchase(input.ledgerRef || input.ledgerId);
+    const holder = purchase ? this.#identityByEcon(purchase.econId) : null;
     const state = {
       balance: purchase ? Number(this.coins.get(purchase.econId) || 0) : 0,
-      purchase
+      purchase,
+      held: Boolean(holder?.held)
     };
     const decision = decideRefund(state, { ...input, actor: auth.actor || input.actor }, now);
     if (!decision.effects.length) return decision.result;

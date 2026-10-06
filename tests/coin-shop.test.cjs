@@ -16,7 +16,7 @@ const { coinShopFlags, purchaseCeiling } = require('../src/shared/coin-shop-flag
 const { ITEMS, OMITTED, catalogItem } = require('../src/shared/coin-shop-catalog.cjs');
 const { purchaseKey, refundKey, chicagoDayKey } = require('../src/shared/coin-shop-limits.cjs');
 const { GATE_OFF, COSMETIC_FOOTER, INELIGIBLE, coinShopMemberText } = require('../src/shared/coin-shop-copy.cjs');
-const { administratorFromRoles, isCoinShopAdmin } = require('../src/economy-worker/coin-shop-staff.cjs');
+const { isCoinShopAdmin, acceptVerifiedStaff } = require('../src/economy-worker/coin-shop-staff.cjs');
 const { COMMUNITY_MANAGER_ROLE_ID, OWNER_ROLE_ID } = require('../src/economy-worker/ark-staff-auth.cjs');
 const { WalletCosmeticsService } = require('../src/backend/services/wallet-cosmetics-service.cjs');
 const { walletEquipRow } = require('../src/sentinel/wallet-cosmetics-ui.cjs');
@@ -446,35 +446,40 @@ test('the shop panel is ephemeral, locked to the buyer, and shows the balance ch
   }
 });
 
-test('shopadmin is Administrator only and ignores Community Manager and Owner roles', () => {
+test('shopadmin uses the staff admin role, allows the Owner role, and ignores Community Manager', () => {
   const adminRole = '333333333333333333';
-  assert.equal(administratorFromRoles([
-    { id: COMMUNITY_MANAGER_ROLE_ID, name: 'Community Manager', permissions: 8 }
-  ], 'guild'), false);
-  assert.equal(administratorFromRoles([
-    { id: OWNER_ROLE_ID, name: 'Owner', permissions: 8 }
-  ], 'guild'), false);
-  assert.equal(administratorFromRoles([
-    { id: adminRole, name: 'Admin', permissions: 8 }
-  ], 'guild'), true);
+  const modRole = '555555555555555555';
   const guildId = '444444444444444444';
-  const interaction = {
-    user: { id: USER },
-    guild: { id: guildId, ownerId: '999999999999999999' },
-    member: {
-      guild: { id: guildId },
-      roles: {
-        cache: new Map([
-          [COMMUNITY_MANAGER_ROLE_ID, { id: COMMUNITY_MANAGER_ROLE_ID, name: 'Community Manager', permissions: 8 }],
-          [OWNER_ROLE_ID, { id: OWNER_ROLE_ID, name: 'Owner', permissions: 8 }]
-        ])
-      }
-    },
-    memberPermissions: { has: () => true }
-  };
-  assert.equal(isCoinShopAdmin(interaction), false);
-  interaction.member.roles.cache.set(adminRole, { id: adminRole, name: 'Admin', permissions: 8 });
-  assert.equal(isCoinShopAdmin(interaction), true);
+  const env = { NEXUS_STAFF_ADMIN_ROLE_IDS: adminRole, NEXUS_STAFF_MOD_ROLE_IDS: modRole };
+  function interaction(roleIds, { userId = USER, ownerId = '999999999999999999', adminPerm = false } = {}) {
+    return {
+      user: { id: userId },
+      guild: { id: guildId, ownerId },
+      member: {
+        guild: { id: guildId },
+        roles: {
+          cache: new Map(roleIds.map((id) => [id, {
+            id,
+            name: id === OWNER_ROLE_ID ? 'Owner' : (id === COMMUNITY_MANAGER_ROLE_ID ? 'Community Manager' : 'Role')
+          }]))
+        }
+      },
+      memberPermissions: { has: () => adminPerm }
+    };
+  }
+  assert.equal(isCoinShopAdmin(interaction([COMMUNITY_MANAGER_ROLE_ID], { adminPerm: true }), env), false);
+  assert.equal(isCoinShopAdmin(interaction([OWNER_ROLE_ID]), env), true);
+  assert.equal(isCoinShopAdmin(interaction([modRole]), env), false);
+  assert.equal(isCoinShopAdmin(interaction([adminRole]), env), true);
+  assert.equal(isCoinShopAdmin(interaction(['777777777777777777'], { adminPerm: true }), env), false);
+  assert.equal(isCoinShopAdmin(interaction([adminRole]), { NEXUS_STAFF_ADMIN_ROLE_IDS: adminRole, NEXUS_STAFF_MOD_ROLE_IDS: adminRole }), false);
+  assert.equal(isCoinShopAdmin(interaction([COMMUNITY_MANAGER_ROLE_ID]), { NEXUS_STAFF_ADMIN_ROLE_IDS: COMMUNITY_MANAGER_ROLE_ID }), false);
+  assert.equal(isCoinShopAdmin(interaction([], { userId: '999999999999999999', ownerId: '999999999999999999' }), env), true);
+  assert.deepEqual(acceptVerifiedStaff({ actor: USER }), { ok: false, reason: 'staff-required' });
+  assert.deepEqual(acceptVerifiedStaff({ actor: USER, staffVerified: true }), { ok: true, actor: USER });
+  const staffSrc = fs.readFileSync(path.join(__dirname, '../src/economy-worker/coin-shop-staff.cjs'), 'utf8');
+  assert.match(staffSrc, /hasStaffAdminRole/);
+  assert.doesNotMatch(staffSrc, /discord\.com|DISCORD_BOT_TOKEN|NEXUS_SENTINAL_DISCORD_TOKEN/);
 });
 
 test('the guide tells members the Coin shop is cosmetic and separate from Points', () => {
@@ -494,13 +499,54 @@ test('the guide tells members the Coin shop is cosmetic and separate from Points
   assert.equal(guide.topics.length <= 25, true);
 });
 
+test('a held member cannot be refunded and an equipped cosmetic is revoked together', async () => {
+  const service = shop();
+  const { result } = await buy(service);
+  service.identities.get(USER).holdReason = 'staff';
+  const held = await service.refund({ ledgerRef: result.ledgerRef, reason: 'member is on hold', actor: USER });
+  assert.equal(held.reason, 'member-held');
+  assert.equal(service.coinBalance(USER), 225);
+  assert.equal(service.entitlementsFor(USER).entitlements[0].status, 'active');
+  assert.equal(coinShopMemberText('member-held'), 'That member is on hold. The refund was not applied.');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coin-shop-revoke-'));
+  try {
+    const cosmetics = new WalletCosmeticsService({ stateFile: path.join(dir, 'wallet.json') });
+    cosmetics.grantShopCosmetic(USER, { sku: 'ttl_night_owl' });
+    cosmetics.equip(USER, { titleId: 'ttl_night_owl' });
+    const revoked = cosmetics.revokeShopCosmetic(USER, { sku: 'ttl_night_owl' });
+    assert.equal(revoked.ok, true);
+    assert.equal(revoked.profile.equippedTitleId, '');
+    assert.equal(revoked.profile.titles.find((item) => item.id === 'ttl_night_owl').unlocked, false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('quote creation is rate limited and expired quotes are pruned', async () => {
+  const service = shop({ coins: 2000 });
+  service.quotes.set('old-quote', { nonce: 'old-quote', expiresAt: new Date(DAY - 1000).toISOString() });
+  for (let index = 0; index < 5; index += 1) {
+    const quoted = await service.quote({ discordUserId: USER, sku: 'ttl_night_owl' });
+    assert.equal(quoted.ok, true, quoted.reason);
+  }
+  assert.equal(service.quotes.has('old-quote'), false);
+  const blocked = await service.quote({ discordUserId: USER, sku: 'thm_nebula' });
+  assert.equal(blocked.reason, 'rate-limited');
+  assert.equal(service.coinBalance(USER), 2000);
+  assert.equal(service.pointBalance(USER), 80);
+});
+
 test('postgres coin shop stays on Coins and does not touch Points, RCON, or the cluster shop', () => {
   const src = fs.readFileSync(path.join(__dirname, '../src/economy-worker/coin-shop-postgres.cjs'), 'utf8');
   assert.match(src, /sink:coin-shop/);
   assert.match(src, /NEXUS_COINS/);
   assert.match(src, /coin-shop-refund/);
   assert.match(src, /pg_advisory_xact_lock/);
+  assert.match(src, /nexus_economic_identities WHERE economic_identity_id = \$1 FOR UPDATE/);
+  assert.match(src, /equipped_at = NULL/);
   assert.doesNotMatch(src, /RCON|rcon/);
+  assert.doesNotMatch(src, /DISCORD_BOT_TOKEN|NEXUS_SENTINAL_DISCORD_TOKEN/);
   assert.doesNotMatch(src, /NEXUS_POINTS/);
   assert.doesNotMatch(src, /cluster-shop|ClusterShop/);
 });

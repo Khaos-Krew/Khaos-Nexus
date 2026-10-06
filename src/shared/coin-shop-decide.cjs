@@ -71,16 +71,19 @@ function decideQuote(state, input, now, limits, nonce) {
         expiresAt
       }
     },
-    effects: [{
-      type: 'save-quote',
-      nonce,
-      discordUserId: String(input.discordUserId),
-      econId: state.identity.econId,
-      sku,
-      price: item.price,
-      expectedBalance: balance,
-      expiresAt
-    }]
+    effects: [
+      { type: 'attempt', at: now, econId: state.identity.econId },
+      {
+        type: 'save-quote',
+        nonce,
+        discordUserId: String(input.discordUserId),
+        econId: state.identity.econId,
+        sku,
+        price: item.price,
+        expectedBalance: balance,
+        expiresAt
+      }
+    ]
   };
 }
 
@@ -173,6 +176,7 @@ function decideRefund(state, input, now) {
   if (requestedCurrency(input) !== 'NEXUS_COINS') return halt({ ok: false, reason: 'currency-rejected' });
   const purchase = state.purchase;
   if (!purchase) return halt({ ok: false, reason: 'not-found' });
+  if (state.held) return halt({ ok: false, reason: 'member-held' });
   if (purchase.currency !== 'NEXUS_COINS') return halt({ ok: false, reason: 'currency-rejected' });
   const key = refundKey(purchase.ledgerId);
   if (purchase.refunded) {
