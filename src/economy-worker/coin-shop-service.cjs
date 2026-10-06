@@ -388,11 +388,21 @@ class CoinShopService {
     }
     const holder = purchase ? this.#identityByEcon(purchase.econId) : null;
     const actor = String(auth.actor || input.actor || '');
+    let actorEconId = '';
+    let actorEconUnresolved = true;
+    try {
+      actorEconId = String(this.identityView(actor)?.econId || '');
+      actorEconUnresolved = !actorEconId;
+    } catch {
+      actorEconUnresolved = true;
+    }
     const state = {
       balance: purchase ? Number(this.coins.get(purchase.econId) || 0) : 0,
       purchase,
       held: Boolean(holder?.held),
-      staffRefundsToday: this.#staffRefundsToday(actor, now)
+      staffRefundsToday: this.#staffRefundsToday(actor, now),
+      actorEconId,
+      actorEconUnresolved
     };
     return {
       decision: decideRefund(state, { ...input, actor: auth.actor || input.actor }, now),

@@ -13,9 +13,8 @@ const ADMINISTRATOR_BIT = 8n;
 
 function blockedNamedRole(role) {
   const id = String(role?.id || '');
-  const name = String(role?.name || '').trim().toLowerCase();
-  if (id === COMMUNITY_MANAGER_ROLE_ID || name === 'community manager') return true;
-  if (id === OWNER_ROLE_ID || name === 'owner') return true;
+  if (id === COMMUNITY_MANAGER_ROLE_ID) return true;
+  if (id === OWNER_ROLE_ID) return true;
   return false;
 }
 

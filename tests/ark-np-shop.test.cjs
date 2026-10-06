@@ -765,6 +765,36 @@ test('points reads do not create schema and staff refund actors are checked on t
     })
   });
   assert.equal(ownerRoleDenied.reason, 'staff-required');
+  const ownerById = await authorizeStaffRefundActor({
+    actor,
+    env: { ...env, NEXUS_STAFF_ADMIN_ROLE_IDS: ownerRole },
+    fetchImpl: discordFetch({
+      memberRoles: [ownerRole],
+      permissions: { [ownerRole]: 8 },
+      names: { [ownerRole]: 'Khaos Lead' }
+    })
+  });
+  assert.equal(ownerById.reason, 'staff-required');
+  const namedOwner = '777777777777777777';
+  const namedOwnerAllowed = await authorizeStaffRefundActor({
+    actor,
+    env: { ...env, NEXUS_STAFF_ADMIN_ROLE_IDS: namedOwner },
+    fetchImpl: discordFetch({
+      memberRoles: [namedOwner],
+      names: { [namedOwner]: 'owner' }
+    })
+  });
+  assert.equal(namedOwnerAllowed.ok, true);
+  const namedManager = '888888888888888888';
+  const namedManagerAllowed = await authorizeStaffRefundActor({
+    actor,
+    env: { ...env, NEXUS_STAFF_ADMIN_ROLE_IDS: namedManager },
+    fetchImpl: discordFetch({
+      memberRoles: [namedManager],
+      names: { [namedManager]: 'community manager' }
+    })
+  });
+  assert.equal(namedManagerAllowed.ok, true);
   const managedAdminBit = await authorizeStaffRefundActor({
     actor,
     env,

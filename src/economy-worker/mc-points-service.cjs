@@ -851,9 +851,13 @@ class MemoryMcPoints {
     const auto = reason === 'auto-14d';
     const staffActor = String(actor || '').trim();
     const hold = deferHold ? null : await this.#orderHold(order);
-    if (!auto && await this.#refundIsSelf(staffActor, order)) {
-      if (hold) return { ...hold, order };
-      return { ok: false, reason: 'staff-not-authorized', order };
+    if (!auto) {
+      const actorIdentity = await this.#refundActorIdentity(staffActor);
+      if (actorIdentity.unresolved) return { ok: false, reason: 'staff-unlinked', order };
+      if (staffActor === order.discordUserId || (actorIdentity.econId && actorIdentity.econId === order.economicIdentityId)) {
+        if (hold) return { ...hold, order };
+        return { ok: false, reason: 'self-refund', order };
+      }
     }
     if (auto && hold) return { ...hold, order };
     if (auto) {
@@ -938,13 +942,23 @@ class MemoryMcPoints {
     return now - Date.parse(order.createdAt) >= REFUND_AFTER_MS;
   }
 
+  async #refundActorIdentity(actor) {
+    if (typeof this.wallet?.resolve !== 'function') return { econId: '', unresolved: true };
+    try {
+      const identity = await this.wallet.resolve(actor);
+      const econId = String(identity?.economicIdentityId || '');
+      return { econId, unresolved: !econId };
+    } catch {
+      return { econId: '', unresolved: true };
+    }
+  }
+
   async #refundIsSelf(actor, order) {
     if (!actor || !order) return false;
     if (actor === order.discordUserId) return true;
-    if (typeof this.wallet?.resolve !== 'function') return false;
-    const identity = await this.wallet.resolve(actor);
-    const actorIdentity = String(identity?.economicIdentityId || '');
-    return Boolean(actorIdentity && order.economicIdentityId && actorIdentity === order.economicIdentityId);
+    const actorIdentity = await this.#refundActorIdentity(actor);
+    if (actorIdentity.unresolved) return false;
+    return Boolean(actorIdentity.econId && order.economicIdentityId && actorIdentity.econId === order.economicIdentityId);
   }
 
   #staffAllowed(actor, order) {

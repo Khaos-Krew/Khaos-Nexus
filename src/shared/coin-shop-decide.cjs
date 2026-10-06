@@ -209,7 +209,14 @@ function decideRefund(state, input, now) {
     });
   }
   const actor = String(input.actor || '').trim();
+  const actorEconId = String(state.actorEconId || '').trim();
+  if (state.actorEconUnresolved === true || !actorEconId) {
+    return halt({ ok: false, reason: 'staff-unlinked' });
+  }
   if (purchase.discordUserId && actor === String(purchase.discordUserId)) {
+    return halt({ ok: false, reason: 'self-refund' });
+  }
+  if (actorEconId === String(purchase.econId || '')) {
     return halt({ ok: false, reason: 'self-refund' });
   }
   const outsideWindow = purchase.withinWindow === false

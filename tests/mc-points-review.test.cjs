@@ -18,6 +18,7 @@ const { isMinecraftShopOrder } = require('../src/economy-worker/mc-points-servic
 const { mcEarnEligible, mcPlaytimeEligible, UNLINK_COOLDOWN_MS, OFFLINE_BACKOFF_MS, leaseMsForOrder } = require('../src/economy-worker/mc-points-service.cjs');
 const { writeVerifiedMinecraftLink, PostgresMcPoints, MC_SCHEMA_VERSION } = require('../src/economy-worker/mc-points-postgres.cjs');
 const { catalogFingerprint, loadMcShopCatalog } = require('../src/shared/mc-shop-catalog.cjs');
+const { mcMemberText } = require('../src/shared/mc-member-text.cjs');
 const { deliverMcOrder, runMcDeliveryCycle } = require('../src/craft/mc-delivery.cjs');
 
 const UUID = '853c80ef-3c37-49fd-aa49-938b674adae6';
@@ -425,7 +426,8 @@ test('staff cannot refund themselves, a delivered order, or without a reason', a
   points.orders.get(claimed.orderId).leaseToken = null;
   points.orders.get(claimed.orderId).leaseUntil = null;
   const self = await points.refund({ orderId: bought.order.orderId, reason: 'lost crate', actor: DISCORD, writesEnabled: true });
-  assert.equal(self.reason, 'staff-not-authorized');
+  assert.equal(self.reason, 'self-refund');
+  assert.equal(mcMemberText('self-refund'), 'Nothing was refunded. Ask another staff admin to do this refund.');
   const alt = '666666666666666666';
   const shared = wallet();
   const resolve = shared.resolve.bind(shared);
@@ -444,7 +446,7 @@ test('staff cannot refund themselves, a delivered order, or without a reason', a
     writesEnabled: true,
     staffAuthorized: true
   });
-  assert.equal(altRefund.reason, 'staff-not-authorized');
+  assert.equal(altRefund.reason, 'self-refund');
   assert.notEqual(linkedAlt.points.orders.get(altBuy.order.orderId).status, 'REFUNDED');
   const bare = await points.refund({ orderId: bought.order.orderId, reason: 'no', actor: STAFF, writesEnabled: true });
   assert.equal(bare.reason, 'refund-reason-required');
@@ -452,6 +454,41 @@ test('staff cannot refund themselves, a delivered order, or without a reason', a
   delivered.status = 'DELIVERED';
   const blocked = await points.refund({ orderId: delivered.orderId, reason: 'lost crate', actor: STAFF, writesEnabled: true });
   assert.equal(blocked.reason, 'final-status');
+});
+
+test('an unlinked staff actor cannot refund a Minecraft order', async () => {
+  const bank = wallet();
+  const resolve = bank.resolve.bind(bank);
+  bank.resolve = async (id) => (id === STAFF ? null : resolve(id));
+  const { points } = service({ wallet: bank });
+  await link(points, DISCORD, UUID);
+  const quoted = await points.quote({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1 });
+  const bought = await points.buy({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1, nonce: quoted.quote.nonce, writesEnabled: true });
+  bought.order.status = 'DELIVERY_FAILED';
+  const missing = await points.refund({
+    orderId: bought.order.orderId,
+    reason: 'no staff link',
+    actor: STAFF,
+    writesEnabled: true,
+    staffAuthorized: true
+  });
+  assert.equal(missing.reason, 'staff-unlinked');
+  assert.equal(mcMemberText('staff-unlinked'), 'Nothing was refunded. Your staff account isn\'t linked to the economy yet. Ask another staff admin to do this refund.');
+  assert.equal(mcMemberText('staff-refund-cap'), 'Nothing was refunded. Ask another staff admin, or try again after 12:00 AM Central.');
+  assert.notEqual(points.orders.get(bought.order.orderId).status, 'REFUNDED');
+  bank.resolve = async (id) => {
+    if (id === STAFF) throw new Error('lookup failed');
+    return resolve(id);
+  };
+  const broken = await points.refund({
+    orderId: bought.order.orderId,
+    reason: 'lookup failed',
+    actor: STAFF,
+    writesEnabled: true,
+    staffAuthorized: true
+  });
+  assert.equal(broken.reason, 'staff-unlinked');
+  assert.notEqual(points.orders.get(bought.order.orderId).status, 'REFUNDED');
 });
 
 test('bundle quantity is stored and the diamond daily limit enforces it', async () => {
