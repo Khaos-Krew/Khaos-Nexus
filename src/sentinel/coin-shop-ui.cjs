@@ -17,12 +17,15 @@ const {
 const { loadConfig } = require('../shared/config.cjs');
 const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
 const { BackendClient } = require('./backend-client.cjs');
-const { coinShopFlags } = require('../shared/coin-shop-flags.cjs');
+const { coinShopFlags, coinShopPreview } = require('../shared/coin-shop-flags.cjs');
 const { arkNpFlags } = require('../shared/ark-np-flags.cjs');
 const { openArkShop, shopCommand: arkShopCommand } = require('./ark-np-shop-ui.cjs');
 const { CATEGORIES, ITEMS, catalogItem } = require('../shared/coin-shop-catalog.cjs');
+const { DAILY_SPEND_CAP } = require('../shared/coin-shop-limits.cjs');
 const { GATE_OFF, COSMETIC_FOOTER, coinShopMemberText, memberReceipt } = require('../shared/coin-shop-copy.cjs');
 const { isCoinShopAdmin } = require('../economy-worker/coin-shop-staff.cjs');
+const { rolesFromSubject } = require('../economy-worker/ark-staff-auth.cjs');
+const { reconcilePanel } = require('./staff-workspace.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.coin.shop.ui');
 const sessions = new Map();
@@ -33,6 +36,8 @@ const ITEM_ART = Object.freeze({
   thm_circuit: 'item-circuit-wallet-theme.png',
   ttl_night_owl: 'item-night-owl-title.png'
 });
+const PREVIEW_LINE = 'This is a preview. Buying isn\'t open yet.';
+const COIN_SHOP_PREVIEW_PANEL_MARKER = 'Khaos Nexus • Coin Shop Catalog • v5';
 
 function artFile(name, root = ART_DIR) {
   const fileName = String(name || '');
@@ -203,6 +208,52 @@ function gatePayload() {
   return ephemeral(`${GATE_OFF}\n\n${COSMETIC_FOOTER}`);
 }
 
+function previewOffPayload() {
+  return ephemeral(`${PREVIEW_LINE}\n\n${COSMETIC_FOOTER}`);
+}
+
+function interactionChannelId(interaction) {
+  return String(interaction?.channelId || interaction?.channel?.id || '').trim();
+}
+
+function interactionGuildId(interaction) {
+  return String(interaction?.guildId || interaction?.guild?.id || interaction?.member?.guild?.id || '').trim();
+}
+
+// The guild id is the @everyone role. A managed role is a bot or integration
+// role. Neither grants preview, even when that id is listed.
+function previewRoleCounts(role, guildId) {
+  const id = String(role?.id || '');
+  if (!id) return false;
+  if (guildId && id === guildId) return false;
+  if (String(role?.name || '').trim().toLowerCase() === '@everyone') return false;
+  if (role?.managed === true) return false;
+  return true;
+}
+
+// Read-only browse while the Coin shop flag is off. Role match is by id only.
+// A listed role in any other channel, or any member without a listed role,
+// keeps the closed-shop path.
+function previewBrowse(interaction, env = process.env) {
+  if (coinShopFlags(env).shopEnabled) return false;
+  const preview = coinShopPreview(env);
+  if (!preview.open) return false;
+  if (interactionChannelId(interaction) !== preview.channelId) return false;
+  const guildId = interactionGuildId(interaction);
+  const allowed = new Set(preview.roleIds);
+  return rolesFromSubject(interaction).some((role) => previewRoleCounts(role, guildId) && allowed.has(String(role.id || '')));
+}
+
+function coinBrowseAllowed(interaction, env = process.env) {
+  return coinShopFlags(env).shopEnabled || previewBrowse(interaction, env);
+}
+
+function withPreviewLine(interaction, text) {
+  const body = String(text || '');
+  if (!previewBrowse(interaction)) return body;
+  return body ? `${PREVIEW_LINE}\n\n${body}` : PREVIEW_LINE;
+}
+
 function shopMenuRow(sections) {
   const row = new ActionRowBuilder();
   if (sections.coin) {
@@ -221,14 +272,15 @@ function shopMenuText(sections) {
   return "The shop isn't open yet.";
 }
 
-async function openShop(interaction) {
+async function openShop(interaction, economy, backend, artRoot = ART_DIR) {
+  if (previewBrowse(interaction)) return openCoinShop(interaction, economy, backend, artRoot);
   const sections = shopSections();
   if (!sections.coin) return openArkShop(interaction);
   return interaction.reply(ephemeral(shopMenuText(sections), { components: [shopMenuRow(sections)] }));
 }
 
 async function openCoinShop(interaction, economy, backend, artRoot = ART_DIR) {
-  if (!coinShopFlags().shopEnabled) return replyOrUpdate(interaction, gatePayload());
+  if (!coinBrowseAllowed(interaction)) return replyOrUpdate(interaction, gatePayload());
   const userId = String(interaction.user.id);
   let balance = null;
   try {
@@ -242,7 +294,7 @@ async function openCoinShop(interaction, economy, backend, artRoot = ART_DIR) {
   sessions.set(userId, { userId, owned, expiresAt: Date.now() + 120000, profile: profile?.profile || null });
   const embed = footerEmbed(
     'Coin shop',
-    balance == null ? 'Your Coin balance is unavailable right now.' : balanceLine(balance),
+    withPreviewLine(interaction, balance == null ? 'Your Coin balance is unavailable right now.' : balanceLine(balance)),
     [{ name: 'Categories', value: 'Themes and titles. Pick one to see prices.' }]
   );
   const files = artForEmbed(embed, PANEL_BANNER, artRoot);
@@ -254,7 +306,7 @@ async function openCoinShop(interaction, economy, backend, artRoot = ART_DIR) {
 }
 
 async function showCategory(interaction, parsed) {
-  if (!coinShopFlags().shopEnabled) return replyOrUpdate(interaction, gatePayload());
+  if (!coinBrowseAllowed(interaction)) return replyOrUpdate(interaction, gatePayload());
   if (!buyerOwns(interaction, parsed)) return interaction.reply(ephemeral('This shop belongs to another member. Use /shop to open your own.'));
   const category = String(interaction.values?.[0] || '');
   const known = CATEGORIES.some((item) => item.id === category);
@@ -264,7 +316,7 @@ async function showCategory(interaction, parsed) {
   session.expiresAt = Date.now() + 120000;
   sessions.set(parsed.userId, session);
   const equipped = session.profile?.equippedThemeId || session.profile?.equippedTitleId || '';
-  const embed = footerEmbed('Coin shop', 'Choose an item. Owned and equipped items are marked.');
+  const embed = footerEmbed('Coin shop', withPreviewLine(interaction, 'Choose an item. Owned and equipped items are marked.'));
   return replyOrUpdate(interaction, ephemeral('', {
     embeds: [embed],
     components: [itemMenu(parsed.userId, category, session.owned || new Set(), equipped)]
@@ -272,7 +324,7 @@ async function showCategory(interaction, parsed) {
 }
 
 async function showDetail(interaction, economy, parsed, artRoot = ART_DIR) {
-  if (!coinShopFlags().shopEnabled) return replyOrUpdate(interaction, gatePayload());
+  if (!coinBrowseAllowed(interaction)) return replyOrUpdate(interaction, gatePayload());
   if (!buyerOwns(interaction, parsed)) return interaction.reply(ephemeral('This shop belongs to another member. Use /shop to open your own.'));
   const sku = String(interaction.values?.[0] || '');
   const item = catalogItem(sku);
@@ -282,21 +334,24 @@ async function showDetail(interaction, economy, parsed, artRoot = ART_DIR) {
   const owned = session.owned?.has(sku);
   const equipped = session.profile?.equippedThemeId === sku || session.profile?.equippedTitleId === sku;
   const badges = [owned ? 'Owned' : '', equipped ? 'Equipped' : ''].filter(Boolean).join(' · ');
-  const embed = footerEmbed(item.label, [item.description, '', `Price: ${item.price} Coins`, badges].filter(Boolean).join('\n'));
+  const embed = footerEmbed(item.label, withPreviewLine(interaction, [item.description, '', `Price: ${item.price} Coins`, badges].filter(Boolean).join('\n')));
   const card = ITEM_ART[item.sku];
   const files = card ? artForEmbed(embed, card, artRoot) : [];
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`nxcoin:buy:${sku}:${parsed.userId}`).setLabel(owned ? 'Owned' : 'Continue').setStyle(ButtonStyle.Primary).setDisabled(Boolean(owned))
-  );
+  const components = [];
+  if (!previewBrowse(interaction)) {
+    components.push(new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`nxcoin:buy:${sku}:${parsed.userId}`).setLabel(owned ? 'Owned' : 'Continue').setStyle(ButtonStyle.Primary).setDisabled(Boolean(owned))
+    ));
+  }
   return replyOrUpdate(interaction, ephemeral('', {
     embeds: [embed],
-    components: [row],
+    components,
     files
   }));
 }
 
 async function showConfirm(interaction, economy, parsed) {
-  if (!coinShopFlags().shopEnabled) return replyOrUpdate(interaction, gatePayload());
+  if (!coinShopFlags().shopEnabled) return replyOrUpdate(interaction, previewBrowse(interaction) ? previewOffPayload() : gatePayload());
   if (!buyerOwns(interaction, parsed)) return interaction.reply(ephemeral('This shop belongs to another member. Use /shop to open your own.'));
   const item = catalogItem(parsed.sku);
   if (!item) return replyOrUpdate(interaction, ephemeral(coinShopMemberText('unknown-sku')));
@@ -318,7 +373,7 @@ async function showConfirm(interaction, economy, parsed) {
 }
 
 async function confirmBuy(interaction, economy, backend, parsed) {
-  if (!coinShopFlags().shopEnabled) return replyOrUpdate(interaction, gatePayload());
+  if (!coinShopFlags().shopEnabled) return replyOrUpdate(interaction, previewBrowse(interaction) ? previewOffPayload() : gatePayload());
   if (!buyerOwns(interaction, parsed)) return interaction.reply(ephemeral('This shop confirmation belongs to another member.'));
   const session = sessions.get(parsed.userId);
   if (!session || session.nonce !== parsed.nonce || session.expiresAt <= Date.now()) {
@@ -401,7 +456,7 @@ async function handleCoinShopInteraction(interaction, { economyClient, backend, 
   const cosmetics = backend || new BackendClient(config);
   try {
     if (interaction.isChatInputCommand?.()) {
-      if (interaction.commandName === 'shop') return openShop(interaction);
+      if (interaction.commandName === 'shop') return openShop(interaction, economy, cosmetics, artRoot);
       if (interaction.commandName === 'shopadmin') {
         const sub = interaction.options?.getSubcommand?.(false);
         if (sub !== 'refund' && sub !== 'lookup') return false;
@@ -414,16 +469,19 @@ async function handleCoinShopInteraction(interaction, { economyClient, backend, 
     if (customId === 'nxshop:ark') return openArkShop(interaction);
     const parsed = parseCoinCustomId(customId);
     if (!parsed) return false;
-    if (!coinShopFlags().shopEnabled) return replyOrUpdate(interaction, gatePayload());
+    if (!coinBrowseAllowed(interaction)) return replyOrUpdate(interaction, gatePayload());
     if (parsed.action === 'cat') return showCategory(interaction, parsed);
     if (parsed.action === 'item') return showDetail(interaction, economy, parsed, artRoot);
-    if (parsed.action === 'buy') return showConfirm(interaction, economy, parsed);
+    if (parsed.action === 'buy' || parsed.action === 'ok') {
+      if (!coinShopFlags().shopEnabled) return replyOrUpdate(interaction, previewOffPayload());
+      if (parsed.action === 'buy') return showConfirm(interaction, economy, parsed);
+      return confirmBuy(interaction, economy, cosmetics, parsed);
+    }
     if (parsed.action === 'no') {
       if (!buyerOwns(interaction, parsed)) return interaction.reply(ephemeral('This shop confirmation belongs to another member.'));
       sessions.delete(parsed.userId);
       return replyOrUpdate(interaction, ephemeral(`Cancelled. No Coins were spent.\n\n${COSMETIC_FOOTER}`));
     }
-    if (parsed.action === 'ok') return confirmBuy(interaction, economy, cosmetics, parsed);
     return false;
   } catch (error) {
     console.warn(`[Nexus Coin Shop] ${String(error?.message || error).slice(0, 180)}`);
@@ -447,6 +505,112 @@ async function registerCoinShopCommands(guild, env = process.env) {
   await upsertCommand(guild, shopAdminCommand());
 }
 
+function catalogField(category, label) {
+  const lines = ITEMS.filter((item) => item.category === category)
+    .map((item) => `${item.label} — ${item.price.toLocaleString('en-US')} Coins`);
+  return { name: label, value: lines.join('\n').slice(0, 1024) || 'None' };
+}
+
+function previewCatalogPayload(artRoot = ART_DIR) {
+  const embed = new EmbedBuilder()
+    .setTitle('KHAOS NEXUS • COIN SHOP')
+    .setColor(0xb00020)
+    .setDescription(`${PREVIEW_LINE}\n\n${COSMETIC_FOOTER}`)
+    .addFields(
+      catalogField('themes', 'Themes'),
+      catalogField('titles', 'Titles'),
+      { name: 'Daily limit', value: `${DAILY_SPEND_CAP.toLocaleString('en-US')} Coins` }
+    )
+    .setFooter({ text: COIN_SHOP_PREVIEW_PANEL_MARKER });
+  const files = artForEmbed(embed, PANEL_BANNER, artRoot);
+  return {
+    embeds: [embed],
+    components: [],
+    files,
+    allowedMentions: { parse: [] }
+  };
+}
+
+function sanitizePanelReason(error) {
+  const code = Number(error?.code);
+  if (code === 50001 || code === 50013) return 'missing permissions';
+  const text = String(error?.message || error || 'unavailable')
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/[A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{20,}/g, '[redacted]')
+    .replace(/\b[A-Za-z0-9_-]{40,}\b/g, '[redacted]')
+    .trim()
+    .slice(0, 160);
+  return text || 'unavailable';
+}
+
+function warnPreview(logger, error) {
+  logger?.warn?.(`[Nexus Coin Shop] preview catalog skipped: ${sanitizePanelReason(error)}`);
+}
+
+function isPreviewPanelMessage(message, botId) {
+  if (!message) return false;
+  if (botId && String(message.author?.id || '') !== String(botId)) return false;
+  return (message.embeds || []).some((embed) => String(embed?.footer?.text || '') === COIN_SHOP_PREVIEW_PANEL_MARKER);
+}
+
+function cachedTextChannels(client) {
+  const cache = client?.channels?.cache;
+  if (!cache || typeof cache.values !== 'function') return [];
+  return [...cache.values()].filter((channel) => channel && typeof channel.messages?.fetch === 'function');
+}
+
+async function deletePreviewPanels(channel, botId) {
+  const recent = await channel.messages.fetch({ limit: 100 });
+  const messages = recent?.values ? [...recent.values()] : [];
+  let removed = 0;
+  for (const message of messages) {
+    if (!isPreviewPanelMessage(message, botId)) continue;
+    await message.delete('Nexus Coin Shop preview catalog removed');
+    removed += 1;
+  }
+  return removed;
+}
+
+// The catalog stays only while the shop flag is off and both preview ids are
+// valid. Otherwise the marked preview message is deleted. Other messages stay.
+async function ensureCoinShopPreviewPanel(client, env = process.env, logger = console) {
+  const preview = coinShopPreview(env);
+  const active = !coinShopFlags(env).shopEnabled && preview.open;
+  const botId = String(client?.user?.id || '');
+  if (!active) {
+    let channels = [];
+    if (preview.channelId) {
+      try {
+        const channel = await client.channels.fetch(preview.channelId);
+        if (channel) channels = [channel];
+      } catch (error) {
+        warnPreview(logger, error);
+        return { posted: false, removed: 0 };
+      }
+    } else {
+      channels = cachedTextChannels(client);
+    }
+    let removed = 0;
+    for (const channel of channels) {
+      try {
+        removed += await deletePreviewPanels(channel, botId);
+      } catch (error) {
+        warnPreview(logger, error);
+      }
+    }
+    return { posted: false, removed };
+  }
+  try {
+    const channel = await client.channels.fetch(preview.channelId);
+    if (!channel || typeof channel.send !== 'function') return { posted: false, removed: 0 };
+    const result = await reconcilePanel(channel, previewCatalogPayload(), COIN_SHOP_PREVIEW_PANEL_MARKER, botId);
+    return { posted: true, removed: 0, ...result };
+  } catch (error) {
+    warnPreview(logger, error);
+    return { posted: false, removed: 0 };
+  }
+}
+
 function installCoinShopUi() {
   if (Client.prototype[INSTALLED]) return false;
   Client.prototype[INSTALLED] = true;
@@ -464,13 +628,24 @@ function installCoinShopUi() {
       try {
         const config = loadConfig();
         const guildId = String(config.discord?.guildId || '').trim();
-        if (!guildId) return;
-        const guild = await client.guilds.fetch(guildId);
-        await registerCoinShopCommands(guild);
-        const sections = shopSections();
-        console.log(`[Nexus Coin Shop] /shop coin=${sections.coin ? 'on' : 'off'} ark=${sections.ark ? 'on' : 'off'} guild=${guild.id}`);
+        if (guildId) {
+          const guild = await client.guilds.fetch(guildId);
+          await registerCoinShopCommands(guild);
+          const sections = shopSections();
+          console.log(`[Nexus Coin Shop] /shop coin=${sections.coin ? 'on' : 'off'} ark=${sections.ark ? 'on' : 'off'} guild=${guild.id}`);
+        }
       } catch (error) {
         console.error(`[Nexus Coin Shop] command registration failed: ${String(error?.message || error).slice(0, 240)}`);
+      }
+      try {
+        const panel = await ensureCoinShopPreviewPanel(client);
+        if (panel.posted) {
+          console.log(`[Nexus Coin Shop] preview catalog channel=${coinShopPreview().channelId} created=${panel.created === true}`);
+        } else if (panel.removed) {
+          console.log(`[Nexus Coin Shop] preview catalog removed=${panel.removed}`);
+        }
+      } catch (error) {
+        console.error(`[Nexus Coin Shop] preview catalog failed: ${String(error?.message || error).slice(0, 240)}`);
       }
     });
     return originalLogin.apply(client, args);
@@ -488,7 +663,11 @@ module.exports = {
   parseCoinCustomId,
   handleCoinShopInteraction,
   registerCoinShopCommands,
+  previewCatalogPayload,
+  ensureCoinShopPreviewPanel,
   installCoinShopUi,
+  PREVIEW_LINE,
+  COIN_SHOP_PREVIEW_PANEL_MARKER,
   GATE_OFF,
   COSMETIC_FOOTER
 };
