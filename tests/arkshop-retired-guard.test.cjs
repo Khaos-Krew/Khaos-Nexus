@@ -434,7 +434,7 @@ test('retired server setup blocks every ARN ledger entry before MySQL', async ()
   }
   for (const sub of ['configure', 'pause', 'adjust']) {
     const paused = await handleArn(arnCall(sub), { ledger, shop, config });
-    assert.equal(paused.content, 'ARN settings are managed by the new token system; payouts are off during the test week.');
+    assert.equal(paused.content, 'ARN settings are handled by the trial tokens; payouts are off during the test week.');
   }
   await assert.rejects(() => handleArn(arnCall('target', 'cacheadmin'), { ledger, shop, config }), (error) => {
     assert.equal(error.message, MEMBER_MESSAGE);

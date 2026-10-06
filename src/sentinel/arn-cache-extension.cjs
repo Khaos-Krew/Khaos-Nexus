@@ -63,7 +63,7 @@ async function handle(interaction,{ledger,shop,config, book, env, now, secret, b
   }
   if(!isStaff(interaction,config)) throw new Error('Nexus staff authorization required.');
   if(sub==='configure' || sub==='pause' || sub==='adjust') {
-    return {content:'ARN settings are managed by the new token system; payouts are off during the test week.'};
+    return {content:'ARN settings are handled by the trial tokens; payouts are off during the test week.'};
   }
   return {content:'Use /arn tokens to see what ARN tokens are and how to earn them. Redeem a cache in #dino-box-shop.'};
 }

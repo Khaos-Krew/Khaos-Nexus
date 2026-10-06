@@ -22,14 +22,16 @@ const JOURNAL_KEEP = 4;
 const JOURNAL_RETAIN_MS = 30 * 24 * 60 * 60 * 1000;
 const REPORT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
-// ARN_DRY_RUN_FILE overrides the path. Otherwise the journal is
-// <NEXUS_DATA_DIR or /app/data/nexus-economy>/arn-dry-run.json so it lands on
-// the mounted volume without a second variable.
+// ARN_DRY_RUN_FILE, then NEXUS_DATA_DIR, then RAILWAY_VOLUME_MOUNT_PATH,
+// then /app/data/nexus-economy. The file is arn-dry-run.json in that directory.
 function journalPath(env = process.env) {
   const explicit = String(env.ARN_DRY_RUN_FILE || '').trim();
   if (explicit) return path.resolve(explicit);
-  const data = String(env.NEXUS_DATA_DIR || '').trim() || JOURNAL_DIR;
-  return path.join(path.resolve(data), 'arn-dry-run.json');
+  const data = String(env.NEXUS_DATA_DIR || '').trim();
+  if (data) return path.join(path.resolve(data), 'arn-dry-run.json');
+  const volume = String(env.RAILWAY_VOLUME_MOUNT_PATH || '').trim();
+  if (volume) return path.join(path.resolve(volume), 'arn-dry-run.json');
+  return path.join(path.resolve(JOURNAL_DIR), 'arn-dry-run.json');
 }
 
 function journalFiles(file) {

@@ -4,9 +4,6 @@ const crypto = require('node:crypto');
 const { CONFIG, deterministicRng, rollLevel } = require('./ark-dino-cache-engine.cjs');
 const { allowed, WEEKLY_CACHE_RETIRED } = require('./ark-weekly-cache.cjs');
 const { zonedParts, zonedLocalToUtc } = require('./card/birthday-calendar.cjs');
-const { arnFlags } = require('../shared/arn-flags.cjs');
-const { arkNpFlags } = require('../shared/ark-np-flags.cjs');
-
 const CT = 'America/Chicago';
 const POOL_SIZE = 8;
 const PUBLIC_ROTATION_SECRET = 'khaos-nexus-arn-rotation-v1-public';
@@ -161,28 +158,6 @@ function drawTame(rotation, orderId, secret = rotationSecret()) {
   };
 }
 
-function deliveryPermitted(env = process.env) {
-  const arn = arnFlags(env);
-  const shop = arkNpFlags(env);
-  return arn.creditsEnabled === true && shop.shopDeliveryEnabled === true && shop.dryRun === false;
-}
-
-function buildArnDeliveryOrder({ drawn, eosId, orderId }) {
-  return {
-    orderId: String(orderId || ''),
-    sku: 'arn-cache',
-    source: 'arn-cache',
-    currency: 'ARN_TOKENS',
-    eosIds: [String(eosId || '')].filter(Boolean),
-    roll: {
-      blueprint: drawn.blueprint,
-      level: drawn.level,
-      sex: drawn.sex,
-      saddle: ''
-    }
-  };
-}
-
 async function openArnCache({
   env = process.env,
   now = Date.now(),
@@ -209,7 +184,5 @@ module.exports = {
   rotationSecret,
   arnRotation,
   drawTame,
-  deliveryPermitted,
-  buildArnDeliveryOrder,
   openArnCache
 };

@@ -22,7 +22,7 @@ const { sharedArnBook } = require('./arn-token-award.cjs');
 const { arnShopLines, arnShopPublicLines } = require('./arn-member-copy.cjs');
 const { shopCurrencyCopy, isArnCache } = require('../shared/dino-cache-currency.cjs');
 const { ArkCacheShopService } = require('./ark-cache-shop-service.cjs');
-const { ArkDinoBoxTokenService } = require('./ark-dino-box-token-service.cjs');
+const { ArkDinoBoxTokenService, ARN_TOKEN_ONLY } = require('./ark-dino-box-token-service.cjs');
 const { BUTTON_CACHE_SHOP } = require('./ark-cluster-panel.cjs');
 const {
   legacyMeta,
@@ -107,7 +107,7 @@ function cachePanelPayload(cacheId) {
     retireControl(tokenButton)
   );
   const buyLine = arn
-    ? 'ARN caches can only be opened with ARN Tokens. A Nexus token cannot open this cache.'
+    ? ARN_TOKEN_ONLY
     : 'Choose **Buy** to spend Nexus Points, or **Redeem Token** to open this box with a single-use Nexus token.';
   const delivery = arn
     ? 'Your result is locked before the reveal and queued for delivery to your linked ARK account. The **5-minute cooldown applies to both purchases and token redemptions** for this box.'
@@ -512,7 +512,7 @@ function installArkDinoBoxShopExtension(options = {}) {
             const cacheId = id.slice(TOKEN_PREFIX.length).toLowerCase();
             if (!CONFIG.caches[cacheId]) throw new Error('Unknown Dino Cache.');
             if (isArnCache(cacheId)) {
-              if (!interaction.deferred && !interaction.replied) await interaction.reply({ content: 'ARN caches can only be opened with ARN Tokens.', flags: MessageFlags.Ephemeral });
+              if (!interaction.deferred && !interaction.replied) await interaction.reply({ content: ARN_TOKEN_ONLY, flags: MessageFlags.Ephemeral });
               return;
             }
             return interaction.showModal(tokenModal(cacheId));
@@ -529,7 +529,7 @@ function installArkDinoBoxShopExtension(options = {}) {
             const cacheId = id.slice(TOKEN_MODAL_PREFIX.length).toLowerCase();
             const tokenCode = interaction.fields.getTextInputValue(TOKEN_INPUT);
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-            if (isArnCache(cacheId)) return interaction.editReply({ content: 'ARN caches can only be opened with ARN Tokens.', allowedMentions: { parse: [] } });
+            if (isArnCache(cacheId)) return interaction.editReply({ content: ARN_TOKEN_ONLY, allowedMentions: { parse: [] } });
             const result = await tokenService.redeem({ discordUserId: userId, cacheId, tokenCode });
             if (result.order.state !== 'SEALED') return interaction.editReply(finalResultPayload(result.order, null, 'Nexus Token'));
             return interaction.editReply(sealedResultPayload(result.order, null, 'Nexus Token'));

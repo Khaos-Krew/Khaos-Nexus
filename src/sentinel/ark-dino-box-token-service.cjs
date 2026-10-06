@@ -20,7 +20,7 @@ const {
 
 const TOKEN_TABLE = 'nexus_dino_box_tokens';
 const VALID_CACHE_ID = /^[a-z0-9_-]{1,48}$/;
-const ARN_TOKEN_ONLY = 'ARN caches can only be opened with ARN Tokens.';
+const ARN_TOKEN_ONLY = 'ARN caches open with ARN Tokens only. Earn them by taming or killing shiny dinos on ARK. Check yours with /arn tokens.';
 
 function normalizeToken(value) {
   const token = String(value || '').trim().toUpperCase().replace(/\s+/g, '');

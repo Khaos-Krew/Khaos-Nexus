@@ -33,7 +33,6 @@ const {
   nextCtWeekStart,
   arnRotation,
   drawTame,
-  deliveryPermitted,
   openArnCache,
   rotationSecret
 } = require('../src/sentinel/arn-cache-rotation.cjs');
@@ -385,10 +384,8 @@ test('the tame list has 8 creatures and changes on Monday at Central midnight', 
 });
 
 test('opening a cache stays on the dry-run delivery path', async () => {
-  assert.equal(deliveryPermitted({}), false);
-  assert.equal(deliveryPermitted(LIVE), false);
   const rotationSource = fs.readFileSync(path.join(__dirname, '../src/sentinel/arn-cache-rotation.cjs'), 'utf8');
-  assert.doesNotMatch(rotationSource, /deliverPreparedOrder|ledger\.spend|book\.spend|\.refund\(/);
+  assert.doesNotMatch(rotationSource, /deliverPreparedOrder|ledger\.spend|book\.spend|\.refund\(|function deliveryPermitted|function buildArnDeliveryOrder/);
   assert.equal(fs.existsSync(path.join(__dirname, '../src/economy-worker/arn-tokens-postgres.cjs')), false);
   let calls = 0;
   const deliver = () => { calls += 1; return { ok: true, raCalled: true }; };
@@ -524,7 +521,7 @@ test('member copy stays plain and there is no exchange into Points, Coins, or ca
     book,
     env: {}
   });
-  assert.equal(staff.content, 'ARN settings are managed by the new token system; payouts are off during the test week.');
+  assert.equal(staff.content, 'ARN settings are handled by the trial tokens; payouts are off during the test week.');
   assert.equal(mysqlWrites, 0);
   const denied = await handle({
     commandName: 'arn',
@@ -680,7 +677,8 @@ test('a restart reloads the dry-run journal from the Railway volume', async () =
   assert.equal(journalPath({ NEXUS_DATA_DIR: dir }), file);
   assert.equal(journalPath({ ARN_DRY_RUN_FILE: path.join(dir, 'custom.json'), NEXUS_DATA_DIR: dir }), path.join(dir, 'custom.json'));
   assert.equal(journalPath({}), path.resolve(DEFAULT_JOURNAL));
-  assert.equal(journalPath({ RAILWAY_VOLUME_MOUNT_PATH: dir }), path.resolve(DEFAULT_JOURNAL));
+  assert.equal(journalPath({ RAILWAY_VOLUME_MOUNT_PATH: dir }), file);
+  assert.equal(journalPath({ NEXUS_DATA_DIR: dir, RAILWAY_VOLUME_MOUNT_PATH: path.join(dir, 'volume') }), file);
 
   const now = Date.parse('2026-10-07T15:00:00.000Z');
   const first = createArnBook({ persistPath: file, env: {}, loadAccounts: async () => [account()] });

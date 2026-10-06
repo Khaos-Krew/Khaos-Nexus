@@ -41,15 +41,17 @@ test('every Dino Box cache panel has exactly Buy and Redeem Token buttons', () =
     if (cacheId === 'arn') {
       assert.match(text, /ARN tokens only/);
       assert.match(text, /1 ARN token/);
+      assert.match(text, /Earn them by taming or killing shiny dinos on ARK/);
+      assert.match(text, /\/arn tokens/);
       assert.equal(row.components[1].disabled, true);
       assert.doesNotMatch(text, /Nexus Points|\bPoints\b/);
     } else {
       assert.match(text, /Nexus Points/);
       assert.doesNotMatch(text, /Cache token/i);
       assert.match(row.components[0].label, /Nexus Points/);
+      assert.doesNotMatch(text, /shiny/i);
     }
     assert.doesNotMatch(text, /ArkShop Points|ARN redemption disabled/);
-    assert.doesNotMatch(text, /shiny/i);
   }
 });
 
