@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const { CONFIG, deterministicRng, rollLevel } = require('./ark-dino-cache-engine.cjs');
 const { allowed, WEEKLY_CACHE_RETIRED } = require('./ark-weekly-cache.cjs');
 const { zonedParts, zonedLocalToUtc } = require('./card/birthday-calendar.cjs');
+const { arnFlags } = require('../shared/arn-flags.cjs');
 const CT = 'America/Chicago';
 const POOL_SIZE = 8;
 const PUBLIC_ROTATION_SECRET = 'khaos-nexus-arn-rotation-v1-public';
@@ -45,9 +46,18 @@ function usableSecret(secret) {
 }
 
 function rotationSecret(env = process.env) {
-  const dedicated = usableSecret(env.ARN_ROTATION_SECRET);
-  if (dedicated) return dedicated;
-  return usableSecret(env.NEXUS_DINO_CACHE_RNG_SECRET);
+  const dedicated = String(env.ARN_ROTATION_SECRET || '').trim();
+  if (arnFlags(env).creditsEnabled) {
+    if (dedicated.length < 32) {
+      const error = new Error('ARN_ROTATION_SECRET is required.');
+      error.code = 'arn-rotation-secret-missing';
+      throw error;
+    }
+    return dedicated;
+  }
+  if (dedicated.length >= 32) return dedicated;
+  const shared = String(env.NEXUS_DINO_CACHE_RNG_SECRET || '').trim();
+  return shared.length >= 32 ? shared : PUBLIC_ROTATION_SECRET;
 }
 
 function previewRotation() {

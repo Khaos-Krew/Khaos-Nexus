@@ -15,7 +15,8 @@ test('economy POST allowlist covers every executable POST route', () => {
     ...DRAIN_MUTATION_PATHS,
     ...WRITE_PATHS,
     ...MC_NONECONOMY_PATHS,
-    '/shop/quote'
+    '/shop/quote',
+    '/arn/preview'
   ]);
 
   assert.deepEqual([...POST_PATHS].sort(), [...expected].sort());

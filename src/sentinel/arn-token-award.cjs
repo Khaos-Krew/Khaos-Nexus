@@ -593,6 +593,33 @@ function staleReport(createdAt, now, env = process.env) {
   return now - at >= policy.hardExpiryMs;
 }
 
+async function readMainArnBalance(discordUserId) {
+  try {
+    const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
+    const client = new NexusEconomyClient();
+    if (!client.configured()) return null;
+    const result = await client.arnBalance(discordUserId);
+    if (!result || result.ok === false) return null;
+    return Number(result.balance || 0);
+  } catch (error) {
+    console.warn(`[ARN] balance unavailable: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 200)}`);
+    return null;
+  }
+}
+
+async function resolveLinkedIdentity(account) {
+  if (!account?.eosId || !account?.discordUserId) return null;
+  try {
+    const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
+    const client = new NexusEconomyClient();
+    if (!client.configured()) return null;
+    return await client.arnPreview({ eosId: account.eosId, discordUserId: account.discordUserId });
+  } catch (error) {
+    console.warn(`[ARN] identity preview unavailable: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 200)}`);
+    return null;
+  }
+}
+
 async function observeFromDiscordMessage({
   message,
   payload,
@@ -617,7 +644,47 @@ async function observeFromDiscordMessage({
   };
   if (book) return book.award(report);
   const accounts = await loadLinkedAccounts();
-  return sharedArnBook(env).award({ ...report, accounts, env: dryJournalEnv(env) });
+  const matches = exactNameMatches(accounts, parsed.playerName);
+  if (matches.length === 1) {
+    const resolved = await resolveLinkedIdentity(matches[0]);
+    if (resolved?.economicIdentityId) {
+      matches[0] = {
+        ...matches[0],
+        economicIdentityId: resolved.economicIdentityId,
+        status: resolved.status || '',
+        holdReason: resolved.holdReason || '',
+        missingRow: resolved.missingRow === true
+      };
+    }
+  }
+  const flags = arnFlags(env);
+  if (flags.creditsEnabled && matches.length === 1 && matches[0].eosId) {
+    try {
+      const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
+      const client = new NexusEconomyClient();
+      if (client.configured()) {
+        const live = await client.arnDrop({
+          messageId: report.messageId,
+          parsed,
+          eosId: matches[0].eosId,
+          discordUserId: matches[0].discordUserId,
+          roll: report.roll,
+          seed: report.seed,
+          stale: report.stale
+        });
+        return sharedArnBook(env).award({
+          ...report,
+          accounts: matches,
+          env: dryJournalEnv(env),
+          blockedOutcome: live?.outcome || 'ledger-unavailable'
+        });
+      }
+    } catch (error) {
+      console.warn(`[ARN] token credit unavailable: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 200)}`);
+      return sharedArnBook(env).award({ ...report, accounts: matches, env: dryJournalEnv(env), blockedOutcome: 'ledger-unavailable' });
+    }
+  }
+  return sharedArnBook(env).award({ ...report, accounts: matches, env: dryJournalEnv(env) });
 }
 
 module.exports = {
@@ -655,5 +722,6 @@ module.exports = {
   resetSharedArnBookForTest,
   staleReport,
   observeFromDiscordMessage,
-  warnIfJournalUnwritable
+  warnIfJournalUnwritable,
+  readMainArnBalance
 };
