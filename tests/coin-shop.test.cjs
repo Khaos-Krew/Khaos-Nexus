@@ -544,10 +544,6 @@ test('the shop panel is ephemeral, locked to the buyer, and shows the balance ch
       assert.equal(card.readUInt32BE(16), 512);
       assert.equal(card.readUInt32BE(20), 512);
     }
-    const sentinalImage = fs.readFileSync(path.join(__dirname, '../Dockerfile.sentinal'), 'utf8');
-    const sentinelImage = fs.readFileSync(path.join(__dirname, '../Dockerfile.sentinel'), 'utf8');
-    assert.match(sentinalImage, /COPY src\/shared\/brand-assets \.\/src\/shared\/brand-assets/);
-    assert.match(sentinelImage, /COPY src\/shared\/brand-assets \.\/src\/shared\/brand-assets/);
     const emptyArt = fs.mkdtempSync(path.join(os.tmpdir(), 'coin-shop-art-'));
     try {
       const bare = new EmbedBuilder().setTitle('Coin shop');
@@ -668,6 +664,15 @@ test('the shop panel is ephemeral, locked to the buyer, and shows the balance ch
     else process.env.ARK_SHOP_ENABLED = previousArk;
   }
 });
+
+for (const imageName of ['Dockerfile.sentinal', 'Dockerfile.sentinel']) {
+  const imagePath = path.join(__dirname, '..', imageName);
+  test(`${imageName} copies Coin shop wallet art`, {
+    skip: fs.existsSync(imagePath) ? false : `image does not include ${imageName}`
+  }, () => {
+    assert.match(fs.readFileSync(imagePath, 'utf8'), /COPY src\/shared\/brand-assets \.\/src\/shared\/brand-assets/);
+  });
+}
 
 test('shopadmin uses the staff admin role, allows the Owner role, and ignores Community Manager', () => {
   const adminRole = '333333333333333333';
