@@ -15,6 +15,20 @@ function refundKey(ledgerId) {
   return `coin-shop-refund:${ledgerId}`;
 }
 
+function coinShopReceiptRef(ledgerId) {
+  const id = Number(ledgerId);
+  if (!Number.isSafeInteger(id) || id < 1) return '';
+  return `CS-${String(id).padStart(4, '0')}`;
+}
+
+function coinShopLedgerIdFromRef(ref) {
+  const match = /^CS-(\d+)$/i.exec(String(ref || '').trim());
+  if (!match) return null;
+  const id = Number(match[1]);
+  if (!Number.isSafeInteger(id) || id < 1) return null;
+  return id;
+}
+
 function chicagoParts(ms) {
   const fmt = new Intl.DateTimeFormat('en-US', {
     timeZone: CHICAGO,
@@ -60,6 +74,8 @@ module.exports = {
   CHICAGO,
   purchaseKey,
   refundKey,
+  coinShopReceiptRef,
+  coinShopLedgerIdFromRef,
   chicagoDayKey,
   chicagoDayStart
 };

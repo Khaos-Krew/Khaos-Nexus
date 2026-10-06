@@ -572,7 +572,9 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
         await client.query('ROLLBACK');
         return { ok: false, reason: 'wallet-not-found' };
       }
-      const row = await this.#lockIdentity(client, link.rows[0].economic_identity_id);
+      const economicIdentityId = link.rows[0].economic_identity_id;
+      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`coin-shop:${economicIdentityId}`]);
+      const row = await this.#lockIdentity(client, economicIdentityId);
       if (!row) {
         await client.query('ROLLBACK');
         return { ok: false, reason: 'identity-not-found', economicIdentityId: link.rows[0].economic_identity_id };

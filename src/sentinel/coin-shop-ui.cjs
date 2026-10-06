@@ -17,9 +17,9 @@ const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
 const { BackendClient } = require('./backend-client.cjs');
 const { coinShopFlags } = require('../shared/coin-shop-flags.cjs');
 const { arkNpFlags } = require('../shared/ark-np-flags.cjs');
-const { openArkShop } = require('./ark-np-shop-ui.cjs');
+const { openArkShop, shopCommand: arkShopCommand } = require('./ark-np-shop-ui.cjs');
 const { CATEGORIES, ITEMS, catalogItem } = require('../shared/coin-shop-catalog.cjs');
-const { GATE_OFF, COSMETIC_FOOTER, coinShopMemberText } = require('../shared/coin-shop-copy.cjs');
+const { GATE_OFF, COSMETIC_FOOTER, coinShopMemberText, memberReceipt } = require('../shared/coin-shop-copy.cjs');
 const { isCoinShopAdmin } = require('../economy-worker/coin-shop-staff.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.coin.shop.ui');
@@ -48,7 +48,7 @@ function shopAdminCommand() {
     .addSubcommand((sub) => sub
       .setName('refund')
       .setDescription('Refund an unused Coin shop purchase from the last 24 hours')
-      .addStringOption((option) => option.setName('ledger').setDescription('Ledger ref from the receipt').setRequired(true))
+      .addStringOption((option) => option.setName('ledger').setDescription('Receipt ref, like CS-0001').setRequired(true))
       .addStringOption((option) => option.setName('reason').setDescription('Why this refund is needed').setRequired(true)))
     .addSubcommand((sub) => sub
       .setName('lookup')
@@ -188,7 +188,7 @@ function shopMenuText(sections) {
 
 async function openShop(interaction) {
   const sections = shopSections();
-  if (!sections.coin && !sections.ark) return interaction.reply(ephemeral(shopMenuText(sections)));
+  if (!sections.coin) return openArkShop(interaction);
   return interaction.reply(ephemeral(shopMenuText(sections), { components: [shopMenuRow(sections)] }));
 }
 
@@ -255,7 +255,7 @@ async function showConfirm(interaction, economy, parsed) {
   const item = catalogItem(parsed.sku);
   if (!item) return replyOrUpdate(interaction, ephemeral(coinShopMemberText('unknown-sku')));
   const quoted = await economy.coinShopQuote({ discordUserId: parsed.userId, sku: parsed.sku });
-  if (!quoted?.ok) return replyOrUpdate(interaction, ephemeral(coinShopMemberText(quoted?.reason)));
+  if (!quoted?.ok) return replyOrUpdate(interaction, ephemeral(coinShopMemberText(quoted?.reason, quoted)));
   const quote = quoted.quote;
   sessions.set(parsed.userId, {
     ...(sessions.get(parsed.userId) || {}),
@@ -284,7 +284,7 @@ async function confirmBuy(interaction, economy, backend, parsed) {
     nonce: parsed.nonce
   });
   sessions.delete(parsed.userId);
-  if (!result?.ok) return replyOrUpdate(interaction, ephemeral(coinShopMemberText(result?.reason)));
+  if (!result?.ok) return replyOrUpdate(interaction, ephemeral(coinShopMemberText(result?.reason, result)));
   if (typeof backend?.grantWalletCosmetic === 'function') {
     await backend.grantWalletCosmetic(parsed.userId, { sku: result.sku, ledgerId: result.ledgerId }).catch(() => null);
   }
@@ -294,10 +294,7 @@ async function confirmBuy(interaction, economy, backend, parsed) {
     .setCustomId(`nxwallet:open:${slot}:${parsed.userId}`)
     .setLabel('Equip now')
     .setStyle(ButtonStyle.Primary);
-  const embed = footerEmbed(
-    'Receipt',
-    `New balance: ${Number(result.balance).toLocaleString('en-US')} Coins\nLedger: ${result.ledgerRef}`
-  );
+  const embed = footerEmbed('Receipt', memberReceipt(result));
   return replyOrUpdate(interaction, ephemeral('', { embeds: [embed], components: [new ActionRowBuilder().addComponents(equip)] }));
 }
 
@@ -331,7 +328,7 @@ async function handleAdmin(interaction, economy, backend) {
     }
     const text = result.duplicate
       ? 'That purchase was already refunded.'
-      : `Refunded. New balance: ${Number(result.balance).toLocaleString('en-US')} Coins. Ledger: ${result.ledgerRef}`;
+      : memberReceipt(result).replace('\n', '. ');
     return interaction.reply(ephemeral(text));
   }
   return interaction.reply(ephemeral('That command is for a staff admin.'));
@@ -379,14 +376,8 @@ async function upsertCommand(guild, definition) {
 }
 
 async function registerCoinShopCommands(guild, env = process.env) {
-  const commands = await guild.commands.fetch();
-  const shop = commands.find((item) => item.name === 'shop');
   const sections = shopSections(env);
-  if (!sections.coin && !sections.ark) {
-    if (shop) await shop.delete().catch(() => {});
-  } else {
-    await upsertCommand(guild, shopCommand());
-  }
+  await upsertCommand(guild, sections.coin ? shopCommand() : arkShopCommand());
   await upsertCommand(guild, shopAdminCommand());
 }
 

@@ -14,8 +14,8 @@ const {
 } = require('../src/economy-worker/server.cjs');
 const { coinShopFlags, purchaseCeiling } = require('../src/shared/coin-shop-flags.cjs');
 const { ITEMS, OMITTED, catalogItem } = require('../src/shared/coin-shop-catalog.cjs');
-const { purchaseKey, refundKey, chicagoDayKey } = require('../src/shared/coin-shop-limits.cjs');
-const { GATE_OFF, COSMETIC_FOOTER, INELIGIBLE, coinShopMemberText } = require('../src/shared/coin-shop-copy.cjs');
+const { purchaseKey, refundKey, chicagoDayKey, coinShopReceiptRef } = require('../src/shared/coin-shop-limits.cjs');
+const { GATE_OFF, COSMETIC_FOOTER, INELIGIBLE, coinShopMemberText, memberReceipt } = require('../src/shared/coin-shop-copy.cjs');
 const { isCoinShopAdmin, acceptVerifiedStaff } = require('../src/economy-worker/coin-shop-staff.cjs');
 const { COMMUNITY_MANAGER_ROLE_ID, OWNER_ROLE_ID } = require('../src/economy-worker/ark-staff-auth.cjs');
 const { WalletCosmeticsService } = require('../src/backend/services/wallet-cosmetics-service.cjs');
@@ -155,6 +155,13 @@ test('insufficient Coins, owned, cap, ceiling, and unknown SKU spend nothing', a
   const poor = shop({ coins: 10 });
   const denied = await poor.quote({ discordUserId: USER, sku: 'ttl_night_owl' });
   assert.equal(denied.reason, 'insufficient-coins');
+  assert.equal(denied.shortfall, 185);
+  const shortCopy = coinShopMemberText(denied.reason, denied);
+  assert.match(shortCopy, /185 more Coins/);
+  assert.match(shortCopy, /chatting/);
+  assert.match(shortCopy, /voice/);
+  assert.match(shortCopy, /levelling up/);
+  assert.match(shortCopy, /events/);
   assert.equal(poor.coinBalance(USER), 10);
   assert.equal(poor.ledger.length, 0);
 
@@ -320,7 +327,40 @@ test('restricted, shadow recruit, quarantined, held, and disabled members cannot
     assert.equal(service.ledger.length, 0);
   }
   assert.equal(coinShopMemberText('not-eligible'), INELIGIBLE);
+  assert.match(INELIGIBLE, /#verification-help/);
+  assert.match(INELIGIBLE, /\/o9verify/);
   assert.doesNotMatch(INELIGIBLE, /shadow|quarantine|restricted|disabled|hold/i);
+});
+
+test('system accounts cannot purchase or be refunded', async () => {
+  const service = shop({ econId: 'system:mint:coins' });
+  const quoted = await service.quote({ discordUserId: USER, sku: 'ttl_night_owl' });
+  assert.equal(quoted.reason, 'not-eligible');
+  const bought = await service.purchase({ discordUserId: USER, sku: 'ttl_night_owl', nonce: 'system-nonce' });
+  assert.equal(bought.reason, 'not-eligible');
+  assert.equal(service.coinBalance(USER), 420);
+  assert.equal(service.ledger.length, 0);
+
+  const member = shop();
+  const { result } = await buy(member);
+  member.ledger[0].econId = 'system:mint:coins';
+  member.entitlements[0].econId = 'system:mint:coins';
+  const refunded = await member.refund({ ledgerRef: result.ledgerRef, reason: 'system account', actor: USER });
+  assert.equal(refunded.reason, 'not-eligible');
+  assert.equal(member.coinBalance(USER), 225);
+  assert.equal(member.entitlements[0].status, 'active');
+});
+
+test('the receipt uses a short ref and a short ref can be refunded', async () => {
+  const service = shop();
+  const { result } = await buy(service);
+  assert.equal(coinShopReceiptRef(result.ledgerId), 'CS-0001');
+  assert.equal(memberReceipt(result), 'New balance: 225 Coins\nRef: CS-0001');
+  assert.doesNotMatch(memberReceipt(result), /coin-shop:/);
+  const refunded = await service.refund({ ledgerRef: 'CS-0001', reason: 'short ref', actor: USER });
+  assert.equal(refunded.ok, true, refunded.reason);
+  assert.equal(service.coinBalance(USER), 420);
+  assert.doesNotMatch(memberReceipt(refunded), /coin-shop:/);
 });
 
 test('staff can refund an unused purchase once inside 24 hours', async () => {
@@ -431,13 +471,17 @@ function fakeGuild(names = []) {
       async create(json) {
         rows.push({
           name: json.name,
+          description: json.description,
           async delete() {
             const index = rows.findIndex((row) => row.name === json.name);
             if (index >= 0) rows.splice(index, 1);
           }
         });
       },
-      async edit() {}
+      async edit(existing, json) {
+        existing.name = json.name;
+        existing.description = json.description;
+      }
     }
   };
 }
@@ -456,8 +500,9 @@ test('the shop panel is ephemeral, locked to the buyer, and shows the balance ch
       economyClient: { async balances() { throw new Error('balance should stay hidden'); } },
       backend: {}
     });
-    assert.match(closed.replies[0].content, /The shop isn't open yet/);
-    assert.doesNotMatch(closed.replies[0].content, /Points|Coins/);
+    assert.match(closed.replies[0].content, /The ARK shop is turned off/);
+    assert.match(closed.replies[0].content, /No Points were spent/);
+    assert.doesNotMatch(closed.replies[0].content, /Coin/);
     assert.equal(closed.replies[0].flags, 64);
     assert.equal(closed.replies[0].components.length, 0);
 
@@ -506,14 +551,14 @@ test('the shop panel is ephemeral, locked to the buyer, and shows the balance ch
     assert.match(coinOnly.content, /Cosmetic only/);
     assert.doesNotMatch(coinOnly.content, /Points/);
     const arkOnly = await menu(false, true);
-    assert.deepEqual(buttonLabels(arkOnly), ['Points Shop (ARK)']);
+    assert.match(arkOnly.content, /Spend Points on ARK/);
     assert.doesNotMatch(arkOnly.content, /Coin/);
     const both = await menu(true, true);
     assert.deepEqual(buttonLabels(both), ['Coin Shop (cosmetics)', 'Points Shop (ARK)']);
     assert.doesNotMatch(both.content, /\d/);
     const neither = await menu(false, false);
-    assert.deepEqual(buttonLabels(neither), []);
-    assert.match(neither.content, /The shop isn't open yet/);
+    assert.match(neither.content, /The ARK shop is turned off/);
+    assert.doesNotMatch(neither.content, /Coin/);
 
     process.env.ARK_SHOP_ENABLED = 'true';
     process.env.COIN_SHOP_ENABLED = 'false';
@@ -531,16 +576,13 @@ test('the shop panel is ephemeral, locked to the buyer, and shows the balance ch
 
     const gone = fakeGuild(['shop']);
     await registerCoinShopCommands(gone, { COIN_SHOP_ENABLED: 'false', ARK_SHOP_ENABLED: 'false' });
-    assert.equal(gone.rows.some((row) => row.name === 'shop'), false);
-    for (const env of [
-      { COIN_SHOP_ENABLED: 'true', ARK_SHOP_ENABLED: 'false' },
-      { COIN_SHOP_ENABLED: 'false', ARK_SHOP_ENABLED: 'true' },
-      { COIN_SHOP_ENABLED: 'true', ARK_SHOP_ENABLED: 'true' }
-    ]) {
-      const guild = fakeGuild();
-      await registerCoinShopCommands(guild, env);
-      assert.equal(guild.rows.some((row) => row.name === 'shop'), true);
-    }
+    assert.equal(gone.rows.find((row) => row.name === 'shop').description, 'Spend Points on ARK');
+    const arkGuild = fakeGuild();
+    await registerCoinShopCommands(arkGuild, { COIN_SHOP_ENABLED: 'false', ARK_SHOP_ENABLED: 'true' });
+    assert.equal(arkGuild.rows.find((row) => row.name === 'shop').description, 'Spend Points on ARK');
+    const coinGuild = fakeGuild();
+    await registerCoinShopCommands(coinGuild, { COIN_SHOP_ENABLED: 'true', ARK_SHOP_ENABLED: 'true' });
+    assert.equal(coinGuild.rows.find((row) => row.name === 'shop').description, 'Open the shop');
   } finally {
     if (previousCoin == null) delete process.env.COIN_SHOP_ENABLED;
     else process.env.COIN_SHOP_ENABLED = previousCoin;
@@ -650,8 +692,61 @@ test('postgres coin shop stays on Coins and does not touch Points, RCON, or the 
   assert.match(src, /equipped_at = NULL/);
   assert.match(src, /America\/Chicago/);
   assert.match(src, /NOW\(\) - INTERVAL '24 hours'/);
+  assert.match(src, /assertMemberAccount/);
+  const runtime = fs.readFileSync(path.join(__dirname, '../src/economy-worker/postgres-runtime.cjs'), 'utf8');
+  assert.doesNotMatch(runtime, /coinShop\.ensureSchema|nexus_coin_shop_/);
+  const migration = fs.readFileSync(path.join(__dirname, '../migrations/2026-10-06-coin-shop.sql'), 'utf8');
+  assert.match(migration, /nexus_coin_shop_entitlements/);
+  assert.match(migration, /nexus_coin_shop_quotes/);
+  const holdSrc = fs.readFileSync(path.join(__dirname, '../src/sentinel/nexus-economy-postgres-runtime-repository.cjs'), 'utf8');
+  const place = holdSrc.slice(holdSrc.indexOf('async placeStaffHold'), holdSrc.indexOf('async liftIdentityHold('));
+  assert.ok(place.indexOf('coin-shop:') > 0 && place.indexOf('coin-shop:') < place.indexOf('#lockIdentity'));
+  const decide = fs.readFileSync(path.join(__dirname, '../src/shared/coin-shop-decide.cjs'), 'utf8');
+  const refundFn = decide.slice(decide.indexOf('function decideRefund'), decide.indexOf('module.exports'));
+  assert.ok(refundFn.indexOf("type: 'refund-entitlement'") < refundFn.indexOf("type: 'cas-credit'"));
+  const ui = fs.readFileSync(path.join(__dirname, '../src/sentinel/coin-shop-ui.cjs'), 'utf8');
+  assert.doesNotMatch(ui, /shop\.delete/);
+  const arkUi = fs.readFileSync(path.join(__dirname, '../src/sentinel/ark-np-shop-ui.cjs'), 'utf8');
+  assert.match(arkUi, /Open \/shop again/);
+  const server = fs.readFileSync(path.join(__dirname, '../src/economy-worker/server.cjs'), 'utf8');
+  assert.match(server, /assertMemberAccount/);
   assert.doesNotMatch(src, /RCON|rcon/);
   assert.doesNotMatch(src, /DISCORD_BOT_TOKEN|NEXUS_SENTINAL_DISCORD_TOKEN/);
   assert.doesNotMatch(src, /NEXUS_POINTS/);
   assert.doesNotMatch(src, /cluster-shop|ClusterShop/);
+});
+
+test('coin shop entitlement reads require the service token', async () => {
+  let seen = 0;
+  const runtime = createEconomyServer({
+    token: 'sentinal-token',
+    craftToken: 'craft-token',
+    arkToken: 'ark-token',
+    writesEnabled: false,
+    coinShopSpendEnabled: false,
+    worker: {
+      health() { return { ok: true }; },
+      coinShop: {
+        entitlementsFor: async () => {
+          seen += 1;
+          return { ok: true, entitlements: [] };
+        }
+      }
+    },
+    shop: { listCatalog() { return []; }, pendingBuyOrders() { return []; } }
+  });
+  const open = await callServer(runtime, { method: 'GET', pathname: '/coin-shop/entitlements/123456789012345678', token: '', body: null });
+  assert.equal(open.status, 401);
+  assert.equal(open.body.error, 'unauthorized');
+  const craft = await callServer(runtime, { method: 'GET', pathname: '/coin-shop/entitlements/123456789012345678', token: 'craft-token', body: null });
+  assert.equal(craft.status, 403);
+  assert.equal(craft.body.error, 'craft-token-scope');
+  const ark = await callServer(runtime, { method: 'GET', pathname: '/coin-shop/entitlements/123456789012345678', token: 'ark-token', body: null });
+  assert.equal(ark.status, 403);
+  assert.equal(ark.body.error, 'ark-token-scope');
+  const allowed = await callServer(runtime, { method: 'GET', pathname: '/coin-shop/entitlements/123456789012345678', token: 'sentinal-token', body: null });
+  assert.equal(allowed.status, 200);
+  assert.equal(allowed.body.ok, true);
+  assert.equal(seen, 1);
+  runtime.server.close();
 });

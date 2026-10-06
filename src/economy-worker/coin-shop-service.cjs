@@ -3,8 +3,9 @@
 const crypto = require('node:crypto');
 const { catalogItem } = require('../shared/coin-shop-catalog.cjs');
 const { coinShopFlags, purchaseCeiling } = require('../shared/coin-shop-flags.cjs');
-const { purchaseKey, refundKey, chicagoDayKey, ATTEMPT_WINDOW_MS } = require('../shared/coin-shop-limits.cjs');
+const { purchaseKey, refundKey, coinShopLedgerIdFromRef, chicagoDayKey, ATTEMPT_WINDOW_MS } = require('../shared/coin-shop-limits.cjs');
 const { decideQuote, decidePurchase, decideRefund } = require('../shared/coin-shop-decide.cjs');
+const { assertMemberAccount } = require('../shared/economy-system-accounts.cjs');
 const { memberIdentityHold, quarantineDenylist } = require('../sentinel/nexus-economy-identity-hold.cjs');
 const { acceptVerifiedStaff } = require('./coin-shop-staff.cjs');
 
@@ -332,6 +333,11 @@ class CoinShopService {
     }
     const quote = this.quotes.get(nonce);
     state.quote = quote ? { ...quote } : null;
+    try {
+      assertMemberAccount(econId);
+    } catch {
+      return { ok: false, reason: 'not-eligible' };
+    }
     const decision = decidePurchase(state, input, now, this.#limits());
     if (!decision.effects.length) return this.#withLedger(decision.result, prior?.id);
     const applied = this.#commit(input.discordUserId, decision.effects);
@@ -367,6 +373,11 @@ class CoinShopService {
     if (!auth?.ok) return { ok: false, reason: auth?.reason || 'staff-required' };
     const now = this.now();
     const purchase = this.#findPurchase(input.ledgerRef || input.ledgerId);
+    try {
+      if (purchase?.econId) assertMemberAccount(purchase.econId);
+    } catch {
+      return { ok: false, reason: 'not-eligible' };
+    }
     const holder = purchase ? this.#identityByEcon(purchase.econId) : null;
     const state = {
       balance: purchase ? Number(this.coins.get(purchase.econId) || 0) : 0,
@@ -383,9 +394,10 @@ class CoinShopService {
   #findPurchase(ref) {
     const text = String(ref || '').trim();
     if (!text) return null;
+    const shortId = coinShopLedgerIdFromRef(text);
     const row = this.ledger.find((item) => {
       if (item.currency !== 'NEXUS_COINS' || item.entryType !== 'purchase') return false;
-      return String(item.id) === text || item.key === text;
+      return String(item.id) === text || item.key === text || (shortId != null && item.id === shortId);
     });
     if (!row) return null;
     const sku = String(row.metadata?.sku || '');

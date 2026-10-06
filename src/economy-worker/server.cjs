@@ -17,6 +17,7 @@ class EconomyRequestError extends Error {
 }
 
 const { registerAdminWalletDrainPaths, handleAdminWalletPost } = require('./admin-wallet-routes.cjs');
+const { assertMemberAccount } = require('../shared/economy-system-accounts.cjs');
 const { MEMBER_HOLD_MESSAGE, memberHoldFromError } = require('../sentinel/nexus-economy-identity-hold.cjs');
 const PRESENCE_WRITE_PATHS = new Set(['/presence', '/wallet/accrue-offline']);
 const NP_SHOP_FINANCIAL_PATHS = new Set([
@@ -366,6 +367,17 @@ function coinShopHttpStatus(result) {
   return 200;
 }
 
+function refuseSystemCoinAccount(input = {}) {
+  const econId = String(input.economicIdentityId || input.econId || '').trim();
+  if (!econId) return null;
+  try {
+    assertMemberAccount(econId);
+    return null;
+  } catch {
+    return { ok: false, reason: 'not-eligible' };
+  }
+}
+
 async function handleCoinShopPost(pathname, { worker, input, coinShopSpendEnabled, json, res }) {
   if (!coinShopSpendEnabled && pathname !== '/coin-shop/lookup') {
     return json(res, 503, { ok: false, error: 'economy-coin-shop-spend-not-enabled', coinShopSpendEnabled: false });
@@ -376,10 +388,14 @@ async function handleCoinShopPost(pathname, { worker, input, coinShopSpendEnable
     return json(res, coinShopHttpStatus(result), result);
   }
   if (pathname === '/coin-shop/purchase') {
+    const refused = refuseSystemCoinAccount(input);
+    if (refused) return json(res, 409, refused);
     const result = await worker.coinShop.purchase(input);
     return json(res, coinShopHttpStatus(result), result);
   }
   if (pathname === '/coin-shop/refund') {
+    const refused = refuseSystemCoinAccount(input);
+    if (refused) return json(res, 409, refused);
     const result = await worker.coinShop.refund(input);
     return json(res, coinShopHttpStatus(result), result);
   }
@@ -498,6 +514,7 @@ function createEconomyServer(options = {}) {
       if (req.method === 'GET' && url.pathname === '/coin-shop/catalog') {
         const { ITEMS, CATEGORIES, OMITTED } = require('../shared/coin-shop-catalog.cjs');
         const { coinShopFlags } = require('../shared/coin-shop-flags.cjs');
+const { assertMemberAccount } = require('../shared/economy-system-accounts.cjs');
         return json(res, 200, {
           ok: true,
           items: ITEMS,

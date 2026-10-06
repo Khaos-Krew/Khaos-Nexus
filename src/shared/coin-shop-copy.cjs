@@ -1,12 +1,14 @@
 'use strict';
 
+const { coinShopReceiptRef } = require('./coin-shop-limits.cjs');
+
 const GATE_OFF = 'The Coin shop isn\'t open yet.';
 const COSMETIC_FOOTER = 'Cosmetic only. No gameplay effect.';
-const INELIGIBLE = 'This account cannot use the Coin shop right now.';
+const INELIGIBLE = 'This account cannot use the Coin shop right now. Get verified in #verification-help, or ask a staff member to run /o9verify.';
 
 const REASONS = Object.freeze({
   'not-eligible': INELIGIBLE,
-  'insufficient-coins': 'You do not have enough Coins for that.',
+  'insufficient-coins': 'You do not have enough Coins. Earn Coins by chatting, spending time in voice, levelling up, and joining events.',
   owned: 'You already own that.',
   'daily-cap': 'That would go over today\'s Coin limit.',
   ceiling: 'That item costs more than the shop allows.',
@@ -30,15 +32,29 @@ const REASONS = Object.freeze({
   'reason-required': 'A refund needs a reason. Nothing was refunded.'
 });
 
-function coinShopMemberText(reason = '') {
+function coinShopMemberText(reason = '', details = {}) {
+  if (String(reason || '') === 'insufficient-coins') {
+    const shortfall = Number(details.shortfall);
+    const need = Number.isFinite(shortfall) && shortfall > 0
+      ? `You need ${shortfall.toLocaleString('en-US')} more Coins.`
+      : 'You do not have enough Coins.';
+    return `${need} Earn Coins by chatting, spending time in voice, levelling up, and joining events.`;
+  }
   const known = REASONS[String(reason || '')];
   if (known) return known;
   return 'The Coin shop could not do that. No Coins were spent.';
+}
+
+function memberReceipt(result = {}) {
+  const ref = coinShopReceiptRef(result.ledgerId);
+  const line = ref ? `Ref: ${ref}` : 'Ref: unavailable';
+  return `New balance: ${Number(result.balance).toLocaleString('en-US')} Coins\n${line}`;
 }
 
 module.exports = {
   GATE_OFF,
   COSMETIC_FOOTER,
   INELIGIBLE,
-  coinShopMemberText
+  coinShopMemberText,
+  memberReceipt
 };

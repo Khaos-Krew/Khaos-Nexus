@@ -1,6 +1,7 @@
 'use strict';
 
 const { catalogItem } = require('./coin-shop-catalog.cjs');
+const { assertMemberAccount } = require('./economy-system-accounts.cjs');
 const {
   QUOTE_TTL_MS,
   REFUND_WINDOW_MS,
@@ -19,8 +20,19 @@ function withAttempt(now, econId, result) {
   return { result, effects: [{ type: 'attempt', at: now, econId }] };
 }
 
+function memberAccountAllowed(econId) {
+  if (!econId) return true;
+  try {
+    assertMemberAccount(econId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function identityEligible(identity) {
   if (!identity) return false;
+  if (!memberAccountAllowed(identity.econId)) return false;
   if (!identity.verifiedAt) return false;
   if (identity.status !== 'verified') return false;
   if (identity.held) return false;
@@ -53,7 +65,9 @@ function decideQuote(state, input, now, limits, nonce) {
   if (Number(state.spentToday || 0) + item.price > DAILY_SPEND_CAP) return halt({ ok: false, reason: 'daily-cap' });
   if (Number(state.attemptCount || 0) >= ATTEMPT_LIMIT) return halt({ ok: false, reason: 'rate-limited' });
   const balance = Number(state.balance || 0);
-  if (balance < item.price) return halt({ ok: false, reason: 'insufficient-coins', balance });
+  if (balance < item.price) {
+    return halt({ ok: false, reason: 'insufficient-coins', balance, price: item.price, shortfall: item.price - balance });
+  }
   const expiresAt = new Date(now + QUOTE_TTL_MS).toISOString();
   return {
     result: {
@@ -108,7 +122,7 @@ function decidePurchase(state, input, now, limits) {
     });
   }
   const econId = state.identity?.econId || '';
-  if (!identityEligible(state.identity)) return halt({ ok: false, reason: 'not-eligible' });
+  if (!memberAccountAllowed(econId) || !identityEligible(state.identity)) return halt({ ok: false, reason: 'not-eligible' });
   if (Number(state.attemptCount || 0) >= ATTEMPT_LIMIT) return halt({ ok: false, reason: 'rate-limited' });
   const sku = String(input?.sku || '').trim();
   const item = catalogItem(sku);
@@ -128,7 +142,9 @@ function decidePurchase(state, input, now, limits) {
   }
   const balance = Number(state.balance || 0);
   if (balance !== Number(quote.expectedBalance)) return withAttempt(now, econId, { ok: false, reason: 'balance-changed', balance });
-  if (balance < item.price) return withAttempt(now, econId, { ok: false, reason: 'insufficient-coins', balance });
+  if (balance < item.price) {
+    return withAttempt(now, econId, { ok: false, reason: 'insufficient-coins', balance, price: item.price, shortfall: item.price - balance });
+  }
   const next = balance - item.price;
   const ledgerRef = purchaseKey(econId, sku, nonce);
   return {
@@ -176,6 +192,7 @@ function decideRefund(state, input, now) {
   if (requestedCurrency(input) !== 'NEXUS_COINS') return halt({ ok: false, reason: 'currency-rejected' });
   const purchase = state.purchase;
   if (!purchase) return halt({ ok: false, reason: 'not-found' });
+  if (!memberAccountAllowed(purchase.econId)) return halt({ ok: false, reason: 'not-eligible' });
   if (state.held) return halt({ ok: false, reason: 'member-held' });
   if (purchase.currency !== 'NEXUS_COINS') return halt({ ok: false, reason: 'currency-rejected' });
   const key = refundKey(purchase.ledgerId);

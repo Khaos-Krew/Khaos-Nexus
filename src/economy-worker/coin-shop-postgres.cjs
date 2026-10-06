@@ -4,9 +4,10 @@ const crypto = require('node:crypto');
 const { sqlIdent } = require('../sentinel/nexus-economy-postgres-repository.cjs');
 const { catalogItem } = require('../shared/coin-shop-catalog.cjs');
 const { coinShopFlags, purchaseCeiling } = require('../shared/coin-shop-flags.cjs');
-const { purchaseKey, refundKey, ATTEMPT_WINDOW_MS } = require('../shared/coin-shop-limits.cjs');
+const { purchaseKey, refundKey, coinShopLedgerIdFromRef, ATTEMPT_WINDOW_MS } = require('../shared/coin-shop-limits.cjs');
 const { decideQuote, decidePurchase, decideRefund } = require('../shared/coin-shop-decide.cjs');
 const { memberIdentityHold, quarantineDenylist } = require('../sentinel/nexus-economy-identity-hold.cjs');
+const { assertMemberAccount } = require('../shared/economy-system-accounts.cjs');
 const { acceptVerifiedStaff } = require('./coin-shop-staff.cjs');
 
 class PostgresCoinShop {
@@ -24,56 +25,31 @@ class PostgresCoinShop {
     return coinShopFlags(this.env);
   }
 
-  async ensureSchema() {
-    const s = sqlIdent(this.schema);
-    await this.pool.query(`
-      CREATE TABLE IF NOT EXISTS ${s}.nexus_coin_shop_quotes (
-        nonce TEXT PRIMARY KEY,
-        discord_user_id TEXT NOT NULL,
-        economic_identity_id TEXT NOT NULL,
-        sku TEXT NOT NULL,
-        price BIGINT NOT NULL,
-        expected_balance BIGINT NOT NULL,
-        expires_at TIMESTAMPTZ NOT NULL,
-        consumed_at TIMESTAMPTZ
-      );
-      CREATE TABLE IF NOT EXISTS ${s}.nexus_coin_shop_entitlements (
-        economic_identity_id TEXT NOT NULL,
-        sku TEXT NOT NULL,
-        discord_user_id TEXT NOT NULL,
-        ledger_id BIGINT,
-        refund_ledger_id BIGINT,
-        price BIGINT NOT NULL,
-        status TEXT NOT NULL CHECK (status IN ('active', 'refunded')),
-        equipped_at TIMESTAMPTZ,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        PRIMARY KEY (economic_identity_id, sku)
-      );
-      CREATE TABLE IF NOT EXISTS ${s}.nexus_coin_shop_attempts (
-        id BIGSERIAL PRIMARY KEY,
-        economic_identity_id TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      );
-      CREATE INDEX IF NOT EXISTS nexus_coin_shop_attempts_identity_created_idx
-        ON ${s}.nexus_coin_shop_attempts (economic_identity_id, created_at DESC);
-      CREATE TABLE IF NOT EXISTS ${s}.nexus_coin_shop_audit (
-        audit_id TEXT PRIMARY KEY,
-        action TEXT NOT NULL,
-        actor TEXT NOT NULL,
-        reason TEXT NOT NULL,
-        ledger_id BIGINT,
-        sku TEXT,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      );
-    `);
-    this.ready = true;
-    return { ok: true };
+  async #probeReady() {
+    if (this.ready) return true;
+    const found = await this.pool.query('SELECT to_regclass($1) AS rel', [`${this.schema}.nexus_coin_shop_entitlements`]);
+    this.ready = Boolean(found.rows?.[0]?.rel);
+    return this.ready;
+  }
+
+  async #lockCoinShop(client, econId) {
+    if (!econId) return;
+    if (typeof this.beforeCoinShopLock === 'function') await this.beforeCoinShopLock(econId);
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`coin-shop:${econId}`]);
+  }
+
+  #memberAccount(econId) {
+    try {
+      assertMemberAccount(econId);
+      return null;
+    } catch {
+      return { ok: false, reason: 'not-eligible' };
+    }
   }
 
   async quote(input = {}) {
     if (!this.flags().spendEnabled) return { ok: false, reason: 'economy-coin-shop-spend-not-enabled' };
-    if (!this.ready) return { ok: false, reason: 'coin-shop-unavailable' };
+    if (!(await this.#probeReady())) return { ok: false, reason: 'coin-shop-unavailable' };
     return this.#transact(async (client) => {
       const now = this.now();
       await this.#pruneQuotes(client, now);
@@ -88,7 +64,6 @@ class PostgresCoinShop {
 
   purchase(input = {}) {
     if (!this.flags().spendEnabled) return Promise.resolve({ ok: false, reason: 'economy-coin-shop-spend-not-enabled' });
-    if (!this.ready) return Promise.resolve({ ok: false, reason: 'coin-shop-unavailable' });
     const discord = String(input.discordUserId || '');
     const nonce = String(input.nonce || '');
     this.inflight ||= new Map();
@@ -121,15 +96,16 @@ class PostgresCoinShop {
   }
 
   async #purchaseNow(input = {}) {
+    if (!(await this.#probeReady())) return { ok: false, reason: 'coin-shop-unavailable' };
     return this.#transact(async (client) => {
       const now = this.now();
       const sku = String(input.sku || '').trim();
       const nonce = String(input.nonce || '').trim();
       const state = await this.#loadBuyer(client, input.discordUserId, sku, now);
-      if (state.identity?.econId) {
-        await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`coin-shop:${state.identity.econId}`]);
-      }
+      await this.#lockCoinShop(client, state.identity?.econId);
       const locked = await this.#loadBuyer(client, input.discordUserId, sku, now, { forUpdate: true, nonce });
+      const refused = this.#memberAccount(locked.identity?.econId);
+      if (refused) return refused;
       const decision = decidePurchase(locked, input, now, { ceiling: purchaseCeiling(this.env) });
       if (!decision.effects.length) return decision.result;
       const applied = await this.#apply(client, decision.effects, locked.identity.econId);
@@ -144,21 +120,21 @@ class PostgresCoinShop {
 
   async refund(input = {}) {
     if (!this.flags().spendEnabled) return { ok: false, reason: 'economy-coin-shop-spend-not-enabled' };
-    if (!this.ready) return { ok: false, reason: 'coin-shop-unavailable' };
+    if (!(await this.#probeReady())) return { ok: false, reason: 'coin-shop-unavailable' };
     const auth = await this.authorizeStaff(input);
     if (!auth?.ok) return { ok: false, reason: auth?.reason || 'staff-required' };
     return this.#transact(async (client) => {
       const now = this.now();
       const purchase = await this.#findPurchase(client, input.ledgerRef || input.ledgerId);
-      if (purchase?.econId) {
-        await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`coin-shop:${purchase.econId}`]);
-      }
+      await this.#lockCoinShop(client, purchase?.econId);
       const fresh = purchase ? await this.#findPurchase(client, input.ledgerRef || input.ledgerId) : null;
       let held = false;
       if (fresh?.econId) {
         const locked = await this.#lockIdentity(client, fresh.econId);
         held = locked.held;
       }
+      const refused = this.#memberAccount(fresh?.econId);
+      if (refused) return refused;
       const balance = fresh ? await this.#coinBalance(client, fresh.econId, true) : 0;
       const decision = decideRefund({ balance, purchase: fresh, held }, { ...input, actor: auth.actor || input.actor }, now);
       if (!decision.effects.length) return decision.result;
@@ -170,7 +146,7 @@ class PostgresCoinShop {
 
   async markEquipped(input = {}) {
     if (!this.flags().spendEnabled) return { ok: false, reason: 'economy-coin-shop-spend-not-enabled' };
-    if (!this.ready) return { ok: false, reason: 'coin-shop-unavailable' };
+    if (!(await this.#probeReady())) return { ok: false, reason: 'coin-shop-unavailable' };
     const s = sqlIdent(this.schema);
     const client = await this.pool.connect();
     try {
@@ -202,7 +178,7 @@ class PostgresCoinShop {
   }
 
   async entitlementsFor(discordUserId) {
-    if (!this.ready) return { ok: false, reason: 'coin-shop-unavailable', entitlements: [] };
+    if (!(await this.#probeReady())) return { ok: false, reason: 'coin-shop-unavailable', entitlements: [] };
     const s = sqlIdent(this.schema);
     const client = await this.pool.connect();
     try {
@@ -233,7 +209,7 @@ class PostgresCoinShop {
   async lookup(input = {}) {
     const auth = await this.authorizeStaff(input);
     if (!auth?.ok) return { ok: false, reason: auth?.reason || 'staff-required' };
-    if (!this.ready) return { ok: false, reason: 'coin-shop-unavailable' };
+    if (!(await this.#probeReady())) return { ok: false, reason: 'coin-shop-unavailable' };
     const s = sqlIdent(this.schema);
     const discordUserId = String(input.discordUserId || input.userId || '');
     const client = await this.pool.connect();
@@ -586,15 +562,16 @@ class PostgresCoinShop {
   async #findPurchase(client, ref) {
     const text = String(ref || '').trim();
     if (!text) return null;
+    const shortId = coinShopLedgerIdFromRef(text);
     const s = sqlIdent(this.schema);
     const result = await client.query(
       `SELECT id, economic_identity_id, currency, amount, entry_type, metadata, created_at,
               (created_at >= NOW() - INTERVAL '24 hours') AS within_refund_window
        FROM ${s}.nexus_economy_ledger
        WHERE currency = 'NEXUS_COINS' AND entry_type = 'purchase' AND source = 'sink:coin-shop'
-         AND (idempotency_key = $1 OR id::text = $1)
+         AND (idempotency_key = $1 OR id::text = $1 OR id::text = $2)
        LIMIT 1`,
-      [text]
+      [text, shortId == null ? null : String(shortId)]
     );
     const row = result.rows?.[0];
     if (!row) return null;

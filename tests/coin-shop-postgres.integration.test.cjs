@@ -5,7 +5,10 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const { Pool } = require('pg');
 const { NexusEconomyPostgresRepository } = require('../src/sentinel/nexus-economy-postgres-repository.cjs');
+const { NexusEconomyPostgresRuntimeRepository } = require('../src/sentinel/nexus-economy-postgres-runtime-repository.cjs');
+const { PostgresEconomyAccrual } = require('../src/economy-worker/postgres-accrual.cjs');
 const { PostgresCoinShop } = require('../src/economy-worker/coin-shop-postgres.cjs');
+const { applyCoinShopMigration } = require('../src/economy-worker/coin-shop-migration.cjs');
 
 const postgresUrl = process.env.NEXUS_TEST_POSTGRES_URL || '';
 const local = (() => {
@@ -24,6 +27,7 @@ async function openShop(label) {
   const pool = new Pool({ connectionString: postgresUrl, max: 6 });
   await pool.query(`CREATE SCHEMA "${schema}"`);
   await pool.query(NexusEconomyPostgresRepository.schemaSql({ schema }));
+  await applyCoinShopMigration({ pool, schema });
   let now = DAY;
   const shop = new PostgresCoinShop({
     pool,
@@ -34,7 +38,6 @@ async function openShop(label) {
       NEXUS_ECONOMY_COIN_SHOP_PURCHASE_CEILING: '1000'
     }
   });
-  await shop.ensureSchema();
   await pool.query(
     `INSERT INTO "${schema}".nexus_economic_identities (economic_identity_id, status) VALUES ($1, 'verified')`,
     [ECON]
@@ -137,13 +140,13 @@ test('postgres refund is once, refuses a held member, and clears the entitlement
     );
     assert.equal(entitlement.rows[0].status, 'refunded');
     assert.equal(entitlement.rows[0].equipped_at, null);
-    const again = await opened.shop.refund({
-      ledgerRef: bought.ledgerRef,
+    const byShort = await opened.shop.refund({
+      ledgerRef: `CS-${String(bought.ledgerId).padStart(4, '0')}`,
       reason: 'again',
       actor: USER,
       staffVerified: true
     });
-    assert.equal(again.duplicate, true);
+    assert.equal(byShort.duplicate, true);
     const money = await balances(opened.pool, opened.schema);
     assert.equal(money.NEXUS_COINS, 2000);
     assert.equal(money.NEXUS_POINTS, 80);
@@ -151,6 +154,46 @@ test('postgres refund is once, refuses a held member, and clears the entitlement
       `SELECT COUNT(*)::int AS n FROM "${opened.schema}".nexus_economy_ledger WHERE entry_type = 'refund'`
     );
     assert.equal(credits.rows[0].n, 1);
+  } finally {
+    await closeShop(opened);
+  }
+});
+
+test('a staff hold that commits during a purchase blocks the buy', { skip }, async () => {
+  const opened = await openShop('midhold');
+  try {
+    await new PostgresEconomyAccrual({ pool: opened.pool, schema: opened.schema, now: () => DAY }).ensureSchema();
+    const repository = new NexusEconomyPostgresRuntimeRepository({
+      pool: opened.pool,
+      schema: opened.schema,
+      env: {},
+      now: () => DAY
+    });
+    await repository.backfillLegacyRestrictedHolds();
+    const quoted = await opened.shop.quote({ discordUserId: USER, sku: 'ttl_night_owl' });
+    assert.equal(quoted.ok, true, quoted.reason);
+    let entered;
+    const enteredGate = new Promise((resolve) => { entered = resolve; });
+    let release;
+    const releaseGate = new Promise((resolve) => { release = resolve; });
+    opened.shop.beforeCoinShopLock = async () => {
+      entered();
+      await releaseGate;
+    };
+    const pending = opened.shop.purchase({ discordUserId: USER, sku: 'ttl_night_owl', nonce: quoted.quote.nonce });
+    await enteredGate;
+    const held = await repository.placeStaffHold(USER, { reason: 'staff', heldBy: 'staff-test' });
+    assert.equal(held.ok, true, held.reason);
+    release();
+    const result = await pending;
+    assert.equal(result.reason, 'not-eligible');
+    const money = await balances(opened.pool, opened.schema);
+    assert.equal(money.NEXUS_COINS, 2000);
+    assert.equal(money.NEXUS_POINTS, 80);
+    const debits = await opened.pool.query(
+      `SELECT COUNT(*)::int AS n FROM "${opened.schema}".nexus_economy_ledger WHERE amount < 0`
+    );
+    assert.equal(debits.rows[0].n, 0);
   } finally {
     await closeShop(opened);
   }
