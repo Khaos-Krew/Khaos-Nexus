@@ -4,11 +4,17 @@ const crypto = require('node:crypto');
 const { sqlIdent } = require('../sentinel/nexus-economy-postgres-repository.cjs');
 const { catalogItem } = require('../shared/coin-shop-catalog.cjs');
 const { coinShopFlags, purchaseCeiling } = require('../shared/coin-shop-flags.cjs');
-const { purchaseKey, refundKey, coinShopLedgerIdFromRef, ATTEMPT_WINDOW_MS } = require('../shared/coin-shop-limits.cjs');
+const { purchaseKey, refundKey, coinShopLedgerIdFromRef, ATTEMPT_WINDOW_MS, ATTEMPT_RETENTION_MS } = require('../shared/coin-shop-limits.cjs');
 const { decideQuote, decidePurchase, decideRefund } = require('../shared/coin-shop-decide.cjs');
 const { memberIdentityHold, quarantineDenylist } = require('../sentinel/nexus-economy-identity-hold.cjs');
 const { assertMemberAccount } = require('../shared/economy-system-accounts.cjs');
 const { acceptVerifiedStaff } = require('./coin-shop-staff.cjs');
+
+function discordMembershipVerifiedAt(row) {
+  if (String(row?.source || '') === 'mc-link') return null;
+  if (!row?.verified_at) return null;
+  return new Date(row.verified_at).toISOString();
+}
 
 class PostgresCoinShop {
   constructor({ pool, schema = 'public', now = () => Date.now(), env = process.env, authorizeStaff = null } = {}) {
@@ -118,30 +124,48 @@ class PostgresCoinShop {
     });
   }
 
+  async previewRefund(input = {}) {
+    if (!this.flags().spendEnabled) return { ok: false, reason: 'economy-coin-shop-spend-not-enabled' };
+    if (!(await this.#probeReady())) return { ok: false, reason: 'coin-shop-unavailable' };
+    const auth = await this.authorizeStaff(input);
+    if (!auth?.ok) return { ok: false, reason: auth?.reason || 'staff-required' };
+    return this.#transact(async (client) => {
+      const prepared = await this.#prepareRefund(client, input, auth);
+      return prepared.decision.result;
+    });
+  }
+
   async refund(input = {}) {
     if (!this.flags().spendEnabled) return { ok: false, reason: 'economy-coin-shop-spend-not-enabled' };
     if (!(await this.#probeReady())) return { ok: false, reason: 'coin-shop-unavailable' };
     const auth = await this.authorizeStaff(input);
     if (!auth?.ok) return { ok: false, reason: auth?.reason || 'staff-required' };
     return this.#transact(async (client) => {
-      const now = this.now();
-      const purchase = await this.#findPurchase(client, input.ledgerRef || input.ledgerId);
-      await this.#lockCoinShop(client, purchase?.econId);
-      const fresh = purchase ? await this.#findPurchase(client, input.ledgerRef || input.ledgerId) : null;
-      let held = false;
-      if (fresh?.econId) {
-        const locked = await this.#lockIdentity(client, fresh.econId);
-        held = locked.held;
-      }
-      const refused = this.#memberAccount(fresh?.econId);
-      if (refused) return refused;
-      const balance = fresh ? await this.#coinBalance(client, fresh.econId, true) : 0;
-      const decision = decideRefund({ balance, purchase: fresh, held }, { ...input, actor: auth.actor || input.actor }, now);
-      if (!decision.effects.length) return decision.result;
-      const applied = await this.#apply(client, decision.effects, fresh.econId);
+      const prepared = await this.#prepareRefund(client, input, auth);
+      if (!prepared.decision.effects.length) return prepared.decision.result;
+      const applied = await this.#apply(client, prepared.decision.effects, prepared.econId);
       if (!applied.ok) return applied;
-      return { ...decision.result, ledgerId: applied.ledgerId };
+      return { ...prepared.decision.result, ledgerId: applied.ledgerId };
     });
+  }
+
+  async #prepareRefund(client, input, auth) {
+    const now = this.now();
+    const purchase = await this.#findPurchase(client, input.ledgerRef || input.ledgerId);
+    await this.#lockCoinShop(client, purchase?.econId);
+    const fresh = purchase ? await this.#findPurchase(client, input.ledgerRef || input.ledgerId) : null;
+    let held = false;
+    if (fresh?.econId) {
+      const locked = await this.#lockIdentity(client, fresh.econId);
+      held = locked.held;
+    }
+    const refused = this.#memberAccount(fresh?.econId);
+    if (refused) return { decision: { result: refused, effects: [] }, econId: fresh?.econId || '' };
+    const balance = fresh ? await this.#coinBalance(client, fresh.econId, true) : 0;
+    return {
+      decision: decideRefund({ balance, purchase: fresh, held }, { ...input, actor: auth.actor || input.actor }, now),
+      econId: fresh?.econId || ''
+    };
   }
 
   async markEquipped(input = {}) {
@@ -428,9 +452,14 @@ class PostgresCoinShop {
   }
 
   async #pruneQuotes(client, now) {
+    const s = sqlIdent(this.schema);
     await client.query(
-      `DELETE FROM ${sqlIdent(this.schema)}.nexus_coin_shop_quotes WHERE expires_at <= $1`,
+      `DELETE FROM ${s}.nexus_coin_shop_quotes WHERE expires_at <= $1`,
       [new Date(now).toISOString()]
+    );
+    await client.query(
+      `DELETE FROM ${s}.nexus_coin_shop_attempts WHERE created_at < $1`,
+      [new Date(now - ATTEMPT_RETENTION_MS).toISOString()]
     );
   }
 
@@ -463,7 +492,7 @@ class PostgresCoinShop {
   async #identity(client, discordUserId, { forUpdate = false } = {}) {
     const s = sqlIdent(this.schema);
     const identity = await client.query(
-      `SELECT i.economic_identity_id, i.status, i.hold_reason, d.verified_at
+      `SELECT i.economic_identity_id, i.status, i.hold_reason, d.verified_at, d.source
        FROM ${s}.nexus_economic_identity_links d
        JOIN ${s}.nexus_economic_identities i ON i.economic_identity_id = d.economic_identity_id
        WHERE d.provider = 'discord' AND d.external_id = $1
@@ -495,7 +524,7 @@ class PostgresCoinShop {
       econId: row.economic_identity_id,
       status: viewed.status,
       holdReason: viewed.holdReason,
-      verifiedAt: row.verified_at ? new Date(row.verified_at).toISOString() : null,
+      verifiedAt: discordMembershipVerifiedAt(row),
       rankId,
       held: viewed.held,
       quarantined: viewed.quarantined

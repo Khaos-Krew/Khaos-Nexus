@@ -20,8 +20,9 @@ const { isCoinShopAdmin, acceptVerifiedStaff } = require('../src/economy-worker/
 const { COMMUNITY_MANAGER_ROLE_ID, OWNER_ROLE_ID } = require('../src/economy-worker/ark-staff-auth.cjs');
 const { WalletCosmeticsService } = require('../src/backend/services/wallet-cosmetics-service.cjs');
 const { walletEquipRow } = require('../src/sentinel/wallet-cosmetics-ui.cjs');
-const { handleWalletInteraction } = require('../src/sentinel/wallet-cosmetics-extension.cjs');
-const { handleCoinShopInteraction, parseCoinCustomId, shopCommand, shopAdminCommand, registerCoinShopCommands } = require('../src/sentinel/coin-shop-ui.cjs');
+const { handleWalletInteraction, syncWalletView } = require('../src/sentinel/wallet-cosmetics-extension.cjs');
+const { handleCoinShopInteraction, parseCoinCustomId, shopCommand, shopAdminCommand, registerCoinShopCommands, artFile, artForEmbed } = require('../src/sentinel/coin-shop-ui.cjs');
+const { EmbedBuilder } = require('discord.js');
 
 const USER = '123456789012345678';
 const OTHER = '223456789012345678';
@@ -46,6 +47,7 @@ function shop(overrides = {}) {
     status: overrides.status || 'verified',
     holdReason: overrides.holdReason || '',
     verifiedAt: Object.prototype.hasOwnProperty.call(overrides, 'verifiedAt') ? overrides.verifiedAt : '2026-01-01T00:00:00.000Z',
+    linkSource: overrides.linkSource || '',
     rankId: overrides.rankId || 'cipher-runner'
   });
   service.moveClock = (value) => { now = value; };
@@ -327,9 +329,36 @@ test('restricted, shadow recruit, quarantined, held, and disabled members cannot
     assert.equal(service.ledger.length, 0);
   }
   assert.equal(coinShopMemberText('not-eligible'), INELIGIBLE);
-  assert.match(INELIGIBLE, /#verification-help/);
-  assert.match(INELIGIBLE, /\/o9verify/);
+  assert.match(INELIGIBLE, /staff member/);
+  assert.doesNotMatch(INELIGIBLE, /\/o9verify|\/verify\b|#verify/);
   assert.doesNotMatch(INELIGIBLE, /shadow|quarantine|restricted|disabled|hold/i);
+});
+
+test('an MC-link-verified restricted member is refused', async () => {
+  const restricted = shop({
+    status: 'restricted',
+    verifiedAt: '2026-10-01T00:00:00.000Z',
+    linkSource: 'mc-link',
+    rankId: 'shadow-recruit'
+  });
+  assert.equal(restricted.identityView(USER).verifiedAt, null);
+  const quoted = await restricted.quote({ discordUserId: USER, sku: 'ttl_night_owl' });
+  assert.equal(quoted.reason, 'not-eligible');
+  const bought = await restricted.purchase({ discordUserId: USER, sku: 'ttl_night_owl', nonce: 'mc-link' });
+  assert.equal(bought.reason, 'not-eligible');
+  assert.equal(restricted.coinBalance(USER), 420);
+  assert.equal(restricted.ledger.length, 0);
+
+  const stamped = shop({
+    status: 'verified',
+    verifiedAt: '2026-10-01T00:00:00.000Z',
+    linkSource: 'mc-link'
+  });
+  assert.equal(stamped.identityView(USER).verifiedAt, null);
+  const stillBlocked = await stamped.quote({ discordUserId: USER, sku: 'ttl_night_owl' });
+  assert.equal(stillBlocked.reason, 'not-eligible');
+  assert.equal(stamped.coinBalance(USER), 420);
+  assert.equal(stamped.ledger.length, 0);
 });
 
 test('system accounts cannot purchase or be refunded', async () => {
@@ -519,6 +548,28 @@ test('the shop panel is ephemeral, locked to the buyer, and shows the balance ch
     const sentinelImage = fs.readFileSync(path.join(__dirname, '../Dockerfile.sentinel'), 'utf8');
     assert.match(sentinalImage, /COPY src\/shared\/brand-assets \.\/src\/shared\/brand-assets/);
     assert.match(sentinelImage, /COPY src\/shared\/brand-assets \.\/src\/shared\/brand-assets/);
+    const emptyArt = fs.mkdtempSync(path.join(os.tmpdir(), 'coin-shop-art-'));
+    try {
+      const bare = new EmbedBuilder().setTitle('Coin shop');
+      assert.deepEqual(artForEmbed(bare, 'coin-shop-panel-banner.png', emptyArt), []);
+      assert.equal(bare.toJSON().image, undefined);
+      assert.equal(artFile('item-circuit-wallet-theme.png', emptyArt), null);
+      const missing = mockInteraction({ kind: 'button', customId: 'nxshop:coin', userId: OTHER });
+      await handleCoinShopInteraction(missing, {
+        artRoot: emptyArt,
+        economyClient: {
+          async balances() { return { balances: { NEXUS_COINS: 420 } }; },
+          async coinShopEntitlements() { return { entitlements: [] }; }
+        },
+        backend: { async walletCosmetics() { return { profile: {} }; } }
+      });
+      assert.equal(missing.updates.length, 1);
+      assert.equal(missing.updates[0].embeds[0].toJSON().image, undefined);
+      assert.deepEqual(missing.updates[0].files, []);
+      assert.match(missing.updates[0].embeds[0].toJSON().description, /420/);
+    } finally {
+      fs.rmSync(emptyArt, { recursive: true, force: true });
+    }
     assert.equal(shopCommand().name, 'shop');
     assert.equal(shopAdminCommand().name, 'shopadmin');
     const closed = mockInteraction({ kind: 'command', commandName: 'shop' });
@@ -667,7 +718,11 @@ test('the guide tells members the Coin shop is cosmetic and separate from Points
   assert.match(body, /no gameplay effect/);
   assert.match(body, /\/wallet/);
   assert.match(body, /Coins are not Points/);
-  assert.doesNotMatch(body, /\bNP\b/);
+  assert.match(body, /\/shop/);
+  assert.match(body, /1,500/);
+  assert.match(body, /verified member/i);
+  assert.match(body, /staff member can refund it within 24 hours/);
+  assert.doesNotMatch(body, /\bNP\b|NEXUS DIRECTOR|feedback digest/i);
   assert.equal(guide.topics.length <= 25, true);
 });
 
@@ -695,6 +750,98 @@ test('a held member cannot be refunded and an equipped cosmetic is revoked toget
   }
 });
 
+test('a failed wallet revoke refunds nothing, and sync strips a refunded item', async () => {
+  const service = shop();
+  const { result } = await buy(service);
+  assert.equal(service.coinBalance(USER), 225);
+  const preview = await service.previewRefund({
+    ledgerRef: result.ledgerRef,
+    reason: 'discord revoke failed',
+    actor: USER,
+    staffVerified: true
+  });
+  assert.equal(preview.ok, true);
+  assert.equal(preview.sku, 'ttl_night_owl');
+  assert.equal(preview.discordUserId, USER);
+  assert.equal(service.coinBalance(USER), 225);
+  assert.equal(service.entitlements[0].status, 'active');
+
+  let refunds = 0;
+  const economy = {
+    coinShopRefundPreview: (input) => service.previewRefund(input),
+    coinShopRefund: (input) => {
+      refunds += 1;
+      return service.refund(input);
+    }
+  };
+  const staff = mockInteraction({
+    kind: 'command',
+    commandName: 'shopadmin',
+    options: {
+      getSubcommand: () => 'refund',
+      getString: (name) => (name === 'ledger' ? result.ledgerRef : 'discord revoke failed'),
+      getUser: () => null
+    }
+  });
+  staff.guild = { id: '111111111111111111', ownerId: '0' };
+  staff.member = {
+    guild: { id: '111111111111111111' },
+    roles: { cache: new Map([[OWNER_ROLE_ID, { id: OWNER_ROLE_ID, name: 'Owner' }]]) }
+  };
+  staff.memberPermissions = { has: () => false };
+  await handleCoinShopInteraction(staff, {
+    economyClient: economy,
+    backend: {
+      async revokeWalletCosmetic() { throw new Error('discord down'); }
+    }
+  });
+  assert.match(staff.replies[0].content, /could not be removed/);
+  assert.match(staff.replies[0].content, /not refunded/);
+  assert.equal(refunds, 0);
+  assert.equal(service.coinBalance(USER), 225);
+  assert.equal(service.entitlements[0].status, 'active');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coin-shop-sync-'));
+  try {
+    const cosmetics = new WalletCosmeticsService({ stateFile: path.join(dir, 'wallet.json') });
+    cosmetics.grantShopCosmetic(USER, { sku: 'ttl_night_owl' });
+    cosmetics.equip(USER, { titleId: 'ttl_night_owl' });
+    const removed = await handleCoinShopInteraction(staff, {
+      economyClient: economy,
+      backend: {
+        revokeWalletCosmetic: (id, input) => cosmetics.revokeShopCosmetic(id, input)
+      }
+    });
+    assert.equal(removed, undefined);
+    assert.equal(refunds, 1);
+    assert.equal(service.coinBalance(USER), 420);
+    assert.equal(service.entitlements[0].status, 'refunded');
+    assert.equal(cosmetics.profile(USER).profile.equippedTitleId, '');
+    assert.equal(cosmetics.profile(USER).profile.titles.find((item) => item.id === 'ttl_night_owl').unlocked, false);
+
+    cosmetics.grantShopCosmetic(USER, { sku: 'ttl_night_owl' });
+    cosmetics.equip(USER, { titleId: 'ttl_night_owl' });
+    const synced = await syncWalletView({
+      grantWalletCosmetic: (id, input) => cosmetics.grantShopCosmetic(id, input),
+      revokeWalletCosmetic: (id, input) => cosmetics.revokeShopCosmetic(id, input),
+      syncWalletCosmetics: (id, body) => cosmetics.sync(id, body)
+    }, USER, {
+      level: 2,
+      economyClient: {
+        async coinShopEntitlements() {
+          return { entitlements: [{ sku: 'ttl_night_owl', status: 'refunded', ledgerId: result.ledgerId }] };
+        }
+      }
+    });
+    assert.equal(synced.ok, true);
+    const afterSync = cosmetics.profile(USER).profile;
+    assert.notEqual(afterSync.equippedTitleId, 'ttl_night_owl');
+    assert.equal(afterSync.titles.find((item) => item.id === 'ttl_night_owl').unlocked, false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('quote creation is rate limited and expired quotes are pruned', async () => {
   const service = shop({ coins: 2000 });
   service.quotes.set('old-quote', { nonce: 'old-quote', expiresAt: new Date(DAY - 1000).toISOString() });
@@ -703,6 +850,13 @@ test('quote creation is rate limited and expired quotes are pruned', async () =>
     assert.equal(quoted.ok, true, quoted.reason);
   }
   assert.equal(service.quotes.has('old-quote'), false);
+  const week = 7 * 24 * 60 * 60 * 1000;
+  service.attempts.push({ econId: 'econ-1', at: DAY - week - 1000 });
+  service.attempts.push({ econId: 'econ-1', at: DAY - 60 * 1000 });
+  const pruned = await service.quote({ discordUserId: USER, sku: 'thm_circuit' });
+  assert.equal(pruned.reason, 'rate-limited');
+  assert.equal(service.attempts.some((row) => row.at === DAY - week - 1000), false);
+  assert.equal(service.attempts.some((row) => row.at === DAY - 60 * 1000), true);
   const blocked = await service.quote({ discordUserId: USER, sku: 'thm_nebula' });
   assert.equal(blocked.reason, 'rate-limited');
   assert.equal(service.coinBalance(USER), 2000);
@@ -720,6 +874,8 @@ test('postgres coin shop stays on Coins and does not touch Points, RCON, or the 
   assert.match(src, /America\/Chicago/);
   assert.match(src, /NOW\(\) - INTERVAL '24 hours'/);
   assert.match(src, /assertMemberAccount/);
+  assert.match(src, /mc-link/);
+  assert.match(src, /nexus_coin_shop_attempts WHERE created_at < \$1/);
   const runtime = fs.readFileSync(path.join(__dirname, '../src/economy-worker/postgres-runtime.cjs'), 'utf8');
   assert.doesNotMatch(runtime, /coinShop\.ensureSchema|nexus_coin_shop_/);
   const migration = fs.readFileSync(path.join(__dirname, '../migrations/2026-10-06-coin-shop.sql'), 'utf8');

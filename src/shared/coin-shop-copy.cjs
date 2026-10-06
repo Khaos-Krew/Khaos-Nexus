@@ -4,7 +4,7 @@ const { coinShopReceiptRef } = require('./coin-shop-limits.cjs');
 
 const GATE_OFF = 'The Coin shop isn\'t open yet.';
 const COSMETIC_FOOTER = 'Cosmetic only. No gameplay effect.';
-const INELIGIBLE = 'This account cannot use the Coin shop right now. Get verified in #verification-help, or ask a staff member to run /o9verify.';
+const INELIGIBLE = 'This account cannot use the Coin shop right now. Ask a staff member to verify this Discord account.';
 
 const REASONS = Object.freeze({
   'not-eligible': INELIGIBLE,

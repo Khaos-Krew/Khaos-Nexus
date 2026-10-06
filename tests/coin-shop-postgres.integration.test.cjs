@@ -124,6 +124,16 @@ test('postgres refund is once, refuses a held member, and clears the entitlement
     const quoted = await opened.shop.quote({ discordUserId: USER, sku: 'thm_nebula' });
     const bought = await opened.shop.purchase({ discordUserId: USER, sku: 'thm_nebula', nonce: quoted.quote.nonce });
     assert.equal(bought.ok, true, bought.reason);
+    const preview = await opened.shop.previewRefund({
+      ledgerRef: bought.ledgerRef,
+      reason: 'wrong theme',
+      actor: USER,
+      staffVerified: true
+    });
+    assert.equal(preview.ok, true, preview.reason);
+    assert.equal(preview.duplicate, false);
+    assert.equal(preview.sku, 'thm_nebula');
+    assert.equal((await balances(opened.pool, opened.schema)).NEXUS_COINS, 2000 - 285);
     const unsigned = await opened.shop.refund({ ledgerRef: bought.ledgerRef, reason: 'wrong theme', actor: USER });
     assert.equal(unsigned.reason, 'staff-required');
     const refunded = await opened.shop.refund({
@@ -315,6 +325,38 @@ test('postgres daily cap and refund window follow the database clock, and a miss
   }
 });
 
+test('postgres does not treat an mc-link discord source as membership verification', { skip }, async () => {
+  const opened = await openShop('mclink');
+  try {
+    await opened.pool.query(
+      `UPDATE "${opened.schema}".nexus_economic_identities SET status = 'restricted' WHERE economic_identity_id = $1`,
+      [ECON]
+    );
+    await opened.pool.query(
+      `UPDATE "${opened.schema}".nexus_economic_identity_links SET source = 'mc-link' WHERE provider = 'discord' AND external_id = $1`,
+      [USER]
+    );
+    const restricted = await opened.shop.quote({ discordUserId: USER, sku: 'ttl_night_owl' });
+    assert.equal(restricted.reason, 'not-eligible');
+    await opened.pool.query(
+      `UPDATE "${opened.schema}".nexus_economic_identities SET status = 'verified' WHERE economic_identity_id = $1`,
+      [ECON]
+    );
+    const stamped = await opened.shop.quote({ discordUserId: USER, sku: 'ttl_night_owl' });
+    assert.equal(stamped.reason, 'not-eligible');
+    assert.equal((await balances(opened.pool, opened.schema)).NEXUS_COINS, 2000);
+    await opened.pool.query(
+      `UPDATE "${opened.schema}".nexus_economic_identity_links SET source = 'sentinel-ownership-proof' WHERE provider = 'discord' AND external_id = $1`,
+      [USER]
+    );
+    const allowed = await opened.shop.quote({ discordUserId: USER, sku: 'ttl_night_owl' });
+    assert.equal(allowed.ok, true, allowed.reason);
+    assert.equal((await balances(opened.pool, opened.schema)).NEXUS_COINS, 2000);
+  } finally {
+    await closeShop(opened);
+  }
+});
+
 test('postgres quotes are rate limited and expired quotes are pruned', { skip }, async () => {
   const opened = await openShop('quote');
   try {
@@ -324,6 +366,11 @@ test('postgres quotes are rate limited and expired quotes are pruned', { skip },
        VALUES ('stale', $1, $2, 'ttl_night_owl', 195, 2000, $3)`,
       [USER, ECON, new Date(DAY - 1000).toISOString()]
     );
+    const week = 7 * 24 * 60 * 60 * 1000;
+    await opened.pool.query(
+      `INSERT INTO "${opened.schema}".nexus_coin_shop_attempts (economic_identity_id, created_at) VALUES ($1, $2)`,
+      [ECON, new Date(DAY - week - 1000).toISOString()]
+    );
     for (let index = 0; index < 5; index += 1) {
       const quoted = await opened.shop.quote({ discordUserId: USER, sku: 'ttl_night_owl' });
       assert.equal(quoted.ok, true, quoted.reason);
@@ -332,8 +379,23 @@ test('postgres quotes are rate limited and expired quotes are pruned', { skip },
       `SELECT 1 FROM "${opened.schema}".nexus_coin_shop_quotes WHERE nonce = 'stale'`
     );
     assert.equal(stale.rowCount, 0);
+    const oldAttempts = await opened.pool.query(
+      `SELECT created_at FROM "${opened.schema}".nexus_coin_shop_attempts WHERE created_at < $1`,
+      [new Date(DAY - week).toISOString()]
+    );
+    assert.equal(oldAttempts.rowCount, 0);
+    const recentAt = new Date(DAY - 60 * 1000).toISOString();
+    await opened.pool.query(
+      `INSERT INTO "${opened.schema}".nexus_coin_shop_attempts (economic_identity_id, created_at) VALUES ($1, $2)`,
+      [ECON, recentAt]
+    );
     const blocked = await opened.shop.quote({ discordUserId: USER, sku: 'thm_nebula' });
     assert.equal(blocked.reason, 'rate-limited');
+    const recentAttempts = await opened.pool.query(
+      `SELECT 1 FROM "${opened.schema}".nexus_coin_shop_attempts WHERE created_at = $1`,
+      [recentAt]
+    );
+    assert.equal(recentAttempts.rowCount, 1);
     assert.equal((await balances(opened.pool, opened.schema)).NEXUS_COINS, 2000);
   } finally {
     await closeShop(opened);

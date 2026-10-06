@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('node:fs');
 const path = require('node:path');
 const {
   ActionRowBuilder,
@@ -33,8 +34,23 @@ const ITEM_ART = Object.freeze({
   ttl_night_owl: 'item-night-owl-title.png'
 });
 
-function artFile(name) {
-  return { attachment: path.join(ART_DIR, name), name };
+function artFile(name, root = ART_DIR) {
+  const fileName = String(name || '');
+  if (!fileName || !root) return null;
+  const attachment = path.join(root, fileName);
+  try {
+    if (!fs.existsSync(attachment)) return null;
+  } catch {
+    return null;
+  }
+  return { attachment, name: fileName };
+}
+
+function artForEmbed(embed, name, root = ART_DIR) {
+  const file = artFile(name, root);
+  if (!file) return [];
+  embed.setImage(`attachment://${file.name}`);
+  return [file];
 }
 
 function shopSections(env = process.env) {
@@ -204,7 +220,7 @@ async function openShop(interaction) {
   return interaction.reply(ephemeral(shopMenuText(sections), { components: [shopMenuRow(sections)] }));
 }
 
-async function openCoinShop(interaction, economy, backend) {
+async function openCoinShop(interaction, economy, backend, artRoot = ART_DIR) {
   if (!coinShopFlags().shopEnabled) return replyOrUpdate(interaction, gatePayload());
   const userId = String(interaction.user.id);
   let balance = null;
@@ -222,11 +238,11 @@ async function openCoinShop(interaction, economy, backend) {
     balance == null ? 'Your Coin balance is unavailable right now.' : balanceLine(balance),
     [{ name: 'Categories', value: 'Themes and titles. Pick one to see prices.' }]
   );
-  embed.setImage(`attachment://${PANEL_BANNER}`);
+  const files = artForEmbed(embed, PANEL_BANNER, artRoot);
   return replyOrUpdate(interaction, ephemeral('', {
     embeds: [embed],
     components: [categoryRow(userId)],
-    files: [artFile(PANEL_BANNER)]
+    files
   }));
 }
 
@@ -248,7 +264,7 @@ async function showCategory(interaction, parsed) {
   }));
 }
 
-async function showDetail(interaction, economy, parsed) {
+async function showDetail(interaction, economy, parsed, artRoot = ART_DIR) {
   if (!coinShopFlags().shopEnabled) return replyOrUpdate(interaction, gatePayload());
   if (!buyerOwns(interaction, parsed)) return interaction.reply(ephemeral('This shop belongs to another member. Use /shop to open your own.'));
   const sku = String(interaction.values?.[0] || '');
@@ -261,14 +277,14 @@ async function showDetail(interaction, economy, parsed) {
   const badges = [owned ? 'Owned' : '', equipped ? 'Equipped' : ''].filter(Boolean).join(' · ');
   const embed = footerEmbed(item.label, [item.description, '', `Price: ${item.price} Coins`, badges].filter(Boolean).join('\n'));
   const card = ITEM_ART[item.sku];
-  if (card) embed.setImage(`attachment://${card}`);
+  const files = card ? artForEmbed(embed, card, artRoot) : [];
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`nxcoin:buy:${sku}:${parsed.userId}`).setLabel(owned ? 'Owned' : 'Continue').setStyle(ButtonStyle.Primary).setDisabled(Boolean(owned))
   );
   return replyOrUpdate(interaction, ephemeral('', {
     embeds: [embed],
     components: [row],
-    files: card ? [artFile(card)] : []
+    files
   }));
 }
 
@@ -321,6 +337,18 @@ async function confirmBuy(interaction, economy, backend, parsed) {
   return replyOrUpdate(interaction, ephemeral('', { embeds: [embed], components: [new ActionRowBuilder().addComponents(equip)] }));
 }
 
+async function removeWalletCosmetic(backend, preview) {
+  const target = String(preview?.discordUserId || '');
+  const sku = String(preview?.sku || '');
+  if (!target || !sku || typeof backend?.revokeWalletCosmetic !== 'function') return false;
+  try {
+    const revoked = await backend.revokeWalletCosmetic(target, { sku });
+    return Boolean(revoked && revoked.ok !== false);
+  } catch {
+    return false;
+  }
+}
+
 async function handleAdmin(interaction, economy, backend) {
   if (!isCoinShopAdmin(interaction)) return interaction.reply(ephemeral('That command is for a staff admin.'));
   const sub = interaction.options.getSubcommand();
@@ -338,17 +366,20 @@ async function handleAdmin(interaction, economy, backend) {
     return interaction.reply(ephemeral(lines.join('\n')));
   }
   if (sub === 'refund') {
-    const result = await economy.coinShopRefund({
+    const payload = {
       ledgerRef: interaction.options.getString('ledger'),
       reason: interaction.options.getString('reason'),
       ...actor
-    });
+    };
+    const preview = typeof economy.coinShopRefundPreview === 'function'
+      ? await economy.coinShopRefundPreview(payload)
+      : { ok: false, reason: 'coin-shop-unavailable' };
+    if (!preview?.ok) return interaction.reply(ephemeral(coinShopMemberText(preview?.reason)));
+    const removed = await removeWalletCosmetic(backend, preview);
+    if (!removed) return interaction.reply(ephemeral(coinShopMemberText('revoke-failed')));
+    if (preview.duplicate) return interaction.reply(ephemeral('That purchase was already refunded.'));
+    const result = await economy.coinShopRefund(payload);
     if (!result?.ok) return interaction.reply(ephemeral(coinShopMemberText(result?.reason)));
-    if (!result.duplicate && result.sku && typeof backend?.revokeWalletCosmetic === 'function') {
-      const user = interaction.options.getUser?.('user');
-      const target = user?.id || result.discordUserId;
-      if (target) await backend.revokeWalletCosmetic(target, { sku: result.sku }).catch(() => null);
-    }
     const text = result.duplicate
       ? 'That purchase was already refunded.'
       : memberReceipt(result).replace('\n', '. ');
@@ -357,7 +388,7 @@ async function handleAdmin(interaction, economy, backend) {
   return interaction.reply(ephemeral('That command is for a staff admin.'));
 }
 
-async function handleCoinShopInteraction(interaction, { economyClient, backend, config = loadConfig() } = {}) {
+async function handleCoinShopInteraction(interaction, { economyClient, backend, config = loadConfig(), artRoot = ART_DIR } = {}) {
   const economy = economyClient || new NexusEconomyClient();
   const cosmetics = backend || new BackendClient(config);
   try {
@@ -367,13 +398,13 @@ async function handleCoinShopInteraction(interaction, { economyClient, backend, 
       return false;
     }
     const customId = String(interaction.customId || '');
-    if (customId === 'nxshop:coin') return openCoinShop(interaction, economy, cosmetics);
+    if (customId === 'nxshop:coin') return openCoinShop(interaction, economy, cosmetics, artRoot);
     if (customId === 'nxshop:ark') return openArkShop(interaction);
     const parsed = parseCoinCustomId(customId);
     if (!parsed) return false;
     if (!coinShopFlags().shopEnabled) return replyOrUpdate(interaction, gatePayload());
     if (parsed.action === 'cat') return showCategory(interaction, parsed);
-    if (parsed.action === 'item') return showDetail(interaction, economy, parsed);
+    if (parsed.action === 'item') return showDetail(interaction, economy, parsed, artRoot);
     if (parsed.action === 'buy') return showConfirm(interaction, economy, parsed);
     if (parsed.action === 'no') {
       if (!buyerOwns(interaction, parsed)) return interaction.reply(ephemeral('This shop confirmation belongs to another member.'));
@@ -436,6 +467,8 @@ function installCoinShopUi() {
 }
 
 module.exports = {
+  artFile,
+  artForEmbed,
   shopCommand,
   shopAdminCommand,
   shopSections,

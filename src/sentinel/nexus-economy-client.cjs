@@ -205,6 +205,7 @@ class NexusEconomyClient {
   coinShopCatalog() { return request('/coin-shop/catalog'); }
   coinShopQuote(input) { return request('/coin-shop/quote', { method: 'POST', body: input, acceptedStatusCodes: [409, 503] }); }
   coinShopPurchase(input) { return request('/coin-shop/purchase', { method: 'POST', body: input, acceptedStatusCodes: [409, 503] }); }
+  coinShopRefundPreview(input) { return request('/coin-shop/refund-preview', { method: 'POST', body: input, acceptedStatusCodes: [409, 503] }); }
   coinShopRefund(input) { return request('/coin-shop/refund', { method: 'POST', body: input, acceptedStatusCodes: [409, 503] }); }
   coinShopMarkEquipped(input) { return request('/coin-shop/mark-equipped', { method: 'POST', body: input, acceptedStatusCodes: [409, 503] }); }
   coinShopEntitlements(discordUserId) { return request(`/coin-shop/entitlements/${encodeURIComponent(String(discordUserId || ''))}`); }

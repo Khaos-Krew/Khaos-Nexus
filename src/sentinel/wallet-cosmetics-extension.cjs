@@ -44,12 +44,14 @@ async function readBalances(economyClient, userId) {
 
 async function grantActiveShopCosmetics(backend, economyClient, userId) {
   if (typeof economyClient?.coinShopEntitlements !== 'function') return;
-  if (typeof backend?.grantWalletCosmetic !== 'function') return;
   try {
     const listed = await economyClient.coinShopEntitlements(String(userId));
     for (const row of listed?.entitlements || []) {
-      if (row?.status === 'active' && row.sku) {
+      if (!row?.sku) continue;
+      if (row.status === 'active' && typeof backend?.grantWalletCosmetic === 'function') {
         await backend.grantWalletCosmetic(String(userId), { sku: row.sku, ledgerId: row.ledgerId });
+      } else if (row.status === 'refunded' && typeof backend?.revokeWalletCosmetic === 'function') {
+        await backend.revokeWalletCosmetic(String(userId), { sku: row.sku });
       }
     }
   } catch { /* wallet still shows cosmetics already saved locally */ }

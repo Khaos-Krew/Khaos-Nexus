@@ -3,7 +3,7 @@
 const crypto = require('node:crypto');
 const { catalogItem } = require('../shared/coin-shop-catalog.cjs');
 const { coinShopFlags, purchaseCeiling } = require('../shared/coin-shop-flags.cjs');
-const { purchaseKey, refundKey, coinShopLedgerIdFromRef, chicagoDayKey, ATTEMPT_WINDOW_MS } = require('../shared/coin-shop-limits.cjs');
+const { purchaseKey, refundKey, coinShopLedgerIdFromRef, chicagoDayKey, ATTEMPT_WINDOW_MS, ATTEMPT_RETENTION_MS } = require('../shared/coin-shop-limits.cjs');
 const { decideQuote, decidePurchase, decideRefund } = require('../shared/coin-shop-decide.cjs');
 const { assertMemberAccount } = require('../shared/economy-system-accounts.cjs');
 const { memberIdentityHold, quarantineDenylist } = require('../sentinel/nexus-economy-identity-hold.cjs');
@@ -44,6 +44,7 @@ class CoinShopService {
       status: String(input.status || 'verified'),
       holdReason: String(input.holdReason || ''),
       verifiedAt: input.verifiedAt === undefined ? '2026-01-01T00:00:00.000Z' : input.verifiedAt,
+      linkSource: String(input.linkSource || ''),
       rankId: String(input.rankId || 'cipher-runner')
     });
     if (input.coins != null) this.coins.set(econId, Number(input.coins));
@@ -95,7 +96,7 @@ class CoinShopService {
       econId: row.econId,
       status: row.status,
       holdReason: row.holdReason,
-      verifiedAt: row.verifiedAt || null,
+      verifiedAt: String(row.linkSource || '') === 'mc-link' ? null : (row.verifiedAt || null),
       rankId: row.rankId || '',
       held: Boolean(hold) || Boolean(String(row.holdReason || '').trim()),
       quarantined: denylist.has(row.econId) || String(row.status || '') === 'quarantined'
@@ -252,6 +253,7 @@ class CoinShopService {
     for (const [nonce, quote] of this.quotes) {
       if (Date.parse(quote.expiresAt) <= now) this.quotes.delete(nonce);
     }
+    this.attempts = this.attempts.filter((row) => now - Number(row.at) < ATTEMPT_RETENTION_MS);
   }
 
   #identityByEcon(econId) {
@@ -367,16 +369,13 @@ class CoinShopService {
     };
   }
 
-  async refund(input = {}) {
-    if (!this.flags().spendEnabled) return { ok: false, reason: 'economy-coin-shop-spend-not-enabled' };
-    const auth = await this.authorizeStaff(input);
-    if (!auth?.ok) return { ok: false, reason: auth?.reason || 'staff-required' };
+  #refundDecision(input, auth) {
     const now = this.now();
     const purchase = this.#findPurchase(input.ledgerRef || input.ledgerId);
     try {
       if (purchase?.econId) assertMemberAccount(purchase.econId);
     } catch {
-      return { ok: false, reason: 'not-eligible' };
+      return { decision: { result: { ok: false, reason: 'not-eligible' }, effects: [] }, purchase };
     }
     const holder = purchase ? this.#identityByEcon(purchase.econId) : null;
     const state = {
@@ -384,7 +383,24 @@ class CoinShopService {
       purchase,
       held: Boolean(holder?.held)
     };
-    const decision = decideRefund(state, { ...input, actor: auth.actor || input.actor }, now);
+    return {
+      decision: decideRefund(state, { ...input, actor: auth.actor || input.actor }, now),
+      purchase
+    };
+  }
+
+  async previewRefund(input = {}) {
+    if (!this.flags().spendEnabled) return { ok: false, reason: 'economy-coin-shop-spend-not-enabled' };
+    const auth = await this.authorizeStaff(input);
+    if (!auth?.ok) return { ok: false, reason: auth?.reason || 'staff-required' };
+    return this.#refundDecision(input, auth).decision.result;
+  }
+
+  async refund(input = {}) {
+    if (!this.flags().spendEnabled) return { ok: false, reason: 'economy-coin-shop-spend-not-enabled' };
+    const auth = await this.authorizeStaff(input);
+    if (!auth?.ok) return { ok: false, reason: auth?.reason || 'staff-required' };
+    const { decision, purchase } = this.#refundDecision(input, auth);
     if (!decision.effects.length) return decision.result;
     const applied = this.#commit(purchase?.discordUserId, decision.effects);
     if (!applied.ok) return applied;

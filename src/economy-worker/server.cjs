@@ -32,7 +32,8 @@ const COIN_SHOP_FINANCIAL_PATHS = new Set([
 ]);
 const COIN_SHOP_PREPARE_PATHS = new Set([
   '/coin-shop/quote',
-  '/coin-shop/lookup'
+  '/coin-shop/lookup',
+  '/coin-shop/refund-preview'
 ]);
 const FINANCIAL_WRITE_PATHS = new Set([
   '/wallet/credit',
@@ -393,6 +394,12 @@ async function handleCoinShopPost(pathname, { worker, input, coinShopSpendEnable
     const result = await worker.coinShop.purchase(input);
     return json(res, coinShopHttpStatus(result), result);
   }
+  if (pathname === '/coin-shop/refund-preview') {
+    const refused = refuseSystemCoinAccount(input);
+    if (refused) return json(res, 409, refused);
+    const result = await worker.coinShop.previewRefund(input);
+    return json(res, coinShopHttpStatus(result), result);
+  }
   if (pathname === '/coin-shop/refund') {
     const refused = refuseSystemCoinAccount(input);
     if (refused) return json(res, 409, refused);
@@ -683,7 +690,7 @@ function createEconomyServer(options = {}) {
         if (!worker.arkShop) return json(res, 200, { ok: false, reason: 'ark-shop-disabled' });
         return json(res, 200, await worker.arkShop.staffResolve(input));
       }
-      if (url.pathname === '/coin-shop/quote' || url.pathname === '/coin-shop/purchase' || url.pathname === '/coin-shop/refund' || url.pathname === '/coin-shop/mark-equipped' || url.pathname === '/coin-shop/lookup') {
+      if (url.pathname === '/coin-shop/quote' || url.pathname === '/coin-shop/purchase' || url.pathname === '/coin-shop/refund-preview' || url.pathname === '/coin-shop/refund' || url.pathname === '/coin-shop/mark-equipped' || url.pathname === '/coin-shop/lookup') {
         return handleCoinShopPost(url.pathname, { worker, input, coinShopSpendEnabled, json, res });
       }
       return json(res, 404, { ok: false, error: 'not-found' });
