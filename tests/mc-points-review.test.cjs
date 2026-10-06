@@ -60,6 +60,7 @@ function service(extra = {}) {
     env: {
       MC_POINTS_ENABLED: 'true',
       MC_SHOP_ENABLED: 'true',
+      MC_SHOP_DRY_RUN: 'false',
       MC_SHOP_DELIVERY_ENABLED: 'true',
       MC_STARTER_KIT_ENABLED: 'true',
       NEXUS_ECONOMY_IDENTITY_PROOF_SECRET: SECRET,
@@ -276,12 +277,15 @@ test('the craft token cannot buy, credit, or refund', async () => {
     });
   }
   try {
-    for (const path of ['/wallet/credit', '/wallet/spend', '/mc-shop/refund', '/identity/link', '/identity/demote-restricted', '/wallet/ensure-shadow-recruit', '/wallet/admin-credit', '/wallet/admin-spend', '/mc-shop/buy', '/mc-shop/quote', '/mc/staff/resend', '/mc/staff/resolve']) {
+    for (const path of ['/wallet/credit', '/wallet/spend', '/identity/link', '/identity/demote-restricted', '/wallet/ensure-shadow-recruit', '/wallet/admin-credit', '/wallet/admin-spend', '/mc-shop/buy', '/mc-shop/quote', '/mc/staff/resend', '/mc/staff/resolve']) {
       const blocked = await post(path, 'craft-token');
       assert.equal(blocked.status, 403, path);
       assert.equal(blocked.body.error, 'craft-token-scope');
     }
     assert.deepEqual(calls, []);
+    const refund = await post('/mc-shop/refund', 'craft-token');
+    assert.equal(refund.status, 200);
+    assert.deepEqual(calls, ['refund']);
     const pending = await new Promise((resolve, reject) => {
       const req = http.request({ host: '127.0.0.1', port, path: '/mc-shop/orders/pending', method: 'GET', headers: { authorization: 'Bearer craft-token' } }, (res) => {
         let raw = '';
@@ -1107,7 +1111,7 @@ test('postgres buy locks the identity before the daily spend, order, and item ca
   const yesterday = '2026-09-30T18:00:00.000Z';
   const catalog = loadMcShopCatalog();
   const catalogHash = catalogFingerprint(catalog);
-  const env = { MC_SHOP_ENABLED: 'true' };
+  const env = { MC_SHOP_ENABLED: 'true', MC_SHOP_DRY_RUN: 'false' };
 
   function shop(pool) {
     return new PostgresMcPoints({

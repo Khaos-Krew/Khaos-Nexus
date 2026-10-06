@@ -182,7 +182,7 @@ async function ensureMinecraftSchema({ pool, schema = 'public', mark } = {}) {
 }
 
 class PostgresMcPoints {
-  constructor({ pool, schema = 'public', wallet, now = () => Date.now(), env = process.env } = {}) {
+  constructor({ pool, schema = 'public', wallet, now = () => Date.now(), env = process.env, fetchImpl } = {}) {
     if (!pool) throw new Error('Postgres pool is required.');
     if (!wallet) throw new Error('Wallet is required.');
     this.pool = pool;
@@ -190,6 +190,7 @@ class PostgresMcPoints {
     this.wallet = wallet;
     this.now = now;
     this.env = env;
+    this.fetchImpl = fetchImpl;
     this.catalog = loadMcShopCatalog(env);
   }
 
@@ -508,7 +509,7 @@ class PostgresMcPoints {
         await client.query('ROLLBACK');
         return { ok: false, reason: 'quote-expired' };
       }
-      if (!input.writesEnabled) {
+      if (!this.flags().shopDryRun && !input.writesEnabled) {
         await client.query('ROLLBACK');
         return { ok: false, reason: 'economy-write-cutover-not-enabled' };
       }
@@ -556,6 +557,28 @@ class PostgresMcPoints {
       if (String(buyStatus?.status || '') === 'restricted') {
         await client.query('ROLLBACK');
         return { ok: false, reason: 'verified-identity-required', message: 'Verified economic identity is required.' };
+      }
+      if (this.flags().shopDryRun) {
+        const wallet = await client.query(
+          `SELECT balance FROM ${s}.nexus_economy_wallets WHERE economic_identity_id = $1 AND currency = 'NEXUS_POINTS'`,
+          [row.economic_identity_id]
+        );
+        const balance = Number(wallet.rows?.[0]?.balance || 0);
+        await client.query('ROLLBACK');
+        console.info(`[Nexus Economy] mc_shop_dry_run econ=${row.economic_identity_id} sku=${row.sku} price=${price}`);
+        return {
+          ok: true,
+          dryRun: true,
+          debited: false,
+          balance,
+          receipt: {
+            sku: row.sku,
+            bundles: Number(row.bundles),
+            price,
+            balance,
+            balanceAfter: balance
+          }
+        };
       }
       const prior = await client.query(
         `SELECT order_data FROM ${s}.nexus_mc_orders WHERE status <> 'REFUNDED' AND order_data->>'economicIdentityId' = $1 AND order_data->>'source' = 'mc-shop'`,
@@ -958,7 +981,8 @@ class PostgresMcPoints {
       now: this.now,
       env: this.env,
       catalog: this.catalog,
-      tenureOf: (discordUserId) => guildJoinedAtMs(discordUserId, this.env)
+      tenureOf: (discordUserId) => guildJoinedAtMs(discordUserId, this.env, this.fetchImpl),
+      fetchImpl: this.fetchImpl
     });
     await this.#load(client, memory, parts);
     return memory;

@@ -432,7 +432,7 @@ class PostgresEconomyAccrual {
     if (minecraft) {
       const gate = flagsArg(this.env);
       if (!gate.pointsEnabled) return { ok: false, reason: 'mc-points-disabled', credited: 0 };
-      if (!gate.playtimeEnabled) return { ok: false, reason: 'mc-playtime-disabled', credited: 0 };
+      if (!gate.playtimeEnabled && !gate.kitPlaytimeObservation) return { ok: false, reason: 'mc-playtime-disabled', credited: 0 };
       minecraftServer = minecraftServerName(serverKeyInput);
       if (!minecraftServer) return { ok: false, reason: 'invalid-mc-server', credited: 0 };
       if (gate.dryRun) return this.#dryRunMinecraft({ mcUuid, online, server: minecraftServer, afk });

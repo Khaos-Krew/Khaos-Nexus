@@ -15,6 +15,7 @@ const {
 const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
 const { mcPointsFlags } = require('../shared/mc-points-flags.cjs');
 const { mcMemberText } = require('../shared/mc-member-text.cjs');
+const { memberJoinedAtMs } = require('../shared/mc-starter-kit.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.mc.shop.ui.installed');
 const sessions = new Map();
@@ -81,12 +82,43 @@ async function handleQuantity(interaction, economyClient) {
   session.quote = quoted.quote;
   const confirm = new ButtonBuilder().setCustomId(`nexus-mc-shop:confirm:${interaction.customId.split(':')[2]}`).setLabel('Confirm').setStyle(ButtonStyle.Primary);
   const cancel = new ButtonBuilder().setCustomId(`nexus-mc-shop:cancel:${interaction.customId.split(':')[2]}`).setLabel('Cancel').setStyle(ButtonStyle.Secondary);
-  return interaction.reply(ephemeral([
-    `**${quoted.quote.sku}** × ${quoted.quote.bundles}`,
-    `Price: ${quoted.quote.price} NP`,
-    `Balance: ${quoted.quote.balance} → ${quoted.quote.balanceAfter} NP`,
+  return interaction.reply(ephemeral(mcShopConfirmText(quoted.quote), { components: [new ActionRowBuilder().addComponents(confirm, cancel)] }));
+}
+
+function mcShopConfirmText(quote = {}) {
+  if (quote.dryRun === true) {
+    return [
+      `**${quote.sku}** × ${quote.bundles}`,
+      `Price: ${quote.price} NP`,
+      `Balance stays ${quote.balance} NP`,
+      'This is a test. Confirming does not spend Nexus Points and does not queue an order.'
+    ].join('\n');
+  }
+  return [
+    `**${quote.sku}** × ${quote.bundles}`,
+    `Price: ${quote.price} NP`,
+    `Balance: ${quote.balance} → ${quote.balanceAfter} NP`,
     'Confirm to spend the points. The items arrive in Minecraft when you are online and your inventory has room.'
-  ].join('\n'), { components: [new ActionRowBuilder().addComponents(confirm, cancel)] }));
+  ].join('\n');
+}
+
+function mcShopReceiptText(result = {}) {
+  if (result.dryRun === true) {
+    const receipt = result.receipt || {};
+    return [
+      'Test receipt. No Nexus Points were spent.',
+      'Nothing was queued for delivery.',
+      `Item: ${receipt.sku} × ${receipt.bundles}`,
+      `Price shown: ${receipt.price} NP`,
+      `Balance unchanged: ${result.balance} NP`
+    ].join('\n');
+  }
+  return [
+    'Your order is queued.',
+    `Balance: ${result.balance} NP.`,
+    'Be online on Nexus Craft with room in your inventory. The items arrive in game.',
+    `If they do not arrive, tell a staff member this order id: ${result.order?.orderId}.`
+  ].join('\n');
 }
 
 function mcShopBuyFailureText(result, session) {
@@ -110,17 +142,16 @@ async function handleConfirm(interaction, economyClient) {
   if (!result.ok) {
     return interaction.editReply(ephemeral(mcShopBuyFailureText(result, session)));
   }
-  return interaction.editReply(ephemeral([
-    'Your order is queued.',
-    `Balance: ${result.balance} NP.`,
-    'Be online on Nexus Craft with room in your inventory. The items arrive in game.',
-    `If they do not arrive, tell a staff member this order id: ${result.order.orderId}.`
-  ].join('\n')));
+  return interaction.editReply(ephemeral(mcShopReceiptText(result)));
 }
 
 async function handleStarter(interaction, economyClient) {
   if (!mcPointsFlags().starterKitEnabled) return interaction.reply(ephemeral(mcMemberText('mc-starter-kit-disabled')));
-  const result = await economyClient.mcClaimStarterKit({ discordUserId: interaction.user.id });
+  const joinedAt = await memberJoinedAtMs(interaction);
+  const result = await economyClient.mcClaimStarterKit({
+    discordUserId: interaction.user.id,
+    ...(Number.isFinite(joinedAt) ? { joinedAt } : {})
+  });
   if (!result.ok) return interaction.reply(ephemeral(mcMemberText(result.reason)));
   if (result.duplicate) return interaction.reply(ephemeral(`The Starter Kit is already queued. If it does not arrive, tell a staff member this order id: ${result.order?.orderId || result.grant?.orderId}.`));
   return interaction.reply(ephemeral(`The Starter Kit is queued. Be online on Nexus Craft with room in your inventory. If it does not arrive, tell a staff member this order id: ${result.order.orderId}.`));
@@ -163,4 +194,4 @@ function installMcShopUiExtension() {
   };
 }
 
-module.exports = { installMcShopUiExtension, handleMcShopInteraction, openMinecraftShop, mcShopBuyFailureText };
+module.exports = { installMcShopUiExtension, handleMcShopInteraction, openMinecraftShop, mcShopBuyFailureText, mcShopConfirmText, mcShopReceiptText };

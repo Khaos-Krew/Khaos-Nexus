@@ -13,6 +13,7 @@ const {
 } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
+const { memberJoinedAtMs } = require('../shared/mc-starter-kit.cjs');
 const { arkNpFlags } = require('../shared/ark-np-flags.cjs');
 const { arkMemberText, orderStatusText, ledgerLineText } = require('../shared/ark-np-member-text.cjs');
 const { shopCurrencyCopy } = require('../shared/dino-cache-currency.cjs');
@@ -173,7 +174,11 @@ async function confirmBuy(interaction, economy) {
 
 async function claimKit(interaction, economy) {
   if (!arkNpFlags().starterKitEnabled) return interaction.reply(ephemeral(arkMemberText('ark-starter-kit-disabled')));
-  const result = await economy.arkClaimStarterKit({ discordUserId: interaction.user.id });
+  const joinedAt = await memberJoinedAtMs(interaction);
+  const result = await economy.arkClaimStarterKit({
+    discordUserId: interaction.user.id,
+    ...(Number.isFinite(joinedAt) ? { joinedAt } : {})
+  });
   if (!result?.ok) return interaction.reply(ephemeral(arkMemberText(result?.reason)));
   if (result.duplicate) return interaction.reply(ephemeral(arkMemberText('already-claimed')));
   return interaction.reply(ephemeral(`The starter kit is free and claimed once. Order: ${result.order?.orderId}. It is delivered on whatever map you are on.`));

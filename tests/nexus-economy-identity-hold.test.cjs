@@ -152,6 +152,7 @@ function workerFixture(status = 'verified', options = {}) {
       MC_PLAYTIME_NP_ENABLED: 'true',
       MC_PLAYTIME_DRY_RUN: 'false',
       MC_SHOP_ENABLED: 'true',
+      MC_SHOP_DRY_RUN: 'false',
       MC_LINK_CODE_SECRET: LINK_SECRET,
       NEXUS_MC_REFUND_STAFF_IDS: STAFF
     }

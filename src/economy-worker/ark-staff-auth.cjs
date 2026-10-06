@@ -1,6 +1,7 @@
 'use strict';
 
 const { loadConfig } = require('../shared/config.cjs');
+const { discordBotToken } = require('../shared/mc-starter-kit.cjs');
 const { isStaffAdmin } = require('../sentinel/staff-roles.cjs');
 
 // These Discord roles never authorize the ARK shop, even when their ids are
@@ -115,7 +116,7 @@ async function authorizeStaffRefundActor({ actor, env = process.env, fetchImpl =
   if (!/^\d{5,32}$/.test(userId)) return { ok: false, reason: 'staff-required' };
   if (ownerIds(env).has(userId)) return { ok: true, actor: userId };
   const guild = String(env.NEXUS_DISCORD_GUILD_ID || env.DISCORD_GUILD_ID || '').trim();
-  const token = String(env.NEXUS_SENTINAL_DISCORD_TOKEN || env.DISCORD_BOT_TOKEN || '').trim();
+  const token = discordBotToken(env);
   if (!/^\d{5,32}$/.test(guild) || !token || typeof fetchImpl !== 'function') {
     return { ok: false, reason: 'staff-required' };
   }

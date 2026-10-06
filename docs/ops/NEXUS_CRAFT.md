@@ -23,6 +23,8 @@ package.json
 package-lock.json
 config.example.json
 src/craft/**
+src/shared/mc-*.cjs
+src/economy-worker/mc-*.cjs
 src/railway/craft-service.cjs
 src/backend/transports/rcon-protocol.cjs
 src/backend/transports/source-rcon.cjs
@@ -87,13 +89,18 @@ Live target: ATM10: Aeronautics 0.6.1, Minecraft 1.21.1, NeoForge 21.1.250, host
 All of these default off, except dry-run. Nothing here turns on Nexus economy writes.
 
 - `MC_POINTS_ENABLED` — master switch for `/mc link`. Default false.
-- `MC_PLAYTIME_NP_ENABLED` — counted playtime may accrue. Default false.
+- `MC_PLAYTIME_NP_ENABLED` — counted playtime may accrue Nexus Points. Default false. The Starter Kit does not need this flag.
 - `MC_PLAYTIME_DRY_RUN` — default true. The tracker logs the credit and cap math and does not write a ledger row.
 - `MC_SHOP_ENABLED` — Sentinal Minecraft shop section. Default false.
+- `MC_SHOP_DRY_RUN` — default true. Confirm and the receipt are a test. The buy debits nothing and queues no order.
 - `MC_SHOP_DELIVERY_ENABLED` — RCON delivery of paid orders and the Starter Kit. Default false.
 - `MC_STARTER_KIT_ENABLED` — one-time kit claim. Default false.
 
-Live playtime also requires the existing economy presence-write gate. Shop purchases and refunds require the existing economy write gate. Craft reads `NEXUS_ECONOMY_URL` and `NEXUS_ECONOMY_CRAFT_TOKEN` only when one of these flags is on. That token cannot buy, quote, or staff-refund. Item ids can be overridden with `MC_SHOP_CATALOG_JSON` and `MC_STARTER_KIT_JSON` only within the reviewed allow-list. The kit must still include `sophisticatedbackpacks:backpack`.
+Live Point credits also require `MC_PLAYTIME_NP_ENABLED`, `MC_PLAYTIME_DRY_RUN=false`, and the existing economy presence-write gate. The Starter Kit's 15 counted minutes use dry-run playtime instead. While `MC_POINTS_ENABLED` and `MC_STARTER_KIT_ENABLED` are on and `MC_PLAYTIME_DRY_RUN` is left at its default, Craft posts Minecraft presence and the worker records those minutes on the link. That path writes no Points ledger row and does not require `MC_PLAYTIME_NP_ENABLED` or the presence-write gate. Requiring the credit flag would put the live-earn switch on the path to a free kit, so the kit clock stays on the dry-run tracker. Setting `MC_PLAYTIME_DRY_RUN=false` without `MC_PLAYTIME_NP_ENABLED` does not start that clock and does not credit Points.
+
+Shop purchases debit Nexus Points only when `MC_SHOP_DRY_RUN` is explicitly off and the economy write gate is on. Refunds of real orders use that same write gate. While dry-run is on, a confirm still shows the price and a test receipt, and the balance does not change.
+
+Craft reads `NEXUS_ECONOMY_URL` and `NEXUS_ECONOMY_CRAFT_TOKEN` only when one of these flags is on. That token cannot buy or quote. It can read `/mc link status` and it can call the staff refund route. The worker still requires an Administrator, or an id in `NEXUS_MC_REFUND_STAFF_IDS` when that list is set. Item ids can be overridden with `MC_SHOP_CATALOG_JSON` and `MC_STARTER_KIT_JSON` only within the reviewed allow-list. The kit must still include `sophisticatedbackpacks:backpack`.
 
 AFK is five minutes of unchanged position and rotation. There is no datapack tag and FTB Essentials is not used. A missing position or rotation counts as AFK. `give` is sent to the UUID. Success is a reply that starts `Gave <count> [` for the requested count. The player name is not checked. A full inventory still says `Gave` and drops the overflow, so delivery checks free slots first and requeues when there is no room.
 

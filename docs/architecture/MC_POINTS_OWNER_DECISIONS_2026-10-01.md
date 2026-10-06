@@ -8,7 +8,7 @@
 
 ## Flags
 
-Enable flags stay off unless set: `MC_POINTS_ENABLED`, `MC_PLAYTIME_NP_ENABLED`, `MC_SHOP_ENABLED`, `MC_SHOP_DELIVERY_ENABLED`, `MC_STARTER_KIT_ENABLED`. `MC_SHOP_ENABLED` is the narrow shop flag. `MC_PLAYTIME_DRY_RUN` defaults on. Dry-run logs the credit and cap math, accrues per-UUID playtime, and writes no ledger row. While dry-run is on, Craft does not send `give`. Poller timestamps, rank, flags, and dry-run switches in the HTTP body are ignored. Existing economy write flags are unchanged.
+Enable flags stay off unless set: `MC_POINTS_ENABLED`, `MC_PLAYTIME_NP_ENABLED`, `MC_SHOP_ENABLED`, `MC_SHOP_DELIVERY_ENABLED`, `MC_STARTER_KIT_ENABLED`. `MC_SHOP_ENABLED` is the narrow shop flag. `MC_PLAYTIME_DRY_RUN` and `MC_SHOP_DRY_RUN` default on. Playtime dry-run logs the credit and cap math, accrues per-UUID playtime, and writes no ledger row. Shop dry-run shows the confirm and a test receipt and debits nothing. While playtime dry-run is on, Craft does not send `give`. Poller timestamps, rank, flags, and dry-run switches in the HTTP body are ignored. Existing economy write flags are unchanged. The Starter Kit counts its 15 minutes from that dry-run playtime and does not require `MC_PLAYTIME_NP_ENABLED`.
 
 ## Rank
 
@@ -26,7 +26,7 @@ Item ids are the ones on ATM10: Aeronautics 0.6.1 (Minecraft 1.21.1, NeoForge 21
 
 ## Craft token
 
-`NEXUS_ECONOMY_CRAFT_TOKEN` is limited to presence, link and unlink, delivery claim and delivery status, the refund sweep, and the pending-order and kit-grant reads. Buy, quote, and staff refunds use Sentinal's token only. Credit, spend, identity, and admin routes reject the craft token.
+`NEXUS_ECONOMY_CRAFT_TOKEN` is limited to presence, link and unlink, the link-status read, delivery claim and delivery status, the refund sweep, the staff refund route, and the pending-order and kit-grant reads. Buy and quote use Sentinal's token only. The worker still checks the refund actor. Credit, spend, identity, and admin routes reject the craft token.
 
 ## Member commands
 

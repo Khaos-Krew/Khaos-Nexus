@@ -437,6 +437,10 @@ test('Craft ops note stays with the Minecraft bot', {
   assert.match(doc, /NEXUS_CRAFT_DISCORD_CATEGORY_ID/);
   assert.match(doc, /NEXUS_CRAFT_REALMS_CHANNEL_ID/);
   assert.match(doc, /src\/craft\/\*\*/);
+  assert.match(doc, /src\/shared\/mc-\*\.cjs/);
+  assert.match(doc, /src\/economy-worker\/mc-\*\.cjs/);
+  assert.match(doc, /does not require `MC_PLAYTIME_NP_ENABLED`/);
+  assert.match(doc, /MC_SHOP_DRY_RUN/);
 });
 
 test('Craft slash commands stay inside the Minecraft bot', () => {

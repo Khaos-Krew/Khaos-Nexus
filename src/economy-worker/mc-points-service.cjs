@@ -13,6 +13,7 @@ const {
   loadMcShopCatalog
 } = require('../shared/mc-shop-catalog.cjs');
 const { loadStarterKit, starterKitEligibility, discordAccountCreatedMs, guildJoinedAtMs } = require('../shared/mc-starter-kit.cjs');
+const { authorizeMcRefundActor, refundStaffIds } = require('./mc-refund-auth.cjs');
 const { ctDayKey } = require('./mc-playtime-accounting.cjs');
 const { isPremiumUuid, normalizeUuid, itemIdOk } = require('../craft/mc-rcon-text.cjs');
 const { withIdentityProof } = require('../sentinel/nexus-economy-identity-proof.cjs');
@@ -152,11 +153,12 @@ function quoteSecret(env = process.env) {
 }
 
 class MemoryMcPoints {
-  constructor({ now = () => Date.now(), wallet, env = process.env, catalog, kit, createOrderId, tenureOf } = {}) {
+  constructor({ now = () => Date.now(), wallet, env = process.env, catalog, kit, createOrderId, tenureOf, fetchImpl } = {}) {
     if (!wallet) throw new Error('Minecraft points service requires a wallet.');
     this.now = now;
     this.wallet = wallet;
     this.env = env;
+    this.fetchImpl = fetchImpl;
     this.catalog = catalog || loadMcShopCatalog(env);
     this.kit = kit || loadStarterKit(env);
     this.createOrderId = createOrderId || (() => crypto.randomUUID());
@@ -399,11 +401,11 @@ class MemoryMcPoints {
     };
     quote.signature = signQuote(quote, quoteSecret(this.env));
     this.quotes.set(nonce, quote);
-    return { ok: true, quote: { ...quote } };
+    return { ok: true, quote: { ...quote, dryRun: this.flags().shopDryRun } };
   }
 
   async buy({ discordUserId, sku, bundles = 1, nonce, writesEnabled = false } = {}) {
-    if (!writesEnabled) return { ok: false, reason: 'economy-write-cutover-not-enabled' };
+    if (!this.flags().shopDryRun && !writesEnabled) return { ok: false, reason: 'economy-write-cutover-not-enabled' };
     if (!this.flags().shopEnabled) return { ok: false, reason: 'mc-shop-disabled' };
     const pending = this.quotes.get(String(nonce || ''));
     const now = this.now();
@@ -420,6 +422,32 @@ class MemoryMcPoints {
     const price = item.price * pending.bundles;
     if (price !== pending.price || item.itemId !== pending.itemId) return { ok: false, reason: 'price-changed' };
     if (await this.wallet.quarantined?.(pending.economicIdentityId)) return { ok: false, reason: 'quarantined' };
+    if (this.flags().shopDryRun) {
+      const identity = await this.wallet.resolve(discord);
+      const hold = memberIdentityHold({
+        status: identity?.status,
+        holdReason: identity?.holdReason,
+        missingRow: !identity || !String(identity.status || '').trim(),
+        economicIdentityId: identity?.economicIdentityId || pending.economicIdentityId,
+        env: this.env
+      });
+      if (hold) return hold;
+      const balance = Number(await this.wallet.balance(discord));
+      console.info(`[Nexus Economy] mc_shop_dry_run discord=${discord} sku=${pending.sku} price=${price}`);
+      return {
+        ok: true,
+        dryRun: true,
+        debited: false,
+        balance,
+        receipt: {
+          sku: pending.sku,
+          bundles: pending.bundles,
+          price,
+          balance,
+          balanceAfter: balance
+        }
+      };
+    }
     const today = dayOrders([...this.orders.values()], pending.economicIdentityId, now);
     if (today.length >= MAX_DAILY_ORDERS) return { ok: false, reason: 'daily-order-limit' };
     const spentToday = today.reduce((sum, order) => sum + Number(order.price || 0), 0);
@@ -496,7 +524,7 @@ class MemoryMcPoints {
     }
   }
 
-  async claimStarterKit({ discordUserId } = {}) {
+  async claimStarterKit({ discordUserId, tenureOf: tenureOverride } = {}) {
     if (!this.flags().starterKitEnabled) return { ok: false, reason: 'mc-starter-kit-disabled' };
     const discord = String(discordUserId || '').trim();
     const identity = await this.wallet.resolve(discord);
@@ -510,9 +538,10 @@ class MemoryMcPoints {
       return { ok: true, duplicate: true, grant: existing, order: this.orders.get(existing.orderId) || null };
     }
     const accountCreatedAt = discordAccountCreatedMs(discord);
-    const tenureAt = typeof this.tenureOf === 'function'
-      ? Number(await this.tenureOf(discord))
-      : Number(await guildJoinedAtMs(discord, this.env));
+    const lookup = typeof tenureOverride === 'function' ? tenureOverride : this.tenureOf;
+    const tenureAt = typeof lookup === 'function'
+      ? Number(await lookup(discord))
+      : Number(await guildJoinedAtMs(discord, this.env, this.fetchImpl));
     const lifetimeMs = Number(link.playtimeMs || 0);
     const decision = starterKitEligibility({
       identityVerified: true,
@@ -767,7 +796,7 @@ class MemoryMcPoints {
     } else {
       const staffReason = String(reason || '').trim();
       if (staffReason.length < 3) return { ok: false, reason: 'refund-reason-required' };
-      if (!this.#staffAllowed(staffActor, order)) return { ok: false, reason: 'staff-not-authorized' };
+      if (!await this.#refundStaffAllowed(staffActor, order)) return { ok: false, reason: 'staff-not-authorized' };
       if (order.status !== 'SENT_UNCONFIRMED' && order.status !== 'DELIVERY_FAILED') return { ok: false, reason: 'refund-not-allowed', order };
       if (this.#leaseLive(order, now)) return { ok: false, reason: 'lease-live', order };
       const today = this.audits.filter((row) => row.actor === staffActor && ctDayKey(Date.parse(row.createdAt)) === ctDayKey(now));
@@ -836,8 +865,17 @@ class MemoryMcPoints {
   #staffAllowed(actor, order) {
     if (!/^\d{5,32}$/.test(actor)) return false;
     if (actor === order.discordUserId) return false;
-    const allow = String(this.env.NEXUS_MC_REFUND_STAFF_IDS || '').split(',').map((value) => value.trim()).filter(Boolean);
+    const allow = refundStaffIds(this.env);
     return allow.includes(actor);
+  }
+
+  async #refundStaffAllowed(actor, order) {
+    if (!/^\d{5,32}$/.test(actor)) return false;
+    if (actor === order.discordUserId) return false;
+    const listed = refundStaffIds(this.env);
+    if (listed.length) return listed.includes(actor);
+    const decision = await authorizeMcRefundActor({ actor, env: this.env, fetchImpl: this.fetchImpl });
+    return decision.ok === true;
   }
 
   #cooldownReason(discordUserId, mcUuid, now) {

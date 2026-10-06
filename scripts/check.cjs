@@ -24,7 +24,7 @@ const required = [
   'src/shared/mc-points-flags.cjs', 'src/shared/mc-member-text.cjs', 'src/shared/mc-shop-catalog.cjs', 'src/shared/mc-starter-kit.cjs',
   'src/shared/ark-np-flags.cjs', 'src/shared/ark-np-member-text.cjs', 'src/shared/ark-np-orders.cjs', 'src/shared/ark-np-catalog.cjs',
   'src/shared/economy-system-accounts.cjs',
-  'src/economy-worker/mc-playtime-accounting.cjs', 'src/economy-worker/mc-points-service.cjs', 'src/economy-worker/mc-points-postgres.cjs',
+  'src/economy-worker/mc-playtime-accounting.cjs', 'src/economy-worker/mc-points-service.cjs', 'src/economy-worker/mc-points-postgres.cjs', 'src/economy-worker/mc-refund-auth.cjs',
   'src/sentinel/nexus-economy-identity-hold.cjs',
   'src/economy-worker/ark-np-postgres.cjs', 'src/economy-worker/ark-staff-auth.cjs', 'src/economy-worker/legacy-bank-flat.cjs',
   'src/sentinel/mc-shop-ui-extension.cjs', 'src/sentinel/ark-np-shop-ui.cjs', 'src/sentinel/ark-np-delivery.cjs',

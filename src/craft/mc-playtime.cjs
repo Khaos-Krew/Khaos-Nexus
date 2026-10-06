@@ -60,7 +60,7 @@ async function pollMcPlaytime({ rcon, presence, afk = new McAfkTracker(), now = 
     }
   }
   let posted = 0;
-  if (flags.playtimeEnabled && typeof presence === 'function') {
+  if ((flags.playtimeEnabled || flags.kitPlaytimeObservation) && typeof presence === 'function') {
     for (const sample of samples) {
       const body = { provider: 'minecraft', mcUuid: sample.mcUuid, online: sample.online, server: 'minecraft' };
       if (sample.afk === true) body.afk = true;

@@ -54,6 +54,15 @@ function loadStarterKit(env = process.env) {
 
 const DISCORD_EPOCH_MS = 1420070400000n;
 
+function discordBotToken(env = process.env) {
+  return [
+    env.NEXUS_SENTINEL_TOKEN,
+    env.NEXUS_SENTINAL_TOKEN,
+    env.NEXUS_SENTINAL_DISCORD_TOKEN,
+    env.DISCORD_BOT_TOKEN
+  ].map((value) => String(value || '').trim()).find(Boolean) || '';
+}
+
 function discordAccountCreatedMs(discordUserId) {
   try {
     const id = BigInt(String(discordUserId || '').trim());
@@ -64,22 +73,63 @@ function discordAccountCreatedMs(discordUserId) {
   }
 }
 
-async function guildJoinedAtMs(discordUserId, env = process.env, fetchImpl = globalThis.fetch) {
-  const guild = String(env.NEXUS_DISCORD_GUILD_ID || env.DISCORD_GUILD_ID || '').trim();
-  const token = String(env.NEXUS_SENTINAL_DISCORD_TOKEN || env.DISCORD_BOT_TOKEN || '').trim();
+function joinedAtInRange(value, now = Date.now()) {
+  const joined = Number(value);
+  if (!Number.isFinite(joined) || joined < Number(DISCORD_EPOCH_MS) || joined > now) return NaN;
+  return joined;
+}
+
+async function joinedAtFromClient(discordClient, discordUserId, env = process.env) {
+  const guildId = String(env.NEXUS_DISCORD_GUILD_ID || env.DISCORD_GUILD_ID || '').trim();
   const user = String(discordUserId || '').trim();
-  if (!/^\d{5,32}$/.test(guild) || !/^\d{5,32}$/.test(user) || !token || typeof fetchImpl !== 'function') return NaN;
+  if (!discordClient?.guilds?.fetch || !/^\d{5,32}$/.test(guildId) || !/^\d{5,32}$/.test(user)) return NaN;
   try {
-    const response = await fetchImpl(`https://discord.com/api/v10/guilds/${guild}/members/${user}`, {
-      headers: { authorization: `Bot ${token}` }
-    });
-    if (!response?.ok) return NaN;
-    const body = await response.json();
-    const joined = Date.parse(body?.joined_at || '');
-    return Number.isFinite(joined) ? joined : NaN;
+    const guild = await discordClient.guilds.fetch(guildId);
+    const member = await guild?.members?.fetch?.(user);
+    return joinedAtInRange(member?.joinedTimestamp);
   } catch {
     return NaN;
   }
+}
+
+async function memberJoinedAtMs(interaction) {
+  const direct = joinedAtInRange(interaction?.member?.joinedTimestamp);
+  if (Number.isFinite(direct)) return direct;
+  const userId = String(interaction?.user?.id || '').trim();
+  if (!interaction?.guild?.members?.fetch || !/^\d{5,32}$/.test(userId)) return NaN;
+  try {
+    const member = await interaction.guild.members.fetch(userId);
+    return joinedAtInRange(member?.joinedTimestamp);
+  } catch {
+    return NaN;
+  }
+}
+
+async function guildJoinedAtMs(discordUserId, env = process.env, fetchImpl = globalThis.fetch, discordClient = null) {
+  const guild = String(env.NEXUS_DISCORD_GUILD_ID || env.DISCORD_GUILD_ID || '').trim();
+  const token = discordBotToken(env);
+  const user = String(discordUserId || '').trim();
+  let fromApi = NaN;
+  if (/^\d{5,32}$/.test(guild) && /^\d{5,32}$/.test(user) && token && typeof fetchImpl === 'function') {
+    try {
+      const response = await fetchImpl(`https://discord.com/api/v10/guilds/${guild}/members/${user}`, {
+        headers: { authorization: `Bot ${token}` }
+      });
+      if (response?.ok) {
+        const body = await response.json();
+        fromApi = joinedAtInRange(Date.parse(body?.joined_at || ''));
+      }
+    } catch {
+      fromApi = NaN;
+    }
+  }
+  if (Number.isFinite(fromApi)) return fromApi;
+  return joinedAtFromClient(discordClient, discordUserId, env);
+}
+
+function trustedJoinedAt(lookedUp, supplied, now = Date.now()) {
+  if (Number.isFinite(Number(lookedUp))) return Number(lookedUp);
+  return joinedAtInRange(supplied, now);
 }
 
 function starterKitEligibility({
@@ -117,7 +167,10 @@ module.exports = {
   BACKPACK_ID,
   DEFAULT_KIT_ITEMS,
   loadStarterKit,
+  discordBotToken,
   discordAccountCreatedMs,
   guildJoinedAtMs,
+  memberJoinedAtMs,
+  trustedJoinedAt,
   starterKitEligibility
 };

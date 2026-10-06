@@ -19,6 +19,8 @@ class EconomyRequestError extends Error {
 const { registerAdminWalletDrainPaths, handleAdminWalletPost } = require('./admin-wallet-routes.cjs');
 const { assertMemberAccount } = require('../shared/economy-system-accounts.cjs');
 const { MEMBER_HOLD_MESSAGE, memberHoldFromError } = require('../sentinel/nexus-economy-identity-hold.cjs');
+const { mcPointsFlags } = require('../shared/mc-points-flags.cjs');
+const { guildJoinedAtMs, trustedJoinedAt } = require('../shared/mc-starter-kit.cjs');
 const PRESENCE_WRITE_PATHS = new Set(['/presence', '/wallet/accrue-offline']);
 const NP_SHOP_FINANCIAL_PATHS = new Set([
   '/np-shop/buy',
@@ -93,6 +95,7 @@ const CRAFT_ROUTES = new Set([
   'POST /mc/unlink',
   'POST /mc-shop/claim',
   'POST /mc-shop/delivery-status',
+  'POST /mc-shop/refund',
   'POST /mc-shop/refund-sweep',
   'GET /mc-shop/orders/pending',
   'GET /mc/grants'
@@ -164,8 +167,13 @@ function craftMinecraftPresence(input) {
   return Boolean(mcUuid);
 }
 
+function craftLinkStatusPath(pathname) {
+  return /^\/mc\/link\/\d{5,32}$/.test(String(pathname || ''));
+}
+
 function craftRouteAllowed(method, pathname) {
-  return CRAFT_ROUTES.has(`${method} ${pathname}`);
+  if (CRAFT_ROUTES.has(`${method} ${pathname}`)) return true;
+  return method === 'GET' && craftLinkStatusPath(pathname);
 }
 
 async function body(req) {
@@ -338,6 +346,7 @@ function writeGate(path, options = {}) {
     }
     return null;
   }
+  if (path === '/mc-shop/buy' && mcPointsFlags().shopDryRun) return null;
   if (!writesEnabled) {
     return { statusCode: 503, body: { ok: false, error: 'economy-write-cutover-not-enabled', writesEnabled: false } };
   }
@@ -442,6 +451,8 @@ function createEconomyServer(options = {}) {
     ? (presenceEnv ? enabled(presenceEnv) : writesEnabled)
     : Boolean(options.presenceWritesEnabled);
   const lifecycle = { draining: false, signal: null };
+  const discordEnv = options.discordEnv || process.env;
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -562,12 +573,21 @@ function createEconomyServer(options = {}) {
         return order ? json(res, 200, { ok: true, order }) : json(res, 404, { ok: false, error: 'order-not-found' });
       }
 
+      let prefetchedPostBody;
+      if (req.method === 'POST' && url.pathname === '/presence' && scope === 'craft' && mcPointsFlags().kitPlaytimeObservation) {
+        prefetchedPostBody = await body(req);
+        if (craftMinecraftPresence(prefetchedPostBody) && mcPointsFlags().playtimeWrites !== true) {
+          if (lifecycle.draining) return json(res, 503, { ok: false, error: 'economy-worker-draining', draining: true });
+          return json(res, 200, await worker.recordPresence(presenceBody(prefetchedPostBody)));
+        }
+      }
+
       if (req.method !== 'POST') return json(res, 404, { ok: false, error: 'not-found' });
       const mutationGate = mutationRequestGate(url.pathname, { writesEnabled, presenceWritesEnabled, npShopWritesEnabled, coinShopSpendEnabled, lifecycle });
       if (mutationGate) return json(res, mutationGate.statusCode, mutationGate.body);
       if (!POST_PATHS.has(url.pathname)) return json(res, 404, { ok: false, error: 'not-found' });
 
-      const input = await body(req);
+      const input = prefetchedPostBody !== undefined ? prefetchedPostBody : await body(req);
       const executionGate = mutationRequestGate(url.pathname, { writesEnabled, presenceWritesEnabled, npShopWritesEnabled, coinShopSpendEnabled, lifecycle });
       if (executionGate) return json(res, executionGate.statusCode, executionGate.body);
 
@@ -647,9 +667,13 @@ function createEconomyServer(options = {}) {
       }
       if (worker.minecraft && url.pathname === '/mc-shop/refund-sweep') return json(res, 200, { ok: true, results: await worker.minecraft.sweepRefunds({ writesEnabled }) });
       if (worker.minecraft && url.pathname === '/mc/starter-kit/claim') {
-        return json(res, 200, await worker.minecraft.claimStarterKit({
-          discordUserId: input.discordUserId
-        }));
+        const claim = { discordUserId: input.discordUserId };
+        if (scope === 'sentinal') {
+          const lookedUp = await guildJoinedAtMs(input.discordUserId, discordEnv, fetchImpl);
+          const joined = trustedJoinedAt(lookedUp, input.joinedAt);
+          if (Number.isFinite(joined)) claim.tenureOf = async () => joined;
+        }
+        return json(res, 200, await worker.minecraft.claimStarterKit(claim));
       }
       if (worker.minecraft && url.pathname === '/mc/staff/resend') {
         return json(res, 200, await worker.minecraft.staffResend(input));
@@ -684,7 +708,9 @@ function createEconomyServer(options = {}) {
       }
       if (url.pathname === '/ark/starter-kit/claim') {
         if (!worker.arkShop) return json(res, 200, { ok: false, reason: 'ark-shop-disabled' });
-        return json(res, 200, await worker.arkShop.claimStarterKit(input));
+        const claim = { ...input };
+        if (scope !== 'sentinal') delete claim.joinedAt;
+        return json(res, 200, await worker.arkShop.claimStarterKit(claim));
       }
       if (url.pathname === '/ark/staff/resolve') {
         if (!worker.arkShop) return json(res, 200, { ok: false, reason: 'ark-shop-disabled' });
@@ -761,6 +787,7 @@ module.exports = {
   walletReadAccrualPermitted,
   presenceBody,
   craftMinecraftPresence,
+  craftLinkStatusPath,
   craftRouteAllowed,
   arkRouteAllowed,
   requestScope,
