@@ -11,12 +11,8 @@
 // role's Discord record is modified here.
 
 const { hasStaffAdminRole, isGuildOwner } = require('../sentinel/staff-roles.cjs');
-const {
-  COMMUNITY_MANAGER_ROLE_ID,
-  OWNER_ROLE_ID,
-  rolesFromSubject,
-  buildStaffSubject
-} = require('./ark-staff-auth.cjs');
+const { COMMUNITY_MANAGER_ROLE_ID, OWNER_ROLE_ID } = require('../shared/protected-role-ids.cjs');
+const { rolesFromSubject, buildStaffSubject } = require('./ark-staff-auth.cjs');
 
 function hasRoleId(subject, roleId) {
   return rolesFromSubject(subject).some((role) => String(role?.id || '') === String(roleId));
