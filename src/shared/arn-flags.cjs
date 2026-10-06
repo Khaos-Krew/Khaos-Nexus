@@ -9,20 +9,22 @@ function oddsBp(raw, fallback) {
   return value;
 }
 
-// Live ledger writes require the economy-writes gate (or the narrow ARN gate)
-// and a per-type drop flag. Presence writes never open this gate.
+// ARN_ECONOMY_WRITES_ENABLED defaults off and is required for any ARN write.
+// The global economy-writes flag does not open this gate. Presence writes never do.
+// ARN_TOKENS_ENABLED defaults off and gates the feature.
 // ARN_DRY_RUN defaults on, so the trial records rolls and writes no ledger rows.
 function arnFlags(env = process.env) {
   const dryRaw = env.ARN_DRY_RUN;
   const dryRun = dryRaw == null || String(dryRaw).trim() === '' ? true : flagOn(dryRaw);
+  const tokensEnabled = flagOn(env.ARN_TOKENS_ENABLED);
   const economyWritesEnabled = flagOn(env.NEXUS_ECONOMY_WRITES_ENABLED);
   const arnEconomyWritesEnabled = flagOn(env.ARN_ECONOMY_WRITES_ENABLED);
-  const writesEnabled = economyWritesEnabled === true || arnEconomyWritesEnabled === true;
   const tameDropsEnabled = flagOn(env.ARN_TAME_DROPS_ENABLED);
   const killDropsEnabled = flagOn(env.ARN_KILL_DROPS_ENABLED);
   return Object.freeze({
     dryRun,
-    writesEnabled,
+    tokensEnabled,
+    writesEnabled: arnEconomyWritesEnabled === true,
     economyWritesEnabled,
     arnEconomyWritesEnabled,
     tameDropsEnabled,
@@ -32,7 +34,7 @@ function arnFlags(env = process.env) {
     dropsEnabled(kind) {
       return kind === 'kill' ? killDropsEnabled === true : tameDropsEnabled === true;
     },
-    creditsEnabled: writesEnabled === true && dryRun === false
+    creditsEnabled: tokensEnabled === true && arnEconomyWritesEnabled === true && dryRun === false
   });
 }
 

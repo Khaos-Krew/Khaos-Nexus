@@ -13,6 +13,26 @@ async function ensureArnSchema(db) {
   await db.query(`CREATE TABLE IF NOT EXISTS nexus_arn_admin_audit (id CHAR(36) PRIMARY KEY, actor VARCHAR(25) NOT NULL, details VARCHAR(500) NOT NULL, created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)) ENGINE=InnoDB`);
 }
 async function settings(db, lock=false) { const [rows]=await db.query(`SELECT * FROM nexus_arn_settings WHERE id=1${lock?' FOR UPDATE':''}`); return { ...rows[0], earn_rate:1, cache_cost:1, chance_percent:5 }; }
+async function walletReadOnly(db) {
+  let result;
+  try { result = await db.query('SELECT read_only FROM nexus_arn_wallet_freeze WHERE id=1'); }
+  catch (error) {
+    const code = String(error?.code || '');
+    const message = String(error?.message || error);
+    if (code === 'ER_NO_SUCH_TABLE' || error?.errno === 1146 || /does(?:n't| not) exist/i.test(message)) return false;
+    throw error;
+  }
+  const rows = Array.isArray(result?.[0]) ? result[0] : [];
+  const flag = rows[0]?.read_only;
+  return flag === true || flag === 1 || flag === '1';
+}
+async function assertWalletWritable(db) {
+  if (await walletReadOnly(db)) {
+    const error = new Error('ARN MySQL wallet is read-only.');
+    error.code = 'ARN_WALLET_READ_ONLY';
+    throw error;
+  }
+}
 async function wallet(db,user) {
   identity(user);
   await db.execute('INSERT IGNORE INTO nexus_arn_wallets (discord_user_id) VALUES (?)',[user]);
@@ -23,6 +43,7 @@ async function wallet(db,user) {
 }
 // Caller owns the transaction; the earn/spend record and wallet commit together.
 async function change(db,{user,delta,key,actor,reason,orderId=null}) {
+  await assertWalletWritable(db);
   identity(user);
   if (!Number.isSafeInteger(delta)||delta===0||!key||key.length>190||!actor||!reason) throw new Error('ARN transaction identity, amount, actor and reason required.');
   const before=await wallet(db,user);
@@ -63,7 +84,7 @@ class ArnTokenLedger {
   async history(user) { return this.using(async db=>{ const [rows]=await db.execute('SELECT * FROM nexus_arn_ledger WHERE discord_user_id=? ORDER BY created_at DESC LIMIT 20',[identity(user)]); return rows; }); }
   async configure({enabled},actor) {
     identity(actor); if(typeof enabled!=='boolean') throw new Error('Explicit enabled state required.');
-    return this.using(async db=>{ await db.beginTransaction(); try {
+    return this.using(async db=>{ await assertWalletWritable(db); await db.beginTransaction(); try {
       const previous=await settings(db,true);
       await db.execute('UPDATE nexus_arn_settings SET enabled=?, earn_rate=?, cache_cost=?, enabled_since=? WHERE id=1',[enabled,1,1,enabled?(previous.enabled?previous.enabled_since:Date.now()):previous.enabled_since]);
       await db.execute('INSERT INTO nexus_arn_admin_audit (id,actor,details) VALUES (?,?,?)',[crypto.randomUUID(),actor,JSON.stringify({enabled,earnRate:1,cacheCost:1,chancePercent:5})]);
@@ -72,12 +93,13 @@ class ArnTokenLedger {
   }
   async adjust({user,delta,key,reason},actor) {
     identity(actor); positive(Math.abs(delta));
-    return this.using(async db=>{ await db.beginTransaction(); try { const result=await change(db,{user,delta,key:`admin:${key}`,actor,reason}); await db.commit(); return result; } catch(e){await db.rollback();throw e;} });
+    return this.using(async db=>{ await assertWalletWritable(db); await db.beginTransaction(); try { const result=await change(db,{user,delta,key:`admin:${key}`,actor,reason}); await db.commit(); return result; } catch(e){await db.rollback();throw e;} });
   }
   async syncParticipation(store) {
     // Read only committed, qualified Anomaly awards from the existing participation engine.
     const state=store.read();
     return this.using(async db=>{
+      await assertWalletWritable(db);
       let awarded=0;
       for(const award of state.awards) {
         const run=state.runs.find(r=>r.id===award.runId), participant=run?.participants.find(p=>p.playerId===award.playerId);

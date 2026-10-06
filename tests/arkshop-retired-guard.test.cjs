@@ -433,8 +433,11 @@ test('retired server setup blocks every ARN ledger entry before MySQL', async ()
     assert.match(hidden.content, /#dino-box-shop/);
   }
   for (const sub of ['configure', 'pause', 'adjust']) {
-    const paused = await handleArn(arnCall(sub), { ledger, shop, config });
-    assert.equal(paused.content, 'ARN settings are handled by the trial tokens; payouts are off during the test week.');
+    await assert.rejects(() => handleArn(arnCall(sub), { ledger, shop, config }), (error) => {
+      assert.equal(error.code, 'ARN_LEDGER_UNAVAILABLE');
+      assert.equal(error.message, 'ARN ledger is not configured.');
+      return true;
+    });
   }
   await assert.rejects(() => handleArn(arnCall('target', 'cacheadmin'), { ledger, shop, config }), (error) => {
     assert.equal(error.message, MEMBER_MESSAGE);

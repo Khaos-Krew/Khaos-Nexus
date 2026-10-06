@@ -64,3 +64,24 @@ test('5% boundary awards one token; losing activity is recorded and cannot rerol
     assert.equal(s.rolls.length,1);
   }
 });
+test('a frozen ARN MySQL wallet rejects writes and still reads', async () => {
+  const { s, db, ledger } = fixture();
+  s.balance = 4;
+  const original = db.query.bind(db);
+  db.query = async (sql) => String(sql).includes('nexus_arn_wallet_freeze') ? [[{ read_only: 1 }]] : original(sql);
+  await assert.rejects(change(db, tx), (error) => error.code === 'ARN_WALLET_READ_ONLY' && /read-only/.test(error.message));
+  await assert.rejects(ledger.configure({ enabled: true }, '12345678'), (error) => error.code === 'ARN_WALLET_READ_ONLY');
+  await assert.rejects(ledger.adjust({ user: '12345678', delta: 1, key: 'freeze', reason: 'freeze' }, '12345678'), (error) => error.code === 'ARN_WALLET_READ_ONLY');
+  const store = { read: () => ({ awards: [], runs: [] }) };
+  await assert.rejects(ledger.syncParticipation(store), (error) => error.code === 'ARN_WALLET_READ_ONLY');
+  assert.equal((await ledger.balance('12345678')).balance, 4);
+  assert.equal(s.balance, 4);
+  db.query = async (sql) => {
+    if (!String(sql).includes('nexus_arn_wallet_freeze')) return original(sql);
+    const error = new Error("Table 'nexus.nexus_arn_wallet_freeze' doesn't exist");
+    error.code = 'ER_NO_SUCH_TABLE';
+    error.errno = 1146;
+    throw error;
+  };
+  assert.equal((await change(db, { ...tx, key: 'after-missing-freeze' })).balance, 9);
+});

@@ -156,6 +156,18 @@ function feedKeyOf(parsed) {
   ].join('|');
 }
 
+// Live credits are keyed on the game event, not the Discord post.
+// A later repost of the same tribe, dino, kind, and in-game id is the same award.
+function gameEventKey(parsed) {
+  const kind = String(parsed?.kind || '').trim().toLowerCase();
+  const tribe = normalizeExactName(parsed?.tribeName || parsed?.tribe || '');
+  const dino = normalizeExactName(parsed?.dinoName || '');
+  const eventId = String(parsed?.eventId || '').replace(/[\r\n\t]+/g, ' ').trim();
+  if (kind !== 'tame' && kind !== 'kill') return '';
+  if (!tribe || !dino || !eventId) return '';
+  return `arn-drop:${kind}|${tribe}|${dino}|${eventId}`;
+}
+
 function normalizeExactName(value) {
   return String(value || '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -433,6 +445,7 @@ function dryJournalEnv(env = process.env) {
     ...env,
     ARN_DRY_RUN: 'true',
     ARN_TOKENS_ENABLED: '',
+    ARN_ECONOMY_WRITES_ENABLED: '',
     NEXUS_ECONOMY_WRITES_ENABLED: ''
   };
 }
@@ -494,55 +507,6 @@ function createArnBook({ loadAccounts = async () => [], env = {}, persistPath = 
         return { ...decision, wroteLedger: decision.wroteLedger === true, ledgerRows: state.ledger.length };
       });
     },
-    spend({ discordUserId, key, orderId, rotation, now = Date.now(), env: spendEnv = env } = {}) {
-      return exclusive(async () => {
-        const flags = arnFlags(spendEnv);
-        if (dryRunOnly || !flags.creditsEnabled) return { ok: false, reason: 'dry-run', debited: false };
-        const accounts = await loadAccounts();
-        const ids = [...new Set(accounts.filter((account) => account.discordUserId === discordUserId && account.economicIdentityId && !String(account.economicIdentityId).startsWith('discord:')).map((account) => account.economicIdentityId))];
-        if (ids.length !== 1) return { ok: false, reason: ids.length ? 'ambiguous' : 'unlinked', debited: false };
-        const account = accounts.find((item) => item.economicIdentityId === ids[0]);
-        if (levelUpStyleSkip(account, spendEnv)) return { ok: false, reason: 'held', debited: false };
-        const spendKey = String(key || orderId || '').trim();
-        if (!spendKey) return { ok: false, reason: 'malformed', debited: false };
-        if (state.ledger.some((row) => row.messageId === spendKey)) return { ok: true, duplicate: true, debited: false, economicIdentityId: ids[0] };
-        if (balanceOf(state, ids[0]) < 1) return { ok: false, reason: 'insufficient', debited: false };
-        const at = Number(now);
-        const after = balanceOf(state, ids[0]) - 1;
-        if (after < 0) return { ok: false, reason: 'insufficient', debited: false };
-        state.ledger.push({
-          messageId: spendKey,
-          economicIdentityId: ids[0],
-          discordUserId,
-          delta: -1,
-          balanceAfter: after,
-          at,
-          currency: CURRENCY,
-          metadata: rotation ? {
-            rotationVersion: rotation.version || rotation.id || '',
-            weights: (rotation.entries || []).map((entry) => ({ name: entry.name, rarity: entry.rarity, weight: entry.weight }))
-          } : null
-        });
-        persist();
-        return { ok: true, debited: true, economicIdentityId: ids[0], key: spendKey, balance: after };
-      });
-    },
-    refund({ economicIdentityId, key, now = Date.now() } = {}) {
-      return exclusive(async () => {
-        const refundKey = `refund:${key}`;
-        if (state.ledger.some((row) => row.messageId === refundKey)) return { ok: true, duplicate: true };
-        state.ledger.push({
-          messageId: refundKey,
-          economicIdentityId,
-          delta: 1,
-          balanceAfter: balanceOf(state, economicIdentityId) + 1,
-          at: Number(now),
-          currency: CURRENCY
-        });
-        persist();
-        return { ok: true };
-      });
-    },
     balanceForDiscord(discordUserId) {
       const ids = [...new Set(state.ledger.filter((row) => row.discordUserId === discordUserId).map((row) => row.economicIdentityId))];
       const fromLedger = ids.reduce((sum, id) => sum + balanceOf(state, id), 0);
@@ -593,6 +557,33 @@ function staleReport(createdAt, now, env = process.env) {
   return now - at >= policy.hardExpiryMs;
 }
 
+async function readMainArnBalance(discordUserId) {
+  try {
+    const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
+    const client = new NexusEconomyClient();
+    if (!client.configured()) return null;
+    const result = await client.arnBalance(discordUserId);
+    if (!result || result.ok === false) return null;
+    return Number(result.balance || 0);
+  } catch (error) {
+    console.warn(`[ARN] balance unavailable: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 200)}`);
+    return null;
+  }
+}
+
+async function resolveLinkedIdentity(account) {
+  if (!account?.eosId || !account?.discordUserId) return null;
+  try {
+    const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
+    const client = new NexusEconomyClient();
+    if (!client.configured()) return null;
+    return await client.arnPreview({ eosId: account.eosId, discordUserId: account.discordUserId });
+  } catch (error) {
+    console.warn(`[ARN] identity preview unavailable: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 200)}`);
+    return null;
+  }
+}
+
 async function observeFromDiscordMessage({
   message,
   payload,
@@ -617,7 +608,45 @@ async function observeFromDiscordMessage({
   };
   if (book) return book.award(report);
   const accounts = await loadLinkedAccounts();
-  return sharedArnBook(env).award({ ...report, accounts, env: dryJournalEnv(env) });
+  const matches = exactNameMatches(accounts, parsed.playerName);
+  if (matches.length === 1) {
+    const resolved = await resolveLinkedIdentity(matches[0]);
+    if (resolved?.economicIdentityId) {
+      matches[0] = {
+        ...matches[0],
+        economicIdentityId: resolved.economicIdentityId,
+        status: resolved.status || '',
+        holdReason: resolved.holdReason || '',
+        missingRow: resolved.missingRow === true
+      };
+    }
+  }
+  const flags = arnFlags(env);
+  if (flags.creditsEnabled && matches.length === 1 && matches[0].eosId) {
+    try {
+      const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
+      const client = new NexusEconomyClient();
+      if (client.configured()) {
+        const live = await client.arnDrop({
+          messageId: report.messageId,
+          parsed,
+          eosId: matches[0].eosId,
+          discordUserId: matches[0].discordUserId,
+          createdAt: Number(message?.createdTimestamp)
+        });
+        return sharedArnBook(env).award({
+          ...report,
+          accounts: matches,
+          env: dryJournalEnv(env),
+          blockedOutcome: live?.outcome || 'ledger-unavailable'
+        });
+      }
+    } catch (error) {
+      console.warn(`[ARN] token credit unavailable: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 200)}`);
+      return sharedArnBook(env).award({ ...report, accounts: matches, env: dryJournalEnv(env), blockedOutcome: 'ledger-unavailable' });
+    }
+  }
+  return sharedArnBook(env).award({ ...report, accounts: matches, env: dryJournalEnv(env) });
 }
 
 module.exports = {
@@ -636,6 +665,7 @@ module.exports = {
   readJournal,
   writeJournal,
   feedKeyOf,
+  gameEventKey,
   normalizeExactName,
   exactNameMatches,
   oddsRoll,
@@ -655,5 +685,6 @@ module.exports = {
   resetSharedArnBookForTest,
   staleReport,
   observeFromDiscordMessage,
-  warnIfJournalUnwritable
+  warnIfJournalUnwritable,
+  readMainArnBalance
 };

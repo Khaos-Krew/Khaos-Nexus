@@ -69,10 +69,16 @@ function openText(result = {}) {
   if (result.debited === true && result.drawn && result.raCalled === true) {
     return `Opened an ARN cache. The tame is ${result.drawn.species}, level ${result.drawn.level}.`;
   }
-  const names = [...new Set((result.rotation?.entries || []).map((entry) => entry.name).filter(Boolean))].join(', ');
+  const names = [...new Set((result.rotation?.entries || []).map((entry) => entry.name).filter(Boolean))];
+  const preview = result.rotation?.preview === true;
+  const listed = names.join(', ');
   return [
-    'Opening an ARN cache costs 1 token and draws one tame from a list of 8.',
-    names ? `This week: ${names}.` : 'This week\'s list is not available.',
+    preview
+      ? 'Opening an ARN cache costs 1 token and draws one tame from a preview of the approved pool.'
+      : 'Opening an ARN cache costs 1 token and draws one tame from a list of 8.',
+    listed
+      ? (preview ? `Preview of the approved pool: ${listed}.` : `This week: ${listed}.`)
+      : (preview ? 'The preview of the approved pool is not available.' : 'This week\'s list is not available.'),
     'The list changes every Monday at 12:00 AM Central time.',
     'Nothing was opened and no tame was sent.'
   ].join('\n');

@@ -35,6 +35,15 @@ const COIN_SHOP_PREPARE_PATHS = new Set([
   '/coin-shop/lookup',
   '/coin-shop/refund-preview'
 ]);
+const ARN_FINANCIAL_PATHS = new Set([
+  '/arn/drop',
+  '/arn/spend',
+  '/arn/refund',
+  '/arn/confirm',
+  '/arn/reconcile',
+  '/arn/pause',
+  '/arn/adjust'
+]);
 const FINANCIAL_WRITE_PATHS = new Set([
   '/wallet/credit',
   '/wallet/spend',
@@ -47,7 +56,8 @@ const FINANCIAL_WRITE_PATHS = new Set([
   '/mc-shop/refund',
   '/mc-shop/refund-sweep',
   ...NP_SHOP_FINANCIAL_PATHS,
-  ...COIN_SHOP_FINANCIAL_PATHS
+  ...COIN_SHOP_FINANCIAL_PATHS,
+  ...ARN_FINANCIAL_PATHS
 ]);
 const MC_NONECONOMY_PATHS = new Set([
   '/mc/link/challenge',
@@ -98,7 +108,7 @@ const CRAFT_ROUTES = new Set([
   'GET /mc/grants'
 ]);
 const WRITE_PATHS = new Set([...PRESENCE_WRITE_PATHS, ...FINANCIAL_WRITE_PATHS]);
-const POST_PATHS = new Set([...DRAIN_MUTATION_PATHS, ...WRITE_PATHS, ...MC_NONECONOMY_PATHS, '/shop/quote']);
+const POST_PATHS = new Set([...DRAIN_MUTATION_PATHS, ...WRITE_PATHS, ...MC_NONECONOMY_PATHS, '/shop/quote', '/arn/preview']);
 
 function enabled(value) {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
@@ -312,6 +322,18 @@ function drainMutationGate(path, { lifecycle = {} }) {
   return { statusCode: 503, body: { ok: false, error: 'economy-worker-draining', draining: true } };
 }
 
+function arnRequestBody(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+  const body = { ...input };
+  delete body.env;
+  delete body.workerEnv;
+  delete body.roll;
+  delete body.seed;
+  delete body.creditsEnabled;
+  delete body.graceMs;
+  return body;
+}
+
 function writeGate(path, options = {}) {
   const writesEnabled = Boolean(options.writesEnabled);
   const presenceWritesEnabled = options.presenceWritesEnabled == null ? writesEnabled : Boolean(options.presenceWritesEnabled);
@@ -338,6 +360,12 @@ function writeGate(path, options = {}) {
     }
     return null;
   }
+  if (ARN_FINANCIAL_PATHS.has(path)) {
+    if (options.arnEconomyWritesEnabled !== true) {
+      return { statusCode: 503, body: { ok: false, error: 'economy-write-cutover-not-enabled', writesEnabled: false } };
+    }
+    return null;
+  }
   if (!writesEnabled) {
     return { statusCode: 503, body: { ok: false, error: 'economy-write-cutover-not-enabled', writesEnabled: false } };
   }
@@ -354,6 +382,7 @@ function mutationRequestGate(path, options = {}) {
     presenceWritesEnabled,
     npShopWritesEnabled: options.npShopWritesEnabled === true,
     coinShopSpendEnabled: options.coinShopSpendEnabled === true,
+    arnEconomyWritesEnabled: options.arnEconomyWritesEnabled === true,
     lifecycle
   });
 }
@@ -441,6 +470,9 @@ function createEconomyServer(options = {}) {
   const presenceWritesEnabled = options.presenceWritesEnabled == null
     ? (presenceEnv ? enabled(presenceEnv) : writesEnabled)
     : Boolean(options.presenceWritesEnabled);
+  const arnEconomyWritesEnabled = options.arnEconomyWritesEnabled == null
+    ? enabled(process.env.ARN_ECONOMY_WRITES_ENABLED)
+    : Boolean(options.arnEconomyWritesEnabled);
   const lifecycle = { draining: false, signal: null };
 
   const server = http.createServer(async (req, res) => {
@@ -556,6 +588,11 @@ function createEconomyServer(options = {}) {
         const discordUserId = decodeURIComponent(url.pathname.slice('/mc/link/'.length));
         return json(res, 200, await Promise.resolve(worker.minecraft.status({ discordUserId })));
       }
+      if (req.method === 'GET' && url.pathname.startsWith('/arn/balance/')) {
+        const discordUserId = decodeURIComponent(url.pathname.slice('/arn/balance/'.length));
+        if (typeof worker.arnBalance !== 'function') return json(res, 200, { ok: false, reason: 'arn-unavailable', balance: 0 });
+        return json(res, 200, await Promise.resolve(worker.arnBalance(discordUserId)));
+      }
       if (req.method === 'GET' && url.pathname.startsWith('/shop/order/')) {
         const orderId = decodeURIComponent(url.pathname.slice('/shop/order/'.length));
         const order = await Promise.resolve(shop.order(orderId));
@@ -563,12 +600,12 @@ function createEconomyServer(options = {}) {
       }
 
       if (req.method !== 'POST') return json(res, 404, { ok: false, error: 'not-found' });
-      const mutationGate = mutationRequestGate(url.pathname, { writesEnabled, presenceWritesEnabled, npShopWritesEnabled, coinShopSpendEnabled, lifecycle });
+      const mutationGate = mutationRequestGate(url.pathname, { writesEnabled, presenceWritesEnabled, npShopWritesEnabled, coinShopSpendEnabled, arnEconomyWritesEnabled, lifecycle });
       if (mutationGate) return json(res, mutationGate.statusCode, mutationGate.body);
       if (!POST_PATHS.has(url.pathname)) return json(res, 404, { ok: false, error: 'not-found' });
 
       const input = await body(req);
-      const executionGate = mutationRequestGate(url.pathname, { writesEnabled, presenceWritesEnabled, npShopWritesEnabled, coinShopSpendEnabled, lifecycle });
+      const executionGate = mutationRequestGate(url.pathname, { writesEnabled, presenceWritesEnabled, npShopWritesEnabled, coinShopSpendEnabled, arnEconomyWritesEnabled, lifecycle });
       if (executionGate) return json(res, executionGate.statusCode, executionGate.body);
 
       if (url.pathname === '/identity/link') {
@@ -593,6 +630,38 @@ function createEconomyServer(options = {}) {
         return json(res, 200, { ok: true, result: ensured });
       }
       if (url.pathname === '/shop/quote') return json(res, 200, { ok: true, quote: shop.quote(input), writesEnabled });
+      if (url.pathname === '/arn/preview') {
+        if (typeof worker.arnPreview !== 'function') return json(res, 200, { ok: false, reason: 'arn-unavailable' });
+        return json(res, 200, await Promise.resolve(worker.arnPreview(arnRequestBody(input))));
+      }
+      if (url.pathname === '/arn/drop') {
+        if (typeof worker.arnDrop !== 'function') return json(res, 200, { ok: false, reason: 'arn-unavailable' });
+        return json(res, 200, await Promise.resolve(worker.arnDrop(arnRequestBody(input))));
+      }
+      if (url.pathname === '/arn/spend') {
+        if (typeof worker.arnSpend !== 'function') return json(res, 200, { ok: false, reason: 'arn-unavailable' });
+        return json(res, 200, await Promise.resolve(worker.arnSpend(arnRequestBody(input))));
+      }
+      if (url.pathname === '/arn/refund') {
+        if (typeof worker.arnRefund !== 'function') return json(res, 200, { ok: false, reason: 'arn-unavailable' });
+        return json(res, 200, await Promise.resolve(worker.arnRefund(arnRequestBody(input))));
+      }
+      if (url.pathname === '/arn/confirm') {
+        if (typeof worker.arnConfirm !== 'function') return json(res, 200, { ok: false, reason: 'arn-unavailable' });
+        return json(res, 200, await Promise.resolve(worker.arnConfirm(arnRequestBody(input))));
+      }
+      if (url.pathname === '/arn/reconcile') {
+        if (typeof worker.arnReconcile !== 'function') return json(res, 200, { ok: false, reason: 'arn-unavailable' });
+        return json(res, 200, await Promise.resolve(worker.arnReconcile(arnRequestBody(input))));
+      }
+      if (url.pathname === '/arn/pause') {
+        if (typeof worker.arnPause !== 'function') return json(res, 200, { ok: false, reason: 'arn-unavailable' });
+        return json(res, 200, await Promise.resolve(worker.arnPause(arnRequestBody(input))));
+      }
+      if (url.pathname === '/arn/adjust') {
+        if (typeof worker.arnAdjust !== 'function') return json(res, 200, { ok: false, reason: 'arn-unavailable' });
+        return json(res, 200, await Promise.resolve(worker.arnAdjust(arnRequestBody(input))));
+      }
       if (url.pathname === '/presence') {
         if (scope === 'craft' && !craftMinecraftPresence(input)) {
           return json(res, 403, { ok: false, error: 'craft-presence-scope' });
@@ -740,6 +809,7 @@ module.exports = {
   NP_SHOP_FINANCIAL_PATHS,
   COIN_SHOP_FINANCIAL_PATHS,
   COIN_SHOP_PREPARE_PATHS,
+  ARN_FINANCIAL_PATHS,
   MC_NONECONOMY_PATHS,
   ARK_NONECONOMY_PATHS,
   ARK_DELIVERY_ROUTES,
@@ -757,6 +827,7 @@ module.exports = {
   runtimeOperationalReadiness,
   drainMutationGate,
   writeGate,
+  arnRequestBody,
   mutationRequestGate,
   walletReadAccrualPermitted,
   presenceBody,

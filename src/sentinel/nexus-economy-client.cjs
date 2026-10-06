@@ -25,6 +25,17 @@ function configured() {
   return Boolean(String(process.env.NEXUS_ECONOMY_URL || '').trim() && String(process.env.NEXUS_ECONOMY_TOKEN || '').trim());
 }
 
+function arnRequestBody(input) {
+  const body = { ...(input || {}) };
+  delete body.env;
+  delete body.workerEnv;
+  delete body.roll;
+  delete body.seed;
+  delete body.creditsEnabled;
+  delete body.graceMs;
+  return body;
+}
+
 function request(pathname, { method = 'GET', body = null, timeoutMs = 8000, acceptedStatusCodes = [] } = {}) {
   const base = String(process.env.NEXUS_ECONOMY_URL || '').trim().replace(/\/$/, '');
   const token = String(process.env.NEXUS_ECONOMY_TOKEN || '').trim();
@@ -210,6 +221,26 @@ class NexusEconomyClient {
   coinShopMarkEquipped(input) { return request('/coin-shop/mark-equipped', { method: 'POST', body: input, acceptedStatusCodes: [409, 503] }); }
   coinShopEntitlements(discordUserId) { return request(`/coin-shop/entitlements/${encodeURIComponent(String(discordUserId || ''))}`); }
   coinShopLookup(input) { return request('/coin-shop/lookup', { method: 'POST', body: input, acceptedStatusCodes: [409, 503] }); }
+
+  arnBalance(discordUserId) {
+    return request(`/arn/balance/${encodeURIComponent(String(discordUserId || ''))}`);
+  }
+
+  arnPreview(input) { return request('/arn/preview', { method: 'POST', body: arnRequestBody(input) }); }
+
+  arnDrop(input) { return request('/arn/drop', { method: 'POST', body: arnRequestBody(input), acceptedStatusCodes: [503] }); }
+
+  arnSpend(input) { return request('/arn/spend', { method: 'POST', body: arnRequestBody(input), acceptedStatusCodes: [503] }); }
+
+  arnRefund(input) { return request('/arn/refund', { method: 'POST', body: arnRequestBody(input), acceptedStatusCodes: [503] }); }
+
+  arnConfirm(input) { return request('/arn/confirm', { method: 'POST', body: arnRequestBody(input), acceptedStatusCodes: [503] }); }
+
+  arnReconcile(input) { return request('/arn/reconcile', { method: 'POST', body: arnRequestBody(input), acceptedStatusCodes: [503] }); }
+
+  arnPause(input) { return request('/arn/pause', { method: 'POST', body: arnRequestBody(input), acceptedStatusCodes: [503] }); }
+
+  arnAdjust(input) { return request('/arn/adjust', { method: 'POST', body: arnRequestBody(input), acceptedStatusCodes: [503] }); }
 }
 
-module.exports = { configured, NexusEconomyClient };
+module.exports = { configured, arnRequestBody, NexusEconomyClient };

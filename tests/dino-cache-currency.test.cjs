@@ -13,6 +13,7 @@ const {
   shopCurrencyCopy
 } = require('../src/shared/dino-cache-currency.cjs');
 const { arkMemberText } = require('../src/shared/ark-np-member-text.cjs');
+const { spendWithClient } = require('../src/economy-worker/arn-tokens-postgres.cjs');
 const {
   cacheIds,
   cachePanelPayload,
@@ -119,5 +120,24 @@ test('shop copy names the accepted currency on every cache', () => {
   assert.match(arkMemberText('currency-not-accepted'), /does not accept that currency/);
   assert.match(arkMemberText('currency-not-accepted'), /Nothing was spent/);
   const shop = fs.readFileSync(path.join(__dirname, '../src/sentinel/ark-dino-box-shop-extension.cjs'), 'utf8');
-  assert.doesNotMatch(shop, /\/arn\/preview|\/arn\/balance|arnSpend|ledger\.spend/);
+  assert.match(shop, /arnSpend|arnRefund/);
+});
+
+test('ARN spend rejects every non-ARN pairing before it opens a transaction', async () => {
+  const client = { async query() { throw new Error('should-not-query'); } };
+  for (const [sku] of Object.entries(EXPECTED_PRICES)) {
+    for (const currency of CURRENCIES) {
+      const result = await spendWithClient(client, { cacheId: sku, currency, orderId: `${sku}-${currency}`, workerEnv: {} });
+      assert.equal(result.ok, false);
+      assert.equal(result.reason, 'currency-not-accepted');
+      assert.equal(result.debited, false);
+    }
+  }
+  for (const currency of [NEXUS_POINTS, CACHE_TOKENS]) {
+    const result = await spendWithClient(client, { cacheId: 'arn', currency, orderId: `arn-${currency}` });
+    assert.equal(result.reason, 'currency-not-accepted');
+  }
+  const dry = await spendWithClient(client, { cacheId: 'arn', currency: ARN_TOKENS, orderId: 'arn-order', workerEnv: {}, env: { ARN_DRY_RUN: 'false', NEXUS_ECONOMY_WRITES_ENABLED: 'true' } });
+  assert.equal(dry.reason, 'dry-run');
+  assert.equal(dry.debited, false);
 });

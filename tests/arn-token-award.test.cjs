@@ -15,6 +15,7 @@ const {
   exactNameMatches,
   oddsRoll,
   oddsHit,
+  gameEventKey,
   createArnBook,
   journalPath,
   DEFAULT_JOURNAL,
@@ -33,12 +34,30 @@ const {
   nextCtWeekStart,
   arnRotation,
   drawTame,
+  deliveryPermitted,
   openArnCache,
-  rotationSecret
+  rotationSecret,
+  PUBLIC_ROTATION_SECRET
 } = require('../src/sentinel/arn-cache-rotation.cjs');
 const { weekStart, WEEKLY_CACHE_RETIRED: weeklyRetired, APPROVED } = require('../src/sentinel/ark-weekly-cache.cjs');
 const { arnFlags } = require('../src/shared/arn-flags.cjs');
 const { arkNpFlags } = require('../src/shared/ark-np-flags.cjs');
+const {
+  awardDropWithClient,
+  spendWithClient,
+  refundWithClient,
+  confirmDeliveryWithClient,
+  reconcileWithClient,
+  setPausedWithClient,
+  adjustWithClient,
+  balanceForDiscord,
+  dropKey,
+  spendKey,
+  refundKey,
+  adjustKey,
+  windows
+} = require('../src/economy-worker/arn-tokens-postgres.cjs');
+const { writeGate, ARN_FINANCIAL_PATHS, POST_PATHS, WRITE_PATHS } = require('../src/economy-worker/server.cjs');
 const { SUPPORTED_CURRENCIES } = require('../src/sentinel/nexus-economy-postgres-repository.cjs');
 const { handle, command } = require('../src/sentinel/arn-cache-extension.cjs');
 const { tokenText, openText, openPointerText, copyHasBotName } = require('../src/sentinel/arn-member-copy.cjs');
@@ -55,7 +74,8 @@ const { loadGuideConfig } = require('../src/sentinel/nexus-guide-extension.cjs')
 
 const LIVE = {
   ARN_DRY_RUN: 'false',
-  NEXUS_ECONOMY_WRITES_ENABLED: 'true',
+  ARN_TOKENS_ENABLED: 'true',
+  ARN_ECONOMY_WRITES_ENABLED: 'true',
   ARN_TAME_DROPS_ENABLED: 'true',
   ARN_KILL_DROPS_ENABLED: 'true'
 };
@@ -76,6 +96,20 @@ function account(overrides = {}) {
 
 function tame(playerName = 'Player', dinoName = 'Filthy Pastel Dodo') {
   return { ok: true, kind: 'tame', playerName, dinoName, mapName: 'Astraeos', serverName: '' };
+}
+
+function keyed(parsed, eventId, tribeName = 'Blue Tribe') {
+  return { ...parsed, tribeName, eventId: String(eventId) };
+}
+
+function eventForRoll(seed, wantHit, kind = 'tame', dino = 'Roll Dodo') {
+  const threshold = kind === 'kill' ? 1000 : 2500;
+  for (let index = 0; index < 20000; index += 1) {
+    const parsed = keyed(kind === 'kill' ? kill('Player', dino) : tame('Player', dino), `event-${index}`);
+    const hit = oddsRoll(seed, gameEventKey(parsed)) < threshold;
+    if (hit === wantHit) return parsed;
+  }
+  throw new Error('no matching ARN roll');
 }
 
 function kill(playerName = 'Survivor', dinoName = 'Enraged Rex') {
@@ -104,7 +138,19 @@ test('parses recorded tame and kill reports and rejects malformed or duplicate p
   assert.equal(killReport.kind, 'kill');
   assert.equal(killReport.playerName, 'Survivor');
 
-  const markerTame = parseArnReport({ embeds: [{ description: 'NEXUS|TAMED|Shiny Rex|Survivor|Genesis One|Genesis Part 1' }] });
+  const markerTame = parseArnReport({ embeds: [{ description: 'NEXUS|TAMED|Shiny Rex|Survivor|Genesis One|Genesis Part 1|Blue Tribe|1700000001' }] });
+  assert.equal(markerTame.tribeName, 'Blue Tribe');
+  assert.equal(markerTame.eventId, '1700000001');
+  assert.equal(gameEventKey(markerTame), 'arn-drop:tame|Blue Tribe|Shiny Rex|1700000001');
+  const embedKeyed = parseArnReport({
+    embeds: [{
+      description: 'NEXUS|TAMED|Shiny Rex|Survivor|Genesis One|Genesis Part 1',
+      fields: [{ name: 'Tribe', value: 'Red Tribe' }, { name: 'Id', value: 'evt-9' }]
+    }]
+  });
+  assert.equal(embedKeyed.tribeName, 'Red Tribe');
+  assert.equal(embedKeyed.eventId, 'evt-9');
+  assert.equal(gameEventKey(tameReport), '');
   const markerKill = parseArnReport({ embeds: [{ description: 'NEXUS|KILLED|Shiny Rex|Survivor|Genesis One|Genesis Part 1' }] });
   assert.equal(markerTame.kind, 'tame');
   assert.equal(markerTame.playerName, 'Survivor');
@@ -329,11 +375,22 @@ test('dry run and flags-off write no ledger rows', async () => {
   assert.equal(arnFlags({ ARN_TAME_ODDS_BP: '1000' }).tameOddsBp, 1000);
   assert.equal(arnFlags({ ARN_KILL_ODDS_BP: '2500' }).killOddsBp, 2500);
   assert.equal(arnFlags({ NEXUS_ECONOMY_PRESENCE_WRITES_ENABLED: 'true', ARN_DRY_RUN: 'false' }).creditsEnabled, false);
-  assert.equal(arnFlags({ ARN_ECONOMY_WRITES_ENABLED: 'true', ARN_DRY_RUN: 'false' }).creditsEnabled, true);
+  assert.equal(arnFlags({ ARN_ECONOMY_WRITES_ENABLED: 'true', ARN_DRY_RUN: 'false' }).creditsEnabled, false);
+  assert.equal(arnFlags({ ARN_TOKENS_ENABLED: 'true', ARN_DRY_RUN: 'false' }).creditsEnabled, false);
+  assert.equal(arnFlags({ NEXUS_ECONOMY_WRITES_ENABLED: 'true', ARN_TOKENS_ENABLED: 'true', ARN_DRY_RUN: 'false' }).creditsEnabled, false);
+  assert.equal(arnFlags({ ARN_TOKENS_ENABLED: 'true', ARN_ECONOMY_WRITES_ENABLED: 'true', ARN_DRY_RUN: 'false' }).creditsEnabled, true);
   assert.equal(arnFlags({ NEXUS_ECONOMY_WRITES_ENABLED: 'true', ARN_DRY_RUN: 'false' }).dropsEnabled('tame'), false);
   assert.equal(arnFlags(LIVE).creditsEnabled, true);
   assert.equal(arnFlags(LIVE).dropsEnabled('kill'), true);
   assert.equal(arkNpFlags({}).dryRun, true);
+  assert.equal(POST_PATHS.has('/arn/preview'), true);
+  assert.equal(WRITE_PATHS.has('/arn/preview'), false);
+  assert.equal(writeGate('/arn/preview', { writesEnabled: false, presenceWritesEnabled: true }), null);
+  for (const path of ARN_FINANCIAL_PATHS) {
+    assert.equal(writeGate(path, { writesEnabled: false, presenceWritesEnabled: true }).body.error, 'economy-write-cutover-not-enabled');
+    assert.equal(writeGate(path, { writesEnabled: false, arnEconomyWritesEnabled: true }), null);
+    assert.equal(writeGate(path, { writesEnabled: true, presenceWritesEnabled: false }).body.error, 'economy-write-cutover-not-enabled');
+  }
 
   const now = Date.parse('2026-10-07T15:00:00.000Z');
   const killBook = bookFor(account(), {});
@@ -384,17 +441,18 @@ test('the tame list has 8 creatures and changes on Monday at Central midnight', 
 });
 
 test('opening a cache stays on the dry-run delivery path', async () => {
-  const rotationSource = fs.readFileSync(path.join(__dirname, '../src/sentinel/arn-cache-rotation.cjs'), 'utf8');
-  assert.doesNotMatch(rotationSource, /deliverPreparedOrder|ledger\.spend|book\.spend|\.refund\(|function deliveryPermitted|function buildArnDeliveryOrder/);
-  assert.equal(fs.existsSync(path.join(__dirname, '../src/economy-worker/arn-tokens-postgres.cjs')), false);
+  assert.equal(deliveryPermitted({}), false);
+  assert.equal(deliveryPermitted(LIVE), false);
   let calls = 0;
-  const deliver = () => { calls += 1; return { ok: true, raCalled: true }; };
   const closed = await openArnCache({
     env: {},
     now: Date.parse('2026-10-07T15:00:00.000Z'),
     discordUserId: DISCORD,
     secret: SECRET,
-    deliver
+    deliver() {
+      calls += 1;
+      return { ok: true, raCalled: true };
+    }
   });
   assert.equal(calls, 0);
   assert.equal(closed.raCalled, false);
@@ -406,55 +464,277 @@ test('opening a cache stays on the dry-run delivery path', async () => {
     ARK_SHOP_DRY_RUN: 'false',
     ARK_SHOP_DELIVERY_ENABLED: 'true'
   };
+  const unarmed = await openArnCache({
+    env: permitted,
+    now: Date.parse('2026-10-07T15:00:00.000Z'),
+    discordUserId: DISCORD,
+    secret: SECRET,
+    deliver() {
+      calls += 1;
+      return { ok: true, raCalled: true };
+    }
+  });
+  assert.equal(calls, 0);
+  assert.equal(unarmed.debited, false);
+
   const now = Date.parse('2026-10-07T15:00:00.000Z');
   const book = bookFor(account(), LIVE);
   await book.award({ messageId: 'bank', parsed: tame('Player', 'Bank One'), roll: 0, now, env: LIVE });
   const balance = book.balanceForDiscord(DISCORD);
-  const sent = await openArnCache({
+  const journal = await openArnCache({
     env: permitted,
     now,
     discordUserId: DISCORD,
     secret: SECRET,
     book,
-    deliver
+    deliver: async () => {
+      calls += 1;
+      return { ok: true, raCalled: true };
+    }
   });
   assert.equal(calls, 0);
-  assert.equal(sent.debited, false);
-  assert.equal(sent.raCalled, false);
-  assert.equal(sent.reason, 'dry-run');
+  assert.equal(journal.debited, false);
+  assert.equal(journal.raCalled, false);
+  assert.equal(journal.reason, 'dry-run');
   assert.equal(book.balanceForDiscord(DISCORD), balance);
   assert.equal(book.state.ledger.some((row) => row.delta < 0), false);
+  const awardSource = fs.readFileSync(path.join(__dirname, '../src/sentinel/arn-token-award.cjs'), 'utf8');
+  assert.doesNotMatch(awardSource, /\bspend\s*\(/);
+  assert.doesNotMatch(awardSource, /\brefund\s*\(/);
+  const rotationSource = fs.readFileSync(path.join(__dirname, '../src/sentinel/arn-cache-rotation.cjs'), 'utf8');
+  assert.doesNotMatch(rotationSource, /book\.spend|book\.refund/);
 });
 
-test('the dry run does not call the economy worker', () => {
-  const files = [
-    'src/sentinel/arn-token-award.cjs',
-    'src/sentinel/arn-cache-extension.cjs',
-    'src/sentinel/ark-dino-box-shop-extension.cjs'
-  ];
-  const workerCall = /\/arn\/preview|\/arn\/balance|\/arn\/drop|\/arn\/spend|\/arn\/refund|arnPreview|arnBalance|arnDrop|awardLiveReport|readMainArnBalance|applyArnCurrencyMigration/;
-  for (const file of files) {
-    const src = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
-    assert.doesNotMatch(src, workerCall);
-    assert.doesNotMatch(src, /new Pool/);
+test('postgres award locks inside the transaction and dry run skips the ledger', async () => {
+  function fakeClient(identityRows, { day = '0', week = '0', paused = false } = {}) {
+    const calls = [];
+    const ledger = [];
+    const events = [];
+    const capParams = [];
+    return {
+      calls,
+      ledger,
+      events,
+      capParams,
+      async query(text, params = []) {
+        calls.push(String(text));
+        if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK' || /pg_advisory_xact_lock/.test(text)) return { rows: [] };
+        if (/SELECT NOW\(\)/.test(text)) return { rows: [{ now: '2026-10-07T15:00:00.000Z' }] };
+        if (/nexus_economy_arn_control/.test(text)) return { rows: paused ? [{ paused: true }] : [] };
+        if (/nexus_economic_identities/.test(text)) return { rows: identityRows };
+        if (/arn-cap-count/.test(text)) {
+          capParams.push(params);
+          return { rows: [{ day_count: day, week_count: week }] };
+        }
+        if (/nexus_economy_arn_events WHERE event_key/.test(text)) {
+          const row = events.find((item) => item.event_key === params[0]);
+          return { rows: row ? [row] : [] };
+        }
+        if (/INSERT INTO .*nexus_economy_arn_events/.test(text)) {
+          events.push({ event_key: params[0], outcome: params[3], economic_identity_id: params[2] });
+          return { rows: [] };
+        }
+        if (/INSERT INTO .*nexus_economy_ledger/.test(text)) {
+          ledger.push({ params, text: String(text) });
+          return { rows: [] };
+        }
+        if (/SELECT balance FROM/.test(text)) return { rows: [] };
+        return { rows: [] };
+      }
+    };
   }
-  const server = fs.readFileSync(path.join(__dirname, '../src/economy-worker/server.cjs'), 'utf8');
-  const client = fs.readFileSync(path.join(__dirname, '../src/sentinel/nexus-economy-client.cjs'), 'utf8');
-  assert.doesNotMatch(server, /\/arn\/preview|\/arn\/balance|\/arn\/drop|\/arn\/spend|\/arn\/refund/);
-  assert.doesNotMatch(client, /arnPreview|arnBalance|arnDrop|arnSpend|arnRefund/);
+
+  const verified = [{ economic_identity_id: 'econ-player', status: 'verified', hold_reason: '' }];
+  const clock = Date.parse('2026-10-07T15:00:00.000Z');
+  const liveEnv = { ...LIVE, ARN_ROTATION_SECRET: SECRET };
+  const dry = fakeClient(verified);
+  const dryParsed = eventForRoll('arn-tokens-v1', true, 'tame', 'Dry Dodo');
+  const dryResult = await awardDropWithClient(dry, {
+    messageId: 'pg-dry',
+    parsed: dryParsed,
+    roll: 9999,
+    seed: 'attacker',
+    eosId: 'EOS_PLAYER_01',
+    discordUserId: DISCORD,
+    workerEnv: {},
+    env: LIVE
+  });
+  assert.equal(dryResult.outcome, 'would-credit');
+  assert.notEqual(dryResult.observation.roll, 9999);
+  assert.equal(dryResult.wroteLedger, false);
+  assert.equal(dry.ledger.length, 0);
+  const nowAt = dry.calls.findIndex((sql) => sql.includes('SELECT NOW()'));
+  const lockAt = dry.calls.findIndex((sql) => sql.includes('pg_advisory_xact_lock'));
+  const capAt = dry.calls.findIndex((sql) => sql.includes('arn-cap-count'));
+  const identityAt = dry.calls.findIndex((sql) => sql.includes('FOR UPDATE'));
+  assert.ok(nowAt >= 0 && lockAt > nowAt && identityAt > lockAt && capAt > identityAt);
+  assert.equal(dry.calls.some((sql) => /CREATE|nexus_arn_wallets|nexus_arn_ledger|new Pool/.test(sql)), false);
+
+  const unkeyed = await awardDropWithClient(fakeClient(verified), {
+    messageId: 'discord-only',
+    parsed: tame('Player', 'Unkeyed Dodo'),
+    roll: 0,
+    createdAt: clock,
+    eosId: 'EOS_PLAYER_01',
+    discordUserId: DISCORD,
+    workerEnv: liveEnv
+  });
+  assert.equal(unkeyed.outcome, 'event-unkeyed');
+  assert.equal(unkeyed.wroteLedger, false);
+
+  const live = fakeClient(verified);
+  const liveParsed = eventForRoll(SECRET, true, 'tame', 'Live Dodo');
+  const liveResult = await awardDropWithClient(live, {
+    messageId: 'pg-live',
+    parsed: liveParsed,
+    roll: 9999,
+    seed: 'attacker',
+    createdAt: clock,
+    eosId: 'EOS_PLAYER_01',
+    discordUserId: DISCORD,
+    workerEnv: liveEnv,
+    env: {}
+  });
+  assert.equal(liveResult.outcome, 'credited');
+  assert.equal(liveResult.wroteLedger, true);
+  assert.notEqual(liveResult.observation.roll, 9999);
+  assert.equal(live.ledger.length, 1);
+  assert.match(live.ledger[0].text, /ARN_TOKENS/);
+  assert.match(live.ledger[0].text, /arn_drop/);
+  assert.equal(live.ledger[0].params[2], dropKey(liveParsed));
+  assert.equal(JSON.parse(live.ledger[0].params[3]).discordMessageId, 'pg-live');
+  const repost = await awardDropWithClient(live, {
+    messageId: 'pg-live-repost',
+    parsed: liveParsed,
+    roll: 0,
+    createdAt: clock + 1000,
+    eosId: 'EOS_PLAYER_01',
+    discordUserId: DISCORD,
+    workerEnv: liveEnv
+  });
+  assert.equal(repost.outcome, 'duplicate');
+  assert.equal(repost.wroteLedger, false);
+  assert.equal(live.ledger.length, 1);
+
+  const weekClient = fakeClient(verified, { week: '10' });
+  const weekParsed = eventForRoll(SECRET, true, 'tame', 'Week Dodo');
+  const weekResult = await awardDropWithClient(weekClient, {
+    messageId: 'pg-week',
+    parsed: weekParsed,
+    roll: 0,
+    createdAt: clock,
+    eosId: 'EOS_PLAYER_01',
+    discordUserId: DISCORD,
+    workerEnv: liveEnv
+  });
+  assert.equal(weekResult.outcome, 'cap-week');
+  assert.equal(weekClient.ledger.length, 0);
+  const weekLock = weekClient.calls.findIndex((sql) => sql.includes('pg_advisory_xact_lock'));
+  const weekCap = weekClient.calls.findIndex((sql) => sql.includes('arn-cap-count'));
+  assert.ok(weekLock >= 0 && weekCap > weekLock);
+  const bounds = windows(clock);
+  assert.equal(weekClient.capParams[0][1], new Date(bounds.dayStart).toISOString());
+  assert.equal(weekClient.capParams[0][3], new Date(bounds.weekStart).toISOString());
+  assert.equal(weekClient.capParams[0][4], new Date(bounds.weekEnd).toISOString());
+
+  const dayClient = fakeClient(verified, { day: String(DAY_CAP) });
+  const dayResult = await awardDropWithClient(dayClient, {
+    messageId: 'pg-day',
+    parsed: eventForRoll(SECRET, true, 'tame', 'Day Dodo'),
+    createdAt: clock,
+    eosId: 'EOS_PLAYER_01',
+    discordUserId: DISCORD,
+    workerEnv: liveEnv
+  });
+  assert.equal(dayResult.outcome, 'cap-day');
+  assert.equal(dayClient.ledger.length, 0);
+
+  const paused = await awardDropWithClient(fakeClient(verified, { paused: true }), {
+    messageId: 'pg-paused',
+    parsed: keyed(tame('Player', 'Paused Dodo'), 'paused-1'),
+    roll: 0,
+    createdAt: clock,
+    eosId: 'EOS_PLAYER_01',
+    discordUserId: DISCORD,
+    workerEnv: liveEnv
+  });
+  assert.equal(paused.outcome, 'paused');
+  assert.equal(paused.wroteLedger, false);
+
+  const missed = await awardDropWithClient(fakeClient(verified), {
+    messageId: 'pg-miss',
+    parsed: eventForRoll(SECRET, false, 'tame', 'Miss Dodo'),
+    roll: 0,
+    createdAt: clock,
+    eosId: 'EOS_PLAYER_01',
+    discordUserId: DISCORD,
+    workerEnv: liveEnv
+  });
+  assert.equal(missed.outcome, 'miss');
+  assert.equal(missed.wroteLedger, false);
+
+  const held = fakeClient([{ economic_identity_id: 'econ-player', status: 'restricted', hold_reason: 'o9-demote' }]);
+  const heldResult = await awardDropWithClient(held, {
+    messageId: 'pg-held',
+    parsed: keyed(tame('Player', 'Held Dodo'), 'held-1'),
+    roll: 0,
+    createdAt: clock,
+    eosId: 'EOS_PLAYER_01',
+    discordUserId: DISCORD,
+    workerEnv: liveEnv
+  });
+  assert.equal(heldResult.outcome, 'held');
+  assert.equal(held.ledger.length, 0);
+
+  const missing = fakeClient([]);
+  const missingResult = await awardDropWithClient(missing, {
+    messageId: 'pg-missing',
+    parsed: keyed(tame('Player', 'Missing Dodo'), 'missing-1'),
+    roll: 0,
+    eosId: 'EOS_PLAYER_01',
+    discordUserId: DISCORD,
+    workerEnv: {}
+  });
+  assert.equal(missingResult.outcome, 'identity-unresolved');
+  assert.equal(missingResult.wroteLedger, false);
+});
+
+test('the award writer does not open a pool or create tables', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../src/economy-worker/arn-tokens-postgres.cjs'), 'utf8');
+  const runtime = fs.readFileSync(path.join(__dirname, '../src/economy-worker/postgres-runtime.cjs'), 'utf8');
+  const bot = fs.readFileSync(path.join(__dirname, '../src/sentinel/arn-token-award.cjs'), 'utf8');
+  assert.doesNotMatch(awardDropWithClient.toString(), /CREATE TABLE|new Pool/);
+  assert.doesNotMatch(source, /nexus_arn_wallets|nexus_arn_ledger|require\('pg'\)|new Pool|DROP CONSTRAINT|replaceCurrencyCheck|input\.env|input\.economicIdentityId|arn-dry-run|readJournal|migrateLegacyArnBalances/);
+  assert.match(source, /gameEventKey\(parsed\)/);
+  assert.match(bot, /arn-drop:/);
+  assert.match(source, /arn_drop/);
+  const spendFn = source.slice(source.indexOf('async function loadSpendIdentity'), source.indexOf('async function deliveryMarker'));
+  assert.doesNotMatch(spendFn, /DISTINCT/);
+  assert.match(spendFn, /FOR UPDATE OF i/);
+  const awardFn = source.slice(source.indexOf('async function awardDropWithClient'), source.indexOf('async function previewIdentityWithClient'));
+  assert.doesNotMatch(awardFn, /\.\.\.input/);
+  assert.doesNotMatch(runtime, /applyArnCurrencyMigration|arn-tokens-migration|DROP CONSTRAINT|replaceCurrencyCheck|migrateLegacyArnBalances|arn-dry-run/);
+  assert.doesNotMatch(bot, /applyArnCurrencyMigration|CREATE TABLE|new Pool/);
+  const dropAt = bot.indexOf('client.arnDrop(');
+  const previewAt = bot.indexOf('client.arnPreview(');
+  const dropCall = bot.slice(dropAt, bot.indexOf(');', dropAt));
+  const previewCall = bot.slice(previewAt, bot.indexOf(');', previewAt));
+  assert.doesNotMatch(dropCall, /\benv\b|\broll\b|\bseed\b/);
+  assert.doesNotMatch(previewCall, /\benv\b/);
 });
 
 test('member copy stays plain and there is no exchange into Points, Coins, or cache tokens', async () => {
   assert.deepEqual(SUPPORTED_CURRENCIES, ['NEXUS_COINS', 'NEXUS_POINTS', 'DINO_CACHE_TOKENS']);
   const wallet = fs.readFileSync(path.join(__dirname, '../src/sentinel/wallet-adjust-commands.cjs'), 'utf8');
   const catalog = fs.readFileSync(path.join(__dirname, '../src/shared/ark-np-catalog.cjs'), 'utf8');
-  const award = fs.readFileSync(path.join(__dirname, '../src/sentinel/arn-token-award.cjs'), 'utf8');
+  const postgres = fs.readFileSync(path.join(__dirname, '../src/economy-worker/arn-tokens-postgres.cjs'), 'utf8');
   assert.doesNotMatch(wallet, /ARN_TOKENS/);
   const arnCatalog = catalog.indexOf('arn: Object.freeze');
   assert.ok(arnCatalog > 0);
   assert.doesNotMatch(catalog.slice(0, arnCatalog), /ARN_TOKENS/);
   assert.match(catalog.slice(arnCatalog), /ARN_TOKENS/);
-  assert.doesNotMatch(award, /arn-tokens-postgres|awardLiveReport/);
+  assert.doesNotMatch(postgres, /nexus_arn_wallets|nexus_arn_ledger/);
+  assert.match(postgres, /ARN_TOKENS/);
 
   const guide = loadGuideConfig();
   const topic = guide.topics.find((item) => item.id === 'arn-tokens');
@@ -465,6 +745,8 @@ test('member copy stays plain and there is no exchange into Points, Coins, or ca
   assert.match(guideText, /10%/);
   assert.match(guideText, /\/arn tokens/);
   assert.match(guideText, /#dino-box-shop/);
+  assert.match(guideText, /preview of the approved pool/);
+  assert.doesNotMatch(guideText, /list of 8/);
   assert.match(tokenText(0, {}), /trial reward for shiny tames and shiny kills/);
   assert.match(tokenText(0, {}), /25%/);
   assert.match(tokenText(0, {}), /10%/);
@@ -491,38 +773,28 @@ test('member copy stays plain and there is no exchange into Points, Coins, or ca
   assert.equal(copyHasBotName(payload.content), false);
   assert.equal(copyHasBotName(tokenText(0, {})), false);
   assert.equal(copyHasBotName(openText({ rotation: { entries: [{ name: 'Rex' }] } })), false);
+  const previewCopy = openText({ rotation: { preview: true, entries: [{ name: 'Rex' }, { name: 'Yutyrannus' }] } });
+  assert.match(previewCopy, /preview of the approved pool/);
+  assert.match(previewCopy, /Rex/);
+  assert.match(previewCopy, /Yutyrannus/);
+  assert.doesNotMatch(previewCopy, /list of 8/);
+  assert.match(openText({ rotation: { entries: [{ name: 'Rex' }] } }), /list of 8/);
 
   const names = command().options.map((option) => option.name);
   assert.ok(names.includes('tokens'));
   assert.ok(names.includes('open'));
   assert.ok(names.includes('report'));
   for (const hidden of ['balance', 'history', 'cache', 'buy']) assert.equal(names.includes(hidden), false);
-  assert.equal(rotationSecret({}), '');
-  assert.equal(rotationSecret({ ARN_ROTATION_SECRET: 'khaos-nexus-arn-rotation-v1-public' }), '');
-  assert.equal(rotationSecret({ NEXUS_DINO_CACHE_RNG_SECRET: SECRET }).length >= 32, true);
+  assert.equal(rotationSecret({ NEXUS_DINO_CACHE_RNG_SECRET: SECRET }), SECRET);
   assert.throws(() => drawTame(arnRotation(Date.parse('2026-10-07T18:00:00.000Z'), ''), 'preview-order', ''));
   const configure = command().options.find((option) => option.name === 'configure');
   const pause = command().options.find((option) => option.name === 'pause');
   const adjust = command().options.find((option) => option.name === 'adjust');
-  for (const option of [configure, pause, adjust]) {
-    assert.match(option.description, /payouts are off during the test week/);
-    assert.doesNotMatch(option.description, /\b5%/);
-    assert.doesNotMatch(option.description, /25%/);
-  }
-  let mysqlWrites = 0;
-  const staff = await handle({
-    commandName: 'arn',
-    user: { id: DISCORD },
-    options: { getSubcommand: () => 'adjust', getUser() { mysqlWrites += 1; }, getInteger() { mysqlWrites += 1; }, getString() { mysqlWrites += 1; } }
-  }, {
-    ledger: { configure() { mysqlWrites += 1; }, adjust() { mysqlWrites += 1; } },
-    shop: {},
-    config: { discord: { ownerUserIds: [DISCORD] } },
-    book,
-    env: {}
-  });
-  assert.equal(staff.content, 'ARN settings are handled by the trial tokens; payouts are off during the test week.');
-  assert.equal(mysqlWrites, 0);
+  assert.match(configure.description, /25%/);
+  assert.match(configure.description, /10%/);
+  assert.doesNotMatch(configure.description, /\b5%/);
+  assert.match(pause.description, /disable ARN/);
+  assert.match(adjust.description, /audited token/);
   const denied = await handle({
     commandName: 'arn',
     user: { id: DISCORD },
@@ -663,12 +935,403 @@ test('dry-run would-credit checks identity and holds, and disabled drops do not 
 
   const closed = {
     ARN_DRY_RUN: 'false',
-    NEXUS_ECONOMY_WRITES_ENABLED: 'true'
+    ARN_TOKENS_ENABLED: 'true',
+    ARN_ECONOMY_WRITES_ENABLED: 'true'
   };
   const book = bookFor(account(), closed);
   assert.equal((await book.award({ messageId: 'tame-off', parsed: tame('Player', 'Tame Off'), roll: 0, now, env: closed })).outcome, 'drops-disabled');
   assert.equal((await book.award({ messageId: 'kill-off', parsed: kill('Player', 'Kill Off'), roll: 0, now, env: closed })).outcome, 'drops-disabled');
   assert.equal(book.state.ledger.length, 0);
+});
+
+test('main-ledger spend is idempotent, refuses holds, and refunds a failed delivery once', async () => {
+  function ledgerClient(identityRows, openingBalance) {
+    const state = { balance: openingBalance, rows: [] };
+    const calls = [];
+    const client = {
+      calls,
+      state,
+      async query(text, params = []) {
+        calls.push(String(text));
+        if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK' || /pg_advisory/.test(text)) return { rows: [] };
+        if (/nexus_economic_identities/.test(text)) return { rows: identityRows };
+        if (/SELECT id, balance_after/.test(text)) {
+          const row = state.rows.find((item) => item.key === params[0]);
+          return { rows: row ? [{ id: 1, balance_after: row.balanceAfter, economic_identity_id: row.economicIdentityId, metadata: row.metadata ? JSON.parse(row.metadata) : {} }] : [] };
+        }
+        if (/SELECT id FROM/.test(text)) {
+          const row = state.rows.find((item) => item.key === params[0]);
+          return { rows: row ? [{ id: 1 }] : [] };
+        }
+        if (/SELECT economic_identity_id, amount/.test(text) || /entry_type = 'debit'/.test(text)) {
+          const row = state.rows.find((item) => item.key === params[0] && item.entryType === 'debit');
+          return { rows: row ? [{ economic_identity_id: row.economicIdentityId, amount: row.amount, currency: 'ARN_TOKENS', entry_type: 'debit', source: 'arn_cache' }] : [] };
+        }
+        if (/SELECT balance FROM/.test(text)) return { rows: state.balance == null ? [] : [{ balance: state.balance }] };
+        if (/UPDATE .*nexus_economy_wallets/.test(text)) {
+          state.balance = Number(params[1]);
+          return { rows: [] };
+        }
+        if (/INSERT INTO .*nexus_economy_wallets/.test(text)) {
+          state.balance = Number(params[1]);
+          return { rows: [{ balance: state.balance }] };
+        }
+        if (/INSERT INTO .*nexus_economy_ledger/.test(text)) {
+          const key = params.find((value) => typeof value === 'string' && /^arn-(spend|refund):/.test(value));
+          const metadata = params.find((value) => typeof value === 'string' && value.startsWith('{'));
+          const debit = /'debit'/.test(text);
+          state.rows.push({
+            key,
+            economicIdentityId: params[0],
+            balanceAfter: debit ? params[1] : params[2],
+            amount: debit ? -1 : Number(params[1]),
+            entryType: debit ? 'debit' : 'credit',
+            source: 'arn_cache',
+            metadata,
+            text: String(text)
+          });
+          return { rows: [] };
+        }
+        return { rows: [] };
+      }
+    };
+    return client;
+  }
+
+  const verified = [{ economic_identity_id: 'econ-player', status: 'verified', hold_reason: '', eos_id: 'EOS_PLAYER_01' }];
+  const rotation = arnRotation(Date.parse('2026-10-07T18:00:00.000Z'), SECRET);
+  const client = ledgerClient(verified, 1);
+  const spent = await spendWithClient(client, {
+    discordUserId: DISCORD,
+    orderId: 'order-1',
+    rotation,
+    workerEnv: LIVE,
+    env: { ARN_DRY_RUN: 'false', NEXUS_ECONOMY_WRITES_ENABLED: 'false' }
+  });
+  assert.equal(spent.debited, true);
+  assert.equal(spent.eosId, 'EOS_PLAYER_01');
+  assert.equal(spent.balance, 0);
+  assert.equal(client.state.rows[0].key, spendKey('order-1'));
+  const metadata = JSON.parse(client.state.rows[0].metadata);
+  assert.equal(metadata.rotationVersion, rotation.version);
+  assert.equal(metadata.weights.reduce((sum, entry) => sum + entry.weight, 0), 100);
+  const again = await spendWithClient(client, { discordUserId: DISCORD, orderId: 'order-1', rotation, workerEnv: LIVE });
+  assert.equal(again.duplicate, true);
+  assert.equal(again.debited, false);
+  assert.equal(again.resumable, true);
+  assert.equal(again.eosId, 'EOS_PLAYER_01');
+  assert.equal(client.state.balance, 0);
+  const broke = await spendWithClient(client, { discordUserId: DISCORD, orderId: 'order-2', rotation, workerEnv: LIVE });
+  assert.equal(broke.reason, 'insufficient');
+  assert.equal(client.state.balance, 0);
+
+  const held = ledgerClient([{ economic_identity_id: 'econ-player', status: 'restricted', hold_reason: 'o9-demote', eos_id: 'EOS_PLAYER_01' }], 3);
+  const refused = await spendWithClient(held, { discordUserId: DISCORD, orderId: 'held-order', rotation, workerEnv: LIVE });
+  assert.equal(refused.reason, 'held');
+  assert.equal(refused.debited, false);
+  assert.equal(held.state.rows.length, 0);
+
+  const dry = await spendWithClient(ledgerClient(verified, 5), { discordUserId: DISCORD, orderId: 'dry-order', workerEnv: {}, env: LIVE });
+  assert.equal(dry.reason, 'dry-run');
+  assert.equal(dry.debited, false);
+
+  const minted = await refundWithClient(ledgerClient(verified, 4), {
+    orderId: 'never-spent',
+    workerEnv: LIVE,
+    economicIdentityId: 'attacker',
+    amount: 2
+  });
+  assert.equal(minted.reason, 'not-spent');
+  assert.equal(minted.refunded, false);
+  const refunded = await refundWithClient(client, {
+    orderId: 'order-1',
+    workerEnv: LIVE,
+    economicIdentityId: 'not-the-spend-row',
+    amount: 2
+  });
+  assert.equal(refunded.refunded, true);
+  assert.equal(refunded.economicIdentityId, 'econ-player');
+  assert.equal(refunded.amount, 1);
+  assert.equal(client.state.balance, 1);
+  assert.equal(client.state.rows.some((row) => row.key === refundKey('order-1')), true);
+  const secondRefund = await refundWithClient(client, { orderId: 'order-1', workerEnv: LIVE, economicIdentityId: 'not-the-spend-row' });
+  assert.equal(secondRefund.duplicate, true);
+  assert.equal(secondRefund.refunded, false);
+  assert.equal(client.state.balance, 1);
+  assert.equal(await balanceForDiscord(client, DISCORD), 1);
+  const ambiguous = ledgerClient([
+    { economic_identity_id: 'econ-player', status: 'verified', hold_reason: '' },
+    { economic_identity_id: 'econ-other', status: 'verified', hold_reason: '' }
+  ], 9);
+  assert.equal(await balanceForDiscord(ambiguous, DISCORD), 0);
+
+  let deliveries = 0;
+  let refunds = 0;
+  const shopLedger = {
+    async balance() { return 0; },
+    async spend() { return { ok: false, reason: 'held', debited: false }; },
+    async refund() { refunds += 1; return { ok: true, refunded: true }; }
+  };
+  const heldShop = await openArnCache({
+    env: { ...LIVE, ARK_SHOP_DRY_RUN: 'false', ARK_SHOP_DELIVERY_ENABLED: 'true' },
+    now: Date.parse('2026-10-07T18:00:00.000Z'),
+    discordUserId: DISCORD,
+    secret: SECRET,
+    ledger: shopLedger,
+    deliver: async () => { deliveries += 1; return { raCalled: true }; }
+  });
+  assert.equal(heldShop.debited, false);
+  assert.equal(deliveries, 0);
+  assert.equal(refunds, 0);
+
+  const paid = {
+    tokens: 1,
+    async spend() {
+      this.tokens -= 1;
+      return { ok: true, debited: true, economicIdentityId: 'econ-player', eosId: 'EOS_PLAYER_01', balance: this.tokens };
+    },
+    async refund() {
+      refunds += 1;
+      this.tokens += 1;
+      return { ok: true, refunded: true, balance: this.tokens };
+    }
+  };
+  const failed = await openArnCache({
+    env: { ...LIVE, ARK_SHOP_DRY_RUN: 'false', ARK_SHOP_DELIVERY_ENABLED: 'true' },
+    now: Date.parse('2026-10-07T19:00:00.000Z'),
+    discordUserId: DISCORD,
+    secret: SECRET,
+    ledger: paid,
+    deliver: async () => ({ raCalled: false, reason: 'player-offline' })
+  });
+  assert.equal(failed.reason, 'player-offline');
+  assert.equal(failed.debited, false);
+  assert.equal(failed.raCalled, false);
+  assert.equal(refunds, 1);
+  assert.equal(paid.tokens, 1);
+
+  let seenEos = '';
+  let confirmed = 0;
+  const delivered = {
+    async spend() {
+      return { ok: true, debited: true, economicIdentityId: 'econ-player', eosId: 'EOS_VERIFIED', balance: 0 };
+    },
+    async refund() { refunds += 1; return { ok: true, refunded: true }; },
+    async confirm() { confirmed += 1; return { ok: true, confirmed: true }; }
+  };
+  const sent = await openArnCache({
+    env: { ...LIVE, ARK_SHOP_DRY_RUN: 'false', ARK_SHOP_DELIVERY_ENABLED: 'true' },
+    now: Date.parse('2026-10-07T20:00:00.000Z'),
+    discordUserId: DISCORD,
+    secret: SECRET,
+    ledger: delivered,
+    deliver: async (order) => {
+      seenEos = order.eosIds[0];
+      return { raCalled: true };
+    }
+  });
+  assert.equal(seenEos, 'EOS_VERIFIED');
+  assert.equal(sent.raCalled, true);
+  assert.equal(sent.debited, true);
+  assert.equal(confirmed, 1);
+  assert.equal(refunds, 1);
+});
+
+test('reconcile refunds one unconfirmed spend and leaves a confirmed delivery', async () => {
+  const state = {
+    balance: 0,
+    rows: [{
+      key: spendKey('old-order'),
+      economicIdentityId: 'econ-player',
+      amount: -1,
+      entryType: 'debit',
+      createdAt: '2026-10-01T00:00:00.000Z'
+    }],
+    events: []
+  };
+  const identity = [{ economic_identity_id: 'econ-player', status: 'verified', hold_reason: '' }];
+  const client = {
+    async query(text, params = []) {
+      if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK' || /pg_advisory/.test(text)) return { rows: [] };
+      if (/SELECT NOW\(\)/.test(text)) return { rows: [{ now: '2026-10-07T15:00:00.000Z' }] };
+      if (/SELECT idempotency_key/.test(text)) {
+        return {
+          rows: state.rows
+            .filter((row) => row.entryType === 'debit' && row.createdAt < params[0])
+            .map((row) => ({ idempotency_key: row.key }))
+        };
+      }
+      if (/SELECT event_key/.test(text)) {
+        return { rows: state.events.filter((eventKey) => eventKey === params[0]).map((event_key) => ({ event_key })) };
+      }
+      if (/SELECT id FROM/.test(text)) {
+        const row = state.rows.find((item) => item.key === params[0]);
+        return { rows: row ? [{ id: 1 }] : [] };
+      }
+      if (/entry_type = 'debit'/.test(text)) {
+        const row = state.rows.find((item) => item.key === params[0] && item.entryType === 'debit');
+        return { rows: row ? [{ economic_identity_id: row.economicIdentityId, amount: row.amount, currency: 'ARN_TOKENS', entry_type: 'debit', source: 'arn_cache' }] : [] };
+      }
+      if (/nexus_economic_identities/.test(text)) return { rows: identity };
+      if (/SELECT balance FROM/.test(text)) return { rows: [{ balance: state.balance }] };
+      if (/UPDATE .*nexus_economy_wallets/.test(text)) {
+        state.balance = Number(params[1]);
+        return { rows: [] };
+      }
+      if (/INSERT INTO .*nexus_economy_ledger/.test(text)) {
+        const key = params.find((value) => typeof value === 'string' && /^arn-refund:/.test(value));
+        state.rows.push({ key, entryType: 'credit', amount: Number(params[1]) });
+        return { rows: [] };
+      }
+      if (/INSERT INTO .*nexus_economy_arn_events/.test(text)) {
+        state.events.push(params[0]);
+        return { rows: [] };
+      }
+      return { rows: [] };
+    }
+  };
+  const first = await reconcileWithClient(client, { workerEnv: LIVE, graceMs: 60 * 1000 });
+  assert.equal(first.refunded, 1);
+  assert.equal(state.balance, 1);
+  const second = await reconcileWithClient(client, { workerEnv: LIVE, graceMs: 60 * 1000 });
+  assert.equal(second.refunded, 0);
+  assert.equal(state.balance, 1);
+  state.rows.push({
+    key: spendKey('sent-order'),
+    economicIdentityId: 'econ-player',
+    amount: -1,
+    entryType: 'debit',
+    createdAt: '2026-10-01T00:00:00.000Z'
+  });
+  state.balance = 0;
+  const marked = await confirmDeliveryWithClient(client, { orderId: 'sent-order', workerEnv: LIVE });
+  assert.equal(marked.confirmed, true);
+  const kept = await reconcileWithClient(client, { workerEnv: LIVE, graceMs: 60 * 1000 });
+  assert.equal(kept.refunded, 0);
+  assert.equal(state.balance, 0);
+});
+
+test('staff adjust writes ARN tokens and pause writes the control row', async () => {
+  const state = { balance: 1, rows: [], control: null };
+  const identity = [{ economic_identity_id: 'econ-player', status: 'verified', hold_reason: '', eos_id: 'EOS_PLAYER_01' }];
+  const client = {
+    async query(text, params = []) {
+      if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK' || /pg_advisory/.test(text)) return { rows: [] };
+      if (/INSERT INTO .*nexus_economy_arn_control/.test(text)) {
+        state.control = { paused: params[0] === true, actor: params[1], reason: params[2] };
+        return { rows: [] };
+      }
+      if (/SELECT id, balance_after/.test(text)) {
+        const row = state.rows.find((item) => item.key === params[0]);
+        return { rows: row ? [{ id: 1, balance_after: row.balanceAfter }] : [] };
+      }
+      if (/nexus_economic_identities/.test(text)) return { rows: identity };
+      if (/SELECT balance FROM/.test(text)) return { rows: [{ balance: state.balance }] };
+      if (/UPDATE .*nexus_economy_wallets/.test(text)) {
+        state.balance = Number(params[1]);
+        return { rows: [] };
+      }
+      if (/INSERT INTO .*nexus_economy_ledger/.test(text)) {
+        const key = params.find((value) => typeof value === 'string' && /^arn-adjust:/.test(value));
+        state.rows.push({ key, balanceAfter: params[2], text: String(text) });
+        return { rows: [] };
+      }
+      return { rows: [] };
+    }
+  };
+  const closed = await setPausedWithClient(client, { workerEnv: {}, paused: true, actor: DISCORD, reason: 'pause' });
+  assert.equal(closed.reason, 'dry-run');
+  assert.equal(state.control, null);
+  const paused = await setPausedWithClient(client, { workerEnv: LIVE, paused: true, actor: DISCORD, reason: 'pause' });
+  assert.equal(paused.ok, true);
+  assert.equal(paused.paused, true);
+  assert.equal(paused.wroteLedger, false);
+  assert.equal(state.rows.length, 0);
+  assert.equal(state.control.paused, true);
+  const adjusted = await adjustWithClient(client, {
+    workerEnv: LIVE,
+    discordUserId: DISCORD,
+    delta: 2,
+    idempotencyKey: 'interaction-1',
+    reason: 'grant',
+    actor: DISCORD,
+    economicIdentityId: 'discord:nope',
+    amount: 9
+  });
+  assert.equal(adjusted.ok, true);
+  assert.equal(adjusted.balance, 3);
+  assert.equal(adjusted.economicIdentityId, 'econ-player');
+  assert.match(state.rows[0].text, /ARN_TOKENS/);
+  assert.match(state.rows[0].text, /arn_adjust/);
+  assert.equal(state.rows[0].key, adjustKey('interaction-1'));
+  const again = await adjustWithClient(client, {
+    workerEnv: LIVE,
+    discordUserId: DISCORD,
+    delta: 2,
+    idempotencyKey: 'interaction-1',
+    reason: 'grant'
+  });
+  assert.equal(again.duplicate, true);
+  assert.equal(state.balance, 3);
+  const drained = await adjustWithClient(client, {
+    workerEnv: LIVE,
+    discordUserId: DISCORD,
+    delta: -10,
+    idempotencyKey: 'interaction-2',
+    reason: 'too much'
+  });
+  assert.equal(drained.reason, 'insufficient');
+  assert.equal(state.balance, 3);
+});
+
+test('staff configure, pause, and adjust do not open the MySQL ARN wallet', async () => {
+  const calls = [];
+  const economy = {
+    async arnPause(input) {
+      calls.push(['pause', input.paused]);
+      return { ok: true, paused: input.paused };
+    },
+    async arnAdjust(input) {
+      calls.push(['adjust', input.delta, input.idempotencyKey, input.discordUserId]);
+      return { ok: true, balance: 4 };
+    }
+  };
+  const ledger = {
+    configure() { throw new Error('mysql configure'); },
+    adjust() { throw new Error('mysql adjust'); }
+  };
+  const config = { discord: { ownerUserIds: [DISCORD] } };
+  const interaction = (sub) => ({
+    commandName: 'arn',
+    id: 'interaction-1',
+    user: { id: DISCORD },
+    memberPermissions: { has: () => true },
+    options: {
+      getSubcommand: () => sub,
+      getInteger: () => 2,
+      getString: () => 'staff grant',
+      getUser: () => ({ id: '222222222222222222' })
+    }
+  });
+  const enabled = await handle(interaction('configure'), { ledger, config, economy });
+  assert.match(enabled.content, /25%/);
+  const paused = await handle(interaction('pause'), { ledger, config, economy });
+  assert.match(paused.content, /disabled/);
+  const adjusted = await handle(interaction('adjust'), { ledger, config, economy });
+  assert.match(adjusted.content, /Balance: 4/);
+  assert.deepEqual(calls, [
+    ['pause', false],
+    ['pause', true],
+    ['adjust', 2, 'interaction-1', '222222222222222222']
+  ]);
+  const closed = {
+    async arnPause() { return { ok: false, reason: 'dry-run' }; },
+    async arnAdjust() { return { ok: false, reason: 'dry-run' }; }
+  };
+  for (const sub of ['configure', 'pause', 'adjust']) {
+    const off = await handle(interaction(sub), { ledger, config, economy: closed });
+    assert.equal(off.content, 'ARN payouts are off during the test week. Settings will be available here when payouts go live.');
+  }
 });
 
 test('a restart reloads the dry-run journal from the Railway volume', async () => {
@@ -805,6 +1468,20 @@ test('boot warns when the dry-run journal directory is not writable', () => {
     console.warn = original;
     resetSharedArnBookForTest();
   }
+});
+
+test('a live draw fails closed without ARN_ROTATION_SECRET', () => {
+  assert.throws(
+    () => rotationSecret({ ...LIVE, NEXUS_DINO_CACHE_RNG_SECRET: 'n'.repeat(40) }),
+    /ARN_ROTATION_SECRET/
+  );
+  assert.throws(
+    () => rotationSecret({ ...LIVE, ARN_ROTATION_SECRET: PUBLIC_ROTATION_SECRET }),
+    /ARN_ROTATION_SECRET/
+  );
+  assert.equal(rotationSecret({ ...LIVE, ARN_ROTATION_SECRET: SECRET }), SECRET);
+  assert.equal(rotationSecret({}), PUBLIC_ROTATION_SECRET);
+  assert.equal(PUBLIC_ROTATION_SECRET.includes('public'), true);
 });
 
 test('new ARN files do not flip economy, shop, or birthday flags', () => {
