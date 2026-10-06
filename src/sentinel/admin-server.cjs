@@ -9,6 +9,8 @@ const { buildStaffNameColorPreview } = require('./staff-name-color-preview.cjs')
 const { ArkBackendControl } = require('./ark-backend-control.cjs');
 const { handleShinyWebhook } = require('./ark-shiny-anomaly.cjs');
 const { createEvidenceHandler } = require('./protocol/evidence.cjs');
+const { bearerMatches, READ_TOKEN_MIN } = require('./arn-journal-client.cjs');
+const { readOwnedJournal } = require('./arn-token-award.cjs');
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1']);
 function json(res, status, body) { const payload = Buffer.from(JSON.stringify(body)); res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': payload.length, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' }); res.end(payload); }
@@ -22,11 +24,13 @@ async function enhancedScan(controller) { const scan = await controller.scan(); 
 function createPairingLimiter() { const attempts = new Map(); return (req) => { const now = Date.now(); const key = String(req.socket?.remoteAddress || 'unknown'); const recent = (attempts.get(key) || []).filter((time) => now - time < 60_000); recent.push(now); attempts.set(key, recent); if (attempts.size > 1000) { for (const [address, times] of attempts) if (!times.some((time) => now - time < 60_000)) attempts.delete(address); } return recent.length <= 10; }; }
 
 function createSentinalAdminServer(options = {}) {
-  const host = String(options.host || '127.0.0.1'); const port = Number(options.port || 3220); const token = String(options.token || '');
+  const host = String(options.host || '127.0.0.1'); const port = Number(options.port ?? 3220); const token = String(options.token || '');
   const forgeToken = String(options.forgeToken || process.env.FORGE_SENTINEL_CONTROL_TOKEN || '');
   const getController = typeof options.getController === 'function' ? options.getController : () => options.controller || null; const logger = options.logger || console; const pairingAllowed = createPairingLimiter(); const shinyAllowed = createPairingLimiter(); const arkBackend = options.arkBackend || new ArkBackendControl({ logger });
   const shinyWebhookHandler = options.shinyWebhookHandler || handleShinyWebhook;
   const protocolEvidenceHandler = options.protocolEvidenceHandler || createEvidenceHandler();
+  const readJournal = options.readArnJournal || readOwnedJournal;
+  const journalToken = String(options.journalReadToken || process.env.ARN_JOURNAL_READ_TOKEN || '');
   if (!LOOPBACK.has(host) && !validAdminToken(token)) throw new Error('Sentinal admin API requires a token of at least 32 non-whitespace characters before it can listen outside loopback.');
   if (forgeToken && !validAdminToken(forgeToken)) throw new Error('Forge Sentinel control token must be at least 32 non-whitespace characters.');
   function authScope(req) { const authorization = String(req.headers.authorization || ''); if (token && authorization === `Bearer ${token}`) return 'admin'; if (forgeToken && authorization === `Bearer ${forgeToken}`) return 'forge'; if (!token && LOOPBACK.has(host)) return 'admin'; return ''; }
@@ -44,6 +48,14 @@ function createSentinalAdminServer(options = {}) {
       if (req.method === 'POST' && url.pathname === '/v1/pair') { if (!token) return json(res, 503, { ok: false, code: 'PAIRING_DISABLED', message: 'Hosted Sentinal pairing requires a protected admin token.' }); if (!pairingAllowed(req)) return json(res, 429, { ok: false, code: 'PAIRING_RATE_LIMIT', message: 'Too many pairing attempts. Generate a new code and try again shortly.' }); const input = await body(req); const paired = adminPairingStore.consume(input.code); if (!paired) return json(res, 401, { ok: false, code: 'PAIRING_INVALID', message: 'That pairing code is invalid, expired, or already used.' }); return json(res, 200, { ok: true, token, pairedAt: new Date().toISOString() }); }
       const shinyMatch = req.method === 'POST' ? /^\/v1\/ark\/shiny-events\/([A-Za-z0-9_-]{32,256})$/.exec(url.pathname) : null;
       if (shinyMatch) { if (!shinyAllowed(req)) return json(res, 429, { ok: false, code: 'SHINY_INGEST_RATE_LIMIT' }); const result = await shinyWebhookHandler({ token: shinyMatch[1], payload: await body(req), controller }); return json(res, result.status, result.body); }
+      if (url.pathname === '/v1/arn/journal') {
+        if (req.method !== 'GET') return json(res, 405, { ok: false, reason: 'method-not-allowed' });
+        if (journalToken.length < READ_TOKEN_MIN) return json(res, 503, { ok: false, reason: 'journal-not-configured' });
+        if (!bearerMatches(req.headers.authorization, journalToken)) return json(res, 401, { ok: false, reason: 'unauthorized' });
+        const discordUserId = String(url.searchParams.get('discordUserId') || '').replace(/\D/g, '').slice(0, 32);
+        const snapshot = await readJournal(discordUserId);
+        return json(res, 200, { ok: true, readOnly: true, balance: Number(snapshot?.balance || 0), summary: snapshot?.summary || {} });
+      }
       const scope = authScope(req); if (!scope) return json(res, 401, { ok: false, code: 'UNAUTHORIZED' });
       if (req.method === 'GET' && url.pathname === '/v1/ark/servers') return json(res, 200, { ok: true, servers: arkBackend.listServers(), llmCalls: 0 });
       if (req.method === 'GET' && url.pathname === '/v1/ark/capabilities') { const data = await arkBackend.capabilityInventory({ probe: url.searchParams.get('probe') !== 'false' }); return json(res, 200, { ok: true, data, llmCalls: 0 }); }
@@ -90,7 +102,8 @@ function createSentinalAdminServer(options = {}) {
       logger.warn?.(`[Nexus Sentinal Admin] ${host}:${port} is already in use; not starting a duplicate listener.`);
       return { host, port, skipped: 'address-in-use' };
     }
-    logger.log?.(`[Nexus Sentinal Admin] listening on http://${host}:${port}`);
+    const bound = server.address();
+    logger.log?.(`[Nexus Sentinal Admin] listening on http://${host}:${bound?.port || port}`);
     return { host, port };
   }
   async function stop() { if (!started || !server.listening) return; await new Promise((resolve) => server.close(resolve)); started = false; }

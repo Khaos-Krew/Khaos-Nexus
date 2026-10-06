@@ -8,7 +8,8 @@ const {ProtocolStore}=require('./protocol/store.cjs');
 const {isStaff}=require('./ark-ops-extension.cjs');
 const {loadConfig}=require('../shared/config.cjs');
 const {sharedArnBook, staffSummaryText, writeSummaryFile}=require('./arn-token-award.cjs');
-const {tokenText, openPointerText}=require('./arn-member-copy.cjs');
+const {journalReader, readArnJournal}=require('./arn-journal-client.cjs');
+const {tokenText}=require('./arn-member-copy.cjs');
 const INSTALLED=Symbol.for('nexus.arn.cache.extension');
 function adminCommand() {
   const c=new SlashCommandBuilder().setName('cacheadmin').setDescription('Staff cache delivery verification and recovery.');
@@ -23,7 +24,6 @@ function adminCommand() {
 function command() {
   const c=new SlashCommandBuilder().setName('arn').setDescription('ARN tokens.');
   c.addSubcommand(s=>s.setName('tokens').setDescription('What ARN tokens are, and how many you have.'));
-  c.addSubcommand(s=>s.setName('open').setDescription('Where to redeem an ARN cache.'));
   c.addSubcommand(s=>s.setName('report').setDescription('Staff: ARN trial summary. No payouts.'));
   c.addSubcommand(s=>s.setName('configure').setDescription('Staff: payouts are off during the test week.'));
   c.addSubcommand(s=>s.setName('pause').setDescription('Staff: payouts are off during the test week.'));
@@ -42,14 +42,22 @@ async function handle(interaction,{ledger,shop,config, book, env, now, secret, b
       return {content:'Cache delivery verification recorded.'};
     });
   }
-  if(interaction.commandName==='arn' && sub==='open') return {content: openPointerText()};
-  if(interaction.commandName==='arn' && ['balance','history','cache','buy'].includes(sub)) {
+  if(interaction.commandName==='arn' && ['balance','history','cache','buy','open'].includes(sub)) {
     return {content:'Use /arn tokens to see what ARN tokens are and how to earn them. Redeem a cache in #dino-box-shop.'};
   }
   if(interaction.commandName==='arn' && sub==='report' && !isStaff(interaction,config)) return {content:'Staff only.'};
   if(interaction.commandName==='arn' && ['tokens','report'].includes(sub)) {
-    const activeBook = book || sharedArnBook();
     const activeEnv = env || process.env;
+    if (!book && journalReader(activeEnv)) {
+      const remote = await readArnJournal({ env: activeEnv, discordUserId: sub === 'tokens' ? user : '' });
+      if (!remote.ok) return {content:'ARN trial records are not available from this bot right now.'};
+      if (sub === 'report') {
+        if (activeEnv.ARN_DRY_RUN_REPORT) writeSummaryFile(remote.summary, activeEnv.ARN_DRY_RUN_REPORT);
+        return {content: staffSummaryText(remote.summary)};
+      }
+      return {content: tokenText(remote.balance, activeEnv)};
+    }
+    const activeBook = book || sharedArnBook();
       if(sub==='report') {
       const summary = activeBook.summary(Date.now());
       if(activeEnv.ARN_DRY_RUN_REPORT) writeSummaryFile(summary, activeEnv.ARN_DRY_RUN_REPORT);

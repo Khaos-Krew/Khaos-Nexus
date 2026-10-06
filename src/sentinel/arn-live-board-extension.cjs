@@ -298,15 +298,70 @@ async function refreshBoard(client) {
   return true;
 }
 
+function messagePayload(message) {
+  return {
+    content: message?.content,
+    embeds: (message?.embeds || []).map((embed) => (embed?.toJSON ? embed.toJSON() : embed))
+  };
+}
+
 async function rawMessagePayload(client, message) {
+  // Gateway deliveries omit content and embeds when Message Content is off.
+  // Webhook history and a single REST read still include the embed.
   try {
     return await client.rest.get(Routes.channelMessage(String(message.channelId), String(message.id)));
   } catch {
-    return {
-      content: message.content,
-      embeds: (message.embeds || []).map((embed) => embed.toJSON ? embed.toJSON() : embed)
-    };
+    return messagePayload(message);
   }
+}
+
+const SETUP_DELAY_MS = 105_000;
+const SETUP_TIMEOUT_MS = 20_000;
+
+function cleanLog(error) {
+  return String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 350);
+}
+
+async function runArnLiveBoardSetup(client, options = {}) {
+  const logger = options.logger || console;
+  const timeoutMs = Number.isFinite(Number(options.timeoutMs)) ? Number(options.timeoutMs) : SETUP_TIMEOUT_MS;
+  const reconcile = options.reconcile || ((active) => reconcileArnLiveBoard(active, options.config || loadConfig(), options));
+  let timer;
+  const pending = Promise.resolve()
+    .then(() => reconcile(client))
+    .then((result) => ({ result }))
+    .catch((error) => ({ error }));
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({ timeout: true }), timeoutMs);
+  });
+  const outcome = await Promise.race([pending, timeout]);
+  clearTimeout(timer);
+  pending.catch(() => {});
+  if (outcome.timeout) {
+    logger.warn('[Nexus Sentinal] ARN live board unavailable: setup-timeout');
+    return { unavailable: 'setup-timeout' };
+  }
+  if (outcome.error) {
+    logger.warn(`[Nexus Sentinal] ARN live board unavailable: ${cleanLog(outcome.error)}`);
+    return { unavailable: cleanLog(outcome.error) };
+  }
+  const result = outcome.result || {};
+  if (result.skipped) {
+    logger.warn(`[Nexus Sentinal] ARN live board skipped: ${result.skipped}`);
+    return result;
+  }
+  logger.log(`[Nexus Sentinal] ARN live board ready: publicChannel=${result.publicChannelId} intakeChannel=${result.intakeChannelId} replayed=${result.replayed} tracked=${result.tracked}`);
+  if (typeof options.onReady === 'function') options.onReady(result);
+  return result;
+}
+
+function armArnLiveBoard(client, options = {}) {
+  const delayMs = Number.isFinite(Number(options.delayMs)) ? Number(options.delayMs) : SETUP_DELAY_MS;
+  const timer = setTimeout(() => {
+    void runArnLiveBoardSetup(client, options);
+  }, delayMs);
+  timer.unref?.();
+  return timer;
 }
 
 async function replayIntake(client, channel) {
@@ -319,7 +374,8 @@ async function replayIntake(client, channel) {
     if (!message.webhookId) continue;
     const authoritativeMap = registry.get(String(message.webhookId));
     if (!authoritativeMap) continue;
-    const payload = await rawMessagePayload(client, message);
+    // History fetch is REST, so embeds are present without the Message Content intent.
+    const payload = messagePayload(message);
     const event = parseShinyDiscordPayload(payload, authoritativeMap);
     if (!event) continue;
     applyEvent(event, Number(message.createdTimestamp || Date.now()));
@@ -383,31 +439,25 @@ async function handleIntakeMessage(client, message) {
 }
 
 function installArnLiveBoardExtension() {
-  if (Client.prototype[INSTALLED]) return;
-  Client.prototype[INSTALLED] = true;
+  // The Docker preload loads this file before Sentinal replaces discord.Client.
+  // Hook the class that exists at install time, which is the one bot.cjs logs in.
+  const ActiveClient = require('discord.js').Client;
+  if (ActiveClient.prototype[INSTALLED]) return;
+  ActiveClient.prototype[INSTALLED] = true;
   const config = loadConfig();
-  const originalLogin = Client.prototype.login;
+  const originalLogin = ActiveClient.prototype.login;
 
-  Client.prototype.login = function nexusArnLiveBoardLogin(...args) {
+  ActiveClient.prototype.login = function nexusArnLiveBoardLogin(...args) {
     const client = this;
     client.once(Events.ClientReady, () => {
-      const start = async () => {
-        try {
-          const result = await reconcileArnLiveBoard(client, config);
-          if (result.skipped) {
-            console.warn(`[Nexus Sentinal] ARN live board skipped: ${result.skipped}`);
-            return;
-          }
-          console.log(`[Nexus Sentinal] ARN live board ready: publicChannel=${result.publicChannelId} intakeChannel=${result.intakeChannelId} replayed=${result.replayed} tracked=${result.tracked}`);
+      armArnLiveBoard(client, {
+        config,
+        onReady() {
           clearInterval(state.refreshTimer);
           state.refreshTimer = setInterval(() => void refreshBoard(client).catch((error) => console.warn(`[Nexus Sentinal] ARN board refresh failed: ${String(error?.message || error).slice(0, 250)}`)), BOARD_REFRESH_MS);
           state.refreshTimer.unref?.();
-        } catch (error) {
-          console.warn(`[Nexus Sentinal] ARN live board unavailable: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 350)}`);
         }
-      };
-      const timer = setTimeout(() => void start(), 105_000);
-      timer.unref?.();
+      });
     });
 
     client.on(Events.MessageCreate, (message) => {
@@ -454,6 +504,11 @@ module.exports = {
   replayIntake,
   reconcileArnLiveBoard,
   handleIntakeMessage,
+  rawMessagePayload,
+  runArnLiveBoardSetup,
+  armArnLiveBoard,
+  SETUP_DELAY_MS,
+  SETUP_TIMEOUT_MS,
   installArnLiveBoardExtension,
   resetArnStateForTest
 };
