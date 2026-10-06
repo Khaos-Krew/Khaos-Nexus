@@ -486,7 +486,8 @@ test('minecraft buy and refund refuse each blocked status after the member was v
       orderId: paid.order.orderId,
       reason: 'held account',
       actor: STAFF,
-      writesEnabled: true
+      writesEnabled: true,
+      force: true
     });
     assert.equal(refunded.ok, true, JSON.stringify(refunded));
     assert.equal(worker.balance(DISCORD), 500);
@@ -707,7 +708,7 @@ test('postgres minecraft buy and refund refuse each blocked status inside the ba
     assert.equal(selfClient.writes.length, 0);
     assert.equal(selfClient.audits.length, 0);
 
-    const refund = await refunder.refund({ orderId: 'refund-hold', reason: 'held account', actor: STAFF, writesEnabled: true });
+    const refund = await refunder.refund({ orderId: 'refund-hold', reason: 'held account', actor: STAFF, writesEnabled: true, force: true });
     assert.equal(refund.ok, true, JSON.stringify(refund));
     assert.ok(refunded.writes.length > 0);
     assert.match(String(refunded.audits[0]?.[2] || ''), /\[account-hold\]/);

@@ -14,6 +14,8 @@ const { classifyPopulation, AMOUNT } = require('../src/economy-worker/legacy-ban
 const { mcMemberText } = require('../src/shared/mc-member-text.cjs');
 const { UNLINK_COOLDOWN_MS } = require('../src/economy-worker/mc-points-service.cjs');
 const { FIRST_PLAY_MS } = require('../src/shared/mc-starter-kit.cjs');
+const { ClusterShopService } = require('../src/sentinel/cluster-shop-service.cjs');
+const { COMMUNITY_LEVEL_UP_SOURCE } = require('../src/sentinel/nexus-economy-community-level-coins.cjs');
 
 const UUID = '853c80ef-3c37-49fd-aa49-938b674adae6';
 const UUID_2 = '11111111-1111-4111-8111-111111111111';
@@ -85,9 +87,24 @@ test('an MC-only member verifies with the link code, earns, buys, and claims the
   const confirmed = await worker.minecraft.confirm({ discordUserId: DISCORD, code: challenge.code });
   assert.equal(confirmed.ok, true, confirmed.reason);
   const account = worker.wallet(DISCORD);
-  assert.equal(account.status, 'verified');
-  assert.ok(account.verifiedAt);
+  assert.equal(account.status, 'restricted');
+  assert.equal(account.verifiedAt, null);
   assert.deepEqual(account.eosIds, []);
+  const coinSpend = await worker.spend({ discordUserId: DISCORD, amount: 1, orderId: 'coin-shop', source: 'cluster-shop' });
+  assert.equal(coinSpend.reason, 'verified-identity-required');
+  const coinCredit = await worker.credit({ discordUserId: DISCORD, amount: 5, idempotencyKey: 'coin-credit-1' });
+  assert.equal(coinCredit.reason, 'verified-identity-required');
+  const levelUp = await worker.credit({ discordUserId: DISCORD, amount: 5, idempotencyKey: 'level-up-1', source: COMMUNITY_LEVEL_UP_SOURCE });
+  assert.equal(levelUp.skipped, 'coins-wallet-unavailable');
+  const cluster = new ClusterShopService({
+    economy: worker,
+    catalog: new Map([['cache', {
+      id: 'cache', name: 'Cache', kind: 'item', buyPrice: 1, baseQuantity: 1, minBundles: 1, maxBundles: 1, buyable: true
+    }]])
+  });
+  const clusterBuy = await cluster.createBuyOrder({ discordUserId: DISCORD, eosId: 'EOSMISSING01', itemId: 'cache', bundles: 1 });
+  assert.equal(clusterBuy.ok, false);
+  assert.equal(clusterBuy.reason, 'verified-identity-required');
   assert.equal(worker.store.read().eosToDiscord[UUID], undefined);
   assert.equal(confirmed.economicIdentityId, DISCORD);
 
@@ -214,8 +231,53 @@ test('disabled, quarantined, marked restricted, and denylisted members are not v
   shadowState.accounts[DISCORD].verifiedAt = null;
   shadow.worker.store.write(shadowState);
   await linkMinecraft(shadow.worker, DISCORD, UUID);
-  assert.equal(shadow.worker.wallet(DISCORD).status, 'verified');
+  assert.equal(shadow.worker.wallet(DISCORD).status, 'restricted');
+  assert.equal(shadow.worker.wallet(DISCORD).verifiedAt, null);
   assert.deepEqual(shadow.worker.wallet(DISCORD).eosIds, []);
+  shadow.worker.linkArkIdentity({ discordUserId: DISCORD, eosId: EOS, rankId: 'shadow-recruit' });
+  assert.equal(shadow.worker.wallet(DISCORD).status, 'restricted');
+  assert.equal(shadow.worker.wallet(DISCORD).verifiedAt, null);
+  assert.deepEqual(shadow.worker.wallet(DISCORD).eosIds, [EOS]);
+  const stillRefused = await shadow.worker.spend({ discordUserId: DISCORD, amount: 1, orderId: 'after-ark' });
+  assert.equal(stillRefused.reason, 'verified-identity-required');
+});
+
+test('link whispers are rate limited per Discord user and per UUID', async () => {
+  const { worker } = workerAt();
+  const uuids = [
+    UUID,
+    UUID_2,
+    '33333333-3333-4333-8333-333333333333',
+    '44444444-4444-4444-8444-444444444444'
+  ];
+  for (let index = 0; index < 3; index += 1) {
+    const opened = await worker.minecraft.challenge({ discordUserId: DISCORD, mcUuid: uuids[index], mcName: 'Steve' });
+    assert.equal(opened.ok, true, opened.reason);
+  }
+  const byDiscord = await worker.minecraft.challenge({ discordUserId: DISCORD, mcUuid: uuids[3], mcName: 'Steve' });
+  assert.equal(byDiscord.reason, 'link-rate-limited');
+
+  const shared = workerAt();
+  for (const discord of [DISCORD, DISCORD_2, '333333333333333333']) {
+    const opened = await shared.worker.minecraft.challenge({ discordUserId: discord, mcUuid: UUID, mcName: 'Steve' });
+    assert.equal(opened.ok, true, opened.reason);
+  }
+  const byUuid = await shared.worker.minecraft.challenge({ discordUserId: '444444444444444444', mcUuid: UUID, mcName: 'Alex' });
+  assert.equal(byUuid.reason, 'link-rate-limited');
+});
+
+test('the craft guide tells members how to link, earn, buy, and claim the kit', () => {
+  const guide = JSON.parse(fs.readFileSync(path.join(__dirname, '../config/discord/nexus-guide.json'), 'utf8'));
+  const entry = guide.topics.find((topic) => topic.id === 'minecraft-points');
+  assert.equal(entry.label, 'Minecraft Points');
+  const body = entry.details.join('\n');
+  assert.match(body, /\/mc link start/);
+  assert.match(body, /\/mc link confirm/);
+  assert.match(body, /earns Points/);
+  assert.match(body, /not open yet/);
+  assert.match(body, /starter kit/);
+  assert.match(body, /does not open the ARK shop or Coins/);
+  assert.doesNotMatch(body, /token/i);
 });
 
 function economyPool() {
@@ -512,8 +574,8 @@ test('postgres MC verify reuses one wallet and does not open ARK, legacy, or Coi
   const confirmed = await points.confirm({ discordUserId: DISCORD, code: challenge.code });
   assert.equal(confirmed.ok, true, confirmed.reason);
   assert.equal(confirmed.economicIdentityId, econId);
-  assert.equal(pool.db.identities.get(econId).status, 'verified');
-  assert.ok(pool.db.links.find((row) => row.provider === 'discord').verified_at);
+  assert.equal(pool.db.identities.get(econId).status, 'restricted');
+  assert.equal(pool.db.links.find((row) => row.provider === 'discord').verified_at, null);
   assert.ok(pool.db.links.find((row) => row.provider === 'minecraft' && row.external_id === UUID).verified_at);
   assert.equal(pool.db.links.some((row) => row.provider === 'eos'), false);
   assert.deepEqual(pool.db.wallets.map((row) => row.currency), ['NEXUS_POINTS']);
@@ -552,6 +614,18 @@ test('postgres MC verify reuses one wallet and does not open ARK, legacy, or Coi
   assert.equal(AMOUNT, 1500);
 
   const repository = new NexusEconomyPostgresRuntimeRepository({ pool, schema: 'public' });
+  const refusedArk = await repository.linkVerifiedIdentity({
+    discordUserId: DISCORD,
+    eosId: EOS,
+    verifiedAt: '2026-10-01T18:00:00.000Z',
+    discordMembershipVerified: false
+  });
+  assert.equal(refusedArk.ok, true);
+  assert.equal(refusedArk.status, 'restricted');
+  assert.equal(pool.db.identities.get(econId).status, 'restricted');
+  const stillBlocked = await ark.quote({ discordUserId: DISCORD, sku: 'coastal' });
+  assert.equal(stillBlocked.ok, false);
+  assert.notEqual(stillBlocked.reason, undefined);
   const linked = await repository.linkVerifiedIdentity({
     discordUserId: DISCORD,
     eosId: EOS,

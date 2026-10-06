@@ -95,7 +95,6 @@ const CRAFT_ROUTES = new Set([
   'POST /mc/unlink',
   'POST /mc-shop/claim',
   'POST /mc-shop/delivery-status',
-  'POST /mc-shop/refund',
   'POST /mc-shop/refund-sweep',
   'GET /mc-shop/orders/pending',
   'GET /mc/grants'
@@ -662,13 +661,17 @@ function createEconomyServer(options = {}) {
           orderId: input.orderId,
           reason: input.reason,
           actor: input.actor,
-          writesEnabled
+          writesEnabled,
+          force: input.force === true,
+          staffAuthorized: scope === 'sentinal' && input.staffAuthorized === true
         }));
       }
       if (worker.minecraft && url.pathname === '/mc-shop/refund-sweep') return json(res, 200, { ok: true, results: await worker.minecraft.sweepRefunds({ writesEnabled }) });
       if (worker.minecraft && url.pathname === '/mc/starter-kit/claim') {
         const claim = { discordUserId: input.discordUserId };
         if (scope === 'sentinal') {
+          // Lookup is authoritative. If it fails, an in-range joinedAt from Sentinal
+          // is accepted and a future or out-of-range value is ignored. Craft does not send one.
           const lookedUp = await guildJoinedAtMs(input.discordUserId, discordEnv, fetchImpl);
           const joined = trustedJoinedAt(lookedUp, input.joinedAt);
           if (Number.isFinite(joined)) claim.tenureOf = async () => joined;
@@ -747,6 +750,7 @@ function createEconomyServer(options = {}) {
 }
 
 function listenEconomyServer(options = {}) {
+  require('./mc-points-service.cjs').assertMcLinkCodeSecret(options.env || process.env);
   const runtime = createEconomyServer(options);
   const host = String(options.host || process.env.NEXUS_ECONOMY_HOST || '0.0.0.0');
   const port = Number(options.port || process.env.PORT || process.env.NEXUS_ECONOMY_PORT || 3230);

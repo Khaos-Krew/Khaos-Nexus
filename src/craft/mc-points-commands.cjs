@@ -76,7 +76,13 @@ async function handleMcPointsCommand(interaction, context) {
       }
       const orderId = interaction.options.getString('order');
       const reason = interaction.options.getString('reason');
-      const result = await points.refund({ orderId, reason, actor: discordUserId });
+      const result = await points.refund({
+        orderId,
+        reason,
+        actor: discordUserId,
+        staffAuthorized: true,
+        force: interaction.options.getBoolean?.('force') === true
+      });
       if (result?.duplicate) {
         await interaction.reply(context.ephemeral(`Order ${orderId} was already refunded. Nexus Points were not returned again.`));
         return true;

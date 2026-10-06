@@ -122,6 +122,7 @@ class NexusEconomyWorker {
         },
         balance: (discordUserId) => worker.balance(discordUserId),
         spend: (input) => worker.spend(input),
+        spendMinecraftShop: (input) => worker.spendMinecraftShop(input),
         credit: (input, creditOptions) => worker.credit(input, creditOptions),
         async lifetimeMs(discordUserId) {
           return Number(worker.store.read().accounts?.[discordUserId]?.mcLifetimeMs || 0);
@@ -134,10 +135,10 @@ class NexusEconomyWorker {
     });
   }
 
-  // The in-game link code verifies a Minecraft member on this Discord wallet.
-  // Unmarked restricted rows elevate on confirm. Held, disabled, and denylisted rows stay held.
+  // The in-game link code opens Minecraft features on this Discord wallet.
+  // It creates a restricted identity when none exists and never changes status or verifiedAt.
   // An EOS id is never written here.
-  ensureMinecraftMember(discordUserId, { elevate = false } = {}) {
+  ensureMinecraftMember(discordUserId) {
     const id = cleanId(discordUserId);
     if (!id) return { ok: false, reason: 'discord-user-required' };
     return this.withLock(id, async () => {
@@ -146,9 +147,9 @@ class NexusEconomyWorker {
       const created = !account;
       if (!account) account = this.ensureAccount(state, id);
       if (created) {
-        account.status = elevate ? 'verified' : 'restricted';
+        account.status = 'restricted';
         account.holdReason = '';
-        account.verifiedAt = elevate ? new Date(this.now()).toISOString() : null;
+        account.verifiedAt = null;
         account.eosIds = [];
       }
       if (quarantineDenylist(this.env).has(id) && !String(account.holdReason || '').trim()) {
@@ -164,13 +165,6 @@ class NexusEconomyWorker {
       if (held) {
         this.store.write(state);
         return { ...held, commitStamp: quarantineDenylist(this.env).has(id), economicIdentityId: id };
-      }
-      if (elevate && String(account.status || '').trim().toLowerCase() === 'restricted') {
-        account.status = 'verified';
-        account.holdReason = '';
-        account.verifiedAt = account.verifiedAt || new Date(this.now()).toISOString();
-      } else if (elevate && String(account.status || '').trim().toLowerCase() === 'verified' && !account.verifiedAt) {
-        account.verifiedAt = account.createdAt || new Date(this.now()).toISOString();
       }
       account.eosIds = Array.isArray(account.eosIds) ? account.eosIds : [];
       this.store.write(state);
@@ -303,18 +297,34 @@ class NexusEconomyWorker {
     });
   }
 
+  #verifiedMcLink(discordUserId) {
+    const id = cleanId(discordUserId);
+    const links = this.minecraft?.links;
+    if (!id || !links) return null;
+    return [...links.values()].find((row) => row.discordUserId === id && row.verifiedAt) || null;
+  }
+
   credit({ discordUserId, amount, type = 'credit', source = 'nexus', idempotencyKey = '', metadata = {} } = {}, options = {}) {
     if (String(source || '').trim() === COMMUNITY_LEVEL_UP_SOURCE || String(source || '').trim() === BIRTHDAY_GIFT_SOURCE) {
       return { ok: false, skipped: 'coins-wallet-unavailable', currency: 'NEXUS_COINS' };
     }
     const staffRefund = options?.allowHeldStaffRefund === true && source === 'mc-shop' && type === 'reversal';
+    const mcRollback = options?.minecraftPurchaseRollback === true && source === 'mc-shop' && type === 'reversal' && this.#verifiedMcLink(discordUserId);
     return this.withLock(discordUserId, async () => {
       const value = whole(amount);
       if (value <= 0) throw new Error('Credit amount must be a positive whole number.');
       const state = this.store.read();
       const existing = state.accounts[cleanId(discordUserId)] || null;
       if (existing && idempotencyKey && state.processed[idempotencyKey]) return { ok: true, duplicate: true, balance: existing.balance, accountHold: false };
-      const hold = this.accountHold(existing, discordUserId);
+      const hold = mcRollback
+        ? memberIdentityHold({
+          status: existing?.status,
+          holdReason: existing?.holdReason,
+          missingRow: !existing || !String(existing.status || '').trim(),
+          economicIdentityId: existing?.discordUserId || cleanId(discordUserId),
+          env: this.env
+        })
+        : this.accountHold(existing, discordUserId);
       if (hold && !staffRefund) return { ...hold, balance: existing?.balance || 0 };
       const account = this.ensureAccount(state, discordUserId, existing?.rankId);
       account.balance += value;
@@ -325,7 +335,11 @@ class NexusEconomyWorker {
     });
   }
 
-  spend({ discordUserId, amount, orderId, source = 'cluster-shop', metadata = {}, idempotencyKey = '' } = {}) {
+  spendMinecraftShop(input = {}) {
+    return this.spend({ ...input, source: 'sink:mc-shop' }, { minecraftShop: true });
+  }
+
+  spend({ discordUserId, amount, orderId, source = 'cluster-shop', metadata = {}, idempotencyKey = '' } = {}, options = {}) {
     return this.withLock(discordUserId, async () => {
       const value = whole(amount);
       if (value <= 0) throw new Error('Spend amount must be a positive whole number.');
@@ -335,7 +349,16 @@ class NexusEconomyWorker {
       const state = this.store.read();
       const existing = state.accounts[cleanId(discordUserId)] || null;
       if (existing && state.processed[key]) return { ok: true, duplicate: true, balance: existing.balance };
-      const hold = this.accountHold(existing, discordUserId);
+      const minecraftShop = options?.minecraftShop === true && this.#verifiedMcLink(discordUserId);
+      const hold = minecraftShop
+        ? memberIdentityHold({
+          status: existing?.status,
+          holdReason: existing?.holdReason,
+          missingRow: !existing || !String(existing.status || '').trim(),
+          economicIdentityId: existing?.discordUserId || cleanId(discordUserId),
+          env: this.env
+        })
+        : this.accountHold(existing, discordUserId);
       if (hold) return { ...hold, balance: existing?.balance || 0 };
       const account = this.ensureAccount(state, discordUserId, existing?.rankId);
       if (account.balance < value) return { ok: false, reason: 'insufficient-funds', balance: account.balance };
@@ -476,7 +499,15 @@ class NexusEconomyWorker {
         ? this.ensureAccount(fresh, discordUserId, syncedRank)
         : this.ensureAccount(fresh, discordUserId, rankId || syncedRank);
       const now = this.now();
-      const hold = this.accountHold(account, discordUserId);
+      const hold = minecraft
+        ? memberIdentityHold({
+          status: account.status,
+          holdReason: account.holdReason,
+          missingRow: !String(account.status || '').trim(),
+          economicIdentityId: account.discordUserId,
+          env: this.env
+        })
+        : this.accountHold(account, discordUserId);
       if (hold) {
         account.lastAccountingAt = new Date(now).toISOString();
         account.onlineUncreditedMs = 0;

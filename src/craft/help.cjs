@@ -18,7 +18,7 @@ function craftHelpText() {
     '• `/mc players`, `/mc say`, `/mc whitelist add|remove|list`, `/mc kick` — staff Java RCON.',
     '• `/mc cmd` — staff raw RCON. Administrator or a staff role, same staff check as the other game bots.',
     '• `/mc link`, `/mc unlink`, `/mc shop`, and `/mc starter` appear only when that feature is on.',
-    '• `/mcadmin` is staff-only and appears with those features. `/mcadmin refund` is Admin-only unless refund staff ids are set.',
+    '• `/mcadmin` is staff-only and appears with those features. `/mcadmin refund` is Admin or a listed id.',
     '• `/mcrcon setup`, `/mcrcon status`, `/mcrcon clear` — staff connection store.',
     '• `/realm post` posts a listing. `/realm edit` and `/realm close` change that owner\'s listing. Apply DMs the owner. Approve and Deny belong to the owner or staff.',
     '',

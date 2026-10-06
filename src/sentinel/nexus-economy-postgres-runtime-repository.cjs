@@ -165,8 +165,13 @@ class NexusEconomyPostgresRuntimeRepository extends NexusEconomyPostgresReposito
           [provider, externalId, economicIdentityId, verifiedAt]
         );
       }
-      // Idempotent re-link: never demote an already-verified identity.
+      // Idempotent re-link: never demote an already-verified identity, but still run O9.
       if (priorStatus === 'verified') {
+        const already = assertO9EligibilityForVerifiedMint({ discordUserId, eosId, verifiedAt, discordMembershipVerified });
+        if (!already.ok) {
+          await client.query('ROLLBACK');
+          return { ok: false, status: 'verified', eligibility: already.reason, economicIdentityId };
+        }
         await client.query('COMMIT');
         return { ok: true, duplicate: true, status: 'verified', economicIdentityId };
       }

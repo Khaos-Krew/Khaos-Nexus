@@ -582,9 +582,13 @@ class PostgresMcPoints {
         await client.query('ROLLBACK');
         return buyHold;
       }
-      if (String(buyStatus?.status || '') === 'restricted') {
+      const mcLink = await client.query(
+        `SELECT 1 FROM ${s}.nexus_mc_links WHERE mc_uuid = $1 AND economic_identity_id = $2 AND verified_at IS NOT NULL AND unlinked_at IS NULL`,
+        [row.mc_uuid, row.economic_identity_id]
+      );
+      if (!mcLink.rows?.[0]) {
         await client.query('ROLLBACK');
-        return { ok: false, reason: 'verified-identity-required', message: 'Verified economic identity is required.' };
+        return { ok: false, reason: 'verified-minecraft-link-required' };
       }
       if (this.flags().shopDryRun) {
         const wallet = await client.query(
@@ -869,7 +873,7 @@ class PostgresMcPoints {
         const ledger = await client.query(
           `INSERT INTO ${s}.nexus_economy_ledger (economic_identity_id, currency, amount, balance_after, entry_type, source, idempotency_key, metadata, created_at) ` +
           `VALUES ($1,'NEXUS_POINTS',$2,$3,'reversal','mc-shop',$4,$5::jsonb,NOW()) ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`,
-          [result.order.economicIdentityId, Number(result.order.price), next, key, JSON.stringify({ orderId: result.order.orderId, reason: auditReason, actor: input.actor, accountHold: Boolean(refundHold) })]
+          [result.order.economicIdentityId, Number(result.order.price), next, key, JSON.stringify({ orderId: result.order.orderId, reason: auditReason, actor: input.actor, accountHold: Boolean(refundHold), ...(input.force === true ? { force: true } : {}) })]
         );
         if (ledger.rowCount) {
           await client.query(
@@ -1099,10 +1103,10 @@ async function writeVerifiedMinecraftLink(client, schema, link) {
   throw error;
 }
 
-// A Minecraft link code verifies this Discord member for Minecraft Points only.
+// A Minecraft link code opens Minecraft Points only.
 // Reuse the discord link's economic id so an ARK member and a Minecraft member share one wallet.
-// Never insert an EOS link or a Coin ledger row. Held, disabled, and denylisted rows are not elevated.
-async function ensureMinecraftMemberIdentity(client, schema, env, discordUserId, { elevate = false, now = Date.now() } = {}) {
+// Never insert an EOS link or a Coin ledger row, and never write identity status or the Discord link's verified_at.
+async function ensureMinecraftMemberIdentity(client, schema, env, discordUserId) {
   const s = sqlIdent(schema);
   const discord = String(discordUserId || '').trim();
   if (!/^\d{5,32}$/.test(discord)) return { ok: false, reason: 'discord-user-required' };
@@ -1147,31 +1151,12 @@ async function ensureMinecraftMemberIdentity(client, schema, env, discordUserId,
       economicIdentityId
     };
   }
-  if (elevate) {
-    const verifiedAt = new Date(now).toISOString();
-    await client.query(
-      `INSERT INTO ${s}.nexus_economic_identity_links (provider, external_id, economic_identity_id, verified_at, source) ` +
-      `VALUES ('discord', $1, $2, $3, 'mc-link') ` +
-      `ON CONFLICT (provider, external_id) DO UPDATE SET ` +
-      `verified_at = COALESCE(${s}.nexus_economic_identity_links.verified_at, EXCLUDED.verified_at), ` +
-      `source = CASE WHEN ${s}.nexus_economic_identity_links.verified_at IS NOT NULL THEN ${s}.nexus_economic_identity_links.source ELSE EXCLUDED.source END`,
-      [discord, economicIdentityId, verifiedAt]
-    );
-    if (priorStatus !== 'verified') {
-      await client.query(
-        `UPDATE ${s}.nexus_economic_identities SET status = 'verified', hold_reason = NULL, held_by = NULL, updated_at = NOW() ` +
-        `WHERE economic_identity_id = $1 AND status = 'restricted' AND (hold_reason IS NULL OR btrim(hold_reason) = '')`,
-        [economicIdentityId]
-      );
-    }
-  } else {
-    await client.query(
-      `INSERT INTO ${s}.nexus_economic_identity_links (provider, external_id, economic_identity_id, verified_at, source) ` +
-      `VALUES ('discord', $1, $2, NULL, 'mc-link') ` +
-      `ON CONFLICT (provider, external_id) DO NOTHING`,
-      [discord, economicIdentityId]
-    );
-  }
+  await client.query(
+    `INSERT INTO ${s}.nexus_economic_identity_links (provider, external_id, economic_identity_id, verified_at, source) ` +
+    `VALUES ('discord', $1, $2, NULL, 'mc-link') ` +
+    `ON CONFLICT (provider, external_id) DO NOTHING`,
+    [discord, economicIdentityId]
+  );
   await client.query(
     `INSERT INTO ${s}.nexus_economy_wallets (economic_identity_id, currency, balance) VALUES ($1, 'NEXUS_POINTS', 0) ON CONFLICT (economic_identity_id, currency) DO NOTHING`,
     [economicIdentityId]

@@ -2,8 +2,8 @@
 
 ## OWNER DECISIONS
 
-- Owner decision (8:29 PM CT on 2026-10-05, B4): the in-game link code and `/mc link confirm` verify a member for Minecraft Points. A Minecraft-only member with no ARK or EOS link can link, earn Minecraft playtime Points, buy from the Minecraft shop, and claim the Minecraft starter kit. That verification does not unlock ARK shop items, the 1,500 Point ARK legacy grant, or other ARK-only paths, and it does not change Coin rules. Restricted, held, quarantined, and disabled rules still apply. One Discord member who links both games keeps one Nexus Points wallet.
-- No Minecraft Points are credited unless the economic identity is verified and the Minecraft link is verified.
+- Owner decision (8:29 PM CT on 2026-10-05, B4): the in-game link code and `/mc link confirm` verify a member for Minecraft Points. A Minecraft-only member with no ARK or EOS link can link, earn Minecraft playtime Points, buy from the Minecraft shop, and claim the Minecraft starter kit. That verification does not unlock ARK shop items, the 1,500 Point ARK legacy grant, or other ARK-only paths, and it does not change Coin rules. Restricted, held, quarantined, and disabled rules still apply. One Discord member who links both games keeps one Nexus Points wallet. Confirming the link does not change identity status or the Discord link's verified_at. Minecraft playtime, the Minecraft shop, and the Minecraft starter kit read a verified `nexus_mc_links` row.
+- Minecraft Points are credited only when that Minecraft link is verified and the identity is not held, disabled, or quarantined. An unmarked restricted identity can use those Minecraft features and still cannot spend Coins.
 - Partial delivery: lines already delivered stand, and the remainder goes to SENT_UNCONFIRMED for staff. Those lines are not auto-retried and not auto-refunded.
 
 ## Flags
@@ -26,7 +26,7 @@ Item ids are the ones on ATM10: Aeronautics 0.6.1 (Minecraft 1.21.1, NeoForge 21
 
 ## Craft token
 
-`NEXUS_ECONOMY_CRAFT_TOKEN` is limited to presence, link and unlink, the link-status read, delivery claim and delivery status, the refund sweep, the staff refund route, and the pending-order and kit-grant reads. Buy and quote use Sentinal's token only. The worker still checks the refund actor. Credit, spend, identity, and admin routes reject the craft token.
+`NEXUS_ECONOMY_CRAFT_TOKEN` is limited to presence, link and unlink, the link-status read, delivery claim and delivery status, the refund sweep, and the pending-order and kit-grant reads. It cannot call the staff refund route. Buy, quote, and refund use Sentinal's token only. Discord Administrator checks happen on the bot. `NEXUS_MC_REFUND_STAFF_IDS` adds ids to that check and does not replace it. The worker does not hold Sentinal's bot token for refunds. A delivery that was sent and is not confirmed or failed is refunded only when staff pass `force: true`, and that flag is stored on the refund ledger metadata. Credit, spend, identity, and admin routes reject the craft token. Sentinal's kit claim looks up the join date. If that lookup fails, an in-range `joinedAt` from Sentinal is accepted and a future value is ignored.
 
 ## Member commands
 

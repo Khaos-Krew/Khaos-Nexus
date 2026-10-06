@@ -80,7 +80,11 @@ test('real Postgres relink preserves migrated wallet, proves ownership, rejects 
     assert.equal(Number((await runtime.pool.query(`SELECT count(*) FROM "${schema}".nexus_economy_wallets`)).rows[0].count), 6);
     await runtime.close();
     runtime = await createPostgresEconomyRuntime({ env, now: () => now });
-    assert.equal((await runtime.worker.linkArkIdentity(proof(discordUserId, eosId))).duplicate, true);
+    assert.equal((await runtime.worker.linkArkIdentity(withIdentityProof(
+      { discordUserId, eosId, discordMembershipVerified: true },
+      { verifiedAt: new Date(now).toISOString() },
+      { secret, now }
+    ))).duplicate, true);
     assert.equal(await runtime.worker.balance(discordUserId), 73);
     const catalog = loadCatalog(JSON.stringify([{ id: 'metal', name: 'Metal', blueprint: '/Game/PrimalEarth/CoreBlueprints/Resources/PrimalItemResource_Metal.PrimalItemResource_Metal', baseQuantity: 100, buyPrice: 40, maxBundles: 25, buyable: true }]));
     const shop = new NexusEconomyPostgresShopService({ wallet: runtime.walletCore, repository: runtime.repository, catalog });

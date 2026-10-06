@@ -13,7 +13,7 @@ const {
   loadMcShopCatalog
 } = require('../shared/mc-shop-catalog.cjs');
 const { loadStarterKit, starterKitEligibility, discordAccountCreatedMs, guildJoinedAtMs } = require('../shared/mc-starter-kit.cjs');
-const { authorizeMcRefundActor, refundStaffIds } = require('./mc-refund-auth.cjs');
+const { refundStaffIds } = require('./mc-refund-auth.cjs');
 const { ctDayKey } = require('./mc-playtime-accounting.cjs');
 const { isPremiumUuid, normalizeUuid, itemIdOk } = require('../craft/mc-rcon-text.cjs');
 const { withIdentityProof } = require('../sentinel/nexus-economy-identity-proof.cjs');
@@ -71,13 +71,36 @@ function linkCandidate(identity) {
   return status === 'restricted' && !String(identity.holdReason || '').trim();
 }
 
+function mcFeatureIdentity(identity) {
+  if (!identity) return false;
+  const status = String(identity.status || '').trim().toLowerCase();
+  if (status !== 'verified' && status !== 'restricted') return false;
+  return !String(identity.holdReason || '').trim();
+}
+
 function mcEarnEligible(identity, link) {
-  return verifiedDiscordIdentity(identity) && Boolean(link?.verifiedAt) && isPremiumUuid(link.mcUuid);
+  // A verified Minecraft link. Identity status stays where it was. An EOS link is not required.
+  return mcFeatureIdentity(identity) && Boolean(link?.verifiedAt) && isPremiumUuid(link.mcUuid);
 }
 
 function mcPlaytimeEligible(identity, link) {
-  // Verified Discord identity and a verified /mc link. An EOS link is not required.
-  return verifiedDiscordIdentity(identity) && Boolean(link?.verifiedAt) && isPremiumUuid(link.mcUuid);
+  return mcEarnEligible(identity, link);
+}
+
+function quoteIdentityHold(identity, env) {
+  if (!identity || !String(identity.status || '').trim()) {
+    return memberIdentityHold({
+      missingRow: true,
+      economicIdentityId: identity?.economicIdentityId,
+      env
+    });
+  }
+  return memberIdentityHold({
+    status: identity.status,
+    holdReason: identity.holdReason,
+    economicIdentityId: identity.economicIdentityId,
+    env
+  });
 }
 
 function leaseMsForOrder(order) {
@@ -159,6 +182,15 @@ function quoteSecret(env = process.env) {
   return String(env.NEXUS_ECONOMY_IDENTITY_PROOF_SECRET || env.MC_SHOP_QUOTE_SECRET || '');
 }
 
+function assertMcLinkCodeSecret(env = process.env) {
+  if (!mcPointsFlags(env).pointsEnabled) return;
+  if (String(env.MC_LINK_CODE_SECRET || '').length < 32) {
+    const error = new Error('MC_LINK_CODE_SECRET must be at least 32 characters when Minecraft Points are enabled.');
+    error.code = 'link-code-secret-missing';
+    throw error;
+  }
+}
+
 class MemoryMcPoints {
   constructor({ now = () => Date.now(), wallet, env = process.env, catalog, kit, createOrderId, tenureOf, fetchImpl } = {}) {
     if (!wallet) throw new Error('Minecraft points service requires a wallet.');
@@ -211,7 +243,7 @@ class MemoryMcPoints {
     if (!isPremiumUuid(uuid)) return { ok: false, reason: 'uuid-not-premium' };
     const discord = String(discordUserId || '').trim();
     if (!/^\d{5,32}$/.test(discord)) return { ok: false, reason: 'discord-user-required' };
-    const prepared = await this.#identityForLink(discord, { elevate: false });
+    const prepared = await this.#identityForLink(discord);
     if (!prepared.ok) return { ok: false, reason: prepared.reason, message: prepared.message };
     const identity = prepared.identity;
     const opensLink = typeof this.wallet.ensureMinecraftMember === 'function' ? linkCandidate(identity) : verifiedDiscordIdentity(identity);
@@ -224,8 +256,9 @@ class MemoryMcPoints {
       bumpMcMetric('linkLocked');
       return { ok: false, reason: 'code-locked' };
     }
-    const recent = this.linkRequests.filter((row) => row.mcUuid === uuid && now - row.at < LINK_REQUEST_WINDOW_MS);
-    if (recent.length >= LINK_REQUESTS_PER_HOUR) return { ok: false, reason: 'link-rate-limited' };
+    const recentUuid = this.linkRequests.filter((row) => row.mcUuid === uuid && now - row.at < LINK_REQUEST_WINDOW_MS);
+    const recentDiscord = this.linkRequests.filter((row) => row.discordUserId === discord && now - row.at < LINK_REQUEST_WINDOW_MS);
+    if (recentUuid.length >= LINK_REQUESTS_PER_HOUR || recentDiscord.length >= LINK_REQUESTS_PER_HOUR) return { ok: false, reason: 'link-rate-limited' };
     const code = generateLinkCode();
     this.linkRequests.push({ mcUuid: uuid, discordUserId: discord, at: now });
     this.challenges.set(discord, {
@@ -270,7 +303,7 @@ class MemoryMcPoints {
       this.#audit({ action: 'link', actor: discord, reason: 'confirm', result: 'code-mismatch', subject: pending.mcUuid });
       return { ok: false, reason: 'code-mismatch' };
     }
-    const prepared = await this.#identityForLink(discord, { elevate: false });
+    const prepared = await this.#identityForLink(discord);
     if (!prepared.ok || prepared.identity.economicIdentityId !== pending.economicIdentityId) {
       const reason = prepared.ok ? 'verified-identity-required' : prepared.reason;
       this.#audit({ action: 'link', actor: discord, reason: 'confirm', result: reason, subject: pending.mcUuid });
@@ -296,13 +329,7 @@ class MemoryMcPoints {
       this.#audit({ action: 'link', actor: discord, reason: 'confirm', result: 'already-linked', subject: pending.mcUuid });
       return { ok: false, reason: 'already-linked' };
     }
-    const elevated = await this.#identityForLink(discord, { elevate: true });
-    if (!elevated.ok || !verifiedDiscordIdentity(elevated.identity) || elevated.identity.economicIdentityId !== pending.economicIdentityId) {
-      const reason = elevated.ok ? 'verified-identity-required' : elevated.reason;
-      this.#audit({ action: 'link', actor: discord, reason: 'confirm', result: reason, subject: pending.mcUuid });
-      return { ok: false, reason, message: elevated.message, commitStamp: elevated.commitStamp === true };
-    }
-    const identity = elevated.identity;
+    const identity = prepared.identity;
     const verifiedAt = new Date(now).toISOString();
     const link = {
       mcUuid: pending.mcUuid,
@@ -391,6 +418,8 @@ class MemoryMcPoints {
     if (!this.flags().shopEnabled) return { ok: false, reason: 'mc-shop-disabled' };
     const discord = String(discordUserId || '').trim();
     const identity = await this.wallet.resolve(discord);
+    const held = quoteIdentityHold(identity, this.env);
+    if (held) return held;
     const link = [...this.links.values()].find((row) => row.discordUserId === discord && row.verifiedAt);
     if (!mcEarnEligible(identity, link)) {
       return { ok: false, reason: verifiedDiscordIdentity(identity) ? 'verified-minecraft-link-required' : 'verified-identity-required' };
@@ -484,14 +513,17 @@ class MemoryMcPoints {
     const orderId = this.createOrderId();
     const balanceMark = this.wallet.balanceValue;
     const callMark = Array.isArray(this.wallet.calls) ? this.wallet.calls.length : null;
-    const spent = await this.wallet.spend({
+    const spendInput = {
       discordUserId: pending.discordUserId,
       amount: price,
       orderId: ledgerKey,
       idempotencyKey: ledgerKey,
       source: 'sink:mc-shop',
       metadata: { sku: pending.sku, qty: lines.reduce((sum, line) => sum + line.count, 0), catalogVersion: pending.catalogVersion, price }
-    });
+    };
+    const spent = typeof this.wallet.spendMinecraftShop === 'function'
+      ? await this.wallet.spendMinecraftShop(spendInput)
+      : await this.wallet.spend(spendInput);
     if (!spent?.ok) return { ok: false, reason: spent?.reason || 'spend-failed', message: spent?.message, balance: spent?.balance };
     const replay = spent.duplicate === true;
     try {
@@ -538,7 +570,7 @@ class MemoryMcPoints {
         type: 'reversal',
         source: 'mc-shop',
         metadata: { reason: 'purchase-rollback', orderId }
-      });
+      }, { minecraftPurchaseRollback: true });
       if (typeof balanceMark === 'number') this.wallet.balanceValue = balanceMark;
       if (callMark != null && Array.isArray(this.wallet.calls)) this.wallet.calls.length = callMark;
       if (error.code === 'duplicate-order-id') return { ok: false, reason: 'duplicate-order-id' };
@@ -551,6 +583,8 @@ class MemoryMcPoints {
     if (!this.flags().starterKitEnabled) return { ok: false, reason: 'mc-starter-kit-disabled' };
     const discord = String(discordUserId || '').trim();
     const identity = await this.wallet.resolve(discord);
+    const held = quoteIdentityHold(identity, this.env);
+    if (held) return held;
     const link = [...this.links.values()].find((row) => row.discordUserId === discord && row.verifiedAt);
     if (!mcEarnEligible(identity, link)) {
       return { ok: false, reason: verifiedDiscordIdentity(identity) ? 'verified-minecraft-link-required' : 'verified-identity-required' };
@@ -801,7 +835,7 @@ class MemoryMcPoints {
     });
   }
 
-  async refund({ orderId, reason = '', actor = '', writesEnabled = false, now = this.now(), applyWallet = true, deferHold = false } = {}) {
+  async refund({ orderId, reason = '', actor = '', writesEnabled = false, now = this.now(), applyWallet = true, deferHold = false, force = false, staffAuthorized = false } = {}) {
     const order = this.orders.get(String(orderId || ''));
     if (!order) return { ok: false, reason: 'order-not-found' };
     if (order.status === 'REFUNDED' || order.refunded) return { ok: true, duplicate: true, order };
@@ -819,8 +853,13 @@ class MemoryMcPoints {
     } else {
       const staffReason = String(reason || '').trim();
       if (staffReason.length < 3) return { ok: false, reason: 'refund-reason-required' };
-      if (!await this.#refundStaffAllowed(staffActor, order)) return { ok: false, reason: 'staff-not-authorized' };
-      if (order.status !== 'SENT_UNCONFIRMED' && order.status !== 'DELIVERY_FAILED') return { ok: false, reason: 'refund-not-allowed', order };
+      if (!await this.#refundStaffAllowed(staffActor, order, staffAuthorized === true)) return { ok: false, reason: 'staff-not-authorized' };
+      const sentUnconfirmed = order.status === 'SENT_UNCONFIRMED' || (order.lines || []).some((line) => line.status === 'SENT_UNCONFIRMED');
+      if (sentUnconfirmed) {
+        if (force !== true) return { ok: false, reason: 'refund-not-allowed', order };
+      } else if (order.status !== 'DELIVERY_FAILED') {
+        return { ok: false, reason: 'refund-not-allowed', order };
+      }
       if (this.#leaseLive(order, now)) return { ok: false, reason: 'lease-live', order };
       const today = this.audits.filter((row) => row.actor === staffActor && ctDayKey(Date.parse(row.createdAt)) === ctDayKey(now));
       if (today.length >= STAFF_REFUND_DAILY_CAP) return { ok: false, reason: 'staff-refund-cap' };
@@ -835,7 +874,7 @@ class MemoryMcPoints {
         idempotencyKey: key,
         type: 'reversal',
         source: 'mc-shop',
-        metadata: { reason, actor, orderId: order.orderId, sku: order.sku }
+        metadata: { reason, actor, orderId: order.orderId, sku: order.sku, ...(force === true ? { force: true } : {}) }
       }, auto ? undefined : { allowHeldStaffRefund: true });
       if (!credited?.ok) return { ok: false, reason: credited?.reason || 'refund-failed', message: credited?.message, order };
       order.ledgerRefundKey = key;
@@ -859,7 +898,8 @@ class MemoryMcPoints {
       reason: (heldRefund && !auto ? `${String(reason).slice(0, 260)} [account-hold]` : String(reason)).slice(0, 300),
       amount: Number(order.price || 0),
       fromStatus: previous,
-      createdAt: new Date(now).toISOString()
+      createdAt: new Date(now).toISOString(),
+      ...(force === true ? { force: true } : {})
     });
     const grant = this.grants.find((row) => row.orderId === order.orderId);
     if (grant) grant.status = 'REFUNDED';
@@ -892,18 +932,16 @@ class MemoryMcPoints {
     return allow.includes(actor);
   }
 
-  async #refundStaffAllowed(actor, order) {
+  async #refundStaffAllowed(actor, order, staffAuthorized = false) {
     if (!/^\d{5,32}$/.test(actor)) return false;
     if (actor === order.discordUserId) return false;
-    const listed = refundStaffIds(this.env);
-    if (listed.length) return listed.includes(actor);
-    const decision = await authorizeMcRefundActor({ actor, env: this.env, fetchImpl: this.fetchImpl });
-    return decision.ok === true;
+    if (refundStaffIds(this.env).includes(actor)) return true;
+    return staffAuthorized === true;
   }
 
-  async #identityForLink(discord, { elevate = false } = {}) {
+  async #identityForLink(discord) {
     if (typeof this.wallet.ensureMinecraftMember === 'function') {
-      const ensured = await this.wallet.ensureMinecraftMember(discord, { elevate });
+      const ensured = await this.wallet.ensureMinecraftMember(discord);
       if (!ensured?.ok || !ensured.identity?.economicIdentityId) {
         return {
           ok: false,
@@ -923,7 +961,6 @@ class MemoryMcPoints {
       env: this.env
     });
     if (held) return held;
-    if (elevate && !verifiedDiscordIdentity(identity)) return { ok: false, reason: 'verified-identity-required' };
     return { ok: true, identity };
   }
 
@@ -985,6 +1022,7 @@ module.exports = {
   CODE_ALPHABET,
   hashCode,
   linkCodeSecret,
+  assertMcLinkCodeSecret,
   generateLinkCode,
   verifiedDiscordIdentity,
   mcEarnEligible,

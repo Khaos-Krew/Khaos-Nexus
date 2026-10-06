@@ -121,14 +121,16 @@ class PostgresEconomyAccrual {
   async #resolveByMinecraft(client, mcUuid) {
     const uuid = normalizeUuid(mcUuid);
     if (!uuid) return null;
-    // Verified Discord identity and a verified /mc link. No EOS join. Quarantine is checked by the caller.
+    // A verified nexus_mc_links row. Discord verified_at is not required. No EOS join.
+    // Unmarked restricted may earn. A hold marker is resolved on the held path. Quarantine is checked by the caller.
     const result = await client.query(
-      `SELECT i.economic_identity_id, d.external_id AS discord_user_id, m.external_id AS mc_uuid ` +
-      `FROM ${this.schema}.nexus_economic_identity_links m ` +
-      `JOIN ${this.schema}.nexus_economic_identities i ON i.economic_identity_id = m.economic_identity_id ` +
-      `JOIN ${this.schema}.nexus_economic_identity_links d ON d.economic_identity_id = i.economic_identity_id ` +
-      `WHERE m.provider = 'minecraft' AND m.external_id = $1 AND m.verified_at IS NOT NULL ` +
-      `AND d.provider = 'discord' AND d.verified_at IS NOT NULL AND i.status = 'verified' LIMIT 1`,
+      `SELECT i.economic_identity_id, d.external_id AS discord_user_id, l.mc_uuid ` +
+      `FROM ${this.schema}.nexus_mc_links l ` +
+      `JOIN ${this.schema}.nexus_economic_identities i ON i.economic_identity_id = l.economic_identity_id ` +
+      `JOIN ${this.schema}.nexus_economic_identity_links d ON d.economic_identity_id = i.economic_identity_id AND d.provider = 'discord' ` +
+      `WHERE l.mc_uuid = $1 AND l.verified_at IS NOT NULL AND l.unlinked_at IS NULL ` +
+      `AND i.status IN ('verified', 'restricted') ` +
+      `AND NULLIF(btrim(COALESCE(i.hold_reason, '')), '') IS NULL LIMIT 1`,
       [uuid]
     );
     return result.rows?.[0] || null;
@@ -193,12 +195,11 @@ class PostgresEconomyAccrual {
       const uuid = normalizeUuid(mcUuid);
       if (!uuid) return null;
       const result = await client.query(
-        `SELECT i.economic_identity_id, i.status, d.external_id AS discord_user_id, m.external_id AS mc_uuid ` +
-        `FROM ${this.schema}.nexus_economic_identity_links m ` +
-        `JOIN ${this.schema}.nexus_economic_identities i ON i.economic_identity_id = m.economic_identity_id ` +
-        `JOIN ${this.schema}.nexus_economic_identity_links d ON d.economic_identity_id = i.economic_identity_id ` +
-        `WHERE m.provider = 'minecraft' AND m.external_id = $1 AND m.verified_at IS NOT NULL ` +
-        `AND d.provider = 'discord' AND d.verified_at IS NOT NULL ` +
+        `SELECT i.economic_identity_id, i.status, d.external_id AS discord_user_id, l.mc_uuid ` +
+        `FROM ${this.schema}.nexus_mc_links l ` +
+        `JOIN ${this.schema}.nexus_economic_identities i ON i.economic_identity_id = l.economic_identity_id ` +
+        `JOIN ${this.schema}.nexus_economic_identity_links d ON d.economic_identity_id = i.economic_identity_id AND d.provider = 'discord' ` +
+        `WHERE l.mc_uuid = $1 AND l.verified_at IS NOT NULL AND l.unlinked_at IS NULL ` +
         `AND ${heldPredicate} LIMIT 1`,
         [uuid, statuses]
       );
@@ -230,7 +231,7 @@ class PostgresEconomyAccrual {
   }
 
   // ARK playtime still resolves through #resolveByEos (EOS verified_at required).
-  // Minecraft playtime resolves through a verified Discord identity and a verified /mc link, with no EOS join.
+  // Minecraft playtime resolves through a verified nexus_mc_links row, with no EOS join.
   // accrueOffline still uses #resolveByDiscord, then passive income keeps the EOS hard-gate.
   async #lockStateAndWallet(client, economicIdentityId, rankId = null) {
     const s = this.schema;

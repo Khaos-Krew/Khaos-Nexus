@@ -9,7 +9,7 @@ const path = require('node:path');
 const { PermissionFlagsBits } = require('discord.js');
 const { PostgresArkShop } = require('../src/economy-worker/ark-np-postgres.cjs');
 const { authorizeMcRefundActor, mcRefundActorAllowed } = require('../src/economy-worker/mc-refund-auth.cjs');
-const { MemoryMcPoints } = require('../src/economy-worker/mc-points-service.cjs');
+const { MemoryMcPoints, assertMcLinkCodeSecret } = require('../src/economy-worker/mc-points-service.cjs');
 const { PostgresMcPoints, MC_SCHEMA_VERSION } = require('../src/economy-worker/mc-points-postgres.cjs');
 const { PostgresEconomyAccrual } = require('../src/economy-worker/postgres-accrual.cjs');
 const { createEconomyServer, craftRouteAllowed, writeGate } = require('../src/economy-worker/server.cjs');
@@ -56,7 +56,7 @@ function wallet(balance = 100) {
       return { ok: true, balance: this.balanceValue };
     },
     async credit(input) {
-      this.calls.push(['credit', input.amount]);
+      this.calls.push(['credit', input.amount, input]);
       this.balanceValue += input.amount;
       return { ok: true, balance: this.balanceValue };
     },
@@ -381,7 +381,7 @@ test('craft can read link status and the member sees a clear failure', async () 
   assert.equal(craftRouteAllowed('POST', `/mc/link/${DISCORD}`), false);
   assert.equal(craftRouteAllowed('POST', '/mc-shop/buy'), false);
   assert.equal(craftRouteAllowed('POST', '/mc-shop/quote'), false);
-  assert.equal(craftRouteAllowed('POST', '/mc-shop/refund'), true);
+  assert.equal(craftRouteAllowed('POST', '/mc-shop/refund'), false);
   const runtime = createEconomyServer({
     token: 'sentinal-token',
     craftToken: 'craft-token',
@@ -486,6 +486,7 @@ test('shop dry-run shows a test receipt and debits nothing', async () => {
             }
             if (query.includes('nexus_mc_orders')) return { rows: [] };
             if (query.includes('pg_advisory_xact_lock')) return { rows: [] };
+            if (query.includes('nexus_mc_links') && query.includes('SELECT')) return { rows: [{ mc_uuid: 'linked' }], rowCount: 1 };
             if (query.includes('SELECT status')) return { rows: [{ status: 'verified', hold_reason: null }] };
             if (query.includes('SELECT balance')) return { rows: [{ balance: 100 }] };
             if (/\b(INSERT|UPDATE|DELETE)\b/i.test(query)) throw new Error(`dry-run wrote ${query}`);
@@ -510,6 +511,15 @@ test('shop dry-run shows a test receipt and debits nothing', async () => {
   });
 });
 
+test('startup fails closed when Minecraft Points are on and the link secret is short', () => {
+  assert.throws(
+    () => assertMcLinkCodeSecret({ MC_POINTS_ENABLED: 'true', MC_LINK_CODE_SECRET: 'too-short' }),
+    /at least 32/
+  );
+  assert.doesNotThrow(() => assertMcLinkCodeSecret({ MC_POINTS_ENABLED: 'false' }));
+  assert.doesNotThrow(() => assertMcLinkCodeSecret({ MC_POINTS_ENABLED: 'true', MC_LINK_CODE_SECRET: LINK_SECRET }));
+});
+
 test('an Administrator can refund one Minecraft order and named owner roles cannot', async () => {
   const api = discordApi();
   const bank = wallet(100);
@@ -530,12 +540,16 @@ test('an Administrator can refund one Minecraft order and named owner roles cann
   const self = await points.refund({ orderId: order.orderId, reason: 'lost delivery', actor: BUYER, writesEnabled: true });
   assert.equal(self.reason, 'staff-not-authorized');
   assert.equal(api.calls.length, 0);
-  const refunded = await points.refund({ orderId: order.orderId, reason: 'lost delivery', actor: ADMIN, writesEnabled: true });
+  const refused = await points.refund({ orderId: order.orderId, reason: 'lost delivery', actor: ADMIN, writesEnabled: true, staffAuthorized: true });
+  assert.equal(refused.reason, 'refund-not-allowed');
+  const refunded = await points.refund({ orderId: order.orderId, reason: 'lost delivery', actor: ADMIN, writesEnabled: true, staffAuthorized: true, force: true });
   assert.equal(refunded.ok, true, refunded.reason);
   assert.equal(order.status, 'REFUNDED');
   assert.equal(points.audits.length, 1);
+  assert.equal(points.audits[0].force, true);
   assert.equal(bank.balanceValue, 100);
-  assert.equal(api.calls[0].authorization, 'Bot sentinel-bot-token');
+  assert.equal(bank.calls.find((call) => call[0] === 'credit')[2].metadata.force, true);
+  assert.equal(api.calls.length, 0);
   const again = await points.refund({ orderId: order.orderId, reason: 'lost delivery', actor: ADMIN, writesEnabled: true });
   assert.equal(again.duplicate, true);
   assert.equal(points.audits.length, 1);
@@ -569,6 +583,32 @@ test('an Administrator can refund one Minecraft order and named owner roles cann
   });
   assert.equal(onList.ok, true);
   assert.equal(onList.source, 'staff-list');
+
+  const failedBank = wallet(100);
+  const failedService = service({
+    bank: failedBank,
+    env: { MC_SHOP_DRY_RUN: 'false', NEXUS_MC_REFUND_STAFF_IDS: ADMIN }
+  });
+  await link(failedService.points, BUYER, '11111111-1111-4111-8111-111111111111');
+  const failedQuote = await failedService.points.quote({ discordUserId: BUYER, sku: 'mc_logs64', bundles: 1 });
+  const failedPaid = await failedService.points.buy({
+    discordUserId: BUYER,
+    sku: 'mc_logs64',
+    bundles: 1,
+    nonce: failedQuote.quote.nonce,
+    writesEnabled: true
+  });
+  const failedOrder = failedService.points.orders.get(failedPaid.order.orderId);
+  failedOrder.status = 'DELIVERY_FAILED';
+  const failedRefund = await failedService.points.refund({
+    orderId: failedOrder.orderId,
+    reason: 'delivery failed',
+    actor: ADMIN,
+    writesEnabled: true
+  });
+  assert.equal(failedRefund.ok, true, failedRefund.reason);
+  assert.equal(failedRefund.order.status, 'REFUNDED');
+  assert.equal(failedBank.calls.find((call) => call[0] === 'credit')[2].metadata.force, undefined);
 });
 
 test('Craft /mcadmin refund is Administrator-only unless staff ids are set', async () => {
@@ -603,8 +643,15 @@ test('Craft /mcadmin refund is Administrator-only unless staff ids are set', asy
     refundInteraction(ADMIN, [{ id: ROLE, name: 'Administrators', permissions: '8' }]),
     { NEXUS_MC_REFUND_STAFF_IDS: '333333333333333333' }
   );
-  assert.equal(listed, mcMemberText('staff-not-authorized'));
-  assert.equal(calls.length, 1);
+  assert.match(listed, /Refunded/);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].staffAuthorized, true);
+  const listedOnly = await run(
+    refundInteraction('333333333333333333', [{ id: ROLE, name: 'Member', permissions: '0' }]),
+    { NEXUS_MC_REFUND_STAFF_IDS: '333333333333333333' }
+  );
+  assert.match(listedOnly, /Refunded/);
+  assert.equal(calls.length, 3);
 
   const named = await run(refundInteraction(ADMIN, [
     { id: OWNER_ROLE_ID, name: 'Owner', permissions: '8' },
