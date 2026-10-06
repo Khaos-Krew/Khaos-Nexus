@@ -907,7 +907,7 @@ class PostgresMcPoints {
         const selfHold = await this.#lockedIdentityHold(client, before.economicIdentityId);
         await client.query('ROLLBACK');
         if (selfHold) return { ...selfHold, order: before };
-        return { ok: false, reason: 'staff-not-authorized', order: before };
+        return { ok: false, reason: 'self-refund', order: before };
       }
       const staff = !auto;
       if (staff) {

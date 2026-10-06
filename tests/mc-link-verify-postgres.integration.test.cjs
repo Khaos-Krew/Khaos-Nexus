@@ -434,7 +434,7 @@ test('a linked alt cannot refund the main Minecraft order, and the daily cap is 
       writesEnabled: true,
       staffAuthorized: true
     });
-    assert.equal(refused.reason, 'staff-not-authorized');
+    assert.equal(refused.reason, 'self-refund');
     assert.equal((await admin.query(`SELECT status FROM "${schema}".nexus_mc_orders WHERE order_id = 'alt-order'`)).rows[0].status, 'DELIVERY_FAILED');
 
     for (let index = 0; index < 9; index += 1) {

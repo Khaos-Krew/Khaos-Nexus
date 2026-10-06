@@ -426,7 +426,8 @@ test('staff cannot refund themselves, a delivered order, or without a reason', a
   points.orders.get(claimed.orderId).leaseToken = null;
   points.orders.get(claimed.orderId).leaseUntil = null;
   const self = await points.refund({ orderId: bought.order.orderId, reason: 'lost crate', actor: DISCORD, writesEnabled: true });
-  assert.equal(self.reason, 'staff-not-authorized');
+  assert.equal(self.reason, 'self-refund');
+  assert.equal(mcMemberText('self-refund'), 'Nothing was refunded. Ask another staff admin to do this refund.');
   const alt = '666666666666666666';
   const shared = wallet();
   const resolve = shared.resolve.bind(shared);
@@ -445,7 +446,7 @@ test('staff cannot refund themselves, a delivered order, or without a reason', a
     writesEnabled: true,
     staffAuthorized: true
   });
-  assert.equal(altRefund.reason, 'staff-not-authorized');
+  assert.equal(altRefund.reason, 'self-refund');
   assert.notEqual(linkedAlt.points.orders.get(altBuy.order.orderId).status, 'REFUNDED');
   const bare = await points.refund({ orderId: bought.order.orderId, reason: 'no', actor: STAFF, writesEnabled: true });
   assert.equal(bare.reason, 'refund-reason-required');

@@ -471,6 +471,10 @@ test('minecraft buy and refund refuse each blocked status after the member was v
     const fresh = worker.store.read();
     fresh.accounts[DISCORD].status = status;
     fresh.accounts[DISCORD].holdReason = status === 'restricted' ? 'staff' : '';
+    worker.ensureAccount(fresh, STAFF, 'cipher-runner');
+    fresh.accounts[STAFF].status = 'verified';
+    fresh.accounts[STAFF].holdReason = '';
+    fresh.accounts[STAFF].verifiedAt = '2026-01-01T00:00:00.000Z';
     worker.store.write(fresh);
     paid.order.status = 'SENT_UNCONFIRMED';
     const self = await worker.minecraft.refund({
@@ -645,6 +649,12 @@ function shopClient({ status, flip = '', missingStatus = false, withinWindow = t
       if (text.includes('SELECT order_data FROM')) return { rows: [{ order_data: order }], rowCount: 1 };
       if (text.includes('nexus_mc_grants') || (text.includes('nexus_mc_refund_audit') && text.includes('SELECT'))) return { rows: [], rowCount: 0 };
       if (text.includes('economicIdentityId')) return { rows: [], rowCount: 0 };
+      if (text.includes('nexus_economic_identity_links') && text.includes('external_id') && !text.includes('FOR UPDATE') && !text.includes('JOIN')) {
+        const externalId = String(params[0] || '');
+        if (externalId === STAFF) return { rows: [{ economic_identity_id: 'econ_staff_hold' }], rowCount: 1 };
+        if (externalId === DISCORD) return { rows: [{ economic_identity_id: 'econ_shop' }], rowCount: 1 };
+        return { rows: [], rowCount: 0 };
+      }
       if (text.includes('SELECT status') && text.includes('nexus_economic_identities')) {
         if (missingStatus) return { rows: [], rowCount: 0 };
         if (flip) locked = flip;
@@ -668,9 +678,19 @@ function shopClient({ status, flip = '', missingStatus = false, withinWindow = t
     writes,
     audits,
     pool: {
-      async query(sql) {
+      async query(sql, params = []) {
         const text = String(sql);
         if (text.includes('nexus_mc_schema_version') && text.includes('SELECT')) return { rows: [{ version: 1 }], rowCount: 1 };
+        if (text.includes('nexus_economic_identity_links') && text.includes('external_id')) {
+          const externalId = String(params[0] || '');
+          if (externalId === STAFF) {
+            return { rows: [{ economic_identity_id: 'econ_staff_hold', status: 'verified', hold_reason: null, verified_at: '2026-01-01T00:00:00.000Z' }], rowCount: 1 };
+          }
+          if (externalId === DISCORD) {
+            return { rows: [{ economic_identity_id: 'econ_shop', status: 'verified', hold_reason: null, verified_at: '2026-01-01T00:00:00.000Z' }], rowCount: 1 };
+          }
+          return { rows: [], rowCount: 0 };
+        }
         return { rows: [], rowCount: 1 };
       },
       async connect() { return client; }

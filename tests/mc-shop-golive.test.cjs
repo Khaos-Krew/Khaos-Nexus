@@ -591,7 +591,8 @@ test('an Administrator can refund one Minecraft order and named owner roles cann
   const order = points.orders.get(paid.order.orderId);
   order.status = 'SENT_UNCONFIRMED';
   const self = await points.refund({ orderId: order.orderId, reason: 'lost delivery', actor: BUYER, writesEnabled: true });
-  assert.equal(self.reason, 'staff-not-authorized');
+  assert.equal(self.reason, 'self-refund');
+  assert.equal(mcMemberText('self-refund'), 'Nothing was refunded. Ask another staff admin to do this refund.');
   assert.equal(api.calls.length, 0);
   const refused = await points.refund({ orderId: order.orderId, reason: 'lost delivery', actor: ADMIN, writesEnabled: true, staffAuthorized: true });
   assert.equal(refused.reason, 'refund-not-allowed');
@@ -800,7 +801,8 @@ test('Sentinal previews and refunds a Minecraft order and Craft cannot', async (
       interaction.options.getBoolean = (name) => name === 'confirm';
       await handleArkShopInteraction(interaction, { economyClient: new NexusEconomyClient(), env: staffEnv });
       assert.match(interaction.replies.at(-1), /Refunded/);
-      assert.match(interaction.replies.at(-1), /Staff can see this refund in \/shopadmin lookup/);
+      assert.match(interaction.replies.at(-1), /This order cannot be refunded again/);
+      assert.doesNotMatch(interaction.replies.at(-1), /shopadmin lookup/);
       assert.doesNotMatch(interaction.replies.at(-1), /audit is stored/);
       assert.equal(points.orders.get(paid.order.orderId).status, 'REFUNDED');
     });

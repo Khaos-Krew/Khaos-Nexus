@@ -234,7 +234,7 @@ async function handleMcRefund(interaction, economy, env = process.env) {
   if (!confirm) return interaction.reply(ephemeral(`Preview: ${orderId} can be refunded. Run \`/shopadmin mc-refund\` again with confirm to return the Points.`));
   const price = Number(result.order?.price || 0);
   const returned = price > 0 ? `${price} Nexus Points were returned.` : 'No Nexus Points were owed.';
-  return interaction.reply(ephemeral(`Refunded ${orderId}. ${returned} Staff can see this refund in /shopadmin lookup. This order cannot be refunded again.`));
+  return interaction.reply(ephemeral(`Refunded ${orderId}. ${returned} This order cannot be refunded again.`));
 }
 
 async function handleArkShopInteraction(interaction, { economyClient = new NexusEconomyClient(), config = loadConfig(), env = process.env } = {}) {

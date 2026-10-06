@@ -32,6 +32,7 @@ const MESSAGES = Object.freeze({
   'economy-worker-unconfigured': 'Minecraft Points are not set up on this bot yet. Ask a staff member to finish setup.',
   'link-status-unavailable': 'I could not check your Minecraft link. Try `/mc link status` again in a minute. If it still fails, ask a staff member.',
   'staff-not-authorized': 'Only server admins can refund orders.',
+  'self-refund': 'Nothing was refunded. Ask another staff admin to do this refund.',
   'refund-reason-required': 'Add a short reason, then run `/shopadmin mc-refund` again.',
   'refund-window': 'Refunds are only available within 24 hours of purchase. Ask an admin if the order never arrived; undelivered orders refund automatically.',
   'staff-refund-cap': 'Nothing was refunded. Ask another staff admin, or try again after 12:00 AM Central.',

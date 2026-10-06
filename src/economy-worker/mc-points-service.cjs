@@ -856,7 +856,7 @@ class MemoryMcPoints {
       if (actorIdentity.unresolved) return { ok: false, reason: 'staff-unlinked', order };
       if (staffActor === order.discordUserId || (actorIdentity.econId && actorIdentity.econId === order.economicIdentityId)) {
         if (hold) return { ...hold, order };
-        return { ok: false, reason: 'staff-not-authorized', order };
+        return { ok: false, reason: 'self-refund', order };
       }
     }
     if (auto && hold) return { ...hold, order };
