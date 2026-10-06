@@ -392,7 +392,8 @@ class CoinShopService {
       balance: purchase ? Number(this.coins.get(purchase.econId) || 0) : 0,
       purchase,
       held: Boolean(holder?.held),
-      staffRefundsToday: this.#staffRefundsToday(actor, now)
+      staffRefundsToday: this.#staffRefundsToday(actor, now),
+      actorEconId: this.identityView(actor)?.econId || ''
     };
     return {
       decision: decideRefund(state, { ...input, actor: auth.actor || input.actor }, now),

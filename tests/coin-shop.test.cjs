@@ -927,6 +927,24 @@ test('replaying a refunded receipt does not strip a re-bought cosmetic', async (
   }
 });
 
+test('a Discord alt linked to the buyer cannot refund that purchase', async () => {
+  const ALT = '523456789012345678';
+  const service = shop({ coins: 2000 });
+  const { result } = await buy(service);
+  service.seed({ discordUserId: ALT, econId: 'econ-1' });
+  const alt = await service.refund({ ledgerRef: result.ledgerRef, reason: 'alt of the buyer', actor: ALT });
+  assert.equal(alt.reason, 'self-refund');
+  assert.equal(service.coinBalance(USER), 2000 - 195);
+  assert.equal(service.pointBalance(USER), 80);
+  assert.equal(service.entitlements[0].status, 'active');
+  assert.equal(service.ledger.filter((row) => row.entryType === 'refund').length, 0);
+  service.seed({ discordUserId: OTHER, econId: 'econ-other' });
+  const other = await service.refund({ ledgerRef: result.ledgerRef, reason: 'different identity', actor: OTHER });
+  assert.equal(other.ok, true, other.reason);
+  assert.equal(service.coinBalance(USER), 2000);
+  assert.equal(service.entitlements[0].status, 'refunded');
+});
+
 test('staff cannot refund their own purchase or more than 10 refunds in a Chicago day', async () => {
   const service = shop({ coins: 2000 });
   const { result } = await buy(service);
@@ -934,7 +952,7 @@ test('staff cannot refund their own purchase or more than 10 refunds in a Chicag
   assert.equal(own.reason, 'self-refund');
   const refused = await service.refund({ ledgerRef: result.ledgerRef, reason: 'mine', actor: USER });
   assert.equal(refused.reason, 'self-refund');
-  assert.equal(coinShopMemberText('self-refund'), 'You cannot refund your own Coin shop purchase. Nothing was refunded.');
+  assert.equal(coinShopMemberText('self-refund'), 'Ask another staff admin to do this refund.');
   assert.equal(service.coinBalance(USER), 2000 - 195);
   assert.equal(service.entitlements[0].status, 'active');
   assert.equal(service.ledger.filter((row) => row.entryType === 'refund').length, 0);
@@ -957,7 +975,7 @@ test('staff cannot refund their own purchase or more than 10 refunds in a Chicag
   });
   const capped = await service.refund({ ledgerRef: result.ledgerRef, reason: 'eleventh', actor: OTHER });
   assert.equal(capped.reason, 'refund-cap');
-  assert.equal(coinShopMemberText('refund-cap'), 'This staff account has already refunded 10 Coin shop purchases today. Nothing was refunded.');
+  assert.equal(coinShopMemberText('refund-cap'), 'Ask another staff admin, or try again after 12:00 AM Central.');
   assert.equal(service.coinBalance(USER), 2000 - 195);
   assert.equal(service.entitlements[0].status, 'active');
 

@@ -167,15 +167,28 @@ class PostgresCoinShop {
     if (refused) return { decision: { result: refused, effects: [] }, econId: fresh?.econId || '' };
     const balance = fresh ? await this.#coinBalance(client, fresh.econId, true) : 0;
     const staffRefundsToday = actor ? await this.#staffRefundsToday(client, actor) : 0;
+    const actorEconId = actor ? await this.#actorEconId(client, actor) : '';
     return {
       decision: decideRefund({
         balance,
         purchase: fresh,
         held,
-        staffRefundsToday
+        staffRefundsToday,
+        actorEconId
       }, { ...input, actor }, now),
       econId: fresh?.econId || ''
     };
+  }
+
+  async #actorEconId(client, discordUserId) {
+    const result = await client.query(
+      `SELECT economic_identity_id
+       FROM ${sqlIdent(this.schema)}.nexus_economic_identity_links
+       WHERE provider = 'discord' AND external_id = $1
+       LIMIT 1`,
+      [String(discordUserId || '')]
+    );
+    return String(result.rows?.[0]?.economic_identity_id || '');
   }
 
   async #staffRefundsToday(client, actor) {

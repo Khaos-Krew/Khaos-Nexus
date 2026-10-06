@@ -2,6 +2,7 @@
 
 const { ChannelType, OverwriteType, PermissionFlagsBits } = require('discord.js');
 const { hasListedRole, isGrantableStaffRole } = require('../game-bots/vanguard/config.cjs');
+const { OWNER_ROLE_ID } = require('../economy-worker/ark-staff-auth.cjs');
 const {
   applyManagedOverwrites,
   refusePermissionStaffFallback,
@@ -70,6 +71,7 @@ function previouslyManagedReportIds(report = {}) {
 function protectedReportOverwriteIds(guild, roles, report = {}, extras = []) {
   const ids = [
     COMMUNITY_MANAGER_ROLE_ID,
+    OWNER_ROLE_ID,
     guild?.id,
     guild?.ownerId,
     report?.reporterId,
@@ -79,7 +81,7 @@ function protectedReportOverwriteIds(guild, roles, report = {}, extras = []) {
   for (const role of roleValues(roles)) {
     if (!role?.id) continue;
     const name = String(role.name || '').trim().toLowerCase();
-    if (role.managed === true || name === '@everyone' || name === 'owner' || name === 'server owner') ids.push(role.id);
+    if (role.managed === true || name === '@everyone') ids.push(role.id);
   }
   return normalizeIds(ids);
 }
@@ -224,6 +226,7 @@ module.exports = {
   staffOnlyOverwrites,
   participantOverwrite,
   reportAccessOverwrites,
+  protectedReportOverwriteIds,
   reconcileReportAccess,
   reconcileStoredReportAccess
 };

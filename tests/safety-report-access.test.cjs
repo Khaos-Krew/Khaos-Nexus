@@ -6,10 +6,12 @@ const { ChannelType, OverwriteType, PermissionFlagsBits } = require('discord.js'
 const {
   ACTIVE_PARTICIPANT_ALLOW,
   isStaff,
+  protectedReportOverwriteIds,
   reportAccessOverwrites,
   reconcileReportAccess
 } = require('../src/sentinel/safety-report-access.cjs');
 const { COMMUNITY_MANAGER_ROLE_ID, permissionMask, overwriteMask } = require('../src/sentinel/staff-workspace.cjs');
+const { OWNER_ROLE_ID } = require('../src/economy-worker/ark-staff-auth.cjs');
 
 const IDS = Object.freeze({
   guild: '1016059608789434408',
@@ -59,6 +61,30 @@ function guildFixture() {
     members: { fetch: async (id) => members.get(String(id)) || null }
   };
 }
+
+test('report protection follows the Owner and Community Manager role ids', () => {
+  const namedOwner = '1541540961937526921';
+  const namedServerOwner = '1541540961937526922';
+  const managed = '1541540961937526923';
+  const ids = protectedReportOverwriteIds(
+    { id: IDS.guild, ownerId: IDS.owner },
+    [
+      { id: IDS.guild, name: '@everyone' },
+      { id: COMMUNITY_MANAGER_ROLE_ID, name: 'not the label' },
+      { id: OWNER_ROLE_ID, name: 'Khaos Lead' },
+      { id: namedOwner, name: 'owner' },
+      { id: namedServerOwner, name: 'server owner' },
+      { id: managed, name: 'Bots', managed: true }
+    ],
+    { reporterId: IDS.reporter }
+  );
+  assert.equal(ids.includes(OWNER_ROLE_ID), true);
+  assert.equal(ids.includes(COMMUNITY_MANAGER_ROLE_ID), true);
+  assert.equal(ids.includes(IDS.guild), true);
+  assert.equal(ids.includes(managed), true);
+  assert.equal(ids.includes(namedOwner), false);
+  assert.equal(ids.includes(namedServerOwner), false);
+});
 
 test('explicit safety/operator roles are authoritative over generic moderation permissions', async () => {
   const guild = guildFixture();
@@ -147,6 +173,7 @@ test('case reconciliation revokes former staff and leaves unmanaged overwrites u
     { id: cm, type: OverwriteType.Role, allow: cmAllow, deny: cmDeny },
     { id: bots, type: OverwriteType.Role, allow: botsAllow, deny: 0n },
     { id: ownerRole, type: OverwriteType.Role, allow: ownerRoleAllow, deny: 0n },
+    { id: OWNER_ROLE_ID, type: OverwriteType.Role, allow: ownerRoleAllow, deny: 0n },
     { id: IDS.owner, type: OverwriteType.Member, allow: ownerAllow, deny: 0n },
     { id: IDS.reporter, type: OverwriteType.Member, allow: reporterAllow, deny: 0n },
     { id: IDS.oldRole, type: OverwriteType.Role, allow: permissionMask([PermissionFlagsBits.ViewChannel]), deny: 0n },
@@ -196,6 +223,7 @@ test('case reconciliation revokes former staff and leaves unmanaged overwrites u
     [cm, { id: cm, name: 'Community Manager', managed: false }],
     [bots, { id: bots, name: 'Bots', managed: true }],
     [ownerRole, { id: ownerRole, name: 'Owner', managed: false }],
+    [OWNER_ROLE_ID, { id: OWNER_ROLE_ID, name: 'Khaos Lead', managed: false }],
     [IDS.oldRole, { id: IDS.oldRole, name: 'Retired Staff', managed: false }],
     [randomRole, { id: randomRole, name: 'Custom', managed: false }]
   ]);
@@ -212,7 +240,7 @@ test('case reconciliation revokes former staff and leaves unmanaged overwrites u
     status: 'open',
     participants: [],
     staffParticipants: [IDS.formerStaff],
-    staffRoleIds: [IDS.oldRole, cm, bots, ownerRole, IDS.guild],
+    staffRoleIds: [IDS.oldRole, cm, bots, ownerRole, OWNER_ROLE_ID, IDS.guild],
     ownerIds: [IDS.owner, IDS.configuredOwner, '1541540961937526919']
   };
   const config = { discord: { safetyStaffRoleIds: [IDS.safetyRole], operatorRoleIds: [], ownerUserIds: [IDS.configuredOwner] } };
@@ -221,6 +249,7 @@ test('case reconciliation revokes former staff and leaves unmanaged overwrites u
   assert.equal(writes, 1);
   const writtenIds = channel.lastWrite.map((entry) => String(entry.id));
   assert.equal(writtenIds.includes(IDS.oldRole), false);
+  assert.equal(writtenIds.includes(ownerRole), false);
   assert.equal(writtenIds.includes(IDS.formerStaff), false);
   assert.equal(writtenIds.includes('1541540961937526919'), false);
   assert.equal(writtenIds.includes(IDS.configuredOwner), true);
@@ -233,7 +262,7 @@ test('case reconciliation revokes former staff and leaves unmanaged overwrites u
   };
   kept(cm, cmAllow, cmDeny);
   kept(bots, botsAllow);
-  kept(ownerRole, ownerRoleAllow);
+  kept(OWNER_ROLE_ID, ownerRoleAllow);
   kept(IDS.owner, ownerAllow);
   kept(IDS.reporter, reporterAllow);
   kept(randomRole, randomAllow, randomDeny);
