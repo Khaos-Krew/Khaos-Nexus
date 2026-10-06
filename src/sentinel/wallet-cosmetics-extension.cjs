@@ -4,6 +4,7 @@ const { Client, Events, MessageFlags } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { BackendClient } = require('./backend-client.cjs');
 const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
+const { catalogItem } = require('../shared/coin-shop-catalog.cjs');
 const {
   walletCommandDefinition,
   parseWalletCustomId,
@@ -41,7 +42,23 @@ async function readBalances(economyClient, userId) {
   }
 }
 
-async function syncWalletView(backend, userId, { walletOpened = false, level = undefined } = {}) {
+async function grantActiveShopCosmetics(backend, economyClient, userId) {
+  if (typeof economyClient?.coinShopEntitlements !== 'function') return;
+  try {
+    const listed = await economyClient.coinShopEntitlements(String(userId));
+    for (const row of listed?.entitlements || []) {
+      if (!row?.sku) continue;
+      if (row.status === 'active' && typeof backend?.grantWalletCosmetic === 'function') {
+        await backend.grantWalletCosmetic(String(userId), { sku: row.sku, ledgerId: row.ledgerId });
+      } else if (row.status === 'refunded' && typeof backend?.revokeWalletCosmetic === 'function') {
+        await backend.revokeWalletCosmetic(String(userId), { sku: row.sku });
+      }
+    }
+  } catch { /* wallet still shows cosmetics already saved locally */ }
+}
+
+async function syncWalletView(backend, userId, { walletOpened = false, level = undefined, economyClient = null } = {}) {
+  await grantActiveShopCosmetics(backend, economyClient, userId);
   if (typeof backend?.syncWalletCosmetics !== 'function') {
     return { ok: false, reason: 'cosmetics-unavailable' };
   }
@@ -79,7 +96,7 @@ async function showWallet(interaction, backend, economyClient, { walletOpened = 
   const userId = String(interaction.user?.id || '');
   if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const [synced, money] = await Promise.all([
-    syncWalletView(backend, userId, { walletOpened }),
+    syncWalletView(backend, userId, { walletOpened, economyClient }),
     readBalances(economyClient, userId)
   ]);
   const profile = synced.profile || { discordUserId: userId, equippedTitle: null, equippedTheme: null };
@@ -114,6 +131,10 @@ async function equipSelection(interaction, backend, economyClient, selection = {
     await replyWallet(interaction, { content: equipRefusal(result?.reason), embeds: [], components: [] });
     return true;
   }
+  const equippedSku = selection.themeId || selection.titleId || '';
+  if (catalogItem(equippedSku) && typeof economyClient?.coinShopMarkEquipped === 'function') {
+    await economyClient.coinShopMarkEquipped({ discordUserId: userId, sku: equippedSku }).catch(() => null);
+  }
   const money = await readBalances(economyClient, userId);
   const payload = walletEmbedPayload(result.profile || {}, {
     userId,
@@ -134,7 +155,7 @@ async function handleWalletInteraction(interaction, { backend, economyClient } =
       await interaction.reply(ephemeral('This wallet belongs to another member. Use `/wallet show` to open your own.'));
       return true;
     }
-    const viewed = await syncWalletView(backend, parsed.userId, { walletOpened: false });
+    const viewed = await syncWalletView(backend, parsed.userId, { walletOpened: false, economyClient });
     const row = walletEquipRow(parsed.slot, viewed.profile || {}, parsed.userId);
     if (!row) {
       await interaction.reply(ephemeral('No unlocked cosmetics are available in that slot yet.'));
@@ -168,7 +189,7 @@ async function handleWalletInteraction(interaction, { backend, economyClient } =
     if (!titleId && !themeId) {
       if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const [viewed, money] = await Promise.all([
-        syncWalletView(backend, String(interaction.user.id), { walletOpened: false }),
+        syncWalletView(backend, String(interaction.user.id), { walletOpened: false, economyClient }),
         readBalances(economyClient, String(interaction.user.id))
       ]);
       const rows = ['title', 'theme']

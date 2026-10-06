@@ -107,12 +107,15 @@ test('wallet cosmetics unlock only at the locked catalog thresholds and stay unl
       ['title_scout', 'Scout', 5],
       ['title_pathfinder', 'Pathfinder', 10],
       ['title_veteran', 'Veteran', 25],
-      ['title_nexus_elder', 'Nexus Elder', 50]
+      ['title_nexus_elder', 'Nexus Elder', 50],
+      ['ttl_night_owl', 'Night Owl', null]
     ]);
     assert.deepEqual(catalog.themes.map((item) => [item.id, item.label, item.minLevel, item.accent]), [
       ['theme_default', 'Default', 1, '#5B6C7D'],
       ['theme_ember', 'Ember', 10, '#C45C26'],
-      ['theme_void', 'Void', 25, '#6B5B95']
+      ['theme_void', 'Void', 25, '#6B5B95'],
+      ['thm_nebula', 'Nebula', null, '#7B5EA7'],
+      ['thm_circuit', 'Circuit', null, '#3D8B7A']
     ]);
     assert.deepEqual(catalog.achievements.map((item) => item.id), WALLET_ACHIEVEMENTS.map((item) => item.id));
     assert.equal(hexToColor('#5B6C7D'), 0x5B6C7D);

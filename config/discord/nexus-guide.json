@@ -138,6 +138,21 @@
         "Birthdays stay private unless you allow a celebration. The date, year, and age are never posted.",
         "This is not turned on yet, so no present is sent until it is."
       ]
+    },
+    {
+      "id": "coin-shop",
+      "label": "Coin shop",
+      "emoji": "🪙",
+      "summary": "Spend Nexus Coins on wallet cosmetics. Coins and Points stay separate.",
+      "details": [
+        "The Coin shop isn't open yet. When it is, open /shop and choose Coin Shop (cosmetics). It shows your Coin balance, the themes, and the titles.",
+        "Nebula is 285 Coins. Circuit is 315 Coins. Night Owl is 195 Coins. Each one is cosmetic only and has no gameplay effect.",
+        "Only a verified member can buy. A purchase is yours alone, it cannot be gifted, and each item can be owned once.",
+        "You can spend up to 1,500 Coins in the shop on one day.",
+        "A purchase is not refunded from the shop. A staff member can refund it within 24 hours.",
+        "After you buy, the receipt has Equip now, which opens /wallet so you can wear the title or theme.",
+        "Coins are not Points. The Coin shop does not spend Points, and the Points shop does not spend Coins."
+      ]
     }
   ]
 }

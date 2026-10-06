@@ -41,6 +41,8 @@ async function createPostgresEconomyRuntime({ env = process.env, now } = {}) {
   const walletCore = new NexusEconomyWalletCore({ repository, now: now ? () => new Date(now()) : undefined });
   const minecraft = new PostgresMcPoints({ pool, schema, wallet: walletCore, now: nowFn, env });
   const arkShop = new PostgresArkShop({ pool, schema, now: nowFn, env });
+  const { PostgresCoinShop } = require('./coin-shop-postgres.cjs');
+  const coinShop = new PostgresCoinShop({ pool, schema, now: nowFn, env });
   async function syncRankAndEnsure(discordUserId, rankId) {
     const rank = rankId || 'shadow-recruit';
     const synced = await accrual.syncRank(discordUserId, rank);
@@ -70,6 +72,7 @@ async function createPostgresEconomyRuntime({ env = process.env, now } = {}) {
     recordPresence(input = {}) { return accrual.recordPresence(input); },
     minecraft,
     arkShop,
+    coinShop,
     accrueOffline(discordUserId) { return accrual.accrueOffline(discordUserId); },
     syncRank(discordUserId, rankId) { return syncRankAndEnsure(discordUserId, rankId); },
     ensureShadowRecruitWallet(discordUserId, rankId = 'shadow-recruit') {

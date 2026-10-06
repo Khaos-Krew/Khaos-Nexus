@@ -17,12 +17,23 @@ class EconomyRequestError extends Error {
 }
 
 const { registerAdminWalletDrainPaths, handleAdminWalletPost } = require('./admin-wallet-routes.cjs');
+const { assertMemberAccount } = require('../shared/economy-system-accounts.cjs');
 const { MEMBER_HOLD_MESSAGE, memberHoldFromError } = require('../sentinel/nexus-economy-identity-hold.cjs');
 const PRESENCE_WRITE_PATHS = new Set(['/presence', '/wallet/accrue-offline']);
 const NP_SHOP_FINANCIAL_PATHS = new Set([
   '/np-shop/buy',
   '/np-shop/refund',
   '/np-shop/refund-sweep'
+]);
+const COIN_SHOP_FINANCIAL_PATHS = new Set([
+  '/coin-shop/purchase',
+  '/coin-shop/refund',
+  '/coin-shop/mark-equipped'
+]);
+const COIN_SHOP_PREPARE_PATHS = new Set([
+  '/coin-shop/quote',
+  '/coin-shop/lookup',
+  '/coin-shop/refund-preview'
 ]);
 const FINANCIAL_WRITE_PATHS = new Set([
   '/wallet/credit',
@@ -35,7 +46,8 @@ const FINANCIAL_WRITE_PATHS = new Set([
   '/mc-shop/buy',
   '/mc-shop/refund',
   '/mc-shop/refund-sweep',
-  ...NP_SHOP_FINANCIAL_PATHS
+  ...NP_SHOP_FINANCIAL_PATHS,
+  ...COIN_SHOP_FINANCIAL_PATHS
 ]);
 const MC_NONECONOMY_PATHS = new Set([
   '/mc/link/challenge',
@@ -70,7 +82,9 @@ const DRAIN_MUTATION_PATHS = registerAdminWalletDrainPaths(new Set([
   '/mc-shop/buy',
   '/mc-shop/refund',
   '/mc-shop/refund-sweep',
-  ...NP_SHOP_FINANCIAL_PATHS
+  ...NP_SHOP_FINANCIAL_PATHS,
+  ...COIN_SHOP_PREPARE_PATHS,
+  ...COIN_SHOP_FINANCIAL_PATHS
 ]));
 const CRAFT_ROUTES = new Set([
   'POST /presence',
@@ -318,6 +332,12 @@ function writeGate(path, options = {}) {
     }
     return null;
   }
+  if (COIN_SHOP_FINANCIAL_PATHS.has(path)) {
+    if (options.coinShopSpendEnabled !== true) {
+      return { statusCode: 503, body: { ok: false, error: 'economy-coin-shop-spend-not-enabled', coinShopSpendEnabled: false } };
+    }
+    return null;
+  }
   if (!writesEnabled) {
     return { statusCode: 503, body: { ok: false, error: 'economy-write-cutover-not-enabled', writesEnabled: false } };
   }
@@ -333,8 +353,68 @@ function mutationRequestGate(path, options = {}) {
     writesEnabled,
     presenceWritesEnabled,
     npShopWritesEnabled: options.npShopWritesEnabled === true,
+    coinShopSpendEnabled: options.coinShopSpendEnabled === true,
     lifecycle
   });
+}
+
+function coinShopHttpStatus(result) {
+  if (!result || result.ok === false) {
+    if (result?.reason === 'ceiling-unset' || result?.reason === 'economy-coin-shop-spend-not-enabled' || result?.reason === 'coin-shop-unavailable') {
+      return 503;
+    }
+    return 409;
+  }
+  return 200;
+}
+
+function refuseSystemCoinAccount(input = {}) {
+  const econId = String(input.economicIdentityId || input.econId || '').trim();
+  if (!econId) return null;
+  try {
+    assertMemberAccount(econId);
+    return null;
+  } catch {
+    return { ok: false, reason: 'not-eligible' };
+  }
+}
+
+async function handleCoinShopPost(pathname, { worker, input, coinShopSpendEnabled, json, res }) {
+  if (!coinShopSpendEnabled && pathname !== '/coin-shop/lookup') {
+    return json(res, 503, { ok: false, error: 'economy-coin-shop-spend-not-enabled', coinShopSpendEnabled: false });
+  }
+  if (!worker.coinShop) return json(res, 503, { ok: false, error: 'coin-shop-unavailable', reason: 'coin-shop-unavailable' });
+  if (pathname === '/coin-shop/quote') {
+    const result = await worker.coinShop.quote(input);
+    return json(res, coinShopHttpStatus(result), result);
+  }
+  if (pathname === '/coin-shop/purchase') {
+    const refused = refuseSystemCoinAccount(input);
+    if (refused) return json(res, 409, refused);
+    const result = await worker.coinShop.purchase(input);
+    return json(res, coinShopHttpStatus(result), result);
+  }
+  if (pathname === '/coin-shop/refund-preview') {
+    const refused = refuseSystemCoinAccount(input);
+    if (refused) return json(res, 409, refused);
+    const result = await worker.coinShop.previewRefund(input);
+    return json(res, coinShopHttpStatus(result), result);
+  }
+  if (pathname === '/coin-shop/refund') {
+    const refused = refuseSystemCoinAccount(input);
+    if (refused) return json(res, 409, refused);
+    const result = await worker.coinShop.refund(input);
+    return json(res, coinShopHttpStatus(result), result);
+  }
+  if (pathname === '/coin-shop/mark-equipped') {
+    const result = await worker.coinShop.markEquipped(input);
+    return json(res, coinShopHttpStatus(result), result);
+  }
+  if (pathname === '/coin-shop/lookup') {
+    const result = await worker.coinShop.lookup(input);
+    return json(res, coinShopHttpStatus(result), result);
+  }
+  return json(res, 404, { ok: false, error: 'not-found' });
 }
 
 function walletReadAccrualPermitted({ writesEnabled = false, presenceWritesEnabled, lifecycle = {} }) {
@@ -351,6 +431,9 @@ function createEconomyServer(options = {}) {
   const npShopWritesEnabled = options.npShopWritesEnabled == null
     ? enabled(process.env.NEXUS_ECONOMY_NP_SHOP_WRITES_ENABLED)
     : Boolean(options.npShopWritesEnabled);
+  const coinShopSpendEnabled = options.coinShopSpendEnabled == null
+    ? enabled(process.env.NEXUS_ECONOMY_COIN_SHOP_SPEND_ENABLED)
+    : Boolean(options.coinShopSpendEnabled);
   const writesEnabled = options.writesEnabled == null
     ? enabled(process.env.NEXUS_ECONOMY_WRITES_ENABLED)
     : Boolean(options.writesEnabled);
@@ -435,6 +518,23 @@ function createEconomyServer(options = {}) {
         if (!worker.arkShop) return json(res, 200, { ok: false, reason: 'ark-shop-disabled', grants: [] });
         return json(res, 200, { ok: true, grants: await Promise.resolve(worker.arkShop.listGrants()) });
       }
+      if (req.method === 'GET' && url.pathname === '/coin-shop/catalog') {
+        const { ITEMS, CATEGORIES, OMITTED } = require('../shared/coin-shop-catalog.cjs');
+        const { coinShopFlags } = require('../shared/coin-shop-flags.cjs');
+        return json(res, 200, {
+          ok: true,
+          items: ITEMS,
+          categories: CATEGORIES,
+          omitted: OMITTED,
+          spendEnabled: coinShopSpendEnabled,
+          shopEnabled: coinShopFlags().shopEnabled
+        });
+      }
+      if (req.method === 'GET' && url.pathname.startsWith('/coin-shop/entitlements/')) {
+        const discordUserId = decodeURIComponent(url.pathname.slice('/coin-shop/entitlements/'.length));
+        if (!worker.coinShop) return json(res, 200, { ok: true, entitlements: [] });
+        return json(res, 200, await Promise.resolve(worker.coinShop.entitlementsFor(discordUserId)));
+      }
       if (req.method === 'GET' && url.pathname.startsWith('/np-shop/activity/')) {
         if (!worker.arkShop) return json(res, 200, { ok: true, balance: 0, entries: [], orders: [], linked: false });
         const discordUserId = decodeURIComponent(url.pathname.slice('/np-shop/activity/'.length));
@@ -463,12 +563,12 @@ function createEconomyServer(options = {}) {
       }
 
       if (req.method !== 'POST') return json(res, 404, { ok: false, error: 'not-found' });
-      const mutationGate = mutationRequestGate(url.pathname, { writesEnabled, presenceWritesEnabled, npShopWritesEnabled, lifecycle });
+      const mutationGate = mutationRequestGate(url.pathname, { writesEnabled, presenceWritesEnabled, npShopWritesEnabled, coinShopSpendEnabled, lifecycle });
       if (mutationGate) return json(res, mutationGate.statusCode, mutationGate.body);
       if (!POST_PATHS.has(url.pathname)) return json(res, 404, { ok: false, error: 'not-found' });
 
       const input = await body(req);
-      const executionGate = mutationRequestGate(url.pathname, { writesEnabled, presenceWritesEnabled, npShopWritesEnabled, lifecycle });
+      const executionGate = mutationRequestGate(url.pathname, { writesEnabled, presenceWritesEnabled, npShopWritesEnabled, coinShopSpendEnabled, lifecycle });
       if (executionGate) return json(res, executionGate.statusCode, executionGate.body);
 
       if (url.pathname === '/identity/link') {
@@ -590,6 +690,9 @@ function createEconomyServer(options = {}) {
         if (!worker.arkShop) return json(res, 200, { ok: false, reason: 'ark-shop-disabled' });
         return json(res, 200, await worker.arkShop.staffResolve(input));
       }
+      if (url.pathname === '/coin-shop/quote' || url.pathname === '/coin-shop/purchase' || url.pathname === '/coin-shop/refund-preview' || url.pathname === '/coin-shop/refund' || url.pathname === '/coin-shop/mark-equipped' || url.pathname === '/coin-shop/lookup') {
+        return handleCoinShopPost(url.pathname, { worker, input, coinShopSpendEnabled, json, res });
+      }
       return json(res, 404, { ok: false, error: 'not-found' });
     } catch (error) {
       console.error('[Nexus Economy Worker]', error);
@@ -635,6 +738,8 @@ module.exports = {
   PRESENCE_WRITE_PATHS,
   FINANCIAL_WRITE_PATHS,
   NP_SHOP_FINANCIAL_PATHS,
+  COIN_SHOP_FINANCIAL_PATHS,
+  COIN_SHOP_PREPARE_PATHS,
   MC_NONECONOMY_PATHS,
   ARK_NONECONOMY_PATHS,
   ARK_DELIVERY_ROUTES,

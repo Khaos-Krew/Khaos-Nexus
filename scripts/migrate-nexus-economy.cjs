@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { Pool } = require('pg');
 const { applyLegacyJsonMigration } = require('../src/sentinel/nexus-economy-json-postgres-migration.cjs');
+const { applyCoinShopMigration } = require('../src/economy-worker/coin-shop-migration.cjs');
 
 function hasFlag(name) {
   return process.argv.slice(2).includes(name);
@@ -25,6 +26,9 @@ async function main() {
     }
 
     const result = await applyLegacyJsonMigration({ pool, state, schema, dryRun: !apply });
+    const coinShop = pool
+      ? await applyCoinShopMigration({ pool, schema })
+      : { ok: true, dryRun: true, id: '2026-10-06-coin-shop' };
     console.log(JSON.stringify({
       ok: result.ok,
       dryRun: result.dryRun,
@@ -32,7 +36,8 @@ async function main() {
       source: file,
       schema,
       counts: result.plan.counts,
-      currency: result.plan.currency
+      currency: result.plan.currency,
+      coinShop
     }, null, 2));
   } finally {
     if (pool) await pool.end();

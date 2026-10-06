@@ -16,13 +16,16 @@ const WALLET_TITLES = Object.freeze([
   Object.freeze({ id: 'title_scout', label: 'Scout', minLevel: 5 }),
   Object.freeze({ id: 'title_pathfinder', label: 'Pathfinder', minLevel: 10 }),
   Object.freeze({ id: 'title_veteran', label: 'Veteran', minLevel: 25 }),
-  Object.freeze({ id: 'title_nexus_elder', label: 'Nexus Elder', minLevel: 50 })
+  Object.freeze({ id: 'title_nexus_elder', label: 'Nexus Elder', minLevel: 50 }),
+  Object.freeze({ id: 'ttl_night_owl', label: 'Night Owl', minLevel: null, kind: 'coin-shop' })
 ]);
 
 const WALLET_THEMES = Object.freeze([
   Object.freeze({ id: 'theme_default', label: 'Default', minLevel: 1, accent: '#5B6C7D' }),
   Object.freeze({ id: 'theme_ember', label: 'Ember', minLevel: 10, accent: '#C45C26' }),
-  Object.freeze({ id: 'theme_void', label: 'Void', minLevel: 25, accent: '#6B5B95' })
+  Object.freeze({ id: 'theme_void', label: 'Void', minLevel: 25, accent: '#6B5B95' }),
+  Object.freeze({ id: 'thm_nebula', label: 'Nebula', minLevel: null, accent: '#7B5EA7', kind: 'coin-shop' }),
+  Object.freeze({ id: 'thm_circuit', label: 'Circuit', minLevel: null, accent: '#3D8B7A', kind: 'coin-shop' })
 ]);
 
 const WALLET_ACHIEVEMENTS = Object.freeze([
@@ -56,6 +59,7 @@ function catalogItem(item, unlocked = null) {
     color: Number.isInteger(item.color) ? item.color : null,
     icon: item.icon || null,
     rule: item.rule || null,
+    kind: item.kind || null,
     unlocked: Boolean(unlocked),
     unlockedAt: unlocked?.unlockedAt || null,
     source: unlocked?.source || null
@@ -179,11 +183,13 @@ class WalletCosmeticsService {
 
       if (levelInput.present) {
         for (const item of WALLET_TITLES) {
+          if (item.kind === 'coin-shop' || !Number.isInteger(item.minLevel)) continue;
           if (levelInput.level < item.minLevel || record.titles[item.id]) continue;
           record.titles[item.id] = { unlockedAt, source: 'community-level' };
           newlyUnlocked.titles.push(item.id);
         }
         for (const item of WALLET_THEMES) {
+          if (item.kind === 'coin-shop' || !Number.isInteger(item.minLevel)) continue;
           if (levelInput.level < item.minLevel || record.themes[item.id]) continue;
           record.themes[item.id] = { unlockedAt, source: 'community-level' };
           newlyUnlocked.themes.push(item.id);
@@ -245,6 +251,47 @@ class WalletCosmeticsService {
       record.updatedAt = stamp(input.now);
       state.users[id] = record;
       return { ok: true, profile: publicProfile(id, record) };
+    });
+  }
+
+  grantShopCosmetic(discordUserId, input = {}) {
+    const id = safeId(discordUserId);
+    if (!id) throw new Error('A valid Discord user ID is required.');
+    const sku = String(input.sku || input.id || '');
+    const title = TITLE_BY_ID.get(sku);
+    const theme = THEME_BY_ID.get(sku);
+    const item = (title && title.kind === 'coin-shop') ? title : ((theme && theme.kind === 'coin-shop') ? theme : null);
+    if (!item) return { ok: false, reason: 'unknown', profile: publicProfile(id, this.readRecord(id)) };
+    const slot = title ? 'title' : 'theme';
+    return this.store.update((state) => {
+      state.users ||= {};
+      const record = normalizeRecord(id, state.users[id]);
+      const bag = slot === 'title' ? record.titles : record.themes;
+      if (!bag[sku]) bag[sku] = { unlockedAt: stamp(input.now), source: 'coin-shop' };
+      record.updatedAt = stamp(input.now);
+      state.users[id] = record;
+      return { ok: true, profile: publicProfile(id, record), sku, slot };
+    });
+  }
+
+  revokeShopCosmetic(discordUserId, input = {}) {
+    const id = safeId(discordUserId);
+    if (!id) throw new Error('A valid Discord user ID is required.');
+    const sku = String(input.sku || input.id || '');
+    const title = TITLE_BY_ID.get(sku);
+    const theme = THEME_BY_ID.get(sku);
+    const item = (title && title.kind === 'coin-shop') ? title : ((theme && theme.kind === 'coin-shop') ? theme : null);
+    if (!item) return { ok: false, reason: 'unknown', profile: publicProfile(id, this.readRecord(id)) };
+    return this.store.update((state) => {
+      state.users ||= {};
+      const record = normalizeRecord(id, state.users[id]);
+      if (title && record.equippedTitleId === sku) record.equippedTitleId = '';
+      if (theme && record.equippedThemeId === sku) record.equippedThemeId = '';
+      if (title) delete record.titles[sku];
+      if (theme) delete record.themes[sku];
+      record.updatedAt = stamp(input.now);
+      state.users[id] = record;
+      return { ok: true, profile: publicProfile(id, record), sku };
     });
   }
 }

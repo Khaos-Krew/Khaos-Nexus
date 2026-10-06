@@ -146,6 +146,16 @@ function createBackendApplication(config, options = {}) {
         const equipped = walletCosmetics.equip(walletCosmeticsEquipMatch[1], await readBody(req));
         return json(res, equipped.ok ? 200 : 409, equipped);
       }
+      const walletCosmeticsGrantMatch = /^\/v1\/wallet-cosmetics\/users\/(\d{15,24})\/grant$/.exec(url.pathname);
+      if (req.method === 'POST' && walletCosmeticsGrantMatch) {
+        const granted = walletCosmetics.grantShopCosmetic(walletCosmeticsGrantMatch[1], await readBody(req));
+        return json(res, granted.ok ? 200 : 409, granted);
+      }
+      const walletCosmeticsRevokeMatch = /^\/v1\/wallet-cosmetics\/users\/(\d{15,24})\/revoke$/.exec(url.pathname);
+      if (req.method === 'POST' && walletCosmeticsRevokeMatch) {
+        const revoked = walletCosmetics.revokeShopCosmetic(walletCosmeticsRevokeMatch[1], await readBody(req));
+        return json(res, revoked.ok ? 200 : 409, revoked);
+      }
 
       if (req.method === 'GET' && url.pathname === '/v1/ark/taming/species') { const species = await arkCompanion.listSpecies(); return json(res, 200, { ok: true, species }); }
       if (req.method === 'POST' && url.pathname === '/v1/admin/modules') { const body = await readBody(req); const enabled = body.enabled && typeof body.enabled === 'object' && !Array.isArray(body.enabled) ? body.enabled : {}; return json(res, 200, { ok: true, enabled: runtime.setModuleEnabled(enabled), modules: runtime.manifests() }); }
