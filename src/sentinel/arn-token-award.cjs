@@ -15,43 +15,135 @@ const KILL_ODDS_BPS = 1000;
 const DAY_CAP = 3;
 const WEEK_CAP = 10;
 const FEED_DEDUPE_MS = 10 * 60 * 1000;
-const DEFAULT_JOURNAL = path.join(process.cwd(), 'data', 'arn-dry-run.json');
+const JOURNAL_DIR = '/app/data/nexus-economy';
+const DEFAULT_JOURNAL = path.join(JOURNAL_DIR, 'arn-dry-run.json');
+const JOURNAL_MAX_BYTES = 10 * 1024 * 1024;
+const JOURNAL_KEEP = 4;
+const JOURNAL_RETAIN_MS = 30 * 24 * 60 * 60 * 1000;
+const REPORT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
-// Dry-run dedupe and caps live in this file, on the Sentinal Railway volume.
-// NEXUS_DATA_DIR wins, then RAILWAY_VOLUME_MOUNT_PATH. On the current image
-// both are unset and cwd/data is the volume mounted at /app/data.
+// ARN_DRY_RUN_FILE overrides the path. Otherwise the journal is
+// <NEXUS_DATA_DIR or /app/data/nexus-economy>/arn-dry-run.json so it lands on
+// the mounted volume without a second variable.
 function journalPath(env = process.env) {
   const explicit = String(env.ARN_DRY_RUN_FILE || '').trim();
   if (explicit) return path.resolve(explicit);
-  const data = String(env.NEXUS_DATA_DIR || '').trim();
-  if (data) return path.join(path.resolve(data), 'arn-dry-run.json');
-  const volume = String(env.RAILWAY_VOLUME_MOUNT_PATH || '').trim();
-  if (volume) return path.join(path.resolve(volume), 'arn-dry-run.json');
-  return path.resolve(DEFAULT_JOURNAL);
+  const data = String(env.NEXUS_DATA_DIR || '').trim() || JOURNAL_DIR;
+  return path.join(path.resolve(data), 'arn-dry-run.json');
 }
 
-function readJournal(file) {
-  if (!file) return { observations: [], ledger: [], ok: true };
+function journalFiles(file) {
   const target = path.resolve(file);
-  if (!fs.existsSync(target)) return { observations: [], ledger: [], ok: true };
+  return [target, `${target}.1`, `${target}.2`, `${target}.3`];
+}
+
+function parseJournalFile(target) {
+  if (!fs.existsSync(target)) return { missing: true, observations: [], ledger: [] };
   try {
     const parsed = JSON.parse(fs.readFileSync(target, 'utf8'));
     if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.observations) || !Array.isArray(parsed.ledger)) {
       throw new Error('shape');
     }
-    return { observations: parsed.observations, ledger: parsed.ledger, ok: true };
+    return { missing: false, observations: parsed.observations, ledger: parsed.ledger };
   } catch (error) {
     console.warn(`[ARN] dry-run journal unreadable; leaving ${target} unchanged`);
-    return { observations: [], ledger: [], ok: false };
+    return { missing: false, bad: true, observations: [], ledger: [] };
   }
 }
 
-function writeJournal(file, state) {
-  const target = path.resolve(file);
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  const tmp = `${target}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify({ observations: state.observations, ledger: state.ledger }), { mode: 0o600 });
-  fs.renameSync(tmp, target);
+function readJournal(file) {
+  if (!file) return { observations: [], ledger: [], ok: true };
+  const parts = journalFiles(file).map(parseJournalFile);
+  if (parts.some((part) => part.bad)) return { observations: [], ledger: [], ok: false };
+  const observations = [];
+  const ledger = [];
+  const seenObservations = new Set();
+  const seenLedger = new Set();
+  for (const part of parts.slice().reverse()) {
+    for (const row of part.observations) {
+      const key = String(row?.messageId || '');
+      if (key && seenObservations.has(key)) continue;
+      if (key) seenObservations.add(key);
+      observations.push(row);
+    }
+    for (const row of part.ledger) {
+      const key = String(row?.messageId || '');
+      if (key && seenLedger.has(key)) continue;
+      if (key) seenLedger.add(key);
+      ledger.push(row);
+    }
+  }
+  observations.sort((left, right) => Number(left.at) - Number(right.at));
+  ledger.sort((left, right) => Number(left.at) - Number(right.at));
+  return { observations, ledger, ok: true };
+}
+
+function freshEnough(row, cutoff) {
+  const at = Number(row?.at);
+  if (!Number.isFinite(at)) return true;
+  return at >= cutoff;
+}
+
+function encodeJournal(observations, ledger) {
+  return JSON.stringify({ observations, ledger });
+}
+
+function splitJournal(observations, ledger, maxBytes) {
+  const body = encodeJournal(observations, ledger);
+  if (Buffer.byteLength(body) <= maxBytes || observations.length + ledger.length <= 1) {
+    return [{ observations, ledger }];
+  }
+  const times = [...observations, ...ledger].map((row) => Number(row.at)).filter(Number.isFinite).sort((left, right) => left - right);
+  let olderObs = [];
+  let newerObs = [];
+  let olderLed = [];
+  let newerLed = [];
+  if (times.length) {
+    const mid = times[Math.floor((times.length - 1) / 2)];
+    olderObs = observations.filter((row) => Number(row.at) <= mid);
+    newerObs = observations.filter((row) => Number(row.at) > mid);
+    olderLed = ledger.filter((row) => Number(row.at) <= mid);
+    newerLed = ledger.filter((row) => Number(row.at) > mid);
+    if (!newerObs.length && !newerLed.length) {
+      const latest = times[times.length - 1];
+      olderObs = observations.filter((row) => Number(row.at) < latest);
+      newerObs = observations.filter((row) => Number(row.at) >= latest);
+      olderLed = ledger.filter((row) => Number(row.at) < latest);
+      newerLed = ledger.filter((row) => Number(row.at) >= latest);
+    }
+  }
+  if ((!olderObs.length && !olderLed.length) || (!newerObs.length && !newerLed.length)) {
+    const half = Math.max(1, Math.ceil(observations.length / 2));
+    const ledgerHalf = Math.ceil(ledger.length / 2);
+    return [
+      ...splitJournal(observations.slice(0, half), ledger.slice(0, ledgerHalf), maxBytes),
+      ...splitJournal(observations.slice(half), ledger.slice(ledgerHalf), maxBytes)
+    ];
+  }
+  return [
+    ...splitJournal(olderObs, olderLed, maxBytes),
+    ...splitJournal(newerObs, newerLed, maxBytes)
+  ];
+}
+
+function writeJournal(file, state, { maxBytes = JOURNAL_MAX_BYTES, now = Date.now() } = {}) {
+  const cutoff = Number(now) - JOURNAL_RETAIN_MS;
+  state.observations = state.observations.filter((row) => freshEnough(row, cutoff));
+  state.ledger = state.ledger.filter((row) => freshEnough(row, cutoff));
+  const chunks = splitJournal(state.observations, state.ledger, maxBytes).slice(-JOURNAL_KEEP);
+  const files = journalFiles(file);
+  fs.mkdirSync(path.dirname(files[0]), { recursive: true });
+  const newestFirst = chunks.slice().reverse();
+  for (let index = 0; index < files.length; index += 1) {
+    const chunk = newestFirst[index];
+    if (!chunk || (!chunk.observations.length && !chunk.ledger.length && index > 0)) {
+      if (fs.existsSync(files[index])) fs.unlinkSync(files[index]);
+      continue;
+    }
+    const tmp = `${files[index]}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, encodeJournal(chunk.observations, chunk.ledger), { mode: 0o600 });
+    fs.renameSync(tmp, files[index]);
+  }
 }
 
 function feedKeyOf(parsed) {
@@ -268,19 +360,28 @@ function applyDecision(state, decision) {
   return decision;
 }
 
-function summarize(state) {
+function inReportWindow(row, cutoff) {
+  if (cutoff == null) return true;
+  const at = Number(row?.at);
+  return Number.isFinite(at) && at >= cutoff;
+}
+
+function summarize(state, now = null) {
+  const cutoff = Number.isFinite(Number(now)) ? Number(now) - REPORT_WINDOW_MS : null;
+  const observations = cutoff == null ? state.observations : state.observations.filter((row) => inReportWindow(row, cutoff));
+  const ledger = cutoff == null ? state.ledger : state.ledger.filter((row) => inReportWindow(row, cutoff));
   const outcomes = {};
   let wouldCredit = 0;
-  for (const row of state.observations) {
+  for (const row of observations) {
     outcomes[row.outcome] = (outcomes[row.outcome] || 0) + 1;
     if (row.outcome === 'would-credit') wouldCredit += Number(row.amount || 0);
   }
   return {
     currency: CURRENCY,
-    observations: state.observations.length,
-    ledgerRows: state.ledger.length,
+    observations: observations.length,
+    ledgerRows: ledger.length,
     wouldCredit,
-    credited: state.ledger.filter((row) => row.delta > 0).reduce((sum, row) => sum + row.delta, 0),
+    credited: ledger.filter((row) => row.delta > 0).reduce((sum, row) => sum + row.delta, 0),
     outcomes
   };
 }
@@ -334,7 +435,7 @@ function dryJournalEnv(env = process.env) {
   };
 }
 
-function createArnBook({ loadAccounts = async () => [], env = {}, persistPath = '', dryRunOnly = false } = {}) {
+function createArnBook({ loadAccounts = async () => [], env = {}, persistPath = '', dryRunOnly = false, journalMaxBytes = JOURNAL_MAX_BYTES } = {}) {
   const loaded = readJournal(persistPath);
   const state = { observations: loaded.observations, ledger: loaded.ledger };
   let canPersist = loaded.ok;
@@ -366,7 +467,7 @@ function createArnBook({ loadAccounts = async () => [], env = {}, persistPath = 
 
   function persist() {
     if (!persistPath || !canPersist) return;
-    writeJournal(persistPath, state);
+    writeJournal(persistPath, state, { maxBytes: journalMaxBytes });
   }
 
   return {
@@ -445,8 +546,8 @@ function createArnBook({ loadAccounts = async () => [], env = {}, persistPath = 
       const fromLedger = ids.reduce((sum, id) => sum + balanceOf(state, id), 0);
       return fromLedger;
     },
-    summary() {
-      return summarize(state);
+    summary(now = null) {
+      return summarize(state, now);
     }
   };
 }
@@ -525,7 +626,13 @@ module.exports = {
   WEEK_CAP,
   FEED_DEDUPE_MS,
   DEFAULT_JOURNAL,
+  JOURNAL_MAX_BYTES,
+  JOURNAL_KEEP,
+  JOURNAL_RETAIN_MS,
+  REPORT_WINDOW_MS,
   journalPath,
+  readJournal,
+  writeJournal,
   feedKeyOf,
   normalizeExactName,
   exactNameMatches,

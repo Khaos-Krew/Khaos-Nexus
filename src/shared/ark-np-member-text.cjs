@@ -23,7 +23,7 @@ const REASONS = Object.freeze({
   'staff-required': 'That command is for staff.',
   'schema-missing': 'The bank is not ready yet. Ask a staff member. No Points were spent.',
   'unknown-item': 'That item is not in the shop.',
-  'currency-not-accepted': 'That cache does not accept that currency. Nothing was spent.',
+  'currency-not-accepted': 'That cache does not accept that currency. Use ARN Tokens, earned from shiny dinos, for an ARN cache. Every other cache takes Nexus Points. Open the shop again and use the currency shown there. Nothing was spent.',
   'price-changed': 'The price changed. Open the shop again. No Points were spent.',
   'staff-refund-cap': 'That staff member has reached today’s refund limit.',
   'self-refund': 'You cannot refund your own order.',

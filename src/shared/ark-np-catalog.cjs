@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { blueprintRef } = require('../sentinel/rewards-ascended-delivery.cjs');
+const { acceptedCurrencies } = require('./dino-cache-currency.cjs');
 
 const EXPECTED_PRICES = Object.freeze({
   coastal: 150,
@@ -62,7 +63,7 @@ function loadArkNpCatalog({
       sku,
       price,
       prices: Object.freeze({ NEXUS_POINTS: price, DINO_CACHE_TOKENS: 1 }),
-      currencies: Object.freeze(['NEXUS_POINTS', 'DINO_CACHE_TOKENS']),
+      currencies: Object.freeze(acceptedCurrencies(sku)),
       name: String(cache.displayName || sku),
       emoji: String(cache.emoji || ''),
       tagline: String(cache.tagline || ''),
@@ -78,7 +79,7 @@ function loadArkNpCatalog({
       sku: 'arn',
       price: 1,
       prices: Object.freeze({ ARN_TOKENS: 1 }),
-      currencies: Object.freeze(['ARN_TOKENS']),
+      currencies: Object.freeze(acceptedCurrencies('arn')),
       name: 'ARN Cache',
       active: true
     }),

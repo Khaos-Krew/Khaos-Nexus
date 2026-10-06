@@ -25,9 +25,9 @@ function command() {
   c.addSubcommand(s=>s.setName('tokens').setDescription('What ARN tokens are, and how many you have.'));
   c.addSubcommand(s=>s.setName('open').setDescription('Where to redeem an ARN cache.'));
   c.addSubcommand(s=>s.setName('report').setDescription('Staff: ARN trial summary. No payouts.'));
-  c.addSubcommand(s=>s.setName('configure').setDescription('Staff: enable ARN. 25% chance on a tame, 10% on a kill.'));
-  c.addSubcommand(s=>s.setName('pause').setDescription('Staff: disable ARN earning and redemption.'));
-  c.addSubcommand(s=>s.setName('adjust').setDescription('Staff: audited token grant or removal.').addUserOption(o=>o.setName('player').setDescription('Player.').setRequired(true)).addIntegerOption(o=>o.setName('amount').setDescription('Signed token adjustment.').setRequired(true).setMinValue(-1000000).setMaxValue(1000000)).addStringOption(o=>o.setName('reason').setDescription('Audit reason.').setRequired(true).setMinLength(3).setMaxLength(300)));
+  c.addSubcommand(s=>s.setName('configure').setDescription('Staff: payouts are off during the test week.'));
+  c.addSubcommand(s=>s.setName('pause').setDescription('Staff: payouts are off during the test week.'));
+  c.addSubcommand(s=>s.setName('adjust').setDescription('Staff: payouts are off during the test week.').addUserOption(o=>o.setName('player').setDescription('Player.').setRequired(true)).addIntegerOption(o=>o.setName('amount').setDescription('Signed token adjustment.').setRequired(true).setMinValue(-1000000).setMaxValue(1000000)).addStringOption(o=>o.setName('reason').setDescription('Audit reason.').setRequired(true).setMinLength(3).setMaxLength(300)));
   return c.toJSON();
 }
 async function handle(interaction,{ledger,shop,config, book, env, now, secret, balanceReader} = {}) {
@@ -50,8 +50,8 @@ async function handle(interaction,{ledger,shop,config, book, env, now, secret, b
   if(interaction.commandName==='arn' && ['tokens','report'].includes(sub)) {
     const activeBook = book || sharedArnBook();
     const activeEnv = env || process.env;
-    if(sub==='report') {
-      const summary = activeBook.summary();
+      if(sub==='report') {
+      const summary = activeBook.summary(Date.now());
       if(activeEnv.ARN_DRY_RUN_REPORT) writeSummaryFile(summary, activeEnv.ARN_DRY_RUN_REPORT);
       return {content: staffSummaryText(summary)};
     }
@@ -62,9 +62,9 @@ async function handle(interaction,{ledger,shop,config, book, env, now, secret, b
     return {content: tokenText(balance, activeEnv)};
   }
   if(!isStaff(interaction,config)) throw new Error('Nexus staff authorization required.');
-  if(sub==='configure') {await ledger.configure({enabled:true},user);return {content:'ARN enabled: 25% chance on a shiny tame and 10% on a shiny kill; 1 token per cache.'};}
-  if(sub==='pause') {await ledger.configure({enabled:false},user);return {content:'ARN earning and redemption disabled. Existing balances and rewards are preserved.'};}
-  if(sub==='adjust') {const result=await ledger.adjust({user:interaction.options.getUser('player').id,delta:interaction.options.getInteger('amount'),key:interaction.id,reason:interaction.options.getString('reason')},user);return {content:`Adjustment recorded. Balance: ${result.balance} ARN Tokens.`};}
+  if(sub==='configure' || sub==='pause' || sub==='adjust') {
+    return {content:'ARN settings are managed by the new token system; payouts are off during the test week.'};
+  }
   return {content:'Use /arn tokens to see what ARN tokens are and how to earn them. Redeem a cache in #dino-box-shop.'};
 }
 function arnMemberErrorContent(error) {

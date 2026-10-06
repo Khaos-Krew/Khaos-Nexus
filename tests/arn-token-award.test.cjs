@@ -34,7 +34,8 @@ const {
   arnRotation,
   drawTame,
   deliveryPermitted,
-  openArnCache
+  openArnCache,
+  rotationSecret
 } = require('../src/sentinel/arn-cache-rotation.cjs');
 const { weekStart, WEEKLY_CACHE_RETIRED: weeklyRetired, APPROVED } = require('../src/sentinel/ark-weekly-cache.cjs');
 const { arnFlags } = require('../src/shared/arn-flags.cjs');
@@ -386,16 +387,17 @@ test('the tame list has 8 creatures and changes on Monday at Central midnight', 
 test('opening a cache stays on the dry-run delivery path', async () => {
   assert.equal(deliveryPermitted({}), false);
   assert.equal(deliveryPermitted(LIVE), false);
+  const rotationSource = fs.readFileSync(path.join(__dirname, '../src/sentinel/arn-cache-rotation.cjs'), 'utf8');
+  assert.doesNotMatch(rotationSource, /deliverPreparedOrder|ledger\.spend|book\.spend|\.refund\(/);
+  assert.equal(fs.existsSync(path.join(__dirname, '../src/economy-worker/arn-tokens-postgres.cjs')), false);
   let calls = 0;
+  const deliver = () => { calls += 1; return { ok: true, raCalled: true }; };
   const closed = await openArnCache({
     env: {},
     now: Date.parse('2026-10-07T15:00:00.000Z'),
     discordUserId: DISCORD,
     secret: SECRET,
-    deliver() {
-      calls += 1;
-      return { ok: true, raCalled: true };
-    }
+    deliver
   });
   assert.equal(calls, 0);
   assert.equal(closed.raCalled, false);
@@ -407,53 +409,24 @@ test('opening a cache stays on the dry-run delivery path', async () => {
     ARK_SHOP_DRY_RUN: 'false',
     ARK_SHOP_DELIVERY_ENABLED: 'true'
   };
-  const unarmed = await openArnCache({
-    env: permitted,
-    now: Date.parse('2026-10-07T15:00:00.000Z'),
-    discordUserId: DISCORD,
-    secret: SECRET,
-    deliver() {
-      calls += 1;
-      return { ok: true, raCalled: true };
-    }
-  });
-  assert.equal(calls, 0);
-  assert.equal(unarmed.debited, false);
-
   const now = Date.parse('2026-10-07T15:00:00.000Z');
   const book = bookFor(account(), LIVE);
   await book.award({ messageId: 'bank', parsed: tame('Player', 'Bank One'), roll: 0, now, env: LIVE });
+  const balance = book.balanceForDiscord(DISCORD);
   const sent = await openArnCache({
     env: permitted,
     now,
     discordUserId: DISCORD,
     secret: SECRET,
     book,
-    deliver: async () => {
-      calls += 1;
-      return { ok: true, raCalled: true };
-    }
+    deliver
   });
-  assert.equal(calls, 1);
-  assert.equal(sent.debited, true);
-  assert.equal(sent.raCalled, true);
-  assert.equal(book.balanceForDiscord(DISCORD), 0);
-  const debit = book.state.ledger.find((row) => row.delta === -1);
-  assert.equal(debit.metadata.rotationVersion, sent.rotation.version);
-  assert.equal(debit.metadata.weights.reduce((sum, entry) => sum + entry.weight, 0), 100);
-
-  await book.award({ messageId: 'bank-2', parsed: tame('Player', 'Bank Two'), roll: 0, now, env: LIVE });
-  const refunded = await openArnCache({
-    env: permitted,
-    now: now + 1,
-    discordUserId: DISCORD,
-    secret: SECRET,
-    book,
-    deliver: async () => ({ ok: false, raCalled: false, reason: 'player-offline' })
-  });
-  assert.equal(refunded.debited, false);
-  assert.equal(refunded.raCalled, false);
-  assert.equal(book.balanceForDiscord(DISCORD), 1);
+  assert.equal(calls, 0);
+  assert.equal(sent.debited, false);
+  assert.equal(sent.raCalled, false);
+  assert.equal(sent.reason, 'dry-run');
+  assert.equal(book.balanceForDiscord(DISCORD), balance);
+  assert.equal(book.state.ledger.some((row) => row.delta < 0), false);
 });
 
 test('the dry run does not call the economy worker', () => {
@@ -527,10 +500,32 @@ test('member copy stays plain and there is no exchange into Points, Coins, or ca
   assert.ok(names.includes('open'));
   assert.ok(names.includes('report'));
   for (const hidden of ['balance', 'history', 'cache', 'buy']) assert.equal(names.includes(hidden), false);
+  assert.equal(rotationSecret({}), '');
+  assert.equal(rotationSecret({ ARN_ROTATION_SECRET: 'khaos-nexus-arn-rotation-v1-public' }), '');
+  assert.equal(rotationSecret({ NEXUS_DINO_CACHE_RNG_SECRET: SECRET }).length >= 32, true);
+  assert.throws(() => drawTame(arnRotation(Date.parse('2026-10-07T18:00:00.000Z'), ''), 'preview-order', ''));
   const configure = command().options.find((option) => option.name === 'configure');
-  assert.match(configure.description, /25%/);
-  assert.match(configure.description, /10%/);
-  assert.doesNotMatch(configure.description, /\b5%/);
+  const pause = command().options.find((option) => option.name === 'pause');
+  const adjust = command().options.find((option) => option.name === 'adjust');
+  for (const option of [configure, pause, adjust]) {
+    assert.match(option.description, /payouts are off during the test week/);
+    assert.doesNotMatch(option.description, /\b5%/);
+    assert.doesNotMatch(option.description, /25%/);
+  }
+  let mysqlWrites = 0;
+  const staff = await handle({
+    commandName: 'arn',
+    user: { id: DISCORD },
+    options: { getSubcommand: () => 'adjust', getUser() { mysqlWrites += 1; }, getInteger() { mysqlWrites += 1; }, getString() { mysqlWrites += 1; } }
+  }, {
+    ledger: { configure() { mysqlWrites += 1; }, adjust() { mysqlWrites += 1; } },
+    shop: {},
+    config: { discord: { ownerUserIds: [DISCORD] } },
+    book,
+    env: {}
+  });
+  assert.equal(staff.content, 'ARN settings are managed by the new token system; payouts are off during the test week.');
+  assert.equal(mysqlWrites, 0);
   const denied = await handle({
     commandName: 'arn',
     user: { id: DISCORD },
@@ -563,9 +558,14 @@ test('ARN caches redeem from the dino box shop and /arn open only points there',
   assert.match(preview.content, /Your ARN tokens: 0/);
   assert.equal(copyHasBotName(preview.content), false);
   const rotation = arnRotation(now);
-  assert.equal(rotation.entries.length, 8);
+  assert.equal(rotation.preview, true);
+  assert.ok(rotation.entries.length > 8);
+  assert.match(preview.content, /Preview list \(not a draw\)/);
   for (const entry of rotation.entries) assert.match(preview.content, new RegExp(entry.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  assert.equal(preview.components[0].toJSON().components[0].custom_id, `${BUY_PREFIX}arn`);
+  const redeem = preview.components[0].toJSON().components[0];
+  assert.equal(redeem.custom_id, `${BUY_PREFIX}arn`);
+  assert.equal(redeem.label, 'Coming soon');
+  assert.equal(redeem.disabled, true);
 
   let delivered = false;
   const redeemed = await redeemArnInShop({
@@ -591,7 +591,7 @@ test('ARN caches redeem from the dino box shop and /arn open only points there',
   for (const entry of rotation.entries) assert.match(pageText, new RegExp(entry.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 
   const coastalText = JSON.stringify(cacheDetailPayload('coastal').embeds[0]);
-  assert.match(coastalText, /150 Points/);
+  assert.match(coastalText, /150 Nexus Points/);
   assert.doesNotMatch(coastalText, /1 ARN token/);
 
   const previousMode = process.env.ARKSHOP_DB_MODE;
@@ -601,10 +601,11 @@ test('ARN caches redeem from the dino box shop and /arn open only points there',
     assert.equal(row[0].custom_id, HUB_MY_SEALED_ID);
     assert.equal(row[0].disabled, true);
     const arn = row.find((item) => item.custom_id === ARN_SHOP_ID);
-    assert.equal(arn.label, 'ARN Cache');
-    assert.notEqual(arn.disabled, true);
+    assert.equal(arn.label, 'Coming soon');
+    assert.equal(arn.disabled, true);
     for (const button of cacheDetailPayload('coastal').components[1].toJSON().components) assert.equal(button.disabled, true);
-    assert.notEqual(cacheDetailPayload('arn').components[1].toJSON().components[0].disabled, true);
+    assert.equal(cacheDetailPayload('arn').components[1].toJSON().components[0].disabled, true);
+    assert.equal(cacheDetailPayload('arn').components[1].toJSON().components[0].label, 'Coming soon');
   } finally {
     if (previousMode == null) delete process.env.ARKSHOP_DB_MODE;
     else process.env.ARKSHOP_DB_MODE = previousMode;
@@ -677,9 +678,9 @@ test('a restart reloads the dry-run journal from the Railway volume', async () =
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'arn-journal-'));
   const file = path.join(dir, 'arn-dry-run.json');
   assert.equal(journalPath({ NEXUS_DATA_DIR: dir }), file);
-  assert.equal(journalPath({ RAILWAY_VOLUME_MOUNT_PATH: dir }), file);
   assert.equal(journalPath({ ARN_DRY_RUN_FILE: path.join(dir, 'custom.json'), NEXUS_DATA_DIR: dir }), path.join(dir, 'custom.json'));
   assert.equal(journalPath({}), path.resolve(DEFAULT_JOURNAL));
+  assert.equal(journalPath({ RAILWAY_VOLUME_MOUNT_PATH: dir }), path.resolve(DEFAULT_JOURNAL));
 
   const now = Date.parse('2026-10-07T15:00:00.000Z');
   const first = createArnBook({ persistPath: file, env: {}, loadAccounts: async () => [account()] });
@@ -726,6 +727,68 @@ test('a restart reloads the dry-run journal from the Railway volume', async () =
   assert.equal(fs.readFileSync(broken, 'utf8'), kept);
 });
 
+test('the 7-day report still reads a journal entry after rotation', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'arn-journal-rotate-'));
+  const file = path.join(dir, 'arn-dry-run.json');
+  const now = Date.parse('2026-10-07T15:00:00.000Z');
+  const book = createArnBook({
+    persistPath: file,
+    journalMaxBytes: 1600,
+    env: {},
+    loadAccounts: async () => [account()]
+  });
+  book.state.observations.push({
+    messageId: 'too-old',
+    outcome: 'would-credit',
+    amount: 1,
+    at: Date.parse('2020-01-01T00:00:00.000Z'),
+    economicIdentityId: 'econ-player',
+    discordUserId: DISCORD
+  });
+  const journalMaxBytes = 1600;
+  const kept = [];
+  for (const day of [2, 1, 0]) {
+    for (let slot = 0; slot < 3; slot += 1) {
+      const index = kept.length;
+      const at = now - (day * 24 * 60 * 60 * 1000) + (slot * 60 * 1000);
+      const awarded = await book.award({
+        messageId: `week-${index}`,
+        parsed: tame('Player', `Rotate Dodo ${index}`),
+        roll: 0,
+        now: at,
+        env: {}
+      });
+      assert.equal(awarded.outcome, 'would-credit');
+      kept.push(`week-${index}`);
+    }
+  }
+  const siblings = [file, `${file}.1`, `${file}.2`, `${file}.3`].filter((entry) => fs.existsSync(entry));
+  assert.ok(siblings.length >= 2);
+  assert.ok(siblings.length <= 4);
+  for (const entry of siblings) assert.ok(fs.statSync(entry).size <= journalMaxBytes);
+  assert.equal(book.state.observations.some((row) => row.messageId === 'too-old'), false);
+  const reloaded = createArnBook({
+    persistPath: file,
+    journalMaxBytes: 1600,
+    env: {},
+    loadAccounts: async () => [account()]
+  });
+  for (const messageId of kept) {
+    assert.equal(reloaded.state.observations.some((row) => row.messageId === messageId), true);
+  }
+  assert.equal(reloaded.state.observations.some((row) => row.messageId === 'too-old'), false);
+  const summary = reloaded.summary(now);
+  assert.ok(summary.wouldCredit >= kept.length);
+  const duplicate = await reloaded.award({
+    messageId: 'week-0',
+    parsed: tame('Player', 'Rotate Dodo 0'),
+    roll: 0,
+    now,
+    env: {}
+  });
+  assert.equal(duplicate.outcome, 'duplicate');
+});
+
 test('boot warns when the dry-run journal directory is not writable', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'arn-journal-blocked-'));
   const blocker = path.join(dir, 'not-a-directory');
@@ -752,7 +815,6 @@ test('new ARN files do not flip economy, shop, or birthday flags', () => {
     'src/sentinel/arn-token-award.cjs',
     'src/sentinel/arn-cache-rotation.cjs',
     'src/sentinel/arn-member-copy.cjs',
-    'src/economy-worker/arn-tokens-postgres.cjs',
     'src/sentinel/arn-cache-extension.cjs',
     'src/sentinel/arn-live-board-extension.cjs',
     'src/sentinel/ark-dino-box-shop-extension.cjs'

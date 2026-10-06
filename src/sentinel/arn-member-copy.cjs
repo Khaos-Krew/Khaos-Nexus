@@ -24,7 +24,9 @@ function poolNames(rotation) {
 
 function poolLine(rotation) {
   const names = poolNames(rotation);
-  return names.length ? `This week: ${names.join(', ')}.` : 'This week\'s list is not available.';
+  if (!names.length) return 'The tame list is not available.';
+  if (rotation?.preview === true) return `Preview list (not a draw): ${names.join(', ')}.`;
+  return `This week: ${names.join(', ')}.`;
 }
 
 function trialLine(env = process.env) {
@@ -43,7 +45,7 @@ function arnShopLines({ balance, rotation, redeemed = false, drawn = null, env =
   ];
   if (redeemed && drawn) lines.push(`Redeemed. The tame is ${drawn.species}, level ${drawn.level}.`);
   else if (redeemed) lines.push('Nothing was opened and no tame was sent.');
-  else lines.push('Press Redeem to draw one tame from this list.');
+  else lines.push('Redeem is coming soon. Nothing is sent while payouts are off.');
   return lines.filter(Boolean).join('\n');
 }
 

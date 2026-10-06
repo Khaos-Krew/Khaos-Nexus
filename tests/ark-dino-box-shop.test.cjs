@@ -16,7 +16,9 @@ const {
   normalizeToken,
   tokenDigest,
   generateTokenCode,
-  cacheScope
+  cacheScope,
+  ARN_TOKEN_ONLY,
+  ArkDinoBoxTokenService
 } = require('../src/sentinel/ark-dino-box-token-service.cjs');
 
 test('Dino Box Shop uses the dedicated channel and exposes every configured cache', () => {
@@ -39,11 +41,12 @@ test('every Dino Box cache panel has exactly Buy and Redeem Token buttons', () =
     if (cacheId === 'arn') {
       assert.match(text, /ARN tokens only/);
       assert.match(text, /1 ARN token/);
+      assert.equal(row.components[1].disabled, true);
       assert.doesNotMatch(text, /Nexus Points|\bPoints\b/);
     } else {
-      assert.match(text, /Nexus Points or Cache tokens/);
-      assert.match(text, /1 Cache token/);
-      assert.match(row.components[0].label, /Points or 1 Cache token/);
+      assert.match(text, /Nexus Points/);
+      assert.doesNotMatch(text, /Cache token/i);
+      assert.match(row.components[0].label, /Nexus Points/);
     }
     assert.doesNotMatch(text, /ArkShop Points|ARN redemption disabled/);
     assert.doesNotMatch(text, /shiny/i);
@@ -76,4 +79,17 @@ test('Dino Box token scope only accepts any or configured caches', () => {
   assert.equal(cacheScope('*'), '*');
   assert.equal(cacheScope(cacheIds()[0]), cacheIds()[0]);
   assert.throws(() => cacheScope('not-a-real-cache'), /not available/i);
+  assert.throws(() => cacheScope('arn'), /ARN Tokens/);
+});
+
+test('a forced ARN token redeem is refused before MySQL', async () => {
+  let opened = 0;
+  const service = new ArkDinoBoxTokenService({
+    connector: async () => { opened += 1; throw new Error('mysql'); }
+  });
+  await assert.rejects(
+    () => service.redeem({ discordUserId: '111111111111111111', cacheId: 'arn', tokenCode: 'NXC-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' }),
+    (error) => error.message === ARN_TOKEN_ONLY && error.code === 'ARN_TOKEN_ONLY'
+  );
+  assert.equal(opened, 0);
 });

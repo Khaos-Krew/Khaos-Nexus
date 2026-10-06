@@ -92,21 +92,23 @@ function cachePanelPayload(cacheId) {
   const disclaimerFields = m.disclaimer
     ? [{ name: '⚠️ DLC Ownership Required', value: m.disclaimer.slice(0, 1024), inline: false }]
     : [];
+  const tokenButton = new ButtonBuilder()
+    .setCustomId(`${TOKEN_PREFIX}${cacheId}`)
+    .setLabel('Redeem Token')
+    .setEmoji('🎟️')
+    .setStyle(ButtonStyle.Primary);
+  if (arn) tokenButton.setDisabled(true);
   const row = new ActionRowBuilder().addComponents(
     retireControl(new ButtonBuilder()
       .setCustomId(`${BUY_PREFIX}${cacheId}`)
       .setLabel(copy ? copy.button : `Buy • ${cachePrice(cache)}`)
       .setEmoji('🎰')
       .setStyle(ButtonStyle.Success)),
-    retireControl(new ButtonBuilder()
-      .setCustomId(`${TOKEN_PREFIX}${cacheId}`)
-      .setLabel('Redeem Token')
-      .setEmoji('🎟️')
-      .setStyle(ButtonStyle.Primary))
+    retireControl(tokenButton)
   );
   const buyLine = arn
-    ? 'Choose **Buy** to spend an ARN token, or **Redeem Token** to open this box with a single-use Nexus token.'
-    : 'Choose **Buy** to spend Nexus Points or a Cache token, or **Redeem Token** to open this box with a single-use Nexus token.';
+    ? 'ARN caches can only be opened with ARN Tokens. A Nexus token cannot open this cache.'
+    : 'Choose **Buy** to spend Nexus Points, or **Redeem Token** to open this box with a single-use Nexus token.';
   const delivery = arn
     ? 'Your result is locked before the reveal and queued for delivery to your linked ARK account. The **5-minute cooldown applies to both purchases and token redemptions** for this box.'
     : 'Your result is locked before the reveal and queued for delivery to your linked ARK account. The **5-minute cooldown applies to both purchases and token redemptions** for this box. Token redemption charges **0 Points**.';
@@ -162,12 +164,12 @@ function cacheSelect(selected = HUB_HOME_ID) {
 function mySealedRow() {
   return new ActionRowBuilder().addComponents(
     retireControl(new ButtonBuilder().setCustomId(HUB_MY_SEALED_ID).setLabel('My Sealed Caches').setEmoji('🔒').setStyle(ButtonStyle.Secondary)),
-    new ButtonBuilder().setCustomId(ARN_SHOP_ID).setLabel('ARN Cache').setStyle(ButtonStyle.Primary)
+    new ButtonBuilder().setCustomId(ARN_SHOP_ID).setLabel('Coming soon').setStyle(ButtonStyle.Secondary).setDisabled(true)
   );
 }
 
 function arnRedeemButton() {
-  return new ButtonBuilder().setCustomId(`${BUY_PREFIX}arn`).setLabel('Redeem • 1 ARN token').setStyle(ButtonStyle.Success);
+  return new ButtonBuilder().setCustomId(`${BUY_PREFIX}arn`).setLabel('Coming soon').setStyle(ButtonStyle.Secondary).setDisabled(true);
 }
 
 async function shownArnBalance(discordUserId, { book, ledger, env } = {}) {
@@ -244,7 +246,7 @@ function hubHomePayload() {
       description: 'Choose a cache from the dropdown below. **This one message is the entire public cache shop**—switching caches replaces the information here instead of filling the channel with separate panels.',
       color: 0xb00020,
       fields: [
-        { name: '🎲 How Dino Caches Work', value: '**1. Purchase** with Nexus Points or a Cache token. The ARN cache accepts ARN tokens only. A single-use Nexus token can still open a non-ARN cache.\n**2. Sentinel rolls the complete reward immediately** and permanently stores the species, valid Normal/X/S variant, level, and sex.\n**3. The reward stays 🔒 SEALED.** Nothing is shown and nothing is delivered yet.\n**4. Press Reveal Now** when you are ready. Reveal reads the stored reward—it never rerolls.\n**5. After reveal**, that exact saved tame becomes eligible for ARK delivery.', inline: false },
+        { name: '🎲 How Dino Caches Work', value: '**1. Purchase** with Nexus Points. The ARN cache accepts ARN tokens only. A single-use Nexus token can still open a non-ARN cache.\n**2. Sentinel rolls the complete reward immediately** and permanently stores the species, valid Normal/X/S variant, level, and sex.\n**3. The reward stays 🔒 SEALED.** Nothing is shown and nothing is delivered yet.\n**4. Press Reveal Now** when you are ready. Reveal reads the stored reward—it never rerolls.\n**5. After reveal**, that exact saved tame becomes eligible for ARK delivery.', inline: false },
         { name: '🧬 Reward Rules', value: '• ARK: Survival Ascended creatures only\n• Normal / X / S only where that species has an approved safe form\n• Level **200–300**\n• Male / Female where applicable\n• Shiny outcomes are not part of Dino Caches', inline: false },
         { name: '📣 Public Reveals', value: 'When a cache is revealed, Sentinel posts the result to **Cluster Chat**. **AAT** handles the Discord ↔ ARK cross-chat mirror so players in-game can see the pull too.', inline: false },
         { name: '🔒 Reveal Later', value: 'Close the reveal or choose **Reveal Later** and the reward remains sealed. Use **My Sealed Caches** here at any time to reopen it.', inline: false }
@@ -509,6 +511,10 @@ function installArkDinoBoxShopExtension(options = {}) {
           if (isToken) {
             const cacheId = id.slice(TOKEN_PREFIX.length).toLowerCase();
             if (!CONFIG.caches[cacheId]) throw new Error('Unknown Dino Cache.');
+            if (isArnCache(cacheId)) {
+              if (!interaction.deferred && !interaction.replied) await interaction.reply({ content: 'ARN caches can only be opened with ARN Tokens.', flags: MessageFlags.Ephemeral });
+              return;
+            }
             return interaction.showModal(tokenModal(cacheId));
           }
           if (isBuy) {
@@ -523,6 +529,7 @@ function installArkDinoBoxShopExtension(options = {}) {
             const cacheId = id.slice(TOKEN_MODAL_PREFIX.length).toLowerCase();
             const tokenCode = interaction.fields.getTextInputValue(TOKEN_INPUT);
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            if (isArnCache(cacheId)) return interaction.editReply({ content: 'ARN caches can only be opened with ARN Tokens.', allowedMentions: { parse: [] } });
             const result = await tokenService.redeem({ discordUserId: userId, cacheId, tokenCode });
             if (result.order.state !== 'SEALED') return interaction.editReply(finalResultPayload(result.order, null, 'Nexus Token'));
             return interaction.editReply(sealedResultPayload(result.order, null, 'Nexus Token'));

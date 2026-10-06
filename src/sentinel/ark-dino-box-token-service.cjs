@@ -5,6 +5,7 @@ const { connectMysql, isRetired } = require('./arkshop-mysql.cjs');
 const { arkShopMemberFeatureStatus, ARKSHOP_FEATURES_OFF_MESSAGE } = require('./arkshop-cluster-economy-guard.cjs');
 const { ArkIdentityStore } = require('./ark-identity-store.cjs');
 const { CONFIG } = require('./ark-dino-cache-engine.cjs');
+const { isArnCache } = require('../shared/dino-cache-currency.cjs');
 const {
   ORDER_TABLE,
   EVENT_TABLE,
@@ -19,6 +20,7 @@ const {
 
 const TOKEN_TABLE = 'nexus_dino_box_tokens';
 const VALID_CACHE_ID = /^[a-z0-9_-]{1,48}$/;
+const ARN_TOKEN_ONLY = 'ARN caches can only be opened with ARN Tokens.';
 
 function normalizeToken(value) {
   const token = String(value || '').trim().toUpperCase().replace(/\s+/g, '');
@@ -63,6 +65,7 @@ async function ensureTokenSchema(connection) {
 function cacheScope(value) {
   const scope = cleanId(value || '*', 48).toLowerCase();
   if (scope === '*' || scope === 'any') return '*';
+  if (isArnCache(scope)) throw shopError('ARN_TOKEN_ONLY', ARN_TOKEN_ONLY);
   if (!VALID_CACHE_ID.test(scope) || !CONFIG.caches[scope]) throw shopError('INVALID_CACHE', 'That Dino Cache is not available.');
   return scope;
 }
@@ -127,9 +130,10 @@ class ArkDinoBoxTokenService {
   }
 
   async redeem({ discordUserId, cacheId, tokenCode } = {}) {
+    const type = cleanId(cacheId, 48).toLowerCase();
+    if (isArnCache(type)) throw shopError('ARN_TOKEN_ONLY', ARN_TOKEN_ONLY);
     await this.assertFeaturesAvailable();
     const userId = cleanId(discordUserId, 25);
-    const type = cleanId(cacheId, 48).toLowerCase();
     if (!/^\d{5,25}$/.test(userId)) throw shopError('INVALID_DISCORD_USER', 'A valid Discord user is required.');
     if (!VALID_CACHE_ID.test(type) || !CONFIG.caches[type]) throw shopError('INVALID_CACHE', 'That Dino Cache is not available.');
     const digest = tokenDigest(tokenCode, this.secret || tokenSecret());
@@ -204,5 +208,6 @@ module.exports = {
   generateTokenCode,
   ensureTokenSchema,
   cacheScope,
+  ARN_TOKEN_ONLY,
   ArkDinoBoxTokenService
 };

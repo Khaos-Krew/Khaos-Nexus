@@ -30,15 +30,16 @@ test('each cache accepts only its currencies and keeps the existing point prices
         assert.equal(result.ok, false, sku);
         assert.equal(result.reason, 'currency-not-accepted');
         assert.equal(result.debited, false);
-        assert.deepEqual(result.accepted, [NEXUS_POINTS, CACHE_TOKENS]);
+        assert.deepEqual(result.accepted, [NEXUS_POINTS]);
       } else if (currency === NEXUS_POINTS) {
         assert.equal(result.ok, true, sku);
         assert.equal(result.currency, NEXUS_POINTS);
         assert.equal(result.price, points);
       } else {
-        assert.equal(result.ok, true, sku);
-        assert.equal(result.currency, CACHE_TOKENS);
-        assert.equal(result.price, 1);
+        assert.equal(result.ok, false, sku);
+        assert.equal(result.reason, 'currency-not-accepted');
+        assert.equal(result.debited, false);
+        assert.deepEqual(result.accepted, [NEXUS_POINTS]);
       }
     }
     assert.equal(resolveCachePayment(sku).currency, NEXUS_POINTS);
@@ -68,7 +69,7 @@ test('catalog stamps currencies without moving point prices or reviving the week
   assert.deepEqual(catalog.items.map((item) => [item.sku, item.price]), Object.entries(EXPECTED_PRICES));
   assert.equal(catalog.items.some((item) => item.sku === 'weekly' || item.sku === 'arn'), false);
   for (const item of catalog.items) {
-    assert.deepEqual([...item.currencies], [NEXUS_POINTS, CACHE_TOKENS]);
+    assert.deepEqual([...item.currencies], [NEXUS_POINTS]);
     assert.equal(item.prices.NEXUS_POINTS, item.price);
     assert.equal(item.prices.DINO_CACHE_TOKENS, 1);
   }
@@ -80,7 +81,8 @@ test('catalog stamps currencies without moving point prices or reviving the week
 test('shop copy names the accepted currency on every cache', () => {
   const menu = hubHomePayload().components[0].toJSON().components[0];
   const home = JSON.stringify(hubHomePayload().embeds[0]);
-  assert.match(home, /Nexus Points or a Cache token/);
+  assert.match(home, /Nexus Points/);
+  assert.doesNotMatch(home, /Cache token/i);
   assert.match(home, /ARN tokens only/);
   for (const cacheId of cacheIds()) {
     const panel = JSON.stringify(cachePanelPayload(cacheId).embeds[0]);
@@ -98,17 +100,22 @@ test('shop copy names the accepted currency on every cache', () => {
     } else {
       const points = EXPECTED_PRICES[cacheId];
       assert.equal(typeof points, 'number');
-      assert.match(panel, new RegExp(`${points.toLocaleString('en-US')} Points`));
-      assert.match(panel, /1 Cache token/);
-      assert.match(detail, new RegExp(`${points.toLocaleString('en-US')} Points`));
-      assert.match(detail, /Nexus Points or Cache tokens/);
-      assert.match(option.description, /Points or 1 Cache token/);
+      assert.match(panel, new RegExp(`${points.toLocaleString('en-US')} Nexus Points`));
+      assert.doesNotMatch(panel, /Cache token/i);
+      assert.match(detail, new RegExp(`${points.toLocaleString('en-US')} Nexus Points`));
+      assert.match(detail, /Accepted currency: Nexus Points/);
+      assert.match(option.description, /Nexus Points/);
+      assert.doesNotMatch(option.description, /Cache token/i);
       assert.doesNotMatch(`${panel}\n${detail}\n${option.description}`, /ARN token/);
       assert.equal(button, shopCurrencyCopy(cacheId, points).button);
     }
   }
   const ui = fs.readFileSync(path.join(__dirname, '../src/sentinel/ark-np-shop-ui.cjs'), 'utf8');
-  assert.match(ui, /\$\{item\.price\} Points or 1 Cache token/);
+  assert.doesNotMatch(ui, /Cache token/i);
+  assert.match(ui, /shopCurrencyCopy/);
+  assert.match(ui, /Confirm to spend the Nexus Points/);
+  assert.match(arkMemberText('currency-not-accepted'), /ARN Tokens, earned from shiny dinos/);
+  assert.match(arkMemberText('currency-not-accepted'), /Open the shop again/);
   assert.match(arkMemberText('currency-not-accepted'), /does not accept that currency/);
   assert.match(arkMemberText('currency-not-accepted'), /Nothing was spent/);
   const shop = fs.readFileSync(path.join(__dirname, '../src/sentinel/ark-dino-box-shop-extension.cjs'), 'utf8');

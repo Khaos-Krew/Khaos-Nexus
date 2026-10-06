@@ -1,21 +1,23 @@
 'use strict';
 
-const { EXPECTED_PRICES } = require('./ark-np-catalog.cjs');
-
 const NEXUS_POINTS = 'NEXUS_POINTS';
 const CACHE_TOKENS = 'DINO_CACHE_TOKENS';
 const ARN_TOKENS = 'ARN_TOKENS';
 const CACHE_TOKEN_PRICE = 1;
 const ARN_TOKEN_PRICE = 1;
-const STANDARD_CURRENCIES = Object.freeze([NEXUS_POINTS, CACHE_TOKENS]);
+const POINTS_CURRENCIES = Object.freeze([NEXUS_POINTS]);
 const ARN_CURRENCIES = Object.freeze([ARN_TOKENS]);
+
+function expectedPrices() {
+  return require('./ark-np-catalog.cjs').EXPECTED_PRICES;
+}
 
 function isArnCache(cacheId) {
   return String(cacheId || '').trim().toLowerCase() === 'arn';
 }
 
 function acceptedCurrencies(cacheId) {
-  return isArnCache(cacheId) ? ARN_CURRENCIES : STANDARD_CURRENCIES;
+  return isArnCache(cacheId) ? ARN_CURRENCIES : POINTS_CURRENCIES;
 }
 
 function normalizeShopCurrency(currency, fallback = NEXUS_POINTS) {
@@ -23,15 +25,17 @@ function normalizeShopCurrency(currency, fallback = NEXUS_POINTS) {
   return value || fallback;
 }
 
-function pointPriceOf(cacheId, pointPrices = EXPECTED_PRICES) {
+function pointPriceOf(cacheId, pointPrices = expectedPrices()) {
   if (isArnCache(cacheId)) return ARN_TOKEN_PRICE;
   const price = pointPrices[String(cacheId || '').trim().toLowerCase()];
   return Number.isInteger(price) && price > 0 ? price : null;
 }
 
-// One rule for the catalog and the worker. ARN caches take ARN tokens.
-// Every other cache takes Nexus Points at its existing price, or one Cache token.
-function resolveCachePayment(cacheId, currency, pointPrices = EXPECTED_PRICES) {
+// One rule for the catalog currencies field, the hub copy, and resolveCachePayment.
+// ARN caches take ARN tokens. Every other cache charges Nexus Points at its existing price.
+// The catalog still stores a DINO_CACHE_TOKENS price so that spend can be added later.
+// That price is not accepted until the cache-token spend path ships.
+function resolveCachePayment(cacheId, currency, pointPrices = expectedPrices()) {
   const sku = String(cacheId || '').trim().toLowerCase();
   const accepted = [...acceptedCurrencies(sku)];
   const wanted = normalizeShopCurrency(currency, isArnCache(sku) ? ARN_TOKENS : NEXUS_POINTS);
@@ -57,10 +61,10 @@ function shopCurrencyCopy(cacheId, pointPrice) {
   }
   const points = Math.max(0, Number(pointPrice) || 0).toLocaleString('en-US');
   return Object.freeze({
-    accepted: 'Nexus Points or Cache tokens',
-    price: `${points} Points or 1 Cache token`,
-    button: `Buy • ${points} Points or 1 Cache token`,
-    detail: `Accepted currency: Nexus Points or Cache tokens. Price: ${points} Points, or 1 Cache token.`
+    accepted: 'Nexus Points',
+    price: `${points} Nexus Points`,
+    button: `Buy • ${points} Nexus Points`,
+    detail: `Accepted currency: Nexus Points. Price: ${points} Nexus Points.`
   });
 }
 
@@ -70,7 +74,8 @@ module.exports = {
   ARN_TOKENS,
   CACHE_TOKEN_PRICE,
   ARN_TOKEN_PRICE,
-  STANDARD_CURRENCIES,
+  POINTS_CURRENCIES,
+  STANDARD_CURRENCIES: POINTS_CURRENCIES,
   ARN_CURRENCIES,
   isArnCache,
   acceptedCurrencies,

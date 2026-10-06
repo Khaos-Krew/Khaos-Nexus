@@ -41,9 +41,35 @@ function nextCtWeekStart(weekStartMs) {
   return ctWeekStart(weekStartMs + (8 * 24 * 60 * 60 * 1000));
 }
 
+function usableSecret(secret) {
+  const value = String(secret || '').trim();
+  if (value.length < 32 || value === PUBLIC_ROTATION_SECRET) return '';
+  return value;
+}
+
 function rotationSecret(env = process.env) {
-  const configured = String(env.ARN_ROTATION_SECRET || env.NEXUS_DINO_CACHE_RNG_SECRET || '').trim();
-  return configured.length >= 32 ? configured : PUBLIC_ROTATION_SECRET;
+  const dedicated = usableSecret(env.ARN_ROTATION_SECRET);
+  if (dedicated) return dedicated;
+  return usableSecret(env.NEXUS_DINO_CACHE_RNG_SECRET);
+}
+
+function previewRotation() {
+  const entries = approvedEntries().map((entry) => ({
+    name: entry.name,
+    blueprint: entry.blueprint,
+    rarity: entry.rarity,
+    weight: 0,
+    preview: true
+  }));
+  return {
+    id: 'preview',
+    version: 'preview',
+    preview: true,
+    startsAt: null,
+    endsAt: null,
+    timeZone: CT,
+    entries
+  };
 }
 
 function approvedEntries() {
@@ -79,8 +105,10 @@ function slotsFor(entries, rarity, secretRng) {
 
 function arnRotation(nowMs = Date.now(), secret = rotationSecret()) {
   if (WEEKLY_CACHE_RETIRED !== true) throw new Error('ARN cache requires the weekly cache to stay retired.');
+  const key = usableSecret(secret);
+  if (!key) return previewRotation();
   const startsAt = ctWeekStart(nowMs);
-  const rng = deterministicRng(secret, `arn-cache:${startsAt}`);
+  const rng = deterministicRng(key, `arn-cache:${startsAt}`);
   const approved = approvedEntries();
   const entries = ['common', 'uncommon', 'rare', 'ultra'].flatMap((rarity) => slotsFor(approved, rarity, rng));
   if (entries.length !== POOL_SIZE) throw new Error('ARN cache needs eight weighted slots.');
@@ -101,10 +129,13 @@ function hmacUnit(secret, orderId) {
 }
 
 function drawTame(rotation, orderId, secret = rotationSecret()) {
+  const key = usableSecret(secret);
+  if (!key) throw new Error('ARN rotation secret is required.');
+  if (rotation?.preview === true) throw new Error('ARN preview list is not a draw.');
   const entries = rotation?.entries || [];
   const total = entries.reduce((sum, entry) => sum + Number(entry.weight || 0), 0);
   if (!(total > 0)) throw new Error('ARN rotation weights are empty.');
-  let cursor = hmacUnit(secret, orderId) * total;
+  let cursor = hmacUnit(key, orderId) * total;
   let entry = entries[entries.length - 1];
   for (const candidate of entries) {
     cursor -= Number(candidate.weight || 0);
@@ -113,7 +144,7 @@ function drawTame(rotation, orderId, secret = rotationSecret()) {
       break;
     }
   }
-  const rngKey = String(secret).length >= 32 ? String(secret) : `${String(secret)}-arn-draw-padding-32chars`;
+  const rngKey = key;
   const rng = deterministicRng(rngKey, `arn-level:${rotation.id}:${orderId}`);
   const level = rollLevel(rng, CONFIG);
   const sex = rng() < 0.5 ? 'female' : 'male';
@@ -155,59 +186,15 @@ function buildArnDeliveryOrder({ drawn, eosId, orderId }) {
 async function openArnCache({
   env = process.env,
   now = Date.now(),
-  discordUserId = '',
-  secret,
-  deliver,
-  book,
-  ledger,
-  eosId = ''
+  secret
 } = {}) {
-  const rotation = arnRotation(now, secret || rotationSecret(env));
-  const base = {
+  return {
     ok: false,
     reason: 'dry-run',
     raCalled: false,
     debited: false,
     currency: 'ARN_TOKENS',
-    rotation
-  };
-  const spender = ledger || book;
-  if (!deliveryPermitted(env) || !spender) return base;
-  const orderId = `arn-open:${discordUserId}:${rotation.id}:${now}`;
-  const drawn = drawTame(rotation, orderId, secret || rotationSecret(env));
-  const order = buildArnDeliveryOrder({ drawn, eosId, orderId });
-  const spent = ledger
-    ? await ledger.spend({ discordUserId, orderId, rotation, now, env })
-    : await book.spend({ discordUserId, key: orderId, orderId, rotation, now, env });
-  if (!spent?.debited) return { ...base, reason: spent?.reason || 'not-spent', drawn, order };
-  const send = deliver || (async () => {
-    const flags = arkNpFlags(env);
-    if (flags.dryRun || !flags.shopDeliveryEnabled) return { ok: false, raCalled: false, reason: 'dry-run' };
-    const { deliverPreparedOrder, httpDeps } = require('./ark-np-delivery.cjs');
-    return deliverPreparedOrder(order, httpDeps(env));
-  });
-  let delivery;
-  try {
-    delivery = await send(order, env);
-  } catch (error) {
-    if (ledger) await ledger.refund({ orderId, economicIdentityId: spent.economicIdentityId, now });
-    else await book.refund({ economicIdentityId: spent.economicIdentityId, key: orderId, now });
-    return { ...base, reason: 'delivery-failed', drawn, order, refunded: true };
-  }
-  if (delivery?.raCalled !== true) {
-    if (ledger) await ledger.refund({ orderId, economicIdentityId: spent.economicIdentityId, now });
-    else await book.refund({ economicIdentityId: spent.economicIdentityId, key: orderId, now });
-    return { ...base, reason: delivery?.reason || 'not-sent', drawn, order, refunded: true };
-  }
-  return {
-    ok: true,
-    reason: 'submitted',
-    raCalled: true,
-    debited: true,
-    currency: 'ARN_TOKENS',
-    rotation,
-    drawn,
-    order
+    rotation: arnRotation(now, secret || rotationSecret(env))
   };
 }
 
