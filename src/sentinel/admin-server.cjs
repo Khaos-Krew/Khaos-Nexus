@@ -9,7 +9,7 @@ const { buildStaffNameColorPreview } = require('./staff-name-color-preview.cjs')
 const { ArkBackendControl } = require('./ark-backend-control.cjs');
 const { handleShinyWebhook } = require('./ark-shiny-anomaly.cjs');
 const { createEvidenceHandler } = require('./protocol/evidence.cjs');
-const { bearerMatches, READ_TOKEN_MIN } = require('./arn-journal-client.cjs');
+const { bearerMatches, tokensMatch, READ_TOKEN_MIN } = require('./arn-journal-client.cjs');
 const { readOwnedJournal } = require('./arn-token-award.cjs');
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1']);
@@ -22,6 +22,9 @@ async function hostedProviderStatus(controller) { const store = currentHostedPro
 async function staffNameColorPreview(controller) { const guild = controller?.guild; if (!guild) return { ok: false, readOnly: true, mutationAuthorized: false, code: 'GUILD_UNAVAILABLE' }; const roles = await guild.roles.fetch(); const me = guild.members?.me || await guild.members.fetchMe(); return buildStaffNameColorPreview({ guildId: String(guild.id || ''), roles, botHighestRole: me?.roles?.highest || null, config: controller.effectiveConfig?.() || controller.config || {} }); }
 async function enhancedScan(controller) { const scan = await controller.scan(); scan.sections ||= {}; const [commands, rankDiscovery, providerConfig, staffColors] = await Promise.all([commandStatus(controller).catch((error) => ({ ok: false, commands: [], desired: [], error: String(error?.message || error).slice(0, 240) })), discoverRankMappings(controller).catch((error) => ({ ok: false, ranks: [], suggestedSettings: { rankRoles: {}, rankSkus: {} }, counts: { discoveredRoles: 0, discoveredSkus: 0, attention: 0 }, error: String(error?.message || error).slice(0, 240) })), hostedProviderStatus(controller).catch((error) => ({ ok: false, configured: false, error: String(error?.message || error).slice(0, 240) })), staffNameColorPreview(controller).catch((error) => ({ ok: false, readOnly: true, mutationAuthorized: false, error: String(error?.message || error).slice(0, 240) }))]); scan.sections.commands = commands; scan.sections.rankDiscovery = rankDiscovery; scan.sections.staffColors = staffColors; if (providerConfig) scan.sections.providerConfig = providerConfig; scan.ok = Object.values(scan.sections).every((section) => section?.ok !== false); return scan; }
 function createPairingLimiter() { const attempts = new Map(); return (req) => { const now = Date.now(); const key = String(req.socket?.remoteAddress || 'unknown'); const recent = (attempts.get(key) || []).filter((time) => now - time < 60_000); recent.push(now); attempts.set(key, recent); if (attempts.size > 1000) { for (const [address, times] of attempts) if (!times.some((time) => now - time < 60_000)) attempts.delete(address); } return recent.length <= 10; }; }
+function journalFromPublicEdge(req) {
+  return ['x-forwarded-for', 'x-railway-edge'].some((name) => String(req.headers?.[name] || '').trim() !== '');
+}
 function createJournalAuthLimiter() {
   const failures = new Map();
   return (req, record) => {
@@ -64,7 +67,9 @@ function createSentinalAdminServer(options = {}) {
       if (shinyMatch) { if (!shinyAllowed(req)) return json(res, 429, { ok: false, code: 'SHINY_INGEST_RATE_LIMIT' }); const result = await shinyWebhookHandler({ token: shinyMatch[1], payload: await body(req), controller }); return json(res, result.status, result.body); }
       if (url.pathname === '/v1/arn/journal') {
         if (req.method !== 'GET') return json(res, 405, { ok: false, reason: 'method-not-allowed' });
+        if (journalFromPublicEdge(req)) { logger.warn?.('journal-public-edge'); return json(res, 403, { ok: false, reason: 'journal-public-edge' }); }
         if (journalAuthLimited(req, false)) return json(res, 429, { ok: false, reason: 'rate-limited' });
+        if (tokensMatch(journalToken, String(token).trim()) || tokensMatch(journalToken, String(forgeToken).trim())) { logger.warn?.('journal-token-reused'); return json(res, 503, { ok: false, reason: 'journal-token-reused' }); }
         if (journalToken.length < READ_TOKEN_MIN) return json(res, 503, { ok: false, reason: 'journal-not-configured' });
         if (!bearerMatches(req.headers.authorization, journalToken)) { journalAuthLimited(req, true); return json(res, 401, { ok: false, reason: 'unauthorized' }); }
         const discordUserId = String(url.searchParams.get('discordUserId') || '').replace(/\D/g, '').slice(0, 32);

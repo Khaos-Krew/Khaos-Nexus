@@ -132,6 +132,7 @@ module.exports = {
   journalUrlAllowed,
   logArnJournalBoot,
   bearerMatches,
+  tokensMatch,
   readArnJournal,
   journalCacheSize,
   resetArnJournalClientForTest

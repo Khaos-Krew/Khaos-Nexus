@@ -195,3 +195,112 @@ test('journal auth failures are limited per address and the token is trimmed', a
     await server.stop();
   }
 });
+
+async function listenJournal({ token, forgeToken, journalReadToken }) {
+  const lines = [];
+  let reads = 0;
+  const server = createSentinalAdminServer({
+    host: '127.0.0.1',
+    port: 0,
+    token,
+    forgeToken,
+    journalReadToken,
+    readArnJournal() {
+      reads += 1;
+      return { balance: 3, summary: { ledgerRows: 1 } };
+    },
+    logger: { log() {}, error() {}, warn(line) { lines.push(String(line)); } }
+  });
+  await server.start();
+  const port = server.server.address().port;
+  return { server, lines, reads: () => reads, url: `http://127.0.0.1:${port}/v1/arn/journal` };
+}
+
+test('journal read token matching the admin token returns journal-token-reused', async () => {
+  const shared = 'm'.repeat(40);
+  const { server, lines, reads, url } = await listenJournal({
+    token: shared,
+    forgeToken: 'f'.repeat(40),
+    journalReadToken: shared
+  });
+  try {
+    const response = await fetch(url, { headers: { authorization: `Bearer ${shared}` } });
+    const body = await response.json();
+    assert.equal(response.status, 503);
+    assert.equal(body.reason, 'journal-token-reused');
+    assert.equal(JSON.stringify(body).includes(shared), false);
+    assert.deepEqual(lines, ['journal-token-reused']);
+    assert.equal(reads(), 0);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('journal read token matching the forge token returns journal-token-reused', async () => {
+  const shared = 'n'.repeat(40);
+  const { server, lines, reads, url } = await listenJournal({
+    token: 'a'.repeat(40),
+    forgeToken: shared,
+    journalReadToken: shared
+  });
+  try {
+    const response = await fetch(url, { headers: { authorization: `Bearer ${shared}` } });
+    const body = await response.json();
+    assert.equal(response.status, 503);
+    assert.equal(body.reason, 'journal-token-reused');
+    assert.equal(JSON.stringify(body).includes(shared), false);
+    assert.deepEqual(lines, ['journal-token-reused']);
+    assert.equal(reads(), 0);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('a distinct journal read token still serves the journal', async () => {
+  const token = 'p'.repeat(40);
+  const { server, lines, reads, url } = await listenJournal({
+    token: 'a'.repeat(40),
+    forgeToken: 'f'.repeat(40),
+    journalReadToken: token
+  });
+  try {
+    const response = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.balance, 3);
+    assert.deepEqual(lines, []);
+    assert.equal(reads(), 1);
+  } finally {
+    await server.stop();
+  }
+});
+
+test('a private journal request still returns 200 after a public-edge refusal', async () => {
+  const token = 'q'.repeat(40);
+  const { server, lines, reads, url } = await listenJournal({
+    token: 'a'.repeat(40),
+    forgeToken: 'f'.repeat(40),
+    journalReadToken: token
+  });
+  try {
+    const forwarded = await fetch(url, { headers: { 'x-forwarded-for': '203.0.113.8', authorization: `Bearer ${token}` } });
+    assert.equal(forwarded.status, 403);
+    assert.equal((await forwarded.json()).reason, 'journal-public-edge');
+    const railway = await fetch(url, { headers: { 'x-railway-edge': 'railway/us-west', authorization: `Bearer ${token}` } });
+    assert.equal(railway.status, 403);
+    assert.equal((await railway.json()).reason, 'journal-public-edge');
+    const wrong = await fetch(url, { headers: { 'x-forwarded-for': '203.0.113.9', authorization: 'Bearer wrong-token-wrong-token-wrong-token' } });
+    assert.equal(wrong.status, 403);
+    assert.equal(reads(), 0);
+    const response = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.balance, 3);
+    assert.equal(reads(), 1);
+    assert.deepEqual(lines, ['journal-public-edge', 'journal-public-edge', 'journal-public-edge']);
+    assert.equal(lines.some((line) => line.includes(token)), false);
+  } finally {
+    await server.stop();
+  }
+});
