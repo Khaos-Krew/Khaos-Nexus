@@ -10,6 +10,7 @@ const {loadConfig}=require('../shared/config.cjs');
 const {sharedArnBook, staffSummaryText, writeSummaryFile, readMainArnBalance}=require('./arn-token-award.cjs');
 const {tokenText, openPointerText}=require('./arn-member-copy.cjs');
 const INSTALLED=Symbol.for('nexus.arn.cache.extension');
+const STAFF_PAYOUTS_OFF='ARN payouts are off during the test week. Settings will be available here when payouts go live.';
 function adminCommand() {
   const c=new SlashCommandBuilder().setName('cacheadmin').setDescription('Staff cache delivery verification and recovery.');
   c.addSubcommand(s=>{
@@ -78,12 +79,15 @@ async function handle(interaction,{ledger,shop,config, book, env, now, secret, b
       error.code = 'ARN_LEDGER_UNAVAILABLE';
       throw error;
     }
-    if(sub==='configure') {
-      await writer.arnPause({ paused: false, actor: user, reason: 'configure' });
-      return {content:'ARN enabled: 25% chance on a shiny tame and 10% on a shiny kill; 1 token per cache.'};
-    }
-    if(sub==='pause') {
-      await writer.arnPause({ paused: true, actor: user, reason: 'pause' });
+    if(sub==='configure' || sub==='pause') {
+      const result = await writer.arnPause({ paused: sub === 'pause', actor: user, reason: sub });
+      if(result?.reason === 'dry-run') return {content: STAFF_PAYOUTS_OFF};
+      if(!result || result.ok === false) {
+        const error = new Error(result?.reason || 'pause-failed');
+        error.code = 'ARN_PAUSE_FAILED';
+        throw error;
+      }
+      if(sub==='configure') return {content:'ARN enabled: 25% chance on a shiny tame and 10% on a shiny kill; 1 token per cache.'};
       return {content:'ARN earning and redemption disabled. Existing balances and rewards are preserved.'};
     }
     const result = await writer.arnAdjust({
@@ -93,6 +97,7 @@ async function handle(interaction,{ledger,shop,config, book, env, now, secret, b
       reason: interaction.options.getString('reason'),
       actor: user
     });
+    if(result?.reason === 'dry-run') return {content: STAFF_PAYOUTS_OFF};
     if(!result || result.ok === false) {
       const error = new Error(result?.reason || 'adjust-failed');
       error.code = 'ARN_ADJUST_FAILED';

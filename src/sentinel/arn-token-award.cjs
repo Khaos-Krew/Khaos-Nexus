@@ -507,55 +507,6 @@ function createArnBook({ loadAccounts = async () => [], env = {}, persistPath = 
         return { ...decision, wroteLedger: decision.wroteLedger === true, ledgerRows: state.ledger.length };
       });
     },
-    spend({ discordUserId, key, orderId, rotation, now = Date.now(), env: spendEnv = env } = {}) {
-      return exclusive(async () => {
-        const flags = arnFlags(spendEnv);
-        if (dryRunOnly || !flags.creditsEnabled) return { ok: false, reason: 'dry-run', debited: false };
-        const accounts = await loadAccounts();
-        const ids = [...new Set(accounts.filter((account) => account.discordUserId === discordUserId && account.economicIdentityId && !String(account.economicIdentityId).startsWith('discord:')).map((account) => account.economicIdentityId))];
-        if (ids.length !== 1) return { ok: false, reason: ids.length ? 'ambiguous' : 'unlinked', debited: false };
-        const account = accounts.find((item) => item.economicIdentityId === ids[0]);
-        if (levelUpStyleSkip(account, spendEnv)) return { ok: false, reason: 'held', debited: false };
-        const spendKey = String(key || orderId || '').trim();
-        if (!spendKey) return { ok: false, reason: 'malformed', debited: false };
-        if (state.ledger.some((row) => row.messageId === spendKey)) return { ok: true, duplicate: true, debited: false, economicIdentityId: ids[0] };
-        if (balanceOf(state, ids[0]) < 1) return { ok: false, reason: 'insufficient', debited: false };
-        const at = Number(now);
-        const after = balanceOf(state, ids[0]) - 1;
-        if (after < 0) return { ok: false, reason: 'insufficient', debited: false };
-        state.ledger.push({
-          messageId: spendKey,
-          economicIdentityId: ids[0],
-          discordUserId,
-          delta: -1,
-          balanceAfter: after,
-          at,
-          currency: CURRENCY,
-          metadata: rotation ? {
-            rotationVersion: rotation.version || rotation.id || '',
-            weights: (rotation.entries || []).map((entry) => ({ name: entry.name, rarity: entry.rarity, weight: entry.weight }))
-          } : null
-        });
-        persist();
-        return { ok: true, debited: true, economicIdentityId: ids[0], eosId: account.eosId || '', key: spendKey, balance: after };
-      });
-    },
-    refund({ economicIdentityId, key, now = Date.now() } = {}) {
-      return exclusive(async () => {
-        const refundKey = `refund:${key}`;
-        if (state.ledger.some((row) => row.messageId === refundKey)) return { ok: true, duplicate: true };
-        state.ledger.push({
-          messageId: refundKey,
-          economicIdentityId,
-          delta: 1,
-          balanceAfter: balanceOf(state, economicIdentityId) + 1,
-          at: Number(now),
-          currency: CURRENCY
-        });
-        persist();
-        return { ok: true };
-      });
-    },
     balanceForDiscord(discordUserId) {
       const ids = [...new Set(state.ledger.filter((row) => row.discordUserId === discordUserId).map((row) => row.economicIdentityId))];
       const fromLedger = ids.reduce((sum, id) => sum + balanceOf(state, id), 0);

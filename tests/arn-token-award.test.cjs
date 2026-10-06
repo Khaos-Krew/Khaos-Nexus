@@ -480,7 +480,8 @@ test('opening a cache stays on the dry-run delivery path', async () => {
   const now = Date.parse('2026-10-07T15:00:00.000Z');
   const book = bookFor(account(), LIVE);
   await book.award({ messageId: 'bank', parsed: tame('Player', 'Bank One'), roll: 0, now, env: LIVE });
-  const sent = await openArnCache({
+  const balance = book.balanceForDiscord(DISCORD);
+  const journal = await openArnCache({
     env: permitted,
     now,
     discordUserId: DISCORD,
@@ -491,26 +492,17 @@ test('opening a cache stays on the dry-run delivery path', async () => {
       return { ok: true, raCalled: true };
     }
   });
-  assert.equal(calls, 1);
-  assert.equal(sent.debited, true);
-  assert.equal(sent.raCalled, true);
-  assert.equal(book.balanceForDiscord(DISCORD), 0);
-  const debit = book.state.ledger.find((row) => row.delta === -1);
-  assert.equal(debit.metadata.rotationVersion, sent.rotation.version);
-  assert.equal(debit.metadata.weights.reduce((sum, entry) => sum + entry.weight, 0), 100);
-
-  await book.award({ messageId: 'bank-2', parsed: tame('Player', 'Bank Two'), roll: 0, now, env: LIVE });
-  const refunded = await openArnCache({
-    env: permitted,
-    now: now + 1,
-    discordUserId: DISCORD,
-    secret: SECRET,
-    book,
-    deliver: async () => ({ ok: false, raCalled: false, reason: 'player-offline' })
-  });
-  assert.equal(refunded.debited, false);
-  assert.equal(refunded.raCalled, false);
-  assert.equal(book.balanceForDiscord(DISCORD), 1);
+  assert.equal(calls, 0);
+  assert.equal(journal.debited, false);
+  assert.equal(journal.raCalled, false);
+  assert.equal(journal.reason, 'dry-run');
+  assert.equal(book.balanceForDiscord(DISCORD), balance);
+  assert.equal(book.state.ledger.some((row) => row.delta < 0), false);
+  const awardSource = fs.readFileSync(path.join(__dirname, '../src/sentinel/arn-token-award.cjs'), 'utf8');
+  assert.doesNotMatch(awardSource, /\bspend\s*\(/);
+  assert.doesNotMatch(awardSource, /\brefund\s*\(/);
+  const rotationSource = fs.readFileSync(path.join(__dirname, '../src/sentinel/arn-cache-rotation.cjs'), 'utf8');
+  assert.doesNotMatch(rotationSource, /book\.spend|book\.refund/);
 });
 
 test('postgres award locks inside the transaction and dry run skips the ledger', async () => {
@@ -753,6 +745,8 @@ test('member copy stays plain and there is no exchange into Points, Coins, or ca
   assert.match(guideText, /10%/);
   assert.match(guideText, /\/arn tokens/);
   assert.match(guideText, /#dino-box-shop/);
+  assert.match(guideText, /preview of the approved pool/);
+  assert.doesNotMatch(guideText, /list of 8/);
   assert.match(tokenText(0, {}), /trial reward for shiny tames and shiny kills/);
   assert.match(tokenText(0, {}), /25%/);
   assert.match(tokenText(0, {}), /10%/);
@@ -779,6 +773,12 @@ test('member copy stays plain and there is no exchange into Points, Coins, or ca
   assert.equal(copyHasBotName(payload.content), false);
   assert.equal(copyHasBotName(tokenText(0, {})), false);
   assert.equal(copyHasBotName(openText({ rotation: { entries: [{ name: 'Rex' }] } })), false);
+  const previewCopy = openText({ rotation: { preview: true, entries: [{ name: 'Rex' }, { name: 'Yutyrannus' }] } });
+  assert.match(previewCopy, /preview of the approved pool/);
+  assert.match(previewCopy, /Rex/);
+  assert.match(previewCopy, /Yutyrannus/);
+  assert.doesNotMatch(previewCopy, /list of 8/);
+  assert.match(openText({ rotation: { entries: [{ name: 'Rex' }] } }), /list of 8/);
 
   const names = command().options.map((option) => option.name);
   assert.ok(names.includes('tokens'));
@@ -1324,6 +1324,14 @@ test('staff configure, pause, and adjust do not open the MySQL ARN wallet', asyn
     ['pause', true],
     ['adjust', 2, 'interaction-1', '222222222222222222']
   ]);
+  const closed = {
+    async arnPause() { return { ok: false, reason: 'dry-run' }; },
+    async arnAdjust() { return { ok: false, reason: 'dry-run' }; }
+  };
+  for (const sub of ['configure', 'pause', 'adjust']) {
+    const off = await handle(interaction(sub), { ledger, config, economy: closed });
+    assert.equal(off.content, 'ARN payouts are off during the test week. Settings will be available here when payouts go live.');
+  }
 });
 
 test('a restart reloads the dry-run journal from the Railway volume', async () => {

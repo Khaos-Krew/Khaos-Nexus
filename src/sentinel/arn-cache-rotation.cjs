@@ -197,7 +197,6 @@ async function openArnCache({
   discordUserId = '',
   secret,
   deliver,
-  book,
   ledger
 } = {}) {
   const rotation = arnRotation(now, secret || rotationSecret(env));
@@ -209,13 +208,10 @@ async function openArnCache({
     currency: 'ARN_TOKENS',
     rotation
   };
-  const spender = ledger || book;
-  if (!deliveryPermitted(env) || !spender) return base;
+  if (!deliveryPermitted(env) || !ledger) return base;
   const orderId = `arn-open:${discordUserId}:${rotation.id}:${now}`;
   const drawn = drawTame(rotation, orderId, secret || rotationSecret(env));
-  const spent = ledger
-    ? await ledger.spend({ discordUserId, orderId, rotation, now })
-    : await book.spend({ discordUserId, key: orderId, orderId, rotation, now, env });
+  const spent = await ledger.spend({ discordUserId, orderId, rotation, now });
   if (spent?.delivered === true) {
     const order = buildArnDeliveryOrder({ drawn, eosId: spent.eosId, orderId });
     return {
@@ -235,8 +231,7 @@ async function openArnCache({
   const verifiedEos = String(spent.eosId || '').trim();
   const order = buildArnDeliveryOrder({ drawn, eosId: verifiedEos, orderId });
   async function refundSpend() {
-    if (ledger) await ledger.refund({ orderId, now });
-    else await book.refund({ economicIdentityId: spent.economicIdentityId, key: orderId, now });
+    await ledger.refund({ orderId, now });
   }
   if (!verifiedEos) {
     if (spent.debited === true) await refundSpend();
