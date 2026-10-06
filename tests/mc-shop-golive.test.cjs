@@ -693,17 +693,19 @@ test('Craft /mcadmin refund points at Sentinal and the staff list only narrows',
   assert.match(listedOnly, /\/shopadmin mc-refund/);
   assert.equal(refunds, 0);
 
-  assert.equal(mcRefundActorAllowed(refundInteraction(ADMIN, [{ id: ROLE, name: 'Administrators', permissions: '8' }]), {}), true);
+  const staffEnv = { NEXUS_STAFF_ADMIN_ROLE_IDS: ROLE };
+  assert.equal(mcRefundActorAllowed(refundInteraction(ADMIN, [{ id: ROLE, name: 'Administrators', permissions: '8' }]), staffEnv), true);
   assert.equal(mcRefundActorAllowed(refundInteraction(ADMIN, [{ id: ROLE, name: 'Moderator', permissions: '0' }]), {}), false);
   assert.equal(mcRefundActorAllowed(
     refundInteraction(ADMIN, [{ id: ROLE, name: 'Administrators', permissions: '8' }]),
-    { NEXUS_MC_REFUND_STAFF_IDS: '333333333333333333' }
+    { ...staffEnv, NEXUS_MC_REFUND_STAFF_IDS: '333333333333333333' }
   ), false);
   assert.equal(mcRefundActorAllowed(
     refundInteraction('333333333333333333', [{ id: ROLE, name: 'Member', permissions: '0' }]),
     { NEXUS_MC_REFUND_STAFF_IDS: '333333333333333333' }
   ), false);
   assert.equal(mcRefundActorAllowed(refundInteraction(ADMIN, [{ id: OWNER_ROLE_ID, name: 'Owner', permissions: '8' }]), {}), true);
+  assert.equal(mcRefundActorAllowed(refundInteraction(ADMIN, [{ id: '777777777777777771', name: 'Owner', permissions: '8' }]), {}), false);
   assert.equal(mcRefundActorAllowed(refundInteraction(ADMIN, [{ id: COMMUNITY_MANAGER_ROLE_ID, name: 'Community Manager', permissions: '8' }]), {}), false);
   assert.equal(mcRefundActorAllowed(refundInteraction(ADMIN, [
     { id: OWNER_ROLE_ID, name: 'Owner', permissions: '8' },
@@ -714,7 +716,11 @@ test('Craft /mcadmin refund points at Sentinal and the staff list only narrows',
     member: { roles: { cache: new Map() } },
     memberPermissions: { has: (bit) => BigInt(bit) === BigInt(PermissionFlagsBits.Administrator) }
   }, {});
-  assert.equal(fallback, true);
+  assert.equal(fallback, false);
+  assert.equal(mcRefundActorAllowed(refundInteraction(ADMIN, [], false), {}), false);
+  const guildOwner = refundInteraction(ADMIN, [{ id: '777777777777777771', name: 'Owner', permissions: '0' }]);
+  guildOwner.guild.ownerId = ADMIN;
+  assert.equal(mcRefundActorAllowed(guildOwner, {}), true);
   assert.match(craftHelpText({ MC_POINTS_ENABLED: 'true' }), /\/mcadmin refund/);
   assert.ok(craftHelpText({ MC_POINTS_ENABLED: 'true', MC_SHOP_ENABLED: 'true', MC_STARTER_KIT_ENABLED: 'true' }).length <= 1900);
 });
@@ -782,13 +788,15 @@ test('Sentinal previews and refunds a Minecraft order and Craft cannot', async (
       const interaction = refundInteraction(ADMIN, [{ id: ROLE, name: 'Administrators', permissions: '8' }]);
       interaction.commandName = 'shopadmin';
       interaction.isChatInputCommand = () => true;
+      interaction.options.getSubcommand = () => 'mc-refund';
       interaction.options.getBoolean = () => false;
       interaction.options.getString = (name) => (name === 'order' ? paid.order.orderId : 'delivery failed in game');
-      await handleArkShopInteraction(interaction, { economyClient: new NexusEconomyClient(), env: {} });
+      const staffEnv = { NEXUS_STAFF_ADMIN_ROLE_IDS: ROLE };
+      await handleArkShopInteraction(interaction, { economyClient: new NexusEconomyClient(), env: staffEnv });
       assert.match(interaction.replies.at(-1), /Preview/);
       assert.notEqual(points.orders.get(paid.order.orderId).status, 'REFUNDED');
       interaction.options.getBoolean = (name) => name === 'confirm';
-      await handleArkShopInteraction(interaction, { economyClient: new NexusEconomyClient(), env: {} });
+      await handleArkShopInteraction(interaction, { economyClient: new NexusEconomyClient(), env: staffEnv });
       assert.match(interaction.replies.at(-1), /Refunded/);
       assert.equal(points.orders.get(paid.order.orderId).status, 'REFUNDED');
     });

@@ -18,6 +18,7 @@ const { UNLINK_COOLDOWN_MS } = require('../src/economy-worker/mc-points-service.
 const { FIRST_PLAY_MS } = require('../src/shared/mc-starter-kit.cjs');
 const { ClusterShopService } = require('../src/sentinel/cluster-shop-service.cjs');
 const { COMMUNITY_LEVEL_UP_SOURCE } = require('../src/sentinel/nexus-economy-community-level-coins.cjs');
+const { CoinShopService } = require('../src/economy-worker/coin-shop-service.cjs');
 
 const UUID = '853c80ef-3c37-49fd-aa49-938b674adae6';
 const UUID_2 = '11111111-1111-4111-8111-111111111111';
@@ -326,7 +327,54 @@ test('the craft guide tells members how to link, earn, buy, and claim the kit', 
   assert.match(body, /not open yet/);
   assert.match(body, /starter kit/);
   assert.match(body, /does not open the ARK shop or Coins/);
+  assert.match(body, /\/shopadmin mc-refund/);
   assert.doesNotMatch(body, /token/i);
+});
+
+test('a Minecraft-only link is refused by the Coin shop until a proper verify rewrites the source', async () => {
+  const { worker } = workerAt();
+  await linkMinecraft(worker, DISCORD, UUID);
+  const linked = worker.wallet(DISCORD);
+  assert.equal(linked.status, 'restricted');
+  assert.equal(linked.discordLinkSource, 'mc-link');
+  const shop = new CoinShopService({ env: { NEXUS_ECONOMY_COIN_SHOP_SPEND_ENABLED: 'true' } });
+  function seedFrom(account) {
+    shop.identities.clear();
+    shop.seed({
+      discordUserId: DISCORD,
+      econId: account.discordUserId,
+      status: account.status,
+      verifiedAt: account.verifiedAt,
+      linkSource: account.discordLinkSource,
+      rankId: 'cipher-runner',
+      coins: 500
+    });
+  }
+  seedFrom(linked);
+  const refused = await shop.quote({ discordUserId: DISCORD, sku: 'ttl_night_owl' });
+  assert.equal(refused.reason, 'not-eligible');
+
+  const proved = worker.linkArkIdentity({
+    discordUserId: DISCORD,
+    eosId: EOS,
+    rankId: 'cipher-runner',
+    discordMembershipVerified: true,
+    verifiedAt: '2026-10-05T18:00:00.000Z'
+  });
+  assert.equal(proved.status, 'verified');
+  assert.equal(proved.discordLinkSource, 'sentinel-ownership-proof');
+  const again = worker.linkArkIdentity({
+    discordUserId: DISCORD,
+    eosId: EOS,
+    rankId: 'cipher-runner',
+    discordMembershipVerified: true,
+    verifiedAt: '2026-10-06T18:00:00.000Z'
+  });
+  assert.equal(again.discordLinkSource, 'sentinel-ownership-proof');
+  assert.equal(again.verifiedAt, '2026-10-05T18:00:00.000Z');
+  seedFrom(worker.wallet(DISCORD));
+  const allowed = await shop.quote({ discordUserId: DISCORD, sku: 'ttl_night_owl' });
+  assert.equal(allowed.ok, true, allowed.reason);
 });
 
 function economyPool() {

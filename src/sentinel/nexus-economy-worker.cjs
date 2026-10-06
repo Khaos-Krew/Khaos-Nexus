@@ -221,7 +221,7 @@ class NexusEconomyWorker {
     return account;
   }
 
-  linkArkIdentity({ discordUserId, eosId, rankId = 'shadow-recruit' } = {}) {
+  linkArkIdentity({ discordUserId, eosId, rankId = 'shadow-recruit', verifiedAt, discordMembershipVerified } = {}) {
     const state = this.store.read();
     const account = this.ensureAccount(state, discordUserId, rankId);
     const eos = cleanId(eosId);
@@ -230,9 +230,35 @@ class NexusEconomyWorker {
     if (prior && prior !== account.discordUserId) throw new Error('EOS ID is already linked to another Nexus wallet.');
     if (!account.eosIds.includes(eos)) account.eosIds.push(eos);
     state.eosToDiscord[eos] = account.discordUserId;
+    if (discordMembershipVerified === true) {
+      const held = linkElevationHold({
+        status: account.status,
+        holdReason: account.holdReason,
+        economicIdentityId: account.discordUserId,
+        env: this.env
+      });
+      if (!held) {
+        if (!account.verifiedAt) {
+          account.verifiedAt = verifiedAt || new Date(this.now()).toISOString();
+          account.discordLinkSource = 'sentinel-ownership-proof';
+        }
+        if (String(account.status || '').trim().toLowerCase() === 'restricted') {
+          account.status = 'verified';
+          account.holdReason = '';
+        }
+      }
+    }
     account.updatedAt = new Date(this.now()).toISOString();
     this.store.write(state);
-    return { discordUserId: account.discordUserId, eosId: eos, rankId: account.rankId, balance: account.balance };
+    return {
+      discordUserId: account.discordUserId,
+      eosId: eos,
+      rankId: account.rankId,
+      balance: account.balance,
+      status: account.status,
+      discordLinkSource: account.discordLinkSource || null,
+      verifiedAt: account.verifiedAt || null
+    };
   }
 
   accountByEos(eosId) {

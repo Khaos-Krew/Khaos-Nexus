@@ -843,7 +843,7 @@ class MemoryMcPoints {
     return this.refund({ ...input, preview: true, applyWallet: false });
   }
 
-  async refund({ orderId, reason = '', actor = '', writesEnabled = false, now = this.now(), applyWallet = true, deferHold = false, force = false, staffAuthorized = false, preview = false, windowChecked = false } = {}) {
+  async refund({ orderId, reason = '', actor = '', writesEnabled = false, now = this.now(), applyWallet = true, deferHold = false, force = false, staffAuthorized = false, preview = false, windowChecked = false, capChecked = false } = {}) {
     const order = this.orders.get(String(orderId || ''));
     if (!order) return { ok: false, reason: 'order-not-found' };
     if (order.status === 'REFUNDED' || order.refunded) return { ok: true, duplicate: true, order };
@@ -851,7 +851,7 @@ class MemoryMcPoints {
     const auto = reason === 'auto-14d';
     const staffActor = String(actor || '').trim();
     const hold = deferHold ? null : await this.#orderHold(order);
-    if (!auto && staffActor === order.discordUserId) {
+    if (!auto && await this.#refundIsSelf(staffActor, order)) {
       if (hold) return { ...hold, order };
       return { ok: false, reason: 'staff-not-authorized', order };
     }
@@ -876,8 +876,10 @@ class MemoryMcPoints {
         return { ok: false, reason: 'refund-not-allowed', order };
       }
       if (this.#leaseLive(order, now)) return { ok: false, reason: 'lease-live', order };
-      const today = this.audits.filter((row) => row.actor === staffActor && ctDayKey(Date.parse(row.createdAt)) === ctDayKey(now));
-      if (today.length >= STAFF_REFUND_DAILY_CAP) return { ok: false, reason: 'staff-refund-cap' };
+      if (capChecked !== true) {
+        const today = this.audits.filter((row) => row.actor === staffActor && ctDayKey(Date.parse(row.createdAt)) === ctDayKey(now));
+        if (today.length >= STAFF_REFUND_DAILY_CAP) return { ok: false, reason: 'staff-refund-cap' };
+      }
     }
     if (this.audits.some((row) => row.orderId === order.orderId)) return { ok: true, duplicate: true, order };
     if (preview === true) return { ok: true, preview: true, order };
@@ -936,6 +938,15 @@ class MemoryMcPoints {
     return now - Date.parse(order.createdAt) >= REFUND_AFTER_MS;
   }
 
+  async #refundIsSelf(actor, order) {
+    if (!actor || !order) return false;
+    if (actor === order.discordUserId) return true;
+    if (typeof this.wallet?.resolve !== 'function') return false;
+    const identity = await this.wallet.resolve(actor);
+    const actorIdentity = String(identity?.economicIdentityId || '');
+    return Boolean(actorIdentity && order.economicIdentityId && actorIdentity === order.economicIdentityId);
+  }
+
   #staffAllowed(actor, order) {
     if (!/^\d{5,32}$/.test(actor)) return false;
     if (actor === order.discordUserId) return false;
@@ -945,7 +956,7 @@ class MemoryMcPoints {
 
   async #refundStaffAllowed(actor, order, staffAuthorized = false) {
     if (!/^\d{5,32}$/.test(actor)) return false;
-    if (actor === order.discordUserId) return false;
+    if (await this.#refundIsSelf(actor, order)) return false;
     if (staffAuthorized !== true) return false;
     const listed = refundStaffIds(this.env);
     if (listed.length > 0 && !listed.includes(actor)) return false;

@@ -57,18 +57,6 @@ function adminCommand() {
       .addStringOption((option) => option.setName('reason').setDescription('Why').setRequired(true)));
 }
 
-function shopAdminCommand() {
-  return new SlashCommandBuilder()
-    .setName('shopadmin')
-    .setDescription('Staff tools for the Minecraft shop')
-    .setDMPermission(false)
-    .addSubcommand((sub) => sub.setName('mc-refund').setDescription('Refund a Minecraft shop order')
-      .addStringOption((option) => option.setName('order').setDescription('Order id').setRequired(true))
-      .addStringOption((option) => option.setName('reason').setDescription('Why').setRequired(true))
-      .addBooleanOption((option) => option.setName('force').setDescription('Refund a delivery that was sent and is not confirmed yet'))
-      .addBooleanOption((option) => option.setName('confirm').setDescription('Apply the refund. Leave this off to preview.')));
-}
-
 function isArkStaff(interaction, config = loadConfig(), env = process.env) {
   const userId = String(interaction?.user?.id || '');
   const owners = new Set((config?.discord?.ownerUserIds || []).map(String));
@@ -255,7 +243,11 @@ async function handleArkShopInteraction(interaction, { economyClient = new Nexus
       if (interaction.commandName === 'points') return showPoints(interaction, economyClient);
       if (interaction.commandName === 'shop') return false;
       if (interaction.commandName === 'arkshop-admin') return handleAdmin(interaction, economyClient, config);
-      if (interaction.commandName === 'shopadmin') return handleMcRefund(interaction, economyClient, env);
+      if (interaction.commandName === 'shopadmin') {
+        const sub = interaction.options?.getSubcommand?.(false);
+        if (sub !== 'mc-refund') return false;
+        return handleMcRefund(interaction, economyClient, env);
+      }
       return false;
     }
     const id = String(interaction.customId || '');
@@ -309,7 +301,6 @@ module.exports = {
   shopCommand,
   pointsCommand,
   adminCommand,
-  shopAdminCommand,
   isArkStaff,
   formatActivity,
   openArkShop: openShop,

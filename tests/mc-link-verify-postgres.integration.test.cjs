@@ -10,6 +10,7 @@ const { createEconomyServer } = require('../src/economy-worker/server.cjs');
 const { classifyPopulation, AMOUNT } = require('../src/economy-worker/legacy-bank-flat.cjs');
 const { deterministicEconomicIdentityId } = require('../src/sentinel/nexus-economy-json-postgres-migration.cjs');
 const { FIRST_PLAY_MS } = require('../src/shared/mc-starter-kit.cjs');
+const { applyCoinShopMigration } = require('../src/economy-worker/coin-shop-migration.cjs');
 
 const postgresUrl = process.env.NEXUS_TEST_POSTGRES_URL || '';
 const local = (() => {
@@ -290,6 +291,136 @@ test('a restricted Minecraft link stays restricted on postgres and opens only Mi
       [DISCORD]
     );
     assert.equal(still.rows[0].status, 'restricted');
+  } finally {
+    await closeRuntime(opened);
+  }
+});
+
+test('a restricted Minecraft link is refused by the Coin shop until a proper verify rewrites the source', { skip }, async () => {
+  const opened = await openRuntime();
+  try {
+    const { runtime, admin, schema } = opened;
+    await applyCoinShopMigration({ pool: runtime.pool, schema });
+    runtime.worker.coinShop.env = {
+      ...runtime.worker.coinShop.env,
+      NEXUS_ECONOMY_COIN_SHOP_SPEND_ENABLED: 'true'
+    };
+    const points = runtime.worker.minecraft;
+    const challenge = await points.challenge({ discordUserId: DISCORD, mcUuid: UUID, mcName: 'Steve' });
+    assert.equal(challenge.ok, true, challenge.reason);
+    const confirmed = await points.confirm({ discordUserId: DISCORD, code: challenge.code });
+    assert.equal(confirmed.ok, true, confirmed.reason);
+    const before = await admin.query(
+      `SELECT source, verified_at FROM "${schema}".nexus_economic_identity_links WHERE provider = 'discord' AND external_id = $1`,
+      [DISCORD]
+    );
+    assert.equal(before.rows[0].source, 'mc-link');
+    assert.equal(before.rows[0].verified_at, null);
+    const refused = await runtime.worker.coinShop.quote({ discordUserId: DISCORD, sku: 'ttl_night_owl' });
+    assert.equal(refused.reason, 'not-eligible');
+
+    const promoted = await runtime.repository.linkVerifiedIdentity({
+      discordUserId: DISCORD,
+      eosId: EOS,
+      verifiedAt: '2026-10-05T18:00:00.000Z',
+      discordMembershipVerified: true
+    });
+    assert.equal(promoted.status, 'verified');
+    await runtime.worker.syncRank(DISCORD, 'cipher-runner');
+    const econId = deterministicEconomicIdentityId(DISCORD);
+    await admin.query(
+      `INSERT INTO "${schema}".nexus_economy_wallets (economic_identity_id, currency, balance) VALUES ($1, 'NEXUS_COINS', 500)
+       ON CONFLICT (economic_identity_id, currency) DO UPDATE SET balance = 500`,
+      [econId]
+    );
+    const after = await admin.query(
+      `SELECT i.status, d.source FROM "${schema}".nexus_economic_identities i
+       JOIN "${schema}".nexus_economic_identity_links d ON d.economic_identity_id = i.economic_identity_id
+       WHERE d.provider = 'discord' AND d.external_id = $1`,
+      [DISCORD]
+    );
+    assert.equal(after.rows[0].status, 'verified');
+    assert.equal(after.rows[0].source, 'sentinel-ownership-proof');
+    const allowed = await runtime.worker.coinShop.quote({ discordUserId: DISCORD, sku: 'ttl_night_owl' });
+    assert.equal(allowed.ok, true, allowed.reason);
+  } finally {
+    await closeRuntime(opened);
+  }
+});
+
+test('a linked alt cannot refund the main Minecraft order, and the daily cap is one committed refund', { skip }, async () => {
+  const opened = await openRuntime();
+  try {
+    const { runtime, admin, schema } = opened;
+    const points = runtime.worker.minecraft;
+    await points.ensureSchema();
+    const actor = '444444444444444444';
+    const buyer = '555555555555555555';
+    const alt = '666666666666666666';
+    const econId = deterministicEconomicIdentityId(buyer);
+    await admin.query(
+      `INSERT INTO "${schema}".nexus_economic_identities (economic_identity_id, status) VALUES ($1, 'restricted')`,
+      [econId]
+    );
+    await admin.query(
+      `INSERT INTO "${schema}".nexus_economic_identity_links (provider, external_id, economic_identity_id, verified_at, source)
+       VALUES ('discord', $1, $2, NULL, 'sentinel-ownership-proof'), ('discord', $3, $2, NULL, 'sentinel-ownership-proof')`,
+      [buyer, econId, alt]
+    );
+    const order = {
+      orderId: 'alt-order',
+      discordUserId: buyer,
+      economicIdentityId: econId,
+      status: 'DELIVERY_FAILED',
+      price: 0,
+      sku: 'mc_logs64',
+      source: 'mc-shop',
+      refunded: false,
+      createdAt: new Date().toISOString(),
+      lines: []
+    };
+    await admin.query(
+      `INSERT INTO "${schema}".nexus_mc_orders (order_id, nonce, order_data, status, price, provider)
+       VALUES ('alt-order', 'alt-order', $1::jsonb, 'DELIVERY_FAILED', 0, 'minecraft')`,
+      [JSON.stringify(order)]
+    );
+    const refused = await points.refund({
+      orderId: 'alt-order',
+      reason: 'alt of the buyer',
+      actor: alt,
+      writesEnabled: true,
+      staffAuthorized: true
+    });
+    assert.equal(refused.reason, 'staff-not-authorized');
+    assert.equal((await admin.query(`SELECT status FROM "${schema}".nexus_mc_orders WHERE order_id = 'alt-order'`)).rows[0].status, 'DELIVERY_FAILED');
+
+    for (let index = 0; index < 9; index += 1) {
+      await admin.query(
+        `INSERT INTO "${schema}".nexus_mc_refund_audit (order_id, actor, reason, amount, provider) VALUES ($1, $2, 'seed', 0, 'minecraft')`,
+        [`seed-${index}`, actor]
+      );
+    }
+    for (const orderId of ['order-left', 'order-right']) {
+      const row = { ...order, orderId, discordUserId: buyer };
+      await admin.query(
+        `INSERT INTO "${schema}".nexus_mc_orders (order_id, nonce, order_data, status, price, provider)
+         VALUES ($1, $1, $2::jsonb, 'DELIVERY_FAILED', 0, 'minecraft')`,
+        [orderId, JSON.stringify(row)]
+      );
+    }
+    const [left, right] = await Promise.all([
+      points.refund({ orderId: 'order-left', reason: 'checked the log', actor, writesEnabled: true, staffAuthorized: true }),
+      points.refund({ orderId: 'order-right', reason: 'checked the log', actor, writesEnabled: true, staffAuthorized: true })
+    ]);
+    const succeeded = [left, right].filter((result) => result.ok);
+    const capped = [left, right].filter((result) => result.reason === 'staff-refund-cap');
+    assert.equal(succeeded.length, 1, JSON.stringify([left, right]));
+    assert.equal(capped.length, 1);
+    const audits = await admin.query(
+      `SELECT COUNT(*)::int AS n FROM "${schema}".nexus_mc_refund_audit WHERE actor = $1 AND provider = 'minecraft'`,
+      [actor]
+    );
+    assert.equal(audits.rows[0].n, 10);
   } finally {
     await closeRuntime(opened);
   }

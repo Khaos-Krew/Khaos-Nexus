@@ -2,7 +2,7 @@
 
 const crypto = require('node:crypto');
 const { sqlIdent } = require('../sentinel/nexus-economy-postgres-repository.cjs');
-const { MemoryMcPoints, orderLineHash, stackLines, leaseMsForOrder, dayOrders } = require('./mc-points-service.cjs');
+const { MemoryMcPoints, orderLineHash, stackLines, leaseMsForOrder, dayOrders, STAFF_REFUND_DAILY_CAP } = require('./mc-points-service.cjs');
 const { catalogItem, catalogFingerprint, loadMcShopCatalog, MAX_DAILY_SPEND_NP, MAX_DAILY_ORDERS } = require('../shared/mc-shop-catalog.cjs');
 const { memberIdentityHold, linkElevationHold, quarantineDenylist } = require('../sentinel/nexus-economy-identity-hold.cjs');
 const { deterministicEconomicIdentityId } = require('../sentinel/nexus-economy-json-postgres-migration.cjs');
@@ -829,6 +829,25 @@ class PostgresMcPoints {
     return window.rows?.[0]?.within_window === true;
   }
 
+  async #discordEconomicIdentity(client, discordUserId) {
+    const found = await client.query(
+      `SELECT economic_identity_id FROM ${sqlIdent(this.schema)}.nexus_economic_identity_links WHERE provider = 'discord' AND external_id = $1`,
+      [String(discordUserId || '')]
+    );
+    return String(found.rows?.[0]?.economic_identity_id || '');
+  }
+
+  async #staffRefundsToday(client, actor) {
+    const result = await client.query(
+      `SELECT COUNT(*)::bigint AS n
+       FROM ${sqlIdent(this.schema)}.nexus_mc_refund_audit
+       WHERE actor = $1 AND provider = 'minecraft'
+         AND (created_at AT TIME ZONE 'America/Chicago')::date = (NOW() AT TIME ZONE 'America/Chicago')::date`,
+      [actor]
+    );
+    return Number(result.rows?.[0]?.n || 0);
+  }
+
   async #lockedIdentityHold(client, identityId) {
     if (!identityId) {
       return memberIdentityHold({ missingRow: true, economicIdentityId: '', env: this.env });
@@ -869,9 +888,22 @@ class PostgresMcPoints {
       }
       const actor = String(input.actor || '').trim();
       const auto = input.reason === 'auto-14d';
-      const self = Boolean(actor && actor === before.discordUserId);
-      const staff = !auto && !self;
+      const actorIdentity = !auto && actor ? await this.#discordEconomicIdentity(client, actor) : '';
+      const self = Boolean(actor && (actor === before.discordUserId || (actorIdentity && actorIdentity === before.economicIdentityId)));
+      if (!auto && self) {
+        const selfHold = await this.#lockedIdentityHold(client, before.economicIdentityId);
+        await client.query('ROLLBACK');
+        if (selfHold) return { ...selfHold, order: before };
+        return { ok: false, reason: 'staff-not-authorized', order: before };
+      }
+      const staff = !auto;
       if (staff) {
+        await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`mc-shop-refund-actor:${actor}`]);
+        const refundsToday = await this.#staffRefundsToday(client, actor);
+        if (refundsToday >= STAFF_REFUND_DAILY_CAP) {
+          await client.query('ROLLBACK');
+          return { ok: false, reason: 'staff-refund-cap', order: before };
+        }
         const refundHold = await this.#lockedIdentityHold(client, before.economicIdentityId);
         if (refundHold) {
           await client.query('ROLLBACK');
@@ -890,7 +922,8 @@ class PostgresMcPoints {
         applyWallet: false,
         deferHold: true,
         preview,
-        windowChecked: staff
+        windowChecked: staff,
+        capChecked: staff
       });
       if (preview) {
         await client.query('ROLLBACK');

@@ -35,14 +35,14 @@ async function syncLinkedIdentityToEconomy({ store, economyClient, event, result
   } catch {
     membershipOk = false;
   }
-  if (!membershipOk) return { skipped: 'discord-verify-required', discordUserId: profile.discordUserId };
   const account = profile.arkAccounts?.find((item) => item.eosId === eosId);
-  await economyClient.linkIdentity(withIdentityProof({
+  const proof = {
     discordUserId: profile.discordUserId,
     eosId,
-    rankId: profile.rankId || 'shadow-recruit',
-    discordMembershipVerified: true
-  }, account));
+    rankId: profile.rankId || 'shadow-recruit'
+  };
+  if (membershipOk) proof.discordMembershipVerified = true;
+  await economyClient.linkIdentity(withIdentityProof(proof, account));
   return { ok: true, discordUserId: profile.discordUserId, eosId };
 }
 

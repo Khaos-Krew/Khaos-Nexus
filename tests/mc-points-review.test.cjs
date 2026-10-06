@@ -426,6 +426,26 @@ test('staff cannot refund themselves, a delivered order, or without a reason', a
   points.orders.get(claimed.orderId).leaseUntil = null;
   const self = await points.refund({ orderId: bought.order.orderId, reason: 'lost crate', actor: DISCORD, writesEnabled: true });
   assert.equal(self.reason, 'staff-not-authorized');
+  const alt = '666666666666666666';
+  const shared = wallet();
+  const resolve = shared.resolve.bind(shared);
+  shared.resolve = async (id) => (id === alt
+    ? { economicIdentityId: `econ_${DISCORD}`, status: 'verified', verifiedAt: '2026-01-01T00:00:00.000Z' }
+    : resolve(id));
+  const linkedAlt = service({ wallet: shared, env: { NEXUS_MC_REFUND_STAFF_IDS: `${STAFF},${alt}` } });
+  await link(linkedAlt.points, DISCORD, UUID_2);
+  const altQuote = await linkedAlt.points.quote({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1 });
+  const altBuy = await linkedAlt.points.buy({ discordUserId: DISCORD, sku: 'mc_logs64', bundles: 1, nonce: altQuote.quote.nonce, writesEnabled: true });
+  altBuy.order.status = 'DELIVERY_FAILED';
+  const altRefund = await linkedAlt.points.refund({
+    orderId: altBuy.order.orderId,
+    reason: 'linked alt',
+    actor: alt,
+    writesEnabled: true,
+    staffAuthorized: true
+  });
+  assert.equal(altRefund.reason, 'staff-not-authorized');
+  assert.notEqual(linkedAlt.points.orders.get(altBuy.order.orderId).status, 'REFUNDED');
   const bare = await points.refund({ orderId: bought.order.orderId, reason: 'no', actor: STAFF, writesEnabled: true });
   assert.equal(bare.reason, 'refund-reason-required');
   const delivered = points.orders.get(bought.order.orderId);

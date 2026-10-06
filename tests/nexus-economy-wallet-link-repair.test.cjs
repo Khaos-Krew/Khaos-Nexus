@@ -67,7 +67,10 @@ test('verified ARK links and rank syncs are projected to the Nexus wallet immedi
     const unverified = store.verifyChallenge();
     assert.equal(unverified.ok, true);
     await tick();
-    assert.equal(links.length, 0);
+    assert.equal(links.length, 1);
+    assert.equal(links[0].discordUserId, '123456789012345678');
+    assert.equal(links[0].rankId, 'shadow-recruit');
+    assert.equal(links[0].discordMembershipVerified, undefined);
 
     fs.writeFileSync(path.join(root, 'member-verifications.json'), JSON.stringify({
       version: 1,
@@ -77,11 +80,11 @@ test('verified ARK links and rank syncs are projected to the Nexus wallet immedi
     const ranked = store.updateRank();
     assert.equal(ranked.changed, true);
     await tick();
-    assert.equal(links.length, 1);
-    assert.equal(links[0].discordUserId, '123456789012345678');
-    assert.equal(links[0].eosId, '0002walletrepair');
-    assert.equal(links[0].rankId, 'blackout-legend');
-    assert.equal(links[0].discordMembershipVerified, true);
+    assert.equal(links.length, 2);
+    assert.equal(links[1].discordUserId, '123456789012345678');
+    assert.equal(links[1].eosId, '0002walletrepair');
+    assert.equal(links[1].rankId, 'blackout-legend');
+    assert.equal(links[1].discordMembershipVerified, true);
   } finally {
     if (priorData == null) delete process.env.NEXUS_DATA_DIR;
     else process.env.NEXUS_DATA_DIR = priorData;
