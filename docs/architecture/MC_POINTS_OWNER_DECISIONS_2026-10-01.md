@@ -2,7 +2,7 @@
 
 ## OWNER DECISIONS
 
-- A verified `/mc link` qualifies an identity for Minecraft-earned Nexus Points. EOS is not required. Status: pending WARDEN sign-off.
+- Owner decision (8:29 PM CT on 2026-10-05, B4): the in-game link code and `/mc link confirm` verify a member for Minecraft Points. A Minecraft-only member with no ARK or EOS link can link, earn Minecraft playtime Points, buy from the Minecraft shop, and claim the Minecraft starter kit. That verification does not unlock ARK shop items, the 1,500 Point ARK legacy grant, or other ARK-only paths, and it does not change Coin rules. Restricted, held, quarantined, and disabled rules still apply. One Discord member who links both games keeps one Nexus Points wallet.
 - No Minecraft Points are credited unless the economic identity is verified and the Minecraft link is verified.
 - Partial delivery: lines already delivered stand, and the remainder goes to SENT_UNCONFIRMED for staff. Those lines are not auto-retried and not auto-refunded.
 

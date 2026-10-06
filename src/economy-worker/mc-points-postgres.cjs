@@ -4,8 +4,8 @@ const crypto = require('node:crypto');
 const { sqlIdent } = require('../sentinel/nexus-economy-postgres-repository.cjs');
 const { MemoryMcPoints, orderLineHash, stackLines, leaseMsForOrder, dayOrders } = require('./mc-points-service.cjs');
 const { catalogItem, catalogFingerprint, loadMcShopCatalog, MAX_DAILY_SPEND_NP, MAX_DAILY_ORDERS } = require('../shared/mc-shop-catalog.cjs');
-const { memberIdentityHold } = require('../sentinel/nexus-economy-identity-hold.cjs');
-const { quarantineDenylist } = require('../sentinel/nexus-economy-wallet-core.cjs');
+const { memberIdentityHold, linkElevationHold, quarantineDenylist } = require('../sentinel/nexus-economy-identity-hold.cjs');
+const { deterministicEconomicIdentityId } = require('../sentinel/nexus-economy-json-postgres-migration.cjs');
 const { guildJoinedAtMs } = require('../shared/mc-starter-kit.cjs');
 
 const MC_SCHEMA_VERSION = 5;
@@ -303,22 +303,46 @@ class PostgresMcPoints {
     return this.#expireLeases();
   }
 
-  async #walletView() {
+  async #walletView(client = null) {
     const wallet = this.wallet;
     const pool = this.pool;
     const schema = sqlIdent(this.schema);
+    const rawSchema = this.schema;
     const env = this.env;
+    const now = this.now;
     return {
       async resolve(discordUserId) {
         const result = await pool.query(
-          `SELECT i.economic_identity_id, i.status, d.verified_at FROM ${schema}.nexus_economic_identities i ` +
+          `SELECT i.economic_identity_id, i.status, i.hold_reason, d.verified_at FROM ${schema}.nexus_economic_identities i ` +
           `JOIN ${schema}.nexus_economic_identity_links d ON d.economic_identity_id = i.economic_identity_id ` +
           `WHERE d.provider = 'discord' AND d.external_id = $1 LIMIT 1`,
           [String(discordUserId || '').trim()]
         );
         const row = result.rows?.[0];
         if (!row) return null;
-        return { economicIdentityId: row.economic_identity_id, status: row.status, verifiedAt: row.verified_at };
+        return {
+          economicIdentityId: row.economic_identity_id,
+          status: row.status,
+          holdReason: String(row.hold_reason || '').trim(),
+          verifiedAt: row.verified_at
+        };
+      },
+      async ensureMinecraftMember(discordUserId, options = {}) {
+        const run = (active) => ensureMinecraftMemberIdentity(active, rawSchema, env, discordUserId, { ...options, now: now() });
+        if (client) return run(client);
+        const own = await pool.connect();
+        try {
+          await own.query('BEGIN');
+          const result = await run(own);
+          if (result.ok || result.commitStamp) await own.query('COMMIT');
+          else await own.query('ROLLBACK');
+          return result;
+        } catch (error) {
+          try { await own.query('ROLLBACK'); } catch {}
+          throw error;
+        } finally {
+          own.release();
+        }
       },
       balance(discordUserId) { return wallet.balance(discordUserId, 'NEXUS_POINTS'); },
       spend(input) { return wallet.spend({ ...input, currency: 'NEXUS_POINTS' }); },
@@ -440,6 +464,10 @@ class PostgresMcPoints {
       const memory = await this.#memory(client, new Set(['links', 'challenges', 'requests']));
       const result = await memory.confirm(input);
       if (!result.ok) {
+        if (result.reason === 'uuid-taken') {
+          await client.query('ROLLBACK');
+          return result;
+        }
         if (result.reason === 'code-mismatch' || result.reason === 'code-locked') {
           const pending = memory.challenges.get(String(input.discordUserId || '').trim());
           if (pending) await this.#saveChallenge(client, pending);
@@ -977,7 +1005,7 @@ class PostgresMcPoints {
 
   async #memory(client, parts) {
     const memory = new MemoryMcPoints({
-      wallet: await this.#walletView(),
+      wallet: await this.#walletView(client),
       now: this.now,
       env: this.env,
       catalog: this.catalog,
@@ -1071,4 +1099,108 @@ async function writeVerifiedMinecraftLink(client, schema, link) {
   throw error;
 }
 
-module.exports = { schemaSql, accrualColumnSql, MC_SCHEMA_VERSION, ensureMinecraftSchema, writeVerifiedMinecraftLink, PostgresMcPoints };
+// A Minecraft link code verifies this Discord member for Minecraft Points only.
+// Reuse the discord link's economic id so an ARK member and a Minecraft member share one wallet.
+// Never insert an EOS link or a Coin ledger row. Held, disabled, and denylisted rows are not elevated.
+async function ensureMinecraftMemberIdentity(client, schema, env, discordUserId, { elevate = false, now = Date.now() } = {}) {
+  const s = sqlIdent(schema);
+  const discord = String(discordUserId || '').trim();
+  if (!/^\d{5,32}$/.test(discord)) return { ok: false, reason: 'discord-user-required' };
+  await client.query(`LOCK TABLE ${s}.nexus_economic_identity_links IN SHARE ROW EXCLUSIVE MODE`);
+  const existing = await client.query(
+    `SELECT economic_identity_id, verified_at, source FROM ${s}.nexus_economic_identity_links WHERE provider = 'discord' AND external_id = $1 FOR UPDATE`,
+    [discord]
+  );
+  const economicIdentityId = existing.rows[0]?.economic_identity_id || deterministicEconomicIdentityId(discord);
+  await client.query(
+    `INSERT INTO ${s}.nexus_economic_identities (economic_identity_id, status) VALUES ($1, 'restricted') ON CONFLICT DO NOTHING RETURNING economic_identity_id`,
+    [economicIdentityId]
+  );
+  const identity = await client.query(
+    `SELECT status, hold_reason, held_by FROM ${s}.nexus_economic_identities WHERE economic_identity_id = $1 FOR UPDATE`,
+    [economicIdentityId]
+  );
+  const priorStatus = String(identity.rows[0]?.status || '');
+  let holdReason = identity.rows[0]?.hold_reason || '';
+  let stamped = false;
+  if (quarantineDenylist(env).has(economicIdentityId) && !String(holdReason || '').trim()) {
+    await client.query(
+      `UPDATE ${s}.nexus_economic_identities SET hold_reason = 'quarantine', updated_at = NOW() WHERE economic_identity_id = $1 AND (hold_reason IS NULL OR btrim(hold_reason) = '')`,
+      [economicIdentityId]
+    );
+    holdReason = 'quarantine';
+    stamped = true;
+  }
+  const held = linkElevationHold({
+    status: priorStatus,
+    holdReason,
+    economicIdentityId,
+    missingRow: !identity.rows[0],
+    env
+  });
+  if (held) {
+    return {
+      ...held,
+      commitStamp: stamped,
+      status: priorStatus || null,
+      holdReason: holdReason || null,
+      economicIdentityId
+    };
+  }
+  if (elevate) {
+    const verifiedAt = new Date(now).toISOString();
+    await client.query(
+      `INSERT INTO ${s}.nexus_economic_identity_links (provider, external_id, economic_identity_id, verified_at, source) ` +
+      `VALUES ('discord', $1, $2, $3, 'mc-link') ` +
+      `ON CONFLICT (provider, external_id) DO UPDATE SET ` +
+      `verified_at = COALESCE(${s}.nexus_economic_identity_links.verified_at, EXCLUDED.verified_at), ` +
+      `source = CASE WHEN ${s}.nexus_economic_identity_links.verified_at IS NOT NULL THEN ${s}.nexus_economic_identity_links.source ELSE EXCLUDED.source END`,
+      [discord, economicIdentityId, verifiedAt]
+    );
+    if (priorStatus !== 'verified') {
+      await client.query(
+        `UPDATE ${s}.nexus_economic_identities SET status = 'verified', hold_reason = NULL, held_by = NULL, updated_at = NOW() ` +
+        `WHERE economic_identity_id = $1 AND status = 'restricted' AND (hold_reason IS NULL OR btrim(hold_reason) = '')`,
+        [economicIdentityId]
+      );
+    }
+  } else {
+    await client.query(
+      `INSERT INTO ${s}.nexus_economic_identity_links (provider, external_id, economic_identity_id, verified_at, source) ` +
+      `VALUES ('discord', $1, $2, NULL, 'mc-link') ` +
+      `ON CONFLICT (provider, external_id) DO NOTHING`,
+      [discord, economicIdentityId]
+    );
+  }
+  await client.query(
+    `INSERT INTO ${s}.nexus_economy_wallets (economic_identity_id, currency, balance) VALUES ($1, 'NEXUS_POINTS', 0) ON CONFLICT (economic_identity_id, currency) DO NOTHING`,
+    [economicIdentityId]
+  );
+  const after = await client.query(
+    `SELECT i.status, i.hold_reason, d.verified_at FROM ${s}.nexus_economic_identities i ` +
+    `JOIN ${s}.nexus_economic_identity_links d ON d.economic_identity_id = i.economic_identity_id ` +
+    `WHERE d.provider = 'discord' AND d.external_id = $1`,
+    [discord]
+  );
+  const row = after.rows?.[0];
+  const status = String(row?.status || priorStatus || '');
+  return {
+    ok: true,
+    identity: {
+      economicIdentityId,
+      status,
+      holdReason: String(row?.hold_reason || '').trim(),
+      verifiedAt: status === 'verified' ? (row?.verified_at || null) : (row?.verified_at || null)
+    }
+  };
+}
+
+module.exports = {
+  schemaSql,
+  accrualColumnSql,
+  MC_SCHEMA_VERSION,
+  ensureMinecraftSchema,
+  writeVerifiedMinecraftLink,
+  ensureMinecraftMemberIdentity,
+  PostgresMcPoints
+};

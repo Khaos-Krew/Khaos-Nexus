@@ -22,7 +22,7 @@ const MESSAGES = Object.freeze({
   'not-linked': 'This Discord account is not linked to Minecraft. Be online in game, then run `/mc link start`.',
   'already-linked': 'This Discord account is already linked. Run `/mc unlink` first. You can link a different account 30 days later.',
   'uuid-taken': 'That Minecraft account is already linked to someone else. Use a different account, or ask them to unlink.',
-  'verified-identity-required': 'Your Nexus identity is not verified yet. Finish verification in Sentinal, then run `/mc link start`.',
+  'verified-identity-required': 'Link Minecraft to use the Minecraft shop. Be online in game, run `/mc link start`, then confirm the whispered code with `/mc link confirm`.',
   'verified-minecraft-link-required': 'Link Minecraft first. Be online in game, run `/mc link start`, then confirm the whispered code.',
   'account-too-new': 'Your Discord account needs to be at least 30 days old. Come back after that and claim the Starter Kit in Sentinal.',
   'tenure-too-short': 'You need 7 days in this Discord first. Come back after that and claim the Starter Kit in Sentinal.',

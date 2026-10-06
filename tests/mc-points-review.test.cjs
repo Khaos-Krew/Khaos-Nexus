@@ -397,8 +397,12 @@ test('Minecraft points owner decisions do not require EOS and leave partial deli
     : 'image does not include docs/architecture/MC_POINTS_OWNER_DECISIONS_2026-10-01.md'
 }, () => {
   const decision = fs.readFileSync(path.join(__dirname, '../docs/architecture/MC_POINTS_OWNER_DECISIONS_2026-10-01.md'), 'utf8');
-  assert.match(decision, /pending WARDEN sign-off/);
+  assert.match(decision, /8:29 PM CT on 2026-10-05/);
+  assert.match(decision, /does not unlock ARK shop items/);
+  assert.match(decision, /does not change Coin rules/);
+  assert.doesNotMatch(decision, /pending WARDEN sign-off/);
   assert.match(decision, /remainder goes to SENT_UNCONFIRMED/);
+  assert.match(decision, /1,500 Point ARK legacy grant/);
 });
 
 test('link proof verifies with the ARK identity proof secret', async () => {
@@ -658,21 +662,23 @@ test('quarantine blocks minecraft earn and shop spend', async () => {
   assert.equal(again.reason, 'quarantined');
 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-quarantine-'));
+  const env = {
+    MC_POINTS_ENABLED: 'true',
+    MC_PLAYTIME_NP_ENABLED: 'true',
+    MC_PLAYTIME_DRY_RUN: 'false',
+    MC_LINK_CODE_SECRET: LINK_SECRET,
+    NEXUS_ECONOMY_QUARANTINE_DENYLIST: ''
+  };
   const worker = new NexusEconomyWorker({
     store: new NexusEconomyStore(root),
-    env: {
-      MC_POINTS_ENABLED: 'true',
-      MC_PLAYTIME_NP_ENABLED: 'true',
-      MC_PLAYTIME_DRY_RUN: 'false',
-      MC_LINK_CODE_SECRET: LINK_SECRET,
-      NEXUS_ECONOMY_QUARANTINE_DENYLIST: DISCORD
-    }
+    env
   });
   const state = worker.store.read();
   worker.ensureAccount(state, DISCORD, 'cipher-runner');
   worker.store.write(state);
   const challenge = await worker.minecraft.challenge({ discordUserId: DISCORD, mcUuid: UUID, mcName: 'Steve' });
   assert.equal((await worker.minecraft.confirm({ discordUserId: DISCORD, code: challenge.code })).ok, true);
+  env.NEXUS_ECONOMY_QUARANTINE_DENYLIST = DISCORD;
   const earned = await worker.recordPresence({ provider: 'minecraft', mcUuid: UUID, online: true, rankId: 'origin-founder', server: 'minecraft' });
   assert.equal(earned.reason, 'quarantined');
   assert.equal(worker.wallet(DISCORD).balance, 0);

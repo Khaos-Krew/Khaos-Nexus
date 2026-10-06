@@ -2,7 +2,7 @@
 
 const crypto = require('node:crypto');
 const { mcPointsFlags } = require('../shared/mc-points-flags.cjs');
-const { memberIdentityHold } = require('../sentinel/nexus-economy-identity-hold.cjs');
+const { memberIdentityHold, linkElevationHold } = require('../sentinel/nexus-economy-identity-hold.cjs');
 const {
   MAX_BUNDLES,
   MAX_PURCHASE_NP,
@@ -62,6 +62,13 @@ function generateLinkCode() {
 
 function verifiedDiscordIdentity(identity) {
   return Boolean(identity && identity.status === 'verified' && identity.verifiedAt);
+}
+
+function linkCandidate(identity) {
+  if (verifiedDiscordIdentity(identity)) return true;
+  if (!identity?.economicIdentityId) return false;
+  const status = String(identity.status || '').trim().toLowerCase();
+  return status === 'restricted' && !String(identity.holdReason || '').trim();
 }
 
 function mcEarnEligible(identity, link) {
@@ -204,8 +211,11 @@ class MemoryMcPoints {
     if (!isPremiumUuid(uuid)) return { ok: false, reason: 'uuid-not-premium' };
     const discord = String(discordUserId || '').trim();
     if (!/^\d{5,32}$/.test(discord)) return { ok: false, reason: 'discord-user-required' };
-    const identity = await this.wallet.resolve(discord);
-    if (!verifiedDiscordIdentity(identity)) return { ok: false, reason: 'verified-identity-required' };
+    const prepared = await this.#identityForLink(discord, { elevate: false });
+    if (!prepared.ok) return { ok: false, reason: prepared.reason, message: prepared.message };
+    const identity = prepared.identity;
+    const opensLink = typeof this.wallet.ensureMinecraftMember === 'function' ? linkCandidate(identity) : verifiedDiscordIdentity(identity);
+    if (!opensLink) return { ok: false, reason: 'verified-identity-required' };
     const now = this.now();
     const blocked = this.#cooldownReason(discord, uuid, now);
     if (blocked) return { ok: false, reason: blocked };
@@ -260,8 +270,14 @@ class MemoryMcPoints {
       this.#audit({ action: 'link', actor: discord, reason: 'confirm', result: 'code-mismatch', subject: pending.mcUuid });
       return { ok: false, reason: 'code-mismatch' };
     }
-    const identity = await this.wallet.resolve(discord);
-    if (!verifiedDiscordIdentity(identity) || identity.economicIdentityId !== pending.economicIdentityId) {
+    const prepared = await this.#identityForLink(discord, { elevate: false });
+    if (!prepared.ok || prepared.identity.economicIdentityId !== pending.economicIdentityId) {
+      const reason = prepared.ok ? 'verified-identity-required' : prepared.reason;
+      this.#audit({ action: 'link', actor: discord, reason: 'confirm', result: reason, subject: pending.mcUuid });
+      return { ok: false, reason, message: prepared.message, commitStamp: prepared.commitStamp === true };
+    }
+    const opensLink = typeof this.wallet.ensureMinecraftMember === 'function' ? linkCandidate(prepared.identity) : verifiedDiscordIdentity(prepared.identity);
+    if (!opensLink) {
       this.#audit({ action: 'link', actor: discord, reason: 'confirm', result: 'verified-identity-required', subject: pending.mcUuid });
       return { ok: false, reason: 'verified-identity-required' };
     }
@@ -275,11 +291,18 @@ class MemoryMcPoints {
       this.#audit({ action: 'link', actor: discord, reason: 'confirm', result: 'uuid-taken', subject: pending.mcUuid });
       return { ok: false, reason: 'uuid-taken' };
     }
-    const own = [...this.links.values()].find((link) => link.economicIdentityId === identity.economicIdentityId && link.verifiedAt && link.mcUuid !== pending.mcUuid);
+    const own = [...this.links.values()].find((link) => link.economicIdentityId === prepared.identity.economicIdentityId && link.verifiedAt && link.mcUuid !== pending.mcUuid);
     if (own) {
       this.#audit({ action: 'link', actor: discord, reason: 'confirm', result: 'already-linked', subject: pending.mcUuid });
       return { ok: false, reason: 'already-linked' };
     }
+    const elevated = await this.#identityForLink(discord, { elevate: true });
+    if (!elevated.ok || !verifiedDiscordIdentity(elevated.identity) || elevated.identity.economicIdentityId !== pending.economicIdentityId) {
+      const reason = elevated.ok ? 'verified-identity-required' : elevated.reason;
+      this.#audit({ action: 'link', actor: discord, reason: 'confirm', result: reason, subject: pending.mcUuid });
+      return { ok: false, reason, message: elevated.message, commitStamp: elevated.commitStamp === true };
+    }
+    const identity = elevated.identity;
     const verifiedAt = new Date(now).toISOString();
     const link = {
       mcUuid: pending.mcUuid,
@@ -876,6 +899,32 @@ class MemoryMcPoints {
     if (listed.length) return listed.includes(actor);
     const decision = await authorizeMcRefundActor({ actor, env: this.env, fetchImpl: this.fetchImpl });
     return decision.ok === true;
+  }
+
+  async #identityForLink(discord, { elevate = false } = {}) {
+    if (typeof this.wallet.ensureMinecraftMember === 'function') {
+      const ensured = await this.wallet.ensureMinecraftMember(discord, { elevate });
+      if (!ensured?.ok || !ensured.identity?.economicIdentityId) {
+        return {
+          ok: false,
+          reason: ensured?.reason || 'verified-identity-required',
+          message: ensured?.message,
+          commitStamp: ensured?.commitStamp === true
+        };
+      }
+      return { ok: true, identity: ensured.identity };
+    }
+    const identity = await this.wallet.resolve(discord);
+    if (!identity?.economicIdentityId) return { ok: false, reason: 'verified-identity-required' };
+    const held = linkElevationHold({
+      status: identity.status,
+      holdReason: identity.holdReason,
+      economicIdentityId: identity.economicIdentityId,
+      env: this.env
+    });
+    if (held) return held;
+    if (elevate && !verifiedDiscordIdentity(identity)) return { ok: false, reason: 'verified-identity-required' };
+    return { ok: true, identity };
   }
 
   #cooldownReason(discordUserId, mcUuid, now) {

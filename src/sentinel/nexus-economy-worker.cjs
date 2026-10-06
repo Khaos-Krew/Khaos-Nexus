@@ -11,7 +11,7 @@ const { normalizeUuid } = require('../craft/mc-rcon-text.cjs');
 const { otherPresenceOnline, planMinecraftContribution, minecraftServerName, countsForSharedOnline, PRESENCE_TTL_MS } = require('../economy-worker/mc-playtime-accounting.cjs');
 const { MemoryMcPoints, mcPlaytimeEligible, bumpMcMetric } = require('../economy-worker/mc-points-service.cjs');
 const { economyPerkForRank } = require('../shared/nexus-economy-rank-perks.cjs');
-const { memberIdentityHold } = require('./nexus-economy-identity-hold.cjs');
+const { memberIdentityHold, linkElevationHold } = require('./nexus-economy-identity-hold.cjs');
 const { quarantineDenylist } = require('./nexus-economy-wallet-core.cjs');
 
 const STORE_VERSION = 1;
@@ -128,8 +128,62 @@ class NexusEconomyWorker {
         },
         async quarantined(economicIdentityId) {
           return quarantineDenylist(worker.env).has(String(economicIdentityId || ''));
-        }
+        },
+        ensureMinecraftMember: (discordUserId, options) => worker.ensureMinecraftMember(discordUserId, options)
       }
+    });
+  }
+
+  // The in-game link code verifies a Minecraft member on this Discord wallet.
+  // Unmarked restricted rows elevate on confirm. Held, disabled, and denylisted rows stay held.
+  // An EOS id is never written here.
+  ensureMinecraftMember(discordUserId, { elevate = false } = {}) {
+    const id = cleanId(discordUserId);
+    if (!id) return { ok: false, reason: 'discord-user-required' };
+    return this.withLock(id, async () => {
+      const state = this.store.read();
+      let account = state.accounts[id] || null;
+      const created = !account;
+      if (!account) account = this.ensureAccount(state, id);
+      if (created) {
+        account.status = elevate ? 'verified' : 'restricted';
+        account.holdReason = '';
+        account.verifiedAt = elevate ? new Date(this.now()).toISOString() : null;
+        account.eosIds = [];
+      }
+      if (quarantineDenylist(this.env).has(id) && !String(account.holdReason || '').trim()) {
+        account.holdReason = 'quarantine';
+        if (created) account.status = 'restricted';
+      }
+      const held = linkElevationHold({
+        status: account.status,
+        holdReason: account.holdReason,
+        economicIdentityId: id,
+        env: this.env
+      });
+      if (held) {
+        this.store.write(state);
+        return { ...held, commitStamp: quarantineDenylist(this.env).has(id), economicIdentityId: id };
+      }
+      if (elevate && String(account.status || '').trim().toLowerCase() === 'restricted') {
+        account.status = 'verified';
+        account.holdReason = '';
+        account.verifiedAt = account.verifiedAt || new Date(this.now()).toISOString();
+      } else if (elevate && String(account.status || '').trim().toLowerCase() === 'verified' && !account.verifiedAt) {
+        account.verifiedAt = account.createdAt || new Date(this.now()).toISOString();
+      }
+      account.eosIds = Array.isArray(account.eosIds) ? account.eosIds : [];
+      this.store.write(state);
+      const rawStatus = String(account.status || '').trim().toLowerCase();
+      return {
+        ok: true,
+        identity: {
+          economicIdentityId: account.discordUserId,
+          status: rawStatus,
+          holdReason: String(account.holdReason || '').trim(),
+          verifiedAt: rawStatus === 'verified' ? (account.verifiedAt || account.createdAt) : (account.verifiedAt || null)
+        }
+      };
     });
   }
 
