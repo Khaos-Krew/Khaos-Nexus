@@ -156,6 +156,18 @@ function feedKeyOf(parsed) {
   ].join('|');
 }
 
+// Live credits are keyed on the game event, not the Discord post.
+// A later repost of the same tribe, dino, kind, and in-game id is the same award.
+function gameEventKey(parsed) {
+  const kind = String(parsed?.kind || '').trim().toLowerCase();
+  const tribe = normalizeExactName(parsed?.tribeName || parsed?.tribe || '');
+  const dino = normalizeExactName(parsed?.dinoName || '');
+  const eventId = String(parsed?.eventId || '').replace(/[\r\n\t]+/g, ' ').trim();
+  if (kind !== 'tame' && kind !== 'kill') return '';
+  if (!tribe || !dino || !eventId) return '';
+  return `arn-drop:${kind}|${tribe}|${dino}|${eventId}`;
+}
+
 function normalizeExactName(value) {
   return String(value || '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -433,6 +445,7 @@ function dryJournalEnv(env = process.env) {
     ...env,
     ARN_DRY_RUN: 'true',
     ARN_TOKENS_ENABLED: '',
+    ARN_ECONOMY_WRITES_ENABLED: '',
     NEXUS_ECONOMY_WRITES_ENABLED: ''
   };
 }
@@ -524,7 +537,7 @@ function createArnBook({ loadAccounts = async () => [], env = {}, persistPath = 
           } : null
         });
         persist();
-        return { ok: true, debited: true, economicIdentityId: ids[0], key: spendKey, balance: after };
+        return { ok: true, debited: true, economicIdentityId: ids[0], eosId: account.eosId || '', key: spendKey, balance: after };
       });
     },
     refund({ economicIdentityId, key, now = Date.now() } = {}) {
@@ -668,9 +681,7 @@ async function observeFromDiscordMessage({
           parsed,
           eosId: matches[0].eosId,
           discordUserId: matches[0].discordUserId,
-          roll: report.roll,
-          seed: report.seed,
-          stale: report.stale
+          createdAt: Number(message?.createdTimestamp)
         });
         return sharedArnBook(env).award({
           ...report,
@@ -703,6 +714,7 @@ module.exports = {
   readJournal,
   writeJournal,
   feedKeyOf,
+  gameEventKey,
   normalizeExactName,
   exactNameMatches,
   oddsRoll,

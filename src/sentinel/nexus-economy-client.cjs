@@ -29,6 +29,10 @@ function arnRequestBody(input) {
   const body = { ...(input || {}) };
   delete body.env;
   delete body.workerEnv;
+  delete body.roll;
+  delete body.seed;
+  delete body.creditsEnabled;
+  delete body.graceMs;
   return body;
 }
 
@@ -229,6 +233,14 @@ class NexusEconomyClient {
   arnSpend(input) { return request('/arn/spend', { method: 'POST', body: arnRequestBody(input), acceptedStatusCodes: [503] }); }
 
   arnRefund(input) { return request('/arn/refund', { method: 'POST', body: arnRequestBody(input), acceptedStatusCodes: [503] }); }
+
+  arnConfirm(input) { return request('/arn/confirm', { method: 'POST', body: arnRequestBody(input), acceptedStatusCodes: [503] }); }
+
+  arnReconcile(input) { return request('/arn/reconcile', { method: 'POST', body: arnRequestBody(input), acceptedStatusCodes: [503] }); }
+
+  arnPause(input) { return request('/arn/pause', { method: 'POST', body: arnRequestBody(input), acceptedStatusCodes: [503] }); }
+
+  arnAdjust(input) { return request('/arn/adjust', { method: 'POST', body: arnRequestBody(input), acceptedStatusCodes: [503] }); }
 }
 
 module.exports = { configured, arnRequestBody, NexusEconomyClient };

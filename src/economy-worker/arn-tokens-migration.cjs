@@ -3,10 +3,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { sqlIdent } = require('../sentinel/nexus-economy-postgres-repository.cjs');
-const { MIGRATION_ID } = require('./arn-tokens-postgres.cjs');
+const { MIGRATION_ID, CONTROL_MIGRATION_ID } = require('./arn-tokens-postgres.cjs');
 
 const ADDITIVE_MIGRATIONS = Object.freeze([
-  Object.freeze({ id: MIGRATION_ID, file: '003-arn-tokens-events.sql' })
+  Object.freeze({ id: MIGRATION_ID, file: '003-arn-tokens-events.sql' }),
+  Object.freeze({ id: CONTROL_MIGRATION_ID, file: '005-arn-tokens-control.sql' })
 ]);
 
 function migrationsDir() {
@@ -74,6 +75,7 @@ async function applyAdditiveEconomyMigrations({ pool, schema = 'public', dir } =
 module.exports = {
   ADDITIVE_MIGRATIONS,
   MIGRATION_ID,
+  CONTROL_MIGRATION_ID,
   sqlStatements,
   loadAdditiveMigration,
   applyAdditiveEconomyMigrations

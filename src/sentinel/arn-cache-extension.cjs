@@ -25,12 +25,18 @@ function command() {
   c.addSubcommand(s=>s.setName('tokens').setDescription('What ARN tokens are, and how many you have.'));
   c.addSubcommand(s=>s.setName('open').setDescription('Where to redeem an ARN cache.'));
   c.addSubcommand(s=>s.setName('report').setDescription('Staff: ARN trial summary. No payouts.'));
-  c.addSubcommand(s=>s.setName('configure').setDescription('Staff: payouts are off during the test week.'));
-  c.addSubcommand(s=>s.setName('pause').setDescription('Staff: payouts are off during the test week.'));
-  c.addSubcommand(s=>s.setName('adjust').setDescription('Staff: payouts are off during the test week.').addUserOption(o=>o.setName('player').setDescription('Player.').setRequired(true)).addIntegerOption(o=>o.setName('amount').setDescription('Signed token adjustment.').setRequired(true).setMinValue(-1000000).setMaxValue(1000000)).addStringOption(o=>o.setName('reason').setDescription('Audit reason.').setRequired(true).setMinLength(3).setMaxLength(300)));
+  c.addSubcommand(s=>s.setName('configure').setDescription('Staff: enable ARN. 25% chance on a tame, 10% on a kill.'));
+  c.addSubcommand(s=>s.setName('pause').setDescription('Staff: disable ARN earning and redemption.'));
+  c.addSubcommand(s=>s.setName('adjust').setDescription('Staff: audited token grant or removal.').addUserOption(o=>o.setName('player').setDescription('Player.').setRequired(true)).addIntegerOption(o=>o.setName('amount').setDescription('Signed token adjustment.').setRequired(true).setMinValue(-1000000).setMaxValue(1000000)).addStringOption(o=>o.setName('reason').setDescription('Audit reason.').setRequired(true).setMinLength(3).setMaxLength(300)));
   return c.toJSON();
 }
-async function handle(interaction,{ledger,shop,config, book, env, now, secret, balanceReader} = {}) {
+async function staffEconomy(explicit) {
+  if (explicit) return explicit;
+  const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
+  const client = new NexusEconomyClient();
+  return client.configured() ? client : null;
+}
+async function handle(interaction,{ledger,shop,config, book, env, now, secret, balanceReader, economy} = {}) {
   const sub=interaction.options.getSubcommand(), user=String(interaction.user.id);
   if(interaction.commandName==='cacheadmin') {
     if(!isStaff(interaction,config))throw new Error('Nexus staff authorization required.');
@@ -66,7 +72,33 @@ async function handle(interaction,{ledger,shop,config, book, env, now, secret, b
   }
   if(!isStaff(interaction,config)) throw new Error('Nexus staff authorization required.');
   if(sub==='configure' || sub==='pause' || sub==='adjust') {
-    return {content:'ARN settings are handled by the trial tokens; payouts are off during the test week.'};
+    const writer = await staffEconomy(economy);
+    if(!writer) {
+      const error = new Error('ARN ledger is not configured.');
+      error.code = 'ARN_LEDGER_UNAVAILABLE';
+      throw error;
+    }
+    if(sub==='configure') {
+      await writer.arnPause({ paused: false, actor: user, reason: 'configure' });
+      return {content:'ARN enabled: 25% chance on a shiny tame and 10% on a shiny kill; 1 token per cache.'};
+    }
+    if(sub==='pause') {
+      await writer.arnPause({ paused: true, actor: user, reason: 'pause' });
+      return {content:'ARN earning and redemption disabled. Existing balances and rewards are preserved.'};
+    }
+    const result = await writer.arnAdjust({
+      discordUserId: interaction.options.getUser('player').id,
+      delta: interaction.options.getInteger('amount'),
+      idempotencyKey: interaction.id,
+      reason: interaction.options.getString('reason'),
+      actor: user
+    });
+    if(!result || result.ok === false) {
+      const error = new Error(result?.reason || 'adjust-failed');
+      error.code = 'ARN_ADJUST_FAILED';
+      throw error;
+    }
+    return {content:`Adjustment recorded. Balance: ${result.balance} ARN Tokens.`};
   }
   return {content:'Use /arn tokens to see what ARN tokens are and how to earn them. Redeem a cache in #dino-box-shop.'};
 }

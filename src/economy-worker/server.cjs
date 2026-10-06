@@ -38,7 +38,11 @@ const COIN_SHOP_PREPARE_PATHS = new Set([
 const ARN_FINANCIAL_PATHS = new Set([
   '/arn/drop',
   '/arn/spend',
-  '/arn/refund'
+  '/arn/refund',
+  '/arn/confirm',
+  '/arn/reconcile',
+  '/arn/pause',
+  '/arn/adjust'
 ]);
 const FINANCIAL_WRITE_PATHS = new Set([
   '/wallet/credit',
@@ -323,6 +327,10 @@ function arnRequestBody(input) {
   const body = { ...input };
   delete body.env;
   delete body.workerEnv;
+  delete body.roll;
+  delete body.seed;
+  delete body.creditsEnabled;
+  delete body.graceMs;
   return body;
 }
 
@@ -353,7 +361,7 @@ function writeGate(path, options = {}) {
     return null;
   }
   if (ARN_FINANCIAL_PATHS.has(path)) {
-    if (writesEnabled !== true && options.arnEconomyWritesEnabled !== true) {
+    if (options.arnEconomyWritesEnabled !== true) {
       return { statusCode: 503, body: { ok: false, error: 'economy-write-cutover-not-enabled', writesEnabled: false } };
     }
     return null;
@@ -637,6 +645,22 @@ function createEconomyServer(options = {}) {
       if (url.pathname === '/arn/refund') {
         if (typeof worker.arnRefund !== 'function') return json(res, 200, { ok: false, reason: 'arn-unavailable' });
         return json(res, 200, await Promise.resolve(worker.arnRefund(arnRequestBody(input))));
+      }
+      if (url.pathname === '/arn/confirm') {
+        if (typeof worker.arnConfirm !== 'function') return json(res, 200, { ok: false, reason: 'arn-unavailable' });
+        return json(res, 200, await Promise.resolve(worker.arnConfirm(arnRequestBody(input))));
+      }
+      if (url.pathname === '/arn/reconcile') {
+        if (typeof worker.arnReconcile !== 'function') return json(res, 200, { ok: false, reason: 'arn-unavailable' });
+        return json(res, 200, await Promise.resolve(worker.arnReconcile(arnRequestBody(input))));
+      }
+      if (url.pathname === '/arn/pause') {
+        if (typeof worker.arnPause !== 'function') return json(res, 200, { ok: false, reason: 'arn-unavailable' });
+        return json(res, 200, await Promise.resolve(worker.arnPause(arnRequestBody(input))));
+      }
+      if (url.pathname === '/arn/adjust') {
+        if (typeof worker.arnAdjust !== 'function') return json(res, 200, { ok: false, reason: 'arn-unavailable' });
+        return json(res, 200, await Promise.resolve(worker.arnAdjust(arnRequestBody(input))));
       }
       if (url.pathname === '/presence') {
         if (scope === 'craft' && !craftMinecraftPresence(input)) {

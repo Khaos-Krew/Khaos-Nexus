@@ -36,7 +36,7 @@ function kindFromVerb(verb) {
   return '';
 }
 
-function award(kind, dinoName, playerName, mapName, serverName = '') {
+function award(kind, dinoName, playerName, mapName, serverName = '', tribeName = '', eventId = '') {
   const dino = cleanName(dinoName, 160);
   const player = cleanName(playerName, 80);
   if (!kind || !dino || !player) return { ok: false, reason: 'malformed' };
@@ -46,8 +46,20 @@ function award(kind, dinoName, playerName, mapName, serverName = '') {
     dinoName: dino,
     playerName: player,
     mapName: clean(mapName, 100),
-    serverName: clean(serverName, 100)
+    serverName: clean(serverName, 100),
+    tribeName: cleanName(tribeName, 80),
+    eventId: clean(eventId, 80)
   };
+}
+
+function embedField(payload, names) {
+  const wanted = new Set(names.map((name) => name.toLowerCase()));
+  for (const embed of Array.isArray(payload?.embeds) ? payload.embeds : []) {
+    for (const field of Array.isArray(embed?.fields) ? embed.fields : []) {
+      if (wanted.has(String(field?.name || '').trim().toLowerCase())) return field?.value;
+    }
+  }
+  return '';
 }
 
 function parseMarker(text, authoritativeMap) {
@@ -62,7 +74,9 @@ function parseMarker(text, authoritativeMap) {
     parts[2],
     parts[3],
     authoritativeMap || parts[5],
-    parts[4]
+    parts[4],
+    parts[6],
+    parts[7]
   );
 }
 
@@ -105,8 +119,17 @@ function parseArnReport(payload = {}, authoritativeMap = '') {
   const text = payloadText(payload);
   if (!text) return { ok: false, reason: 'malformed' };
   const marker = parseMarker(text, authoritativeMap);
-  if (marker) return marker;
-  return parseProse(text, authoritativeMap);
+  if (marker) {
+    if (!marker.ok) return marker;
+    return {
+      ...marker,
+      tribeName: marker.tribeName || cleanName(embedField(payload, ['tribe', 'tribe name']), 80),
+      eventId: marker.eventId || clean(embedField(payload, ['id', 'event', 'event id', 'timestamp', 'time']), 80)
+    };
+  }
+  const prose = parseProse(text, authoritativeMap);
+  if (prose?.ok) return { ...prose, tribeName: prose.tribeName || '', eventId: prose.eventId || '' };
+  return prose;
 }
 
 module.exports = {

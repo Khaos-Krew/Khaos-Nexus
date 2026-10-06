@@ -5,6 +5,7 @@ const { CONFIG, deterministicRng, rollLevel } = require('./ark-dino-cache-engine
 const { allowed, WEEKLY_CACHE_RETIRED } = require('./ark-weekly-cache.cjs');
 const { zonedParts, zonedLocalToUtc } = require('./card/birthday-calendar.cjs');
 const { arnFlags } = require('../shared/arn-flags.cjs');
+const { arkNpFlags } = require('../shared/ark-np-flags.cjs');
 const CT = 'America/Chicago';
 const POOL_SIZE = 8;
 const PUBLIC_ROTATION_SECRET = 'khaos-nexus-arn-rotation-v1-public';
@@ -48,7 +49,7 @@ function usableSecret(secret) {
 function rotationSecret(env = process.env) {
   const dedicated = String(env.ARN_ROTATION_SECRET || '').trim();
   if (arnFlags(env).creditsEnabled) {
-    if (dedicated.length < 32) {
+    if (dedicated.length < 32 || dedicated === PUBLIC_ROTATION_SECRET) {
       const error = new Error('ARN_ROTATION_SECRET is required.');
       error.code = 'arn-rotation-secret-missing';
       throw error;
@@ -168,18 +169,114 @@ function drawTame(rotation, orderId, secret = rotationSecret()) {
   };
 }
 
+function deliveryPermitted(env = process.env) {
+  const arn = arnFlags(env);
+  const shop = arkNpFlags(env);
+  return arn.creditsEnabled === true && shop.shopDeliveryEnabled === true && shop.dryRun === false;
+}
+
+function buildArnDeliveryOrder({ drawn, eosId, orderId }) {
+  return {
+    orderId: String(orderId || ''),
+    sku: 'arn-cache',
+    source: 'arn-cache',
+    currency: 'ARN_TOKENS',
+    eosIds: [String(eosId || '')].filter(Boolean),
+    roll: {
+      blueprint: drawn.blueprint,
+      level: drawn.level,
+      sex: drawn.sex,
+      saddle: ''
+    }
+  };
+}
+
 async function openArnCache({
   env = process.env,
   now = Date.now(),
-  secret
+  discordUserId = '',
+  secret,
+  deliver,
+  book,
+  ledger
 } = {}) {
-  return {
+  const rotation = arnRotation(now, secret || rotationSecret(env));
+  const base = {
     ok: false,
     reason: 'dry-run',
     raCalled: false,
     debited: false,
     currency: 'ARN_TOKENS',
-    rotation: arnRotation(now, secret || rotationSecret(env))
+    rotation
+  };
+  const spender = ledger || book;
+  if (!deliveryPermitted(env) || !spender) return base;
+  const orderId = `arn-open:${discordUserId}:${rotation.id}:${now}`;
+  const drawn = drawTame(rotation, orderId, secret || rotationSecret(env));
+  const spent = ledger
+    ? await ledger.spend({ discordUserId, orderId, rotation, now })
+    : await book.spend({ discordUserId, key: orderId, orderId, rotation, now, env });
+  if (spent?.delivered === true) {
+    const order = buildArnDeliveryOrder({ drawn, eosId: spent.eosId, orderId });
+    return {
+      ok: true,
+      reason: 'submitted',
+      raCalled: true,
+      debited: true,
+      duplicate: true,
+      currency: 'ARN_TOKENS',
+      rotation,
+      drawn,
+      order
+    };
+  }
+  const resumable = spent?.debited === true || (spent?.duplicate === true && spent?.resumable === true && spent?.refunded !== true);
+  if (!resumable) return { ...base, reason: spent?.reason || 'not-spent', drawn };
+  const verifiedEos = String(spent.eosId || '').trim();
+  const order = buildArnDeliveryOrder({ drawn, eosId: verifiedEos, orderId });
+  async function refundSpend() {
+    if (ledger) await ledger.refund({ orderId, now });
+    else await book.refund({ economicIdentityId: spent.economicIdentityId, key: orderId, now });
+  }
+  if (!verifiedEos) {
+    if (spent.debited === true) await refundSpend();
+    return { ...base, reason: 'eos-unverified', drawn, order, refunded: spent.debited === true };
+  }
+  const send = deliver || (async () => {
+    const flags = arkNpFlags(env);
+    if (flags.dryRun || !flags.shopDeliveryEnabled) return { ok: false, raCalled: false, reason: 'dry-run' };
+    const { deliverPreparedOrder, httpDeps } = require('./ark-np-delivery.cjs');
+    return deliverPreparedOrder(order, httpDeps(env));
+  });
+  let delivery;
+  try {
+    delivery = await send(order, env);
+  } catch (error) {
+    await refundSpend();
+    return { ...base, reason: 'delivery-failed', drawn, order, refunded: true };
+  }
+  if (delivery?.raCalled !== true) {
+    await refundSpend();
+    return { ...base, reason: delivery?.reason || 'not-sent', drawn, order, refunded: true };
+  }
+  let confirmed = false;
+  if (ledger && typeof ledger.confirm === 'function') {
+    try {
+      const marked = await ledger.confirm({ orderId, now });
+      confirmed = marked?.ok === true;
+    } catch { /* sweep refunds an unconfirmed spend after the grace */ }
+  }
+  return {
+    ok: true,
+    reason: 'submitted',
+    raCalled: true,
+    debited: true,
+    confirmed,
+    confirmPending: confirmed !== true && typeof ledger?.confirm === 'function',
+    currency: 'ARN_TOKENS',
+    rotation,
+    drawn,
+    order
   };
 }
 
@@ -194,5 +291,7 @@ module.exports = {
   rotationSecret,
   arnRotation,
   drawTame,
+  deliveryPermitted,
+  buildArnDeliveryOrder,
   openArnCache
 };

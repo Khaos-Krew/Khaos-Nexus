@@ -190,6 +190,7 @@ async function mainLedgerAdapter() {
   return {
     spend: (input) => client.arnSpend(arnRequestBody(input)),
     refund: (input) => client.arnRefund(arnRequestBody(input)),
+    confirm: (input) => client.arnConfirm(arnRequestBody(input)),
     async balance(discordUserId) {
       const result = await client.arnBalance(discordUserId);
       return Number(result?.balance || 0);

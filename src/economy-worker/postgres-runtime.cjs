@@ -101,6 +101,10 @@ async function createPostgresEconomyRuntime({ env = process.env, now } = {}) {
     arnDrop(input = {}) { return arnLedger.drop(input); },
     arnSpend(input = {}) { return arnLedger.spend(input); },
     arnRefund(input = {}) { return arnLedger.refund(input); },
+    arnConfirm(input = {}) { return arnLedger.confirm(input); },
+    arnReconcile(input = {}) { return arnLedger.reconcile(input); },
+    arnPause(input = {}) { return arnLedger.pause(input); },
+    arnAdjust(input = {}) { return arnLedger.adjust(input); },
     arnBalance(discordUserId) { return arnLedger.balance(discordUserId); }
   });
   const shop = new NexusEconomyPostgresShopService({ wallet: walletCore, repository });
