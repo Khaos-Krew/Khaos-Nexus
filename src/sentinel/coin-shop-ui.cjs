@@ -16,6 +16,8 @@ const { loadConfig } = require('../shared/config.cjs');
 const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
 const { BackendClient } = require('./backend-client.cjs');
 const { coinShopFlags } = require('../shared/coin-shop-flags.cjs');
+const { arkNpFlags } = require('../shared/ark-np-flags.cjs');
+const { openArkShop } = require('./ark-np-shop-ui.cjs');
 const { CATEGORIES, ITEMS, catalogItem } = require('../shared/coin-shop-catalog.cjs');
 const { GATE_OFF, COSMETIC_FOOTER, coinShopMemberText } = require('../shared/coin-shop-copy.cjs');
 const { isCoinShopAdmin } = require('../economy-worker/coin-shop-staff.cjs');
@@ -23,10 +25,17 @@ const { isCoinShopAdmin } = require('../economy-worker/coin-shop-staff.cjs');
 const INSTALLED = Symbol.for('khaos.nexus.coin.shop.ui');
 const sessions = new Map();
 
+function shopSections(env = process.env) {
+  return Object.freeze({
+    coin: coinShopFlags(env).shopEnabled,
+    ark: arkNpFlags(env).shopEnabled
+  });
+}
+
 function shopCommand() {
   return new SlashCommandBuilder()
     .setName('shop')
-    .setDescription('Buy wallet cosmetics with Nexus Coins')
+    .setDescription('Open the shop')
     .setDMPermission(false);
 }
 
@@ -159,8 +168,32 @@ function gatePayload() {
   return ephemeral(`${GATE_OFF}\n\n${COSMETIC_FOOTER}`);
 }
 
-async function openShop(interaction, economy, backend) {
-  if (!coinShopFlags().shopEnabled) return interaction.reply(gatePayload());
+function shopMenuRow(sections) {
+  const row = new ActionRowBuilder();
+  if (sections.coin) {
+    row.addComponents(new ButtonBuilder().setCustomId('nxshop:coin').setLabel('Coin Shop (cosmetics)').setStyle(ButtonStyle.Primary));
+  }
+  if (sections.ark) {
+    row.addComponents(new ButtonBuilder().setCustomId('nxshop:ark').setLabel('Points Shop (ARK)').setStyle(ButtonStyle.Secondary));
+  }
+  return row;
+}
+
+function shopMenuText(sections) {
+  if (sections.coin && sections.ark) return 'Pick a shop. Coins and Points stay separate.';
+  if (sections.coin) return `Coin Shop (cosmetics).\n\n${COSMETIC_FOOTER}`;
+  if (sections.ark) return 'Points Shop (ARK).';
+  return "The shop isn't open yet.";
+}
+
+async function openShop(interaction) {
+  const sections = shopSections();
+  if (!sections.coin && !sections.ark) return interaction.reply(ephemeral(shopMenuText(sections)));
+  return interaction.reply(ephemeral(shopMenuText(sections), { components: [shopMenuRow(sections)] }));
+}
+
+async function openCoinShop(interaction, economy, backend) {
+  if (!coinShopFlags().shopEnabled) return replyOrUpdate(interaction, gatePayload());
   const userId = String(interaction.user.id);
   let balance = null;
   try {
@@ -177,7 +210,7 @@ async function openShop(interaction, economy, backend) {
     balance == null ? 'Your Coin balance is unavailable right now.' : balanceLine(balance),
     [{ name: 'Categories', value: 'Themes and titles. Pick one to see prices.' }]
   );
-  return interaction.reply(ephemeral('', { embeds: [embed], components: [categoryRow(userId)] }));
+  return replyOrUpdate(interaction, ephemeral('', { embeds: [embed], components: [categoryRow(userId)] }));
 }
 
 async function showCategory(interaction, parsed) {
@@ -309,11 +342,14 @@ async function handleCoinShopInteraction(interaction, { economyClient, backend, 
   const cosmetics = backend || new BackendClient(config);
   try {
     if (interaction.isChatInputCommand?.()) {
-      if (interaction.commandName === 'shop') return openShop(interaction, economy, cosmetics);
+      if (interaction.commandName === 'shop') return openShop(interaction);
       if (interaction.commandName === 'shopadmin') return handleAdmin(interaction, economy, cosmetics);
       return false;
     }
-    const parsed = parseCoinCustomId(interaction.customId || '');
+    const customId = String(interaction.customId || '');
+    if (customId === 'nxshop:coin') return openCoinShop(interaction, economy, cosmetics);
+    if (customId === 'nxshop:ark') return openArkShop(interaction);
+    const parsed = parseCoinCustomId(customId);
     if (!parsed) return false;
     if (!coinShopFlags().shopEnabled) return replyOrUpdate(interaction, gatePayload());
     if (parsed.action === 'cat') return showCategory(interaction, parsed);
@@ -345,7 +381,8 @@ async function upsertCommand(guild, definition) {
 async function registerCoinShopCommands(guild, env = process.env) {
   const commands = await guild.commands.fetch();
   const shop = commands.find((item) => item.name === 'shop');
-  if (!coinShopFlags(env).shopEnabled) {
+  const sections = shopSections(env);
+  if (!sections.coin && !sections.ark) {
     if (shop) await shop.delete().catch(() => {});
   } else {
     await upsertCommand(guild, shopCommand());
@@ -373,7 +410,8 @@ function installCoinShopUi() {
         if (!guildId) return;
         const guild = await client.guilds.fetch(guildId);
         await registerCoinShopCommands(guild);
-        console.log(`[Nexus Coin Shop] /shop hidden=${coinShopFlags().shopEnabled ? 'no' : 'yes'} guild=${guild.id}`);
+        const sections = shopSections();
+        console.log(`[Nexus Coin Shop] /shop coin=${sections.coin ? 'on' : 'off'} ark=${sections.ark ? 'on' : 'off'} guild=${guild.id}`);
       } catch (error) {
         console.error(`[Nexus Coin Shop] command registration failed: ${String(error?.message || error).slice(0, 240)}`);
       }
@@ -386,6 +424,7 @@ function installCoinShopUi() {
 module.exports = {
   shopCommand,
   shopAdminCommand,
+  shopSections,
   clearCoinShopSessions,
   parseCoinCustomId,
   handleCoinShopInteraction,

@@ -11,12 +11,14 @@ function coinShopFlags(env = process.env) {
   });
 }
 
+const COIN_SHOP_PURCHASE_CEILING = 1000;
+
 function purchaseCeiling(env = process.env) {
   const raw = env.NEXUS_ECONOMY_COIN_SHOP_PURCHASE_CEILING;
-  if (raw == null || String(raw).trim() === '') return null;
+  if (raw == null || String(raw).trim() === '') return COIN_SHOP_PURCHASE_CEILING;
   const ceiling = Number(String(raw).trim());
   if (!Number.isSafeInteger(ceiling) || ceiling < 1) return null;
-  return ceiling;
+  return Math.min(ceiling, COIN_SHOP_PURCHASE_CEILING);
 }
 
-module.exports = { flagOn, coinShopFlags, purchaseCeiling };
+module.exports = { flagOn, coinShopFlags, purchaseCeiling, COIN_SHOP_PURCHASE_CEILING };

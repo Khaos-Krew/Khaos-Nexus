@@ -22,6 +22,7 @@ const REASONS = Object.freeze({
   'economy-coin-shop-spend-not-enabled': GATE_OFF,
   'coin-shop-unavailable': 'The Coin shop isn\'t open yet.',
   'already-used': 'That item was already equipped. It was not refunded.',
+  'revoke-failed': 'That item could not be removed, so it was not refunded.',
   'refund-window': 'That purchase is older than 24 hours. It was not refunded.',
   'not-found': 'That purchase was not found. Nothing was refunded.',
   'staff-required': 'That command is for a staff admin.',

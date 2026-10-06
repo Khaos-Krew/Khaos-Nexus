@@ -223,6 +223,55 @@ async function openPurchase(opened, sku) {
   return bought;
 }
 
+test('postgres daily cap and refund window follow the database clock, and a missed revoke blocks the credit', { skip }, async () => {
+  const opened = await openShop('clock');
+  try {
+    await opened.pool.query(
+      `INSERT INTO "${opened.schema}".nexus_economy_ledger
+       (economic_identity_id, currency, amount, balance_after, entry_type, source, idempotency_key, metadata, created_at)
+       VALUES ($1, 'NEXUS_COINS', -1400, 2000, 'purchase', 'sink:coin-shop', 'old-spend', '{"sku":"seed","price":1400}'::jsonb, NOW() - INTERVAL '2 days')`,
+      [ECON]
+    );
+    const bought = await openPurchase(opened, 'ttl_night_owl');
+    await opened.pool.query(
+      `UPDATE "${opened.schema}".nexus_economy_ledger SET created_at = NOW() - INTERVAL '25 hours' WHERE id = $1`,
+      [bought.ledgerId]
+    );
+    const late = await opened.shop.refund({
+      ledgerRef: bought.ledgerRef,
+      reason: 'too late',
+      actor: USER,
+      staffVerified: true
+    });
+    assert.equal(late.reason, 'refund-window');
+    const current = await openPurchase(opened, 'thm_nebula');
+    await opened.pool.query(
+      `DELETE FROM "${opened.schema}".nexus_coin_shop_entitlements WHERE economic_identity_id = $1 AND sku = 'thm_nebula'`,
+      [ECON]
+    );
+    const blocked = await opened.shop.refund({
+      ledgerRef: current.ledgerRef,
+      reason: 'entitlement already gone',
+      actor: USER,
+      staffVerified: true
+    });
+    assert.equal(blocked.reason, 'revoke-failed');
+    await opened.pool.query(
+      `INSERT INTO "${opened.schema}".nexus_economy_ledger
+       (economic_identity_id, currency, amount, balance_after, entry_type, source, idempotency_key, metadata, created_at)
+       VALUES ($1, 'NEXUS_COINS', -1400, 2000, 'purchase', 'sink:coin-shop', 'today-spend', '{"sku":"seed-today","price":1400}'::jsonb, NOW())`,
+      [ECON]
+    );
+    const capped = await opened.shop.quote({ discordUserId: USER, sku: 'thm_circuit' });
+    assert.equal(capped.reason, 'daily-cap');
+    const money = await balances(opened.pool, opened.schema);
+    assert.equal(money.NEXUS_COINS, 2000 - 195 - 285);
+    assert.equal(money.NEXUS_POINTS, 80);
+  } finally {
+    await closeShop(opened);
+  }
+});
+
 test('postgres quotes are rate limited and expired quotes are pruned', { skip }, async () => {
   const opened = await openShop('quote');
   try {

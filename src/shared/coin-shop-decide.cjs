@@ -190,10 +190,9 @@ function decideRefund(state, input, now) {
       discordUserId: purchase.discordUserId || ''
     });
   }
-  if (purchase.equippedAt) return halt({ ok: false, reason: 'already-used' });
-  if (!Number.isFinite(purchase.createdAt) || now - purchase.createdAt > REFUND_WINDOW_MS) {
-    return halt({ ok: false, reason: 'refund-window' });
-  }
+  const outsideWindow = purchase.withinWindow === false
+    || (purchase.withinWindow !== true && (!Number.isFinite(purchase.createdAt) || now - purchase.createdAt > REFUND_WINDOW_MS));
+  if (outsideWindow) return halt({ ok: false, reason: 'refund-window' });
   const price = Number(purchase.price || 0);
   if (!Number.isSafeInteger(price) || price < 1) return halt({ ok: false, reason: 'not-found' });
   const balance = Number(state.balance || 0);
@@ -210,6 +209,7 @@ function decideRefund(state, input, now) {
       discordUserId: purchase.discordUserId || ''
     },
     effects: [
+      { type: 'refund-entitlement', econId: purchase.econId, sku: purchase.sku },
       { type: 'cas-credit', econId: purchase.econId, expected: balance, next, currency: 'NEXUS_COINS' },
       {
         type: 'ledger',
@@ -222,7 +222,7 @@ function decideRefund(state, input, now) {
         key,
         metadata: { sku: purchase.sku, refundOf: purchase.ledgerId, sink: 'sink:coin-shop' }
       },
-      { type: 'refund-entitlement', econId: purchase.econId, sku: purchase.sku },
+      { type: 'stamp-refund-ledger', econId: purchase.econId, sku: purchase.sku },
       {
         type: 'audit',
         action: 'refund',

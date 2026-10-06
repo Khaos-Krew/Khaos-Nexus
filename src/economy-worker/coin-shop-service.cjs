@@ -208,12 +208,14 @@ class CoinShopService {
         const quote = this.quotes.get(effect.nonce);
         if (quote) quote.consumed = true;
       } else if (effect.type === 'refund-entitlement') {
-        const row = this.entitlements.find((item) => item.econId === effect.econId && item.sku === effect.sku);
-        if (row) {
-          row.status = 'refunded';
-          row.refundLedgerId = ledgerId;
-          row.equippedAt = null;
-        }
+        const row = this.entitlements.find((item) => item.econId === effect.econId && item.sku === effect.sku && item.status === 'active');
+        if (!row) return { ok: false, reason: 'revoke-failed' };
+        row.status = 'refunded';
+        row.equippedAt = null;
+      } else if (effect.type === 'stamp-refund-ledger') {
+        const row = this.entitlements.find((item) => item.econId === effect.econId && item.sku === effect.sku && item.status === 'refunded');
+        if (!row || ledgerId == null) return { ok: false, reason: 'revoke-failed' };
+        row.refundLedgerId = ledgerId;
       } else if (effect.type === 'audit') {
         this.audit.push({
           auditId: crypto.randomUUID(),

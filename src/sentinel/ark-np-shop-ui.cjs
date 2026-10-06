@@ -267,6 +267,7 @@ module.exports = {
   adminCommand,
   isArkStaff,
   formatActivity,
+  openArkShop: openShop,
   handleArkShopInteraction,
   installArkNpShopUi
 };

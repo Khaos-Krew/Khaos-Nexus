@@ -21,7 +21,7 @@ const { COMMUNITY_MANAGER_ROLE_ID, OWNER_ROLE_ID } = require('../src/economy-wor
 const { WalletCosmeticsService } = require('../src/backend/services/wallet-cosmetics-service.cjs');
 const { walletEquipRow } = require('../src/sentinel/wallet-cosmetics-ui.cjs');
 const { handleWalletInteraction } = require('../src/sentinel/wallet-cosmetics-extension.cjs');
-const { handleCoinShopInteraction, parseCoinCustomId, shopCommand, shopAdminCommand } = require('../src/sentinel/coin-shop-ui.cjs');
+const { handleCoinShopInteraction, parseCoinCustomId, shopCommand, shopAdminCommand, registerCoinShopCommands } = require('../src/sentinel/coin-shop-ui.cjs');
 
 const USER = '123456789012345678';
 const OTHER = '223456789012345678';
@@ -106,8 +106,10 @@ function mockInteraction(partial = {}) {
 test('coin shop flags and the purchase ceiling default closed', () => {
   assert.equal(coinShopFlags({}).shopEnabled, false);
   assert.equal(coinShopFlags({}).spendEnabled, false);
-  assert.equal(purchaseCeiling({}), null);
+  assert.equal(purchaseCeiling({}), 1000);
   assert.equal(purchaseCeiling({ NEXUS_ECONOMY_COIN_SHOP_PURCHASE_CEILING: '1000' }), 1000);
+  assert.equal(purchaseCeiling({ NEXUS_ECONOMY_COIN_SHOP_PURCHASE_CEILING: '250' }), 250);
+  assert.equal(purchaseCeiling({ NEXUS_ECONOMY_COIN_SHOP_PURCHASE_CEILING: '5000' }), 1000);
   assert.equal(purchaseCeiling({ NEXUS_ECONOMY_COIN_SHOP_PURCHASE_CEILING: 'nope' }), null);
   assert.equal(COIN_SHOP_FINANCIAL_PATHS.has('/coin-shop/purchase'), true);
   assert.equal(COIN_SHOP_FINANCIAL_PATHS.has('/coin-shop/refund'), true);
@@ -174,7 +176,7 @@ test('insufficient Coins, owned, cap, ceiling, and unknown SKU spend nothing', a
   assert.equal(tooBig.reason, 'ceiling');
   assert.equal(lowCeiling.coinBalance(USER), 420);
 
-  const unset = shop({ env: { NEXUS_ECONOMY_COIN_SHOP_PURCHASE_CEILING: '' } });
+  const unset = shop({ env: { NEXUS_ECONOMY_COIN_SHOP_PURCHASE_CEILING: 'nope' } });
   const closed = await unset.quote({ discordUserId: USER, sku: 'ttl_night_owl' });
   assert.equal(closed.reason, 'ceiling-unset');
   assert.equal(unset.ledger.length, 0);
@@ -340,8 +342,18 @@ test('staff can refund an unused purchase once inside 24 hours', async () => {
   const wornBuy = await buy(worn);
   await worn.markEquipped({ discordUserId: USER, sku: 'ttl_night_owl' });
   const used = await worn.refund({ ledgerRef: wornBuy.result.ledgerRef, reason: 'changed my mind', actor: USER });
-  assert.equal(used.reason, 'already-used');
-  assert.equal(worn.coinBalance(USER), 225);
+  assert.equal(used.ok, true, used.reason);
+  assert.equal(worn.coinBalance(USER), 420);
+  assert.equal(worn.entitlementsFor(USER).entitlements[0].status, 'refunded');
+  assert.equal(worn.entitlementsFor(USER).entitlements[0].equippedAt, null);
+
+  const missing = shop();
+  const missingBuy = await buy(missing);
+  missing.entitlements.length = 0;
+  const revoked = await missing.refund({ ledgerRef: missingBuy.result.ledgerRef, reason: 'no entitlement', actor: USER });
+  assert.equal(revoked.reason, 'revoke-failed');
+  assert.equal(missing.coinBalance(USER), 225);
+  assert.equal(missing.ledger.filter((row) => row.entryType === 'refund').length, 0);
 
   const late = shop();
   const lateBuy = await buy(late);
@@ -395,9 +407,46 @@ test('an entitlement shows up in /wallet equip', async () => {
   }
 });
 
+function buttonLabels(payload) {
+  const row = payload.components?.[0];
+  if (!row) return [];
+  const json = typeof row.toJSON === 'function' ? row.toJSON() : row;
+  return (json.components || []).map((button) => button.label);
+}
+
+function fakeGuild(names = []) {
+  const rows = names.map((name) => ({
+    name,
+    async delete() {
+      const index = rows.findIndex((row) => row.name === name);
+      if (index >= 0) rows.splice(index, 1);
+    }
+  }));
+  return {
+    rows,
+    commands: {
+      async fetch() {
+        return { find: (pred) => rows.find(pred) };
+      },
+      async create(json) {
+        rows.push({
+          name: json.name,
+          async delete() {
+            const index = rows.findIndex((row) => row.name === json.name);
+            if (index >= 0) rows.splice(index, 1);
+          }
+        });
+      },
+      async edit() {}
+    }
+  };
+}
+
 test('the shop panel is ephemeral, locked to the buyer, and shows the balance change', async () => {
-  const previous = process.env.COIN_SHOP_ENABLED;
+  const previousCoin = process.env.COIN_SHOP_ENABLED;
+  const previousArk = process.env.ARK_SHOP_ENABLED;
   process.env.COIN_SHOP_ENABLED = 'true';
+  process.env.ARK_SHOP_ENABLED = 'false';
   try {
     assert.equal(shopCommand().name, 'shop');
     assert.equal(shopAdminCommand().name, 'shopadmin');
@@ -407,9 +456,10 @@ test('the shop panel is ephemeral, locked to the buyer, and shows the balance ch
       economyClient: { async balances() { throw new Error('balance should stay hidden'); } },
       backend: {}
     });
-    assert.match(closed.replies[0].content, /The Coin shop isn't open yet/);
-    assert.match(closed.replies[0].content, /Cosmetic only\. No gameplay effect/);
+    assert.match(closed.replies[0].content, /The shop isn't open yet/);
+    assert.doesNotMatch(closed.replies[0].content, /Points|Coins/);
     assert.equal(closed.replies[0].flags, 64);
+    assert.equal(closed.replies[0].components.length, 0);
 
     process.env.COIN_SHOP_ENABLED = 'true';
     const buyer = mockInteraction({ kind: 'button', customId: `nxcoin:buy:ttl_night_owl:${USER}` });
@@ -440,9 +490,62 @@ test('the shop panel is ephemeral, locked to the buyer, and shows the balance ch
     await handleCoinShopInteraction(stranger, { economyClient: economy, backend: {} });
     assert.match(stranger.replies[0].content, /another member/);
     assert.equal(GATE_OFF, "The Coin shop isn't open yet.");
+
+    async function menu(coin, ark) {
+      process.env.COIN_SHOP_ENABLED = coin ? 'true' : 'false';
+      process.env.ARK_SHOP_ENABLED = ark ? 'true' : 'false';
+      const interaction = mockInteraction({ kind: 'command', commandName: 'shop' });
+      await handleCoinShopInteraction(interaction, {
+        economyClient: { async balances() { throw new Error('the menu does not load a balance'); } },
+        backend: {}
+      });
+      return interaction.replies[0];
+    }
+    const coinOnly = await menu(true, false);
+    assert.deepEqual(buttonLabels(coinOnly), ['Coin Shop (cosmetics)']);
+    assert.match(coinOnly.content, /Cosmetic only/);
+    assert.doesNotMatch(coinOnly.content, /Points/);
+    const arkOnly = await menu(false, true);
+    assert.deepEqual(buttonLabels(arkOnly), ['Points Shop (ARK)']);
+    assert.doesNotMatch(arkOnly.content, /Coin/);
+    const both = await menu(true, true);
+    assert.deepEqual(buttonLabels(both), ['Coin Shop (cosmetics)', 'Points Shop (ARK)']);
+    assert.doesNotMatch(both.content, /\d/);
+    const neither = await menu(false, false);
+    assert.deepEqual(buttonLabels(neither), []);
+    assert.match(neither.content, /The shop isn't open yet/);
+
+    process.env.ARK_SHOP_ENABLED = 'true';
+    process.env.COIN_SHOP_ENABLED = 'false';
+    const points = mockInteraction({ kind: 'button', customId: 'nxshop:ark' });
+    await handleCoinShopInteraction(points, { economyClient: {}, backend: {} });
+    assert.match(points.replies[0].content, /Spend Points on ARK/);
+    assert.doesNotMatch(points.replies[0].content, /Coin/);
+    const coinClosed = mockInteraction({ kind: 'button', customId: 'nxshop:coin' });
+    await handleCoinShopInteraction(coinClosed, {
+      economyClient: { async balances() { throw new Error('closed coin shop stays hidden'); } },
+      backend: {}
+    });
+    assert.match(coinClosed.updates[0].content, /The Coin shop isn't open yet/);
+    assert.doesNotMatch(coinClosed.updates[0].content, /Points/);
+
+    const gone = fakeGuild(['shop']);
+    await registerCoinShopCommands(gone, { COIN_SHOP_ENABLED: 'false', ARK_SHOP_ENABLED: 'false' });
+    assert.equal(gone.rows.some((row) => row.name === 'shop'), false);
+    for (const env of [
+      { COIN_SHOP_ENABLED: 'true', ARK_SHOP_ENABLED: 'false' },
+      { COIN_SHOP_ENABLED: 'false', ARK_SHOP_ENABLED: 'true' },
+      { COIN_SHOP_ENABLED: 'true', ARK_SHOP_ENABLED: 'true' }
+    ]) {
+      const guild = fakeGuild();
+      await registerCoinShopCommands(guild, env);
+      assert.equal(guild.rows.some((row) => row.name === 'shop'), true);
+    }
   } finally {
-    if (previous == null) delete process.env.COIN_SHOP_ENABLED;
-    else process.env.COIN_SHOP_ENABLED = previous;
+    if (previousCoin == null) delete process.env.COIN_SHOP_ENABLED;
+    else process.env.COIN_SHOP_ENABLED = previousCoin;
+    if (previousArk == null) delete process.env.ARK_SHOP_ENABLED;
+    else process.env.ARK_SHOP_ENABLED = previousArk;
   }
 });
 
@@ -545,6 +648,8 @@ test('postgres coin shop stays on Coins and does not touch Points, RCON, or the 
   assert.match(src, /pg_advisory_xact_lock/);
   assert.match(src, /nexus_economic_identities WHERE economic_identity_id = \$1 FOR UPDATE/);
   assert.match(src, /equipped_at = NULL/);
+  assert.match(src, /America\/Chicago/);
+  assert.match(src, /NOW\(\) - INTERVAL '24 hours'/);
   assert.doesNotMatch(src, /RCON|rcon/);
   assert.doesNotMatch(src, /DISCORD_BOT_TOKEN|NEXUS_SENTINAL_DISCORD_TOKEN/);
   assert.doesNotMatch(src, /NEXUS_POINTS/);

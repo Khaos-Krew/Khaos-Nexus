@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const { sqlIdent } = require('../sentinel/nexus-economy-postgres-repository.cjs');
 const { catalogItem } = require('../shared/coin-shop-catalog.cjs');
 const { coinShopFlags, purchaseCeiling } = require('../shared/coin-shop-flags.cjs');
-const { purchaseKey, refundKey, chicagoDayStart, ATTEMPT_WINDOW_MS } = require('../shared/coin-shop-limits.cjs');
+const { purchaseKey, refundKey, ATTEMPT_WINDOW_MS } = require('../shared/coin-shop-limits.cjs');
 const { decideQuote, decidePurchase, decideRefund } = require('../shared/coin-shop-decide.cjs');
 const { memberIdentityHold, quarantineDenylist } = require('../sentinel/nexus-economy-identity-hold.cjs');
 const { acceptVerifiedStaff } = require('./coin-shop-staff.cjs');
@@ -294,6 +294,7 @@ class PostgresCoinShop {
       try { await client.query('ROLLBACK'); } catch { /* ignore */ }
       if (error?.reason === 'balance-changed') return { ok: false, reason: 'balance-changed' };
       if (error?.reason === 'duplicate-order') return { ok: false, reason: 'in-flight' };
+      if (error?.reason === 'revoke-failed') return { ok: false, reason: 'revoke-failed' };
       throw error;
     } finally {
       client.release();
@@ -366,12 +367,29 @@ class PostgresCoinShop {
       } else if (effect.type === 'consume-quote') {
         await client.query(`UPDATE ${s}.nexus_coin_shop_quotes SET consumed_at = NOW() WHERE nonce = $1`, [effect.nonce]);
       } else if (effect.type === 'refund-entitlement') {
-        await client.query(
+        const revoked = await client.query(
           `UPDATE ${s}.nexus_coin_shop_entitlements
-           SET status = 'refunded', refund_ledger_id = $3, equipped_at = NULL, updated_at = NOW()
-           WHERE economic_identity_id = $1 AND sku = $2`,
+           SET status = 'refunded', equipped_at = NULL, updated_at = NOW()
+           WHERE economic_identity_id = $1 AND sku = $2 AND status = 'active'`,
+          [effect.econId, effect.sku]
+        );
+        if (!revoked.rowCount) {
+          const error = new Error('revoke-failed');
+          error.reason = 'revoke-failed';
+          throw error;
+        }
+      } else if (effect.type === 'stamp-refund-ledger') {
+        const stamped = await client.query(
+          `UPDATE ${s}.nexus_coin_shop_entitlements
+           SET refund_ledger_id = $3, updated_at = NOW()
+           WHERE economic_identity_id = $1 AND sku = $2 AND status = 'refunded'`,
           [effect.econId, effect.sku, ledgerId]
         );
+        if (!stamped.rowCount || ledgerId == null) {
+          const error = new Error('revoke-failed');
+          error.reason = 'revoke-failed';
+          throw error;
+        }
       } else if (effect.type === 'audit') {
         await client.query(
           `INSERT INTO ${s}.nexus_coin_shop_audit (audit_id, action, actor, reason, ledger_id, sku)
@@ -387,7 +405,7 @@ class PostgresCoinShop {
     const identity = await this.#identity(client, discordUserId, { forUpdate });
     const econId = identity?.econId || '';
     const balance = econId ? await this.#coinBalance(client, econId, forUpdate) : 0;
-    const spentToday = econId ? await this.#spentToday(client, econId, now) : 0;
+    const spentToday = econId ? await this.#spentToday(client, econId) : 0;
     const attemptCount = econId ? await this.#attemptCount(client, econId, now) : 0;
     const owned = Boolean(econId && sku && await this.#owns(client, econId, sku));
     const state = { identity, balance, spentToday, attemptCount, owned, quote: null, replay: null };
@@ -517,13 +535,13 @@ class PostgresCoinShop {
     return Number(result.rows?.[0]?.balance || 0);
   }
 
-  async #spentToday(client, econId, now) {
+  async #spentToday(client, econId) {
     const result = await client.query(
       `SELECT COALESCE(SUM(-amount), 0)::bigint AS spent
        FROM ${sqlIdent(this.schema)}.nexus_economy_ledger
        WHERE economic_identity_id = $1 AND currency = 'NEXUS_COINS' AND source = 'sink:coin-shop'
-         AND created_at >= $2`,
-      [econId, new Date(chicagoDayStart(now)).toISOString()]
+         AND (created_at AT TIME ZONE 'America/Chicago')::date = (NOW() AT TIME ZONE 'America/Chicago')::date`,
+      [econId]
     );
     return Number(result.rows?.[0]?.spent || 0);
   }
@@ -570,7 +588,8 @@ class PostgresCoinShop {
     if (!text) return null;
     const s = sqlIdent(this.schema);
     const result = await client.query(
-      `SELECT id, economic_identity_id, currency, amount, entry_type, metadata, created_at
+      `SELECT id, economic_identity_id, currency, amount, entry_type, metadata, created_at,
+              (created_at >= NOW() - INTERVAL '24 hours') AS within_refund_window
        FROM ${s}.nexus_economy_ledger
        WHERE currency = 'NEXUS_COINS' AND entry_type = 'purchase' AND source = 'sink:coin-shop'
          AND (idempotency_key = $1 OR id::text = $1)
@@ -600,6 +619,7 @@ class PostgresCoinShop {
       price: Number(row.metadata?.price || Math.abs(Number(row.amount))),
       currency: row.currency,
       createdAt: new Date(row.created_at).getTime(),
+      withinWindow: row.within_refund_window === true,
       equippedAt: ent?.equipped_at ? new Date(ent.equipped_at).getTime() : null,
       refunded: Boolean(refund.rowCount) || ent?.status === 'refunded'
     };
