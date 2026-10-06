@@ -11,6 +11,7 @@ const {
   boardEmbed,
   rawMessagePayload,
   runArnLiveBoardSetup,
+  replayIntake,
   installArnLiveBoardExtension,
   SETUP_DELAY_MS,
   resetArnStateForTest
@@ -174,7 +175,83 @@ test('live board setup logs one outcome and does not hang', async () => {
   await late;
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(armed, 1);
-  assert.match(lines.at(-1), /ARN live board ready: publicChannel=late/);
+  assert.match(lines.at(-1), /ARN live board ready \(late\): publicChannel=late/);
+});
+
+test('a slow live-board step arms refresh when it finishes and names a step error', async () => {
+  const lines = [];
+  const logger = {
+    log(line) { lines.push(line); },
+    warn(line) { lines.push(line); }
+  };
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  let armed = 0;
+  const timedOut = await runArnLiveBoardSetup({}, {
+    logger,
+    timeoutMs: 25,
+    onReady() { armed += 1; },
+    async reconcile(_client, hooks) {
+      hooks.noteStep('replay');
+      await gate;
+      return { publicChannelId: 'late', intakeChannelId: 'in', replayed: 4, tracked: 1 };
+    }
+  });
+  assert.equal(timedOut.step, 'replay');
+  assert.match(lines.at(-1), /ARN live board unavailable: setup-timeout step=replay/);
+  release();
+  await gate;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(armed, 1);
+  assert.match(lines.at(-1), /ARN live board ready \(late\): publicChannel=late intakeChannel=in replayed=4 tracked=1/);
+
+  lines.length = 0;
+  let failRelease;
+  const failGate = new Promise((resolve) => { failRelease = resolve; });
+  const failed = await runArnLiveBoardSetup({}, {
+    logger,
+    timeoutMs: 20,
+    async reconcile(_client, hooks) {
+      hooks.noteStep('panel');
+      await failGate;
+      const error = new Error('Bearer super-secret-token');
+      error.status = 429;
+      throw error;
+    }
+  });
+  assert.equal(failed.unavailable, 'setup-timeout');
+  assert.match(lines.at(-1), /setup-timeout step=panel/);
+  failRelease();
+  await failGate;
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  const late = lines.at(-1);
+  assert.match(late, /ARN live board unavailable \(late\): step=panel reason=rate-limited/);
+  assert.equal(lines.some((line) => line.includes('super-secret-token')), false);
+});
+
+test('replay stops after two history pages', async () => {
+  const fetches = [];
+  const channel = {
+    messages: {
+      async fetch(query) {
+        fetches.push(query);
+        const start = 5000 - (fetches.length * 50);
+        const batch = new Map();
+        for (let index = 0; index < 50; index += 1) {
+          const id = String(start - index);
+          batch.set(id, { id, webhookId: '', createdTimestamp: index });
+        }
+        return batch;
+      }
+    }
+  };
+  const accepted = await replayIntake({}, channel);
+  assert.equal(accepted, 0);
+  assert.equal(fetches.length, 2);
+  assert.equal(fetches[0].limit, 50);
+  assert.equal(fetches[0].before, undefined);
+  assert.equal(fetches[1].before, '4901');
 });
 
 test('a failed REST read logs once and keeps the gateway payload', async () => {

@@ -15,7 +15,8 @@ const ARN_PUBLIC_TOPIC = 'Anomaly Response Network — live Shiny! Dinos detecti
 const INFO_MARKER = 'ARN • NETWORK BRIEFING';
 const BOARD_MARKER = 'ARN • LIVE BOUNTY BOARD';
 const RESOLVED_LINGER_MS = 15 * 60 * 1000;
-const REPLAY_LIMIT = 100;
+const REPLAY_PAGE_SIZE = 50;
+const REPLAY_MAX_PAGES = 2;
 const BOARD_REFRESH_MS = 60 * 1000;
 
 const state = {
@@ -253,11 +254,15 @@ function findArkCategory(channels) {
     || null;
 }
 
-async function ensurePublicChannel(guild) {
-  const channels = await guild.channels.fetch();
-  const category = findArkCategory(channels);
-  if (!category) throw new Error('ARK Discord category was not found; ARN public channel cannot be safely auto-placed.');
-  let channel = [...channels.values()].find((item) => item?.type === ChannelType.GuildText && String(item.name || '').toLowerCase() === ARN_PUBLIC_CHANNEL_NAME);
+async function ensurePublicChannel(guild, channels) {
+  const list = channels || await guild.channels.fetch();
+  const category = findArkCategory(list);
+  if (!category) {
+    const error = new Error('category-not-found');
+    error.reasonCode = 'category-not-found';
+    throw error;
+  }
+  let channel = [...list.values()].find((item) => item?.type === ChannelType.GuildText && String(item.name || '').toLowerCase() === ARN_PUBLIC_CHANNEL_NAME);
   if (!channel) {
     channel = await guild.channels.create({
       name: ARN_PUBLIC_CHANNEL_NAME,
@@ -266,11 +271,18 @@ async function ensurePublicChannel(guild) {
       topic: ARN_PUBLIC_TOPIC,
       reason: 'Nexus Sentinel ARN public live board'
     });
-  } else {
-    if (String(channel.parentId || '') !== String(category.id)) await channel.setParent(String(category.id), { lockPermissions: false, reason: 'Nexus Sentinel ARN channel organization' });
-    if (String(channel.topic || '') !== ARN_PUBLIC_TOPIC) await channel.setTopic(ARN_PUBLIC_TOPIC, 'Nexus Sentinel ARN topic reconciliation');
   }
-  return channel;
+  return { channel, category };
+}
+
+async function organizePublicChannel(channel, category) {
+  if (!channel || !category) return;
+  if (String(channel.parentId || '') !== String(category.id)) {
+    await channel.setParent(String(category.id), { lockPermissions: false, reason: 'Nexus Sentinel ARN channel organization' });
+  }
+  if (String(channel.topic || '') !== ARN_PUBLIC_TOPIC) {
+    await channel.setTopic(ARN_PUBLIC_TOPIC, 'Nexus Sentinel ARN topic reconciliation');
+  }
 }
 
 function isManagedMessage(message, marker) {
@@ -325,13 +337,55 @@ function cleanLog(error) {
   return String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 350);
 }
 
+function sanitizeStep(value) {
+  const step = String(value || '').trim().toLowerCase();
+  return /^[a-z0-9+][a-z0-9+-]{0,59}$/.test(step) ? step : 'setup';
+}
+
+function liveBoardReason(error) {
+  const status = Number(error?.status || error?.httpStatus || error?.statusCode || 0);
+  const name = String(error?.name || '');
+  const code = String(error?.code || error?.reasonCode || '');
+  if (code === 'timeout' || name === 'AbortError') return 'timeout';
+  if (status === 429 || name === 'RateLimitError' || code === '429' || code === 'rate-limited') return 'rate-limited';
+  if (status === 403 || code === '50013' || code === 'missing-access') return 'missing-access';
+  if (status === 404 || code === '10003' || code === 'unknown-channel') return 'unknown-channel';
+  if (code === '10004' || code === 'unknown-guild') return 'unknown-guild';
+  if (code === 'category-not-found') return 'category-not-found';
+  const message = String(error?.message || '');
+  if (/rate limit/i.test(message)) return 'rate-limited';
+  if (/timed out|timeout/i.test(message)) return 'timeout';
+  if (/missing permissions|missing access/i.test(message)) return 'missing-access';
+  return 'failed';
+}
+
+function warnLiveBoardStep(logger, error, fallbackStep, late = false) {
+  const step = sanitizeStep(error?.step || fallbackStep);
+  const reason = liveBoardReason(error);
+  const label = late ? 'unavailable (late)' : 'step failed';
+  logger.warn?.(`[Nexus Sentinal] ARN live board ${label}: step=${step} reason=${reason}`);
+}
+
 async function runArnLiveBoardSetup(client, options = {}) {
   const logger = options.logger || console;
   const timeoutMs = Number.isFinite(Number(options.timeoutMs)) ? Number(options.timeoutMs) : SETUP_TIMEOUT_MS;
-  const reconcile = options.reconcile || ((active) => reconcileArnLiveBoard(active, options.config || loadConfig(), options));
+  const inflight = new Set();
+  let step = 'setup';
+  const hooks = {
+    noteStep(name) {
+      inflight.add(sanitizeStep(name));
+      step = [...inflight].join('+') || step;
+    },
+    doneStep(name) {
+      inflight.delete(sanitizeStep(name));
+      step = [...inflight].join('+') || step;
+    }
+  };
+  const reconcile = options.reconcile
+    || ((active, hook) => reconcileArnLiveBoard(active, options.config || loadConfig(), { ...options, ...hook }));
   let timer;
   const pending = Promise.resolve()
-    .then(() => reconcile(client))
+    .then(() => reconcile(client, hooks))
     .then((result) => ({ result }))
     .catch((error) => ({ error }));
   const timeout = new Promise((resolve) => {
@@ -340,23 +394,27 @@ async function runArnLiveBoardSetup(client, options = {}) {
   const outcome = await Promise.race([pending, timeout]);
   clearTimeout(timer);
   function finishLate(late) {
-    if (!late || late.error) return;
+    if (!late) return;
+    if (late.error) {
+      warnLiveBoardStep(logger, late.error, step, true);
+      return;
+    }
     const result = late.result || {};
     if (result.skipped) {
       logger.warn(`[Nexus Sentinal] ARN live board skipped: ${result.skipped}`);
       return;
     }
-    logger.log(`[Nexus Sentinal] ARN live board ready: publicChannel=${result.publicChannelId} intakeChannel=${result.intakeChannelId} replayed=${result.replayed} tracked=${result.tracked}`);
+    logger.log(`[Nexus Sentinal] ARN live board ready (late): publicChannel=${result.publicChannelId} intakeChannel=${result.intakeChannelId} replayed=${result.replayed} tracked=${result.tracked}`);
     if (typeof options.onReady === 'function') options.onReady(result);
   }
   if (outcome.timeout) {
-    logger.warn('[Nexus Sentinal] ARN live board unavailable: setup-timeout');
-    pending.then(finishLate).catch(() => {});
-    return { unavailable: 'setup-timeout' };
+    logger.warn(`[Nexus Sentinal] ARN live board unavailable: setup-timeout step=${sanitizeStep(step)}`);
+    pending.then(finishLate).catch((error) => warnLiveBoardStep(logger, error, step, true));
+    return { unavailable: 'setup-timeout', step: sanitizeStep(step) };
   }
   if (outcome.error) {
-    logger.warn(`[Nexus Sentinal] ARN live board unavailable: ${cleanLog(outcome.error)}`);
-    return { unavailable: cleanLog(outcome.error) };
+    warnLiveBoardStep(logger, outcome.error, step, false);
+    return { unavailable: liveBoardReason(outcome.error), step: sanitizeStep(outcome.error.step || step) };
   }
   const result = outcome.result || {};
   if (result.skipped) {
@@ -377,11 +435,40 @@ function armArnLiveBoard(client, options = {}) {
   return timer;
 }
 
-async function replayIntake(client, channel) {
-  state.anomalies.clear();
+function oldestMessageId(messages) {
+  let oldest = '';
+  for (const message of messages.values()) {
+    const id = String(message?.id || '');
+    if (!/^\d+$/.test(id)) continue;
+    if (!oldest || BigInt(id) < BigInt(oldest)) oldest = id;
+  }
+  return oldest;
+}
+
+function applyReplayEvent(event, occurredAt) {
+  const current = state.anomalies.get(anomalyKey(event));
+  if (current && Number(current.updatedAt || 0) > Number(occurredAt || 0)) return false;
+  applyEvent(event, occurredAt);
+  return true;
+}
+
+async function replayIntake(client, channel, options = {}) {
+  const pageSize = Number.isFinite(Number(options.pageSize)) ? Number(options.pageSize) : REPLAY_PAGE_SIZE;
+  const maxPages = Number.isFinite(Number(options.maxPages)) ? Number(options.maxPages) : REPLAY_MAX_PAGES;
   const registry = getArnWebhookRegistry();
-  const messages = await channel.messages.fetch({ limit: REPLAY_LIMIT });
-  const ordered = [...messages.values()].sort((a, b) => Number(a.createdTimestamp || 0) - Number(b.createdTimestamp || 0));
+  const ordered = [];
+  let before = '';
+  for (let page = 0; page < maxPages; page += 1) {
+    const query = { limit: pageSize };
+    if (before) query.before = before;
+    const batch = await channel.messages.fetch(query);
+    const values = [...batch.values()];
+    if (!values.length) break;
+    ordered.push(...values);
+    before = oldestMessageId(batch);
+    if (values.length < pageSize || !before) break;
+  }
+  ordered.sort((a, b) => Number(a.createdTimestamp || 0) - Number(b.createdTimestamp || 0));
   let accepted = 0;
   for (const message of ordered) {
     if (!message.webhookId) continue;
@@ -391,28 +478,73 @@ async function replayIntake(client, channel) {
     const payload = messagePayload(message);
     const event = parseShinyDiscordPayload(payload, authoritativeMap);
     if (!event) continue;
-    applyEvent(event, Number(message.createdTimestamp || Date.now()));
-    accepted += 1;
+    if (applyReplayEvent(event, Number(message.createdTimestamp || Date.now()))) accepted += 1;
   }
   pruneResolved();
   return accepted;
 }
 
+async function trackLiveBoardStep(name, work, options = {}) {
+  const step = sanitizeStep(name);
+  options.noteStep?.(step);
+  try {
+    return await work();
+  } catch (error) {
+    if (error && typeof error === 'object' && !error.step) error.step = step;
+    throw error;
+  } finally {
+    options.doneStep?.(step);
+  }
+}
+
 async function reconcileArnLiveBoard(client, config = loadConfig(), options = {}) {
+  const logger = options.logger || console;
   const guildId = String(config?.discord?.guildId || process.env.NEXUS_DISCORD_GUILD_ID || '').trim();
   if (!guildId) return { skipped: 'guild-not-configured' };
-  const guild = await client.guilds.fetch(guildId);
-  const channels = await guild.channels.fetch();
+  const guild = await trackLiveBoardStep('guild-fetch', () => client.guilds.fetch(guildId), options);
+  const channels = await trackLiveBoardStep('channel-list', () => guild.channels.fetch(), options);
   const intake = [...channels.values()].find((item) => item?.type === ChannelType.GuildText && String(item.name || '').toLowerCase() === ARN_INTAKE_CHANNEL_NAME);
   if (!intake) return { skipped: 'arn-intake-not-found' };
-  await discoverNamedWebhooks(intake, options.logger || console);
-  const publicChannel = await ensurePublicChannel(guild);
   state.guildId = guildId;
   state.intakeChannelId = String(intake.id);
-  state.publicChannelId = String(publicChannel.id);
-  const replayed = await replayIntake(client, intake);
-  await ensurePanelMessages(publicChannel);
-  return { guildId, intakeChannelId: state.intakeChannelId, publicChannelId: state.publicChannelId, replayed, tracked: state.anomalies.size };
+
+  // Webhook names and the public channel lookup share the channel list. Channel
+  // parent/topic edits, history replay, and panel writes wait on Discord's
+  // rate-limit queue, which is not covered by the 15s HTTP timeout, so they
+  // must not block ready.
+  const [discovery, placed] = await Promise.all([
+    trackLiveBoardStep('webhook-discovery', () => discoverNamedWebhooks(intake, logger), options)
+      .then((value) => ({ ok: true, value }))
+      .catch((error) => ({ ok: false, error })),
+    trackLiveBoardStep('public-channel', () => ensurePublicChannel(guild, channels), options)
+      .then((value) => ({ ok: true, value }))
+      .catch((error) => ({ ok: false, error }))
+  ]);
+  if (!discovery.ok) warnLiveBoardStep(logger, discovery.error, 'webhook-discovery');
+  if (placed.ok) state.publicChannelId = String(placed.value.channel.id);
+  else warnLiveBoardStep(logger, placed.error, 'public-channel');
+
+  const placedChannel = placed.ok ? placed.value : null;
+  void (async () => {
+    if (placedChannel?.channel && placedChannel?.category) {
+      await trackLiveBoardStep('public-organize', () => organizePublicChannel(placedChannel.channel, placedChannel.category), options)
+        .catch((error) => warnLiveBoardStep(logger, error, 'public-organize'));
+    }
+    await trackLiveBoardStep('replay', () => replayIntake(client, intake), options)
+      .catch((error) => warnLiveBoardStep(logger, error, 'replay'));
+    if (placedChannel?.channel) {
+      await trackLiveBoardStep('panel', () => ensurePanelMessages(placedChannel.channel), options)
+        .catch((error) => warnLiveBoardStep(logger, error, 'panel'));
+    }
+  })();
+
+  return {
+    guildId,
+    intakeChannelId: state.intakeChannelId,
+    publicChannelId: state.publicChannelId,
+    replayed: 0,
+    tracked: state.anomalies.size
+  };
 }
 
 async function handleIntakeMessage(client, message) {
