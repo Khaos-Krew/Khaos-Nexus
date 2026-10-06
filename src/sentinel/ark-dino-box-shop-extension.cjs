@@ -17,8 +17,12 @@ const { loadConfig } = require('../shared/config.cjs');
 const { CONFIG, WEEKLY_CACHE_RETIRED } = require('./ark-weekly-cache.cjs');
 const { isRetired } = require('./arkshop-mysql.cjs');
 const { memberActionFallback } = require('./arkshop-cluster-economy-guard.cjs');
+const { arnRotation, openArnCache, rotationSecret } = require('./arn-cache-rotation.cjs');
+const { sharedArnBook } = require('./arn-token-award.cjs');
+const { arnShopLines, arnShopPublicLines } = require('./arn-member-copy.cjs');
+const { shopCurrencyCopy, isArnCache } = require('../shared/dino-cache-currency.cjs');
 const { ArkCacheShopService } = require('./ark-cache-shop-service.cjs');
-const { ArkDinoBoxTokenService } = require('./ark-dino-box-token-service.cjs');
+const { ArkDinoBoxTokenService, ARN_TOKEN_ONLY } = require('./ark-dino-box-token-service.cjs');
 const { BUTTON_CACHE_SHOP } = require('./ark-cluster-panel.cjs');
 const {
   legacyMeta,
@@ -39,6 +43,7 @@ const LEGACY_PANEL_MARKER = 'Nexus Dino Box Shop • cache:';
 const HUB_SELECT_ID = 'nexus-dino-box-hub-select';
 const HUB_HOME_ID = '__guide__';
 const HUB_MY_SEALED_ID = 'nexus-dino-box-my-sealed';
+const ARN_SHOP_ID = 'nexus-dino-box-arn';
 const BUY_PREFIX = 'nexus-dino-box-buy:';
 const TOKEN_PREFIX = 'nexus-dino-box-token:';
 const TOKEN_MODAL_PREFIX = 'nexus-dino-box-token-modal:';
@@ -57,6 +62,10 @@ function meta(cacheId) {
 }
 
 function cachePrice(cache) { return cache.currency === 'ARN_TOKENS' ? (cache.enabled ? `${cache.price} Tokens` : 'Redemption is turned off') : arkShopPoints(cache.price); }
+function currencyCopy(cacheId, cache) {
+  if (String(cacheId || '').toLowerCase() === 'weekly') return null;
+  return shopCurrencyCopy(cacheId, cache?.price);
+}
 function retireControl(component) {
   if (isRetired()) component.setDisabled(true);
   return component;
@@ -77,38 +86,48 @@ function cachePanelPayload(cacheId) {
   const cache = CONFIG.caches[cacheId];
   if (!cache) throw new Error('Unknown Dino Box cache.');
   const m = meta(cacheId);
+  const copy = currencyCopy(cacheId, cache);
+  const arn = isArnCache(cacheId);
   const speciesFields = speciesByRarity(cache).map((field) => ({ ...field, inline: false }));
   const disclaimerFields = m.disclaimer
     ? [{ name: '⚠️ DLC Ownership Required', value: m.disclaimer.slice(0, 1024), inline: false }]
     : [];
+  const tokenButton = new ButtonBuilder()
+    .setCustomId(`${TOKEN_PREFIX}${cacheId}`)
+    .setLabel('Redeem Token')
+    .setEmoji('🎟️')
+    .setStyle(ButtonStyle.Primary);
+  if (arn) tokenButton.setDisabled(true);
   const row = new ActionRowBuilder().addComponents(
     retireControl(new ButtonBuilder()
       .setCustomId(`${BUY_PREFIX}${cacheId}`)
-      .setLabel(`Buy • ${cachePrice(cache)}`)
+      .setLabel(copy ? copy.button : `Buy • ${cachePrice(cache)}`)
       .setEmoji('🎰')
       .setStyle(ButtonStyle.Success)),
-    retireControl(new ButtonBuilder()
-      .setCustomId(`${TOKEN_PREFIX}${cacheId}`)
-      .setLabel('Redeem Token')
-      .setEmoji('🎟️')
-      .setStyle(ButtonStyle.Primary))
+    retireControl(tokenButton)
   );
+  const buyLine = arn
+    ? ARN_TOKEN_ONLY
+    : 'Choose **Buy** to spend Nexus Points, or **Redeem Token** to open this box with a single-use Nexus token.';
+  const delivery = arn
+    ? 'Your result is locked before the reveal and queued for delivery to your linked ARK account. The **5-minute cooldown applies to both purchases and token redemptions** for this box.'
+    : 'Your result is locked before the reveal and queued for delivery to your linked ARK account. The **5-minute cooldown applies to both purchases and token redemptions** for this box. Token redemption charges **0 Points**.';
 
   return {
     embeds: [{
       title: `${m.emoji} ${m.name}`,
-      description: `${m.tagline}\n\nChoose **Buy** to spend Points or **Redeem Token** to open this box with a single-use Nexus token.`,
+      description: `${m.tagline}\n\n${copy ? `${copy.detail}\n\n` : ''}${buyLine}`,
       color: 0xb00020,
       fields: [
         ...disclaimerFields,
-        { name: '💰 Price', value: `**${cachePrice(cache)}**`, inline: true },
+        { name: '💰 Price', value: copy ? `**${copy.price}**\n${copy.accepted}` : `**${cachePrice(cache)}**`, inline: true },
         { name: '⏱️ Per-Box Cooldown', value: `**${cooldownLabel(cache)}**`, inline: true },
         { name: '🎲 Rarity Odds', value: raritySummary(cache), inline: false },
         ...speciesFields,
         { name: '🧬 Variant Odds', value: `${variantTable(cache)}\nVariants are re-normalized when a species does not support X or S.`, inline: false },
         { name: '📈 Level Odds', value: levelTable(), inline: false },
         { name: '⚥ Sex', value: 'Male **50%** • Female **50%**', inline: true },
-        { name: '📦 Delivery', value: 'Your result is locked before the reveal and queued for delivery to your linked ARK account. The **5-minute cooldown applies to both purchases and token redemptions** for this box. Token redemption charges **0 Points**.', inline: false }
+        { name: '📦 Delivery', value: delivery, inline: false }
       ].slice(0, 25),
       footer: { text: `${LEGACY_PANEL_MARKER}${cacheId}` }
     }],
@@ -133,15 +152,91 @@ function cacheSelect(selected = HUB_HOME_ID) {
     .addOptions({ label: 'Cache System Guide', value: HUB_HOME_ID, emoji: '📖', description: 'How purchases, sealed rolls, reveals, and delivery work.', default: selected === HUB_HOME_ID });
   for (const id of cacheIds().slice(0, 24)) {
     const cache = CONFIG.caches[id], m = meta(id);
-    menu.addOptions({ label: m.name.slice(0, 100), value: id, emoji: m.emoji, description: `${cachePrice(cache)} • ${cooldownLabel(cache)} cooldown`.slice(0, 100), default: selected === id });
+    const copy = currencyCopy(id, cache);
+    const description = isArnCache(id)
+      ? 'ARN tokens only • 1 ARN token'
+      : `${copy ? copy.price : cachePrice(cache)} • ${cooldownLabel(cache)} cooldown`;
+    menu.addOptions({ label: m.name.slice(0, 100), value: id, emoji: m.emoji, description: description.slice(0, 100), default: selected === id });
   }
   return new ActionRowBuilder().addComponents(retireControl(menu));
 }
 
 function mySealedRow() {
   return new ActionRowBuilder().addComponents(
+    retireControl(new ButtonBuilder().setCustomId(HUB_MY_SEALED_ID).setLabel('My Sealed Caches').setEmoji('🔒').setStyle(ButtonStyle.Secondary)),
+    new ButtonBuilder().setCustomId(ARN_SHOP_ID).setLabel('Coming soon').setStyle(ButtonStyle.Secondary).setDisabled(true)
+  );
+}
+
+function arnRedeemButton() {
+  return new ButtonBuilder().setCustomId(`${BUY_PREFIX}arn`).setLabel('Coming soon').setStyle(ButtonStyle.Secondary).setDisabled(true);
+}
+
+async function shownArnBalance(discordUserId, { book, ledger, env } = {}) {
+  if (book) return book.balanceForDiscord(discordUserId);
+  if (ledger && typeof ledger.balance === 'function') {
+    const value = await ledger.balance(discordUserId);
+    return Number(value?.balance ?? value ?? 0);
+  }
+  return sharedArnBook(env).balanceForDiscord(discordUserId);
+}
+
+async function arnShopPreview({ discordUserId, book, ledger, env = process.env, now = Date.now(), balance } = {}) {
+  const rotation = arnRotation(now, rotationSecret(env));
+  const shown = Number.isFinite(Number(balance))
+    ? Number(balance)
+    : await shownArnBalance(discordUserId, { book, ledger, env });
+  return {
+    content: arnShopLines({ balance: shown, rotation, env }),
+    embeds: [],
+    components: [new ActionRowBuilder().addComponents(arnRedeemButton())],
+    allowedMentions: { parse: [] }
+  };
+}
+
+async function redeemArnInShop({ discordUserId, book, ledger, env = process.env, now = Date.now(), deliver, secret } = {}) {
+  const result = await openArnCache({
+    env,
+    now,
+    discordUserId,
+    secret,
+    book
+  });
+  const sent = result.debited === true && result.raCalled === true && result.drawn;
+  return {
+    content: arnShopLines({
+      balance: await shownArnBalance(discordUserId, { book, ledger, env }),
+      rotation: result.rotation,
+      redeemed: true,
+      drawn: sent ? result.drawn : null,
+      env
+    }),
+    embeds: [],
+    components: [],
+    allowedMentions: { parse: [] },
+    debited: result.debited === true,
+    raCalled: result.raCalled === true,
+    reason: result.reason || ''
+  };
+}
+
+function arnCacheDetailPayload(now = Date.now(), env = process.env) {
+  const rotation = arnRotation(now, rotationSecret(env));
+  const purchaseRow = new ActionRowBuilder().addComponents(
+    arnRedeemButton(),
     retireControl(new ButtonBuilder().setCustomId(HUB_MY_SEALED_ID).setLabel('My Sealed Caches').setEmoji('🔒').setStyle(ButtonStyle.Secondary))
   );
+  return {
+    embeds: [{
+      title: '🎟️ ARN Cache',
+      description: arnShopPublicLines(rotation),
+      color: 0xb00020,
+      footer: { text: `${HUB_MARKER} • arn` }
+    }],
+    components: [cacheSelect('arn'), purchaseRow],
+    attachments: [],
+    allowedMentions: { parse: [] }
+  };
 }
 
 function hubHomePayload() {
@@ -151,7 +246,7 @@ function hubHomePayload() {
       description: 'Choose a cache from the dropdown below. **This one message is the entire public cache shop**—switching caches replaces the information here instead of filling the channel with separate panels.',
       color: 0xb00020,
       fields: [
-        { name: '🎲 How Dino Caches Work', value: '**1. Purchase** with Points or redeem an eligible Nexus token.\n**2. Sentinel rolls the complete reward immediately** and permanently stores the species, valid Normal/X/S variant, level, and sex.\n**3. The reward stays 🔒 SEALED.** Nothing is shown and nothing is delivered yet.\n**4. Press Reveal Now** when you are ready. Reveal reads the stored reward—it never rerolls.\n**5. After reveal**, that exact saved tame becomes eligible for ARK delivery.', inline: false },
+        { name: '🎲 How Dino Caches Work', value: '**1. Purchase** with Nexus Points. The ARN cache accepts ARN tokens only. A single-use Nexus token can still open a non-ARN cache.\n**2. Sentinel rolls the complete reward immediately** and permanently stores the species, valid Normal/X/S variant, level, and sex.\n**3. The reward stays 🔒 SEALED.** Nothing is shown and nothing is delivered yet.\n**4. Press Reveal Now** when you are ready. Reveal reads the stored reward—it never rerolls.\n**5. After reveal**, that exact saved tame becomes eligible for ARK delivery.', inline: false },
         { name: '🧬 Reward Rules', value: '• ARK: Survival Ascended creatures only\n• Normal / X / S only where that species has an approved safe form\n• Level **200–300**\n• Male / Female where applicable\n• Shiny outcomes are not part of Dino Caches', inline: false },
         { name: '📣 Public Reveals', value: 'When a cache is revealed, Sentinel posts the result to **Cluster Chat**. **AAT** handles the Discord ↔ ARK cross-chat mirror so players in-game can see the pull too.', inline: false },
         { name: '🔒 Reveal Later', value: 'Close the reveal or choose **Reveal Later** and the reward remains sealed. Use **My Sealed Caches** here at any time to reopen it.', inline: false }
@@ -165,14 +260,16 @@ function hubHomePayload() {
 }
 
 function cacheDetailPayload(cacheId) {
+  if (String(cacheId || '').toLowerCase() === 'arn') return arnCacheDetailPayload();
   const cache = CONFIG.caches[cacheId];
   if (!cache) throw new Error('Unknown Dino Box cache.');
   const m = meta(cacheId);
+  const copy = currencyCopy(cacheId, cache);
   const speciesFields = speciesByRarity(cache).map((field) => ({ ...field, inline: false }));
   const fields = [
     ...(cache.resetsAt ? [{ name:'Weekly Rotation', value:`Resets <t:${Math.floor(cache.resetsAt/1000)}:R> • Monday 00:00 UTC`, inline:false }] : []),
     ...(m.disclaimer ? [{ name: '⚠️ DLC Ownership Required', value: m.disclaimer.slice(0, 1024), inline: false }] : []),
-    { name: '💰 Price', value: `**${cachePrice(cache)}**`, inline: true },
+    { name: '💰 Price', value: copy ? `**${copy.price}**\n${copy.accepted}` : `**${cachePrice(cache)}**`, inline: true },
     { name: '⏱️ Cooldown', value: `**${cooldownLabel(cache)}**`, inline: true },
     { name: '🎲 Rarity Odds', value: raritySummary(cache), inline: false },
     ...speciesFields,
@@ -182,12 +279,12 @@ function cacheDetailPayload(cacheId) {
     { name: '🔒 Purchase & Reveal', value: 'The complete reward is rolled and stored **at purchase time**, then remains hidden and **SEALED**. Delivery cannot start until you press **Reveal Now**. Reveal only exposes the saved result—there is no second RNG roll.', inline: false }
   ];
   const purchaseRow = new ActionRowBuilder().addComponents(
-    retireControl(new ButtonBuilder().setCustomId(`${BUY_PREFIX}${cacheId}${cache.rotationId ? ':'+cache.rotationId : ''}`).setLabel(`Buy • ${cachePrice(cache)}`).setEmoji('🎰').setStyle(ButtonStyle.Success).setDisabled(cache.currency === 'ARN_TOKENS' && !cache.enabled)),
+    retireControl(new ButtonBuilder().setCustomId(`${BUY_PREFIX}${cacheId}${cache.rotationId ? ':'+cache.rotationId : ''}`).setLabel(copy ? copy.button : `Buy • ${cachePrice(cache)}`).setEmoji('🎰').setStyle(ButtonStyle.Success).setDisabled(cache.currency === 'ARN_TOKENS' && !cache.enabled)),
     retireControl(new ButtonBuilder().setCustomId(`${TOKEN_PREFIX}${cacheId}`).setLabel('Redeem Token').setEmoji('🎟️').setStyle(ButtonStyle.Primary).setDisabled(['weekly','arn'].includes(cacheId))),
     retireControl(new ButtonBuilder().setCustomId(HUB_MY_SEALED_ID).setLabel('My Sealed Caches').setEmoji('🔒').setStyle(ButtonStyle.Secondary))
   );
   return {
-    embeds: [{ title: `${m.emoji} ${m.name}`, description: m.tagline, color: 0xb00020, fields: fields.slice(0, 25), footer: { text: `${HUB_MARKER} • ${cacheId}` } }],
+    embeds: [{ title: `${m.emoji} ${m.name}`, description: copy ? `${m.tagline}\n\n${copy.detail}` : m.tagline, color: 0xb00020, fields: fields.slice(0, 25), footer: { text: `${HUB_MARKER} • ${cacheId}` } }],
     components: [cacheSelect(cacheId), purchaseRow],
     attachments: [],
     allowedMentions: { parse: [] }
@@ -377,11 +474,16 @@ function installArkDinoBoxShopExtension(options = {}) {
         const isBuy = interaction.isButton?.() && id.startsWith(BUY_PREFIX);
         const isToken = interaction.isButton?.() && id.startsWith(TOKEN_PREFIX);
         const isTokenSubmit = interaction.isModalSubmit?.() && id.startsWith(TOKEN_MODAL_PREFIX);
+        const isArnShop = interaction.isButton?.() && id === ARN_SHOP_ID;
         const isLegacyOpen = interaction.isButton?.() && id === BUTTON_CACHE_SHOP;
-        if (!isHubSelect && !isMySealed && !isReveal && !isRevealLater && !isBuy && !isToken && !isTokenSubmit && !isLegacyOpen) return;
+        if (!isHubSelect && !isMySealed && !isReveal && !isRevealLater && !isBuy && !isToken && !isTokenSubmit && !isLegacyOpen && !isArnShop) return;
 
         void (async () => {
           const userId = String(interaction.user?.id || '');
+          if (isArnShop || (isHubSelect && String(interaction.values?.[0] || '').toLowerCase() === 'arn')) {
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            return interaction.editReply(await arnShopPreview({ discordUserId: userId }));
+          }
           if (isHubSelect) {
             if (WEEKLY_CACHE_RETIRED !== true && !isRetired()) await purchaseService.refreshWeekly();
             const selected = String(interaction.values?.[0] || HUB_HOME_ID).toLowerCase();
@@ -409,11 +511,16 @@ function installArkDinoBoxShopExtension(options = {}) {
           if (isToken) {
             const cacheId = id.slice(TOKEN_PREFIX.length).toLowerCase();
             if (!CONFIG.caches[cacheId]) throw new Error('Unknown Dino Cache.');
+            if (isArnCache(cacheId)) {
+              if (!interaction.deferred && !interaction.replied) await interaction.reply({ content: ARN_TOKEN_ONLY, flags: MessageFlags.Ephemeral });
+              return;
+            }
             return interaction.showModal(tokenModal(cacheId));
           }
           if (isBuy) {
             const [cacheId, rotationId] = id.slice(BUY_PREFIX.length).toLowerCase().split(':');
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            if (cacheId === 'arn') return interaction.editReply(await redeemArnInShop({ discordUserId: userId }));
             const result = await purchaseService.purchase({ discordUserId: userId, cacheId, rotationId, purchaseNonce: String(interaction.id) });
             if (result.order.state !== 'SEALED') return interaction.editReply(finalResultPayload(result.order, result.balance, cacheId === 'arn' ? 'ARN Tokens' : 'Points'));
             return interaction.editReply(sealedResultPayload(result.order, result.balance, cacheId === 'arn' ? 'ARN Tokens' : 'Points'));
@@ -422,6 +529,7 @@ function installArkDinoBoxShopExtension(options = {}) {
             const cacheId = id.slice(TOKEN_MODAL_PREFIX.length).toLowerCase();
             const tokenCode = interaction.fields.getTextInputValue(TOKEN_INPUT);
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            if (isArnCache(cacheId)) return interaction.editReply({ content: ARN_TOKEN_ONLY, allowedMentions: { parse: [] } });
             const result = await tokenService.redeem({ discordUserId: userId, cacheId, tokenCode });
             if (result.order.state !== 'SEALED') return interaction.editReply(finalResultPayload(result.order, null, 'Nexus Token'));
             return interaction.editReply(sealedResultPayload(result.order, null, 'Nexus Token'));
@@ -441,6 +549,9 @@ module.exports = {
   HUB_SELECT_ID,
   HUB_HOME_ID,
   HUB_MY_SEALED_ID,
+  ARN_SHOP_ID,
+  arnShopPreview,
+  redeemArnInShop,
   BUY_PREFIX,
   TOKEN_PREFIX,
   TOKEN_MODAL_PREFIX,

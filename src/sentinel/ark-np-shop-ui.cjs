@@ -15,6 +15,7 @@ const { loadConfig } = require('../shared/config.cjs');
 const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
 const { arkNpFlags } = require('../shared/ark-np-flags.cjs');
 const { arkMemberText, orderStatusText, ledgerLineText } = require('../shared/ark-np-member-text.cjs');
+const { shopCurrencyCopy } = require('../shared/dino-cache-currency.cjs');
 const { isStaffAdmin } = require('./staff-roles.cjs');
 const { buildStaffSubject, rolesFromSubject } = require('../economy-worker/ark-staff-auth.cjs');
 
@@ -123,7 +124,7 @@ async function showCaches(interaction, economy) {
     .addOptions(items.map((item) => ({
       label: String(item.name).slice(0, 100),
       value: item.sku,
-      description: `${item.price} Points`.slice(0, 100)
+      description: shopCurrencyCopy(item.sku, item.price).price.slice(0, 100)
     })));
   return interaction.update(ephemeral('Choose a cache. It is delivered on whatever map you are on.', {
     components: [new ActionRowBuilder().addComponents(menu)]
@@ -144,12 +145,13 @@ async function quoteSku(interaction, economy) {
   session.sku = sku;
   const confirm = new ButtonBuilder().setCustomId('ark-np:confirm').setLabel('Confirm').setStyle(ButtonStyle.Primary);
   const cancel = new ButtonBuilder().setCustomId('ark-np:cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary);
+  const copy = shopCurrencyCopy(item.sku, quoted.quote.price);
   return interaction.reply(ephemeral([
     `**${quoted.quote.name || item.name}**`,
-    `Price: ${quoted.quote.price} Points`,
-    `Balance: ${quoted.quote.balance} → ${quoted.quote.balanceAfter} Points`,
+    copy.detail,
+    `Balance: ${quoted.quote.balance} → ${quoted.quote.balanceAfter} Nexus Points`,
     'Delivered on whatever map you are on.',
-    'Confirm to spend the Points.'
+    'Confirm to spend the Nexus Points.'
   ].join('\n'), { components: [new ActionRowBuilder().addComponents(confirm, cancel)] }));
 }
 

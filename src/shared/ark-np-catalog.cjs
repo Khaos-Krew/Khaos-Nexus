@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { blueprintRef } = require('../sentinel/rewards-ascended-delivery.cjs');
+const { acceptedCurrencies } = require('./dino-cache-currency.cjs');
 
 const EXPECTED_PRICES = Object.freeze({
   coastal: 150,
@@ -61,17 +62,27 @@ function loadArkNpCatalog({
     return Object.freeze({
       sku,
       price,
+      prices: Object.freeze({ NEXUS_POINTS: price, DINO_CACHE_TOKENS: 1 }),
+      currencies: Object.freeze(acceptedCurrencies(sku)),
       name: String(cache.displayName || sku),
       emoji: String(cache.emoji || ''),
       tagline: String(cache.tagline || ''),
       active: true
     });
   });
-  if (items.some((item) => item.sku === 'weekly')) throw new Error('The weekly cache is retired.');
+  if (items.some((item) => item.sku === 'weekly' || item.sku === 'arn')) throw new Error('The weekly cache is retired.');
   const kit = loadStarterKit(kitFile);
   return Object.freeze({
     version: CATALOG_VERSION,
     items: Object.freeze(items),
+    arn: Object.freeze({
+      sku: 'arn',
+      price: 1,
+      prices: Object.freeze({ ARN_TOKENS: 1 }),
+      currencies: Object.freeze(acceptedCurrencies('arn')),
+      name: 'ARN Cache',
+      active: true
+    }),
     kit
   });
 }

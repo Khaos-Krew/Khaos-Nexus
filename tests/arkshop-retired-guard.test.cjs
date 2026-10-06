@@ -427,11 +427,14 @@ test('retired server setup blocks every ARN ledger entry before MySQL', async ()
     refreshWeekly: async () => { shopCalls.push('weekly'); throw new Error('weekly'); }
   };
   const config = { discord: { ownerUserIds: [user] } };
-  for (const sub of ['balance', 'cache', 'history', 'configure', 'pause', 'adjust']) {
-    await assert.rejects(() => handleArn(arnCall(sub), { ledger, shop, config }), (error) => {
-      assert.equal(error.message, MEMBER_MESSAGE);
-      return true;
-    });
+  for (const sub of ['balance', 'cache', 'history', 'buy']) {
+    const hidden = await handleArn(arnCall(sub), { ledger, shop, config });
+    assert.match(hidden.content, /\/arn tokens/);
+    assert.match(hidden.content, /#dino-box-shop/);
+  }
+  for (const sub of ['configure', 'pause', 'adjust']) {
+    const paused = await handleArn(arnCall(sub), { ledger, shop, config });
+    assert.equal(paused.content, 'ARN settings are handled by the trial tokens; payouts are off during the test week.');
   }
   await assert.rejects(() => handleArn(arnCall('target', 'cacheadmin'), { ledger, shop, config }), (error) => {
     assert.equal(error.message, MEMBER_MESSAGE);
