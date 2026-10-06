@@ -41,6 +41,8 @@ class BackendClient {
   walletCosmetics(userId) { return this.request(`/v1/wallet-cosmetics/users/${encodeURIComponent(userId)}`); }
   syncWalletCosmetics(userId, input) { return this.request(`/v1/wallet-cosmetics/users/${encodeURIComponent(userId)}/sync`, { method: 'POST', body: JSON.stringify(input || {}) }); }
   equipWalletCosmetic(userId, input) { return this.request(`/v1/wallet-cosmetics/users/${encodeURIComponent(userId)}/equip`, { method: 'POST', body: JSON.stringify(input || {}) }); }
+  grantWalletCosmetic(userId, input) { return this.request(`/v1/wallet-cosmetics/users/${encodeURIComponent(userId)}/grant`, { method: 'POST', body: JSON.stringify(input || {}) }); }
+  revokeWalletCosmetic(userId, input) { return this.request(`/v1/wallet-cosmetics/users/${encodeURIComponent(userId)}/revoke`, { method: 'POST', body: JSON.stringify(input || {}) }); }
   accounts() { return this.request('/v1/accounts'); }
   accountByDiscord(discordId) { return this.request(`/v1/accounts/discord/${encodeURIComponent(discordId)}`); }
   createPairingCode(role) { return this.request('/v1/accounts/pairing-codes', { method: 'POST', body: JSON.stringify({ role }) }); }

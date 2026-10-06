@@ -209,8 +209,8 @@ async function handleAdmin(interaction, economy, config) {
 async function handleArkShopInteraction(interaction, { economyClient = new NexusEconomyClient(), config = loadConfig() } = {}) {
   try {
     if (interaction.isChatInputCommand?.()) {
-      if (interaction.commandName === 'shop') return openShop(interaction);
       if (interaction.commandName === 'points') return showPoints(interaction, economyClient);
+      if (interaction.commandName === 'shop') return false;
       if (interaction.commandName === 'arkshop-admin') return handleAdmin(interaction, economyClient, config);
       return false;
     }
@@ -249,10 +249,9 @@ function installArkNpShopUi() {
         const guildId = String(config.discord?.guildId || '').trim();
         if (!guildId) return;
         const guild = await client.guilds.fetch(guildId);
-        await upsertCommand(guild, shopCommand());
         await upsertCommand(guild, pointsCommand());
         await upsertCommand(guild, adminCommand());
-        console.log(`[Nexus Economy] registered /shop /points /arkshop-admin in guild ${guild.id}`);
+        console.log(`[Nexus Economy] registered /points /arkshop-admin in guild ${guild.id}`);
       } catch (error) {
         console.error(`[Nexus Economy] ark shop command registration failed: ${String(error?.message || error).slice(0, 240)}`);
       }

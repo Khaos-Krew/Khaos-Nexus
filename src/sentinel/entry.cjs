@@ -38,6 +38,7 @@ const { installWalletAdjustExtension } = require('./wallet-adjust-extension.cjs'
 const { installClusterShopUiExtension } = require('./cluster-shop-ui-extension.cjs');
 const { installMcShopUiExtension } = require('./mc-shop-ui-extension.cjs');
 const { installArkNpShopUi } = require('./ark-np-shop-ui.cjs');
+const { installCoinShopUi } = require('./coin-shop-ui.cjs');
 const { installArkNpDelivery } = require('./ark-np-delivery.cjs');
 
 // ARK control, monitoring, identity, economy and cluster integration.
@@ -93,6 +94,7 @@ installWalletAdjustExtension();
 installClusterShopUiExtension();
 installMcShopUiExtension();
 installArkNpShopUi();
+installCoinShopUi();
 installArkNpDelivery();
 
 // ARK monitors that do not register slash commands stay on the hub bot.

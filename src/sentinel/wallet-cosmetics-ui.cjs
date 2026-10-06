@@ -109,7 +109,7 @@ function walletEquipRow(slot, profile = {}, userId = '') {
     const option = {
       label: String(item.label).slice(0, 100),
       value: String(item.id).slice(0, 100),
-      description: item.minLevel ? `Unlocked at level ${item.minLevel}` : 'Unlocked'
+      description: item.minLevel ? `Unlocked at level ${item.minLevel}` : (item.kind === 'coin-shop' ? 'Purchased' : 'Unlocked')
     };
     if (String(item.id) === String(equipped || '')) option.default = true;
     menu.addOptions(option);

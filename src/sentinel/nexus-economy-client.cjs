@@ -201,6 +201,14 @@ class NexusEconomyClient {
   arkPendingOrders() { return request('/np-shop/orders/pending'); }
   arkGrants() { return request('/ark/grants'); }
   arkStaffResolve(input) { return request('/ark/staff/resolve', { method: 'POST', body: input }); }
+
+  coinShopCatalog() { return request('/coin-shop/catalog'); }
+  coinShopQuote(input) { return request('/coin-shop/quote', { method: 'POST', body: input, acceptedStatusCodes: [409, 503] }); }
+  coinShopPurchase(input) { return request('/coin-shop/purchase', { method: 'POST', body: input, acceptedStatusCodes: [409, 503] }); }
+  coinShopRefund(input) { return request('/coin-shop/refund', { method: 'POST', body: input, acceptedStatusCodes: [409, 503] }); }
+  coinShopMarkEquipped(input) { return request('/coin-shop/mark-equipped', { method: 'POST', body: input, acceptedStatusCodes: [409, 503] }); }
+  coinShopEntitlements(discordUserId) { return request(`/coin-shop/entitlements/${encodeURIComponent(String(discordUserId || ''))}`); }
+  coinShopLookup(input) { return request('/coin-shop/lookup', { method: 'POST', body: input, acceptedStatusCodes: [409, 503] }); }
 }
 
 module.exports = { configured, NexusEconomyClient };
