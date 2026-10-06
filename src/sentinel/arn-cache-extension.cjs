@@ -7,7 +7,7 @@ const {ArkCacheShopService}=require('./ark-cache-shop-service.cjs');
 const {ProtocolStore}=require('./protocol/store.cjs');
 const {isStaff}=require('./ark-ops-extension.cjs');
 const {loadConfig}=require('../shared/config.cjs');
-const {sharedArnBook, staffSummaryText, writeSummaryFile, readMainArnBalance}=require('./arn-token-award.cjs');
+const {sharedArnBook, staffSummaryText, writeSummaryFile}=require('./arn-token-award.cjs');
 const {tokenText, openPointerText}=require('./arn-member-copy.cjs');
 const INSTALLED=Symbol.for('nexus.arn.cache.extension');
 function adminCommand() {
@@ -58,10 +58,7 @@ async function handle(interaction,{ledger,shop,config, book, env, now, secret, b
     let balance;
     if (book) balance = activeBook.balanceForDiscord(user);
     else if (typeof balanceReader === 'function') balance = await balanceReader(user);
-    else {
-      const remote = await readMainArnBalance(user);
-      balance = remote == null ? activeBook.balanceForDiscord(user) : remote;
-    }
+    else balance = activeBook.balanceForDiscord(user);
     return {content: tokenText(balance, activeEnv)};
   }
   if(!isStaff(interaction,config)) throw new Error('Nexus staff authorization required.');

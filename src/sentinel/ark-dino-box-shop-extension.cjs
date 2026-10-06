@@ -18,7 +18,7 @@ const { CONFIG, WEEKLY_CACHE_RETIRED } = require('./ark-weekly-cache.cjs');
 const { isRetired } = require('./arkshop-mysql.cjs');
 const { memberActionFallback } = require('./arkshop-cluster-economy-guard.cjs');
 const { arnRotation, openArnCache, rotationSecret } = require('./arn-cache-rotation.cjs');
-const { sharedArnBook, readMainArnBalance } = require('./arn-token-award.cjs');
+const { sharedArnBook } = require('./arn-token-award.cjs');
 const { arnShopLines, arnShopPublicLines } = require('./arn-member-copy.cjs');
 const { shopCurrencyCopy, isArnCache } = require('../shared/dino-cache-currency.cjs');
 const { ArkCacheShopService } = require('./ark-cache-shop-service.cjs');
@@ -176,23 +176,7 @@ async function shownArnBalance(discordUserId, { book, ledger, env } = {}) {
     const value = await ledger.balance(discordUserId);
     return Number(value?.balance ?? value ?? 0);
   }
-  const remote = await readMainArnBalance(discordUserId);
-  if (remote != null) return remote;
   return sharedArnBook(env).balanceForDiscord(discordUserId);
-}
-
-async function mainLedgerAdapter() {
-  const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
-  const client = new NexusEconomyClient();
-  if (!client.configured()) return null;
-  return {
-    spend: (input) => client.arnSpend(input),
-    refund: (input) => client.arnRefund(input),
-    async balance(discordUserId) {
-      const result = await client.arnBalance(discordUserId);
-      return Number(result?.balance || 0);
-    }
-  };
 }
 
 async function arnShopPreview({ discordUserId, book, ledger, env = process.env, now = Date.now(), balance } = {}) {
@@ -209,22 +193,17 @@ async function arnShopPreview({ discordUserId, book, ledger, env = process.env, 
 }
 
 async function redeemArnInShop({ discordUserId, book, ledger, env = process.env, now = Date.now(), deliver, secret } = {}) {
-  const { deliveryPermitted } = require('./arn-cache-rotation.cjs');
-  let activeLedger = ledger || null;
-  if (!activeLedger && !book && deliveryPermitted(env)) activeLedger = await mainLedgerAdapter();
   const result = await openArnCache({
     env,
     now,
     discordUserId,
     secret,
-    deliver,
-    book: activeLedger ? undefined : book,
-    ledger: activeLedger || undefined
+    book
   });
   const sent = result.debited === true && result.raCalled === true && result.drawn;
   return {
     content: arnShopLines({
-      balance: await shownArnBalance(discordUserId, { book: activeLedger ? undefined : book, ledger: activeLedger, env }),
+      balance: await shownArnBalance(discordUserId, { book, ledger, env }),
       rotation: result.rotation,
       redeemed: true,
       drawn: sent ? result.drawn : null,

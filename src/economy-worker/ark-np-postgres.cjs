@@ -5,7 +5,6 @@ const { sqlIdent } = require('../sentinel/nexus-economy-postgres-repository.cjs'
 const { ensureMinecraftSchema } = require('./mc-points-postgres.cjs');
 const { arkNpFlags } = require('../shared/ark-np-flags.cjs');
 const { loadArkNpCatalog, catalogItem, catalogFingerprint, assertBlueprint, KIT_KIND } = require('../shared/ark-np-catalog.cjs');
-const { resolveCachePayment, acceptedCurrencies } = require('../shared/dino-cache-currency.cjs');
 const { quarantineDenylist } = require('../sentinel/nexus-economy-wallet-core.cjs');
 const { memberIdentityHold } = require('../sentinel/nexus-economy-identity-hold.cjs');
 const { assertMemberAccount } = require('../shared/economy-system-accounts.cjs');
@@ -49,8 +48,6 @@ class PostgresArkShop {
   }
 
   async quote(input) {
-    const quoted = this.#payment(input?.sku, input?.currency);
-    if (input?.sku && !quoted.ok) return quoted;
     if (!this.flags().shopEnabled) return { ok: false, reason: 'ark-shop-disabled' };
     const ready = await this.ensureSchema();
     if (!ready.ok) return ready;
@@ -66,15 +63,15 @@ class PostgresArkShop {
         await client.query('ROLLBACK');
         return identity;
       }
-      const balance = await this.#balance(client, identity.econId, quoted.currency);
+      const balance = await this.#balance(client, identity.econId);
       const nonce = crypto.randomUUID();
       const expiresAt = new Date(this.now() + QUOTE_TTL_MS).toISOString();
       const fingerprint = catalogFingerprint(this.catalog);
       await client.query(
         `INSERT INTO ${sqlIdent(this.schema)}.nexus_mc_quotes
          (nonce, discord_user_id, economic_identity_id, mc_uuid, sku, bundles, qty, price, item_id, catalog_version, catalog_hash, signature, expires_at, provider)
-         VALUES ($1,$2,$3,$4,$5,1,1,$6,$7,$8,$9,$10,$11,'ark')`,
-        [nonce, discord, identity.econId, identity.eosIds[0], sku, quoted.price, sku, this.catalog.version, fingerprint, quoted.currency, expiresAt]
+         VALUES ($1,$2,$3,$4,$5,1,1,$6,$7,$8,$9,'',$10,'ark')`,
+        [nonce, discord, identity.econId, identity.eosIds[0], sku, item.price, sku, this.catalog.version, fingerprint, expiresAt]
       );
       await client.query('COMMIT');
       return {
@@ -85,10 +82,9 @@ class PostgresArkShop {
           economicIdentityId: identity.econId,
           sku,
           name: item.name,
-          price: quoted.price,
-          currency: quoted.currency,
+          price: item.price,
           balance,
-          balanceAfter: balance - quoted.price,
+          balanceAfter: balance - item.price,
           catalogVersion: this.catalog.version,
           catalogHash: fingerprint,
           expiresAt
@@ -102,30 +98,8 @@ class PostgresArkShop {
     }
   }
 
-  #payment(sku, currency) {
-    const pay = resolveCachePayment(sku, currency || 'NEXUS_POINTS');
-    if (!pay.ok) return pay;
-    if (pay.currency === 'ARN_TOKENS') {
-      return {
-        ok: false,
-        reason: 'currency-not-accepted',
-        cacheId: pay.cacheId,
-        currency: pay.currency,
-        accepted: pay.accepted || [...acceptedCurrencies(sku)],
-        debited: false
-      };
-    }
-    return pay;
-  }
-
   async buy(input) {
-    const requested = this.#payment(input?.sku, input?.currency);
-    if (input?.sku && !requested.ok) return requested;
     if (!this.flags().shopEnabled) return { ok: false, reason: 'ark-shop-disabled' };
-    if (requested.ok && requested.currency === 'DINO_CACHE_TOKENS') {
-      if (this.flags().dryRun) return { ok: false, reason: 'ark-shop-dry-run', debited: false, price: requested.price };
-      if (!this.flags().shopDeliveryEnabled) return { ok: false, reason: 'ark-shop-delivery-disabled', debited: false };
-    }
     const ready = await this.ensureSchema();
     if (!ready.ok) return ready;
     const s = sqlIdent(this.schema);
@@ -143,7 +117,7 @@ class PostgresArkShop {
         return { ok: false, reason: 'quote-expired' };
       }
       // LEDGER R2-1: every buy check runs after the identity lock, in this transaction.
-      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${peekedId}:${requested.currency}`]);
+      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${peekedId}:NEXUS_POINTS`]);
       const quoteRow = await client.query(
         `SELECT * FROM ${s}.nexus_mc_quotes WHERE nonce = $1 AND provider = 'ark' FOR UPDATE`,
         [nonce]
@@ -172,17 +146,8 @@ class PostgresArkShop {
         await client.query('ROLLBACK');
         return marker;
       }
-      const pay = this.#payment(row.sku, input?.currency || row.signature || 'NEXUS_POINTS');
-      if (!pay.ok) {
-        await client.query('ROLLBACK');
-        return pay;
-      }
-      if (row.signature && row.signature !== pay.currency) {
-        await client.query('ROLLBACK');
-        return { ok: false, reason: 'currency-not-accepted', cacheId: row.sku, currency: pay.currency, accepted: pay.accepted, debited: false };
-      }
       const item = catalogItem(this.catalog, row.sku);
-      if (!item || Number(row.price) !== pay.price || catalogFingerprint(this.catalog) !== row.catalog_hash) {
+      if (!item || item.price !== Number(row.price) || catalogFingerprint(this.catalog) !== row.catalog_hash) {
         await client.query('ROLLBACK');
         return { ok: false, reason: item ? 'price-changed' : 'unknown-item' };
       }
@@ -199,40 +164,32 @@ class PostgresArkShop {
         console.warn(`[Nexus Economy] ark_catalog_rejected sku=${row.sku} ${String(error?.message || error).slice(0, 160)}`);
         return { ok: false, reason: 'unknown-item' };
       }
-      if (pay.currency !== 'NEXUS_POINTS' && pay.currency !== 'DINO_CACHE_TOKENS') {
-        await client.query('ROLLBACK');
-        return { ok: false, reason: 'currency-not-accepted', cacheId: row.sku, currency: pay.currency, accepted: pay.accepted, debited: false };
-      }
       const wallet = await client.query(
-        `SELECT balance FROM ${s}.nexus_economy_wallets WHERE economic_identity_id = $1 AND currency = '${pay.currency}' FOR UPDATE`,
+        `SELECT balance FROM ${s}.nexus_economy_wallets WHERE economic_identity_id = $1 AND currency = 'NEXUS_POINTS' FOR UPDATE`,
         [identity.econId]
       );
       const balance = Number(wallet.rows?.[0]?.balance || 0);
-      if (pay.currency === 'NEXUS_POINTS' && !this.flags().npShopWritesEnabled) {
+      if (!this.flags().npShopWritesEnabled) {
         await client.query('ROLLBACK');
         return { ok: false, reason: 'economy-np-shop-writes-not-enabled', balance };
       }
       if (this.flags().dryRun) {
         await client.query('ROLLBACK');
-        console.info(`[Nexus Economy] ark_shop_dry_run econ=${identity.econId} sku=${row.sku} price=${pay.price} currency=${pay.currency}`);
-        return { ok: false, reason: 'ark-shop-dry-run', balance, price: pay.price, debited: false };
+        console.info(`[Nexus Economy] ark_shop_dry_run econ=${identity.econId} sku=${row.sku} price=${item.price}`);
+        return { ok: false, reason: 'ark-shop-dry-run', balance, price: item.price };
       }
-      if (pay.currency === 'DINO_CACHE_TOKENS' && !this.flags().shopDeliveryEnabled) {
-        await client.query('ROLLBACK');
-        return { ok: false, reason: 'ark-shop-delivery-disabled', debited: false, balance };
-      }
-      if (balance < pay.price) {
+      if (balance < item.price) {
         await client.query('ROLLBACK');
         return { ok: false, reason: 'insufficient-funds', balance };
       }
-      const next = balance - pay.price;
+      const next = balance - item.price;
       const key = ledgerKey(identity.econId, row.sku, row.nonce);
       const inserted = await client.query(
         `INSERT INTO ${s}.nexus_economy_ledger
          (economic_identity_id, currency, amount, balance_after, entry_type, source, idempotency_key, metadata, created_at)
-         VALUES ($1,'${pay.currency}',$2,$3,'purchase','ark-shop',$4,$5::jsonb,NOW())
+         VALUES ($1,'NEXUS_POINTS',$2,$3,'purchase','ark-shop',$4,$5::jsonb,NOW())
          ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`,
-        [identity.econId, -pay.price, next, key, JSON.stringify({ sku: row.sku, price: pay.price, currency: pay.currency, catalogVersion: row.catalog_version, provider: 'ark' })]
+        [identity.econId, -item.price, next, key, JSON.stringify({ sku: row.sku, price: item.price, catalogVersion: row.catalog_version, provider: 'ark' })]
       );
       if (!inserted.rowCount) {
         await client.query('ROLLBACK');
@@ -240,34 +197,31 @@ class PostgresArkShop {
       }
       await client.query(
         `UPDATE ${s}.nexus_economy_wallets SET balance = $2, updated_at = NOW()
-         WHERE economic_identity_id = $1 AND currency = '${pay.currency}'`,
+         WHERE economic_identity_id = $1 AND currency = 'NEXUS_POINTS'`,
         [identity.econId, next]
       );
-      if (pay.currency === 'NEXUS_POINTS') {
-        const spent = await client.query(
-          `SELECT COALESCE(SUM(price), 0)::bigint AS spent FROM ${s}.nexus_mc_orders
-           WHERE provider = 'ark' AND status <> 'REFUNDED' AND order_data->>'economicIdentityId' = $1
-             AND order_data->>'source' = 'ark-shop' AND order_data->>'currency' IS DISTINCT FROM 'DINO_CACHE_TOKENS'
-             AND created_at >= NOW() - INTERVAL '24 hours'`,
-          [identity.econId]
-        );
-        if (Number(spent.rows?.[0]?.spent || 0) + pay.price > SPEND_ALERT_24H_POINTS) {
-          console.warn(`[Nexus Economy] ark_spend_alert econ=${identity.econId} window=24h`);
-        }
+      const spent = await client.query(
+        `SELECT COALESCE(SUM(price), 0)::bigint AS spent FROM ${s}.nexus_mc_orders
+         WHERE provider = 'ark' AND status <> 'REFUNDED' AND order_data->>'economicIdentityId' = $1
+           AND order_data->>'source' = 'ark-shop' AND created_at >= NOW() - INTERVAL '24 hours'`,
+        [identity.econId]
+      );
+      if (Number(spent.rows?.[0]?.spent || 0) + item.price > SPEND_ALERT_24H_POINTS) {
+        console.warn(`[Nexus Economy] ark_spend_alert econ=${identity.econId} window=24h`);
       }
       const nowIso = new Date(this.now()).toISOString();
       const order = this.#order({
-        discord, econId: identity.econId, eosIds: identity.eosIds, sku: row.sku, price: pay.price,
-        currency: pay.currency, nonce: row.nonce, key, nowIso, source: 'ark-shop', roll, balance: next
+        discord, econId: identity.econId, eosIds: identity.eosIds, sku: row.sku, price: item.price,
+        nonce: row.nonce, key, nowIso, source: 'ark-shop', roll, balance: next
       });
       await client.query(
         `INSERT INTO ${s}.nexus_mc_orders (order_id, nonce, order_data, status, price, created_at, provider)
          VALUES ($1,$2,$3::jsonb,'PAID',$4,$5,'ark')`,
-        [order.orderId, row.nonce, JSON.stringify(order), pay.price, nowIso]
+        [order.orderId, row.nonce, JSON.stringify(order), item.price, nowIso]
       );
       await client.query(
         `INSERT INTO ${s}.nexus_mc_outbox (outbox_id, order_id, payload, provider) VALUES ($1,$2,$3::jsonb,'ark')`,
-        [order.orderId, order.orderId, JSON.stringify({ orderId: order.orderId, sku: order.sku, price: pay.price, currency: pay.currency, provider: 'ark' })]
+        [order.orderId, order.orderId, JSON.stringify({ orderId: order.orderId, sku: order.sku, price: item.price, provider: 'ark' })]
       );
       await client.query(`UPDATE ${s}.nexus_mc_quotes SET consumed_at = NOW() WHERE nonce = $1`, [row.nonce]);
       await client.query('COMMIT');
@@ -601,24 +555,23 @@ class PostgresArkShop {
         return { ok: false, reason: 'illegal-transition' };
       }
       if (Number(order.price) > 0) {
-        const refundCurrency = order.currency === 'DINO_CACHE_TOKENS' ? 'DINO_CACHE_TOKENS' : 'NEXUS_POINTS';
-        await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${order.economicIdentityId}:${refundCurrency}`]);
+        await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`nexus-economy:${order.economicIdentityId}:NEXUS_POINTS`]);
         const wallet = await client.query(
-          `SELECT balance FROM ${s}.nexus_economy_wallets WHERE economic_identity_id = $1 AND currency = '${refundCurrency}' FOR UPDATE`,
+          `SELECT balance FROM ${s}.nexus_economy_wallets WHERE economic_identity_id = $1 AND currency = 'NEXUS_POINTS' FOR UPDATE`,
           [order.economicIdentityId]
         );
         const next = Number(wallet.rows?.[0]?.balance || 0) + Number(order.price);
         const ledger = await client.query(
           `INSERT INTO ${s}.nexus_economy_ledger
            (economic_identity_id, currency, amount, balance_after, entry_type, source, idempotency_key, metadata, created_at)
-           VALUES ($1,'${refundCurrency}',$2,$3,'reversal','ark-shop',$4,$5::jsonb,NOW())
+           VALUES ($1,'NEXUS_POINTS',$2,$3,'reversal','ark-shop',$4,$5::jsonb,NOW())
            ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`,
-          [order.economicIdentityId, Number(order.price), next, refundKey(order.orderId), JSON.stringify({ orderId: order.orderId, reason: input.reason, actor: input.actor, currency: refundCurrency })]
+          [order.economicIdentityId, Number(order.price), next, refundKey(order.orderId), JSON.stringify({ orderId: order.orderId, reason: input.reason, actor: input.actor })]
         );
         if (ledger.rowCount) {
           await client.query(
             `UPDATE ${s}.nexus_economy_wallets SET balance = $2, updated_at = NOW()
-             WHERE economic_identity_id = $1 AND currency = '${refundCurrency}'`,
+             WHERE economic_identity_id = $1 AND currency = 'NEXUS_POINTS'`,
             [order.economicIdentityId, next]
           );
         }
@@ -909,16 +862,15 @@ class PostgresArkShop {
     return Number(wallet.rows?.[0]?.balance || 0);
   }
 
-  async #balance(client, econId, currency = 'NEXUS_POINTS') {
-    const payCurrency = currency === 'DINO_CACHE_TOKENS' ? 'DINO_CACHE_TOKENS' : 'NEXUS_POINTS';
+  async #balance(client, econId) {
     const s = sqlIdent(this.schema);
     await client.query(
       `INSERT INTO ${s}.nexus_economy_wallets (economic_identity_id, currency, balance)
-       VALUES ($1,'${payCurrency}',0) ON CONFLICT DO NOTHING`,
+       VALUES ($1,'NEXUS_POINTS',0) ON CONFLICT DO NOTHING`,
       [econId]
     );
     const wallet = await client.query(
-      `SELECT balance FROM ${s}.nexus_economy_wallets WHERE economic_identity_id = $1 AND currency = '${payCurrency}'`,
+      `SELECT balance FROM ${s}.nexus_economy_wallets WHERE economic_identity_id = $1 AND currency = 'NEXUS_POINTS'`,
       [econId]
     );
     return Number(wallet.rows?.[0]?.balance || 0);
@@ -936,7 +888,7 @@ class PostgresArkShop {
     return { ...roll, sex, saddle };
   }
 
-  #order({ discord, econId, eosIds, sku, price, currency = 'NEXUS_POINTS', nonce, key, nowIso, source, roll, balance }) {
+  #order({ discord, econId, eosIds, sku, price, nonce, key, nowIso, source, roll, balance }) {
     return {
       orderId: crypto.randomUUID(),
       provider: 'ark',
@@ -945,7 +897,6 @@ class PostgresArkShop {
       eosIds,
       sku,
       price,
-      currency,
       source,
       nonce,
       ledgerKey: key,

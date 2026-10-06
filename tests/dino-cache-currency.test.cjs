@@ -12,8 +12,6 @@ const {
   resolveCachePayment,
   shopCurrencyCopy
 } = require('../src/shared/dino-cache-currency.cjs');
-const { PostgresArkShop } = require('../src/economy-worker/ark-np-postgres.cjs');
-const { spendWithClient } = require('../src/economy-worker/arn-tokens-postgres.cjs');
 const { arkMemberText } = require('../src/shared/ark-np-member-text.cjs');
 const {
   cacheIds,
@@ -23,21 +21,6 @@ const {
 } = require('../src/sentinel/ark-dino-box-shop-extension.cjs');
 
 const CURRENCIES = [NEXUS_POINTS, CACHE_TOKENS, ARN_TOKENS];
-
-function gatePool() {
-  return {
-    queried: false,
-    connected: false,
-    async query() {
-      this.queried = true;
-      throw new Error('schema');
-    },
-    async connect() {
-      this.connected = true;
-      throw new Error('connect');
-    }
-  };
-}
 
 test('each cache accepts only its currencies and keeps the existing point prices', () => {
   for (const [sku, points] of Object.entries(EXPECTED_PRICES)) {
@@ -126,82 +109,8 @@ test('shop copy names the accepted currency on every cache', () => {
   }
   const ui = fs.readFileSync(path.join(__dirname, '../src/sentinel/ark-np-shop-ui.cjs'), 'utf8');
   assert.match(ui, /\$\{item\.price\} Points or 1 Cache token/);
-});
-
-test('the worker rejects the wrong currency before any shop gate or database call', async () => {
-  const closed = new PostgresArkShop({ pool: gatePool(), env: {} });
-  for (const currency of [NEXUS_POINTS, CACHE_TOKENS]) {
-    const bought = await closed.buy({ sku: 'arn', currency, discordUserId: '1' });
-    const quoted = await closed.quote({ sku: 'arn', currency, discordUserId: '1' });
-    assert.equal(bought.reason, 'currency-not-accepted');
-    assert.equal(quoted.reason, 'currency-not-accepted');
-    assert.equal(bought.debited, false);
-  }
-  const coastalArn = await closed.buy({ sku: 'coastal', currency: ARN_TOKENS, discordUserId: '1' });
-  assert.equal(coastalArn.reason, 'currency-not-accepted');
-  assert.equal(coastalArn.debited, false);
-  assert.equal(closed.pool.queried, false);
-  assert.equal(closed.pool.connected, false);
-
-  const npGate = await closed.buy({ sku: 'coastal', currency: NEXUS_POINTS, discordUserId: '1' });
-  assert.equal(npGate.reason, 'ark-shop-disabled');
-  assert.equal(closed.pool.queried, false);
-
-  const open = new PostgresArkShop({ pool: gatePool(), env: { ARK_SHOP_ENABLED: 'true' } });
-  const cacheToken = await open.buy({ sku: 'coastal', currency: CACHE_TOKENS, discordUserId: '1' });
-  assert.equal(cacheToken.reason, 'ark-shop-dry-run');
-  assert.equal(cacheToken.debited, false);
-  assert.equal(cacheToken.price, 1);
-  assert.equal(open.pool.queried, false);
-  assert.equal(open.pool.connected, false);
-
-  const deliveryHeld = new PostgresArkShop({
-    pool: gatePool(),
-    env: { ARK_SHOP_ENABLED: 'true', ARK_SHOP_DRY_RUN: 'false' }
-  });
-  const held = await deliveryHeld.buy({ sku: 'apex', currency: CACHE_TOKENS, discordUserId: '1' });
-  assert.equal(held.reason, 'ark-shop-delivery-disabled');
-  assert.equal(held.debited, false);
-  assert.equal(deliveryHeld.pool.connected, false);
-
-  const npEntered = await open.buy({ sku: 'coastal', currency: NEXUS_POINTS, discordUserId: '1', nonce: 'n' });
-  assert.equal(npEntered.reason, 'mc-schema-unavailable');
-  assert.equal(open.pool.queried, true);
-  assert.equal(open.pool.connected, false);
-
   assert.match(arkMemberText('currency-not-accepted'), /does not accept that currency/);
   assert.match(arkMemberText('currency-not-accepted'), /Nothing was spent/);
-});
-
-test('ARN spend accepts only an ARN cache paid with ARN tokens', async () => {
-  const client = { async query() { throw new Error('should-not-query'); } };
-  for (const [sku, points] of Object.entries(EXPECTED_PRICES)) {
-    for (const currency of CURRENCIES) {
-      const result = await spendWithClient(client, { cacheId: sku, currency, orderId: `${sku}-${currency}` });
-      assert.equal(result.ok, false);
-      assert.equal(result.reason, 'currency-not-accepted');
-      assert.equal(result.debited, false);
-      assert.equal(result.cacheId, sku);
-    }
-    assert.equal(points > 0, true);
-  }
-  for (const currency of [NEXUS_POINTS, CACHE_TOKENS]) {
-    const result = await spendWithClient(client, { cacheId: 'arn', currency, orderId: `arn-${currency}` });
-    assert.equal(result.reason, 'currency-not-accepted');
-    assert.equal(result.debited, false);
-  }
-
-  let began = false;
-  const entering = {
-    async query(sql) {
-      began = true;
-      assert.match(String(sql), /BEGIN/);
-      throw new Error('entered');
-    }
-  };
-  await assert.rejects(
-    () => spendWithClient(entering, { cacheId: 'arn', currency: ARN_TOKENS, orderId: 'arn-order', env: {} }),
-    /entered/
-  );
-  assert.equal(began, true);
+  const shop = fs.readFileSync(path.join(__dirname, '../src/sentinel/ark-dino-box-shop-extension.cjs'), 'utf8');
+  assert.doesNotMatch(shop, /\/arn\/preview|\/arn\/balance|arnSpend|ledger\.spend/);
 });

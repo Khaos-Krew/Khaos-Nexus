@@ -453,12 +453,25 @@ function createArnBook({ loadAccounts = async () => [], env = {}, persistPath = 
 
 let sharedBook = null;
 
+function warnIfJournalUnwritable(file) {
+  if (!file) return;
+  const dir = path.dirname(path.resolve(file));
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.accessSync(dir, fs.constants.W_OK);
+  } catch (error) {
+    console.warn(`[ARN] dry-run journal directory is not writable (${dir}). Dedupe and caps will not survive a restart.`);
+  }
+}
+
 function sharedArnBook(env = process.env) {
   if (!sharedBook) {
+    const persistPath = journalPath(env);
+    warnIfJournalUnwritable(persistPath);
     sharedBook = createArnBook({
       env: dryJournalEnv(env),
       dryRunOnly: true,
-      persistPath: journalPath(env),
+      persistPath,
       loadAccounts: async () => loadLinkedAccounts()
     });
   }
@@ -475,33 +488,6 @@ function staleReport(createdAt, now, env = process.env) {
   if (!Number.isFinite(at)) return true;
   if (!policy.hardExpiryMs) return false;
   return now - at >= policy.hardExpiryMs;
-}
-
-async function readMainArnBalance(discordUserId) {
-  try {
-    const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
-    const client = new NexusEconomyClient();
-    if (!client.configured()) return null;
-    const result = await client.arnBalance(discordUserId);
-    if (!result || result.ok === false) return null;
-    return Number(result.balance || 0);
-  } catch (error) {
-    console.warn(`[ARN] balance unavailable: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 200)}`);
-    return null;
-  }
-}
-
-async function resolveLinkedIdentity(account, env = process.env) {
-  if (!account?.eosId || !account?.discordUserId) return null;
-  try {
-    const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
-    const client = new NexusEconomyClient();
-    if (!client.configured()) return null;
-    return await client.arnPreview({ eosId: account.eosId, discordUserId: account.discordUserId, env });
-  } catch (error) {
-    console.warn(`[ARN] identity preview unavailable: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 200)}`);
-    return null;
-  }
 }
 
 async function observeFromDiscordMessage({
@@ -528,48 +514,7 @@ async function observeFromDiscordMessage({
   };
   if (book) return book.award(report);
   const accounts = await loadLinkedAccounts();
-  const matches = exactNameMatches(accounts, parsed.playerName);
-  if (matches.length === 1) {
-    const resolved = await resolveLinkedIdentity(matches[0], env);
-    if (resolved?.economicIdentityId) {
-      matches[0] = {
-        ...matches[0],
-        economicIdentityId: resolved.economicIdentityId,
-        status: resolved.status || '',
-        holdReason: resolved.holdReason || '',
-        missingRow: resolved.missingRow === true
-      };
-    }
-  }
-  const flags = arnFlags(env);
-  if (flags.creditsEnabled && matches.length === 1 && matches[0].eosId) {
-    try {
-      const { NexusEconomyClient } = require('./nexus-economy-client.cjs');
-      const client = new NexusEconomyClient();
-      if (client.configured()) {
-        const live = await client.arnDrop({
-          messageId: report.messageId,
-          parsed,
-          eosId: matches[0].eosId,
-          discordUserId: matches[0].discordUserId,
-          roll: report.roll,
-          seed: report.seed,
-          stale: report.stale,
-          env
-        });
-        return sharedArnBook(env).award({
-          ...report,
-          accounts: matches,
-          env: dryJournalEnv(env),
-          blockedOutcome: live?.outcome || 'ledger-unavailable'
-        });
-      }
-    } catch (error) {
-      console.warn(`[ARN] token credit unavailable: ${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 200)}`);
-      return sharedArnBook(env).award({ ...report, accounts: matches, env: dryJournalEnv(env), blockedOutcome: 'ledger-unavailable' });
-    }
-  }
-  return sharedArnBook(env).award({ ...report, accounts: matches, env: dryJournalEnv(env) });
+  return sharedArnBook(env).award({ ...report, accounts, env: dryJournalEnv(env) });
 }
 
 module.exports = {
@@ -601,5 +546,5 @@ module.exports = {
   resetSharedArnBookForTest,
   staleReport,
   observeFromDiscordMessage,
-  readMainArnBalance
+  warnIfJournalUnwritable
 };

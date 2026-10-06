@@ -201,7 +201,6 @@ class NexusEconomyClient {
   arkPendingOrders() { return request('/np-shop/orders/pending'); }
   arkGrants() { return request('/ark/grants'); }
   arkStaffResolve(input) { return request('/ark/staff/resolve', { method: 'POST', body: input }); }
-
   coinShopCatalog() { return request('/coin-shop/catalog'); }
   coinShopQuote(input) { return request('/coin-shop/quote', { method: 'POST', body: input, acceptedStatusCodes: [409, 503] }); }
   coinShopPurchase(input) { return request('/coin-shop/purchase', { method: 'POST', body: input, acceptedStatusCodes: [409, 503] }); }
@@ -210,18 +209,6 @@ class NexusEconomyClient {
   coinShopMarkEquipped(input) { return request('/coin-shop/mark-equipped', { method: 'POST', body: input, acceptedStatusCodes: [409, 503] }); }
   coinShopEntitlements(discordUserId) { return request(`/coin-shop/entitlements/${encodeURIComponent(String(discordUserId || ''))}`); }
   coinShopLookup(input) { return request('/coin-shop/lookup', { method: 'POST', body: input, acceptedStatusCodes: [409, 503] }); }
-
-  arnBalance(discordUserId) {
-    return request(`/arn/balance/${encodeURIComponent(String(discordUserId || ''))}`);
-  }
-
-  arnPreview(input) { return request('/arn/preview', { method: 'POST', body: input }); }
-
-  arnDrop(input) { return request('/arn/drop', { method: 'POST', body: input, acceptedStatusCodes: [503] }); }
-
-  arnSpend(input) { return request('/arn/spend', { method: 'POST', body: input, acceptedStatusCodes: [503] }); }
-
-  arnRefund(input) { return request('/arn/refund', { method: 'POST', body: input, acceptedStatusCodes: [503] }); }
 }
 
 module.exports = { configured, NexusEconomyClient };
