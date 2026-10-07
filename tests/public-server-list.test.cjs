@@ -97,11 +97,12 @@ test('inventory reads ARK, Craft, hosted, and configured servers without secrets
     assert.equal(text.includes('rust-admin.example'), false);
     assert.equal(text.includes('25575'), false);
     assert.equal(rows.some((row) => row.name === 'Hidden Map'), false);
-    const ark = rows.find((row) => row.name === 'Genesis Part 1');
+    assert.equal(rows.some((row) => row.name === 'Genesis Part 1'), false);
+    const ark = rows.find((row) => row.name === 'Genesis');
     assert.equal(ark.game, 'ARK: Survival Ascended');
     assert.equal(ark.status, 'Online');
     assert.equal(ark.players, '3');
-    assert.match(ark.joins[0], /In-game server list: Genesis Part 1/);
+    assert.equal(ark.joins[0], `In-game server list: Genesis`);
     const mc = rows.find((row) => row.name === 'play.mc.example');
     assert.deepEqual(mc.joins, ['Java play.mc.example:25565', 'Bedrock play.mc.example:19132']);
     assert.equal(mc.kind, 'geyser');
@@ -121,6 +122,57 @@ test('inventory reads ARK, Craft, hosted, and configured servers without secrets
     assert.deepEqual(rendered.allowedMentions, { parse: [] });
     assert.equal(JSON.stringify(rendered).includes(RCON_PASSWORD), false);
     assert.equal(JSON.stringify(rendered).includes('N/A'), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('ARK rows prefer the registry name and fall back to the map name', () => {
+  const dir = tempDir();
+  try {
+    const registry = new ArkClusterRegistry(path.join(dir, 'ark'));
+    registry.upsert({ id: 'gen1', envPrefix: 'ARK_GEN1', name: 'Khaos Nexus (Gen1)', mapName: 'Genesis Part 1', enabled: true });
+    const rows = collectPublicServers({
+      env: {},
+      arkRegistry: registry,
+      craftStore: new CraftStore(path.join(dir, 'craft'), {}),
+      hostedStore: new HostedServerStore({ filePath: path.join(dir, 'hosted.json') }),
+      runtime: emptyRuntime()
+    });
+    const ark = rows.find((row) => row.id === 'ark:gen1');
+    assert.equal(ark.name, 'Khaos Nexus (Gen1)');
+    assert.deepEqual(ark.joins, ['In-game server list: Khaos Nexus (Gen1)']);
+    assert.equal(JSON.stringify(rows).includes('Genesis Part 1'), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('NEXUS_CRAFT_PUBLIC_JOIN lists Nexus Craft when the Craft panel lives in another service', () => {
+  const dir = tempDir();
+  try {
+    const base = {
+      arkRegistry: new ArkClusterRegistry(path.join(dir, 'ark')),
+      hostedStore: new HostedServerStore({ filePath: path.join(dir, 'hosted.json') }),
+      runtime: emptyRuntime()
+    };
+    const craft = new CraftStore(path.join(dir, 'craft'), {});
+    const rows = collectPublicServers({ ...base, craftStore: craft, env: { NEXUS_CRAFT_PUBLIC_JOIN: '172.240.47.65:25588' } });
+    const mc = rows.find((row) => row.game === 'Minecraft');
+    assert.equal(mc.name, 'Nexus Craft');
+    assert.equal(mc.kind, 'java');
+    assert.deepEqual(mc.joins, ['Java 172.240.47.65:25588']);
+    const renamed = collectPublicServers({ ...base, craftStore: craft, env: { NEXUS_CRAFT_PUBLIC_JOIN: 'Java play.example:25565', NEXUS_CRAFT_PUBLIC_NAME: 'Craft Two' } });
+    assert.equal(renamed.find((row) => row.game === 'Minecraft').name, 'Craft Two');
+    for (const bad of ['', 'no-port', 'host:0', 'host:99999', ':25565']) {
+      const none = collectPublicServers({ ...base, craftStore: craft, env: { NEXUS_CRAFT_PUBLIC_JOIN: bad } });
+      assert.equal(none.some((row) => row.game === 'Minecraft'), false, bad);
+    }
+    craft.setStatusPanel({ channelId: CHANNEL, host: 'panel.mc.example', javaPort: 25565, kind: 'java' });
+    const withPanel = collectPublicServers({ ...base, craftStore: craft, env: { NEXUS_CRAFT_PUBLIC_JOIN: '172.240.47.65:25588' } });
+    const mcRows = withPanel.filter((row) => row.game === 'Minecraft');
+    assert.equal(mcRows.length, 1);
+    assert.equal(mcRows[0].name, 'panel.mc.example');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
