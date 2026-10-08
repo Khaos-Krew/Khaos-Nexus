@@ -60,6 +60,29 @@ function serverListCommand() {
       .setDescription('Admin: edit the saved server list in place.'));
 }
 
+// Text that came from a game server's status reply: one line, no Discord markdown.
+function oneLine(value, max) {
+  return String(value ?? '').replace(/§./g, '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
+function plainText(value, max) {
+  return oneLine(value, max).replace(/([*_`~|>\\])/g, '\\$1');
+}
+
+function packLine(row) {
+  const pack = plainText(row.pack, 80);
+  if (!pack) return '';
+  const version = plainText(oneLine(row.packVersion, 40).replace(/^v(?=\d)/i, ''), 40);
+  return `**Modpack:** ${pack}${version ? ` v${version}` : ''}`;
+}
+
+function minecraftLine(row) {
+  const version = plainText(row.mcVersion, 40);
+  if (!version) return '';
+  const loader = plainText(row.loader, 20);
+  return `**Minecraft:** ${version}${loader ? ` (${loader})` : ''}`;
+}
+
 function renderServerValue(row) {
   const lines = [];
   if (row.kind === 'realm') {
@@ -67,6 +90,10 @@ function renderServerValue(row) {
     lines.push('Apply on the Realms board.');
   } else {
     for (const join of row.joins || []) lines.push(`**Join:** ${join}`);
+    const pack = packLine(row);
+    if (pack) lines.push(pack);
+    const minecraft = minecraftLine(row);
+    if (minecraft) lines.push(minecraft);
     if (row.description) lines.push(row.description);
   }
   if (row.status) {
@@ -125,6 +152,27 @@ function renderPublicServerList(rows = []) {
   };
 }
 
+// Minecraft version / loader / advertised modpack from a Java status reply.
+// Configured pack env wins; the advertised pack only fills gaps.
+function liveJavaDetails(row, status) {
+  if (row.kind === 'bedrock' || !status || typeof status !== 'object') return {};
+  const details = {};
+  const mcVersion = oneLine(status.version, 40);
+  if (mcVersion) details.mcVersion = mcVersion;
+  const loader = oneLine(status.loader, 20);
+  if (loader) details.loader = loader;
+  const advertised = status.pack && typeof status.pack === 'object' ? status.pack : null;
+  const name = oneLine(advertised?.name, 80);
+  const version = oneLine(advertised?.version, 40);
+  if (name && !row.pack) {
+    details.pack = name;
+    if (!row.packVersion && version) details.packVersion = version;
+  } else if (name && row.pack && !row.packVersion && version && name.toLowerCase() === String(row.pack).toLowerCase()) {
+    details.packVersion = version;
+  }
+  return details;
+}
+
 async function applyLiveMinecraftStatus(rows, options = {}) {
   if (options.probe === false) return rows;
   const probe = options.probeServerStatus || probeServerStatus;
@@ -157,7 +205,7 @@ async function applyLiveMinecraftStatus(rows, options = {}) {
         const players = Number.isFinite(Number(status.online)) && Number.isFinite(Number(status.max))
           ? `${status.online}/${status.max}`
           : '';
-        next.push({ ...row, status: 'Online', players });
+        next.push({ ...row, status: 'Online', players, ...liveJavaDetails(row, status) });
       }
     } catch {
       next.push({ ...row, status: 'Offline', players: '' });
@@ -269,6 +317,7 @@ async function handleServerListCommand(interaction, context = {}) {
 }
 
 module.exports = {
+  applyLiveMinecraftStatus,
   LIST_FOOTER,
   LIST_IDENTITY,
   LIST_TITLE,

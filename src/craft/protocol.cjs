@@ -94,6 +94,28 @@ function flattenMotd(description) {
   return parts.join('');
 }
 
+function statusText(value, max) {
+  return stripFormatting(String(value ?? '')).replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
+// NeoForge (1.20.2+) marks its status reply with isModded; Forge sends forgeData
+// (or modinfo on very old versions).
+function javaLoader(json) {
+  if (json?.isModded === true) return 'NeoForge';
+  if (json?.forgeData || json?.modinfo) return 'Forge';
+  return '';
+}
+
+// Some modpacks advertise their name and version in the status reply
+// (betterStatus: { name, version }), e.g. ATM10 servers.
+function javaPack(json) {
+  const info = json?.betterStatus;
+  if (!info || typeof info !== 'object') return null;
+  const name = statusText(info.name, 80);
+  if (!name) return null;
+  return { name, version: statusText(info.version, 40) };
+}
+
 function parseJavaStatusPacket(buffer) {
   const input = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || []);
   const length = readVarInt(input, 0);
@@ -126,7 +148,9 @@ function parseJavaStatusPacket(buffer) {
     protocol: Number(version.protocol || 0),
     online: Number(players.online || 0),
     max: Number(players.max || 0),
-    sample
+    sample,
+    loader: javaLoader(json),
+    pack: javaPack(json)
   };
 }
 
