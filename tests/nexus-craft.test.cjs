@@ -146,6 +146,20 @@ test('Java status packet parse reads MOTD, version, and player counts', () => {
   assert.throws(() => parseJavaStatusPacket(Buffer.from([0x01])), /Incomplete Java status packet/);
 });
 
+test('Java status packet parse reads NeoForge and an advertised modpack', () => {
+  const neo = parseJavaStatusPacket(javaStatusPacket(
+    '{"isModded":true,"betterStatus":{"name":"ATM10: Aeronautics","version":"0.7.1"},"description":"A Minecraft Server","players":{"max":20,"online":0},"version":{"name":"1.21.1","protocol":767}}'
+  ));
+  assert.equal(neo.loader, 'NeoForge');
+  assert.deepEqual(neo.pack, { name: 'ATM10: Aeronautics', version: '0.7.1' });
+  const forge = parseJavaStatusPacket(javaStatusPacket('{"forgeData":{"mods":[]},"version":{"name":"1.20.1","protocol":763}}'));
+  assert.equal(forge.loader, 'Forge');
+  assert.equal(forge.pack, null);
+  const vanilla = parseJavaStatusPacket(javaStatusPacket('{"betterStatus":{"version":"1"},"version":{"name":"1.21.1","protocol":767}}'));
+  assert.equal(vanilla.loader, '');
+  assert.equal(vanilla.pack, null);
+});
+
 test('Bedrock pong parse reads the semicolon MOTD fields', () => {
   const text = 'MCPE;Khaos Realm;800;1.21.50;4;10;12345;Survival line;Survival;1;19132;19133;';
   const parsed = parseBedrockPong(bedrockPong(text));

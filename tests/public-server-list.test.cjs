@@ -12,6 +12,7 @@ const { onPublicServersChanged } = require('../src/shared/server-list-notify.cjs
 const { ArkClusterRegistry } = require('../src/sentinel/ark-cluster-registry.cjs');
 const { collectPublicServers } = require('../src/sentinel/public-server-inventory.cjs');
 const {
+  applyLiveMinecraftStatus,
   handleServerListCommand,
   listEnabled,
   publishPublicServerList,
@@ -479,6 +480,108 @@ test('server list refresh defers before probing', async () => {
       hostedStore: new HostedServerStore({ filePath: path.join(dir, 'hosted.json') })
     });
     assert.deepEqual(order, ['defer', 'probe', 'edit']);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Minecraft row shows modpack and Minecraft version from env and the live status ping', async () => {
+  const dir = tempDir();
+  try {
+    const base = {
+      arkRegistry: new ArkClusterRegistry(path.join(dir, 'ark')),
+      hostedStore: new HostedServerStore({ filePath: path.join(dir, 'hosted.json') }),
+      craftStore: new CraftStore(path.join(dir, 'craft'), {}),
+      runtime: emptyRuntime()
+    };
+    const live = {
+      java: { online: 0, max: 20, version: '1.21.1', loader: 'NeoForge', motd: 'A Minecraft Server', pack: { name: 'ATM10: Aeronautics', version: '0.7.1' } }
+    };
+    const probed = [];
+    const probe = async (target) => { probed.push(`${target.host}:${target.javaPort}`); return live; };
+
+    // Pack advertised by the server fills in when the env vars are unset.
+    const auto = await applyLiveMinecraftStatus(collectPublicServers({ ...base, env: { NEXUS_CRAFT_PUBLIC_JOIN: '172.240.47.65:25588' } }), { probeServerStatus: probe });
+    assert.deepEqual(probed, ['172.240.47.65:25588']);
+    const autoValue = renderPublicServerList(auto).embeds[0].fields[0].value;
+    assert.equal(autoValue, [
+      '**Join:** Java 172.240.47.65:25588',
+      '**Modpack:** ATM10: Aeronautics v0.7.1',
+      '**Minecraft:** 1.21.1 (NeoForge)',
+      '**Status:** Online • 0/20'
+    ].join('\n'));
+
+    // Env pack wins; env version wins; a leading "v" is not doubled.
+    const env = { NEXUS_CRAFT_PUBLIC_JOIN: '172.240.47.65:25588', NEXUS_CRAFT_PUBLIC_PACK: 'All the Mods 10', NEXUS_CRAFT_PUBLIC_PACK_VERSION: 'v4.2' };
+    const rows = collectPublicServers({ ...base, env });
+    assert.equal(rows[0].pack, 'All the Mods 10');
+    const configured = renderPublicServerList(await applyLiveMinecraftStatus(rows, { probeServerStatus: probe })).embeds[0].fields[0].value;
+    assert.match(configured, /\*\*Modpack:\*\* All the Mods 10 v4\.2\n\*\*Minecraft:\*\* 1\.21\.1 \(NeoForge\)/);
+
+    // Offline: env pack still shows, no Minecraft line, no crash.
+    const offline = await applyLiveMinecraftStatus(rows, { probeServerStatus: async () => { throw new Error('down'); } });
+    const offlineValue = renderPublicServerList(offline).embeds[0].fields[0].value;
+    assert.equal(offlineValue, '**Join:** Java 172.240.47.65:25588\n**Modpack:** All the Mods 10 v4.2\n**Status:** Offline');
+
+    // Nothing known: just Join + Status; server text cannot inject markdown.
+    const bare = await applyLiveMinecraftStatus(collectPublicServers({ ...base, env: { NEXUS_CRAFT_PUBLIC_JOIN: '172.240.47.65:25588' } }), {
+      probeServerStatus: async () => ({ java: { online: 1, max: 5, version: '', loader: '', pack: null } })
+    });
+    assert.equal(renderPublicServerList(bare).embeds[0].fields[0].value, '**Join:** Java 172.240.47.65:25588\n**Status:** Online • 1/5');
+    const sneaky = await applyLiveMinecraftStatus(collectPublicServers({ ...base, env: { NEXUS_CRAFT_PUBLIC_JOIN: '172.240.47.65:25588' } }), {
+      probeServerStatus: async () => ({ java: { online: 0, max: 1, version: '1.21.1', pack: { name: '**Big**\n`pack`', version: '1' } } })
+    });
+    assert.match(renderPublicServerList(sneaky).embeds[0].fields[0].value, /\*\*Modpack:\*\* \\\*\\\*Big\\\*\\\* \\`pack\\` v1\n\*\*Minecraft:\*\* 1\.21\.1\n/);
+
+    // Dedupe against Craft's own panel still holds, and the panel row gets the pack too.
+    base.craftStore.setStatusPanel({ channelId: CHANNEL, host: 'panel.mc.example', javaPort: 25565, kind: 'java' });
+    const withPanel = collectPublicServers({ ...base, env }).filter((row) => row.game === 'Minecraft');
+    assert.equal(withPanel.length, 1);
+    assert.equal(withPanel[0].name, 'panel.mc.example');
+    assert.equal(withPanel[0].pack, 'All the Mods 10');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Minecraft row neutralises mentions, masked links, separators and overlong server text', async () => {
+  const dir = tempDir();
+  try {
+    const base = {
+      arkRegistry: new ArkClusterRegistry(path.join(dir, 'ark')),
+      hostedStore: new HostedServerStore({ filePath: path.join(dir, 'hosted.json') }),
+      craftStore: new CraftStore(path.join(dir, 'craft'), {}),
+      runtime: emptyRuntime()
+    };
+    const render = async (pack, env = {}) => {
+      const rows = collectPublicServers({ ...base, env: { NEXUS_CRAFT_PUBLIC_JOIN: '172.240.47.65:25588', ...env } });
+      const live = await applyLiveMinecraftStatus(rows, {
+        probeServerStatus: async () => ({ java: { online: 0, max: 20, version: '1.21.1', loader: 'NeoForge', pack } })
+      });
+      const value = renderPublicServerList(live).embeds[0].fields[0].value;
+      return value.split('\n').find((line) => line.startsWith('**Modpack:**')) || '';
+    };
+
+    // Mentions: @everyone / @here (even with a zero-width split) and <@id> / <@&id> / <#id>.
+    const mentions = await render({ name: '@everyone @\u200bhere <@123> <@&456> <#789>', version: '1' });
+    assert.equal(mentions, '**Modpack:** \uff20everyone \uff20here <\uff20123\\> <\uff20&456\\> <\uff03789\\> v1');
+    assert.doesNotMatch(mentions, /@(everyone|here)|<@|<#/);
+
+    // Masked links cannot form.
+    const link = await render({ name: '[click](https://evil.example)', version: '' });
+    assert.equal(link, '**Modpack:** \\[click\\]\\(https://evil.example\\)');
+
+    // U+2028 / U+2029 and zero-width characters never break or hide text.
+    const separators = await render({ name: 'ATM10\u2028Line\u2029Two\u200b\u200c\u200d\u2060\ufeff!', version: '0.7\u20281' });
+    assert.equal(separators, '**Modpack:** ATM10 Line Two! v0.7 1');
+
+    // Overlong pack / version are capped (80 / 40 chars) before escaping.
+    const long = await render({ name: 'A'.repeat(300), version: '9'.repeat(100) });
+    assert.equal(long, `**Modpack:** ${'A'.repeat(80)} v${'9'.repeat(40)}`);
+
+    // Env-supplied pack goes through the same render path.
+    const fromEnv = await render(null, { NEXUS_CRAFT_PUBLIC_PACK: '[pack](https://x.example) @here', NEXUS_CRAFT_PUBLIC_PACK_VERSION: '2' });
+    assert.equal(fromEnv, '**Modpack:** \\[pack\\]\\(https://x.example\\) \uff20here v2');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

@@ -95,7 +95,9 @@ function pushRow(rows, seen, row) {
     joins: (Array.isArray(row.joins) ? row.joins : []).map((item) => clean(item, 200)).filter(Boolean).slice(0, 4),
     description: clean(row.description, 240),
     status: statusLabel(row.status),
-    players: clean(row.players, 40)
+    players: clean(row.players, 40),
+    pack: clean(row.pack, 80),
+    packVersion: clean(row.packVersion, 40)
   });
 }
 
@@ -127,6 +129,15 @@ function collectArkRows(registry, env) {
 // Nexus Craft runs in its own service with its own volume, so Sentinal usually
 // cannot see the Craft status panel. NEXUS_CRAFT_PUBLIC_JOIN ("host:port", Java)
 // lists the official server anyway; NEXUS_CRAFT_PUBLIC_NAME overrides the label.
+// NEXUS_CRAFT_PUBLIC_PACK / NEXUS_CRAFT_PUBLIC_PACK_VERSION name the modpack it runs
+// (optional; the live status ping fills them in when the server advertises a pack).
+function envCraftPack(env = {}) {
+  return {
+    pack: safePublicText(clean(env.NEXUS_CRAFT_PUBLIC_PACK, 80)),
+    packVersion: safePublicText(clean(env.NEXUS_CRAFT_PUBLIC_PACK_VERSION, 40))
+  };
+}
+
 function envCraftRow(env = {}) {
   const raw = clean(env.NEXUS_CRAFT_PUBLIC_JOIN, 300).replace(/^java\s+/i, '');
   const split = raw.lastIndexOf(':');
@@ -138,7 +149,8 @@ function envCraftRow(env = {}) {
     game: 'Minecraft',
     name: clean(env.NEXUS_CRAFT_PUBLIC_NAME, 80) || 'Nexus Craft',
     kind: 'java',
-    joins: [`Java ${join}`]
+    joins: [`Java ${join}`],
+    ...envCraftPack(env)
   };
 }
 
@@ -157,7 +169,8 @@ function collectCraftRows(store, env = {}) {
       game: 'Minecraft',
       name: clean(panel.host, 80),
       kind: named.kind,
-      joins: named.joins
+      joins: named.joins,
+      ...envCraftPack(env)
     });
   }
   const listings = typeof store.listListings === 'function' ? store.listListings() : [];
