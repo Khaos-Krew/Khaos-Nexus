@@ -544,6 +544,49 @@ test('Minecraft row shows modpack and Minecraft version from env and the live st
   }
 });
 
+test('Minecraft row neutralises mentions, masked links, separators and overlong server text', async () => {
+  const dir = tempDir();
+  try {
+    const base = {
+      arkRegistry: new ArkClusterRegistry(path.join(dir, 'ark')),
+      hostedStore: new HostedServerStore({ filePath: path.join(dir, 'hosted.json') }),
+      craftStore: new CraftStore(path.join(dir, 'craft'), {}),
+      runtime: emptyRuntime()
+    };
+    const render = async (pack, env = {}) => {
+      const rows = collectPublicServers({ ...base, env: { NEXUS_CRAFT_PUBLIC_JOIN: '172.240.47.65:25588', ...env } });
+      const live = await applyLiveMinecraftStatus(rows, {
+        probeServerStatus: async () => ({ java: { online: 0, max: 20, version: '1.21.1', loader: 'NeoForge', pack } })
+      });
+      const value = renderPublicServerList(live).embeds[0].fields[0].value;
+      return value.split('\n').find((line) => line.startsWith('**Modpack:**')) || '';
+    };
+
+    // Mentions: @everyone / @here (even with a zero-width split) and <@id> / <@&id> / <#id>.
+    const mentions = await render({ name: '@everyone @\u200bhere <@123> <@&456> <#789>', version: '1' });
+    assert.equal(mentions, '**Modpack:** \uff20everyone \uff20here <\uff20123\\> <\uff20&456\\> <\uff03789\\> v1');
+    assert.doesNotMatch(mentions, /@(everyone|here)|<@|<#/);
+
+    // Masked links cannot form.
+    const link = await render({ name: '[click](https://evil.example)', version: '' });
+    assert.equal(link, '**Modpack:** \\[click\\]\\(https://evil.example\\)');
+
+    // U+2028 / U+2029 and zero-width characters never break or hide text.
+    const separators = await render({ name: 'ATM10\u2028Line\u2029Two\u200b\u200c\u200d\u2060\ufeff!', version: '0.7\u20281' });
+    assert.equal(separators, '**Modpack:** ATM10 Line Two! v0.7 1');
+
+    // Overlong pack / version are capped (80 / 40 chars) before escaping.
+    const long = await render({ name: 'A'.repeat(300), version: '9'.repeat(100) });
+    assert.equal(long, `**Modpack:** ${'A'.repeat(80)} v${'9'.repeat(40)}`);
+
+    // Env-supplied pack goes through the same render path.
+    const fromEnv = await render(null, { NEXUS_CRAFT_PUBLIC_PACK: '[pack](https://x.example) @here', NEXUS_CRAFT_PUBLIC_PACK_VERSION: '2' });
+    assert.equal(fromEnv, '**Modpack:** \\[pack\\]\\(https://x.example\\) \uff20here v2');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('adding or removing a public server notifies the list and runtime updates do not', () => {
   const dir = tempDir();
   const heard = listen();

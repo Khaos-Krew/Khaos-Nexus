@@ -95,7 +95,7 @@ function flattenMotd(description) {
 }
 
 function statusText(value, max) {
-  return stripFormatting(String(value ?? '')).replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+  return stripFormatting(String(value ?? '')).replace(/[\u200b-\u200d\u2060\ufeff]/g, '').replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
 // NeoForge (1.20.2+) marks its status reply with isModded; Forge sends forgeData

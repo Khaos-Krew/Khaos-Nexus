@@ -60,13 +60,26 @@ function serverListCommand() {
       .setDescription('Admin: edit the saved server list in place.'));
 }
 
-// Text that came from a game server's status reply: one line, no Discord markdown.
+// Text from a game server's status reply or env: one line, no zero-width or
+// line/paragraph separators, capped before escaping.
 function oneLine(value, max) {
-  return String(value ?? '').replace(/§./g, '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+  return String(value ?? '')
+    .replace(/§./g, '')
+    .replace(/[\u200b-\u200d\u2060\ufeff]/g, '')
+    .replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
 }
 
+// Discord-safe: mention-like tokens get a fullwidth ＠/＃ (zero-width stripping
+// cannot undo it) and markdown / masked-link characters are escaped.
 function plainText(value, max) {
-  return oneLine(value, max).replace(/([*_`~|>\\])/g, '\\$1');
+  return oneLine(value, max)
+    .replace(/@(?=everyone|here)/gi, '\uff20')
+    .replace(/<@/g, '<\uff20')
+    .replace(/<#/g, '<\uff03')
+    .replace(/([*_`~|>\\[\]()])/g, '\\$1');
 }
 
 function packLine(row) {
