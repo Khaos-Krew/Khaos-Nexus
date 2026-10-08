@@ -104,7 +104,9 @@ function collectArkRows(registry, env) {
   if (!registry || typeof registry.list !== 'function') return rows;
   const forbidden = arkForbiddenHosts(registry);
   for (const server of registry.list({ includeDisabled: false })) {
-    const name = clean(server.mapName || server.name, 80);
+    // Display the server's registry name (same label Ascended's ARK panel uses);
+    // fall back to the map name only when no name is set.
+    const name = clean(server.name || server.mapName, 80);
     const prefix = clean(server.envPrefix, 64);
     const configuredJoin = safePublicText(env[`${prefix}_PUBLIC_JOIN`] || env[`${prefix}_JOIN`] || '', forbidden);
     const joins = configuredJoin ? [configuredJoin] : (name ? [`In-game server list: ${name}`] : []);
@@ -122,10 +124,32 @@ function collectArkRows(registry, env) {
   return rows;
 }
 
-function collectCraftRows(store) {
+// Nexus Craft runs in its own service with its own volume, so Sentinal usually
+// cannot see the Craft status panel. NEXUS_CRAFT_PUBLIC_JOIN ("host:port", Java)
+// lists the official server anyway; NEXUS_CRAFT_PUBLIC_NAME overrides the label.
+function envCraftRow(env = {}) {
+  const raw = clean(env.NEXUS_CRAFT_PUBLIC_JOIN, 300).replace(/^java\s+/i, '');
+  const split = raw.lastIndexOf(':');
+  if (split < 1) return null;
+  const join = joinValue(raw.slice(0, split), raw.slice(split + 1));
+  if (!join || !safePublicText(join)) return null;
+  return {
+    id: 'minecraft:env',
+    game: 'Minecraft',
+    name: clean(env.NEXUS_CRAFT_PUBLIC_NAME, 80) || 'Nexus Craft',
+    kind: 'java',
+    joins: [`Java ${join}`]
+  };
+}
+
+function collectCraftRows(store, env = {}) {
   const rows = [];
+  const panel = store && typeof store.getStatusPanel === 'function' ? store.getStatusPanel() : null;
+  if (!panel?.host) {
+    const fallback = envCraftRow(env);
+    if (fallback) rows.push(fallback);
+  }
   if (!store || typeof store.getStatusPanel !== 'function') return rows;
-  const panel = store.getStatusPanel();
   if (panel?.host) {
     const named = minecraftJoins(panel);
     rows.push({
@@ -192,7 +216,7 @@ function collectPublicServers(options = {}) {
   const seen = new Set();
   const rows = [];
   const sources = [
-    ...collectCraftRows(craftStoreFor(env, options.craftStore)),
+    ...collectCraftRows(craftStoreFor(env, options.craftStore), env),
     ...collectArkRows(options.arkRegistry || new ArkClusterRegistry(), env),
     ...collectHostedRows(options.hostedStore || new HostedServerStore()),
     ...collectConfiguredRows(options.runtime || null)
