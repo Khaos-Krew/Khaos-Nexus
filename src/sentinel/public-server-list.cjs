@@ -269,6 +269,7 @@ async function handleServerListCommand(interaction, context = {}) {
 }
 
 module.exports = {
+  applyLiveMinecraftStatus,
   LIST_FOOTER,
   LIST_IDENTITY,
   LIST_TITLE,
