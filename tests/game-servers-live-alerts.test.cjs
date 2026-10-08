@@ -9,7 +9,7 @@ const { HostedServerStore } = require('../src/backend/core/hosted-server-store.c
 const { ArkClusterRegistry } = require('../src/sentinel/ark-cluster-registry.cjs');
 const { renderGameServersPanel, COMMUNITY_SERVER_RULES_TITLE } = require('../src/sentinel/game-servers-panel.cjs');
 const { refreshGameServersPanel } = require('../src/sentinel/game-servers-extension.cjs');
-const { collectLivePublicServers, mergePanelServers } = require('../src/sentinel/game-servers-live.cjs');
+const { LIVE_PROBE_TIMEOUT_MS, collectLivePublicServers, mergePanelServers } = require('../src/sentinel/game-servers-live.cjs');
 const {
   ServerAlertMonitor,
   alertOwnerIds,
@@ -18,7 +18,8 @@ const {
   formatDuration,
   isAlertableGameServer,
   renderServerAlert,
-  runServerAlerts
+  runServerAlerts,
+  sanitizeSavedServers
 } = require('../src/sentinel/server-down-alerts.cjs');
 
 const OWNER = '1516602943670059101';
@@ -185,9 +186,12 @@ test('alert state persists across restarts: no repeat down alert, recovery still
 });
 
 test('fresh start with no saved state waits two checks before alerting', () => {
-  const monitor = new ServerAlertMonitor({ file: path.join(tempDir(), 'missing', 'alerts.json') });
-  assert.deepEqual(monitor.observe([row('Gen1', 'Offline')]), []);
-  assert.equal(monitor.observe([row('Gen1', 'Offline')]).length, 1);
+  const dir = tempDir();
+  try {
+    const monitor = new ServerAlertMonitor({ file: path.join(dir, 'missing', 'alerts.json') });
+    assert.deepEqual(monitor.observe([row('Gen1', 'Offline')]), []);
+    assert.equal(monitor.observe([row('Gen1', 'Offline')]).length, 1);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('alert text neutralises mentions and masked links', () => {
@@ -251,4 +255,85 @@ test('panel refresh uses live rows, runs alerts, and still merges the registry',
   assert.equal(client.sent.dms.length, 0);
   await refreshGameServersPanel(client, { discord: { guildId: '1516602943670059000' } }, options);
   assert.equal(client.sent.dms.length, 1);
+});
+
+test('alerts still go out when INFORMATION / #game-servers is missing or the guild is unset', async () => {
+  const guild = { ownerId: GUILD_OWNER, channels: { fetch: async () => new Map() } };
+  const client = { ...fakeClient(), user: { id: 'sentinal' }, guilds: { fetch: async () => guild } };
+  const backend = { trackedServers: async () => { throw new Error('panel path must not run'); } };
+  const monitor = new ServerAlertMonitor({ file: null });
+  const seen = [];
+  const options = { backend, env: {}, alertMonitor: monitor, onAlerts: (alerts) => seen.push(alerts), collectLive: async () => [row('Gen1', 'Offline')] };
+  const config = { discord: { guildId: '1516602943670059000' } };
+  const first = await refreshGameServersPanel(client, config, options);
+  assert.equal(first.skipped, 'information-category-missing');
+  assert.equal(client.sent.dms.length, 0);
+  const second = await refreshGameServersPanel(client, config, options);
+  assert.equal(second.skipped, 'information-category-missing');
+  assert.equal(second.alerts.events.length, 1);
+  assert.equal(client.sent.dms.length, 1);
+  assert.equal(client.sent.dms[0].id, GUILD_OWNER);
+  assert.equal(seen.length, 2);
+
+  const noGuild = { ...fakeClient(), user: { id: 'sentinal' }, guilds: { fetch: async () => { throw new Error('no guild'); } } };
+  const unsetMonitor = new ServerAlertMonitor({ file: null });
+  const ownerConfig = { discord: { ownerUserIds: [OWNER] } };
+  const unsetOptions = { ...options, alertMonitor: unsetMonitor };
+  await refreshGameServersPanel(noGuild, ownerConfig, unsetOptions);
+  const unset = await refreshGameServersPanel(noGuild, ownerConfig, unsetOptions);
+  assert.equal(unset.skipped, 'guild-unconfigured');
+  assert.equal(noGuild.sent.dms.length, 1);
+  assert.equal(noGuild.sent.dms[0].id, OWNER);
+});
+
+test('panel/alert Minecraft probe uses a 4s timeout', async () => {
+  const dir = tempDir();
+  try {
+    const requests = [];
+    await collectLivePublicServers({
+      env: { NEXUS_CRAFT_PUBLIC_JOIN: 'play.mc.example:25565', NEXUS_CRAFT_DATA_DIR: path.join(dir, 'craft') },
+      config: { modules: {} },
+      arkRegistry: new ArkClusterRegistry(path.join(dir, 'ark')),
+      hostedStore: new HostedServerStore({ filePath: path.join(dir, 'hosted.json') }),
+      probeServerStatus: async (request) => { requests.push(request); return { java: { offline: true } }; }
+    });
+    assert.equal(LIVE_PROBE_TIMEOUT_MS, 4000);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].timeoutMs, 4000);
+    assert.equal(requests[0].host, 'play.mc.example');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('corrupt or wrong-shape alert state resets to empty', () => {
+  const dir = tempDir();
+  try {
+    const file = path.join(dir, 'alerts.json');
+    const bad = [
+      '{not json',
+      'null',
+      '[]',
+      JSON.stringify({ servers: [] }),
+      JSON.stringify({ servers: 'x' }),
+      JSON.stringify({ servers: { 'ark|gen1': [] } }),
+      JSON.stringify({ servers: { 'ark|gen1': { offlineChecks: -1, alerted: false, downSince: 0 } } }),
+      JSON.stringify({ servers: { 'ark|gen1': { offlineChecks: 1, alerted: 'yes', downSince: 5 } } }),
+      JSON.stringify({ servers: { 'ark|gen1': { offlineChecks: 2, alerted: true, downSince: 0 } } }),
+      JSON.stringify({ servers: { nokey: { offlineChecks: 0, alerted: false, downSince: 0 } } })
+    ];
+    for (const text of bad) {
+      fs.writeFileSync(file, text);
+      const monitor = new ServerAlertMonitor({ file });
+      assert.deepEqual(monitor.servers, {}, text);
+      assert.deepEqual(monitor.observe([row('Gen1', 'Offline')]), [], text);
+      assert.equal(monitor.observe([row('Gen1', 'Offline')]).length, 1, text);
+    }
+    const good = { servers: { 'ark: survival ascended|gen1': { offlineChecks: 3, alerted: true, downSince: 1000, checkedAt: '', game: 'ARK: Survival Ascended', name: 'Gen1' } } };
+    assert.equal(sanitizeSavedServers(good)['ark: survival ascended|gen1'].alerted, true);
+    fs.writeFileSync(file, JSON.stringify(good));
+    const restored = new ServerAlertMonitor({ file, now: () => 61_000 });
+    assert.deepEqual(restored.observe([row('Gen1', 'Offline')]), []);
+    const up = restored.observe([row('Gen1', 'Online')]);
+    assert.equal(up.length, 1);
+    assert.equal(up[0].downMs, 60_000);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

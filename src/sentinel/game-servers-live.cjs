@@ -8,7 +8,16 @@ const { HostedServerStore } = require('../backend/core/hosted-server-store.cjs')
 const { loadConfig } = require('../shared/config.cjs');
 const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { collectPublicServers } = require('./public-server-inventory.cjs');
+const { probeServerStatus } = require('../craft/query.cjs');
 const { applyLiveMinecraftStatus } = require('./public-server-list.cjs');
+
+// Busy modded servers (ATM10) can miss the public list's 1.5s probe; the
+// panel/alert cycle gives them longer so slow replies do not read Offline.
+const LIVE_PROBE_TIMEOUT_MS = 4000;
+
+function withProbeTimeout(probe, timeoutMs = LIVE_PROBE_TIMEOUT_MS) {
+  return (request = {}) => probe({ ...request, timeoutMs: Math.max(Number(request.timeoutMs) || 0, timeoutMs) });
+}
 
 function clean(value, max = 120) {
   return String(value ?? '').replace(/[\r\n\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -40,7 +49,10 @@ async function collectLivePublicServers(options = {}) {
     .map((server) => [`ark:${server.id}`, clean(server.runtime?.lastCheckedAt, 40)]));
   const ownership = new Map(safeList(() => hostedStore.list({ includePrivate: false, includeUnlisted: false }))
     .map((server) => [`hosted:${server.id}`, server.ownershipType === 'community-approved' ? 'community-approved' : 'nexus-official']));
-  const live = await applyLiveMinecraftStatus(rows, options);
+  const live = await applyLiveMinecraftStatus(rows, {
+    ...options,
+    probeServerStatus: withProbeTimeout(options.probeServerStatus || probeServerStatus, options.probeTimeoutMs || LIVE_PROBE_TIMEOUT_MS)
+  });
   return live.map((row) => ({
     ...row,
     ownershipType: ownership.get(row.id) || 'nexus-official',
@@ -103,4 +115,4 @@ function mergePanelServers(liveRows = [], registryServers = []) {
   return [...merged.values()].sort((a, b) => String(a.game || '').localeCompare(String(b.game || '')) || String(a.name || '').localeCompare(String(b.name || '')));
 }
 
-module.exports = { collectLivePublicServers, livePanelServer, mergePanelServers, moduleIdFor, serverKey };
+module.exports = { LIVE_PROBE_TIMEOUT_MS, collectLivePublicServers, withProbeTimeout, livePanelServer, mergePanelServers, moduleIdFor, serverKey };

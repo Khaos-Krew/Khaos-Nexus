@@ -72,6 +72,41 @@ function formatDuration(ms) {
   return [days && `${days}d`, hours && `${hours}h`, mins && `${mins}m`].filter(Boolean).join(' ') || '1m';
 }
 
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
+}
+
+function sanitizeSavedEntry(entry) {
+  if (!isPlainObject(entry)) return null;
+  const offlineChecks = Number(entry.offlineChecks);
+  const downSince = Number(entry.downSince ?? 0);
+  if (!Number.isInteger(offlineChecks) || offlineChecks < 0 || offlineChecks > 1_000_000) return null;
+  if (!Number.isFinite(downSince) || downSince < 0) return null;
+  if (typeof entry.alerted !== 'boolean') return null;
+  if (entry.alerted && !downSince) return null;
+  return {
+    offlineChecks,
+    alerted: entry.alerted,
+    downSince,
+    checkedAt: oneLine(entry.checkedAt, 40),
+    game: oneLine(entry.game, 80),
+    name: oneLine(entry.name, 80)
+  };
+}
+
+// Saved state must be { servers: { "<game>|<name>": entry } }. Any other
+// shape resets to empty; a single bad entry resets the whole file.
+function sanitizeSavedServers(data) {
+  if (!isPlainObject(data) || !isPlainObject(data.servers)) return {};
+  const servers = {};
+  for (const [key, entry] of Object.entries(data.servers)) {
+    const clean = sanitizeSavedEntry(entry);
+    if (!clean || !key.includes('|') || key.length > 200) return {};
+    servers[key] = clean;
+  }
+  return servers;
+}
+
 class ServerAlertMonitor {
   constructor(options = {}) {
     this.threshold = Math.max(1, Number(options.threshold) || DOWN_THRESHOLD);
@@ -82,10 +117,9 @@ class ServerAlertMonitor {
 
   load() {
     if (!this.file) return {};
-    try {
-      const data = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-      return data && typeof data.servers === 'object' && data.servers ? data.servers : {};
-    } catch { return {}; }
+    let data;
+    try { data = JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch { return {}; }
+    return sanitizeSavedServers(data);
   }
 
   save() {
@@ -228,5 +262,6 @@ module.exports = {
   formatDuration,
   isAlertableGameServer,
   renderServerAlert,
-  runServerAlerts
+  runServerAlerts,
+  sanitizeSavedServers
 };
