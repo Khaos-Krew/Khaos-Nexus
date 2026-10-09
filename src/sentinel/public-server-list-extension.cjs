@@ -4,11 +4,16 @@ const { Client, Events } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { onPublicServersChanged } = require('../shared/server-list-notify.cjs');
 const { StateStore } = require('./state-store.cjs');
+const { findGameServersChannel } = require('./game-servers-panel.cjs');
+const { valuesOf } = require('./nexus-status.cjs');
 const {
+  handleRetiredServerListCommand,
   handleServerListCommand,
   listEnabled,
+  listPostEnabled,
   publishPublicServerList,
   refreshMs,
+  retirePublicServerList,
   serverListCommand
 } = require('./public-server-list.cjs');
 
@@ -26,6 +31,16 @@ async function registerServerListCommand(client, env, config) {
   else await guild.commands.create(json);
 }
 
+async function gameServersChannels(client, env, config) {
+  const guildId = String(config?.discord?.guildId || env.DISCORD_GUILD_ID || env.NEXUS_DISCORD_GUILD_ID || '').trim();
+  if (!/^\d{17,20}$/.test(guildId)) return [];
+  try {
+    const guild = await client.guilds.fetch(guildId);
+    const channel = findGameServersChannel(valuesOf(await guild.channels.fetch()));
+    return channel ? [channel] : [];
+  } catch { return []; }
+}
+
 function installPublicServerListExtension() {
   if (Client.prototype[INSTALLED]) return;
   Client.prototype[INSTALLED] = true;
@@ -37,8 +52,23 @@ function installPublicServerListExtension() {
       const state = new StateStore();
       const config = loadConfig();
       let pending = null;
+      let retired = false;
+      let retiring = false;
+      // Posting retired (default): delete the old list post until one clean pass.
+      const retire = async (reason) => {
+        if (retired || retiring) return;
+        retiring = true;
+        try {
+          const result = await retirePublicServerList(client, { env: process.env, state, channels: await gameServersChannels(client, process.env, config) });
+          if (!result.errors.length) retired = true;
+          console.log(`[Nexus Sentinal] public server list retired (${reason}): deleted=${result.deleted}${result.errors.length ? ` errors=${result.errors.join('; ').slice(0, 240)}` : ''}`);
+        } catch (error) {
+          console.warn(`[Nexus Sentinal] public server list retire (${reason}) failed: ${String(error?.message || error).slice(0, 240)}`);
+        } finally { retiring = false; }
+      };
       const run = (reason) => {
         const env = process.env;
+        if (!listPostEnabled(env)) { void retire(reason); return; }
         if (!listEnabled(env)) return;
         void publishPublicServerList(client, { env, state, config }).then((result) => {
           if (result?.skipped) return;
@@ -48,6 +78,7 @@ function installPublicServerListExtension() {
         });
       };
       onPublicServersChanged(() => {
+        if (!listPostEnabled(process.env)) return;
         if (pending) clearTimeout(pending);
         pending = setTimeout(() => {
           pending = null;
@@ -56,12 +87,15 @@ function installPublicServerListExtension() {
         pending.unref?.();
       });
       client.on(Events.InteractionCreate, (interaction) => {
-        void handleServerListCommand(interaction, { env: process.env, state, config, client }).catch((error) => {
+        const handler = listPostEnabled(process.env)
+          ? handleServerListCommand(interaction, { env: process.env, state, config, client })
+          : handleRetiredServerListCommand(interaction);
+        void handler.catch((error) => {
           console.warn(`[Nexus Sentinal] server list command failed: ${String(error?.message || error).slice(0, 240)}`);
         });
       });
       client.once(Events.ClientReady, () => {
-        void registerServerListCommand(client, process.env, config).catch((error) => {
+        if (listPostEnabled(process.env)) void registerServerListCommand(client, process.env, config).catch((error) => {
           console.warn(`[Nexus Sentinal] server list registration failed: ${String(error?.message || error).slice(0, 240)}`);
         });
         const starter = setTimeout(() => run('startup'), 20000);

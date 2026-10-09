@@ -78,6 +78,7 @@ function livePanelServer(row = {}) {
     ownershipType: row.ownershipType === 'community-approved' ? 'community-approved' : 'nexus-official',
     trackingState: ['online', 'offline', 'maintenance'].includes(status) ? status : 'listed',
     ...parsePlayers(row.players),
+    ...Object.fromEntries(['pack', 'packVersion', 'mcVersion', 'loader'].map((field) => [field, clean(row[field], field === 'pack' ? 80 : 40)]).filter(([, value]) => value)),
     ...(joinInfo ? { joinInfo } : {}),
     ...(clean(row.description, 240) ? { description: clean(row.description, 240) } : {})
   };

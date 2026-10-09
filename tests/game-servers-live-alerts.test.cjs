@@ -45,9 +45,10 @@ test('managed panel renders the live public servers with the same names and stat
   assert.equal(text.includes('No public Nexus game servers are registered yet'), false);
   assert.equal(embed.fields[0].name, '🛡️ Official • ARK: Survival Ascended');
   assert.match(embed.fields[0].value, /🟢 \*\*Khaos Nexus \(Astraeos\)\*\*/);
-  assert.match(embed.fields[0].value, /🛡️ Khaos Nexus Official • Online/);
+  assert.equal(embed.fields[0].value.includes('Khaos Nexus Official'), false);
+  assert.equal(/• Online/.test(embed.fields[0].value), false);
   assert.match(embed.fields[0].value, /🔴 \*\*Khaos Nexus \(Gen1\)\*\*/);
-  assert.match(embed.fields[0].value, /Offline/);
+  assert.equal(embed.fields[0].value.includes('Offline'), false);
   assert.match(embed.fields[0].value, /\*\*Players:\*\* 3/);
   assert.equal(embed.fields[1].name, '🛡️ Official • Minecraft');
   assert.match(embed.fields[1].value, /🟢 \*\*Nexus Craft\*\*/);
