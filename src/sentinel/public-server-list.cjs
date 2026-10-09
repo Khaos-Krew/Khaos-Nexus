@@ -290,10 +290,31 @@ async function deleteListMessage(message) {
   await message.delete();
 }
 
+// Discord errors that will not fix themselves on retry: Missing Access,
+// Missing Permissions, Unknown Channel, Unknown Message. A target that hits
+// one is treated as done (logged as a warning) so the retire loop can stop.
+const PERMANENT_DISCORD_CODES = new Set([50001, 50013, 10003, 10008]);
+
+function discordErrorCode(error) {
+  const code = Number(error?.code ?? error?.rawError?.code);
+  return Number.isFinite(code) ? code : 0;
+}
+
+function isPermanentDiscordError(error) {
+  return PERMANENT_DISCORD_CODES.has(discordErrorCode(error));
+}
+
+function errorText(error) {
+  const code = discordErrorCode(error);
+  return `${code ? `${code} ` : ''}${String(error?.message || error).slice(0, 120)}`;
+}
+
 // Deletes Sentinal's own old public-list post(s): only messages authored by
 // this bot that carry the list title/footer, or the stored message id.
 // Looks in the stored list channel, the env channel, and any extra channels
-// (the #game-servers channel). Returns { deleted, errors }.
+// (the #game-servers channel). Channels are fetched by id only (no guild
+// channel list). Returns { deleted, errors, warnings }; errors are retryable,
+// warnings are permanent Discord errors treated as done.
 async function retirePublicServerList(client, options = {}) {
   const env = options.env || process.env;
   const state = options.state;
@@ -301,33 +322,40 @@ async function retirePublicServerList(client, options = {}) {
   const meta = options.meta || (state?.getPublicServerList ? state.getPublicServerList() : {});
   const storedId = snowflake(meta.messageId);
   const channels = new Map();
+  const errors = [];
+  const warnings = [];
+  const fail = (label, error) => {
+    if (isPermanentDiscordError(error)) warnings.push(`${label}: ${errorText(error)}`);
+    else errors.push(`${label}: ${errorText(error)}`);
+  };
   for (const channel of options.channels || []) if (channel?.id) channels.set(String(channel.id), channel);
   for (const id of [snowflake(meta.channelId), snowflake(env.NEXUS_PUBLIC_SERVER_LIST_CHANNEL_ID)]) {
     if (!id || channels.has(id)) continue;
-    try { const channel = await client.channels.fetch(id); if (channel) channels.set(id, channel); } catch {}
+    try { const channel = await client.channels.fetch(id); if (channel) channels.set(id, channel); }
+    catch (error) { fail(`channel ${id}`, error); }
   }
   let deleted = 0;
-  const errors = [];
   const done = new Set();
   for (const channel of channels.values()) {
     if (!channel?.messages?.fetch) continue;
     const candidates = [];
     if (storedId && String(channel.id) === snowflake(meta.channelId)) {
-      try { const stored = await channel.messages.fetch(storedId); if (stored) candidates.push(stored); } catch {}
+      try { const stored = await channel.messages.fetch(storedId); if (stored) candidates.push(stored); }
+      catch (error) { fail(`stored ${storedId}`, error); }
     }
     try {
       const recent = await channel.messages.fetch({ limit: 100 });
       for (const message of recent?.values ? recent.values() : []) candidates.push(message);
-    } catch (error) { errors.push(`fetch ${channel.id}: ${String(error?.message || error).slice(0, 120)}`); }
+    } catch (error) { fail(`fetch ${channel.id}`, error); }
     for (const message of candidates) {
       if (done.has(String(message.id)) || !isRetirableListMessage(message, botId, storedId)) continue;
       done.add(String(message.id));
       try { await deleteListMessage(message); deleted += 1; }
-      catch (error) { errors.push(`delete ${message.id}: ${String(error?.message || error).slice(0, 120)}`); }
+      catch (error) { fail(`delete ${message.id}`, error); }
     }
   }
   if (!errors.length && storedId && state?.setPublicServerList) state.setPublicServerList({ channelId: meta.channelId, messageId: '' });
-  return { deleted, errors };
+  return { deleted, errors, warnings };
 }
 
 async function handleRetiredServerListCommand(interaction) {
@@ -400,6 +428,7 @@ async function handleServerListCommand(interaction, context = {}) {
 module.exports = {
   applyLiveMinecraftStatus,
   handleRetiredServerListCommand,
+  isPermanentDiscordError,
   isRetirableListMessage,
   listPostEnabled,
   minecraftLine,
