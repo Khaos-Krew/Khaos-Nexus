@@ -4,6 +4,7 @@ const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType } = require('d
 const { purchasableRanks } = require('../shared/ranks.cjs');
 const { findInformationCategory, valuesOf } = require('./nexus-status.cjs');
 const { managedPayloadMatches } = require('./managed-payload-compare.cjs');
+const { minecraftLine, packLine } = require('./public-server-list.cjs');
 
 const GAME_SERVERS_PANEL_MARKER = 'Nexus Sentinal • Managed Game Servers • v5';
 const GAME_SERVERS_PANEL_TITLE = 'KHAOS NEXUS • GAME SERVERS';
@@ -30,8 +31,11 @@ function trackingGlyph(server={}){const state=visibleTrackingState(server);if(st
 function trackingLabel(server={}){const state=visibleTrackingState(server);if(state==='online')return'Online';if(state==='offline')return'Offline';if(state==='maintenance')return'Maintenance';return'';}
 function cleanPublicText(value,max=240){return String(value || '').replace(/[\r\n]+/g,' ').replace(/\s+/g,' ').trim().slice(0,max);}
 function renderServerLine(server={}){
-  const name=cleanPublicText(server.name || 'Server',80)||'Server';const badge=server.ownershipType==='community-approved'?'🌐 Nexus Approved':'🛡️ Khaos Nexus Official';const glyph=trackingGlyph(server),label=trackingLabel(server);const lines=[`${glyph?`${glyph} `:''}**${name}**`,[badge,label].filter(Boolean).join(' • ')];
+  // The 🟢/🔴/🟡 dot is the status; official servers need no badge line (the
+  // section header says Official). Approved community servers keep a short tag.
+  const name=cleanPublicText(server.name || 'Server',80)||'Server';const glyph=trackingGlyph(server);const lines=[`${glyph?`${glyph} `:''}**${name}**`];if(server.ownershipType==='community-approved')lines.push('🌐 Community');
   const region=cleanPublicText(server.region,80),scenario=cleanPublicText(server.scenario,100);if(region||scenario)lines.push([region&&`**Region:** ${region}`,scenario&&`**Mode:** ${scenario}`].filter(Boolean).join(' • '));
+  const pack=packLine(server),minecraft=minecraftLine(server);if(pack)lines.push(pack);if(minecraft)lines.push(minecraft);
   if(Number.isFinite(Number(server.playerCount))){const max=Number.isFinite(Number(server.playerMax))?` / ${Number(server.playerMax)}`:'';lines.push(`**Players:** ${Number(server.playerCount)}${max}`);}
   const description=cleanPublicText(server.description,240),joinInfo=cleanPublicText(server.joinInfo,200);if(description)lines.push('',description);if(joinInfo)lines.push(`**Join:** ${joinInfo}`);return lines.join('\n');
 }

@@ -24,6 +24,13 @@ function listEnabled(env = process.env) {
   return !['0', 'false', 'off', 'no'].includes(raw);
 }
 
+// The separate public list post is retired: the managed GAME SERVERS panel is
+// the single #game-servers list. PUBLIC_SERVER_LIST_POST=true brings it back.
+function listPostEnabled(env = process.env) {
+  const raw = String(env.PUBLIC_SERVER_LIST_POST ?? 'false').trim().toLowerCase();
+  return ['1', 'true', 'on', 'yes'].includes(raw) && listEnabled(env);
+}
+
 function refreshMs(env = process.env) {
   const seconds = Number(env.NEXUS_PUBLIC_SERVER_LIST_REFRESH_SECONDS || 300);
   return Math.max(60, Math.min(900, Number.isFinite(seconds) ? seconds : 300)) * 1000;
@@ -269,6 +276,95 @@ function publishPublicServerList(client, options = {}) {
   return tracked;
 }
 
+function isRetirableListMessage(message, botId, storedId = '') {
+  if (!message || !botId || String(message.author?.id || '') !== String(botId)) return false;
+  if (storedId && String(message.id || '') === String(storedId)) return true;
+  return (message.embeds || []).some((embed) => String(embed?.title || '') === LIST_TITLE
+    || String(embed?.footer?.text || '').startsWith(LIST_FOOTER));
+}
+
+async function deleteListMessage(message) {
+  if (message.pinned === true && typeof message.unpin === 'function') {
+    try { await message.unpin('Public server list retired; GAME SERVERS panel is the single list'); } catch {}
+  }
+  await message.delete();
+}
+
+// Discord errors that will not fix themselves on retry: Missing Access,
+// Missing Permissions, Unknown Channel, Unknown Message. A target that hits
+// one is treated as done (logged as a warning) so the retire loop can stop.
+const PERMANENT_DISCORD_CODES = new Set([50001, 50013, 10003, 10008]);
+
+function discordErrorCode(error) {
+  const code = Number(error?.code ?? error?.rawError?.code);
+  return Number.isFinite(code) ? code : 0;
+}
+
+function isPermanentDiscordError(error) {
+  return PERMANENT_DISCORD_CODES.has(discordErrorCode(error));
+}
+
+function errorText(error) {
+  const code = discordErrorCode(error);
+  return `${code ? `${code} ` : ''}${String(error?.message || error).slice(0, 120)}`;
+}
+
+// Deletes Sentinal's own old public-list post(s): only messages authored by
+// this bot that carry the list title/footer, or the stored message id.
+// Looks in the stored list channel, the env channel, and any extra channels
+// (the #game-servers channel). Channels are fetched by id only (no guild
+// channel list). Returns { deleted, errors, warnings }; errors are retryable,
+// warnings are permanent Discord errors treated as done.
+async function retirePublicServerList(client, options = {}) {
+  const env = options.env || process.env;
+  const state = options.state;
+  const botId = String(options.botId || client?.user?.id || '');
+  const meta = options.meta || (state?.getPublicServerList ? state.getPublicServerList() : {});
+  const storedId = snowflake(meta.messageId);
+  const channels = new Map();
+  const errors = [];
+  const warnings = [];
+  const fail = (label, error) => {
+    if (isPermanentDiscordError(error)) warnings.push(`${label}: ${errorText(error)}`);
+    else errors.push(`${label}: ${errorText(error)}`);
+  };
+  for (const channel of options.channels || []) if (channel?.id) channels.set(String(channel.id), channel);
+  for (const id of [snowflake(meta.channelId), snowflake(env.NEXUS_PUBLIC_SERVER_LIST_CHANNEL_ID)]) {
+    if (!id || channels.has(id)) continue;
+    try { const channel = await client.channels.fetch(id); if (channel) channels.set(id, channel); }
+    catch (error) { fail(`channel ${id}`, error); }
+  }
+  let deleted = 0;
+  const done = new Set();
+  for (const channel of channels.values()) {
+    if (!channel?.messages?.fetch) continue;
+    const candidates = [];
+    if (storedId && String(channel.id) === snowflake(meta.channelId)) {
+      try { const stored = await channel.messages.fetch(storedId); if (stored) candidates.push(stored); }
+      catch (error) { fail(`stored ${storedId}`, error); }
+    }
+    try {
+      const recent = await channel.messages.fetch({ limit: 100 });
+      for (const message of recent?.values ? recent.values() : []) candidates.push(message);
+    } catch (error) { fail(`fetch ${channel.id}`, error); }
+    for (const message of candidates) {
+      if (done.has(String(message.id)) || !isRetirableListMessage(message, botId, storedId)) continue;
+      done.add(String(message.id));
+      try { await deleteListMessage(message); deleted += 1; }
+      catch (error) { fail(`delete ${message.id}`, error); }
+    }
+  }
+  if (!errors.length && storedId && state?.setPublicServerList) state.setPublicServerList({ channelId: meta.channelId, messageId: '' });
+  return { deleted, errors, warnings };
+}
+
+async function handleRetiredServerListCommand(interaction) {
+  if (typeof interaction.isChatInputCommand === 'function' && !interaction.isChatInputCommand()) return false;
+  if (String(interaction.commandName || '') !== 'serverlist') return false;
+  await interaction.reply(ephemeral('The separate server list is retired. The KHAOS NEXUS • GAME SERVERS panel in #game-servers is now the single server list and refreshes itself.'));
+  return true;
+}
+
 function ephemeral(content) {
   return { content: String(content || '').slice(0, 1900), flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } };
 }
@@ -331,6 +427,13 @@ async function handleServerListCommand(interaction, context = {}) {
 
 module.exports = {
   applyLiveMinecraftStatus,
+  handleRetiredServerListCommand,
+  isPermanentDiscordError,
+  isRetirableListMessage,
+  listPostEnabled,
+  minecraftLine,
+  packLine,
+  retirePublicServerList,
   LIST_FOOTER,
   LIST_IDENTITY,
   LIST_TITLE,
