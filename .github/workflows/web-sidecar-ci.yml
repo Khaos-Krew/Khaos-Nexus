@@ -1,0 +1,51 @@
+name: Web Sidecar CI
+
+on:
+  push:
+    branches:
+      - sidecar/nexus-web-pwa
+    paths:
+      - 'web/**'
+      - '.github/workflows/web-sidecar-ci.yml'
+  pull_request:
+    paths:
+      - 'web/**'
+      - '.github/workflows/web-sidecar-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package.json
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck and build frontend
+        run: npm run build
+
+      - name: Validate generated PWA artifacts
+        run: |
+          test -f dist/manifest.webmanifest
+          test -f dist/sw.js
+          node -e "const fs=require('fs'); const m=JSON.parse(fs.readFileSync('dist/manifest.webmanifest','utf8')); if(m.display!=='standalone'||m.start_url!=='/') process.exit(1);"
+
+      - name: Validate Cloudflare Functions syntax
+        run: find functions -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+
+      - name: Smoke test Cloudflare Functions
+        run: npm run test:functions

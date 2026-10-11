@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Khaos Nexus">
+  <rect width="512" height="512" rx="112" fill="#050505"/>
+  <path d="M108 106h76v112l112-112h100L250 250l154 156H300L184 284v122h-76V106Z" fill="#a52020"/>
+  <path d="M108 106h76v112l112-112h100" fill="none" stroke="#e05a5a" stroke-width="10" stroke-linejoin="round" opacity=".7"/>
+</svg>

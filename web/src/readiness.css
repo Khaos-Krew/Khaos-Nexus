@@ -1,0 +1,65 @@
+.install-button {
+  border-color: #5a4727;
+  background: rgba(193, 144, 63, 0.08);
+  color: #e2bd78;
+}
+
+.installed-badge {
+  border: 1px solid #295934;
+  color: #91d0a1;
+  border-radius: 999px;
+  padding: 6px 9px;
+  font-size: 0.72rem;
+}
+
+.readiness-list {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.readiness-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #1d1d21;
+}
+
+.readiness-row:last-child { border-bottom: 0; }
+.readiness-row > div { display: grid; gap: 3px; }
+.readiness-row strong { font-size: 0.9rem; }
+.readiness-row > div span { color: var(--muted); font-size: 0.76rem; }
+
+.readiness-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+}
+.readiness-dot.ready { background: #5eaa71; box-shadow: 0 0 0 4px rgba(94, 170, 113, 0.08); }
+.readiness-dot.missing { background: #c1903f; box-shadow: 0 0 0 4px rgba(193, 144, 63, 0.08); }
+
+.check-ready,
+.check-missing {
+  border-radius: 999px;
+  padding: 4px 7px;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.check-ready { color: #91d0a1; border: 1px solid #295934; }
+.check-missing { color: #d8b16c; border: 1px solid #5a4727; }
+
+@media (max-width: 620px) {
+  .readiness-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .check-ready,
+  .check-missing {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .installed-badge { display: none; }
+}
