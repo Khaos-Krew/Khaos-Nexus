@@ -74,6 +74,7 @@ installAboutExtension();
 installRanksExtension();
 installGameServersExtension();
 installPublicServerListExtension();
+require('./minecraft-curseforge-tracker.cjs').installMinecraftCurseForgeTracker();
 // Creator program extensions:
 // - level gate: blocks the apply modal below the configured community level
 // - program refresh: every 15 minutes, keeps channels, panels, and /creator current
