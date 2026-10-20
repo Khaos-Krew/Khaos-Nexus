@@ -11,6 +11,8 @@ const { CraftStore } = require('../src/craft/store.cjs');
 const { onPublicServersChanged } = require('../src/shared/server-list-notify.cjs');
 const { ArkClusterRegistry } = require('../src/sentinel/ark-cluster-registry.cjs');
 const { collectPublicServers } = require('../src/sentinel/public-server-inventory.cjs');
+const { mergePanelServers } = require('../src/sentinel/game-servers-live.cjs');
+const { renderGameServersPanel } = require('../src/sentinel/game-servers-panel.cjs');
 const {
   applyLiveMinecraftStatus,
   handleServerListCommand,
@@ -619,19 +621,20 @@ function minecraftPublicServers(dir, env) {
   return collectPublicServers({ ...inventoryFixture(dir), env }).filter((row) => row.game === 'Minecraft');
 }
 
-test('NEXUS_MINECRAFT_PUBLIC_SERVERS adds geyser rows with stable ids and leaves the legacy join row unchanged', async () => {
+test('grouped Minecraft servers list under Nexus Craft and a Bedrock URL is not pinged', async () => {
   const dir = tempDir();
   try {
     const env = {
       NEXUS_CRAFT_PUBLIC_JOIN: '172.240.47.65:25588',
-      NEXUS_CRAFT_PUBLIC_NAME: 'Nexus Craft',
       NEXUS_CRAFT_PUBLIC_PACK: 'All the Mods 10',
       NEXUS_CRAFT_PUBLIC_PACK_VERSION: 'v4.2',
       NEXUS_MINECRAFT_PUBLIC_SERVERS: JSON.stringify([
-        { name: 'Khaos Nexus Skyblock', kind: 'geyser', host: '104.143.2.85', javaPort: 25578, bedrockPort: 25578 },
+        { name: 'ATM10' },
+        { name: 'Skyblock', kind: 'geyser', host: '104.143.2.85', javaPort: 25578, bedrockPort: 19132, bedrockJoin: 'https://musicalguava.wdn.gg', group: 'nexus-craft' },
         { name: 'Sky Block', kind: 'java', host: 'sky.example', javaPort: '25565' },
-        { name: 'Sky-Block', kind: 'Java', host: 'sky-two.example', javaPort: 25566 },
+        { name: 'Sky-Block', kind: 'java', host: 'sky-two.example', javaPort: 25566 },
         { name: 'Bedrock Only', kind: 'bedrock', host: 'bedrock.example', bedrockPort: 19132, javaPort: 25565 },
+        { name: 'Elsewhere', kind: 'java', host: 'else.example', javaPort: 25570, group: 'standalone' },
         { name: '', kind: 'java', host: 'missing-name.example', javaPort: 25565 },
         { name: 'No Port', kind: 'java', host: 'noport.example' },
         null,
@@ -639,60 +642,84 @@ test('NEXUS_MINECRAFT_PUBLIC_SERVERS adds geyser rows with stable ids and leaves
       ])
     };
     const rows = minecraftPublicServers(dir, env);
-    const legacy = rows.find((row) => row.id === 'minecraft:env');
-    assert.deepEqual({
-      id: legacy.id,
-      game: legacy.game,
-      name: legacy.name,
-      kind: legacy.kind,
-      joins: legacy.joins,
-      pack: legacy.pack,
-      packVersion: legacy.packVersion
-    }, {
-      id: 'minecraft:env',
-      game: 'Minecraft',
-      name: 'Nexus Craft',
-      kind: 'java',
-      joins: ['Java 172.240.47.65:25588'],
-      pack: 'All the Mods 10',
-      packVersion: 'v4.2'
-    });
-    const skyblock = rows.find((row) => row.name === 'Khaos Nexus Skyblock');
-    assert.equal(skyblock.id, 'minecraft:env:khaos-nexus-skyblock');
+    assert.equal(rows.length, 2);
+    const craft = rows.find((row) => row.id === 'minecraft:env');
+    assert.equal(craft.name, 'Nexus Craft');
+    assert.equal(craft.kind, 'group');
+    assert.deepEqual(craft.joins, []);
+    assert.equal(craft.servers[0].name, 'ATM10');
+    assert.equal(craft.servers[0].id, 'minecraft:env:join');
+    assert.deepEqual(craft.servers[0].joins, ['Java 172.240.47.65:25588']);
+    assert.equal(craft.servers[0].pack, 'All the Mods 10');
+    const skyblock = craft.servers.find((server) => server.name === 'Skyblock');
+    assert.equal(skyblock.id, 'minecraft:env:skyblock');
     assert.equal(skyblock.kind, 'geyser');
-    assert.deepEqual(skyblock.joins, ['Java 104.143.2.85:25578', 'Bedrock 104.143.2.85:25578']);
-    assert.equal(skyblock.pack, '');
-    assert.equal(rows.filter((row) => row.id === 'minecraft:env').length, 1);
-    assert.equal(rows.find((row) => row.name === 'Sky Block').id, 'minecraft:env:sky-block');
-    assert.deepEqual(rows.find((row) => row.name === 'Sky Block').joins, ['Java sky.example:25565']);
-    assert.equal(rows.find((row) => row.name === 'Sky-Block').id, 'minecraft:env:sky-block-2');
-    assert.equal(rows.find((row) => row.name === 'Bedrock Only').kind, 'bedrock');
-    assert.deepEqual(rows.find((row) => row.name === 'Bedrock Only').joins, ['Bedrock bedrock.example:19132']);
-    assert.equal(rows.some((row) => row.name === 'No Port'), false);
-    assert.equal(new Set(rows.map((row) => row.id)).size, rows.length);
+    assert.deepEqual(skyblock.joins, ['Java 104.143.2.85:25578', 'Bedrock https://musicalguava.wdn.gg']);
+    assert.equal(JSON.stringify(skyblock.joins).includes('19132'), false);
+    assert.equal(craft.servers.find((server) => server.name === 'Sky Block').id, 'minecraft:env:sky-block');
+    assert.equal(craft.servers.find((server) => server.name === 'Sky-Block').id, 'minecraft:env:sky-block-2');
+    assert.equal(craft.servers.find((server) => server.name === 'Bedrock Only').kind, 'bedrock');
+    assert.deepEqual(craft.servers.find((server) => server.name === 'Bedrock Only').joins, ['Bedrock bedrock.example:19132']);
+    assert.equal(craft.servers.some((server) => server.name === 'No Port'), false);
+    assert.equal(new Set(craft.servers.map((server) => server.id)).size, craft.servers.length);
+    const elsewhere = rows.find((row) => row.name === 'Elsewhere');
+    assert.equal(elsewhere.id, 'minecraft:env:elsewhere');
+    assert.equal(elsewhere.kind, 'java');
+    assert.equal(elsewhere.servers, undefined);
 
     const probed = [];
     const live = await applyLiveMinecraftStatus(rows, {
       probeServerStatus: async (target) => {
         probed.push(target);
-        if (target.host === '104.143.2.85') return { java: { online: 3, max: 40, version: '1.21.1', loader: 'Paper' } };
+        if (target.host === '104.143.2.85') return { java: { online: 6, max: 30, version: '1.21.1', loader: 'Paper' } };
+        if (target.host === '172.240.47.65') return { java: { online: 4, max: 20, version: '1.21.1', loader: 'NeoForge' } };
         if (target.host === 'bedrock.example') return { bedrock: { online: 1, max: 8 } };
         return { java: { offline: true } };
       }
     });
-    const liveSkyblock = live.find((row) => row.id === 'minecraft:env:khaos-nexus-skyblock');
+    const liveCraft = live.find((row) => row.id === 'minecraft:env');
+    assert.equal(liveCraft.status, 'Online');
+    assert.equal(liveCraft.players, '11/58');
+    const liveSkyblock = liveCraft.servers.find((server) => server.name === 'Skyblock');
     assert.equal(liveSkyblock.status, 'Online');
-    assert.equal(liveSkyblock.players, '3/40');
+    assert.equal(liveSkyblock.players, '6/30');
     assert.equal(liveSkyblock.mcVersion, '1.21.1');
     const skyProbe = probed.find((target) => target.host === '104.143.2.85');
     assert.equal(skyProbe.kind, 'java');
     assert.equal(skyProbe.javaPort, 25578);
-    assert.equal(skyProbe.bedrockPort, 25578);
+    assert.equal(probed.some((target) => String(target.host).includes('musicalguava')), false);
     const bedrockProbe = probed.find((target) => target.host === 'bedrock.example');
     assert.equal(bedrockProbe.kind, 'bedrock');
     assert.equal(bedrockProbe.bedrockPort, 19132);
-    assert.equal(live.find((row) => row.id === 'minecraft:env').status, 'Offline');
-    assert.equal(live.find((row) => row.name === 'Bedrock Only').players, '1/8');
+    assert.equal(liveCraft.servers.find((server) => server.name === 'ATM10').players, '4/20');
+
+    const down = await applyLiveMinecraftStatus(rows, {
+      probeServerStatus: async (target) => {
+        if (target.host === '104.143.2.85') return { java: { online: 6, max: 30 } };
+        return { java: { offline: true }, bedrock: { offline: true } };
+      }
+    });
+    const downCraft = down.find((row) => row.id === 'minecraft:env');
+    assert.equal(downCraft.status, 'Online');
+    assert.equal(downCraft.players, '6/30');
+    assert.equal(downCraft.servers.find((server) => server.name === 'ATM10').status, 'Offline');
+
+    const offline = await applyLiveMinecraftStatus([craft], {
+      probeServerStatus: async () => { throw new Error('down'); }
+    });
+    assert.equal(offline[0].status, 'Offline');
+    assert.equal(offline[0].players, '');
+
+    const rendered = renderPublicServerList(live).embeds[0].fields.find((field) => field.name === 'Minecraft • Nexus Craft').value;
+    assert.match(rendered, /\*\*ATM10\*\*\n\*\*Join:\*\* Java 172\.240\.47\.65:25588\n\*\*Modpack:\*\* All the Mods 10 v4\.2/);
+    assert.match(rendered, /\*\*Skyblock\*\*\n\*\*Join:\*\* Java 104\.143\.2\.85:25578\n\*\*Join:\*\* Bedrock https:\/\/musicalguava\.wdn\.gg/);
+    assert.match(rendered, /\*\*Status:\*\* Online • 11\/58$/);
+    const panel = renderGameServersPanel({ servers: mergePanelServers(live, []), privateServers: [] });
+    const minecraft = panel.embeds[0].fields.find((field) => field.name === '🛡️ Official • Minecraft').value;
+    assert.match(minecraft, /🟢 \*\*Nexus Craft\*\*\n\*\*Players:\*\* 11 \/ 58\n\n🟢 \*\*ATM10\*\*/);
+    const skyblockBlock = minecraft.split('🟢 **Skyblock**')[1];
+    assert.match(skyblockBlock, /^\n\*\*Minecraft:\*\* 1\.21\.1 \(Paper\)\n\*\*Players:\*\* 6 \/ 30\n\*\*Join:\*\* Java 104\.143\.2\.85:25578\n\*\*Join:\*\* Bedrock https:\/\/musicalguava\.wdn\.gg/);
+    assert.equal(skyblockBlock.split('\n\n')[0].includes('19132'), false);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -722,8 +749,14 @@ test('invalid NEXUS_MINECRAFT_PUBLIC_SERVERS JSON is logged and ignored without 
     const empty = minecraftPublicServers(dir, { ...base, NEXUS_MINECRAFT_PUBLIC_SERVERS: '   ' });
     const emptyArray = minecraftPublicServers(dir, { ...base, NEXUS_MINECRAFT_PUBLIC_SERVERS: '[]' });
     assert.equal(absent.length, 1);
+    assert.equal(absent[0].id, 'minecraft:env');
+    assert.equal(absent[0].kind, 'java');
+    assert.equal(absent[0].servers, undefined);
+    assert.deepEqual(absent[0].joins, ['Java 172.240.47.65:25588']);
     assert.equal(empty.length, 1);
+    assert.equal(empty[0].servers, undefined);
     assert.equal(emptyArray.length, 1);
+    assert.equal(emptyArray[0].kind, 'java');
     assert.equal(warnings.length, 0);
 
     const duplicate = minecraftPublicServers(dir, {
@@ -736,10 +769,12 @@ test('invalid NEXUS_MINECRAFT_PUBLIC_SERVERS JSON is logged and ignored without 
         { name: 'Khaos Nexus Skyblock', kind: 'java', host: 'again.example', javaPort: 25570 }
       ])
     });
-    assert.deepEqual(duplicate.map((row) => row.id), ['minecraft:env:khaos-nexus-skyblock', 'minecraft:env']);
-    assert.equal(duplicate.filter((row) => row.name === 'Nexus Craft').length, 1);
-    assert.equal(duplicate.some((row) => String(row.joins).includes('other.example')), false);
-    assert.equal(duplicate.some((row) => String(row.joins).includes('19132')), false);
+    assert.deepEqual(duplicate.map((row) => row.id), ['minecraft:env']);
+    assert.equal(duplicate[0].name, 'Nexus Craft');
+    assert.equal(duplicate[0].servers.filter((server) => server.name === 'Khaos Nexus Skyblock').length, 1);
+    assert.equal(JSON.stringify(duplicate).includes('19132'), false);
+    assert.equal(JSON.stringify(duplicate).includes('again.example'), false);
+    assert.equal(duplicate[0].servers.some((server) => server.name === 'Same Address'), false);
   } finally {
     console.warn = original;
     fs.rmSync(dir, { recursive: true, force: true });
@@ -761,12 +796,16 @@ test('extra Minecraft servers still list when the Craft panel replaces the legac
         ])
       }
     }).filter((row) => row.game === 'Minecraft');
-    assert.deepEqual(rows.map((row) => row.id).sort(), ['minecraft:env:khaos-nexus-skyblock', 'minecraft:panel']);
+    assert.deepEqual(rows.map((row) => row.id), ['minecraft:panel']);
+    assert.equal(rows[0].name, 'Nexus Craft');
+    assert.equal(rows[0].kind, 'group');
     assert.equal(rows.some((row) => row.id === 'minecraft:env'), false);
-    assert.deepEqual(rows.find((row) => row.id === 'minecraft:env:khaos-nexus-skyblock').joins, [
+    assert.equal(rows[0].servers[0].name, 'panel.mc.example');
+    assert.deepEqual(rows[0].servers.find((server) => server.name === 'Khaos Nexus Skyblock').joins, [
       'Java 104.143.2.85:25578',
       'Bedrock 104.143.2.85:19132'
     ]);
+    assert.equal(rows[0].servers.some((server) => server.joins.join(' ').includes('panel.mc.example:25565') && server.name === 'panel.mc.example'), true);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

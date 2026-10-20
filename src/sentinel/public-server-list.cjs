@@ -103,7 +103,33 @@ function minecraftLine(row) {
   return `**Minecraft:** ${version}${loader ? ` (${loader})` : ''}`;
 }
 
+function renderSubServerValue(server) {
+  const lines = [`**${plainText(server.name, 80) || 'Server'}**`];
+  for (const join of Array.isArray(server.joins) ? server.joins : []) {
+    const text = plainText(join, 200);
+    if (text) lines.push(`**Join:** ${text}`);
+  }
+  const pack = packLine(server);
+  if (pack) lines.push(pack);
+  const minecraft = minecraftLine(server);
+  if (minecraft) lines.push(minecraft);
+  if (server.description) lines.push(server.description);
+  if (server.status) {
+    const players = server.players ? ` • ${plainText(server.players, 40)}` : '';
+    lines.push(`**Status:** ${plainText(server.status, 40)}${players}`);
+  }
+  return lines.join('\n');
+}
+
 function renderServerValue(row) {
+  if (Array.isArray(row.servers) && row.servers.length) {
+    const lines = row.servers.map(renderSubServerValue).filter(Boolean);
+    if (row.status) {
+      const players = row.players ? ` • ${row.players}` : '';
+      lines.push(`**Status:** ${row.status}${players}`);
+    }
+    return (lines.join('\n\n') || 'Listed.').slice(0, 1024);
+  }
   const lines = [];
   if (row.kind === 'realm') {
     if (row.description) lines.push(row.description);
@@ -193,43 +219,85 @@ function liveJavaDetails(row, status) {
   return details;
 }
 
+function legacyProbeTarget(row) {
+  const join = (row.joins || []).find((item) => row.kind === 'bedrock' ? item.startsWith('Bedrock ') : item.startsWith('Java ') || item.startsWith('Bedrock ')) || '';
+  const address = join.replace(/^(Java|Bedrock)\s+/, '');
+  const split = address.lastIndexOf(':');
+  if (split < 1) return null;
+  const host = address.slice(0, split);
+  if (!host || address.includes('://') || host.includes('/')) return null;
+  return {
+    host,
+    port: Number(address.slice(split + 1)),
+    kind: row.kind === 'bedrock' ? 'bedrock' : 'java'
+  };
+}
+
+function explicitProbeTarget(row) {
+  const port = Number(row.probePort);
+  const host = String(row.probeHost || '').trim();
+  if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return null;
+  return { host, port, kind: row.probeKind === 'bedrock' ? 'bedrock' : 'java' };
+}
+
+async function pingMinecraftRow(row, probe) {
+  if (row.kind !== 'java' && row.kind !== 'bedrock' && row.kind !== 'geyser') return row;
+  const target = explicitProbeTarget(row) || legacyProbeTarget(row);
+  if (!target) return row;
+  try {
+    const snapshot = await probe({
+      host: target.host,
+      kind: target.kind === 'bedrock' ? 'bedrock' : 'java',
+      javaPort: target.port,
+      bedrockPort: target.port,
+      timeoutMs: 1500
+    });
+    const status = target.kind === 'bedrock' ? snapshot.bedrock : snapshot.java;
+    if (!status || status.offline) return { ...row, status: 'Offline', players: '' };
+    const players = Number.isFinite(Number(status.online)) && Number.isFinite(Number(status.max))
+      ? `${status.online}/${status.max}`
+      : '';
+    return { ...row, status: 'Online', players, ...liveJavaDetails(row, status) };
+  } catch {
+    return { ...row, status: 'Offline', players: '' };
+  }
+}
+
+function rollupMinecraftStatus(servers) {
+  const online = servers.some((server) => server.status === 'Online');
+  const known = servers.some((server) => server.status === 'Online' || server.status === 'Offline');
+  const status = online ? 'Online' : (known ? 'Offline' : '');
+  let playersOnline = 0;
+  let playersMax = 0;
+  let counted = 0;
+  let missingMax = false;
+  for (const server of servers) {
+    if (server.status !== 'Online') continue;
+    const match = /^(\d+)(?:\/(\d+))?$/.exec(String(server.players || ''));
+    if (!match) continue;
+    playersOnline += Number(match[1]);
+    counted += 1;
+    if (match[2] === undefined) missingMax = true;
+    else playersMax += Number(match[2]);
+  }
+  return {
+    status,
+    players: !counted ? '' : (missingMax ? String(playersOnline) : `${playersOnline}/${playersMax}`)
+  };
+}
+
 async function applyLiveMinecraftStatus(rows, options = {}) {
   if (options.probe === false) return rows;
   const probe = options.probeServerStatus || probeServerStatus;
   const next = [];
   for (const row of rows) {
-    if (row.kind !== 'java' && row.kind !== 'bedrock' && row.kind !== 'geyser') {
-      next.push(row);
+    if (Array.isArray(row.servers) && row.servers.length) {
+      const servers = [];
+      for (const child of row.servers) servers.push(await pingMinecraftRow(child, probe));
+      next.push({ ...row, servers, ...rollupMinecraftStatus(servers) });
       continue;
     }
-    const join = (row.joins || []).find((item) => row.kind === 'bedrock' ? item.startsWith('Bedrock ') : item.startsWith('Java ') || item.startsWith('Bedrock ')) || '';
-    const address = join.replace(/^(Java|Bedrock)\s+/, '');
-    const split = address.lastIndexOf(':');
-    if (split < 1) {
-      next.push(row);
-      continue;
-    }
-    const host = address.slice(0, split);
-    const port = Number(address.slice(split + 1));
-    try {
-      const snapshot = await probe({
-        host,
-        kind: row.kind === 'bedrock' ? 'bedrock' : 'java',
-        javaPort: port,
-        bedrockPort: port,
-        timeoutMs: 1500
-      });
-      const status = row.kind === 'bedrock' ? snapshot.bedrock : snapshot.java;
-      if (!status || status.offline) next.push({ ...row, status: 'Offline', players: '' });
-      else {
-        const players = Number.isFinite(Number(status.online)) && Number.isFinite(Number(status.max))
-          ? `${status.online}/${status.max}`
-          : '';
-        next.push({ ...row, status: 'Online', players, ...liveJavaDetails(row, status) });
-      }
-    } catch {
-      next.push({ ...row, status: 'Offline', players: '' });
-    }
+    next.push(await pingMinecraftRow(row, probe));
   }
   return next;
 }

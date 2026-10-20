@@ -30,14 +30,28 @@ function visibleTrackingState(server={}){const state=normalizedTrackingState(ser
 function trackingGlyph(server={}){const state=visibleTrackingState(server);if(state==='online')return'🟢';if(state==='offline')return'🔴';if(state==='maintenance')return'🟡';return'';}
 function trackingLabel(server={}){const state=visibleTrackingState(server);if(state==='online')return'Online';if(state==='offline')return'Offline';if(state==='maintenance')return'Maintenance';return'';}
 function cleanPublicText(value,max=240){return String(value || '').replace(/[\r\n]+/g,' ').replace(/\s+/g,' ').trim().slice(0,max);}
+function renderJoinLines(server={}){
+  const explicit=Array.isArray(server.joins)?server.joins.map((join)=>cleanPublicText(join,200)).filter(Boolean):[];
+  if(explicit.length)return explicit.map((join)=>`**Join:** ${join}`);
+  const joinInfo=cleanPublicText(server.joinInfo,200);
+  return joinInfo?[`**Join:** ${joinInfo}`]:[];
+}
 function renderServerLine(server={}){
   // The 🟢/🔴/🟡 dot is the status; official servers need no badge line (the
   // section header says Official). Approved community servers keep a short tag.
-  const name=cleanPublicText(server.name || 'Server',80)||'Server';const glyph=trackingGlyph(server);const lines=[`${glyph?`${glyph} `:''}**${name}**`];if(server.ownershipType==='community-approved')lines.push('🌐 Community');
+  const name=cleanPublicText(server.name || 'Server',80)||'Server';const glyph=trackingGlyph(server);const lines=[`${glyph?`${glyph} `:''}**${name}**`];
+  if(Array.isArray(server.servers)&&server.servers.length){
+    if(Number.isFinite(Number(server.playerCount))){const max=Number.isFinite(Number(server.playerMax))?` / ${Number(server.playerMax)}`:'';lines.push(`**Players:** ${Number(server.playerCount)}${max}`);}
+    for(const child of server.servers)lines.push('',renderServerLine(child));
+    return lines.join('\n');
+  }
+  if(server.ownershipType==='community-approved')lines.push('🌐 Community');
   const region=cleanPublicText(server.region,80),scenario=cleanPublicText(server.scenario,100);if(region||scenario)lines.push([region&&`**Region:** ${region}`,scenario&&`**Mode:** ${scenario}`].filter(Boolean).join(' • '));
   const pack=packLine(server),minecraft=minecraftLine(server);if(pack)lines.push(pack);if(minecraft)lines.push(minecraft);
   if(Number.isFinite(Number(server.playerCount))){const max=Number.isFinite(Number(server.playerMax))?` / ${Number(server.playerMax)}`:'';lines.push(`**Players:** ${Number(server.playerCount)}${max}`);}
-  const description=cleanPublicText(server.description,240),joinInfo=cleanPublicText(server.joinInfo,200);if(description)lines.push('',description);if(joinInfo)lines.push(`**Join:** ${joinInfo}`);return lines.join('\n');
+  const description=cleanPublicText(server.description,240);if(description)lines.push('',description);
+  lines.push(...renderJoinLines(server));
+  return lines.join('\n');
 }
 function renderPrivateServerLine(server={}){const name=cleanPublicText(server.name || 'Private Server',80)||'Private Server';const game=cleanPublicText(server.game || server.moduleId || 'Game',80);const glyph=trackingGlyph(server),label=trackingLabel(server);const lines=[`${glyph?`${glyph} `:''}**${name}**`,[game,label].filter(Boolean).join(' • ')];const description=cleanPublicText(server.description,180);if(description)lines.push(description);return lines.join('\n');}
 function pushOwnershipGroups(fields,titlePrefix,groups,maxFields=24){for(const group of groups){if(fields.length>=maxFields)break;fields.push({name:`${titlePrefix} • ${group.game}`,value:group.servers.map(renderServerLine).join('\n\n').slice(0,1024),inline:false});}}
