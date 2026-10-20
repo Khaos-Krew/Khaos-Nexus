@@ -2,10 +2,13 @@
 
 const PLAYER_NAME = /^[A-Za-z0-9_]{3,16}$/;
 const ITEM_ID = /^[a-z0-9_]+:[a-z0-9_./]+$/;
-const ENTRY = /([A-Za-z0-9_]{1,16}) \(([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})\)/g;
+const ENTRY = /(\.?[A-Za-z0-9_]{1,16}) \(([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})\)/g;
 
 function playerNameOk(value) {
-  return PLAYER_NAME.test(String(value || '').trim());
+  const text = String(value || '').trim();
+  if (text.length < 3 || text.length > 16) return false;
+  // Geyser's default Bedrock prefix is a single leading dot.
+  return /^\.?[A-Za-z0-9_]+$/.test(text);
 }
 
 function itemIdOk(value) {
@@ -24,6 +27,18 @@ function isPremiumUuid(value) {
   const version = uuid.charAt(14);
   const variant = uuid.charAt(19);
   return version === '4' && '89ab'.includes(variant);
+}
+
+// Floodgate encodes a Bedrock XUID as UUID(0, xuid): the high 64 bits are zero.
+// The nil UUID is not a player. Shop and Points stay on premium Java UUIDs.
+function isFloodgateUuid(value) {
+  const uuid = normalizeUuid(value);
+  if (!uuid || uuid === '00000000-0000-0000-0000-000000000000') return false;
+  return uuid.startsWith('00000000-0000-0000-');
+}
+
+function isRankSyncUuid(value) {
+  return isPremiumUuid(value) || isFloodgateUuid(value);
 }
 
 function parseListUuids(text) {
@@ -74,7 +89,7 @@ function parseGiveResponse(text, expected = {}) {
 
 function tellrawCommand(uuid, text) {
   const id = normalizeUuid(uuid);
-  if (!isPremiumUuid(id)) throw new Error('invalid-player-uuid');
+  if (!isRankSyncUuid(id)) throw new Error('invalid-player-uuid');
   const payload = JSON.stringify({ text: String(text || '').slice(0, 200), color: 'gold' });
   return `tellraw ${id} ${payload}`;
 }
@@ -102,6 +117,8 @@ module.exports = {
   itemIdOk,
   normalizeUuid,
   isPremiumUuid,
+  isFloodgateUuid,
+  isRankSyncUuid,
   parseListUuids,
   parseDataVector,
   countInventorySlots,

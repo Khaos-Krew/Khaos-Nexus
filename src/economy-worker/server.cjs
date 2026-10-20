@@ -98,7 +98,8 @@ const CRAFT_ROUTES = new Set([
   'POST /mc-shop/delivery-status',
   'POST /mc-shop/refund-sweep',
   'GET /mc-shop/orders/pending',
-  'GET /mc/grants'
+  'GET /mc/grants',
+  'GET /mc/links'
 ]);
 const WRITE_PATHS = new Set([...PRESENCE_WRITE_PATHS, ...FINANCIAL_WRITE_PATHS]);
 const POST_PATHS = new Set([...DRAIN_MUTATION_PATHS, ...WRITE_PATHS, ...MC_NONECONOMY_PATHS, '/shop/quote']);
@@ -571,6 +572,12 @@ function createEconomyServer(options = {}) {
       }
       if (req.method === 'GET' && url.pathname === '/mc/grants' && worker.minecraft) {
         return json(res, 200, { ok: true, grants: await Promise.resolve(worker.minecraft.listGrants()) });
+      }
+      if (req.method === 'GET' && url.pathname === '/mc/links') {
+        const links = worker.minecraft && typeof worker.minecraft.listVerifiedLinks === 'function'
+          ? await Promise.resolve(worker.minecraft.listVerifiedLinks())
+          : [];
+        return json(res, 200, { ok: true, links: Array.isArray(links) ? links : [] });
       }
       if (req.method === 'GET' && url.pathname.startsWith('/mc/link/') && worker.minecraft) {
         const discordUserId = decodeURIComponent(url.pathname.slice('/mc/link/'.length));

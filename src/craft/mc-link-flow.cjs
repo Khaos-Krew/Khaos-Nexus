@@ -1,7 +1,7 @@
 'use strict';
 
 const { mcPointsFlags } = require('../shared/mc-points-flags.cjs');
-const { parseListUuids, playerNameOk, tellrawCommand, isPremiumUuid } = require('./mc-rcon-text.cjs');
+const { parseListUuids, playerNameOk, tellrawCommand, isPremiumUuid, isRankSyncUuid } = require('./mc-rcon-text.cjs');
 
 async function verifyMojangProfile(uuid, { fetchImpl, name } = {}) {
   const fetchFn = fetchImpl || globalThis.fetch;
@@ -33,9 +33,11 @@ async function beginMinecraftLink({ username, discordUserId, requesterName, rcon
   if (!listed.ok) return { ok: false, reason: 'rcon-unparseable' };
   const player = listed.players.find((entry) => entry.name.toLowerCase() === String(username).toLowerCase());
   if (!player) return { ok: false, reason: 'player-offline' };
-  if (!isPremiumUuid(player.uuid)) return { ok: false, reason: 'uuid-not-premium' };
-  const profile = await verifyMojangProfile(player.uuid, { fetchImpl, name: player.name });
-  if (!profile.ok) return profile;
+  if (!isRankSyncUuid(player.uuid)) return { ok: false, reason: 'uuid-not-premium' };
+  if (isPremiumUuid(player.uuid)) {
+    const profile = await verifyMojangProfile(player.uuid, { fetchImpl, name: player.name });
+    if (!profile.ok) return profile;
+  }
   const who = String(requesterName || discordUserId || 'someone').slice(0, 32);
   const challenge = await points.challenge({ discordUserId, mcUuid: player.uuid, mcName: player.name, requesterName: who });
   if (!challenge.ok) return challenge;

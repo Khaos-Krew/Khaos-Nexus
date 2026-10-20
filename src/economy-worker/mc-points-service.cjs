@@ -15,7 +15,7 @@ const {
 const { loadStarterKit, starterKitEligibility, discordAccountCreatedMs, guildJoinedAtMs } = require('../shared/mc-starter-kit.cjs');
 const { refundStaffIds } = require('./mc-refund-auth.cjs');
 const { ctDayKey } = require('./mc-playtime-accounting.cjs');
-const { isPremiumUuid, normalizeUuid, itemIdOk } = require('../craft/mc-rcon-text.cjs');
+const { isPremiumUuid, isRankSyncUuid, normalizeUuid, itemIdOk } = require('../craft/mc-rcon-text.cjs');
 const { withIdentityProof } = require('../sentinel/nexus-economy-identity-proof.cjs');
 
 const LINK_CODE_TTL_MS = 10 * 60 * 1000;
@@ -244,7 +244,7 @@ class MemoryMcPoints {
     if (!this.flags().pointsEnabled) return { ok: false, reason: 'mc-points-disabled' };
     if (linkCodeSecret(this.env).length < 32) return { ok: false, reason: 'link-code-secret-missing' };
     const uuid = normalizeUuid(mcUuid);
-    if (!isPremiumUuid(uuid)) return { ok: false, reason: 'uuid-not-premium' };
+    if (!isRankSyncUuid(uuid)) return { ok: false, reason: 'uuid-not-premium' };
     const discord = String(discordUserId || '').trim();
     if (!/^\d{5,32}$/.test(discord)) return { ok: false, reason: 'discord-user-required' };
     const prepared = await this.#identityForLink(discord);
@@ -403,6 +403,13 @@ class MemoryMcPoints {
       subject: link.mcUuid
     });
     return { ok: true, cooldownUntil: link.cooldownUntil, mcUuid: link.mcUuid };
+  }
+
+  listVerifiedLinks() {
+    return [...this.links.values()]
+      .filter((link) => activeMcLink(link) && isRankSyncUuid(link.mcUuid))
+      .map((link) => ({ discordUserId: String(link.discordUserId), mcUuid: normalizeUuid(link.mcUuid) }))
+      .sort((a, b) => a.discordUserId.localeCompare(b.discordUserId) || a.mcUuid.localeCompare(b.mcUuid));
   }
 
   async status({ discordUserId } = {}) {
